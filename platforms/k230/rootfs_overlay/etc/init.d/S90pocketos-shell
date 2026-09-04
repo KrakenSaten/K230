@@ -1,0 +1,43 @@
+#!/bin/sh
+# PocketOS shell (DRM + evdev) under pos-supervise. Disabled by default while
+# the vendor launcher owns the display: set ENABLE=1 in
+# /etc/default/pocketos-shell and stop S99zz_k230_phone_ui to try it.
+
+SUPERVISE=/usr/bin/pos-supervise
+DAEMON=/usr/bin/pocketos-shell
+PIDFILE=/var/run/pocketos-shell-supervise.pid
+LOGFILE=/var/log/pocketos/shell.stdio.log
+ENABLE=0
+[ -r /etc/default/pocketos-shell ] && . /etc/default/pocketos-shell
+
+start() {
+	printf "Starting pocketos-shell: "
+	[ "$ENABLE" = "1" ] || { echo "disabled (/etc/default/pocketos-shell)"; return 0; }
+	[ -x "$DAEMON" ] || { echo "missing"; return 0; }
+	mkdir -p /run/pocketos /var/run /var/log/pocketos
+	if [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+		echo "already running"; return 0
+	fi
+	for _ in 1 2 3 4 5 6 7 8 9 10; do [ -e /dev/dri/card0 ] && break; sleep 1; done
+	HOME=/root nohup "$SUPERVISE" pocketos-shell "$DAEMON" >>"$LOGFILE" 2>&1 &
+	echo $! > "$PIDFILE"
+	echo "OK"
+}
+
+stop() {
+	printf "Stopping pocketos-shell: "
+	if [ -s "$PIDFILE" ]; then
+		kill "$(cat "$PIDFILE")" 2>/dev/null && echo "OK" || echo "not running"
+		rm -f "$PIDFILE"
+	else
+		echo "not running"
+	fi
+}
+
+case "$1" in
+	start) start ;;
+	stop) stop ;;
+	restart|reload) stop; sleep 1; start ;;
+	*) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
+esac
+exit 0

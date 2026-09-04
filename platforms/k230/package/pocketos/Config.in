@@ -1,0 +1,8 @@
+config BR2_PACKAGE_POCKETOS
+	bool "PocketOS first-party userspace"
+	select BR2_PACKAGE_CJSON
+	select BR2_PACKAGE_LIBGPIOD2
+	help
+	  PocketOS tools and services for the LILYGO T-Display K230:
+	  pos CLI, pos-hwcheck, radiod. Source is synced from the PocketOS
+	  repository by platforms/k230/scripts/apply_to_sdk.sh.

@@ -1,0 +1,8 @@
+# Reference clones and derived files, not first-party code
+/vendor/
+/schematic_text.txt
+/wsl_probe.txt
+# Build outputs
+/out/
+/tools/pos/pos
+*.o

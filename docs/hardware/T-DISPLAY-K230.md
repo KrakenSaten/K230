@@ -1,0 +1,104 @@
+# LILYGO T-Display K230 hardware baseline
+
+Recorded 2026-09-04. Sources, in priority order: official schematic
+`T-Display K230_V1.0_NEW.pdf` (sheet dated 6/26/2026, "P1 V1.0"), LILYGO BSP
+device tree patches and `k230_bsp/docs/HARDWARE_PINMAP.md`, vendor launcher
+source, LILYGO wiki. Nothing below has been tested on our physical units yet.
+
+Evidence classes: VERIFIED (our hardware or direct source/runtime proof),
+DOCUMENTED (vendor schematic/source/docs), ASSUMED (inference).
+
+## Board revision
+
+- Schematic in the vendor repo is "V1.0" (file suffix NEW, date 6/26/2026).
+  The RT-Smart firmware has module revisions V1.0..V1.3 (V1.1 added SX1262,
+  V1.2 BLE, V1.3 LR2021/battery/keyboard/GPS/LTE-M). Those are firmware
+  revisions, not PCB revisions. DOCUMENTED.
+- Our two units: PCB revision and LoRa module variant not yet read from the
+  boards. ASSUMED to be V1.0 PCB with SX1262. Verify by reading the silkscreen
+  and the LoRa module marking (13A / 16A / T89 / 16E footprint options on the
+  schematic).
+
+## Core
+
+| Item | Value | Evidence |
+| --- | --- | --- |
+| SoC | Canaan Kendryte K230 (schematic uses the K230D/"K230_LP4" symbol with PMU) | DOCUMENTED |
+| CPU | Dual RISC-V C908 (1.6 GHz + 0.8 GHz), RVV 0.7-compatible, NPU | DOCUMENTED (wiki, toolchain flags) |
+| RAM | LPDDR4 on-package. Wiki says 1 GB. Linux DTS declares 0x20000000 (512 MB) and U-Boot fixes up the memory node from CONFIG_DDR_SIZE. Real size must be read at runtime (`free -m`, `/proc/meminfo`). | CONFLICTING, treat as UNVERIFIED |
+| Boot/storage | microSD on SDIO (mmc_sd1 in DTS, GPIO54..59). No eMMC. | DOCUMENTED |
+| Console | UART0 via CH342K USB-UART, 115200n8 | DOCUMENTED |
+| Power key | PMU INT0 (not a GPIO), driver `k230-pmu-pwrkey` | DOCUMENTED |
+| BOOT0 button | GPIO0, idle high | DOCUMENTED |
+| Thermal | K230 on-chip tsensor, `CONFIG_CANAAN_THERMAL` | DOCUMENTED |
+
+## Display and touch
+
+| Item | Value | Evidence |
+| --- | --- | --- |
+| Panel | 4.1" AMOLED, RM69A10, 568x1232, MIPI DSI 2-lane, 65x145 mm active | DOCUMENTED (DTS) |
+| Panel reset | GPIO22 | DOCUMENTED |
+| Panel enable / "backlight" | GPIO25 (AMOLED has no backlight; DSI brightness command via panel driver patch 0049) | DOCUMENTED |
+| DRM node | /dev/dri/card0, LVGL uses RGB565/XRGB8888 via DRM dumb buffers, GDMA rotation patch | DOCUMENTED |
+| Touch | Goodix GT9895 (Berlin), I2C addr 0x5D, SDA GPIO37, SCL GPIO36, IRQ GPIO23, RST GPIO24 | DOCUMENTED |
+| HDMI | Optional LT9611 bridge on the same I2C/IRQ/RST lines; separate DTB | DOCUMENTED |
+
+## Radio and network
+
+| Item | Value | Evidence |
+| --- | --- | --- |
+| Wi-Fi | Realtek RTL8189FTV (schematic footprint "RTL8821/RTL8189"), SDIO on mmc_sd0, module `8189fs`, enable GPIO45 (net IO45_WIFI_EN) | DOCUMENTED |
+| Bluetooth | Not on the RTL8189FTV. BSP supports USB BT dongles (btusb) and RTL8723DS BT UART (not wired). BLE in the vendor image comes from the optional nRF52840 base board over UART1. | DOCUMENTED |
+| ESP32-S3 | The LILYGO wiki lists an "ESP32-S3-R8 co-processor" for Wi-Fi/BT. The schematic, BSP and launcher contain no ESP32. Schematic wins: treat the wiki statement as wrong for this PCB. | DOCUMENTED (conflict resolved by schematic) |
+| Ethernet | RTL8152B-VB-CG USB 2.0 to 100 Mbps, appears as eth0 (usbnet/cdc_ether) | DOCUMENTED |
+| LoRa | Module footprint "LoRa89_SX1262" with 13A/16A/T89/16E variants; vendor firmware supports SX1262 or LR2021 on the same pins. Datasheet supplied: HPDTEK HPD16A (SX1262). | DOCUMENTED |
+| LoRa SPI | spi0, /dev/spidev0.0, 4 MHz, mode 0. SCLK GPIO15, MOSI GPIO16, MISO GPIO17, CS GPIO14 (iomux alt1, DTS patch 0054) | DOCUMENTED |
+| LoRa control | RST GPIO5, BUSY GPIO19, DIO1/IRQ GPIO20, module power enable GPIO44 (net IO44_LoRa_EN, RT9080 3.3 V LDO) | DOCUMENTED |
+| LoRa alternates | Schematic also has nets IO4_IRQ and IO3_TCXO_EN with 0R/NC options. BSP reassigns GPIO3/4 to UART1 for the nRF52840 base, so those options are ASSUMED unpopulated. Verify with a meter or by checking DIO1 events on GPIO20. | ASSUMED |
+| LoRa RF | Sub-GHz only for SX1262 (EU868 target). No SDR, no wideband spectrum capability. LR2021 variant adds 2.4 GHz. | DOCUMENTED |
+| USB | Two USB-C: one power/UART (CH342K), one K230 USB OTG (usb0/usb1 enabled, configfs gadget: ACM, RNDIS, mass storage, MTP via adb_mtp init) | DOCUMENTED |
+
+## Camera, audio, sensors
+
+| Item | Value | Evidence |
+| --- | --- | --- |
+| Camera | GC2093 on MIPI CSI, I2C addr 0x37, SDA GPIO49, SCL GPIO48; vvcam driver, V4L2 | DOCUMENTED |
+| Audio | K230 internal INNO codec, I2S, 3.5 mm headphone with mic bias; MAX98357A external I2S amp only on nRF52840 base board (data GPIO35, BCLK GPIO32, LRCK GPIO33, SD GPIO34) | DOCUMENTED |
+| Sensors on main board | None documented. AHT20, BQ25896, BQ27220, TCA8418, XL9555 live on the optional base boards on I2C4 (SDA GPIO47, SCL GPIO46). | DOCUMENTED |
+| GPIO 40-pin header | See vendor HARDWARE_PINMAP.md; GPIO numbering 0..63, gpiochip0 = GPIO0..31, gpiochip1 = GPIO32..63 (vendor HAL `pin_chip`/`pin_offset`) | DOCUMENTED |
+
+## Linux userspace facts relevant to PocketOS
+
+- Init is BusyBox init + `/etc/init.d/S??` scripts; no systemd. The vendor
+  launcher is started by `S99zz_k230_phone_ui` after waiting for
+  /dev/dri/card0. DOCUMENTED.
+- Root filesystem is ext4 (600 MB image), `/boot` ext4 with Image and DTBs,
+  `/root/app` holds applications, `/app` symlinks to it. DOCUMENTED.
+- Wi-Fi driver is loaded by a generated `S40<conf>` script running
+  `modprobe 8189fs` (and aic8800 modules, which will fail harmlessly without
+  that hardware). DOCUMENTED.
+- Vendor LoRa access is pure userspace: spidev + libgpiod v2 + RadioLib, with a
+  polling/edge-event thread for DIO1. There is no kernel LoRa driver. This is
+  the natural seam for a PocketOS radio service. DOCUMENTED.
+- Input devices: touch and power key as evdev nodes; keyboard base via TCA8418
+  evdev. DOCUMENTED.
+
+## Companion hardware from LILYGO (optional base boards)
+
+- nRF52840 base: BLE central bridge over UART1 (GPIO3 TX, GPIO4 RX,
+  /dev/ttyS1, AT protocol), AHT20, MAX98357A. Firmware repo
+  T-Display-K230-nRF52840.
+- nRF9151 keyboard base: LTE-M/GNSS over UART3 (GPIO28/29, /dev/ttyS3),
+  enable GPIO2, TCA8418 keyboard (IRQ GPIO42, RST GPIO43), BQ25896 charger,
+  BQ27220 gauge, XL9555 expander, keyboard backlight PWM4 on GPIO52. Firmware
+  repo T-Display-K230-nRF9151.
+
+Which base boards, if any, we own is not recorded.
+
+## Open verification items (do on physical hardware first)
+
+1. Read PCB silkscreen revision and LoRa module marking on both units.
+2. Boot vendor image, capture `dmesg`, `cat /proc/meminfo`, `ls /dev/gpiochip* /dev/spidev* /dev/ttyS* /dev/i2c-* /dev/input/*`, `cat /proc/device-tree/model`.
+3. Confirm DIO1 on GPIO20 by running the vendor LoRa app and watching edge events.
+4. Confirm Wi-Fi chip via `lsmod` and `/sys/bus/sdio/devices/*/device`.
+5. Record CH342K COM port numbers on this host.

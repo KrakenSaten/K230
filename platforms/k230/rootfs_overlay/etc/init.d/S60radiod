@@ -1,0 +1,43 @@
+#!/bin/sh
+# PocketOS radiod under pos-supervise (BusyBox init). Backend comes from
+# /etc/default/radiod; "mock" until the sx1262 backend exists and the vendor
+# launcher no longer owns the radio.
+
+SUPERVISE=/usr/bin/pos-supervise
+DAEMON=/usr/sbin/radiod
+PIDFILE=/var/run/radiod-supervise.pid
+LOGFILE=/var/log/pocketos/radiod.stdio.log
+# sx1262 needs the vendor launcher to release the radio; keep mock until then.
+RADIOD_BACKEND=mock
+RADIOD_REGION=EU868
+[ -r /etc/default/radiod ] && . /etc/default/radiod
+
+start() {
+	printf "Starting radiod (%s, %s): " "$RADIOD_BACKEND" "$RADIOD_REGION"
+	[ -x "$DAEMON" ] || { echo "missing"; return 0; }
+	mkdir -p /run/pocketos /var/run /var/log/pocketos
+	if [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+		echo "already running"; return 0
+	fi
+	nohup "$SUPERVISE" radiod "$DAEMON" --backend "$RADIOD_BACKEND" --region "$RADIOD_REGION" >>"$LOGFILE" 2>&1 &
+	echo $! > "$PIDFILE"
+	echo "OK"
+}
+
+stop() {
+	printf "Stopping radiod: "
+	if [ -s "$PIDFILE" ]; then
+		kill "$(cat "$PIDFILE")" 2>/dev/null && echo "OK" || echo "not running"
+		rm -f "$PIDFILE"
+	else
+		echo "not running"
+	fi
+}
+
+case "$1" in
+	start) start ;;
+	stop) stop ;;
+	restart|reload) stop; sleep 1; start ;;
+	*) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
+esac
+exit 0

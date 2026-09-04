@@ -1,0 +1,71 @@
+#!/bin/sh
+# pos-supervise: keep a PocketOS service running with restart backoff and
+# crash-loop detection. POSIX sh for BusyBox.
+#
+# Usage: pos-supervise <name> <command> [args...]
+#   Restarts the command when it exits. Backoff doubles from 1 s to 30 s and
+#   resets after the service has run for 60 s. If it restarts more than
+#   POS_SUPERVISE_MAX_RESTARTS (5) times within 60 s, supervision stops and
+#   $POCKETOS_RUNTIME_DIR/<name>.crashloop is written for the shell to show.
+#   Stop with SIGTERM: the child is terminated and the loop exits.
+#
+# Environment: POCKETOS_RUNTIME_DIR (default /run/pocketos),
+#              POCKETOS_LOG_DIR (default /var/log/pocketos).
+
+NAME=$1
+[ -n "$NAME" ] && [ $# -ge 2 ] || { echo "usage: pos-supervise <name> <command> [args...]" >&2; exit 2; }
+shift
+RUN_DIR=${POCKETOS_RUNTIME_DIR:-/run/pocketos}
+LOG_DIR=${POCKETOS_LOG_DIR:-/var/log/pocketos}
+MAX=${POS_SUPERVISE_MAX_RESTARTS:-5}
+WINDOW=60
+mkdir -p "$RUN_DIR" "$LOG_DIR"
+LOG="$LOG_DIR/supervise-$NAME.log"
+CRASHLOOP="$RUN_DIR/$NAME.crashloop"
+rm -f "$CRASHLOOP"
+
+log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) supervise $NAME $*" | tee -a "$LOG" >&2; }
+
+CHILD=""
+STOPPING=0
+on_term() {
+    STOPPING=1
+    [ -n "$CHILD" ] && kill "$CHILD" 2>/dev/null
+}
+trap on_term TERM INT
+
+backoff=1
+restarts=0
+window_start=$(date +%s)
+while [ "$STOPPING" -eq 0 ]; do
+    start=$(date +%s)
+    "$@" &
+    CHILD=$!
+    echo "$CHILD" > "$RUN_DIR/$NAME.pid"
+    wait "$CHILD"
+    rc=$?
+    CHILD=""
+    [ "$STOPPING" -eq 1 ] && break
+    now=$(date +%s)
+    ran=$((now - start))
+    if [ "$ran" -ge "$WINDOW" ]; then
+        backoff=1; restarts=0; window_start=$now
+    fi
+    if [ $((now - window_start)) -gt "$WINDOW" ]; then
+        restarts=0; window_start=$now
+    fi
+    restarts=$((restarts + 1))
+    log "exited rc=$rc after ${ran}s (restart $restarts, backoff ${backoff}s)"
+    if [ "$restarts" -gt "$MAX" ]; then
+        log "crash loop: $restarts restarts within ${WINDOW}s, giving up"
+        echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) rc=$rc restarts=$restarts" > "$CRASHLOOP"
+        rm -f "$RUN_DIR/$NAME.pid"
+        exit 1
+    fi
+    sleep "$backoff"
+    backoff=$((backoff * 2))
+    [ "$backoff" -gt 30 ] && backoff=30
+done
+rm -f "$RUN_DIR/$NAME.pid"
+log "stopped"
+exit 0
