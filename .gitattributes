@@ -1,0 +1,4 @@
+# Keep LF everywhere: scripts run inside WSL/BusyBox and CRLF breaks them.
+* text=auto eol=lf
+*.png binary
+*.img binary
