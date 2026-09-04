@@ -20,6 +20,7 @@ docs/
   ROADMAP.md               Phase 1 status table and later phases
   KNOWN_ISSUES.md          Open hardware, licensing, build and software issues
   api/                     Public API contracts: pocketipc v0, radio.* v0, shell.* v0
+  design/POCKETUI.md       Design handoff: tokens, layout, components, modes, motion
   BUILD_ENVIRONMENT.md     Host, toolchain, SDK commits, build/flash/test commands
   LICENSING.md             Licence register for vendor and third-party code
   decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted)
