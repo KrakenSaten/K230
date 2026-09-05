@@ -145,8 +145,8 @@ tests/fleet_theme_test.o: tests/fleet_theme_test.c ui/pocketui/pos_theme.h
 # is built by ui/shell (CMake). PocketRadar keeps its store outside the
 # engine, so RADAR_OBJS is pure computation (tests/radar_lint.sh).
 RADAR_DIR := apps/radar/engine
-RADAR_OBJS := $(RADAR_DIR)/radar_types.o $(RADAR_DIR)/radar_rng.o
-RADAR_TESTS := tests/radar_rng_test tests/radar_types_test
+RADAR_OBJS := $(RADAR_DIR)/radar_types.o $(RADAR_DIR)/radar_rng.o $(RADAR_DIR)/radar_rules.o
+RADAR_TESTS := tests/radar_rng_test tests/radar_types_test tests/radar_rules_test
 
 $(RADAR_DIR)/%.o: $(RADAR_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(RADAR_DIR) -c -o $@ $<
@@ -158,6 +158,9 @@ tests/radar_rng_test: tests/radar_rng_test.o $(RADAR_DIR)/radar_rng.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 tests/radar_types_test: tests/radar_types_test.o $(RADAR_DIR)/radar_types.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/radar_rules_test: tests/radar_rules_test.o $(RADAR_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # Native tests only (they execute binaries).
@@ -174,6 +177,7 @@ test: all tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/the
 	./tests/fleet_theme_test
 	./tests/radar_rng_test
 	./tests/radar_types_test
+	./tests/radar_rules_test
 	bash tests/radiod_mock_test.sh
 	bash tests/supervise_test.sh
 	bash tests/style_lint.sh
