@@ -38,6 +38,9 @@ struct fleet_app {
      * the first failure, and the game carries on without it. */
     uint8_t storage_ok;
     uint8_t resumable;                        /* a stored match is waiting */
+    /* DS §12: with reduced motion every animated row becomes an instant
+     * state change. Read once at start from the settings store. */
+    uint8_t reduced_motion;
     struct fleet_command_ui *command;
     struct fleet_deploy_ui *deploy;
     struct fleet_battle_ui *battle;
@@ -71,6 +74,11 @@ void fleet_screen_battle_refresh(struct fleet_app *app);
 void fleet_screen_battle_enter(struct fleet_app *app);
 /* Move the crosshair. It never fires: only the FIRE button does. */
 void fleet_screen_battle_aim(struct fleet_app *app, int row, int col);
+/* Stop the grids animating and settle any turn still being paced out, so the
+ * match is never left half played. */
+void fleet_screen_battle_leave(struct fleet_app *app);
+/* Commit the aimed shot, exactly as the FIRE button does. */
+void fleet_screen_battle_fire(struct fleet_app *app);
 lv_obj_t *fleet_screen_result_create(struct fleet_app *app, lv_obj_t *parent);
 void fleet_screen_result_refresh(struct fleet_app *app);
 

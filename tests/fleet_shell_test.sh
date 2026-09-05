@@ -80,6 +80,28 @@ else
 fi
 chmod 0755 "$(dirname "$SAVE")"
 
+# 7. The paced reply: a shot taken through the FIRE path leaves a timer
+#    pending. It must settle on its own, and it must also settle when the app
+#    is torn down before the timer fires, without touching freed state.
+rm -f "$SAVE"
+log=$(run battle_paced h)
+check "a paced turn completes" "$([ -f "$SAVE" ] && echo 1 || echo 0)"
+hasnt "no error while pacing a turn" 'ERROR\|Assert\|assert' "$log"
+rm -f "$SAVE"
+export POCKETFLEET_SCREEN=battle_paced
+"$SHELL_BIN" --open fleet --exit-after-ms 150 >"$OUT/i.log" 2>&1
+check "teardown during a paced turn exits cleanly" "$([ $? = 0 ] && echo 1 || echo 0)"
+hasnt "teardown during a paced turn is clean" 'ERROR\|Assert\|assert' "$(cat "$OUT/i.log")"
+check "an interrupted turn is still stored" "$([ -f "$SAVE" ] && echo 1 || echo 0)"
+
+# 8. Reduced motion must not change the outcome of a turn, only its pacing.
+printf 'reduced_motion=1\n' > "$POCKETOS_CONFIG_DIR/settings.conf"
+rm -f "$SAVE"
+log=$(run battle_paced j)
+check "a turn completes with reduced motion" "$([ -f "$SAVE" ] && echo 1 || echo 0)"
+hasnt "no error with reduced motion" 'ERROR\|Assert\|assert' "$log"
+rm -f "$POCKETOS_CONFIG_DIR/settings.conf"
+
 rm -rf "$POCKETOS_RUNTIME_DIR" "$POCKETOS_LOG_DIR" "$POCKETOS_CONFIG_DIR" \
        "$POCKETOS_STATE_DIR" "$OUT"
 echo "fleet_shell_test: $failed failure(s)"

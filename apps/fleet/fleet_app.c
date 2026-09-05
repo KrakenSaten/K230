@@ -13,6 +13,7 @@
 #include "engine/fleet_store.h"
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
+#include "settings.h"
 #include "ui/fleet_view.h"
 
 #include <stdlib.h>
@@ -52,6 +53,9 @@ void fleet_app_show(struct fleet_app *app, enum fleet_screen screen)
 
     if (!app || (unsigned)screen >= FLEET_SCREEN_COUNT || !app->screen[screen]) {
         return;
+    }
+    if (app->current == FLEET_SCREEN_BATTLE && screen != FLEET_SCREEN_BATTLE) {
+        fleet_screen_battle_leave(app);
     }
     for (i = 0; i < FLEET_SCREEN_COUNT; i++) {
         if (app->screen[i]) {
@@ -197,7 +201,8 @@ static void debug_open(struct fleet_app *app)
         fleet_app_show(app, FLEET_SCREEN_DEPLOY);
         return;
     }
-    if (strcmp(want, "battle") != 0 && strcmp(want, "result") != 0) {
+    if (strcmp(want, "battle") != 0 && strcmp(want, "battle_paced") != 0 &&
+        strcmp(want, "result") != 0) {
         return;
     }
     debug_start_match(app);
@@ -231,6 +236,12 @@ static void debug_open(struct fleet_app *app)
     fleet_app_show(app, FLEET_SCREEN_BATTLE);
     /* Aimed but not fired, which is the state the FIRE button acts on. */
     fleet_screen_battle_aim(app, 2, 6);
+    if (strcmp(want, "battle_paced") == 0) {
+        /* Take the shot through the button's own path, so a headless run
+         * exercises the paced reply, its timer and the teardown that has to
+         * settle it. */
+        fleet_screen_battle_fire(app);
+    }
 }
 
 /* ---- shell app API ---------------------------------------------------- */
@@ -245,6 +256,15 @@ static void *fleet_create(lv_obj_t *root)
     app->body = root;
     app->difficulty = FLEET_OFFICER;
     app->storage_ok = 1;
+    /* PocketOS has no platform-wide reduced-motion key yet, so PocketFleet
+     * reads the name the Design System uses and defaults to motion on. */
+    {
+        const char *reduced = settings_get("reduced_motion", "0");
+
+        app->reduced_motion = reduced && (*reduced == '1' || *reduced == 'y' ||
+                                          *reduced == 'Y' || *reduced == 't' ||
+                                          *reduced == 'T');
+    }
     /* A match exists from the start so every screen has something to read. */
     fleet_game_new(&app->game, 1u, (enum fleet_difficulty)app->difficulty);
     /* Appearance of a stored match must never delay or prevent the app from
@@ -285,6 +305,9 @@ static void fleet_destroy(void *priv)
     if (!app) {
         return;
     }
+    /* Settle a paced turn and stop every timer before the objects they refer
+     * to go away with the shell's root. */
+    fleet_screen_battle_leave(app);
     /* The screen containers are children of the shell's root and are deleted
      * with it; only the private blocks are ours to release. */
     free(app->command);

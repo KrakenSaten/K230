@@ -35,7 +35,17 @@ struct fleet_battle_ui {
     lv_obj_t *note;
     lv_obj_t *log;
     uint8_t exchanged;   /* an exchange has been reported in the log line */
+    /* The opponent's reply is paced a moment after the player's shot so the
+     * two are readable apart. It is never a blocking wait: input stays live
+     * and the reply is settled at once if the screen is left. */
+    lv_timer_t *reply;
+    uint8_t awaiting;
+    char own_text[40];
 };
+
+/* Long enough to read your own result, short enough not to feel like a
+ * delay. Skipped entirely under reduced motion. */
+#define REPLY_PACE_MS 420
 
 static struct fleet_game *game_of(struct fleet_battle_ui *ui)
 {
@@ -59,46 +69,103 @@ static void on_target_cell(void *user, int row, int col)
     fleet_screen_battle_aim(ui->app, row, col);
 }
 
-static void on_fire(lv_event_t *e)
+/* Play the opponent's half of the exchange and finish the log line. Does no
+ * navigation, so it is safe to call while the screen is being left. */
+static void settle_reply(struct fleet_battle_ui *ui)
 {
-    struct fleet_battle_ui *ui = lv_event_get_user_data(e);
     struct fleet_game *game = game_of(ui);
-    char own[40] = "";
     char enemy[40] = "";
+    char line[96];
+    int erow = 0;
+    int ecol = 0;
+    int esunk = -1;
+    enum fleet_shot_result reply;
+
+    ui->awaiting = 0;
+    reply = fleet_game_opponent_turn(game, &erow, &ecol, &esunk);
+    if (reply != FLEET_SHOT_INVALID) {
+        fleet_view_shot(erow, ecol, reply, esunk, enemy, sizeof(enemy));
+        fleet_grid_flash(ui->own, erow, ecol);
+    }
+    fleet_view_exchange(ui->own_text, enemy[0] ? enemy : NULL, line, sizeof(line));
+    lv_label_set_text(ui->log, line);
+    fleet_screen_battle_refresh(ui->app);
+    fleet_app_autosave(ui->app);
+}
+
+static void on_reply_due(lv_timer_t *timer)
+{
+    struct fleet_battle_ui *ui = lv_timer_get_user_data(timer);
+
+    ui->reply = NULL;   /* a one-shot timer deletes itself after this call */
+    settle_reply(ui);
+    if (fleet_game_is_over(game_of(ui))) {
+        fleet_app_show(ui->app, FLEET_SCREEN_RESULT);
+    }
+}
+
+static void fire_now(struct fleet_battle_ui *ui)
+{
+    struct fleet_game *game = game_of(ui);
     char line[96];
     int row = 0;
     int col = 0;
     int sunk = -1;
     enum fleet_shot_result result;
 
-    if (fleet_grid_get_cursor(ui->target, &row, &col) != 0) {
+    if (ui->awaiting || fleet_grid_get_cursor(ui->target, &row, &col) != 0) {
         return;
     }
     result = fleet_game_fire(game, FLEET_SIDE_PLAYER, row, col, &sunk);
     if (result == FLEET_SHOT_INVALID) {
         return;
     }
-    fleet_view_shot(row, col, result, sunk, own, sizeof(own));
-    if (!fleet_game_is_over(game)) {
-        int erow = 0;
-        int ecol = 0;
-        int esunk = -1;
-        enum fleet_shot_result reply = fleet_game_opponent_turn(game, &erow, &ecol, &esunk);
+    fleet_view_shot(row, col, result, sunk, ui->own_text, sizeof(ui->own_text));
+    fleet_grid_flash(ui->target, row, col);
+    fleet_grid_set_cursor(ui->target, -1, -1);
+    ui->exchanged = 1;
 
-        if (reply != FLEET_SHOT_INVALID) {
-            fleet_view_shot(erow, ecol, reply, esunk, enemy, sizeof(enemy));
+    if (fleet_game_is_over(game)) {
+        fleet_view_exchange(ui->own_text, NULL, line, sizeof(line));
+        lv_label_set_text(ui->log, line);
+        fleet_screen_battle_refresh(ui->app);
+        fleet_app_autosave(ui->app);
+        fleet_app_show(ui->app, FLEET_SCREEN_RESULT);
+        return;
+    }
+    if (ui->app->reduced_motion) {
+        settle_reply(ui);
+        if (fleet_game_is_over(game)) {
+            fleet_app_show(ui->app, FLEET_SCREEN_RESULT);
+        }
+        return;
+    }
+    /* Show your own result first, then let the opponent answer. The pause is
+     * a timer, not a wait: taps keep moving the crosshair throughout. */
+    ui->awaiting = 1;
+    fleet_view_exchange(ui->own_text, NULL, line, sizeof(line));
+    lv_label_set_text(ui->log, line);
+    fleet_screen_battle_refresh(ui->app);
+    ui->reply = lv_timer_create(on_reply_due, REPLY_PACE_MS, ui);
+    if (ui->reply) {
+        lv_timer_set_repeat_count(ui->reply, 1);
+    } else {
+        settle_reply(ui);
+        if (fleet_game_is_over(game)) {
+            fleet_app_show(ui->app, FLEET_SCREEN_RESULT);
         }
     }
-    /* Both halves of the exchange are reported together; pacing and motion
-     * between them is a later step. */
-    fleet_view_exchange(own, enemy[0] ? enemy : NULL, line, sizeof(line));
-    lv_label_set_text(ui->log, line);
-    ui->exchanged = 1;
-    fleet_grid_set_cursor(ui->target, -1, -1);
-    fleet_screen_battle_refresh(ui->app);
-    fleet_app_autosave(ui->app);
-    if (fleet_game_is_over(game)) {
-        fleet_app_show(ui->app, FLEET_SCREEN_RESULT);
+}
+
+static void on_fire(lv_event_t *e)
+{
+    fire_now(lv_event_get_user_data(e));
+}
+
+void fleet_screen_battle_fire(struct fleet_app *app)
+{
+    if (app && app->battle) {
+        fire_now(app->battle);
     }
 }
 
@@ -185,7 +252,10 @@ void fleet_screen_battle_refresh(struct fleet_app *app)
     ui = app->battle;
     game = &app->game;
     aimed = fleet_grid_get_cursor(ui->target, &row, &col) == 0;
-    if (aimed && fleet_cell_name(row, col, name, sizeof(name)) == 0) {
+    if (ui->awaiting) {
+        lv_label_set_text(ui->cell_value, "\xe2\x80\x94");
+        lv_label_set_text(ui->note, "The enemy is firing.");
+    } else if (aimed && fleet_cell_name(row, col, name, sizeof(name)) == 0) {
         lv_label_set_text(ui->cell_value, name);
         if (game->board[FLEET_SIDE_OPPONENT].shot[fleet_index(row, col)]) {
             snprintf(note, sizeof(note), "%s has already been fired at.", name);
@@ -232,5 +302,30 @@ void fleet_screen_battle_enter(struct fleet_app *app)
     fleet_grid_bind(ui->own, &app->game.board[FLEET_SIDE_PLAYER]);
     fleet_grid_set_cursor(ui->target, -1, -1);
     ui->exchanged = 0;
+    ui->own_text[0] = '\0';
     lv_label_set_text(ui->log, "");
+    if (!app->reduced_motion) {
+        fleet_grid_set_motion(ui->target, 1);
+        fleet_grid_set_motion(ui->own, 1);
+    }
+}
+
+void fleet_screen_battle_leave(struct fleet_app *app)
+{
+    struct fleet_battle_ui *ui = app ? app->battle : NULL;
+
+    if (!ui) {
+        return;
+    }
+    if (ui->reply) {
+        lv_timer_delete(ui->reply);
+        ui->reply = NULL;
+    }
+    if (ui->awaiting) {
+        /* Never leave a turn half played: the opponent answers at once. */
+        settle_reply(ui);
+    }
+    /* Nothing animates on a screen nobody is looking at. */
+    fleet_grid_set_motion(ui->target, 0);
+    fleet_grid_set_motion(ui->own, 0);
 }

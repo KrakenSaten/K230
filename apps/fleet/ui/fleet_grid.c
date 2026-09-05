@@ -14,6 +14,18 @@
 #define HULL_OUTLINE 2
 #define CURSOR_OUTLINE 2
 
+/* Motion (DS §12): restrained, never blocking, and entirely absent when the
+ * reduced-motion setting is on. The sweep is a rotating radius with a short
+ * fading tail, one step per timer tick. 80 ms and 6 degrees give a little
+ * under five seconds per revolution and about twelve redraws a second of the
+ * grid area only. */
+#define MOTION_PERIOD_MS 80
+#define SWEEP_STEP_DEG 6
+#define SWEEP_TAIL 4
+#define SWEEP_TAIL_DEG 5
+#define FLASH_MS 320
+#define FLASH_GROWTH 5
+
 struct fleet_grid {
     const struct fleet_board *board;
     uint8_t mode;
@@ -28,6 +40,11 @@ struct fleet_grid {
     uint8_t preview_valid;
     void (*tap)(void *user, int row, int col);
     void *user;
+    lv_timer_t *motion;
+    uint16_t sweep_deg;
+    int8_t flash_row;
+    int8_t flash_col;
+    uint32_t flash_start;
 };
 
 /* What a cell should look like. Every value has both a fill and a shape, so
@@ -233,6 +250,61 @@ static void draw_labels(lv_layer_t *layer, lv_obj_t *obj, const struct fleet_gri
     }
 }
 
+/* A rotating radius with a short tail, drawn over the cells at low opacity so
+ * it reads as a sweep without hiding anything. */
+static void draw_sweep(lv_layer_t *layer, const struct fleet_grid *g,
+                       const lv_area_t *coords)
+{
+    lv_draw_line_dsc_t dsc;
+    int32_t play = FLEET_GRID * g->cell + (FLEET_GRID - 1) * FLEET_GRID_GAP;
+    int32_t cx = coords->x1 + g->gutter + play / 2;
+    int32_t cy = coords->y1 + g->gutter + play / 2;
+    int32_t reach = play / 2;
+    int tail;
+
+    lv_draw_line_dsc_init(&dsc);
+    dsc.color = pos_theme_color(POS_COLOR_ACCENT_PRIMARY);
+    dsc.width = 3;
+    dsc.round_end = 1;
+    for (tail = SWEEP_TAIL; tail >= 0; tail--) {
+        int16_t angle = (int16_t)((g->sweep_deg + 360 - tail * SWEEP_TAIL_DEG) % 360);
+
+        dsc.opa = (lv_opa_t)(LV_OPA_40 / (tail + 1));
+        dsc.p1.x = cx;
+        dsc.p1.y = cy;
+        dsc.p2.x = cx + (lv_trigo_cos(angle) * reach >> LV_TRIGO_SHIFT);
+        dsc.p2.y = cy + (lv_trigo_sin(angle) * reach >> LV_TRIGO_SHIFT);
+        lv_draw_line(layer, &dsc);
+    }
+}
+
+/* One widening, fading ring on the cell that has just resolved. */
+static void draw_flash(lv_layer_t *layer, const struct fleet_grid *g,
+                       const lv_area_t *coords)
+{
+    lv_draw_rect_dsc_t dsc;
+    lv_area_t area;
+    uint32_t elapsed = lv_tick_elaps(g->flash_start);
+    int32_t grow;
+
+    if (elapsed >= FLASH_MS) {
+        return;
+    }
+    cell_area(g, coords, g->flash_row, g->flash_col, &area);
+    grow = (int32_t)(FLASH_GROWTH * elapsed / FLASH_MS);
+    area.x1 -= grow;
+    area.y1 -= grow;
+    area.x2 += grow;
+    area.y2 += grow;
+    lv_draw_rect_dsc_init(&dsc);
+    dsc.radius = CELL_RADIUS;
+    dsc.bg_opa = LV_OPA_TRANSP;
+    dsc.border_color = pos_theme_color(POS_COLOR_TEXT_PRIMARY);
+    dsc.border_width = 2;
+    dsc.border_opa = (lv_opa_t)(LV_OPA_COVER - LV_OPA_COVER * elapsed / FLASH_MS);
+    lv_draw_rect(layer, &dsc, &area);
+}
+
 static void grid_draw(lv_event_t *e)
 {
     lv_obj_t *obj = lv_event_get_target_obj(e);
@@ -272,10 +344,32 @@ static void grid_draw(lv_event_t *e)
             draw_outline(layer, &area, color, HULL_OUTLINE);
         }
     }
+    if (g->motion && g->mode == FLEET_GRID_TARGET) {
+        draw_sweep(layer, g, &coords);
+    }
     if (g->cursor_row >= 0) {
         cell_area(g, &coords, g->cursor_row, g->cursor_col, &area);
         draw_outline(layer, &area, pos_theme_color(POS_COLOR_FOCUS), CURSOR_OUTLINE);
     }
+    if (g->flash_row >= 0) {
+        draw_flash(layer, g, &coords);
+    }
+}
+
+static void grid_motion_tick(lv_timer_t *timer)
+{
+    lv_obj_t *obj = lv_timer_get_user_data(timer);
+    struct fleet_grid *g = state_of(obj);
+
+    if (!g) {
+        return;
+    }
+    g->sweep_deg = (uint16_t)((g->sweep_deg + SWEEP_STEP_DEG) % 360);
+    if (g->flash_row >= 0 && lv_tick_elaps(g->flash_start) >= FLASH_MS) {
+        g->flash_row = -1;
+    }
+    /* Only the grid is invalidated, never the screen. */
+    lv_obj_invalidate(obj);
 }
 
 static void grid_click(lv_event_t *e)
@@ -310,7 +404,12 @@ static void grid_click(lv_event_t *e)
 
 static void grid_delete(lv_event_t *e)
 {
-    free(state_of(lv_event_get_target_obj(e)));
+    struct fleet_grid *g = state_of(lv_event_get_target_obj(e));
+
+    if (g && g->motion) {
+        lv_timer_delete(g->motion);
+    }
+    free(g);
 }
 
 /* The shared styles are rewritten in place on a theme change, which does not
@@ -334,6 +433,8 @@ lv_obj_t *fleet_grid_create(lv_obj_t *parent, enum fleet_grid_mode mode, int cel
     g->gutter = labels ? FLEET_GRID_GUTTER : 0;
     g->cursor_row = -1;
     g->cursor_col = -1;
+    g->flash_row = -1;
+    g->flash_col = -1;
 
     lv_obj_remove_style_all(obj);
     /* Only for the caption font the labels are drawn with. */
@@ -436,4 +537,36 @@ void fleet_grid_refresh(lv_obj_t *grid)
     if (grid) {
         lv_obj_invalidate(grid);
     }
+}
+
+void fleet_grid_set_motion(lv_obj_t *grid, int enabled)
+{
+    struct fleet_grid *g = state_of(grid);
+
+    if (!g) {
+        return;
+    }
+    if (enabled && !g->motion) {
+        g->motion = lv_timer_create(grid_motion_tick, MOTION_PERIOD_MS, grid);
+    } else if (!enabled && g->motion) {
+        lv_timer_delete(g->motion);
+        g->motion = NULL;
+        g->flash_row = -1;
+        lv_obj_invalidate(grid);
+    }
+}
+
+void fleet_grid_flash(lv_obj_t *grid, int row, int col)
+{
+    struct fleet_grid *g = state_of(grid);
+
+    /* Without motion the cell has already changed colour and shape, which is
+     * the whole message; adding an instant ring would only be noise. */
+    if (!g || !g->motion || !fleet_in_bounds(row, col)) {
+        return;
+    }
+    g->flash_row = (int8_t)row;
+    g->flash_col = (int8_t)col;
+    g->flash_start = lv_tick_get();
+    lv_obj_invalidate(grid);
 }

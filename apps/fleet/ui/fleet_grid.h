@@ -60,4 +60,12 @@ void fleet_grid_set_tap_cb(lv_obj_t *grid, void (*cb)(void *user, int row, int c
                            void *user);
 void fleet_grid_refresh(lv_obj_t *grid);
 
+/* Motion (DS §12). Off leaves the grid completely static, which is the
+ * reduced-motion behaviour: no sweep, and resolutions appear instantly.
+ * On a target grid, motion also runs the sonar sweep. */
+void fleet_grid_set_motion(lv_obj_t *grid, int enabled);
+/* Mark a cell as just resolved: a ring that widens and fades once. Ignored
+ * when motion is off, where the new cell state is already the whole story. */
+void fleet_grid_flash(lv_obj_t *grid, int row, int col);
+
 #endif
