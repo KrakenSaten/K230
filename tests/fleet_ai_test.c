@@ -339,6 +339,166 @@ static void test_officer_hunts(void)
     check("the hunt was actually exercised", hunts_seen > 100);
 }
 
+/* Commander searches on a diagonal lattice spaced by the shortest ship still
+ * afloat, which cannot skip over it. Checked only while nothing is being
+ * hunted, since a hunt legitimately leaves the lattice. */
+static void test_commander_parity(void)
+{
+    int seed;
+    int on_lattice = 1;
+    int searches = 0;
+
+    for (seed = 1; seed <= 40 && on_lattice; seed++) {
+        struct fleet_board board;
+        struct fleet_ai ai;
+        struct fleet_rng rng;
+        struct fleet_rng deploy;
+        int shots;
+
+        fleet_board_clear(&board);
+        fleet_rng_seed(&deploy, (uint32_t)seed);
+        fleet_board_autoplace(&board, &deploy);
+        fleet_ai_init(&ai, FLEET_COMMANDER);
+        fleet_rng_seed(&rng, (uint32_t)(seed * 17 + 3));
+
+        for (shots = 0; shots < FLEET_CELLS && board.ships_afloat > 0; shots++) {
+            int row = -1;
+            int col = -1;
+            int sunk = -1;
+            int hunting = 0;
+            int step = 0;
+            int i;
+            enum fleet_shot_result result;
+
+            for (i = 0; i < FLEET_SHIP_COUNT; i++) {
+                int length = fleet_ship_length((enum fleet_ship)i);
+
+                if (!ai.sunk[i] && (step == 0 || length < step)) {
+                    step = length;
+                }
+            }
+            for (i = 0; i < FLEET_CELLS; i++) {
+                if (ai.shot[i] && !ai.resolved[i] &&
+                    (ai.result[i] == FLEET_SHOT_HIT || ai.result[i] == FLEET_SHOT_SUNK)) {
+                    hunting = 1;
+                }
+            }
+            if (fleet_ai_next_shot(&ai, &rng, &row, &col) != 0) {
+                break;
+            }
+            if (!hunting && step > 1) {
+                int lattice_left = 0;
+
+                for (i = 0; i < FLEET_CELLS; i++) {
+                    if (!ai.shot[i] && ((i / FLEET_GRID) + (i % FLEET_GRID)) % step == 0) {
+                        lattice_left = 1;
+                    }
+                }
+                if (lattice_left) {
+                    searches++;
+                    if ((row + col) % step != 0) {
+                        printf("     seed %d: search shot %d,%d is off the %d lattice\n",
+                               seed, row, col, step);
+                        on_lattice = 0;
+                        break;
+                    }
+                }
+            }
+            result = fleet_board_fire(&board, row, col, &sunk);
+            fleet_ai_observe(&ai, row, col, result, sunk);
+        }
+    }
+    check("Commander searches on the parity lattice", on_lattice);
+    check("the parity search was actually exercised", searches > 200);
+}
+
+/* Admiral must never fire where no ship still afloat could fit given the
+ * misses it has seen. The oracle is rebuilt here from the announcements. */
+static void test_admiral_density(void)
+{
+    struct fleet_ai ai;
+    struct fleet_rng rng;
+    int row = -1;
+    int col = -1;
+    int seed;
+    int always_possible = 1;
+
+    /* With nothing known, the densest cells are the four in the middle. */
+    fleet_ai_init(&ai, FLEET_ADMIRAL);
+    fleet_rng_seed(&rng, 1u);
+    check("Admiral opens in the centre",
+          fleet_ai_next_shot(&ai, &rng, &row, &col) == 0 &&
+          row >= 4 && row <= 5 && col >= 4 && col <= 5);
+
+    /* A single unexplained hit pulls the next shot next to it. */
+    fleet_ai_init(&ai, FLEET_ADMIRAL);
+    fleet_rng_seed(&rng, 1u);
+    fleet_ai_observe(&ai, 4, 4, FLEET_SHOT_HIT, -1);
+    check("Admiral follows up an unresolved hit",
+          fleet_ai_next_shot(&ai, &rng, &row, &col) == 0 &&
+          ((row == 4 && (col == 3 || col == 5)) || (col == 4 && (row == 3 || row == 5))));
+
+    for (seed = 1; seed <= 60 && always_possible; seed++) {
+        struct fleet_board board;
+        struct fleet_rng deploy;
+        int shots;
+
+        fleet_board_clear(&board);
+        fleet_rng_seed(&deploy, (uint32_t)seed);
+        fleet_board_autoplace(&board, &deploy);
+        fleet_ai_init(&ai, FLEET_ADMIRAL);
+        fleet_rng_seed(&rng, (uint32_t)(seed * 23 + 9));
+
+        for (shots = 0; shots < FLEET_CELLS && board.ships_afloat > 0; shots++) {
+            int sunk = -1;
+            int possible = 0;
+            int ship;
+            enum fleet_shot_result result;
+
+            if (fleet_ai_next_shot(&ai, &rng, &row, &col) != 0) {
+                break;
+            }
+            for (ship = 0; ship < FLEET_SHIP_COUNT && !possible; ship++) {
+                int length = fleet_ship_length((enum fleet_ship)ship);
+                int orient;
+
+                if (ai.sunk[ship]) {
+                    continue;
+                }
+                for (orient = 0; orient < 2 && !possible; orient++) {
+                    int offset;
+
+                    for (offset = 0; offset < length && !possible; offset++) {
+                        int fits = 1;
+                        int n;
+
+                        for (n = 0; n < length; n++) {
+                            int rr = row + (orient ? n - offset : 0);
+                            int cc = col + (orient ? 0 : n - offset);
+                            int idx = fleet_index(rr, cc);
+
+                            if (idx < 0 || (ai.shot[idx] &&
+                                            ai.result[idx] == FLEET_SHOT_MISS)) {
+                                fits = 0;
+                                break;
+                            }
+                        }
+                        possible = fits;
+                    }
+                }
+            }
+            if (!possible) {
+                printf("     seed %d: no ship afloat can occupy %d,%d\n", seed, row, col);
+                always_possible = 0;
+                break;
+            }
+            result = fleet_board_fire(&board, row, col, &sunk);
+            fleet_ai_observe(&ai, row, col, result, sunk);
+        }
+    }
+    check("Admiral never fires where no ship could be", always_possible);
+}
+
 int main(void)
 {
     double mean[FLEET_DIFFICULTY_COUNT];
@@ -347,13 +507,16 @@ int main(void)
     test_no_cheating();
     test_legality_and_termination(mean);
     test_officer_hunts();
+    test_commander_parity();
+    test_admiral_density();
 
     check("Officer beats Recruit", mean[FLEET_OFFICER] < mean[FLEET_RECRUIT]);
+    check("Commander beats Officer", mean[FLEET_COMMANDER] < mean[FLEET_OFFICER]);
+    check("Admiral beats Commander", mean[FLEET_ADMIRAL] < mean[FLEET_COMMANDER]);
     check("Recruit is a blind search (over 85 shots on average)", mean[FLEET_RECRUIT] > 85.0);
     check("Officer averages under 75 shots", mean[FLEET_OFFICER] < 75.0);
-    /* Commander and Admiral are placeholders until the next step. */
-    check("Commander still plays as Officer", mean[FLEET_COMMANDER] == mean[FLEET_OFFICER]);
-    check("Admiral still plays as Officer", mean[FLEET_ADMIRAL] == mean[FLEET_OFFICER]);
+    check("Commander averages under 65 shots", mean[FLEET_COMMANDER] < 65.0);
+    check("Admiral averages under 55 shots", mean[FLEET_ADMIRAL] < 55.0);
 
     printf("fleet_ai_test: %d failure(s)\n", failed);
     return failed ? 1 : 0;

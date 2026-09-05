@@ -17,8 +17,21 @@
  *   Recruit   uniform random search; results are recorded but never used.
  *   Officer   random search plus hunt/target: a hit queues its orthogonal
  *             neighbours, and the queue is drained before searching again.
- *   Commander implemented in a later step; plays as Officer until then.
- *   Admiral   implemented in a later step; plays as Officer until then.
+ *             A sinking clears the queue, so hits belonging to a second ship
+ *             alongside are forgotten.
+ *   Commander parity search (no ship can hide between cells spaced by the
+ *             shortest ship still afloat) plus an orientation-locked hunt.
+ *             When a ship sinks its hull is inferred from the announced
+ *             length and the run of hits around the sinking cell, so those
+ *             hits stop attracting fire while other hits keep doing so.
+ *   Admiral   exact probability density: every placement of every ship still
+ *             afloat that is consistent with the announcements is counted,
+ *             and the cell that the most placements cover is fired at. While
+ *             hits are unresolved only placements covering them are counted,
+ *             which makes hunting and searching one rule.
+ *
+ * None of this needs the layout: parity, hull inference and the density map
+ * are all derived from the AI's own shots and the announced results.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -36,7 +49,10 @@ struct fleet_ai {
     uint8_t shot[FLEET_CELLS];         /* 1 once fired at */
     uint8_t result[FLEET_CELLS];       /* enum fleet_shot_result, own shots only */
     uint8_t sunk[FLEET_SHIP_COUNT];    /* 1 when that ship has been announced sunk */
-    uint8_t queue[FLEET_AI_QUEUE_MAX]; /* candidate cells around unresolved hits */
+    /* 1 when a hit has been attributed to a ship that has since sunk, so it
+     * no longer needs following up (Commander and Admiral). */
+    uint8_t resolved[FLEET_CELLS];
+    uint8_t queue[FLEET_AI_QUEUE_MAX]; /* candidate cells around hits (Officer) */
     uint8_t queue_len;
 };
 
