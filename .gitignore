@@ -15,3 +15,5 @@
 /.claude/
 /tests/pocketipc_test
 *.d
+/tests/fleet_rng_test
+/tests/fleet_rules_test
