@@ -76,6 +76,11 @@ only. Selection is persisted by the shell in `/etc/pocketos/settings.conf`
 (`theme`, `display_mode`), read before the first frame; invalid stored values
 fall back to `ice` + `normal`, are logged, and are left untouched.
 
+The settings store is for non-secret preferences only. It is plain text,
+world-readable and unauthenticated, and must never hold passwords, private
+keys, Wi-Fi credentials or tokens. Credential storage is an open design item
+(below); until it exists, no PocketOS component may persist a secret.
+
 ## Shell
 
 One LVGL process. The status bar polls radiod once per second. Apps
@@ -97,3 +102,7 @@ docs/BUILD_ENVIRONMENT.md.
 - Update and rollback mechanism (partition layout must not be hard-coded).
 - First-party licence.
 - Out-of-process app hosting and DRM master handoff.
+- Secure credential storage (Wi-Fi passwords, keys): threat model, key
+  storage and access control before any secret is persisted.
+- Asynchronous radio transmit: `radio.send` blocks the radiod loop for the
+  airtime in v0 (docs/api/radio.md).

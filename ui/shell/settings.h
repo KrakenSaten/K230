@@ -3,8 +3,15 @@
  *
  * File: $POCKETOS_CONFIG_DIR/settings.conf, default /etc/pocketos. One
  * "key=value" per line, '#' comments. Unknown or malformed lines are ignored
- * on read and dropped on write. Writes are atomic (temp file + rename).
- * Pure C, no LVGL, so it is unit-tested natively.
+ * on read and dropped on write. Writes are atomic (temp file + rename) and
+ * settings_set() is transactional: the in-memory value changes only when the
+ * file was written. Pure C, no LVGL, so it is unit-tested natively.
+ *
+ * SECURITY: this store is for non-secret preferences (theme, display mode
+ * and the like). It is a world-readable plain-text file with no integrity
+ * protection. It MUST NOT hold passwords, private keys, Wi-Fi credentials,
+ * API tokens or any other secret until PocketOS has a dedicated credential
+ * storage design (see docs/ARCHITECTURE.md, "Not yet decided").
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */

@@ -46,6 +46,22 @@ Event (service to client, only to subscribed clients, no `id`):
 Subscriptions are per connection, set with `<service>.subscribe` and cleared
 with `<service>.unsubscribe` or by disconnecting.
 
+## Backpressure
+
+Service-side client sockets are non-blocking. When a client stops reading
+and its socket buffer fills, a write blocks the service's single loop, which
+must never happen for one misbehaving client. Policy (bounded, tested in
+`tests/pocketipc_test.c`):
+
+- a write that would block waits for the peer to drain for at most
+  `POCKETIPC_SEND_TIMEOUT_MS` (200 ms) per frame;
+- if the peer still has not drained, the write fails with `ETIMEDOUT` and
+  the service disconnects that client, dropping whatever it had not read;
+- clients that read late but within the window lose nothing.
+
+There is no output queue in v0: the kernel socket buffer is the queue.
+Clients that subscribe to events must read continuously.
+
 ## Error codes
 
 | Code | Meaning |

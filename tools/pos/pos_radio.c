@@ -127,7 +127,8 @@ static int usage(void)
             "  cad                      channel activity detection\n"
             "  rssi                     instantaneous channel RSSI\n"
             "  listen [seconds]         print events (radio.rx, radio.tx_done, radio.state)\n"
-            "  inject <hex> [rssi] [snr]  mock backend only: simulate a received packet\n");
+            "  inject <hex> [rssi] [snr]  mock backend only: simulate a received packet\n"
+            "  mock <key>=<int>         mock backend only: debug knob, e.g. rx_failing=1\n");
     return 2;
 }
 
@@ -179,6 +180,14 @@ int cmd_radio(int argc, char **argv)
             cJSON_AddNumberToObject(params, "snr_db", atof(argv[3]));
         }
         rc = call_and_print(fd, "mock.inject_rx", params);
+    } else if (strcmp(sub, "mock") == 0 && argc >= 2 && strchr(argv[1], '=')) {
+        cJSON *params = cJSON_CreateObject();
+        char *eq = strchr(argv[1], '=');
+
+        *eq = '\0';
+        cJSON_AddStringToObject(params, "key", argv[1]);
+        cJSON_AddNumberToObject(params, "value", atoi(eq + 1));
+        rc = call_and_print(fd, "mock.set", params);
     } else if (strcmp(sub, "listen") == 0) {
         rc = radio_listen(fd, argc >= 2 ? atoi(argv[1]) : 0);
     } else {

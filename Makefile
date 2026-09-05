@@ -72,6 +72,9 @@ tests/airtime_test.o: tests/airtime_test.c
 tests/pocketlog_test: tests/pocketlog_test.o $(LOG_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+tests/pocketipc_test: tests/pocketipc_test.o $(IPC_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
 # Theme engine (pure C, no LVGL) and its test against docs/design/themes.json.
 THEME_OBJS := ui/pocketui/pos_theme.o
 
@@ -100,9 +103,10 @@ tests/settings_test.o: tests/settings_test.c ui/shell/settings.h
 	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
 
 # Native tests only (they execute binaries).
-test: all tests/airtime_test tests/pocketlog_test tests/theme_test tests/settings_test
+test: all tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/theme_test tests/settings_test
 	./tests/airtime_test
 	./tests/pocketlog_test 2>/dev/null
+	./tests/pocketipc_test
 	./tests/theme_test docs/design/themes.json
 	./tests/settings_test
 	bash tests/radiod_mock_test.sh
@@ -117,6 +121,6 @@ install: all
 	install -D -m 0644 VERSION $(DESTDIR)/etc/pocketos-release
 
 clean:
-	rm -f $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SX1262_OBJS) $(THEME_OBJS) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o
+	rm -f $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SX1262_OBJS) $(THEME_OBJS) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o
 
 .PHONY: all test install clean sx1262-objs

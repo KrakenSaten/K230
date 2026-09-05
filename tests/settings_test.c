@@ -94,6 +94,24 @@ int main(void)
         check("oversized value rejected", settings_set("theme", big) < 0);
     }
 
+    /* persistence failure must not change the in-memory table (Finding 4) */
+    if (geteuid() != 0) {
+        settings_init();
+        settings_set("theme", "brass");
+        chmod(dir, 0555);
+        check("write failure reported", settings_set("theme", "carbon") < 0);
+        check("value unchanged after failed write", strcmp(settings_get("theme", "?"), "brass") == 0);
+        check("remove rolled back after failed write", settings_set("theme", NULL) < 0 &&
+                                                        strcmp(settings_get("theme", "?"), "brass") == 0);
+        check("count unchanged after failed write", settings_count() == 2);
+        chmod(dir, 0755);
+        check("file still has old value", file_has(file, "theme=brass"));
+        check("write works again", settings_set("theme", "carbon") == 0 &&
+                                   strcmp(settings_get("theme", "?"), "carbon") == 0);
+    } else {
+        printf("skip write-failure checks (running as root)\n");
+    }
+
     /* unreadable file */
     chmod(file, 0);
     if (geteuid() != 0) {

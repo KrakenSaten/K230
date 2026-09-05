@@ -59,6 +59,20 @@ uint32_t pin_or_nc(int pin)
     return pin < 0 ? RADIOLIB_NC : (uint32_t)pin;
 }
 
+/* Every transition back into receive mode goes through here so the result
+ * is never ignored: p->receiving reflects the last attempt. Returns the
+ * RadioLib status. */
+int16_t enter_rx(Sx1262Priv *p)
+{
+    int16_t st;
+
+    p->radio->setDio1Action(on_dio1);
+    g_irq_flag = false;
+    st = p->radio->startReceive();
+    p->receiving = (st == RADIOLIB_ERR_NONE);
+    return st;
+}
+
 int apply_profile(Sx1262Priv *p, const struct radio_profile *prof, char *err, size_t errlen)
 {
     int16_t st = p->radio->begin((float)prof->frequency_mhz, (float)prof->bandwidth_khz,
@@ -76,13 +90,11 @@ int apply_profile(Sx1262Priv *p, const struct radio_profile *prof, char *err, si
         snprintf(err, errlen, "SX1262 setCRC failed: %d", st);
         return -EIO;
     }
-    p->radio->setDio1Action(on_dio1);
-    st = p->radio->startReceive();
+    st = enter_rx(p);
     if (st != RADIOLIB_ERR_NONE) {
         snprintf(err, errlen, "SX1262 startReceive failed: %d", st);
         return -EIO;
     }
-    p->receiving = true;
     return 0;
 }
 
@@ -155,9 +167,11 @@ int sx_send(struct radio_backend *b, const uint8_t *data, size_t len, double *ai
     st = p->radio->transmit(data, len);
     *airtime_ms = lora_airtime_ms(prof->spreading_factor, prof->bandwidth_khz, prof->coding_rate,
                                   prof->preamble_length, len, prof->crc, false);
-    p->radio->setDio1Action(on_dio1);
-    g_irq_flag = false;
-    p->radio->startReceive();
+    /* Always try to get back to RX; radiod asks is_receiving() afterwards and
+     * reports "error" instead of "rx" if this failed. */
+    if (enter_rx(p) != RADIOLIB_ERR_NONE) {
+        snprintf(err, errlen, "SX1262 did not re-enter RX after transmit");
+    }
     if (st != RADIOLIB_ERR_NONE) {
         snprintf(err, errlen, "SX1262 transmit failed: %d", st);
         return -EIO;
@@ -178,8 +192,7 @@ int sx_receive(struct radio_backend *b, struct radio_rx_packet *pkt)
     g_irq_flag = false;
     len = p->radio->getPacketLength();
     if (len == 0 || len > sizeof(pkt->data)) {
-        p->radio->startReceive();
-        return 0;
+        return enter_rx(p) == RADIOLIB_ERR_NONE ? 0 : -EIO;
     }
     st = p->radio->readData(pkt->data, len);
     pkt->len = len;
@@ -187,7 +200,7 @@ int sx_receive(struct radio_backend *b, struct radio_rx_packet *pkt)
     pkt->snr_db = p->radio->getSNR();
     pkt->frequency_error_hz = p->radio->getFrequencyError();
     pkt->timestamp_ms = radio_now_ms();
-    p->radio->startReceive();
+    enter_rx(p); /* result visible through sx_is_receiving() */
     if (st == RADIOLIB_ERR_CRC_MISMATCH) {
         return -EBADMSG;
     }
@@ -204,9 +217,7 @@ int sx_cad(struct radio_backend *b, bool *activity)
 
     p->radio->clearDio1Action();
     st = p->radio->scanChannel();
-    p->radio->setDio1Action(on_dio1);
-    g_irq_flag = false;
-    p->radio->startReceive();
+    enter_rx(p); /* result visible through sx_is_receiving() */
     if (st == RADIOLIB_LORA_DETECTED) {
         *activity = true;
         return 0;
@@ -223,6 +234,25 @@ int sx_rssi(struct radio_backend *b, double *dbm)
     Sx1262Priv *p = (Sx1262Priv *)b->priv;
 
     *dbm = p->radio->getRSSI(false);
+    return 0;
+}
+
+int sx_is_receiving(struct radio_backend *b)
+{
+    Sx1262Priv *p = (Sx1262Priv *)b->priv;
+
+    return p->receiving ? 1 : 0;
+}
+
+int sx_resume_rx(struct radio_backend *b, char *err, size_t errlen)
+{
+    Sx1262Priv *p = (Sx1262Priv *)b->priv;
+    int16_t st = enter_rx(p);
+
+    if (st != RADIOLIB_ERR_NONE) {
+        snprintf(err, errlen, "SX1262 startReceive failed: %d", st);
+        return -EIO;
+    }
     return 0;
 }
 
@@ -269,4 +299,7 @@ extern "C" const struct radio_backend_ops radio_backend_sx1262_ops = {
     nullptr,        /* inject_rx */
     sx_shutdown,
     sx_poll_fd,
+    sx_is_receiving,
+    sx_resume_rx,
+    nullptr,        /* debug_set */
 };

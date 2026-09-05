@@ -7,12 +7,14 @@
 #include "pocketipc.h"
 
 #include <errno.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
+#include <time.h>
 #include <unistd.h>
 
 const char *pocketipc_runtime_dir(void)
@@ -29,15 +31,45 @@ int pocketipc_socket_path(const char *service, char *buf, size_t n)
     return (w < 0 || (size_t)w >= n) ? -1 : 0;
 }
 
+static uint64_t now_ms(void)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+}
+
+/* Write the whole buffer. On a non-blocking fd, EAGAIN waits for POLLOUT
+ * within a bounded window (POCKETIPC_SEND_TIMEOUT_MS in total for this
+ * frame); if the peer still does not drain, fail with errno ETIMEDOUT. */
 static int write_all(int fd, const void *data, size_t len)
 {
     const uint8_t *p = data;
+    uint64_t deadline = 0;
 
     while (len > 0) {
         ssize_t w = write(fd, p, len);
 
         if (w < 0) {
             if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                struct pollfd pfd = { .fd = fd, .events = POLLOUT };
+                uint64_t now = now_ms();
+                int remaining;
+
+                if (deadline == 0) {
+                    deadline = now + POCKETIPC_SEND_TIMEOUT_MS;
+                }
+                remaining = now >= deadline ? 0 : (int)(deadline - now);
+                if (remaining <= 0) {
+                    errno = ETIMEDOUT;
+                    return -1;
+                }
+                if (poll(&pfd, 1, remaining) < 0 && errno != EINTR) {
+                    return -1;
+                }
                 continue;
             }
             return -1;

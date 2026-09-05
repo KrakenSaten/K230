@@ -66,6 +66,7 @@ struct radiod {
     bool have_last_rx;
     double hour_buckets[HOUR_BUCKETS];
     int64_t bucket_minute;
+    uint64_t last_rx_recovery_ms;
 };
 
 static volatile sig_atomic_t stop_requested;
@@ -179,6 +180,23 @@ static int get_number(const cJSON *obj, const char *key, double *out)
     return 1;
 }
 
+/* Integer field: 1 if found and integral, 0 if absent, -1 if not a number
+ * or not integral (7.9 is rejected, 7 and 7.0 are accepted). */
+static int get_int(const cJSON *obj, const char *key, int *out)
+{
+    double v;
+    int r = get_number(obj, key, &v);
+
+    if (r <= 0) {
+        return r;
+    }
+    if (v != floor(v) || v < -2147483648.0 || v > 2147483647.0) {
+        return -1;
+    }
+    *out = (int)v;
+    return 1;
+}
+
 static int get_bool(const cJSON *obj, const char *key, bool *out)
 {
     const cJSON *v = obj ? cJSON_GetObjectItemCaseSensitive(obj, key) : NULL;
@@ -239,16 +257,11 @@ static int profile_apply(struct radiod *rd, const cJSON *params,
     if (r > 0) p->frequency_mhz = v;
     if ((r = get_number(params, "bandwidth_khz", &v)) < 0) goto bad_type;
     if (r > 0) p->bandwidth_khz = v;
-    if ((r = get_number(params, "spreading_factor", &v)) < 0) goto bad_type;
-    if (r > 0) p->spreading_factor = (int)v;
-    if ((r = get_number(params, "coding_rate", &v)) < 0) goto bad_type;
-    if (r > 0) p->coding_rate = (int)v;
-    if ((r = get_number(params, "sync_word", &v)) < 0) goto bad_type;
-    if (r > 0) p->sync_word = (int)v;
-    if ((r = get_number(params, "preamble_length", &v)) < 0) goto bad_type;
-    if (r > 0) p->preamble_length = (int)v;
-    if ((r = get_number(params, "tx_power_dbm", &v)) < 0) goto bad_type;
-    if (r > 0) p->tx_power_dbm = (int)v;
+    if ((r = get_int(params, "spreading_factor", &p->spreading_factor)) < 0) goto bad_int;
+    if ((r = get_int(params, "coding_rate", &p->coding_rate)) < 0) goto bad_int;
+    if ((r = get_int(params, "sync_word", &p->sync_word)) < 0) goto bad_int;
+    if ((r = get_int(params, "preamble_length", &p->preamble_length)) < 0) goto bad_int;
+    if ((r = get_int(params, "tx_power_dbm", &p->tx_power_dbm)) < 0) goto bad_int;
     if ((r = get_bool(params, "crc", &b)) < 0) goto bad_type;
     if (r > 0) p->crc = b;
 
@@ -301,7 +314,11 @@ static int profile_apply(struct radiod *rd, const cJSON *params,
     return 0;
 
 bad_type:
-    snprintf(msg, n, "profile fields must be numbers (crc: bool)");
+    snprintf(msg, n, "frequency_mhz and bandwidth_khz must be numbers, crc a bool");
+    return POCKETIPC_ERR_INVALID_PARAMS;
+bad_int:
+    snprintf(msg, n, "spreading_factor, coding_rate, sync_word, preamble_length and "
+                     "tx_power_dbm must be integers");
     return POCKETIPC_ERR_INVALID_PARAMS;
 }
 
@@ -329,6 +346,45 @@ static void set_state(struct radiod *rd, const char *state)
     broadcast(rd, pocketipc_event("radio.state", data));
 }
 
+/* Report "rx" only when the backend confirms it is receiving (Finding 2).
+ * Backends without is_receiving() are assumed to receive whenever idle. */
+static void update_rx_state(struct radiod *rd)
+{
+    if (strcmp(rd->state, "tx") == 0) {
+        return;
+    }
+    if (rd->be.ops->is_receiving && !rd->be.ops->is_receiving(&rd->be)) {
+        if (strcmp(rd->state, "error") != 0) {
+            LOG_ERROR("transceiver is not in receive mode; state error");
+        }
+        set_state(rd, "error");
+    } else {
+        set_state(rd, "rx");
+    }
+}
+
+/* In state error, ask the backend to re-enter RX at most once per second. */
+static void recover_rx(struct radiod *rd)
+{
+    char err[128] = "";
+    uint64_t now;
+
+    if (strcmp(rd->state, "error") != 0 || !rd->be.ops->resume_rx) {
+        return;
+    }
+    now = mono_ms();
+    if (now - rd->last_rx_recovery_ms < 1000u) {
+        return;
+    }
+    rd->last_rx_recovery_ms = now;
+    if (rd->be.ops->resume_rx(&rd->be, err, sizeof(err)) == 0) {
+        LOG_INFO("receive mode recovered");
+    } else {
+        LOG_WARN("receive recovery failed: %s", err);
+    }
+    update_rx_state(rd);
+}
+
 static void drain_receive(struct radiod *rd)
 {
     struct radio_rx_packet pkt;
@@ -342,6 +398,7 @@ static void drain_receive(struct radiod *rd)
                 continue;
             }
             LOG_WARN("receive failed: %d", r);
+            update_rx_state(rd);
             break;
         }
         const struct radio_profile *p = &rd->be.profile;
@@ -460,6 +517,11 @@ static cJSON *m_send(struct radiod *rd, const cJSON *params, int *code, char *ms
         snprintf(msg, n, "payload_hex must be 1..%d bytes of hex", rd->caps.max_payload);
         return NULL;
     }
+    if (params && cJSON_HasObjectItem(params, "timeout_ms")) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(msg, n, "timeout_ms is not supported: radio.send is synchronous in v0");
+        return NULL;
+    }
     if (strcmp(rd->state, "tx") == 0) {
         *code = POCKETIPC_ERR_BUSY;
         snprintf(msg, n, "transmission in progress");
@@ -467,14 +529,16 @@ static cJSON *m_send(struct radiod *rd, const cJSON *params, int *code, char *ms
     }
     set_state(rd, "tx");
     if (rd->be.ops->send(&rd->be, data, len, &airtime, msg, n) < 0) {
-        set_state(rd, "rx");
+        rd->state = "idle";
+        update_rx_state(rd);
         *code = POCKETIPC_ERR_BACKEND;
         return NULL;
     }
     rd->tx_packets++;
     rd->tx_airtime_ms += airtime;
     buckets_add_tx(rd, airtime);
-    set_state(rd, "rx");
+    rd->state = "idle";
+    update_rx_state(rd);
 
     ev = cJSON_CreateObject();
     cJSON_AddNumberToObject(ev, "bytes", (double)len);
@@ -499,10 +563,12 @@ static cJSON *m_cad(struct radiod *rd, int *code, char *msg, size_t n)
         return NULL;
     }
     if (rd->be.ops->cad(&rd->be, &activity) < 0) {
+        update_rx_state(rd);
         *code = POCKETIPC_ERR_BACKEND;
         snprintf(msg, n, "CAD failed");
         return NULL;
     }
+    update_rx_state(rd);
     o = cJSON_CreateObject();
     cJSON_AddBoolToObject(o, "activity", activity);
     return o;
@@ -598,6 +664,23 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         cJSON_AddBoolToObject(result, "subscribed", false);
     } else if (strcmp(method, "mock.inject_rx") == 0) {
         result = m_inject(rd, params, &code, msg, sizeof(msg));
+    } else if (strcmp(method, "mock.set") == 0) {
+        const char *key = get_string(params, "key");
+        int value = 0;
+
+        if (!rd->be.ops->debug_set) {
+            code = POCKETIPC_ERR_UNSUPPORTED;
+            snprintf(msg, sizeof(msg), "mock.set only exists on test backends");
+        } else if (!key || get_int(params, "value", &value) <= 0) {
+            code = POCKETIPC_ERR_INVALID_PARAMS;
+            snprintf(msg, sizeof(msg), "key (string) and value (integer) required");
+        } else if (rd->be.ops->debug_set(&rd->be, key, value) < 0) {
+            code = POCKETIPC_ERR_INVALID_PARAMS;
+            snprintf(msg, sizeof(msg), "unknown key %s", key);
+        } else {
+            update_rx_state(rd);
+            result = cJSON_CreateObject();
+        }
     } else {
         code = POCKETIPC_ERR_UNKNOWN_METHOD;
         snprintf(msg, sizeof(msg), "unknown method %s", method);
@@ -624,6 +707,7 @@ static int run(struct radiod *rd)
             return 1;
         }
         drain_receive(rd);
+        recover_rx(rd);
     }
     return 0;
 }

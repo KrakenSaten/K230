@@ -12,6 +12,10 @@
 #include <stdint.h>
 
 #define POCKETIPC_MAX_FRAME (1u << 20)
+/* Backpressure policy (docs/api/pocketipc.md): on a non-blocking socket a
+ * write that would block waits up to this long for the peer to drain, then
+ * fails with ETIMEDOUT and the peer is disconnected by the caller. */
+#define POCKETIPC_SEND_TIMEOUT_MS 200
 #define POCKETIPC_DEFAULT_DIR "/run/pocketos"
 
 enum pocketipc_error {

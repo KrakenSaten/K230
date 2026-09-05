@@ -18,6 +18,7 @@ struct mock_priv {
     struct radio_rx_packet queue[MOCK_QUEUE];
     size_t head;
     size_t count;
+    int rx_failing;   /* debug knob: simulate a transceiver that cannot enter RX */
 };
 
 static int mock_init(struct radio_backend *b, char *err, size_t errlen)
@@ -112,6 +113,35 @@ static int mock_inject_rx(struct radio_backend *b, const struct radio_rx_packet 
     return 0;
 }
 
+static int mock_is_receiving(struct radio_backend *b)
+{
+    struct mock_priv *m = b->priv;
+
+    return !m->rx_failing;
+}
+
+static int mock_resume_rx(struct radio_backend *b, char *err, size_t errlen)
+{
+    struct mock_priv *m = b->priv;
+
+    if (m->rx_failing) {
+        snprintf(err, errlen, "mock: rx_failing is set");
+        return -EIO;
+    }
+    return 0;
+}
+
+static int mock_debug_set(struct radio_backend *b, const char *key, int value)
+{
+    struct mock_priv *m = b->priv;
+
+    if (strcmp(key, "rx_failing") == 0) {
+        m->rx_failing = value != 0;
+        return 0;
+    }
+    return -ENOENT;
+}
+
 static void mock_shutdown(struct radio_backend *b)
 {
     free(b->priv);
@@ -131,4 +161,7 @@ const struct radio_backend_ops radio_backend_mock_ops = {
     .inject_rx = mock_inject_rx,
     .shutdown = mock_shutdown,
     .poll_fd = NULL,
+    .is_receiving = mock_is_receiving,
+    .resume_rx = mock_resume_rx,
+    .debug_set = mock_debug_set,
 };

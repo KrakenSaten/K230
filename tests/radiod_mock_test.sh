@@ -47,6 +47,29 @@ check "range check rejects BW100" 'code 2' "$out"
 out=$("$POS" radio status)
 check "rejected configure did not change profile" '"spreading_factor":[[:space:]]*7' "$out"
 
+# Finding 1: integer fields reject fractional values instead of truncating
+for kv in spreading_factor=7.9 coding_rate=5.5 tx_power_dbm=13.9 sync_word=18.5 preamble_length=8.5; do
+    out=$("$POS" radio configure "$kv" 2>&1)
+    check "fractional $kv rejected" 'code 2' "$out"
+done
+out=$("$POS" radio status)
+check "fractional values did not change profile" '"tx_power_dbm":[[:space:]]*10' "$out"
+out=$("$POS" radio configure spreading_factor=8.0 tx_power_dbm=12)
+check "integral-valued numbers still accepted" '"spreading_factor":[[:space:]]*8' "$out"
+"$POS" radio configure spreading_factor=7 tx_power_dbm=10 >/dev/null
+
+# Finding 3: timeout_ms is not part of the v0 contract and is refused explicitly
+out=$(python3 - "$POCKETOS_RUNTIME_DIR/radiod.sock" <<'PY'
+import socket, sys, json, struct
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.connect(sys.argv[1])
+body = json.dumps({"id": 1, "method": "radio.send", "params": {"payload_hex": "0102", "timeout_ms": 500}}).encode()
+s.sendall(struct.pack(">I", len(body)) + body)
+hdr = s.recv(4); n = struct.unpack(">I", hdr)[0]; print(s.recv(n).decode())
+PY
+)
+check "timeout_ms refused with code 2" '"code":2' "$out"
+check "timeout_ms refusal explains v0" 'synchronous' "$out"
+
 # SF7 BW125 CR4/5, 10 bytes: 41.216 ms (tests/airtime_test.c)
 out=$("$POS" radio send 00112233445566778899)
 check "send airtime" '"airtime_ms":[[:space:]]*41.216' "$out"
@@ -79,6 +102,16 @@ check "event radio.state tx" '"event":"radio.state","data":{"state":"tx"}' "$eve
 out=$("$POS" radio stats)
 check "stats rx_packets" '"rx_packets":[[:space:]]*1' "$out"
 check "stats last rssi" '"last_rssi_dbm":[[:space:]]*-87.5' "$out"
+
+# Finding 2: state follows the backend's real receive state, with recovery
+out=$("$POS" radio mock rx_failing=1 2>&1); check "mock rx_failing set" '{' "$out"
+out=$("$POS" radio status); check "state error when RX cannot be entered" '"state":[[:space:]]*"error"' "$out"
+out=$("$POS" radio send 0102); check "send still transmits in error state" '"airtime_ms"' "$out"
+out=$("$POS" radio status); check "state stays error after send" '"state":[[:space:]]*"error"' "$out"
+"$POS" radio mock rx_failing=0 >/dev/null
+sleep 1.5
+out=$("$POS" radio status); check "state recovers to rx within a second" '"state":[[:space:]]*"rx"' "$out"
+out=$("$POS" radio mock bogus=1 2>&1); check "unknown mock key rejected" 'code 2' "$out"
 
 # Protocol robustness: garbage frame must not crash radiod.
 python3 - "$POCKETOS_RUNTIME_DIR/radiod.sock" <<'PY' || true

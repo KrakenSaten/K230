@@ -10,6 +10,11 @@ Updated 2026-09-04. Move items to git history when resolved.
 - SX1262 module parameters used by the backend (TCXO 3.3 V on DIO3, DC-DC
   regulator, no DIO2 RF switch) are taken from the vendor launcher's
   configuration and are unverified for our module variant.
+- SX1262 receive re-entry after transmit, CAD and packet read now reports
+  failure through `is_receiving`/`resume_rx` (radiod state `error` with
+  once-per-second recovery). The logic is tested on the mock backend only;
+  whether `startReceive()` ever fails on real hardware, and whether the
+  recovery path clears it, is ASSUMED until K230 testing.
 - Schematic has alternate LoRa nets (IO4_IRQ, IO3_TCXO_EN) with 0R/NC
   options. BSP uses GPIO20 as DIO1. Assumed populated that way.
 - The vendor LVGL DRM driver carries a K230 plane-rotation patch. Whether the
@@ -49,6 +54,15 @@ Updated 2026-09-04. Move items to git history when resolved.
 
 - radiod v0 has no client arbitration: any client can reconfigure the radio.
 - radiod airtime accounting is process-local and lost on restart.
+- `radio.send` is synchronous and blocks radiod for the airtime (about 1.3 s
+  for the EU868 default with 255 bytes, 9 s at SF12/BW125, up to 225 s in
+  the SF12/BW7.8/CR4/8 corner). Documented v0 behaviour; `timeout_ms` is
+  refused. An asynchronous TX path is a later design item.
+- pocketipc disconnects a client that does not drain its socket within
+  200 ms of a blocked write (documented backpressure policy). Event
+  subscribers must read continuously.
+- The settings store must not hold secrets; there is no credential storage
+  yet (security note in `ui/shell/settings.h`).
 - The shell blocks the UI thread on pocketipc calls; acceptable with local
   services, wrong for slow ones. Needs an async path before netd.
 - Shell app launch by touch is untested in the simulator (only `--open`).

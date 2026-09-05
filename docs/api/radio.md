@@ -45,6 +45,15 @@ Result: `chip` ("sx1262" or "mock"), `backend`, `api_version`,
 Result: `state` (`off`, `idle`, `rx`, `tx`, `error`), `profile` (current
 profile object, see radio.configure), `uptime_s`.
 
+`rx` is reported only while the backend confirms the transceiver is in
+receive mode. If re-entering RX fails after a transmit, CAD or packet read,
+the state becomes `error`, a `radio.state` event is sent, and radiod retries
+at most once per second until RX is back (then `rx` again). `radio.send`
+still transmits in state `error`; its result reports the transmit, not the
+receive state. On the mock backend `mock.set {key: "rx_failing", value: 1}`
+simulates this; on the SX1262 the paths are compiled but unverified until
+hardware testing (DOCUMENTED, not VERIFIED).
+
 ### radio.configure
 
 Params (all optional; omitted fields keep their value):
@@ -70,9 +79,23 @@ the operator's responsibility. Airtime accounting (below) helps with that.
 
 ### radio.send
 
-Params: `payload_hex` (string, 1 to 255 bytes), optional `timeout_ms`.
-Result: `airtime_ms` (computed time-on-air), `bytes`. Blocking until the
-transmission finished. Error 5 if a transmission is in progress.
+Params: `payload_hex` (string, 1 to 255 bytes). Result: `airtime_ms`
+(computed time-on-air), `bytes`. Error 5 if a transmission is in progress.
+
+v0 behaviour, stated explicitly: `radio.send` is synchronous. radiod does
+not answer other requests or deliver events while the packet is on air,
+because the SX1262 backend blocks in RadioLib's `transmit()`. The blocking
+time is bounded by the profile (Semtech formula, `tests/airtime_test.c`):
+about 1.3 s for the EU868 default profile with 255 bytes, about 9 s at
+SF12/BW125 with 255 bytes, and up to about 225 s in the extreme corner
+(SF12, BW 7.8 kHz, CR 4/8, 255 bytes). Callers that need the daemon
+responsive keep spreading factors and payloads small.
+A `timeout_ms` parameter is refused with error 2; it was documented earlier
+but never implemented, and will only return with an asynchronous TX path.
+
+Integer profile fields (`spreading_factor`, `coding_rate`, `sync_word`,
+`preamble_length`, `tx_power_dbm`) must be integral JSON numbers: `7` and
+`7.0` are accepted, `7.9` is refused with error 2 rather than truncated.
 
 ### radio.stats
 
@@ -96,6 +119,12 @@ No params. Result: `{"subscribed": true|false}`.
 
 Params: `payload_hex`, optional `rssi_dbm`, `snr_db`. Delivers a packet as if
 received. Error 6 on real hardware.
+
+### mock.set (mock backend only)
+
+Params: `key` (string), `value` (integer). Debug knobs for tests; currently
+`rx_failing` (1 = the mock cannot enter receive mode). Error 6 on real
+hardware, error 2 for an unknown key.
 
 ## Events
 

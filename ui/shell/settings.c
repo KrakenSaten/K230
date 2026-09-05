@@ -173,9 +173,20 @@ static int write_file(void)
 
 int settings_set(const char *key, const char *value)
 {
+    /* Transactional: the new table is written to disk first; the in-memory
+     * table keeps the new state only when that succeeded, otherwise it is
+     * rolled back to what it was before the call. */
+    struct entry saved[SETTINGS_MAX_KEYS];
+    int saved_count = count;
+    int rc;
+
     if (!key_valid(key)) {
         return -1;
     }
+    if (value != NULL && (strlen(value) >= SETTINGS_VALUE_MAX || strchr(value, '\n'))) {
+        return -1;
+    }
+    memcpy(saved, entries, sizeof(saved));
     if (value == NULL) {
         struct entry *e = find(key);
 
@@ -184,13 +195,18 @@ int settings_set(const char *key, const char *value)
             memset(&entries[count], 0, sizeof(entries[count]));
         }
     } else {
-        if (strlen(value) >= SETTINGS_VALUE_MAX || strchr(value, '\n')) {
-            return -1;
-        }
         store(key, value);
         if (!find(key)) {
-            return -1; /* table full */
+            rc = -1; /* table full */
+            goto rollback;
         }
     }
-    return write_file();
+    rc = write_file();
+    if (rc == 0) {
+        return 0;
+    }
+rollback:
+    memcpy(entries, saved, sizeof(saved));
+    count = saved_count;
+    return rc;
 }

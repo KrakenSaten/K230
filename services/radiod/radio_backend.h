@@ -68,6 +68,15 @@ struct radio_backend_ops {
     void (*shutdown)(struct radio_backend *b);
     /* Optional: fd that becomes readable when receive() should be called. */
     int (*poll_fd)(struct radio_backend *b);
+    /* Optional: 1 while the transceiver is actually in receive mode, 0 when
+     * the last attempt to enter RX failed. Absent means always receiving. */
+    int (*is_receiving)(struct radio_backend *b);
+    /* Optional: try to re-enter receive mode after a failure. 0 on success,
+     * negative errno with a message otherwise. */
+    int (*resume_rx)(struct radio_backend *b, char *err, size_t errlen);
+    /* Optional, test backends only: set a named debug knob (e.g. the mock's
+     * "rx_failing"). Returns 0, -ENOENT for an unknown key. */
+    int (*debug_set)(struct radio_backend *b, const char *key, int value);
 };
 
 struct radio_backend {
