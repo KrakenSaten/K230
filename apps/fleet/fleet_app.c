@@ -68,6 +68,12 @@ void fleet_app_show(struct fleet_app *app, enum fleet_screen screen)
     case FLEET_SCREEN_DEPLOY:
         fleet_screen_deploy_refresh(app);
         break;
+    case FLEET_SCREEN_BATTLE:
+        fleet_screen_battle_refresh(app);
+        break;
+    case FLEET_SCREEN_RESULT:
+        fleet_screen_result_refresh(app);
+        break;
     default:
         break;
     }
@@ -99,24 +105,78 @@ void fleet_app_new_match(struct fleet_app *app)
  * own --screenshot does. It does nothing unless the variable is set. */
 #define FLEET_DEBUG_SEED 20260905u
 
+/* Fire at a cell for the player and let the opponent answer. */
+static void debug_exchange(struct fleet_app *app, int row, int col)
+{
+    if (fleet_game_fire(&app->game, FLEET_SIDE_PLAYER, row, col, NULL) == FLEET_SHOT_INVALID) {
+        return;
+    }
+    if (!fleet_game_is_over(&app->game)) {
+        fleet_game_opponent_turn(&app->game, NULL, NULL, NULL);
+    }
+}
+
+static void debug_start_match(struct fleet_app *app)
+{
+    struct fleet_rng deploy;
+
+    fleet_game_new(&app->game, FLEET_DEBUG_SEED, (enum fleet_difficulty)app->difficulty);
+    fleet_screen_deploy_enter(app);
+    fleet_rng_seed(&deploy, FLEET_DEBUG_SEED ^ 0x5A5A5A5Au);
+    fleet_board_autoplace(&app->game.board[FLEET_SIDE_PLAYER], &deploy);
+}
+
 static void debug_open(struct fleet_app *app)
 {
     const char *want = getenv("POCKETFLEET_SCREEN");
-    struct fleet_board *board;
+    const struct fleet_board *enemy;
+    int i;
 
     if (!want) {
         return;
     }
     if (strcmp(want, "deploy") == 0) {
-        fleet_game_new(&app->game, FLEET_DEBUG_SEED, (enum fleet_difficulty)app->difficulty);
-        fleet_screen_deploy_enter(app);
-        board = &app->game.board[FLEET_SIDE_PLAYER];
-        fleet_board_autoplace(board, &app->game.rng_setup);
+        debug_start_match(app);
         /* Two ships left waiting, so both roster states are visible. */
-        fleet_board_unplace(board, FLEET_SHIP_CRUISER);
-        fleet_board_unplace(board, FLEET_SHIP_DESTROYER);
+        fleet_board_unplace(&app->game.board[FLEET_SIDE_PLAYER], FLEET_SHIP_CRUISER);
+        fleet_board_unplace(&app->game.board[FLEET_SIDE_PLAYER], FLEET_SHIP_DESTROYER);
         fleet_app_show(app, FLEET_SCREEN_DEPLOY);
+        return;
     }
+    if (strcmp(want, "battle") != 0 && strcmp(want, "result") != 0) {
+        return;
+    }
+    debug_start_match(app);
+    fleet_game_start(&app->game);
+    fleet_screen_battle_enter(app);
+    enemy = &app->game.board[FLEET_SIDE_OPPONENT];
+    if (strcmp(want, "result") == 0) {
+        for (i = 0; i < FLEET_CELLS && !fleet_game_is_over(&app->game); i++) {
+            if (enemy->ship_at[i] != FLEET_NO_SHIP) {
+                debug_exchange(app, i / FLEET_GRID, i % FLEET_GRID);
+            }
+        }
+        fleet_app_show(app, FLEET_SCREEN_RESULT);
+        return;
+    }
+    /* A readable mid-game: one ship sunk, a wounded one, and some water. */
+    for (i = 0; i < FLEET_CELLS; i++) {
+        if (enemy->ship_at[i] == FLEET_SHIP_DESTROYER) {
+            debug_exchange(app, i / FLEET_GRID, i % FLEET_GRID);
+        }
+    }
+    for (i = 0; i < FLEET_CELLS; i++) {
+        if (enemy->ship_at[i] == FLEET_SHIP_CARRIER &&
+            app->game.board[FLEET_SIDE_OPPONENT].ships[FLEET_SHIP_CARRIER].hits < 2) {
+            debug_exchange(app, i / FLEET_GRID, i % FLEET_GRID);
+        }
+    }
+    for (i = 3; i < FLEET_CELLS; i += 11) {
+        debug_exchange(app, i / FLEET_GRID, i % FLEET_GRID);
+    }
+    fleet_app_show(app, FLEET_SCREEN_BATTLE);
+    /* Aimed but not fired, which is the state the FIRE button acts on. */
+    fleet_screen_battle_aim(app, 2, 6);
 }
 
 /* ---- shell app API ---------------------------------------------------- */
@@ -135,6 +195,8 @@ static void *fleet_create(lv_obj_t *root)
 
     app->screen[FLEET_SCREEN_COMMAND] = fleet_screen_command_create(app, root);
     app->screen[FLEET_SCREEN_DEPLOY] = fleet_screen_deploy_create(app, root);
+    app->screen[FLEET_SCREEN_BATTLE] = fleet_screen_battle_create(app, root);
+    app->screen[FLEET_SCREEN_RESULT] = fleet_screen_result_create(app, root);
     fleet_screen_deploy_enter(app);
     fleet_app_show(app, FLEET_SCREEN_COMMAND);
     debug_open(app);
@@ -152,6 +214,8 @@ static void fleet_destroy(void *priv)
      * with it; only the private blocks are ours to release. */
     free(app->command);
     free(app->deploy);
+    free(app->battle);
+    free(app->result);
     free(app);
 }
 

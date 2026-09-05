@@ -25,6 +25,8 @@ enum fleet_screen {
 
 struct fleet_command_ui;
 struct fleet_deploy_ui;
+struct fleet_battle_ui;
+struct fleet_result_ui;
 
 struct fleet_app {
     struct fleet_game game;
@@ -34,6 +36,8 @@ struct fleet_app {
     uint8_t current;
     struct fleet_command_ui *command;
     struct fleet_deploy_ui *deploy;
+    struct fleet_battle_ui *battle;
+    struct fleet_result_ui *result;
 };
 
 /* Show a screen and refresh it. A screen that has not been built yet is
@@ -51,5 +55,13 @@ lv_obj_t *fleet_screen_deploy_create(struct fleet_app *app, lv_obj_t *parent);
 void fleet_screen_deploy_refresh(struct fleet_app *app);
 /* Reset the deployment screen for a freshly created match. */
 void fleet_screen_deploy_enter(struct fleet_app *app);
+lv_obj_t *fleet_screen_battle_create(struct fleet_app *app, lv_obj_t *parent);
+void fleet_screen_battle_refresh(struct fleet_app *app);
+/* Rebind the grids and clear the crosshair for a freshly started match. */
+void fleet_screen_battle_enter(struct fleet_app *app);
+/* Move the crosshair. It never fires: only the FIRE button does. */
+void fleet_screen_battle_aim(struct fleet_app *app, int row, int col);
+lv_obj_t *fleet_screen_result_create(struct fleet_app *app, lv_obj_t *parent);
+void fleet_screen_result_refresh(struct fleet_app *app);
 
 #endif

@@ -165,6 +165,7 @@ static void on_confirm(lv_event_t *e)
         message(ui, "Place every ship first");
         return;
     }
+    fleet_screen_battle_enter(ui->app);
     fleet_app_show(ui->app, FLEET_SCREEN_BATTLE);
 }
 

@@ -37,6 +37,8 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/fleet/ui/fleet_grid.c
     ${REPO_DIR}/apps/fleet/ui/fleet_screen_command.c
     ${REPO_DIR}/apps/fleet/ui/fleet_screen_deploy.c
+    ${REPO_DIR}/apps/fleet/ui/fleet_screen_battle.c
+    ${REPO_DIR}/apps/fleet/ui/fleet_screen_result.c
     ${REPO_DIR}/core/pocketipc/pocketipc.c
     ${REPO_DIR}/core/pocketipc/server.c
     ${REPO_DIR}/core/pocketlog/pocketlog.c
