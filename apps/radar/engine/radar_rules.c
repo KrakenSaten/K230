@@ -382,7 +382,12 @@ int radar_run_is_over(const struct radar_run *run)
 static void finish(struct radar_run *run)
 {
     run->state = (uint8_t)RADAR_RUN_OVER;
-    run->selected = RADAR_NO_CONTACT;
+    /* drop_selection() rather than clearing the field, because the run can
+     * end on the fade of a contact that is NOT the selected one: the track
+     * the player was working is still on the scope and still holds its lock,
+     * and clearing only run->selected would strand it there with a full
+     * acquisition ring that nothing can ever clear. */
+    drop_selection(run);
     emit(run, RADAR_EVENT_OVER, NULL, run->score.points);
 }
 

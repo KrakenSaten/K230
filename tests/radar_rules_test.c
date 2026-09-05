@@ -1063,6 +1063,66 @@ static void test_game_over(void)
     check("the final score survived", run.score.points == final_score);
 }
 
+/* However a run ends, it must not leave a track on the scope still holding
+ * a lock. A run ends on the fade of some valid target, and that is very
+ * often NOT the contact the player was working: the operator is behind,
+ * which is precisely why a track leaked. A UI that walks the slots to paint
+ * the final scope would then draw a full acquisition ring on a contact that
+ * radar_run_engage() will refuse for ever.
+ *
+ * The scenario cannot be built by hand from one seed, because whether the
+ * fading track is the selected one depends on the whole run, so it is swept
+ * instead, with an operator that always holds a selection and never fires. */
+static void test_game_over_leaves_no_lock_held(void)
+{
+    int clean = 1;
+    int ended_holding = 0;
+    uint32_t seed;
+
+    for (seed = 1u; seed <= 24u; seed++) {
+        struct radar_run run;
+        int guard;
+        int i;
+
+        start(&run, seed * 37u + 5u);
+        for (guard = 0; guard < 20000 && !radar_run_is_over(&run); guard++) {
+            if (!radar_run_selected(&run)) {
+                for (i = 0; i < RADAR_CONTACTS_MAX; i++) {
+                    const struct radar_contact *t = radar_run_slot(&run, i);
+
+                    if (t->active) {
+                        radar_run_select(&run, t->id);
+                        break;
+                    }
+                }
+            }
+            /* Record that the sweep actually reached the state that matters:
+             * a lock held with the sector one leaker from the end. */
+            if (radar_run_selected(&run) &&
+                run.score.integrity <= RADAR_INTEGRITY_MISS) {
+                ended_holding = 1;
+            }
+            radar_run_tick(&run);
+            radar_run_clear_events(&run);
+        }
+        for (i = 0; i < RADAR_CONTACTS_MAX; i++) {
+            const struct radar_contact *t = radar_run_slot(&run, i);
+
+            if (t->active && t->state != RADAR_CONTACT_NEW) {
+                printf("     seed %u: contact %u left %s with lock %d\n",
+                       (unsigned)(seed * 37u + 5u), t->id,
+                       radar_contact_state_name((enum radar_contact_state)t->state),
+                       radar_contact_lock_permille(t));
+                clean = 0;
+            }
+        }
+        clean &= run.selected == RADAR_NO_CONTACT;
+    }
+    check("the sweep reached runs that ended while a track was being worked",
+          ended_holding);
+    check("a finished run leaves no track holding a lock", clean);
+}
+
 /* A simulated operator. It works the most urgent contact it has not
  * identified, engages what turns out to be a target and leaves what turns
  * out to be a decoy. reaction_ticks is the pause before it reaches for the
@@ -1164,6 +1224,7 @@ int main(void)
     test_difficulty_table();
     test_progression();
     test_game_over();
+    test_game_over_leaves_no_lock_held();
     test_pacing();
 
     printf("radar_rules_test: %d failure(s)\n", failed);
