@@ -157,19 +157,21 @@ static void draw_cell(lv_layer_t *layer, const struct fleet_grid *g, const lv_ar
         break;
     }
     if (look == LOOK_SUNK || look == LOOK_SHIP_SUNK) {
-        /* The hull outline is what separates a sunk ship from a wounded one
-         * without introducing a third hue. */
-        dsc.border_color = pos_theme_color(POS_COLOR_TEXT_PRIMARY);
+        /* On a filled accent everything is drawn in text_on_accent (DS §4).
+         * text_primary would be bright on bright: 1.19 against slate's RX. */
+        dsc.border_color = pos_theme_color(POS_COLOR_TEXT_ON_ACCENT);
         dsc.border_width = HULL_OUTLINE;
         dsc.border_opa = LV_OPA_COVER;
     }
     lv_draw_rect(layer, &dsc, area);
 
     if (look == LOOK_MISS) {
+        /* text_secondary, not text_muted: DS §13 allows muted only for
+         * non-essential hints, and where a shot went is not one. */
         lv_draw_rect_dsc_init(&dsc);
         dsc.radius = LV_RADIUS_CIRCLE;
         dsc.bg_opa = LV_OPA_COVER;
-        dsc.bg_color = pos_theme_color(POS_COLOR_TEXT_MUTED);
+        dsc.bg_color = pos_theme_color(POS_COLOR_TEXT_SECONDARY);
         mark_area(area, g->cell / 6 + 2, &mark);
         lv_draw_rect(layer, &dsc, &mark);
     } else if (look == LOOK_HIT || look == LOOK_SHIP_HIT) {
@@ -180,15 +182,27 @@ static void draw_cell(lv_layer_t *layer, const struct fleet_grid *g, const lv_ar
         mark_area(area, g->cell / 3, &mark);
         lv_draw_rect(layer, &dsc, &mark);
     } else if (look == LOOK_SUNK || look == LOOK_SHIP_SUNK) {
-        /* A ring rather than a solid square: read at a glance as "finished". */
-        lv_draw_rect_dsc_init(&dsc);
-        dsc.radius = CELL_RADIUS;
-        dsc.bg_opa = LV_OPA_TRANSP;
-        dsc.border_color = pos_theme_color(POS_COLOR_TEXT_ON_ACCENT);
-        dsc.border_width = 2;
-        dsc.border_opa = LV_OPA_COVER;
+        /* A cross, not a filled square: the two states share a fill and a
+         * mark colour, so the shape has to carry the difference on its own. */
+        lv_draw_line_dsc_t line;
+
         mark_area(area, g->cell / 2, &mark);
-        lv_draw_rect(layer, &dsc, &mark);
+        lv_draw_line_dsc_init(&line);
+        line.color = pos_theme_color(POS_COLOR_TEXT_ON_ACCENT);
+        line.width = g->cell >= 32 ? 3 : 2;
+        line.opa = LV_OPA_COVER;
+        line.round_start = 1;
+        line.round_end = 1;
+        line.p1.x = mark.x1;
+        line.p1.y = mark.y1;
+        line.p2.x = mark.x2;
+        line.p2.y = mark.y2;
+        lv_draw_line(layer, &line);
+        line.p1.x = mark.x2;
+        line.p1.y = mark.y1;
+        line.p2.x = mark.x1;
+        line.p2.y = mark.y2;
+        lv_draw_line(layer, &line);
     }
 }
 

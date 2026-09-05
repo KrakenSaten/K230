@@ -112,7 +112,7 @@ FLEET_DIR := apps/fleet/engine
 FLEET_OBJS := $(FLEET_DIR)/fleet_types.o $(FLEET_DIR)/fleet_rng.o $(FLEET_DIR)/fleet_ai.o \
               $(FLEET_DIR)/fleet_rules.o $(FLEET_DIR)/fleet_save.o $(FLEET_DIR)/fleet_store.o
 FLEET_TESTS := tests/fleet_rng_test tests/fleet_rules_test tests/fleet_ai_test \
-               tests/fleet_save_test
+               tests/fleet_save_test tests/fleet_theme_test
 FLEET_HDRS := $(FLEET_DIR)/fleet_types.h $(FLEET_DIR)/fleet_rng.h $(FLEET_DIR)/fleet_ai.h \
               $(FLEET_DIR)/fleet_rules.h $(FLEET_DIR)/fleet_save.h $(FLEET_DIR)/fleet_store.h
 
@@ -139,6 +139,13 @@ tests/fleet_ai_test: tests/fleet_ai_test.o $(FLEET_OBJS)
 tests/fleet_save_test: tests/fleet_save_test.o $(FLEET_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# The app's colour contract, checked against the Design System theme tables.
+tests/fleet_theme_test: tests/fleet_theme_test.o $(THEME_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
+tests/fleet_theme_test.o: tests/fleet_theme_test.c ui/pocketui/pos_theme.h
+	$(CC) $(ALL_CFLAGS) -Iui/pocketui -c -o $@ $<
+
 # Native tests only (they execute binaries).
 test: all tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/theme_test tests/settings_test $(FLEET_TESTS)
 	./tests/airtime_test
@@ -150,6 +157,7 @@ test: all tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/the
 	./tests/fleet_rules_test
 	./tests/fleet_ai_test
 	./tests/fleet_save_test
+	./tests/fleet_theme_test
 	bash tests/radiod_mock_test.sh
 	bash tests/supervise_test.sh
 	bash tests/style_lint.sh
