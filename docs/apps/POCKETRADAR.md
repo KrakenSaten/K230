@@ -92,8 +92,11 @@ makes a contact hard to tap rather than merely urgent.
 `radar_polar_dist2()` is the picking metric, and it is what earns the
 no-floating-point rule. The tangential term is the small-angle arc length
 r·θ with θ in decidegrees over 573 (within 0.008 % of a radian). A quarter
-turn at the rim measures 1571 against a true 1571, and the whole metric
-stays under 1.1 × 10⁷ so it cannot overflow 32 bits.
+turn at the rim measures 1570 against a true 1570.8 — the integer division
+truncates — so the metric is short by 0.05 % of the scope radius at the
+worst separation it is ever asked about, and by far less at the small
+separations picking actually cares about. The whole metric stays under
+1.1 × 10⁷, so it cannot overflow 32 bits.
 
 The sweep lives in the run rather than in the UI: four lines, deterministic,
 testable, and the UI has nothing to invent. One turn every four seconds,

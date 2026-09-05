@@ -169,7 +169,10 @@ static void test_polar_distance(void)
           radar_polar_dist2(900, 500, 900, 400) == 100 * 100);
 
     /* A quarter turn at the rim is a quarter circumference, so the arc
-     * metric should report about 1000 * pi / 2 = 1571. */
+     * metric should report about 1000 * pi / 2 = 1570.8. The integer
+     * division truncates that to 1570, which is the number
+     * docs/apps/POCKETRADAR.md quotes; it is pinned here so the two cannot
+     * drift apart. */
     {
         int32_t d2 = radar_polar_dist2(0, 1000, 900, 1000);
         int32_t arc = 0;
@@ -178,10 +181,11 @@ static void test_polar_distance(void)
             arc++;
         }
         if (arc < 1560 || arc > 1580) {
-            printf("     quarter turn measured %d, expected about 1571\n", (int)arc);
+            printf("     quarter turn measured %d, expected about 1570.8\n", (int)arc);
         }
         check("a quarter turn at the rim is a quarter circumference",
               arc >= 1560 && arc <= 1580);
+        check("the documented worst-case truncation is still 1570", arc == 1570);
     }
 
     /* The same angle subtends a shorter arc closer in, which is why a
