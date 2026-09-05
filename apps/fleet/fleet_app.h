@@ -24,6 +24,7 @@ enum fleet_screen {
 };
 
 struct fleet_command_ui;
+struct fleet_deploy_ui;
 
 struct fleet_app {
     struct fleet_game game;
@@ -32,6 +33,7 @@ struct fleet_app {
     lv_obj_t *screen[FLEET_SCREEN_COUNT];     /* NULL until that screen exists */
     uint8_t current;
     struct fleet_command_ui *command;
+    struct fleet_deploy_ui *deploy;
 };
 
 /* Show a screen and refresh it. A screen that has not been built yet is
@@ -45,5 +47,9 @@ lv_obj_t *fleet_app_screen_container(lv_obj_t *parent);
 /* Screen modules. */
 lv_obj_t *fleet_screen_command_create(struct fleet_app *app, lv_obj_t *parent);
 void fleet_screen_command_refresh(struct fleet_app *app);
+lv_obj_t *fleet_screen_deploy_create(struct fleet_app *app, lv_obj_t *parent);
+void fleet_screen_deploy_refresh(struct fleet_app *app);
+/* Reset the deployment screen for a freshly created match. */
+void fleet_screen_deploy_enter(struct fleet_app *app);
 
 #endif

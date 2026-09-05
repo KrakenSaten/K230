@@ -14,6 +14,7 @@
 #include "ui/fleet_view.h"
 
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 /* Gap between panels (DS §7). */
@@ -30,6 +31,10 @@ lv_obj_t *fleet_app_screen_container(lv_obj_t *parent)
     lv_obj_set_width(screen, LV_PCT(100));
     lv_obj_set_height(screen, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(screen, LV_FLEX_FLOW_COLUMN);
+    /* Panels fill the width; the grids, which are a few pixels narrower, are
+     * centred rather than left-aligned. */
+    lv_obj_set_flex_align(screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(screen, FLEET_PANEL_GAP, 0);
     /* Room for the first panel's caption, which straddles its top border. */
     lv_obj_set_style_pad_top(screen, FLEET_CAPTION_ROOM, 0);
@@ -60,6 +65,9 @@ void fleet_app_show(struct fleet_app *app, enum fleet_screen screen)
         fleet_screen_command_refresh(app);
         pocketos_shell_set_status_hint("COMMAND");
         return;
+    case FLEET_SCREEN_DEPLOY:
+        fleet_screen_deploy_refresh(app);
+        break;
     default:
         break;
     }
@@ -80,7 +88,35 @@ void fleet_app_new_match(struct fleet_app *app)
      * match so one can be replayed exactly. */
     seed = (uint32_t)time(NULL) ^ (uint32_t)lv_tick_get();
     fleet_game_new(&app->game, seed, (enum fleet_difficulty)app->difficulty);
+    fleet_screen_deploy_enter(app);
     fleet_app_show(app, FLEET_SCREEN_DEPLOY);
+}
+
+/* ---- development aid --------------------------------------------------- */
+
+/* $POCKETFLEET_SCREEN opens the app on a given screen with a fixed seed, so
+ * the simulator can render every screen for design review the way the shell's
+ * own --screenshot does. It does nothing unless the variable is set. */
+#define FLEET_DEBUG_SEED 20260905u
+
+static void debug_open(struct fleet_app *app)
+{
+    const char *want = getenv("POCKETFLEET_SCREEN");
+    struct fleet_board *board;
+
+    if (!want) {
+        return;
+    }
+    if (strcmp(want, "deploy") == 0) {
+        fleet_game_new(&app->game, FLEET_DEBUG_SEED, (enum fleet_difficulty)app->difficulty);
+        fleet_screen_deploy_enter(app);
+        board = &app->game.board[FLEET_SIDE_PLAYER];
+        fleet_board_autoplace(board, &app->game.rng_setup);
+        /* Two ships left waiting, so both roster states are visible. */
+        fleet_board_unplace(board, FLEET_SHIP_CRUISER);
+        fleet_board_unplace(board, FLEET_SHIP_DESTROYER);
+        fleet_app_show(app, FLEET_SCREEN_DEPLOY);
+    }
 }
 
 /* ---- shell app API ---------------------------------------------------- */
@@ -98,7 +134,10 @@ static void *fleet_create(lv_obj_t *root)
     fleet_game_new(&app->game, 1u, (enum fleet_difficulty)app->difficulty);
 
     app->screen[FLEET_SCREEN_COMMAND] = fleet_screen_command_create(app, root);
+    app->screen[FLEET_SCREEN_DEPLOY] = fleet_screen_deploy_create(app, root);
+    fleet_screen_deploy_enter(app);
     fleet_app_show(app, FLEET_SCREEN_COMMAND);
+    debug_open(app);
     return app;
 }
 
@@ -112,6 +151,7 @@ static void fleet_destroy(void *priv)
     /* The screen containers are children of the shell's root and are deleted
      * with it; only the private blocks are ours to release. */
     free(app->command);
+    free(app->deploy);
     free(app);
 }
 
