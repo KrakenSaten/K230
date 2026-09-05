@@ -13,6 +13,8 @@
 LV_FONT_DECLARE(pos_font_sans_16)
 LV_FONT_DECLARE(pos_font_sans_20)
 LV_FONT_DECLARE(pos_font_sans_24_semibold)
+LV_FONT_DECLARE(pos_font_sans_40_semibold)
+LV_FONT_DECLARE(pos_font_sans_48_semibold)
 LV_FONT_DECLARE(pos_font_mono_14)
 LV_FONT_DECLARE(pos_font_mono_16_medium)
 LV_FONT_DECLARE(pos_font_mono_20)
@@ -25,6 +27,9 @@ LV_FONT_DECLARE(pos_font_mono_20)
 static lv_style_t styles[POS_STYLE_COUNT];
 static int initialised;
 static uint32_t theme_event;
+
+#define MAX_WATCHED 32
+static lv_obj_t *watched[MAX_WATCHED];
 
 lv_color_t pos_theme_color(enum pos_color_token token)
 {
@@ -162,6 +167,29 @@ static void fill_styles(void)
     lv_style_set_shadow_width(s, 0);
     lv_style_set_height(s, 64);
 
+    s = &styles[POS_STYLE_BUTTON_DISABLED];
+    reset(s);
+    lv_style_set_bg_color(s, tok(POS_COLOR_DISABLED_BG));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_text_color(s, tok(POS_COLOR_DISABLED_FG));
+    lv_style_set_border_width(s, 0);
+    lv_style_set_outline_width(s, 0);
+    lv_style_set_radius(s, POS_RADIUS);
+    lv_style_set_shadow_width(s, 0);
+    lv_style_set_height(s, 64);
+
+    s = &styles[POS_STYLE_HERO_40];
+    reset(s);
+    lv_style_set_text_color(s, tok(POS_COLOR_TEXT_PRIMARY));
+    lv_style_set_text_font(s, &pos_font_sans_40_semibold);
+    lv_style_set_text_letter_space(s, 0); /* -1 % of 40 px rounds to 0 */
+
+    s = &styles[POS_STYLE_HERO_48];
+    reset(s);
+    lv_style_set_text_color(s, tok(POS_COLOR_TEXT_PRIMARY));
+    lv_style_set_text_font(s, &pos_font_sans_48_semibold);
+    lv_style_set_text_letter_space(s, -1); /* -2 % of 48 px */
+
     s = &styles[POS_STYLE_CHIP];
     reset(s);
     lv_style_set_height(s, POS_CHIP_HEIGHT);
@@ -234,6 +262,11 @@ static void on_theme_changed(void *user)
     }
     fill_styles();
     lv_obj_report_style_change(NULL);
+    for (int i = 0; i < MAX_WATCHED; i++) {
+        if (watched[i]) {
+            lv_obj_invalidate(watched[i]);
+        }
+    }
     if (lv_screen_active()) {
         lv_obj_send_event(lv_screen_active(), (lv_event_code_t)theme_event, NULL);
     }
@@ -273,4 +306,35 @@ int pos_theme_apply(const char *theme_id, const char *mode_name, char *why, size
 uint32_t pos_event_theme_changed(void)
 {
     return theme_event;
+}
+
+static void on_watched_deleted(lv_event_t *e)
+{
+    lv_obj_t *obj = lv_event_get_target(e);
+    int i;
+
+    for (i = 0; i < MAX_WATCHED; i++) {
+        if (watched[i] == obj) {
+            watched[i] = NULL;
+        }
+    }
+}
+
+int pos_theme_watch(lv_obj_t *obj)
+{
+    int i;
+
+    for (i = 0; i < MAX_WATCHED; i++) {
+        if (watched[i] == obj) {
+            return 0;
+        }
+    }
+    for (i = 0; i < MAX_WATCHED; i++) {
+        if (!watched[i]) {
+            watched[i] = obj;
+            lv_obj_add_event_cb(obj, on_watched_deleted, LV_EVENT_DELETE, NULL);
+            return 0;
+        }
+    }
+    return -1;
 }

@@ -66,6 +66,16 @@ Updated 2026-09-04. Move items to git history when resolved.
 - The shell blocks the UI thread on pocketipc calls; acceptable with local
   services, wrong for slow ones. Needs an async path before netd.
 - Shell app launch by touch is untested in the simulator (only `--open`).
+- App lifecycle is create/tick/destroy only: no pause, resume or suspend
+  (ADR-002 names them as later work). Apps needing continuity persist state
+  on each change themselves (PocketFleet finding 7). v0.1 limitation.
+- PocketUI has no shared panel caption, segmented control or segmented
+  meter/list rows yet; PocketFleet carries app-local versions. They are DS
+  §9 components scheduled for implementation step 5 and will be promoted to
+  the shared library then (PocketFleet finding 5).
+- Custom-draw widgets must call `pos_theme_watch()` (or subscribe to
+  `pos_event_theme_changed()`) to repaint on theme changes; shared styles
+  repaint on their own (PocketFleet finding 4, documented in pos_styles.h).
 - Design System steps 1 to 4 only: the status bar is not yet the four-cell
   layout of §9 (the radio chip sits vertically high in the 56 px bar), the
   launcher tiles and panels use role styles but not every §7 dimension, and

@@ -7,6 +7,9 @@
  * settings_set() is transactional: the in-memory value changes only when the
  * file was written. Pure C, no LVGL, so it is unit-tested natively.
  *
+ * Standard keys: theme (DS theme id), display_mode (normal|outdoor|night),
+ * reduced_motion (0|1, default 0; DS §12, see pocketos_shell_reduced_motion()).
+ *
  * SECURITY: this store is for non-secret preferences (theme, display mode
  * and the like). It is a world-readable plain-text file with no integrity
  * protection. It MUST NOT hold passwords, private keys, Wi-Fi credentials,

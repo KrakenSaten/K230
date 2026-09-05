@@ -14,3 +14,4 @@
 /tests/settings_test
 /.claude/
 /tests/pocketipc_test
+*.d

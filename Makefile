@@ -15,8 +15,11 @@ ENABLE_SX1262 ?= 0
 RADIOLIB_DIR ?= $(if $(wildcard third_party/RadioLib/src),third_party/RadioLib/src,vendor/RadioLib/src)
 POCKETOS_VERSION := $(shell cat VERSION)
 COMMON_FLAGS := -Wall -Wextra -Icore -DPOCKETOS_VERSION=\"$(POCKETOS_VERSION)\"
-ALL_CFLAGS := $(CFLAGS) -std=gnu11 $(COMMON_FLAGS)
-ALL_CXXFLAGS := $(CXXFLAGS) -std=gnu++17 $(COMMON_FLAGS) -Iservices/radiod -I$(RADIOLIB_DIR) -DRADIOLIB_LOW_LEVEL=1
+# Compiler-generated header dependencies (.d next to each .o) so a changed
+# header rebuilds every object that includes it (PocketFleet finding 1).
+DEPFLAGS := -MMD -MP
+ALL_CFLAGS := $(CFLAGS) -std=gnu11 $(COMMON_FLAGS) $(DEPFLAGS)
+ALL_CXXFLAGS := $(CXXFLAGS) -std=gnu++17 $(COMMON_FLAGS) -Iservices/radiod -I$(RADIOLIB_DIR) -DRADIOLIB_LOW_LEVEL=1 $(DEPFLAGS)
 
 IPC_OBJS    := core/pocketipc/pocketipc.o
 LOG_OBJS    := core/pocketlog/pocketlog.o
@@ -112,6 +115,7 @@ test: all tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/the
 	bash tests/radiod_mock_test.sh
 	bash tests/supervise_test.sh
 	bash tests/style_lint.sh
+	bash tests/build_deps_test.sh
 
 install: all
 	install -D -m 0755 tools/pos/pos $(DESTDIR)$(PREFIX)/bin/pos
@@ -120,7 +124,10 @@ install: all
 	install -D -m 0755 tools/supervise/pos-supervise $(DESTDIR)$(PREFIX)/bin/pos-supervise
 	install -D -m 0644 VERSION $(DESTDIR)/etc/pocketos-release
 
+DEPFILES := $(shell find core services tools ui tests $(RADIOLIB_DIR) -name '*.d' 2>/dev/null)
+-include $(DEPFILES)
+
 clean:
-	rm -f $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SX1262_OBJS) $(THEME_OBJS) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SX1262_OBJS) $(THEME_OBJS) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o
 
 .PHONY: all test install clean sx1262-objs

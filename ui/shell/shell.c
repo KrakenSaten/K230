@@ -103,7 +103,9 @@ static void status_update(void)
         }
         cJSON_Delete(st);
     } else {
-        radio_chip_set(POS_STYLE_CHIP_NA, "\xe2\x80\x94"); /* em dash: service absent */
+        /* "--" not U+2014: the Montserrat symbol font used by this chip has
+         * no em dash (PocketFleet finding 9); revisit with the DS icon set. */
+        radio_chip_set(POS_STYLE_CHIP_NA, "--");
     }
 }
 
@@ -138,6 +140,13 @@ static void status_bar_create(lv_obj_t *screen)
 void pocketos_shell_set_status_hint(const char *text)
 {
     lv_label_set_text(sh.status_hint, text ? text : "");
+}
+
+int pocketos_shell_reduced_motion(void)
+{
+    const char *v = settings_get("reduced_motion", "0");
+
+    return strcmp(v, "1") == 0 || strcmp(v, "true") == 0;
 }
 
 /* ---- app hosting ------------------------------------------------------ */
@@ -228,6 +237,7 @@ static void app_open(const struct pocketos_app *app)
     lv_obj_set_flex_grow(body, 1);
     lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(body, POCKETUI_PAD, 0);
+    lv_obj_set_style_pad_top(body, POCKETUI_BODY_PAD_TOP, 0); /* DS §7 */
     lv_obj_set_style_pad_row(body, POCKETUI_PAD, 0);
     lv_obj_add_flag(body, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(body, LV_DIR_VER);

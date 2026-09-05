@@ -190,6 +190,50 @@ int main(int argc, char **argv)
         }
     }
 
+    /* §13 plus the component-sanctioned foreground/background pairs
+     * (PocketFleet finding 10): surfaces as well as bg. */
+    for (idx = 0; idx < pos_theme_count(); idx++) {
+        static const int pairs[][2] = {
+            { POS_COLOR_TEXT_PRIMARY, POS_COLOR_SURFACE },
+            { POS_COLOR_TEXT_SECONDARY, POS_COLOR_SURFACE },
+            { POS_COLOR_TEXT_PRIMARY, POS_COLOR_SURFACE_RAISED },
+            { POS_COLOR_TEXT_SECONDARY, POS_COLOR_SURFACE_RAISED },
+            { POS_COLOR_STATUS_OK, POS_COLOR_SURFACE },
+            { POS_COLOR_STATUS_WARN, POS_COLOR_SURFACE },
+            { POS_COLOR_STATUS_ERROR, POS_COLOR_SURFACE },
+            { POS_COLOR_ACCENT_PRIMARY, POS_COLOR_SURFACE },
+            { POS_COLOR_TEXT_ON_ACCENT, POS_COLOR_ACCENT_PRIMARY },
+            { POS_COLOR_TEXT_ON_ACCENT, POS_COLOR_RADIO_RX },
+            { POS_COLOR_TEXT_ON_ACCENT, POS_COLOR_RADIO_TX },
+        };
+        const struct pos_theme_def *def = pos_theme_at(idx);
+        int m;
+
+        for (m = POS_MODE_NORMAL; m <= POS_MODE_OUTDOOR; m++) {
+            struct pos_theme_tokens t;
+            size_t k;
+            char label[160];
+
+            pos_theme_resolve(def, (enum pos_mode)m, &t);
+            for (k = 0; k < sizeof(pairs) / sizeof(pairs[0]); k++) {
+                snprintf(label, sizeof(label), "%s/%s sanctioned pair %s on %s >= 4.5", def->id,
+                         pos_mode_name((enum pos_mode)m),
+                         pos_color_token_name((enum pos_color_token)pairs[k][0]),
+                         pos_color_token_name((enum pos_color_token)pairs[k][1]));
+                check(label, pos_contrast(t.color[pairs[k][0]], t.color[pairs[k][1]]) >= 4.5);
+            }
+        }
+    }
+    /* text_primary on a chip fill is not a sanctioned pair; the test documents
+     * why: it fails on at least one theme (Slate radio_rx, about 1.3). */
+    {
+        struct pos_theme_tokens t;
+
+        pos_theme_resolve(pos_theme_find("slate"), POS_MODE_NORMAL, &t);
+        check("unsanctioned pair text_primary on radio_rx is below 4.5 (use text_on_accent)",
+              pos_contrast(t.color[POS_COLOR_TEXT_PRIMARY], t.color[POS_COLOR_RADIO_RX]) < 4.5);
+    }
+
     /* mix() rounding and helpers */
     check("mix half-up rounding", pos_mix(0x8d99a6, 0x06080b, 0.35) == 0x5e6670);
     check("mix t=0", pos_mix(0x123456, 0xffffff, 0.0) == 0x123456);

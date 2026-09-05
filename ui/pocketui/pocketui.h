@@ -16,6 +16,7 @@
 #define POCKETUI_HEADER_H 72
 #define POCKETUI_TOUCH_MIN 64     /* C1: 64 until glove testing says otherwise */
 #define POCKETUI_PAD 20
+#define POCKETUI_BODY_PAD_TOP 24  /* DS §7: body top padding */
 #define POCKETUI_RADIUS 6
 #define POCKETUI_ROW_H 64
 #define POCKETUI_TILE_H 150

@@ -28,5 +28,14 @@ struct pocketos_app {
 /* Shell services available to apps. */
 void pocketos_shell_set_status_hint(const char *text); /* short text in the status bar */
 void pocketos_shell_go_home(void);
+/* Platform-wide reduced-motion preference (DS §12): settings key
+ * "reduced_motion" = 0|1 in /etc/pocketos/settings.conf, default 0.
+ * When 1, every animation must apply its end state immediately. */
+int pocketos_shell_reduced_motion(void);
+
+/* v0.1 lifecycle limitation: an app is created when opened and destroyed
+ * when left; there is no pause/resume/suspend and no background state.
+ * Apps that need continuity persist their own state on each change
+ * (ADR-002 lists the fuller lifecycle as a later step). */
 
 #endif
