@@ -97,9 +97,7 @@ static void *radio_create(lv_obj_t *root)
 
     pocketui_button(root, "Send test packet", on_send, a);
     pocketui_button(root, "Inject mock RX", on_inject, a);
-    a->message = lv_label_create(root);
-    lv_label_set_text(a->message, "");
-    lv_obj_set_style_text_color(a->message, pocketui_tokens()->text_dim, 0);
+    a->message = pocketui_label(root, "", POS_STYLE_TEXT_SECONDARY);
     return a;
 }
 

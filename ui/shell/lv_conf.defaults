@@ -20,13 +20,15 @@ LV_USE_FS_STDIO 1
 LV_FS_DEFAULT_DRIVER_LETTER 'A'
 LV_FS_STDIO_LETTER 'A'
 
-LV_FONT_MONTSERRAT_14 1
-LV_FONT_MONTSERRAT_16 1
+# Design System v0.1 fonts are converted IBM Plex bitmaps in ui/pocketui/fonts
+# (pos_font_*), applied at runtime through the PocketUI styles; the body font
+# is set on the screen by pocketui_style_screen(). Montserrat 20/32 stay
+# enabled only as the LV_SYMBOL_* glyph source until the stroke icon set
+# exists (DS §11, implementation step 5+). LV_FONT_DEFAULT is never used for
+# visible text.
 LV_FONT_MONTSERRAT_20 1
-LV_FONT_MONTSERRAT_24 1
-LV_FONT_MONTSERRAT_28 1
 LV_FONT_MONTSERRAT_32 1
-LV_FONT_DEFAULT &lv_font_montserrat_16
+LV_FONT_DEFAULT &lv_font_montserrat_20
 
 LV_USE_SYSMON 1
 LV_USE_PERF_MONITOR 0

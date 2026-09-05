@@ -62,6 +62,20 @@ The backend interface is `services/radiod/radio_backend.h`. The sx1262
 backend will use RadioLib (upstream, MIT) with a PocketOS HAL on spidev and
 libgpiod v2. The LILYGO launcher's HAL cannot be reused (no licence).
 
+## Theme engine (Design System v0.1)
+
+`ui/pocketui/pos_theme.c` is pure C: five Normal-mode base tables generated
+from `docs/design/themes.json`, derived tokens (§4), Outdoor and Night rules
+(§6), invariants and fallback (§8). `pos_styles.c` turns the current tokens
+into one shared LVGL style per role; a theme or mode change rewrites those
+styles and calls `lv_obj_report_style_change`, so every widget follows
+without being touched. Rule enforced by `tests/style_lint.sh`: no colour
+literal, colour style call or font symbol outside `pos_theme.c`,
+`pos_styles.c` and the generated fonts. Apps and the shell add role styles
+only. Selection is persisted by the shell in `/etc/pocketos/settings.conf`
+(`theme`, `display_mode`), read before the first frame; invalid stored values
+fall back to `ice` + `normal`, are logged, and are left untouched.
+
 ## Shell
 
 One LVGL process. The status bar polls radiod once per second. Apps

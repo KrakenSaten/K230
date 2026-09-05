@@ -35,9 +35,12 @@ packet between the two units, Wi-Fi joins a network from the Settings app.
 
 ## Phase 2: PocketUI design system
 
-Tokens exist (`ui/pocketui`). Remaining: component set (dialogs, lists,
-toggles, notifications), motion, normal / outdoor / night modes, launcher
-polish. Design review happens on simulator screenshots.
+Design System v0.1 is approved (`docs/design/POCKETOS-DS-v0.1.md`).
+Implementation steps 1 to 4 are done on the simulator (theme engine with
+five themes and three modes, converted fonts, shared role styles with live
+switching, persistence and fallback). Steps 5 to 10 (components, screens,
+motion, contrast gate) await approval; hardware items H1 to H5 await boards.
+Design review happens on simulator screenshots in `docs/design/shots/`.
 
 ## Phase 3: first strong application
 

@@ -6,3 +6,10 @@
 /out/
 /tools/pos/pos
 *.o
+# Native build outputs and local tool config
+/services/radiod/radiod
+/tests/airtime_test
+/tests/pocketlog_test
+/tests/theme_test
+/tests/settings_test
+/.claude/

@@ -11,23 +11,30 @@ set(POCKETOS_DISPLAY "sdl" CACHE STRING "Display backend: sdl or drm")
 set(POCKETOS_LVGL_MODE "source" CACHE STRING "LVGL from: source (add_subdirectory) or sysroot")
 set(LVGL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../vendor/lvgl" CACHE PATH "LVGL source tree (pinned commit)")
 set(REPO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+file(GLOB POCKETUI_FONTS "${REPO_DIR}/ui/pocketui/fonts/pos_font_*.c")
 
 find_package(PkgConfig REQUIRED)
 
 add_executable(pocketos-shell
     shell.c
     shell_ipc.c
+    settings.c
     platform_${POCKETOS_DISPLAY}.c
     ../pocketui/pocketui.c
+    ../pocketui/pos_theme.c
+    ../pocketui/pos_styles.c
     ${REPO_DIR}/apps/radio/radio_app.c
     ${REPO_DIR}/apps/system/system_app.c
     ${REPO_DIR}/core/pocketipc/pocketipc.c
     ${REPO_DIR}/core/pocketipc/server.c
-    ${REPO_DIR}/core/pocketlog/pocketlog.c)
+    ${REPO_DIR}/core/pocketlog/pocketlog.c
+    ${POCKETUI_FONTS})
 target_include_directories(pocketos-shell PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui" "${REPO_DIR}/core")
 target_compile_options(pocketos-shell PRIVATE -Wall -Wextra)
-target_compile_definitions(pocketos-shell PRIVATE POCKETOS_DISPLAY_NAME="${POCKETOS_DISPLAY}")
+target_compile_definitions(pocketos-shell PRIVATE
+    POCKETOS_DISPLAY_NAME="${POCKETOS_DISPLAY}"
+    LV_LVGL_H_INCLUDE_SIMPLE)
 target_link_libraries(pocketos-shell PRIVATE cjson m)
 
 if(POCKETOS_LVGL_MODE STREQUAL "source")

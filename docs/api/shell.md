@@ -12,10 +12,17 @@ developer tooling, not for applications.
 - `shell.home`: closes the current app and shows the launcher.
 - `shell.screenshot` params `{path}`: renders the current screen to a PNG at
   `path` (on the device filesystem). Error 4 if it cannot be written.
+- `shell.theme` params `{theme?, mode?}`: selects a Design System theme id
+  (`ice`, `brass`, `olive`, `slate`, `carbon`) and/or display mode
+  (`normal`, `outdoor`, `night`) live, no restart. An unknown id or mode is
+  not an error: the shell falls back to `ice` + `normal` (DS §8) and the
+  result carries `fallback: true` with a `reason`. Result: `{theme, mode,
+  fallback, reason}`. `shell.info` also reports `theme` and `mode`.
 
 ## Events
 
-`shell.app` `{current}` when the visible app changes, to subscribed clients
+`shell.app` `{current}` when the visible app changes, and `shell.theme`
+`{theme, mode}` after a theme or mode change, to subscribed clients
 (`shell.subscribe` / `shell.unsubscribe`).
 
 ## Security

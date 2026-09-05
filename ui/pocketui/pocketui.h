@@ -1,8 +1,7 @@
 /*
- * PocketUI: design tokens and the few shared widgets the shell needs.
- * Direction (charter): dark UI, restrained neon accents, high readability,
- * touch-friendly. Modes (normal/outdoor/night) come later; only the token
- * table is designed to carry them.
+ * PocketUI: the shared widgets the shell and in-process apps use, built on
+ * the Design System v0.1 role styles (pos_styles.h) and tokens (pos_theme.h).
+ * Components never name colours or fonts; they add role styles.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -10,41 +9,33 @@
 #define POCKETUI_H
 
 #include "lvgl.h"
+#include "pos_styles.h"
 
-/* Reference panel: 568x1232 portrait. Layout constants are in pixels at 1:1. */
+/* Reference panel: 568x1232 portrait. Layout constants in pixels (DS §7). */
 #define POCKETUI_STATUS_BAR_H 56
-#define POCKETUI_TOUCH_MIN 72     /* smallest comfortable touch target */
+#define POCKETUI_HEADER_H 72
+#define POCKETUI_TOUCH_MIN 64     /* C1: 64 until glove testing says otherwise */
 #define POCKETUI_PAD 20
-#define POCKETUI_RADIUS 16
+#define POCKETUI_RADIUS 6
+#define POCKETUI_ROW_H 64
+#define POCKETUI_TILE_H 150
 
-struct pocketui_tokens {
-    lv_color_t bg;          /* screen background */
-    lv_color_t surface;     /* cards, tiles */
-    lv_color_t surface_hi;  /* pressed / highlighted surface */
-    lv_color_t text;
-    lv_color_t text_dim;
-    lv_color_t accent;      /* restrained neon: cyan */
-    lv_color_t accent_2;    /* secondary: violet */
-    lv_color_t ok;
-    lv_color_t warn;
-    lv_color_t error;       /* used sparingly */
-};
-
-const struct pocketui_tokens *pocketui_tokens(void);
-
-/* Apply background and default text styles to the active screen. */
+/* Initialise styles from the current theme. Call once after lv_init(). */
 void pocketui_init(void);
+/* Apply the screen role to a screen object. */
 void pocketui_style_screen(lv_obj_t *screen);
 
-/* A rounded surface container with padding. */
+/* Panel: hairline-bordered container with 20 px padding, vertical flex. */
 lv_obj_t *pocketui_card(lv_obj_t *parent);
-/* Launcher tile: icon text (symbol or short text) and a label. */
+/* Launcher tile (C7): slab, symbol icon top-left, row-title label bottom-left. */
 lv_obj_t *pocketui_tile(lv_obj_t *parent, const char *icon, const char *label,
                         lv_event_cb_t on_click, void *user_data);
-/* Key/value row inside a card: returns the value label for updates. */
+/* Key/value row: secondary label left, value right; returns the value label. */
 lv_obj_t *pocketui_kv_row(lv_obj_t *parent, const char *key, const char *value);
-/* Large accent button, full width of parent. */
+/* Primary button, full width of parent, 64 px tall. */
 lv_obj_t *pocketui_button(lv_obj_t *parent, const char *text, lv_event_cb_t on_click,
                           void *user_data);
+/* Plain label with a role style (text, caption, value, status colours). */
+lv_obj_t *pocketui_label(lv_obj_t *parent, const char *text, enum pos_style_role role);
 
 #endif

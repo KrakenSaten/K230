@@ -72,12 +72,42 @@ tests/airtime_test.o: tests/airtime_test.c
 tests/pocketlog_test: tests/pocketlog_test.o $(LOG_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# Theme engine (pure C, no LVGL) and its test against docs/design/themes.json.
+THEME_OBJS := ui/pocketui/pos_theme.o
+
+# The generated table is committed; it is only regenerated where the design
+# sources exist (they are not synced into the Buildroot package).
+ui/pocketui/pos_theme_table.h: $(wildcard docs/design/themes.json) $(wildcard tools/design/gen_theme_table.py)
+	$(if $(wildcard docs/design/themes.json),python3 tools/design/gen_theme_table.py docs/design/themes.json $@,@true)
+
+ui/pocketui/pos_theme.o: ui/pocketui/pos_theme.c ui/pocketui/pos_theme.h ui/pocketui/pos_theme_table.h
+	$(CC) $(ALL_CFLAGS) -Iui/pocketui -c -o $@ $<
+
+tests/theme_test: tests/theme_test.o $(THEME_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+tests/theme_test.o: tests/theme_test.c ui/pocketui/pos_theme.h
+	$(CC) $(ALL_CFLAGS) -Iui/pocketui -c -o $@ $<
+
+# Shell settings store (pure C) and its test.
+ui/shell/settings.o: ui/shell/settings.c ui/shell/settings.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/settings_test: tests/settings_test.o ui/shell/settings.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/settings_test.o: tests/settings_test.c ui/shell/settings.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
 # Native tests only (they execute binaries).
-test: all tests/airtime_test tests/pocketlog_test
+test: all tests/airtime_test tests/pocketlog_test tests/theme_test tests/settings_test
 	./tests/airtime_test
 	./tests/pocketlog_test 2>/dev/null
+	./tests/theme_test docs/design/themes.json
+	./tests/settings_test
 	bash tests/radiod_mock_test.sh
 	bash tests/supervise_test.sh
+	bash tests/style_lint.sh
 
 install: all
 	install -D -m 0755 tools/pos/pos $(DESTDIR)$(PREFIX)/bin/pos
@@ -87,6 +117,6 @@ install: all
 	install -D -m 0644 VERSION $(DESTDIR)/etc/pocketos-release
 
 clean:
-	rm -f $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SX1262_OBJS) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o
+	rm -f $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SX1262_OBJS) $(THEME_OBJS) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o
 
 .PHONY: all test install clean sx1262-objs

@@ -52,5 +52,13 @@ Updated 2026-09-04. Move items to git history when resolved.
 - The shell blocks the UI thread on pocketipc calls; acceptable with local
   services, wrong for slow ones. Needs an async path before netd.
 - Shell app launch by touch is untested in the simulator (only `--open`).
+- Design System steps 1 to 4 only: the status bar is not yet the four-cell
+  layout of §9 (the radio chip sits vertically high in the 56 px bar), the
+  launcher tiles and panels use role styles but not every §7 dimension, and
+  LV_SYMBOL glyphs still come from the Montserrat symbol fonts until the
+  stroke icon set exists (step 5+).
+- LVGL's `generate_lv_conf.py` writes `LV_FONT_CUSTOM_DECLARE` into the
+  template's comment example instead of the define; the body font is
+  therefore set at runtime on the screen, and `LV_FONT_DEFAULT` is unused.
 - The vendor launcher still starts in the PocketOS defconfig and owns the
   display and the radio; PocketOS radiod runs with the mock backend there.

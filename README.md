@@ -9,7 +9,7 @@ AGENTS.md                  Rules for AI agents working here
 Makefile                   First-party build (called by the Buildroot package)
 VERSION                    PocketOS version
 apps/                      In-process apps: radio (radiod client), system
-ui/pocketui/               Design tokens and shared widgets (dark UI, cyan accent)
+ui/pocketui/               Theme engine (pos_theme), shared role styles (pos_styles), widgets, fonts/
 ui/shell/                  Shell: status bar, launcher, app host; SDL simulator or DRM target (CMake)
 core/pocketipc/            IPC library and server helper: length-prefixed JSON over Unix sockets
 core/pocketlog/            Structured logging, rotation and crash reports
@@ -20,7 +20,7 @@ docs/
   ROADMAP.md               Phase 1 status table and later phases
   KNOWN_ISSUES.md          Open hardware, licensing, build and software issues
   api/                     Public API contracts: pocketipc v0, radio.* v0, shell.* v0
-  design/POCKETUI.md       Design handoff: tokens, layout, components, modes, motion
+  design/                  Design System v0.1 (normative), themes.json, feasibility review, shots/
   BUILD_ENVIRONMENT.md     Host, toolchain, SDK commits, build/flash/test commands
   LICENSING.md             Licence register for vendor and third-party code
   decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted)
@@ -29,6 +29,7 @@ docs/
 platforms/k230/            Defconfig, Buildroot package and apply/build scripts (ADR-001)
 tools/pos/                 `pos` CLI: system, hardware, network, radio, logs, app, shell
 tools/supervise/           `pos-supervise`: restart with backoff and crash-loop detection
+tools/design/              Generators: theme table from themes.json, LVGL fonts from IBM Plex
 tools/hwcheck/             `pos-hwcheck`: first-boot hardware inventory script
 vendor/                    Read-only reference clones (git-ignored)
   T-Display-K230/          LILYGO BSP + LVGL launcher, pinned (see platforms/k230/vendor_bsp_commit.txt)

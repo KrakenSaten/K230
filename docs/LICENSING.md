@@ -25,6 +25,8 @@ carry "License: see LICENSE (TBD)" and nothing is published.
 | quirc (bundled) | ISC (LICENSE present) | VERIFIED locally | Fine if used, keep notice. |
 | LVGL 9 (pinned commit 59dc7e4, vendor/lvgl) | MIT (LICENCE.txt present) | VERIFIED locally | Fine, keep notice. Bundled lodepng (zlib licence) used for screenshots. |
 | SDL2 (simulator only, not shipped) | zlib | DOCUMENTED | Host-only. |
+| IBM Plex Sans / Mono (converted to LVGL bitmaps in `ui/pocketui/fonts/`) | OFL-1.1 with Reserved Font Name "Plex" | VERIFIED (upstream `license.txt`, copy in `docs/legal/fonts/`) | Bitmaps are Modified Versions: symbols are `pos_font_*`, and the UI must never present them as "IBM Plex" (DS decision 2026-09-04). OFL text ships with the fonts. |
+| lv_font_conv 1.5.3 (host tool) | MIT | DOCUMENTED | Host-only, run from a local Node 20 tarball; generated C files are committed so builds need neither. |
 | cJSON 1.7.x (Buildroot package, used by pocketipc, pos, radiod) | MIT | DOCUMENTED | First PocketOS dependency: ~40 kB library, no transitive deps, justified in docs/api/pocketipc.md. |
 
 ## Image manifest (PocketOS 0.0.1, 2026-09-04)

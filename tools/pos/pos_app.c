@@ -105,6 +105,29 @@ int cmd_shell(int argc, char **argv)
         }
         return rc;
     }
+    if (argc >= 2 && strcmp(argv[0], "theme") == 0) {
+        cJSON *params = cJSON_CreateObject();
+        const cJSON *v;
+
+        cJSON_AddStringToObject(params, "theme", argv[1]);
+        if (argc >= 3) {
+            cJSON_AddStringToObject(params, "mode", argv[2]);
+        }
+        rc = shell_call("shell.theme", params, &result);
+        if (rc) {
+            return rc;
+        }
+        v = cJSON_GetObjectItemCaseSensitive(result, "fallback");
+        printf("theme %s mode %s%s\n",
+               cJSON_GetObjectItemCaseSensitive(result, "theme")->valuestring,
+               cJSON_GetObjectItemCaseSensitive(result, "mode")->valuestring,
+               cJSON_IsTrue(v) ? " (fallback)" : "");
+        if (cJSON_IsTrue(v)) {
+            fprintf(stderr, "pos: %s\n", cJSON_GetObjectItemCaseSensitive(result, "reason")->valuestring);
+        }
+        cJSON_Delete(result);
+        return cJSON_IsTrue(v) ? 3 : 0;
+    }
     if (argc >= 1 && strcmp(argv[0], "info") == 0) {
         char *text;
 
@@ -118,6 +141,6 @@ int cmd_shell(int argc, char **argv)
         cJSON_Delete(result);
         return 0;
     }
-    fprintf(stderr, "usage: pos shell info | screenshot <path.png>\n");
+    fprintf(stderr, "usage: pos shell info | screenshot <path.png> | theme <id> [normal|outdoor|night]\n");
     return 2;
 }

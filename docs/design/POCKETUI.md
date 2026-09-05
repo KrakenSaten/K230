@@ -1,4 +1,7 @@
-# PocketUI design handoff
+# PocketUI design handoff (v0, SUPERSEDED)
+
+Superseded on 2026-09-04 by `POCKETOS-DS-v0.1.md`, the approved Design
+System. Kept for history only; nothing here is normative.
 
 Status: v0 as implemented on 2026-09-04 in `ui/pocketui` and `ui/shell`.
 This document is the contract between design work (Phase 2) and the code.

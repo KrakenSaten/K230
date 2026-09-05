@@ -154,6 +154,17 @@ SDL_VIDEODRIVER=dummy ~/work/pocketos-build/shell/pocketos-shell --open radio --
 backend (`-DPOCKETOS_DISPLAY=drm`) compiles against libdrm/libevdev from
 Buildroot and is untested until hardware is available.
 
+## Fonts (host-only, regeneration only)
+
+The Design System fonts are committed as generated C files. To regenerate:
+Node 20 LTS lives as a plain tarball in `~/tools/node` inside WSL with
+`lv_font_conv` 1.5.3 installed under `~/tools/npm` (no system packages), and
+the IBM Plex TTFs plus their OFL text are in `~/work/fonts`. Then:
+
+```sh
+PATH=$HOME/tools/node/bin:$HOME/tools/npm/bin:$PATH tools/design/gen_fonts.sh $HOME/work/fonts
+```
+
 ## Test
 
 Native, inside WSL (needs `libcjson-dev`, installed 2026-09-04):

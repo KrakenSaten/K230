@@ -14,6 +14,7 @@
 #include "pocketipc/server.h"
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
+#include "settings.h"
 #include "shell_ipc.h"
 
 #include <errno.h>
@@ -60,6 +61,22 @@ static void app_open(const struct pocketos_app *app);
 
 /* ---- status bar ------------------------------------------------------- */
 
+/* Radio chip states (DS §9): RX, TX, OFF, NA share the chip geometry style
+ * and differ only in the state style. */
+static void radio_chip_set(enum pos_style_role state, const char *label)
+{
+    static const enum pos_style_role states[] = {
+        POS_STYLE_CHIP_RX, POS_STYLE_CHIP_TX, POS_STYLE_CHIP_OFF, POS_STYLE_CHIP_NA
+    };
+    size_t i;
+
+    for (i = 0; i < sizeof(states) / sizeof(states[0]); i++) {
+        lv_obj_remove_style(sh.status_radio, pos_style(states[i]), 0);
+    }
+    pos_style_add(sh.status_radio, state, 0);
+    lv_label_set_text_fmt(sh.status_radio, LV_SYMBOL_WIFI " %s", label);
+}
+
 static void status_update(void)
 {
     time_t now = time(NULL);
@@ -76,49 +93,45 @@ static void status_update(void)
     if (st) {
         const cJSON *state = cJSON_GetObjectItemCaseSensitive(st, "state");
         const char *s = cJSON_IsString(state) ? state->valuestring : "?";
-        const struct pocketui_tokens *t = pocketui_tokens();
 
-        lv_label_set_text_fmt(sh.status_radio, LV_SYMBOL_WIFI " %s", s);
-        lv_obj_set_style_text_color(sh.status_radio,
-                                    strcmp(s, "tx") == 0 ? t->accent_2 :
-                                    strcmp(s, "rx") == 0 ? t->accent : t->text_dim, 0);
+        if (strcmp(s, "tx") == 0) {
+            radio_chip_set(POS_STYLE_CHIP_TX, "TX");
+        } else if (strcmp(s, "rx") == 0) {
+            radio_chip_set(POS_STYLE_CHIP_RX, "RX");
+        } else {
+            radio_chip_set(POS_STYLE_CHIP_OFF, "OFF");
+        }
         cJSON_Delete(st);
     } else {
-        lv_label_set_text(sh.status_radio, LV_SYMBOL_WIFI " off");
-        lv_obj_set_style_text_color(sh.status_radio, pocketui_tokens()->text_dim, 0);
+        radio_chip_set(POS_STYLE_CHIP_NA, "\xe2\x80\x94"); /* em dash: service absent */
     }
 }
 
 static void status_bar_create(lv_obj_t *screen)
 {
-    const struct pocketui_tokens *t = pocketui_tokens();
     lv_obj_t *bar = lv_obj_create(screen);
     lv_obj_t *title;
 
     lv_obj_remove_style_all(bar);
+    pos_style_add(bar, POS_STYLE_STATUS_BAR, 0);
     lv_obj_set_size(bar, LV_PCT(100), POCKETUI_STATUS_BAR_H);
     lv_obj_align(bar, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_set_style_bg_color(bar, t->surface, 0);
-    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_hor(bar, POCKETUI_PAD, 0);
     lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
 
-    title = lv_label_create(bar);
-    lv_label_set_text(title, "PocketOS");
-    lv_obj_set_style_text_color(title, t->text_dim, 0);
+    title = pocketui_label(bar, "POCKETOS", POS_STYLE_CAPTION);
+    (void)title;
 
-    sh.status_hint = lv_label_create(bar);
-    lv_label_set_text(sh.status_hint, "");
-    lv_obj_set_style_text_color(sh.status_hint, t->text_dim, 0);
+    sh.status_hint = pocketui_label(bar, "", POS_STYLE_CAPTION);
 
     sh.status_radio = lv_label_create(bar);
-    lv_label_set_text(sh.status_radio, LV_SYMBOL_WIFI " ?");
+    pos_style_add(sh.status_radio, POS_STYLE_CHIP, 0);
+    /* glyphs come from the symbol font role until the DS icon set exists */
+    pos_style_add(sh.status_radio, POS_STYLE_SYMBOL, 0);
+    radio_chip_set(POS_STYLE_CHIP_NA, "?");
 
-    sh.status_clock = lv_label_create(bar);
-    lv_label_set_text(sh.status_clock, "--:--");
-    lv_obj_set_style_text_font(sh.status_clock, &lv_font_montserrat_20, 0);
+    sh.status_clock = pocketui_label(bar, "--:--", POS_STYLE_CAPTION);
     sh.status_bar = bar;
 }
 
@@ -172,7 +185,6 @@ static void on_back(lv_event_t *e)
 
 static void app_open(const struct pocketos_app *app)
 {
-    const struct pocketui_tokens *t = pocketui_tokens();
     lv_obj_t *header;
     lv_obj_t *back;
     lv_obj_t *name;
@@ -188,7 +200,7 @@ static void app_open(const struct pocketos_app *app)
 
     header = lv_obj_create(sh.app_root);
     lv_obj_remove_style_all(header);
-    lv_obj_set_size(header, LV_PCT(100), POCKETUI_TOUCH_MIN);
+    lv_obj_set_size(header, LV_PCT(100), POCKETUI_HEADER_H);
     lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(header, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
@@ -196,19 +208,19 @@ static void app_open(const struct pocketos_app *app)
     lv_obj_set_style_pad_column(header, 16, 0);
 
     back = lv_button_create(header);
-    lv_obj_set_size(back, POCKETUI_TOUCH_MIN, POCKETUI_TOUCH_MIN - 16);
-    lv_obj_set_style_bg_color(back, t->surface, 0);
-    lv_obj_set_style_shadow_width(back, 0, 0);
-    lv_obj_set_style_radius(back, POCKETUI_RADIUS, 0);
+    lv_obj_remove_style_all(back);
+    pos_style_add(back, POS_STYLE_SLAB, 0);
+    pos_style_add(back, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+    lv_obj_set_size(back, 72, 56); /* back slab, DS §7 */
+    lv_obj_add_flag(back, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(back, on_back, LV_EVENT_CLICKED, NULL);
     name = lv_label_create(back);
     lv_label_set_text(name, LV_SYMBOL_LEFT);
-    lv_obj_set_style_text_color(name, t->accent, 0);
+    pos_style_add(name, POS_STYLE_SYMBOL, 0);
+    pos_style_add(name, POS_STYLE_ACCENT_TEXT, 0);
     lv_obj_center(name);
 
-    name = lv_label_create(header);
-    lv_label_set_text(name, app->name);
-    lv_obj_set_style_text_font(name, &lv_font_montserrat_24, 0);
+    name = pocketui_label(header, app->name, POS_STYLE_TITLE);
 
     body = lv_obj_create(sh.app_root);
     lv_obj_remove_style_all(body);
@@ -307,6 +319,35 @@ static int screenshot_save(const char *path)
 #endif
 }
 
+/* ---- theme ------------------------------------------------------------ */
+
+/* Apply a theme/mode selection live; the shared styles follow through the
+ * engine listener. Returns pos_theme_apply's result (-1 = fallback used). */
+static int shell_set_theme(const char *theme, const char *mode, char *why, size_t why_len)
+{
+    int rc = pos_theme_apply(theme, mode, why, why_len);
+    cJSON *data;
+
+    if (rc < 0) {
+        /* DS §8: fall back, warn, leave the stored value untouched */
+        LOG_WARN("theme selection fell back: %s", why);
+    } else {
+        if (settings_set("theme", pos_theme_current_def()->id) < 0 ||
+            settings_set("display_mode", pos_mode_name(pos_theme_current_mode())) < 0) {
+            LOG_WARN("cannot persist theme to %s: %s", settings_path(), strerror(errno));
+        }
+    }
+    LOG_INFO("theme %s mode %s", pos_theme_current_def()->id,
+             pos_mode_name(pos_theme_current_mode()));
+    if (sh.server) {
+        data = cJSON_CreateObject();
+        cJSON_AddStringToObject(data, "theme", pos_theme_current_def()->id);
+        cJSON_AddStringToObject(data, "mode", pos_mode_name(pos_theme_current_mode()));
+        pocketipc_server_broadcast(sh.server, pocketipc_event("shell.theme", data));
+    }
+    return rc;
+}
+
 /* ---- shell.* service (docs/api/shell.md) ------------------------------ */
 
 static const struct pocketos_app *find_app(const char *id)
@@ -347,6 +388,8 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         }
         cJSON_AddItemToObject(result, "apps", list);
         cJSON_AddStringToObject(result, "current", sh.app ? sh.app->id : "home");
+        cJSON_AddStringToObject(result, "theme", pos_theme_current_def()->id);
+        cJSON_AddStringToObject(result, "mode", pos_mode_name(pos_theme_current_mode()));
         cJSON_AddNumberToObject(display, "width", POCKETOS_PANEL_W);
         cJSON_AddNumberToObject(display, "height", POCKETOS_PANEL_H);
         cJSON_AddStringToObject(display, "backend", sh.backend_name);
@@ -383,6 +426,24 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         }
         result = cJSON_CreateObject();
         cJSON_AddStringToObject(result, "path", p->valuestring);
+    } else if (strcmp(method, "shell.theme") == 0) {
+        const cJSON *th = params ? cJSON_GetObjectItemCaseSensitive(params, "theme") : NULL;
+        const cJSON *md = params ? cJSON_GetObjectItemCaseSensitive(params, "mode") : NULL;
+        char why[128];
+        int fallback;
+
+        if (!cJSON_IsString(th) && !cJSON_IsString(md)) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                  "theme or mode required"));
+            return;
+        }
+        fallback = shell_set_theme(cJSON_IsString(th) ? th->valuestring : NULL,
+                                   cJSON_IsString(md) ? md->valuestring : NULL, why, sizeof(why)) < 0;
+        result = cJSON_CreateObject();
+        cJSON_AddStringToObject(result, "theme", pos_theme_current_def()->id);
+        cJSON_AddStringToObject(result, "mode", pos_mode_name(pos_theme_current_mode()));
+        cJSON_AddBoolToObject(result, "fallback", fallback);
+        cJSON_AddStringToObject(result, "reason", why);
     } else if (strcmp(method, "shell.subscribe") == 0) {
         pocketipc_client_set_subscribed(c, true);
         result = cJSON_CreateObject();
@@ -420,6 +481,8 @@ static void on_tick(lv_timer_t *timer)
 int main(int argc, char **argv)
 {
     const char *open_id = NULL;
+    const char *theme_arg = NULL;
+    const char *mode_arg = NULL;
     long exit_after_ms = -1;
     lv_display_t *disp;
     lv_obj_t *screen;
@@ -433,8 +496,13 @@ int main(int argc, char **argv)
             sh.screenshot_path = argv[++i];
         } else if (strcmp(argv[i], "--exit-after-ms") == 0 && i + 1 < argc) {
             exit_after_ms = atol(argv[++i]);
+        } else if (strcmp(argv[i], "--theme") == 0 && i + 1 < argc) {
+            theme_arg = argv[++i];
+        } else if (strcmp(argv[i], "--mode") == 0 && i + 1 < argc) {
+            mode_arg = argv[++i];
         } else {
-            fprintf(stderr, "usage: pocketos-shell [--open APP] [--screenshot F.png] [--exit-after-ms N]\n");
+            fprintf(stderr, "usage: pocketos-shell [--open APP] [--screenshot F.png] [--exit-after-ms N]"
+                            " [--theme ID] [--mode normal|outdoor|night]\n");
             return 2;
         }
     }
@@ -449,6 +517,23 @@ int main(int argc, char **argv)
     }
     sh.backend_name = POCKETOS_DISPLAY_NAME;
     pocketui_init();
+    {
+        /* Appearance never blocks boot: any failure here logs and falls back. */
+        int loaded = settings_init();
+        const char *theme = theme_arg ? theme_arg : settings_get("theme", NULL);
+        const char *mode = mode_arg ? mode_arg : settings_get("display_mode", NULL);
+        char why[128];
+
+        if (loaded < 0) {
+            LOG_WARN("settings file %s unreadable, using defaults", settings_path());
+        }
+        if ((theme || mode) && pos_theme_apply(theme, mode, why, sizeof(why)) < 0) {
+            LOG_WARN("stored theme rejected, using fallback: %s", why);
+        }
+        LOG_INFO("appearance: theme %s mode %s (settings %s)", pos_theme_current_def()->id,
+                 pos_mode_name(pos_theme_current_mode()),
+                 loaded == 0 ? "loaded" : loaded == 1 ? "absent" : "unreadable");
+    }
     screen = lv_screen_active();
     pocketui_style_screen(screen);
     status_bar_create(screen);
