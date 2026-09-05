@@ -80,6 +80,79 @@ static void test_value(void)
                 radar_score_value(RADAR_CLASS_NORMAL, -1, 100, 0), 0);
 }
 
+/* The response bonus has to point the right way: engaging a contact sooner
+ * must never be worth less than engaging the same contact later. That is
+ * one inequality, but integer truncation is exactly the kind of thing that
+ * puts a step in the wrong place, so it is swept rather than spot-checked -
+ * every remaining lifetime, every class, every streak, and the short
+ * lifetimes the difficulty ramp produces at the ceiling as well as the long
+ * ones it opens with. */
+static void test_response_bonus_is_monotonic(void)
+{
+    static const enum radar_class targets[3] = {
+        RADAR_CLASS_NORMAL, RADAR_CLASS_FAST, RADAR_CLASS_HIGH_VALUE
+    };
+    /* 140 is a NORMAL track at level 0; 32 is a FAST one at the ceiling,
+     * where the divisor is smallest and truncation bites hardest. */
+    static const int lifetimes[4] = { 140, 100, 32, 1 };
+    int monotonic = 1;
+    int rewarding = 1;
+    int c;
+    int l;
+    int streak;
+
+    for (c = 0; c < 3; c++) {
+        for (l = 0; l < 4; l++) {
+            int ttl_max = lifetimes[l];
+
+            for (streak = 0; streak <= RADAR_SCORE_STREAK_CAP + 1; streak++) {
+                int32_t later = radar_score_value(targets[c], 0, ttl_max, streak);
+                int ttl_left;
+
+                /* Walk from the last tick of the track's life back towards
+                 * the moment it appeared. The value must never fall. */
+                for (ttl_left = 1; ttl_left <= ttl_max; ttl_left++) {
+                    int32_t sooner = radar_score_value(targets[c], ttl_left,
+                                                       ttl_max, streak);
+
+                    if (sooner < later) {
+                        printf("     %s ttl %d/%d streak %d: %d then %d\n",
+                               radar_class_name(targets[c]), ttl_left, ttl_max,
+                               streak, (int)later, (int)sooner);
+                        monotonic = 0;
+                    }
+                    later = sooner;
+                }
+                /* And the bonus must actually be worth something, or the
+                 * inequality would hold trivially for a flat function. */
+                if (ttl_max > 1) {
+                    rewarding &= radar_score_value(targets[c], ttl_max, ttl_max, streak) >
+                                 radar_score_value(targets[c], 0, ttl_max, streak);
+                }
+            }
+        }
+    }
+    check("engaging sooner is never worth less than engaging later", monotonic);
+    check("engaging at once is worth strictly more than engaging at the last tick",
+          rewarding);
+
+    /* Stated once as a plain number in each direction, so the intent is
+     * readable without reading the sweep. */
+    check("the whole bonus is half as much again",
+          radar_score_value(RADAR_CLASS_NORMAL, 140, 140, 0) == 150 &&
+          radar_score_value(RADAR_CLASS_NORMAL, 0, 140, 0) == 100);
+    check("a track worked halfway through its life earns half the bonus",
+          radar_score_value(RADAR_CLASS_NORMAL, 70, 140, 0) == 125);
+
+    /* The same ordering has to survive the streak multiplier, since the
+     * multiplied number is the one the player actually sees. */
+    check("the ordering survives the multiplier",
+          radar_score_value(RADAR_CLASS_HIGH_VALUE, 140, 140, 5) >=
+          radar_score_value(RADAR_CLASS_HIGH_VALUE, 139, 140, 5) &&
+          radar_score_value(RADAR_CLASS_HIGH_VALUE, 139, 140, 5) >
+          radar_score_value(RADAR_CLASS_HIGH_VALUE, 0, 140, 5));
+}
+
 static void test_hit(void)
 {
     struct radar_score s;
@@ -239,6 +312,7 @@ int main(void)
 {
     test_init();
     test_value();
+    test_response_bonus_is_monotonic();
     test_hit();
     test_foul_and_miss();
     test_floor();
