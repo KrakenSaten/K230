@@ -27,6 +27,7 @@ for _ in $(seq 1 50); do [ -S "$POCKETOS_RUNTIME_DIR/shell.sock" ] && break; sle
 out=$("$POS" app list)
 check "app list has radio" '^radio ' "$out"
 check "app list has system" '^system ' "$out"
+check "app list has fleet" '^fleet ' "$out"
 out=$("$POS" shell info)
 check "shell info current home" '"current":[[:space:]]*"home"' "$out"
 check "stored theme applied at start" '"theme":[[:space:]]*"olive"' "$out"

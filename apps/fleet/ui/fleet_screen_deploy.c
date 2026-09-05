@@ -165,6 +165,9 @@ static void on_confirm(lv_event_t *e)
         message(ui, "Place every ship first");
         return;
     }
+    /* Store the layout at once: an engagement interrupted before the first
+     * shot should still come back with the fleet where it was put. */
+    fleet_app_autosave(ui->app);
     fleet_screen_battle_enter(ui->app);
     fleet_app_show(ui->app, FLEET_SCREEN_BATTLE);
 }

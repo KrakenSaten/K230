@@ -10,6 +10,8 @@
 #include "fleet_app.h"
 
 #include "app.h"
+#include "engine/fleet_store.h"
+#include "pocketlog/pocketlog.h"
 #include "pocketui.h"
 #include "ui/fleet_view.h"
 
@@ -82,6 +84,51 @@ void fleet_app_show(struct fleet_app *app, enum fleet_screen screen)
     }
 }
 
+void fleet_app_autosave(struct fleet_app *app)
+{
+    if (!app || !app->storage_ok) {
+        return;
+    }
+    if (fleet_game_is_over(&app->game)) {
+        /* A finished match is not worth resuming, so the slot is freed
+         * rather than filled with something Resume would refuse anyway. */
+        fleet_store_clear();
+        app->resumable = 0;
+        return;
+    }
+    if (fleet_store_save(&app->game) != 0) {
+        /* One failure is enough: retrying every turn would spend the whole
+         * match writing to a filesystem that has already said no. */
+        app->storage_ok = 0;
+        app->resumable = 0;
+        LOG_WARN("fleet: cannot write %s, continuing without persistence",
+                 fleet_store_path());
+        fleet_screen_command_refresh(app);
+    }
+}
+
+void fleet_app_resume(struct fleet_app *app)
+{
+    if (!app || !app->resumable) {
+        return;
+    }
+    app->resumable = 0;
+    app->difficulty = app->game.difficulty;
+    switch (app->game.phase) {
+    case FLEET_PHASE_DEPLOY:
+        fleet_screen_deploy_enter(app);
+        fleet_app_show(app, FLEET_SCREEN_DEPLOY);
+        break;
+    case FLEET_PHASE_OVER:
+        fleet_app_show(app, FLEET_SCREEN_RESULT);
+        break;
+    default:
+        fleet_screen_battle_enter(app);
+        fleet_app_show(app, FLEET_SCREEN_BATTLE);
+        break;
+    }
+}
+
 void fleet_app_new_match(struct fleet_app *app)
 {
     uint32_t seed;
@@ -89,6 +136,10 @@ void fleet_app_new_match(struct fleet_app *app)
     if (!app) {
         return;
     }
+    if (app->storage_ok) {
+        fleet_store_clear();
+    }
+    app->resumable = 0;
     /* The engine is deterministic given a seed; the seed itself is taken from
      * the clock so successive engagements differ, and it is stored in the
      * match so one can be replayed exactly. */
@@ -114,6 +165,9 @@ static void debug_exchange(struct fleet_app *app, int row, int col)
     if (!fleet_game_is_over(&app->game)) {
         fleet_game_opponent_turn(&app->game, NULL, NULL, NULL);
     }
+    /* Same save point as a turn played by hand, so the persistence path is
+     * exercised by the headless tests too. */
+    fleet_app_autosave(app);
 }
 
 static void debug_start_match(struct fleet_app *app)
@@ -190,8 +244,29 @@ static void *fleet_create(lv_obj_t *root)
     }
     app->body = root;
     app->difficulty = FLEET_OFFICER;
+    app->storage_ok = 1;
     /* A match exists from the start so every screen has something to read. */
     fleet_game_new(&app->game, 1u, (enum fleet_difficulty)app->difficulty);
+    /* Appearance of a stored match must never delay or prevent the app from
+     * opening: an absent, unreadable, damaged or impossible save simply
+     * means there is nothing to resume. */
+    {
+        int loaded = fleet_store_load(&app->game);
+
+        if (loaded == 0 && !fleet_game_is_over(&app->game)) {
+            app->resumable = 1;
+            app->difficulty = app->game.difficulty;
+            LOG_INFO("fleet: resumable match from %s, %s turn %u", fleet_store_path(),
+                     fleet_difficulty_name((enum fleet_difficulty)app->game.difficulty),
+                     (unsigned)app->game.turn);
+        } else {
+            if (loaded < 0) {
+                LOG_WARN("fleet: stored match at %s rejected, starting fresh",
+                         fleet_store_path());
+            }
+            fleet_game_new(&app->game, 1u, (enum fleet_difficulty)app->difficulty);
+        }
+    }
 
     app->screen[FLEET_SCREEN_COMMAND] = fleet_screen_command_create(app, root);
     app->screen[FLEET_SCREEN_DEPLOY] = fleet_screen_deploy_create(app, root);

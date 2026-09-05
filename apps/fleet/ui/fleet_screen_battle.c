@@ -96,6 +96,7 @@ static void on_fire(lv_event_t *e)
     ui->exchanged = 1;
     fleet_grid_set_cursor(ui->target, -1, -1);
     fleet_screen_battle_refresh(ui->app);
+    fleet_app_autosave(ui->app);
     if (fleet_game_is_over(game)) {
         fleet_app_show(ui->app, FLEET_SCREEN_RESULT);
     }

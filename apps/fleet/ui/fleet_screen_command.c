@@ -19,6 +19,8 @@ struct fleet_command_ui {
     struct fleet_app *app;
     lv_obj_t *segments;
     lv_obj_t *brief;
+    lv_obj_t *saved_state;
+    lv_obj_t *resume;
 };
 
 static void on_difficulty(lv_event_t *e)
@@ -41,6 +43,11 @@ static void on_difficulty(lv_event_t *e)
 static void on_deploy(lv_event_t *e)
 {
     fleet_app_new_match(lv_event_get_user_data(e));
+}
+
+static void on_resume(lv_event_t *e)
+{
+    fleet_app_resume(lv_event_get_user_data(e));
 }
 
 /* Hull length drawn as blocks, in the spirit of the segmented meter (DS §9). */
@@ -106,6 +113,12 @@ lv_obj_t *fleet_screen_command_create(struct fleet_app *app, lv_obj_t *parent)
     pocketui_kv_row(panel, "Shots per turn", "1");
     pocketui_kv_row(panel, "Hulls to sink", "17");
 
+    panel = fleet_panel(screen, "SAVED ENGAGEMENT");
+    ui->saved_state = pocketui_label(panel, "", POS_STYLE_TEXT_SECONDARY);
+    lv_label_set_long_mode(ui->saved_state, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(ui->saved_state, LV_PCT(100));
+    ui->resume = fleet_button_secondary(panel, "RESUME", on_resume, app);
+
     pocketui_button(screen, "DEPLOY FLEET", on_deploy, app);
     return screen;
 }
@@ -121,4 +134,25 @@ void fleet_screen_command_refresh(struct fleet_app *app)
     fleet_segments_select(ui->segments, app->difficulty);
     lv_label_set_text(ui->brief,
                       fleet_view_difficulty_brief((enum fleet_difficulty)app->difficulty));
+
+    lv_obj_remove_style(ui->saved_state, pos_style(POS_STYLE_STATUS_WARN_TEXT), 0);
+    if (app->resumable) {
+        char status[48];
+
+        fleet_view_status(&app->game, status, sizeof(status));
+        lv_label_set_text_fmt(ui->saved_state, "An engagement is waiting: %s.", status);
+        lv_obj_remove_flag(ui->resume, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        if (app->storage_ok) {
+            lv_label_set_text(ui->saved_state, "Nothing stored. A new engagement is "
+                                               "saved after every turn.");
+        } else {
+            /* A warning, not an error: the game plays perfectly well without
+             * it, only Resume is gone. */
+            pos_style_add(ui->saved_state, POS_STYLE_STATUS_WARN_TEXT, 0);
+            lv_label_set_text(ui->saved_state, "Storage is unavailable. This engagement "
+                                               "lasts for the session only.");
+        }
+        lv_obj_add_flag(ui->resume, LV_OBJ_FLAG_HIDDEN);
+    }
 }

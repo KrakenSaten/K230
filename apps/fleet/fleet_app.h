@@ -34,6 +34,10 @@ struct fleet_app {
     lv_obj_t *body;                           /* the root the shell handed us */
     lv_obj_t *screen[FLEET_SCREEN_COUNT];     /* NULL until that screen exists */
     uint8_t current;
+    /* Persistence is best effort. It is switched off for the session after
+     * the first failure, and the game carries on without it. */
+    uint8_t storage_ok;
+    uint8_t resumable;                        /* a stored match is waiting */
     struct fleet_command_ui *command;
     struct fleet_deploy_ui *deploy;
     struct fleet_battle_ui *battle;
@@ -43,8 +47,14 @@ struct fleet_app {
 /* Show a screen and refresh it. A screen that has not been built yet is
  * ignored, so the phases can land one screen at a time. */
 void fleet_app_show(struct fleet_app *app, enum fleet_screen screen);
-/* Start a fresh match at the selected difficulty and go to deployment. */
+/* Start a fresh match at the selected difficulty and go to deployment. Any
+ * stored match is superseded and removed. */
 void fleet_app_new_match(struct fleet_app *app);
+/* Continue the match that was loaded at start, on the screen it left off. */
+void fleet_app_resume(struct fleet_app *app);
+/* Store the match after a resolved turn. Never fails loudly: the first
+ * failure switches persistence off for the session and is logged. */
+void fleet_app_autosave(struct fleet_app *app);
 /* Container for a screen: full width, vertical flow, Design System gap. */
 lv_obj_t *fleet_app_screen_container(lv_obj_t *parent);
 
