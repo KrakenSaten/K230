@@ -146,13 +146,19 @@ tests/fleet_theme_test.o: tests/fleet_theme_test.c ui/pocketui/pos_theme.h
 # engine, so RADAR_OBJS is pure computation (tests/radar_lint.sh).
 RADAR_DIR := apps/radar/engine
 RADAR_OBJS := $(RADAR_DIR)/radar_types.o $(RADAR_DIR)/radar_rng.o $(RADAR_DIR)/radar_rules.o $(RADAR_DIR)/radar_score.o
-RADAR_TESTS := tests/radar_rng_test tests/radar_types_test tests/radar_rules_test tests/radar_score_test
+RADAR_TESTS := tests/radar_rng_test tests/radar_types_test tests/radar_rules_test tests/radar_score_test tests/radar_store_test
+# The store is the app's only door to the filesystem, so it sits beside the
+# app rather than inside the engine (tests/radar_lint.sh).
+RADAR_APP_OBJS := apps/radar/radar_store.o
 
 $(RADAR_DIR)/%.o: $(RADAR_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(RADAR_DIR) -c -o $@ $<
 
+apps/radar/radar_store.o: apps/radar/radar_store.c
+	$(CC) $(ALL_CFLAGS) -I$(RADAR_DIR) -Iapps/radar -c -o $@ $<
+
 tests/radar_%_test.o: tests/radar_%_test.c
-	$(CC) $(ALL_CFLAGS) -I$(RADAR_DIR) -c -o $@ $<
+	$(CC) $(ALL_CFLAGS) -I$(RADAR_DIR) -Iapps/radar -c -o $@ $<
 
 tests/radar_rng_test: tests/radar_rng_test.o $(RADAR_DIR)/radar_rng.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
@@ -164,6 +170,9 @@ tests/radar_rules_test: tests/radar_rules_test.o $(RADAR_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 tests/radar_score_test: tests/radar_score_test.o $(RADAR_DIR)/radar_score.o $(RADAR_DIR)/radar_types.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/radar_store_test: tests/radar_store_test.o $(RADAR_APP_OBJS) $(RADAR_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # Native tests only (they execute binaries).
@@ -182,6 +191,7 @@ test: all tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/the
 	./tests/radar_types_test
 	./tests/radar_rules_test
 	./tests/radar_score_test
+	./tests/radar_store_test
 	bash tests/radiod_mock_test.sh
 	bash tests/supervise_test.sh
 	bash tests/style_lint.sh
@@ -200,6 +210,6 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 -include $(DEPFILES)
 
 clean:
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o
 
 .PHONY: all test install clean sx1262-objs

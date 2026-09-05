@@ -24,3 +24,4 @@
 /tests/radar_types_test
 /tests/radar_rules_test
 /tests/radar_score_test
+/tests/radar_store_test
