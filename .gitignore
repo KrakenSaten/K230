@@ -17,3 +17,4 @@
 *.d
 /tests/fleet_rng_test
 /tests/fleet_rules_test
+/tests/fleet_ai_test

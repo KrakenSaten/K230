@@ -267,6 +267,7 @@ void fleet_game_new(struct fleet_game *game, uint32_t seed, enum fleet_difficult
     for (side = 0; side < FLEET_SIDE_COUNT; side++) {
         fleet_board_clear(&game->board[side]);
     }
+    fleet_ai_init(&game->ai, (enum fleet_difficulty)game->difficulty);
     fleet_board_autoplace(&game->board[FLEET_SIDE_OPPONENT], &game->rng_setup);
 }
 
@@ -295,6 +296,40 @@ struct fleet_board *fleet_game_target(struct fleet_game *game, enum fleet_side s
 int fleet_game_is_over(const struct fleet_game *game)
 {
     return game && game->phase == FLEET_PHASE_OVER;
+}
+
+enum fleet_shot_result fleet_game_opponent_turn(struct fleet_game *game, int *row,
+                                                int *col, int *sunk_ship)
+{
+    enum fleet_shot_result result;
+    int r = 0;
+    int c = 0;
+    int sunk = -1;
+
+    if (sunk_ship) {
+        *sunk_ship = -1;
+    }
+    if (!game || game->phase != FLEET_PHASE_OPPONENT) {
+        return FLEET_SHOT_INVALID;
+    }
+    if (fleet_ai_next_shot(&game->ai, &game->rng_ai, &r, &c) != 0) {
+        return FLEET_SHOT_INVALID;
+    }
+    result = fleet_game_fire(game, FLEET_SIDE_OPPONENT, r, c, &sunk);
+    if (result == FLEET_SHOT_INVALID) {
+        return result;
+    }
+    fleet_ai_observe(&game->ai, r, c, result, sunk);
+    if (row) {
+        *row = r;
+    }
+    if (col) {
+        *col = c;
+    }
+    if (sunk_ship) {
+        *sunk_ship = sunk;
+    }
+    return result;
 }
 
 enum fleet_shot_result fleet_game_fire(struct fleet_game *game, enum fleet_side shooter,

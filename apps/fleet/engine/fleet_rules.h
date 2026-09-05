@@ -20,6 +20,7 @@
 #ifndef POCKETFLEET_RULES_H
 #define POCKETFLEET_RULES_H
 
+#include "fleet_ai.h"
 #include "fleet_rng.h"
 #include "fleet_types.h"
 
@@ -57,6 +58,10 @@ struct fleet_game {
     /* board[side] holds that side's own ships; the other side fires into it. */
     struct fleet_board board[FLEET_SIDE_COUNT];
     struct fleet_stats stats[FLEET_SIDE_COUNT];
+    /* The opponent's own record of its shots. It is deliberately separate
+     * from board[FLEET_SIDE_PLAYER]: the AI is handed this and never the
+     * board, so it cannot see where the player's ships are. */
+    struct fleet_ai ai;
 };
 
 /* ---- board ----------------------------------------------------------- */
@@ -103,6 +108,13 @@ int fleet_game_start(struct fleet_game *game);
  * statistics, phase, turn counter and winner are updated. */
 enum fleet_shot_result fleet_game_fire(struct fleet_game *game, enum fleet_side shooter,
                                        int row, int col, int *sunk_ship);
+/* Play the opponent's turn: ask the AI for a cell, fire it, and feed the
+ * announced result back. This is the only place where the hidden state and
+ * the AI are both visible, and nothing but (cell, result, sunk ship) crosses
+ * between them. row, col and sunk_ship (all optional) report the shot.
+ * Returns FLEET_SHOT_INVALID when it is not the opponent's turn. */
+enum fleet_shot_result fleet_game_opponent_turn(struct fleet_game *game, int *row,
+                                                int *col, int *sunk_ship);
 int fleet_game_is_over(const struct fleet_game *game);
 /* The board the given side fires into. */
 struct fleet_board *fleet_game_target(struct fleet_game *game, enum fleet_side shooter);
