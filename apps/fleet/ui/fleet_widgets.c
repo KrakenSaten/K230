@@ -115,14 +115,12 @@ void fleet_button_set_enabled(lv_obj_t *button, int enabled)
         return;
     }
     if (enabled) {
-        lv_obj_remove_style(button, pos_style(POS_STYLE_BUTTON_SECONDARY), 0);
-        lv_obj_remove_style(button, pos_style(POS_STYLE_TEXT_MUTED), 0);
+        lv_obj_remove_style(button, pos_style(POS_STYLE_BUTTON_DISABLED), 0);
         pos_style_add(button, POS_STYLE_BUTTON_PRIMARY, 0);
         lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
     } else {
         lv_obj_remove_style(button, pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
-        pos_style_add(button, POS_STYLE_BUTTON_SECONDARY, 0);
-        pos_style_add(button, POS_STYLE_TEXT_MUTED, 0);
+        pos_style_add(button, POS_STYLE_BUTTON_DISABLED, 0);
         lv_obj_remove_flag(button, LV_OBJ_FLAG_CLICKABLE);
     }
     /* The label carries only the button font, so it inherits the colour the

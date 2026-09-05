@@ -45,9 +45,8 @@ lv_obj_t *fleet_screen_result_create(struct fleet_app *app, lv_obj_t *parent)
     app->result = ui;
     screen = fleet_app_screen_container(parent);
 
-    /* PocketUI has no hero type role yet (DS §3 hero-40/48 is a later step),
-     * so the outcome uses the app-title role. */
-    ui->heading = pocketui_label(screen, "", POS_STYLE_TITLE);
+    /* DS §3 hero-40, the size the outcome of an engagement calls for. */
+    ui->heading = pocketui_label(screen, "", POS_STYLE_HERO_40);
     lv_label_set_long_mode(ui->heading, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(ui->heading, LV_PCT(100));
 

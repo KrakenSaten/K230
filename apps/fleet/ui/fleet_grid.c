@@ -426,8 +426,9 @@ static void grid_delete(lv_event_t *e)
     free(g);
 }
 
-/* The shared styles are rewritten in place on a theme change, which does not
- * invalidate a custom-drawn object by itself. */
+/* Fallback for when the engine's watch table is full: the shared styles are
+ * rewritten in place on a theme change, which does not invalidate a
+ * custom-drawn object by itself. */
 static void grid_theme_changed(lv_event_t *e)
 {
     lv_obj_invalidate(lv_event_get_target_obj(e));
@@ -460,8 +461,12 @@ lv_obj_t *fleet_grid_create(lv_obj_t *parent, enum fleet_grid_mode mode, int cel
     lv_obj_add_event_cb(obj, grid_draw, LV_EVENT_DRAW_MAIN, NULL);
     lv_obj_add_event_cb(obj, grid_click, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(obj, grid_delete, LV_EVENT_DELETE, NULL);
-    lv_obj_add_event_cb(obj, grid_theme_changed, (lv_event_code_t)pos_event_theme_changed(),
-                        NULL);
+    /* The theme engine repaints registered custom-drawn objects itself; it
+     * only asks the caller to subscribe when its table is full. */
+    if (pos_theme_watch(obj) != 0) {
+        lv_obj_add_event_cb(obj, grid_theme_changed,
+                            (lv_event_code_t)pos_event_theme_changed(), NULL);
+    }
     return obj;
 }
 

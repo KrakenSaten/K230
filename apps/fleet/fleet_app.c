@@ -13,7 +13,6 @@
 #include "engine/fleet_store.h"
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
-#include "settings.h"
 #include "ui/fleet_view.h"
 
 #include <stdlib.h>
@@ -22,9 +21,6 @@
 
 /* Gap between panels (DS §7). */
 #define FLEET_PANEL_GAP 22
-/* The shell's body padding plus this is the DS body top padding of 24, and
- * it keeps the first panel's caption inside the scroll area. */
-#define FLEET_CAPTION_ROOM 8
 
 lv_obj_t *fleet_app_screen_container(lv_obj_t *parent)
 {
@@ -39,8 +35,6 @@ lv_obj_t *fleet_app_screen_container(lv_obj_t *parent)
     lv_obj_set_flex_align(screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(screen, FLEET_PANEL_GAP, 0);
-    /* Room for the first panel's caption, which straddles its top border. */
-    lv_obj_set_style_pad_top(screen, FLEET_CAPTION_ROOM, 0);
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
     return screen;
@@ -256,15 +250,7 @@ static void *fleet_create(lv_obj_t *root)
     app->body = root;
     app->difficulty = FLEET_OFFICER;
     app->storage_ok = 1;
-    /* PocketOS has no platform-wide reduced-motion key yet, so PocketFleet
-     * reads the name the Design System uses and defaults to motion on. */
-    {
-        const char *reduced = settings_get("reduced_motion", "0");
-
-        app->reduced_motion = reduced && (*reduced == '1' || *reduced == 'y' ||
-                                          *reduced == 'Y' || *reduced == 't' ||
-                                          *reduced == 'T');
-    }
+    app->reduced_motion = (uint8_t)(pocketos_shell_reduced_motion() != 0);
     /* A match exists from the start so every screen has something to read. */
     fleet_game_new(&app->game, 1u, (enum fleet_difficulty)app->difficulty);
     /* Appearance of a stored match must never delay or prevent the app from

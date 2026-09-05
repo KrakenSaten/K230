@@ -28,9 +28,8 @@ lv_obj_t *fleet_button_secondary(lv_obj_t *parent, const char *text, lv_event_cb
 /* Half-width paired button inside a panel, 56 px (DS §7). Put two in a row. */
 lv_obj_t *fleet_button_paired(lv_obj_t *parent, const char *text, lv_event_cb_t cb,
                               void *user);
-/* Enable or disable a button made by pocketui_button(). PocketUI has no
- * disabled role style, so a disabled primary button is drawn as a secondary
- * one with muted text and is not clickable. */
+/* Enable or disable a button made by pocketui_button(): swaps the primary
+ * role for the Design System's disabled role and takes away the click. */
 void fleet_button_set_enabled(lv_obj_t *button, int enabled);
 
 /* Segmented control (DS §9): count segments, 56 px tall, 4 px apart. The

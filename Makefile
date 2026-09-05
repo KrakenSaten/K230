@@ -113,13 +113,6 @@ FLEET_OBJS := $(FLEET_DIR)/fleet_types.o $(FLEET_DIR)/fleet_rng.o $(FLEET_DIR)/f
               $(FLEET_DIR)/fleet_rules.o $(FLEET_DIR)/fleet_save.o $(FLEET_DIR)/fleet_store.o
 FLEET_TESTS := tests/fleet_rng_test tests/fleet_rules_test tests/fleet_ai_test \
                tests/fleet_save_test tests/fleet_theme_test
-FLEET_HDRS := $(FLEET_DIR)/fleet_types.h $(FLEET_DIR)/fleet_rng.h $(FLEET_DIR)/fleet_ai.h \
-              $(FLEET_DIR)/fleet_rules.h $(FLEET_DIR)/fleet_save.h $(FLEET_DIR)/fleet_store.h
-
-# struct fleet_game changes size as the engine grows, so every object must be
-# rebuilt when any engine header changes; a stale test object would silently
-# disagree with the engine about the layout.
-$(FLEET_OBJS) $(FLEET_TESTS:=.o): $(FLEET_HDRS)
 
 $(FLEET_DIR)/%.o: $(FLEET_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(FLEET_DIR) -c -o $@ $<
@@ -171,7 +164,7 @@ install: all
 	install -D -m 0755 tools/supervise/pos-supervise $(DESTDIR)$(PREFIX)/bin/pos-supervise
 	install -D -m 0644 VERSION $(DESTDIR)/etc/pocketos-release
 
-DEPFILES := $(shell find core services tools ui tests $(RADIOLIB_DIR) -name '*.d' 2>/dev/null)
+DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name '*.d' 2>/dev/null)
 -include $(DEPFILES)
 
 clean:

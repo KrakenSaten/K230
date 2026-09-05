@@ -69,19 +69,15 @@ short non-secret preferences rather than game state. PocketFleet writes
 `/var/lib` is writable on the K230 is DOCUMENTED from the Buildroot
 defconfig and remains ASSUMED until hardware confirms it.
 
-### D3 — no hero type on the Result screen
+### D3 — no hero type on the Result screen (WITHDRAWN 2026-09-05)
 
-DS §3 specifies hero-40 for an outcome heading. The 40 px and 48 px faces are
-compiled into the shell but have no role in `pos_styles.h`, and an app may
-not name a font symbol (`tests/style_lint.sh`). The heading uses the
-app-title role instead. Cosmetic; it resolves when PocketUI gains the role.
+Superseded by the platform: `POS_STYLE_HERO_40` exists, and the Result
+heading uses it.
 
-### D4 — disabled buttons are drawn as secondary
+### D4 — disabled buttons are drawn as secondary (WITHDRAWN 2026-09-05)
 
-`POS_COLOR_DISABLED_FG` and `_BG` exist as tokens but have no role style. A
-disabled primary button is therefore drawn with the secondary button role
-and muted text, and is not clickable. Cosmetic; it resolves when PocketUI
-gains a disabled role.
+Superseded by the platform: `POS_STYLE_BUTTON_DISABLED` exists, and
+`fleet_button_set_enabled()` swaps the primary role for it.
 
 ### D5 — own hulls are outlined, not filled
 
@@ -170,10 +166,16 @@ FIRE is simply not armed while the enemy is firing. Leaving the screen or
 closing the app settles a pending reply at once, so a turn is never left
 half played. Only the grid is invalidated, never the screen.
 
-With `reduced_motion` set in the settings store there is no sweep, no ring
-and no pause: the whole exchange is one instant state change (DS §12).
-PocketOS has no platform-wide key for this yet, so PocketFleet reads the
-name the Design System uses and defaults to motion on.
+With reduced motion there is no sweep, no ring and no pause: the whole
+exchange is one instant state change (DS §12). The preference comes from the
+platform accessor `pocketos_shell_reduced_motion()`, read once when the app
+opens.
+
+The grids are registered with `pos_theme_watch()`, so the theme engine
+repaints them on a theme or mode change; a custom-drawn object is not
+covered by `lv_obj_report_style_change`. The app falls back to subscribing
+to `pos_event_theme_changed()` itself if the engine's watch table is full,
+which is the contract that function documents.
 
 ## Development aid
 
