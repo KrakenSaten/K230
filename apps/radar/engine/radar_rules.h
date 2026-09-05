@@ -9,7 +9,17 @@
  * revealed and a shot armed. That is what gives the decoy something to do:
  * a decoy cannot be told from a target until it has been locked, so the
  * price of a decoy is the acquisition time it steals from the tracks that
- * are still fading. Engaging is P3.
+ * are still fading. ENGAGE is then a separate, deliberate act on a contact
+ * whose class the player has seen.
+ *
+ * Difficulty rises with elapsed time and with nothing else. Every
+ * RADAR_LEVEL_TICKS the run steps up a level, to RADAR_LEVEL_MAX, and the
+ * level alone decides how often contacts appear, how many the scope holds,
+ * how long they live, how hard they drift and how many of them are decoys.
+ * Nothing is derived from how well the player is doing, so the ramp is the
+ * same curve for everyone and radar_level_params() can be tested on its
+ * own. A run ends when sector integrity is spent, which for a competent
+ * player happens where the ramp outruns them: two to five minutes.
  *
  * A contact closes inbound as its time runs out. Range is not integrated
  * per tick; it is derived from the remaining lifetime,
@@ -42,6 +52,7 @@
 #define POCKETRADAR_RULES_H
 
 #include "radar_rng.h"
+#include "radar_score.h"
 #include "radar_types.h"
 
 /* Contacts live in a fixed array; the engine allocates nothing. */
@@ -59,8 +70,8 @@
  * nothing to invent. 45 decidegrees a tick is one turn every four seconds. */
 #define RADAR_SWEEP_DD_PER_TICK 45
 
-/* Baseline spawning. The difficulty ramp that scales these with elapsed
- * time is P3; until then every run plays at the opening rate. */
+/* Level 0, the rate a run opens at. Every other level is these scaled by
+ * radar_level_params(). */
 #define RADAR_SPAWN_TICKS_BASE 40
 #define RADAR_CONTACTS_BASE 4
 #define RADAR_DRIFT_BASE 3
@@ -68,6 +79,31 @@
 #define RADAR_DECOY_PCT_BASE 15
 #define RADAR_HIGH_VALUE_PCT_BASE 6
 #define RADAR_FAST_PCT_BASE 18
+
+/* Ticks per difficulty step, and the step at which the ramp stops. Thirty
+ * seconds a level to a ceiling at five minutes.
+ *
+ * The ceiling is where it is for one reason. A contact cannot be worked in
+ * less than RADAR_ACQUIRE_TICKS, so an operator with no reaction time at
+ * all still services at most one contact per 12 ticks; the top level sends
+ * one every 10. Above that line the arithmetic, not the engine, ends the
+ * run - nothing has to be taken away from the player to make them lose,
+ * which is the difference between a difficulty ramp and a cheat. */
+#define RADAR_LEVEL_TICKS 600
+#define RADAR_LEVEL_MAX 10
+
+/* Per level, from radar_level_params(). */
+struct radar_level {
+    uint16_t spawn_ticks;   /* ticks between spawn attempts */
+    uint16_t contacts_max;  /* how many the scope holds at once */
+    uint16_t ttl_pct;       /* percent of each class's base lifetime */
+    uint16_t drift_dd;      /* largest bearing drift, decidegrees per tick */
+    uint8_t pct[RADAR_CLASS_COUNT];  /* spawn shares, summing to 100 */
+};
+
+/* The parameters for a level. Levels below 0 and above RADAR_LEVEL_MAX are
+ * clamped, so a caller cannot ask for a curve that was never designed. */
+void radar_level_params(int level, struct radar_level *out);
 
 /* One tick can retire the whole scope and start something new, so the
  * queue holds more than that. A caller that drains it every tick can never
@@ -99,25 +135,32 @@ struct radar_contact {
 
 /* What happened, for the UI to react to and for tests to assert on. The
  * run state alone cannot carry this: a contact that faded is gone from the
- * array by the time anyone looks. */
+ * array by the time anyone looks.
+ *
+ * value carries the number the event is about: points won for HIT, points
+ * lost for FOUL, points lost for FADED (0 when a decoy faded, which is
+ * free), the new level for LEVEL, the final score for OVER, and 0 for
+ * SPAWN and ACQUIRED. */
 struct radar_event {
     uint8_t type;           /* enum radar_event_type */
     uint8_t cls;            /* enum radar_class of the contact involved */
     uint16_t bearing;       /* where it happened, for a mark on the scope */
     uint16_t range;
     uint32_t id;            /* the contact, or RADAR_NO_CONTACT */
-    int32_t value;          /* meaning depends on type; 0 in P2 */
+    int32_t value;
 };
 
 struct radar_run {
     uint32_t seed;
     struct radar_rng rng;
     uint8_t state;          /* enum radar_run_state */
+    uint8_t level;          /* 0 to RADAR_LEVEL_MAX */
     uint32_t ticks;         /* ticks since the run started */
     uint32_t next_id;
     uint16_t spawn_timer;   /* ticks until the next spawn attempt */
     uint16_t sweep;         /* decidegrees, 0..3599 */
     uint32_t selected;      /* id of the selected contact, or RADAR_NO_CONTACT */
+    struct radar_score score;
     struct radar_contact contacts[RADAR_CONTACTS_MAX];
     struct radar_event events[RADAR_EVENTS_MAX];
     uint8_t event_count;
@@ -137,6 +180,21 @@ int radar_run_start(struct radar_run *run);
  * caller that keeps ticking a finished run cannot corrupt it. */
 void radar_run_tick(struct radar_run *run);
 int radar_run_is_over(const struct radar_run *run);
+/* The difficulty step the run has reached, 0 to RADAR_LEVEL_MAX. */
+int radar_run_level(const struct radar_run *run);
+
+/* Engage the acquired contact. Returns RADAR_ENGAGE_HIT when it was a valid
+ * target, RADAR_ENGAGE_FOUL when it was a decoy, and RADAR_ENGAGE_INVALID -
+ * changing nothing at all - when the run is not active or nothing is
+ * acquired. Selecting is not enough: a shot can only be taken at a contact
+ * whose class the player has been shown, so a foul is always a decision and
+ * never a surprise. Either outcome retires the contact and clears the
+ * selection; a foul or the miss of a faded target may spend the last of the
+ * sector integrity, which ends the run there and then. */
+enum radar_engage radar_run_engage(struct radar_run *run);
+/* What the armed shot is worth right now, for the readout beside ENGAGE.
+ * 0 when nothing is acquired or the acquired contact is a decoy. */
+int32_t radar_run_engage_value(const struct radar_run *run);
 
 /* ---- contacts -------------------------------------------------------- */
 

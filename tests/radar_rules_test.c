@@ -2,10 +2,13 @@
  * PocketRadar rules test: the run lifecycle, spawning, movement, track
  * lifetime, selection, acquisition, touch picking and the event queue.
  *
+ * It also covers engagement, the difficulty ramp and the end of a run.
+ *
  * The central assertions are that a seed reproduces a run exactly, that the
  * spawn stream depends on the tick count and not on how the player plays,
- * and that every call refuses a state the rules could not have produced
- * rather than doing something undefined with it.
+ * that every call refuses a state the rules could not have produced rather
+ * than doing something undefined with it, and that the difficulty ramp ends
+ * a run by arithmetic rather than by taking anything away from the player.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -84,6 +87,14 @@ static void tick_n(struct radar_run *run, int n)
     }
 }
 
+/* Hold the sector intact. The generator and pacing tests are about what
+ * the engine produces over a long span, not about how long somebody
+ * survives, so they refill integrity instead of modelling a player. */
+static void sustain(struct radar_run *run)
+{
+    run->score.integrity = RADAR_INTEGRITY_MAX;
+}
+
 /* The first contact on the scope, whatever slot it landed in. */
 static const struct radar_contact *first_contact(const struct radar_run *run)
 {
@@ -144,11 +155,36 @@ static void test_lifecycle(void)
           radar_run_selected(NULL) == NULL && !radar_run_is_over(NULL) &&
           radar_run_pick(NULL, 0, 500) == RADAR_NO_CONTACT &&
           radar_run_select(NULL, 1u) == -1 &&
+          radar_run_engage(NULL) == RADAR_ENGAGE_INVALID &&
+          radar_run_engage_value(NULL) == 0 && radar_run_level(NULL) == 0 &&
           radar_run_take_event(NULL, &ev) == 0);
     radar_run_tick(NULL);
     radar_run_new(NULL, 1u);
     radar_run_deselect(NULL);
     radar_run_clear_events(NULL);
+}
+
+/* The observed class mix against the table the level states. Drops from a
+ * full scope do not bias it: the class is drawn before the scope is
+ * consulted, so a refused spawn is refused whatever it would have been. */
+static void check_mix(const char *what, const int *classes, int total, int level)
+{
+    struct radar_level p;
+    int ok = total > 200;
+    int i;
+
+    radar_level_params(level, &p);
+    for (i = 0; i < RADAR_CLASS_COUNT; i++) {
+        int observed = total > 0 ? classes[i] * 100 / total : -1;
+
+        if (observed < (int)p.pct[i] - 5 || observed > (int)p.pct[i] + 5) {
+            printf("     %s: %s came out at %d %%, the table says %d %%\n",
+                   what, radar_class_name((enum radar_class)i), observed,
+                   (int)p.pct[i]);
+            ok = 0;
+        }
+    }
+    check(what, ok);
 }
 
 static void test_spawning(void)
@@ -159,13 +195,13 @@ static void test_spawning(void)
     int in_band = 1;
     int drift_ok = 1;
     int ids_unique = 1;
+    int total = 0;
     int i;
 
-    memset(classes, 0, sizeof(classes));
     start(&run, 4242u);
 
-    /* Spawns arrive on the fixed schedule: one on tick 1, then one every
-     * RADAR_SPAWN_TICKS_BASE. Nothing else may add a track. */
+    /* Spawns arrive on the fixed schedule: one on the first tick, then one
+     * every RADAR_SPAWN_TICKS_BASE. Nothing else may add a track. */
     for (i = 1; i <= 4 * RADAR_SPAWN_TICKS_BASE; i++) {
         int spawned = 0;
         struct radar_event ev;
@@ -181,37 +217,42 @@ static void test_spawning(void)
         }
     }
     check("spawns arrive only on the schedule", on_schedule);
-    check("the scope holds no more than the baseline limit",
+    check("the scope holds no more than the level allows",
           radar_run_contact_count(&run) <= RADAR_CONTACTS_BASE);
 
-    /* Over a long run every class appears, every track starts in the outer
-     * band with a bounded drift, and no id is ever repeated. */
-    start(&run, 777u);
+    /* Level 0, sampled across many short runs because one run only spends
+     * RADAR_LEVEL_TICKS there. Every track starts in the outer band with a
+     * drift the level allows, and no id is ever repeated inside a run. */
+    memset(classes, 0, sizeof(classes));
     {
+        uint32_t seed;
         uint32_t seen[64];
-        int seen_n = 0;
+        int seen_n;
 
-        for (i = 0; i < 20000; i++) {
-            struct radar_event ev;
-
-            radar_run_tick(&run);
-            while (radar_run_take_event(&run, &ev)) {
-                if (ev.type != RADAR_EVENT_SPAWN) {
-                    continue;
-                }
-                classes[ev.cls]++;
-                if (seen_n < 64) {
-                    int j;
-
-                    for (j = 0; j < seen_n; j++) {
-                        ids_unique &= seen[j] != ev.id;
-                    }
-                    seen[seen_n++] = ev.id;
-                }
-            }
-            {
+        for (seed = 1u; seed <= 60u; seed++) {
+            seen_n = 0;
+            start(&run, seed * 7u + 1u);
+            for (i = 1; i < RADAR_LEVEL_TICKS; i++) {
+                struct radar_event ev;
                 int s;
 
+                sustain(&run);
+                radar_run_tick(&run);
+                while (radar_run_take_event(&run, &ev)) {
+                    if (ev.type != RADAR_EVENT_SPAWN) {
+                        continue;
+                    }
+                    classes[ev.cls]++;
+                    total++;
+                    if (seen_n < 64) {
+                        int j;
+
+                        for (j = 0; j < seen_n; j++) {
+                            ids_unique &= seen[j] != ev.id;
+                        }
+                        seen[seen_n++] = ev.id;
+                    }
+                }
                 for (s = 0; s < RADAR_CONTACTS_MAX; s++) {
                     const struct radar_contact *c = radar_run_slot(&run, s);
 
@@ -229,15 +270,54 @@ static void test_spawning(void)
     check("every class appears",
           classes[RADAR_CLASS_NORMAL] > 0 && classes[RADAR_CLASS_FAST] > 0 &&
           classes[RADAR_CLASS_DECOY] > 0 && classes[RADAR_CLASS_HIGH_VALUE] > 0);
-    check("normal contacts are the commonest",
-          classes[RADAR_CLASS_NORMAL] > classes[RADAR_CLASS_DECOY] &&
-          classes[RADAR_CLASS_NORMAL] > classes[RADAR_CLASS_FAST]);
-    check("high-value contacts are the rarest",
+    check_mix("the opening class mix follows the table", classes, total, 0);
+    check("a track starts in the outer band", in_band);
+    check("drift stays inside what the opening level allows", drift_ok);
+    check("no contact id is reused", ids_unique);
+
+    /* The same, at the top of the ramp, where the table is a different
+     * shape: decoys are the commonest thing on the scope. */
+    memset(classes, 0, sizeof(classes));
+    total = 0;
+    drift_ok = 1;
+    start(&run, 909u);
+    while (radar_run_level(&run) < RADAR_LEVEL_MAX) {
+        sustain(&run);
+        radar_run_tick(&run);
+        radar_run_clear_events(&run);
+    }
+    for (i = 0; i < 14000; i++) {
+        struct radar_event ev;
+        struct radar_level p;
+        int s;
+
+        sustain(&run);
+        radar_run_tick(&run);
+        while (radar_run_take_event(&run, &ev)) {
+            if (ev.type == RADAR_EVENT_SPAWN) {
+                classes[ev.cls]++;
+                total++;
+            }
+        }
+        radar_level_params(RADAR_LEVEL_MAX, &p);
+        for (s = 0; s < RADAR_CONTACTS_MAX; s++) {
+            const struct radar_contact *c = radar_run_slot(&run, s);
+
+            if (c->active && c->age == 0) {
+                drift_ok &= c->drift >= -(int)p.drift_dd &&
+                            c->drift <= (int)p.drift_dd;
+            }
+        }
+    }
+    check_mix("the class mix at the ceiling follows the table", classes,
+              total, RADAR_LEVEL_MAX);
+    check("decoys are the commonest contact at the ceiling",
+          classes[RADAR_CLASS_DECOY] > classes[RADAR_CLASS_NORMAL] &&
+          classes[RADAR_CLASS_DECOY] > classes[RADAR_CLASS_FAST]);
+    check("high-value contacts stay the rarest everywhere",
           classes[RADAR_CLASS_HIGH_VALUE] < classes[RADAR_CLASS_DECOY] &&
           classes[RADAR_CLASS_HIGH_VALUE] < classes[RADAR_CLASS_FAST]);
-    check("a track starts in the outer band", in_band);
-    check("drift stays inside the baseline", drift_ok);
-    check("no contact id is reused", ids_unique);
+    check("drift stays inside what the hardest level allows", drift_ok);
 }
 
 static void test_lifetime_and_motion(void)
@@ -433,6 +513,7 @@ static void test_selection_survives_a_fade(void)
     radar_run_select(&run, id);
 
     for (i = 0; i < 4000 && radar_run_find(&run, id); i++) {
+        sustain(&run);
         radar_run_tick(&run);
         radar_run_clear_events(&run);
     }
@@ -541,47 +622,41 @@ static void test_determinism(void)
     tick_n(&c, 400);
     check("a different seed produces a different run", digest(&a) != digest(&c));
 
-    /* The spawn stream must not depend on how the player plays, or two
-     * players on the same seed would not meet the same contacts. */
+    /* The generator must not depend on how the run is played, or two
+     * players on the same seed would not meet the same contacts. Run b is
+     * played hard - locking and engaging everything it can - while a is
+     * left alone, and after every tick the two generators must still be in
+     * the same place. */
     {
-        uint32_t quiet[32];
-        uint32_t busy[32];
-        int quiet_n = 0;
-        int busy_n = 0;
-        int same;
+        int aligned = 1;
 
         start(&a, 8080u);
         start(&b, 8080u);
-        for (i = 0; i < 1200; i++) {
-            struct radar_event ev;
+        for (i = 0; i < 3000; i++) {
+            const struct radar_contact *sel;
 
+            sustain(&a);
+            sustain(&b);
             radar_run_tick(&a);
-            while (radar_run_take_event(&a, &ev)) {
-                if (ev.type == RADAR_EVENT_SPAWN && quiet_n < 32) {
-                    quiet[quiet_n++] = ((uint32_t)ev.cls << 16) | ev.bearing;
-                }
-            }
             radar_run_tick(&b);
-            while (radar_run_take_event(&b, &ev)) {
-                if (ev.type == RADAR_EVENT_SPAWN && busy_n < 32) {
-                    busy[busy_n++] = ((uint32_t)ev.cls << 16) | ev.bearing;
-                }
-            }
-            /* b is played hard: select, switch, deselect, every tick. */
-            {
+            radar_run_clear_events(&a);
+            radar_run_clear_events(&b);
+            sel = radar_run_selected(&b);
+            if (sel && sel->state == RADAR_CONTACT_ACQUIRED) {
+                radar_run_engage(&b);
+            } else if (!sel) {
                 const struct radar_contact *t = first_contact(&b);
 
                 if (t) {
                     radar_run_select(&b, t->id);
                 }
-                if (i % 5 == 0) {
-                    radar_run_deselect(&b);
-                }
             }
+            aligned &= a.rng.state == b.rng.state;
         }
-        same = quiet_n > 20 && quiet_n == busy_n &&
-               memcmp(quiet, busy, (size_t)quiet_n * sizeof(quiet[0])) == 0;
-        check("the spawn stream does not depend on how the run is played", same);
+        check("the generator does not depend on how the run is played", aligned);
+        check("the played run really did engage things",
+              b.score.engaged + b.score.mistakes > 0);
+        check("the two runs differ in everything else", digest(&a) != digest(&b));
     }
 }
 
@@ -603,6 +678,7 @@ static void test_events(void)
     /* Events come back in the order they happened. */
     start(&run, 4712u);
     for (i = 0; i < 3 * RADAR_SPAWN_TICKS_BASE; i++) {
+        sustain(&run);
         radar_run_tick(&run);
     }
     {
@@ -621,6 +697,7 @@ static void test_events(void)
      * silently. */
     start(&run, 4713u);
     for (i = 0; i < 40 * RADAR_SPAWN_TICKS_BASE; i++) {
+        sustain(&run);
         radar_run_tick(&run);
     }
     check("an undrained queue stops at its limit",
@@ -640,6 +717,7 @@ static void test_sweep(void)
     start(&run, 1234u);
     check("the sweep starts at the top", run.sweep == 0);
     for (i = 0; i < 500; i++) {
+        sustain(&run);
         radar_run_tick(&run);
         radar_run_clear_events(&run);
         bounded &= run.sweep < RADAR_BEARING_MAX;
@@ -647,6 +725,428 @@ static void test_sweep(void)
     check("the sweep stays inside one turn", bounded);
     check("the sweep turns once every four seconds",
           RADAR_SWEEP_DD_PER_TICK * (4000 / RADAR_TICK_MS) == RADAR_BEARING_MAX);
+}
+
+/* Work the scope until a contact of the wanted kind is acquired and armed,
+ * holding the sector intact so the search itself cannot end the run.
+ * Returns its id, or RADAR_NO_CONTACT if the run never produced one. */
+static uint32_t acquire_kind(struct radar_run *run, int want_target)
+{
+    int guard;
+
+    for (guard = 0; guard < 20000; guard++) {
+        const struct radar_contact *sel;
+
+        sustain(run);
+        sel = radar_run_selected(run);
+        if (sel && sel->state == RADAR_CONTACT_ACQUIRED) {
+            if (radar_class_is_target((enum radar_class)sel->cls) == want_target) {
+                return sel->id;
+            }
+            /* What acquisition revealed is sticky, so a rejected contact is
+             * not picked up again below. */
+            radar_run_deselect(run);
+        }
+        if (!radar_run_selected(run)) {
+            int i;
+
+            for (i = 0; i < RADAR_CONTACTS_MAX; i++) {
+                const struct radar_contact *t = radar_run_slot(run, i);
+
+                if (t->active && !t->classified) {
+                    radar_run_select(run, t->id);
+                    break;
+                }
+            }
+        }
+        radar_run_tick(run);
+        radar_run_clear_events(run);
+    }
+    return RADAR_NO_CONTACT;
+}
+
+static void test_engagement(void)
+{
+    struct radar_run run;
+    const struct radar_contact *c;
+    struct radar_event ev;
+    uint32_t id;
+    int32_t preview;
+    int integrity_before;
+    int mistakes_before;
+    int reported;
+
+    /* A shot needs a run, a selection and a completed lock. Missing any of
+     * them must change nothing at all rather than half-fire. */
+    radar_run_new(&run, 1212u);
+    check("a ready run cannot engage",
+          radar_run_engage(&run) == RADAR_ENGAGE_INVALID);
+    radar_run_start(&run);
+    check("an empty scope cannot engage",
+          radar_run_engage(&run) == RADAR_ENGAGE_INVALID);
+    check("an empty scope arms nothing", radar_run_engage_value(&run) == 0);
+
+    radar_run_tick(&run);
+    radar_run_clear_events(&run);
+    c = first_contact(&run);
+    if (!c) {
+        check("there is a track to work", 0);
+        return;
+    }
+    radar_run_select(&run, c->id);
+    check("a selected but unlocked contact cannot be engaged",
+          radar_run_engage(&run) == RADAR_ENGAGE_INVALID);
+    check("a selected but unlocked contact arms nothing",
+          radar_run_engage_value(&run) == 0);
+    check("a refused shot leaves the contact alone",
+          radar_run_find(&run, c->id) != NULL && run.selected == c->id);
+
+    /* A valid target. */
+    id = acquire_kind(&run, 1);
+    check("a valid target can be acquired", id != RADAR_NO_CONTACT);
+    if (id == RADAR_NO_CONTACT) {
+        return;
+    }
+    preview = radar_run_engage_value(&run);
+    check("an armed shot is worth something", preview > 0);
+    radar_run_clear_events(&run);
+    check("engaging a valid target is a hit",
+          radar_run_engage(&run) == RADAR_ENGAGE_HIT);
+    check("the target is off the scope", radar_run_find(&run, id) == NULL);
+    check("the shot clears the selection",
+          run.selected == RADAR_NO_CONTACT && radar_run_selected(&run) == NULL);
+    check("the shot scored exactly what it previewed", run.score.points == preview);
+    check("the hit is counted", run.score.engaged == 1 && run.score.streak == 1);
+
+    reported = 0;
+    while (radar_run_take_event(&run, &ev)) {
+        if (ev.type == RADAR_EVENT_HIT && ev.id == id) {
+            reported = ev.value == preview;
+        }
+    }
+    check("the hit is reported with its value", reported);
+    check("a spent contact cannot be engaged again",
+          radar_run_engage(&run) == RADAR_ENGAGE_INVALID);
+
+    /* A decoy. Acquiring it is what tells the player it is one, so a foul
+     * is always a decision. */
+    id = acquire_kind(&run, 0);
+    check("a decoy can be acquired", id != RADAR_NO_CONTACT);
+    if (id == RADAR_NO_CONTACT) {
+        return;
+    }
+    c = radar_run_find(&run, id);
+    check("an acquired decoy says so", c && c->classified &&
+          !radar_class_is_target((enum radar_class)c->cls));
+    check("an armed decoy is worth nothing", radar_run_engage_value(&run) == 0);
+    integrity_before = run.score.integrity;
+    mistakes_before = run.score.mistakes;
+    radar_run_clear_events(&run);
+    check("engaging a decoy is a foul", radar_run_engage(&run) == RADAR_ENGAGE_FOUL);
+    check("the decoy is off the scope", radar_run_find(&run, id) == NULL);
+    check("a foul is counted", run.score.mistakes == mistakes_before + 1);
+    check("a foul breaks the streak", run.score.streak == 0);
+    check("a foul costs sector integrity",
+          run.score.integrity == integrity_before - RADAR_INTEGRITY_FOUL);
+
+    reported = 0;
+    while (radar_run_take_event(&run, &ev)) {
+        if (ev.type == RADAR_EVENT_FOUL && ev.id == id) {
+            reported = ev.value < 0;
+        }
+    }
+    check("the foul is reported with its cost", reported);
+}
+
+static void test_difficulty_table(void)
+{
+    struct radar_level p;
+    struct radar_level prev;
+    struct radar_level low;
+    struct radar_level high;
+    struct radar_level first;
+    struct radar_level last;
+    int sums = 1;
+    int faster = 1;
+    int shorter = 1;
+    int driftier = 1;
+    int decoyer = 1;
+    int roomier = 1;
+    int level;
+
+    radar_level_params(0, &p);
+    check("level 0 is the rate the run opens at",
+          p.spawn_ticks == RADAR_SPAWN_TICKS_BASE &&
+          p.contacts_max == RADAR_CONTACTS_BASE &&
+          p.ttl_pct == 100 && p.drift_dd == RADAR_DRIFT_BASE &&
+          p.pct[RADAR_CLASS_DECOY] == RADAR_DECOY_PCT_BASE &&
+          p.pct[RADAR_CLASS_HIGH_VALUE] == RADAR_HIGH_VALUE_PCT_BASE &&
+          p.pct[RADAR_CLASS_FAST] == RADAR_FAST_PCT_BASE);
+
+    prev = p;
+    for (level = 0; level <= RADAR_LEVEL_MAX; level++) {
+        int sum = 0;
+        int i;
+
+        radar_level_params(level, &p);
+        for (i = 0; i < RADAR_CLASS_COUNT; i++) {
+            sum += p.pct[i];
+        }
+        sums &= sum == 100;
+        if (level > 0) {
+            faster &= p.spawn_ticks < prev.spawn_ticks;
+            shorter &= p.ttl_pct < prev.ttl_pct;
+            driftier &= p.drift_dd > prev.drift_dd;
+            decoyer &= p.pct[RADAR_CLASS_DECOY] > prev.pct[RADAR_CLASS_DECOY];
+            roomier &= p.contacts_max >= prev.contacts_max;
+        }
+        prev = p;
+    }
+    check("the spawn shares always sum to 100", sums);
+    check("contacts arrive faster at every step", faster);
+    check("tracks live less long at every step", shorter);
+    check("tracks drift harder at every step", driftier);
+    check("decoys grow more common at every step", decoyer);
+    check("the scope never holds fewer", roomier);
+
+    radar_level_params(RADAR_LEVEL_MAX, &p);
+    check("the hardest level still leaves a track worth working",
+          p.ttl_pct > 0 && p.spawn_ticks > 0);
+    check("the hardest level fits the scope",
+          p.contacts_max <= RADAR_CONTACTS_MAX);
+    check("normal targets never disappear entirely",
+          p.pct[RADAR_CLASS_NORMAL] > 0);
+    /* The whole reason the ramp ends a run: above this line contacts arrive
+     * faster than the acquisition time, so nobody can hold the sector. */
+    check("the hardest level outruns even a perfect operator",
+          p.spawn_ticks < RADAR_ACQUIRE_TICKS);
+
+    radar_level_params(-5, &low);
+    radar_level_params(0, &first);
+    radar_level_params(RADAR_LEVEL_MAX + 100, &high);
+    radar_level_params(RADAR_LEVEL_MAX, &last);
+    check("a level below zero clamps to the first",
+          low.spawn_ticks == first.spawn_ticks && low.ttl_pct == first.ttl_pct);
+    check("a level above the ceiling clamps to the last",
+          high.spawn_ticks == last.spawn_ticks && high.ttl_pct == last.ttl_pct);
+    radar_level_params(0, NULL);
+}
+
+static void test_progression(void)
+{
+    struct radar_run run;
+    struct radar_level p;
+    struct radar_event ev;
+    int announced = 0;
+    int gaps_match = 1;
+    int seen = 0;
+    uint32_t last = 0;
+    int shorter_tracks = 1;
+    uint16_t opening_ttl = 0;
+    int i;
+
+    start(&run, 6060u);
+    check("a run starts at level 0", radar_run_level(&run) == 0);
+    radar_run_tick(&run);
+    {
+        const struct radar_contact *c = first_contact(&run);
+
+        opening_ttl = c ? c->ttl_max : 0;
+    }
+    radar_run_clear_events(&run);
+
+    for (i = 2; i < RADAR_LEVEL_TICKS; i++) {
+        sustain(&run);
+        radar_run_tick(&run);
+        radar_run_clear_events(&run);
+    }
+    check("the level holds for the whole step",
+          radar_run_level(&run) == 0 && run.ticks == RADAR_LEVEL_TICKS - 1);
+
+    sustain(&run);
+    radar_run_tick(&run);
+    check("the level steps up on schedule", radar_run_level(&run) == 1);
+    while (radar_run_take_event(&run, &ev)) {
+        if (ev.type == RADAR_EVENT_LEVEL) {
+            announced = ev.value == 1;
+        }
+    }
+    check("a step up is announced with its new level", announced);
+
+    /* Run to the ceiling and past it. */
+    while (run.ticks < (uint32_t)RADAR_LEVEL_TICKS * (RADAR_LEVEL_MAX + 3)) {
+        sustain(&run);
+        radar_run_tick(&run);
+        radar_run_clear_events(&run);
+    }
+    check("the ramp stops at its ceiling", radar_run_level(&run) == RADAR_LEVEL_MAX);
+
+    /* At the top, spawns really do arrive at the stated interval, and the
+     * tracks really are shorter-lived than the opening ones. A gap that is
+     * a multiple of the interval is a spawn the full scope refused, which
+     * is the rule and not a missed beat. */
+    radar_level_params(RADAR_LEVEL_MAX, &p);
+    for (i = 0; i < 40 * p.spawn_ticks; i++) {
+        sustain(&run);
+        radar_run_tick(&run);
+        while (radar_run_take_event(&run, &ev)) {
+            if (ev.type != RADAR_EVENT_SPAWN) {
+                continue;
+            }
+            if (last != 0) {
+                gaps_match &= (run.ticks - last) % p.spawn_ticks == 0;
+            }
+            last = run.ticks;
+            seen++;
+        }
+        {
+            int s;
+
+            for (s = 0; s < RADAR_CONTACTS_MAX; s++) {
+                const struct radar_contact *c = radar_run_slot(&run, s);
+
+                if (c->active && c->age == 0 && opening_ttl > 0) {
+                    shorter_tracks &= c->ttl_max < opening_ttl;
+                }
+            }
+        }
+    }
+    check("spawns arrive at the interval the table states", gaps_match && seen > 10);
+    check("tracks at the ceiling are shorter-lived than at the opening",
+          shorter_tracks && seen > 10);
+}
+
+static void test_game_over(void)
+{
+    struct radar_run run;
+    struct radar_event ev;
+    uint32_t before;
+    int over_reported = 0;
+    int32_t final_score = -1;
+    int guard;
+
+    /* Left alone, a run ends: every valid target that fades costs sector
+     * integrity, and five of them are all it takes. */
+    start(&run, 2468u);
+    for (guard = 0; guard < 40000 && !radar_run_is_over(&run); guard++) {
+        radar_run_tick(&run);
+        while (radar_run_take_event(&run, &ev)) {
+            if (ev.type == RADAR_EVENT_OVER) {
+                over_reported = 1;
+                final_score = ev.value;
+            }
+        }
+    }
+    check("an unattended run ends", radar_run_is_over(&run));
+    check("the end is announced once", over_reported);
+    check("the end carries the final score", final_score == run.score.points);
+    check("a run ends when the sector is spent", run.score.integrity == 0);
+    check("it took exactly the leakers the constants allow",
+          run.score.missed == RADAR_INTEGRITY_MAX / RADAR_INTEGRITY_MISS);
+    check("a decoy that faded was free", run.score.mistakes == 0);
+
+    /* Nothing works afterwards and nothing changes. A run that kept
+     * counting leakers after reporting its own final score would make the
+     * result screen disagree with the event that produced it. */
+    before = digest(&run);
+    radar_run_tick(&run);
+    radar_run_tick(&run);
+    check("a finished run does not tick", digest(&run) == before);
+    check("a finished run cannot select", radar_run_select(&run, 1u) == -1);
+    check("a finished run cannot engage",
+          radar_run_engage(&run) == RADAR_ENGAGE_INVALID);
+    check("a finished run arms nothing", radar_run_engage_value(&run) == 0);
+    check("a finished run cannot be restarted", radar_run_start(&run) == -1);
+    check("a finished run holds nothing selected",
+          run.selected == RADAR_NO_CONTACT);
+    check("none of that changed anything", digest(&run) == before);
+    check("the final score survived", run.score.points == final_score);
+}
+
+/* A simulated operator. It works the most urgent contact it has not
+ * identified, engages what turns out to be a target and leaves what turns
+ * out to be a decoy. reaction_ticks is the pause before it reaches for the
+ * next one: 0 is a machine, 10 (500 ms) is roughly a person on a good day.
+ * Returns the tick the run ended on, or 0 if it never did. */
+static uint32_t play(uint32_t seed, int reaction_ticks)
+{
+    struct radar_run run;
+    int idle = 0;
+    int guard;
+
+    start(&run, seed);
+    for (guard = 0; guard < 60000 && !radar_run_is_over(&run); guard++) {
+        const struct radar_contact *sel = radar_run_selected(&run);
+
+        if (sel && sel->state == RADAR_CONTACT_ACQUIRED) {
+            if (radar_class_is_target((enum radar_class)sel->cls)) {
+                radar_run_engage(&run);
+            } else {
+                radar_run_deselect(&run);
+            }
+            idle = reaction_ticks;
+        } else if (!sel) {
+            if (idle > 0) {
+                idle--;
+            } else {
+                uint32_t best = RADAR_NO_CONTACT;
+                int urgency = 0;
+                int i;
+
+                for (i = 0; i < RADAR_CONTACTS_MAX; i++) {
+                    const struct radar_contact *t = radar_run_slot(&run, i);
+
+                    if (!t->active || t->classified) {
+                        continue;
+                    }
+                    if (best == RADAR_NO_CONTACT || t->ttl < urgency) {
+                        best = t->id;
+                        urgency = t->ttl;
+                    }
+                }
+                if (best != RADAR_NO_CONTACT) {
+                    radar_run_select(&run, best);
+                }
+            }
+        }
+        radar_run_tick(&run);
+        radar_run_clear_events(&run);
+    }
+    return radar_run_is_over(&run) ? run.ticks : 0u;
+}
+
+static void test_pacing(void)
+{
+    static const uint32_t seeds[5] = { 11u, 202u, 3003u, 40004u, 500005u };
+    uint32_t machine;
+    int in_band = 1;
+    int i;
+
+    /* The claim the difficulty model has to support: a competent operator
+     * gets a two-to-five minute round. The band below is wide because this
+     * is a model of a player, not a player; what it really asserts is that
+     * the ramp neither ends a run in seconds nor lets one go on for ever.
+     * A human is worse than this at tapping a drifting marker, so real
+     * rounds land at the shorter end. */
+    for (i = 0; i < 5; i++) {
+        uint32_t ticks = play(seeds[i], 10);
+        int seconds = (int)(ticks * RADAR_TICK_MS / 1000);
+
+        printf("     seed %u: an operator with a 500 ms reaction lasted %d s\n",
+               seeds[i], seconds);
+        in_band &= ticks > 0 && seconds >= 90 && seconds <= 420;
+    }
+    check("a modelled operator gets a round of the intended length", in_band);
+
+    /* And the ceiling really does bite: even an operator with no reaction
+     * time at all loses, because above RADAR_LEVEL_MAX contacts arrive
+     * faster than acquisition can possibly service them. */
+    machine = play(seeds[0], 0);
+    check("even a perfect operator loses eventually", machine > 0);
+    printf("     a perfect operator lasted %d s\n",
+           (int)(machine * RADAR_TICK_MS / 1000));
+    check("a perfect operator reaches the difficulty ceiling",
+          machine >= (uint32_t)RADAR_LEVEL_TICKS * RADAR_LEVEL_MAX);
 }
 
 int main(void)
@@ -660,6 +1160,11 @@ int main(void)
     test_determinism();
     test_events();
     test_sweep();
+    test_engagement();
+    test_difficulty_table();
+    test_progression();
+    test_game_over();
+    test_pacing();
 
     printf("radar_rules_test: %d failure(s)\n", failed);
     return failed ? 1 : 0;
