@@ -182,8 +182,8 @@ static void decode_board(struct cursor *c, struct fleet_board *b)
     b->ships_afloat = get_u8(c);
 }
 
-/* Every invariant fleet_rules.c maintains. A save that fails any of them was
- * damaged or forged and must not be resumed. */
+/* Every invariant fleet_rules.c maintains. A save that fails any of them
+ * cannot have come from the rules, so it is not resumed. */
 static int board_valid(const struct fleet_board *b)
 {
     uint8_t covered[FLEET_CELLS];

@@ -12,6 +12,22 @@
  * untouched: PocketFleet then starts a new game rather than resuming into a
  * state the rules could never have produced.
  *
+ * The FNV-1a checksum detects accidental corruption (a truncated write, a bad
+ * block, a stray edit). It is not a cryptographic digest and offers no
+ * protection against deliberate modification: anyone who can write the file
+ * can recompute it. Nothing in a save is secret or security relevant, so that
+ * is the right trade; the rules validation above, not the checksum, is what
+ * keeps an impossible match out of the game.
+ *
+ * Size: FLEET_SAVE_SIZE is 898 bytes, more than the 120-160 bytes estimated
+ * in the design note. The estimate assumed bit-packed boards (2 bits of shot
+ * state and 4 bits of ship id per cell). The implementation stores one plain
+ * byte per cell per array, and carries the AI's own record (its shots, the
+ * announced results, its resolved-hull flags and its hunt queue) which the
+ * estimate had not accounted for and which a faithful resume needs. Whole
+ * bytes keep the codec and its validation obvious, and 898 bytes in a file on
+ * a 600 MB rootfs costs nothing. Do not pack it without a real reason.
+ *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #ifndef POCKETFLEET_SAVE_H

@@ -18,6 +18,8 @@ check() { # <label> <files> <regex>
     fi
 }
 check "engine is free of LVGL" "$ENGINE/*.c $ENGINE/*.h" 'include[[:space:]]*[<"]lvgl|lv_obj_|lv_style_'
+check "the view model is free of LVGL" "apps/fleet/ui/fleet_view.c apps/fleet/ui/fleet_view.h" \
+      'include[[:space:]]*[<"]lvgl|lv_obj_|lv_style_'
 check "AI does not include the rules" "$ENGINE/fleet_ai.c $ENGINE/fleet_ai.h" 'include[[:space:]]*"fleet_rules\.h"'
 check "AI does not name the hidden state" "$ENGINE/fleet_ai.c" 'fleet_board|fleet_game'
 check "only fleet_store.c touches the filesystem" \
