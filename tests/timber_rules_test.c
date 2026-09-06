@@ -61,6 +61,14 @@ static uint32_t digest(const struct timber_run *run)
     h = fnv1a(h, (uint32_t)(int32_t)run->disturb_sign);
     h = fnv1a(h, (uint32_t)run->lean_x);
     h = fnv1a(h, (uint32_t)run->lean_y);
+    h = fnv1a(h, run->sway_phase);
+    h = fnv1a(h, (uint32_t)(int32_t)run->sway);
+    h = fnv1a(h, run->hinge);
+    h = fnv1a(h, run->hinge_axis);
+    h = fnv1a(h, (uint32_t)(int32_t)run->hinge_sign);
+    h = fnv1a(h, run->creaking);
+    h = fnv1a(h, (uint32_t)run->margin_static);
+    h = fnv1a(h, (uint32_t)run->margin_eff);
     h = fnv1a(h, run->tower.layers);
     for (layer = 0; layer < TIMBER_LAYERS_MAX; layer++) {
         for (slot = 0; slot < TIMBER_SLOTS; slot++) {
@@ -342,16 +350,26 @@ static void test_fast_pull_jolts(void)
     check("a jolt the other way leans the other way",
           run.lean_y < 0 && run.disturb_sign == -1);
 
-    /* Disturbance is capped: rattle a free block in and out. */
+    /* Rattling a free block in and out keeps the tower shaking; the decay
+     * every tick holds it short of the ceiling. */
     start(&run, 22u);
     rig(&run, 1, 4);
     timber_run_select(&run, 4);
     for (i = 0; i < 40; i++) {
         drag(&run, (i & 1) ? -300 : 300, 1, TIMBER_EVENT_JOLT);
     }
-    check("disturbance never exceeds its ceiling",
-          run.disturb == TIMBER_DISTURB_MAX && run.turn == TIMBER_TURN_SELECT &&
+    check("a sustained rattle keeps the tower shaking short of the ceiling",
+          run.disturb > 400 && run.disturb < TIMBER_DISTURB_MAX && run.turn == TIMBER_TURN_SELECT &&
           run.tower.blocks[4].extraction == 0);
+
+    /* The ceiling: a wedged base block yanked straight out. */
+    start(&run, 22u);
+    rig(&run, 1, 4);
+    timber_run_select(&run, 1);
+    timber_run_pull(&run, 700);
+    timber_run_pull(&run, 700);
+    check("disturbance never exceeds its ceiling",
+          run.disturb == TIMBER_DISTURB_MAX && run.turn == TIMBER_TURN_PLACING);
 }
 
 static void test_stuck_pull(void)
@@ -416,6 +434,146 @@ static void test_stuck_pull(void)
     jolts = drag(&run, 60, 3, TIMBER_EVENT_JOLT);
     check("a yanked stuck block jolts hard", jolts == 3 && run.disturb > 100 && run.lean_x > 0);
     check("a yank leans along x for an x-layer block", run.lean_y == 0);
+}
+
+static void test_decay_and_sway(void)
+{
+    struct timber_run run;
+    int i;
+    int falls = 1;
+    int swung = 0;
+    int forward = 1;
+    uint16_t previous;
+
+    start(&run, 31u);
+    rig(&run, 1, 4);
+    timber_run_select(&run, 4);
+    timber_run_test(&run);
+    check("a knock restarts the sway from rest",
+          run.disturb == TIMBER_TEST_IMPULSE && run.sway_phase == 0 && run.sway == 0);
+    previous = run.disturb;
+    for (i = 0; i < 40; i++) {
+        timber_run_tick(&run);
+        falls &= run.disturb <= previous;
+        previous = run.disturb;
+        if (i < TIMBER_SWAY_PERIOD_TICKS / 2) {
+            /* The first half period sways the way the knock went. */
+            forward &= run.sway >= 0;
+            swung |= run.sway > 0;
+        }
+    }
+    check("disturbance only ever falls and is gone within two seconds",
+          falls && run.disturb == 0);
+    check("the tower sways the way it was knocked, then comes to rest",
+          swung && forward && run.sway == 0);
+    check("the sway phase advances a turn every period",
+          run.sway_phase == (uint16_t)(40 * TIMBER_SWAY_STEP));
+
+    /* A knock the other way sways the other way. */
+    start(&run, 31u);
+    rig(&run, 1, 4);
+    timber_run_select(&run, 4);
+    drag(&run, -300, 2, TIMBER_EVENT_JOLT);
+    check("a knock the other way sways the other way",
+          run.disturb_sign == -1 && run.sway == 0 &&
+          (timber_run_tick(&run), timber_run_tick(&run), run.sway < 0));
+}
+
+static void test_margins_in_a_run(void)
+{
+    struct timber_run run;
+    struct timber_event e;
+    int creaks;
+    int shifts;
+    int i;
+
+    timber_run_new(&run, 41u);
+    check("a fresh tower is nearly perfectly balanced and the meter says so",
+          timber_run_hinge(&run) >= 0 && run.margin_static > 350 &&
+          run.margin_static <= TIMBER_MARGIN_FULL && timber_run_stability_permille(&run) > 900 &&
+          timber_run_stability_permille(&run) <= 1000 && !run.creaking);
+    timber_run_start(&run);
+
+    /* Thin layer 5 to its centre block by hand: half a width of margin, so
+     * the hinge is there and the meter is at a third. */
+    timber_tower_remove(&run.tower, 15);
+    timber_tower_remove(&run.tower, 17);
+    timber_run_clear_events(&run);
+    timber_run_tick(&run);
+    /* The thinned layer and the one under it rest on the same block; the
+     * micro-offsets decide which of the two reads a hair smaller. */
+    check("a thinned layer becomes the hinge",
+          (timber_run_hinge(&run) == 5 || timber_run_hinge(&run) == 4) &&
+          run.margin_static > 100 && run.margin_static < 160 &&
+          timber_run_stability_permille(&run) > 250 && timber_run_stability_permille(&run) < 420);
+    check("half a width is not yet a creak", run.event_count == 0 && !run.creaking);
+
+    /* Lean it until the margin is under a quarter of a width. */
+    run.lean_x = 3000;
+    timber_run_tick(&run);
+    creaks = 0;
+    while (timber_run_take_event(&run, &e)) {
+        creaks += e.type == TIMBER_EVENT_CREAK && e.layer == run.hinge &&
+                  e.block == TIMBER_NO_BLOCK && e.value == run.margin_static;
+    }
+    check("under the creak line the tower creaks once, naming the hinge",
+          creaks == 1 && run.creaking && run.margin_static < TIMBER_CREAK_MARGIN &&
+          (run.hinge == 4 || run.hinge == 5));
+    for (i = 0; i < 5; i++) {
+        timber_run_tick(&run);
+    }
+    check("it does not creak again while it stays there", run.event_count == 0 && run.creaking);
+    run.lean_x = 0;
+    timber_run_tick(&run);
+    check("straightened, it stops creaking", !run.creaking && run.event_count == 0);
+    run.lean_x = 3000;
+    timber_run_tick(&run);
+    check("and creaks again when it goes back under",
+          timber_run_take_event(&run, &e) && e.type == TIMBER_EVENT_CREAK);
+    run.lean_x = 6000;
+    timber_run_tick(&run);
+    check("leaned past its margin the hinge reads negative; the trigger is P4",
+          run.margin_static < 0 && run.margin_eff < 0 && run.state == TIMBER_RUN_ACTIVE);
+
+    /* The load shift: a free centre block drawn slowly lets go of the stack
+     * at three quarters out, before it slips at four fifths. */
+    start(&run, 42u);
+    rig(&run, 1, 4);
+    timber_run_select(&run, 4);
+    shifts = drag(&run, 100, 5, TIMBER_EVENT_SHIFT);
+    check("half out, the block still carries its share and nothing has shifted",
+          shifts == 0 && run.disturb == 0 && run.tower.blocks[4].extraction == 500);
+    timber_run_clear_events(&run);
+    timber_run_pull(&run, 100);
+    shifts = 0;
+    while (timber_run_take_event(&run, &e)) {
+        shifts += e.type == TIMBER_EVENT_SHIFT && e.block == 4 && e.value > 0;
+    }
+    check("past three quarters the stack settles onto the blocks left, with a knock",
+          shifts == 1 && run.disturb > 0 && run.tower.blocks[4].extraction == 600 &&
+          run.turn == TIMBER_TURN_PULLING);
+    check("the knock grows with the load carried: a low block settles harder",
+          run.disturb == TIMBER_SHIFT_IMPULSE_MIN +
+                         (TIMBER_SHIFT_IMPULSE_MAX - TIMBER_SHIFT_IMPULSE_MIN) * 48 / TIMBER_LOAD_MAX);
+    shifts = drag(&run, 100, 1, TIMBER_EVENT_SHIFT);
+    check("the slip that follows is not a second shift",
+          shifts == 0 && run.turn == TIMBER_TURN_PLACING);
+
+    /* Pulling the base's centre block changes no margin; a side block of
+     * the base leaves half a width. */
+    start(&run, 43u);
+    run.tower.blocks[1].seat = 255;
+    timber_run_select(&run, 1);
+    drag(&run, 100, 7, TIMBER_EVENT_JOLT);
+    check("the base without its centre block stands as before",
+          run.turn == TIMBER_TURN_PLACING && run.margin_static > 350);
+    start(&run, 43u);
+    run.tower.blocks[0].seat = 255;
+    timber_run_select(&run, 0);
+    drag(&run, 100, 7, TIMBER_EVENT_JOLT);
+    check("the base without a side block has half a width left, at the base",
+          run.turn == TIMBER_TURN_PLACING && timber_run_hinge(&run) == 0 &&
+          run.margin_static > 100 && run.margin_static < 150);
 }
 
 static void test_events(void)
@@ -498,6 +656,8 @@ int main(void)
     test_free_pull();
     test_fast_pull_jolts();
     test_stuck_pull();
+    test_decay_and_sway();
+    test_margins_in_a_run();
     test_events();
     test_determinism();
 

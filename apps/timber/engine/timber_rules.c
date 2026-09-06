@@ -21,10 +21,10 @@ void timber_run_clear_events(struct timber_run *run)
 /* Record something that happened. The newest event is the one dropped when
  * the queue is full: an event lost at the head would be a collapse the UI
  * never learned about, which is worse than a missed effect. */
-static void emit(struct timber_run *run, enum timber_event_type type, int id, int32_t value)
+static void emit_at(struct timber_run *run, enum timber_event_type type, int id, int layer,
+                    int slot, int32_t value)
 {
     struct timber_event *e;
-    const struct timber_block *b = timber_tower_block(&run->tower, id);
 
     if (run->event_count >= TIMBER_EVENTS_MAX) {
         if (run->events_dropped < 0xFFFFu) {
@@ -34,10 +34,18 @@ static void emit(struct timber_run *run, enum timber_event_type type, int id, in
     }
     e = &run->events[run->event_count++];
     e->type = (uint8_t)type;
-    e->block = b ? (uint8_t)id : (uint8_t)TIMBER_NO_BLOCK;
-    e->layer = b ? b->layer : 0u;
-    e->slot = b ? b->slot : 0u;
+    e->block = id >= 0 && id < TIMBER_BLOCKS ? (uint8_t)id : (uint8_t)TIMBER_NO_BLOCK;
+    e->layer = (uint8_t)layer;
+    e->slot = (uint8_t)slot;
     e->value = value;
+}
+
+/* An event about a block, from the cell it is in. */
+static void emit(struct timber_run *run, enum timber_event_type type, int id, int32_t value)
+{
+    const struct timber_block *b = timber_tower_block(&run->tower, id);
+
+    emit_at(run, type, id, b ? b->layer : 0, b ? b->slot : 0, value);
 }
 
 int timber_run_take_event(struct timber_run *run, struct timber_event *out)
@@ -53,6 +61,96 @@ int timber_run_take_event(struct timber_run *run, struct timber_event *out)
     }
     run->event_count--;
     return 1;
+}
+
+/* ---- the tower's answer ------------------------------------------------- */
+
+/* Measure the tower: the hinge and its margins, and whether it creaks.
+ * Called after every tick and every act, so the run always carries a
+ * current answer and the trigger (P4) has one thing to look at. */
+static void settle(struct timber_run *run)
+{
+    struct timber_margin m;
+    int32_t sx = run->disturb_axis == TIMBER_AXIS_X ? run->sway : 0;
+    int32_t sy = run->disturb_axis == TIMBER_AXIS_Y ? run->sway : 0;
+    int hinge = timber_stability_hinge(&run->tower, run->lean_x, run->lean_y, sx, sy, &m);
+
+    if (hinge < 0) {
+        run->hinge = TIMBER_NO_LAYER;
+        run->hinge_axis = TIMBER_AXIS_X;
+        run->hinge_sign = 0;
+        run->margin_static = TIMBER_MARGIN_FULL;
+        run->margin_eff = TIMBER_MARGIN_FULL;
+        run->creaking = 0;
+        return;
+    }
+    run->hinge = (uint8_t)hinge;
+    run->hinge_axis = m.axis;
+    run->hinge_sign = m.sign;
+    run->margin_static = m.stat;
+    run->margin_eff = m.eff;
+    /* Edge-triggered: one creak when the margin goes under the line, and
+     * not another until it has come back over it. */
+    if (m.stat < TIMBER_CREAK_MARGIN) {
+        if (!run->creaking) {
+            run->creaking = 1;
+            emit_at(run, TIMBER_EVENT_CREAK, -1, hinge, 0, m.stat);
+        }
+    } else {
+        run->creaking = 0;
+    }
+}
+
+/* The sway right now: the disturbance times the amplitude times the sine
+ * of the phase, in the direction the disturbance came from. Computed on
+ * the magnitude so the shift is never applied to a negative number. */
+static int32_t sway_of(const struct timber_run *run)
+{
+    int32_t s = timber_stability_sin(run->sway_phase);
+    int negative = s < 0;
+    int64_t magnitude;
+
+    if (negative) {
+        s = -s;
+    }
+    /* Q8.8 * Q8.8 * Q15 -> Q8.8 */
+    magnitude = ((int64_t)run->disturb * TIMBER_SWAY_AMP * s) >> 23;
+    if (run->disturb_sign < 0) {
+        negative = !negative;
+    }
+    return negative ? (int32_t)-magnitude : (int32_t)magnitude;
+}
+
+static void disturb_add(struct timber_run *run, int32_t amount, int axis, int sign)
+{
+    int32_t d = (int32_t)run->disturb + amount;
+
+    if (d > TIMBER_DISTURB_MAX) {
+        d = TIMBER_DISTURB_MAX;
+    }
+    if (d < 0) {
+        d = 0;
+    }
+    run->disturb = (uint16_t)d;
+    run->disturb_axis = (uint8_t)axis;
+    run->disturb_sign = (int8_t)(sign < 0 ? -1 : 1);
+    /* The sway starts over in the direction of the new knock. */
+    run->sway_phase = 0;
+    run->sway = 0;
+}
+
+static void lean_add(struct timber_run *run, int axis, int32_t delta)
+{
+    int32_t *lean = axis == TIMBER_AXIS_X ? &run->lean_x : &run->lean_y;
+    int64_t v = (int64_t)*lean + delta;
+
+    if (v > TIMBER_LEAN_MAX) {
+        v = TIMBER_LEAN_MAX;
+    }
+    if (v < -TIMBER_LEAN_MAX) {
+        v = -TIMBER_LEAN_MAX;
+    }
+    *lean = (int32_t)v;
 }
 
 /* ---- run --------------------------------------------------------------- */
@@ -80,6 +178,8 @@ void timber_run_new(struct timber_run *run, uint32_t seed)
     run->held = TIMBER_NO_BLOCK;
     run->tests_left = TIMBER_TESTS_PER_TURN;
     run->disturb_sign = 1;
+    run->hinge = TIMBER_NO_LAYER;
+    settle(run);
 }
 
 int timber_run_start(struct timber_run *run)
@@ -96,10 +196,15 @@ void timber_run_tick(struct timber_run *run)
     if (!run) {
         return;
     }
-    if (run->state != TIMBER_RUN_ACTIVE && run->state != TIMBER_RUN_COLLAPSING) {
-        return;
+    if (run->state == TIMBER_RUN_ACTIVE) {
+        run->ticks++;
+        run->disturb = (uint16_t)(((uint32_t)run->disturb * TIMBER_DISTURB_DECAY) >> 8);
+        run->sway_phase = (uint16_t)(run->sway_phase + TIMBER_SWAY_STEP);
+        run->sway = (int16_t)sway_of(run);
+        settle(run);
+    } else if (run->state == TIMBER_RUN_COLLAPSING) {
+        run->ticks++;
     }
-    run->ticks++;
 }
 
 int timber_run_is_over(const struct timber_run *run)
@@ -130,6 +235,34 @@ int timber_run_held(const struct timber_run *run)
         return -1;
     }
     return run->held;
+}
+
+/* ---- the tower's state -------------------------------------------------- */
+
+int timber_run_hinge(const struct timber_run *run)
+{
+    if (!run || run->hinge == TIMBER_NO_LAYER) {
+        return -1;
+    }
+    return run->hinge;
+}
+
+int32_t timber_run_margin(const struct timber_run *run)
+{
+    return run ? run->margin_eff : TIMBER_MARGIN_FULL;
+}
+
+int timber_run_stability_permille(const struct timber_run *run)
+{
+    int32_t m = timber_run_margin(run);
+
+    if (m < 0) {
+        m = 0;
+    }
+    if (m > TIMBER_MARGIN_FULL) {
+        m = TIMBER_MARGIN_FULL;
+    }
+    return (int)(m * 1000 / TIMBER_MARGIN_FULL);
 }
 
 /* ---- selection --------------------------------------------------------- */
@@ -180,37 +313,6 @@ int timber_run_selected(const struct timber_run *run)
     return run->selected;
 }
 
-/* ---- what play does to the tower ---------------------------------------- */
-
-static void disturb_add(struct timber_run *run, int32_t amount, int axis, int sign)
-{
-    int32_t d = (int32_t)run->disturb + amount;
-
-    if (d > TIMBER_DISTURB_MAX) {
-        d = TIMBER_DISTURB_MAX;
-    }
-    if (d < 0) {
-        d = 0;
-    }
-    run->disturb = (uint16_t)d;
-    run->disturb_axis = (uint8_t)axis;
-    run->disturb_sign = (int8_t)(sign < 0 ? -1 : 1);
-}
-
-static void lean_add(struct timber_run *run, int axis, int32_t delta)
-{
-    int32_t *lean = axis == TIMBER_AXIS_X ? &run->lean_x : &run->lean_y;
-    int64_t v = (int64_t)*lean + delta;
-
-    if (v > TIMBER_LEAN_MAX) {
-        v = TIMBER_LEAN_MAX;
-    }
-    if (v < -TIMBER_LEAN_MAX) {
-        v = -TIMBER_LEAN_MAX;
-    }
-    *lean = (int32_t)v;
-}
-
 /* ---- testing ------------------------------------------------------------ */
 
 int timber_run_test(struct timber_run *run)
@@ -234,6 +336,7 @@ int timber_run_test(struct timber_run *run)
     b->tested = 1;
     disturb_add(run, TIMBER_TEST_IMPULSE, timber_layer_axis(b->layer), 1);
     emit(run, TIMBER_EVENT_TEST, run->selected, cls);
+    settle(run);
     return cls;
 }
 
@@ -255,6 +358,10 @@ static void slip(struct timber_run *run)
 
 static void move_block(struct timber_run *run, struct timber_block *b, int32_t delta)
 {
+    int id = run->selected;
+    int carried = timber_stability_block_supports(&run->tower, id);
+    int load = timber_tower_load(&run->tower, id);
+    int axis = timber_layer_axis(b->layer);
     int32_t e = (int32_t)b->extraction + delta;
 
     if (e > TIMBER_EXTRACTION_MAX) {
@@ -270,6 +377,17 @@ static void move_block(struct timber_run *run, struct timber_block *b, int32_t d
     if (e >= TIMBER_SLIP_AT || e <= -TIMBER_SLIP_AT) {
         slip(run);
     }
+    /* A block that was carrying the stack and has just let go of it, out
+     * of the tower or merely far enough, drops the stack onto the blocks
+     * that are left. The heavier the load, the harder it settles. */
+    if (carried && !timber_stability_block_supports(&run->tower, id)) {
+        int32_t impulse = TIMBER_SHIFT_IMPULSE_MIN +
+                          (TIMBER_SHIFT_IMPULSE_MAX - TIMBER_SHIFT_IMPULSE_MIN) * load / TIMBER_LOAD_MAX;
+
+        disturb_add(run, impulse, axis, e < 0 ? -1 : 1);
+        emit(run, TIMBER_EVENT_SHIFT, id, impulse);
+    }
+    settle(run);
 }
 
 int timber_run_pull(struct timber_run *run, int32_t travel)
