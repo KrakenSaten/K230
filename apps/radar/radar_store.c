@@ -6,7 +6,7 @@
 #define _GNU_SOURCE
 #include "radar_store.h"
 
-#include "radar_rules.h"
+#include "engine/radar_rules.h"
 
 #include <errno.h>
 #include <stdio.h>

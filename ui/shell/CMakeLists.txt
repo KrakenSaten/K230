@@ -39,6 +39,14 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/fleet/ui/fleet_screen_deploy.c
     ${REPO_DIR}/apps/fleet/ui/fleet_screen_battle.c
     ${REPO_DIR}/apps/fleet/ui/fleet_screen_result.c
+    ${REPO_DIR}/apps/radar/radar_app.c
+    ${REPO_DIR}/apps/radar/radar_store.c
+    ${REPO_DIR}/apps/radar/engine/radar_types.c
+    ${REPO_DIR}/apps/radar/engine/radar_rng.c
+    ${REPO_DIR}/apps/radar/engine/radar_rules.c
+    ${REPO_DIR}/apps/radar/engine/radar_score.c
+    ${REPO_DIR}/apps/radar/ui/radar_scope.c
+    ${REPO_DIR}/apps/radar/ui/radar_screens.c
     ${REPO_DIR}/core/pocketipc/pocketipc.c
     ${REPO_DIR}/core/pocketipc/server.c
     ${REPO_DIR}/core/pocketlog/pocketlog.c

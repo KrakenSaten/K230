@@ -35,7 +35,7 @@
 #ifndef POCKETRADAR_STORE_H
 #define POCKETRADAR_STORE_H
 
-#include "radar_score.h"
+#include "engine/radar_score.h"
 
 #define RADAR_STORE_DEFAULT_DIR "/var/lib/pocketos"
 #define RADAR_STORE_SUBDIR "radar"

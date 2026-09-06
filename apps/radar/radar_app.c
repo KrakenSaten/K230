@@ -1,0 +1,343 @@
+/*
+ * PocketRadar: a tactical sensor game for PocketOS. Application entry point,
+ * screen ownership and the run clock. See radar_app.h.
+ *
+ * It is a game. It talks to no service, opens no device and senses nothing;
+ * it needs the shell's app API and PocketUI, and nothing else.
+ *
+ * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ */
+#include "radar_app.h"
+
+#include "app.h"
+#include "pocketlog/pocketlog.h"
+#include "pocketui.h"
+
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+/* Gap between panels (DS section 7). */
+#define RADAR_PANEL_GAP 22
+
+lv_obj_t *radar_app_screen_container(lv_obj_t *parent)
+{
+    lv_obj_t *screen = lv_obj_create(parent);
+
+    lv_obj_remove_style_all(screen);
+    lv_obj_set_width(screen, LV_PCT(100));
+    lv_obj_set_height(screen, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(screen, LV_FLEX_FLOW_COLUMN);
+    /* Panels fill the width; the scope, which is square, is centred. */
+    lv_obj_set_flex_align(screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(screen, RADAR_PANEL_GAP, 0);
+    lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    return screen;
+}
+
+void radar_app_show(struct radar_app *app, enum radar_screen screen)
+{
+    int i;
+
+    if (!app || (unsigned)screen >= RADAR_SCREEN_COUNT || !app->screen[screen]) {
+        return;
+    }
+    for (i = 0; i < RADAR_SCREEN_COUNT; i++) {
+        if (app->screen[i]) {
+            lv_obj_add_flag(app->screen[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    lv_obj_remove_flag(app->screen[screen], LV_OBJ_FLAG_HIDDEN);
+    app->current = (uint8_t)screen;
+    lv_obj_scroll_to_y(app->body, 0, LV_ANIM_OFF);
+
+    if (screen == RADAR_SCREEN_RESULT) {
+        radar_screen_result_refresh(app);
+        pocketos_shell_set_status_hint("RUN COMPLETE");
+        return;
+    }
+    radar_screen_scan_refresh(app);
+    pocketos_shell_set_status_hint(app->run.state == RADAR_RUN_ACTIVE ? "SCANNING"
+                                                                      : "STANDBY");
+}
+
+/* ---- the run ----------------------------------------------------------- */
+
+void radar_app_begin(struct radar_app *app)
+{
+    uint32_t seed;
+
+    if (!app) {
+        return;
+    }
+    /* The engine is deterministic given a seed, and the seed is chosen here
+     * at the app boundary rather than inside it. Two existing sources are
+     * mixed: the wall clock, which separates sessions, and the LVGL tick,
+     * which separates runs within a session. The lifetime run counter is
+     * added so successive runs still differ on a board whose clock was never
+     * set and which was rebooted to the same tick - the K230 has no verified
+     * RTC yet, so that is not a hypothetical. The seed is kept in the run,
+     * so any run can be replayed exactly. */
+    seed = (uint32_t)time(NULL) ^ (uint32_t)lv_tick_get() ^
+           (app->record.runs * 2654435761u);
+    radar_run_new(&app->run, seed);
+    radar_run_start(&app->run);
+    app->new_best = 0;
+    if (app->clock) {
+        lv_timer_resume(app->clock);
+    }
+    radar_app_show(app, RADAR_SCREEN_SCAN);
+}
+
+void radar_app_finish(struct radar_app *app)
+{
+    if (!app) {
+        return;
+    }
+    if (app->clock) {
+        lv_timer_pause(app->clock);
+    }
+    app->new_best = (uint8_t)radar_record_note_run(&app->record, &app->run.score,
+                                                   radar_run_level(&app->run));
+    if (app->storage_ok && radar_store_save(&app->record) != 0) {
+        /* One failure is enough: retrying would spend the rest of the
+         * session writing to a filesystem that has already said no. */
+        app->storage_ok = 0;
+        LOG_WARN("radar: cannot write %s, best score is session-only",
+                 radar_store_path());
+    }
+    radar_app_show(app, RADAR_SCREEN_RESULT);
+}
+
+static void radar_clock(lv_timer_t *timer)
+{
+    struct radar_app *app = lv_timer_get_user_data(timer);
+
+    if (!app || app->run.state != RADAR_RUN_ACTIVE) {
+        return;
+    }
+    radar_screen_scan_tick(app);
+    if (radar_run_is_over(&app->run)) {
+        radar_app_finish(app);
+    }
+}
+
+/* ---- development aid --------------------------------------------------- */
+
+/* $POCKETRADAR_SCREEN opens the app in a given state from a fixed seed, so
+ * the simulator can render each one for design review the way the shell's own
+ * --screenshot does. It does nothing unless the variable is set.
+ *
+ * The clock is deliberately left paused afterwards. A screenshot is a still,
+ * and the shell takes it several hundred milliseconds after the app opens; a
+ * running clock would advance the state in between, which on the first pass
+ * turned a half-finished lock into a nearly complete one. Frozen, every shot
+ * is exactly the state named here and is reproducible. */
+#define RADAR_DEBUG_SEED 20260906u
+#define RADAR_DEBUG_WARMUP 150
+/* A person needs about half a second to see a contact, reach and tap it. The
+ * result shot models one rather than the machine that beat level 10, so the
+ * numbers on it are numbers a player could recognise. */
+#define RADAR_DEBUG_REACTION 10
+
+/* Work the scope until a contact of the wanted kind is acquired, holding the
+ * sector intact so the search cannot end the run before the shot is set up. */
+static uint32_t debug_acquire(struct radar_app *app, int want_target)
+{
+    int guard;
+
+    for (guard = 0; guard < 8000; guard++) {
+        const struct radar_contact *sel = radar_run_selected(&app->run);
+        int i;
+
+        app->run.score.integrity = RADAR_INTEGRITY_MAX;
+        if (sel && sel->state == RADAR_CONTACT_ACQUIRED) {
+            if (radar_class_is_target((enum radar_class)sel->cls) == want_target) {
+                return sel->id;
+            }
+            radar_run_deselect(&app->run);
+        }
+        if (!radar_run_selected(&app->run)) {
+            for (i = 0; i < RADAR_CONTACTS_MAX; i++) {
+                const struct radar_contact *t = radar_run_slot(&app->run, i);
+
+                if (t->active && !t->classified) {
+                    radar_run_select(&app->run, t->id);
+                    break;
+                }
+            }
+        }
+        radar_run_tick(&app->run);
+        radar_run_clear_events(&app->run);
+    }
+    return RADAR_NO_CONTACT;
+}
+
+static void debug_warm(struct radar_app *app, int ticks)
+{
+    int i;
+
+    for (i = 0; i < ticks; i++) {
+        app->run.score.integrity = RADAR_INTEGRITY_MAX;
+        radar_run_tick(&app->run);
+        radar_run_clear_events(&app->run);
+    }
+}
+
+static void debug_open(struct radar_app *app)
+{
+    const char *want = getenv("POCKETRADAR_SCREEN");
+    int guard;
+
+    if (!want) {
+        return;
+    }
+    if (strcmp(want, "idle") == 0) {
+        radar_app_show(app, RADAR_SCREEN_SCAN);
+        return;
+    }
+    radar_run_new(&app->run, RADAR_DEBUG_SEED);
+    radar_run_start(&app->run);
+    if (strcmp(want, "scan") == 0) {
+        debug_warm(app, RADAR_DEBUG_WARMUP);
+    } else if (strcmp(want, "selected") == 0) {
+        debug_warm(app, RADAR_DEBUG_WARMUP);
+        {
+            int i;
+
+            for (i = 0; i < RADAR_CONTACTS_MAX; i++) {
+                const struct radar_contact *t = radar_run_slot(&app->run, i);
+
+                if (t->active) {
+                    radar_run_select(&app->run, t->id);
+                    break;
+                }
+            }
+        }
+        /* Half way through the lock, so the acquisition arc is visibly
+         * partial rather than absent or complete. */
+        debug_warm(app, RADAR_ACQUIRE_TICKS / 2);
+    } else if (strcmp(want, "acquired") == 0) {
+        debug_warm(app, RADAR_DEBUG_WARMUP);
+        debug_acquire(app, 1);
+    } else if (strcmp(want, "decoy") == 0) {
+        debug_warm(app, RADAR_DEBUG_WARMUP);
+        debug_acquire(app, 0);
+    } else if (strcmp(want, "result") == 0) {
+        int idle = 0;
+        int fumbles = 0;
+
+        for (guard = 0; guard < 60000 && !radar_run_is_over(&app->run); guard++) {
+            const struct radar_contact *sel = radar_run_selected(&app->run);
+            int i;
+
+            if (sel && sel->state == RADAR_CONTACT_ACQUIRED) {
+                if (radar_class_is_target((enum radar_class)sel->cls)) {
+                    radar_run_engage(&app->run);
+                } else if (fumbles++ % 4 == 0) {
+                    radar_run_engage(&app->run);  /* the occasional mis-tap */
+                } else {
+                    radar_run_deselect(&app->run);
+                }
+                idle = RADAR_DEBUG_REACTION;
+            } else if (!sel) {
+                if (idle > 0) {
+                    idle--;
+                } else {
+                    for (i = 0; i < RADAR_CONTACTS_MAX; i++) {
+                        const struct radar_contact *t = radar_run_slot(&app->run, i);
+
+                        if (t->active && !t->classified) {
+                            radar_run_select(&app->run, t->id);
+                            break;
+                        }
+                    }
+                }
+            }
+            radar_run_tick(&app->run);
+            radar_run_clear_events(&app->run);
+        }
+        radar_app_finish(app);
+        return;
+    } else {
+        return;
+    }
+    radar_app_show(app, RADAR_SCREEN_SCAN);
+}
+
+/* ---- shell app API ----------------------------------------------------- */
+
+static void *radar_create(lv_obj_t *root)
+{
+    struct radar_app *app = calloc(1, sizeof(*app));
+    int loaded;
+
+    if (!app) {
+        return NULL;
+    }
+    app->body = root;
+    app->storage_ok = 1;
+    app->reduced_motion = (uint8_t)(pocketos_shell_reduced_motion() != 0);
+
+    /* A run exists from the start so the scope has something to paint; it is
+     * READY, so nothing moves until the player says so. */
+    radar_run_new(&app->run, 1u);
+
+    /* A missing or damaged record must never delay or prevent the app from
+     * opening: it only means there is no best score to beat. */
+    radar_record_init(&app->record);
+    loaded = radar_store_load(&app->record);
+    if (loaded < 0) {
+        LOG_WARN("radar: stored record at %s rejected, starting from nothing",
+                 radar_store_path());
+        radar_record_init(&app->record);
+    } else if (loaded == 0) {
+        LOG_INFO("radar: best score %u over %u run(s) from %s",
+                 (unsigned)app->record.best_score, (unsigned)app->record.runs,
+                 radar_store_path());
+    }
+
+    app->screen[RADAR_SCREEN_SCAN] = radar_screen_scan_create(app, root);
+    app->screen[RADAR_SCREEN_RESULT] = radar_screen_result_create(app, root);
+
+    app->clock = lv_timer_create(radar_clock, RADAR_TICK_MS, app);
+    if (app->clock) {
+        lv_timer_pause(app->clock);
+    }
+
+    radar_app_show(app, RADAR_SCREEN_SCAN);
+    debug_open(app);
+    return app;
+}
+
+static void radar_destroy(void *priv)
+{
+    struct radar_app *app = priv;
+
+    if (!app) {
+        return;
+    }
+    /* Stop the clock before the objects its callback paints go away with the
+     * shell's root. A run left in progress is simply abandoned: PocketRadar
+     * has no resume, so there is nothing to settle. */
+    if (app->clock) {
+        lv_timer_delete(app->clock);
+        app->clock = NULL;
+    }
+    free(app->scan);
+    free(app->result);
+    free(app);
+}
+
+const struct pocketos_app app_radar = {
+    .id = "radar",
+    .name = "Radar",
+    /* Placeholder: the Design System stroke icon set does not exist yet, so
+     * the launcher uses the closest LV_SYMBOL glyph (DS section 11). */
+    .icon = LV_SYMBOL_WIFI,
+    .create = radar_create,
+    .tick = NULL,
+    .destroy = radar_destroy,
+};

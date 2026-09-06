@@ -9,9 +9,9 @@ and reads no sensor of any kind. Every contact is invented by the engine
 from a recorded seed. It borrows the language of a tactical sensor because
 the game is played in that idiom, and it makes no claim beyond that.
 
-Status: engine phases P1 to P4 complete on branch `pocketradar-engine`. Not
-merged. There is no UI yet, so nothing here has been seen on a screen or
-touched by a finger; P5 onwards await review.
+Status: phases P1 to P7 complete on branch `pocketradar-engine`. Not merged.
+The app runs in the SDL simulator; nothing has run on hardware and nothing
+has been touched by a real finger.
 
 ## Layers
 
@@ -20,13 +20,14 @@ apps/radar/engine/   vocabulary, RNG, run rules, scoring. Pure C, no LVGL,
                      and no I/O at all.
 apps/radar/radar_store.c   the record file: the app's only door to the
                      filesystem.
-apps/radar/ui/       (P5) view model, scope widget, screens.
-apps/radar/radar_app.c     (P5) the shell app entry.
+apps/radar/ui/       the scope widget and the two screens. No engine rules.
+apps/radar/radar_app.c     the shell app entry, screen ownership, the clock.
 ```
 
-The dependency runs one way and the engine never calls up. It is built by
-the root `Makefile` so it is unit tested natively, and will be built again
-by `ui/shell/CMakeLists.txt` into the shell binary when the UI lands.
+The dependency runs one way (`radar_app` to `ui/*` to `engine/*`) and the
+engine never calls up. It is built by the root `Makefile` so it is unit
+tested natively, and again by `ui/shell/CMakeLists.txt` into the shell
+binary.
 
 `tests/radar_lint.sh` states the structure as an executable rule rather than
 as prose: the engine contains no LVGL, does no I/O, uses no floating point
@@ -68,7 +69,7 @@ the selection with it and its slot is handed to another track within a
 second or two; had ENGAGE referred to a slot it would eventually fire at the
 wrong contact.
 
-## Geometry and motion
+## Geometry
 
 The scope is polar and integral: bearing in decidegrees clockwise from the
 top, range in permille of the scope radius. No floating point anywhere, so a
@@ -101,6 +102,87 @@ separations picking actually cares about. The whole metric stays under
 The sweep lives in the run rather than in the UI: four lines, deterministic,
 testable, and the UI has nothing to invent. One turn every four seconds,
 asserted against `RADAR_TICK_MS` so the two cannot drift apart.
+
+## The screens
+
+Two, and the app is smaller for it.
+
+**SCAN** carries both standby and the run. The scope face is the same thing
+before and during a run, and swapping containers just to change one button
+would be a screen change the player could see. Standby shows the best score
+where the live score goes, and the action button reads BEGIN SCAN instead of
+ENGAGE. **RESULT** is separate because it shows different content.
+
+Reading order is what the player needs, in order: the scope, the contact
+being worked, the score, ENGAGE.
+
+```text
+scope        520 x 520, the full body width
+TARGET       class or UNKNOWN, then bearing, range, and either the lock
+             percentage or what the shot is worth
+SCORE        the running score, then streak, level and sector integrity
+ENGAGE       64 px, disabled until something is acquired
+```
+
+There is one clock: a single LVGL timer at `RADAR_TICK_MS` (50 ms, 20 Hz)
+that steps the engine, drains its events and invalidates the scope. It is
+paused outside a run and deleted in `destroy`, so nothing can fire at objects
+the shell has already taken away. Putting the engine and the repaint on one
+timer is what stops the two from disagreeing about what the player is
+looking at.
+
+The six labels are rewritten only when the value behind them changes, which
+at 20 Hz is worth the four comparisons it costs.
+
+## Contact states
+
+Colour never carries a state on its own (DS section 2): every one of them has
+a shape, and the three interaction steps are legible with no colour at all.
+
+| State | Shape | Token |
+| --- | --- | --- |
+| Unidentified | hollow circle | `radio_rx` |
+| Selected | plus corner brackets | `accent_primary` |
+| Acquiring | plus a ring filling clockwise from the top | `accent_primary` |
+| Acquired NORMAL | filled circle, whole ring | `radio_rx` / `radio_tx` |
+| Acquired FAST | triangle pointing at the hub | `radio_rx` |
+| Acquired DECOY | crossed diamond | `status_warn` |
+| Acquired HIGH VALUE | filled square inside a ring | `radio_tx` |
+| Engaged | ring bursting outwards, fading | `radio_tx` / `status_warn` |
+| Lost | ring closing inwards, fading | `text_secondary` |
+
+Three of those are worth the words. A completed lock is drawn in `radio_tx`
+rather than the accent: acquiring is something the sensor is doing, being
+acquired means a shot is armed, and drawing the armed state in the transmit
+token keeps "orange means engage" true even in themes where the accent is
+itself the sensor colour. A decoy identified once keeps its crossed diamond
+after it is deselected, because what acquisition revealed is sticky, and
+time spent identifying something should not have to be spent twice. And a
+hit bursts outwards while a lost track closes inwards, so the two ways a
+contact can end are told apart by direction as well as by hue.
+
+## Motion
+
+| Event | Motion | Timing |
+| --- | --- | --- |
+| Sweep | a radius with a seven-step fading tail | one turn per 4 s |
+| Contact movement | inbound closure and bearing drift | every 50 ms tick |
+| Acquisition | the lock ring fills clockwise | 600 ms |
+| Engage | a ring bursts outwards and fades | 340 ms |
+| Track lost | a ring closes inwards and fades | 340 ms |
+
+Nothing here blocks input and nothing animates a whole screen. Only the
+scope object is ever invalidated, never the screen, and the effects are
+drawn from a timestamp rather than from an animation object, so a run that
+ends in the middle of one has nothing to clean up.
+
+Reduced motion (`reduced_motion` in the settings store, read once at start)
+removes the rotating sweep, which becomes a static bearing reference at 000,
+and removes the burst and the fade. **Contact movement stays.** That is a
+deliberate reading of DS section 12: the contacts moving is the game rather
+than an animation of it, and freezing them would not reduce motion so much
+as remove the thing being played. The screenshot pair shows the difference,
+and so does the file size: 57 kB with motion against 17 kB without.
 
 ## Determinism
 
@@ -207,7 +289,8 @@ mistakes, FNV-1a checksum.
 
 - There is deliberately no resume. A run is two to five minutes long, so an
   interrupted one is simply lost. That is what keeps the file thirty bytes
-  and its validation obvious.
+  and its validation obvious. Leaving the app mid-run abandons that run; the
+  record is only ever written when a run ends.
 - Writes are atomic (temp file, `fsync`, `rename`), so a power loss leaves
   either the previous record or the new one.
 - Load is tri-state: 0 read, 1 no file, −1 present but unusable. The
@@ -229,17 +312,31 @@ hardware confirms it.
 
 ## Deviations
 
-### D1 — app-owned record file (PENDING product-owner approval)
+### D1 — app-owned record file (approved by the product owner, 2026-09-06)
 
 PocketOS has no `storage.*` service, and the shell's settings store is for
 short non-secret preferences rather than app data. PocketRadar writes its
 own file, entirely inside `radar_store.c`, exactly as PocketFleet does under
-its approved deviation D2 (`docs/apps/POCKETFLEET.md`).
+its approved deviation D2 (`docs/apps/POCKETFLEET.md`). The owner approved
+this for PocketRadar specifically, and directed that no storage service be
+added for this game.
 
-This follows an already-approved pattern, but the approval was granted to
-PocketFleet and not to PocketRadar, so it is recorded here as pending rather
-than assumed. Nothing else in the app depends on the answer: if app-owned
-files are refused, PocketRadar loses only its best score between sessions.
+### D2 — the ENGAGE button is not orange in every theme
+
+The visual direction asks for restrained orange on the engage action. The
+button uses `POS_STYLE_BUTTON_PRIMARY`, which resolves to `accent_primary`,
+and in `ice` and `olive` the accent is itself the cyan sensor colour, so the
+button comes out cyan there. Everything PocketRadar draws by hand does
+honour the direction — the armed lock ring, the high-value marker and the
+engage burst are all `radio_tx` — but a shared button role belongs to
+PocketUI and not to an app.
+
+Fixing it properly would mean a new role, something like
+`POS_STYLE_BUTTON_TX`, in `ui/pocketui/pos_styles.c`. That is a
+platform-wide change, which this phase was told not to make, so it has not
+been made. The global rule that an app names role styles and never colours
+is unchanged. `carbon` is the theme that matches the reference direction
+exactly, and is the one the screenshots use.
 
 ## Tests
 
@@ -251,6 +348,7 @@ files are refused, PocketRadar loses only its best score between sessions.
 | `tests/radar_score_test.c` | every scoring number stated twice, the streak multiplier and its cap, penalties, the zero floor, integrity, the lifetime record |
 | `tests/radar_store_test.c` | codec round trip, refusal of damaged and impossible records, atomic writes, missing and unwritable directories, and a real run played to its end, stored and reloaded |
 | `tests/radar_lint.sh` | no LVGL, no I/O, no floating point and no platform entropy in the engine; one file touches the filesystem |
+| `tests/radar_shell_test.sh` | the app in the running shell: every screen renders, a finished run stores its record, the next launch reads it back, damaged and foreign records are refused without stopping play, an unwritable directory is reported, and reduced motion drops the sweep but not the game |
 
 Verified with `make CC=gcc CFLAGS="-O2 -Werror" test`: 21 steps, 646 checks
 in total of which 309 are PocketRadar's (18 RNG, 33 vocabulary, 146 rules,
@@ -259,6 +357,30 @@ The engine and store also cross-compile
 clean for `riscv64-unknown-linux-gnu` with the pinned Xuantie toolchain
 (gcc 14.1.1) at `-mcpu=c908v -mtune=c908 -O2 -Werror`. Built and tested
 inside WSL2 Ubuntu 22.04; nothing has run on hardware.
+
+## Screenshots
+
+Rendered from the SDL simulator with `$POCKETRADAR_SCREEN`, which opens the
+app in a named state from a fixed seed and leaves the clock paused so a shot
+is exactly the state it names.
+
+```bash
+export SDL_VIDEODRIVER=dummy POCKETRADAR_SCREEN=acquired
+pocketos-shell --open radar --theme carbon \
+    --screenshot docs/design/shots/radar-acquired.png --exit-after-ms 900
+```
+
+| File | State |
+| --- | --- |
+| `radar-idle.png` | standby, empty sector, best score |
+| `radar-scan.png` | a run under way, four contacts, sweep |
+| `radar-selected.png` | a contact selected, lock part way round, ENGAGE disabled |
+| `radar-acquired.png` | a NORMAL target acquired, ENGAGE armed and priced |
+| `radar-decoy.png` | a DECOY acquired, DO NOT ENGAGE, ENGAGE still armed |
+| `radar-result.png` | the run over, statistics, new best |
+| `radar-scan-ice.png`, `radar-acquired-ice.png` | the same in the platform default theme |
+| `radar-scan-reduced-motion.png` | the sweep replaced by a static bearing reference |
+
 
 ## Not in v0.1
 
