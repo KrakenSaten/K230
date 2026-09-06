@@ -44,3 +44,4 @@ BUILD_ID
 /tests/timber_stability_test
 /tests/timber_score_test
 /tests/timber_collapse_test
+/tests/timber_replay_test

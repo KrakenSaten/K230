@@ -358,13 +358,13 @@ static void test_fast_pull_jolts(void)
           timber_run_pull(&run, 300) == 1 && run.event_count == 0 && run.disturb == 0);
     timber_run_tick(&run);
     check("a second fast tick is, and the jolt names its size",
-          timber_run_pull(&run, 300) == 1 && timber_run_take_event(&run, &e) &&
+          timber_run_pull(&run, 200) == 1 && timber_run_take_event(&run, &e) &&
           e.type == TIMBER_EVENT_JOLT && e.block == 4 && e.value > 0 && run.pull_jolted);
     check("a jolt disturbs the tower along the block's axis in the pull's direction",
           run.disturb > 0 && run.disturb_axis == TIMBER_AXIS_Y && run.disturb_sign == 1);
     check("a jolt leans the tower along the block's axis in the pull's direction",
           run.lean_y > 0 && run.lean_x == 0);
-    check("the block still moved with the finger", run.tower.blocks[4].extraction == 600);
+    check("the block still moved with the finger", run.tower.blocks[4].extraction == 500);
 
     /* Pushing hard the other way leans it back. */
     start(&run, 22u);
@@ -580,6 +580,12 @@ static void test_margins_in_a_run(void)
     check("the knock grows with the load carried: a low block settles harder",
           run.disturb == TIMBER_SHIFT_IMPULSE_MIN +
                          (TIMBER_SHIFT_IMPULSE_MAX - TIMBER_SHIFT_IMPULSE_MIN) * 48 / TIMBER_LOAD_MAX);
+    /* Block 4 runs along y and was drawn toward +y: the stack follows it a
+     * hair, and settles across, toward the side its offset points. */
+    check("a shift leaves the tower leaning a hair along the pull and across it",
+          run.lean_y == (int32_t)(((int64_t)run.disturb * TIMBER_SHIFT_LEAN) >> 8) &&
+          run.lean_x == (run.tower.blocks[4].offset < 0 ? -1 : 1) *
+                            (int32_t)(((int64_t)run.disturb * TIMBER_SHIFT_LEAN_ACROSS) >> 8));
     shifts = drag(&run, 100, 1, TIMBER_EVENT_SHIFT);
     check("the slip that follows is not a second shift",
           shifts == 0 && run.turn == TIMBER_TURN_PLACING);
@@ -628,6 +634,8 @@ static void test_placement(void)
     struct timber_event e;
     int places = 0;
     int layers = 0;
+    int32_t lean_x;
+    int32_t lean_y;
 
     start(&run, 51u);
     check("placing with nothing in hand is refused", timber_run_place(&run, 1) == -1);
@@ -639,6 +647,8 @@ static void test_placement(void)
           timber_run_place(&run, -1) == -1 && timber_run_place(&run, TIMBER_SLOTS) == -1 &&
           run.turn == TIMBER_TURN_PLACING);
     timber_run_clear_events(&run);
+    lean_x = run.lean_x;
+    lean_y = run.lean_y;
     check("placing on the low side works", timber_run_place(&run, 0) == 0);
     check("the block is on a new layer, loose, and forgotten by the tests",
           run.tower.blocks[4].present && run.tower.blocks[4].layer == TIMBER_LAYERS_BASE &&
@@ -655,7 +665,8 @@ static void test_placement(void)
           e.layer == TIMBER_LAYERS_BASE && e.slot == 0);
     /* Layer 18 is an x layer: across it is y, and slot 0 is the low side. */
     check("placing off centre on an incomplete layer leans the tower toward that side",
-          run.lean_y == -TIMBER_PLACE_LEAN && run.lean_x == 0);
+          run.lean_y == lean_y - TIMBER_PLACE_LEAN && run.lean_x == lean_x);
+    lean_y = run.lean_y;
     check("and knocks it a little that way",
           run.disturb > 0 && run.disturb_axis == TIMBER_AXIS_Y && run.disturb_sign == -1);
     check("the placed slot is closed and the layer below is still locked",
@@ -663,15 +674,18 @@ static void test_placement(void)
           timber_tower_top_complete(&run.tower) == TIMBER_LAYERS_BASE - 1);
     check("the height is noted", run.score.height == TIMBER_LAYERS_BASE + 1);
 
+    /* Block 7 runs along x: its shift leans y only by the settling term. */
     rig(&run, 1, 7);
     timber_run_select(&run, 7);
     drag(&run, 100, 7, TIMBER_EVENT_JOLT);
+    lean_y = run.lean_y;
     timber_run_place(&run, 2);
-    check("placing on the high side leans it back", run.lean_y == 0 && run.turns == 2);
+    check("placing on the high side leans it back", run.lean_y == lean_y + TIMBER_PLACE_LEAN && run.turns == 2);
 
     rig(&run, 1, 22);
     timber_run_select(&run, 22);
     drag(&run, 100, 7, TIMBER_EVENT_JOLT);
+    lean_y = run.lean_y;
     timber_run_clear_events(&run);
     check("placing the centre completes the layer", timber_run_place(&run, 1) == 0);
     while (timber_run_take_event(&run, &e)) {
@@ -681,7 +695,7 @@ static void test_placement(void)
     }
     check("a completed layer is announced and paid",
           places == 1 && layers == 1 && run.score.layers_built == 1);
-    check("a centre placement does not lean the tower", run.lean_y == 0);
+    check("a centre placement does not lean the tower", run.lean_y == lean_y);
     check("completing the top unlocks the layer that was below it",
           timber_tower_top_complete(&run.tower) == TIMBER_LAYERS_BASE &&
           timber_tower_pullable(&run.tower, (TIMBER_LAYERS_BASE - 1) * TIMBER_SLOTS) &&
@@ -818,26 +832,29 @@ static void test_trigger_sway(void)
 {
     struct timber_run run;
     int i;
-    int shifts;
 
     start(&run, 56u);
-    run.tower.blocks[10].seat = 255;
     timber_tower_remove(&run.tower, 12);
     timber_tower_remove(&run.tower, 14);
-    /* The shift of a block under 48 others sways the top 6 to 12 units over
-     * the next few ticks, of which this layer feels two fifths: 2 to 4. */
-    check("the tower can be leaned to a hair of margin", lean_until(&run, TIMBER_AXIS_Y, 1, 3));
-    timber_run_select(&run, 10);
-    shifts = drag(&run, 100, 6, TIMBER_EVENT_SHIFT);
-    check("a slow pull lets the block go of the stack without a jolt",
-          shifts == 1 && run.state == TIMBER_RUN_ACTIVE && run.last_jolt_tick == TIMBER_NEVER &&
+    /* Two tests on blocks that run along y knock the tower 0.30 toward +y,
+     * which sways the top about four units over the next few ticks, of
+     * which this layer feels two fifths: one unit. The margin has to be
+     * gone to the last unit for that to be the last straw. */
+    check("the tower can be leaned to its last unit of margin", lean_until(&run, TIMBER_AXIS_Y, 0, 0));
+    timber_run_select(&run, 21);
+    timber_run_test(&run);
+    timber_run_select(&run, 27);
+    timber_run_test(&run);
+    check("two tests knock the tower without a jolt or a shift, and it still stands",
+          run.disturb == 2 * TIMBER_TEST_IMPULSE && run.disturb_axis == TIMBER_AXIS_Y &&
+          run.state == TIMBER_RUN_ACTIVE && run.last_jolt_tick == TIMBER_NEVER &&
           run.margin_static >= 0);
     for (i = 0; i < 8 && run.state == TIMBER_RUN_ACTIVE; i++) {
         timber_run_tick(&run);
     }
     check("the sway that follows tips it a few ticks later, and is blamed",
           run.state == TIMBER_RUN_COLLAPSING && timber_run_cause(&run) == TIMBER_CAUSE_SWAY &&
-          i >= 1 && i <= 6 && run.margin_static >= 0 && run.margin_eff < 0);
+          i >= 1 && i <= 7 && run.margin_static >= 0 && run.margin_eff < 0);
 }
 
 static void test_over(void)

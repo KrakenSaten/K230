@@ -35,8 +35,12 @@
  * TIMBER_CAUSE_PLACE_TICKS, else a jolt within TIMBER_CAUSE_JOLT_TICKS,
  * else TIP when the static margin itself is gone (a support pulled out),
  * else SWAY (the tower was standing; the sway from a test or a shift
- * tipped it). The run is then COLLAPSING until every block rests (P5) or
+ * tipped it). The run is then COLLAPSING until every block rests or
  * TIMBER_COLLAPSE_TICKS_MAX have passed, and then OVER. The score is kept.
+ *
+ * The only other way a run ends is the summit: a placement that completes
+ * the top of a tower already at TIMBER_LAYERS_MAX. The next block pulled
+ * would have nowhere to go, so the run is OVER standing, cause NONE.
  *
  * Determinism. A run is reproduced by (seed, the ordered list of player
  * actions at their ticks). The generator is consumed only when the tower is

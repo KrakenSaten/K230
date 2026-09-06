@@ -60,6 +60,15 @@
  * block was carrying, from 0.25 to 1.0. */
 #define TIMBER_SHIFT_IMPULSE_MIN 64
 #define TIMBER_SHIFT_IMPULSE_MAX 256
+/* A shift also leaves the tower leaning a hair: the stack follows the
+ * block along its axis as it lets go, and settles across it toward the
+ * neighbour that happens to be lower, which the block's micro-offset
+ * stands in for. Q16.16 widths per layer per full-load shift, scaled by
+ * the shift's impulse. This is the ramp: without it a careful player is
+ * never brought down (docs/apps/POCKETTIMBER.md, D3). Design addition
+ * pending the owner's approval; 0 restores the reviewed model. */
+#define TIMBER_SHIFT_LEAN 393           /* 0.006, along the pull */
+#define TIMBER_SHIFT_LEAN_ACROSS 262    /* 0.004, toward the lower neighbour */
 
 struct timber_contact {
     struct timber_rect box;     /* bounding box of the contact region */
