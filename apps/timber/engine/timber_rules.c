@@ -65,9 +65,32 @@ int timber_run_take_event(struct timber_run *run, struct timber_event *out)
 
 /* ---- the tower's answer ------------------------------------------------- */
 
-/* Measure the tower: the hinge and its margins, and whether it creaks.
- * Called after every tick and every act, so the run always carries a
- * current answer and the trigger (P4) has one thing to look at. */
+/* The tower falls at the hinge. Read the cause from what the player did
+ * last, freeze the answer, and hand the run to the collapse. */
+static void collapse(struct timber_run *run)
+{
+    enum timber_cause cause;
+
+    if (run->last_place_tick != TIMBER_NEVER &&
+        run->ticks - run->last_place_tick <= TIMBER_CAUSE_PLACE_TICKS) {
+        cause = TIMBER_CAUSE_PLACEMENT;
+    } else if (run->last_jolt_tick != TIMBER_NEVER &&
+               run->ticks - run->last_jolt_tick <= TIMBER_CAUSE_JOLT_TICKS) {
+        cause = TIMBER_CAUSE_JOLT;
+    } else if (run->margin_static < 0) {
+        cause = TIMBER_CAUSE_TIP;
+    } else {
+        cause = TIMBER_CAUSE_SWAY;
+    }
+    run->cause = (uint8_t)cause;
+    run->state = TIMBER_RUN_COLLAPSING;
+    run->collapse_ticks = 0;
+    emit_at(run, TIMBER_EVENT_COLLAPSE, -1, run->hinge, 0, (int32_t)cause);
+}
+
+/* Measure the tower: the hinge and its margins, whether it creaks, and
+ * whether it is still standing. Called after every tick and every act, so
+ * the run always carries a current answer. */
 static void settle(struct timber_run *run)
 {
     struct timber_margin m;
@@ -89,6 +112,10 @@ static void settle(struct timber_run *run)
     run->hinge_sign = m.sign;
     run->margin_static = m.stat;
     run->margin_eff = m.eff;
+    if (run->state == TIMBER_RUN_ACTIVE && m.eff < 0) {
+        collapse(run);
+        return;
+    }
     /* Edge-triggered: one creak when the margin goes under the line, and
      * not another until it has come back over it. */
     if (m.stat < TIMBER_CREAK_MARGIN) {
@@ -179,6 +206,11 @@ void timber_run_new(struct timber_run *run, uint32_t seed)
     run->tests_left = TIMBER_TESTS_PER_TURN;
     run->disturb_sign = 1;
     run->hinge = TIMBER_NO_LAYER;
+    run->last_jolt_tick = TIMBER_NEVER;
+    run->last_place_tick = TIMBER_NEVER;
+    run->cause = TIMBER_CAUSE_NONE;
+    timber_score_init(&run->score);
+    timber_score_height(&run->score, timber_tower_layers(&run->tower));
     settle(run);
 }
 
@@ -204,6 +236,13 @@ void timber_run_tick(struct timber_run *run)
         settle(run);
     } else if (run->state == TIMBER_RUN_COLLAPSING) {
         run->ticks++;
+        run->collapse_ticks++;
+        /* The choreography (P5) ends the collapse when the last block
+         * rests; this is the ceiling it plays out under. */
+        if (run->collapse_ticks >= TIMBER_COLLAPSE_TICKS_MAX) {
+            run->state = TIMBER_RUN_OVER;
+            emit_at(run, TIMBER_EVENT_OVER, -1, run->hinge, 0, run->score.points);
+        }
     }
 }
 
@@ -235,6 +274,28 @@ int timber_run_held(const struct timber_run *run)
         return -1;
     }
     return run->held;
+}
+
+/* Layers above a block's layer, for the depth factor. */
+static int layers_above(const struct timber_run *run, const struct timber_block *b)
+{
+    return timber_tower_layers(&run->tower) - 1 - b->layer;
+}
+
+int32_t timber_run_worth(const struct timber_run *run, int id)
+{
+    const struct timber_block *b = run ? timber_tower_block(&run->tower, id) : NULL;
+
+    if (!b || !b->present) {
+        return 0;
+    }
+    return timber_score_value((enum timber_class)timber_run_class(run, id), layers_above(run, b), 1,
+                              b->tested, run->score.streak);
+}
+
+int timber_run_cause(const struct timber_run *run)
+{
+    return run ? run->cause : TIMBER_CAUSE_NONE;
 }
 
 /* ---- the tower's state -------------------------------------------------- */
@@ -342,13 +403,16 @@ int timber_run_test(struct timber_run *run)
 
 /* ---- the pull ----------------------------------------------------------- */
 
-/* The block came free. It leaves the tower for the hand and the turn moves
- * on to placing it. */
+/* The block came free. It is scored as it was at that moment, leaves the
+ * tower for the hand, and the turn moves on to placing it. */
 static void slip(struct timber_run *run)
 {
     int id = run->selected;
+    const struct timber_block *b = &run->tower.blocks[id];
+    int32_t points = timber_score_pull(&run->score, (enum timber_class)timber_run_class(run, id),
+                                       layers_above(run, b), !run->pull_jolted, b->tested);
 
-    emit(run, TIMBER_EVENT_SLIP, id, 0);
+    emit(run, TIMBER_EVENT_SLIP, id, points);
     timber_tower_remove(&run->tower, id);
     run->held = (uint8_t)id;
     run->turn = TIMBER_TURN_PLACING;
@@ -462,9 +526,55 @@ int timber_run_pull(struct timber_run *run, int32_t travel)
             disturb_add(run, (int32_t)(((int64_t)jolt * TIMBER_JOLT_DISTURB) >> 8), axis, sign);
             lean_add(run, axis, (int32_t)(((int64_t)sign * jolt * TIMBER_JOLT_LEAN) >> 8));
             run->pull_jolted = 1;
+            run->last_jolt_tick = run->ticks;
             emit(run, TIMBER_EVENT_JOLT, run->selected, jolt);
         }
     }
     move_block(run, b, travel);
     return 1;
+}
+
+/* ---- placing ------------------------------------------------------------ */
+
+int timber_run_place(struct timber_run *run, int slot)
+{
+    int id;
+    int layer;
+    int axis;
+    int side;
+
+    if (!run || run->state != TIMBER_RUN_ACTIVE || run->turn != TIMBER_TURN_PLACING ||
+        run->held == TIMBER_NO_BLOCK || !timber_tower_can_place(&run->tower, slot)) {
+        return -1;
+    }
+    id = run->held;
+    layer = timber_tower_place_layer(&run->tower);
+    if (timber_tower_place(&run->tower, id, slot) != 0) {
+        return -1;
+    }
+    timber_tower_reseat(&run->tower, id, run->turns);
+    /* Across the new layer's axis, slot 0 is the low side and slot 2 the
+     * high side. */
+    axis = timber_layer_axis(layer) == TIMBER_AXIS_X ? TIMBER_AXIS_Y : TIMBER_AXIS_X;
+    side = slot == 0 ? -1 : 1;
+    emit(run, TIMBER_EVENT_PLACE, id, 0);
+    if (timber_tower_layer_fill(&run->tower, layer) == TIMBER_SLOTS) {
+        int32_t bonus = timber_score_layer(&run->score);
+
+        emit_at(run, TIMBER_EVENT_LAYER, -1, layer, 0, bonus);
+    } else if (slot != 1) {
+        lean_add(run, axis, side * TIMBER_PLACE_LEAN);
+    }
+    timber_score_height(&run->score, timber_tower_layers(&run->tower));
+    disturb_add(run, TIMBER_PLACE_IMPULSE, axis, side);
+
+    run->held = TIMBER_NO_BLOCK;
+    run->selected = TIMBER_NO_BLOCK;
+    run->turn = TIMBER_TURN_SELECT;
+    run->tests_left = TIMBER_TESTS_PER_TURN;
+    run->turns++;
+    run->last_place_tick = run->ticks;
+    reset_grip(run);
+    settle(run);
+    return 0;
 }

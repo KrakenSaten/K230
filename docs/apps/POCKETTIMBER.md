@@ -12,8 +12,8 @@ The design basis is the cold design review of 2026-09-06 (GO WITH MAJOR
 CHANGES): a deterministic read-and-pull game with decoupled controls, no
 per-pull dice, and a collapse the player can always explain.
 
-Status: **milestone P3 (contacts, centre of mass, margins, lean and
-disturbance)** on branch `pockettimber-engine`. Not merged. Nothing has run on hardware; nothing here
+Status: **milestone P4 (scoring, placement, the collapse trigger and its
+cause)** on branch `pockettimber-engine`. Not merged. Nothing has run on hardware; nothing here
 is built into the shell yet. Master and the golden bring-up image are
 untouched by this work.
 
@@ -28,8 +28,9 @@ bring-up. Every milestone is one focused commit on this branch.
 
 ```text
 apps/timber/engine/   vocabulary, RNG, tower state and generation, the pull
-                      model, the stability model, run rules. Pure C, no
-                      LVGL, no I/O, no floating point, no platform entropy.
+                      model, the stability model, scoring, run rules. Pure
+                      C, no LVGL, no I/O, no floating point, no platform
+                      entropy.
 apps/timber/ui/       (P7) the view model and the table widget.
 apps/timber/timber_store.c  (P7) the record file: the app's only door to
                       the filesystem.
@@ -76,8 +77,60 @@ a test rather than a hope.
   block's class, nudges the tower a little, and is sticky: a tested block
   answers again for free. It is refused while a block is part way out.
 - The pull is judged per tick (below). A block that reaches four fifths of
-  its length out, either way, slips free into the hand and the turn moves
-  on to placing it (P4).
+  its length out, either way, slips free into the hand, is scored as it was
+  at that moment, and the turn moves on to placing it.
+- Placing the block in hand on top ends the turn: nothing selected, two
+  fresh tests. The block is reseated loose, the tower takes a knock of
+  0.25, and a block placed off centre on a layer that is still incomplete
+  nudges the lean 0.005 widths per layer toward that side, so placing
+  against the lean is the correct play; the nudges of a completed layer
+  cancel. Completing a layer pays a bonus and unlocks the layer below it.
+- Nothing can be done to a falling tower: every act is refused once the
+  run is collapsing, and the score is kept.
+
+## Scoring
+
+```text
+points = base * depth * clean * untested * streak
+```
+
+| Factor | Value |
+| --- | --- |
+| base by class | FREE 60, EASY 100, FIRM 180, STUCK 300 |
+| depth | +4 % per layer above the block |
+| clean | ×1.5 for a pull with no jolt |
+| untested | ×1.25 for a block never tested: the gamble |
+| streak | +20 % per consecutive clean pull standing, capped at ×2.0 |
+| completed layer | +250 |
+| collapse | the run ends; nothing is taken away |
+
+Applied in that order, each truncating, so a replay scores identically. A
+FREE block sixteen layers down, clean and untested with no streak, is 183;
+the best pull in the game, a STUCK bottom block clean and untested on a
+full streak, is 1890. The piece card shows `timber_run_worth()`: what the
+selected block would be worth pulled clean right now. A safe pull is always
+available and always worth less.
+
+## The trigger
+
+After every tick and every act the run measures the tower. When the
+hinge's effective margin is below zero the tower falls there, the run is
+COLLAPSING, and the cause is read from what the player did last:
+
+| Cause | When |
+| --- | --- |
+| PLACEMENT | within 6 ticks of a placement |
+| JOLT | else within 10 ticks of a jolt |
+| TIP | else the static margin itself is gone: a support drawn out |
+| SWAY | else the tower was standing and the sway from a test or a shift tipped it |
+
+The COLLAPSE event names the hinge layer and the cause, and the result
+screen will say so. A collapse plays out until every block rests (P5) or
+for `TIMBER_COLLAPSE_TICKS_MAX` (60 ticks, 2.4 s) at most, and then the
+run is OVER with its score. All four causes are produced and asserted in
+`tests/timber_rules_test.c`; the last support drawn out from under a
+stack tips it at four tenths of the way, well before the block is free,
+which is why a played tower never has an empty layer under another.
 
 ## Generation
 
@@ -196,9 +249,7 @@ Two more things the tower does:
   width the tower creaks once, naming the hinge, and not again until the
   margin has come back over the line.
 
-The trigger, turning an effective margin below zero into a collapse, is
-P4; in P3 the margin is measured and reported. Every number above is
-asserted exactly in `tests/timber_stability_test.c`.
+Every number above is asserted exactly in `tests/timber_stability_test.c`.
 
 ## Determinism
 
@@ -251,7 +302,8 @@ before the engine milestones:
 | `tests/timber_tower_test.c` | the canonical build, grid and block consistency, the locked-layers rule, removing and placing, gaps, every validator refusal, seeded generation and its guarantees over 400 seeds, tell rates, reseating, load |
 | `tests/timber_pull_test.c` | tightness from seat and load, every class threshold, the limit and stiction tables, the jolt formula |
 | `tests/timber_stability_test.c` | contacts and their box on the canonical tower, the stack above each layer, the margins of every thinned-layer case stated exactly, extraction and the support threshold, lean on both axes, micro-offsets and mass, the sine table, the sway share and its peak, sway against and with the lean, the hinge and its tie rule |
-| `tests/timber_rules_test.c` | run lifecycle, generation in a run, selection and its lock, the TEST budget and stickiness, the free pull, partial extraction and pushing back, the slip, jolts and their direction, a sustained rattle and the disturbance ceiling, stiction and break-free, the slow and the yanked STUCK pull, decay and the sway's direction, the hinge and the meter in a run, the creak and its edge, the load shift and its size, the base without its centre or a side block, the event queue, replay determinism and the untouched generator |
+| `tests/timber_score_test.c` | every scoring number stated twice, the streak and its cap, the layer bonus, the record |
+| `tests/timber_rules_test.c` | run lifecycle, generation in a run, selection and its lock, the TEST budget and stickiness, the free pull, partial extraction and pushing back, the slip, jolts and their direction, a sustained rattle and the disturbance ceiling, stiction and break-free, the slow and the yanked STUCK pull, decay and the sway's direction, the hinge and the meter in a run, the creak and its edge, the load shift and its size, the base without its centre or a side block, placement with its reseat, lean nudge and layer bonus, scoring in a run and the piece card, all four collapse causes, the collapse ceiling and OVER, the event queue, replay determinism and the untouched generator |
 | `tests/timber_lint.sh` | no LVGL, no I/O, no floating point and no platform entropy in the engine; one file touches the filesystem |
 
 Run with `make CC=gcc CFLAGS="-O2 -Werror" test` (WSL2 Ubuntu 22.04, gcc
@@ -264,7 +316,7 @@ Run with `make CC=gcc CFLAGS="-O2 -Werror" test` (WSL2 Ubuntu 22.04, gcc
 | P1 | engine skeleton, tower and run state, selection, events | done |
 | P2 | seeded generation, classes, TEST, extraction, pull dynamics | done |
 | P3 | contacts, centre of mass, margins, lean, disturbance | done |
-| P4 | scoring, placement, collapse trigger and cause | |
+| P4 | scoring, placement, collapse trigger and cause | done |
 | P5 | deterministic collapse choreography | |
 | P6 | replay log, modelled-player pacing | |
 | P7 | minimal simulator UI with placeholder blocks | |
