@@ -246,9 +246,10 @@ tests/radar_store_test: tests/radar_store_test.o $(RADAR_APP_OBJS) $(RADAR_OBJS)
 # of the tree; the app itself will be built by ui/shell (CMake) from P7.
 TIMBER_DIR := apps/timber/engine
 TIMBER_OBJS := $(TIMBER_DIR)/timber_types.o $(TIMBER_DIR)/timber_rng.o $(TIMBER_DIR)/timber_tower.o \
-               $(TIMBER_DIR)/timber_pull.o $(TIMBER_DIR)/timber_stability.o $(TIMBER_DIR)/timber_rules.o
+               $(TIMBER_DIR)/timber_pull.o $(TIMBER_DIR)/timber_stability.o $(TIMBER_DIR)/timber_score.o \
+               $(TIMBER_DIR)/timber_rules.o
 TIMBER_TESTS := tests/timber_rng_test tests/timber_types_test tests/timber_tower_test tests/timber_pull_test \
-                tests/timber_stability_test tests/timber_rules_test
+                tests/timber_stability_test tests/timber_score_test tests/timber_rules_test
 
 $(TIMBER_DIR)/%.o: $(TIMBER_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(TIMBER_DIR) -c -o $@ $<
@@ -270,6 +271,9 @@ tests/timber_pull_test: tests/timber_pull_test.o $(TIMBER_DIR)/timber_pull.o
 
 tests/timber_stability_test: tests/timber_stability_test.o $(TIMBER_DIR)/timber_stability.o $(TIMBER_DIR)/timber_tower.o \
                              $(TIMBER_DIR)/timber_types.o $(TIMBER_DIR)/timber_rng.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/timber_score_test: tests/timber_score_test.o $(TIMBER_DIR)/timber_score.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 tests/timber_rules_test: tests/timber_rules_test.o $(TIMBER_OBJS)
@@ -301,6 +305,7 @@ test: all tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/poc
 	./tests/timber_tower_test
 	./tests/timber_pull_test
 	./tests/timber_stability_test
+	./tests/timber_score_test
 	./tests/timber_rules_test
 	bash tests/radiod_mock_test.sh
 	bash tests/sysd_test.sh

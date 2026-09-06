@@ -21,8 +21,22 @@
  * the layer with the least of it. A block that lets go of the stack while
  * it is being drawn out shifts the stack onto the blocks left, which is a
  * disturbance of its own. The tower creaks when the hinge's static margin
- * falls below the creak line. Pulling the trigger when the effective
- * margin crosses zero is milestone P4; here the margin is only measured.
+ * falls below the creak line.
+ *
+ * Placing the block in hand on top ends the turn: the block is reseated
+ * loose, the tower takes a small knock, and a block placed off centre on an
+ * incomplete layer nudges the lean toward that side, so placing against
+ * the lean is the correct play. Completing a layer unlocks the one that
+ * was below it and pays a bonus.
+ *
+ * The trigger. After every tick and every act the run measures the tower;
+ * when the hinge's effective margin is below zero the tower falls there,
+ * and the cause is read from what the player did last: a placement within
+ * TIMBER_CAUSE_PLACE_TICKS, else a jolt within TIMBER_CAUSE_JOLT_TICKS,
+ * else TIP when the static margin itself is gone (a support pulled out),
+ * else SWAY (the tower was standing; the sway from a test or a shift
+ * tipped it). The run is then COLLAPSING until every block rests (P5) or
+ * TIMBER_COLLAPSE_TICKS_MAX have passed, and then OVER. The score is kept.
  *
  * Determinism. A run is reproduced by (seed, the ordered list of player
  * actions at their ticks). The generator is consumed only when the tower is
@@ -37,6 +51,7 @@
 
 #include "timber_pull.h"
 #include "timber_rng.h"
+#include "timber_score.h"
 #include "timber_stability.h"
 #include "timber_tower.h"
 #include "timber_types.h"
@@ -44,6 +59,21 @@
 /* Tests a turn allows. Two is a real allocation problem; unlimited testing
  * would make the correct play a slow one. */
 #define TIMBER_TESTS_PER_TURN 2
+
+/* What placing a block does to the tower: a knock of 0.25, and, off
+ * centre on an incomplete layer, a lean of 0.005 widths per layer toward
+ * that side (Q16.16). The nudge is a design decision, not physics: it is
+ * what makes placing against the lean the correct play. */
+#define TIMBER_PLACE_IMPULSE 64
+#define TIMBER_PLACE_LEAN 328
+
+/* How long after a placement or a jolt the collapse is blamed on it. The
+ * sway peaks a quarter period after a knock, five ticks. */
+#define TIMBER_CAUSE_PLACE_TICKS 6
+#define TIMBER_CAUSE_JOLT_TICKS 10
+
+/* "It never happened", for the tick of the last jolt or placement. */
+#define TIMBER_NEVER 0xFFFFFFFFu
 
 /* Lean is clamped at half a width per layer: far past anything that could
  * still be standing, and small enough that the arithmetic on it never
@@ -104,6 +134,14 @@ struct timber_run {
     int32_t margin_static;  /* Q8.8 at the hinge */
     int32_t margin_eff;     /* the same with the sway */
 
+    /* For blaming a collapse on the right thing. */
+    uint32_t last_jolt_tick;    /* or TIMBER_NEVER */
+    uint32_t last_place_tick;
+    uint8_t cause;              /* enum timber_cause, once collapsing */
+    uint16_t collapse_ticks;    /* ticks since the collapse began */
+
+    struct timber_score score;
+
     struct timber_event events[TIMBER_EVENTS_MAX];
     uint8_t event_count;
     uint16_t events_dropped;
@@ -131,6 +169,11 @@ int timber_run_load(const struct timber_run *run, int id);
 int timber_run_class(const struct timber_run *run, int id);
 /* The block in hand, or -1. */
 int timber_run_held(const struct timber_run *run);
+/* What pulling this block clean, right now, would be worth: the number
+ * the piece card shows. 0 for a block not in the tower. */
+int32_t timber_run_worth(const struct timber_run *run, int id);
+/* Why the tower fell, TIMBER_CAUSE_NONE while it stands. */
+int timber_run_cause(const struct timber_run *run);
 
 /* ---- the tower's state ----------------------------------------------- */
 
@@ -170,6 +213,11 @@ int timber_run_test(struct timber_run *run);
  * 0 when it did not (stiction, or no travel), -1 when refused. A block that
  * reaches TIMBER_SLIP_AT either way slips free into the hand. */
 int timber_run_pull(struct timber_run *run, int32_t travel);
+/* Put the block in hand on top, in this slot of the placement layer. Ends
+ * the turn: two fresh tests, nothing selected. Returns 0, or -1 when the
+ * run is not active, nothing is in hand, or the slot is taken or outside
+ * the layer. The placement may be the last straw. */
+int timber_run_place(struct timber_run *run, int slot);
 
 /* ---- events ---------------------------------------------------------- */
 

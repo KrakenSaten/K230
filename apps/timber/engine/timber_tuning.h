@@ -61,4 +61,11 @@
  * HARDWARE VALIDATION REQUIRED: gate "1 to 3 px sway readability". */
 #define TIMBER_SWAY_AMP 26
 
+/* ---- the collapse ------------------------------------------------------ */
+
+/* The longest a collapse may play out before the run is over whatever is
+ * still moving: 2.4 s at 25 Hz. The choreography (P5) normally ends
+ * sooner, when every block has come to rest. */
+#define TIMBER_COLLAPSE_TICKS_MAX 60
+
 #endif
