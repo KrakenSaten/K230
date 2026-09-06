@@ -114,9 +114,12 @@ int radar_scope_polar(const lv_obj_t *scope, int dx, int dy, int *bearing, int *
         *bearing = 0;
         return 0;
     }
-    /* lv_atan2 measures from the 3 o'clock position the same way lv_trigo
-     * does, so undoing the quarter turn is the whole of the inverse. */
-    angle = (int)lv_atan2(dx, dy);
+    /* lv_atan2(x, y) is LVGL's own convention: 0 degrees for +y, 90 for
+     * +x, so it must be handed (dy, dx) to measure clockwise from the
+     * 3 o'clock position the way lv_trigo and offset_for() do. With that,
+     * undoing the quarter turn is the whole of the inverse
+     * (tests/radar_scope_test.c checks the round trip). */
+    angle = (int)lv_atan2(dy, dx);
     *bearing = radar_bearing_wrap((angle + 90) * 10);
     return 0;
 }

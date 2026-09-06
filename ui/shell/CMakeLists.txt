@@ -117,3 +117,29 @@ else()
 endif()
 
 install(TARGETS pocketos-shell RUNTIME DESTINATION bin)
+
+# Host-only LVGL-linked tests (run by tests/radar_shell_test.sh). The
+# target build does not need them.
+if(POCKETOS_DISPLAY STREQUAL "sdl")
+    add_executable(radar_scope_test
+        ${REPO_DIR}/tests/radar_scope_test.c
+        ${REPO_DIR}/apps/radar/ui/radar_scope.c
+        ${REPO_DIR}/apps/radar/engine/radar_types.c
+        ${REPO_DIR}/apps/radar/engine/radar_rng.c
+        ${REPO_DIR}/apps/radar/engine/radar_rules.c
+        ${REPO_DIR}/apps/radar/engine/radar_score.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(radar_scope_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/radar/ui")
+    target_compile_options(radar_scope_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(radar_scope_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(radar_scope_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(radar_scope_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(radar_scope_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+endif()

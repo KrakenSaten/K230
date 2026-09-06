@@ -7,6 +7,8 @@
 # dummy driver, exactly like tests/fleet_shell_test.sh.
 set -u
 SHELL_BIN=${SHELL_BIN:?set SHELL_BIN to the pocketos-shell binary}
+# Built beside the shell by ui/shell/CMakeLists.txt (host builds).
+RADAR_SCOPE_TEST=${RADAR_SCOPE_TEST:-$(dirname "$SHELL_BIN")/radar_scope_test}
 export SDL_VIDEODRIVER=dummy
 POCKETOS_RUNTIME_DIR=$(mktemp -d)
 POCKETOS_LOG_DIR=$(mktemp -d)
@@ -30,6 +32,16 @@ run() { # <screen|-> <name>
         >"$OUT/$2.log" 2>&1
     cat "$OUT/$2.log"
 }
+
+# 0. The scope's pixel round trip (tap to bearing and back). A missing test
+#    binary is a failure, not a skip.
+if [ -x "$RADAR_SCOPE_TEST" ]; then
+    log=$("$RADAR_SCOPE_TEST" 2>&1); rc=$?
+    printf '%s\n' "$log" | grep -E '^FAIL|radar_scope_test:'
+    check "scope pixel round trip" "$([ "$rc" = "0" ] && echo 1 || echo 0)"
+else
+    echo "FAIL radar_scope_test binary missing: $RADAR_SCOPE_TEST"; failed=$((failed + 1))
+fi
 
 # 1. Every state the design review needs renders, and none of them logs a fault.
 for screen in idle scan selected acquired decoy; do
