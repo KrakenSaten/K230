@@ -64,8 +64,14 @@
 /* ---- the collapse ------------------------------------------------------ */
 
 /* The longest a collapse may play out before the run is over whatever is
- * still moving: 2.4 s at 25 Hz. The choreography (P5) normally ends
- * sooner, when every block has come to rest. */
+ * still moving: 2.4 s at 25 Hz. The choreography normally ends sooner,
+ * when every block has come to rest. */
 #define TIMBER_COLLAPSE_TICKS_MAX 60
+/* The tip, before the stack breaks into blocks: 0.32 s. */
+#define TIMBER_TIP_TICKS 8
+/* Gravity, Q8.8 layer heights per tick per tick: a block from the top of
+ * an eighteen-layer tower reaches the felt in about a second. For another
+ * tick rate scale by the square of the ratio. */
+#define TIMBER_GRAVITY 9
 
 #endif

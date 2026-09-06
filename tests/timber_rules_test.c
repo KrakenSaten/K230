@@ -73,6 +73,19 @@ static uint32_t digest(const struct timber_run *run)
     h = fnv1a(h, run->last_place_tick);
     h = fnv1a(h, run->cause);
     h = fnv1a(h, run->collapse_ticks);
+    h = fnv1a(h, run->collapse.active);
+    h = fnv1a(h, run->collapse.ticks);
+    h = fnv1a(h, run->collapse.falling);
+    for (id = 0; id < TIMBER_BLOCKS; id++) {
+        const struct timber_fall *f = &run->collapse.blocks[id];
+
+        h = fnv1a(h, (uint32_t)f->x);
+        h = fnv1a(h, (uint32_t)f->y);
+        h = fnv1a(h, (uint32_t)f->z);
+        h = fnv1a(h, f->pose);
+        h = fnv1a(h, f->falling);
+        h = fnv1a(h, f->rest_tick);
+    }
     h = fnv1a(h, (uint32_t)run->score.points);
     h = fnv1a(h, run->score.streak);
     h = fnv1a(h, run->score.best_streak);
@@ -833,6 +846,7 @@ static void test_over(void)
     struct timber_event e;
     int i;
     int overs = 0;
+    int lands = 0;
 
     start(&run, 57u);
     run.tower.blocks[4].seat = 255;
@@ -847,22 +861,33 @@ static void test_over(void)
     timber_run_tick(&run);
     check("a layer left with one side block goes at the next look",
           run.state == TIMBER_RUN_COLLAPSING && timber_run_cause(&run) == TIMBER_CAUSE_TIP);
+    for (i = run.hinge + 1, lands = 0; i < timber_tower_layers(&run.tower); i++) {
+        lands += timber_tower_layer_fill(&run.tower, i);
+    }
+    check("the choreography starts at the hinge with everything above it",
+          run.collapse.active && run.collapse.hinge == run.hinge && run.collapse.fell == lands &&
+          timber_run_fall(&run, 53) != NULL && timber_run_fall(&run, 53)->falling);
+    lands = 0;
     timber_run_clear_events(&run);
-    for (i = 0; i < TIMBER_COLLAPSE_TICKS_MAX - 1; i++) {
+    for (i = 0; i < TIMBER_COLLAPSE_TICKS_MAX && !timber_run_is_over(&run); i++) {
         timber_run_tick(&run);
+        while (timber_run_take_event(&run, &e)) {
+            lands += e.type == TIMBER_EVENT_LAND && e.block < TIMBER_BLOCKS &&
+                     timber_run_fall(&run, e.block)->rest_tick != TIMBER_REST_NEVER;
+            overs += e.type == TIMBER_EVENT_OVER && e.value == run.score.points;
+        }
     }
-    check("the collapse plays out under its ceiling",
-          run.state == TIMBER_RUN_COLLAPSING && run.collapse_ticks == TIMBER_COLLAPSE_TICKS_MAX - 1 &&
-          run.event_count == 0);
-    timber_run_tick(&run);
-    while (timber_run_take_event(&run, &e)) {
-        overs += e.type == TIMBER_EVENT_OVER && e.value == run.score.points;
-    }
-    check("at the ceiling the run is over, with its score",
-          timber_run_is_over(&run) && overs == 1 && run.score.points == 183);
+    printf("     the collapse took %d ticks\n", i);
+    check("every falling block lands, is announced, and the run is over before the ceiling",
+          timber_run_is_over(&run) && lands == run.collapse.fell && overs == 1 &&
+          i > TIMBER_TIP_TICKS && i < TIMBER_COLLAPSE_TICKS_MAX && run.score.points == 183);
+    check("a finished run keeps its fall for the result screen",
+          timber_run_fall(&run, 53) != NULL && !timber_run_fall(&run, 53)->falling &&
+          timber_run_fall(&run, 0) != NULL && timber_run_fall(&run, 0)->z == 0);
     i = (int)run.ticks;
     timber_run_tick(&run);
     check("a finished run stops counting", (int)run.ticks == i);
+    check("a standing run has no fall to show", (start(&run, 58u), timber_run_fall(&run, 0) == NULL));
 }
 
 static void test_events(void)

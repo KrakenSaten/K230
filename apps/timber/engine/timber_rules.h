@@ -49,6 +49,7 @@
 #ifndef POCKETTIMBER_RULES_H
 #define POCKETTIMBER_RULES_H
 
+#include "timber_collapse.h"
 #include "timber_pull.h"
 #include "timber_rng.h"
 #include "timber_score.h"
@@ -139,6 +140,7 @@ struct timber_run {
     uint32_t last_place_tick;
     uint8_t cause;              /* enum timber_cause, once collapsing */
     uint16_t collapse_ticks;    /* ticks since the collapse began */
+    struct timber_collapse collapse;    /* the choreography, once collapsing */
 
     struct timber_score score;
 
@@ -174,6 +176,10 @@ int timber_run_held(const struct timber_run *run);
 int32_t timber_run_worth(const struct timber_run *run, int id);
 /* Why the tower fell, TIMBER_CAUSE_NONE while it stands. */
 int timber_run_cause(const struct timber_run *run);
+/* Where a block is while and after the tower falls, or NULL while it
+ * stands: the view draws a falling block from here and a standing one from
+ * its cell. */
+const struct timber_fall *timber_run_fall(const struct timber_run *run, int id);
 
 /* ---- the tower's state ----------------------------------------------- */
 

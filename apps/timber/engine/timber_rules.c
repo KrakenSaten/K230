@@ -86,6 +86,16 @@ static void collapse(struct timber_run *run)
     run->state = TIMBER_RUN_COLLAPSING;
     run->collapse_ticks = 0;
     emit_at(run, TIMBER_EVENT_COLLAPSE, -1, run->hinge, 0, (int32_t)cause);
+    /* The second and last time the generator is consumed in a run. */
+    timber_collapse_begin(&run->collapse, &run->tower, run->hinge, run->hinge_axis,
+                          run->hinge_sign, &run->rng);
+}
+
+/* The run is over: the last block has rested, or the ceiling passed. */
+static void finish(struct timber_run *run)
+{
+    run->state = TIMBER_RUN_OVER;
+    emit_at(run, TIMBER_EVENT_OVER, -1, run->hinge, 0, run->score.points);
 }
 
 /* Measure the tower: the hinge and its margins, whether it creaks, and
@@ -237,11 +247,23 @@ void timber_run_tick(struct timber_run *run)
     } else if (run->state == TIMBER_RUN_COLLAPSING) {
         run->ticks++;
         run->collapse_ticks++;
-        /* The choreography (P5) ends the collapse when the last block
-         * rests; this is the ceiling it plays out under. */
-        if (run->collapse_ticks >= TIMBER_COLLAPSE_TICKS_MAX) {
-            run->state = TIMBER_RUN_OVER;
-            emit_at(run, TIMBER_EVENT_OVER, -1, run->hinge, 0, run->score.points);
+        if (timber_collapse_tick(&run->collapse) > 0) {
+            int id;
+
+            for (id = 0; id < TIMBER_BLOCKS; id++) {
+                const struct timber_fall *f = &run->collapse.blocks[id];
+
+                if (f->rest_tick == run->collapse.ticks) {
+                    emit_at(run, TIMBER_EVENT_LAND, id, run->tower.blocks[id].layer,
+                            run->tower.blocks[id].slot, f->z);
+                }
+            }
+        }
+        /* The choreography puts everything down by the ceiling; the
+         * check on the count is the belt to its braces. */
+        if (timber_collapse_done(&run->collapse) ||
+            run->collapse_ticks >= TIMBER_COLLAPSE_TICKS_MAX) {
+            finish(run);
         }
     }
 }
@@ -296,6 +318,14 @@ int32_t timber_run_worth(const struct timber_run *run, int id)
 int timber_run_cause(const struct timber_run *run)
 {
     return run ? run->cause : TIMBER_CAUSE_NONE;
+}
+
+const struct timber_fall *timber_run_fall(const struct timber_run *run, int id)
+{
+    if (!run || (run->state != TIMBER_RUN_COLLAPSING && run->state != TIMBER_RUN_OVER)) {
+        return NULL;
+    }
+    return timber_collapse_block(&run->collapse, id);
 }
 
 /* ---- the tower's state -------------------------------------------------- */

@@ -12,8 +12,8 @@ The design basis is the cold design review of 2026-09-06 (GO WITH MAJOR
 CHANGES): a deterministic read-and-pull game with decoupled controls, no
 per-pull dice, and a collapse the player can always explain.
 
-Status: **milestone P4 (scoring, placement, the collapse trigger and its
-cause)** on branch `pockettimber-engine`. Not merged. Nothing has run on hardware; nothing here
+Status: **milestone P5 (the deterministic collapse)** on branch
+`pockettimber-engine`. Not merged. Nothing has run on hardware; nothing here
 is built into the shell yet. Master and the golden bring-up image are
 untouched by this work.
 
@@ -28,9 +28,9 @@ bring-up. Every milestone is one focused commit on this branch.
 
 ```text
 apps/timber/engine/   vocabulary, RNG, tower state and generation, the pull
-                      model, the stability model, scoring, run rules. Pure
-                      C, no LVGL, no I/O, no floating point, no platform
-                      entropy.
+                      model, the stability model, scoring, the collapse
+                      choreography, run rules. Pure C, no LVGL, no I/O, no
+                      floating point, no platform entropy.
 apps/timber/ui/       (P7) the view model and the table widget.
 apps/timber/timber_store.c  (P7) the record file: the app's only door to
                       the filesystem.
@@ -125,12 +125,51 @@ COLLAPSING, and the cause is read from what the player did last:
 | SWAY | else the tower was standing and the sway from a test or a shift tipped it |
 
 The COLLAPSE event names the hinge layer and the cause, and the result
-screen will say so. A collapse plays out until every block rests (P5) or
-for `TIMBER_COLLAPSE_TICKS_MAX` (60 ticks, 2.4 s) at most, and then the
-run is OVER with its score. All four causes are produced and asserted in
+screen will say so. A collapse plays out until every block rests or for
+`TIMBER_COLLAPSE_TICKS_MAX` (60 ticks, 2.4 s) at most, and then the run
+is OVER with its score. All four causes are produced and asserted in
 `tests/timber_rules_test.c`; the last support drawn out from under a
 stack tips it at four tenths of the way, well before the block is free,
 which is why a played tower never has an empty layer under another.
+
+## The collapse
+
+The choreography (`timber_collapse.c`) is an overlay the view reads; the
+tower itself is frozen at the moment it went. The stump, every layer up to
+and including the hinge, stays where it is, and so does a block in hand.
+Every present block above the hinge:
+
+1. **Tips** for `TIMBER_TIP_TICKS` (8, 0.32 s): each layer slides 3 units
+   per tick per layer of height above the hinge along the axis the hinge
+   gave way on, in its direction, and the stack drops 2 units a tick. A
+   shear of sprites reads as a tilt up to about fifteen degrees, and
+   nothing rotates.
+2. **Breaks** into blocks that fly on their own: a horizontal speed of 24
+   units a tick plus 2 per layer of height along the failing direction,
+   a scatter of up to 25 either way on both axes, gravity of 9 units per
+   tick per tick (`TIMBER_GRAVITY`), and a tumble through the six poses
+   the view can draw every 2 to 4 ticks.
+3. **Lands** on the felt, or on the stump's top if it is still over the
+   footprint: the first landing keeps a fifth of its downward speed
+   upward and half its horizontal speed, the second is a rest, in a pose
+   drawn for it. Blocks pass through one another; the pile is a matter of
+   drawing order. Each rest is a LAND event carrying the height it rests
+   at.
+
+The scatter, the tumble rate and the rest pose are drawn from the
+generator when the collapse begins, four values per falling block in id
+order: the second and last time the generator is consumed in a run. A
+collapse is therefore a function of the tower's state and the generator's
+state, the same state falls the same way twice, another seed scatters
+differently, and the hinge, the direction and the number of blocks above
+it are the variation. A collapse that has not ended by the ceiling is put
+down where it is. Measured: 36 blocks from a hinge at layer 5 rest in 44
+ticks (1.8 s); the review's 1.2 to 1.6 s target is P7 tuning of the bounce
+and gravity once it can be seen.
+
+Positions are Q8.8 widths on x and y, and on z one layer is
+`TIMBER_BLOCK_HEIGHT` tall with z the block's underside, so a block from
+layer j starts at `j * 154` and rests at 0 on the felt.
 
 ## Generation
 
@@ -255,7 +294,7 @@ Every number above is asserted exactly in `tests/timber_stability_test.c`.
 
 A run is reproduced by `(seed, the ordered list of player actions at their
 ticks)`. One xorshift32 stream is consumed in exactly two places: when the
-tower is built and when a collapse begins (P5). Nothing the player does
+tower is built and when a collapse begins. Nothing the player does
 moves the stream, so no outcome is ever a roll of the dice;
 `tests/timber_rules_test.c` asserts the generator state after 120 ticks of
 selecting, testing and pulling is the state it had at the start.
@@ -303,7 +342,8 @@ before the engine milestones:
 | `tests/timber_pull_test.c` | tightness from seat and load, every class threshold, the limit and stiction tables, the jolt formula |
 | `tests/timber_stability_test.c` | contacts and their box on the canonical tower, the stack above each layer, the margins of every thinned-layer case stated exactly, extraction and the support threshold, lean on both axes, micro-offsets and mass, the sine table, the sway share and its peak, sway against and with the lean, the hinge and its tie rule |
 | `tests/timber_score_test.c` | every scoring number stated twice, the streak and its cap, the layer bonus, the record |
-| `tests/timber_rules_test.c` | run lifecycle, generation in a run, selection and its lock, the TEST budget and stickiness, the free pull, partial extraction and pushing back, the slip, jolts and their direction, a sustained rattle and the disturbance ceiling, stiction and break-free, the slow and the yanked STUCK pull, decay and the sway's direction, the hinge and the meter in a run, the creak and its edge, the load shift and its size, the base without its centre or a side block, placement with its reseat, lean nudge and layer bonus, scoring in a run and the piece card, all four collapse causes, the collapse ceiling and OVER, the event queue, replay determinism and the untouched generator |
+| `tests/timber_collapse_test.c` | the stump stays and the stack falls, a block in hand does not, the tip's shear and drop, the break, every block rests on a floor under the ceiling, some on the stump and some on the felt, a bounce, the rest pose, the same state twice, another seed, a higher hinge, both directions, the ceiling putting down a block that would fly forever |
+| `tests/timber_rules_test.c` | run lifecycle, generation in a run, selection and its lock, the TEST budget and stickiness, the free pull, partial extraction and pushing back, the slip, jolts and their direction, a sustained rattle and the disturbance ceiling, stiction and break-free, the slow and the yanked STUCK pull, decay and the sway's direction, the hinge and the meter in a run, the creak and its edge, the load shift and its size, the base without its centre or a side block, placement with its reseat, lean nudge and layer bonus, scoring in a run and the piece card, all four collapse causes, the choreography in a run with every LAND announced and OVER before the ceiling, the event queue, replay determinism and the untouched generator |
 | `tests/timber_lint.sh` | no LVGL, no I/O, no floating point and no platform entropy in the engine; one file touches the filesystem |
 
 Run with `make CC=gcc CFLAGS="-O2 -Werror" test` (WSL2 Ubuntu 22.04, gcc
@@ -317,7 +357,7 @@ Run with `make CC=gcc CFLAGS="-O2 -Werror" test` (WSL2 Ubuntu 22.04, gcc
 | P2 | seeded generation, classes, TEST, extraction, pull dynamics | done |
 | P3 | contacts, centre of mass, margins, lean, disturbance | done |
 | P4 | scoring, placement, collapse trigger and cause | done |
-| P5 | deterministic collapse choreography | |
+| P5 | deterministic collapse choreography | done |
 | P6 | replay log, modelled-player pacing | |
 | P7 | minimal simulator UI with placeholder blocks | |
 

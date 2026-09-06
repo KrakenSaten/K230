@@ -37,3 +37,4 @@ BUILD_ID
 /tests/timber_pull_test
 /tests/timber_stability_test
 /tests/timber_score_test
+/tests/timber_collapse_test
