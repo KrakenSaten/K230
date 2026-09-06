@@ -1,19 +1,22 @@
 # PocketOS architecture
 
-Status: reflects the code as of 2026-09-04 (PocketOS 0.0.1). Binding
-decisions live in docs/decisions/; this file explains how the pieces fit.
+Status: reflects the code as of 2026-09-06 (PocketOS 0.0.1, pre-hardware).
+Binding decisions live in docs/decisions/; this file explains how the
+pieces fit.
 
 ## Layers
 
 ```text
-apps/            In-process apps (radio, system). Talk to services over pocketipc only.
-ui/shell         Shell: status bar, launcher, app host, display/input backend.
-ui/pocketui      Design tokens and shared widgets on top of LVGL 9.
-services/        Hardware-owning daemons: radiod (done, mock backend), netd (planned).
+apps/            In-process apps (radio, system, fleet, radar). Talk to services over pocketipc only;
+                 app state under /var/lib/pocketos/<app>/ ($POCKETOS_STATE_DIR).
+ui/shell         Shell: status bar, launcher, app host, display/input backend, settings store.
+ui/pocketui      Design tokens, theme engine and shared role styles on top of LVGL 9.
+services/        Hardware-owning daemons: radiod (mock and sx1262 backends), netd (planned).
 core/pocketipc   IPC library used by everything above.
-tools/           pos CLI, pos-hwcheck.
+core/pocketlog   Logging, rotation and crash reports.
+tools/           pos CLI, pos-hwcheck, pos-supervise.
 platforms/k230   Buildroot integration on the pinned LILYGO BSP + Kendryte SDK.
-vendor/          Read-only upstream trees (git-ignored): LILYGO BSP, K230 SDK, LVGL.
+vendor/          Read-only upstream trees (git-ignored): LILYGO BSP, K230 SDK, LVGL, RadioLib, libgpiod.
 ```
 
 Rules (ADR-001, ADR-002):
@@ -29,15 +32,24 @@ Rules (ADR-001, ADR-002):
 ## Process model on the device
 
 ```text
-BusyBox init
- ├─ S40<conf>          vendor: Wi-Fi driver modprobe
- ├─ S60radiod          radiod --backend <mock|sx1262> --region EU868
- ├─ S99zz_k230_phone_ui vendor launcher (temporary, until the shell replaces it)
- └─ (planned) S90pocketos-shell
+BusyBox init (rcS runs S?? scripts in order; rcK stops them in reverse)
+ ├─ S40<conf>            vendor: Wi-Fi driver modprobe
+ ├─ S60radiod            pos-supervise radiod --backend <mock|sx1262> --region EU868
+ ├─ S90pocketos-shell    pos-supervise pocketos-shell (ENABLE=1 in /etc/default/pocketos-shell)
+ └─ S99zz_k230_phone_ui  vendor launcher (ENABLE in /etc/default/k230_phone_ui, default 1)
 ```
 
+Exactly one of the shell and the vendor launcher owns the panel: S90 refuses
+to start while the launcher is enabled or running (platforms/k230/README.md,
+"Panel ownership"). Both services run under `pos-supervise` (restart with
+backoff, crash-loop marker in /run/pocketos after five restarts in a
+minute; nothing displays the marker yet).
+
 All PocketOS processes run as root in v0. Per-service users are a follow-up.
-Runtime state lives in /run/pocketos (sockets), logs in /var/log.
+Runtime state lives in /run/pocketos (sockets, pid files, crash-loop
+markers), settings in /etc/pocketos, app state in /var/lib/pocketos/<app>,
+logs and crash reports in /var/lib/pocketos/log (persistent; /var/log is a
+tmpfs on the image).
 
 ## IPC
 
@@ -50,7 +62,7 @@ stalled client cannot block the daemon. Clients use the blocking helper
 ## radiod
 
 ```text
-pos radio / apps  ── pocketipc ──▶ radiod ──▶ backend ops ──▶ mock | sx1262 (todo)
+pos radio / apps  ── pocketipc ──▶ radiod ──▶ backend ops ──▶ mock | sx1262 (untested on hardware)
                                      │
                                      ├─ region guard (EU868: 863-870 MHz, ≤14 dBm)
                                      ├─ profile validation (SF, BW set, CR, sync, preamble)
@@ -59,8 +71,9 @@ pos radio / apps  ── pocketipc ──▶ radiod ──▶ backend ops ──
 ```
 
 The backend interface is `services/radiod/radio_backend.h`. The sx1262
-backend will use RadioLib (upstream, MIT) with a PocketOS HAL on spidev and
-libgpiod v2. The LILYGO launcher's HAL cannot be reused (no licence).
+backend uses RadioLib (upstream, MIT) with a PocketOS HAL on spidev and
+libgpiod v2 (`hal_linux.cpp`); it compiles for riscv64 and has not run on
+hardware. The LILYGO launcher's HAL cannot be reused (no licence).
 
 ## Theme engine (Design System v0.1)
 
@@ -87,7 +100,9 @@ One LVGL process. The status bar polls radiod once per second. Apps
 implement `struct pocketos_app` (create / tick / destroy) and are built into
 the shell binary for v0.1; the same API is intended for out-of-process apps
 later (ADR-002). Display backends: SDL (simulator, WSLg) and DRM + evdev
-(K230, untested). `--screenshot` renders any screen headlessly to PNG.
+(K230, untested; links the vendor-patched LVGL from the Buildroot package).
+`--screenshot` renders any screen headlessly to PNG in the simulator only:
+the target LVGL build has no snapshot support (docs/KNOWN_ISSUES.md).
 
 ## Build
 
@@ -98,7 +113,8 @@ docs/BUILD_ENVIRONMENT.md.
 
 ## Not yet decided
 
-- Service supervision and crash-loop handling (init script respawn for now).
+- Surfacing service health (the pos-supervise crash-loop marker, radiod
+  state `error`) in the shell.
 - Update and rollback mechanism (partition layout must not be hard-coded).
 - First-party licence.
 - Out-of-process app hosting and DRM master handoff.

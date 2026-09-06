@@ -17,9 +17,20 @@ Updated 2026-09-04. Move items to git history when resolved.
   recovery path clears it, is ASSUMED until K230 testing.
 - Schematic has alternate LoRa nets (IO4_IRQ, IO3_TCXO_EN) with 0R/NC
   options. BSP uses GPIO20 as DIO1. Assumed populated that way.
-- The vendor LVGL DRM driver carries a K230 plane-rotation patch. Whether the
-  stock LVGL DRM driver at the pinned commit drives the RM69A10 correctly in
-  the PocketOS shell is unknown until tested.
+- The PocketOS shell links the vendor-built liblvgl from the Buildroot
+  package, which carries LILYGO's DRM patches (0002 plane rotation, 0004
+  staging scanout buffer), not a stock LVGL. The shell never calls the
+  rotation API (the panel mode is 568x1232 portrait, rotation 0) and runs
+  with `K230_LVGL_DRM_STAGING=1` set by S90pocketos-shell, as the vendor
+  launcher does. Whether that call sequence drives the RM69A10 correctly is
+  ASSUMED until tested (DS H1, H2).
+- The target lv_conf.h is the vendor package's, not ui/shell/lv_conf.defaults:
+  LV_USE_FLOAT 1, LV_USE_SNAPSHOT 0, ThorVG/FreeType/FFmpeg compiled in,
+  LVGL asserts abort the process (which pocketlog turns into a crash report).
+  Consequence: `pos shell screenshot` and `--screenshot` do not work on the
+  device (they need LV_USE_SNAPSHOT). Decision pending (review item H2):
+  a PocketOS-owned override of the vendor LVGL config, or photographs for
+  the first hardware validation.
 - UART3 is wired both to the CH342K USB-UART (channel 1) and, per BSP, to the
   optional nRF9151 base board. Potential conflict if both are used.
 - `aic8800` modules are modprobed by the vendor boot script although the board
@@ -92,5 +103,15 @@ Updated 2026-09-04. Move items to git history when resolved.
 - LVGL's `generate_lv_conf.py` writes `LV_FONT_CUSTOM_DECLARE` into the
   template's comment example instead of the define; the body font is
   therefore set at runtime on the screen, and `LV_FONT_DEFAULT` is unused.
-- The vendor launcher still starts in the PocketOS defconfig and owns the
-  display and the radio; PocketOS radiod runs with the mock backend there.
+- The vendor launcher is still in the PocketOS image and owns the display
+  and the radio by default; radiod runs with the mock backend until the
+  launcher is switched off. The switch is persistent
+  (`/etc/default/k230_phone_ui`, see platforms/k230/README.md) and
+  S90pocketos-shell refuses to start while the launcher is enabled or
+  running. The launcher has no kernel driver for the LoRa module, so with
+  it running the sx1262 backend must not be used.
+- On the K230 image /var/log is a tmpfs. PocketOS logs, crash reports and
+  the supervisor logs therefore go to /var/lib/pocketos/log (persistent
+  ext4); the stdio capture of each service is restarted on every boot with
+  the previous one kept as `.1`. Ordinary log lines are written once, to
+  the pocketlog file (POCKETOS_LOG_STDERR=0 in the init scripts).

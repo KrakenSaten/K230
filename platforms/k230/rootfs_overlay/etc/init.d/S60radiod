@@ -1,25 +1,35 @@
 #!/bin/sh
 # PocketOS radiod under pos-supervise (BusyBox init). Backend comes from
-# /etc/default/radiod; "mock" until the sx1262 backend exists and the vendor
-# launcher no longer owns the radio.
+# /etc/default/radiod; "mock" until the vendor launcher no longer owns the
+# radio (see /etc/default/k230_phone_ui and platforms/k230/README.md).
+#
+# Logs: pocketlog files, crash reports and the supervisor log go to
+# /var/lib/pocketos/log, which is on the persistent root filesystem (/var/log
+# is a tmpfs on this image). The stdio capture there holds only what is not
+# already in the pocketlog file (POCKETOS_LOG_STDERR=0); it is started fresh
+# on every boot with the previous one kept as .1.
 
 SUPERVISE=/usr/bin/pos-supervise
 DAEMON=/usr/sbin/radiod
 PIDFILE=/var/run/radiod-supervise.pid
-LOGFILE=/var/log/pocketos/radiod.stdio.log
+LOGDIR=/var/lib/pocketos/log
+LOGFILE=$LOGDIR/radiod.stdio.log
 # sx1262 needs the vendor launcher to release the radio; keep mock until then.
 RADIOD_BACKEND=mock
 RADIOD_REGION=EU868
 [ -r /etc/default/radiod ] && . /etc/default/radiod
+export POCKETOS_LOG_DIR=$LOGDIR
+export POCKETOS_LOG_STDERR=0
 
 start() {
 	printf "Starting radiod (%s, %s): " "$RADIOD_BACKEND" "$RADIOD_REGION"
 	[ -x "$DAEMON" ] || { echo "missing"; return 0; }
-	mkdir -p /run/pocketos /var/run /var/log/pocketos
+	mkdir -p /run/pocketos /var/run "$LOGDIR"
 	if [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
 		echo "already running"; return 0
 	fi
-	nohup "$SUPERVISE" radiod "$DAEMON" --backend "$RADIOD_BACKEND" --region "$RADIOD_REGION" >>"$LOGFILE" 2>&1 &
+	[ -f "$LOGFILE" ] && mv -f "$LOGFILE" "$LOGFILE.1"
+	nohup "$SUPERVISE" radiod "$DAEMON" --backend "$RADIOD_BACKEND" --region "$RADIOD_REGION" >"$LOGFILE" 2>&1 &
 	echo $! > "$PIDFILE"
 	echo "OK"
 }

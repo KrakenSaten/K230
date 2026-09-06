@@ -65,20 +65,43 @@ pos radio info          # backend mock at this point
 pos logs
 ```
 
-3. Switch to PocketOS on the panel (see platforms/k230/README.md):
+3. Switch to PocketOS on the panel, persistently (see platforms/k230/README.md
+   "Panel ownership"):
 
 ```sh
-/etc/init.d/S99zz_k230_phone_ui stop
-echo RADIOD_BACKEND=sx1262 > /etc/default/radiod
-/etc/init.d/S60radiod restart && pos radio info
+echo ENABLE=0 > /etc/default/k230_phone_ui
 echo ENABLE=1 > /etc/default/pocketos-shell
-/etc/init.d/S90pocketos-shell start
-pos app list && pos shell screenshot /root/shell.png
+echo RADIOD_BACKEND=sx1262 > /etc/default/radiod
+reboot
+# after the reboot
+pos app list && pos radio info && pos logs
 ```
 
+   Screenshots do not work on the device (the vendor LVGL build has
+   LV_USE_SNAPSHOT off, KNOWN_ISSUES.md): photograph the panel for the
+   visual checks and keep the photos with the hwcheck report.
+
 4. Record what works and what does not in KNOWN_ISSUES.md. Likely first
-   failures: DRM mode selection or rotation for the RM69A10, touch axis
-   mapping, SX1262 begin (TCXO setting).
+   failures: DRM mode selection for the RM69A10, touch axis mapping, SX1262
+   begin (TCXO setting). Logs and crash reports are in
+   `/var/lib/pocketos/log` and survive a reboot (`pos logs`, `pos logs
+   --crashes`).
+
+## Recovery
+
+- The U-Boot default environment has `bootdelay=1`: press a key on the serial
+  console within a second of power-on to stop at the U-Boot prompt
+  (DOCUMENTED: `board/canaan/k230-soc/default.env`). `run blinux` continues
+  the normal boot.
+- PocketOS never removes the vendor launcher. If the shell misbehaves, the
+  reverse switch from platforms/k230/README.md restores the vendor UI at the
+  next boot; over the serial console it can be done from the getty on UART0.
+- If the card does not boot at all, swap in the vendor card (unit A keeps
+  one) and re-flash the PocketOS card from `out/k230/sysimage-sdcard.img`
+  with Rufus or balenaEtcher. Nothing on the board is changed by booting
+  either card; U-Boot, kernel and rootfs all live on the SD card.
+- The root filesystem is remounted read-write by `/etc/inittab`; after a
+  power cut ext4 journal recovery runs on the next mount.
 
 ## 4. Radio link, both units
 

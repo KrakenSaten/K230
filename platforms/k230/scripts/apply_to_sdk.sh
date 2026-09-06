@@ -38,6 +38,27 @@ install -m 0644 "${PLATFORM_DIR}/configs/${CONF}" "${SDK_DIR}/buildroot-overlay/
 echo "[3/5] Vendor launcher (temporary until the PocketOS shell exists)"
 "${VENDOR_DIR}/k230_launcher/scripts/install_to_sdk.sh" "${SDK_DIR}" "${CONF}"
 
+echo "[3b/5] Panel switch for the vendor launcher"
+# The vendor init script is patched in place at apply time rather than
+# copied into this repository (the LILYGO tree carries no licence): an ENABLE
+# switch in /etc/default/k230_phone_ui lets pocketos-shell own the panel
+# across reboots. S90pocketos-shell reads the same file and refuses to start
+# while the launcher is enabled. The launcher itself stays in the image.
+S99="${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/etc/init.d/S99zz_k230_phone_ui"
+[ -f "${S99}" ] || { echo "vendor launcher init script missing: ${S99}" >&2; exit 1; }
+if ! grep -q '/etc/default/k230_phone_ui' "${S99}"; then
+    sed -i \
+        -e '/^DRM_NODE=/a\
+# PocketOS: ENABLE=0 in /etc/default/k230_phone_ui hands the panel to pocketos-shell.\
+ENABLE=1\
+[ -r /etc/default/k230_phone_ui ] && . /etc/default/k230_phone_ui' \
+        -e '/printf "Starting k230_phone_ui: "/a\
+\	[ "$ENABLE" = "1" ] || { echo "disabled (/etc/default/k230_phone_ui)"; return 0; }' \
+        "${S99}"
+fi
+grep -q 'disabled (/etc/default/k230_phone_ui)' "${S99}" && grep -q '^ENABLE=1$' "${S99}" \
+    || { echo "failed to add the panel switch to ${S99}" >&2; exit 1; }
+
 echo "[4/5] PocketOS rootfs overlay"
 rsync -a "${PLATFORM_DIR}/rootfs_overlay/" "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/"
 

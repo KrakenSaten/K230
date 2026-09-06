@@ -14,22 +14,56 @@ vendor_sdk_commit.txt             Pinned kendryte/k230_linux_sdk commit
 ```
 
 The vendor LVGL launcher is still installed by `apply_to_sdk.sh` and owns
-the display and the radio at boot. The PocketOS shell is installed as
-`/usr/bin/pocketos-shell` with `S90pocketos-shell` disabled; radiod runs with
-the mock backend. To try PocketOS on the panel:
+the display and the radio by default. `apply_to_sdk.sh` adds one switch to
+its init script (`ENABLE` in `/etc/default/k230_phone_ui`, default 1); the
+PocketOS shell is installed as `/usr/bin/pocketos-shell` with
+`S90pocketos-shell` disabled, and radiod runs with the mock backend.
+
+## Panel ownership (persistent across reboots)
+
+Hand the panel and the radio to PocketOS:
 
 ```sh
-/etc/init.d/S99zz_k230_phone_ui stop
-echo ENABLE=1 > /etc/default/pocketos-shell
+echo ENABLE=0 > /etc/default/k230_phone_ui      # vendor launcher stays down
+echo ENABLE=1 > /etc/default/pocketos-shell     # PocketOS shell takes the panel
 echo RADIOD_BACKEND=sx1262 > /etc/default/radiod
-/etc/init.d/S60radiod restart
-/etc/init.d/S90pocketos-shell start
-pos app list
+reboot
 ```
+
+After the reboot: `pos app list`, `pos radio info`. Without a reboot, the
+same state is reached with `/etc/init.d/S99zz_k230_phone_ui stop`, then
+`/etc/init.d/S60radiod restart` and `/etc/init.d/S90pocketos-shell start`.
+S90 refuses to start while the launcher is enabled or running, so the two
+never fight for DRM master.
+
+Back to the vendor launcher (recovery and reference path; nothing is removed
+from the image):
+
+```sh
+echo ENABLE=1 > /etc/default/k230_phone_ui
+echo ENABLE=0 > /etc/default/pocketos-shell
+rm -f /etc/default/radiod
+reboot
+```
+
+If the device does not boot far enough for SSH, use the serial console
+(115200) or swap back to the vendor SD card; see docs/hardware/FIRST_BOOT.md
+"Recovery".
+
+## Logs on the device
+
+`/var/log` is a tmpfs on this image, so PocketOS keeps its logs, crash
+reports and supervisor logs in `/var/lib/pocketos/log` (persistent):
+`radiod.log`, `shell.log` (rotated once at 512 KB), `supervise-<name>.log`,
+`crash-<name>-<time>.txt`, and `<name>.stdio.log` (LVGL and raw stdio,
+restarted on every boot, previous copy in `.1`). `pos logs`, `pos logs
+<name>`, `pos logs --crashes`.
 
 Image contents from this package: `pos`, `pos-hwcheck`, `pos-supervise`,
 `radiod` (mock + sx1262), `pocketos-shell` (DRM/evdev, untested), init
-scripts `S60radiod` and `S90pocketos-shell`.
+scripts `S60radiod` and `S90pocketos-shell`. Screenshots (`pos shell
+screenshot`) are not available on the device: the vendor LVGL build has
+LV_USE_SNAPSHOT off (docs/KNOWN_ISSUES.md).
 
 Build inside WSL2 Ubuntu 22.04 (see docs/BUILD_ENVIRONMENT.md):
 

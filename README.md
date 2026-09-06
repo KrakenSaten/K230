@@ -8,13 +8,13 @@ Working folder for PocketOS development on the LILYGO T-Display K230.
 AGENTS.md                  Rules for AI agents working here
 Makefile                   First-party build (called by the Buildroot package)
 VERSION                    PocketOS version
-apps/                      In-process apps: radio (radiod client), system
+apps/                      In-process apps: radio (radiod client), system, fleet (PocketFleet), radar (PocketRadar)
 ui/pocketui/               Theme engine (pos_theme), shared role styles (pos_styles), widgets, fonts/
 ui/shell/                  Shell: status bar, launcher, app host; SDL simulator or DRM target (CMake)
 core/pocketipc/            IPC library and server helper: length-prefixed JSON over Unix sockets
 core/pocketlog/            Structured logging, rotation and crash reports
-services/radiod/           Radio service: policy, stats, IPC; backends mock (done) and sx1262 (todo)
-tests/                     Native unit and end-to-end tests (`make test`); tests/hw/ needs boards
+services/radiod/           Radio service: policy, stats, IPC; backends mock and sx1262 (RadioLib, untested on hardware)
+tests/                     Native unit tests (`make test`), shell tests (tests/*_shell_test.sh, need the CMake shell); tests/hw/ needs boards
 docs/
   ARCHITECTURE.md          How the layers, IPC, services and shell fit together
   ROADMAP.md               Phase 1 status table and later phases
@@ -41,8 +41,14 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-PocketOS 0.0.1: repository skeleton per ADR-001; `pos` CLI, `pos-hwcheck`,
-pocketipc and radiod (mock backend) build natively and for riscv64, with
-`make test` green. The LVGL shell runs as an SDL simulator on the PC with
-screenshots in out/sim/; its DRM backend is written but untested. First PocketOS image build is pending the vendor baseline
-build. No hardware has been tested yet; the sx1262 backend is not written.
+PocketOS 0.0.1, pre-hardware. Implemented and host-tested: `pos` CLI,
+`pos-hwcheck`, pocketipc, pocketlog, `pos-supervise`, radiod with the mock
+backend and the sx1262 backend (RadioLib on spidev + libgpiod, compiles
+for riscv64, never run on hardware), the LVGL shell with Design System v0.1
+(theme engine, five themes, three modes, settings store), and two apps,
+PocketFleet and PocketRadar. The shell runs as an SDL simulator on the PC
+with screenshots in out/sim/; its DRM backend is untested. The K230 SD image
+is built by platforms/k230 (see docs/BUILD_ENVIRONMENT.md and
+docs/hardware/FIRST_BOOT.md). No hardware has been tested yet; every
+hardware statement is DOCUMENTED or ASSUMED (docs/hardware/T-DISPLAY-K230.md,
+docs/KNOWN_ISSUES.md).

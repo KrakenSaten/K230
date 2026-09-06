@@ -4,10 +4,16 @@
  *
  * Line format (one record per line, UTC):
  *   2026-09-04T13:20:01.123Z radiod INFO  message text
- * Output goes to stderr and to $POCKETOS_LOG_DIR/<name>.log (default
- * /var/log/pocketos), rotated once to <name>.log.1 when it exceeds
- * POCKETLOG_MAX_BYTES. Level filter from $POCKETOS_LOG_LEVEL
- * (debug|info|warn|error), default info.
+ * Output goes to $POCKETOS_LOG_DIR/<name>.log (default
+ * /var/lib/pocketos/log), rotated once to <name>.log.1 when it exceeds
+ * POCKETLOG_MAX_BYTES, and to stderr unless $POCKETOS_LOG_STDERR is "0".
+ * Level filter from $POCKETOS_LOG_LEVEL (debug|info|warn|error), default
+ * info.
+ *
+ * The default directory is under /var/lib on purpose: on the K230 image
+ * /var/log is a tmpfs, so logs and crash reports there would not survive
+ * a reboot or a power cut. The init scripts set POCKETOS_LOG_STDERR=0 so
+ * the same lines are not written a second time into the stdio capture.
  *
  * Crash reports: pocketlog_install_crash_handler() catches SIGSEGV, SIGBUS,
  * SIGILL, SIGFPE and SIGABRT, writes
@@ -21,7 +27,7 @@
 
 #include <stddef.h>
 
-#define POCKETLOG_DEFAULT_DIR "/var/log/pocketos"
+#define POCKETLOG_DEFAULT_DIR "/var/lib/pocketos/log"
 #define POCKETLOG_MAX_BYTES (512u * 1024u)
 
 enum pocketlog_level {

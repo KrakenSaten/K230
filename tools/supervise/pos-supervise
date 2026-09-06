@@ -10,13 +10,14 @@
 #   Stop with SIGTERM: the child is terminated and the loop exits.
 #
 # Environment: POCKETOS_RUNTIME_DIR (default /run/pocketos),
-#              POCKETOS_LOG_DIR (default /var/log/pocketos).
+#              POCKETOS_LOG_DIR (default /var/lib/pocketos/log, persistent;
+#              /var/log is a tmpfs on the K230 image).
 
 NAME=$1
 [ -n "$NAME" ] && [ $# -ge 2 ] || { echo "usage: pos-supervise <name> <command> [args...]" >&2; exit 2; }
 shift
 RUN_DIR=${POCKETOS_RUNTIME_DIR:-/run/pocketos}
-LOG_DIR=${POCKETOS_LOG_DIR:-/var/log/pocketos}
+LOG_DIR=${POCKETOS_LOG_DIR:-/var/lib/pocketos/log}
 MAX=${POS_SUPERVISE_MAX_RESTARTS:-5}
 WINDOW=60
 mkdir -p "$RUN_DIR" "$LOG_DIR"

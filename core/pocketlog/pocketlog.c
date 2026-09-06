@@ -24,6 +24,7 @@ static char log_dir[256] = POCKETLOG_DEFAULT_DIR;
 static char log_path[512];
 static int log_fd = -1;
 static enum pocketlog_level log_level = POCKETLOG_INFO;
+static int log_stderr = 1;
 static const char *level_names[] = { "DEBUG", "INFO ", "WARN ", "ERROR" };
 
 static enum pocketlog_level level_from_string(const char *s)
@@ -59,6 +60,11 @@ void pocketlog_init(const char *name)
         snprintf(log_dir, sizeof(log_dir), "%s", dir);
     }
     log_level = level_from_string(getenv("POCKETOS_LOG_LEVEL"));
+    {
+        const char *se = getenv("POCKETOS_LOG_STDERR");
+
+        log_stderr = !(se && strcmp(se, "0") == 0);
+    }
     open_log_file();
 }
 
@@ -142,7 +148,7 @@ void pocketlog_write(enum pocketlog_level level, const char *fmt, ...)
         n = (int)sizeof(line) - 2;
     }
     line[n++] = '\n';
-    if (write(STDERR_FILENO, line, (size_t)n) < 0) {
+    if (log_stderr && write(STDERR_FILENO, line, (size_t)n) < 0) {
         /* nothing sensible to do */
     }
     if (log_fd >= 0) {

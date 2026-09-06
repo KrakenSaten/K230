@@ -1,25 +1,61 @@
 #!/bin/sh
-# PocketOS shell (DRM + evdev) under pos-supervise. Disabled by default while
-# the vendor launcher owns the display: set ENABLE=1 in
-# /etc/default/pocketos-shell and stop S99zz_k230_phone_ui to try it.
+# PocketOS shell (DRM + evdev) under pos-supervise. Disabled by default.
+#
+# Panel ownership (survives reboot, see platforms/k230/README.md):
+#   /etc/default/k230_phone_ui   ENABLE=0  vendor launcher stays down
+#   /etc/default/pocketos-shell  ENABLE=1  PocketOS shell takes the panel
+# The shell refuses to start while the vendor launcher is enabled or running,
+# so the two never fight for DRM master. The launcher is not removed from the
+# image; setting the flags back the other way restores it.
+#
+# Logs: see S60radiod. Persistent directory /var/lib/pocketos/log.
 
 SUPERVISE=/usr/bin/pos-supervise
 DAEMON=/usr/bin/pocketos-shell
 PIDFILE=/var/run/pocketos-shell-supervise.pid
-LOGFILE=/var/log/pocketos/shell.stdio.log
+LAUNCHER_PIDFILE=/var/run/k230_phone_ui.pid
+LOGDIR=/var/lib/pocketos/log
+LOGFILE=$LOGDIR/shell.stdio.log
 ENABLE=0
+# Vendor LVGL DRM patch 0004 (lvgl/drm: K230 staging scanout buffer): render
+# into normal memory and copy whole frames to the scanout buffer, which the
+# vendor documents as the fix for flicker while scrolling on the RM69A10.
+# The vendor launcher runs with it on; so does the shell. Override in
+# /etc/default/pocketos-shell if a measurement says otherwise.
+K230_LVGL_DRM_STAGING=1
 [ -r /etc/default/pocketos-shell ] && . /etc/default/pocketos-shell
+export K230_LVGL_DRM_STAGING
+export POCKETOS_LOG_DIR=$LOGDIR
+export POCKETOS_LOG_STDERR=0
+
+launcher_enabled() {
+	# The vendor launcher's own switch (added by apply_to_sdk.sh); default on.
+	[ "$( ENABLE=1; [ -r /etc/default/k230_phone_ui ] && . /etc/default/k230_phone_ui; echo "$ENABLE" )" = "1" ]
+}
+
+launcher_running() {
+	[ -s "$LAUNCHER_PIDFILE" ] && kill -0 "$(cat "$LAUNCHER_PIDFILE")" 2>/dev/null
+}
 
 start() {
 	printf "Starting pocketos-shell: "
 	[ "$ENABLE" = "1" ] || { echo "disabled (/etc/default/pocketos-shell)"; return 0; }
 	[ -x "$DAEMON" ] || { echo "missing"; return 0; }
-	mkdir -p /run/pocketos /var/run /var/log/pocketos
+	if launcher_enabled; then
+		echo "not started: vendor launcher owns the panel (set ENABLE=0 in /etc/default/k230_phone_ui)"
+		return 0
+	fi
+	if launcher_running; then
+		echo "not started: vendor launcher is running (/etc/init.d/S99zz_k230_phone_ui stop)"
+		return 0
+	fi
+	mkdir -p /run/pocketos /var/run "$LOGDIR"
 	if [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
 		echo "already running"; return 0
 	fi
 	for _ in 1 2 3 4 5 6 7 8 9 10; do [ -e /dev/dri/card0 ] && break; sleep 1; done
-	HOME=/root nohup "$SUPERVISE" pocketos-shell "$DAEMON" >>"$LOGFILE" 2>&1 &
+	[ -f "$LOGFILE" ] && mv -f "$LOGFILE" "$LOGFILE.1"
+	HOME=/root nohup "$SUPERVISE" pocketos-shell "$DAEMON" >"$LOGFILE" 2>&1 &
 	echo $! > "$PIDFILE"
 	echo "OK"
 }
