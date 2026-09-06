@@ -12,8 +12,8 @@ The design basis is the cold design review of 2026-09-06 (GO WITH MAJOR
 CHANGES): a deterministic read-and-pull game with decoupled controls, no
 per-pull dice, and a collapse the player can always explain.
 
-Status: **milestone P2 (generation, classes, TEST and the pull)** on branch
-`pockettimber-engine`. Not merged. Nothing has run on hardware; nothing here
+Status: **milestone P3 (contacts, centre of mass, margins, lean and
+disturbance)** on branch `pockettimber-engine`. Not merged. Nothing has run on hardware; nothing here
 is built into the shell yet. Master and the golden bring-up image are
 untouched by this work.
 
@@ -28,8 +28,8 @@ bring-up. Every milestone is one focused commit on this branch.
 
 ```text
 apps/timber/engine/   vocabulary, RNG, tower state and generation, the pull
-                      model, run rules. Pure C, no LVGL, no I/O, no floating
-                      point, no platform entropy.
+                      model, the stability model, run rules. Pure C, no
+                      LVGL, no I/O, no floating point, no platform entropy.
 apps/timber/ui/       (P7) the view model and the table widget.
 apps/timber/timber_store.c  (P7) the record file: the app's only door to
                       the filesystem.
@@ -138,9 +138,67 @@ jolt = excess * (0.25 + tightness)
 which adds `2.0 * jolt` of disturbance and leans the tower by
 `0.01 * jolt` widths per layer along the block's axis in the direction of
 the pull. A single fast sample is not a jolt; a slow steady pull on a STUCK
-block never jolts and brings it out in about two and a half seconds. What
-disturbance and lean then do to the tower is P3; in P2 they only
-accumulate, disturbance capped at 4.0.
+block never jolts and brings it out in about two and a half seconds.
+Disturbance is capped at 4.0.
+
+## Stability
+
+This is a stability model, not a physics engine (`timber_stability.c`).
+For every layer with something directly above it:
+
+- **Contact.** The rectangles where the blocks of the layer that still
+  carry load meet the blocks of the layer above, and their bounding box. A
+  block carries load while at least a quarter of its footprint meets the
+  layer above, so a block three quarters of the way out has already let
+  go of the stack, a moment before it slips free at four fifths.
+- **Stack.** The mass and centre of mass of every block above the layer,
+  at its extracted position, with its micro-offset across its axis, and
+  displaced by the lean: a block `j` layers up sits `lean * j` further
+  over. Q8.8 positions, 64-bit sums.
+- **Margin.** The smallest distance from that centre of mass to an edge of
+  the contact box, on either axis, and which edge. A complete layer under a
+  centred stack has 1.5 widths of it (`TIMBER_MARGIN_FULL`, 384); a layer
+  missing one side block has 0.5 toward that side; a layer with only its
+  centre block has 0.5 either way; a layer with one side block has −0.5,
+  and the stack tips. A layer whose blocks have all let go has no margin
+  at all (`TIMBER_MARGIN_NONE`).
+
+The **hinge** is the layer with the least effective margin. A thinned
+layer and the layer under it rest on the same block and share a margin,
+so a tie goes to the layer with fewer blocks carrying the stack, then to
+the lower one. The run refreshes the hinge and its margins after every
+tick and every act; the stability meter is the effective margin as a share
+of a full one.
+
+**Lean** enters the stack's centre of mass and never decays. At 0.05
+widths per layer the stack above the base sits 0.45 widths over and the
+base has 0.87 widths of margin left; a high layer, with little stack above
+it, feels almost none of it.
+
+**Disturbance** decays by 225/256 per tick, so a knock is a twentieth of
+itself a second later, and while it lasts the top of the tower sways
+`0.10 * disturbance` widths on a 0.8 s period along the axis of the last
+knock, starting in its direction. Each carrying layer feels the share of
+that displacement given by the mean of a cantilever mode shape over the
+stack above it, about a third at the base, peaking at two fifths around
+layers four to five, and falling to a ninth just under the top. The
+effective margin is the static one less that share, so a knocked tower can
+fall a few ticks after the knock, at the top of its sway, and a sway
+against the lean gives margin back for half a period.
+
+Two more things the tower does:
+
+- **Shift.** A block that was carrying the stack and lets go of it, out of
+  the tower or merely three quarters out, drops the stack onto the blocks
+  that are left: a disturbance from 0.25 to 1.0 with the load the block
+  carried, and a SHIFT event. The slip that follows is not a second one.
+- **Creak.** When the hinge's static margin falls under a quarter of a
+  width the tower creaks once, naming the hinge, and not again until the
+  margin has come back over the line.
+
+The trigger, turning an effective margin below zero into a collapse, is
+P4; in P3 the margin is measured and reported. Every number above is
+asserted exactly in `tests/timber_stability_test.c`.
 
 ## Determinism
 
@@ -166,7 +224,7 @@ is HARDWARE VALIDATION REQUIRED. The gates, all unmeasured as of P1:
 | Sprite-storm redraw budget | not needed before P7 | the table widget's frame cost |
 | GT9895 drag event rate | pull travel sampled per 40 ms tick, judged over a 3-tick average | the speed limits and stiction in `timber_tuning.h` |
 | Drag latency | none assumed | the feel of the pull track (P7) |
-| 1 to 3 px sway readability | none assumed | sway amplitude (P3, view in P7) |
+| 1 to 3 px sway readability | `TIMBER_SWAY_AMP` 0.10 widths per unit of disturbance | whether the sway the model computes is visible at the view's pixels per width (P7) |
 | 20/25 Hz target choice | `TIMBER_TICK_MS` 40 | every per-tick rate |
 | Static-tower caching strategy | deferred | P7 rendering only |
 
@@ -192,7 +250,8 @@ before the engine milestones:
 | `tests/timber_types_test.c` | the name tables, layer axes, block footprints under extraction, rectangle intersection and overlap |
 | `tests/timber_tower_test.c` | the canonical build, grid and block consistency, the locked-layers rule, removing and placing, gaps, every validator refusal, seeded generation and its guarantees over 400 seeds, tell rates, reseating, load |
 | `tests/timber_pull_test.c` | tightness from seat and load, every class threshold, the limit and stiction tables, the jolt formula |
-| `tests/timber_rules_test.c` | run lifecycle, generation in a run, selection and its lock, the TEST budget and stickiness, the free pull, partial extraction and pushing back, the slip, jolts and their direction, the disturbance cap, stiction and break-free, the slow and the yanked STUCK pull, the event queue, replay determinism and the untouched generator |
+| `tests/timber_stability_test.c` | contacts and their box on the canonical tower, the stack above each layer, the margins of every thinned-layer case stated exactly, extraction and the support threshold, lean on both axes, micro-offsets and mass, the sine table, the sway share and its peak, sway against and with the lean, the hinge and its tie rule |
+| `tests/timber_rules_test.c` | run lifecycle, generation in a run, selection and its lock, the TEST budget and stickiness, the free pull, partial extraction and pushing back, the slip, jolts and their direction, a sustained rattle and the disturbance ceiling, stiction and break-free, the slow and the yanked STUCK pull, decay and the sway's direction, the hinge and the meter in a run, the creak and its edge, the load shift and its size, the base without its centre or a side block, the event queue, replay determinism and the untouched generator |
 | `tests/timber_lint.sh` | no LVGL, no I/O, no floating point and no platform entropy in the engine; one file touches the filesystem |
 
 Run with `make CC=gcc CFLAGS="-O2 -Werror" test` (WSL2 Ubuntu 22.04, gcc
@@ -204,7 +263,7 @@ Run with `make CC=gcc CFLAGS="-O2 -Werror" test` (WSL2 Ubuntu 22.04, gcc
 | --- | --- | --- |
 | P1 | engine skeleton, tower and run state, selection, events | done |
 | P2 | seeded generation, classes, TEST, extraction, pull dynamics | done |
-| P3 | contacts, centre of mass, margins, lean, disturbance | |
+| P3 | contacts, centre of mass, margins, lean, disturbance | done |
 | P4 | scoring, placement, collapse trigger and cause | |
 | P5 | deterministic collapse choreography | |
 | P6 | replay log, modelled-player pacing | |

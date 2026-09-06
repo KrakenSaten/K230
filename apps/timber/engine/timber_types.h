@@ -118,10 +118,11 @@ enum timber_event_type {
     TIMBER_EVENT_TEST,          /* value: the class revealed */
     TIMBER_EVENT_STICK,         /* a tight block broke free */
     TIMBER_EVENT_JOLT,          /* value: the jolt's size */
+    TIMBER_EVENT_SHIFT,         /* the stack settled onto the blocks left; value: the impulse */
     TIMBER_EVENT_SLIP,          /* the block came out; value: points */
     TIMBER_EVENT_PLACE,
     TIMBER_EVENT_LAYER,         /* a layer was completed; value: points */
-    TIMBER_EVENT_CREAK,         /* a turn began with little margin left */
+    TIMBER_EVENT_CREAK,         /* the margin fell below the creak line; value: the margin */
     TIMBER_EVENT_COLLAPSE,      /* value: the hinge layer */
     TIMBER_EVENT_LAND,          /* a falling block came to rest */
     TIMBER_EVENT_OVER,          /* value: the final score */

@@ -22,7 +22,7 @@ static const char *const cause_names[TIMBER_CAUSE_COUNT] = {
 };
 
 static const char *const event_names[TIMBER_EVENT_COUNT] = {
-    "NONE", "SELECT", "DESELECT", "TEST", "STICK", "JOLT", "SLIP",
+    "NONE", "SELECT", "DESELECT", "TEST", "STICK", "JOLT", "SHIFT", "SLIP",
     "PLACE", "LAYER", "CREAK", "COLLAPSE", "LAND", "OVER"
 };
 

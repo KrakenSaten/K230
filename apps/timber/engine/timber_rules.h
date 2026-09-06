@@ -15,8 +15,14 @@
  * block is out it slips free into the player's hand, and placing it on top
  * ends the turn.
  *
- * What the tower does with disturbance and lean - decay, sway, margins and
- * the collapse - is milestone P3; here they only accumulate.
+ * The tower answers. Disturbance decays every tick and sways the tower
+ * while it lasts; the stability model (timber_stability.c) turns the
+ * tower, the lean and the sway into a margin per layer, and the hinge is
+ * the layer with the least of it. A block that lets go of the stack while
+ * it is being drawn out shifts the stack onto the blocks left, which is a
+ * disturbance of its own. The tower creaks when the hinge's static margin
+ * falls below the creak line. Pulling the trigger when the effective
+ * margin crosses zero is milestone P4; here the margin is only measured.
  *
  * Determinism. A run is reproduced by (seed, the ordered list of player
  * actions at their ticks). The generator is consumed only when the tower is
@@ -31,6 +37,7 @@
 
 #include "timber_pull.h"
 #include "timber_rng.h"
+#include "timber_stability.h"
 #include "timber_tower.h"
 #include "timber_types.h"
 
@@ -80,13 +87,22 @@ struct timber_run {
     int16_t grip;           /* travel absorbed against stiction, Q8.8 */
     int16_t travel[TIMBER_TRAVEL_WINDOW];   /* recent per-tick travel magnitudes */
 
-    /* What play has done to the tower. Accumulated here; decayed and
-     * turned into consequences by the stability model (P3). */
-    uint16_t disturb;       /* Q8.8, 0 to TIMBER_DISTURB_MAX */
+    /* What play has done to the tower. */
+    uint16_t disturb;       /* Q8.8, 0 to TIMBER_DISTURB_MAX; decays every tick */
     uint8_t disturb_axis;   /* enum timber_axis of the last disturbance */
     int8_t disturb_sign;    /* its direction along that axis */
+    uint16_t sway_phase;    /* 1/65536 turn; restarts at every disturbance */
+    int16_t sway;           /* displacement of the top along disturb_axis, Q8.8 */
     int32_t lean_x;         /* Q16.16 widths per layer */
     int32_t lean_y;
+
+    /* What the tower says back, refreshed every tick and after every act. */
+    uint8_t hinge;          /* the layer with the least margin, or TIMBER_NO_LAYER */
+    uint8_t hinge_axis;     /* enum timber_axis the hinge would tip along */
+    int8_t hinge_sign;      /* and which way */
+    uint8_t creaking;       /* the static margin is under the creak line */
+    int32_t margin_static;  /* Q8.8 at the hinge */
+    int32_t margin_eff;     /* the same with the sway */
 
     struct timber_event events[TIMBER_EVENTS_MAX];
     uint8_t event_count;
@@ -115,6 +131,18 @@ int timber_run_load(const struct timber_run *run, int id);
 int timber_run_class(const struct timber_run *run, int id);
 /* The block in hand, or -1. */
 int timber_run_held(const struct timber_run *run);
+
+/* ---- the tower's state ----------------------------------------------- */
+
+/* The layer with the least effective margin, or -1 when no layer carries
+ * anything. */
+int timber_run_hinge(const struct timber_run *run);
+/* The effective margin at the hinge, Q8.8 widths; TIMBER_MARGIN_FULL when
+ * there is no hinge. */
+int32_t timber_run_margin(const struct timber_run *run);
+/* The stability meter: the effective margin as a share of a full one,
+ * 0 to 1000. */
+int timber_run_stability_permille(const struct timber_run *run);
 
 /* ---- selection ------------------------------------------------------- */
 

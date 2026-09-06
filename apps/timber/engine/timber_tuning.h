@@ -45,4 +45,20 @@
  * bursts. */
 #define TIMBER_TRAVEL_WINDOW 3
 
+/* ---- the tower's answer ------------------------------------------------ */
+
+/* Disturbance decays by this factor per tick: 225/256, about 0.88, so a
+ * knock is a twentieth of itself a second later at 25 Hz. For another
+ * tick rate keep the per-second decay: factor = 0.04^(TICK_MS/1000). */
+#define TIMBER_DISTURB_DECAY 225
+/* The sway period in ticks: 0.8 s at 25 Hz. The phase is a sixteen-bit
+ * turn, so the step is the turn over the period. */
+#define TIMBER_SWAY_PERIOD_TICKS 20
+#define TIMBER_SWAY_STEP (65536 / TIMBER_SWAY_PERIOD_TICKS)
+/* How far the top of the tower sways per unit of disturbance: 0.10 widths
+ * (Q8.8 per 256 of disturbance). Whether that reads on the panel depends
+ * on the view's pixels per width.
+ * HARDWARE VALIDATION REQUIRED: gate "1 to 3 px sway readability". */
+#define TIMBER_SWAY_AMP 26
+
 #endif
