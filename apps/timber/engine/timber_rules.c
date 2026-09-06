@@ -477,8 +477,13 @@ static void move_block(struct timber_run *run, struct timber_block *b, int32_t d
     if (carried && !timber_stability_block_supports(&run->tower, id)) {
         int32_t impulse = TIMBER_SHIFT_IMPULSE_MIN +
                           (TIMBER_SHIFT_IMPULSE_MAX - TIMBER_SHIFT_IMPULSE_MIN) * load / TIMBER_LOAD_MAX;
+        int sign = e < 0 ? -1 : 1;
+        int across = axis == TIMBER_AXIS_X ? TIMBER_AXIS_Y : TIMBER_AXIS_X;
+        int settle_sign = b->offset < 0 ? -1 : 1;
 
-        disturb_add(run, impulse, axis, e < 0 ? -1 : 1);
+        disturb_add(run, impulse, axis, sign);
+        lean_add(run, axis, sign * (int32_t)(((int64_t)impulse * TIMBER_SHIFT_LEAN) >> 8));
+        lean_add(run, across, settle_sign * (int32_t)(((int64_t)impulse * TIMBER_SHIFT_LEAN_ACROSS) >> 8));
         emit(run, TIMBER_EVENT_SHIFT, id, impulse);
     }
     settle(run);
@@ -606,5 +611,12 @@ int timber_run_place(struct timber_run *run, int slot)
     run->last_place_tick = run->ticks;
     reset_grip(run);
     settle(run);
+    /* The summit: the tower has reached its bound with a complete top, so
+     * the next block pulled would have nowhere to go. The run ends
+     * standing rather than locking with a block in hand. A design
+     * decision, not physics: docs/apps/POCKETTIMBER.md, D3. */
+    if (run->state == TIMBER_RUN_ACTIVE && timber_tower_place_layer(&run->tower) < 0) {
+        finish(run);
+    }
     return 0;
 }
