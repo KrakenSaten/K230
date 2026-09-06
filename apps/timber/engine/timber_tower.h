@@ -24,11 +24,38 @@
 #ifndef POCKETTIMBER_TOWER_H
 #define POCKETTIMBER_TOWER_H
 
+#include "timber_rng.h"
 #include "timber_types.h"
 
 /* The seat a block carries before the seed has spoken: the middle of the
  * range. Seeded generation overwrites it. */
 #define TIMBER_SEAT_DEFAULT 128
+
+/* ---- generation ------------------------------------------------------ */
+
+/* Wood grain variants, for the view. */
+#define TIMBER_VARIANTS 6
+/* Every layer keeps at least one block this loose, so there is always a
+ * playable pull somewhere in it. */
+#define TIMBER_SEAT_GUARANTEE 200
+/* The bottom layers draw their seats below this: they carry the tower and
+ * should feel like it. The guarantee still applies to them. */
+#define TIMBER_TIGHT_LAYERS 3
+#define TIMBER_TIGHT_SEAT_MAX 200
+/* A tell is a visible misalignment. Loose blocks show one often, middling
+ * ones sometimes, tight ones never, so a tell means "probably loose" and a
+ * missing tell means nothing at all. */
+#define TIMBER_TELL_LOOSE_FROM 170
+#define TIMBER_TELL_MEDIUM_FROM 85
+#define TIMBER_TELL_LOOSE_PCT 60
+#define TIMBER_TELL_MEDIUM_PCT 30
+/* Micro-offsets across a block's axis, Q8.8: 0.02 to 0.06 widths, which
+ * is what makes a fresh tower imperfect and its margins less than ideal. */
+#define TIMBER_OFFSET_MIN 5
+#define TIMBER_OFFSET_MAX 15
+/* A block just placed sits loose: nothing rests on it yet. It tightens as
+ * the tower is rebuilt over it (timber_pull.c). */
+#define TIMBER_SEAT_PLACED_MIN 200
 
 struct timber_block {
     uint8_t present;        /* 1 while it is part of the tower, seated or part way out */
@@ -68,8 +95,19 @@ enum timber_invalid {
  * seated with TIMBER_SEAT_DEFAULT, no tells, no offsets. Block id is
  * layer * TIMBER_SLOTS + slot. */
 void timber_tower_build(struct timber_tower *t);
+/* The canonical tower with seats, tells, offsets and variants drawn from
+ * the generator in a fixed order, so a seed always builds the same tower.
+ * With a NULL generator this is timber_tower_build(). */
+void timber_tower_generate(struct timber_tower *t, struct timber_rng *rng);
+/* Give a block the seat of a freshly placed one, and new tell and offset,
+ * from a hash of its id and salt (the turn number) rather than from the
+ * generator, so placing never moves the stream. Clears tested. */
+void timber_tower_reseat(struct timber_tower *t, int id, uint32_t salt);
 
 int timber_tower_layers(const struct timber_tower *t);
+/* Blocks present in the layers above this block's layer, 0 for an id
+ * outside the run or a block in hand. */
+int timber_tower_load(const struct timber_tower *t, int id);
 /* Blocks present in a layer, 0 for a layer outside the tower. */
 int timber_tower_layer_fill(const struct timber_tower *t, int layer);
 /* The highest layer with every slot filled, or -1. */

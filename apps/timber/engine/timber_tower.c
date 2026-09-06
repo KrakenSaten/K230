@@ -52,9 +52,119 @@ void timber_tower_build(struct timber_tower *t)
     t->layers = TIMBER_LAYERS_BASE;
 }
 
+/* ---- generation ------------------------------------------------------ */
+
+static int tell_pct(int seat)
+{
+    if (seat >= TIMBER_TELL_LOOSE_FROM) {
+        return TIMBER_TELL_LOOSE_PCT;
+    }
+    if (seat >= TIMBER_TELL_MEDIUM_FROM) {
+        return TIMBER_TELL_MEDIUM_PCT;
+    }
+    return 0;
+}
+
+void timber_tower_generate(struct timber_tower *t, struct timber_rng *rng)
+{
+    int id;
+    int layer;
+
+    timber_tower_build(t);
+    if (!t || !rng) {
+        return;
+    }
+    /* Every block draws the same four values in id order, whatever its
+     * layer, so the stream a seed produces is a fixed shape. */
+    for (id = 0; id < TIMBER_BLOCKS; id++) {
+        struct timber_block *b = &t->blocks[id];
+        uint32_t ceiling = b->layer < TIMBER_TIGHT_LAYERS ? TIMBER_TIGHT_SEAT_MAX : 256u;
+        int32_t magnitude;
+
+        b->seat = (uint8_t)timber_rng_below(rng, ceiling);
+        b->variant = (uint8_t)timber_rng_below(rng, TIMBER_VARIANTS);
+        magnitude = timber_rng_range(rng, TIMBER_OFFSET_MIN, TIMBER_OFFSET_MAX);
+        b->offset = (int16_t)(timber_rng_below(rng, 2) ? magnitude : -magnitude);
+    }
+    /* The guarantee: a layer with no loose block gets one, chosen by the
+     * generator. Only layers that need it draw, which is still a function
+     * of the seed alone. */
+    for (layer = 0; layer < TIMBER_LAYERS_BASE; layer++) {
+        int loosest = 0;
+        int slot;
+
+        for (slot = 0; slot < TIMBER_SLOTS; slot++) {
+            int seat = t->blocks[layer * TIMBER_SLOTS + slot].seat;
+
+            if (seat > loosest) {
+                loosest = seat;
+            }
+        }
+        if (loosest < TIMBER_SEAT_GUARANTEE) {
+            int which = (int)timber_rng_below(rng, TIMBER_SLOTS);
+
+            t->blocks[layer * TIMBER_SLOTS + which].seat =
+                (uint8_t)(TIMBER_SEAT_GUARANTEE + timber_rng_below(rng, 256u - TIMBER_SEAT_GUARANTEE));
+        }
+    }
+    /* Tells last, after the seats are final. Every block rolls so the
+     * stream shape stays fixed; tight blocks simply never pass. */
+    for (id = 0; id < TIMBER_BLOCKS; id++) {
+        struct timber_block *b = &t->blocks[id];
+
+        b->tell = timber_rng_below(rng, 100u) < (uint32_t)tell_pct(b->seat);
+    }
+}
+
+/* A small integer hash (a 32-bit variant of the murmur finaliser) so a
+ * placed block's new seat depends on which block and which turn, and on
+ * nothing that would move the generator. */
+static uint32_t mix(uint32_t v)
+{
+    v ^= v >> 16;
+    v *= 0x7FEB352Du;
+    v ^= v >> 15;
+    v *= 0x846CA68Bu;
+    v ^= v >> 16;
+    return v;
+}
+
+void timber_tower_reseat(struct timber_tower *t, int id, uint32_t salt)
+{
+    struct timber_block *b;
+    uint32_t h;
+    int32_t magnitude;
+
+    if (!t || !valid_id(id)) {
+        return;
+    }
+    b = &t->blocks[id];
+    h = mix(((uint32_t)id + 1u) * 0x9E3779B9u ^ mix(salt));
+    b->seat = (uint8_t)(TIMBER_SEAT_PLACED_MIN + (h & 0xFFu) % (256u - TIMBER_SEAT_PLACED_MIN));
+    magnitude = TIMBER_OFFSET_MIN + (int32_t)(((h >> 8) & 0xFFu) % (TIMBER_OFFSET_MAX - TIMBER_OFFSET_MIN + 1));
+    b->offset = (int16_t)(((h >> 16) & 1u) ? magnitude : -magnitude);
+    b->tell = ((h >> 24) & 0xFFu) % 100u < (uint32_t)tell_pct(b->seat);
+    b->tested = 0;
+}
+
 int timber_tower_layers(const struct timber_tower *t)
 {
     return t ? t->layers : 0;
+}
+
+int timber_tower_load(const struct timber_tower *t, int id)
+{
+    const struct timber_block *b = timber_tower_block(t, id);
+    int layer;
+    int n = 0;
+
+    if (!b || !b->present) {
+        return 0;
+    }
+    for (layer = b->layer + 1; layer < t->layers; layer++) {
+        n += timber_tower_layer_fill(t, layer);
+    }
+    return n;
 }
 
 int timber_tower_layer_fill(const struct timber_tower *t, int layer)

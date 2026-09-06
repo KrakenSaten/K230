@@ -52,6 +52,10 @@
  * base plus every block restacked on top. Array bound, not a rule. */
 #define TIMBER_LAYERS_MAX (TIMBER_LAYERS_BASE + TIMBER_BLOCKS / TIMBER_SLOTS)
 
+/* The most blocks that can ever sit above one: everything but its own
+ * layer. Fixed for the run so a class means the same thing all game. */
+#define TIMBER_LOAD_MAX (TIMBER_BLOCKS - TIMBER_SLOTS)
+
 /* Block ids are 0 .. TIMBER_BLOCKS-1 and stable for the whole run; this is
  * the value of an empty grid cell and of "no block" everywhere a uint8_t
  * holds an id. */

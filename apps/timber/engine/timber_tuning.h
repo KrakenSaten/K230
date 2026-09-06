@@ -23,4 +23,26 @@
  * HARDWARE VALIDATION REQUIRED: gate "20/25 Hz target choice". */
 #define TIMBER_TICK_MS 40
 
+/* ---- the pull ---------------------------------------------------------- */
+
+/* Pull travel is the finger's movement along the pull track, converted by
+ * the view into Q8.8 block widths (the P7 placeholder is 56 px per width)
+ * and handed to the engine once per tick. The limits below are per tick at
+ * TIMBER_TICK_MS; derivation: px/s / 56 px per width * 256 / 25 ticks/s.
+ * HARDWARE VALIDATION REQUIRED: gates "GT9895 drag event rate" and "drag
+ * latency" decide whether these are fair to a real thumb. */
+#define TIMBER_SPEED_FREE 110       /* 600 px/s */
+#define TIMBER_SPEED_EASY 73        /* 400 px/s */
+#define TIMBER_SPEED_FIRM 40        /* 220 px/s */
+#define TIMBER_SPEED_STUCK 22       /* 120 px/s */
+/* Travel a tight block absorbs before it breaks free: 16 and 28 px. */
+#define TIMBER_STICTION_FIRM 73
+#define TIMBER_STICTION_STUCK 128
+/* How far it lurches when it does: 2 px. */
+#define TIMBER_LURCH 9
+/* Ticks of travel averaged before the speed limit is judged, so one uneven
+ * touch sample is not a jolt. Widen it if the panel delivers events in
+ * bursts. */
+#define TIMBER_TRAVEL_WINDOW 3
+
 #endif
