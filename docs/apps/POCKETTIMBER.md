@@ -12,7 +12,7 @@ The design basis is the cold design review of 2026-09-06 (GO WITH MAJOR
 CHANGES): a deterministic read-and-pull game with decoupled controls, no
 per-pull dice, and a collapse the player can always explain.
 
-Status: **milestone P1 (engine skeleton and state)** on branch
+Status: **milestone P2 (generation, classes, TEST and the pull)** on branch
 `pockettimber-engine`. Not merged. Nothing has run on hardware; nothing here
 is built into the shell yet. Master and the golden bring-up image are
 untouched by this work.
@@ -27,8 +27,9 @@ bring-up. Every milestone is one focused commit on this branch.
 ## Layers
 
 ```text
-apps/timber/engine/   vocabulary, RNG, tower state, run rules. Pure C, no
-                      LVGL, no I/O, no floating point, no platform entropy.
+apps/timber/engine/   vocabulary, RNG, tower state and generation, the pull
+                      model, run rules. Pure C, no LVGL, no I/O, no floating
+                      point, no platform entropy.
 apps/timber/ui/       (P7) the view model and the table widget.
 apps/timber/timber_store.c  (P7) the record file: the app's only door to
                       the filesystem.
@@ -67,18 +68,88 @@ a test rather than a hope.
   not a rule.
 - A block in hand goes to the top layer while it is incomplete, else to the
   layer above it.
-- Selecting a block does nothing to the tower. While a block is part way
-  out the selection is locked to it; while a block is in hand nothing can
-  be selected. A second tap on the selected block changes nothing.
-- Two TESTs per turn (`TIMBER_TESTS_PER_TURN`); the TEST itself arrives in
-  P2.
+- Selecting a block does nothing to the tower. From the moment a block is
+  part way out the selection is locked to it, and pushing it all the way
+  back unlocks it; while a block is in hand nothing can be selected. A
+  second tap on the selected block changes nothing.
+- Two TESTs per turn (`TIMBER_TESTS_PER_TURN`). A TEST reveals the selected
+  block's class, nudges the tower a little, and is sticky: a tested block
+  answers again for free. It is refused while a block is part way out.
+- The pull is judged per tick (below). A block that reaches four fifths of
+  its length out, either way, slips free into the hand and the turn moves
+  on to placing it (P4).
+
+## Generation
+
+`timber_tower_generate()` builds the canonical tower and then draws, in id
+order, a seat, a grain variant and a micro-offset for every block; then one
+guarantee per layer; then one tell roll per block. The stream a seed
+produces is therefore a fixed shape, and a seed always builds the same
+tower.
+
+| Rule | Value |
+| --- | --- |
+| Seat | 0 wedged tight to 255 free, uniform; the bottom three layers draw below 200 |
+| Guarantee | every layer keeps one block with seat 200 or looser, so there is always a playable pull in it |
+| Micro-offset | 0.02 to 0.06 widths across the block's axis, either sign |
+| Tell | seat 170+: 60 %; 85 to 169: 30 %; below 85: never |
+
+A tell therefore means "probably loose" and a missing tell means nothing at
+all. Measured over 400 seeds in `tests/timber_tower_test.c`: 60.6 %, 30.2 %
+and 0.
+
+A placed block is reseated from a hash of its id and the turn number rather
+than from the generator, loose (seat 200 or more) because nothing rests on
+it yet; it tightens as the tower is rebuilt over it.
+
+## The pull
+
+Tightness is the hidden seat scaled by the load above the block, in Q8.8:
+
+```text
+tightness = (255 - seat) / 255 * (0.5 + 0.5 * load / 51)
+```
+
+Load is the number of blocks above the block's layer, so a block's class
+follows the tower. The class is tightness cut at 0.15, 0.35 and 0.65:
+
+| Class | Max travel per tick | Stiction | At full load, seat |
+| --- | --- | --- | --- |
+| FREE | 110 (600 px/s) | none | 218 and looser |
+| EASY | 73 (400 px/s) | none | 166 to 217 |
+| FIRM | 40 (220 px/s) | 73 (16 px) | 91 to 165 |
+| STUCK | 22 (120 px/s) | 128 (28 px) | 90 and tighter |
+
+Travel is Q8.8 block widths per tick, converted by the view from finger
+movement on the pull track (the P7 placeholder is 56 px per width). The
+per-tick limits and the stiction distances live in `timber_tuning.h` and
+are HARDWARE VALIDATION REQUIRED: they assume the GT9895 delivers drag
+events evenly enough that a three-tick average is a fair judge.
+
+A FIRM or STUCK block absorbs its stiction without moving, then lurches
+2 px free with a small disturbance and a STICK event; changing the
+selection forgets the grip. After that every block moves with the finger.
+Travel averaged over three ticks above the class limit is a jolt,
+
+```text
+jolt = excess * (0.25 + tightness)
+```
+
+which adds `2.0 * jolt` of disturbance and leans the tower by
+`0.01 * jolt` widths per layer along the block's axis in the direction of
+the pull. A single fast sample is not a jolt; a slow steady pull on a STUCK
+block never jolts and brings it out in about two and a half seconds. What
+disturbance and lean then do to the tower is P3; in P2 they only
+accumulate, disturbance capped at 4.0.
 
 ## Determinism
 
 A run is reproduced by `(seed, the ordered list of player actions at their
 ticks)`. One xorshift32 stream is consumed in exactly two places: when the
-tower is built (P2) and when a collapse begins (P5). Nothing the player
-does moves the stream, so no outcome is ever a roll of the dice.
+tower is built and when a collapse begins (P5). Nothing the player does
+moves the stream, so no outcome is ever a roll of the dice;
+`tests/timber_rules_test.c` asserts the generator state after 120 ticks of
+selecting, testing and pulling is the state it had at the start.
 
 `timber_rng.c` duplicates `radar_rng.c` deliberately, for the reasons
 recorded in `docs/apps/POCKETRADAR.md`; the regression vectors are
@@ -93,7 +164,7 @@ is HARDWARE VALIDATION REQUIRED. The gates, all unmeasured as of P1:
 | Gate | Placeholder | Where it bites |
 | --- | --- | --- |
 | Sprite-storm redraw budget | not needed before P7 | the table widget's frame cost |
-| GT9895 drag event rate | pull travel sampled per 40 ms tick | speed-limit fairness (P2) |
+| GT9895 drag event rate | pull travel sampled per 40 ms tick, judged over a 3-tick average | the speed limits and stiction in `timber_tuning.h` |
 | Drag latency | none assumed | the feel of the pull track (P7) |
 | 1 to 3 px sway readability | none assumed | sway amplitude (P3, view in P7) |
 | 20/25 Hz target choice | `TIMBER_TICK_MS` 40 | every per-tick rate |
@@ -119,8 +190,9 @@ before the engine milestones:
 | --- | --- |
 | `tests/timber_rng_test.c` | reproducibility, the zero-seed guard, two regression vectors, unbiased bounded draws, the stream-consumption contract |
 | `tests/timber_types_test.c` | the name tables, layer axes, block footprints under extraction, rectangle intersection and overlap |
-| `tests/timber_tower_test.c` | the canonical build, grid and block consistency, the locked-layers rule, removing and placing, gaps, every validator refusal |
-| `tests/timber_rules_test.c` | run lifecycle, selection and its lock, the event queue, the replay digest |
+| `tests/timber_tower_test.c` | the canonical build, grid and block consistency, the locked-layers rule, removing and placing, gaps, every validator refusal, seeded generation and its guarantees over 400 seeds, tell rates, reseating, load |
+| `tests/timber_pull_test.c` | tightness from seat and load, every class threshold, the limit and stiction tables, the jolt formula |
+| `tests/timber_rules_test.c` | run lifecycle, generation in a run, selection and its lock, the TEST budget and stickiness, the free pull, partial extraction and pushing back, the slip, jolts and their direction, the disturbance cap, stiction and break-free, the slow and the yanked STUCK pull, the event queue, replay determinism and the untouched generator |
 | `tests/timber_lint.sh` | no LVGL, no I/O, no floating point and no platform entropy in the engine; one file touches the filesystem |
 
 Run with `make CC=gcc CFLAGS="-O2 -Werror" test` (WSL2 Ubuntu 22.04, gcc
@@ -131,7 +203,7 @@ Run with `make CC=gcc CFLAGS="-O2 -Werror" test` (WSL2 Ubuntu 22.04, gcc
 | Milestone | Content | Status |
 | --- | --- | --- |
 | P1 | engine skeleton, tower and run state, selection, events | done |
-| P2 | seeded generation, classes, TEST, extraction, pull dynamics | |
+| P2 | seeded generation, classes, TEST, extraction, pull dynamics | done |
 | P3 | contacts, centre of mass, margins, lean, disturbance | |
 | P4 | scoring, placement, collapse trigger and cause | |
 | P5 | deterministic collapse choreography | |

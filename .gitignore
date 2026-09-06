@@ -34,3 +34,4 @@ BUILD_ID
 /tests/timber_types_test
 /tests/timber_tower_test
 /tests/timber_rules_test
+/tests/timber_pull_test

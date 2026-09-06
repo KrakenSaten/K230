@@ -252,11 +252,135 @@ static void test_validate(void)
     check("NULL is invalid", timber_tower_validate(NULL) == TIMBER_INVALID_LAYERS);
 }
 
+static void test_generate(void)
+{
+    struct timber_tower a;
+    struct timber_tower b;
+    struct timber_rng rng;
+    uint32_t seed;
+    int id;
+    int layer;
+    int guaranteed = 1;
+    int tight_bottom = 1;
+    int fields = 1;
+    int tells_only_on_loose_enough = 1;
+    int varied = 0;
+    long tells[3] = { 0, 0, 0 };
+    long blocks[3] = { 0, 0, 0 };
+
+    timber_rng_seed(&rng, 2026u);
+    timber_tower_generate(&a, &rng);
+    timber_rng_seed(&rng, 2026u);
+    timber_tower_generate(&b, &rng);
+    check("a seed builds the same tower twice", memcmp(&a, &b, sizeof(a)) == 0);
+    check("a generated tower validates", timber_tower_validate(&a) == TIMBER_VALID &&
+          timber_tower_present_count(&a) == TIMBER_BLOCKS);
+    timber_rng_seed(&rng, 2027u);
+    timber_tower_generate(&b, &rng);
+    check("another seed builds another tower", memcmp(&a, &b, sizeof(a)) != 0);
+    timber_tower_generate(&b, NULL);
+    timber_tower_build(&a);
+    check("no generator means the canonical tower", memcmp(&a, &b, sizeof(a)) == 0);
+
+    for (seed = 1; seed <= 400; seed++) {
+        timber_rng_seed(&rng, seed);
+        timber_tower_generate(&a, &rng);
+        for (layer = 0; layer < TIMBER_LAYERS_BASE; layer++) {
+            int loosest = 0;
+            int slot;
+
+            for (slot = 0; slot < TIMBER_SLOTS; slot++) {
+                const struct timber_block *blk = &a.blocks[layer * TIMBER_SLOTS + slot];
+
+                if (blk->seat > loosest) {
+                    loosest = blk->seat;
+                }
+            }
+            guaranteed &= loosest >= TIMBER_SEAT_GUARANTEE;
+        }
+        for (id = 0; id < TIMBER_BLOCKS; id++) {
+            const struct timber_block *blk = &a.blocks[id];
+            int magnitude = blk->offset < 0 ? -blk->offset : blk->offset;
+            int band = blk->seat >= TIMBER_TELL_LOOSE_FROM ? 0
+                       : blk->seat >= TIMBER_TELL_MEDIUM_FROM ? 1 : 2;
+
+            fields &= blk->variant < TIMBER_VARIANTS && blk->tested == 0 && blk->moves == 0 &&
+                      blk->extraction == 0 && blk->mass == TIMBER_MASS_ONE;
+            fields &= magnitude >= TIMBER_OFFSET_MIN && magnitude <= TIMBER_OFFSET_MAX;
+            varied |= blk->seat != a.blocks[0].seat;
+            if (blk->layer < TIMBER_TIGHT_LAYERS && blk->seat < TIMBER_SEAT_GUARANTEE) {
+                tight_bottom &= blk->seat < TIMBER_TIGHT_SEAT_MAX;
+            }
+            tells_only_on_loose_enough &= !(blk->tell && band == 2);
+            tells[band] += blk->tell;
+            blocks[band]++;
+        }
+    }
+    check("every layer keeps one block at least as loose as the guarantee", guaranteed);
+    check("the bottom layers draw their seats below the tight ceiling", tight_bottom);
+    check("variants, offsets and the fresh flags are in range", fields);
+    check("seats vary", varied);
+    check("a tight block never shows a tell", tells_only_on_loose_enough);
+    printf("     tells: loose %ld of %ld, medium %ld of %ld, tight %ld of %ld\n",
+           tells[0], blocks[0], tells[1], blocks[1], tells[2], blocks[2]);
+    check("loose blocks show a tell about six times in ten",
+          tells[0] * 100 / blocks[0] >= 55 && tells[0] * 100 / blocks[0] <= 65);
+    check("middling blocks show a tell about three times in ten",
+          tells[1] * 100 / blocks[1] >= 25 && tells[1] * 100 / blocks[1] <= 35);
+
+    /* Load: blocks above a block's layer. */
+    timber_tower_build(&a);
+    check("a bottom block carries everything above its layer",
+          timber_tower_load(&a, 0) == TIMBER_LOAD_MAX);
+    check("a top block carries nothing",
+          timber_tower_load(&a, TIMBER_BLOCKS - 1) == 0);
+    timber_tower_remove(&a, 30);
+    check("load counts blocks, not layers",
+          timber_tower_load(&a, 0) == TIMBER_LOAD_MAX - 1 && timber_tower_load(&a, 30) == 0 &&
+          timber_tower_load(&a, 27) == TIMBER_LOAD_MAX - 27 - 1);
+    check("load of an id outside the run is 0", timber_tower_load(&a, -1) == 0);
+}
+
+static void test_reseat(void)
+{
+    struct timber_tower a;
+    struct timber_tower b;
+    int seats_differ = 0;
+    int in_range = 1;
+    int salt;
+
+    timber_tower_build(&a);
+    a.blocks[5].tested = 1;
+    timber_tower_reseat(&a, 5, 3u);
+    b = a;
+    timber_tower_reseat(&b, 5, 3u);
+    check("the same block and turn reseat the same way",
+          a.blocks[5].seat == b.blocks[5].seat && a.blocks[5].offset == b.blocks[5].offset &&
+          a.blocks[5].tell == b.blocks[5].tell);
+    check("a placed block sits loose and forgets what a TEST found",
+          a.blocks[5].seat >= TIMBER_SEAT_PLACED_MIN && a.blocks[5].tested == 0);
+    for (salt = 0; salt < 64; salt++) {
+        int magnitude;
+
+        timber_tower_reseat(&b, 5, (uint32_t)salt);
+        seats_differ |= b.blocks[5].seat != a.blocks[5].seat;
+        magnitude = b.blocks[5].offset < 0 ? -b.blocks[5].offset : b.blocks[5].offset;
+        in_range &= b.blocks[5].seat >= TIMBER_SEAT_PLACED_MIN &&
+                    magnitude >= TIMBER_OFFSET_MIN && magnitude <= TIMBER_OFFSET_MAX;
+    }
+    check("another turn reseats differently", seats_differ);
+    check("every reseat stays in range", in_range);
+    timber_tower_reseat(&a, -1, 0u);
+    timber_tower_reseat(NULL, 0, 0u);
+    check("reseating nothing is safe", timber_tower_validate(&a) == TIMBER_VALID);
+}
+
 static void test_null_is_safe(void)
 {
     struct timber_rect r;
 
     timber_tower_build(NULL);
+    timber_tower_generate(NULL, NULL);
     check("NULL tower is safe",
           timber_tower_layers(NULL) == 0 && timber_tower_layer_fill(NULL, 0) == 0 &&
           timber_tower_top_complete(NULL) == -1 && timber_tower_at(NULL, 0, 0) == -1 &&
@@ -274,6 +398,8 @@ int main(void)
     test_remove_and_place();
     test_gap();
     test_validate();
+    test_generate();
+    test_reseat();
     test_null_is_safe();
 
     printf("timber_tower_test: %d failure(s)\n", failed);
