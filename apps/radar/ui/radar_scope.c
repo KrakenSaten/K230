@@ -15,6 +15,7 @@
 #define TICK_COUNT 12
 #define TICK_LEN 8
 #define TICK_LEN_CARDINAL 14
+#define CARDINAL_INSET 30
 #define HUB_RADIUS 5
 
 /* Marker geometry, in pixels. Large enough to read at arm's length on a
@@ -26,11 +27,15 @@
 #define BRACKET_REACH 24
 #define BRACKET_ARM 8
 
-/* The sweep is the same shape PocketFleet's proved cheap: a radius with a
- * short fading tail, drawn over the contacts rather than behind them, and
- * only ever invalidating this object. */
-#define SWEEP_TAIL 7
-#define SWEEP_TAIL_DEG 3
+/* The sweep is a wedge trailing the leading edge, in three nested bands of
+ * falling opacity, and it is drawn under the contacts so it never hides one.
+ * Three arcs and a line cost less than the eight radial spokes the first
+ * pass used, and they read as a sweep rather than as a fan - which is what
+ * the visual kit shows and what a sweep actually looks like. Flat fills, no
+ * gradient. */
+#define SWEEP_BAND_1 14
+#define SWEEP_BAND_2 34
+#define SWEEP_BAND_3 60
 
 #define FLASH_MS 340
 #define FLASH_GROWTH 16
@@ -134,6 +139,27 @@ static void ring(lv_layer_t *layer, lv_point_t centre, int radius, lv_color_t co
     lv_draw_arc(layer, &dsc);
 }
 
+/* A filled sector from the centre out to the rim. An arc whose width equals
+ * its radius has no hole, which is the cheapest filled wedge LVGL will
+ * draw. */
+static void wedge(lv_layer_t *layer, lv_point_t centre, int radius, int from, int to,
+                  lv_color_t color, lv_opa_t opa)
+{
+    lv_draw_arc_dsc_t dsc;
+
+    from = ((from % 360) + 360) % 360;
+    to = ((to % 360) + 360) % 360;
+    lv_draw_arc_dsc_init(&dsc);
+    dsc.color = color;
+    dsc.width = radius;
+    dsc.radius = (uint16_t)radius;
+    dsc.center = centre;
+    dsc.start_angle = from;
+    dsc.end_angle = to;
+    dsc.opa = opa;
+    lv_draw_arc(layer, &dsc);
+}
+
 static void radial(lv_layer_t *layer, lv_point_t centre, int angle, int from, int to,
                    lv_color_t color, int width, lv_opa_t opa)
 {
@@ -196,7 +222,8 @@ static void box(lv_layer_t *layer, int cx, int cy, int half, int radius,
     lv_draw_rect(layer, &dsc, &area);
 }
 
-static void draw_face(lv_layer_t *layer, const struct radar_scope *s, lv_point_t centre)
+static void draw_face(lv_layer_t *layer, const struct radar_scope *s, lv_point_t centre,
+                      const lv_font_t *font)
 {
     lv_color_t line_color = pos_theme_color(POS_COLOR_LINE);
     int i;
@@ -212,6 +239,40 @@ static void draw_face(lv_layer_t *layer, const struct radar_scope *s, lv_point_t
         radial(layer, centre, angle, s->radius - len, s->radius, line_color,
                cardinal ? 2 : 1, LV_OPA_COVER);
     }
+    /* N E S W just inside the rim. The kit puts them there and they earn
+     * their place: the target card reports a bearing, and without a letter
+     * to anchor it the number means nothing at a glance. */
+    {
+        static const char *const cardinal[4] = { "N", "E", "S", "W" };
+        lv_draw_label_dsc_t label;
+        int i;
+
+        lv_draw_label_dsc_init(&label);
+        label.color = pos_theme_color(POS_COLOR_TEXT_SECONDARY);
+        /* The caption role is on the object, so the font comes from the theme
+         * rather than from a font symbol named here (style_lint). */
+        label.font = font;
+        label.align = LV_TEXT_ALIGN_CENTER;
+        if (label.font) {
+            for (i = 0; i < 4; i++) {
+                int angle = i * 90 - 90;
+                int32_t reach = s->radius - CARDINAL_INSET;
+                lv_area_t area;
+                int32_t x = centre.x + ((lv_trigo_cos((int16_t)angle) * reach) >>
+                                        LV_TRIGO_SHIFT);
+                int32_t y = centre.y + ((lv_trigo_sin((int16_t)angle) * reach) >>
+                                        LV_TRIGO_SHIFT);
+
+                label.text = cardinal[i];
+                area.x1 = x - 12;
+                area.x2 = x + 12;
+                area.y1 = y - 9;
+                area.y2 = y + 9;
+                lv_draw_label(layer, &label, &area);
+            }
+        }
+    }
+
     /* The hub is where the operator is. It is the only thing on the face
      * drawn in the accent, so the eye has one fixed point. */
     box(layer, centre.x, centre.y, HUB_RADIUS, LV_RADIUS_CIRCLE,
@@ -224,19 +285,22 @@ static void draw_sweep(lv_layer_t *layer, const struct radar_scope *s, lv_point_
 {
     lv_color_t color = pos_theme_color(POS_COLOR_RADIO_RX);
     int head = screen_angle(s->run->sweep);
-    int tail;
 
     if (!s->motion) {
         /* Reduced motion keeps a bearing reference without animating it. */
         radial(layer, centre, screen_angle(0), 0, s->radius, color, 2, LV_OPA_30);
         return;
     }
-    for (tail = SWEEP_TAIL; tail >= 0; tail--) {
-        int angle = (head + 360 - tail * SWEEP_TAIL_DEG) % 360;
-
-        radial(layer, centre, angle, 0, s->radius, color, tail == 0 ? 3 : 2,
-               (lv_opa_t)(LV_OPA_60 / (tail + 1)));
-    }
+    /* The bands abut rather than overlap. Nesting them looked right on paper
+     * and came out at roughly 60 % where they stacked, which washed out the
+     * range rings and swamped every contact the sweep passed over. Three
+     * adjacent sectors give the same fade at the opacity each one states. */
+    wedge(layer, centre, s->radius, head - SWEEP_BAND_3, head - SWEEP_BAND_2, color,
+          LV_OPA_10);
+    wedge(layer, centre, s->radius, head - SWEEP_BAND_2, head - SWEEP_BAND_1, color,
+          LV_OPA_20);
+    wedge(layer, centre, s->radius, head - SWEEP_BAND_1, head, color, LV_OPA_30);
+    radial(layer, centre, head, 0, s->radius, color, 2, LV_OPA_60);
 }
 
 /* Four corner brackets around a marker: the selection cue that carries no
@@ -413,11 +477,13 @@ static void scope_draw(lv_event_t *e)
     centre.x = coords.x1 + s->centre;
     centre.y = coords.y1 + s->centre;
 
-    draw_face(layer, s, centre);
+    /* The sweep is a filled wedge now, so it goes down before the face and
+     * the contacts rather than over them. */
+    if (s->run && s->run->state == RADAR_RUN_ACTIVE) {
+        draw_sweep(layer, s, centre);
+    }
+    draw_face(layer, s, centre, lv_obj_get_style_text_font(obj, LV_PART_MAIN));
     if (s->run) {
-        if (s->run->state == RADAR_RUN_ACTIVE) {
-            draw_sweep(layer, s, centre);
-        }
         for (i = 0; i < RADAR_CONTACTS_MAX; i++) {
             const struct radar_contact *c = radar_run_slot(s->run, i);
 

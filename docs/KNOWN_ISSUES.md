@@ -25,6 +25,14 @@ Updated 2026-09-04. Move items to git history when resolved.
 - `aic8800` modules are modprobed by the vendor boot script although the board
   has RTL8189FTV; harmless warnings expected in dmesg.
 
+- PocketRadar H1: the scan screen repaints a 520 x 520 custom-drawn scope at
+  20 Hz (RADAR_TICK_MS), which is the app's whole frame cost and is unmeasured
+  on the K230. Measure frame time and CPU load on hardware before changing
+  the design; the sweep is three filled arcs and a line, and every contact is
+  two to six draws, so the knobs if it is too slow are the tick rate, the
+  sweep band count and the scope size, in that order. Do not pre-optimise
+  against a number nobody has taken (product owner, 2026-09-06).
+
 ## Licensing
 
 - Xinyuan-LilyGO/T-Display-K230 (BSP scripts and launcher) has no licence.

@@ -9,9 +9,10 @@ and reads no sensor of any kind. Every contact is invented by the engine
 from a recorded seed. It borrows the language of a tactical sensor because
 the game is played in that idiom, and it makes no claim beyond that.
 
-Status: phases P1 to P7 complete on branch `pocketradar-engine`. Not merged.
-The app runs in the SDL simulator; nothing has run on hardware and nothing
-has been touched by a real finger.
+Status: phases P1 to P7 complete on branch `pocketradar-engine`, plus a
+visual reconciliation pass against the PocketRadar Visual Kit v0.1. Not
+merged. The app runs in the SDL simulator; nothing has run on hardware and
+nothing has been touched by a real finger.
 
 ## Layers
 
@@ -99,9 +100,11 @@ worst separation it is ever asked about, and by far less at the small
 separations picking actually cares about. The whole metric stays under
 1.1 × 10⁷, so it cannot overflow 32 bits.
 
-The sweep lives in the run rather than in the UI: four lines, deterministic,
-testable, and the UI has nothing to invent. One turn every four seconds,
-asserted against `RADAR_TICK_MS` so the two cannot drift apart.
+The sweep *angle* lives in the run rather than in the UI: four lines of
+engine, deterministic and testable, and the UI has nothing to invent about
+where the sweep is. One turn every four seconds, asserted against
+`RADAR_TICK_MS` so the two cannot drift apart. How it is drawn is the UI's
+business and is described under Motion.
 
 ## The screens
 
@@ -113,16 +116,31 @@ would be a screen change the player could see. Standby shows the best score
 where the live score goes, and the action button reads BEGIN SCAN instead of
 ENGAGE. **RESULT** is separate because it shows different content.
 
-Reading order is what the player needs, in order: the scope, the contact
-being worked, the score, ENGAGE.
+Reading order is what the player needs, in order: the numbers that persist,
+the scope, the contact being worked, the action.
 
 ```text
+HUD          SCORE, STREAK, LEVEL, and sector integrity as a five-block bar
 scope        520 x 520, the full body width
-TARGET       class or UNKNOWN, then bearing, range, and either the lock
-             percentage or what the shot is worth
-SCORE        the running score, then streak, level and sector integrity
+TARGET       class or UNKNOWN with a state chip, then BEARING, RANGE and
+             either LOCK, WORTH or ACTION
 ENGAGE       64 px, disabled until something is acquired
 ```
+
+The persistent numbers sit above the scope and the contact sits below it,
+which is the arrangement the visual kit uses and it is better than the first
+pass for a reason worth stating: the score card used to sit between the
+target card and ENGAGE, putting a number the player only glances at between
+the thing they are looking at and the thing they are about to press.
+
+Sector integrity is a bar of five blocks rather than a percentage, one block
+per leaker the sector can absorb. It is the number that ends the run, and
+five blocks are read at a glance where "80 %" has to be thought about. A
+spent block falls back to the neutral chip fill, which is one RGB565 step
+from the background (DS feasibility H1), so what the player sees is the bar
+getting shorter.
+
+Scores are grouped: 30,917 rather than 30917.
 
 There is one clock: a single LVGL timer at `RADAR_TICK_MS` (50 ms, 20 Hz)
 that steps the engine, drains its events and invalidates the scope. It is
@@ -131,8 +149,10 @@ the shell has already taken away. Putting the engine and the repaint on one
 timer is what stops the two from disagreeing about what the player is
 looking at.
 
-The six labels are rewritten only when the value behind them changes, which
-at 20 Hz is worth the four comparisons it costs.
+Labels are rewritten only when the value behind them changes. At 20 Hz that
+is worth the handful of comparisons it costs, and it is why the score, the
+streak, the level, the integrity bar and the target card each carry their
+own last-written value.
 
 ## Contact states
 
@@ -165,7 +185,7 @@ contact can end are told apart by direction as well as by hue.
 
 | Event | Motion | Timing |
 | --- | --- | --- |
-| Sweep | a radius with a seven-step fading tail | one turn per 4 s |
+| Sweep | a filled wedge in three bands behind the leading edge | one turn per 4 s |
 | Contact movement | inbound closure and bearing drift | every 50 ms tick |
 | Acquisition | the lock ring fills clockwise | 600 ms |
 | Engage | a ring bursts outwards and fades | 340 ms |
@@ -175,6 +195,16 @@ Nothing here blocks input and nothing animates a whole screen. Only the
 scope object is ever invalidated, never the screen, and the effects are
 drawn from a timestamp rather than from an animation object, so a run that
 ends in the middle of one has nothing to clean up.
+
+The sweep is three abutting filled arcs plus a line, which is fewer draw
+calls than the eight radial spokes the first pass used and reads as a sweep
+rather than as a fan. The bands abut rather than nest: nested they stacked
+to roughly 60 % opacity where they overlapped, which washed out the range
+rings and swamped every contact the sweep crossed. There is no gradient
+anywhere - each band is a flat fill at a stated opacity.
+
+Frame cost on the K230 is unmeasured. See hardware verification H1 in
+docs/KNOWN_ISSUES.md: measure before changing the design.
 
 Reduced motion (`reduced_motion` in the settings store, read once at start)
 removes the rotating sweep, which becomes a static bearing reference at 000,
@@ -362,7 +392,9 @@ inside WSL2 Ubuntu 22.04; nothing has run on hardware.
 
 Rendered from the SDL simulator with `$POCKETRADAR_SCREEN`, which opens the
 app in a named state from a fixed seed and leaves the clock paused so a shot
-is exactly the state it names.
+is exactly the state it names. `carbon` is the theme whose tokens land
+closest to the Visual Kit palette — cyan `radio_rx`, signal-orange
+`radio_tx` — so it is the one the canonical shots use.
 
 ```bash
 export SDL_VIDEODRIVER=dummy POCKETRADAR_SCREEN=acquired
