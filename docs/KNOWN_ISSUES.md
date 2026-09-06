@@ -28,9 +28,10 @@ Updated 2026-09-04. Move items to git history when resolved.
   LV_USE_FLOAT 1, LV_USE_SNAPSHOT 0, ThorVG/FreeType/FFmpeg compiled in,
   LVGL asserts abort the process (which pocketlog turns into a crash report).
   Consequence: `pos shell screenshot` and `--screenshot` do not work on the
-  device (they need LV_USE_SNAPSHOT). Decision pending (review item H2):
-  a PocketOS-owned override of the vendor LVGL config, or photographs for
-  the first hardware validation.
+  device (they need LV_USE_SNAPSHOT). Decision H2 (product owner,
+  2026-09-06): option B, photographs for the first hardware validation; the
+  vendor LVGL configuration stays unchanged before first boot. Device-side
+  screenshot support is a post-bring-up improvement.
 - UART3 is wired both to the CH342K USB-UART (channel 1) and, per BSP, to the
   optional nRF9151 base board. Potential conflict if both are used.
 - `aic8800` modules are modprobed by the vendor boot script although the board

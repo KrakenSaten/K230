@@ -26,6 +26,7 @@ docs/
   decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted)
   hardware/T-DISPLAY-K230.md  Hardware baseline with evidence classification
   hardware/FIRST_BOOT.md   Day-one runbook: flash, console, hwcheck, PocketOS image, link test
+  hardware/BRINGUP_CHECKLIST.md  Bench checklist for the first physical session (image, hash, checksum, tests)
 platforms/k230/            Defconfig, Buildroot package and apply/build scripts (ADR-001)
 tools/pos/                 `pos` CLI: system, hardware, network, radio, logs, app, shell
 tools/supervise/           `pos-supervise`: restart with backoff and crash-loop detection

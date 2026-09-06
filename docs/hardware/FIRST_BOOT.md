@@ -2,6 +2,8 @@
 
 Goal of day one: turn the DOCUMENTED claims in T-DISPLAY-K230.md into
 VERIFIED ones, then boot the first PocketOS image. Expect two to three hours.
+The bench checklist for the session, with the exact image, hash and checksum,
+is BRINGUP_CHECKLIST.md; this file is the background.
 
 ## 0. Before the boards arrive (Windows host)
 
