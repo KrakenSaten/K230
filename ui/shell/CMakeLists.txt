@@ -114,6 +114,21 @@ else()
     pkg_check_modules(EVDEV REQUIRED libevdev)
     target_include_directories(${LVGL_INC_TARGET} PUBLIC ${DRM_INCLUDE_DIRS} ${EVDEV_INCLUDE_DIRS})
     target_link_libraries(pocketos-shell PRIVATE ${DRM_LIBRARIES} ${EVDEV_LIBRARIES})
+    # The vendor LVGL package patches a plane-rotation call into the DRM
+    # driver (LILYGO patch 0002). platform_drm.c uses it for the
+    # POCKETOS_DRM_ROTATION bench override only when the header has it.
+    if(POCKETOS_LVGL_MODE STREQUAL "sysroot")
+        set(DRM_HEADER "${LVGL_SYSROOT_INC}/src/drivers/display/drm/lv_linux_drm.h")
+    else()
+        set(DRM_HEADER "${LVGL_DIR}/src/drivers/display/drm/lv_linux_drm.h")
+    endif()
+    file(STRINGS "${DRM_HEADER}" DRM_ROTATION_LINES REGEX "lv_linux_drm_set_rotation")
+    if(DRM_ROTATION_LINES)
+        target_compile_definitions(pocketos-shell PRIVATE POCKETOS_DRM_ROTATION_API)
+        message(STATUS "LVGL DRM rotation API available (vendor patch)")
+    else()
+        message(STATUS "LVGL DRM rotation API not available; POCKETOS_DRM_ROTATION will be ignored")
+    endif()
 endif()
 
 install(TARGETS pocketos-shell RUNTIME DESTINATION bin)
