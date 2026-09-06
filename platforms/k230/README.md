@@ -46,6 +46,12 @@ rm -f /etc/default/radiod
 reboot
 ```
 
+`/etc/default/pocketos-shell` is a whole file: keep `ENABLE=1` in it when
+adding the bench overrides (`K230_LVGL_DRM_STAGING`, `POCKETOS_DRM_ROTATION`,
+`POCKETOS_TOUCH_CALIB`, `POCKETOS_TOUCH_SWAP`, `POCKETOS_TOUCH_DEVICE`,
+`POCKETOS_DRM_DEVICE`; exact usage in docs/hardware/BRINGUP_CHECKLIST.md
+section 6).
+
 If the device does not boot far enough for SSH, use the serial console
 (115200) or swap back to the vendor SD card; see docs/hardware/FIRST_BOOT.md
 "Recovery".
