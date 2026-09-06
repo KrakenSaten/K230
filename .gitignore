@@ -36,3 +36,7 @@
 !platforms/k230/rootfs_overlay/etc/init.d/
 BUILD_ID
 /tests/paths_test
+/tests/timber_rng_test
+/tests/timber_types_test
+/tests/timber_tower_test
+/tests/timber_rules_test
