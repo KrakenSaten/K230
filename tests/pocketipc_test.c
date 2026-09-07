@@ -134,11 +134,38 @@ static void test_limits(void)
     close(sv[1]);
 }
 
+/* The peer has closed. SIGPIPE stays at its default disposition on purpose:
+ * before send(MSG_NOSIGNAL) this test process died with signal 13 here,
+ * which is exactly what happened to the shell when radiod crashed. */
+static void test_dead_peer(void)
+{
+    int sv[2];
+    char frame[] = "{\"id\":1,\"method\":\"radio.status\"}";
+    int code = -1;
+    char err[96] = "";
+    cJSON *result;
+
+    check("socketpair (dead peer)", socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    close(sv[1]);
+    errno = 0;
+    check("write to a closed peer fails", pocketipc_write_frame(sv[0], frame, sizeof(frame) - 1) < 0);
+    check("write to a closed peer reports EPIPE", errno == EPIPE);
+    check("the writer is still alive", 1);
+
+    errno = 0;
+    result = pocketipc_call(sv[0], "radio.status", NULL, &code, err, sizeof(err));
+    check("call to a vanished service returns NULL", result == NULL);
+    check("call reports a transport failure (code 0)", code == 0);
+    check("call error names the send failure", strncmp(err, "send failed", 11) == 0);
+    close(sv[0]);
+}
+
 int main(void)
 {
     test_stalled_peer();
     test_slow_peer();
     test_limits();
+    test_dead_peer();
     printf("pocketipc_test: %d failure(s)\n", failed);
     return failed ? 1 : 0;
 }

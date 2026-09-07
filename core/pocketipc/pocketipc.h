@@ -32,7 +32,8 @@ const char *pocketipc_runtime_dir(void);
 /* Fill buf with "<runtime dir>/<service>.sock". Returns 0 or -1 if too long. */
 int pocketipc_socket_path(const char *service, char *buf, size_t n);
 
-/* Blocking frame I/O on a connected socket. Return 0 on success, -1 on error. */
+/* Blocking frame I/O on a connected socket. Return 0 on success, -1 on
+ * error (errno set; EPIPE when the peer has gone, without SIGPIPE). */
 int pocketipc_write_frame(int fd, const char *json, size_t len);
 int pocketipc_send(int fd, const cJSON *msg);
 /* Read one frame; returns malloc'd NUL-terminated JSON text (caller frees)
