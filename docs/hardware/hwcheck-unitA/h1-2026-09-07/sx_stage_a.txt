@@ -1,0 +1,8 @@
+=== A0 state 19:26:46
+  221 root     {pos-supervise} /bin/sh /usr/bin/pos-supervise radiod /usr/sbin/radiod --backend mock --region EU868
+ 1375 root     {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+ 1452 root     /usr/sbin/radiod --backend mock --region EU868
+ 1562 root     /usr/bin/pocketos-shell
+--- shell stopped for the radio steps (checklist section 5); config files untouched
+Stopping pocketos-shell: OK
+=== A1 register probe: pos-hwcheck --lora (stops nothing else; launcher already off)

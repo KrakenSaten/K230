@@ -1,0 +1,60 @@
+=== A1a clean up the stuck probe 19:31:44
+ 1633 root     {pos-hwcheck} /bin/sh /usr/bin/pos-hwcheck --lora /root/hwcheck
+ 1915 root     gpioset -z --chip gpiochip1 12 1
+ 1919 root     gpioset --chip gpiochip0 --hold-period 5ms 5 0
+(none left)
+gpioinfo: cannot find line 'gpiochip0'
+gpioinfo: cannot find line 'gpiochip1'
+=== A1b manual register probe (power GPIO44=chip1/12 on, reset pulse on GPIO5, ReadRegister 0x0740..0x0741, expect .. .. .. .. 14 24)
+BUSY (GPIO19): "19"=inactive
+DIO1 (GPIO20): "20"=inactive
+ReadRegister 0x0740:  aa aa aa aa 14 24
+GetStatus 0xC0:       aa 2a
+gpioinfo: cannot find line 'gpiochip1'
+=== A2 switch radiod to the sx1262 backend (documented path)
+RADIOD_BACKEND=sx1262
+Stopping radiod: OK
+Starting radiod (sx1262, EU868): OK
+	"chip":	"sx1262",
+	"backend":	"sx1262",
+	"region":	"EU868",
+--- radiod log
+1970-01-01T00:00:16.585Z radiod INFO  listening on /run/pocketos/radiod.sock backend=mock region=EU868
+1970-01-01T01:11:02.864Z radiod INFO  shutting down (rc=0)
+1970-01-01T00:00:16.367Z radiod INFO  listening on /run/pocketos/radiod.sock backend=mock region=EU868
+2026-09-07T19:00:34.303Z radiod INFO  listening on /run/pocketos/radiod.sock backend=mock region=EU868
+2026-09-07T19:31:45.219Z radiod INFO  shutting down (rc=0)
+2026-09-07T19:31:46.328Z radiod INFO  listening on /run/pocketos/radiod.sock backend=sx1262 region=EU868
+=== A3 status and profile
+{
+	"state":	"rx",
+	"profile":	{
+		"frequency_mhz":	869.525,
+		"bandwidth_khz":	125,
+		"spreading_factor":	9,
+		"coding_rate":	5,
+		"sync_word":	18,
+		"preamble_length":	8,
+		"tx_power_dbm":	14,
+		"crc":	true
+	},
+	"uptime_s":	3
+}
+=== A4 line ownership
+gpioinfo: cannot find line 'gpiochip0'
+gpioinfo: cannot find line 'gpiochip1'
+=== A5 RSSI x5 (receive only)
+{	"rssi_dbm":	-73}
+{	"rssi_dbm":	-94}
+{	"rssi_dbm":	-94}
+{	"rssi_dbm":	-74}
+{	"rssi_dbm":	-93}
+=== A6 CAD x3 (receive-side)
+{	"activity":	false}
+{	"activity":	false}
+{	"activity":	false}
+=== A7 status after CAD
+	"state":	"rx",
+=== A8 stats
+{	"tx_packets":	0,	"rx_packets":	0,	"rx_crc_errors":	0,	"tx_airtime_ms":	0,	"rx_airtime_ms":	0,	"tx_airtime_last_hour_ms":	0,	"duty_cycle_last_hour_percent":	0}
+=== stage A complete 19:31:53

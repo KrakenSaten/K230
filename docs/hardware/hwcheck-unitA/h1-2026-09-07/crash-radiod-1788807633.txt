@@ -1,0 +1,12 @@
+PocketOS crash report
+process: radiod
+pid: 238
+signal: 11
+backtrace:
+/usr/sbin/radiod(+0x8698)[0x2abd026698]
+linux-vdso64.so.1(__vdso_rt_sigreturn+0x0)[0x3fbb06b800]
+/lib64/lp64d/libc.so.6(__poll+0x56)[0x3fbacfe520]
+/usr/sbin/radiod(+0x827e)[0x2abd02627e]
+/usr/sbin/radiod(main+0x47a)[0x2abd023ada]
+/lib64/lp64d/libc.so.6(__libc_start_main+0x86)[0x3fbac7d688]
+/usr/sbin/radiod(+0x5dcc)[0x2abd023dcc]

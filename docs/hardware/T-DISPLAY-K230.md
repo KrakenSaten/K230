@@ -3,7 +3,9 @@
 Recorded 2026-09-04. Sources, in priority order: official schematic
 `T-Display K230_V1.0_NEW.pdf` (sheet dated 6/26/2026, "P1 V1.0"), LILYGO BSP
 device tree patches and `k230_bsp/docs/HARDWARE_PINMAP.md`, vendor launcher
-source, LILYGO wiki. Nothing below has been tested on our physical units yet.
+source, LILYGO wiki. Rows marked VERIFIED were confirmed on unit A on
+2026-09-07; the evidence is in BRINGUP_SESSION_2026-09-07.md and
+POST_BRINGUP_REVIEW_2026-09-07.md (hardware truth table).
 
 Evidence classes: VERIFIED (our hardware or direct source/runtime proof),
 DOCUMENTED (vendor schematic/source/docs), ASSUMED (inference).
@@ -24,38 +26,39 @@ DOCUMENTED (vendor schematic/source/docs), ASSUMED (inference).
 | Item | Value | Evidence |
 | --- | --- | --- |
 | SoC | Canaan Kendryte K230 (schematic uses the K230D/"K230_LP4" symbol with PMU) | DOCUMENTED |
-| CPU | Dual RISC-V C908 (1.6 GHz + 0.8 GHz), RVV 0.7-compatible, NPU | DOCUMENTED (wiki, toolchain flags) |
-| RAM | LPDDR4 on-package. Wiki says 1 GB. Linux DTS declares 0x20000000 (512 MB) and U-Boot fixes up the memory node from CONFIG_DDR_SIZE. Real size must be read at runtime (`free -m`, `/proc/meminfo`). | CONFLICTING, treat as UNVERIFIED |
-| Boot/storage | microSD on SDIO (mmc_sd1 in DTS, GPIO54..59). No eMMC. | DOCUMENTED |
-| Console | UART0 via CH342K USB-UART, 115200n8 | DOCUMENTED |
+| CPU | Dual RISC-V C908 (1.6 GHz + 0.8 GHz), RVV 0.7-compatible, NPU. Linux sees one hart (`thead,c908`, rv64imafdcv, sv39); the second core is not examined | DOCUMENTED (dual core), VERIFIED (one Linux-visible hart), UNRESOLVED (second core) |
+| RAM | LPDDR4 on-package, 1 GiB: U-Boot prints `DRAM: 1 GiB`, Linux MemTotal 990544 kB; the DTS 0x20000000 node is a placeholder that U-Boot fixes up. 512 MB of it is CMA reserved by the vendor DTS for the media blocks (still counted in MemTotal). | VERIFIED |
+| Boot/storage | microSD on SDIO (mmc_sd1 in DTS, GPIO54..59). No eMMC. Runtime: mmcblk1, p1 80 MB `/boot`, p2 600 MB `/` (not grown to the card: the LILYGO BSP removes the SDK's first-boot resize); no RTC; `/dev/watchdog0` present and unfed | VERIFIED |
+| Console | UART0 via CH342K USB-UART, 115200n8; on the bench PC it is COM9 (`USB-Enhanced-SERIAL-A CH342`), the second port COM10 is UART3 (untested). Windows supplied WCH's CH343 driver on first connection | VERIFIED (UART0/COM9), DOCUMENTED (COM10 = UART3) |
 | Power key | PMU INT0 (not a GPIO), driver `k230-pmu-pwrkey` | DOCUMENTED |
 | BOOT0 button | GPIO0, idle high | DOCUMENTED |
-| Thermal | K230 on-chip tsensor, `CONFIG_CANAAN_THERMAL` | DOCUMENTED |
+| Thermal | K230 on-chip tsensor, `CONFIG_CANAAN_THERMAL`; `thermal_zone0` = `canaan_thermal_zone`, 48 to 54 C on the bench | VERIFIED |
 
 ## Display and touch
 
 | Item | Value | Evidence |
 | --- | --- | --- |
-| Panel | 4.1" AMOLED, RM69A10, 568x1232, MIPI DSI 2-lane, 65x145 mm active | DOCUMENTED (DTS) |
+| Panel | 4.1" AMOLED, RM69A10, 568x1232, MIPI DSI 2-lane, 65x145 mm active. DRM connector `card0-DSI-1` reports the single mode 568x1232 and the shell drives it (2 lanes, 24 bpp) | VERIFIED (mode and DRM path), DOCUMENTED (RM69A10 part identity) |
 | Panel reset | GPIO22 | DOCUMENTED |
 | Panel enable / "backlight" | GPIO25 (AMOLED has no backlight; DSI brightness command via panel driver patch 0049) | DOCUMENTED |
-| DRM node | /dev/dri/card0, LVGL uses RGB565/XRGB8888 via DRM dumb buffers, GDMA rotation patch | DOCUMENTED |
-| Touch | Goodix GT9895 (Berlin), I2C addr 0x5D, SDA GPIO37, SCL GPIO36, IRQ GPIO23, RST GPIO24 | DOCUMENTED |
-| HDMI | Optional LT9611 bridge on the same I2C/IRQ/RST lines; separate DTB | DOCUMENTED |
+| DRM node | /dev/dri/card0, LVGL uses RGB565/XRGB8888 via DRM dumb buffers, GDMA rotation patch. The PocketOS shell runs on the vendor-patched LVGL with `K230_LVGL_DRM_STAGING=1`; with staging off the same workload costs 4.5x the CPU | VERIFIED (shell on DRM, staging cost) |
+| Touch | Goodix GT9895 (Berlin), I2C addr 0x5D, SDA GPIO37, SCL GPIO36, IRQ GPIO23, RST GPIO24. Runtime: `goodix,nottingham` at i2c-1 0x5d, `event1 = goodix_ts`, range 1060 x 2400, GPIO23/24 held as `ts_irq_gpio`/`ts_reset_gpio`; LVGL's auto-calibration maps it correctly, no override needed | VERIFIED |
+| HDMI | Optional LT9611 bridge on the same I2C/IRQ/RST lines; separate DTB. On unit A a device answers at 0x3b on the touch bus, which matches an LT9611 with its address pin high | DOCUMENTED, ASSUMED (bridge fitted on unit A) |
 
 ## Radio and network
 
 | Item | Value | Evidence |
 | --- | --- | --- |
-| Wi-Fi | Realtek RTL8189FTV (schematic footprint "RTL8821/RTL8189"), SDIO on mmc_sd0, module `8189fs`, enable GPIO45 (net IO45_WIFI_EN) | DOCUMENTED |
+| Wi-Fi | Realtek RTL8189FTV (schematic footprint "RTL8821/RTL8189"), SDIO on mmc_sd0, module `8189fs`, enable GPIO45 (net IO45_WIFI_EN). Runtime: SDIO 0x024c:0xf179 bound to `rtl8189fs`, wlan0/wlan1 present; GPIO45 has no kernel consumer; Wi-Fi not brought up yet | VERIFIED (chip family, driver), DOCUMENTED (exact part), UNRESOLVED (function, GPIO45 role) |
 | Bluetooth | Not on the RTL8189FTV. BSP supports USB BT dongles (btusb) and RTL8723DS BT UART (not wired). BLE in the vendor image comes from the optional nRF52840 base board over UART1. | DOCUMENTED |
 | ESP32-S3 | The LILYGO wiki lists an "ESP32-S3-R8 co-processor" for Wi-Fi/BT. The schematic, BSP and launcher contain no ESP32. Schematic wins: treat the wiki statement as wrong for this PCB. | DOCUMENTED (conflict resolved by schematic) |
-| Ethernet | RTL8152B-VB-CG USB 2.0 to 100 Mbps, appears as eth0 (usbnet/cdc_ether) | DOCUMENTED |
+| Ethernet | RTL8152B-VB-CG USB 2.0 to 100 Mbps, appears as eth0 on the `r8152` driver (USB 0bda:8152). The adapter has no burned-in MAC: the kernel assigns a random one on every boot, so the DHCP lease can change per boot | VERIFIED |
 | LoRa | Module footprint "LoRa89_SX1262" with 13A/16A/T89/16E variants; vendor firmware supports SX1262 or LR2021 on the same pins. Datasheet supplied: HPDTEK HPD16A (SX1262). | DOCUMENTED |
-| LoRa SPI | spi0, /dev/spidev0.0, 4 MHz, mode 0. SCLK GPIO15, MOSI GPIO16, MISO GPIO17, CS GPIO14 (iomux alt1, DTS patch 0054) | DOCUMENTED |
-| LoRa control | RST GPIO5, BUSY GPIO19, DIO1/IRQ GPIO20, module power enable GPIO44 (net IO44_LoRa_EN, RT9080 3.3 V LDO) | DOCUMENTED |
+| LoRa SPI | spi0, /dev/spidev0.0, 4 MHz, mode 0. SCLK GPIO15, MOSI GPIO16, MISO GPIO17, CS GPIO14 (iomux alt1, DTS patch 0054). The SX1262 answers on it (sync-word registers read 0x14 0x24) and RadioLib runs it at 4 MHz | VERIFIED |
+| LoRa control | RST GPIO5, BUSY GPIO19, DIO1/IRQ GPIO20, module power enable GPIO44 (net IO44_LoRa_EN, RT9080 3.3 V LDO). radiod holds exactly these four lines, DIO1 edge events deliver packets, init with TCXO 3.3 V on DIO3 and the DC-DC regulator works, RSSI, CAD and a 2 dBm transmit with RX re-entry work | VERIFIED |
 | LoRa alternates | Schematic also has nets IO4_IRQ and IO3_TCXO_EN with 0R/NC options. BSP reassigns GPIO3/4 to UART1 for the nRF52840 base, so those options are ASSUMED unpopulated. Verify with a meter or by checking DIO1 events on GPIO20. | ASSUMED |
 | LoRa RF | Sub-GHz only for SX1262 (EU868 target). No SDR, no wideband spectrum capability. LR2021 variant adds 2.4 GHz. | DOCUMENTED |
+| LoRa antenna connector | Schematic V1.0: module ANT pin via L8/R102 (0R) to RF3, a Hirose BWIPX-3-001E (IPEX class); no MMCX on the schematic. Unit A carries two MMCX connectors; a controlled A/B test with a MeshCore node showed **MMCX1 is the SX1262 antenna port**, MMCX2 is not in the path (what it feeds is unknown) | VERIFIED (MMCX1 mapping), CONFLICTING (schematic vs fitted connectors) |
 | USB | Two USB-C: one power/UART (CH342K), one K230 USB OTG (usb0/usb1 enabled, configfs gadget: ACM, RNDIS, mass storage, MTP via adb_mtp init) | DOCUMENTED |
 
 ## Camera, audio, sensors
@@ -64,7 +67,7 @@ DOCUMENTED (vendor schematic/source/docs), ASSUMED (inference).
 | --- | --- | --- |
 | Camera | GC2093 on MIPI CSI, I2C addr 0x37, SDA GPIO49, SCL GPIO48; vvcam driver, V4L2 | DOCUMENTED |
 | Audio | K230 internal INNO codec, I2S, 3.5 mm headphone with mic bias; MAX98357A external I2S amp only on nRF52840 base board (data GPIO35, BCLK GPIO32, LRCK GPIO33, SD GPIO34) | DOCUMENTED |
-| Sensors on main board | None documented. AHT20, BQ25896, BQ27220, TCA8418, XL9555 live on the optional base boards on I2C4 (SDA GPIO47, SCL GPIO46). | DOCUMENTED |
+| Sensors on main board | None documented. AHT20, BQ25896, BQ27220, TCA8418, XL9555 live on the optional base boards on I2C4 (SDA GPIO47, SCL GPIO46; the same controller as the camera's GPIO48/49 pins, Linux `i2c-0`). On unit A nothing answers at 0x38 and the power_supply class is empty: no base-board sensor, charger or gauge connected | DOCUMENTED, VERIFIED (absent on unit A) |
 | GPIO 40-pin header | See vendor HARDWARE_PINMAP.md; GPIO numbering 0..63, gpiochip0 = GPIO0..31, gpiochip1 = GPIO32..63 (vendor HAL `pin_chip`/`pin_offset`) | DOCUMENTED |
 
 ## Linux userspace facts relevant to PocketOS
@@ -73,7 +76,12 @@ DOCUMENTED (vendor schematic/source/docs), ASSUMED (inference).
   launcher is started by `S99zz_k230_phone_ui` after waiting for
   /dev/dri/card0. DOCUMENTED.
 - Root filesystem is ext4 (600 MB image), `/boot` ext4 with Image and DTBs,
-  `/root/app` holds applications, `/app` symlinks to it. DOCUMENTED.
+  `/root/app` holds applications, `/app` symlinks to it. VERIFIED on unit A
+  (574 MB filesystem, 131 MB free with PocketOS 0.0.1 installed); `/var/log`
+  is a tmpfs, PocketOS keeps logs under `/var/lib/pocketos/log`.
+- sshd accepts root with an empty password (`PermitRootLogin yes`,
+  `PermitEmptyPasswords yes`, vendor sshd_config): anyone on the LAN has
+  root until a password is set. VERIFIED.
 - Wi-Fi driver is loaded by a generated `S40<conf>` script running
   `modprobe 8189fs` (and aic8800 modules, which will fail harmlessly without
   that hardware). DOCUMENTED.
@@ -97,8 +105,10 @@ Which base boards, if any, we own is not recorded.
 
 ## Open verification items (do on physical hardware first)
 
-1. Read PCB silkscreen revision and LoRa module marking on both units.
-2. Boot vendor image, capture `dmesg`, `cat /proc/meminfo`, `ls /dev/gpiochip* /dev/spidev* /dev/ttyS* /dev/i2c-* /dev/input/*`, `cat /proc/device-tree/model`.
-3. Confirm DIO1 on GPIO20 by running the vendor LoRa app and watching edge events.
-4. Confirm Wi-Fi chip via `lsmod` and `/sys/bus/sdio/devices/*/device`.
-5. Record CH342K COM port numbers on this host.
+1. Read PCB silkscreen revision and LoRa module marking on both units. (open)
+2. Boot vendor image, capture `dmesg`, `cat /proc/meminfo`, `ls /dev/gpiochip* /dev/spidev* /dev/ttyS* /dev/i2c-* /dev/input/*`, `cat /proc/device-tree/model`. (done 2026-09-07 on the PocketOS image, hwcheck-unitA/)
+3. Confirm DIO1 on GPIO20 by running the vendor LoRa app and watching edge events. (done through PocketOS radiod: 58 packets received on DIO1 edges)
+4. Confirm Wi-Fi chip via `lsmod` and `/sys/bus/sdio/devices/*/device`. (done: 0x024c:0xf179, rtl8189fs)
+5. Record CH342K COM port numbers on this host. (done: COM9 console, COM10 UART3)
+6. Second unit: everything above, plus the pair test. (open)
+7. Second C908 core, HDMI bridge identity at 0x3b, what MMCX2 feeds. (open)
