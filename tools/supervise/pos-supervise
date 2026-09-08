@@ -7,7 +7,11 @@
 #   resets after the service has run for 60 s. If it restarts more than
 #   POS_SUPERVISE_MAX_RESTARTS (5) times within 60 s, supervision stops and
 #   $POCKETOS_RUNTIME_DIR/<name>.crashloop is written for the shell to show.
-#   Stop with SIGTERM: the child is terminated and the loop exits.
+#   Stop with SIGTERM: the child is terminated and the supervisor leaves
+#   only after the child has. Whoever stops the supervisor (the init
+#   scripts) takes "supervisor gone" to mean "daemon gone", and a daemon
+#   that is still leaving must not be mistaken for one that ignored the
+#   signal. Escalation to SIGKILL stays with the init scripts.
 #
 # Environment: POCKETOS_RUNTIME_DIR (default /run/pocketos),
 #              POCKETOS_LOG_DIR (default /var/lib/pocketos/log, persistent;
@@ -52,8 +56,18 @@ while [ "$STOPPING" -eq 0 ]; do
     echo "$CHILD" > "$RUN_DIR/$NAME.pid"
     wait "$CHILD"
     rc=$?
+    if [ "$STOPPING" -eq 1 ]; then
+        # The trap interrupted wait (POSIX: a trapped signal returns from
+        # wait before the child is gone). The child has been told to leave
+        # and is leaving; stay until it has. On unit A (M6, 2026-09-08) the
+        # shell needs a moment to release the panel, the supervisor was
+        # gone in 40 ms, and the init script SIGKILLed a shell that was
+        # already on its way out and reported the stop as forced.
+        while kill -0 "$CHILD" 2>/dev/null; do wait "$CHILD" 2>/dev/null; done
+        CHILD=""
+        break
+    fi
     CHILD=""
-    [ "$STOPPING" -eq 1 ] && break
     now=$(now_s)
     ran=$((now - start))
     if [ "$ran" -ge "$WINDOW" ]; then

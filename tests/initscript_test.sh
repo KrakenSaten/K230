@@ -247,10 +247,35 @@ check "S60 restart leaves exactly one supervisor" \
 "$S60" stop >/dev/null 2>&1
 wait_daemons 0
 
-# A daemon that ignores SIGTERM. The supervisor's own TERM handler gives up on
-# it and exits, which leaves the daemon orphaned and still holding whatever it
-# owns; the next start would then be the second one. stop must notice and must
-# not return until nothing is left.
+# A daemon that takes a second to leave after SIGTERM, as the shell does on
+# the K230 while it releases the panel. stop must report a plain OK: the
+# supervisor stays until the daemon is gone, so the init script never finds
+# a daemon "still running" that is merely on its way out. Before the
+# supervisor waited, this produced "OK (forced)" and a SIGKILL (unit A, M6).
+cat > "$ROOT/usr/sbin/radiod" <<EOD
+#!/bin/sh
+trap 'sleep 1; exit 0' TERM INT
+env > "$ROOT/radiod.env"
+while :; do sleep 0.2; done
+EOD
+chmod 0755 "$ROOT/usr/sbin/radiod"
+rm -f "$ROOT/radiod.env"
+"$S60" start >/dev/null 2>&1
+wait_for "$ROOT/radiod.env"
+wait_daemons 1
+started=$(date +%s)
+out=$("$S60" stop 2>&1)
+elapsed=$(( $(date +%s) - started ))
+check "S60 stop reports OK for a daemon that takes time to leave" $(contains "$out" "OK")
+check "S60 stop does not force a daemon that is leaving" $([ "$(contains "$out" "forced")" -eq 0 ] && echo 1 || echo 0)
+check "S60 stop of a slow daemon leaves nothing behind" \
+      $([ "$(count_daemons)" -eq 0 ] && [ "$(count_supervisors)" -eq 0 ] && echo 1 || echo 0)
+check "S60 stop of a slow daemon is prompt" $([ "$elapsed" -le 5 ] && echo 1 || echo 0)
+
+# A daemon that ignores SIGTERM. The supervisor waits for it, so it never
+# leaves either; the init script must notice, escalate to the daemon itself,
+# and not return until nothing is left (the next start would otherwise be the
+# second one, still holding whatever the first owns).
 cat > "$ROOT/usr/sbin/radiod" <<EOD
 #!/bin/sh
 trap '' TERM INT
