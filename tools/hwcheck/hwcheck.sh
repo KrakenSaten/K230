@@ -15,7 +15,8 @@
 #
 # Usage: pos-hwcheck [--lora] [output_dir]
 #        Output: <output_dir>/hwcheck-<timestamp>/ (default /root/hwcheck)
-#        Exit: 0, or 3 when --lora was refused, 4 when its tools are missing.
+#        Exit: 0, or 3 when --lora was refused, 4 when its tools are missing,
+#        5 when the chip did not answer (BUSY never low, or wrong registers).
 #        POCKETOS_SX1262_SPI overrides the spidev node (default /dev/spidev0.0).
 
 set -u
@@ -186,6 +187,19 @@ if [ "$DO_LORA" -eq 1 ]; then
         LORA_PIDS="$LORA_PIDS $HOLD_PID"
     }
     lora_stop() { kill "$1" 2>/dev/null; wait "$1" 2>/dev/null; }
+    lora_wait_busy_low() { # <max tenths of a second>: true once BUSY (GPIO19) reads inactive
+        n=0
+        BUSY_MS=0
+        while :; do
+            case "$(gpioget --chip gpiochip0 19 2>/dev/null)" in
+                *inactive*) return 0 ;;
+            esac
+            n=$((n + 1))
+            [ "$n" -ge "$1" ] && return 1
+            sleep 0.1
+            BUSY_MS=$((n * 100))
+        done
+    }
     lora_bounded() { # <tenths-of-a-second> <cmd...>: run, kill when the budget expires
         budget=$1; shift
         "$@" </dev/null &
@@ -229,25 +243,41 @@ if [ "$DO_LORA" -eq 1 ]; then
         say "power on (GPIO44 high, held for the probe)"
         lora_hold gpiochip1 12 1; PWR_PID=$HOLD_PID
         sleep 0.05
-        say "reset pulse (GPIO5 low for 0.2 s, then released to its pull-up)"
+        # The same electrical lifecycle radiod uses (RadioLib SX126x::reset
+        # through hal_linux, VERIFIED on unit A): RST driven low for at least
+        # 1 ms (the datasheet asks for 100 us), then driven high and held for
+        # the whole session, then every SPI command waits for BUSY low first.
+        # v0.0.3 released RST after the low pulse and read 50 ms later; on
+        # unit A the pad did not rest high, BUSY stayed active and the read
+        # returned ff (M7, 2026-09-08). Nothing here relies on a pull-up.
+        say "reset: GPIO5 driven low for 20 ms, then driven high and held"
         lora_hold gpiochip0 5 0; RST_PID=$HOLD_PID
-        sleep 0.2
+        sleep 0.02
         lora_stop "$RST_PID"
-        sleep 0.05
-        say "BUSY (GPIO19): $(gpioget --chip gpiochip0 19 2>&1)"
-        say "DIO1 (GPIO20): $(gpioget --chip gpiochip0 20 2>&1)"
-        say "ReadRegister 0x0740..0x0741 (expect .. .. .. .. 14 24):"
-        lora_bounded 50 sh -c "printf '\\035\\007\\100\\000\\000\\000' | spi-pipe -d $LORA_SPIDEV -m 0 -s 1000000 -b 6 > '$OUT/lora_reg.bin'"
-        regs=$(od -An -tx1 "$OUT/lora_reg.bin" 2>/dev/null | tr -s ' \n' ' ')
-        say "  $regs"
-        say "GetStatus 0xC0 (expect chip mode bits in byte 2):"
-        lora_bounded 50 sh -c "printf '\\300\\000' | spi-pipe -d $LORA_SPIDEV -m 0 -s 1000000 -b 2 > '$OUT/lora_status.bin'"
-        say "  $(od -An -tx1 "$OUT/lora_status.bin" 2>/dev/null | tr -s ' \n' ' ')"
-        case "$regs" in
-            *"14 24"*) say "sync word registers read 14 24: SX126x answers on $LORA_SPIDEV (VERIFIED)" ;;
-            *) say "UNEXPECTED: sync word registers did not read 14 24 (check power, reset, wiring)"; LORA_RC=5 ;;
-        esac
-        say "power off (releasing GPIO44 and every gpioset child)"
+        lora_hold gpiochip0 5 1; RST_PID=$HOLD_PID
+        if lora_wait_busy_low 10; then
+            say "BUSY (GPIO19) inactive within ${BUSY_MS} ms of reset; DIO1 (GPIO20): $(gpioget --chip gpiochip0 20 2>&1)"
+            say "ReadRegister 0x0740..0x0741 (expect .. .. .. .. 14 24):"
+            lora_bounded 50 sh -c "printf '\\035\\007\\100\\000\\000\\000' | spi-pipe -d $LORA_SPIDEV -m 0 -s 1000000 -b 6 > '$OUT/lora_reg.bin'"
+            regs=$(od -An -tx1 "$OUT/lora_reg.bin" 2>/dev/null | tr -s ' \n' ' ')
+            say "  $regs"
+            if lora_wait_busy_low 10; then
+                say "GetStatus 0xC0 (expect chip mode bits in byte 2):"
+                lora_bounded 50 sh -c "printf '\\300\\000' | spi-pipe -d $LORA_SPIDEV -m 0 -s 1000000 -b 2 > '$OUT/lora_status.bin'"
+                say "  $(od -An -tx1 "$OUT/lora_status.bin" 2>/dev/null | tr -s ' \n' ' ')"
+            else
+                say "BUSY (GPIO19) still active 1000 ms after the register read; GetStatus skipped"
+            fi
+            case "$regs" in
+                *"14 24"*) say "sync word registers read 14 24: SX126x answers on $LORA_SPIDEV (VERIFIED)" ;;
+                *) say "UNEXPECTED: sync word registers did not read 14 24 (check power, reset, wiring)"; LORA_RC=5 ;;
+            esac
+        else
+            say "UNEXPECTED: BUSY (GPIO19) still active 1000 ms after reset with RST driven high: SX126x not ready (check power, wiring); no SPI read attempted"
+            LORA_RC=5
+        fi
+        say "power off (releasing GPIO5, GPIO44 and every gpioset child)"
+        lora_stop "$RST_PID"
         lora_stop "$PWR_PID"
         lora_cleanup
         left=$(ps 2>/dev/null | grep '[g]pioset' | grep -v grep)

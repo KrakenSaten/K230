@@ -4,6 +4,14 @@
 # finish within a bounded time when the lines are free, must read the sync
 # word, and must never leave a gpioset process behind (bench defect B2/B3,
 # 2026-09-07: the real gpioset waits forever without a terminal).
+#
+# The stubs model the chip's reset lifecycle as unit A showed it (M7,
+# 2026-09-08): BUSY stays active until RST is actually driven high, and the
+# SPI bus answers ff until then. A probe that releases RST after the low
+# pulse and reads anyway (v0.0.3) therefore fails case 3 here exactly as it
+# failed on the board; the fixed probe drives RST high, waits for BUSY low
+# and reads 14 24. Case 6 wedges BUSY high for good and expects a bounded,
+# clean failure with no SPI read attempted.
 set -u
 HW=${HW:-tools/hwcheck/hwcheck.sh}
 T=$(mktemp -d)
@@ -11,9 +19,13 @@ STUB="$T/bin"; mkdir -p "$STUB"
 failed=0
 check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 
-# stubs: gpioinfo reports owned or free lines (STUB_OWNED), gpioset holds
-# forever like libgpiod 2 does and records its pid, gpioget answers, spi-pipe
-# returns the SX1262 reset defaults for the two probe commands.
+# stubs: gpioinfo reports owned or free lines (STUB_OWNED); gpioset holds a
+# line until killed like libgpiod 2 does, recording its pid, its arguments and
+# the driven value in $STUB_STATE/<chip>.<line>, and forgetting the value when
+# it is stopped (a released line has no driven value); gpioget reports BUSY
+# active unless RST is driven high (or always, with STUB_BUSY_STUCK=1);
+# spi-pipe answers the reset defaults only while RST is driven high, ff
+# otherwise, and records every invocation.
 cat > "$STUB/gpioinfo" <<'EOF'
 #!/bin/sh
 if [ "${STUB_OWNED:-0}" = "1" ]; then c=" consumer=radiod"; else c=""; fi
@@ -22,22 +34,54 @@ EOF
 cat > "$STUB/gpioset" <<'EOF'
 #!/bin/sh
 echo $$ >> "$STUB_PIDS"
-while :; do sleep 1; done
+echo "$*" >> "$STUB_ARGS"
+chip=""; line=""; val=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --chip) chip=$2; shift ;;
+        *=*) line=${1%%=*}; val=${1#*=} ;;
+    esac
+    shift
+done
+f="$STUB_STATE/$chip.$line"
+echo "$val" > "$f"
+trap 'rm -f "$f"; exit 0' TERM INT
+while :; do sleep 0.2; done
 EOF
 cat > "$STUB/gpioget" <<'EOF'
 #!/bin/sh
-echo '"19"=inactive'
+line=""
+while [ $# -gt 0 ]; do case "$1" in --chip) shift ;; *) line=$1 ;; esac; shift; done
+if [ "$line" = "19" ]; then
+    if [ "${STUB_BUSY_STUCK:-0}" != "1" ] && [ "$(cat "$STUB_STATE/gpiochip0.5" 2>/dev/null)" = "1" ]; then
+        echo '"19"=inactive'
+    else
+        echo '"19"=active'
+    fi
+else
+    echo "\"$line\"=inactive"
+fi
 EOF
 cat > "$STUB/spi-pipe" <<'EOF'
 #!/bin/sh
+echo "$*" >> "$STUB_SPI"
 n=6; while [ $# -gt 0 ]; do [ "$1" = "-b" ] && n=$2; shift; done
 cat > /dev/null
-if [ "$n" = "6" ]; then printf '\252\252\252\252\024\044'; else printf '\252\052'; fi
+if [ "$(cat "$STUB_STATE/gpiochip0.5" 2>/dev/null)" = "1" ] && [ "${STUB_BUSY_STUCK:-0}" != "1" ]; then
+    if [ "$n" = "6" ]; then printf '\252\252\252\252\024\044'; else printf '\242\042'; fi
+else
+    if [ "$n" = "6" ]; then printf '\377\377\377\377\377\377'; else printf '\377\377'; fi
+fi
 EOF
 chmod +x "$STUB"/*
-export STUB_PIDS="$T/gpioset.pids"; : > "$STUB_PIDS"
+export STUB_PIDS="$T/gpioset.pids" STUB_ARGS="$T/gpioset.args" STUB_SPI="$T/spi.calls" STUB_STATE="$T/state"
+mkdir -p "$STUB_STATE"; : > "$STUB_PIDS"; : > "$STUB_ARGS"; : > "$STUB_SPI"
 export POCKETOS_SX1262_SPI="$T/spidev"; : > "$POCKETOS_SX1262_SPI"
 export PATH="$STUB:$PATH"
+reset_stubs() { : > "$STUB_PIDS"; : > "$STUB_ARGS"; : > "$STUB_SPI"; rm -f "$STUB_STATE"/*; }
+left_behind() { # number of recorded gpioset pids still alive
+    n=0; while read -r p; do kill -0 "$p" 2>/dev/null && n=$((n + 1)); done < "$STUB_PIDS"; echo "$n"
+}
 
 # 1. Lines owned by radiod: refuse, exit 3, no gpioset started, inventory still written.
 STUB_OWNED=1 bash "$HW" --lora "$T/out1" > "$T/run1.txt" 2>&1; rc=$?
@@ -54,30 +98,49 @@ kill $FAKE 2>/dev/null; wait $FAKE 2>/dev/null
 check "radiod sx1262 process: exit code 3" "$([ $rc -eq 3 ] && echo 1 || echo 0)"
 check "radiod sx1262 process: no gpioset was started" "$([ ! -s "$STUB_PIDS" ] && echo 1 || echo 0)"
 
-# 3. Lines free: the probe runs, reads 14 24, finishes in bounded time, leaves nothing behind.
+# 3. Lines free: RST low, RST driven high, BUSY low, then the reads; 14 24;
+#    bounded; nothing left behind.
+reset_stubs
 start=$(date +%s)
 STUB_OWNED=0 bash "$HW" --lora "$T/out3" > "$T/run3.txt" 2>&1; rc=$?
 elapsed=$(( $(date +%s) - start ))
 check "free lines: exit code 0" "$([ $rc -eq 0 ] && echo 1 || echo 0)"
+check "free lines: RST was driven low" "$(grep -q '5=0' "$STUB_ARGS" && echo 1 || echo 0)"
+check "free lines: RST was driven high after the low pulse (not released)" \
+      "$(grep -n '5=' "$STUB_ARGS" | grep -q '5=1' && [ "$(grep '5=' "$STUB_ARGS" | tail -1)" = "--chip gpiochip0 5=1" ] && echo 1 || echo 0)"
+check "free lines: BUSY reported low before the first read" "$(grep -q 'BUSY (GPIO19) inactive within' "$T/run3.txt" && echo 1 || echo 0)"
 check "free lines: sync word 14 24 read" "$(grep -q '14 24' "$T/run3.txt" && echo 1 || echo 0)"
+check "free lines: GetStatus read too" "$(grep -q 'a2 22' "$T/run3.txt" && echo 1 || echo 0)"
 check "free lines: VERIFIED line printed" "$(grep -q 'SX126x answers' "$T/run3.txt" && echo 1 || echo 0)"
 check "free lines: finished within 15 s" "$([ $elapsed -lt 15 ] && echo 1 || echo 0)"
-check "free lines: gpioset was used (power and reset)" "$([ "$(wc -l < "$STUB_PIDS")" -ge 2 ] && echo 1 || echo 0)"
-left=0; while read -r p; do kill -0 "$p" 2>/dev/null && left=$((left + 1)); done < "$STUB_PIDS"
-check "free lines: no gpioset process left behind" "$([ $left -eq 0 ] && echo 1 || echo 0)"
+check "free lines: gpioset was used for power, reset low and reset high" "$([ "$(wc -l < "$STUB_PIDS")" -ge 3 ] && echo 1 || echo 0)"
+check "free lines: no gpioset process left behind" "$([ "$(left_behind)" -eq 0 ] && echo 1 || echo 0)"
+check "free lines: every driven line released" "$([ -z "$(ls -A "$STUB_STATE")" ] && echo 1 || echo 0)"
 check "free lines: report says none left" "$(grep -q 'no gpioset process left behind' "$T/run3.txt" && echo 1 || echo 0)"
 
 # 4. Interrupted probe: killing hwcheck mid-run must still take its gpioset children down.
-: > "$STUB_PIDS"
+reset_stubs
 STUB_OWNED=0 bash "$HW" --lora "$T/out4" > "$T/run4.txt" 2>&1 & HP=$!
 for _ in $(seq 1 50); do [ -s "$STUB_PIDS" ] && break; sleep 0.1; done
 sleep 0.1; kill -TERM $HP 2>/dev/null; wait $HP 2>/dev/null; sleep 0.5
-left=0; while read -r p; do kill -0 "$p" 2>/dev/null && left=$((left + 1)); done < "$STUB_PIDS"
-check "interrupted probe: no gpioset process left behind" "$([ $left -eq 0 ] && echo 1 || echo 0)"
+check "interrupted probe: no gpioset process left behind" "$([ "$(left_behind)" -eq 0 ] && echo 1 || echo 0)"
 
 # 5. Plain inventory needs none of the tools and is unaffected by owned lines.
 PATH="$(echo "$PATH" | sed "s|$STUB:||")" STUB_OWNED=1 bash "$HW" "$T/out5" > "$T/run5.txt" 2>&1; rc=$?
 check "plain inventory exits 0 without gpio tools" "$([ $rc -eq 0 ] && echo 1 || echo 0)"
+
+# 6. BUSY stuck high: the probe must give up within its budget, say so, touch
+#    the SPI bus not at all, and release everything.
+reset_stubs
+start=$(date +%s)
+STUB_OWNED=0 STUB_BUSY_STUCK=1 bash "$HW" --lora "$T/out6" > "$T/run6.txt" 2>&1; rc=$?
+elapsed=$(( $(date +%s) - start ))
+check "stuck BUSY: exit code 5" "$([ $rc -eq 5 ] && echo 1 || echo 0)"
+check "stuck BUSY: the report names BUSY and the RST state" "$(grep -q 'BUSY (GPIO19) still active .* RST driven high' "$T/run6.txt" && echo 1 || echo 0)"
+check "stuck BUSY: no SPI read attempted" "$([ ! -s "$STUB_SPI" ] && echo 1 || echo 0)"
+check "stuck BUSY: bounded (under 10 s)" "$([ $elapsed -lt 10 ] && echo 1 || echo 0)"
+check "stuck BUSY: no gpioset process left behind" "$([ "$(left_behind)" -eq 0 ] && echo 1 || echo 0)"
+check "stuck BUSY: every driven line released" "$([ -z "$(ls -A "$STUB_STATE")" ] && echo 1 || echo 0)"
 
 while read -r p; do kill "$p" 2>/dev/null; done < "$STUB_PIDS"
 rm -rf "$T"
