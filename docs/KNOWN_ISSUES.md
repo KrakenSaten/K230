@@ -7,7 +7,10 @@ B4 (the shell's `printf` diagnostics never reached a log; they go through
 pocketlog now), the shell leaving a stale `shell.sock` after `stop`, init
 `stop` returning before anything had gone, `/dev/spidev0.0` being shareable
 (F14/B3), and logs and crash reports that could not name the build they came
-from.
+from. Closed by 0.0.4, found on unit A with 0.0.3: the Radio app's tick
+blocking the panel while radiod was stopped (M5), the supervisor leaving
+before its child so that `stop` reported forced (M6), and the hwcheck probe
+releasing RST instead of driving it high (M7).
 
 ## Hardware and BSP
 

@@ -42,7 +42,8 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-PocketOS 0.0.3, not yet built as an image. Implemented and host-tested:
+PocketOS 0.0.4, the focused fix release after the first v0.0.3 hardware
+session. Implemented and host-tested:
 `pos` CLI, `pos-hwcheck`, pocketipc, pocketlog, pocketpaths, `pos-supervise`,
 radiod with the mock backend and the sx1262 backend (RadioLib on spidev +
 libgpiod), the LVGL shell with Design System v0.1 (theme engine, five themes,
@@ -64,6 +65,14 @@ are classified per statement in docs/hardware/T-DISPLAY-K230.md.
   poll no longer waits forever on a wedged service, the shell stops cleanly on
   SIGTERM, init-script `stop` confirms before returning, and radiod holds
   `/dev/spidev0.0` exclusively. Fleet and Radar are byte-for-byte unchanged.
+  Validated on unit A on 2026-09-08 (docs/hardware/V0.0.3_OPERATOR_CHECKLIST.md)
+  with three scoped defects.
+- **0.0.4** fixes exactly those three: every app tick on the LVGL thread
+  carries the 200 ms deadline (the Radio app's tick froze the panel while
+  radiod was stopped), the supervisor leaves only after its child has (the
+  shell stop was reported as forced), and `pos-hwcheck --lora` drives RST
+  high and waits for BUSY low as radiod does (the probe read `ff`). Nothing
+  else changes; the retest is docs/hardware/V0.0.4_FOCUSED_RETEST.md.
 
 The K230 SD image is built by platforms/k230 (see docs/BUILD_ENVIRONMENT.md
 and docs/hardware/FIRST_BOOT.md).

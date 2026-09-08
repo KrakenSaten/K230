@@ -288,9 +288,10 @@ below cannot be observed as designed.
       about 35 s in total:
 
 ```sh
+# BusyBox on the image has no pgrep/pkill: use the supervisor's pid file.
 for i in 1 2 3 4 5 6; do
-    until pgrep -x radiod >/dev/null; do sleep 0.2; done
-    pkill -SEGV -x radiod; sleep 1
+    until [ -s /run/pocketos/radiod.pid ] && kill -0 "$(cat /run/pocketos/radiod.pid)" 2>/dev/null; do sleep 0.2; done
+    kill -SEGV "$(cat /run/pocketos/radiod.pid)"; sleep 1
 done
 sleep 2; cat /run/pocketos/radiod.crashloop; tail -3 /var/lib/pocketos/log/supervise-radiod.log
 ```
