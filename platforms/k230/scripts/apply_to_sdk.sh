@@ -59,6 +59,21 @@ fi
 grep -q 'disabled (/etc/default/k230_phone_ui)' "${S99}" && grep -q '^ENABLE=1$' "${S99}" \
     || { echo "failed to add the panel switch to ${S99}" >&2; exit 1; }
 
+echo "[3c/5] sshd: no empty-password logins"
+# Vendor sshd_config allows root with an empty password over the network
+# (PermitRootLogin yes, PasswordAuthentication yes, PermitEmptyPasswords yes)
+# and the root account ships with no password. Patch the vendor file in place
+# at apply time, like the launcher switch above: SSH then refuses the empty
+# password until the operator sets one on the serial console (`passwd`), or
+# installs a key in /root/.ssh/authorized_keys; local serial login is
+# untouched and no password is embedded in the image.
+SSHD="${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/etc/ssh/sshd_config"
+[ -f "${SSHD}" ] || { echo "vendor sshd_config missing: ${SSHD}" >&2; exit 1; }
+sed -i -e 's/^PermitEmptyPasswords yes$/PermitEmptyPasswords no/' "${SSHD}"
+grep -q '^PermitEmptyPasswords no$' "${SSHD}" \
+    || { echo "failed to set PermitEmptyPasswords no in ${SSHD}" >&2; exit 1; }
+grep -q '^PermitEmptyPasswords yes' "${SSHD}" && { echo "PermitEmptyPasswords yes still present in ${SSHD}" >&2; exit 1; }
+
 echo "[4/5] PocketOS rootfs overlay"
 rsync -a "${PLATFORM_DIR}/rootfs_overlay/" "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/"
 

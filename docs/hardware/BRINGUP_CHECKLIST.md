@@ -63,9 +63,10 @@ enough for logs and app state, since pocketlog is capped per process.
       **random MAC on every boot**, so the IP can change after each reboot:
       read it again with `ip -4 addr show eth0` on the console after every
       boot and write it in the session notes.
-- [ ] Root password (PERSISTENT): sshd accepts root with an **empty password**
-      on this image, so anyone on the LAN has root. Run `passwd` on the console
-      before the board stays on a shared network; record that it was done.
+- [ ] Root password (PERSISTENT): on image `bafed837` sshd accepts root with an
+      **empty password**, so anyone on the LAN has root; from v0.0.2 SSH refuses
+      the empty password and telnet is local-only. Either way, run `passwd` on
+      the serial console before using SSH; record that it was done.
 - [ ] SSH key on the unit (needed later by deploy.sh and lora_pair_test.sh,
       both use `BatchMode=yes`). From the PC (PowerShell):
       `type $HOME\.ssh\id_ed25519.pub | ssh root@<ip> "mkdir -p /root/.ssh && cat >> /root/.ssh/authorized_keys && chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys"`,

@@ -41,7 +41,9 @@ driver, no flash tool, and no visible SD card reader.
 2. Insert, connect the USB-UART port, open the console at 115200, power on.
    Expect U-Boot, the LILYGO logo and the LVGL launcher within a minute.
 3. From the launcher, connect Wi-Fi or plug Ethernet and read the IP address.
-4. `ssh root@<ip>` (vendor image: no password; set one).
+4. `ssh root@<ip>` (vendor image: no password). On the PocketOS image from
+   v0.0.2, SSH refuses the empty password: run `passwd` on the serial console
+   first (platforms/k230/README.md, "First login").
 5. Copy and run the inventory:
 
 ```sh
