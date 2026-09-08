@@ -104,6 +104,30 @@ Updated 2026-09-04. Move items to git history when resolved.
 - LVGL's `generate_lv_conf.py` writes `LV_FONT_CUSTOM_DECLARE` into the
   template's comment example instead of the define; the body font is
   therefore set at runtime on the screen, and `LV_FONT_DEFAULT` is unused.
+- Radio profile is not persisted (by design in v0): every radiod start
+  returns to the EU868 defaults with the power from `--tx-power-dbm`
+  (`RADIOD_TX_POWER_DBM` in /etc/default/radiod, 2 dBm). Raising it is a
+  per-session operator action. Persisting a chosen profile is future work
+  and must not persist a raised power silently.
+- The USB Ethernet adapter (RTL8152B) has no burned-in MAC; the kernel
+  assigns a random locally administered address on every boot, so the DHCP
+  lease and IP can change per boot. PocketOS has no code that depends on a
+  stable MAC, lease or IP (deploy.sh and the pair test take the address as
+  an argument); the bench documents re-reading the IP after each boot. A
+  stable address derived from the SoC is future work, not a fake constant.
+- No RTC: the clock starts at 1970 on every boot until NTP syncs over the
+  network. Log timestamps and crash-report names before that are
+  boot-relative and cannot be ordered across boots; crash names carry the
+  pid so they do not collide; the supervisor measures run time from
+  /proc/uptime. Persisted app state does not use the clock; PocketFleet
+  seeds from `time(NULL)`, so a boot without network can repeat a layout.
+- Shutdown prints `mount: mounting /dev/mmcblk1p1 on /boot failed: Device or
+  resource busy`, three `Can't open blockdev` lines and `vo_init: not found`:
+  the vendor `S31canaan_isp` ignores its argument and re-runs its start
+  actions (mount /boot, modprobes, isp_media_server, vo_init) when rcK calls
+  it with `stop`. Harmless vendor noise, not a PocketOS action and not a
+  corruption risk (`/boot` is already mounted and is unmounted normally by
+  `umount -a -r` afterwards).
 - The vendor launcher is still in the PocketOS image and owns the display
   and the radio by default; radiod runs with the mock backend until the
   launcher is switched off. The switch is persistent
