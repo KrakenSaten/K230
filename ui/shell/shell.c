@@ -28,12 +28,13 @@
 #define POCKETOS_DISPLAY_NAME "unknown"
 #endif
 
-/* How long the once-a-second status poll waits for radiod. Deliberately less
- * than the tick that drives it, so a wedged service costs at most one frame
- * and never accumulates. Only this poll has a deadline in v0.0.3; app calls
- * and radio.send still wait (docs/api/pocketipc.md, Request deadlines). */
+/* How long the once-a-second status poll waits for radiod: the UI deadline
+ * shared with every app tick (shell_ipc.h). Deliberately less than the tick
+ * that drives it, so a wedged service costs at most one frame and never
+ * accumulates. Only radio.send still waits (docs/api/pocketipc.md, Request
+ * deadlines). */
 #ifndef STATUS_POLL_TIMEOUT_MS
-#define STATUS_POLL_TIMEOUT_MS 200
+#define STATUS_POLL_TIMEOUT_MS SHELL_IPC_UI_TIMEOUT_MS
 #endif
 
 #if LV_USE_LODEPNG && LV_USE_SNAPSHOT

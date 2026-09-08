@@ -92,6 +92,34 @@ for _ in $(seq 1 100); do
 done
 check "shell recovers when radiod answers again" '"current":[[:space:]]*"home"' "$out"
 
+# The same wedge with the Radio app open (unit A, M5, 2026-09-08): the app's
+# tick asked radiod for info, status and stats every second without a
+# deadline, so the LVGL thread blocked on the first tick and the panel, touch
+# and the shell's own socket were dead until radiod answered again. The peer
+# here accepts every request (the kernel completes the connection) and never
+# replies. `timeout` bounds the client so a regression fails instead of
+# hanging the suite.
+out=$("$POS" app start radio 2>&1); check_empty "app start radio for the wedge" "$out"
+sleep 1.5   # at least one radio tick against a healthy radiod first
+kill -STOP $RP
+STOPPED_AT=$(date +%s)
+sleep 3     # three ticks: status poll plus three app queries each, all bounded
+check "shell survives a wedged radiod with the Radio app open" '1' "$(kill -0 $SP 2>/dev/null && echo 1 || echo 0)"
+out=$(timeout 5 "$POS" shell info 2>&1); rc=$?
+check "shell answers within 5 s with the Radio app open and radiod wedged" '1' "$([ $rc -eq 0 ] && echo 1 || echo 0)"
+check "the Radio app is still the current app" '"current":[[:space:]]*"radio"' "$out"
+check "shell answered promptly with the Radio app open" '1' "$([ $(( $(date +%s) - STOPPED_AT )) -lt 15 ] && echo 1 || echo 0)"
+out=$(timeout 5 "$POS" app home 2>&1); rc=$?
+check "shell takes a command while radiod is wedged" '1' "$([ $rc -eq 0 ] && echo 1 || echo 0)"
+kill -CONT $RP
+for _ in $(seq 1 100); do
+    out=$(timeout 5 "$POS" shell info 2>&1)
+    printf '%s' "$out" | grep -q '"current":[[:space:]]*"home"' && break
+    sleep 0.1
+done
+check "shell is home and radiod answers again after the app wedge" '"current":[[:space:]]*"home"' "$out"
+out=$(timeout 5 "$POS" radio status 2>&1); check "radiod itself recovered" '"state":[[:space:]]*"rx"' "$out"
+
 kill $SP; wait $SP 2>/dev/null; kill $RP; wait $RP 2>/dev/null
 # SIGTERM leaves through the normal exit path: the app is destroyed and the
 # listening socket is unlinked. Before that, /etc/init.d/S90pocketos-shell stop

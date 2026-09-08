@@ -82,7 +82,12 @@ not a default to apply everywhere:
 - a **periodic poll** should. If the service does not answer in time the
   caller can simply ask again, and the alternative is an unbounded wait on
   whatever thread the poll runs on. The shell's once-a-second `radio.status`
-  poll uses 200 ms for this reason.
+  poll uses 200 ms for this reason (`SHELL_IPC_UI_TIMEOUT_MS`), and so does
+  every app tick on the LVGL thread: the Radio app's `radio.info`,
+  `radio.status` and `radio.stats` refresh, and its mock inject button. On
+  unit A (2026-09-08) the poll alone being bounded was not enough; the app
+  tick made the same calls without a deadline and froze the panel until
+  radiod answered again.
 - a **request whose completion is the point** should not, until the service
   can report completion separately. `radio.send` is synchronous and blocks
   radiod for the airtime; a deadline there would tell the user the packet

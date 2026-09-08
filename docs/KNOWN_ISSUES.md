@@ -91,13 +91,15 @@ from.
 - The settings store must not hold secrets; there is no credential storage
   yet (security note in `ui/shell/settings.h`).
 - The shell blocks the UI thread on pocketipc calls. From 0.0.3 the
-  once-a-second status poll carries a 200 ms deadline, so a radiod that is
-  alive but not answering no longer freezes the shell (verified: without the
-  deadline the shell stopped answering its own socket too). Everything an app
-  initiates still blocks, including `radio.send`, which is correct while a
-  timeout there would report failure for a packet that was transmitted. A
-  service that can accept a request and answer later, and the asynchronous
-  transmit it would allow, are still needed before netd.
+  once-a-second status poll carries a 200 ms deadline; from 0.0.4 so does
+  every app tick on the LVGL thread (the Radio app's refresh and its mock
+  inject button), after unit A showed the poll alone was not enough: with
+  the Radio app open, its tick blocked the panel, touch and the shell's own
+  socket while radiod was stopped, until radiod answered again. Only
+  `radio.send` still waits, which is correct while a timeout there would
+  report failure for a packet that was transmitted. A service that can
+  accept a request and answer later, and the asynchronous transmit it would
+  allow, are still needed before netd.
 - Shell app launch by touch is untested in the simulator (only `--open`).
 - App lifecycle is create/tick/destroy only: no pause, resume or suspend
   (ADR-002 names them as later work). Apps needing continuity persist state
