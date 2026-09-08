@@ -1,7 +1,7 @@
 #!/bin/sh
 # PocketOS radiod under pos-supervise (BusyBox init). Backend comes from
-# /etc/default/radiod; "mock" until the vendor launcher no longer owns the
-# radio (see /etc/default/k230_phone_ui and platforms/k230/README.md).
+# /etc/default/radiod and defaults to mock; see the note above RADIOD_BACKEND
+# and platforms/k230/README.md.
 #
 # Logs: pocketlog files, crash reports and the supervisor log go to
 # /var/lib/pocketos/log, which is on the persistent root filesystem (/var/log
@@ -17,7 +17,12 @@ PIDFILE=/var/run/radiod-supervise.pid
 CHILD_PIDFILE=/run/pocketos/radiod.pid
 LOGDIR=/var/lib/pocketos/log
 LOGFILE=$LOGDIR/radiod.stdio.log
-# sx1262 needs the vendor launcher to release the radio; keep mock until then.
+# The real backend is opt-in per unit, set in /etc/default/radiod. It is not
+# waiting on anything technical: a transmit needs an operator who has confirmed
+# which antenna is fitted to MMCX1, and the radio profile is not persisted, so
+# every start returns to the values below. If the vendor launcher is switched
+# back on it drives the same SPI device from its own UI; radiod holds
+# /dev/spidev0.0 with flock and will refuse to start rather than share it.
 RADIOD_BACKEND=mock
 RADIOD_REGION=EU868
 # Requested TX power at every start. The radio profile is not persisted, so

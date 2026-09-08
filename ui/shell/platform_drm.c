@@ -141,8 +141,8 @@ static void on_evdev_found(lv_indev_t *indev, lv_evdev_type_t type, void *user_d
 {
     (void)user_data;
     if (type == LV_EVDEV_TYPE_ABS || type == LV_EVDEV_TYPE_REL) {
-        printf("shell: input device attached (%s)\n",
-               type == LV_EVDEV_TYPE_ABS ? "touch" : "pointer");
+        LOG_INFO("input device attached (%s)",
+                 type == LV_EVDEV_TYPE_ABS ? "touch" : "pointer");
         if (type == LV_EVDEV_TYPE_ABS) {
             touch_apply(indev, "discovered touch device");
         }
@@ -171,7 +171,7 @@ lv_display_t *pocketos_platform_init(void)
 #endif
     }
     if (lv_linux_drm_set_file(disp, drm_dev ? drm_dev : "/dev/dri/card0", -1) != LV_RESULT_OK) {
-        fprintf(stderr, "shell: cannot open DRM device\n");
+        LOG_ERROR("cannot open DRM device %s", drm_dev ? drm_dev : "/dev/dri/card0");
         return NULL;
     }
     if (touch_dev) {
