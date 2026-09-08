@@ -597,7 +597,12 @@ int timber_run_place(struct timber_run *run, int slot)
         int32_t bonus = timber_score_layer(&run->score);
 
         emit_at(run, TIMBER_EVENT_LAYER, -1, layer, 0, bonus);
-    } else if (slot != 1) {
+    }
+    /* Every off-centre placement nudges, the one that completes the layer
+     * included, so a completed layer's two sides cancel whatever order they
+     * went on in and the nudge is a correction that lasts until the layer
+     * is whole. */
+    if (slot != 1) {
         lean_add(run, axis, side * TIMBER_PLACE_LEAN);
     }
     timber_score_height(&run->score, timber_tower_layers(&run->tower));
@@ -613,8 +618,10 @@ int timber_run_place(struct timber_run *run, int slot)
     settle(run);
     /* The summit: the tower has reached its bound with a complete top, so
      * the next block pulled would have nowhere to go. The run ends
-     * standing rather than locking with a block in hand. A design
-     * decision, not physics: docs/apps/POCKETTIMBER.md, D3. */
+     * standing, with nothing in hand and nothing selected, rather than
+     * locking with a block in hand. A design decision, not physics:
+     * docs/apps/POCKETTIMBER.md, D3, approved 2026-09-08 as the standing
+     * completion condition. */
     if (run->state == TIMBER_RUN_ACTIVE && timber_tower_place_layer(&run->tower) < 0) {
         finish(run);
     }

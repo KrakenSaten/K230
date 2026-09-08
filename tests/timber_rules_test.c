@@ -7,6 +7,7 @@
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #include "timber_rules.h"
+#include "timber_summit.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -907,6 +908,168 @@ static void test_over(void)
     check("a standing run has no fall to show", (start(&run, 58u), timber_run_fall(&run, 0) == NULL));
 }
 
+/* Pull a rigged FREE centre block slowly toward the player until it is in
+ * hand, then place it. Returns the impulse the shift reported, or -1. */
+static int32_t shift_pull(struct timber_run *run, int id, int32_t travel, int slot)
+{
+    struct timber_event e;
+    int32_t impulse = -1;
+    int guard;
+
+    run->tower.blocks[id].seat = 255;
+    if (timber_run_select(run, id) != 0) {
+        return -1;
+    }
+    for (guard = 0; guard < 40 && run->turn != TIMBER_TURN_PLACING && run->state == TIMBER_RUN_ACTIVE;
+         guard++) {
+        timber_run_tick(run);
+        timber_run_pull(run, travel);
+        while (timber_run_take_event(run, &e)) {
+            if (e.type == TIMBER_EVENT_SHIFT) {
+                impulse = e.value;
+            }
+        }
+    }
+    if (run->turn == TIMBER_TURN_PLACING) {
+        timber_run_place(run, slot);
+    }
+    timber_run_clear_events(run);
+    return impulse;
+}
+
+static void test_shift_lean_accumulates(void)
+{
+    struct timber_run run;
+    static const int blocks[3] = { 7, 13, 19 };   /* the centres of layers 2, 4 and 6, x layers */
+    static const int slots[3] = { 1, 2, 0 };      /* one layer on top, its nudges cancelling */
+    int32_t along = 0;
+    int32_t across = 0;
+    int32_t before;
+    int32_t after;
+    uint32_t rng_before;
+    int i;
+    int grew = 1;
+
+    start(&run, 61u);
+    rng_before = run.rng.state;
+    for (i = 0; i < 3; i++) {
+        int32_t impulse;
+        int sign = run.tower.blocks[blocks[i]].offset < 0 ? -1 : 1;
+
+        before = run.lean_x;
+        impulse = shift_pull(&run, blocks[i], 100, slots[i]);
+        grew &= impulse > 0 && run.lean_x > before && run.state == TIMBER_RUN_ACTIVE;
+        along += (int32_t)(((int64_t)impulse * TIMBER_SHIFT_LEAN) >> 8);
+        across += sign * (int32_t)(((int64_t)impulse * TIMBER_SHIFT_LEAN_ACROSS) >> 8);
+    }
+    check("each block that lets go leans the tower a little further along the pull", grew);
+    check("the lean along the pull is the sum of every shift's share, and nothing else",
+          run.lean_x == along);
+    check("the lean across is the sum of the settling terms, signed by each block's offset",
+          run.lean_y == across);
+    check("no shift drew from the generator", run.rng.state == rng_before);
+    check("the placements' nudges cancelled and the tower still stands",
+          timber_tower_layer_fill(&run.tower, TIMBER_LAYERS_BASE) == TIMBER_SLOTS &&
+          timber_tower_validate(&run.tower) == TIMBER_VALID && run.margin_static > 0);
+
+    /* The same pulls the other way lean the other way, so a player who
+     * alternates cancels the along term. */
+    start(&run, 61u);
+    shift_pull(&run, 7, 100, 1);
+    after = run.lean_x;
+    shift_pull(&run, 13, -100, 2);
+    check("a pull the other way leans back", run.lean_x < after && run.lean_x > -after);
+    check("the lean is state, not chance: the same seed and pulls give the same lean",
+          (start(&run, 61u), shift_pull(&run, 7, 100, 1), shift_pull(&run, 13, -100, 2),
+           run.lean_x == (before = run.lean_x)) &&
+          (start(&run, 61u), shift_pull(&run, 7, 100, 1), shift_pull(&run, 13, -100, 2),
+           run.lean_x == before));
+}
+
+static void test_summit(void)
+{
+    struct timber_run run;
+    struct timber_event e;
+    int held;
+    int places = 0;
+    int layers = 0;
+    int overs = 0;
+    uint32_t ticks;
+
+    held = summit_build(&run, 71u);
+    check("one block short of the summit the tower stands with a block in hand",
+          run.state == TIMBER_RUN_ACTIVE && run.turn == TIMBER_TURN_PLACING &&
+          timber_run_held(&run) == held && timber_tower_layers(&run.tower) == TIMBER_LAYERS_MAX &&
+          timber_tower_place_layer(&run.tower) == TIMBER_LAYERS_MAX - 1 &&
+          timber_tower_validate(&run.tower) == TIMBER_VALID && run.margin_eff > 0);
+    check("the centre of the top is the one slot left",
+          timber_tower_can_place(&run.tower, 1) && !timber_tower_can_place(&run.tower, 0) &&
+          !timber_tower_can_place(&run.tower, 2));
+    check("the last placement is accepted", timber_run_place(&run, 1) == 0);
+    while (timber_run_take_event(&run, &e)) {
+        places += e.type == TIMBER_EVENT_PLACE && e.block == held;
+        layers += e.type == TIMBER_EVENT_LAYER && e.layer == TIMBER_LAYERS_MAX - 1 &&
+                  e.value == TIMBER_SCORE_LAYER;
+        overs += e.type == TIMBER_EVENT_OVER && e.value == run.score.points;
+    }
+    check("it completes the top, and the run is over standing",
+          run.state == TIMBER_RUN_OVER && timber_run_is_over(&run) &&
+          timber_run_cause(&run) == TIMBER_CAUSE_NONE && places == 1 && layers == 1 && overs == 1);
+    check("nothing is in hand, nothing is selected, the turn is open",
+          timber_run_held(&run) == -1 && timber_run_selected(&run) == -1 &&
+          run.turn == TIMBER_TURN_SELECT);
+    check("every block is in the tower and the tower is whole and valid",
+          timber_tower_present_count(&run.tower) == TIMBER_BLOCKS &&
+          timber_tower_validate(&run.tower) == TIMBER_VALID && timber_tower_gap(&run.tower) == -1 &&
+          timber_tower_place_layer(&run.tower) == -1);
+    check("there is no fall to show", timber_run_fall(&run, 0) == NULL && !run.collapse.active);
+    check("the score is kept, with the layer paid", run.score.points == TIMBER_SCORE_LAYER &&
+          run.score.height == TIMBER_LAYERS_MAX && run.score.layers_built == 1);
+    ticks = run.ticks;
+    timber_run_tick(&run);
+    check("nothing can be done on the summit",
+          run.ticks == ticks && timber_run_select(&run, 0) == -1 && timber_run_test(&run) == -1 &&
+          timber_run_pull(&run, 10) == -1 && timber_run_place(&run, 0) == -1 &&
+          timber_run_deselect(&run) == -1 && run.state == TIMBER_RUN_OVER);
+}
+
+static void test_snapshot_resumes(void)
+{
+    struct timber_run a;
+    struct timber_run b;
+    int i;
+
+    /* The run is plain data with no pointers into it, so a copy is a save
+     * and continuing the copy is a load. Taken before the last placement
+     * and after it, both go on identically. There is no file codec: that
+     * is D2, pending. */
+    summit_build(&a, 72u);
+    b = a;
+    check("a snapshot before the summit is the run", digest(&a) == digest(&b));
+    timber_run_place(&a, 1);
+    timber_run_place(&b, 1);
+    check("both reach the same summit", digest(&a) == digest(&b) && timber_run_is_over(&a) &&
+          timber_run_is_over(&b) && timber_run_cause(&b) == TIMBER_CAUSE_NONE);
+    b = a;
+    for (i = 0; i < 5; i++) {
+        timber_run_tick(&a);
+        timber_run_tick(&b);
+        timber_run_select(&a, 3);
+        timber_run_select(&b, 3);
+    }
+    check("a snapshot after the summit stays the same finished run", digest(&a) == digest(&b) &&
+          timber_run_is_over(&b) && b.lean_x == a.lean_x && b.lean_y == a.lean_y);
+
+    /* The same holds mid-run, lean included. */
+    start(&a, 73u);
+    shift_pull(&a, 7, 100, 1);
+    b = a;
+    shift_pull(&a, 13, 100, 2);
+    shift_pull(&b, 13, 100, 2);
+    check("a snapshot mid-run resumes to the same lean and state",
+          digest(&a) == digest(&b) && a.lean_x == b.lean_x && a.lean_y == b.lean_y && a.lean_x > 0);
+}
+
 static void test_events(void)
 {
     struct timber_run run;
@@ -996,6 +1159,9 @@ int main(void)
     test_trigger_placement();
     test_trigger_sway();
     test_over();
+    test_shift_lean_accumulates();
+    test_summit();
+    test_snapshot_resumes();
     test_events();
     test_determinism();
 
