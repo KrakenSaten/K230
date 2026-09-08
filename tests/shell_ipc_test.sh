@@ -66,7 +66,9 @@ check "shell survives radiod dying" '1' "$(kill -0 $SP 2>/dev/null && echo 1 || 
 out=$("$POS" shell info); check "shell IPC still answers with radiod gone" '"current":[[:space:]]*"home"' "$out"
 "$RADIOD" --backend mock --verbose >"$OUT/radiod2.log" 2>&1 & RP=$!
 for _ in $(seq 1 50); do [ -S "$POCKETOS_RUNTIME_DIR/radiod.sock" ] && break; sleep 0.1; done
-sleep 2.5   # the status poll reconnects on its next tick
+# the status poll reconnects on its next tick; wait for the first poll to land
+# in the new radiod's log (up to 10 s) rather than trusting a fixed sleep
+for _ in $(seq 1 100); do grep -q 'radio.status' "$OUT/radiod2.log" 2>/dev/null && break; sleep 0.1; done
 check "shell pid unchanged after radiod restart" '1' "$(kill -0 $SP 2>/dev/null && echo 1 || echo 0)"
 check "shell reconnected and polls the new radiod" 'radio.status' "$(cat "$OUT/radiod2.log")"
 out=$("$POS" radio status); check "radio status recovered through the new radiod" '"state":[[:space:]]*"rx"' "$out"

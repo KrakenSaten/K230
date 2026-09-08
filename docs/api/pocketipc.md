@@ -62,6 +62,16 @@ must never happen for one misbehaving client. Policy (bounded, tested in
 There is no output queue in v0: the kernel socket buffer is the queue.
 Clients that subscribe to events must read continuously.
 
+## Peer disappearance
+
+The library never raises SIGPIPE: every frame is sent with `MSG_NOSIGNAL`,
+so a peer that has gone away is reported as `-1` with `errno == EPIPE`
+(clients see `pocketipc_call` return NULL with code 0, "send failed"). A
+process using pocketipc does not need `signal(SIGPIPE, SIG_IGN)` for its
+pocketipc sockets; sockets it opens by other means remain its own business.
+Confirmed on the bench (2026-09-07): before this rule the shell died with
+SIGPIPE on its next status poll whenever radiod crashed.
+
 ## Error codes
 
 | Code | Meaning |

@@ -17,6 +17,13 @@
 #include <time.h>
 #include <unistd.h>
 
+/* MSG_NOSIGNAL is what turns a vanished peer into EPIPE instead of SIGPIPE.
+ * Every PocketOS host is Linux, where it exists. On a platform without it
+ * the code still compiles, but such a process must ignore SIGPIPE itself. */
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+
 const char *pocketipc_runtime_dir(void)
 {
     const char *d = getenv("POCKETOS_RUNTIME_DIR");
