@@ -64,6 +64,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/radar/engine/radar_score.c
     ${REPO_DIR}/apps/radar/ui/radar_scope.c
     ${REPO_DIR}/apps/radar/ui/radar_screens.c
+    ${REPO_DIR}/core/pocketpaths.c
     ${REPO_DIR}/core/pocketipc/pocketipc.c
     ${REPO_DIR}/core/pocketipc/server.c
     ${REPO_DIR}/core/pocketlog/pocketlog.c

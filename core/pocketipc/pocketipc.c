@@ -26,9 +26,7 @@
 
 const char *pocketipc_runtime_dir(void)
 {
-    const char *d = getenv("POCKETOS_RUNTIME_DIR");
-
-    return (d && *d) ? d : POCKETIPC_DEFAULT_DIR;
+    return pocketos_runtime_dir();
 }
 
 int pocketipc_socket_path(const char *service, char *buf, size_t n)
@@ -263,7 +261,7 @@ int pocketipc_listen(const char *service)
     if (fill_addr(service, &addr) < 0) {
         return -1;
     }
-    if (mkdir(pocketipc_runtime_dir(), 0770) < 0 && errno != EEXIST) {
+    if (pocketos_mkdir_p(pocketipc_runtime_dir(), 0770) < 0) {
         return -1;
     }
     fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);

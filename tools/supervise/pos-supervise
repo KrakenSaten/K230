@@ -12,6 +12,9 @@
 # Environment: POCKETOS_RUNTIME_DIR (default /run/pocketos),
 #              POCKETOS_LOG_DIR (default /var/lib/pocketos/log, persistent;
 #              /var/log is a tmpfs on the K230 image).
+# These two defaults are the ones core/pocketpaths.h defines for the C side.
+# This is POSIX sh and cannot link against it, so they are repeated here and
+# tests/supervise_test.sh checks the two against each other.
 
 NAME=$1
 [ -n "$NAME" ] && [ $# -ge 2 ] || { echo "usage: pos-supervise <name> <command> [args...]" >&2; exit 2; }

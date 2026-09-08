@@ -33,6 +33,8 @@
 #ifndef POCKETLOG_H
 #define POCKETLOG_H
 
+#include "pocketpaths.h"
+
 #include <stddef.h>
 
 /* Build identity. Both are set on the compiler command line by the root
@@ -52,7 +54,8 @@
 const char *pocketlog_version(void);
 const char *pocketlog_build_id(void);
 
-#define POCKETLOG_DEFAULT_DIR "/var/lib/pocketos/log"
+/* Kept as the historical name; the value belongs to pocketpaths.h. */
+#define POCKETLOG_DEFAULT_DIR POCKETOS_LOG_DIR_DEFAULT
 #define POCKETLOG_MAX_BYTES (512u * 1024u)
 
 enum pocketlog_level {

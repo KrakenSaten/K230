@@ -8,6 +8,18 @@ POCKETOS_LOG_DIR=$(mktemp -d)
 failed=0
 check() { if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 
+# pos-supervise is POSIX sh and cannot link against core/pocketpaths.h, so it
+# repeats two of the platform's directory defaults. They must not drift.
+HDR=$(dirname "$0")/../core/pocketpaths.h
+hdr_default() { sed -n "s/^#define $1 \"\\(.*\\)\"$/\\1/p" "$HDR"; }
+sup_default() { sed -n "s/^[A-Z_]*=\\\${$1:-\\([^}]*\\)}$/\\1/p" "$SUP"; }
+check "pos-supervise runtime default matches pocketpaths.h" \
+      $([ -n "$(hdr_default POCKETOS_RUNTIME_DIR_DEFAULT)" ] &&
+        [ "$(sup_default POCKETOS_RUNTIME_DIR)" = "$(hdr_default POCKETOS_RUNTIME_DIR_DEFAULT)" ] && echo 1 || echo 0)
+check "pos-supervise log default matches pocketpaths.h" \
+      $([ -n "$(hdr_default POCKETOS_LOG_DIR_DEFAULT)" ] &&
+        [ "$(sup_default POCKETOS_LOG_DIR)" = "$(hdr_default POCKETOS_LOG_DIR_DEFAULT)" ] && echo 1 || echo 0)
+
 # 1. A service that exits immediately must trip the crash-loop guard.
 start=$(date +%s)
 POS_SUPERVISE_MAX_RESTARTS=1 sh "$SUP" flaky sh -c 'exit 3' >/dev/null 2>&1

@@ -7,6 +7,8 @@
 #ifndef POCKETIPC_H
 #define POCKETIPC_H
 
+#include "pocketpaths.h"
+
 #include <cjson/cJSON.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -16,7 +18,8 @@
  * write that would block waits up to this long for the peer to drain, then
  * fails with ETIMEDOUT and the peer is disconnected by the caller. */
 #define POCKETIPC_SEND_TIMEOUT_MS 200
-#define POCKETIPC_DEFAULT_DIR "/run/pocketos"
+/* Kept as the historical name; the value belongs to pocketpaths.h. */
+#define POCKETIPC_DEFAULT_DIR POCKETOS_RUNTIME_DIR_DEFAULT
 
 enum pocketipc_error {
     POCKETIPC_ERR_UNKNOWN_METHOD = 1,

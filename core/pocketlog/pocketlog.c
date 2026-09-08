@@ -54,7 +54,9 @@ static void open_log_file(void)
         close(log_fd);
         log_fd = -1;
     }
-    if (mkdir(log_dir, 0755) < 0 && errno != EEXIST) {
+    /* Create parents too: a missing /var/lib/pocketos used to leave logging
+     * silently switched off for the life of the process. */
+    if (pocketos_mkdir_p(log_dir, 0755) < 0) {
         return;
     }
     snprintf(log_path, sizeof(log_path), "%s/%s.log", log_dir, log_name);
@@ -63,12 +65,10 @@ static void open_log_file(void)
 
 void pocketlog_init(const char *name)
 {
-    const char *dir = getenv("POCKETOS_LOG_DIR");
+    const char *dir = pocketos_log_dir();
 
     snprintf(log_name, sizeof(log_name), "%s", name ? name : "unknown");
-    if (dir && *dir) {
-        snprintf(log_dir, sizeof(log_dir), "%s", dir);
-    }
+    snprintf(log_dir, sizeof(log_dir), "%s", dir);
     log_level = level_from_string(getenv("POCKETOS_LOG_LEVEL"));
     {
         const char *se = getenv("POCKETOS_LOG_STDERR");
