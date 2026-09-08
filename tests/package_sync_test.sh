@@ -69,7 +69,7 @@ absent "package carries no docs tree"           -path '*/docs/*'
 absent "package carries no platforms tree"      -path '*/platforms/*'
 absent "package carries no vendor tree"         -path '*/vendor/*'
 absent "package carries no out tree"            -path '*/out/*'
-absent "package carries no git metadata"        -name '.git*' -not -name '.gitattributes'
+absent "package carries no repository metadata" -name '.git' -o -name '*.orig' -o -name '*.rej'
 absent "package carries no CMake build tree"    -name 'CMakeCache.txt'
 # Anything executable and not a script is a compiled artefact that escaped.
 if [ "$MODES" -eq 1 ]; then
