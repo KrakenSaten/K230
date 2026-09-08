@@ -1,0 +1,13 @@
+PocketOS crash report
+process: shell
+pid: 1473
+signal: 11
+backtrace:
+/usr/bin/pocketos-shell(+0x15f5a)[0x2ade9def5a]
+linux-vdso64.so.1(__vdso_rt_sigreturn+0x0)[0x3fa7ca5800]
+/lib64/lp64d/libc.so.6(clock_nanosleep+0x26)[0x3fa7842348]
+/lib64/lp64d/libc.so.6(nanosleep+0x10)[0x3fa7845cb8]
+/lib64/lp64d/libc.so.6(usleep+0x40)[0x3fa786362e]
+/usr/bin/pocketos-shell(main+0x39c)[0x2ade9cf4bc]
+/lib64/lp64d/libc.so.6(__libc_start_main+0x86)[0x3fa77e0688]
+/usr/bin/pocketos-shell(+0x66e0)[0x2ade9cf6e0]

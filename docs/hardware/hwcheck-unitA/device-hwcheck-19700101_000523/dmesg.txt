@@ -1,0 +1,430 @@
+[    0.000000] Linux version 6.6.36 (dolby@ThinxPad) (riscv64-unknown-linux-gnu-gcc (Xuantie-900 linux-6.6.0 glibc gcc Toolchain V3.0.2 B-20250410) 14.1.1 20240710, GNU ld (GNU Binutils) 2.42.0.20240618) #2 SMP Fri Sep  4 16:42:03 CEST 2026
+[    0.000000] Machine model: Canaan CanMV-K230 with RM69A10 OLED
+[    0.000000] SBI specification v2.0 detected
+[    0.000000] SBI implementation ID=0x1 Version=0x10004
+[    0.000000] SBI TIME extension detected
+[    0.000000] SBI IPI extension detected
+[    0.000000] SBI RFENCE extension detected
+[    0.000000] efi: UEFI not found.
+[    0.000000] OF: reserved mem: 0x0000000000000000..0x000000000003ffff (256 KiB) nomap non-reusable mmode_resv1@0
+[    0.000000] OF: reserved mem: 0x0000000000040000..0x000000000005ffff (128 KiB) nomap non-reusable mmode_resv0@40000
+[    0.000000] OF: reserved mem: 0x000000001f000000..0x000000001f3fffff (4096 KiB) nomap non-reusable framebuffer@1f000000
+[    0.000000] cma: Reserved 512 MiB at 0x0000000020000000 on node -1
+[    0.000000] Zone ranges:
+[    0.000000]   DMA32    [mem 0x0000000000000000-0x000000003fffffff]
+[    0.000000]   Normal   empty
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000000000000-0x000000000005ffff]
+[    0.000000]   node   0: [mem 0x0000000000060000-0x000000001effffff]
+[    0.000000]   node   0: [mem 0x000000001f000000-0x000000001f3fffff]
+[    0.000000]   node   0: [mem 0x000000001f400000-0x000000003fffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000000000000-0x000000003fffffff]
+[    0.000000] SBI HSM extension detected
+[    0.000000] riscv: base ISA extensions acdfimv
+[    0.000000] riscv: ELF capabilities acdfimv
+[    0.000000] percpu: Embedded 20 pages/cpu s41464 r8192 d32264 u81920
+[    0.000000] pcpu-alloc: s41464 r8192 d32264 u81920 alloc=20*4096
+[    0.000000] pcpu-alloc: [0] 0 
+[    0.000000] Kernel command line: root=/dev/mmcblk1p2 loglevel=8 rw rootdelay=4 rootfstype=ext4 console=ttyS0,115200  earlycon=sbi
+[    0.000000] Dentry cache hash table entries: 131072 (order: 8, 1048576 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 65536 (order: 7, 524288 bytes, linear)
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 258048
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:off, heap free:off
+[    0.000000] Virtual kernel memory layout:
+[    0.000000]       fixmap : 0xffffffc6fea00000 - 0xffffffc6ff000000   (6144 kB)
+[    0.000000]       pci io : 0xffffffc6ff000000 - 0xffffffc700000000   (  16 MB)
+[    0.000000]      vmemmap : 0xffffffc700000000 - 0xffffffc800000000   (4096 MB)
+[    0.000000]      vmalloc : 0xffffffc800000000 - 0xffffffd800000000   (  64 GB)
+[    0.000000]      modules : 0xffffffff012b4000 - 0xffffffff80000000   (2029 MB)
+[    0.000000]       lowmem : 0xffffffd800000000 - 0xffffffd840000000   (1024 MB)
+[    0.000000]       kernel : 0xffffffff80000000 - 0xffffffffffffffff   (2047 MB)
+[    0.000000] Memory: 465812K/1048576K available (11584K kernel code, 1141K rwdata, 5451K rodata, 451K init, 508K bss, 58476K reserved, 524288K cma-reserved)
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+[    0.000000] rcu: Hierarchical RCU implementation.
+[    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=64 to nr_cpu_ids=1.
+[    0.000000] rcu: 	RCU debug extended QS entry/exit.
+[    0.000000] 	Tracing variant of Tasks RCU enabled.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=1
+[    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+[    0.000000] riscv-intc: 64 local interrupts mapped
+[    0.000000] plic: interrupt-controller@f00000000: mapped 208 interrupts with 1 handlers for 2 contexts.
+[    0.000000] riscv: providing IPIs using SBI IPI extension
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x63a1e71a3, max_idle_ns: 440795203123 ns
+[    0.000000] sched_clock: 64 bits at 27MHz, resolution 37ns, wraps every 4398046511093ns
+[    0.000396] Console: colour dummy device 80x25
+[    0.000443] Calibrating delay loop (skipped), value calculated using timer frequency.. 54.00 BogoMIPS (lpj=108000)
+[    0.000454] pid_max: default: 32768 minimum: 301
+[    0.000517] LSM: initializing lsm=capability,integrity
+[    0.000595] Mount-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.000607] Mountpoint-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.002182] RCU Tasks Trace: Setting shift to 0 and lim to 1 rcu_task_cb_adjust=1.
+[    0.002284] riscv: ELF compat mode supported
+[    0.002314] ASID allocator using 16 bits (65536 entries)
+[    0.002418] rcu: Hierarchical SRCU implementation.
+[    0.002422] rcu: 	Max phase no-delay instances is 1000.
+[    0.002605] EFI services will not be available.
+[    0.002728] smp: Bringing up secondary CPUs ...
+[    0.002744] smp: Brought up 1 node, 1 CPU
+[    0.003394] devtmpfs: initialized
+[    0.012392] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.012411] futex hash table entries: 256 (order: 2, 16384 bytes, linear)
+[    0.022287] pinctrl core: initialized pinctrl subsystem
+[    0.023039] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.024104] DMA: preallocated 128 KiB GFP_KERNEL pool for atomic allocations
+[    0.024255] DMA: preallocated 128 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[    0.024316] audit: initializing netlink subsys (disabled)
+[    0.024869] thermal_sys: Registered thermal governor 'step_wise'
+[    0.024932] audit: type=2000 audit(0.024:1): state=initialized audit_enabled=0 res=1
+[    0.024946] cpuidle: using governor menu
+[    0.048226] cpu0: Ratio of byte access time to unaligned word access is 6.32, unaligned accesses are fast
+[    0.048253] suspend: SBI SUSP extension detected
+[    0.054169] platform soc: Fixed dependency cycle(s) with /soc/interrupt-controller@f00000000
+[    0.110974] platform 90840000.vo: Fixed dependency cycle(s) with /soc/dsi@90850000
+[    0.111100] platform 90840000.vo: Fixed dependency cycle(s) with /soc/dsi@90850000
+[    0.111154] platform 90850000.dsi: Fixed dependency cycle(s) with /soc/dsi@90850000/panel@0
+[    0.111166] platform 90850000.dsi: Fixed dependency cycle(s) with /soc/vo@90840000
+[    0.113637] HugeTLB: registered 1.00 GiB page size, pre-allocated 0 pages
+[    0.113646] HugeTLB: 16380 KiB vmemmap can be freed for a 1.00 GiB page
+[    0.113651] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+[    0.113654] HugeTLB: 28 KiB vmemmap can be freed for a 2.00 MiB page
+[    0.114193] ACPI: Interpreter disabled.
+[    0.114634] k230-powerdomain 91103000.sysctl_power: powerdomain init ok
+[    0.115225] iommu: Default domain type: Translated
+[    0.115233] iommu: DMA domain TLB invalidation policy: strict mode
+[    0.115615] SCSI subsystem initialized
+[    0.115826] libata version 3.00 loaded.
+[    0.115975] usbcore: registered new interface driver usbfs
+[    0.115998] usbcore: registered new interface driver hub
+[    0.116026] usbcore: registered new device driver usb
+[    0.117123] mc: Linux media interface: v0.10
+[    0.117191] videodev: Linux video capture interface: v2.00
+[    0.117447] Advanced Linux Sound Architecture Driver Initialized.
+[    0.118186] vgaarb: loaded
+[    0.118540] clocksource: Switched to clocksource riscv_clocksource
+[    0.118890] pnp: PnP ACPI: disabled
+[    0.125832] NET: Registered PF_INET protocol family
+[    0.125971] IP idents hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    0.127063] tcp_listen_portaddr_hash hash table entries: 512 (order: 2, 16384 bytes, linear)
+[    0.127103] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    0.127114] TCP established hash table entries: 8192 (order: 4, 65536 bytes, linear)
+[    0.127164] TCP bind hash table entries: 8192 (order: 7, 524288 bytes, linear)
+[    0.128720] TCP: Hash tables configured (established 8192 bind 8192)
+[    0.128838] UDP hash table entries: 512 (order: 3, 49152 bytes, linear)
+[    0.128932] UDP-Lite hash table entries: 512 (order: 3, 49152 bytes, linear)
+[    0.129169] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    0.129728] RPC: Registered named UNIX socket transport module.
+[    0.129737] RPC: Registered udp transport module.
+[    0.129740] RPC: Registered tcp transport module.
+[    0.129743] RPC: Registered tcp-with-tls transport module.
+[    0.129745] RPC: Registered tcp NFSv4.1 backchannel transport module.
+[    0.130722] PCI: CLS 0 bytes, default 64
+[    0.131536] Initialise system trusted keyrings
+[    0.131910] workingset: timestamp_bits=46 max_order=18 bucket_order=0
+[    0.132531] NFS: Registering the id_resolver key type
+[    0.132562] Key type id_resolver registered
+[    0.132566] Key type id_legacy registered
+[    0.132587] nfs4filelayout_init: NFSv4 File Layout Driver Registering...
+[    0.132592] nfs4flexfilelayout_init: NFSv4 Flexfile Layout Driver Registering...
+[    0.132786] fuse: init (API version 7.39)
+[    0.132926] 9p: Installing v9fs 9p2000 file system support
+[    0.133117] NET: Registered PF_ALG protocol family
+[    0.133128] Key type asymmetric registered
+[    0.133133] Asymmetric key parser 'x509' registered
+[    0.133184] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 243)
+[    0.133191] io scheduler mq-deadline registered
+[    0.133196] io scheduler kyber registered
+[    0.133220] io scheduler bfq registered
+[    0.136197] k230-iomux 91105000.iomux: K230 IOMUX driver registered
+[    0.136753] k230-iomux 91000080.pmuiomux: K230 IOMUX driver registered
+[    0.150906] [K230_RESET]:sysctl reset phy addr 0x91101000
+[    0.150917] [K230_RESET]: ok!
+[    0.190915] Serial: 8250/16550 driver, 4 ports, IRQ sharing disabled
+[    0.193578] printk: console [ttyS0] disabled
+[    0.213943] 91400000.serial: ttyS0 at MMIO 0x91400000 (irq = 79, base_baud = 3125000) is a 16550A
+[    0.213976] printk: console [ttyS0] enabled
+[    1.133450] 91401000.serial: ttyS1 at MMIO 0x91401000 (irq = 80, base_baud = 3125000) is a 16550A
+[    1.163866] 91403000.serial: ttyS3 at MMIO 0x91403000 (irq = 81, base_baud = 3125000) is a 16550A
+[    1.174207] SuperH (H)SCI(F) driver initialized
+[    1.180588] random: crng init done
+[    1.184054] k230-rng 91213000.trng: K230 TRNG driver register!
+[    1.191073] i2c_add_driver start 
+[    1.194835] canaan-vo 90840000.vo: probe
+[    1.199491] canaan-mipi-dsi 90850000.dsi: Fixed dependency cycle(s) with /soc/dsi@90850000/panel@0
+[    1.208572] mipi-dsi 90850000.dsi.0: Fixed dependency cycle(s) with /soc/dsi@90850000
+[    1.216580] canaan-panel-dsi 90850000.dsi.0: probe: preserving boot splash, skip reset GPIO toggle
+[    1.225573] canaan-panel-dsi 90850000.dsi.0: probe: preserving boot splash, leave backlight GPIO unchanged
+[    1.235321] canaan-mipi-dsi 90850000.dsi: Attached device universal
+[    1.243027] canaan-vo 90840000.vo: background color is ffffff
+[    1.248819] canaan-vo 90840000.vo: defer VO config load to vblank IRQ, OSD addr_sel=0x1100
+[    1.257309] canaan-drm soc:display-subsystem: bound 90840000.vo (ops 0xffffffff80c63ff8)
+[    1.265474] canaan-drm soc:display-subsystem: bound 90850000.dsi (ops 0xffffffff80c64520)
+[    1.274865] [drm] Initialized canaan-drm 1.0.0 20230501 for soc:display-subsystem on minor 0
+[    1.283371] canaan-drm soc:display-subsystem: skip DRM fbdev setup to preserve boot splash
+[    1.291660] canaan-drm soc:display-subsystem: [drm:canaan_drm_bind] Canaan K230 DRM driver register successfully
+[    1.307436] loop: module loaded
+[    1.328977] misc mmz: registered.
+[    1.334865] dw_spi_mmio 91584000.spi: error -ENXIO: IRQ index 9 not found
+[    1.344804] e1000e: Intel(R) PRO/1000 Network Driver
+[    1.349818] e1000e: Copyright(c) 1999 - 2015 Intel Corporation.
+[    1.357193] PPP generic driver version 2.4.2
+[    1.361745] usbcore: registered new device driver r8152-cfgselector
+[    1.368091] usbcore: registered new interface driver r8152
+[    1.373612] usbcore: registered new interface driver asix
+[    1.379044] usbcore: registered new interface driver ax88179_178a
+[    1.385172] usbcore: registered new interface driver cdc_ether
+[    1.391035] usbcore: registered new interface driver net1080
+[    1.396721] usbcore: registered new interface driver rndis_host
+[    1.402672] usbcore: registered new interface driver cdc_subset
+[    1.408624] usbcore: registered new interface driver zaurus
+[    1.414232] usbcore: registered new interface driver cdc_ncm
+[    1.419918] usbcore: registered new interface driver qmi_wwan
+[    1.425690] usbcore: registered new interface driver cdc_mbim
+[    1.431469] usbcore: registered new interface driver r8153_ecm
+[    1.438408] dwc2 91500000.usb: supply vusb_d not found, using dummy regulator
+[    1.445720] dwc2 91500000.usb: supply vusb_a not found, using dummy regulator
+[    1.570604] dwc2 91500000.usb: EPs: 7, dedicated fifos, 3016 entries in SPRAM
+[    1.577900] dwc2 91500000.usb: DWC OTG Controller
+[    1.582647] dwc2 91500000.usb: new USB bus registered, assigned bus number 1
+[    1.589734] dwc2 91500000.usb: irq 95, io mem 0x91500000
+[    1.595185] usb usb1: New USB device found, idVendor=1d6b, idProduct=0002, bcdDevice= 6.06
+[    1.603470] usb usb1: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+[    1.610700] usb usb1: Product: DWC OTG Controller
+[    1.615410] usb usb1: Manufacturer: Linux 6.6.36 dwc2_hsotg
+[    1.620989] usb usb1: SerialNumber: 91500000.usb
+[    1.626086] hub 1-0:1.0: USB hub found
+[    1.629918] hub 1-0:1.0: 1 port detected
+[    1.634657] dwc2 91540000.usb: supply vusb_d not found, using dummy regulator
+[    1.641973] dwc2 91540000.usb: supply vusb_a not found, using dummy regulator
+[    1.766607] dwc2 91540000.usb: EPs: 7, dedicated fifos, 3016 entries in SPRAM
+[    1.783958] dwc2 91540000.usb: DWC OTG Controller
+[    1.788714] dwc2 91540000.usb: new USB bus registered, assigned bus number 2
+[    1.795797] dwc2 91540000.usb: irq 96, io mem 0x91540000
+[    1.801262] usb usb2: New USB device found, idVendor=1d6b, idProduct=0002, bcdDevice= 6.06
+[    1.809542] usb usb2: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+[    1.816777] usb usb2: Product: DWC OTG Controller
+[    1.821486] usb usb2: Manufacturer: Linux 6.6.36 dwc2_hsotg
+[    1.827064] usb usb2: SerialNumber: 91540000.usb
+[    1.832140] hub 2-0:1.0: USB hub found
+[    1.835972] hub 2-0:1.0: 1 port detected
+[    1.840811] usbcore: registered new interface driver cdc_acm
+[    1.846537] cdc_acm: USB Abstract Control Model driver for USB modems and ISDN adapters
+[    1.854588] usbcore: registered new interface driver cdc_wdm
+[    1.860308] usbcore: registered new interface driver usb-storage
+[    1.866412] usbcore: registered new interface driver option
+[    1.872027] usbserial: USB Serial support registered for GSM modem (1-port)
+[    1.879327] mousedev: PS/2 mouse device common for all mice
+[    1.889218] input: K230 PMU Power Key as /devices/platform/soc/91000000.pmu-pwrkey/input/input0
+[    1.898284] k230-pmu-pwrkey 91000000.pmu-pwrkey: K230 PMU power key registered on IRQ 97, long-press=5000ms
+[    1.909035] i2c_dev: i2c /dev entries driver
+[    1.915157] MVX dev: Linlon v5276 identified. cores=1, nlsid=4, id=0. (mvx_dev.c:416)
+[    1.923323] usbcore: registered new interface driver uvcvideo
+[    1.932933] sdhci: Secure Digital Host Controller Interface driver
+[    1.939176] sdhci: Copyright(c) Pierre Ossman
+[    1.944190] sdhci-pltfm: SDHCI platform and OF driver helper
+[    1.951745] Kendryte crypto driver probe!
+[    1.956326] Kendryte sha256 driver probe!
+[    1.960937] Kendryte RSA driver probe!
+[    1.964956] usbcore: registered new interface driver usbhid
+[    1.970557] usbhid: USB HID core driver
+[    1.977808] riscv-pmu-sbi: SBI PMU extension is available
+[    1.983318] riscv-pmu-sbi: 16 firmware and 18 hardware counters
+[    2.014537] mmc0: SDHCI controller on 91580000.sdhci0 [91580000.sdhci0] using ADMA
+[    2.022228] mmc1: SDHCI controller on 91581000.sdhci1 [91581000.sdhci1] using ADMA
+[    2.034913] sdhci-dwcmshc-kendryte 91580000.sdhci0: card claims to support voltages below defined range
+[    2.044733] mmc1: Got command interrupt 0x00000001 even though no command operation was in progress.
+[    2.053870] mmc1: sdhci: ============ SDHCI REGISTER DUMP ===========
+[    2.060309] mmc1: sdhci: Sys addr:  0x00000000 | Version:  0x00000005
+[    2.066747] mmc1: sdhci: Blk size:  0x00000000 | Blk cnt:  0x00000000
+[    2.073186] mmc1: sdhci: Argument:  0x00000000 | Trn mode: 0x00000000
+[    2.079624] mmc1: sdhci: Present:   0x03ff0000 | Host ctl: 0x00000000
+[    2.086062] mmc1: sdhci: Power:     0x0000000f | Blk gap:  0x00000000
+[    2.092501] mmc1: sdhci: Wake-up:   0x00000000 | Clock:    0x00007d27
+[    2.098939] mmc1: sdhci: Timeout:   0x00000000 | Int stat: 0x00000000
+[    2.105378] mmc1: sdhci: Int enab:  0x00ff1083 | Sig enab: 0x00ff1083
+[    2.111816] mmc1: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000000
+[    2.118254] mmc1: sdhci: Caps:      0x276a6481 | Caps_1:   0x08008071
+[    2.124693] mmc1: sdhci: Cmd:       0x00000502 | Max curr: 0x00000000
+[    2.131131] mmc1: sdhci: Resp[0]:   0x000001aa | Resp[1]:  0x00000000
+[    2.137569] mmc1: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000000
+[    2.144007] mmc1: sdhci: Host ctl2: 0x00000000
+[    2.148448] mmc1: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x00000000
+[    2.154886] mmc1: sdhci: ============================================
+[    2.170849] mmc0: new high speed SDIO card at address 0001
+[    2.187059] mmc1: new high speed SDXC card at address 59b4
+[    2.193045] mmcblk1: mmc1:59b4 SDU1  58.6 GiB
+[    2.199246]  mmcblk1: p1 p2
+[    2.286540] usb 2-1: new high-speed USB device number 2 using dwc2
+[    2.422258] canaan-k230-snd-inno sound: External I2S output enabled by default
+[    2.429808] NET: Registered PF_INET6 protocol family
+[    2.435591] Segment Routing with IPv6
+[    2.439335] In-situ OAM (IOAM) with IPv6
+[    2.443319] sit: IPv6, IPv4 and MPLS over IPv4 tunneling driver
+[    2.449712] NET: Registered PF_PACKET protocol family
+[    2.454893] 9pnet: Installing 9P2000 support
+[    2.459244] Key type dns_resolver registered
+[    2.463570] start plist test
+[    2.469714] end plist test
+[    2.480047] Loading compiled-in X.509 certificates
+[    2.490265] debug_vm_pgtable: [debug_vm_pgtable         ]: Validating architecture page table helpers
+[    2.509879] aht10: probe of 0-0038 failed with error -121
+[    2.516967] [GTP-INF][goodix_ts_core_init] Core layer init:v1.3.3
+[    2.523128] [GTP-INF][goodix_i2c_bus_init] Goodix i2c driver init
+[    2.529383] [GTP-INF][goodix_i2c_probe] goodix i2c probe in
+[    2.534993] [GTP-INF][goodix_get_ic_type] ic_name goodix,nottingham
+[    2.541269] [GTP-INF][goodix_get_ic_type] ic type is nottingham
+[    2.547362] [GTP-INF][goodix_i2c_probe] i2c probe out
+[    2.552768] [GTP-INF][goodix_ts_probe] IN
+[    2.556843] [GTP-INF][goodix_parse_dt] can't find avdd-gpio, use other power supply
+[    2.564511] [GTP-INF][goodix_parse_dt] can't find iovdd-gpio, use other power supply
+[    2.572269] [GTP-INF][goodix_parse_dt] get reset-gpio[536] from dt
+[    2.578461] [GTP-INF][goodix_parse_dt] get irq-gpio[535] from dt
+[    2.584477] [GTP-INF][goodix_parse_dt] can't find firmware name, use default: goodix_firmware.bin
+[    2.593359] [GTP-INF][goodix_parse_dt] can't find config name, use default: goodix_cfg_group.bin
+[    2.602151] [GTP-INF][goodix_parse_dt] [DT]x:1060, y:2400, w:255, p:4096 sleep_enable:0 pen_enable:0
+[    2.611293] [GTP-INF][goodix_ts_gpio_setup] GPIO setup,reset-gpio:536, irq-gpio:535
+[    2.618963] [GTP-INF][goodix_ts_power_init] Power init
+[    2.624105] [GTP-INF][goodix_ts_power_init] Avdd name is NULL
+[    2.629856] [GTP-INF][goodix_ts_power_init] iovdd name is NULL
+[    2.635691] [GTP-INF][goodix_ts_power_on] Device power on
+[    2.641774] usb 2-1: New USB device found, idVendor=0bda, idProduct=8152, bcdDevice=20.00
+[    2.649992] usb 2-1: New USB device strings: Mfr=1, Product=2, SerialNumber=3
+[    2.657139] usb 2-1: Product: USB 10/100 LAN
+[    2.661415] usb 2-1: Manufacturer: Realtek
+[    2.665518] usb 2-1: SerialNumber: 000000000000
+[    2.671386] cdc_ether 2-1:2.0 eth0: register 'cdc_ether' at usb-91540000.usb-1, CDC Ethernet Device, 00:00:00:00:00:00
+[    2.682690] cdc_ether 2-1:2.0 eth0: unregister 'cdc_ether' usb-91540000.usb-1, CDC Ethernet Device
+[    2.696607] [GTP-INF][brl_dev_confirm] device connected
+[    2.806678] [GTP-INF][goodix_tools_init] Debug tools miscdev register success
+[    2.813955] [GTP-INF][goodix_ts_probe] goodix_ts_core probe success
+[    2.820541] cfg80211: Loading compiled-in X.509 certificates for regulatory database
+[    2.829670] [GTP-INF][brl_read_version] rom_pid:BERLIN
+[    2.834859] [GTP-INF][brl_read_version] rom_vid:02 00 04
+[    2.840180] [GTP-INF][brl_read_version] pid:9895
+[    2.844805] [GTP-INF][brl_read_version] vid:02 ff 00 05
+[    2.850035] [GTP-INF][brl_read_version] sensor_id:255
+[    2.855098] [GTP-INF][goodix_read_cfg_bin] cfg_bin_name:goodix_cfg_group.bin
+[    2.862325] Loaded X.509 cert 'sforshee: 00b28ddf47aef9cea7'
+[    2.868680] Loaded X.509 cert 'wens: 61c038651aabdcf94bd0ac7ff06c7248db18c600'
+[    2.876015] clk: Disabling unused clocks
+[    2.880036] ALSA device list:
+[    2.883020]   #0: K230_I2S_INNO
+[    2.886681] Waiting 4 sec before mounting root device...
+[    2.892086] goodix_ts goodix_ts.0: Direct firmware load for goodix_cfg_group.bin failed with error -2
+[    2.901338] [GTP-INF][goodix_read_cfg_bin] get cfg bin retry:[1]
+[    2.942591] r8152-cfgselector 2-1: reset high-speed USB device number 2 using dwc2
+[    3.114590] goodix_ts goodix_ts.0: Direct firmware load for goodix_cfg_group.bin failed with error -2
+[    3.123843] [GTP-INF][goodix_read_cfg_bin] get cfg bin retry:[2]
+[    3.155148] platform regulatory.0: Direct firmware load for regulatory.db failed with error -2
+[    3.163804] cfg80211: failed to load regulatory.db
+[    3.195353] r8152 2-1:1.0: skip request firmware
+[    3.200193] r8152 2-1:1.0 (unnamed net_device) (uninitialized): Invalid ether addr 00:00:00:00:00:00
+[    3.209450] r8152 2-1:1.0 (unnamed net_device) (uninitialized): Random ether addr 00:e0:4c:3a:5e:d0
+[    3.247416] r8152 2-1:1.0 eth0: v1.12.13
+[    3.334596] goodix_ts goodix_ts.0: Direct firmware load for goodix_cfg_group.bin failed with error -2
+[    3.343856] [GTP-INF][goodix_read_cfg_bin] get cfg bin retry:[3]
+[    3.554556] [GTP-ERR][goodix_read_cfg_bin] failed get cfg bin[goodix_cfg_group.bin] error:-2
+[    3.563007] [GTP-ERR][goodix_get_config_data] failed get valid config bin data
+[    3.570234] [GTP-INF][goodix_later_init_thread] no valid ic config found
+[    3.576938] [GTP-INF][goodix_later_init_thread] skipping firmware update for direct touch mode
+[    3.586472] [GTP-INF][brl_read_version] rom_pid:BERLIN
+[    3.591619] [GTP-INF][brl_read_version] rom_vid:02 00 04
+[    3.596937] [GTP-INF][brl_read_version] pid:9895
+[    3.601558] [GTP-INF][brl_read_version] vid:02 ff 00 05
+[    3.606787] [GTP-INF][brl_read_version] sensor_id:255
+[    3.616746] [GTP-INF][print_ic_info] ic_info_length:                173
+[    3.623368] [GTP-INF][print_ic_info] info_customer_id:              0x1
+[    3.629986] [GTP-INF][print_ic_info] info_version_id:               0x0
+[    3.636608] [GTP-INF][print_ic_info] ic_die_id:                     0x0
+[    3.643226] [GTP-INF][print_ic_info] ic_version_id:                 0x0
+[    3.649842] [GTP-INF][print_ic_info] config_id:                     0x650BFC22
+[    3.657068] [GTP-INF][print_ic_info] config_version:                0x2
+[    3.663688] [GTP-INF][print_ic_info] frame_data_customer_id:        0x1
+[    3.670305] [GTP-INF][print_ic_info] frame_data_version_id:         0x0
+[    3.676922] [GTP-INF][print_ic_info] touch_data_customer_id:        0x1
+[    3.683539] [GTP-INF][print_ic_info] touch_data_version_id:         0x0
+[    3.690156] [GTP-INF][print_ic_info] freqhop_feature:               0x0000
+[    3.697033] [GTP-INF][print_ic_info] calibration_feature:           0x0000
+[    3.703910] [GTP-INF][print_ic_info] gesture_feature:               0x0000
+[    3.710788] [GTP-INF][print_ic_info] side_touch_feature:            0x0000
+[    3.717671] [GTP-INF][print_ic_info] stylus_feature:                0x0000
+[    3.724549] [GTP-INF][print_ic_info] Drv*Sen,Button,Force num:      10 x 23, 0, 0
+[    3.732038] [GTP-INF][print_ic_info] Cmd:                           0x10174, 16
+[    3.739350] [GTP-INF][print_ic_info] Cmd-Reply:                     0x10184, 16
+[    3.746662] [GTP-INF][print_ic_info] FW-State:                      0x10218, 92
+[    3.753975] [GTP-INF][print_ic_info] FW-Buffer:                     0x13D80, 4096
+[    3.761460] [GTP-INF][print_ic_info] Touch-Data:                    0x10308, 8
+[    3.768688] [GTP-INF][print_ic_info] point_struct_len:              8
+[    3.775131] [GTP-INF][print_ic_info] mutual_rawdata_addr:           0x13830
+[    3.782096] [GTP-INF][print_ic_info] mutual_diffdata_addr:          0x11224
+[    3.789060] [GTP-INF][print_ic_info] self_rawdata_addr:             0x137C4
+[    3.796023] [GTP-INF][print_ic_info] self_diffdata_addr:            0x13758
+[    3.802989] [GTP-INF][print_ic_info] stylus_rawdata_addr:           0x0000, 0
+[    3.810128] [GTP-INF][print_ic_info] esd_addr:                      0x10170
+[    3.817093] [GTP-INF][goodix_send_ic_config] no valid normal config found
+[    3.824023] input: goodix_ts as /devices/virtual/input/input1
+[    3.830052] [GTP-INF][goodix_ts_irq_setup] IRQ:104,flags:2
+[    3.835728] [GTP-INF][goodix_ts_stage2_init] success register irq
+[    3.841876] [GTP-INF][goodix_ts_esd_on] esd on
+[    3.846352] [GTP-INF][goodix_register_ext_module_no_wait] IN
+[    3.852023] [GTP-INF][gesture_module_init] gesture module init success
+[    3.858559] [GTP-INF][inspect_module_init] inspect module init success
+[    7.166735] EXT4-fs (mmcblk1p2): mounted filesystem 495a7d44-fb43-40f5-9d98-45e449d59c32 r/w with ordered data mode. Quota mode: disabled.
+[    7.179267] VFS: Mounted root (ext4 filesystem) on device 179:2.
+[    7.185911] devtmpfs: mounted
+[    7.189019] Freeing unused kernel image (initmem) memory: 444K
+[    7.194868] Kernel memory protection not selected by kernel config.
+[    7.201147] Run /sbin/init as init process
+[    7.205254]   with arguments:
+[    7.208225]     /sbin/init
+[    7.210936]   with environment:
+[    7.214075]     HOME=/
+[    7.216438]     TERM=linux
+[    7.350593] EXT4-fs (mmcblk1p2): re-mounted 495a7d44-fb43-40f5-9d98-45e449d59c32 r/w. Quota mode: disabled.
+[    7.873417] EXT4-fs (mmcblk1p1): mounted filesystem cdddac17-aeee-4e31-a9ce-1cbcf6be159e r/w with ordered data mode. Quota mode: disabled.
+[    7.904986] vvcam_isp: loading out-of-tree module taints kernel.
+[    7.913063] vvcam-isp 90000000.isp.0: isp addr: 90000000, size: 36864
+[    7.919680] vvcam-isp 90000000.isp.0: isp irq: 105
+[    7.924551] vvcam-isp 90000000.isp.0: mi irq: 106
+[    7.929306] vvcam-isp 90000000.isp.0: fe irq: 107
+[    7.934023] vvcam-isp 90000000.isp.0: irq priorities set: fe=3, isp=2, mi=1
+[    7.942514] vvcam-isp 90000000.isp.0: vvcam isp driver probe success
+[    7.966495] vvcam-mipi 9000a800.mipi.0: start probe 2
+[    7.971748] vvcam-mipi 9000a800.mipi.0: irq: 108
+[    7.976433] vvcam-mipi 9000a800.mipi.0: enabled sensor mclk1 parent=9 div=25
+[    8.183530] reset gpio init successwwwwwwjx 
+[    8.187807] ---------------reset --- --------
+[    8.193828] vvcam-mipi 9000a800.mipi.0: vvcam mipi driver probe success
+[    8.213596] vvcam-vb vvcam-vb.0: vvcam vb probe success
+[    8.234211] vvcam-isp-subdev 90000000.v4l2-isp: vvcam_isp_probe
+[    8.240557] vvcam-isp-subdev vvcam-isp-subdev.0: vvcam_isp_probe
+[    8.246832] vvcam-isp-subdev vvcam-isp-subdev.0: parse_sensor_dt: port 0 sensor=gc2093 mode=0 i2c_bus=0
+[    8.256270] vvcam-isp-subdev vvcam-isp-subdev.0: parsed 1 sensor(s) from DT
+[    8.265605] vvcam-isp-subdev vvcam-isp-subdev.0: vvcam isp driver probe success
+[    8.286495] vvcam-video vvcam-video.0: vvcam_video_probe
+[    8.292096] vvcam-video vvcam-video.0: mcm: sensor_count=1, register 3 video nodes
+[    8.301002] vvcam-video vvcam-video.0: vvcam video driver probe success
+[    8.334464] nonai-2d 8080c000.nonai2d: nonai_2d_probe>start
+[    8.345333] nonai-2d 8080c000.nonai2d: nonai_2d probe success
+[   11.917179] aic_bluetooth_mod_init 
+[   11.920733] RELEASE DATE:2024_0929_2e313139 
+[   11.925204] usbcore: registered new interface driver aic_load_fw
+[   12.238874] usbcore: registered new interface driver aic8800_fdrv
+[   12.426805] Bluetooth: Core ver 2.22
+[   12.430463] NET: Registered PF_BLUETOOTH protocol family
+[   12.435803] Bluetooth: HCI device and connection manager initialized
+[   12.442176] Bluetooth: HCI socket layer initialized
+[   12.447071] Bluetooth: L2CAP socket layer initialized
+[   12.452141] Bluetooth: SCO socket layer initialized
+[   12.463816] aic_btusb: AICBT_RELEASE_NAME: 202012_ANDROID
+[   12.469282] aic_btusb: AicSemi Bluetooth USB driver module init, version 2.1.0
+[   12.476522] aic_btusb: RELEASE DATE: 2023_1211_1958 CONFIG_BLUEDROID =0 
+[   12.476522] 
+[   12.484890] usbcore: registered new interface driver aic_btusb
+[   16.858536] canaan-mipi-dsi 90850000.dsi: DSI clock cfg: req=49500 kHz adjusted=49500 kHz div=12 lanes=2 bpp=24 phy_target=297000 kHz auto_phy_freq=594000 kHz auto_m=97 auto_n=3 auto_voc=0x17 hsfreq=0x96
+[   16.876662] canaan-mipi-dsi 90850000.dsi: DSI mode: clock=49500 hdisplay=568 hsync_start=668 hsync_end=708 htotal=748 vdisplay=1232 vsync_start=1236 vsync_end=1252 vtotal=1268
+[   16.892355] canaan-mipi-dsi 90850000.dsi: DSI fixed 2-lane PHY override disabled; using auto-PHY result
+[   17.170541] canaan-panel-dsi 90850000.dsi.0: prepare: sending init commands
+[   17.313589] canaan-panel-dsi 90850000.dsi.0: prepare: init commands sent

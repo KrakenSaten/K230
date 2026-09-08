@@ -1,0 +1,47 @@
+shell pid before: 1473 (/usr/bin/pocketos-shell ); radiod pid: 1452
+stores before:
+1b6f729573bddfdafb64b52b0db04a41  /var/lib/pocketos/fleet/save.v1
+359645a3d1bfed4c5dcacc90f4a1ed6d  /var/lib/pocketos/radar/record.v1
+bf7f97efee1fb73d668c21d2c5838136  /etc/pocketos/settings.conf
+crash reports before: crash-radiod-1788807633.txt                   400 bytes 
+SIGSEGV sent to shell at 19:05:39
+shell.info answered again after about 1200 ms (poll granularity 100 ms)
+shell pid after: 1562; process:  1562 root     /usr/bin/pocketos-shell
+--- shell info
+	"current":	"home",
+	"theme":	"ice",
+	"mode":	"normal",
+--- radiod still pid 1452? 1452; status: 	"state":	"rx",
+--- supervise-pocketos-shell.log tail:
+2026-09-07T18:56:59Z supervise pocketos-shell stopped
+2026-09-07T19:00:33Z supervise pocketos-shell exited rc=141 after 214s (restart 1, backoff 1s)
+2026-09-07T19:05:39Z supervise pocketos-shell exited rc=139 after 305s (restart 1, backoff 1s)
+--- crash reports after:
+crash-shell-1788807939.txt                    494 bytes
+crash-radiod-1788807633.txt                   400 bytes
+--- /var/lib/pocketos/log/crash-shell-1788807939.txt
+PocketOS crash report
+process: shell
+pid: 1473
+signal: 11
+backtrace:
+/usr/bin/pocketos-shell(+0x15f5a)[0x2ade9def5a]
+linux-vdso64.so.1(__vdso_rt_sigreturn+0x0)[0x3fa7ca5800]
+/lib64/lp64d/libc.so.6(clock_nanosleep+0x26)[0x3fa7842348]
+/lib64/lp64d/libc.so.6(nanosleep+0x10)[0x3fa7845cb8]
+/lib64/lp64d/libc.so.6(usleep+0x40)[0x3fa786362e]
+/usr/bin/pocketos-shell(main+0x39c)[0x2ade9cf4bc]
+/lib64/lp64d/libc.so.6(__libc_start_main+0x86)[0x3fa77e0688]
+/usr/bin/pocketos-shell(+0x66e0)[0x2ade9cf6e0]
+--- shell log tail:
+2026-09-07T19:00:34.993Z shell INFO  shell.* listening on /run/pocketos/shell.sock
+2026-09-07T19:05:40.317Z shell INFO  appearance: theme ice mode normal (settings loaded)
+2026-09-07T19:05:40.319Z shell INFO  shell.* listening on /run/pocketos/shell.sock
+--- stores after:
+1b6f729573bddfdafb64b52b0db04a41  /var/lib/pocketos/fleet/save.v1
+359645a3d1bfed4c5dcacc90f4a1ed6d  /var/lib/pocketos/radar/record.v1
+bf7f97efee1fb73d668c21d2c5838136  /etc/pocketos/settings.conf
+--- crashloop marker present? none
+--- app persistence read back:
+2026-09-07T19:05:40.552Z shell INFO  fleet: resumable match from /var/lib/pocketos/fleet/save.v1, Recruit turn 31
+2026-09-07T19:05:41.599Z shell INFO  radar: best score 252 over 25 run(s) from /var/lib/pocketos/radar/record.v1

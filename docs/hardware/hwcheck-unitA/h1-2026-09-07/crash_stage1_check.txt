@@ -1,0 +1,44 @@
+--- 19:02:40 processes
+  221 root     {pos-supervise} /bin/sh /usr/bin/pos-supervise radiod /usr/sbin/radiod --backend mock --region EU868
+ 1375 root     {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+ 1452 root     /usr/sbin/radiod --backend mock --region EU868
+ 1473 root     /usr/bin/pocketos-shell
+--- /run/pocketos
+total 8
+drwxr-xr-x    2 root     root           120 2026-09-07 19:00:34 +0000 .
+drwxr-xr-x    7 root     root           380 2026-09-07 18:56:59 +0000 ..
+-rw-------    1 root     root             5 2026-09-07 19:00:34 +0000 pocketos-shell.pid
+-rw-r--r--    1 root     root             5 2026-09-07 19:00:34 +0000 radiod.pid
+srw-rw----    1 root     root             0 2026-09-07 19:00:34 +0000 radiod.sock
+srw-rw----    1 root     root             0 2026-09-07 19:00:34 +0000 shell.sock
+--- supervise-pocketos-shell.log
+1970-01-01T01:11:02Z supervise pocketos-shell stopped
+2026-09-07T18:41:46Z supervise pocketos-shell stopped
+2026-09-07T18:49:50Z supervise pocketos-shell stopped
+2026-09-07T18:53:17Z supervise pocketos-shell stopped
+2026-09-07T18:56:59Z supervise pocketos-shell stopped
+2026-09-07T19:00:33Z supervise pocketos-shell exited rc=141 after 214s (restart 1, backoff 1s)
+--- crash reports
+crash-radiod-1788807633.txt                   400 bytes
+--- shell log tail
+2026-09-07T18:53:17.229Z shell INFO  appearance: theme ice mode normal (settings loaded)
+2026-09-07T18:53:17.230Z shell INFO  shell.* listening on /run/pocketos/shell.sock
+2026-09-07T18:53:22.253Z shell INFO  radar: best score 252 over 21 run(s) from /var/lib/pocketos/radar/record.v1
+2026-09-07T18:53:22.258Z shell INFO  open app radar
+2026-09-07T18:56:59.850Z shell INFO  appearance: theme ice mode normal (settings loaded)
+2026-09-07T18:56:59.851Z shell INFO  shell.* listening on /run/pocketos/shell.sock
+2026-09-07T19:00:34.991Z shell INFO  appearance: theme ice mode normal (settings loaded)
+2026-09-07T19:00:34.993Z shell INFO  shell.* listening on /run/pocketos/shell.sock
+--- shell.stdio.log
+2026-09-07T19:00:33Z supervise pocketos-shell exited rc=141 after 214s (restart 1, backoff 1s)
+(end)
+--- shell info
+	"current":	"home",
+	"theme":	"ice",
+--- radio status
+	"state":	"rx",
+--- dmesg tail
+[  805.011989] r8152 2-1:1.0 eth0: carrier off
+[  966.683049] r8152 2-1:1.0 eth0: carrier on
+[ 2676.790480] r8152 2-1:1.0 eth0: carrier off
+[ 2737.499046] r8152 2-1:1.0 eth0: carrier on

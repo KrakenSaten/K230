@@ -1,0 +1,42 @@
+radiod pid before: 238 (/usr/sbin/radiod --backend mock --region EU868 )
+crash reports before: (none in /var/lib/pocketos/log) 
+supervise log before:
+1970-01-01T00:03:30Z supervise radiod stopped
+1970-01-01T01:11:02Z supervise radiod stopped
+SIGSEGV sent at 19:00:33
+radio.info answered again after about 1100 ms (poll granularity 100 ms)
+radiod pid after: 1452; process:  1452 root     /usr/sbin/radiod --backend mock --region EU868
+--- pos radio status
+	"state":	"rx",
+	"uptime_s":	0
+--- supervise log after:
+1970-01-01T00:03:30Z supervise radiod stopped
+1970-01-01T01:11:02Z supervise radiod stopped
+2026-09-07T19:00:33Z supervise radiod exited rc=139 after 1788807617s (restart 1, backoff 1s)
+--- crash reports after:
+crash-radiod-1788807633.txt                   400 bytes
+--- /var/lib/pocketos/log/crash-radiod-1788807633.txt
+PocketOS crash report
+process: radiod
+pid: 238
+signal: 11
+backtrace:
+/usr/sbin/radiod(+0x8698)[0x2abd026698]
+linux-vdso64.so.1(__vdso_rt_sigreturn+0x0)[0x3fbb06b800]
+/lib64/lp64d/libc.so.6(__poll+0x56)[0x3fbacfe520]
+/usr/sbin/radiod(+0x827e)[0x2abd02627e]
+/usr/sbin/radiod(main+0x47a)[0x2abd023ada]
+/lib64/lp64d/libc.so.6(__libc_start_main+0x86)[0x3fbac7d688]
+/usr/sbin/radiod(+0x5dcc)[0x2abd023dcc]
+--- radiod log tail:
+1970-01-01T00:00:16.585Z radiod INFO  listening on /run/pocketos/radiod.sock backend=mock region=EU868
+1970-01-01T01:11:02.864Z radiod INFO  shutting down (rc=0)
+1970-01-01T00:00:16.367Z radiod INFO  listening on /run/pocketos/radiod.sock backend=mock region=EU868
+2026-09-07T19:00:34.303Z radiod INFO  listening on /run/pocketos/radiod.sock backend=mock region=EU868
+--- shell log tail (any IPC error while radiod was down):
+2026-09-07T18:53:22.258Z shell INFO  open app radar
+2026-09-07T18:56:59.850Z shell INFO  appearance: theme ice mode normal (settings loaded)
+2026-09-07T18:56:59.851Z shell INFO  shell.* listening on /run/pocketos/shell.sock
+--- crashloop marker present? none
+pos: cannot connect to /run/pocketos/shell.sock: Connection refused
+--- shell still up: 

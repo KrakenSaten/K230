@@ -1,0 +1,15 @@
+{
+	"chip":	"sx1262",
+	"backend":	"sx1262",
+	"api_version":	0,
+	"region":	"EU868",
+	"capabilities":	{
+		"frequency_min_mhz":	150,
+		"frequency_max_mhz":	960,
+		"tx_power_min_dbm":	-9,
+		"tx_power_max_dbm":	22,
+		"max_payload":	255,
+		"cad":	true,
+		"modulations":	["lora"]
+	}
+}

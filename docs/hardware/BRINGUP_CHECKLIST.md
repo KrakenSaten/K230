@@ -14,29 +14,31 @@ last.
 | | |
 | --- | --- |
 | Image | `out/k230/sysimage-sdcard.img` (763,363,328 bytes; `.gz` is the same image compressed) |
-| Built from | PocketOS commit `7b181fa` (the last code commit), VERSION 0.0.1 |
+| Built from | PocketOS commit `d092a2b` (pushed to GitHub as `3d6120a` after the author-email rewrite; identical tree), VERSION 0.0.1 |
 | Vendor BSP / SDK | `bb831ab358b66f5bd9a87ecd7c580fee4537492e` / `22d02c6b6783a57a3aca7eb3160e313e772cb710` |
-| SHA-256 of the image | `098e88b1dab4367ec6ca49b0db9e67407d1d251c6abeec5527f1075fc640d74f` |
-| SHA-256 of the .gz | `7388ed7e72ccd519b2156c8558b065a36a0ea296bb29ce635ada2244efb1ac87` |
+| SHA-256 of the image | `bafed837dca4d9279d05047e21c0c8513bee22af8bde184daaa2ebcb97123ad6` (golden bring-up image, 2026-09-06 07:14 UTC build) |
+| SHA-256 of the .gz | `d0f33efbc7e319e1c4f02a1e7206fa342deadaee143e942418d3455295691590` |
 | Contents (verified from the image) | pocketos-shell with PocketFleet and PocketRadar, radiod (mock + sx1262), pos, pos-supervise, pos-hwcheck, vendor launcher at /root/app/k230_phone_ui |
 
 Provenance: `out/k230/BUILD_INFO.txt` names the commit the image was built
 from. Master may be ahead of it by documentation-only commits; `docs/` is not
 part of the image (apply_to_sdk.sh excludes it), so
-`git diff 7b181fa..master --stat` must list only files under `docs/`
+`git diff 3d6120a..master --stat` must list only files under `docs/`
 for the image to be current. Any other file means rebuild.
 
 Check before flashing: `sha256sum out/k230/sysimage-sdcard.img` matches
-`out/k230/SHA256SUMS.txt`. BUILD_INFO.txt for this image reads
-`PocketOS : 7b181fa (dirty)`: the source was synced from a clean `7b181fa`
-checkout; the only files edited while the build ran were this checklist
-and platforms/k230/README.md, neither of which is part of the image.
+`out/k230/SHA256SUMS.txt` and `BUILD_INFO.txt` reads `PocketOS : d092a2b`
+with no "(dirty)" suffix. This image was flashed and verified on unit A on
+2026-09-07 (BRINGUP_SESSION_2026-09-07.md); the findings of that session are
+consolidated in POST_BRINGUP_REVIEW_2026-09-07.md, which supersedes any
+expectation below that disagrees with it.
 
 The root filesystem is a 600 MB ext4 partition (rootfs at 128 MB into the
 card, boot partition at 30 MB) and stays 600 MB whatever the card size: the
 LILYGO BSP removes the Kendryte SDK's first-boot resize (`S00resizemmc` and
 `/first_boot_flag`, `k230_bsp/scripts/apply.sh`), and neither is in the
-image (VERIFIED). About 175 MB are free; enough for logs and app state.
+image (VERIFIED). 131 MB are free with PocketOS installed (unit A, `df`);
+enough for logs and app state, since pocketlog is capped per process.
 
 ## 2. Flash
 
@@ -44,8 +46,9 @@ image (VERIFIED). About 175 MB are free; enough for logs and app state.
 - [ ] Card 2: `out/k230/sysimage-sdcard.img`, written raw with Rufus (DD mode)
       or balenaEtcher to a microSD of 8 GB or more. WSL cannot write USB readers.
 - [ ] Serial: USB-C "UART" port, PuTTY 115200 8N1 on the lower of the two
-      CH342K COM ports (the other is UART3). Install the WCH CH343SER driver
-      if no COM ports appear.
+      CH342K COM ports (the other is UART3). On the bench PC Windows fetched
+      WCH's CH343 driver by itself on first connection (COM9 console, COM10
+      UART3); install CH343SER by hand only if no COM ports appear.
 
 ## 3. First power-on (card 2, vendor launcher still on)
 
@@ -56,8 +59,13 @@ image (VERIFIED). About 175 MB are free; enough for logs and app state.
 - [ ] Login on serial as root, then `pos system info`, `pos hardware list`,
       `pos radio info` (backend `mock`), `pos logs`. (V: PocketOS services)
 - [ ] Network for SSH: Ethernet (RTL8152B, `eth0`, DHCP) or Wi-Fi via the
-      vendor launcher; `pos network interfaces`. `ssh root@<ip>` (no password on
-      the vendor rootfs: set one).
+      vendor launcher; `pos network interfaces`. The USB LAN adapter gets a
+      **random MAC on every boot**, so the IP can change after each reboot:
+      read it again with `ip -4 addr show eth0` on the console after every
+      boot and write it in the session notes.
+- [ ] Root password (PERSISTENT): sshd accepts root with an **empty password**
+      on this image, so anyone on the LAN has root. Run `passwd` on the console
+      before the board stays on a shared network; record that it was done.
 - [ ] SSH key on the unit (needed later by deploy.sh and lora_pair_test.sh,
       both use `BatchMode=yes`). From the PC (PowerShell):
       `type $HOME\.ssh\id_ed25519.pub | ssh root@<ip> "mkdir -p /root/.ssh && cat >> /root/.ssh/authorized_keys && chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys"`,
@@ -67,10 +75,15 @@ image (VERIFIED). About 175 MB are free; enough for logs and app state.
       about 600 MB; `touch /var/lib/pocketos/probe && sync && reboot`; after the
       reboot the file is still there and `pos logs radiod` shows the previous
       boot. (V: /var/lib writable and persistent, log persistence)
-- [ ] `pos-hwcheck` then `pos-hwcheck --lora` (stops the launcher; register read
-      must show `14 24`; it does not restart the launcher: `/etc/init.d/S99zz_k230_phone_ui start`).
-      Copy `/root/hwcheck/` off the device. (V: RAM size, device nodes, input
-      names, thermal zone, LoRa SPI)
+- [ ] `pos-hwcheck` (READ-ONLY). Copy `/root/hwcheck/` off the device. (V: RAM
+      size, device nodes, input names, thermal zone)
+- [ ] LoRa register probe: **do not use `pos-hwcheck --lora` on image
+      `bafed837`**, it hangs (its `gpioset --hold-period` waits for a
+      terminal) and leaves `gpioset -z` daemons holding GPIO44 and GPIO5.
+      Use the manual sequence in BRINGUP_SESSION_2026-09-07.md §18.2
+      (daemonised `gpioset -z`, `spi-pipe` read of 0x0740, expect `14 24`),
+      and never run any probe while radiod is on the sx1262 backend: they
+      would share the lines and the SPI bus. (V: LoRa SPI)
 - [ ] DRM, independent of PocketOS: `cat /sys/class/drm/card0-*/status` is
       `connected` and `cat /sys/class/drm/card0-*/modes` lists `568x1232`.
       Record the exact mode line. (V: panel mode)
@@ -93,6 +106,17 @@ image (VERIFIED). About 175 MB are free; enough for logs and app state.
 
 ## 5. SX1262 with the PocketOS shell stopped (unit A first, then B)
 
+**Transmit precondition (operator, per unit):** no `pos radio send`, no pair
+test and no other transmit until the operator has confirmed in writing that
+an antenna rated for 868 MHz is connected to the SX1262 port. On unit A that
+port is **MMCX1** (VERIFIED 2026-09-07 by a controlled receive-only A/B test
+with a MeshCore node, POST_BRINGUP_REVIEW_2026-09-07.md §5); on any other
+unit establish it the same way first. CAD is receive-side and not a
+transmit. The first transmit is one short packet at
+`tx_power_dbm=2`; every increase needs a separate operator go. Note that
+the radio profile is not persisted: a radiod restart or reboot returns the
+profile to the 14 dBm default (review finding F5).
+
 Take the panel away from the vendor launcher but leave the shell disabled,
 so only radiod touches the radio:
 
@@ -114,9 +138,12 @@ reboot
       (V: SPI, RST/BUSY/DIO1/power pins, TCXO)
 - [ ] `pos radio rssi` returns a plausible noise floor (about -100 dBm or lower);
       `pos radio cad` returns without error.
-- [ ] TX: `pos radio send 506f636b65744f53`; result has `airtime_ms`; then
-      `pos radio status` is `rx` again within 1 s (re-entry). Repeat 10 times;
-      `pos radio stats` counts 10 and the duty cycle is under 1 %. (V: TX, RX re-entry)
+- [ ] TX (only after the precondition above): `pos radio configure
+      tx_power_dbm=2`, then one `pos radio send 506f636b65744f53`; result has
+      `airtime_ms` (123.9 ms for 8 bytes at SF9/BW125), then `pos radio status`
+      is `rx` again within 1 s (re-entry). Done once on unit A. Then, on a
+      separate go, repeat 10 times; `pos radio stats` counts 10 and the duty
+      cycle is under 1 %. (V: TX, RX re-entry)
 - [ ] `gpioinfo | grep radiod` shows GPIO 20 held by radiod (DIO1 edge input),
       GPIO 5, 19 and 44 held as well.
 - [ ] Error path: `pos radio status` must never stay `error`; if it does,
@@ -234,6 +261,11 @@ staging default change from this session.
 
 ## 12. Radio with the shell running
 
+Gate: only on an image that contains the pocketipc SIGPIPE fix
+(`fix/pocketipc-sigpipe`, review finding B1). On image `bafed837` any radiod
+restart or crash also restarts the shell, so the status-chip behaviour
+below cannot be observed as designed.
+
 - [ ] `pos radio send 506f636b65744f53` while watching the panel: expect the UI
       to pause for the airtime and the status chip to read RX afterwards
       (known, review H3). Note the duration.
@@ -248,8 +280,11 @@ staging default change from this session.
       crash reports, supervisor)
 - [ ] Same for the shell (`/run/pocketos/pocketos-shell.pid`): the panel comes
       back within a few seconds with the stored theme.
-- [ ] Crash loop: pos-supervise restarts after 1, 2, 4, 8 and 16 s and gives up
-      on the sixth exit inside 60 s. Executable form, about 35 s in total:
+- [ ] Crash loop (same gate as §12: needs the SIGPIPE fix, otherwise every
+      radiod exit also restarts the shell and drives the shell supervisor
+      towards its own crash-loop state): pos-supervise restarts after 1, 2, 4,
+      8 and 16 s and gives up on the sixth exit inside 60 s. Executable form,
+      about 35 s in total:
 
 ```sh
 for i in 1 2 3 4 5 6; do

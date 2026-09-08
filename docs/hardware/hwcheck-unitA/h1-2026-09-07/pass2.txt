@@ -1,0 +1,15 @@
+=== pass2-reduced-motion-staging-on start 18:51:55 shell pid 1067 temp_mC 52463 loadavg 0.07 0.14 0.07 rss_kB 12544
+conf: pocketos-shell=[ENABLE=1;] settings=[theme=ice;display_mode=normal;reduced_motion=1;] staging_env=K230_LVGL_DRM_STAGING=1
+t+  5s temp=52163 load=0.07 CPU: 10% usr 0% sys 0% nic 90% idle 0% io 0% irq 0% sirq |  1061 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 10s temp=52463 load=0.06 CPU: 10% usr 0% sys 0% nic 90% idle 0% io 0% irq 0% sirq |  1061 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 15s temp=52463 load=0.06 CPU: 0% usr 10% sys 0% nic 90% idle 0% io 0% irq 0% sirq |  1061 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 20s temp=52463 load=0.05 CPU: 0% usr 0% sys 0% nic 100% idle 0% io 0% irq 0% sirq |  1061 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 25s temp=52463 load=0.05 CPU: 0% usr 9% sys 0% nic 90% idle 0% io 0% irq 0% sirq |  1061 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 30s temp=52463 load=0.04 CPU: 0% usr 10% sys 0% nic 90% idle 0% io 0% irq 0% sirq |  1061 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 35s temp=52463 load=0.04 CPU: 0% usr 0% sys 0% nic 100% idle 0% io 0% irq 0% sirq |  1061 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 40s temp=52463 load=0.04 CPU: 0% usr 10% sys 0% nic 90% idle 0% io 0% irq 0% sirq |  1061 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 45s temp=52463 load=0.11 CPU: 0% usr 0% sys 0% nic 100% idle 0% io 0% irq 0% sirq |  1061 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 50s temp=52463 load=0.10 CPU: 10% usr 0% sys 0% nic 90% idle 0% io 0% irq 0% sirq |  1061 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 55s temp=52463 load=0.10 CPU: 0% usr 0% sys 0% nic 100% idle 0% io 0% irq 0% sirq |  1061 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 60s temp=52463 load=0.09 CPU: 9% usr 9% sys 0% nic 81% idle 0% io 0% irq 0% sirq |  1061 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+=== pass2-reduced-motion-staging-on end 18:52:57 temp_mC 52463 loadavg 0.09 0.13 0.07 rss_kB 12544 cpu_busy_percent_over_window 6 (jiffies busy=398 idle=5587) shell_cpu_percent 6 (shell jiffies 361)

@@ -1,0 +1,36 @@
+=== T4 state now 19:55:51
+	"state":	"rx",
+state +1 s:
+	"state":	"rx",
+=== T5 stats after
+{
+	"tx_packets":	1,
+	"rx_packets":	58,
+	"rx_crc_errors":	0,
+	"tx_airtime_ms":	123.904,
+	"rx_airtime_ms":	34637.823999999986,
+	"tx_airtime_last_hour_ms":	123.904,
+	"duty_cycle_last_hour_percent":	0.0034417777777777784,
+	"last_rssi_dbm":	-79,
+	"last_snr_db":	-2.75,
+	"last_frequency_error_hz":	-354.5625
+}
+=== T6 radiod log
+1970-01-01T01:11:02.864Z radiod INFO  shutting down (rc=0)
+1970-01-01T00:00:16.367Z radiod INFO  listening on /run/pocketos/radiod.sock backend=mock region=EU868
+2026-09-07T19:00:34.303Z radiod INFO  listening on /run/pocketos/radiod.sock backend=mock region=EU868
+2026-09-07T19:31:45.219Z radiod INFO  shutting down (rc=0)
+2026-09-07T19:31:46.328Z radiod INFO  listening on /run/pocketos/radiod.sock backend=sx1262 region=EU868
+=== T7 line ownership
+	line   5:	unnamed         	output consumer=radiod
+	line  19:	unnamed         	input consumer=radiod
+	line  20:	unnamed         	input edges=rising consumer=radiod
+	line  12:	unnamed         	output consumer=radiod
+=== T8 crash reports
+crash-shell-1788807939.txt                    494 bytes
+crash-radiod-1788807633.txt                   400 bytes
+=== T9 send transcript
+{
+	"bytes":	8,
+	"airtime_ms":	123.904
+}
