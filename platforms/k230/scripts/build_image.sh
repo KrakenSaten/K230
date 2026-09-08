@@ -39,7 +39,7 @@ Build UTC : $(date -u +%Y-%m-%dT%H:%M:%SZ)
 Defconfig : ${CONF}
 Vendor BSP: $(git -C "${VENDOR_DIR}" rev-parse HEAD)
 SDK       : $(git -C "${SDK_DIR}" rev-parse HEAD)
-PocketOS  : $(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo "no commit yet")$(git -C "${REPO_DIR}" diff --quiet 2>/dev/null || echo " (dirty)")
+PocketOS  : $(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo "no commit yet")$([ -n "$(git -C "${REPO_DIR}" status --porcelain 2>/dev/null)" ] && echo " (dirty)")
 EOF
     (cd "${OUT_DIR}" && ls -1 | grep -v SHA256SUMS.txt | xargs sha256sum > SHA256SUMS.txt)
     echo "Exported to ${OUT_DIR}"
