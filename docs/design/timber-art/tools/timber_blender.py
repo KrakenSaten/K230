@@ -587,8 +587,7 @@ def run(stage):
                 render_block_sprite(scene, tone, along_x, pose, anchors)
     anchors["felt"] = make_felt()
     anchors["shadow"] = make_ground_shadow()
-    with open(RENDERED + "/anchors.json", "w", newline="
-") as f:
+    with open(RENDERED + "/anchors.json", "w", newline="\n") as f:
         json.dump({"scale_px": SCALE_PX, "layer_px": LAYER_PX, "sprites": anchors}, f, indent=2)
     report["sprites"] = anchors
     report["study"] = render_study(scene)
