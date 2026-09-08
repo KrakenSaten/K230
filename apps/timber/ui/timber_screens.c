@@ -547,7 +547,7 @@ void timber_screen_table_refresh(struct timber_app *app)
         ui->seen_score = run->score.points;
         if (state == TIMBER_RUN_READY) {
             lv_label_set_text(ui->score_caption, "BEST");
-            grouped(text, sizeof(text), (int32_t)app->record.best_score);
+            grouped(text, sizeof(text), (int32_t)app->records.core.best_score);
         } else {
             lv_label_set_text(ui->score_caption, "SCORE");
             grouped(text, sizeof(text), run->score.points);
@@ -726,11 +726,17 @@ void timber_screen_result_refresh(struct timber_app *app)
     lv_label_set_text(ui->title, cause == TIMBER_CAUSE_NONE ? "STILL STANDING" : "TIMBER");
     grouped(text, sizeof(text), s->points);
     lv_label_set_text(ui->score, text);
+    /* The best is the record file's once the store works; when it does not,
+     * the label says so rather than promising a memory the board lacks. */
     if (app->new_best) {
-        lv_label_set_text(ui->best, "NEW BEST THIS SESSION");
+        lv_label_set_text(ui->best, app->store_ok ? "NEW BEST" : "NEW BEST THIS SESSION");
     } else {
-        grouped(text, sizeof(text), (int32_t)app->record.best_score);
-        lv_label_set_text_fmt(ui->best, "BEST %s THIS SESSION", text);
+        grouped(text, sizeof(text), (int32_t)app->records.core.best_score);
+        if (app->store_ok) {
+            lv_label_set_text_fmt(ui->best, "BEST %s", text);
+        } else {
+            lv_label_set_text_fmt(ui->best, "BEST %s THIS SESSION", text);
+        }
     }
     switch (cause) {
     case TIMBER_CAUSE_TIP:

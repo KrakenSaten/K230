@@ -31,8 +31,8 @@ check "engine uses no floating point" "$ENGINE/*.c $ENGINE/*.h" \
 check "engine takes no entropy from the platform" "$ENGINE/*.c $ENGINE/*.h" \
       '\b(rand|srand|random|srandom|time|clock|gettimeofday|clock_gettime|getpid)[[:space:]]*\('
 
-# The store is the app's single door to the filesystem. It does not exist
-# before P7; the rule then holds vacuously, which is the correct answer.
+# The store is the app's single door to the filesystem (D2): the record
+# file lives in timber_store.c and nowhere else.
 others=$(find $APP -name '*.c' -not -name 'timber_store.c' 2>/dev/null | tr '\n' ' ')
 check "only timber_store.c touches the filesystem" "$others" "$IO_CALLS"
 

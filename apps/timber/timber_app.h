@@ -11,8 +11,10 @@
  * the tower is the same thing before, during and after; RESULT is separate
  * because it shows different content.
  *
- * P7 is the minimal simulator UI: placeholder blocks, no record file (D2
- * pending, so the best score lives for the session), no audio, no shake.
+ * The records (best score and lifetime counters) come from the record file
+ * through timber_store when the app opens and go back to it when a run
+ * finishes (D2); a store that fails leaves the app session-only. No audio,
+ * no shake.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -21,6 +23,7 @@
 
 #include "engine/timber_rules.h"
 #include "ui/timber_view.h"
+#include "timber_store.h"
 
 #include "lvgl.h"
 
@@ -35,7 +38,8 @@ struct timber_result_ui;
 
 struct timber_app {
     struct timber_run run;
-    struct timber_record record;            /* session only in P7 */
+    struct timber_records records;          /* the record file's contents (D2) */
+    uint8_t store_ok;                       /* the file can still be written */
     struct timber_view view;
     lv_obj_t *body;
     lv_obj_t *screen[TIMBER_SCREEN_COUNT];

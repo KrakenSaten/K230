@@ -12,9 +12,10 @@ The design basis is the cold design review of 2026-09-06 (GO WITH MAJOR
 CHANGES): a deterministic read-and-pull game with decoupled controls, no
 per-pull dice, and a collapse the player can always explain.
 
-Status: **PRE-HARDWARE COMPLETE** (P1 to P7 accepted by the product owner
-and reviewed, 2026-09-08) on branch `pockettimber-engine`. Not merged. The
-app runs in the SDL simulator with placeholder blocks; nothing has run on
+Status: **SOFTWARE COMPLETE, PRE-HARDWARE** (P1 to P7 accepted and reviewed,
+the D1 art pass approved and the D2 record file delivered, 2026-09-08) on
+branch `pockettimber-engine`. Not merged. The app runs in the SDL simulator
+with the proof sprites and keeps its record file; nothing has run on
 hardware and nothing has been touched by a real finger. Master and the
 golden bring-up image are untouched by this work.
 
@@ -38,10 +39,11 @@ apps/timber/ui/       timber_view: the projection, drawing order, picking
                       timber_screens: the table and result screens on
                       PocketUI role styles.
 apps/timber/timber_app.c   the shell app entry, screen ownership, the clock.
+apps/timber/timber_store.c the record file: codec, validation, atomic write (D2).
 ```
 
-There is no store: the record file is D2, pending, so the best score lives
-for the session. The dependency runs one way (app to ui to engine) and the
+The store is the app's only door to the filesystem: it keeps the record
+file (Persistence below) and knows no rule. The dependency runs one way (app to ui to engine) and the
 engine never calls up. The engine and the view model are built by the root
 `Makefile` so they are unit tested natively, and again by
 `ui/shell/CMakeLists.txt` into the shell binary. Registration is the two
@@ -394,7 +396,7 @@ lifecycle. Reading order, top to bottom, is the one the review set:
 ```text
 HUD          SCORE (BEST in standby), LAYERS, and STABILITY as a ten-block
              meter reading the hinge's effective margin
-table        528 x 600, a hairline panel: the tower in a fixed dimetric
+table        528 x 700, a hairline panel: the tower in a fixed dimetric
              view, both front faces visible, so every block end is
              reachable without turning the tower
 PIECE        the selected block: its class once tested (UNKNOWN, with
@@ -450,6 +452,9 @@ pocketos-shell --open timber --screenshot docs/design/shots/timber-pulling.png -
 | `timber-placing.png` | a block in hand, the ghost on the new layer, the sides |
 | `timber-collapse.png` | mid-collapse after a yanked base block, the meter empty |
 | `timber-result.png` | the result: score, cause, layers, pulls, clean, streak |
+| `timber-result-stored.png` | the result with the record file read back: BEST from the file |
+| `timber-result-unwritable.png` | the result when the record cannot be written: BEST ... THIS SESSION |
+| `timber-idle-stored.png` | standby with a stored best score to beat |
 | `timber-pulling-reduced-motion.png` | the same as pulling with the sway not drawn |
 
 `tests/timber_shell_test.sh` renders every state headlessly and checks
@@ -458,6 +463,70 @@ that none logs a fault:
 ```bash
 SHELL_BIN=~/work/pocketos-build/shell/pocketos-shell bash tests/timber_shell_test.sh
 ```
+
+## Persistence (D2)
+
+`$POCKETOS_STATE_DIR/timber/record.v1`, default
+`/var/lib/pocketos/timber/record.v1`. Fifty-two bytes, little-endian,
+written by `apps/timber/timber_store.c` and read by nothing else:
+
+| Offset | Bytes | Field |
+| --- | --- | --- |
+| 0 | 4 | magic `PTR1` |
+| 4 | 2 | format version, 1 |
+| 6 | 4 | best score |
+| 10 | 2 | best height: the most layers a tower reached, at most 36 |
+| 12 | 2 | best streak |
+| 14 | 2 | best pulls: the most blocks pulled free in one run |
+| 16 | 4 | runs |
+| 20 | 4 | lifetime blocks pulled free |
+| 24 | 4 | collapses: runs that ended with the tower down |
+| 28 | 4 | summits: runs that ended standing |
+| 32 | 16 | collapses by cause: tip, jolt, placement, sway |
+| 48 | 4 | FNV-1a checksum of the 48 bytes before it |
+
+- Read once, when the app opens; written once per run, when it finishes
+  (`timber_app_finish`). Nothing is written while a run is in progress.
+- Writes are atomic: temp file, `fsync`, `rename`. A power loss leaves
+  either the previous record or the new one, never a half-written file,
+  and a temporary file an interrupted write left behind is overwritten by
+  the next.
+- Load is tri-state (0 read, 1 no file, -1 present but unusable), and the
+  caller's defaults are untouched unless it is 0. A missing file is the
+  first launch and not an error.
+- Refused and left in place: a file of the wrong length (short, long or
+  empty), a foreign magic, any version other than 1, a checksum that does
+  not match, and any record the bookkeeping could not have produced: a
+  height above the summit, more pulls in one run than it takes to build
+  every layer to the summit, a streak longer than the best run's pulls, a
+  lifetime of fewer pulls than the best run, points without a pull, a score
+  above the ceiling the engine's own pricing gives (the richest pull at
+  every cap, for the most pulls a run can hold, plus every layer bonus),
+  runs that neither fell nor stood, more falls than runs, more causes than
+  falls, wrapped counters, or counters without a run. The app logs a
+  warning, starts from nothing, and the next finished run replaces the
+  file.
+- Failure is never fatal and never loud. A directory that cannot be
+  written is reported once, as a warning, and the app runs session-only:
+  the result screen then says BEST ... THIS SESSION rather than BEST ...,
+  so the player is not promised a memory the board does not have.
+- Version policy: the file name carries the format version (`record.v1`)
+  and the header repeats it. A build refuses every version it does not
+  know, newer or older, rather than guess at fields. A future format reads
+  each earlier version it understands and rewrites the file in its own;
+  nothing in v1 is reserved for that, because fifty-two bytes are cheap to
+  rewrite and a reserved field is a field nobody validates.
+- Intentionally not persisted: the tower, the current run, the generator
+  state and the replay log. A run is a few minutes long and is lost when
+  the app is left; there is no resume, and a run in progress is never
+  partly on disk. The best score is the only thing a player carries out.
+- The store knows no rule. It reuses the engine's own fold for the best
+  score, height, streak, runs and pulls (`timber_record_note_run`) and
+  counts the outcome the engine reported (`timber_run_cause`); the
+  validation bounds come from the tower's dimensions and the engine's
+  pricing, not from a copy of either.
+- That `/var/lib` is writable on the K230 is DOCUMENTED from the Buildroot
+  defconfig and ASSUMED until hardware confirms it, as for PocketRadar.
 
 ## Art status (D1)
 
@@ -493,15 +562,15 @@ measured first.
 
 ## Deviations to request
 
-Two rulings are still needed before the app can go further than the
-simulator placeholder; the third, D3, has been given:
+The three rulings the review left open, and what became of them:
 
 - D1, the framed scene: the tabletop is content inside a viewport, drawn
-  with app-owned raster art rather than tokens (DS §1, §2). Pending, and
-  not yet needed: the P7 placeholder draws on tokens only.
+  with app-owned raster art rather than tokens (DS §1, §2). **Approved
+  2026-09-08** with the art direction (Art status below).
 - D2, an app-owned record file, as PocketRadar's D1 and PocketFleet's D2.
-  Pending; refused, PocketTimber loses only its best score between
-  sessions.
+  **Delivered 2026-09-08 at the owner's direction** (Persistence above):
+  records and statistics only, outside the engine, atomic, validated,
+  versioned; no run resume.
 - D3, two design additions to the reviewed model, made in P6 when the
   modelled players showed the run had no ending for a decent player
   (Pacing above). **APPROVED by the product owner, 2026-09-08.**
@@ -548,7 +617,8 @@ simulator placeholder; the third, D3, has been given:
 | `tests/timber_collapse_test.c` | the stump stays and the stack falls, a block in hand does not, the tip's shear and drop, the break, every block rests on a floor under the ceiling, some on the stump and some on the felt, a bounce, the rest pose, the same state twice, another seed, a higher hinge, both directions, the ceiling putting down a block that would fly forever |
 | `tests/timber_replay_test.c` | the action vocabulary and apply, advance, the log and its bound, a scripted session replayed bit for bit, one changed pull or another seed diverging, a session through the summit replayed to the same summit, three modelled players over five seeds: every run ends, the careful one late, the greedy one first, and every session replays exactly, lean included |
 | `tests/timber_view_test.c` | the projection and framing, a block's faces and pulling end, the tell nudge, extraction, lean and sway by height, reduced motion, the ghost, the drawing order, picking every pullable end and nothing else, the sense of the track, the sides of the slots |
-| `tests/timber_shell_test.sh` | the app in the running shell: every state renders from a fixed seed, none logs a fault, standby opens with nothing asked for, reduced motion draws the tower without the sway |
+| `tests/timber_store_test.c` | the codec and its size, refusal of damaged, truncated, padded, foreign, other-version and impossible records, the bookkeeping of a finished run (every cause, the summit, an unknown cause, a best that never regresses, a long life that still decodes), the file: missing, stored, replaced, a stale temporary, damaged, truncated, empty, padded, foreign and newer files refused and left in place, an unwritable directory, a failed replacement that loses nothing, six real runs and a summit stored and reloaded |
+| `tests/timber_shell_test.sh` | the app in the running shell: every state renders from a fixed seed, none logs a fault, standby opens with nothing asked for, a finished run stores its record and the next launch reads it back, damaged, truncated, foreign and newer records are refused without stopping play, an unwritable directory is reported once, a record is replaced in place, the placeholder path renders, reduced motion draws the tower without the sway |
 | `tests/timber_rules_test.c` | run lifecycle, generation in a run, selection and its lock, the TEST budget and stickiness, the free pull, partial extraction and pushing back, the slip, jolts and their direction, a sustained rattle and the disturbance ceiling, stiction and break-free, the slow and the yanked STUCK pull, decay and the sway's direction, the hinge and the meter in a run, the creak and its edge, the load shift and its size, the base without its centre or a side block, placement with its reseat, lean nudge and layer bonus, scoring in a run and the piece card, the shift lean and its accumulation over pulls (the sum of every shift's share, signed by direction and by offset, with the generator untouched), all four collapse causes, the choreography in a run with every LAND announced and OVER before the ceiling, the summit reached from a constructed tower (nothing in hand, everything refused after), snapshots of the run resumed before and after the summit and mid-run, the event queue, replay determinism and the untouched generator |
 | `tests/timber_lint.sh` | no LVGL, no I/O, no floating point and no platform entropy in the engine; one file touches the filesystem |
 
@@ -566,11 +636,14 @@ Run with `make CC=gcc CFLAGS="-O2 -Werror" test` (WSL2 Ubuntu 22.04, gcc
 | P5 | deterministic collapse choreography | done |
 | P6 | replay log, modelled-player pacing | done |
 | P7 | minimal simulator UI with placeholder blocks | done |
+| D1 | art direction, Blender pipeline, proof sprites in the simulator | done |
+| D2 | the record file: records and statistics, atomic and validated | done |
 
 ## Not in this pass
 
-No art (D1), no record file (D2), no audio, haptics, screen shake, tower
-rotation, camera pan, wood species, seeded challenge list, hot-seat mode,
+No run resume (the record file keeps records and statistics only, by
+decision), no production sprite set (the proof set stands in), no audio,
+haptics, screen shake, tower rotation, camera pan, wood species, seeded challenge list, hot-seat mode,
 irregular blocks, alternate layouts, tutorial, achievements, networking or
 platform change. No pause screen: a turn has no clock, and leaving the app
 abandons the run as PocketRadar does under the v0.1 lifecycle. No K230
@@ -578,6 +651,7 @@ optimisation: the table repaints every block while anything moves, which
 is the simplest correct thing and is HARDWARE VALIDATION REQUIRED before
 anything cleverer is built.
 
-What the next pass needs from the owner, in order: the two rulings still
-open (D1 art, D2 record file), the bench numbers for the gates, and then a
-real finger on the pull track, which no test here can stand in for.
+What the next pass needs from the owner, in order: the bench numbers for
+the gates, the production sprite render once the tones have been seen on
+the panel, and then a real finger on the pull track, which no test here
+can stand in for.
