@@ -31,6 +31,16 @@ check "info region" '"region":[[:space:]]*"EU868"' "$out"
 out=$("$POS" radio status)
 check "status state rx" '"state":[[:space:]]*"rx"' "$out"
 check "status default frequency" '"frequency_mhz":[[:space:]]*869.525' "$out"
+check "status default tx power is 2 dBm (bench-safe)" '"tx_power_dbm":[[:space:]]*2,' "$out"
+check "status default sync word private" '"sync_word":[[:space:]]*18' "$out"
+
+# TX power bounds through radio.configure: chip range (code 2) and region cap (code 3)
+out=$("$POS" radio configure tx_power_dbm=-10 2>&1)
+check "chip range rejects -10 dBm" 'code 2' "$out"
+out=$("$POS" radio configure tx_power_dbm=15 2>&1)
+check "region cap rejects 15 dBm" 'code 3' "$out"
+out=$("$POS" radio status)
+check "rejected power left the default" '"tx_power_dbm":[[:space:]]*2,' "$out"
 
 out=$("$POS" radio configure frequency_mhz=868.1 spreading_factor=7 tx_power_dbm=10 crc=true)
 check "configure applied sf7" '"spreading_factor":[[:space:]]*7' "$out"
@@ -132,6 +142,40 @@ check "radiod survives invalid JSON frame" '"chip"' "$out"
 kill $RADIOD_PID
 wait $RADIOD_PID 2>/dev/null
 [ -S "$POCKETOS_RUNTIME_DIR/radiod.sock" ] && { echo "FAIL socket not removed on exit"; failed=$((failed + 1)); } || echo "ok   socket removed on exit"
+
+# Start-up defaults and restart behaviour (a restart must never raise the
+# power back to the region maximum on its own).
+"$RADIOD" > "$POCKETOS_RUNTIME_DIR/radiod_defaults.log" 2>&1 &   # no arguments at all
+RADIOD_PID=$!
+for _ in $(seq 1 50); do [ -S "$POCKETOS_RUNTIME_DIR/radiod.sock" ] && break; sleep 0.1; done
+out=$("$POS" radio info)
+check "default backend is mock" '"backend":[[:space:]]*"mock"' "$out"
+check "default region is EU868" '"region":[[:space:]]*"EU868"' "$out"
+out=$("$POS" radio status)
+check "default tx power 2 dBm without arguments" '"tx_power_dbm":[[:space:]]*2,' "$out"
+"$POS" radio configure tx_power_dbm=10 >/dev/null
+out=$("$POS" radio status); check "operator raised power to 10" '"tx_power_dbm":[[:space:]]*10' "$out"
+kill $RADIOD_PID; wait $RADIOD_PID 2>/dev/null
+"$RADIOD" --tx-power-dbm 5 > "$POCKETOS_RUNTIME_DIR/radiod_restart.log" 2>&1 &
+RADIOD_PID=$!
+for _ in $(seq 1 50); do [ -S "$POCKETOS_RUNTIME_DIR/radiod.sock" ] && break; sleep 0.1; done
+out=$("$POS" radio status)
+check "restart returns to the configured start power, not 10 or 14" '"tx_power_dbm":[[:space:]]*5,' "$out"
+kill $RADIOD_PID; wait $RADIOD_PID 2>/dev/null
+
+# Invalid start-up configuration is refused before the radio is touched
+"$RADIOD" --tx-power-dbm 15 > "$POCKETOS_RUNTIME_DIR/radiod_bad1.log" 2>&1; rc=$?
+check "--tx-power-dbm 15 above the EU868 cap exits 2" '1' "$([ $rc -eq 2 ] && echo 1 || echo 0)"
+check "the refusal names the region" 'region EU868' "$(cat "$POCKETOS_RUNTIME_DIR/radiod_bad1.log")"
+"$RADIOD" --tx-power-dbm abc > "$POCKETOS_RUNTIME_DIR/radiod_bad2.log" 2>&1; rc=$?
+check "--tx-power-dbm abc exits 2" '1' "$([ $rc -eq 2 ] && echo 1 || echo 0)"
+"$RADIOD" --tx-power-dbm -10 > "$POCKETOS_RUNTIME_DIR/radiod_bad3.log" 2>&1; rc=$?
+check "--tx-power-dbm -10 below the chip range exits 2" '1' "$([ $rc -eq 2 ] && echo 1 || echo 0)"
+"$RADIOD" --backend bogus > "$POCKETOS_RUNTIME_DIR/radiod_bad4.log" 2>&1; rc=$?
+check "--backend bogus exits 2" '1' "$([ $rc -eq 2 ] && echo 1 || echo 0)"
+"$RADIOD" --region MARS > "$POCKETOS_RUNTIME_DIR/radiod_bad5.log" 2>&1; rc=$?
+check "--region MARS exits 2" '1' "$([ $rc -eq 2 ] && echo 1 || echo 0)"
+check "no socket left by refused starts" '1' "$([ -S "$POCKETOS_RUNTIME_DIR/radiod.sock" ] && echo 0 || echo 1)"
 rm -rf "$POCKETOS_RUNTIME_DIR"
 echo "radiod_mock_test: $failed failure(s)"
 exit $((failed > 0))

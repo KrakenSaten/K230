@@ -17,19 +17,24 @@ LOGFILE=$LOGDIR/radiod.stdio.log
 # sx1262 needs the vendor launcher to release the radio; keep mock until then.
 RADIOD_BACKEND=mock
 RADIOD_REGION=EU868
+# Requested TX power at every start. The radio profile is not persisted, so
+# a restart always returns here (2 dBm, bench-safe) and never to the region
+# maximum; raise it per session with `pos radio configure tx_power_dbm=N`
+# or set it here in /etc/default/radiod once the antenna is confirmed.
+RADIOD_TX_POWER_DBM=2
 [ -r /etc/default/radiod ] && . /etc/default/radiod
 export POCKETOS_LOG_DIR=$LOGDIR
 export POCKETOS_LOG_STDERR=0
 
 start() {
-	printf "Starting radiod (%s, %s): " "$RADIOD_BACKEND" "$RADIOD_REGION"
+	printf "Starting radiod (%s, %s, %s dBm): " "$RADIOD_BACKEND" "$RADIOD_REGION" "$RADIOD_TX_POWER_DBM"
 	[ -x "$DAEMON" ] || { echo "missing"; return 0; }
 	mkdir -p /run/pocketos /var/run "$LOGDIR"
 	if [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
 		echo "already running"; return 0
 	fi
 	[ -f "$LOGFILE" ] && mv -f "$LOGFILE" "$LOGFILE.1"
-	nohup "$SUPERVISE" radiod "$DAEMON" --backend "$RADIOD_BACKEND" --region "$RADIOD_REGION" >"$LOGFILE" 2>&1 &
+	nohup "$SUPERVISE" radiod "$DAEMON" --backend "$RADIOD_BACKEND" --region "$RADIOD_REGION" --tx-power-dbm "$RADIOD_TX_POWER_DBM" >"$LOGFILE" 2>&1 &
 	echo $! > "$PIDFILE"
 	echo "OK"
 }
