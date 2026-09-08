@@ -7,7 +7,7 @@ docs/decisions/; this file explains how the pieces fit.
 ## Layers
 
 ```text
-apps/            In-process apps (radio, system, fleet, radar). Talk to services over pocketipc only;
+apps/            In-process apps (radio, system, fleet, radar, timber). Talk to services over pocketipc only;
                  app state under /var/lib/pocketos/<app>/ ($POCKETOS_STATE_DIR).
 ui/shell         Shell: status bar, launcher, app host, display/input backend, settings store.
 ui/pocketui      Design tokens, theme engine and shared role styles on top of LVGL 9.

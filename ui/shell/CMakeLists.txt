@@ -65,6 +65,19 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/radar/ui/radar_scope.c
     ${REPO_DIR}/apps/radar/ui/radar_screens.c
     ${REPO_DIR}/core/pocketpaths.c
+    ${REPO_DIR}/apps/timber/timber_app.c
+    ${REPO_DIR}/apps/timber/engine/timber_types.c
+    ${REPO_DIR}/apps/timber/engine/timber_rng.c
+    ${REPO_DIR}/apps/timber/engine/timber_tower.c
+    ${REPO_DIR}/apps/timber/engine/timber_pull.c
+    ${REPO_DIR}/apps/timber/engine/timber_stability.c
+    ${REPO_DIR}/apps/timber/engine/timber_score.c
+    ${REPO_DIR}/apps/timber/engine/timber_collapse.c
+    ${REPO_DIR}/apps/timber/engine/timber_rules.c
+    ${REPO_DIR}/apps/timber/engine/timber_replay.c
+    ${REPO_DIR}/apps/timber/ui/timber_view.c
+    ${REPO_DIR}/apps/timber/ui/timber_table.c
+    ${REPO_DIR}/apps/timber/ui/timber_screens.c
     ${REPO_DIR}/core/pocketipc/pocketipc.c
     ${REPO_DIR}/core/pocketipc/server.c
     ${REPO_DIR}/core/pocketlog/pocketlog.c

@@ -39,3 +39,4 @@ BUILD_ID
 /tests/timber_score_test
 /tests/timber_collapse_test
 /tests/timber_replay_test
+/tests/timber_view_test

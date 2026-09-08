@@ -12,10 +12,11 @@ The design basis is the cold design review of 2026-09-06 (GO WITH MAJOR
 CHANGES): a deterministic read-and-pull game with decoupled controls, no
 per-pull dice, and a collapse the player can always explain.
 
-Status: **milestone P6 (replay log, modelled players)** on branch
-`pockettimber-engine`. Not merged. Nothing has run on hardware; nothing here
-is built into the shell yet. Master and the golden bring-up image are
-untouched by this work.
+Status: **milestone P7 (the minimal simulator UI)** on branch
+`pockettimber-engine`, the last milestone of this pass. Not merged. The app
+runs in the SDL simulator with placeholder blocks; nothing has run on
+hardware and nothing has been touched by a real finger. Master and the
+golden bring-up image are untouched by this work.
 
 ## Isolation rule
 
@@ -31,14 +32,21 @@ apps/timber/engine/   vocabulary, RNG, tower state and generation, the pull
                       model, the stability model, scoring, the collapse
                       choreography, run rules, the replay log. Pure C, no
                       LVGL, no I/O, no floating point, no platform entropy.
-apps/timber/ui/       (P7) the view model and the table widget.
-apps/timber/timber_store.c  (P7) the record file: the app's only door to
-                      the filesystem.
+apps/timber/ui/       timber_view: the projection, drawing order, picking
+                      and the sense of the pull track, LVGL-free and tested
+                      headless. timber_table: the custom-drawn tower.
+                      timber_screens: the table and result screens on
+                      PocketUI role styles.
+apps/timber/timber_app.c   the shell app entry, screen ownership, the clock.
 ```
 
-The dependency runs one way (app to ui to engine) and the engine never
-calls up. It is built by the root `Makefile` so it is unit tested natively,
-and from P7 again by `ui/shell/CMakeLists.txt` into the shell binary.
+There is no store: the record file is D2, pending, so the best score lives
+for the session. The dependency runs one way (app to ui to engine) and the
+engine never calls up. The engine and the view model are built by the root
+`Makefile` so they are unit tested natively, and again by
+`ui/shell/CMakeLists.txt` into the shell binary. Registration is the two
+additive edits PocketFleet was approved for: one line in `ui/shell/shell.c`
+and the sources in `ui/shell/CMakeLists.txt`.
 
 `tests/timber_lint.sh` states the structure as an executable rule: the
 engine contains no LVGL, does no I/O, uses no floating point and calls no
@@ -368,6 +376,82 @@ selecting, testing and pulling is the state it had at the start.
 recorded in `docs/apps/POCKETRADAR.md`; the regression vectors are
 identical by construction.
 
+## The app
+
+Two screens. **TABLE** carries standby, the run and the collapse, because
+the tower is the same thing before, during and after. **RESULT** is
+separate because it shows different content. There is no pause screen: a
+turn has no clock, and leaving the app abandons the run under the v0.1
+lifecycle. Reading order, top to bottom, is the one the review set:
+
+```text
+HUD          SCORE (BEST in standby), LAYERS, and STABILITY as a ten-block
+             meter reading the hinge's effective margin
+table        528 x 600, a hairline panel: the tower in a fixed dimetric
+             view, both front faces visible, so every block end is
+             reachable without turning the tower
+PIECE        the selected block: its class once tested (UNKNOWN, with
+             LOOSE? for a tell, before), layer and side, WORTH, TESTS left;
+             IN HAND while placing
+controls     the pull track, 64 px, the thumb's zone; while placing, three
+             side buttons instead; then TEST and BEGIN / PLACE
+```
+
+The tower is looked at, not dragged. A tap picks the nearest pullable
+block end within 44 px, which is PocketFleet's approved aim-then-confirm
+pattern (D1 there) applied to rows 22 px tall. The pull happens on the
+track: the finger's horizontal travel is banked as it arrives and paid into
+the engine once a tick, so the engine sees exactly one travel per tick
+whatever the panel's event rate is, and the block moves in the viewport,
+never under the finger. Track-right always moves the block right on
+screen, so a block whose end faces the right face pulls on a right drag
+and pushes on a left one, and the other orientation is mirrored; the
+track's caption says which. Placement is aim-then-confirm too: LEFT,
+CENTRE and RIGHT move a ghost on the new layer (against the lean by
+default), PLACE commits, so a mis-tap can never be what fells the tower.
+
+One clock: a single LVGL timer at `TIMBER_TICK_MS` steps the engine and
+repaints the table while something moves (a finger on the track, a block
+part way out, disturbance, a collapse); at rest nothing repaints. The
+collapse plays from the engine's choreography, block by block, and the
+result appears when the last block rests. Reduced motion draws no sway;
+the engine still computes it.
+
+**Placeholder look.** Every block is three flat faces in the `line`,
+`surface_raised` and `surface` tokens with a `text_muted` hairline round
+the top, the selection is a 2 px `accent_primary` outline on the block's
+pulling end, the ghost an accent outline on the top and end. A tell is a
+2 px misalignment along the block's axis; a falling block tumbles through
+six poses by orientation and tilt. No colour is named anywhere
+(`tests/style_lint.sh`), so nothing needs the framed-scene deviation yet:
+D1 is the art, and the art is not in P7.
+
+`$POCKETTIMBER_SCREEN` opens the app in a named state from a fixed seed
+with the clock paused, the way PocketRadar does, so every shot is exactly
+the state it names:
+
+```bash
+export SDL_VIDEODRIVER=dummy POCKETTIMBER_SCREEN=pulling
+pocketos-shell --open timber --screenshot docs/design/shots/timber-pulling.png --exit-after-ms 900
+```
+
+| File | State |
+| --- | --- |
+| `timber-idle.png` | standby: the fresh tower, BEST, BEGIN |
+| `timber-run.png` | three turns in, a bottom block selected and tested STUCK, worth 1,238 |
+| `timber-pulling.png` | a block part way out, the selection locked to it |
+| `timber-placing.png` | a block in hand, the ghost on the new layer, the sides |
+| `timber-collapse.png` | mid-collapse after a yanked base block, the meter empty |
+| `timber-result.png` | the result: score, cause, layers, pulls, clean, streak |
+| `timber-pulling-reduced-motion.png` | the same as pulling with the sway not drawn |
+
+`tests/timber_shell_test.sh` renders every state headlessly and checks
+that none logs a fault:
+
+```bash
+SHELL_BIN=~/work/pocketos-build/shell/pocketos-shell bash tests/timber_shell_test.sh
+```
+
 ## Hardware gates
 
 Every constant that depends on an unmeasured K230 number lives in
@@ -376,23 +460,24 @@ is HARDWARE VALIDATION REQUIRED. The gates, all unmeasured as of P1:
 
 | Gate | Placeholder | Where it bites |
 | --- | --- | --- |
-| Sprite-storm redraw budget | not needed before P7 | the table widget's frame cost |
-| GT9895 drag event rate | pull travel sampled per 40 ms tick, judged over a 3-tick average | the speed limits and stiction in `timber_tuning.h` |
-| Drag latency | none assumed | the feel of the pull track (P7) |
-| 1 to 3 px sway readability | `TIMBER_SWAY_AMP` 0.10 widths per unit of disturbance | whether the sway the model computes is visible at the view's pixels per width (P7) |
-| 20/25 Hz target choice | `TIMBER_TICK_MS` 40 | every per-tick rate |
-| Static-tower caching strategy | deferred | P7 rendering only |
+| Sprite-storm redraw budget | the P7 table draws every block as six triangles and five lines a frame, host only, unmeasured on the K230 | the table widget's frame cost; the real art's blits |
+| GT9895 drag event rate | pull travel banked per event, paid per 40 ms tick, judged over a 3-tick average | the speed limits and stiction in `timber_tuning.h` |
+| Drag latency | none assumed | the feel of the pull track |
+| 1 to 3 px sway readability | `TIMBER_SWAY_AMP` 0.10 widths per unit; `TIMBER_VIEW_SCALE` 40 px per width, so one unit of disturbance sways the top 4 px | whether the sway is visible on the panel |
+| 20/25 Hz target choice | `TIMBER_TICK_MS` 40 | every per-tick rate, and the clock the table repaints on |
+| Static-tower caching strategy | none: the table repaints whole while anything moves and not at all at rest | P7 rendering only; the cached-band fallback in the review waits on numbers |
 
 PocketRadar H1 (docs/KNOWN_ISSUES.md) is the cheaper probe and should be
 measured first.
 
 ## Deviations to request
 
-Two rulings are needed before the app (P7) can be integrated, neither
-before the engine milestones:
+Three rulings are needed before the app can go further than the
+simulator placeholder:
 
 - D1, the framed scene: the tabletop is content inside a viewport, drawn
-  with app-owned raster art rather than tokens (DS §1, §2). Pending.
+  with app-owned raster art rather than tokens (DS §1, §2). Pending, and
+  not yet needed: the P7 placeholder draws on tokens only.
 - D2, an app-owned record file, as PocketRadar's D1 and PocketFleet's D2.
   Pending; refused, PocketTimber loses only its best score between
   sessions.
@@ -421,6 +506,8 @@ before the engine milestones:
 | `tests/timber_score_test.c` | every scoring number stated twice, the streak and its cap, the layer bonus, the record |
 | `tests/timber_collapse_test.c` | the stump stays and the stack falls, a block in hand does not, the tip's shear and drop, the break, every block rests on a floor under the ceiling, some on the stump and some on the felt, a bounce, the rest pose, the same state twice, another seed, a higher hinge, both directions, the ceiling putting down a block that would fly forever |
 | `tests/timber_replay_test.c` | the action vocabulary and apply, advance, the log and its bound, a scripted session replayed bit for bit, one changed pull or another seed diverging, three modelled players over five seeds: every run ends, the careful one late, the greedy one first, and every session replays exactly |
+| `tests/timber_view_test.c` | the projection and framing, a block's faces and pulling end, the tell nudge, extraction, lean and sway by height, reduced motion, the ghost, the drawing order, picking every pullable end and nothing else, the sense of the track, the sides of the slots |
+| `tests/timber_shell_test.sh` | the app in the running shell: every state renders from a fixed seed, none logs a fault, standby opens with nothing asked for, reduced motion draws the tower without the sway |
 | `tests/timber_rules_test.c` | run lifecycle, generation in a run, selection and its lock, the TEST budget and stickiness, the free pull, partial extraction and pushing back, the slip, jolts and their direction, a sustained rattle and the disturbance ceiling, stiction and break-free, the slow and the yanked STUCK pull, decay and the sway's direction, the hinge and the meter in a run, the creak and its edge, the load shift and its size, the base without its centre or a side block, placement with its reseat, lean nudge and layer bonus, scoring in a run and the piece card, the shift lean, all four collapse causes, the choreography in a run with every LAND announced and OVER before the ceiling, the event queue, replay determinism and the untouched generator |
 | `tests/timber_lint.sh` | no LVGL, no I/O, no floating point and no platform entropy in the engine; one file touches the filesystem |
 
@@ -437,12 +524,20 @@ Run with `make CC=gcc CFLAGS="-O2 -Werror" test` (WSL2 Ubuntu 22.04, gcc
 | P4 | scoring, placement, collapse trigger and cause | done |
 | P5 | deterministic collapse choreography | done |
 | P6 | replay log, modelled-player pacing | done |
-| P7 | minimal simulator UI with placeholder blocks | |
+| P7 | minimal simulator UI with placeholder blocks | done |
 
-## Not in v0.1
+## Not in this pass
 
-No audio, haptics, tower rotation, camera pan, wood species, seeded
-challenge list, hot-seat mode, irregular blocks, alternate layouts,
-tutorial, achievements, networking or platform change. No pause screen: a
-turn has no clock, and leaving the app abandons the run as PocketRadar
-does under the v0.1 lifecycle.
+No art (D1), no record file (D2), no audio, haptics, screen shake, tower
+rotation, camera pan, wood species, seeded challenge list, hot-seat mode,
+irregular blocks, alternate layouts, tutorial, achievements, networking or
+platform change. No pause screen: a turn has no clock, and leaving the app
+abandons the run as PocketRadar does under the v0.1 lifecycle. No K230
+optimisation: the table repaints every block while anything moves, which
+is the simplest correct thing and is HARDWARE VALIDATION REQUIRED before
+anything cleverer is built.
+
+What the next pass needs from the owner, in order: the three rulings above
+(D1 art, D2 record file, D3 the ramp), the bench numbers for the gates,
+and then a real finger on the pull track, which no test here can stand in
+for.

@@ -45,9 +45,10 @@ extern const struct pocketos_app app_radio;
 extern const struct pocketos_app app_system;
 extern const struct pocketos_app app_fleet;
 extern const struct pocketos_app app_radar;
+extern const struct pocketos_app app_timber;
 
 static const struct pocketos_app *apps[] = { &app_radio, &app_system, &app_fleet,
-                                            &app_radar };
+                                            &app_radar, &app_timber };
 #define APP_COUNT (sizeof(apps) / sizeof(apps[0]))
 
 struct shell {
