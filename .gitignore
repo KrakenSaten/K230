@@ -40,3 +40,4 @@ BUILD_ID
 /tests/timber_collapse_test
 /tests/timber_replay_test
 /tests/timber_view_test
+/tests/timber_store_test

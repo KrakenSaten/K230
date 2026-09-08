@@ -74,7 +74,7 @@ void timber_app_begin(struct timber_app *app)
      * wall clock separates sessions, the LVGL tick separates runs within
      * one, and the run counter separates runs on a board whose clock was
      * never set. The seed stays in the run, so any run can be replayed. */
-    seed = (uint32_t)time(NULL) ^ (uint32_t)lv_tick_get() ^ (app->record.runs * 2654435761u);
+    seed = (uint32_t)time(NULL) ^ (uint32_t)lv_tick_get() ^ (app->records.core.runs * 2654435761u);
     timber_run_new(&app->run, seed);
     timber_run_start(&app->run);
     app->new_best = 0;
@@ -95,7 +95,14 @@ void timber_app_finish(struct timber_app *app)
     if (app->clock) {
         lv_timer_pause(app->clock);
     }
-    app->new_best = (uint8_t)timber_record_note_run(&app->record, &app->run.score);
+    app->new_best = (uint8_t)timber_records_note_run(&app->records, &app->run.score,
+                                                     timber_run_cause(&app->run));
+    if (app->store_ok && timber_store_save(&app->records) != 0) {
+        /* One failure is enough: retrying would spend the rest of the
+         * session on a filesystem that has already said no. */
+        app->store_ok = 0;
+        LOG_WARN("timber: cannot store %s, best score is session-only", timber_store_path());
+    }
     timber_app_show(app, TIMBER_SCREEN_RESULT);
 }
 
@@ -253,6 +260,7 @@ static void debug_open(struct timber_app *app)
 static void *timber_create(lv_obj_t *root)
 {
     struct timber_app *app = calloc(1, sizeof(*app));
+    int loaded;
 
     if (!app) {
         return NULL;
@@ -263,7 +271,19 @@ static void *timber_create(lv_obj_t *root)
     /* A run exists from the start so the table has a tower to paint; it is
      * READY, so nothing moves until the player says so. */
     timber_run_new(&app->run, 1u);
-    timber_record_init(&app->record);
+    /* A missing or damaged record must never delay or prevent the app from
+     * opening: it only means there is no best score to beat (D2). */
+    timber_records_init(&app->records);
+    app->store_ok = 1;
+    loaded = timber_store_load(&app->records);
+    if (loaded < 0) {
+        LOG_WARN("timber: stored record at %s rejected, starting from nothing", timber_store_path());
+        timber_records_init(&app->records);
+    } else if (loaded == 0) {
+        LOG_INFO("timber: best score %u over %u run(s) from %s",
+                 (unsigned)app->records.core.best_score, (unsigned)app->records.core.runs,
+                 timber_store_path());
+    }
 
     app->screen[TIMBER_SCREEN_TABLE] = timber_screen_table_create(app, root);
     app->screen[TIMBER_SCREEN_RESULT] = timber_screen_result_create(app, root);

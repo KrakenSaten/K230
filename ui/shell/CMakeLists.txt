@@ -66,6 +66,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/radar/ui/radar_screens.c
     ${REPO_DIR}/core/pocketpaths.c
     ${REPO_DIR}/apps/timber/timber_app.c
+    ${REPO_DIR}/apps/timber/timber_store.c
     ${REPO_DIR}/apps/timber/engine/timber_types.c
     ${REPO_DIR}/apps/timber/engine/timber_rng.c
     ${REPO_DIR}/apps/timber/engine/timber_tower.c

@@ -194,13 +194,19 @@ TIMBER_OBJS := $(TIMBER_DIR)/timber_types.o $(TIMBER_DIR)/timber_rng.o $(TIMBER_
                $(TIMBER_DIR)/timber_collapse.o $(TIMBER_DIR)/timber_rules.o $(TIMBER_DIR)/timber_replay.o
 TIMBER_TESTS := tests/timber_rng_test tests/timber_types_test tests/timber_tower_test tests/timber_pull_test \
                 tests/timber_stability_test tests/timber_score_test tests/timber_collapse_test tests/timber_rules_test \
-                tests/timber_replay_test tests/timber_view_test
+                tests/timber_replay_test tests/timber_view_test tests/timber_store_test
+# The store is the app's only door to the filesystem, so it sits beside the
+# app rather than inside the engine (tests/timber_lint.sh).
+TIMBER_APP_OBJS := apps/timber/timber_store.o
 
 $(TIMBER_DIR)/%.o: $(TIMBER_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(TIMBER_DIR) -c -o $@ $<
 
+apps/timber/timber_store.o: apps/timber/timber_store.c
+	$(CC) $(ALL_CFLAGS) -I$(TIMBER_DIR) -Iapps/timber -c -o $@ $<
+
 tests/timber_%_test.o: tests/timber_%_test.c
-	$(CC) $(ALL_CFLAGS) -I$(TIMBER_DIR) -c -o $@ $<
+	$(CC) $(ALL_CFLAGS) -I$(TIMBER_DIR) -Iapps/timber -Iapps/timber/ui -c -o $@ $<
 
 tests/timber_rng_test: tests/timber_rng_test.o $(TIMBER_DIR)/timber_rng.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
@@ -237,6 +243,9 @@ TIMBER_UI_OBJS := apps/timber/ui/timber_view.o
 tests/timber_view_test: tests/timber_view_test.o $(TIMBER_UI_OBJS) $(TIMBER_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+tests/timber_store_test: tests/timber_store_test.o $(TIMBER_APP_OBJS) $(TIMBER_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 # Native tests only (they execute binaries).
 test: all tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/theme_test tests/settings_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS)
 	./tests/airtime_test
@@ -265,6 +274,7 @@ test: all tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/the
 	./tests/timber_rules_test
 	./tests/timber_replay_test
 	./tests/timber_view_test
+	./tests/timber_store_test
 	bash tests/radiod_mock_test.sh
 	bash tests/supervise_test.sh
 	bash tests/initscript_test.sh
