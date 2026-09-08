@@ -26,6 +26,10 @@ CRASHLOOP="$RUN_DIR/$NAME.crashloop"
 rm -f "$CRASHLOOP"
 
 log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) supervise $NAME $*" | tee -a "$LOG" >&2; }
+# Restart timing uses the boot clock, not the wall clock: on a board without
+# an RTC the wall clock jumps from 1970 to the real date when NTP syncs, which
+# once made a 214 s run look like 1788807617 s. /proc/uptime is monotonic.
+now_s() { if [ -r /proc/uptime ]; then cut -d. -f1 /proc/uptime; else date +%s; fi; }
 
 CHILD=""
 STOPPING=0
@@ -37,9 +41,9 @@ trap on_term TERM INT
 
 backoff=1
 restarts=0
-window_start=$(date +%s)
+window_start=$(now_s)
 while [ "$STOPPING" -eq 0 ]; do
-    start=$(date +%s)
+    start=$(now_s)
     "$@" &
     CHILD=$!
     echo "$CHILD" > "$RUN_DIR/$NAME.pid"
@@ -47,7 +51,7 @@ while [ "$STOPPING" -eq 0 ]; do
     rc=$?
     CHILD=""
     [ "$STOPPING" -eq 1 ] && break
-    now=$(date +%s)
+    now=$(now_s)
     ran=$((now - start))
     if [ "$ran" -ge "$WINDOW" ]; then
         backoff=1; restarts=0; window_start=$now

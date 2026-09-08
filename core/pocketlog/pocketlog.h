@@ -17,8 +17,16 @@
  *
  * Crash reports: pocketlog_install_crash_handler() catches SIGSEGV, SIGBUS,
  * SIGILL, SIGFPE and SIGABRT, writes
- * $POCKETOS_LOG_DIR/crash-<name>-<unix time>.txt with a backtrace using only
- * async-signal-safe calls, then re-raises the signal.
+ * $POCKETOS_LOG_DIR/crash-<name>-<unix time>-<pid>.txt with a backtrace using
+ * only async-signal-safe calls, then re-raises the signal. The pid keeps
+ * reports from different boots apart on a board without an RTC, where the
+ * clock restarts at 1970 every boot until NTP syncs.
+ *
+ * Time: line timestamps and crash names use CLOCK_REALTIME, so before a
+ * time sync they read 1970-01-01 and cannot be ordered across boots; within
+ * one boot the file order is the write order, which `pos logs` preserves.
+ * Rotation and the crash handler do not depend on the clock. A monotonic
+ * boot-relative prefix is future work.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */

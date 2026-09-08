@@ -198,13 +198,30 @@ static void crash_handler(int sig)
     size_t pos = 0;
     const char *p;
 
-    /* build "<dir>/crash-<name>-<time>.txt" without snprintf (not signal-safe) */
+    /* build "<dir>/crash-<name>-<time>-<pid>.txt" without snprintf (not
+     * signal-safe). The pid is part of the name because a board without an
+     * RTC restarts the clock at 1970 on every boot: two crashes at the same
+     * boot-relative second on different boots would otherwise overwrite
+     * each other. */
     for (p = log_dir; *p && pos < sizeof(path) - 1; p++) path[pos++] = *p;
     for (p = "/crash-"; *p && pos < sizeof(path) - 1; p++) path[pos++] = *p;
     for (p = log_name; *p && pos < sizeof(path) - 1; p++) path[pos++] = *p;
     path[pos++] = '-';
     {
         unsigned long t = (unsigned long)time(NULL);
+        char digits[24];
+        int i = sizeof(digits) - 1;
+
+        digits[i] = '\0';
+        do {
+            digits[--i] = (char)('0' + t % 10);
+            t /= 10;
+        } while (t && i > 0);
+        for (p = digits + i; *p && pos < sizeof(path) - 1; p++) path[pos++] = *p;
+    }
+    path[pos++] = '-';
+    {
+        unsigned long t = (unsigned long)getpid();
         char digits[24];
         int i = sizeof(digits) - 1;
 
