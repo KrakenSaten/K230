@@ -65,8 +65,11 @@
  * neighbour that happens to be lower, which the block's micro-offset
  * stands in for. Q16.16 widths per layer per full-load shift, scaled by
  * the shift's impulse. This is the ramp: without it a careful player is
- * never brought down (docs/apps/POCKETTIMBER.md, D3). Design addition
- * pending the owner's approval; 0 restores the reviewed model. */
+ * never brought down (docs/apps/POCKETTIMBER.md, D3, approved by the
+ * product owner 2026-09-08 as a deterministic pacing mechanism). Both are
+ * tuning constants: these values are the simulator's, not hardware-tuned,
+ * and 0 restores the reviewed model. Everything here is derived from the
+ * seed and the player's actions; nothing draws from the generator. */
 #define TIMBER_SHIFT_LEAN 393           /* 0.006, along the pull */
 #define TIMBER_SHIFT_LEAN_ACROSS 262    /* 0.004, toward the lower neighbour */
 

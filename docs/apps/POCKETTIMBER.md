@@ -12,9 +12,9 @@ The design basis is the cold design review of 2026-09-06 (GO WITH MAJOR
 CHANGES): a deterministic read-and-pull game with decoupled controls, no
 per-pull dice, and a collapse the player can always explain.
 
-Status: **milestone P7 (the minimal simulator UI)** on branch
-`pockettimber-engine`, the last milestone of this pass. Not merged. The app
-runs in the SDL simulator with placeholder blocks; nothing has run on
+Status: **PRE-HARDWARE COMPLETE** (P1 to P7 accepted by the product owner
+and reviewed, 2026-09-08) on branch `pockettimber-engine`. Not merged. The
+app runs in the SDL simulator with placeholder blocks; nothing has run on
 hardware and nothing has been touched by a real finger. Master and the
 golden bring-up image are untouched by this work.
 
@@ -89,10 +89,14 @@ a test rather than a hope.
   at that moment, and the turn moves on to placing it.
 - Placing the block in hand on top ends the turn: nothing selected, two
   fresh tests. The block is reseated loose, the tower takes a knock of
-  0.25, and a block placed off centre on a layer that is still incomplete
-  nudges the lean 0.005 widths per layer toward that side, so placing
-  against the lean is the correct play; the nudges of a completed layer
-  cancel. Completing a layer pays a bonus and unlocks the layer below it.
+  0.25, and a block placed off centre nudges the lean 0.005 widths per
+  layer toward that side, so placing against the lean is the correct play;
+  the two sides of a completed layer cancel whatever order they went on
+  in, so the nudge is a correction that lasts until the layer is whole.
+  (The review of 2026-09-08 found the completing placement had been
+  exempt, which made the net nudge depend on the order; fixed to match
+  this rule.) Completing a layer pays a bonus and unlocks the layer below
+  it.
 - Nothing can be done to a falling tower: every act is refused once the
   run is collapsing, and the score is kept.
 - The summit: a placement that completes the top of a tower already at
@@ -216,14 +220,17 @@ so the pull counts are the numbers to read:
 
 | Player | Pulls | Layers reached | Cause | Bot time |
 | --- | --- | --- | --- | --- |
-| careful | 38 to 48, mean 41 | 31 to 34 | TIP, once SWAY | 84 to 100 s |
-| ordinary | 38 to 43, mean 40 | 31 to 34 | TIP, once SWAY | 86 to 94 s |
+| careful | 29 to 33, mean 31 | 28 to 29 | TIP, twice PLACEMENT | 67 to 76 s |
+| ordinary | 28 to 33, mean 30 | 28 to 29 | TIP, twice PLACEMENT | 67 to 78 s |
 | greedy | 4 to 9, mean 6 | 19 to 21 | JOLT | 5 to 10 s |
 
-At a person's pace a careful run is forty pulls and five to eight minutes,
-a reckless one six pulls and a minute; the review's two to five minutes
-lies between, where a person who is neither will land. Two things the
-measurement showed, both for the owner:
+Measured after the review's placement-nudge fix; before it the careful
+player lasted 38 to 48 pulls, because the placement that completed a
+layer was exempt from the nudge. At a person's pace a careful run is
+thirty pulls and four to seven minutes, a reckless one six pulls and a
+minute; the review's two to five minutes lies between, where a person who
+is neither will land. Two things the measurement showed, both for the
+owner:
 
 - **Impatience alone does not end a run.** The ordinary player is almost
   the careful one, because a loose block is always available: freshly
@@ -472,8 +479,8 @@ measured first.
 
 ## Deviations to request
 
-Three rulings are needed before the app can go further than the
-simulator placeholder:
+Two rulings are still needed before the app can go further than the
+simulator placeholder; the third, D3, has been given:
 
 - D1, the framed scene: the tabletop is content inside a viewport, drawn
   with app-owned raster art rather than tokens (DS §1, §2). Pending, and
@@ -483,16 +490,36 @@ simulator placeholder:
   sessions.
 - D3, two design additions to the reviewed model, made in P6 when the
   modelled players showed the run had no ending for a decent player
-  (Pacing above). **The shift lean:** a block letting go of the stack
-  leaves the tower leaning 0.006 widths per layer along the pull and 0.004
-  across it, scaled by the load it carried. It is the ramp, it is
-  controllable (pulling from alternate sides cancels the along term, and
-  placing against the lean still helps), and it is legible (the tower
-  visibly leans more as it thins). **The summit:** a tower at its 36-layer
-  bound with a complete top ends the run standing rather than locking with
-  a block in hand. Both are constants in `timber_stability.h` and
-  `timber_rules.c`; zero restores the reviewed model, and the modelled
-  players say what either setting does. Pending the owner's approval.
+  (Pacing above). **APPROVED by the product owner, 2026-09-08.**
+
+  **The shift lean** is approved as a deterministic pacing mechanism. A
+  block letting go of the stack leaves the tower leaning
+  `TIMBER_SHIFT_LEAN` (0.006 widths per layer) along its axis in the
+  direction it was drawn and `TIMBER_SHIFT_LEAN_ACROSS` (0.004) across it
+  toward the neighbour its micro-offset points at, both scaled by the
+  shift's impulse, which is the load the block carried. Every input to it
+  is state or an action: the impulse from the tower, the direction from
+  the pull, the settling side from the block's seeded micro-offset. It
+  draws nothing from the generator, so a run's lean is a function of the
+  seed and the action list and replays bit for bit, and a snapshot of the
+  run resumes to the same lean (`tests/timber_rules_test.c`,
+  `tests/timber_replay_test.c`). It is the ramp, it is controllable
+  (pulling from alternate sides cancels the along term, and placing
+  against the lean still helps), and it is legible (the tower visibly
+  leans more as it thins).
+
+  **The summit** is approved as the standing completion condition. A
+  placement that completes the top of a tower already at
+  `TIMBER_LAYERS_MAX` ends the run OVER with cause NONE, with nothing in
+  hand, nothing selected and the turn open, before any next pull could
+  start; every act is refused from then on, the tower is whole and valid,
+  and the score, with that layer paid, is kept. It is the only way a run
+  ends without a collapse.
+
+  Both remain tuning constants, in `timber_stability.h` and
+  `timber_rules.c`. **The current values are the simulator's placeholders,
+  not hardware-tuned values;** zero restores the reviewed model, and the
+  modelled players say what any setting does.
 
 ## Tests
 
@@ -505,10 +532,10 @@ simulator placeholder:
 | `tests/timber_stability_test.c` | contacts and their box on the canonical tower, the stack above each layer, the margins of every thinned-layer case stated exactly, extraction and the support threshold, lean on both axes, micro-offsets and mass, the sine table, the sway share and its peak, sway against and with the lean, the hinge and its tie rule |
 | `tests/timber_score_test.c` | every scoring number stated twice, the streak and its cap, the layer bonus, the record |
 | `tests/timber_collapse_test.c` | the stump stays and the stack falls, a block in hand does not, the tip's shear and drop, the break, every block rests on a floor under the ceiling, some on the stump and some on the felt, a bounce, the rest pose, the same state twice, another seed, a higher hinge, both directions, the ceiling putting down a block that would fly forever |
-| `tests/timber_replay_test.c` | the action vocabulary and apply, advance, the log and its bound, a scripted session replayed bit for bit, one changed pull or another seed diverging, three modelled players over five seeds: every run ends, the careful one late, the greedy one first, and every session replays exactly |
+| `tests/timber_replay_test.c` | the action vocabulary and apply, advance, the log and its bound, a scripted session replayed bit for bit, one changed pull or another seed diverging, a session through the summit replayed to the same summit, three modelled players over five seeds: every run ends, the careful one late, the greedy one first, and every session replays exactly, lean included |
 | `tests/timber_view_test.c` | the projection and framing, a block's faces and pulling end, the tell nudge, extraction, lean and sway by height, reduced motion, the ghost, the drawing order, picking every pullable end and nothing else, the sense of the track, the sides of the slots |
 | `tests/timber_shell_test.sh` | the app in the running shell: every state renders from a fixed seed, none logs a fault, standby opens with nothing asked for, reduced motion draws the tower without the sway |
-| `tests/timber_rules_test.c` | run lifecycle, generation in a run, selection and its lock, the TEST budget and stickiness, the free pull, partial extraction and pushing back, the slip, jolts and their direction, a sustained rattle and the disturbance ceiling, stiction and break-free, the slow and the yanked STUCK pull, decay and the sway's direction, the hinge and the meter in a run, the creak and its edge, the load shift and its size, the base without its centre or a side block, placement with its reseat, lean nudge and layer bonus, scoring in a run and the piece card, the shift lean, all four collapse causes, the choreography in a run with every LAND announced and OVER before the ceiling, the event queue, replay determinism and the untouched generator |
+| `tests/timber_rules_test.c` | run lifecycle, generation in a run, selection and its lock, the TEST budget and stickiness, the free pull, partial extraction and pushing back, the slip, jolts and their direction, a sustained rattle and the disturbance ceiling, stiction and break-free, the slow and the yanked STUCK pull, decay and the sway's direction, the hinge and the meter in a run, the creak and its edge, the load shift and its size, the base without its centre or a side block, placement with its reseat, lean nudge and layer bonus, scoring in a run and the piece card, the shift lean and its accumulation over pulls (the sum of every shift's share, signed by direction and by offset, with the generator untouched), all four collapse causes, the choreography in a run with every LAND announced and OVER before the ceiling, the summit reached from a constructed tower (nothing in hand, everything refused after), snapshots of the run resumed before and after the summit and mid-run, the event queue, replay determinism and the untouched generator |
 | `tests/timber_lint.sh` | no LVGL, no I/O, no floating point and no platform entropy in the engine; one file touches the filesystem |
 
 Run with `make CC=gcc CFLAGS="-O2 -Werror" test` (WSL2 Ubuntu 22.04, gcc
@@ -537,7 +564,6 @@ optimisation: the table repaints every block while anything moves, which
 is the simplest correct thing and is HARDWARE VALIDATION REQUIRED before
 anything cleverer is built.
 
-What the next pass needs from the owner, in order: the three rulings above
-(D1 art, D2 record file, D3 the ramp), the bench numbers for the gates,
-and then a real finger on the pull track, which no test here can stand in
-for.
+What the next pass needs from the owner, in order: the two rulings still
+open (D1 art, D2 record file), the bench numbers for the gates, and then a
+real finger on the pull track, which no test here can stand in for.

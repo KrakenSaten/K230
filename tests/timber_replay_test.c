@@ -16,6 +16,7 @@
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #include "timber_replay.h"
+#include "timber_summit.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -501,7 +502,48 @@ static int replays_exactly(const struct timber_log *log, const struct outcome *o
     timber_run_advance(&twice, o->ticks);
     return digest(&again) == digest(&twice) && again.score.points == o->points &&
            timber_run_cause(&again) == o->cause && timber_run_is_over(&again) == o->over &&
-           again.score.height == o->height && timber_tower_validate(&again.tower) == TIMBER_VALID;
+           again.score.height == o->height && timber_tower_validate(&again.tower) == TIMBER_VALID &&
+           again.lean_x == twice.lean_x && again.lean_y == twice.lean_y;
+}
+
+/* Apply a log's actions to a run that already exists, at their ticks. */
+static int replay_into(struct timber_run *run, const struct timber_log *log)
+{
+    uint32_t i;
+
+    for (i = 0; i < log->count; i++) {
+        timber_run_advance(run, log->actions[i].tick);
+        timber_run_apply(run, &log->actions[i]);
+    }
+    return (int)log->count;
+}
+
+static void test_replay_through_summit(void)
+{
+    struct timber_log *log = malloc_log();
+    struct timber_run live;
+    struct timber_run again;
+
+    /* The summit is not reached from a seed by any modelled player with
+     * the approved constants, so the session starts from the constructed
+     * state and the log carries only what the player did from there. */
+    summit_build(&live, 81u);
+    timber_log_init(log, 81u);
+    timber_log_act(log, &live, TIMBER_ACTION_PLACE, 1);
+    timber_run_advance(&live, live.ticks + 3);
+    timber_log_act(log, &live, TIMBER_ACTION_SELECT, 0);
+    timber_log_act(log, &live, TIMBER_ACTION_PULL, 50);
+    check("the live session ended standing, and the log kept what came after",
+          timber_run_is_over(&live) && timber_run_cause(&live) == TIMBER_CAUSE_NONE && log->count == 3);
+
+    summit_build(&again, 81u);
+    replay_into(&again, log);
+    check("replayed, the session reaches the same summit, bit for bit",
+          digest(&again) == digest(&live) && timber_run_is_over(&again) &&
+          timber_run_cause(&again) == TIMBER_CAUSE_NONE && timber_run_held(&again) == -1 &&
+          again.lean_x == live.lean_x && again.lean_y == live.lean_y &&
+          again.score.points == live.score.points && again.ticks == live.ticks);
+    free_log(log);
 }
 
 static void test_modelled_players(void)
@@ -585,6 +627,7 @@ int main(void)
     test_actions();
     test_log();
     test_scripted_replay();
+    test_replay_through_summit();
     test_modelled_players();
 
     printf("timber_replay_test: %d failure(s)\n", failed);

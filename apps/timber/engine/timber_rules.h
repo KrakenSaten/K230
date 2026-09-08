@@ -24,10 +24,11 @@
  * falls below the creak line.
  *
  * Placing the block in hand on top ends the turn: the block is reseated
- * loose, the tower takes a small knock, and a block placed off centre on an
- * incomplete layer nudges the lean toward that side, so placing against
- * the lean is the correct play. Completing a layer unlocks the one that
- * was below it and pays a bonus.
+ * loose, the tower takes a small knock, and a block placed off centre
+ * nudges the lean toward that side, so placing against the lean is the
+ * correct play; the two sides of a completed layer cancel, whatever order
+ * they went on in. Completing a layer unlocks the one that was below it
+ * and pays a bonus.
  *
  * The trigger. After every tick and every act the run measures the tower;
  * when the hinge's effective margin is below zero the tower falls there,
@@ -66,9 +67,10 @@
 #define TIMBER_TESTS_PER_TURN 2
 
 /* What placing a block does to the tower: a knock of 0.25, and, off
- * centre on an incomplete layer, a lean of 0.005 widths per layer toward
- * that side (Q16.16). The nudge is a design decision, not physics: it is
- * what makes placing against the lean the correct play. */
+ * centre, a lean of 0.005 widths per layer toward that side (Q16.16),
+ * which the other side of the layer cancels when it goes on. The nudge is
+ * a design decision, not physics: it is what makes placing against the
+ * lean the correct play. */
 #define TIMBER_PLACE_IMPULSE 64
 #define TIMBER_PLACE_LEAN 328
 
