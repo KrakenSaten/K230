@@ -25,9 +25,9 @@ static void test_projection(void)
     int sx;
     int sy;
 
-    timber_view_init(&v, 528, 600, 1);
+    timber_view_init(&v, 528, 700, 1);
     check("the origin is centred with the base clear of the bottom",
-          v.ox == 264 && v.oy == 600 - TIMBER_VIEW_MARGIN - 3 * TIMBER_VIEW_SCALE);
+          v.ox == 264 && v.oy == 700 - TIMBER_VIEW_MARGIN - 3 * TIMBER_VIEW_SCALE);
     timber_view_project(&v, 0, 0, 0, &sx, &sy);
     check("the world origin projects to the view origin", sx == v.ox && sy == v.oy);
     timber_view_project(&v, TIMBER_UNIT, 0, 0, &sx, &sy);
@@ -42,7 +42,7 @@ static void test_projection(void)
 
     timber_view_frame(&v, 40);
     check("a tower too tall for the view keeps its top in view and drops its base out",
-          v.oy - 40 * TIMBER_VIEW_LAYER_PX == TIMBER_VIEW_MARGIN && v.oy > 600);
+          v.oy - 40 * TIMBER_VIEW_LAYER_PX == TIMBER_VIEW_MARGIN && v.oy > 700);
     timber_view_frame(&v, 0);
     check("framing nothing frames one layer", v.oy - TIMBER_VIEW_LAYER_PX >= TIMBER_VIEW_MARGIN);
     timber_view_init(NULL, 1, 1, 1);
@@ -60,7 +60,7 @@ static void test_block_shape(void)
     int sx;
     int sy;
 
-    timber_view_init(&v, 528, 600, 1);
+    timber_view_init(&v, 528, 700, 1);
     timber_run_new(&run, 7u);
     run.tower.blocks[0].tell = 0;
     check("a block not in the tower has no shape",
@@ -69,6 +69,8 @@ static void test_block_shape(void)
     check("block 0 has a shape", timber_view_block(&v, &run, 0, &s) == 0);
     timber_view_project(&v, 0, 0, TIMBER_BLOCK_HEIGHT, &sx, &sy);
     check("its top face starts at its far corner, one layer up", s.top.x[0] == sx && s.top.y[0] == sy);
+    check("its sprite anchor is its far-bottom corner, and it runs along x",
+          s.origin_x == v.ox && s.origin_y == v.oy && s.along_x);
     timber_view_project(&v, TIMBER_BLOCK_LENGTH, TIMBER_UNIT / 2, TIMBER_BLOCK_HEIGHT / 2, &sx, &sy);
     check("an x block is pulled by its +x end, which is the right face",
           s.end_is_right && s.end_x == sx && s.end_y == sy);
@@ -144,7 +146,7 @@ static void test_ghost_and_order(void)
     int i;
     int ascending = 1;
 
-    timber_view_init(&v, 528, 600, 1);
+    timber_view_init(&v, 528, 700, 1);
     timber_run_new(&run, 8u);
     timber_run_start(&run);
     check("no ghost with nothing in hand", timber_view_ghost(&v, &run, 1, &s) == -1);
@@ -187,7 +189,7 @@ static void test_picking(void)
     int id;
     int picked_all = 1;
 
-    timber_view_init(&v, 528, 600, 1);
+    timber_view_init(&v, 528, 700, 1);
     timber_run_new(&run, 9u);
     timber_run_start(&run);
     for (id = 0; id < TIMBER_BLOCKS; id++) {
@@ -213,13 +215,14 @@ static void test_track_and_sides(void)
 {
     struct timber_view v;
 
-    timber_view_init(&v, 528, 600, 1);
+    timber_view_init(&v, 528, 700, 1);
     check("an x block moves right when drawn toward the player, a y block left",
           timber_view_track_sign(0) == 1 && timber_view_track_sign(1) == -1);
-    check("forty pixels of drag is one width of travel, in the block's sense",
+    check("one scale of drag is one width of travel, in the block's sense",
           timber_view_travel(&v, 0, TIMBER_VIEW_SCALE) == TIMBER_UNIT &&
           timber_view_travel(&v, 1, TIMBER_VIEW_SCALE) == -TIMBER_UNIT &&
-          timber_view_travel(&v, 0, -10) == -64 && timber_view_travel(NULL, 0, 10) == 0);
+          timber_view_travel(&v, 0, -10) == -10 * 256 / TIMBER_VIEW_SCALE &&
+          timber_view_travel(NULL, 0, 10) == 0);
     check("across an x layer slot 0 is the right side, across a y layer the left",
           timber_view_slot_side(0, 0) == 1 && timber_view_slot_side(0, 1) == 0 &&
           timber_view_slot_side(0, 2) == -1 && timber_view_slot_side(1, 0) == -1 &&

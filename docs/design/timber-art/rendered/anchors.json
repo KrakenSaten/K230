@@ -1,0 +1,40 @@
+{
+  "scale_px": 36,
+  "layer_px": 26,
+  "sprites": {
+    "block_x_t0_p0": {
+      "file": "block_x_t0_p0.png",
+      "w": 148,
+      "h": 102,
+      "ax": 38.0,
+      "ay": 28.23,
+      "bbox_px": [
+        144,
+        98
+      ]
+    },
+    "block_y_t0_p0": {
+      "file": "block_y_t0_p0.png",
+      "w": 148,
+      "h": 102,
+      "ax": 110.0,
+      "ay": 28.23,
+      "bbox_px": [
+        144,
+        98
+      ]
+    },
+    "felt": {
+      "file": "felt_tile.png",
+      "w": 128,
+      "h": 128
+    },
+    "shadow": {
+      "file": "tower_shadow.png",
+      "w": 304,
+      "h": 196,
+      "ax": 152.0,
+      "ay": 44.0
+    }
+  }
+}

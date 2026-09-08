@@ -71,10 +71,12 @@ static void layer_offset(const struct timber_view *v, const struct timber_run *r
     }
 }
 
-/* The three visible faces of a box from x0..x1, y0..y1, z0..z1. */
+/* The three visible faces of a box from x0..x1, y0..y1, z0..z1, and the
+ * corner a sprite is anchored by. */
 static void box_shape(const struct timber_view *v, int32_t x0, int32_t y0, int32_t x1, int32_t y1,
                       int32_t z0, int32_t z1, struct timber_shape *out)
 {
+    timber_view_project(v, x0, y0, z0, &out->origin_x, &out->origin_y);
     /* Top face, going round: far, right, near, left. */
     timber_view_project(v, x0, y0, z1, &out->top.x[0], &out->top.y[0]);
     timber_view_project(v, x1, y0, z1, &out->top.x[1], &out->top.y[1]);
@@ -157,6 +159,7 @@ int timber_view_block(const struct timber_view *v, const struct timber_run *run,
     }
     box_shape(v, r.x0 + dx, r.y0 + dy, r.x1 + dx, r.y1 + dy, z0, z0 + TIMBER_BLOCK_HEIGHT, out);
     out->end_is_right = along_x;
+    out->along_x = along_x;
     if (along_x) {
         timber_view_project(v, r.x1 + dx, (r.y0 + r.y1) / 2 + dy, z0 + TIMBER_BLOCK_HEIGHT / 2,
                             &out->end_x, &out->end_y);
@@ -188,6 +191,7 @@ int timber_view_ghost(const struct timber_view *v, const struct timber_run *run,
     z0 = (int32_t)layer * TIMBER_BLOCK_HEIGHT;
     box_shape(v, r.x0 + dx, r.y0 + dy, r.x1 + dx, r.y1 + dy, z0, z0 + TIMBER_BLOCK_HEIGHT, out);
     out->end_is_right = timber_layer_axis(layer) == TIMBER_AXIS_X;
+    out->along_x = out->end_is_right;
     return 0;
 }
 
