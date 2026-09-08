@@ -18,6 +18,7 @@
 #include "shell_ipc.h"
 
 #include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -66,6 +67,17 @@ struct shell {
 };
 
 static struct shell sh;
+
+/* Set from SIGTERM or SIGINT; the main loop leaves through its normal exit
+ * path so the app is destroyed and the socket is unlinked. */
+static volatile sig_atomic_t stop_requested;
+
+static void on_signal(int sig)
+{
+    (void)sig;
+    stop_requested = 1;
+}
+
 /* Whether the last status poll reached radiod, so the transition is logged
  * rather than the state repeated every second. */
 static int radio_reachable = 1;
@@ -609,10 +621,19 @@ int main(int argc, char **argv)
     sh.tick = lv_timer_create(on_tick, 1000, NULL);
     lv_timer_set_period(sh.tick, sh.screenshot_pending ? 300 : 1000);
 
+    /* After the display backend, so this wins over the handlers SDL installs
+     * for itself in the simulator. */
+    signal(SIGTERM, on_signal);
+    signal(SIGINT, on_signal);
+
     started = lv_tick_get();
     for (;;) {
         uint32_t wait = lv_timer_handler();
 
+        if (stop_requested) {
+            LOG_INFO("stopping on signal");
+            break;
+        }
         if (exit_after_ms >= 0 && (long)(lv_tick_get() - started) >= exit_after_ms) {
             break;
         }

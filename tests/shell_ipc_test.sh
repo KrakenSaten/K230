@@ -93,12 +93,17 @@ done
 check "shell recovers when radiod answers again" '"current":[[:space:]]*"home"' "$out"
 
 kill $SP; wait $SP 2>/dev/null; kill $RP; wait $RP 2>/dev/null
+# SIGTERM leaves through the normal exit path: the app is destroyed and the
+# listening socket is unlinked. Before that, /etc/init.d/S90pocketos-shell stop
+# left a stale shell.sock behind and this test had to delete it by hand.
+check "SIGTERM removes the listening socket" '1' \
+      "$([ ! -e "$POCKETOS_RUNTIME_DIR/shell.sock" ] && echo 1 || echo 0)"
+check "clean stop is logged" 'stopping on signal' "$(cat "$OUT/shell.log")"
 check_empty "shell log has no errors" "$(grep -i 'error\|assert' "$OUT/shell.log" || true)"
 # a corrupt stored value must not prevent start and must fall back (DS §8)
 printf 'theme=zzz
 display_mode=normal
 ' > "$POCKETOS_CONFIG_DIR/settings.conf"
-rm -f "$POCKETOS_RUNTIME_DIR/shell.sock"   # the killed instance leaves its socket file behind
 "$SHELL_BIN" >"$OUT/shell2.log" 2>&1 & SP=$!
 for _ in $(seq 1 50); do [ -S "$POCKETOS_RUNTIME_DIR/shell.sock" ] && break; sleep 0.1; done
 out=$("$POS" shell info); check "corrupt stored theme falls back to ice" '"theme":[[:space:]]*"ice"' "$out"
