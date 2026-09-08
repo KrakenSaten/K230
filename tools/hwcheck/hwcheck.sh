@@ -187,19 +187,6 @@ if [ "$DO_LORA" -eq 1 ]; then
         LORA_PIDS="$LORA_PIDS $HOLD_PID"
     }
     lora_stop() { kill "$1" 2>/dev/null; wait "$1" 2>/dev/null; }
-    lora_wait_busy_low() { # <max tenths of a second>: true once BUSY (GPIO19) reads inactive
-        n=0
-        BUSY_MS=0
-        while :; do
-            case "$(gpioget --chip gpiochip0 19 2>/dev/null)" in
-                *inactive*) return 0 ;;
-            esac
-            n=$((n + 1))
-            [ "$n" -ge "$1" ] && return 1
-            sleep 0.1
-            BUSY_MS=$((n * 100))
-        done
-    }
     lora_bounded() { # <tenths-of-a-second> <cmd...>: run, kill when the budget expires
         budget=$1; shift
         "$@" </dev/null &
@@ -210,6 +197,44 @@ if [ "$DO_LORA" -eq 1 ]; then
         kill "$bp" 2>/dev/null
         wait "$bp" 2>/dev/null
         return $?
+    }
+    lora_status_mode() { # GetStatus 0xC0: prints the chip-mode field (2 STDBY_RC, 3 STDBY_XOSC), or nothing
+        lora_bounded 20 sh -c "printf '\\300\\000' | spi-pipe -d $LORA_SPIDEV -m 0 -s 1000000 -b 2 > '$OUT/lora_ready.bin'"
+        st=$(od -An -tu1 "$OUT/lora_ready.bin" 2>/dev/null | awk 'NF {print $NF}')
+        [ -n "$st" ] && echo $(( (st / 16) % 8 ))
+    }
+    lora_wait_ready() { # <max tenths of a second>: true once the chip is really out of reset
+        # What radiod does after RST goes high (RadioLib SX126x::reset): it
+        # never trusts one BUSY sample, it issues a command and requires an
+        # accepted standby status, retrying for up to 1 s, "because SX126x
+        # often refuses the first few commands after reset". Unit A, v0.0.4:
+        # BUSY sampled 0 ms after the release still read the pre-reset low,
+        # the probe read the registers mid-initialisation and got a transient
+        # 24 b4 while GetStatus a moment later was a clean STDBY_RC. Ready is
+        # therefore BUSY low AND a standby chip mode from GetStatus, seen on
+        # two consecutive polls 100 ms apart, so at least one poll interval of
+        # settle separates the first good status from the register read. No
+        # SPI is touched while BUSY is active.
+        n=0
+        good=0
+        READY_MS=0
+        while [ "$n" -lt "$1" ]; do
+            case "$(gpioget --chip gpiochip0 19 2>/dev/null)" in
+                *inactive*)
+                    mode=$(lora_status_mode)
+                    if [ "$mode" = 2 ] || [ "$mode" = 3 ]; then
+                        good=$((good + 1))
+                        if [ "$good" -ge 2 ]; then READY_MS=$((n * 100)); READY_MODE=$mode; return 0; fi
+                    else
+                        good=0
+                    fi
+                    ;;
+                *) good=0 ;;
+            esac
+            n=$((n + 1))
+            sleep 0.1
+        done
+        return 1
     }
     lora_owners() { # consumers currently holding the four LoRa lines
         { gpioinfo --chip gpiochip0 2>/dev/null | grep -E 'line +(5|19|20):'
@@ -255,25 +280,21 @@ if [ "$DO_LORA" -eq 1 ]; then
         sleep 0.02
         lora_stop "$RST_PID"
         lora_hold gpiochip0 5 1; RST_PID=$HOLD_PID
-        if lora_wait_busy_low 10; then
-            say "BUSY (GPIO19) inactive within ${BUSY_MS} ms of reset; DIO1 (GPIO20): $(gpioget --chip gpiochip0 20 2>&1)"
+        if lora_wait_ready 20; then
+            say "SX126x ready ${READY_MS} ms after reset: BUSY (GPIO19) low, GetStatus chip mode ${READY_MODE} (standby), held over two polls; DIO1 (GPIO20): $(gpioget --chip gpiochip0 20 2>&1)"
             say "ReadRegister 0x0740..0x0741 (expect .. .. .. .. 14 24):"
             lora_bounded 50 sh -c "printf '\\035\\007\\100\\000\\000\\000' | spi-pipe -d $LORA_SPIDEV -m 0 -s 1000000 -b 6 > '$OUT/lora_reg.bin'"
             regs=$(od -An -tx1 "$OUT/lora_reg.bin" 2>/dev/null | tr -s ' \n' ' ')
             say "  $regs"
-            if lora_wait_busy_low 10; then
-                say "GetStatus 0xC0 (expect chip mode bits in byte 2):"
-                lora_bounded 50 sh -c "printf '\\300\\000' | spi-pipe -d $LORA_SPIDEV -m 0 -s 1000000 -b 2 > '$OUT/lora_status.bin'"
-                say "  $(od -An -tx1 "$OUT/lora_status.bin" 2>/dev/null | tr -s ' \n' ' ')"
-            else
-                say "BUSY (GPIO19) still active 1000 ms after the register read; GetStatus skipped"
-            fi
+            say "GetStatus 0xC0 (expect chip mode bits in byte 2):"
+            lora_bounded 50 sh -c "printf '\\300\\000' | spi-pipe -d $LORA_SPIDEV -m 0 -s 1000000 -b 2 > '$OUT/lora_status.bin'"
+            say "  $(od -An -tx1 "$OUT/lora_status.bin" 2>/dev/null | tr -s ' \n' ' ')"
             case "$regs" in
                 *"14 24"*) say "sync word registers read 14 24: SX126x answers on $LORA_SPIDEV (VERIFIED)" ;;
                 *) say "UNEXPECTED: sync word registers did not read 14 24 (check power, reset, wiring)"; LORA_RC=5 ;;
             esac
         else
-            say "UNEXPECTED: BUSY (GPIO19) still active 1000 ms after reset with RST driven high: SX126x not ready (check power, wiring); no SPI read attempted"
+            say "UNEXPECTED: SX126x not ready 2000 ms after reset with RST driven high (BUSY never low with a standby status on two consecutive polls); no register read attempted"
             LORA_RC=5
         fi
         say "power off (releasing GPIO5, GPIO44 and every gpioset child)"
