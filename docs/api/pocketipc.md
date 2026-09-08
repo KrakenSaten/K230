@@ -54,13 +54,43 @@ must never happen for one misbehaving client. Policy (bounded, tested in
 `tests/pocketipc_test.c`):
 
 - a write that would block waits for the peer to drain for at most
-  `POCKETIPC_SEND_TIMEOUT_MS` (200 ms) per frame;
+  `POCKETIPC_SEND_TIMEOUT_MS` (200 ms) per frame, header and body sharing one
+  budget;
 - if the peer still has not drained, the write fails with `ETIMEDOUT` and
   the service disconnects that client, dropping whatever it had not read;
 - clients that read late but within the window lose nothing.
 
 There is no output queue in v0: the kernel socket buffer is the queue.
 Clients that subscribe to events must read continuously.
+
+## Request deadlines
+
+Backpressure bounds what a slow *client* can do to a service. The other
+direction is the caller's own choice, and the two are not symmetric.
+
+`pocketipc_call` waits for as long as the service takes. `pocketipc_call_timeout`
+gives up after a caller-supplied number of milliseconds and reports a
+**transport failure** (`*code` 0, message `"<method> timed out after N ms"`),
+not an error response. A caller that times out **must close the connection**:
+the response may still arrive, and reading it as the answer to the next
+request would desynchronise the two. `shell_ipc_call_timeout` does this, and
+reconnects on the next call.
+
+Which calls should carry a deadline is a judgement about what the call means,
+not a default to apply everywhere:
+
+- a **periodic poll** should. If the service does not answer in time the
+  caller can simply ask again, and the alternative is an unbounded wait on
+  whatever thread the poll runs on. The shell's once-a-second `radio.status`
+  poll uses 200 ms for this reason.
+- a **request whose completion is the point** should not, until the service
+  can report completion separately. `radio.send` is synchronous and blocks
+  radiod for the airtime; a deadline there would tell the user the packet
+  failed while it was being transmitted. It keeps waiting.
+
+v0 has no way for a handler to accept a request and answer later, so a
+service is unavailable to every client for as long as any one handler runs.
+That, and the asynchronous transmit path it would allow, are design items.
 
 ## Peer disappearance
 

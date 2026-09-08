@@ -41,6 +41,12 @@ static struct conn *find_conn(const char *service)
 cJSON *shell_ipc_call(const char *service, const char *method, cJSON *params,
                       char *err, size_t errlen)
 {
+    return shell_ipc_call_timeout(service, method, params, 0, err, errlen);
+}
+
+cJSON *shell_ipc_call_timeout(const char *service, const char *method, cJSON *params,
+                              int timeout_ms, char *err, size_t errlen)
+{
     struct conn *c = find_conn(service);
     cJSON *result;
     int code = 0;
@@ -61,9 +67,11 @@ cJSON *shell_ipc_call(const char *service, const char *method, cJSON *params,
             return NULL;
         }
     }
-    result = pocketipc_call(c->fd, method, params, &code, err, errlen);
+    result = pocketipc_call_timeout(c->fd, method, params, timeout_ms, &code, err, errlen);
     if (!result && code == 0) {
-        /* transport failure: drop the connection, reconnect next time */
+        /* Transport failure: drop the connection, reconnect next time. A
+         * timeout reports code 0 for exactly this reason -- a late response
+         * must not be read as the answer to the next request. */
         close(c->fd);
         c->fd = -1;
     }

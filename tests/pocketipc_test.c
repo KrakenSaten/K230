@@ -160,12 +160,53 @@ static void test_dead_peer(void)
     close(sv[0]);
 }
 
+/* A service that is alive, accepts the request and never answers. Without a
+ * deadline this is the case that froze the shell: no crash, so the supervisor
+ * saw nothing wrong, and the UI thread never came back. */
+static void test_wedged_service(void)
+{
+    int sv[2];
+    cJSON *result;
+    int code = 99;
+    char err[128] = "";
+    struct timespec t0;
+    long elapsed;
+
+    check("socketpair (wedged)", socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    result = pocketipc_call_timeout(sv[0], "radio.status", NULL, 200, &code, err, sizeof(err));
+    elapsed = ms_since(&t0);
+    check("wedged service: call returns NULL", result == NULL);
+    check("wedged service: reported as a transport failure (code 0)", code == 0);
+    check("wedged service: error names the timeout", strstr(err, "timed out") != NULL);
+    check("wedged service: error names the method", strstr(err, "radio.status") != NULL);
+    check("wedged service: waited at least the deadline", elapsed >= 150);
+    check("wedged service: did not wait much longer", elapsed <= 2000);
+
+    /* The same call without a deadline is the old behaviour and must stay:
+     * verified by the peer answering late and the call still succeeding. */
+    {
+        char *text = pocketipc_read_frame(sv[1], NULL);   /* the request */
+        cJSON *resp;
+
+        free(text);
+        resp = cJSON_CreateObject();
+        cJSON_AddNumberToObject(resp, "id", 2);
+        cJSON_AddItemToObject(resp, "result", cJSON_CreateObject());
+        check("wedged service: peer can still be answered", pocketipc_send(sv[1], resp) == 0);
+        cJSON_Delete(resp);
+    }
+    close(sv[0]);
+    close(sv[1]);
+}
+
 int main(void)
 {
     test_stalled_peer();
     test_slow_peer();
     test_limits();
     test_dead_peer();
+    test_wedged_service();
     printf("pocketipc_test: %d failure(s)\n", failed);
     return failed ? 1 : 0;
 }

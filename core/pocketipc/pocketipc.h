@@ -42,6 +42,8 @@ int pocketipc_send(int fd, const cJSON *msg);
 /* Read one frame; returns malloc'd NUL-terminated JSON text (caller frees)
  * or NULL on EOF, error or oversized frame. */
 char *pocketipc_read_frame(int fd, size_t *len);
+/* Same, giving up after timeout_ms with errno ETIMEDOUT. 0 waits forever. */
+char *pocketipc_read_frame_timeout(int fd, size_t *len, int timeout_ms);
 
 /* Incremental reader for non-blocking servers. */
 struct pocketipc_reader {
@@ -72,6 +74,21 @@ int pocketipc_connect(const char *service);
  * waiting are discarded. */
 cJSON *pocketipc_call(int fd, const char *method, cJSON *params, int *code,
                       char *errbuf, size_t errlen);
+/* As pocketipc_call, but gives up after timeout_ms and reports a transport
+ * failure (*code 0, "... timed out after N ms"). timeout_ms 0 waits forever,
+ * which is what pocketipc_call does and what every caller had before.
+ *
+ * The deadline covers the whole exchange, including events skipped while
+ * waiting. A caller that times out MUST close the connection: the response
+ * may still arrive, and reading it as the answer to the next request would
+ * desynchronise the two. That is why the failure is reported as a transport
+ * failure rather than an error response.
+ *
+ * A deadline is right for a periodic poll, which can simply ask again, and
+ * wrong for a request whose completion is the point: a radio.send that timed
+ * out would report failure for a packet that went out. See docs/api/pocketipc.md. */
+cJSON *pocketipc_call_timeout(int fd, const char *method, cJSON *params, int timeout_ms,
+                              int *code, char *errbuf, size_t errlen);
 
 /* Message builders for services. result/data are consumed. */
 cJSON *pocketipc_response(const cJSON *id, cJSON *result);

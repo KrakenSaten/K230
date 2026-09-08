@@ -73,6 +73,25 @@ check "shell pid unchanged after radiod restart" '1' "$(kill -0 $SP 2>/dev/null 
 check "shell reconnected and polls the new radiod" 'radio.status' "$(cat "$OUT/radiod2.log")"
 out=$("$POS" radio status); check "radio status recovered through the new radiod" '"state":[[:space:]]*"rx"' "$out"
 
+# radiod alive but not answering. Before the status poll had a deadline this
+# was the worse case of the two: nothing crashed, so the supervisor saw a
+# healthy pair of processes while the shell sat in a blocking read forever.
+kill -STOP $RP
+STOPPED_AT=$(date +%s)
+sleep 3   # three status polls that now time out instead of blocking
+check "shell survives a wedged radiod" '1' "$(kill -0 $SP 2>/dev/null && echo 1 || echo 0)"
+out=$("$POS" shell info 2>&1)
+check "shell still answers while radiod is wedged" '"current":[[:space:]]*"home"' "$out"
+check "shell answered promptly" '1' "$([ $(( $(date +%s) - STOPPED_AT )) -lt 15 ] && echo 1 || echo 0)"
+check "the timeout is logged once radiod stops answering" 'timed out' "$(cat "$OUT/shell.log")"
+kill -CONT $RP
+for _ in $(seq 1 100); do
+    out=$("$POS" shell info 2>&1)
+    printf '%s' "$out" | grep -q '"current"' && break
+    sleep 0.1
+done
+check "shell recovers when radiod answers again" '"current":[[:space:]]*"home"' "$out"
+
 kill $SP; wait $SP 2>/dev/null; kill $RP; wait $RP 2>/dev/null
 check_empty "shell log has no errors" "$(grep -i 'error\|assert' "$OUT/shell.log" || true)"
 # a corrupt stored value must not prevent start and must fall back (DS §8)

@@ -27,6 +27,14 @@
 #define POCKETOS_DISPLAY_NAME "unknown"
 #endif
 
+/* How long the once-a-second status poll waits for radiod. Deliberately less
+ * than the tick that drives it, so a wedged service costs at most one frame
+ * and never accumulates. Only this poll has a deadline in v0.0.3; app calls
+ * and radio.send still wait (docs/api/pocketipc.md, Request deadlines). */
+#ifndef STATUS_POLL_TIMEOUT_MS
+#define STATUS_POLL_TIMEOUT_MS 200
+#endif
+
 #if LV_USE_LODEPNG && LV_USE_SNAPSHOT
 #include "src/libs/lodepng/lodepng.h"
 #endif
@@ -58,6 +66,9 @@ struct shell {
 };
 
 static struct shell sh;
+/* Whether the last status poll reached radiod, so the transition is logged
+ * rather than the state repeated every second. */
+static int radio_reachable = 1;
 
 static int screenshot_save(const char *path);
 static void app_open(const struct pocketos_app *app);
@@ -92,7 +103,23 @@ static void status_update(void)
     strftime(buf, sizeof(buf), "%H:%M", &tm);
     lv_label_set_text(sh.status_clock, buf);
 
-    st = shell_ipc_call("radiod", "radio.status", NULL, err, sizeof(err));
+    /* This runs on the LVGL thread once a second. Before the deadline, a
+     * radiod that was alive but not answering held the whole UI: nothing
+     * repainted, touch did nothing, and the supervisor saw a healthy process
+     * because the shell had not crashed. One frame's worth of patience is
+     * enough for a local service, and the next tick asks again. */
+    st = shell_ipc_call_timeout("radiod", "radio.status", NULL,
+                                STATUS_POLL_TIMEOUT_MS, err, sizeof(err));
+    /* Once per transition, not once per second: the chip alone cannot say
+     * whether radiod is gone or merely not answering, and that is the first
+     * thing anyone debugging this asks. */
+    if (st && !radio_reachable) {
+        LOG_INFO("radiod is answering again");
+        radio_reachable = 1;
+    } else if (!st && radio_reachable) {
+        LOG_WARN("radio.status poll failed: %s", err[0] ? err : "radiod unavailable");
+        radio_reachable = 0;
+    }
     if (st) {
         const cJSON *state = cJSON_GetObjectItemCaseSensitive(st, "state");
         const char *s = cJSON_IsString(state) ? state->valuestring : "?";
