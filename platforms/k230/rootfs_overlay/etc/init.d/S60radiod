@@ -12,6 +12,9 @@
 SUPERVISE=/usr/bin/pos-supervise
 DAEMON=/usr/sbin/radiod
 PIDFILE=/var/run/radiod-supervise.pid
+# pos-supervise records the daemon it is watching here. stop needs it: asking
+# the supervisor to go is not the same as the daemon going.
+CHILD_PIDFILE=/run/pocketos/radiod.pid
 LOGDIR=/var/lib/pocketos/log
 LOGFILE=$LOGDIR/radiod.stdio.log
 # sx1262 needs the vendor launcher to release the radio; keep mock until then.
@@ -39,20 +42,67 @@ start() {
 	echo "OK"
 }
 
+# Stop asked once and returned immediately, whether or not anything had gone.
+# "restart" was stop, sleep 1, start, and on a host where the outgoing
+# supervisor had not finished within that second the incoming one made a
+# second daemon. stop now confirms before returning, and restart no longer
+# needs the sleep.
+STOP_TIMEOUT=3
+if sleep 0.1 2>/dev/null; then STOP_STEP="0.1"; STOP_TICKS=$((STOP_TIMEOUT * 10)); else STOP_STEP="1"; STOP_TICKS=$STOP_TIMEOUT; fi
+
+running() { [ -n "$1" ] && kill -0 "$1" 2>/dev/null; }
+wait_gone() { # <pid>: true when it is gone within STOP_TIMEOUT
+	_n=0
+	while running "$1"; do
+		_n=$((_n + 1))
+		[ "$_n" -gt "$STOP_TICKS" ] && return 1
+		sleep "$STOP_STEP"
+	done
+	return 0
+}
+
 stop() {
 	printf "Stopping radiod: "
-	if [ -s "$PIDFILE" ]; then
-		kill "$(cat "$PIDFILE")" 2>/dev/null && echo "OK" || echo "not running"
+	sup=""; child=""
+	[ -s "$PIDFILE" ] && sup=$(cat "$PIDFILE")
+	[ -s "$CHILD_PIDFILE" ] && child=$(cat "$CHILD_PIDFILE")
+	if ! running "$sup" && ! running "$child"; then
 		rm -f "$PIDFILE"
-	else
 		echo "not running"
+		return 0
 	fi
+	forced=""
+	kill "$sup" 2>/dev/null
+	if ! wait_gone "$sup"; then
+		# The supervisor is not responding to SIGTERM. Ask the daemon
+		# directly: killing only the supervisor would leave the daemon
+		# running, still holding the radio, and the next start would add a
+		# second one.
+		kill "$child" 2>/dev/null
+		if ! wait_gone "$sup"; then
+			kill -KILL "$child" 2>/dev/null
+			kill -KILL "$sup" 2>/dev/null
+			wait_gone "$sup"
+			forced=" (forced)"
+		fi
+	fi
+	if running "$child"; then
+		kill -KILL "$child" 2>/dev/null
+		wait_gone "$child"
+		forced=" (forced)"
+	fi
+	rm -f "$PIDFILE"
+	if running "$sup" || running "$child"; then
+		echo "FAILED, still running"
+		return 1
+	fi
+	echo "OK$forced"
 }
 
 case "$1" in
 	start) start ;;
 	stop) stop ;;
-	restart|reload) stop; sleep 1; start ;;
+	restart|reload) stop; start ;;
 	*) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
 esac
 exit 0

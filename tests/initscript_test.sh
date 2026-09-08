@@ -37,12 +37,6 @@ check() { # <label> <0|1>
 contains() { # <haystack> <needle>
     case "$1" in *"$2"*) echo 1 ;; *) echo 0 ;; esac
 }
-# A check for behaviour this release fixes later. It reports, and says what
-# will fix it, but does not fail the suite until the fix lands and the call
-# becomes a plain check().
-xfail() { # <label> <0|1> <what will fix it>
-    if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "XFAIL $1 -- $3"; fi
-}
 
 # ---- file modes ---------------------------------------------------------
 
@@ -145,12 +139,12 @@ make_daemon "$ROOT/usr/bin/pocketos-shell" "$ROOT/shell.env"
 
 # Rewrite the absolute paths of an init script into the fake root. /dev/null is
 # deliberately left alone.
-# The runtime directory is rewritten first and only where a separator precedes
-# it: "/var/run/pocketos-shell-supervise.pid" contains the literal string
+# The runtime directory is rewritten first and only where a separator (space
+# or "=") precedes it: "/var/run/pocketos-shell-supervise.pid" contains the literal string
 # "/run/pocketos", so an unanchored rule would rewrite the middle of the shell
 # service's pid file path and the script would then write it nowhere.
 rewrite() { # <source> <destination>
-    sed -e "s#\([[:space:]]\)/run/pocketos#\1$ROOT/run/pocketos#g" \
+    sed -e "s#\([[:space:]=]\)/run/pocketos#\1$ROOT/run/pocketos#g" \
         -e "s#/usr/bin/#$ROOT/usr/bin/#g" \
         -e "s#/usr/sbin/#$ROOT/usr/sbin/#g" \
         -e "s#/var/run#$ROOT/var/run#g" \
@@ -247,12 +241,37 @@ rm -f "$ROOT/etc/default/radiod" "$ROOT/radiod.env"
 
 out=$("$S60" restart 2>&1)
 check "S60 restart starts the service" $(wait_for "$ROOT/radiod.env" && echo 1 || echo 0)
-RACE="restart does not wait for the outgoing supervisor (M2 bounded stop)"
-xfail "S60 restart leaves exactly one daemon" $(wait_daemons 1 && echo 1 || echo 0) "$RACE"
-xfail "S60 restart leaves exactly one supervisor" \
-      $([ "$(count_supervisors)" -eq 1 ] && echo 1 || echo 0) "$RACE"
+check "S60 restart leaves exactly one daemon" $(wait_daemons 1 && echo 1 || echo 0)
+check "S60 restart leaves exactly one supervisor" \
+      $([ "$(count_supervisors)" -eq 1 ] && echo 1 || echo 0)
 "$S60" stop >/dev/null 2>&1
 wait_daemons 0
+
+# A daemon that ignores SIGTERM. The supervisor's own TERM handler gives up on
+# it and exits, which leaves the daemon orphaned and still holding whatever it
+# owns; the next start would then be the second one. stop must notice and must
+# not return until nothing is left.
+cat > "$ROOT/usr/sbin/radiod" <<EOD
+#!/bin/sh
+trap '' TERM INT
+env > "$ROOT/radiod.env"
+while :; do sleep 0.2; done
+EOD
+chmod 0755 "$ROOT/usr/sbin/radiod"
+rm -f "$ROOT/radiod.env"
+"$S60" start >/dev/null 2>&1
+wait_for "$ROOT/radiod.env"
+wait_daemons 1
+started=$(date +%s)
+out=$("$S60" stop 2>&1)
+elapsed=$(( $(date +%s) - started ))
+check "S60 stop returns when the daemon ignores SIGTERM" $(contains "$out" "OK")
+check "S60 stop reports that it had to force" $(contains "$out" "forced")
+check "S60 stop leaves no daemon behind" $([ "$(count_daemons)" -eq 0 ] && echo 1 || echo 0)
+check "S60 stop leaves no supervisor behind" $([ "$(count_supervisors)" -eq 0 ] && echo 1 || echo 0)
+check "S60 stop is bounded" $([ "$elapsed" -le 20 ] && echo 1 || echo 0)
+make_daemon "$ROOT/usr/sbin/radiod" "$ROOT/radiod.env"
+rm -f "$ROOT/radiod.env"
 
 # ---- S90pocketos-shell --------------------------------------------------
 
