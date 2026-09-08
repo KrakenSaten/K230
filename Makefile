@@ -194,6 +194,7 @@ test: all tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/the
 	./tests/radar_store_test
 	bash tests/radiod_mock_test.sh
 	bash tests/supervise_test.sh
+	bash tests/initscript_test.sh
 	bash tests/style_lint.sh
 	bash tests/build_deps_test.sh
 	bash tests/hwcheck_test.sh
