@@ -392,6 +392,8 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
 
         result = cJSON_CreateObject();
         cJSON_AddNumberToObject(result, "api_version", 0);
+        cJSON_AddStringToObject(result, "version", pocketlog_version());
+        cJSON_AddStringToObject(result, "build", pocketlog_build_id());
         for (k = 0; k < APP_COUNT; k++) {
             cJSON *a = cJSON_CreateObject();
 

@@ -35,8 +35,13 @@ git -C "${REPO_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "
 BSP_COMMIT="$(git -C "${VENDOR_DIR}" rev-parse HEAD)"
 SDK_COMMIT="$(git -C "${SDK_DIR}" rev-parse HEAD)"
 REPO_COMMIT="$(git -C "${REPO_DIR}" rev-parse --short HEAD)"
+DIRTY_TAG=""
 REPO_DIRTY=""
-[ -n "$(git -C "${REPO_DIR}" status --porcelain)" ] && REPO_DIRTY=" (working tree dirty)"
+if [ -n "$(git -C "${REPO_DIR}" status --porcelain)" ]; then
+    DIRTY_TAG="-dirty"
+    REPO_DIRTY=" (working tree dirty)"
+fi
+BUILD_ID="${REPO_COMMIT}${DIRTY_TAG}"
 echo "PocketOS apply"
 echo "Repo   : ${REPO_DIR} (version $(cat "${REPO_DIR}/VERSION")) @ ${REPO_COMMIT}${REPO_DIRTY}"
 echo "Vendor : ${VENDOR_DIR} @ ${BSP_COMMIT}"
@@ -134,6 +139,11 @@ mkdir -p "${PKG_DIR}/src"
 # shellcheck disable=SC2086  # the pathspec is three words on purpose
 git -C "${REPO_DIR}" archive --format=tar HEAD -- ${POCKETOS_PKG_PATHSPEC} \
     | tar -x -C "${PKG_DIR}/src/"
+# The exported tree has no git history, so the commit it came from travels
+# beside VERSION. The Makefile and ui/shell/CMakeLists.txt compile both into
+# every binary; the logs, the crash reports and <service>.info then name the
+# build the device is actually running.
+printf '%s\n' "${BUILD_ID}" > "${PKG_DIR}/src/BUILD_ID"
 # RadioLib (MIT) is compiled into radiod; sync its sources beside ours. It is
 # an ignored working-tree checkout rather than part of our history, so it is
 # copied rather than archived; build products from a host-side compile of the

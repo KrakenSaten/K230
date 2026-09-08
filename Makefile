@@ -14,7 +14,12 @@ LDLIBS  += -lcjson -lm
 ENABLE_SX1262 ?= 0
 RADIOLIB_DIR ?= $(if $(wildcard third_party/RadioLib/src),third_party/RadioLib/src,vendor/RadioLib/src)
 POCKETOS_VERSION := $(shell cat VERSION)
-COMMON_FLAGS := -Wall -Wextra -Icore -DPOCKETOS_VERSION=\"$(POCKETOS_VERSION)\"
+# Build identity. In the Buildroot package the source tree has no git history,
+# so apply_to_sdk.sh writes BUILD_ID beside VERSION when it exports the tree;
+# in a working checkout it comes from git. A build that has neither says so.
+POCKETOS_BUILD_ID := $(shell cat BUILD_ID 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo unknown)
+COMMON_FLAGS := -Wall -Wextra -Icore -DPOCKETOS_VERSION=\"$(POCKETOS_VERSION)\" \
+                -DPOCKETOS_BUILD_ID=\"$(POCKETOS_BUILD_ID)\"
 # Compiler-generated header dependencies (.d next to each .o) so a changed
 # header rebuilds every object that includes it (PocketFleet finding 1).
 DEPFLAGS := -MMD -MP

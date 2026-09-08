@@ -442,6 +442,8 @@ static cJSON *m_info(struct radiod *rd)
     cJSON_AddStringToObject(o, "chip", rd->be.ops->chip);
     cJSON_AddStringToObject(o, "backend", rd->be.ops->name);
     cJSON_AddNumberToObject(o, "api_version", RADIOD_API_VERSION);
+    cJSON_AddStringToObject(o, "version", pocketlog_version());
+    cJSON_AddStringToObject(o, "build", pocketlog_build_id());
     cJSON_AddStringToObject(o, "region", rd->region->name);
     cJSON_AddNumberToObject(caps, "frequency_min_mhz", rd->caps.frequency_min_mhz);
     cJSON_AddNumberToObject(caps, "frequency_max_mhz", rd->caps.frequency_max_mhz);

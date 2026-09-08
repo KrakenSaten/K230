@@ -27,6 +27,16 @@ static enum pocketlog_level log_level = POCKETLOG_INFO;
 static int log_stderr = 1;
 static const char *level_names[] = { "DEBUG", "INFO ", "WARN ", "ERROR" };
 
+const char *pocketlog_version(void)
+{
+    return POCKETOS_VERSION;
+}
+
+const char *pocketlog_build_id(void)
+{
+    return POCKETOS_BUILD_ID;
+}
+
 static enum pocketlog_level level_from_string(const char *s)
 {
     if (!s) {
@@ -66,6 +76,12 @@ void pocketlog_init(const char *name)
         log_stderr = !(se && strcmp(se, "0") == 0);
     }
     open_log_file();
+    /* The first line of every log file names the process, the build it came
+     * from and the pid. On a board with no RTC the timestamps restart at 1970
+     * on every boot, so this is also the marker that separates one boot's
+     * lines from the next in a file that outlives both. */
+    pocketlog_write(POCKETLOG_INFO, "start version=%s build=%s pid=%ld",
+                    POCKETOS_VERSION, POCKETOS_BUILD_ID, (long)getpid());
 }
 
 void pocketlog_set_level(enum pocketlog_level level)
@@ -238,7 +254,11 @@ static void crash_handler(int sig)
     fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     nframes = backtrace(frames, 64);
     if (fd >= 0) {
-        safe_write(fd, "PocketOS crash report\nprocess: ");
+        safe_write(fd, "PocketOS crash report\nversion: ");
+        safe_write(fd, POCKETOS_VERSION);
+        safe_write(fd, "\nbuild: ");
+        safe_write(fd, POCKETOS_BUILD_ID);
+        safe_write(fd, "\nprocess: ");
         safe_write(fd, log_name);
         safe_write(fd, "\npid: ");
         safe_ulong(fd, (unsigned long)getpid());

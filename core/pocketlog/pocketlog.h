@@ -35,6 +35,23 @@
 
 #include <stddef.h>
 
+/* Build identity. Both are set on the compiler command line by the root
+ * Makefile and by ui/shell/CMakeLists.txt; a build that sets neither says so
+ * rather than pretending. pocketlog_init() writes them as the first line of
+ * every log file, the crash handler repeats them, and services report them in
+ * <service>.info, so a report can always be tied to the build it came from.
+ * Read them through the accessors: they are compiled once, here, so every
+ * caller in a process agrees. */
+#ifndef POCKETOS_VERSION
+#define POCKETOS_VERSION "unknown"
+#endif
+#ifndef POCKETOS_BUILD_ID
+#define POCKETOS_BUILD_ID "unknown"
+#endif
+
+const char *pocketlog_version(void);
+const char *pocketlog_build_id(void);
+
 #define POCKETLOG_DEFAULT_DIR "/var/lib/pocketos/log"
 #define POCKETLOG_MAX_BYTES (512u * 1024u)
 

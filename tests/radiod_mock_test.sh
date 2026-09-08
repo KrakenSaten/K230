@@ -26,6 +26,14 @@ for _ in $(seq 1 50); do [ -S "$POCKETOS_RUNTIME_DIR/radiod.sock" ] && break; sl
 out=$("$POS" radio info)
 check "info chip mock" '"chip":[[:space:]]*"mock"' "$out"
 check "info api_version" '"api_version":[[:space:]]*0' "$out"
+# A running service must be able to say which build it is; a bench report that
+# cannot name the image is not evidence. The expected value is derived the same
+# way the build derives it, so this also proves the plumbing rather than just
+# the presence of a field.
+EXPECTED_VERSION=$(cat VERSION)
+EXPECTED_BUILD=$(cat BUILD_ID 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo unknown)
+check "info reports the version" "\"version\":[[:space:]]*\"${EXPECTED_VERSION}\"" "$out"
+check "info reports the build" "\"build\":[[:space:]]*\"${EXPECTED_BUILD}\"" "$out"
 check "info region" '"region":[[:space:]]*"EU868"' "$out"
 
 out=$("$POS" radio status)
