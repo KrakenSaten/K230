@@ -29,9 +29,14 @@
 
 #include "../engine/timber_rules.h"
 
-/* Pixels per block width along a diagonal, pixels per layer of height. */
-#define TIMBER_VIEW_SCALE 40
-#define TIMBER_VIEW_LAYER_PX 22
+/* The canonical projection (docs/apps/POCKETTIMBER_ART.md): a 2:1 dimetric
+ * camera, azimuth 45 degrees, elevation 30, orthographic. One block width
+ * is 36 px along a diagonal and its top face rises 18 px per width; a
+ * layer, 0.6 widths tall, is 0.6 * sqrt(2) * cos(30) * 36 = 26.46 px in
+ * the render and stacks at 26, the half-pixel hidden under the layer
+ * above. The sprites are rendered to exactly these numbers. */
+#define TIMBER_VIEW_SCALE 36
+#define TIMBER_VIEW_LAYER_PX 26
 /* Clearance kept between the tower and the viewport's edges. */
 #define TIMBER_VIEW_MARGIN 16
 /* How near a tap has to land to a block end, in pixels. */
@@ -54,6 +59,9 @@ struct timber_shape {
     int end_y;
     int end_is_right;           /* which face is the pulling end */
     int tilt;                   /* 0 to 2, a falling or fallen block's pose */
+    int origin_x;               /* the far-bottom corner: where a sprite's anchor goes */
+    int origin_y;
+    int along_x;                /* the orientation a sprite is chosen by */
 };
 
 struct timber_view {

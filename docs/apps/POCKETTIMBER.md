@@ -459,6 +459,20 @@ that none logs a fault:
 SHELL_BIN=~/work/pocketos-build/shell/pocketos-shell bash tests/timber_shell_test.sh
 ```
 
+## Art status (D1)
+
+The visual direction, the canonical projection (2:1 dimetric, 36 px per
+width, 26 px per layer) and the Blender pipeline are specified and proven
+in [POCKETTIMBER_ART.md](POCKETTIMBER_ART.md): a proof set of two block
+sprites, the felt and the contact shadow, rendered in batch from
+`docs/design/timber-art/tools/timber_blender.py`, converted at build time
+and drawn by the simulator, with the P7 placeholder kept as the fallback
+(`POCKETTIMBER_PLACEHOLDER=1`). The production set (18 block sprites) is
+not rendered. The engine is unchanged; the view constants and the table
+widget's drawing changed. D1 verdict 2026-09-08: ART DIRECTION APPROVED FOR
+PRODUCTION, with the open art decisions and the hardware-deferred numbers
+listed in the art document.
+
 ## Hardware gates
 
 Every constant that depends on an unmeasured K230 number lives in

@@ -78,6 +78,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/timber/ui/timber_view.c
     ${REPO_DIR}/apps/timber/ui/timber_table.c
     ${REPO_DIR}/apps/timber/ui/timber_screens.c
+    ${REPO_DIR}/apps/timber/ui/timber_art.c
     ${REPO_DIR}/core/pocketipc/pocketipc.c
     ${REPO_DIR}/core/pocketipc/server.c
     ${REPO_DIR}/core/pocketlog/pocketlog.c
@@ -91,6 +92,38 @@ target_compile_definitions(pocketos-shell PRIVATE
     POCKETOS_BUILD_ID="${POCKETOS_BUILD_ID}"
     LV_LVGL_H_INCLUDE_SIMPLE)
 target_link_libraries(pocketos-shell PRIVATE cjson m)
+
+# PocketTimber art (docs/apps/POCKETTIMBER_ART.md): the sprites Blender
+# rendered into docs/design/timber-art/rendered are converted to LVGL image
+# arrays here, at configure time, into the build tree; nothing generated is
+# committed. Without python3 or without the renders the app builds with its
+# placeholder blocks (POCKETTIMBER_ART 0). The Buildroot package will need
+# host python3 for the same step; that integration is not made here.
+set(TIMBER_ART_RENDERED "${REPO_DIR}/docs/design/timber-art/rendered")
+set(TIMBER_ART_OUT "${CMAKE_BINARY_DIR}/timber_art")
+set(POCKETTIMBER_ART 0)
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND AND EXISTS "${TIMBER_ART_RENDERED}/anchors.json")
+    execute_process(
+        COMMAND "${Python3_EXECUTABLE}" "${REPO_DIR}/docs/design/timber-art/tools/png2lvgl.py"
+                "${TIMBER_ART_RENDERED}" "${TIMBER_ART_OUT}"
+        RESULT_VARIABLE TIMBER_ART_RC OUTPUT_VARIABLE TIMBER_ART_LOG ERROR_VARIABLE TIMBER_ART_LOG)
+    if(TIMBER_ART_RC EQUAL 0)
+        file(GLOB TIMBER_ART_SOURCES "${TIMBER_ART_OUT}/*.c")
+        target_sources(pocketos-shell PRIVATE ${TIMBER_ART_SOURCES})
+        set(POCKETTIMBER_ART 1)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+                     "${TIMBER_ART_RENDERED}/anchors.json")
+        string(STRIP "${TIMBER_ART_LOG}" TIMBER_ART_LOG)
+        message(STATUS "PocketTimber art: ${TIMBER_ART_LOG}")
+    else()
+        message(WARNING "PocketTimber art conversion failed, building the placeholder: ${TIMBER_ART_LOG}")
+    endif()
+else()
+    message(STATUS "PocketTimber art: no python3 or no renders, building the placeholder")
+endif()
+target_compile_definitions(pocketos-shell PRIVATE POCKETTIMBER_ART=${POCKETTIMBER_ART})
+target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui")
 
 if(POCKETOS_LVGL_MODE STREQUAL "source")
     find_package(Python3 REQUIRED COMPONENTS Interpreter)

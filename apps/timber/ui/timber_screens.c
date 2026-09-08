@@ -27,8 +27,11 @@
 
 /* The shell body is the panel width less its padding on both sides. */
 #define TABLE_WIDTH 528
-/* P7 placeholder viewport; the review's 756 waits on the real layout. */
-#define TABLE_HEIGHT 600
+/* The viewport: what the body has left once the HUD, the piece card and
+ * the controls have their rows, each a single row so the tower gets the
+ * height (docs/apps/POCKETTIMBER_ART.md, composition). */
+#define TABLE_HEIGHT 700
+#define METER_WIDTH 196
 #define METER_SEGMENTS 10
 #define METER_HEIGHT 10
 #define TRACK_HEIGHT 64
@@ -585,15 +588,20 @@ static void build_hud(struct timber_table_ui *ui, lv_obj_t *parent)
     lv_obj_t *meter;
     int i;
 
-    lv_obj_set_style_pad_row(card, 14, 0);
+    /* One row: the score, the height, and the meter with its caption, so
+     * the HUD is as short as a stat and the tower gets the height. */
     ui->score_value = stat(row, "SCORE", POS_STYLE_VALUE);
     ui->score_caption = lv_obj_get_child(lv_obj_get_parent(ui->score_value), 0);
     ui->height_value = stat(row, "LAYERS", POS_STYLE_VALUE);
 
-    box = band(card, LV_SIZE_CONTENT, LV_FLEX_ALIGN_START);
+    box = lv_obj_create(row);
+    lv_obj_remove_style_all(box);
+    lv_obj_set_width(box, METER_WIDTH);
+    lv_obj_set_height(box, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_row(box, 6, 0);
+    lv_obj_set_style_pad_row(box, 8, 0);
+    lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
     pocketui_label(box, "STABILITY", POS_STYLE_CAPTION);
     meter = band(box, METER_HEIGHT, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_column(meter, 6, 0);
@@ -613,18 +621,16 @@ static void build_hud(struct timber_table_ui *ui, lv_obj_t *parent)
 static void build_piece_card(struct timber_table_ui *ui, lv_obj_t *parent)
 {
     lv_obj_t *card = pocketui_card(parent);
-    lv_obj_t *head = band(card, LV_SIZE_CONTENT, LV_FLEX_ALIGN_SPACE_BETWEEN);
-    lv_obj_t *cols;
+    lv_obj_t *row = band(card, LV_SIZE_CONTENT, LV_FLEX_ALIGN_SPACE_BETWEEN);
 
-    lv_obj_set_style_pad_row(card, 14, 0);
-    ui->piece_value = pocketui_label(head, "STANDBY", POS_STYLE_VALUE);
-    ui->piece_chip = pocketui_label(head, "CLEAR", POS_STYLE_CHIP);
+    /* One row too: what the piece is, where it is, what it is worth, the
+     * tests left, and the state chip. */
+    ui->piece_value = stat(row, "PIECE", POS_STYLE_VALUE);
+    ui->where_value = stat(row, "AT", POS_STYLE_VALUE);
+    ui->worth_value = stat(row, "WORTH", POS_STYLE_VALUE);
+    ui->tests_value = stat(row, "TESTS", POS_STYLE_VALUE);
+    ui->piece_chip = pocketui_label(row, "CLEAR", POS_STYLE_CHIP);
     pos_style_add(ui->piece_chip, POS_STYLE_CHIP_NA, 0);
-
-    cols = band(card, LV_SIZE_CONTENT, LV_FLEX_ALIGN_SPACE_BETWEEN);
-    ui->where_value = stat(cols, "PIECE", POS_STYLE_VALUE);
-    ui->worth_value = stat(cols, "WORTH", POS_STYLE_VALUE);
-    ui->tests_value = stat(cols, "TESTS", POS_STYLE_VALUE);
 }
 
 static void build_controls(struct timber_app *app, struct timber_table_ui *ui, lv_obj_t *parent)

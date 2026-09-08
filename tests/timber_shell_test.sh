@@ -39,7 +39,15 @@ log=$(run - standby)
 check "standby renders" "$([ -s "$OUT/timber-standby.png" ] && echo 1 || echo 0)"
 hasnt "no error in standby" 'ERROR' "$log"
 
-# 3. Reduced motion (DS section 12): the sway is not drawn, the tower is.
+# 3. The placeholder path stays alive beside the art (POCKETTIMBER_ART):
+#    forcing it renders the same state with the flat blocks.
+export POCKETTIMBER_PLACEHOLDER=1
+log=$(run run placeholder)
+check "the placeholder path renders" "$([ -s "$OUT/timber-placeholder.png" ] && echo 1 || echo 0)"
+hasnt "no error on the placeholder path" 'ERROR' "$log"
+unset POCKETTIMBER_PLACEHOLDER
+
+# 4. Reduced motion (DS section 12): the sway is not drawn, the tower is.
 printf 'reduced_motion=1\n' > "$POCKETOS_CONFIG_DIR/settings.conf"
 log=$(run pulling reduced)
 check "reduced motion renders" "$([ -s "$OUT/timber-reduced.png" ] && echo 1 || echo 0)"
