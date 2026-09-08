@@ -57,6 +57,20 @@ out=$("$POS" app start bogus 2>&1); check "unknown app rejected" 'code 2' "$out"
 out=$("$POS" app home 2>&1); check_empty "app home" "$out"
 out=$("$POS" shell info); check "back at home" '"current":[[:space:]]*"home"' "$out"
 
+# radiod dies under a running shell (bench 2026-09-07: the shell used to die
+# with SIGPIPE on its next status poll). The shell must keep its pid, keep
+# answering, and poll the restarted radiod again on its own.
+kill -KILL $RP; wait $RP 2>/dev/null
+sleep 2.5   # at least two one-second status polls against the dead socket
+check "shell survives radiod dying" '1' "$(kill -0 $SP 2>/dev/null && echo 1 || echo 0)"
+out=$("$POS" shell info); check "shell IPC still answers with radiod gone" '"current":[[:space:]]*"home"' "$out"
+"$RADIOD" --backend mock --verbose >"$OUT/radiod2.log" 2>&1 & RP=$!
+for _ in $(seq 1 50); do [ -S "$POCKETOS_RUNTIME_DIR/radiod.sock" ] && break; sleep 0.1; done
+sleep 2.5   # the status poll reconnects on its next tick
+check "shell pid unchanged after radiod restart" '1' "$(kill -0 $SP 2>/dev/null && echo 1 || echo 0)"
+check "shell reconnected and polls the new radiod" 'radio.status' "$(cat "$OUT/radiod2.log")"
+out=$("$POS" radio status); check "radio status recovered through the new radiod" '"state":[[:space:]]*"rx"' "$out"
+
 kill $SP; wait $SP 2>/dev/null; kill $RP; wait $RP 2>/dev/null
 check_empty "shell log has no errors" "$(grep -i 'error\|assert' "$OUT/shell.log" || true)"
 # a corrupt stored value must not prevent start and must fall back (DS §8)

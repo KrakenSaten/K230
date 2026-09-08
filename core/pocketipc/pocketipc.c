@@ -41,14 +41,17 @@ static uint64_t now_ms(void)
 
 /* Write the whole buffer. On a non-blocking fd, EAGAIN waits for POLLOUT
  * within a bounded window (POCKETIPC_SEND_TIMEOUT_MS in total for this
- * frame); if the peer still does not drain, fail with errno ETIMEDOUT. */
+ * frame); if the peer still does not drain, fail with errno ETIMEDOUT.
+ * A peer that has gone away is an error (EPIPE), never a signal: send()
+ * with MSG_NOSIGNAL, so no pocketipc user has to ignore SIGPIPE itself
+ * (a radiod crash used to take the shell down with it). */
 static int write_all(int fd, const void *data, size_t len)
 {
     const uint8_t *p = data;
     uint64_t deadline = 0;
 
     while (len > 0) {
-        ssize_t w = write(fd, p, len);
+        ssize_t w = send(fd, p, len, MSG_NOSIGNAL);
 
         if (w < 0) {
             if (errno == EINTR) {
