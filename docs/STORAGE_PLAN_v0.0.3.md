@@ -1,7 +1,16 @@
-# Storage plan for v0.0.3 (proposal, not implemented)
+# Storage plan (written for v0.0.3, deferred past it)
 
 Status: architecture proposal written after the first hardware session
-(2026-09-07). Nothing here is implemented; v0.0.2 keeps the v0.0.1 layout.
+(2026-09-07). The partition layout here is still unimplemented: 0.0.3 keeps
+the v0.0.1 layout unchanged, and the move is the theme of the release after
+it, together with the app stores.
+
+What 0.0.3 did land is the prerequisite. `core/pocketpaths` now owns the four
+roots and their overrides, so the paths this plan moves are defined in one
+module instead of as literals in pocketipc.h, pocketlog.h, settings.h and
+three app stores. The app stores still carry their own copies and adopt the
+module together with the partition move, which keeps that change in one
+release rather than two.
 
 ## What we have (VERIFIED on unit A)
 

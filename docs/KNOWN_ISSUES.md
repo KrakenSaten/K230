@@ -1,6 +1,13 @@
 # Known issues and open questions
 
-Updated 2026-09-04. Move items to git history when resolved.
+Updated 2026-09-08. Move items to git history when resolved.
+
+Closed by 0.0.3, listed here only because the bench sheets still cite them:
+B4 (the shell's `printf` diagnostics never reached a log; they go through
+pocketlog now), the shell leaving a stale `shell.sock` after `stop`, init
+`stop` returning before anything had gone, `/dev/spidev0.0` being shareable
+(F14/B3), and logs and crash reports that could not name the build they came
+from.
 
 ## Hardware and BSP
 
@@ -83,8 +90,14 @@ Updated 2026-09-04. Move items to git history when resolved.
   subscribers must read continuously.
 - The settings store must not hold secrets; there is no credential storage
   yet (security note in `ui/shell/settings.h`).
-- The shell blocks the UI thread on pocketipc calls; acceptable with local
-  services, wrong for slow ones. Needs an async path before netd.
+- The shell blocks the UI thread on pocketipc calls. From 0.0.3 the
+  once-a-second status poll carries a 200 ms deadline, so a radiod that is
+  alive but not answering no longer freezes the shell (verified: without the
+  deadline the shell stopped answering its own socket too). Everything an app
+  initiates still blocks, including `radio.send`, which is correct while a
+  timeout there would report failure for a packet that was transmitted. A
+  service that can accept a request and answer later, and the asynchronous
+  transmit it would allow, are still needed before netd.
 - Shell app launch by touch is untested in the simulator (only `--open`).
 - App lifecycle is create/tick/destroy only: no pause, resume or suspend
   (ADR-002 names them as later work). Apps needing continuity persist state

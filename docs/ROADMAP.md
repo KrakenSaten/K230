@@ -36,7 +36,20 @@ packet between the two units, Wi-Fi joins a network from the Settings app.
 ## Status 2026-09-08
 
 One development stream from here on; the earlier idea of a second
-parallel track is withdrawn. Work proceeds in this order:
+parallel track is withdrawn.
+
+**v0.0.3** exists on `integration/v0.0.3-platform`, on top of the v0.0.2
+candidate. It is platform-only and changes no application source: build
+provenance and identity, `core/pocketpaths`, a deadline on the shell's status
+poll, a clean shell stop, a confirming init-script stop, and an exclusive lock
+on the SPI device. Host suite and both cross-builds are green; no image has
+been built. Because it contains everything v0.0.2 has, the open question for
+the owner is whether the first flashed card is the v0.0.2 candidate as
+planned in step 1 below, or the v0.0.3 image instead; the bench sheet for
+either is the v0.0.2 operator checklist plus the M1-M9 lines from the v0.0.3
+implementation report.
+
+Work proceeds in this order:
 
 1. **v0.0.2 hardware validation.** Candidate image built from `349a9b0`
    (`docs/hardware/V0.0.2_BUILD_REPORT.md`), operator sheet
@@ -57,12 +70,15 @@ parallel track is withdrawn. Work proceeds in this order:
 5. **Common state facility.** Fleet, Radar and Timber each carry their own
    copy of the same storage pattern (`/var/lib/pocketos/<app>/`,
    `$POCKETOS_STATE_DIR` override, directory creation, atomic
-   temp+fsync+rename, replacement, error reporting). Evaluate extracting
-   it into a shared PocketOS facility, together with the data-partition
-   move in `docs/STORAGE_PLAN_v0.0.3.md`, so the path changes in one
-   place. Bench fact: `/var/lib/pocketos` is writable and persists across
-   reboots on unit A (VERIFIED 2026-09-07); a full power cycle is checked
-   in step 3.
+   temp+fsync+rename, replacement, error reporting). v0.0.3 landed the
+   prerequisite for the path half of that: `core/pocketpaths` owns the four
+   roots, adopted by the platform only, with the app stores left untouched
+   on purpose. What remains is the atomic-write and byte-cursor half, the
+   store conversions, and the data-partition move in
+   `docs/STORAGE_PLAN_v0.0.3.md`, which belong in one release so the app
+   stores are touched once. Bench fact: `/var/lib/pocketos` is writable and
+   persists across reboots on unit A (VERIFIED 2026-09-07); a full power
+   cycle is checked in step 3.
 
 ## Phase 2: PocketUI design system
 

@@ -42,14 +42,28 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-PocketOS 0.0.1, pre-hardware. Implemented and host-tested: `pos` CLI,
-`pos-hwcheck`, pocketipc, pocketlog, `pos-supervise`, radiod with the mock
-backend and the sx1262 backend (RadioLib on spidev + libgpiod, compiles
-for riscv64, never run on hardware), the LVGL shell with Design System v0.1
-(theme engine, five themes, three modes, settings store), and two apps,
-PocketFleet and PocketRadar. The shell runs as an SDL simulator on the PC
-with screenshots in out/sim/; its DRM backend is untested. The K230 SD image
-is built by platforms/k230 (see docs/BUILD_ENVIRONMENT.md and
-docs/hardware/FIRST_BOOT.md). No hardware has been tested yet; every
-hardware statement is DOCUMENTED or ASSUMED (docs/hardware/T-DISPLAY-K230.md,
-docs/KNOWN_ISSUES.md).
+PocketOS 0.0.3, not yet built as an image. Implemented and host-tested:
+`pos` CLI, `pos-hwcheck`, pocketipc, pocketlog, pocketpaths, `pos-supervise`,
+radiod with the mock backend and the sx1262 backend (RadioLib on spidev +
+libgpiod), the LVGL shell with Design System v0.1 (theme engine, five themes,
+three modes, settings store), and two apps, PocketFleet and PocketRadar. The
+shell runs as an SDL simulator on the PC with screenshots in out/sim/, and as
+DRM + evdev on the board.
+
+PocketOS 0.0.1 booted and ran on a physical K230 on 2026-09-07, including one
+SX1262 transmit (docs/hardware/BRINGUP_SESSION_2026-09-07.md); hardware claims
+are classified per statement in docs/hardware/T-DISPLAY-K230.md.
+
+- **0.0.2** is a candidate image, built and checksummed but not yet flashed:
+  the SIGPIPE fix, hwcheck `--lora`, no empty-password SSH, radiod at 2 dBm
+  start-up power (docs/hardware/V0.0.2_INTEGRATION_REVIEW.md).
+- **0.0.3** is platform-only and changes no application source: the image
+  becomes a function of a commit (`git archive`, executable bits in git,
+  pinned vendor commits enforced), every binary, log and crash report names
+  its build, `core/pocketpaths` owns the filesystem roots, the shell's status
+  poll no longer waits forever on a wedged service, the shell stops cleanly on
+  SIGTERM, init-script `stop` confirms before returning, and radiod holds
+  `/dev/spidev0.0` exclusively. Fleet and Radar are byte-for-byte unchanged.
+
+The K230 SD image is built by platforms/k230 (see docs/BUILD_ENVIRONMENT.md
+and docs/hardware/FIRST_BOOT.md).
