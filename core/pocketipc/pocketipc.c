@@ -7,6 +7,7 @@
 #include "pocketipc.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -122,6 +123,17 @@ static int read_all_until(int fd, void *data, size_t len, uint64_t deadline)
             if (errno == EINTR) {
                 continue;
             }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                /* A non-blocking connection (pocketipc_connect_timeout) on a
+                 * call without a deadline: wait for data as a blocking read
+                 * would; with a deadline the poll above already bounded it. */
+                struct pollfd pfd = { .fd = fd, .events = POLLIN };
+
+                if (deadline == 0 && poll(&pfd, 1, -1) < 0 && errno != EINTR) {
+                    return -1;
+                }
+                continue;
+            }
             return -1;
         }
         if (r == 0) {
@@ -133,13 +145,14 @@ static int read_all_until(int fd, void *data, size_t len, uint64_t deadline)
     return 0;
 }
 
-int pocketipc_write_frame(int fd, const char *json, size_t len)
+/* deadline 0: one backpressure budget for the whole frame, started at the
+ * first EAGAIN. Header and body used to start a fresh POCKETIPC_SEND_TIMEOUT_MS
+ * each, so a stalled peer could hold the caller for twice the documented
+ * policy per frame, and a broadcast to a full client table for 32 times that.
+ * A non-zero deadline is a caller's own stamp (a request with a deadline
+ * shares it with the wait for the reply). */
+static int write_frame_until(int fd, const char *json, size_t len, uint64_t deadline)
 {
-    /* One backpressure budget for the whole frame. Header and body used to
-     * start a fresh POCKETIPC_SEND_TIMEOUT_MS each, so a stalled peer could
-     * hold the caller for twice the documented policy per frame, and a
-     * broadcast to a full client table for 32 times that. */
-    uint64_t deadline = 0;
     uint8_t hdr[4];
 
     if (len > POCKETIPC_MAX_FRAME) {
@@ -154,6 +167,11 @@ int pocketipc_write_frame(int fd, const char *json, size_t len)
         return -1;
     }
     return write_all(fd, json, len, &deadline);
+}
+
+int pocketipc_write_frame(int fd, const char *json, size_t len)
+{
+    return write_frame_until(fd, json, len, 0);
 }
 
 int pocketipc_send(int fd, const cJSON *msg)
@@ -320,24 +338,58 @@ int pocketipc_listen(const char *service)
 
 int pocketipc_connect(const char *service)
 {
+    return pocketipc_connect_timeout(service, 0);
+}
+
+/* A Unix stream connect() blocks with no timeout while the service's listen
+ * backlog is full (the caller sleeps in the kernel's unix_wait_for_peer).
+ * That is what froze the shell on unit A (2026-09-08): every timed-out
+ * request had dropped its connection, but the kernel keeps each one queued
+ * until the stopped radiod accepts it, and the sixteenth reconnect never
+ * returned. Non-blocking, the same connect() fails at once with EAGAIN and
+ * leaves nothing queued, so the deadline can bound the retries. */
+int pocketipc_connect_timeout(const char *service, int timeout_ms)
+{
     struct sockaddr_un addr;
+    uint64_t deadline = timeout_ms > 0 ? now_ms() + (uint64_t)timeout_ms : 0;
     int fd;
 
     if (fill_addr(service, &addr) < 0) {
         return -1;
     }
-    fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | (deadline ? SOCK_NONBLOCK : 0), 0);
     if (fd < 0) {
         return -1;
     }
-    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    for (;;) {
+        uint64_t now;
+        int remaining;
+
+        if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0) {
+            return fd;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        if (deadline == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINPROGRESS)) {
+            break;
+        }
+        now = now_ms();
+        remaining = now >= deadline ? 0 : (int)(deadline - now);
+        if (remaining <= 0) {
+            errno = ETIMEDOUT;
+            break;
+        }
+        /* backlog full: nothing is queued, so wait a little and try again */
+        poll(NULL, 0, remaining < 20 ? remaining : 20);
+    }
+    {
         int e = errno;
 
         close(fd);
         errno = e;
-        return -1;
     }
-    return fd;
+    return -1;
 }
 
 cJSON *pocketipc_call(int fd, const char *method, cJSON *params, int *code,
@@ -365,12 +417,24 @@ cJSON *pocketipc_call_timeout(int fd, const char *method, cJSON *params, int tim
     if (params) {
         cJSON_AddItemToObject(req, "params", params);
     }
-    if (pocketipc_send(fd, req) < 0) {
+    {
+        /* The request write shares the call's deadline (on a non-blocking
+         * connection; a blocking one cannot stall on a fresh request). */
+        char *text = cJSON_PrintUnformatted(req);
+        int rc = -1;
+
+        if (text) {
+            rc = write_frame_until(fd, text, strlen(text), deadline);
+            free(text);
+        } else {
+            errno = ENOMEM;
+        }
         cJSON_Delete(req);
-        snprintf(errbuf, errlen, "send failed: %s", strerror(errno));
-        return NULL;
+        if (rc < 0) {
+            snprintf(errbuf, errlen, "send failed: %s", strerror(errno));
+            return NULL;
+        }
     }
-    cJSON_Delete(req);
 
     for (;;) {
         char *text = read_frame_until(fd, NULL, deadline);

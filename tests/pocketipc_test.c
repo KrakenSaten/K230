@@ -9,6 +9,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -200,6 +201,130 @@ static void test_wedged_service(void)
     close(sv[1]);
 }
 
+/* The service is alive but accepts nothing (radiod under SIGSTOP on unit A,
+ * 2026-09-08, v0.0.4). Every request that timed out dropped its connection,
+ * but the kernel keeps each one queued in the listen backlog until the
+ * service accepts it; once the backlog is full a blocking connect() sleeps
+ * in the kernel (unix_wait_for_peer) with no deadline, before the request
+ * deadline can apply. The shell froze there. The bounded connect must fail
+ * within its deadline and leave nothing queued; the old blocking connect is
+ * shown still stuck; and once the service accepts again the bounded connect
+ * succeeds and a call without a deadline still works on the non-blocking fd. */
+static void test_full_backlog(void)
+{
+    char dir[] = "/tmp/pocketipc_test.XXXXXX";
+    char path[256];
+    int lfd;
+    int fds[64];
+    int n = 0;
+    int fd;
+    int afd;
+    int i;
+    struct timespec t0;
+    long elapsed;
+    pid_t pid;
+    int status;
+
+    check("backlog: runtime dir", mkdtemp(dir) != NULL);
+    setenv("POCKETOS_RUNTIME_DIR", dir, 1);
+    lfd = pocketipc_listen("wedged");
+    check("backlog: service listening, never accepting", lfd >= 0);
+    snprintf(path, sizeof(path), "%s/wedged.sock", dir);
+
+    errno = 0;
+    while (n < 64) {
+        fd = pocketipc_connect_timeout("wedged", 50);
+        if (fd < 0) {
+            break;
+        }
+        fds[n++] = fd;
+    }
+    check("backlog: filled by the shell's own dropped connections", n > 0 && n < 64);
+    check("backlog: the bounded connect then reports ETIMEDOUT", errno == ETIMEDOUT);
+    printf("     %d connections queued before the backlog was full\n", n);
+
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    fd = pocketipc_connect_timeout("wedged", 200);
+    elapsed = ms_since(&t0);
+    check("full backlog: bounded connect fails", fd < 0);
+    check("full backlog: errno is ETIMEDOUT", errno == ETIMEDOUT);
+    check("full backlog: waited at least the deadline", elapsed >= 150);
+    check("full backlog: did not wait much longer", elapsed <= 2000);
+    printf("     bounded connect gave up after %ld ms\n", elapsed);
+
+    /* the old path, as the v0.0.4 shell had it: a blocking connect() */
+    pid = fork();
+    if (pid == 0) {
+        int c = pocketipc_connect("wedged");
+
+        _exit(c >= 0 ? 0 : 1);
+    }
+    usleep(500 * 1000);
+    check("full backlog: the blocking connect is still stuck after 500 ms", waitpid(pid, &status, WNOHANG) == 0);
+    kill(pid, SIGKILL);
+    waitpid(pid, &status, 0);
+
+    /* the service resumes: it drains its backlog (radiod after SIGCONT
+     * accepts every queued connection and finds each one already closed),
+     * the bounded connect then succeeds, and a call without a deadline on
+     * that fd waits for a late answer as it would on a blocking fd */
+    {
+        int drained = 0;
+
+        fcntl(lfd, F_SETFL, O_NONBLOCK);
+        while ((afd = accept(lfd, NULL, NULL)) >= 0) {
+            close(afd);
+            drained++;
+        }
+        fcntl(lfd, F_SETFL, 0);
+        check("resume: the service drains exactly the queued connections", drained == n);
+        printf("     %d queued connections drained\n", drained);
+    }
+    fd = pocketipc_connect_timeout("wedged", 200);
+    check("resume: bounded connect succeeds once there is room", fd >= 0);
+    check("resume: the connection is non-blocking", fd >= 0 && (fcntl(fd, F_GETFL) & O_NONBLOCK));
+    afd = accept(lfd, NULL, NULL);
+    check("resume: the new connection is accepted", afd >= 0);
+    pid = fork();
+    if (pid == 0) {
+        char *text = pocketipc_read_frame(afd, NULL);
+        cJSON *req = text ? cJSON_Parse(text) : NULL;
+        cJSON *resp = cJSON_CreateObject();
+        int ok;
+
+        usleep(100 * 1000);   /* answer late */
+        cJSON_AddNumberToObject(resp, "id", req ? cJSON_GetObjectItemCaseSensitive(req, "id")->valuedouble : 0);
+        cJSON_AddItemToObject(resp, "result", cJSON_CreateObject());
+        ok = pocketipc_send(afd, resp) == 0;
+        free(text);
+        cJSON_Delete(req);
+        cJSON_Delete(resp);
+        _exit(ok ? 0 : 1);
+    }
+    {
+        int code = 99;
+        char err[128] = "";
+        cJSON *result = pocketipc_call(fd, "ping", NULL, &code, err, sizeof(err));
+
+        check("resume: a call without a deadline waits for the late answer on the non-blocking fd", result != NULL);
+        cJSON_Delete(result);
+    }
+    waitpid(pid, &status, 0);
+    check("resume: the peer answered", WIFEXITED(status) && WEXITSTATUS(status) == 0);
+
+    close(afd);
+    if (fd >= 0) {
+        close(fd);
+    }
+    for (i = 0; i < n; i++) {
+        close(fds[i]);
+    }
+    close(lfd);
+    unlink(path);
+    rmdir(dir);
+    unsetenv("POCKETOS_RUNTIME_DIR");
+}
+
 int main(void)
 {
     test_stalled_peer();
@@ -207,6 +332,7 @@ int main(void)
     test_limits();
     test_dead_peer();
     test_wedged_service();
+    test_full_backlog();
     printf("pocketipc_test: %d failure(s)\n", failed);
     return failed ? 1 : 0;
 }

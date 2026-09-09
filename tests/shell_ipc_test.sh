@@ -109,6 +109,23 @@ out=$(timeout 5 "$POS" shell info 2>&1); rc=$?
 check "shell answers within 5 s with the Radio app open and radiod wedged" '1' "$([ $rc -eq 0 ] && echo 1 || echo 0)"
 check "the Radio app is still the current app" '"current":[[:space:]]*"radio"' "$out"
 check "shell answered promptly with the Radio app open" '1' "$([ $(( $(date +%s) - STOPPED_AT )) -lt 15 ] && echo 1 || echo 0)"
+
+# Kept stopped for longer (unit A, 2026-09-08, v0.0.4): every timed-out
+# request dropped its connection, but the kernel keeps each one queued in
+# radiod's listen backlog (16) until radiod accepts it, so after a few
+# seconds the backlog is full and the shell's next reconnect blocked in
+# connect() with no deadline at all (wchan unix_wait_for_peer) until SIGCONT.
+# The backlog fills here the same way; the shell must keep answering.
+SOCK="$POCKETOS_RUNTIME_DIR/radiod.sock"
+for _ in $(seq 1 250); do [ "$(grep -c "$SOCK" /proc/net/unix)" -ge 17 ] && break; sleep 0.1; done
+queued=$(grep -c "$SOCK" /proc/net/unix)
+check "radiod's listen backlog is full (queued connections: $queued)" '1' "$([ "$queued" -ge 17 ] && echo 1 || echo 0)"
+sleep 2     # a few more ticks against the full backlog
+wchan=$(cat "/proc/$SP/wchan" 2>/dev/null)
+check "shell is not blocked in connect() on the full backlog (wchan: ${wchan:-?})" '1' "$([ "$wchan" != "unix_wait_for_peer" ] && echo 1 || echo 0)"
+out=$(timeout 5 "$POS" shell info 2>&1); rc=$?
+check "shell answers within 5 s with radiod's backlog full" '1' "$([ $rc -eq 0 ] && echo 1 || echo 0)"
+check "the Radio app is still current with the backlog full" '"current":[[:space:]]*"radio"' "$out"
 out=$(timeout 5 "$POS" app home 2>&1); rc=$?
 check "shell takes a command while radiod is wedged" '1' "$([ $rc -eq 0 ] && echo 1 || echo 0)"
 kill -CONT $RP

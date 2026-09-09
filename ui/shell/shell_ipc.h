@@ -28,9 +28,11 @@ cJSON *shell_ipc_call(const char *service, const char *method, cJSON *params,
                       char *err, size_t errlen);
 /* Same, giving up after timeout_ms (0 waits forever): the connection is
  * dropped on timeout and the next call reconnects, so a late answer is never
- * read as the reply to a later request. Anything on the LVGL thread that
- * runs on a timer, whether the shell's own poll or an app's tick, uses this
- * with SHELL_IPC_UI_TIMEOUT_MS. */
+ * read as the reply to a later request. The deadline is one budget for the
+ * whole operation, connecting included (a full listen backlog used to block
+ * the reconnect with no deadline at all, unit A 2026-09-08). Anything on the
+ * LVGL thread that runs on a timer, whether the shell's own poll or an app's
+ * tick, uses this with SHELL_IPC_UI_TIMEOUT_MS. */
 cJSON *shell_ipc_call_timeout(const char *service, const char *method, cJSON *params,
                               int timeout_ms, char *err, size_t errlen);
 /* Close all cached connections. */

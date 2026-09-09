@@ -87,7 +87,15 @@ not a default to apply everywhere:
   `radio.status` and `radio.stats` refresh, and its mock inject button. On
   unit A (2026-09-08) the poll alone being bounded was not enough; the app
   tick made the same calls without a deadline and froze the panel until
-  radiod answered again.
+  radiod answered again. The deadline covers **connecting** too
+  (`pocketipc_connect_timeout`): a caller that times out drops its
+  connection, but the kernel keeps that connection queued in the service's
+  listen backlog until the service accepts it, so a service that is alive
+  and accepting nothing fills its backlog with the caller's own abandoned
+  connections within seconds, and a blocking `connect()` then sleeps with
+  no limit before any request deadline can apply (unit A, v0.0.4). The
+  bounded connect is non-blocking, retries until the deadline and leaves
+  nothing queued when it gives up.
 - a **request whose completion is the point** should not, until the service
   can report completion separately. `radio.send` is synchronous and blocks
   radiod for the airtime; a deadline there would tell the user the packet

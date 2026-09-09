@@ -98,7 +98,10 @@ releasing RST instead of driving it high (M7).
   every app tick on the LVGL thread (the Radio app's refresh and its mock
   inject button), after unit A showed the poll alone was not enough: with
   the Radio app open, its tick blocked the panel, touch and the shell's own
-  socket while radiod was stopped, until radiod answered again. Only
+  socket while radiod was stopped, until radiod answered again. The v0.0.4
+  retest then showed the reconnect after a timeout blocking in `connect()`
+  once radiod's listen backlog had filled with the shell's own abandoned
+  connections; the connect is bounded by the same deadline now. Only
   `radio.send` still waits, which is correct while a timeout there would
   report failure for a packet that was transmitted. A service that can
   accept a request and answer later, and the asynchronous transmit it would
