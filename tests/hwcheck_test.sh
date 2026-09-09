@@ -1,27 +1,30 @@
 #!/bin/bash
 # pos-hwcheck --lora on the host with stubbed gpio/spi tools: the probe must
 # refuse while the SX1262 lines are owned (exit 3, no gpioset started), must
-# finish within a bounded time when the lines are free, must read the sync
-# word, and must never leave a gpioset process behind (bench defect B2/B3,
-# 2026-09-07: the real gpioset waits forever without a terminal).
+# finish within a bounded time when the lines are free, must reset and wait
+# for readiness before touching SPI, must capture the sync-word window and
+# never leave a gpioset process behind (bench defect B2/B3, 2026-09-07: the
+# real gpioset waits forever without a terminal).
 #
 # The stubs model the chip's reset lifecycle as unit A showed it (M7,
 # 2026-09-08): BUSY stays active until RST is actually driven high, and the
 # SPI bus answers ff until then. A probe that releases RST after the low
-# pulse and reads anyway (v0.0.3) therefore fails case 3 here exactly as it
-# failed on the board; the fixed probe drives RST high, waits for BUSY low
-# and reads 14 24. Case 6 wedges BUSY high for good and expects a bounded,
-# clean failure with no SPI read attempted.
+# pulse and reads anyway (v0.0.3) therefore fails here exactly as it failed
+# on the board; the fixed probe drives RST high, waits for BUSY low and a
+# standby GetStatus over two consecutive polls, then reads.
 #
-# Second finding on the same board with v0.0.4: BUSY sampled 0 ms after the
-# release still read low and GetStatus answered a valid standby, yet the
-# register read issued at once returned a transient 24 b4. The stub models
-# that too: once RST is high, GetStatus is valid immediately, but the
-# register contents are transient for the first STUB_REG_READY SPI transfers
-# and 14 24 only after. A probe that reads on the first BUSY-low sample gets
-# the transient (case 3a shows the model directly); the corrected probe
-# polls status until it has been standby on two consecutive polls and then
-# reads 14 24 (case 3).
+# ReadRegister (v0.0.6): the probe's frame is byte-for-byte what radiod's
+# RadioLib sends (opcode 0x1D, address 0x07 0x40, status NOP, data NOPs,
+# sync word at returned offset 4). radiod reads 14 24 through a single
+# SPI_IOC_MESSAGE; through spi-pipe unit A returned 24 b4 at offset 4 with
+# no 0x14 (v0.0.4/v0.0.5), an SPI-transaction effect the probe cannot
+# reframe away. The probe now captures the returned window at 6 and 8 bytes
+# and dumps both, and its liveness message rests on GetStatus (the reliable
+# signal) when the sync word is not delivered. The stub feeds a modelled
+# chip response as a test input: a healthy chip returns 14 24 (happy path),
+# and a separate case replays unit A's observed 24 b4 to check the probe's
+# reporting. Neither asserts what the board will return; that needs the
+# hardware retest.
 set -u
 HW=${HW:-tools/hwcheck/hwcheck.sh}
 T=$(mktemp -d)
@@ -34,8 +37,9 @@ check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$(
 # the driven value in $STUB_STATE/<chip>.<line>, and forgetting the value when
 # it is stopped (a released line has no driven value); gpioget reports BUSY
 # active unless RST is driven high (or always, with STUB_BUSY_STUCK=1);
-# spi-pipe answers the reset defaults only while RST is driven high, ff
-# otherwise, and records every invocation.
+# spi-pipe answers only while RST is driven high, ff otherwise: GetStatus
+# (2 bytes) a2 22 standby, ReadRegister (6 or 8 bytes) the modelled window in
+# $STUB_REG6 / $STUB_REG8, recording every register read.
 cat > "$STUB/gpioinfo" <<'EOF'
 #!/bin/sh
 if [ "${STUB_OWNED:-0}" = "1" ]; then c=" consumer=radiod"; else c=""; fi
@@ -79,15 +83,14 @@ n=6; while [ $# -gt 0 ]; do [ "$1" = "-b" ] && n=$2; shift; done
 cat > /dev/null
 c=$(cat "$STUB_SPI_COUNT" 2>/dev/null || echo 0); c=$((c + 1)); echo "$c" > "$STUB_SPI_COUNT"
 if [ "$(cat "$STUB_STATE/gpiochip0.5" 2>/dev/null)" = "1" ] && [ "${STUB_BUSY_STUCK:-0}" != "1" ]; then
-    if [ "$n" = "6" ]; then
-        echo "$c" >> "$STUB_REG_READS"
-        # register contents are transient until the chip has settled; status is valid before that
-        if [ "$c" -le "${STUB_REG_READY:-2}" ]; then printf '\242\242\242\242\044\264'; else printf '\252\252\252\252\024\044'; fi
-    else
-        printf '\242\042'
-    fi
+    case "$n" in
+        2) printf '\242\042' ;;                                   # GetStatus a2 22 (standby)
+        6) echo "$c" >> "$STUB_REG_READS"; printf "${STUB_REG6:-\\242\\242\\242\\242\\024\\044}" ;;
+        8) echo "$c" >> "$STUB_REG_READS"; printf "${STUB_REG8:-\\242\\242\\242\\242\\024\\044\\264\\000}" ;;
+        *) printf '\242' ;;
+    esac
 else
-    if [ "$n" = "6" ]; then printf '\377\377\377\377\377\377'; else printf '\377\377'; fi
+    i=0; while [ "$i" -lt "$n" ]; do printf '\377'; i=$((i + 1)); done
 fi
 EOF
 chmod +x "$STUB"/*
@@ -116,19 +119,8 @@ kill $FAKE 2>/dev/null; wait $FAKE 2>/dev/null
 check "radiod sx1262 process: exit code 3" "$([ $rc -eq 3 ] && echo 1 || echo 0)"
 check "radiod sx1262 process: no gpioset was started" "$([ ! -s "$STUB_PIDS" ] && echo 1 || echo 0)"
 
-# 3a. The model itself: with RST high and BUSY low, GetStatus is valid at
-#     once but an immediate register read returns the transient value. This
-#     is what unit A showed with v0.0.4 (status a2 22, registers 24 b4).
-reset_stubs
-echo 1 > "$STUB_STATE/gpiochip0.5"
-st=$(printf '\300\000' | "$STUB/spi-pipe" -d x -m 0 -s 1000000 -b 2 | od -An -tx1 | tr -s ' \n' ' ')
-rg=$(printf '\035\007\100\000\000\000' | "$STUB/spi-pipe" -d x -m 0 -s 1000000 -b 6 | od -An -tx1 | tr -s ' \n' ' ')
-check "model: GetStatus is valid standby immediately after reset ($st)" "$(printf '%s' "$st" | grep -q 'a2 22' && echo 1 || echo 0)"
-check "model: an immediate register read returns the transient value ($rg)" "$(printf '%s' "$rg" | grep -q '24 b4' && echo 1 || echo 0)"
-check "model: the transient is not the reset default" "$(printf '%s' "$rg" | grep -q '14 24' && echo 0 || echo 1)"
-
-# 3. Lines free: RST low, RST driven high, status standby on two consecutive
-#    polls, only then the register read; 14 24; bounded; nothing left behind.
+# 3. Lines free, healthy chip: RST low, RST driven high, standby on two polls,
+#    then the register windows; 14 24 found; bounded; nothing left behind.
 reset_stubs
 start=$(date +%s)
 STUB_OWNED=0 bash "$HW" --lora "$T/out3" > "$T/run3.txt" 2>&1; rc=$?
@@ -136,19 +128,41 @@ elapsed=$(( $(date +%s) - start ))
 check "free lines: exit code 0" "$([ $rc -eq 0 ] && echo 1 || echo 0)"
 check "free lines: RST was driven low" "$(grep -q '5=0' "$STUB_ARGS" && echo 1 || echo 0)"
 check "free lines: RST was driven high after the low pulse (not released)" \
-      "$(grep -n '5=' "$STUB_ARGS" | grep -q '5=1' && [ "$(grep '5=' "$STUB_ARGS" | tail -1)" = "--chip gpiochip0 5=1" ] && echo 1 || echo 0)"
+      "$([ "$(grep '5=' "$STUB_ARGS" | tail -1)" = "--chip gpiochip0 5=1" ] && echo 1 || echo 0)"
 check "free lines: readiness reported (BUSY low, standby status over two polls)" "$(grep -q 'SX126x ready .* ms after reset: BUSY (GPIO19) low, GetStatus chip mode 2' "$T/run3.txt" && echo 1 || echo 0)"
 first_reg=$(head -1 "$STUB_REG_READS" 2>/dev/null); first_reg=${first_reg:-0}
 check "free lines: the register read waited for two status polls first (SPI transfer #$first_reg, not #1)" "$([ "$first_reg" -ge 3 ] && echo 1 || echo 0)"
-check "free lines: exactly one register read (no blind retries)" "$([ "$(wc -l < "$STUB_REG_READS")" -eq 1 ] && echo 1 || echo 0)"
-check "free lines: sync word 14 24 read, not the transient" "$(grep -q '14 24' "$T/run3.txt" && ! grep -q '24 b4' "$T/run3.txt" && echo 1 || echo 0)"
-check "free lines: GetStatus read too" "$(grep -q 'a2 22' "$T/run3.txt" && echo 1 || echo 0)"
+check "free lines: both a 6-byte and an 8-byte window were captured" \
+      "$(grep -q -- '-b 6' "$STUB_SPI" && grep -q -- '-b 8' "$STUB_SPI" && echo 1 || echo 0)"
+check "free lines: both windows dumped in the report" \
+      "$(grep -q '6-byte window:' "$T/run3.txt" && grep -q '8-byte window:' "$T/run3.txt" && echo 1 || echo 0)"
+check "free lines: sync word 14 24 read" "$(grep -q '14 24' "$T/run3.txt" && echo 1 || echo 0)"
+check "free lines: GetStatus read too (a2 22)" "$(grep -q 'a2 22' "$T/run3.txt" && echo 1 || echo 0)"
 check "free lines: VERIFIED line printed" "$(grep -q 'SX126x answers' "$T/run3.txt" && echo 1 || echo 0)"
 check "free lines: finished within 15 s" "$([ $elapsed -lt 15 ] && echo 1 || echo 0)"
 check "free lines: gpioset was used for power, reset low and reset high" "$([ "$(wc -l < "$STUB_PIDS")" -ge 3 ] && echo 1 || echo 0)"
 check "free lines: no gpioset process left behind" "$([ "$(left_behind)" -eq 0 ] && echo 1 || echo 0)"
 check "free lines: every driven line released" "$([ -z "$(ls -A "$STUB_STATE")" ] && echo 1 || echo 0)"
 check "free lines: report says none left" "$(grep -q 'no gpioset process left behind' "$T/run3.txt" && echo 1 || echo 0)"
+
+# 3b. Unit A's observed response: the transaction returns 24 b4 at offset 4
+#     with no 0x14 in either window, but GetStatus still reports standby. The
+#     probe must exit 5, dump both windows, name it an SPI-transaction effect
+#     (not the frame), and report the chip alive from GetStatus.
+reset_stubs
+STUB_OWNED=0 STUB_REG6='\242\242\242\242\044\264' STUB_REG8='\242\242\242\242\044\264\000\000' \
+    bash "$HW" --lora "$T/out3b" > "$T/run3b.txt" 2>&1; rc=$?
+check "observed bytes: exit code 5 (sync word gate still fails)" "$([ $rc -eq 5 ] && echo 1 || echo 0)"
+check "observed bytes: the 24 b4 window is dumped" "$(grep -q '24 b4' "$T/run3b.txt" && echo 1 || echo 0)"
+check "observed bytes: 14 24 is not claimed" "$(grep -q 'VERIFIED' "$T/run3b.txt" && echo 0 || echo 1)"
+check "observed bytes: named an SPI-transaction effect, not the frame" "$(grep -q 'SPI-transaction effect' "$T/run3b.txt" && echo 1 || echo 0)"
+check "observed bytes: GetStatus standby means the chip is answering" "$(grep -q 'chip in standby' "$T/run3b.txt" && echo 1 || echo 0)"
+
+# 3c. The widening property, on the parser directly: a sync word that lands at
+#     offset 5 is inside an 8-byte window but truncated out of a 6-byte one.
+w8="a2 a2 a2 a2 a2 14 24 b4"; w6="a2 a2 a2 a2 a2 14"
+check "widening: an offset-5 sync word is present in the 8-byte window" "$(case "$w6 | $w8" in *"14 24"*) echo 1 ;; *) echo 0 ;; esac)"
+check "widening: the same word is truncated out of a 6-byte-only window" "$(case "$w6" in *"14 24"*) echo 0 ;; *) echo 1 ;; esac)"
 
 # 4. Interrupted probe: killing hwcheck mid-run must still take its gpioset children down.
 reset_stubs
