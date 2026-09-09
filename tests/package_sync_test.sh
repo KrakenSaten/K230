@@ -51,7 +51,8 @@ check "package source extracted" $([ -f "$SRC/Makefile" ] && echo 1 || echo 0)
 
 present() { [ -e "$SRC/$1" ] && echo 1 || echo 0; }
 for f in Makefile VERSION core/pocketipc/pocketipc.c core/pocketlog/pocketlog.c \
-         services/radiod/main.c ui/shell/shell.c ui/pocketui/pos_theme_table.h \
+         core/pocketsys.c services/radiod/main.c services/sysd/main.c \
+         ui/shell/shell.c ui/pocketui/pos_theme_table.h \
          apps/fleet/fleet_app.c tools/pos/pos.c tools/supervise/pos-supervise \
          tools/hwcheck/hwcheck.sh tools/hwcheck/spixfer.c; do
     check "package carries $f" $(present "$f")
@@ -85,13 +86,13 @@ OVL="$TMP/overlay"; mkdir -p "$OVL"
 git archive --format=tar HEAD -- platforms/k230/rootfs_overlay |
     tar -x --strip-components=3 -C "$OVL"
 check "overlay extracted at the rootfs root" $([ -d "$OVL/etc/init.d" ] && echo 1 || echo 0)
-for f in etc/init.d/S60radiod etc/init.d/S90pocketos-shell etc/default/telnet \
-         etc/pocketos/settings.conf; do
+for f in etc/init.d/S50sysd etc/init.d/S60radiod etc/init.d/S90pocketos-shell \
+         etc/default/telnet etc/pocketos/settings.conf; do
     check "overlay carries $f" $([ -e "$OVL/$f" ] && echo 1 || echo 0)
 done
 if [ "$MODES" -eq 1 ]; then
-    # These two are what BusyBox rcS executes.
-    for f in etc/init.d/S60radiod etc/init.d/S90pocketos-shell; do
+    # These three are what BusyBox rcS executes.
+    for f in etc/init.d/S50sysd etc/init.d/S60radiod etc/init.d/S90pocketos-shell; do
         check "overlay $f is executable" $([ -x "$OVL/$f" ] && echo 1 || echo 0)
     done
     for f in etc/default/telnet etc/pocketos/settings.conf; do

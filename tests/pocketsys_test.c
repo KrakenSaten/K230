@@ -19,6 +19,12 @@ static int failed;
 static char root[] = "/tmp/pos_sys.XXXXXX";
 static char run[] = "/tmp/pos_run.XXXXXX";
 
+/* The K230's own numbers (VERIFIED unit A), used twice: once whole and once
+ * cut down to a kernel that does not carry MemAvailable. */
+static const char meminfo_full[] =
+    "MemTotal:         990544 kB\nMemFree:          900952 kB\nMemAvailable:     928932 kB\n"
+    "Buffers:            1848 kB\n";
+
 static void check(const char *name, int ok)
 {
     if (ok) {
@@ -111,14 +117,14 @@ static void fake_root(void)
     put("proc/device-tree/model", "Canaan CanMV-K230 with RM69A10 OLED\0", 36);
     put("proc/uptime", "5125.90 4959.28\n", 0);
     put("proc/loadavg", "0.52 0.30 0.21 1/95 1234\n", 0);
-    put("proc/meminfo",
-        "MemTotal:         990544 kB\nMemFree:          900952 kB\nMemAvailable:     928932 kB\n"
-        "Buffers:            1848 kB\n", 0);
+    put("proc/meminfo", meminfo_full, 0);
     put("proc/stat", "cpu  100 0 100 800 0 0 0 0 0 0\ncpu0 100 0 100 800 0 0 0 0 0 0\n", 0);
     put("proc/mounts",
         "/dev/root / ext4 rw,relatime 0 0\nproc /proc proc rw 0 0\n"
         "tmpfs /run tmpfs rw 0 0\n/dev/mmcblk1p1 /boot ext4 rw,relatime 0 0\n", 0);
-    put("etc/pocketos-release", "0.0.6\n", 0);
+    /* what a card flashed from `make install` carries: the bare version on
+     * line 1 for first-line readers, the build identity below it */
+    put("etc/pocketos-release", "0.0.6\nBUILD_ID=deadbee\n", 0);
     put("etc/version/release_version",
         "#############SDK VERSION####\nsdk:v1.2-20260909-22d02c6\nCONF:k230_pocketos\n", 0);
     put("etc/os-release", "NAME=Buildroot\nPRETTY_NAME=\"Buildroot 2025.02.1\"\n", 0);
@@ -151,6 +157,12 @@ static void fake_root(void)
         f = fopen(path, "w");
         fputs("999999999\n", f);
         fclose(f);
+        /* a marker without the two numbers: crash-looped is still known,
+         * the numbers are not, and both keys must still be there */
+        snprintf(path, sizeof(path), "%s/partial.crashloop", run);
+        f = fopen(path, "w");
+        fputs("2026-09-09T16:20:01Z\n", f);
+        fclose(f);
     }
 }
 
@@ -176,6 +188,7 @@ int main(void)
     check("info version", str_is(info, "version", "0.0.7"));
     check("info build", str_is(info, "build", "abc1234"));
     check("info release_file is what the card carries", str_is(info, "release_file", "0.0.6"));
+    check("info release_build is the BUILD_ID line", str_is(info, "release_build", "deadbee"));
     check("info model from the device tree (NUL-terminated)",
           str_is(info, "model", "Canaan CanMV-K230 with RM69A10 OLED"));
     check("info kernel present", cJSON_IsString(get(info, "kernel")));
@@ -189,6 +202,16 @@ int main(void)
     info = pocketsys_info(NULL, NULL);
     check("info NULL version says unknown", str_is(info, "version", "unknown"));
     cJSON_Delete(info);
+
+    /* a card flashed before v0.0.7 carries the version line only */
+    put("etc/pocketos-release", "0.0.5\n", 0);
+    info = pocketsys_info("0.0.7", "abc1234");
+    check("a release file without a BUILD_ID line still gives release_file",
+          str_is(info, "release_file", "0.0.5"));
+    check("a release file without a BUILD_ID line gives a null release_build",
+          cJSON_IsNull(get(info, "release_build")));
+    cJSON_Delete(info);
+    put("etc/pocketos-release", "0.0.6\nBUILD_ID=deadbee\n", 0);
 
     /* ---- system.status, everything present ---- */
     pocketsys_cpu_init(&cpu);
@@ -251,23 +274,60 @@ int main(void)
 
     arr = get(st, "services");
     check("services lists pid and crashloop names once each, sorted",
-          cJSON_IsArray(arr) && cJSON_GetArraySize(arr) == 3 &&
-              str_is(cJSON_GetArrayItem(arr, 0), "name", "pocketos-shell") &&
-              str_is(cJSON_GetArrayItem(arr, 1), "name", "radiod") &&
-              str_is(cJSON_GetArrayItem(arr, 2), "name", "stale"));
+          cJSON_IsArray(arr) && cJSON_GetArraySize(arr) == 4 &&
+              str_is(cJSON_GetArrayItem(arr, 0), "name", "partial") &&
+              str_is(cJSON_GetArrayItem(arr, 1), "name", "pocketos-shell") &&
+              str_is(cJSON_GetArrayItem(arr, 2), "name", "radiod") &&
+              str_is(cJSON_GetArrayItem(arr, 3), "name", "stale"));
     e = find_named(arr, "radiod");
     check("radiod pid is ours", num_is(e, "pid", (double)getpid()));
     check("radiod running", cJSON_IsTrue(get(e, "running")));
     check("radiod not in a crash loop", cJSON_IsFalse(get(e, "crashloop")));
+    /* every service carries the same keys: a client renders one shape */
+    check("a healthy service still carries last_exit_code, as null",
+          get(e, "last_exit_code") != NULL && cJSON_IsNull(get(e, "last_exit_code")));
+    check("a healthy service still carries restarts, as null",
+          get(e, "restarts") != NULL && cJSON_IsNull(get(e, "restarts")));
     e = find_named(arr, "stale");
     check("stale pid file: not running", cJSON_IsFalse(get(e, "running")));
+    check("a stale service still carries last_exit_code, as null",
+          get(e, "last_exit_code") != NULL && cJSON_IsNull(get(e, "last_exit_code")));
     e = find_named(arr, "pocketos-shell");
     check("crash-looped service has no pid", cJSON_IsNull(get(e, "pid")));
     check("crash-looped service not running", cJSON_IsFalse(get(e, "running")));
     check("crashloop flag", cJSON_IsTrue(get(e, "crashloop")));
     check("crashloop last_exit_code parsed", num_is(e, "last_exit_code", 139));
     check("crashloop restarts parsed", num_is(e, "restarts", 6));
+    e = find_named(arr, "partial");
+    check("a marker without numbers is still a crash loop", cJSON_IsTrue(get(e, "crashloop")));
+    check("an unparsed last_exit_code is null, not -1",
+          get(e, "last_exit_code") != NULL && cJSON_IsNull(get(e, "last_exit_code")));
+    check("an unparsed restarts count is null, not -1",
+          get(e, "restarts") != NULL && cJSON_IsNull(get(e, "restarts")));
     cJSON_Delete(st);
+
+    /* ---- a mount point listed twice is one row ---- */
+    put("proc/mounts",
+        "rootfs / rootfs rw 0 0\n/dev/root / ext4 rw,relatime 0 0\nproc /proc proc rw 0 0\n"
+        "/dev/mmcblk1p1 /boot ext4 rw,relatime 0 0\n", 0);
+    st = pocketsys_status(NULL);
+    arr = get(st, "storage");
+    check("a mount point on two lines of /proc/mounts is one row",
+          cJSON_IsArray(arr) && cJSON_GetArraySize(arr) == 2 &&
+              str_is(cJSON_GetArrayItem(arr, 0), "mount", "/") &&
+              str_is(cJSON_GetArrayItem(arr, 1), "mount", "/boot"));
+    cJSON_Delete(st);
+
+    /* ---- a kernel without MemAvailable: null, never -1 ---- */
+    put("proc/meminfo", "MemTotal:         990544 kB\nBuffers:            1848 kB\n", 0);
+    st = pocketsys_status(NULL);
+    e = get(st, "memory");
+    check("memory is still reported when only MemTotal is there",
+          num_is(e, "total_kb", 990544));
+    check("absent MemAvailable is null, not -1", cJSON_IsNull(get(e, "available_kb")));
+    check("absent MemFree is null, not -1", cJSON_IsNull(get(e, "free_kb")));
+    cJSON_Delete(st);
+    put("proc/meminfo", meminfo_full, 0);
 
     /* ---- a base-board battery makes the source unknown, not a guess ---- */
     mkdirs("sys/class/power_supply/bq27220-0");
@@ -292,6 +352,8 @@ int main(void)
     rm("etc/os-release");
     info = pocketsys_info("x", "y");
     check("absent release file is null", cJSON_IsNull(get(info, "release_file")));
+    check("absent release file gives a null release_build",
+          cJSON_IsNull(get(info, "release_build")));
     check("absent model is null", cJSON_IsNull(get(info, "model")));
     check("absent vendor sdk is null", cJSON_IsNull(get(info, "vendor_sdk")));
     check("absent os-release is null", cJSON_IsNull(get(info, "os")));

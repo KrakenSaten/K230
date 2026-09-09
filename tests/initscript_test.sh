@@ -27,6 +27,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 REPO=$(pwd)
 OVERLAY=platforms/k230/rootfs_overlay
+S50_SRC=$OVERLAY/etc/init.d/S50sysd
 S60_SRC=$OVERLAY/etc/init.d/S60radiod
 S90_SRC=$OVERLAY/etc/init.d/S90pocketos-shell
 failed=0
@@ -76,7 +77,7 @@ else
     echo "note: file modes read from $MODE_SOURCE"
     # Image-critical: these modes are copied into the rootfs by Buildroot and
     # BusyBox rcS runs `$i start`, which needs the executable bit.
-    for f in "$S60_SRC" "$S90_SRC"; do
+    for f in "$S50_SRC" "$S60_SRC" "$S90_SRC"; do
         check "image-critical: $(basename "$f") recorded 100755" \
               $([ "$(mode_of "$f")" = "100755" ] && echo 1 || echo 0)
     done
@@ -135,6 +136,7 @@ EOD
     chmod 0755 "$1"
 }
 make_daemon "$ROOT/usr/sbin/radiod" "$ROOT/radiod.env"
+make_daemon "$ROOT/usr/sbin/sysd" "$ROOT/sysd.env"
 make_daemon "$ROOT/usr/bin/pocketos-shell" "$ROOT/shell.env"
 
 # Rewrite the absolute paths of an init script into the fake root. /dev/null is
@@ -155,21 +157,25 @@ rewrite() { # <source> <destination>
         "$1" > "$2"
     chmod 0755 "$2"
 }
+rewrite "$REPO/$S50_SRC" "$ROOT/etc/init.d/S50sysd"
 rewrite "$REPO/$S60_SRC" "$ROOT/etc/init.d/S60radiod"
 rewrite "$REPO/$S90_SRC" "$ROOT/etc/init.d/S90pocketos-shell"
 
 # The rewrite must be complete: any surviving system path would make the test
 # lie about what it exercised (or touch the host).
-leaked=$(grep -nE '(^|[^A-Za-z0-9_/])/(etc|var|usr|run)/' "$ROOT/etc/init.d/S60radiod" \
+leaked=$(grep -nE '(^|[^A-Za-z0-9_/])/(etc|var|usr|run)/' "$ROOT/etc/init.d/S50sysd" \
+                  "$ROOT/etc/init.d/S60radiod" \
                   "$ROOT/etc/init.d/S90pocketos-shell" | grep -v "$ROOT" | grep -v '^\s*#')
 check "path rewrite left no system path behind" $([ -z "$leaked" ] && echo 1 || echo 0)
 [ -n "$leaked" ] && echo "$leaked" | head -5
 
 # A rule that matches inside an already-rewritten path produces "$ROOT/var$ROOT/run/..."
-doubled=$(grep -n "$ROOT[^ ]*$ROOT" "$ROOT/etc/init.d/S60radiod" "$ROOT/etc/init.d/S90pocketos-shell")
+doubled=$(grep -n "$ROOT[^ ]*$ROOT" "$ROOT/etc/init.d/S50sysd" "$ROOT/etc/init.d/S60radiod" \
+               "$ROOT/etc/init.d/S90pocketos-shell")
 check "path rewrite did not nest one prefix inside another" $([ -z "$doubled" ] && echo 1 || echo 0)
 [ -n "$doubled" ] && echo "$doubled" | head -5
 
+S50="$ROOT/etc/init.d/S50sysd"
 S60="$ROOT/etc/init.d/S60radiod"
 S90="$ROOT/etc/init.d/S90pocketos-shell"
 
@@ -184,6 +190,7 @@ wait_for() { # <file> — up to 5 s
 # pgrep -f for the daemon matches both. Count the ones that are not the
 # supervisor.
 count_daemons() { pgrep -af "$ROOT/usr/sbin/radiod" 2>/dev/null | grep -vc 'pos-supervise'; }
+count_sysd() { pgrep -af "$ROOT/usr/sbin/sysd" 2>/dev/null | grep -vc 'pos-supervise'; }
 count_supervisors() { pgrep -af "$ROOT/usr/bin/pos-supervise" 2>/dev/null | wc -l; }
 wait_gone() { # <pid> — up to 5 s
     n=0
@@ -194,6 +201,11 @@ wait_daemons() { # <expected count> — up to 5 s
     n=0
     while [ "$(count_daemons)" -ne "$1" ] && [ $n -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
     [ "$(count_daemons)" -eq "$1" ]
+}
+wait_sysd() { # <expected count> — up to 5 s
+    n=0
+    while [ "$(count_sysd)" -ne "$1" ] && [ $n -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+    [ "$(count_sysd)" -eq "$1" ]
 }
 
 # ---- S60radiod ----------------------------------------------------------
@@ -344,6 +356,79 @@ check "S90 stop reports OK" $(contains "$out" "OK")
 check "S90 stop removes the supervise pid file" \
       $([ ! -f "$ROOT/var/run/pocketos-shell-supervise.pid" ] && echo 1 || echo 0)
 check "S90 stop ends the supervisor" $(wait_gone "$SHPID" && echo 1 || echo 0)
+
+# ---- S50sysd ------------------------------------------------------------
+#
+# Runs last, so the supervisor count belongs to sysd alone. sysd has no
+# per-unit configuration: there is nothing to source and nothing to refuse,
+# so what is exercised here is the start/stop discipline S60radiod earned on
+# unit A (M6) — the supervise pid and the daemon pid are two different facts,
+# and stop does not return until both are gone.
+
+out=$("$S50" start 2>&1)
+check "S50 start reports OK" $(contains "$out" "OK")
+SYSPID=$(pidof_file "$ROOT/var/run/sysd-supervise.pid")
+check "S50 start writes the supervise pid file" $([ -n "$SYSPID" ] && echo 1 || echo 0)
+check "S50 start leaves the supervisor running" $(alive "$SYSPID" && echo 1 || echo 0)
+check "S50 start starts the daemon" $(wait_for "$ROOT/sysd.env" && echo 1 || echo 0)
+check "S50 start records the daemon pid in the runtime dir" \
+      $([ -s "$ROOT/run/pocketos/sysd.pid" ] && echo 1 || echo 0)
+check "S50 exports the persistent log directory" \
+      $(grep -q "^POCKETOS_LOG_DIR=$ROOT/var/lib/pocketos/log$" "$ROOT/sysd.env" && echo 1 || echo 0)
+check "S50 exports POCKETOS_LOG_STDERR=0" \
+      $(grep -q '^POCKETOS_LOG_STDERR=0$' "$ROOT/sysd.env" && echo 1 || echo 0)
+check "S50 does not export a fake root" \
+      $(grep -q '^POCKETSYS_ROOT=' "$ROOT/sysd.env" && echo 0 || echo 1)
+check "S50 creates the stdio log" $([ -f "$ROOT/var/lib/pocketos/log/sysd.stdio.log" ] && echo 1 || echo 0)
+
+out=$("$S50" start 2>&1)
+check "S50 start is idempotent" $(contains "$out" "already running")
+check "S50 does not start a second daemon" $(wait_sysd 1 && echo 1 || echo 0)
+
+out=$("$S50" stop 2>&1)
+check "S50 stop reports OK" $(contains "$out" "OK")
+check "S50 stop removes the supervise pid file" \
+      $([ ! -f "$ROOT/var/run/sysd-supervise.pid" ] && echo 1 || echo 0)
+check "S50 stop ends the supervisor" $(wait_gone "$SYSPID" && echo 1 || echo 0)
+check "S50 stop ends the daemon" $(wait_sysd 0 && echo 1 || echo 0)
+
+out=$("$S50" stop 2>&1)
+check "S50 stop when not running says so" $(contains "$out" "not running")
+
+rm -f "$ROOT/sysd.env"
+printf 'previous boot\n' > "$ROOT/var/lib/pocketos/log/sysd.stdio.log"
+out=$("$S50" restart 2>&1)
+check "S50 restart starts the service" $(wait_for "$ROOT/sysd.env" && echo 1 || echo 0)
+check "S50 restart leaves exactly one daemon" $(wait_sysd 1 && echo 1 || echo 0)
+check "S50 restart leaves exactly one supervisor" \
+      $([ "$(count_supervisors)" -eq 1 ] && echo 1 || echo 0)
+check "S50 rotates the previous stdio log to .1" \
+      $(grep -q 'previous boot' "$ROOT/var/lib/pocketos/log/sysd.stdio.log.1" 2>/dev/null && echo 1 || echo 0)
+"$S50" stop >/dev/null 2>&1
+wait_sysd 0
+
+# A daemon that ignores SIGTERM: the supervisor waits for it and so never
+# leaves either. stop must escalate to the daemon, then to SIGKILL, and not
+# return while anything is left holding the socket.
+cat > "$ROOT/usr/sbin/sysd" <<EOD
+#!/bin/sh
+trap '' TERM INT
+env > "$ROOT/sysd.env"
+while :; do sleep 0.2; done
+EOD
+chmod 0755 "$ROOT/usr/sbin/sysd"
+rm -f "$ROOT/sysd.env"
+"$S50" start >/dev/null 2>&1
+wait_for "$ROOT/sysd.env"
+wait_sysd 1
+started=$(date +%s)
+out=$("$S50" stop 2>&1)
+elapsed=$(( $(date +%s) - started ))
+check "S50 stop returns when the daemon ignores SIGTERM" $(contains "$out" "OK")
+check "S50 stop reports that it had to force" $(contains "$out" "forced")
+check "S50 stop leaves no daemon behind" $([ "$(count_sysd)" -eq 0 ] && echo 1 || echo 0)
+check "S50 stop leaves no supervisor behind" $([ "$(count_supervisors)" -eq 0 ] && echo 1 || echo 0)
+check "S50 stop is bounded" $([ "$elapsed" -le 20 ] && echo 1 || echo 0)
 
 echo "initscript_test: $failed failure(s)"
 exit $((failed > 0))

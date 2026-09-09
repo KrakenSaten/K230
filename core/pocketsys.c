@@ -30,15 +30,29 @@
 
 /* Mount points system.status reports on when present in /proc/mounts. */
 static const char *const watched_mounts[] = { "/", "/boot", "/data" };
+#define WATCHED_MOUNT_COUNT (sizeof(watched_mounts) / sizeof(watched_mounts[0]))
 
 /* ---- paths and small readers ------------------------------------------ */
 
+/* The fake root is a test-only build option (pocketsys.h). tests/pocketsys_test
+ * is compiled with -DPOCKETSYS_TEST_HOOKS=1 and honours $POCKETSYS_ROOT; sysd
+ * is compiled without it and reads the real system, whatever its environment
+ * says. A shipped service that takes its entire view of the machine from an
+ * environment variable is one whose facts anyone able to set that variable can
+ * fabricate, and every client of system.* believes those facts. */
+#ifdef POCKETSYS_TEST_HOOKS
 static const char *root_prefix(void)
 {
     const char *r = getenv("POCKETSYS_ROOT");
 
     return r ? r : "";
 }
+#else
+static const char *root_prefix(void)
+{
+    return "";
+}
+#endif
 
 /* Absolute path under the (possibly faked) root. */
 static const char *at(char *buf, size_t n, const char *path)
@@ -81,26 +95,49 @@ static FILE *open_at(const char *path, const char *mode)
     return fopen(at(full, sizeof(full), path), mode);
 }
 
-/* The first line starting with "<key>:" in a "key: value" file, as a long,
- * or -1 when the key is absent. */
-static long keyed_long(const char *path, const char *key)
+/* The first line starting with "<key>:" in a "key: value" file, as a long.
+ * Returns 0 when the key was found and carried a number, -1 when the file or
+ * the key is absent or the value does not parse. An absent key is an absence,
+ * never a -1 the caller could mistake for a measurement. */
+static int keyed_long(const char *path, const char *key, long *out)
 {
     FILE *f = open_at(path, "r");
     char line[256];
     size_t klen = strlen(key);
-    long v = -1;
+    int found = -1;
 
     if (!f) {
         return -1;
     }
     while (fgets(line, sizeof(line), f)) {
-        if (strncmp(line, key, klen) == 0 && line[klen] == ':') {
-            v = strtol(line + klen + 1, NULL, 10);
-            break;
+        char *end;
+        long v;
+
+        if (strncmp(line, key, klen) != 0 || line[klen] != ':') {
+            continue;
         }
+        v = strtol(line + klen + 1, &end, 10);
+        if (end != line + klen + 1) {
+            *out = v;
+            found = 0;
+        }
+        break;
     }
     fclose(f);
-    return v;
+    return found;
+}
+
+/* A "key: value" line as a JSON number, or JSON null when the file does not
+ * carry it. */
+static void add_keyed_long_or_null(cJSON *o, const char *field, const char *path, const char *key)
+{
+    long v;
+
+    if (keyed_long(path, key, &v) == 0) {
+        cJSON_AddNumberToObject(o, field, (double)v);
+    } else {
+        cJSON_AddNullToObject(o, field);
+    }
 }
 
 static void add_string_or_null(cJSON *o, const char *key, const char *value)
@@ -221,6 +258,31 @@ static const char *vendor_sdk(char *buf, size_t n)
     return found;
 }
 
+/* The build identity the card carries: the "BUILD_ID=" line of
+ * /etc/pocketos-release, or NULL when the file has none. Line 1 of that file
+ * stays the bare version so that every first-line reader keeps working
+ * (release_file, `pos system info`), and the build identity is a key=value
+ * line below it, written by the Makefile install target. A card flashed
+ * before v0.0.7 carries only the version line and reports null here. */
+static const char *release_build(char *buf, size_t n)
+{
+    FILE *f = open_at("/etc/pocketos-release", "r");
+    const char *found = NULL;
+
+    if (!f) {
+        return NULL;
+    }
+    while (fgets(buf, (int)n, f)) {
+        if (strncmp(buf, "BUILD_ID=", 9) == 0) {
+            buf[strcspn(buf, "\n")] = '\0';
+            found = buf[9] != '\0' ? buf + 9 : NULL;
+            break;
+        }
+    }
+    fclose(f);
+    return found;
+}
+
 /* PRETTY_NAME from /etc/os-release without its quotes, or NULL. */
 static const char *os_name(char *buf, size_t n)
 {
@@ -260,6 +322,7 @@ cJSON *pocketsys_info(const char *version, const char *build)
     cJSON_AddStringToObject(o, "build", build ? build : "unknown");
     add_string_or_null(o, "release_file",
                        read_line("/etc/pocketos-release", buf, sizeof(buf)) == 0 ? buf : NULL);
+    add_string_or_null(o, "release_build", release_build(buf, sizeof(buf)));
     add_string_or_null(o, "model",
                        read_line("/proc/device-tree/model", buf, sizeof(buf)) == 0 ? buf : NULL);
     if (uname(&u) == 0) {
@@ -310,19 +373,22 @@ static void add_uptime_and_load(cJSON *o)
     }
 }
 
+/* Without MemTotal there is no /proc/meminfo worth reporting and the whole
+ * object is null. With it, a key the kernel does not carry (MemAvailable is
+ * absent before Linux 3.14) is null on its own. */
 static void add_memory(cJSON *o)
 {
-    long total = keyed_long("/proc/meminfo", "MemTotal");
+    long total;
     cJSON *m;
 
-    if (total < 0) {
+    if (keyed_long("/proc/meminfo", "MemTotal", &total) != 0) {
         cJSON_AddNullToObject(o, "memory");
         return;
     }
     m = cJSON_CreateObject();
     cJSON_AddNumberToObject(m, "total_kb", (double)total);
-    cJSON_AddNumberToObject(m, "available_kb", (double)keyed_long("/proc/meminfo", "MemAvailable"));
-    cJSON_AddNumberToObject(m, "free_kb", (double)keyed_long("/proc/meminfo", "MemFree"));
+    add_keyed_long_or_null(m, "available_kb", "/proc/meminfo", "MemAvailable");
+    add_keyed_long_or_null(m, "free_kb", "/proc/meminfo", "MemFree");
     cJSON_AddItemToObject(o, "memory", m);
 }
 
@@ -339,12 +405,18 @@ static void add_temperature(cJSON *o)
     }
 }
 
-/* One entry per watched mount point that /proc/mounts lists. */
+/* One entry per watched mount point that /proc/mounts lists, and one only:
+ * a mount point can appear on several lines (an initramfs leaves "rootfs /"
+ * ahead of "/dev/root /", and any remount or bind adds another), and two
+ * identical rows for / would be a defect of this reader, not a fact about the
+ * card. A line whose statvfs fails does not consume the slot: a later line
+ * for the same mount point may still answer. */
 static void add_storage(cJSON *o)
 {
     FILE *f = open_at("/proc/mounts", "r");
     cJSON *arr = cJSON_CreateArray();
     char line[512];
+    int listed[WATCHED_MOUNT_COUNT] = { 0 };
 
     if (f) {
         while (fgets(line, sizeof(line), f)) {
@@ -355,12 +427,12 @@ static void add_storage(cJSON *o)
             if (sscanf(line, "%127s %255s", dev, mnt) != 2) {
                 continue;
             }
-            for (i = 0; i < sizeof(watched_mounts) / sizeof(watched_mounts[0]); i++) {
+            for (i = 0; i < WATCHED_MOUNT_COUNT; i++) {
                 char full[POCKETOS_PATH_MAX];
                 struct statvfs st;
                 cJSON *e;
 
-                if (strcmp(mnt, watched_mounts[i]) != 0) {
+                if (listed[i] || strcmp(mnt, watched_mounts[i]) != 0) {
                     continue;
                 }
                 if (statvfs(at(full, sizeof(full), mnt), &st) != 0) {
@@ -371,6 +443,7 @@ static void add_storage(cJSON *o)
                 cJSON_AddNumberToObject(e, "total_bytes", (double)st.f_blocks * (double)st.f_frsize);
                 cJSON_AddNumberToObject(e, "avail_bytes", (double)st.f_bavail * (double)st.f_frsize);
                 cJSON_AddItemToArray(arr, e);
+                listed[i] = 1;
             }
         }
         fclose(f);
@@ -476,6 +549,29 @@ static void add_power(cJSON *o)
     cJSON_AddItemToObject(o, "power", p);
 }
 
+/* One number out of the crash-loop marker ("<utc> rc=<n> restarts=<m>"), or
+ * JSON null when the marker does not carry it. The field is always added:
+ * a client renders one object shape whatever the supervisor wrote, rather
+ * than telling "absent key", "null" and "number" apart (docs/api/system.md). */
+static void add_marker_long(cJSON *o, const char *field, const char *line, const char *key)
+{
+    const char *p = strstr(line, key);
+    char *end;
+    long v;
+
+    if (!p) {
+        cJSON_AddNullToObject(o, field);
+        return;
+    }
+    p += strlen(key);
+    v = strtol(p, &end, 10);
+    if (end == p || v < 0) {
+        cJSON_AddNullToObject(o, field);
+        return;
+    }
+    cJSON_AddNumberToObject(o, field, (double)v);
+}
+
 /* Supervised services, from what pos-supervise writes in the runtime dir:
  * <name>.pid while it watches a daemon, <name>.crashloop when it gave up
  * ("<utc> rc=<n> restarts=<m>"). A name is listed when either file exists. */
@@ -524,7 +620,6 @@ static void add_services(cJSON *o)
         char buf[160];
         cJSON *s = cJSON_CreateObject();
         long pid = -1;
-        const char *p;
 
         cJSON_AddStringToObject(s, "name", names[i]);
         snprintf(path, sizeof(path), "%s/%s.pid", run, names[i]);
@@ -538,28 +633,13 @@ static void add_services(cJSON *o)
         }
         snprintf(path, sizeof(path), "%s/%s.crashloop", run, names[i]);
         if (read_line_exact(path, buf, sizeof(buf)) == 0) {
-            long rc = -1;
-            long restarts = -1;
-
             cJSON_AddBoolToObject(s, "crashloop", 1);
-            if ((p = strstr(buf, "rc=")) != NULL) {
-                rc = strtol(p + 3, NULL, 10);
-            }
-            if ((p = strstr(buf, "restarts=")) != NULL) {
-                restarts = strtol(p + 9, NULL, 10);
-            }
-            if (rc >= 0) {
-                cJSON_AddNumberToObject(s, "last_exit_code", (double)rc);
-            } else {
-                cJSON_AddNullToObject(s, "last_exit_code");
-            }
-            if (restarts >= 0) {
-                cJSON_AddNumberToObject(s, "restarts", (double)restarts);
-            } else {
-                cJSON_AddNullToObject(s, "restarts");
-            }
+            add_marker_long(s, "last_exit_code", buf, "rc=");
+            add_marker_long(s, "restarts", buf, "restarts=");
         } else {
             cJSON_AddBoolToObject(s, "crashloop", 0);
+            cJSON_AddNullToObject(s, "last_exit_code");
+            cJSON_AddNullToObject(s, "restarts");
         }
         cJSON_AddItemToArray(arr, s);
     }

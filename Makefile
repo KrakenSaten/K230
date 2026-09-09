@@ -70,7 +70,13 @@ services/radiod/radiod: $(RADIOD_OBJS)
 services/sysd/sysd: $(SYSD_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
-tests/pocketsys_test: tests/pocketsys_test.o $(SYS_OBJS) $(PATHS_OBJS)
+# The fake root ($POCKETSYS_ROOT) is a test-only build option, so it gets its
+# own object: this one honours the variable, the core/pocketsys.o that goes
+# into sysd does not and cannot be pointed at a fake /proc by its environment.
+tests/pocketsys_hooks.o: core/pocketsys.c
+	$(CC) $(ALL_CFLAGS) -DPOCKETSYS_TEST_HOOKS=1 -c -o $@ $<
+
+tests/pocketsys_test: tests/pocketsys_test.o tests/pocketsys_hooks.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 %.o: %.c
@@ -235,12 +241,19 @@ install: all
 	install -D -m 0755 services/radiod/radiod $(DESTDIR)$(PREFIX)/sbin/radiod
 	install -D -m 0755 services/sysd/sysd $(DESTDIR)$(PREFIX)/sbin/sysd
 	install -D -m 0755 tools/supervise/pos-supervise $(DESTDIR)$(PREFIX)/bin/pos-supervise
-	install -D -m 0644 VERSION $(DESTDIR)/etc/pocketos-release
+# /etc/pocketos-release: line 1 stays the bare version, so every reader that
+# takes the first line keeps working, and the build identity follows as a
+# key=value line (system.info release_file and release_build, `pos system
+# info`). The build id is the same one compiled into the binaries above.
+	install -d -m 0755 $(DESTDIR)/etc
+	printf '%s\nBUILD_ID=%s\n' '$(POCKETOS_VERSION)' '$(POCKETOS_BUILD_ID)' \
+		> $(DESTDIR)/etc/pocketos-release
+	chmod 0644 $(DESTDIR)/etc/pocketos-release
 
 DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name '*.d' 2>/dev/null)
 -include $(DEPFILES)
 
 clean:
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) tests/pocketsys_test tests/pocketsys_test.o $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) tests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o
 
 .PHONY: all test install clean sx1262-objs

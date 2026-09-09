@@ -20,6 +20,14 @@ check() { # check <name> <expected-regex> <actual>
         failed=$((failed + 1))
     fi
 }
+absent() { # absent <name> <unwanted-regex> <actual>
+    if printf '%s' "$3" | grep -q -- "$2"; then
+        echo "FAIL $1: did not expect '$2' in:"; printf '%s\n' "$3" | head -20
+        failed=$((failed + 1))
+    else
+        echo "ok   $1"
+    fi
+}
 
 # A service this process stands in for, as pos-supervise would record it.
 echo $$ > "$POCKETOS_RUNTIME_DIR/radiod.pid"
@@ -37,6 +45,9 @@ check "info reports the version" "\"version\":[[:space:]]*\"${EXPECTED_VERSION}\
 check "info reports the build" "\"build\":[[:space:]]*\"${EXPECTED_BUILD}\"" "$out"
 check "info kernel" '"kernel":[[:space:]]*"' "$out"
 check "info hostname" '"hostname":[[:space:]]*"' "$out"
+# Present whatever this host carries: a string on a flashed card, null on a
+# build machine with no /etc/pocketos-release.
+check "info carries release_build" '"release_build":' "$out"
 
 out=$("$POS" system status)
 check "status uptime_s" '"uptime_s":[[:space:]]*[0-9]' "$out"
@@ -60,6 +71,23 @@ out=$("$POS" call sysd 2>&1)
 check "pos call needs service and method" 'usage: pos call' "$out"
 out=$("$POS" call nosuchd system.info 2>&1)
 check "pos call reports an unreachable service" 'cannot connect to nosuchd' "$out"
+
+# The fake root is a test-only build option (core/pocketsys.c,
+# POCKETSYS_TEST_HOOKS): tests/pocketsys_test honours $POCKETSYS_ROOT, a
+# production sysd must not. A service whose whole job is to report what the
+# machine is must not be redirectable by whoever sets its environment.
+FAKE=$(mktemp -d)
+mkdir -p "$FAKE/proc/device-tree"
+printf 'FAKE BOARD THAT DOES NOT EXIST\n' > "$FAKE/proc/device-tree/model"
+POCKETSYS_ROOT=$FAKE "$SYSD" --socket-name sysdfake > "$POCKETOS_RUNTIME_DIR/fake.out" 2>&1 &
+FAKE_PID=$!
+for _ in $(seq 1 50); do [ -S "$POCKETOS_RUNTIME_DIR/sysdfake.sock" ] && break; sleep 0.1; done
+out=$("$POS" call sysdfake system.info 2>&1)
+check "sysd started with POCKETSYS_ROOT still answers" '"kernel":[[:space:]]*"' "$out"
+absent "production sysd ignores POCKETSYS_ROOT" 'FAKE BOARD' "$out"
+kill $FAKE_PID 2>/dev/null
+wait $FAKE_PID 2>/dev/null
+rm -rf "$FAKE"
 
 # Protocol robustness: a garbage frame must not take sysd down.
 python3 - "$POCKETOS_RUNTIME_DIR/sysd.sock" <<'PY' || true

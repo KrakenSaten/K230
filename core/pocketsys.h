@@ -6,11 +6,20 @@
  * board may lack is reported as JSON null rather than guessed, so a missing
  * thermal zone, release file or power supply shows up as exactly that.
  *
- * Used by sysd (services/sysd) and unit-tested natively against a fake
- * root: when $POCKETSYS_ROOT is set, it is prepended to every absolute path
- * this module reads (/proc/..., /sys/..., /etc/...). Production leaves it
- * unset. The supervised-service table comes from $POCKETOS_RUNTIME_DIR
- * (pocketpaths.h), which the tests already override.
+ * Used by sysd (services/sysd) and unit-tested natively against a fake root.
+ * The fake root is a build option, not an environment switch: an object
+ * compiled with -DPOCKETSYS_TEST_HOOKS=1 prepends $POCKETSYS_ROOT to every
+ * absolute path this module reads (/proc/..., /sys/..., /etc/...), and one
+ * compiled without it cannot be redirected at all. Only tests/pocketsys_test
+ * is built with the hook; sysd is not, so a service whose whole job is to
+ * report what the system is cannot be told to report something else by
+ * whoever sets its environment. The supervised-service table comes from
+ * $POCKETOS_RUNTIME_DIR (pocketpaths.h), which is a production override and
+ * stays one.
+ *
+ * The fake root covers path reads and nothing else: uname(), sysconf(),
+ * time() and the SIOCGIFADDR ioctl behind ipv4 always answer for the running
+ * kernel (docs/api/system.md, Test hooks).
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */

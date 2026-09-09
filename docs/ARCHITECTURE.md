@@ -91,10 +91,17 @@ pos system status / pos call ── pocketipc ──▶ sysd ──▶ core/pock
 is read-only in v0: no device node, no action. The facts come from
 `core/pocketsys`, unit-tested against a fake root, and every source a board
 may lack (thermal zone, power supply, release file, `/data`) reports `null`
-rather than a guess. The supervised-service table is read from the pid files
-and crash-loop markers `pos-supervise` already writes. Not yet started on the
-device: the `S50sysd` init script and the shell's System Status screen are
-the next two steps of v0.0.7.
+rather than a guess. The fake root is a build option and not an environment
+switch, so the shipped service reads the real machine whatever its
+environment says. The supervised-service table is read from the pid files and
+crash-loop markers `pos-supervise` already writes, and is the one part of the
+contract that will change within v0.0.7: the supervisor state file replaces
+that source, and `system.status.services` follows it.
+
+`/etc/init.d/S50sysd` starts it under `pos-supervise`, ahead of `S60radiod`,
+with S60's stop discipline (the supervise pid and the daemon pid are two
+different facts). Written and tested on the PC; not yet run on a device. The
+shell's System Status screen is the next step of v0.0.7.
 
 ## Theme engine (Design System v0.1)
 
