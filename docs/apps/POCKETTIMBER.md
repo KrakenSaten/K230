@@ -542,6 +542,14 @@ widget's drawing changed. D1 verdict 2026-09-08: ART DIRECTION APPROVED FOR
 PRODUCTION, with the open art decisions and the hardware-deferred numbers
 listed in the art document.
 
+D3 preparation (2026-09-09): the K230 image now carries the same sprites as
+the simulator. The package export (`git archive`, which leaves `docs/` out)
+adds `docs/design/timber-art` beside the sources, and the package depends
+on Buildroot's `host-python3` so the converter runs inside the package
+build rather than against whatever the build host has; without this the
+image built the P7 placeholder blocks silently. `tests/package_sync_test.sh`
+checks the export.
+
 ## Hardware gates
 
 Every constant that depends on an unmeasured K230 number lives in
