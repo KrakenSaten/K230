@@ -42,8 +42,8 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-PocketOS 0.0.4, the focused fix release after the first v0.0.3 hardware
-session. Implemented and host-tested:
+PocketOS 0.0.5, the second focused fix release after the v0.0.3 and v0.0.4
+hardware sessions. Implemented and host-tested:
 `pos` CLI, `pos-hwcheck`, pocketipc, pocketlog, pocketpaths, `pos-supervise`,
 radiod with the mock backend and the sx1262 backend (RadioLib on spidev +
 libgpiod), the LVGL shell with Design System v0.1 (theme engine, five themes,
@@ -73,6 +73,14 @@ are classified per statement in docs/hardware/T-DISPLAY-K230.md.
   shell stop was reported as forced), and `pos-hwcheck --lora` drives RST
   high and waits for BUSY low as radiod does (the probe read `ff`). Nothing
   else changes; the retest is docs/hardware/V0.0.4_FOCUSED_RETEST.md.
+  On unit A (2026-09-08) M6 passed, M5 and M7 each exposed a second defect.
+- **0.0.5** closes those two: the UI deadline covers connecting as well
+  (with radiod stopped, the shell's own abandoned connections filled
+  radiod's listen backlog and the reconnect blocked with no deadline), and
+  `pos-hwcheck --lora` reads the registers only after the chip reports
+  standby on two consecutive polls (the first read after reset was
+  transient). Nothing else changes; the retest is
+  docs/hardware/V0.0.5_FOCUSED_RETEST.md.
 
 The K230 SD image is built by platforms/k230 (see docs/BUILD_ENVIRONMENT.md
 and docs/hardware/FIRST_BOOT.md).

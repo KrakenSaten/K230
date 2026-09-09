@@ -10,7 +10,11 @@ pocketlog now), the shell leaving a stale `shell.sock` after `stop`, init
 from. Closed by 0.0.4, found on unit A with 0.0.3: the Radio app's tick
 blocking the panel while radiod was stopped (M5), the supervisor leaving
 before its child so that `stop` reported forced (M6), and the hwcheck probe
-releasing RST instead of driving it high (M7).
+releasing RST instead of driving it high (M7). Closed by 0.0.5, found on
+unit A with 0.0.4: the shell's reconnect blocking in `connect()` once
+radiod's listen backlog was full of its own abandoned connections (M5,
+second cause), and the probe reading the registers before the chip had
+finished its reset (M7, second cause).
 
 ## Hardware and BSP
 
