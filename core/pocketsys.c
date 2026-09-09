@@ -13,7 +13,6 @@
 #include <errno.h>
 #include <net/if.h>
 #include <netinet/in.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -549,104 +548,6 @@ static void add_power(cJSON *o)
     cJSON_AddItemToObject(o, "power", p);
 }
 
-/* One number out of the crash-loop marker ("<utc> rc=<n> restarts=<m>"), or
- * JSON null when the marker does not carry it. The field is always added:
- * a client renders one object shape whatever the supervisor wrote, rather
- * than telling "absent key", "null" and "number" apart (docs/api/system.md). */
-static void add_marker_long(cJSON *o, const char *field, const char *line, const char *key)
-{
-    const char *p = strstr(line, key);
-    char *end;
-    long v;
-
-    if (!p) {
-        cJSON_AddNullToObject(o, field);
-        return;
-    }
-    p += strlen(key);
-    v = strtol(p, &end, 10);
-    if (end == p || v < 0) {
-        cJSON_AddNullToObject(o, field);
-        return;
-    }
-    cJSON_AddNumberToObject(o, field, (double)v);
-}
-
-/* Supervised services, from what pos-supervise writes in the runtime dir:
- * <name>.pid while it watches a daemon, <name>.crashloop when it gave up
- * ("<utc> rc=<n> restarts=<m>"). A name is listed when either file exists. */
-static void add_services(cJSON *o)
-{
-    char *entries[64];
-    char *names[64];
-    cJSON *arr = cJSON_CreateArray();
-    const char *run = pocketos_runtime_dir();
-    DIR *d = opendir(run);
-    struct dirent *e;
-    int n = 0;
-    int count = 0;
-    int i;
-
-    if (d) {
-        while ((e = readdir(d)) != NULL && n < 64) {
-            size_t len = strlen(e->d_name);
-            const char *suffix = NULL;
-
-            if (len > 4 && strcmp(e->d_name + len - 4, ".pid") == 0) {
-                suffix = e->d_name + len - 4;
-            } else if (len > 10 && strcmp(e->d_name + len - 10, ".crashloop") == 0) {
-                suffix = e->d_name + len - 10;
-            }
-            if (!suffix) {
-                continue;
-            }
-            entries[n] = strndup(e->d_name, (size_t)(suffix - e->d_name));
-            if (entries[n]) {
-                n++;
-            }
-        }
-        closedir(d);
-    }
-    qsort(entries, (size_t)n, sizeof(entries[0]), name_cmp);
-    for (i = 0; i < n; i++) {
-        if (count == 0 || strcmp(names[count - 1], entries[i]) != 0) {
-            names[count++] = entries[i];
-        } else {
-            free(entries[i]);
-        }
-    }
-    for (i = 0; i < count; i++) {
-        char path[POCKETOS_PATH_MAX];
-        char buf[160];
-        cJSON *s = cJSON_CreateObject();
-        long pid = -1;
-
-        cJSON_AddStringToObject(s, "name", names[i]);
-        snprintf(path, sizeof(path), "%s/%s.pid", run, names[i]);
-        if (read_line_exact(path, buf, sizeof(buf)) == 0 && sscanf(buf, "%ld", &pid) == 1 &&
-            pid > 0) {
-            cJSON_AddNumberToObject(s, "pid", (double)pid);
-            cJSON_AddBoolToObject(s, "running", kill((pid_t)pid, 0) == 0 || errno == EPERM);
-        } else {
-            cJSON_AddNullToObject(s, "pid");
-            cJSON_AddBoolToObject(s, "running", 0);
-        }
-        snprintf(path, sizeof(path), "%s/%s.crashloop", run, names[i]);
-        if (read_line_exact(path, buf, sizeof(buf)) == 0) {
-            cJSON_AddBoolToObject(s, "crashloop", 1);
-            add_marker_long(s, "last_exit_code", buf, "rc=");
-            add_marker_long(s, "restarts", buf, "restarts=");
-        } else {
-            cJSON_AddBoolToObject(s, "crashloop", 0);
-            cJSON_AddNullToObject(s, "last_exit_code");
-            cJSON_AddNullToObject(s, "restarts");
-        }
-        cJSON_AddItemToArray(arr, s);
-    }
-    free_names(names, count);
-    cJSON_AddItemToObject(o, "services", arr);
-}
-
 cJSON *pocketsys_status(const struct pocketsys_cpu *cpu)
 {
     cJSON *o = cJSON_CreateObject();
@@ -663,6 +564,5 @@ cJSON *pocketsys_status(const struct pocketsys_cpu *cpu)
     add_storage(o);
     add_network(o);
     add_power(o);
-    add_services(o);
     return o;
 }

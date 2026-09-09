@@ -13,9 +13,9 @@ ui/pocketui/               Theme engine (pos_theme), shared role styles (pos_sty
 ui/shell/                  Shell: status bar, launcher, app host; SDL simulator or DRM target (CMake)
 core/pocketipc/            IPC library and server helper: length-prefixed JSON over Unix sockets
 core/pocketlog/            Structured logging, rotation and crash reports
-core/pocketsys.c           System facts (identity, resources, storage, network, service health) behind system.*
+core/pocketsys.c           System facts (identity, resources, storage, network) behind system.*
 services/radiod/           Radio service: policy, stats, IPC; backends mock and sx1262 (RadioLib, untested on hardware)
-services/sysd/             System service: serves system.info and system.status over pocketipc (read-only)
+services/sysd/             System service: system.info and system.status over pocketipc (read-only), plus the supervisor state reader
 tests/                     Native unit tests (`make test`), shell tests (tests/*_shell_test.sh, need the CMake shell); tests/hw/ needs boards
 docs/
   ARCHITECTURE.md          How the layers, IPC, services and shell fit together

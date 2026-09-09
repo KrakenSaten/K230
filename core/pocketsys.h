@@ -1,10 +1,16 @@
 /*
  * pocketsys: the system facts behind the system.* API (docs/api/system.md).
  *
- * Pure C on cJSON. Reads /proc, /sys, /etc and the PocketOS runtime
- * directory; opens no device node and changes nothing. Every value that a
- * board may lack is reported as JSON null rather than guessed, so a missing
- * thermal zone, release file or power supply shows up as exactly that.
+ * Pure C on cJSON. Reads /proc, /sys and /etc; opens no device node and
+ * changes nothing. Every value that a board may lack is reported as JSON null
+ * rather than guessed, so a missing thermal zone, release file or power
+ * supply shows up as exactly that.
+ *
+ * It does not read the PocketOS runtime directory and knows nothing about
+ * supervision: system.status.services comes from pos-supervise's state file,
+ * which sysd reads and adds to the response (services/sysd/sysd_services.c).
+ * A supervisor's private files are not a fact about the machine, and core is
+ * the wrong layer to parse them from.
  *
  * Used by sysd (services/sysd) and unit-tested natively against a fake root.
  * The fake root is a build option, not an environment switch: an object
@@ -13,9 +19,7 @@
  * compiled without it cannot be redirected at all. Only tests/pocketsys_test
  * is built with the hook; sysd is not, so a service whose whole job is to
  * report what the system is cannot be told to report something else by
- * whoever sets its environment. The supervised-service table comes from
- * $POCKETOS_RUNTIME_DIR (pocketpaths.h), which is a production override and
- * stays one.
+ * whoever sets its environment.
  *
  * The fake root covers path reads and nothing else: uname(), sysconf(),
  * time() and the SIOCGIFADDR ioctl behind ipv4 always answer for the running

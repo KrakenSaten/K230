@@ -373,6 +373,15 @@ check "S50 start leaves the supervisor running" $(alive "$SYSPID" && echo 1 || e
 check "S50 start starts the daemon" $(wait_for "$ROOT/sysd.env" && echo 1 || echo 0)
 check "S50 start records the daemon pid in the runtime dir" \
       $([ -s "$ROOT/run/pocketos/sysd.pid" ] && echo 1 || echo 0)
+# The pid file is what stop() needs; the state file is what sysd reads. Both
+# have to be there, written by the real pos-supervise this test runs.
+check "S50 start writes the supervisor state file" \
+      $([ -s "$ROOT/run/pocketos/sysd.state" ] && echo 1 || echo 0)
+check "S50 state names the running daemon" \
+      $([ "$(sed -n 's/^child_pid=//p' "$ROOT/run/pocketos/sysd.state")" = \
+          "$(cat "$ROOT/run/pocketos/sysd.pid")" ] && echo 1 || echo 0)
+check "S50 state says running" \
+      $([ "$(sed -n 's/^running=//p' "$ROOT/run/pocketos/sysd.state")" = "1" ] && echo 1 || echo 0)
 check "S50 exports the persistent log directory" \
       $(grep -q "^POCKETOS_LOG_DIR=$ROOT/var/lib/pocketos/log$" "$ROOT/sysd.env" && echo 1 || echo 0)
 check "S50 exports POCKETOS_LOG_STDERR=0" \
@@ -391,6 +400,8 @@ check "S50 stop removes the supervise pid file" \
       $([ ! -f "$ROOT/var/run/sysd-supervise.pid" ] && echo 1 || echo 0)
 check "S50 stop ends the supervisor" $(wait_gone "$SYSPID" && echo 1 || echo 0)
 check "S50 stop ends the daemon" $(wait_sysd 0 && echo 1 || echo 0)
+check "S50 stop leaves the state file saying not running" \
+      $([ "$(sed -n 's/^running=//p' "$ROOT/run/pocketos/sysd.state")" = "0" ] && echo 1 || echo 0)
 
 out=$("$S50" stop 2>&1)
 check "S50 stop when not running says so" $(contains "$out" "not running")

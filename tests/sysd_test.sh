@@ -29,7 +29,22 @@ absent() { # absent <name> <unwanted-regex> <actual>
     fi
 }
 
-# A service this process stands in for, as pos-supervise would record it.
+# A service this process stands in for, in the state file pos-supervise would
+# have written for it (tools/supervise/pos-supervise). The pid file beside it
+# is what the init scripts use to stop the daemon; sysd reads only the state.
+cat > "$POCKETOS_RUNTIME_DIR/radiod.state" <<EOF
+state_version=1
+name=radiod
+supervisor_pid=$$
+child_pid=$$
+running=1
+crashloop=0
+last_exit_code=
+restarts=0
+backoff_s=
+started_uptime_s=1
+updated_uptime_s=1
+EOF
 echo $$ > "$POCKETOS_RUNTIME_DIR/radiod.pid"
 
 "$SYSD" > "$POCKETOS_RUNTIME_DIR/sysd.out" 2>&1 &
@@ -59,6 +74,8 @@ check "status power source" '"source":[[:space:]]*"' "$out"
 check "status clock_set is a bool" '"clock_set":[[:space:]]*\(true\|false\)' "$out"
 check "status lists the supervised radiod" '"name":[[:space:]]*"radiod"' "$out"
 check "status radiod running (this shell holds the pid)" '"running":[[:space:]]*true' "$out"
+check "a service that has not exited has a null exit code" '"last_exit_code":[[:space:]]*null' "$out"
+check "its restart count is a number" '"restarts":[[:space:]]*0' "$out"
 
 # CPU utilisation needs two samples a second apart; it is null until then.
 sleep 2.5

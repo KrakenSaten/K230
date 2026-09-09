@@ -11,6 +11,7 @@
 /services/radiod/radiod
 /services/sysd/sysd
 /tests/pocketsys_test
+/tests/sysd_services_test
 /tests/airtime_test
 /tests/pocketlog_test
 /tests/theme_test

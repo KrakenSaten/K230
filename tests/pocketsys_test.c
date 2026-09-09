@@ -1,7 +1,9 @@
 /*
- * pocketsys tests against a fake root ($POCKETSYS_ROOT) and a fake runtime
- * directory ($POCKETOS_RUNTIME_DIR): every field, every absence, and the
- * CPU sampler's arithmetic.
+ * pocketsys tests against a fake root ($POCKETSYS_ROOT): every field, every
+ * absence, and the CPU sampler's arithmetic.
+ *
+ * system.status.services is not here: it comes from the supervisor's state
+ * file, which sysd reads (tests/sysd_services_test.c), not core.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -17,7 +19,6 @@
 
 static int failed;
 static char root[] = "/tmp/pos_sys.XXXXXX";
-static char run[] = "/tmp/pos_run.XXXXXX";
 
 /* The K230's own numbers (VERIFIED unit A), used twice: once whole and once
  * cut down to a kernel that does not carry MemAvailable. */
@@ -103,8 +104,6 @@ static const cJSON *find_named(const cJSON *arr, const char *name)
 
 static void fake_root(void)
 {
-    char pidline[32];
-
     mkdirs("proc/device-tree");
     mkdirs("etc/version");
     mkdirs("sys/class/thermal/thermal_zone0");
@@ -137,33 +136,6 @@ static void fake_root(void)
     put("sys/class/net/wlan0/address", "88:3b:dc:b7:9e:c7\n", 0);
     put("sys/class/net/nosuch0/operstate", "down\n", 0);
     put("sys/class/net/lo/operstate", "unknown\n", 0);
-
-    /* supervisor files: this process stands in for a running radiod, and
-     * the shell is in a crash loop with the marker pos-supervise writes */
-    snprintf(pidline, sizeof(pidline), "%ld\n", (long)getpid());
-    {
-        char path[700];
-        FILE *f;
-
-        snprintf(path, sizeof(path), "%s/radiod.pid", run);
-        f = fopen(path, "w");
-        fputs(pidline, f);
-        fclose(f);
-        snprintf(path, sizeof(path), "%s/pocketos-shell.crashloop", run);
-        f = fopen(path, "w");
-        fputs("2026-09-09T16:14:23Z rc=139 restarts=6\n", f);
-        fclose(f);
-        snprintf(path, sizeof(path), "%s/stale.pid", run);
-        f = fopen(path, "w");
-        fputs("999999999\n", f);
-        fclose(f);
-        /* a marker without the two numbers: crash-looped is still known,
-         * the numbers are not, and both keys must still be there */
-        snprintf(path, sizeof(path), "%s/partial.crashloop", run);
-        f = fopen(path, "w");
-        fputs("2026-09-09T16:20:01Z\n", f);
-        fclose(f);
-    }
 }
 
 int main(void)
@@ -175,12 +147,11 @@ int main(void)
     struct pocketsys_cpu cpu;
     char cmd[800];
 
-    if (!mkdtemp(root) || !mkdtemp(run)) {
+    if (!mkdtemp(root)) {
         perror("mkdtemp");
         return 1;
     }
     setenv("POCKETSYS_ROOT", root, 1);
-    setenv("POCKETOS_RUNTIME_DIR", run, 1);
     fake_root();
 
     /* ---- system.info ---- */
@@ -272,38 +243,8 @@ int main(void)
     check("power supplies empty", cJSON_IsArray(get(e, "supplies")) &&
                                       cJSON_GetArraySize(get(e, "supplies")) == 0);
 
-    arr = get(st, "services");
-    check("services lists pid and crashloop names once each, sorted",
-          cJSON_IsArray(arr) && cJSON_GetArraySize(arr) == 4 &&
-              str_is(cJSON_GetArrayItem(arr, 0), "name", "partial") &&
-              str_is(cJSON_GetArrayItem(arr, 1), "name", "pocketos-shell") &&
-              str_is(cJSON_GetArrayItem(arr, 2), "name", "radiod") &&
-              str_is(cJSON_GetArrayItem(arr, 3), "name", "stale"));
-    e = find_named(arr, "radiod");
-    check("radiod pid is ours", num_is(e, "pid", (double)getpid()));
-    check("radiod running", cJSON_IsTrue(get(e, "running")));
-    check("radiod not in a crash loop", cJSON_IsFalse(get(e, "crashloop")));
-    /* every service carries the same keys: a client renders one shape */
-    check("a healthy service still carries last_exit_code, as null",
-          get(e, "last_exit_code") != NULL && cJSON_IsNull(get(e, "last_exit_code")));
-    check("a healthy service still carries restarts, as null",
-          get(e, "restarts") != NULL && cJSON_IsNull(get(e, "restarts")));
-    e = find_named(arr, "stale");
-    check("stale pid file: not running", cJSON_IsFalse(get(e, "running")));
-    check("a stale service still carries last_exit_code, as null",
-          get(e, "last_exit_code") != NULL && cJSON_IsNull(get(e, "last_exit_code")));
-    e = find_named(arr, "pocketos-shell");
-    check("crash-looped service has no pid", cJSON_IsNull(get(e, "pid")));
-    check("crash-looped service not running", cJSON_IsFalse(get(e, "running")));
-    check("crashloop flag", cJSON_IsTrue(get(e, "crashloop")));
-    check("crashloop last_exit_code parsed", num_is(e, "last_exit_code", 139));
-    check("crashloop restarts parsed", num_is(e, "restarts", 6));
-    e = find_named(arr, "partial");
-    check("a marker without numbers is still a crash loop", cJSON_IsTrue(get(e, "crashloop")));
-    check("an unparsed last_exit_code is null, not -1",
-          get(e, "last_exit_code") != NULL && cJSON_IsNull(get(e, "last_exit_code")));
-    check("an unparsed restarts count is null, not -1",
-          get(e, "restarts") != NULL && cJSON_IsNull(get(e, "restarts")));
+    check("status carries no services key: that is sysd's, not core's",
+          get(st, "services") == NULL);
     cJSON_Delete(st);
 
     /* ---- a mount point listed twice is one row ---- */
@@ -370,7 +311,7 @@ int main(void)
     check("absent /proc/stat fails the sample", pocketsys_cpu_sample(&cpu) < 0);
     check("failed sample keeps the last percent", cpu.have_percent);
 
-    snprintf(cmd, sizeof(cmd), "rm -rf '%s' '%s'", root, run);
+    snprintf(cmd, sizeof(cmd), "rm -rf '%s'", root);
     if (system(cmd) != 0) {
         fprintf(stderr, "cleanup failed\n");
     }

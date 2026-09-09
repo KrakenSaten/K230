@@ -7,6 +7,15 @@ POCKETOS_RUNTIME_DIR=$(mktemp -d)
 POCKETOS_LOG_DIR=$(mktemp -d)
 failed=0
 check() { if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
+# One value out of a state file (tools/supervise/pos-supervise). An empty
+# value and an absent key both come back empty, which is what "the supervisor
+# does not know" means here.
+state() { # <name> <key>
+    sed -n "s/^$2=//p" "$POCKETOS_RUNTIME_DIR/$1.state" 2>/dev/null
+}
+no_temp_files() { # no half-written state left behind by any test above
+    [ -z "$(ls "$POCKETOS_RUNTIME_DIR"/*.tmp.* 2>/dev/null)" ] && echo 1 || echo 0
+}
 
 # pos-supervise is POSIX sh and cannot link against core/pocketpaths.h, so it
 # repeats two of the platform's directory defaults. They must not drift.
@@ -30,6 +39,18 @@ check "crash loop marker written" $([ -f "$POCKETOS_RUNTIME_DIR/flaky.crashloop"
 check "crash loop detected quickly (<10s)" $([ $elapsed -lt 10 ] && echo 1 || echo 0)
 check "supervise log mentions rc=3" $(grep -q 'rc=3' "$POCKETOS_LOG_DIR/supervise-flaky.log" && echo 1 || echo 0)
 check "pid file removed" $([ ! -f "$POCKETOS_RUNTIME_DIR/flaky.pid" ] && echo 1 || echo 0)
+# The state file is what sysd reads; the marker and the pid file stay for the
+# init scripts and the bring-up checklist.
+check "crash loop state file written" \
+      $([ -f "$POCKETOS_RUNTIME_DIR/flaky.state" ] && echo 1 || echo 0)
+check "state format version recorded" $([ "$(state flaky state_version)" = "1" ] && echo 1 || echo 0)
+check "state names the service" $([ "$(state flaky name)" = "flaky" ] && echo 1 || echo 0)
+check "state says crash loop" $([ "$(state flaky crashloop)" = "1" ] && echo 1 || echo 0)
+check "state says not running" $([ "$(state flaky running)" = "0" ] && echo 1 || echo 0)
+check "state has no child pid" $([ -z "$(state flaky child_pid)" ] && echo 1 || echo 0)
+check "state records the last exit code" $([ "$(state flaky last_exit_code)" = "3" ] && echo 1 || echo 0)
+check "state counts the restarts" $([ "$(state flaky restarts)" = "2" ] && echo 1 || echo 0)
+check "no temp state file left behind" $(no_temp_files)
 
 # 2. A long-running service: SIGTERM to the supervisor stops the child too.
 sh "$SUP" steady sleep 100 >/dev/null 2>&1 &
@@ -37,12 +58,31 @@ SUPPID=$!
 sleep 1
 child=$(cat "$POCKETOS_RUNTIME_DIR/steady.pid" 2>/dev/null)
 check "child pid recorded" $([ -n "$child" ] && kill -0 "$child" 2>/dev/null && echo 1 || echo 0)
+check "state names the same child" $([ "$(state steady child_pid)" = "$child" ] && echo 1 || echo 0)
+check "state names the supervisor" $([ "$(state steady supervisor_pid)" = "$SUPPID" ] && echo 1 || echo 0)
+check "state says running" $([ "$(state steady running)" = "1" ] && echo 1 || echo 0)
+check "state says no crash loop" $([ "$(state steady crashloop)" = "0" ] && echo 1 || echo 0)
+check "state counts no restarts yet" $([ "$(state steady restarts)" = "0" ] && echo 1 || echo 0)
+check "state has no exit code before the first exit" \
+      $([ -z "$(state steady last_exit_code)" ] && echo 1 || echo 0)
+check "state has no backoff while the child runs" \
+      $([ -z "$(state steady backoff_s)" ] && echo 1 || echo 0)
+check "state records when the child started" \
+      $([ -n "$(state steady started_uptime_s)" ] && echo 1 || echo 0)
 kill -TERM $SUPPID
 wait $SUPPID 2>/dev/null
 sleep 0.5
 check "child stopped on SIGTERM" $(kill -0 "$child" 2>/dev/null && echo 0 || echo 1)
 check "steady pid file removed" $([ ! -f "$POCKETOS_RUNTIME_DIR/steady.pid" ] && echo 1 || echo 0)
 check "no crash loop marker for steady" $([ ! -f "$POCKETOS_RUNTIME_DIR/steady.crashloop" ] && echo 1 || echo 0)
+# The state file outlives the supervisor: a service that was stopped is a fact
+# worth reporting, and /run is a tmpfs so it goes at the next boot anyway.
+check "state file survives a clean stop" \
+      $([ -f "$POCKETOS_RUNTIME_DIR/steady.state" ] && echo 1 || echo 0)
+check "shutdown state says not running" $([ "$(state steady running)" = "0" ] && echo 1 || echo 0)
+check "shutdown state clears the child pid" \
+      $([ -z "$(state steady child_pid)" ] && echo 1 || echo 0)
+check "shutdown state is not a crash loop" $([ "$(state steady crashloop)" = "0" ] && echo 1 || echo 0)
 
 # 3. A service that takes time to leave (the shell releasing the panel on the
 # K230): the supervisor must not be gone before the child is. Before this,
@@ -68,6 +108,54 @@ check "child is gone the moment the supervisor is" $(kill -0 "$child" 2>/dev/nul
 check "slow stop is logged after the child left" \
       $(grep -q 'stopped' "$POCKETOS_LOG_DIR/supervise-slow.log" && echo 1 || echo 0)
 check "slow pid file removed" $([ ! -f "$POCKETOS_RUNTIME_DIR/slow.pid" ] && echo 1 || echo 0)
+
+# 4. A service that keeps dying, read continuously while it does. The state
+# file is written at every transition, so this is where a reader would catch a
+# half-written one if writes were not a temp file plus a rename. Every read has
+# to be a whole file: the first line is the version and the last is the
+# timestamp the writer puts there last.
+BOUNCE="$POCKETOS_RUNTIME_DIR/bounce.sh"
+printf '%s\n' '#!/bin/sh' 'sleep 0.2' 'exit 7' > "$BOUNCE"
+chmod 0755 "$BOUNCE"
+POS_SUPERVISE_MAX_RESTARTS=20 sh "$SUP" bouncy "$BOUNCE" >/dev/null 2>&1 &
+SUPPID=$!
+reads=0
+partial=0
+saw_backoff=0
+saw_running=0
+top_restarts=0
+n=0
+while [ $n -lt 60 ]; do
+    n=$((n + 1))
+    txt=$(cat "$POCKETOS_RUNTIME_DIR/bouncy.state" 2>/dev/null)
+    if [ -n "$txt" ]; then
+        reads=$((reads + 1))
+        case "$(printf '%s\n' "$txt" | head -1)" in
+        state_version=1) ;;
+        *) partial=$((partial + 1)) ;;
+        esac
+        case "$(printf '%s\n' "$txt" | tail -1)" in
+        updated_uptime_s=*) ;;
+        *) partial=$((partial + 1)) ;;
+        esac
+        [ -n "$(state bouncy backoff_s)" ] && saw_backoff=1
+        [ "$(state bouncy running)" = "1" ] && saw_running=1
+        r=$(state bouncy restarts)
+        [ -n "$r" ] && [ "$r" -gt "$top_restarts" ] && top_restarts=$r
+    fi
+    sleep 0.1
+done
+kill -TERM $SUPPID 2>/dev/null
+wait $SUPPID 2>/dev/null
+check "the state file was readable throughout ($reads reads)" $([ "$reads" -ge 20 ] && echo 1 || echo 0)
+check "no partial state was ever observed" $([ "$partial" -eq 0 ] && echo 1 || echo 0)
+check "a running child was observed" $([ "$saw_running" -eq 1 ] && echo 1 || echo 0)
+check "a backoff was observed while waiting to restart" $([ "$saw_backoff" -eq 1 ] && echo 1 || echo 0)
+check "the restart count advanced (reached $top_restarts)" $([ "$top_restarts" -ge 1 ] && echo 1 || echo 0)
+check "the child's exit code was recorded" $([ "$(state bouncy last_exit_code)" = "7" ] && echo 1 || echo 0)
+check "no crash loop while under the restart limit" \
+      $([ "$(state bouncy crashloop)" = "0" ] && echo 1 || echo 0)
+check "no temp state file left behind by the churn" $(no_temp_files)
 
 rm -rf "$POCKETOS_RUNTIME_DIR" "$POCKETOS_LOG_DIR"
 echo "supervise_test: $failed failure(s)"

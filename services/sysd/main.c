@@ -10,6 +10,7 @@
 #include "pocketipc/server.h"
 #include "pocketlog/pocketlog.h"
 #include "pocketsys.h"
+#include "sysd_services.h"
 
 #include <errno.h>
 #include <signal.h>
@@ -64,7 +65,10 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         result = pocketsys_info(pocketlog_version(), pocketlog_build_id());
         cJSON_AddNumberToObject(result, "api_version", SYSD_API_VERSION);
     } else if (strcmp(method, "system.status") == 0) {
+        /* The machine's own facts, then what the supervisor says about the
+         * services on it: two sources, joined here rather than in core. */
         result = pocketsys_status(&sd->cpu);
+        sysd_services_add(result);
     } else {
         snprintf(msg, sizeof(msg), "unknown method %s", method);
         pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_UNKNOWN_METHOD, msg));

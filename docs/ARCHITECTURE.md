@@ -15,7 +15,7 @@ services/        Hardware-owning daemons: radiod (mock and sx1262 backends), net
                  sysd serves system.* (identity, resources, storage, network summary, service health).
 core/pocketipc   IPC library used by everything above.
 core/pocketlog   Logging, rotation and crash reports.
-core/pocketsys   The system facts behind system.*, read from /proc, /sys, /etc and the runtime dir.
+core/pocketsys   The system facts behind system.*, read from /proc, /sys and /etc.
 tools/           pos CLI, pos-hwcheck, pos-supervise.
 platforms/k230   Buildroot integration on the pinned LILYGO BSP + Kendryte SDK.
 vendor/          Read-only upstream trees (git-ignored): LILYGO BSP, K230 SDK, LVGL, RadioLib, libgpiod.
@@ -44,12 +44,12 @@ BusyBox init (rcS runs S?? scripts in order; rcK stops them in reverse)
 Exactly one of the shell and the vendor launcher owns the panel: S90 refuses
 to start while the launcher is enabled or running (platforms/k230/README.md,
 "Panel ownership"). Both services run under `pos-supervise` (restart with
-backoff, crash-loop marker in /run/pocketos after five restarts in a
-minute; nothing displays the marker yet).
+backoff, one state file per service in /run/pocketos and a crash-loop
+marker after five restarts in a minute; nothing displays either yet).
 
 All PocketOS processes run as root in v0. Per-service users are a follow-up.
-Runtime state lives in /run/pocketos (sockets, pid files, crash-loop
-markers), settings in /etc/pocketos, app state in /var/lib/pocketos/<app>,
+Runtime state lives in /run/pocketos (sockets, supervisor state files, pid
+files, crash-loop markers), settings in /etc/pocketos, app state in /var/lib/pocketos/<app>,
 logs and crash reports in /var/lib/pocketos/log (persistent; /var/log is a
 tmpfs on the image).
 
@@ -84,7 +84,8 @@ hardware. The LILYGO launcher's HAL cannot be reused (no licence).
 ## sysd
 
 ```text
-pos system status / pos call ── pocketipc ──▶ sysd ──▶ core/pocketsys ──▶ /proc, /sys, /etc, /run/pocketos
+pos system status / pos call ── pocketipc ──▶ sysd ──┬─ core/pocketsys ────▶ /proc, /sys, /etc
+                                                     └─ sysd_services.c ──▶ /run/pocketos/<name>.state
 ```
 
 `sysd` (docs/api/system.md) answers `system.info` and `system.status`. It
@@ -93,10 +94,15 @@ is read-only in v0: no device node, no action. The facts come from
 may lack (thermal zone, power supply, release file, `/data`) reports `null`
 rather than a guess. The fake root is a build option and not an environment
 switch, so the shipped service reads the real machine whatever its
-environment says. The supervised-service table is read from the pid files and
-crash-loop markers `pos-supervise` already writes, and is the one part of the
-contract that will change within v0.0.7: the supervisor state file replaces
-that source, and `system.status.services` follows it.
+environment says.
+
+The supervised-service table is not core's. `pos-supervise` writes one
+`key=value` state file per service into the runtime directory, atomically, at
+every transition it makes; `services/sysd/sysd_services.c` reads those files
+and sysd joins them onto the status object, the way it adds `api_version`.
+Before v0.0.7 block 2b, core parsed the supervisor's pid files and the free
+text of its crash-loop marker, which made a shell script's private layout the
+source of a public API field two layers below it.
 
 `/etc/init.d/S50sysd` starts it under `pos-supervise`, ahead of `S60radiod`,
 with S60's stop discipline (the supervise pid and the daemon pid are two

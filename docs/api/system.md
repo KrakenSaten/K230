@@ -55,25 +55,61 @@ The live view. sysd samples `/proc/stat` once a second for `cpu_percent`.
 | storage | [{mount, total_bytes, avail_bytes}] | `statvfs` on each of `/`, `/boot`, `/data` that `/proc/mounts` lists; `avail_bytes` is what a writer can use. At most one row per mount point, whatever `/proc/mounts` does: an initramfs leaves `rootfs /` ahead of `/dev/root /`, and a bind or remount adds another line for the same place | VERIFIED layout (574 MB root, `/boot`; no `/data` yet) |
 | network | [{name, operstate, carrier, mac, ipv4}] | `/sys/class/net` without `lo`, sorted; `carrier` is null while the interface is down (the kernel reports EINVAL), `ipv4` null without an address | VERIFIED (eth0 up with DHCP, wlan0/wlan1 down) |
 | power | {source, supplies: [{name, type}]} | `/sys/class/power_supply`. `source` is `external` when no supply of type Battery exists and `unknown` when one does; battery state is not interpreted in v0 | VERIFIED empty on unit A (no gauge on the main board) |
-| services | [{name, pid, running, crashloop, last_exit_code, restarts}] | pos-supervise's `<name>.pid` and `<name>.crashloop` in the runtime directory; `running` is `kill(pid, 0)` (true also on EPERM); the two crash-loop numbers are parsed from the marker. All six keys are always present: `last_exit_code` and `restarts` are `null` unless a crash-loop marker carries them, so one object shape is rendered whatever the supervisor wrote. See the stability note below | VERIFIED files (marker on PC, pid on unit A) |
+| services | [{name, pid, running, crashloop, last_exit_code, restarts}] | one entry per `<name>.state` file pos-supervise writes in the runtime directory, sorted by name. All six keys are always present; `null` means the supervisor did not know, never a sentinel. `running` requires both that the supervisor had a live child at its last update **and** that `kill(pid, 0)` still finds it (true also on EPERM), so neither a supervisor that was killed nor a pid that has been reused is reported as up. See the source and stability notes below | VERIFIED on unit A |
+
+### services: where it comes from
+
+`pos-supervise` writes `$POCKETOS_RUNTIME_DIR/<name>.state`, a `key=value`
+file, at every transition of a service it watches: supervisor start, child
+start, child exit, restart with backoff, crash loop, and its own shutdown.
+Writes go to a temp file in the same directory and are renamed over the real
+one, so a reader sees the whole previous state or the whole new one and never
+a half-written file. The format is specified in the header of
+`tools/supervise/pos-supervise`, which is its only writer;
+`services/sysd/sysd_services.c` is its only reader, and a file whose
+`state_version` is not 1 is reported as a service whose state is unknown
+rather than guessed at.
+
+The file lives in a tmpfs, so everything in it is boot-scoped: restart counts
+and exit codes start again from nothing at each boot, and nothing here
+pretends to be history. A service that has been stopped keeps its entry, with
+`running` false, until the next boot; before v0.0.7 block 2b it vanished from
+the array instead, which could not tell "stopped" from "never existed".
+
+This is also why `core/pocketsys` does not produce this field. It reads
+`/proc`, `/sys` and `/etc`; the supervisor's files are a platform detail two
+layers above it, and sysd joins the two in the response the same way it adds
+`api_version`.
+
+`<name>.pid` and `<name>.crashloop` are still written by the supervisor. The
+init scripts need the pid file to stop the daemon rather than only the
+supervisor, and the bring-up checklist still names the crash-loop marker; both
+are compatibility, neither is read by `system.*` any more, and the state file
+is authoritative.
 
 ### services: intentionally unstable within v0.0.7
 
-`services` answers "what the supervisor has written down", not "what should
-be running": a service that was never started is absent from the array
-rather than reported as down, and `running` is only "a process with that pid
-exists". That is safe against pid reuse only because the runtime directory is
-on a tmpfs and therefore starts empty on every boot, so a stale pid file
-cannot outlive the process it named. VERIFIED on unit A: `/run` is
-`tmpfs rw,nosuid,nodev,relatime,mode=755`, and a planted `ghost.pid` (reported
-`running: false` while it existed) was gone after a reboot
+`services` still answers "what the supervisor has written down since this
+boot", not "what should be running": a service the supervisor has never been
+asked to watch is absent from the array rather than reported as down, because
+nothing on the system holds a list of services that ought to exist. The state
+file made the rest of the field explicit rather than inferred, and that is as
+far as v0.0.7 takes it.
+
+The boot-scoped part is not an accident of the implementation, it is what
+makes the field safe: the runtime directory is on a tmpfs, so no state, pid
+or counter can outlive the boot that produced it. VERIFIED on unit A: `/run`
+is `tmpfs rw,nosuid,nodev,relatime,mode=755`, and a planted `ghost.pid`
+(reported `running: false` while it existed) was gone after a reboot
 (docs/hardware/V0.0.7_BLOCK2A_SMOKE.md). A board that puts the runtime
-directory on persistent storage breaks this field. Its source is `pos-supervise`'s pid files and crash-loop markers,
-and the supervisor state file planned for the next block of v0.0.7 replaces
-that source. This field may therefore change shape within v0.0.7 without an
-`api_version` bump; the rest of `system.info` and `system.status` follows the
-normal rule (docs/api/pocketipc.md, Versioning). The only client until then
-is the System Status screen, which ships after the state file.
+directory on persistent storage breaks this field.
+
+The six keys and their meanings are expected to hold from here. What may
+still move within v0.0.7 without an `api_version` bump is what the array
+contains — which services appear and when they leave it — as the System
+Status screen shows this field for the first time and says what it needs. The
+rest of `system.info` and `system.status` follows the normal rule
+(docs/api/pocketipc.md, Versioning).
 
 ## Errors
 
