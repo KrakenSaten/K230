@@ -49,8 +49,10 @@
 # docs/hardware/V0.0.7_BLOCK2A_SMOKE.md), so all of this is boot-scoped: no
 # state and no counter survives a reboot, and none of it pretends to.
 #
-# <name>.pid and <name>.crashloop are still written. The init scripts need the
-# pid file to stop the daemon rather than only the supervisor, and the
+# <name>.pid and <name>.crashloop are still written. The pid file exists only
+# while that exact child is alive - it is removed the moment the child exits,
+# so it is never a pid the kernel may have handed to something else. The init
+# scripts need it to stop the daemon rather than only the supervisor, and the
 # crash-loop marker is still named by the bring-up checklist; both are
 # compatibility, and the state file is authoritative.
 #
@@ -101,10 +103,15 @@ write_state() { # <running 0|1> <crashloop 0|1>
 }
 
 CHILD=""
+SLEEPER=""
 STOPPING=0
 on_term() {
     STOPPING=1
     [ -n "$CHILD" ] && kill "$CHILD" 2>/dev/null
+    # A backoff is waited for by a backgrounded sleep so that this signal can
+    # end it. Killing it here is what wakes the wait below immediately.
+    [ -n "$SLEEPER" ] && kill "$SLEEPER" 2>/dev/null
+    return 0
 }
 trap on_term TERM INT
 
@@ -139,6 +146,11 @@ while [ "$STOPPING" -eq 0 ]; do
     CHILD=""
     LAST_RC=$rc
     STARTED_AT=""
+    # The pid file names a live child or does not exist. Leaving the dead
+    # child's pid there through the backoff was a real hazard: the init
+    # scripts read it to stop the daemon, and a pid reused in the meantime
+    # would have been signalled, and then SIGKILLed, in its place.
+    rm -f "$RUN_DIR/$NAME.pid"
     write_state 0 0
     now=$(now_s)
     ran=$((now - start))
@@ -159,7 +171,27 @@ while [ "$STOPPING" -eq 0 ]; do
     fi
     BACKOFF_NOW=$backoff
     write_state 0 0
-    sleep "$backoff"
+    # The backoff is waited for with `wait`, not with a foreground sleep.
+    # POSIX: wait returns immediately when a trapped signal arrives, while a
+    # foreground `sleep 30` keeps the shell blocked until it finishes. The
+    # init scripts give the supervisor 3 s and then escalate to SIGKILL, so
+    # stopping a service that was backing off always reported "OK (forced)"
+    # and skipped this script's own shutdown.
+    sleep "$backoff" &
+    SLEEPER=$!
+    # The signal can arrive between the fork above and this assignment, where
+    # the trap has no pid to kill yet.
+    [ "$STOPPING" -eq 1 ] && kill "$SLEEPER" 2>/dev/null
+    wait "$SLEEPER" 2>/dev/null
+    if [ "$STOPPING" -eq 1 ]; then
+        # However the wait ended, leave nothing behind: the sleep is reaped
+        # here rather than orphaned onto init.
+        kill "$SLEEPER" 2>/dev/null
+        wait "$SLEEPER" 2>/dev/null
+        SLEEPER=""
+        break
+    fi
+    SLEEPER=""
     backoff=$((backoff * 2))
     [ "$backoff" -gt 30 ] && backoff=30
 done

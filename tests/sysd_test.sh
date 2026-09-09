@@ -77,6 +77,35 @@ check "status radiod running (this shell holds the pid)" '"running":[[:space:]]*
 check "a service that has not exited has a null exit code" '"last_exit_code":[[:space:]]*null' "$out"
 check "its restart count is a number" '"restarts":[[:space:]]*0' "$out"
 
+# Writer to reader. Everything above uses a state file this script wrote, and
+# tests/sysd_services_test.c uses ones it invents, so both halves of the
+# contract are tested against fixtures and neither would notice a key renamed
+# in pos-supervise. Here the real supervisor writes the file and the real sysd
+# reads it. `entry` is the JSON object that follows the service's name.
+SUPERVISE=${SUPERVISE:-tools/supervise/pos-supervise}
+entry_of() { # <name> <status json>
+    printf '%s' "$2" | tr -d ' \t\n' | sed "s/.*\"name\":\"$1\"//" | cut -c1-120
+}
+sh "$SUPERVISE" livesvc sleep 30 >/dev/null 2>&1 &
+LIVE_SUP=$!
+for _ in $(seq 1 50); do [ -s "$POCKETOS_RUNTIME_DIR/livesvc.state" ] && break; sleep 0.1; done
+LIVE_CHILD=$(sed -n 's/^child_pid=//p' "$POCKETOS_RUNTIME_DIR/livesvc.state" 2>/dev/null)
+entry=$(entry_of livesvc "$("$POS" system status)")
+check "sysd lists a service a real pos-supervise is watching" '"pid"' "$entry"
+check "sysd reports the pid the supervisor actually wrote" "\"pid\":${LIVE_CHILD}," "$entry"
+check "sysd reports it running" '"running":true' "$entry"
+check "sysd reports no crash loop" '"crashloop":false' "$entry"
+check "sysd reports a null exit code before the first exit" '"last_exit_code":null' "$entry"
+check "sysd reports the restart count" '"restarts":0' "$entry"
+kill -TERM $LIVE_SUP 2>/dev/null
+wait $LIVE_SUP 2>/dev/null
+entry=$(entry_of livesvc "$("$POS" system status)")
+check "a stopped service keeps its entry" '"name":"livesvc"' \
+      "$(printf '%s' "$("$POS" system status)" | tr -d ' \t\n')"
+check "a stopped service reports a null pid" '"pid":null' "$entry"
+check "a stopped service reports not running" '"running":false' "$entry"
+rm -f "$POCKETOS_RUNTIME_DIR/livesvc.state"
+
 # CPU utilisation needs two samples a second apart; it is null until then.
 sleep 2.5
 out=$("$POS" system status)

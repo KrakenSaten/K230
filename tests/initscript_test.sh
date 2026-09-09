@@ -441,5 +441,47 @@ check "S50 stop leaves no daemon behind" $([ "$(count_sysd)" -eq 0 ] && echo 1 |
 check "S50 stop leaves no supervisor behind" $([ "$(count_supervisors)" -eq 0 ] && echo 1 || echo 0)
 check "S50 stop is bounded" $([ "$elapsed" -le 20 ] && echo 1 || echo 0)
 
+# A daemon that exits at once leaves the supervisor between restarts. Two
+# things used to go wrong there and both are on the path a reboot takes:
+# stop() read a pid file still naming the dead child, and it found the
+# supervisor asleep in a foreground `sleep`, waited its 3 s, escalated to
+# SIGKILL and called a service that was not even running "OK (forced)".
+cat > "$ROOT/usr/sbin/sysd" <<EOD
+#!/bin/sh
+env > "$ROOT/sysd.env"
+exit 5
+EOD
+chmod 0755 "$ROOT/usr/sbin/sysd"
+rm -f "$ROOT/sysd.env"
+"$S50" start >/dev/null 2>&1
+wait_for "$ROOT/sysd.env"
+# Wait for a backoff of at least 4 s: stop() allows the supervisor 3 s before
+# escalating, so a 1 s backoff would have been survived by the old foreground
+# sleep too and would not prove anything.
+n=0
+b=""
+while [ $n -lt 200 ]; do
+    b=$(sed -n 's/^backoff_s=//p' "$ROOT/run/pocketos/sysd.state" 2>/dev/null)
+    [ -n "$b" ] && [ "$b" -ge 4 ] && break
+    n=$((n + 1)); sleep 0.1
+done
+check "S50 leaves a daemon that keeps exiting in a backoff of 4 s or more (${b}s)" \
+      $([ -n "$b" ] && [ "$b" -ge 4 ] && echo 1 || echo 0)
+check "S50 backoff has no pid file to signal" \
+      $([ ! -e "$ROOT/run/pocketos/sysd.pid" ] && echo 1 || echo 0)
+started=$(date +%s%N)
+out=$("$S50" stop 2>&1)
+elapsed_ms=$(( ($(date +%s%N) - started) / 1000000 ))
+check "S50 stop during a backoff reports OK" $(contains "$out" "OK")
+check "S50 stop during a backoff is not forced" \
+      $([ "$(contains "$out" "forced")" -eq 0 ] && echo 1 || echo 0)
+check "S50 stop during a backoff is prompt (${elapsed_ms} ms)" \
+      $([ "$elapsed_ms" -lt 2000 ] && echo 1 || echo 0)
+check "S50 stop during a backoff leaves no supervisor" \
+      $([ "$(count_supervisors)" -eq 0 ] && echo 1 || echo 0)
+check "S50 stop during a backoff leaves the state saying not running" \
+      $([ "$(sed -n 's/^running=//p' "$ROOT/run/pocketos/sysd.state")" = "0" ] && echo 1 || echo 0)
+make_daemon "$ROOT/usr/sbin/sysd" "$ROOT/sysd.env"
+
 echo "initscript_test: $failed failure(s)"
 exit $((failed > 0))

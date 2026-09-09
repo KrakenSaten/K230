@@ -55,7 +55,7 @@ The live view. sysd samples `/proc/stat` once a second for `cpu_percent`.
 | storage | [{mount, total_bytes, avail_bytes}] | `statvfs` on each of `/`, `/boot`, `/data` that `/proc/mounts` lists; `avail_bytes` is what a writer can use. At most one row per mount point, whatever `/proc/mounts` does: an initramfs leaves `rootfs /` ahead of `/dev/root /`, and a bind or remount adds another line for the same place | VERIFIED layout (574 MB root, `/boot`; no `/data` yet) |
 | network | [{name, operstate, carrier, mac, ipv4}] | `/sys/class/net` without `lo`, sorted; `carrier` is null while the interface is down (the kernel reports EINVAL), `ipv4` null without an address | VERIFIED (eth0 up with DHCP, wlan0/wlan1 down) |
 | power | {source, supplies: [{name, type}]} | `/sys/class/power_supply`. `source` is `external` when no supply of type Battery exists and `unknown` when one does; battery state is not interpreted in v0 | VERIFIED empty on unit A (no gauge on the main board) |
-| services | [{name, pid, running, crashloop, last_exit_code, restarts}] | one entry per `<name>.state` file pos-supervise writes in the runtime directory, sorted by name. All six keys are always present; `null` means the supervisor did not know, never a sentinel. `running` requires both that the supervisor had a live child at its last update **and** that `kill(pid, 0)` still finds it (true also on EPERM), so neither a supervisor that was killed nor a pid that has been reused is reported as up. See the source and stability notes below | VERIFIED on unit A |
+| services | [{name, pid, running, crashloop, last_exit_code, restarts}] | one entry per `<name>.state` file pos-supervise writes in the runtime directory, sorted by name. All six keys are always present; `null` means the supervisor did not know, never a sentinel. `restarts` is the count **within the current 60-second restart window**, not lifetime restarts — see below. `running` requires both that the supervisor had a live child at its last update **and** that `kill(pid, 0)` still finds it (true also on EPERM); the residual case it does not cover is below. See the source and stability notes | VERIFIED on unit A |
 
 ### services: where it comes from
 
@@ -87,6 +87,34 @@ supervisor, and the bring-up checklist still names the crash-loop marker; both
 are compatibility, neither is read by `system.*` any more, and the state file
 is authoritative.
 
+### services: what `restarts` counts
+
+`restarts` is how many times the supervisor has restarted the service **in the
+current 60-second window**, not since boot and not for the lifetime of the
+service. The supervisor resets it whenever a child has run for a full 60
+seconds or the window has elapsed, because its purpose is crash-loop
+detection: the sixth restart inside one minute is what makes it give up. A
+service that has restarted fifty times over an hour, none of them close
+together, correctly reports `restarts: 0`. Render it as "restarts in the last
+minute", never as a lifetime total; PocketOS does not keep one.
+
+### services: what `running` does and does not prove
+
+`running` is true only when the supervisor recorded a live child **and** the
+kernel still has that pid. That closes the two cases that used to produce a
+false "up": a supervisor that recorded giving up, and a state file left behind
+by a service that has been stopped — neither can report `running: true`,
+because `running=0` in the file ends the question before the pid is consulted.
+
+One case remains open. If a supervisor is SIGKILLed while its child is alive
+(the init scripts' escalation path), its state file keeps saying `running=1`
+with that child's pid; if the child then dies and the kernel hands the same
+pid to something else, `running` will be true for a service that is not there.
+Closing it needs more than a pid — comparing `started_uptime_s` against the
+process's start time in `/proc/<pid>/stat` would do it — and v0 does not.
+Treat `running: true` as "the supervisor last saw this child alive and a
+process with its pid still exists", which is what it is.
+
 ### services: a service that was stopped on purpose
 
 Stopping a service through its init script leaves the entry in place, with:
@@ -95,13 +123,16 @@ Stopping a service through its init script leaves the entry in place, with:
 {"name":"radiod","pid":null,"running":false,"crashloop":false,"last_exit_code":null,"restarts":0}
 ```
 
-`last_exit_code` is `null` here, not a number, and that is not an omission.
-The init script stops the supervisor with SIGTERM; POSIX says a trapped signal
-makes `wait` return *before* the child has actually gone, so the status the
-supervisor could read at that point is the interrupted `wait` (128 + 15), not
-the child's own exit status. Recording it would put a number in the field that
-the service never returned. The supervisor therefore records nothing, and
-`null` keeps its one meaning throughout this API: nobody knows.
+`last_exit_code` is `null` here, not a number, and that is a decision rather
+than a limitation. The init script stops the supervisor with SIGTERM; POSIX
+says a trapped signal makes `wait` return *before* the child has gone, so the
+first status available is the interrupted `wait` (128 + 15) and not the
+child's. The supervisor then drains — it waits again until the child has
+actually left — and the child's real result **does** become obtainable at that
+point. It is deliberately not recorded: an operator asked for the service to
+stop, and reporting the exit status of a service that did as it was told
+presents a successful stop as a failure. `null` keeps its one meaning
+throughout this API: nobody is claiming anything.
 
 The consequence for a client is that "stopped on purpose" and "supervisor
 started, no child yet" look the same. Both are genuinely "not running, with no

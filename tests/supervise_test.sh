@@ -157,6 +157,92 @@ check "no crash loop while under the restart limit" \
       $([ "$(state bouncy crashloop)" = "0" ] && echo 1 || echo 0)
 check "no temp state file left behind by the churn" $(no_temp_files)
 
+# 5. The pid file names a live child or does not exist. It used to survive the
+# child that wrote it and sit there for the whole backoff, up to 30 s, while
+# the init scripts read it to decide what to signal; a pid reused in that
+# window would have been SIGTERMed and then SIGKILLed in the daemon's place.
+BOUNCE2="$POCKETOS_RUNTIME_DIR/bounce2.sh"
+printf '%s\n' '#!/bin/sh' 'exit 9' > "$BOUNCE2"
+chmod 0755 "$BOUNCE2"
+POS_SUPERVISE_MAX_RESTARTS=20 sh "$SUP" pidgone "$BOUNCE2" >/dev/null 2>&1 &
+SUPPID=$!
+n=0
+while [ -z "$(state pidgone backoff_s)" ] && [ $n -lt 60 ]; do n=$((n + 1)); sleep 0.1; done
+check "the supervisor reached a backoff" $([ -n "$(state pidgone backoff_s)" ] && echo 1 || echo 0)
+check "the pid file is absent during the backoff" \
+      $([ ! -e "$POCKETOS_RUNTIME_DIR/pidgone.pid" ] && echo 1 || echo 0)
+check "the state file agrees there is no child" \
+      $([ -z "$(state pidgone child_pid)" ] && echo 1 || echo 0)
+check "the state file still says not running" $([ "$(state pidgone running)" = "0" ] && echo 1 || echo 0)
+check "the exit code of the child that died is kept" \
+      $([ "$(state pidgone last_exit_code)" = "9" ] && echo 1 || echo 0)
+kill -TERM $SUPPID 2>/dev/null
+wait $SUPPID 2>/dev/null
+check "the pid file is still absent after the stop" \
+      $([ ! -e "$POCKETOS_RUNTIME_DIR/pidgone.pid" ] && echo 1 || echo 0)
+
+# 6. SIGTERM during a backoff must stop the supervisor at once. The backoff is
+# waited for with `wait` on a backgrounded sleep, which POSIX says a trapped
+# signal ends immediately; a foreground `sleep 30` left the shell blocked, the
+# init script escalated after 3 s, and the stop was reported "OK (forced)".
+# setsid puts the supervisor in its own process group so that anything it
+# leaves behind - an orphaned sleep above all - can be seen after it exits.
+HAVE_SETSID=0
+command -v setsid >/dev/null 2>&1 && HAVE_SETSID=1
+launch() { # <name> — start the supervisor, echo the pid it recorded
+    if [ "$HAVE_SETSID" -eq 1 ]; then
+        setsid sh "$SUP" "$1" "$BOUNCE2" >/dev/null 2>&1 &
+    else
+        sh "$SUP" "$1" "$BOUNCE2" >/dev/null 2>&1 &
+    fi
+    _n=0
+    while [ -z "$(state "$1" supervisor_pid)" ] && [ $_n -lt 60 ]; do _n=$((_n + 1)); sleep 0.1; done
+    state "$1" supervisor_pid
+}
+wait_backoff() { # <name> <seconds> — wait until the recorded backoff reaches it
+    _n=0
+    while [ $_n -lt 200 ]; do
+        _b=$(state "$1" backoff_s)
+        [ -n "$_b" ] && [ "$_b" -ge "$2" ] && return 0
+        _n=$((_n + 1)); sleep 0.1
+    done
+    return 1
+}
+stop_promptly() { # <name> <pid> — SIGTERM and report how many ms it took to go
+    _t0=$(date +%s%N)
+    kill -TERM "$2" 2>/dev/null
+    _n=0
+    while kill -0 "$2" 2>/dev/null && [ $_n -lt 100 ]; do _n=$((_n + 1)); sleep 0.1; done
+    echo $(( ($(date +%s%N) - _t0) / 1000000 ))
+}
+
+for want in 4 8; do
+    name="backoff$want"
+    pid=$(launch "$name")
+    if wait_backoff "$name" "$want"; then
+        got=$(state "$name" backoff_s)
+        check "reached a ${want}s backoff (recorded ${got}s)" 1
+        ms=$(stop_promptly "$name" "$pid")
+        check "SIGTERM during a ${got}s backoff stops in under 1 s (took ${ms} ms)" \
+              $([ "$ms" -lt 1000 ] && echo 1 || echo 0)
+        check "the supervisor is gone after a ${got}s backoff stop" \
+              $(kill -0 "$pid" 2>/dev/null && echo 0 || echo 1)
+        check "it wrote its shutdown state rather than being killed (${want}s)" \
+              $([ "$(state "$name" running)" = "0" ] && [ -z "$(state "$name" child_pid)" ] && echo 1 || echo 0)
+        check "no pid file left after the ${want}s backoff stop" \
+              $([ ! -e "$POCKETOS_RUNTIME_DIR/$name.pid" ] && echo 1 || echo 0)
+        if [ "$HAVE_SETSID" -eq 1 ]; then
+            check "no orphan sleep or child left from the ${want}s backoff" \
+                  $([ -z "$(pgrep -g "$pid" 2>/dev/null)" ] && echo 1 || echo 0)
+        else
+            echo "note: setsid missing; orphan check skipped for ${want}s"
+        fi
+    else
+        check "reached a ${want}s backoff" 0
+    fi
+done
+check "no temp state file left behind by the backoff stops" $(no_temp_files)
+
 rm -rf "$POCKETOS_RUNTIME_DIR" "$POCKETOS_LOG_DIR"
 echo "supervise_test: $failed failure(s)"
 exit $((failed > 0))
