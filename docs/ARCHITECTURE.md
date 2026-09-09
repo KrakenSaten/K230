@@ -11,9 +11,11 @@ apps/            In-process apps (radio, system, fleet, radar). Talk to services
                  app state under /var/lib/pocketos/<app>/ ($POCKETOS_STATE_DIR).
 ui/shell         Shell: status bar, launcher, app host, display/input backend, settings store.
 ui/pocketui      Design tokens, theme engine and shared role styles on top of LVGL 9.
-services/        Hardware-owning daemons: radiod (mock and sx1262 backends), netd (planned).
+services/        Hardware-owning daemons: radiod (mock and sx1262 backends), netd (planned);
+                 sysd serves system.* (identity, resources, storage, network summary, service health).
 core/pocketipc   IPC library used by everything above.
 core/pocketlog   Logging, rotation and crash reports.
+core/pocketsys   The system facts behind system.*, read from /proc, /sys, /etc and the runtime dir.
 tools/           pos CLI, pos-hwcheck, pos-supervise.
 platforms/k230   Buildroot integration on the pinned LILYGO BSP + Kendryte SDK.
 vendor/          Read-only upstream trees (git-ignored): LILYGO BSP, K230 SDK, LVGL, RadioLib, libgpiod.
@@ -79,6 +81,21 @@ backend uses RadioLib (upstream, MIT) with a PocketOS HAL on spidev and
 libgpiod v2 (`hal_linux.cpp`); it compiles for riscv64 and has not run on
 hardware. The LILYGO launcher's HAL cannot be reused (no licence).
 
+## sysd
+
+```text
+pos system status / pos call ── pocketipc ──▶ sysd ──▶ core/pocketsys ──▶ /proc, /sys, /etc, /run/pocketos
+```
+
+`sysd` (docs/api/system.md) answers `system.info` and `system.status`. It
+is read-only in v0: no device node, no action. The facts come from
+`core/pocketsys`, unit-tested against a fake root, and every source a board
+may lack (thermal zone, power supply, release file, `/data`) reports `null`
+rather than a guess. The supervised-service table is read from the pid files
+and crash-loop markers `pos-supervise` already writes. Not yet started on the
+device: the `S50sysd` init script and the shell's System Status screen are
+the next two steps of v0.0.7.
+
 ## Theme engine (Design System v0.1)
 
 `ui/pocketui/pos_theme.c` is pure C: five Normal-mode base tables generated
@@ -117,8 +134,9 @@ docs/BUILD_ENVIRONMENT.md.
 
 ## Not yet decided
 
-- Surfacing service health (the pos-supervise crash-loop marker, radiod
-  state `error`) in the shell.
+- Surfacing service health in the shell. `system.status.services` now
+  carries the pos-supervise crash-loop marker; the shell does not show it
+  yet, and radiod state `error` is still only in the radio chip.
 - Update and rollback mechanism (partition layout must not be hard-coded).
 - First-party licence.
 - Out-of-process app hosting and DRM master handoff.

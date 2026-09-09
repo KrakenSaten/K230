@@ -243,15 +243,19 @@ int cmd_radio(int argc, char **argv); /* tools/pos/pos_radio.c */
 int cmd_logs(int argc, char **argv);  /* tools/pos/pos_logs.c */
 int cmd_app(int argc, char **argv);   /* tools/pos/pos_app.c */
 int cmd_shell(int argc, char **argv); /* tools/pos/pos_app.c */
+int cmd_system_status(void);          /* tools/pos/pos_system.c */
+int cmd_call(int argc, char **argv);  /* tools/pos/pos_system.c */
 
 static int usage(int rc)
 {
     fprintf(rc ? stderr : stdout,
             "usage: pos <command> [subcommand]\n"
-            "  system info           kernel, memory, uptime, versions\n"
+            "  system info           kernel, memory, uptime, versions (read locally)\n"
+            "  system status         the live view from sysd (system.status)\n"
             "  hardware list         device nodes and sysfs devices\n"
             "  network interfaces    interface state, MAC and IPv4\n"
             "  radio <command>       talk to radiod (pos radio help)\n"
+            "  call <svc> <method>   any pocketipc method, key=value params\n"
             "  logs [name] [-n N]    service logs and crash reports\n"
             "  app list|start|home   drive the shell launcher\n"
             "  shell info|screenshot shell state and PNG capture\n"
@@ -281,6 +285,12 @@ int main(int argc, char **argv)
     }
     if (strcmp(cmd, "system") == 0 && strcmp(sub, "info") == 0) {
         return cmd_system_info();
+    }
+    if (strcmp(cmd, "system") == 0 && strcmp(sub, "status") == 0) {
+        return cmd_system_status();
+    }
+    if (strcmp(cmd, "call") == 0) {
+        return cmd_call(argc - 2, argv + 2);
     }
     if (strcmp(cmd, "hardware") == 0 && strcmp(sub, "list") == 0) {
         return cmd_hardware_list();

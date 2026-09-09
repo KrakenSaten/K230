@@ -24,9 +24,10 @@ and exposes radio, network and system information through services and the
 | Shell in the Buildroot image, replacing the vendor launcher | installed (S90 disabled by default); replacement not started |
 | Logging library, crash reports, `pos logs` | done, tested on PC |
 | Service respawn with backoff, crash-loop detection | done (`pos-supervise`), tested on PC |
+| sysd: `system.info`, `system.status` (identity, resources, storage, network summary, service health) | done on PC (v0.0.7 block 1), not yet started on the device |
 | netd: Ethernet, Wi-Fi (wpa_supplicant), BLE status | not started |
 | Settings app (network, display, system) | not started |
-| Reboot/shutdown, hardware info app | not started |
+| Reboot/shutdown, hardware info app | not started (reboot/poweroff planned as `system.*` methods) |
 | Basic updater (image on SD, no rollback) | not started |
 
 Exit criteria for v0.1: boots from SD on both units, shell usable by touch,

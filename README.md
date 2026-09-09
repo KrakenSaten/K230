@@ -13,13 +13,15 @@ ui/pocketui/               Theme engine (pos_theme), shared role styles (pos_sty
 ui/shell/                  Shell: status bar, launcher, app host; SDL simulator or DRM target (CMake)
 core/pocketipc/            IPC library and server helper: length-prefixed JSON over Unix sockets
 core/pocketlog/            Structured logging, rotation and crash reports
+core/pocketsys.c           System facts (identity, resources, storage, network, service health) behind system.*
 services/radiod/           Radio service: policy, stats, IPC; backends mock and sx1262 (RadioLib, untested on hardware)
+services/sysd/             System service: serves system.info and system.status over pocketipc (read-only)
 tests/                     Native unit tests (`make test`), shell tests (tests/*_shell_test.sh, need the CMake shell); tests/hw/ needs boards
 docs/
   ARCHITECTURE.md          How the layers, IPC, services and shell fit together
   ROADMAP.md               Phase 1 status table and later phases
   KNOWN_ISSUES.md          Open hardware, licensing, build and software issues
-  api/                     Public API contracts: pocketipc v0, radio.* v0, shell.* v0
+  api/                     Public API contracts: pocketipc v0, radio.* v0, shell.* v0, system.* v0
   design/                  Design System v0.1 (normative), themes.json, feasibility review, shots/
   BUILD_ENVIRONMENT.md     Host, toolchain, SDK commits, build/flash/test commands
   LICENSING.md             Licence register for vendor and third-party code

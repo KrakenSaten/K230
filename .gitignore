@@ -9,6 +9,8 @@
 *.o
 # Native build outputs and local tool config
 /services/radiod/radiod
+/services/sysd/sysd
+/tests/pocketsys_test
 /tests/airtime_test
 /tests/pocketlog_test
 /tests/theme_test
