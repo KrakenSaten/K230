@@ -79,6 +79,13 @@ DOCUMENTED (vendor schematic/source/docs), ASSUMED (inference).
   `/root/app` holds applications, `/app` symlinks to it. VERIFIED on unit A
   (574 MB filesystem, 131 MB free with PocketOS 0.0.1 installed); `/var/log`
   is a tmpfs, PocketOS keeps logs under `/var/lib/pocketos/log`.
+- `/run` is a tmpfs (`rw,nosuid,nodev,relatime,mode=755`), so the PocketOS
+  runtime directory `/run/pocketos` starts empty on every boot. VERIFIED on
+  unit A at bring-up and again behaviourally in v0.0.7 block 2a: a planted
+  `ghost.pid` was gone after a reboot (V0.0.7_BLOCK2A_SMOKE.md). PocketOS
+  depends on this: `system.status.services[].running` is `kill(pid, 0)`, which
+  is only safe against pid reuse because a stale pid file cannot survive a
+  reboot.
 - sshd accepts root with an empty password (`PermitRootLogin yes`,
   `PermitEmptyPasswords yes`, vendor sshd_config): anyone on the LAN has
   root until a password is set. VERIFIED.

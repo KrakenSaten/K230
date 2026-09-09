@@ -24,7 +24,7 @@ and exposes radio, network and system information through services and the
 | Shell in the Buildroot image, replacing the vendor launcher | installed (S90 disabled by default); replacement not started |
 | Logging library, crash reports, `pos logs` | done, tested on PC |
 | Service respawn with backoff, crash-loop detection | done (`pos-supervise`), tested on PC |
-| sysd: `system.info`, `system.status` (identity, resources, storage, network summary, service health) | done on PC (v0.0.7 block 1), `S50sysd` in the overlay (block 2a), device smoke pending |
+| sysd: `system.info`, `system.status` (identity, resources, storage, network summary, service health) | done (v0.0.7 blocks 1 and 2a), validated on unit A from `3a56804` (docs/hardware/V0.0.7_BLOCK2A_SMOKE.md) |
 | netd: Ethernet, Wi-Fi (wpa_supplicant), BLE status | not started |
 | Settings app (network, display, system) | not started |
 | Reboot/shutdown, hardware info app | not started (reboot/poweroff planned as `system.*` methods) |

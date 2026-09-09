@@ -100,7 +100,11 @@ that source, and `system.status.services` follows it.
 
 `/etc/init.d/S50sysd` starts it under `pos-supervise`, ahead of `S60radiod`,
 with S60's stop discipline (the supervise pid and the daemon pid are two
-different facts). Written and tested on the PC; not yet run on a device. The
+different facts). Validated on unit A from `3a56804`: sysd comes up under
+supervision at boot, `system.info` and `system.status` answer with the
+board's real values, stop and start are clean without escalation, and a
+planted stale pid file was gone after a reboot, which is what makes
+`services[].running` trustworthy (docs/hardware/V0.0.7_BLOCK2A_SMOKE.md). The
 shell's System Status screen is the next step of v0.0.7.
 
 ## Theme engine (Design System v0.1)

@@ -120,5 +120,20 @@ for f in "$OVL"/etc/init.d/S*; do
     check "deploy.sh starts $s" $(grep -q "^/etc/init.d/$s start" "$DEPLOY" && echo 1 || echo 0)
 done
 
+# Ownership: a bench deployment must land root-owned, like the flashed image.
+# Before this was set, every file arrived owned by the build host's uid (1000,
+# VERIFIED on unit A, docs/hardware/V0.0.7_BLOCK2A_SMOKE.md), which would let a
+# uid-1000 process rewrite an init script that rcS runs as root. Both halves
+# are checked: that deploy.sh asks for it, and that asking works with the tar
+# on this host.
+check "deploy.sh creates the archive as uid/gid 0" \
+      $(grep -q -- '--owner=0 --group=0 --numeric-owner' "$DEPLOY" && echo 1 || echo 0)
+printf 'x' > "$TMP/ownprobe"
+ownline=$(tar -C "$TMP" --owner=0 --group=0 --numeric-owner -cf - ownprobe 2>/dev/null |
+          tar -tvf - 2>/dev/null)
+check "those flags produce uid/gid 0 with this tar" \
+      $(printf '%s' "$ownline" | grep -qE '(^| )0/0( |$)' && echo 1 || echo 0)
+[ -n "$ownline" ] || echo "     tar produced no listing"
+
 echo "package_sync_test: $failed failure(s)"
 exit $((failed > 0))

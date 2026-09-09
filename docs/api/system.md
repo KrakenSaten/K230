@@ -62,7 +62,13 @@ The live view. sysd samples `/proc/stat` once a second for `cpu_percent`.
 `services` answers "what the supervisor has written down", not "what should
 be running": a service that was never started is absent from the array
 rather than reported as down, and `running` is only "a process with that pid
-exists". Its source is `pos-supervise`'s pid files and crash-loop markers,
+exists". That is safe against pid reuse only because the runtime directory is
+on a tmpfs and therefore starts empty on every boot, so a stale pid file
+cannot outlive the process it named. VERIFIED on unit A: `/run` is
+`tmpfs rw,nosuid,nodev,relatime,mode=755`, and a planted `ghost.pid` (reported
+`running: false` while it existed) was gone after a reboot
+(docs/hardware/V0.0.7_BLOCK2A_SMOKE.md). A board that puts the runtime
+directory on persistent storage breaks this field. Its source is `pos-supervise`'s pid files and crash-loop markers,
 and the supervisor state file planned for the next block of v0.0.7 replaces
 that source. This field may therefore change shape within v0.0.7 without an
 `api_version` bump; the rest of `system.info` and `system.status` follows the

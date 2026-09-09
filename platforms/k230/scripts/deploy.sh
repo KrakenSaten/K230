@@ -23,7 +23,16 @@ for f in usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-supervi
 done
 
 echo "Deploying PocketOS $(cat "${REPO_DIR}/VERSION") to ${TARGET_HOST}"
-tar -C "${T}" -cf - usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-supervise usr/sbin/radiod \
+# Ownership comes from the archive, not from the build host's account. Without
+# this every deployed file lands owned by the builder's uid (1000 on this
+# host, VERIFIED on unit A during the v0.0.7 block 2a smoke), so a uid-1000
+# process could rewrite an init script that BusyBox rcS runs as root. A
+# flashed image has no such problem: Buildroot assigns root ownership when it
+# assembles the rootfs, and the bench path has to match it. Numeric rather
+# than --owner=root: with --numeric-owner the stored name is unused anyway,
+# and 0 needs no passwd lookup on the build host.
+tar -C "${T}" --owner=0 --group=0 --numeric-owner -cf - \
+    usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-supervise usr/sbin/radiod \
     usr/sbin/sysd usr/bin/pocketos-shell etc/pocketos-release etc/init.d/S50sysd etc/init.d/S60radiod \
     etc/init.d/S90pocketos-shell \
     | "${SSH[@]}" "${TARGET_HOST}" 'set -e
