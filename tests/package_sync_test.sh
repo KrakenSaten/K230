@@ -100,5 +100,25 @@ if [ "$MODES" -eq 1 ]; then
     done
 fi
 
+# ---- the bench-deploy path ----------------------------------------------
+#
+# deploy.sh pushes the same binaries and init scripts to a running board over
+# SSH, without reflashing. A service that reaches the image but not deploy.sh
+# leaves a bench deployment running the old one and says nothing: S50sysd was
+# added to the overlay in v0.0.7 block 2a and to deploy.sh only afterwards.
+# Every init script the overlay carries must be sent, stopped and started.
+# Read from HEAD like everything else here, so this is a fact about the
+# commit rather than about the working tree.
+git archive --format=tar HEAD -- platforms/k230/scripts/deploy.sh | tar -x -C "$TMP"
+DEPLOY="$TMP/platforms/k230/scripts/deploy.sh"
+check "deploy.sh extracted" $([ -f "$DEPLOY" ] && echo 1 || echo 0)
+for f in "$OVL"/etc/init.d/S*; do
+    [ -e "$f" ] || continue
+    s=$(basename "$f")
+    check "deploy.sh sends $s"  $(grep -q "etc/init.d/$s" "$DEPLOY" && echo 1 || echo 0)
+    check "deploy.sh stops $s"  $(grep -q "^/etc/init.d/$s stop" "$DEPLOY" && echo 1 || echo 0)
+    check "deploy.sh starts $s" $(grep -q "^/etc/init.d/$s start" "$DEPLOY" && echo 1 || echo 0)
+done
+
 echo "package_sync_test: $failed failure(s)"
 exit $((failed > 0))
