@@ -124,6 +124,32 @@ static void touch_overrides_from_env(void)
     }
 }
 
+/* Diagnostic trace of what LVGL reads from the touch device, on when
+ * POCKETOS_INPUT_TRACE is set: the state and the calibrated point of every
+ * read whose state or point changed. It wraps the driver's read callback,
+ * so it is installed only for a device named by POCKETOS_TOUCH_DEVICE:
+ * discovery recognises its own devices by that callback and would attach
+ * a second reader to a wrapped one. */
+static lv_indev_read_cb_t touch_read_orig;
+
+static void touch_read_traced(lv_indev_t *indev, lv_indev_data_t *data)
+{
+    static unsigned reads;
+    static lv_indev_state_t last_state = LV_INDEV_STATE_RELEASED;
+    static lv_point_t last_point = { -1, -1 };
+
+    touch_read_orig(indev, data);
+    reads++;
+    if (data->state != last_state || (data->state == LV_INDEV_STATE_PRESSED &&
+                                      (data->point.x != last_point.x || data->point.y != last_point.y))) {
+        LOG_INFO("touch trace: read %u %s x=%d y=%d t=%u", reads,
+                 data->state == LV_INDEV_STATE_PRESSED ? "down" : "up", (int)data->point.x,
+                 (int)data->point.y, (unsigned)lv_tick_get());
+    }
+    last_state = data->state;
+    last_point = data->point;
+}
+
 static void touch_apply(lv_indev_t *indev, const char *what)
 {
     if (touch.have_calib) {
@@ -179,6 +205,11 @@ lv_display_t *pocketos_platform_init(void)
 
         if (indev) {
             touch_apply(indev, touch_dev);
+            if (getenv("POCKETOS_INPUT_TRACE")) {
+                touch_read_orig = lv_indev_get_read_cb(indev);
+                lv_indev_set_read_cb(indev, touch_read_traced);
+                LOG_INFO("%s: touch trace on (POCKETOS_INPUT_TRACE)", touch_dev);
+            }
         } else {
             LOG_WARN("cannot open touch device %s", touch_dev);
         }
