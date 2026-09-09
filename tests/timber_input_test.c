@@ -17,7 +17,18 @@
  *   on exactly zero, which a finger never does: the block sat in its seat,
  *   locked, with TEST and every other selection refused.
  *
- * The last section measures, without failing, whether a tap with a vertical
+ * Candidate 2 then showed drags that moved nothing on the K230 while taps
+ * and TEST answered. The drift sections and the evdev section are that
+ * investigation: a thumb whose contact drifts out of the 64 px band keeps
+ * the press (LVGL locks the press to the object by default), and LVGL's
+ * real evdev parser, fed the GT9895's protocol-B event grammar through a
+ * pipe, delivers the press, the motion and non-zero banked travel to the
+ * track and the engine moves the block. None of it reproduces the bench:
+ * the software path is sound for the device's own grammar, which places
+ * the fault in the event stream the device delivers (to be read raw on the
+ * device before anything is changed).
+ *
+ * The scroll section measures, without failing, whether a tap with a vertical
  * wobble reaches a button under the shell's scrollable body: the screen as
  * built and with the body's paddings removed, with and without elastic
  * scrolling. Before the viewport was cut to what the body has left, the
@@ -39,6 +50,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if LV_USE_EVDEV
+#include <fcntl.h>
+#include <linux/input.h>
+#include <unistd.h>
+#endif
 
 #define PANEL_W 568
 #define PANEL_H 1232
@@ -446,6 +462,53 @@ static void fresh_instance(struct timber_app *app, const char *when)
     check(what, lv_obj_get_scroll_bottom(body) <= 0);
 }
 
+/* What the track sees, recorded after the app's own handlers ran. */
+static struct {
+    int pressed;
+    int pressing;
+    int released;
+    int lost;
+    int max_pending;
+    int min_x;
+    int max_x;
+} seen;
+
+static void track_probe(lv_event_t *e)
+{
+    struct timber_app *app = lv_event_get_user_data(e);
+    lv_indev_t *indev = lv_indev_active();
+    lv_point_t pt;
+
+    lv_indev_get_point(indev, &pt);
+    switch (lv_event_get_code(e)) {
+    case LV_EVENT_PRESSED:
+        seen.pressed++;
+        seen.min_x = pt.x;
+        seen.max_x = pt.x;
+        break;
+    case LV_EVENT_PRESSING:
+        seen.pressing++;
+        if (pt.x < seen.min_x) {
+            seen.min_x = pt.x;
+        }
+        if (pt.x > seen.max_x) {
+            seen.max_x = pt.x;
+        }
+        if (abs(app->pending_px) > seen.max_pending) {
+            seen.max_pending = abs(app->pending_px);
+        }
+        break;
+    case LV_EVENT_RELEASED:
+        seen.released++;
+        break;
+    case LV_EVENT_PRESS_LOST:
+        seen.lost++;
+        break;
+    default:
+        break;
+    }
+}
+
 /* ---- the sequences ------------------------------------------------------ */
 
 /* 1. The bench sequence, from BEGIN to reopening. */
@@ -572,16 +635,36 @@ static void wander_wobble_and_mid_press(void)
     e2 = extraction_of(app, id);
     check("a drag with a vertical wobble still pulls", e2 > e1 && e2 < TIMBER_SLIP_AT);
 
-    /* A thumb that wanders off the track mid-pull and comes back. */
-    x = drag_track(track, sign, 4, 1, 0);
+    /* A thumb pad is taller than the 64 px track and its contact drifts as it
+     * starts to drag, so the finger is off the track within the first reads.
+     * The track keeps the press (LVGL's default press lock on objects) and
+     * the pull goes on from the finger's x. */
+    memset(&seen, 0, sizeof(seen));
+    lv_obj_add_event_cb(track, track_probe, LV_EVENT_ALL, app);
     centre_of(track, &tx, &ty);
-    move_to(x, ty - 140);               /* off the track, onto the piece card */
-    move_to(x + sign * 30, ty - 140);
-    move_to(x + sign * 30, ty);         /* back on it, still pressed */
-    move_to(x + sign * 34, ty);
+    press_at(tx, ty);
+    move_to(tx + sign * 2, ty + 40);   /* off the band at once */
+    move_to(tx + sign * 6, ty + 44);
+    move_to(tx + sign * 10, ty + 44);
+    move_to(tx + sign * 14, ty + 40);
     release();
+    lv_obj_remove_event_cb(track, track_probe);
+    printf("note: thumb drift off the track: PRESSED %d, PRESSING %d, PRESS_LOST %d, RELEASED %d, extraction %d -> %d\n",
+           seen.pressed, seen.pressing, seen.lost, seen.released, e2, extraction_of(app, id));
+    check("a thumb that drifts off the track keeps the press (LVGL locks it by default)", seen.lost == 0 && seen.released == 1);
+    check("a thumb that drifts off the track keeps pulling", extraction_of(app, id) > e2 && extraction_of(app, id) < TIMBER_SLIP_AT);
     e1 = extraction_of(app, id);
-    check("a finger that left the track did not push the block anywhere odd", e1 >= e2 && e1 < TIMBER_SLIP_AT);
+    /* And a finger that wanders far off and comes back: the x travel counts
+     * the whole way, nothing is handed to the piece card or the buttons. */
+    x = drag_track(track, sign, 4, 1, 0);
+    move_to(x, ty - 140);
+    move_to(x + sign * 8, ty - 140);
+    move_to(x + sign * 8, ty);
+    move_to(x + sign * 12, ty);
+    release();
+    check("a finger that wanders far off the track and back keeps pulling", extraction_of(app, id) > e1 && extraction_of(app, id) < TIMBER_SLIP_AT);
+    check("nothing else answered the wandering finger", app->run.turn == TIMBER_TURN_PULLING && timber_run_selected(&app->run) == id);
+    e1 = extraction_of(app, id);
     drag_track(track, sign, 4, 2, 1);
     check("after the wander a fresh drag pulls again", extraction_of(app, id) > e1 && extraction_of(app, id) < TIMBER_SLIP_AT);
 
@@ -652,6 +735,202 @@ static void gesture_stealing(void)
     }
 }
 
+/* 4. The K230's own input grammar through LVGL's real evdev parser. The
+ *    GT9895 driver (goodix_berlin, protocol B, no pointer emulation) reports
+ *    a touch as: tracking id, tool type, MT position x, y, touch major,
+ *    BTN_TOUCH, SYN_REPORT; a move as the changed MT positions and
+ *    SYN_REPORT; a release as tracking id -1, BTN_TOUCH 0, SYN_REPORT. Those
+ *    frames go down a pipe into lv_evdev_create_fd, calibrated the way the
+ *    device is (raw 0..1059 x 0..2399 onto 568 x 1232), and the track is
+ *    instrumented: it must see the press, see motion with non-zero banked
+ *    travel, and the engine must move the block. */
+#if LV_USE_EVDEV
+#define GT_MAX_X 1059
+#define GT_MAX_Y 2399
+
+static int gt_fd = -1;
+static int gt_last_x;
+static int gt_last_y;
+static int gt_id;
+
+static void gt_event(uint16_t type, uint16_t code, int32_t value)
+{
+    struct input_event e;
+
+    memset(&e, 0, sizeof(e));
+    e.type = type;
+    e.code = code;
+    e.value = value;
+    if (write(gt_fd, &e, sizeof(e)) != (ssize_t)sizeof(e)) {
+        printf("FAIL cannot write an input event\n");
+        failed++;
+    }
+}
+
+/* Display pixel to the controller's raw coordinate, inverting LVGL's
+ * calibration (v * (out_max - out_min) / (in_max - in_min)). */
+static int gt_raw_x(int px)
+{
+    return (px * GT_MAX_X + (PANEL_W - 1) / 2) / (PANEL_W - 1);
+}
+
+static int gt_raw_y(int px)
+{
+    return (px * GT_MAX_Y + (PANEL_H - 1) / 2) / (PANEL_H - 1);
+}
+
+static void gt_down(int px, int py)
+{
+    gt_last_x = gt_raw_x(px);
+    gt_last_y = gt_raw_y(py);
+    gt_event(EV_ABS, ABS_MT_TRACKING_ID, ++gt_id);
+    gt_event(EV_ABS, ABS_MT_TOOL_TYPE, 0);
+    gt_event(EV_ABS, ABS_MT_POSITION_X, gt_last_x);
+    gt_event(EV_ABS, ABS_MT_POSITION_Y, gt_last_y);
+    gt_event(EV_ABS, ABS_MT_TOUCH_MAJOR, 20);
+    gt_event(EV_KEY, BTN_TOUCH, 1);
+    gt_event(EV_SYN, SYN_REPORT, 0);
+    pump(8);
+}
+
+static void gt_move(int px, int py)
+{
+    int rx = gt_raw_x(px);
+    int ry = gt_raw_y(py);
+
+    if (rx != gt_last_x) {
+        gt_event(EV_ABS, ABS_MT_POSITION_X, rx);
+    }
+    if (ry != gt_last_y) {
+        gt_event(EV_ABS, ABS_MT_POSITION_Y, ry);
+    }
+    gt_last_x = rx;
+    gt_last_y = ry;
+    gt_event(EV_SYN, SYN_REPORT, 0);
+    pump(8);
+}
+
+static void gt_up(void)
+{
+    gt_event(EV_ABS, ABS_MT_TRACKING_ID, -1);
+    gt_event(EV_KEY, BTN_TOUCH, 0);
+    gt_event(EV_SYN, SYN_REPORT, 0);
+    pump(60);
+}
+
+static void gt_tap(lv_obj_t *obj)
+{
+    int x;
+    int y;
+
+    centre_of(obj, &x, &y);
+    gt_down(x, y);
+    pump(50);
+    gt_up();
+}
+
+static void k230_grammar(void)
+{
+    int pipefd[2];
+    lv_indev_t *gt;
+    struct timber_app *app;
+    lv_obj_t *track = NULL;
+    lv_obj_t *table = NULL;
+    lv_obj_t *test = NULL;
+    lv_obj_t *begin;
+    int id;
+    int sign;
+    int x;
+    int y;
+    int i;
+    int e0;
+
+    if (pipe(pipefd) != 0) {
+        check("a pipe for the controller's events", 0);
+        return;
+    }
+    gt_fd = pipefd[1];
+    gt = lv_evdev_create_fd(LV_INDEV_TYPE_POINTER, pipefd[0]);
+    check("LVGL's evdev driver accepts the pipe", gt != NULL);
+    if (!gt) {
+        return;
+    }
+    lv_evdev_set_calibration(gt, 0, 0, GT_MAX_X, GT_MAX_Y);
+
+    app = open_app();
+    begin = find_button(body, "BEGIN");
+    gt_tap(begin);
+    check("through evdev, a tap on BEGIN starts the run", app && app->run.state == TIMBER_RUN_ACTIVE);
+    track = find_track(body);
+    table = find_table(body);
+    test = find_button(body, "TEST");
+    id = choose_block(app, -1);
+    if (!track || !table || !test || id < 0) {
+        check("through evdev, the widgets and a loose block are found", 0);
+        close_app(app);
+        return;
+    }
+    {
+        struct timber_shape s;
+        lv_area_t a;
+
+        timber_view_block(&app->view, &app->run, id, &s);
+        lv_obj_update_layout(lv_screen_active());
+        lv_obj_get_coords(table, &a);
+        gt_down(a.x1 + s.end_x, a.y1 + s.end_y);
+        pump(50);
+        gt_up();
+    }
+    check("through evdev, a tap on a block end selects it", timber_run_selected(&app->run) == id);
+    gt_tap(test);
+    check("through evdev, TEST answers", app->run.tower.blocks[id].tested && app->run.tests_left == 1);
+
+    /* The drag, one frame every 8 ms like the controller, 2 px per frame. */
+    memset(&seen, 0, sizeof(seen));
+    lv_obj_add_event_cb(track, track_probe, LV_EVENT_ALL, app);
+    sign = timber_view_track_sign(app->run.tower.blocks[id].layer);
+    e0 = extraction_of(app, id);
+    centre_of(track, &x, &y);
+    gt_down(x, y);
+    for (i = 1; i <= 12; i++) {
+        gt_move(x + sign * 2 * i, y);
+    }
+    gt_up();
+    printf("note: evdev drag on the track: PRESSED %d, PRESSING %d, RELEASED %d, PRESS_LOST %d, x seen %d..%d, banked travel up to %d px, extraction %d -> %d\n",
+           seen.pressed, seen.pressing, seen.released, seen.lost, seen.min_x, seen.max_x, seen.max_pending, e0,
+           extraction_of(app, id));
+    check("the track receives the press", seen.pressed == 1);
+    check("the track receives continuous motion", seen.pressing >= 4 && seen.max_x - seen.min_x >= 16);
+    check("the banked travel is non-zero", seen.max_pending > 0);
+    check("the engine moved the block (move_block ran)", extraction_of(app, id) > e0 && app->run.turn == TIMBER_TURN_PULLING);
+    check("the track receives the release and never lost the press", seen.released == 1 && seen.lost == 0);
+
+    /* The same through evdev with the thumb's drift: off the band by the
+     * second frame, still pulling. */
+    memset(&seen, 0, sizeof(seen));
+    e0 = extraction_of(app, id);
+    centre_of(track, &x, &y);
+    gt_down(x, y);
+    for (i = 1; i <= 12; i++) {
+        gt_move(x + sign * 2 * i, y + (i < 4 ? 14 * i : 42));
+    }
+    gt_up();
+    printf("note: evdev drag with a drifting thumb: PRESSED %d, PRESSING %d, PRESS_LOST %d, extraction %d -> %d\n",
+           seen.pressed, seen.pressing, seen.lost, e0, extraction_of(app, id));
+    check("through evdev, a drifting thumb keeps the press", seen.pressed == 1 && seen.lost == 0);
+    check("through evdev, a drifting thumb keeps pulling", extraction_of(app, id) > e0 && extraction_of(app, id) < TIMBER_SLIP_AT);
+    lv_obj_remove_event_cb(track, track_probe);
+    close_app(app);
+    lv_indev_delete(gt);
+    close(pipefd[1]);
+}
+#else
+static void k230_grammar(void)
+{
+    printf("note: LV_USE_EVDEV is off in this build; the K230 input grammar is not exercised\n");
+}
+#endif
+
 int main(void)
 {
     static uint8_t draw_buf[PANEL_W * 40 * 2];
@@ -676,6 +955,7 @@ int main(void)
     bench_sequence();
     wander_wobble_and_mid_press();
     gesture_stealing();
+    k230_grammar();
 
     printf("timber_input_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;
