@@ -456,8 +456,15 @@ static void move_block(struct timber_run *run, struct timber_block *b, int32_t d
     int carried = timber_stability_block_supports(&run->tower, id);
     int load = timber_tower_load(&run->tower, id);
     int axis = timber_layer_axis(b->layer);
-    int32_t e = (int32_t)b->extraction + delta;
+    int32_t prev = b->extraction;
+    int32_t e = prev + delta;
 
+    /* A block pushed back stops at its seat: the seat is where the turn
+     * opens again, and a finger never lands on it exactly. Pushing it on
+     * through, out the far side, is a new travel that starts from the seat. */
+    if ((prev > 0 && e < 0) || (prev < 0 && e > 0)) {
+        e = 0;
+    }
     if (e > TIMBER_EXTRACTION_MAX) {
         e = TIMBER_EXTRACTION_MAX;
     }

@@ -30,7 +30,7 @@
 /* The viewport: what the body has left once the HUD, the piece card and
  * the controls have their rows, each a single row so the tower gets the
  * height (docs/apps/POCKETTIMBER_ART.md, composition). */
-#define TABLE_HEIGHT 700
+#define TABLE_HEIGHT 672
 #define METER_WIDTH 196
 #define METER_SEGMENTS 10
 #define METER_HEIGHT 10

@@ -48,7 +48,7 @@ What P7 draws, measured from the code and the screenshots:
 
 | Item | P7 | Verdict |
 | --- | --- | --- |
-| Viewport | 528 x 600 panel, hairline in `line`, no fill | keep the frame; grow to 700 (below) |
+| Viewport | 528 x 600 panel, hairline in `line`, no fill | keep the frame; grow to 672 (below) |
 | Projection | `sx = (x - y) * 40`, `sy = (x + y) * 20 - z * 22 / 154` | 2:1 in plan, but 22 px per layer is not a real camera (it implies 50 degrees of elevation against 30 for the top faces); replaced by the canonical projection |
 | Tower footprint | 240 px wide, 18 layers 396 + 120 = 516 px tall | becomes 216 wide, 576 tall |
 | Block | end face 40 x 22 (+20 shear), sprite bbox 160 x 102 | becomes 36 x 26 (+18), 144 x 98 |
@@ -72,28 +72,33 @@ the tilt hack, the projection numbers, the two-row cards.
 ## 3. Composition (568 x 1232)
 
 The shell owns the status bar (56) and the app header (72); the body is
-1104 px with 24 px top padding and 20 px side padding, 528 px wide.
+1104 px with 24 px top padding, 20 px bottom padding and 20 px side
+padding, so 1060 px tall and 528 px wide inside the padding.
 
 | Zone | Height | Content |
 | --- | --- | --- |
-| HUD | 85 | one row: SCORE (BEST in standby), LAYERS, and STABILITY as a caption over a ten-block meter, 196 px wide, right |
+| HUD | 90 | one row: SCORE (BEST in standby), LAYERS, and STABILITY as a caption over a ten-block meter, 196 px wide, right |
 | gap | 22 | |
-| Viewport | 700 | the felt, the shadow, the tower; a hairline panel, corners clipped |
+| Viewport | 672 | the felt, the shadow, the tower; a hairline panel, corners clipped |
 | gap | 22 | |
-| Piece card | 85 | one row: PIECE, AT, WORTH, TESTS, and the state chip |
+| Piece card | 90 | one row: PIECE, AT, WORTH, TESTS, and the state chip |
 | gap | 22 | |
 | Controls A | 64 | the pull track (a `surface` slab with its caption); while placing, the three side buttons (56) instead |
 | gap | 22 | |
 | Controls B | 56 | TEST (secondary) and BEGIN / PULL / PLACE (primary), 1 : 2 |
 
-Total 1102 of 1104. The thumb zone holds every control; the tower is only
+Total 1060 of 1060: the viewport is what the body has left once the
+other rows have theirs, measured on the built screen (the two cards are
+90 px tall with their captions), and nothing is left for the body to
+scroll, which matters: a body with something to scroll takes every tap or
+drag that rolls more than 10 px for itself. The thumb zone holds every control; the tower is only
 tapped, never dragged, and a tap snaps to the nearest pullable block end
 within 44 px, so nothing the player must hit is small.
 
-**Playfield bounds:** the viewport, 528 x 700, centred. **Tower position:**
-the base's far corner projects to (264, 576) inside it, so the base's near
-corner clears the bottom by 16 px and an 18-layer tower leaves 108 px of
-felt above it. **Maximum visible height:** 21 layers at this scale; above
+**Playfield bounds:** the viewport, 528 x 672, centred. **Tower position:**
+the base's far corner projects to (264, 548) inside it, so the base's near
+corner clears the bottom by 16 px and an 18-layer tower leaves 80 px of
+felt above it. **Maximum visible height:** 20 layers at this scale; above
 that the view keeps the top in view and lets the base go out of it, which
 is the camera the review chose (drag-to-pan is v0.2; a half-scale sprite
 set for a whole-tower view is an OPTIONAL asset below). **Stability and

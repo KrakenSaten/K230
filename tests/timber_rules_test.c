@@ -342,6 +342,34 @@ static void test_free_pull(void)
           timber_run_select(&run, 7) == -1 && timber_run_select(&run, 4) == -1);
 }
 
+/* A finger never lands on the seat exactly: a push back that crosses the
+ * seat stops there and the turn opens; pushing on through, out the far
+ * side, is a new travel from the seat. Without this a block pushed back by
+ * hand sat in its seat still locked, with TEST and every other selection
+ * refused (D3 candidate 1, 2026-09-09). */
+static void test_push_back_stops_at_the_seat(void)
+{
+    struct timber_run run;
+
+    start(&run, 21u);
+    rig(&run, 1, 4);
+    timber_run_select(&run, 4);
+    drag(&run, 100, 3, TIMBER_EVENT_JOLT);
+    check("the block is part way out and the turn locked",
+          run.tower.blocks[4].extraction == 300 && run.turn == TIMBER_TURN_PULLING);
+    drag(&run, -110, 3, TIMBER_EVENT_JOLT);
+    check("a push back that overshoots the seat stops at the seat and opens the turn",
+          run.tower.blocks[4].extraction == 0 && run.turn == TIMBER_TURN_SELECT &&
+          timber_run_select(&run, 7) == 0);
+    timber_run_select(&run, 4);
+    timber_run_pull(&run, -30);
+    check("pushing on through starts from the seat",
+          run.tower.blocks[4].extraction == -30 && run.turn == TIMBER_TURN_PULLING);
+    timber_run_pull(&run, 50);
+    check("coming back from the far side stops at the seat too",
+          run.tower.blocks[4].extraction == 0 && run.turn == TIMBER_TURN_SELECT);
+}
+
 static void test_fast_pull_jolts(void)
 {
     struct timber_run run;
@@ -1148,6 +1176,7 @@ int main(void)
     test_selection();
     test_testing();
     test_free_pull();
+    test_push_back_stops_at_the_seat();
     test_fast_pull_jolts();
     test_stuck_pull();
     test_decay_and_sway();
