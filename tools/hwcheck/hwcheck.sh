@@ -15,8 +15,9 @@
 #
 # Usage: pos-hwcheck [--lora] [output_dir]
 #        Output: <output_dir>/hwcheck-<timestamp>/ (default /root/hwcheck)
-#        Exit: 0, or 3 when --lora was refused, 4 when its tools are missing,
-#        5 when the chip did not answer (BUSY never low, or wrong registers).
+#        Exit: 0, or 3 when --lora was refused, 4 when its tools are missing
+#        (gpioset, gpioinfo, pos-spixfer), 5 when the chip did not answer
+#        (BUSY never low, or wrong registers).
 #        POCKETOS_SX1262_SPI overrides the spidev node (default /dev/spidev0.0).
 
 set -u
@@ -176,9 +177,14 @@ if [ "$DO_LORA" -eq 1 ]; then
     # through spi-pipe on unit A (v0.0.4, v0.0.5) offset 4 read 24 b4 with no
     # 0x14 anywhere, the chip otherwise answering (GetStatus standby a2 22).
     # The difference is the SPI transaction, not the bytes the probe sends,
-    # so the probe cannot reframe its way to 14 24. It instead captures the
-    # returned window at two transfer lengths (6 and 8 bytes) and dumps both,
-    # the raw evidence that localises where the sync word actually lands.
+    # so since v0.0.6 every command goes through pos-spixfer, which performs
+    # the transaction exactly as radiod's HAL does: one CS-framed
+    # SPI_IOC_MESSAGE(1) per command, mode 0, 8 bits, radiod's 4 MHz clock
+    # set on the transfer itself, the node opened O_RDWR and flock'ed. The
+    # returned window is still captured at two transfer lengths (6 and 8
+    # bytes) and dumped, and when spi-pipe is installed the 6-byte window is
+    # read once more through it, for comparison only, so the bench sees the
+    # two transports side by side on the same chip state.
     #
     # gpioset (libgpiod 2) holds its lines until it is killed; without -z it
     # used to wait forever for a terminal here. Every gpioset is therefore a
@@ -209,8 +215,12 @@ if [ "$DO_LORA" -eq 1 ]; then
         wait "$bp" 2>/dev/null
         return $?
     }
+    lora_xfer() { # <tenths budget> <out.bin> <hex bytes...>: one CS-framed SPI_IOC_MESSAGE transaction (MOSI as given, MISO into the file)
+        xb=$1; xo=$2; shift 2
+        lora_bounded "$xb" sh -c "pos-spixfer $LORA_SPIDEV $* > '$xo' 2>>'$REPORT'"
+    }
     lora_status_mode() { # GetStatus 0xC0: prints the chip-mode field (2 STDBY_RC, 3 STDBY_XOSC), or nothing
-        lora_bounded 20 sh -c "printf '\\300\\000' | spi-pipe -d $LORA_SPIDEV -m 0 -s 1000000 -b 2 > '$OUT/lora_ready.bin'"
+        lora_xfer 20 "$OUT/lora_ready.bin" C0 00
         st=$(od -An -tu1 "$OUT/lora_ready.bin" 2>/dev/null | awk 'NF {print $NF}')
         [ -n "$st" ] && echo $(( (st / 16) % 8 ))
     }
@@ -263,8 +273,8 @@ if [ "$DO_LORA" -eq 1 ]; then
         say "This probe REQUIRES RADIOD STOPPED: /etc/init.d/S60radiod stop, or RADIOD_BACKEND=mock."
         say "The read-only inventory above is complete and unaffected."
         LORA_RC=3
-    elif ! have gpioset || ! have gpioinfo || ! have spi-pipe; then
-        say "gpioset, gpioinfo or spi-pipe missing; LoRa probe not run"
+    elif ! have gpioset || ! have gpioinfo || ! have pos-spixfer; then
+        say "gpioset, gpioinfo or pos-spixfer missing; LoRa probe not run"
         LORA_RC=4
     elif [ ! -e "$LORA_SPIDEV" ]; then
         say "$LORA_SPIDEV missing; LoRa probe not run"
@@ -293,21 +303,28 @@ if [ "$DO_LORA" -eq 1 ]; then
         lora_hold gpiochip0 5 1; RST_PID=$HOLD_PID
         if lora_wait_ready 20; then
             say "SX126x ready ${READY_MS} ms after reset: BUSY (GPIO19) low, GetStatus chip mode ${READY_MODE} (standby), held over two polls; DIO1 (GPIO20): $(gpioget --chip gpiochip0 20 2>&1)"
-            # ReadRegister across the sync word, the RadioLib frame exactly, at two
-            # transfer lengths. 6 bytes is what radiod sends; 8 bytes clocks two more
-            # NOPs so the sync word is still captured if the data/status boundary sits
-            # a byte later than offset 4. Both windows are dumped as the raw evidence.
+            # ReadRegister across the sync word, the RadioLib frame exactly
+            # (MOSI 1D 07 40 00 00 00), each window one CS-framed transaction.
+            # 6 bytes is what radiod sends; 8 bytes clocks two more NOPs so the
+            # sync word is still captured if the data/status boundary sits a
+            # byte later than offset 4. Both windows are dumped as the raw evidence.
             say "ReadRegister 0x0740.. (opcode 1D, addr 07 40; sync word 14 24 expected after the status byte):"
-            lora_bounded 50 sh -c "printf '\\035\\007\\100\\000\\000\\000' | spi-pipe -d $LORA_SPIDEV -m 0 -s 1000000 -b 6 > '$OUT/lora_reg6.bin'"
+            lora_xfer 50 "$OUT/lora_reg6.bin" 1D 07 40 00 00 00
             regs6=$(od -An -tx1 "$OUT/lora_reg6.bin" 2>/dev/null | tr -s ' \n' ' ')
             say "  6-byte window: $regs6"
-            lora_bounded 50 sh -c "printf '\\035\\007\\100\\000\\000\\000\\000\\000' | spi-pipe -d $LORA_SPIDEV -m 0 -s 1000000 -b 8 > '$OUT/lora_reg8.bin'"
+            lora_xfer 50 "$OUT/lora_reg8.bin" 1D 07 40 00 00 00 00 00
             regs8=$(od -An -tx1 "$OUT/lora_reg8.bin" 2>/dev/null | tr -s ' \n' ' ')
             say "  8-byte window: $regs8"
             say "GetStatus 0xC0 (expect chip mode bits in byte 2):"
-            lora_bounded 50 sh -c "printf '\\300\\000' | spi-pipe -d $LORA_SPIDEV -m 0 -s 1000000 -b 2 > '$OUT/lora_status.bin'"
+            lora_xfer 50 "$OUT/lora_status.bin" C0 00
             lora_status="$(od -An -tx1 "$OUT/lora_status.bin" 2>/dev/null | tr -s ' \n' ' ')"
             say "  $lora_status"
+            if have spi-pipe; then
+                # The v0.0.5 transport (spi-pipe, 1 MHz), same frame, read once
+                # more for comparison only: it does not enter the verdict below.
+                lora_bounded 50 sh -c "printf '\\035\\007\\100\\000\\000\\000' | spi-pipe -d $LORA_SPIDEV -m 0 -s 1000000 -b 6 > '$OUT/lora_reg6_spipipe.bin'"
+                say "  6-byte window through spi-pipe, for comparison only: $(od -An -tx1 "$OUT/lora_reg6_spipipe.bin" 2>/dev/null | tr -s ' \n' ' ')"
+            fi
             # The chip mode field of GetStatus (byte 2, bits 6:4): 2 STDBY_RC or
             # 3 STDBY_XOSC means the SX126x is answering on the bus. This is the
             # reliable liveness signal; the sync word is the stronger check when the
@@ -317,9 +334,10 @@ if [ "$DO_LORA" -eq 1 ]; then
             case "$regs6 | $regs8" in
                 *"14 24"*) say "sync word registers read 14 24: SX126x answers on $LORA_SPIDEV (VERIFIED)" ;;
                 *)
-                    say "sync word 14 24 not seen in either window (radiod reads it via a single SPI_IOC_MESSAGE;"
-                    say "  spi-pipe on unit A returns 24 b4 at offset 4 with no 0x14 -- an SPI-transaction effect,"
-                    say "  not the frame, which matches RadioLib byte-for-byte; the windows above are the evidence)."
+                    say "sync word 14 24 not seen in either window (both read through pos-spixfer, one CS-framed"
+                    say "  SPI_IOC_MESSAGE at radiod's 4 MHz, the same transaction radiod's HAL performs; spi-pipe on"
+                    say "  unit A returned 24 b4 at offset 4 with no 0x14 -- an SPI-transaction effect, not the frame,"
+                    say "  which matches RadioLib byte-for-byte; the windows above are the evidence)."
                     if [ "$status_ok" -eq 1 ]; then
                         say "GetStatus reports the chip in standby, so the SX126x is powered and answering on $LORA_SPIDEV."
                     else
