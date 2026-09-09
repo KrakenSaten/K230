@@ -18,6 +18,7 @@
  */
 #include "../timber_app.h"
 
+#include "pocketlog/pocketlog.h"
 #include "pocketui.h"
 #include "timber_table.h"
 
@@ -291,6 +292,20 @@ static void side_cb(lv_event_t *e)
     }
 }
 
+/* Diagnostic trace of the pull path, on when POCKETTIMBER_TRACE is set in
+ * the environment: every track event with the pointer's coordinates and
+ * the banked travel, and every tick that pays travel with what the engine
+ * did with it. Off, this costs one getenv per process. */
+static int timber_trace(void)
+{
+    static int on = -1;
+
+    if (on < 0) {
+        on = getenv("POCKETTIMBER_TRACE") != NULL;
+    }
+    return on;
+}
+
 /* The pull track. The finger's horizontal travel is banked here and paid
  * into the engine once a tick by timber_screen_table_tick(), so the engine
  * sees exactly one travel per tick whatever the panel's event rate is. */
@@ -298,30 +313,46 @@ static void track_cb(lv_event_t *e)
 {
     struct timber_app *app = lv_event_get_user_data(e);
     lv_indev_t *indev = lv_indev_active();
-    lv_point_t point;
+    lv_event_code_t code = lv_event_get_code(e);
+    lv_point_t point = { -1, -1 };
+    const char *name = NULL;
 
     if (!app || !indev) {
+        if (app && timber_trace()) {
+            LOG_INFO("timber trace: track event %d with no active indev", (int)code);
+        }
         return;
     }
-    switch (lv_event_get_code(e)) {
+    lv_indev_get_point(indev, &point);
+    switch (code) {
     case LV_EVENT_PRESSED:
-        lv_indev_get_point(indev, &point);
         app->pressing = 1;
         app->last_x = point.x;
         app->pending_px = 0;
+        name = "PRESSED";
         break;
     case LV_EVENT_PRESSING:
-        lv_indev_get_point(indev, &point);
         app->pending_px += point.x - app->last_x;
         app->last_x = point.x;
+        name = "PRESSING";
         break;
     case LV_EVENT_RELEASED:
+        app->pressing = 0;
+        app->pending_px = 0;
+        name = "RELEASED";
+        break;
     case LV_EVENT_PRESS_LOST:
         app->pressing = 0;
         app->pending_px = 0;
+        name = "PRESS_LOST";
         break;
     default:
         break;
+    }
+    if (name && timber_trace()) {
+        LOG_INFO("timber trace: track %s x=%d y=%d last_x=%d pending_px=%d pressing=%d t=%u",
+                 name, (int)point.x, (int)point.y, (int)app->last_x, (int)app->pending_px,
+                 (int)app->pressing, (unsigned)lv_tick_get());
     }
 }
 
@@ -335,10 +366,25 @@ void timber_screen_table_tick(struct timber_app *app)
     }
     if (app->run.state == TIMBER_RUN_ACTIVE && app->pressing && app->run.turn != TIMBER_TURN_PLACING &&
         timber_run_selected(&app->run) >= 0) {
-        int layer = app->run.tower.blocks[app->run.selected].layer;
+        int id = app->run.selected;
+        int layer = app->run.tower.blocks[id].layer;
+        int32_t travel = timber_view_travel(&app->view, layer, app->pending_px);
+        int before = app->run.tower.blocks[id].extraction;
+        int pulled = timber_run_pull(&app->run, travel);
 
-        timber_run_pull(&app->run, timber_view_travel(&app->view, layer, app->pending_px));
+        if (timber_trace()) {
+            LOG_INFO("timber trace: tick pending_px=%d block=%d layer=%d axis=%c sign=%d scale=%d travel=%d "
+                     "pull=%d extraction %d -> %d turn=%d t=%u",
+                     (int)app->pending_px, id, layer,
+                     timber_layer_axis(layer) == TIMBER_AXIS_X ? 'x' : 'y',
+                     timber_view_track_sign(layer), app->view.scale, (int)travel, pulled, before,
+                     (int)app->run.tower.blocks[id].extraction, (int)app->run.turn, (unsigned)lv_tick_get());
+        }
         app->pending_px = 0;
+    } else if (app->pressing && timber_trace()) {
+        LOG_INFO("timber trace: tick pressing but not paying: state=%d turn=%d selected=%d pending_px=%d",
+                 (int)app->run.state, (int)app->run.turn, timber_run_selected(&app->run),
+                 (int)app->pending_px);
     }
     timber_run_tick(&app->run);
     while (timber_run_take_event(&app->run, &ev)) {
