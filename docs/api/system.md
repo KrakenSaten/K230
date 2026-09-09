@@ -8,11 +8,13 @@ Started on the device by `/etc/init.d/S50sysd` under `pos-supervise`, ahead of
 `sysd` serves the facts an operating system is expected to know about itself:
 identity, uptime, load, memory, temperature, storage, the network interfaces,
 the power supply and the health of the supervised services. It reads `/proc`,
-`/sys`, `/etc` and the PocketOS runtime directory, opens no device node and
-changes nothing (v0 is read-only; reboot, power-off and service restart are
-later additions to this API, not to the shell). The facts themselves come
-from `core/pocketsys`, which is unit-tested against a fake root so the
-absence of every optional source is a tested case.
+`/sys`, `/etc` and the PocketOS runtime directory and opens no device node.
+The facts themselves come from `core/pocketsys`, which is unit-tested against
+a fake root so the absence of every optional source is a tested case.
+
+Everything sysd *reports* is read-only. The two things it can *do* are
+`system.reboot` and `system.poweroff`, and it does neither itself: it asks
+init. Service restart through the API is still a later addition.
 
 Rule for every field: a board that lacks the source gets JSON `null` (or an
 empty array). Nothing is estimated, and no sentinel stands in for an absence:
@@ -163,17 +165,92 @@ Status screen shows this field for the first time and says what it needs. The
 rest of `system.info` and `system.status` follows the normal rule
 (docs/api/pocketipc.md, Versioning).
 
+### system.reboot
+
+Restart the machine. Takes no parameters. Replies, then acts.
+
+```
+$ pos call sysd system.reboot
+{ "action": "reboot" }
+```
+
+### system.poweroff
+
+Power the machine off. Takes no parameters. Replies, then acts.
+
+```
+$ pos call sysd system.poweroff
+{ "action": "poweroff" }
+```
+
+Both are the same contract, and it is worth reading once.
+
+**They go through init.** sysd runs `/sbin/reboot` or `/sbin/poweroff`, which
+on this image are BusyBox applets that signal init. init runs `rcK`, which
+stops `S90pocketos-shell`, `S60radiod` and `S50sysd` in reverse order, then
+syncs and remounts the root filesystem read-only. sysd never calls `reboot(2)`
+itself: that would skip all of it — the shell would never release the panel,
+nothing would be flushed, and the SD card would be cut off mid-write.
+
+**The reply comes first, and means accepted, not done.** The response is
+written to the socket before the action is so much as recorded, and the action
+runs from sysd's main loop 200 ms later — the same budget the transport gives
+a write to reach its peer (`POCKETIPC_SEND_TIMEOUT_MS`). A client therefore
+always sees its answer before the machine goes. What it does not get is a
+report of the outcome: after `{"action":"reboot"}` there is no connection left
+to answer on. If the command fails, sysd logs an error and keeps serving; the
+client will notice by the machine still being there.
+
+**One at a time.** A second power request while one is pending is refused with
+code 5 (`POCKETIPC_ERR_BUSY`) and a message naming what is already pending,
+whichever order the two arrive in. The first request wins; the second changes
+nothing.
+
+**Nothing acts on a request that was not understood or not delivered.**
+Unlike `system.info` and `system.status`, which ignore extra parameters, these
+two take *no* parameters and reject any with code 2 — a method that stops the
+machine does not act on a request it does not fully understand. An unknown
+method is code 1 as always. And if the reply could not be written — a client
+that asked and immediately disconnected — the action is dropped: nobody was
+told the machine was about to go, so it does not go.
+
+**A stop request outranks a pending action.** If sysd is asked to shut down
+inside the 200 ms window, the action is dropped rather than carried out on the
+way past.
+
+**Confirmation is not this API's job.** "Are you sure?" belongs to whatever UI
+a person is touching. The API does what it is told, once.
+
+### Trust model
+
+There is no authorization layer in v0, and the socket permissions are the
+whole of it. `sysd.sock` is mode 0660 in a runtime directory that is 0770, and
+every PocketOS process on this image runs as root. **Anything that can open
+the sysd socket is already root-equivalent on this machine** and could have
+run `/sbin/reboot` for itself; `system.reboot` gives it no capability it did
+not have. That is why these methods carry no token, no caller check and no
+confirmation.
+
+This is a statement about the image as it is, not a claim that it is the end
+state. The moment PocketOS runs a service as anything other than root, or
+exposes pocketipc beyond the local filesystem, this stops being sufficient and
+the methods that change the machine will need a real answer.
+
 ## Errors
 
 | Code | Meaning |
 | --- | --- |
 | 1 | `POCKETIPC_ERR_UNKNOWN_METHOD`: no such method |
-| 2 | `POCKETIPC_ERR_INVALID_PARAMS`: the request carried no `method`, or one that is not a string |
+| 2 | `POCKETIPC_ERR_INVALID_PARAMS`: the request carried no `method`, or one that is not a string, or parameters on `system.reboot` / `system.poweroff`, which take none |
+| 5 | `POCKETIPC_ERR_BUSY`: a power action is already pending |
 
-Neither method takes parameters; extra parameters are ignored. A frame that
-is not valid JSON, or a request that is not a JSON object, is a protocol
-violation rather than an error response: the connection is closed and the
-service stays up (`tests/sysd_test.sh`).
+`system.info` and `system.status` take no parameters and ignore any that are
+sent. `system.reboot` and `system.poweroff` take none and refuse any, because
+they act on the machine.
+
+A frame that is not valid JSON, or a request that is not a JSON object, is a
+protocol violation rather than an error response: the connection is closed and
+the service stays up (`tests/sysd_test.sh`).
 
 ## Clients
 
@@ -215,7 +292,7 @@ production override, not a test hook, and stays one.
 
 ## Not in v0
 
-Reboot and power-off, service restart, events (a status subscription),
-per-process CPU, network configuration of any kind, and a supervisor state
-file with restart history (the marker only exists once supervision has
-given up).
+Service restart through the API, events (a status subscription), per-process
+CPU, network configuration of any kind, and any authorization beyond the
+socket permissions (see Trust model). Reboot, power-off and the supervisor
+state file arrived in v0.0.7 and are documented above.
