@@ -29,6 +29,19 @@ run() { # <screen|-> <name>
     cat "$OUT/timber-$2.log"
 }
 
+# 0. The input path under a real LVGL pointer device: the D3 bench sequence
+#    (a pull let go part way, a wandering finger, leaving and reopening).
+#    Built beside the shell by ui/shell/CMakeLists.txt; a missing binary is
+#    a failure, not a skip.
+TIMBER_INPUT_TEST=${TIMBER_INPUT_TEST:-$(dirname "$SHELL_BIN")/timber_input_test}
+if [ -x "$TIMBER_INPUT_TEST" ]; then
+    log=$("$TIMBER_INPUT_TEST" 2>&1); rc=$?
+    printf '%s\n' "$log" | grep -E '^FAIL|timber_input_test:'
+    check "the input path under a pointer device" "$([ "$rc" = "0" ] && echo 1 || echo 0)"
+else
+    echo "FAIL timber_input_test binary missing: $TIMBER_INPUT_TEST"; failed=$((failed + 1))
+fi
+
 # 1. Every state renders and none logs a fault.
 for screen in idle run pulling placing collapse result; do
     log=$(run "$screen" "$screen")
