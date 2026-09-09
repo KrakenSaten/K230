@@ -1,0 +1,107 @@
+pos-hwcheck 20260909_161423
+output: /root/hwcheck-v006/hwcheck-20260909_161423
+
+=== System
+--- model: cat /proc/device-tree/model
+--- kernel: uname -a
+--- cmdline: cat /proc/cmdline
+--- uptime: cat /proc/uptime
+--- cpuinfo: cat /proc/cpuinfo
+--- meminfo: head -5 /proc/meminfo
+--- version: cat /etc/version/release_version
+--- pocketos: cat /etc/pocketos-release
+--- os-release: cat /etc/os-release
+
+=== Storage
+--- partitions: cat /proc/partitions
+--- mounts: cat /proc/mounts
+--- df: df -h
+
+=== Device nodes
+--- dev: ls -la /dev/spidev0.0 /dev/gpiochip0 /dev/gpiochip1 /dev/i2c-0 /dev/i2c-1 /dev/ttyS0 /dev/ttyS1 /dev/ttyS2 /dev/ttyS3 /dev/video0 /dev/video1 /dev/video2 /dev/video3 /dev/video4 /dev/video_nonai_2d /dev/video_vpu /dev/dri /dev/input /dev/mmcblk1 /dev/mmcblk1p1 /dev/mmcblk1p2 /dev/rtc* /dev/watchdog /dev/watchdog0
+(exit 1)
+
+=== GPIO
+--- gpiodetect: gpiodetect
+--- gpioinfo: gpioinfo
+
+=== I2C
+--- i2c-buses: ls -la /sys/bus/i2c/devices
+i2c-0: Synopsys DesignWare I2C adapter
+i2c-1: Synopsys DesignWare I2C adapter
+--- i2cdetect /dev/i2c-0: i2cdetect -y -r 0
+--- i2cdetect /dev/i2c-1: i2cdetect -y -r 1
+
+=== SPI
+--- spi-devices: ls -la /sys/bus/spi/devices
+spi0.0: spi:dh2228fv
+
+=== Input
+event0: K230 PMU Power Key
+event1: goodix_ts
+
+=== Display
+--- drm: ls -la /sys/class/drm
+card0-DSI-1: connected 568x1232
+--- backlight: ls -la /sys/class/backlight
+--- fb: cat /sys/class/graphics/fb0/virtual_size
+(exit 1)
+
+=== Video / camera
+--- v4l: ls -la /sys/class/video4linux
+v4l-subdev0: vvcam-isp-subdev.0
+video0: mvx
+video1: vvcam-video.0.0
+video2: vvcam-video.0.1
+video3: vvcam-video.0.2
+video4: canaan-non-ai-2d
+
+=== Network
+--- interfaces: ls /sys/class/net
+--- ip-addr: ip addr
+--- wifi-modules: lsmod
+--- sdio: ls -la /sys/bus/sdio/devices
+mmc0:0001:1: vendor 0x024c device 0xf179
+--- usb-net: ls -la /sys/class/net/eth0/device/driver /sys/class/net/wlan0/device/driver /sys/class/net/wlan1/device/driver
+
+=== USB
+--- lsusb: lsusb
+2-1: 0bda:8152 Realtek USB 10/100 LAN
+usb1: 1d6b:0002 Linux 6.6.36 dwc2_hsotg DWC OTG Controller
+usb2: 1d6b:0002 Linux 6.6.36 dwc2_hsotg DWC OTG Controller
+
+=== Bluetooth
+--- bt: ls -la /sys/class/bluetooth
+--- hciconfig: hciconfig -a
+
+=== Audio
+--- alsa-cards: cat /proc/asound/cards
+--- alsa-pcm: cat /proc/asound/pcm
+
+=== Thermal / power
+thermal_zone0 canaan_thermal_zone: 49760 (milli-degC)
+--- power-supply: ls -la /sys/class/power_supply
+
+=== Processes and services
+--- init-scripts: ls /etc/init.d
+--- ps: ps
+
+=== Logs
+dmesg saved to /root/hwcheck-v006/hwcheck-20260909_161423/dmesg.txt (441 lines)
+
+=== LoRa SX1262 probe (REQUIRES RADIOD STOPPED)
+power on (GPIO44 high, held for the probe)
+reset: GPIO5 driven low for 20 ms, then driven high and held
+SX126x ready 100 ms after reset: BUSY (GPIO19) low, GetStatus chip mode 2 (standby), held over two polls; DIO1 (GPIO20): "20"=inactive
+ReadRegister 0x0740.. (opcode 1D, addr 07 40; sync word 14 24 expected after the status byte):
+  6-byte window:  aa aa aa aa 14 24 
+  8-byte window:  aa aa aa aa 14 24 6a 96 
+GetStatus 0xC0 (expect chip mode bits in byte 2):
+   aa aa 
+  6-byte window through spi-pipe, for comparison only:  aa aa aa aa 14 24 
+sync word registers read 14 24: SX126x answers on /dev/spidev0.0 (VERIFIED)
+power off (releasing GPIO5, GPIO44 and every gpioset child)
+no gpioset process left behind
+
+=== Done
+report: /root/hwcheck-v006/hwcheck-20260909_161423/report.txt

@@ -42,7 +42,7 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-PocketOS 0.0.5, the second focused fix release after the v0.0.3 and v0.0.4
+PocketOS 0.0.6, the third focused release after the v0.0.3 and v0.0.4
 hardware sessions. Implemented and host-tested:
 `pos` CLI, `pos-hwcheck`, pocketipc, pocketlog, pocketpaths, `pos-supervise`,
 radiod with the mock backend and the sx1262 backend (RadioLib on spidev +
@@ -87,6 +87,21 @@ are classified per statement in docs/hardware/T-DISPLAY-K230.md.
   Validated on unit A on 2026-09-09 (docs/hardware/V0.0.5_FOCUSED_RETEST.md):
   M5 PASS, M6 PASS, M7 probe read FAIL with the radio PASS, smoke and
   reboot persistence PASS.
+- **0.0.6** is diagnostic hardening of `pos-hwcheck --lora` only; radiod,
+  RadioLib, the shell and the apps are byte-for-byte unchanged. The probe
+  sends the SX1262 commands through a 120-line helper, `pos-spixfer`, that
+  performs the transaction exactly as radiod's HAL does (one CS-framed
+  `SPI_IOC_MESSAGE`, mode 0, 8 bits, 4 MHz, `O_RDWR`, `flock`), captures
+  the register window at 6 and 8 bytes, and, when spi-pipe is installed,
+  reads the window once more through it for comparison. It is not a fix
+  for the `24 b4` read: on unit A on 2026-09-09 pos-spixfer at 4 MHz,
+  spi-pipe at 1 MHz and spi-pipe at 4 MHz all returned `aa aa aa aa 14 24`
+  after one power-and-reset cycle, and the probe reported VERIFIED with
+  exit 0 (docs/hardware/V0.0.6_M7_BENCH.md). The earlier `a2 … 24 b4`
+  readings were therefore state-dependent, not a framing or transport
+  defect; the probe now says so when it happens again, with both
+  transports' bytes as evidence. No further investigation unless it
+  recurs on hardware.
 
 The K230 SD image is built by platforms/k230 (see docs/BUILD_ENVIRONMENT.md
 and docs/hardware/FIRST_BOOT.md).

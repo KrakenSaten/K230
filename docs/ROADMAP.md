@@ -15,7 +15,7 @@ and exposes radio, network and system information through services and the
 | Hardware baseline with evidence classes | documented, unverified on hardware |
 | Repository skeleton, Buildroot package, defconfig | done, PocketOS 0.0.1 image built 2026-09-04 |
 | `pos` CLI (system, hardware, network, radio) | done on PC, riscv64 compiles |
-| `pos-hwcheck` first-boot inventory | done, untested on hardware |
+| `pos-hwcheck` first-boot inventory | done, VERIFIED on unit A (inventory 2026-09-07, `--lora` probe 2026-09-09) |
 | pocketipc v0 | done, tested |
 | radiod with mock backend, region guard, airtime stats | done, tested |
 | radiod sx1262 backend (own HAL + RadioLib 7.7.1) | written, compiles for riscv64, untested |
