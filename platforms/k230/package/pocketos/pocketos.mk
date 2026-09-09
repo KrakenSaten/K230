@@ -13,7 +13,12 @@ POCKETOS_SITE = $(realpath $(TOPDIR))/package/pocketos/src
 POCKETOS_SITE_METHOD = local
 POCKETOS_LICENSE = Proprietary (license not yet decided, see docs/decisions)
 POCKETOS_INSTALL_TARGET = YES
-POCKETOS_DEPENDENCIES = cjson libgpiod2 lvgl libdrm libevdev host-cmake
+# host-python3: the shell's CMake converts the PocketTimber sprites to LVGL
+# image arrays at configure time (docs/design/timber-art/tools/png2lvgl.py,
+# exported into the package by apply_to_sdk.sh). Buildroot's own python3 in
+# $(HOST_DIR)/bin, first on the PATH of every package build, is the one it
+# finds, so the image does not depend on the build host's python.
+POCKETOS_DEPENDENCIES = cjson libgpiod2 lvgl libdrm libevdev host-cmake host-python3
 
 POCKETOS_SHELL_BUILD_DIR = $(@D)/ui/shell/build-k230
 

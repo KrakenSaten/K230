@@ -48,14 +48,32 @@ SRC="$TMP/src"; mkdir -p "$SRC"
 # shellcheck disable=SC2086
 git archive --format=tar HEAD -- ${POCKETOS_PKG_PATHSPEC} | tar -x -C "$SRC"
 check "package source extracted" $([ -f "$SRC/Makefile" ] && echo 1 || echo 0)
+# The PocketTimber art is the one part of docs/ the shell build consumes; it
+# travels by its own pathspec, published the same way.
+ART_LINE=$(grep -m1 '^POCKETOS_PKG_ART_PATHSPEC=' "$APPLY")
+check "apply_to_sdk.sh publishes its art pathspec" $([ -n "$ART_LINE" ] && echo 1 || echo 0)
+eval "$ART_LINE"
+# shellcheck disable=SC2086
+git archive --format=tar HEAD -- ${POCKETOS_PKG_ART_PATHSPEC} | tar -x -C "$SRC"
 
 present() { [ -e "$SRC/$1" ] && echo 1 || echo 0; }
 for f in Makefile VERSION core/pocketipc/pocketipc.c core/pocketlog/pocketlog.c \
          services/radiod/main.c ui/shell/shell.c ui/pocketui/pos_theme_table.h \
-         apps/fleet/fleet_app.c tools/pos/pos.c tools/supervise/pos-supervise \
-         tools/hwcheck/hwcheck.sh; do
+         apps/fleet/fleet_app.c apps/timber/timber_app.c apps/timber/engine/timber_rules.c \
+         tools/pos/pos.c tools/supervise/pos-supervise tools/hwcheck/hwcheck.sh \
+         docs/design/timber-art/tools/png2lvgl.py docs/design/timber-art/tools/pngio.py \
+         docs/design/timber-art/rendered/anchors.json; do
     check "package carries $f" $(present "$f")
 done
+check "package carries the rendered sprites" \
+      $([ "$(find "$SRC/docs/design/timber-art/rendered" -name '*.png' 2>/dev/null | wc -l)" -ge 4 ] && echo 1 || echo 0)
+# The art is exactly what ui/shell/CMakeLists.txt reads, at the path it reads
+# it from, so the package build converts it rather than falling back to the
+# placeholder blocks.
+check "shell CMake reads the art from the exported path" \
+      $(grep -q 'docs/design/timber-art/rendered' "$SRC/ui/shell/CMakeLists.txt" && echo 1 || echo 0)
+check "the package build depends on Buildroot's host python3" \
+      $(grep -q 'host-python3' platforms/k230/package/pocketos/pocketos.mk && echo 1 || echo 0)
 
 absent() { # <label> <find expression...>
     hits=$(find "$SRC" "${@:2}" 2>/dev/null | head -5)
@@ -65,7 +83,8 @@ absent() { # <label> <find expression...>
 absent "package carries no object files"        -name '*.o'
 absent "package carries no dependency files"    -name '*.d'
 absent "package carries no static libraries"    -name '*.a'
-absent "package carries no docs tree"           -path '*/docs/*'
+absent "package carries no docs tree beyond the timber art" -type f -path '*/docs/*' ! -path '*/docs/design/timber-art/*'
+absent "the timber art carries no Blender sources or studies" -type f -path '*/docs/design/timber-art/*' \( -name '*.blend' -o -path '*/study/*' \)
 absent "package carries no platforms tree"      -path '*/platforms/*'
 absent "package carries no vendor tree"         -path '*/vendor/*'
 absent "package carries no out tree"            -path '*/out/*'

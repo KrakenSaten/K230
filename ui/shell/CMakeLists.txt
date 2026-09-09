@@ -98,8 +98,10 @@ target_link_libraries(pocketos-shell PRIVATE cjson m)
 # rendered into docs/design/timber-art/rendered are converted to LVGL image
 # arrays here, at configure time, into the build tree; nothing generated is
 # committed. Without python3 or without the renders the app builds with its
-# placeholder blocks (POCKETTIMBER_ART 0). The Buildroot package will need
-# host python3 for the same step; that integration is not made here.
+# placeholder blocks (POCKETTIMBER_ART 0). In the Buildroot package the
+# renders and the converter are exported beside the sources by
+# apply_to_sdk.sh (docs/ is otherwise left out) and python3 is Buildroot's
+# own host-python3 (pocketos.mk), so the image gets the same sprites.
 set(TIMBER_ART_RENDERED "${REPO_DIR}/docs/design/timber-art/rendered")
 set(TIMBER_ART_OUT "${CMAKE_BINARY_DIR}/timber_art")
 set(POCKETTIMBER_ART 0)
