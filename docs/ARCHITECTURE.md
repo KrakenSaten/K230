@@ -88,8 +88,10 @@ pos system status / pos call ── pocketipc ──▶ sysd ──┬─ core/p
                                                      └─ sysd_services.c ──▶ /run/pocketos/<name>.state
 ```
 
-`sysd` (docs/api/system.md) answers `system.info` and `system.status`. It
-is read-only in v0: no device node, no action. The facts come from
+`sysd` (docs/api/system.md) answers `system.info`, `system.status`,
+`system.reboot` and `system.poweroff`. It opens no device node. Everything it
+reports is read-only; the two actions it can take, it does not take itself.
+The facts come from
 `core/pocketsys`, unit-tested against a fake root, and every source a board
 may lack (thermal zone, power supply, release file, `/data`) reports `null`
 rather than a guess. The fake root is a build option and not an environment
@@ -110,6 +112,17 @@ throwaway service died and restarted four times found no partial file, sysd
 never exposed a half-formed entry, a stopped service keeps its entry with
 `running` false, and a reboot clears the runtime directory so restart counters
 start again at zero (docs/hardware/V0.0.7_BLOCK2B_SMOKE.md).
+
+`system.reboot` and `system.poweroff` run `/sbin/reboot` and `/sbin/poweroff`,
+BusyBox applets that signal init; init runs `rcK`, which stops S90, S60 and
+S50 in reverse order, syncs and remounts the root read-only. sysd never calls
+`reboot(2)`, which would skip all of that on a card mounted rw. The reply is
+written before the action is recorded and the action runs from the main loop
+200 ms later, so a client always sees its answer before the machine goes; the
+reply means accepted, not completed, because afterwards there is nothing left
+to answer on. One action at a time, refused with code 5 otherwise. There is no
+authorization beyond the socket permissions in v0, and docs/api/system.md
+says why that is currently sufficient and when it stops being.
 
 `/etc/init.d/S50sysd` starts it under `pos-supervise`, ahead of `S60radiod`,
 with S60's stop discipline (the supervise pid and the daemon pid are two

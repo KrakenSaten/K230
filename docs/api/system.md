@@ -87,7 +87,17 @@ layers above it, and sysd joins the two in the response the same way it adds
 init scripts need the pid file to stop the daemon rather than only the
 supervisor, and the bring-up checklist still names the crash-loop marker; both
 are compatibility, neither is read by `system.*` any more, and the state file
-is authoritative.
+is authoritative. The pid file exists only while that exact child is alive: it
+is removed the moment the child exits, so it never names a pid the kernel may
+since have handed to something else.
+
+Two more things the state file records that are worth knowing when reading an
+entry. `last_exit_code` is the last exit the supervisor *observed*, which
+survives a restart — a service reporting `running: true` alongside
+`last_exit_code: 7` is running now and exited 7 the time before, not failing.
+And `supervisor_pid`, which the API does not expose, is write-time provenance:
+it names whichever supervisor wrote that file, including one that has since
+exited, and is not a liveness handle.
 
 ### services: what `restarts` counts
 
@@ -167,7 +177,8 @@ rest of `system.info` and `system.status` follows the normal rule
 
 ### system.reboot
 
-Restart the machine. Takes no parameters. Replies, then acts.
+Restart the machine. Takes no parameters. Replies, then acts. VERIFIED on
+unit A (docs/hardware/V0.0.7_BLOCK2C_SMOKE.md).
 
 ```
 $ pos call sysd system.reboot
@@ -176,7 +187,9 @@ $ pos call sysd system.reboot
 
 ### system.poweroff
 
-Power the machine off. Takes no parameters. Replies, then acts.
+Power the machine off. Takes no parameters. Replies, then acts. Validated on
+the host; physical execution on unit A is still pending
+(docs/hardware/V0.0.7_BLOCK2C_SMOKE.md).
 
 ```
 $ pos call sysd system.poweroff
