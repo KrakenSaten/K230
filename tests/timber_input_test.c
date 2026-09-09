@@ -17,16 +17,16 @@
  *   on exactly zero, which a finger never does: the block sat in its seat,
  *   locked, with TEST and every other selection refused.
  *
- * Candidate 2 then showed drags that moved nothing on the K230 while taps
- * and TEST answered. The drift sections and the evdev section are that
- * investigation: a thumb whose contact drifts out of the 64 px band keeps
- * the press (LVGL locks the press to the object by default), and LVGL's
- * real evdev parser, fed the GT9895's protocol-B event grammar through a
- * pipe, delivers the press, the motion and non-zero banked travel to the
- * track and the engine moves the block. None of it reproduces the bench:
- * the software path is sound for the device's own grammar, which places
- * the fault in the event stream the device delivers (to be read raw on the
- * device before anything is changed).
+ * Candidate 2's bench report of drags that moved nothing turned out to be
+ * test procedure, not software: the block was being dragged on the table,
+ * where the design only takes taps, instead of on the pull track (the owner,
+ * 2026-09-09, after dragging on the track worked on the K230). The drift
+ * sections and the evdev section came out of that investigation and stay
+ * as coverage: a thumb whose contact drifts out of the 64 px band keeps the
+ * press (LVGL locks the press to the object by default), and LVGL's real
+ * evdev parser, fed the GT9895's protocol-B event grammar through a pipe,
+ * delivers the press, the motion and non-zero banked travel to the track,
+ * and the engine moves the block.
  *
  * The scroll section measures, without failing, whether a tap with a vertical
  * wobble reaches a button under the shell's scrollable body: the screen as
