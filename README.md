@@ -74,13 +74,19 @@ are classified per statement in docs/hardware/T-DISPLAY-K230.md.
   high and waits for BUSY low as radiod does (the probe read `ff`). Nothing
   else changes; the retest is docs/hardware/V0.0.4_FOCUSED_RETEST.md.
   On unit A (2026-09-08) M6 passed, M5 and M7 each exposed a second defect.
-- **0.0.5** closes those two: the UI deadline covers connecting as well
-  (with radiod stopped, the shell's own abandoned connections filled
-  radiod's listen backlog and the reconnect blocked with no deadline), and
-  `pos-hwcheck --lora` reads the registers only after the chip reports
-  standby on two consecutive polls (the first read after reset was
-  transient). Nothing else changes; the retest is
-  docs/hardware/V0.0.5_FOCUSED_RETEST.md.
+- **0.0.5** closes the M5 second cause: the UI deadline covers connecting
+  as well (with radiod stopped, the shell's own abandoned connections
+  filled radiod's listen backlog and the reconnect blocked with no
+  deadline). `pos-hwcheck --lora` also gained a readiness gate (registers
+  read only after the chip reports standby on two consecutive polls), which
+  is correct but did not fix the probe's register read: on unit A the read
+  still returns `24 b4` with the chip provably in standby, so that is a
+  framing or decoding defect in the probe's hand-built ReadRegister, not in
+  radiod and not in the SX1262, which radiod initialises correctly right
+  afterwards. It is a diagnostic-tool defect, open, not a runtime blocker.
+  Validated on unit A on 2026-09-09 (docs/hardware/V0.0.5_FOCUSED_RETEST.md):
+  M5 PASS, M6 PASS, M7 probe read FAIL with the radio PASS, smoke and
+  reboot persistence PASS.
 
 The K230 SD image is built by platforms/k230 (see docs/BUILD_ENVIRONMENT.md
 and docs/hardware/FIRST_BOOT.md).

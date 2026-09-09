@@ -13,8 +13,20 @@ before its child so that `stop` reported forced (M6), and the hwcheck probe
 releasing RST instead of driving it high (M7). Closed by 0.0.5, found on
 unit A with 0.0.4: the shell's reconnect blocking in `connect()` once
 radiod's listen backlog was full of its own abandoned connections (M5,
-second cause), and the probe reading the registers before the chip had
-finished its reset (M7, second cause).
+second cause).
+
+Open after 0.0.5 (unit A, 2026-09-09): `pos-hwcheck --lora` reads the sync
+word registers 0x0740/0x0741 as `24 b4` instead of the reset default
+`14 24`, byte-for-byte the same with the chip provably in standby (BUSY
+low and GetStatus standby held over two polls, 100 ms after reset), so it
+is not a timing race. The four status bytes and GetStatus (`a2 22`) are
+valid, and radiod initialises the same chip correctly immediately
+afterwards (sx1262, rx, 2 dBm, RSSI -74 dBm): the defect is in how the
+probe's hand-built ReadRegister transaction is framed or decoded. Not a
+radiod defect, not an SX1262 hardware defect, not a runtime blocker; the
+readiness gate stays. Next step: capture the raw MISO with extra trailing
+NOPs (`-b 7`, `-b 8`) to find the true data offset, then a host test that
+models it.
 
 ## Hardware and BSP
 
