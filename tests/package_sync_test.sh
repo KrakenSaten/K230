@@ -53,7 +53,7 @@ present() { [ -e "$SRC/$1" ] && echo 1 || echo 0; }
 for f in Makefile VERSION core/pocketipc/pocketipc.c core/pocketlog/pocketlog.c \
          services/radiod/main.c ui/shell/shell.c ui/pocketui/pos_theme_table.h \
          apps/fleet/fleet_app.c tools/pos/pos.c tools/supervise/pos-supervise \
-         tools/hwcheck/hwcheck.sh; do
+         tools/hwcheck/hwcheck.sh tools/hwcheck/spixfer.c; do
     check "package carries $f" $(present "$f")
 done
 

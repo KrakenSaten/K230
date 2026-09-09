@@ -49,12 +49,17 @@ RADIOD_LINK := $(CC)
 RADIOD_LIBS := $(LDLIBS)
 endif
 
-BINS := tools/pos/pos services/radiod/radiod
+BINS := tools/pos/pos services/radiod/radiod tools/hwcheck/pos-spixfer
 
 all: $(BINS)
 
 tools/pos/pos: $(POS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# pos-hwcheck's SPI transport: one CS-framed SPI_IOC_MESSAGE per command,
+# the transaction radiod's HAL performs (no libraries).
+tools/hwcheck/pos-spixfer: tools/hwcheck/spixfer.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 services/radiod/radiod: $(RADIOD_OBJS)
 	$(RADIOD_LINK) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(RADIOD_LIBS)
@@ -215,6 +220,7 @@ test: all tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/the
 install: all
 	install -D -m 0755 tools/pos/pos $(DESTDIR)$(PREFIX)/bin/pos
 	install -D -m 0755 tools/hwcheck/hwcheck.sh $(DESTDIR)$(PREFIX)/bin/pos-hwcheck
+	install -D -m 0755 tools/hwcheck/pos-spixfer $(DESTDIR)$(PREFIX)/bin/pos-spixfer
 	install -D -m 0755 services/radiod/radiod $(DESTDIR)$(PREFIX)/sbin/radiod
 	install -D -m 0755 tools/supervise/pos-supervise $(DESTDIR)$(PREFIX)/bin/pos-supervise
 	install -D -m 0644 VERSION $(DESTDIR)/etc/pocketos-release
@@ -223,6 +229,6 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 -include $(DEPFILES)
 
 clean:
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/paths_test tests/paths_test.o $(PATHS_OBJS)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o
 
 .PHONY: all test install clean sx1262-objs

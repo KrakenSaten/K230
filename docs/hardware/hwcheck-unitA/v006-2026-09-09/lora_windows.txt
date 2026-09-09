@@ -1,0 +1,5 @@
+lora_ready.bin: aa aa 
+lora_reg6.bin: aa aa aa aa 14 24 
+lora_reg6_spipipe.bin: aa aa aa aa 14 24 
+lora_reg8.bin: aa aa aa aa 14 24 6a 96 
+lora_status.bin: aa aa 

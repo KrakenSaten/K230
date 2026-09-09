@@ -1,6 +1,6 @@
 # Known issues and open questions
 
-Updated 2026-09-08. Move items to git history when resolved.
+Updated 2026-09-09. Move items to git history when resolved.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
 B4 (the shell's `printf` diagnostics never reached a log; they go through
@@ -15,18 +15,19 @@ unit A with 0.0.4: the shell's reconnect blocking in `connect()` once
 radiod's listen backlog was full of its own abandoned connections (M5,
 second cause).
 
-Open after 0.0.5 (unit A, 2026-09-09): `pos-hwcheck --lora` reads the sync
-word registers 0x0740/0x0741 as `24 b4` instead of the reset default
-`14 24`, byte-for-byte the same with the chip provably in standby (BUSY
-low and GetStatus standby held over two polls, 100 ms after reset), so it
-is not a timing race. The four status bytes and GetStatus (`a2 22`) are
-valid, and radiod initialises the same chip correctly immediately
-afterwards (sx1262, rx, 2 dBm, RSSI -74 dBm): the defect is in how the
-probe's hand-built ReadRegister transaction is framed or decoded. Not a
-radiod defect, not an SX1262 hardware defect, not a runtime blocker; the
-readiness gate stays. Next step: capture the raw MISO with extra trailing
-NOPs (`-b 7`, `-b 8`) to find the true data offset, then a host test that
-models it.
+Closed as understood by 0.0.6 (unit A, 2026-09-09): the `24 b4` register
+read of the v0.0.4 and v0.0.5 retests is not a framing, decoding or
+SPI-transport defect. The probe's ReadRegister frame is byte-for-byte what
+RadioLib sends, spi-pipe 1.0.2 already issues one `SPI_IOC_MESSAGE(1)` per
+block, and on the bench pos-spixfer at 4 MHz (radiod's transaction),
+spi-pipe at 1 MHz and spi-pipe at 4 MHz all read `aa aa aa aa 14 24` on the
+same chip state, with `pos-hwcheck --lora` VERIFIED, exit 0
+(docs/hardware/V0.0.6_M7_BENCH.md). The failing runs differed in the
+chip's status byte (`a2`, command status 1, versus `aa`, command status 5,
+on every run that read `14 24`), so the value depends on the SX1262's
+state after reset. Not a radiod defect, not a runtime blocker, and not
+investigated further unless it recurs: the probe now names it
+chip-state dependent and dumps both transports' windows when it does.
 
 ## Hardware and BSP
 

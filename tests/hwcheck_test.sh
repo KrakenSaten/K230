@@ -1,27 +1,41 @@
 #!/bin/bash
 # pos-hwcheck --lora on the host with stubbed gpio/spi tools: the probe must
 # refuse while the SX1262 lines are owned (exit 3, no gpioset started), must
-# finish within a bounded time when the lines are free, must read the sync
-# word, and must never leave a gpioset process behind (bench defect B2/B3,
-# 2026-09-07: the real gpioset waits forever without a terminal).
+# finish within a bounded time when the lines are free, must reset and wait
+# for readiness before touching SPI, must capture the sync-word window and
+# never leave a gpioset process behind (bench defect B2/B3, 2026-09-07: the
+# real gpioset waits forever without a terminal).
 #
 # The stubs model the chip's reset lifecycle as unit A showed it (M7,
 # 2026-09-08): BUSY stays active until RST is actually driven high, and the
 # SPI bus answers ff until then. A probe that releases RST after the low
-# pulse and reads anyway (v0.0.3) therefore fails case 3 here exactly as it
-# failed on the board; the fixed probe drives RST high, waits for BUSY low
-# and reads 14 24. Case 6 wedges BUSY high for good and expects a bounded,
-# clean failure with no SPI read attempted.
+# pulse and reads anyway (v0.0.3) therefore fails here exactly as it failed
+# on the board; the fixed probe drives RST high, waits for BUSY low and a
+# standby GetStatus over two consecutive polls, then reads.
 #
-# Second finding on the same board with v0.0.4: BUSY sampled 0 ms after the
-# release still read low and GetStatus answered a valid standby, yet the
-# register read issued at once returned a transient 24 b4. The stub models
-# that too: once RST is high, GetStatus is valid immediately, but the
-# register contents are transient for the first STUB_REG_READY SPI transfers
-# and 14 24 only after. A probe that reads on the first BUSY-low sample gets
-# the transient (case 3a shows the model directly); the corrected probe
-# polls status until it has been standby on two consecutive polls and then
-# reads 14 24 (case 3).
+# ReadRegister (v0.0.6): the probe's frame is byte-for-byte what radiod's
+# RadioLib sends (opcode 0x1D, address 0x07 0x40, status NOP, data NOPs,
+# sync word at returned offset 4). radiod reads 14 24 through a single
+# SPI_IOC_MESSAGE; through spi-pipe unit A returned 24 b4 at offset 4 with
+# no 0x14 (v0.0.4/v0.0.5) and 14 24 on other days. The 2026-09-09 bench
+# (docs/hardware/V0.0.6_M7_BENCH.md) read 14 24 through pos-spixfer and
+# spi-pipe alike, so the value is chip-state dependent and not a transport
+# effect. Since v0.0.6 every command goes through pos-spixfer
+# (tools/hwcheck/spixfer.c), one CS-framed SPI_IOC_MESSAGE per command with
+# radiod's parameters, as hardening; this test pins the MOSI bytes it is
+# given (1D 07 40 00 00 00 exactly) and that spi-pipe, when present, is read
+# for comparison only and never enters the verdict. The probe still captures
+# the returned window at 6 and 8 bytes and dumps both, and its liveness
+# message rests on GetStatus (the reliable signal) when the sync word is not
+# delivered. The stub feeds a modelled chip response as a test input: a
+# healthy chip returns 14 24 (happy path), and a separate case replays unit
+# A's observed 24 b4 to check the probe's reporting. Neither asserts what the
+# board will return; that needs the hardware retest. The GetStatus chip mode
+# is parsed numerically (bits 6:4 of the last returned byte) on both the
+# readiness polls and the final check; the release-image smoke found the
+# final check rejecting a2 a2 (case 3d). When the real
+# pos-spixfer has been built, its argument checking and its failure path
+# (nothing on stdout when the device is not a spidev) are exercised too.
 set -u
 HW=${HW:-tools/hwcheck/hwcheck.sh}
 T=$(mktemp -d)
@@ -34,8 +48,12 @@ check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$(
 # the driven value in $STUB_STATE/<chip>.<line>, and forgetting the value when
 # it is stopped (a released line has no driven value); gpioget reports BUSY
 # active unless RST is driven high (or always, with STUB_BUSY_STUCK=1);
-# spi-pipe answers the reset defaults only while RST is driven high, ff
-# otherwise, and records every invocation.
+# pos-spixfer (the probe's transport) answers only while RST is driven high,
+# ff otherwise: GetStatus (2 bytes) a2 22 standby, ReadRegister (6 or 8
+# bytes) the modelled window in $STUB_REG6 / $STUB_REG8, recording every
+# transfer's MOSI and every register read; spi-pipe (the comparison read)
+# always answers unit A's 24 b4 window, so the test can see that it never
+# enters the verdict.
 cat > "$STUB/gpioinfo" <<'EOF'
 #!/bin/sh
 if [ "${STUB_OWNED:-0}" = "1" ]; then c=" consumer=radiod"; else c=""; fi
@@ -72,23 +90,33 @@ else
     echo "\"$line\"=inactive"
 fi
 EOF
-cat > "$STUB/spi-pipe" <<'EOF'
+cat > "$STUB/pos-spixfer" <<'EOF'
 #!/bin/sh
 echo "$*" >> "$STUB_SPI"
-n=6; while [ $# -gt 0 ]; do [ "$1" = "-b" ] && n=$2; shift; done
-cat > /dev/null
+[ $# -ge 2 ] || { echo "stub pos-spixfer: usage" >&2; exit 2; }
+shift                      # the spidev node; the rest is MOSI, one hex byte per argument
+n=$#
 c=$(cat "$STUB_SPI_COUNT" 2>/dev/null || echo 0); c=$((c + 1)); echo "$c" > "$STUB_SPI_COUNT"
 if [ "$(cat "$STUB_STATE/gpiochip0.5" 2>/dev/null)" = "1" ] && [ "${STUB_BUSY_STUCK:-0}" != "1" ]; then
-    if [ "$n" = "6" ]; then
-        echo "$c" >> "$STUB_REG_READS"
-        # register contents are transient until the chip has settled; status is valid before that
-        if [ "$c" -le "${STUB_REG_READY:-2}" ]; then printf '\242\242\242\242\044\264'; else printf '\252\252\252\252\024\044'; fi
-    else
-        printf '\242\042'
-    fi
+    case "$n" in
+        2) if [ -n "${STUB_STATUS_FINAL:-}" ] && [ -s "$STUB_REG_READS" ]; then
+               printf "$STUB_STATUS_FINAL"                        # the GetStatus after the register reads
+           else
+               printf "${STUB_STATUS:-\\242\\042}"                # GetStatus a2 22 (standby) unless STUB_STATUS overrides
+           fi ;;
+        6) echo "$c" >> "$STUB_REG_READS"; printf "${STUB_REG6:-\\242\\242\\242\\242\\024\\044}" ;;
+        8) echo "$c" >> "$STUB_REG_READS"; printf "${STUB_REG8:-\\242\\242\\242\\242\\024\\044\\264\\000}" ;;
+        *) printf '\242' ;;
+    esac
 else
-    if [ "$n" = "6" ]; then printf '\377\377\377\377\377\377'; else printf '\377\377'; fi
+    i=0; while [ "$i" -lt "$n" ]; do printf '\377'; i=$((i + 1)); done
 fi
+EOF
+cat > "$STUB/spi-pipe" <<'EOF'
+#!/bin/sh
+echo "spi-pipe $*" >> "$STUB_SPI"
+cat > /dev/null
+printf '\242\242\242\242\044\264'                                # unit A's window through spi-pipe (24 b4)
 EOF
 chmod +x "$STUB"/*
 export STUB_PIDS="$T/gpioset.pids" STUB_ARGS="$T/gpioset.args" STUB_SPI="$T/spi.calls" STUB_STATE="$T/state"
@@ -116,19 +144,8 @@ kill $FAKE 2>/dev/null; wait $FAKE 2>/dev/null
 check "radiod sx1262 process: exit code 3" "$([ $rc -eq 3 ] && echo 1 || echo 0)"
 check "radiod sx1262 process: no gpioset was started" "$([ ! -s "$STUB_PIDS" ] && echo 1 || echo 0)"
 
-# 3a. The model itself: with RST high and BUSY low, GetStatus is valid at
-#     once but an immediate register read returns the transient value. This
-#     is what unit A showed with v0.0.4 (status a2 22, registers 24 b4).
-reset_stubs
-echo 1 > "$STUB_STATE/gpiochip0.5"
-st=$(printf '\300\000' | "$STUB/spi-pipe" -d x -m 0 -s 1000000 -b 2 | od -An -tx1 | tr -s ' \n' ' ')
-rg=$(printf '\035\007\100\000\000\000' | "$STUB/spi-pipe" -d x -m 0 -s 1000000 -b 6 | od -An -tx1 | tr -s ' \n' ' ')
-check "model: GetStatus is valid standby immediately after reset ($st)" "$(printf '%s' "$st" | grep -q 'a2 22' && echo 1 || echo 0)"
-check "model: an immediate register read returns the transient value ($rg)" "$(printf '%s' "$rg" | grep -q '24 b4' && echo 1 || echo 0)"
-check "model: the transient is not the reset default" "$(printf '%s' "$rg" | grep -q '14 24' && echo 0 || echo 1)"
-
-# 3. Lines free: RST low, RST driven high, status standby on two consecutive
-#    polls, only then the register read; 14 24; bounded; nothing left behind.
+# 3. Lines free, healthy chip: RST low, RST driven high, standby on two polls,
+#    then the register windows; 14 24 found; bounded; nothing left behind.
 reset_stubs
 start=$(date +%s)
 STUB_OWNED=0 bash "$HW" --lora "$T/out3" > "$T/run3.txt" 2>&1; rc=$?
@@ -136,19 +153,90 @@ elapsed=$(( $(date +%s) - start ))
 check "free lines: exit code 0" "$([ $rc -eq 0 ] && echo 1 || echo 0)"
 check "free lines: RST was driven low" "$(grep -q '5=0' "$STUB_ARGS" && echo 1 || echo 0)"
 check "free lines: RST was driven high after the low pulse (not released)" \
-      "$(grep -n '5=' "$STUB_ARGS" | grep -q '5=1' && [ "$(grep '5=' "$STUB_ARGS" | tail -1)" = "--chip gpiochip0 5=1" ] && echo 1 || echo 0)"
+      "$([ "$(grep '5=' "$STUB_ARGS" | tail -1)" = "--chip gpiochip0 5=1" ] && echo 1 || echo 0)"
 check "free lines: readiness reported (BUSY low, standby status over two polls)" "$(grep -q 'SX126x ready .* ms after reset: BUSY (GPIO19) low, GetStatus chip mode 2' "$T/run3.txt" && echo 1 || echo 0)"
 first_reg=$(head -1 "$STUB_REG_READS" 2>/dev/null); first_reg=${first_reg:-0}
 check "free lines: the register read waited for two status polls first (SPI transfer #$first_reg, not #1)" "$([ "$first_reg" -ge 3 ] && echo 1 || echo 0)"
-check "free lines: exactly one register read (no blind retries)" "$([ "$(wc -l < "$STUB_REG_READS")" -eq 1 ] && echo 1 || echo 0)"
-check "free lines: sync word 14 24 read, not the transient" "$(grep -q '14 24' "$T/run3.txt" && ! grep -q '24 b4' "$T/run3.txt" && echo 1 || echo 0)"
-check "free lines: GetStatus read too" "$(grep -q 'a2 22' "$T/run3.txt" && echo 1 || echo 0)"
+check "free lines: the 6-byte ReadRegister went through pos-spixfer as exactly 1D 07 40 00 00 00" \
+      "$(grep -Fqx -- "$POCKETOS_SX1262_SPI 1D 07 40 00 00 00" "$STUB_SPI" && echo 1 || echo 0)"
+check "free lines: the 8-byte window is the same frame plus two NOPs" \
+      "$(grep -Fqx -- "$POCKETOS_SX1262_SPI 1D 07 40 00 00 00 00 00" "$STUB_SPI" && echo 1 || echo 0)"
+check "free lines: GetStatus went through pos-spixfer as C0 00" \
+      "$(grep -Fqx -- "$POCKETOS_SX1262_SPI C0 00" "$STUB_SPI" && echo 1 || echo 0)"
+check "free lines: no transfer went through spi-pipe except the comparison read" \
+      "$([ "$(grep -c '^spi-pipe ' "$STUB_SPI")" -eq 1 ] && echo 1 || echo 0)"
+check "free lines: both windows dumped in the report" \
+      "$(grep -q '6-byte window:' "$T/run3.txt" && grep -q '8-byte window:' "$T/run3.txt" && echo 1 || echo 0)"
+check "free lines: sync word 14 24 read" "$(grep -q '14 24' "$T/run3.txt" && echo 1 || echo 0)"
+check "free lines: GetStatus read too (a2 22)" "$(grep -q 'a2 22' "$T/run3.txt" && echo 1 || echo 0)"
 check "free lines: VERIFIED line printed" "$(grep -q 'SX126x answers' "$T/run3.txt" && echo 1 || echo 0)"
+check "free lines: the spi-pipe comparison window (24 b4) is dumped and marked comparison only" \
+      "$(grep -q 'through spi-pipe, for comparison only: *a2 a2 a2 a2 24 b4' "$T/run3.txt" && echo 1 || echo 0)"
 check "free lines: finished within 15 s" "$([ $elapsed -lt 15 ] && echo 1 || echo 0)"
 check "free lines: gpioset was used for power, reset low and reset high" "$([ "$(wc -l < "$STUB_PIDS")" -ge 3 ] && echo 1 || echo 0)"
 check "free lines: no gpioset process left behind" "$([ "$(left_behind)" -eq 0 ] && echo 1 || echo 0)"
 check "free lines: every driven line released" "$([ -z "$(ls -A "$STUB_STATE")" ] && echo 1 || echo 0)"
 check "free lines: report says none left" "$(grep -q 'no gpioset process left behind' "$T/run3.txt" && echo 1 || echo 0)"
+
+# 3b. Unit A's observed response: the transaction returns 24 b4 at offset 4
+#     with no 0x14 in either window, but GetStatus still reports standby. The
+#     probe must exit 5, dump both windows, name it chip-state dependent
+#     (not the frame or the transport), and report the chip alive from
+#     GetStatus. spi-pipe is
+#     hidden for this run: the comparison read is optional and the probe must
+#     not depend on it.
+reset_stubs
+mv "$STUB/spi-pipe" "$STUB/spi-pipe.off"
+STUB_OWNED=0 STUB_REG6='\242\242\242\242\044\264' STUB_REG8='\242\242\242\242\044\264\000\000' \
+    bash "$HW" --lora "$T/out3b" > "$T/run3b.txt" 2>&1; rc=$?
+mv "$STUB/spi-pipe.off" "$STUB/spi-pipe"
+check "observed bytes: exit code 5 (sync word gate still fails)" "$([ $rc -eq 5 ] && echo 1 || echo 0)"
+check "observed bytes: the 24 b4 window is dumped" "$(grep -q '24 b4' "$T/run3b.txt" && echo 1 || echo 0)"
+check "observed bytes: 14 24 is not claimed" "$(grep -q 'VERIFIED' "$T/run3b.txt" && echo 0 || echo 1)"
+check "observed bytes: named chip-state dependent, not a frame or transport effect" "$(grep -q 'chip-state dependent' "$T/run3b.txt" && echo 1 || echo 0)"
+check "observed bytes: the report names pos-spixfer as the transport" "$(grep -q 'through pos-spixfer' "$T/run3b.txt" && echo 1 || echo 0)"
+check "observed bytes: GetStatus standby means the chip is answering" "$(grep -q 'chip in standby' "$T/run3b.txt" && echo 1 || echo 0)"
+check "observed bytes: without spi-pipe there is no comparison line and the probe still ran" \
+      "$(grep -q 'for comparison only' "$T/run3b.txt" && echo 0 || echo 1)"
+
+# 3d. Unit A on the v0.0.6 release image (2026-09-09 smoke): registers 24 b4
+#     and GetStatus exactly a2 a2 (bit 7 set, chip mode bits 6:4 = 2). The
+#     readiness polls accepted that byte as standby, then the final check
+#     matched the hex text against a high nibble of 2 or 3 and printed
+#     "UNEXPECTED: GetStatus did not report a standby chip mode either". Both
+#     parsers must now agree: exit 5 (no 14 24), chip mode 2 reported, the
+#     chip named alive from GetStatus, no UNEXPECTED line.
+reset_stubs
+STUB_OWNED=0 STUB_REG6='\242\242\242\242\044\264' STUB_REG8='\242\242\242\242\044\264\152\226' STUB_STATUS='\242\242' \
+    bash "$HW" --lora "$T/out3d" > "$T/run3d.txt" 2>&1; rc=$?
+check "status a2 a2: exit code 5 (sync word still absent)" "$([ $rc -eq 5 ] && echo 1 || echo 0)"
+check "status a2 a2: readiness accepted chip mode 2" "$(grep -q 'GetStatus chip mode 2 (standby), held over two polls' "$T/run3d.txt" && echo 1 || echo 0)"
+check "status a2 a2: the final GetStatus line shows the bytes and chip mode 2" "$(grep -q 'a2 a2 (chip mode 2)' "$T/run3d.txt" && echo 1 || echo 0)"
+check "status a2 a2: the chip is reported in standby, answering" "$(grep -q 'chip in standby' "$T/run3d.txt" && echo 1 || echo 0)"
+check "status a2 a2: no UNEXPECTED verdict" "$(grep -q 'UNEXPECTED' "$T/run3d.txt" && echo 0 || echo 1)"
+
+# 3e. The same status byte with a healthy sync word: VERIFIED, exit 0, so the
+#     parser fix changes nothing on the happy path.
+reset_stubs
+STUB_OWNED=0 STUB_STATUS='\242\242' bash "$HW" --lora "$T/out3e" > "$T/run3e.txt" 2>&1; rc=$?
+check "status a2 a2 with 14 24: exit code 0 and VERIFIED" "$([ $rc -eq 0 ] && grep -q 'VERIFIED' "$T/run3e.txt" && echo 1 || echo 0)"
+check "status a2 a2 with 14 24: chip mode 2 on the final GetStatus line" "$(grep -q 'a2 a2 (chip mode 2)' "$T/run3e.txt" && echo 1 || echo 0)"
+
+# 3f. A status without bit 7 (22) and a non-standby one (c2, mode 4 = RX) on
+#     the same path: the field, not the nibble, decides.
+reset_stubs
+STUB_OWNED=0 STUB_STATUS='\042\042' bash "$HW" --lora "$T/out3f" > "$T/run3f.txt" 2>&1; rc=$?
+check "status 22 22 with 14 24: chip mode 2, exit 0" "$([ $rc -eq 0 ] && grep -q '22 22 (chip mode 2)' "$T/run3f.txt" && echo 1 || echo 0)"
+reset_stubs
+STUB_OWNED=0 STUB_REG6='\242\242\242\242\044\264' STUB_REG8='\242\242\242\242\044\264\000\000' STUB_STATUS_FINAL='\302\302' \
+    bash "$HW" --lora "$T/out3f2" > "$T/run3f2.txt" 2>&1; rc=$?
+check "final status c2 c2 (mode 4, not standby) with 24 b4: exit 5 and UNEXPECTED" "$([ $rc -eq 5 ] && grep -q 'c2 c2 (chip mode 4)' "$T/run3f2.txt" && grep -q 'UNEXPECTED' "$T/run3f2.txt" && echo 1 || echo 0)"
+
+# 3c. The widening property, on the parser directly: a sync word that lands at
+#     offset 5 is inside an 8-byte window but truncated out of a 6-byte one.
+w8="a2 a2 a2 a2 a2 14 24 b4"; w6="a2 a2 a2 a2 a2 14"
+check "widening: an offset-5 sync word is present in the 8-byte window" "$(case "$w6 | $w8" in *"14 24"*) echo 1 ;; *) echo 0 ;; esac)"
+check "widening: the same word is truncated out of a 6-byte-only window" "$(case "$w6" in *"14 24"*) echo 0 ;; *) echo 1 ;; esac)"
 
 # 4. Interrupted probe: killing hwcheck mid-run must still take its gpioset children down.
 reset_stubs
@@ -173,6 +261,27 @@ check "stuck BUSY: no SPI read attempted" "$([ ! -s "$STUB_SPI" ] && echo 1 || e
 check "stuck BUSY: bounded (under 10 s)" "$([ $elapsed -lt 10 ] && echo 1 || echo 0)"
 check "stuck BUSY: no gpioset process left behind" "$([ "$(left_behind)" -eq 0 ] && echo 1 || echo 0)"
 check "stuck BUSY: every driven line released" "$([ -z "$(ls -A "$STUB_STATE")" ] && echo 1 || echo 0)"
+
+# 7. The real transport, when it has been built (make all): usage errors exit
+#    2 with nothing on stdout, a missing node exits 1 naming it, and a node
+#    that is not a spidev (a plain file here) fails to configure and again
+#    writes no MISO bytes, so an empty .bin in a report always means a failed
+#    transfer and never a silent half-result. No SPI hardware is needed.
+SPIXFER=${SPIXFER:-tools/hwcheck/pos-spixfer}
+if [ -x "$SPIXFER" ]; then
+    "$SPIXFER" > "$T/x1.out" 2> "$T/x1.err"; rc=$?
+    check "pos-spixfer: no arguments is a usage error (exit 2, nothing on stdout)" "$([ $rc -eq 2 ] && [ ! -s "$T/x1.out" ] && grep -q '^usage:' "$T/x1.err" && echo 1 || echo 0)"
+    "$SPIXFER" "$POCKETOS_SX1262_SPI" 1D 0G > "$T/x2.out" 2>/dev/null; rc=$?
+    check "pos-spixfer: a byte that is not hex is a usage error (exit 2)" "$([ $rc -eq 2 ] && [ ! -s "$T/x2.out" ] && echo 1 || echo 0)"
+    "$SPIXFER" -s 0 "$POCKETOS_SX1262_SPI" 1D > "$T/x3.out" 2>/dev/null; rc=$?
+    check "pos-spixfer: a zero clock is a usage error (exit 2)" "$([ $rc -eq 2 ] && [ ! -s "$T/x3.out" ] && echo 1 || echo 0)"
+    "$SPIXFER" "$T/no-such-spidev" 1D 07 40 00 00 00 > "$T/x4.out" 2> "$T/x4.err"; rc=$?
+    check "pos-spixfer: a missing node exits 1 and names it" "$([ $rc -eq 1 ] && [ ! -s "$T/x4.out" ] && grep -q 'no-such-spidev' "$T/x4.err" && echo 1 || echo 0)"
+    "$SPIXFER" "$POCKETOS_SX1262_SPI" 1D 07 40 00 00 00 > "$T/x5.out" 2> "$T/x5.err"; rc=$?
+    check "pos-spixfer: a node that is not a spidev fails to configure (exit 1, no MISO bytes written)" "$([ $rc -eq 1 ] && [ ! -s "$T/x5.out" ] && grep -q 'configure failed' "$T/x5.err" && echo 1 || echo 0)"
+else
+    echo "note: $SPIXFER not built; the transport's own checks skipped (make all builds it)"
+fi
 
 while read -r p; do kill "$p" 2>/dev/null; done < "$STUB_PIDS"
 rm -rf "$T"

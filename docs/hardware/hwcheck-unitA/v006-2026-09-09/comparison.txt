@@ -1,0 +1,17 @@
+# Direct transport comparison on unit A, 2026-09-09, run over SSH as root.
+# radiod stopped; power GPIO44 (gpiochip1 12) high; reset GPIO5 low 20 ms then held high; reads 300 ms later.
+== 1 stop radiod
+Stopping radiod: OK
+radiod stopped
+== 2 stale gpioset
+no gpioset
+== 3 power on GPIO44 (chip1 line 12), reset GPIO5 low 20 ms then high, held
+== 4 BUSY GPIO19: "19"=inactive   DIO1 GPIO20: "20"=inactive
+== 5 GetStatus pos-spixfer C0 00 : aa aa
+== 6/7 ReadRegister 0x0740, MOSI 1D 07 40 00 00 00
+pos-spixfer 4MHz       : aa aa aa aa 14 24
+spi-pipe 1MHz          : aa aa aa aa 14 24
+pos-spixfer 4MHz again : aa aa aa aa 14 24
+spi-pipe 4MHz          : aa aa aa aa 14 24
+GetStatus after        : aa aa
+== release: no gpioset

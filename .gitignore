@@ -5,6 +5,7 @@
 # Build outputs
 /out/
 /tools/pos/pos
+/tools/hwcheck/pos-spixfer
 *.o
 # Native build outputs and local tool config
 /services/radiod/radiod
