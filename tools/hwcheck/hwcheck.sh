@@ -223,10 +223,15 @@ if [ "$DO_LORA" -eq 1 ]; then
         xb=$1; xo=$2; shift 2
         lora_bounded "$xb" sh -c "pos-spixfer $LORA_SPIDEV $* > '$xo' 2>>'$REPORT'"
     }
+    lora_chip_mode() { # <status.bin>: chip-mode field of the last returned byte (bits 6:4: 2 STDBY_RC, 3 STDBY_XOSC), or nothing
+        # Bit 7 is reserved and unit A sets it (status a2 = 1 010 001 0: mode 2), so
+        # the field is masked out numerically; the hex text is never pattern-matched.
+        st=$(od -An -tu1 "$1" 2>/dev/null | awk 'NF {print $NF}')
+        [ -n "$st" ] && echo $(( (st / 16) % 8 ))
+    }
     lora_status_mode() { # GetStatus 0xC0: prints the chip-mode field (2 STDBY_RC, 3 STDBY_XOSC), or nothing
         lora_xfer 20 "$OUT/lora_ready.bin" C0 00
-        st=$(od -An -tu1 "$OUT/lora_ready.bin" 2>/dev/null | awk 'NF {print $NF}')
-        [ -n "$st" ] && echo $(( (st / 16) % 8 ))
+        lora_chip_mode "$OUT/lora_ready.bin"
     }
     lora_wait_ready() { # <max tenths of a second>: true once the chip is really out of reset
         # What radiod does after RST goes high (RadioLib SX126x::reset): it
@@ -321,8 +326,9 @@ if [ "$DO_LORA" -eq 1 ]; then
             say "  8-byte window: $regs8"
             say "GetStatus 0xC0 (expect chip mode bits in byte 2):"
             lora_xfer 50 "$OUT/lora_status.bin" C0 00
-            lora_status="$(od -An -tx1 "$OUT/lora_status.bin" 2>/dev/null | tr -s ' \n' ' ')"
-            say "  $lora_status"
+            lora_status="$(od -An -tx1 "$OUT/lora_status.bin" 2>/dev/null | tr -s ' \n' ' ' | sed 's/^ *//; s/ *$//')"
+            final_mode=$(lora_chip_mode "$OUT/lora_status.bin")
+            say "  $lora_status (chip mode ${final_mode:-none})"
             if have spi-pipe; then
                 # The v0.0.5 transport (spi-pipe, 1 MHz), same frame, read once
                 # more for comparison only: it does not enter the verdict below.
@@ -332,9 +338,12 @@ if [ "$DO_LORA" -eq 1 ]; then
             # The chip mode field of GetStatus (byte 2, bits 6:4): 2 STDBY_RC or
             # 3 STDBY_XOSC means the SX126x is answering on the bus. This is the
             # reliable liveness signal; the sync word is the stronger check when the
-            # transaction delivers it.
+            # transaction delivers it. Parsed by the same function as the readiness
+            # polls: the v0.0.6 image matched the hex text against a high nibble of
+            # 2 or 3 instead, which rejected unit A's a2 a2 (mode 2) as "not standby"
+            # after the readiness polls had just accepted the same byte.
             status_ok=0
-            case "$lora_status" in *" 2"[0-9a-f]|*" 3"[0-9a-f]|*" 2"[0-9a-f]" "*|*" 3"[0-9a-f]" "*) status_ok=1 ;; esac
+            case "$final_mode" in 2|3) status_ok=1 ;; esac
             case "$regs6 | $regs8" in
                 *"14 24"*) say "sync word registers read 14 24: SX126x answers on $LORA_SPIDEV (VERIFIED)" ;;
                 *)

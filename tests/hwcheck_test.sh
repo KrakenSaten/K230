@@ -30,7 +30,10 @@
 # delivered. The stub feeds a modelled chip response as a test input: a
 # healthy chip returns 14 24 (happy path), and a separate case replays unit
 # A's observed 24 b4 to check the probe's reporting. Neither asserts what the
-# board will return; that needs the hardware retest. When the real
+# board will return; that needs the hardware retest. The GetStatus chip mode
+# is parsed numerically (bits 6:4 of the last returned byte) on both the
+# readiness polls and the final check; the release-image smoke found the
+# final check rejecting a2 a2 (case 3d). When the real
 # pos-spixfer has been built, its argument checking and its failure path
 # (nothing on stdout when the device is not a spidev) are exercised too.
 set -u
@@ -96,7 +99,11 @@ n=$#
 c=$(cat "$STUB_SPI_COUNT" 2>/dev/null || echo 0); c=$((c + 1)); echo "$c" > "$STUB_SPI_COUNT"
 if [ "$(cat "$STUB_STATE/gpiochip0.5" 2>/dev/null)" = "1" ] && [ "${STUB_BUSY_STUCK:-0}" != "1" ]; then
     case "$n" in
-        2) printf '\242\042' ;;                                   # GetStatus a2 22 (standby)
+        2) if [ -n "${STUB_STATUS_FINAL:-}" ] && [ -s "$STUB_REG_READS" ]; then
+               printf "$STUB_STATUS_FINAL"                        # the GetStatus after the register reads
+           else
+               printf "${STUB_STATUS:-\\242\\042}"                # GetStatus a2 22 (standby) unless STUB_STATUS overrides
+           fi ;;
         6) echo "$c" >> "$STUB_REG_READS"; printf "${STUB_REG6:-\\242\\242\\242\\242\\024\\044}" ;;
         8) echo "$c" >> "$STUB_REG_READS"; printf "${STUB_REG8:-\\242\\242\\242\\242\\024\\044\\264\\000}" ;;
         *) printf '\242' ;;
@@ -191,6 +198,39 @@ check "observed bytes: the report names pos-spixfer as the transport" "$(grep -q
 check "observed bytes: GetStatus standby means the chip is answering" "$(grep -q 'chip in standby' "$T/run3b.txt" && echo 1 || echo 0)"
 check "observed bytes: without spi-pipe there is no comparison line and the probe still ran" \
       "$(grep -q 'for comparison only' "$T/run3b.txt" && echo 0 || echo 1)"
+
+# 3d. Unit A on the v0.0.6 release image (2026-09-09 smoke): registers 24 b4
+#     and GetStatus exactly a2 a2 (bit 7 set, chip mode bits 6:4 = 2). The
+#     readiness polls accepted that byte as standby, then the final check
+#     matched the hex text against a high nibble of 2 or 3 and printed
+#     "UNEXPECTED: GetStatus did not report a standby chip mode either". Both
+#     parsers must now agree: exit 5 (no 14 24), chip mode 2 reported, the
+#     chip named alive from GetStatus, no UNEXPECTED line.
+reset_stubs
+STUB_OWNED=0 STUB_REG6='\242\242\242\242\044\264' STUB_REG8='\242\242\242\242\044\264\152\226' STUB_STATUS='\242\242' \
+    bash "$HW" --lora "$T/out3d" > "$T/run3d.txt" 2>&1; rc=$?
+check "status a2 a2: exit code 5 (sync word still absent)" "$([ $rc -eq 5 ] && echo 1 || echo 0)"
+check "status a2 a2: readiness accepted chip mode 2" "$(grep -q 'GetStatus chip mode 2 (standby), held over two polls' "$T/run3d.txt" && echo 1 || echo 0)"
+check "status a2 a2: the final GetStatus line shows the bytes and chip mode 2" "$(grep -q 'a2 a2 (chip mode 2)' "$T/run3d.txt" && echo 1 || echo 0)"
+check "status a2 a2: the chip is reported in standby, answering" "$(grep -q 'chip in standby' "$T/run3d.txt" && echo 1 || echo 0)"
+check "status a2 a2: no UNEXPECTED verdict" "$(grep -q 'UNEXPECTED' "$T/run3d.txt" && echo 0 || echo 1)"
+
+# 3e. The same status byte with a healthy sync word: VERIFIED, exit 0, so the
+#     parser fix changes nothing on the happy path.
+reset_stubs
+STUB_OWNED=0 STUB_STATUS='\242\242' bash "$HW" --lora "$T/out3e" > "$T/run3e.txt" 2>&1; rc=$?
+check "status a2 a2 with 14 24: exit code 0 and VERIFIED" "$([ $rc -eq 0 ] && grep -q 'VERIFIED' "$T/run3e.txt" && echo 1 || echo 0)"
+check "status a2 a2 with 14 24: chip mode 2 on the final GetStatus line" "$(grep -q 'a2 a2 (chip mode 2)' "$T/run3e.txt" && echo 1 || echo 0)"
+
+# 3f. A status without bit 7 (22) and a non-standby one (c2, mode 4 = RX) on
+#     the same path: the field, not the nibble, decides.
+reset_stubs
+STUB_OWNED=0 STUB_STATUS='\042\042' bash "$HW" --lora "$T/out3f" > "$T/run3f.txt" 2>&1; rc=$?
+check "status 22 22 with 14 24: chip mode 2, exit 0" "$([ $rc -eq 0 ] && grep -q '22 22 (chip mode 2)' "$T/run3f.txt" && echo 1 || echo 0)"
+reset_stubs
+STUB_OWNED=0 STUB_REG6='\242\242\242\242\044\264' STUB_REG8='\242\242\242\242\044\264\000\000' STUB_STATUS_FINAL='\302\302' \
+    bash "$HW" --lora "$T/out3f2" > "$T/run3f2.txt" 2>&1; rc=$?
+check "final status c2 c2 (mode 4, not standby) with 24 b4: exit 5 and UNEXPECTED" "$([ $rc -eq 5 ] && grep -q 'c2 c2 (chip mode 4)' "$T/run3f2.txt" && grep -q 'UNEXPECTED' "$T/run3f2.txt" && echo 1 || echo 0)"
 
 # 3c. The widening property, on the parser directly: a sync word that lands at
 #     offset 5 is inside an 8-byte window but truncated out of a 6-byte one.
