@@ -17,10 +17,12 @@
 # RadioLib sends (opcode 0x1D, address 0x07 0x40, status NOP, data NOPs,
 # sync word at returned offset 4). radiod reads 14 24 through a single
 # SPI_IOC_MESSAGE; through spi-pipe unit A returned 24 b4 at offset 4 with
-# no 0x14 (v0.0.4/v0.0.5), an SPI-transaction effect the probe cannot
-# reframe away. Since v0.0.6 every command therefore goes through
-# pos-spixfer (tools/hwcheck/spixfer.c), one CS-framed SPI_IOC_MESSAGE per
-# command with radiod's parameters; this test pins the MOSI bytes it is
+# no 0x14 (v0.0.4/v0.0.5) and 14 24 on other days. The 2026-09-09 bench
+# (docs/hardware/V0.0.6_M7_BENCH.md) read 14 24 through pos-spixfer and
+# spi-pipe alike, so the value is chip-state dependent and not a transport
+# effect. Since v0.0.6 every command goes through pos-spixfer
+# (tools/hwcheck/spixfer.c), one CS-framed SPI_IOC_MESSAGE per command with
+# radiod's parameters, as hardening; this test pins the MOSI bytes it is
 # given (1D 07 40 00 00 00 exactly) and that spi-pipe, when present, is read
 # for comparison only and never enters the verdict. The probe still captures
 # the returned window at 6 and 8 bytes and dumps both, and its liveness
@@ -171,8 +173,9 @@ check "free lines: report says none left" "$(grep -q 'no gpioset process left be
 
 # 3b. Unit A's observed response: the transaction returns 24 b4 at offset 4
 #     with no 0x14 in either window, but GetStatus still reports standby. The
-#     probe must exit 5, dump both windows, name it an SPI-transaction effect
-#     (not the frame), and report the chip alive from GetStatus. spi-pipe is
+#     probe must exit 5, dump both windows, name it chip-state dependent
+#     (not the frame or the transport), and report the chip alive from
+#     GetStatus. spi-pipe is
 #     hidden for this run: the comparison read is optional and the probe must
 #     not depend on it.
 reset_stubs
@@ -183,7 +186,7 @@ mv "$STUB/spi-pipe.off" "$STUB/spi-pipe"
 check "observed bytes: exit code 5 (sync word gate still fails)" "$([ $rc -eq 5 ] && echo 1 || echo 0)"
 check "observed bytes: the 24 b4 window is dumped" "$(grep -q '24 b4' "$T/run3b.txt" && echo 1 || echo 0)"
 check "observed bytes: 14 24 is not claimed" "$(grep -q 'VERIFIED' "$T/run3b.txt" && echo 0 || echo 1)"
-check "observed bytes: named an SPI-transaction effect, not the frame" "$(grep -q 'SPI-transaction effect' "$T/run3b.txt" && echo 1 || echo 0)"
+check "observed bytes: named chip-state dependent, not a frame or transport effect" "$(grep -q 'chip-state dependent' "$T/run3b.txt" && echo 1 || echo 0)"
 check "observed bytes: the report names pos-spixfer as the transport" "$(grep -q 'through pos-spixfer' "$T/run3b.txt" && echo 1 || echo 0)"
 check "observed bytes: GetStatus standby means the chip is answering" "$(grep -q 'chip in standby' "$T/run3b.txt" && echo 1 || echo 0)"
 check "observed bytes: without spi-pipe there is no comparison line and the probe still ran" \

@@ -173,18 +173,22 @@ if [ "$DO_LORA" -eq 1 ]; then
     # The ReadRegister frame here is byte-for-byte what radiod's RadioLib
     # builds (SX126x SPIreadRegisterBurst -> SPItransferStream): opcode 0x1D,
     # address 0x07 0x40, then a status NOP and the data NOPs, sync word at
-    # returned offset 4. radiod reads 14 24 through a single SPI_IOC_MESSAGE;
-    # through spi-pipe on unit A (v0.0.4, v0.0.5) offset 4 read 24 b4 with no
-    # 0x14 anywhere, the chip otherwise answering (GetStatus standby a2 22).
-    # The difference is the SPI transaction, not the bytes the probe sends,
-    # so since v0.0.6 every command goes through pos-spixfer, which performs
-    # the transaction exactly as radiod's HAL does: one CS-framed
+    # returned offset 4. On unit A the same frame read 14 24 through spi-pipe
+    # at bringup (2026-09-07), 24 b4 through spi-pipe with status a2 on the
+    # v0.0.4 and v0.0.5 retests (2026-09-08/09), and 14 24 with status aa
+    # through pos-spixfer at 4 MHz, spi-pipe at 1 MHz and spi-pipe at 4 MHz
+    # side by side on 2026-09-09 (docs/hardware/V0.0.6_M7_BENCH.md): the
+    # value depends on the chip's state after reset, not on the frame or the
+    # transport. Since v0.0.6 every command goes through pos-spixfer, which
+    # performs the transaction exactly as radiod's HAL does: one CS-framed
     # SPI_IOC_MESSAGE(1) per command, mode 0, 8 bits, radiod's 4 MHz clock
-    # set on the transfer itself, the node opened O_RDWR and flock'ed. The
-    # returned window is still captured at two transfer lengths (6 and 8
-    # bytes) and dumped, and when spi-pipe is installed the 6-byte window is
-    # read once more through it, for comparison only, so the bench sees the
-    # two transports side by side on the same chip state.
+    # set on the transfer itself, the node opened O_RDWR and flock'ed. That
+    # is hardening (no spi-pipe dependency, radiod's parameters, loud
+    # failure), not a fix for 24 b4. The returned window is captured at two
+    # transfer lengths (6 and 8 bytes) and dumped, and when spi-pipe is
+    # installed the 6-byte window is read once more through it, for
+    # comparison only, so a recurrence shows both transports on the same
+    # chip state.
     #
     # gpioset (libgpiod 2) holds its lines until it is killed; without -z it
     # used to wait forever for a terminal here. Every gpioset is therefore a
@@ -335,9 +339,10 @@ if [ "$DO_LORA" -eq 1 ]; then
                 *"14 24"*) say "sync word registers read 14 24: SX126x answers on $LORA_SPIDEV (VERIFIED)" ;;
                 *)
                     say "sync word 14 24 not seen in either window (both read through pos-spixfer, one CS-framed"
-                    say "  SPI_IOC_MESSAGE at radiod's 4 MHz, the same transaction radiod's HAL performs; spi-pipe on"
-                    say "  unit A returned 24 b4 at offset 4 with no 0x14 -- an SPI-transaction effect, not the frame,"
-                    say "  which matches RadioLib byte-for-byte; the windows above are the evidence)."
+                    say "  SPI_IOC_MESSAGE at radiod's 4 MHz, the same transaction radiod's HAL performs). On unit A"
+                    say "  this read 24 b4 with status a2 (2026-09-08/09) and 14 24 with status aa through every"
+                    say "  transport (2026-09-07, 2026-09-09): chip-state dependent, not a frame or transport effect;"
+                    say "  the windows above, and the spi-pipe comparison line when present, are the evidence."
                     if [ "$status_ok" -eq 1 ]; then
                         say "GetStatus reports the chip in standby, so the SX126x is powered and answering on $LORA_SPIDEV."
                     else
