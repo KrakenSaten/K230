@@ -562,16 +562,27 @@ void timber_screen_table_refresh(struct timber_app *app)
         ui->seen_meter = meter;
         refresh_meter(ui, meter);
     }
-    if (selected != ui->seen_selected || turn != ui->seen_turn || state != ui->seen_state ||
-        run->tests_left != ui->seen_tests || cls != ui->seen_class) {
+    /* Both comparisons are made before either block records what it saw:
+     * the piece card and the controls watch the same selection and test
+     * budget, and a selection alone must reach the controls (it is what
+     * makes TEST answer). */
+    {
+        int piece_changed = selected != ui->seen_selected || turn != ui->seen_turn ||
+                            state != ui->seen_state || run->tests_left != ui->seen_tests ||
+                            cls != ui->seen_class;
+        int controls_changed = turn != ui->seen_turn || state != ui->seen_state ||
+                               selected != ui->seen_selected || app->ghost != ui->seen_ghost ||
+                               run->tests_left != ui->seen_tests;
+
         ui->seen_selected = selected;
         ui->seen_tests = run->tests_left;
         ui->seen_class = cls;
-        refresh_piece(app);
-    }
-    if (turn != ui->seen_turn || state != ui->seen_state || selected != ui->seen_selected ||
-        app->ghost != ui->seen_ghost || run->tests_left != ui->seen_tests) {
-        refresh_controls(app);
+        if (piece_changed) {
+            refresh_piece(app);
+        }
+        if (controls_changed) {
+            refresh_controls(app);
+        }
     }
     ui->seen_turn = turn;
     ui->seen_state = state;

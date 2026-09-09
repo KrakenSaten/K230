@@ -226,4 +226,45 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(radar_scope_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(radar_scope_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # The Timber app under a real LVGL pointer device (run by
+    # tests/timber_shell_test.sh). Built with the placeholder blocks: the
+    # input path is the same with or without the sprites.
+    add_executable(timber_input_test
+        ${REPO_DIR}/tests/timber_input_test.c
+        ${REPO_DIR}/apps/timber/timber_app.c
+        ${REPO_DIR}/apps/timber/timber_store.c
+        ${REPO_DIR}/apps/timber/engine/timber_types.c
+        ${REPO_DIR}/apps/timber/engine/timber_rng.c
+        ${REPO_DIR}/apps/timber/engine/timber_tower.c
+        ${REPO_DIR}/apps/timber/engine/timber_pull.c
+        ${REPO_DIR}/apps/timber/engine/timber_stability.c
+        ${REPO_DIR}/apps/timber/engine/timber_score.c
+        ${REPO_DIR}/apps/timber/engine/timber_collapse.c
+        ${REPO_DIR}/apps/timber/engine/timber_rules.c
+        ${REPO_DIR}/apps/timber/engine/timber_replay.c
+        ${REPO_DIR}/apps/timber/ui/timber_view.c
+        ${REPO_DIR}/apps/timber/ui/timber_table.c
+        ${REPO_DIR}/apps/timber/ui/timber_screens.c
+        ${REPO_DIR}/apps/timber/ui/timber_art.c
+        ${REPO_DIR}/core/pocketlog/pocketlog.c
+        ${REPO_DIR}/core/pocketpaths.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(timber_input_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/timber" "${REPO_DIR}/apps/timber/ui")
+    target_compile_options(timber_input_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(timber_input_test PRIVATE
+        POCKETOS_VERSION="${POCKETOS_VERSION}"
+        POCKETOS_BUILD_ID="${POCKETOS_BUILD_ID}"
+        POCKETTIMBER_ART=0
+        LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(timber_input_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(timber_input_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(timber_input_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 endif()
