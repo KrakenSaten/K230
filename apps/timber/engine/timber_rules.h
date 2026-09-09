@@ -9,8 +9,9 @@
  * disturbance, and is sticky: a block tested once stays tested. The pull is
  * a sequence of per-tick travel actions. A tight block absorbs travel
  * before it moves, then lurches free; from the moment a block is part way
- * out the selection is locked to it, and pushing it fully back unlocks it
- * again. Travel faster than the block's class allows is a jolt, which
+ * out the selection is locked to it, and pushing it back unlocks it again:
+ * a push that crosses the seat stops at the seat, since a finger never
+ * lands on it exactly. Travel faster than the block's class allows is a jolt, which
  * disturbs the tower and leans it along the pull. When four fifths of the
  * block is out it slips free into the player's hand, and placing it on top
  * ends the turn.

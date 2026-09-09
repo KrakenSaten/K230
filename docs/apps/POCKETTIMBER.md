@@ -299,6 +299,10 @@ events evenly enough that a three-tick average is a fair judge.
 A FIRM or STUCK block absorbs its stiction without moving, then lurches
 2 px free with a small disturbance and a STICK event; changing the
 selection forgets the grip. After that every block moves with the finger.
+From the moment a block is part way out the turn is locked to it; a push
+back that crosses its seat stops at the seat, which opens the turn again
+(a finger never lands on the seat exactly), and pushing it on through, out
+the far side, is a new travel that starts from the seat.
 Travel averaged over three ticks above the class limit is a jolt,
 
 ```text
@@ -396,7 +400,7 @@ lifecycle. Reading order, top to bottom, is the one the review set:
 ```text
 HUD          SCORE (BEST in standby), LAYERS, and STABILITY as a ten-block
              meter reading the hinge's effective margin
-table        528 x 700, a hairline panel: the tower in a fixed dimetric
+table        528 x 672, a hairline panel: the tower in a fixed dimetric
              view, both front faces visible, so every block end is
              reachable without turning the tower
 PIECE        the selected block: its class once tested (UNKNOWN, with
@@ -628,7 +632,7 @@ The three rulings the review left open, and what became of them:
 | `tests/timber_store_test.c` | the codec and its size, refusal of damaged, truncated, padded, foreign, other-version and impossible records, the bookkeeping of a finished run (every cause, the summit, an unknown cause, a best that never regresses, a long life that still decodes), the file: missing, stored, replaced, a stale temporary, damaged, truncated, empty, padded, foreign and newer files refused and left in place, an unwritable directory, a failed replacement that loses nothing, six real runs and a summit stored and reloaded |
 | `tests/timber_shell_test.sh` | the app in the running shell: every state renders from a fixed seed, none logs a fault, standby opens with nothing asked for, a finished run stores its record and the next launch reads it back, damaged, truncated, foreign and newer records are refused without stopping play, an unwritable directory is reported once, a record is replaced in place, the placeholder path renders, reduced motion draws the tower without the sway |
 | `tests/timber_rules_test.c` | run lifecycle, generation in a run, selection and its lock, the TEST budget and stickiness, the free pull, partial extraction and pushing back, the slip, jolts and their direction, a sustained rattle and the disturbance ceiling, stiction and break-free, the slow and the yanked STUCK pull, decay and the sway's direction, the hinge and the meter in a run, the creak and its edge, the load shift and its size, the base without its centre or a side block, placement with its reseat, lean nudge and layer bonus, scoring in a run and the piece card, the shift lean and its accumulation over pulls (the sum of every shift's share, signed by direction and by offset, with the generator untouched), all four collapse causes, the choreography in a run with every LAND announced and OVER before the ceiling, the summit reached from a constructed tower (nothing in hand, everything refused after), snapshots of the run resumed before and after the summit and mid-run, the event queue, replay determinism and the untouched generator |
-| `tests/timber_input_test.c` | the app under a real LVGL pointer device, hosted as the shell hosts it: BEGIN, a tap selecting a block, TEST answering once a block is selected, a pull let go part way and pulled again, a drag with a vertical wobble that scrolls the body, a finger that wanders off the track and back, leaving with a block part way out or mid-press and reopening; the D3 bench sequence of 2026-09-09, which found TEST dead after a selection |
+| `tests/timber_input_test.c` | the app under a real LVGL pointer device, hosted as the shell hosts it: BEGIN, a tap selecting a block, TEST answering once a block is selected, a pull with a finger's uneven steps let go part way and pulled again, the block pushed back into its seat and the turn opening, another block selected, a drag with a vertical wobble, a finger that wanders off the track and back, leaving with a block part way out or mid-press and reopening to a fresh instance with nothing of the last run or the last finger, and the screen fitting the body with nothing to scroll; the D3 bench sequence of 2026-09-09, which found TEST dead after a selection and a pushed-back block still locked |
 | `tests/timber_lint.sh` | no LVGL, no I/O, no floating point and no platform entropy in the engine; one file touches the filesystem |
 
 Run with `make CC=gcc CFLAGS="-O2 -Werror" test` (WSL2 Ubuntu 22.04, gcc
