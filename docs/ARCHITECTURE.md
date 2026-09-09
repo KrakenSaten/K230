@@ -104,6 +104,13 @@ Before v0.0.7 block 2b, core parsed the supervisor's pid files and the free
 text of its crash-loop marker, which made a shell script's private layout the
 source of a public API field two layers below it.
 
+Validated on unit A from `792f754`: the three services carry the documented
+format with distinct supervisor and child pids, 59 reads taken while a
+throwaway service died and restarted four times found no partial file, sysd
+never exposed a half-formed entry, a stopped service keeps its entry with
+`running` false, and a reboot clears the runtime directory so restart counters
+start again at zero (docs/hardware/V0.0.7_BLOCK2B_SMOKE.md).
+
 `/etc/init.d/S50sysd` starts it under `pos-supervise`, ahead of `S60radiod`,
 with S60's stop discipline (the supervise pid and the daemon pid are two
 different facts). Validated on unit A from `3a56804`: sysd comes up under

@@ -87,6 +87,27 @@ supervisor, and the bring-up checklist still names the crash-loop marker; both
 are compatibility, neither is read by `system.*` any more, and the state file
 is authoritative.
 
+### services: a service that was stopped on purpose
+
+Stopping a service through its init script leaves the entry in place, with:
+
+```json
+{"name":"radiod","pid":null,"running":false,"crashloop":false,"last_exit_code":null,"restarts":0}
+```
+
+`last_exit_code` is `null` here, not a number, and that is not an omission.
+The init script stops the supervisor with SIGTERM; POSIX says a trapped signal
+makes `wait` return *before* the child has actually gone, so the status the
+supervisor could read at that point is the interrupted `wait` (128 + 15), not
+the child's own exit status. Recording it would put a number in the field that
+the service never returned. The supervisor therefore records nothing, and
+`null` keeps its one meaning throughout this API: nobody knows.
+
+The consequence for a client is that "stopped on purpose" and "supervisor
+started, no child yet" look the same. Both are genuinely "not running, with no
+exit status observed"; distinguishing intent would need a field this API does
+not have yet. VERIFIED on unit A (docs/hardware/V0.0.7_BLOCK2B_SMOKE.md).
+
 ### services: intentionally unstable within v0.0.7
 
 `services` still answers "what the supervisor has written down since this
