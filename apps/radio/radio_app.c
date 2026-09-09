@@ -46,6 +46,8 @@ static void on_send(lv_event_t *e)
     char err[96];
 
     cJSON_AddStringToObject(params, "payload_hex", "506f636b65744f5320746573740a"); /* "PocketOS test\n" */
+    /* The one call that keeps waiting: the packet is on the air for the
+     * airtime and the user asked for it (docs/api/pocketipc.md). */
     r = shell_ipc_call("radiod", "radio.send", params, err, sizeof(err));
     if (r) {
         lv_label_set_text_fmt(a->message, "Sent %d bytes, %.1f ms airtime",
@@ -66,7 +68,10 @@ static void on_inject(lv_event_t *e)
     cJSON_AddStringToObject(params, "payload_hex", "48656c6c6f");
     cJSON_AddNumberToObject(params, "rssi_dbm", -92.0);
     cJSON_AddNumberToObject(params, "snr_db", 6.5);
-    r = shell_ipc_call("radiod", "mock.inject_rx", params, err, sizeof(err));
+    /* A button on the LVGL thread; the mock answers at once or not at all,
+     * so this is bounded like the tick, not like radio.send. */
+    r = shell_ipc_call_timeout("radiod", "mock.inject_rx", params, SHELL_IPC_UI_TIMEOUT_MS,
+                               err, sizeof(err));
     if (r) {
         lv_label_set_text(a->message, "Injected a mock packet");
         cJSON_Delete(r);
@@ -101,11 +106,22 @@ static void *radio_create(lv_obj_t *root)
     return a;
 }
 
+/* Runs on the LVGL thread once a second while the app is open, and once
+ * more when it opens. Every call here carries the UI deadline: with only
+ * the shell's status poll bounded, a radiod that was alive but not
+ * answering blocked this tick forever, and with it the panel, touch and the
+ * shell's own socket (unit A, M5). A timeout paints the rows as unavailable
+ * and the next tick asks again; nothing here is worth waiting for. */
+static cJSON *radio_query(const char *method, char *err, size_t errlen)
+{
+    return shell_ipc_call_timeout("radiod", method, NULL, SHELL_IPC_UI_TIMEOUT_MS, err, errlen);
+}
+
 static void radio_tick(void *priv)
 {
     struct radio_app *a = priv;
     char err[96];
-    cJSON *info = shell_ipc_call("radiod", "radio.info", NULL, err, sizeof(err));
+    cJSON *info = radio_query("radio.info", err, sizeof(err));
     cJSON *st;
     cJSON *stats;
 
@@ -117,7 +133,7 @@ static void radio_tick(void *priv)
     lv_label_set_text_fmt(a->chip, "%s (%s)", str(info, "chip", "?"), str(info, "region", "?"));
     cJSON_Delete(info);
 
-    st = shell_ipc_call("radiod", "radio.status", NULL, err, sizeof(err));
+    st = radio_query("radio.status", err, sizeof(err));
     if (st) {
         const cJSON *p = cJSON_GetObjectItemCaseSensitive(st, "profile");
 
@@ -131,7 +147,7 @@ static void radio_tick(void *priv)
         }
         cJSON_Delete(st);
     }
-    stats = shell_ipc_call("radiod", "radio.stats", NULL, err, sizeof(err));
+    stats = radio_query("radio.stats", err, sizeof(err));
     if (stats) {
         lv_label_set_text_fmt(a->packets, "%d / %d", (int)num(stats, "tx_packets"),
                               (int)num(stats, "rx_packets"));

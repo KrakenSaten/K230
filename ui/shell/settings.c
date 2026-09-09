@@ -76,13 +76,12 @@ static void store(const char *key, const char *value)
 
 int settings_init(void)
 {
-    const char *dir = getenv("POCKETOS_CONFIG_DIR");
+    const char *dir = pocketos_config_dir();
     FILE *f;
     char line[SETTINGS_KEY_MAX + SETTINGS_VALUE_MAX + 16];
 
     count = 0;
-    snprintf(path, sizeof(path), "%s/%s", (dir && *dir) ? dir : SETTINGS_DEFAULT_DIR,
-             SETTINGS_FILE);
+    snprintf(path, sizeof(path), "%s/%s", dir, SETTINGS_FILE);
     f = fopen(path, "r");
     if (!f) {
         return errno == ENOENT ? 1 : -1;
@@ -142,12 +141,12 @@ static int write_file(void)
     int i;
     char *slash;
 
-    /* make sure the directory exists (best effort, one level) */
+    /* make sure the directory exists (best effort, parents included) */
     snprintf(tmp, sizeof(tmp), "%s", path);
     slash = strrchr(tmp, '/');
     if (slash) {
         *slash = '\0';
-        mkdir(tmp, 0755);
+        pocketos_mkdir_p(tmp, 0755);
     }
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     f = fopen(tmp, "w");

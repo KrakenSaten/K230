@@ -5,6 +5,17 @@
 # Usage: apply_to_sdk.sh [/path/to/T-Display-K230 checkout]
 #   Default vendor checkout: $POCKETOS_VENDOR_DIR or <repo>/vendor/T-Display-K230
 #   The SDK is the k230_linux_sdk submodule inside that checkout.
+#
+# The package source comes from `git archive HEAD`, so the image is a function
+# of a commit: only tracked files at HEAD are copied, with the modes git
+# records. Uncommitted work is NOT built. This replaces an rsync exclude-list
+# that could carry build products, dependency files holding host paths and
+# test binaries into the package, and that took file modes from the build
+# host's filesystem rather than from the source.
+#
+# The pinned vendor commits are enforced, not merely reported. Set
+# POCKETOS_ALLOW_PIN_DRIFT=1 to build against a different vendor tree on
+# purpose, and record that in the build report.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,15 +30,42 @@ EXPECTED_SDK_COMMIT="$(cat "${PLATFORM_DIR}/vendor_sdk_commit.txt")"
 
 [ -d "${VENDOR_DIR}/k230_bsp" ] || { echo "not a T-Display-K230 checkout: ${VENDOR_DIR}" >&2; exit 1; }
 git -C "${SDK_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "SDK is not a git checkout: ${SDK_DIR}" >&2; exit 1; }
+git -C "${REPO_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "PocketOS repo is not a git checkout: ${REPO_DIR}" >&2; exit 1; }
 
 BSP_COMMIT="$(git -C "${VENDOR_DIR}" rev-parse HEAD)"
 SDK_COMMIT="$(git -C "${SDK_DIR}" rev-parse HEAD)"
+REPO_COMMIT="$(git -C "${REPO_DIR}" rev-parse --short HEAD)"
+DIRTY_TAG=""
+REPO_DIRTY=""
+if [ -n "$(git -C "${REPO_DIR}" status --porcelain)" ]; then
+    DIRTY_TAG="-dirty"
+    REPO_DIRTY=" (working tree dirty)"
+fi
+BUILD_ID="${REPO_COMMIT}${DIRTY_TAG}"
 echo "PocketOS apply"
-echo "Repo   : ${REPO_DIR} (version $(cat "${REPO_DIR}/VERSION"))"
+echo "Repo   : ${REPO_DIR} (version $(cat "${REPO_DIR}/VERSION")) @ ${REPO_COMMIT}${REPO_DIRTY}"
 echo "Vendor : ${VENDOR_DIR} @ ${BSP_COMMIT}"
 echo "SDK    : ${SDK_DIR} @ ${SDK_COMMIT}"
-[ "${BSP_COMMIT}" = "${EXPECTED_BSP_COMMIT}" ] || echo "WARNING: vendor BSP commit differs from pinned ${EXPECTED_BSP_COMMIT}" >&2
-[ "${SDK_COMMIT}" = "${EXPECTED_SDK_COMMIT}" ] || echo "WARNING: SDK commit differs from pinned ${EXPECTED_SDK_COMMIT}" >&2
+if [ -n "${REPO_DIRTY}" ]; then
+    echo "NOTE: the package is built from HEAD (${REPO_COMMIT}); uncommitted changes are NOT included." >&2
+fi
+
+# A pinned commit that has drifted is refused rather than reported: the BSP
+# overlay is a patch stack against these exact trees, and BUILD_INFO.txt would
+# otherwise claim pins the image was not built from.
+pin_check() { # <what> <actual> <expected>
+    [ "$2" = "$3" ] && return 0
+    if [ "${POCKETOS_ALLOW_PIN_DRIFT:-0}" = "1" ]; then
+        echo "WARNING: $1 is $2, pinned $3; continuing (POCKETOS_ALLOW_PIN_DRIFT=1)" >&2
+        return 0
+    fi
+    echo "ERROR: $1 is $2, pinned $3." >&2
+    echo "       Check out the pinned commit, or set POCKETOS_ALLOW_PIN_DRIFT=1 to build" >&2
+    echo "       against a different vendor tree on purpose and say so in the build report." >&2
+    exit 1
+}
+pin_check "vendor BSP commit" "${BSP_COMMIT}" "${EXPECTED_BSP_COMMIT}"
+pin_check "SDK commit" "${SDK_COMMIT}" "${EXPECTED_SDK_COMMIT}"
 
 echo "[1/5] Vendor BSP overlay"
 "${VENDOR_DIR}/k230_bsp/scripts/apply.sh" "${SDK_DIR}"
@@ -59,22 +97,61 @@ fi
 grep -q 'disabled (/etc/default/k230_phone_ui)' "${S99}" && grep -q '^ENABLE=1$' "${S99}" \
     || { echo "failed to add the panel switch to ${S99}" >&2; exit 1; }
 
+echo "[3c/5] sshd: no empty-password logins"
+# Vendor sshd_config allows root with an empty password over the network
+# (PermitRootLogin yes, PasswordAuthentication yes, PermitEmptyPasswords yes)
+# and the root account ships with no password. Patch the vendor file in place
+# at apply time, like the launcher switch above: SSH then refuses the empty
+# password until the operator sets one on the serial console (`passwd`), or
+# installs a key in /root/.ssh/authorized_keys; local serial login is
+# untouched and no password is embedded in the image.
+SSHD="${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/etc/ssh/sshd_config"
+[ -f "${SSHD}" ] || { echo "vendor sshd_config missing: ${SSHD}" >&2; exit 1; }
+sed -i -e 's/^PermitEmptyPasswords yes$/PermitEmptyPasswords no/' "${SSHD}"
+grep -q '^PermitEmptyPasswords no$' "${SSHD}" \
+    || { echo "failed to set PermitEmptyPasswords no in ${SSHD}" >&2; exit 1; }
+grep -q '^PermitEmptyPasswords yes' "${SSHD}" && { echo "PermitEmptyPasswords yes still present in ${SSHD}" >&2; exit 1; }
+
 echo "[4/5] PocketOS rootfs overlay"
-rsync -a "${PLATFORM_DIR}/rootfs_overlay/" "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/"
+# Also from git, and for the same reason as the package below, but here the
+# reason is sharper: Buildroot copies this overlay into the rootfs with
+# rsync -a and BusyBox rcS runs `$i start`, so the mode on S60radiod and
+# S90pocketos-shell decides whether the services start at all. Taken from the
+# working tree it would be whatever the build host's filesystem reports, which
+# on a WSL /mnt/c checkout is 0777 for every file. Merged onto the vendor's
+# overlay, never deleting from it.
+git -C "${REPO_DIR}" archive --format=tar HEAD -- platforms/k230/rootfs_overlay \
+    | tar -x --strip-components=3 \
+          -C "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/"
 
 echo "[5/5] PocketOS package"
 PKG_DIR="${SDK_DIR}/buildroot-overlay/package/pocketos"
 mkdir -p "${PKG_DIR}/src"
 install -m 0644 "${PLATFORM_DIR}/package/pocketos/Config.in" "${PKG_DIR}/Config.in"
 install -m 0644 "${PLATFORM_DIR}/package/pocketos/pocketos.mk" "${PKG_DIR}/pocketos.mk"
-rsync -a --delete \
-    --exclude '/vendor' --exclude '/docs' --exclude '/platforms' --exclude '/out' \
-    --exclude '/.git' --exclude '*.o' --exclude '/tools/pos/pos' \
-    --exclude '/services/radiod/radiod' --exclude '/tests/airtime_test' \
-    "${REPO_DIR}/" "${PKG_DIR}/src/"
-# RadioLib (MIT) is compiled into radiod; sync its sources beside ours.
+# What the package is built from. Kept on one line and in this form so
+# tests/package_sync_test.sh can read it and stay in step with this script.
+POCKETOS_PKG_PATHSPEC=". :(exclude)docs :(exclude)platforms"
+# git archive rather than rsync: only tracked files at HEAD, with the modes
+# git records, and no exclude-list to keep in step with the build outputs.
+rm -rf "${PKG_DIR}/src"
+mkdir -p "${PKG_DIR}/src"
+# shellcheck disable=SC2086  # the pathspec is three words on purpose
+git -C "${REPO_DIR}" archive --format=tar HEAD -- ${POCKETOS_PKG_PATHSPEC} \
+    | tar -x -C "${PKG_DIR}/src/"
+# The exported tree has no git history, so the commit it came from travels
+# beside VERSION. The Makefile and ui/shell/CMakeLists.txt compile both into
+# every binary; the logs, the crash reports and <service>.info then name the
+# build the device is actually running.
+printf '%s\n' "${BUILD_ID}" > "${PKG_DIR}/src/BUILD_ID"
+# RadioLib (MIT) is compiled into radiod; sync its sources beside ours. It is
+# an ignored working-tree checkout rather than part of our history, so it is
+# copied rather than archived; build products from a host-side compile of the
+# sx1262 backend must not travel with it.
 mkdir -p "${PKG_DIR}/src/third_party/RadioLib"
-rsync -a --delete --exclude '/.git' --exclude '/examples' --exclude '/extras'     "${REPO_DIR}/vendor/RadioLib/" "${PKG_DIR}/src/third_party/RadioLib/"
+rsync -a --delete --exclude '/.git' --exclude '/examples' --exclude '/extras' \
+    --exclude '*.o' --exclude '*.d' --exclude '*.a' --exclude '*.so' \
+    "${REPO_DIR}/vendor/RadioLib/" "${PKG_DIR}/src/third_party/RadioLib/"
 CONFIG_IN="${SDK_DIR}/buildroot-overlay/package/Config_canaan.in"
 if ! grep -q 'source "package/pocketos/Config.in"' "${CONFIG_IN}"; then
     printf '\nsource "package/pocketos/Config.in"\n' >> "${CONFIG_IN}"

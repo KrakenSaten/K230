@@ -7,6 +7,7 @@
 #include "pocketipc.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,11 +18,16 @@
 #include <time.h>
 #include <unistd.h>
 
+/* MSG_NOSIGNAL is what turns a vanished peer into EPIPE instead of SIGPIPE.
+ * Every PocketOS host is Linux, where it exists. On a platform without it
+ * the code still compiles, but such a process must ignore SIGPIPE itself. */
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+
 const char *pocketipc_runtime_dir(void)
 {
-    const char *d = getenv("POCKETOS_RUNTIME_DIR");
-
-    return (d && *d) ? d : POCKETIPC_DEFAULT_DIR;
+    return pocketos_runtime_dir();
 }
 
 int pocketipc_socket_path(const char *service, char *buf, size_t n)
@@ -41,14 +47,16 @@ static uint64_t now_ms(void)
 
 /* Write the whole buffer. On a non-blocking fd, EAGAIN waits for POLLOUT
  * within a bounded window (POCKETIPC_SEND_TIMEOUT_MS in total for this
- * frame); if the peer still does not drain, fail with errno ETIMEDOUT. */
-static int write_all(int fd, const void *data, size_t len)
+ * frame); if the peer still does not drain, fail with errno ETIMEDOUT.
+ * A peer that has gone away is an error (EPIPE), never a signal: send()
+ * with MSG_NOSIGNAL, so no pocketipc user has to ignore SIGPIPE itself
+ * (a radiod crash used to take the shell down with it). */
+static int write_all(int fd, const void *data, size_t len, uint64_t *deadline)
 {
     const uint8_t *p = data;
-    uint64_t deadline = 0;
 
     while (len > 0) {
-        ssize_t w = write(fd, p, len);
+        ssize_t w = send(fd, p, len, MSG_NOSIGNAL);
 
         if (w < 0) {
             if (errno == EINTR) {
@@ -59,10 +67,10 @@ static int write_all(int fd, const void *data, size_t len)
                 uint64_t now = now_ms();
                 int remaining;
 
-                if (deadline == 0) {
-                    deadline = now + POCKETIPC_SEND_TIMEOUT_MS;
+                if (*deadline == 0) {
+                    *deadline = now + POCKETIPC_SEND_TIMEOUT_MS;
                 }
-                remaining = now >= deadline ? 0 : (int)(deadline - now);
+                remaining = now >= *deadline ? 0 : (int)(*deadline - now);
                 if (remaining <= 0) {
                     errno = ETIMEDOUT;
                     return -1;
@@ -80,15 +88,50 @@ static int write_all(int fd, const void *data, size_t len)
     return 0;
 }
 
-static int read_all(int fd, void *data, size_t len)
+/* deadline is a monotonic millisecond stamp, or 0 for "wait as long as it
+ * takes", which is what every caller got before pocketipc_call_timeout(). */
+static int read_all_until(int fd, void *data, size_t len, uint64_t deadline)
 {
     uint8_t *p = data;
 
     while (len > 0) {
-        ssize_t r = read(fd, p, len);
+        ssize_t r;
 
+        if (deadline != 0) {
+            struct pollfd pfd = { .fd = fd, .events = POLLIN };
+            uint64_t now = now_ms();
+            int remaining = now >= deadline ? 0 : (int)(deadline - now);
+
+            if (remaining <= 0) {
+                errno = ETIMEDOUT;
+                return -1;
+            }
+            r = poll(&pfd, 1, remaining);
+            if (r < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                return -1;
+            }
+            if (r == 0) {
+                errno = ETIMEDOUT;
+                return -1;
+            }
+        }
+        r = read(fd, p, len);
         if (r < 0) {
             if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                /* A non-blocking connection (pocketipc_connect_timeout) on a
+                 * call without a deadline: wait for data as a blocking read
+                 * would; with a deadline the poll above already bounded it. */
+                struct pollfd pfd = { .fd = fd, .events = POLLIN };
+
+                if (deadline == 0 && poll(&pfd, 1, -1) < 0 && errno != EINTR) {
+                    return -1;
+                }
                 continue;
             }
             return -1;
@@ -102,7 +145,13 @@ static int read_all(int fd, void *data, size_t len)
     return 0;
 }
 
-int pocketipc_write_frame(int fd, const char *json, size_t len)
+/* deadline 0: one backpressure budget for the whole frame, started at the
+ * first EAGAIN. Header and body used to start a fresh POCKETIPC_SEND_TIMEOUT_MS
+ * each, so a stalled peer could hold the caller for twice the documented
+ * policy per frame, and a broadcast to a full client table for 32 times that.
+ * A non-zero deadline is a caller's own stamp (a request with a deadline
+ * shares it with the wait for the reply). */
+static int write_frame_until(int fd, const char *json, size_t len, uint64_t deadline)
 {
     uint8_t hdr[4];
 
@@ -114,10 +163,15 @@ int pocketipc_write_frame(int fd, const char *json, size_t len)
     hdr[1] = (uint8_t)(len >> 16);
     hdr[2] = (uint8_t)(len >> 8);
     hdr[3] = (uint8_t)len;
-    if (write_all(fd, hdr, 4) < 0) {
+    if (write_all(fd, hdr, 4, &deadline) < 0) {
         return -1;
     }
-    return write_all(fd, json, len);
+    return write_all(fd, json, len, &deadline);
+}
+
+int pocketipc_write_frame(int fd, const char *json, size_t len)
+{
+    return write_frame_until(fd, json, len, 0);
 }
 
 int pocketipc_send(int fd, const cJSON *msg)
@@ -134,13 +188,13 @@ int pocketipc_send(int fd, const cJSON *msg)
     return rc;
 }
 
-char *pocketipc_read_frame(int fd, size_t *len)
+static char *read_frame_until(int fd, size_t *len, uint64_t deadline)
 {
     uint8_t hdr[4];
     uint32_t n;
     char *buf;
 
-    if (read_all(fd, hdr, 4) < 0) {
+    if (read_all_until(fd, hdr, 4, deadline) < 0) {
         return NULL;
     }
     n = ((uint32_t)hdr[0] << 24) | ((uint32_t)hdr[1] << 16) |
@@ -153,7 +207,7 @@ char *pocketipc_read_frame(int fd, size_t *len)
     if (!buf) {
         return NULL;
     }
-    if (read_all(fd, buf, n) < 0) {
+    if (read_all_until(fd, buf, n, deadline) < 0) {
         free(buf);
         return NULL;
     }
@@ -162,6 +216,16 @@ char *pocketipc_read_frame(int fd, size_t *len)
         *len = n;
     }
     return buf;
+}
+
+char *pocketipc_read_frame(int fd, size_t *len)
+{
+    return read_frame_until(fd, len, 0);
+}
+
+char *pocketipc_read_frame_timeout(int fd, size_t *len, int timeout_ms)
+{
+    return read_frame_until(fd, len, timeout_ms > 0 ? now_ms() + (uint64_t)timeout_ms : 0);
 }
 
 void pocketipc_reader_init(struct pocketipc_reader *r)
@@ -253,7 +317,7 @@ int pocketipc_listen(const char *service)
     if (fill_addr(service, &addr) < 0) {
         return -1;
     }
-    if (mkdir(pocketipc_runtime_dir(), 0770) < 0 && errno != EEXIST) {
+    if (pocketos_mkdir_p(pocketipc_runtime_dir(), 0770) < 0) {
         return -1;
     }
     fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -274,32 +338,75 @@ int pocketipc_listen(const char *service)
 
 int pocketipc_connect(const char *service)
 {
+    return pocketipc_connect_timeout(service, 0);
+}
+
+/* A Unix stream connect() blocks with no timeout while the service's listen
+ * backlog is full (the caller sleeps in the kernel's unix_wait_for_peer).
+ * That is what froze the shell on unit A (2026-09-08): every timed-out
+ * request had dropped its connection, but the kernel keeps each one queued
+ * until the stopped radiod accepts it, and the sixteenth reconnect never
+ * returned. Non-blocking, the same connect() fails at once with EAGAIN and
+ * leaves nothing queued, so the deadline can bound the retries. */
+int pocketipc_connect_timeout(const char *service, int timeout_ms)
+{
     struct sockaddr_un addr;
+    uint64_t deadline = timeout_ms > 0 ? now_ms() + (uint64_t)timeout_ms : 0;
     int fd;
 
     if (fill_addr(service, &addr) < 0) {
         return -1;
     }
-    fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | (deadline ? SOCK_NONBLOCK : 0), 0);
     if (fd < 0) {
         return -1;
     }
-    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    for (;;) {
+        uint64_t now;
+        int remaining;
+
+        if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0) {
+            return fd;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        if (deadline == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINPROGRESS)) {
+            break;
+        }
+        now = now_ms();
+        remaining = now >= deadline ? 0 : (int)(deadline - now);
+        if (remaining <= 0) {
+            errno = ETIMEDOUT;
+            break;
+        }
+        /* backlog full: nothing is queued, so wait a little and try again */
+        poll(NULL, 0, remaining < 20 ? remaining : 20);
+    }
+    {
         int e = errno;
 
         close(fd);
         errno = e;
-        return -1;
     }
-    return fd;
+    return -1;
 }
 
 cJSON *pocketipc_call(int fd, const char *method, cJSON *params, int *code,
                       char *errbuf, size_t errlen)
 {
+    return pocketipc_call_timeout(fd, method, params, 0, code, errbuf, errlen);
+}
+
+cJSON *pocketipc_call_timeout(int fd, const char *method, cJSON *params, int timeout_ms,
+                              int *code, char *errbuf, size_t errlen)
+{
     static int next_id = 1;
     int id = next_id++;
     cJSON *req = cJSON_CreateObject();
+    /* One deadline for the whole exchange, not per read: events that arrive
+     * while waiting are skipped below, and they must not extend the wait. */
+    uint64_t deadline = timeout_ms > 0 ? now_ms() + (uint64_t)timeout_ms : 0;
 
     *code = 0;
     if (errlen) {
@@ -310,22 +417,42 @@ cJSON *pocketipc_call(int fd, const char *method, cJSON *params, int *code,
     if (params) {
         cJSON_AddItemToObject(req, "params", params);
     }
-    if (pocketipc_send(fd, req) < 0) {
+    {
+        /* The request write shares the call's deadline (on a non-blocking
+         * connection; a blocking one cannot stall on a fresh request). */
+        char *text = cJSON_PrintUnformatted(req);
+        int rc = -1;
+
+        if (text) {
+            rc = write_frame_until(fd, text, strlen(text), deadline);
+            free(text);
+        } else {
+            errno = ENOMEM;
+        }
         cJSON_Delete(req);
-        snprintf(errbuf, errlen, "send failed: %s", strerror(errno));
-        return NULL;
+        if (rc < 0) {
+            snprintf(errbuf, errlen, "send failed: %s", strerror(errno));
+            return NULL;
+        }
     }
-    cJSON_Delete(req);
 
     for (;;) {
-        char *text = pocketipc_read_frame(fd, NULL);
+        char *text = read_frame_until(fd, NULL, deadline);
         cJSON *msg;
         cJSON *rid;
         cJSON *result;
         cJSON *err;
 
         if (!text) {
-            snprintf(errbuf, errlen, "connection closed");
+            /* A timed-out call leaves a response that may still arrive on a
+             * connection the caller can no longer interpret, so the error is
+             * reported as a transport failure (code 0) and the caller is
+             * expected to drop the connection, exactly as it does for EPIPE. */
+            if (errno == ETIMEDOUT) {
+                snprintf(errbuf, errlen, "%s timed out after %d ms", method, timeout_ms);
+            } else {
+                snprintf(errbuf, errlen, "connection closed");
+            }
             return NULL;
         }
         msg = cJSON_Parse(text);

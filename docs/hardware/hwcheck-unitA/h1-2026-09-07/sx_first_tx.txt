@@ -1,0 +1,11 @@
+=== T1 profile: PocketOS default at 2 dBm 19:55:20
+	"frequency_mhz":	869.525,
+	"tx_power_dbm":	2,
+=== T2 stats before
+{"tx_packets":0,"rx_packets":58,"rx_crc_errors":0,"tx_airtime_ms":0,"rx_airtime_ms":34637.823999999986,"tx_airtime_last_hour_ms":0,"duty_cycle_last_hour_percent":0,"last_rssi_dbm":-79,"last_snr_db":-2.75,"last_frequency_error_hz":-354.5625}
+=== T3 one send: payload 506f636b65744f53 (PocketOS), 8 bytes, expected airtime about 185 ms at SF9/BW125
+{
+	"bytes":	8,
+	"airtime_ms":	123.904
+}
+/tmp/h1/sx_first_tx.sh: line 13: divide by zero

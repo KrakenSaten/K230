@@ -17,17 +17,45 @@
  *
  * Crash reports: pocketlog_install_crash_handler() catches SIGSEGV, SIGBUS,
  * SIGILL, SIGFPE and SIGABRT, writes
- * $POCKETOS_LOG_DIR/crash-<name>-<unix time>.txt with a backtrace using only
- * async-signal-safe calls, then re-raises the signal.
+ * $POCKETOS_LOG_DIR/crash-<name>-<unix time>-<pid>.txt with a backtrace using
+ * only async-signal-safe calls, then re-raises the signal. The pid keeps
+ * reports from different boots apart on a board without an RTC, where the
+ * clock restarts at 1970 every boot until NTP syncs.
+ *
+ * Time: line timestamps and crash names use CLOCK_REALTIME, so before a
+ * time sync they read 1970-01-01 and cannot be ordered across boots; within
+ * one boot the file order is the write order, which `pos logs` preserves.
+ * Rotation and the crash handler do not depend on the clock. A monotonic
+ * boot-relative prefix is future work.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #ifndef POCKETLOG_H
 #define POCKETLOG_H
 
+#include "pocketpaths.h"
+
 #include <stddef.h>
 
-#define POCKETLOG_DEFAULT_DIR "/var/lib/pocketos/log"
+/* Build identity. Both are set on the compiler command line by the root
+ * Makefile and by ui/shell/CMakeLists.txt; a build that sets neither says so
+ * rather than pretending. pocketlog_init() writes them as the first line of
+ * every log file, the crash handler repeats them, and services report them in
+ * <service>.info, so a report can always be tied to the build it came from.
+ * Read them through the accessors: they are compiled once, here, so every
+ * caller in a process agrees. */
+#ifndef POCKETOS_VERSION
+#define POCKETOS_VERSION "unknown"
+#endif
+#ifndef POCKETOS_BUILD_ID
+#define POCKETOS_BUILD_ID "unknown"
+#endif
+
+const char *pocketlog_version(void);
+const char *pocketlog_build_id(void);
+
+/* Kept as the historical name; the value belongs to pocketpaths.h. */
+#define POCKETLOG_DEFAULT_DIR POCKETOS_LOG_DIR_DEFAULT
 #define POCKETLOG_MAX_BYTES (512u * 1024u)
 
 enum pocketlog_level {

@@ -1,6 +1,32 @@
 # Known issues and open questions
 
-Updated 2026-09-04. Move items to git history when resolved.
+Updated 2026-09-08. Move items to git history when resolved.
+
+Closed by 0.0.3, listed here only because the bench sheets still cite them:
+B4 (the shell's `printf` diagnostics never reached a log; they go through
+pocketlog now), the shell leaving a stale `shell.sock` after `stop`, init
+`stop` returning before anything had gone, `/dev/spidev0.0` being shareable
+(F14/B3), and logs and crash reports that could not name the build they came
+from. Closed by 0.0.4, found on unit A with 0.0.3: the Radio app's tick
+blocking the panel while radiod was stopped (M5), the supervisor leaving
+before its child so that `stop` reported forced (M6), and the hwcheck probe
+releasing RST instead of driving it high (M7). Closed by 0.0.5, found on
+unit A with 0.0.4: the shell's reconnect blocking in `connect()` once
+radiod's listen backlog was full of its own abandoned connections (M5,
+second cause).
+
+Open after 0.0.5 (unit A, 2026-09-09): `pos-hwcheck --lora` reads the sync
+word registers 0x0740/0x0741 as `24 b4` instead of the reset default
+`14 24`, byte-for-byte the same with the chip provably in standby (BUSY
+low and GetStatus standby held over two polls, 100 ms after reset), so it
+is not a timing race. The four status bytes and GetStatus (`a2 22`) are
+valid, and radiod initialises the same chip correctly immediately
+afterwards (sx1262, rx, 2 dBm, RSSI -74 dBm): the defect is in how the
+probe's hand-built ReadRegister transaction is framed or decoded. Not a
+radiod defect, not an SX1262 hardware defect, not a runtime blocker; the
+readiness gate stays. Next step: capture the raw MISO with extra trailing
+NOPs (`-b 7`, `-b 8`) to find the true data offset, then a host test that
+models it.
 
 ## Hardware and BSP
 
@@ -83,8 +109,19 @@ Updated 2026-09-04. Move items to git history when resolved.
   subscribers must read continuously.
 - The settings store must not hold secrets; there is no credential storage
   yet (security note in `ui/shell/settings.h`).
-- The shell blocks the UI thread on pocketipc calls; acceptable with local
-  services, wrong for slow ones. Needs an async path before netd.
+- The shell blocks the UI thread on pocketipc calls. From 0.0.3 the
+  once-a-second status poll carries a 200 ms deadline; from 0.0.4 so does
+  every app tick on the LVGL thread (the Radio app's refresh and its mock
+  inject button), after unit A showed the poll alone was not enough: with
+  the Radio app open, its tick blocked the panel, touch and the shell's own
+  socket while radiod was stopped, until radiod answered again. The v0.0.4
+  retest then showed the reconnect after a timeout blocking in `connect()`
+  once radiod's listen backlog had filled with the shell's own abandoned
+  connections; the connect is bounded by the same deadline now. Only
+  `radio.send` still waits, which is correct while a timeout there would
+  report failure for a packet that was transmitted. A service that can
+  accept a request and answer later, and the asynchronous transmit it would
+  allow, are still needed before netd.
 - Shell app launch by touch is untested in the simulator (only `--open`).
 - App lifecycle is create/tick/destroy only: no pause, resume or suspend
   (ADR-002 names them as later work). Apps needing continuity persist state
@@ -104,6 +141,30 @@ Updated 2026-09-04. Move items to git history when resolved.
 - LVGL's `generate_lv_conf.py` writes `LV_FONT_CUSTOM_DECLARE` into the
   template's comment example instead of the define; the body font is
   therefore set at runtime on the screen, and `LV_FONT_DEFAULT` is unused.
+- Radio profile is not persisted (by design in v0): every radiod start
+  returns to the EU868 defaults with the power from `--tx-power-dbm`
+  (`RADIOD_TX_POWER_DBM` in /etc/default/radiod, 2 dBm). Raising it is a
+  per-session operator action. Persisting a chosen profile is future work
+  and must not persist a raised power silently.
+- The USB Ethernet adapter (RTL8152B) has no burned-in MAC; the kernel
+  assigns a random locally administered address on every boot, so the DHCP
+  lease and IP can change per boot. PocketOS has no code that depends on a
+  stable MAC, lease or IP (deploy.sh and the pair test take the address as
+  an argument); the bench documents re-reading the IP after each boot. A
+  stable address derived from the SoC is future work, not a fake constant.
+- No RTC: the clock starts at 1970 on every boot until NTP syncs over the
+  network. Log timestamps and crash-report names before that are
+  boot-relative and cannot be ordered across boots; crash names carry the
+  pid so they do not collide; the supervisor measures run time from
+  /proc/uptime. Persisted app state does not use the clock; PocketFleet
+  seeds from `time(NULL)`, so a boot without network can repeat a layout.
+- Shutdown prints `mount: mounting /dev/mmcblk1p1 on /boot failed: Device or
+  resource busy`, three `Can't open blockdev` lines and `vo_init: not found`:
+  the vendor `S31canaan_isp` ignores its argument and re-runs its start
+  actions (mount /boot, modprobes, isp_media_server, vo_init) when rcK calls
+  it with `stop`. Harmless vendor noise, not a PocketOS action and not a
+  corruption risk (`/boot` is already mounted and is unmounted normally by
+  `umount -a -r` afterwards).
 - The vendor launcher is still in the PocketOS image and owns the display
   and the radio by default; radiod runs with the mock backend until the
   launcher is switched off. The switch is persistent

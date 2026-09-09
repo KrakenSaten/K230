@@ -33,6 +33,53 @@ Exit criteria for v0.1: boots from SD on both units, shell usable by touch,
 `pos hwcheck` report attached to docs/hardware, radiod sends and receives a
 packet between the two units, Wi-Fi joins a network from the Settings app.
 
+## Status 2026-09-08
+
+One development stream from here on; the earlier idea of a second
+parallel track is withdrawn.
+
+**v0.0.3** exists on `integration/v0.0.3-platform`, on top of the v0.0.2
+candidate. It is platform-only and changes no application source: build
+provenance and identity, `core/pocketpaths`, a deadline on the shell's status
+poll, a clean shell stop, a confirming init-script stop, and an exclusive lock
+on the SPI device. Host suite and both cross-builds are green; no image has
+been built. Because it contains everything v0.0.2 has, the open question for
+the owner is whether the first flashed card is the v0.0.2 candidate as
+planned in step 1 below, or the v0.0.3 image instead; the bench sheet for
+either is the v0.0.2 operator checklist plus the M1-M9 lines from the v0.0.3
+implementation report.
+
+Work proceeds in this order:
+
+1. **v0.0.2 hardware validation.** Candidate image built from `349a9b0`
+   (`docs/hardware/V0.0.2_BUILD_REPORT.md`), operator sheet
+   `docs/hardware/V0.0.2_OPERATOR_CHECKLIST.md`. Not yet flashed. The
+   golden v0.0.1 image stays the fallback.
+2. **Merge the integration line to master** once the sheet passes.
+3. **PocketTimber D3.** PocketTimber (block-tower game,
+   `docs/apps/POCKETTIMBER.md`) is software-complete at `11878ca` on
+   `pockettimber-engine`, frozen until hardware validation. That branch
+   predates every v0.0.2 fix, so it is rebased onto the integration line
+   after step 2 and only then built and validated on the K230: launch,
+   play, completed run, collapse, summit, BEST updates, record file
+   created and surviving app restart, reboot and a full power cycle,
+   corrupt record not stopping the game, storage path and permissions,
+   no clipping or font problems on the physical 528 x 700 viewport,
+   repeated runs stable.
+4. **Freeze PocketTimber v1 and merge it.**
+5. **Common state facility.** Fleet, Radar and Timber each carry their own
+   copy of the same storage pattern (`/var/lib/pocketos/<app>/`,
+   `$POCKETOS_STATE_DIR` override, directory creation, atomic
+   temp+fsync+rename, replacement, error reporting). v0.0.3 landed the
+   prerequisite for the path half of that: `core/pocketpaths` owns the four
+   roots, adopted by the platform only, with the app stores left untouched
+   on purpose. What remains is the atomic-write and byte-cursor half, the
+   store conversions, and the data-partition move in
+   `docs/STORAGE_PLAN_v0.0.3.md`, which belong in one release so the app
+   stores are touched once. Bench fact: `/var/lib/pocketos` is writable and
+   persists across reboots on unit A (VERIFIED 2026-09-07); a full power
+   cycle is checked in step 3.
+
 ## Phase 2: PocketUI design system
 
 Design System v0.1 is approved (`docs/design/POCKETOS-DS-v0.1.md`).

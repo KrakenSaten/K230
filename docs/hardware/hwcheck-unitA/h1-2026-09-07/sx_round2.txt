@@ -1,0 +1,19 @@
+=== listen 60 s (round2-mmcx1-off) 19:49:17
+"state":"rx",
+packets: 12
+rssi=-108 snr=-9
+rssi=-70 snr=10.75
+rssi=-109 snr=-9.75
+rssi=-70 snr=11.5
+rssi=-108 snr=-9.75
+rssi=-70 snr=11.75
+rssi=-107 snr=-7.5
+rssi=-71 snr=11.75
+rssi=-56 snr=12
+rssi=-57 snr=13.75
+rssi=-106 snr=-7.25
+rssi=-54 snr=13.75
+mean rssi=-82.2 (min -109 max -54) mean snr=3.5 over 12 packets
+first payload: 11413006c00dadc0d5e87ed5bde67a8e150e54e92016a700a2223be8d41beff6fc0a0e7b3a159f6a2c26154ef890c2d346429f9aacec912b03cbc112d03154e24ddf05a5f47aab63cfdd1540264f33821934ed9695e90cbe1302aeb13521e08f73218349c152390b814d7374725f6d35
+state after: "state":"rx",
+{"tx_packets":0,"rx_packets":40,"rx_crc_errors":0,"tx_airtime_ms":0,"rx_airtime_ms":25067.52,"tx_airtime_last_hour_ms":0,"duty_cycle_last_hour_percent":0,"last_rssi_dbm":-54,"last_snr_db":13.75,"last_frequency_error_hz":-513.4375}

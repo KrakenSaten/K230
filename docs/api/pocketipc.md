@@ -54,13 +54,66 @@ must never happen for one misbehaving client. Policy (bounded, tested in
 `tests/pocketipc_test.c`):
 
 - a write that would block waits for the peer to drain for at most
-  `POCKETIPC_SEND_TIMEOUT_MS` (200 ms) per frame;
+  `POCKETIPC_SEND_TIMEOUT_MS` (200 ms) per frame, header and body sharing one
+  budget;
 - if the peer still has not drained, the write fails with `ETIMEDOUT` and
   the service disconnects that client, dropping whatever it had not read;
 - clients that read late but within the window lose nothing.
 
 There is no output queue in v0: the kernel socket buffer is the queue.
 Clients that subscribe to events must read continuously.
+
+## Request deadlines
+
+Backpressure bounds what a slow *client* can do to a service. The other
+direction is the caller's own choice, and the two are not symmetric.
+
+`pocketipc_call` waits for as long as the service takes. `pocketipc_call_timeout`
+gives up after a caller-supplied number of milliseconds and reports a
+**transport failure** (`*code` 0, message `"<method> timed out after N ms"`),
+not an error response. A caller that times out **must close the connection**:
+the response may still arrive, and reading it as the answer to the next
+request would desynchronise the two. `shell_ipc_call_timeout` does this, and
+reconnects on the next call.
+
+Which calls should carry a deadline is a judgement about what the call means,
+not a default to apply everywhere:
+
+- a **periodic poll** should. If the service does not answer in time the
+  caller can simply ask again, and the alternative is an unbounded wait on
+  whatever thread the poll runs on. The shell's once-a-second `radio.status`
+  poll uses 200 ms for this reason (`SHELL_IPC_UI_TIMEOUT_MS`), and so does
+  every app tick on the LVGL thread: the Radio app's `radio.info`,
+  `radio.status` and `radio.stats` refresh, and its mock inject button. On
+  unit A (2026-09-08) the poll alone being bounded was not enough; the app
+  tick made the same calls without a deadline and froze the panel until
+  radiod answered again. The deadline covers **connecting** too
+  (`pocketipc_connect_timeout`): a caller that times out drops its
+  connection, but the kernel keeps that connection queued in the service's
+  listen backlog until the service accepts it, so a service that is alive
+  and accepting nothing fills its backlog with the caller's own abandoned
+  connections within seconds, and a blocking `connect()` then sleeps with
+  no limit before any request deadline can apply (unit A, v0.0.4). The
+  bounded connect is non-blocking, retries until the deadline and leaves
+  nothing queued when it gives up.
+- a **request whose completion is the point** should not, until the service
+  can report completion separately. `radio.send` is synchronous and blocks
+  radiod for the airtime; a deadline there would tell the user the packet
+  failed while it was being transmitted. It keeps waiting.
+
+v0 has no way for a handler to accept a request and answer later, so a
+service is unavailable to every client for as long as any one handler runs.
+That, and the asynchronous transmit path it would allow, are design items.
+
+## Peer disappearance
+
+The library never raises SIGPIPE: every frame is sent with `MSG_NOSIGNAL`,
+so a peer that has gone away is reported as `-1` with `errno == EPIPE`
+(clients see `pocketipc_call` return NULL with code 0, "send failed"). A
+process using pocketipc does not need `signal(SIGPIPE, SIG_IGN)` for its
+pocketipc sockets; sockets it opens by other means remain its own business.
+Confirmed on the bench (2026-09-07): before this rule the shell died with
+SIGPIPE on its next status poll whenever radiod crashed.
 
 ## Error codes
 

@@ -1,0 +1,40 @@
+=== configure 19:42:30
+{
+	"frequency_mhz":	869.618,
+	"bandwidth_khz":	62.5,
+	"spreading_factor":	8,
+	"coding_rate":	5,
+	"sync_word":	18,
+	"preamble_length":	32,
+	"tx_power_dbm":	2,
+	"crc":	true
+}
+rc=0
+=== status
+{
+	"state":	"rx",
+	"profile":	{
+		"frequency_mhz":	869.618,
+		"bandwidth_khz":	62.5,
+		"spreading_factor":	8,
+		"coding_rate":	5,
+		"sync_word":	18,
+		"preamble_length":	32,
+		"tx_power_dbm":	2,
+		"crc":	true
+	},
+	"uptime_s":	644
+}
+=== radiod log tail
+2026-09-07T19:00:34.303Z radiod INFO  listening on /run/pocketos/radiod.sock backend=mock region=EU868
+2026-09-07T19:31:45.219Z radiod INFO  shutting down (rc=0)
+2026-09-07T19:31:46.328Z radiod INFO  listening on /run/pocketos/radiod.sock backend=sx1262 region=EU868
+=== ambient listen 25 s (profile validation only, not the mapping)
+=== listen 25 s (ambient-validation) 19:42:30
+"state":"rx",
+packets: 1
+rssi=-74 snr=1.75
+mean rssi=-74.0 (min -74 max -74) mean snr=1.8 over 1 packets
+first payload: 05069a6c2f4d5c3046d9941f58695b71e9b764b8cc35522d79c572405829925d2d04be1a2114db96f6f6203628c8d759566239625a76d4113d3e43b6c83b897725f01de5513f6125238eeabb
+state after: "state":"rx",
+{"tx_packets":0,"rx_packets":1,"rx_crc_errors":0,"tx_airtime_ms":0,"rx_airtime_ms":590.848,"tx_airtime_last_hour_ms":0,"duty_cycle_last_hour_percent":0,"last_rssi_dbm":-74,"last_snr_db":1.75,"last_frequency_error_hz":-362.3125}

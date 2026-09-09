@@ -18,6 +18,7 @@
 #include "shell_ipc.h"
 
 #include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +26,15 @@
 
 #ifndef POCKETOS_DISPLAY_NAME
 #define POCKETOS_DISPLAY_NAME "unknown"
+#endif
+
+/* How long the once-a-second status poll waits for radiod: the UI deadline
+ * shared with every app tick (shell_ipc.h). Deliberately less than the tick
+ * that drives it, so a wedged service costs at most one frame and never
+ * accumulates. Only radio.send still waits (docs/api/pocketipc.md, Request
+ * deadlines). */
+#ifndef STATUS_POLL_TIMEOUT_MS
+#define STATUS_POLL_TIMEOUT_MS SHELL_IPC_UI_TIMEOUT_MS
 #endif
 
 #if LV_USE_LODEPNG && LV_USE_SNAPSHOT
@@ -59,6 +69,20 @@ struct shell {
 
 static struct shell sh;
 
+/* Set from SIGTERM or SIGINT; the main loop leaves through its normal exit
+ * path so the app is destroyed and the socket is unlinked. */
+static volatile sig_atomic_t stop_requested;
+
+static void on_signal(int sig)
+{
+    (void)sig;
+    stop_requested = 1;
+}
+
+/* Whether the last status poll reached radiod, so the transition is logged
+ * rather than the state repeated every second. */
+static int radio_reachable = 1;
+
 static int screenshot_save(const char *path);
 static void app_open(const struct pocketos_app *app);
 
@@ -92,7 +116,23 @@ static void status_update(void)
     strftime(buf, sizeof(buf), "%H:%M", &tm);
     lv_label_set_text(sh.status_clock, buf);
 
-    st = shell_ipc_call("radiod", "radio.status", NULL, err, sizeof(err));
+    /* This runs on the LVGL thread once a second. Before the deadline, a
+     * radiod that was alive but not answering held the whole UI: nothing
+     * repainted, touch did nothing, and the supervisor saw a healthy process
+     * because the shell had not crashed. One frame's worth of patience is
+     * enough for a local service, and the next tick asks again. */
+    st = shell_ipc_call_timeout("radiod", "radio.status", NULL,
+                                STATUS_POLL_TIMEOUT_MS, err, sizeof(err));
+    /* Once per transition, not once per second: the chip alone cannot say
+     * whether radiod is gone or merely not answering, and that is the first
+     * thing anyone debugging this asks. */
+    if (st && !radio_reachable) {
+        LOG_INFO("radiod is answering again");
+        radio_reachable = 1;
+    } else if (!st && radio_reachable) {
+        LOG_WARN("radio.status poll failed: %s", err[0] ? err : "radiod unavailable");
+        radio_reachable = 0;
+    }
     if (st) {
         const cJSON *state = cJSON_GetObjectItemCaseSensitive(st, "state");
         const char *s = cJSON_IsString(state) ? state->valuestring : "?";
@@ -392,6 +432,8 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
 
         result = cJSON_CreateObject();
         cJSON_AddNumberToObject(result, "api_version", 0);
+        cJSON_AddStringToObject(result, "version", pocketlog_version());
+        cJSON_AddStringToObject(result, "build", pocketlog_build_id());
         for (k = 0; k < APP_COUNT; k++) {
             cJSON *a = cJSON_CreateObject();
 
@@ -580,10 +622,19 @@ int main(int argc, char **argv)
     sh.tick = lv_timer_create(on_tick, 1000, NULL);
     lv_timer_set_period(sh.tick, sh.screenshot_pending ? 300 : 1000);
 
+    /* After the display backend, so this wins over the handlers SDL installs
+     * for itself in the simulator. */
+    signal(SIGTERM, on_signal);
+    signal(SIGINT, on_signal);
+
     started = lv_tick_get();
     for (;;) {
         uint32_t wait = lv_timer_handler();
 
+        if (stop_requested) {
+            LOG_INFO("stopping on signal");
+            break;
+        }
         if (exit_after_ms >= 0 && (long)(lv_tick_get() - started) >= exit_after_ms) {
             break;
         }

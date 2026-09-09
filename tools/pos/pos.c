@@ -25,6 +25,9 @@
 #ifndef POCKETOS_VERSION
 #define POCKETOS_VERSION "unknown"
 #endif
+#ifndef POCKETOS_BUILD_ID
+#define POCKETOS_BUILD_ID "unknown"
+#endif
 
 /* Read the first line of a file into buf and strip the newline. Device-tree
  * strings are NUL-terminated, so fread plus explicit termination is used
@@ -75,7 +78,7 @@ static void print_file_value(const char *label, const char *path)
 
 static int cmd_version(void)
 {
-    printf("pos %s\n", POCKETOS_VERSION);
+    printf("pos %s (build %s)\n", POCKETOS_VERSION, POCKETOS_BUILD_ID);
     return 0;
 }
 

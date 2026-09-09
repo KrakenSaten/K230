@@ -66,7 +66,7 @@ Params (all optional; omitted fields keep their value):
 | coding_rate | int | 5 to 8 (4/5 to 4/8) | 5 |
 | sync_word | int | 0x00 to 0xFF (0x12 private, 0x34 public) | 0x12 |
 | preamble_length | int | 1 to 65535 | 8 |
-| tx_power_dbm | int | -9 to 22 | 14 |
+| tx_power_dbm | int | -9 to 22 | 2 (radiod `--tx-power-dbm`, `RADIOD_TX_POWER_DBM` in /etc/default/radiod) |
 | crc | bool | | true |
 
 Result: the applied profile. Errors: 2 on out-of-range values, 3 when the
@@ -76,6 +76,14 @@ Region guard (v0): only `EU868` exists, allowing 863.000 to 870.000 MHz and
 at most 14 dBm requested output power. This is a safety net, not regulatory
 compliance: duty-cycle limits, ERP with antenna gain, and sub-band rules are
 the operator's responsibility. Airtime accounting (below) helps with that.
+
+The profile is not persisted. Every radiod start returns to the defaults
+above with the power given by `--tx-power-dbm` (2 dBm unless
+`/etc/default/radiod` says otherwise), never to the region maximum; the
+start-up profile is validated like `radio.configure`, so an out-of-range
+`--tx-power-dbm` stops radiod with exit code 2 before the radio is touched.
+Raising the power is a per-session operator action after the antenna on the
+SX1262 port has been confirmed (docs/hardware/BRINGUP_CHECKLIST.md §5).
 
 ### radio.send
 

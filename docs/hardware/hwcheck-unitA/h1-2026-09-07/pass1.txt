@@ -1,0 +1,17 @@
+=== pass1-default-staging-on-motion-on start 18:47:25 shell pid 754 temp_mC 52463 loadavg 0.00 0.00 0.00 rss_kB 12032
+conf: pocketos-shell=[ENABLE=1;] settings=[theme=ice;display_mode=normal;] staging_env=K230_LVGL_DRM_STAGING=1
+t+  5s temp=51563 load=0.00 CPU: 18% usr 9% sys 0% nic 72% idle 0% io 0% irq 0% sirq |  748 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 10s temp=52463 load=0.00 CPU: 20% usr 0% sys 0% nic 80% idle 0% io 0% irq 0% sirq |  748 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 15s temp=51262 load=0.24 CPU: 20% usr 0% sys 0% nic 80% idle 0% io 0% irq 0% sirq |  748 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 20s temp=52163 load=0.22 CPU: 18% usr 9% sys 0% nic 72% idle 0% io 0% irq 0% sirq |  748 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 25s temp=52463 load=0.20 CPU: 20% usr 0% sys 0% nic 80% idle 0% io 0% irq 0% sirq |  748 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 30s temp=51863 load=0.19 CPU: 20% usr 0% sys 0% nic 80% idle 0% io 0% irq 0% sirq |  748 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 35s temp=51563 load=0.17 CPU: 11% usr 0% sys 0% nic 88% idle 0% io 0% irq 0% sirq |  748 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 40s temp=52463 load=0.16 CPU: 18% usr 9% sys 0% nic 72% idle 0% io 0% irq 0% sirq |  748 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 45s temp=52463 load=0.14 CPU: 18% usr 9% sys 0% nic 72% idle 0% io 0% irq 0% sirq |  748 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 50s temp=52163 load=0.13 CPU: 20% usr 0% sys 0% nic 80% idle 0% io 0% irq 0% sirq |  748 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 55s temp=52463 load=0.12 CPU: 18% usr 9% sys 0% nic 72% idle 0% io 0% irq 0% sirq |  748 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+t+ 60s temp=52163 load=0.11 CPU: 10% usr 10% sys 0% nic 80% idle 0% io 0% irq 0% sirq |  748 1 root S 2448 0% 0% {pos-supervise} /bin/sh /usr/bin/pos-supervise pocketos-shell /usr/bin/pocketos-shell
+=== pass1-default-staging-on-motion-on end 18:48:27 temp_mC 52463 loadavg 0.11 0.04 0.01 rss_kB 12032 cpu_busy_percent_over_window 17 (jiffies busy=1041 idle=4998)
+=== pass1b-default-shell-cpu start 18:49:19 shell pid 754 temp_mC 52463 loadavg 0.65 0.19 0.06 rss_kB 12032
+=== pass1b-default-shell-cpu end 18:49:50 temp_mC 52463 loadavg 0.62 0.22 0.08 rss_kB 12032 cpu_busy_percent_over_window 16 (jiffies busy=507 idle=2503) shell_cpu_percent 0 (shell jiffies 0)

@@ -42,14 +42,51 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-PocketOS 0.0.1, pre-hardware. Implemented and host-tested: `pos` CLI,
-`pos-hwcheck`, pocketipc, pocketlog, `pos-supervise`, radiod with the mock
-backend and the sx1262 backend (RadioLib on spidev + libgpiod, compiles
-for riscv64, never run on hardware), the LVGL shell with Design System v0.1
-(theme engine, five themes, three modes, settings store), and two apps,
-PocketFleet and PocketRadar. The shell runs as an SDL simulator on the PC
-with screenshots in out/sim/; its DRM backend is untested. The K230 SD image
-is built by platforms/k230 (see docs/BUILD_ENVIRONMENT.md and
-docs/hardware/FIRST_BOOT.md). No hardware has been tested yet; every
-hardware statement is DOCUMENTED or ASSUMED (docs/hardware/T-DISPLAY-K230.md,
-docs/KNOWN_ISSUES.md).
+PocketOS 0.0.5, the second focused fix release after the v0.0.3 and v0.0.4
+hardware sessions. Implemented and host-tested:
+`pos` CLI, `pos-hwcheck`, pocketipc, pocketlog, pocketpaths, `pos-supervise`,
+radiod with the mock backend and the sx1262 backend (RadioLib on spidev +
+libgpiod), the LVGL shell with Design System v0.1 (theme engine, five themes,
+three modes, settings store), and two apps, PocketFleet and PocketRadar. The
+shell runs as an SDL simulator on the PC with screenshots in out/sim/, and as
+DRM + evdev on the board.
+
+PocketOS 0.0.1 booted and ran on a physical K230 on 2026-09-07, including one
+SX1262 transmit (docs/hardware/BRINGUP_SESSION_2026-09-07.md); hardware claims
+are classified per statement in docs/hardware/T-DISPLAY-K230.md.
+
+- **0.0.2** is a candidate image, built and checksummed but not yet flashed:
+  the SIGPIPE fix, hwcheck `--lora`, no empty-password SSH, radiod at 2 dBm
+  start-up power (docs/hardware/V0.0.2_INTEGRATION_REVIEW.md).
+- **0.0.3** is platform-only and changes no application source: the image
+  becomes a function of a commit (`git archive`, executable bits in git,
+  pinned vendor commits enforced), every binary, log and crash report names
+  its build, `core/pocketpaths` owns the filesystem roots, the shell's status
+  poll no longer waits forever on a wedged service, the shell stops cleanly on
+  SIGTERM, init-script `stop` confirms before returning, and radiod holds
+  `/dev/spidev0.0` exclusively. Fleet and Radar are byte-for-byte unchanged.
+  Validated on unit A on 2026-09-08 (docs/hardware/V0.0.3_OPERATOR_CHECKLIST.md)
+  with three scoped defects.
+- **0.0.4** fixes exactly those three: every app tick on the LVGL thread
+  carries the 200 ms deadline (the Radio app's tick froze the panel while
+  radiod was stopped), the supervisor leaves only after its child has (the
+  shell stop was reported as forced), and `pos-hwcheck --lora` drives RST
+  high and waits for BUSY low as radiod does (the probe read `ff`). Nothing
+  else changes; the retest is docs/hardware/V0.0.4_FOCUSED_RETEST.md.
+  On unit A (2026-09-08) M6 passed, M5 and M7 each exposed a second defect.
+- **0.0.5** closes the M5 second cause: the UI deadline covers connecting
+  as well (with radiod stopped, the shell's own abandoned connections
+  filled radiod's listen backlog and the reconnect blocked with no
+  deadline). `pos-hwcheck --lora` also gained a readiness gate (registers
+  read only after the chip reports standby on two consecutive polls), which
+  is correct but did not fix the probe's register read: on unit A the read
+  still returns `24 b4` with the chip provably in standby, so that is a
+  framing or decoding defect in the probe's hand-built ReadRegister, not in
+  radiod and not in the SX1262, which radiod initialises correctly right
+  afterwards. It is a diagnostic-tool defect, open, not a runtime blocker.
+  Validated on unit A on 2026-09-09 (docs/hardware/V0.0.5_FOCUSED_RETEST.md):
+  M5 PASS, M6 PASS, M7 probe read FAIL with the radio PASS, smoke and
+  reboot persistence PASS.
+
+The K230 SD image is built by platforms/k230 (see docs/BUILD_ENVIRONMENT.md
+and docs/hardware/FIRST_BOOT.md).

@@ -7,11 +7,18 @@
 #   resets after the service has run for 60 s. If it restarts more than
 #   POS_SUPERVISE_MAX_RESTARTS (5) times within 60 s, supervision stops and
 #   $POCKETOS_RUNTIME_DIR/<name>.crashloop is written for the shell to show.
-#   Stop with SIGTERM: the child is terminated and the loop exits.
+#   Stop with SIGTERM: the child is terminated and the supervisor leaves
+#   only after the child has. Whoever stops the supervisor (the init
+#   scripts) takes "supervisor gone" to mean "daemon gone", and a daemon
+#   that is still leaving must not be mistaken for one that ignored the
+#   signal. Escalation to SIGKILL stays with the init scripts.
 #
 # Environment: POCKETOS_RUNTIME_DIR (default /run/pocketos),
 #              POCKETOS_LOG_DIR (default /var/lib/pocketos/log, persistent;
 #              /var/log is a tmpfs on the K230 image).
+# These two defaults are the ones core/pocketpaths.h defines for the C side.
+# This is POSIX sh and cannot link against it, so they are repeated here and
+# tests/supervise_test.sh checks the two against each other.
 
 NAME=$1
 [ -n "$NAME" ] && [ $# -ge 2 ] || { echo "usage: pos-supervise <name> <command> [args...]" >&2; exit 2; }
@@ -26,6 +33,10 @@ CRASHLOOP="$RUN_DIR/$NAME.crashloop"
 rm -f "$CRASHLOOP"
 
 log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) supervise $NAME $*" | tee -a "$LOG" >&2; }
+# Restart timing uses the boot clock, not the wall clock: on a board without
+# an RTC the wall clock jumps from 1970 to the real date when NTP syncs, which
+# once made a 214 s run look like 1788807617 s. /proc/uptime is monotonic.
+now_s() { if [ -r /proc/uptime ]; then cut -d. -f1 /proc/uptime; else date +%s; fi; }
 
 CHILD=""
 STOPPING=0
@@ -37,17 +48,27 @@ trap on_term TERM INT
 
 backoff=1
 restarts=0
-window_start=$(date +%s)
+window_start=$(now_s)
 while [ "$STOPPING" -eq 0 ]; do
-    start=$(date +%s)
+    start=$(now_s)
     "$@" &
     CHILD=$!
     echo "$CHILD" > "$RUN_DIR/$NAME.pid"
     wait "$CHILD"
     rc=$?
+    if [ "$STOPPING" -eq 1 ]; then
+        # The trap interrupted wait (POSIX: a trapped signal returns from
+        # wait before the child is gone). The child has been told to leave
+        # and is leaving; stay until it has. On unit A (M6, 2026-09-08) the
+        # shell needs a moment to release the panel, the supervisor was
+        # gone in 40 ms, and the init script SIGKILLed a shell that was
+        # already on its way out and reported the stop as forced.
+        while kill -0 "$CHILD" 2>/dev/null; do wait "$CHILD" 2>/dev/null; done
+        CHILD=""
+        break
+    fi
     CHILD=""
-    [ "$STOPPING" -eq 1 ] && break
-    now=$(date +%s)
+    now=$(now_s)
     ran=$((now - start))
     if [ "$ran" -ge "$WINDOW" ]; then
         backoff=1; restarts=0; window_start=$now

@@ -14,17 +14,23 @@ LDLIBS  += -lcjson -lm
 ENABLE_SX1262 ?= 0
 RADIOLIB_DIR ?= $(if $(wildcard third_party/RadioLib/src),third_party/RadioLib/src,vendor/RadioLib/src)
 POCKETOS_VERSION := $(shell cat VERSION)
-COMMON_FLAGS := -Wall -Wextra -Icore -DPOCKETOS_VERSION=\"$(POCKETOS_VERSION)\"
+# Build identity. In the Buildroot package the source tree has no git history,
+# so apply_to_sdk.sh writes BUILD_ID beside VERSION when it exports the tree;
+# in a working checkout it comes from git. A build that has neither says so.
+POCKETOS_BUILD_ID := $(shell cat BUILD_ID 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo unknown)
+COMMON_FLAGS := -Wall -Wextra -Icore -DPOCKETOS_VERSION=\"$(POCKETOS_VERSION)\" \
+                -DPOCKETOS_BUILD_ID=\"$(POCKETOS_BUILD_ID)\"
 # Compiler-generated header dependencies (.d next to each .o) so a changed
 # header rebuilds every object that includes it (PocketFleet finding 1).
 DEPFLAGS := -MMD -MP
 ALL_CFLAGS := $(CFLAGS) -std=gnu11 $(COMMON_FLAGS) $(DEPFLAGS)
 ALL_CXXFLAGS := $(CXXFLAGS) -std=gnu++17 $(COMMON_FLAGS) -Iservices/radiod -I$(RADIOLIB_DIR) -DRADIOLIB_LOW_LEVEL=1 $(DEPFLAGS)
 
+PATHS_OBJS  := core/pocketpaths.o
 IPC_OBJS    := core/pocketipc/pocketipc.o
 LOG_OBJS    := core/pocketlog/pocketlog.o
-POS_OBJS    := tools/pos/pos.o tools/pos/pos_radio.o tools/pos/pos_logs.o tools/pos/pos_app.o $(IPC_OBJS)
-RADIOD_OBJS := services/radiod/main.o services/radiod/backend_mock.o services/radiod/airtime.o $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS)
+POS_OBJS    := tools/pos/pos.o tools/pos/pos_radio.o tools/pos/pos_logs.o tools/pos/pos_app.o $(IPC_OBJS) $(PATHS_OBJS)
+RADIOD_OBJS := services/radiod/main.o services/radiod/backend_mock.o services/radiod/airtime.o $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
 
 RADIOLIB_SRCS := $(RADIOLIB_DIR)/Hal.cpp $(RADIOLIB_DIR)/Module.cpp \
                  $(wildcard $(RADIOLIB_DIR)/modules/SX126x/*.cpp) \
@@ -72,10 +78,10 @@ tests/airtime_test: tests/airtime_test.o services/radiod/airtime.o
 tests/airtime_test.o: tests/airtime_test.c
 	$(CC) $(ALL_CFLAGS) -Iservices/radiod -c -o $@ $<
 
-tests/pocketlog_test: tests/pocketlog_test.o $(LOG_OBJS)
+tests/pocketlog_test: tests/pocketlog_test.o $(LOG_OBJS) $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
-tests/pocketipc_test: tests/pocketipc_test.o $(IPC_OBJS)
+tests/pocketipc_test: tests/pocketipc_test.o $(IPC_OBJS) $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 # Theme engine (pure C, no LVGL) and its test against docs/design/themes.json.
@@ -96,14 +102,17 @@ tests/theme_test.o: tests/theme_test.c ui/pocketui/pos_theme.h
 	$(CC) $(ALL_CFLAGS) -Iui/pocketui -c -o $@ $<
 
 # Shell settings store (pure C) and its test.
-ui/shell/settings.o: ui/shell/settings.c ui/shell/settings.h
+ui/shell/settings.o: ui/shell/settings.c ui/shell/settings.h core/pocketpaths.h
 	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
 
-tests/settings_test: tests/settings_test.o ui/shell/settings.o
+tests/settings_test: tests/settings_test.o ui/shell/settings.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 tests/settings_test.o: tests/settings_test.c ui/shell/settings.h
 	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/paths_test: tests/paths_test.o $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # PocketFleet game engine (pure C, no LVGL). It lives beside its app in
 # apps/fleet/engine but is built here so it is unit-tested with the rest of
@@ -176,9 +185,10 @@ tests/radar_store_test: tests/radar_store_test.o $(RADAR_APP_OBJS) $(RADAR_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # Native tests only (they execute binaries).
-test: all tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/theme_test tests/settings_test $(FLEET_TESTS) $(RADAR_TESTS)
+test: all tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/theme_test tests/settings_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS)
 	./tests/airtime_test
 	./tests/pocketlog_test 2>/dev/null
+	./tests/paths_test
 	./tests/pocketipc_test
 	./tests/theme_test docs/design/themes.json
 	./tests/settings_test
@@ -194,8 +204,11 @@ test: all tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/the
 	./tests/radar_store_test
 	bash tests/radiod_mock_test.sh
 	bash tests/supervise_test.sh
+	bash tests/initscript_test.sh
+	bash tests/package_sync_test.sh
 	bash tests/style_lint.sh
 	bash tests/build_deps_test.sh
+	bash tests/hwcheck_test.sh
 	bash tests/fleet_lint.sh
 	bash tests/radar_lint.sh
 
@@ -210,6 +223,6 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 -include $(DEPFILES)
 
 clean:
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/paths_test tests/paths_test.o $(PATHS_OBJS)
 
 .PHONY: all test install clean sx1262-objs

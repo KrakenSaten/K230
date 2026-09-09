@@ -25,3 +25,8 @@
 /tests/radar_rules_test
 /tests/radar_score_test
 /tests/radar_store_test
+
+# *.d above is for compiler dependency files; the init.d directories are source.
+!platforms/k230/rootfs_overlay/etc/init.d/
+BUILD_ID
+/tests/paths_test

@@ -1,0 +1,9 @@
+=== line ownership 19:32:35
+	line   5:	unnamed         	output consumer=radiod
+	line  19:	unnamed         	input consumer=radiod
+	line  20:	unnamed         	input edges=rising consumer=radiod
+	line  12:	unnamed         	output consumer=radiod
+=== RSSI x20 (both-antennas-attached), 0.5 s apart
+-92 -94 -94 -74 -94 -94 -74 -74 -94 -74 -94 -94 -94 -94 -94 -93 -93 -93 -95 -94 
+mean=-89 min=-95 max=-74 dBm (both-antennas-attached)
+	"state":	"rx",

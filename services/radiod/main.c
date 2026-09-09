@@ -26,6 +26,11 @@
 
 #define RADIOD_API_VERSION 0
 #define HOUR_BUCKETS 60
+/* Requested output power at start. 2 dBm is the bench-safe value used for
+ * the first transmit on real hardware; the operator raises it per session
+ * with radio.configure, and a restart returns to this value (or to
+ * --tx-power-dbm), never silently to the region maximum. */
+#define RADIOD_DEFAULT_TX_POWER_DBM 2
 
 struct region {
     const char *name;
@@ -437,6 +442,8 @@ static cJSON *m_info(struct radiod *rd)
     cJSON_AddStringToObject(o, "chip", rd->be.ops->chip);
     cJSON_AddStringToObject(o, "backend", rd->be.ops->name);
     cJSON_AddNumberToObject(o, "api_version", RADIOD_API_VERSION);
+    cJSON_AddStringToObject(o, "version", pocketlog_version());
+    cJSON_AddStringToObject(o, "build", pocketlog_build_id());
     cJSON_AddStringToObject(o, "region", rd->region->name);
     cJSON_AddNumberToObject(caps, "frequency_min_mhz", rd->caps.frequency_min_mhz);
     cJSON_AddNumberToObject(caps, "frequency_max_mhz", rd->caps.frequency_max_mhz);
@@ -728,9 +735,11 @@ static void usage(FILE *out)
 {
     fprintf(out,
             "usage: radiod [--backend mock|sx1262] [--region EU868|NONE]\n"
-            "              [--socket-name NAME] [--verbose]\n"
+            "              [--tx-power-dbm N] [--socket-name NAME] [--verbose]\n"
+            "Defaults: backend mock, region EU868, tx power %d dBm (the profile\n"
+            "is not persisted: every start returns to these values).\n"
             "Runtime directory: $POCKETOS_RUNTIME_DIR or %s\n",
-            POCKETIPC_DEFAULT_DIR);
+            RADIOD_DEFAULT_TX_POWER_DBM, POCKETIPC_DEFAULT_DIR);
 }
 
 int main(int argc, char **argv)
@@ -738,6 +747,7 @@ int main(int argc, char **argv)
     struct radiod rd;
     const char *backend = "mock";
     const char *region = "EU868";
+    int tx_power_dbm = RADIOD_DEFAULT_TX_POWER_DBM;
     char err[160] = "";
     int i;
     int rc;
@@ -751,6 +761,15 @@ int main(int argc, char **argv)
             backend = argv[++i];
         } else if (strcmp(argv[i], "--region") == 0 && i + 1 < argc) {
             region = argv[++i];
+        } else if (strcmp(argv[i], "--tx-power-dbm") == 0 && i + 1 < argc) {
+            char *end;
+            long v = strtol(argv[++i], &end, 10);
+
+            if (*argv[i] == '\0' || *end != '\0' || v < -100 || v > 100) {
+                LOG_ERROR("--tx-power-dbm needs an integer, got '%s'", argv[i]);
+                return 2;
+            }
+            tx_power_dbm = (int)v;
         } else if (strcmp(argv[i], "--socket-name") == 0 && i + 1 < argc) {
             snprintf(rd.socket_name, sizeof(rd.socket_name), "%s", argv[++i]);
         } else if (strcmp(argv[i], "--verbose") == 0) {
@@ -800,10 +819,23 @@ int main(int argc, char **argv)
     rd.be.profile.coding_rate = 5;
     rd.be.profile.sync_word = 0x12;
     rd.be.profile.preamble_length = 8;
-    rd.be.profile.tx_power_dbm = 14;
+    rd.be.profile.tx_power_dbm = tx_power_dbm;
     rd.be.profile.crc = true;
     if (strcmp(rd.region->name, "NONE") == 0) {
         rd.be.profile.frequency_mhz = 868.0;
+    }
+    /* The start-up profile goes through the same validation as
+     * radio.configure, so a bad --tx-power-dbm (outside the chip's range or
+     * above the region cap) is refused before the radio is touched. */
+    {
+        struct radio_profile check = rd.be.profile;
+        int prc = profile_apply(&rd, NULL, &check, err, sizeof(err));
+
+        if (prc != 0) {
+            LOG_ERROR("start-up profile rejected: %s", err);
+            rd.be.ops->shutdown(&rd.be);
+            return 2;
+        }
     }
     if (rd.be.ops->configure(&rd.be, &rd.be.profile, err, sizeof(err)) < 0) {
         LOG_ERROR("initial configure failed: %s", err);

@@ -1,0 +1,1 @@
+{"event":"radio.rx","data":{"payload_hex":"05069a6c2f4d5c3046d9941f58695b71e9b764b8cc35522d79c572405829925d2d04be1a2114db96f6f6203628c8d759566239625a76d4113d3e43b6c83b897725f01de5513f6125238eeabb","bytes":76,"rssi_dbm":-74,"snr_db":1.75,"frequency_error_hz":-362.3125,"timestamp_ms":1788810173041,"airtime_ms":590.848}}

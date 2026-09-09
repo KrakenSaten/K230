@@ -21,9 +21,12 @@
 #ifndef POCKETOS_SETTINGS_H
 #define POCKETOS_SETTINGS_H
 
+#include "pocketpaths.h"
+
 #include <stddef.h>
 
-#define SETTINGS_DEFAULT_DIR "/etc/pocketos"
+/* Kept as the historical name; the value belongs to pocketpaths.h. */
+#define SETTINGS_DEFAULT_DIR POCKETOS_CONFIG_DIR_DEFAULT
 #define SETTINGS_FILE "settings.conf"
 #define SETTINGS_MAX_KEYS 64
 #define SETTINGS_KEY_MAX 32

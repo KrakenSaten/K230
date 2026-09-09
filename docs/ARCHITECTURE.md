@@ -1,8 +1,8 @@
 # PocketOS architecture
 
-Status: reflects the code as of 2026-09-06 (PocketOS 0.0.1, pre-hardware).
-Binding decisions live in docs/decisions/; this file explains how the
-pieces fit.
+Status: reflects the code as of 2026-09-08 (PocketOS 0.0.3, not yet built as
+an image; 0.0.1 has run on hardware). Binding decisions live in
+docs/decisions/; this file explains how the pieces fit.
 
 ## Layers
 
@@ -57,7 +57,11 @@ pocketipc (docs/api/pocketipc.md): Unix-domain sockets, 4-byte length +
 JSON, request/response with integer ids, events for subscribed clients.
 Services use a non-blocking poll loop with an incremental frame reader so a
 stalled client cannot block the daemon. Clients use the blocking helper
-`pocketipc_call`. cJSON is the only dependency.
+`pocketipc_call`, or `pocketipc_call_timeout` where waiting forever is the
+wrong answer: from 0.0.3 the shell's once-a-second status poll carries a
+200 ms deadline, so a service that is alive but not answering costs one frame
+instead of the session. Calls whose completion is the point, `radio.send`
+above all, still wait. cJSON is the only dependency.
 
 ## radiod
 

@@ -13,6 +13,23 @@ set(LVGL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../vendor/lvgl" CACHE PATH "LVGL so
 set(REPO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 file(GLOB POCKETUI_FONTS "${REPO_DIR}/ui/pocketui/fonts/pos_font_*.c")
 
+# Build identity, matching the root Makefile: BUILD_ID beside VERSION when the
+# tree was exported into the Buildroot package, git in a working checkout,
+# "unknown" when there is neither. The shell carried no version at all before.
+file(STRINGS "${REPO_DIR}/VERSION" POCKETOS_VERSION LIMIT_COUNT 1)
+if(EXISTS "${REPO_DIR}/BUILD_ID")
+    file(STRINGS "${REPO_DIR}/BUILD_ID" POCKETOS_BUILD_ID LIMIT_COUNT 1)
+else()
+    execute_process(COMMAND git -C "${REPO_DIR}" rev-parse --short HEAD
+                    OUTPUT_VARIABLE POCKETOS_BUILD_ID
+                    OUTPUT_STRIP_TRAILING_WHITESPACE
+                    ERROR_QUIET RESULT_VARIABLE POCKETOS_GIT_RC)
+    if(NOT POCKETOS_GIT_RC EQUAL 0 OR POCKETOS_BUILD_ID STREQUAL "")
+        set(POCKETOS_BUILD_ID "unknown")
+    endif()
+endif()
+message(STATUS "PocketOS ${POCKETOS_VERSION} build ${POCKETOS_BUILD_ID}")
+
 find_package(PkgConfig REQUIRED)
 
 add_executable(pocketos-shell
@@ -47,6 +64,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/radar/engine/radar_score.c
     ${REPO_DIR}/apps/radar/ui/radar_scope.c
     ${REPO_DIR}/apps/radar/ui/radar_screens.c
+    ${REPO_DIR}/core/pocketpaths.c
     ${REPO_DIR}/core/pocketipc/pocketipc.c
     ${REPO_DIR}/core/pocketipc/server.c
     ${REPO_DIR}/core/pocketlog/pocketlog.c
@@ -56,6 +74,8 @@ target_include_directories(pocketos-shell PRIVATE
 target_compile_options(pocketos-shell PRIVATE -Wall -Wextra)
 target_compile_definitions(pocketos-shell PRIVATE
     POCKETOS_DISPLAY_NAME="${POCKETOS_DISPLAY}"
+    POCKETOS_VERSION="${POCKETOS_VERSION}"
+    POCKETOS_BUILD_ID="${POCKETOS_BUILD_ID}"
     LV_LVGL_H_INCLUDE_SIMPLE)
 target_link_libraries(pocketos-shell PRIVATE cjson m)
 

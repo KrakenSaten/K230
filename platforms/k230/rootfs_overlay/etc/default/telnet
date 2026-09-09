@@ -1,0 +1,6 @@
+# PocketOS: telnetd stays available for local use only. The vendor image
+# exposes a passwordless root login on telnet to the whole LAN; binding to
+# loopback closes that without removing the service (Buildroot's S50telnet
+# reads TELNETD_ARGS from this file). Serial console and SSH (after `passwd`
+# on the console) are the remote paths.
+TELNETD_ARGS="-F -b 127.0.0.1"

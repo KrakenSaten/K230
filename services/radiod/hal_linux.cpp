@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <gpiod.h>
 #include <linux/spi/spidev.h>
+#include <sys/file.h>
 #include <sys/ioctl.h>
 #include <time.h>
 #include <unistd.h>
@@ -329,6 +330,20 @@ void PocketRadioHal::spiBegin()
     spi_fd_ = open(spi_path_, O_RDWR | O_CLOEXEC);
     if (spi_fd_ < 0) {
         setError("%s: %s", spi_path_, strerror(errno));
+        return;
+    }
+    /* The GPIO lines are exclusive because libgpiod requests them from the
+     * kernel, and the bench confirmed radiod holding all four. spidev has no
+     * such thing: two processes can open the same node and interleave
+     * transfers, and file permissions cannot help while everything runs as
+     * root. An advisory whole-file lock closes that, and is released by the
+     * kernel when the fd goes, including on a crash. It is what makes
+     * "pos-hwcheck --lora while radiod owns the radio" impossible rather than
+     * merely discouraged (review finding F14, bench defect B3). */
+    if (flock(spi_fd_, LOCK_EX | LOCK_NB) < 0) {
+        setError("%s: already in use by another process (%s)", spi_path_, strerror(errno));
+        close(spi_fd_);
+        spi_fd_ = -1;
         return;
     }
     if (ioctl(spi_fd_, SPI_IOC_WR_MODE, &mode) < 0 ||

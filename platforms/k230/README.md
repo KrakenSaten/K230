@@ -56,6 +56,27 @@ If the device does not boot far enough for SSH, use the serial console
 (115200) or swap back to the vendor SD card; see docs/hardware/FIRST_BOOT.md
 "Recovery".
 
+## First login and remote access (from v0.0.2)
+
+The root account ships without a password, as in the vendor image, so the
+serial console (UART0, 115200) always gives a root shell for recovery. From
+v0.0.2 the network side is closed by default: sshd runs with
+`PermitEmptyPasswords no` (apply_to_sdk.sh patches the vendor sshd_config)
+and telnetd listens on 127.0.0.1 only (`/etc/default/telnet`). Nothing
+secret is embedded in the image. To enable SSH, on the serial console:
+
+```sh
+passwd                      # sets the root password; SSH password login works from now on
+# or, key only:
+mkdir -p /root/.ssh && chmod 700 /root/.ssh
+cat >> /root/.ssh/authorized_keys      # paste the public key, Ctrl-D
+chmod 600 /root/.ssh/authorized_keys
+```
+
+Neither step survives a re-flash, which is intended. The USB LAN adapter has
+no burned-in MAC, so its address and therefore the DHCP lease can change on
+every boot: read the IP after each boot (`ip -4 addr show eth0`).
+
 ## Logs on the device
 
 `/var/log` is a tmpfs on this image, so PocketOS keeps its logs, crash

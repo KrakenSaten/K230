@@ -92,6 +92,12 @@ int main(void)
     LOG_DEBUG("hidden %d", 1);
     LOG_INFO("hello %s", "world");
     LOG_WARN("careful");
+    /* The first line of the file names the build and the pid: the marker that
+     * separates one boot's lines from the next on a board whose clock restarts
+     * at 1970, and the only thing tying a log to the image it came from. */
+    check("start line written", file_contains(path, " t INFO  start version="));
+    check("start line names the build", file_contains(path, "build=" POCKETOS_BUILD_ID));
+    check("start line names the pid", file_contains(path, "pid="));
     check("info line written", file_contains(path, " t INFO  hello world"));
     check("warn line written", file_contains(path, " t WARN  careful"));
     check("debug filtered", !file_contains(path, "hidden"));
@@ -129,6 +135,10 @@ int main(void)
     if (report) {
         check("crash report has signal", file_contains(report, "signal: 11"));
         check("crash report has backtrace", file_contains(report, "backtrace:"));
+        /* Without these a backtrace of bare offsets cannot be resolved
+         * against the binary it came from. */
+        check("crash report names the version", file_contains(report, "version: " POCKETOS_VERSION));
+        check("crash report names the build", file_contains(report, "build: " POCKETOS_BUILD_ID));
         free(report);
     }
 
