@@ -139,6 +139,18 @@ mkdir -p "${PKG_DIR}/src"
 # shellcheck disable=SC2086  # the pathspec is three words on purpose
 git -C "${REPO_DIR}" archive --format=tar HEAD -- ${POCKETOS_PKG_PATHSPEC} \
     | tar -x -C "${PKG_DIR}/src/"
+# PocketTimber's proof sprites and their converter live under docs/, which the
+# package deliberately leaves out. They are the one part of docs/ a build
+# consumes: ui/shell/CMakeLists.txt converts the renders to LVGL image arrays
+# at configure time (host python3, which Buildroot provides; pocketos.mk
+# depends on it). Without them the shell silently builds the placeholder
+# blocks, which is not the app D3 validates. Only the renders and the
+# converter travel; the Blender source and the studies stay in the
+# repository. Same rule as above: one line, read by tests/package_sync_test.sh.
+POCKETOS_PKG_ART_PATHSPEC="docs/design/timber-art/rendered docs/design/timber-art/tools"
+# shellcheck disable=SC2086
+git -C "${REPO_DIR}" archive --format=tar HEAD -- ${POCKETOS_PKG_ART_PATHSPEC} \
+    | tar -x -C "${PKG_DIR}/src/"
 # The exported tree has no git history, so the commit it came from travels
 # beside VERSION. The Makefile and ui/shell/CMakeLists.txt compile both into
 # every binary; the logs, the crash reports and <service>.info then name the

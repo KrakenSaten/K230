@@ -240,8 +240,70 @@ tests/radar_score_test: tests/radar_score_test.o $(RADAR_DIR)/radar_score.o $(RA
 tests/radar_store_test: tests/radar_store_test.o $(RADAR_APP_OBJS) $(RADAR_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# PocketTimber game engine (pure C, no LVGL, no I/O, no floating point).
+# Arranged like PocketRadar: the engine lives beside its app in
+# apps/timber/engine and is built here so it is unit-tested with the rest
+# of the tree; the app itself will be built by ui/shell (CMake) from P7.
+TIMBER_DIR := apps/timber/engine
+TIMBER_OBJS := $(TIMBER_DIR)/timber_types.o $(TIMBER_DIR)/timber_rng.o $(TIMBER_DIR)/timber_tower.o \
+               $(TIMBER_DIR)/timber_pull.o $(TIMBER_DIR)/timber_stability.o $(TIMBER_DIR)/timber_score.o \
+               $(TIMBER_DIR)/timber_collapse.o $(TIMBER_DIR)/timber_rules.o $(TIMBER_DIR)/timber_replay.o
+TIMBER_TESTS := tests/timber_rng_test tests/timber_types_test tests/timber_tower_test tests/timber_pull_test \
+                tests/timber_stability_test tests/timber_score_test tests/timber_collapse_test tests/timber_rules_test \
+                tests/timber_replay_test tests/timber_view_test tests/timber_store_test
+# The store is the app's only door to the filesystem, so it sits beside the
+# app rather than inside the engine (tests/timber_lint.sh).
+TIMBER_APP_OBJS := apps/timber/timber_store.o
+
+$(TIMBER_DIR)/%.o: $(TIMBER_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) -I$(TIMBER_DIR) -c -o $@ $<
+
+apps/timber/timber_store.o: apps/timber/timber_store.c
+	$(CC) $(ALL_CFLAGS) -I$(TIMBER_DIR) -Iapps/timber -c -o $@ $<
+
+tests/timber_%_test.o: tests/timber_%_test.c
+	$(CC) $(ALL_CFLAGS) -I$(TIMBER_DIR) -Iapps/timber -Iapps/timber/ui -c -o $@ $<
+
+tests/timber_rng_test: tests/timber_rng_test.o $(TIMBER_DIR)/timber_rng.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/timber_types_test: tests/timber_types_test.o $(TIMBER_DIR)/timber_types.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/timber_tower_test: tests/timber_tower_test.o $(TIMBER_DIR)/timber_tower.o $(TIMBER_DIR)/timber_types.o $(TIMBER_DIR)/timber_rng.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/timber_pull_test: tests/timber_pull_test.o $(TIMBER_DIR)/timber_pull.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/timber_stability_test: tests/timber_stability_test.o $(TIMBER_DIR)/timber_stability.o $(TIMBER_DIR)/timber_tower.o \
+                             $(TIMBER_DIR)/timber_types.o $(TIMBER_DIR)/timber_rng.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/timber_score_test: tests/timber_score_test.o $(TIMBER_DIR)/timber_score.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/timber_collapse_test: tests/timber_collapse_test.o $(TIMBER_DIR)/timber_collapse.o $(TIMBER_DIR)/timber_tower.o $(TIMBER_DIR)/timber_types.o $(TIMBER_DIR)/timber_rng.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/timber_rules_test: tests/timber_rules_test.o $(TIMBER_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/timber_replay_test: tests/timber_replay_test.o $(TIMBER_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# The view model is LVGL-free (tests/timber_lint.sh), so it is tested here
+# too; the widget and screens that use it are built only by ui/shell.
+TIMBER_UI_OBJS := apps/timber/ui/timber_view.o
+
+tests/timber_view_test: tests/timber_view_test.o $(TIMBER_UI_OBJS) $(TIMBER_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/timber_store_test: tests/timber_store_test.o $(TIMBER_APP_OBJS) $(TIMBER_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 # Native tests only (they execute binaries).
-test: all tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/theme_test tests/settings_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS)
+test: all tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/theme_test tests/settings_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS)
 	./tests/airtime_test
 	./tests/pocketlog_test 2>/dev/null
 	./tests/paths_test
@@ -261,6 +323,17 @@ test: all tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/poc
 	./tests/radar_rules_test
 	./tests/radar_score_test
 	./tests/radar_store_test
+	./tests/timber_rng_test
+	./tests/timber_types_test
+	./tests/timber_tower_test
+	./tests/timber_pull_test
+	./tests/timber_stability_test
+	./tests/timber_score_test
+	./tests/timber_collapse_test
+	./tests/timber_rules_test
+	./tests/timber_replay_test
+	./tests/timber_view_test
+	./tests/timber_store_test
 	bash tests/radiod_mock_test.sh
 	bash tests/sysd_test.sh
 	bash tests/supervise_test.sh
@@ -271,6 +344,7 @@ test: all tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/poc
 	bash tests/hwcheck_test.sh
 	bash tests/fleet_lint.sh
 	bash tests/radar_lint.sh
+	bash tests/timber_lint.sh
 
 install: all
 	install -D -m 0755 tools/pos/pos $(DESTDIR)$(PREFIX)/bin/pos
@@ -292,6 +366,6 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 -include $(DEPFILES)
 
 clean:
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) tests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) tests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(TIMBER_UI_OBJS)
 
 .PHONY: all test install clean sx1262-objs
