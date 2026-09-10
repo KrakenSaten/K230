@@ -245,24 +245,34 @@ With the shell running and Timber **not** open (home screen):
 
 ## Summary
 
+**This run ended at a STOP condition.** The table below is reconstructed on
+2026-09-10 from the bench session record of 2026-09-09; the sheet was left
+blank on the day. The two defects it found are corroborated by their fixes
+in this repository, `35dd10e` and `7cf6450`, whose commit messages carry the
+root causes.
+
 | D3 item | Verdict | Observed |
 | --- | --- | --- |
-| App launches on K230 (1) | | |
-| No clipping / scaling / font problems on 528 × 700 (2) | | |
-| Normal play works (3) | | |
-| Collapse works (4) | | |
-| Record file is created (4) | | |
-| Completed run works (5) | | |
-| BEST updates (5) | | |
-| Summit works (6) | | |
-| Record survives app restart (7) | | |
-| Record survives OS reboot (8) | | |
-| Record survives full power cycle (9) | | |
-| Corrupt record does not stop the game (10) | | |
-| Storage permissions / path correct (11) | | |
-| Repeated runs remain stable (12) | | |
-| Regression smoke: Fleet, Radar, Radio (13) | | |
+| App launches on K230 (1) | PASS | identity `0.0.5` build `233455a`; handover clean; five tiles |
+| No clipping / scaling / font problems on 528 × 700 (2) | **FAIL** | the table screen overflowed the body by 28 px, so the body scrolled and LVGL stole any tap or drag that rolled more than 10 px. Fixed by `TABLE_HEIGHT` 700 → 672 (`7cf6450`) |
+| Normal play works (3) | **FAIL — STOP** | TEST never answered after a selection, and a block pushed back by hand stayed locked in its seat. Two separate defects, fixed by `35dd10e` and `7cf6450` |
+| Collapse works (4) | not reached | |
+| Record file is created (4) | not reached | |
+| Completed run works (5) | not reached | |
+| BEST updates (5) | not reached | |
+| Summit works (6) | not reached | |
+| Record survives app restart (7) | not reached | |
+| Record survives OS reboot (8) | not reached | |
+| Record survives full power cycle (9) | not reached | |
+| Corrupt record does not stop the game (10) | not reached | |
+| Storage permissions / path correct (11) | not reached | |
+| Repeated runs remain stable (12) | not reached | |
+| Regression smoke: Fleet, Radar, Radio (13) | not reached | |
 
-Verdict: **D3 PASS** / **D3 PASS WITH OPEN ITEMS** (name them) / **D3 FAIL**
-(the STOP condition and step). Operator: ______  Date: ______  Unit: ______
-(card: ______, image `233455a`).
+Verdict: **D3 FAIL** at section 3, first pull. 2026-09-09, unit A, image
+`233455a`.
+
+The three fixes went onto the branch as `35dd10e` (the TEST refresh) and
+`7cf6450` (the seat clamp and the 672 px table), and candidate 2 was built
+to retest exactly those. See `POCKETTIMBER_D3_CANDIDATE_2.md`, which carries
+the retest result and the D3 items later reached from that card.

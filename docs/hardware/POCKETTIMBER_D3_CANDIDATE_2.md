@@ -92,15 +92,74 @@ another block).
 
 ## Verdict
 
-| Step | Result |
-| --- | --- |
-| A launch, fit | |
-| B–D begin, select, TEST | |
-| E–G pull, release, pull again | |
-| H–I push back seated, turn open | |
-| J–K second block, TEST | |
-| L–N leave, reopen, all answer | |
-| O–P wobbly drag, rolling tap | |
+**Provenance of this table.** It is reconstructed on 2026-09-10 from the
+bench session record of 2026-09-09, not transcribed from a sheet filled in
+at the bench — the sheet was left blank on the day. It is recorded at the
+granularity the session record supports: group verdicts, plus the few
+observations written down verbatim. Where a cell says *not separately
+recorded*, that value was never observed individually; it is not a failure
+and must not be read as a measurement. The operator should correct anything
+here that disagrees with their own recollection.
 
-**INPUT RETEST PASS** / **INPUT RETEST FAIL** (step and STOP condition).
-Operator: ______  Date: ______  Unit: ______ (image `eb7e9c9`).
+Corroborating evidence in this repository: `35dd10e` and `7cf6450` (the two
+defects candidate 1 found and their fixes, which candidate 2 existed to
+retest) and `5b66ef9` (the ruling that the reported dead drags were test
+procedure, not software).
+
+| Step | Result | Observed |
+| --- | --- | --- |
+| A launch, fit | PASS | rendered sprites, screen fits the body; counters not separately recorded |
+| B–D begin, select, TEST | PASS | BEGIN, selection and TEST all answer |
+| E–G pull, release, pull again | PASS | a drag on the **track** moves the block; see the note below |
+| H–I push back seated, turn open | PASS | a push back seats the block and reopens the turn (the `7cf6450` seat clamp) |
+| J–K second block, TEST | PASS | second block selectable, TEST answers |
+| L–N leave, reopen, all answer | PASS | leave and reopen, then the sequence again |
+| O–P wobbly drag, rolling tap | PASS | wobbly drag moves the block, rolling tap does not scroll the screen |
+| Serial checks | PASS | 0 ERROR in `shell.log`, 0 crash reports |
+
+**INPUT RETEST PASS**, 2026-09-09, unit A.
+
+**The first attempt on this sheet was a false failure.** It reported that no
+drag on the track moved a block. That was investigated in the repository
+(`4a6d078`, which fed the GT9895 event grammar through LVGL's real evdev
+parser and found no software cause) and finally ruled by the owner to be
+test procedure: the block had been dragged **on the table**, where the
+design only takes taps. The pull happens on the dedicated track below the
+table, and `5b66ef9` records the ruling. Say this to the operator before any
+future Timber sheet: **the block is never dragged, only the track.**
+
+**Runtime note.** Steps A–P and the collapse below were exercised on
+candidate 2 (`eb7e9c9`). The later items in the same session ran on the
+`pockettimber-d3-diag-1` image (`e3d5be0`), which is candidate 2's code plus
+a diagnostic trace that is off unless `POCKETTIMBER_TRACE` is set, so
+PocketTimber's behaviour is identical between the two. Both report identity
+`0.0.5`.
+
+## D3 items reached from this card in the same session
+
+These belong to `POCKETTIMBER_D3_CANDIDATE_1.md`, which is the full D3
+sheet; they are recorded here because they were reached from this card and
+that sheet is still blank.
+
+| D3 item | Result | Observed |
+| --- | --- | --- |
+| Collapse and the result screen (1's §4) | PASS | clean collapse, cause JOLT, "Layer 2 gave way after a jolt" |
+| Record file created (1's §4) | PASS | `record.v1` 52 bytes, mode 0644, magic `PTR1`, version 1, no stale temp file |
+| BEST update and persistence (1's §5) | PASS | best 1650 |
+| `S90` service restart (1's §7) | PASS | not separately recorded |
+| Warm reboot (1's §8) | PASS | record survived |
+| Cold power cycle (1's §9) | PASS | USB removed about a minute; BEST persisted, all three games launch |
+| Corrupt record (1's §10) | PASS | 12-byte and 20-byte truncations both refused without stopping play |
+| Storage path and permissions (1's §11) | PASS | not separately recorded |
+
+0 ERROR and 0 crash throughout. **No blocking PocketTimber defect was
+found.**
+
+Open at the owner's pause, and therefore carried into
+`POCKETTIMBER_D3_V008_RETEST.md`: repeated runs with VmRSS watched, the
+final regression smoke, and the summit attempt.
+
+**Platform note, not a PocketTimber matter.** After a power off,
+reconnecting USB within a few seconds leaves the unit off; about a minute
+disconnected and then reconnected boots normally. This looks like PMIC
+behaviour and is a candidate for `docs/KNOWN_ISSUES.md`.

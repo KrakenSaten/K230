@@ -38,12 +38,13 @@ format, BEST update and persistence, warm reboot, cold power cycle, the
 corrupt-record cases (12- and 20-byte), storage path and permissions, and
 an `S90` service restart.
 
-**Documentation gap, for the owner to note.**
-`POCKETTIMBER_D3_CANDIDATE_1.md` and `POCKETTIMBER_D3_CANDIDATE_2.md` are
-still blank templates in this repository: every verdict cell is empty. All
-of the above lives in the session record only. Filling those two sheets in
-from that record is worth doing before M1, so the merge carries its own
-evidence; it is documentation, not code, and it is not part of M0.
+Both candidate sheets were blank templates in this repository until
+2026-09-10, when their verdict tables were reconstructed from the session
+record so the merge carries its own evidence. Each reconstructed table says
+so at the top, names the commits that corroborate it, and marks values that
+were never separately observed rather than inventing them. **They are
+reconstructions, not bench transcripts, and the operator should correct
+anything that disagrees with their recollection.**
 
 Three D3 items were still open at the pause: **repeated runs with VmRSS
 watched**, the **final regression smoke**, and the **summit attempt**.
