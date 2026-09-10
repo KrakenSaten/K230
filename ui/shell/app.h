@@ -40,6 +40,29 @@ int pocketos_shell_reduced_motion(void);
  * valid until the next status tick; copy it if you keep it. */
 const char *pocketos_shell_radio_state(void);
 
+/* ---- the touch keyboard (DS §17.3, §17.4) ------------------------------ *
+ *
+ * There is exactly one keyboard and the shell owns it. An app asks for it
+ * here; it never creates one, never holds a pointer to one, and never learns
+ * whether a character was tapped on it, typed on the host keyboard or, later,
+ * on a physical one. Characters arrive in the focused text field either way.
+ *
+ * Showing it shrinks the app's body by the sheet's height so the field above
+ * stays usable, and hiding it gives that space back. Neither moves focus.
+ */
+enum pocketos_kb_return {
+    POCKETOS_KB_DONE,   /* single-line field: commits, and on_done is called */
+    POCKETOS_KB_NEWLINE /* multi-line field: inserts a line break */
+};
+
+/* Show the keyboard. on_done may be NULL and is only ever called for
+ * POCKETOS_KB_DONE: the app decides what committing means, and whether to
+ * hide the keyboard afterwards. */
+void pocketos_shell_keyboard_show(enum pocketos_kb_return ret,
+                                  void (*on_done)(void *user), void *user);
+void pocketos_shell_keyboard_hide(void);
+int pocketos_shell_keyboard_visible(void);
+
 /* v0.1 lifecycle limitation: an app is created when opened and destroyed
  * when left; there is no pause/resume/suspend and no background state.
  * Apps that need continuity persist their own state on each change

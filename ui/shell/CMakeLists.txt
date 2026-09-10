@@ -68,6 +68,9 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/radar/ui/radar_scope.c
     ${REPO_DIR}/apps/radar/ui/radar_screens.c
     ${REPO_DIR}/core/pocketpaths.c
+    ${REPO_DIR}/apps/notes/notes_app.c
+    ${REPO_DIR}/apps/notes/notes_store.c
+    ${REPO_DIR}/apps/notes/notes_view.c
     ${REPO_DIR}/apps/timber/timber_app.c
     ${REPO_DIR}/apps/timber/timber_store.c
     ${REPO_DIR}/apps/timber/engine/timber_types.c
@@ -129,7 +132,8 @@ else()
     message(STATUS "PocketTimber art: no python3 or no renders, building the placeholder")
 endif()
 target_compile_definitions(pocketos-shell PRIVATE POCKETTIMBER_ART=${POCKETTIMBER_ART})
-target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui")
+target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
+                                                  "${REPO_DIR}/apps/notes")
 
 if(POCKETOS_LVGL_MODE STREQUAL "source")
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -322,4 +326,28 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(pos_keyboard_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(pos_keyboard_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # PocketNotes in the running app, tapped on the real keyboard against a
+    # real store (run by tests/notes_shell_test.sh).
+    add_executable(notes_app_test
+        ${REPO_DIR}/tests/notes_app_test.c
+        ${REPO_DIR}/apps/notes/notes_app.c
+        ${REPO_DIR}/apps/notes/notes_store.c
+        ${REPO_DIR}/apps/notes/notes_view.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(notes_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/notes")
+    target_compile_options(notes_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(notes_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(notes_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(notes_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(notes_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 endif()

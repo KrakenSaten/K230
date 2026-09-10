@@ -17,4 +17,10 @@ lv_display_t *pocketos_platform_init(void);
 /* Milliseconds to sleep between lv_timer_handler calls. */
 void pocketos_platform_sleep_ms(unsigned ms);
 
+/* The host keyboard, if this backend has one - the SDL simulator does, the
+ * panel does not. The shell adopts it as a source of the one logical key
+ * stream (DS §17.4); the backend does not wire it up itself, so devices are
+ * created after the display and the stream is built in one place. */
+lv_indev_t *pocketos_platform_keyboard(void);
+
 #endif

@@ -14,6 +14,7 @@
 #include "pocketipc/server.h"
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
+#include "pos_keyboard.h"
 #include "settings.h"
 #include "shell_ipc.h"
 
@@ -45,10 +46,11 @@ extern const struct pocketos_app app_radio;
 extern const struct pocketos_app app_system;
 extern const struct pocketos_app app_fleet;
 extern const struct pocketos_app app_radar;
+extern const struct pocketos_app app_notes;
 extern const struct pocketos_app app_timber;
 
 static const struct pocketos_app *apps[] = { &app_radio, &app_system, &app_fleet,
-                                            &app_radar, &app_timber };
+                                            &app_radar, &app_timber, &app_notes };
 #define APP_COUNT (sizeof(apps) / sizeof(apps[0]))
 
 struct shell {
@@ -66,6 +68,9 @@ struct shell {
     int screenshot_pending;
     struct pocketipc_server *server;
     const char *backend_name;
+    lv_obj_t *keyboard;     /* the one touch keyboard (DS 17.4), hidden by default */
+    void (*kb_done_cb)(void *user);
+    void *kb_done_user;
 };
 
 static struct shell sh;
@@ -206,6 +211,58 @@ int pocketos_shell_reduced_motion(void)
     return strcmp(v, "1") == 0 || strcmp(v, "true") == 0;
 }
 
+/* ---- the one touch keyboard (DS §17.3, §17.4) -------------------------- *
+ *
+ * The shell owns it so that there is exactly one, and so that an app cannot
+ * reach past the stream to a keyboard of its own. Showing it takes the
+ * sheet's height off the content area, which is where every app's body
+ * lives, so an editor above it keeps a usable height without any app having
+ * to know the keyboard's geometry.
+ */
+
+static void content_height(int32_t reserve_bottom)
+{
+    lv_obj_set_height(sh.content, POCKETOS_PANEL_H - POCKETUI_STATUS_BAR_H - reserve_bottom);
+}
+
+static void on_keyboard_done(void *user)
+{
+    (void)user;
+    if (sh.kb_done_cb) {
+        sh.kb_done_cb(sh.kb_done_user);
+    }
+}
+
+void pocketos_shell_keyboard_show(enum pocketos_kb_return ret,
+                                  void (*on_done)(void *user), void *user)
+{
+    if (!sh.keyboard) {
+        return;
+    }
+    sh.kb_done_cb = on_done;
+    sh.kb_done_user = user;
+    pos_keyboard_set_return(sh.keyboard, ret == POCKETOS_KB_NEWLINE ? POS_KB_RETURN_NEWLINE
+                                                                    : POS_KB_RETURN_DONE);
+    content_height(POS_KB_H);
+    pos_keyboard_show(sh.keyboard);
+}
+
+void pocketos_shell_keyboard_hide(void)
+{
+    if (!sh.keyboard) {
+        return;
+    }
+    pos_keyboard_hide(sh.keyboard);
+    content_height(0);
+    sh.kb_done_cb = NULL;
+    sh.kb_done_user = NULL;
+}
+
+int pocketos_shell_keyboard_visible(void)
+{
+    return sh.keyboard && pos_keyboard_is_shown(sh.keyboard);
+}
+
 /* ---- app hosting ------------------------------------------------------ */
 
 static void announce_current(void)
@@ -226,6 +283,9 @@ static void app_close(void)
         return;
     }
     LOG_INFO("close app %s", sh.app->id);
+    /* Before destroy(), so an app that autosaves on the way out is not
+     * looking at a body that is about to change height. */
+    pocketos_shell_keyboard_hide();
     if (sh.app->destroy) {
         sh.app->destroy(sh.app_priv);
     }
@@ -579,16 +639,24 @@ int main(int argc, char **argv)
     pocketlog_init("shell");
     pocketlog_install_crash_handler();
     lv_init();
-    /* Before the platform, because that adopts the host keyboard as a source
-     * of this stream (DS §17.4). The shell owns the stream and the focus
-     * group; an app only ever sees a focused field. */
-    pos_input_init();
     disp = pocketos_platform_init();
     if (!disp) {
         LOG_ERROR("display init failed");
         return 1;
     }
     sh.backend_name = POCKETOS_DISPLAY_NAME;
+    /* After the display, so the stream's own device is created with one to
+     * belong to; LVGL warns otherwise. The shell owns the stream and the
+     * focus group, and adopts whatever key source the backend offers - an
+     * app only ever sees a focused field (DS §17.4). */
+    pos_input_init();
+    if (pocketos_platform_keyboard()) {
+        if (pos_input_add_source(pocketos_platform_keyboard())) {
+            LOG_INFO("host keyboard adopted as an input source");
+        } else {
+            LOG_WARN("host keyboard not adopted; typing will not reach fields");
+        }
+    }
     pocketui_init();
     {
         /* Appearance never blocks boot: any failure here logs and falls back. */
@@ -619,6 +687,16 @@ int main(int argc, char **argv)
     lv_obj_set_size(sh.content, LV_PCT(100), POCKETOS_PANEL_H - POCKETUI_STATUS_BAR_H);
     lv_obj_align(sh.content, LV_ALIGN_TOP_MID, 0, POCKETUI_STATUS_BAR_H);
     home_create();
+
+    /* One keyboard for the whole shell, built hidden and never rebuilt. It
+     * sits on the screen rather than inside an app, so leaving an app cannot
+     * take it with it and no app can hold a pointer to it (DS §17.4). */
+    sh.keyboard = pos_keyboard_create(screen);
+    if (sh.keyboard) {
+        pos_keyboard_set_done_cb(sh.keyboard, on_keyboard_done, NULL);
+    } else {
+        LOG_WARN("touch keyboard unavailable; text entry will not work");
+    }
 
     if (open_id) {
         size_t k;

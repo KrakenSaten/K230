@@ -219,6 +219,13 @@ lv_display_t *pocketos_platform_init(void)
     return disp;
 }
 
+/* The panel has no host keyboard; text comes from the touch keyboard, and
+ * later from a physical one, both through the same stream (DS §17.4). */
+lv_indev_t *pocketos_platform_keyboard(void)
+{
+    return NULL;
+}
+
 void pocketos_platform_sleep_ms(unsigned ms)
 {
     usleep(ms * 1000u);
