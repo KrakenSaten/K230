@@ -165,21 +165,69 @@ touching anything else.
 
 ## Verdict
 
+### How the candidate got onto unit A (2026-09-10)
+
+**Deployed, not flashed.** No card reader was attached, so the candidate went
+on with `platforms/k230/scripts/deploy.sh 192.168.10.157` from the M0
+Buildroot target tree, which carries the same seven binaries, the three init
+scripts and `/etc/pocketos-release` that the flashed image carries. The card
+in the unit was the v0.0.7 release card; its PocketOS binaries were backed up
+on the board first:
+
+```
+/root/v007-backup/pocketos-v0.0.7.tar   777,216 bytes, 11 entries
+md5 4890a642c8f9e80bde05d1eaa175ca7b
+rollback: tar -C / -xf /root/v007-backup/pocketos-v0.0.7.tar && reboot
+```
+
+The deployed shell is byte-identical in size to the built one (801,208 B,
+md5 `3aa7cc950f5d38a34d7ad6310fe90cdf`). **If any result below looks like an
+install artefact rather than a Timber behaviour, flash the raw image and
+repeat before believing it.**
+
+### Part A — completed 2026-09-10, no touch required
+
 | Section | Item | Verdict | Observed |
 | --- | --- | --- | --- |
-| 1 | Identity 0.0.8 / aa7137b, five tiles, Timber launches | | |
-| 1 | One run to a collapse, record written, BEST updates | | |
-| 2 | Five repeated runs, VmRSS before and after | | |
-| 2 | Runs counter advanced by five | | |
+| 1 | Identity | **PASS** | `/etc/pocketos-release` → `0.0.8`, `BUILD_ID=aa7137b`; `pos version` → `pos 0.0.8 (build aa7137b)` |
+| 1 | Shell live on the panel | **PASS** | DRM 568×1232, `current: home`, theme ice / normal, "input device attached (touch)" |
+| 1 | Five apps registered | **PASS** | `pos shell info` lists radio, system, fleet, radar, **timber** |
+| 5 | `pos system info` / `status` | **PASS** | both answer; `pocketos 0.0.8 (build aa7137b)`, kernel 6.6.36 riscv64, temp 49.2 °C |
+| 5 | Supervisor health | **PASS** | sysd 1059, radiod 1077, pocketos-shell 1099 — all `running: true`, `crashloop: false`, `restarts: 0` |
+| 5 | Crash and crashloop markers | **PASS** | no `/run/pocketos/*.crashloop`, 0 crash reports, 0 ERROR lines in `shell.log` |
+| 2 | Shell VmRSS baseline | **recorded** | **12,288 kB** RSS (VmSize 46,316 kB) at the launcher, before any Timber run |
+
+Free space at the time: 136,540,160 bytes on `/`. No Timber state yet
+(`/var/lib/pocketos/timber` absent, as expected on a card that has never run
+the app).
+
+### Part B — awaiting the operator; every item needs a finger on the panel
+
+These cannot be driven from a serial console or over SSH. Synthetic input was
+deliberately **not** injected: `tests/timber_input_test.c` already drives the
+real LVGL evdev parser with the GT9895 event grammar and passes, and the spec
+is explicit that what is still needed is a real finger on the pull track,
+which no test can stand in for.
+
+| Section | Item | Verdict | Observed |
+| --- | --- | --- | --- |
+| 1 | Timber launches from the tile; sprites, fit, bottom row inside the panel | | |
+| 1 | One run to a collapse; `record.v1` written; BEST updates | | |
+| 2 | Five repeated runs; VmRSS after (baseline above is 12,288 kB) | | |
+| 2 | Runs counter at offset 16 advanced by five | | |
 | 3 | Record survives `system.reboot` from System Status | | |
 | 3 | Record survives `system.poweroff` from System Status | | |
 | 4 | Summit reached, or NOT REACHED with layers and cause | | |
-| 5 | Fleet, Radar, Radio smoke | | |
-| 5 | v0.0.7 core: `pos system` info/status, System Status, services | | |
+| 5 | Fleet launch and basic interaction | | |
+| 5 | Radar launch and basic interaction | | |
+| 5 | Radio opens, mock backend, rows populate | | |
+| 5 | System Status screen opens and populates | | |
 
 **D3 PASS** / **D3 FAIL** (section and STOP condition).
 
-Operator: ______  Date: ______  Unit: ______ (image `aa7137b`).
+Operator: ______  Date: ______  Unit: ______ (build `aa7137b`).
 
-A PASS here is the gate for M1: freeze PocketTimber v1 and merge
-`pockettimber-engine` to master.
+A PASS across Part B is the gate for M1: freeze PocketTimber v1 and merge
+`pockettimber-engine` to master. Part A alone is **not** a D3 pass — it
+establishes that the platform under Timber is healthy on this build, nothing
+about the game.
