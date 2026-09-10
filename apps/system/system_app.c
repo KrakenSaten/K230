@@ -172,6 +172,19 @@ static enum pos_style_role service_chip_role(enum system_view_service_state s)
     return POS_STYLE_CHIP_OFF;
 }
 
+static enum pos_style_role radio_chip_role(enum system_view_radio_chip s)
+{
+    if (s == SYSTEM_VIEW_RADIO_RX) {
+        return POS_STYLE_CHIP_RX;
+    }
+    if (s == SYSTEM_VIEW_RADIO_TX) {
+        return POS_STYLE_CHIP_TX;
+    }
+    /* Idle is a radio that answered; unknown is one that did not. The status
+     * bar has always drawn that distinction and this row now matches it. */
+    return s == SYSTEM_VIEW_RADIO_IDLE ? POS_STYLE_CHIP_OFF : POS_STYLE_CHIP_NA;
+}
+
 static const char *service_chip_text(enum system_view_service_state s)
 {
     if (s == SYSTEM_VIEW_SVC_RUNNING) {
@@ -242,6 +255,11 @@ static void repaint(struct system_app *a)
     }
     if (a->radio_chip) {
         lv_label_set_text(a->radio_chip, v->radio_state);
+        lv_obj_remove_style(a->radio_chip, pos_style(POS_STYLE_CHIP_RX), 0);
+        lv_obj_remove_style(a->radio_chip, pos_style(POS_STYLE_CHIP_TX), 0);
+        lv_obj_remove_style(a->radio_chip, pos_style(POS_STYLE_CHIP_OFF), 0);
+        lv_obj_remove_style(a->radio_chip, pos_style(POS_STYLE_CHIP_NA), 0);
+        pos_style_add(a->radio_chip, radio_chip_role(system_view_radio_chip_state(v)), 0);
     }
     if (a->radio_detail) {
         lv_label_set_text(a->radio_detail, v->radio_detail);
@@ -489,7 +507,7 @@ static void build_live(struct system_app *a)
     p = panel(a->body);
     r = row(p, POCKETUI_ROW_H);
     pocketui_label(r, "Radio", POS_STYLE_TEXT_SECONDARY);
-    a->radio_chip = chip(r, v->radio_state, POS_STYLE_CHIP_OFF);
+    a->radio_chip = chip(r, v->radio_state, radio_chip_role(system_view_radio_chip_state(v)));
     a->radio_detail = pocketui_label(r, v->radio_detail, POS_STYLE_CAPTION);
     lv_label_set_long_mode(a->radio_detail, LV_LABEL_LONG_DOT);
     lv_obj_set_style_max_width(a->radio_detail, LV_PCT(45), 0);

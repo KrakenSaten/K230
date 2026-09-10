@@ -51,6 +51,17 @@ enum system_view_service_state {
     SYSTEM_VIEW_SVC_STOPPED
 };
 
+/* What the radio chip is showing, so its treatment is a tested decision here
+ * rather than a style fixed once in the LVGL builder. The status bar has
+ * always coloured its own chip this way; this row was reading RX in the
+ * unavailable treatment, which is the one thing on it that says "live". */
+enum system_view_radio_chip {
+    SYSTEM_VIEW_RADIO_RX = 0,
+    SYSTEM_VIEW_RADIO_TX,
+    SYSTEM_VIEW_RADIO_IDLE,     /* answering, but neither receiving nor sending */
+    SYSTEM_VIEW_RADIO_UNKNOWN   /* radiod is not answering */
+};
+
 struct system_view_metric {
     char label[16];
     char value[SYSTEM_VIEW_TEXT];
@@ -132,6 +143,8 @@ void system_view_set_radio_state(struct system_view *v, const char *state);
  * while radiod runs, so they are asked for once and kept. */
 void system_view_set_radio_detail(struct system_view *v, const char *region,
                                   const char *backend);
+/* Which treatment the chip should wear for the state it is showing. */
+enum system_view_radio_chip system_view_radio_chip_state(const struct system_view *v);
 
 /* Recompute "LIVE" / "STALE 6s" without a new poll, so the age keeps counting
  * up while nothing is answering. */

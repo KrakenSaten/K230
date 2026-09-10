@@ -470,6 +470,20 @@ void system_view_set_radio_state(struct system_view *v, const char *state)
     }
 }
 
+enum system_view_radio_chip system_view_radio_chip_state(const struct system_view *v)
+{
+    if (!v->radio_state_known) {
+        return SYSTEM_VIEW_RADIO_UNKNOWN;
+    }
+    if (strcmp(v->radio_state, "RX") == 0) {
+        return SYSTEM_VIEW_RADIO_RX;
+    }
+    if (strcmp(v->radio_state, "TX") == 0) {
+        return SYSTEM_VIEW_RADIO_TX;
+    }
+    return SYSTEM_VIEW_RADIO_IDLE;
+}
+
 void system_view_set_radio_detail(struct system_view *v, const char *region, const char *backend)
 {
     if (region && backend) {

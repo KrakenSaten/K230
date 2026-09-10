@@ -409,6 +409,31 @@ int main(void)
     check("and a reachable radiod is known again",
           v.radio_state_known == 1 && strcmp(v.radio_state, "TX") == 0);
 
+    /* ---- the chip's treatment, which is the row's only live signal ----
+     * Measured on the simulator 2026-09-10: the chip was built once in the
+     * unavailable treatment and only its text was ever repainted, so a
+     * recovered radio read RX in the same grey it wore while radiod was gone
+     * (#8d99a6 on #10151b in both states). The text was right and the colour
+     * said nothing, which is why the row looked unchanged on the panel. */
+    system_view_init(&v);
+    check("a radio nobody has polled yet is unknown",
+          system_view_radio_chip_state(&v) == SYSTEM_VIEW_RADIO_UNKNOWN);
+    system_view_set_radio_state(&v, "rx");
+    check("receiving takes the rx treatment",
+          system_view_radio_chip_state(&v) == SYSTEM_VIEW_RADIO_RX);
+    system_view_set_radio_state(&v, "tx");
+    check("sending takes the tx treatment",
+          system_view_radio_chip_state(&v) == SYSTEM_VIEW_RADIO_TX);
+    system_view_set_radio_state(&v, "idle");
+    check("a radio that answered but is doing neither is idle, not unknown",
+          system_view_radio_chip_state(&v) == SYSTEM_VIEW_RADIO_IDLE);
+    system_view_set_radio_state(&v, NULL);
+    check("an unreachable radiod is unknown, which is not the same as idle",
+          system_view_radio_chip_state(&v) == SYSTEM_VIEW_RADIO_UNKNOWN);
+    system_view_set_radio_state(&v, "rx");
+    check("and the treatment comes back with the radio",
+          system_view_radio_chip_state(&v) == SYSTEM_VIEW_RADIO_RX);
+
     /* ---- an action that failed leaves a usable screen ---- */
     system_view_init(&v);
     o = parse(status_json);
