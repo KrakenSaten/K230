@@ -2,6 +2,12 @@
 
 **STATUS: APPROVED FOR IMPLEMENTATION** — 2026-09-04
 
+**Amendment A (§17) — text input, keyboard and dialogs — approved
+2026-09-10.** It closes caveat C8 and is normative on the same terms as the
+rest of this document. It is an amendment, not a separate deviation
+document: §1, §14 and §16 are updated in place to point at it, and nothing
+is renumbered.
+
 Final design handoff. Supersedes `uploads/POCKETUI.md` (v0) and
 `POCKETUI-v1.md` (draft). Target: LILYGO T-Display K230, 568 × 1232 portrait
 AMOLED, LVGL shell in `ui/pocketui` and `ui/shell`.
@@ -27,8 +33,10 @@ text.
 - Dark base is the system, not a variant. `bg` MUST be ≤ #0b0a08 in Normal
   and #000000 in Outdoor and Night.
 - Large filled bright areas MUST be limited to: back slab, status chips,
-  primary button, secondary button, list icon wells, theme-row miniatures.
-  Panels, status bar and screen background are outlines on `bg`.
+  primary button, secondary button, list icon wells, theme-row miniatures,
+  and — added by Amendment A (§17.3) — the touch keyboard's Done key and an
+  engaged Shift. Panels, status bar and screen background are outlines on
+  `bg`.
 
 ## 2. Visual language [NORMATIVE]
 
@@ -469,8 +477,18 @@ Per-token, per-mode numbers: `themes.json → themes.<id>.contrast`.
   language. Apply §2: hairline panel, `accent_primary` 24 px icon top-left,
   row-title label bottom-left, pressed = `surface_raised` + focus outline.
   Tile size 150 px, 2 columns, 20 px gutter unchanged.
-- **C8 — Text input / keyboard, dialog** remain undesigned (v0 "missing"
-  list); out of scope for v0.1.
+- **C8 — Text input / keyboard, dialog.** **CLOSED 2026-09-10 by Amendment
+  A (§17)**, which specifies the text field, the focus model, the touch
+  keyboard with its approved deviation DEV-1, and the dialog. Was: undesigned
+  (v0 "missing" list), out of scope for v0.1.
+- **C9 — Norwegian and other Latin-1 letters.** OPEN. The converted fonts
+  already carry `0xA0–0xFF`, so æ ø å and the rest have glyphs; the keyboard
+  has nowhere to put them. A twelve-column alpha row would cut keys from 52
+  to about 43 px, which DEV-1 does not cover and which its reasoning would
+  not obviously carry; long-press-for-accents needs a preview popup, which
+  §17.7 excludes. For v0.0.8 they are reachable only if placed on the symbol
+  layer. Needs the product owner: this is a usability question about who
+  types on the device, not a layout question.
 
 ## 15. Reference material [REFERENCE]
 
@@ -508,7 +526,245 @@ Outdoor column (C4).
    three modes, compared against 3a–3f.
 10. Contrast test over `themes.json` in CI per §13 thresholds.
 11. Resolve caveats C1–C5 with hardware in hand.
+12. Amendment A (§17): logical key layer and focus group, text field, touch
+    keyboard, dialog. Approved for implementation 2026-09-10.
+
+---
+
+## 17. Amendment A — text input, keyboard and dialogs [NORMATIVE]
+
+**Approved 2026-09-10.** Closes C8, which left text input, the keyboard and
+dialogs undesigned and out of scope for v0.1. Everything here is normative
+and uses the same MUST / MUST NOT wording as the rest of the document.
+Nothing in §1–§16 is renumbered; where this amendment extends an earlier
+section it says so.
+
+Scope: the primitives PocketNotes needs, and nothing more. §17.7 lists what
+is deliberately still out of scope.
+
+### 17.1 Text field
+
+The single text-entry primitive, built on LVGL's text area. No custom text
+engine.
+
+**Geometry.** Single-line 64 tall, matching the list row and button height
+of §7. Multi-line: minimum 3 body lines plus padding, growing into the space
+its parent gives it. Both: full width of the parent, radius 6, 16 horizontal
+padding, single-line text vertically centred.
+
+**States.** Colours are §4 tokens; no literals.
+
+| State | Fill | Border | Text |
+| --- | --- | --- | --- |
+| Normal | `surface` | `hairline` in `line` | `text_primary` |
+| Focused | `surface` | `hairline` in `line`, plus the 2 px `focus` outline of §9 | `text_primary` |
+| Disabled | `disabled_bg` | none | `disabled_fg`, no caret |
+| Error | `surface` | 1.5 px `status_error` | `text_primary` |
+
+The focused treatment is the global focus outline of §9 and MUST NOT be a
+second, keyboard-only visual. The error state is optional per field; a field
+with no invalid condition MUST NOT show it. When shown it MUST carry a
+caption below the field in `status_error`, because §2 forbids colour from
+carrying meaning alone.
+
+**Placeholder.** `text_secondary`, body style, shown only while the field is
+empty. It MUST NOT use `text_muted`: Outdoor forbids information in
+`text_muted` (§13), and a placeholder says what the field is for. It
+disappears on the first character, not on focus.
+
+**Caret.** 2 px wide, `accent_primary`, full line height, blinking 500 ms on
+/ 500 ms off. Under reduced motion (§12) it is solid and does not blink.
+Drawn only in the focused state.
+
+**Scrolling.** The field MUST keep the caret visible. Single-line scrolls
+horizontally and never wraps. Multi-line wraps at the field width, scrolls
+vertically, and never scrolls horizontally. A field's scrolling MUST NOT
+propagate to the screen body: a body that overflows steals taps and drags
+that roll more than 10 px, which is the defect PocketTimber's table screen
+found on hardware and fixed by fitting exactly.
+
+**Selection.** Whatever LVGL already provides, and nothing else. v0.0.8 adds
+no selection gestures, no handles and no clipboard.
+
+**Typography.** Body (16; 20 in Outdoor per §6). Screens hosting fields MUST
+tolerate the 20 px body without truncation, as §3 already requires.
+
+### 17.2 Focus
+
+One focus model for every input source.
+
+- The shell MUST own exactly one focus group. Every focusable element joins
+  it: text fields, buttons, dialog actions.
+- Exactly one element is focused at a time.
+- The focus ring is the 2 px `focus` outline of §9. §9 already reserves that
+  outline for "hardware keys, future"; this makes it concrete and adds no
+  new treatment.
+- A tap focuses the element tapped. A logical Next / Prev key moves focus in
+  the order elements joined the group. Touch and keys MUST converge here:
+  there MUST NOT be one focus notion for touch and another for keys.
+- Opening the keyboard MUST NOT change focus. The focused field is the sink
+  for the key stream; the keyboard is only a source.
+
+### 17.3 Touch keyboard
+
+A shell-owned sheet docked to the bottom of the screen, 568 wide. One
+instance serves every app.
+
+**Geometry.** 6 outer padding, so each row is 556 wide. Keys 52 × 64, gap 4
+between keys, 8 between rows. Wide keys (Shift, Backspace, `?123`, Enter /
+Done) are 80. Space fills the remainder of its row. Four rows plus padding
+give a sheet **296 tall**, under a `hairline` top rule in `line`. On the
+1232 panel that leaves 808 for the editor above it (1232 − 56 status bar −
+72 header − 296).
+
+| Row | Contents | Arithmetic |
+| --- | --- | --- |
+| 1 | 10 keys | 10×52 + 9×4 = 556 |
+| 2 | 9 keys, centred | 9×52 + 8×4 = 500, inset 28 each side |
+| 3 | Shift, 7 keys, Backspace | 80 + 7×52 + 80 + 8×4 = 556 |
+| 4 | `?123`, Space, Enter / Done | 80 + 388 + 80 + 2×4 = 556 |
+
+**Layers.** Two, and only two. **Alpha**: QWERTY, with Shift for capitals.
+**Symbols** (`?123`): digits 1–0 on row 1, common punctuation on rows 2–3,
+`ABC` to return.
+
+**Keys.**
+
+- **Shift** has three states. Tap → next-character; tap again within the
+  double-tap window → locked; tap again → off. Off is a normal key face.
+  Next-character is `accent_primary` fill with a `text_on_accent` glyph.
+  Locked is that fill plus a 2 px `text_on_accent` underline, so the two are
+  distinguishable without relying on colour.
+- **Backspace** MUST always be present and MUST never be disabled, including
+  on an empty field, where it is simply inert. It repeats: after a 400 ms
+  hold, every 60 ms. The repeat applies under reduced motion too — it is
+  function, not decoration.
+- **Space** inserts one space. No double-space-to-period.
+- **Enter / Done** is the right key of row 4 and depends on the field. On a
+  single-line field it is **Done**: it commits and dismisses the keyboard,
+  and carries `accent_primary` fill with a `text_on_accent` label. On a
+  multi-line field it is **Enter**, inserts a newline, and is drawn as a
+  normal key; those screens dismiss from the app header instead (§17.6).
+- No hide key. A single-line field has Done, a multi-line editor has the
+  header action, and a third route to dismissal would be a third thing to
+  explain.
+
+**States.** Key face `surface`, label `text_primary`. Letter keys use the
+row-title style (Sans 20); word keys (SHIFT, SPACE, DONE, `?123`, `ABC`) use
+the button style (Mono 16, 500, uppercase, 0.1 em). Pressed follows the
+global rule of §9 — the 2 px `focus` outline plus a fill change to
+`surface_raised`. A disabled key is `disabled_bg` with a `disabled_fg`
+label.
+
+**Extension to §1.** §1 limits large filled bright areas to a named list.
+That list gains exactly two items: the keyboard's Done key and an engaged
+Shift. Both are at most 80 × 64, comparable to a status chip. Nothing else
+on the keyboard is filled.
+
+**DEV-1 — keyboard key width (approved deviation, 2026-09-10)**
+
+§7 and §13 require a 64 px minimum touch target. Ten QWERTY columns cannot
+meet it in 568 px: 64 px keys would need 676. Keys are therefore **52 wide
+× 64 tall** — the minimum is met in height and missed in width only.
+
+Approved on the reasoning that carried PocketFleet's deviation D1, and on
+these conditions, all of which MUST hold:
+
+- a mis-key is immediately visible in the field and immediately correctable;
+- **Backspace is always available** and never disabled;
+- no irreversible action is ever bound to a reduced-size key — every
+  irreversible action stays a full-size control: a 64 px button, or a dialog
+  action under §17.5;
+- the deviation covers **keyboard keys only**. It MUST NOT be cited to
+  shrink any other control. The global 64 px rule of §7 and §13 is otherwise
+  unchanged.
+
+This is the first DS-level deviation, distinct from app-level deviations
+such as PocketFleet D1, which bind only their own app.
+
+### 17.4 One logical input path
+
+Normative, and the reason this amendment exists before any code.
+
+- There MUST be exactly one logical key stream into the focused element. The
+  touch keyboard of §17.3, the simulator's SDL keyboard and a future
+  physical keyboard are **sources** feeding it, not alternative paths.
+- Key identity is LVGL's: a printable character is its Unicode code point,
+  everything else is an `LV_KEY_*` constant. No parallel vocabulary.
+- Apps MUST NOT bind to a touch-keyboard-specific API, MUST NOT read the
+  keyboard widget, and MUST NOT branch on where a key came from. An app that
+  behaves differently depending on the source is in breach of this section.
+- The shell owns the keyboard, the group and the stream. An app sees a
+  focused field and the characters that arrive in it.
+
+The consequence is deliberate: adding the physical keyboard becomes a driver
+pushing into an existing stream, not a second input design.
+
+### 17.5 Dialogs
+
+This codifies the pattern already shipped and validated on unit A in the
+System app's restart and power-off confirmations (v0.0.7). It is not new.
+
+**Structure.** A panel (§9) holding a title in app-title style, body text in
+`text_secondary` wrapped to the panel width with 12 above and 20 below, and
+one row of exactly two buttons: 56 tall, gap 8, each taking half the width —
+the paired-buttons geometry of §7.
+
+**Cancel is first**, on the left, and is the safe action.
+
+**Emphasis.** The accented button is the safe one whenever confirming is
+irreversible or expensive to undo; otherwise the confirm carries the accent.
+The other takes the secondary treatment. The shipped precedent is normative:
+a restart undoes itself in about thirty-five seconds and the accent sits on
+Restart; a power-off costs a walk to the bench and the accent sits on
+Cancel. **A destructive delete follows the power-off case — Cancel is
+accented.**
+
+**No action before confirm.** Nothing is deleted, sent or destroyed when the
+dialog opens. The action happens on the confirm press and at no other
+moment. Dismissal by any other route MUST be equivalent to Cancel.
+
+**Interaction with text entry.** When a dialog opens over a field:
+
+1. the keyboard is dismissed;
+2. focus moves into the dialog and lands on **Cancel**;
+3. on Cancel, focus returns to the field it came from, and the keyboard is
+   restored only if it was open;
+4. on a destructive confirm, focus does not return — the field is gone.
+
+### 17.6 PocketNotes implications
+
+The primitives above are normative; how Notes arranges them is the app's.
+This is the design guidance the MVP needs and no more.
+
+- **Note list.** Rows at 64 (§7), full-row hit area. Title is the note's
+  first line in row-title style, truncated with an ellipsis; timestamp in
+  caption style, `text_secondary`. `surface_raised` dividers between rows,
+  none after the last (§9).
+- **Empty state.** The §9 empty state exactly: dashed `hairline` panel in
+  `line`, centred 80 px `surface` disc with a 1.5 px stroked glyph in
+  `text_secondary`, caption below.
+- **Editor.** One multi-line text field (§17.1) filling the body above the
+  keyboard. No formatting controls.
+- **Keyboard presentation.** The editor opens with the field focused and the
+  keyboard shown. **Done** is the app header's right action — §9 already
+  allows a right caption in `accent_primary` for an action — and it
+  dismisses the keyboard and saves. Leaving the app saves too: the v0.1
+  lifecycle has no pause, so an app wanting continuity persists on change
+  (ADR-002).
+- **Delete.** A dialog under §17.5, destructive, Cancel accented.
+
+### 17.7 Out of scope
+
+Not designed here and not to be inferred from anything above: accented and
+non-ASCII characters beyond what the two layers carry (see C9), a third
+symbol page, word prediction, autocorrect, key preview popups, text
+selection gestures, cut / copy / paste, undo and redo inside a field,
+right-to-left text, CJK or any IME, landscape layout, haptics, a physical
+keyboard driver, and — in Notes — search, folders, tags, formatting and
+sync.
 
 ---
 
 PocketOS Design System v0.1 — **STATUS: APPROVED FOR IMPLEMENTATION**
+Amendment A (§17) approved 2026-09-10; C8 closed.

@@ -96,6 +96,15 @@ switching, persistence and fallback). Steps 5 to 10 (components, screens,
 motion, contrast gate) await approval; hardware items H1 to H5 await boards.
 Design review happens on simulator screenshots in `docs/design/shots/`.
 
+**Amendment A (DS §17) approved 2026-09-10** — text field, focus model,
+touch keyboard and dialog — closing caveat C8, which had left all four
+undesigned. It is implementation step 12, and it is the design gate for
+v0.0.8 M3 (the logical key layer and the text field) and M4 (the keyboard).
+It carries one approved DS-level deviation, DEV-1: 52 px wide keyboard keys
+against the 64 px minimum, on stated conditions and for keyboard keys only.
+New open caveat C9: where Norwegian and other Latin-1 letters live on the
+keyboard. That one needs the product owner.
+
 ## Phase 3: first strong application
 
 RIFT was the planned first application; the owner deprioritised it on
