@@ -100,6 +100,46 @@ static void print_vendor_sdk_version(void)
     fclose(f);
 }
 
+/* /etc/pocketos-release, printed deliberately rather than dumped: line 1 is
+ * the bare version and stays that way so first-line readers keep working, and
+ * the build identity follows as a "BUILD_ID=<id>" line (Makefile install
+ * target). A card flashed before v0.0.7 carries the version line only and is
+ * printed without a build. sysd serves the same two facts as system.info's
+ * release_file and release_build; this command reads the file directly so it
+ * still answers when sysd is not running. */
+static void print_release_file(void)
+{
+    FILE *f = fopen("/etc/pocketos-release", "r");
+    char line[256];
+    char version[256];
+    char build[256];
+    int have_version = 0;
+
+    if (!f) {
+        return;
+    }
+    version[0] = '\0';
+    build[0] = '\0';
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\n")] = '\0';
+        if (!have_version) {
+            snprintf(version, sizeof(version), "%s", line);
+            have_version = 1;
+        } else if (strncmp(line, "BUILD_ID=", 9) == 0) {
+            snprintf(build, sizeof(build), "%s", line + 9);
+        }
+    }
+    fclose(f);
+    if (version[0] == '\0') {
+        return;
+    }
+    if (build[0] != '\0') {
+        printf("%-16s %s (build %s)\n", "pocketos", version, build);
+    } else {
+        printf("%-16s %s\n", "pocketos", version);
+    }
+}
+
 static int cmd_system_info(void)
 {
     struct utsname u;
@@ -122,7 +162,7 @@ static int cmd_system_info(void)
            meminfo_kb("MemFree"));
     printf("%-16s total %ld kB, free %ld kB\n", "swap",
            meminfo_kb("SwapTotal"), meminfo_kb("SwapFree"));
-    print_file_value("pocketos", "/etc/pocketos-release");
+    print_release_file();
     print_vendor_sdk_version();
     return 0;
 }
@@ -243,15 +283,19 @@ int cmd_radio(int argc, char **argv); /* tools/pos/pos_radio.c */
 int cmd_logs(int argc, char **argv);  /* tools/pos/pos_logs.c */
 int cmd_app(int argc, char **argv);   /* tools/pos/pos_app.c */
 int cmd_shell(int argc, char **argv); /* tools/pos/pos_app.c */
+int cmd_system_status(void);          /* tools/pos/pos_system.c */
+int cmd_call(int argc, char **argv);  /* tools/pos/pos_system.c */
 
 static int usage(int rc)
 {
     fprintf(rc ? stderr : stdout,
             "usage: pos <command> [subcommand]\n"
-            "  system info           kernel, memory, uptime, versions\n"
+            "  system info           kernel, memory, uptime, versions (read locally)\n"
+            "  system status         the live view from sysd (system.status)\n"
             "  hardware list         device nodes and sysfs devices\n"
             "  network interfaces    interface state, MAC and IPv4\n"
             "  radio <command>       talk to radiod (pos radio help)\n"
+            "  call <svc> <method>   any pocketipc method, key=value params\n"
             "  logs [name] [-n N]    service logs and crash reports\n"
             "  app list|start|home   drive the shell launcher\n"
             "  shell info|screenshot shell state and PNG capture\n"
@@ -281,6 +325,12 @@ int main(int argc, char **argv)
     }
     if (strcmp(cmd, "system") == 0 && strcmp(sub, "info") == 0) {
         return cmd_system_info();
+    }
+    if (strcmp(cmd, "system") == 0 && strcmp(sub, "status") == 0) {
+        return cmd_system_status();
+    }
+    if (strcmp(cmd, "call") == 0) {
+        return cmd_call(argc - 2, argv + 2);
     }
     if (strcmp(cmd, "hardware") == 0 && strcmp(sub, "list") == 0) {
         return cmd_hardware_list();

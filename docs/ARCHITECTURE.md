@@ -11,9 +11,11 @@ apps/            In-process apps (radio, system, fleet, radar). Talk to services
                  app state under /var/lib/pocketos/<app>/ ($POCKETOS_STATE_DIR).
 ui/shell         Shell: status bar, launcher, app host, display/input backend, settings store.
 ui/pocketui      Design tokens, theme engine and shared role styles on top of LVGL 9.
-services/        Hardware-owning daemons: radiod (mock and sx1262 backends), netd (planned).
+services/        Hardware-owning daemons: radiod (mock and sx1262 backends), netd (planned);
+                 sysd serves system.* (identity, resources, storage, network summary, service health).
 core/pocketipc   IPC library used by everything above.
 core/pocketlog   Logging, rotation and crash reports.
+core/pocketsys   The system facts behind system.*, read from /proc, /sys and /etc.
 tools/           pos CLI, pos-hwcheck, pos-supervise.
 platforms/k230   Buildroot integration on the pinned LILYGO BSP + Kendryte SDK.
 vendor/          Read-only upstream trees (git-ignored): LILYGO BSP, K230 SDK, LVGL, RadioLib, libgpiod.
@@ -42,12 +44,12 @@ BusyBox init (rcS runs S?? scripts in order; rcK stops them in reverse)
 Exactly one of the shell and the vendor launcher owns the panel: S90 refuses
 to start while the launcher is enabled or running (platforms/k230/README.md,
 "Panel ownership"). Both services run under `pos-supervise` (restart with
-backoff, crash-loop marker in /run/pocketos after five restarts in a
-minute; nothing displays the marker yet).
+backoff, one state file per service in /run/pocketos and a crash-loop
+marker after five restarts in a minute; nothing displays either yet).
 
 All PocketOS processes run as root in v0. Per-service users are a follow-up.
-Runtime state lives in /run/pocketos (sockets, pid files, crash-loop
-markers), settings in /etc/pocketos, app state in /var/lib/pocketos/<app>,
+Runtime state lives in /run/pocketos (sockets, supervisor state files, pid
+files, crash-loop markers), settings in /etc/pocketos, app state in /var/lib/pocketos/<app>,
 logs and crash reports in /var/lib/pocketos/log (persistent; /var/log is a
 tmpfs on the image).
 
@@ -78,6 +80,87 @@ The backend interface is `services/radiod/radio_backend.h`. The sx1262
 backend uses RadioLib (upstream, MIT) with a PocketOS HAL on spidev and
 libgpiod v2 (`hal_linux.cpp`); it compiles for riscv64 and has not run on
 hardware. The LILYGO launcher's HAL cannot be reused (no licence).
+
+## sysd
+
+```text
+pos system status / pos call ── pocketipc ──▶ sysd ──┬─ core/pocketsys ────▶ /proc, /sys, /etc
+                                                     └─ sysd_services.c ──▶ /run/pocketos/<name>.state
+```
+
+`sysd` (docs/api/system.md) answers `system.info`, `system.status`,
+`system.reboot` and `system.poweroff`. It opens no device node. Everything it
+reports is read-only; the two actions it can take, it does not take itself.
+The facts come from
+`core/pocketsys`, unit-tested against a fake root, and every source a board
+may lack (thermal zone, power supply, release file, `/data`) reports `null`
+rather than a guess. The fake root is a build option and not an environment
+switch, so the shipped service reads the real machine whatever its
+environment says.
+
+The supervised-service table is not core's. `pos-supervise` writes one
+`key=value` state file per service into the runtime directory, atomically, at
+every transition it makes; `services/sysd/sysd_services.c` reads those files
+and sysd joins them onto the status object, the way it adds `api_version`.
+Before v0.0.7 block 2b, core parsed the supervisor's pid files and the free
+text of its crash-loop marker, which made a shell script's private layout the
+source of a public API field two layers below it.
+
+Validated on unit A from `792f754`: the three services carry the documented
+format with distinct supervisor and child pids, 59 reads taken while a
+throwaway service died and restarted four times found no partial file, sysd
+never exposed a half-formed entry, a stopped service keeps its entry with
+`running` false, and a reboot clears the runtime directory so restart counters
+start again at zero (docs/hardware/V0.0.7_BLOCK2B_SMOKE.md).
+
+`system.reboot` and `system.poweroff` run `/sbin/reboot` and `/sbin/poweroff`,
+BusyBox applets that signal init; init runs `rcK`, which stops S90, S60 and
+S50 in reverse order, syncs and remounts the root read-only. sysd never calls
+`reboot(2)`, which would skip all of that on a card mounted rw. The reply is
+written before the action is recorded and the action runs from the main loop
+200 ms later, so a client always sees its answer before the machine goes; the
+reply means accepted, not completed, because afterwards there is nothing left
+to answer on. One action at a time, refused with code 5 otherwise. There is no
+authorization beyond the socket permissions in v0, and docs/api/system.md
+says why that is currently sufficient and when it stops being.
+
+`/etc/init.d/S50sysd` starts it under `pos-supervise`, ahead of `S60radiod`,
+with S60's stop discipline (the supervise pid and the daemon pid are two
+different facts). Validated on unit A from `3a56804`: sysd comes up under
+supervision at boot, `system.info` and `system.status` answer with the
+board's real values, stop and start are clean without escalation, and a
+planted stale pid file was gone after a reboot, which is what makes
+`services[].running` trustworthy (docs/hardware/V0.0.7_BLOCK2A_SMOKE.md). The
+shell's System Status screen is the client, and it is done: validated on unit
+A from `b9203c8` (docs/hardware/V0.0.7_SYSTEM_STATUS_SMOKE.md).
+
+## System Status screen
+
+```text
+apps/system/system_app.c  ── LVGL panels, taps
+apps/system/system_view.c ── every decision, no LVGL: strings, states, phases
+```
+
+The split is what makes it testable. `system_view` turns `system.info` and
+`system.status` into the exact strings the panels show, holds the confirm and
+terminal phases behind the two destructive actions, and is the only place that
+decides what unknown looks like; it has no LVGL in it, so the host suite covers
+the parts of a status screen that go wrong - a null read as a zero, a dropped
+poll blanking the numbers, an action fired before anyone confirmed it - without
+a display.
+
+`system.info` once at create, `system.status` every two seconds, both through
+`shell_ipc_call_timeout` with the UI deadline. The radio row reuses the state
+the status bar already polls (`pocketos_shell_radio_state`) rather than asking
+radiod a second time. The screen reads nothing from `/proc`, `/sys` or `/run`:
+it is a client like any other.
+
+Null is the only unknown and renders as a muted em dash; a number, zero
+included, is a number. A failed poll changes the freshness line and nothing
+else. Services are RUNNING, CRASH LOOP or STOPPED, and a restart count is
+always written with its 60-second window. Pseudo interfaces are hidden from the
+human view by the six-octet-MAC rule and counted in a caption, never filtered
+out of `system.status`. Both power actions take two taps.
 
 ## Theme engine (Design System v0.1)
 
@@ -117,8 +200,9 @@ docs/BUILD_ENVIRONMENT.md.
 
 ## Not yet decided
 
-- Surfacing service health (the pos-supervise crash-loop marker, radiod
-  state `error`) in the shell.
+- Surfacing service health in the shell. `system.status.services` now
+  carries the pos-supervise crash-loop marker; the shell does not show it
+  yet, and radiod state `error` is still only in the radio chip.
 - Update and rollback mechanism (partition layout must not be hard-coded).
 - First-party licence.
 - Out-of-process app hosting and DRM master handoff.

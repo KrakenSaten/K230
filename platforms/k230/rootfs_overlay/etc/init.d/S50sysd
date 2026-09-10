@@ -1,0 +1,103 @@
+#!/bin/sh
+# PocketOS sysd under pos-supervise (BusyBox init). sysd serves system.info
+# and system.status over pocketipc and is read-only: it opens no device node
+# and changes nothing, so it has nothing to configure and no per-unit switch.
+# See docs/api/system.md.
+#
+# Ordered ahead of S60radiod so the system service is answering before the
+# services it reports on come up. Nothing depends on that ordering for
+# correctness: the supervised-service table is read from the runtime
+# directory at request time, not cached at start.
+#
+# Logs: pocketlog files, crash reports and the supervisor log go to
+# /var/lib/pocketos/log, which is on the persistent root filesystem (/var/log
+# is a tmpfs on this image). The stdio capture there holds only what is not
+# already in the pocketlog file (POCKETOS_LOG_STDERR=0); it is started fresh
+# on every boot with the previous one kept as .1.
+
+SUPERVISE=/usr/bin/pos-supervise
+DAEMON=/usr/sbin/sysd
+PIDFILE=/var/run/sysd-supervise.pid
+# pos-supervise records the daemon it is watching here. stop needs it: asking
+# the supervisor to go is not the same as the daemon going.
+CHILD_PIDFILE=/run/pocketos/sysd.pid
+LOGDIR=/var/lib/pocketos/log
+LOGFILE=$LOGDIR/sysd.stdio.log
+export POCKETOS_LOG_DIR=$LOGDIR
+export POCKETOS_LOG_STDERR=0
+
+start() {
+	printf "Starting sysd: "
+	[ -x "$DAEMON" ] || { echo "missing"; return 0; }
+	mkdir -p /run/pocketos /var/run "$LOGDIR"
+	if [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+		echo "already running"; return 0
+	fi
+	[ -f "$LOGFILE" ] && mv -f "$LOGFILE" "$LOGFILE.1"
+	nohup "$SUPERVISE" sysd "$DAEMON" >"$LOGFILE" 2>&1 &
+	echo $! > "$PIDFILE"
+	echo "OK"
+}
+
+# Stop discipline is S60radiod's, for the same reason: asking the supervisor
+# to go is not the same as the daemon going, and a start that races an
+# outgoing daemon would leave two of them holding the same socket.
+STOP_TIMEOUT=3
+if sleep 0.1 2>/dev/null; then STOP_STEP="0.1"; STOP_TICKS=$((STOP_TIMEOUT * 10)); else STOP_STEP="1"; STOP_TICKS=$STOP_TIMEOUT; fi
+
+running() { [ -n "$1" ] && kill -0 "$1" 2>/dev/null; }
+wait_gone() { # <pid>: true when it is gone within STOP_TIMEOUT
+	_n=0
+	while running "$1"; do
+		_n=$((_n + 1))
+		[ "$_n" -gt "$STOP_TICKS" ] && return 1
+		sleep "$STOP_STEP"
+	done
+	return 0
+}
+
+stop() {
+	printf "Stopping sysd: "
+	sup=""; child=""
+	[ -s "$PIDFILE" ] && sup=$(cat "$PIDFILE")
+	[ -s "$CHILD_PIDFILE" ] && child=$(cat "$CHILD_PIDFILE")
+	if ! running "$sup" && ! running "$child"; then
+		rm -f "$PIDFILE"
+		echo "not running"
+		return 0
+	fi
+	forced=""
+	kill "$sup" 2>/dev/null
+	if ! wait_gone "$sup"; then
+		# The supervisor is not responding to SIGTERM. Ask the daemon
+		# directly: killing only the supervisor would leave the daemon
+		# running, still holding its socket, and the next start would
+		# fail to bind or add a second one.
+		kill "$child" 2>/dev/null
+		if ! wait_gone "$sup"; then
+			kill -KILL "$child" 2>/dev/null
+			kill -KILL "$sup" 2>/dev/null
+			wait_gone "$sup"
+			forced=" (forced)"
+		fi
+	fi
+	if running "$child"; then
+		kill -KILL "$child" 2>/dev/null
+		wait_gone "$child"
+		forced=" (forced)"
+	fi
+	rm -f "$PIDFILE"
+	if running "$sup" || running "$child"; then
+		echo "FAILED, still running"
+		return 1
+	fi
+	echo "OK$forced"
+}
+
+case "$1" in
+	start) start ;;
+	stop) stop ;;
+	restart|reload) stop; start ;;
+	*) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
+esac
+exit 0

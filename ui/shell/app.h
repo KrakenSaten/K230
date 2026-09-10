@@ -32,6 +32,13 @@ void pocketos_shell_go_home(void);
  * "reduced_motion" = 0|1 in /etc/pocketos/settings.conf, default 0.
  * When 1, every animation must apply its end state immediately. */
 int pocketos_shell_reduced_motion(void);
+/* The radio state the status bar's own once-a-second poll last saw: "rx",
+ * "tx", "idle" and so on, or NULL while radiod is not answering. An app that
+ * wants to show the radio reads this instead of polling radiod again - the
+ * shell is already asking, and a second timer on the same service would
+ * double the IPC on the LVGL thread for no new information. The pointer is
+ * valid until the next status tick; copy it if you keep it. */
+const char *pocketos_shell_radio_state(void);
 
 /* v0.1 lifecycle limitation: an app is created when opened and destroyed
  * when left; there is no pause/resume/suspend and no background state.

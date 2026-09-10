@@ -29,8 +29,13 @@ ALL_CXXFLAGS := $(CXXFLAGS) -std=gnu++17 $(COMMON_FLAGS) -Iservices/radiod -I$(R
 PATHS_OBJS  := core/pocketpaths.o
 IPC_OBJS    := core/pocketipc/pocketipc.o
 LOG_OBJS    := core/pocketlog/pocketlog.o
-POS_OBJS    := tools/pos/pos.o tools/pos/pos_radio.o tools/pos/pos_logs.o tools/pos/pos_app.o $(IPC_OBJS) $(PATHS_OBJS)
+SYS_OBJS    := core/pocketsys.o
+POS_OBJS    := tools/pos/pos.o tools/pos/pos_radio.o tools/pos/pos_logs.o tools/pos/pos_app.o tools/pos/pos_system.o $(IPC_OBJS) $(PATHS_OBJS)
 RADIOD_OBJS := services/radiod/main.o services/radiod/backend_mock.o services/radiod/airtime.o $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
+# Everything sysd is except the power actions, which exist twice: once as
+# shipped and once with the test hook (see tests/sysd-testhooks below).
+SYSD_BASE_OBJS := services/sysd/main.o services/sysd/sysd_services.o $(SYS_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
+SYSD_OBJS   := $(SYSD_BASE_OBJS) services/sysd/sysd_power.o
 
 RADIOLIB_SRCS := $(RADIOLIB_DIR)/Hal.cpp $(RADIOLIB_DIR)/Module.cpp \
                  $(wildcard $(RADIOLIB_DIR)/modules/SX126x/*.cpp) \
@@ -49,7 +54,7 @@ RADIOD_LINK := $(CC)
 RADIOD_LIBS := $(LDLIBS)
 endif
 
-BINS := tools/pos/pos services/radiod/radiod tools/hwcheck/pos-spixfer
+BINS := tools/pos/pos services/radiod/radiod services/sysd/sysd tools/hwcheck/pos-spixfer
 
 all: $(BINS)
 
@@ -63,6 +68,38 @@ tools/hwcheck/pos-spixfer: tools/hwcheck/spixfer.o
 
 services/radiod/radiod: $(RADIOD_OBJS)
 	$(RADIOD_LINK) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(RADIOD_LIBS)
+
+# sysd: system.* from core/pocketsys (docs/api/system.md). C only, cJSON only.
+services/sysd/sysd: $(SYSD_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# The fake root ($POCKETSYS_ROOT) is a test-only build option, so it gets its
+# own object: this one honours the variable, the core/pocketsys.o that goes
+# into sysd does not and cannot be pointed at a fake /proc by its environment.
+tests/pocketsys_hooks.o: core/pocketsys.c
+	$(CC) $(ALL_CFLAGS) -DPOCKETSYS_TEST_HOOKS=1 -c -o $@ $<
+
+tests/pocketsys_test: tests/pocketsys_test.o tests/pocketsys_hooks.o $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# The supervised-service table lives in sysd, not in core: it reads
+# pos-supervise's state file (docs/api/system.md, services).
+tests/sysd_services_test.o: tests/sysd_services_test.c services/sysd/sysd_services.h
+	$(CC) $(ALL_CFLAGS) -Iservices/sysd -c -o $@ $<
+
+tests/sysd_services_test: tests/sysd_services_test.o services/sysd/sysd_services.o $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# A sysd whose power actions can be pointed at a recorder instead of
+# /sbin/reboot, so tests/sysd_test.sh can watch an action run without
+# restarting the build host. Only this object is compiled with the hook; the
+# shipped services/sysd/sysd links the plain one and does not contain the
+# variable names at all, which the test checks.
+tests/sysd_power_hooks.o: services/sysd/sysd_power.c services/sysd/sysd_power.h
+	$(CC) $(ALL_CFLAGS) -Iservices/sysd -DSYSD_TEST_HOOKS=1 -c -o $@ $<
+
+tests/sysd-testhooks: $(SYSD_BASE_OBJS) tests/sysd_power_hooks.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 %.o: %.c
 	$(CC) $(ALL_CFLAGS) -c -o $@ $<
@@ -118,6 +155,20 @@ tests/settings_test.o: tests/settings_test.c ui/shell/settings.h
 
 tests/paths_test: tests/paths_test.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# System Status presentation (pure C, no LVGL). It lives beside its app in
+# apps/system but is built here so the decisions that go wrong in a status
+# screen - null read as zero, a dropped poll blanking it, an action fired
+# before it was confirmed - are unit-tested; the app itself is built by
+# ui/shell (CMake).
+apps/system/system_view.o: apps/system/system_view.c apps/system/system_view.h
+	$(CC) $(ALL_CFLAGS) -Iapps/system -c -o $@ $<
+
+tests/system_view_test.o: tests/system_view_test.c apps/system/system_view.h
+	$(CC) $(ALL_CFLAGS) -Iapps/system -c -o $@ $<
+
+tests/system_view_test: tests/system_view_test.o apps/system/system_view.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 # PocketFleet game engine (pure C, no LVGL). It lives beside its app in
 # apps/fleet/engine but is built here so it is unit-tested with the rest of
@@ -190,11 +241,14 @@ tests/radar_store_test: tests/radar_store_test.o $(RADAR_APP_OBJS) $(RADAR_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # Native tests only (they execute binaries).
-test: all tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/theme_test tests/settings_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS)
+test: all tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/theme_test tests/settings_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS)
 	./tests/airtime_test
 	./tests/pocketlog_test 2>/dev/null
 	./tests/paths_test
 	./tests/pocketipc_test
+	./tests/pocketsys_test
+	./tests/sysd_services_test
+	./tests/system_view_test
 	./tests/theme_test docs/design/themes.json
 	./tests/settings_test
 	./tests/fleet_rng_test
@@ -208,6 +262,7 @@ test: all tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/the
 	./tests/radar_score_test
 	./tests/radar_store_test
 	bash tests/radiod_mock_test.sh
+	bash tests/sysd_test.sh
 	bash tests/supervise_test.sh
 	bash tests/initscript_test.sh
 	bash tests/package_sync_test.sh
@@ -222,13 +277,21 @@ install: all
 	install -D -m 0755 tools/hwcheck/hwcheck.sh $(DESTDIR)$(PREFIX)/bin/pos-hwcheck
 	install -D -m 0755 tools/hwcheck/pos-spixfer $(DESTDIR)$(PREFIX)/bin/pos-spixfer
 	install -D -m 0755 services/radiod/radiod $(DESTDIR)$(PREFIX)/sbin/radiod
+	install -D -m 0755 services/sysd/sysd $(DESTDIR)$(PREFIX)/sbin/sysd
 	install -D -m 0755 tools/supervise/pos-supervise $(DESTDIR)$(PREFIX)/bin/pos-supervise
-	install -D -m 0644 VERSION $(DESTDIR)/etc/pocketos-release
+# /etc/pocketos-release: line 1 stays the bare version, so every reader that
+# takes the first line keeps working, and the build identity follows as a
+# key=value line (system.info release_file and release_build, `pos system
+# info`). The build id is the same one compiled into the binaries above.
+	install -d -m 0755 $(DESTDIR)/etc
+	printf '%s\nBUILD_ID=%s\n' '$(POCKETOS_VERSION)' '$(POCKETOS_BUILD_ID)' \
+		> $(DESTDIR)/etc/pocketos-release
+	chmod 0644 $(DESTDIR)/etc/pocketos-release
 
 DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name '*.d' 2>/dev/null)
 -include $(DEPFILES)
 
 clean:
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) tests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o
 
 .PHONY: all test install clean sx1262-objs

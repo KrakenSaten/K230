@@ -1,0 +1,242 @@
+/*
+ * sysd: PocketOS system service. Serves system.* over pocketipc from the
+ * facts core/pocketsys collects and what pos-supervise records
+ * (docs/api/system.md). It opens no device node. Everything it reports is
+ * read-only; the two things it can change are system.reboot and
+ * system.poweroff, which it does not do itself but asks init to do
+ * (services/sysd/sysd_power.c).
+ *
+ * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ */
+#define _GNU_SOURCE
+#include "pocketipc/pocketipc.h"
+#include "pocketipc/server.h"
+#include "pocketlog/pocketlog.h"
+#include "pocketsys.h"
+#include "sysd_power.h"
+#include "sysd_services.h"
+
+#include <errno.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#define SYSD_API_VERSION 0
+/* CPU utilisation is the busy share of the last sampling interval. */
+#define SYSD_CPU_SAMPLE_MS 1000
+/* How long a power action waits after its reply was written before it runs.
+ * The same budget the transport gives a write to reach the peer
+ * (POCKETIPC_SEND_TIMEOUT_MS): the reply is already on the socket by then,
+ * this is the client's chance to read it before the machine goes. */
+#define SYSD_POWER_DELAY_MS POCKETIPC_SEND_TIMEOUT_MS
+/* While an action is pending the loop wakes more often, so the delay above is
+ * what decides when it runs rather than the sampler's poll timeout. */
+#define SYSD_POWER_POLL_MS 50
+
+struct sysd {
+    struct pocketipc_server *server;
+    struct pocketsys_cpu cpu;
+    char socket_name[64];
+    /* At most one power action is ever pending. It is recorded by the
+     * request handler only after that request's reply has gone out, and
+     * consumed by the main loop; the handler never runs it itself. */
+    enum sysd_power_action pending;
+    uint64_t pending_at;
+};
+
+static volatile sig_atomic_t stop_requested;
+
+static void on_signal(int sig)
+{
+    (void)sig;
+    stop_requested = 1;
+}
+
+static uint64_t mono_ms(void)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+}
+
+/* A power action is accepted in three steps, in this order and no other:
+ * refuse it if one is already pending, send the reply, and only then record
+ * it. Nothing here runs the command. The reply has to be out first because
+ * after the machine acts there is no connection left to answer on, and it has
+ * to be out *successfully*: a client that has gone away has not been told the
+ * machine is about to reboot, so it is not going to. */
+static void on_power(struct pocketipc_server *s, struct pocketipc_client *c, const cJSON *id,
+                     const cJSON *params, struct sysd *sd, enum sysd_power_action action)
+{
+    const char *name = sysd_power_name(action);
+    cJSON *result;
+    char msg[160];
+
+    /* These two methods take no parameters at all. system.info and
+     * system.status ignore extras; a method that stops the machine does not
+     * act on a request it does not fully understand. */
+    if (params && !cJSON_IsNull(params)) {
+        if (!cJSON_IsObject(params) || cJSON_GetArraySize(params) != 0) {
+            snprintf(msg, sizeof(msg), "system.%s takes no parameters", name);
+            pocketipc_server_reply(s, c,
+                                   pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS, msg));
+            return;
+        }
+    }
+    if (sd->pending != SYSD_POWER_NONE) {
+        snprintf(msg, sizeof(msg), "%s already pending", sysd_power_name(sd->pending));
+        pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_BUSY, msg));
+        return;
+    }
+    result = cJSON_CreateObject();
+    cJSON_AddStringToObject(result, "action", name);
+    pocketipc_server_reply(s, c, pocketipc_response(id, result));
+    if (pocketipc_client_fd(c) < 0) {
+        /* pocketipc_server_reply closes the client when the write fails, so
+         * this is how a failed reply is seen. Nobody was told; do nothing. */
+        LOG_WARN("%s: reply could not be delivered, not acting", name);
+        return;
+    }
+    sd->pending = action;
+    sd->pending_at = mono_ms();
+    LOG_INFO("%s accepted, acting in %d ms", name, SYSD_POWER_DELAY_MS);
+}
+
+static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, cJSON *req,
+                       void *user)
+{
+    struct sysd *sd = user;
+    const cJSON *id = cJSON_GetObjectItemCaseSensitive(req, "id");
+    const cJSON *m = cJSON_GetObjectItemCaseSensitive(req, "method");
+    const cJSON *params = cJSON_GetObjectItemCaseSensitive(req, "params");
+    const char *method = cJSON_IsString(m) ? m->valuestring : NULL;
+    cJSON *result;
+    char msg[160];
+
+    if (!method) {
+        pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                              "missing method"));
+        return;
+    }
+    LOG_DEBUG("fd %d %s", pocketipc_client_fd(c), method);
+    if (strcmp(method, "system.info") == 0) {
+        result = pocketsys_info(pocketlog_version(), pocketlog_build_id());
+        cJSON_AddNumberToObject(result, "api_version", SYSD_API_VERSION);
+    } else if (strcmp(method, "system.status") == 0) {
+        /* The machine's own facts, then what the supervisor says about the
+         * services on it: two sources, joined here rather than in core. */
+        result = pocketsys_status(&sd->cpu);
+        sysd_services_add(result);
+    } else if (strcmp(method, "system.reboot") == 0) {
+        on_power(s, c, id, params, sd, SYSD_POWER_REBOOT);
+        return;
+    } else if (strcmp(method, "system.poweroff") == 0) {
+        on_power(s, c, id, params, sd, SYSD_POWER_POWEROFF);
+        return;
+    } else {
+        snprintf(msg, sizeof(msg), "unknown method %s", method);
+        pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_UNKNOWN_METHOD, msg));
+        return;
+    }
+    pocketipc_server_reply(s, c, pocketipc_response(id, result));
+}
+
+static int run(struct sysd *sd)
+{
+    uint64_t last_sample = 0;
+
+    while (!stop_requested) {
+        uint64_t now;
+        int timeout = sd->pending != SYSD_POWER_NONE ? SYSD_POWER_POLL_MS
+                                                     : SYSD_CPU_SAMPLE_MS / 4;
+
+        if (pocketipc_server_poll(sd->server, timeout) < 0) {
+            LOG_ERROR("poll: %s", strerror(errno));
+            return 1;
+        }
+        now = mono_ms();
+        /* The pending action is consumed before it is run, so it runs at most
+         * once whatever the command does or how long it takes.
+         *
+         * stop_requested is tested here and not only by the loop condition
+         * above: a signal can arrive while poll is blocked, in the very
+         * iteration the delay expires, and without this the action would go
+         * ahead anyway. Being told to stop outranks an action not yet
+         * started, and dropping it is the safe way to lose that race - the
+         * client was told the action was accepted, not that it had happened,
+         * and nothing rebooting the machine after sysd was asked to go away
+         * is the behaviour anyone wants. */
+        if (!stop_requested && sd->pending != SYSD_POWER_NONE &&
+            now - sd->pending_at >= SYSD_POWER_DELAY_MS) {
+            enum sysd_power_action action = sd->pending;
+
+            sd->pending = SYSD_POWER_NONE;
+            if (sysd_power_run(action) < 0) {
+                LOG_ERROR("%s did not run; sysd keeps serving", sysd_power_name(action));
+            }
+            continue;
+        }
+        if (now - last_sample >= SYSD_CPU_SAMPLE_MS) {
+            if (pocketsys_cpu_sample(&sd->cpu) < 0 && last_sample == 0) {
+                LOG_WARN("/proc/stat unreadable: %s; cpu_percent stays null", strerror(errno));
+            }
+            last_sample = now;
+        }
+    }
+    return 0;
+}
+
+static void usage(FILE *out)
+{
+    fprintf(out,
+            "usage: sysd [--socket-name NAME] [--verbose]\n"
+            "Serves system.info, system.status, system.reboot and system.poweroff\n"
+            "(docs/api/system.md).\n"
+            "Runtime directory: $POCKETOS_RUNTIME_DIR or %s\n",
+            POCKETIPC_DEFAULT_DIR);
+}
+
+int main(int argc, char **argv)
+{
+    struct sysd sd;
+    int i;
+    int rc;
+
+    memset(&sd, 0, sizeof(sd));
+    snprintf(sd.socket_name, sizeof(sd.socket_name), "sysd");
+    pocketsys_cpu_init(&sd.cpu);
+    pocketlog_init("sysd");
+    pocketlog_install_crash_handler();
+    for (i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--socket-name") == 0 && i + 1 < argc) {
+            snprintf(sd.socket_name, sizeof(sd.socket_name), "%s", argv[++i]);
+        } else if (strcmp(argv[i], "--verbose") == 0) {
+            pocketlog_set_level(POCKETLOG_DEBUG);
+        } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            usage(stdout);
+            return 0;
+        } else {
+            usage(stderr);
+            return 2;
+        }
+    }
+
+    signal(SIGINT, on_signal);
+    signal(SIGTERM, on_signal);
+
+    sd.server = pocketipc_server_new(sd.socket_name, on_request, &sd);
+    if (!sd.server) {
+        LOG_ERROR("cannot listen: %s", strerror(errno));
+        return 1;
+    }
+    LOG_INFO("listening on %s", pocketipc_server_path(sd.server));
+
+    rc = run(&sd);
+    LOG_INFO("shutting down (rc=%d)", rc);
+    pocketipc_server_free(sd.server);
+    pocketlog_close();
+    return rc;
+}

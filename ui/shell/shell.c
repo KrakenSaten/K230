@@ -104,6 +104,17 @@ static void radio_chip_set(enum pos_style_role state, const char *label)
     lv_label_set_text_fmt(sh.status_radio, LV_SYMBOL_WIFI " %s", label);
 }
 
+/* What the poll below last saw, so an app can show the radio without asking
+ * radiod a second time (app.h, pocketos_shell_radio_state). The shell is
+ * already asking once a second; a second timer on the same service would
+ * double the IPC on the LVGL thread for no new information. */
+static char radio_state_seen[16];
+
+const char *pocketos_shell_radio_state(void)
+{
+    return radio_state_seen[0] ? radio_state_seen : NULL;
+}
+
 static void status_update(void)
 {
     time_t now = time(NULL);
@@ -137,6 +148,7 @@ static void status_update(void)
         const cJSON *state = cJSON_GetObjectItemCaseSensitive(st, "state");
         const char *s = cJSON_IsString(state) ? state->valuestring : "?";
 
+        snprintf(radio_state_seen, sizeof(radio_state_seen), "%s", s);
         if (strcmp(s, "tx") == 0) {
             radio_chip_set(POS_STYLE_CHIP_TX, "TX");
         } else if (strcmp(s, "rx") == 0) {
@@ -148,6 +160,7 @@ static void status_update(void)
     } else {
         /* "--" not U+2014: the Montserrat symbol font used by this chip has
          * no em dash (PocketFleet finding 9); revisit with the DS icon set. */
+        radio_state_seen[0] = '\0';
         radio_chip_set(POS_STYLE_CHIP_NA, "--");
     }
 }

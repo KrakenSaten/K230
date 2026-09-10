@@ -13,13 +13,15 @@ ui/pocketui/               Theme engine (pos_theme), shared role styles (pos_sty
 ui/shell/                  Shell: status bar, launcher, app host; SDL simulator or DRM target (CMake)
 core/pocketipc/            IPC library and server helper: length-prefixed JSON over Unix sockets
 core/pocketlog/            Structured logging, rotation and crash reports
+core/pocketsys.c           System facts (identity, resources, storage, network) behind system.*
 services/radiod/           Radio service: policy, stats, IPC; backends mock and sx1262 (RadioLib, untested on hardware)
+services/sysd/             System service: system.info and system.status over pocketipc (read-only), plus the supervisor state reader
 tests/                     Native unit tests (`make test`), shell tests (tests/*_shell_test.sh, need the CMake shell); tests/hw/ needs boards
 docs/
   ARCHITECTURE.md          How the layers, IPC, services and shell fit together
   ROADMAP.md               Phase 1 status table and later phases
   KNOWN_ISSUES.md          Open hardware, licensing, build and software issues
-  api/                     Public API contracts: pocketipc v0, radio.* v0, shell.* v0
+  api/                     Public API contracts: pocketipc v0, radio.* v0, shell.* v0, system.* v0
   design/                  Design System v0.1 (normative), themes.json, feasibility review, shots/
   BUILD_ENVIRONMENT.md     Host, toolchain, SDK commits, build/flash/test commands
   LICENSING.md             Licence register for vendor and third-party code
@@ -102,6 +104,22 @@ are classified per statement in docs/hardware/T-DISPLAY-K230.md.
   defect; the probe now says so when it happens again, with both
   transports' bytes as evidence. No further investigation unless it
   recurs on hardware.
+- **0.0.7** is the core system layer. Its release image is built, flashed and
+  validated (`4ab5a55`, docs/hardware/V0.0.7_RELEASE_SMOKE.md, PASS on all
+  nine steps); it is **not yet tagged or merged**.
+  `core/pocketsys` turns /proc, /sys
+  and the mount table into system facts with unknown as null and never as
+  zero; `services/sysd` serves `system.info`, `system.status`,
+  `system.reboot` and `system.poweroff` (docs/api/system.md); `pos-supervise`
+  writes one documented state file per service and sysd is its only reader,
+  with `running` requiring the pid to still be the same process; and the
+  shell gains the System Status screen, whose presentation logic is pure C
+  and host-tested. Both destructive actions reply before they act, go through
+  init, and are confirmed at the panel. Validated on unit A across four bench
+  sheets and then from the flashed image; the gate that run had to clear is
+  docs/hardware/V0.0.7_PRE_RELEASE_CHECKPOINT.md. The image ships with the
+  vendor launcher still owning the panel: `/etc/default/k230_phone_ui`
+  `ENABLE=0` and `/etc/default/pocketos-shell` `ENABLE=1` hand it to the shell.
 
 The K230 SD image is built by platforms/k230 (see docs/BUILD_ENVIRONMENT.md
 and docs/hardware/FIRST_BOOT.md).

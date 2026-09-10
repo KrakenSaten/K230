@@ -132,6 +132,23 @@ UART3. Note that the BSP also assigns UART3 to the optional nRF9151 base board.
 No K230 was attached to this host on 2026-09-04, so COM port names are not yet
 recorded.
 
+## Before a release build
+
+Three things that are easy to get wrong and fail late (see
+docs/KNOWN_ISSUES.md, "Build environment"):
+
+- `vendor/RadioLib` must be present at `034126e` (7.7.1) with no build
+  products. It is gitignored, so `git clean -xdf` removes it, and
+  `apply_to_sdk.sh` then fails at step 5/5 with a bare rsync error.
+- Point `POCKETOS_VENDOR_DIR` at the WSL-native vendor tree
+  (`~/work/t-display-k230`). The `/mnt/c` copy is a Windows checkout with CRLF
+  line endings and its scripts fail with `env: 'bash\r'`.
+- Do not export `GIT_DIR`/`GIT_WORK_TREE` around the build. A git worktree
+  whose `.git` names a Windows path needs them, but exported globally they
+  answer for that worktree on every `git -C` the build makes - including the
+  pin check, which then refuses a correct vendor tree. Scope them with a `git`
+  wrapper that sets them only for the worktree path.
+
 ## Shell simulator (PC, inside WSL with WSLg)
 
 Needs `libsdl2-dev`, `pkg-config`, `cmake` and the pinned LVGL tree

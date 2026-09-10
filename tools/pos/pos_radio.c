@@ -16,7 +16,8 @@
 
 int cmd_radio(int argc, char **argv);
 
-static int print_json(cJSON *obj)
+/* Shared with pos_system.c (pos system status, pos call). */
+int pos_print_json(cJSON *obj)
 {
     char *text = cJSON_Print(obj);
 
@@ -38,14 +39,15 @@ static int call_and_print(int fd, const char *method, cJSON *params)
         fprintf(stderr, "pos radio: %s failed (code %d): %s\n", method, code, err);
         return 1;
     }
-    print_json(result);
+    pos_print_json(result);
     cJSON_Delete(result);
     return 0;
 }
 
 /* key=value arguments into a params object; numbers become numbers,
- * true/false become booleans, everything else stays a string. */
-static cJSON *params_from_kv(int argc, char **argv)
+ * true/false become booleans, everything else stays a string. tool names
+ * the command in the error message. Shared with pos_system.c. */
+cJSON *pos_params_from_kv(const char *tool, int argc, char **argv)
 {
     cJSON *params = cJSON_CreateObject();
     int i;
@@ -56,7 +58,7 @@ static cJSON *params_from_kv(int argc, char **argv)
         double v;
 
         if (!eq) {
-            fprintf(stderr, "pos radio: expected key=value, got %s\n", argv[i]);
+            fprintf(stderr, "%s: expected key=value, got %s\n", tool, argv[i]);
             cJSON_Delete(params);
             return NULL;
         }
@@ -161,7 +163,7 @@ int cmd_radio(int argc, char **argv)
     } else if (strcmp(sub, "rssi") == 0) {
         rc = call_and_print(fd, "radio.rssi", NULL);
     } else if (strcmp(sub, "configure") == 0) {
-        cJSON *params = params_from_kv(argc - 1, argv + 1);
+        cJSON *params = pos_params_from_kv("pos radio", argc - 1, argv + 1);
 
         rc = params ? call_and_print(fd, "radio.configure", params) : 2;
     } else if (strcmp(sub, "send") == 0 && argc >= 2) {

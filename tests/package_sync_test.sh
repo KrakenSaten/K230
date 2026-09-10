@@ -51,7 +51,8 @@ check "package source extracted" $([ -f "$SRC/Makefile" ] && echo 1 || echo 0)
 
 present() { [ -e "$SRC/$1" ] && echo 1 || echo 0; }
 for f in Makefile VERSION core/pocketipc/pocketipc.c core/pocketlog/pocketlog.c \
-         services/radiod/main.c ui/shell/shell.c ui/pocketui/pos_theme_table.h \
+         core/pocketsys.c services/radiod/main.c services/sysd/main.c \
+         ui/shell/shell.c ui/pocketui/pos_theme_table.h \
          apps/fleet/fleet_app.c tools/pos/pos.c tools/supervise/pos-supervise \
          tools/hwcheck/hwcheck.sh tools/hwcheck/spixfer.c; do
     check "package carries $f" $(present "$f")
@@ -85,19 +86,54 @@ OVL="$TMP/overlay"; mkdir -p "$OVL"
 git archive --format=tar HEAD -- platforms/k230/rootfs_overlay |
     tar -x --strip-components=3 -C "$OVL"
 check "overlay extracted at the rootfs root" $([ -d "$OVL/etc/init.d" ] && echo 1 || echo 0)
-for f in etc/init.d/S60radiod etc/init.d/S90pocketos-shell etc/default/telnet \
-         etc/pocketos/settings.conf; do
+for f in etc/init.d/S50sysd etc/init.d/S60radiod etc/init.d/S90pocketos-shell \
+         etc/default/telnet etc/pocketos/settings.conf; do
     check "overlay carries $f" $([ -e "$OVL/$f" ] && echo 1 || echo 0)
 done
 if [ "$MODES" -eq 1 ]; then
-    # These two are what BusyBox rcS executes.
-    for f in etc/init.d/S60radiod etc/init.d/S90pocketos-shell; do
+    # These three are what BusyBox rcS executes.
+    for f in etc/init.d/S50sysd etc/init.d/S60radiod etc/init.d/S90pocketos-shell; do
         check "overlay $f is executable" $([ -x "$OVL/$f" ] && echo 1 || echo 0)
     done
     for f in etc/default/telnet etc/pocketos/settings.conf; do
         check "overlay $f is not executable" $([ -x "$OVL/$f" ] && echo 0 || echo 1)
     done
 fi
+
+# ---- the bench-deploy path ----------------------------------------------
+#
+# deploy.sh pushes the same binaries and init scripts to a running board over
+# SSH, without reflashing. A service that reaches the image but not deploy.sh
+# leaves a bench deployment running the old one and says nothing: S50sysd was
+# added to the overlay in v0.0.7 block 2a and to deploy.sh only afterwards.
+# Every init script the overlay carries must be sent, stopped and started.
+# Read from HEAD like everything else here, so this is a fact about the
+# commit rather than about the working tree.
+git archive --format=tar HEAD -- platforms/k230/scripts/deploy.sh | tar -x -C "$TMP"
+DEPLOY="$TMP/platforms/k230/scripts/deploy.sh"
+check "deploy.sh extracted" $([ -f "$DEPLOY" ] && echo 1 || echo 0)
+for f in "$OVL"/etc/init.d/S*; do
+    [ -e "$f" ] || continue
+    s=$(basename "$f")
+    check "deploy.sh sends $s"  $(grep -q "etc/init.d/$s" "$DEPLOY" && echo 1 || echo 0)
+    check "deploy.sh stops $s"  $(grep -q "^/etc/init.d/$s stop" "$DEPLOY" && echo 1 || echo 0)
+    check "deploy.sh starts $s" $(grep -q "^/etc/init.d/$s start" "$DEPLOY" && echo 1 || echo 0)
+done
+
+# Ownership: a bench deployment must land root-owned, like the flashed image.
+# Before this was set, every file arrived owned by the build host's uid (1000,
+# VERIFIED on unit A, docs/hardware/V0.0.7_BLOCK2A_SMOKE.md), which would let a
+# uid-1000 process rewrite an init script that rcS runs as root. Both halves
+# are checked: that deploy.sh asks for it, and that asking works with the tar
+# on this host.
+check "deploy.sh creates the archive as uid/gid 0" \
+      $(grep -q -- '--owner=0 --group=0 --numeric-owner' "$DEPLOY" && echo 1 || echo 0)
+printf 'x' > "$TMP/ownprobe"
+ownline=$(tar -C "$TMP" --owner=0 --group=0 --numeric-owner -cf - ownprobe 2>/dev/null |
+          tar -tvf - 2>/dev/null)
+check "those flags produce uid/gid 0 with this tar" \
+      $(printf '%s' "$ownline" | grep -qE '(^| )0/0( |$)' && echo 1 || echo 0)
+[ -n "$ownline" ] || echo "     tar produced no listing"
 
 echo "package_sync_test: $failed failure(s)"
 exit $((failed > 0))
