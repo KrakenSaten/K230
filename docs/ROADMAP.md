@@ -108,10 +108,19 @@ was opened with the amendment and **closed by the product owner on
 DEV-1 geometry are left alone, and long-press accent popups stay out of
 scope.
 
-**M3 is implemented** (`ui/pocketui/pos_input.*`, `pocketui_text_field`):
-one logical key stream, one focus group, the text field, and the host
-keyboard adopted as a source of that stream rather than a second path. The
-touch keyboard (M4) and PocketNotes (M5) have not started.
+**M3 to M5 are implemented and validated on hardware.** M3
+(`ui/pocketui/pos_input.*`, `pocketui_text_field`) is the one logical key
+stream, one focus group and the text field; M4 (`ui/pocketui/pos_keyboard.*`)
+is the touch keyboard, a source of that stream and nothing else; M5 is
+PocketNotes (`apps/notes/`) plus the shell taking ownership of the single
+keyboard instance. Unit A passed nineteen operator checks on 2026-09-10 at
+build `0b16f0e` (`docs/hardware/POCKETNOTES_SMOKE_2026-09-10.md`), including
+æ ø å from the symbol layer, autosave, and a note surviving a real power cut.
+DEV-1 holds on the panel with a qualification: 52 px keys mis-key at roughly
+one character in ten, correctably.
+
+What remains in v0.0.8: M6, the release image, its bench sheet and the tag.
+Physical keyboard support is not in this release.
 
 ## Phase 3: first strong application
 

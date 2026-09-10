@@ -4,9 +4,9 @@ A list of notes and a place to write one. It exists to be the first thing on
 PocketOS that takes text, and it is deliberately the smallest app that can
 honestly be called useful.
 
-Status: **MVP, v0.0.8 M5.** Built on the text field of DS §17.1, the focus
-model of §17.2, the touch keyboard of §17.3 and the one logical key stream of
-§17.4. Nothing about it is hardware-specific; it has not yet run on a K230.
+Status: **MVP, v0.0.8 M5. Validated on unit A, 2026-09-10.** Built on the
+text field of DS §17.1, the focus model of §17.2, the touch keyboard of
+§17.3 and the one logical key stream of §17.4.
 
 ## What it is
 
@@ -98,10 +98,25 @@ loses nothing.
 | `tests/notes_shell_test.sh` | the app test, plus the shell owning exactly one keyboard, no app creating one, and Notes opening from the launcher |
 | `tests/notes_lint.sh` | the store is the only file that touches the filesystem, the text rules are LVGL-free, no keyboard is named, no title reaches a path, the write stays atomic, and none of the excluded features exist |
 
-## Not validated on hardware
+## Hardware
 
-Everything above is host evidence. The bench items that only a panel can
-answer are the fit of a 296 px keyboard under a real editor, whether 52 px
-keys are usable with a thumb (DEV-1's open question), and whether
-`/var/lib/pocketos/notes` behaves on the card the way the other app stores
-do.
+**Validated on unit A, 2026-09-10**, runtime `0.0.8` build `0b16f0e`:
+nineteen operator checks, PASS, no defect found
+(`docs/hardware/POCKETNOTES_SMOKE_2026-09-10.md`).
+
+What that settled: the editor is comfortable above the keyboard and nothing
+scrolls; æ ø å type and render correctly from the symbol layer; autosave
+through the shell's Back button keeps an uncommitted edit; the store comes
+out 0755/0644 root-owned like Fleet's and Radar's; and the note survives both
+a warm reboot and a real power cut, the latter with the kernel replaying its
+journal and the file coming back byte-identical with no temporary left
+behind.
+
+The one qualified result is DEV-1. The 52 px keys work with a thumb and
+every mis-key was correctable, but they mis-keyed at roughly one character in
+ten. That is fine for a note and would not be fine behind an irreversible
+action; see the smoke sheet before designing a screen that types into one.
+
+Still untested on hardware: Notes at its limits (64 notes, the 4096-byte
+cap), an unreadable note on a real card, and the keyboard under Outdoor
+mode's 20 px body.
