@@ -1,6 +1,6 @@
 # Known issues and open questions
 
-Updated 2026-09-09. Move items to git history when resolved.
+Updated 2026-09-10. Move items to git history when resolved.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
 B4 (the shell's `printf` diagnostics never reached a log; they go through
@@ -89,6 +89,21 @@ chip-state dependent and dumps both transports' windows when it does.
 - The vendor image build takes several hours on this laptop and dies on
   sleep; Buildroot resumes from stamps.
 
+- `vendor/RadioLib` is an ignored working-tree checkout, so `git clean -xdf`
+  removes it and `apply_to_sdk.sh` then fails at step 5/5 with a bare rsync
+  "change_dir failed" that does not name what is missing. Restore it at
+  `034126e` (7.7.1) before a release build. Found 2026-09-10 during the
+  v0.0.7 pre-release build.
+- The `/mnt/c` checkout of the vendor BSP is a Windows checkout with CRLF line
+  endings; its scripts fail with `env: 'bash\r': No such file or directory`.
+  The build vendor tree is the WSL-native `~/work/t-display-k230`, which is
+  also the one whose pins are enforced. Point `POCKETOS_VENDOR_DIR` at it.
+- Do not export `GIT_DIR`/`GIT_WORK_TREE` around a build. The v0.0.7 worktree
+  needs them (its `.git` names a Windows path WSL git cannot follow), but
+  exported globally they answer for the worktree on every `git -C` the build
+  makes, including the pin check - which then compares the vendor BSP commit
+  against the PocketOS commit and refuses a correct tree. Scope them to the
+  worktree, e.g. with a `git` wrapper that sets them only for that path.
 - Re-running `apply_to_sdk.sh` on an existing output tree invalidates the SDK
   overlay sync stamp; Buildroot then re-syncs the overlay and can hit
   "duplicate filename ... already applied" on a host package's patch step.
@@ -96,9 +111,26 @@ chip-state dependent and dumps both transports' windows when it does.
   scratch `build_pocketos_retry.sh` does this automatically). WSL clock
   jitter also made perl's MakeMaker abort once with "Makefile out-of-date";
   a plain re-run resumes.
+- The build id is compiled in through `-D`, so an incremental `make` after a
+  VERSION or commit change leaves the old id in an object that is not stale by
+  mtime. `radiod_mock_test` then fails on a build string that is otherwise
+  correct. Run the suite from `make clean` before believing such a failure.
 
 ## Software
 
+- The `Powering off...` screen's instruction cannot be read in practice: the
+  board goes down about 200 ms after it appears. The instruction that matters
+  is the one in the confirmation dialog, which is read before committing. Keep
+  the terminal text for the case where the command fails and the screen stays
+  up, but do not rely on it. (v0.0.7, unit A.)
+- The System Status `Model` row dot-truncates to `Canaan CanMV-K230 wit...`.
+  Correct behaviour rather than overflow, and the identifying half is visible;
+  the device font is wider than the simulator estimate suggested.
+- `POS_STYLE_TEXT_MUTED` (`#5e6670`) against `POS_STYLE_CAPTION` (`#8d99a6`) is
+  at the edge of what the panel resolves at caption size - an operator can tell
+  them apart side by side and not from memory. Muting is fine as a secondary
+  cue; anything that has to say "live" needs a chip or a colour with more
+  distance. Measured on unit A and in the simulator, 2026-09-10.
 - radiod v0 has no client arbitration: any client can reconfigure the radio.
 - radiod airtime accounting is process-local and lost on restart.
 - `radio.send` is synchronous and blocks radiod for the airtime (about 1.3 s
