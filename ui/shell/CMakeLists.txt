@@ -40,6 +40,7 @@ add_executable(pocketos-shell
     ../pocketui/pocketui.c
     ../pocketui/pos_input.c
     ../pocketui/pos_keyboard.c
+    ../pocketui/pos_keymap.c
     ../pocketui/pos_theme.c
     ../pocketui/pos_styles.c
     ${REPO_DIR}/apps/radio/radio_app.c
@@ -228,6 +229,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pocketui.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
         ${POCKETUI_FONTS})
@@ -267,6 +269,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pocketui.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
         ${POCKETUI_FONTS})
@@ -292,6 +295,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pocketui.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
         ${POCKETUI_FONTS})
@@ -313,6 +317,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pocketui.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
         ${POCKETUI_FONTS})
@@ -337,6 +342,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pocketui.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
         ${POCKETUI_FONTS})
@@ -350,4 +356,22 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(notes_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(notes_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # The physical keyboard's translation layer (run by
+    # tests/pos_keymap_test.sh). Pure, but it speaks LVGL's key vocabulary,
+    # so it is built here with the rest.
+    add_executable(pos_keymap_test
+        ${REPO_DIR}/tests/pos_keymap_test.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_input.c)
+    target_include_directories(pos_keymap_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core")
+    target_compile_options(pos_keymap_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(pos_keymap_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(pos_keymap_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(pos_keymap_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(pos_keymap_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 endif()
