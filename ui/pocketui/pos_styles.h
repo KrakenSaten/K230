@@ -55,6 +55,12 @@ enum pos_style_role {
     POS_STYLE_FIELD_ERROR,         /* 1.5 px status_error border */
     POS_STYLE_FIELD_PLACEHOLDER,   /* text_secondary (never text_muted: DS §13 Outdoor) */
     POS_STYLE_FIELD_CURSOR,        /* 2 px accent_primary caret */
+    /* Touch keyboard (DS §17.3). Key faces are slabs (POS_STYLE_SLAB and
+     * POS_STYLE_SLAB_PRESSED); only the sheet and the engaged states need
+     * roles of their own. */
+    POS_STYLE_KB_SHEET,            /* bg fill, hairline top rule in line */
+    POS_STYLE_KEY_ENGAGED,         /* accent_primary fill, text_on_accent (Shift on, Done) */
+    POS_STYLE_KEY_LOCKED,          /* 2 px text_on_accent underline (Shift locked) */
     POS_STYLE_COUNT
 };
 

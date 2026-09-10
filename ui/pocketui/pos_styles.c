@@ -304,6 +304,33 @@ static void fill_styles(void)
     lv_style_set_bg_opa(s, LV_OPA_COVER);
     lv_style_set_border_width(s, 0);
     lv_style_set_width(s, POS_CARET_W);
+
+    /* Touch keyboard, DS §17.3. */
+    s = &styles[POS_STYLE_KB_SHEET];
+    reset(s);
+    lv_style_set_bg_color(s, tok(POS_COLOR_BG));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_border_color(s, tok(POS_COLOR_LINE));
+    lv_style_set_border_width(s, t->hairline_px);
+    lv_style_set_border_side(s, LV_BORDER_SIDE_TOP);
+    lv_style_set_radius(s, 0);
+    lv_style_set_shadow_width(s, 0);
+
+    /* Shift engaged, and the Done key. §1's list of permitted bright fills
+     * was extended for exactly these two by Amendment A. */
+    s = &styles[POS_STYLE_KEY_ENGAGED];
+    reset(s);
+    lv_style_set_bg_color(s, tok(POS_COLOR_ACCENT_PRIMARY));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_text_color(s, tok(POS_COLOR_TEXT_ON_ACCENT));
+
+    /* Shift locked: the underline is what separates locked from one-shot
+     * without asking the eye to compare two fills (DS §17.3). */
+    s = &styles[POS_STYLE_KEY_LOCKED];
+    reset(s);
+    lv_style_set_border_color(s, tok(POS_COLOR_TEXT_ON_ACCENT));
+    lv_style_set_border_width(s, 2);
+    lv_style_set_border_side(s, LV_BORDER_SIDE_BOTTOM);
 }
 
 static void on_theme_changed(void *user)
