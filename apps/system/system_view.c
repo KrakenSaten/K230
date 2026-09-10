@@ -453,6 +453,7 @@ void system_view_apply_status(struct system_view *v, const cJSON *status, unsign
 
 void system_view_set_radio_state(struct system_view *v, const char *state)
 {
+    v->radio_state_known = state != NULL;
     if (state) {
         size_t i;
 
@@ -538,6 +539,15 @@ void system_view_action_failed(struct system_view *v, const char *message)
     v->phase = SYSTEM_VIEW_LIVE;
     snprintf(v->error, sizeof(v->error), "%s",
              message && message[0] ? message : "sysd is not answering");
+}
+
+enum system_view_emphasis system_view_dialog_emphasis(const struct system_view *v)
+{
+    /* A restart costs about thirty-five seconds and undoes itself. A
+     * power-off costs a walk to the bench and thirty seconds with the cable
+     * out, so the glass must not put the brighter treatment on it. */
+    return v->phase == SYSTEM_VIEW_CONFIRM_POWEROFF ? SYSTEM_VIEW_EMPHASIS_CANCEL
+                                                    : SYSTEM_VIEW_EMPHASIS_CONFIRM;
 }
 
 const char *system_view_dialog_title(const struct system_view *v)

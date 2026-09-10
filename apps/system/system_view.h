@@ -98,7 +98,10 @@ struct system_view {
     int service_count;
 
     char radio_state[12];                /* chip text from the shell's poll */
-    char radio_detail[SYSTEM_VIEW_TEXT]; /* "EU868 · mock" */
+    char radio_detail[SYSTEM_VIEW_TEXT];  /* "EU868 · mock" */
+    /* Whether the live half is known. The detail is configuration and stays
+     * readable when it is not; the screen mutes it rather than blanking it. */
+    int radio_state_known;
 
     /* freshness */
     int have_status;
@@ -150,6 +153,22 @@ const char *system_view_confirm(struct system_view *v);
 void system_view_action_ok(struct system_view *v);
 /* The call failed: back to a usable screen carrying the reason. */
 void system_view_action_failed(struct system_view *v, const char *message);
+
+/* Which of a confirmation's two buttons the glass should emphasise.
+ *
+ * A restart is recoverable and the accent stays on the action. A power-off is
+ * not - VERIFIED on unit A, the board needs USB power out for about 30 seconds
+ * before it will start again - so the accent goes on Cancel and the action
+ * takes the restrained treatment. This is decided here rather than in the
+ * LVGL callback because on a touch-only panel there is no input group and
+ * therefore no focus ring: the styling is the only thing that says which
+ * choice is the safe one, so it has to be a tested decision. */
+enum system_view_emphasis {
+    SYSTEM_VIEW_EMPHASIS_CONFIRM = 0, /* accent on the action */
+    SYSTEM_VIEW_EMPHASIS_CANCEL       /* accent on Cancel */
+};
+
+enum system_view_emphasis system_view_dialog_emphasis(const struct system_view *v);
 
 /* Dialog and terminal copy, so the strings are testable and in one place. */
 const char *system_view_dialog_title(const struct system_view *v);

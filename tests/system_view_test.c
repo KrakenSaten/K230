@@ -365,6 +365,50 @@ int main(void)
     check("the power-off terminal repeats the unplug instruction",
           strstr(system_view_terminal_text(&v), "30 seconds") != NULL);
 
+    /* ---- which button the glass emphasises ----
+     *
+     * On a touch-only panel there is no input group and so no focus ring: the
+     * styling is the whole of what says which choice is safe. Observed wrong
+     * on unit A 2026-09-10, where the accent sat on "Power off". */
+    system_view_init(&v);
+    system_view_request(&v, SYSTEM_VIEW_ACTION_REBOOT);
+    check("a restart keeps the accent on the action",
+          system_view_dialog_emphasis(&v) == SYSTEM_VIEW_EMPHASIS_CONFIRM);
+    check("and its wording is unchanged",
+          strcmp(system_view_dialog_title(&v), "Restart PocketOS?") == 0 &&
+              strstr(system_view_dialog_body(&v), "about 35 seconds") != NULL &&
+              strcmp(system_view_dialog_confirm_label(&v), "Restart") == 0);
+    system_view_cancel(&v);
+    system_view_request(&v, SYSTEM_VIEW_ACTION_POWEROFF);
+    check("a power-off moves the accent to Cancel",
+          system_view_dialog_emphasis(&v) == SYSTEM_VIEW_EMPHASIS_CANCEL);
+    check("and its wording is unchanged too",
+          strcmp(system_view_dialog_title(&v), "Power off PocketOS?") == 0 &&
+              strstr(system_view_dialog_body(&v), "cannot be restarted remotely") != NULL &&
+              strstr(system_view_dialog_body(&v), "30 seconds") != NULL &&
+              strcmp(system_view_dialog_confirm_label(&v), "Power off") == 0);
+    check("emphasis alone still fires nothing", system_view_confirm(&v) != NULL &&
+                                                    v.phase == SYSTEM_VIEW_CONFIRM_POWEROFF);
+    system_view_cancel(&v);
+    check("and cancelling from there leaves nothing to call",
+          v.phase == SYSTEM_VIEW_LIVE && system_view_confirm(&v) == NULL);
+
+    /* ---- radiod unreachable: configuration survives, live state does not ---- */
+    system_view_init(&v);
+    system_view_set_radio_detail(&v, "EU868", "mock");
+    system_view_set_radio_state(&v, "rx");
+    check("a reachable radiod is known", v.radio_state_known == 1);
+    system_view_set_radio_state(&v, NULL);
+    check("an unreachable radiod is not known", v.radio_state_known == 0);
+    check("its chip goes to --", strcmp(v.radio_state, "--") == 0);
+    check("but the region and backend are still there",
+          strcmp(v.radio_detail, "EU868 \xC2\xB7 mock") == 0);
+    check("the row is not blanked", v.radio_detail[0] != '\0' &&
+                                        strcmp(v.radio_detail, SYSTEM_VIEW_UNKNOWN) != 0);
+    system_view_set_radio_state(&v, "tx");
+    check("and a reachable radiod is known again",
+          v.radio_state_known == 1 && strcmp(v.radio_state, "TX") == 0);
+
     /* ---- an action that failed leaves a usable screen ---- */
     system_view_init(&v);
     o = parse(status_json);

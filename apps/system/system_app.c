@@ -143,6 +143,15 @@ static void build_freshness(struct system_app *a)
     a->freshness = pocketui_label(r, a->view.freshness, POS_STYLE_CAPTION);
 }
 
+/* Demote a button from the accent treatment to the restrained one. The
+ * pressed style goes with it, or the accent would come back under a finger. */
+static void restrain(lv_obj_t *btn)
+{
+    lv_obj_remove_style(btn, pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
+    lv_obj_remove_style(btn, pos_style(POS_STYLE_BUTTON_PRIMARY_PRESSED), LV_STATE_PRESSED);
+    pos_style_add(btn, POS_STYLE_BUTTON_SECONDARY, 0);
+}
+
 static void section_caption(lv_obj_t *parent, const char *text)
 {
     lv_obj_t *lb = pocketui_label(parent, text, POS_STYLE_CAPTION);
@@ -236,6 +245,13 @@ static void repaint(struct system_app *a)
     }
     if (a->radio_detail) {
         lv_label_set_text(a->radio_detail, v->radio_detail);
+        /* The region and backend are configuration and stay readable when
+         * radiod is not answering - they are still what it is configured for.
+         * Muted, so nobody reads them as live state. */
+        lv_obj_remove_style(a->radio_detail, pos_style(POS_STYLE_TEXT_MUTED), 0);
+        if (!v->radio_state_known) {
+            pos_style_add(a->radio_detail, POS_STYLE_TEXT_MUTED, 0);
+        }
     }
     if (a->toast) {
         lv_label_set_text(a->toast, v->error);
@@ -322,17 +338,22 @@ static void build_confirm(struct system_app *a)
     lv_obj_set_style_pad_column(buttons, 8, 0);
     lv_obj_clear_flag(buttons, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Cancel first and focused: the safe answer is the one already under the
-     * finger and the one a stray key press takes. */
+    /* Cancel is first, and on a power-off it is also the accented one. This
+     * panel is touch-only: there is no input group, so lv_group_focus_obj
+     * below is a no-op on the device and the styling is the only thing that
+     * says which choice is safe. Observed on unit A 2026-09-10, where the
+     * accent sat on "Power off" - the one action that cannot be undone from a
+     * desk was the one drawing the eye. */
     cancel = pocketui_button(buttons, "Cancel", on_cancel, a);
-    lv_obj_remove_style(cancel, pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
-    pos_style_add(cancel, POS_STYLE_BUTTON_SECONDARY, 0);
     lv_obj_set_height(cancel, SYSTEM_ACTION_BTN_H);
     lv_obj_set_flex_grow(cancel, 1);
 
     confirm = pocketui_button(buttons, system_view_dialog_confirm_label(&a->view), on_confirm, a);
     lv_obj_set_height(confirm, SYSTEM_ACTION_BTN_H);
     lv_obj_set_flex_grow(confirm, 1);
+
+    restrain(system_view_dialog_emphasis(&a->view) == SYSTEM_VIEW_EMPHASIS_CANCEL ? confirm
+                                                                                  : cancel);
 
     if (lv_group_get_default()) {
         lv_group_focus_obj(cancel);
@@ -497,8 +518,7 @@ static void build_live(struct system_app *a)
     /* Power off is the secondary action: on this board it cannot be undone
      * from here (docs/hardware/V0.0.7_BLOCK2C_SMOKE.md). */
     poweroff = pocketui_button(buttons, "Power off", on_poweroff, a);
-    lv_obj_remove_style(poweroff, pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
-    pos_style_add(poweroff, POS_STYLE_BUTTON_SECONDARY, 0);
+    restrain(poweroff);
     lv_obj_set_height(poweroff, SYSTEM_ACTION_BTN_H);
     lv_obj_set_flex_grow(poweroff, 1);
 }
