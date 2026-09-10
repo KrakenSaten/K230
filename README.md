@@ -104,8 +104,10 @@ are classified per statement in docs/hardware/T-DISPLAY-K230.md.
   defect; the probe now says so when it happens again, with both
   transports' bytes as evidence. No further investigation unless it
   recurs on hardware.
-- **0.0.7** is the core system layer, and is a **release candidate, not a
-  release**: it has no image and no tag. `core/pocketsys` turns /proc, /sys
+- **0.0.7** is the core system layer. Its release image is built, flashed and
+  validated (`4ab5a55`, docs/hardware/V0.0.7_RELEASE_SMOKE.md, PASS on all
+  nine steps); it is **not yet tagged or merged**.
+  `core/pocketsys` turns /proc, /sys
   and the mount table into system facts with unknown as null and never as
   zero; `services/sysd` serves `system.info`, `system.status`,
   `system.reboot` and `system.poweroff` (docs/api/system.md); `pos-supervise`
@@ -113,9 +115,11 @@ are classified per statement in docs/hardware/T-DISPLAY-K230.md.
   with `running` requiring the pid to still be the same process; and the
   shell gains the System Status screen, whose presentation logic is pure C
   and host-tested. Both destructive actions reply before they act, go through
-  init, and are confirmed at the panel. Validated on unit A across four
-  sheets, all PASS, but only ever as a bench deployment onto a 0.0.6 card -
-  the release gate is docs/hardware/V0.0.7_PRE_RELEASE_CHECKPOINT.md.
+  init, and are confirmed at the panel. Validated on unit A across four bench
+  sheets and then from the flashed image; the gate that run had to clear is
+  docs/hardware/V0.0.7_PRE_RELEASE_CHECKPOINT.md. The image ships with the
+  vendor launcher still owning the panel: `/etc/default/k230_phone_ui`
+  `ENABLE=0` and `/etc/default/pocketos-shell` `ENABLE=1` hand it to the shell.
 
 The K230 SD image is built by platforms/k230 (see docs/BUILD_ENVIRONMENT.md
 and docs/hardware/FIRST_BOOT.md).

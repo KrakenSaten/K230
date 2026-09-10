@@ -118,6 +118,19 @@ chip-state dependent and dumps both transports' windows when it does.
 
 ## Software
 
+- A reflash costs SSH access twice over: the fresh rootfs has no
+  `/root/.ssh/authorized_keys` and a newly generated host key, so the bench key
+  must be restored over the serial console and `known_hosts` rewritten only
+  after the new fingerprint is read off that console. Expect it on every
+  reflash and attach the serial console before starting (v0.0.7 release run).
+- `pos-hwcheck --lora` prints `REQUIRES RADIOD STOPPED` in its report but does
+  not enforce it. On a bench where radiod holds the mock backend it never opens
+  the SPI device, so the probe appears to work with radiod up and the violation
+  is silent. Stop radiod first; consider making the probe refuse.
+- The gated card writer's own final line is `RESULT: FLASH FAIL` on every
+  successful flash, because it compares the whole-image hash and Windows stamps
+  the MBR disk identifier into bytes 440..443. Only the byte-compare wrapper's
+  `VERDICT:` line is meaningful. Reading the writer log alone will mislead.
 - The `Powering off...` screen's instruction cannot be read in practice: the
   board goes down about 200 ms after it appears. The instruction that matters
   is the one in the confirmation dialog, which is read before committing. Keep

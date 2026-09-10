@@ -31,10 +31,10 @@ and exposes radio, network and system information through services and the
 | Reboot/shutdown, hardware info app | `system.reboot` and `system.poweroff` done (v0.0.7 block 2c); both validated on unit A, reboot from `db529fb` and poweroff operator-attended from `fdc795f` (docs/hardware/V0.0.7_BLOCK2C_SMOKE.md). Hardware info app not started |
 | Basic updater (image on SD, no rollback) | not started |
 
-v0.0.7 is code-complete and validated on unit A, but only as a bench
-deployment onto a 0.0.6 card: no image has been built and nothing has been
-flashed. The release gate, with the run that has to pass before v0.0.7 is
-tagged, is docs/hardware/V0.0.7_PRE_RELEASE_CHECKPOINT.md.
+v0.0.7 is code-complete, validated on unit A across four bench sheets, and
+validated as a release image: built at `4ab5a55`, flashed and cold-booted, PASS
+on all nine steps of the gate (docs/hardware/V0.0.7_RELEASE_SMOKE.md, gate in
+V0.0.7_PRE_RELEASE_CHECKPOINT.md). Not tagged and not merged.
 
 Exit criteria for v0.1: boots from SD on both units, shell usable by touch,
 `pos hwcheck` report attached to docs/hardware, radiod sends and receives a
