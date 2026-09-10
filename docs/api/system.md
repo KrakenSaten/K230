@@ -203,9 +203,13 @@ $ pos call sysd system.reboot
 
 ### system.poweroff
 
-Power the machine off. Takes no parameters. Replies, then acts. Validated on
-the host; physical execution on unit A is still pending
-(docs/hardware/V0.0.7_BLOCK2C_SMOKE.md).
+Power the machine off. Takes no parameters. Replies, then acts. VERIFIED on
+unit A (docs/hardware/V0.0.7_BLOCK2C_SMOKE.md).
+
+On this hardware it is **not remotely recoverable**: after a power-off the
+board needs USB power disconnected for about 30 seconds before it will start
+again, which is a property of the K230 power path and not of PocketOS. A client
+offering this action should say so; it is not the peer of `system.reboot`.
 
 ```
 $ pos call sysd system.poweroff
