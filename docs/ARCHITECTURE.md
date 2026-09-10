@@ -131,7 +131,36 @@ supervision at boot, `system.info` and `system.status` answer with the
 board's real values, stop and start are clean without escalation, and a
 planted stale pid file was gone after a reboot, which is what makes
 `services[].running` trustworthy (docs/hardware/V0.0.7_BLOCK2A_SMOKE.md). The
-shell's System Status screen is the next step of v0.0.7.
+shell's System Status screen is the client, and it is done: validated on unit
+A from `b9203c8` (docs/hardware/V0.0.7_SYSTEM_STATUS_SMOKE.md).
+
+## System Status screen
+
+```text
+apps/system/system_app.c  ── LVGL panels, taps
+apps/system/system_view.c ── every decision, no LVGL: strings, states, phases
+```
+
+The split is what makes it testable. `system_view` turns `system.info` and
+`system.status` into the exact strings the panels show, holds the confirm and
+terminal phases behind the two destructive actions, and is the only place that
+decides what unknown looks like; it has no LVGL in it, so the host suite covers
+the parts of a status screen that go wrong - a null read as a zero, a dropped
+poll blanking the numbers, an action fired before anyone confirmed it - without
+a display.
+
+`system.info` once at create, `system.status` every two seconds, both through
+`shell_ipc_call_timeout` with the UI deadline. The radio row reuses the state
+the status bar already polls (`pocketos_shell_radio_state`) rather than asking
+radiod a second time. The screen reads nothing from `/proc`, `/sys` or `/run`:
+it is a client like any other.
+
+Null is the only unknown and renders as a muted em dash; a number, zero
+included, is a number. A failed poll changes the freshness line and nothing
+else. Services are RUNNING, CRASH LOOP or STOPPED, and a restart count is
+always written with its 60-second window. Pseudo interfaces are hidden from the
+human view by the six-octet-MAC rule and counted in a caption, never filtered
+out of `system.status`. Both power actions take two taps.
 
 ## Theme engine (Design System v0.1)
 

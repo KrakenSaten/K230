@@ -27,6 +27,7 @@ and exposes radio, network and system information through services and the
 | sysd: `system.info`, `system.status` (identity, resources, storage, network summary, service health) | done (v0.0.7 blocks 1 and 2a), validated on unit A from `3a56804` (docs/hardware/V0.0.7_BLOCK2A_SMOKE.md); service health from the supervisor state file, validated on unit A from `792f754` (block 2b, docs/hardware/V0.0.7_BLOCK2B_SMOKE.md) |
 | netd: Ethernet, Wi-Fi (wpa_supplicant), BLE status | not started |
 | Settings app (network, display, system) | not started |
+| Shell System Status screen (vitals, storage, network, services, radio, identity, restart, power off) | done (v0.0.7), validated on unit A from `b9203c8` (docs/hardware/V0.0.7_SYSTEM_STATUS_SMOKE.md) |
 | Reboot/shutdown, hardware info app | `system.reboot` and `system.poweroff` done (v0.0.7 block 2c); both validated on unit A, reboot from `db529fb` and poweroff operator-attended from `fdc795f` (docs/hardware/V0.0.7_BLOCK2C_SMOKE.md). Hardware info app not started |
 | Basic updater (image on SD, no rollback) | not started |
 
