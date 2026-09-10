@@ -42,6 +42,7 @@ add_executable(pocketos-shell
     ../pocketui/pos_styles.c
     ${REPO_DIR}/apps/radio/radio_app.c
     ${REPO_DIR}/apps/system/system_app.c
+    ${REPO_DIR}/apps/system/system_view.c
     ${REPO_DIR}/apps/fleet/fleet_app.c
     ${REPO_DIR}/apps/fleet/engine/fleet_types.c
     ${REPO_DIR}/apps/fleet/engine/fleet_rng.c

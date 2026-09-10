@@ -156,6 +156,20 @@ tests/settings_test.o: tests/settings_test.c ui/shell/settings.h
 tests/paths_test: tests/paths_test.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# System Status presentation (pure C, no LVGL). It lives beside its app in
+# apps/system but is built here so the decisions that go wrong in a status
+# screen - null read as zero, a dropped poll blanking it, an action fired
+# before it was confirmed - are unit-tested; the app itself is built by
+# ui/shell (CMake).
+apps/system/system_view.o: apps/system/system_view.c apps/system/system_view.h
+	$(CC) $(ALL_CFLAGS) -Iapps/system -c -o $@ $<
+
+tests/system_view_test.o: tests/system_view_test.c apps/system/system_view.h
+	$(CC) $(ALL_CFLAGS) -Iapps/system -c -o $@ $<
+
+tests/system_view_test: tests/system_view_test.o apps/system/system_view.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
 # PocketFleet game engine (pure C, no LVGL). It lives beside its app in
 # apps/fleet/engine but is built here so it is unit-tested with the rest of
 # the tree; the app itself is built by ui/shell (CMake).
@@ -227,13 +241,14 @@ tests/radar_store_test: tests/radar_store_test.o $(RADAR_APP_OBJS) $(RADAR_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # Native tests only (they execute binaries).
-test: all tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/pocketsys_test tests/sysd_services_test tests/theme_test tests/settings_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS)
+test: all tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/theme_test tests/settings_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS)
 	./tests/airtime_test
 	./tests/pocketlog_test 2>/dev/null
 	./tests/paths_test
 	./tests/pocketipc_test
 	./tests/pocketsys_test
 	./tests/sysd_services_test
+	./tests/system_view_test
 	./tests/theme_test docs/design/themes.json
 	./tests/settings_test
 	./tests/fleet_rng_test
@@ -277,6 +292,6 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 -include $(DEPFILES)
 
 clean:
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) tests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) tests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o
 
 .PHONY: all test install clean sx1262-objs
