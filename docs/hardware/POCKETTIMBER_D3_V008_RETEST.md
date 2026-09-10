@@ -201,33 +201,157 @@ Free space at the time: 136,540,160 bytes on `/`. No Timber state yet
 (`/var/lib/pocketos/timber` absent, as expected on a card that has never run
 the app).
 
-### Part B — awaiting the operator; every item needs a finger on the panel
+### Part B — run by the operator at the panel, 2026-09-10
 
-These cannot be driven from a serial console or over SSH. Synthetic input was
-deliberately **not** injected: `tests/timber_input_test.c` already drives the
-real LVGL evdev parser with the GT9895 event grammar and passes, and the spec
-is explicit that what is still needed is a real finger on the pull track,
-which no test can stand in for.
+Every item here needs a finger on the panel and was performed by the
+operator. Synthetic input was deliberately **not** injected at any point:
+`tests/timber_input_test.c` already drives the real LVGL evdev parser with
+the GT9895 event grammar, and the spec is explicit that what was still
+needed is a real finger on the pull track, which no test can stand in for.
 
-| Section | Item | Verdict | Observed |
+**Two kinds of evidence appear below and they are not the same thing.**
+*Operator* is what a person saw on the panel. *Remote* is what was measured
+over SSH afterwards — the record file decoded byte by byte, and the shell
+log, which is append-only across boots. Where both exist they agree.
+
+| Section | Item | Verdict | Evidence |
 | --- | --- | --- | --- |
-| 1 | Timber launches from the tile; sprites, fit, bottom row inside the panel | | |
-| 1 | One run to a collapse; `record.v1` written; BEST updates | | |
-| 2 | Five repeated runs; VmRSS after (baseline above is 12,288 kB) | | |
-| 2 | Runs counter at offset 16 advanced by five | | |
-| 3 | Record survives `system.reboot` from System Status | | |
-| 3 | Record survives `system.poweroff` from System Status | | |
-| 4 | Summit reached, or NOT REACHED with layers and cause | | |
-| 5 | Fleet launch and basic interaction | | |
-| 5 | Radar launch and basic interaction | | |
-| 5 | Radio opens, mock backend, rows populate | | |
-| 5 | System Status screen opens and populates | | |
+| 1 | Timber launches from the tile | **PASS** | operator; remote: `open app timber` at 18:06:50 |
+| 1 | Layout correct, no clipping, bottom row inside the panel | **PASS** | operator |
+| 1 | Pull-track behaviour works | **PASS** | operator |
+| 1 | Blocks seat and push back correctly | **PASS** | operator |
+| 1 | Run to collapse; `record.v1` written; BEST updates | **PASS** | operator; remote: record written 18:09:17, and the shell read back "best score 434 over 1 run(s)" on reopen at 18:07:50 |
+| 2 | Repeated runs, no visible issue | **PASS, 2 runs** | operator; remote: `runs` = 2, `collapses` = 2. **The five this sheet asked for were not run** — see the note below |
+| 2 | VmRSS across the repeated runs | **NOT MEASURED** | the process that ran them (pid 1099) is gone; see the note below |
+| 3 | Record survives `system.reboot` from System Status | **PASS** | operator; remote: System Status opened 18:09:28, "stopping on signal" 18:09:41, and the next boot logged "best score 2208 over 2 run(s)" — the record read back intact |
+| 3 | Record survives `system.poweroff` + cold power cycle | **PASS** | operator; remote: System Status opened 18:11:00, "stopping on signal" 18:11:04, and the boot after the cycle again logged "best score 2208 over 2 run(s)" |
+| 4 | Summit | **NOT REACHED** | operator; remote: `summits` = 0. Not a failure — see below |
+| 5 | Fleet launch and basic interaction | **PASS** | operator; remote: `open app fleet` … `close app fleet`, about 13 s |
+| 5 | Radar launch and basic interaction | **PASS** | operator; remote: `open app radar` … `close app radar` 18:10:59 |
+| 5 | System Status screen opens and populates | **PASS** | operator; remote: opened before both power actions |
+| 5 | Supervisor and service health after the cycle | **PASS** | remote: sysd 235, radiod 253, pocketos-shell 274, all `running: true`, `crashloop: false`, `restarts: 0` |
+| — | Storage path, no stale temporary file | **PASS** | remote: `/var/lib/pocketos/timber/record.v1`, nothing else in the directory |
+| — | Storage permissions | **re-observe on a flashed card** | remote: 0700/0600, which is the deploy session's umask, not Timber's doing — see below |
+| — | No crash, no crashloop, no errors | **PASS** | remote: 0 crash reports, 0 ERROR lines in `shell.log`, no `/run/pocketos/*.crashloop`, both stops logged as "stopping on signal" |
 
-**D3 PASS** / **D3 FAIL** (section and STOP condition).
+### The record file, decoded
 
-Operator: ______  Date: ______  Unit: ______ (build `aa7137b`).
+`/var/lib/pocketos/timber/record.v1`, 52 bytes, md5
+`735c1dff6f30254ce8a75f967e157265`, written 2026-09-10T18:09:17Z, no stray
+temporary file beside it. Decoded against the field table in
+`docs/apps/POCKETTIMBER.md`:
 
-A PASS across Part B is the gate for M1: freeze PocketTimber v1 and merge
-`pockettimber-engine` to master. Part A alone is **not** a D3 pass — it
-establishes that the platform under Timber is healthy on this build, nothing
-about the game.
+| Offset | Field | Value |
+| --- | --- | --- |
+| 0 | magic | `PTR1` |
+| 4 | format version | 1 |
+| 6 | best score | 2208 |
+| 10 | best height | 22 layers |
+| 12 | best streak | 0 |
+| 14 | best pulls | 10 |
+| 16 | **runs** | **2** |
+| 20 | lifetime pulls | 12 |
+| 24 | **collapses** | **2** |
+| 28 | **summits** | **0** |
+| 32 | causes: tip, jolt, placement, sway | 1, 1, 0, 0 |
+| 48 | FNV-1a checksum | `c1 78 38 91` |
+
+Every run is accounted for: two runs, both ended with the tower down, one by
+tip and one by jolt, no summit. The counters, the two "best score N over M
+run(s)" log lines and the operator's account all agree.
+
+### Storage path and permissions: the observed modes are a deploy artefact
+
+The path is right and there is no stray temporary file. The **modes are not
+representative of a flashed card**, and this is the install artefact this
+sheet warned about, so it is written out rather than filed as a defect.
+
+| Store | Created by | Directory | File |
+| --- | --- | --- | --- |
+| `timber/` | shell pid 1099, started by `deploy.sh` over SSH | `drwx------` 0700 | `-rw-------` 0600 |
+| `radar/` | shell pid 273, started by `rcS` at boot | `drwxr-xr-x` 0755 | `-rw-r--r--` 0644 |
+| `fleet/` | shell started by `rcS` at boot | `drwxr-xr-x` 0755 | `-rw-r--r--` 0644 |
+
+`apps/timber/timber_store.c` and `apps/radar/radar_store.c` both call
+`mkdir(work, 0755)` and `fopen(tmp, "wb")` — identical code, so the
+difference is not in the app. It is the umask:
+
+```
+shell started by rcS at boot (pid 274)   Umask: 0022
+init and sysd                            Umask: 0022
+an SSH session, which is what deploy.sh ran under   umask 0077
+```
+
+Confirmed directly: a directory and a file created in an SSH session on this
+board come out `drwx------` and `-rw-------`, the exact modes Timber's store
+has. `0755 & ~0077 = 0700`, `0666 & ~0077 = 0600`.
+
+Radar's store is the control: identical store code, created by a
+boot-started shell on this same build, and it is 0755/0644. On a flashed
+card Timber's store would be too. The reconstructed candidate 2 sheet
+records 0644 from a flashed card, which agrees.
+
+**Item 11 is therefore PASS on path and on the absence of a stale temporary
+file, and its permissions must be re-observed on a flashed card** — or after
+letting a boot-started shell recreate the store — before anyone quotes a
+mode for Timber. Nothing here calls for a code change.
+
+### Two items that are short of what this sheet asked for
+
+**Repeated runs: two, not five.** The ROADMAP's D3 wording is "repeated runs
+stable"; the number five was this sheet's own choice. Two completed runs
+with no crash, no error and a correct counter is evidence of stability, but
+it is thinner evidence than five. **Owner's call whether that closes the
+item.**
+
+**VmRSS across the runs was not captured.** The baseline in Part A
+(12,288 kB) was taken on pid 1099, which is also the process that ran both
+runs — but it was never sampled again before the reboot ended it, and RSS
+does not survive a process. What can be said is only this:
+
+| Measurement | Process | State | VmRSS |
+| --- | --- | --- | --- |
+| Before any Timber run | 1099 | launcher | 12,288 kB |
+| After the reboot and cold cycle | 274 | Timber open, three samples 3 s apart | 12,416 kB, unchanging |
+
+Those are different processes with different histories, so the 128 kB
+between them is the cost of having Timber's screen up, **not** a leak
+measurement. No threshold is asserted here and none should be read in.
+
+Closing this properly is a five-minute bench task and needs no new code:
+sample `grep VmRSS /proc/$(pidof pocketos-shell)/status` over SSH, then play
+five runs without leaving the app, sampling between each. It can be done
+whenever the unit is next in front of someone.
+
+### Summit
+
+**NOT REACHED**, and by the owner's ruling of 2026-09-10 that is not a
+failure. The spec states the summit is not reached in practice once the D3
+shift lean is in, and `$POCKETTIMBER_SCREEN` has no summit state, so the
+image carries no way to open near one. No debug hook was added. The summit
+logic rests on the deterministic host coverage, which reaches it from a
+constructed tower and passes on this commit: `tests/timber_rules_test.c`
+(the summit reached, everything refused after) and
+`tests/timber_replay_test.c` (a session through the summit replayed to the
+same summit).
+
+## Verdict
+
+**D3 PASS** on build `aa7137b`, 2026-09-10, unit A.
+
+Operator: owner (manual panel testing). Remote measurements over SSH from
+the development host. No STOP condition was hit at any point.
+
+Three things are carried rather than blocking, none of them a PocketTimber
+defect and none needing a code change:
+
+1. The VmRSS observation across repeated runs was not captured.
+2. Two completed runs against this sheet's five.
+3. Timber's store permissions must be re-observed on a flashed card; what
+   this card shows is the deploy session's umask.
+
+The summit is closed as NOT REACHED, with the deterministic host coverage
+standing for it by the owner's ruling.
+
+This clears the gate for M1: freeze PocketTimber v1 and merge
+`pockettimber-engine` to master.
