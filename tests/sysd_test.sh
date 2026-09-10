@@ -32,6 +32,17 @@ absent() { # absent <name> <unwanted-regex> <actual>
 # A service this process stands in for, in the state file pos-supervise would
 # have written for it (tools/supervise/pos-supervise). The pid file beside it
 # is what the init scripts use to stop the daemon; sysd reads only the state.
+#
+# started_uptime_s has to be this shell's real start time, not a made-up
+# number: sysd checks that the process holding child_pid is still the one the
+# supervisor started, by comparing it with field 22 of /proc/<pid>/stat. Taken
+# the same way the reader takes it - everything after the last ')' is field 3,
+# so starttime is the twentieth - because comm may contain spaces and
+# parentheses and cannot be counted past from the left.
+shell_start_s() {
+    _ticks=$(sed -e 's/^.*) //' "/proc/$$/stat" | cut -d' ' -f20)
+    echo $(( _ticks / $(getconf CLK_TCK) ))
+}
 cat > "$POCKETOS_RUNTIME_DIR/radiod.state" <<EOF
 state_version=1
 name=radiod
@@ -42,8 +53,8 @@ crashloop=0
 last_exit_code=
 restarts=0
 backoff_s=
-started_uptime_s=1
-updated_uptime_s=1
+started_uptime_s=$(shell_start_s)
+updated_uptime_s=$(shell_start_s)
 EOF
 echo $$ > "$POCKETOS_RUNTIME_DIR/radiod.pid"
 

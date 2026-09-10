@@ -57,7 +57,7 @@ The live view. sysd samples `/proc/stat` once a second for `cpu_percent`.
 | storage | [{mount, total_bytes, avail_bytes}] | `statvfs` on each of `/`, `/boot`, `/data` that `/proc/mounts` lists; `avail_bytes` is what a writer can use. At most one row per mount point, whatever `/proc/mounts` does: an initramfs leaves `rootfs /` ahead of `/dev/root /`, and a bind or remount adds another line for the same place | VERIFIED layout (574 MB root, `/boot`; no `/data` yet) |
 | network | [{name, operstate, carrier, mac, ipv4}] | `/sys/class/net` without `lo`, sorted; `carrier` is null while the interface is down (the kernel reports EINVAL), `ipv4` null without an address | VERIFIED (eth0 up with DHCP, wlan0/wlan1 down) |
 | power | {source, supplies: [{name, type}]} | `/sys/class/power_supply`. `source` is `external` when no supply of type Battery exists and `unknown` when one does; battery state is not interpreted in v0 | VERIFIED empty on unit A (no gauge on the main board) |
-| services | [{name, pid, running, crashloop, last_exit_code, restarts}] | one entry per `<name>.state` file pos-supervise writes in the runtime directory, sorted by name. All six keys are always present; `null` means the supervisor did not know, never a sentinel. `restarts` is the count **within the current 60-second restart window**, not lifetime restarts — see below. `running` requires both that the supervisor had a live child at its last update **and** that `kill(pid, 0)` still finds it (true also on EPERM); the residual case it does not cover is below. See the source and stability notes | VERIFIED on unit A |
+| services | [{name, pid, running, crashloop, last_exit_code, restarts}] | one entry per `<name>.state` file pos-supervise writes in the runtime directory, sorted by name. All six keys are always present; `null` means the supervisor did not know, never a sentinel. `restarts` is the count **within the current 60-second restart window**, not lifetime restarts — see below. `running` requires that the supervisor had a live child at its last update, that `kill(pid, 0)` still finds it, **and** that the process holding that pid is the one the supervisor started — see below. See the source and stability notes | VERIFIED on unit A |
 
 ### services: where it comes from
 
@@ -112,20 +112,36 @@ minute", never as a lifetime total; PocketOS does not keep one.
 
 ### services: what `running` does and does not prove
 
-`running` is true only when the supervisor recorded a live child **and** the
-kernel still has that pid. That closes the two cases that used to produce a
-false "up": a supervisor that recorded giving up, and a state file left behind
-by a service that has been stopped — neither can report `running: true`,
-because `running=0` in the file ends the question before the pid is consulted.
+`running` is true only when all three of these hold:
 
-One case remains open. If a supervisor is SIGKILLed while its child is alive
-(the init scripts' escalation path), its state file keeps saying `running=1`
-with that child's pid; if the child then dies and the kernel hands the same
-pid to something else, `running` will be true for a service that is not there.
-Closing it needs more than a pid — comparing `started_uptime_s` against the
-process's start time in `/proc/<pid>/stat` would do it — and v0 does not.
-Treat `running: true` as "the supervisor last saw this child alive and a
-process with its pid still exists", which is what it is.
+1. the supervisor recorded a live child (`running=1` in its state file),
+2. `kill(child_pid, 0)` still finds a process by that number (EPERM counts),
+3. and that process is **the same one** the supervisor started.
+
+The third is the interesting one, because the first two are not enough. A
+supervisor SIGKILLed while its child was alive leaves a file still claiming
+`running=1`; if the child then dies and the kernel hands its pid to something
+else, the first two conditions are both satisfied by a stranger. So the
+supervisor's `started_uptime_s` is compared with field 22 of
+`/proc/<child_pid>/stat`, the boot-relative tick count at which the process
+now holding that pid actually started. The supervisor reads the clock
+immediately before forking and stores whole seconds, so the kernel's value can
+be equal or a little later, never earlier; a difference outside 0 to 5 seconds
+means the pid changed hands.
+
+Anything undecidable answers false. A pid with no `/proc` entry, a stat line
+that does not parse, a state file with no recorded start time: none of them
+report a service as healthy, because that is the claim needing evidence.
+
+`running: true` therefore means "the supervisor started this process and it is
+still that process", which is what a reader wants it to mean.
+
+Covered by `tests/sysd_services_test.c` for a matching pair, a live pid whose
+start time disagrees, a pid the kernel does not have, and a state file with no
+start time recorded, and end to end in `tests/sysd_test.sh` against a service a
+real `pos-supervise` is watching. The start-time comparison itself has not yet
+run on a device: the field was VERIFIED on unit A before it existed, and the
+next bench deployment carries it.
 
 ### services: a service that was stopped on purpose
 

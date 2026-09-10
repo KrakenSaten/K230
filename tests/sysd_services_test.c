@@ -16,6 +16,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 static int failed;
@@ -45,6 +47,43 @@ static void put(const char *name, const char *text)
     }
     fputs(text, f);
     fclose(f);
+}
+
+/* What pos-supervise's now_s() reads: whole boot-relative seconds. The test
+ * takes it the same way and just before forking, so a state file it writes is
+ * indistinguishable from one the supervisor wrote. */
+static long uptime_now_s(void)
+{
+    FILE *f = fopen("/proc/uptime", "r");
+    double up = -1.0;
+
+    if (!f) {
+        return -1;
+    }
+    if (fscanf(f, "%lf", &up) != 1) {
+        up = -1.0;
+    }
+    fclose(f);
+    return (long)up;
+}
+
+/* A process the reader has to recognise. The name is deliberately awful: comm
+ * is field 2 of /proc/<pid>/stat and holds the executable's name, so a name
+ * with spaces and parentheses in it is what breaks a reader that counts
+ * fields from the left instead of finding the last ')'. */
+static pid_t spawn_sleeper(const char *path)
+{
+    pid_t p = fork();
+
+    if (p < 0) {
+        perror("fork");
+        exit(1);
+    }
+    if (p == 0) {
+        execl(path, path, "30", (char *)NULL);
+        _exit(127);
+    }
+    return p;
 }
 
 static const cJSON *get(const cJSON *o, const char *key)
@@ -97,6 +136,8 @@ int main(void)
 {
     char self[64];
     char alive[512];
+    long started;
+    pid_t sleeper;
     cJSON *st;
     const cJSON *arr;
     const cJSON *e;
@@ -116,13 +157,37 @@ int main(void)
     cJSON_Delete(st);
 
     /* ---- one file per moment in a service's life ---- */
-    snprintf(self, sizeof(self), "%ld", (long)getpid());
+    /* A real child with a real start time, recorded the way the supervisor
+     * records it: the clock read first, then the fork. The reader has to
+     * agree that this pid is still that process. */
+    snprintf(cmd, sizeof(cmd), "cp /bin/sleep '%s/we(ir) d name'", run);
+    if (system(cmd) != 0) {
+        fprintf(stderr, "cannot stage the awkwardly named sleeper\n");
+        return 1;
+    }
+    snprintf(cmd, sizeof(cmd), "%s/we(ir) d name", run);
+    started = uptime_now_s();
+    sleeper = spawn_sleeper(cmd);
+    snprintf(self, sizeof(self), "%ld", (long)sleeper);
     snprintf(alive, sizeof(alive),
              "state_version=1\nname=alive\nsupervisor_pid=1\nchild_pid=%s\nrunning=1\n"
              "crashloop=0\nlast_exit_code=\nrestarts=0\nbackoff_s=\n"
-             "started_uptime_s=10\nupdated_uptime_s=11\n", self);
+             "started_uptime_s=%ld\nupdated_uptime_s=%ld\n", self, started, started);
     put("alive.state", alive);
-    /* the supervisor thinks it has a child; the kernel disagrees */
+    /* The same live pid, but claimed to have started long before it did: the
+     * shape of a state file whose pid has been handed to something else. */
+    snprintf(alive, sizeof(alive),
+             "state_version=1\nname=reused\nsupervisor_pid=1\nchild_pid=%s\nrunning=1\n"
+             "crashloop=0\nlast_exit_code=\nrestarts=0\nbackoff_s=\n"
+             "started_uptime_s=%ld\nupdated_uptime_s=%ld\n", self, started - 600, started);
+    put("reused.state", alive);
+    /* A live pid with no recorded start time at all: identity undecidable. */
+    snprintf(alive, sizeof(alive),
+             "state_version=1\nname=nostart\nsupervisor_pid=1\nchild_pid=%s\nrunning=1\n"
+             "crashloop=0\nlast_exit_code=\nrestarts=0\nbackoff_s=\n"
+             "started_uptime_s=\nupdated_uptime_s=%ld\n", self, started);
+    put("nostart.state", alive);
+    /* the supervisor thinks it has a child; the kernel has no such pid */
     put("dead.state",
         "state_version=1\nname=dead\nsupervisor_pid=1\nchild_pid=999999\nrunning=1\n"
         "crashloop=0\nlast_exit_code=\nrestarts=0\nbackoff_s=\n"
@@ -158,14 +223,21 @@ int main(void)
 
     e = find_named(arr, "alive");
     check("a running service has all six keys", has_all_keys(e));
-    check("a running service reports its child pid", num_is(e, "pid", (double)getpid()));
-    check("a running service is running", cJSON_IsTrue(get(e, "running")));
+    check("a running service reports its child pid", num_is(e, "pid", (double)sleeper));
+    check("a matching pid and start time is running", cJSON_IsTrue(get(e, "running")));
     check("a running service is not in a crash loop", cJSON_IsFalse(get(e, "crashloop")));
     check("a service that has not exited has a null exit code",
           cJSON_IsNull(get(e, "last_exit_code")));
     check("a service that has not restarted reports 0, not null",
           num_is(e, "restarts", 0));
 
+    e = find_named(arr, "reused");
+    check("a live pid whose start time disagrees is not running",
+          cJSON_IsFalse(get(e, "running")));
+    check("its pid is still reported", num_is(e, "pid", (double)sleeper));
+    e = find_named(arr, "nostart");
+    check("a live pid with no recorded start time is not running",
+          cJSON_IsFalse(get(e, "running")));
     e = find_named(arr, "dead");
     check("a pid the kernel does not have is not running", cJSON_IsFalse(get(e, "running")));
     check("the pid is still reported so the operator can see it",
@@ -239,14 +311,17 @@ int main(void)
     check("a pid file alone does not name a service", find_named(arr, "legacy") == NULL);
 
     /* ---- the array is sorted and holds one entry per state file ---- */
-    check("one entry per readable state file", cJSON_GetArraySize(arr) == 10);
+    check("one entry per readable state file", cJSON_GetArraySize(arr) == 12);
     check("sorted by name",
           str_is(cJSON_GetArrayItem(arr, 0), "name", "alive") &&
               str_is(cJSON_GetArrayItem(arr, 1), "name", "backoff") &&
               str_is(cJSON_GetArrayItem(arr, 2), "name", "dead") &&
-              str_is(cJSON_GetArrayItem(arr, 9), "name", "truncated"));
+              str_is(cJSON_GetArrayItem(arr, 11), "name", "truncated"));
     cJSON_Delete(st);
 
+    kill(sleeper, SIGTERM);
+    while (waitpid(sleeper, NULL, 0) < 0 && errno == EINTR) {
+    }
     snprintf(cmd, sizeof(cmd), "rm -rf '%s'", run);
     if (system(cmd) != 0) {
         fprintf(stderr, "cleanup failed\n");
