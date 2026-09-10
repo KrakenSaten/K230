@@ -481,14 +481,14 @@ Per-token, per-mode numbers: `themes.json → themes.<id>.contrast`.
   A (§17)**, which specifies the text field, the focus model, the touch
   keyboard with its approved deviation DEV-1, and the dialog. Was: undesigned
   (v0 "missing" list), out of scope for v0.1.
-- **C9 — Norwegian and other Latin-1 letters.** OPEN. The converted fonts
-  already carry `0xA0–0xFF`, so æ ø å and the rest have glyphs; the keyboard
-  has nowhere to put them. A twelve-column alpha row would cut keys from 52
-  to about 43 px, which DEV-1 does not cover and which its reasoning would
-  not obviously carry; long-press-for-accents needs a preview popup, which
-  §17.7 excludes. For v0.0.8 they are reachable only if placed on the symbol
-  layer. Needs the product owner: this is a usability question about who
-  types on the device, not a layout question.
+- **C9 — Norwegian and other Latin-1 letters.** **CLOSED 2026-09-10 by the
+  product owner.** For v0.0.8: æ, ø and å MUST be reachable from the symbol
+  layer (§17.3); they MUST NOT be added to the primary QWERTY alpha layout;
+  the alpha keys MUST NOT shrink below the DEV-1 geometry to make room; and
+  long-press character or accent popups stay out of scope (§17.7). The
+  fonts already carry `0xA0–0xFF`, so no glyph work follows from this. A
+  future layout that wants them on the alpha layer needs a new deviation:
+  twelve columns would mean about 43 px keys, which DEV-1 does not cover.
 
 ## 15. Reference material [REFERENCE]
 
@@ -625,8 +625,14 @@ give a sheet **296 tall**, under a `hairline` top rule in `line`. On the
 | 4 | `?123`, Space, Enter / Done | 80 + 388 + 80 + 2×4 = 556 |
 
 **Layers.** Two, and only two. **Alpha**: QWERTY, with Shift for capitals.
-**Symbols** (`?123`): digits 1–0 on row 1, common punctuation on rows 2–3,
-`ABC` to return.
+**Symbols** (`?123`): digits 1–0 on row 1, common punctuation and **æ ø å**
+on rows 2–3, `ABC` to return.
+
+The three Norwegian letters live on the symbol layer by the owner's ruling
+of 2026-09-10 closing C9. They MUST NOT be added to the alpha layer, and the
+alpha keys MUST NOT shrink below the DEV-1 geometry to make room for them: a
+twelve-column row would mean about 43 px keys, which DEV-1 does not cover.
+Shift applies to them as it does to any letter.
 
 **Keys.**
 
@@ -691,6 +697,13 @@ Normative, and the reason this amendment exists before any code.
   physical keyboard are **sources** feeding it, not alternative paths.
 - Key identity is LVGL's: a printable character is its Unicode code point,
   everything else is an `LV_KEY_*` constant. No parallel vocabulary.
+- That promise is about the **logical** stream. LVGL's device layer is not
+  the same: `lv_indev_data_t.key` carries a printable character as its UTF-8
+  *bytes* packed into the word, which agrees with the code point for ASCII
+  and diverges above U+007F. Converting between the two is the input layer's
+  job, at its boundary, so that nothing above it sees the packing. Anything
+  that skips the layer and writes an LVGL key directly will be wrong for
+  every character C9 put on the symbol layer.
 - Apps MUST NOT bind to a touch-keyboard-specific API, MUST NOT read the
   keyboard widget, and MUST NOT branch on where a key came from. An app that
   behaves differently depending on the source is in breach of this section.
@@ -757,7 +770,8 @@ This is the design guidance the MVP needs and no more.
 ### 17.7 Out of scope
 
 Not designed here and not to be inferred from anything above: accented and
-non-ASCII characters beyond what the two layers carry (see C9), a third
+non-ASCII characters beyond what the two layers carry — which as of C9's
+closure means æ ø å on the symbol layer and nothing further — a third
 symbol page, word prediction, autocorrect, key preview popups, text
 selection gestures, cut / copy / paste, undo and redo inside a field,
 right-to-left text, CJK or any IME, landscape layout, haptics, a physical

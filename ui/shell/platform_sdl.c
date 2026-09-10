@@ -6,6 +6,9 @@
  */
 #include "platform.h"
 
+#include "pocketlog/pocketlog.h"
+#include "pos_input.h"
+
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -23,7 +26,18 @@ lv_display_t *pocketos_platform_init(void)
     }
     lv_sdl_window_set_title(disp, "PocketOS shell (simulator)");
     lv_sdl_mouse_create();
-    lv_sdl_keyboard_create();
+    /* The host keyboard is a source of the one logical key stream, not a
+     * second input path (DS §17.4). It stands in for the physical keyboard:
+     * if a field answers a host key exactly as it answers a pushed key, the
+     * driver that arrives later has nothing new to design.
+     *
+     * Logged either way, because a silently unadopted keyboard would look
+     * exactly like a dead one: keys would reach LVGL and go nowhere. */
+    if (pos_input_add_source(lv_sdl_keyboard_create())) {
+        LOG_INFO("host keyboard adopted as an input source");
+    } else {
+        LOG_WARN("host keyboard not adopted; typing will not reach fields");
+    }
     return disp;
 }
 

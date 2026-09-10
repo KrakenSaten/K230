@@ -47,6 +47,14 @@ enum pos_style_role {
     POS_STYLE_SYMBOL,              /* LV_SYMBOL_* glyph font (temporary, until DS icons) */
     POS_STYLE_SYMBOL_LARGE,        /* 32 px symbol font for launcher tiles */
     POS_STYLE_DIVIDER,             /* 1 px surface_raised bottom border (rows) */
+    /* Text field (DS §17.1). The states are separate roles so a field carries
+     * only the ones it needs: error is optional per field. */
+    POS_STYLE_FIELD,               /* surface fill, hairline line border, radius 6, pad 16 */
+    POS_STYLE_FIELD_FOCUSED,       /* + the 2 px focus outline of DS §9 */
+    POS_STYLE_FIELD_DISABLED,      /* disabled_bg fill, disabled_fg text, no border */
+    POS_STYLE_FIELD_ERROR,         /* 1.5 px status_error border */
+    POS_STYLE_FIELD_PLACEHOLDER,   /* text_secondary (never text_muted: DS §13 Outdoor) */
+    POS_STYLE_FIELD_CURSOR,        /* 2 px accent_primary caret */
     POS_STYLE_COUNT
 };
 

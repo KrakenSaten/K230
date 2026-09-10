@@ -38,6 +38,7 @@ add_executable(pocketos-shell
     settings.c
     platform_${POCKETOS_DISPLAY}.c
     ../pocketui/pocketui.c
+    ../pocketui/pos_input.c
     ../pocketui/pos_theme.c
     ../pocketui/pos_styles.c
     ${REPO_DIR}/apps/radio/radio_app.c
@@ -220,6 +221,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/radar/engine/radar_rules.c
         ${REPO_DIR}/apps/radar/engine/radar_score.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_input.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
         ${POCKETUI_FONTS})
@@ -257,6 +259,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/core/pocketlog/pocketlog.c
         ${REPO_DIR}/core/pocketpaths.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_input.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
         ${POCKETUI_FONTS})
@@ -274,4 +277,24 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(timber_input_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(timber_input_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # The logical key stream and the text field under real LVGL devices
+    # (run by tests/pos_input_test.sh). DS v0.1 section 17.
+    add_executable(pos_input_test
+        ${REPO_DIR}/tests/pos_input_test.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(pos_input_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core")
+    target_compile_options(pos_input_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(pos_input_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(pos_input_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(pos_input_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(pos_input_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 endif()

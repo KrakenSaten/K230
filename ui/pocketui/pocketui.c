@@ -112,3 +112,139 @@ lv_obj_t *pocketui_label(lv_obj_t *parent, const char *text, enum pos_style_role
     pos_style_add(lb, role, 0);
     return lb;
 }
+
+/* ---- Text field (DS §17.1) --------------------------------------------- */
+
+#define POCKETUI_CARET_BLINK_MS 500 /* DS §17.1: 500 ms on, 500 ms off */
+#define POCKETUI_FIELD_MIN_LINES 3
+
+static bool reduced_motion;
+
+void pocketui_set_reduced_motion(bool on)
+{
+    reduced_motion = on;
+}
+
+/* A tap focuses the field through the one focus model of DS §17.2, rather
+ * than leaving LVGL's click-focus to run beside the group. */
+static void field_clicked_cb(lv_event_t *e)
+{
+    lv_obj_t *ta = lv_event_get_target(e);
+
+    if (!lv_obj_has_state(ta, LV_STATE_DISABLED)) {
+        pos_input_focus(ta);
+    }
+}
+
+lv_obj_t *pocketui_text_field(lv_obj_t *parent, const char *placeholder, bool single_line)
+{
+    lv_obj_t *wrap = lv_obj_create(parent);
+    lv_obj_t *ta;
+
+    lv_obj_remove_style_all(wrap);
+    lv_obj_set_width(wrap, LV_PCT(100));
+    lv_obj_set_height(wrap, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(wrap, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(wrap, 8, 0);
+    lv_obj_clear_flag(wrap, LV_OBJ_FLAG_SCROLLABLE);
+
+    ta = lv_textarea_create(wrap);
+    lv_obj_remove_style_all(ta);
+    pos_style_add(ta, POS_STYLE_FIELD, 0);
+    pos_style_add(ta, POS_STYLE_FIELD_FOCUSED, LV_STATE_FOCUSED);
+    pos_style_add(ta, POS_STYLE_FIELD_DISABLED, LV_STATE_DISABLED);
+    pos_style_add(ta, POS_STYLE_FIELD_PLACEHOLDER, LV_PART_TEXTAREA_PLACEHOLDER);
+    pos_style_add(ta, POS_STYLE_FIELD_CURSOR, LV_PART_CURSOR);
+    lv_obj_set_width(ta, LV_PCT(100));
+
+    lv_textarea_set_one_line(ta, single_line);
+    if (single_line) {
+        lv_obj_set_height(ta, POCKETUI_ROW_H);
+    } else {
+        /* Three body lines is the floor of DS §17.1. The field takes the
+         * height its parent gives it and scrolls once the text passes that;
+         * body line-height is 1.5 (DS §3). */
+        const lv_font_t *f = lv_obj_get_style_text_font(ta, LV_PART_MAIN);
+        int32_t line = f ? lv_font_get_line_height(f) : 16;
+
+        lv_obj_set_height(ta, LV_PCT(100));
+        lv_obj_set_style_min_height(ta, POCKETUI_FIELD_MIN_LINES * line * 3 / 2, 0);
+    }
+    if (placeholder) {
+        lv_textarea_set_placeholder_text(ta, placeholder);
+    }
+
+    /* Blinking caret, or a solid one under reduced motion (DS §12, §17.1). */
+    lv_obj_set_style_anim_duration(ta, reduced_motion ? 0 : POCKETUI_CARET_BLINK_MS,
+                                   LV_PART_CURSOR);
+
+    lv_obj_add_event_cb(ta, field_clicked_cb, LV_EVENT_CLICKED, NULL);
+    /* Deletion needs no handler: LVGL removes an object from its group in
+     * the destructor, which clears the focus with it. */
+    pos_input_add_obj(ta);
+    return ta;
+}
+
+/* The caption lives in the wrapper, after the field. It is created the first
+ * time an error is shown and hidden rather than deleted afterwards, so a
+ * field toggling between valid and invalid does not churn objects. */
+static lv_obj_t *field_error_label(lv_obj_t *ta, bool create)
+{
+    lv_obj_t *wrap = lv_obj_get_parent(ta);
+    lv_obj_t *lb;
+
+    if (!wrap) {
+        return NULL;
+    }
+    if (lv_obj_get_child_count(wrap) > 1) {
+        return lv_obj_get_child(wrap, 1);
+    }
+    if (!create) {
+        return NULL;
+    }
+    lb = pocketui_label(wrap, "", POS_STYLE_STATUS_ERROR_TEXT);
+    lv_label_set_long_mode(lb, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(lb, LV_PCT(100));
+    return lb;
+}
+
+void pocketui_text_field_set_error(lv_obj_t *field, const char *message)
+{
+    lv_obj_t *lb;
+
+    if (!field) {
+        return;
+    }
+    if (message && message[0]) {
+        pos_style_add(field, POS_STYLE_FIELD_ERROR, 0);
+        lb = field_error_label(field, true);
+        if (lb) {
+            lv_label_set_text(lb, message);
+            lv_obj_clear_flag(lb, LV_OBJ_FLAG_HIDDEN);
+        }
+        return;
+    }
+    lv_obj_remove_style(field, pos_style(POS_STYLE_FIELD_ERROR), 0);
+    lb = field_error_label(field, false);
+    if (lb) {
+        lv_obj_add_flag(lb, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void pocketui_text_field_set_enabled(lv_obj_t *field, bool enabled)
+{
+    if (!field) {
+        return;
+    }
+    if (enabled) {
+        lv_obj_clear_state(field, LV_STATE_DISABLED);
+        lv_obj_add_flag(field, LV_OBJ_FLAG_CLICKABLE);
+        pos_input_add_obj(field);
+        return;
+    }
+    /* Leaving the group is what gives up the focus: LVGL has no unfocused
+     * state, so a disabled field is removed rather than merely defocused. */
+    lv_group_remove_obj(field);
+    lv_obj_add_state(field, LV_STATE_DISABLED);
+    lv_obj_clear_flag(field, LV_OBJ_FLAG_CLICKABLE);
+}

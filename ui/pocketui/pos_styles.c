@@ -23,6 +23,8 @@ LV_FONT_DECLARE(pos_font_mono_20)
 #define POS_PAD 20
 #define POS_CHIP_HEIGHT 36
 #define POS_FOCUS_OUTLINE 2
+#define POS_FIELD_PAD 16 /* DS §17.1 */
+#define POS_CARET_W 2    /* DS §17.1 */
 
 static lv_style_t styles[POS_STYLE_COUNT];
 static int initialised;
@@ -252,6 +254,56 @@ static void fill_styles(void)
     lv_style_set_border_color(s, tok(POS_COLOR_SURFACE_RAISED));
     lv_style_set_border_width(s, 1); /* D3: dividers stay 1 px in every mode */
     lv_style_set_border_side(s, LV_BORDER_SIDE_BOTTOM);
+
+    /* Text field, DS §17.1. Body font, so Outdoor's 20 px follows the theme
+     * like every other body text. */
+    s = &styles[POS_STYLE_FIELD];
+    reset(s);
+    lv_style_set_bg_color(s, tok(POS_COLOR_SURFACE));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_border_color(s, tok(POS_COLOR_LINE));
+    lv_style_set_border_width(s, t->hairline_px);
+    lv_style_set_radius(s, POS_RADIUS);
+    lv_style_set_text_color(s, tok(POS_COLOR_TEXT_PRIMARY));
+    lv_style_set_text_font(s, body);
+    lv_style_set_pad_left(s, POS_FIELD_PAD);
+    lv_style_set_pad_right(s, POS_FIELD_PAD);
+    lv_style_set_shadow_width(s, 0);
+
+    /* The focused treatment is the global outline of DS §9 and nothing else:
+     * a field must not grow a second, keyboard-only visual (§17.1). */
+    s = &styles[POS_STYLE_FIELD_FOCUSED];
+    reset(s);
+    lv_style_set_outline_color(s, tok(POS_COLOR_FOCUS));
+    lv_style_set_outline_width(s, POS_FOCUS_OUTLINE);
+    lv_style_set_outline_opa(s, LV_OPA_COVER);
+    lv_style_set_outline_pad(s, 0);
+
+    s = &styles[POS_STYLE_FIELD_DISABLED];
+    reset(s);
+    lv_style_set_bg_color(s, tok(POS_COLOR_DISABLED_BG));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_border_width(s, 0);
+    lv_style_set_text_color(s, tok(POS_COLOR_DISABLED_FG));
+
+    /* DS §9 draws error outlines at 1.5 px; LVGL border widths are integers
+     * and the document's other 1.5 px rules round up the same way. */
+    s = &styles[POS_STYLE_FIELD_ERROR];
+    reset(s);
+    lv_style_set_border_color(s, tok(POS_COLOR_STATUS_ERROR));
+    lv_style_set_border_width(s, 2);
+
+    s = &styles[POS_STYLE_FIELD_PLACEHOLDER];
+    reset(s);
+    lv_style_set_text_color(s, tok(POS_COLOR_TEXT_SECONDARY));
+    lv_style_set_text_font(s, body);
+
+    s = &styles[POS_STYLE_FIELD_CURSOR];
+    reset(s);
+    lv_style_set_bg_color(s, tok(POS_COLOR_ACCENT_PRIMARY));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_border_width(s, 0);
+    lv_style_set_width(s, POS_CARET_W);
 }
 
 static void on_theme_changed(void *user)

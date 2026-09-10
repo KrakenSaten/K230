@@ -579,6 +579,10 @@ int main(int argc, char **argv)
     pocketlog_init("shell");
     pocketlog_install_crash_handler();
     lv_init();
+    /* Before the platform, because that adopts the host keyboard as a source
+     * of this stream (DS §17.4). The shell owns the stream and the focus
+     * group; an app only ever sees a focused field. */
+    pos_input_init();
     disp = pocketos_platform_init();
     if (!disp) {
         LOG_ERROR("display init failed");
@@ -603,6 +607,9 @@ int main(int argc, char **argv)
                  pos_mode_name(pos_theme_current_mode()),
                  loaded == 0 ? "loaded" : loaded == 1 ? "absent" : "unreadable");
     }
+    /* After the settings are loaded and before anything is built: a caret
+     * created now must already know whether it may blink (DS §12, §17.1). */
+    pocketui_set_reduced_motion(pocketos_shell_reduced_motion() != 0);
     screen = lv_screen_active();
     pocketui_style_screen(screen);
     status_bar_create(screen);

@@ -9,7 +9,10 @@
 #define POCKETUI_H
 
 #include "lvgl.h"
+#include "pos_input.h"
 #include "pos_styles.h"
+
+#include <stdbool.h>
 
 /* Reference panel: 568x1232 portrait. Layout constants in pixels (DS §7). */
 #define POCKETUI_STATUS_BAR_H 56
@@ -38,5 +41,35 @@ lv_obj_t *pocketui_button(lv_obj_t *parent, const char *text, lv_event_cb_t on_c
                           void *user_data);
 /* Plain label with a role style (text, caption, value, status colours). */
 lv_obj_t *pocketui_label(lv_obj_t *parent, const char *text, enum pos_style_role role);
+
+/* ---- Text field (DS §17.1) --------------------------------------------- */
+
+/* The text-entry primitive. Single-line is POCKETUI_ROW_H tall and never
+ * wraps; multi-line wraps, scrolls vertically and starts at three body lines.
+ * placeholder may be NULL.
+ *
+ * Returns the LVGL text area, which is what an app reads and writes. It is
+ * wrapped in a transparent full-width container so an error caption has
+ * somewhere to go (pocketui_text_field_set_error); the container is the
+ * returned object's parent, so a field drops into a column flex like any
+ * other component.
+ *
+ * The field joins the focus group of pos_input.h, so a tap and a key focus it
+ * the same way (DS §17.2), and it takes its characters from that one stream
+ * whatever produced them (DS §17.4). It never talks to a keyboard. */
+lv_obj_t *pocketui_text_field(lv_obj_t *parent, const char *placeholder, bool single_line);
+
+/* Show or clear the error state; message NULL clears it. A message is
+ * required when showing, because DS §2 forbids colour from carrying meaning
+ * alone: the caption below the field is not optional. */
+void pocketui_text_field_set_error(lv_obj_t *field, const char *message);
+
+/* A disabled field takes no focus, shows no caret and cannot be edited. */
+void pocketui_text_field_set_enabled(lv_obj_t *field, bool enabled);
+
+/* Reduced motion (DS §12): the caret is drawn solid instead of blinking.
+ * The shell sets this from the "reduced_motion" setting before it builds
+ * anything; fields created afterwards follow it. */
+void pocketui_set_reduced_motion(bool on);
 
 #endif

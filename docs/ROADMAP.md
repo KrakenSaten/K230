@@ -102,8 +102,16 @@ undesigned. It is implementation step 12, and it is the design gate for
 v0.0.8 M3 (the logical key layer and the text field) and M4 (the keyboard).
 It carries one approved DS-level deviation, DEV-1: 52 px wide keyboard keys
 against the 64 px minimum, on stated conditions and for keyboard keys only.
-New open caveat C9: where Norwegian and other Latin-1 letters live on the
-keyboard. That one needs the product owner.
+Caveat C9 — where Norwegian and other Latin-1 letters live on the keyboard —
+was opened with the amendment and **closed by the product owner on
+2026-09-10**: æ, ø and å go on the symbol layer, the alpha layout and the
+DEV-1 geometry are left alone, and long-press accent popups stay out of
+scope.
+
+**M3 is implemented** (`ui/pocketui/pos_input.*`, `pocketui_text_field`):
+one logical key stream, one focus group, the text field, and the host
+keyboard adopted as a source of that stream rather than a second path. The
+touch keyboard (M4) and PocketNotes (M5) have not started.
 
 ## Phase 3: first strong application
 
