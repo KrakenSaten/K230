@@ -8,7 +8,7 @@ Working folder for PocketOS development on the LILYGO T-Display K230.
 AGENTS.md                  Rules for AI agents working here
 Makefile                   First-party build (called by the Buildroot package)
 VERSION                    PocketOS version
-apps/                      In-process apps: radio (radiod client), system, fleet (PocketFleet), radar (PocketRadar)
+apps/                      In-process apps: radio (radiod client), system, fleet (PocketFleet), radar (PocketRadar), timber (PocketTimber), notes (PocketNotes), clock (PocketClock)
 ui/pocketui/               Theme engine (pos_theme), shared role styles (pos_styles), widgets, fonts/
 ui/shell/                  Shell: status bar, launcher, app host; SDL simulator or DRM target (CMake)
 core/pocketipc/            IPC library and server helper: length-prefixed JSON over Unix sockets

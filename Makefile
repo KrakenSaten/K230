@@ -259,6 +259,33 @@ tests/notes_view_test: tests/notes_view_test.o $(NOTES_DIR)/notes_view.o
 tests/notes_store_test: tests/notes_store_test.o $(NOTES_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# PocketClock: the timekeeping, the alert seam, the clock reader and the
+# store. All four are LVGL-free (tests/clock_lint.sh), so the decisions that
+# go wrong in a clock - an alarm firing on every poll, a countdown measured
+# against a wall clock somebody has just corrected, a board with no RTC
+# showing 1970 as though it meant something - are unit-tested here, with both
+# clocks injected and nothing sleeping. The app itself needs a display and is
+# built by ui/shell (tests/clock_shell_test.sh).
+CLOCK_DIR := apps/clock
+CLOCK_OBJS := $(CLOCK_DIR)/clock_engine.o $(CLOCK_DIR)/clock_alert.o \
+              $(CLOCK_DIR)/clock_time.o $(CLOCK_DIR)/clock_store.o
+CLOCK_TESTS := tests/clock_engine_test tests/clock_time_test tests/clock_store_test
+
+$(CLOCK_DIR)/%.o: $(CLOCK_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) -I$(CLOCK_DIR) -c -o $@ $<
+
+tests/clock_%_test.o: tests/clock_%_test.c
+	$(CC) $(ALL_CFLAGS) -I$(CLOCK_DIR) -c -o $@ $<
+
+tests/clock_engine_test: tests/clock_engine_test.o $(CLOCK_DIR)/clock_engine.o $(CLOCK_DIR)/clock_alert.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/clock_time_test: tests/clock_time_test.o $(CLOCK_DIR)/clock_time.o $(CLOCK_DIR)/clock_engine.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/clock_store_test: tests/clock_store_test.o $(CLOCK_DIR)/clock_store.o $(CLOCK_DIR)/clock_engine.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 # PocketTimber game engine (pure C, no LVGL, no I/O, no floating point).
 # Arranged like PocketRadar: the engine lives beside its app in
 # apps/timber/engine and is built here so it is unit-tested with the rest
@@ -322,7 +349,7 @@ tests/timber_store_test: tests/timber_store_test.o $(TIMBER_APP_OBJS) $(TIMBER_O
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # Native tests only (they execute binaries).
-test: all tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/theme_test tests/settings_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) $(NOTES_TESTS)
+test: all tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/theme_test tests/settings_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) $(NOTES_TESTS) $(CLOCK_TESTS)
 	./tests/airtime_test
 	./tests/pocketlog_test 2>/dev/null
 	./tests/paths_test
@@ -355,6 +382,9 @@ test: all tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/poc
 	./tests/timber_store_test
 	./tests/notes_view_test
 	./tests/notes_store_test
+	./tests/clock_engine_test
+	TZ=UTC ./tests/clock_time_test
+	./tests/clock_store_test
 	bash tests/radiod_mock_test.sh
 	bash tests/sysd_test.sh
 	bash tests/supervise_test.sh
@@ -367,6 +397,7 @@ test: all tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/poc
 	bash tests/radar_lint.sh
 	bash tests/timber_lint.sh
 	bash tests/notes_lint.sh
+	bash tests/clock_lint.sh
 
 install: all
 	install -D -m 0755 tools/pos/pos $(DESTDIR)$(PREFIX)/bin/pos
@@ -388,6 +419,6 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 -include $(DEPFILES)
 
 clean:
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) tests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(TIMBER_UI_OBJS)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) tests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o)
 
 .PHONY: all test install clean sx1262-objs

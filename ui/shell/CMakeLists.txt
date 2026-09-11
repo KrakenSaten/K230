@@ -69,6 +69,11 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/radar/ui/radar_scope.c
     ${REPO_DIR}/apps/radar/ui/radar_screens.c
     ${REPO_DIR}/core/pocketpaths.c
+    ${REPO_DIR}/apps/clock/clock_app.c
+    ${REPO_DIR}/apps/clock/clock_engine.c
+    ${REPO_DIR}/apps/clock/clock_store.c
+    ${REPO_DIR}/apps/clock/clock_time.c
+    ${REPO_DIR}/apps/clock/clock_alert.c
     ${REPO_DIR}/apps/notes/notes_app.c
     ${REPO_DIR}/apps/notes/notes_store.c
     ${REPO_DIR}/apps/notes/notes_view.c
@@ -134,7 +139,8 @@ else()
 endif()
 target_compile_definitions(pocketos-shell PRIVATE POCKETTIMBER_ART=${POCKETTIMBER_ART})
 target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
-                                                  "${REPO_DIR}/apps/notes")
+                                                  "${REPO_DIR}/apps/notes"
+                                                  "${REPO_DIR}/apps/clock")
 
 if(POCKETOS_LVGL_MODE STREQUAL "source")
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -356,6 +362,33 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(notes_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(notes_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # PocketClock in the running app, tapped on the panel and on the real
+    # keyboard, against a real store (run by tests/clock_shell_test.sh).
+    add_executable(clock_app_test
+        ${REPO_DIR}/tests/clock_app_test.c
+        ${REPO_DIR}/apps/clock/clock_app.c
+        ${REPO_DIR}/apps/clock/clock_engine.c
+        ${REPO_DIR}/apps/clock/clock_store.c
+        ${REPO_DIR}/apps/clock/clock_time.c
+        ${REPO_DIR}/apps/clock/clock_alert.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(clock_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/clock")
+    target_compile_options(clock_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(clock_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(clock_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(clock_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(clock_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
     # The physical keyboard's translation layer (run by
     # tests/pos_keymap_test.sh). Pure, but it speaks LVGL's key vocabulary,
