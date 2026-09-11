@@ -34,7 +34,8 @@ and exposes radio, network and system information through services and the
 v0.0.7 is code-complete, validated on unit A across four bench sheets, and
 validated as a release image: built at `4ab5a55`, flashed and cold-booted, PASS
 on all nine steps of the gate (docs/hardware/V0.0.7_RELEASE_SMOKE.md, gate in
-V0.0.7_PRE_RELEASE_CHECKPOINT.md). Not tagged and not merged.
+V0.0.7_PRE_RELEASE_CHECKPOINT.md). Merged to master and tagged `v0.0.7`
+(`6561b50`).
 
 Exit criteria for v0.1: boots from SD on both units, shell usable by touch,
 `pos hwcheck` report attached to docs/hardware, radiod sends and receives a
@@ -119,8 +120,21 @@ build `0b16f0e` (`docs/hardware/POCKETNOTES_SMOKE_2026-09-10.md`), including
 DEV-1 holds on the panel with a qualification: 52 px keys mis-key at roughly
 one character in ten, correctably.
 
-What remains in v0.0.8: M6, the release image, its bench sheet and the tag.
-Physical keyboard support is not in this release.
+**PocketClock** followed (`apps/clock/`, `7e3bfd9` and `a7f1d92`): the time,
+alarms, a stopwatch and a timer, with the alarms run by the shell and rung
+through the one full-panel system alert that **DS Amendment B (§18)** made
+normative on 2026-09-11 (`1750076`). A cold review of that tree found six P1
+defects across Notes, Clock and the release build; all six were fixed in
+`03851f5`, which was frozen as the release candidate.
+
+**v0.0.8 M6 is done.** The release image was built from `03851f5` in one
+attempt, flashed, and passed its acceptance on unit A on 2026-09-11
+(`docs/hardware/V0.0.8_RELEASE_SMOKE.md`): PocketClock on hardware for the
+first time, the system alert over Clock, the launcher, Timber and the Notes
+editor, 21 notes with the oldest reachable, a near-limit note opening in
+under 4 s, and the Clock and Notes stores byte-identical across a restart
+and a power cycle. The `v0.0.8` tag is on the commit that adds that sheet.
+Physical keyboard support is not in this release; it continues on its own.
 
 ## Phase 3: first strong application
 

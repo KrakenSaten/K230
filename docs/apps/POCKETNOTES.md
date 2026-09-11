@@ -4,7 +4,8 @@ A list of notes and a place to write one. It exists to be the first thing on
 PocketOS that takes text, and it is deliberately the smallest app that can
 honestly be called useful.
 
-Status: **MVP, v0.0.8 M5. Validated on unit A, 2026-09-10.** Built on the
+Status: **MVP, v0.0.8 M5. Validated on unit A, 2026-09-10, and in the v0.0.8
+release image, 2026-09-11.** Built on the
 text field of DS §17.1, the focus model of §17.2, the touch keyboard of
 §17.3 and the one logical key stream of §17.4.
 
@@ -127,6 +128,18 @@ every mis-key was correctable, but they mis-keyed at roughly one character in
 ten. That is fine for a note and would not be fine behind an irreversible
 action; see the smoke sheet before designing a screen that types into one.
 
+**In the release image, 2026-09-11**, build `03851f5`, which carries the two
+Notes fixes of the cold review (`docs/hardware/V0.0.8_RELEASE_SMOKE.md`,
+section 3): 21 notes, with the list scrolled by finger to the oldest and New
+note on screen throughout, where the list before `03851f5` clipped from
+sixteen; a 1,980-character note opening in under 4 s and staying responsive
+(an operator count; the slow path is in KNOWN_ISSUES); Back saving an edit,
+and Done on an unchanged note writing nothing; delete with Cancel; the system
+alert over the editor taking the keyboard away and not giving it back; and
+every note byte-identical across a restart and a power cycle. The one note
+that changed across the restart was changed by the operator: a Backspace in
+the open note, saved on the way out like any other edit.
+
 Still untested on hardware: Notes at its limits (64 notes, the 4096-byte
-cap), an unreadable note on a real card, and the keyboard under Outdoor
-mode's 20 px body.
+cap, a note over 2000 characters opening read-only), an unreadable note on a
+real card, and the keyboard under Outdoor mode's 20 px body.

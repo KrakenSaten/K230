@@ -4,7 +4,8 @@ The time, an alarm, a stopwatch and a timer. A small system utility, not a
 calendar: it has no events, no recurrence rules beyond "daily" and
 "weekdays", and no notion of a date you can schedule something on.
 
-Status: **v0.0.8. Host-validated, not yet run on hardware.**
+Status: **v0.0.8. Validated on unit A, 2026-09-11, in the release image
+(build `03851f5`).**
 
 ## What it is
 
@@ -235,9 +236,27 @@ all take zero seconds. The only real time anyone waits for is the thirty
 milliseconds `clock_app_test.c` spends proving a running stopwatch moves,
 because that one reads the real monotonic clock.
 
-## Hardware smoke
+## Hardware
 
-What to check on unit A once this is flashed, in order:
+**Validated on unit A, 2026-09-11**, from the flashed v0.0.8 release image,
+build `03851f5` (`docs/hardware/V0.0.8_RELEASE_SMOKE.md`, sections 2 and 3).
+What the board stored and logged is VERIFIED over SSH; what the panel showed
+is the operator's.
+
+| Check | On unit A |
+| --- | --- |
+| 1. No time, no invented time | PASS. With the wall clock at 1970 the status bar and the face read `--:--`, the "Time not set" card showed, and the Alarm pane said the time was not set |
+| 2. Setting the time | PASS, by the image's `S48sntp` rather than `date -s`: both went to 15:30. After the later power cycle, B (15:42, already past) did not ring when NTP set the time at 17:00 |
+| 3. Alarm, app open | PASS. A rang over Clock at 15:36; Stop cleared it, and the Once alarm switched itself Off on disk |
+| 4. Alarm, app shut | PASS. C rang over the launcher at 16:03 |
+| 5. Alarm in another app | PASS. C's snooze came back over the Notes editor with the keyboard up; the keyboard went away, was not put back after Stop, and the text was unchanged |
+| 6. Snooze | PASS. Nine minutes, 16:03 to 16:12, with Clock shut |
+| 7. Acknowledged once | PASS for Once alarms: neither A nor C came back. A Daily alarm was not exercised |
+| 8. Reboot with an alarm set | Partly. The three alarms and the timer came back byte-identical after a restart and after a power cycle, and the shell loaded all three; no alarm was watched ringing after a reboot |
+| 9. Countdown in the background | PASS. A 2:00 timer finished over Timber with Stop and no Snooze, and Timber was untouched |
+| 10. Nothing rings without a clock | Not run |
+
+The checks as planned, for a re-run:
 
 1. **Cold boot, no time set.** The status bar corner reads `--:--`, and so
    does the Clock face. Neither invents a time.
@@ -259,6 +278,20 @@ What to check on unit A once this is flashed, in order:
 10. **Nothing rings without a clock.** Reboot, do not set the time, and
     confirm an armed alarm stays silent all the way past its hour.
 
+Found on the board:
+
+- **The face is UTC.** The image configures no time zone, so "the local
+  time" above is UTC on the shipped image, and so is every alarm.
+- **The time comes from the network.** `S48sntp` and `S49ntp` set it at boot
+  when there is one, within 115 s of a cold boot on the bench LAN. Linux
+  refuses a wall time earlier than the uptime, so to put a running board
+  back into the unset state, stop ntpd and use
+  `date -u -s '1970-01-02 00:00:00'` rather than a time on 1 January.
+- **The minute stepper wraps within the hour.** From :58, Minute +5 gives :03
+  of the same hour, which has already passed, so the alarm arms for the next
+  day. So does an alarm added during its own minute, by the rule above.
+- **The label's keyboard Done does nothing**; tap Add. (KNOWN_ISSUES)
+
 ## Not in this app
 
 No NTP or time-setting UI, no timezone picker, no world clocks, no calendar
@@ -267,6 +300,6 @@ gradual wake, no bedtime or sleep tracking. `tests/clock_lint.sh` fails the
 build if `ntp`, `timezone`, `recurrence`, `rrule`, `cron` or `ical`
 machinery appears under `apps/clock/`.
 
-Setting the clock is out of scope for this milestone: until PocketOS grows a
-way to do it, `date -s` over SSH is the way, and the app is explicit that
-until then it does not know the time.
+Setting the clock is out of scope for this milestone. The image's boot-time
+NTP sets it when the board has a network; otherwise `date -s` over SSH is the
+way, and the app is explicit that until then it does not know the time.

@@ -1,6 +1,6 @@
 # Known issues and open questions
 
-Updated 2026-09-10. Move items to git history when resolved.
+Updated 2026-09-11. Move items to git history when resolved.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
 B4 (the shell's `printf` diagnostics never reached a log; they go through
@@ -223,3 +223,85 @@ chip-state dependent and dumps both transports' windows when it does.
   ext4); the stdio capture of each service is restarted on every boot with
   the previous one kept as `.1`. Ordinary log lines are written once, to
   the pocketlog file (POCKETOS_LOG_STDERR=0 in the init scripts).
+
+## v0.0.8: PocketNotes, PocketClock and the system alert
+
+From the v0.0.8 cold review and release preflight (host evidence, each
+reproduced) and the release acceptance on unit A
+(docs/hardware/V0.0.8_RELEASE_SMOKE.md). None of these blocks the release.
+Any fix is a code change and moves the build id, so each waits for a later
+build.
+
+Documented for v0.0.8:
+
+- **Clock shows UTC.** The image configures no time zone (no `/etc/TZ`, no
+  `/etc/localtime`), so PocketClock, the status bar and every alarm run on
+  UTC. VERIFIED on unit A, 2026-09-11: the face read 15:29 against a local
+  clock two hours ahead. The time itself comes from `S48sntp` and `S49ntp`
+  at boot when there is a network (within 115 s of a cold boot on the bench
+  LAN).
+- **The minute stepper wraps within the hour.** In the new-alarm form,
+  Minute +5 from :58 gives :03 of the same hour, a time already past, and an
+  alarm added for a minute that has begun arms for the next day. Adjust the
+  hour as well. Found on unit A.
+- **The Clock label's keyboard Done does nothing.** Its `on_done` is NULL,
+  where DS §17.3 has Done dismiss the keyboard. Tap Add.
+- **Opening a long note is slow.** The editor sets the note's text under its
+  2000-character cap, and LVGL then inserts it one character at a time:
+  quadratic in the length. On the host (i7-8665U, release LVGL) 300
+  characters take 16 ms, 1,000 take 159 ms, 1,990 of prose 0.6 s and 1,990
+  unbroken `ø` 4.7 s; lifting the cap around the call, as the read-only path
+  already does, takes 0.7 ms. On unit A a 1,980-character prose note opens
+  in under 4 s (operator count); the two-byte worst case is unmeasured on
+  the K230.
+- **Notes saves only on the way out**, on Done or when the app closes. A
+  shell crash or a power cut during editing loses that session's edits;
+  there is no autosave timer, by design. The save on the way out is real on
+  hardware, including for edits nobody meant: a stray Backspace in an open
+  note was saved like any other edit during the release acceptance.
+- **Store I/O errors.** The Timber and Clock stores treat an I/O error while
+  loading as a damaged file, and the next save replaces the data. A Notes
+  save that fails (an unwritable store) closes the editor and drops the
+  edit, silently when leaving by Back. The proper fix belongs to the common
+  state facility (ROADMAP, step 5).
+- **The shell does not log that an alert was shown.** `open app` and
+  `close app` lines prove that an alert navigated nowhere, but whether an
+  alarm sheet appeared at all can only be read off the panel.
+
+Deferred to the physical keyboard milestone. None is reachable on the device
+today: the DRM build adopts no key source, and the alert hides the touch
+keyboard.
+
+- DS §18.8 key isolation: keys still reach the app behind an alert. Enter
+  on the hidden Notes field shows the keyboard again, and
+  `pos_keyboard_show` puts it above the alert. DS §18.8 makes this a gate
+  before a physical keyboard ships.
+- `pos_input_add_source` loses `LV_KEY_NEXT` and `LV_KEY_PREV`: LVGL's keypad
+  processing consumes them in the source's private group, so the
+  simulator's Tab key does nothing. A physical keyboard must push through
+  `pos_input_push_key`, not be adopted.
+- The Notes delete dialog leaves focus on the hidden text field (DS §17.5).
+- Only text fields and dialog buttons join the focus group (DS §17.2).
+
+Future cleanup:
+
+- No store fsyncs its directory after the rename. Notes came back
+  byte-identical from a real power cut on unit A (2026-09-10), so this is
+  hardening, not a known loss.
+- The launcher has eight tile slots and uses seven. Resolve before a ninth
+  app.
+- `notes_text_is_utf8` accepts overlong sequences (`C0 80`, `E0 80 xx`) and
+  the lead bytes `F5` to `F7`. A note written outside the app that contains
+  them loses those bytes on Done.
+- An existing whitespace-only note is kept when it is left unchanged,
+  although a note edited down to blank is deleted.
+- An alarm that comes due while another alert is ringing is lost for that
+  day if the ringing alert is acknowledged after midnight. Waiting snoozes
+  survive midnight.
+- The header comment of `apps/clock/clock_app.c` still describes the app
+  before the shell took over the alarms: a ringing screen of its own, and
+  alarms that ring only while the app is open. Correct it with the next code
+  change to that file.
+- `apply_to_sdk.sh` enforces the BSP and SDK pins but not RadioLib's. The
+  v0.0.8 release build checked `034126e` and zero build products itself;
+  until apply does, that check is a manual release step.
