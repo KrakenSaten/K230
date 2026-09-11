@@ -268,8 +268,10 @@ tests/notes_store_test: tests/notes_store_test.o $(NOTES_OBJS)
 # built by ui/shell (tests/clock_shell_test.sh).
 CLOCK_DIR := apps/clock
 CLOCK_OBJS := $(CLOCK_DIR)/clock_engine.o $(CLOCK_DIR)/clock_alert.o \
-              $(CLOCK_DIR)/clock_time.o $(CLOCK_DIR)/clock_store.o
-CLOCK_TESTS := tests/clock_engine_test tests/clock_time_test tests/clock_store_test
+              $(CLOCK_DIR)/clock_time.o $(CLOCK_DIR)/clock_store.o \
+              $(CLOCK_DIR)/clock_runtime.o
+CLOCK_TESTS := tests/clock_engine_test tests/clock_time_test tests/clock_store_test \
+               tests/clock_runtime_test
 
 $(CLOCK_DIR)/%.o: $(CLOCK_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(CLOCK_DIR) -c -o $@ $<
@@ -284,6 +286,11 @@ tests/clock_time_test: tests/clock_time_test.o $(CLOCK_DIR)/clock_time.o $(CLOCK
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 tests/clock_store_test: tests/clock_store_test.o $(CLOCK_DIR)/clock_store.o $(CLOCK_DIR)/clock_engine.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# The runtime the shell owns: one engine, loaded, stepped and saved. Its
+# clock is injectable, so an alarm can be reached without waiting for it.
+tests/clock_runtime_test: tests/clock_runtime_test.o $(CLOCK_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # PocketTimber game engine (pure C, no LVGL, no I/O, no floating point).
@@ -385,6 +392,7 @@ test: all tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/poc
 	./tests/clock_engine_test
 	TZ=UTC ./tests/clock_time_test
 	./tests/clock_store_test
+	./tests/clock_runtime_test
 	bash tests/radiod_mock_test.sh
 	bash tests/sysd_test.sh
 	bash tests/supervise_test.sh

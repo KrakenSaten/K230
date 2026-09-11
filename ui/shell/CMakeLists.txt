@@ -74,6 +74,8 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/clock/clock_store.c
     ${REPO_DIR}/apps/clock/clock_time.c
     ${REPO_DIR}/apps/clock/clock_alert.c
+    ${REPO_DIR}/apps/clock/clock_runtime.c
+    shell_alarm.c
     ${REPO_DIR}/apps/notes/notes_app.c
     ${REPO_DIR}/apps/notes/notes_store.c
     ${REPO_DIR}/apps/notes/notes_view.c
@@ -372,6 +374,8 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/clock/clock_store.c
         ${REPO_DIR}/apps/clock/clock_time.c
         ${REPO_DIR}/apps/clock/clock_alert.c
+        ${REPO_DIR}/apps/clock/clock_runtime.c
+        shell_alarm.c
         ../pocketui/pocketui.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c

@@ -7,16 +7,20 @@ cd "$(dirname "$0")/.." || exit 1
 failed=0
 check() { if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 
-PURE="apps/clock/clock_engine.c apps/clock/clock_engine.h apps/clock/clock_alert.c apps/clock/clock_alert.h apps/clock/clock_store.c apps/clock/clock_store.h apps/clock/clock_time.c apps/clock/clock_time.h"
+PURE="apps/clock/clock_engine.c apps/clock/clock_engine.h \
+      apps/clock/clock_alert.c apps/clock/clock_alert.h \
+      apps/clock/clock_store.c apps/clock/clock_store.h \
+      apps/clock/clock_time.c apps/clock/clock_time.h \
+      apps/clock/clock_runtime.c apps/clock/clock_runtime.h"
 
 hits=$(grep -lE 'lvgl|lv_obj|lv_label|lv_timer' $PURE 2>/dev/null)
-check "the engine, the store, the clock reader and the alert are free of LVGL" \
+check "everything but the app is free of LVGL" \
     "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits"
 
 hits=$(grep -lE 'fopen|\bopen\(|unlink|mkdir|rename|opendir' \
     apps/clock/clock_engine.c apps/clock/clock_time.c apps/clock/clock_alert.c \
-    apps/clock/clock_app.c 2>/dev/null)
+    apps/clock/clock_runtime.c apps/clock/clock_app.c 2>/dev/null)
 check "only clock_store.c touches the filesystem" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits"
 
@@ -24,9 +28,27 @@ check "only clock_store.c touches the filesystem" "$([ -z "$hits" ] && echo 1 ||
 # reads one, which is what makes every rule testable at any instant.
 hits=$(grep -nE 'clock_gettime|\btime\(|localtime|gmtime|mktime|strftime' \
     apps/clock/clock_engine.c apps/clock/clock_store.c apps/clock/clock_alert.c \
-    apps/clock/clock_app.c 2>/dev/null)
+    apps/clock/clock_runtime.c apps/clock/clock_app.c 2>/dev/null)
 check "only clock_time.c reads a clock" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
+
+# One engine, one stepper. An alarm that two callers could advance is an
+# alarm that can ring twice, and an app that owns the engine is an app whose
+# alarms stop existing the moment it is closed (clock_runtime.h).
+hits=$(grep -nE 'struct clock_engine [a-z_]+;|clock_engine_init|clock_engine_step' \
+    apps/clock/clock_app.c 2>/dev/null)
+check "the app owns no engine and never steps one" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+check "the runtime does" \
+    "$(grep -q 'clock_engine_step' apps/clock/clock_runtime.c && echo 1 || echo 0)"
+# Everywhere that calls it, which is the defining file and one caller.
+steppers=$(grep -lE 'clock_engine_step' apps/clock/*.c ui/shell/*.c 2>/dev/null |
+           grep -v 'clock_engine\.c')
+check "and it is the only caller anywhere" \
+    "$([ "$steppers" = "apps/clock/clock_runtime.c" ] && echo 1 || echo 0)"
+[ "$steppers" != "apps/clock/clock_runtime.c" ] && echo "$steppers"
+check "the app loads and saves through the runtime, not the store" \
+    "$(grep -q 'clock_store_load\|clock_store_save' apps/clock/clock_app.c && echo 0 || echo 1)"
 
 check "and it reads both of them" \
     "$(grep -q 'CLOCK_MONOTONIC' apps/clock/clock_time.c &&
@@ -55,8 +77,9 @@ for want in 'fsync' 'rename' '\.tmp'; do
 done
 tick=$(sed -n '/^static void on_refresh/,/^}/p' apps/clock/clock_app.c)
 check "the refresh timer exists" "$([ -n "$tick" ] && echo 1 || echo 0)"
-hits=$(printf '%s' "$tick" | grep -nE 'clock_store_save|save\(')
-check "and writes nothing to storage" "$([ -z "$hits" ] && echo 1 || echo 0)"
+hits=$(printf '%s' "$tick" | grep -nE 'clock_store_save|clock_runtime_save|save\(|clock_runtime_step')
+check "and neither writes to storage nor advances the engine" \
+    "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits"
 
 # DS 17.4: an app asks the shell for the keyboard and never holds one.

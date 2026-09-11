@@ -24,6 +24,40 @@ check "the shell knows about Clock" \
 check "Clock creates no keyboard of its own" \
     "$(grep -rq 'pos_keyboard_create' apps/clock/ && echo 0 || echo 1)"
 
+# The alarms belong to the shell, which is the only reason one can ring with
+# PocketClock shut (clock_runtime.h).
+check "the shell starts the clock runtime" \
+    "$(grep -q 'clock_runtime_init' ui/shell/shell.c && echo 1 || echo 0)"
+check "and steps it on its tick" \
+    "$(sed -n '/^static void on_tick/,/^}/p' ui/shell/shell.c |
+       grep -q 'clock_runtime_step' && echo 1 || echo 0)"
+# Its own declaration and definition aside, nothing under apps/ may start it:
+# an app that started the runtime would be an app that could restart it.
+starters=$(grep -rl 'clock_runtime_init' apps/ 2>/dev/null |
+           grep -v 'apps/clock/clock_runtime\.')
+check "no app starts it instead" "$([ -z "$starters" ] && echo 1 || echo 0)"
+[ -n "$starters" ] && echo "$starters"
+
+# One alert, built once, owned by the shell.
+check "the shell builds the one alarm alert" \
+    "$(grep -q 'shell_alarm_create' ui/shell/shell.c && echo 1 || echo 0)"
+check "exactly one, not one per app" \
+    "$([ "$(grep -c 'shell_alarm_create' ui/shell/shell.c)" = "1" ] && echo 1 || echo 0)"
+check "no app builds an alarm alert" \
+    "$(grep -rq 'shell_alarm_create' apps/ && echo 0 || echo 1)"
+check "and PocketClock has no ringing screen left in it" \
+    "$(grep -q 'SCREEN_RING' apps/clock/clock_app.c && echo 0 || echo 1)"
+
+# The status bar is held to the same rule as the clock face: this board
+# forgets the time at every power cut, and a corner reading 01:00 would be
+# the most-looked-at lie on the device.
+check "the status bar uses the wall-clock validity rule" \
+    "$(sed -n '/^static void status_update/,/^}/p' ui/shell/shell.c |
+       grep -q 'clock_format_wall' && echo 1 || echo 0)"
+check "and does not format the time itself" \
+    "$(sed -n '/^static void status_update/,/^}/p' ui/shell/shell.c |
+       grep -qE 'strftime|%H:%M' && echo 0 || echo 1)"
+
 RUN=$(mktemp -d); LOGD=$(mktemp -d); CFG=$(mktemp -d); STATE=$(mktemp -d)
 SDL_VIDEODRIVER=dummy POCKETOS_RUNTIME_DIR="$RUN" POCKETOS_LOG_DIR="$LOGD" \
 POCKETOS_CONFIG_DIR="$CFG" POCKETOS_STATE_DIR="$STATE" \

@@ -6,17 +6,13 @@
  * taps on the keyboard, a tap on Add. What is then read back off the disk is
  * what the store actually kept.
  *
- * WHAT IS NOT HERE, and why. The ringing screen is reached by real elapsed
- * time on CLOCK_MONOTONIC, which this harness cannot fast-forward: pumping
- * LVGL ticks moves the UI, not the clock the engine reads. Sitting here for
- * real seconds to watch a countdown finish is the one thing the brief ruled
- * out, so the firing rules are tested in tests/clock_engine_test.c with both
- * clocks injected, and this file checks only that the screen is built.
- *
- * The app is hosted the way the shell hosts it, but the shell itself is not
- * here, so the three app.h keyboard entry points are implemented below
- * against the real pos_keyboard - which keeps the app honest: it can only
- * ask, and it never sees a keyboard.
+ * The shell is not here either, so this file plays it: the three app.h
+ * keyboard entry points are implemented below against the real
+ * pos_keyboard, and the one alarm runtime and the one alert sheet are
+ * created the way ui/shell/shell.c creates them. That is what lets the last
+ * sections test the thing the runtime exists for - an alarm ringing with
+ * PocketClock shut - by stepping the runtime with an injected reading
+ * instead of waiting for 07:30.
  *
  * Needs LVGL, so it is built by ui/shell/CMakeLists.txt beside the shell
  * (host builds only) and run by tests/clock_shell_test.sh.
@@ -25,10 +21,12 @@
  */
 #include "app.h"
 #include "clock_alert.h"
+#include "clock_runtime.h"
 #include "clock_store.h"
 #include "clock_time.h"
 #include "pocketui.h"
 #include "pos_keyboard.h"
+#include "shell_alarm.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -347,6 +345,50 @@ static int stored(struct clock_engine *out)
     return clock_store_load(out);
 }
 
+/* A clock reading the shell tick might have taken. The alert is reached by
+ * injecting one rather than waiting for 07:30 to come round. */
+static struct clock_now at(int64_t day, int hour, int minute, int wday,
+                           int64_t mono_ms)
+{
+    struct clock_now n;
+
+    memset(&n, 0, sizeof(n));
+    n.wall.valid = true;
+    n.wall.day = day;
+    n.wall.hour = hour;
+    n.wall.minute = minute;
+    n.wall.wday = wday;
+    n.wall.epoch = CLOCK_WALL_VALID_FROM;
+    n.mono_ms = mono_ms;
+    return n;
+}
+
+/* A board that does not know the time - which is what a countdown has to
+ * work through, because that is how this one boots. */
+static struct clock_now unset_now(int64_t mono_ms)
+{
+    struct clock_now n;
+
+    memset(&n, 0, sizeof(n));
+    n.mono_ms = mono_ms;
+    return n;
+}
+
+/* Everything the shell would lose at a power cut, lost: the runtime starts
+ * again and has only the store to go on. */
+static void reboot_runtime(void)
+{
+    clock_runtime_deinit();
+    clock_runtime_init(shell_alarm_sync);
+}
+
+/* The alert lives on the screen, not under the app, so it is looked for
+ * there - which is the point of it. */
+static lv_obj_t *on_screen(const char *text)
+{
+    return find_labelled(lv_screen_active(), text);
+}
+
 /* Step the new-alarm form to a given time. Both steppers wrap, so this
  * terminates whatever time the form opened at. */
 static void set_form_time(const char *want)
@@ -397,6 +439,11 @@ int main(void)
     lv_obj_set_size(g_content, PANEL_W, PANEL_H - STATUS_H);
     lv_obj_set_pos(g_content, 0, STATUS_H);
     g_keyboard = pos_keyboard_create(lv_screen_active());
+
+    /* What the shell does: the one alert sheet, then the one runtime, with
+     * the sheet listening for a ring. */
+    shell_alarm_create(lv_screen_active());
+    clock_runtime_init(shell_alarm_sync);
     pump(60);
 
     /* ---- 1. the four tabs ---------------------------------------------- */
@@ -436,10 +483,10 @@ int main(void)
     check("and offers to add one", label_present(app_body, "Add alarm"));
     check("the alert capability is stated on screen",
           find_text_anywhere(app_body, clock_alert_why()) != NULL);
-    check("so is the fact that alarms need the app open",
+    check("so is what an alarm does and does not survive",
           find_text_anywhere(app_body,
-                             "Alarms ring while Clock is open. PocketOS has no "
-                             "background apps yet.") != NULL);
+                             "Alarms ring with Clock closed. They do not ring "
+                             "with the device switched off.") != NULL);
 
     /* ---- 4. add one, tapping every control ----------------------------- */
 
@@ -511,7 +558,7 @@ int main(void)
     stored(&disk);
     check("and it is gone from the store", clock_alarm_count(&disk) == 0);
 
-    /* ---- 7. an alarm survives leaving the app -------------------------- */
+    /* ---- 7. an alarm survives leaving the app, and a power cut --------- */
 
     tap_obj(find_labelled(app_body, "Add alarm"));
     form = screen_of(SCREEN_ADD);
@@ -521,10 +568,20 @@ int main(void)
     check("an alarm with no label can be added", label_present(app_body, kept));
     check("and needs no label to show its repeat", label_present(app_body, "Once"));
 
+    /* Closing the app leaves the runtime holding it. */
     app_stop();
     app_start();
     tap_obj(find_labelled(app_body, "Alarm"));
     check("it is still there after the app is closed and reopened",
+          label_present(app_body, kept));
+
+    /* And a power cut takes the runtime with it, so this time the alarm has
+     * to come back off the disk. */
+    app_stop();
+    reboot_runtime();
+    app_start();
+    tap_obj(find_labelled(app_body, "Alarm"));
+    check("and after the shell itself has restarted",
           label_present(app_body, kept));
     stored(&disk);
     check("one alarm on disk", clock_alarm_count(&disk) == 1);
@@ -625,17 +682,142 @@ int main(void)
               text_of(stepper_cell(lv_obj_get_child(timer_pane, 1), 0, STEP_VALUE)),
               "Minutes 01");
 
-    /* ---- 10. the ringing screen is built ------------------------------- */
+    /* ---- 10. the alert is the shell's, and rings with the app shut ----- */
 
-    check("there is a Stop", find_text_anywhere(app_body, "Stop") != NULL);
-    check("and a snooze of nine minutes",
-          find_text_anywhere(app_body, "Snooze 9 min") != NULL);
-    check("and it repeats what an alert can do on this board",
-          find_text_anywhere(app_body, clock_alert_why()) != NULL);
+    /* This is the thing the whole runtime exists for, so it is tested with
+     * PocketClock closed: no app, no app timer, nothing of the Clock UI on
+     * screen at all. The clock is injected, because 07:30 is not worth
+     * waiting for. */
+    app_stop();
+    check("no app is running", lv_obj_get_child_count(g_content) == 0);
+    check("and nothing is alerting", !shell_alarm_visible());
 
-    /* ---- 11. opening and closing repeatedly ---------------------------- */
+    {
+        struct clock_engine *e = clock_runtime_engine();
+        struct clock_now now;
+
+        clock_alarm_add(e, 7, 30, CLOCK_REPEAT_DAILY, "Wake up", NULL);
+        clock_runtime_save();
+
+        now = at(20260911, 7, 0, 5, 1000);
+        clock_runtime_step_at(&now);
+        pump(60);
+        check("still quiet before its time", !shell_alarm_visible());
+
+        now = at(20260911, 7, 30, 5, 1800000);
+        clock_runtime_step_at(&now);
+        pump(60);
+        check("the alarm rings with PocketClock closed", shell_alarm_visible());
+        check("and says what it is",
+              find_text_anywhere(lv_screen_active(), "Alarm") != NULL);
+        check("and which alarm it was",
+              find_text_anywhere(lv_screen_active(), "07:30  Wake up") != NULL);
+        check("with Stop on it", on_screen("Stop") != NULL);
+        check("and a snooze", on_screen("Snooze 9 min") != NULL);
+        check("and what an alert can do on this board",
+              find_text_anywhere(lv_screen_active(), clock_alert_why()) != NULL);
+
+        /* Ticking through the same minute must not produce a second alert. */
+        clock_runtime_step_at(&now);
+        clock_runtime_step_at(&now);
+        pump(60);
+        check("and it is still one alert", shell_alarm_visible());
+
+        tap_obj(on_screen("Stop"));
+        check("Stop puts it away", !shell_alarm_visible());
+        check("and acknowledges it", e->ringing == CLOCK_RING_NONE);
+
+        now = at(20260911, 7, 31, 5, 1860000);
+        clock_runtime_step_at(&now);
+        pump(60);
+        check("an acknowledged alarm does not come back",
+              !shell_alarm_visible());
+    }
+
+    /* ---- 11. and it interrupts whatever is on screen -------------------- */
+
+    app_start();
+    tap_obj(find_labelled(app_body, "Alarm"));
+    check("PocketClock is up", label_present(app_body, "Add alarm"));
+    {
+        struct clock_engine *e = clock_runtime_engine();
+        struct clock_now now = at(20260912, 7, 30, 6, 90000000);
+
+        clock_runtime_step_at(&now);
+        pump(60);
+        check("the alert covers the app it is over", shell_alarm_visible());
+        check("and the app is not the one drawing it",
+              find_text_anywhere(app_body, "Snooze 9 min") == NULL);
+        check("PocketClock has no ringing screen of its own",
+              find_text_anywhere(app_body, "Stop") == NULL);
+
+        tap_obj(on_screen("Stop"));
+        check("Stop from over the app works too", !shell_alarm_visible());
+        check("and acknowledged it", e->ringing == CLOCK_RING_NONE);
+        check("PocketClock is where it was", label_present(app_body, "Add alarm"));
+    }
+
+    /* A one-shot alarm switches itself off when the shell acknowledges it.
+     * The list on screen was drawn before that happened, and it has to
+     * notice - otherwise the owner is looking at a row that says On for an
+     * alarm that will never ring again. */
+    {
+        struct clock_engine *e = clock_runtime_engine();
+        struct clock_now now;
+
+        clock_alarm_add(e, 9, 0, CLOCK_REPEAT_ONCE, "once only", NULL);
+        pump(200);
+        check("the new alarm appears without the app being told",
+              label_present(app_body, "09:00"));
+        check("switched on", label_present(app_body, "On"));
+        check("and none are off yet", !label_present(app_body, "Off"));
+
+        now = at(20260912, 9, 0, 6, 95000000);
+        clock_runtime_step_at(&now);
+        pump(60);
+        check("it rings over the app", shell_alarm_visible());
+        tap_obj(on_screen("Stop"));
+        pump(200);
+        check("and the list on screen notices it switched itself off",
+              label_present(app_body, "Off"));
+        check("without anyone having touched the app",
+              !shell_alarm_visible());
+    }
+
+    /* ---- 12. the countdown finishes in the background too -------------- */
 
     app_stop();
+    {
+        struct clock_engine *e = clock_runtime_engine();
+        struct clock_now now = unset_now(500000);
+
+        check("a countdown is set", clock_timer_set(e, 0, 1, 0));
+        check("and started", clock_timer_start(e, &now));
+
+        now = unset_now(500000 + 59000);
+        clock_runtime_step_at(&now);
+        pump(60);
+        check("it has not finished", !shell_alarm_visible());
+
+        now = unset_now(500000 + 60000);
+        clock_runtime_step_at(&now);
+        pump(60);
+        check("the timer rings with PocketClock closed", shell_alarm_visible());
+        check("and says so",
+              find_text_anywhere(lv_screen_active(), "Timer finished") != NULL);
+        check("there is nothing to snooze on a countdown",
+              on_screen("Snooze 9 min") == NULL);
+        check("but there is a Stop", on_screen("Stop") != NULL);
+        check("none of which needed a wall clock",
+              !clock_runtime_now()->wall.valid);
+
+        tap_obj(on_screen("Stop"));
+        check("Stop dismisses it", !shell_alarm_visible());
+        check("and returns the timer to idle", e->timer.state == CLOCK_TIMER_IDLE);
+    }
+
+    /* ---- 13. opening and closing repeatedly ---------------------------- */
+
     app_start();
     app_stop();
     check("the app can be opened and closed without leaving a timer behind",

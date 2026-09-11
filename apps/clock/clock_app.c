@@ -23,6 +23,7 @@
 #include "app.h"
 #include "clock_alert.h"
 #include "clock_engine.h"
+#include "clock_runtime.h"
 #include "clock_store.h"
 #include "clock_time.h"
 #include "pocketui.h"
@@ -42,7 +43,6 @@ enum clock_screen {
     SCREEN_MAIN = 0,
     SCREEN_ADD,
     SCREEN_CONFIRM,
-    SCREEN_RING,
     SCREEN_COUNT
 };
 
@@ -52,16 +52,12 @@ enum clock_screen {
 #define TIMER_SET_MAX_MINUTES 99
 
 struct clock_app {
-    struct clock_engine engine;
-    struct clock_now now;
-
     lv_obj_t *screen[SCREEN_COUNT];
     lv_obj_t *tab_btn[TAB_COUNT];
     lv_obj_t *pane[TAB_COUNT];
     lv_timer_t *refresh;
     uint8_t tab;
     uint8_t screen_id;
-    uint8_t return_screen; /* where the ringing screen came from */
 
     /* Clock */
     lv_obj_t *face_card;
@@ -75,6 +71,7 @@ struct clock_app {
     lv_obj_t *alarm_list;
     lv_obj_t *alarm_add_btn;
     lv_obj_t *alarm_full;
+    uint32_t alarm_sig;
     int confirm_index;
 
     /* New alarm */
@@ -101,16 +98,24 @@ struct clock_app {
     lv_obj_t *tm_sec;
     lv_obj_t *tm_run_btn;
     lv_obj_t *tm_cancel_btn;
-
-    /* Ringing */
-    lv_obj_t *ring_title;
-    lv_obj_t *ring_detail;
-    lv_obj_t *ring_snooze_btn;
 };
 
 static void show_screen(struct clock_app *a, enum clock_screen which);
 static void build_alarm_list(struct clock_app *a);
 static void refresh_all(struct clock_app *a);
+
+/* The engine and the clock reading both belong to the shell now, so that an
+ * alarm keeps its appointment with this app shut (clock_runtime.h). This
+ * file configures and draws them; it owns neither. */
+static struct clock_engine *eng(void)
+{
+    return clock_runtime_engine();
+}
+
+static const struct clock_now *tnow(void)
+{
+    return clock_runtime_now();
+}
 
 /* ---- small helpers ----------------------------------------------------- */
 
@@ -175,85 +180,13 @@ static lv_obj_t *paired_button(lv_obj_t *row, const char *text,
     return btn;
 }
 
-static void save(struct clock_app *a)
+static void save(void)
 {
     /* Only ever from a change the owner made, never from the refresh timer:
      * an alarm list is a setting, and settings are not written per tick. */
-    if (clock_store_save(&a->engine) != 0) {
+    if (clock_runtime_save() != 0) {
         pocketos_shell_set_status_hint("Alarms not saved");
     }
-}
-
-/* ---- the ringing screen ------------------------------------------------ */
-
-static void ring_enter(struct clock_app *a)
-{
-    char line[64];
-    const struct clock_alarm *al;
-
-    if (a->engine.ringing == CLOCK_RING_ALARM) {
-        clock_alert_begin(CLOCK_ALERT_ALARM);
-        set_text(a->ring_title, "Alarm");
-        al = clock_alarm_at(&a->engine, a->engine.ringing_alarm);
-        if (al && al->label[0]) {
-            char hm[8];
-
-            clock_format_hm(al->hour, al->minute, hm, sizeof(hm));
-            snprintf(line, sizeof(line), "%s  %s", hm, al->label);
-        } else if (al) {
-            clock_format_hm(al->hour, al->minute, line, sizeof(line));
-        } else {
-            snprintf(line, sizeof(line), "Alarm");
-        }
-        set_hidden(a->ring_snooze_btn, false);
-    } else {
-        clock_alert_begin(CLOCK_ALERT_TIMER);
-        set_text(a->ring_title, "Timer finished");
-        clock_format_remaining(a->engine.timer.duration_ms, line, sizeof(line));
-        set_hidden(a->ring_snooze_btn, true);
-    }
-    set_text(a->ring_detail, line);
-    if (a->screen_id != SCREEN_RING) {
-        a->return_screen = a->screen_id;
-        /* A dialog over a field takes the keyboard away (DS §17.5). */
-        pocketos_shell_keyboard_hide();
-        show_screen(a, SCREEN_RING);
-    }
-}
-
-static void ring_leave(struct clock_app *a)
-{
-    clock_alert_end();
-    if (a->screen_id == SCREEN_RING) {
-        show_screen(a, a->return_screen == SCREEN_RING ? SCREEN_MAIN
-                                                       : a->return_screen);
-    }
-}
-
-static void on_ring_stop(lv_event_t *e)
-{
-    struct clock_app *a = lv_event_get_user_data(e);
-
-    if (a->engine.ringing == CLOCK_RING_ALARM) {
-        clock_alarm_acknowledge(&a->engine, &a->now);
-        /* A one-shot alarm switched itself off doing that, so the list and
-         * the file both have to follow. */
-        build_alarm_list(a);
-        save(a);
-    } else {
-        clock_timer_acknowledge(&a->engine);
-    }
-    ring_leave(a);
-    refresh_all(a);
-}
-
-static void on_ring_snooze(lv_event_t *e)
-{
-    struct clock_app *a = lv_event_get_user_data(e);
-
-    clock_alarm_snooze(&a->engine, &a->now);
-    ring_leave(a);
-    refresh_all(a);
 }
 
 /* ---- the clock face ---------------------------------------------------- */
@@ -267,16 +200,16 @@ static void refresh_face(struct clock_app *a)
      * of it. Without one it shrinks back, because a card the height of the
      * screen holding nothing but "--:--" is a worse way of saying the same
      * thing than the explanation below it. */
-    if (a->face_grown != a->now.wall.valid) {
-        a->face_grown = a->now.wall.valid;
+    if (a->face_grown != tnow()->wall.valid) {
+        a->face_grown = tnow()->wall.valid;
         lv_obj_set_flex_grow(a->face_card, a->face_grown ? 1 : 0);
     }
-    clock_format_wall(&a->now.wall, buf, sizeof(buf));
+    clock_format_wall(&tnow()->wall, buf, sizeof(buf));
     set_text(a->face_time, buf);
-    clock_format_date(&a->now.wall, buf, sizeof(buf));
-    set_text(a->face_date, a->now.wall.valid ? buf : "");
-    set_hidden(a->face_date, !a->now.wall.valid);
-    set_hidden(a->unset_card, a->now.wall.valid);
+    clock_format_date(&tnow()->wall, buf, sizeof(buf));
+    set_text(a->face_date, tnow()->wall.valid ? buf : "");
+    set_hidden(a->face_date, !tnow()->wall.valid);
+    set_hidden(a->unset_card, tnow()->wall.valid);
 }
 
 /* ---- the alarm list ---------------------------------------------------- */
@@ -285,14 +218,14 @@ static void on_alarm_row(lv_event_t *e)
 {
     struct clock_app *a = lv_event_get_user_data(e);
     int index = (int)(intptr_t)lv_obj_get_user_data(lv_event_get_target(e));
-    const struct clock_alarm *al = clock_alarm_at(&a->engine, index);
+    const struct clock_alarm *al = clock_alarm_at(eng(), index);
 
     if (!al) {
         return;
     }
-    clock_alarm_set_enabled(&a->engine, index, !al->enabled);
+    clock_alarm_set_enabled(eng(), index, !al->enabled);
     build_alarm_list(a);
-    save(a);
+    save();
 }
 
 static void on_alarm_delete(lv_event_t *e)
@@ -305,9 +238,29 @@ static void on_alarm_delete(lv_event_t *e)
     show_screen(a, SCREEN_CONFIRM);
 }
 
+/* Everything about the list that can change without this app doing it. The
+ * shell acknowledges a ringing alarm, and a one-shot alarm switches itself
+ * off when it does - so a list drawn before that is out of date, and the
+ * owner is looking at a row that says On. */
+static uint32_t alarm_signature(void)
+{
+    const struct clock_engine *e = eng();
+    uint32_t sig = (uint32_t)e->alarm_count;
+    int i;
+
+    for (i = 0; i < e->alarm_count; i++) {
+        sig = sig * 131u + e->alarms[i].hour;
+        sig = sig * 131u + e->alarms[i].minute;
+        sig = sig * 131u + e->alarms[i].repeat;
+        sig = sig * 131u + (e->alarms[i].enabled ? 1u : 0u);
+        sig = sig * 131u + (uint8_t)e->alarms[i].label[0];
+    }
+    return sig;
+}
+
 static void build_alarm_list(struct clock_app *a)
 {
-    int n = clock_alarm_count(&a->engine);
+    int n = clock_alarm_count(eng());
     int i;
 
     lv_obj_clean(a->alarm_list);
@@ -318,7 +271,7 @@ static void build_alarm_list(struct clock_app *a)
         lv_obj_set_style_pad_ver(empty, 20, 0);
     }
     for (i = 0; i < n; i++) {
-        const struct clock_alarm *al = clock_alarm_at(&a->engine, i);
+        const struct clock_alarm *al = clock_alarm_at(eng(), i);
         lv_obj_t *row = lv_obj_create(a->alarm_list);
         lv_obj_t *text;
         lv_obj_t *time_lb;
@@ -397,11 +350,19 @@ static void build_alarm_list(struct clock_app *a)
     }
     set_hidden(a->alarm_add_btn, n >= CLOCK_MAX_ALARMS);
     set_hidden(a->alarm_full, n < CLOCK_MAX_ALARMS);
+    a->alarm_sig = alarm_signature();
 }
 
 static void refresh_alarm(struct clock_app *a)
 {
-    set_hidden(a->alarm_notice, a->now.wall.valid);
+    /* Redrawn only when it is actually different, so the ten-a-second
+     * refresh does not rebuild eight rows for nothing - but redrawn without
+     * this app being told, which is what keeps it honest about an alarm the
+     * shell stopped while the list was on screen. */
+    if (a->alarm_sig != alarm_signature()) {
+        build_alarm_list(a);
+    }
+    set_hidden(a->alarm_notice, tnow()->wall.valid);
 }
 
 /* ---- the delete confirmation ------------------------------------------- */
@@ -415,9 +376,9 @@ static void on_confirm_delete(lv_event_t *e)
 {
     struct clock_app *a = lv_event_get_user_data(e);
 
-    clock_alarm_remove(&a->engine, a->confirm_index);
+    clock_alarm_remove(eng(), a->confirm_index);
     build_alarm_list(a);
-    save(a);
+    save();
     show_screen(a, SCREEN_MAIN);
 }
 
@@ -487,16 +448,16 @@ static void on_add_confirm(lv_event_t *e)
                                       "That label is too long to store.");
         return;
     }
-    if (clock_alarm_add(&a->engine, a->add_hour, a->add_minute,
+    if (clock_alarm_add(eng(), a->add_hour, a->add_minute,
                         (enum clock_repeat)a->add_repeat,
-                        *label ? label : NULL, &a->now) < 0) {
+                        *label ? label : NULL, tnow()) < 0) {
         pocketos_shell_set_status_hint("No room for another alarm");
         return;
     }
     pocketui_text_field_set_error(a->add_label, NULL);
     pocketos_shell_keyboard_hide();
     build_alarm_list(a);
-    save(a);
+    save();
     show_screen(a, SCREEN_MAIN);
 }
 
@@ -506,9 +467,9 @@ static void on_add_open(lv_event_t *e)
 
     /* A new alarm opens at the current time when there is one, and at 07:00
      * when the board does not know what time it is. */
-    if (a->now.wall.valid) {
-        a->add_hour = a->now.wall.hour;
-        a->add_minute = a->now.wall.minute;
+    if (tnow()->wall.valid) {
+        a->add_hour = tnow()->wall.hour;
+        a->add_minute = tnow()->wall.minute;
     } else {
         a->add_hour = 7;
         a->add_minute = 0;
@@ -526,10 +487,10 @@ static void on_sw_run(lv_event_t *e)
 {
     struct clock_app *a = lv_event_get_user_data(e);
 
-    if (a->engine.sw.state == CLOCK_SW_RUNNING) {
-        clock_sw_pause(&a->engine, &a->now);
+    if (eng()->sw.state == CLOCK_SW_RUNNING) {
+        clock_sw_pause(eng(), tnow());
     } else {
-        clock_sw_start(&a->engine, &a->now);
+        clock_sw_start(eng(), tnow());
     }
     refresh_all(a);
 }
@@ -538,10 +499,10 @@ static void on_sw_lap(lv_event_t *e)
 {
     struct clock_app *a = lv_event_get_user_data(e);
 
-    if (a->engine.sw.state == CLOCK_SW_RUNNING) {
-        clock_sw_lap(&a->engine, &a->now);
+    if (eng()->sw.state == CLOCK_SW_RUNNING) {
+        clock_sw_lap(eng(), tnow());
     } else {
-        clock_sw_reset(&a->engine);
+        clock_sw_reset(eng());
     }
     refresh_all(a);
 }
@@ -549,35 +510,35 @@ static void on_sw_lap(lv_event_t *e)
 static void refresh_sw(struct clock_app *a)
 {
     char buf[24];
-    int running = a->engine.sw.state == CLOCK_SW_RUNNING;
+    int running = eng()->sw.state == CLOCK_SW_RUNNING;
     int i;
 
-    clock_format_elapsed(clock_sw_elapsed_ms(&a->engine, &a->now), buf, sizeof(buf));
+    clock_format_elapsed(clock_sw_elapsed_ms(eng(), tnow()), buf, sizeof(buf));
     set_text(a->sw_value, buf);
     set_button_text(a->sw_run_btn, running ? "Pause" : "Start");
     set_button_text(a->sw_lap_btn, running ? "Lap" : "Reset");
 
     /* An empty lap list is an empty box the height of the panel, so it is
      * not shown until there is a lap in it. */
-    set_hidden(a->sw_laps, a->engine.sw.lap_count == 0);
+    set_hidden(a->sw_laps, eng()->sw.lap_count == 0);
 
     /* The list only ever grows or is cleared, so it is rebuilt on those two
      * events and left alone by the ten-a-second refresh. */
-    if (a->sw_laps_drawn == a->engine.sw.lap_count) {
+    if (a->sw_laps_drawn == eng()->sw.lap_count) {
         return;
     }
-    if (a->engine.sw.lap_count < a->sw_laps_drawn) {
+    if (eng()->sw.lap_count < a->sw_laps_drawn) {
         lv_obj_clean(a->sw_laps);
         a->sw_laps_drawn = 0;
     }
-    for (i = a->sw_laps_drawn; i < a->engine.sw.lap_count; i++) {
+    for (i = a->sw_laps_drawn; i < eng()->sw.lap_count; i++) {
         char n[16];
 
         snprintf(n, sizeof(n), "%d", i + 1);
-        clock_format_elapsed(a->engine.sw.laps[i], buf, sizeof(buf));
+        clock_format_elapsed(eng()->sw.laps[i], buf, sizeof(buf));
         pocketui_kv_row(a->sw_laps, n, buf);
     }
-    a->sw_laps_drawn = a->engine.sw.lap_count;
+    a->sw_laps_drawn = eng()->sw.lap_count;
 }
 
 /* ---- the timer --------------------------------------------------------- */
@@ -616,19 +577,19 @@ static void on_timer_run(lv_event_t *e)
 {
     struct clock_app *a = lv_event_get_user_data(e);
 
-    if (a->engine.timer.state == CLOCK_TIMER_RUNNING) {
-        clock_timer_pause(&a->engine, &a->now);
+    if (eng()->timer.state == CLOCK_TIMER_RUNNING) {
+        clock_timer_pause(eng(), tnow());
     } else {
-        if (a->engine.timer.state == CLOCK_TIMER_IDLE &&
-            !clock_timer_set(&a->engine, 0, a->set_minutes, a->set_seconds)) {
+        if (eng()->timer.state == CLOCK_TIMER_IDLE &&
+            !clock_timer_set(eng(), 0, a->set_minutes, a->set_seconds)) {
             pocketos_shell_set_status_hint("Set a duration first");
             return;
         }
         pocketos_shell_set_status_hint("");
-        if (clock_timer_start(&a->engine, &a->now)) {
+        if (clock_timer_start(eng(), tnow())) {
             /* The duration is a setting and survives a reboot; what is left
              * of a running countdown does not, and is not written. */
-            save(a);
+            save();
         }
     }
     refresh_all(a);
@@ -638,21 +599,21 @@ static void on_timer_cancel(lv_event_t *e)
 {
     struct clock_app *a = lv_event_get_user_data(e);
 
-    clock_timer_cancel(&a->engine);
+    clock_timer_cancel(eng());
     refresh_all(a);
 }
 
 static void refresh_timer(struct clock_app *a)
 {
     char buf[24];
-    int idle = a->engine.timer.state == CLOCK_TIMER_IDLE;
-    int running = a->engine.timer.state == CLOCK_TIMER_RUNNING;
+    int idle = eng()->timer.state == CLOCK_TIMER_IDLE;
+    int running = eng()->timer.state == CLOCK_TIMER_RUNNING;
 
     if (idle) {
         clock_format_remaining((int64_t)(a->set_minutes * 60 + a->set_seconds) * 1000,
                                buf, sizeof(buf));
     } else {
-        clock_format_remaining(clock_timer_remaining_ms(&a->engine, &a->now), buf,
+        clock_format_remaining(clock_timer_remaining_ms(eng(), tnow()), buf,
                                sizeof(buf));
     }
     set_text(a->tm_value, buf);
@@ -719,15 +680,11 @@ static void on_refresh(lv_timer_t *timer)
 {
     struct clock_app *a = lv_timer_get_user_data(timer);
 
-    clock_now_read(&a->now);
-    clock_engine_step(&a->engine, &a->now);
-
-    if (a->engine.ringing != CLOCK_RING_NONE) {
-        ring_enter(a);
-    } else if (a->screen_id == SCREEN_RING) {
-        /* Something else stopped it - an alarm switched off, say. */
-        ring_leave(a);
-    }
+    /* A fresh reading, and nothing more. The engine is advanced once a
+     * second by the shell and by nobody else (clock_runtime.h); this timer
+     * exists so the stopwatch can show hundredths, not so the app can
+     * decide that an alarm has gone off. */
+    clock_runtime_read();
     refresh_all(a);
 }
 
@@ -861,8 +818,8 @@ static void build_alarm_pane(struct clock_app *a, lv_obj_t *pane)
     /* What an alert can actually do on this hardware, in the owner's words
      * rather than a silent surprise at 07:30 (clock_alert.h). */
     wrapped(pane, clock_alert_why(), POS_STYLE_CAPTION);
-    wrapped(pane, "Alarms ring while Clock is open. PocketOS has no "
-                  "background apps yet.", POS_STYLE_CAPTION);
+    wrapped(pane, "Alarms ring with Clock closed. They do not ring with the "
+                  "device switched off.", POS_STYLE_CAPTION);
 
     /* Last, because filling the list also decides whether the Add button and
      * the full notice are shown, and neither exists before now. */
@@ -1009,35 +966,6 @@ static void build_confirm(struct clock_app *a)
     pos_input_add_obj(confirm);
 }
 
-static void build_ring(struct clock_app *a)
-{
-    lv_obj_t *panel = pocketui_card(a->screen[SCREEN_RING]);
-    lv_obj_t *why;
-    lv_obj_t *row;
-    lv_obj_t *stop;
-
-    /* This is the whole alert. There is no sound to fall back on, so it
-     * takes the panel rather than sitting in a card at the top of it. */
-    lv_obj_set_flex_grow(panel, 1);
-    lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_START);
-
-    a->ring_title = pocketui_label(panel, "Alarm", POS_STYLE_HERO_40);
-    lv_obj_set_style_pad_bottom(a->ring_title, 12, 0);
-    a->ring_detail = pocketui_label(panel, "", POS_STYLE_ROW_TITLE);
-    lv_obj_set_style_pad_bottom(a->ring_detail, 24, 0);
-    why = wrapped(panel, clock_alert_why(), POS_STYLE_CAPTION);
-    /* The gap before the buttons goes on the caption above them: a pad on a
-     * fixed-height row squeezes its buttons instead of moving it down. */
-    lv_obj_set_style_pad_bottom(why, 24, 0);
-
-    row = button_row(panel);
-    a->ring_snooze_btn = paired_button(row, "Snooze 9 min", on_ring_snooze, a);
-    make_secondary(a->ring_snooze_btn);
-    stop = paired_button(row, "Stop", on_ring_stop, a);
-    pos_input_add_obj(stop);
-}
-
 /* ---- the app ----------------------------------------------------------- */
 
 static void *clock_create(lv_obj_t *root)
@@ -1048,23 +976,21 @@ static void *clock_create(lv_obj_t *root)
     if (!a) {
         return NULL;
     }
-    clock_engine_init(&a->engine);
-    if (clock_store_load(&a->engine) < 0) {
-        pocketos_shell_set_status_hint("Alarms unreadable");
-    }
-    a->set_minutes = (int)(a->engine.timer.duration_ms / 60000);
-    a->set_seconds = (int)((a->engine.timer.duration_ms / 1000) % 60);
+    /* The engine is already there, with whatever the shell loaded at boot
+     * and whatever has happened to it since: an alarm that rang while this
+     * app was shut, a countdown still running, a stopwatch still going. The
+     * app picks it up where it is (clock_runtime.h). */
+    a->set_minutes = (int)(eng()->timer.duration_ms / 60000);
+    a->set_seconds = (int)((eng()->timer.duration_ms / 1000) % 60);
     if (a->set_minutes > TIMER_SET_MAX_MINUTES) {
         a->set_minutes = TIMER_SET_MAX_MINUTES;
     }
     a->confirm_index = -1;
     a->add_hour = 7;
-    a->return_screen = SCREEN_MAIN;
 
-    /* The first reading happens before anything is drawn, so no view ever
-     * paints a time the engine has not been stepped to. */
-    clock_now_read(&a->now);
-    clock_engine_step(&a->engine, &a->now);
+    /* A fresh reading before anything is drawn, so no view paints a stale
+     * one for a tick. */
+    clock_runtime_read();
 
     for (i = 0; i < SCREEN_COUNT; i++) {
         a->screen[i] = make_screen(root);
@@ -1072,7 +998,6 @@ static void *clock_create(lv_obj_t *root)
     build_main(a);
     build_add(a);
     build_confirm(a);
-    build_ring(a);
 
     select_tab(a, TAB_CLOCK);
     show_screen(a, SCREEN_MAIN);
@@ -1093,12 +1018,11 @@ static void clock_destroy(void *priv)
     if (a->refresh) {
         lv_timer_delete(a->refresh);
     }
-    clock_alert_end();
     pocketos_shell_keyboard_hide();
-    /* Leaving the app ends the stopwatch and the countdown: v0.1 has no
-     * background, and a number that carried on counting while nothing was
-     * running would be a fiction (ADR-002). The alarms are already on disk;
-     * they were written when they changed. */
+    /* Nothing else is torn down. The alarms, the countdown and the
+     * stopwatch belong to the shell and go on without this app: that is the
+     * whole point of moving them there. The alarms are already on disk, and
+     * were written when they changed. */
     lv_free(a);
 }
 

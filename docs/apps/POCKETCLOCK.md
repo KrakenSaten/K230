@@ -14,16 +14,19 @@ Four panes behind four tabs, on one screen.
   does not know what time it is, this says so instead (below).
 - **Alarm.** Up to eight alarms. Each has a time, a repeat (Once, Daily,
   Weekdays) and an optional label. A tap on the row switches one on or off;
-  the trailing button deletes it, after a confirmation.
+  the trailing button deletes it, after a confirmation. They ring whether or
+  not this app is open - see below.
 - **Watch.** A stopwatch with laps, to hundredths of a second.
 - **Timer.** A countdown set in minutes and seconds, up to 99:59.
 
-When something goes off, the whole panel becomes the alert: what is ringing,
-which alarm it was, and Stop — with Snooze beside it for an alarm.
+When something goes off, the whole panel becomes the alert - over whatever
+was on screen, app or launcher - showing what is ringing, which alarm it
+was, and Stop, with Snooze beside it for an alarm. That alert belongs to the
+shell, not to this app.
 
-## The two things it cannot do, and says so
+## The one thing it cannot do, and says so
 
-**1. This board has no clock that survives a power cut.** There is no
+**This board has no clock that survives a power cut.** There is no
 battery-backed RTC (`docs/hardware/T-DISPLAY-K230.md`: "no RTC"), so every
 boot starts at the epoch and stays there until something sets the time. The
 boot logs show it plainly: `1970-01-01T00:00:16`.
@@ -38,12 +41,50 @@ that fifty-five years had gone by and every alarm in the list was overdue.
 The stopwatch and the timer are unaffected. They measure elapsed time on
 `CLOCK_MONOTONIC` and never look at the date.
 
-**2. An alarm rings while PocketClock is open.** The v0.1 app lifecycle has
-no background: an app is created when it is opened and destroyed when it is
-left (ADR-002). Nothing runs a clock behind the launcher, so nothing can ring
-there. The Alarm pane says this in as many words rather than letting the
-owner find out at 07:30. Alarms themselves are saved and survive a reboot;
-what does not survive is anything watching for them.
+The status bar is held to the same rule, so the corner of every screen in
+PocketOS reads `--:--` rather than 01:00 while the Clock app says the time
+is not set. Whichever of the two was lying, the one nobody is looking at
+would have won, because it looks like a clock.
+
+## Who runs the alarms
+
+**The shell does, and PocketClock is the client.** An alarm that only rings
+while its app is open is not an alarm, and the v0.1 lifecycle has no
+background apps - one is created when it is opened and destroyed when it is
+left (ADR-002) - so the engine does not live in the app.
+
+It did not become a daemon either. A service would need a binary, an init
+script, a supervisor entry and an IPC push back to the shell to draw the
+alert; the shell is already the process with the panel, a once-a-second tick
+and the one-instance pattern the touch keyboard set (DS §17.4). So:
+
+| | Owner |
+| --- | --- |
+| The one `struct clock_engine` | `apps/clock/clock_runtime.c`, created and stepped by `ui/shell/shell.c` |
+| Stepping it | the shell tick, once a second, and nothing else |
+| The alert on screen | `ui/shell/shell_alarm.c`, one full-panel sheet built hidden at boot |
+| Alarm configuration and display | PocketClock |
+| Loading and saving | the runtime, through the same `clock_store.c` |
+| Timing rules | still `clock_engine.c`, unchanged |
+
+What that buys: an alarm set in PocketClock rings over the launcher,
+PocketNotes, PocketTimber or PocketClock itself, and Stop works from any of
+them. The countdown finishes in the background the same way. The stopwatch
+now also keeps running with the app shut, which is not a feature that was
+asked for but is what one engine in one place means - and is what a
+stopwatch should do.
+
+**PocketClock has no ringing screen of its own.** There is one alert and the
+shell owns it; `tests/clock_shell_test.sh` fails the build if a second one
+appears. What does not survive is the device being switched off: the alarms
+are on disk, but nothing is running to watch for them.
+
+The app still refreshes ten times a second while it is open, because the
+stopwatch shows hundredths - but that refresh only *reads* the clock. One
+stepper means an alarm cannot fire twice because two callers both advanced
+it, and it means having the app open changes nothing about when an alarm
+goes off. `tests/clock_lint.sh` checks that `clock_engine_step` has exactly
+one caller in the tree.
 
 ## The alert hardware
 
@@ -84,18 +125,22 @@ clock_engine.c   every timing rule: what counts as knowing the time,
                  when an alarm fires and when it must not, snooze,
                  the stopwatch, the countdown. Pure: no I/O, no LVGL,
                  no clock of its own
+      ^
+      |   the only caller of clock_engine_step()
+clock_runtime.c  the one engine, owned and stepped by the shell
       |
       +--> clock_store.c    alarms and the timer duration, on disk
       +--> clock_alert.c    what the device can do to get attention
       |
-      v
-clock_app.c      four panes and three screens. Draws what the engine
-                 says; decides nothing about time
+      +--> shell_alarm.c    the one full-panel alert, in ui/shell
+      +--> clock_app.c      three screens and four panes. Draws what the
+                            runtime says; decides nothing about time
 ```
 
-`tests/clock_lint.sh` holds that shape: the engine, the store, the clock
-reader and the alert are free of LVGL; only the store touches the filesystem;
-only `clock_time.c` calls a clock; and the refresh timer writes nothing.
+`tests/clock_lint.sh` holds that shape: everything but the app is free of
+LVGL; only the store touches the filesystem; only `clock_time.c` calls a
+clock; `clock_engine_step` has exactly one caller; the app owns no engine;
+and the refresh timer neither writes to storage nor advances anything.
 
 ### The two clocks
 
@@ -124,7 +169,12 @@ sees the same 07:30. An alarm carries the local day it last fired on, so:
   had no idea what time it was, and it must not ring in a burst now;
 - an alarm **added** for a time that has already gone by today means the next
   occurrence. Setting 06:30 at 06:39 must not go off while your finger is
-  still on Add.
+  still on Add;
+- and the same applies to the shell itself restarting. The runtime starts
+  with a fresh engine, so its first valid reading marks everything already
+  due today as done: a shell that came back at 07:31 does not ring the 07:30
+  alarm it was not there for. That is the safe direction, and the same rule
+  as the boot case above.
 
 Only one thing rings at a time. If an alarm and the timer come due in the
 same step, the timer takes it and the alarm rings as soon as the timer is
@@ -164,14 +214,40 @@ alarm 0 22 45 0
 | `tests/clock_engine_test.c` | 156 checks: validity and the boot with no RTC, firing once however often it is stepped, Once/Daily/Weekdays, midnight crossings, clock jumps forwards and backwards, snooze on the monotonic clock, adding an alarm in the past, the dense alarm list and its two index references, the stopwatch over 25 days of milliseconds, the timer's single expiry and its 23-hour range, one ring at a time, the formatters, every null argument, and the alert seam |
 | `tests/clock_time_test.c` | 39 checks: the validity threshold, the local-date arithmetic across midnight, month and year ends, and that an unset clock never produces a digit |
 | `tests/clock_store_test.c` | 76 checks: the round trip, what is deliberately not stored, eleven kinds of damaged file, the atomic overwrite, and label storability |
-| `tests/clock_app_test.c` | 79 checks: the app under a real LVGL pointer and the real touch keyboard, against a real store — tabs, adding an alarm by tapping the steppers and typing its label, toggling, the delete confirmation, persistence across closing the app, the stopwatch and the timer |
-| `tests/clock_lint.sh` | 26 checks: the layering above, the atomic write, no keyboard of its own, no invented hardware, and no calendar machinery |
+| `tests/clock_runtime_test.c` | 61 checks: the thing the runtime exists for — an alarm ringing with no app in sight, once, with the shell told exactly once; a one-shot acknowledgement reaching the disk; snooze, the countdown and a wall clock that is never set; clock jumps; and that a read does not advance anything |
+| `tests/clock_app_test.c` | 107 checks: the app under a real LVGL pointer and the real touch keyboard, against a real store — tabs, adding an alarm by tapping the steppers and typing its label, toggling, the delete confirmation, persistence across both closing the app and restarting the shell, the stopwatch, the timer, and the shell alert firing with the app shut, over the app, and for a countdown |
+| `tests/clock_lint.sh` | 30 checks: the layering above, one stepper, the atomic write, no keyboard of its own, no invented hardware, and no calendar machinery |
+| `tests/clock_shell_test.sh` | 16 checks: the shell starts and steps the runtime, builds exactly one alert, no app builds another, PocketClock has no ringing screen left, and the status bar uses the validity rule instead of formatting the time itself |
 
 **Nothing in the engine tests sleeps.** Both clocks are handed in as numbers,
 so a day, a midnight crossing, a clock correction and a nine-minute snooze
 all take zero seconds. The only real time anyone waits for is the thirty
 milliseconds `clock_app_test.c` spends proving a running stopwatch moves,
 because that one reads the real monotonic clock.
+
+## Hardware smoke
+
+What to check on unit A once this is flashed, in order:
+
+1. **Cold boot, no time set.** The status bar corner reads `--:--`, and so
+   does the Clock face. Neither invents a time.
+2. **Set the time**: `ssh root@<unit> date -s "2026-09-11 07:25"`. Both go
+   to 07:25 within a second. No alarm goes off from the jump.
+3. **Alarm in two minutes, app open.** Add it, stay on the Alarm pane, wait.
+   The alert covers the whole panel; Stop clears it.
+4. **Alarm in two minutes, app shut.** Add it, go back to the launcher, wait
+   there. The alert appears over the launcher. This is the whole point.
+5. **Alarm in two minutes, in another app.** Add it, open PocketNotes and
+   start typing. The alert appears over Notes and takes the keyboard away.
+6. **Snooze.** Let one ring, tap Snooze, confirm it comes back nine minutes
+   later - with the app still shut.
+7. **Acknowledged once.** After Stop, it does not come back that day.
+8. **Reboot with an alarm set.** `reboot`, do not open Clock, set the time,
+   and confirm the alarm is still armed and still rings.
+9. **Countdown in the background.** Start a one-minute timer, leave Clock,
+   and confirm "Timer finished" appears with Stop and no Snooze.
+10. **Nothing rings without a clock.** Reboot, do not set the time, and
+    confirm an armed alarm stays silent all the way past its hour.
 
 ## Not in this app
 

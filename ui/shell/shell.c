@@ -10,12 +10,15 @@
  */
 #define _GNU_SOURCE
 #include "app.h"
+#include "clock_runtime.h"
+#include "clock_time.h"
 #include "platform.h"
 #include "pocketipc/server.h"
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
 #include "pos_keyboard.h"
 #include "settings.h"
+#include "shell_alarm.h"
 #include "shell_ipc.h"
 
 #include <errno.h>
@@ -23,7 +26,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #ifndef POCKETOS_DISPLAY_NAME
 #define POCKETOS_DISPLAY_NAME "unknown"
@@ -125,14 +127,16 @@ const char *pocketos_shell_radio_state(void)
 
 static void status_update(void)
 {
-    time_t now = time(NULL);
-    struct tm tm;
     char buf[16];
     char err[96];
     cJSON *st;
 
-    localtime_r(&now, &tm);
-    strftime(buf, sizeof(buf), "%H:%M", &tm);
+    /* The same rule PocketClock uses, for the same reason: this board has no
+     * battery-backed clock, so after a power-off the time is not a time. A
+     * status bar reading 01:00 in the corner while the Clock app says the
+     * time is not set would make one of the two a liar - and the one nobody
+     * is looking at would win, because it looks like a clock. */
+    clock_format_wall(&clock_runtime_now()->wall, buf, sizeof(buf));
     lv_label_set_text(sh.status_clock, buf);
 
     /* This runs on the LVGL thread once a second. Before the deadline, a
@@ -596,6 +600,12 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
 static void on_tick(lv_timer_t *timer)
 {
     (void)timer;
+    /* The only place the clock runtime is stepped. Once a second is plenty
+     * for an alarm, whose resolution is a minute, and for a countdown, whose
+     * last second is the only one anybody watches - and one stepper means an
+     * alarm cannot fire twice because two callers both advanced it
+     * (clock_runtime.h). */
+    clock_runtime_step();
     status_update();
     if (sh.app && sh.app->tick) {
         sh.app->tick(sh.app_priv);
@@ -698,6 +708,23 @@ int main(int argc, char **argv)
         pos_keyboard_set_done_cb(sh.keyboard, on_keyboard_done, NULL);
     } else {
         LOG_WARN("touch keyboard unavailable; text entry will not work");
+    }
+
+    /* The alarms, and the one alert that shows them. Both belong to the
+     * shell and not to PocketClock: an alarm has to ring with the app shut,
+     * and there is no background app to ring it (ADR-002, clock_runtime.h).
+     * Built after the keyboard so it sits above it. */
+    shell_alarm_create(screen);
+    switch (clock_runtime_init(shell_alarm_sync)) {
+    case 0:
+        LOG_INFO("clock: %d alarm(s) loaded",
+                 clock_alarm_count(clock_runtime_engine()));
+        break;
+    case 1:
+        break; /* nothing stored yet */
+    default:
+        LOG_WARN("clock: stored alarms could not be read; starting with none");
+        break;
     }
 
     if (open_id) {
