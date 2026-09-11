@@ -134,7 +134,7 @@ static int parse_alarm(const char *rest, struct clock_engine *e)
         return -1;
     }
     if (!enabled) {
-        clock_alarm_set_enabled(e, index, false);
+        clock_alarm_set_enabled(e, index, false, NULL);
     }
     return 0;
 }

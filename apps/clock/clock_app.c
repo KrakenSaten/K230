@@ -223,7 +223,9 @@ static void on_alarm_row(lv_event_t *e)
     if (!al) {
         return;
     }
-    clock_alarm_set_enabled(eng(), index, !al->enabled);
+    /* The reading goes in because switching an alarm on is setting it: at or
+     * after its time today, it means its next time (clock_engine.h). */
+    clock_alarm_set_enabled(eng(), index, !al->enabled, tnow());
     build_alarm_list(a);
     save();
 }

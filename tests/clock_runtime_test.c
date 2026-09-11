@@ -361,6 +361,90 @@ static void test_null_callback(void)
     check("and neither does stopping nothing", e->ringing == CLOCK_RING_NONE);
 }
 
+/* A countdown that ends while an alarm is ringing waits its turn, and the
+ * shell hears about it once the alarm is stopped: one alert at a time, and
+ * none of them lost (DS §18.6; P1-4 of the v0.0.8 review, where it never
+ * rang at all). */
+static void test_timer_waits_for_the_alarm(void)
+{
+    struct clock_engine *e;
+    struct clock_now now;
+
+    wipe();
+    fresh();
+    e = clock_runtime_engine();
+    clock_alarm_add(e, 7, 30, CLOCK_REPEAT_DAILY, NULL, NULL);
+    check("a countdown is set", clock_timer_set(e, 0, 1, 0));
+    tick(at(20260911, 7, 0, 5, 1000), 2);
+    now = at(20260911, 7, 29, 5, 1740000);
+    check("and started", clock_timer_start(e, &now));   /* due at 1800000 */
+
+    tick(at(20260911, 7, 30, 5, 1790000), 5);
+    check("the alarm rings first", e->ringing == CLOCK_RING_ALARM);
+    check("the shell was told once", ring_changes == 1);
+    tick(at(20260911, 7, 30, 5, 1830000), 30);
+    check("the countdown ends underneath it", e->timer.state == CLOCK_TIMER_EXPIRED);
+    check("without taking the alarm's place",
+          e->ringing == CLOCK_RING_ALARM && ring_changes == 1);
+
+    clock_runtime_stop_ringing();
+    check("Stop puts the alarm away", e->ringing == CLOCK_RING_NONE);
+    check("and told the shell", ring_changes == 2);
+    tick(at(20260911, 7, 31, 5, 1860000), 5);
+    check("the next tick rings the countdown", e->ringing == CLOCK_RING_TIMER);
+    check("and tells the shell", ring_changes == 3);
+    tick(at(20260911, 7, 31, 5, 1900000), 30);
+    check("once", ring_changes == 3);
+
+    clock_runtime_stop_ringing();
+    check("Stop puts that away too", e->ringing == CLOCK_RING_NONE);
+    check("and returns the countdown to idle", e->timer.state == CLOCK_TIMER_IDLE);
+    tick(at(20260911, 7, 40, 5, 2400000), 30);
+    check("after which nothing comes back",
+          e->ringing == CLOCK_RING_NONE && ring_changes == 4);
+}
+
+/* Snoozes wait their turn too, and two snoozed alarms both come back (P1-5
+ * of the v0.0.8 review: the second snooze used to replace the first, and a
+ * snooze that was up while something rang was dropped). */
+static void test_snoozes_wait_their_turn(void)
+{
+    struct clock_engine *e;
+
+    wipe();
+    fresh();
+    e = clock_runtime_engine();
+    clock_alarm_add(e, 7, 0, CLOCK_REPEAT_DAILY, "first", NULL);
+    clock_alarm_add(e, 7, 5, CLOCK_REPEAT_DAILY, "second", NULL);
+    tick(at(20260911, 6, 0, 5, 1000), 2);
+
+    tick(at(20260911, 7, 0, 5, 10000000), 3);
+    check("the first alarm rings", e->ringing == CLOCK_RING_ALARM && e->ringing_alarm == 0);
+    clock_runtime_snooze();                          /* up at 10540000 */
+    tick(at(20260911, 7, 5, 5, 10300000), 3);
+    check("the second rings during that snooze", e->ringing_alarm == 1);
+    clock_runtime_snooze();                          /* up at 10840000 */
+    check("the shell heard two rings and two snoozes", ring_changes == 4);
+
+    tick(at(20260911, 7, 9, 5, 10540000), 20);
+    check("the first comes back", e->ringing == CLOCK_RING_ALARM && e->ringing_alarm == 0);
+    check("once", ring_changes == 5);
+
+    /* Nobody stops it until the second snooze is up as well. */
+    tick(at(20260911, 7, 14, 5, 10840000), 20);
+    check("the second snooze waits under it",
+          e->ringing_alarm == 0 && ring_changes == 5);
+    clock_runtime_stop_ringing();
+    check("Stop puts the first away", e->ringing == CLOCK_RING_NONE && ring_changes == 6);
+    tick(at(20260911, 7, 15, 5, 10900000), 20);
+    check("and the second comes back after it",
+          e->ringing == CLOCK_RING_ALARM && e->ringing_alarm == 1);
+    check("told once", ring_changes == 7);
+    clock_runtime_stop_ringing();
+    tick(at(20260911, 7, 30, 5, 11800000), 20);
+    check("after which nothing rings", e->ringing == CLOCK_RING_NONE && ring_changes == 8);
+}
+
 int main(void)
 {
     snprintf(root, sizeof(root), "/tmp/pocketclock-runtime-%d", (int)getpid());
@@ -371,6 +455,8 @@ int main(void)
     test_once_survives_the_acknowledgement();
     test_snooze_with_no_app();
     test_timer_with_no_app();
+    test_timer_waits_for_the_alarm();
+    test_snoozes_wait_their_turn();
     test_no_wall_clock_no_alarm();
     test_wall_clock_jumps();
     test_read_does_not_step();

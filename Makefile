@@ -355,8 +355,19 @@ tests/timber_view_test: tests/timber_view_test.o $(TIMBER_UI_OBJS) $(TIMBER_OBJS
 tests/timber_store_test: tests/timber_store_test.o $(TIMBER_APP_OBJS) $(TIMBER_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# Every binary `make test` builds on top of $(BINS). Each of them, and each of
+# $(BINS), has to be git-ignored: apply_to_sdk.sh calls an image's BUILD_ID
+# "<commit>-dirty" when `git status --porcelain` shows anything, so a single
+# untracked test binary in the checkout an image is built from would make it
+# claim changes it does not contain. tests/build_outputs_test.sh checks this
+# list against .gitignore, so a test added here without an entry there fails.
+TEST_BINS := tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/pocketipc_test \
+             tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/theme_test \
+             tests/settings_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
+             $(NOTES_TESTS) $(CLOCK_TESTS)
+
 # Native tests only (they execute binaries).
-test: all tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/pocketipc_test tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/theme_test tests/settings_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) $(NOTES_TESTS) $(CLOCK_TESTS)
+test: all $(TEST_BINS)
 	./tests/airtime_test
 	./tests/pocketlog_test 2>/dev/null
 	./tests/paths_test
@@ -400,6 +411,7 @@ test: all tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/poc
 	bash tests/package_sync_test.sh
 	bash tests/style_lint.sh
 	bash tests/build_deps_test.sh
+	bash tests/build_outputs_test.sh
 	bash tests/hwcheck_test.sh
 	bash tests/fleet_lint.sh
 	bash tests/radar_lint.sh
@@ -429,4 +441,9 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 clean:
 	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) tests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o)
 
-.PHONY: all test install clean sx1262-objs
+# The files `make all` and `make test` produce, one to a line, for
+# tests/build_outputs_test.sh.
+print-build-outputs:
+	@printf '%s\n' $(BINS) $(TEST_BINS)
+
+.PHONY: all test install clean sx1262-objs print-build-outputs

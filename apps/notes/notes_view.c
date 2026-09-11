@@ -74,6 +74,24 @@ int notes_text_is_blank(const char *text)
     return 1;
 }
 
+size_t notes_text_chars(const char *text)
+{
+    const unsigned char *p = (const unsigned char *)text;
+    size_t n = 0;
+
+    if (!text) {
+        return 0;
+    }
+    for (; *p; p++) {
+        /* Every character has exactly one byte that is not a continuation
+         * byte, so counting those counts characters. */
+        if ((*p & 0xC0u) != 0x80u) {
+            n++;
+        }
+    }
+    return n;
+}
+
 void notes_title_unreadable(char *out, size_t out_len)
 {
     if (out && out_len > 0) {

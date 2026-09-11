@@ -119,7 +119,7 @@ static void test_round_trip(void)
     clock_alarm_add(&a, 7, 30, CLOCK_REPEAT_DAILY, "Wake up", NULL);
     clock_alarm_add(&a, 6, 0, CLOCK_REPEAT_WEEKDAYS, "Tog til Ås", NULL);
     clock_alarm_add(&a, 22, 45, CLOCK_REPEAT_ONCE, NULL, NULL);
-    clock_alarm_set_enabled(&a, 2, false);
+    clock_alarm_set_enabled(&a, 2, false, NULL);
     clock_timer_set(&a, 0, 3, 20);
 
     check("saving works", clock_store_save(&a) == 0);
@@ -189,7 +189,7 @@ static void test_what_is_not_stored(void)
     check("fired_day is not restored",
           clock_alarm_at(&b, 0)->fired_day == CLOCK_DAY_NEVER);
     check("nothing is ringing after a load", b.ringing == CLOCK_RING_NONE);
-    check("no alarm is snoozing", b.snooze_alarm == -1);
+    check("no alarm is snoozing", clock_alarm_at(&b, 0)->snooze_until == 0);
     check("the stopwatch is not running", b.sw.state == CLOCK_SW_IDLE);
     check("and reads zero", b.sw.accumulated_ms == 0);
     check("the timer is not running", b.timer.state == CLOCK_TIMER_IDLE);

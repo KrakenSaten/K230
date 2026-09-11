@@ -82,6 +82,17 @@ int main(void)
     check("an invalid lead byte is not", !notes_text_is_utf8("\xFF"));
     check("NULL is not", !notes_text_is_utf8(NULL));
 
+    /* ---- characters, which is what the editor's cap counts ---- */
+    check("an empty note holds no characters", notes_text_chars("") == 0);
+    check("NULL holds none", notes_text_chars(NULL) == 0);
+    check("ASCII is one character a byte", notes_text_chars("Shopping\nmilk") == 13);
+    check("æøå are three characters in six bytes",
+          notes_text_chars("\xC3\xA6\xC3\xB8\xC3\xA5") == 3);
+    check("a three-byte character is one", notes_text_chars("\xE2\x82\xAC") == 1);
+    check("a four-byte character is one", notes_text_chars("\xF0\x9F\x93\x9D") == 1);
+    check("mixed text counts characters, not bytes",
+          notes_text_chars("a\xC3\xA6\xE2\x82\xAC b") == 5);
+
     printf("notes_view_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

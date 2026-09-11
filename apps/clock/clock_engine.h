@@ -107,6 +107,11 @@ struct clock_alarm {
     /* The local day this alarm last fired on, so one alarm fires once a day
      * however often the engine is stepped. CLOCK_DAY_NEVER means never. */
     int64_t fired_day;
+    /* Monotonic ms at which this alarm's snooze is up, 0 when it is not
+     * snoozed. Each alarm keeps its own, so snoozing one never costs another
+     * its snooze, and a snooze that is up while something else is ringing
+     * stays here until the ring is free (DS §18.6). */
+    int64_t snooze_until;
 };
 
 struct clock_stopwatch {
@@ -137,8 +142,6 @@ struct clock_engine {
 
     uint8_t ringing;      /* enum clock_ring */
     int ringing_alarm;    /* index, when ringing an alarm; else -1 */
-    int64_t snooze_until; /* monotonic ms, 0 when not snoozing */
-    int snooze_alarm;     /* which alarm is snoozing; else -1 */
 
     bool wall_was_valid;  /* to notice the moment the clock becomes real */
 };
@@ -164,16 +167,27 @@ void clock_engine_step(struct clock_engine *e, const struct clock_now *now);
 int clock_alarm_add(struct clock_engine *e, int hour, int minute,
                     enum clock_repeat repeat, const char *label,
                     const struct clock_now *now);
-/* Removes and closes the gap, so later indices move down by one. */
+/* Removes and closes the gap, so later indices move down by one. A snooze
+ * the alarm had goes with it. */
 bool clock_alarm_remove(struct clock_engine *e, int index);
-bool clock_alarm_set_enabled(struct clock_engine *e, int index, bool enabled);
+/* Switch an alarm on or off. Off stops it ringing and cancels its snooze,
+ * and no other alarm's.
+ *
+ * On is setting it, so now is the reference exactly as it is for
+ * clock_alarm_add: an alarm switched on at or after its minute today means
+ * its next occurrence and does not ring on the spot. Only the off-to-on
+ * change counts. Pass NULL when there is no meaningful today. */
+bool clock_alarm_set_enabled(struct clock_engine *e, int index, bool enabled,
+                             const struct clock_now *now);
 int clock_alarm_count(const struct clock_engine *e);
 const struct clock_alarm *clock_alarm_at(const struct clock_engine *e, int index);
 
-/* Stop the ringing alarm. A one-shot alarm also switches itself off, because
- * "once" has happened. */
+/* Stop the ringing alarm and cancel its snooze, if it had one; any other
+ * alarm's snooze carries on. A one-shot alarm also switches itself off,
+ * because "once" has happened. */
 void clock_alarm_acknowledge(struct clock_engine *e, const struct clock_now *now);
-/* Stop it for CLOCK_SNOOZE_MS. Does nothing unless an alarm is ringing. */
+/* Stop the ringing alarm for CLOCK_SNOOZE_MS, on a snooze of its own. Does
+ * nothing unless an alarm is ringing. */
 void clock_alarm_snooze(struct clock_engine *e, const struct clock_now *now);
 
 /* ---- stopwatch --------------------------------------------------------- */

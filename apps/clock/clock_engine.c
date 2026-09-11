@@ -21,7 +21,6 @@ void clock_engine_init(struct clock_engine *e)
     }
     e->ringing = CLOCK_RING_NONE;
     e->ringing_alarm = -1;
-    e->snooze_alarm = -1;
 }
 
 /* ---- alarms ------------------------------------------------------------ */
@@ -83,8 +82,9 @@ int clock_alarm_add(struct clock_engine *e, int hour, int minute,
     return index;
 }
 
-/* The alarm an index referred to has gone or moved down one; keep the two
- * references that carry an index pointing at the same alarm, or at nothing. */
+/* The alarm an index referred to has gone or moved down one; keep the
+ * reference that carries an index pointing at the same alarm, or at nothing.
+ * A snooze needs no such care: it lives in its alarm and moves with it. */
 static void reindex(int *ref, int removed)
 {
     if (*ref == removed) {
@@ -109,35 +109,45 @@ bool clock_alarm_remove(struct clock_engine *e, int index)
     e->alarms[e->alarm_count].fired_day = CLOCK_DAY_NEVER;
 
     reindex(&e->ringing_alarm, index);
-    reindex(&e->snooze_alarm, index);
     if (e->ringing == CLOCK_RING_ALARM && e->ringing_alarm < 0) {
         e->ringing = CLOCK_RING_NONE;
-    }
-    if (e->snooze_alarm < 0) {
-        e->snooze_until = 0;
     }
     return true;
 }
 
-bool clock_alarm_set_enabled(struct clock_engine *e, int index, bool enabled)
+bool clock_alarm_set_enabled(struct clock_engine *e, int index, bool enabled,
+                             const struct clock_now *now)
 {
+    struct clock_alarm *a;
+
     if (!e || index < 0 || index >= e->alarm_count) {
         return false;
     }
-    e->alarms[index].enabled = enabled;
+    a = &e->alarms[index];
     if (enabled) {
+        /* Switching an alarm on is setting it, and gets the rule adding one
+         * gets: a time that has already gone by today means the next
+         * occurrence. Without it, an alarm switched off before its time and
+         * on again after it rang the moment its row was tapped. Only the
+         * off-to-on change is a setting; an alarm already on keeps what it
+         * had. */
+        if (!a->enabled && now && now->wall.valid &&
+            minutes_of(a->hour, a->minute) <=
+                minutes_of(now->wall.hour, now->wall.minute)) {
+            a->fired_day = now->wall.day;
+        }
+        a->enabled = true;
         return true;
     }
+    a->enabled = false;
     /* Switching an alarm off must also stop it ringing, and must not leave a
-     * snooze behind that would bring it back nine minutes later. */
+     * snooze behind that would bring it back nine minutes later. Only this
+     * alarm's: any other alarm's snooze is its own. */
     if (e->ringing == CLOCK_RING_ALARM && e->ringing_alarm == index) {
         e->ringing = CLOCK_RING_NONE;
         e->ringing_alarm = -1;
     }
-    if (e->snooze_alarm == index) {
-        e->snooze_alarm = -1;
-        e->snooze_until = 0;
-    }
+    a->snooze_until = 0;
     return true;
 }
 
@@ -165,23 +175,26 @@ void clock_alarm_acknowledge(struct clock_engine *e, const struct clock_now *now
     idx = e->ringing_alarm;
     e->ringing = CLOCK_RING_NONE;
     e->ringing_alarm = -1;
-    e->snooze_alarm = -1;
-    e->snooze_until = 0;
-    /* "Once" has now happened. */
-    if (idx >= 0 && idx < e->alarm_count &&
-        e->alarms[idx].repeat == CLOCK_REPEAT_ONCE) {
-        e->alarms[idx].enabled = false;
+    if (idx >= 0 && idx < e->alarm_count) {
+        /* Stop is final for this alarm, snooze and all (DS §18.6). Any other
+         * alarm's snooze is untouched. */
+        e->alarms[idx].snooze_until = 0;
+        /* "Once" has now happened. */
+        if (e->alarms[idx].repeat == CLOCK_REPEAT_ONCE) {
+            e->alarms[idx].enabled = false;
+        }
     }
 }
 
 void clock_alarm_snooze(struct clock_engine *e, const struct clock_now *now)
 {
-    if (!e || !now || e->ringing != CLOCK_RING_ALARM) {
+    if (!e || !now || e->ringing != CLOCK_RING_ALARM || e->ringing_alarm < 0 ||
+        e->ringing_alarm >= e->alarm_count) {
         return;
     }
-    e->snooze_alarm = e->ringing_alarm;
-    /* Monotonic, so correcting the wall clock cannot stretch or cut it. */
-    e->snooze_until = now->mono_ms + CLOCK_SNOOZE_MS;
+    /* Monotonic, so correcting the wall clock cannot stretch or cut it. On
+     * the alarm itself, so snoozing this one leaves any other snooze be. */
+    e->alarms[e->ringing_alarm].snooze_until = now->mono_ms + CLOCK_SNOOZE_MS;
     e->ringing = CLOCK_RING_NONE;
     e->ringing_alarm = -1;
 }
@@ -342,15 +355,28 @@ static void step_alarms(struct clock_engine *e, const struct clock_now *now)
 
     /* A snooze is monotonic, so it survives anything the wall clock does,
      * including never being set at all. It is handled before the validity
-     * check for exactly that reason. */
-    if (e->snooze_until != 0 && e->snooze_alarm >= 0 &&
-        e->snooze_alarm < e->alarm_count && now->mono_ms >= e->snooze_until) {
-        if (e->ringing == CLOCK_RING_NONE &&
-            e->alarms[e->snooze_alarm].enabled) {
-            e->ringing = CLOCK_RING_ALARM;
-            e->ringing_alarm = e->snooze_alarm;
+     * check for exactly that reason. A snooze that is up while something
+     * else is ringing is not lost: it stays on its alarm and rings on the
+     * first step the ring is free (DS §18.6). Several up at once go in the
+     * order they came due. */
+    if (e->ringing == CLOCK_RING_NONE) {
+        int due = -1;
+
+        for (i = 0; i < e->alarm_count; i++) {
+            const struct clock_alarm *a = &e->alarms[i];
+
+            if (a->snooze_until != 0 && now->mono_ms >= a->snooze_until &&
+                (due < 0 || a->snooze_until < e->alarms[due].snooze_until)) {
+                due = i;
+            }
         }
-        e->snooze_until = 0;
+        if (due >= 0) {
+            e->alarms[due].snooze_until = 0;
+            if (e->alarms[due].enabled) {
+                e->ringing = CLOCK_RING_ALARM;
+                e->ringing_alarm = due;
+            }
+        }
     }
 
     if (!w->valid) {
@@ -405,17 +431,18 @@ static void step_alarms(struct clock_engine *e, const struct clock_now *now)
 
 static void step_timer(struct clock_engine *e, const struct clock_now *now)
 {
-    if (e->timer.state != CLOCK_TIMER_RUNNING) {
-        return;
+    if (e->timer.state == CLOCK_TIMER_RUNNING && now->mono_ms >= e->timer.deadline_mono) {
+        /* EXPIRED is a state of its own, so this happens once however often
+         * the engine is stepped afterwards. */
+        e->timer.state = CLOCK_TIMER_EXPIRED;
+        e->timer.remaining_ms = 0;
     }
-    if (now->mono_ms < e->timer.deadline_mono) {
-        return;
-    }
-    /* EXPIRED is a state of its own, so this happens once however often the
-     * engine is stepped afterwards. */
-    e->timer.state = CLOCK_TIMER_EXPIRED;
-    e->timer.remaining_ms = 0;
-    if (e->ringing == CLOCK_RING_NONE) {
+    /* An expired countdown is one nobody has acknowledged yet, and it rings
+     * until someone does. One that ends while an alarm is ringing is not
+     * lost: it rings on the first step after that alarm is stopped or
+     * snoozed (DS §18.6). Acknowledging or cancelling it returns it to IDLE,
+     * which is what stops this bringing it back. */
+    if (e->timer.state == CLOCK_TIMER_EXPIRED && e->ringing == CLOCK_RING_NONE) {
         e->ringing = CLOCK_RING_TIMER;
         e->ringing_alarm = -1;
     }

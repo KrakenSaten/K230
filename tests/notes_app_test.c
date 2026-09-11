@@ -23,9 +23,12 @@
 #include "pocketui.h"
 #include "pos_keyboard.h"
 
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #define PANEL_W 568
@@ -239,16 +242,32 @@ static int label_present(lv_obj_t *obj, const char *text)
 
 /* ---- the app, hosted the way the shell hosts it ------------------------ */
 
+/* The shell's own frame (ui/shell/shell.c, app_open): a header row, then a
+ * body that grows into what is left, padded the same way. Whether a long
+ * list fits is a question about exactly these pixels. */
+static lv_obj_t *app_root;
 static lv_obj_t *app_body;
 static void *app_priv;
 
 static void app_start(void)
 {
-    app_body = lv_obj_create(g_content);
+    lv_obj_t *header;
+
+    app_root = lv_obj_create(g_content);
+    lv_obj_remove_style_all(app_root);
+    lv_obj_set_size(app_root, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_flex_flow(app_root, LV_FLEX_FLOW_COLUMN);
+    header = lv_obj_create(app_root);
+    lv_obj_remove_style_all(header);
+    lv_obj_set_size(header, LV_PCT(100), POCKETUI_HEADER_H);
+
+    app_body = lv_obj_create(app_root);
     lv_obj_remove_style_all(app_body);
-    lv_obj_set_size(app_body, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_width(app_body, LV_PCT(100));
+    lv_obj_set_flex_grow(app_body, 1);
     lv_obj_set_flex_flow(app_body, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(app_body, POCKETUI_PAD, 0);
+    lv_obj_set_style_pad_top(app_body, POCKETUI_BODY_PAD_TOP, 0);
     lv_obj_set_style_pad_row(app_body, POCKETUI_PAD, 0);
     lv_obj_add_flag(app_body, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(app_body, LV_DIR_VER);
@@ -262,7 +281,8 @@ static void app_stop(void)
     pocketos_shell_keyboard_hide();
     app_notes.destroy(app_priv);
     app_priv = NULL;
-    lv_obj_delete(app_body);
+    lv_obj_delete(app_root);
+    app_root = NULL;
     app_body = NULL;
     pump(60);
 }
@@ -275,6 +295,84 @@ static void wipe(void)
     if (system(cmd) != 0) {
         /* nothing there yet */
     }
+}
+
+/* ---- what is on disk, and what a finger can reach ---------------------- */
+
+/* A file's bytes, read straight off the disk rather than through the store:
+ * the point is to see what is actually there. Returns how many, or -1. */
+static long read_raw(const char *path, char *buf, size_t cap)
+{
+    FILE *f = fopen(path, "rb");
+    size_t got;
+
+    if (!f) {
+        return -1;
+    }
+    got = fread(buf, 1, cap, f);
+    fclose(f);
+    return (long)got;
+}
+
+/* Back-date a file, so a rewrite shows up as a changed time. */
+static void set_mtime(const char *path, time_t when)
+{
+    struct timespec times[2];
+
+    times[0].tv_sec = when;
+    times[0].tv_nsec = 0;
+    times[1] = times[0];
+    if (utimensat(AT_FDCWD, path, times, 0) != 0) {
+        printf("FAIL cannot set the time of %s\n", path);
+        failed++;
+        checks++;
+    }
+}
+
+static int has_mtime(const char *path, time_t when)
+{
+    struct stat st;
+
+    return stat(path, &st) == 0 && st.st_mtime == when;
+}
+
+/* Whether obj lies wholly inside clip's box: on screen, where a finger can
+ * reach it, rather than drawn past an edge that cuts it off. */
+static int inside(lv_obj_t *obj, lv_obj_t *clip)
+{
+    lv_area_t o;
+    lv_area_t c;
+
+    if (!obj || !clip) {
+        return 0;
+    }
+    lv_obj_update_layout(obj);
+    lv_obj_get_coords(obj, &o);
+    lv_obj_get_coords(clip, &c);
+    return o.x1 >= c.x1 && o.x2 <= c.x2 && o.y1 >= c.y1 && o.y2 <= c.y2;
+}
+
+/* A finger drawn dy pixels across obj in small moves, the way a scroll
+ * reaches LVGL from the panel, then time for the scroll to come to rest. */
+static void drag(lv_obj_t *obj, int32_t dy)
+{
+    lv_area_t a;
+    int32_t y0;
+    int step;
+
+    lv_obj_update_layout(obj);
+    lv_obj_get_coords(obj, &a);
+    finger_point.x = a.x1 + lv_area_get_width(&a) / 2;
+    y0 = a.y1 + lv_area_get_height(&a) * 3 / 4;
+    finger_point.y = y0;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(60);
+    for (step = 1; step <= 20; step++) {
+        finger_point.y = y0 + dy * step / 20;
+        pump(20);
+    }
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(1500);
 }
 
 int main(void)
@@ -491,6 +589,194 @@ int main(void)
           lv_obj_get_scroll_bottom(app_body) <= 0);
     tap_obj(find_labelled(app_body, "Done"));
 
+    app_stop();
+
+    /* ---- 13. a note longer than the editor holds is shown, not cut ------ */
+
+    /* The store takes up to 4096 bytes and the editor 2000 characters, so a
+     * note written somewhere other than this app can be longer than the
+     * field. Opening one used to cut it to fit on the way in and save the
+     * cut version on the way out (P1-2 of the v0.0.8 review). */
+    wipe();
+    {
+        static char big[3001];
+        static char raw[NOTES_MAX_BYTES + 1];
+        char path[256];
+        time_t old = time(NULL) - 7200;
+        int i;
+
+        memcpy(big, "Long note\n", 10);
+        for (i = 10; i < 3000; i++) {
+            big[i] = (i % 50 == 49) ? '\n' : 'a';
+        }
+        big[3000] = '\0';
+        check("a 3000-character note is one the store accepts",
+              notes_store_write(60, big) == 0);
+        notes_store_path(60, path, sizeof(path));
+        set_mtime(path, old);
+
+        app_start();
+        tap_obj(find_labelled(app_body, "Long note"));
+        field = find_field(app_body);
+        check("it opens", field != NULL);
+        check("read-only", field && lv_obj_has_state(field, LV_STATE_DISABLED));
+        check("and says why",
+              label_present(app_body, "This note is too long to edit here. "
+                                      "It is left exactly as it is."));
+        check("showing all of it, not the first 2000 characters",
+              field && strcmp(lv_textarea_get_text(field), big) == 0);
+        check("the keyboard stays down for it", !pocketos_shell_keyboard_visible());
+
+        tap_obj(find_labelled(app_body, "Done"));
+        check("Done goes back to the list", label_present(app_body, "New note"));
+        check("and the note is byte for byte what it was",
+              read_raw(path, raw, sizeof(raw)) == 3000 && memcmp(raw, big, 3000) == 0);
+
+        tap_obj(find_labelled(app_body, "Long note"));
+        app_stop(); /* the shell's Back */
+        check("leaving the app from it keeps it byte for byte too",
+              read_raw(path, raw, sizeof(raw)) == 3000 && memcmp(raw, big, 3000) == 0);
+        check("and nothing wrote to it at all", has_mtime(path, old));
+    }
+
+    /* ---- 14. a note nobody changed is not written again ----------------- */
+
+    {
+        static char raw[NOTES_MAX_BYTES + 1];
+        char path[256];
+        time_t old = time(NULL) - 3600;
+
+        notes_store_write(61, "Untouched\nsecond line");
+        notes_store_path(61, path, sizeof(path));
+        set_mtime(path, old);
+
+        app_start();
+        tap_obj(find_labelled(app_body, "Untouched"));
+        field = find_field(app_body);
+        check("an ordinary note opens editable",
+              field && !lv_obj_has_state(field, LV_STATE_DISABLED));
+        tap_obj(find_labelled(app_body, "Done"));
+        check("Done on a note nobody changed leaves its time alone", has_mtime(path, old));
+
+        tap_obj(find_labelled(app_body, "Untouched"));
+        app_stop();
+        check("and so does leaving the app from it", has_mtime(path, old));
+        check("the bytes are what they were",
+              read_raw(path, raw, sizeof(raw)) == 21 &&
+                  memcmp(raw, "Untouched\nsecond line", 21) == 0);
+
+        /* A change is still a change. */
+        app_start();
+        tap_obj(find_labelled(app_body, "Untouched"));
+        tap_key("?123");
+        tap_key("!");
+        tap_key("ABC");
+        tap_obj(find_labelled(app_body, "Done"));
+        check("an edited note is written", !has_mtime(path, old));
+        check("with the edit in it", read_raw(path, raw, sizeof(raw)) == 22 && raw[21] == '!');
+        app_stop();
+    }
+
+    /* ---- 15. twenty notes: the list scrolls and New note stays ---------- */
+
+    /* From sixteen notes the list outgrew a screen that does not scroll, and
+     * New note, then the oldest notes, were drawn past its bottom edge where
+     * no finger could reach them (P1-1 of the v0.0.8 review). Checked in the
+     * shell's own frame, in Normal and in Outdoor, whose type is larger. */
+    wipe();
+    {
+        static const char *const modes[] = { "normal", "outdoor" };
+        char path[256];
+        char why[128];
+        char what[96];
+        time_t base = time(NULL) - 100000;
+        size_t m;
+        int i;
+
+        for (i = 1; i <= 20; i++) {
+            char body[32];
+
+            snprintf(body, sizeof(body), "Note %02d\nbody", i);
+            notes_store_write((uint32_t)i, body);
+            notes_store_path((uint32_t)i, path, sizeof(path));
+            set_mtime(path, base + i * 60); /* Note 01 is the oldest */
+        }
+
+        for (m = 0; m < sizeof(modes) / sizeof(modes[0]); m++) {
+            lv_obj_t *list_screen;
+            lv_obj_t *oldest;
+            lv_obj_t *rows;
+            int drags;
+
+            snprintf(what, sizeof(what), "[%s] the mode applies", modes[m]);
+            check(what, pos_theme_apply(NULL, modes[m], why, sizeof(why)) == 0);
+            app_start();
+            list_screen = lv_obj_get_child(app_body, 0);
+
+            snprintf(what, sizeof(what), "[%s] New note is on screen with twenty notes",
+                     modes[m]);
+            check(what, inside(find_labelled(app_body, "New note"), list_screen));
+            snprintf(what, sizeof(what), "[%s] the body itself does not scroll", modes[m]);
+            check(what, lv_obj_get_scroll_bottom(app_body) <= 0);
+
+            oldest = find_labelled(app_body, "Note 01");
+            rows = oldest ? lv_obj_get_parent(oldest) : NULL;
+            snprintf(what, sizeof(what), "[%s] the oldest note starts past the list's edge",
+                     modes[m]);
+            check(what, oldest && !inside(oldest, rows));
+            for (drags = 0; drags < 6 && rows && !inside(oldest, rows); drags++) {
+                drag(rows, -400);
+            }
+            snprintf(what, sizeof(what), "[%s] a finger scrolls the list to it", modes[m]);
+            check(what, inside(oldest, rows) && inside(rows, list_screen));
+            snprintf(what, sizeof(what), "[%s] with New note still on screen", modes[m]);
+            check(what, inside(find_labelled(app_body, "New note"), list_screen));
+
+            tap_obj(oldest);
+            field = find_field(app_body);
+            snprintf(what, sizeof(what), "[%s] and the oldest note opens", modes[m]);
+            check(what, field && strcmp(lv_textarea_get_text(field), "Note 01\nbody") == 0);
+            tap_obj(find_labelled(app_body, "Done"));
+
+            tap_obj(find_labelled(app_body, "New note"));
+            field = find_field(app_body);
+            snprintf(what, sizeof(what), "[%s] New note opens an empty editor", modes[m]);
+            check(what, field && lv_textarea_get_text(field)[0] == '\0' &&
+                            pocketos_shell_keyboard_visible());
+            tap_obj(find_labelled(app_body, "Done")); /* blank, so nothing is stored */
+            snprintf(what, sizeof(what), "[%s] and there are still twenty notes", modes[m]);
+            check(what, notes_store_list(list, NOTES_MAX_NOTES) == 20);
+            app_stop();
+        }
+        pos_theme_apply(NULL, "normal", why, sizeof(why));
+    }
+
+    /* ---- 16. a short list looks exactly as it did ----------------------- */
+
+    wipe();
+    notes_store_write(1, "One");
+    notes_store_write(2, "Two");
+    app_start();
+    {
+        lv_obj_t *row = find_labelled(app_body, "One");
+        lv_obj_t *rows = row ? lv_obj_get_parent(row) : NULL;
+        lv_obj_t *button = find_labelled(app_body, "New note");
+        lv_area_t r;
+        lv_area_t b;
+
+        check("a short list has both rows", rows && label_present(rows, "Two"));
+        if (rows && button) {
+            lv_obj_update_layout(app_body);
+            lv_obj_get_coords(rows, &r);
+            lv_obj_get_coords(button, &b);
+            check("it is as tall as its rows and no taller",
+                  lv_area_get_height(&r) ==
+                      2 * POCKETUI_ROW_H + 2 * lv_obj_get_style_border_width(rows, LV_PART_MAIN));
+            check("with nothing to scroll",
+                  lv_obj_get_scroll_top(rows) <= 0 && lv_obj_get_scroll_bottom(rows) <= 0);
+            check("and New note right under it", b.y1 - r.y2 - 1 == POCKETUI_PAD);
+        }
+    }
     app_stop();
     wipe();
     printf("notes_app_test: %d checks, %d failure(s)\n", checks, failed);

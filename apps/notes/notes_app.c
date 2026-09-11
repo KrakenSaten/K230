@@ -39,8 +39,10 @@ struct notes_app {
     uint8_t screen_id;
     uint32_t open_id;    /* the note being edited, 0 when none */
     int open_existing;   /* 0 for a note that has never been stored */
-    int open_readable;   /* 0 when the note could not be read: do not save over it */
-    char text[NOTES_MAX_BYTES + 1];
+    int open_readable;   /* 0 when the note is not editable - it could not be
+                          * read, or is longer than the editor holds: do not
+                          * save over it */
+    char text[NOTES_MAX_BYTES + 1]; /* the note as it was read when opened */
 };
 
 static void show_screen(struct notes_app *a, enum notes_screen which);
@@ -48,9 +50,10 @@ static void build_list(struct notes_app *a);
 
 /* ---- saving ------------------------------------------------------------ */
 
-/* Returns 0 when the note is safely stored or deliberately gone. A blank
- * note is not worth a file, so it is removed rather than kept as "Untitled";
- * a note that could not be read is never written over. */
+/* Returns 0 when the note is safely stored, deliberately gone, or did not
+ * need writing. A blank note is not worth a file, so it is removed rather
+ * than kept as "Untitled"; a note that is not editable is never written over;
+ * and a note nobody changed is not written at all. */
 static int save_open_note(struct notes_app *a)
 {
     const char *text;
@@ -62,6 +65,11 @@ static int save_open_note(struct notes_app *a)
         return 0;
     }
     text = lv_textarea_get_text(a->field);
+    /* Opening a note and leaving it is reading it. The same bytes written
+     * again would only move its time and its place in the list. */
+    if (a->open_existing && strcmp(text, a->text) == 0) {
+        return 0;
+    }
     if (notes_text_is_blank(text)) {
         if (a->open_existing) {
             notes_store_delete(a->open_id);
@@ -105,32 +113,50 @@ static void on_field_clicked(lv_event_t *e)
 
 static void open_editor(struct notes_app *a, uint32_t id, int existing)
 {
+    const char *refusal = NULL;
+    int too_long = 0;
     int len;
 
     a->open_id = id;
     a->open_existing = existing;
-    a->open_readable = 1;
     a->text[0] = '\0';
     if (existing) {
         len = notes_store_read(id, a->text, sizeof(a->text));
         if (len < 0) {
             /* Refuse to edit what we could not read, so a save cannot
              * replace a damaged note with an empty one. */
-            a->open_readable = 0;
             a->text[0] = '\0';
+            refusal = "This note could not be read. It is left exactly as it is.";
         } else if (len == 1 && a->text[0] == '\0') {
             a->text[0] = '\0';
+        } else if (notes_text_chars(a->text) > NOTES_MAX_CHARS) {
+            /* More than the editor holds, which only a note written
+             * somewhere else can be. The field would keep the first
+             * NOTES_MAX_CHARS characters and the way out would save those
+             * over the rest, so it is shown and left alone instead. */
+            too_long = 1;
+            refusal = "This note is too long to edit here. It is left exactly as it is.";
         }
     }
-    lv_textarea_set_text(a->field, a->text);
+    a->open_readable = refusal == NULL;
+    if (too_long) {
+        /* With a cap set, LVGL takes text in a character at a time and stops
+         * at the cap. It is lifted for as long as that takes, so what is
+         * shown is the whole note; the field is disabled below, so nothing
+         * can be typed while it is. */
+        lv_textarea_set_max_length(a->field, 0);
+        lv_textarea_set_text(a->field, a->text);
+        lv_textarea_set_max_length(a->field, NOTES_MAX_CHARS);
+    } else {
+        lv_textarea_set_text(a->field, a->text);
+    }
     pocketui_text_field_set_enabled(a->field, a->open_readable);
     if (a->open_readable) {
         pocketui_text_field_set_error(a->field, NULL);
         pos_input_focus(a->field);
         pocketos_shell_keyboard_show(POCKETOS_KB_NEWLINE, NULL, a);
     } else {
-        pocketui_text_field_set_error(a->field, "This note could not be read. "
-                                                "It is left exactly as it is.");
+        pocketui_text_field_set_error(a->field, refusal);
         pocketos_shell_keyboard_hide();
     }
     show_screen(a, NOTES_SCREEN_EDITOR);
@@ -247,6 +273,17 @@ static void build_list(struct notes_app *a)
         panel = pocketui_card(a->screen[NOTES_SCREEN_LIST]);
         lv_obj_set_style_pad_hor(panel, POCKETUI_PAD, 0);
         lv_obj_set_style_pad_ver(panel, 0, 0);
+        /* The rows scroll inside the list and nowhere else. The card grows
+         * into what New note leaves it but never past its own rows, so a
+         * short list is exactly as tall as it always was, a long one
+         * scrolls under the finger, and New note stays on screen below it
+         * however many notes there are. A card that simply grew put New
+         * note, and then the oldest notes, past the bottom of a screen that
+         * does not scroll, above a body that must not (DS §17.1). */
+        lv_obj_set_flex_grow(panel, 1);
+        lv_obj_set_style_max_height(panel, LV_SIZE_CONTENT, 0);
+        lv_obj_add_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_scroll_dir(panel, LV_DIR_VER);
 
         for (i = 0; i < n; i++) {
             lv_obj_t *row = lv_obj_create(panel);

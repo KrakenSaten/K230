@@ -172,15 +172,23 @@ sees the same 07:30. An alarm carries the local day it last fired on, so:
 - an alarm **added** for a time that has already gone by today means the next
   occurrence. Setting 06:30 at 06:39 must not go off while your finger is
   still on Add;
+- so does an alarm **switched back on** at or after its time today: turning a
+  07:00 alarm on at 15:00 arms it for tomorrow rather than ringing it the
+  moment its row is tapped;
 - and the same applies to the shell itself restarting. The runtime starts
   with a fresh engine, so its first valid reading marks everything already
   due today as done: a shell that came back at 07:31 does not ring the 07:30
   alarm it was not there for. That is the safe direction, and the same rule
   as the boot case above.
 
-Only one thing rings at a time. If an alarm and the timer come due in the
-same step, the timer takes it and the alarm rings as soon as the timer is
-acknowledged.
+Only one thing rings at a time, and nothing that comes due while something
+else is ringing is lost (DS §18.6). A countdown that finishes, or a snooze
+that runs out, while an alarm is ringing waits and rings as soon as that
+alarm is stopped or snoozed; an alarm that comes due during a ring waits the
+same way. When several are waiting, the countdown goes first, then snoozes
+in the order they ran out, then alarms. Every alarm keeps its own snooze, so
+snoozing a second alarm does not cancel the first one's, and Stop, switching
+an alarm off or deleting it cancels that alarm's snooze and no other.
 
 ## Storage
 
@@ -213,11 +221,11 @@ alarm 0 22 45 0
 
 | Test | What it covers |
 | --- | --- |
-| `tests/clock_engine_test.c` | 156 checks: validity and the boot with no RTC, firing once however often it is stepped, Once/Daily/Weekdays, midnight crossings, clock jumps forwards and backwards, snooze on the monotonic clock, adding an alarm in the past, the dense alarm list and its two index references, the stopwatch over 25 days of milliseconds, the timer's single expiry and its 23-hour range, one ring at a time, the formatters, every null argument, and the alert seam |
+| `tests/clock_engine_test.c` | 210 checks: validity and the boot with no RTC, firing once however often it is stepped, Once/Daily/Weekdays, midnight crossings, clock jumps forwards and backwards, snooze on the monotonic clock, adding an alarm in the past and switching one back on after its time, the dense alarm list and the snooze that moves with its alarm, the stopwatch over 25 days of milliseconds, the timer's single expiry and its 23-hour range, one ring at a time and nothing lost behind it (a countdown ending under an alarm, snoozes up under an alarm or a countdown, overlapping snoozes, and cancelling one without the others), the formatters, every null argument, and the alert seam |
 | `tests/clock_time_test.c` | 39 checks: the validity threshold, the local-date arithmetic across midnight, month and year ends, and that an unset clock never produces a digit |
 | `tests/clock_store_test.c` | 76 checks: the round trip, what is deliberately not stored, eleven kinds of damaged file, the atomic overwrite, and label storability |
-| `tests/clock_runtime_test.c` | 61 checks: the thing the runtime exists for — an alarm ringing with no app in sight, once, with the shell told exactly once; a one-shot acknowledgement reaching the disk; snooze, the countdown and a wall clock that is never set; clock jumps; and that a read does not advance anything |
-| `tests/clock_app_test.c` | 107 checks: the app under a real LVGL pointer and the real touch keyboard, against a real store — tabs, adding an alarm by tapping the steppers and typing its label, toggling, the delete confirmation, persistence across both closing the app and restarting the shell, the stopwatch, the timer, and the shell alert firing with the app shut, over the app, and for a countdown |
+| `tests/clock_runtime_test.c` | 85 checks: the thing the runtime exists for — an alarm ringing with no app in sight, once, with the shell told exactly once; a one-shot acknowledgement reaching the disk; snooze, the countdown and a wall clock that is never set; a countdown that ends under a ringing alarm and rings after Stop; two snoozes waiting their turn; clock jumps; and that a read does not advance anything |
+| `tests/clock_app_test.c` | 118 checks: the app under a real LVGL pointer and the real touch keyboard, against a real store — tabs, adding an alarm by tapping the steppers and typing its label, toggling, switching an alarm back on after its time without it ringing, the delete confirmation, persistence across both closing the app and restarting the shell, the stopwatch, the timer, and the shell alert firing with the app shut, over the app, and for a countdown |
 | `tests/clock_lint.sh` | 30 checks: the layering above, one stepper, the atomic write, no keyboard of its own, no invented hardware, and no calendar machinery |
 | `tests/clock_shell_test.sh` | 16 checks: the shell starts and steps the runtime, builds exactly one alert, no app builds another, PocketClock has no ringing screen left, and the status bar uses the validity rule instead of formatting the time itself |
 

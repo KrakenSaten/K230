@@ -325,7 +325,7 @@ static void test_snooze(void)
     check("ringing", e.ringing == CLOCK_RING_ALARM);
     clock_alarm_snooze(&e, &now);
     check("snoozing stops the ring", e.ringing == CLOCK_RING_NONE);
-    check("and remembers which alarm", e.snooze_alarm == 0);
+    check("and remembers which alarm", clock_alarm_at(&e, 0)->snooze_until != 0);
 
     /* One second short of nine minutes: still quiet. */
     step_many(&e, at(20260911, 7, 38, 5, 1000 + CLOCK_SNOOZE_MS - 1000), 10);
@@ -427,16 +427,17 @@ static void test_disable_and_remove_stop_the_ring(void)
     now = at(20260911, 7, 30, 5, 1000);
     clock_engine_step(&e, &now);
     check("the earlier alarm rings first", e.ringing_alarm == 0);
-    clock_alarm_set_enabled(&e, 0, false);
+    clock_alarm_set_enabled(&e, 0, false, &now);
     check("switching it off stops the ring", e.ringing == CLOCK_RING_NONE);
     clock_engine_step(&e, &now);
     check("and the other one takes its turn", e.ringing_alarm == 1);
 
     /* Snooze it, then delete it: the snooze must go with it. */
     clock_alarm_snooze(&e, &now);
-    check("snoozed", e.snooze_alarm == 1);
+    check("snoozed", clock_alarm_at(&e, 1)->snooze_until != 0);
     clock_alarm_remove(&e, 1);
-    check("deleting the alarm cancels its snooze", e.snooze_alarm == -1);
+    check("deleting the alarm cancels its snooze",
+          clock_alarm_count(&e) == 1 && clock_alarm_at(&e, 0)->snooze_until == 0);
     step_many(&e, at(20260911, 7, 40, 5, 1000 + CLOCK_SNOOZE_MS), 10);
     check("and nothing rings later", e.ringing == CLOCK_RING_NONE);
 
@@ -453,7 +454,7 @@ static void test_disable_and_remove_stop_the_ring(void)
     check("the second alarm is ringing", e.ringing_alarm == 1);
     clock_alarm_snooze(&e, &now);
     clock_alarm_remove(&e, 0);
-    check("the snooze follows the alarm down", e.snooze_alarm == 0);
+    check("the snooze follows the alarm down", clock_alarm_at(&e, 0)->snooze_until != 0);
     check_str("and it is still the same alarm", clock_alarm_at(&e, 0)->label, "one");
 }
 
@@ -669,7 +670,7 @@ static void test_nulls(void)
     check("nothing to add to",
           clock_alarm_add(NULL, 7, 0, CLOCK_REPEAT_ONCE, NULL, &now) == -1);
     check("nothing to remove from", !clock_alarm_remove(NULL, 0));
-    check("nothing to enable", !clock_alarm_set_enabled(NULL, 0, true));
+    check("nothing to enable", !clock_alarm_set_enabled(NULL, 0, true, &now));
     clock_alarm_acknowledge(NULL, &now);
     clock_alarm_snooze(NULL, &now);
     clock_sw_start(NULL, &now);
@@ -756,6 +757,302 @@ static void test_alert(void)
     check("and nothing is active", !clock_alert_active());
 }
 
+/* ---- nothing that comes due is lost (v0.0.8 review) -------------------- */
+
+/* Switching an alarm on is setting it (P1-3 of the v0.0.8 review): a time
+ * already gone by today means its next occurrence, exactly as adding one
+ * does. Switching one on used to ring it the moment the row was tapped. */
+static void test_enable_after_its_time(void)
+{
+    struct clock_engine e;
+    struct clock_now now;
+
+    /* Off before its time, on again long after it. */
+    clock_engine_init(&e);
+    clock_becomes_valid(&e, 20260911, 6, 0, 5, 500);
+    clock_alarm_add(&e, 7, 0, CLOCK_REPEAT_DAILY, NULL, NULL);
+    now = at(20260911, 6, 0, 5, 1000);
+    clock_alarm_set_enabled(&e, 0, false, &now);
+    step_many(&e, at(20260911, 7, 0, 5, 3600000), 5);
+    check("a switched-off alarm is quiet at its time", e.ringing == CLOCK_RING_NONE);
+    now = at(20260911, 15, 0, 5, 32400000);
+    check("it can be switched back on", clock_alarm_set_enabled(&e, 0, true, &now));
+    step_many(&e, now, 20);
+    check("switched on after its time, it does not ring at once",
+          e.ringing == CLOCK_RING_NONE);
+    check("it is marked as done for today", clock_alarm_at(&e, 0)->fired_day == 20260911);
+    step_many(&e, at(20260912, 7, 0, 6, 90000000), 5);
+    check("and rings at its next time", e.ringing == CLOCK_RING_ALARM);
+
+    /* Its own minute counts as gone by, as it does for adding. */
+    clock_engine_init(&e);
+    clock_becomes_valid(&e, 20260911, 6, 0, 5, 500);
+    clock_alarm_add(&e, 7, 0, CLOCK_REPEAT_DAILY, NULL, NULL);
+    now = at(20260911, 6, 0, 5, 1000);
+    clock_alarm_set_enabled(&e, 0, false, &now);
+    now = at(20260911, 7, 0, 5, 3600000);
+    clock_alarm_set_enabled(&e, 0, true, &now);
+    step_many(&e, now, 20);
+    check("nor when switched on in its own minute", e.ringing == CLOCK_RING_NONE);
+
+    /* A Once alarm has not happened yet, so it stays on and waits. */
+    clock_engine_init(&e);
+    clock_becomes_valid(&e, 20260911, 6, 0, 5, 500);
+    clock_alarm_add(&e, 7, 0, CLOCK_REPEAT_ONCE, NULL, NULL);
+    now = at(20260911, 6, 0, 5, 1000);
+    clock_alarm_set_enabled(&e, 0, false, &now);
+    now = at(20260911, 15, 0, 5, 32400000);
+    clock_alarm_set_enabled(&e, 0, true, &now);
+    step_many(&e, now, 20);
+    check("a Once alarm switched on after its time does not ring at once",
+          e.ringing == CLOCK_RING_NONE);
+    check("and stays on", clock_alarm_at(&e, 0)->enabled);
+    step_many(&e, at(20260912, 7, 0, 6, 90000000), 5);
+    check("it rings at its next time", e.ringing == CLOCK_RING_ALARM);
+
+    /* Before its time is a different matter: that one rings today. */
+    clock_engine_init(&e);
+    clock_becomes_valid(&e, 20260911, 6, 0, 5, 500);
+    clock_alarm_add(&e, 7, 0, CLOCK_REPEAT_DAILY, NULL, NULL);
+    now = at(20260911, 6, 0, 5, 1000);
+    clock_alarm_set_enabled(&e, 0, false, &now);
+    now = at(20260911, 6, 30, 5, 1800000);
+    clock_alarm_set_enabled(&e, 0, true, &now);
+    check("switched on before its time, nothing is recorded against it",
+          clock_alarm_at(&e, 0)->fired_day == CLOCK_DAY_NEVER);
+    step_many(&e, now, 5);
+    check("it is quiet until then", e.ringing == CLOCK_RING_NONE);
+    step_many(&e, at(20260911, 7, 0, 5, 3600000), 5);
+    check("and rings today", e.ringing == CLOCK_RING_ALARM);
+
+    /* Only off-to-on is a setting: an alarm already on keeps what it had.
+     * With no clock to compare against nothing is suppressed; the first
+     * valid reading settles it, as it does for an alarm loaded from disk. */
+    clock_engine_init(&e);
+    clock_becomes_valid(&e, 20260911, 6, 0, 5, 500);
+    clock_alarm_add(&e, 7, 0, CLOCK_REPEAT_DAILY, NULL, NULL);
+    now = at(20260911, 15, 0, 5, 32400000);
+    clock_alarm_set_enabled(&e, 0, true, &now);
+    check("switching on an alarm that is already on changes nothing",
+          clock_alarm_at(&e, 0)->fired_day == CLOCK_DAY_NEVER);
+    clock_alarm_set_enabled(&e, 0, false, NULL);
+    clock_alarm_set_enabled(&e, 0, true, NULL);
+    check("with no reading nothing is suppressed",
+          clock_alarm_at(&e, 0)->fired_day == CLOCK_DAY_NEVER);
+    now = unset(40000000);
+    clock_alarm_set_enabled(&e, 0, false, &now);
+    clock_alarm_set_enabled(&e, 0, true, &now);
+    check("nor with an unset one", clock_alarm_at(&e, 0)->fired_day == CLOCK_DAY_NEVER);
+}
+
+/* A countdown that ends while an alarm is ringing waits its turn and rings
+ * once the alarm is dealt with (DS §18.6; P1-4 of the v0.0.8 review, where
+ * it never rang at all). */
+static void test_timer_waits_for_the_alarm(void)
+{
+    struct clock_engine e;
+    struct clock_now now;
+
+    clock_engine_init(&e);
+    clock_becomes_valid(&e, 20260911, 6, 0, 5, 1000);
+    clock_alarm_add(&e, 7, 0, CLOCK_REPEAT_DAILY, "wake", NULL);
+    check("a countdown is set", clock_timer_set(&e, 0, 1, 0));
+    now = at(20260911, 6, 59, 5, 3600000);
+    check("and started", clock_timer_start(&e, &now)); /* ends at 3660000 */
+
+    step_many(&e, at(20260911, 7, 0, 5, 3630000), 5);
+    check("the alarm rings first", e.ringing == CLOCK_RING_ALARM);
+    step_many(&e, at(20260911, 7, 1, 5, 3700000), 20);
+    check("the countdown ends underneath it", e.timer.state == CLOCK_TIMER_EXPIRED);
+    check("without taking the alarm's place",
+          e.ringing == CLOCK_RING_ALARM && e.ringing_alarm == 0);
+
+    now = at(20260911, 7, 1, 5, 3701000);
+    clock_alarm_acknowledge(&e, &now);
+    check("stopping the alarm stops the alarm", e.ringing == CLOCK_RING_NONE);
+    clock_engine_step(&e, &now);
+    check("and the finished countdown rings next", e.ringing == CLOCK_RING_TIMER);
+    step_many(&e, at(20260911, 7, 2, 5, 3761000), 20);
+    check("once, however often it is stepped", e.ringing == CLOCK_RING_TIMER);
+    clock_timer_acknowledge(&e);
+    step_many(&e, at(20260911, 7, 3, 5, 3821000), 20);
+    check("acknowledging it is final", e.ringing == CLOCK_RING_NONE);
+    check("and leaves it idle", e.timer.state == CLOCK_TIMER_IDLE);
+
+    /* Snoozing the alarm frees the ring for it too. */
+    clock_engine_init(&e);
+    clock_becomes_valid(&e, 20260911, 6, 0, 5, 1000);
+    clock_alarm_add(&e, 7, 0, CLOCK_REPEAT_DAILY, NULL, NULL);
+    clock_timer_set(&e, 0, 1, 0);
+    now = at(20260911, 6, 59, 5, 3600000);
+    clock_timer_start(&e, &now);
+    step_many(&e, at(20260911, 7, 0, 5, 3630000), 5);
+    step_many(&e, at(20260911, 7, 1, 5, 3700000), 5);
+    now = at(20260911, 7, 1, 5, 3700000);
+    clock_alarm_snooze(&e, &now);
+    clock_engine_step(&e, &now);
+    check("snoozing the alarm lets the countdown ring", e.ringing == CLOCK_RING_TIMER);
+
+    /* A countdown cancelled while it waited stays cancelled. */
+    clock_engine_init(&e);
+    clock_becomes_valid(&e, 20260911, 6, 0, 5, 1000);
+    clock_alarm_add(&e, 7, 0, CLOCK_REPEAT_DAILY, NULL, NULL);
+    clock_timer_set(&e, 0, 1, 0);
+    now = at(20260911, 6, 59, 5, 3600000);
+    clock_timer_start(&e, &now);
+    step_many(&e, at(20260911, 7, 0, 5, 3630000), 5);
+    step_many(&e, at(20260911, 7, 1, 5, 3700000), 5);
+    clock_timer_cancel(&e);
+    check("cancelling a waiting countdown leaves the alarm ringing",
+          e.ringing == CLOCK_RING_ALARM);
+    now = at(20260911, 7, 1, 5, 3701000);
+    clock_alarm_acknowledge(&e, &now);
+    step_many(&e, at(20260911, 7, 2, 5, 3761000), 20);
+    check("and it does not ring afterwards", e.ringing == CLOCK_RING_NONE);
+}
+
+/* A snooze that is up while something else is ringing is kept, and rings
+ * once that is dealt with (DS §18.6; P1-5 of the v0.0.8 review, where it
+ * was dropped). */
+static void test_snooze_waits_its_turn(void)
+{
+    struct clock_engine e;
+    struct clock_now now;
+
+    clock_engine_init(&e);
+    clock_becomes_valid(&e, 20260911, 6, 0, 5, 1000);
+    clock_alarm_add(&e, 7, 0, CLOCK_REPEAT_DAILY, "first", NULL);
+    clock_alarm_add(&e, 7, 5, CLOCK_REPEAT_DAILY, "second", NULL);
+
+    now = at(20260911, 7, 0, 5, 10000000);
+    clock_engine_step(&e, &now);
+    check("the first alarm rings", e.ringing == CLOCK_RING_ALARM && e.ringing_alarm == 0);
+    clock_alarm_snooze(&e, &now); /* up at 10540000 */
+    step_many(&e, at(20260911, 7, 5, 5, 10300000), 5);
+    check("the second rings during that snooze",
+          e.ringing == CLOCK_RING_ALARM && e.ringing_alarm == 1);
+    step_many(&e, at(20260911, 7, 9, 5, 10540000), 20);
+    check("the snooze is up while the second is still ringing", e.ringing_alarm == 1);
+    check("and is kept, not dropped", clock_alarm_at(&e, 0)->snooze_until != 0);
+    now = at(20260911, 7, 10, 5, 10600000);
+    clock_alarm_acknowledge(&e, &now);
+    clock_engine_step(&e, &now);
+    check("stopping the second brings the first back",
+          e.ringing == CLOCK_RING_ALARM && e.ringing_alarm == 0);
+    clock_alarm_acknowledge(&e, &now);
+    step_many(&e, at(20260911, 7, 30, 5, 11800000), 20);
+    check("and stopping that is final", e.ringing == CLOCK_RING_NONE);
+
+    /* The same under a finished countdown. */
+    clock_engine_init(&e);
+    clock_becomes_valid(&e, 20260911, 6, 0, 5, 1000);
+    clock_alarm_add(&e, 7, 0, CLOCK_REPEAT_DAILY, NULL, NULL);
+    now = at(20260911, 7, 0, 5, 10000000);
+    clock_engine_step(&e, &now);
+    clock_alarm_snooze(&e, &now); /* up at 10540000 */
+    clock_timer_set(&e, 0, 1, 0);
+    now = at(20260911, 7, 7, 5, 10420000);
+    clock_timer_start(&e, &now); /* ends at 10480000 */
+    step_many(&e, at(20260911, 7, 8, 5, 10480000), 5);
+    check("the countdown rings", e.ringing == CLOCK_RING_TIMER);
+    step_many(&e, at(20260911, 7, 9, 5, 10600000), 20);
+    check("a snooze up under it waits", e.ringing == CLOCK_RING_TIMER);
+    clock_timer_acknowledge(&e);
+    now = at(20260911, 7, 10, 5, 10601000);
+    clock_engine_step(&e, &now);
+    check("and rings once the countdown is stopped",
+          e.ringing == CLOCK_RING_ALARM && e.ringing_alarm == 0);
+}
+
+/* Every alarm keeps its own snooze (P1-5): snoozing a second alarm used to
+ * cancel the first one's. Cancelling one leaves the others alone. */
+static void test_overlapping_snoozes(void)
+{
+    struct clock_engine e;
+    struct clock_now now;
+    int i;
+
+    clock_engine_init(&e);
+    clock_becomes_valid(&e, 20260911, 6, 0, 5, 1000);
+    clock_alarm_add(&e, 7, 0, CLOCK_REPEAT_DAILY, "first", NULL);
+    clock_alarm_add(&e, 7, 5, CLOCK_REPEAT_DAILY, "second", NULL);
+
+    now = at(20260911, 7, 0, 5, 10000000);
+    clock_engine_step(&e, &now);
+    clock_alarm_snooze(&e, &now); /* up at 10540000 */
+    now = at(20260911, 7, 5, 5, 10300000);
+    clock_engine_step(&e, &now);
+    check("the second rings", e.ringing_alarm == 1);
+    clock_alarm_snooze(&e, &now); /* up at 10840000 */
+    check("both are snoozing", clock_alarm_at(&e, 0)->snooze_until != 0 &&
+                               clock_alarm_at(&e, 1)->snooze_until != 0);
+    step_many(&e, at(20260911, 7, 9, 5, 10540000), 10);
+    check("the first comes back first",
+          e.ringing == CLOCK_RING_ALARM && e.ringing_alarm == 0);
+    now = at(20260911, 7, 9, 5, 10541000);
+    clock_alarm_acknowledge(&e, &now);
+    check("stopping it leaves the second snooze alone",
+          clock_alarm_at(&e, 1)->snooze_until != 0);
+    step_many(&e, at(20260911, 7, 13, 5, 10839000), 10);
+    check("which does not end early", e.ringing == CLOCK_RING_NONE);
+    step_many(&e, at(20260911, 7, 14, 5, 10840000), 10);
+    check("and the second comes back too",
+          e.ringing == CLOCK_RING_ALARM && e.ringing_alarm == 1);
+    clock_alarm_acknowledge(&e, &now);
+
+    /* Two up at once ring one after the other, the earlier snooze first. */
+    clock_engine_init(&e);
+    clock_becomes_valid(&e, 20260911, 6, 0, 5, 1000);
+    clock_alarm_add(&e, 7, 0, CLOCK_REPEAT_DAILY, "early", NULL);
+    clock_alarm_add(&e, 7, 1, CLOCK_REPEAT_DAILY, "late", NULL);
+    now = at(20260911, 7, 1, 5, 20000000);
+    clock_engine_step(&e, &now);  /* "early" rings */
+    clock_alarm_snooze(&e, &now); /* up at 20540000 */
+    now = at(20260911, 7, 1, 5, 20001000);
+    clock_engine_step(&e, &now);  /* "late" rings */
+    clock_alarm_snooze(&e, &now); /* up at 20541000 */
+    now = at(20260911, 7, 30, 5, 22000000);
+    clock_engine_step(&e, &now);
+    check("with both up, the earlier snooze rings",
+          e.ringing == CLOCK_RING_ALARM && e.ringing_alarm == 0);
+    clock_alarm_acknowledge(&e, &now);
+    clock_engine_step(&e, &now);
+    check("then the later one", e.ringing == CLOCK_RING_ALARM && e.ringing_alarm == 1);
+    clock_alarm_acknowledge(&e, &now);
+    step_many(&e, now, 10);
+    check("then nothing", e.ringing == CLOCK_RING_NONE);
+
+    /* Switching one off, or deleting one, cancels that snooze and no other. */
+    clock_engine_init(&e);
+    clock_becomes_valid(&e, 20260911, 6, 0, 5, 1000);
+    clock_alarm_add(&e, 7, 0, CLOCK_REPEAT_DAILY, "zero", NULL);
+    clock_alarm_add(&e, 7, 1, CLOCK_REPEAT_DAILY, "one", NULL);
+    clock_alarm_add(&e, 7, 2, CLOCK_REPEAT_DAILY, "two", NULL);
+    for (i = 0; i < 3; i++) {
+        now = at(20260911, 7, i, 5, 30000000 + i * 60000);
+        clock_engine_step(&e, &now);
+        clock_alarm_snooze(&e, &now);
+    }
+    check("three alarms are snoozing", clock_alarm_at(&e, 0)->snooze_until != 0 &&
+                                       clock_alarm_at(&e, 1)->snooze_until != 0 &&
+                                       clock_alarm_at(&e, 2)->snooze_until != 0);
+    clock_alarm_set_enabled(&e, 1, false, &now);
+    check("switching one off cancels its snooze", clock_alarm_at(&e, 1)->snooze_until == 0);
+    check("and no other", clock_alarm_at(&e, 0)->snooze_until != 0 &&
+                          clock_alarm_at(&e, 2)->snooze_until != 0);
+    clock_alarm_remove(&e, 0);
+    check_str("deleting one moves the others down", clock_alarm_at(&e, 0)->label, "one");
+    check("the switched-off one is still not snoozing",
+          clock_alarm_at(&e, 0)->snooze_until == 0);
+    check("and the last one's snooze moved with it",
+          clock_alarm_at(&e, 1)->snooze_until != 0);
+    step_many(&e, at(20260911, 7, 20, 5, 31000000), 10);
+    check("only that snooze rings", e.ringing == CLOCK_RING_ALARM && e.ringing_alarm == 1);
+    clock_alarm_acknowledge(&e, &now);
+    step_many(&e, at(20260911, 7, 30, 5, 32000000), 10);
+    check("and nothing else comes back", e.ringing == CLOCK_RING_NONE);
+}
+
 int main(void)
 {
     test_validity();
@@ -769,6 +1066,10 @@ int main(void)
     test_snooze_is_monotonic();
     test_alarm_list();
     test_disable_and_remove_stop_the_ring();
+    test_enable_after_its_time();
+    test_timer_waits_for_the_alarm();
+    test_snooze_waits_its_turn();
+    test_overlapping_snoozes();
     test_stopwatch();
     test_timer();
     test_one_ring_at_a_time();

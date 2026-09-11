@@ -47,3 +47,9 @@ BUILD_ID
 /tests/timber_replay_test
 /tests/timber_view_test
 /tests/timber_store_test
+/tests/notes_view_test
+/tests/notes_store_test
+/tests/clock_engine_test
+/tests/clock_time_test
+/tests/clock_store_test
+/tests/clock_runtime_test

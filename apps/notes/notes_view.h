@@ -37,4 +37,10 @@ int notes_text_is_blank(const char *text);
  * that are not are refused rather than shown as mojibake and saved back. */
 int notes_text_is_utf8(const char *text);
 
+/* How many characters the text holds. That is what the editor's character
+ * cap counts, and it is not the byte count once a character is wider than a
+ * byte. The text must already be UTF-8 (notes_text_is_utf8); NULL holds
+ * none. */
+size_t notes_text_chars(const char *text);
+
 #endif

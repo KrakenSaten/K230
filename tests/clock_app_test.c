@@ -816,7 +816,56 @@ int main(void)
         check("and returns the timer to idle", e->timer.state == CLOCK_TIMER_IDLE);
     }
 
-    /* ---- 13. opening and closing repeatedly ---------------------------- */
+    /* ---- 13. switching an alarm back on after its time ------------------ */
+
+    /* An alarm switched off before its time and on again after it rang the
+     * moment its row was tapped (P1-3 of the v0.0.8 review). The app reads
+     * the real clock on its refresh, so the alarm sits at the real current
+     * minute - which counts as gone by - and the runtime is stepped with a
+     * real reading, the way the shell's tick steps it. */
+    {
+        struct clock_engine *e = clock_runtime_engine();
+        struct clock_now real;
+        char hm[8];
+
+        clock_now_read(&real);
+        if (!real.wall.valid) {
+            printf("note: the host clock is not set, so the re-enable check cannot run\n");
+        } else {
+            while (clock_alarm_count(e) > 0) {
+                clock_alarm_remove(e, 0);
+            }
+            /* The clock has been real since before this alarm was set, as it
+             * is on a board whose time was set at boot. */
+            clock_runtime_step_at(&real);
+            clock_alarm_add(e, real.wall.hour, real.wall.minute, CLOCK_REPEAT_DAILY,
+                            "back on", NULL);
+            clock_format_hm(real.wall.hour, real.wall.minute, hm, sizeof(hm));
+
+            app_start();
+            tap_obj(find_labelled(app_body, "Alarm"));
+            tap_obj(find_labelled(app_body, hm));
+            check("a tap switches it off", label_present(app_body, "Off"));
+            tap_obj(find_labelled(app_body, hm));
+            check("and a second tap on again, after its time",
+                  label_present(app_body, "On"));
+            clock_now_read(&real);
+            clock_runtime_step_at(&real);
+            pump(60);
+            check("switched on after its time, it does not ring on the spot",
+                  !shell_alarm_visible());
+            check("and nothing is ringing", e->ringing == CLOCK_RING_NONE);
+            check("it stays on, for its next time",
+                  clock_alarm_at(e, 0) && clock_alarm_at(e, 0)->enabled);
+            app_stop();
+            while (clock_alarm_count(e) > 0) {
+                clock_alarm_remove(e, 0);
+            }
+            clock_runtime_save();
+        }
+    }
+
+    /* ---- 14. opening and closing repeatedly ---------------------------- */
 
     app_start();
     app_stop();
