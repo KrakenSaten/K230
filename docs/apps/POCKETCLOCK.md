@@ -76,7 +76,9 @@ stopwatch should do.
 
 **PocketClock has no ringing screen of its own.** There is one alert and the
 shell owns it; `tests/clock_shell_test.sh` fails the build if a second one
-appears. What does not survive is the device being switched off: the alarms
+appears. The pattern is normative as **DS v0.1 §18 (Amendment B)**, so the
+next thing with something urgent to say uses this alert rather than
+inventing another. What does not survive is the device being switched off: the alarms
 are on disk, but nothing is running to watch for them.
 
 The app still refreshes ten times a second while it is open, because the

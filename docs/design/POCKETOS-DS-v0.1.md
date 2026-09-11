@@ -8,6 +8,11 @@ rest of this document. It is an amendment, not a separate deviation
 document: §1, §14 and §16 are updated in place to point at it, and nothing
 is renumbered.
 
+**Amendment B (§18) — system alerts — approved 2026-09-11.** The
+shell-owned, full-panel alert that interrupts whatever is on screen, first
+used by PocketClock's alarms and countdown. Normative on the same terms;
+nothing is renumbered.
+
 Final design handoff. Supersedes `uploads/POCKETUI.md` (v0) and
 `POCKETUI-v1.md` (draft). Target: LILYGO T-Display K230, 568 × 1232 portrait
 AMOLED, LVGL shell in `ui/pocketui` and `ui/shell`.
@@ -528,6 +533,8 @@ Outdoor column (C4).
 11. Resolve caveats C1–C5 with hardware in hand.
 12. Amendment A (§17): logical key layer and focus group, text field, touch
     keyboard, dialog. Approved for implementation 2026-09-10.
+13. Amendment B (§18): the shell-owned system alert. Approved for
+    implementation 2026-09-11.
 
 ---
 
@@ -718,6 +725,10 @@ pushing into an existing stream, not a second input design.
 This codifies the pattern already shipped and validated on unit A in the
 System app's restart and power-off confirmations (v0.0.7). It is not new.
 
+A dialog asks about something the owner has just done. Something that
+happens **to** them and cannot wait is a system alert (§18), which is a
+different surface with different rules.
+
 **Structure.** A panel (§9) holding a title in app-title style, body text in
 `text_secondary` wrapped to the panel width with 12 above and 20 below, and
 one row of exactly two buttons: 56 tall, gap 8, each taking half the width —
@@ -780,5 +791,139 @@ sync.
 
 ---
 
+## 18. Amendment B — system alerts [NORMATIVE]
+
+**Approved 2026-09-11.** Codifies the shell-level alert PocketClock's alarms
+and countdown now use, so that the next thing with something urgent to say
+uses it too rather than inventing a second one. Normative on the same terms
+as the rest of this document. Nothing in §1–§17 is renumbered.
+
+### 18.1 What a system alert is
+
+A **system alert** is a single full-panel surface, owned by the shell, that
+appears over whatever is on screen when a time-sensitive event happens.
+
+- The shell MUST own it. It is built once, hidden, on the screen rather than
+  inside any app — the same ownership as the touch keyboard (§17.4) — and is
+  never rebuilt.
+- An app or service MUST NOT build its own full-panel alert, and MUST NOT
+  duplicate one the shell already shows. It raises an event; the shell draws
+  it.
+- It covers the whole panel, including the status bar, and it MUST swallow
+  taps that land on it so nothing reaches what is underneath.
+- It is neither a dialog (§17.5) nor a status-bar hint (§9). A dialog asks
+  about something the owner just did; an alert reports something that
+  happened to them.
+
+### 18.2 When one may be raised
+
+System alerts are for events that are **time-sensitive or high-priority**:
+the owner needs to know now, and knowing later is worth less or worth
+nothing.
+
+- Anything that can wait for the owner to open the app MUST NOT raise one.
+  It belongs in the app, or in the status-bar hint cell (§9).
+- Anything that is merely a result, a completion or a piece of news MUST NOT
+  raise one either. Interrupting is the cost of an alert, and it is only
+  paid where the alternative is the owner missing the moment.
+
+### 18.3 Content
+
+An alert MUST say, in words, **what is alerting and why**.
+
+- A title in hero-40 (§3) naming the event — what is happening, not the
+  component that noticed it.
+- A line below it identifying **which** one: the specific alarm, the
+  duration that ran out, the condition that tripped. An alert that only
+  names its category leaves the owner guessing which of several it was.
+- Where the device cannot deliver the alert as expected, the alert MUST say
+  so in caption style rather than let the owner infer it from silence.
+- Colour MUST NOT carry any of this alone (§2). The words carry the meaning
+  and the colours only reinforce it.
+- As long as PocketOS has one source of alerts, the event name is enough to
+  identify the source. The first alert from a **second** source MUST make
+  the source unambiguous in the title.
+
+### 18.4 Actions
+
+- Exactly **one dominant acknowledgement action**. It carries the accent, it
+  is the widest control in the row, and it is the last one — under the
+  thumb. It is what the owner reached for the device to do.
+- **At most one secondary action**, and only where it means something for
+  that event. Snooze on an alarm means something; there is nothing to snooze
+  on a countdown that has already finished, and the alert MUST NOT show a
+  control that does nothing. It takes the secondary treatment (§9).
+- Every action is a full 64 × 64 touch target (§7). DEV-1 relaxed that for
+  keyboard keys only; an alert MUST NOT borrow it.
+- **Nothing destructive or irreversible on the alert.** An alert is answered
+  in a hurry, sometimes half awake. An action that deletes, sends or cannot
+  be undone MUST go through a confirmation under §17.5 with its emphasis
+  rules, and MUST NOT be reachable in one tap from the alert.
+
+### 18.5 Interrupting, and coming back
+
+- The keyboard MUST be dismissed when the alert takes the panel, as a dialog
+  dismisses it (§17.5). Unlike a dialog it is **not** restored on
+  acknowledgement: the alert is not a step in the task the owner was in the
+  middle of, and putting the sheet back would imply it was.
+- The app underneath MUST be left exactly as it was. An alert MUST NOT
+  close, pause, destroy or navigate away from it, and MUST NOT change what
+  it has on screen, in its fields or in its storage.
+- Acknowledging MUST return to the interrupted context and nothing else: the
+  alert goes away and reveals precisely what it covered. It MUST NOT
+  navigate anywhere, not to the launcher and not to the app that raised it.
+- Anything the alert changed that must survive a power cut MUST be written
+  at the moment of acknowledgement, not left for the app to notice later.
+- A view that was already on screen showing state the alert has changed MUST
+  notice and redraw. The owner has just watched something happen; a list
+  still showing the old answer is worse than one that was never open.
+
+### 18.6 One at a time
+
+- **One active system alert.** v0.0.8 has no stacking, no queue and no
+  priority order between alerts, and MUST NOT gain one by accident: a second
+  raiser while an alert is showing waits, and is shown only once the first
+  is acknowledged.
+- **Repeated polling MUST NOT produce duplicate alerts.** Whatever raises an
+  alert is stepped on a tick, and every one of those ticks sees the same
+  condition. The raiser MUST signal the **transition** into and out of the
+  alerting state, never the state itself, and showing an alert that is
+  already shown MUST do nothing.
+- Acknowledgement MUST be final for that occurrence. The same condition,
+  still true on the next tick, MUST NOT bring the alert back.
+
+### 18.7 Motion and accessibility
+
+- An alert MUST NOT depend on motion to be noticed. It has to work at a
+  glance, standing still, for someone who has turned motion off.
+- Any motion it does use MUST honour reduced motion (§12) and apply its end
+  state immediately when reduced motion is on.
+- Contrast, type and touch targets are §13, §3 and §7 as everywhere else. An
+  alert has no licence to shrink a control because it is urgent.
+
+### 18.8 v0.0.8 limits, and the first implementation
+
+**First implementation:** `ui/shell/shell_alarm.c`, raised by the clock
+runtime (`apps/clock/clock_runtime.c`) for PocketClock's alarms and
+countdown. The pattern above is the contract; PocketClock is one client of
+it and has no alert of its own.
+
+Limits of this version, to be designed rather than inferred:
+
+- **The alert is touch-only.** Its actions do not join the one focus group
+  of §17.2 — a named exception to that section, taken because the sheet
+  lives for the whole life of the shell and a hidden control in the group
+  would be key-reachable from every screen in PocketOS. The consequence is
+  that keys still reach whatever is behind the alert. This MUST be resolved
+  before a physical keyboard ships: the actions join the group while the
+  alert is shown, leave it when it is hidden, and focus starts on the
+  dominant action and is handed back on acknowledgement.
+- No stacking, queue or priority (§18.6), no alert history, no per-alert
+  sound or haptics, no auto-dismiss after a timeout, and no alerts raised
+  from outside the shell process.
+
+---
+
 PocketOS Design System v0.1 — **STATUS: APPROVED FOR IMPLEMENTATION**
 Amendment A (§17) approved 2026-09-10; C8 closed.
+Amendment B (§18) approved 2026-09-11.
