@@ -20,6 +20,7 @@
 #include "settings.h"
 #include "shell_alarm.h"
 #include "shell_ipc.h"
+#include "shell_kbd.h"
 
 #include <errno.h>
 #include <signal.h>
@@ -669,6 +670,10 @@ int main(int argc, char **argv)
             LOG_WARN("host keyboard not adopted; typing will not reach fields");
         }
     }
+    /* The physical keyboard is a source of the same stream, pushing rather
+     * than being adopted (DS §17.4, and KNOWN_ISSUES on LV_KEY_NEXT). No
+     * keyboard attached is a normal outcome and says so once. */
+    shell_kbd_create();
     pocketui_init();
     {
         /* Appearance never blocks boot: any failure here logs and falls back. */
@@ -772,6 +777,9 @@ int main(int argc, char **argv)
         pocketos_platform_sleep_ms(wait > 20 ? 20 : wait);
     }
     app_close();
+    /* Before anything else on the way out: this is what puts the keyboard's
+     * pin mux back the way it was found. */
+    shell_kbd_destroy();
     pocketipc_server_free(sh.server);
     shell_ipc_shutdown();
     pocketlog_close();

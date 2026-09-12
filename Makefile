@@ -153,6 +153,21 @@ tests/settings_test: tests/settings_test.o ui/shell/settings.o $(PATHS_OBJS)
 tests/settings_test.o: tests/settings_test.c ui/shell/settings.h
 	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
 
+# The physical keyboard's controller logic (docs/hardware/
+# KEYBOARD_DRIVER_DESIGN_2026-09-12.md). It is deliberately free of LVGL,
+# /dev/mem and libgpiod so the init sequence, the FIFO drain, overflow
+# recovery and the retry throttle are tested here against a fake bus, with
+# no keyboard attached. The bus backend and the shell glue need LVGL or the
+# board, and are built by ui/shell (CMake).
+ui/shell/kbd_tca8418.o: ui/shell/kbd_tca8418.c ui/shell/kbd_tca8418.h ui/shell/kbd_bus.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/kbd_tca8418_test.o: tests/kbd_tca8418_test.c ui/shell/kbd_tca8418.h ui/shell/kbd_bus.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/kbd_tca8418_test: tests/kbd_tca8418_test.o ui/shell/kbd_tca8418.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 tests/paths_test: tests/paths_test.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
@@ -364,7 +379,7 @@ tests/timber_store_test: tests/timber_store_test.o $(TIMBER_APP_OBJS) $(TIMBER_O
 TEST_BINS := tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/pocketipc_test \
              tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/theme_test \
              tests/settings_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
-             $(NOTES_TESTS) $(CLOCK_TESTS)
+             $(NOTES_TESTS) $(CLOCK_TESTS) tests/kbd_tca8418_test
 
 # Native tests only (they execute binaries).
 test: all $(TEST_BINS)
@@ -404,6 +419,8 @@ test: all $(TEST_BINS)
 	TZ=UTC ./tests/clock_time_test
 	./tests/clock_store_test
 	./tests/clock_runtime_test
+	./tests/kbd_tca8418_test
+	bash tests/kbd_lint.sh
 	bash tests/radiod_mock_test.sh
 	bash tests/sysd_test.sh
 	bash tests/supervise_test.sh

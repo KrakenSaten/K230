@@ -84,6 +84,7 @@ in §14.
 | `tests/kbd_tca8418_test.c` | Fake bus; the chip logic in full | no | root `Makefile`, in `make test` |
 | `tests/kbd_lint.sh` | Boundary and ownership guards | — | `make test` |
 | `tests/shell_kbd_test.c` | Fake chip through real `pos_input` | yes | CMake, `sdl` |
+| `tests/kbd_shell_test.sh` | Runs that test, and the shell's no-keyboard path | — | with `SHELL_BIN` |
 
 This split follows the convention already in the tree: LVGL-free logic is
 built by the root `Makefile` and runs in `make test` in every configuration
@@ -324,6 +325,14 @@ references `kbd_` or `TCA8418`.
 `tests/shell_kbd_test.c` feeds a fake chip and asserts that a key reaches a
 real text field through the real `pos_input`, including **Shift+W giving
 `_`**, which ties the hardware mapping of §15 to the stream.
+
+For that test to drive the real glue rather than a copy of it, `shell_kbd.h`
+carries one seam: `shell_kbd_attach()` takes a bus from the caller, where
+`shell_kbd_create()` builds the board's. The test supplies a fake controller
+through it and exercises the actual poll timer, key path and overflow
+recovery. `tests/kbd_shell_test.sh` runs that binary and then starts the
+shell itself to check the no-keyboard path: it must start, log the absence
+exactly once, and report no fault.
 
 ## 12. Hardware smoke plan for unit A
 

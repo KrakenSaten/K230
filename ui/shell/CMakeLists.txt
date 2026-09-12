@@ -41,6 +41,8 @@ add_executable(pocketos-shell
     ../pocketui/pos_input.c
     ../pocketui/pos_keyboard.c
     ../pocketui/pos_keymap.c
+    kbd_tca8418.c
+    shell_kbd.c
     ../pocketui/pos_theme.c
     ../pocketui/pos_styles.c
     ${REPO_DIR}/apps/radio/radio_app.c
@@ -200,9 +202,21 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     pkg_check_modules(SDL2 REQUIRED sdl2)
     target_include_directories(${LVGL_INC_TARGET} PUBLIC ${SDL2_INCLUDE_DIRS})
     target_link_libraries(pocketos-shell PRIVATE ${SDL2_LIBRARIES})
+    # No keyboard base board on a PC. The stub reports absence the way the
+    # real bus reports a controller that does not answer, so the simulator
+    # takes the same path as a board with the base detached.
+    target_sources(pocketos-shell PRIVATE kbd_bus_absent.c)
 else()
     pkg_check_modules(DRM REQUIRED libdrm)
     pkg_check_modules(EVDEV REQUIRED libevdev)
+    # The physical keyboard's bit-banged bus: libgpiod v2 for the lines and
+    # /dev/mem for the pin mux (docs/hardware/
+    # KEYBOARD_DRIVER_DESIGN_2026-09-12.md §4). libgpiod2 is already a
+    # dependency of the Buildroot package, for radiod's SX1262 HAL.
+    pkg_check_modules(GPIOD REQUIRED libgpiod)
+    target_sources(pocketos-shell PRIVATE kbd_bus_k230.c)
+    target_include_directories(pocketos-shell PRIVATE ${GPIOD_INCLUDE_DIRS})
+    target_link_libraries(pocketos-shell PRIVATE ${GPIOD_LIBRARIES})
     target_include_directories(${LVGL_INC_TARGET} PUBLIC ${DRM_INCLUDE_DIRS} ${EVDEV_INCLUDE_DIRS})
     target_link_libraries(pocketos-shell PRIVATE ${DRM_LIBRARIES} ${EVDEV_LIBRARIES})
     # The vendor LVGL package patches a plane-rotation call into the DRM
@@ -411,4 +425,34 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(pos_keymap_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(pos_keymap_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # The physical keyboard end to end (run by tests/kbd_shell_test.sh): a
+    # fake controller on a fake bus, the real poll timer, the real key map
+    # and the real stream, into a real text field. The bus backend linked
+    # here is the absent stub, so the test supplies its own bus through
+    # shell_kbd_attach().
+    add_executable(shell_kbd_test
+        ${REPO_DIR}/tests/shell_kbd_test.c
+        shell_kbd.c
+        kbd_tca8418.c
+        kbd_bus_absent.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${REPO_DIR}/core/pocketlog/pocketlog.c
+        ${REPO_DIR}/core/pocketpaths.c
+        ${POCKETUI_FONTS})
+    target_include_directories(shell_kbd_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core")
+    target_compile_options(shell_kbd_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(shell_kbd_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(shell_kbd_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(shell_kbd_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(shell_kbd_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 endif()
