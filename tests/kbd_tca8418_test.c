@@ -297,6 +297,25 @@ int main(void)
     rc = kbd_tca8418_init(&k, &bus, 0);
     check("a reset that fails leaves the driver absent", rc == 0);
 
+    /* The start-up FIFO flush and the status clear that ends it (cold review
+     * F5). Their results used to be discarded, so a bus that died between the
+     * last configuration write and the flush produced a driver that called
+     * itself ready over a controller still holding whatever the vendor
+     * launcher left in its FIFO - and the comment over configure() claiming
+     * every return value is checked was not true. */
+    fake_init(&f, &bus);
+    f.fail_read = 0x04; /* the FIFO read the flush uses */
+    rc = kbd_tca8418_init(&k, &bus, 0);
+    check("a flush that cannot read the FIFO leaves the driver absent", rc == 0);
+    check("and absent is not ready", !kbd_tca8418_ready(&k));
+    check("and the bus was still released", f.releases == f.claims);
+
+    fake_init(&f, &bus);
+    f.fail_write = 0x02; /* the status clear at the end of the flush */
+    rc = kbd_tca8418_init(&k, &bus, 0);
+    check("a flush whose status clear fails leaves the driver absent", rc == 0);
+    check("and that bus was released too", f.releases == f.claims);
+
     /* ---- 3. draining ---------------------------------------------------- */
 
     fake_init(&f, &bus);

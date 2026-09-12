@@ -35,7 +35,8 @@ static struct {
     struct pos_keymap map;
     lv_timer_t *timer;
     bool present;
-    bool failing;      /* so a dead keyboard is logged once, not per tick */
+    bool ready;        /* the controller state this layer last saw, so a
+                        * failure and a recovery are each logged once */
     bool gated;        /* the mode this layer last reported; one edge only */
     unsigned delivered;
     unsigned dropped;
@@ -88,10 +89,13 @@ static void on_overflow(void *user)
 
 static void on_poll(lv_timer_t *timer)
 {
-    int handled;
+    bool ready;
 
     (void)timer;
-    handled = kbd_tca8418_poll(&kbd.chip, now_us(), on_event, on_overflow, NULL);
+    /* The count of events drained is not interesting here; what the keys did
+     * is on_event's business and whether the controller is usable is asked
+     * below, of the driver rather than of this return value. */
+    (void)kbd_tca8418_poll(&kbd.chip, now_us(), on_event, on_overflow, NULL);
 
     if (kbd_tca8418_take_overflow(&kbd.chip)) {
         LOG_WARN("keyboard: controller overflow, modifier state dropped");
@@ -110,13 +114,27 @@ static void on_poll(lv_timer_t *timer)
         LOG_WARN("keyboard: INT gate dropped, polling unconditionally every "
                  "%d ms", KBD_POLL_FALLBACK_MS);
     }
-    if (handled < 0 && !kbd.failing) {
-        kbd.failing = true;
+    /* Whether the controller is usable is the driver's state, not this poll's
+     * return value. A retry that is still being throttled returns 0 without
+     * touching the bus, and reading that as good news logged "answering
+     * again" on the very next tick after a failure, once per backoff, while
+     * the keyboard was still dead.
+     *
+     * The recovery edge is also where what this layer believes about held
+     * modifiers has to go. Getting back to READY means the controller was
+     * reset, reconfigured and its FIFO flushed: a Shift that was down when
+     * the bus went away released itself unseen, and keeping it would apply
+     * the orange legend to everything typed afterwards. The overflow path
+     * (on_overflow) forgets for the same reason; this is the other way the
+     * controller's state can be lost. */
+    ready = kbd_tca8418_ready(&kbd.chip);
+    if (kbd.ready && !ready) {
         LOG_WARN("keyboard: the controller stopped answering; retrying");
-    } else if (handled >= 0 && kbd.failing) {
-        kbd.failing = false;
+    } else if (!kbd.ready && ready) {
+        pos_keymap_reset(&kbd.map);
         LOG_INFO("keyboard: the controller is answering again");
     }
+    kbd.ready = ready;
 }
 
 int shell_kbd_attach(const struct kbd_bus *bus)
@@ -128,7 +146,6 @@ int shell_kbd_attach(const struct kbd_bus *bus)
     kbd.delivered = 0;
     kbd.dropped = 0;
     kbd.reserved = 0;
-    kbd.failing = false;
     pos_keymap_reset(&kbd.map);
     if (kbd_tca8418_init(&kbd.chip, &kbd.bus, now_us()) != 1) {
         return 0;
@@ -137,6 +154,9 @@ int shell_kbd_attach(const struct kbd_bus *bus)
      * rather than falling into it, so the period matches the mode in both
      * cases and the edge below is only ever the runtime transition. */
     kbd.gated = kbd_tca8418_gated(&kbd.chip);
+    /* init() only returns 1 from READY, so the first poll's edge test starts
+     * from the truth rather than from a default. */
+    kbd.ready = kbd_tca8418_ready(&kbd.chip);
     kbd.timer = lv_timer_create(on_poll,
                                 kbd.gated ? KBD_POLL_MS : KBD_POLL_FALLBACK_MS,
                                 NULL);
@@ -187,6 +207,6 @@ void shell_kbd_destroy(void)
      * keyboard was ever found. */
     kbd_bus_k230_destroy(&kbd.bus);
     kbd.present = false;
-    kbd.failing = false;
+    kbd.ready = false;
     kbd.gated = false;
 }

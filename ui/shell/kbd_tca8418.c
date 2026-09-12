@@ -91,18 +91,27 @@ static int write_reg(struct kbd_tca8418 *k, uint8_t reg, uint8_t value)
 
 /* Drain whatever the FIFO holds at startup and clear the status, so the
  * first poll reports what the owner pressed rather than what was left over
- * from the vendor launcher or from a previous run. */
-static void flush_events(struct kbd_tca8418 *k)
+ * from the vendor launcher or from a previous run.
+ *
+ * Returns 0, or -1 when the bus would not answer. A failure here is a failure
+ * of the configure: it means the leftovers are still in the FIFO and the
+ * status still stands, so the first poll would report a keypress from before
+ * this process started, and the comment above configure() claiming every
+ * return value is checked would not have been true. */
+static int flush_events(struct kbd_tca8418 *k)
 {
     uint8_t event;
     int i;
 
     for (i = 0; i < FLUSH_MAX; i++) {
-        if (read_reg(k, REG_KEY_EVENT_A, &event) != 0 || event == 0) {
+        if (read_reg(k, REG_KEY_EVENT_A, &event) != 0) {
+            return -1;
+        }
+        if (event == 0) {
             break;
         }
     }
-    (void)write_reg(k, REG_INT_STAT, INT_STAT_CLEAR_FLUSH);
+    return write_reg(k, REG_INT_STAT, INT_STAT_CLEAR_FLUSH) != 0 ? -1 : 0;
 }
 
 /* The vendor's sequence, with every return value checked. The bus is held
@@ -134,7 +143,9 @@ static int configure(struct kbd_tca8418 *k)
     if (write_reg(k, REG_CFG, CFG_VALUE) != 0) {
         goto fail;
     }
-    flush_events(k);
+    if (flush_events(k) != 0) {
+        goto fail;
+    }
     bus_release(k);
     return 0;
 

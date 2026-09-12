@@ -20,6 +20,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #define PANEL_W 568
 #define PANEL_H 1232
@@ -67,11 +68,18 @@ static struct {
     unsigned n;
     unsigned i;
     int claimed;
+    int bus_gone;   /* the base was unplugged: nothing can be claimed */
+    unsigned resets;
+    unsigned claim_fails;
 } chip;
 
 static int fake_claim(void *ctx)
 {
     (void)ctx;
+    if (chip.bus_gone) {
+        chip.claim_fails++;
+        return -1;
+    }
     chip.claimed = 1;
     return 0;
 }
@@ -117,6 +125,15 @@ static int fake_write(void *ctx, uint8_t reg, uint8_t value)
 static int fake_reset(void *ctx)
 {
     (void)ctx;
+    if (chip.bus_gone) {
+        return -1;
+    }
+    /* A real reset empties the controller, which is exactly why anything
+     * believed about held modifiers is worthless afterwards. */
+    chip.resets++;
+    chip.n = 0;
+    chip.i = 0;
+    memset(chip.reg, 0, sizeof(chip.reg));
     return 0;
 }
 
@@ -149,18 +166,37 @@ static void settle(void)
     }
 }
 
+/* The driver's unconditional sweep and its retry backoff are both measured on
+ * CLOCK_MONOTONIC, not on LVGL ticks, so lv_tick_inc() cannot reach either:
+ * these waits take as long as the driver really takes. Returns 1 once the
+ * counter has moved, 0 if it never did. */
+static int wait_for_count(const unsigned *counter, unsigned before, int max_50ms)
+{
+    struct timespec ts = { 0, 50 * 1000 * 1000L };
+    int i;
+
+    for (i = 0; i < max_50ms && *counter == before; i++) {
+        nanosleep(&ts, NULL);
+        settle();
+    }
+    return *counter > before;
+}
+
 /* Raw bytes measured on unit A. */
 #define W_PRESS 0xA7
 #define W_RELEASE 0x27
 #define SHIFT_PRESS 0x87
 #define SHIFT_RELEASE 0x07
 #define F1_PRESS 0xB2 /* code 50, reserved rather than mapped */
+#define CTRL_PRESS 0x97 /* code 23 (CTRL) pressed; its release never arrives */
 
 int main(void)
 {
     lv_display_t *disp;
     lv_obj_t *screen;
     lv_obj_t *field;
+    unsigned resets_before;
+    unsigned fails_before;
 
     lv_init();
     disp = lv_display_create(PANEL_W, PANEL_H);
@@ -244,6 +280,65 @@ int main(void)
     check_str("and Shift stays dropped afterwards",
               lv_textarea_get_text(field), "w_ww");
 
+    /* ---- 5b. a modifier release lost to a bus failure (cold review F5) --
+     *
+     * The bus goes away with Shift held. The release happens while it is
+     * gone, so the controller never reports it and, when it comes back, it
+     * has been reset and its FIFO flushed: there is no release left to
+     * deliver and never will be. Anything this layer still believes about
+     * Shift is therefore wrong, and would apply the orange legend to
+     * everything typed from then on.
+     *
+     * The recovery also has to be a real one. The driver throttles its
+     * retries, so most polls during an outage return 0 without touching the
+     * bus; reading that as "answering again" both logged a recovery that had
+     * not happened and, once the reset became the thing that clears the
+     * modifiers, would have cleared them at the wrong moment. */
+
+    feed(SHIFT_PRESS);
+    settle();
+    check_str("Shift is held again", lv_textarea_get_text(field), "w_ww");
+
+    chip.bus_gone = 1;          /* the base is unplugged, mid-chord */
+    resets_before = chip.resets;
+    fails_before = chip.claim_fails;
+    /* The INT gate means an idle keyboard never touches the bus, so the
+     * outage is not noticed until the next unconditional sweep. */
+    check("the outage is noticed on the next sweep",
+          wait_for_count(&chip.claim_fails, fails_before, 60));
+    check("and nothing was reset while the bus was gone",
+          chip.resets == resets_before);
+
+    chip.bus_gone = 0;          /* plugged back in */
+    check("the controller was reset and reconfigured on recovery",
+          wait_for_count(&chip.resets, resets_before, 160));
+
+    /* The Shift release was never delivered and never will be. */
+    feed(W_PRESS);
+    feed(W_RELEASE);
+    settle();
+    check_str("a key typed after recovery is not stuck shifted",
+              lv_textarea_get_text(field), "w_www");
+
+    /* Ctrl and Alt are the same key map state, so the same loss applies to
+     * them: a chord broken by the outage must not leave the field taking
+     * control characters instead of letters. */
+    feed(CTRL_PRESS);
+    settle();
+    chip.bus_gone = 1;
+    resets_before = chip.resets;
+    fails_before = chip.claim_fails;
+    check("the second outage is noticed too",
+          wait_for_count(&chip.claim_fails, fails_before, 60));
+    chip.bus_gone = 0;
+    check("the controller recovered from the second outage too",
+          wait_for_count(&chip.resets, resets_before, 160));
+    feed(W_PRESS);
+    feed(W_RELEASE);
+    settle();
+    check_str("and Ctrl is not stuck either",
+              lv_textarea_get_text(field), "w_wwww");
+
     /* ---- 6. destroy stops the keyboard --------------------------------- */
 
     shell_kbd_destroy();
@@ -251,7 +346,7 @@ int main(void)
     feed(W_RELEASE);
     settle();
     check_str("nothing arrives once the keyboard is destroyed",
-              lv_textarea_get_text(field), "w_ww");
+              lv_textarea_get_text(field), "w_wwww");
 
     printf("shell_kbd_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
