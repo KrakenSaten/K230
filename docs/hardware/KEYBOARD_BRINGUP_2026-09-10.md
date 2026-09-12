@@ -139,10 +139,21 @@ nothing. It is recorded here so nobody repeats it expecting an answer.
   **Partly answered 2026-09-11/12:** the key-map session ran with the K230's
   USB-C in a PC port, the **keyboard base USB-C not connected**, a **battery
   fitted** in the base, and a USB-C Ethernet adapter attached. The keyboard
-  worked throughout. Because a battery was fitted, this still does not show
-  whether the base runs from the expansion connector alone.
-- **Whether the base board runs from the K230's expansion connector alone,**
-  or needs its own USB-C or a battery for some or all of its parts.
+  worked throughout. **Answered 2026-09-12:** the base's own power switch was
+  OFF for all of that work (next entry), so its battery was isolated and the
+  base ran from the K230 expansion connector alone.
+- **The base has a physical ON/OFF switch** (operator, 2026-09-12). It
+  **disconnects battery power to the base**, and it was **OFF during the
+  detach test** of that day, which is what made the base safe to unmate once
+  the K230's own USB-C was pulled: with the switch off and no base USB-C,
+  the board has no source of its own. **The operator confirms the same switch
+  was OFF during the Block B and C1/C2 typing tests**, so the battery was
+  isolated throughout them.
+- **Whether the base board runs from the K230's expansion connector alone.**
+  **Answered 2026-09-12: for the keyboard, it does.** With the base's USB-C
+  disconnected and its battery switch OFF, the TCA8418 initialised and
+  delivered 142 keys across Block B and the C1/C2 restart tests. What the
+  rest of the base needs — nRF9151, charger, gauge — is still open.
 - **Whether the companions answer.** **Measured 2026-09-11** in the power
   setup above, from the launcher's own probe line:
   `[keyboard-base] Detected 6B:no 55:no 34:yes XL:yes 0x20 on I2C4 SDA47/SCL46`
@@ -285,6 +296,105 @@ from the matrix code to a character in a focused field.
 The polling model the design chose is the one the hardware selected: a 15 ms
 timer that reads the INT line and touches the bus only when it is asserted.
 The unconditional 20 ms fallback exists in the driver and was not needed.
+
+### 5.3 Hardware robustness, 2026-09-12 — blocks B and C: PASS
+
+All of it on unit A against commit `d3b7bb0`, the card never reflashed. Every
+character below was read off the panel's framebuffer over SSH rather than
+transcribed.
+
+**Block B — typing under load.**
+
+| Test | Result |
+| --- | --- |
+| 90 consecutive keystrokes, nine `abcdefghij` groups | every group intact: zero drops, zero duplicates |
+| Modifier recovery, `a~a_w'q` `` ` `` `jZz` | all five shifted legends correct; every key following a shifted one came out plain; Shift never stuck across five press/release cycles |
+| Burst `asdfjkl` x3 then `~_Za` | no drops, no duplicates, no overflow, no stuck Shift |
+
+The burst's first group read `asfdfjkl`, one extra `f`. It is **not** a driver
+fault: a duplicated event repeats the same code adjacently and debounce
+(enabled, `DEBOUNCE_DIS=0x00`) would do the same, but here the two `f`s are
+separated by a `d`. The FIFO is strictly ordered, so the key was physically
+pressed twice. 127 keystrokes across the three tests with nothing lost,
+reordered or duplicated by the driver.
+
+**C1 — clean SIGTERM: PASS.** Stopped through `S90pocketos-shell stop`.
+
+- The destroy path ran: `keyboard: 142 key(s) delivered, 0 dropped, 0
+  reserved`. That counter is the driver's own accounting and is only emitted
+  on a clean exit, which is what makes it the proof the path ran.
+- GPIO released while down (no `pocketos-shell-kbd` consumer on any line),
+  and reacquired identically on restart.
+- Mux restore verified: io46/io47 read `0x800019D1` before, during the stop
+  and after — never left at the bit-bang word `0x…01D1`.
+- Re-init 3.4 s later to `TCA8418 ready, polling every 15 ms (INT-gated)`.
+- Typing after the restart: **`a~a`**.
+- A supervised stop/start yields a **fresh supervisor at `restarts=0`**, which
+  is the expected accounting for an intentional restart.
+
+**C2 — SIGKILL recovery: PASS.** `kill -9` to the shell child only.
+
+- The **same supervisor** (pid 1889) detected the death and restarted the
+  shell 2 s later: pid 1900 -> 2818, `restarts=1`, `last_exit_code=137`
+  (128+9), `crashloop=0`, no restart loop.
+- No reboot: uptime ran 52164 -> 52170 s continuously, and sysd and radiod
+  kept their pids.
+- Keyboard re-initialised deterministically to 15 ms INT-gated. **No
+  destroy/accounting line**, correctly, because cleanup cannot run on this
+  path.
+- GPIO reacquired: the kernel releases the lines when the process dies, which
+  is the mechanism the design relies on when cleanup is impossible.
+- Typing after recovery: **`a_w`**.
+- **Untested hazard.** The driver claims the bus for roughly 1 ms in every
+  15, and this kill landed between polls, so io46/io47 were never left in
+  bit-bang mode. A kill landing *inside* the claim window would leave them at
+  `0x…01D1`, and the next instance saves whatever it finds — it would then
+  adopt the bit-bang word as its restore value, and a later clean exit would
+  leave the bus in GPIO mode. The keyboard would still work. This run shows
+  the hazard did not occur, **not** that it cannot.
+
+**C3 — base absent and reconnected: PASS.** Powered off, base unmated,
+booted; then powered off, remated, booted. Never hot-plugged: no vendor
+evidence supports that, so every mate and unmate was done with the SoC
+halted, the K230 USB-C out, the base USB-C disconnected and the base's
+battery switch OFF.
+
+- Absence is **normal, not an error**: exactly one line, at INFO —
+  `keyboard: the controller did not answer; touch only`.
+- **No retry timer and no cost.** A failed probe creates no poll timer at
+  all, so there is nothing to throttle: 0.30 s of CPU in 85 s of uptime, and
+  0.68 s after opening and closing an app; `top` showed 0% CPU, 100% idle.
+- **No GPIO consumer retained** — requested, probe failed, released.
+- Touch-only operation works: the launcher rendered with all seven tiles and
+  the log recorded `open app notes` then `close app notes` 0.9 s apart.
+- Reconnecting restores `TCA8418 ready, polling every 15 ms (INT-gated)`,
+  GPIO ownership and the mux words. Typing after reconnect: **`a~a`**.
+
+**Power, answered.** The base was remated and the controller initialised with
+the **base USB-C disconnected, a battery fitted, and the base's battery
+switch OFF**. The switch isolates battery power, so the keyboard path runs
+from **K230 expansion-connector power alone** (§3).
+
+**The iomux words, now fully observed.**
+
+| Register | Pin | Cold boot, no driver | After driver init |
+| --- | --- | --- | --- |
+| `0x911050B8` | io46 SCL | `0x800019D1` | `0x800019D1` between polls |
+| `0x911050BC` | io47 SDA | `0x800019D1` | `0x800019D1` between polls |
+| `0x911050A8` | io42 IRQ | **`0x000001D1`** | **`0x80000344`** |
+
+io42's cold-boot value had never been seen before: every earlier reading was
+taken after the vendor launcher or the driver had already written `0x344`. It
+became visible only on the keyboard-less boot, because the driver restored
+what it had saved.
+
+**Across all of B, C1, C2 and C3:** `meshtastic.autostart=0` throughout, no
+Meshtastic process and no vendor launcher at any check, **0 spidev holders**,
+and **no ERROR or WARN** in any shell log for any of the five shell
+generations that ran that day. The Meshtastic TX counters stopped being a
+usable before/after measure at the first power cycle, because `/tmp` is a
+tmpfs and the daemon's log does not survive a reboot; process absence and
+zero spidev holders are the evidence from that point on.
 
 ### Architecture, once the key map is confirmed
 

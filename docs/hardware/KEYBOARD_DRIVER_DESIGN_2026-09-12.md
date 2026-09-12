@@ -357,6 +357,13 @@ shell running, SSH on the bench key.
 8. Detach the base: the shell starts, logs absent once, and does not spin.
 9. Time one drain on the device before trusting the cadence of §14.
 
+**Outcome, 2026-09-12.** Items 1 to 8 were all run on unit A and all passed;
+the results are recorded in `KEYBOARD_BRINGUP_2026-09-10.md` §5.2 and §5.3.
+**Item 9 was not run**, so the cost model in §14 — about a millisecond per
+register read, and therefore per poll — remains ASSUMED rather than measured.
+Item 4's overflow was never provoked: a moderate burst produced none, and
+forcing one was deliberately not attempted.
+
 ## 13. Risks and blockers
 
 ### 13.1 Shipping gate: DS §18.8
@@ -383,6 +390,17 @@ milestone is **not complete** until:
   the plastic film. The unconditional fallback stays in the code regardless:
   one board on one day is not every board.
 - **A held reset line** is correct but ASSUMED safe on this base.
+- **An unclean death inside the bus-claim window is untested.** The driver
+  claims the bus for roughly 1 ms in every 15, and §8 accepts that a SIGKILL
+  cannot restore the mux, relying instead on deterministic re-muxing at the
+  next start. There is a subtler consequence: a kill landing *inside* that
+  window leaves io46/io47 at the bit-bang word, and the next instance saves
+  whatever it finds, so it would adopt that word as its restore value and a
+  later clean exit would leave the bus in GPIO mode. The keyboard keeps
+  working either way. The C2 test (2026-09-12) landed between polls and so
+  did not exercise this; it shows the hazard did not occur, not that it
+  cannot. Saving a known-good value rather than the observed one would
+  remove it.
 - **`LV_DEF_REFR_PERIOD` is unknown** — the shell's `lv_conf.h` is generated,
   and that period bounds end-to-end latency. Measure before tuning.
 - **The rest of the key map is unread.** Only six codes are VERIFIED; every
