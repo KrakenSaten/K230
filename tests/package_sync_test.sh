@@ -18,6 +18,7 @@
 set -u
 cd "$(dirname "$0")/.." || exit 1
 APPLY=platforms/k230/scripts/apply_to_sdk.sh
+CONF=k230_pocketos_defconfig
 failed=0
 
 check() { if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
@@ -235,6 +236,11 @@ cp platforms/k230/scripts/apply_to_sdk.sh "$GUARD/repo/platforms/k230/scripts/"
 cp platforms/k230/vendor_bsp_commit.txt platforms/k230/vendor_sdk_commit.txt \
    "$GUARD/repo/platforms/k230/"
 cp VERSION "$GUARD/repo/"
+# The script refuses to run if a first-party build input is missing from the
+# snapshot, so the scratch repo has to carry them the way a real one does.
+mkdir -p "$GUARD/repo/platforms/k230/configs" "$GUARD/repo/platforms/k230/package/pocketos"
+cp "platforms/k230/configs/$CONF" "$GUARD/repo/platforms/k230/configs/"
+cp platforms/k230/package/pocketos/Config.in platforms/k230/package/pocketos/pocketos.mk    "$GUARD/repo/platforms/k230/package/pocketos/"
 printf 'committed\n' > "$GUARD/repo/tracked.txt"
 git -C "$GUARD/repo" init -q
 git -C "$GUARD/repo" add -A
@@ -286,7 +292,7 @@ check "the override states that uncommitted changes are excluded" $(said 'are NO
 # matters about it is placement as much as content: a summary in the header
 # would be the very thing it exists to survive.
 sum_line=$(grep -n '^echo "Provenance"' "$APPLY" | cut -d: -f1)
-pkg_line=$(grep -n 'archive --format=tar HEAD' "$APPLY" | head -1 | cut -d: -f1)
+pkg_line=$(grep -nE '^[[:space:]]*git [^|]*archive' "$APPLY" | head -1 | cut -d: -f1)
 done_line=$(grep -n '^echo "Done\. Build with' "$APPLY" | cut -d: -f1)
 check "apply_to_sdk.sh prints a provenance summary" \
       $([ -n "$sum_line" ] && echo 1 || echo 0)
@@ -303,15 +309,69 @@ check "the summary calls out the override when it was used" \
 check "the summary states that the worktree is never packaged" \
       $(grep -q 'working tree is never packaged' "$APPLY" && echo 1 || echo 0)
 
-# The override must not widen what is packaged. Two halves: the script has no
-# archive that exports anything but HEAD, and HEAD really does exclude the
-# edit that made the tree dirty.
-notHEAD=$(grep 'git .*archive' "$APPLY" | grep -vc 'HEAD' || true)
-check "every git archive in apply_to_sdk.sh exports HEAD" \
-      $([ "$notHEAD" = "0" ] && echo 1 || echo 0)
+# The override must not widen what is packaged. Two halves: no archive in the
+# script exports anything but the one snapshot object, and that object really
+# does exclude the edit that made the tree dirty.
+#
+# What is asserted is the guarantee, not the spelling. This check used to
+# require the literal string HEAD, which is how it would have failed the
+# moment the archives were pointed at a resolved commit instead - the same
+# mistake that made it demand deploy.sh's old three literal stop lines
+# (5b6bd80). A moving reference is what is forbidden here, not a word.
+loose=$(grep -nE '^[[:space:]]*git [^|]*archive' "$APPLY" \
+        | grep -v 'SNAPSHOT_COMMIT' || true)
+check "every git archive in apply_to_sdk.sh exports the one snapshot object" \
+      $([ -z "$loose" ] && echo 1 || echo 0)
+[ -n "$loose" ] && printf '%s\n' "$loose" | head -3
+check "and that object is resolved once, from HEAD" \
+      $(grep -c '^SNAPSHOT_COMMIT="\$(git -C "\${REPO_DIR}" rev-parse HEAD)"$' "$APPLY" \
+        | grep -q '^1$' && echo 1 || echo 0)
 got=$(git -C "$GUARD/repo" archive --format=tar HEAD -- tracked.txt | tar -xO)
 check "an override build exports HEAD, not the uncommitted edit" \
       $([ "$got" = "committed" ] && echo 1 || echo 0)
+
+# ---- every first-party build input, not just the archived ones -----------
+#
+# The defconfig, Config.in and pocketos.mk decide what goes into the image and
+# how it is built, and all three used to be installed straight from the
+# working tree while the script printed "the working tree is never packaged".
+# An uncommitted edit to any of them changed the build and nothing said so.
+wt=$(grep -nE '^[[:space:]]*(install|cp)[[:space:]]' "$APPLY" \
+     | grep -E '\$\{(PLATFORM_DIR|REPO_DIR)\}' || true)
+check "no first-party build input is installed from the working tree" \
+      $([ -z "$wt" ] && echo 1 || echo 0)
+[ -n "$wt" ] && printf '%s\n' "$wt" | head -5
+
+for f in 'configs/${CONF}' package/pocketos/Config.in package/pocketos/pocketos.mk; do
+    check "$(basename "$f") is installed from the snapshot" \
+          $(grep -qF "install -m 0644 \"\${SNAPSHOT_DIR}/platforms/k230/$f\"" "$APPLY" \
+            && echo 1 || echo 0)
+done
+
+# And the mechanism really does ignore the working tree. A throwaway worktree
+# is dirtied in exactly the way that used to reach the image - an edit to the
+# defconfig - and the snapshot the script would take must still yield the
+# committed bytes.
+SNAP="$TMP/snap"
+mkdir -p "$SNAP/out"
+if git worktree add --detach "$SNAP/wt" HEAD >/dev/null 2>&1; then
+    conf_rel="platforms/k230/configs/$CONF"
+    printf '\n# uncommitted edit that must never reach a build\n' >> "$SNAP/wt/$conf_rel"
+    check "the throwaway worktree is dirty" \
+          $([ -n "$(git -C "$SNAP/wt" status --porcelain)" ] && echo 1 || echo 0)
+    snap_commit=$(git -C "$SNAP/wt" rev-parse HEAD)
+    git -C "$SNAP/wt" archive --format=tar "$snap_commit" -- "$conf_rel" \
+        | tar -xp -C "$SNAP/out"
+    check "the snapshot of a dirty tree carries the committed defconfig" \
+          $(cmp -s "$SNAP/out/$conf_rel" <(git show "HEAD:$conf_rel") && echo 1 || echo 0)
+    check "and not the uncommitted edit" \
+          $(grep -q 'uncommitted edit that must never reach a build' "$SNAP/out/$conf_rel" \
+            && echo 0 || echo 1)
+    git worktree remove --force "$SNAP/wt" >/dev/null 2>&1
+else
+    echo "FAIL could not create a throwaway worktree for the snapshot check"
+    failed=$((failed + 1))
+fi
 
 echo "package_sync_test: $failed failure(s)"
 exit $((failed > 0))

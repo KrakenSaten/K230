@@ -43,6 +43,11 @@ git -C "${REPO_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "
 BSP_COMMIT="$(git -C "${VENDOR_DIR}" rev-parse HEAD)"
 SDK_COMMIT="$(git -C "${SDK_DIR}" rev-parse HEAD)"
 REPO_COMMIT="$(git -C "${REPO_DIR}" rev-parse --short HEAD)"
+# Everything first-party below comes from this one commit object, resolved
+# once. HEAD is a moving reference: the archives below are separate commands,
+# and a commit landing between them would assemble a package out of two
+# different trees. Naming the object once removes the question.
+SNAPSHOT_COMMIT="$(git -C "${REPO_DIR}" rev-parse HEAD)"
 REPO_STATUS="$(git -C "${REPO_DIR}" status --porcelain)"
 DIRTY_TAG=""
 REPO_DIRTY=""
@@ -105,11 +110,32 @@ pin_check() { # <what> <actual> <expected>
 pin_check "vendor BSP commit" "${BSP_COMMIT}" "${EXPECTED_BSP_COMMIT}"
 pin_check "SDK commit" "${SDK_COMMIT}" "${EXPECTED_SDK_COMMIT}"
 
+# The defconfig, Config.in and pocketos.mk used to be installed straight from
+# the working tree while everything else came from git. They decide what is in
+# the image and how it is built, so an uncommitted edit to any of them changed
+# the build while the script went on printing "the working tree is never
+# packaged". They come out of the snapshot with the rest now.
+SNAPSHOT_DIR="$(mktemp -d)"
+cleanup_snapshot() { rm -rf "${SNAPSHOT_DIR}"; }
+trap cleanup_snapshot EXIT
+git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" \
+    -- "platforms/k230/configs/${CONF}" platforms/k230/package/pocketos \
+    | tar -xp -C "${SNAPSHOT_DIR}"
+for f in "platforms/k230/configs/${CONF}" \
+         platforms/k230/package/pocketos/Config.in \
+         platforms/k230/package/pocketos/pocketos.mk; do
+    [ -f "${SNAPSHOT_DIR}/${f}" ] || {
+        echo "ERROR: ${f} is missing from the ${REPO_COMMIT} snapshot." >&2
+        echo "       Every first-party build input has to be committed." >&2
+        exit 1
+    }
+done
+
 echo "[1/5] Vendor BSP overlay"
 "${VENDOR_DIR}/k230_bsp/scripts/apply.sh" "${SDK_DIR}"
 
 echo "[2/5] PocketOS defconfig"
-install -m 0644 "${PLATFORM_DIR}/configs/${CONF}" "${SDK_DIR}/buildroot-overlay/configs/${CONF}"
+install -m 0644 "${SNAPSHOT_DIR}/platforms/k230/configs/${CONF}" "${SDK_DIR}/buildroot-overlay/configs/${CONF}"
 
 echo "[3/5] Vendor launcher (temporary until the PocketOS shell exists)"
 "${VENDOR_DIR}/k230_launcher/scripts/install_to_sdk.sh" "${SDK_DIR}" "${CONF}"
@@ -158,15 +184,15 @@ echo "[4/5] PocketOS rootfs overlay"
 # working tree it would be whatever the build host's filesystem reports, which
 # on a WSL /mnt/c checkout is 0777 for every file. Merged onto the vendor's
 # overlay, never deleting from it.
-git -C "${REPO_DIR}" archive --format=tar HEAD -- platforms/k230/rootfs_overlay \
+git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" -- platforms/k230/rootfs_overlay \
     | tar -x --strip-components=3 \
           -C "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/"
 
 echo "[5/5] PocketOS package"
 PKG_DIR="${SDK_DIR}/buildroot-overlay/package/pocketos"
 mkdir -p "${PKG_DIR}/src"
-install -m 0644 "${PLATFORM_DIR}/package/pocketos/Config.in" "${PKG_DIR}/Config.in"
-install -m 0644 "${PLATFORM_DIR}/package/pocketos/pocketos.mk" "${PKG_DIR}/pocketos.mk"
+install -m 0644 "${SNAPSHOT_DIR}/platforms/k230/package/pocketos/Config.in" "${PKG_DIR}/Config.in"
+install -m 0644 "${SNAPSHOT_DIR}/platforms/k230/package/pocketos/pocketos.mk" "${PKG_DIR}/pocketos.mk"
 # What the package is built from. Kept on one line and in this form so
 # tests/package_sync_test.sh can read it and stay in step with this script.
 POCKETOS_PKG_PATHSPEC=". :(exclude)docs :(exclude)platforms"
@@ -175,7 +201,7 @@ POCKETOS_PKG_PATHSPEC=". :(exclude)docs :(exclude)platforms"
 rm -rf "${PKG_DIR}/src"
 mkdir -p "${PKG_DIR}/src"
 # shellcheck disable=SC2086  # the pathspec is three words on purpose
-git -C "${REPO_DIR}" archive --format=tar HEAD -- ${POCKETOS_PKG_PATHSPEC} \
+git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" -- ${POCKETOS_PKG_PATHSPEC} \
     | tar -x -C "${PKG_DIR}/src/"
 # PocketTimber's proof sprites and their converter live under docs/, which the
 # package deliberately leaves out. They are the one part of docs/ a build
@@ -187,7 +213,7 @@ git -C "${REPO_DIR}" archive --format=tar HEAD -- ${POCKETOS_PKG_PATHSPEC} \
 # repository. Same rule as above: one line, read by tests/package_sync_test.sh.
 POCKETOS_PKG_ART_PATHSPEC="docs/design/timber-art/rendered docs/design/timber-art/tools"
 # shellcheck disable=SC2086
-git -C "${REPO_DIR}" archive --format=tar HEAD -- ${POCKETOS_PKG_ART_PATHSPEC} \
+git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" -- ${POCKETOS_PKG_ART_PATHSPEC} \
     | tar -x -C "${PKG_DIR}/src/"
 # The exported tree has no git history, so the commit it came from travels
 # beside VERSION. The Makefile and ui/shell/CMakeLists.txt compile both into
