@@ -371,7 +371,7 @@ check "the summary comes after packaging, not in the header" \
 check "the summary is the last thing said before Done" \
       $([ -n "$sum_line" ] && [ -n "$done_line" ] && [ "$sum_line" -lt "$done_line" ] && echo 1 || echo 0)
 check "the summary names the packaged commit" \
-      $(grep -q 'Packaged source : HEAD' "$APPLY" && echo 1 || echo 0)
+      $(grep -q 'Packaged source : ${REPO_COMMIT} (${SNAPSHOT_COMMIT})' "$APPLY" && echo 1 || echo 0)
 check "the summary names the worktree state" \
       $(grep -q 'Source worktree : ' "$APPLY" && echo 1 || echo 0)
 check "the summary calls out the override when it was used" \

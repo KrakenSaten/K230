@@ -6,24 +6,33 @@
 #   Default vendor checkout: $POCKETOS_VENDOR_DIR or <repo>/vendor/T-Display-K230
 #   The SDK is the k230_linux_sdk submodule inside that checkout.
 #
-# The package source comes from `git archive HEAD`, so the image is a function
-# of a commit: only tracked files at HEAD are copied, with the modes git
-# records. Uncommitted work is NOT built. This replaces an rsync exclude-list
-# that could carry build products, dependency files holding host paths and
-# test binaries into the package, and that took file modes from the build
-# host's filesystem rather than from the source.
+# Every first-party input comes from one snapshot: the commit HEAD names when
+# this script starts, resolved once and then archived from by object id. The
+# image is therefore a function of a commit - only tracked files, with the
+# modes git records - and no uncommitted work is built, including the
+# defconfig, Config.in and pocketos.mk that used to be copied from the working
+# tree while this comment claimed otherwise.
+#
+# Resolving the commit once also settles a smaller question: HEAD is a moving
+# reference and the archives are separate commands, so a commit landing
+# between them would assemble a package out of two different trees.
 #
 # The pinned vendor commits are enforced, not merely reported. Set
 # POCKETOS_ALLOW_PIN_DRIFT=1 to build against a different vendor tree on
 # purpose, and record that in the build report.
 #
 # A dirty working tree is enforced the same way, and for the same reason. The
-# package is HEAD, so uncommitted work is not in it - and the loop that breaks
-# is edit, build, deploy, test on hardware, where the result looks like
-# evidence about the edit and is evidence about HEAD. Set
-# POCKETOS_ALLOW_DIRTY_BUILD=1 to package HEAD from a dirty tree on purpose.
-# The override changes nothing about what is packaged: it is still HEAD, never
-# the working tree.
+# package is the snapshot, so uncommitted work is not in it - and the loop that
+# breaks is edit, build, deploy, test on hardware, where the result looks like
+# evidence about the edit and is evidence about the commit. Set
+# POCKETOS_ALLOW_DIRTY_BUILD=1 to package the snapshot from a dirty tree on
+# purpose. The override changes nothing about what is packaged: it is still the
+# snapshot, never the working tree.
+#
+# RadioLib is the exception worth knowing about. It is copied rather than
+# archived, because it is an ignored checkout rather than part of our history,
+# so its uncommitted changes WOULD be compiled in - which is why a dirty
+# RadioLib is refused outright below rather than merely reported.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -125,7 +134,15 @@ EXPECTED_RADIOLIB_COMMIT="$(cat "${PLATFORM_DIR}/vendor_radiolib_commit.txt")"
 if git -C "${RADIOLIB_DIR_SRC}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     RADIOLIB_COMMIT="$(git -C "${RADIOLIB_DIR_SRC}" rev-parse HEAD)"
     RADIOLIB_STATE="clean"
-    [ -n "$(git -C "${RADIOLIB_DIR_SRC}" status --porcelain)" ] && RADIOLIB_STATE="dirty"
+    # -c core.autocrlf=true, or this answer depends on which git is asking.
+    # This checkout lives on a Windows drive: git for Windows checked it out
+    # through autocrlf, so the files hold CRLF, and a git whose config leaves
+    # autocrlf unset - WSL's, on the same files - calls all 403 of them
+    # modified. Normalising here makes the question "has anyone edited
+    # RadioLib" instead of "which git is asking", and it can only ever hide a
+    # difference that is CR alone.
+    [ -n "$(git -c core.autocrlf=true -C "${RADIOLIB_DIR_SRC}" status --porcelain)" ] \
+        && RADIOLIB_STATE="dirty"
 else
     RADIOLIB_COMMIT="unknown"
     RADIOLIB_STATE="not-a-git-checkout"
@@ -312,7 +329,7 @@ EOF
 # answered again as the last thing the run says.
 echo
 echo "Provenance"
-echo "  Packaged source : HEAD ${REPO_COMMIT} via git archive"
+echo "  Packaged source : ${REPO_COMMIT} (${SNAPSHOT_COMMIT}) via git archive"
 echo "  Source worktree : ${TREE_STATE}"
 if [ "${DIRTY_OVERRIDE}" = "yes" ]; then
     echo "  Dirty override  : POCKETOS_ALLOW_DIRTY_BUILD=1 -- uncommitted changes are NOT included"
