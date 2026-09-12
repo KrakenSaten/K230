@@ -35,10 +35,12 @@ check "and never names a text area or the touch keyboard" \
     "$([ -z "$hits" ] && echo 1 || echo 0)"
 
 # The map is the vendor's, and the file must say so: a mapping with no
-# provenance is a guess, and this one is not allowed to become one.
+# provenance is a guess, and this one is not allowed to become one. Part of it
+# has since been read off the hardware (docs/hardware/KEYBOARD_BRINGUP), so the
+# header must keep saying which entries are still only the vendor's word.
 check "the map records where it came from" \
     "$(grep -q 'ui_hardware.c' ui/pocketui/pos_keymap.h && echo 1 || echo 0)"
-check "and that it is not yet hardware-verified" \
+check "and which entries are not yet hardware-verified" \
     "$(grep -qi 'DOCUMENTED, not verified' ui/pocketui/pos_keymap.h && echo 1 || echo 0)"
 
 # No app may reach the physical keyboard either.

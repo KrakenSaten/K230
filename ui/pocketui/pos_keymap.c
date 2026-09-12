@@ -33,11 +33,14 @@ static const char *const names[POS_KEYMAP_MAX_CODE + 1] = {
     [68] = "F4",
 };
 
-/* The symbol printed on the keycap's shifted legend, or 0. Reproduced from
- * the vendor driver exactly, including the two symbols that appear on two
- * keys each ('~' on W and A, '`' on Q and J) - those are the vendor's map,
- * not a transcription slip here, and the operator should read the real
- * keycaps before either is trusted. */
+/* The symbol printed on the keycap's shifted legend, or 0. Taken from the
+ * vendor driver, with two entries corrected against the physical keycaps and
+ * the raw matrix codes read on unit A, 2026-09-12: code 39 (W) carries '_'
+ * and code 20 (Q) carries '\'', where the vendor's table repeated '~' and
+ * '`' and had no key for either of those two symbols. The same reading
+ * confirms '~' on A (code 29), '`' on J (code 34), and no symbol at all on Z
+ * (code 18). Every other entry below is still the vendor's, and its keycap
+ * has not been read. See docs/hardware/KEYBOARD_BRINGUP_2026-09-10.md. */
 static uint32_t shifted_symbol(uint8_t code)
 {
     switch (code) {
@@ -51,8 +54,8 @@ static uint32_t shifted_symbol(uint8_t code)
     case 53: return '*';
     case 52: return '(';
     case 51: return ')';
-    case 20: return '`';
-    case 39: return '~';
+    case 20: return '\''; /* Q, keycap and code 20 read on unit A */
+    case 39: return '_';  /* W, keycap and code 39 read on unit A */
     case 38: return '-';
     case 37: return '+';
     case 47: return '=';
@@ -61,7 +64,7 @@ static uint32_t shifted_symbol(uint8_t code)
     case 44: return ';';
     case 43: return ':';
     case 42: return '"';
-    case 29: return '~';
+    case 29: return '~'; /* A, confirmed against the keycap on unit A */
     case 28: return '[';
     case 27: return ']';
     case 26: return '{';

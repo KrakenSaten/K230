@@ -17,10 +17,14 @@
  * (vendor/T-Display-K230/k230_launcher/k230_phone_ui/src/ui_hardware.c,
  * tca8418_key_name, extension_keyboard_shift_symbol_for_code and
  * extension_keyboard_ascii_for_code) and from
- * k230_bsp/docs/HARDWARE_PINMAP.md. They are DOCUMENTED, not verified: no
- * key has been pressed on the physical keyboard yet, and the keycap legends
- * have not been read off the hardware. See
- * docs/hardware/KEYBOARD_BRINGUP_2026-09-10.md.
+ * k230_bsp/docs/HARDWARE_PINMAP.md. They are DOCUMENTED, not verified, apart
+ * from six codes read off the physical keyboard on unit A on 2026-09-12 -
+ * Shift 7, Z 18, Q 20, A 29, J 34 and W 39 - each with its raw press and
+ * release byte and its keycap legend. Two of the vendor's shifted symbols
+ * were wrong there and are corrected in pos_keymap.c: W gives '_' and Q
+ * gives '\''. Every other entry remains DOCUMENTED, not verified: no other
+ * key has been pressed on the hardware and no other keycap has been read.
+ * See docs/hardware/KEYBOARD_BRINGUP_2026-09-10.md.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */

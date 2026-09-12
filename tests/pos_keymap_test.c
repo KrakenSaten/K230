@@ -66,6 +66,7 @@ static enum pos_keymap_effect effect_of(uint8_t event)
 #define C_M 13
 #define C_Q 20
 #define C_W 39
+#define C_J 34
 #define C_SHIFT 7
 #define C_CTRL 23
 #define C_ALT 19
@@ -146,9 +147,10 @@ int main(void)
 
     /* This keyboard is legended the BlackBerry way: Shift reaches the symbol
      * printed on the keycap, and capitals come from Caps. Only Z, X, C and V
-     * carry no symbol, so only those four give a capital under Shift. That is
-     * the vendor's map reproduced faithfully, and it is the single most
-     * important thing for the operator to check against the real keycaps. */
+     * carry no symbol, so only those four give a capital under Shift. The
+     * keycaps and matrix codes of A, W, Q, J and Z were read on unit A on
+     * 2026-09-12 and the expectations for them are hardware evidence; the
+     * rest of the map is still the vendor's, unread. */
     press_is("Shift on a letter that carries a symbol gives the symbol", C_A, '~');
     release(C_A);
     press_is("Shift on a letter with no symbol gives the capital", C_Z, 'Z');
@@ -192,10 +194,12 @@ int main(void)
     /* ---- 5. punctuation on the keycaps --------------------------------- */
 
     press(C_SHIFT);
-    press_is("Shift+W is a tilde", C_W, '~');
+    press_is("Shift+W is an underscore (keycap, unit A)", C_W, '_');
     release(C_W);
-    press_is("Shift+Q is a backtick", C_Q, '`');
+    press_is("Shift+Q is an apostrophe (keycap, unit A)", C_Q, '\'');
     release(C_Q);
+    press_is("Shift+J is a backtick (keycap, unit A)", C_J, '`');
+    release(C_J);
     press_is("Shift+M is a greater-than", C_M, '>');
     release(C_M);
     press_is("Shift+2 is an at sign", 48, '@');
