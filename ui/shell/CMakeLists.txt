@@ -37,6 +37,7 @@ add_executable(pocketos-shell
     shell_ipc.c
     shell_kb_state.c
     settings.c
+    brightness.c
     platform_${POCKETOS_DISPLAY}.c
     ../pocketui/pocketui.c
     ../pocketui/pos_input.c
@@ -207,6 +208,11 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     pkg_check_modules(SDL2 REQUIRED sdl2)
     target_include_directories(${LVGL_INC_TARGET} PUBLIC ${SDL2_INCLUDE_DIRS})
     target_link_libraries(pocketos-shell PRIVATE ${SDL2_LIBRARIES})
+    # The simulator is never shipped, so it may honour test hooks: the
+    # brightness probe reads POCKETOS_TEST_SYSFS_ROOT when set
+    # (tests/brightness_shell_test.sh). The drm build, which is what goes on
+    # the card, is compiled without it and always reads /sys.
+    target_compile_definitions(pocketos-shell PRIVATE POCKETOS_SHELL_TEST_HOOKS=1)
     # No keyboard base board on a PC. The stub reports absence the way the
     # real bus reports a controller that does not answer, so the simulator
     # takes the same path as a board with the base detached.
