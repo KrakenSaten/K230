@@ -129,16 +129,57 @@ fi
 # Every init script the overlay carries must be sent, stopped and started.
 # Read from HEAD like everything else here, so this is a fact about the
 # commit rather than about the working tree.
+#
+# The stops are asserted by what they have to achieve, not by the shape of
+# the source. They were three literal lines until a1d34c6 made them a loop
+# with a failure branch, and the assertions that pinned the old shape then
+# failed on a correct script - a red suite on pristine master, caused by the
+# test rather than by the code. What matters is behavioural and is checked
+# below: every service is stopped, the stop's result is tested, and a failure
+# ends the deployment before a single file is unpacked over a running binary.
 git archive --format=tar HEAD -- platforms/k230/scripts/deploy.sh | tar -x -C "$TMP"
 DEPLOY="$TMP/platforms/k230/scripts/deploy.sh"
 check "deploy.sh extracted" $([ -f "$DEPLOY" ] && echo 1 || echo 0)
+# What deploy.sh runs on the board. The stop-then-unpack order lives here, so
+# the order is read off this text rather than off the file as a whole: the
+# service names also appear in the local tar's file list, which proves nothing
+# about what the board does with them.
+PAYLOAD="$TMP/remote-payload"
+awk '/set -e$/,/^echo "Done\."/' "$DEPLOY" | sed '$d' > "$PAYLOAD"
+check "the remote payload was extracted" \
+      $([ -s "$PAYLOAD" ] && grep -q 'set -e' "$PAYLOAD" && echo 1 || echo 0)
+
+# The line the new files land on. Everything that must happen first is above it.
+UNPACK=$(grep -n '^tar -C / -xf -' "$PAYLOAD" | head -1 | cut -d: -f1)
+check "the payload unpacks the archive" $([ -n "$UNPACK" ] && echo 1 || echo 0)
+STOPS="$TMP/stop-stanza"
+head -n "$(( ${UNPACK:-1} - 1 ))" "$PAYLOAD" > "$STOPS"
+
 for f in "$OVL"/etc/init.d/S*; do
     [ -e "$f" ] || continue
     s=$(basename "$f")
     check "deploy.sh sends $s"  $(grep -q "etc/init.d/$s" "$DEPLOY" && echo 1 || echo 0)
-    check "deploy.sh stops $s"  $(grep -q "^/etc/init.d/$s stop" "$DEPLOY" && echo 1 || echo 0)
+    # Named in the stanza that runs before the unpack, whether the stops are a
+    # loop over a list or a line each. A service missing from it is a service
+    # whose running binary is replaced underneath it.
+    check "deploy.sh stops $s before unpacking" \
+          $(grep -qw -- "$s" "$STOPS" && echo 1 || echo 0)
     check "deploy.sh starts $s" $(grep -q "^/etc/init.d/$s start" "$DEPLOY" && echo 1 || echo 0)
 done
+
+# The guarantee itself, in three parts: a stop is attempted, its result is
+# tested, and a failure ends the deployment before anything is written. The
+# `|| true` check is the regression this replaced - it hid every failed stop
+# and left boards running a mixture of old services and new files.
+check "the stanza invokes the init scripts' stop" \
+      $(grep -qE '/etc/init\.d/[^ ]+ stop' "$STOPS" && echo 1 || echo 0)
+check "and tests whether the stop succeeded" \
+      $(grep -qE 'if +! +[^|]*/etc/init\.d/[^ ]+ stop|/etc/init\.d/[^ ]+ stop[^|]*\|\|' "$STOPS" &&
+        echo 1 || echo 0)
+check "no stop has its failure discarded" \
+      $(grep -qE '/etc/init\.d/[^ ]+ stop.*\|\|[[:space:]]*true' "$STOPS" && echo 0 || echo 1)
+check "a failed stop aborts before the unpack" \
+      $(grep -qE '^[[:space:]]*exit +[1-9]' "$STOPS" && echo 1 || echo 0)
 
 # Ownership: a bench deployment must land root-owned, like the flashed image.
 # Before this was set, every file arrived owned by the build host's uid (1000,
