@@ -403,7 +403,6 @@ static void drain_receive(struct radiod *rd)
                 continue;
             }
             LOG_WARN("receive failed: %d", r);
-            update_rx_state(rd);
             break;
         }
         const struct radio_profile *p = &rd->be.profile;
@@ -429,6 +428,15 @@ static void drain_receive(struct radiod *rd)
         cJSON_AddNumberToObject(data, "airtime_ms", airtime);
         broadcast(rd, pocketipc_event("radio.rx", data));
     }
+    /* Whatever ended the drain, the backend re-entered receive - or tried to -
+     * while doing it, and only it knows whether that worked. SX1262 re-enters
+     * after reading a packet and after a CRC error, and reports the result
+     * through is_receiving() alone (backend_sx1262.cpp, sx_receive). This used
+     * to run on the one exit that never happens in practice, the unexpected
+     * read failure, so a transceiver that stopped receiving while handing over
+     * a good packet was reported as "rx" for the rest of the session: the
+     * state never became "error", and recover_rx only runs in "error". */
+    update_rx_state(rd);
 }
 
 /* ---- methods ---------------------------------------------------------- */
@@ -502,7 +510,15 @@ static cJSON *m_configure(struct radiod *rd, const cJSON *params, int *code, cha
         *code = rc;
         return NULL;
     }
-    if (rd->be.ops->configure(&rd->be, &p, msg, n) < 0) {
+    rc = rd->be.ops->configure(&rd->be, &p, msg, n);
+    /* Either way the transceiver has been told to change mode and has been
+     * asked back into receive, so what it is doing now is a question for it.
+     * A configure that failed part way is the case that matters: the profile
+     * this daemon reports is still the old one, and without this the state
+     * was still "rx" as well while the chip had stopped receiving.
+     * (The profile itself is not rolled back here; that is the rest of F3.) */
+    update_rx_state(rd);
+    if (rc < 0) {
         *code = POCKETIPC_ERR_BACKEND;
         return NULL;
     }

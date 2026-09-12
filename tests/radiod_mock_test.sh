@@ -131,6 +131,38 @@ sleep 1.5
 out=$("$POS" radio status); check "state recovers to rx within a second" '"state":[[:space:]]*"rx"' "$out"
 out=$("$POS" radio mock bogus=1 2>&1); check "unknown mock key rejected" 'code 2' "$out"
 
+# Cold review F2: receive mode lost while a good packet was being handed over.
+#
+# The checks above reach the backend through mock.set, and that handler
+# reconciles the daemon's state itself - so they passed whether or not the
+# receive path did. The SX1262 re-enters receive inside sx_receive(), after
+# readData(), and reports the result through is_receiving() alone: no control
+# call arrives, the packet is returned as good, and the drain used to end
+# without ever asking. The daemon then reported "rx" for the rest of the
+# session while the transceiver was deaf, and recover_rx never ran because it
+# only runs in "error".
+"$POS" radio mock rx_fails_after_receive=1 >/dev/null
+out=$("$POS" radio status)
+check "arming the fault does not itself change the state" '"state":[[:space:]]*"rx"' "$out"
+# The section above already logged recovery attempts, so only a new one counts.
+recover_before=$(grep -c 'receive recovery failed' "$POCKETOS_RUNTIME_DIR/radiod.log")
+out=$("$POS" radio inject 5445); check "a packet is injected" '{' "$out"
+sleep 0.5
+out=$("$POS" radio stats)
+check "the packet was still received" '"rx_packets":[[:space:]]*2' "$out"
+out=$("$POS" radio status)
+check "and the daemon no longer reports rx" '"state":[[:space:]]*"error"' "$out"
+sleep 1.5
+out=$("$POS" radio status)
+check "it stays error while the backend is deaf" '"state":[[:space:]]*"error"' "$out"
+recover_after=$(grep -c 'receive recovery failed' "$POCKETOS_RUNTIME_DIR/radiod.log")
+check "and the recovery loop is running against it" "yes" \
+      "$([ "$recover_after" -gt "$recover_before" ] && echo yes || echo no)"
+"$POS" radio mock rx_fails_after_receive=0 >/dev/null
+sleep 0.3
+out=$("$POS" radio status)
+check "a backend that can receive again is reported as rx" '"state":[[:space:]]*"rx"' "$out"
+
 # Protocol robustness: garbage frame must not crash radiod.
 python3 - "$POCKETOS_RUNTIME_DIR/radiod.sock" <<'PY' || true
 import socket, sys

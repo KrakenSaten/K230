@@ -19,6 +19,12 @@ struct mock_priv {
     size_t head;
     size_t count;
     int rx_failing;   /* debug knob: simulate a transceiver that cannot enter RX */
+    /* debug knob: re-entering receive fails while a packet is being handed
+     * over, which is what the SX1262 does - sx_receive() calls enter_rx()
+     * after readData() and reports the result through is_receiving() alone.
+     * Setting rx_failing from outside cannot stand in for that: it arrives as
+     * a control call, and the daemon reconciles its state around those. */
+    int rx_fails_after_receive;
 };
 
 static int mock_init(struct radio_backend *b, char *err, size_t errlen)
@@ -80,6 +86,11 @@ static int mock_receive(struct radio_backend *b, struct radio_rx_packet *pkt)
     *pkt = m->queue[m->head];
     m->head = (m->head + 1) % MOCK_QUEUE;
     m->count--;
+    /* The packet is good and is returned; going back into receive afterwards
+     * is what failed. Nothing in this return value says so. */
+    if (m->rx_fails_after_receive) {
+        m->rx_failing = 1;
+    }
     return 1;
 }
 
@@ -137,6 +148,13 @@ static int mock_debug_set(struct radio_backend *b, const char *key, int value)
 
     if (strcmp(key, "rx_failing") == 0) {
         m->rx_failing = value != 0;
+        return 0;
+    }
+    if (strcmp(key, "rx_fails_after_receive") == 0) {
+        m->rx_fails_after_receive = value != 0;
+        if (!value) {
+            m->rx_failing = 0;
+        }
         return 0;
     }
     return -ENOENT;
