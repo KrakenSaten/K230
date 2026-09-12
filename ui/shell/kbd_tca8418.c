@@ -60,6 +60,20 @@
  * every tick, which is the cost the gate exists to avoid. */
 #define GATE_FALSE_LIMIT 5
 
+/* And the same in the other direction: how many sweeps may find events while
+ * the line reads idle before it is disbelieved. This is not symmetry for its
+ * own sake. A sweep drains whatever the line says, so between reading the
+ * level and reading the FIFO there is a window - a claim plus one or two
+ * register reads, one to two milliseconds on this bus - in which a key
+ * genuinely pressed just now arrives and is found. Blaming the line for that
+ * single coincidence would switch the gate off during ordinary typing: at
+ * eight events per second and two sweeps per second it happens within a
+ * minute or two, and the gate never comes back. Requiring the evidence to
+ * repeat, and clearing it below the moment the line is seen asserted,
+ * separates a line stuck high - which never reads asserted at all, so it
+ * reaches the limit in under two seconds - from that coincidence. */
+#define GATE_FALSE_IDLE_LIMIT 2
+
 static void bus_release(struct kbd_tca8418 *k)
 {
     k->bus->release(k->bus->ctx);
@@ -157,6 +171,7 @@ int kbd_tca8418_init(struct kbd_tca8418 *k, const struct kbd_bus *bus,
     k->state = KBD_TCA8418_ABSENT;
     k->gate = false;
     k->gate_false_asserted = 0;
+    k->gate_false_idle = 0;
     k->next_sweep_us = now_us;
     k->next_retry_us = 0;
     k->retry_count = 0;
@@ -182,7 +197,7 @@ int kbd_tca8418_init(struct kbd_tca8418 *k, const struct kbd_bus *bus,
 
 /* The FIFO drain of design §6. The bus is already claimed. */
 static int drain(struct kbd_tca8418 *k, kbd_tca8418_event_fn on_event,
-                 void *user)
+                 kbd_tca8418_overflow_fn on_overflow, void *user)
 {
     uint8_t int_stat = 0;
     uint8_t count_reg = 0;
@@ -203,9 +218,15 @@ static int drain(struct kbd_tca8418 *k, kbd_tca8418_event_fn on_event,
     if (int_stat_valid && (int_stat & INT_STAT_OVERFLOW)) {
         /* The controller dropped events. Whatever the key map believes
          * about held modifiers may now be wrong, so the caller is told to
-         * forget it; then the drain continues, as the vendor's does. */
+         * forget it - here, before a single event of this batch is handed
+         * over, because the survivors are exactly the ones whose modifier
+         * context was destroyed. Then the drain continues, as the vendor's
+         * does. */
         k->overflow_count++;
         k->overflow_pending = true;
+        if (on_overflow) {
+            on_overflow(user);
+        }
     }
 
     /* When the count register reads zero the FIFO may still hold events, so
@@ -243,7 +264,8 @@ static int drain(struct kbd_tca8418 *k, kbd_tca8418_event_fn on_event,
 }
 
 int kbd_tca8418_poll(struct kbd_tca8418 *k, uint64_t now_us,
-                     kbd_tca8418_event_fn on_event, void *user)
+                     kbd_tca8418_event_fn on_event,
+                     kbd_tca8418_overflow_fn on_overflow, void *user)
 {
     bool swept;
     int level;
@@ -267,11 +289,23 @@ int kbd_tca8418_poll(struct kbd_tca8418 *k, uint64_t now_us,
     }
 
     swept = now_us >= k->next_sweep_us;
-    if (k->gate && !swept) {
+    /* The level is read on the sweep too, and not only when it decides
+     * whether to drain. A sweep drains either way, so the only thing the
+     * reading is wanted for there is the verdict below: a sweep that finds
+     * events can only be evidence against the line if the line was claiming
+     * to be idle at the time. Without this the verdict had nothing to go on
+     * and blamed the line for every sweep that happened to coincide with a
+     * keypress, which is most of them once someone is typing. */
+    level = -1;
+    if (k->gate) {
         level = k->bus->irq_level(k->bus->ctx);
         if (level < 0) {
             k->gate = false; /* the line went away; poll unconditionally */
-        } else if (level != 0) {
+        } else if (level == 0) {
+            /* Asserted: the line is doing its job. Whatever idle sweeps were
+             * counted against it were coincidences, not a stuck line. */
+            k->gate_false_idle = 0;
+        } else if (!swept) {
             return 0; /* idle, and the bus is never touched */
         }
     }
@@ -283,7 +317,7 @@ int kbd_tca8418_poll(struct kbd_tca8418 *k, uint64_t now_us,
         schedule_retry(k, now_us);
         return -1;
     }
-    handled = drain(k, on_event, user);
+    handled = drain(k, on_event, on_overflow, user);
     bus_release(k);
 
     if (handled < 0) {
@@ -291,11 +325,20 @@ int kbd_tca8418_poll(struct kbd_tca8418 *k, uint64_t now_us,
         return -1;
     }
     /* Two ways the gate can lie, and both switch it off. A line stuck low
-     * asks for an I2C poll that finds nothing, every tick; a line stuck
-     * high hides events until the sweep finds them. */
+     * asks for an I2C poll that finds nothing, every tick; a line stuck high
+     * hides events until the sweep finds them.
+     *
+     * The stuck-high verdict requires the line to have actually read idle
+     * (level > 0) while the sweep found events. A line that read asserted
+     * told the truth and is left alone however many events turned up - that
+     * is the ordinary case while someone is typing, and treating it as a
+     * lie is what used to switch the gate off within seconds of first use. */
     if (k->gate) {
-        if (swept && handled > 0) {
-            k->gate = false;
+        if (swept && handled > 0 && level > 0) {
+            k->gate_false_idle++;
+            if (k->gate_false_idle > GATE_FALSE_IDLE_LIMIT) {
+                k->gate = false;
+            }
         } else if (!swept && handled == 0) {
             k->gate_false_asserted++;
             if (k->gate_false_asserted > GATE_FALSE_LIMIT) {

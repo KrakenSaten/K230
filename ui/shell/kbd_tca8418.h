@@ -46,6 +46,7 @@ struct kbd_tca8418 {
      * truth, in either direction. */
     bool gate;
     unsigned gate_false_asserted; /* said "pending", drain found nothing */
+    unsigned gate_false_idle;     /* said "idle", a sweep found events */
     uint64_t next_sweep_us;       /* unconditional drain, even when gated */
 
     /* Retry throttle after a failure: 2 s, then 5 s, then 30 s. */
@@ -63,6 +64,18 @@ struct kbd_tca8418 {
  * release, bits 0..6 the matrix code. */
 typedef void (*kbd_tca8418_event_fn)(void *user, uint8_t raw);
 
+/* Called when a drain finds the overflow bit set, *before* any event from
+ * that same drain is delivered. The order is the whole point. CFG sets
+ * OVR_FLOW_M, so a full FIFO overwrites its oldest entries: the events that
+ * survive to be drained are the newest, and the ones the controller threw
+ * away are the older ones that would have established or released the
+ * modifiers. Delivering the survivors first would translate them with a
+ * modifier state the dropped events already invalidated - a Shift release
+ * lost in the overflow turning the next sixteen letters into symbols. So the
+ * caller is told to forget what it believes first, and reads the batch
+ * after. */
+typedef void (*kbd_tca8418_overflow_fn)(void *user);
+
 /* Probe and configure. Returns 1 when the controller answered, 0 when it did
  * not. Zero is a normal outcome: the base board may simply not be attached,
  * and the shell runs on touch alone (design §9). */
@@ -70,13 +83,18 @@ int kbd_tca8418_init(struct kbd_tca8418 *k, const struct kbd_bus *bus,
                      uint64_t now_us);
 
 /* One poll. Returns the number of events delivered, or -1 when the bus
- * failed. Cheap when the gate is trusted and nothing is pending. */
+ * failed. Cheap when the gate is trusted and nothing is pending. Either
+ * callback may be NULL; on_overflow, when given, runs before the events of
+ * the drain that reported the overflow. */
 int kbd_tca8418_poll(struct kbd_tca8418 *k, uint64_t now_us,
-                     kbd_tca8418_event_fn on_event, void *user);
+                     kbd_tca8418_event_fn on_event,
+                     kbd_tca8418_overflow_fn on_overflow, void *user);
 
-/* True once per overflow. The caller must drop whatever it believes about
- * held modifiers, because the controller has just dropped events that would
- * have released them. */
+/* True once per overflow, for reporting it. Dropping the modifier state is
+ * *not* done from here: by the time a poll has returned, the batch that
+ * arrived with the overflow has already been delivered, which is one batch
+ * too late. That is what on_overflow above is for; this says only that it
+ * happened, so the caller can log it once. */
 bool kbd_tca8418_take_overflow(struct kbd_tca8418 *k);
 
 /* True while the controller is configured and being drained. */

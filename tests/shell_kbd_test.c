@@ -102,6 +102,14 @@ static int fake_read(void *ctx, uint8_t reg, uint8_t *value)
 static int fake_write(void *ctx, uint8_t reg, uint8_t value)
 {
     (void)ctx;
+    if (reg == 0x02) {
+        /* INT_STAT is write-1-to-clear. Storing what was written instead
+         * left OVR_FLOW_INT standing after the driver's own clear, so every
+         * drain reported an overflow and the Shift case below passed without
+         * ever exercising the overflow it injected. */
+        chip.reg[reg] = (uint8_t)(chip.reg[reg] & ~value);
+        return 0;
+    }
     chip.reg[reg] = value;
     return 0;
 }
@@ -203,16 +211,38 @@ int main(void)
     settle();
     check_str("F1 types nothing", lv_textarea_get_text(field), "w_");
 
-    /* ---- 5. an overflow drops what is believed about Shift -------------- */
+    /* ---- 5. an overflow drops what is believed about Shift -------------- *
+     *
+     * The controller's CFG sets OVR_FLOW_M, so a full FIFO overwrites its
+     * oldest entries: what survives is the newest events and what was thrown
+     * away is older - which is where a Shift release goes missing. The batch
+     * that arrives carrying the overflow flag must therefore be translated
+     * with the modifier state already dropped, not with the stale one.
+     *
+     * Both events are fed before settling so they land in a single drain,
+     * which is the case that matters: the reset has to happen inside that
+     * drain, ahead of the events, rather than after the poll returns. With
+     * the reset one batch late this reads "w__" - the W arrives shifted,
+     * because a Shift the controller never released is still believed. */
 
     feed(SHIFT_PRESS);
     settle();
-    chip.reg[0x02] = 0x08; /* OVR_FLOW_INT: the controller lost events */
+    check_str("Shift is held and nothing has been typed by it",
+              lv_textarea_get_text(field), "w_");
+    chip.reg[0x02] = 0x08; /* OVR_FLOW_INT: the controller lost events, and
+                            * the Shift release was among them */
     feed(W_PRESS);
     settle();
-    chip.reg[0x02] = 0x00;
-    check_str("after an overflow a held Shift is no longer believed",
+    check_str("the batch arriving with an overflow is not shifted",
               lv_textarea_get_text(field), "w_w");
+
+    /* And the state really was dropped rather than merely skipped once: the
+     * next key is unshifted too, with no release ever delivered. */
+    feed(W_PRESS);
+    feed(W_RELEASE);
+    settle();
+    check_str("and Shift stays dropped afterwards",
+              lv_textarea_get_text(field), "w_ww");
 
     /* ---- 6. destroy stops the keyboard --------------------------------- */
 
@@ -221,7 +251,7 @@ int main(void)
     feed(W_RELEASE);
     settle();
     check_str("nothing arrives once the keyboard is destroyed",
-              lv_textarea_get_text(field), "w_w");
+              lv_textarea_get_text(field), "w_ww");
 
     printf("shell_kbd_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
