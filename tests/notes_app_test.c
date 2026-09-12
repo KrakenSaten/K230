@@ -20,10 +20,12 @@
 #include "app.h"
 #include "notes_store.h"
 #include "notes_view.h"
+#include "pocketlog/pocketlog.h"
 #include "pocketui.h"
 #include "pos_keyboard.h"
 
 #include <fcntl.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -73,6 +75,20 @@ void pocketos_shell_set_status_hint(const char *text)
 void pocketos_shell_go_home(void) { }
 int pocketos_shell_reduced_motion(void) { return 0; }
 const char *pocketos_shell_radio_state(void) { return NULL; }
+
+/* pocketlog's one entry point, so what the app says on the way out can be
+ * read here without a log directory to go with it. */
+static char g_logged[256];
+
+void pocketlog_write(enum pocketlog_level level, const char *fmt, ...)
+{
+    va_list ap;
+
+    (void)level;
+    va_start(ap, fmt);
+    vsnprintf(g_logged, sizeof(g_logged), fmt, ap);
+    va_end(ap);
+}
 
 void pocketos_shell_keyboard_show(enum pocketos_kb_return ret,
                                   void (*on_done)(void *user), void *user)
@@ -674,6 +690,128 @@ int main(void)
         tap_obj(find_labelled(app_body, "Done"));
         check("an edited note is written", !has_mtime(path, old));
         check("with the edit in it", read_raw(path, raw, sizeof(raw)) == 22 && raw[21] == '!');
+        app_stop();
+    }
+
+    /* ---- 14b. a save that fails keeps what it was given ----------------- */
+
+    /* Done used to report "Note not saved" and then go to the list anyway,
+     * with open_id cleared: the typed text was still in the field, but the
+     * app no longer knew which note it belonged to, and opening the next one
+     * wrote these words into that one's file. The store's own failure is
+     * forced without touching permissions, so this runs the same as root and
+     * as anyone else: a directory stands where the note's file goes, and
+     * rename() onto a directory cannot succeed for anybody.
+     * Cold review F1. */
+    wipe();
+    {
+        static char raw[NOTES_MAX_BYTES + 1];
+        char path[256];
+
+        notes_store_write(70, "Blocked\nfirst");
+        notes_store_path(70, path, sizeof(path));
+
+        app_start();
+        tap_obj(find_labelled(app_body, "Blocked"));
+        field = find_field(app_body);
+        check("the note opens editable", field && !lv_obj_has_state(field, LV_STATE_DISABLED));
+        tap_key("?123");
+        tap_key("!");
+        tap_key("ABC");
+        check_str("the edit is in the field", lv_textarea_get_text(field), "Blocked\nfirst!");
+
+        /* Nothing can be renamed onto this. */
+        unlink(path);
+        mkdir(path, 0755);
+
+        tap_obj(find_labelled(app_body, "Done"));
+        check("Done on a failed save stays in the editor",
+              !label_present(app_body, "New note"));
+        check("with the text still in it",
+              strcmp(lv_textarea_get_text(field), "Blocked\nfirst!") == 0);
+        check("and says the note was not saved", !strcmp(g_hint, "Note not saved"));
+        check("and says so on the field too",
+              label_present(app_body, "This note could not be saved. It is still "
+                                      "here; Done tries again."));
+
+        /* Nothing else may be opened over it: the list is not reachable, so
+         * the only way another note could be opened is the app being torn
+         * down, which is the case below. */
+        rmdir(path);
+        tap_obj(find_labelled(app_body, "Done"));
+        check("Done again, with the way clear, saves and leaves",
+              label_present(app_body, "New note"));
+        check("the edit reached the disk",
+              read_raw(path, raw, sizeof(raw)) == 14 &&
+                  memcmp(raw, "Blocked\nfirst!", 14) == 0);
+        check("and the hint is cleared", !strcmp(g_hint, ""));
+        app_stop();
+    }
+
+    /* ---- 14c. the app torn down over a failed save says so -------------- */
+
+    /* destroy() has nowhere to put the text and no one to ask, so the edit is
+     * lost - but it is named in the log instead of the app closing as though
+     * it had saved. */
+    wipe();
+    {
+        static char raw[NOTES_MAX_BYTES + 1];
+        char path[256];
+
+        notes_store_write(71, "Doomed\nfirst");
+        notes_store_path(71, path, sizeof(path));
+
+        app_start();
+        tap_obj(find_labelled(app_body, "Doomed"));
+        tap_key("?123");
+        tap_key("!");
+        tap_key("ABC");
+        unlink(path);
+        mkdir(path, 0755);
+
+        g_logged[0] = '\0';
+        app_stop(); /* the shell's Back, which destroys the app */
+        check("leaving the app over a failed save logs it",
+              strstr(g_logged, "notes: note 71") != NULL);
+        check("and says the edits are lost", strstr(g_logged, "lost") != NULL);
+        rmdir(path);
+        check("nothing was written in its place",
+              read_raw(path, raw, sizeof(raw)) == -1);
+    }
+
+    /* ---- 14d. a delete that fails is not reported as a delete ----------- */
+
+    wipe();
+    {
+        char path[256];
+        char block[288]; /* room for the path and the file kept inside it */
+
+        notes_store_write(72, "Stubborn\nbody");
+        notes_store_path(72, path, sizeof(path));
+
+        app_start();
+        tap_obj(find_labelled(app_body, "Stubborn"));
+        field = find_field(app_body);
+
+        /* unlink() on a non-empty directory fails for root too. */
+        unlink(path);
+        mkdir(path, 0755);
+        snprintf(block, sizeof(block), "%s/keep", path);
+        close(open(block, O_CREAT | O_WRONLY, 0644));
+
+        tap_obj(find_labelled(app_body, "Delete"));
+        tap_obj(find_labelled(app_body, "Delete")); /* the confirmation */
+        check("a failed delete does not go to the list",
+              !label_present(app_body, "New note"));
+        check("it says the note was not deleted", !strcmp(g_hint, "Note not deleted"));
+        check("and says so on the field",
+              label_present(app_body, "This note could not be deleted. It is "
+                                      "still here."));
+        check("the text is not thrown away either",
+              field && strcmp(lv_textarea_get_text(field), "Stubborn\nbody") == 0);
+
+        unlink(block);
+        rmdir(path);
         app_stop();
     }
 

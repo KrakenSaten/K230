@@ -15,11 +15,17 @@
  * list saves, and so does leaving the app, because the v0.1 lifecycle has no
  * pause and destroy() is the last moment an app gets (ADR-002).
  *
+ * A save that fails does not let go of what it was given. Done keeps the
+ * editor, the text and the note it belongs to, and can be pressed again;
+ * only the app being torn down has nowhere to keep it, and that says so in
+ * the log rather than closing quietly over it.
+ *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #include "app.h"
 #include "notes_store.h"
 #include "notes_view.h"
+#include "pocketlog/pocketlog.h"
 #include "pocketui.h"
 
 #include <stdio.h>
@@ -71,8 +77,12 @@ static int save_open_note(struct notes_app *a)
         return 0;
     }
     if (notes_text_is_blank(text)) {
+        /* A note emptied on purpose is removed, and a removal that did not
+         * happen is a failure like any other: the note is still on disk, and
+         * reporting success would send the owner back to a list that still
+         * has it. */
         if (a->open_existing) {
-            notes_store_delete(a->open_id);
+            return notes_store_delete(a->open_id);
         }
         return 0;
     }
@@ -81,13 +91,22 @@ static int save_open_note(struct notes_app *a)
 
 /* ---- the editor -------------------------------------------------------- */
 
+/* The way out of the editor, and the only place a note is written on the way
+ * to the list. A save that failed does not take the editor with it: the text
+ * is the only copy there is - open_id names the note it belongs to, and
+ * opening another note over it would write this one's words into that one's
+ * file. It stays here, typed as it was, and Done tries again. */
 static void editor_leave(struct notes_app *a)
 {
     if (save_open_note(a) != 0) {
         pocketos_shell_set_status_hint("Note not saved");
-    } else {
-        pocketos_shell_set_status_hint("");
+        pocketui_text_field_set_error(a->field,
+                                      "This note could not be saved. It is still "
+                                      "here; Done tries again.");
+        return;
     }
+    pocketos_shell_set_status_hint("");
+    pocketui_text_field_set_error(a->field, NULL);
     pocketos_shell_keyboard_hide();
     a->open_id = 0;
     build_list(a);
@@ -181,10 +200,20 @@ static void on_confirm_delete(lv_event_t *e)
     struct notes_app *a = lv_event_get_user_data(e);
 
     /* Only here, and only on this press: nothing was removed when the dialog
-     * opened (DS §17.5). */
-    if (a->open_existing) {
-        notes_store_delete(a->open_id);
+     * opened (DS §17.5). A delete that failed leaves the note where it was,
+     * so the editor does too, with its text: emptying the field and going to
+     * the list would be this app agreeing that a note it can still see is
+     * gone. */
+    if (a->open_existing && notes_store_delete(a->open_id) != 0) {
+        pocketos_shell_set_status_hint("Note not deleted");
+        show_screen(a, NOTES_SCREEN_EDITOR);
+        pocketui_text_field_set_error(a->field,
+                                      "This note could not be deleted. It is "
+                                      "still here.");
+        return;
     }
+    pocketos_shell_set_status_hint("");
+    pocketui_text_field_set_error(a->field, NULL);
     a->open_id = 0;
     lv_textarea_set_text(a->field, "");
     build_list(a);
@@ -457,8 +486,15 @@ static void notes_destroy(void *priv)
         return;
     }
     /* The last moment this app gets: v0.1 has no pause, so whatever is in
-     * the editor is saved here or lost (ADR-002). */
-    save_open_note(a);
+     * the editor is saved here or lost (ADR-002). There is nowhere left to
+     * put it and no one left to ask, so a failure here is text the owner
+     * typed and will not get back. It is at least said out loud: silence
+     * would make it look like an ordinary close. */
+    if (save_open_note(a) != 0) {
+        LOG_ERROR("notes: note %u could not be saved on the way out; "
+                  "its edits are lost", (unsigned)a->open_id);
+        pocketos_shell_set_status_hint("Note not saved");
+    }
     pocketos_shell_keyboard_hide();
     lv_free(a);
 }
