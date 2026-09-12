@@ -105,6 +105,25 @@ static unsigned tail;
 static bool release_pending;
 static pos_key_t last_key;
 
+/* ---- one-deep group redirection state (DS §18.8) ---------------------- *
+ *
+ * Declared here rather than beside the functions below so that
+ * pos_input_deinit() can clear them: a redirection that outlived a deinit
+ * would make the next init believe it was still in effect. */
+static lv_group_t *saved_group; /* what the device delivered to before */
+static lv_obj_t *saved_focus;   /* and what was focused in it */
+static bool redirected;
+
+/* LVGL takes a deleted object out of its group, but the pointer kept here
+ * would still dangle. Rather than test validity at pop time, the object says
+ * so itself: an app destroyed while an alert is up clears this, and the pop
+ * falls back to whatever the restored group focuses on its own. */
+static void saved_focus_deleted(lv_event_t *e)
+{
+    (void)e;
+    saved_focus = NULL;
+}
+
 unsigned pos_input_queued(void)
 {
     return head - tail;
@@ -184,6 +203,18 @@ void pos_input_deinit(void)
     }
     head = tail = 0;
     release_pending = false;
+
+    /* A redirection must not outlive the stream it redirected. Without this,
+     * a deinit taken while an alert was up would leave the next init
+     * believing the device still pointed somewhere else, and the first push
+     * after it would be refused. After this, an init is equivalent to a
+     * fresh process start. */
+    if (saved_focus) {
+        lv_obj_remove_event_cb(saved_focus, saved_focus_deleted);
+    }
+    redirected = false;
+    saved_group = NULL;
+    saved_focus = NULL;
 }
 
 bool pos_input_push_key(pos_key_t key)
@@ -253,4 +284,47 @@ void pos_input_focus(lv_obj_t *obj)
 lv_obj_t *pos_input_focused(void)
 {
     return group ? lv_group_get_focused(group) : NULL;
+}
+
+/* ---- one-deep group redirection (DS §18.8) ----------------------------- */
+
+bool pos_input_push_group(lv_group_t *g)
+{
+    if (!indev || !group || !g || redirected) {
+        return false; /* one deep: a second push is refused, not stacked */
+    }
+    saved_group = group;
+    saved_focus = lv_group_get_focused(group);
+    if (saved_focus) {
+        lv_obj_add_event_cb(saved_focus, saved_focus_deleted, LV_EVENT_DELETE, NULL);
+    }
+    lv_indev_set_group(indev, g);
+    redirected = true;
+    return true;
+}
+
+void pos_input_pop_group(void)
+{
+    if (!redirected) {
+        return; /* unmatched pop: nothing to undo */
+    }
+    redirected = false;
+    if (indev) {
+        lv_indev_set_group(indev, saved_group);
+    }
+    if (saved_focus) {
+        lv_obj_remove_event_cb(saved_focus, saved_focus_deleted);
+        /* Only if it still belongs where it did: an object that left the
+         * group while the alert was up must not be dragged back into it. */
+        if (lv_obj_get_group(saved_focus) == saved_group) {
+            lv_group_focus_obj(saved_focus);
+        }
+    }
+    saved_group = NULL;
+    saved_focus = NULL;
+}
+
+bool pos_input_group_redirected(void)
+{
+    return redirected;
 }

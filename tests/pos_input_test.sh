@@ -57,5 +57,18 @@ check "no app binds to a keyboard or a source (DS 17.4)" \
     "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
 
+# 5. DS section 18.8: the group redirection belongs to the shell's alert. An
+#    app that could redirect the stream could take every key from the rest of
+#    PocketOS, or leave it redirected.
+hits=$(grep -rnE 'pos_input_push_group|pos_input_pop_group' apps/ 2>/dev/null)
+check "no app redirects the key stream (DS 18.8)" \
+    "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+
+# The redirection is one deep by construction, so exactly one place may push
+# and one may pop. Both live in the alert.
+check "only the alert pushes the redirection" \
+    "$([ "$(grep -rl 'pos_input_push_group' ui/ apps/ | grep -vc 'pos_input\.[ch]')" = "1" ] && echo 1 || echo 0)"
+
 echo "pos_input_test.sh: $failed failure(s)"
 exit $((failed > 0))

@@ -35,6 +35,7 @@ find_package(PkgConfig REQUIRED)
 add_executable(pocketos-shell
     shell.c
     shell_ipc.c
+    shell_kb_state.c
     settings.c
     platform_${POCKETOS_DISPLAY}.c
     ../pocketui/pocketui.c
@@ -390,6 +391,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/clock/clock_alert.c
         ${REPO_DIR}/apps/clock/clock_runtime.c
         shell_alarm.c
+        shell_kb_state.c
         ../pocketui/pocketui.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
@@ -407,6 +409,39 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(clock_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(clock_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # The system alert's keyboard isolation and focus ownership (run by
+    # tests/alert_shell_test.sh). DS v0.1 section 18.5, 18.6 and 18.8: while
+    # an alert holds the panel nothing typed may reach the app underneath.
+    # It links shell_kb_state.c so the suppression rule under test is the
+    # shell's own and not a copy of it.
+    add_executable(shell_alarm_test
+        ${REPO_DIR}/tests/shell_alarm_test.c
+        shell_alarm.c
+        shell_kb_state.c
+        ${REPO_DIR}/apps/clock/clock_engine.c
+        ${REPO_DIR}/apps/clock/clock_store.c
+        ${REPO_DIR}/apps/clock/clock_time.c
+        ${REPO_DIR}/apps/clock/clock_alert.c
+        ${REPO_DIR}/apps/clock/clock_runtime.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${REPO_DIR}/core/pocketpaths.c
+        ${POCKETUI_FONTS})
+    target_include_directories(shell_alarm_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/clock")
+    target_compile_options(shell_alarm_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(shell_alarm_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(shell_alarm_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(shell_alarm_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(shell_alarm_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
     # The physical keyboard's translation layer (run by
     # tests/pos_keymap_test.sh). Pure, but it speaks LVGL's key vocabulary,

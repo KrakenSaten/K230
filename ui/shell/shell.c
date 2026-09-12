@@ -20,6 +20,7 @@
 #include "settings.h"
 #include "shell_alarm.h"
 #include "shell_ipc.h"
+#include "shell_kb_state.h"
 #include "shell_kbd.h"
 
 #include <errno.h>
@@ -243,7 +244,11 @@ static void on_keyboard_done(void *user)
 void pocketos_shell_keyboard_show(enum pocketos_kb_return ret,
                                   void (*on_done)(void *user), void *user)
 {
-    if (!sh.keyboard) {
+    /* An alert owns the panel exclusively while it is up (DS §18.5, §18.8).
+     * An app asking for the keyboard here is not misbehaving - it cannot see
+     * that an alert exists, and must not be able to - so the request is
+     * refused rather than reported. Hiding is never refused. */
+    if (!sh.keyboard || !pocketos_shell_keyboard_may_show()) {
         return;
     }
     sh.kb_done_cb = on_done;

@@ -385,6 +385,70 @@ int main(void)
     check("deinit releases the device", pos_input_indev() == NULL);
     check("a push without a stream is refused", !pos_input_push_key('a'));
 
+    /* ---- 11. group redirection, and what it must survive (DS §18.8) --- *
+     *
+     * The alert redirects the whole stream rather than filtering it. Two
+     * things have to hold for that to be safe: a redirection that cannot be
+     * established must report so rather than half-succeed, because the
+     * caller ties the keyboard's suppression to that answer; and a
+     * redirection must never outlive the stream, or the next init would
+     * start out believing it was still in effect. */
+
+    check("a redirection without a stream is refused",
+          !pos_input_push_group(NULL) && !pos_input_group_redirected());
+
+    pos_input_init();
+    check("a fresh stream is not redirected", !pos_input_group_redirected());
+
+    {
+        lv_group_t *alt = lv_group_create();
+        lv_group_t *other = lv_group_create();
+
+        check("a NULL group is refused", !pos_input_push_group(NULL));
+        check("and refusing it redirects nothing",
+              !pos_input_group_redirected());
+
+        check("a real group is taken", pos_input_push_group(alt));
+        check("and the stream says so", pos_input_group_redirected());
+        /* One deep: §18.6 allows one alert, so a second push is refused
+         * rather than stacked, and the first redirection stands. */
+        check("a second push is refused", !pos_input_push_group(other));
+        check("and the first redirection still stands",
+              pos_input_group_redirected());
+
+        pos_input_pop_group();
+        check("popping gives the stream back", !pos_input_group_redirected());
+        pos_input_pop_group();
+        check("an unmatched pop does nothing",
+              !pos_input_group_redirected());
+
+        /* The regression: a deinit taken while a redirection is in effect,
+         * with nobody to pop it. The next init must be indistinguishable
+         * from a fresh process start. */
+        check("redirected again", pos_input_push_group(alt));
+        pos_input_deinit();
+        pos_input_init();
+        check("a redirection does not survive deinit and init",
+              !pos_input_group_redirected());
+
+        /* ...and the stream still works afterwards, rather than merely
+         * reporting the right flag. */
+        {
+            lv_group_t *third = lv_group_create();
+
+            check("a push after the cycle is accepted",
+                  pos_input_push_group(third));
+            check("the stream is redirected again",
+                  pos_input_group_redirected());
+            pos_input_pop_group();
+            check("and pops cleanly", !pos_input_group_redirected());
+            lv_group_delete(third);
+        }
+        lv_group_delete(alt);
+        lv_group_delete(other);
+    }
+    pos_input_deinit();
+
     printf("pos_input_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

@@ -67,6 +67,29 @@ void pos_input_focus(lv_obj_t *obj);
 /* The focused object, or NULL when the group is empty or has just lost it. */
 lv_obj_t *pos_input_focused(void);
 
+/* ---- one-deep group redirection (DS §18.8) ----------------------------- *
+ *
+ * A system alert must take every key while it is up. The app underneath keeps
+ * its objects, its text and its focus, and receives nothing.
+ *
+ * The stream is not filtered to achieve that - filtering would mean deciding,
+ * key by key, what an app may still see, and getting one wrong is a leak.
+ * Instead the delivering device is pointed at another group for as long as
+ * the alert owns the panel, and pointed back afterwards. A group that is not
+ * delivered to cannot receive anything, whatever the key.
+ *
+ * One deep, deliberately: §18.6 allows exactly one active alert, so a stack
+ * would be dead code that invites stacking. A second push is refused and a
+ * pop with nothing pushed does nothing, so a repeated tick cannot unbalance
+ * it.
+ *
+ * The shell owns the alert and owns these. Apps must not call them. */
+bool pos_input_push_group(lv_group_t *group);
+void pos_input_pop_group(void);
+/* True while a redirection is in effect. For the shell, and for tests that
+ * check the depth never exceeds one. */
+bool pos_input_group_redirected(void);
+
 /* Keys still waiting. For tests, and for a diagnostic that wants to know
  * whether the queue is draining. */
 unsigned pos_input_queued(void);

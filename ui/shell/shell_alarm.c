@@ -11,6 +11,8 @@
 #include "clock_runtime.h"
 #include "clock_time.h"
 #include "pocketui.h"
+#include "pos_input.h"
+#include "shell_kb_state.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -19,7 +21,22 @@ static lv_obj_t *sheet;
 static lv_obj_t *title;
 static lv_obj_t *detail;
 static lv_obj_t *snooze_btn;
+static lv_obj_t *stop_btn;
 static lv_obj_t *button_row;
+
+/* The alert's own focus group (DS §18.8). The actions live here and never in
+ * the one app group: this sheet exists for the whole life of the shell, and a
+ * permanent member would be key-reachable from every screen (§17.2). The
+ * group is handed to pos_input only while the alert is up, so the actions are
+ * reachable exactly when they are on screen and at no other time. */
+static lv_group_t *alert_group;
+
+/* Whether this file currently holds the redirection and the suppression.
+ * Every show and hide is an edge: shell_alarm_sync() runs on every tick and
+ * on every ring change, and §18.6 forbids a repeated tick from doing the work
+ * twice. One push per show, one pop per hide, and this is what guarantees
+ * it. */
+static bool isolating;
 
 static void set_text(lv_obj_t *label, const char *text)
 {
@@ -108,15 +125,21 @@ void shell_alarm_create(lv_obj_t *parent)
                         LV_STATE_PRESSED);
     pos_style_add(snooze_btn, POS_STYLE_BUTTON_SECONDARY, 0);
 
-    /* Not added to the focus group: this sheet exists for the whole life of
-     * the shell, and a hidden button sitting in the one group would be
-     * reachable by key from every screen in PocketOS (DS §17.2). The alert
-     * is touch-driven until there is a physical keyboard to reconsider it
-     * for. */
     stop = pocketui_button(row, "Stop", on_stop, NULL);
+    stop_btn = stop;
     lv_obj_set_height(stop, POCKETUI_TOUCH_MIN);
     lv_obj_set_flex_grow(stop, 2); /* twice the width of Snooze */
     lv_obj_clear_flag(stop, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+
+    /* The actions go in the alert's own group, not the one app group. Both
+     * keep CLICK_FOCUSABLE cleared: a tap must not move focus (DS §17.2),
+     * while a key must be able to. Stop is added first, so it is what NEXT
+     * starts from and what §18.4 calls the dominant action; Snooze joins and
+     * leaves with its visibility in shell_alarm_sync(). */
+    alert_group = lv_group_create();
+    if (alert_group) {
+        lv_group_add_obj(alert_group, stop_btn);
+    }
 
     shell_alarm_sync();
 }
@@ -138,6 +161,15 @@ void shell_alarm_sync(void)
     if (e->ringing == CLOCK_RING_NONE) {
         clock_alert_end();
         lv_obj_add_flag(sheet, LV_OBJ_FLAG_HIDDEN);
+        /* The hide edge, and only the edge: a tick that finds nothing
+         * ringing must not pop a redirection it never pushed (§18.6). The
+         * keyboard is not put back - acknowledging an alert is not resuming
+         * the task it interrupted (§18.5). */
+        if (isolating) {
+            isolating = false;
+            pos_input_pop_group();
+            pocketos_shell_keyboard_set_suppressed(0);
+        }
         return;
     }
 
@@ -158,6 +190,12 @@ void shell_alarm_sync(void)
         }
         lv_obj_clear_flag(snooze_btn, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_style_pad_column(button_row, 8, 0);
+        /* Membership follows visibility, in the same breath as the flag: a
+         * control the owner can see is one NEXT can reach, and one they
+         * cannot see must not be (§18.4). */
+        if (alert_group && lv_obj_get_group(snooze_btn) != alert_group) {
+            lv_group_add_obj(alert_group, snooze_btn);
+        }
     } else {
         clock_alert_begin(CLOCK_ALERT_TIMER);
         set_text(title, "Timer finished");
@@ -168,6 +206,12 @@ void shell_alarm_sync(void)
          * edge for no reason anyone could see. */
         lv_obj_add_flag(snooze_btn, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_style_pad_column(button_row, 0, 0);
+        /* Nothing to snooze, so nothing to focus: it leaves the group with
+         * the same call that hides it, or NEXT would reach a control the
+         * owner cannot see. */
+        if (alert_group && lv_obj_get_group(snooze_btn) == alert_group) {
+            lv_group_remove_obj(snooze_btn);
+        }
     }
     set_text(detail, line);
 
@@ -176,6 +220,27 @@ void shell_alarm_sync(void)
          * does (DS §17.5). It is not given back: the owner came here to
          * stop an alarm, not to carry on typing. */
         pocketos_shell_keyboard_hide();
+
+        /* The show edge, once. Focus lands on Stop, the dominant action
+         * (§18.4), so the first key the owner presses acts on it; it is set
+         * after the push because the push saves the *app* group's focus, not
+         * this one's, so the order between them does not matter. While the
+         * redirection holds, the app underneath keeps its focus and its text
+         * and receives nothing: printable keys, Enter and Backspace alike go
+         * to a group that contains only these actions.
+         *
+         * Suppression follows the redirection and never precedes it. The two
+         * are one transition: hiding the keyboard is only worth making stick
+         * while the alert actually owns the keys, and a suppression raised
+         * before a push that then failed would refuse the keyboard for the
+         * rest of the session with nothing to show for it. */
+        if (!isolating && pos_input_push_group(alert_group)) {
+            isolating = true;
+            if (alert_group) {
+                lv_group_focus_obj(stop_btn);
+            }
+            pocketos_shell_keyboard_set_suppressed(1);
+        }
         lv_obj_clear_flag(sheet, LV_OBJ_FLAG_HIDDEN);
         lv_obj_move_foreground(sheet);
     }
