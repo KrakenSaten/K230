@@ -60,7 +60,13 @@ start() {
 		return 0
 	fi
 	mkdir -p /run/pocketos /var/run "$LOGDIR"
-	if [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+	# Both pids, not only the supervisor's. A supervisor that was killed
+	# leaves its daemon running and adopted by init, and starting a second
+	# supervisor on top of that gives the board two daemons.
+	_sup=""; _child=""
+	[ -s "$PIDFILE" ] && _sup=$(cat "$PIDFILE")
+	[ -s "$CHILD_PIDFILE" ] && _child=$(cat "$CHILD_PIDFILE")
+	if running "$_sup" || running "$_child"; then
 		echo "already running"; return 0
 	fi
 	for _ in 1 2 3 4 5 6 7 8 9 10; do [ -e /dev/dri/card0 ] && break; sleep 1; done
@@ -111,18 +117,26 @@ stop() {
 		wait_gone "$child"
 		forced=" (forced)"
 	fi
-	rm -f "$PIDFILE"
+	# The pid file is tracking, not decoration. Removing it before the
+	# processes are gone throws away the only handle the next stop has, and
+	# leaves the next start believing nothing is running - which is how a
+	# failed stop used to end with two daemons instead of none.
 	if running "$sup" || running "$child"; then
 		echo "FAILED, still running"
 		return 1
 	fi
+	rm -f "$PIDFILE"
 	echo "OK$forced"
 }
 
 case "$1" in
 	start) start ;;
 	stop) stop ;;
-	restart|reload) stop; start ;;
+	# A stop that failed leaves the daemon running and its binaries in use.
+	# Starting on top of it would add a second one, so restart stops here.
+	restart|reload) stop && start ;;
 	*) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
 esac
-exit 0
+# Whether the service actually stopped is the one thing a caller needs from
+# this script; `exit 0` told every caller it had.
+exit $?

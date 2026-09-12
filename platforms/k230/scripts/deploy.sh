@@ -36,9 +36,17 @@ tar -C "${T}" --owner=0 --group=0 --numeric-owner -cf - \
     usr/sbin/sysd usr/bin/pocketos-shell etc/pocketos-release etc/init.d/S50sysd etc/init.d/S60radiod \
     etc/init.d/S90pocketos-shell \
     | "${SSH[@]}" "${TARGET_HOST}" 'set -e
-/etc/init.d/S90pocketos-shell stop >/dev/null 2>&1 || true
-/etc/init.d/S60radiod stop >/dev/null 2>&1 || true
-/etc/init.d/S50sysd stop >/dev/null 2>&1 || true
+# The tar below replaces the binaries these services are executing, so a stop
+# that did not finish has to end the deployment rather than be unpacked over.
+# `|| true` hid exactly that, and the init scripts exited 0 whatever happened,
+# so a board could be left running a mixture of the old services and the new
+# files with nothing in the output to say so.
+for s in S90pocketos-shell S60radiod S50sysd; do
+	if ! /etc/init.d/$s stop; then
+		echo "deploy: $s could not be stopped; nothing has been installed" >&2
+		exit 1
+	fi
+done
 tar -C / -xf -
 sync
 /etc/init.d/S50sysd start

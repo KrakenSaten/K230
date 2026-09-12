@@ -490,5 +490,139 @@ check "S50 stop during a backoff leaves the state saying not running" \
       $([ "$(sed -n 's/^running=//p' "$ROOT/run/pocketos/sysd.state")" = "0" ] && echo 1 || echo 0)
 make_daemon "$ROOT/usr/sbin/sysd" "$ROOT/sysd.env"
 
+# ---- a stop that cannot finish (cold review F9) --------------------------
+
+# Every stop() removed the pid file before deciding whether anything had
+# actually stopped, every script ended `exit 0` whatever stop() returned, and
+# restart was `stop; start`. A daemon that would not go therefore produced a
+# caller told the stop had succeeded, no pid file left to try again with, and
+# a second supervisor started on top of the first.
+#
+# A stop that genuinely cannot finish needs a pid that answers kill -0 and
+# ignores every signal, SIGKILL included. That is a zombie: its parent is
+# alive and never reaps it. No root, no unkillable process, and nothing that
+# can escape this test - killing the parent reaps it.
+cat > "$ROOT/usr/bin/make-zombie" <<'EOZ'
+#!/bin/sh
+# usage: make-zombie <pidfile>. Writes the zombie's pid, then stays alive
+# without reaping it, so the pid keeps existing.
+sh -c 'exit 0' &
+echo $! > "$1"
+exec sleep 60
+EOZ
+chmod 0755 "$ROOT/usr/bin/make-zombie"
+
+zombie_pid=""
+zombie_parent=""
+start_zombie() {
+    rm -f "$ROOT/zombie.pid"
+    "$ROOT/usr/bin/make-zombie" "$ROOT/zombie.pid" &
+    zombie_parent=$!
+    wait_for "$ROOT/zombie.pid" || return 1
+    zombie_pid=$(cat "$ROOT/zombie.pid")
+    # Wait until it really is a zombie, so kill -0 answering is not just the
+    # process still running normally.
+    n=0
+    while [ $n -lt 50 ]; do
+        [ "$(awk '{print $3}' "/proc/$zombie_pid/stat" 2>/dev/null)" = "Z" ] && return 0
+        sleep 0.1; n=$((n + 1))
+    done
+    return 1
+}
+
+if start_zombie; then
+    check "the unkillable stand-in exists" $(kill -0 "$zombie_pid" 2>/dev/null && echo 1 || echo 0)
+    kill -KILL "$zombie_pid" 2>/dev/null
+    sleep 0.2
+    check "and survives SIGKILL" $(kill -0 "$zombie_pid" 2>/dev/null && echo 1 || echo 0)
+
+    # The scripts wait STOP_TIMEOUT (3 s) three times before giving up, which
+    # is 9 s per service of pure waiting. The staged copies get one second
+    # instead, and the rewrite is asserted like every other one here.
+    for svc in S50sysd S60radiod S90pocketos-shell; do
+        sed 's/^STOP_TIMEOUT=3$/STOP_TIMEOUT=1/' "$ROOT/etc/init.d/$svc" \
+            > "$ROOT/etc/init.d/$svc.quick"
+        chmod 0755 "$ROOT/etc/init.d/$svc.quick"
+    done
+    quick_ok=$(grep -l '^STOP_TIMEOUT=1$' "$ROOT/etc/init.d/S50sysd.quick" \
+               "$ROOT/etc/init.d/S60radiod.quick" \
+               "$ROOT/etc/init.d/S90pocketos-shell.quick" 2>/dev/null | wc -l)
+    check "the shortened stop budget reached all three copies" \
+          $([ "$quick_ok" -eq 3 ] && echo 1 || echo 0)
+
+    for svc in S50sysd S60radiod S90pocketos-shell; do
+        case $svc in
+        S50sysd)           pidfile="$ROOT/var/run/sysd-supervise.pid" ;;
+        S60radiod)         pidfile="$ROOT/var/run/radiod-supervise.pid" ;;
+        S90pocketos-shell) pidfile="$ROOT/var/run/pocketos-shell-supervise.pid" ;;
+        esac
+        script="$ROOT/etc/init.d/$svc.quick"
+
+        # The supervisor pid file names something that will not die.
+        printf '%s\n' "$zombie_pid" > "$pidfile"
+        before=$(count_supervisors)
+
+        out=$("$script" stop 2>&1); rc=$?
+        check "$svc stop that cannot finish says so" $(contains "$out" "FAILED")
+        check "$svc stop that cannot finish exits non-zero" \
+              $([ "$rc" -ne 0 ] && echo 1 || echo 0)
+        check "$svc keeps the pid file it could not stop with" \
+              $([ "$(cat "$pidfile" 2>/dev/null)" = "$zombie_pid" ] && echo 1 || echo 0)
+
+        out=$("$script" restart 2>&1); rc=$?
+        check "$svc restart after a failed stop exits non-zero" \
+              $([ "$rc" -ne 0 ] && echo 1 || echo 0)
+        check "$svc restart after a failed stop starts nothing" \
+              $([ "$(count_supervisors)" -eq "$before" ] && echo 1 || echo 0)
+        check "$svc restart after a failed stop does not announce a start" \
+              $([ "$(contains "$out" "Starting")" -eq 0 ] && echo 1 || echo 0)
+
+        # A bare start must refuse too: the pid file still names something
+        # that is running.
+        out=$("$script" start 2>&1)
+        check "$svc start on top of it refuses" $(contains "$out" "already running")
+        check "$svc start on top of it adds no supervisor" \
+              $([ "$(count_supervisors)" -eq "$before" ] && echo 1 || echo 0)
+
+        rm -f "$pidfile"
+    done
+    kill "$zombie_parent" 2>/dev/null
+    wait "$zombie_parent" 2>/dev/null
+else
+    echo "FAIL could not create the unkillable stand-in"
+    failed=$((failed + 1))
+fi
+
+# ---- deploy.sh stops before it installs (cold review F9) -----------------
+
+# The remote half lives inside the ssh call in deploy.sh, so it is taken from
+# there rather than restated here: a copy would stop testing the real thing
+# the moment deploy.sh changed. The init scripts are replaced by ones that
+# always fail, and tar by a recorder.
+{
+    d=$ROOT/deploy
+    mkdir -p "$d/etc/init.d" "$d/bin"
+    for svc in S50sysd S60radiod S90pocketos-shell; do
+        printf '#!/bin/sh\necho "Stopping %s: FAILED, still running"\nexit 1\n' "$svc" \
+            > "$d/etc/init.d/$svc"
+        chmod 0755 "$d/etc/init.d/$svc"
+    done
+    printf '#!/bin/sh\necho tar-ran >> "%s/tar.log"\n' "$d" > "$d/bin/tar"
+    chmod 0755 "$d/bin/tar"
+    sed -n "/^    | \"\${SSH\[@\]}\"/,/^pos version/p" \
+        "$REPO/platforms/k230/scripts/deploy.sh" \
+        | sed -e "1s/.*'set -e\$/set -e/" \
+              -e "s#/etc/init.d#$d/etc/init.d#g" \
+              -e "s/^pos version.*//" > "$d/remote.sh"
+    check "the remote half of deploy.sh was extracted" \
+          $([ -s "$d/remote.sh" ] && grep -q 'could not be stopped' "$d/remote.sh" \
+            && echo 1 || echo 0)
+    out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" 2>&1 </dev/null); rc=$?
+    check "deploy stops before it installs, and aborts when a stop fails" \
+          $([ "$rc" -ne 0 ] && echo 1 || echo 0)
+    check "deploy says nothing was installed" $(contains "$out" "nothing has been installed")
+    check "deploy unpacked no files" $([ ! -f "$d/tar.log" ] && echo 1 || echo 0)
+}
+
 echo "initscript_test: $failed failure(s)"
 exit $((failed > 0))
