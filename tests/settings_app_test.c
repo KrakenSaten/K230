@@ -149,6 +149,20 @@ int pocketos_shell_brightness_set(int percent)
     return g_bright;
 }
 
+static char g_theme_set[32];
+static char g_mode_set[16];
+
+/* The shell's appearance entry point, over the real theme engine so the
+ * styles on screen really change. */
+int pocketos_shell_set_appearance(const char *theme_id, const char *mode_name)
+{
+    char why[128];
+
+    snprintf(g_theme_set, sizeof(g_theme_set), "%s", theme_id ? theme_id : "");
+    snprintf(g_mode_set, sizeof(g_mode_set), "%s", mode_name ? mode_name : "");
+    return pos_theme_apply(theme_id, mode_name, why, sizeof(why)) < 0 ? -1 : 0;
+}
+
 int64_t pocketos_shell_system_day(void) { return -1; }
 void pocketos_shell_set_status_hint(const char *text) { (void)text; }
 void pocketos_shell_go_home(void) { }
@@ -596,6 +610,35 @@ int main(void)
     tick();
     check("no brightness control: both disabled", disabled("-") && disabled("+"));
     check("no brightness control: says so", find_containing(app_body, "no brightness control") != NULL);
+
+    /* ---- 11. appearance ------------------------------------------------------------------------ */
+    {
+        const struct pos_theme_def *second = pos_theme_at(1);
+        int marks = 0;
+        lv_obj_t *mark;
+
+        check("appearance: every theme is listed", pos_theme_count() >= 2 && shows(pos_theme_at(0)->name) &&
+                                                       shows(second->name));
+        mark = find_visible(app_body, "SELECTED");
+        marks = mark != NULL;
+        check("appearance: the current theme is marked", marks == 1 &&
+                                                            lv_obj_get_parent(mark) == target_of(pos_theme_current_def()->name));
+        tap(second->name);
+        check("tapping a theme asks the shell for it", strcmp(g_theme_set, second->id) == 0 && g_mode_set[0] == '\0');
+        check("and it is live", pos_theme_current_def() == second);
+        mark = find_visible(app_body, "SELECTED");
+        check("and the mark moved", mark && lv_obj_get_parent(mark) == target_of(second->name));
+        tap("NIGHT");
+        check("NIGHT asks the shell for the mode only", strcmp(g_mode_set, "night") == 0 && g_theme_set[0] == '\0');
+        check("and it is live", pos_theme_current_mode() == POS_MODE_NIGHT);
+        tap("OUTDOOR");
+        check("OUTDOOR", pos_theme_current_mode() == POS_MODE_OUTDOOR);
+        check("appearance: every target is at least 64 px in Outdoor", small_targets(app_body) == 0);
+        tap("NORMAL");
+        tap(pos_theme_at(0)->name);
+        check("back to the first theme in Normal", pos_theme_current_def() == pos_theme_at(0) &&
+                                                       pos_theme_current_mode() == POS_MODE_NORMAL);
+    }
     app_stop();
 
     printf("settings_app_test: %d checks, %d failure(s)\n", checks, failed);

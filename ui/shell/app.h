@@ -68,6 +68,14 @@ const char *pocketos_shell_radio_state(void);
 int pocketos_shell_brightness_get(void);
 int pocketos_shell_brightness_set(int percent);
 
+/* Select the Design System theme and/or display mode (either may be NULL to
+ * keep the current one), live, and remember it - the same path as
+ * shell.theme over IPC, so the stored selection and the shell.theme event
+ * follow. The current selection is pos_theme_current_def() and
+ * pos_theme_current_mode(). Returns 0, or -1 when the request was not a
+ * valid theme or mode and the DS §8 fallback was applied instead. */
+int pocketos_shell_set_appearance(const char *theme_id, const char *mode_name);
+
 /* ---- the touch keyboard (DS §17.3, §17.4) ------------------------------ *
  *
  * There is exactly one keyboard and the shell owns it. An app asks for it

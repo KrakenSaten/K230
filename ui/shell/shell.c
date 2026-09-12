@@ -587,6 +587,16 @@ static int shell_set_theme(const char *theme, const char *mode, char *why, size_
     return rc;
 }
 
+/* The Settings app's way in: the same function shell.theme calls, so a
+ * selection made on the glass is stored and announced exactly as one made
+ * over IPC. */
+int pocketos_shell_set_appearance(const char *theme_id, const char *mode_name)
+{
+    char why[128];
+
+    return shell_set_theme(theme_id, mode_name, why, sizeof(why)) < 0 ? -1 : 0;
+}
+
 /* ---- shell.* service (docs/api/shell.md) ------------------------------ */
 
 static const struct pocketos_app *find_app(const char *id)

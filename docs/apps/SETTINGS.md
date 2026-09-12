@@ -4,16 +4,18 @@ Status: host-tested (view model, LVGL app test, shell test, lint); not yet
 run on hardware. Added on `feature/post-v0.0.9-foundations`.
 
 Settings is the launcher app for the OS-level controls that exist and work:
-**Wi-Fi** (through netd, `docs/api/network.md`) and **display brightness**
-(through the shell, `docs/hardware/DISPLAY_BRIGHTNESS.md`). It has no store
-of its own and owns no hardware; it is a client, like System Status.
+**Wi-Fi** (through netd, `docs/api/network.md`), **display brightness**
+(through the shell, `docs/hardware/DISPLAY_BRIGHTNESS.md`) and **appearance**
+(theme and display mode, the shell's `shell.theme` path). It has no store of
+its own and owns no hardware; it is a client, like System Status.
 
 ## What it is not
 
-Not a place for controls that do nothing. Theme, date and time, sound,
-keyboard and power options are deliberately absent until each is backed by
-real functionality and a decision (see "Settings fundamentals" in
-`docs/ROADMAP.md`). Reboot and power-off stay in System, where they are.
+Not a place for controls that do nothing. Time zone, date and time, reduced
+motion, sound, keyboard and radio options are deliberately absent until each
+is backed by real functionality and a decision (see "Settings fundamentals
+before v0.1.0" in `docs/ROADMAP.md`). Reboot and power-off stay in System,
+where they are.
 
 ## Files
 
@@ -23,7 +25,7 @@ apps/settings/settings_view.[ch]  every decision, no LVGL: headlines, tones, lis
                                   passphrase feedback, brightness stepping
 apps/settings/settings_app.c      panels and taps
 tests/settings_view_test.c        111 checks (Makefile)
-tests/settings_app_test.c         61 checks under a real LVGL pointer device and the key stream,
+tests/settings_app_test.c         71 checks under a real LVGL pointer device and the key stream,
                                   with netd and the shell scripted (CMake, host only)
 tests/settings_shell_test.sh      the app test, registration, opening it in the real shell
 tests/settings_lint.sh            15 boundary checks (make test)
@@ -77,6 +79,15 @@ the floor. The buttons disable at the ends. On a display without a backlight
 device both are disabled and the panel says "This display has no brightness
 control." Nothing is persisted by Settings; the shell persists what it
 applied.
+
+## Appearance
+
+The five Design System themes as rows (the current one carries SELECTED),
+and NORMAL / OUTDOOR / NIGHT as three buttons with the current mode accented.
+A tap calls `pocketos_shell_set_appearance()`, the same function `shell.theme`
+uses: the change is live, stored in `settings.conf` and announced as the
+`shell.theme` event. Only the marks are repainted; everything else follows
+through the shared styles, so the scroll position stays where it was.
 
 ## Layout
 

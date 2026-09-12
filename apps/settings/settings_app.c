@@ -33,6 +33,8 @@
 /* wifi.networks every this many ticks while nothing is changing; every tick
  * while a scan runs. */
 #define SETTINGS_LIST_POLL_TICKS 3
+/* The Design System has five themes; room for a few more. */
+#define SETTINGS_THEMES_MAX 8
 
 enum settings_phase {
     PHASE_MAIN = 0,
@@ -63,6 +65,8 @@ struct settings_app {
     lv_obj_t *bright_down;
     lv_obj_t *bright_up;
     lv_obj_t *bright_note;
+    lv_obj_t *theme_chip[SETTINGS_THEMES_MAX];
+    lv_obj_t *mode_btn[POS_MODE_COUNT];
 
     /* network sheet */
     lv_obj_t *field;
@@ -466,6 +470,88 @@ static void on_bright_up(lv_event_t *e)
     brightness_step(lv_event_get_user_data(e), 1);
 }
 
+/* ---- appearance ---------------------------------------------------------------------- */
+
+/* The selection is the shell's: it applies it live, stores it and announces
+ * it, exactly as shell.theme does. Everything on screen follows through the
+ * shared styles; only the selected marks are repainted here. */
+static void on_theme(lv_event_t *e)
+{
+    struct settings_app *a = lv_event_get_user_data(e);
+    intptr_t i = (intptr_t)lv_obj_get_user_data(lv_event_get_current_target(e));
+    const struct pos_theme_def *d = pos_theme_at((int)i);
+
+    if (d) {
+        pocketos_shell_set_appearance(d->id, NULL);
+    }
+    repaint(a);
+}
+
+static void on_mode(lv_event_t *e)
+{
+    struct settings_app *a = lv_event_get_user_data(e);
+    intptr_t i = (intptr_t)lv_obj_get_user_data(lv_event_get_current_target(e));
+
+    if (i >= 0 && i < POS_MODE_COUNT) {
+        pocketos_shell_set_appearance(NULL, pos_mode_name((enum pos_mode)i));
+    }
+    repaint(a);
+}
+
+static void build_appearance(struct settings_app *a, lv_obj_t *body)
+{
+    static const char *const mode_labels[POS_MODE_COUNT] = { "NORMAL", "OUTDOOR", "NIGHT" };
+    lv_obj_t *p = pocketui_card(body);
+    lv_obj_t *r;
+    int i;
+
+    lv_obj_set_style_pad_row(p, 8, 0);
+    pocketui_label(p, "APPEARANCE", POS_STYLE_CAPTION);
+    for (i = 0; i < pos_theme_count() && i < SETTINGS_THEMES_MAX; i++) {
+        const struct pos_theme_def *d = pos_theme_at(i);
+        lv_obj_t *row = hrow(p, POCKETUI_ROW_H + 8);
+
+        pos_style_add(row, POS_STYLE_DIVIDER, 0);
+        pos_style_add(row, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+        lv_obj_set_user_data(row, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(row, on_theme, LV_EVENT_CLICKED, a);
+        pocketui_label(row, d->name, POS_STYLE_ROW_TITLE);
+        a->theme_chip[i] = lv_label_create(row);
+        pos_style_add(a->theme_chip[i], POS_STYLE_CHIP, 0);
+        pos_style_add(a->theme_chip[i], POS_STYLE_CHIP_RX, 0);
+        lv_label_set_text(a->theme_chip[i], "SELECTED");
+    }
+    pocketui_label(p, "Display mode", POS_STYLE_TEXT_SECONDARY);
+    r = hrow(p, SETTINGS_BTN_H);
+    for (i = 0; i < POS_MODE_COUNT; i++) {
+        a->mode_btn[i] = button(r, mode_labels[i], on_mode, a, 0);
+        lv_obj_set_flex_grow(a->mode_btn[i], 1);
+        lv_obj_set_user_data(a->mode_btn[i], (void *)(intptr_t)i);
+    }
+}
+
+static void repaint_appearance(struct settings_app *a)
+{
+    const struct pos_theme_def *cur = pos_theme_current_def();
+    enum pos_mode mode = pos_theme_current_mode();
+    int i;
+
+    for (i = 0; i < pos_theme_count() && i < SETTINGS_THEMES_MAX; i++) {
+        set_hidden(a->theme_chip[i], !cur || pos_theme_at(i) != cur);
+    }
+    for (i = 0; i < POS_MODE_COUNT; i++) {
+        if (!a->mode_btn[i]) {
+            continue;
+        }
+        /* The current mode is the accented one; the words say it too. */
+        lv_obj_remove_style(a->mode_btn[i], pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
+        lv_obj_remove_style(a->mode_btn[i], pos_style(POS_STYLE_BUTTON_SECONDARY), 0);
+        pos_style_add(a->mode_btn[i], i == (int)mode ? POS_STYLE_BUTTON_PRIMARY : POS_STYLE_BUTTON_SECONDARY, 0);
+    }
+}
+
 /* ---- the main screen ----------------------------------------------------------------- */
 
 static void build_list(struct settings_app *a)
@@ -582,6 +668,8 @@ static void build_main(struct settings_app *a)
     a->bright_up = button(r, "+", on_bright_up, a, 0);
     lv_obj_set_width(a->bright_up, SETTINGS_STEP_W);
     a->bright_note = wrap_label(p, "", POS_STYLE_TEXT_MUTED);
+
+    build_appearance(a, a->body);
 }
 
 static void repaint(struct settings_app *a)
@@ -623,6 +711,7 @@ static void repaint(struct settings_app *a)
     set_enabled(a->bright_up, a->bright.can_up);
     lv_label_set_text(a->bright_note, a->bright.note);
     set_hidden(a->bright_note, a->bright.note[0] == '\0');
+    repaint_appearance(a);
 }
 
 static void rebuild(struct settings_app *a)
@@ -634,6 +723,8 @@ static void rebuild(struct settings_app *a)
     a->scan_btn = a->disc_btn = a->list = a->list_note = NULL;
     a->bright_value = a->bright_down = a->bright_up = a->bright_note = NULL;
     a->field = a->show_label = a->sheet_error = NULL;
+    memset(a->theme_chip, 0, sizeof(a->theme_chip));
+    memset(a->mode_btn, 0, sizeof(a->mode_btn));
 
     a->body = lv_obj_create(a->root);
     lv_obj_remove_style_all(a->body);
