@@ -3,8 +3,8 @@
 A month, and which day it is. A calendar, not a scheduler: it has no events,
 no reminders, no recurrence and nothing to sync, and it stores nothing at all.
 
-Status: **v0.0.9 in development. Host-tested and built for the target; not yet
-run on hardware.**
+Status: **v0.0.9 in development. Host-tested, including the tap path under a
+real LVGL pointer device, and built for the target; not yet run on hardware.**
 
 ## What it is
 
@@ -165,15 +165,32 @@ build if anything under `apps/calendar/` opens a file.
 | `tests/cal_date_test` (127 checks, `TZ=UTC`) | Leap years including 1900, 2000, 2100, 2400; every month length; weekday vectors; the 20000-day cross-check against PocketClock; the fallback month pinned to `CLOCK_WALL_VALID_FROM`; Dec↔Jan and ±12/±25 month steps; Monday-first grid offsets over 96 months; a 31-day month starting Sunday; the date and month strings |
 | `tests/cal_view_test` (98 checks) | The unset state and that no month browsed has a today; unset → set recovery; set → unset; midnight, including across a year boundary; selection surviving month navigation; Today; selecting days a month does not have; the exact selected-date strings |
 | `tests/calendar_lint.sh` (40 checks) | No LVGL in the pure files, no filesystem, no clock, no PocketClock header, no keyboard, no animation, no store; today marked only when the date is set; blank cells blanked rather than hidden; the selected role carries no fill; 17 banned scheduler words; registered exactly once in the launcher |
+| `cal_app_test` (88 checks) | The app under a real LVGL pointer device: it opens on the right month, a finger on previous/next steps it (including across both year boundaries), a finger on a day selects it, Today returns and marks, an empty cell is not a target and taps on one change nothing, the unset-date state disables Today while browsing and selecting still work, no month browsed without a date claims a today, a tick recovers the app when the clock is set, midnight moves the mark and not the selection, and five open/close rounds leave nothing behind |
+| `tests/calendar_shell_test.sh` (17 checks) | Runs `cal_app_test`, then the wiring around it: the shell answers the date from the reading it already took and with -1 when there is none, the app reads it exactly twice (create and tick), the selected outline is a shared role defined once, and the real shell opens Calendar without a fault or a byte written |
 
-All three run in `make test`. The app itself needs a display; it has no
-`*_shell_test.sh` yet.
+The first three run in `make test`. The last two need a display and the
+CMake-built shell, so they run the way every other app's do:
+
+```sh
+SHELL_BIN=~/work/pocketos-build/shell/pocketos-shell bash tests/calendar_shell_test.sh
+```
+
+`cal_app_test` supplies `pocketos_shell_system_day()` itself, which is what
+makes an unset clock, the moment it is set and the moment it stops being
+valid all reachable without touching the host's clock or waiting for
+midnight. That seam exists because the app asks the shell for the date
+instead of reading one.
 
 ## Hardware
 
-Not yet run on a board. What only hardware can settle:
+Not yet run on a board. The tap path is not untested, though: `cal_app_test`
+drives it through a real LVGL pointer device, so a board is the first test of
+the *panel* rather than the first test of tapping at all.
 
-- 72 px cells and 3-letter weekday headings at mono 14 on the real panel.
+What only hardware can settle:
+
+- 72 px cells and 3-letter weekday headings at mono 14 on the real panel, and
+  whether a thumb lands on the cell it means to.
 - Accent-on-slab and the 2 px focus outline in Outdoor and Night modes.
 - Whether the accent dot reads at arm's length.
 - The unset-clock path in its natural setting: the app open across the moment
