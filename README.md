@@ -8,7 +8,7 @@ Working folder for PocketOS development on the LILYGO T-Display K230.
 AGENTS.md                  Rules for AI agents working here
 Makefile                   First-party build (called by the Buildroot package)
 VERSION                    PocketOS version
-apps/                      In-process apps: radio (radiod client), system, fleet (PocketFleet), radar (PocketRadar), timber (PocketTimber), notes (PocketNotes), clock (PocketClock), calendar (PocketCalendar)
+apps/                      In-process apps: radio (radiod client), system, fleet (PocketFleet), radar (PocketRadar), timber (PocketTimber), notes (PocketNotes), clock (PocketClock), calendar (PocketCalendar), calculator (PocketCalculator), settings (Wi-Fi, brightness, appearance)
 ui/pocketui/               Theme engine (pos_theme), shared role styles (pos_styles), widgets, fonts/
 ui/shell/                  Shell: status bar, launcher, app host; SDL simulator or DRM target (CMake)
 core/pocketipc/            IPC library and server helper: length-prefixed JSON over Unix sockets
@@ -16,16 +16,17 @@ core/pocketlog/            Structured logging, rotation and crash reports
 core/pocketsys.c           System facts (identity, resources, storage, network) behind system.*
 services/radiod/           Radio service: policy, stats, IPC; backends mock and sx1262 (RadioLib, untested on hardware)
 services/sysd/             System service: system.info and system.status over pocketipc (read-only), plus the supervisor state reader
+services/netd/             Network service: wifi.* over pocketipc (wpa_supplicant and udhcpc owned by netd, root-only credential store)
 tests/                     Native unit tests (`make test`), shell tests (tests/*_shell_test.sh, need the CMake shell); tests/hw/ needs boards
 docs/
   ARCHITECTURE.md          How the layers, IPC, services and shell fit together
   ROADMAP.md               Phase 1 status table and later phases
   KNOWN_ISSUES.md          Open hardware, licensing, build and software issues
-  api/                     Public API contracts: pocketipc v0, radio.* v0, shell.* v0, system.* v0
+  api/                     Public API contracts: pocketipc v0, radio.* v0, shell.* v0, system.* v0, wifi.* v0 (network.md)
   design/                  Design System v0.1 (normative), themes.json, feasibility review, shots/
   BUILD_ENVIRONMENT.md     Host, toolchain, SDK commits, build/flash/test commands
   LICENSING.md             Licence register for vendor and third-party code
-  decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted)
+  decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted; ADR-003 Wi-Fi credentials: Proposed)
   hardware/T-DISPLAY-K230.md  Hardware baseline with evidence classification
   hardware/FIRST_BOOT.md   Day-one runbook: flash, console, hwcheck, PocketOS image, link test
   hardware/BRINGUP_CHECKLIST.md  Bench checklist for the first physical session (image, hash, checksum, tests)

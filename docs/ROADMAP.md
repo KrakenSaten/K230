@@ -25,8 +25,8 @@ and exposes radio, network and system information through services and the
 | Logging library, crash reports, `pos logs` | done, tested on PC |
 | Service respawn with backoff, crash-loop detection | done (`pos-supervise`), tested on PC |
 | sysd: `system.info`, `system.status` (identity, resources, storage, network summary, service health) | done (v0.0.7 blocks 1 and 2a), validated on unit A from `3a56804` (docs/hardware/V0.0.7_BLOCK2A_SMOKE.md); service health from the supervisor state file, validated on unit A from `792f754` (block 2b, docs/hardware/V0.0.7_BLOCK2B_SMOKE.md) |
-| netd: Ethernet, Wi-Fi (wpa_supplicant), BLE status | not started |
-| Settings app (network, display, system) | not started |
+| netd: Ethernet, Wi-Fi (wpa_supplicant), BLE status | Wi-Fi done on `feature/post-v0.0.9-foundations` (wifi.*, `pos wifi`, credential store under proposed ADR-003), host-tested against a fake wpa_supplicant; not on hardware. Ethernet stays with the vendor ifupdown; BLE not started |
+| Settings app (network, display, system) | Wi-Fi, brightness and appearance done on the same branch, host-tested; not on hardware |
 | Shell System Status screen (vitals, storage, network, services, radio, identity, restart, power off) | done (v0.0.7), validated on unit A from `b9203c8`, with the dialog hierarchy and the radio chip corrected and re-verified from `dbba4a0` (docs/hardware/V0.0.7_SYSTEM_STATUS_SMOKE.md) |
 | Reboot/shutdown, hardware info app | `system.reboot` and `system.poweroff` done (v0.0.7 block 2c); both validated on unit A, reboot from `db529fb` and poweroff operator-attended from `fdc795f` (docs/hardware/V0.0.7_BLOCK2C_SMOKE.md). Hardware info app not started |
 | Basic updater (image on SD, no rollback) | not started |
@@ -142,6 +142,34 @@ first, with a Today button and a selected day, and no scheduling of any kind
 reading a clock, and it is explicit when the board does not know the date -
 which on hardware with no RTC is the state it boots into. Host-tested and
 cross-built; not yet run on a board.
+
+**Post-v0.0.9 foundations** (`feature/post-v0.0.9-foundations`, 2026-09-12,
+host-tested, not yet on hardware, not merged): netd with Wi-Fi
+(`docs/api/network.md`, `docs/decisions/ADR-003-wifi-credentials.md`,
+`docs/hardware/WIFI_2026-09-12.md`), display brightness through the shell
+(`docs/hardware/DISPLAY_BRIGHTNESS.md`), a Settings app (`docs/apps/SETTINGS.md`),
+PocketCalculator (`docs/apps/POCKETCALCULATOR.md`), and an audio and
+microphone feasibility map with a staged bench plan
+(`docs/hardware/AUDIO_FEASIBILITY_2026-09-12.md`). VERSION is unchanged.
+
+### Settings fundamentals before v0.1.0
+
+Settings holds only what is backed by working functionality. Reviewed
+2026-09-12:
+
+| Setting | Status | Recommendation |
+| --- | --- | --- |
+| Wi-Fi | in Settings | validate on unit A; it is the v0.1 exit criterion |
+| Display brightness | in Settings | validate; measure the lowest readable level before moving the 10 % floor |
+| Theme and display mode | in Settings (Appearance) | already worked over `shell.theme`; now reachable on the device |
+| Time zone | **missing, user-visible**: Clock and the status bar show UTC | before v0.1.0: needs a decision on the zone data in the image (none today) and a `TZ`/`/etc/localtime` owner; then a Settings row |
+| Date and time (manual) | not added | not before v0.1.0: NTP sets the clock when there is a network, there is no RTC, and a manual clock that NTP later overrides needs a design |
+| Reduced motion | not added | small: the key exists, but carets read it only at shell start; a row needs either a restart note or live re-application |
+| Radio (region, power, profile) | not added | not until radiod persists its profile (a restart returns to the start-up defaults); the Radio app remains the place |
+| System information, reboot, power off | in System | stay there; Settings links nothing it would duplicate |
+| Network information (Ethernet, addresses) | in System; Wi-Fi address in Settings | enough for v0.1 |
+| Keyboard (backlight, layout) | not added | nothing to back it yet (no backlight control, one layout) |
+| Sound | not added | only after the audio bench plan has passed stages 1-5 |
 
 ## Phase 3: first strong application
 

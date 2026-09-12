@@ -329,8 +329,11 @@ Future cleanup:
   the keyboard or alert work touches the store — it is noted because it was
   seen, not because its cause is known. Whether it came from a save path, an
   earlier bench session or an edit through the app is unestablished.
-- The launcher has eight tile slots and uses seven. Resolve before a ninth
-  app.
+- ~~The launcher has eight tile slots and uses seven. Resolve before a ninth
+  app.~~ Resolved on `feature/post-v0.0.9-foundations`: five rows, ten tiles
+  (Calculator and Settings), 870 px of the 1176 below the status bar. A
+  sixth row still fits once; an eleventh and twelfth app need the launcher
+  to scroll or to change.
 - `notes_text_is_utf8` accepts overlong sequences (`C0 80`, `E0 80 xx`) and
   the lead bytes `F5` to `F7`. A note written outside the app that contains
   them loses those bytes on Done.
@@ -348,3 +351,68 @@ Future cleanup:
   and enforced by the same `pin_check` as the BSP and SDK, a dirty RadioLib
   checkout is refused because it is copied rather than archived, and both the
   commit and that state travel in the applied manifest and BUILD_INFO.txt.
+
+## Post-v0.0.9 foundations: Wi-Fi, Settings, brightness, Calculator
+
+Branch `feature/post-v0.0.9-foundations` (2026-09-12). Everything below is
+host-tested only; nothing on this branch has run on a board yet. The bench
+sequences are in docs/hardware/WIFI_2026-09-12.md,
+docs/hardware/DISPLAY_BRIGHTNESS.md and
+docs/hardware/AUDIO_FEASIBILITY_2026-09-12.md.
+
+Decisions waiting for the owner:
+
+- **ADR-003 (Wi-Fi credentials) is Proposed**, and netd already implements
+  it: passphrases persist in `/var/lib/pocketos/netd/wifi.conf`, root-only,
+  hex-encoded, not encrypted. Anyone with root or the card can read them.
+
+Wi-Fi (netd):
+
+- **WPA3-only networks cannot be joined**: the rtl8189fs build has 802.11w
+  off and no SAE path (DOCUMENTED from the driver source). Transition
+  networks are joined as WPA2. A driver rebuild would be a BSP change.
+- **Passphrases are printable ASCII only** (8..63, IEEE 802.11i). A network
+  whose passphrase contains æ, ø or å is refused with a message saying so.
+- **The vendor `ifup wlan0` stanza is still in the image.** `S40network`
+  runs it when no Ethernet adapter is present at boot; it reads `wlanssid`
+  and `wlanpass` from the U-Boot environment (review item F2). netd reports
+  `interface_busy` rather than fight a wpa_supplicant it did not start.
+  Removing the stanza at apply time is recommended; it changes the image
+  build script and was left for the owner.
+- **Default routing with Ethernet and Wi-Fi both up is not managed**:
+  BusyBox's udhcpc script adds a default route per interface without a
+  metric, so the second may be refused or share the first's metric. Which
+  interface carries traffic is unmeasured.
+- **No regulatory domain** is set; the driver uses its built-in channel plan,
+  and the kernel logs that `regulatory.db` is missing.
+- **Wi-Fi power depends on a pad pull-up.** GPIO45 enables the Wi-Fi
+  regulator, nothing in Linux claims it, and the net has a 100 kΩ pull-down:
+  any GPIO consumer of gpiochip1 line 13, or a load on header pin 12, can cut
+  Wi-Fi power (ASSUMED from the schematic).
+- **netd has no events**; clients poll `wifi.status`. Settings polls once a
+  second.
+- Hidden networks can be joined with `pos wifi connect --hidden`, not from
+  Settings.
+- Copies of a passphrase inside cJSON (the IPC request) and inside
+  wpa_supplicant are not wiped; netd's own buffers are.
+
+Brightness:
+
+- **The 10 % floor is a guess on the safe side**, not a measurement of the
+  lowest readable level; brightness 0 (DCS `0x51 00`) is unreachable from
+  PocketOS and its visual effect is unknown.
+- A DCS brightness command during video mode is ASSUMED safe on the
+  RM69A10; never exercised on unit A.
+
+Audio (not implemented, findings only):
+
+- **The booted default routes I2S to the header pads with IO35 as data, and
+  GPIO35 is `IO35_DISEN`** (display power) on the schematic. Whether the
+  bypass resistor R54 is fitted is unknown. No playback test until it is
+  checked.
+
+Calculator:
+
+- Holding the keypad backspace does not repeat.
+- The error state leaves on any key; an operator pressed there is not applied
+  (docs/apps/POCKETCALCULATOR.md).

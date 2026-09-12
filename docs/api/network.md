@@ -165,8 +165,10 @@ A frame that is not valid JSON closes the connection; netd stays up.
   from association before `dhcp_failed`. Both are `--connect-timeout-s` /
   `--dhcp-timeout-s` options of netd.
 - **Routes and DNS** come from BusyBox's default udhcpc script, which tags its
-  resolv.conf lines per interface. With Ethernet and Wi-Fi both up there are
-  two default routes without metrics; which one wins is not managed in v0.
+  resolv.conf lines per interface. It adds a default route per interface
+  without a metric, so with Ethernet and Wi-Fi both up the second route may be
+  refused or may share the first's metric; which interface carries traffic is
+  not managed in v0 and is unmeasured.
 - **Regulatory domain** is not set by netd; the driver uses its built-in
   channel plan (docs/hardware/WIFI_2026-09-12.md).
 

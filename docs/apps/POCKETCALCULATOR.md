@@ -291,7 +291,8 @@ modes, with the widest strings the main line can be given.
 **Launcher.** Nine apps in two columns of 150 px tiles take five rows:
 5 × 150 + 4 × 20 = 830 px plus the 20 px padding, inside the 1176 px below the
 status bar. The grid template in `home_create()` went from four
-`LV_GRID_CONTENT` rows to five.
+`LV_GRID_CONTENT` rows to five. Settings, integrated on the same branch, is
+the tenth tile and completes that fifth row.
 
 ## Storage
 
