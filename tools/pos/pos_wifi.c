@@ -23,7 +23,43 @@ int cmd_wifi(int argc, char **argv);
 #define CONNECT_WAIT_S 60
 #define SCAN_WAIT_S 15
 
+static void sleep_ms(long ms)
+{
+    struct timespec ts = { ms / 1000, (ms % 1000) * 1000000L };
+
+    nanosleep(&ts, NULL);
+}
+
+static cJSON *wifi_call_quiet(const char *method, cJSON *params, int *code, int quiet);
+
 static cJSON *wifi_call(const char *method, cJSON *params, int *code)
+{
+    return wifi_call_quiet(method, params, code, 0);
+}
+
+/* Right after `pos wifi on` netd answers "starting" (code 5) for a moment;
+ * a command typed straight after it waits that out rather than failing.
+ * params is consumed on every path, so it is copied for the retries. */
+static cJSON *wifi_call_patient(const char *method, cJSON *params, int *code)
+{
+    time_t end = time(NULL) + 6;
+    cJSON *result;
+
+    for (;;) {
+        cJSON *copy = params ? cJSON_Duplicate(params, 1) : NULL;
+        int last = time(NULL) >= end;
+
+        result = wifi_call_quiet(method, copy, code, !last);
+        if (result || *code != POCKETIPC_ERR_BUSY || last) {
+            break;
+        }
+        sleep_ms(300);
+    }
+    cJSON_Delete(params);
+    return result;
+}
+
+static cJSON *wifi_call_quiet(const char *method, cJSON *params, int *code, int quiet)
 {
     int fd = pocketipc_connect("netd");
     char err[200];
@@ -41,7 +77,7 @@ static cJSON *wifi_call(const char *method, cJSON *params, int *code)
     }
     result = pocketipc_call(fd, method, params, code, err, sizeof(err));
     close(fd);
-    if (!result) {
+    if (!result && !(quiet && *code == POCKETIPC_ERR_BUSY)) {
         fprintf(stderr, "pos wifi: %s failed (code %d): %s\n", method, *code, err);
         if (*code == 0) {
             *code = -1;
@@ -115,12 +151,6 @@ static int print_networks(const cJSON *res)
     return 0;
 }
 
-static void sleep_ms(long ms)
-{
-    struct timespec ts = { ms / 1000, (ms % 1000) * 1000000L };
-
-    nanosleep(&ts, NULL);
-}
 
 /* One line from stdin into buf. Echo off when stdin is a terminal. Returns
  * 0, or -1 when nothing could be read or the line did not fit. */
@@ -227,7 +257,7 @@ static int cmd_connect(int argc, char **argv)
     }
     /* pocketipc_call consumes params; the JSON text holding the passphrase is
      * freed inside it. */
-    res = wifi_call("wifi.connect", params, &code);
+    res = wifi_call_patient("wifi.connect", params, &code);
     if (!res) {
         return 1;
     }
@@ -312,7 +342,7 @@ int cmd_wifi(int argc, char **argv)
     if (strcmp(sub, "scan") == 0) {
         time_t end = time(NULL) + SCAN_WAIT_S;
 
-        res = wifi_call("wifi.scan", NULL, &code);
+        res = wifi_call_patient("wifi.scan", NULL, &code);
         if (!res) {
             return 1;
         }
