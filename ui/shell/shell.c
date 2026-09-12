@@ -55,11 +55,13 @@ extern const struct pocketos_app app_notes;
 extern const struct pocketos_app app_timber;
 extern const struct pocketos_app app_clock;
 extern const struct pocketos_app app_calendar;
+extern const struct pocketos_app app_calculator;
 extern const struct pocketos_app app_settings;
 
 static const struct pocketos_app *apps[] = { &app_radio, &app_system, &app_fleet,
                                             &app_radar, &app_timber, &app_notes,
-                                            &app_clock, &app_calendar, &app_settings };
+                                            &app_clock, &app_calendar, &app_calculator,
+                                            &app_settings };
 #define APP_COUNT (sizeof(apps) / sizeof(apps[0]))
 
 struct shell {
@@ -491,9 +493,10 @@ static void home_create(void)
     lv_obj_set_style_pad_gap(sh.home, POCKETUI_PAD, 0);
     lv_obj_set_layout(sh.home, LV_LAYOUT_GRID);
     {
+        /* Two columns of 150 px tiles; ten apps take five rows, which is
+         * 5 * 150 + 4 * 20 = 830 px plus the padding, inside the 1176 px
+         * below the status bar. */
         static const int32_t cols[] = { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
-        /* Five rows of 150 px tiles and six 20 px gaps are 870 px, inside
-         * the 1176 px below the status bar. */
         static const int32_t rows[] = { LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_CONTENT,
                                         LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_TEMPLATE_LAST };
         lv_obj_set_grid_dsc_array(sh.home, cols, rows);

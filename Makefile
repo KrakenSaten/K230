@@ -585,6 +585,7 @@ test: all $(TEST_BINS)
 	bash tests/notes_lint.sh
 	bash tests/clock_lint.sh
 	bash tests/calendar_lint.sh
+	bash tests/calculator_lint.sh
 	bash tests/settings_lint.sh
 
 install: all

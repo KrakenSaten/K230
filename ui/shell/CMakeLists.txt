@@ -85,6 +85,9 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/calendar/cal_app.c
     ${REPO_DIR}/apps/calendar/cal_date.c
     ${REPO_DIR}/apps/calendar/cal_view.c
+    ${REPO_DIR}/apps/calculator/calc_app.c
+    ${REPO_DIR}/apps/calculator/calc_engine.c
+    ${REPO_DIR}/apps/calculator/calc_view.c
     ${REPO_DIR}/apps/notes/notes_app.c
     ${REPO_DIR}/apps/notes/notes_store.c
     ${REPO_DIR}/apps/notes/notes_view.c
@@ -153,6 +156,7 @@ target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/notes"
                                                   "${REPO_DIR}/apps/clock"
                                                   "${REPO_DIR}/apps/calendar"
+                                                  "${REPO_DIR}/apps/calculator"
                                                   "${REPO_DIR}/apps/settings")
 
 if(POCKETOS_LVGL_MODE STREQUAL "source")
@@ -451,6 +455,34 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(cal_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(cal_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # PocketCalculator in the running app, tapped on the panel and typed into
+    # through the real key stream (run by tests/calculator_shell_test.sh). The
+    # shell is not linked; the test defines the app.h entry points itself, as
+    # counters, and checks that the app calls none of them. There is no store,
+    # and the test checks that nothing is written anywhere.
+    add_executable(calc_app_test
+        ${REPO_DIR}/tests/calc_app_test.c
+        ${REPO_DIR}/apps/calculator/calc_app.c
+        ${REPO_DIR}/apps/calculator/calc_engine.c
+        ${REPO_DIR}/apps/calculator/calc_view.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(calc_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/calculator")
+    target_compile_options(calc_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(calc_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(calc_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(calc_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(calc_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
     # Settings in the running app, tapped and typed into (run by
     # tests/settings_shell_test.sh). The test plays both services the app
