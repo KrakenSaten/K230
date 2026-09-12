@@ -22,10 +22,28 @@ cd "$(dirname "$0")/.." || exit 1
 failed=0
 check() { if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 
+# This suite is a release gate, and it cannot be run without the git checkout
+# it is about. Saying "0 failure(s)" here and exiting 0 was worse than useless:
+# it made `make test` green while this whole file did nothing. That happened
+# for real - a Windows git worktree seen from WSL, where .git is a file holding
+# a path WSL cannot resolve - and the suite reported success through a release
+# that had actually broken three of its checks (fixed in 5b6bd80).
+#
+# So a gate that cannot run is NOT RUN, not PASS. Exit 77 is the automake
+# convention for "skipped", and it is non-zero, so `make test` stops on it.
+# POCKETOS_ALLOW_SKIPPED_GATES=1 is the deliberate override, in the shape
+# POCKETOS_ALLOW_DIRTY_BUILD already established: it says so loudly and it
+# still does not claim the gate passed.
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    echo "skip: not a git checkout, or its .git is not readable from here"
-    echo "build_outputs_test: 0 failure(s)"
-    exit 0
+    echo "NOT RUN build_outputs_test: git could not read a checkout here, so whether the build outputs are ignored cannot be checked."
+    echo "        This is a release gate; not running it is not a pass."
+    if [ "${POCKETOS_ALLOW_SKIPPED_GATES:-0}" = "1" ]; then
+        echo "        POCKETOS_ALLOW_SKIPPED_GATES=1 set: continuing unverified."
+        exit 0
+    fi
+    echo "        Run it from a checkout git can read, or set"
+    echo "        POCKETOS_ALLOW_SKIPPED_GATES=1 to accept an unverified gate."
+    exit 77
 fi
 
 # A sub-make of its own: the parent's MAKEFLAGS would bring -j and a
