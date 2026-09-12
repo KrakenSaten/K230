@@ -155,5 +155,104 @@ check "those flags produce uid/gid 0 with this tar" \
       $(printf '%s' "$ownline" | grep -qE '(^| )0/0( |$)' && echo 1 || echo 0)
 [ -n "$ownline" ] || echo "     tar produced no listing"
 
+# ---- the dirty-worktree guard -------------------------------------------
+#
+# The package is HEAD, so a dirty tree means the build is not what the
+# developer is looking at - and the loop that breaks is edit, build, deploy,
+# test on hardware, where the result reads as evidence about the edit and is
+# evidence about HEAD. apply_to_sdk.sh refuses by default and takes
+# POCKETOS_ALLOW_DIRTY_BUILD=1 as a deliberate override.
+#
+# Exercised against the real script in a scratch repository with a stub vendor
+# tree, so nothing here can touch an SDK. The guard runs before any of the
+# vendor tree is used and before "[1/5]" is echoed, so "did it get past the
+# guard" is read off that marker; the run is expected to fail afterwards, on
+# the stub, and that later failure is not what is being measured.
+
+GUARD="$TMP/guard"
+mkdir -p "$GUARD/repo/platforms/k230/scripts" "$GUARD/vendor/k230_bsp/scripts" \
+         "$GUARD/vendor/k230_linux_sdk"
+cp platforms/k230/scripts/apply_to_sdk.sh "$GUARD/repo/platforms/k230/scripts/"
+cp platforms/k230/vendor_bsp_commit.txt platforms/k230/vendor_sdk_commit.txt \
+   "$GUARD/repo/platforms/k230/"
+cp VERSION "$GUARD/repo/"
+printf 'committed\n' > "$GUARD/repo/tracked.txt"
+git -C "$GUARD/repo" init -q
+git -C "$GUARD/repo" add -A
+git -C "$GUARD/repo" -c user.name=t -c user.email=t@t commit -qm scratch
+printf '#!/bin/sh\nexit 0\n' > "$GUARD/vendor/k230_bsp/scripts/apply.sh"
+chmod +x "$GUARD/vendor/k230_bsp/scripts/apply.sh"
+for d in "$GUARD/vendor" "$GUARD/vendor/k230_linux_sdk"; do
+    git -C "$d" init -q
+    git -C "$d" -c user.name=t -c user.email=t@t commit -q --allow-empty -m stub
+done
+
+# Pin drift is allowed throughout: the stub vendor is not the pinned tree, and
+# the pin is not what these cases are about.
+run_guard() { # [env assignment]; leaves combined output in $GUARD/out
+    # shellcheck disable=SC2086  # an empty $1 must expand to no argument
+    ( cd "$GUARD/repo" && env ${1:+"$1"} POCKETOS_ALLOW_PIN_DRIFT=1 \
+        bash platforms/k230/scripts/apply_to_sdk.sh "$GUARD/vendor" ) \
+        > "$GUARD/out" 2>&1
+    echo $?
+}
+said() { grep -q "$1" "$GUARD/out" && echo 1 || echo 0; }
+
+rc=$(run_guard "")
+check "a clean worktree is not refused" \
+      $([ "$(said 'ERROR: the working tree is dirty')" = 0 ] && echo 1 || echo 0)
+check "a clean worktree is not warned about" \
+      $([ "$(said 'WARNING: the working tree is dirty')" = 0 ] && echo 1 || echo 0)
+check "a clean worktree gets past the guard" $(said '\[1/5\]')
+
+# Now dirty it, by modifying a tracked file rather than adding an ignored one.
+printf 'uncommitted\n' > "$GUARD/repo/tracked.txt"
+
+rc=$(run_guard "")
+check "a dirty worktree fails" $([ "$rc" != "0" ] && echo 1 || echo 0)
+check "the refusal names the packaging mechanism" $(said 'git archive HEAD')
+check "the refusal says uncommitted changes are excluded" $(said 'would NOT be included')
+check "the refusal names the override" $(said 'POCKETOS_ALLOW_DIRTY_BUILD=1')
+check "the refusal happens before any packaging" \
+      $([ "$(said '\[1/5\]')" = 0 ] && echo 1 || echo 0)
+check "the refusal lists what is dirty" $(said 'tracked.txt')
+
+rc=$(run_guard "POCKETOS_ALLOW_DIRTY_BUILD=1")
+check "the override gets past the guard" $(said '\[1/5\]')
+check "the override warns rather than passing silently" \
+      $(said 'WARNING: the working tree is dirty')
+check "the override states that uncommitted changes are excluded" $(said 'are NOT')
+# The provenance summary prints only on a run that finishes, which the stub
+# vendor cannot reach, so it is checked where it is written instead. What
+# matters about it is placement as much as content: a summary in the header
+# would be the very thing it exists to survive.
+sum_line=$(grep -n '^echo "Provenance"' "$APPLY" | cut -d: -f1)
+pkg_line=$(grep -n 'archive --format=tar HEAD' "$APPLY" | head -1 | cut -d: -f1)
+done_line=$(grep -n '^echo "Done\. Build with' "$APPLY" | cut -d: -f1)
+check "apply_to_sdk.sh prints a provenance summary" \
+      $([ -n "$sum_line" ] && echo 1 || echo 0)
+check "the summary comes after packaging, not in the header" \
+      $([ -n "$sum_line" ] && [ -n "$pkg_line" ] && [ "$sum_line" -gt "$pkg_line" ] && echo 1 || echo 0)
+check "the summary is the last thing said before Done" \
+      $([ -n "$sum_line" ] && [ -n "$done_line" ] && [ "$sum_line" -lt "$done_line" ] && echo 1 || echo 0)
+check "the summary names the packaged commit" \
+      $(grep -q 'Packaged source : HEAD' "$APPLY" && echo 1 || echo 0)
+check "the summary names the worktree state" \
+      $(grep -q 'Source worktree : ' "$APPLY" && echo 1 || echo 0)
+check "the summary calls out the override when it was used" \
+      $(grep -q 'Dirty override  : POCKETOS_ALLOW_DIRTY_BUILD=1' "$APPLY" && echo 1 || echo 0)
+check "the summary states that the worktree is never packaged" \
+      $(grep -q 'working tree is never packaged' "$APPLY" && echo 1 || echo 0)
+
+# The override must not widen what is packaged. Two halves: the script has no
+# archive that exports anything but HEAD, and HEAD really does exclude the
+# edit that made the tree dirty.
+notHEAD=$(grep 'git .*archive' "$APPLY" | grep -vc 'HEAD' || true)
+check "every git archive in apply_to_sdk.sh exports HEAD" \
+      $([ "$notHEAD" = "0" ] && echo 1 || echo 0)
+got=$(git -C "$GUARD/repo" archive --format=tar HEAD -- tracked.txt | tar -xO)
+check "an override build exports HEAD, not the uncommitted edit" \
+      $([ "$got" = "committed" ] && echo 1 || echo 0)
+
 echo "package_sync_test: $failed failure(s)"
 exit $((failed > 0))

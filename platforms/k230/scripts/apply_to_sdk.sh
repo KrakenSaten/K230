@@ -16,6 +16,14 @@
 # The pinned vendor commits are enforced, not merely reported. Set
 # POCKETOS_ALLOW_PIN_DRIFT=1 to build against a different vendor tree on
 # purpose, and record that in the build report.
+#
+# A dirty working tree is enforced the same way, and for the same reason. The
+# package is HEAD, so uncommitted work is not in it - and the loop that breaks
+# is edit, build, deploy, test on hardware, where the result looks like
+# evidence about the edit and is evidence about HEAD. Set
+# POCKETOS_ALLOW_DIRTY_BUILD=1 to package HEAD from a dirty tree on purpose.
+# The override changes nothing about what is packaged: it is still HEAD, never
+# the working tree.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,19 +43,49 @@ git -C "${REPO_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "
 BSP_COMMIT="$(git -C "${VENDOR_DIR}" rev-parse HEAD)"
 SDK_COMMIT="$(git -C "${SDK_DIR}" rev-parse HEAD)"
 REPO_COMMIT="$(git -C "${REPO_DIR}" rev-parse --short HEAD)"
+REPO_STATUS="$(git -C "${REPO_DIR}" status --porcelain)"
 DIRTY_TAG=""
 REPO_DIRTY=""
-if [ -n "$(git -C "${REPO_DIR}" status --porcelain)" ]; then
+TREE_STATE="clean"
+DIRTY_OVERRIDE="no"
+if [ -n "${REPO_STATUS}" ]; then
     DIRTY_TAG="-dirty"
     REPO_DIRTY=" (working tree dirty)"
+    TREE_STATE="dirty"
 fi
 BUILD_ID="${REPO_COMMIT}${DIRTY_TAG}"
 echo "PocketOS apply"
 echo "Repo   : ${REPO_DIR} (version $(cat "${REPO_DIR}/VERSION")) @ ${REPO_COMMIT}${REPO_DIRTY}"
 echo "Vendor : ${VENDOR_DIR} @ ${BSP_COMMIT}"
 echo "SDK    : ${SDK_DIR} @ ${SDK_COMMIT}"
+
+# A dirty tree is refused rather than reported. This used to be a NOTE that
+# printed here and carried on; a note that scrolls past a hundred lines of
+# overlay output, and dies to a `| tail`, is not a guard - it was missed in
+# exactly the way it was meant to prevent. Refusing turns it into a decision.
+#
+# Neither branch changes what is packaged. `git archive HEAD` is the whole
+# mechanism and the override does not widen it: there is no path here that
+# puts the working tree into the package.
 if [ -n "${REPO_DIRTY}" ]; then
-    echo "NOTE: the package is built from HEAD (${REPO_COMMIT}); uncommitted changes are NOT included." >&2
+    if [ "${POCKETOS_ALLOW_DIRTY_BUILD:-0}" = "1" ]; then
+        DIRTY_OVERRIDE="yes"
+        echo "WARNING: the working tree is dirty and POCKETOS_ALLOW_DIRTY_BUILD=1 is set." >&2
+        echo "         Packaging HEAD (${REPO_COMMIT}). Your uncommitted changes are NOT" >&2
+        echo "         included - not in the package, not in the image, not in anything" >&2
+        echo "         deployed from it. Say so in the build report." >&2
+    else
+        echo "ERROR: the working tree is dirty, and the package is assembled with" >&2
+        echo "       \`git archive HEAD\`. Uncommitted changes would NOT be included -" >&2
+        echo "       not in the package, not in the image, not in anything deployed" >&2
+        echo "       from it. The build would be HEAD (${REPO_COMMIT}) while looking" >&2
+        echo "       like it carried your edits." >&2
+        echo "       Commit or stash them, or set POCKETOS_ALLOW_DIRTY_BUILD=1 to" >&2
+        echo "       package HEAD on purpose and say so in the build report." >&2
+        printf '%s\n' "${REPO_STATUS}" | awk 'NR<=10 {print "       " $0}
+            END {if (NR>10) printf "       ... and %d more\n", NR-10}' >&2
+        exit 1
+    fi
 fi
 
 # A pinned commit that has drifted is refused rather than reported: the BSP
@@ -175,4 +213,18 @@ for stamp in "${SDK_DIR}/.overlay_sync" "${SDK_DIR}"/output/*/.overlay_sync; do
     [ -f "${stamp}" ] && mv "${stamp}" "${stamp}.stale.$(date -u +%Y%m%d%H%M%S)"
 done
 
+# Provenance, repeated where it cannot be missed. The warning above is printed
+# before everything this script does, so it is the first thing to scroll away
+# and the first thing a `| tail` discards. The single question worth answering
+# after a bench build - what is actually in this package - is therefore
+# answered again as the last thing the run says.
+echo
+echo "Provenance"
+echo "  Packaged source : HEAD ${REPO_COMMIT} via git archive"
+echo "  Source worktree : ${TREE_STATE}"
+if [ "${DIRTY_OVERRIDE}" = "yes" ]; then
+    echo "  Dirty override  : POCKETOS_ALLOW_DIRTY_BUILD=1 -- uncommitted changes are NOT included"
+fi
+echo "  BUILD_ID        : ${BUILD_ID}"
+echo "  The working tree is never packaged, with or without the override."
 echo "Done. Build with: ${PLATFORM_DIR}/scripts/build_image.sh ${VENDOR_DIR}"

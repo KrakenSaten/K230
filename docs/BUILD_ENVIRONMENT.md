@@ -78,6 +78,58 @@ hours after the vendor baseline, including two recoverable stops noted in
 KNOWN_ISSUES). radiod links RadioLib and libgpiod2, the shell links the
 vendor LVGL from staging. Nothing has booted on hardware yet.
 
+### The build is a commit, and a dirty tree is refused
+
+`apply_to_sdk.sh` assembles the package with `git archive HEAD`. Only tracked
+files at HEAD travel, with the modes git records — which is what makes an
+image a function of a commit rather than of whatever the build host happened
+to have lying around. **Uncommitted work is never packaged.**
+
+So a dirty working tree is refused before anything is packaged:
+
+```
+ERROR: the working tree is dirty, and the package is assembled with
+       `git archive HEAD`. Uncommitted changes would NOT be included ...
+```
+
+This is not pedantry about hygiene. The loop it protects is *edit, build,
+deploy, test on hardware*: without the guard that loop silently tests HEAD
+while the result reads as evidence about the edit. It has happened —
+`docs/hardware/KEYBOARD_BRINGUP_2026-09-10.md` §5.2 records a keyboard
+acceptance whose conclusion had to be withdrawn for a related reason, and the
+v0.0.8 review's P1-6 is the same failure from the other direction.
+
+Commit or stash, or override deliberately:
+
+```sh
+POCKETOS_ALLOW_DIRTY_BUILD=1 platforms/k230/scripts/apply_to_sdk.sh
+```
+
+**The override does not include your changes.** It does not widen what is
+packaged and it cannot: there is no path in the script that puts the working
+tree into the package. It only says "package HEAD, I know the tree is dirty",
+prints a prominent WARNING naming the exact commit, and stamps BUILD_ID
+`<commit>-dirty` so the artifact records that the tree it was built beside was
+not clean. Same shape as `POCKETOS_ALLOW_PIN_DRIFT=1`, and like that one it
+belongs in the build report when used.
+
+Every successful run ends with a provenance summary — packaged commit,
+worktree state, whether the override was used — so the answer survives a
+`| tail`:
+
+```
+Provenance
+  Packaged source : HEAD 5e2a05d via git archive
+  Source worktree : clean
+  BUILD_ID        : 5e2a05d
+  The working tree is never packaged, with or without the override.
+```
+
+A release build must show `Source worktree : clean` and a BUILD_ID with no
+`-dirty` suffix; `V0.0.8_RELEASE_SMOKE.md` already checks the latter on the
+built binaries. `tests/build_outputs_test.sh` keeps the default path usable by
+making sure no build output can dirty a checkout by accident.
+
 Quick host checks without Buildroot: `make CC=gcc all` builds `pos`
 natively; the Xuantie gcc with `-mcpu=c908v -mtune=c908` cross-builds it.
 

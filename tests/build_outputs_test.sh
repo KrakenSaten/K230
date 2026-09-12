@@ -1,12 +1,19 @@
 #!/bin/bash
 # Running the tests must not dirty the checkout they ran in.
 #
-# apply_to_sdk.sh stamps "<commit>-dirty" into an image's BUILD_ID whenever
-# `git status --porcelain` is not empty, and an untracked file counts. Every
-# binary `make all` and `make test` produce therefore has to be git-ignored,
-# or a release checkout that ran its tests before building ships an image
-# claiming uncommitted changes it does not contain (P1-6 of the v0.0.8
-# review: six PocketNotes and PocketClock test binaries were not).
+# apply_to_sdk.sh treats a non-empty `git status --porcelain` as a dirty tree,
+# and an untracked file counts. Since the dirty-worktree guard it no longer
+# merely stamps "<commit>-dirty" into BUILD_ID and carries on: it refuses the
+# build unless POCKETOS_ALLOW_DIRTY_BUILD=1 says otherwise. Every binary
+# `make all` and `make test` produce therefore has to be git-ignored, or a
+# release checkout that ran its tests before building now fails to build at
+# all - where before it shipped an image claiming uncommitted changes it did
+# not contain (P1-6 of the v0.0.8 review: six PocketNotes and PocketClock test
+# binaries were not ignored).
+#
+# That makes this test more load-bearing than it was, not less: it is what
+# keeps the default path working for anyone who has not read the guard. The
+# guard's own behaviour is covered by tests/package_sync_test.sh.
 #
 # The list comes from the Makefile itself (print-build-outputs), so a binary
 # added there without a .gitignore entry fails here.
