@@ -64,3 +64,4 @@ BUILD_ID
 /tests/fake_wpa_supplicant
 /tests/wifi_parse_test
 /tests/wifi_store_test
+/tests/settings_view_test

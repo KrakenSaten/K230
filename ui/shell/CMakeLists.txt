@@ -50,6 +50,8 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/radio/radio_app.c
     ${REPO_DIR}/apps/system/system_app.c
     ${REPO_DIR}/apps/system/system_view.c
+    ${REPO_DIR}/apps/settings/settings_app.c
+    ${REPO_DIR}/apps/settings/settings_view.c
     ${REPO_DIR}/apps/fleet/fleet_app.c
     ${REPO_DIR}/apps/fleet/engine/fleet_types.c
     ${REPO_DIR}/apps/fleet/engine/fleet_rng.c
@@ -150,7 +152,8 @@ target_compile_definitions(pocketos-shell PRIVATE POCKETTIMBER_ART=${POCKETTIMBE
 target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/notes"
                                                   "${REPO_DIR}/apps/clock"
-                                                  "${REPO_DIR}/apps/calendar")
+                                                  "${REPO_DIR}/apps/calendar"
+                                                  "${REPO_DIR}/apps/settings")
 
 if(POCKETOS_LVGL_MODE STREQUAL "source")
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -448,6 +451,32 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(cal_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(cal_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # Settings in the running app, tapped and typed into (run by
+    # tests/settings_shell_test.sh). The test plays both services the app
+    # talks to: it answers the app's netd calls with scripted JSON and records
+    # what the app sent, and it supplies the shell's brightness entry points.
+    add_executable(settings_app_test
+        ${REPO_DIR}/tests/settings_app_test.c
+        ${REPO_DIR}/apps/settings/settings_app.c
+        ${REPO_DIR}/apps/settings/settings_view.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(settings_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/settings")
+    target_compile_options(settings_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(settings_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(settings_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(settings_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(settings_app_test PRIVATE lvgl ${SDL2_LIBRARIES} cjson m)
 
     # The system alert's keyboard isolation and focus ownership (run by
     # tests/alert_shell_test.sh). DS v0.1 section 18.5, 18.6 and 18.8: while
