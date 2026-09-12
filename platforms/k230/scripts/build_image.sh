@@ -24,8 +24,6 @@ POCKETOS_TOOLCHAIN_CC="${POCKETOS_TOOLCHAIN_CC:-/opt/toolchain/Xuantie-900-gcc-l
 [ -x "${POCKETOS_TOOLCHAIN_CC}" ] \
     || { echo "toolchain missing, see docs/BUILD_ENVIRONMENT.md" >&2; exit 1; }
 
-# Everything the export treats as "produced by this build" is newer than this.
-BUILD_START_EPOCH="$(date +%s)"
 [ -f "${SDK_DIR}/buildroot-overlay/configs/${CONF}" ] \
     || { echo "run apply_to_sdk.sh first" >&2; exit 1; }
 
@@ -36,12 +34,40 @@ make -C "${SDK_DIR}" CONF="${CONF}" "${TARGET}"
 if [ "${TARGET}" = "all" ]; then
     IMAGES="${SDK_DIR}/output/${CONF}/images"
 
-    # Artefacts the export exists to produce. A missing one used to be skipped
-    # by `[ -f ... ] && cp`, so a build that never produced an image still
-    # exported a directory, wrote a report about it and checksummed whatever
-    # happened to be lying there from last time.
-    REQUIRED="sysimage-sdcard.img Image"
-    OPTIONAL="sysimage-sdcard.img.gz k230-canmv-rm69a10.dtb k230-canmv-rm69a10-hdmi.dtb k.dtb"
+    MANIFEST="${SDK_DIR}/.pocketos-applied"
+    [ -f "${MANIFEST}" ] || {
+        echo "ERROR: no applied-source manifest at ${MANIFEST}." >&2
+        echo "       Run apply_to_sdk.sh first: without it this build cannot say" >&2
+        echo "       which source it contains, and a report that guesses is worse" >&2
+        echo "       than none." >&2
+        exit 1
+    }
+    m() { sed -n "s/^$1=//p" "${MANIFEST}"; }
+
+    # The release deliverable. It is what gets flashed, so it must exist and it
+    # must have been built from the source currently applied to this SDK.
+    #
+    # Everything else here is a copy of something already inside that image -
+    # the kernel, the device trees - and Buildroot only refreshes those when
+    # their own package rebuilds. Requiring them to be new fails an ordinary
+    # release build: the v0.0.9 build produced a new SD-card image from a
+    # kernel that had not changed since September 4th, and the export refused
+    # it. So they are exported when present and reported as carried over when
+    # they predate the apply, which is the honest answer rather than either
+    # refusing the build or passing them off as this build's work.
+    REQUIRED="sysimage-sdcard.img"
+    OPTIONAL="sysimage-sdcard.img.gz Image k230-canmv-rm69a10.dtb k230-canmv-rm69a10-hdmi.dtb k.dtb"
+
+    # Freshness is measured against the apply, not against this script's start.
+    # "Newer than the moment I began" is the wrong question: re-running the
+    # export over an unchanged build would fail it, because Buildroot correctly
+    # regenerates nothing. "Built after the source it claims to contain was
+    # applied" is the property that actually matters, and it still catches an
+    # image left over from before the current source went in.
+    APPLIED_EPOCH="$(m applied_epoch)"
+    # A manifest written before this field existed judges nothing rather than
+    # refusing a build it cannot date.
+    [ -n "${APPLIED_EPOCH}" ] || APPLIED_EPOCH=0
 
     for name in ${REQUIRED}; do
         [ -f "${IMAGES}/${name}" ] || {
@@ -49,12 +75,10 @@ if [ "${TARGET}" = "all" ]; then
             echo "       Nothing has been exported; ${OUT_DIR} is untouched." >&2
             exit 1
         }
-        # And produced by *this* build. An image left from an earlier run is
-        # the one thing an export must never pass off as the current one.
-        if [ "$(stat -c %Y "${IMAGES}/${name}")" -lt "${BUILD_START_EPOCH}" ]; then
-            echo "ERROR: ${name} is older than this build started." >&2
-            echo "       It is left over from an earlier run, so this build did not" >&2
-            echo "       produce it. Nothing has been exported." >&2
+        if [ "$(stat -c %Y "${IMAGES}/${name}")" -lt "${APPLIED_EPOCH}" ]; then
+            echo "ERROR: ${name} is older than the source applied to this SDK." >&2
+            echo "       It was built before the current source went in, so it does" >&2
+            echo "       not contain it. Nothing has been exported." >&2
             exit 1
         fi
     done
@@ -69,10 +93,16 @@ if [ "${TARGET}" = "all" ]; then
     trap 'rm -rf "${STAGE}"' EXIT
 
     exported=""
+    carried=""
     for name in ${REQUIRED} ${OPTIONAL}; do
         if [ -f "${IMAGES}/${name}" ]; then
             cp -a "${IMAGES}/${name}" "${STAGE}/"
             exported="${exported} ${name}"
+            # Present, exported, but not made by this build. Named separately
+            # so nobody has to compare timestamps to find that out.
+            if [ "$(stat -c %Y "${IMAGES}/${name}")" -lt "${APPLIED_EPOCH}" ]; then
+                carried="${carried} ${name}"
+            fi
         fi
     done
 
@@ -80,16 +110,6 @@ if [ "${TARGET}" = "all" ]; then
     # the manifest apply_to_sdk.sh left behind - not whatever the repository
     # happens to be checked out at now. Apply at A, check out B, build without
     # re-applying, and this still says A, because A is what is in the package.
-    MANIFEST="${SDK_DIR}/.pocketos-applied"
-    [ -f "${MANIFEST}" ] || {
-        echo "ERROR: no applied-source manifest at ${MANIFEST}." >&2
-        echo "       Run apply_to_sdk.sh first: without it this build cannot say" >&2
-        echo "       which source it contains, and a report that guesses is worse" >&2
-        echo "       than none." >&2
-        exit 1
-    }
-    m() { sed -n "s/^$1=//p" "${MANIFEST}"; }
-
     {
         echo "PocketOS $(m pocketos_version) image for LILYGO T-Display K230"
         echo "Build UTC : $(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -103,6 +123,8 @@ if [ "${TARGET}" = "all" ]; then
         [ "$(m dirty_override)" = "yes" ] && \
             echo "Override  : POCKETOS_ALLOW_DIRTY_BUILD=1 at apply time -- uncommitted changes are NOT in this image"
         echo "Exported  :${exported}"
+        [ -n "${carried}" ] && \
+            echo "Carried   :${carried} (unchanged since before this source was applied; Buildroot rebuilds these only when their own package changes)"
     } > "${STAGE}/BUILD_INFO.txt"
 
     # Only what this build exported, named explicitly rather than by listing

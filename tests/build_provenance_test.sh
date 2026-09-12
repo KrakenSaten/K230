@@ -67,6 +67,7 @@ vendor_bsp_commit=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 sdk_commit=cccccccccccccccccccccccccccccccccccccccc
 defconfig=$CONF
 applied_utc=2026-01-01T00:00:00Z
+applied_epoch=${APPLIED_EPOCH:-1}
 EOF
 }
 
@@ -144,12 +145,14 @@ check "and exports nothing" $([ ! -d "$TMP/out" ] && echo 1 || echo 0)
 # ---- 5. a stale artefact from an earlier build --------------------------
 
 rm -rf "$TMP/out"
+APPLIED_EPOCH=$(date +%s)
 write_manifest "$SHORT_A" clean no
 fresh_images
 touch -d '2020-01-01 00:00:00' "$IMAGES/sysimage-sdcard.img"
 rc=$(run_build)
-check "a build whose image predates it fails" $([ "$rc" != "0" ] && echo 1 || echo 0)
-check "and says the image is left over" $(has "$TMP/log" "older than this build started")
+check "an SD-card image older than the applied source fails" $([ "$rc" != "0" ] && echo 1 || echo 0)
+check "and says it predates the source" $(has "$TMP/log" "older than the source applied")
+APPLIED_EPOCH=1
 
 # ---- 6. nothing survives from a previous export -------------------------
 
@@ -187,6 +190,36 @@ check "and names the SD-card image among them" \
       $(grep '^Exported  :' "$INFO" | grep -q 'sysimage-sdcard.img' && echo 1 || echo 0)
 check "and does not name one this build did not produce" \
       $(grep '^Exported  :' "$INFO" | grep -q 'rm69a10-hdmi' && echo 0 || echo 1)
+
+# ---- 9. the case the v0.0.9 release build hit -------------------------
+#
+# Buildroot copies the kernel and the device trees into images/ only when
+# their own package rebuilds. A release build that produces a new SD-card
+# image from an unchanged kernel is the ordinary case, not a failure - the
+# first genuine v0.0.9 build did exactly that and the export refused it,
+# because Image was on the required list and checked for freshness.
+#
+# So: a fresh SD-card image beside a kernel from before the apply must export,
+# and the report must say which artefacts were carried rather than built.
+
+rm -rf "$TMP/out"
+APPLIED_EPOCH=$(date +%s)
+write_manifest "$SHORT_A" clean no
+fresh_images
+sleep 1
+touch "$IMAGES/sysimage-sdcard.img" "$IMAGES/sysimage-sdcard.img.gz"
+touch -d '2020-01-01 00:00:00' "$IMAGES/Image" "$IMAGES/k.dtb"
+rc=$(run_build)
+check "a new image beside an unchanged kernel exports" $([ "$rc" = "0" ] && echo 1 || echo 0)
+[ "$rc" != "0" ] && sed -n '1,10p' "$TMP/log"
+check "the kernel is still exported" $([ -f "$TMP/out/Image" ] && echo 1 || echo 0)
+check "and the report names it as carried, not built" \
+      $(grep '^Carried   :' "$INFO" 2>/dev/null | grep -q 'Image' && echo 1 || echo 0)
+check "the SD-card image is not called carried" \
+      $(grep '^Carried   :' "$INFO" 2>/dev/null | grep -q 'sysimage-sdcard.img ' && echo 0 || echo 1)
+check "the checksums still cover everything exported" \
+      $( (cd "$TMP/out" && sha256sum -c SHA256SUMS.txt >/dev/null 2>&1) && echo 1 || echo 0)
+APPLIED_EPOCH=1
 
 echo "build_provenance_test: $failed failure(s)"
 exit $((failed > 0))

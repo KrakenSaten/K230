@@ -320,6 +320,7 @@ radiolib_commit=${RADIOLIB_COMMIT}
 radiolib_state=${RADIOLIB_STATE}
 defconfig=${CONF}
 applied_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+applied_epoch=$(date +%s)
 EOF
 
 # Provenance, repeated where it cannot be missed. The warning above is printed

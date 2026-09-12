@@ -99,8 +99,17 @@ entry_of() { # <name> <status json>
 }
 sh "$SUPERVISE" livesvc sleep 30 >/dev/null 2>&1 &
 LIVE_SUP=$!
-for _ in $(seq 1 50); do [ -s "$POCKETOS_RUNTIME_DIR/livesvc.state" ] && break; sleep 0.1; done
-LIVE_CHILD=$(sed -n 's/^child_pid=//p' "$POCKETOS_RUNTIME_DIR/livesvc.state" 2>/dev/null)
+# Wait for the field this test actually reads, not merely for the file to
+# exist. pos-supervise writes its state once before starting the child, with
+# child_pid empty, and again once the child is up. Waiting on `-s` caught the
+# first of those under load: child_pid came back empty, the expected string
+# became "pid":, and the suite failed intermittently - which is what made the
+# release gate unreliable rather than any behaviour of sysd.
+for _ in $(seq 1 50); do
+    LIVE_CHILD=$(sed -n 's/^child_pid=//p' "$POCKETOS_RUNTIME_DIR/livesvc.state" 2>/dev/null)
+    [ -n "$LIVE_CHILD" ] && break
+    sleep 0.1
+done
 entry=$(entry_of livesvc "$("$POS" system status)")
 check "sysd lists a service a real pos-supervise is watching" '"pid"' "$entry"
 check "sysd reports the pid the supervisor actually wrote" "\"pid\":${LIVE_CHILD}," "$entry"
