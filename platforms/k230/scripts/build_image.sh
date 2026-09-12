@@ -27,6 +27,41 @@ POCKETOS_TOOLCHAIN_CC="${POCKETOS_TOOLCHAIN_CC:-/opt/toolchain/Xuantie-900-gcc-l
 [ -f "${SDK_DIR}/buildroot-overlay/configs/${CONF}" ] \
     || { echo "run apply_to_sdk.sh first" >&2; exit 1; }
 
+# The files the boot partition needs before U-Boot can start a kernel.
+BOOT_ARTEFACTS="Image k230-canmv-rm69a10.dtb k230-canmv-rm69a10-hdmi.dtb"
+
+# Buildroot copies these into images/ from the linux package's install-images
+# step, and it runs that step exactly once: afterwards .stamp_images_installed
+# says the job is done, whatever became of the files. Delete images/Image - as
+# the v0.0.9 release procedure did, to prove no artefact was being reused - and
+# nothing puts it back.
+#
+# Nothing downstream notices. post-image.sh does `cp Image boot/`, which fails;
+# but that script turns errexit off partway through (`set +e` on line 90, never
+# restored), so the failure is printed and ignored. genimage then packs a boot
+# partition with no kernel into sysimage-sdcard.img, and the build exits 0.
+# That image was built, exported, checksummed, flashed and verified before
+# U-Boot said `Failed to load '/Image'`.
+#
+# So: if the artefacts are not in images/, drop the stamp that claims they are,
+# and let Buildroot reinstall them. Cheap, idempotent, and it does not rebuild
+# the kernel - only re-runs the copy that was skipped.
+ensure_kernel_artefacts() {
+    local images="${SDK_DIR}/output/${CONF}/images" name stamp missing=""
+    [ -d "${images}" ] || return 0
+    for name in ${BOOT_ARTEFACTS}; do
+        [ -f "${images}/${name}" ] || missing="${missing} ${name}"
+    done
+    [ -n "${missing}" ] || return 0
+    echo "note: images/ is missing${missing}"
+    for stamp in "${SDK_DIR}/output/${CONF}/build/linux-"*/.stamp_images_installed; do
+        [ -f "${stamp}" ] || continue
+        echo "      dropping $(basename "$(dirname "${stamp}")")/.stamp_images_installed so Buildroot reinstalls them"
+        rm -f "${stamp}"
+    done
+}
+ensure_kernel_artefacts
+
 echo "Build ${CONF} target=${TARGET} in ${SDK_DIR}"
 make -C "${SDK_DIR}" CONF="${CONF}" "${CONF}"
 make -C "${SDK_DIR}" CONF="${CONF}" "${TARGET}"
@@ -82,6 +117,17 @@ if [ "${TARGET}" = "all" ]; then
             exit 1
         fi
     done
+
+    # Everything above this point asks questions about the export directory:
+    # which files were produced, how old they are, whether their checksums
+    # match. None of that can tell whether the image can boot - v0.0.9 passed
+    # all of it with no kernel inside. So before anything is exported, read
+    # partition 1 out of the image itself and check the files U-Boot loads.
+    "${SCRIPT_DIR}/verify_image.sh" "${IMAGES}/sysimage-sdcard.img" || {
+        echo "ERROR: the image this build produced cannot boot." >&2
+        echo "       Nothing has been exported; ${OUT_DIR} is untouched." >&2
+        exit 1
+    }
 
     # A fresh staging directory, swapped in at the end. Exporting straight into
     # ${OUT_DIR} left every artefact of every previous build in place, and the

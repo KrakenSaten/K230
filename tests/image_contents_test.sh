@@ -1,0 +1,141 @@
+#!/bin/bash
+# verify_image.sh has to look inside an SD-card image and refuse one that
+# cannot boot.
+#
+# This is the gate that was missing for v0.0.9: the image was built, exported,
+# checksummed, flashed and read back byte-for-byte, and every one of those
+# steps passed on an image whose boot partition had no kernel in it. U-Boot
+# found out first, on the bench: `Failed to load '/Image'`.
+#
+# The cases below build small SD-card images - a real MBR, a real ext4 boot
+# partition - and check that a complete one passes and that each way of being
+# incomplete fails. The negative controls matter more than the positive one:
+# a gate that cannot fail is what we had before.
+set -u
+cd "$(dirname "$0")/.." || exit 1
+VERIFY=platforms/k230/scripts/verify_image.sh
+failed=0
+check() { if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
+
+# This suite needs to build ext4 filesystems. Without those tools it cannot
+# say anything about the gate, and saying "0 failure(s)" would be the exact
+# failure mode it exists to prevent - so it reports NOT RUN and exits non-zero
+# (77, the automake convention), the same shape the other release gates use.
+. tests/mkbootimg.sh
+
+missing="$(mkbootimg_missing_tools)"
+command -v debugfs >/dev/null 2>&1 || missing="${missing} debugfs"
+if [ -n "${missing}" ]; then
+    echo "NOT RUN image_contents_test: missing${missing}, so whether the image gate works cannot be checked."
+    echo "        This is a release gate; not running it is not a pass."
+    if [ "${POCKETOS_ALLOW_SKIPPED_GATES:-0}" = "1" ]; then
+        echo "        POCKETOS_ALLOW_SKIPPED_GATES=1 - continuing, but this gate did NOT pass."
+        exit 0
+    fi
+    exit 77
+fi
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "${TMP}"' EXIT
+
+LBA="${MKBOOTIMG_LBA}"
+make_img() { mkbootimg_make "$1" "$2"; }
+populate_complete() { mkbootimg_populate "$1"; }
+
+run_gate() {  # prints the exit code of the gate over image $1
+    bash "${VERIFY}" "$1" >"${TMP}/out.txt" 2>&1
+    echo "$?"
+}
+
+# ---- positive control --------------------------------------------------------
+D="${TMP}/complete"; populate_complete "${D}"
+if make_img "${D}" "${TMP}/complete.img"; then
+    rc="$(run_gate "${TMP}/complete.img")"
+    check "a complete boot partition passes the gate" "$([ "${rc}" = "0" ] && echo 1 || echo 0)"
+    check "a passing gate says so" \
+        "$(grep -q 'IMAGE GATE: PASS' "${TMP}/out.txt" && echo 1 || echo 0)"
+    check "the kernel is reported by name and size" \
+        "$(grep -q '/Image (kernel)' "${TMP}/out.txt" && echo 1 || echo 0)"
+else
+    check "could not build a test filesystem (mkfs.ext4 -d unsupported?)" 0
+fi
+
+# ---- negative control: exactly the v0.0.9 regression -------------------------
+# This is the case that shipped. If it ever passes again, the gate is broken.
+D="${TMP}/nokernel"; populate_complete "${D}"; rm -f "${D}/Image"
+if make_img "${D}" "${TMP}/nokernel.img"; then
+    rc="$(run_gate "${TMP}/nokernel.img")"
+    check "NEGATIVE CONTROL: an image with no /Image is refused" \
+        "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
+    check "NEGATIVE CONTROL: the refusal names the missing kernel" \
+        "$(grep -q 'MISSING: /Image' "${TMP}/out.txt" && echo 1 || echo 0)"
+    check "NEGATIVE CONTROL: the refusal does not claim the gate passed" \
+        "$(grep -q 'IMAGE GATE: PASS' "${TMP}/out.txt" && echo 0 || echo 1)"
+    check "NEGATIVE CONTROL: the refusal says the image must not be flashed" \
+        "$(grep -q 'must not be released or flashed' "${TMP}/out.txt" && echo 1 || echo 0)"
+fi
+
+# ---- a kernel that is present but empty --------------------------------------
+# A truncated or zero-length copy is not a bootable kernel either, and "the
+# file exists" is the check that would have missed it.
+D="${TMP}/emptykernel"; populate_complete "${D}"; : > "${D}/Image"
+if make_img "${D}" "${TMP}/emptykernel.img"; then
+    rc="$(run_gate "${TMP}/emptykernel.img")"
+    check "a zero-length /Image is refused" \
+        "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
+    check "the refusal says it is present but empty" \
+        "$(grep -q 'present but empty' "${TMP}/out.txt" && echo 1 || echo 0)"
+fi
+
+# ---- the device tree the selector names is not there -------------------------
+# v0.0.9 had this too: lcd_dtb named k230-canmv-rm69a10.dtb and no such file
+# was in the partition. U-Boot would have failed on the dtb had it got past
+# the kernel, so a gate that only checked the selector would still pass a
+# broken image.
+D="${TMP}/nodtb"; populate_complete "${D}"; rm -f "${D}/k230-canmv-rm69a10.dtb"
+if make_img "${D}" "${TMP}/nodtb.img"; then
+    rc="$(run_gate "${TMP}/nodtb.img")"
+    check "a selector naming an absent device tree is refused" \
+        "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
+    check "the refusal names the device tree and its selector" \
+        "$(grep -q 'named by lcd_dtb' "${TMP}/out.txt" && echo 1 || echo 0)"
+fi
+
+# ---- the selector itself missing ---------------------------------------------
+D="${TMP}/nosel"; populate_complete "${D}"; rm -f "${D}/lcd_dtb"
+if make_img "${D}" "${TMP}/nosel.img"; then
+    rc="$(run_gate "${TMP}/nosel.img")"
+    check "a missing lcd_dtb selector is refused" \
+        "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
+fi
+
+# ---- the firmware payload missing --------------------------------------------
+D="${TMP}/nofw"; populate_complete "${D}"; rm -f "${D}/fw_jump_add_uboot_head.bin"
+if make_img "${D}" "${TMP}/nofw.img"; then
+    rc="$(run_gate "${TMP}/nofw.img")"
+    check "a missing firmware payload is refused" \
+        "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
+fi
+
+# ---- inputs that are not images ----------------------------------------------
+head -c 1048576 /dev/urandom > "${TMP}/garbage.img"
+rc="$(run_gate "${TMP}/garbage.img")"
+check "a file with no MBR is refused" "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
+
+rc="$(run_gate "${TMP}/does-not-exist.img")"
+check "a missing image file is refused" "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
+
+bash "${VERIFY}" >/dev/null 2>&1
+check "no argument is refused" "$([ "$?" != "0" ] && echo 1 || echo 0)"
+
+# ---- an ext4 partition 1 that is not a filesystem at all ---------------------
+D="${TMP}/complete"
+if make_img "${D}" "${TMP}/scrambled.img"; then
+    dd if=/dev/urandom of="${TMP}/scrambled.img" bs=512 seek="${LBA}" count=64 conv=notrunc status=none
+    rc="$(run_gate "${TMP}/scrambled.img")"
+    check "an unreadable boot filesystem is refused" \
+        "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
+fi
+
+echo "$failed failure(s)"
+[ "$failed" -eq 0 ]

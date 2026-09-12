@@ -27,6 +27,23 @@ failed=0
 check() { if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 has()   { grep -q -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }
 
+# The export path now ends in a gate that reads partition 1 out of the image,
+# so this suite has to be able to build a real one. Without the tools for that
+# it can check nothing, and reporting "0 failure(s)" would be the failure mode
+# these gates exist to prevent.
+. tests/mkbootimg.sh
+missing="$(mkbootimg_missing_tools)"
+command -v debugfs >/dev/null 2>&1 || missing="${missing} debugfs"
+if [ -n "${missing}" ]; then
+    echo "NOT RUN build_provenance_test: missing${missing}, so the export path cannot be exercised."
+    echo "        This is a release gate; not running it is not a pass."
+    if [ "${POCKETOS_ALLOW_SKIPPED_GATES:-0}" = "1" ]; then
+        echo "        POCKETOS_ALLOW_SKIPPED_GATES=1 - continuing, but this gate did NOT pass."
+        exit 0
+    fi
+    exit 77
+fi
+
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
@@ -73,9 +90,15 @@ EOF
 
 fresh_images() { # the artefacts a real build would have just produced
     rm -f "$IMAGES"/*
-    for f in sysimage-sdcard.img Image sysimage-sdcard.img.gz k.dtb; do
+    for f in Image sysimage-sdcard.img.gz k.dtb; do
         printf 'content of %s\n' "$f" > "$IMAGES/$f"
     done
+    # The SD-card image has to be a real one. build_image.sh now reads
+    # partition 1 out of it and refuses to export an image U-Boot could not
+    # boot, so a placeholder here would only prove that the gate works - which
+    # is tests/image_contents_test.sh's job - while making every provenance
+    # case below fail for a reason that has nothing to do with provenance.
+    mkbootimg_complete "$IMAGES/sysimage-sdcard.img"
 }
 
 # Deliberately does not clear $TMP/out: whether a previous export survives is
