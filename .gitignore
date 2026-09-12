@@ -54,3 +54,4 @@ BUILD_ID
 /tests/clock_store_test
 /tests/clock_runtime_test
 /tests/kbd_tca8418_test
+/.build-identity

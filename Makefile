@@ -20,6 +20,17 @@ POCKETOS_VERSION := $(shell cat VERSION)
 POCKETOS_BUILD_ID := $(shell cat BUILD_ID 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo unknown)
 COMMON_FLAGS := -Wall -Wextra -Icore -DPOCKETOS_VERSION=\"$(POCKETOS_VERSION)\" \
                 -DPOCKETOS_BUILD_ID=\"$(POCKETOS_BUILD_ID)\"
+# The identity as a file, because a -D is invisible to make: an object built
+# at one commit kept that commit's identity for as long as its source was
+# untouched, and a `make` after a commit produced binaries reporting the
+# build before it. The stamp is written here, at parse time, so it exists
+# before the first compile, and replaced only when the identity actually
+# changes, so an unchanged identity still rebuilds nothing.
+POCKETOS_BUILD_STAMP := .build-identity
+$(shell printf '%s %s\n' '$(POCKETOS_VERSION)' '$(POCKETOS_BUILD_ID)' > $(POCKETOS_BUILD_STAMP).tmp; \
+        cmp -s $(POCKETOS_BUILD_STAMP).tmp $(POCKETOS_BUILD_STAMP) \
+          && rm -f $(POCKETOS_BUILD_STAMP).tmp \
+          || mv -f $(POCKETOS_BUILD_STAMP).tmp $(POCKETOS_BUILD_STAMP))
 # Compiler-generated header dependencies (.d next to each .o) so a changed
 # header rebuilds every object that includes it (PocketFleet finding 1).
 DEPFLAGS := -MMD -MP
@@ -107,7 +118,13 @@ tests/sysd-testhooks: $(SYSD_BASE_OBJS) tests/sysd_power_hooks.o
 %.o: %.cpp
 	$(CXX) $(ALL_CXXFLAGS) -c -o $@ $<
 
-tools/pos/pos.o: VERSION
+# The objects that compile the identity in, named so make rebuilds exactly
+# those when it changes. VERSION is in the stamp too, so this replaces the
+# lone `tools/pos/pos.o: VERSION` that used to cover one of the three.
+# tests/build_deps_test.sh fails if a source names the macros and its object
+# is missing here.
+POCKETOS_ID_OBJS := core/pocketlog/pocketlog.o tools/pos/pos.o tests/pocketlog_test.o
+$(POCKETOS_ID_OBJS): $(POCKETOS_BUILD_STAMP)
 
 # Compile-only check of the sx1262 backend on a host without libgpiod v2
 # (GPIOD_INCLUDE points at vendor/libgpiod/include).
@@ -456,11 +473,11 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 -include $(DEPFILES)
 
 clean:
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) tests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) tests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(POCKETOS_BUILD_STAMP)
 
 # The files `make all` and `make test` produce, one to a line, for
 # tests/build_outputs_test.sh.
 print-build-outputs:
-	@printf '%s\n' $(BINS) $(TEST_BINS)
+	@printf '%s\n' $(BINS) $(TEST_BINS) $(POCKETOS_BUILD_STAMP)
 
 .PHONY: all test install clean sx1262-objs print-build-outputs
