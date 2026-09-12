@@ -488,6 +488,7 @@ test: all $(TEST_BINS)
 	bash tests/build_deps_test.sh
 	bash tests/build_outputs_test.sh
 	bash tests/required_gates_test.sh
+	bash tests/build_provenance_test.sh
 	bash tests/hwcheck_test.sh
 	bash tests/fleet_lint.sh
 	bash tests/radar_lint.sh

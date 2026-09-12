@@ -239,6 +239,31 @@ for stamp in "${SDK_DIR}/.overlay_sync" "${SDK_DIR}"/output/*/.overlay_sync; do
     [ -f "${stamp}" ] && mv "${stamp}" "${stamp}.stale.$(date -u +%Y%m%d%H%M%S)"
 done
 
+# The applied-source manifest. build_image.sh used to describe the build by
+# asking the repository what HEAD was at the moment it ran, which is a
+# different question from what was applied: apply at A, check out B, build, and
+# the report named B while the package held A. Nothing in the image was wrong,
+# only everything said about it.
+#
+# So what was applied is recorded here, next to what it was applied to, and
+# build_image.sh reports from this file rather than from a repository it never
+# read. One fact per line, no spaces in values, the shape pos-supervise's state
+# file already established.
+MANIFEST="${SDK_DIR}/.pocketos-applied"
+cat > "${MANIFEST}" <<EOF
+manifest_version=1
+pocketos_commit=${SNAPSHOT_COMMIT}
+pocketos_commit_short=${REPO_COMMIT}
+pocketos_version=$(cat "${REPO_DIR}/VERSION")
+pocketos_build_id=${BUILD_ID}
+source_tree_state=${TREE_STATE}
+dirty_override=${DIRTY_OVERRIDE}
+vendor_bsp_commit=${BSP_COMMIT}
+sdk_commit=${SDK_COMMIT}
+defconfig=${CONF}
+applied_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+EOF
+
 # Provenance, repeated where it cannot be missed. The warning above is printed
 # before everything this script does, so it is the first thing to scroll away
 # and the first thing a `| tail` discards. The single question worth answering
