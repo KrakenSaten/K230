@@ -55,6 +55,8 @@ BUILD_ID
 /tests/clock_runtime_test
 /tests/cal_date_test
 /tests/cal_view_test
+/tests/calc_engine_test
+/tests/calc_view_test
 /tests/kbd_tca8418_test
 /.build-identity
 /tests/kbd_bus_k230_test
