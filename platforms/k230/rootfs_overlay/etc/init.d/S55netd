@@ -1,0 +1,122 @@
+#!/bin/sh
+# PocketOS netd under pos-supervise (BusyBox init). netd serves wifi.* for one
+# wireless interface: it starts and owns wpa_supplicant and the DHCP client
+# for it, and keeps the networks a person has joined in
+# /var/lib/pocketos/netd/wifi.conf (0600, root). See docs/api/network.md and
+# docs/decisions/ADR-003-wifi-credentials.md.
+#
+# Wi-Fi itself is off until someone turns it on (Settings, or `pos wifi on`);
+# starting the service changes nothing on the radio. Ordered after the vendor's
+# S40 scripts, which load the rtl8189fs module and bring up Ethernet, and
+# ahead of S60radiod and the shell, which do not depend on it.
+#
+# /etc/default/netd may set NETD_INTERFACE (default wlan0).
+#
+# Logs: pocketlog files, crash reports and the supervisor log go to
+# /var/lib/pocketos/log, which is on the persistent root filesystem (/var/log
+# is a tmpfs on this image). The stdio capture there holds only what is not
+# already in the pocketlog file (POCKETOS_LOG_STDERR=0), which for netd
+# includes wpa_supplicant's own messages; it is started fresh on every boot
+# with the previous one kept as .1.
+
+SUPERVISE=/usr/bin/pos-supervise
+DAEMON=/usr/sbin/netd
+PIDFILE=/var/run/netd-supervise.pid
+# pos-supervise records the daemon it is watching here. stop needs it: asking
+# the supervisor to go is not the same as the daemon going.
+CHILD_PIDFILE=/run/pocketos/netd.pid
+LOGDIR=/var/lib/pocketos/log
+LOGFILE=$LOGDIR/netd.stdio.log
+NETD_INTERFACE=wlan0
+[ -r /etc/default/netd ] && . /etc/default/netd
+export POCKETOS_LOG_DIR=$LOGDIR
+export POCKETOS_LOG_STDERR=0
+
+start() {
+	printf "Starting netd (%s): " "$NETD_INTERFACE"
+	[ -x "$DAEMON" ] || { echo "missing"; return 0; }
+	mkdir -p /run/pocketos /var/run "$LOGDIR"
+	# Both pids, not only the supervisor's. A supervisor that was killed
+	# leaves its daemon running and adopted by init, and starting a second
+	# supervisor on top of that gives the board two daemons.
+	_sup=""; _child=""
+	[ -s "$PIDFILE" ] && _sup=$(cat "$PIDFILE")
+	[ -s "$CHILD_PIDFILE" ] && _child=$(cat "$CHILD_PIDFILE")
+	if running "$_sup" || running "$_child"; then
+		echo "already running"; return 0
+	fi
+	[ -f "$LOGFILE" ] && mv -f "$LOGFILE" "$LOGFILE.1"
+	nohup "$SUPERVISE" netd "$DAEMON" --interface "$NETD_INTERFACE" >"$LOGFILE" 2>&1 &
+	echo $! > "$PIDFILE"
+	echo "OK"
+}
+
+# Stop discipline is S60radiod's, for the same reason: asking the supervisor
+# to go is not the same as the daemon going, and a start that races an
+# outgoing daemon would leave two of them - and two wpa_supplicants - on the
+# same interface.
+STOP_TIMEOUT=3
+if sleep 0.1 2>/dev/null; then STOP_STEP="0.1"; STOP_TICKS=$((STOP_TIMEOUT * 10)); else STOP_STEP="1"; STOP_TICKS=$STOP_TIMEOUT; fi
+
+running() { [ -n "$1" ] && kill -0 "$1" 2>/dev/null; }
+wait_gone() { # <pid>: true when it is gone within STOP_TIMEOUT
+	_n=0
+	while running "$1"; do
+		_n=$((_n + 1))
+		[ "$_n" -gt "$STOP_TICKS" ] && return 1
+		sleep "$STOP_STEP"
+	done
+	return 0
+}
+
+stop() {
+	printf "Stopping netd: "
+	sup=""; child=""
+	[ -s "$PIDFILE" ] && sup=$(cat "$PIDFILE")
+	[ -s "$CHILD_PIDFILE" ] && child=$(cat "$CHILD_PIDFILE")
+	if ! running "$sup" && ! running "$child"; then
+		rm -f "$PIDFILE"
+		echo "not running"
+		return 0
+	fi
+	forced=""
+	kill "$sup" 2>/dev/null
+	if ! wait_gone "$sup"; then
+		# The supervisor is not responding to SIGTERM. Ask the daemon
+		# directly: killing only the supervisor would leave the daemon
+		# running, still holding the interface, and the next start would
+		# add a second one.
+		kill "$child" 2>/dev/null
+		if ! wait_gone "$sup"; then
+			kill -KILL "$child" 2>/dev/null
+			kill -KILL "$sup" 2>/dev/null
+			wait_gone "$sup"
+			forced=" (forced)"
+		fi
+	fi
+	if running "$child"; then
+		kill -KILL "$child" 2>/dev/null
+		wait_gone "$child"
+		forced=" (forced)"
+	fi
+	# The pid file is tracking, not decoration: removed only once nothing is
+	# left for the next stop to find.
+	if running "$sup" || running "$child"; then
+		echo "FAILED, still running"
+		return 1
+	fi
+	rm -f "$PIDFILE"
+	echo "OK$forced"
+}
+
+case "$1" in
+	start) start ;;
+	stop) stop ;;
+	# A stop that failed leaves the daemon running and its binaries in use.
+	# Starting on top of it would add a second one, so restart stops here.
+	restart|reload) stop && start ;;
+	*) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
+esac
+# Whether the service actually stopped is the one thing a caller needs from
+# this script.
+exit $?

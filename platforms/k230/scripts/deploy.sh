@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Push PocketOS binaries from the Buildroot target tree to a running board
-# over SSH, without reflashing. Restarts sysd and radiod (and the shell if
-# enabled). What it carries has to match what the flashed image carries, or a
+# over SSH, without reflashing. Restarts sysd, netd and radiod (and the shell
+# if enabled). A board flashed before netd existed has no S55netd to stop; the
+# stop loop skips a script that is not there yet, and the tar brings it. What it carries has to match what the flashed image carries, or a
 # bench deployment quietly leaves the board running an older service than the
 # one being tested; tests/package_sync_test.sh checks the init scripts against
 # the rootfs overlay.
@@ -18,7 +19,7 @@ T="${VENDOR_DIR}/k230_linux_sdk/output/${CONF}/target"
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=no)
 case "${TARGET_HOST}" in *@*) ;; *) TARGET_HOST="root@${TARGET_HOST}" ;; esac
 
-for f in usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-supervise usr/sbin/radiod usr/sbin/sysd usr/bin/pocketos-shell etc/pocketos-release; do
+for f in usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-supervise usr/sbin/radiod usr/sbin/sysd usr/sbin/netd usr/bin/pocketos-shell etc/pocketos-release; do
     [ -e "${T}/${f}" ] || { echo "missing ${T}/${f}; build the image first" >&2; exit 1; }
 done
 
@@ -33,15 +34,16 @@ echo "Deploying PocketOS $(cat "${REPO_DIR}/VERSION") to ${TARGET_HOST}"
 # and 0 needs no passwd lookup on the build host.
 tar -C "${T}" --owner=0 --group=0 --numeric-owner -cf - \
     usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-supervise usr/sbin/radiod \
-    usr/sbin/sysd usr/bin/pocketos-shell etc/pocketos-release etc/init.d/S50sysd etc/init.d/S60radiod \
-    etc/init.d/S90pocketos-shell \
+    usr/sbin/sysd usr/sbin/netd usr/bin/pocketos-shell etc/pocketos-release etc/init.d/S50sysd \
+    etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S90pocketos-shell \
     | "${SSH[@]}" "${TARGET_HOST}" 'set -e
 # The tar below replaces the binaries these services are executing, so a stop
 # that did not finish has to end the deployment rather than be unpacked over.
 # `|| true` hid exactly that, and the init scripts exited 0 whatever happened,
 # so a board could be left running a mixture of the old services and the new
 # files with nothing in the output to say so.
-for s in S90pocketos-shell S60radiod S50sysd; do
+for s in S90pocketos-shell S60radiod S55netd S50sysd; do
+	[ -x /etc/init.d/$s ] || continue
 	if ! /etc/init.d/$s stop; then
 		echo "deploy: $s could not be stopped; nothing has been installed" >&2
 		exit 1
@@ -50,6 +52,7 @@ done
 tar -C / -xf -
 sync
 /etc/init.d/S50sysd start
+/etc/init.d/S55netd start
 /etc/init.d/S60radiod start
 /etc/init.d/S90pocketos-shell start
 pos version; pos radio info | head -5; pos call sysd system.info | head -4'

@@ -125,13 +125,13 @@ OVL="$TMP/overlay"; mkdir -p "$OVL"
 git archive --format=tar HEAD -- platforms/k230/rootfs_overlay |
     tar -x --strip-components=3 -C "$OVL"
 check "overlay extracted at the rootfs root" $([ -d "$OVL/etc/init.d" ] && echo 1 || echo 0)
-for f in etc/init.d/S50sysd etc/init.d/S60radiod etc/init.d/S90pocketos-shell \
+for f in etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S90pocketos-shell \
          etc/default/telnet etc/pocketos/settings.conf; do
     check "overlay carries $f" $([ -e "$OVL/$f" ] && echo 1 || echo 0)
 done
 if [ "$MODES" -eq 1 ]; then
-    # These three are what BusyBox rcS executes.
-    for f in etc/init.d/S50sysd etc/init.d/S60radiod etc/init.d/S90pocketos-shell; do
+    # These four are what BusyBox rcS executes.
+    for f in etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S90pocketos-shell; do
         check "overlay $f is executable" $([ -x "$OVL/$f" ] && echo 1 || echo 0)
     done
     for f in etc/default/telnet etc/pocketos/settings.conf; do
