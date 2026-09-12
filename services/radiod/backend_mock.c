@@ -35,8 +35,6 @@ struct mock_priv {
      * answering, where the rollback fails the same way and nothing can say
      * what the radio is doing. */
     int configure_fail_once;
-    struct radio_profile hw_profile; /* what the radio is actually doing */
-    int hw_configured;
 };
 
 static int mock_init(struct radio_backend *b, char *err, size_t errlen)
@@ -68,10 +66,7 @@ static void mock_get_caps(struct radio_backend *b, struct radio_caps *caps)
  * mode. Only the first changes what is on the air, and the two after it can
  * fail once it has. The mock models the same three stages so a failure can be
  * injected between them, because the case worth testing is not "configure
- * failed" but "configure changed the hardware and then failed".
- *
- * hw_configured tracks whether the chip - such as it is here - matches the
- * profile the daemon is reporting. */
+ * failed" but "configure changed the hardware and then failed". */
 static int mock_configure(struct radio_backend *b, const struct radio_profile *p,
                           char *err, size_t errlen)
 {
@@ -85,8 +80,6 @@ static int mock_configure(struct radio_backend *b, const struct radio_profile *p
         return -EIO;
     }
     /* Past begin(): the radio has moved whatever happens next. */
-    m->hw_profile = *p;
-    m->hw_configured = true;
     if (m->configure_fail_stage == 2) {
         snprintf(err, errlen, "mock: setCRC failed after begin");
         if (m->configure_fail_once) {
