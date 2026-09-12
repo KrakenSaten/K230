@@ -444,7 +444,21 @@ by about two orders of magnitude.
 
 - **15 ms** timer, I2C only when INT is asserted.
 - **Runtime fallback** to unconditional I2C at **20 ms** when GPIO42 proves
-  unusable; decided at runtime and logged, not a build flag.
+  unusable; decided at runtime and logged, not a build flag. Implemented as
+  specified since 2026-09-12: the timer's period changes on the edge and the
+  transition is logged once, at WARN. A board whose line was never usable
+  starts in the fallback mode rather than falling into it, so the period and
+  the mode always agree. The gate is only ever lost, never regained, so the
+  log carries at most one such line per session — and its **absence** is what
+  says the gate was kept, which is the only way to tell after boot.
+- **Distrusting the line takes evidence, not one coincidence.** A sweep
+  drains whatever the line says, so between reading the level and reading the
+  FIFO there is a window of one or two milliseconds in which a key genuinely
+  pressed just then arrives and is found. That is not a lying line. The
+  stuck-high verdict therefore requires the level to have read *idle* while
+  the sweep found events, and requires it three times, cleared the moment the
+  line is seen asserted. A line that is genuinely stuck never reads asserted
+  and so reaches the verdict in about 1.5 s.
 - Worst-case latency is about 15 ms of detection plus 1 to 3 ms of drain
   plus one LVGL input read, so roughly **50 ms** (the last term ASSUMED
   until `LV_DEF_REFR_PERIOD` is measured).
@@ -456,9 +470,31 @@ by about two orders of magnitude.
 Edge-driven input stays a later change that must justify itself with
 measurements taken on the device.
 
-**Outcome on unit A, 2026-09-12.** The driver selected and kept the 15 ms
-INT-gated mode; the unconditional fallback was not needed. Typing was correct
-end to end with no dropped keys, no overflow and no warning or error logged.
+**Outcome on unit A, 2026-09-12 (first run).** Typing was correct end to end
+with no dropped keys, no overflow and no warning or error logged. The
+acceptance also recorded that the driver "selected and kept the 15 ms
+INT-gated mode"; **the second half of that was withdrawn the same day.** It
+rested on the one line logged at start-up, which reports the mode chosen at
+boot and nothing after it, and the driver as it then stood switched the gate
+off on the first unconditional sweep that coincided with a keypress —
+about half a second into any real typing — with nothing logged when it did.
+So the run is evidence that the keyboard works, and was never evidence about
+which mode it worked in. The code fix and the log line that makes the claim
+checkable at all are above; the measurement is below.
+
+**Outcome on unit A, 2026-09-12 (re-measured after the fix).** Build
+`6d4b318-dirty`. The driver started INT-gated at 15 ms and **kept the gate**
+through about 40 s of continuous typing — 69 keys delivered, 0 dropped, 0
+`INT gate dropped` lines, 0 ERROR/WARN, the radio untouched and the mux words
+back at rest. Roughly eight sweeps fell with the FIFO non-empty, each of
+which was enough to end the gate under the old predicate. Full table:
+`KEYBOARD_BRINGUP_2026-09-10.md` §5.5.
+
+This is now a claim the log can support, which the first run's version of it
+could not. The 20 ms fallback still has **not** been exercised on hardware:
+no unit has yet presented a GPIO42 that misbehaves, so the fallback period
+and its log line are VERIFIED on the host only.
+
 The latency figure above is still ASSUMED: nothing has yet measured a key
 press to a glyph on the device.
 

@@ -279,7 +279,8 @@ not reflashed.** The unit reports `0.0.8 BUILD_ID=d3b7bb0`.
 | Fact | Result | Class |
 | --- | --- | --- |
 | Driver start-up | `keyboard: TCA8418 ready, polling every 15 ms (INT-gated)` | **VERIFIED** |
-| GPIO42 as a level gate | works; the driver kept the gate and never fell back | **VERIFIED** |
+| GPIO42 as a level gate | reads as a level and was chosen as the gate at start-up | **VERIFIED** |
+| Whether the gate was *kept* for the session | **WITHDRAWN 2026-09-12** — see the note below §5.2; not measurable by this run | — |
 | Line ownership | gpiochip1 line 10 `pocketos-shell-kbd-irq` input pull-up; lines 14 and 15 `pocketos-shell-kbd` output open-drain pull-up; line 11 (reset) held only for the pulse | **VERIFIED** |
 | Typing, plain | `awqjz` | **VERIFIED** |
 | Typing, shifted | `~_'` `` ` `` `Z` | **VERIFIED** |
@@ -293,9 +294,26 @@ framebuffer rather than transcribed, which is what makes them evidence: the
 two entries the vendor table had wrong (§5.1) are now confirmed end to end,
 from the matrix code to a character in a focused field.
 
-The polling model the design chose is the one the hardware selected: a 15 ms
-timer that reads the INT line and touches the bus only when it is asserted.
-The unconditional 20 ms fallback exists in the driver and was not needed.
+The polling model the design chose is the one the hardware selected at
+start-up: a 15 ms timer that reads the INT line and touches the bus only when
+it is asserted.
+
+**Correction, 2026-09-12 (cold merge review).** This section originally added
+that "the driver kept the gate and never fell back" and that "the
+unconditional 20 ms fallback exists in the driver and was not needed". Both
+are withdrawn. The only evidence either claim ever had was the single
+start-up line above, which reports the mode chosen at boot and says nothing
+about the rest of the session — and the driver as it stood at `d3b7bb0`
+switched the gate off at the first unconditional sweep that coincided with a
+key being pressed, roughly half a second into any real typing, logging
+nothing when it did. The 20 ms fallback period was not implemented either;
+the timer stayed at 15 ms in both modes.
+
+So this run is good evidence that the keyboard works — the typing, the
+characters read off the framebuffer, the absence of drops and overflow all
+stand. It is not, and never was, evidence about which polling mode it worked
+in. The gate predicate and the missing log line are fixed on the v0.0.9
+branch; the re-measurement is §5.5.
 
 ### 5.3 Hardware robustness, 2026-09-12 — blocks B and C: PASS
 
@@ -465,6 +483,40 @@ TCA8418 (bit-banged I2C on GPIO46/47)
 Nothing above `pos_input_push_key()` changes, which is the point of §17.4:
 Notes cannot tell a typed character from a tapped one, and no second text
 path is created.
+
+### 5.5 INT gate kept under sustained typing, 2026-09-12 — re-measurement: PASS
+
+The claim §5.2 withdrew, measured properly this time. Deployed with
+`deploy.sh` from the pre-merge fix pass; the unit reports `0.0.8
+BUILD_ID=6d4b318-dirty`. **The card was not reflashed.**
+
+What makes this measurable at all is the log line the fix adds: the gate can
+only be lost, never regained, so a session that never logs
+`keyboard: INT gate dropped` kept it throughout. Before the fix there was no
+such line, which is why §5.2's version of this claim rested on nothing.
+
+| Fact | Result | Class |
+| --- | --- | --- |
+| Start-up mode | `keyboard: TCA8418 ready, polling every 15 ms (INT-gated)` | **VERIFIED** |
+| Typing | Notes open 10:16:34 → 10:18:15Z, about 40 s of continuous typing | **VERIFIED** |
+| Keys delivered | `69 key(s) delivered, 0 dropped, 0 reserved` | **VERIFIED** |
+| Text reached a focused field | `note-00000027.txt`, 66 bytes, read back off the store | **VERIFIED** |
+| `INT gate dropped` lines | **0**, across the whole session | **VERIFIED** |
+| ERROR/WARN in any log since start-up | **0** | **VERIFIED** |
+| Services | 6 processes alive; supervise logged only the two deliberate stops, no crash restart, 0 crash reports | **VERIFIED** |
+| Radio | 0 Meshtastic processes, 0 spidev holders, backend mock, region EU868 | **VERIFIED** |
+| io46/io47 mux at rest | `0x800019D1` both — the saved word, not the bit-bang `0x…01D1` | **VERIFIED** |
+
+The session ran about 101 s, so roughly 200 unconditional sweeps, of which
+about 80 fell inside the typing. At 69 keys the raw event rate is near seven
+per second counting releases, and an event waits at most one 15 ms poll, so
+something like eight of those sweeps landed with the FIFO non-empty — the
+exact condition that used to end the gate. Under the old predicate one such
+sweep was enough and it was permanent; here there were none.
+
+This is the hardware half of the evidence. The deterministic half is
+`tests/kbd_tca8418_test.c`, which crosses twelve sweep boundaries with events
+pending on every one of them, and fails when the fix is reverted.
 
 ## 6. Reading the key map against the keycaps
 

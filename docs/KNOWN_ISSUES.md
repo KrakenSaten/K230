@@ -280,12 +280,27 @@ they once were not.
   refused rather than obeyed. The mechanism differs from the one DS §18.8
   sketched — a private alert focus group with the stream redirected into it,
   rather than the actions joining the one group — and DS §18.8 records that.
-  One path is **not** deterministically tested: `lv_group_create()` failing
-  at shell start-up, which would leave the alert without its group. Forcing
-  it needs production-only hooks, so the failure is covered at the
-  `pos_input` boundary instead: a refused push leaves suppression untouched,
-  and `shell_alarm_test` asserts at nine points that the keyboard is never
-  suppressed while the stream is un-redirected.
+  One path is **not** tested and, to be exact about it, **not covered
+  either**: `lv_group_create()` failing at shell start-up, which would leave
+  the alert without its group. An earlier version of this entry claimed the
+  failure was "covered at the `pos_input` boundary" by `shell_alarm_test`'s
+  nine assertions that the keyboard is never suppressed while the stream is
+  un-redirected. That is the wrong direction. Those assertions catch
+  suppression standing without isolation — the harmless half. Allocator
+  failure produces the other half: no group, so the push is refused, so
+  suppression is never raised and the stream is never redirected, and the
+  alert is shown anyway with every key still reaching the app underneath.
+  The coupling check passes in exactly that state, because nothing is
+  suppressed.
+
+  So what is actually covered is the `pos_input` contract (a refused push
+  changes nothing), not the consequence at the alert. The trigger is LVGL
+  heap exhaustion during shell start-up, which has never been observed and
+  would be accompanied by larger problems; the entry is left open rather than
+  closed, and deliberately not worked on in the v0.0.9 keyboard branch. The
+  smallest honest fix when it is taken up is to make the failure loud — log
+  it at `shell_alarm_create()` and refuse to raise the alert silently without
+  isolation — rather than to keep asserting coverage that does not exist.
 - `pos_input_add_source` loses `LV_KEY_NEXT` and `LV_KEY_PREV`: LVGL's keypad
   processing consumes them in the source's private group, so the
   simulator's Tab key does nothing. A physical keyboard must push through
