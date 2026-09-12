@@ -255,6 +255,15 @@ static void fill_styles(void)
     lv_style_set_border_width(s, 1); /* D3: dividers stay 1 px in every mode */
     lv_style_set_border_side(s, LV_BORDER_SIDE_BOTTOM);
 
+    /* Selected, DS §7: the 2 px focus outline and nothing else, so it can be
+     * added to a slab that keeps its own fill and can be pressed while it is
+     * selected (PocketCalendar's day cells). */
+    s = &styles[POS_STYLE_SELECTED];
+    reset(s);
+    lv_style_set_outline_width(s, POS_FOCUS_OUTLINE);
+    lv_style_set_outline_color(s, tok(POS_COLOR_FOCUS));
+    lv_style_set_outline_pad(s, 0);
+
     /* Text field, DS §17.1. Body font, so Outdoor's 20 px follows the theme
      * like every other body text. */
     s = &styles[POS_STYLE_FIELD];

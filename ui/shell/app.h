@@ -11,6 +11,8 @@
 
 #include "lvgl.h"
 
+#include <stdint.h>
+
 #define POCKETOS_APP_API_VERSION 0
 
 struct pocketos_app {
@@ -32,6 +34,18 @@ void pocketos_shell_go_home(void);
  * "reduced_motion" = 0|1 in /etc/pocketos/settings.conf, default 0.
  * When 1, every animation must apply its end state immediately. */
 int pocketos_shell_reduced_motion(void);
+/* The system date as one number, YYYYMMDD local, or -1 when the wall clock
+ * is not set. It comes from the reading the shell's own once-a-second tick
+ * already took, through PocketClock's one clock reader and its validity rule
+ * (clock_wall): an app that wants the date reads it here rather than calling
+ * a clock itself, so there is one answer to what day it is and one place
+ * that decides whether the board knows.
+ *
+ * -1 is not 1970. This board has no clock that survives a power cut, so an
+ * unset clock is the ordinary state after boot, and a caller must show that
+ * it does not know rather than draw the epoch as a date. */
+int64_t pocketos_shell_system_day(void);
+
 /* The radio state the status bar's own once-a-second poll last saw: "rx",
  * "tx", "idle" and so on, or NULL while radiod is not answering. An app that
  * wants to show the radio reads this instead of polling radiod again - the

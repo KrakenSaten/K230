@@ -136,6 +136,13 @@ under 4 s, and the Clock and Notes stores byte-identical across a restart
 and a power cycle. The `v0.0.8` tag is on the commit that adds that sheet.
 Physical keyboard support is not in this release; it continues on its own.
 
+**v0.0.9 is open.** PocketCalendar is its first feature: a month view, Monday
+first, with a Today button and a selected day, and no scheduling of any kind
+(`docs/apps/POCKETCALENDAR.md`). It takes the date from the shell rather than
+reading a clock, and it is explicit when the board does not know the date -
+which on hardware with no RTC is the state it boots into. Host-tested and
+cross-built; not yet run on a board.
+
 ## Phase 3: first strong application
 
 RIFT was the planned first application; the owner deprioritised it on

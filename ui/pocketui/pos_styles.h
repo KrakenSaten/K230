@@ -47,6 +47,12 @@ enum pos_style_role {
     POS_STYLE_SYMBOL,              /* LV_SYMBOL_* glyph font (temporary, until DS icons) */
     POS_STYLE_SYMBOL_LARGE,        /* 32 px symbol font for launcher tiles */
     POS_STYLE_DIVIDER,             /* 1 px surface_raised bottom border (rows) */
+    /* The selected outline of DS §7 - 2 px focus, and only the outline, so
+     * a selected thing keeps whatever fill it already had. Separate from
+     * POS_STYLE_SLAB_PRESSED, which carries the same outline but also the
+     * raised fill of a finger currently on the glass: selection outlives the
+     * press, and the two states have to be able to show at once. */
+    POS_STYLE_SELECTED,
     /* Text field (DS §17.1). The states are separate roles so a field carries
      * only the ones it needs: error is optional per field. */
     POS_STYLE_FIELD,               /* surface fill, hairline line border, radius 6, pad 16 */

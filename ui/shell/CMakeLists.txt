@@ -79,6 +79,9 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/clock/clock_alert.c
     ${REPO_DIR}/apps/clock/clock_runtime.c
     shell_alarm.c
+    ${REPO_DIR}/apps/calendar/cal_app.c
+    ${REPO_DIR}/apps/calendar/cal_date.c
+    ${REPO_DIR}/apps/calendar/cal_view.c
     ${REPO_DIR}/apps/notes/notes_app.c
     ${REPO_DIR}/apps/notes/notes_store.c
     ${REPO_DIR}/apps/notes/notes_view.c
@@ -145,7 +148,8 @@ endif()
 target_compile_definitions(pocketos-shell PRIVATE POCKETTIMBER_ART=${POCKETTIMBER_ART})
 target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/notes"
-                                                  "${REPO_DIR}/apps/clock")
+                                                  "${REPO_DIR}/apps/clock"
+                                                  "${REPO_DIR}/apps/calendar")
 
 if(POCKETOS_LVGL_MODE STREQUAL "source")
     find_package(Python3 REQUIRED COMPONENTS Interpreter)

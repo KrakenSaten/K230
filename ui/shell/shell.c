@@ -53,10 +53,11 @@ extern const struct pocketos_app app_radar;
 extern const struct pocketos_app app_notes;
 extern const struct pocketos_app app_timber;
 extern const struct pocketos_app app_clock;
+extern const struct pocketos_app app_calendar;
 
 static const struct pocketos_app *apps[] = { &app_radio, &app_system, &app_fleet,
                                             &app_radar, &app_timber, &app_notes,
-                                            &app_clock };
+                                            &app_clock, &app_calendar };
 #define APP_COUNT (sizeof(apps) / sizeof(apps[0]))
 
 struct shell {
@@ -217,6 +218,17 @@ int pocketos_shell_reduced_motion(void)
     const char *v = settings_get("reduced_motion", "0");
 
     return strcmp(v, "1") == 0 || strcmp(v, "true") == 0;
+}
+
+/* The date, from the reading the tick above already took, so an app does not
+ * read a clock of its own (app.h). The validity rule is PocketClock's and is
+ * not repeated here: below CLOCK_WALL_VALID_FROM the wall clock is not a
+ * time, and -1 says so rather than letting the epoch be drawn as a date. */
+int64_t pocketos_shell_system_day(void)
+{
+    const struct clock_wall *w = &clock_runtime_now()->wall;
+
+    return w->valid ? w->day : -1;
 }
 
 /* ---- the one touch keyboard (DS §17.3, §17.4) -------------------------- *
