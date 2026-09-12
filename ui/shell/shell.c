@@ -260,7 +260,7 @@ int pocketos_shell_brightness_get(void)
 
 int pocketos_shell_brightness_set(int percent)
 {
-    char value[8];
+    char value[12];
     int applied = brightness_set_percent(&sh.brightness, percent);
 
     if (applied < 0) {
