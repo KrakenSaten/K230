@@ -25,6 +25,18 @@ struct mock_priv {
      * Setting rx_failing from outside cannot stand in for that: it arrives as
      * a control call, and the daemon reconciles its state around those. */
     int rx_fails_after_receive;
+    /* debug knob: which stage of configure fails. 0 none, 1 before the radio
+     * is touched, 2 after it has moved but before the CRC setting, 3 after it
+     * has moved and receive mode could not be entered. */
+    int configure_fail_stage;
+    /* When set, the stage above applies to the next configure only. That is
+     * the difference between a transceiver that glitched once - where asking
+     * for the previous profile again puts it back - and one that has stopped
+     * answering, where the rollback fails the same way and nothing can say
+     * what the radio is doing. */
+    int configure_fail_once;
+    struct radio_profile hw_profile; /* what the radio is actually doing */
+    int hw_configured;
 };
 
 static int mock_init(struct radio_backend *b, char *err, size_t errlen)
@@ -51,12 +63,47 @@ static void mock_get_caps(struct radio_backend *b, struct radio_caps *caps)
     caps->cad = true;
 }
 
+/* Configuring the real transceiver is three operations in order: begin() puts
+ * the whole radio configuration on the chip, then the CRC mode, then receive
+ * mode. Only the first changes what is on the air, and the two after it can
+ * fail once it has. The mock models the same three stages so a failure can be
+ * injected between them, because the case worth testing is not "configure
+ * failed" but "configure changed the hardware and then failed".
+ *
+ * hw_configured tracks whether the chip - such as it is here - matches the
+ * profile the daemon is reporting. */
 static int mock_configure(struct radio_backend *b, const struct radio_profile *p,
                           char *err, size_t errlen)
 {
-    (void)err;
-    (void)errlen;
+    struct mock_priv *m = b->priv;
+
+    if (m->configure_fail_stage == 1) {
+        snprintf(err, errlen, "mock: begin failed before touching the radio");
+        if (m->configure_fail_once) {
+            m->configure_fail_stage = 0;
+        }
+        return -EIO;
+    }
+    /* Past begin(): the radio has moved whatever happens next. */
+    m->hw_profile = *p;
+    m->hw_configured = true;
+    if (m->configure_fail_stage == 2) {
+        snprintf(err, errlen, "mock: setCRC failed after begin");
+        if (m->configure_fail_once) {
+            m->configure_fail_stage = 0;
+        }
+        return -EIO;
+    }
+    if (m->configure_fail_stage == 3) {
+        m->rx_failing = 1; /* startReceive failed: the chip is not listening */
+        snprintf(err, errlen, "mock: startReceive failed after begin");
+        if (m->configure_fail_once) {
+            m->configure_fail_stage = 0;
+        }
+        return -EIO;
+    }
     b->profile = *p;
+    m->rx_failing = 0;
     return 0;
 }
 
@@ -148,6 +195,17 @@ static int mock_debug_set(struct radio_backend *b, const char *key, int value)
 
     if (strcmp(key, "rx_failing") == 0) {
         m->rx_failing = value != 0;
+        return 0;
+    }
+    if (strcmp(key, "configure_fail_stage") == 0) {
+        if (value < 0 || value > 3) {
+            return -EINVAL;
+        }
+        m->configure_fail_stage = value;
+        return 0;
+    }
+    if (strcmp(key, "configure_fail_once") == 0) {
+        m->configure_fail_once = value != 0;
         return 0;
     }
     if (strcmp(key, "rx_fails_after_receive") == 0) {

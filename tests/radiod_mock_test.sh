@@ -163,6 +163,59 @@ sleep 0.3
 out=$("$POS" radio status)
 check "a backend that can receive again is reported as rx" '"state":[[:space:]]*"rx"' "$out"
 
+# Cold review F3: a configure that changed the radio and then failed.
+#
+# Configuring a transceiver is several operations in order. On the SX1262
+# begin() puts the whole radio configuration on the air, and setCRC() and
+# startReceive() come after it - so a configure can fail with the chip already
+# moved. Reporting the old profile afterwards puts the wrong frequency and
+# spreading factor into every status and every bench report that follows.
+#
+# The mock models the same three stages so the failure can be injected between
+# them. Stage 1 fails before the radio is touched, stages 2 and 3 after.
+out=$("$POS" radio configure frequency_mhz=868.5 spreading_factor=9)
+check "a known-good profile is applied" '"spreading_factor":[[:space:]]*9' "$out"
+
+# Stage 1 with a transient fault: begin() failed without touching the radio,
+# and the retry of the previous profile succeeds, so nothing is uncertain.
+"$POS" radio mock configure_fail_once=1 >/dev/null
+"$POS" radio mock configure_fail_stage=1 >/dev/null
+out=$("$POS" radio configure spreading_factor=11 2>&1)
+check "a configure that fails before touching the radio is refused" 'code' "$out"
+out=$("$POS" radio status)
+check "and the profile is the one that was working" '"spreading_factor":[[:space:]]*9' "$out"
+check "with no uncertainty claimed" "0"       "$(printf '%s' "$out" | grep -c profile_uncertain)"
+
+# Stage 2, also transient: the radio moved and then the configure failed, so
+# the previous profile is asked for again - and this time the radio takes it.
+"$POS" radio mock configure_fail_stage=2 >/dev/null
+out=$("$POS" radio configure spreading_factor=12 2>&1)
+check "a configure that fails after the radio moved is refused too" 'code' "$out"
+out=$("$POS" radio status)
+check "the previous profile was restored, not the requested one"       '"spreading_factor":[[:space:]]*9' "$out"
+check "and the restore left nothing uncertain" "0"       "$(printf '%s' "$out" | grep -c profile_uncertain)"
+check "the daemon logged the restore" 'the previous profile was restored'       "$(cat "$POCKETOS_RUNTIME_DIR/radiod.log")"
+
+# Stage 3, and this time the fault stays: the radio moved, receive mode could
+# not be entered, and the rollback fails the same way. Neither profile is on
+# the chip and nothing can say what is.
+"$POS" radio mock configure_fail_once=0 >/dev/null
+"$POS" radio mock configure_fail_stage=3 >/dev/null
+out=$("$POS" radio configure spreading_factor=10 2>&1)
+check "a configure whose rollback also fails is refused" 'code' "$out"
+out=$("$POS" radio status)
+check "the daemon says the settings are unknown" '"profile_uncertain":[[:space:]]*true' "$out"
+check "and does not report rx while they are" '"state":[[:space:]]*"error"' "$out"
+check "the daemon logged that it could not restore them"       'could not be restored' "$(cat "$POCKETOS_RUNTIME_DIR/radiod.log")"
+
+# A configure that succeeds is what clears it.
+"$POS" radio mock configure_fail_stage=0 >/dev/null
+out=$("$POS" radio configure spreading_factor=9 2>&1)
+check "a configure that succeeds is accepted again" '"spreading_factor":[[:space:]]*9' "$out"
+out=$("$POS" radio status)
+check "and the uncertainty is gone" "0"       "$(printf '%s' "$out" | grep -c profile_uncertain)"
+check "and the radio is receiving again" '"state":[[:space:]]*"rx"' "$out"
+
 # Protocol robustness: garbage frame must not crash radiod.
 python3 - "$POCKETOS_RUNTIME_DIR/radiod.sock" <<'PY' || true
 import socket, sys

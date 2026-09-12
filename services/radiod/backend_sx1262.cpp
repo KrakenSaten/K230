@@ -148,6 +148,13 @@ void sx_get_caps(struct radio_backend *b, struct radio_caps *caps)
 int sx_configure(struct radio_backend *b, const struct radio_profile *prof, char *err, size_t errlen)
 {
     Sx1262Priv *p = (Sx1262Priv *)b->priv;
+    /* begin() is the first thing apply_profile does and it puts the whole new
+     * radio configuration on the chip; setCRC() and startReceive() come after
+     * it and can fail once it has. So a failure here does not mean the radio
+     * is untouched, and b->profile is left alone rather than being claimed to
+     * describe it. Deciding what to do about that - put the previous settings
+     * back, or report the profile as uncertain - is radiod's, in m_configure,
+     * because it is the same decision for every backend. */
     int rc = apply_profile(p, prof, err, errlen);
 
     if (rc == 0) {

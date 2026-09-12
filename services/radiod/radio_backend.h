@@ -83,6 +83,15 @@ struct radio_backend {
     const struct radio_backend_ops *ops;
     void *priv;
     struct radio_profile profile;
+    /* Set by a backend when profile above no longer describes the hardware.
+     * Configuring a transceiver is several operations, and one of them can
+     * fail after an earlier one has already changed the chip: the frequency
+     * and spreading factor are on the air while the CRC setting is whatever
+     * the previous profile asked for. A backend that cannot put the previous
+     * settings back either says so here rather than letting the daemon keep
+     * reporting a profile the radio stopped matching. Cleared by the next
+     * configure that succeeds. */
+    bool profile_uncertain;
 };
 
 extern const struct radio_backend_ops radio_backend_mock_ops;

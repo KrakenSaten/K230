@@ -471,6 +471,14 @@ static cJSON *m_status(struct radiod *rd)
 
     cJSON_AddStringToObject(o, "state", rd->state);
     cJSON_AddItemToObject(o, "profile", profile_to_json(&rd->be.profile));
+    /* Only present when it is true, so an ordinary status is unchanged. The
+     * profile above is then the last one this daemon successfully applied,
+     * not a description of the transceiver: a configure changed the chip,
+     * failed part way, and the previous settings could not be put back
+     * either. A bench report that cannot tell those apart is not evidence. */
+    if (rd->be.profile_uncertain) {
+        cJSON_AddBoolToObject(o, "profile_uncertain", true);
+    }
     cJSON_AddNumberToObject(o, "uptime_s", (double)((mono_ms() - rd->start_mono_ms) / 1000u));
     return o;
 }
@@ -498,6 +506,8 @@ static cJSON *m_stats(struct radiod *rd)
 static cJSON *m_configure(struct radiod *rd, const cJSON *params, int *code, char *msg, size_t n)
 {
     struct radio_profile p = rd->be.profile;
+    struct radio_profile previous;
+    char rollback[160] = "";
     int rc;
 
     if (params && !cJSON_IsObject(params)) {
@@ -510,20 +520,41 @@ static cJSON *m_configure(struct radiod *rd, const cJSON *params, int *code, cha
         *code = rc;
         return NULL;
     }
+    previous = rd->be.profile;
     rc = rd->be.ops->configure(&rd->be, &p, msg, n);
-    /* Either way the transceiver has been told to change mode and has been
-     * asked back into receive, so what it is doing now is a question for it.
-     * A configure that failed part way is the case that matters: the profile
-     * this daemon reports is still the old one, and without this the state
-     * was still "rx" as well while the chip had stopped receiving.
-     * (The profile itself is not rolled back here; that is the rest of F3.) */
-    update_rx_state(rd);
-    if (rc < 0) {
-        *code = POCKETIPC_ERR_BACKEND;
-        return NULL;
+    if (rc == 0) {
+        rd->be.profile = p;
+        rd->be.profile_uncertain = false;
+        update_rx_state(rd);
+        return profile_to_json(&p);
     }
-    rd->be.profile = p;
-    return profile_to_json(&p);
+
+    /* Configuring a transceiver is several operations in order, and one of
+     * them can fail after an earlier one has already changed the chip: on the
+     * SX1262, begin() puts the whole radio configuration on the air and
+     * setCRC() and startReceive() come after it. So a failed configure does
+     * not mean the radio is untouched, and reporting the old profile as
+     * though it still described the hardware would put the wrong frequency
+     * and spreading factor in every status, every log and every bench report
+     * that followed.
+     *
+     * The previous profile is asked for again. If that succeeds the radio is
+     * back where the caller still believes it is and nothing has been lost
+     * but the request. If it fails too, neither profile is on the chip and
+     * nothing here can say what is: the daemon says so rather than choosing
+     * one to report, until a configure succeeds. */
+    if (rd->be.ops->configure(&rd->be, &previous, rollback, sizeof(rollback)) == 0) {
+        rd->be.profile = previous;
+        rd->be.profile_uncertain = false;
+        LOG_WARN("configure failed (%s); the previous profile was restored", msg);
+    } else {
+        rd->be.profile_uncertain = true;
+        LOG_ERROR("configure failed (%s) and the previous profile could not be "
+                  "restored (%s); the transceiver's settings are unknown", msg, rollback);
+    }
+    update_rx_state(rd);
+    *code = POCKETIPC_ERR_BACKEND;
+    return NULL;
 }
 
 static cJSON *m_send(struct radiod *rd, const cJSON *params, int *code, char *msg, size_t n)
