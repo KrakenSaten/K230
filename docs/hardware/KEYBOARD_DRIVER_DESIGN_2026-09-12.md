@@ -1,7 +1,11 @@
 # Physical keyboard driver: design and preflight, 2026-09-12
 
-**Status: APPROVED FOR IMPLEMENTATION (product owner, 2026-09-12). No driver
-code exists when this document is committed.**
+**Status: IMPLEMENTED AND BROUGHT UP.** Approved by the product owner on
+2026-09-12, implemented in commit `d3b7bb0`, deployed to unit A the same day,
+and bring-up gate A passed (`KEYBOARD_BRINGUP_2026-09-10.md` §5.2). The
+document was written before any code existed and is kept as written; where
+the hardware has since answered a question it left open, the answer is marked
+in place.
 
 Scope: the minimal production driver that turns TCA8418 key events into the
 one logical key stream of DS v0.1 §17.4, on unit A, for v0.0.9. It covers
@@ -374,9 +378,10 @@ milestone is **not complete** until:
   join, so Tab and the arrows do nothing on the launcher. The keyboard is
   useful in text contexts until membership is widened. A product decision,
   not a defect.
-- **GPIO42 is unverified on the connected base**: the earlier low reading was
-  taken through the plastic film. The level gate must degrade to
-  unconditional polling if the line never correlates with events.
+- **GPIO42 — answered 2026-09-12: it works.** On unit A the driver read the
+  line as a level and kept the gate, so the earlier low reading really was
+  the plastic film. The unconditional fallback stays in the code regardless:
+  one board on one day is not every board.
 - **A held reset line** is correct but ASSUMED safe on this base.
 - **`LV_DEF_REFR_PERIOD` is unknown** — the shell's `lv_conf.h` is generated,
   and that period bounds end-to-end latency. Measure before tuning.
@@ -414,6 +419,12 @@ by about two orders of magnitude.
 
 Edge-driven input stays a later change that must justify itself with
 measurements taken on the device.
+
+**Outcome on unit A, 2026-09-12.** The driver selected and kept the 15 ms
+INT-gated mode; the unconditional fallback was not needed. Typing was correct
+end to end with no dropped keys, no overflow and no warning or error logged.
+The latency figure above is still ASSUMED: nothing has yet measured a key
+press to a glyph on the device.
 
 ## 15. The hardware evidence this driver is built on
 

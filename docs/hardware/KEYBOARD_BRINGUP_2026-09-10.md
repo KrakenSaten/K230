@@ -1,13 +1,15 @@
 # Physical keyboard bring-up, discovery checkpoint, 2026-09-10
 
-**Updated 2026-09-11, then 2026-09-12.** The keyboard base board is attached
-to unit A. This records what the hardware is, what has been established about
-it, what has not, and why no driver has been written yet.
+**Updated 2026-09-11, then twice on 2026-09-12: the key map, then the driver
+bring-up.** The keyboard base board is attached to unit A. This records what
+the hardware is, what has been established about it, what has not, and where
+the driver now stands.
 
 **Status: PRESENCE VERIFIED. SIX KEY CODES VERIFIED AGAINST THE KEYCAPS, TWO
 SYMBOLS CORRECTED. THE REST OF THE MAP STILL UNREAD. POWER PATH UNRESOLVED.
-NO DRIVER.** The TCA8418 answers and the keyboard types correctly in the
-vendor launcher on unit A (§0). The transport is documented from vendor
+DRIVER RUNNING ON UNIT A, TYPING VERIFIED END TO END (§5.2).** The TCA8418
+answers and the keyboard types correctly both in the vendor launcher on unit
+A (§0) and now in PocketOS itself (§5.2). The transport is documented from vendor
 sources and the running device tree (§1). The translation layer (§5) has now
 been compared with the physical keys for six codes — Shift 7, Z 18, Q 20,
 A 29, J 34, W 39 — and two of the vendor's shifted symbols were wrong and are
@@ -147,7 +149,10 @@ nothing. It is recorded here so nobody repeats it expecting an answer.
   — so the **TCA8418 (0x34) and the XL9555 (0x20) answer**, while the
   **BQ25896 (0x6B) and BQ27220 (0x55) do not** in this configuration.
   Whether they answer in another power setup is still open.
-- **Whether the GPIO42 interrupt line works** on the connected base.
+- **Whether the GPIO42 interrupt line works. Answered 2026-09-12: it does.**
+  The PocketOS driver reads it as a level and kept it as its gate on unit A
+  (§5.2), so the earlier low reading really was the plastic film. The line is
+  held as `pocketos-shell-kbd-irq`, input with a pull-up, gpiochip1 line 10.
 - **Whether the keyboard backlight (GPIO52 / PWM4) and a Caps LED** — the
   vendor driver toggles XL9555 output 0 on Caps — exist and work.
 
@@ -253,6 +258,33 @@ SSH (§6). Every line satisfies `code = raw & 0x7F`, bit 7 = press, and
   code 20; codes 29, 34 and 18 were already right.
 - Event counters on the page read `ovr=0 err=0` throughout, so the controller
   neither overflowed nor lost events during the readings.
+
+### 5.2 Driver bring-up on unit A, 2026-09-12 — gate A: PASS
+
+The driver designed in `KEYBOARD_DRIVER_DESIGN_2026-09-12.md` (commit
+d3b7bb0) was deployed with `platforms/k230/scripts/deploy.sh`. **The card was
+not reflashed.** The unit reports `0.0.8 BUILD_ID=d3b7bb0`.
+
+| Fact | Result | Class |
+| --- | --- | --- |
+| Driver start-up | `keyboard: TCA8418 ready, polling every 15 ms (INT-gated)` | **VERIFIED** |
+| GPIO42 as a level gate | works; the driver kept the gate and never fell back | **VERIFIED** |
+| Line ownership | gpiochip1 line 10 `pocketos-shell-kbd-irq` input pull-up; lines 14 and 15 `pocketos-shell-kbd` output open-drain pull-up; line 11 (reset) held only for the pulse | **VERIFIED** |
+| Typing, plain | `awqjz` | **VERIFIED** |
+| Typing, shifted | `~_'` `` ` `` `Z` | **VERIFIED** |
+| Warnings, errors, dropped keys, overflow | none during bring-up | **VERIFIED** |
+| Services | sysd, radiod and pocketos-shell `running=1`, `crashloop=0`, `restarts=0` | **VERIFIED** |
+| Radio | no Meshtastic process, 0 spidev holders, `meshtastic.autostart=0`, TX counters unchanged at 28 start / 14 done | **VERIFIED** |
+
+**Shift+W is `_` and Shift+Q is `'` in PocketOS itself**, not only on the
+vendor's key test page. The ten characters were read back off the panel's
+framebuffer rather than transcribed, which is what makes them evidence: the
+two entries the vendor table had wrong (§5.1) are now confirmed end to end,
+from the matrix code to a character in a focused field.
+
+The polling model the design chose is the one the hardware selected: a 15 ms
+timer that reads the INT line and touches the bus only when it is asserted.
+The unconditional 20 ms fallback exists in the driver and was not needed.
 
 ### Architecture, once the key map is confirmed
 
