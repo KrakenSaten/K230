@@ -489,11 +489,15 @@ static void notes_destroy(void *priv)
      * the editor is saved here or lost (ADR-002). There is nowhere left to
      * put it and no one left to ask, so a failure here is text the owner
      * typed and will not get back. It is at least said out loud: silence
-     * would make it look like an ordinary close. */
+     * would make it look like an ordinary close.
+     *
+     * The log is the only place it can be said. The shell clears the status
+     * hint immediately after destroy() returns (shell.c, app_close), so a
+     * hint set here is overwritten before a frame is drawn and no one ever
+     * sees it. */
     if (save_open_note(a) != 0) {
         LOG_ERROR("notes: note %u could not be saved on the way out; "
                   "its edits are lost", (unsigned)a->open_id);
-        pocketos_shell_set_status_hint("Note not saved");
     }
     pocketos_shell_keyboard_hide();
     lv_free(a);
