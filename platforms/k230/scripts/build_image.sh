@@ -96,6 +96,7 @@ if [ "${TARGET}" = "all" ]; then
         echo "Defconfig : ${CONF}"
         echo "Vendor BSP: $(m vendor_bsp_commit)"
         echo "SDK       : $(m sdk_commit)"
+        echo "RadioLib  : $(m radiolib_commit)$([ "$(m radiolib_state)" != "clean" ] && echo " ($(m radiolib_state))")"
         echo "PocketOS  : $(m pocketos_commit_short)$([ "$(m source_tree_state)" = "dirty" ] && echo " (applied from a dirty tree)")"
         echo "BUILD_ID  : $(m pocketos_build_id)"
         echo "Applied   : $(m applied_utc) (source of the above; this build did not re-apply)"

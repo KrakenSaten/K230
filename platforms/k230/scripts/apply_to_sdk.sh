@@ -110,6 +110,45 @@ pin_check() { # <what> <actual> <expected>
 pin_check "vendor BSP commit" "${BSP_COMMIT}" "${EXPECTED_BSP_COMMIT}"
 pin_check "SDK commit" "${SDK_COMMIT}" "${EXPECTED_SDK_COMMIT}"
 
+# RadioLib is the one vendored dependency that reaches the image as source:
+# it is compiled into radiod. Everything else the package needs - cjson, lvgl,
+# libgpiod, libdrm, libevdev - is a Buildroot package, so the SDK pin above
+# already fixes their versions. RadioLib is an ignored working-tree checkout,
+# so nothing fixed its version at all: the release build checked 034126e by
+# hand and the check lived in a document (docs/KNOWN_ISSUES.md).
+#
+# It is treated like the other pins now, including refusing to guess: a
+# RadioLib that is not a git checkout cannot be identified, and a build that
+# cannot say which radio stack it contains is not one to ship.
+RADIOLIB_DIR_SRC="${REPO_DIR}/vendor/RadioLib"
+EXPECTED_RADIOLIB_COMMIT="$(cat "${PLATFORM_DIR}/vendor_radiolib_commit.txt")"
+if git -C "${RADIOLIB_DIR_SRC}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    RADIOLIB_COMMIT="$(git -C "${RADIOLIB_DIR_SRC}" rev-parse HEAD)"
+    RADIOLIB_STATE="clean"
+    [ -n "$(git -C "${RADIOLIB_DIR_SRC}" status --porcelain)" ] && RADIOLIB_STATE="dirty"
+else
+    RADIOLIB_COMMIT="unknown"
+    RADIOLIB_STATE="not-a-git-checkout"
+fi
+pin_check "RadioLib commit" "${RADIOLIB_COMMIT}" "${EXPECTED_RADIOLIB_COMMIT}"
+if [ "${RADIOLIB_STATE}" = "dirty" ]; then
+    # Unlike our own tree, this one is copied rather than archived, so a local
+    # edit here really would be compiled into radiod.
+    if [ "${POCKETOS_ALLOW_PIN_DRIFT:-0}" = "1" ]; then
+        echo "WARNING: the RadioLib checkout is dirty; its uncommitted changes WILL be" >&2
+        echo "         compiled into radiod (POCKETOS_ALLOW_PIN_DRIFT=1)." >&2
+    else
+        echo "ERROR: the RadioLib checkout at ${RADIOLIB_DIR_SRC} is dirty." >&2
+        echo "       It is copied into the package, not archived from a commit, so" >&2
+        echo "       those uncommitted changes would be compiled into radiod and" >&2
+        echo "       nothing in the image would record them." >&2
+        echo "       Commit or discard them, or set POCKETOS_ALLOW_PIN_DRIFT=1 and say" >&2
+        echo "       so in the build report." >&2
+        exit 1
+    fi
+fi
+echo "RadioLib: ${RADIOLIB_DIR_SRC} @ ${RADIOLIB_COMMIT} (${RADIOLIB_STATE})"
+
 # The defconfig, Config.in and pocketos.mk used to be installed straight from
 # the working tree while everything else came from git. They decide what is in
 # the image and how it is built, so an uncommitted edit to any of them changed
@@ -260,6 +299,8 @@ source_tree_state=${TREE_STATE}
 dirty_override=${DIRTY_OVERRIDE}
 vendor_bsp_commit=${BSP_COMMIT}
 sdk_commit=${SDK_COMMIT}
+radiolib_commit=${RADIOLIB_COMMIT}
+radiolib_state=${RADIOLIB_STATE}
 defconfig=${CONF}
 applied_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
@@ -276,6 +317,7 @@ echo "  Source worktree : ${TREE_STATE}"
 if [ "${DIRTY_OVERRIDE}" = "yes" ]; then
     echo "  Dirty override  : POCKETOS_ALLOW_DIRTY_BUILD=1 -- uncommitted changes are NOT included"
 fi
+echo "  RadioLib        : ${RADIOLIB_COMMIT} (${RADIOLIB_STATE})"
 echo "  BUILD_ID        : ${BUILD_ID}"
 echo "  The working tree is never packaged, with or without the override."
 echo "Done. Build with: ${PLATFORM_DIR}/scripts/build_image.sh ${VENDOR_DIR}"

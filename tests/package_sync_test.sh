@@ -241,7 +241,21 @@ cp VERSION "$GUARD/repo/"
 mkdir -p "$GUARD/repo/platforms/k230/configs" "$GUARD/repo/platforms/k230/package/pocketos"
 cp "platforms/k230/configs/$CONF" "$GUARD/repo/platforms/k230/configs/"
 cp platforms/k230/package/pocketos/Config.in platforms/k230/package/pocketos/pocketos.mk    "$GUARD/repo/platforms/k230/package/pocketos/"
+# RadioLib is pinned now, so the scratch repo needs a checkout and a pin that
+# names it - the same two things a real build needs.
+mkdir -p "$GUARD/repo/vendor/RadioLib"
+printf 'stub
+' > "$GUARD/repo/vendor/RadioLib/README.md"
+git -C "$GUARD/repo/vendor/RadioLib" init -q
+git -C "$GUARD/repo/vendor/RadioLib" add -A
+git -C "$GUARD/repo/vendor/RadioLib" -c user.name=t -c user.email=t@t commit -qm stub
+git -C "$GUARD/repo/vendor/RadioLib" rev-parse HEAD     > "$GUARD/repo/platforms/k230/vendor_radiolib_commit.txt"
 printf 'committed\n' > "$GUARD/repo/tracked.txt"
+# The real repository ignores /vendor/, so the scratch one must too: an
+# embedded checkout showing as untracked would make the tree dirty, and the
+# dirty-tree guard would then fire before any of the RadioLib cases below -
+# which would pass, for the wrong reason.
+printf '/vendor/\n' > "$GUARD/repo/.gitignore"
 git -C "$GUARD/repo" init -q
 git -C "$GUARD/repo" add -A
 git -C "$GUARD/repo" -c user.name=t -c user.email=t@t commit -qm scratch
@@ -287,6 +301,62 @@ check "the override gets past the guard" $(said '\[1/5\]')
 check "the override warns rather than passing silently" \
       $(said 'WARNING: the working tree is dirty')
 check "the override states that uncommitted changes are excluded" $(said 'are NOT')
+
+# The RadioLib pin, enforced by the real script rather than read off it. This
+# is the dependency that is copied into the package rather than archived, so a
+# wrong or edited checkout is compiled into radiod either way; the only
+# question is whether the build says so.
+#
+# These cases cannot go through run_guard: it sets POCKETOS_ALLOW_PIN_DRIFT=1
+# to get past the stub vendor's BSP pin, and that would wave the RadioLib pin
+# through as well. So the scratch repo is given the stub vendor's own commits
+# as its BSP and SDK pins - everything correct except the one thing under
+# test - and the pin edits are committed, because an uncommitted one would
+# trip the dirty-tree guard first and the case would pass for that reason.
+git -C "$GUARD/repo" checkout -q -- tracked.txt 2>/dev/null
+printf 'committed\n' > "$GUARD/repo/tracked.txt"
+git -C "$GUARD/vendor" rev-parse HEAD > "$GUARD/repo/platforms/k230/vendor_bsp_commit.txt"
+git -C "$GUARD/vendor/k230_linux_sdk" rev-parse HEAD \
+    > "$GUARD/repo/platforms/k230/vendor_sdk_commit.txt"
+RL_PIN="$GUARD/repo/platforms/k230/vendor_radiolib_commit.txt"
+RL_REAL=$(git -C "$GUARD/repo/vendor/RadioLib" rev-parse HEAD)
+guard_commit() { git -C "$GUARD/repo" add -A >/dev/null 2>&1
+                 git -C "$GUARD/repo" -c user.name=t -c user.email=t@t \
+                     commit -qm pins >/dev/null 2>&1; }
+
+# Without the drift override, which run_guard hardcodes for the stub vendor's
+# BSP pin and which would wave the RadioLib pin through with it.
+run_strict() {
+    # shellcheck disable=SC2086
+    ( cd "$GUARD/repo" && env ${1:+"$1"} \
+        bash platforms/k230/scripts/apply_to_sdk.sh "$GUARD/vendor" ) \
+        > "$GUARD/out" 2>&1
+    echo $?
+}
+
+printf '%s\n' 0000000000000000000000000000000000000000 > "$RL_PIN"
+guard_commit
+run_strict >/dev/null
+check "a drifted RadioLib pin is refused" \
+      $([ "$(said '\[1/5\]')" = "0" ] && echo 1 || echo 0)
+# The error, not the warning of the same shape that the override prints.
+check "and the refusal names RadioLib" $(said 'ERROR: RadioLib commit is')
+
+printf '%s\n' "$RL_REAL" > "$RL_PIN"
+guard_commit
+run_strict >/dev/null
+check "with the pin right, the apply gets past it" $(said '\[1/5\]')
+
+printf 'edited\n' >> "$GUARD/repo/vendor/RadioLib/README.md"
+run_strict >/dev/null
+check "a dirty RadioLib checkout is refused" \
+      $([ "$(said '\[1/5\]')" = "0" ] && echo 1 || echo 0)
+check "and the refusal says it would be compiled into radiod" \
+      $(said 'compiled into radiod')
+run_strict "POCKETOS_ALLOW_PIN_DRIFT=1" >/dev/null
+check "the drift override lets a dirty dependency through" $(said '\[1/5\]')
+check "but says its changes will be compiled in" $(said 'WILL be')
+git -C "$GUARD/repo/vendor/RadioLib" checkout -q -- README.md 2>/dev/null
 # The provenance summary prints only on a run that finishes, which the stub
 # vendor cannot reach, so it is checked where it is written instead. What
 # matters about it is placement as much as content: a summary in the header
@@ -371,6 +441,53 @@ if git worktree add --detach "$SNAP/wt" HEAD >/dev/null 2>&1; then
 else
     echo "FAIL could not create a throwaway worktree for the snapshot check"
     failed=$((failed + 1))
+fi
+
+# ---- the one vendored dependency that reaches the image -----------------
+#
+# RadioLib is compiled into radiod and is copied into the package rather than
+# archived from a commit, so nothing about our own history fixes its version.
+# cjson, lvgl, libgpiod, libdrm and libevdev are Buildroot packages, so the
+# SDK pin already fixes theirs; RadioLib had no pin at all and the release
+# build checked it by hand.
+check "RadioLib has a pinned commit" \
+      $([ -s platforms/k230/vendor_radiolib_commit.txt ] && echo 1 || echo 0)
+check "the pin is a full commit id" \
+      $(grep -qE '^[0-9a-f]{40}$' platforms/k230/vendor_radiolib_commit.txt && echo 1 || echo 0)
+check "apply_to_sdk.sh enforces it with the same pin_check as the others" \
+      $(grep -q 'pin_check "RadioLib commit"' "$APPLY" && echo 1 || echo 0)
+check "and refuses a dirty RadioLib checkout" \
+      $(grep -q 'the RadioLib checkout at ${RADIOLIB_DIR_SRC} is dirty' "$APPLY" && echo 1 || echo 0)
+check "and refuses to guess when it is not a git checkout" \
+      $(grep -q 'RADIOLIB_STATE="not-a-git-checkout"' "$APPLY" && echo 1 || echo 0)
+check "the commit reaches the applied manifest" \
+      $(grep -q '^radiolib_commit=' "$APPLY" && echo 1 || echo 0)
+check "so does its clean/dirty state" \
+      $(grep -q '^radiolib_state=' "$APPLY" && echo 1 || echo 0)
+check "and BUILD_INFO reports it" \
+      $(grep -q 'RadioLib  : $(m radiolib_commit)' platforms/k230/scripts/build_image.sh && echo 1 || echo 0)
+
+# Every dependency the package build names must be either a Buildroot package
+# (version fixed by the SDK pin) or pinned here. A new vendored tree copied
+# into the package without a pin is the case this catches.
+copied=$(grep -nE '^[[:space:]]*(rsync|cp)[[:space:]]' "$APPLY" \
+         | grep -oE 'vendor/[A-Za-z0-9_.-]+' | sort -u)
+for dep in $copied; do
+    name=$(basename "$dep")
+    check "vendored $name is pinned" \
+          $([ -s "platforms/k230/vendor_$(echo "$name" | tr 'A-Z' 'a-z')_commit.txt" ] && echo 1 || echo 0)
+done
+
+# The pin has to name the checkout that is actually here, or the release build
+# is against something else entirely.
+if git -C vendor/RadioLib rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    here=$(git -C vendor/RadioLib rev-parse HEAD)
+    want=$(cat platforms/k230/vendor_radiolib_commit.txt)
+    check "the RadioLib checkout here is the pinned commit" \
+          $([ "$here" = "$want" ] && echo 1 || echo 0)
+    [ "$here" = "$want" ] || echo "     here $here, pinned $want"
+else
+    echo "note: no RadioLib checkout here; the pin's value was not compared"
 fi
 
 echo "package_sync_test: $failed failure(s)"

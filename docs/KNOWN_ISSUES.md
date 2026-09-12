@@ -343,6 +343,8 @@ Future cleanup:
   before the shell took over the alarms: a ringing screen of its own, and
   alarms that ring only while the app is open. Correct it with the next code
   change to that file.
-- `apply_to_sdk.sh` enforces the BSP and SDK pins but not RadioLib's. The
-  v0.0.8 release build checked `034126e` and zero build products itself;
-  until apply does, that check is a manual release step.
+- ~~`apply_to_sdk.sh` enforces the BSP and SDK pins but not RadioLib's.~~
+  Fixed: RadioLib is pinned in `platforms/k230/vendor_radiolib_commit.txt`
+  and enforced by the same `pin_check` as the BSP and SDK, a dirty RadioLib
+  checkout is refused because it is copied rather than archived, and both the
+  commit and that state travel in the applied manifest and BUILD_INFO.txt.
