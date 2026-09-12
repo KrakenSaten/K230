@@ -910,14 +910,30 @@ it and has no alert of its own.
 
 Limits of this version, to be designed rather than inferred:
 
-- **The alert is touch-only.** Its actions do not join the one focus group
-  of §17.2 — a named exception to that section, taken because the sheet
-  lives for the whole life of the shell and a hidden control in the group
-  would be key-reachable from every screen in PocketOS. The consequence is
-  that keys still reach whatever is behind the alert. This MUST be resolved
-  before a physical keyboard ships: the actions join the group while the
-  alert is shown, leave it when it is hidden, and focus starts on the
-  dominant action and is handed back on acknowledgement.
+- **The alert was touch-only, and is not any more.** Its actions did not
+  join the one focus group of §17.2 — a named exception to that section,
+  taken because the sheet lives for the whole life of the shell and a hidden
+  control in the group would be key-reachable from every screen in PocketOS.
+  The consequence was that keys still reached whatever is behind the alert,
+  which this section made a gate before a physical keyboard ships.
+
+  **RESOLVED 2026-09-12**, commit `2afe7fe`. The requirement is met, and by a
+  **different mechanism than the one prescribed above**, which is recorded
+  here rather than quietly substituted. The actions still never join the one
+  group: the §17.2 exception stands, for the reason it was taken. Instead the
+  alert keeps a **private** focus group holding its own actions, and the key
+  stream is redirected into that group for exactly as long as the alert is
+  shown. Redirecting rather than filtering is deliberate — filtering would
+  mean deciding, key by key, what an app may still see, and one wrong answer
+  is a leak; a group that is not delivered to cannot receive anything.
+
+  What the gate asked for is satisfied: focus starts on the dominant action
+  (§18.4), Snooze joins and leaves the private group with its visibility so a
+  timer alert cannot focus a control that is not on screen, acknowledgement
+  restores the app's previous focus, and the touch keyboard is suppressed for
+  as long as the alert holds the panel and is **not** restored afterwards
+  (§18.5). Verified on hardware: `docs/hardware/KEYBOARD_BRINGUP_2026-09-10.md`
+  §5.4.
 - No stacking, queue or priority (§18.6), no alert history, no per-alert
   sound or haptics, no auto-dismiss after a timeout, and no alerts raised
   from outside the shell process.

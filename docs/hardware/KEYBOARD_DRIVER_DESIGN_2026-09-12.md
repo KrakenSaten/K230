@@ -379,6 +379,24 @@ milestone is **not complete** until:
 - the touch keyboard cannot reappear above an active alert through a hidden
   field regaining focus.
 
+**SATISFIED 2026-09-12**, commit `2afe7fe`, accepted on unit A the same day
+(`KEYBOARD_BRINGUP_2026-09-10.md` §5.4). Against the four conditions above:
+keys no longer reach the app behind an alert (printable characters and
+Backspace both proved inert, on hardware and in `shell_alarm_test`); the
+alert's actions participate through a **private** group handed to the stream
+while the alert is shown, rather than joining the one app group — a
+deliberate difference from the DS wording, recorded in DS §18.8; focus is
+restored on acknowledgement, including when the object underneath was
+destroyed meanwhile; and an app asking for the touch keyboard while an alert
+holds the panel is refused by a suppression rule the shell asks rather than
+duplicates.
+
+The gate is closed. What remains open around it is smaller and listed in
+docs/KNOWN_ISSUES.md: `lv_group_create()` failing at start-up is not
+deterministically exercised, and the alert still writes no log line when it
+is shown or dismissed, which is why the panel had to be the witness during
+acceptance.
+
 ### 13.2 Other risks
 
 - **Focus-group membership** (DS §17.2): only text fields and dialog buttons

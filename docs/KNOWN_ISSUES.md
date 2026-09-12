@@ -268,26 +268,52 @@ Documented for v0.0.8:
   `close app` lines prove that an alert navigated nowhere, but whether an
   alarm sheet appeared at all can only be read off the panel.
 
-Deferred to the physical keyboard milestone. None is reachable on the device
-today: the DRM build adopts no key source, and the alert hides the touch
-keyboard.
+Deferred to the physical keyboard milestone. The premise of this block has
+changed: the device now has a physical keyboard, so these are reachable where
+they once were not.
 
-- DS §18.8 key isolation: keys still reach the app behind an alert. Enter
-  on the hidden Notes field shows the keyboard again, and
-  `pos_keyboard_show` puts it above the alert. DS §18.8 makes this a gate
-  before a physical keyboard ships.
+- ~~DS §18.8 key isolation~~ — **CLOSED 2026-09-12**, commit `2afe7fe`,
+  accepted on unit A the same day
+  (`docs/hardware/KEYBOARD_BRINGUP_2026-09-10.md` §5.4).
+  Keys no longer reach the app behind
+  an alert, and an app asking for the touch keyboard while an alert is up is
+  refused rather than obeyed. The mechanism differs from the one DS §18.8
+  sketched — a private alert focus group with the stream redirected into it,
+  rather than the actions joining the one group — and DS §18.8 records that.
+  One path is **not** deterministically tested: `lv_group_create()` failing
+  at shell start-up, which would leave the alert without its group. Forcing
+  it needs production-only hooks, so the failure is covered at the
+  `pos_input` boundary instead: a refused push leaves suppression untouched,
+  and `shell_alarm_test` asserts at nine points that the keyboard is never
+  suppressed while the stream is un-redirected.
 - `pos_input_add_source` loses `LV_KEY_NEXT` and `LV_KEY_PREV`: LVGL's keypad
   processing consumes them in the source's private group, so the
   simulator's Tab key does nothing. A physical keyboard must push through
   `pos_input_push_key`, not be adopted.
 - The Notes delete dialog leaves focus on the hidden text field (DS §17.5).
 - Only text fields and dialog buttons join the focus group (DS §17.2).
+- **Tab does not advance focus in an ordinary text field.** Measured on the
+  host, 2026-09-12, while testing the alert isolation: with a text area
+  focused, `lv_group_get_editing()` reads **0** — LVGL does *not* put the
+  group into editing mode — and yet `LV_KEY_NEXT` leaves focus on the field,
+  where DS §17.2 says a logical Next moves it. This is **pre-existing and
+  separate** from the §18.8 work: an alert swaps the whole delivery group, so
+  what NEXT does inside the app group cannot affect it, and Tab does move
+  focus between the alert's own actions (verified on unit A, Test A). It is
+  recorded here because the mechanism was assumed to be editing mode before
+  it was measured, and it is not.
 
 Future cleanup:
 
 - No store fsyncs its directory after the rename. Notes came back
   byte-identical from a real power cut on unit A (2026-09-10), so this is
   hardening, not a known loss.
+- **A duplicate alarm line was observed in `clock.conf`.** During the §18.8
+  acceptance on unit A (2026-09-12) the store held `alarm 0 15 36 0 test æøå`
+  **twice**. Both copies were disabled, so neither could ring, and nothing in
+  the keyboard or alert work touches the store — it is noted because it was
+  seen, not because its cause is known. Whether it came from a save path, an
+  earlier bench session or an edit through the app is unestablished.
 - The launcher has eight tile slots and uses seven. Resolve before a ninth
   app.
 - `notes_text_is_utf8` accepts overlong sequences (`C0 80`, `E0 80 xx`) and

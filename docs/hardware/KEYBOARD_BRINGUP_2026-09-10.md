@@ -396,6 +396,54 @@ usable before/after measure at the first power cycle, because `/tmp` is a
 tmpfs and the daemon's log does not survive a reboot; process absence and
 zero spidev holders are the evidence from that point on.
 
+### 5.4 DS §18.8 alert isolation, 2026-09-12 — hardware acceptance: PASS
+
+The shipping gate of DS §18.8, accepted on unit A against commit `2afe7fe`
+(deployed as `BUILD_ID=52b8302` from a staging clone whose source was
+verified byte-identical to the commit, 556 of 556 tracked files). The card
+was not reflashed. Every character below was read off the panel's
+framebuffer, never transcribed.
+
+**Test A — an alarm over a focused Notes field.** The note held `TEST` with
+the touch keyboard up. The alarm fired at 08:52 and the alert took the panel:
+
+| Check | Result |
+| --- | --- |
+| Alert foreground, whole panel | title `Alarm`, detail `08:52`, Notes fully covered |
+| Touch keyboard | **gone** — it was fully up one minute earlier (§18.5) |
+| `x`, `y`, `z`, then Backspace | **nothing reached the note**: three captures spanning the four keystrokes are byte-identical by MD5 (`83d0e379…`) |
+| Tab then Enter | the alert closed and the alarm was **snoozed** — it stayed enabled, where Stop would have switched a one-shot alarm off |
+| After acknowledgement | note revealed still reading exactly `TEST`; Backspace had not even eaten the final `T` |
+| Focus | restored to the same field, caret live |
+| Touch keyboard | **not** restored — §18.5 gives focus back, not the keyboard |
+| Typing afterwards | `OK` appended normally, giving `TESTOK` |
+
+**Test B — Stop, and where focus starts.** A fresh 09:02 alarm over the same
+focused field. **Enter alone**, with no Tab, closed the alert, and the stored
+alarm flipped from `alarm 1 9 2 0` to `alarm 0 9 2 0`. A one-shot alarm
+disables itself only on acknowledgement, so Enter reached **Stop** — which is
+what proves focus opened on the dominant action (§18.4). The accent alone
+could not prove it: the accent is style, not a focus ring.
+
+**Test C — the timer variant.** `Timer finished`, detail `01:00`, and
+**Snooze absent** with Stop spanning the full row. Tab then Enter dismissed
+it. That is the visibility-versus-membership hazard settled on hardware: had
+Snooze stayed in the group while hidden, Tab would have landed on a control
+the owner cannot see and Enter would have done nothing.
+
+**Throughout all three tests:** shell pid 1109 unchanged, all services
+`running=1`, `crashloop=0`, `restarts=0`, **0 ERROR/WARN**, the keyboard
+still `TCA8418 ready, polling every 15 ms (INT-gated)`, GPIO consumers held
+on lines 10/14/15, and the radio untouched — no Meshtastic process, no vendor
+launcher, 0 spidev holders, `meshtastic.autostart=0`.
+
+Two notes on method, because they nearly produced wrong answers. A caret
+missing from one still was the blink phase, not lost focus, and was settled by
+sampling the field over four seconds rather than by judging a single frame.
+And `ps | grep -c` run from an inline SSH command counts the command's own
+text: every "Meshtastic present" reading in this session came from that
+artefact, and each was disproved by feeding the script on stdin instead.
+
 ### Architecture, once the key map is confirmed
 
 ```
