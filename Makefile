@@ -185,6 +185,16 @@ tests/kbd_tca8418_test.o: tests/kbd_tca8418_test.c ui/shell/kbd_tca8418.h ui/she
 tests/kbd_tca8418_test: tests/kbd_tca8418_test.o ui/shell/kbd_tca8418.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# The bit-banged I2C one layer below that, against a fake libgpiod so a GPIO
+# access that fails can be injected where it actually happens (cold review
+# F6). The translation unit is included by the test, so there is no separate
+# object for it and no libgpiod on the host.
+tests/kbd_bus_k230_test.o: tests/kbd_bus_k230_test.c ui/shell/kbd_bus_k230.c ui/shell/kbd_bus_k230.h ui/shell/kbd_bus.h tests/fake/gpiod.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -Itests/fake -c -o $@ $<
+
+tests/kbd_bus_k230_test: tests/kbd_bus_k230_test.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 tests/paths_test: tests/paths_test.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
@@ -424,7 +434,7 @@ tests/timber_store_test: tests/timber_store_test.o $(TIMBER_APP_OBJS) $(TIMBER_O
 TEST_BINS := tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/pocketipc_test \
              tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/theme_test \
              tests/settings_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
-             $(NOTES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) tests/kbd_tca8418_test
+             $(NOTES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test
 
 # Native tests only (they execute binaries).
 test: all $(TEST_BINS)
@@ -467,6 +477,7 @@ test: all $(TEST_BINS)
 	./tests/cal_view_test
 	./tests/clock_runtime_test
 	./tests/kbd_tca8418_test
+	./tests/kbd_bus_k230_test
 	bash tests/kbd_lint.sh
 	bash tests/radiod_mock_test.sh
 	bash tests/sysd_test.sh

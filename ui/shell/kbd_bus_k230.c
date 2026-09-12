@@ -78,6 +78,10 @@ struct k230_bus {
     struct gpiod_line_request *i2c; /* SCL and SDA in one request */
     struct gpiod_line_request *irq;
     bool claimed;
+    /* Set by the first GPIO access of a transaction that failed, cleared when
+     * the next one starts. A bus that cannot be driven or read has no levels
+     * to report, and must not be allowed to look like a talkative chip. */
+    bool io_error;
 };
 
 /* The shell owns exactly one keyboard, so one instance avoids an allocation
@@ -135,12 +139,27 @@ static void bus_delay(void)
     }
 }
 
-/* Open drain: "high" releases the line to the pull-up, "low" drives it. */
+/* Open drain: "high" releases the line to the pull-up, "low" drives it.
+ *
+ * Every GPIO access here can fail, and a failure is not a level. The result
+ * used to be discarded on writes and folded into "low" on reads - and a low
+ * SDA is an acknowledge, so a bus that had gone away (the base unplugged, the
+ * gpiochip unbound) answered every byte with an ACK and returned zeroes. The
+ * chip layer then saw a controller that was present, configured and simply
+ * never had any events, and its retry and reporting never ran. So the first
+ * failure of a transaction is remembered here and the transaction fails. */
+static void io_failed(struct k230_bus *b)
+{
+    b->io_error = true;
+}
+
 static void line_set(struct k230_bus *b, unsigned offset, bool high)
 {
-    (void)gpiod_line_request_set_value(b->i2c, offset,
-                                       high ? GPIOD_LINE_VALUE_ACTIVE
-                                            : GPIOD_LINE_VALUE_INACTIVE);
+    if (gpiod_line_request_set_value(b->i2c, offset,
+                                     high ? GPIOD_LINE_VALUE_ACTIVE
+                                          : GPIOD_LINE_VALUE_INACTIVE) < 0) {
+        io_failed(b);
+    }
     bus_delay();
 }
 
@@ -154,13 +173,22 @@ static void sda(struct k230_bus *b, bool high)
     line_set(b, OFF_SDA, high);
 }
 
-static bool sda_read(struct k230_bus *b)
+/* 1 high, 0 low, -1 the line could not be read. Never collapse the last into
+ * either of the first two: the caller reads low as an acknowledge. */
+static int sda_read(struct k230_bus *b)
 {
     enum gpiod_line_value v;
 
     bus_delay();
     v = gpiod_line_request_get_value(b->i2c, OFF_SDA);
-    return v == GPIOD_LINE_VALUE_ACTIVE;
+    if (v == GPIOD_LINE_VALUE_ACTIVE) {
+        return 1;
+    }
+    if (v == GPIOD_LINE_VALUE_INACTIVE) {
+        return 0;
+    }
+    io_failed(b);
+    return -1;
 }
 
 /* ---- I2C ---------------------------------------------------------------- */
@@ -180,10 +208,11 @@ static void i2c_stop(struct k230_bus *b)
     sda(b, true);
 }
 
-/* Returns 0 when the slave acknowledged. */
+/* Returns 0 when the slave acknowledged, -1 when it did not or when the bus
+ * could not be driven or read. */
 static int i2c_write_byte(struct k230_bus *b, uint8_t byte)
 {
-    bool ack;
+    int level;
     int i;
 
     for (i = 7; i >= 0; i--) {
@@ -193,20 +222,32 @@ static int i2c_write_byte(struct k230_bus *b, uint8_t byte)
     }
     sda(b, true); /* release for the acknowledge */
     scl(b, true);
-    ack = !sda_read(b);
+    level = sda_read(b);
     scl(b, false);
-    return ack ? 0 : -1;
+    /* Only a line that actually read low is an acknowledge. */
+    return (level == 0 && !b->io_error) ? 0 : -1;
 }
 
-static uint8_t i2c_read_byte(struct k230_bus *b, bool ack)
+/* Returns 0 and fills *out, or -1 when any bit could not be read. */
+static int i2c_read_byte(struct k230_bus *b, bool ack, uint8_t *out)
 {
     uint8_t byte = 0;
     int i;
 
     sda(b, true);
     for (i = 7; i >= 0; i--) {
+        int level;
+
         scl(b, true);
-        if (sda_read(b)) {
+        level = sda_read(b);
+        if (level < 0) {
+            /* Finish the bit so the bus is left in a known state, then give
+             * up: a byte with an unread bit in it is not a byte. */
+            scl(b, false);
+            sda(b, true);
+            return -1;
+        }
+        if (level > 0) {
             byte |= (uint8_t)(1u << i);
         }
         scl(b, false);
@@ -215,7 +256,11 @@ static uint8_t i2c_read_byte(struct k230_bus *b, bool ack)
     scl(b, true);
     scl(b, false);
     sda(b, true);
-    return byte;
+    if (b->io_error) {
+        return -1;
+    }
+    *out = byte;
+    return 0;
 }
 
 static int k230_read_reg(void *ctx, uint8_t reg, uint8_t *value)
@@ -226,6 +271,7 @@ static int k230_read_reg(void *ctx, uint8_t reg, uint8_t *value)
     if (!b->claimed) {
         return -1;
     }
+    b->io_error = false;
     i2c_start(b);
     if (i2c_write_byte(b, (uint8_t)(TCA8418_ADDR << 1)) != 0) {
         goto out;
@@ -237,11 +283,14 @@ static int k230_read_reg(void *ctx, uint8_t reg, uint8_t *value)
     if (i2c_write_byte(b, (uint8_t)((TCA8418_ADDR << 1) | 1u)) != 0) {
         goto out;
     }
-    *value = i2c_read_byte(b, false);
+    if (i2c_read_byte(b, false, value) != 0) {
+        goto out;
+    }
     rc = 0;
 out:
-    i2c_stop(b);
-    return rc;
+    i2c_stop(b); /* the bus is released whatever happened */
+    /* A stop that could not be driven still fails the transaction. */
+    return b->io_error ? -1 : rc;
 }
 
 static int k230_write_reg(void *ctx, uint8_t reg, uint8_t value)
@@ -252,6 +301,7 @@ static int k230_write_reg(void *ctx, uint8_t reg, uint8_t value)
     if (!b->claimed) {
         return -1;
     }
+    b->io_error = false;
     i2c_start(b);
     if (i2c_write_byte(b, (uint8_t)(TCA8418_ADDR << 1)) != 0) {
         goto out;
@@ -264,8 +314,8 @@ static int k230_write_reg(void *ctx, uint8_t reg, uint8_t value)
     }
     rc = 0;
 out:
-    i2c_stop(b);
-    return rc;
+    i2c_stop(b); /* the bus is released whatever happened */
+    return b->io_error ? -1 : rc;
 }
 
 /* ---- claim, release, reset, INT ---------------------------------------- */
@@ -321,6 +371,7 @@ static int k230_reset_pulse(void *ctx)
     struct gpiod_request_config *req_cfg;
     struct gpiod_line_request *req = NULL;
     unsigned int offset = OFF_RST;
+    int rc;
 
     if (!b->chip) {
         return -1;
@@ -345,10 +396,14 @@ out:
         return -1;
     }
     sleep_ms(RESET_LOW_MS);
-    (void)gpiod_line_request_set_value(req, offset, GPIOD_LINE_VALUE_ACTIVE);
+    /* Releasing the line is what ends the pulse. If that store did not reach
+     * the pin the part is still held in reset, and reporting a reset that did
+     * not happen sends the chip layer on to configure a controller that
+     * cannot answer. */
+    rc = gpiod_line_request_set_value(req, offset, GPIOD_LINE_VALUE_ACTIVE) < 0 ? -1 : 0;
     sleep_ms(RESET_HIGH_MS);
-    gpiod_line_request_release(req);
-    return 0;
+    gpiod_line_request_release(req); /* released on both paths */
+    return rc;
 }
 
 static int k230_irq_level(void *ctx)

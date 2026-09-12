@@ -57,5 +57,32 @@ hits=$(grep -nE 'pthread_|std::thread' ui/shell/kbd_*.c ui/shell/shell_kbd.c 2>/
 check "the driver creates no thread" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
 
+# 7. The fake libgpiod tests/kbd_bus_k230_test.c compiles against must agree
+#    with the real one about the three line states. The whole of cold review
+#    F6 is that GPIOD_LINE_VALUE_ERROR must not be folded into INACTIVE, so a
+#    fake that had them wrong would prove nothing. Checked wherever the real
+#    header is on this machine, and said out loud where it is not, rather than
+#    letting the fake drift unnoticed.
+REAL_GPIOD=""
+for c in vendor/libgpiod/include/gpiod.h /usr/include/gpiod.h /usr/local/include/gpiod.h; do
+    [ -f "$c" ] && { REAL_GPIOD=$c; break; }
+done
+if [ -n "$REAL_GPIOD" ]; then
+    for pair in "GPIOD_LINE_VALUE_ERROR=-1" "GPIOD_LINE_VALUE_INACTIVE=0" \
+                "GPIOD_LINE_VALUE_ACTIVE=1"; do
+        name=${pair%=*}
+        want=${pair#*=}
+        real=$(grep -oE "$name[[:space:]]*=[[:space:]]*-?[0-9]+" "$REAL_GPIOD" |
+               head -1 | tr -d ' ' | cut -d= -f2)
+        fake=$(grep -oE "$name[[:space:]]*=[[:space:]]*-?[0-9]+" tests/fake/gpiod.h |
+               head -1 | tr -d ' ' | cut -d= -f2)
+        check "fake gpiod.h agrees with $REAL_GPIOD on $name ($want)" \
+              "$([ "$real" = "$want" ] && [ "$fake" = "$want" ] && echo 1 || echo 0)"
+    done
+else
+    echo "note: no real gpiod.h on this machine; the fake's line states were not"
+    echo "      cross-checked. tests/fake/gpiod.h must stay -1/0/1."
+fi
+
 echo "kbd_lint.sh: $failed failure(s)"
 exit $((failed > 0))
