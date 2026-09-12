@@ -19,8 +19,14 @@ T="${VENDOR_DIR}/k230_linux_sdk/output/${CONF}/target"
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=no)
 case "${TARGET_HOST}" in *@*) ;; *) TARGET_HOST="root@${TARGET_HOST}" ;; esac
 
-for f in usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-supervise usr/sbin/radiod usr/sbin/sysd usr/sbin/netd usr/bin/pocketos-shell etc/pocketos-release; do
-    [ -e "${T}/${f}" ] || { echo "missing ${T}/${f}; build the image first" >&2; exit 1; }
+# Everything the archive below carries, init scripts included, and checked
+# before the board is touched: the remote half stops the services first, so a
+# file missing here would otherwise be discovered after they were down. An
+# init script new to the overlay reaches the target tree only when Buildroot
+# finalises the rootfs (a full build_image.sh), not with pocketos-rebuild.
+for f in usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-supervise usr/sbin/radiod usr/sbin/sysd usr/sbin/netd usr/bin/pocketos-shell etc/pocketos-release \
+         etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S90pocketos-shell; do
+    [ -e "${T}/${f}" ] || { echo "missing ${T}/${f}; build the image first (a full build_image.sh for a new init script)" >&2; exit 1; }
 done
 
 echo "Deploying PocketOS $(cat "${REPO_DIR}/VERSION") to ${TARGET_HOST}"
