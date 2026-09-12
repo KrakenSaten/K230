@@ -41,12 +41,20 @@ PATHS_OBJS  := core/pocketpaths.o
 IPC_OBJS    := core/pocketipc/pocketipc.o
 LOG_OBJS    := core/pocketlog/pocketlog.o
 SYS_OBJS    := core/pocketsys.o
-POS_OBJS    := tools/pos/pos.o tools/pos/pos_radio.o tools/pos/pos_logs.o tools/pos/pos_app.o tools/pos/pos_system.o $(IPC_OBJS) $(PATHS_OBJS)
+POS_OBJS    := tools/pos/pos.o tools/pos/pos_radio.o tools/pos/pos_logs.o tools/pos/pos_app.o tools/pos/pos_system.o \
+               tools/pos/pos_wifi.o $(IPC_OBJS) $(PATHS_OBJS)
 RADIOD_OBJS := services/radiod/main.o services/radiod/backend_mock.o services/radiod/airtime.o $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
 # Everything sysd is except the power actions, which exist twice: once as
 # shipped and once with the test hook (see tests/sysd-testhooks below).
 SYSD_BASE_OBJS := services/sysd/main.o services/sysd/sysd_services.o $(SYS_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
 SYSD_OBJS   := $(SYSD_BASE_OBJS) services/sysd/sysd_power.o
+# netd: wifi.* (docs/api/network.md). As with sysd, the one object that touches
+# the machine (netd_sys) exists twice: as shipped, and with the test hooks
+# tests/netd_test.sh needs to run it against a fake supplicant.
+NETD_WIFI_OBJS := services/netd/wifi_parse.o services/netd/wifi_store.o services/netd/wpa_ctrl.o
+NETD_BASE_OBJS := services/netd/main.o services/netd/wifi_mgr.o $(NETD_WIFI_OBJS) $(IPC_OBJS) \
+                  core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
+NETD_OBJS   := $(NETD_BASE_OBJS) services/netd/netd_sys.o
 
 RADIOLIB_SRCS := $(RADIOLIB_DIR)/Hal.cpp $(RADIOLIB_DIR)/Module.cpp \
                  $(wildcard $(RADIOLIB_DIR)/modules/SX126x/*.cpp) \
@@ -65,7 +73,7 @@ RADIOD_LINK := $(CC)
 RADIOD_LIBS := $(LDLIBS)
 endif
 
-BINS := tools/pos/pos services/radiod/radiod services/sysd/sysd tools/hwcheck/pos-spixfer
+BINS := tools/pos/pos services/radiod/radiod services/sysd/sysd services/netd/netd tools/hwcheck/pos-spixfer
 
 all: $(BINS)
 
@@ -83,6 +91,31 @@ services/radiod/radiod: $(RADIOD_OBJS)
 # sysd: system.* from core/pocketsys (docs/api/system.md). C only, cJSON only.
 services/sysd/sysd: $(SYSD_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+services/netd/netd: $(NETD_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# A netd whose paths can be pointed at a test tree and a fake wpa_supplicant
+# (services/netd/netd_sys.h). Only this object carries the hooks; the shipped
+# services/netd/netd does not contain the variable names, which the test checks.
+tests/netd_sys_hooks.o: services/netd/netd_sys.c services/netd/netd_sys.h
+	$(CC) $(ALL_CFLAGS) -DNETD_TEST_HOOKS=1 -c -o $@ $<
+
+tests/netd-testhooks: $(NETD_BASE_OBJS) tests/netd_sys_hooks.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# A stand-in for wpa_supplicant's control interface, driven by a scenario
+# file (tests/fake_wpa_supplicant.c). Test helper, never installed.
+tests/fake_wpa_supplicant: tests/fake_wpa_supplicant.o services/netd/wifi_parse.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/fake_wpa_supplicant.o tests/wifi_parse_test.o tests/wifi_store_test.o: ALL_CFLAGS += -Iservices/netd
+
+tests/wifi_parse_test: tests/wifi_parse_test.o services/netd/wifi_parse.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/wifi_store_test: tests/wifi_store_test.o services/netd/wifi_store.o services/netd/wifi_parse.o $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # The fake root ($POCKETSYS_ROOT) is a test-only build option, so it gets its
 # own object: this one honours the variable, the core/pocketsys.o that goes
@@ -442,7 +475,8 @@ tests/timber_store_test: tests/timber_store_test.o $(TIMBER_APP_OBJS) $(TIMBER_O
 # untracked test binary in the checkout an image is built from would make it
 # claim changes it does not contain. tests/build_outputs_test.sh checks this
 # list against .gitignore, so a test added here without an entry there fails.
-TEST_BINS := tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/pocketipc_test \
+TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant tests/wifi_parse_test \
+             tests/wifi_store_test tests/airtime_test tests/pocketlog_test tests/pocketipc_test \
              tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/theme_test \
              tests/settings_test tests/brightness_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
              $(NOTES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test
@@ -455,6 +489,8 @@ test: all $(TEST_BINS)
 	./tests/pocketipc_test
 	./tests/pocketsys_test
 	./tests/sysd_services_test
+	./tests/wifi_parse_test
+	./tests/wifi_store_test
 	./tests/system_view_test
 	./tests/theme_test docs/design/themes.json
 	./tests/settings_test
@@ -493,6 +529,7 @@ test: all $(TEST_BINS)
 	bash tests/kbd_lint.sh
 	bash tests/radiod_mock_test.sh
 	bash tests/sysd_test.sh
+	bash tests/netd_test.sh
 	bash tests/supervise_test.sh
 	bash tests/initscript_test.sh
 	bash tests/package_sync_test.sh
@@ -516,6 +553,7 @@ install: all
 	install -D -m 0755 tools/hwcheck/pos-spixfer $(DESTDIR)$(PREFIX)/bin/pos-spixfer
 	install -D -m 0755 services/radiod/radiod $(DESTDIR)$(PREFIX)/sbin/radiod
 	install -D -m 0755 services/sysd/sysd $(DESTDIR)$(PREFIX)/sbin/sysd
+	install -D -m 0755 services/netd/netd $(DESTDIR)$(PREFIX)/sbin/netd
 	install -D -m 0755 tools/supervise/pos-supervise $(DESTDIR)$(PREFIX)/bin/pos-supervise
 # /etc/pocketos-release: line 1 stays the bare version, so every reader that
 # takes the first line keeps working, and the build identity follows as a
@@ -530,7 +568,7 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 -include $(DEPFILES)
 
 clean:
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) tests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(POCKETOS_BUILD_STAMP)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(POCKETOS_BUILD_STAMP)
 
 # The files `make all` and `make test` produce, one to a line, for
 # tests/build_outputs_test.sh.

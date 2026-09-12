@@ -11,7 +11,7 @@ apps/            In-process apps (radio, system, fleet, radar, timber). Talk to 
                  app state under /var/lib/pocketos/<app>/ ($POCKETOS_STATE_DIR).
 ui/shell         Shell: status bar, launcher, app host, display/input backend, settings store.
 ui/pocketui      Design tokens, theme engine and shared role styles on top of LVGL 9.
-services/        Hardware-owning daemons: radiod (mock and sx1262 backends), netd (planned);
+services/        Hardware-owning daemons: radiod (mock and sx1262 backends), netd (Wi-Fi: wifi.*);
                  sysd serves system.* (identity, resources, storage, network summary, service health).
 core/pocketipc   IPC library used by everything above.
 core/pocketlog   Logging, rotation and crash reports.
@@ -178,8 +178,29 @@ fall back to `ice` + `normal`, are logged, and are left untouched.
 
 The settings store is for non-secret preferences only. It is plain text,
 world-readable and unauthenticated, and must never hold passwords, private
-keys, Wi-Fi credentials or tokens. Credential storage is an open design item
-(below); until it exists, no PocketOS component may persist a secret.
+keys, Wi-Fi credentials or tokens. The one exception is netd's Wi-Fi store,
+under the rules proposed in docs/decisions/ADR-003-wifi-credentials.md
+(root-only file, no secret in logs, results or command lines); no other
+PocketOS component may persist a secret.
+
+## netd
+
+```text
+pos wifi / Settings ── pocketipc ──▶ netd ──┬─ wpa_supplicant (child, control socket, no network in its config)
+                                            ├─ udhcpc -f -R (child, one per association)
+                                            └─ /var/lib/pocketos/netd/wifi.conf (0600, ADR-003)
+```
+
+`netd` (docs/api/network.md) serves `wifi.*` for one wireless interface. It
+starts and owns wpa_supplicant and the DHCP client for it and never builds a
+shell command: children get argv arrays, networks and passphrases go over the
+supplicant's control socket. Every request answers at once and the work is
+followed through `wifi.status`, which is the asynchronous service shape the
+shell's 200 ms UI deadline needs. The manager reconciles each step against
+the supplicant's STATUS rather than trusting events alone, so a missed event
+costs one step. Ethernet stays with the vendor's ifupdown. Hardware facts:
+docs/hardware/WIFI_2026-09-12.md. Host-tested against a scenario-driven fake
+wpa_supplicant (`tests/netd_test.sh`); not yet run on hardware.
 
 ## Shell
 
@@ -206,7 +227,8 @@ docs/BUILD_ENVIRONMENT.md.
 - Update and rollback mechanism (partition layout must not be hard-coded).
 - First-party licence.
 - Out-of-process app hosting and DRM master handoff.
-- Secure credential storage (Wi-Fi passwords, keys): threat model, key
-  storage and access control before any secret is persisted.
+- Secure credential storage beyond Wi-Fi: ADR-003 (proposed) covers Wi-Fi
+  passphrases with file permissions only; encryption at rest and per-service
+  users are still open.
 - Asynchronous radio transmit: `radio.send` blocks the radiod loop for the
   airtime in v0 (docs/api/radio.md).

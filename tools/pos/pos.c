@@ -285,6 +285,7 @@ int cmd_app(int argc, char **argv);   /* tools/pos/pos_app.c */
 int cmd_shell(int argc, char **argv); /* tools/pos/pos_app.c */
 int cmd_system_status(void);          /* tools/pos/pos_system.c */
 int cmd_call(int argc, char **argv);  /* tools/pos/pos_system.c */
+int cmd_wifi(int argc, char **argv);  /* tools/pos/pos_wifi.c */
 
 static int usage(int rc)
 {
@@ -295,6 +296,7 @@ static int usage(int rc)
             "  hardware list         device nodes and sysfs devices\n"
             "  network interfaces    interface state, MAC and IPv4\n"
             "  radio <command>       talk to radiod (pos radio help)\n"
+            "  wifi <command>        Wi-Fi through netd (pos wifi help)\n"
             "  call <svc> <method>   any pocketipc method, key=value params\n"
             "  logs [name] [-n N]    service logs and crash reports\n"
             "  app list|start|home   drive the shell launcher\n"
@@ -313,6 +315,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(cmd, "radio") == 0) {
         return cmd_radio(argc - 2, argv + 2);
+    }
+    if (strcmp(cmd, "wifi") == 0) {
+        return cmd_wifi(argc - 2, argv + 2);
     }
     if (strcmp(cmd, "logs") == 0) {
         return cmd_logs(argc - 2, argv + 2);

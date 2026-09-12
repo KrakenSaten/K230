@@ -59,3 +59,8 @@ BUILD_ID
 /.build-identity
 /tests/kbd_bus_k230_test
 /tests/brightness_test
+/services/netd/netd
+/tests/netd-testhooks
+/tests/fake_wpa_supplicant
+/tests/wifi_parse_test
+/tests/wifi_store_test
