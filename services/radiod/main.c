@@ -130,6 +130,28 @@ static double buckets_last_hour(struct radiod *rd)
 
 /* ---- helpers ---------------------------------------------------------- */
 
+/* One hexadecimal digit, or -1. Deliberately not isxdigit(): that is
+ * locale-dependent and takes an int that must not be a negative char. */
+static int hex_digit(char c)
+{
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return -1;
+}
+
+/* Exactly two hexadecimal digits per byte. This used to hand each pair to
+ * strtoul(), which skips leading whitespace and accepts a sign, so
+ * payload_hex "-1" was transmitted as ff, "+a" as 0a and " a" as 0a: text
+ * that is not hex at all became bytes on the air, silently and differently
+ * from what was asked for. Upper and lower case are both accepted, as they
+ * always were. */
 static int hex_decode(const char *hex, uint8_t *out, size_t max, size_t *len)
 {
     size_t n = strlen(hex);
@@ -139,15 +161,13 @@ static int hex_decode(const char *hex, uint8_t *out, size_t max, size_t *len)
         return -1;
     }
     for (i = 0; i < n; i += 2) {
-        unsigned int v;
-        char tmp[3] = { hex[i], hex[i + 1], '\0' };
-        char *end;
+        int hi = hex_digit(hex[i]);
+        int lo = hex_digit(hex[i + 1]);
 
-        v = (unsigned int)strtoul(tmp, &end, 16);
-        if (*end != '\0') {
+        if (hi < 0 || lo < 0) {
             return -1;
         }
-        out[i / 2] = (uint8_t)v;
+        out[i / 2] = (uint8_t)((hi << 4) | lo);
     }
     *len = n / 2;
     return 0;

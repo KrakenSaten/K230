@@ -94,6 +94,16 @@ check "send airtime" '"airtime_ms":[[:space:]]*41.216' "$out"
 out=$("$POS" radio send zz 2>&1)
 check "send rejects bad hex" 'code 2' "$out"
 
+# Cold review F17: each pair used to go through strtoul(), which skips leading
+# whitespace and accepts a sign. So "-1" was transmitted as ff, "+a" as 0a and
+# " a" as 0a - text that is not hexadecimal at all became bytes on the air,
+# silently and differently from what was asked for. Exactly two hex digits per
+# byte now, nothing else.
+for bad in -1 +a "0 " " a" "0x" "g0" "0g" 0 000 --; do
+    out=$("$POS" radio send "$bad" 2>&1)
+    check "send rejects payload_hex '$bad'" 'code 2' "$out"
+done
+
 out=$("$POS" radio stats)
 check "stats tx_packets" '"tx_packets":[[:space:]]*1' "$out"
 check "stats last hour airtime" '"tx_airtime_last_hour_ms":[[:space:]]*41.216' "$out"
@@ -231,6 +241,14 @@ s.close()
 PY
 out=$("$POS" radio info 2>&1)
 check "radiod survives invalid JSON frame" '"chip"' "$out"
+
+# F17, the other half: what was always valid still is. Placed here rather than
+# beside the rejections because these do transmit, and the packet counts above
+# are asserted exactly.
+out=$("$POS" radio send AbCdEf)
+check "upper and lower case hex is still accepted" '"bytes":[[:space:]]*3' "$out"
+out=$("$POS" radio send ff00)
+check "and so are the extremes of a byte" '"bytes":[[:space:]]*2' "$out"
 
 kill $RADIOD_PID
 wait $RADIOD_PID 2>/dev/null
