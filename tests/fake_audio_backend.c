@@ -8,11 +8,14 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 static char base[256];
 static int pcm_handle;
+static FILE *feed;                 /* capture.raw, when the test provides one */
+static unsigned long long captured; /* frames delivered since the capture opened */
 
 static void file_path(const char *name, char *out, size_t len)
 {
@@ -87,6 +90,13 @@ static void *f_open(const char *name, int capture, unsigned rate, unsigned chann
         return NULL;
     }
     note(capture ? "pcm capture" : "pcm playback", 1);
+    if (capture) {
+        char path[320];
+
+        captured = 0;
+        file_path("capture.raw", path, sizeof(path));
+        feed = fopen(path, "rb");
+    }
     return &pcm_handle;
 }
 
@@ -101,10 +111,26 @@ static long f_write(void *pcm, const int16_t *buf, size_t frames, int timeout_ms
 
 static long f_read(void *pcm, int16_t *buf, size_t frames, int timeout_ms)
 {
+    char v[32];
+    size_t i;
+
     (void)pcm;
     (void)timeout_ms;
     pace(frames);
+    if (get("capture_fail_after", v, sizeof(v)) == 0 && captured + frames > strtoull(v, NULL, 10)) {
+        note("pcm capture failed", -EIO);
+        return -EIO;
+    }
     memset(buf, 0, frames * POCKETAUDIO_MAX_CHANNELS * sizeof(int16_t));
+    for (i = 0; feed && i < frames; i++) {
+        int16_t x;
+
+        /* The feed is the microphone: the right slot, as on the K230. */
+        if (fread(&x, sizeof(x), 1, feed) == 1) {
+            buf[i * 2 + 1] = x;
+        }
+    }
+    captured += frames;
     return (long)frames;
 }
 
@@ -118,6 +144,10 @@ static int f_drain(void *pcm, int timeout_ms)
 static void f_close(void *pcm)
 {
     (void)pcm;
+    if (feed) {
+        fclose(feed);
+        feed = NULL;
+    }
     put("pcm", "closed");
     note("pcm closed", 0);
 }
@@ -185,6 +215,7 @@ static const struct pocketaudio_board board = {
     .ctl = "fake",
     .channels = 2,
     .capture_channel = 1,
+    .capture_settle_frames = POCKETAUDIO_RATE / 2,
     .route_control = "External I2S Output Switch",
     .route_playback = 1,
     .route_capture = 0,

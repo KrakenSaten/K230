@@ -115,6 +115,16 @@ void wave_view_error_text(const char *t, char *out, size_t n)
     if (!t) {
         t = "";
     }
+    /* The gate is per direction: the K230 microphone is enabled while its
+     * speaker is not, so say which one refused. */
+    if (starts_with_word(t, WAVE_ERR_AUDIO_DISABLED) && strstr(t, "speaker")) {
+        snprintf(out, n, "The speaker is not enabled on this device yet");
+        return;
+    }
+    if (starts_with_word(t, WAVE_ERR_AUDIO_DISABLED) && strstr(t, "microphone")) {
+        snprintf(out, n, "The microphone is not enabled on this device yet");
+        return;
+    }
     for (i = 0; i < sizeof(known) / sizeof(known[0]); i++) {
         if (starts_with_word(t, known[i].word)) {
             snprintf(out, n, "%s", known[i].words);

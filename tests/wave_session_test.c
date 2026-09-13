@@ -455,6 +455,20 @@ static void test_real_helper_recovery(const char *real)
     setenv("POCKETOS_RUNTIME_DIR", dir, 1);
     setenv("POCKETOS_AUDIO_ALLOW_UNVERIFIED", "capture", 1);
 
+    /* STOP while the capture is still inside its startup discard. */
+    wave_session_init(&s);
+    check("real helper: a listen starts for a STOP", wave_session_start_listen(&s, real, 60, err, sizeof(err)) == 0);
+    check("real helper: its microphone opens", wait_state(dir, "pcm", "capture", 3000));
+    wave_session_stop(&s, now_ms());
+    n = run_until_exit(&s, evs, 32, 3000);
+    i = find(evs, n, WAVE_EV_EXITED);
+    check("real helper: STOP during the startup discard ends it normally, not killed",
+          i >= 0 && evs[i].value == 0 && find(evs, n, WAVE_EV_STOPPED) >= 0);
+    check("real helper: having heard nothing", find(evs, n, WAVE_EV_LEVEL) < 0 && find(evs, n, WAVE_EV_RECEIVED) < 0);
+    snprintf(path, sizeof(path), "%s/audio.recovery", dir);
+    check("real helper: route back, PCM closed, no record",
+          wait_state(dir, "route", "1", 1000) && wait_state(dir, "pcm", "closed", 1000) && access(path, F_OK) != 0);
+
     wave_session_init(&s);
     check("real helper: a listen starts", wave_session_start_listen(&s, real, 60, err, sizeof(err)) == 0);
     check("real helper: it switches the route to the microphone", wait_state(dir, "route", "0", 3000));

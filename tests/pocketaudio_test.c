@@ -16,6 +16,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 static int checks;
@@ -74,6 +75,14 @@ static struct {
     int last_timeout;
     long read_script[8];
     int read_calls;
+    /* Settle tests: number every microphone frame by its position in the
+     * capture (mod 32000), deliver at most read_chunk frames per read, and
+     * take read_delay_ms per read. */
+    int counter_mode;
+    size_t read_chunk;
+    int read_delay_ms;
+    unsigned long frames_out;
+    int min_timeout;
     int drain_result;
     int drain_timeout;
     int pcm_open_now;
@@ -136,15 +145,36 @@ static long f_read(void *pcm, int16_t *buf, size_t frames, int timeout_ms)
     (void)pcm;
     logf_("read");
     fk.last_timeout = timeout_ms;
-    for (i = 0; i < frames; i++) {
-        for (c = 0; c < fk.open_channels; c++) {
-            /* channel c of frame i is (c + 1) * 1000 + i */
-            buf[i * fk.open_channels + c] = (int16_t)((c + 1) * 1000 + i);
-        }
+    if (fk.min_timeout == 0 || timeout_ms < fk.min_timeout) {
+        fk.min_timeout = timeout_ms;
+    }
+    if (fk.read_delay_ms > 0) {
+        struct timespec d = { 0, fk.read_delay_ms * 1000000L };
+
+        nanosleep(&d, NULL);
     }
     r = fk.read_calls < 8 ? fk.read_script[fk.read_calls] : 0;
     fk.read_calls++;
-    return r == 0 ? (long)frames : (r == 1 ? 0 : r);
+    if (r != 0) {
+        return r == 1 ? 0 : r;
+    }
+    if (fk.read_chunk && frames > fk.read_chunk) {
+        frames = fk.read_chunk;
+    }
+    for (i = 0; i < frames; i++) {
+        for (c = 0; c < fk.open_channels; c++) {
+            if (fk.counter_mode) {
+                /* the microphone slot carries its frame number, the other -1 */
+                buf[i * fk.open_channels + c] =
+                    (int16_t)(c == 1 ? (long)((fk.frames_out + i) % 32000) : -1);
+            } else {
+                /* channel c of frame i is (c + 1) * 1000 + i */
+                buf[i * fk.open_channels + c] = (int16_t)((c + 1) * 1000 + i);
+            }
+        }
+    }
+    fk.frames_out += frames;
+    return (long)frames;
 }
 
 static int f_drain(void *pcm, int timeout_ms)
@@ -295,8 +325,10 @@ static void test_detect(void)
     check("detect: K230 amplifier enable is gpiochip1 line 2, active high",
           b.amp_chip && strcmp(b.amp_chip, "/dev/gpiochip1") == 0 && b.amp_line == 2 &&
               b.amp_active_high == 1);
-    check("detect: neither K230 path is marked validated yet",
-          b.playback_verified == 0 && b.capture_verified == 0);
+    check("detect: the K230 microphone is validated, its speaker is not",
+          b.playback_verified == 0 && b.capture_verified == 1);
+    check("detect: K230 captures discard the codec's 500 ms startup transient",
+          b.capture_settle_frames == POCKETAUDIO_RATE / 2);
 
     setenv("POCKETOS_AUDIO_PCM", "null", 1);
     pocketaudio_board_detect(&b, root);
@@ -313,6 +345,7 @@ static void test_detect(void)
     pocketaudio_board_detect(&b, root);
     check("detect: another card is the generic board", strcmp(b.name, "generic") == 0);
     check("detect: generic has no route and no amplifier", !b.route_control && !b.amp_chip);
+    check("detect: and discards nothing at capture start", b.capture_settle_frames == 0);
 
     unlink(path);
     snprintf(path, sizeof(path), "%s/asound/card0", root);
@@ -340,10 +373,31 @@ static void test_gate(void)
     check("gate: not even the lock file was created", access(lock, F_OK) != 0);
 
     fake_reset();
+    fk.route = 1;
     rc = pocketaudio_open(&s, POCKETAUDIO_CAPTURE, &o, err, sizeof(err));
-    check("gate: unvalidated microphone capture is refused", rc == POCKETAUDIO_E_DISABLED);
-    check("gate: capture touched nothing either", fk.log[0] == '\0');
-    check("gate: the reason names the microphone", strstr(err, "microphone") != NULL);
+    check("gate: the validated K230 microphone opens without allow_unverified",
+          rc == POCKETAUDIO_OK && s != NULL && strcmp(fk.log, "route? route=0 open-c") == 0);
+    pocketaudio_close(s);
+    check("gate: and closes as any capture does", fk.route == 1 && !fk.pcm_open_now);
+
+    {
+        struct pocketaudio_board unvalidated = *pocketaudio_board_k230();
+        struct pocketaudio_options u = opts(&unvalidated, 0);
+
+        unvalidated.capture_verified = 0;
+        fake_reset();
+        s = (struct pocketaudio_stream *)1;
+        rc = pocketaudio_open(&s, POCKETAUDIO_CAPTURE, &u, err, sizeof(err));
+        check("gate: an unvalidated microphone is still refused", rc == POCKETAUDIO_E_DISABLED && s == NULL);
+        check("gate: capture touched nothing either", fk.log[0] == '\0');
+        check("gate: the reason names the microphone", strstr(err, "microphone") != NULL);
+    }
+
+    fake_reset();
+    s = (struct pocketaudio_stream *)1;
+    rc = pocketaudio_open(&s, POCKETAUDIO_PLAYBACK, &o, err, sizeof(err));
+    check("gate: validating the microphone did not open the speaker",
+          rc == POCKETAUDIO_E_DISABLED && s == NULL && fk.log[0] == '\0' && fk.amp_requests == 0);
 }
 
 static void test_playback_order(void)
@@ -596,11 +650,14 @@ static void test_write(void)
 static void test_read(void)
 {
     struct pocketaudio_stream *s = NULL;
-    struct pocketaudio_options o = opts(pocketaudio_board_k230(), 1);
+    /* The K230 wire without its startup discard: that has its own tests. */
+    struct pocketaudio_board k230 = *pocketaudio_board_k230();
+    struct pocketaudio_options o = opts(&k230, 1);
     int16_t buf[POCKETAUDIO_PERIOD_FRAMES + 10];
     char err[160];
     long r;
 
+    k230.capture_settle_frames = 0;
     fake_reset();
     fk.route = 1;
     if (pocketaudio_open(&s, POCKETAUDIO_CAPTURE, &o, err, sizeof(err)) != POCKETAUDIO_OK) {
@@ -623,6 +680,158 @@ static void test_read(void)
     check("drain on a capture stream is refused",
           pocketaudio_drain(s, 10) == POCKETAUDIO_E_INVAL);
     pocketaudio_close(s);
+}
+
+/* ---- the K230 codec/capture startup transient --------------------------- */
+
+static long ms_since(const struct timespec *a)
+{
+    struct timespec b;
+
+    clock_gettime(CLOCK_MONOTONIC, &b);
+    return (b.tv_sec - a->tv_sec) * 1000L + (b.tv_nsec - a->tv_nsec) / 1000000L;
+}
+
+static int open_counted(struct pocketaudio_stream **s, const struct pocketaudio_board *b)
+{
+    struct pocketaudio_options o = opts(b, 0);
+    char err[160];
+
+    fk.route = 1;
+    fk.counter_mode = 1;
+    return pocketaudio_open(s, POCKETAUDIO_CAPTURE, &o, err, sizeof(err));
+}
+
+static void test_settle(void)
+{
+    const unsigned settle = POCKETAUDIO_RATE / 2;
+    struct pocketaudio_stream *s = NULL;
+    struct pocketaudio_board k230 = *pocketaudio_board_k230();
+    int16_t buf[POCKETAUDIO_PERIOD_FRAMES];
+    struct timespec t0;
+    long r;
+    long worst = 0;
+    int zeros = 0;
+    int calls;
+    int i;
+
+    /* Whole periods: 25 of them are the transient. */
+    fake_reset();
+    if (open_counted(&s, &k230) != POCKETAUDIO_OK) {
+        check("settle: open", 0);
+        return;
+    }
+    r = pocketaudio_read(s, buf, POCKETAUDIO_PERIOD_FRAMES);
+    check("settle: the first samples returned are the device's frame 24000",
+          r == POCKETAUDIO_PERIOD_FRAMES && buf[0] == (int16_t)settle && buf[r - 1] == (int16_t)(settle + r - 1));
+    check("settle: nothing before it was returned (25 periods read and dropped)",
+          fk.read_calls == 26 && fk.frames_out == settle + POCKETAUDIO_PERIOD_FRAMES);
+    r = pocketaudio_read(s, buf, POCKETAUDIO_PERIOD_FRAMES);
+    check("settle: afterwards reads run on without a gap or a second discard",
+          r == POCKETAUDIO_PERIOD_FRAMES && buf[0] == (int16_t)(settle + POCKETAUDIO_PERIOD_FRAMES) &&
+              fk.read_calls == 27);
+    pocketaudio_close(s);
+
+    /* A read that crosses the end of the transient keeps only what follows. */
+    fake_reset();
+    fk.read_chunk = 700;
+    open_counted(&s, &k230);
+    r = pocketaudio_read(s, buf, POCKETAUDIO_PERIOD_FRAMES);
+    check("settle: a read crossing the boundary returns only the frames after it",
+          r == 35 * 700 - (long)settle && buf[0] == (int16_t)settle && buf[r - 1] == (int16_t)(35 * 700 - 1));
+    pocketaudio_close(s);
+
+    /* A slow device: each call still returns within its one wait. */
+    fake_reset();
+    fk.read_delay_ms = 25;
+    open_counted(&s, &k230);
+    for (i = 0; i < 20; i++) {
+        long ms;
+
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        r = pocketaudio_read(s, buf, POCKETAUDIO_PERIOD_FRAMES);
+        ms = ms_since(&t0);
+        if (ms > worst) {
+            worst = ms;
+        }
+        if (r != 0) {
+            break;
+        }
+        zeros++;
+    }
+    check("settle: while dropping, a call gives 0 within one wait plus one read",
+          zeros >= 2 && worst <= POCKETAUDIO_MAX_WAIT_MS + 25 + 100);
+    check("settle: and the device is told the wait that is left, never more",
+          fk.min_timeout > 0 && fk.min_timeout < POCKETAUDIO_MAX_WAIT_MS);
+    check("settle: then the first sample returned is still frame 24000",
+          r == POCKETAUDIO_PERIOD_FRAMES && buf[0] == (int16_t)settle);
+    pocketaudio_close(s);
+
+    /* A device with nothing to give: one read per call, no spinning. */
+    fake_reset();
+    open_counted(&s, &k230);
+    fk.read_script[0] = 1;
+    calls = fk.read_calls;
+    r = pocketaudio_read(s, buf, POCKETAUDIO_PERIOD_FRAMES);
+    check("settle: a device timeout during the discard is 0 after exactly one read",
+          r == 0 && fk.read_calls == calls + 1);
+    pocketaudio_close(s);
+
+    /* An overrun during the discard: counted, and the boundary still holds. */
+    fake_reset();
+    open_counted(&s, &k230);
+    fk.read_script[1] = -EPIPE;
+    r = pocketaudio_read(s, buf, POCKETAUDIO_PERIOD_FRAMES);
+    check("settle: an overrun while dropping is counted and the first sample is frame 24000",
+          r == POCKETAUDIO_PERIOD_FRAMES && pocketaudio_xruns(s) == 1 && buf[0] == (int16_t)settle);
+    pocketaudio_close(s);
+
+    /* A device failure during the discard: an error, then a clean close. */
+    fake_reset();
+    open_counted(&s, &k230);
+    fk.read_script[2] = -ENODEV;
+    r = pocketaudio_read(s, buf, POCKETAUDIO_PERIOD_FRAMES);
+    check("settle: a device failure while dropping is E_IO", r == POCKETAUDIO_E_IO);
+    fk.log[0] = '\0';
+    pocketaudio_close(s);
+    check("settle: closing after it restores the route and closes the PCM",
+          strcmp(fk.log, "close route=1") == 0 && fk.route == 1 && !fk.pcm_open_now);
+    s = NULL;
+    check("settle: and leaves no owner behind", open_counted(&s, &k230) == POCKETAUDIO_OK);
+    pocketaudio_close(s);
+
+    /* Closing in the middle of the discard (a STOP): nothing is left. */
+    fake_reset();
+    fk.read_delay_ms = 10;
+    open_counted(&s, &k230);
+    r = pocketaudio_read(s, buf, POCKETAUDIO_PERIOD_FRAMES);
+    check("settle: a read inside the discard returns nothing", r == 0 && fk.frames_out < settle);
+    fk.log[0] = '\0';
+    pocketaudio_close(s);
+    check("settle: a close mid-discard restores and releases like any other",
+          strcmp(fk.log, "close route=1") == 0 && !fk.pcm_open_now);
+    s = NULL;
+    fk.read_delay_ms = 0;
+    open_counted(&s, &k230);
+    fk.frames_out = 0;
+    r = pocketaudio_read(s, buf, POCKETAUDIO_PERIOD_FRAMES);
+    check("settle: every open discards again from its own start",
+          r == POCKETAUDIO_PERIOD_FRAMES && buf[0] == (int16_t)settle);
+    pocketaudio_close(s);
+
+    /* A board without a transient returns the first frame, and the declared
+     * length is bounded. */
+    fake_reset();
+    k230.capture_settle_frames = 0;
+    open_counted(&s, &k230);
+    r = pocketaudio_read(s, buf, POCKETAUDIO_PERIOD_FRAMES);
+    check("settle: none declared, the first frame is returned", r == POCKETAUDIO_PERIOD_FRAMES && buf[0] == 0);
+    pocketaudio_close(s);
+    k230.capture_settle_frames = POCKETAUDIO_MAX_SETTLE_FRAMES + 1;
+    fake_reset();
+    s = (struct pocketaudio_stream *)1;
+    check("settle: a board declaring more than 2 s is refused as invalid",
+          open_counted(&s, &k230) == POCKETAUDIO_E_INVAL && s == NULL && fk.log[0] == '\0');
 }
 
 /* ---- recovery after an owner that never closed -------------------------- */
@@ -823,6 +1032,7 @@ int main(void)
     test_failures();
     test_write();
     test_read();
+    test_settle();
     test_recovery();
     test_misc();
     {

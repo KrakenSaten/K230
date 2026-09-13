@@ -20,6 +20,11 @@
  *                     waits at most POCKETAUDIO_MAX_WAIT_MS; the PCM is opened
  *                     non-blocking. A caller that checks its own stop flag
  *                     between calls stops within one wait.
+ *   Clean capture.    A board whose codec delivers a startup transient when a
+ *                     capture starts names its length (capture_settle_frames)
+ *                     and pocketaudio_read() discards that many frames after
+ *                     every open, inside the same per-call bound, so no
+ *                     caller - and no decoder - ever receives them.
  *   Bounded buffers.  One period of scratch inside the stream, allocated at
  *                     open. Nothing grows afterwards.
  *   Safe level.       Every played sample is clamped to the stream's peak
@@ -44,8 +49,9 @@
  *                     the hardware state it describes.
  *   Hardware gate.    A board path that has not been validated on hardware
  *                     is refused (POCKETAUDIO_E_DISABLED) unless the caller
- *                     passes allow_unverified. On the K230 both paths are
- *                     unverified until the controlled audio test.
+ *                     passes allow_unverified. On the K230 the microphone
+ *                     path is validated (unit A, 2026-09-13); the speaker
+ *                     path is not, until its controlled first playback.
  *
  * No threads, no LVGL, no allocation after open. The ALSA and GPIO calls live
  * behind struct pocketaudio_backend, so the policy above is tested on a host
@@ -76,6 +82,8 @@
 #define POCKETAUDIO_MAX_WAIT_MS 200
 /* The most channels a board may put on the wire. */
 #define POCKETAUDIO_MAX_CHANNELS 2
+/* The longest capture startup transient a board may declare: 2 s. */
+#define POCKETAUDIO_MAX_SETTLE_FRAMES (2 * POCKETAUDIO_RATE)
 /* The loudest sample pocketaudio will ever play: -12 dBFS. Raising it is a
  * hardware decision, not a caller's (AUDIO_HARDWARE_MAP §11). */
 #define POCKETAUDIO_PEAK_CEILING 8192
@@ -104,6 +112,10 @@ struct pocketaudio_board {
     const char *ctl;            /* ALSA control device for route_control, or NULL */
     unsigned channels;          /* channels on the wire, 1..POCKETAUDIO_MAX_CHANNELS */
     unsigned capture_channel;   /* the wire channel that carries the built-in mic */
+    /* The codec's capture startup transient: frames at the start of every
+     * capture that are not sound, discarded by pocketaudio_read(). 0 when the
+     * board has none; at most POCKETAUDIO_MAX_SETTLE_FRAMES. */
+    unsigned capture_settle_frames;
     /* A boolean mixer control that selects the route, or NULL when the board
      * has one fixed route. route_playback / route_capture are its values for
      * the speaker and for the microphone. */
@@ -186,7 +198,14 @@ int pocketaudio_open(struct pocketaudio_stream **out, enum pocketaudio_dir dir,
 long pocketaudio_write(struct pocketaudio_stream *s, const int16_t *mono, size_t frames);
 
 /* Capture up to POCKETAUDIO_PERIOD_FRAMES mono samples from the board's
- * microphone channel. Same return convention as pocketaudio_write(). */
+ * microphone channel. Same return convention as pocketaudio_write().
+ *
+ * The first board.capture_settle_frames frames of a stream are read from the
+ * device and dropped here, never returned. A call that is still dropping
+ * keeps reading within its one POCKETAUDIO_MAX_WAIT_MS budget and returns 0
+ * when the budget runs out first, so a caller's stop flag is honoured during
+ * the transient exactly as at any other time; the first sample it returns is
+ * the device's frame number capture_settle_frames. */
 long pocketaudio_read(struct pocketaudio_stream *s, int16_t *mono, size_t frames);
 
 /* Playback only: wait for what has been written to be heard, at most

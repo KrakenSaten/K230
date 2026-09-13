@@ -466,7 +466,7 @@ int main(void)
     /* ---- errors ------------------------------------------------------------ */
     setenv("WAVE_FAKE", "garbage", 1);
     tap("START LISTENING");
-    check("a helper's error is shown in words", wait_for("Audio is not enabled on this device yet", 0, 3000));
+    check("a helper's error is shown in words", wait_for("The speaker is not enabled on this device yet", 0, 3000));
     check("and the microphone indicator is off afterwards", !shows("MICROPHONE ON") && strcmp(hint, "") == 0);
 
     setenv("POCKETOS_WAVE_HELPER", "/nonexistent/pos-wave", 1);

@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/file.h>
+#include <time.h>
 #include <unistd.h>
 
 /* The T-Display K230 (docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md).
@@ -30,14 +31,25 @@
  * amp_i2s_pins, and bypasses the codec; off feeds the codec, which is the only
  * way to capture from the analog microphones. The amplifier enable is IO34,
  * gpiochip1 line 2, active high, as the vendor launcher drives it
- * (ui_hardware.c amp_gpio_request_line). Both paths are DOCUMENTED from
- * vendor sources and not yet VERIFIED, so both are gated. */
+ * (ui_hardware.c amp_gpio_request_line).
+ *
+ * K230 codec/capture startup transient: every capture on unit A began with
+ * both slots at negative full scale for about 140 ms (right) and 210 ms
+ * (left), settling within about a second; it is the codec's, not ggwave's.
+ * 500 ms is discarded (AUDIO_HARDWARE_MAP §15).
+ *
+ * The microphone path is VERIFIED on unit A (a phone's ggwave message decoded
+ * on the right slot, 2026-09-13). The speaker path is still gated until its
+ * controlled first playback. */
+#define K230_CAPTURE_SETTLE_FRAMES (POCKETAUDIO_RATE / 2)
+
 static const struct pocketaudio_board board_k230 = {
     .name = "k230-t-display",
     .pcm = "hw:CARD=K230I2SINNO,DEV=0",
     .ctl = "hw:CARD=K230I2SINNO",
     .channels = 2,
     .capture_channel = 1,
+    .capture_settle_frames = K230_CAPTURE_SETTLE_FRAMES,
     .route_control = "External I2S Output Switch",
     .route_playback = 1,
     .route_capture = 0,
@@ -45,7 +57,7 @@ static const struct pocketaudio_board board_k230 = {
     .amp_line = 2,
     .amp_active_high = 1,
     .playback_verified = 0,
-    .capture_verified = 0,
+    .capture_verified = 1,
 };
 
 /* Any other Linux machine: ALSA's default device converts mono for us, and
@@ -57,6 +69,7 @@ static const struct pocketaudio_board board_generic = {
     .ctl = NULL,
     .channels = 1,
     .capture_channel = 0,
+    .capture_settle_frames = 0,
     .route_control = NULL,
     .route_playback = 0,
     .route_capture = 0,
@@ -86,6 +99,7 @@ struct pocketaudio_stream {
     int record_route;   /* what that record says to restore the route to, or -1 */
     int recovered;      /* open found and undid a previous owner's leftovers */
     int peak_limit;
+    unsigned settle_left; /* capture: startup frames still to be discarded */
     unsigned xruns;
     int16_t wire[POCKETAUDIO_PERIOD_FRAMES * POCKETAUDIO_MAX_CHANNELS];
     char error[160];
@@ -195,7 +209,9 @@ static int map_open_errno(int e)
 static int board_valid(const struct pocketaudio_board *b)
 {
     return b && b->pcm && b->channels >= 1 && b->channels <= POCKETAUDIO_MAX_CHANNELS &&
-           b->capture_channel < b->channels && (!b->route_control || b->ctl);
+           b->capture_channel < b->channels &&
+           b->capture_settle_frames <= POCKETAUDIO_MAX_SETTLE_FRAMES &&
+           (!b->route_control || b->ctl);
 }
 
 static int take_lock(struct pocketaudio_stream *s, const char *dir, char *err, size_t errlen)
@@ -557,6 +573,8 @@ int pocketaudio_open(struct pocketaudio_stream **out, enum pocketaudio_dir dir,
         return POCKETAUDIO_E_INVAL;
     }
 
+    s->settle_left = capture ? s->board.capture_settle_frames : 0;
+
     verified = capture ? s->board.capture_verified : s->board.playback_verified;
     if (!verified && !o->allow_unverified) {
         say(err, errlen, "%s %s is not validated on hardware", s->board.name,
@@ -703,8 +721,42 @@ long pocketaudio_write(struct pocketaudio_stream *s, const int16_t *mono, size_t
     return io_result(s, r, "playback");
 }
 
+static int64_t now_ms(void)
+{
+    struct timespec t;
+
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
+}
+
+/* One device read of up to n wire frames, waiting at most timeout_ms. */
+static long read_wire(struct pocketaudio_stream *s, size_t n, int timeout_ms)
+{
+    long r = s->be->pcm_read(s->pcm, s->wire, n, timeout_ms);
+
+    if (r == -EPIPE) {
+        /* An overrun: some audio was lost, the stream runs on. The decoder
+         * sees a gap, which it survives like any other noise. */
+        s->xruns++;
+        r = s->be->pcm_read(s->pcm, s->wire, n, timeout_ms);
+        if (r == -EPIPE) {
+            s->xruns++;
+            r = 0;
+        }
+    }
+    r = io_result(s, r, "capture");
+    if (r > 0 && (size_t)r > n) {
+        say(s->error, sizeof(s->error), "capture returned more than asked");
+        return POCKETAUDIO_E_IO;
+    }
+    return r;
+}
+
 long pocketaudio_read(struct pocketaudio_stream *s, int16_t *mono, size_t frames)
 {
+    int64_t start;
+    int timeout = POCKETAUDIO_MAX_WAIT_MS;
+    size_t skip = 0;
     size_t n;
     size_t i;
     long r;
@@ -716,29 +768,34 @@ long pocketaudio_read(struct pocketaudio_stream *s, int16_t *mono, size_t frames
     if (n == 0) {
         return 0;
     }
-    r = s->be->pcm_read(s->pcm, s->wire, n, POCKETAUDIO_MAX_WAIT_MS);
-    if (r == -EPIPE) {
-        /* An overrun: some audio was lost, the stream runs on. The decoder
-         * sees a gap, which it survives like any other noise. */
-        s->xruns++;
-        r = s->be->pcm_read(s->pcm, s->wire, n, POCKETAUDIO_MAX_WAIT_MS);
-        if (r == -EPIPE) {
-            s->xruns++;
-            r = 0;
+    start = now_ms();
+    for (;;) {
+        r = read_wire(s, n, timeout);
+        if (r <= 0) {
+            return r;
+        }
+        if (s->settle_left == 0) {
+            break;
+        }
+        /* The startup transient: dropped, not returned. A read that crosses
+         * its end keeps only the frames after it. */
+        if ((unsigned long)r > s->settle_left) {
+            skip = s->settle_left;
+            s->settle_left = 0;
+            break;
+        }
+        s->settle_left -= (unsigned)r;
+        /* The whole read was transient. Read on, but only within this call's
+         * one wait: the caller's stop flag must not wait on the discard. */
+        timeout = POCKETAUDIO_MAX_WAIT_MS - (int)(now_ms() - start);
+        if (timeout <= 0) {
+            return 0;
         }
     }
-    r = io_result(s, r, "capture");
-    if (r <= 0) {
-        return r;
+    for (i = skip; i < (size_t)r; i++) {
+        mono[i - skip] = s->wire[i * s->board.channels + s->board.capture_channel];
     }
-    if ((size_t)r > n) {
-        say(s->error, sizeof(s->error), "capture returned more than asked");
-        return POCKETAUDIO_E_IO;
-    }
-    for (i = 0; i < (size_t)r; i++) {
-        mono[i] = s->wire[i * s->board.channels + s->board.capture_channel];
-    }
-    return r;
+    return r - (long)skip;
 }
 
 int pocketaudio_drain(struct pocketaudio_stream *s, int timeout_ms)

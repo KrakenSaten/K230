@@ -145,11 +145,14 @@ check "decode: a channel the file does not have is refused" "$([ $rc -eq 2 ] && 
 "$BIN" info > "$T/info.out" 2>&1; rc=$?
 check "info: exits 0 and opens nothing" "$([ $rc -eq 0 ] && [ ! -e "$RUN/audio.lock" ] && echo 1 || echo 0)"
 check "info: names the board and the ceiling" \
-    "$(grep -q '^board generic$' "$T/info.out" && grep -q '^peak_ceiling 8192$' "$T/info.out" && echo 1 || echo 0)"
+    "$(grep -q '^board generic$' "$T/info.out" && grep -q '^peak_ceiling 8192$' "$T/info.out" &&
+       grep -q '^capture_settle_ms 0$' "$T/info.out" && echo 1 || echo 0)"
 POCKETOS_AUDIO_BOARD=k230 "$BIN" info > "$T/info2.out" 2>&1
-check "info: the K230 description says both paths are gated" \
-    "$(grep -q '^playback not validated (gated)$' "$T/info2.out" && grep -q '^capture not validated (gated)$' "$T/info2.out" &&
+check "info: the K230 speaker is gated, its microphone validated" \
+    "$(grep -q '^playback not validated (gated)$' "$T/info2.out" && grep -q '^capture validated$' "$T/info2.out" &&
        grep -q '^amplifier /dev/gpiochip1 line 2 active-high$' "$T/info2.out" && echo 1 || echo 0)"
+check "info: the K230 capture discards its 500 ms startup transient" \
+    "$(grep -q '^capture_settle_ms 500$' "$T/info2.out" && echo 1 || echo 0)"
 
 printf 'DOORS' | "$BIN" send --events > "$T/send.out" 2>&1; rc=$?
 check "send (null): exits 0" "$([ $rc -eq 0 ] && echo 1 || echo 0)"
@@ -173,17 +176,21 @@ check "record: more than 30 seconds is refused before the device is opened" \
 check "record: 5 seconds by default" "$([ "$(stat -c %s "$T/rec5.wav" 2>/dev/null)" = "$((44 + 5 * 48000 * 2))" ] && echo 1 || echo 0)"
 
 rm -f "$RUN/audio.lock"
-POCKETOS_AUDIO_BOARD=k230 "$BIN" record --seconds 1 "$T/gated.wav" > "$T/gate0.out" 2>&1; rc=$?
-check "gate: K230 recording is refused without --allow-unverified" \
-    "$([ $rc -eq 3 ] && grep -q '^error audio_disabled' "$T/gate0.out" && [ ! -e "$T/gated.wav" ] && echo 1 || echo 0)"
 POCKETOS_AUDIO_BOARD=k230 "$BIN" send --events --text DOORS > "$T/gate.out" 2>&1; rc=$?
 check "gate: K230 speaker playback is refused without --allow-unverified (exit 3)" \
-    "$([ $rc -eq 3 ] && grep -q '^error audio_disabled' "$T/gate.out" && echo 1 || echo 0)"
+    "$([ $rc -eq 3 ] && grep -q '^error audio_disabled' "$T/gate.out" && grep -q 'speaker playback' "$T/gate.out" && echo 1 || echo 0)"
 check "gate: before anything is touched (no lock file)" "$([ ! -e "$RUN/audio.lock" ] && echo 1 || echo 0)"
 check "gate: and nothing was announced as started" "$(grep -qE '^(ready|sending)' "$T/gate.out" && echo 0 || echo 1)"
+POCKETOS_AUDIO_BOARD=k230 POCKETOS_AUDIO_ALLOW_UNVERIFIED=capture "$BIN" send --events --text DOORS > "$T/gate1.out" 2>&1; rc=$?
+check "gate: the capture override still does not open the K230 speaker" \
+    "$([ $rc -eq 3 ] && grep -q '^error audio_disabled' "$T/gate1.out" && [ ! -e "$RUN/audio.lock" ] && echo 1 || echo 0)"
+POCKETOS_AUDIO_BOARD=k230 "$BIN" record --seconds 1 "$T/gated.wav" > "$T/gate0.out" 2>&1; rc=$?
+check "gate: the validated K230 microphone is not refused - with no K230 card here it is no device" \
+    "$([ $rc -eq 3 ] && grep -q '^error audio_nodev' "$T/gate0.out" && ! grep -q 'audio_disabled' "$T/gate0.out" &&
+       [ ! -e "$T/gated.wav" ] && echo 1 || echo 0)"
 POCKETOS_AUDIO_BOARD=k230 "$BIN" listen --events --seconds 1 > "$T/gate2.out" 2>&1; rc=$?
-check "gate: K230 microphone capture is refused the same way" \
-    "$([ $rc -eq 3 ] && grep -q '^error audio_disabled' "$T/gate2.out" && ! grep -q '^listening' "$T/gate2.out" && echo 1 || echo 0)"
+check "gate: and a K230 listen the same, never listening" \
+    "$([ $rc -eq 3 ] && grep -q '^error audio_nodev' "$T/gate2.out" && ! grep -q '^listening' "$T/gate2.out" && echo 1 || echo 0)"
 POCKETOS_AUDIO_BOARD=k230 POCKETOS_AUDIO_PCM= "$BIN" send --events --allow-unverified --text DOORS > "$T/nocard.out" 2>&1; rc=$?
 check "gate: allowed, but no K230 card on this host, is no device (exit 3)" \
     "$([ $rc -eq 3 ] && grep -q '^error audio_nodev' "$T/nocard.out" && echo 1 || echo 0)"

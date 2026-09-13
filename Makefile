@@ -649,6 +649,7 @@ test: all $(TEST_BINS)
 	./tests/wave_modem_test
 	bash tests/wave_tool_test.sh
 	bash tests/audio_recovery_test.sh
+	bash tests/capture_settle_test.sh
 	bash tests/wave_lint.sh
 	bash tests/kbd_lint.sh
 	bash tests/radiod_mock_test.sh

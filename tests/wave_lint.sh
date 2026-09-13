@@ -65,9 +65,17 @@ check "pos-wave writes to stderr only for usage" \
 check "the K230 speaker path stays gated until its hardware test" \
     "$(sed -n '/^static const struct pocketaudio_board board_k230/,/^};/p' core/pocketaudio/pocketaudio.c |
        grep -q '\.playback_verified = 0,' && echo 1 || echo 0)"
-check "the K230 microphone path stays gated until its hardware test" \
+check "the K230 microphone path is marked validated (unit A, 2026-09-13)" \
     "$(sed -n '/^static const struct pocketaudio_board board_k230/,/^};/p' core/pocketaudio/pocketaudio.c |
-       grep -q '\.capture_verified = 0,' && echo 1 || echo 0)"
+       grep -q '\.capture_verified = 1,' && echo 1 || echo 0)"
+check "the K230 capture discards the codec's 500 ms startup transient" \
+    "$(grep -q '^#define K230_CAPTURE_SETTLE_FRAMES (POCKETAUDIO_RATE / 2)$' core/pocketaudio/pocketaudio.c &&
+       sed -n '/^static const struct pocketaudio_board board_k230/,/^};/p' core/pocketaudio/pocketaudio.c |
+       grep -q '\.capture_settle_frames = K230_CAPTURE_SETTLE_FRAMES,' && echo 1 || echo 0)"
+check "nothing shipped sets the unverified-audio override" \
+    "$(grep -rqn 'POCKETOS_AUDIO_ALLOW_UNVERIFIED' platforms apps ui services core 2>/dev/null && echo 0 || echo 1)"
+check "and the Wave app never passes --allow-unverified" \
+    "$(grep -rn 'allow-unverified' apps ui 2>/dev/null | grep -q . && echo 0 || echo 1)"
 check "the playback ceiling is -12 dBFS" \
     "$(grep -q '#define POCKETAUDIO_PEAK_CEILING 8192' core/pocketaudio/pocketaudio.h && echo 1 || echo 0)"
 check "the modem's loudest volume stays under it" \
@@ -89,7 +97,7 @@ check "the test hook is compiled only into the test build" \
     "$(code tools/wave/pos_wave.c | awk '/#ifdef POS_WAVE_TEST_HOOKS/{h=1} /#endif/{h=0} /POS_WAVE_FAKE_AUDIO|fake_audio_/{if(!h) bad=1} END{exit bad}' && echo 1 || echo 0)"
 check "make test runs wave_session_test against the real helper too" \
     "$(grep -qE '^	\./tests/wave_session_test tests/fake_pos_wave\.sh tests/pos-wave-testhooks$' Makefile && echo 1 || echo 0)"
-for s in wave_tool_test.sh wave_lint.sh audio_recovery_test.sh; do
+for s in wave_tool_test.sh wave_lint.sh audio_recovery_test.sh capture_settle_test.sh; do
     check "make test runs $s" "$(grep -q "^	bash tests/$s" Makefile && echo 1 || echo 0)"
 done
 check "pos-wave is installed" "$(grep -q 'install -D -m 0755 tools/wave/pos-wave' Makefile && echo 1 || echo 0)"

@@ -394,6 +394,7 @@ static int cmd_info(void)
     printf("pcm %s\n", b.pcm);
     printf("channels %u\n", b.channels);
     printf("mic_channel %u\n", b.capture_channel);
+    printf("capture_settle_ms %u\n", (unsigned)(b.capture_settle_frames * 1000ULL / POCKETAUDIO_RATE));
     printf("route_control %s\n", b.route_control ? b.route_control : "none");
     printf("amplifier %s", b.amp_chip ? b.amp_chip : "none");
     if (b.amp_chip) {

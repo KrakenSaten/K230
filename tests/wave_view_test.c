@@ -253,8 +253,19 @@ static void test_send(void)
     apply(&v, WAVE_EV_EXITED, 3, NULL, 6002);
     wave_view_refresh(&v, "DOORS", 6002);
     check("send: the helper's error, in words, and not a crash report",
-          strcmp(v.status, "Audio is not enabled on this device yet") == 0 &&
+          strcmp(v.status, "The speaker is not enabled on this device yet") == 0 &&
               v.status_tone == WAVE_TONE_ERROR);
+    {
+        char words[128];
+
+        wave_view_error_text("audio_disabled k230-t-display microphone capture is not validated on hardware",
+                             words, sizeof(words));
+        check("error words: a refused microphone is named as the microphone",
+              strcmp(words, "The microphone is not enabled on this device yet") == 0);
+        wave_view_error_text("audio_disabled", words, sizeof(words));
+        check("error words: a refusal that names neither stays general",
+              strcmp(words, "Audio is not enabled on this device yet") == 0);
+    }
 
     wave_view_started(&v, 7000);
     apply(&v, WAVE_EV_EXITED, 128 + SIGSEGV, NULL, 7001);
