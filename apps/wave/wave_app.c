@@ -86,8 +86,26 @@ static lv_obj_t *hrow(lv_obj_t *parent)
     return r;
 }
 
+/* Role styles are swapped only when they change: the screen is repainted
+ * every poll while a helper runs, and re-adding a style makes LVGL recompute
+ * and redraw the object even when nothing is different - work the single
+ * hart would do twenty times a second beside the decoder. The role last
+ * applied is kept in the object's user data (none of these objects uses it
+ * for anything else), offset by one so that 0 means "not yet". */
+static int role_unchanged(lv_obj_t *obj, int role)
+{
+    if ((intptr_t)lv_obj_get_user_data(obj) == role + 1) {
+        return 1;
+    }
+    lv_obj_set_user_data(obj, (void *)(intptr_t)(role + 1));
+    return 0;
+}
+
 static void set_primary(lv_obj_t *b, int primary)
 {
+    if (role_unchanged(b, primary ? 1 : 0)) {
+        return;
+    }
     lv_obj_remove_style(b, pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
     lv_obj_remove_style(b, pos_style(POS_STYLE_BUTTON_PRIMARY_PRESSED), LV_STATE_PRESSED);
     lv_obj_remove_style(b, pos_style(POS_STYLE_BUTTON_SECONDARY), 0);
@@ -145,6 +163,9 @@ static void set_tone(lv_obj_t *lb, enum wave_tone tone)
     };
     size_t i;
 
+    if (role_unchanged(lb, (int)tone)) {
+        return;
+    }
     for (i = 0; i < sizeof(roles) / sizeof(roles[0]); i++) {
         lv_obj_remove_style(lb, pos_style(roles[i]), 0);
     }
