@@ -396,6 +396,19 @@ Wi-Fi (netd):
   timed out and the next one answered (one WARN, no effect). Stale replies are
   drained before each request, but one arriving after the next request is
   sent would be read as that request's answer. Not seen to cause harm.
+- **One unreproduced netd_test event (test flake, non-blocking).** On
+  2026-09-13 one full `make test` on `8d7af16` had 13 netd_test failures: every
+  `wifi.connect` in the malformed-input block that reaches netd's readiness
+  gate returned an unexpected code, while the checks netd refuses earlier
+  passed. That pattern fits a short `starting` window (code 5, documented, and
+  waited out by `pos wifi` and Settings), for example a supplicant restart,
+  but the run's logs were deleted, so the cause is not established. It did not
+  recur in 51 later executions: 21 isolated runs (3 of them under heavy CPU
+  load), a bounded campaign on `9e24ec5` of 20 isolated runs (10 normal, 10
+  under moderate load), 2 focused runs on `815f76e`, and 8 inside full suites. netd_test now keeps a failed run's evidence
+  (netd log, fake supplicant record, store, every request and response with
+  times, status at each failure, exit status) in `out/test-failures/` or
+  `$TEST_EVIDENCE_DIR`, so a recurrence can be diagnosed. No product change.
 - **No regulatory domain** is set; the driver uses its built-in channel plan,
   and the kernel logs that `regulatory.db` is missing.
 - **Wi-Fi power depends on a pad pull-up.** GPIO45 enables the Wi-Fi
