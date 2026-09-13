@@ -16,6 +16,13 @@
 # recovery, an open network only when asked, forget, restart with automatic
 # reconnect, a supplicant crash, a foreign supplicant, a damaged store, the
 # interface disappearing, and protocol robustness.
+#
+# A failed run keeps its evidence in out/test-failures/ (or
+# $NETD_TEST_KEEP_DIR): the whole test tree (netd's log and stdio, the fake
+# supplicant's record, the store, the interface files, the DHCP log), every
+# request sent to netd with its response and times, and for each failed check
+# the time, the output it judged and netd's status at that moment, plus the
+# exit status and the processes still running. A passing run keeps nothing.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 REPO=$(pwd)
@@ -28,7 +35,24 @@ checks=0
 
 check() { # <name> <0|1>
     checks=$((checks + 1))
-    if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi
+    if [ "$2" = "1" ]; then
+        echo "ok   $1"
+    else
+        echo "FAIL $1"
+        failed=$((failed + 1))
+        note_failure "$1"
+    fi
+}
+# Times in netd's own log format, so the two line up.
+stamp() { date -u +%Y-%m-%dT%H:%M:%S.%3NZ; }
+note_failure() { # <check name>
+    {
+        echo "== $(stamp) check failed: $1"
+        echo "-- last request to netd (rpc.log has them all):"
+        tail -n 2 "$DIAG/rpc.log" 2>/dev/null
+        echo "-- last captured \$out (the check may have judged a newer command): ${out-}"
+        echo "-- wifi.status now: $(st | tr -d '\n')"
+    } >> "$DIAG/failures.txt"
 }
 has() { printf '%s' "$1" | grep -q -- "$2" && echo 1 || echo 0; }
 hasnt() { printf '%s' "$1" | grep -q -- "$2" && echo 0 || echo 1; }
@@ -40,15 +64,36 @@ for b in "$NETD" "$SHIPPED" "$POS" "$FAKE"; do
 done
 
 TMP=$(mktemp -d)
+# Diagnostics live outside $TMP: the checks below search that tree for the
+# passphrase and must find it only where netd put it.
+DIAG=$(mktemp -d)
 NP=""
 cleanup() {
+    local status=$? keep=""
+    if [ "$failed" -gt 0 ] || [ "$status" -ne 0 ]; then
+        keep=${NETD_TEST_KEEP_DIR:-$REPO/out/test-failures}/netd_test-$(date -u +%Y%m%dT%H%M%SZ)-$$
+        {
+            echo "exit status $status, $checks checks, $failed failure(s), ended $(stamp)"
+            echo "-- wifi.status at exit: $(st 2>&1 | tr -d '\n')"
+            echo "-- processes of this run:"
+            ps -eo pid,ppid,stat,etimes,args | grep -F -e "$TMP" -e "$FAKE" -e "$NETD" | grep -v 'grep -F'
+        } > "$DIAG/exit.txt" 2>&1
+    fi
     [ -n "$NP" ] && kill "$NP" 2>/dev/null
     sleep 0.3
     pkill -f "$TMP/" 2>/dev/null
     pkill -f "$FAKE" 2>/dev/null
-    rm -rf "$TMP"
+    if [ -n "$keep" ] && mkdir -p "$keep/tree"; then
+        # Sockets cannot be archived; everything else is.
+        tar -C "$TMP" -cf - . 2>/dev/null | tar -C "$keep/tree" -xf - 2>/dev/null
+        cp -r "$DIAG/." "$keep/"
+        echo "netd_test: evidence from this run kept in $keep"
+    fi
+    rm -rf "$TMP" "$DIAG"
 }
 trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 export POCKETOS_RUNTIME_DIR=$TMP/run POCKETOS_STATE_DIR=$TMP/state POCKETOS_LOG_DIR=$TMP/log
 export NETD_TEST_ROOT=$TMP/root NETD_TEST_WPA_SUPPLICANT=$FAKE NETD_TEST_UDHCPC=$TMP/udhcpc
@@ -115,8 +160,10 @@ wait_state() { # <state> [seconds]
     done
     return 1
 }
-rpc() { # <method> <json params> -> response JSON (result or error)
-    python3 - "$POCKETOS_RUNTIME_DIR/netd.sock" "$1" "$2" <<'PY'
+rpc() { # <method> <json params> -> response JSON (result or error); logged to $DIAG/rpc.log
+    local t0 resp
+    t0=$(stamp)
+    resp=$(python3 - "$POCKETOS_RUNTIME_DIR/netd.sock" "$1" "$2" 2>>"$DIAG/rpc.log" <<'PY'
 import json, socket, struct, sys
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 s.connect(sys.argv[1])
@@ -136,6 +183,9 @@ def read(n):
 n = struct.unpack(">I", read(4))[0]
 print(read(n).decode())
 PY
+)
+    printf '%s .. %s %s %.200s\n    -> %.400s\n' "$t0" "$(stamp)" "$1" "$2" "$resp" >> "$DIAG/rpc.log"
+    printf '%s\n' "$resp"
 }
 code_of() { printf '%s' "$1" | sed -n 's/.*"code":[[:space:]]*\([0-9]*\).*/\1/p'; }
 
