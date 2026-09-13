@@ -452,8 +452,9 @@ Calculator:
 ## Audio milestone: pocketaudio, pos-wave and Wave
 
 Branch `feature/audio-ggwave` (2026-09-13, from master `a748101`). Host-tested
-and cross-built; **nothing has played or captured audio on any board**. The
-hardware record and the proposed first tests are
+and cross-built; build `da3c5e5` is deployed on unit A. **RECEIVE is validated
+on unit A** (the owner's phone sent `test`, Wave decoded it; hardware map
+§15). **Nothing has played audio on any board.** The hardware record is
 docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md; the app is docs/apps/WAVE.md.
 
 Decisions:
@@ -500,22 +501,29 @@ Audio hardware:
   1 W and the amplifier can deliver more, so the level is limited digitally:
   pocketaudio clamps every sample to -12 dBFS, and the first test uses about
   -26 dBFS.
-- **The microphone slot is inferred** (right = on-board); the first RECEIVE
-  test checks it before Wave is enabled.
+- ~~The microphone slot is inferred.~~ Channel 1 (right) is the on-board
+  microphone on unit A (hardware map §15).
+- **Every capture opens with a start-up transient**: about 140-210 ms at
+  negative full scale, settled within about a second (hardware map §14 item
+  12). `record` reports peak 32768 and `listen` a first level of 100 in a
+  quiet room, and a transmission started in the first second of listening
+  may be missed. Candidate fix: discard the first 500 ms after open. Not
+  changed yet.
 - **The on-board mic's gain is fixed at 30 dB** and not adjustable through
   ALSA (`Mic Capture Volume` writes only the left channel); the codec's ALC
   behaviour is unknown. A loud room may clip.
 - ~~After a SIGKILL of pos-wave the route and the amplifier line keep their
   last values.~~ Fixed before merge: write-ahead recovery record, reconciled
   by the next audio open and by `pos-wave recover`, which the Wave session
-  starts when its helper dies by a signal. Remaining gap: if the shell and
-  its helper are SIGKILLed together, nothing restores the state until the
-  next audio operation or a reboot.
+  starts when its helper dies by a signal. Verified on unit A for RECEIVE,
+  both by `pos-wave recover` and by the next open (hardware map §15).
+  Remaining gap: if the shell and its helper are SIGKILLed together, nothing
+  restores the state until the next audio operation or a reboot.
 - **Mic bias stays on after the first capture** (driver), and a speaker-route
   playback still enables the headphone driver (driver): keep the jack empty
   during the tests.
-- Unit A's read-only checks listed in the hardware map §10 were not run in this
-  session (no address available to it).
+- ~~Unit A's read-only checks listed in the hardware map §10 were not run.~~
+  Run before the deploy, identical to the morning record (§15).
 
 Wave and ggwave:
 
@@ -523,9 +531,10 @@ Wave and ggwave:
   `capture_verified` 0 in pocketaudio.c, held there by tests/wave_lint.sh). On
   the device the app says "Audio is not enabled on this device yet" until the
   gates are flipped after the hardware tests.
-- **ggwave's CPU cost on the C908 is unmeasured.** The capture buffer is
-  500 ms to absorb its analysis step; riscv64 benchmark binaries from the
-  study exist but were not run.
+- **ggwave's decode spike on the C908 is unmeasured.** Steady listening costs
+  0.6 % of unit A's single core (hardware map §15), and the owner's receive
+  decoded without loss, but nothing sampled the CPU at the end of a message.
+  The capture buffer is 500 ms to absorb it.
 - **ggwave defects worked around, not fixed upstream**: frame-sync loss on
   unaligned input, init reporting success on bad parameters, payload logging,
   38.5 s deafness after a missed end marker (wave_modem.h). Its TX instance

@@ -57,8 +57,9 @@ which parts either unit carries.
 | Item | State | Label |
 | --- | --- | --- |
 | Live register evidence | 2026-09-13 morning, read-only: IO35 pad `0x00001191` (I2S data out, level 0) with the panel on; IO34 pad `0x000001b0` (GPIO, pull-down, level 0); gpiochip1 lines 2 and 3 without consumer; IO32/IO33 in I2S function; IO21/IO22 read 1 as the level-bit control (feasibility §6) | LIVE-READ |
-| Deployed software | Last recorded deploy: userspace build `3d4a6e7` on the v0.0.9 card (2026-09-13). No audio-branch build is deployed and `pos-wave` is not on the unit; package `da3c5e5` is built, not deployed | bench record |
-| Audio enumeration | Card 0 `K230I2SINNO`, `hw:0,0` with one playback and one capture substream, both closed; `canaan,external-i2s-output-default` in the DT, confirmed by dmesg; `External I2S Output Switch` on, `PCM Playback Volume` 24/45, `Mic Capture Volume` 30/30. The §10 re-read is outstanding | LIVE-READ (morning) |
+| Deployed software | Since 2026-09-13 11:38 UTC: userspace `da3c5e5` (audio branch) over the v0.0.9 card, with `pos-wave` and Wave; rollback tar of `3d4a6e7` in `/root/rollback-3d4a6e7/` (§15) | LIVE-READ |
+| Audio enumeration | Card 0 `K230I2SINNO`, `hw:0,0` with one playback and one capture substream, both closed; `canaan,external-i2s-output-default` in the DT, confirmed by dmesg; `External I2S Output Switch` on, `PCM Playback Volume` 24/45, `Mic Capture Volume` 30/30. Re-read before the deploy, identical to the morning (§15) | LIVE-READ |
+| RECEIVE | **Validated** on 2026-09-13: the owner's phone sent `test`, Wave decoded it; slot, lifecycle, CPU, mixer restore and SIGKILL recovery checked over SSH (§15) | LIVE-READ, owner |
 | R54 | Not seen. Fitted is STRONGLY INFERRED by the §8.3 chain, whose residual premise is that unit A's main board matches V1.0 | STRONGLY INFERRED |
 | Base board / speaker | A keyboard base is attached and answers (TCA8418 at 0x34, XL9555 at 0x20, on the bit-banged GPIO46/47 bus; KEYBOARD_BRINGUP_2026-09-10.md §3); the vendor documents that board as the nRF9151 cellular/GNSS/keyboard base, which carries no amplifier. An nRF52840 base board was only ASSUMED on 2026-09-07 from a port diagram; no probe of its AHT20 on the bit-banged bus is recorded; the unit has not been opened. No amplifier or speaker has been observed | keyboard base LIVE-READ; nRF52840 board, amplifier and speaker UNKNOWN |
 
@@ -363,8 +364,10 @@ only, its live reads on unit A only (§0).
   bias R50 2 kΩ.
 - ALSA: card 0 `K230I2SINNO`, PCM `hw:0,0`, one capture substream
   (LIVE-READ). pocketaudio opens `hw:CARD=K230I2SINNO,DEV=0`.
-- Slot mapping: right = on-board, left = headset. STRONGLY INFERRED from the
-  nets and I2S slot order; the first RECEIVE test checks it (§13 step 2).
+- Slot mapping: right = on-board, left = headset. **Channel 1 (right) carries
+  the on-board microphone: LIVE-READ on unit A** (§15): Wave decoded the
+  owner's transmission on it, and it shows room sound 14 dB above channel 0.
+  That channel 0 is the empty headset input is STRONGLY INFERRED.
 - Capture needs the route **off**; the vendor turns it off before every
   capture (`L/ui_hardware.c:1771-1789`), and so does pocketaudio.
 - `Mic Capture Volume` writes only the left gain; the on-board mic stays at
@@ -561,7 +564,9 @@ address.
 
 ## 10. Read-only live enumeration
 
-Not run in this session: unit A's network address was not available, and
+**Run on unit A on 2026-09-13 at 11:36 UTC before the deploy (§15): identical
+to the morning record below.** The earlier note stays for the record:
+not run at first, because unit A's network address was not available, and
 discovering it on the LAN was not permitted. What stands is the silent
 enumeration of 2026-09-13 morning (feasibility §6, same unit and kernel):
 card and PCM present and closed, `External I2S Output Switch` on, `PCM
@@ -659,7 +664,11 @@ click at enable, anything louder than expected. **Abort:** Ctrl-C.
 **Pass:** tones heard, panel steady, exit 0, mixer unchanged, IO34 low after,
 no recovery record left.
 
-## 13. Proposed first real RECEIVE test (approved, waiting for unit A's address)
+## 13. Proposed first real RECEIVE test (superseded by the owner's receive, §15)
+
+The owner ran the physical receive through Wave itself before this script
+was reached; the owner accepted it as the RECEIVE test, and the checks below
+that it does not cover were done over SSH instead (§15).
 
 **Preconditions:** the owner present and aware the microphone will be on;
 nothing in the jack; a transmitter a hand's length to an arm's length away at
@@ -702,8 +711,9 @@ Carried into docs/KNOWN_ISSUES.md. The first three gate SEND:
    plug seen seated there (§0, §6).
 3. The amplifier's gain strap and supply rail (§6); the first level rests on
    digital attenuation (§11).
-4. Unit A's §10 reads are outstanding (no address available here).
-5. The capture slot mapping is inferred (§7).
+4. ~~Unit A's §10 reads are outstanding.~~ Done 2026-09-13 (§15).
+5. ~~The capture slot mapping is inferred.~~ Channel 1 confirmed on unit A
+   (§15).
 6. The connector's designator and pin order, the other receptacle's purpose,
    and `2618` (§1, §6). The base board's name and revision are known on unit
    B (`K230_nRF52840_Board` VER 0.3), with no document for that revision. The
@@ -715,10 +725,64 @@ Carried into docs/KNOWN_ISSUES.md. The first three gate SEND:
    "Recovery"; tests/audio_recovery_test.sh).
 8. A playback on the speaker route still enables the codec's headphone driver
    (driver behaviour): a click on the jack is possible; keep it empty.
-9. ggwave's CPU cost on the C908 is unmeasured. Its worst single decode call
-   on the host was 6.2 ms with one protocol and 17.9 ms with all twelve (Wave
-   enables three); a spike twenty times that on the board would still fit the
-   500 ms capture buffer.
+9. ggwave's steady listening cost on unit A is measured: 0.6 % of the one
+   core (§15). The cost of the decode at the end of a message is not: the
+   owner's receive worked, but nothing sampled the CPU during it. On the host
+   the worst single decode call was 17.9 ms with all twelve protocols.
 10. The codec's ALC behaviour and the fixed 30 dB on-board mic gain may clip
     in a loud room; neither is adjustable through ALSA.
 11. The small speaker's response across 1.9 - 6.3 kHz is unmeasured.
+12. **Every capture opens with a start-up transient** (§15): both channels sit
+    at negative full scale for about 140 ms (channel 1) and 210 ms (channel
+    0), then settle; the DC offset is below 1000 by about 600 ms and 900 ms.
+    It is why `record` reports peak 32768 in a quiet room and `listen` a
+    first level of 100. A transmission that starts within the first second of
+    listening may be missed. Candidate fix: discard the first 500 ms after
+    open in `listen` and `record`, or while the offset settles. Not changed
+    yet.
+
+## 15. Unit A RECEIVE validation, 2026-09-13
+
+Build `da3c5e5` deployed to unit A over Ethernet (192.168.10.157). SSH from
+the development host. Owner = seen by the product owner at the panel. No
+SEND, nothing played, `playback_verified` and `capture_verified` 0
+throughout.
+
+**Preparation (11:36-11:40 UTC):**
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| Identity | `0.0.9`, `BUILD_ID=3d4a6e7`, no `pos-wave`; unit A's v0.0.9 rollback tar, netd store, brightness 60 and the keyboard IRQ line held by the shell present | LIVE-READ |
+| §10 reads before the deploy | identical to the morning: card and PCM closed, no `/dev/snd` holder, mixer as recorded, IO35 `0x00001191` (level 0), IO34 `0x000001B0` (level 0), gpiochip1 lines 2-3 unused, four services with 0 restarts. IO4 (UART1 RX from the nRF52840 board) reads high with no pull configured: weak, inconclusive hint that something drives it | LIVE-READ |
+| Rollback tar | `/root/rollback-3d4a6e7/pocketos-userspace-3d4a6e7.tar`, the 13 files the deploy replaces, 1,242,624 B, sha256 `0dee7a9b…41bb4f5`; extracted and hash-checked (13/13 OK); `ROLLBACK.txt` beside it (includes removing `/usr/bin/pos-wave`); host copy `~/work/rollback-unitA/` | LIVE-READ |
+| Deploy | `deploy.sh`, rc 0; all 14 deployed files hash-identical to the build host's target tree | LIVE-READ |
+| After the deploy | `BUILD_ID=da3c5e5`; `pos-wave info`: `k230-t-display`, mic channel 1, both paths `not validated (gated)`; Wave in `pos app list`; four services running, 0 restarts after 25 s, 0 crash reports; no process carrying `POCKETOS_AUDIO_ALLOW_UNVERIFIED`, none set in `/etc/default`, init scripts or profiles; mixer identical, no device opened | LIVE-READ |
+| Shell for the UI test | restarted with `POCKETOS_AUDIO_ALLOW_UNVERIFIED=capture` and umask 022; only the shell and its supervisor carried it | LIVE-READ |
+
+**Physical RECEIVE (owner):** Wave opened on unit A, RECEIVE, listening; a
+phone sent `test` with ggwave; Wave decoded it and showed it as expected.
+**PASS**, accepted by the owner as the RECEIVE acceptance test. The audio
+lock file's timestamp (11:41 UTC; the file did not exist in the checks right
+after the deploy) places the helper's open of the device in that session.
+
+**Checks over SSH afterwards (11:48-11:52 UTC):**
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Which channel decoded `test` | Channel 1: Wave starts `pos-wave listen --events --seconds 120` with no `--channel` (`wave_session.c:439`), so the board's `capture_channel` 1 applies (`pos-wave info`); the deployed binaries are hash-identical to that source's build | SOURCE-CONFIRMED + LIVE-READ |
+| Channels, ambient (3 s each, no transmitter, deleted at once) | channel 1: steady rms 355 and 312 (-39.3 / -40.4 dBFS), peaks to -26 dBFS: room sound. Channel 0: rms 71 (-53.3 dBFS), peaks -36 dBFS, slower DC settling: a different input. On-board mic = channel 1; channel 0 = empty headset input STRONGLY INFERRED | LIVE-READ |
+| State left by the owner's session | no `pos-wave`, no zombie, no child of the shell, no recovery record, route on, no `/dev/snd` holder, both PCMs closed, mixer identical to before the deploy, services 0 restarts | LIVE-READ |
+| Helper lifecycle (same binary, same arguments as the app, from SSH) | `ready` then `listening` 0.44 s after start; route off and recovery record written while open, capture PCM RUNNING at 48 kHz S16_LE 2 ch, period 960, buffer 24000; SIGTERM (the app's stop) -> `stopped`, exit 0 in 0.03 s; route restored, record removed, device closed | LIVE-READ |
+| CPU while listening | `pos-wave` 0.6 % of the single core over 15 s; system 4.3 % busy with the shell running; load 0.16; RSS 3.7 MB | LIVE-READ |
+| Capture-only override against playback | `pos-wave send` with `POCKETOS_AUDIO_ALLOW_UNVERIFIED=capture`: `error audio_disabled k230-t-display speaker playback is not validated on hardware`, exit 3 in 0.05 s. Fenced twice more, so a broken gate could not have sounded: the audio lock was held by a listen, and the PCM name pointed at a card that does not exist. gpiochip1 line 2 unused and IO34 low before and after, playback PCM closed | LIVE-READ |
+| SIGKILL during RECEIVE, `pos-wave recover` | killed (rc 137) while listening: route left off, record present, device closed by the kernel. `pos-wave recover`: `recovered`, "restored after an owner that did not close: route 1", exit 0; route on, record gone | LIVE-READ |
+| SIGKILL during RECEIVE, next open | killed while listening; the next `listen` printed `recovered` before `ready`, ran 2 s and exited 0; route on, record gone | LIVE-READ |
+| Start-up transient | found here, item 12 of §14 | LIVE-READ |
+| Mixer at the end | identical to before the deploy (21 lines); IO34/IO35 and lines 2-3 unchanged | LIVE-READ |
+| Cleanup | no WAV under `/tmp`, `/root`, `/run`, `/var/lib/pocketos`; event files and scripts removed | LIVE-READ |
+| Shell restored | restarted without the override (umask 022): no process carries it, four services 0 restarts, both paths still gated | LIVE-READ |
+
+Not covered: the Wave session's own detached `pos-wave recover` after a
+helper killed under the running shell (host-tested with the real helper,
+`wave_session_test`), CPU during a decode, and a SIGKILL of the shell and its
+helper together (the known gap).
