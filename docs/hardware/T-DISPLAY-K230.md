@@ -67,7 +67,7 @@ DOCUMENTED (vendor schematic/source/docs), ASSUMED (inference).
 | --- | --- | --- |
 | Camera | GC2093 on MIPI CSI, I2C addr 0x37, SDA GPIO49, SCL GPIO48; vvcam driver, V4L2 | DOCUMENTED |
 | Audio | K230 internal INNO codec (MMIO, ALSA card `K230I2SINNO`, `hw:0,0`), I2S, 3.5 mm headphone jack with mic bias, analog onboard mic on the right ADC channel and headset mic on the left; no speaker or amplifier on the main board itself (the product can still have a built-in speaker: next row); MAX98357A external I2S amp on the nRF52840 base board (data GPIO35, BCLK GPIO32, LRCK GPIO33, SD GPIO34). The booted default routes I2S to the header pads, and GPIO35 is also `IO35_DISEN` (display power) on the schematic: see AUDIO_FEASIBILITY_2026-09-12.md before any playback | DOCUMENTED, VERIFIED (card and PCM names on unit A) |
-| Built-in speaker | Present in a second unit, unit B (owner's photographs, 2026-09-13): a TR-WS-2014B (owner's reading; 7.2 Ω, 1 W) on a lead with a white 2-pin plug. The separate base board inside (`K230_nRF52840_Board` VER 0.3) carries two 2-pin receptacles and a 16-terminal IC marked `AKK`: a MAX98357A. Which receptacle takes the speaker is not shown. Path: I2S on GPIO32/33/35 through the header to the MAX98357A (enable GPIO34), bridge-tied output to the speaker; not the codec, and neither speaker wire is ground. Whether unit A has the base board is not established. Playback stays gated on R54: see AUDIO_HARDWARE_MAP_2026-09-13.md | PHYSICALLY CONFIRMED (second unit); amplifier CONFIRMED WITH HIGH CONFIDENCE (physical + vendor) |
+| Built-in speaker | Present in a second unit, unit B (owner's photographs, 2026-09-13): a TR-WS-2014B (owner's reading; 7.2 Ω, 1 W) on a lead with a white 2-pin plug. The separate base board inside (`K230_nRF52840_Board` VER 0.3) carries two 2-pin receptacles and a 16-terminal IC marked `AKK`: a MAX98357A. Which receptacle takes the speaker is not shown. Path: I2S on GPIO32/33/35 through the header to the MAX98357A (enable GPIO34), bridge-tied output to the speaker; not the codec, and neither speaker wire is ground. Unit A is the same hardware configuration (owner). The microphone path is enabled; speaker playback stays gated until its controlled first SEND: see AUDIO_HARDWARE_MAP_2026-09-13.md | PHYSICALLY CONFIRMED (unit B, identical to unit A per owner); amplifier CONFIRMED WITH HIGH CONFIDENCE (physical + vendor) |
 | Sensors on main board | None documented. AHT20, BQ25896, BQ27220, TCA8418, XL9555 live on the optional base boards on I2C4 (SDA GPIO47, SCL GPIO46; the same controller as the camera's GPIO48/49 pins, Linux `i2c-0`). On unit A nothing answers at 0x38 on `i2c-0` and the power_supply class is empty. That scan does not settle whether a base board is fitted: the vendor bit-bangs GPIO46/47 rather than using that controller (KEYBOARD_BRINGUP_2026-09-10.md) | DOCUMENTED; VERIFIED (no answer on `i2c-0`) |
 | GPIO 40-pin header | See vendor HARDWARE_PINMAP.md; GPIO numbering 0..63, gpiochip0 = GPIO0..31, gpiochip1 = GPIO32..63 (vendor HAL `pin_chip`/`pin_offset`) | DOCUMENTED |
 
@@ -122,7 +122,8 @@ Which base boards, if any, we own is not recorded. A second unit, opened on
 2026-09-13 (unit B), carries the nRF52840 base: silkscreen
 `K230_nRF52840_Board`, `VER:0.3`, `20260407`, with the MAX98357A and the
 built-in speaker (AUDIO_HARDWARE_MAP_2026-09-13.md §0-§4). Unit A has a
-keyboard base attached; whether it also has the nRF52840 base is not known.
+keyboard base attached as well, and is the same hardware configuration as unit
+B (owner, 2026-09-13).
 
 ## Open verification items (do on physical hardware first)
 

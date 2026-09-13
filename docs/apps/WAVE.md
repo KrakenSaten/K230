@@ -7,9 +7,11 @@ end-to-end exercise of audio playback and capture.
 
 **Status:** host-complete on branch `feature/audio-ggwave` (2026-09-13).
 Built for riscv64 (make tree and DRM shell, 0 warnings). **RECEIVE validated
-on unit A** on 2026-09-13 (build `da3c5e5`, docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md
-§15). **SEND not run**: blocked on the hardware gate (§9 there). Both K230
-audio paths are still gated in code. Working name; no branding decided.
+and enabled on unit A** on 2026-09-13 (build `c688309`,
+docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md §15): the microphone path is
+open in code, no override needed. **SEND not run**: the speaker path stays
+gated until its controlled first playback, which is ready for the owner's
+approval (§9, §12 there). Working name; no branding decided.
 
 ## What it is
 
@@ -200,10 +202,19 @@ read or write moves at most one 20 ms period and waits at most 200 ms; one
 period of scratch, allocated at open; every played sample clamped to a
 **-12 dBFS ceiling**; on close, amplifier off first, then the PCM, then the
 route restored, then the lock, on every path including a failed open; a
-**hardware gate** refusing a board path not yet validated. The K230 board
-entry (card by id, stereo wire, mic on the right slot, `External I2S Output
-Switch` on for the speaker and off for the mic, amplifier on gpiochip1 line 2
-active high) is DOCUMENTED from vendor sources and gated.
+**hardware gate** refusing a board path not yet validated; and a **capture
+startup discard** for boards that declare one. The K230 board entry (card by
+id, stereo wire, mic on the right slot, `External I2S Output Switch` on for
+the speaker and off for the mic, amplifier on gpiochip1 line 2 active high)
+has its microphone path validated on unit A and its speaker path gated.
+
+**K230 codec/capture startup transient.** Every K230 capture starts with both
+slots at negative full scale for 140-210 ms. The board entry declares 500 ms
+(`capture_settle_frames`), and `pocketaudio_read()` reads and drops that much
+after every open, inside its usual one-wait budget per call: the helper says
+`listening` at once (the microphone is on), STOP works throughout, and the
+first sample the decoder, the level meter or a recording receives comes after
+the window. It is a property of the codec, not a ggwave delay.
 
 ## Limits
 
@@ -222,13 +233,14 @@ active high) is DOCUMENTED from vendor sources and gated.
 
 | Test | What it covers | Checks |
 | --- | --- | --- |
-| `tests/pocketaudio_test.c` | board detection; the gate touching nothing; route/PCM/amplifier order on open and close; restore; busy; every open failure leaving nothing behind; clamp; period and wait bounds; xrun recovery; channel mapping; drain bound; the recovery record written before each change, a child process that dies holding a stream, recovery order, next-open reconciliation, a live owner, failed restores kept for retry, corrupt records | 113 |
+| `tests/pocketaudio_test.c` | board detection; the gate touching nothing, the validated K230 microphone opening and its speaker still refused; route/PCM/amplifier order on open and close; restore; busy; every open failure leaving nothing behind; clamp; period and wait bounds; xrun recovery; channel mapping; drain bound; the capture startup discard (exact boundary, a read crossing it, the per-call wait on a slow device, timeouts, overruns and failures inside it, close mid-discard, a fresh discard per open, bounded length); the recovery record written before each change, a child process that dies holding a stream, recovery order, next-open reconciliation, a live owner, failed restores kept for retry, corrupt records | 135 |
 | `tests/audio_recovery_test.sh` + `tests/pos-wave-testhooks` | real pos-wave processes SIGKILLed mid-send and mid-listen against file-backed hardware: the amplifier and route left behind, `recover`, the next send and listen reconciling first, no recovery over a live owner, SIGTERM needing none, a foreign record, the direction-scoped override, no hook in the shipped binary | 31 |
+| `tests/capture_settle_test.sh` + `tests/pos-wave-testhooks` | a real pos-wave fed a full-scale transient and DOORS: the transient never reaches the decoder, the level meter or a recording; the first level is the 10 ms after the window; a message inside the window is never decoded; SIGTERM, SIGKILL (and recovery) and a device failure during the discard leave the audio clean | 22 |
 | `tests/wave_modem_test.c` | the host acceptance round trip text -> PCM -> text for every profile; empty, maximum, one over, volume; 64 arbitrary bytes; UTF-8; seven chunkings; misaligned start; truncated PCM and the watchdog; noise on a message; noise alone; full-scale garbage; two messages; peak against the ceiling; heap | 52 |
-| `tests/wave_session_test.c` + `tests/fake_pos_wave.sh` | event parser; argv; text on stdin; crash; SIGTERM ignored then SIGKILL; bounded abandon; flood; garbage; missing helper; no SIGPIPE; no descriptor leak; the helper ended by PR_SET_PDEATHSIG when its parent dies; `recover` started after every signal death and never after a normal exit; the real helper SIGKILLed with the route switched and the session switching it back | 76 |
-| `tests/wave_view_test.c` | message rules; the action per phase; the microphone indicator through start and stop; every error word and exit; received formatting; misses | 91 |
-| `tests/wave_tool_test.sh` | pos-wave on files and on ALSA's null device: encode/decode, limits, unsupported and broken WAVs, stereo slot choice, event order, the K230 gate, missing device, held lock, SIGTERM, a vanished reader, bench recording | 59 |
-| `tests/wave_lint.sh` | boundaries: LVGL only in the screen, no hardware in apps/wave, ALSA only in pocketaudio, no threads or shell-outs, no sleeping in the app, text never in argv, PDEATHSIG, logging off, gates still closed, test registration | 35 |
+| `tests/wave_session_test.c` + `tests/fake_pos_wave.sh` | event parser; argv; text on stdin; crash; SIGTERM ignored then SIGKILL; bounded abandon; flood; garbage; missing helper; no SIGPIPE; no descriptor leak; the helper ended by PR_SET_PDEATHSIG when its parent dies; `recover` started after every signal death and never after a normal exit; the real helper stopped inside the capture startup discard, and SIGKILLed with the route switched and the session switching it back | 81 |
+| `tests/wave_view_test.c` | message rules; the action per phase; the microphone indicator through start and stop; every error word and exit, a refused speaker or microphone named as such; received formatting; misses | 93 |
+| `tests/wave_tool_test.sh` | pos-wave on files and on ALSA's null device: encode/decode, limits, unsupported and broken WAVs, stereo slot choice, event order, the K230 gates (speaker refused, with or without the capture override; microphone not refused), missing device, held lock, SIGTERM, a vanished reader, bench recording | 61 |
+| `tests/wave_lint.sh` | boundaries: LVGL only in the screen, no hardware in apps/wave, ALSA only in pocketaudio, no threads or shell-outs, no sleeping in the app, text never in argv, PDEATHSIG, logging off, the K230 speaker gated and microphone validated, the 500 ms discard, nothing shipped setting the override, test registration | 45 |
 | `tests/wave_app_test.c` (LVGL, host) | the screen against the fake helper: panels, typing, counter, TRANSMIT, Enter, SENDING hint, Sent, RECEIVE, MICROPHONE ON and MIC ON, received list, locked mode, stop, errors in words, missing helper, leaving the app ends a listen (and a helper that ignores SIGTERM), 64 px targets, nothing stored | 48 |
 | `tests/wave_shell_test.sh` | runs the app test; launcher and CMake wiring; the real shell opens and closes Wave with no lock taken and nothing stored | 16 |
 
@@ -244,9 +256,9 @@ RECEIVE ran on unit A on 2026-09-13 with the shell started under
 Wave decoded it. Channel 1, helper lifecycle, CPU (0.6 % while listening),
 mixer restore, the capture-only override refusing playback, and SIGKILL
 recovery were then checked over SSH
-(docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md §15). SEND has not run; it
-stays blocked on the hardware gate (§9 there). `pocketaudio.c` still keeps
-the K230 entry's `playback_verified` and `capture_verified` at 0 and
-tests/wave_lint.sh keeps them there, so without the override the app reports
-"Audio is not enabled on this device yet". Raising `capture_verified` is an
-owner decision.
+(docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md §15). With build `c688309`
+the K230 entry has `capture_verified` 1: RECEIVE works with no override, the
+startup transient is discarded, and both were checked on unit A (§15.1).
+`playback_verified` stays 0 (tests/wave_lint.sh holds it), so a SEND reports
+"The speaker is not enabled on this device yet" until the controlled first
+playback (§12 there) has passed and the owner has raised it.

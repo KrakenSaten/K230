@@ -452,9 +452,11 @@ Calculator:
 ## Audio milestone: pocketaudio, pos-wave and Wave
 
 Branch `feature/audio-ggwave` (2026-09-13, from master `a748101`). Host-tested
-and cross-built; build `da3c5e5` is deployed on unit A. **RECEIVE is validated
-on unit A** (the owner's phone sent `test`, Wave decoded it; hardware map
-§15). **Nothing has played audio on any board.** The hardware record is
+and cross-built; build `c688309` is deployed on unit A. **RECEIVE is validated
+and closed on unit A** (the owner's phone sent `test`, Wave decoded it; the
+microphone path is enabled in code and needs no override; hardware map §15).
+**Nothing has played audio on any board**; the first controlled SEND waits for
+the owner's approval (§9, §12). The hardware record is
 docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md; the app is docs/apps/WAVE.md.
 
 Decisions:
@@ -466,7 +468,10 @@ Decisions:
   §13) is approved; SEND stays blocked until the amplifier IC, the speaker
   connector and R54 are identified physically. 2026-09-13: the amplifier is
   identified on the second unit (unit B); R54 is not seen on any unit, so SEND
-  stays blocked on both. `playback_verified` stays 0 until the selected SEND
+  stays blocked on both. Later the same day the owner confirmed units A and B
+  are the same hardware; R54 was closed by evidence (hardware map §8.8) and
+  the first controlled SEND on unit A is ready for approval (§9).
+  `playback_verified` stays 0 until the selected SEND
   unit itself has its base board and speaker, its amplifier and R54 confirmed
   (owner; hardware map §9).
 
@@ -484,31 +489,32 @@ Audio hardware:
   2-pin receptacles sit beside the IC and the speaker plug is not seated in
   any image, so which one is the speaker's is unknown; the designator and
   `2618` are unknown too.
-- **R54 is still inferred, not seen.** Speaker playback toggles IO35
-  (`IO35_DISEN`). On unit A the rail is up with IO35 low, and IO35 high can
-  only turn the switch further on, so no IO35 pattern can cut the rail if the
-  board matches the schematic's polarity (hardware map §8.3). That premise is
-  what a photograph of R54 beside Q2/Q3 on the main board settles (§8.7).
-- **Unit A's base board is unconfirmed.** The photographs are of the second
-  unit (unit B). Unit A has a keyboard base attached, which the vendor
-  documents without an amplifier; whether it also carries the nRF52840 base
-  board and a speaker was never looked for (the 2026-09-07 "no base board"
-  reading scanned the wrong I2C bus). R54 is not visible in any photograph of
-  unit B either. The hardware map §0 keeps the two units' evidence apart; §9
-  recommends unit B for the first SEND once the gate is closed on unit B
-  itself.
-- **The amplifier's gain strap and supply are unknown.** The speaker is rated
-  1 W and the amplifier can deliver more, so the level is limited digitally:
-  pocketaudio clamps every sample to -12 dBFS, and the first test uses about
-  -26 dBFS.
+- ~~R54 is still inferred, not seen.~~ **Closed by evidence, not by sight**
+  (hardware map §8.8): IO35 high can only turn the display switch further
+  on, unit A's rail is up with IO35 low, and the V1.0 polarity holds for this
+  hardware (V1.0 marking on the identical unit B). The first SEND watches the
+  panel; a photograph (§8.7) remains optional.
+- ~~Unit A's base board is unconfirmed.~~ Units A and B are the same hardware
+  configuration (owner, 2026-09-13); unit B's inspection stands for unit A,
+  which stays unopened.
+- **Unit B's speaker socket is not identified.** Two identical 2-pin
+  receptacles sit beside the MAX98357A and its plug was out in the photos;
+  the other one may be a fan or power output. Before unit B is powered with
+  its speaker connected: continuity from the receptacle to the IC's OUTP
+  (pin 9) and OUTN (pin 10), and the base board reseated (hardware map §9.1).
+  Not a blocker for unit A.
+- **The amplifier's gain strap and supply are unknown**, and no longer a risk
+  to the 1 W speaker: by the datasheet's gain law the -12 dBFS ceiling is at
+  most 0.44 W at the highest strap, and the first SEND (-26 dBFS) at most
+  17 mW (hardware map §11).
 - ~~The microphone slot is inferred.~~ Channel 1 (right) is the on-board
   microphone on unit A (hardware map §15).
-- **Every capture opens with a start-up transient**: about 140-210 ms at
-  negative full scale, settled within about a second (hardware map §14 item
-  12). `record` reports peak 32768 and `listen` a first level of 100 in a
-  quiet room, and a transmission started in the first second of listening
-  may be missed. Candidate fix: discard the first 500 ms after open. Not
-  changed yet.
+- ~~Every capture opens with a start-up transient.~~ **Fixed in `c688309`**:
+  the K230 codec/capture startup transient (140-210 ms at negative full
+  scale) is read and discarded for 500 ms inside pocketaudio's normal
+  per-call wait, so no decoder, level meter or recording sees it; STOP still
+  works during it (hardware map §15.1). A residual DC offset around -29 dBFS
+  decays over the next ~600 ms, below ggwave's band.
 - **The on-board mic's gain is fixed at 30 dB** and not adjustable through
   ALSA (`Mic Capture Volume` writes only the left channel); the codec's ALC
   behaviour is unknown. A loud room may clip.
@@ -527,10 +533,11 @@ Audio hardware:
 
 Wave and ggwave:
 
-- **Both K230 audio paths are gated in code** (`playback_verified` and
-  `capture_verified` 0 in pocketaudio.c, held there by tests/wave_lint.sh). On
-  the device the app says "Audio is not enabled on this device yet" until the
-  gates are flipped after the hardware tests.
+- **The K230 speaker path is gated in code** (`playback_verified` 0 in
+  pocketaudio.c, held by tests/wave_lint.sh); the microphone path is enabled
+  (`capture_verified` 1 since `c688309`). On the device a SEND says "The
+  speaker is not enabled on this device yet" until the controlled first
+  playback passes.
 - **ggwave's decode spike on the C908 is unmeasured.** Steady listening costs
   0.6 % of unit A's single core (hardware map §15), and the owner's receive
   decoded without loss, but nothing sampled the CPU at the end of a message.

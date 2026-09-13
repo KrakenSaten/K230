@@ -20,7 +20,7 @@
  *     inventing an alert the owner may never hear.
  *   - MAX98357A amplifier:  NOT ON THE MAIN BOARD. DOCUMENTED. It is on the
  *     nRF52840 base board. Corrected 2026-09-13: a second unit has that
- *     board and a built-in speaker; whether unit A has it is not established
+ *     board and a built-in speaker, and unit A is the same hardware
  *     (docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md). This backend still
  *     claims no sound.
  *   - Whether the audio path works at all: UNRESOLVED. It has not been

@@ -19,6 +19,13 @@ package to PHYSICALLY CONFIRMED, show that the speaker plug is not seated in
 any image, and show nothing of R54 on either unit. The evidence is now
 separated by unit (§0). The amplifier and R54 conclusions do not change.
 
+**Revision 4 (same day):** the owner confirms that unit A and unit B are the
+same hardware configuration, so unit B's inspection stands for unit A (§0).
+RECEIVE is closed: the K230 capture startup transient is discarded and the
+microphone path enabled in code (build `c688309`, §15). The SEND gate is
+re-evaluated: R54 closed by evidence (§8.8), the first controlled SEND on unit
+A ready for the owner's approval (§9, §12).
+
 **No sound was played, no microphone was opened, and no mixer control, GPIO
 line or pad was written, on any board, for this record.** Unit A was not
 contacted for any revision (§10).
@@ -48,8 +55,16 @@ tree, `L` = `vendor/T-Display-K230/k230_launcher/k230_phone_ui/src/`,
 
 ## 0. Unit by unit
 
-Nothing is carried from one unit to the other. The V1.0 schematic, the vendor
-sources and the PocketOS code describe the design; they are not evidence of
+**Owner premise (revision 4): unit A and unit B are the same hardware
+configuration** - the `K230_nRF52840_Board` VER 0.3, the MAX98357A, the
+TR-WS-2014B speaker and its connector, and the main-board revision. It is a
+project fact stated by the owner, not re-proved here, and unit A is not to be
+opened to confirm it. Unit A is the deployed software unit with the live
+evidence; unit B is the inspection reference. The tables below keep saying
+where each piece of evidence was gathered.
+
+Before revision 4 nothing was carried from one unit to the other; the V1.0
+schematic, the vendor sources and the PocketOS code describe the design, not
 which parts either unit carries.
 
 ### Unit A - the deployed PocketOS test unit (live reads, no photographs)
@@ -57,11 +72,11 @@ which parts either unit carries.
 | Item | State | Label |
 | --- | --- | --- |
 | Live register evidence | 2026-09-13 morning, read-only: IO35 pad `0x00001191` (I2S data out, level 0) with the panel on; IO34 pad `0x000001b0` (GPIO, pull-down, level 0); gpiochip1 lines 2 and 3 without consumer; IO32/IO33 in I2S function; IO21/IO22 read 1 as the level-bit control (feasibility §6) | LIVE-READ |
-| Deployed software | Since 2026-09-13 11:38 UTC: userspace `da3c5e5` (audio branch) over the v0.0.9 card, with `pos-wave` and Wave; rollback tar of `3d4a6e7` in `/root/rollback-3d4a6e7/` (§15) | LIVE-READ |
+| Deployed software | Userspace `c688309` (audio branch, microphone enabled, startup discard) over the v0.0.9 card, with `pos-wave` and Wave; rollback tars of `3d4a6e7` and `da3c5e5` in `/root/rollback-*/` (§15) | LIVE-READ |
 | Audio enumeration | Card 0 `K230I2SINNO`, `hw:0,0` with one playback and one capture substream, both closed; `canaan,external-i2s-output-default` in the DT, confirmed by dmesg; `External I2S Output Switch` on, `PCM Playback Volume` 24/45, `Mic Capture Volume` 30/30. Re-read before the deploy, identical to the morning (§15) | LIVE-READ |
-| RECEIVE | **Validated** on 2026-09-13: the owner's phone sent `test`, Wave decoded it; slot, lifecycle, CPU, mixer restore and SIGKILL recovery checked over SSH (§15) | LIVE-READ, owner |
+| RECEIVE | **Validated and closed** on 2026-09-13: the owner's phone sent `test`, Wave decoded it; slot, lifecycle, CPU, mixer restore and SIGKILL recovery checked over SSH; with `c688309` the microphone opens without any override and the startup transient is gone (§15) | LIVE-READ, owner |
 | R54 | Not seen. Fitted is STRONGLY INFERRED by the §8.3 chain, whose residual premise is that unit A's main board matches V1.0 | STRONGLY INFERRED |
-| Base board / speaker | A keyboard base is attached and answers (TCA8418 at 0x34, XL9555 at 0x20, on the bit-banged GPIO46/47 bus; KEYBOARD_BRINGUP_2026-09-10.md §3); the vendor documents that board as the nRF9151 cellular/GNSS/keyboard base, which carries no amplifier. An nRF52840 base board was only ASSUMED on 2026-09-07 from a port diagram; no probe of its AHT20 on the bit-banged bus is recorded; the unit has not been opened. No amplifier or speaker has been observed | keyboard base LIVE-READ; nRF52840 board, amplifier and speaker UNKNOWN |
+| Base board / speaker | **Same as unit B (owner, revision 4)**: `K230_nRF52840_Board` VER 0.3, MAX98357A, TR-WS-2014B. Never opened, so the speaker is as the factory plugged it. A keyboard base is also attached and answers (TCA8418 at 0x34, XL9555 at 0x20; KEYBOARD_BRINGUP_2026-09-10.md §3) | owner premise + unit B PHYSICALLY CONFIRMED; keyboard base LIVE-READ |
 
 ### Unit B - the opened, photographed unit (photographs, no live reads)
 
@@ -78,7 +93,11 @@ which parts either unit carries.
 | R54 | The main board's display-power area is covered by the base board in every image | UNKNOWN |
 | Live evidence, software | None recorded: no PocketOS build deployed or read on this unit | UNKNOWN |
 
-### The five questions
+### The five questions (revision 3; items 1, 4 and 5 superseded by the owner premise)
+
+Revision 4: with A and B the same hardware, unit A needs no opening; SEND runs
+on unit A, and what remains for unit B is only its speaker socket and seating
+before it is next powered (§9).
 
 1. **Confirmed on both units:** no hardware fact. The owner describes them as
    the same product, which is not verified part by part. What applies to both
@@ -326,7 +345,8 @@ only, its live reads on unit A only (§0).
 | Question | Answer | Label |
 | --- | --- | --- |
 | Which receptacle | Two identical white 2-pin receptacles sit beside the IC (unit B). The plug is not seated in any image. Two identical parts between the IC and the upper receptacle would fit an output filter to it; that is appearance, not a traced net | receptacles PHYSICALLY CONFIRMED; which one UNKNOWN |
-| The other receptacle | Purpose not documented and not visible | UNKNOWN |
+| The other receptacle | Purpose not documented and not visible. The vendor drives a fan (GPIO42 PWM) and the case back carries one, so it may be a fan or power output (§9.1) | UNKNOWN |
+| TQFN pins | OUTP 9, OUTN 10, VDD 7/8, GND 3/11/15, SD_MODE 4, DIN 1, GAIN_SLOT 2, LRCLK 14, BCLK 16, N.C. 5/6/12/13, exposed pad not internally connected; pin 1 at the `+` | VENDOR-DOCUMENTED (datasheet copy) |
 | Connector designator | Not legible in the images; no document names it | UNKNOWN |
 | Connector pinout | Two pins, OUTP and OUTN in some order | order UNKNOWN; OUTP/OUTN STRONGLY INFERRED |
 | Wire colours | Red and black | PHYSICALLY CONFIRMED; no polarity meaning |
@@ -338,8 +358,8 @@ only, its live reads on unit A only (§0).
 | Channel mode | SD_MODE above 1.4 V selects left; a resistor to SD_MODE can select right or (L+R)/2. Irrelevant here: pocketaudio writes the same mono sample to both slots | part VENDOR-DOCUMENTED; L = R SOURCE-CONFIRMED |
 | IO34 at rest on unit A | GPIO function, pad pull-down, level 0, no consumer | LIVE-READ |
 | Is the amplifier powered continuously | Its supply: UNKNOWN. Its enable: low at rest (above), so with the vendor's wiring it is in shutdown whenever no playback holds line 2 | supply UNKNOWN; shutdown at rest STRONGLY INFERRED |
-| Output power into 7.2 Ω | Ideal BTL sine limit VDD²/2R: 1.74 W at 5.0 V, 0.95 W at 3.7 V, 0.76 W at 3.3 V (losses ignored). Part rating about 1.8 W into 8 Ω at 5 V (secondary copy) | arithmetic; rail UNKNOWN |
-| Against the speaker | On a 5 V rail the amplifier can exceed the speaker's 1 W rating. The level must stay digitally limited (§11) | STRONGLY INFERRED |
+| Output power into 7.2 Ω | Ideal BTL sine limit VDD²/2R: 1.74 W at 5.0 V, 0.95 W at 3.7 V, 0.76 W at 3.3 V (losses ignored). Datasheet: 1.8 W into 8 Ω at 5 V and 0.93 W at 3.7 V, 10 % THD+N | arithmetic; datasheet VENDOR-DOCUMENTED; rail UNKNOWN |
+| Against the speaker | The amplifier could exceed the speaker's 1 W rating, but not from PocketOS: the -12 dBFS ceiling is at most 0.44 W at the highest strap (§11) | VENDOR-DOCUMENTED (gain law) + arithmetic |
 | Board filtering (ferrite beads, capacitors at the connector) | Passives are visible beside the IC (unit B); their values and nets are not | UNKNOWN |
 | Protection | The part documents thermal and output short-circuit protection and click/pop suppression; nothing is known about board-level protection | part VENDOR-DOCUMENTED; board UNKNOWN |
 | What `2618` is | - | UNKNOWN |
@@ -535,32 +555,98 @@ C224's non-ground terminal. With R54 fitted as 0 Ω: under 1 Ω. Without it:
 clearly more (loads and Q2's body diode). A short proves a bypass path but not
 which part it is; the photograph does.
 
+### 8.8 Revision 4: the R54 decision
+
+Inputs added since §8.3: **the owner confirms unit A and unit B are the same
+hardware configuration** (§0), so unit B's main-board marking `…230 V1.0`
+(with the V1.0 LT9611 visible) describes unit A's main board; and unit A's
+IO35 read was repeated at 11:36, 11:38, 11:48, 11:52, 12:27 and 12:29 UTC,
+across two deploys and three shell restarts (last on build `c688309`), always
+low with the panel running.
+
+1. **Is the evidence sufficient to conclude that SEND cannot cut display
+   power? Yes, with high confidence.** The conclusion does not need R54 in
+   particular (§8.3): on the V1.0 topology IO35 high can only turn Q2 on,
+   and unit A shows the rail up with IO35 low, so whatever holds the rail up
+   stays in place whatever the I2S data does. The two premises are now
+   covered: the polarity by the V1.0 schematic plus the V1.0 marking on this
+   hardware configuration; the IO35 level by the pad reads and their controls
+   (IO21/IO22, IO46/IO47, IO4 read 1). The vendor's own design points the
+   same way: this configuration boots with IO35 as I2S data for the
+   MAX98357A (BSP 0059, launcher default "External speaker"), which only
+   works if the display does not hang on IO35 - exactly what the `NC/0R`
+   bypass is for.
+2. **If R54 were absent:** with the V1.0 polarity and nothing else bypassing
+   Q2, the display supply would be off whenever IO35 is low - the panel could
+   never have run under this firmware, which it has for hours - and during a
+   playback the supply would chop with the data (brown-out, flicker, resets,
+   Q2 half-on). If something else bypasses Q2 (a bridge, a shorted part),
+   playback is exactly as safe as with R54. So "R54 absent and SEND cuts the
+   display" requires unit A's observation to be false.
+3. **Is a visual confirmation of R54 materially necessary for a low-volume
+   controlled first SEND? No.** The residual risk - a main board that
+   departs from its own V1.0 revision in the polarity of this switch - has no
+   evidence for it, and its worst outcome in a 1.4 s playback watched by the
+   owner is a display blink or reset, with the panel's supply restored as
+   soon as IO35 idles.
+4. (Not applicable: no exact unresolved risk remains that a photograph would
+   remove at proportionate cost.)
+5. **The R54 blocker is CLOSED**, by schematic, revision, live electrical and
+   vendor-design evidence, not by sight. The first SEND keeps "the panel stays
+   steady" as its confirming observation and abort criterion (§12). §8.7
+   stays as the procedure should anyone want the visual check later.
+
 ## 9. SEND gate decision
 
-The owner's rule (revision 3): `playback_verified` stays 0 until **the
-selected SEND unit itself** has its speaker and base board confirmed, its
-amplifier confirmed, and R54/display-power safety closed.
+**Revision 4.** Unit A and unit B are the same hardware (owner). Unit A is
+the SEND unit: it carries the software, its live evidence, and its factory
+assembly - no record has it opened, so its speaker should still be plugged
+where the factory put it (the owner confirms this before the SEND, §12).
+Unit B is the inspection reference.
 
-| Condition, per unit | Unit A | Unit B |
+| Blocker | State | Decision |
 | --- | --- | --- |
-| Base board and speaker confirmed | **No**: not opened; only a keyboard base is known to be attached | **Yes** for the base board and the speaker body; **no** for the plug seated in the amplifier's output receptacle |
-| Amplifier confirmed | **No** | **Yes**: MAX98357A, CONFIRMED WITH HIGH CONFIDENCE (§4) |
-| R54 / display-power safety closed | **No**: STRONGLY INFERRED fitted (§8.3), not seen | **No**: UNKNOWN, not photographed, no live reads |
-| Software able to run the test | **No**: no pos-wave deployed | **No**: nothing recorded as deployed |
+| Hardware identity: base board, amplifier, speaker, connector on unit A | Same configuration as unit B, photographed (§0-§4) | **Closed** (owner premise + unit B evidence) |
+| A. R54 / display-power safety | §8.8 | **Closed** by evidence; the panel is watched during the first SEND |
+| B. Which socket carries the BTL output | Not identifiable from the evidence (§9.1) | **Not a blocker for unit A** (factory-seated, unopened). **Blocks powering unit B** with its speaker plugged in, until identified |
+| C. Base board seating | Unit A untouched since the factory | **Not a blocker for unit A**. Unit B: reseat before it is next powered |
+| D. Playback level | pocketaudio clamps at -12 dBFS; the first SEND uses -26 dBFS (§11) | **Kept conservative**; `playback_verified` stays 0 until the first controlled SEND passes |
 
-Also open on both: the gain strap and supply rail (§6), so the first level
-stays digitally limited (§11).
+**Decision: the first controlled SEND on unit A is READY, waiting only for
+the owner's explicit approval** and the §12 preconditions (the owner present
+and confirming that unit A has never been opened or had its speaker
+unplugged). Nothing was played. `playback_verified = 0`.
 
-**Decision: SEND stays BLOCKED on both units.** `playback_verified = 0`
-unchanged; nothing was played; `--allow-unverified` and
-`POCKETOS_AUDIO_ALLOW_UNVERIFIED=playback` are not to be used for a real
-send. **Recommended first SEND unit: unit B**, once §0 question 5's list is
-done on it. That list is one photograph session plus one deploy away, where
-unit A needs its first inspection as well. Unit A remains the RECEIVE unit.
+### 9.1 The speaker socket (unit B)
+
+Two identical white 2-pin receptacles sit beside the MAX98357A. **Which one
+carries OUTP/OUTN is not identified, and is not guessed.** By the owner's
+order of preference:
+
+- **PCB routing or source:** none exists for the base board (§3.2), and the
+  black solder mask hides the traces in the macro. The two identical
+  two-terminal parts between the IC and the upper receptacle look like an
+  output filter, which is appearance, not routing.
+- **Physical trace evidence:** none resolvable in the images.
+- **Known original seating:** the plug is not seated in any image.
+- **Powered-off continuity (battery out, not powered):** the datasheet (a copy
+  of Maxim's, retrieved 2026-09-13) gives the TQFN pins: **OUTP pin 9, OUTN
+  pin 10**, GND 3/11/15, VDD 7/8, SD_MODE 4, DIN 1, GAIN_SLOT 2, LRCLK 14,
+  BCLK 16, N.C. 5/6/12/13, and an exposed pad that is not internally
+  connected; its top view marks pin 1 with the `+`.
+  The speaker receptacle is the one whose two contacts have continuity to
+  pins 9 and 10 (through the series parts, near 0 Ω). A quick exclusion
+  first: a receptacle with a contact at 0 Ω to ground is not the amplifier
+  output (OUTP and OUTN are never grounded).
+
+Context, not evidence: the vendor launcher drives a fan (GPIO42, PWM,
+`ui_hardware.c:69,275`) and the case back carries one (vendor image
+`bottom.png`), so the other receptacle may be a fan or power output. A
+speaker plugged into a DC or PWM output would be damaged; that is why this
+check comes before unit B is powered with its speaker connected.
 
 **RECEIVE is unaffected** by all of this: a capture puts no data on IO35 and
-leaves IO34 low. It proceeds as approved (§13), waiting only for unit A's
-address.
+leaves IO34 low.
 
 ## 10. Read-only live enumeration
 
@@ -602,67 +688,77 @@ deployed there; unit A's results say nothing about unit B.
   both directions; the vendor's speaker test uses exactly this format;
   ggwave's 1024-sample frames give 46.875 Hz per bin at 48 kHz, so Wave talks
   to other ggwave programs; nothing needs resampling.
-- **Hard ceiling in pocketaudio: -12 dBFS** (peak 8192), 1/16 of the power
-  full scale would command. Every played sample is clamped; only a code
-  change raises it. Whether that ceiling alone keeps a 1 W speaker safe
-  depends on the gain strap and rail, both UNKNOWN (§6), so it is not relied
-  on alone.
+- **Hard ceiling in pocketaudio: -12 dBFS** (peak 8192). Every played sample
+  is clamped; only a code change raises it.
+- **What a level means at the speaker** (datasheet copy, revision 4): output
+  in dBV = input in dBFS + 2.1 dB + the GAIN_SLOT gain (3 to 15 dB), unless
+  the supply limits the swing. At the **highest** strap, 15 dB, into 7.2 Ω,
+  treating the peak as a full sine (the multi-tone ggwave signal carries
+  less): the -12 dBFS ceiling gives 1.79 V rms, **0.44 W**, under the
+  speaker's 1 W rating; at 12 dB 0.22 W, at 9 dB (strap open) 0.11 W. So the
+  ceiling alone keeps the TR-WS-2014B inside its rating whatever the strap
+  and rail. VENDOR-DOCUMENTED (part) + arithmetic.
 - **ggwave level**: peak is about volume/100 of full scale (host measurement,
   tests/wave_modem_test.c): volume 10 -> 3192 (-20.2 dBFS), 25 -> 7980
   (-12.3 dBFS). pos-wave accepts 1 to 25; Wave uses 10.
-- **First playback level: `--volume 5`**, peak about 1600 (-26 dBFS), 1/400
-  of full-scale power. Even if full scale commanded 10 W - several times what
-  the part can deliver from 5 V - that is 25 mW, against a 1 W speaker.
-  STRONGLY INFERRED safe for the speaker whatever the strap.
+- **First playback level: `--volume 5`**, peak about 1596 (-26.2 dBFS): at
+  most 0.35 V rms, **17 mW**, at the 15 dB strap; 4 mW at 9 dB.
 
-## 12. Proposed first real SEND test (blocked: needs §9 closed and owner approval)
+## 12. Proposed first controlled SEND (unit A; ready, needs the owner's explicit approval)
 
-**Preconditions, board powered off, all on the unit that will run it:** §8.7
-shows R54 fitted; the base board, amplifier and speaker are seen; the speaker
-plug is seen seated in the receptacle wired to the amplifier's outputs; the
-base board is fully seated on the header, the same way round; no loose fibres
-or debris on the boards; nothing in the 3.5 mm jack; the owner present, the
-board on the desk, nobody's ear near the speaker. Then, powered: a build
-containing pos-wave, the §10 reads on this unit, and `pos-wave info` printing
-`board k230-t-display` with both paths `not validated (gated)`.
+**Unit:** A, build `c688309`, unopened. **Preconditions:** the owner present
+at the desk, confirming unit A has never been opened and its speaker never
+unplugged; nothing in the 3.5 mm jack (a speaker-route playback still enables
+the codec's headphone driver); nobody's ear near the unit; the owner watching
+the panel. Powered and verified just before: `pos-wave info` prints `board
+k230-t-display`, `playback not validated (gated)`, `capture validated`; no
+`pos-wave` running; no recovery record.
 
-`--allow-unverified` appears in step 2 only for this one approved test, once
-§9 is closed; until then the owner's rule stands and it is not used for a
-real send.
+`--allow-unverified` appears in step 2 only, for this one approved command.
+`playback_verified` stays 0 in the code until this test has passed.
 
-**Signal:** ggwave AUDIBLE_FAST, payload `DOORS` (5 bytes), 56 frames of
-tones between **1875 and 6328 Hz**, 1.194 s, plus 100 ms of silence before
-and 150 ms after: **1.444 s** in all.
+| Item | Value |
+| --- | --- |
+| Protocol / profile | ggwave `audible_fast` (Wave's default), variable length, payload `DOORS` (5 bytes) |
+| Sample rate / format | 48 000 Hz, S16_LE, mono duplicated into both I2S slots |
+| Duration | 56 frames of tones = 1.194 s, plus 100 ms of silence before and 150 ms after: **1.444 s** |
+| Frequency range | **1875 - 6328 Hz** (ggwave audible protocols) |
+| Digital level | `--volume 5`: peak about 1596 (-26.2 dBFS), clamped anyway at -12 dBFS; at most 17 mW into the speaker at the highest gain strap (§11) |
+| Amplifier enable sequence | audio lock; reconcile any record; route read (`External I2S Output Switch` already on: not written); PCM opened and prepared; recovery record written; gpiochip1 line 2 requested as an output **already high** (IO34 high, amplifier on); 100 ms silence; tones; 150 ms silence; drain (bounded 1 s) |
+| Cleanup sequence | line 2 driven low (amplifier shutdown), released; PCM closed; route left as found; record removed; lock released. Ctrl-C stops within one 200 ms wait and runs the same; a SIGKILL is undone by the next open or `pos-wave recover` |
+| Mixer before / after | identical; `External I2S Output Switch` = on throughout; the codec volumes do not apply to this route |
+| IO34 before / after | pad `0x000001B0` (GPIO, pull-down, level 0), line 2 without consumer; during: consumer `pocketaudio-amp`, output high; after: level 0, no consumer |
+| IO35 | I2S data during the 1.4 s; idle low before and after, panel powered throughout |
 
 ```sh
 # 0. state before (reads)
 amixer -c 0 contents > /tmp/audio-before.txt
-gpioinfo -c gpiochip1 2 3
+gpioinfo -c gpiochip1 2 3; devmem 0x91105088 32; devmem 0x9110508c 32
+pos-wave info | grep -E '^(playback|capture) '
 # 1. the waveform, checked with no audio device involved
 pos-wave encode --volume 5 --text DOORS /tmp/doors.wav   # expect duration_ms 1194, peak ~1596
-pos-wave decode /tmp/doors.wav                           # expect "text DOORS"
-# 2. the one playback (owner watching the panel)
+pos-wave decode /tmp/doors.wav                           # expect "text DOORS"; then rm /tmp/doors.wav
+# 2. the one playback (owner watching the panel and listening)
 pos-wave send --allow-unverified --volume 5 --protocol audible_fast --events --text DOORS
 #    expect: ready k230-t-display / sending 1444 / sent ; exit 0
 # 3. state after (reads)
 amixer -c 0 contents > /tmp/audio-after.txt; diff /tmp/audio-before.txt /tmp/audio-after.txt
-gpioinfo -c gpiochip1 2
-devmem 0x91105088 32                                     # IO34 pad: level bit 31 expected 0
+gpioinfo -c gpiochip1 2; devmem 0x91105088 32; devmem 0x9110508c 32
 ls /run/pocketos/audio.recovery 2>/dev/null              # expected: absent
 ```
 
-pocketaudio in step 2: takes the audio lock; reconciles any recovery record;
-reads the route (on at boot, not written); opens and prepares the PCM; writes
-the recovery record; requests gpiochip1 line 2 as an output **already high**;
-plays; drains; drives line 2 low and releases it; closes the PCM; removes the
-record; releases the lock. Ctrl-C stops within one 200 ms wait and runs the
-same cleanup; a SIGKILL is undone by the next audio open or `pos-wave
-recover`.
+**What the owner watches and listens for:** a short burst of chirping tones,
+about 1.2 s, quiet - clearly audible at arm's length, not loud; possibly a
+faint click as the amplifier switches on or off; **the panel steady**
+throughout (no blink, dimming, flicker or reset); no buzz, hiss or tone after
+the burst ends (the amplifier must be back in shutdown). Optionally, Waver on
+the phone within arm's length, listening, to decode `DOORS`.
 
-**Watch for:** the panel flickering or blanking (would contradict §8.3), a
-click at enable, anything louder than expected. **Abort:** Ctrl-C.
-**Pass:** tones heard, panel steady, exit 0, mixer unchanged, IO34 low after,
-no recovery record left.
+**Abort** (tell the operator, who stops it with Ctrl-C): any panel
+disturbance, anything louder than expected, a sound that continues. **Pass:**
+tones heard, panel steady, exit 0, mixer identical, IO34 low with no consumer
+after, no recovery record. Only after a pass does `playback_verified` become 1,
+in a separate change.
 
 ## 13. Proposed first real RECEIVE test (superseded by the owner's receive, §15)
 
@@ -703,14 +799,18 @@ decodes at least one transmission, the mixer is back as it was.
 
 ## 14. What stays open
 
-Carried into docs/KNOWN_ISSUES.md. The first three gate SEND:
+Carried into docs/KNOWN_ISSUES.md. Revision 4: nothing here blocks the first
+controlled SEND on unit A except the owner's approval (§9).
 
-1. R54 not seen on any unit (§8). STRONGLY INFERRED fitted on unit A.
-2. On unit A: whether it carries the nRF52840 base board, amplifier and
-   speaker at all (§0). On unit B: which receptacle is the speaker's, with the
-   plug seen seated there (§0, §6).
-3. The amplifier's gain strap and supply rail (§6); the first level rests on
-   digital attenuation (§11).
+1. ~~R54 not seen on any unit.~~ Closed by evidence, not by sight (§8.8); the
+   first SEND watches the panel.
+2. ~~On unit A: whether it carries the base board, amplifier and speaker.~~
+   Same hardware as unit B (owner). **Still open for unit B:** which
+   receptacle is the speaker's (§9.1), and reseating its base board, before
+   unit B is powered with its speaker plugged in.
+3. The amplifier's gain strap and supply rail (§6). No longer a risk to the
+   speaker: the -12 dBFS ceiling stays under 0.44 W at the highest strap
+   (§11).
 4. ~~Unit A's §10 reads are outstanding.~~ Done 2026-09-13 (§15).
 5. ~~The capture slot mapping is inferred.~~ Channel 1 confirmed on unit A
    (§15).
@@ -732,14 +832,14 @@ Carried into docs/KNOWN_ISSUES.md. The first three gate SEND:
 10. The codec's ALC behaviour and the fixed 30 dB on-board mic gain may clip
     in a loud room; neither is adjustable through ALSA.
 11. The small speaker's response across 1.9 - 6.3 kHz is unmeasured.
-12. **Every capture opens with a start-up transient** (§15): both channels sit
-    at negative full scale for about 140 ms (channel 1) and 210 ms (channel
-    0), then settle; the DC offset is below 1000 by about 600 ms and 900 ms.
-    It is why `record` reports peak 32768 in a quiet room and `listen` a
-    first level of 100. A transmission that starts within the first second of
-    listening may be missed. Candidate fix: discard the first 500 ms after
-    open in `listen` and `record`, or while the offset settles. Not changed
-    yet.
+12. ~~Every capture opens with a start-up transient.~~ **Fixed in
+    `c688309`** as the K230 codec/capture startup transient: both channels
+    sat at negative full scale for about 140 ms (channel 1) and 210 ms
+    (channel 0). pocketaudio now reads and discards the first 500 ms of every
+    capture inside its normal per-call wait, so nothing of it reaches the
+    decoder, the level meter or a recording (§15). What remains after 500 ms
+    is a DC offset of about -1200 (-29 dBFS) decaying over the next ~600 ms:
+    no sample near full scale, and nothing in ggwave's band (1875 Hz and up).
 
 ## 15. Unit A RECEIVE validation, 2026-09-13
 
@@ -786,3 +886,37 @@ Not covered: the Wave session's own detached `pos-wave recover` after a
 helper killed under the running shell (host-tested with the real helper,
 `wave_session_test`), CPU during a decode, and a SIGKILL of the shell and its
 helper together (the known gap).
+
+### 15.1 RECEIVE closeout: build `c688309` (revision 4)
+
+**Change:** the K230 codec/capture startup transient is discarded in
+pocketaudio (500 ms, `capture_settle_frames`), and the K230 microphone path is
+marked validated (`capture_verified = 1`); `playback_verified = 0` unchanged.
+
+**Host validation of `c688309`:** `make test` rc 0 (73 suites, 3359 ok, 0
+failures; pocketaudio_test 135, wave_view_test 93, wave_session_test 81,
+wave_tool_test, audio_recovery_test, capture_settle_test and wave_lint 0
+failures); SDL shell build 0 warnings; all 16 shell tests 0 failures (Wave's
+LVGL app test among them); riscv64 `make all` (ENABLE_SX1262=1) and the DRM
+shell 0 warnings. With the discard disabled in a throwaway copy, 11
+pocketaudio_test and 4 capture_settle_test checks fail.
+
+**Unit A (12:25-12:29 UTC):**
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Rollback tar before the deploy | `/root/rollback-da3c5e5/pocketos-userspace-da3c5e5.tar`, 14 files, sha256 `fb6b814b…3652c358`, hash-verified; host copy `~/work/rollback-unitA-da3c5e5/` | LIVE-READ |
+| Deploy | `deploy.sh` rc 0; `BUILD_ID=c688309`; 14/14 files hash-identical to the build host | LIVE-READ |
+| Gates | `pos-wave info`: `playback not validated (gated)`, `capture validated`, `capture_settle_ms 500`, `mic_channel 1` | LIVE-READ |
+| Shell | restarted with umask 022 and **no override**; no process carries `POCKETOS_AUDIO_ALLOW_UNVERIFIED`, nothing sets it; Wave listed; four services running, 0 restarts, 0 crash reports (again 20 s later) | LIVE-READ |
+| RECEIVE without the override | `pos-wave listen --events --seconds 3` (the app's command with the shell's environment): `ready`, `listening`, exit 0 in 3.94 s (3 s + 0.5 s discard + open); first level 7, not 100; route back, record gone, device closed, no helper left | LIVE-READ |
+| Transient gone | 3 s recording on channel 1 (statistics on the device, deleted): no sample at or above 32000, peak 2387; residual DC offset -1216 in the first 100 ms after the window, decaying to -120 by 600 ms | LIVE-READ |
+| STOP during the discard | SIGTERM right after `listening`: `stopped`, exit 0, gone in 0.18 s; route back, record gone, device closed | LIVE-READ |
+| SIGKILL during the discard | killed (137): route left off with its record; the next listen printed `recovered` before `ready`, exit 0; route back, record gone | LIVE-READ |
+| SEND still refused | `pos-wave send` without and with `POCKETOS_AUDIO_ALLOW_UNVERIFIED=capture`: `error audio_disabled ... speaker playback is not validated on hardware`, exit 3, both times; fenced by a held lock and a nonexistent PCM; gpiochip1 line 2 unused, IO34 `0x000001B0`, playback PCM closed | LIVE-READ |
+| Mixer | identical before and after all of it; `External I2S Output Switch` on | LIVE-READ |
+| Display power | IO35 `0x00001191` (level 0) with the panel on, before and after | LIVE-READ |
+| Cleanup | no WAV files, no event files, no helper | LIVE-READ |
+
+**RECEIVE: READY.** The Wave UI was not exercised again: it starts the same
+helper with the same arguments and the shell's environment, verified above.
