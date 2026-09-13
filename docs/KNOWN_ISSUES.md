@@ -1,6 +1,6 @@
 # Known issues and open questions
 
-Updated 2026-09-11. Move items to git history when resolved.
+Updated 2026-09-13. Move items to git history when resolved.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
 B4 (the shell's `printf` diagnostics never reached a log; they go through
@@ -439,9 +439,73 @@ Audio (not implemented, findings only):
   reads low with the panel powered, so the bypass resistor R54 is STRONGLY
   INFERRED fitted (2026-09-13); it has not been seen. No playback test until
   it is checked by sight and the route is switched to the codec.
+  **Refined by the audio milestone below**: the built-in speaker found in a
+  second unit is on that I2S route, not on the codec.
 
 Calculator:
 
 - Holding the keypad backspace does not repeat.
 - The error state leaves on any key; an operator pressed there is not applied
   (docs/apps/POCKETCALCULATOR.md).
+
+## Audio milestone: pocketaudio, pos-wave and Wave
+
+Branch `feature/audio-ggwave` (2026-09-13, from master `a748101`). Host-tested
+and cross-built; **nothing has played or captured audio on any board**. The
+hardware record and the proposed first tests are
+docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md; the app is docs/apps/WAVE.md.
+
+Decisions pending the owner:
+
+- **ADR-004 (Proposed): a per-operation helper process owns the sound card**
+  for Wave, a scoped exception to ADR-002's "services own hardware".
+- **Approval of the first SEND and RECEIVE tests** (hardware map §9, §10).
+
+Audio hardware:
+
+- **The built-in speaker is driven over I2S, not by the codec** (INFERRED
+  from the schematic, device tree, vendor pinmap and launcher; not seen): I2S
+  on IO32/IO33/IO35 to an amplifier the vendor names MAX98357A, enabled by
+  IO34. GPIO35 is therefore in the speaker path. The amplifier board, its IC
+  and the connector are not in any schematic available; a photograph of them
+  settles it. If the connector is on the K230 board itself, the V1.0
+  schematic does not describe the unit and the playback plan must be redone.
+- **R54 is still inferred, not seen.** Speaker playback toggles IO35
+  (`IO35_DISEN`); with R54 fitted that cannot switch the display rail.
+- **The amplifier's gain strap and supply are unknown.** The speaker is rated
+  1 W and the amplifier can deliver more, so the level is limited digitally:
+  pocketaudio clamps every sample to -12 dBFS, and the first test uses about
+  -26 dBFS.
+- **The microphone slot is inferred** (right = on-board); the first RECEIVE
+  test checks it before Wave is enabled.
+- **The on-board mic's gain is fixed at 30 dB** and not adjustable through
+  ALSA (`Mic Capture Volume` writes only the left channel); the codec's ALC
+  behaviour is unknown. A loud room may clip.
+- **After a SIGKILL of pos-wave the route and the amplifier line keep their
+  last values.** The PCM is closed by the kernel, so nothing plays; the next
+  pos-wave run sets both again.
+- **Mic bias stays on after the first capture** (driver), and a speaker-route
+  playback still enables the headphone driver (driver): keep the jack empty
+  during the tests.
+- Unit A's read-only checks listed in the hardware map §7 were not run in this
+  session (no address available to it).
+
+Wave and ggwave:
+
+- **Both K230 audio paths are gated in code** (`playback_verified` and
+  `capture_verified` 0 in pocketaudio.c, held there by tests/wave_lint.sh). On
+  the device the app says "Audio is not enabled on this device yet" until the
+  gates are flipped after the hardware tests.
+- **ggwave's CPU cost on the C908 is unmeasured.** The capture buffer is
+  500 ms to absorb its analysis step; riscv64 benchmark binaries from the
+  study exist but were not run.
+- **ggwave defects worked around, not fixed upstream**: frame-sync loss on
+  unaligned input, init reporting success on bad parameters, payload logging,
+  38.5 s deafness after a missed end marker (wave_modem.h). Its TX instance
+  allocates an unused 4 MB buffer for S16 output.
+- **Ooura FFT licence terms** are not stated in ggwave's `fft.h`
+  (docs/LICENSING.md, open item 6).
+- Messages over 64 bytes from other ggwave programs are heard but not shown
+  (reported as "could not decode").
+- The launcher grid now has six rows and is full: a twelfth app needs a
+  different launcher layout.

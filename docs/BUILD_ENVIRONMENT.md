@@ -192,6 +192,12 @@ docs/KNOWN_ISSUES.md, "Build environment"):
 - `vendor/RadioLib` must be present at `034126e` (7.7.1) with no build
   products. It is gitignored, so `git clean -xdf` removes it, and
   `apply_to_sdk.sh` then fails at step 5/5 with a bare rsync error.
+- `vendor/ggwave` must be present at the commit in
+  `platforms/k230/vendor_ggwave_commit.txt` (tag `ggwave-v0.4.3`, `a38e38b`),
+  clean. Unlike RadioLib it is needed by every build, host `make all`
+  included, because pos-wave is always built:
+  `git clone https://github.com/ggerganov/ggwave.git vendor/ggwave && git -C vendor/ggwave checkout ggwave-v0.4.3`.
+  A WSL build clone needs a copy of it the same way it needs RadioLib.
 - Point `POCKETOS_VENDOR_DIR` at the WSL-native vendor tree
   (`~/work/t-display-k230`). The `/mnt/c` copy is a Windows checkout with CRLF
   line endings and its scripts fail with `env: 'bash\r'`.
@@ -236,7 +242,9 @@ PATH=$HOME/tools/node/bin:$HOME/tools/npm/bin:$PATH tools/design/gen_fonts.sh $H
 
 ## Test
 
-Native, inside WSL (needs `libcjson-dev`, installed 2026-09-04):
+Native, inside WSL (needs `libcjson-dev`, installed 2026-09-04, and
+`libasound2-dev`, `python3` and util-linux `flock` for pos-wave and its test;
+present on this host 2026-09-13):
 
 ```sh
 cd /mnt/c/K230 && make CC=gcc CFLAGS="-O2 -Wall -Wextra -Werror" test

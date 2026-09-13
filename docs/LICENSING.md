@@ -19,6 +19,10 @@ carry "License: see LICENSE (TBD)" and nothing is published.
 | Xinyuan-LilyGO/T-Display-K230 (BSP scripts, launcher `k230_phone_ui`) | **No LICENSE file, no headers** | VERIFIED locally 2026-09-04 | No right to copy code from the launcher (including its RadioLib Linux HAL) until LILYGO states a licence. Use as documentation only, or ask LILYGO. |
 | Xinyuan-LilyGo/T-Display-K230_canmv_rt | GPL-3.0 per README header | VERIFIED locally | Reference only. Not linked into PocketOS. |
 | RadioLib 7.7.1 (vendor/RadioLib, compiled into radiod) | MIT (license.txt present) | VERIFIED locally | Fetched from upstream at tag 7.7.1; the launcher copy is not used. |
+| ggwave v0.4.3 (vendor/ggwave at a38e38b, compiled into pos-wave) | MIT (LICENSE, "Copyright (c) 2020 Georgi Gerganov") | VERIFIED locally 2026-09-13 | Fetched from upstream at tag ggwave-v0.4.3. Keep the notice; the package carries LICENSE. |
+| ggwave's Reed-Solomon (src/reed-solomon, Mike Lubinets) | MIT permission text (its own LICENSE; the word "MIT" does not appear) | VERIFIED locally 2026-09-13 | Keep the notice; the package carries it. |
+| ggwave's FFT (src/fft.h, Takuya Ooura) | **No licence text in the file**: a copyright line and the author's URL only | VERIFIED locally 2026-09-13 | Open item: confirm the terms from the author's distribution before a release that ships pos-wave. |
+| alsa-lib 1.2.13 (Buildroot package, dynamically linked by pos-wave) | LGPL-2.1-or-later | DOCUMENTED (docs/legal/manifest.csv) | Already in the image for alsa-utils; dynamic linking. |
 | libgpiod 2.2 (Buildroot package, dynamically linked by radiod) | LGPL-2.1-or-later | DOCUMENTED (header SPDX) | Dynamic linking keeps PocketOS code separate; offer library source. Header copy in vendor/libgpiod is for host compile checks only. |
 | nofrendo (bundled) | GPL-2.0 upstream | DOCUMENTED | Not needed by PocketOS. |
 | libtmt, qrcodegen (bundled, no LICENSE copies) | MIT upstream | DOCUMENTED | Fetch upstream with LICENSE if ever used. |
@@ -65,3 +69,5 @@ Findings:
 4. Decide whether to drop `rtl8723ds`, `rtl8723ds-bt` and `aic8800` from the
    PocketOS defconfig (hardware absent; one proprietary blob less).
 5. Add manual manifest entries for vendor local packages.
+6. Confirm the licence terms of Ooura's FFT (ggwave `src/fft.h`), which the
+   file itself does not state, before a release ships pos-wave.

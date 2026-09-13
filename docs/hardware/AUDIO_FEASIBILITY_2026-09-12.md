@@ -1,5 +1,11 @@
 # Audio and microphone on the T-Display K230: feasibility and foundation
 
+> **Update 2026-09-13:** a second unit has a built-in speaker. Its path - I2S
+> on IO32/33/35 to an amplifier on a board outside the V1.0 schematic, enabled
+> by IO34, which puts GPIO35 in the speaker path - and the proposed first
+> audio tests are in AUDIO_HARDWARE_MAP_2026-09-13.md. Section 1's "no
+> speaker on the main-board sheets" still holds for those sheets.
+
 Recorded 2026-09-12. A static study only: the pinned kernel build tree
 (`k230_pocketos_defconfig`, the tree unit A's kernel was built from), the
 V1.0 schematic, the LILYGO BSP and launcher sources, the Buildroot
