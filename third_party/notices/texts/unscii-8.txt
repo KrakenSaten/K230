@@ -1,0 +1,10 @@
+unscii-8, by Viznut, is compiled into LVGL as the built-in font
+lv_font_unscii_8. LVGL ships the author's page for it at
+scripts/built_in_font/font_license/unscii/unscii.html, which says of the
+font's variants:
+
+    "unscii-16-full" falls under GPL because of how Unifont is licensed;
+    the other variants are in the Public Domain.
+
+lv_font_unscii_8 is the unscii-8 variant, not unscii-16-full, so it is in the
+public domain. No notice is required; this entry is informational.

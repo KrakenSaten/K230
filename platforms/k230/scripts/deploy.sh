@@ -25,6 +25,7 @@ case "${TARGET_HOST}" in *@*) ;; *) TARGET_HOST="root@${TARGET_HOST}" ;; esac
 # init script new to the overlay reaches the target tree only when Buildroot
 # finalises the rootfs (a full build_image.sh), not with pocketos-rebuild.
 for f in usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-supervise usr/sbin/radiod usr/sbin/sysd usr/sbin/netd usr/bin/pocketos-shell etc/pocketos-release \
+         usr/share/pocketos/THIRD_PARTY_NOTICES.txt \
          etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S90pocketos-shell; do
     [ -e "${T}/${f}" ] || { echo "missing ${T}/${f}; build the image first (a full build_image.sh for a new init script)" >&2; exit 1; }
 done
@@ -40,7 +41,8 @@ echo "Deploying PocketOS $(cat "${REPO_DIR}/VERSION") to ${TARGET_HOST}"
 # and 0 needs no passwd lookup on the build host.
 tar -C "${T}" --owner=0 --group=0 --numeric-owner -cf - \
     usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-supervise usr/sbin/radiod \
-    usr/sbin/sysd usr/sbin/netd usr/bin/pocketos-shell etc/pocketos-release etc/init.d/S50sysd \
+    usr/sbin/sysd usr/sbin/netd usr/bin/pocketos-shell etc/pocketos-release \
+    usr/share/pocketos/THIRD_PARTY_NOTICES.txt etc/init.d/S50sysd \
     etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S90pocketos-shell \
     | "${SSH[@]}" "${TARGET_HOST}" 'set -e
 # The tar below replaces the binaries these services are executing, so a stop

@@ -277,6 +277,38 @@ git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" -- platforms/k230
           -C "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/"
 
 echo "[5/5] PocketOS package"
+# Third-party notices (docs/LICENSING.md). The package installs
+# THIRD_PARTY_NOTICES.txt into the image and hands it to legal-info, so notices
+# that no longer describe what is built are refused before the package is
+# written: the file must be what third_party/notices produces, every copied
+# licence text must be byte-identical to its pinned upstream (the RadioLib and
+# ggwave checkouts, and the LVGL and lv_port_linux archives this SDK builds
+# from), and the vendor LVGL configuration must not compile in bundled code the
+# notices do not name. Checked from the snapshot, like everything packaged.
+NOTICES_DIR="$(mktemp -d)"
+git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" -- \
+    THIRD_PARTY_NOTICES.txt third_party/notices tools/legal docs/legal/fonts docs/legal/third-party \
+    platforms/k230/vendor_radiolib_commit.txt platforms/k230/vendor_ggwave_commit.txt \
+    "platforms/k230/configs/${CONF}" | tar -x -C "${NOTICES_DIR}"
+ln -s "${REPO_DIR}/vendor" "${NOTICES_DIR}/vendor"
+NOTICES_OK=1
+bash "${NOTICES_DIR}/tools/legal/gen_notices.sh" --check || NOTICES_OK=0
+bash "${NOTICES_DIR}/tools/legal/gen_notices.sh" --verify-upstream --sdk "${SDK_DIR}" --strict || NOTICES_OK=0
+LV_CONF="${SDK_DIR}/output/${CONF}/staging/usr/include/lvgl/lv_conf.h"
+if [ -f "${LV_CONF}" ]; then
+    bash "${NOTICES_DIR}/tools/legal/gen_notices.sh" --verify-lvconf "${LV_CONF}" || NOTICES_OK=0
+else
+    echo "NOTE: LVGL has not been built in this SDK output yet, so its configuration"
+    echo "      could not be compared with the notices; build_image.sh checks it after"
+    echo "      the build."
+fi
+rm -rf "${NOTICES_DIR}"
+if [ "${NOTICES_OK}" != "1" ]; then
+    echo "ERROR: the third-party notices do not match what this build contains (above)." >&2
+    echo "       Update third_party/notices and run tools/legal/gen_notices.sh, commit," >&2
+    echo "       and apply again. There is no override: an image must not ship wrong notices." >&2
+    exit 1
+fi
 PKG_DIR="${SDK_DIR}/buildroot-overlay/package/pocketos"
 mkdir -p "${PKG_DIR}/src"
 install -m 0644 "${SNAPSHOT_DIR}/platforms/k230/package/pocketos/Config.in" "${PKG_DIR}/Config.in"

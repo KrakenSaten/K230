@@ -8,6 +8,8 @@ Working folder for PocketOS development on the LILYGO T-Display K230.
 AGENTS.md                  Rules for AI agents working here
 Makefile                   First-party build (called by the Buildroot package)
 VERSION                    PocketOS version
+THIRD_PARTY_NOTICES.txt    Notices for third-party material in PocketOS binaries and LVGL (generated; installed as /usr/share/pocketos/)
+third_party/notices/       Sources of those notices: the component list and verbatim licence texts
 apps/                      In-process apps: radio (radiod client), system, fleet (PocketFleet), radar (PocketRadar), timber (PocketTimber), notes (PocketNotes), clock (PocketClock), calendar (PocketCalendar), calculator (PocketCalculator), settings (Wi-Fi, brightness, appearance)
 ui/pocketui/               Theme engine (pos_theme), shared role styles (pos_styles), widgets, fonts/
 ui/shell/                  Shell: status bar, launcher, app host; SDL simulator or DRM target (CMake)
@@ -25,7 +27,7 @@ docs/
   api/                     Public API contracts: pocketipc v0, radio.* v0, shell.* v0, system.* v0, wifi.* v0 (network.md)
   design/                  Design System v0.1 (normative), themes.json, feasibility review, shots/
   BUILD_ENVIRONMENT.md     Host, toolchain, SDK commits, build/flash/test commands
-  LICENSING.md             Licence register for vendor and third-party code
+  LICENSING.md             Licence register for vendor and third-party code; PocketOS's own licence is not decided, and redistribution is not authorised until it is
   decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted; ADR-003 Wi-Fi credentials: Accepted for the post-v0.0.9 milestone; ADR-004 audio ownership: Accepted for the audio milestone as a narrow exception for Wave)
   hardware/T-DISPLAY-K230.md  Hardware baseline with evidence classification
   hardware/FIRST_BOOT.md   Day-one runbook: flash, console, hwcheck, PocketOS image, link test
@@ -35,6 +37,7 @@ tools/pos/                 `pos` CLI: system, hardware, network, radio, logs, ap
 tools/supervise/           `pos-supervise`: restart with backoff and crash-loop detection
 tools/design/              Generators: theme table from themes.json, LVGL fonts from IBM Plex
 tools/hwcheck/             `pos-hwcheck`: first-boot hardware inventory script
+tools/legal/               `gen_notices.sh`: generates and verifies THIRD_PARTY_NOTICES.txt
 vendor/                    Read-only reference clones (git-ignored)
   T-Display-K230/          LILYGO BSP + LVGL launcher, pinned (see platforms/k230/vendor_bsp_commit.txt)
     k230_linux_sdk/        Kendryte K230 Linux SDK submodule, pinned

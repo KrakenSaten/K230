@@ -5,8 +5,20 @@ component's licence must be known before it is redistributed.
 
 ## First-party
 
-PocketOS licence: not yet decided (product owner). Until then source files
-carry "License: see LICENSE (TBD)" and nothing is published.
+PocketOS licence: **not yet decided** (product owner). Until the owner chooses
+one:
+
+- no licence is granted for PocketOS's own code, and there is no LICENSE file;
+- **redistributing PocketOS outside the project, as source or as binaries, is
+  not authorised** (owner, 2026-09-13);
+- source files carry "License: see LICENSE (TBD)" and nothing is published;
+- the Buildroot package says the same: `POCKETOS_LICENSE = Not yet decided
+  (PocketOS; no licence granted), ...` and `POCKETOS_REDISTRIBUTE = NO`, so
+  `make legal-info` does not export PocketOS's source, and
+  THIRD_PARTY_NOTICES.txt opens with the statement.
+
+This does not block internal development, bench deployment or merging; it is
+the owner's release and public-distribution decision (open item 1).
 
 ## Vendor and reference material
 
@@ -27,9 +39,9 @@ carry "License: see LICENSE (TBD)" and nothing is published.
 | nofrendo (bundled) | GPL-2.0 upstream | DOCUMENTED | Not needed by PocketOS. |
 | libtmt, qrcodegen (bundled, no LICENSE copies) | MIT upstream | DOCUMENTED | Fetch upstream with LICENSE if ever used. |
 | quirc (bundled) | ISC (LICENSE present) | VERIFIED locally | Fine if used, keep notice. |
-| LVGL 9 (pinned commit 59dc7e4, vendor/lvgl) | MIT (LICENCE.txt present) | VERIFIED locally | Fine, keep notice. Bundled lodepng (zlib licence) used for screenshots. |
+| LVGL 9 (pinned commit 59dc7e4, vendor/lvgl; on the device the vendor SDK package `lvgl` at the same commit, `liblvgl.so.9.5.0`) | MIT (LICENCE.txt present); bundled components carry their own licences (COPYRIGHTS.md and the LICENSE files beside them) | VERIFIED locally 2026-09-13, against the SDK's source archive | The vendor package declares no licence (legal-info: "unknown"), so THIRD_PARTY_NOTICES.txt covers LVGL, lv_port_linux and every bundled component the vendor configuration compiles in: LodePNG, TJpgDec, ThorVG, and the Montserrat, Font Awesome 5, DejaVu Sans, Source Han Sans SC and unscii-8 fonts (see "Third-party notices"). |
 | SDL2 (simulator only, not shipped) | zlib | DOCUMENTED | Host-only. |
-| IBM Plex Sans / Mono (converted to LVGL bitmaps in `ui/pocketui/fonts/`) | OFL-1.1 with Reserved Font Name "Plex" | VERIFIED (upstream `license.txt`, copy in `docs/legal/fonts/`) | Bitmaps are Modified Versions: symbols are `pos_font_*`, and the UI must never present them as "IBM Plex" (DS decision 2026-09-04). OFL text ships with the fonts. |
+| IBM Plex Sans / Mono (converted to LVGL bitmaps in `ui/pocketui/fonts/`) | OFL-1.1 with Reserved Font Name "Plex" | VERIFIED (upstream `license.txt`, copy in `docs/legal/fonts/`) | Bitmaps are Modified Versions: symbols are `pos_font_*`, and the UI must never present them as "IBM Plex" (DS decision 2026-09-04). The OFL text and copyright notice ship in the image, in THIRD_PARTY_NOTICES.txt. |
 | lv_font_conv 1.5.3 (host tool) | MIT | DOCUMENTED | Host-only, run from a local Node 20 tarball; generated C files are committed so builds need neither. |
 | cJSON 1.7.x (Buildroot package, used by pocketipc, pos, radiod) | MIT | DOCUMENTED | First PocketOS dependency: ~40 kB library, no transitive deps, justified in docs/api/pocketipc.md. |
 
@@ -46,8 +58,54 @@ distribution, (c) unresolved:
 | Reed-Solomon (Mike Lubinets, in ggwave) | MIT permission text in its own LICENSE, copied into the package source | **(a) resolved** |
 | FFT (Takuya Ooura, in ggwave `src/fft.h`) | Provenance: added to ggwave in upstream commit f5e08d9 (2022-06-04), header names the author's FFT package page; the code is that package's radix-4,2 `rdft`, reduced to float arrays. Terms: stated on the author's page, not in the file - permissive, including commercial use and redistribution of modified code, with a request to refer to the package when modifying, which the ggwave header does. Recorded verbatim with the retrieval date in docs/legal/third-party/ooura-fft.txt | **(a) resolved** |
 | alsa-lib 1.2.13 | LGPL-2.1-or-later, dynamic linking, already a Buildroot package in the image with its source in legal-info | **(a) resolved** |
-| **B. Notices in a distributed image** | The `pocketos` Buildroot package declares no `POCKETOS_LICENSE_FILES`, so `make legal-info` collects none of the MIT notices for code compiled into PocketOS binaries (ggwave, Reed-Solomon, and - already before this milestone - RadioLib in radiod), nor the Ooura terms, and nothing in the image carries them. MIT and the Ooura terms both expect the notice to travel with copies | **(b) acceptable for source development; blocks distribution** until the package ships these notices (open item 7) |
+| B. Notices in a distributed image | Was: the `pocketos` package declared no licence files, so neither legal-info nor the image carried these notices. **Fixed** by the third-party notices work (next section) | **(a) resolved** |
 | PocketOS's own licence | Not decided (open item 1) | **(c) unresolved**; a release blocker independent of audio |
+
+## Third-party notices (2026-09-13)
+
+**What ships.** `THIRD_PARTY_NOTICES.txt` at the repository root, installed in
+the image as `/usr/share/pocketos/THIRD_PARTY_NOTICES.txt` (mode 0644; not
+under share/doc, which Buildroot strips), collected by `make legal-info` as
+the `pocketos` package's licence file, and sent by the bench `deploy.sh`. It
+opens with PocketOS's own undecided status, then lists and reproduces in full:
+
+| Material | Reaches the image as | Licence |
+| --- | --- | --- |
+| RadioLib 7.7.1 (034126e) | compiled into radiod | MIT |
+| ggwave v0.4.3 (a38e38b) | compiled into pos-wave | MIT |
+| Reed-Solomon (in ggwave) | compiled into pos-wave | MIT |
+| Ooura FFT (in ggwave) | compiled into pos-wave | author's terms |
+| IBM Plex Sans / Mono | bitmap fonts compiled into pocketos-shell | OFL-1.1, RFN "Plex" |
+| LVGL 59dc7e4 | liblvgl, loaded by pocketos-shell | MIT |
+| lv_port_linux b492d73 | liblvgl_linux | MIT |
+| LodePNG, TJpgDec, ThorVG (in LVGL) | compiled into liblvgl / liblvgl_thorvg | Zlib; TJpgDec licence; MIT |
+| Montserrat, Font Awesome 5, DejaVu Sans, Source Han Sans SC, unscii-8 (LVGL built-in fonts) | compiled into liblvgl; Montserrat and its Font Awesome glyphs used by the shell | OFL-1.1; OFL-1.1 for the glyphs; Bitstream Vera / Arev; OFL-1.1; public domain |
+
+**How it stays true.** `third_party/notices/SOURCES` lists each entry and where
+its text comes from; `tools/legal/gen_notices.sh` generates the file.
+- Copied texts are kept as verbatim copies and checked byte for byte against
+  the pinned upstream: RadioLib and ggwave git objects at their pins, and the
+  LVGL and lv_port_linux source archives the SDK builds from.
+- `apply_to_sdk.sh` refuses to package if the notices are not current, if any
+  text differs from or cannot be read from its upstream, or if the vendor
+  LVGL configuration compiles in bundled code with no entry. There is no
+  override.
+- `build_image.sh` checks after the build that the image carries the packaged
+  file and that the built LVGL configuration still matches.
+- `tests/notices_test.sh` (make test) fails if the generated file is stale, if
+  a vendored tree the Makefile compiles, an embedded font or a package
+  dependency has no entry, if the file stops being installed, collected or
+  deployed, or if a licence for PocketOS itself appears.
+
+**Classification.**
+
+| Item | Class |
+| --- | --- |
+| Notices for third-party code compiled into PocketOS binaries, and for LVGL and its bundled components | **(a) resolved** - shipped and verified |
+| Libraries PocketOS and LVGL load from Buildroot packages with licence metadata (cJSON, libgpiod2, alsa-lib, libdrm, libevdev, FreeType, FFmpeg) | **(a) covered by `make legal-info`**, provided its output accompanies a distributed image (open item 3) |
+| C and C++ runtime libraries from the external Xuantie toolchain (glibc, libstdc++, libgcc) | **(b) blocks distribution**: not in legal-info's manifest (open item 8) |
+| Other vendor SDK packages without licence metadata: libnncase and gsl-lite ("unknown" in the manifest), and the vendor local packages absent from it (`k230_phone_ui`, `vvcam`, `face_detect`, `ai_demo`) | **(b) blocks distribution**: unchanged (open item 5) |
+| PocketOS's own licence | **(c) undecided**; external redistribution not authorised (open item 1) |
 
 ## Image manifest (PocketOS 0.0.1, 2026-09-04)
 
@@ -77,7 +135,8 @@ Findings:
 
 ## Open items
 
-1. Decide the PocketOS licence.
+1. Decide the PocketOS licence (owner). Until then no licence is granted and
+   external redistribution of PocketOS, source or binaries, is not authorised.
 2. Ask LILYGO to add a LICENSE to the T-Display-K230 repository, or treat it as
    all-rights-reserved documentation.
 3. Add `make legal-info` to the image build and archive the result per release
@@ -89,8 +148,12 @@ Findings:
    file itself does not state, before a release ships pos-wave.~~ Resolved
    2026-09-13 from the author's page (see "Audio milestone"; verbatim terms in
    docs/legal/third-party/ooura-fft.txt).
-7. **Release blocker:** ship the third-party notices for code compiled into
+7. ~~Release blocker: ship the third-party notices for code compiled into
    PocketOS binaries - RadioLib (radiod), ggwave and its Reed-Solomon code
-   (pos-wave), and the Ooura FFT terms - with any distributed image, for
-   example as `POCKETOS_LICENSE_FILES` plus a notices file installed in the
-   image. Source development and bench deployment are not affected.
+   (pos-wave), and the Ooura FFT terms - with any distributed image.~~
+   Resolved 2026-09-13: THIRD_PARTY_NOTICES.txt, installed, collected by
+   legal-info and verified at packaging, also covering the IBM Plex fonts,
+   LVGL and LVGL's bundled components (see "Third-party notices").
+8. **Distribution blocker:** collect the licences of the C and C++ runtime
+   libraries the external toolchain puts in the image (glibc, libstdc++,
+   libgcc_s); they are not in legal-info's manifest.

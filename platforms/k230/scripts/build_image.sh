@@ -66,6 +66,24 @@ echo "Build ${CONF} target=${TARGET} in ${SDK_DIR}"
 make -C "${SDK_DIR}" CONF="${CONF}" "${CONF}"
 make -C "${SDK_DIR}" CONF="${CONF}" "${TARGET}"
 
+# The third-party notices the image carries (docs/LICENSING.md): the file the
+# package installed must be the packaged one, and the LVGL that was built must
+# compile in no bundled code the notices do not name. apply_to_sdk.sh checked
+# the texts themselves before packaging; this is the part only a build can see.
+PKG_SRC="${SDK_DIR}/buildroot-overlay/package/pocketos/src"
+if [ -f "${PKG_SRC}/tools/legal/gen_notices.sh" ]; then
+    TARGET_NOTICES="${SDK_DIR}/output/${CONF}/target/usr/share/pocketos/THIRD_PARTY_NOTICES.txt"
+    if ! cmp -s "${TARGET_NOTICES}" "${PKG_SRC}/THIRD_PARTY_NOTICES.txt"; then
+        echo "ERROR: ${TARGET_NOTICES#"${SDK_DIR}"/} is missing or is not the packaged THIRD_PARTY_NOTICES.txt." >&2
+        exit 1
+    fi
+    LV_CONF="${SDK_DIR}/output/${CONF}/staging/usr/include/lvgl/lv_conf.h"
+    if [ -f "${LV_CONF}" ]; then
+        bash "${PKG_SRC}/tools/legal/gen_notices.sh" --verify-lvconf "${LV_CONF}"
+    fi
+    echo "Third-party notices: installed, and the built LVGL matches them."
+fi
+
 if [ "${TARGET}" = "all" ]; then
     IMAGES="${SDK_DIR}/output/${CONF}/images"
 

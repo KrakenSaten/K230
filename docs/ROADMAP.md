@@ -159,8 +159,14 @@ receiving short text as ggwave sound (`docs/apps/WAVE.md`, ADR-004 accepted
 for this milestone as a narrow exception to ADR-002). Both paths validated on
 unit A: a phone's message decoded by Wave, and SEND heard and decoded by a
 phone from the Wave UI (`docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md`).
-Distribution waits on shipping third-party notices (docs/LICENSING.md, open
-item 7). VERSION is unchanged.
+VERSION is unchanged.
+
+**Third-party notices** (`feature/third-party-notices`, 2026-09-13): the image
+carries `/usr/share/pocketos/THIRD_PARTY_NOTICES.txt` for everything
+third-party compiled into PocketOS binaries and for LVGL, verified against the
+pinned upstream sources at packaging. PocketOS's own licence stays undecided
+and external redistribution is not authorised until the owner chooses one
+(`docs/LICENSING.md`).
 
 ### Settings fundamentals before v0.1.0
 
