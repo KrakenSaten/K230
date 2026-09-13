@@ -1008,7 +1008,14 @@ stayed steady, Wave returned to idle, and nothing sounded afterwards.
 **PASS** (owner). This validates the Wave UI -> helper -> pocketaudio ->
 speaker path. No further physical SEND was run.
 
-The post-smoke SSH inspection (helper exited, card closed, IO34 low, no
-recovery record, mixer, services) could not be done at the time: unit A no
-longer answered on 192.168.10.157, 192.168.10.171 or 192.168.10.15. It is
-outstanding until the unit's current address is known.
+The post-smoke SSH inspection could not be done at first (unit A did not
+answer on its known addresses). It was done later, at 13:18 UTC on
+192.168.10.157, **after unit A had rebooted** (uptime 206 s), so it is not an
+immediate post-SEND snapshot. The state was clean: no `pos-wave` helper, no
+zombies, sound card closed with nothing holding it, IO34 `0x000001B0` (low)
+with gpiochip1 line 2 unowned, no recovery record, mixer identical to the
+pre-deploy baseline, all four services running with 0 restarts, no crash
+reports, and no audio, I2S or other unexpected kernel errors. Together with
+the clean checks right after the controlled SEND (§16.1) and the SEND without
+override (§16.2), and the owner's observation that Wave returned to idle with
+no residual sound, this closes the merge readiness of the audio milestone.
