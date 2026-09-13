@@ -26,6 +26,12 @@ microphone path enabled in code (build `c688309`, §15). The SEND gate is
 re-evaluated: R54 closed by evidence (§8.8), the first controlled SEND on unit
 A ready for the owner's approval (§9, §12).
 
+**Revision 5 (same day):** the first controlled SEND on unit A passed (heard,
+decoded by a phone, panel steady, no residual sound, IO34 low, clean
+cleanup). The speaker path is marked validated (`playback_verified = 1`, build
+`e778daf`) with every limit unchanged, and SEND without any override was
+verified on unit A (§16).
+
 **No sound was played, no microphone was opened, and no mixer control, GPIO
 line or pad was written, on any board, for this record.** Unit A was not
 contacted for any revision (§10).
@@ -72,8 +78,9 @@ which parts either unit carries.
 | Item | State | Label |
 | --- | --- | --- |
 | Live register evidence | 2026-09-13 morning, read-only: IO35 pad `0x00001191` (I2S data out, level 0) with the panel on; IO34 pad `0x000001b0` (GPIO, pull-down, level 0); gpiochip1 lines 2 and 3 without consumer; IO32/IO33 in I2S function; IO21/IO22 read 1 as the level-bit control (feasibility §6) | LIVE-READ |
-| Deployed software | Userspace `c688309` (audio branch, microphone enabled, startup discard) over the v0.0.9 card, with `pos-wave` and Wave; rollback tars of `3d4a6e7` and `da3c5e5` in `/root/rollback-*/` (§15) | LIVE-READ |
+| Deployed software | Userspace `e778daf` (audio branch, both paths validated) over the v0.0.9 card, with `pos-wave` and Wave; rollback tars of `3d4a6e7`, `da3c5e5` and `c688309` in `/root/rollback-*/` (§15, §16) | LIVE-READ |
 | Audio enumeration | Card 0 `K230I2SINNO`, `hw:0,0` with one playback and one capture substream, both closed; `canaan,external-i2s-output-default` in the DT, confirmed by dmesg; `External I2S Output Switch` on, `PCM Playback Volume` 24/45, `Mic Capture Volume` 30/30. Re-read before the deploy, identical to the morning (§15) | LIVE-READ |
+| SEND | **Validated** on 2026-09-13: the controlled first SEND passed (heard, Waver decoded DOORS, panel steady); since `e778daf` it needs no override (§16) | LIVE-READ, owner |
 | RECEIVE | **Validated and closed** on 2026-09-13: the owner's phone sent `test`, Wave decoded it; slot, lifecycle, CPU, mixer restore and SIGKILL recovery checked over SSH; with `c688309` the microphone opens without any override and the startup transient is gone (§15) | LIVE-READ, owner |
 | R54 | Not seen. Fitted is STRONGLY INFERRED by the §8.3 chain, whose residual premise is that unit A's main board matches V1.0 | STRONGLY INFERRED |
 | Base board / speaker | **Same as unit B (owner, revision 4)**: `K230_nRF52840_Board` VER 0.3, MAX98357A, TR-WS-2014B. Never opened, so the speaker is as the factory plugged it. A keyboard base is also attached and answers (TCA8418 at 0x34, XL9555 at 0x20; KEYBOARD_BRINGUP_2026-09-10.md §3) | owner premise + unit B PHYSICALLY CONFIRMED; keyboard base LIVE-READ |
@@ -612,10 +619,15 @@ Unit B is the inspection reference.
 | C. Base board seating | Unit A untouched since the factory | **Not a blocker for unit A**. Unit B: reseat before it is next powered |
 | D. Playback level | pocketaudio clamps at -12 dBFS; the first SEND uses -26 dBFS (§11) | **Kept conservative**; `playback_verified` stays 0 until the first controlled SEND passes |
 
-**Decision: the first controlled SEND on unit A is READY, waiting only for
-the owner's explicit approval** and the §12 preconditions (the owner present
-and confirming that unit A has never been opened or had its speaker
-unplugged). Nothing was played. `playback_verified = 0`.
+**Decision (revision 4): the first controlled SEND on unit A is READY, waiting
+only for the owner's explicit approval** and the §12 preconditions (the owner
+present and confirming that unit A has never been opened or had its speaker
+unplugged).
+
+**Outcome (revision 5):** approved, run once, **PASS** (§16).
+`playback_verified = 1` since `e778daf`. The one hardware item still open is
+unit B's speaker socket, which matters only before unit B is powered with its
+speaker connected (§9.1).
 
 ### 9.1 The speaker socket (unit B)
 
@@ -704,7 +716,7 @@ deployed there; unit A's results say nothing about unit B.
 - **First playback level: `--volume 5`**, peak about 1596 (-26.2 dBFS): at
   most 0.35 V rms, **17 mW**, at the 15 dB strap; 4 mW at 9 dB.
 
-## 12. Proposed first controlled SEND (unit A; ready, needs the owner's explicit approval)
+## 12. First controlled SEND (unit A; approved and passed, result in §16)
 
 **Unit:** A, build `c688309`, unopened. **Preconditions:** the owner present
 at the desk, confirming unit A has never been opened and its speaker never
@@ -799,8 +811,8 @@ decodes at least one transmission, the mixer is back as it was.
 
 ## 14. What stays open
 
-Carried into docs/KNOWN_ISSUES.md. Revision 4: nothing here blocks the first
-controlled SEND on unit A except the owner's approval (§9).
+Carried into docs/KNOWN_ISSUES.md. Revision 5: both paths are validated on
+unit A; nothing below blocks SEND or RECEIVE there.
 
 1. ~~R54 not seen on any unit.~~ Closed by evidence, not by sight (§8.8); the
    first SEND watches the panel.
@@ -920,3 +932,69 @@ pocketaudio_test and 4 capture_settle_test checks fail.
 
 **RECEIVE: READY.** The Wave UI was not exercised again: it starts the same
 helper with the same arguments and the shell's environment, verified above.
+
+## 16. First controlled SEND and playback verification, 2026-09-13
+
+### 16.1 The first controlled SEND (unit A, build `c688309`)
+
+Approved by the owner with the §12 preconditions confirmed: the owner at the
+desk watching the panel, nothing in the 3.5 mm jack, unit A never opened and
+its speaker never unplugged. Run **once**, 12:37:01 UTC, over SSH:
+`pos-wave send --allow-unverified --volume 5 --protocol audible_fast --events
+--text DOORS`.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Preconditions | `playback not validated (gated)`, no helper, no record, IO34 `0x000001B0`, line 2 without consumer, route on, card free; services 0 restarts | LIVE-READ |
+| Waveform, no device | 57344 samples, 1194 ms, peak 1596 (-26.2 dBFS); decodes to `DOORS` | LIVE-READ |
+| Helper | `ready k230-t-display`, `sending 1444`, `sent`; exit 0 after 1.89 s; watchdog not needed | LIVE-READ |
+| During | playback PCM RUNNING, route on, recovery record present, gpiochip1 line 2 output held by `pocketaudio-amp` | LIVE-READ |
+| IO34 | low -> high at +0.42 s (after the PCM was prepared) -> low at +1.85 s: 1.43 s on for a 1.444 s playback; `0x000001B0` after | LIVE-READ |
+| After | route on, record removed, PCM closed, no `/dev/snd` holder, no helper; mixer identical; IO35 low; no new kernel messages; services 0 restarts, 0 crash reports | LIVE-READ |
+| Sound | the expected short DOORS chirp burst was heard | owner |
+| Decode | Waver on the owner's phone decoded `DOORS` | owner |
+| Display | completely steady: no blink, dimming, flicker or reset | owner |
+| Residual sound | none: no hiss, buzz or continuing tone | owner |
+
+**PASS.** It confirms, on the hardware, the path of §5 (I2S on IO32/33/35 to
+the MAX98357A, enabled by IO34), that IO35 carrying I2S data does not disturb
+the display rail (§8.8), and that the amplifier returns to shutdown. A
+released amplifier line stays configured as an output driven low (the
+kernel keeps a released line as last set); the pad reads low.
+
+### 16.2 Playback verification closeout: build `e778daf`
+
+**Change:** the K230 entry has `playback_verified = 1` (with
+`capture_verified = 1`). Unchanged and now held by tests/wave_lint.sh: the
+-12 dBFS clamp on every played sample, the modem's volume cap 25, Wave's
+default volume 10; the test board stays unvalidated so the gate stays under
+test. pocketaudio_test checks the gate on an unvalidated K230-shaped board,
+both K230 paths opening without allow_unverified, the clamp after validation,
+and amplifier-off-first on close.
+
+**Host validation of `e778daf`:** `make test` rc 0 (73 suites, 3362 ok, 0
+failures; pocketaudio_test 137, wave_view_test 93, wave_session_test 81,
+wave_tool_test 59, audio_recovery_test 31, capture_settle_test 22, wave_lint
+48, all 0 failures); SDL shell 0 warnings; all 16 shell tests 0 failures;
+riscv64 `make all` (ENABLE_SX1262=1) and the DRM shell 0 warnings.
+
+**Unit A (12:44-12:46 UTC):** rollback tar of `c688309` first
+(`/root/rollback-c688309/`, 14 files, sha256 `78883ee6…fb77faab`, verified;
+host copy `~/work/rollback-unitA-c688309/`), then `deploy.sh` rc 0, 14/14
+files hash-identical to the build host.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Gates | `pos-wave info`: `playback validated`, `capture validated`, `peak_ceiling 8192`, `capture_settle_ms 500` | LIVE-READ |
+| No override | shell restarted with umask 022; no process carries `POCKETOS_AUDIO_ALLOW_UNVERIFIED`; nothing sets it | LIVE-READ |
+| SEND without override | text on stdin as the app sends it, `pos-wave send --events --protocol audible_fast --volume 5`: `ready`, `sending 1444`, `sent`, exit 0 after 1.88 s; during: PCM RUNNING, record present, line 2 held by `pocketaudio-amp` | LIVE-READ |
+| IO34 | high at +0.36 s, low at +1.81 s (1.45 s); `0x000001B0` after | LIVE-READ |
+| Cleanup after SEND | route on, record removed, PCM closed, card free, no helper, mixer identical | LIVE-READ |
+| RECEIVE regression | `pos-wave listen --events --seconds 3`, no override: `ready`, `listening`, exit 0 in 3.93 s; first level 8 (no transient); cleanup as above; mixer still identical | LIVE-READ |
+| Health | four services running, 0 restarts, 0 crash reports, 15 s later too | LIVE-READ |
+
+This verification SEND was not a repeat of the physical acceptance: it
+checked the new build's gate and cleanup at the same level, and its sound was
+not separately observed.
+
+**SEND: READY. RECEIVE: READY.**

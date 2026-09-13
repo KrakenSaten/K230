@@ -452,11 +452,11 @@ Calculator:
 ## Audio milestone: pocketaudio, pos-wave and Wave
 
 Branch `feature/audio-ggwave` (2026-09-13, from master `a748101`). Host-tested
-and cross-built; build `c688309` is deployed on unit A. **RECEIVE is validated
-and closed on unit A** (the owner's phone sent `test`, Wave decoded it; the
-microphone path is enabled in code and needs no override; hardware map §15).
-**Nothing has played audio on any board**; the first controlled SEND waits for
-the owner's approval (§9, §12). The hardware record is
+and cross-built; build `e778daf` is deployed on unit A. **RECEIVE and SEND are
+both validated on unit A** (2026-09-13): the owner's phone sent `test` and
+Wave decoded it (hardware map §15); the controlled first SEND of `DOORS` at
+-26 dBFS was heard, decoded by Waver, left the panel steady and IO34 low
+(§16). Both paths are enabled in code and need no override. The hardware record is
 docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md; the app is docs/apps/WAVE.md.
 
 Decisions:
@@ -470,10 +470,8 @@ Decisions:
   identified on the second unit (unit B); R54 is not seen on any unit, so SEND
   stays blocked on both. Later the same day the owner confirmed units A and B
   are the same hardware; R54 was closed by evidence (hardware map §8.8) and
-  the first controlled SEND on unit A is ready for approval (§9).
-  `playback_verified` stays 0 until the selected SEND
-  unit itself has its base board and speaker, its amplifier and R54 confirmed
-  (owner; hardware map §9).
+  the first controlled SEND on unit A was approved, run once and passed
+  (§16); `playback_verified` became 1 in `e778daf`, no limit raised.
 
 Audio hardware:
 
@@ -533,11 +531,17 @@ Audio hardware:
 
 Wave and ggwave:
 
-- **The K230 speaker path is gated in code** (`playback_verified` 0 in
-  pocketaudio.c, held by tests/wave_lint.sh); the microphone path is enabled
-  (`capture_verified` 1 since `c688309`). On the device a SEND says "The
-  speaker is not enabled on this device yet" until the controlled first
-  playback passes.
+- ~~The K230 speaker path is gated in code.~~ Both K230 paths are validated
+  (`capture_verified` 1 since `c688309`, `playback_verified` 1 since
+  `e778daf`). The limits did not move: -12 dBFS ceiling, modem volume cap 25,
+  Wave default volume 10, all held by tests/wave_lint.sh.
+- **Wave's own TRANSMIT button has not been pressed on hardware.** The
+  on-device SENDs were `pos-wave` runs at volume 5 over SSH; the app starts
+  the same helper at its default volume 10 (-20 dBFS, at most 68 mW into the
+  speaker at the highest gain strap). A one-tap owner smoke is worth doing
+  before the merge.
+- **Over-the-air range and the speaker's response across 1.9-6.3 kHz are
+  unmeasured**; the first SEND was decoded by a phone at arm's length.
 - **ggwave's decode spike on the C908 is unmeasured.** Steady listening costs
   0.6 % of unit A's single core (hardware map §15), and the owner's receive
   decoded without loss, but nothing sampled the CPU at the end of a message.
