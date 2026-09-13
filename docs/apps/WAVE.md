@@ -8,7 +8,7 @@ end-to-end exercise of audio playback and capture.
 **Status:** host-complete on branch `feature/audio-ggwave` (2026-09-13).
 Built for riscv64 (make tree and DRM shell, 0 warnings). **Not run on
 hardware:** both K230 audio paths are gated in code until the controlled
-audio test (docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md §9, §10) has
+audio test (docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md §12, §13) has
 passed. Working name; no branding decided.
 
 ## What it is
@@ -240,8 +240,8 @@ SHELL_BIN=~/work/.../pocketos-shell bash tests/wave_shell_test.sh
 ## Hardware
 
 Nothing has run on hardware. The first SEND and RECEIVE tests are proposed in
-docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md §9 and §10 and wait for the
-owner's approval. Until they pass, `pocketaudio.c` keeps the K230 entry's
+docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md §12 and §13. RECEIVE is
+approved and waits for unit A; SEND stays blocked on R54 (§9 there). Until they pass, `pocketaudio.c` keeps the K230 entry's
 `playback_verified` and `capture_verified` at 0 and tests/wave_lint.sh keeps
 them there; on the device the app therefore reports "Audio is not enabled on
 this device yet".

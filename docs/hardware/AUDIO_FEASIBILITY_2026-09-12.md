@@ -1,10 +1,12 @@
 # Audio and microphone on the T-Display K230: feasibility and foundation
 
-> **Update 2026-09-13:** a second unit has a built-in speaker. Its path - I2S
-> on IO32/33/35 to an amplifier on a board outside the V1.0 schematic, enabled
-> by IO34, which puts GPIO35 in the speaker path - and the proposed first
-> audio tests are in AUDIO_HARDWARE_MAP_2026-09-13.md. Section 1's "no
-> speaker on the main-board sheets" still holds for those sheets.
+> **Update 2026-09-13:** a second unit has a built-in speaker, physically
+> confirmed, on a separate base board carrying a MAX98357A (confirmed with
+> high confidence from its top marking and the vendor sources). Its path - I2S
+> on IO32/33/35 to that amplifier, enabled by IO34, which puts GPIO35 in the
+> speaker path - the R54 analysis and the proposed first audio tests are in
+> AUDIO_HARDWARE_MAP_2026-09-13.md. Section 1's "no speaker" describes the
+> main-board sheets only, **not the product**.
 
 Recorded 2026-09-12. A static study only: the pinned kernel build tree
 (`k230_pocketos_defconfig`, the tree unit A's kernel was built from), the

@@ -440,7 +440,8 @@ Audio (not implemented, findings only):
   INFERRED fitted (2026-09-13); it has not been seen. No playback test until
   it is checked by sight and the route is switched to the codec.
   **Refined by the audio milestone below**: the built-in speaker found in a
-  second unit is on that I2S route, not on the codec.
+  second unit is on that I2S route (a MAX98357A on a separate base board), not
+  on the codec.
 
 Calculator:
 
@@ -461,20 +462,30 @@ Decisions:
   per-operation helper process owns the sound card for Wave, a narrow
   exception to ADR-002, not a replacement for it.
 - **RECEIVE-first** (owner, 2026-09-13): the microphone test (hardware map
-  §10) is approved; SEND stays blocked until the amplifier IC, the speaker
-  connector and R54 are identified physically.
+  §13) is approved; SEND stays blocked until the amplifier IC, the speaker
+  connector and R54 are identified physically. 2026-09-13: the amplifier and
+  connector are identified on the second unit; R54 is not, so SEND stays
+  blocked (hardware map §9).
 
 Audio hardware:
 
-- **The built-in speaker is driven over I2S, not by the codec** (INFERRED
-  from the schematic, device tree, vendor pinmap and launcher; not seen): I2S
-  on IO32/IO33/IO35 to an amplifier the vendor names MAX98357A, enabled by
-  IO34. GPIO35 is therefore in the speaker path. The amplifier board, its IC
-  and the connector are not in any schematic available; a photograph of them
-  settles it. If the connector is on the K230 board itself, the V1.0
-  schematic does not describe the unit and the playback plan must be redone.
+- **The built-in speaker is driven over I2S by a MAX98357A, not by the
+  codec** (2026-09-13, owner's photographs of the second unit): the speaker
+  plugs into a white 2-pin connector on a separate base board, beside an IC
+  marked `AKK`; with the vendor pinmap, BSP patches, device tree and launcher
+  that is a MAX98357A, CONFIRMED WITH HIGH CONFIDENCE. I2S on IO32/IO33/IO35
+  through the header, enable IO34, bridge-tied output: neither speaker wire is
+  ground. GPIO35 is in the speaker path. No base-board schematic or layout
+  exists in any vendor source; the board's name, revision, connector
+  designator and `2618` stay unknown.
 - **R54 is still inferred, not seen.** Speaker playback toggles IO35
-  (`IO35_DISEN`); with R54 fitted that cannot switch the display rail.
+  (`IO35_DISEN`). On unit A the rail is up with IO35 low, and IO35 high can
+  only turn the switch further on, so no IO35 pattern can cut the rail if the
+  board matches the schematic's polarity (hardware map §8.3). That premise is
+  what a photograph of R54 beside Q2/Q3 on the main board settles (§8.7).
+- **Unit A's base board is unconfirmed.** The photographs are of the second
+  unit. Whether unit A carries the base board and speaker was never looked
+  for; the 2026-09-07 "no base board" reading scanned the wrong I2C bus.
 - **The amplifier's gain strap and supply are unknown.** The speaker is rated
   1 W and the amplifier can deliver more, so the level is limited digitally:
   pocketaudio clamps every sample to -12 dBFS, and the first test uses about
@@ -493,7 +504,7 @@ Audio hardware:
 - **Mic bias stays on after the first capture** (driver), and a speaker-route
   playback still enables the headphone driver (driver): keep the jack empty
   during the tests.
-- Unit A's read-only checks listed in the hardware map §7 were not run in this
+- Unit A's read-only checks listed in the hardware map §10 were not run in this
   session (no address available to it).
 
 Wave and ggwave:

@@ -77,7 +77,7 @@
 /* The most channels a board may put on the wire. */
 #define POCKETAUDIO_MAX_CHANNELS 2
 /* The loudest sample pocketaudio will ever play: -12 dBFS. Raising it is a
- * hardware decision, not a caller's (AUDIO_HARDWARE_MAP §8). */
+ * hardware decision, not a caller's (AUDIO_HARDWARE_MAP §11). */
 #define POCKETAUDIO_PEAK_CEILING 8192
 
 enum pocketaudio_dir {
