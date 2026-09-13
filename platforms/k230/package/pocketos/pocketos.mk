@@ -11,7 +11,14 @@
 POCKETOS_VERSION = $(shell cat $(realpath $(TOPDIR))/package/pocketos/src/VERSION 2>/dev/null || echo unknown)
 POCKETOS_SITE = $(realpath $(TOPDIR))/package/pocketos/src
 POCKETOS_SITE_METHOD = local
-POCKETOS_LICENSE = Proprietary (license not yet decided, see docs/decisions)
+# PocketOS's own licence is not chosen yet: no licence is granted and the
+# package is not redistributable (docs/LICENSING.md). What it contains from
+# others is listed, and reproduced in full, in THIRD_PARTY_NOTICES.txt, which
+# legal-info collects (checked against pocketos.hash) and the image installs as
+# /usr/share/pocketos/THIRD_PARTY_NOTICES.txt.
+POCKETOS_LICENSE = Not yet decided (PocketOS; no licence granted), MIT (RadioLib, ggwave, Reed-Solomon), Ooura FFT licence (ggwave FFT), OFL-1.1 (IBM Plex font bitmaps)
+POCKETOS_LICENSE_FILES = THIRD_PARTY_NOTICES.txt
+POCKETOS_REDISTRIBUTE = NO
 POCKETOS_INSTALL_TARGET = YES
 # host-python3: the shell's CMake converts the PocketTimber sprites to LVGL
 # image arrays at configure time (docs/design/timber-art/tools/png2lvgl.py,

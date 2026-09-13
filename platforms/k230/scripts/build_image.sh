@@ -66,6 +66,38 @@ echo "Build ${CONF} target=${TARGET} in ${SDK_DIR}"
 make -C "${SDK_DIR}" CONF="${CONF}" "${CONF}"
 make -C "${SDK_DIR}" CONF="${CONF}" "${TARGET}"
 
+# The third-party notices the image carries (docs/LICENSING.md): the file the
+# package installed must be the packaged one and match the sha256 in
+# pocketos.hash, and the LVGL that was built must compile in no bundled code the
+# notices do not name. apply_to_sdk.sh checked the texts themselves before
+# packaging; this is the part only a build can see.
+PKG_SRC="${SDK_DIR}/buildroot-overlay/package/pocketos/src"
+if [ -f "${PKG_SRC}/tools/legal/gen_notices.sh" ]; then
+    TARGET_NOTICES="${SDK_DIR}/output/${CONF}/target/usr/share/pocketos/THIRD_PARTY_NOTICES.txt"
+    if ! cmp -s "${TARGET_NOTICES}" "${PKG_SRC}/THIRD_PARTY_NOTICES.txt"; then
+        echo "ERROR: ${TARGET_NOTICES#"${SDK_DIR}"/} is missing or is not the packaged THIRD_PARTY_NOTICES.txt." >&2
+        exit 1
+    fi
+    # Buildroot reads pocketos.hash only during legal-info, and accepts a hash
+    # file with no line for the notices, so the build holds them to it here, in
+    # both copies: the one applied and the one Buildroot synced and will read.
+    for PKG_HASH in "${SDK_DIR}/buildroot-overlay/package/pocketos/pocketos.hash" \
+                    "${SDK_DIR}/output/buildroot-2025.02.1/package/pocketos/pocketos.hash"; do
+        WANT="$(awk '$1 == "sha256" && $3 == "THIRD_PARTY_NOTICES.txt" { print $2 }' "${PKG_HASH}" 2>/dev/null || true)"
+        if [ -z "${WANT}" ] || [ "${WANT}" != "$(sha256sum < "${TARGET_NOTICES}" | cut -d' ' -f1)" ]; then
+            echo "ERROR: ${PKG_HASH#"${SDK_DIR}"/} is missing or does not hold the sha256 of" >&2
+            echo "       the installed THIRD_PARTY_NOTICES.txt, so legal-info would refuse it." >&2
+            echo "       Run tools/legal/gen_notices.sh, commit, and apply again." >&2
+            exit 1
+        fi
+    done
+    LV_CONF="${SDK_DIR}/output/${CONF}/staging/usr/include/lvgl/lv_conf.h"
+    if [ -f "${LV_CONF}" ]; then
+        bash "${PKG_SRC}/tools/legal/gen_notices.sh" --verify-lvconf "${LV_CONF}"
+    fi
+    echo "Third-party notices: installed, matching pocketos.hash, and the built LVGL matches them."
+fi
+
 if [ "${TARGET}" = "all" ]; then
     IMAGES="${SDK_DIR}/output/${CONF}/images"
 

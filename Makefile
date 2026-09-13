@@ -658,6 +658,7 @@ test: all $(TEST_BINS)
 	bash tests/supervise_test.sh
 	bash tests/initscript_test.sh
 	bash tests/package_sync_test.sh
+	bash tests/notices_test.sh
 	bash tests/style_lint.sh
 	bash tests/build_deps_test.sh
 	bash tests/build_outputs_test.sh
@@ -683,6 +684,9 @@ install: all
 	install -D -m 0755 services/sysd/sysd $(DESTDIR)$(PREFIX)/sbin/sysd
 	install -D -m 0755 services/netd/netd $(DESTDIR)$(PREFIX)/sbin/netd
 	install -D -m 0755 tools/supervise/pos-supervise $(DESTDIR)$(PREFIX)/bin/pos-supervise
+# The third-party notices travel with the binaries that need them. Under
+# share/pocketos rather than share/doc, which Buildroot strips from the target.
+	install -D -m 0644 THIRD_PARTY_NOTICES.txt $(DESTDIR)$(PREFIX)/share/pocketos/THIRD_PARTY_NOTICES.txt
 # /etc/pocketos-release: line 1 stays the bare version, so every reader that
 # takes the first line keeps working, and the build identity follows as a
 # key=value line (system.info release_file and release_build, `pos system

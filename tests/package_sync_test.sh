@@ -241,7 +241,8 @@ cp VERSION "$GUARD/repo/"
 # snapshot, so the scratch repo has to carry them the way a real one does.
 mkdir -p "$GUARD/repo/platforms/k230/configs" "$GUARD/repo/platforms/k230/package/pocketos"
 cp "platforms/k230/configs/$CONF" "$GUARD/repo/platforms/k230/configs/"
-cp platforms/k230/package/pocketos/Config.in platforms/k230/package/pocketos/pocketos.mk    "$GUARD/repo/platforms/k230/package/pocketos/"
+cp platforms/k230/package/pocketos/Config.in platforms/k230/package/pocketos/pocketos.mk \
+   platforms/k230/package/pocketos/pocketos.hash "$GUARD/repo/platforms/k230/package/pocketos/"
 # RadioLib is pinned now, so the scratch repo needs a checkout and a pin that
 # names it - the same two things a real build needs.
 mkdir -p "$GUARD/repo/vendor/RadioLib"
@@ -441,7 +442,7 @@ check "no first-party build input is installed from the working tree" \
       $([ -z "$wt" ] && echo 1 || echo 0)
 [ -n "$wt" ] && printf '%s\n' "$wt" | head -5
 
-for f in 'configs/${CONF}' package/pocketos/Config.in package/pocketos/pocketos.mk; do
+for f in 'configs/${CONF}' package/pocketos/Config.in package/pocketos/pocketos.mk package/pocketos/pocketos.hash; do
     check "$(basename "$f") is installed from the snapshot" \
           $(grep -qF "install -m 0644 \"\${SNAPSHOT_DIR}/platforms/k230/$f\"" "$APPLY" \
             && echo 1 || echo 0)
