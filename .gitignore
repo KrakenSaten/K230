@@ -67,3 +67,8 @@ BUILD_ID
 /tests/wifi_parse_test
 /tests/wifi_store_test
 /tests/settings_view_test
+/tools/wave/pos-wave
+/tests/pocketaudio_test
+/tests/wave_view_test
+/tests/wave_session_test
+/tests/wave_modem_test

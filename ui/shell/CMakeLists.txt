@@ -91,6 +91,10 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/notes/notes_app.c
     ${REPO_DIR}/apps/notes/notes_store.c
     ${REPO_DIR}/apps/notes/notes_view.c
+    ${REPO_DIR}/apps/wave/wave_app.c
+    ${REPO_DIR}/apps/wave/wave_view.c
+    ${REPO_DIR}/apps/wave/wave_session.c
+    ${REPO_DIR}/apps/wave/wave_text.c
     ${REPO_DIR}/apps/timber/timber_app.c
     ${REPO_DIR}/apps/timber/timber_store.c
     ${REPO_DIR}/apps/timber/engine/timber_types.c
@@ -157,7 +161,8 @@ target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/clock"
                                                   "${REPO_DIR}/apps/calendar"
                                                   "${REPO_DIR}/apps/calculator"
-                                                  "${REPO_DIR}/apps/settings")
+                                                  "${REPO_DIR}/apps/settings"
+                                                  "${REPO_DIR}/apps/wave")
 
 if(POCKETOS_LVGL_MODE STREQUAL "source")
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -509,6 +514,34 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(settings_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(settings_app_test PRIVATE lvgl ${SDL2_LIBRARIES} cjson m)
+
+    # Wave in the running app, tapped and typed into, driving a scripted fake
+    # of its audio helper (run by tests/wave_shell_test.sh). The shell is not
+    # linked; the test supplies app.h and records the status hint and the
+    # keyboard requests. No audio device is involved at any point.
+    add_executable(wave_app_test
+        ${REPO_DIR}/tests/wave_app_test.c
+        ${REPO_DIR}/apps/wave/wave_app.c
+        ${REPO_DIR}/apps/wave/wave_view.c
+        ${REPO_DIR}/apps/wave/wave_session.c
+        ${REPO_DIR}/apps/wave/wave_text.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(wave_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/wave")
+    target_compile_options(wave_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(wave_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(wave_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(wave_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(wave_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
     # The system alert's keyboard isolation and focus ownership (run by
     # tests/alert_shell_test.sh). DS v0.1 section 18.5, 18.6 and 18.8: while

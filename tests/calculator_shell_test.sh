@@ -23,9 +23,10 @@ check "the shell knows about Calculator" \
     "$(grep -q 'extern const struct pocketos_app app_calculator;' ui/shell/shell.c && echo 1 || echo 0)"
 check "it is on the launcher, after Calendar" \
     "$(grep -q '&app_calendar, &app_calculator' ui/shell/shell.c && echo 1 || echo 0)"
-check "the launcher grid has a row for a ninth app" \
+# Six rows since Wave became the eleventh app (tests/wave_shell_test.sh).
+check "the launcher grid has a row for every app" \
     "$(sed -n '/^static void home_create/,/^}/p' ui/shell/shell.c |
-       grep -o 'LV_GRID_CONTENT' | wc -l | grep -qx 5 && echo 1 || echo 0)"
+       grep -o 'LV_GRID_CONTENT' | wc -l | grep -qx 6 && echo 1 || echo 0)"
 for src in calc_app.c calc_engine.c calc_view.c; do
     check "the shell builds $src" \
         "$(grep -q "apps/calculator/$src" ui/shell/CMakeLists.txt && echo 1 || echo 0)"
