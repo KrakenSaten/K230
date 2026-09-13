@@ -463,9 +463,11 @@ Decisions:
   exception to ADR-002, not a replacement for it.
 - **RECEIVE-first** (owner, 2026-09-13): the microphone test (hardware map
   §13) is approved; SEND stays blocked until the amplifier IC, the speaker
-  connector and R54 are identified physically. 2026-09-13: the amplifier and
-  connector are identified on the second unit; R54 is not, so SEND stays
-  blocked (hardware map §9).
+  connector and R54 are identified physically. 2026-09-13: the amplifier is
+  identified on the second unit (unit B); R54 is not seen on any unit, so SEND
+  stays blocked on both. `playback_verified` stays 0 until the selected SEND
+  unit itself has its base board and speaker, its amplifier and R54 confirmed
+  (owner; hardware map §9).
 
 Audio hardware:
 
@@ -475,17 +477,25 @@ Audio hardware:
   marked `AKK`; with the vendor pinmap, BSP patches, device tree and launcher
   that is a MAX98357A, CONFIRMED WITH HIGH CONFIDENCE. I2S on IO32/IO33/IO35
   through the header, enable IO34, bridge-tied output: neither speaker wire is
-  ground. GPIO35 is in the speaker path. No base-board schematic or layout
-  exists in any vendor source; the board's name, revision, connector
-  designator and `2618` stay unknown.
+  ground. GPIO35 is in the speaker path. The photographs themselves show the
+  board as `K230_nRF52840_Board` VER 0.3 and the IC as a 16-terminal QFN. No
+  base-board schematic or layout exists in any vendor source. Two identical
+  2-pin receptacles sit beside the IC and the speaker plug is not seated in
+  any image, so which one is the speaker's is unknown; the designator and
+  `2618` are unknown too.
 - **R54 is still inferred, not seen.** Speaker playback toggles IO35
   (`IO35_DISEN`). On unit A the rail is up with IO35 low, and IO35 high can
   only turn the switch further on, so no IO35 pattern can cut the rail if the
   board matches the schematic's polarity (hardware map §8.3). That premise is
   what a photograph of R54 beside Q2/Q3 on the main board settles (§8.7).
 - **Unit A's base board is unconfirmed.** The photographs are of the second
-  unit. Whether unit A carries the base board and speaker was never looked
-  for; the 2026-09-07 "no base board" reading scanned the wrong I2C bus.
+  unit (unit B). Unit A has a keyboard base attached, which the vendor
+  documents without an amplifier; whether it also carries the nRF52840 base
+  board and a speaker was never looked for (the 2026-09-07 "no base board"
+  reading scanned the wrong I2C bus). R54 is not visible in any photograph of
+  unit B either. The hardware map §0 keeps the two units' evidence apart; §9
+  recommends unit B for the first SEND once the gate is closed on unit B
+  itself.
 - **The amplifier's gain strap and supply are unknown.** The speaker is rated
   1 W and the amplifier can deliver more, so the level is limited digitally:
   pocketaudio clamps every sample to -12 dBFS, and the first test uses about

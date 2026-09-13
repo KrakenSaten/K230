@@ -11,9 +11,17 @@ questions (§8) and records the SEND decision (§9). Revision 1 read the
 main-board schematic as "no speaker path"; that reading described the main
 board only and is withdrawn as a statement about the product.
 
+**Revision 3 (same day):** the owner's photographs themselves were examined
+(three images: a macro of the amplifier and its receptacles; the unit seen
+from the port end with the front cover raised; the unit from the side with the
+cover tilted open). They upgrade the base board's identity and the IC's
+package to PHYSICALLY CONFIRMED, show that the speaker plug is not seated in
+any image, and show nothing of R54 on either unit. The evidence is now
+separated by unit (§0). The amplifier and R54 conclusions do not change.
+
 **No sound was played, no microphone was opened, and no mixer control, GPIO
 line or pad was written, on any board, for this record.** Unit A was not
-contacted for either revision (§10).
+contacted for any revision (§10).
 
 ## Evidence labels
 
@@ -22,7 +30,7 @@ argument needs.
 
 | Label | Meaning |
 | --- | --- |
-| **PHYSICALLY CONFIRMED** | Seen on hardware by the owner. The photographs were described to this session in writing; the images themselves were not available to it |
+| **PHYSICALLY CONFIRMED** | Visible in the owner's photographs of unit B, examined for revision 3. A reading the owner made on the hardware that is not legible in the images is marked "owner's reading" |
 | **LIVE-READ** | Read, read-only, from the running unit A (procfs, mixer, pad registers, dmesg) |
 | **VENDOR-DOCUMENTED** | LILYGO's documents: the V1.0 main-board schematic, BSP docs, product docs, repository READMEs. For the parts: their datasheet content, which reached this session only through secondary copies (ADI's own PDF timed out) |
 | **SOURCE-CONFIRMED** | Code that runs: device tree, kernel driver, BSP patches, the vendor launcher, pocketaudio |
@@ -38,27 +46,112 @@ K230_V1.0_NEW.pdf` (V1.0, dated 2026-06-26), `K` = the pinned kernel build
 tree, `L` = `vendor/T-Display-K230/k230_launcher/k230_phone_ui/src/`,
 `BSP` = `vendor/T-Display-K230/k230_bsp/` (clone `bb831ab`).
 
+## 0. Unit by unit
+
+Nothing is carried from one unit to the other. The V1.0 schematic, the vendor
+sources and the PocketOS code describe the design; they are not evidence of
+which parts either unit carries.
+
+### Unit A - the deployed PocketOS test unit (live reads, no photographs)
+
+| Item | State | Label |
+| --- | --- | --- |
+| Live register evidence | 2026-09-13 morning, read-only: IO35 pad `0x00001191` (I2S data out, level 0) with the panel on; IO34 pad `0x000001b0` (GPIO, pull-down, level 0); gpiochip1 lines 2 and 3 without consumer; IO32/IO33 in I2S function; IO21/IO22 read 1 as the level-bit control (feasibility §6) | LIVE-READ |
+| Deployed software | Last recorded deploy: userspace build `3d4a6e7` on the v0.0.9 card (2026-09-13). No audio-branch build is deployed and `pos-wave` is not on the unit; package `da3c5e5` is built, not deployed | bench record |
+| Audio enumeration | Card 0 `K230I2SINNO`, `hw:0,0` with one playback and one capture substream, both closed; `canaan,external-i2s-output-default` in the DT, confirmed by dmesg; `External I2S Output Switch` on, `PCM Playback Volume` 24/45, `Mic Capture Volume` 30/30. The §10 re-read is outstanding | LIVE-READ (morning) |
+| R54 | Not seen. Fitted is STRONGLY INFERRED by the §8.3 chain, whose residual premise is that unit A's main board matches V1.0 | STRONGLY INFERRED |
+| Base board / speaker | A keyboard base is attached and answers (TCA8418 at 0x34, XL9555 at 0x20, on the bit-banged GPIO46/47 bus; KEYBOARD_BRINGUP_2026-09-10.md §3); the vendor documents that board as the nRF9151 cellular/GNSS/keyboard base, which carries no amplifier. An nRF52840 base board was only ASSUMED on 2026-09-07 from a port diagram; no probe of its AHT20 on the bit-banged bus is recorded; the unit has not been opened. No amplifier or speaker has been observed | keyboard base LIVE-READ; nRF52840 board, amplifier and speaker UNKNOWN |
+
+### Unit B - the opened, photographed unit (photographs, no live reads)
+
+| Item | State | Label |
+| --- | --- | --- |
+| Photographed base board | A black board over the main board, silkscreen legible as **`K230_nRF52840_Board`, `VER:0.3`, `20260407`**, carrying an nRF52840 (top line legible as `N52840`) and a 2x20 header row | PHYSICALLY CONFIRMED |
+| Main board beneath | Seen only through the base board's cutouts: text legible as `…230 V1.0`, and a Lontium LT9611 (the V1.0 schematic has one, U18). A revision marking, not a parts list: R54 is a population option on that revision | PHYSICALLY CONFIRMED (partial) |
+| Photographed speaker | A rectangular body in the front cover with a red/black lead. Its marking is not legible in the images | body and lead PHYSICALLY CONFIRMED; `TR-WS-2014B` owner's reading |
+| Photographed connector | Two white 2-pin receptacles on the base board, one above and one below the amplifier in the macro; `2618` in silkscreen beside one of them (side view). The speaker's white 2-pin plug lies beside the board and is **not seated in any receptacle in any image**, so which receptacle is the speaker's is not shown | receptacles and plug PHYSICALLY CONFIRMED; speaker receptacle UNKNOWN |
+| Photographed amplifier | A QFN with **16 terminals, four per side**, between the two receptacles, with a column of passives beside it | PHYSICALLY CONFIRMED |
+| IC marking | **`AKK` / `NKI` / `+`**, legible in the macro | PHYSICALLY CONFIRMED |
+| Identification | MAX98357A (§4) | CONFIRMED WITH HIGH CONFIDENCE |
+| That the macro shows the labelled board | The same arrangement - two white 2-pin receptacles with a small IC between them - sits at the port end of the labelled board in both overview images; the macro's frame does not include the label | STRONGLY INFERRED |
+| R54 | The main board's display-power area is covered by the base board in every image | UNKNOWN |
+| Live evidence, software | None recorded: no PocketOS build deployed or read on this unit | UNKNOWN |
+
+### The five questions
+
+1. **Confirmed on both units:** no hardware fact. The owner describes them as
+   the same product, which is not verified part by part. What applies to both
+   is documentary (the V1.0 schematic, the vendor BSP and device tree, the
+   PocketOS gates), and it describes the design, not either unit's parts.
+2. **Confirmed only on unit A:** the running audio stack (card, PCM, mixer,
+   default external route); the pad states - IO35 low with the panel
+   powered, IO34 low with pull-down - and with them the R54 inference; the
+   attached keyboard base.
+3. **Confirmed only on unit B:** the `K230_nRF52840_Board` VER 0.3 base board
+   with its nRF52840; the 16-terminal `AKK` amplifier IC and the two 2-pin
+   receptacles beside it; `2618`; the speaker body, its red/black lead and its
+   plug; a main board marked V1.0 with an LT9611.
+4. **Still to check before SEND on unit A:** open it and see whether it
+   carries an nRF52840 base board with the amplifier and a speaker at all;
+   photograph R54 on its main board (§8.7), which on unit B's layout means
+   lifting any base board off the header; see the speaker plug seated in the
+   amplifier's output receptacle; deploy a build with pos-wave and repeat the
+   §10 reads after reassembly; then owner approval of §12.
+5. **Unit B as the first SEND unit:** a better candidate than unit A,
+   provided the same gate is closed **on unit B itself**. It already has the
+   base board and the amplifier physically confirmed, and it is already open,
+   so R54 can be seen directly instead of inferred. Before SEND on unit B:
+   - photograph R54 on unit B's main board (lift the base board; §8.7);
+   - identify the amplifier's output receptacle, by a photograph of the plug
+     seated where it came from or, powered off, continuity from the receptacle
+     pins to the IC's output pads, and seat the plug there. The two
+     receptacles look identical, and the other one's purpose is unknown: a
+     speaker plugged into a receptacle carrying DC would burn its coil;
+   - seat the base board fully on the header, and remove the loose fibre
+     lying across the board beside the IC in the macro;
+   - deploy a build containing pos-wave and run the §10 read-only enumeration
+     **on unit B**, including IO35 low with the panel on, which gives unit B
+     its own §8.3 chain to back the photograph;
+   - the owner present, the §12 preconditions, approval.
+
+   It is not safe today: none of those is done, and no software has run on
+   it. RECEIVE stays on unit A.
+
 ## 1. Photographed hardware (unit B)
 
-| Item | Observation | Label |
-| --- | --- | --- |
-| Speaker | Mounted in the enclosure, marked `TR-WS-2014B` | PHYSICALLY CONFIRMED |
-| Leads | One red, one black wire, ending in a white 2-pin plug | PHYSICALLY CONFIRMED |
-| Connector | White 2-pin connector on a **separate PCB** (a base or daughter board), not on the K230 main board | PHYSICALLY CONFIRMED |
-| That board | Carries its own PCB markings and revision text (not transcribed to this record) | PHYSICALLY CONFIRMED; the text itself UNKNOWN here |
-| `2618` | Silkscreen near the connector. **Not an amplifier part number**: it is on the PCB, not on the IC. Its meaning is not assumed | PHYSICALLY CONFIRMED (the marking); meaning UNKNOWN |
-| IC beside the connector | A small IC immediately adjacent to the speaker connector, top marking `AKK` / `NKI` / `+` | PHYSICALLY CONFIRMED |
+What the three images show, beyond §0:
 
-Not in the photographs as described: the board's name and revision string,
-the connector's designator, which wire lands on which pin, the IC's package
-dimensions, the passives around it (the gain strap), the supply parts, and how
-the board mates with the main board.
+- **Macro.** The two receptacles' contacts suggest a 1.25 mm pitch; at that
+  scale the 16-terminal QFN is about 3 mm on a side, consistent with the
+  TQFN-16 3 x 3 mm package (an estimate from the image, not a measurement).
+  Two identical two-terminal parts sit between the IC's upper side and the
+  upper receptacle, which would fit an output filter to that receptacle; their
+  function and nets are not visible. Several footprints beside the IC appear
+  unpopulated (bare pad pairs); if one is the GAIN_SLOT strap, an open strap
+  would mean 9 dB, but nothing in the image shows which net any pad is on. The
+  upper receptacle is visibly empty (contacts showing). A thin loose fibre lies
+  on the board beside the IC's right-hand and lower terminals.
+- **Port-end view.** The nRF52840 near the far end of the base board; through
+  the cutouts, the main board's heat spreader, the `…230 V1.0` text and the
+  LT9611; at the port end, the receptacle-IC-receptacle group. The speaker
+  lead runs in the raised front cover.
+- **Side view.** The board label; `2618` beside the left receptacle of the
+  port-end pair; text legible as `AUDIO1` and `MIC` along the port-end edge
+  (AUDIO1 is the V1.0 main board's designator for the 3.5 mm jack; which
+  board carries the text is not resolvable, so it is not used); the speaker
+  body in the tilted cover.
+
+Not visible in any image: the speaker's marking, the plug seated, which wire
+lands on which pin, the receptacles' designators, the IC's pin 1 orientation
+relative to its nets, the supply parts, the header mating, and the main
+board's display-power switch (Q2, Q3, R54).
 
 What a TR-WS-2014B is, from a reseller sheet for the part number
 (techiesms.com): 20 x 14 x 4.5 mm cavity speaker, **7.2 Ω ± 10 %**, **1.0 W
 rated, 1.5 W maximum**, 94.5 ± 2 dB at 3.1 V / 10 cm / 2 kHz, resonance
 900 Hz ± 10 %. VENDOR-DOCUMENTED for the part number; that the fitted part
-meets that sheet is STRONGLY INFERRED from the marking.
+meets that sheet is STRONGLY INFERRED from the owner's reading of the marking,
+which the images do not resolve.
 
 ## 2. Main-board schematic evidence (V1.0)
 
@@ -138,25 +231,30 @@ circuit for any base board was found.** Searched:
 
 ### 3.3 Physical (unit B)
 
-§1: a separate board with its own markings carries the speaker connector and
-the IC beside it. PHYSICALLY CONFIRMED.
+§0, §1: a separate board over the main board carries two white 2-pin
+receptacles and the `AKK` IC between them. PHYSICALLY CONFIRMED.
 
-**Which board it is:** that this is the nRF52840 "secondary board" is
-STRONGLY INFERRED - it is the only board the vendor documents with an
-amplifier, and the cased version is documented with a speaker and an nRF52840
-header. The board's markings have not been matched to a vendor name or
-revision. The interconnect is STRONGLY INFERRED to be JP1, the only
-documented connector carrying IO32-IO35 off the main board.
+**Which board it is** (upgraded in revision 3): its silkscreen reads
+`K230_nRF52840_Board`, `VER:0.3`, `20260407`, and it carries an nRF52840.
+PHYSICALLY CONFIRMED. That is the board the vendor documents with the
+MAX98357A (§3.1), so the vendor's documentation now attaches to a named,
+photographed board rather than to a guess. No document for revision 0.3
+exists (§3.2). The interconnect is STRONGLY INFERRED to be JP1, the only
+documented connector carrying IO32-IO35 off the main board; the header
+mating itself is not visible.
 
 ## 4. Amplifier: MAX98357A, CONFIRMED WITH HIGH CONFIDENCE (PHYSICAL + VENDOR EVIDENCE)
 
-Upgraded from "INFERRED" (revision 1). The lines of evidence, and what each
-is worth alone:
+Unit B only. Upgraded from "INFERRED" in revision 2; revision 3 checked the
+photographs and found them consistent, adding lines 1a and 1b. The lines of
+evidence, and what each is worth alone:
 
 | # | Evidence | Label | Worth alone |
 | --- | --- | --- | --- |
-| 1 | An IC immediately beside the speaker connector on the separate board | PHYSICALLY CONFIRMED | Shows a speaker driver sits there; names nothing |
-| 2 | Top marking line 1 `AKK` | PHYSICALLY CONFIRMED (marking); decoding STRONGLY INFERRED | Marketplace listings (Amazon, Alibaba) sell MAX98357AETE+T, the TQFN-16 3 x 3 mm part, with `AKK` given as its marking. ADI's own marking table was not retrieved, so this is secondary. `NKI` fits the lot/date line and `+` Maxim's lead-free mark |
+| 1 | An IC between the two white 2-pin receptacles on the separate board | PHYSICALLY CONFIRMED | Shows a driver sits beside the receptacles; names nothing |
+| 1a | The board is the `K230_nRF52840_Board` (VER 0.3) | PHYSICALLY CONFIRMED | Ties line 3 to this very board |
+| 1b | The IC is a QFN with 16 terminals, four per side, about 3 mm on a side by image scale | PHYSICALLY CONFIRMED (terminal count); size estimated | Matches the TQFN-16 package the `AKK` listings describe; rules out the 9-bump WLP |
+| 2 | Top marking `AKK` / `NKI` / `+`, legible in the macro | PHYSICALLY CONFIRMED (marking); decoding STRONGLY INFERRED | Marketplace listings (Amazon, Alibaba) sell MAX98357AETE+T, the TQFN-16 3 x 3 mm part, with `AKK` given as its marking. ADI's own marking table was not retrieved, so this is secondary. `NKI` fits the lot/date line and `+` Maxim's lead-free mark |
 | 3 | Pinmap names MAX98357A on the base board, with the four pins | VENDOR-DOCUMENTED | Names the part, but on paper |
 | 4 | BSP patches 0058/0059 name MAX98357A and add the bypass route for it | SOURCE-CONFIRMED | Vendor engineering intent in shipped code |
 | 5 | Device tree muxes exactly those pins as `amp_i2s_pins` + `amp_shutdown` | SOURCE-CONFIRMED | Consistent topology |
@@ -165,18 +263,21 @@ is worth alone:
 | 8 | The cased version is documented with a speaker; press coverage names MAX98357A | VENDOR-DOCUMENTED; press secondary | Supporting |
 
 **Why the upgrade is justified.** Lines 3-8 all come from LILYGO and could
-share one documentation error; lines 1-2 are independent of LILYGO, come from
-the hardware itself, and point at the same part. For the conclusion to be
-wrong, a different IC carrying the same `AKK` code would have to sit beside
-the speaker connector while every vendor source names MAX98357A. Nothing
+share one documentation error; lines 1, 1b and 2 are independent of LILYGO,
+come from the hardware itself, and point at the same part, and line 1a puts
+LILYGO's naming of the part on the photographed board. For the conclusion to
+be wrong, a different 16-terminal QFN carrying the same `AKK` code would have
+to sit beside those receptacles on the very board the vendor says carries a
+MAX98357A. Nothing
 supports that, and nothing contradicts the identification: no other
 amplifier appears in any source (§3.2), the main board's codec outputs go
 only to the jack (§2), and the vendor's software drives precisely a
 MAX98357A-style interface (I2S in, one shutdown line, no control bus).
 
-**What stays unconfirmed about the part:** the package (TQFN-16 is STRONGLY
-INFERRED, because the `AKK` listings are for the TQFN part; the IC's size was
-not measured), the gain strap, the supply rail and the SD_MODE wiring (§6).
+**What stays unconfirmed about the part:** its exact size (estimated from the
+image, not measured), the gain strap, the supply rail, the SD_MODE wiring and
+which receptacle its outputs reach (§6). **Nothing about unit A's amplifier is
+confirmed**: unit A has not been opened (§0).
 
 ## 5. The built-in speaker path
 
@@ -186,31 +287,36 @@ header, not on the K230 main board.
 
 ```
 K230 DesignWare I2S (0x9140f000)
-  INNO codec bypassed: "External I2S Output Switch" = on   (boot default; LIVE-READ on unit A)
+  INNO codec bypassed: "External I2S Output Switch" = on   (boot default; LIVE-READ on unit A only)
     IO32 BCLK     IO33 LRCK     IO35 SDATA               IO34 GPIO, gpiochip1 line 2, high = on
        |             |             |                           |
   =====+=============+=============+===========================+=====  40-pin header JP1 (main board)
        |             |             |                           |       JP1 -> base board: STRONGLY INFERRED
-  -----v-------------v-------------v---------------------------v-----  separate base board (PHYSICALLY CONFIRMED, unit B)
+  -----v-------------v-------------v---------------------------v-----  K230_nRF52840_Board VER:0.3 (PHYSICALLY CONFIRMED on unit B only)
      BCLK          LRCLK          DIN      MAX98357A        SD_MODE
-                                  (CONFIRMED WITH HIGH CONFIDENCE)
+                             (unit B: 16-terminal QFN "AKK"; CONFIRMED WITH HIGH CONFIDENCE)
                               OUTP  --+          +--  OUTN      BTL: both terminals switch,
                                       |          |              neither is ground
-                           white 2-pin connector (designator UNKNOWN, pin order UNKNOWN)
+                white 2-pin receptacle: one of the two beside the IC (which one UNKNOWN;
+                designator UNKNOWN; pin order UNKNOWN; plug not seen seated)
                                       |          |
                               red / black leads (a colour says nothing about polarity here)
                                       |          |
-                                 TR-WS-2014B, 7.2 Ω, 1 W rated
+                                 TR-WS-2014B (owner's reading), 7.2 Ω, 1 W rated
 ```
+
+The diagram is the design path. Its physical parts are confirmed on unit B
+only, its live reads on unit A only (§0).
 
 - **The INNO codec is not in the speaker path.** With the route on, the SoC
   bypasses it and sends I2S to the pads. The codec remains the path for the
   on-board microphone, the headset microphone and the 3.5 mm headphone jack
   (§7).
 - **Neither speaker conductor is ground.** A MAX98357A drives a bridge-tied
-  load from two switching outputs (VENDOR-DOCUMENTED for the part). That both
-  pins of this connector are those outputs is STRONGLY INFERRED (the IC sits
-  beside it; no trace was followed). Nobody should tie the black lead, or
+  load from two switching outputs (VENDOR-DOCUMENTED for the part). That the
+  speaker's receptacle carries those two outputs is STRONGLY INFERRED (the IC
+  sits between the two receptacles; no trace was followed; which receptacle is
+  the speaker's is UNKNOWN). Nobody should tie the black lead, or
   either pin, to ground or measure it against ground as if it were one.
 - GPIO35 is in this path (serial data). GPIO34 enables it.
 
@@ -218,12 +324,14 @@ K230 DesignWare I2S (0x9140f000)
 
 | Question | Answer | Label |
 | --- | --- | --- |
-| Connector designator | Not photographed legibly; no document names it | UNKNOWN |
+| Which receptacle | Two identical white 2-pin receptacles sit beside the IC (unit B). The plug is not seated in any image. Two identical parts between the IC and the upper receptacle would fit an output filter to it; that is appearance, not a traced net | receptacles PHYSICALLY CONFIRMED; which one UNKNOWN |
+| The other receptacle | Purpose not documented and not visible | UNKNOWN |
+| Connector designator | Not legible in the images; no document names it | UNKNOWN |
 | Connector pinout | Two pins, OUTP and OUTN in some order | order UNKNOWN; OUTP/OUTN STRONGLY INFERRED |
 | Wire colours | Red and black | PHYSICALLY CONFIRMED; no polarity meaning |
 | Output type | Filterless class D, bridge-tied (BTL) | VENDOR-DOCUMENTED (part) |
 | Amplifier supply rail | The part runs from 2.5 to 5.5 V. The nRF52840 board has a 5 V boost from its 21700 battery that supplies the host; whether the amplifier sits on that 5 V, on a battery rail or on 3.3 V is not documented | UNKNOWN (part range VENDOR-DOCUMENTED) |
-| Gain | Set by the GAIN_SLOT pin's strap: 15, 12, 9 (open), 6 or 3 dB. A top photograph cannot show it | UNKNOWN |
+| Gain | Set by the GAIN_SLOT pin's strap: 15, 12, 9 (open), 6 or 3 dB. The macro shows some bare footprints beside the IC, but not which net any of them is on | UNKNOWN |
 | SD_MODE wiring | Vendor: GPIO34 is the shutdown control, high = on. Direct, through a resistor, or with a pull resistor on the board: not documented | function VENDOR-DOCUMENTED; wiring UNKNOWN |
 | Is IO34 treated as a direct enable | Yes, by all software: DTS GPIO `amp_shutdown`, launcher line 2 high/low, pocketaudio line 2 high only while a playback stream is open | SOURCE-CONFIRMED |
 | Channel mode | SD_MODE above 1.4 V selects left; a resistor to SD_MODE can select right or (L+R)/2. Irrelevant here: pocketaudio writes the same mono sample to both slots | part VENDOR-DOCUMENTED; L = R SOURCE-CONFIRMED |
@@ -231,7 +339,7 @@ K230 DesignWare I2S (0x9140f000)
 | Is the amplifier powered continuously | Its supply: UNKNOWN. Its enable: low at rest (above), so with the vendor's wiring it is in shutdown whenever no playback holds line 2 | supply UNKNOWN; shutdown at rest STRONGLY INFERRED |
 | Output power into 7.2 Ω | Ideal BTL sine limit VDD²/2R: 1.74 W at 5.0 V, 0.95 W at 3.7 V, 0.76 W at 3.3 V (losses ignored). Part rating about 1.8 W into 8 Ω at 5 V (secondary copy) | arithmetic; rail UNKNOWN |
 | Against the speaker | On a 5 V rail the amplifier can exceed the speaker's 1 W rating. The level must stay digitally limited (§11) | STRONGLY INFERRED |
-| Board filtering (ferrite beads, capacitors at the connector) | Not photographed, not documented | UNKNOWN |
+| Board filtering (ferrite beads, capacitors at the connector) | Passives are visible beside the IC (unit B); their values and nets are not | UNKNOWN |
 | Protection | The part documents thermal and output short-circuit protection and click/pop suppression; nothing is known about board-level protection | part VENDOR-DOCUMENTED; board UNKNOWN |
 | What `2618` is | - | UNKNOWN |
 
@@ -347,6 +455,10 @@ be checked from any file, and unit B's photographs say nothing about unit A's
 main board. Also, whichever unit runs the first SEND must be the unit
 inspected: unit A has the live evidence but no photographs; unit B has the
 photographs of its base board but no live reads and no photograph of its R54.
+Revision 3 checked every image: the base board covers the main board's
+display-power area in all of them, so R54 is UNKNOWN on unit B, and the V1.0
+marking seen on unit B's main board does not help, because R54 (`NC/0R`) is a
+population option within that revision.
 
 ### 8.5 Question 4: can R54's location be found from the files?
 
@@ -379,13 +491,17 @@ the six decoupling capacitors, but a designer could place it anywhere.
 
 ### 8.7 What to photograph to close it
 
-**Unit:** the unit that will run the first SEND. Unit A is the natural choice
-(its live reads exist); if unit B is chosen instead, its read-only enumeration
-(§10) must be run on it as well.
+**Unit:** the unit that will run the first SEND. Unit B is already open and
+has its base board and amplifier confirmed (§0, question 5); unit A has the
+live reads but has not been opened. Whichever is chosen also needs the §10
+reads run on it.
 
 **Board:** the **K230 main board**, not the base board. It is the board with
 the K230 SoC, the camera FPC connectors and the display's 30-pin FPC
-connector **J1** (0.35 mm pitch; the panel's flex cable lands there).
+connector **J1** (0.35 mm pitch; the panel's flex cable lands there). On unit
+B the base board covers it in every image, so the base board has to be lifted
+off the header, powered off, noting its orientation so it goes back on the
+same pins.
 
 **What to look for, both sides of the board:**
 
@@ -418,23 +534,26 @@ which part it is; the photograph does.
 
 ## 9. SEND gate decision
 
-| Owner's SEND precondition | State after revision 2 |
-| --- | --- |
-| Amplifier IC identified physically | **Closed on unit B**: MAX98357A, CONFIRMED WITH HIGH CONFIDENCE (§4). On unit A the base board has not been seen |
-| Speaker connector identified physically | **Closed on unit B**: the white 2-pin connector on the base board beside the amplifier (§1); that it carries the BTL outputs is STRONGLY INFERRED (§5); designator and pin order UNKNOWN, which does not matter while nobody rewires it |
-| R54 identified physically | **Open.** STRONGLY INFERRED fitted on unit A (§8.3); not seen on any unit |
+The owner's rule (revision 3): `playback_verified` stays 0 until **the
+selected SEND unit itself** has its speaker and base board confirmed, its
+amplifier confirmed, and R54/display-power safety closed.
 
-Also still open: whether the unit that runs SEND has the base board and
-speaker at all (unit A's was never looked for; the 2026-09-07 "no base board"
-reading scanned the kernel I2C bus, not the IO46/47 pins the vendor
-bit-bangs); the gain strap and supply rail (§6).
+| Condition, per unit | Unit A | Unit B |
+| --- | --- | --- |
+| Base board and speaker confirmed | **No**: not opened; only a keyboard base is known to be attached | **Yes** for the base board and the speaker body; **no** for the plug seated in the amplifier's output receptacle |
+| Amplifier confirmed | **No** | **Yes**: MAX98357A, CONFIRMED WITH HIGH CONFIDENCE (§4) |
+| R54 / display-power safety closed | **No**: STRONGLY INFERRED fitted (§8.3), not seen | **No**: UNKNOWN, not photographed, no live reads |
+| Software able to run the test | **No**: no pos-wave deployed | **No**: nothing recorded as deployed |
 
-**Decision: SEND stays BLOCKED.** The K230 board entry keeps
-`playback_verified = 0`; nothing was played; `--allow-unverified` and
+Also open on both: the gain strap and supply rail (§6), so the first level
+stays digitally limited (§11).
+
+**Decision: SEND stays BLOCKED on both units.** `playback_verified = 0`
+unchanged; nothing was played; `--allow-unverified` and
 `POCKETOS_AUDIO_ALLOW_UNVERIFIED=playback` are not to be used for a real
-send. The gate opens only after the §8.7 photograph shows R54 fitted on the
-unit that will run SEND, that unit is confirmed to carry the base board, and
-the owner approves §12.
+send. **Recommended first SEND unit: unit B**, once §0 question 5's list is
+done on it. That list is one photograph session plus one deploy away, where
+unit A needs its first inspection as well. Unit A remains the RECEIVE unit.
 
 **RECEIVE is unaffected** by all of this: a capture puts no data on IO35 and
 leaves IO34 low. It proceeds as approved (§13), waiting only for unit A's
@@ -467,6 +586,9 @@ IO4 is UART1 RX from the nRF52840 board (`uart1_nrf52840_pins`): its level
 bit high with no pull configured would be weak evidence that the base board
 is fitted to unit A. Looking inside is the decisive check.
 
+If unit B is chosen for SEND, the same reads are run on unit B once software is
+deployed there; unit A's results say nothing about unit B.
+
 ## 11. Format and level
 
 - **48 000 Hz, S16_LE, 2 channels on the wire**: mono duplicated into both
@@ -490,11 +612,14 @@ is fitted to unit A. Looking inside is the decisive check.
 
 ## 12. Proposed first real SEND test (blocked: needs §9 closed and owner approval)
 
-**Preconditions, board powered off:** §8.7 shows R54 fitted on this unit; the
-base board and speaker are seen in this unit; nothing in the 3.5 mm jack; the
-owner present, the board on the desk, nobody's ear near the speaker; a build
-containing pos-wave. `pos-wave info` must print `board k230-t-display` with
-both paths `not validated (gated)`.
+**Preconditions, board powered off, all on the unit that will run it:** §8.7
+shows R54 fitted; the base board, amplifier and speaker are seen; the speaker
+plug is seen seated in the receptacle wired to the amplifier's outputs; the
+base board is fully seated on the header, the same way round; no loose fibres
+or debris on the boards; nothing in the 3.5 mm jack; the owner present, the
+board on the desk, nobody's ear near the speaker. Then, powered: a build
+containing pos-wave, the §10 reads on this unit, and `pos-wave info` printing
+`board k230-t-display` with both paths `not validated (gated)`.
 
 `--allow-unverified` appears in step 2 only for this one approved test, once
 §9 is closed; until then the owner's rule stands and it is not used for a
@@ -572,15 +697,17 @@ decodes at least one transmission, the mixer is back as it was.
 Carried into docs/KNOWN_ISSUES.md. The first three gate SEND:
 
 1. R54 not seen on any unit (§8). STRONGLY INFERRED fitted on unit A.
-2. Whether the unit that will run SEND carries the base board and speaker
-   (§9, §10).
+2. On unit A: whether it carries the nRF52840 base board, amplifier and
+   speaker at all (§0). On unit B: which receptacle is the speaker's, with the
+   plug seen seated there (§0, §6).
 3. The amplifier's gain strap and supply rail (§6); the first level rests on
    digital attenuation (§11).
 4. Unit A's §10 reads are outstanding (no address available here).
 5. The capture slot mapping is inferred (§7).
-6. The base board's name and revision, the connector's designator and pin
-   order, and `2618` (§1, §6). The vendor's nRF52840 board images (§3.2) are
-   an unexamined cross-check.
+6. The connector's designator and pin order, the other receptacle's purpose,
+   and `2618` (§1, §6). The base board's name and revision are known on unit
+   B (`K230_nRF52840_Board` VER 0.3), with no document for that revision. The
+   vendor's nRF52840 board images (§3.2) are an unexamined cross-check.
 7. ~~After a crash or SIGKILL of pos-wave the route and IO34 keep their last
    values.~~ Closed before merge: a write-ahead recovery record, reconciled by
    the next owner of the audio lock and by a `pos-wave recover` the Wave
