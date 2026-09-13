@@ -204,7 +204,8 @@ shell's 200 ms UI deadline needs. The manager reconciles each step against
 the supplicant's STATUS rather than trusting events alone, so a missed event
 costs one step. Ethernet stays with the vendor's ifupdown. Hardware facts:
 docs/hardware/WIFI_2026-09-12.md. Host-tested against a scenario-driven fake
-wpa_supplicant (`tests/netd_test.sh`); not yet run on hardware.
+wpa_supplicant (`tests/netd_test.sh`) and validated on unit A on 2026-09-13,
+where the vendor `ifup wlan0` path was confirmed not to compete for wlan0.
 
 ## Shell
 

@@ -1,7 +1,7 @@
 # Settings
 
-Status: host-tested (view model, LVGL app test, shell test, lint); not yet
-run on hardware. Added on `feature/post-v0.0.9-foundations`.
+Status: host-tested (view model, LVGL app test, shell test, lint) and
+validated on unit A on 2026-09-13 (end of this page). Added on `feature/post-v0.0.9-foundations`.
 
 Settings is the launcher app for the OS-level controls that exist and work:
 **Wi-Fi** (through netd, `docs/api/network.md`), **display brightness**
@@ -101,10 +101,18 @@ simulator against netd-testhooks and the fake supplicant.
 Id `settings`, name "Settings", icon `LV_SYMBOL_EDIT` (the gear is System's
 and the list glyph Timber's). Tenth tile, fifth row.
 
-## Physical validation (not done)
+## Physical validation (unit A, 2026-09-13)
 
-Covered by step 8 of `docs/hardware/WIFI_2026-09-12.md` and step 6 of
-`docs/hardware/DISPLAY_BRIGHTNESS.md`. In addition: type a passphrase with the
-touch keyboard and with the physical keyboard (the SHOW toggle helps against
-the known 1-in-10 mis-key rate of the 52 px keys), and check that no row or
-button is hard to hit on glass.
+Build `3d4a6e7` on unit A, the product owner at the panel; details in the
+unit A sections of `docs/hardware/WIFI_2026-09-12.md` and
+`docs/hardware/DISPLAY_BRIGHTNESS.md`. PASS:
+
+- Wi-Fi: scan list, join with the touch keyboard and with the physical
+  keyboard, CONNECTED/SAVED badges, SSID, signal and address shown,
+  Disconnect, saved rejoin without typing, Forget, "Wrong passphrase for ..."
+  on a wrong passphrase, the ON/OFF switch with automatic rejoin, Scan.
+- Brightness: `-` disabled at 10 %, `+` in steps of 10 with an immediate
+  change, stored and restored after a shell restart and a reboot.
+- Appearance: all five themes and Normal, Outdoor and Night applied live and
+  persisted; every section readable in each mode, nothing clipped or
+  overlapping, no control hard to hit.

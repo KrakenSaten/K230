@@ -354,13 +354,14 @@ Future cleanup:
 
 ## Post-v0.0.9 foundations: Wi-Fi, Settings, brightness, Calculator
 
-Branch `feature/post-v0.0.9-foundations` (2026-09-12). Everything below is
-host-tested only; nothing on this branch has run on a board yet. The bench
-sequences are in docs/hardware/WIFI_2026-09-12.md,
-docs/hardware/DISPLAY_BRIGHTNESS.md and
-docs/hardware/AUDIO_FEASIBILITY_2026-09-12.md.
+Branch `feature/post-v0.0.9-foundations` (2026-09-12). Host-tested, and on
+2026-09-13 validated on unit A: Wi-Fi, brightness, Settings and Calculator
+PASS; audio silent stages only. The bench records are the unit A sections of
+docs/hardware/WIFI_2026-09-12.md, docs/hardware/DISPLAY_BRIGHTNESS.md and
+docs/hardware/AUDIO_FEASIBILITY_2026-09-12.md, and the end of
+docs/apps/SETTINGS.md and docs/apps/POCKETCALCULATOR.md.
 
-Decisions waiting for the owner:
+Decisions:
 
 - **ADR-003 (Wi-Fi credentials) is accepted for this milestone** (owner,
   2026-09-13): passphrases persist in `/var/lib/pocketos/netd/wifi.conf`,
@@ -377,14 +378,24 @@ Wi-Fi (netd):
   whose passphrase contains æ, ø or å is refused with a message saying so.
 - **The vendor `ifup wlan0` stanza is still in the image.** `S40network`
   runs it when no Ethernet adapter is present at boot; it reads `wlanssid`
-  and `wlanpass` from the U-Boot environment (review item F2). netd reports
-  `interface_busy` rather than fight a wpa_supplicant it did not start.
-  Removing the stanza at apply time is recommended; it changes the image
-  build script and was left for the owner.
+  and `wlanpass` from the U-Boot environment (review item F2). On unit A it
+  does not conflict with netd (VERIFIED 2026-09-13): without
+  `/etc/fw_env.config` it fails before starting anything, and its
+  `ifdown` `killall wpa_supplicant` never runs because wlan0 is never
+  recorded as configured. It is disarmed by that missing file, not by design.
+  netd would report `interface_busy` rather than fight a supplicant it did
+  not start. Removing the stanza at apply time is still recommended; it
+  changes the image build script and was left for the owner.
 - **Default routing with Ethernet and Wi-Fi both up is not managed**:
   BusyBox's udhcpc script adds a default route per interface without a
-  metric, so the second may be refused or share the first's metric. Which
-  interface carries traffic is unmeasured.
+  metric. On the bench, with both on one LAN, both routes were installed and
+  the kernel chose eth0 (VERIFIED 2026-09-13). Products without the adapter
+  have only wlan0.
+- **A control-socket reply can arrive late.** netd waits 300 ms for
+  wpa_supplicant; once on unit A, right after an auth failure, a STATUS poll
+  timed out and the next one answered (one WARN, no effect). Stale replies are
+  drained before each request, but one arriving after the next request is
+  sent would be read as that request's answer. Not seen to cause harm.
 - **No regulatory domain** is set; the driver uses its built-in channel plan,
   and the kernel logs that `regulatory.db` is missing.
 - **Wi-Fi power depends on a pad pull-up.** GPIO45 enables the Wi-Fi
@@ -400,18 +411,21 @@ Wi-Fi (netd):
 
 Brightness:
 
-- **The 10 % floor is a guess on the safe side**, not a measurement of the
-  lowest readable level; brightness 0 (DCS `0x51 00`) is unreachable from
-  PocketOS and its visual effect is unknown.
-- A DCS brightness command during video mode is ASSUMED safe on the
-  RM69A10; never exercised on unit A.
+- **At the 10 % floor Night mode is marginal**: readable and comfortable in
+  Normal, readable but marginal in Night on unit A (2026-09-13). The floor
+  stays at 10 %. Brightness 0 (DCS `0x51 00`) is unreachable from PocketOS and
+  its visual effect is unknown.
+- A shell restarted from an SSH session inherits that session's umask, so
+  `settings.conf` rewritten by it becomes 0600 rather than 0644. Only root
+  reads it; bench effect only.
 
 Audio (not implemented, findings only):
 
 - **The booted default routes I2S to the header pads with IO35 as data, and
-  GPIO35 is `IO35_DISEN`** (display power) on the schematic. Whether the
-  bypass resistor R54 is fitted is unknown. No playback test until it is
-  checked.
+  GPIO35 is `IO35_DISEN`** (display power) on the schematic. On unit A IO35
+  reads low with the panel powered, so the bypass resistor R54 is STRONGLY
+  INFERRED fitted (2026-09-13); it has not been seen. No playback test until
+  it is checked by sight and the route is switched to the codec.
 
 Calculator:
 

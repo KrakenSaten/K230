@@ -49,9 +49,9 @@ mechanism only). Its floor of 20 is a UI choice, not a measurement.
   passed in; `tests/brightness_test.c` covers it against a fake tree.
 - **Safe minimum 10 %** = raw 26 of 255, above the vendor floor of 20. Raw 0
   can never be requested: the HAL clamps, and `shell.brightness` rejects
-  anything outside 10..100 before it reaches the HAL. The floor is
-  conservative on purpose and should only move once the lowest readable level
-  has been measured on the panel (physical test step 5).
+  anything outside 10..100 before it reaches the HAL. Checked on unit A on
+  2026-09-13: readable and comfortable in Normal, readable but marginal in
+  Night, so the floor stays at 10 % (below).
 - The **shell owns it**, because the shell owns the panel (ADR-002): one probe
   at start, `pocketos_shell_brightness_get/_set` in `ui/shell/app.h` for apps,
   and `shell.brightness` over pocketipc (`docs/api/shell.md`, `pos shell
@@ -70,7 +70,37 @@ Recovery if the panel is ever too dark to use: over SSH, `pos shell
 brightness 100`; or stop the shell, remove the `display_brightness` line from
 `/etc/pocketos/settings.conf` and reboot (the panel boots at 254).
 
-## Physical validation for unit A (not done)
+## Unit A validation, 2026-09-13
+
+Build `3d4a6e7` deployed as userspace onto unit A's v0.0.9 card; the owner at
+the panel, everything else over SSH. Owner = seen on the panel by the product
+owner.
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| Boot level | `brightness 100% (rm69a10)`, raw 254; log `nothing stored, left as booted` | VERIFIED |
+| 50 % | raw 128, `actual_brightness` 128; panel dimmer, clean, no flicker, touch works; no DSI or panel error in dmesg | VERIFIED, owner |
+| 10 % (floor), Normal | raw 26; readable and comfortable | VERIFIED, owner |
+| 10 %, Night | raw 26; readable but marginal | VERIFIED, owner |
+| Below the floor | `pos shell brightness 9` and `0` refused with code 2, raw unchanged | VERIFIED |
+| Settings | showed 10 % with `-` disabled; five `+` taps each brightened the panel immediately; log 20 → 60 %, raw 153, `display_brightness=60` stored | VERIFIED, owner |
+| Shell restart | raw 153, `restored to 60%` | VERIFIED |
+| Reboot | panel boots at 254, the shell restores 60 % (raw 153) before its first frame | VERIFIED |
+| Invalid stored value | `display_brightness=seven`: warning `stored display_brightness=seven is not 10..100, left as booted`, raw left as it was, the line not rewritten, shell running with 0 restarts | VERIFIED |
+| 100 % | raw 255 | VERIFIED |
+
+**Decision: the 10 % floor stays**; no code change. DCS `0x51` during video
+mode was exercised about a dozen times without a DSI error or visible artefact,
+which retires the "ASSUMED safe" note for this panel. Not tested: raw 0 and
+`bl_power` (unreachable from PocketOS), 10 % in Outdoor, and the
+no-backlight path (host-tested only). Unit A was left at 60 %.
+
+Bench note: a shell restarted from an SSH session inherits its umask (0077),
+so a `settings.conf` it rewrites comes out 0600 instead of 0644. Every reader
+is root, so nothing breaks. It was set back to 0644 by hand, and the
+boot-started shell's later writes kept 0644.
+
+## Physical validation procedure
 
 Operator at the panel, device on the bench network, PocketOS image with this
 branch deployed. Stop at the first unexpected result and restore with step 9.

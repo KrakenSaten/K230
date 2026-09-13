@@ -32,7 +32,12 @@ The default audio route and the display power switch share a pin.
   Q2 (AO3401A) it switches VDD_3V3 to TP_VDDIO, LCD_VDD and VBAT (`SCH` p2,
   p4). A resistor marked `NC/0R`, R54, can bypass Q2. PROVEN (schematic).
 - The display works on unit A today, so either R54 is fitted or IO35 idles at
-  a level that keeps the rail on. Which of the two is UNKNOWN.
+  a level that keeps the rail on. **Update 2026-09-13 (section 6):** IO35 was
+  read LOW on unit A with the display on and no stream open. An NPN (Q3)
+  driving a P-channel high-side switch (Q2) conducts when its input is high,
+  as the net name "DISEN" says; with IO35 low, Q2 is off, so the rail can only
+  be on through R54. R54 is therefore STRONGLY INFERRED fitted. A visual check
+  of the board is still wanted before the first playback.
 
 Consequence: a playback stream on the default external route would put audio
 data on a line that may switch the display supply. **No playback may be
@@ -149,8 +154,11 @@ period (`soc-generic-dmaengine-pcm.c:18,123-130`). One Linux-visible hart and
 
 ## 3. Unknown
 
-- **Whether R54 is fitted** (section 0), and the idle level of IO35.
-- GPIO34's level at boot (it would enable the base-board amplifier).
+- **Whether R54 is fitted** (section 0) by sight. Electrically STRONGLY
+  INFERRED fitted since 2026-09-13; IO35's idle level is now VERIFIED low
+  (section 6).
+- GPIO34's level at boot (it would enable the base-board amplifier). After
+  boot it is VERIFIED low: GPIO function, pull-down, not driven (section 6).
 - The I2S controller's real format list, channel limit and FIFO depth.
 - Headphone gain and mute register values before the first playback; the mic
   bias voltage (its field is never set).
@@ -228,8 +236,13 @@ switch, the capture volume and switch.
   `cat /sys/kernel/debug/asoc/components /sys/kernel/debug/asoc/dais`,
   `grep -E 'pin 3[2-5] ' /sys/kernel/debug/pinctrl/*/pinmux-pins`.
   Do not mount debugfs without asking.
-- `gpioinfo gpiochip1` (read-only): record the consumers of lines 2 and 3
-  (GPIO34, GPIO35).
+- `gpioinfo -c gpiochip1 2 3` (read-only, libgpiod 2.x): record the
+  consumers of lines 2 and 3 (GPIO34, GPIO35).
+- The pad levels without touching the lines: `devmem 0x91105088 32` (IO34)
+  and `devmem 0x9110508c 32` (IO35), read form only, never with a value. Bit
+  31 is the pad's input level when bit 8 (input enable) is set; bits 13:11
+  the function (`drivers/pinctrl/canaan/pinctrl-k230-iomux.c`). Never
+  `gpioget`: it would make the line an input.
 
 **Stage 4 - controlled microphone capture** (owner present, no headphones
 plugged, the owner knows the mic is on):
@@ -256,8 +269,46 @@ opens the device), `amixer cset`/`sset`, `alsamixer`, `alsactl restore`/`init`,
 `gpioset`/`gpioget` on lines 34-35, `audio_demo`, `audio_rec_play`, `ffmpeg`
 with ALSA output, enabling `k230_phone_ui`, writes to `prealloc`.
 
+## 6. Unit A, silent stages 1-3, 2026-09-13
+
+Build `3d4a6e7` on unit A's v0.0.9 card, over SSH. No stream was opened, no
+mixer value written, no GPIO line requested, debugfs not mounted.
+
+| Item | Result | Evidence |
+| --- | --- | --- |
+| Card | `0 [K230I2SINNO]: K230_I2S_INNO`; devices control, `0-0` playback, `0-0` capture, timer; `/dev/snd` 0660 root | VERIFIED |
+| PCM | `Audio 9140e000.inno_codec-0`, one playback and one capture substream, both available, `hw_params` and status `closed`; no process holds `/dev/snd` | VERIFIED |
+| Device tree | `sound` compatible `canaan,k230-audio-inno`, okay, `canaan,external-i2s-output-default` present; dmesg `External I2S output enabled by default` | VERIFIED |
+| Mixer (read with `amixer contents`) | `External I2S Output Switch` **on**; `PCM Playback Volume` 24 of 45 (= -15 dB); `PCM Playback Switch` on; `Mic Capture Volume` 30 of 30; `Mic Capture Switch` on; `PCM`/`PCM Switch` mirror the playback pair | VERIFIED |
+| IO35 pad (`0x9110508c`) | `0x00001191`: function 2 = I2S data out, output and input enabled, no pull, **level 0** | VERIFIED |
+| IO34 pad (`0x91105088`) | `0x000001b0`: function 0 = GPIO34, pull-down, level 0; gpiochip1 line 2 is an unused input | VERIFIED |
+| IO32/IO33 | function 2 (I2S BCLK/WS), output enabled | VERIFIED |
+| Control for the level bit | IO21 and IO22 (the board DT's two reset GPIOs, driven high while the panel runs) read level 1 | VERIFIED |
+| GPIO consumers | gpiochip1 lines 2 and 3: unnamed, no consumer | VERIFIED |
+| Display during all of this | on, raw brightness 153, shell running | VERIFIED |
+
+**R54.** It is the 0 Ω bypass across Q2, the P-channel switch that
+`IO35_DISEN` controls for TP_VDDIO, LCD_VDD and VBAT. With IO35 held low by
+the idle I2S output and the panel powered, R54 is STRONGLY INFERRED fitted
+(section 0). Nothing earlier in boot drives it high either: U-Boot's device
+tree (`k230_canmv_v3`) sets IO35 as a GPIO and no U-Boot code writes that
+GPIO (DOCUMENTED).
+
+**GPIO35 is shared, on the board only.** In software it has one owner, the
+I2S controller's pinctrl state; nothing else in Linux claims it. On the board
+the same net is the display power enable. With R54 fitted, data toggling on
+IO35 switches Q3/Q2 but not the rail, so a stream on the external route should
+not cut the display (STRONGLY INFERRED).
+
+**Is playback safe later?** Not proven. The display-power question is now
+electrically settled, pending a visual check of R54. Stages 4 and 5 stay as
+written: owner present, route switched to the internal codec first, lowest
+gain, headphones on the desk, watching the panel for flicker. Nothing in
+PocketOS opens a stream until then.
+
 ## Statement for the record
 
-NO AUDIO WAS PLAYED. NO MICROPHONE CAPTURE WAS PERFORMED. No mixer level was
-read or changed on unit A, and unit A was not contacted at all while this
-document was prepared.
+NO AUDIO WAS PLAYED. NO MICROPHONE CAPTURE WAS PERFORMED. For the static
+study (sections 0-5) no mixer level was read or changed on unit A, and unit A
+was not contacted. For section 6 (2026-09-13) the mixer was read, not
+changed, no PCM device was opened, and no GPIO line was requested or written.

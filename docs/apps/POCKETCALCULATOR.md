@@ -4,9 +4,10 @@ A simple calculator: the four operations with ordinary precedence, a decimal
 point, +/−, backspace and clear. It computes and forgets - nothing is stored,
 nothing is sent anywhere, and there is no clock in it.
 
-Status: **in development on `feature/pocketcalculator`. Host-tested,
-including taps under a real LVGL pointer device and keys through the real
-logical key stream; not yet run on hardware.**
+Status: **on `feature/post-v0.0.9-foundations` (from
+`feature/pocketcalculator`). Host-tested, including taps under a real LVGL
+pointer device and keys through the real logical key stream; smoke-tested on
+unit A on 2026-09-13 (end of this page).**
 
 ## What it is
 
@@ -340,3 +341,11 @@ What only hardware can settle:
 - The physical keyboard's map for `*`, `/`, `=` and `n`, which is the
   keyboard driver's concern, not the calculator's: whatever code point it
   pushes is what the calculator sees.
+
+**Unit A smoke, 2026-09-13** (build `3d4a6e7`, the product owner at the
+panel, TCA8418 keyboard attached). PASS: `2 + 3 × 4 =` by touch gives 14;
+`0.1+0.2` Enter on the keyboard gives 0.3; `6*7=` on the keyboard gives 42;
+`7 ÷ 0 =` shows `Can't divide by 0` and C clears it; `123` ⌫ ⌫ gives 1, ± gives
+-1, keyboard `n` gives 1, Esc gives 0; back to the launcher and reopened at 0
+(shell log: open, close, open). Touch keys were accurate. Not covered: `/` on
+the keyboard, Outdoor sunlight legibility.
