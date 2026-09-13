@@ -12,7 +12,8 @@
 #     shell embeds, the LVGL it loads and the packages it depends on are all
 #     tied to entries or to a Buildroot package that carries its own licence.
 #   - The notices are installed into the image, handed to legal-info, and sent
-#     by the bench deploy.
+#     by the bench deploy; pocketos.hash holds their sha256 for legal-info, and
+#     a notices file that no longer matches it is refused.
 #   - PocketOS's own licence stays undecided: no licence file, the package says
 #     so and is not redistributable, and the notices say so first.
 #
@@ -25,13 +26,14 @@ check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$(
 GEN=tools/legal/gen_notices.sh
 SOURCES=third_party/notices/SOURCES
 MK=platforms/k230/package/pocketos/pocketos.mk
+HASHF=platforms/k230/package/pocketos/pocketos.hash
 NOTICES=THIRD_PARTY_NOTICES.txt
 ids() { grep -v -E '^[[:space:]]*(#|$)' "$SOURCES" | awk -F ' [|] ' '{print $1}' | sed 's/[[:space:]]*$//'; }
 has_id() { ids | grep -qx "$1" && echo 1 || echo 0; }
 
 # ---- the file and its sources ------------------------------------------
 out=$(bash "$GEN" --check 2>&1); rc=$?
-check "THIRD_PARTY_NOTICES.txt is what third_party/notices produces" "$([ $rc -eq 0 ] && echo 1 || echo 0)"
+check "THIRD_PARTY_NOTICES.txt is what third_party/notices produces, and pocketos.hash matches it" "$([ $rc -eq 0 ] && echo 1 || echo 0)"
 [ $rc -eq 0 ] || printf '%s\n' "$out" | sed 's/^/     /'
 check "every SOURCES line has six fields" \
     "$(grep -v -E '^[[:space:]]*(#|$)' "$SOURCES" | awk -F ' [|] ' 'NF != 6 {bad=1} END {print bad ? 0 : 1}')"
@@ -128,6 +130,66 @@ check "the committed package source carries the notices, their sources and the t
 check "legal-info collects the notices" "$(grep -q '^POCKETOS_LICENSE_FILES = THIRD_PARTY_NOTICES.txt$' "$MK" && echo 1 || echo 0)"
 check "the bench deploy sends them like the image carries them" \
     "$([ "$(grep -c 'usr/share/pocketos/THIRD_PARTY_NOTICES.txt' platforms/k230/scripts/deploy.sh)" -ge 2 ] && echo 1 || echo 0)"
+
+# ---- the hash legal-info checks them against ------------------------------
+# Buildroot's hash file for the package (manual, "The .hash file"). legal-info
+# refuses a licence file that does not match it, but it reads the file only
+# then, and it carries on when the file has no line for a licence file, so a
+# missing line would check nothing. The build therefore holds the notices to it
+# as well.
+hash_of() { awk -v f="$2" '$1 == "sha256" && $3 == f { print $2 }' "$1" 2>/dev/null; }
+check "pocketos.hash sits beside pocketos.mk, in Buildroot's format (type, hash and name two spaces apart, LF, final newline)" \
+    "$([ -f "$HASHF" ] && [ -z "$(tail -c 1 "$HASHF")" ] && ! grep -q "$(printf '\r')" "$HASHF" &&
+       [ "$(grep -v -E '^(#.*)?$' "$HASHF" | grep -c -v -E '^sha256  [0-9a-f]{64}  [^ ]+$')" = 0 ] &&
+       echo 1 || echo 0)"
+missing=""
+for f in $(sed -n 's/^POCKETOS_LICENSE_FILES = //p' "$MK"); do
+    [ -n "$(hash_of "$HASHF" "$f")" ] || missing="$missing $f"
+done
+check "every licence file legal-info collects has a sha256 there${missing:+ (missing:$missing)}" \
+    "$([ -z "$missing" ] && echo 1 || echo 0)"
+git show "HEAD:$HASHF" > "$TMPD/head.hash" 2>/dev/null
+check "the committed pocketos.hash holds the sha256 of the committed notices" \
+    "$(want=$(hash_of "$TMPD/head.hash" THIRD_PARTY_NOTICES.txt)
+       [ -n "$want" ] && [ "$want" = "$(git show "HEAD:$NOTICES" | sha256sum | cut -d' ' -f1)" ] && echo 1 || echo 0)"
+check "apply_to_sdk.sh requires it, checks it with the notices, and installs it from the snapshot" \
+    "$(grep -q '^         platforms/k230/package/pocketos/pocketos.hash; do$' platforms/k230/scripts/apply_to_sdk.sh &&
+       awk '/^NOTICES_DIR="\$\(mktemp -d\)"$/{a=NR} /^    platforms\/k230\/package\/pocketos\/pocketos\.hash \\$/{h=NR}
+            /gen_notices\.sh" --check/{c=NR} END{exit !(a && h > a && c > h)}' platforms/k230/scripts/apply_to_sdk.sh &&
+       grep -q 'install -m 0644 "${SNAPSHOT_DIR}/platforms/k230/package/pocketos/pocketos.hash" "${PKG_DIR}/pocketos.hash"' platforms/k230/scripts/apply_to_sdk.sh &&
+       echo 1 || echo 0)"
+check "build_image.sh fails a build whose installed notices do not match it" \
+    "$(grep -q 'buildroot-overlay/package/pocketos/pocketos.hash' platforms/k230/scripts/build_image.sh &&
+       grep -q 'so legal-info would refuse it' platforms/k230/scripts/build_image.sh && echo 1 || echo 0)"
+
+# And the check fails when it should, on a scratch copy of what the tool reads.
+G="$TMPD/hashguard"
+mkdir -p "$G/tools" "$G/third_party" "$G/docs/legal" "$G/$(dirname "$HASHF")"
+cp -r tools/legal "$G/tools/"; cp -r third_party/notices "$G/third_party/"
+cp -r docs/legal/fonts docs/legal/third-party "$G/docs/legal/"
+cp "$NOTICES" "$G/"; cp "$HASHF" "$G/$HASHF"
+reset_guard() { cp "$NOTICES" "$G/"; cp "$HASHF" "$G/$HASHF"; cp third_party/notices/texts/unscii-8.txt "$G/third_party/notices/texts/"; }
+guard() { bash "$G/$GEN" --check 2>&1; }
+check "a scratch copy passes the check" "$(guard > /dev/null && echo 1 || echo 0)"
+printf 'edited by hand\n' >> "$G/$NOTICES"
+out=$(guard); rc=$?
+check "a hand edit to the notices is refused, and the stale hash named" \
+    "$([ $rc -ne 0 ] && printf '%s\n' "$out" | grep -q '^FAIL .*pocketos.hash' && echo 1 || echo 0)"
+reset_guard; printf '\n' >> "$G/third_party/notices/texts/unscii-8.txt"
+bash "$G/$GEN" > /dev/null; cp "$HASHF" "$G/$HASHF"
+out=$(guard); rc=$?
+check "regenerated notices without their new hash are refused" \
+    "$([ $rc -ne 0 ] && printf '%s\n' "$out" | grep -q '^ok   THIRD_PARTY_NOTICES.txt is current' &&
+       printf '%s\n' "$out" | grep -q '^FAIL .*pocketos.hash' && echo 1 || echo 0)"
+bash "$G/$GEN" > /dev/null
+check "the generator writes both, so the maintained path passes with a new hash" \
+    "$(guard > /dev/null && ! cmp -s "$G/$HASHF" "$HASHF" && echo 1 || echo 0)"
+reset_guard; sed -i "s/^sha256  [0-9a-f]*  /sha256  $(printf '' | sha256sum | cut -d' ' -f1)  /" "$G/$HASHF"
+check "a wrong hash is refused" \
+    "$([ "$(hash_of "$G/$HASHF" THIRD_PARTY_NOTICES.txt)" != "$(hash_of "$HASHF" THIRD_PARTY_NOTICES.txt)" ] &&
+       ! guard > /dev/null && echo 1 || echo 0)"
+reset_guard; rm -f "$G/$HASHF"
+check "a missing hash file is refused" "$(guard > /dev/null && echo 0 || echo 1)"
 
 # ---- PocketOS's own licence: undecided ------------------------------------
 check "no licence file claims a licence for PocketOS" \

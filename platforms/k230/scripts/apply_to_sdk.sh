@@ -211,7 +211,8 @@ git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" \
     | tar -xp -C "${SNAPSHOT_DIR}"
 for f in "platforms/k230/configs/${CONF}" \
          platforms/k230/package/pocketos/Config.in \
-         platforms/k230/package/pocketos/pocketos.mk; do
+         platforms/k230/package/pocketos/pocketos.mk \
+         platforms/k230/package/pocketos/pocketos.hash; do
     [ -f "${SNAPSHOT_DIR}/${f}" ] || {
         echo "ERROR: ${f} is missing from the ${REPO_COMMIT} snapshot." >&2
         echo "       Every first-party build input has to be committed." >&2
@@ -280,7 +281,8 @@ echo "[5/5] PocketOS package"
 # Third-party notices (docs/LICENSING.md). The package installs
 # THIRD_PARTY_NOTICES.txt into the image and hands it to legal-info, so notices
 # that no longer describe what is built are refused before the package is
-# written: the file must be what third_party/notices produces, every copied
+# written: the file must be what third_party/notices produces, pocketos.hash
+# (which legal-info checks it against) must hold its sha256, every copied
 # licence text must be byte-identical to its pinned upstream (the RadioLib and
 # ggwave checkouts, and the LVGL and lv_port_linux archives this SDK builds
 # from), and the vendor LVGL configuration must not compile in bundled code the
@@ -289,6 +291,7 @@ NOTICES_DIR="$(mktemp -d)"
 git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" -- \
     THIRD_PARTY_NOTICES.txt third_party/notices tools/legal docs/legal/fonts docs/legal/third-party \
     platforms/k230/vendor_radiolib_commit.txt platforms/k230/vendor_ggwave_commit.txt \
+    platforms/k230/package/pocketos/pocketos.hash \
     "platforms/k230/configs/${CONF}" | tar -x -C "${NOTICES_DIR}"
 ln -s "${REPO_DIR}/vendor" "${NOTICES_DIR}/vendor"
 NOTICES_OK=1
@@ -313,6 +316,7 @@ PKG_DIR="${SDK_DIR}/buildroot-overlay/package/pocketos"
 mkdir -p "${PKG_DIR}/src"
 install -m 0644 "${SNAPSHOT_DIR}/platforms/k230/package/pocketos/Config.in" "${PKG_DIR}/Config.in"
 install -m 0644 "${SNAPSHOT_DIR}/platforms/k230/package/pocketos/pocketos.mk" "${PKG_DIR}/pocketos.mk"
+install -m 0644 "${SNAPSHOT_DIR}/platforms/k230/package/pocketos/pocketos.hash" "${PKG_DIR}/pocketos.hash"
 # What the package is built from. Kept on one line and in this form so
 # tests/package_sync_test.sh can read it and stay in step with this script.
 POCKETOS_PKG_PATHSPEC=". :(exclude)docs :(exclude)platforms"

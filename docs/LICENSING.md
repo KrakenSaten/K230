@@ -86,16 +86,26 @@ its text comes from; `tools/legal/gen_notices.sh` generates the file.
 - Copied texts are kept as verbatim copies and checked byte for byte against
   the pinned upstream: RadioLib and ggwave git objects at their pins, and the
   LVGL and lv_port_linux source archives the SDK builds from.
-- `apply_to_sdk.sh` refuses to package if the notices are not current, if any
-  text differs from or cannot be read from its upstream, or if the vendor
-  LVGL configuration compiles in bundled code with no entry. There is no
-  override.
+- `platforms/k230/package/pocketos/pocketos.hash` is the package's Buildroot
+  hash file: the sha256 of THIRD_PARTY_NOTICES.txt, which legal-info checks the
+  collected file against (a mismatch fails legal-info). The generator writes
+  both files together. Buildroot reads the hash only during legal-info and
+  accepts a hash file with no line for a licence file, so the steps below also
+  check it.
+- `apply_to_sdk.sh` refuses to package if the notices are not current, if
+  pocketos.hash does not match them, if any text differs from or cannot be
+  read from its upstream, or if the vendor LVGL configuration compiles in
+  bundled code with no entry. There is no override.
 - `build_image.sh` checks after the build that the image carries the packaged
-  file and that the built LVGL configuration still matches.
-- `tests/notices_test.sh` (make test) fails if the generated file is stale, if
-  a vendored tree the Makefile compiles, an embedded font or a package
-  dependency has no entry, if the file stops being installed, collected or
-  deployed, or if a licence for PocketOS itself appears.
+  file, that it matches pocketos.hash (in both the applied copy and the one
+  Buildroot reads), and that the built LVGL configuration still matches.
+- `tests/notices_test.sh` (make test) fails if the generated file is stale or
+  its hash does not match, if a vendored tree the Makefile compiles, an
+  embedded font or a package dependency has no entry, if the file stops being
+  installed, collected, hashed or deployed, or if a licence for PocketOS
+  itself appears. It also proves the hash check refuses a hand-edited file,
+  regenerated notices without their new hash, a wrong hash and a missing hash
+  file.
 
 **Classification.**
 

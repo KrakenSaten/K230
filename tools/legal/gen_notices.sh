@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # THIRD_PARTY_NOTICES.txt from third_party/notices/SOURCES.
 #
-#   gen_notices.sh                 write THIRD_PARTY_NOTICES.txt
+#   gen_notices.sh                 write THIRD_PARTY_NOTICES.txt and its hash in
+#                                  platforms/k230/package/pocketos/pocketos.hash
 #   gen_notices.sh --check         fail if THIRD_PARTY_NOTICES.txt is not what
-#                                  SOURCES and the texts produce
+#                                  SOURCES and the texts produce, or if
+#                                  pocketos.hash does not match it
 #   gen_notices.sh --verify-upstream [--sdk DIR] [--strict]
 #                                  compare every copied text with the pinned
 #                                  upstream file, byte for byte; with --strict
@@ -26,6 +28,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 NOTICES="${REPO}/third_party/notices"
 OUT="${REPO}/THIRD_PARTY_NOTICES.txt"
+HASH="${REPO}/platforms/k230/package/pocketos/pocketos.hash"
 SDK=""
 MODE="generate"
 STRICT=0
@@ -157,20 +160,38 @@ EOF
     } > "$1"
 }
 
+# The Buildroot hash file for the package's licence file (Buildroot manual,
+# "The .hash file"). legal-info refuses a THIRD_PARTY_NOTICES.txt that does not
+# match it; without one it collects the file unchecked and warns.
+hash_file() { # <notices file>
+    printf '# Locally computed by tools/legal/gen_notices.sh, which writes it together\n'
+    printf '# with THIRD_PARTY_NOTICES.txt. Do not edit by hand.\n'
+    printf 'sha256  %s  THIRD_PARTY_NOTICES.txt\n' "$(sha256sum < "$1" | cut -d' ' -f1)"
+}
+
 case "${MODE}" in
     generate)
         generate "${OUT}"
-        echo "wrote ${OUT#"${REPO}"/}"
+        hash_file "${OUT}" > "${HASH}"
+        echo "wrote ${OUT#"${REPO}"/} and ${HASH#"${REPO}"/}"
         ;;
     check)
         tmp="$(mktemp)"; trap 'rm -f "${tmp}"' EXIT
         generate "${tmp}"
+        bad=0
         if cmp -s "${tmp}" "${OUT}"; then
             echo "ok   THIRD_PARTY_NOTICES.txt is current"
         else
             echo "FAIL THIRD_PARTY_NOTICES.txt is not what third_party/notices produces; run tools/legal/gen_notices.sh"
-            exit 1
+            bad=1
         fi
+        if [ -f "${HASH}" ] && cmp -s "${HASH}" <(hash_file "${OUT}"); then
+            echo "ok   pocketos.hash holds the sha256 of THIRD_PARTY_NOTICES.txt"
+        else
+            echo "FAIL ${HASH#"${REPO}"/} is missing or does not match THIRD_PARTY_NOTICES.txt; run tools/legal/gen_notices.sh"
+            bad=1
+        fi
+        exit "${bad}"
         ;;
     verify-upstream|refresh)
         bad=0; unverified=0
