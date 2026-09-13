@@ -28,6 +28,7 @@ cd "$(dirname "$0")/.." || exit 1
 REPO=$(pwd)
 OVERLAY=platforms/k230/rootfs_overlay
 S50_SRC=$OVERLAY/etc/init.d/S50sysd
+S55_SRC=$OVERLAY/etc/init.d/S55netd
 S60_SRC=$OVERLAY/etc/init.d/S60radiod
 S90_SRC=$OVERLAY/etc/init.d/S90pocketos-shell
 failed=0
@@ -77,7 +78,7 @@ else
     echo "note: file modes read from $MODE_SOURCE"
     # Image-critical: these modes are copied into the rootfs by Buildroot and
     # BusyBox rcS runs `$i start`, which needs the executable bit.
-    for f in "$S50_SRC" "$S60_SRC" "$S90_SRC"; do
+    for f in "$S50_SRC" "$S55_SRC" "$S60_SRC" "$S90_SRC"; do
         check "image-critical: $(basename "$f") recorded 100755" \
               $([ "$(mode_of "$f")" = "100755" ] && echo 1 || echo 0)
     done
@@ -138,6 +139,16 @@ EOD
 make_daemon "$ROOT/usr/sbin/radiod" "$ROOT/radiod.env"
 make_daemon "$ROOT/usr/sbin/sysd" "$ROOT/sysd.env"
 make_daemon "$ROOT/usr/bin/pocketos-shell" "$ROOT/shell.env"
+# netd's stub also records its arguments: the interface comes from the init
+# script, and that is what is being checked.
+cat > "$ROOT/usr/sbin/netd" <<EOD
+#!/bin/sh
+env > "$ROOT/netd.env"
+echo "\$*" > "$ROOT/netd.args"
+trap 'exit 0' TERM INT
+while :; do sleep 0.2; done
+EOD
+chmod 0755 "$ROOT/usr/sbin/netd"
 
 # Rewrite the absolute paths of an init script into the fake root. /dev/null is
 # deliberately left alone.
@@ -158,19 +169,21 @@ rewrite() { # <source> <destination>
     chmod 0755 "$2"
 }
 rewrite "$REPO/$S50_SRC" "$ROOT/etc/init.d/S50sysd"
+rewrite "$REPO/$S55_SRC" "$ROOT/etc/init.d/S55netd"
 rewrite "$REPO/$S60_SRC" "$ROOT/etc/init.d/S60radiod"
 rewrite "$REPO/$S90_SRC" "$ROOT/etc/init.d/S90pocketos-shell"
 
 # The rewrite must be complete: any surviving system path would make the test
 # lie about what it exercised (or touch the host).
 leaked=$(grep -nE '(^|[^A-Za-z0-9_/])/(etc|var|usr|run)/' "$ROOT/etc/init.d/S50sysd" \
-                  "$ROOT/etc/init.d/S60radiod" \
+                  "$ROOT/etc/init.d/S55netd" "$ROOT/etc/init.d/S60radiod" \
                   "$ROOT/etc/init.d/S90pocketos-shell" | grep -v "$ROOT" | grep -v '^\s*#')
 check "path rewrite left no system path behind" $([ -z "$leaked" ] && echo 1 || echo 0)
 [ -n "$leaked" ] && echo "$leaked" | head -5
 
 # A rule that matches inside an already-rewritten path produces "$ROOT/var$ROOT/run/..."
-doubled=$(grep -n "$ROOT[^ ]*$ROOT" "$ROOT/etc/init.d/S50sysd" "$ROOT/etc/init.d/S60radiod" \
+doubled=$(grep -n "$ROOT[^ ]*$ROOT" "$ROOT/etc/init.d/S50sysd" "$ROOT/etc/init.d/S55netd" \
+               "$ROOT/etc/init.d/S60radiod" \
                "$ROOT/etc/init.d/S90pocketos-shell")
 check "path rewrite did not nest one prefix inside another" $([ -z "$doubled" ] && echo 1 || echo 0)
 [ -n "$doubled" ] && echo "$doubled" | head -5
@@ -357,6 +370,57 @@ check "S90 stop removes the supervise pid file" \
       $([ ! -f "$ROOT/var/run/pocketos-shell-supervise.pid" ] && echo 1 || echo 0)
 check "S90 stop ends the supervisor" $(wait_gone "$SHPID" && echo 1 || echo 0)
 
+# ---- S55netd ------------------------------------------------------------
+#
+# netd's script has S50's discipline and one setting, the interface, from
+# /etc/default/netd. Everything started here is stopped again before the S50
+# section, which counts supervisors as its own.
+
+S55="$ROOT/etc/init.d/S55netd"
+count_netd() { pgrep -af "$ROOT/usr/sbin/netd" 2>/dev/null | grep -vc 'pos-supervise'; }
+wait_netd() { # <expected count> — up to 5 s
+    n=0
+    while [ "$(count_netd)" -ne "$1" ] && [ $n -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+    [ "$(count_netd)" -eq "$1" ]
+}
+
+out=$("$S55" start 2>&1)
+check "S55 start reports OK" $(contains "$out" "OK")
+check "S55 start names the default interface" $(contains "$out" "(wlan0)")
+NETPID=$(pidof_file "$ROOT/var/run/netd-supervise.pid")
+check "S55 start writes the supervise pid file" $([ -n "$NETPID" ] && echo 1 || echo 0)
+check "S55 start leaves the supervisor running" $(alive "$NETPID" && echo 1 || echo 0)
+check "S55 start starts the daemon" $(wait_for "$ROOT/netd.args" && echo 1 || echo 0)
+check "S55 passes the interface" $(grep -qx -- '--interface wlan0' "$ROOT/netd.args" && echo 1 || echo 0)
+check "S55 start records the daemon pid in the runtime dir" \
+      $([ -s "$ROOT/run/pocketos/netd.pid" ] && echo 1 || echo 0)
+check "S55 exports the persistent log directory" \
+      $(grep -q "^POCKETOS_LOG_DIR=$ROOT/var/lib/pocketos/log$" "$ROOT/netd.env" && echo 1 || echo 0)
+check "S55 exports POCKETOS_LOG_STDERR=0" \
+      $(grep -q '^POCKETOS_LOG_STDERR=0$' "$ROOT/netd.env" && echo 1 || echo 0)
+check "S55 exports no netd test hook" \
+      $(grep -q '^NETD_TEST_' "$ROOT/netd.env" && echo 0 || echo 1)
+out=$("$S55" start 2>&1)
+check "S55 start is idempotent" $(contains "$out" "already running")
+check "S55 does not start a second daemon" $(wait_netd 1 && echo 1 || echo 0)
+out=$("$S55" stop 2>&1)
+check "S55 stop reports OK" $(contains "$out" "OK")
+check "S55 stop ends the supervisor" $(wait_gone "$NETPID" && echo 1 || echo 0)
+check "S55 stop ends the daemon" $(wait_netd 0 && echo 1 || echo 0)
+check "S55 stop removes the supervise pid file" \
+      $([ ! -f "$ROOT/var/run/netd-supervise.pid" ] && echo 1 || echo 0)
+out=$("$S55" stop 2>&1)
+check "S55 stop when not running says so" $(contains "$out" "not running")
+rm -f "$ROOT/netd.args" "$ROOT/netd.env"
+printf 'NETD_INTERFACE=wlan1\n' > "$ROOT/etc/default/netd"
+out=$("$S55" restart 2>&1)
+check "S55 honours /etc/default/netd" $(contains "$out" "(wlan1)")
+check "S55 passes the configured interface" \
+      $(wait_for "$ROOT/netd.args" && grep -qx -- '--interface wlan1' "$ROOT/netd.args" && echo 1 || echo 0)
+"$S55" stop >/dev/null 2>&1
+wait_netd 0
+rm -f "$ROOT/etc/default/netd"
+
 # ---- S50sysd ------------------------------------------------------------
 #
 # Runs last, so the supervisor count belongs to sysd alone. sysd has no
@@ -539,20 +603,21 @@ if start_zombie; then
     # The scripts wait STOP_TIMEOUT (3 s) three times before giving up, which
     # is 9 s per service of pure waiting. The staged copies get one second
     # instead, and the rewrite is asserted like every other one here.
-    for svc in S50sysd S60radiod S90pocketos-shell; do
+    for svc in S50sysd S55netd S60radiod S90pocketos-shell; do
         sed 's/^STOP_TIMEOUT=3$/STOP_TIMEOUT=1/' "$ROOT/etc/init.d/$svc" \
             > "$ROOT/etc/init.d/$svc.quick"
         chmod 0755 "$ROOT/etc/init.d/$svc.quick"
     done
     quick_ok=$(grep -l '^STOP_TIMEOUT=1$' "$ROOT/etc/init.d/S50sysd.quick" \
-               "$ROOT/etc/init.d/S60radiod.quick" \
+               "$ROOT/etc/init.d/S55netd.quick" "$ROOT/etc/init.d/S60radiod.quick" \
                "$ROOT/etc/init.d/S90pocketos-shell.quick" 2>/dev/null | wc -l)
-    check "the shortened stop budget reached all three copies" \
-          $([ "$quick_ok" -eq 3 ] && echo 1 || echo 0)
+    check "the shortened stop budget reached all four copies" \
+          $([ "$quick_ok" -eq 4 ] && echo 1 || echo 0)
 
-    for svc in S50sysd S60radiod S90pocketos-shell; do
+    for svc in S50sysd S55netd S60radiod S90pocketos-shell; do
         case $svc in
         S50sysd)           pidfile="$ROOT/var/run/sysd-supervise.pid" ;;
+        S55netd)           pidfile="$ROOT/var/run/netd-supervise.pid" ;;
         S60radiod)         pidfile="$ROOT/var/run/radiod-supervise.pid" ;;
         S90pocketos-shell) pidfile="$ROOT/var/run/pocketos-shell-supervise.pid" ;;
         esac
@@ -602,7 +667,7 @@ fi
 {
     d=$ROOT/deploy
     mkdir -p "$d/etc/init.d" "$d/bin"
-    for svc in S50sysd S60radiod S90pocketos-shell; do
+    for svc in S50sysd S55netd S60radiod S90pocketos-shell; do
         printf '#!/bin/sh\necho "Stopping %s: FAILED, still running"\nexit 1\n' "$svc" \
             > "$d/etc/init.d/$svc"
         chmod 0755 "$d/etc/init.d/$svc"

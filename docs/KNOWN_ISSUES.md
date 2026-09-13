@@ -329,8 +329,11 @@ Future cleanup:
   the keyboard or alert work touches the store — it is noted because it was
   seen, not because its cause is known. Whether it came from a save path, an
   earlier bench session or an edit through the app is unestablished.
-- The launcher has eight tile slots and uses seven. Resolve before a ninth
-  app.
+- ~~The launcher has eight tile slots and uses seven. Resolve before a ninth
+  app.~~ Resolved on `feature/post-v0.0.9-foundations`: five rows, ten tiles
+  (Calculator and Settings), 870 px of the 1176 below the status bar. A
+  sixth row still fits once; an eleventh and twelfth app need the launcher
+  to scroll or to change.
 - `notes_text_is_utf8` accepts overlong sequences (`C0 80`, `E0 80 xx`) and
   the lead bytes `F5` to `F7`. A note written outside the app that contains
   them loses those bytes on Done.
@@ -348,3 +351,97 @@ Future cleanup:
   and enforced by the same `pin_check` as the BSP and SDK, a dirty RadioLib
   checkout is refused because it is copied rather than archived, and both the
   commit and that state travel in the applied manifest and BUILD_INFO.txt.
+
+## Post-v0.0.9 foundations: Wi-Fi, Settings, brightness, Calculator
+
+Branch `feature/post-v0.0.9-foundations` (2026-09-12). Host-tested, and on
+2026-09-13 validated on unit A: Wi-Fi, brightness, Settings and Calculator
+PASS; audio silent stages only. The bench records are the unit A sections of
+docs/hardware/WIFI_2026-09-12.md, docs/hardware/DISPLAY_BRIGHTNESS.md and
+docs/hardware/AUDIO_FEASIBILITY_2026-09-12.md, and the end of
+docs/apps/SETTINGS.md and docs/apps/POCKETCALCULATOR.md.
+
+Decisions:
+
+- **ADR-003 (Wi-Fi credentials) is accepted for this milestone** (owner,
+  2026-09-13): passphrases persist in `/var/lib/pocketos/netd/wifi.conf`,
+  protected by Unix file permissions only (0700/0600, root). The hex in the
+  file is an encoding, not encryption; anyone with root or the card can read
+  them. Revisit when a device-bound key store exists.
+
+Wi-Fi (netd):
+
+- **WPA3-only networks cannot be joined**: the rtl8189fs build has 802.11w
+  off and no SAE path (DOCUMENTED from the driver source). Transition
+  networks are joined as WPA2. A driver rebuild would be a BSP change.
+- **Passphrases are printable ASCII only** (8..63, IEEE 802.11i). A network
+  whose passphrase contains æ, ø or å is refused with a message saying so.
+- **The vendor `ifup wlan0` stanza is still in the image.** `S40network`
+  runs it when no Ethernet adapter is present at boot; it reads `wlanssid`
+  and `wlanpass` from the U-Boot environment (review item F2). On unit A it
+  does not conflict with netd (VERIFIED 2026-09-13): without
+  `/etc/fw_env.config` it fails before starting anything, and its
+  `ifdown` `killall wpa_supplicant` never runs because wlan0 is never
+  recorded as configured. It is disarmed by that missing file, not by design.
+  netd would report `interface_busy` rather than fight a supplicant it did
+  not start. Removing the stanza at apply time is still recommended; it
+  changes the image build script and was left for the owner.
+- **Default routing with Ethernet and Wi-Fi both up is not managed**:
+  BusyBox's udhcpc script adds a default route per interface without a
+  metric. On the bench, with both on one LAN, both routes were installed and
+  the kernel chose eth0 (VERIFIED 2026-09-13). Products without the adapter
+  have only wlan0.
+- **A control-socket reply can arrive late.** netd waits 300 ms for
+  wpa_supplicant; once on unit A, right after an auth failure, a STATUS poll
+  timed out and the next one answered (one WARN, no effect). Stale replies are
+  drained before each request, but one arriving after the next request is
+  sent would be read as that request's answer. Not seen to cause harm.
+- **One unreproduced netd_test event (test flake, non-blocking).** On
+  2026-09-13 one full `make test` on `8d7af16` had 13 netd_test failures: every
+  `wifi.connect` in the malformed-input block that reaches netd's readiness
+  gate returned an unexpected code, while the checks netd refuses earlier
+  passed. That pattern fits a short `starting` window (code 5, documented, and
+  waited out by `pos wifi` and Settings), for example a supplicant restart,
+  but the run's logs were deleted, so the cause is not established. It did not
+  recur in 51 later executions: 21 isolated runs (3 of them under heavy CPU
+  load), a bounded campaign on `9e24ec5` of 20 isolated runs (10 normal, 10
+  under moderate load), 2 focused runs on `815f76e`, and 8 inside full suites. netd_test now keeps a failed run's evidence
+  (netd log, fake supplicant record, store, every request and response with
+  times, status at each failure, exit status) in `out/test-failures/` or
+  `$TEST_EVIDENCE_DIR`, so a recurrence can be diagnosed. No product change.
+- **No regulatory domain** is set; the driver uses its built-in channel plan,
+  and the kernel logs that `regulatory.db` is missing.
+- **Wi-Fi power depends on a pad pull-up.** GPIO45 enables the Wi-Fi
+  regulator, nothing in Linux claims it, and the net has a 100 kΩ pull-down:
+  any GPIO consumer of gpiochip1 line 13, or a load on header pin 12, can cut
+  Wi-Fi power (ASSUMED from the schematic).
+- **netd has no events**; clients poll `wifi.status`. Settings polls once a
+  second.
+- Hidden networks can be joined with `pos wifi connect --hidden`, not from
+  Settings.
+- Copies of a passphrase inside cJSON (the IPC request) and inside
+  wpa_supplicant are not wiped; netd's own buffers are.
+
+Brightness:
+
+- **At the 10 % floor Night mode is marginal**: readable and comfortable in
+  Normal, readable but marginal in Night on unit A (2026-09-13). The floor
+  stays at 10 %. Brightness 0 (DCS `0x51 00`) is unreachable from PocketOS and
+  its visual effect is unknown.
+- A shell restarted from an SSH session inherits that session's umask, so
+  `settings.conf` rewritten by it becomes 0600 rather than 0644. Only root
+  reads it; bench effect only.
+
+Audio (not implemented, findings only):
+
+- **The booted default routes I2S to the header pads with IO35 as data, and
+  GPIO35 is `IO35_DISEN`** (display power) on the schematic. On unit A IO35
+  reads low with the panel powered, so the bypass resistor R54 is STRONGLY
+  INFERRED fitted (2026-09-13); it has not been seen. No playback test until
+  it is checked by sight and the route is switched to the codec.
+
+Calculator:
+
+- Holding the keypad backspace does not repeat.
+- The error state leaves on any key; an operator pressed there is not applied
+  (docs/apps/POCKETCALCULATOR.md).

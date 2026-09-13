@@ -19,6 +19,18 @@ developer tooling, not for applications.
   result carries `fallback: true` with a `reason`. Result: `{theme, mode,
   fallback, reason}`. `shell.info` also reports `theme` and `mode`.
 
+- `shell.brightness` params `{percent?}`: reads, or with `percent` sets, the
+  panel brightness (docs/hardware/DISPLAY_BRIGHTNESS.md). Result: `{supported,
+  percent, min, max, step, device}`; `percent` and `device` are `null` when
+  the display has no brightness control or the level cannot be read, and
+  `percent` can be below `min` when something other than PocketOS set it.
+  `percent` must be an integer in `min..max` (10..100): anything else is
+  error 2, with nothing applied. Error 6 when the display has no brightness
+  control, error 4 when the device refused the write. A level is persisted
+  (`display_brightness` in settings.conf) only once the device accepted it,
+  and the shell applies the stored level at start. `pos shell brightness
+  [10..100]`.
+
 ## Events
 
 `shell.app` `{current}` when the visible app changes, and `shell.theme`

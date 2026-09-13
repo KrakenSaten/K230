@@ -54,6 +54,28 @@ int64_t pocketos_shell_system_day(void);
  * valid until the next status tick; copy it if you keep it. */
 const char *pocketos_shell_radio_state(void);
 
+/* ---- display brightness ------------------------------------------------ *
+ *
+ * The panel belongs to the shell, and so does its brightness: an app asks
+ * here and never opens the backlight device itself. Percentages, with the
+ * floor, ceiling and step in brightness.h (BRIGHTNESS_MIN_PCT and friends).
+ *
+ * _get: the current level, or -1 when this display has no brightness
+ * control (the simulator, the HDMI variant) or the level cannot be read.
+ * _set: clamps into the allowed range, applies it, and remembers it for the
+ * next start only once the panel took it. Returns the level applied, or -1
+ * when unsupported or the write failed - in which case nothing is stored. */
+int pocketos_shell_brightness_get(void);
+int pocketos_shell_brightness_set(int percent);
+
+/* Select the Design System theme and/or display mode (either may be NULL to
+ * keep the current one), live, and remember it - the same path as
+ * shell.theme over IPC, so the stored selection and the shell.theme event
+ * follow. The current selection is pos_theme_current_def() and
+ * pos_theme_current_mode(). Returns 0, or -1 when the request was not a
+ * valid theme or mode and the DS §8 fallback was applied instead. */
+int pocketos_shell_set_appearance(const char *theme_id, const char *mode_name);
+
 /* ---- the touch keyboard (DS §17.3, §17.4) ------------------------------ *
  *
  * There is exactly one keyboard and the shell owns it. An app asks for it

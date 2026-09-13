@@ -37,6 +37,7 @@ add_executable(pocketos-shell
     shell_ipc.c
     shell_kb_state.c
     settings.c
+    brightness.c
     platform_${POCKETOS_DISPLAY}.c
     ../pocketui/pocketui.c
     ../pocketui/pos_input.c
@@ -49,6 +50,8 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/radio/radio_app.c
     ${REPO_DIR}/apps/system/system_app.c
     ${REPO_DIR}/apps/system/system_view.c
+    ${REPO_DIR}/apps/settings/settings_app.c
+    ${REPO_DIR}/apps/settings/settings_view.c
     ${REPO_DIR}/apps/fleet/fleet_app.c
     ${REPO_DIR}/apps/fleet/engine/fleet_types.c
     ${REPO_DIR}/apps/fleet/engine/fleet_rng.c
@@ -82,6 +85,9 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/calendar/cal_app.c
     ${REPO_DIR}/apps/calendar/cal_date.c
     ${REPO_DIR}/apps/calendar/cal_view.c
+    ${REPO_DIR}/apps/calculator/calc_app.c
+    ${REPO_DIR}/apps/calculator/calc_engine.c
+    ${REPO_DIR}/apps/calculator/calc_view.c
     ${REPO_DIR}/apps/notes/notes_app.c
     ${REPO_DIR}/apps/notes/notes_store.c
     ${REPO_DIR}/apps/notes/notes_view.c
@@ -149,7 +155,9 @@ target_compile_definitions(pocketos-shell PRIVATE POCKETTIMBER_ART=${POCKETTIMBE
 target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/notes"
                                                   "${REPO_DIR}/apps/clock"
-                                                  "${REPO_DIR}/apps/calendar")
+                                                  "${REPO_DIR}/apps/calendar"
+                                                  "${REPO_DIR}/apps/calculator"
+                                                  "${REPO_DIR}/apps/settings")
 
 if(POCKETOS_LVGL_MODE STREQUAL "source")
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -207,6 +215,11 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     pkg_check_modules(SDL2 REQUIRED sdl2)
     target_include_directories(${LVGL_INC_TARGET} PUBLIC ${SDL2_INCLUDE_DIRS})
     target_link_libraries(pocketos-shell PRIVATE ${SDL2_LIBRARIES})
+    # The simulator is never shipped, so it may honour test hooks: the
+    # brightness probe reads POCKETOS_TEST_SYSFS_ROOT when set
+    # (tests/brightness_shell_test.sh). The drm build, which is what goes on
+    # the card, is compiled without it and always reads /sys.
+    target_compile_definitions(pocketos-shell PRIVATE POCKETOS_SHELL_TEST_HOOKS=1)
     # No keyboard base board on a PC. The stub reports absence the way the
     # real bus reports a controller that does not answer, so the simulator
     # takes the same path as a board with the base detached.
@@ -442,6 +455,60 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(cal_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(cal_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # PocketCalculator in the running app, tapped on the panel and typed into
+    # through the real key stream (run by tests/calculator_shell_test.sh). The
+    # shell is not linked; the test defines the app.h entry points itself, as
+    # counters, and checks that the app calls none of them. There is no store,
+    # and the test checks that nothing is written anywhere.
+    add_executable(calc_app_test
+        ${REPO_DIR}/tests/calc_app_test.c
+        ${REPO_DIR}/apps/calculator/calc_app.c
+        ${REPO_DIR}/apps/calculator/calc_engine.c
+        ${REPO_DIR}/apps/calculator/calc_view.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(calc_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/calculator")
+    target_compile_options(calc_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(calc_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(calc_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(calc_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(calc_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # Settings in the running app, tapped and typed into (run by
+    # tests/settings_shell_test.sh). The test plays both services the app
+    # talks to: it answers the app's netd calls with scripted JSON and records
+    # what the app sent, and it supplies the shell's brightness entry points.
+    add_executable(settings_app_test
+        ${REPO_DIR}/tests/settings_app_test.c
+        ${REPO_DIR}/apps/settings/settings_app.c
+        ${REPO_DIR}/apps/settings/settings_view.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(settings_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/settings")
+    target_compile_options(settings_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(settings_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(settings_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(settings_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(settings_app_test PRIVATE lvgl ${SDL2_LIBRARIES} cjson m)
 
     # The system alert's keyboard isolation and focus ownership (run by
     # tests/alert_shell_test.sh). DS v0.1 section 18.5, 18.6 and 18.8: while

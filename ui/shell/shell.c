@@ -10,6 +10,7 @@
  */
 #define _GNU_SOURCE
 #include "app.h"
+#include "brightness.h"
 #include "clock_runtime.h"
 #include "clock_time.h"
 #include "platform.h"
@@ -54,10 +55,13 @@ extern const struct pocketos_app app_notes;
 extern const struct pocketos_app app_timber;
 extern const struct pocketos_app app_clock;
 extern const struct pocketos_app app_calendar;
+extern const struct pocketos_app app_calculator;
+extern const struct pocketos_app app_settings;
 
 static const struct pocketos_app *apps[] = { &app_radio, &app_system, &app_fleet,
                                             &app_radar, &app_timber, &app_notes,
-                                            &app_clock, &app_calendar };
+                                            &app_clock, &app_calendar, &app_calculator,
+                                            &app_settings };
 #define APP_COUNT (sizeof(apps) / sizeof(apps[0]))
 
 struct shell {
@@ -78,6 +82,7 @@ struct shell {
     lv_obj_t *keyboard;     /* the one touch keyboard (DS 17.4), hidden by default */
     void (*kb_done_cb)(void *user);
     void *kb_done_user;
+    struct brightness brightness; /* the panel's backlight device, probed once */
 };
 
 static struct shell sh;
@@ -229,6 +234,86 @@ int64_t pocketos_shell_system_day(void)
     const struct clock_wall *w = &clock_runtime_now()->wall;
 
     return w->valid ? w->day : -1;
+}
+
+/* ---- display brightness (docs/hardware/DISPLAY_BRIGHTNESS.md) ----------- *
+ *
+ * The shell owns the panel, so it owns the panel's brightness too: one probe
+ * at start, one writer, and Settings asks here rather than touching sysfs
+ * itself. The simulator build can point the probe at a fake sysfs tree for
+ * the tests; the K230 build is compiled without that and always reads /sys.
+ */
+
+static const char *sysfs_root(void)
+{
+#if defined(POCKETOS_SHELL_TEST_HOOKS) && POCKETOS_SHELL_TEST_HOOKS
+    const char *root = getenv("POCKETOS_TEST_SYSFS_ROOT");
+
+    if (root && root[0]) {
+        return root;
+    }
+#endif
+    return "/sys";
+}
+
+int pocketos_shell_brightness_get(void)
+{
+    return brightness_get_percent(&sh.brightness);
+}
+
+int pocketos_shell_brightness_set(int percent)
+{
+    char value[12];
+    int applied = brightness_set_percent(&sh.brightness, percent);
+
+    if (applied < 0) {
+        if (sh.brightness.supported) {
+            LOG_WARN("brightness %d%% not applied to %s: %s", percent, sh.brightness.name,
+                     strerror(errno));
+        }
+        return -1;
+    }
+    /* Only a level the panel accepted is remembered, so a failed write cannot
+     * leave a value in the store that the next boot would try again. */
+    snprintf(value, sizeof(value), "%d", applied);
+    if (settings_set(BRIGHTNESS_SETTING, value) < 0) {
+        LOG_WARN("brightness %d%% applied but not persisted to %s: %s", applied,
+                 settings_path(), strerror(errno));
+    }
+    LOG_INFO("brightness %d%%", applied);
+    return applied;
+}
+
+/* Called once, after the settings are loaded and before the first frame. A
+ * stored value is applied only when it is one this code could have written;
+ * anything else is logged and left alone, like a rejected theme (DS §8), and
+ * the panel keeps the level it booted with. */
+static void brightness_restore(void)
+{
+    const char *stored;
+    int pct;
+
+    if (brightness_probe(&sh.brightness, sysfs_root()) != 0) {
+        LOG_INFO("brightness: no backlight device, control unavailable");
+        return;
+    }
+    stored = settings_get(BRIGHTNESS_SETTING, NULL);
+    if (!stored) {
+        LOG_INFO("brightness: %s, %d%% (nothing stored, left as booted)", sh.brightness.name,
+                 brightness_get_percent(&sh.brightness));
+        return;
+    }
+    if (brightness_parse_setting(stored, &pct) < 0) {
+        LOG_WARN("brightness: stored %s=%s is not %d..%d, left as booted", BRIGHTNESS_SETTING,
+                 stored, BRIGHTNESS_MIN_PCT, BRIGHTNESS_MAX_PCT);
+        return;
+    }
+    if (brightness_set_percent(&sh.brightness, pct) < 0) {
+        LOG_WARN("brightness: stored %d%% not applied to %s: %s", pct, sh.brightness.name,
+                 strerror(errno));
+        return;
+    }
+    LOG_INFO("brightness: %s restored to %d%%", sh.brightness.name, pct);
 }
 
 /* ---- the one touch keyboard (DS §17.3, §17.4) -------------------------- *
@@ -408,9 +493,12 @@ static void home_create(void)
     lv_obj_set_style_pad_gap(sh.home, POCKETUI_PAD, 0);
     lv_obj_set_layout(sh.home, LV_LAYOUT_GRID);
     {
+        /* Two columns of 150 px tiles; ten apps take five rows, which is
+         * 5 * 150 + 4 * 20 = 830 px plus the padding, inside the 1176 px
+         * below the status bar. */
         static const int32_t cols[] = { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
         static const int32_t rows[] = { LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_CONTENT,
-                                        LV_GRID_CONTENT, LV_GRID_TEMPLATE_LAST };
+                                        LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_TEMPLATE_LAST };
         lv_obj_set_grid_dsc_array(sh.home, cols, rows);
     }
     for (i = 0; i < APP_COUNT; i++) {
@@ -497,6 +585,16 @@ static int shell_set_theme(const char *theme, const char *mode, char *why, size_
         pocketipc_server_broadcast(sh.server, pocketipc_event("shell.theme", data));
     }
     return rc;
+}
+
+/* The Settings app's way in: the same function shell.theme calls, so a
+ * selection made on the glass is stored and announced exactly as one made
+ * over IPC. */
+int pocketos_shell_set_appearance(const char *theme_id, const char *mode_name)
+{
+    char why[128];
+
+    return shell_set_theme(theme_id, mode_name, why, sizeof(why)) < 0 ? -1 : 0;
 }
 
 /* ---- shell.* service (docs/api/shell.md) ------------------------------ */
@@ -597,6 +695,47 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         cJSON_AddStringToObject(result, "mode", pos_mode_name(pos_theme_current_mode()));
         cJSON_AddBoolToObject(result, "fallback", fallback);
         cJSON_AddStringToObject(result, "reason", why);
+    } else if (strcmp(method, "shell.brightness") == 0) {
+        const cJSON *p = params ? cJSON_GetObjectItemCaseSensitive(params, "percent") : NULL;
+        int pct;
+
+        if (p) {
+            /* Exactly an integer in range: a method that changes the panel
+             * does not round or clamp a request it was not given. */
+            if (!cJSON_IsNumber(p) || !(p->valuedouble >= BRIGHTNESS_MIN_PCT) ||
+                !(p->valuedouble <= BRIGHTNESS_MAX_PCT) ||
+                p->valuedouble != (double)(int)p->valuedouble) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                    id, POCKETIPC_ERR_INVALID_PARAMS, "percent must be an integer 10..100"));
+                return;
+            }
+            if (!sh.brightness.supported) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                    id, POCKETIPC_ERR_UNSUPPORTED, "no brightness control on this display"));
+                return;
+            }
+            if (pocketos_shell_brightness_set((int)p->valuedouble) < 0) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                    id, POCKETIPC_ERR_BACKEND, "brightness could not be applied"));
+                return;
+            }
+        }
+        pct = pocketos_shell_brightness_get();
+        result = cJSON_CreateObject();
+        cJSON_AddBoolToObject(result, "supported", sh.brightness.supported);
+        if (pct >= 0) {
+            cJSON_AddNumberToObject(result, "percent", pct);
+        } else {
+            cJSON_AddNullToObject(result, "percent");
+        }
+        cJSON_AddNumberToObject(result, "min", BRIGHTNESS_MIN_PCT);
+        cJSON_AddNumberToObject(result, "max", BRIGHTNESS_MAX_PCT);
+        cJSON_AddNumberToObject(result, "step", BRIGHTNESS_STEP_PCT);
+        if (sh.brightness.supported) {
+            cJSON_AddStringToObject(result, "device", sh.brightness.name);
+        } else {
+            cJSON_AddNullToObject(result, "device");
+        }
     } else if (strcmp(method, "shell.subscribe") == 0) {
         pocketipc_client_set_subscribed(c, true);
         result = cJSON_CreateObject();
@@ -712,6 +851,9 @@ int main(int argc, char **argv)
     /* After the settings are loaded and before anything is built: a caret
      * created now must already know whether it may blink (DS §12, §17.1). */
     pocketui_set_reduced_motion(pocketos_shell_reduced_motion() != 0);
+    /* Also before the first frame, so a dimmed panel does not flash at the
+     * boot level while the launcher draws. */
+    brightness_restore();
     screen = lv_screen_active();
     pocketui_style_screen(screen);
     status_bar_create(screen);

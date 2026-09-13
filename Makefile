@@ -41,12 +41,20 @@ PATHS_OBJS  := core/pocketpaths.o
 IPC_OBJS    := core/pocketipc/pocketipc.o
 LOG_OBJS    := core/pocketlog/pocketlog.o
 SYS_OBJS    := core/pocketsys.o
-POS_OBJS    := tools/pos/pos.o tools/pos/pos_radio.o tools/pos/pos_logs.o tools/pos/pos_app.o tools/pos/pos_system.o $(IPC_OBJS) $(PATHS_OBJS)
+POS_OBJS    := tools/pos/pos.o tools/pos/pos_radio.o tools/pos/pos_logs.o tools/pos/pos_app.o tools/pos/pos_system.o \
+               tools/pos/pos_wifi.o $(IPC_OBJS) $(PATHS_OBJS)
 RADIOD_OBJS := services/radiod/main.o services/radiod/backend_mock.o services/radiod/airtime.o $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
 # Everything sysd is except the power actions, which exist twice: once as
 # shipped and once with the test hook (see tests/sysd-testhooks below).
 SYSD_BASE_OBJS := services/sysd/main.o services/sysd/sysd_services.o $(SYS_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
 SYSD_OBJS   := $(SYSD_BASE_OBJS) services/sysd/sysd_power.o
+# netd: wifi.* (docs/api/network.md). As with sysd, the one object that touches
+# the machine (netd_sys) exists twice: as shipped, and with the test hooks
+# tests/netd_test.sh needs to run it against a fake supplicant.
+NETD_WIFI_OBJS := services/netd/wifi_parse.o services/netd/wifi_store.o services/netd/wpa_ctrl.o
+NETD_BASE_OBJS := services/netd/main.o services/netd/wifi_mgr.o $(NETD_WIFI_OBJS) $(IPC_OBJS) \
+                  core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
+NETD_OBJS   := $(NETD_BASE_OBJS) services/netd/netd_sys.o
 
 RADIOLIB_SRCS := $(RADIOLIB_DIR)/Hal.cpp $(RADIOLIB_DIR)/Module.cpp \
                  $(wildcard $(RADIOLIB_DIR)/modules/SX126x/*.cpp) \
@@ -65,7 +73,7 @@ RADIOD_LINK := $(CC)
 RADIOD_LIBS := $(LDLIBS)
 endif
 
-BINS := tools/pos/pos services/radiod/radiod services/sysd/sysd tools/hwcheck/pos-spixfer
+BINS := tools/pos/pos services/radiod/radiod services/sysd/sysd services/netd/netd tools/hwcheck/pos-spixfer
 
 all: $(BINS)
 
@@ -83,6 +91,31 @@ services/radiod/radiod: $(RADIOD_OBJS)
 # sysd: system.* from core/pocketsys (docs/api/system.md). C only, cJSON only.
 services/sysd/sysd: $(SYSD_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+services/netd/netd: $(NETD_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# A netd whose paths can be pointed at a test tree and a fake wpa_supplicant
+# (services/netd/netd_sys.h). Only this object carries the hooks; the shipped
+# services/netd/netd does not contain the variable names, which the test checks.
+tests/netd_sys_hooks.o: services/netd/netd_sys.c services/netd/netd_sys.h
+	$(CC) $(ALL_CFLAGS) -DNETD_TEST_HOOKS=1 -c -o $@ $<
+
+tests/netd-testhooks: $(NETD_BASE_OBJS) tests/netd_sys_hooks.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# A stand-in for wpa_supplicant's control interface, driven by a scenario
+# file (tests/fake_wpa_supplicant.c). Test helper, never installed.
+tests/fake_wpa_supplicant: tests/fake_wpa_supplicant.o services/netd/wifi_parse.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/fake_wpa_supplicant.o tests/wifi_parse_test.o tests/wifi_store_test.o: ALL_CFLAGS += -Iservices/netd
+
+tests/wifi_parse_test: tests/wifi_parse_test.o services/netd/wifi_parse.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/wifi_store_test: tests/wifi_store_test.o services/netd/wifi_store.o services/netd/wifi_parse.o $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # The fake root ($POCKETSYS_ROOT) is a test-only build option, so it gets its
 # own object: this one honours the variable, the core/pocketsys.o that goes
@@ -170,6 +203,17 @@ tests/settings_test: tests/settings_test.o ui/shell/settings.o $(PATHS_OBJS)
 tests/settings_test.o: tests/settings_test.c ui/shell/settings.h
 	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
 
+# Display brightness over the backlight class (pure C, sysfs root passed in),
+# tested against a fake sysfs tree. The shell links the same source (CMake).
+ui/shell/brightness.o: ui/shell/brightness.c ui/shell/brightness.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/brightness_test.o: tests/brightness_test.c ui/shell/brightness.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/brightness_test: tests/brightness_test.o ui/shell/brightness.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 # The physical keyboard's controller logic (docs/hardware/
 # KEYBOARD_DRIVER_DESIGN_2026-09-12.md). It is deliberately free of LVGL,
 # /dev/mem and libgpiod so the init sequence, the FIFO drain, overflow
@@ -210,6 +254,18 @@ tests/system_view_test.o: tests/system_view_test.c apps/system/system_view.h
 	$(CC) $(ALL_CFLAGS) -Iapps/system -c -o $@ $<
 
 tests/system_view_test: tests/system_view_test.o apps/system/system_view.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# Settings presentation (pure C, no LVGL), arranged like System Status: what
+# a Wi-Fi state or a tap on a network means is decided here and unit-tested;
+# the screen is built by ui/shell (CMake).
+apps/settings/settings_view.o: apps/settings/settings_view.c apps/settings/settings_view.h
+	$(CC) $(ALL_CFLAGS) -Iapps/settings -c -o $@ $<
+
+tests/settings_view_test.o: tests/settings_view_test.c apps/settings/settings_view.h
+	$(CC) $(ALL_CFLAGS) -Iapps/settings -c -o $@ $<
+
+tests/settings_view_test: tests/settings_view_test.o apps/settings/settings_view.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 # PocketFleet game engine (pure C, no LVGL). It lives beside its app in
@@ -363,6 +419,29 @@ tests/cal_date_test: tests/cal_date_test.o $(CAL_DIR)/cal_date.o \
 tests/cal_view_test: tests/cal_view_test.o $(CAL_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# PocketCalculator: the engine and the view. Both are LVGL-free, do no I/O,
+# read no clock and store nothing (tests/calculator_lint.sh), so precedence,
+# the entry rules, the error states and the formatting that keeps binary
+# floating-point noise off the display are unit-tested here, including a
+# fuzz run over hundreds of thousands of keys. The app itself needs a display
+# and is built by ui/shell (CMake). The engine test links the view too: what
+# it checks is the text a key sequence puts on the glass.
+CALC_DIR := apps/calculator
+CALC_OBJS := $(CALC_DIR)/calc_engine.o $(CALC_DIR)/calc_view.o
+CALC_TESTS := tests/calc_engine_test tests/calc_view_test
+
+$(CALC_DIR)/%.o: $(CALC_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) -I$(CALC_DIR) -c -o $@ $<
+
+tests/calc_%_test.o: tests/calc_%_test.c
+	$(CC) $(ALL_CFLAGS) -I$(CALC_DIR) -c -o $@ $<
+
+tests/calc_engine_test: tests/calc_engine_test.o $(CALC_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
+tests/calc_view_test: tests/calc_view_test.o $(CALC_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
 # PocketTimber game engine (pure C, no LVGL, no I/O, no floating point).
 # Arranged like PocketRadar: the engine lives beside its app in
 # apps/timber/engine and is built here so it is unit-tested with the rest
@@ -431,10 +510,12 @@ tests/timber_store_test: tests/timber_store_test.o $(TIMBER_APP_OBJS) $(TIMBER_O
 # untracked test binary in the checkout an image is built from would make it
 # claim changes it does not contain. tests/build_outputs_test.sh checks this
 # list against .gitignore, so a test added here without an entry there fails.
-TEST_BINS := tests/sysd-testhooks tests/airtime_test tests/pocketlog_test tests/pocketipc_test \
-             tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/theme_test \
-             tests/settings_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
-             $(NOTES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test
+TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant tests/wifi_parse_test \
+             tests/wifi_store_test tests/airtime_test tests/pocketlog_test tests/pocketipc_test \
+             tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/settings_view_test \
+             tests/theme_test \
+             tests/settings_test tests/brightness_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
+             $(NOTES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) $(CALC_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test
 
 # Native tests only (they execute binaries).
 test: all $(TEST_BINS)
@@ -444,9 +525,13 @@ test: all $(TEST_BINS)
 	./tests/pocketipc_test
 	./tests/pocketsys_test
 	./tests/sysd_services_test
+	./tests/wifi_parse_test
+	./tests/wifi_store_test
 	./tests/system_view_test
+	./tests/settings_view_test
 	./tests/theme_test docs/design/themes.json
 	./tests/settings_test
+	./tests/brightness_test
 	./tests/fleet_rng_test
 	./tests/fleet_rules_test
 	./tests/fleet_ai_test
@@ -475,12 +560,15 @@ test: all $(TEST_BINS)
 	./tests/clock_store_test
 	TZ=UTC ./tests/cal_date_test
 	./tests/cal_view_test
+	./tests/calc_engine_test
+	./tests/calc_view_test
 	./tests/clock_runtime_test
 	./tests/kbd_tca8418_test
 	./tests/kbd_bus_k230_test
 	bash tests/kbd_lint.sh
 	bash tests/radiod_mock_test.sh
 	bash tests/sysd_test.sh
+	bash tests/netd_test.sh
 	bash tests/supervise_test.sh
 	bash tests/initscript_test.sh
 	bash tests/package_sync_test.sh
@@ -497,6 +585,8 @@ test: all $(TEST_BINS)
 	bash tests/notes_lint.sh
 	bash tests/clock_lint.sh
 	bash tests/calendar_lint.sh
+	bash tests/calculator_lint.sh
+	bash tests/settings_lint.sh
 
 install: all
 	install -D -m 0755 tools/pos/pos $(DESTDIR)$(PREFIX)/bin/pos
@@ -504,6 +594,7 @@ install: all
 	install -D -m 0755 tools/hwcheck/pos-spixfer $(DESTDIR)$(PREFIX)/bin/pos-spixfer
 	install -D -m 0755 services/radiod/radiod $(DESTDIR)$(PREFIX)/sbin/radiod
 	install -D -m 0755 services/sysd/sysd $(DESTDIR)$(PREFIX)/sbin/sysd
+	install -D -m 0755 services/netd/netd $(DESTDIR)$(PREFIX)/sbin/netd
 	install -D -m 0755 tools/supervise/pos-supervise $(DESTDIR)$(PREFIX)/bin/pos-supervise
 # /etc/pocketos-release: line 1 stays the bare version, so every reader that
 # takes the first line keeps working, and the build identity follows as a
@@ -518,7 +609,7 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 -include $(DEPFILES)
 
 clean:
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) tests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o $(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(POCKETOS_BUILD_STAMP)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POCKETOS_BUILD_STAMP)
 
 # The files `make all` and `make test` produce, one to a line, for
 # tests/build_outputs_test.sh.

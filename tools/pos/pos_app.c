@@ -128,6 +128,39 @@ int cmd_shell(int argc, char **argv)
         cJSON_Delete(result);
         return cJSON_IsTrue(v) ? 3 : 0;
     }
+    if (argc >= 1 && strcmp(argv[0], "brightness") == 0) {
+        cJSON *params = NULL;
+        const cJSON *pct;
+
+        if (argc >= 2) {
+            char *end;
+            long v;
+
+            errno = 0;
+            v = strtol(argv[1], &end, 10);
+            if (errno != 0 || end == argv[1] || *end != '\0' || v < 0 || v > 1000) {
+                fprintf(stderr, "pos: brightness takes a whole percentage, e.g. 60\n");
+                return 2;
+            }
+            params = cJSON_CreateObject();
+            cJSON_AddNumberToObject(params, "percent", (double)v);
+        }
+        rc = shell_call("shell.brightness", params, &result);
+        if (rc) {
+            return rc;
+        }
+        pct = cJSON_GetObjectItemCaseSensitive(result, "percent");
+        if (!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(result, "supported"))) {
+            printf("brightness unsupported on this display\n");
+        } else if (cJSON_IsNumber(pct)) {
+            printf("brightness %d%% (%s)\n", pct->valueint,
+                   cJSON_GetObjectItemCaseSensitive(result, "device")->valuestring);
+        } else {
+            printf("brightness unknown (level unreadable)\n");
+        }
+        cJSON_Delete(result);
+        return 0;
+    }
     if (argc >= 1 && strcmp(argv[0], "info") == 0) {
         char *text;
 
@@ -141,6 +174,7 @@ int cmd_shell(int argc, char **argv)
         cJSON_Delete(result);
         return 0;
     }
-    fprintf(stderr, "usage: pos shell info | screenshot <path.png> | theme <id> [normal|outdoor|night]\n");
+    fprintf(stderr, "usage: pos shell info | screenshot <path.png> | theme <id> [normal|outdoor|night]\n"
+                    "                 | brightness [10..100]\n");
     return 2;
 }
