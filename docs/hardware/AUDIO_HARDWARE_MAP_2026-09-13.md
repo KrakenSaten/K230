@@ -998,3 +998,17 @@ checked the new build's gate and cleanup at the same level, and its sound was
 not separately observed.
 
 **SEND: READY. RECEIVE: READY.**
+
+### 16.3 Wave UI TRANSMIT smoke (owner, build `e778daf`)
+
+Through the app itself on unit A: Wave opened, SEND selected, `HELLO` typed,
+TRANSMIT pressed (the app's defaults: `audible_fast`, volume 10, about -20
+dBFS). The burst was heard, Waver on the phone decoded `HELLO`, the panel
+stayed steady, Wave returned to idle, and nothing sounded afterwards.
+**PASS** (owner). This validates the Wave UI -> helper -> pocketaudio ->
+speaker path. No further physical SEND was run.
+
+The post-smoke SSH inspection (helper exited, card closed, IO34 low, no
+recovery record, mixer, services) could not be done at the time: unit A no
+longer answered on 192.168.10.157, 192.168.10.171 or 192.168.10.15. It is
+outstanding until the unit's current address is known.

@@ -267,5 +267,7 @@ IO34 low, mixer identical - and build `e778daf` sets `playback_verified` 1. A
 SEND with no override was then verified on unit A: exit 0, amplifier on for
 1.45 s and off after, PCM closed, recovery record removed. The -12 dBFS
 ceiling, the volume cap of 25 and Wave's default of 10 are unchanged and
-held by tests/wave_lint.sh. Wave's TRANSMIT button itself has not been
-pressed on hardware yet.
+held by tests/wave_lint.sh. Finally the owner used the app itself: SEND,
+`HELLO`, TRANSMIT - heard, decoded by Waver, panel steady, back to idle, no
+sound afterwards (§16.3 there). The Wave UI -> helper -> pocketaudio ->
+speaker path is validated.

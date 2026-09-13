@@ -1,0 +1,25 @@
+Ooura FFT routines, as used by ggwave (src/fft.h) in pos-wave
+=============================================================
+
+Component   : real discrete Fourier transform (rdft) from Takuya Ooura's
+              "FFT Package 1-dim", reduced by ggwave to rdft on float arrays.
+              Its header matches the package's fft4g.c ("Fast Version,
+              radix 4, 2", work tables in use).
+Reaches us  : vendor/ggwave at a38e38b (ggwave v0.4.3), file src/fft.h, added
+              upstream in ggwave commit f5e08d9 (2022-06-04). The file names
+              its source, https://www.kurims.kyoto-u.ac.jp/~ooura/fft.html,
+              and carries "Copyright Takuya OOURA, 1996-2001", but no licence
+              text.
+Terms       : from the author's page above, section "License", read
+              2026-09-13 (package "updated: 2006/12/28"), verbatim:
+
+    Copyright Takuya OOURA, 1996-2001
+
+    You may use, copy, modify and distribute this code for any purpose
+    (include commercial use) and without fee. Please refer to this package
+    when you modify this code.
+
+Obligations : keep the copyright line and the reference to the package with
+              the code (ggwave's fft.h header does both; PocketOS copies the
+              file unchanged), and ship this notice with any distributed
+              binary that contains it (pos-wave).

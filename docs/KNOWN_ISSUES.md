@@ -441,7 +441,8 @@ Audio (not implemented, findings only):
   it is checked by sight and the route is switched to the codec.
   **Refined by the audio milestone below**: the built-in speaker found in a
   second unit is on that I2S route (a MAX98357A on a separate base board), not
-  on the codec.
+  on the codec. **Superseded 2026-09-13**: R54 closed by evidence and speaker
+  playback validated on unit A with the panel steady (audio milestone below).
 
 Calculator:
 
@@ -535,11 +536,10 @@ Wave and ggwave:
   (`capture_verified` 1 since `c688309`, `playback_verified` 1 since
   `e778daf`). The limits did not move: -12 dBFS ceiling, modem volume cap 25,
   Wave default volume 10, all held by tests/wave_lint.sh.
-- **Wave's own TRANSMIT button has not been pressed on hardware.** The
-  on-device SENDs were `pos-wave` runs at volume 5 over SSH; the app starts
-  the same helper at its default volume 10 (-20 dBFS, at most 68 mW into the
-  speaker at the highest gain strap). A one-tap owner smoke is worth doing
-  before the merge.
+- ~~Wave's own TRANSMIT button has not been pressed on hardware.~~ Done
+  2026-09-13: the owner sent `HELLO` from the Wave UI on unit A at its
+  default volume 10; it was heard, Waver decoded it, the panel stayed steady,
+  Wave returned to idle and nothing sounded afterwards (hardware map §16.3).
 - **Over-the-air range and the speaker's response across 1.9-6.3 kHz are
   unmeasured**; the first SEND was decoded by a phone at arm's length.
 - **ggwave's decode spike on the C908 is unmeasured.** Steady listening costs
@@ -550,8 +550,11 @@ Wave and ggwave:
   unaligned input, init reporting success on bad parameters, payload logging,
   38.5 s deafness after a missed end marker (wave_modem.h). Its TX instance
   allocates an unused 4 MB buffer for S16 output.
-- **Ooura FFT licence terms** are not stated in ggwave's `fft.h`
-  (docs/LICENSING.md, open item 6).
+- ~~Ooura FFT licence terms are not stated in ggwave's `fft.h`.~~ Resolved
+  from the author's page (docs/LICENSING.md, "Audio milestone"). **Release
+  blocker, not a merge blocker:** no distributed image yet carries the
+  third-party notices for ggwave, Reed-Solomon, the Ooura FFT (or RadioLib)
+  (docs/LICENSING.md, open item 7).
 - Messages over 64 bytes from other ggwave programs are heard but not shown
   (reported as "could not decode").
 - The launcher grid now has six rows and is full: a twelfth app needs a
