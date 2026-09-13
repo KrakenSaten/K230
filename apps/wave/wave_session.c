@@ -262,6 +262,62 @@ static int valid_word(const char *w)
     return w && n > 0;
 }
 
+/* Close everything the child inherited above stderr. */
+static void close_inherited(void)
+{
+    int fd;
+
+    for (fd = 3; fd < CHILD_FD_SCAN_MAX; fd++) {
+        close(fd);
+    }
+}
+
+/* `helper recover`, detached: a double fork so init adopts and reaps it, a
+ * new session so a signal to the shell's process group does not reach it,
+ * and no death signal, so it completes even while the shell exits. The only
+ * wait here is for the intermediate child, which exits at once. */
+static void recover_detached(struct wave_session *s)
+{
+    pid_t mid;
+    int status;
+
+    if (!s->helper[0]) {
+        return;
+    }
+    mid = fork();
+    if (mid < 0) {
+        return;
+    }
+    if (mid == 0) {
+        pid_t pid = fork();
+
+        if (pid == 0) {
+            char *argv[] = { s->helper, "recover", NULL };
+            sigset_t none;
+            int null = open("/dev/null", O_RDWR);
+
+            setsid();
+            sigemptyset(&none);
+            sigprocmask(SIG_SETMASK, &none, NULL);
+            signal(SIGPIPE, SIG_DFL);
+            signal(SIGTERM, SIG_DFL);
+            signal(SIGINT, SIG_DFL);
+            if (null >= 0) {
+                dup2(null, 0);
+                dup2(null, 1);
+                dup2(null, 2);
+            }
+            close_inherited();
+            execv(s->helper, argv);
+            _exit(127);
+        }
+        _exit(0);
+    }
+    while (waitpid(mid, &status, 0) < 0 && errno == EINTR) {
+    }
+    s->recoveries++;
+}
+
 static int spawn(struct wave_session *s, const char *helper, char *const argv[], const char *text,
                  size_t len, char *err, size_t errlen)
 {
@@ -272,6 +328,12 @@ static int spawn(struct wave_session *s, const char *helper, char *const argv[],
     if (s->state != WAVE_SESSION_IDLE) {
         if (err && errlen) {
             snprintf(err, errlen, "an operation is already running");
+        }
+        return -1;
+    }
+    if (strlen(helper) >= sizeof(s->helper)) {
+        if (err && errlen) {
+            snprintf(err, errlen, "helper path too long");
         }
         return -1;
     }
@@ -288,7 +350,6 @@ static int spawn(struct wave_session *s, const char *helper, char *const argv[],
     }
     if (pid == 0) {
         sigset_t none;
-        int fd;
         int null;
 
         /* Leave with the shell: if it dies, this gets SIGTERM and cleans up
@@ -310,9 +371,7 @@ static int spawn(struct wave_session *s, const char *helper, char *const argv[],
         if (null >= 0) {
             dup2(null, 2);
         }
-        for (fd = 3; fd < CHILD_FD_SCAN_MAX; fd++) {
-            close(fd);
-        }
+        close_inherited();
         execv(helper, argv);
         {
             char line[160];
@@ -325,6 +384,7 @@ static int spawn(struct wave_session *s, const char *helper, char *const argv[],
         _exit(127);
     }
     close(sv[1]);
+    snprintf(s->helper, sizeof(s->helper), "%s", helper);
     s->fd = sv[0];
     fcntl(s->fd, F_SETFL, fcntl(s->fd, F_GETFL) | O_NONBLOCK);
     s->pid = pid;
@@ -411,6 +471,8 @@ static void finish(struct wave_session *s, int status)
         ev.value = WEXITSTATUS(status);
     } else if (WIFSIGNALED(status)) {
         ev.value = 128 + WTERMSIG(status);
+        /* It did not clean up; undo whatever it left switched. */
+        recover_detached(s);
     } else {
         ev.value = 255;
     }
@@ -473,7 +535,9 @@ static int64_t mono_ms(void)
     return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
 }
 
-static int reap_within(struct wave_session *s, int ms)
+/* 1 when the helper is gone within ms (*signaled set when a signal ended
+ * it), 0 when it is still there. */
+static int reap_within(struct wave_session *s, int ms, int *signaled)
 {
     int64_t end = mono_ms() + ms;
     int status;
@@ -481,7 +545,11 @@ static int reap_within(struct wave_session *s, int ms)
     for (;;) {
         pid_t r = waitpid(s->pid, &status, WNOHANG);
 
-        if (r == s->pid || (r < 0 && errno == ECHILD)) {
+        if (r == s->pid) {
+            *signaled = WIFSIGNALED(status);
+            return 1;
+        }
+        if (r < 0 && errno == ECHILD) {
             return 1;
         }
         if (mono_ms() >= end) {
@@ -498,18 +566,32 @@ static int reap_within(struct wave_session *s, int ms)
 void wave_session_abandon(struct wave_session *s, int grace_ms)
 {
     if (s->state != WAVE_SESSION_IDLE && s->pid > 0) {
+        int signaled = 0;
+
         if (!s->killed) {
             kill(s->pid, SIGTERM);
         }
-        if (!reap_within(s, grace_ms < 0 ? 0 : grace_ms)) {
+        if (!reap_within(s, grace_ms < 0 ? 0 : grace_ms, &signaled)) {
             kill(s->pid, SIGKILL);
             /* If even this fails the child is stuck in the kernel; it is
              * left as a zombie rather than holding the LVGL thread. */
-            reap_within(s, WAVE_KILL_REAP_MS);
+            reap_within(s, WAVE_KILL_REAP_MS, &signaled);
+            signaled = 1;
+        }
+        if (signaled) {
+            /* Killed, so its cleanup did not run: undo what it left. A
+             * helper still stuck in the kernel holds the audio lock, and the
+             * recovery then waits for the next owner instead. */
+            recover_detached(s);
         }
     }
     if (s->fd >= 0) {
         close(s->fd);
     }
-    wave_session_init(s);
+    {
+        unsigned recoveries = s->recoveries;
+
+        wave_session_init(s);
+        s->recoveries = recoveries;
+    }
 }

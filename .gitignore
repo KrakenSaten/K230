@@ -72,3 +72,4 @@ BUILD_ID
 /tests/wave_view_test
 /tests/wave_session_test
 /tests/wave_modem_test
+/tests/pos-wave-testhooks

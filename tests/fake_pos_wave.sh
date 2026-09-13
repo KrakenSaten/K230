@@ -7,6 +7,13 @@
 
 hex() { od -An -tx1 -v | tr -d ' \n'; }
 
+# `recover`, whatever the scenario: the session runs it after a helper died
+# by a signal. One line per run in WAVE_FAKE_RECOVER_MARK.
+if [ "${1:-}" = "recover" ]; then
+    [ -n "${WAVE_FAKE_RECOVER_MARK:-}" ] && echo "recover" >> "$WAVE_FAKE_RECOVER_MARK"
+    exit 0
+fi
+
 # Where a test can find this process afterwards, to prove it is gone.
 [ -n "${WAVE_FAKE_PIDFILE:-}" ] && echo $$ > "$WAVE_FAKE_PIDFILE"
 

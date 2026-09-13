@@ -28,6 +28,15 @@
  * WAVE_KILL_REAP_MS. Pure C, no LVGL, clock passed in: tested on a host with
  * a scripted fake helper (tests/wave_session_test.c).
  *
+ * RECOVERY. A helper that dies by a signal - the SIGKILL this session sends
+ * after the grace, a crash, the OOM killer - never ran its cleanup, so it may
+ * have left the route switched and the amplifier enabled. The session is the
+ * process that sees that happen, so it starts `helper recover` right away
+ * (pocketaudio.h, "Recovery"). That process is detached (double fork, its own
+ * session, no death signal): it finishes even if the shell is on its way out,
+ * init reaps it, and nothing here waits for it. A helper that exits normally,
+ * with any exit code, has cleaned up itself.
+ *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #ifndef POCKETWAVE_SESSION_H
@@ -77,9 +86,14 @@ struct wave_event {
     char text[WAVE_EVENT_TEXT_MAX + 1];
 };
 
+/* The longest helper path a session accepts. */
+#define WAVE_HELPER_PATH_MAX 256
+
 struct wave_session {
     enum wave_session_state state;
     pid_t pid;
+    char helper[WAVE_HELPER_PATH_MAX]; /* the running helper, for its recovery */
+    unsigned recoveries;               /* recover runs started, for tests and logs */
     int fd;                           /* our end of the socketpair, or -1 */
     char line[WAVE_LINE_MAX];
     size_t line_len;

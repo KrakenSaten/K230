@@ -77,7 +77,19 @@ check "ggwave is pinned" \
 for t in pocketaudio_test wave_view_test wave_session_test wave_modem_test; do
     check "make test runs $t" "$(grep -qE "^	\./tests/$t( |$)" Makefile && echo 1 || echo 0)"
 done
-for s in wave_tool_test.sh wave_lint.sh; do
+check "a helper killed by a signal gets its state recovered by the session" \
+    "$(sed -n '/^static void finish/,/^}/p' apps/wave/wave_session.c | grep -q 'recover_detached(s)' &&
+       sed -n '/^void wave_session_abandon/,/^}/p' apps/wave/wave_session.c | grep -q 'recover_detached(s)' && echo 1 || echo 0)"
+check "the recovery process is detached (own session, not the shell's death signal)" \
+    "$(sed -n '/^static void recover_detached/,/^}/p' apps/wave/wave_session.c | grep -q 'setsid()' &&
+       ! sed -n '/^static void recover_detached/,/^}/p' apps/wave/wave_session.c | grep -q 'PR_SET_PDEATHSIG' && echo 1 || echo 0)"
+check "open reconciles a dead owner's record before touching the hardware" \
+    "$(sed -n '/^int pocketaudio_open/,/^}/p' core/pocketaudio/pocketaudio.c | awk '/reconcile\(/{r=NR} /ctl_get_bool/{g=NR} END{exit !(r && g && r < g)}' && echo 1 || echo 0)"
+check "the test hook is compiled only into the test build" \
+    "$(code tools/wave/pos_wave.c | awk '/#ifdef POS_WAVE_TEST_HOOKS/{h=1} /#endif/{h=0} /POS_WAVE_FAKE_AUDIO|fake_audio_/{if(!h) bad=1} END{exit bad}' && echo 1 || echo 0)"
+check "make test runs wave_session_test against the real helper too" \
+    "$(grep -qE '^	\./tests/wave_session_test tests/fake_pos_wave\.sh tests/pos-wave-testhooks$' Makefile && echo 1 || echo 0)"
+for s in wave_tool_test.sh wave_lint.sh audio_recovery_test.sh; do
     check "make test runs $s" "$(grep -q "^	bash tests/$s" Makefile && echo 1 || echo 0)"
 done
 check "pos-wave is installed" "$(grep -q 'install -D -m 0755 tools/wave/pos-wave' Makefile && echo 1 || echo 0)"

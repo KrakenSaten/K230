@@ -16,13 +16,24 @@
  *       A bench recording of one wire channel, N at most 30 (default 5), for
  *       checking which channel carries the microphone and decoding offline.
  *       Nothing is decoded while recording.
+ *   pos-wave recover
+ *       Undo what a pos-wave that died without closing (SIGKILL, a crash)
+ *       left switched: amplifier off, route restored (pocketaudio.h,
+ *       "Recovery"). Opens no stream. Idempotent. The Wave app runs it when
+ *       its helper dies by a signal, and every send, listen and record does
+ *       the same first.
  *
  * P is audible_normal, audible_fast (default) or audible_fastest; V is 1 to
  * 25 (default 10, a peak near -20 dBFS); N is 1 to 3600 (default 120).
  * Text read from stdin loses one trailing newline, so `echo DOORS | pos-wave
- * send` sends DOORS. --allow-unverified (or POCKETOS_AUDIO_ALLOW_UNVERIFIED=1)
- * is needed for an audio path that has not passed its hardware test
- * (pocketaudio.h, "Hardware gate").
+ * send` sends DOORS.
+ *
+ * GATE. An audio path that has not passed its hardware test (pocketaudio.h,
+ * "Hardware gate") needs --allow-unverified on the command, which opens only
+ * that command's own direction, or POCKETOS_AUDIO_ALLOW_UNVERIFIED naming the
+ * direction: "capture", "playback", or both separated by a comma. Anything
+ * else, "1" included, opens nothing, so an environment set for a microphone
+ * test cannot also open the speaker.
  *
  * EVENTS. One line each on stdout, the protocol the Wave app reads
  * (apps/wave/wave_session.c):
@@ -35,6 +46,8 @@
  *   missed               a transmission was heard and could not be decoded
  *   sent                 playback finished
  *   stopped              ended by SIGTERM or SIGINT, device closed
+ *   recovered            before opening, a dead owner's route or amplifier
+ *                        state was restored (informational)
  *   error <code> <text>  <code> is one of the WAVE_ERR_* words
  *
  * Exit codes are WAVE_EXIT_* (wave_protocol.h). Without --events, decode and
@@ -54,6 +67,13 @@
 #include "wave_protocol.h"
 #include "wave_text.h"
 #include "wave_wav.h"
+#ifdef POS_WAVE_TEST_HOOKS
+/* tests/pos-wave-testhooks only: POS_WAVE_FAKE_AUDIO=<dir> replaces the
+ * sound card and GPIO with files in <dir> (tests/fake_audio_backend.c), so a
+ * test can SIGKILL a real pos-wave mid-operation and inspect what it left.
+ * The shipped pos-wave is compiled without this, and the test checks that. */
+#include "fake_audio_backend.h"
+#endif
 
 #include <errno.h>
 #include <signal.h>
@@ -134,7 +154,8 @@ static void usage(void)
             "       pos-wave decode [--channel C] IN.wav\n"
             "       pos-wave send [--protocol P] [--volume V] [--text T] [--events] [--allow-unverified]\n"
             "       pos-wave listen [--seconds N] [--channel C] [--events] [--allow-unverified]\n"
-            "       pos-wave record [--seconds N] [--channel C] [--allow-unverified] OUT.wav\n");
+            "       pos-wave record [--seconds N] [--channel C] [--allow-unverified] OUT.wav\n"
+            "       pos-wave recover\n");
 }
 
 struct opts {
@@ -165,14 +186,12 @@ static int parse_int(const char *s, int lo, int hi, int *out)
 static int parse_opts(int argc, char **argv, struct opts *o)
 {
     int i;
-    const char *env = getenv("POCKETOS_AUDIO_ALLOW_UNVERIFIED");
 
     memset(o, 0, sizeof(*o));
     o->profile = WAVE_DEFAULT_PROFILE;
     o->volume = WAVE_DEFAULT_VOLUME;
     o->seconds = WAVE_LISTEN_SECONDS;
     o->channel = -1;
-    o->allow_unverified = env && strcmp(env, "1") == 0;
     o->text = NULL;
     o->path = NULL;
     for (i = 2; i < argc; i++) {
@@ -309,11 +328,49 @@ static const char *audio_code(int err)
     }
 }
 
+/* Whether POCKETOS_AUDIO_ALLOW_UNVERIFIED names this direction. */
+static int env_allows(enum pocketaudio_dir dir)
+{
+    const char *env = getenv("POCKETOS_AUDIO_ALLOW_UNVERIFIED");
+    const char *want = dir == POCKETAUDIO_CAPTURE ? "capture" : "playback";
+    size_t n = strlen(want);
+    const char *p = env;
+
+    while (p && *p) {
+        const char *end = strchr(p, ',');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+
+        if (len == n && strncmp(p, want, n) == 0) {
+            return 1;
+        }
+        p = end ? end + 1 : NULL;
+    }
+    return 0;
+}
+
+static const struct pocketaudio_backend *backend_for(void)
+{
+#ifdef POS_WAVE_TEST_HOOKS
+    const char *fake = getenv("POS_WAVE_FAKE_AUDIO");
+
+    if (fake && *fake) {
+        return fake_audio_backend(fake);
+    }
+#endif
+    return pocketaudio_alsa_backend();
+}
+
 static void board_for(struct pocketaudio_board *b)
 {
     const char *force = getenv("POCKETOS_AUDIO_BOARD");
     const char *pcm = getenv("POCKETOS_AUDIO_PCM");
 
+#ifdef POS_WAVE_TEST_HOOKS
+    if (getenv("POS_WAVE_FAKE_AUDIO") && *getenv("POS_WAVE_FAKE_AUDIO")) {
+        *b = *fake_audio_board();
+        return;
+    }
+#endif
     /* "k230" is accepted here as well as "generic", so the gate can be
      * exercised on a bench host that has no K230 card. */
     if (force && strcmp(force, "k230") == 0) {
@@ -468,16 +525,39 @@ static struct pocketaudio_stream *open_audio(enum pocketaudio_dir dir, const str
         b->capture_channel = (unsigned)o->channel;
     }
     memset(&ao, 0, sizeof(ao));
-    ao.backend = pocketaudio_alsa_backend();
+    ao.backend = backend_for();
     ao.board = b;
-    ao.allow_unverified = o->allow_unverified;
+    ao.allow_unverified = o->allow_unverified || env_allows(dir);
     ao.peak_limit = POCKETAUDIO_PEAK_CEILING;
     rc = pocketaudio_open(&s, dir, &ao, err, sizeof(err));
     if (rc != POCKETAUDIO_OK) {
         fail_event(audio_code(rc), err);
         return NULL;
     }
+    if (pocketaudio_recovered(s)) {
+        emit("recovered");
+    }
     return s;
+}
+
+static int cmd_recover(void)
+{
+    struct pocketaudio_options ao;
+    char report[200];
+    int rc;
+
+    memset(&ao, 0, sizeof(ao));
+    ao.backend = backend_for();
+    rc = pocketaudio_recover(&ao, report, sizeof(report));
+    if (rc < 0) {
+        fail_event(audio_code(rc), report);
+        return WAVE_EXIT_AUDIO;
+    }
+    if (rc == 1) {
+        emit("recovered");
+    }
+    printf("note %s\n", report);
+    return WAVE_EXIT_OK;
 }
 
 /* Write n samples (NULL: silence), stopping early when asked. 0, 1 when
@@ -749,6 +829,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "info") == 0) {
         return cmd_info();
+    }
+    if (strcmp(argv[1], "recover") == 0) {
+        return argc == 2 ? cmd_recover() : (usage(), WAVE_EXIT_USAGE);
     }
     if (parse_opts(argc, argv, &o) != 0) {
         return WAVE_EXIT_USAGE;

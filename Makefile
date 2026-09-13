@@ -528,7 +528,8 @@ WAVE_OBJS := $(WAVE_DIR)/wave_view.o $(WAVE_DIR)/wave_session.o $(WAVE_DIR)/wave
 WAVE_MODEM_OBJS := $(WAVE_DIR)/wave_modem.o tools/wave/ggwave.o
 POS_WAVE_OBJS := tools/wave/pos_wave.o tools/wave/wave_wav.o $(WAVE_DIR)/wave_text.o $(WAVE_MODEM_OBJS) \
                  $(AUDIO_OBJS) $(AUDIO_ALSA_OBJS) $(PATHS_OBJS)
-WAVE_TESTS := tests/pocketaudio_test tests/wave_view_test tests/wave_session_test tests/wave_modem_test
+WAVE_TESTS := tests/pocketaudio_test tests/wave_view_test tests/wave_session_test tests/wave_modem_test \
+              tests/pos-wave-testhooks
 GGWAVE_CXXFLAGS := $(CXXFLAGS) -std=c++11 -DNDEBUG -DGGWAVE_DISABLE_LOG -fno-exceptions -fno-rtti \
                    -I$(GGWAVE_DIR)/include $(DEPFLAGS)
 WAVE_CXXFLAGS := $(CXXFLAGS) -std=gnu++17 $(COMMON_FLAGS) -DGGWAVE_DISABLE_LOG -fno-exceptions -fno-rtti \
@@ -555,6 +556,18 @@ tools/wave/pos-wave: $(POS_WAVE_OBJS)
 
 tests/pocketaudio_test: tests/pocketaudio_test.o $(AUDIO_OBJS) $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# A pos-wave whose sound card and GPIO can be replaced by files
+# (POS_WAVE_FAKE_AUDIO, tests/fake_audio_backend.c), so tests/
+# audio_recovery_test.sh can SIGKILL a real one mid-operation and read what it
+# left. As with netd and sysd, only this object carries the hook; the shipped
+# tools/wave/pos-wave does not contain it, which the test checks.
+tests/pos_wave_hooks.o: tools/wave/pos_wave.c
+	$(CC) $(ALL_CFLAGS) -I$(WAVE_DIR) -Itools/wave -Itests -DPOS_WAVE_TEST_HOOKS=1 -c -o $@ $<
+
+tests/pos-wave-testhooks: tests/pos_wave_hooks.o tests/fake_audio_backend.o \
+                          $(filter-out tools/wave/pos_wave.o,$(POS_WAVE_OBJS))
+	$(CXX) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lasound -lm
 
 tests/wave_%_test.o: tests/wave_%_test.c
 	$(CC) $(ALL_CFLAGS) -I$(WAVE_DIR) -c -o $@ $<
@@ -632,9 +645,10 @@ test: all $(TEST_BINS)
 	./tests/kbd_bus_k230_test
 	./tests/pocketaudio_test
 	./tests/wave_view_test
-	./tests/wave_session_test tests/fake_pos_wave.sh
+	./tests/wave_session_test tests/fake_pos_wave.sh tests/pos-wave-testhooks
 	./tests/wave_modem_test
 	bash tests/wave_tool_test.sh
+	bash tests/audio_recovery_test.sh
 	bash tests/wave_lint.sh
 	bash tests/kbd_lint.sh
 	bash tests/radiod_mock_test.sh
@@ -681,7 +695,7 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 -include $(DEPFILES)
 
 clean:
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) $(POCKETOS_BUILD_STAMP)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/pos_wave_hooks.o tests/fake_audio_backend.o $(POCKETOS_BUILD_STAMP)
 
 # The files `make all` and `make test` produce, one to a line, for
 # tests/build_outputs_test.sh.

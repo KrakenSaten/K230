@@ -27,11 +27,21 @@
  *   Cleanup.          pocketaudio_close() turns the amplifier off first, then
  *                     drops and closes the PCM, restores the route it found,
  *                     and releases the lock - in that order, on every path
- *                     including a failed open. If the process dies instead,
- *                     the kernel closes the PCM (the sound stops) and the
- *                     lock; the route and, on the K230, the amplifier enable
- *                     line keep their last value (docs/hardware/
- *                     AUDIO_HARDWARE_MAP_2026-09-13.md).
+ *                     including a failed open.
+ *   Recovery.         Cleanup cannot run in a process that is SIGKILLed. The
+ *                     kernel still closes the PCM (the sound stops) and the
+ *                     lock, but the route and the amplifier enable line keep
+ *                     their last values. So before open changes either, it
+ *                     writes what would undo the change to
+ *                     <lock dir>/audio.recovery (write-ahead, replaced
+ *                     atomically), and removes the record only once close has
+ *                     really undone it. Whoever takes the lock next - the
+ *                     next open, or pocketaudio_recover() run by the process
+ *                     that saw the owner die - finds the record and restores
+ *                     from it first: amplifier off, then the route. The lock
+ *                     guarantees the writer is gone. The record lives in the
+ *                     runtime directory, which a reboot clears together with
+ *                     the hardware state it describes.
  *   Hardware gate.    A board path that has not been validated on hardware
  *                     is refused (POCKETAUDIO_E_DISABLED) unless the caller
  *                     passes allow_unverified. On the K230 both paths are
@@ -185,6 +195,17 @@ int pocketaudio_drain(struct pocketaudio_stream *s, int timeout_ms);
 
 /* Amplifier off, PCM closed, route restored, lock released. NULL is fine. */
 void pocketaudio_close(struct pocketaudio_stream *s);
+
+/* Undo what an owner that died without closing left behind, without opening a
+ * stream: takes the lock (POCKETAUDIO_E_BUSY when a live owner holds it),
+ * restores from the recovery record if there is one, and releases the lock.
+ * Returns 0 when there was nothing to do, 1 when something was restored, or a
+ * negative error; report says which in words. options needs only backend and
+ * lock_dir. Idempotent. */
+int pocketaudio_recover(const struct pocketaudio_options *options, char *report, size_t len);
+
+/* Whether this stream's open found and undid a previous owner's leftovers. */
+int pocketaudio_recovered(const struct pocketaudio_stream *s);
 
 /* xruns recovered from so far, and the last error in words. */
 unsigned pocketaudio_xruns(const struct pocketaudio_stream *s);

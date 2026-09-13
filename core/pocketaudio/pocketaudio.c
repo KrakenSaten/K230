@@ -69,6 +69,9 @@ static const struct pocketaudio_board board_generic = {
 
 #define K230_CARD_ID "K230I2SINNO"
 #define DRAIN_MAX_MS 10000
+#define RECOVERY_HEADER "pocketaudio-recovery 1"
+#define RECOVERY_MAX_BYTES 1024
+#define RECOVERY_NAME_MAX 128
 
 struct pocketaudio_stream {
     const struct pocketaudio_backend *be;
@@ -76,12 +79,27 @@ struct pocketaudio_stream {
     enum pocketaudio_dir dir;
     void *pcm;
     int lock_fd;
+    char lock_dir[POCKETOS_PATH_MAX];
     int route_saved; /* the route found at open, or -1 when it was left alone */
     int amp;         /* the enable line's handle, or -1 */
+    int record_written; /* a recovery record of ours is on disk */
+    int record_route;   /* what that record says to restore the route to, or -1 */
+    int recovered;      /* open found and undid a previous owner's leftovers */
     int peak_limit;
     unsigned xruns;
     int16_t wire[POCKETAUDIO_PERIOD_FRAMES * POCKETAUDIO_MAX_CHANNELS];
     char error[160];
+};
+
+/* What a recovery record says (pocketaudio.h, "Recovery"). */
+struct recovery {
+    char ctl[RECOVERY_NAME_MAX];
+    char route_control[RECOVERY_NAME_MAX];
+    int route_restore; /* -1: the route was not changed */
+    char amp_chip[64];
+    unsigned amp_line;
+    int amp_active_high;
+    int amp_enabled;
 };
 
 const struct pocketaudio_board *pocketaudio_board_k230(void) { return &board_k230; }
@@ -191,7 +209,8 @@ static int take_lock(struct pocketaudio_stream *s, const char *dir, char *err, s
         say(err, errlen, "cannot create %s: %s", dir, strerror(errno));
         return POCKETAUDIO_E_LOCK;
     }
-    if (snprintf(path, sizeof(path), "%s/audio.lock", dir) >= (int)sizeof(path)) {
+    if (snprintf(path, sizeof(path), "%s/audio.lock", dir) >= (int)sizeof(path) ||
+        snprintf(s->lock_dir, sizeof(s->lock_dir), "%s", dir) >= (int)sizeof(s->lock_dir)) {
         say(err, errlen, "lock path too long");
         return POCKETAUDIO_E_LOCK;
     }
@@ -215,12 +234,255 @@ static int take_lock(struct pocketaudio_stream *s, const char *dir, char *err, s
     return POCKETAUDIO_OK;
 }
 
+/* ---- the recovery record ----------------------------------------------- */
+
+static int record_path(const char *dir, char *path, size_t len)
+{
+    return snprintf(path, len, "%s/audio.recovery", dir) < (int)len ? 0 : -1;
+}
+
+/* Written before the change it describes, replaced atomically (temp file and
+ * rename, so a reader sees the old record or the new one and never half of
+ * one). No fsync: it lives in the runtime directory, which a power cut
+ * clears along with the hardware state it describes. */
+static int record_write(struct pocketaudio_stream *s, int route_restore, int amp_enabled)
+{
+    char path[POCKETOS_PATH_MAX];
+    char tmp[POCKETOS_PATH_MAX + 8];
+    char text[RECOVERY_MAX_BYTES];
+    int n;
+    int fd;
+    ssize_t w;
+
+    if (record_path(s->lock_dir, path, sizeof(path)) != 0) {
+        return -ENAMETOOLONG;
+    }
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    n = snprintf(text, sizeof(text), "%s\npid %ld\ndirection %s\n", RECOVERY_HEADER,
+                 (long)getpid(), s->dir == POCKETAUDIO_CAPTURE ? "capture" : "playback");
+    if (route_restore >= 0) {
+        n += snprintf(text + n, sizeof(text) - (size_t)n, "ctl %s\nroute_control %s\nroute_restore %d\n",
+                      s->board.ctl, s->board.route_control, route_restore ? 1 : 0);
+    }
+    if (amp_enabled) {
+        n += snprintf(text + n, sizeof(text) - (size_t)n,
+                      "amp_chip %s\namp_line %u\namp_active_high %d\namp_enabled 1\n",
+                      s->board.amp_chip, s->board.amp_line, s->board.amp_active_high ? 1 : 0);
+    }
+    if (n <= 0 || n >= (int)sizeof(text)) {
+        return -EOVERFLOW;
+    }
+    fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (fd < 0) {
+        return -errno;
+    }
+    w = write(fd, text, (size_t)n);
+    if (close(fd) != 0 || w != n || rename(tmp, path) != 0) {
+        int e = errno ? errno : EIO;
+
+        unlink(tmp);
+        return -e;
+    }
+    s->record_written = 1;
+    s->record_route = route_restore;
+    return 0;
+}
+
+static int printable_name(const char *v, size_t max)
+{
+    size_t n = strlen(v);
+    size_t i;
+
+    if (n == 0 || n >= max) {
+        return 0;
+    }
+    for (i = 0; i < n; i++) {
+        if ((unsigned char)v[i] < 0x20 || (unsigned char)v[i] > 0x7e) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int parse_flag(const char *v, int *out)
+{
+    if (strcmp(v, "0") == 0 || strcmp(v, "1") == 0) {
+        *out = v[0] - '0';
+        return 1;
+    }
+    return 0;
+}
+
+/* 0 when there is no record, 1 with *r filled, -1 when a record is there
+ * and is not one this code wrote. */
+static int record_read(const char *dir, struct recovery *r)
+{
+    char path[POCKETOS_PATH_MAX];
+    char text[RECOVERY_MAX_BYTES + 1];
+    char *line;
+    char *save = NULL;
+    ssize_t n;
+    int fd;
+    int first = 1;
+
+    memset(r, 0, sizeof(*r));
+    r->route_restore = -1;
+    if (record_path(dir, path, sizeof(path)) != 0) {
+        return -1;
+    }
+    fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        return errno == ENOENT ? 0 : -1;
+    }
+    n = read(fd, text, sizeof(text));
+    close(fd);
+    if (n <= 0 || n > RECOVERY_MAX_BYTES) {
+        return -1;
+    }
+    text[n] = '\0';
+    for (line = strtok_r(text, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+        char *v = strchr(line, ' ');
+
+        if (first) {
+            if (strcmp(line, RECOVERY_HEADER) != 0) {
+                return -1;
+            }
+            first = 0;
+            continue;
+        }
+        if (!v) {
+            return -1;
+        }
+        *v++ = '\0';
+        if (strcmp(line, "ctl") == 0 && printable_name(v, sizeof(r->ctl))) {
+            snprintf(r->ctl, sizeof(r->ctl), "%s", v);
+        } else if (strcmp(line, "route_control") == 0 && printable_name(v, sizeof(r->route_control))) {
+            snprintf(r->route_control, sizeof(r->route_control), "%s", v);
+        } else if (strcmp(line, "route_restore") == 0) {
+            if (!parse_flag(v, &r->route_restore)) {
+                return -1;
+            }
+        } else if (strcmp(line, "amp_chip") == 0) {
+            const char *d = v + strlen("/dev/gpiochip");
+
+            if (strncmp(v, "/dev/gpiochip", strlen("/dev/gpiochip")) != 0 || !*d ||
+                strspn(d, "0123456789") != strlen(d) || strlen(v) >= sizeof(r->amp_chip)) {
+                return -1;
+            }
+            snprintf(r->amp_chip, sizeof(r->amp_chip), "%s", v);
+        } else if (strcmp(line, "amp_line") == 0) {
+            char *end;
+            unsigned long l = strtoul(v, &end, 10);
+
+            if (!*v || *end || l > 1023) {
+                return -1;
+            }
+            r->amp_line = (unsigned)l;
+        } else if (strcmp(line, "amp_active_high") == 0) {
+            if (!parse_flag(v, &r->amp_active_high)) {
+                return -1;
+            }
+        } else if (strcmp(line, "amp_enabled") == 0) {
+            if (!parse_flag(v, &r->amp_enabled)) {
+                return -1;
+            }
+        } else if (strcmp(line, "pid") != 0 && strcmp(line, "direction") != 0) {
+            return -1;
+        }
+    }
+    if (first || (r->route_restore >= 0 && (!r->ctl[0] || !r->route_control[0])) ||
+        (r->amp_enabled && !r->amp_chip[0])) {
+        return -1;
+    }
+    return 1;
+}
+
+/* Undo what a previous owner left behind. Called with the lock held, so the
+ * owner that wrote the record is gone. The amplifier goes off before the
+ * route is touched. 0 when there was nothing to do, 1 when something was
+ * restored, POCKETAUDIO_E_ROUTE when a restore failed (the record stays, so
+ * the next attempt tries again; every step is idempotent). */
+static int reconcile(const struct pocketaudio_backend *be, const char *dir, char *report,
+                     size_t len)
+{
+    char path[POCKETOS_PATH_MAX];
+    struct recovery r;
+    int v = record_read(dir, &r);
+    int e;
+
+    if (v == 0) {
+        return 0;
+    }
+    if (record_path(dir, path, sizeof(path)) != 0) {
+        return POCKETAUDIO_E_LOCK;
+    }
+    if (v < 0) {
+        /* Not ours to act on, and left in place it would refuse every open. */
+        unlink(path);
+        say(report, len, "discarded an unreadable recovery record");
+        return 0;
+    }
+    if (r.amp_enabled) {
+        int h = be->gpio_request_output(r.amp_chip, r.amp_line, r.amp_active_high ? 0 : 1);
+
+        if (h < 0) {
+            say(report, len, "cannot switch the amplifier off (%s line %u): %s", r.amp_chip,
+                r.amp_line, strerror(-h));
+            return POCKETAUDIO_E_ROUTE;
+        }
+        be->gpio_release(h);
+    }
+    if (r.route_restore >= 0) {
+        e = be->ctl_set_bool(r.ctl, r.route_control, r.route_restore);
+        if (e < 0) {
+            say(report, len, "cannot restore %s: %s", r.route_control, strerror(-e));
+            return POCKETAUDIO_E_ROUTE;
+        }
+    }
+    unlink(path);
+    say(report, len, "restored after an owner that did not close:%s%s",
+        r.amp_enabled ? " amplifier off" : "",
+        r.route_restore >= 0 ? (r.route_restore ? " route 1" : " route 0") : "");
+    return 1;
+}
+
+int pocketaudio_recover(const struct pocketaudio_options *options, char *report, size_t len)
+{
+    struct pocketaudio_stream *s;
+    int rc;
+
+    say(report, len, "%s", "");
+    if (!options || !options->backend) {
+        say(report, len, "invalid recovery request");
+        return POCKETAUDIO_E_INVAL;
+    }
+    s = calloc(1, sizeof(*s));
+    if (!s) {
+        return POCKETAUDIO_E_IO;
+    }
+    s->lock_fd = -1;
+    rc = take_lock(s, options->lock_dir, report, len);
+    if (rc == POCKETAUDIO_OK) {
+        rc = reconcile(options->backend, s->lock_dir, report, len);
+        if (rc == 0 && report && len && !report[0]) {
+            say(report, len, "nothing to recover");
+        }
+        close(s->lock_fd);
+    }
+    free(s);
+    return rc;
+}
+
 static void release(struct pocketaudio_stream *s)
 {
+    int restored = 1;
+
     if (s->amp >= 0) {
         /* Silence first: the speaker goes quiet before the stream stops, so
          * whatever the PCM does as it closes is not amplified. */
-        s->be->gpio_set(s->amp, s->board.amp_active_high ? 0 : 1);
+        if (s->be->gpio_set(s->amp, s->board.amp_active_high ? 0 : 1) < 0) {
+            restored = 0;
+        }
         s->be->gpio_release(s->amp);
         s->amp = -1;
     }
@@ -229,8 +491,20 @@ static void release(struct pocketaudio_stream *s)
         s->pcm = NULL;
     }
     if (s->route_saved >= 0) {
-        s->be->ctl_set_bool(s->board.ctl, s->board.route_control, s->route_saved);
+        if (s->be->ctl_set_bool(s->board.ctl, s->board.route_control, s->route_saved) < 0) {
+            restored = 0;
+        }
         s->route_saved = -1;
+    }
+    if (s->record_written && restored) {
+        char path[POCKETOS_PATH_MAX];
+
+        /* Removed while the lock is still held, and only once everything it
+         * describes has really been undone; otherwise the next owner does it. */
+        if (record_path(s->lock_dir, path, sizeof(path)) == 0) {
+            unlink(path);
+        }
+        s->record_written = 0;
     }
     if (s->lock_fd >= 0) {
         close(s->lock_fd); /* releases the flock */
@@ -291,11 +565,22 @@ int pocketaudio_open(struct pocketaudio_stream **out, enum pocketaudio_dir dir,
         return POCKETAUDIO_E_DISABLED;
     }
 
+    s->record_route = -1;
     rc = take_lock(s, o->lock_dir, err, errlen);
     if (rc != POCKETAUDIO_OK) {
         free(s);
         return rc;
     }
+
+    /* Before anything of ours: whatever a previous owner that died without
+     * closing left switched on is switched back first. */
+    rc = reconcile(s->be, s->lock_dir, msg, sizeof(msg));
+    if (rc < 0) {
+        say(err, errlen, "%s", msg);
+        goto fail;
+    }
+    s->recovered = rc == 1;
+    msg[0] = '\0';
 
     if (s->board.route_control) {
         int want = capture ? s->board.route_capture : s->board.route_playback;
@@ -310,6 +595,15 @@ int pocketaudio_open(struct pocketaudio_stream **out, enum pocketaudio_dir dir,
         }
         have = have ? 1 : 0;
         if (have != (want ? 1 : 0)) {
+            /* Write-ahead: the record says how to undo the switch before the
+             * switch happens, so a death at any instant after this is
+             * recoverable. */
+            e = record_write(s, have, 0);
+            if (e < 0) {
+                say(err, errlen, "cannot write the audio recovery record: %s", strerror(-e));
+                rc = POCKETAUDIO_E_LOCK;
+                goto fail;
+            }
             e = s->be->ctl_set_bool(s->board.ctl, s->board.route_control, want ? 1 : 0);
             if (e < 0) {
                 say(err, errlen, "cannot set %s: %s", s->board.route_control, strerror(-e));
@@ -334,6 +628,12 @@ int pocketaudio_open(struct pocketaudio_stream **out, enum pocketaudio_dir dir,
     /* The amplifier last, after the PCM is prepared: nothing reaches the
      * speaker before there is a stream to play. */
     if (!capture && s->board.amp_chip) {
+        e = record_write(s, s->record_route, 1);
+        if (e < 0) {
+            say(err, errlen, "cannot write the audio recovery record: %s", strerror(-e));
+            rc = POCKETAUDIO_E_LOCK;
+            goto fail;
+        }
         s->amp = s->be->gpio_request_output(s->board.amp_chip, s->board.amp_line,
                                             s->board.amp_active_high ? 1 : 0);
         if (s->amp < 0) {
@@ -470,6 +770,11 @@ void pocketaudio_close(struct pocketaudio_stream *s)
     }
     release(s);
     free(s);
+}
+
+int pocketaudio_recovered(const struct pocketaudio_stream *s)
+{
+    return s ? s->recovered : 0;
 }
 
 unsigned pocketaudio_xruns(const struct pocketaudio_stream *s)

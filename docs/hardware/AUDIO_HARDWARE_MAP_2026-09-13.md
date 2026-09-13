@@ -315,10 +315,12 @@ Carried into docs/KNOWN_ISSUES.md. The first four gate SEND:
    digital attenuation alone (§8).
 4. Unit A's address was not available here; the §7 reads are outstanding.
 5. The capture slot mapping is inferred (§5).
-6. After a crash or SIGKILL of pos-wave the route and IO34 keep their last
-   values: the kernel closes the PCM, so nothing plays, but the amplifier may
-   stay enabled until the next pos-wave run. That gpiolib leaves a released
-   line at its value is ASSUMED.
+6. ~~After a crash or SIGKILL of pos-wave the route and IO34 keep their last
+   values.~~ Closed before merge: a write-ahead recovery record, reconciled by
+   the next owner of the audio lock and by a `pos-wave recover` the Wave
+   session starts when its helper dies by a signal (pocketaudio.h,
+   "Recovery"; tests/audio_recovery_test.sh). That gpiolib leaves a released
+   line at its value is still ASSUMED; the recovery does not depend on it.
 7. A playback on the speaker route still enables the codec's headphone driver
    (driver behaviour): a click on the jack is possible; keep it empty.
 8. ggwave's CPU cost on the C908 is unmeasured. Its worst single decode call

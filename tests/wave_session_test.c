@@ -54,6 +54,37 @@ static void nap(int ms)
 }
 
 static char helper[PATH_MAX];
+static char recover_mark[PATH_MAX];
+
+/* How many `recover` runs the fake has recorded, once the count reaches want
+ * or the bound passes (the run is detached, so it lands a moment later). */
+static int recover_runs(int want, int bound_ms)
+{
+    int64_t end = now_ms() + bound_ms;
+    int n;
+
+    for (;;) {
+        FILE *f = fopen(recover_mark, "r");
+        char line[32];
+
+        n = 0;
+        if (f) {
+            while (fgets(line, sizeof(line), f)) {
+                n++;
+            }
+            fclose(f);
+        }
+        if (n >= want || now_ms() >= end) {
+            return n;
+        }
+        nap(10);
+    }
+}
+
+static void recover_reset(void)
+{
+    unlink(recover_mark);
+}
 
 /* Collect events until EXITED or the bound. Returns the number collected. */
 static int run_until_exit(struct wave_session *s, struct wave_event *evs, int max, int bound_ms)
@@ -253,6 +284,7 @@ static void test_ignore_term(void)
     pid_t pid;
 
     wave_session_init(&s);
+    recover_reset();
     setenv("WAVE_FAKE", "ignore_term", 1);
     wave_session_start_listen(&s, helper, 60, err, sizeof(err));
     nap(200);
@@ -267,6 +299,8 @@ static void test_ignore_term(void)
     n = run_until_exit(&s, evs, 32, 3000);
     i = find(evs, n, WAVE_EV_EXITED);
     check("stop: and reported as killed (128 + SIGKILL)", i >= 0 && evs[i].value == 128 + SIGKILL);
+    check("recovery: a helper killed after the grace gets `recover` run after it",
+          s.recoveries == 1 && recover_runs(1, 2000) == 1);
 
     setenv("WAVE_FAKE", "ignore_term", 1);
     wave_session_start_listen(&s, helper, 60, err, sizeof(err));
@@ -281,6 +315,8 @@ static void test_ignore_term(void)
     }
     check("abandon: the helper is gone", kill(pid, 0) != 0 && errno == ESRCH);
     check("abandon: the session is idle", !wave_session_active(&s) && s.fd < 0);
+    check("recovery: abandoning a helper that had to be killed runs `recover` too",
+          s.recoveries == 2 && recover_runs(2, 2000) == 2);
 
     setenv("WAVE_FAKE", "listen_ok", 1);
     wave_session_start_listen(&s, helper, 60, err, sizeof(err));
@@ -293,6 +329,8 @@ static void test_ignore_term(void)
         check("abandon: a cooperative helper leaves well inside the grace", now_ms() - t0 < 800);
     }
     check("abandon: and is gone", kill(pid, 0) != 0 && errno == ESRCH);
+    check("recovery: a helper that left on SIGTERM cleaned up itself, so no `recover`",
+          s.recoveries == 2 && recover_runs(3, 300) == 2);
     wave_session_abandon(&s, 100);
     check("abandon on an idle session is harmless", !wave_session_active(&s));
 }
@@ -306,12 +344,15 @@ static void test_misbehaving(void)
     int i;
 
     wave_session_init(&s);
+    recover_reset();
     setenv("WAVE_FAKE", "crash", 1);
     wave_session_start_listen(&s, helper, 60, err, sizeof(err));
     n = run_until_exit(&s, evs, 64, 3000);
     i = find(evs, n, WAVE_EV_EXITED);
     check("crash: a helper killed mid-run is reported, not waited for",
           i >= 0 && evs[i].value == 128 + SIGKILL && !wave_session_active(&s));
+    check("recovery: a helper that crashed gets `recover` run after it",
+          s.recoveries == 1 && recover_runs(1, 2000) == 1);
 
     setenv("WAVE_FAKE", "garbage", 1);
     wave_session_start_listen(&s, helper, 60, err, sizeof(err));
@@ -349,6 +390,97 @@ static void test_misbehaving(void)
     check("missing helper: reported as an exec error", i >= 0 && strncmp(evs[i].text, "exec ", 5) == 0);
     check("missing helper: exit 127", find(evs, n, WAVE_EV_EXITED) >= 0 &&
                                           evs[find(evs, n, WAVE_EV_EXITED)].value == 127);
+    check("recovery: helpers that exited by themselves, with any code, trigger none",
+          s.recoveries == 1 && recover_runs(2, 300) == 1);
+}
+
+/* The real helper, with its sound card and GPIO replaced by files
+ * (tests/pos-wave-testhooks, tests/fake_audio_backend.c): a listen switches
+ * the route to the codec, the helper is SIGKILLed the way a hung or crashed
+ * one would be, and the session's recovery must switch it back. */
+static int read_state(const char *dir, const char *name, char *out, size_t len)
+{
+    char path[PATH_MAX];
+    FILE *f;
+
+    snprintf(path, sizeof(path), "%s/%s", dir, name);
+    f = fopen(path, "r");
+    out[0] = '\0';
+    if (!f) {
+        return 0;
+    }
+    if (fgets(out, (int)len, f)) {
+        out[strcspn(out, "\n")] = '\0';
+    }
+    fclose(f);
+    return 1;
+}
+
+static int wait_state(const char *dir, const char *name, const char *want, int bound_ms)
+{
+    int64_t end = now_ms() + bound_ms;
+    char v[32];
+
+    do {
+        if (read_state(dir, name, v, sizeof(v)) && strcmp(v, want) == 0) {
+            return 1;
+        }
+        nap(10);
+    } while (now_ms() < end);
+    return 0;
+}
+
+static void test_real_helper_recovery(const char *real)
+{
+    char dir[64] = "/tmp/wave-real-XXXXXX";
+    char path[PATH_MAX];
+    struct wave_session s;
+    struct wave_event evs[32];
+    char err[160];
+    FILE *f;
+    int n;
+    int i;
+
+    if (!mkdtemp(dir)) {
+        check("real helper: temp dir", 0);
+        return;
+    }
+    snprintf(path, sizeof(path), "%s/route", dir);
+    f = fopen(path, "w");
+    if (f) {
+        fputs("1\n", f);
+        fclose(f);
+    }
+    setenv("POS_WAVE_FAKE_AUDIO", dir, 1);
+    setenv("POCKETOS_RUNTIME_DIR", dir, 1);
+    setenv("POCKETOS_AUDIO_ALLOW_UNVERIFIED", "capture", 1);
+
+    wave_session_init(&s);
+    check("real helper: a listen starts", wave_session_start_listen(&s, real, 60, err, sizeof(err)) == 0);
+    check("real helper: it switches the route to the microphone", wait_state(dir, "route", "0", 3000));
+    snprintf(path, sizeof(path), "%s/audio.recovery", dir);
+    check("real helper: with its recovery record written first", access(path, F_OK) == 0);
+    kill(s.pid, SIGKILL);
+    n = run_until_exit(&s, evs, 32, 3000);
+    i = find(evs, n, WAVE_EV_EXITED);
+    check("real helper: SIGKILLed, it is reported killed", i >= 0 && evs[i].value == 128 + SIGKILL);
+    check("real helper: the session's recovery switches the route back", wait_state(dir, "route", "1", 3000));
+    check("real helper: and removes the record", access(path, F_OK) != 0);
+
+    unsetenv("POS_WAVE_FAKE_AUDIO");
+    unsetenv("POCKETOS_RUNTIME_DIR");
+    unsetenv("POCKETOS_AUDIO_ALLOW_UNVERIFIED");
+    {
+        static const char *const files[] = { "route", "amp", "pcm", "log", "audio.lock",
+                                              "audio.recovery", "audio.recovery.tmp" };
+        size_t k;
+
+        for (k = 0; k < sizeof(files) / sizeof(files[0]); k++) {
+            snprintf(path, sizeof(path), "%s/%s", dir, files[k]);
+            unlink(path);
+        }
+        rmdir(dir);
+    }
 }
 
 static void test_fds(void)
@@ -427,7 +559,7 @@ int main(int argc, char **argv)
     FILE *f;
 
     if (argc < 2 || !realpath(argv[1], script)) {
-        fprintf(stderr, "usage: wave_session_test tests/fake_pos_wave.sh\n");
+        fprintf(stderr, "usage: wave_session_test tests/fake_pos_wave.sh [tests/pos-wave-testhooks]\n");
         return 2;
     }
     /* A wrapper with the exec bit, so the fake needs none in the checkout. */
@@ -444,6 +576,8 @@ int main(int argc, char **argv)
     fprintf(f, "#!/bin/sh\nexec bash '%s' \"$@\"\n", script);
     fclose(f);
     chmod(helper, 0755);
+    snprintf(recover_mark, sizeof(recover_mark), "%s/recover.mark", dir);
+    setenv("WAVE_FAKE_RECOVER_MARK", recover_mark, 1);
     unsetenv("POCKETOS_WAVE_HELPER");
     check("the helper defaults to /usr/bin/pos-wave",
           strcmp(wave_session_helper_path(), "/usr/bin/pos-wave") == 0);
@@ -458,8 +592,18 @@ int main(int argc, char **argv)
     test_misbehaving();
     test_fds();
     test_parent_death();
+    if (argc > 2) {
+        char real[PATH_MAX];
+
+        if (realpath(argv[2], real)) {
+            test_real_helper_recovery(real);
+        } else {
+            check("the real test helper exists", 0);
+        }
+    }
 
     unlink(helper);
+    unlink(recover_mark);
     rmdir(dir);
     printf("wave_session_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;

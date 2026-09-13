@@ -94,8 +94,17 @@ in the shell; a helper hung in a driver is killed instead of freezing the
 panel; the kernel closes the PCM when the helper dies; no background
 microphone; and the first hardware test runs the same binary the app runs. A
 supervised `audiod` would own the card permanently for one app that needs it
-briefly. The choice and its conflict with ADR-002's "services own hardware"
-are written up as **ADR-004 (Proposed)** for the owner.
+briefly. The choice is **ADR-004, accepted by the owner for this milestone as
+a narrow exception for Wave** - not a replacement for ADR-002's "services own
+hardware", which stays the rule everywhere else.
+
+**When a helper is killed.** A SIGKILLed helper runs no cleanup; the kernel
+stops the sound but leaves the route switched and the amplifier line as they
+were. pocketaudio therefore writes a recovery record before it changes
+either, whoever takes the audio lock next restores from it first, and the
+Wave session - the process that sees a helper die by a signal - starts a
+detached `pos-wave recover` at once (pocketaudio.h, "Recovery";
+tests/audio_recovery_test.sh kills real helpers to prove it).
 
 Launcher: the eleventh tile, after Settings; the grid gained a sixth row.
 Icon: `LV_SYMBOL_VOLUME_MAX`, a placeholder until the DS §11 icon set exists.
@@ -109,17 +118,22 @@ pos-wave decode [--channel C] IN.wav
 pos-wave send   [--protocol P] [--volume V] [--text T] [--events] [--allow-unverified]
 pos-wave listen [--seconds N] [--channel C] [--events] [--allow-unverified]
 pos-wave record [--seconds N] [--channel C] [--allow-unverified] OUT.wav
+pos-wave recover
 ```
 
 `P` = `audible_normal`, `audible_fast` (default), `audible_fastest`; `V` = 1..25
 (default 10); listen `N` = 1..3600 (default 120); record `N` = 1..30 (default 5).
 Text comes from `--text` or stdin (one trailing newline is dropped).
-`--allow-unverified` or `POCKETOS_AUDIO_ALLOW_UNVERIFIED=1` opens a path whose
-board entry is not yet validated. `POCKETOS_AUDIO_BOARD=generic|k230` and
-`POCKETOS_AUDIO_PCM=<name>` override detection for bench and tests.
+`--allow-unverified` opens the command's own direction on a path whose board
+entry is not yet validated; `POCKETOS_AUDIO_ALLOW_UNVERIFIED` does the same for
+the directions it names (`capture`, `playback`, or both with a comma - `1`
+opens nothing), so an environment set for a microphone test cannot open the
+speaker. `recover` undoes what a killed pos-wave left switched and opens no
+stream. `POCKETOS_AUDIO_BOARD=generic|k230` and `POCKETOS_AUDIO_PCM=<name>`
+override detection for bench and tests.
 
 Events (stdout, one per line): `ready <board>`, `sending <ms>`, `listening`,
-`level <0-100>`, `received <hex>`, `missed`, `sent`, `stopped`,
+`level <0-100>`, `received <hex>`, `missed`, `sent`, `stopped`, `recovered`,
 `error <code> <text>` with code `usage`, `too_long`, `invalid_text`, `encode`,
 `decode`, `audio_disabled`, `audio_busy`, `audio_nodev` or `audio`.
 Exit codes: 0 done, 1 ran and failed (decode found nothing), 2 usage or input,
@@ -208,9 +222,10 @@ active high) is DOCUMENTED from vendor sources and gated.
 
 | Test | What it covers | Checks |
 | --- | --- | --- |
-| `tests/pocketaudio_test.c` | board detection; the gate touching nothing; route/PCM/amplifier order on open and close; restore; busy; every open failure leaving nothing behind; clamp; period and wait bounds; xrun recovery; channel mapping; drain bound | 83 |
+| `tests/pocketaudio_test.c` | board detection; the gate touching nothing; route/PCM/amplifier order on open and close; restore; busy; every open failure leaving nothing behind; clamp; period and wait bounds; xrun recovery; channel mapping; drain bound; the recovery record written before each change, a child process that dies holding a stream, recovery order, next-open reconciliation, a live owner, failed restores kept for retry, corrupt records | 113 |
+| `tests/audio_recovery_test.sh` + `tests/pos-wave-testhooks` | real pos-wave processes SIGKILLed mid-send and mid-listen against file-backed hardware: the amplifier and route left behind, `recover`, the next send and listen reconciling first, no recovery over a live owner, SIGTERM needing none, a foreign record, the direction-scoped override, no hook in the shipped binary | 31 |
 | `tests/wave_modem_test.c` | the host acceptance round trip text -> PCM -> text for every profile; empty, maximum, one over, volume; 64 arbitrary bytes; UTF-8; seven chunkings; misaligned start; truncated PCM and the watchdog; noise on a message; noise alone; full-scale garbage; two messages; peak against the ceiling; heap | 52 |
-| `tests/wave_session_test.c` + `tests/fake_pos_wave.sh` | event parser; argv; text on stdin; crash; SIGTERM ignored then SIGKILL; bounded abandon; flood; garbage; missing helper; no SIGPIPE; no descriptor leak; the helper ended by PR_SET_PDEATHSIG when its parent dies | 65 |
+| `tests/wave_session_test.c` + `tests/fake_pos_wave.sh` | event parser; argv; text on stdin; crash; SIGTERM ignored then SIGKILL; bounded abandon; flood; garbage; missing helper; no SIGPIPE; no descriptor leak; the helper ended by PR_SET_PDEATHSIG when its parent dies; `recover` started after every signal death and never after a normal exit; the real helper SIGKILLed with the route switched and the session switching it back | 76 |
 | `tests/wave_view_test.c` | message rules; the action per phase; the microphone indicator through start and stop; every error word and exit; received formatting; misses | 91 |
 | `tests/wave_tool_test.sh` | pos-wave on files and on ALSA's null device: encode/decode, limits, unsupported and broken WAVs, stereo slot choice, event order, the K230 gate, missing device, held lock, SIGTERM, a vanished reader, bench recording | 59 |
 | `tests/wave_lint.sh` | boundaries: LVGL only in the screen, no hardware in apps/wave, ALSA only in pocketaudio, no threads or shell-outs, no sleeping in the app, text never in argv, PDEATHSIG, logging off, gates still closed, test registration | 35 |
@@ -218,7 +233,7 @@ active high) is DOCUMENTED from vendor sources and gated.
 | `tests/wave_shell_test.sh` | runs the app test; launcher and CMake wiring; the real shell opens and closes Wave with no lock taken and nothing stored | 16 |
 
 ```sh
-make CC=gcc CFLAGS="-O2 -Wall -Wextra -Werror" test          # the first six
+make CC=gcc CFLAGS="-O2 -Wall -Wextra -Werror" test          # all but the last two
 SHELL_BIN=~/work/.../pocketos-shell bash tests/wave_shell_test.sh
 ```
 

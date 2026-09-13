@@ -1,6 +1,8 @@
 # ADR-004: Who owns the audio hardware
 
-Status: Proposed (awaiting the product owner)
+Status: Accepted for this milestone (product owner, 2026-09-13), as a
+deliberate, narrow exception for Wave. It is not a replacement for ADR-002
+and must not be generalised into one.
 Date: 2026-09-13
 Deciders: product owner (final), AI engineering partner (author)
 
@@ -69,10 +71,12 @@ tens of milliseconds on a desktop core, unmeasured on the C908).
 
 ## Decision
 
-Proposed: **Option C** for Wave, recorded as a deliberate, scoped exception
-to ADR-002 point 2 in the shape of the keyboard driver's (owner-approved
-2026-09-12): the hardware still has exactly one owner at a time and the app
-never opens it; the owner is a per-operation helper rather than a daemon.
+**Option C** for Wave, accepted by the owner for this milestone as a
+deliberate, narrow exception to ADR-002 point 2, in the shape of the keyboard
+driver's (owner-approved 2026-09-12): the hardware still has exactly one owner
+at a time and the app never opens it; the owner is a per-operation helper
+rather than a daemon. ADR-002 stays the rule for every other hardware owner,
+and a later need is decided against ADR-002, not by extending this.
 
 Scope of the exception: the sound card and the speaker amplifier line, for
 Wave. It does not cover any other hardware.
@@ -91,11 +95,22 @@ package (already in the image); ggwave pinned like RadioLib.
 Useful soon: the controlled hardware tests; a C908 measurement of ggwave's
 analysis step; once validated, flipping the K230 board entry's gates.
 
-Risks: after a SIGKILL the mixer route and the amplifier line keep their last
-values (the kernel closes the PCM, so nothing plays); the next pos-wave run
-sets both. Another program that opens `hw:0,0` without the lock (aplay,
-the vendor launcher) is only kept out by the card's single substream
-returning EBUSY, which pocketaudio reports as busy.
+Abnormal helper death (the one gap a process-per-operation owner has, found
+before merge): a SIGKILLed helper cannot run its cleanup, and the kernel
+closes the PCM but leaves the mixer route and the amplifier line as they
+were. Closed without a daemon, in three layers (pocketaudio.h, "Recovery"):
+a write-ahead recovery record in the runtime directory before any route or
+amplifier change; reconciliation from that record by whoever takes the audio
+lock next (every open, and `pos-wave recover`); and the owning process - the
+Wave session, which sees the helper die - starting a detached `pos-wave
+recover` whenever a helper ends by a signal. Tested by killing real helpers
+(tests/audio_recovery_test.sh, tests/wave_session_test.c).
+
+Risks: another program that opens `hw:0,0` without the lock (aplay, the
+vendor launcher) is only kept out by the card's single substream returning
+EBUSY, which pocketaudio reports as busy; it would also not write a recovery
+record. If the shell and its helper are both SIGKILLed together, nothing
+triggers recovery until the next audio operation or a reboot.
 
 Migration cost to Option A later: an IPC front for the operations pos-wave
 already exposes; pocketaudio and the modem move unchanged.

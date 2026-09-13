@@ -455,11 +455,14 @@ and cross-built; **nothing has played or captured audio on any board**. The
 hardware record and the proposed first tests are
 docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md; the app is docs/apps/WAVE.md.
 
-Decisions pending the owner:
+Decisions:
 
-- **ADR-004 (Proposed): a per-operation helper process owns the sound card**
-  for Wave, a scoped exception to ADR-002's "services own hardware".
-- **Approval of the first SEND and RECEIVE tests** (hardware map §9, §10).
+- **ADR-004 accepted for this milestone** (owner, 2026-09-13): a
+  per-operation helper process owns the sound card for Wave, a narrow
+  exception to ADR-002, not a replacement for it.
+- **RECEIVE-first** (owner, 2026-09-13): the microphone test (hardware map
+  §10) is approved; SEND stays blocked until the amplifier IC, the speaker
+  connector and R54 are identified physically.
 
 Audio hardware:
 
@@ -481,9 +484,12 @@ Audio hardware:
 - **The on-board mic's gain is fixed at 30 dB** and not adjustable through
   ALSA (`Mic Capture Volume` writes only the left channel); the codec's ALC
   behaviour is unknown. A loud room may clip.
-- **After a SIGKILL of pos-wave the route and the amplifier line keep their
-  last values.** The PCM is closed by the kernel, so nothing plays; the next
-  pos-wave run sets both again.
+- ~~After a SIGKILL of pos-wave the route and the amplifier line keep their
+  last values.~~ Fixed before merge: write-ahead recovery record, reconciled
+  by the next audio open and by `pos-wave recover`, which the Wave session
+  starts when its helper dies by a signal. Remaining gap: if the shell and
+  its helper are SIGKILLed together, nothing restores the state until the
+  next audio operation or a reboot.
 - **Mic bias stays on after the first capture** (driver), and a speaker-route
   playback still enables the headphone driver (driver): keep the jack empty
   during the tests.

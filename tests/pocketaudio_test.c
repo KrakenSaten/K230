@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 static int checks;
@@ -33,7 +34,27 @@ static void check(const char *name, int ok)
 
 /* ---- the fake ----------------------------------------------------------- */
 
+static char lockdir[64];
+
+/* The recovery record as it is on disk right now, "" when there is none. */
+static void read_record(char *buf, size_t len)
+{
+    char path[128];
+    FILE *f;
+    size_t n = 0;
+
+    snprintf(path, sizeof(path), "%s/audio.recovery", lockdir);
+    f = fopen(path, "r");
+    if (f) {
+        n = fread(buf, 1, len - 1, f);
+        fclose(f);
+    }
+    buf[n] = '\0';
+}
+
 static struct {
+    char record_at_route_set[1024]; /* the record when the route was written */
+    char record_at_amp[1024];       /* the record when the amplifier was requested */
     char log[1024];
     int route;             /* the mixer switch */
     int route_get_err;
@@ -161,6 +182,7 @@ static int f_set(const char *ctl, const char *name, int value)
     (void)name;
     snprintf(tok, sizeof(tok), "route=%d", value);
     logf_(tok);
+    read_record(fk.record_at_route_set, sizeof(fk.record_at_route_set));
     if (fk.route_set_err) {
         return fk.route_set_err;
     }
@@ -175,6 +197,7 @@ static int f_gpio_req(const char *chip, unsigned line, int value)
     (void)chip;
     snprintf(tok, sizeof(tok), "amp+%d", value);
     logf_(tok);
+    read_record(fk.record_at_amp, sizeof(fk.record_at_amp));
     fk.amp_requests++;
     fk.amp_line = line;
     if (fk.amp_err) {
@@ -213,8 +236,6 @@ static const struct pocketaudio_backend fake = {
     .gpio_set = f_gpio_set,
     .gpio_release = f_gpio_release,
 };
-
-static char lockdir[64];
 
 static struct pocketaudio_options opts(const struct pocketaudio_board *b, int allow)
 {
@@ -604,6 +625,172 @@ static void test_read(void)
     pocketaudio_close(s);
 }
 
+/* ---- recovery after an owner that never closed -------------------------- */
+
+static void write_record(const char *text)
+{
+    char path[128];
+    FILE *f;
+
+    snprintf(path, sizeof(path), "%s/audio.recovery", lockdir);
+    f = fopen(path, "w");
+    if (f) {
+        fputs(text, f);
+        fclose(f);
+    }
+}
+
+static int record_exists(void)
+{
+    char buf[1024];
+
+    read_record(buf, sizeof(buf));
+    return buf[0] != '\0';
+}
+
+/* A process that opens a stream and dies without closing it, the way a
+ * SIGKILLed pos-wave does: nothing of pocketaudio's cleanup runs. Returns
+ * whether its open succeeded. */
+static int crash_after_open(enum pocketaudio_dir dir, int route_before)
+{
+    pid_t pid = fork();
+    int status;
+
+    if (pid == 0) {
+        struct pocketaudio_stream *s = NULL;
+        struct pocketaudio_options o = opts(pocketaudio_board_k230(), 1);
+        char err[160];
+
+        fake_reset();
+        fk.route = route_before;
+        _exit(pocketaudio_open(&s, dir, &o, err, sizeof(err)) == POCKETAUDIO_OK ? 0 : 1);
+    }
+    return pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+#define AMP_RECORD "pocketaudio-recovery 1\npid 1\ndirection playback\n" \
+                   "amp_chip /dev/gpiochip1\namp_line 2\namp_active_high 1\namp_enabled 1\n"
+
+static void test_recovery(void)
+{
+    struct pocketaudio_stream *s = NULL;
+    struct pocketaudio_options k = opts(pocketaudio_board_k230(), 1);
+    struct pocketaudio_options g = opts(pocketaudio_board_generic(), 0);
+    char err[200];
+    char rec[1024];
+    int rc;
+
+    /* Write-ahead, playback. */
+    fake_reset();
+    fk.route = 0;
+    rc = pocketaudio_open(&s, POCKETAUDIO_PLAYBACK, &k, err, sizeof(err));
+    check("recovery: the route is recorded before it is switched",
+          rc == POCKETAUDIO_OK && strstr(fk.record_at_route_set, "route_restore 0\n") &&
+              strstr(fk.record_at_route_set, "route_control External I2S Output Switch\n") &&
+              !strstr(fk.record_at_route_set, "amp_enabled"));
+    check("recovery: the amplifier is recorded before it is enabled, with the route",
+          strstr(fk.record_at_amp, "amp_enabled 1\n") && strstr(fk.record_at_amp, "amp_chip /dev/gpiochip1\n") &&
+              strstr(fk.record_at_amp, "amp_line 2\n") && strstr(fk.record_at_amp, "route_restore 0\n"));
+    check("recovery: the record stays while the stream is open", record_exists());
+    check("recovery: open found nothing to undo", !pocketaudio_recovered(s));
+    pocketaudio_close(s);
+    check("recovery: a clean close removes it", !record_exists());
+
+    /* Nothing to record. */
+    fake_reset();
+    fk.route = 0;
+    rc = pocketaudio_open(&s, POCKETAUDIO_CAPTURE, &k, err, sizeof(err));
+    check("recovery: a capture that needs no route change writes no record",
+          rc == POCKETAUDIO_OK && !record_exists());
+    pocketaudio_close(s);
+    rc = pocketaudio_open(&s, POCKETAUDIO_PLAYBACK, &g, err, sizeof(err));
+    check("recovery: a board with no route and no amplifier writes none", rc == POCKETAUDIO_OK && !record_exists());
+    pocketaudio_close(s);
+
+    /* A playback owner dies. */
+    check("crash: a child process opens playback and dies without closing", crash_after_open(POCKETAUDIO_PLAYBACK, 0));
+    read_record(rec, sizeof(rec));
+    check("crash: its record survives it, naming the amplifier and the route",
+          strstr(rec, "amp_enabled 1\n") && strstr(rec, "route_restore 0\n"));
+    fake_reset();
+    fk.route = 1;      /* as the dead owner left it */
+    fk.amp_value = 1;
+    rc = pocketaudio_recover(&k, err, sizeof(err));
+    check("crash: recover restores it", rc == 1 && strstr(err, "amplifier off") != NULL);
+    check("crash: amplifier off first, then the route",
+          strcmp(fk.log, "amp+0 amp- route=0") == 0 && fk.amp_value == 0 && fk.route == 0);
+    check("crash: and the record is gone", !record_exists());
+    fake_reset();
+    rc = pocketaudio_recover(&k, err, sizeof(err));
+    check("crash: a second recover has nothing to do and touches nothing",
+          rc == 0 && fk.log[0] == '\0' && strcmp(err, "nothing to recover") == 0);
+
+    /* A capture owner dies; the next open reconciles before its own work. */
+    check("crash: a child opens capture and dies", crash_after_open(POCKETAUDIO_CAPTURE, 1));
+    fake_reset();
+    fk.route = 0; /* stale: the codec route the dead capture chose */
+    rc = pocketaudio_open(&s, POCKETAUDIO_CAPTURE, &k, err, sizeof(err));
+    check("next open: restores the route before anything of its own",
+          rc == POCKETAUDIO_OK && strcmp(fk.log, "route=1 route? route=0 open-c") == 0);
+    check("next open: and says it recovered", pocketaudio_recovered(s));
+    check("next open: without touching the amplifier", fk.amp_requests == 0);
+    pocketaudio_close(s);
+    check("next open: its own close leaves no record", !record_exists() && fk.route == 1);
+
+    /* A live owner holds the lock. */
+    rc = pocketaudio_open(&s, POCKETAUDIO_PLAYBACK, &g, err, sizeof(err));
+    write_record(AMP_RECORD);
+    fake_reset();
+    check("busy: recover does nothing while a live owner holds the lock",
+          pocketaudio_recover(&g, err, sizeof(err)) == POCKETAUDIO_E_BUSY && record_exists() && fk.log[0] == '\0');
+    pocketaudio_close(s);
+    fake_reset();
+    rc = pocketaudio_recover(&g, err, sizeof(err));
+    check("busy: once it is gone, recover acts", rc == 1 && !record_exists() && strcmp(fk.log, "amp+0 amp-") == 0);
+
+    /* A restore that fails keeps the record for the next attempt. */
+    write_record(AMP_RECORD);
+    fake_reset();
+    fk.amp_err = -EBUSY;
+    rc = pocketaudio_open(&s, POCKETAUDIO_PLAYBACK, &g, err, sizeof(err));
+    check("failed recovery: the open is refused, never run over stale state",
+          rc == POCKETAUDIO_E_ROUTE && s == NULL && strstr(err, "amplifier off") != NULL);
+    check("failed recovery: the record is kept", record_exists());
+    fake_reset();
+    rc = pocketaudio_open(&s, POCKETAUDIO_PLAYBACK, &g, err, sizeof(err));
+    check("failed recovery: the next attempt succeeds and clears it",
+          rc == POCKETAUDIO_OK && pocketaudio_recovered(s) && !record_exists());
+    pocketaudio_close(s);
+
+    fake_reset();
+    fk.route = 1;
+    rc = pocketaudio_open(&s, POCKETAUDIO_CAPTURE, &k, err, sizeof(err));
+    fk.route_set_err = -EIO;
+    pocketaudio_close(s);
+    check("failed close: a route that could not be restored keeps its record", rc == POCKETAUDIO_OK && record_exists());
+    fake_reset();
+    fk.route = 0;
+    rc = pocketaudio_recover(&k, err, sizeof(err));
+    check("failed close: recover finishes the job", rc == 1 && fk.route == 1 && !record_exists());
+
+    /* Records this code did not write are discarded, never acted on. */
+    fake_reset();
+    write_record("hello\n");
+    rc = pocketaudio_recover(&k, err, sizeof(err));
+    check("corrupt: garbage is discarded and nothing is touched",
+          rc == 0 && !record_exists() && fk.log[0] == '\0' && strstr(err, "discarded") != NULL);
+    write_record("pocketaudio-recovery 1\namp_chip /etc/passwd\namp_line 2\namp_active_high 1\namp_enabled 1\n");
+    rc = pocketaudio_recover(&k, err, sizeof(err));
+    check("corrupt: an amplifier path that is not a GPIO chip is not used", rc == 0 && fk.amp_requests == 0 && !record_exists());
+    write_record("pocketaudio-recovery 1\nroute_restore 1\n");
+    rc = pocketaudio_recover(&k, err, sizeof(err));
+    check("corrupt: a route with no control named is not guessed at", rc == 0 && fk.log[0] == '\0' && !record_exists());
+    write_record("pocketaudio-recovery 1\nctl hw:0\nroute_control X\nroute_restore 7\n");
+    check("corrupt: a route value other than 0 or 1 is refused",
+          pocketaudio_recover(&k, err, sizeof(err)) == 0 && fk.log[0] == '\0');
+    check("recover without a backend is refused", pocketaudio_recover(NULL, err, sizeof(err)) == POCKETAUDIO_E_INVAL);
+}
+
 static void test_misc(void)
 {
     int16_t v[] = { 3, -32768, 100 };
@@ -636,6 +823,7 @@ int main(void)
     test_failures();
     test_write();
     test_read();
+    test_recovery();
     test_misc();
     {
         char lock[128];
