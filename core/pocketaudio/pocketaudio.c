@@ -38,9 +38,12 @@
  * (left), settling within about a second; it is the codec's, not ggwave's.
  * 500 ms is discarded (AUDIO_HARDWARE_MAP §15).
  *
- * The microphone path is VERIFIED on unit A (a phone's ggwave message decoded
- * on the right slot, 2026-09-13). The speaker path is still gated until its
- * controlled first playback. */
+ * Both paths are VERIFIED on unit A (2026-09-13): the microphone decoded a
+ * phone's ggwave message on the right slot, and the controlled first playback
+ * (DOORS at -26 dBFS through the MAX98357A on the nRF52840 base board) was
+ * heard, decoded by a phone, left the panel steady and IO34 low
+ * (AUDIO_HARDWARE_MAP §16). Validation does not raise any limit: every
+ * played sample is still clamped to POCKETAUDIO_PEAK_CEILING. */
 #define K230_CAPTURE_SETTLE_FRAMES (POCKETAUDIO_RATE / 2)
 
 static const struct pocketaudio_board board_k230 = {
@@ -56,7 +59,7 @@ static const struct pocketaudio_board board_k230 = {
     .amp_chip = "/dev/gpiochip1",
     .amp_line = 2,
     .amp_active_high = 1,
-    .playback_verified = 0,
+    .playback_verified = 1,
     .capture_verified = 1,
 };
 

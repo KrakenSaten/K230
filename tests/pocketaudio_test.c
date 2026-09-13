@@ -325,8 +325,8 @@ static void test_detect(void)
     check("detect: K230 amplifier enable is gpiochip1 line 2, active high",
           b.amp_chip && strcmp(b.amp_chip, "/dev/gpiochip1") == 0 && b.amp_line == 2 &&
               b.amp_active_high == 1);
-    check("detect: the K230 microphone is validated, its speaker is not",
-          b.playback_verified == 0 && b.capture_verified == 1);
+    check("detect: both K230 paths are validated",
+          b.playback_verified == 1 && b.capture_verified == 1);
     check("detect: K230 captures discard the codec's 500 ms startup transient",
           b.capture_settle_frames == POCKETAUDIO_RATE / 2);
 
@@ -358,20 +358,33 @@ static void test_detect(void)
 static void test_gate(void)
 {
     struct pocketaudio_stream *s = (struct pocketaudio_stream *)1;
+    /* The gate itself, on a K230-shaped board that has not been validated. */
+    struct pocketaudio_board unvalidated = *pocketaudio_board_k230();
+    struct pocketaudio_options u = opts(&unvalidated, 0);
     struct pocketaudio_options o = opts(pocketaudio_board_k230(), 0);
     char err[160];
     char lock[128];
     int rc;
 
+    unvalidated.playback_verified = 0;
+    unvalidated.capture_verified = 0;
     fake_reset();
-    rc = pocketaudio_open(&s, POCKETAUDIO_PLAYBACK, &o, err, sizeof(err));
+    rc = pocketaudio_open(&s, POCKETAUDIO_PLAYBACK, &u, err, sizeof(err));
     check("gate: unvalidated speaker playback is refused", rc == POCKETAUDIO_E_DISABLED);
     check("gate: and *out is NULL", s == NULL);
-    check("gate: and nothing was touched", fk.log[0] == '\0');
+    check("gate: and nothing was touched", fk.log[0] == '\0' && fk.amp_requests == 0);
     check("gate: the reason names the path", strstr(err, "speaker playback") != NULL);
     snprintf(lock, sizeof(lock), "%s/audio.lock", lockdir);
     check("gate: not even the lock file was created", access(lock, F_OK) != 0);
 
+    fake_reset();
+    s = (struct pocketaudio_stream *)1;
+    rc = pocketaudio_open(&s, POCKETAUDIO_CAPTURE, &u, err, sizeof(err));
+    check("gate: an unvalidated microphone is refused", rc == POCKETAUDIO_E_DISABLED && s == NULL);
+    check("gate: capture touched nothing either", fk.log[0] == '\0');
+    check("gate: the reason names the microphone", strstr(err, "microphone") != NULL);
+
+    /* The K230 entry, validated in both directions on unit A. */
     fake_reset();
     fk.route = 1;
     rc = pocketaudio_open(&s, POCKETAUDIO_CAPTURE, &o, err, sizeof(err));
@@ -380,24 +393,22 @@ static void test_gate(void)
     pocketaudio_close(s);
     check("gate: and closes as any capture does", fk.route == 1 && !fk.pcm_open_now);
 
-    {
-        struct pocketaudio_board unvalidated = *pocketaudio_board_k230();
-        struct pocketaudio_options u = opts(&unvalidated, 0);
-
-        unvalidated.capture_verified = 0;
-        fake_reset();
-        s = (struct pocketaudio_stream *)1;
-        rc = pocketaudio_open(&s, POCKETAUDIO_CAPTURE, &u, err, sizeof(err));
-        check("gate: an unvalidated microphone is still refused", rc == POCKETAUDIO_E_DISABLED && s == NULL);
-        check("gate: capture touched nothing either", fk.log[0] == '\0');
-        check("gate: the reason names the microphone", strstr(err, "microphone") != NULL);
-    }
-
     fake_reset();
-    s = (struct pocketaudio_stream *)1;
+    fk.route = 1;
     rc = pocketaudio_open(&s, POCKETAUDIO_PLAYBACK, &o, err, sizeof(err));
-    check("gate: validating the microphone did not open the speaker",
-          rc == POCKETAUDIO_E_DISABLED && s == NULL && fk.log[0] == '\0' && fk.amp_requests == 0);
+    check("gate: the validated K230 speaker opens without allow_unverified",
+          rc == POCKETAUDIO_OK && s != NULL && strcmp(fk.log, "route? open-p amp+1") == 0);
+    {
+        int16_t loud[4] = { 32767, -32768, 20000, -9000 };
+
+        check("gate: validation raises no limit - samples are still clamped to -12 dBFS",
+              pocketaudio_write(s, loud, 4) == 4 && fk.last_wire[0] == 8192 && fk.last_wire[2] == -8192 &&
+                  fk.last_wire[4] == 8192 && fk.last_wire[6] == -8192);
+    }
+    fk.log[0] = '\0';
+    pocketaudio_close(s);
+    check("gate: and its close still turns the amplifier off first",
+          strcmp(fk.log, "amp=0 amp- close") == 0 && fk.amp_value == 0 && !fk.pcm_open_now);
 }
 
 static void test_playback_order(void)

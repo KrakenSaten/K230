@@ -49,9 +49,9 @@
  *                     the hardware state it describes.
  *   Hardware gate.    A board path that has not been validated on hardware
  *                     is refused (POCKETAUDIO_E_DISABLED) unless the caller
- *                     passes allow_unverified. On the K230 the microphone
- *                     path is validated (unit A, 2026-09-13); the speaker
- *                     path is not, until its controlled first playback.
+ *                     passes allow_unverified. On the K230 both paths are
+ *                     validated (unit A, 2026-09-13); a new board entry
+ *                     starts gated until its own hardware test.
  *
  * No threads, no LVGL, no allocation after open. The ALSA and GPIO calls live
  * behind struct pocketaudio_backend, so the policy above is tested on a host

@@ -10,8 +10,9 @@
 #     the app is wave_session_abandon(), called from destroy() only.
 #   - Messages never reach a log: ggwave's logging is compiled out and set to
 #     none, and pos-wave writes to stderr only for its usage text.
-#   - The K230 audio paths stay gated until their hardware test says
-#     otherwise.
+#   - The K230 audio paths are marked validated only as their hardware tests
+#     passed, and validation raises no limit: the -12 dBFS ceiling, the
+#     modem's volume cap and Wave's default volume stay where they are.
 #   - The tests are part of make test.
 #
 # Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
@@ -62,9 +63,17 @@ check "and its log file is set to none at run time as well" \
     "$(grep -q 'GGWave::setLogFile(nullptr)' apps/wave/wave_modem.cpp && echo 1 || echo 0)"
 check "pos-wave writes to stderr only for usage" \
     "$(code tools/wave/pos_wave.c | grep -c 'stderr' | grep -qx 1 && echo 1 || echo 0)"
-check "the K230 speaker path stays gated until its hardware test" \
+check "the K230 speaker path is marked validated (first controlled SEND, unit A, 2026-09-13)" \
     "$(sed -n '/^static const struct pocketaudio_board board_k230/,/^};/p' core/pocketaudio/pocketaudio.c |
+       grep -q '\.playback_verified = 1,' && echo 1 || echo 0)"
+check "Wave's default volume stays 10 (about -20 dBFS)" \
+    "$(grep -q '^#define WAVE_DEFAULT_VOLUME 10$' apps/wave/wave_protocol.h && echo 1 || echo 0)"
+check "the test board stays unvalidated, so the gate stays under test" \
+    "$(sed -n '/^static const struct pocketaudio_board board = {/,/^};/p' tests/fake_audio_backend.c |
        grep -q '\.playback_verified = 0,' && echo 1 || echo 0)"
+check "every played sample is still clamped to the ceiling" \
+    "$(sed -n '/^long pocketaudio_write/,/^}/p' core/pocketaudio/pocketaudio.c | grep -q 'v > s->peak_limit' &&
+       grep -q 'o->peak_limit > POCKETAUDIO_PEAK_CEILING' core/pocketaudio/pocketaudio.c && echo 1 || echo 0)"
 check "the K230 microphone path is marked validated (unit A, 2026-09-13)" \
     "$(sed -n '/^static const struct pocketaudio_board board_k230/,/^};/p' core/pocketaudio/pocketaudio.c |
        grep -q '\.capture_verified = 1,' && echo 1 || echo 0)"
