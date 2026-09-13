@@ -18,7 +18,8 @@
 # interface disappearing, and protocol robustness.
 #
 # A failed run keeps its evidence in out/test-failures/ (or
-# $NETD_TEST_KEEP_DIR): the whole test tree (netd's log and stdio, the fake
+# $TEST_EVIDENCE_DIR; not a NETD_TEST_ name, which initscript_test.sh rightly
+# refuses to see reach netd): the whole test tree (netd's log and stdio, the fake
 # supplicant's record, the store, the interface files, the DHCP log), every
 # request sent to netd with its response and times, and for each failed check
 # the time, the output it judged and netd's status at that moment, plus the
@@ -71,7 +72,7 @@ NP=""
 cleanup() {
     local status=$? keep=""
     if [ "$failed" -gt 0 ] || [ "$status" -ne 0 ]; then
-        keep=${NETD_TEST_KEEP_DIR:-$REPO/out/test-failures}/netd_test-$(date -u +%Y%m%dT%H%M%SZ)-$$
+        keep=${TEST_EVIDENCE_DIR:-$REPO/out/test-failures}/netd_test-$(date -u +%Y%m%dT%H%M%SZ)-$$
         {
             echo "exit status $status, $checks checks, $failed failure(s), ended $(stamp)"
             echo "-- wifi.status at exit: $(st 2>&1 | tr -d '\n')"
