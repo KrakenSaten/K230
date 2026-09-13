@@ -100,7 +100,7 @@ attention, and to classify it rather than assume it.
 | Vibration motor | **None.** Same two sources, same answer: no haptic driver, no motor pad | DOCUMENTED |
 | Audio out | **Exists, never exercised.** The K230's internal INNO codec is wired to the 3.5 mm headphone jack | DOCUMENTED |
 | Whether that audio path works | Nobody knows. It has never been opened, no ALSA device has been confirmed on the running image, and this milestone did not try | UNRESOLVED |
-| MAX98357A amplifier | **Not present.** It is a part of the nRF52840 base board, which unit A does not have | DOCUMENTED |
+| MAX98357A amplifier | **Not on the main board**; it is on the nRF52840 base board. *Corrected 2026-09-13:* a second unit was opened and has that board, the amplifier and a built-in speaker (docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md). Unit A is the same hardware (owner); the earlier "not connected" reading scanned the wrong I2C bus. PocketClock still makes no sound | DOCUMENTED (main board); PHYSICALLY CONFIRMED (second unit, identical per owner) |
 
 So the alert PocketClock ships is the screen, and the app says so on the
 Alarm pane and again on the ringing screen: *"This board has no buzzer and no

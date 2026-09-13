@@ -81,6 +81,7 @@ for f in Makefile VERSION core/pocketipc/pocketipc.c core/pocketlog/pocketlog.c 
          ui/shell/shell.c ui/pocketui/pos_theme_table.h \
          apps/fleet/fleet_app.c tools/pos/pos.c tools/supervise/pos-supervise \
          tools/hwcheck/hwcheck.sh tools/hwcheck/spixfer.c \
+         tools/wave/pos_wave.c core/pocketaudio/pocketaudio.c apps/wave/wave_modem.cpp \
          apps/timber/timber_app.c apps/timber/engine/timber_rules.c \
          docs/design/timber-art/tools/png2lvgl.py docs/design/timber-art/tools/pngio.py \
          docs/design/timber-art/rendered/anchors.json; do
@@ -250,6 +251,13 @@ git -C "$GUARD/repo/vendor/RadioLib" init -q
 git -C "$GUARD/repo/vendor/RadioLib" add -A
 git -C "$GUARD/repo/vendor/RadioLib" -c user.name=t -c user.email=t@t commit -qm stub
 git -C "$GUARD/repo/vendor/RadioLib" rev-parse HEAD     > "$GUARD/repo/platforms/k230/vendor_radiolib_commit.txt"
+# ggwave is pinned the same way (pos-wave), so it needs the same two things.
+mkdir -p "$GUARD/repo/vendor/ggwave"
+printf 'stub\n' > "$GUARD/repo/vendor/ggwave/README.md"
+git -C "$GUARD/repo/vendor/ggwave" init -q
+git -C "$GUARD/repo/vendor/ggwave" add -A
+git -C "$GUARD/repo/vendor/ggwave" -c user.name=t -c user.email=t@t commit -qm stub
+git -C "$GUARD/repo/vendor/ggwave" rev-parse HEAD > "$GUARD/repo/platforms/k230/vendor_ggwave_commit.txt"
 printf 'committed\n' > "$GUARD/repo/tracked.txt"
 # The real repository ignores /vendor/, so the scratch one must too: an
 # embedded checkout showing as untracked would make the tree dirty, and the
@@ -357,6 +365,27 @@ run_strict "POCKETOS_ALLOW_PIN_DRIFT=1" >/dev/null
 check "the drift override lets a dirty dependency through" $(said '\[1/5\]')
 check "but says its changes will be compiled in" $(said 'WILL be')
 git -C "$GUARD/repo/vendor/RadioLib" checkout -q -- README.md 2>/dev/null
+
+# ggwave, the same three cases: drifted, right, dirty.
+GG_PIN="$GUARD/repo/platforms/k230/vendor_ggwave_commit.txt"
+GG_REAL=$(git -C "$GUARD/repo/vendor/ggwave" rev-parse HEAD)
+printf '%s\n' 0000000000000000000000000000000000000000 > "$GG_PIN"
+guard_commit
+run_strict >/dev/null
+check "a drifted ggwave pin is refused" \
+      $([ "$(said '\[1/5\]')" = "0" ] && echo 1 || echo 0)
+check "and the refusal names ggwave" $(said 'ERROR: ggwave commit is')
+printf '%s\n' "$GG_REAL" > "$GG_PIN"
+guard_commit
+run_strict >/dev/null
+check "with the ggwave pin right, the apply gets past it" $(said '\[1/5\]')
+printf 'edited\n' >> "$GUARD/repo/vendor/ggwave/README.md"
+run_strict >/dev/null
+check "a dirty ggwave checkout is refused" \
+      $([ "$(said '\[1/5\]')" = "0" ] && echo 1 || echo 0)
+check "and the refusal says it would be compiled into pos-wave" \
+      $(said 'compiled into pos-wave')
+git -C "$GUARD/repo/vendor/ggwave" checkout -q -- README.md 2>/dev/null
 # The provenance summary prints only on a run that finishes, which the stub
 # vendor cannot reach, so it is checked where it is written instead. What
 # matters about it is placement as much as content: a summary in the header
@@ -466,6 +495,37 @@ check "so does its clean/dirty state" \
       $(grep -q '^radiolib_state=' "$APPLY" && echo 1 || echo 0)
 check "and BUILD_INFO reports it" \
       $(grep -q 'RadioLib  : $(m radiolib_commit)' platforms/k230/scripts/build_image.sh && echo 1 || echo 0)
+
+# ggwave: the second one, compiled into pos-wave.
+check "ggwave has a pinned commit" \
+      $([ -s platforms/k230/vendor_ggwave_commit.txt ] && echo 1 || echo 0)
+check "the ggwave pin is a full commit id" \
+      $(grep -qE '^[0-9a-f]{40}$' platforms/k230/vendor_ggwave_commit.txt && echo 1 || echo 0)
+check "apply_to_sdk.sh enforces the ggwave pin with pin_check" \
+      $(grep -q 'pin_check "ggwave commit"' "$APPLY" && echo 1 || echo 0)
+check "and refuses a dirty ggwave checkout" \
+      $(grep -q 'the ggwave checkout at ${GGWAVE_DIR_SRC} is dirty' "$APPLY" && echo 1 || echo 0)
+check "and refuses to guess when ggwave is not a git checkout" \
+      $(grep -q 'GGWAVE_STATE="not-a-git-checkout"' "$APPLY" && echo 1 || echo 0)
+check "the ggwave commit and state reach the applied manifest" \
+      $(grep -q '^ggwave_commit=' "$APPLY" && grep -q '^ggwave_state=' "$APPLY" && echo 1 || echo 0)
+check "and BUILD_INFO reports ggwave" \
+      $(grep -q 'ggwave    : $(m ggwave_commit)' platforms/k230/scripts/build_image.sh && echo 1 || echo 0)
+check "the package carries ggwave's licences with it" \
+      $(grep -q 'ggwave}/LICENSE\|GGWAVE_DIR_SRC}/LICENSE' "$APPLY" &&
+        grep -q 'reed-solomon/LICENSE' "$APPLY" && echo 1 || echo 0)
+check "the package build links alsa-lib for pos-wave" \
+      $(grep -q 'alsa-lib' platforms/k230/package/pocketos/pocketos.mk &&
+        grep -q 'BR2_PACKAGE_ALSA_LIB' platforms/k230/package/pocketos/Config.in && echo 1 || echo 0)
+if git -C vendor/ggwave rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    here=$(git -C vendor/ggwave rev-parse HEAD)
+    want=$(cat platforms/k230/vendor_ggwave_commit.txt)
+    check "the ggwave checkout here is the pinned commit" \
+          $([ "$here" = "$want" ] && echo 1 || echo 0)
+    [ "$here" = "$want" ] || echo "     here $here, pinned $want"
+else
+    echo "note: no ggwave checkout here; the pin's value was not compared"
+fi
 
 # Every dependency the package build names must be either a Buildroot package
 # (version fixed by the SDK pin) or pinned here. A new vendored tree copied

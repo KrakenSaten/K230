@@ -18,7 +18,9 @@ POCKETOS_INSTALL_TARGET = YES
 # exported into the package by apply_to_sdk.sh). Buildroot's own python3 in
 # $(HOST_DIR)/bin, first on the PATH of every package build, is the one it
 # finds, so the image does not depend on the build host's python.
-POCKETOS_DEPENDENCIES = cjson libgpiod2 lvgl libdrm libevdev host-cmake host-python3
+# alsa-lib: pos-wave, Wave's audio helper (docs/apps/WAVE.md). It was already
+# in the image (alsa-utils), so this adds a build dependency, not a package.
+POCKETOS_DEPENDENCIES = cjson libgpiod2 lvgl libdrm libevdev alsa-lib host-cmake host-python3
 
 POCKETOS_SHELL_BUILD_DIR = $(@D)/ui/shell/build-k230
 

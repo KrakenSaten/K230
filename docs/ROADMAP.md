@@ -153,6 +153,15 @@ PocketCalculator (`docs/apps/POCKETCALCULATOR.md`), and an audio and
 microphone feasibility map with a staged bench plan
 (`docs/hardware/AUDIO_FEASIBILITY_2026-09-12.md`). VERSION is unchanged.
 
+**Audio milestone: Wave** (`feature/audio-ggwave`, 2026-09-13, not merged):
+the pocketaudio layer, the `pos-wave` helper and the Wave app, sending and
+receiving short text as ggwave sound (`docs/apps/WAVE.md`, ADR-004 accepted
+for this milestone as a narrow exception to ADR-002). Both paths validated on
+unit A: a phone's message decoded by Wave, and SEND heard and decoded by a
+phone from the Wave UI (`docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md`).
+Distribution waits on shipping third-party notices (docs/LICENSING.md, open
+item 7). VERSION is unchanged.
+
 ### Settings fundamentals before v0.1.0
 
 Settings holds only what is backed by working functionality. Reviewed
@@ -170,7 +179,7 @@ Settings holds only what is backed by working functionality. Reviewed
 | System information, reboot, power off | in System | stay there; Settings links nothing it would duplicate |
 | Network information (Ethernet, addresses) | in System; Wi-Fi address in Settings | enough for v0.1 |
 | Keyboard (backlight, layout) | not added | nothing to back it yet (no backlight control, one layout) |
-| Sound | not added | only after the audio bench plan has passed stages 1-5 |
+| Sound | not added | the audio paths are validated (Wave milestone), but nothing needs a user setting yet: Wave's level is fixed under a -12 dBFS ceiling |
 
 ## Phase 3: first strong application
 

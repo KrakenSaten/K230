@@ -1,6 +1,6 @@
 # Known issues and open questions
 
-Updated 2026-09-11. Move items to git history when resolved.
+Updated 2026-09-13. Move items to git history when resolved.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
 B4 (the shell's `printf` diagnostics never reached a log; they go through
@@ -439,9 +439,123 @@ Audio (not implemented, findings only):
   reads low with the panel powered, so the bypass resistor R54 is STRONGLY
   INFERRED fitted (2026-09-13); it has not been seen. No playback test until
   it is checked by sight and the route is switched to the codec.
+  **Refined by the audio milestone below**: the built-in speaker found in a
+  second unit is on that I2S route (a MAX98357A on a separate base board), not
+  on the codec. **Superseded 2026-09-13**: R54 closed by evidence and speaker
+  playback validated on unit A with the panel steady (audio milestone below).
 
 Calculator:
 
 - Holding the keypad backspace does not repeat.
 - The error state leaves on any key; an operator pressed there is not applied
   (docs/apps/POCKETCALCULATOR.md).
+
+## Audio milestone: pocketaudio, pos-wave and Wave
+
+Branch `feature/audio-ggwave` (2026-09-13, from master `a748101`). Host-tested
+and cross-built; build `e778daf` is deployed on unit A. **RECEIVE and SEND are
+both validated on unit A** (2026-09-13): the owner's phone sent `test` and
+Wave decoded it (hardware map §15); the controlled first SEND of `DOORS` at
+-26 dBFS was heard, decoded by Waver, left the panel steady and IO34 low
+(§16). Both paths are enabled in code and need no override. The hardware record is
+docs/hardware/AUDIO_HARDWARE_MAP_2026-09-13.md; the app is docs/apps/WAVE.md.
+
+Decisions:
+
+- **ADR-004 accepted for this milestone** (owner, 2026-09-13): a
+  per-operation helper process owns the sound card for Wave, a narrow
+  exception to ADR-002, not a replacement for it.
+- **RECEIVE-first** (owner, 2026-09-13): the microphone test (hardware map
+  §13) is approved; SEND stays blocked until the amplifier IC, the speaker
+  connector and R54 are identified physically. 2026-09-13: the amplifier is
+  identified on the second unit (unit B); R54 is not seen on any unit, so SEND
+  stays blocked on both. Later the same day the owner confirmed units A and B
+  are the same hardware; R54 was closed by evidence (hardware map §8.8) and
+  the first controlled SEND on unit A was approved, run once and passed
+  (§16); `playback_verified` became 1 in `e778daf`, no limit raised.
+
+Audio hardware:
+
+- **The built-in speaker is driven over I2S by a MAX98357A, not by the
+  codec** (2026-09-13, owner's photographs of the second unit): the speaker
+  plugs into a white 2-pin connector on a separate base board, beside an IC
+  marked `AKK`; with the vendor pinmap, BSP patches, device tree and launcher
+  that is a MAX98357A, CONFIRMED WITH HIGH CONFIDENCE. I2S on IO32/IO33/IO35
+  through the header, enable IO34, bridge-tied output: neither speaker wire is
+  ground. GPIO35 is in the speaker path. The photographs themselves show the
+  board as `K230_nRF52840_Board` VER 0.3 and the IC as a 16-terminal QFN. No
+  base-board schematic or layout exists in any vendor source. Two identical
+  2-pin receptacles sit beside the IC and the speaker plug is not seated in
+  any image, so which one is the speaker's is unknown; the designator and
+  `2618` are unknown too.
+- ~~R54 is still inferred, not seen.~~ **Closed by evidence, not by sight**
+  (hardware map §8.8): IO35 high can only turn the display switch further
+  on, unit A's rail is up with IO35 low, and the V1.0 polarity holds for this
+  hardware (V1.0 marking on the identical unit B). The first SEND watches the
+  panel; a photograph (§8.7) remains optional.
+- ~~Unit A's base board is unconfirmed.~~ Units A and B are the same hardware
+  configuration (owner, 2026-09-13); unit B's inspection stands for unit A,
+  which stays unopened.
+- **Unit B's speaker socket is not identified.** Two identical 2-pin
+  receptacles sit beside the MAX98357A and its plug was out in the photos;
+  the other one may be a fan or power output. Before unit B is powered with
+  its speaker connected: continuity from the receptacle to the IC's OUTP
+  (pin 9) and OUTN (pin 10), and the base board reseated (hardware map §9.1).
+  Not a blocker for unit A.
+- **The amplifier's gain strap and supply are unknown**, and no longer a risk
+  to the 1 W speaker: by the datasheet's gain law the -12 dBFS ceiling is at
+  most 0.44 W at the highest strap, and the first SEND (-26 dBFS) at most
+  17 mW (hardware map §11).
+- ~~The microphone slot is inferred.~~ Channel 1 (right) is the on-board
+  microphone on unit A (hardware map §15).
+- ~~Every capture opens with a start-up transient.~~ **Fixed in `c688309`**:
+  the K230 codec/capture startup transient (140-210 ms at negative full
+  scale) is read and discarded for 500 ms inside pocketaudio's normal
+  per-call wait, so no decoder, level meter or recording sees it; STOP still
+  works during it (hardware map §15.1). A residual DC offset around -29 dBFS
+  decays over the next ~600 ms, below ggwave's band.
+- **The on-board mic's gain is fixed at 30 dB** and not adjustable through
+  ALSA (`Mic Capture Volume` writes only the left channel); the codec's ALC
+  behaviour is unknown. A loud room may clip.
+- ~~After a SIGKILL of pos-wave the route and the amplifier line keep their
+  last values.~~ Fixed before merge: write-ahead recovery record, reconciled
+  by the next audio open and by `pos-wave recover`, which the Wave session
+  starts when its helper dies by a signal. Verified on unit A for RECEIVE,
+  both by `pos-wave recover` and by the next open (hardware map §15).
+  Remaining gap: if the shell and its helper are SIGKILLed together, nothing
+  restores the state until the next audio operation or a reboot.
+- **Mic bias stays on after the first capture** (driver), and a speaker-route
+  playback still enables the headphone driver (driver): keep the jack empty
+  during the tests.
+- ~~Unit A's read-only checks listed in the hardware map §10 were not run.~~
+  Run before the deploy, identical to the morning record (§15).
+
+Wave and ggwave:
+
+- ~~The K230 speaker path is gated in code.~~ Both K230 paths are validated
+  (`capture_verified` 1 since `c688309`, `playback_verified` 1 since
+  `e778daf`). The limits did not move: -12 dBFS ceiling, modem volume cap 25,
+  Wave default volume 10, all held by tests/wave_lint.sh.
+- ~~Wave's own TRANSMIT button has not been pressed on hardware.~~ Done
+  2026-09-13: the owner sent `HELLO` from the Wave UI on unit A at its
+  default volume 10; it was heard, Waver decoded it, the panel stayed steady,
+  Wave returned to idle and nothing sounded afterwards (hardware map §16.3).
+- **Over-the-air range and the speaker's response across 1.9-6.3 kHz are
+  unmeasured**; the first SEND was decoded by a phone at arm's length.
+- **ggwave's decode spike on the C908 is unmeasured.** Steady listening costs
+  0.6 % of unit A's single core (hardware map §15), and the owner's receive
+  decoded without loss, but nothing sampled the CPU at the end of a message.
+  The capture buffer is 500 ms to absorb it.
+- **ggwave defects worked around, not fixed upstream**: frame-sync loss on
+  unaligned input, init reporting success on bad parameters, payload logging,
+  38.5 s deafness after a missed end marker (wave_modem.h). Its TX instance
+  allocates an unused 4 MB buffer for S16 output.
+- ~~Ooura FFT licence terms are not stated in ggwave's `fft.h`.~~ Resolved
+  from the author's page (docs/LICENSING.md, "Audio milestone"). **Release
+  blocker, not a merge blocker:** no distributed image yet carries the
+  third-party notices for ggwave, Reed-Solomon, the Ooura FFT (or RadioLib)
+  (docs/LICENSING.md, open item 7).
+- Messages over 64 bytes from other ggwave programs are heard but not shown
+  (reported as "could not decode").
+- The launcher grid now has six rows and is full: a twelfth app needs a
+  different launcher layout.

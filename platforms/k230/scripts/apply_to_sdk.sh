@@ -166,6 +166,38 @@ if [ "${RADIOLIB_STATE}" = "dirty" ]; then
 fi
 echo "RadioLib: ${RADIOLIB_DIR_SRC} @ ${RADIOLIB_COMMIT} (${RADIOLIB_STATE})"
 
+# ggwave is the second dependency that reaches the image as source: its modem
+# is compiled into pos-wave (docs/apps/WAVE.md). Same rules as RadioLib - an
+# ignored checkout, pinned, refused when it drifts or is dirty - because it is
+# copied, not archived.
+GGWAVE_DIR_SRC="${REPO_DIR}/vendor/ggwave"
+EXPECTED_GGWAVE_COMMIT="$(cat "${PLATFORM_DIR}/vendor_ggwave_commit.txt")"
+if git -C "${GGWAVE_DIR_SRC}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    GGWAVE_COMMIT="$(git -C "${GGWAVE_DIR_SRC}" rev-parse HEAD)"
+    GGWAVE_STATE="clean"
+    [ -n "$(git -c core.autocrlf=true -C "${GGWAVE_DIR_SRC}" status --porcelain)" ] \
+        && GGWAVE_STATE="dirty"
+else
+    GGWAVE_COMMIT="unknown"
+    GGWAVE_STATE="not-a-git-checkout"
+fi
+pin_check "ggwave commit" "${GGWAVE_COMMIT}" "${EXPECTED_GGWAVE_COMMIT}"
+if [ "${GGWAVE_STATE}" = "dirty" ]; then
+    if [ "${POCKETOS_ALLOW_PIN_DRIFT:-0}" = "1" ]; then
+        echo "WARNING: the ggwave checkout is dirty; its uncommitted changes WILL be" >&2
+        echo "         compiled into pos-wave (POCKETOS_ALLOW_PIN_DRIFT=1)." >&2
+    else
+        echo "ERROR: the ggwave checkout at ${GGWAVE_DIR_SRC} is dirty." >&2
+        echo "       It is copied into the package, not archived from a commit, so" >&2
+        echo "       those uncommitted changes would be compiled into pos-wave and" >&2
+        echo "       nothing in the image would record them." >&2
+        echo "       Commit or discard them, or set POCKETOS_ALLOW_PIN_DRIFT=1 and say" >&2
+        echo "       so in the build report." >&2
+        exit 1
+    fi
+fi
+echo "ggwave  : ${GGWAVE_DIR_SRC} @ ${GGWAVE_COMMIT} (${GGWAVE_STATE})"
+
 # The defconfig, Config.in and pocketos.mk used to be installed straight from
 # the working tree while everything else came from git. They decide what is in
 # the image and how it is built, so an uncommitted edit to any of them changed
@@ -284,6 +316,21 @@ mkdir -p "${PKG_DIR}/src/third_party/RadioLib"
 rsync -a --delete --exclude '/.git' --exclude '/examples' --exclude '/extras' \
     --exclude '*.o' --exclude '*.d' --exclude '*.a' --exclude '*.so' \
     "${REPO_DIR}/vendor/RadioLib/" "${PKG_DIR}/src/third_party/RadioLib/"
+# ggwave (MIT; its Reed-Solomon code carries its own MIT licence): only the
+# library and its licences travel - the header, the one source file, the FFT
+# and Reed-Solomon headers it includes - not the examples, bindings or the
+# web and Arduino ports.
+rm -rf "${PKG_DIR}/src/third_party/ggwave"
+mkdir -p "${PKG_DIR}/src/third_party/ggwave/include/ggwave" \
+         "${PKG_DIR}/src/third_party/ggwave/src/reed-solomon"
+install -m 0644 "${GGWAVE_DIR_SRC}/LICENSE" "${PKG_DIR}/src/third_party/ggwave/LICENSE"
+install -m 0644 "${GGWAVE_DIR_SRC}/include/ggwave/ggwave.h" \
+    "${PKG_DIR}/src/third_party/ggwave/include/ggwave/ggwave.h"
+install -m 0644 "${GGWAVE_DIR_SRC}/src/ggwave.cpp" "${GGWAVE_DIR_SRC}/src/fft.h" \
+    "${PKG_DIR}/src/third_party/ggwave/src/"
+install -m 0644 "${GGWAVE_DIR_SRC}/src/reed-solomon/rs.hpp" "${GGWAVE_DIR_SRC}/src/reed-solomon/gf.hpp" \
+    "${GGWAVE_DIR_SRC}/src/reed-solomon/poly.hpp" "${GGWAVE_DIR_SRC}/src/reed-solomon/LICENSE" \
+    "${PKG_DIR}/src/third_party/ggwave/src/reed-solomon/"
 CONFIG_IN="${SDK_DIR}/buildroot-overlay/package/Config_canaan.in"
 if ! grep -q 'source "package/pocketos/Config.in"' "${CONFIG_IN}"; then
     printf '\nsource "package/pocketos/Config.in"\n' >> "${CONFIG_IN}"
@@ -318,6 +365,8 @@ vendor_bsp_commit=${BSP_COMMIT}
 sdk_commit=${SDK_COMMIT}
 radiolib_commit=${RADIOLIB_COMMIT}
 radiolib_state=${RADIOLIB_STATE}
+ggwave_commit=${GGWAVE_COMMIT}
+ggwave_state=${GGWAVE_STATE}
 defconfig=${CONF}
 applied_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 applied_epoch=$(date +%s)
@@ -336,6 +385,7 @@ if [ "${DIRTY_OVERRIDE}" = "yes" ]; then
     echo "  Dirty override  : POCKETOS_ALLOW_DIRTY_BUILD=1 -- uncommitted changes are NOT included"
 fi
 echo "  RadioLib        : ${RADIOLIB_COMMIT} (${RADIOLIB_STATE})"
+echo "  ggwave          : ${GGWAVE_COMMIT} (${GGWAVE_STATE})"
 echo "  BUILD_ID        : ${BUILD_ID}"
 echo "  The working tree is never packaged, with or without the override."
 echo "Done. Build with: ${PLATFORM_DIR}/scripts/build_image.sh ${VENDOR_DIR}"
