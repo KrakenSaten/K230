@@ -1,9 +1,25 @@
 # ADR-003: Storing Wi-Fi credentials
 
-Status: Proposed (awaiting the product owner; implemented on
-`feature/post-v0.0.9-foundations` so it can be reviewed as working code)
-Date: 2026-09-12
+Status: Accepted for this milestone (product owner, 2026-09-13)
+Date: 2026-09-12 (proposed), 2026-09-13 (accepted)
 Deciders: product owner (final), AI engineering partner (author)
+
+## Acceptance (2026-09-13)
+
+Accepted for the post-v0.0.9 foundations milestone, with these conditions,
+which the rest of this record already follows and which stay binding:
+
+- Wi-Fi credentials may be stored root-only in
+  `/var/lib/pocketos/netd/wifi.conf`: directory 0700, file 0600.
+- No credential in logs, API results, process command lines or the
+  environment.
+- **The credentials are protected by Unix file permissions only. There is no
+  cryptographic at-rest protection.** The hex encoding in the file is an
+  encoding that keeps any byte from breaking the line format; it is not
+  encryption and must never be described as such.
+- Secure credential storage is revisited if the platform gains a meaningful
+  device-bound key store (hardware key store, secure element, or a key that
+  does not live on the same card).
 
 ## Context
 
@@ -85,7 +101,7 @@ Out of scope, stated so nobody assumes otherwise:
   add nothing but code. Revisit when there is a hardware key store or a
   boot-time secret.
 
-## Decision (proposed)
+## Decision
 
 Option C, with these rules, all implemented in `services/netd/` and tested in
 `tests/wifi_store_test.c` and `tests/netd_test.sh`:

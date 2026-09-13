@@ -26,7 +26,7 @@ docs/
   design/                  Design System v0.1 (normative), themes.json, feasibility review, shots/
   BUILD_ENVIRONMENT.md     Host, toolchain, SDK commits, build/flash/test commands
   LICENSING.md             Licence register for vendor and third-party code
-  decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted; ADR-003 Wi-Fi credentials: Proposed)
+  decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted; ADR-003 Wi-Fi credentials: Accepted for the post-v0.0.9 milestone)
   hardware/T-DISPLAY-K230.md  Hardware baseline with evidence classification
   hardware/FIRST_BOOT.md   Day-one runbook: flash, console, hwcheck, PocketOS image, link test
   hardware/BRINGUP_CHECKLIST.md  Bench checklist for the first physical session (image, hash, checksum, tests)

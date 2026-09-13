@@ -362,9 +362,11 @@ docs/hardware/AUDIO_FEASIBILITY_2026-09-12.md.
 
 Decisions waiting for the owner:
 
-- **ADR-003 (Wi-Fi credentials) is Proposed**, and netd already implements
-  it: passphrases persist in `/var/lib/pocketos/netd/wifi.conf`, root-only,
-  hex-encoded, not encrypted. Anyone with root or the card can read them.
+- **ADR-003 (Wi-Fi credentials) is accepted for this milestone** (owner,
+  2026-09-13): passphrases persist in `/var/lib/pocketos/netd/wifi.conf`,
+  protected by Unix file permissions only (0700/0600, root). The hex in the
+  file is an encoding, not encryption; anyone with root or the card can read
+  them. Revisit when a device-bound key store exists.
 
 Wi-Fi (netd):
 

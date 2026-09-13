@@ -182,8 +182,9 @@ fall back to `ice` + `normal`, are logged, and are left untouched.
 The settings store is for non-secret preferences only. It is plain text,
 world-readable and unauthenticated, and must never hold passwords, private
 keys, Wi-Fi credentials or tokens. The one exception is netd's Wi-Fi store,
-under the rules proposed in docs/decisions/ADR-003-wifi-credentials.md
-(root-only file, no secret in logs, results or command lines); no other
+under docs/decisions/ADR-003-wifi-credentials.md (accepted 2026-09-13):
+a root-only file, protected by Unix file permissions and not encrypted, with
+no secret in logs, results, command lines or the environment. No other
 PocketOS component may persist a secret.
 
 ## netd
@@ -230,8 +231,8 @@ docs/BUILD_ENVIRONMENT.md.
 - Update and rollback mechanism (partition layout must not be hard-coded).
 - First-party licence.
 - Out-of-process app hosting and DRM master handoff.
-- Secure credential storage beyond Wi-Fi: ADR-003 (proposed) covers Wi-Fi
-  passphrases with file permissions only; encryption at rest and per-service
-  users are still open.
+- Secure credential storage beyond Wi-Fi: ADR-003 (accepted) covers Wi-Fi
+  passphrases with file permissions only; encryption at rest waits for a
+  device-bound key store, and per-service users are still open.
 - Asynchronous radio transmit: `radio.send` blocks the radiod loop for the
   airtime in v0 (docs/api/radio.md).
