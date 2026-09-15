@@ -7,20 +7,29 @@ Branch `rebrand/doors-app-icons`, from master `95b4f58`.
 PROPOSED until the product owner accepts it after that gate.
 
 Not merged. No change to VERSION, release metadata, service or shell names,
-launcher layout, typography, spacing or the focus model; Phase 3 not started.
+launcher layout, typography, spacing, the focus model, the boot splash or the
+System brand mark; Phase 3 not started.
 
 ## What changed
 
-| App (`id`) | Launcher icon |
+| App (`id`) | Launcher icon, an A8 mask tinted `accent_primary` |
 | --- | --- |
-| Radio, System, Fleet, Radar, Timber, Notes, Clock, Calendar, Calculator, Settings | the package's `icons/png-32/<id>.png` as an A8 mask, tinted `accent_primary` |
-| Wave | **fallback**: its `LV_SYMBOL_VOLUME_MAX` glyph, unchanged (no Wave icon in the package) |
+| Radio, System, Fleet, Radar, Timber, Notes, Clock, Calendar, Calculator, Settings | `docs/design/brand/doors-threshold/icons/png-32/<id>.png` |
+| Wave | `docs/design/brand/doors-icon-extension/png-32/wave.png` |
+
+All eleven launcher apps have their icon; no tile draws a glyph. The icon
+extension's twelve icons for apps that do not exist are inventoried and not
+compiled in.
 
 Data model: `struct pocketos_app` gains one appended optional field,
-`const lv_image_dsc_t *icon_mask` (NULL = draw `icon` as before);
+`const lv_image_dsc_t *icon_mask` (NULL = draw `icon` as text);
 `POCKETOS_APP_API_VERSION` stays 0. PocketUI: `pocketui_tile_mask()`, and
 `pocketui_tile()` is now that call with a NULL mask. Style role:
 `POS_STYLE_APP_ICON`. Details: docs/design/brand/README.md, "App icons".
+
+An earlier revision of this branch (`30e22b0`) kept Wave's speaker glyph,
+because the first package had no Wave icon. The icon extension supplied it;
+this sheet describes the revision with all eleven.
 
 ## Why the panel still has to be seen
 
@@ -65,9 +74,9 @@ Operator checklist, three answers:
 
 | # | Check | Pass |
 | --- | --- | --- |
-| 1 | Icons on the panel (0–20 s) | ten stroke icons, crisp, not blurry, blocky or fringed, light blue, at the top left of their tiles where the old symbols were; Wave keeps its speaker symbol; tiles and names unmoved |
+| 1 | Icons on the panel (0–20 s) | eleven stroke icons, crisp, not blurry, blocky or fringed, light blue, at the top left of their tiles; Wave shows its waveform between two arcs, no speaker symbol anywhere; tiles and names unmoved |
 | 2 | Tint and modes (20–60 s) | the icons turn orange with the Outdoor screen and legible in it, then dim lavender with Night and still recognisable |
-| 3 | One tap | afterwards, a tap directly on the **Radar icon** opens Radar; Back returns to the launcher |
+| 3 | One tap | afterwards, a tap directly on the **Wave icon** opens Wave; Back returns to the launcher |
 
 If all three pass: the gate is PASS, Amendment D can be put to the owner for
 acceptance, and this sheet records the evidence. A FAIL on 1 or 2 is a
@@ -76,21 +85,23 @@ simulator checks already fix the placement.
 
 ## Validation done without hardware (2026-09-15)
 
-Source `e71c5c5` (the last code commit; later commits change documentation
+Source `7e81136` (the last code commit; later commits change documentation
 only), from fresh WSL clones; master `95b4f58` built and run the same way as
 the baseline. VERSION 0.0.9 on both.
 
 | Check | Result |
 | --- | --- |
+| Packages | the icon extension's 43 committed files byte-identical to the zip; `doors-threshold/` unchanged against master |
 | `make all`, host, `-Werror` | rc 0, 0 warnings |
-| `make test`, host | rc 0: 3,618 ok, 0 FAIL, 0 warnings (master 3,578; the difference is `app_icons_test`'s 40); the six `NOT RUN` lines are check names, identical to master's |
-| Shell tests, SDL simulator | all 19 scripts rc 0: 373 ok, 0 FAIL (master 350), including `launcher_icons_shell_test.sh` 23 ok with `pocketui_tile_test` 54 checks, and `system_brand_shell_test.sh`, `shell_ipc_test.sh`, `pos_input_test.sh`, `pos_keyboard_test.sh`, `kbd_shell_test.sh` unchanged |
+| `make test`, host | rc 0: 3,623 ok, 0 FAIL, 0 warnings (master 3,578; the difference is `app_icons_test`'s 45); the six `NOT RUN` lines are check names, identical to master's |
+| Shell tests, SDL simulator | all 19 scripts rc 0: 373 ok, 0 FAIL (master 350), including `launcher_icons_shell_test.sh` 23 ok (67 launcher checks in each of 17 screenshots) with `pocketui_tile_test` 54 checks, and `wave_shell_test.sh`, `system_brand_shell_test.sh`, `shell_ipc_test.sh`, `pos_input_test.sh`, `pos_keyboard_test.sh`, `kbd_shell_test.sh` |
+| All eleven icons | each app's own mask found in its tile in every screenshot; no tile without a mask; the ten earlier masks byte-identical to `30e22b0`'s |
 | Every app launches | all eleven open through `app start` from the running shell and come home, each logged `open app <id>`, no ERROR; the per-app shell tests pass |
 | Keyboard and focus | unchanged: no tile or icon joins a focus group, the group's size is unchanged, the icon is not clickable, taps on icon, label and tile open the app (`pocketui_tile_test`); input, keyboard and keymap tests pass |
-| Five themes × three modes | each app's own mask found in its tile, in that pair's `accent_primary` (max error 2); live switch; Night dimmed |
+| Five themes × three modes | every icon in that pair's `accent_primary` (max error 2, nearest wrong mask 99 away); live switch; Night dimmed |
 | Reduced motion | launcher pixel-identical below the status bar |
-| Geometry against master | the launcher screenshotted from both builds in all 15 pairs and compared pixel by pixel below the status bar: **0 pixels differ outside the ten icon cells** and 0 in Wave's cell; 5,542–5,550 differ inside the ten cells per pair |
-| Deliberate breakages | each fails a test: icon 2 px lower (shell 342 FAIL, tile test), icon in `text_primary` (shell 218, tile test 30), Radio showing Radar's icon (app_icons 1, shell 51), clickable icon (tile test 4), icon scaled 125 % (shell 510), Wave given an icon (app_icons 2, shell 51), the brand-mark role (app_icons 1), one mask byte (app_icons 2) |
+| Geometry against master | the launcher screenshotted from both builds in all 15 pairs and compared pixel by pixel below the status bar: **0 pixels differ outside the eleven icon cells**; 6,081–6,089 differ inside them per pair, 539 of those in Wave's |
+| Deliberate breakages | each fails a test. At `7e81136`: Wave back on its glyph (app_icons 3 FAIL, shell 68). At `e71c5c5`, same mechanism: icon 2 px lower (shell 342, tile test), icon in `text_primary` (shell 218, tile test 30), Radio showing Radar's icon (app_icons 1, shell 51), clickable icon (tile test 4), icon scaled 125 % (shell 510), the brand-mark role (app_icons 1), one mask byte (app_icons 2) |
 | riscv64 `make all` (`ENABLE_SX1262=1`) | rc 0, 4 warnings, all in vendor ggwave, as on master |
 | riscv64 DRM/sysroot shell | rc 0, 0 warnings, branch and master |
 | Device LVGL (SDK sysroot `lv_conf.h`) | `LV_COLOR_DEPTH 16`, `LV_DRAW_SW_SUPPORT_A8 1`, `LV_USE_IMAGE 1`, `LV_CACHE_DEF_SIZE 0` |
@@ -99,21 +110,23 @@ Size and memory:
 
 | | master | branch | change |
 | --- | --- | --- | --- |
-| riscv64 DRM shell, `size` text / data / bss | 902,137 / 9,420 / 22,384 | 913,043 / 9,908 / 22,400 | +10,906 / +488 / +16 |
-| riscv64 DRM shell, stripped file (what ships) | 916,088 B | 928,376 B | **+12,288 B** |
-| of which `pos_app_icon_*` (nm) | — | 20 symbols, 10,640 B | 10,240 mask + 10 × 40 descriptor |
-| SDL x86-64 shell, text / data | 2,196,441 / 14,616 | 2,207,513 / 15,256 | +11,072 / +640 |
-| Heap allocated by `home_create()` (glibc `mallinfo2`, simulator, 3 runs each, identical) | 16,512 B | 14,032 B | **−2,480 B** |
-| Heap in use on the launcher after 1.5 s | 1,495,984 B | 1,489,952 B | **−6,032 B** |
+| riscv64 DRM shell, `size` text / data / bss | 902,137 / 9,420 / 22,384 | 914,115 / 9,948 / 22,400 | +11,978 / +528 / +16 |
+| riscv64 DRM shell, stripped file (what ships) | 916,088 B | 928,376 B | **+12,288 B** (the same file size as the ten-icon revision: Wave's +1,072 B of text fit the existing page) |
+| of which `pos_app_icon_*` (nm) | — | 22 symbols, 11,704 B | 11,264 mask + 11 × 40 descriptor |
+| SDL x86-64 shell, text / data | 2,196,441 / 14,616 | 2,208,585 / 15,320 | +12,144 / +704 |
+| Heap allocated by `home_create()` (glibc `mallinfo2`, simulator, 3 runs each, identical; measured at `e71c5c5`) | 16,512 B | 14,032 B | **−2,480 B** |
+| Heap in use on the launcher after 1.5 s (same run) | 1,495,984 B | 1,489,952 B | **−6,032 B** |
 
 The heap figures come from a measurement patch applied only in the validation
-clones, never committed. The launcher uses less heap than before: an
-`lv_image` pointing at a constant mask costs less than a label that copies its
-glyph string, and LVGL draws an uncompressed A8 variable in place, with the
-image cache off. The device's own figure (VmRSS) is taken at the gate.
+clones, never committed, on the ten-icon revision; they were not measured
+again for Wave, whose tile now holds an image where it held a label, the swap
+that lowered the heap for the other ten. An `lv_image` pointing at a constant
+mask costs less than a label that copies its glyph string, and LVGL draws an
+uncompressed A8 variable in place, with the image cache off. The device's own
+figure (VmRSS) is taken at the gate.
 
 Screenshots for review (simulator, not the panel): the fifteen launcher
 screenshots and `launcher-before-after.png` (master and branch side by side in
 Ice/Normal, Carbon/Outdoor, Slate/Night) were kept outside the repository;
 `docs/design/brand/shots/launcher-contact.png` and
-`launcher-icons-contact.png` are committed.
+`launcher-icons-contact.png` are committed and show all eleven icons.
