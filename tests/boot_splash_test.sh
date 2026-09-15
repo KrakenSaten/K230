@@ -268,6 +268,26 @@ check "the shipped splash is byte-for-byte the conversion of the committed artwo
     "$([ "${rc}" = "0" ] && cmp -s "${TMP}/regenerated.xrgb" "${SPLASH}" && echo 1 || echo 0)"
 check "the shipped splash is the one documented (sha256 434f4a6c...)" \
     "$([ "$(sha256sum "${SPLASH}" 2>/dev/null | cut -c1-64)" = "${SPLASH_SHA}" ] && echo 1 || echo 0)"
+# Read the shipped file back the way U-Boot's layer reads it (B, G, R, X, rows
+# from the top) and compare with the PNG's own pixels: nothing moved, nothing
+# was cropped or stretched, and no channel was swapped on the way.
+python3 - "${SPLASH}" "${ART}" <<'PY'
+import sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, "tools/design")
+from pngstrict import read_png
+data = open(sys.argv[1], "rb").read()
+src = read_png(sys.argv[2])
+decoded = bytearray(len(data))
+decoded[0::4] = data[2::4]
+decoded[1::4] = data[1::4]
+decoded[2::4] = data[0::4]
+decoded[3::4] = data[3::4]
+sys.exit(0 if (src.width, src.height) == (568, 1232) and bytes(decoded) == src.rgba else 1)
+PY
+rc=$?
+check "the shipped splash, decoded as B,G,R rows from the top, is the artwork's pixels exactly" \
+    "$([ "${rc}" = "0" ] && echo 1 || echo 0)"
 check "converting did not touch the artwork" \
     "$([ "$(sha256sum "${ART}" 2>/dev/null | cut -c1-64)" = "${ART_SHA}" ] && echo 1 || echo 0)"
 

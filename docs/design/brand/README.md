@@ -173,8 +173,17 @@ python3 tools/design/png2xrgb.py docs/design/brand/doors-threshold/boot/doors-bo
 | Proof | decoded back to RGB, it equals the source's pixels exactly; content box x 184–383, y 517–715, as in the source |
 
 The test fails if the splash is not exactly the conversion of that source, if
-either hash changes, or if `git archive` would ship it altered
-(`tests/package_sync_test.sh`). `.gitattributes` marks `*.xrgb` binary.
+either hash changes, or if the shipped file decoded as B, G, R rows from the
+top is not the source's pixels. `tests/package_sync_test.sh` fails if
+`git archive` would ship it altered. `.gitattributes` marks `*.xrgb` binary.
+
+**In a built image.** `platforms/k230/scripts/verify_splash.sh <image>` reads
+`/logo.xrgb` out of partition 1 and passes only when it is exactly 2,799,104
+bytes and byte-identical to the committed splash. `tests/splash_image_test.sh`
+(in `make test`) proves it refuses a missing splash, a 2,798,848-byte one and
+one of the right size with different pixels. It is separate from
+`verify_image.sh`, whose question is only whether the image can boot; a wrong
+splash still boots.
 
 **How it reaches the board.** `apply_to_sdk.sh` merges
 `platforms/k230/rootfs_overlay` into the vendor's
@@ -187,10 +196,26 @@ root filesystem as `/logo.xrgb`, which nothing reads. Consequences:
   partition.
 - The apply never deletes from the vendor overlay, so an SDK tree applied from
   this commit keeps the Doors splash even if an older commit is applied later.
-  Reset the SDK tree to get the vendor splash back.
-- **Not yet seen on glass.** The size is certain. The byte order and
-  orientation are DOCUMENTED, not VERIFIED, until a unit boots an image with
-  this file.
+  To get the vendor splash back, copy
+  `k230_bsp/overlay/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/logo.xrgb`
+  (SHA-256 `9fd79fee…`) over the SDK's copy.
+- **Not yet seen on glass**: see the next section.
+
+### Orientation and channel order: what is assumed
+
+| Claim | Class | Basis |
+| --- | --- | --- |
+| U-Boot loads `/logo.xrgb` and accepts only 2,799,104 bytes | DOCUMENTED; load VERIFIED | `k230_logo.c`; unit A's U-Boot log printed `RM69A10 direct XRGB8888 logo.xrgb full-screen OSD4` for the 2,799,104-byte vendor file |
+| The splash in a built image is the committed file | VERIFIED by build | `verify_splash.sh` on a real image (docs/hardware/DOORS_GRAPHICS_GATE.md) |
+| Bytes are B, G, R, X per pixel | DOCUMENTED | U-Boot's OSD4 values equal `canaan_vo.c`'s for `DRM_FORMAT_XRGB8888` only |
+| Row 0 is the top of the panel in portrait, pixel 0 its left edge, no mirroring | DOCUMENTED | U-Boot sets the layer to exactly 568 × 1232 from the display zone's origin with no rotation (`vo_osd4_logo_test`); the Doors shell draws through the same VO block with DRM plane rotation 0 by default (`platform_drm.c`), and that was VERIFIED upright and unmirrored on unit A (docs/hardware/BRINGUP_SESSION_2026-09-07.md) |
+| Supporting evidence for both | INFERRED | the vendor's own splash, decoded with this convention, shows the "LILYGO" wordmark upright and readable left to right and a figure in natural skin tones; with R and B swapped the skin turns blue. The vendor made that file for this panel. It was not photographed on glass, so this supports the assumption without proving it |
+| No clipping or stretching | DOCUMENTED | 1:1 file; the layer size, window and stride are set from the same 568 × 1232 |
+| How the splash looks on the panel | **not verified** | needs one flash: docs/hardware/DOORS_GRAPHICS_GATE.md |
+
+If the channel order proves wrong on glass, the fix is the converter's byte
+order (and this table), not the artwork: the mark would show as `#ffcf8c`
+light orange instead of `#8ccfff` light blue.
 
 ## System identity
 
@@ -220,7 +245,12 @@ Tests:
   with clear space, the 8 px gap and the name after it; again after a live
   switch to carbon/night; again, unmoved, with reduced motion. Checked against
   three deliberate breakages (mark in `text_primary`, a 12 px gap, the old
-  plain row), each of which fails it.
+  plain row), each of which fails it. With `SHOTS_DIR=<dir>` it also keeps
+  the screenshots and writes a contact sheet of the identity row.
+
+`shots/system-mark-contact.png` is that sheet from the SDL simulator: columns
+ice, brass, olive, slate, carbon; rows Normal, Outdoor, Night. Night is dim on
+purpose (DS §13). A desktop render, not the AMOLED panel.
 
 On the device: LVGL 9.5.0 with `LV_DRAW_SW_SUPPORT_A8 1` and `LV_USE_IMAGE 1`
 (VERIFIED in the SDK sysroot's `lv_conf.h`); PocketTimber's contact shadow

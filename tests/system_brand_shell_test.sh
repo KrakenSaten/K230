@@ -96,8 +96,47 @@ for theme in ice brass olive slate carbon; do
         check "$theme/$mode: it starts on the panel's content edge, x = $edge" \
             "$([ "${where%% *}" = "$edge" ] && echo 1 || echo 0)"
         [ "$theme/$mode" = ice/normal ] && ICE_AT=$where
+        printf '%s %s %s\n' "$theme" "$mode" "$where" >> "$OUT/where.txt"
     done
 done
+
+# SHOTS_DIR=<dir>: keep the screenshots, and make one contact sheet of the
+# identity row for review - columns ice, brass, olive, slate, carbon; rows
+# normal, outdoor, night; each cell 300 x 80 px from the panel's left edge.
+if [ -n "${SHOTS_DIR:-}" ]; then
+    mkdir -p "$SHOTS_DIR"
+    cp "$OUT"/system-*.png "$SHOTS_DIR"/
+    python3 - "$OUT" "$SHOTS_DIR/system-mark-contact.png" <<'PY'
+import struct, sys, zlib
+sys.dont_write_bytecode = True
+sys.path.insert(0, "docs/design/timber-art/tools")
+from pngio import read_png
+out, sheet = sys.argv[1:3]
+themes, modes = ["ice", "brass", "olive", "slate", "carbon"], ["normal", "outdoor", "night"]
+at = {}
+for line in open(out + "/where.txt"):
+    t, m, x, y = line.split()
+    at[(t, m)] = int(y)
+CW, CH, GAP = 300, 80, 4
+W, H = len(themes) * CW + (len(themes) + 1) * GAP, len(modes) * CH + (len(modes) + 1) * GAP
+img = [[(48, 48, 48)] * W for _ in range(H)]
+for c, t in enumerate(themes):
+    for r, m in enumerate(modes):
+        _, _, rows = read_png("%s/system-%s-%s.png" % (out, t, m))
+        y0 = at[(t, m)] - 28
+        for dy in range(CH):
+            src = rows[y0 + dy]
+            dst = img[GAP + r * (CH + GAP) + dy]
+            for dx in range(CW):
+                dst[GAP + c * (CW + GAP) + dx] = src[20 + dx][:3]
+raw = b"".join(b"\x00" + bytes(v for p in row for v in p) for row in img)
+ch = lambda k, d: struct.pack(">I", len(d)) + k + d + struct.pack(">I", zlib.crc32(k + d) & 0xFFFFFFFF)
+open(sheet, "wb").write(b"\x89PNG\r\n\x1a\n" + ch(b"IHDR", struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0))
+                        + ch(b"IDAT", zlib.compress(raw, 9)) + ch(b"IEND", b""))
+PY
+    check "the contact sheet was written to $SHOTS_DIR" \
+        "$([ -s "$SHOTS_DIR/system-mark-contact.png" ] && echo 1 || echo 0)"
+fi
 
 # ---- a live theme change repaints it -------------------------------------------
 "$SHELL_BIN" --open system --theme ice --mode normal >"$OUT/live.log" 2>&1 & SP=$!
