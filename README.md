@@ -1,14 +1,19 @@
-# K230 workspace (PocketOS)
+# K230 workspace (Doors)
 
-Working folder for PocketOS development on the LILYGO T-Display K230.
+Working folder for Doors development on the LILYGO T-Display K230.
+
+Doors was previously known as PocketOS through v0.0.9. Release history,
+hardware records and many identifiers (`pos`, `pocketos-shell`, `pocketui`,
+`/var/lib/pocketos`, `POCKETOS_*`) keep the old name on purpose; which ones,
+and when they may change, is in docs/decisions/ADR-005-product-name-doors.md.
 
 ## Layout
 
 ```text
 AGENTS.md                  Rules for AI agents working here
 Makefile                   First-party build (called by the Buildroot package)
-VERSION                    PocketOS version
-THIRD_PARTY_NOTICES.txt    Notices for third-party material in PocketOS binaries and LVGL (generated; installed as /usr/share/pocketos/)
+VERSION                    Doors version
+THIRD_PARTY_NOTICES.txt    Notices for third-party material in Doors binaries and LVGL (generated; installed as /usr/share/pocketos/)
 third_party/notices/       Sources of those notices: the component list and verbatim licence texts
 apps/                      In-process apps: radio (radiod client), system, fleet (PocketFleet), radar (PocketRadar), timber (PocketTimber), notes (PocketNotes), clock (PocketClock), calendar (PocketCalendar), calculator (PocketCalculator), settings (Wi-Fi, brightness, appearance)
 ui/pocketui/               Theme engine (pos_theme), shared role styles (pos_styles), widgets, fonts/
@@ -28,7 +33,7 @@ docs/
   design/                  Design System v0.1 (normative), themes.json, feasibility review, shots/
   BUILD_ENVIRONMENT.md     Host, toolchain, SDK commits, build/flash/test commands
   LICENSING.md             Licence register for vendor and third-party code; PocketOS's own licence is not decided, and redistribution is not authorised until it is
-  decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted; ADR-003 Wi-Fi credentials: Accepted for the post-v0.0.9 milestone; ADR-004 audio ownership: Accepted for the audio milestone as a narrow exception for Wave)
+  decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted; ADR-003 Wi-Fi credentials: Accepted for the post-v0.0.9 milestone; ADR-004 audio ownership: Accepted for the audio milestone as a narrow exception for Wave; ADR-005 product name Doors: Accepted for Phase 1)
   hardware/T-DISPLAY-K230.md  Hardware baseline with evidence classification
   hardware/FIRST_BOOT.md   Day-one runbook: flash, console, hwcheck, PocketOS image, link test
   hardware/BRINGUP_CHECKLIST.md  Bench checklist for the first physical session (image, hash, checksum, tests)

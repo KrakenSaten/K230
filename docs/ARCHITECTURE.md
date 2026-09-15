@@ -1,8 +1,12 @@
-# PocketOS architecture
+# Doors architecture
 
 Status: reflects the code as of 2026-09-08 (PocketOS 0.0.3, not yet built as
 an image; 0.0.1 has run on hardware). Binding decisions live in
 docs/decisions/; this file explains how the pieces fit.
+
+Doors was previously known as PocketOS through v0.0.9. The paths, commands,
+services and C identifiers below keep their PocketOS-era names
+(docs/decisions/ADR-005-product-name-doors.md).
 
 ## Layers
 
@@ -50,7 +54,7 @@ to start while the launcher is enabled or running (platforms/k230/README.md,
 backoff, one state file per service in /run/pocketos and a crash-loop
 marker after five restarts in a minute; nothing displays either yet).
 
-All PocketOS processes run as root in v0. Per-service users are a follow-up.
+All Doors processes run as root in v0. Per-service users are a follow-up.
 Runtime state lives in /run/pocketos (sockets, supervisor state files, pid
 files, crash-loop markers), settings in /etc/pocketos, app state in /var/lib/pocketos/<app>,
 logs and crash reports in /var/lib/pocketos/log (persistent; /var/log is a
@@ -80,7 +84,7 @@ pos radio / apps  ── pocketipc ──▶ radiod ──▶ backend ops ──
 ```
 
 The backend interface is `services/radiod/radio_backend.h`. The sx1262
-backend uses RadioLib (upstream, MIT) with a PocketOS HAL on spidev and
+backend uses RadioLib (upstream, MIT) with a Doors HAL on spidev and
 libgpiod v2 (`hal_linux.cpp`); it compiles for riscv64 and has not run on
 hardware. The LILYGO launcher's HAL cannot be reused (no licence).
 
@@ -185,7 +189,7 @@ keys, Wi-Fi credentials or tokens. The one exception is netd's Wi-Fi store,
 under docs/decisions/ADR-003-wifi-credentials.md (accepted 2026-09-13):
 a root-only file, protected by Unix file permissions and not encrypted, with
 no secret in logs, results, command lines or the environment. No other
-PocketOS component may persist a secret.
+Doors component may persist a secret.
 
 ## netd
 

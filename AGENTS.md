@@ -1,7 +1,12 @@
 # Instructions for AI agents working in this repository
 
-PocketOS is a handheld operating environment for the LILYGO T-Display K230.
+Doors is a handheld operating environment for the LILYGO T-Display K230.
 The human developer is the product owner and final authority.
+
+Doors was previously known as PocketOS through v0.0.9. Identifiers such as
+`pos`, `pocketui`, `pocketos-shell` and `/var/lib/pocketos` keep the old name
+on purpose; do not rename them outside the phases in
+docs/decisions/ADR-005-product-name-doors.md.
 
 Read before changing anything:
 
