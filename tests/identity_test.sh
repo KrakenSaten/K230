@@ -1,10 +1,14 @@
 #!/bin/bash
-# The Doors release identity (ADR-005 Phase 2), and compatibility with what
-# PocketOS installed before it.
+# The Doors release and CLI identity (ADR-005 Phase 2), and compatibility with
+# what PocketOS installed before it.
 #
 #   - `make install` writes one release file, /etc/doors-release, and makes
 #     /etc/pocketos-release a symlink to it: two names, one file, so the two
 #     cannot drift apart.
+#   - The command-line tool is installed once, as /usr/bin/doors, with
+#     /usr/bin/pos a symlink to it. Invoked as doors it says Doors; invoked as
+#     pos it prints what pos printed through v0.0.9, byte for byte where this
+#     test pins it. The pos-* helpers keep their names.
 #   - Installing over a PocketOS-era tree, where the old names are regular
 #     files, ends in the same layout, and installing twice changes nothing.
 #   - No installed directory is a symlink and every link resolves inside the
@@ -56,14 +60,28 @@ check "both names read the same bytes" \
 check "the tree holds exactly one release file" \
     "$(yes_if [ "$(find "$F" -name '*-release' -type f | wc -l)" = 1 ])"
 
+check "/usr/bin/doors is the CLI binary, mode 0755" \
+    "$(yes_if eval 'regular "$F/usr/bin/doors" && mode_is "$F/usr/bin/doors" 755 && cmp -s "$F/usr/bin/doors" tools/pos/pos')"
+check "/usr/bin/pos is a symlink to doors in the same directory" \
+    "$(yes_if link_is "$F/usr/bin/pos" doors)"
+missing=""
+for h in pos-hwcheck pos-spixfer pos-wave pos-supervise; do
+    regular "$F/usr/bin/$h" || missing="$missing $h"
+done
+check "the pos-* helpers keep their names${missing:+ (missing:$missing)}" "$(yes_if [ -z "$missing" ])"
+check "and have no doors-* twins" "$(yes_if [ -z "$(find "$F" -name 'doors-*' ! -name doors-release)" ])"
+
 # ---- over a PocketOS-era tree, and then again ---------------------------
 U="$TMP/upgrade"
-mkdir -p "$U/etc"
+mkdir -p "$U/etc" "$U/usr/bin"
 printf '0.0.9\nBUILD_ID=c6cf41b\n' > "$U/etc/pocketos-release"
+printf '#!/bin/sh\necho pos 0.0.9\n' > "$U/usr/bin/pos"
+chmod 0755 "$U/usr/bin/pos"
 install_into "$U"; rc=$?
 check "make install over a PocketOS-era tree succeeds" "$(yes_if [ $rc -eq 0 ])"
 check "the old regular release file became the symlink" \
     "$(yes_if link_is "$U/etc/pocketos-release" doors-release)"
+check "the old pos binary became the symlink to doors" "$(yes_if link_is "$U/usr/bin/pos" doors)"
 check "and no second copy of the release metadata is left" \
     "$(yes_if [ "$(find "$U" -name '*-release' -type f | wc -l)" = 1 ])"
 install_into "$U"; rc=$?
@@ -90,6 +108,120 @@ while IFS= read -r l; do
     [ -e "$l" ] || bad="$bad ${l#"$F"/}(dangling)"
 done < <(find "$F" -type l)
 check "every link is relative and resolves inside the tree${bad:+ (not:$bad)}" "$(yes_if [ -z "$bad" ])"
+
+# ---- doors and pos, run from the installed tree -------------------------
+DOORS="$F/usr/bin/doors"
+POSL="$F/usr/bin/pos"
+out() { "$@" 2>&1; }   # stdout and stderr, whatever the exit code
+check "doors version says Doors" \
+    "$(yes_if [ "$(out "$DOORS" version)" = "Doors $VERSION (build $BUILD)" ])"
+check "pos version is unchanged" \
+    "$(yes_if [ "$(out "$POSL" version)" = "pos $VERSION (build $BUILD)" ])"
+check "the build output run by its own path answers as pos" \
+    "$(yes_if [ "$(out tools/pos/pos version)" = "pos $VERSION (build $BUILD)" ])"
+mkdir -p "$TMP/bin"
+ln -s "$DOORS" "$TMP/bin/pos-old"
+check "any name other than doors answers as pos" \
+    "$(yes_if [ "$(out "$TMP/bin/pos-old" version)" = "pos $VERSION (build $BUILD)" ])"
+check "doors on PATH, called by its bare name, says Doors" \
+    "$(yes_if [ "$(PATH="$F/usr/bin:$PATH" out doors version)" = "Doors $VERSION (build $BUILD)" ])"
+check "pos on PATH, called by its bare name, is unchanged" \
+    "$(yes_if [ "$(PATH="$F/usr/bin:$PATH" out pos version)" = "pos $VERSION (build $BUILD)" ])"
+
+# pos's own lines, as v0.0.9 printed them. Scripts and bench sheets quote these.
+pins_ok=1
+pin() { # <expected line> <command...>
+    local want=$1; shift
+    out "$POSL" "$@" | grep -qxF -- "$want" || { pins_ok=0; echo "     pos $*: no line '$want'"; }
+}
+pin "usage: pos <command> [subcommand]" help
+pin "  version               print pos version" help
+pin "  radio <command>       talk to radiod (pos radio help)" help
+pin "usage: pos radio <command>" radio help
+pin "usage: pos wifi <command>" wifi bogus
+pin "  connect <ssid> [options]    join; passphrase from stdin (pos wifi connect help)" wifi bogus
+pin "usage: pos call <service> <method> [key=value ...]" call
+pin "  e.g. pos call sysd system.info" call
+pin "usage: pos app list | start <id> | home" app bogus
+pin "usage: pos shell info | screenshot <path.png> | theme <id> [normal|outdoor|night]" shell
+pin "                 | brightness [10..100]" shell
+pin "usage: pos logs                     list log files" logs --bogus
+pin "       pos logs <name> [-n LINES]   tail a service log (default 50 lines)" logs --bogus
+pin "       pos logs --crash <file>      print a crash report" logs --bogus
+check "pos usage text is unchanged from v0.0.9" "$pins_ok"
+
+# doors prints the same text under its own name. The shell usage's second
+# line is indented to stay under the first, two columns further for doors.
+same_ok=1
+for args in "help" "radio help" "wifi bogus" "call" "app bogus" "logs --bogus"; do
+    # shellcheck disable=SC2086
+    want=$(out "$POSL" $args | sed -E 's/\bpos\b/doors/g')
+    # shellcheck disable=SC2086
+    [ "$(out "$DOORS" $args)" = "$want" ] || { same_ok=0; echo "     doors $args differs from pos $args"; }
+done
+check "doors prints pos's usage text with its own name" "$same_ok"
+check "doors shell usage keeps its continuation line aligned" \
+    "$(yes_if [ "$(out "$DOORS" shell)" = "$(printf '%s\n%s' \
+        'usage: doors shell info | screenshot <path.png> | theme <id> [normal|outdoor|night]' \
+        '                   | brightness [10..100]')" ])"
+check "doors and pos exit with the same status on a usage error" \
+    "$(yes_if [ "$("$DOORS" radio help >/dev/null 2>&1; echo $?)" = "$("$POSL" radio help >/dev/null 2>&1; echo $?)" ])"
+
+# Errors name the tool the way it was called.
+E="$TMP/empty-run"
+mkdir -p "$E"
+errs_ok=1
+expect() { # <name> <expected substring> <command...>
+    local name=$1 want=$2 bin; shift 2
+    [ "$name" = doors ] && bin=$DOORS || bin=$POSL
+    POCKETOS_RUNTIME_DIR="$E" POCKETOS_LOG_DIR="$E/nolog" out "$bin" "$@" | grep -qF -- "$want" ||
+        { errs_ok=0; echo "     $name $*: no '$want'"; }
+}
+for n in doors pos; do
+    expect $n "$n system: cannot connect to sysd" system status
+    expect $n "$n radio: cannot connect to $E/radiod.sock" radio info
+    expect $n "$n wifi: cannot connect to $E/netd.sock" wifi status
+    expect $n "$n: cannot connect to $E/shell.sock" app list
+    expect $n "$n logs: cannot open $E/nolog" logs
+    expect $n "$n call: expected key=value, got nokv" call sysd system.info nokv
+    expect $n "$n: brightness takes a whole percentage" shell brightness x
+done
+check "error messages name doors or pos, as invoked" "$errs_ok"
+
+# The release line of `system info`, against the three layouts a card can
+# have. The tool reads the real /etc, so a private mount namespace lends it a
+# scratch one; a host that cannot make one skips this part and says so.
+if unshare -rm true 2>/dev/null; then
+    ETC="$TMP/etc"
+    run_info() { # <layout> <name>: the release line doors/pos print for that layout
+        rm -rf "$ETC"; mkdir -p "$ETC"
+        [ -f /etc/ld.so.cache ] && cp /etc/ld.so.cache "$ETC/"
+        case "$1" in
+            old) printf '0.0.9\nBUILD_ID=c6cf41b\n' > "$ETC/pocketos-release" ;;
+            new) printf '0.0.10\nBUILD_ID=d00r5aa\n' > "$ETC/doors-release" ;;
+            link) printf '0.0.10\nBUILD_ID=d00r5aa\n' > "$ETC/doors-release"
+                  ln -s doors-release "$ETC/pocketos-release" ;;
+        esac
+        unshare -rm sh -c 'mount --bind "$1" /etc && exec "$2" system info' sh "$ETC" "$F/usr/bin/$2" 2>&1 |
+            grep -E '^(doors|pocketos) '
+    }
+    line() { printf '%-16s %s' "$1" "$2"; }
+    check "only /etc/pocketos-release: doors system info reads it" \
+        "$(yes_if [ "$(run_info old doors)" = "$(line doors '0.0.9 (build c6cf41b)')" ])"
+    check "only /etc/pocketos-release: pos system info reads it, under its old label" \
+        "$(yes_if [ "$(run_info old pos)" = "$(line pocketos '0.0.9 (build c6cf41b)')" ])"
+    check "only /etc/doors-release: doors system info reads it" \
+        "$(yes_if [ "$(run_info new doors)" = "$(line doors '0.0.10 (build d00r5aa)')" ])"
+    check "only /etc/doors-release: pos system info reads it" \
+        "$(yes_if [ "$(run_info new pos)" = "$(line pocketos '0.0.10 (build d00r5aa)')" ])"
+    check "doors-release plus the compatibility link: one line, from the new file" \
+        "$(yes_if [ "$(run_info link doors)" = "$(line doors '0.0.10 (build d00r5aa)')" ])"
+    check "and pos reads the same" \
+        "$(yes_if [ "$(run_info link pos)" = "$(line pocketos '0.0.10 (build d00r5aa)')" ])"
+else
+    echo "note: no private mount namespace here (unshare -rm); the system info release-line checks were skipped."
+    echo "      The reader itself is covered by tests/paths_test.c and tests/pocketsys_test.c."
+fi
 
 # ---- deploy.sh carries what the image carries ---------------------------
 DEPLOY=platforms/k230/scripts/deploy.sh

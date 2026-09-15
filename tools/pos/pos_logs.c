@@ -5,6 +5,7 @@
  */
 #define _GNU_SOURCE
 #include "pocketlog/pocketlog.h"
+#include "pos_cli.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -29,7 +30,7 @@ static int list_dir(const char *prefix, const char *suffix)
     int count = 0;
 
     if (!d) {
-        fprintf(stderr, "pos logs: cannot open %s: %s\n", dir(), strerror(errno));
+        fprintf(stderr, "%s logs: cannot open %s: %s\n", pos_cli_name, dir(), strerror(errno));
         return 1;
     }
     while ((e = readdir(d)) != NULL) {
@@ -64,7 +65,7 @@ static int tail_file(const char *path, int lines)
     char buf[2048];
 
     if (!f) {
-        fprintf(stderr, "pos logs: cannot open %s: %s\n", path, strerror(errno));
+        fprintf(stderr, "%s logs: cannot open %s: %s\n", pos_cli_name, path, strerror(errno));
         return 1;
     }
     ring = calloc((size_t)lines, sizeof(char *));
@@ -92,12 +93,20 @@ static int tail_file(const char *path, int lines)
 
 static int usage(void)
 {
-    fprintf(stderr,
-            "usage: pos logs                     list log files\n"
-            "       pos logs <name> [-n LINES]   tail a service log (default 50 lines)\n"
-            "       pos logs --crashes           list crash reports\n"
-            "       pos logs --crash <file>      print a crash report\n"
-            "Log directory: $POCKETOS_LOG_DIR or %s\n", POCKETLOG_DEFAULT_DIR);
+    /* The descriptions start in one column: 29 characters after the indent
+     * for "pos", further right for a longer name. */
+    int w = 26 + (int)strlen(pos_cli_name);
+    char c[64];
+
+    snprintf(c, sizeof(c), "%s logs", pos_cli_name);
+    fprintf(stderr, "usage: %-*slist log files\n", w, c);
+    snprintf(c, sizeof(c), "%s logs <name> [-n LINES]", pos_cli_name);
+    fprintf(stderr, "       %-*stail a service log (default 50 lines)\n", w, c);
+    snprintf(c, sizeof(c), "%s logs --crashes", pos_cli_name);
+    fprintf(stderr, "       %-*slist crash reports\n", w, c);
+    snprintf(c, sizeof(c), "%s logs --crash <file>", pos_cli_name);
+    fprintf(stderr, "       %-*sprint a crash report\n", w, c);
+    fprintf(stderr, "Log directory: $POCKETOS_LOG_DIR or %s\n", POCKETLOG_DEFAULT_DIR);
     return 2;
 }
 

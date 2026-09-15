@@ -5,6 +5,7 @@
  */
 #define _GNU_SOURCE
 #include "pocketipc/pocketipc.h"
+#include "pos_cli.h"
 
 #include <errno.h>
 #include <poll.h>
@@ -36,7 +37,7 @@ static int call_and_print(int fd, const char *method, cJSON *params)
     cJSON *result = pocketipc_call(fd, method, params, &code, err, sizeof(err));
 
     if (!result) {
-        fprintf(stderr, "pos radio: %s failed (code %d): %s\n", method, code, err);
+        fprintf(stderr, "%s radio: %s failed (code %d): %s\n", pos_cli_name, method, code, err);
         return 1;
     }
     pos_print_json(result);
@@ -87,7 +88,7 @@ static int radio_listen(int fd, int seconds)
     time_t end;
 
     if (!r) {
-        fprintf(stderr, "pos radio: subscribe failed: %s\n", err);
+        fprintf(stderr, "%s radio: subscribe failed: %s\n", pos_cli_name, err);
         return 1;
     }
     cJSON_Delete(r);
@@ -108,7 +109,7 @@ static int radio_listen(int fd, int seconds)
         }
         text = pocketipc_read_frame(fd, NULL);
         if (!text) {
-            fprintf(stderr, "pos radio: connection closed\n");
+            fprintf(stderr, "%s radio: connection closed\n", pos_cli_name);
             return 1;
         }
         puts(text);
@@ -120,7 +121,7 @@ static int radio_listen(int fd, int seconds)
 static int usage(void)
 {
     fprintf(stderr,
-            "usage: pos radio <command>\n"
+            "usage: %s radio <command>\n"
             "  info                     chip, backend, capabilities, region\n"
             "  status                   state and current profile\n"
             "  stats                    packet and airtime counters\n"
@@ -130,7 +131,8 @@ static int usage(void)
             "  rssi                     instantaneous channel RSSI\n"
             "  listen [seconds]         print events (radio.rx, radio.tx_done, radio.state)\n"
             "  inject <hex> [rssi] [snr]  mock backend only: simulate a received packet\n"
-            "  mock <key>=<int>         mock backend only: debug knob, e.g. rx_failing=1\n");
+            "  mock <key>=<int>         mock backend only: debug knob, e.g. rx_failing=1\n",
+            pos_cli_name);
     return 2;
 }
 
@@ -148,7 +150,7 @@ int cmd_radio(int argc, char **argv)
         char path[256];
 
         pocketipc_socket_path("radiod", path, sizeof(path));
-        fprintf(stderr, "pos radio: cannot connect to %s: %s\n", path, strerror(errno));
+        fprintf(stderr, "%s radio: cannot connect to %s: %s\n", pos_cli_name, path, strerror(errno));
         return 1;
     }
 
@@ -163,7 +165,11 @@ int cmd_radio(int argc, char **argv)
     } else if (strcmp(sub, "rssi") == 0) {
         rc = call_and_print(fd, "radio.rssi", NULL);
     } else if (strcmp(sub, "configure") == 0) {
-        cJSON *params = pos_params_from_kv("pos radio", argc - 1, argv + 1);
+        char tool[32];
+        cJSON *params;
+
+        snprintf(tool, sizeof(tool), "%s radio", pos_cli_name);
+        params = pos_params_from_kv(tool, argc - 1, argv + 1);
 
         rc = params ? call_and_print(fd, "radio.configure", params) : 2;
     } else if (strcmp(sub, "send") == 0 && argc >= 2) {

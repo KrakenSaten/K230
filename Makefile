@@ -677,7 +677,13 @@ test: all $(TEST_BINS)
 	bash tests/settings_lint.sh
 
 install: all
-	install -D -m 0755 tools/pos/pos $(DESTDIR)$(PREFIX)/bin/pos
+# The command-line tool is installed as doors, and pos is a symlink to it: one
+# binary under two names, pos a permanent alias (ADR-005 decision 5). Invoked
+# as pos it prints what pos always printed (tools/pos/pos_cli.h). The build
+# output keeps its name, tools/pos/pos, like the pos-* helpers keep theirs.
+# ln -f replaces the regular file an earlier install left under the old name.
+	install -D -m 0755 tools/pos/pos $(DESTDIR)$(PREFIX)/bin/doors
+	ln -sfn doors $(DESTDIR)$(PREFIX)/bin/pos
 	install -D -m 0755 tools/hwcheck/hwcheck.sh $(DESTDIR)$(PREFIX)/bin/pos-hwcheck
 	install -D -m 0755 tools/hwcheck/pos-spixfer $(DESTDIR)$(PREFIX)/bin/pos-spixfer
 	install -D -m 0755 tools/wave/pos-wave $(DESTDIR)$(PREFIX)/bin/pos-wave

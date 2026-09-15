@@ -1,8 +1,8 @@
 /*
- * pos - PocketOS command-line tool.
+ * doors (and pos) - the Doors command-line tool.
  *
- * Read-only system, hardware and network inspection for developers.
- * No dependencies beyond libc; reads /proc and /sys only.
+ * Read-only system, hardware and network inspection for developers, and the
+ * clients for the services. One binary under two names; see pos_cli.h.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -23,6 +23,7 @@
 #include <unistd.h>
 
 #include "pocketpaths.h"
+#include "pos_cli.h"
 
 #ifndef POCKETOS_VERSION
 #define POCKETOS_VERSION "unknown"
@@ -30,6 +31,29 @@
 #ifndef POCKETOS_BUILD_ID
 #define POCKETOS_BUILD_ID "unknown"
 #endif
+
+const char *pos_cli_name = "pos";
+
+int pos_cli_is_doors(void)
+{
+    return strcmp(pos_cli_name, "doors") == 0;
+}
+
+/* Only the exact name doors selects the Doors wording. Every other name keeps
+ * pos's, so a copy or a link under some third name changes nothing. */
+static void set_cli_name(const char *argv0)
+{
+    const char *base;
+
+    if (!argv0) {
+        return;
+    }
+    base = strrchr(argv0, '/');
+    base = base ? base + 1 : argv0;
+    if (strcmp(base, "doors") == 0) {
+        pos_cli_name = "doors";
+    }
+}
 
 /* Read the first line of a file into buf and strip the newline. Device-tree
  * strings are NUL-terminated, so fread plus explicit termination is used
@@ -80,7 +104,8 @@ static void print_file_value(const char *label, const char *path)
 
 static int cmd_version(void)
 {
-    printf("pos %s (build %s)\n", POCKETOS_VERSION, POCKETOS_BUILD_ID);
+    printf("%s %s (build %s)\n", pos_cli_is_doors() ? "Doors" : "pos", POCKETOS_VERSION,
+           POCKETOS_BUILD_ID);
     return 0;
 }
 
@@ -112,15 +137,17 @@ static void print_vendor_sdk_version(void)
  * the file directly so it still answers when sysd is not running. */
 static void print_release_file(void)
 {
+    /* pos keeps the label it always had; see pos_cli.h. */
+    const char *label = pos_cli_is_doors() ? "doors" : "pocketos";
     struct pocketos_release rel;
 
     if (pocketos_release_read("", &rel) != 0 || rel.version[0] == '\0') {
         return;
     }
     if (rel.build[0] != '\0') {
-        printf("%-16s %s (build %s)\n", "pocketos", rel.version, rel.build);
+        printf("%-16s %s (build %s)\n", label, rel.version, rel.build);
     } else {
-        printf("%-16s %s\n", "pocketos", rel.version);
+        printf("%-16s %s\n", label, rel.version);
     }
 }
 
@@ -273,27 +300,33 @@ int cmd_wifi(int argc, char **argv);  /* tools/pos/pos_wifi.c */
 
 static int usage(int rc)
 {
+    const char *n = pos_cli_name;
+
     fprintf(rc ? stderr : stdout,
-            "usage: pos <command> [subcommand]\n"
+            "usage: %s <command> [subcommand]\n"
             "  system info           kernel, memory, uptime, versions (read locally)\n"
             "  system status         the live view from sysd (system.status)\n"
             "  hardware list         device nodes and sysfs devices\n"
             "  network interfaces    interface state, MAC and IPv4\n"
-            "  radio <command>       talk to radiod (pos radio help)\n"
-            "  wifi <command>        Wi-Fi through netd (pos wifi help)\n"
+            "  radio <command>       talk to radiod (%s radio help)\n"
+            "  wifi <command>        Wi-Fi through netd (%s wifi help)\n"
             "  call <svc> <method>   any pocketipc method, key=value params\n"
             "  logs [name] [-n N]    service logs and crash reports\n"
             "  app list|start|home   drive the shell launcher\n"
             "  shell info|screenshot shell state and PNG capture\n"
-            "  version               print pos version\n");
+            "  version               print %s version\n",
+            n, n, n, n);
     return rc;
 }
 
 int main(int argc, char **argv)
 {
-    const char *cmd = argc > 1 ? argv[1] : "help";
-    const char *sub = argc > 2 ? argv[2] : "";
+    const char *cmd;
+    const char *sub;
 
+    set_cli_name(argc > 0 ? argv[0] : NULL);
+    cmd = argc > 1 ? argv[1] : "help";
+    sub = argc > 2 ? argv[2] : "";
     if (strcmp(cmd, "version") == 0) {
         return cmd_version();
     }

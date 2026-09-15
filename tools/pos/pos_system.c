@@ -6,6 +6,7 @@
  */
 #define _GNU_SOURCE
 #include "pocketipc/pocketipc.h"
+#include "pos_cli.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -45,21 +46,26 @@ static int call_service(const char *tool, const char *service, const char *metho
 
 int cmd_system_status(void)
 {
-    return call_service("pos system", "sysd", "system.status", NULL);
+    char tool[32];
+
+    snprintf(tool, sizeof(tool), "%s system", pos_cli_name);
+    return call_service(tool, "sysd", "system.status", NULL);
 }
 
 int cmd_call(int argc, char **argv)
 {
+    char tool[32];
     cJSON *params;
 
     if (argc < 2) {
-        fprintf(stderr, "usage: pos call <service> <method> [key=value ...]\n"
-                        "  e.g. pos call sysd system.info\n");
+        fprintf(stderr, "usage: %s call <service> <method> [key=value ...]\n"
+                        "  e.g. %s call sysd system.info\n", pos_cli_name, pos_cli_name);
         return 2;
     }
-    params = pos_params_from_kv("pos call", argc - 2, argv + 2);
+    snprintf(tool, sizeof(tool), "%s call", pos_cli_name);
+    params = pos_params_from_kv(tool, argc - 2, argv + 2);
     if (!params) {
         return 2;
     }
-    return call_service("pos call", argv[0], argv[1], params);
+    return call_service(tool, argv[0], argv[1], params);
 }
