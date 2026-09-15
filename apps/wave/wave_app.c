@@ -449,14 +449,16 @@ static void wave_destroy(void *priv)
     free(a);
 }
 
+LV_IMAGE_DECLARE(pos_app_icon_wave);
+
 const struct pocketos_app app_wave = {
     .id = "wave",
     .name = "Wave",
-    /* No icon_mask: the Doors package has no Wave icon, so the launcher keeps
-     * this glyph until an approved one is supplied (DS section 20). LVGL's
-     * symbol font has no microphone or waveform, and the volume glyph is the
-     * nearest thing to "sound goes out". */
+    /* The launcher draws the Doors icon (DS section 20). The glyph stays as
+     * the app's text icon: LVGL's symbol font has no microphone or waveform,
+     * and the volume glyph is the nearest thing to "sound goes out". */
     .icon = LV_SYMBOL_VOLUME_MAX,
+    .icon_mask = &pos_app_icon_wave,
     .create = wave_create,
     .tick = NULL,
     .destroy = wave_destroy,

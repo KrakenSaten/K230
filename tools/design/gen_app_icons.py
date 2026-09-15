@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
 """Generate ui/pocketui/pos_app_icons.c, the Doors app icons as A8 masks.
 
-    gen_app_icons.py [ICON_DIR] [pos_app_icons.c]
+    gen_app_icons.py [-o pos_app_icons.c] [SOURCE ...]
 
-Defaults: docs/design/brand/doors-threshold/icons/png-32 into
-ui/pocketui/pos_app_icons.c. The generated file is committed, like the fonts
-and the brand mark, so a build needs neither this script nor the PNGs;
-tests/app_icons_test.sh fails if it no longer matches its sources.
+A SOURCE is a PNG or a directory of PNGs. Without sources: the launcher's
+eleven icons, LAUNCHER_ICONS below, into ui/pocketui/pos_app_icons.c. The
+generated file is committed, like the fonts and the brand mark, so a build
+needs neither this script nor the PNGs; tests/app_icons_test.sh fails if it no
+longer matches its sources.
 
-Every PNG in ICON_DIR becomes one `const lv_image_dsc_t pos_app_icon_<name>`,
-where <name> is the file name, which is the app's id. The sources are the
-package's tintable icons: white on transparent. Only the alpha channel is
-kept, antialiasing included, so an icon has no colour of its own and is drawn
-in the image_recolor of its style (POS_STYLE_APP_ICON, accent_primary), which
-the theme engine rewrites on every theme and mode change (DS §8). A source
-with any other colour under a visible pixel is refused: that colour would be
-thrown away without anyone deciding to.
+Every PNG becomes one `const lv_image_dsc_t pos_app_icon_<name>`, where
+<name> is the file name, which is the app's id. The sources are the packages'
+tintable icons: white on transparent. Only the alpha channel is kept,
+antialiasing included, so an icon has no colour of its own and is drawn in
+the image_recolor of its style (POS_STYLE_APP_ICON, accent_primary), which the
+theme engine rewrites on every theme and mode change (DS §8). A source with
+any other colour under a visible pixel is refused: that colour would be thrown
+away without anyone deciding to.
 
-The whole canvas is kept, not trimmed: the package places each icon inside
+The whole canvas is kept, not trimmed: the packages place each icon inside
 the same square cell, and trimming would move every icon by a different
-amount. Nothing is scaled. All icons must have the same size. Standard
-library only.
+amount. Nothing is scaled. All icons must have the same size, and no app id
+may come twice. Only the launcher's apps are listed: the extension package's
+icons for apps that do not exist are not compiled in. Standard library only.
 """
 import hashlib
 import os
@@ -33,6 +35,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pngstrict import PngError, read_png  # noqa: E402
 
 PREFIX = "pos_app_icon_"
+THRESHOLD = "docs/design/brand/doors-threshold/icons/png-32/"
+EXTENSION = "docs/design/brand/doors-icon-extension/png-32/"
+# One icon per launcher app (ui/shell/shell.c apps[]), from the package that
+# supplied it (docs/design/brand/README.md).
+LAUNCHER_ICONS = [THRESHOLD + n + ".png" for n in
+                  ("radio", "system", "fleet", "radar", "timber", "notes",
+                   "clock", "calendar", "calculator", "settings")] + [EXTENSION + "wave.png"]
 
 
 def mask(png, src):
@@ -52,20 +61,34 @@ def mask(png, src):
 
 def main():
     root = Path(__file__).resolve().parents[2]
-    src_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else root / "docs/design/brand/doors-threshold/icons/png-32"
-    dst = Path(sys.argv[2]) if len(sys.argv) > 2 else root / "ui/pocketui/pos_app_icons.c"
-    try:
-        shown_dir = src_dir.resolve().relative_to(root).as_posix()
-    except ValueError:
-        shown_dir = src_dir.name
+    args = sys.argv[1:]
+    dst = root / "ui/pocketui/pos_app_icons.c"
+    if args[:1] == ["-o"] and len(args) >= 2:
+        dst, args = Path(args[1]), args[2:]
+    sources = [Path(a) for a in args] or [root / p for p in LAUNCHER_ICONS]
+
+    def shown(p):
+        try:
+            return p.resolve().relative_to(root).as_posix()
+        except ValueError:
+            return p.name
+
     icons = []
     try:
-        files = sorted(p for p in src_dir.iterdir() if p.suffix == ".png")
-        if not files:
-            raise PngError("%s: no PNG files" % src_dir)
+        files = []
+        for s in sources:
+            if s.is_dir():
+                found = sorted(p for p in s.iterdir() if p.suffix == ".png")
+                if not found:
+                    raise PngError("%s: no PNG files" % s)
+                files += found
+            else:
+                files.append(s)
         for p in files:
             if not re.fullmatch(r"[a-z][a-z0-9_]*", p.stem):
                 raise PngError("%s: the file name is not an app id usable in a C name" % p)
+            if any(p.stem == i[0] for i in icons):
+                raise PngError("%s: a second icon for app id %s" % (p, p.stem))
             png = read_png(str(p))
             rows = mask(png, p)
             want = (icons[0][2], icons[0][3]) if icons else (png.width, png.width)
@@ -73,21 +96,22 @@ def main():
                 raise PngError("%s: %d x %d; every icon must be the same square size"
                                % (p, png.width, png.height))
             icons.append((p.stem, rows, png.width, png.height,
-                          hashlib.sha256(p.read_bytes()).hexdigest()))
+                          hashlib.sha256(p.read_bytes()).hexdigest(), shown(p)))
     except (PngError, OSError) as e:
         print("gen_app_icons: %s" % e, file=sys.stderr)
         return 1
+    icons.sort(key=lambda i: i[0])
     w, h = icons[0][2], icons[0][3]
     lines = [
-        "/* Generated by tools/design/gen_app_icons.py from",
-        " * %s/<id>.png. Do not edit; regenerate." % shown_dir,
+        "/* Generated by tools/design/gen_app_icons.py. Do not edit; regenerate.",
         " *",
         " * The Doors app icons as LVGL A8 alpha masks, %d x %d each, the whole" % (w, h),
         " * canvas, alpha kept exactly. They have no colour; the style's",
-        " * image_recolor draws them (POS_STYLE_APP_ICON).",
+        " * image_recolor draws them (POS_STYLE_APP_ICON). Sources:",
         " *",
     ]
-    lines += [" *   %-10s sha256 %s" % (name, digest) for name, _, _, _, digest in icons]
+    for name, _, _, _, digest, path in icons:
+        lines += [" *   %s" % path, " *     sha256 %s" % digest]
     lines += [
         " */",
         "#ifdef LV_LVGL_H_INCLUDE_SIMPLE",
@@ -96,7 +120,7 @@ def main():
         '#include "lvgl/lvgl.h"',
         "#endif",
     ]
-    for name, rows, _, _, _ in icons:
+    for name, rows, _, _, _, _ in icons:
         sym = PREFIX + name
         lines += ["", "static const uint8_t %s_map[] LV_ATTRIBUTE_MEM_ALIGN = {" % sym]
         for r in rows:
@@ -117,8 +141,8 @@ def main():
         ]
     lines.append("")
     dst.write_text("\n".join(lines), encoding="utf-8", newline="\n")
-    print("gen_app_icons: %s -> %s, %d icons, %d x %d A8: %s"
-          % (shown_dir, dst, len(icons), w, h, " ".join(i[0] for i in icons)))
+    print("gen_app_icons: %d icons -> %s, %d x %d A8: %s"
+          % (len(icons), shown(dst), w, h, " ".join(i[0] for i in icons)))
     return 0
 
 

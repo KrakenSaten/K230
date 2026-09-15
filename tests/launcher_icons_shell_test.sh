@@ -7,9 +7,9 @@
 #   2. Every theme in every display mode: each screenshot is searched, at the
 #      tile's icon origin, for each app's compiled 32 x 32 mask blended from
 #      that theme's surface to its accent_primary (both from themes.json). A
-#      wrong icon, colour, size or place is not found. Wave, which has no
-#      icon, must still show its glyph. The tile grid and the labels are
-#      checked where the launcher always put them.
+#      wrong icon, colour, size or place is not found, and every one of the
+#      eleven apps must have one: no tile may fall back to a glyph. The tile
+#      grid and the labels are checked where the launcher always put them.
 #   3. A live theme change repaints the icons, and they survive an app round
 #      trip; every app still opens.
 #   4. Reduced motion draws the identical launcher.
@@ -83,22 +83,17 @@ for i, app in enumerate(order):
     ix, iy = tx + 12, ty + 12
     scores = {n: err(ix, iy, m) for n, m in masks.items()}
     best = min(scores, key=scores.get)
-    if app in masks:
-        check("%s icon is its own mask in accent_primary at (%d, %d), max error %d"
-              % (app, ix, iy, scores[app]), scores[app] <= TOL)
-        check("%s icon matches no other app's mask (nearest other: %d)"
-              % (app, min(v for n, v in scores.items() if n != app)),
-              best == app and all(v > TOL for n, v in scores.items() if n != app))
-        ring = [(x, y) for y in range(iy - 4, iy + 36) for x in range(ix - 4, ix + 36)
-                if not (ix <= x < ix + 32 and iy <= y < iy + 32)]
-        check("%s icon has clear tile around it" % app, all(near(px(x, y), surf, 3) for x, y in ring))
-    else:
-        ink = [(x, y) for y in range(iy, iy + 40) for x in range(ix, ix + 56) if near(px(x, y), acc, 3)]
-        check("%s has no icon mask: none of the ten is drawn there (nearest %s, %d)"
-              % (app, best, scores[best]), scores[best] > TOL)
-        check("%s keeps its accent glyph at the icon origin (%d accent px, from x %s y %s)"
-              % (app, len(ink), min(x for x, _ in ink) if ink else None, min(y for _, y in ink) if ink else None),
-              len(ink) >= 100 and min(x for x, _ in ink) <= ix + 2 and min(y for _, y in ink) <= iy + 8)
+    if app not in masks:
+        check("%s has an icon mask compiled in (no glyph fallback on the launcher)" % app, False)
+        continue
+    check("%s icon is its own mask in accent_primary at (%d, %d), max error %d"
+          % (app, ix, iy, scores[app]), scores[app] <= TOL)
+    check("%s icon matches no other app's mask (nearest other: %d)"
+          % (app, min(v for n, v in scores.items() if n != app)),
+          best == app and all(v > TOL for n, v in scores.items() if n != app))
+    ring = [(x, y) for y in range(iy - 4, iy + 36) for x in range(ix - 4, ix + 36)
+            if not (ix <= x < ix + 32 and iy <= y < iy + 32)]
+    check("%s icon has clear tile around it" % app, all(near(px(x, y), surf, 3) for x, y in ring))
     blank = [(x, y) for y in range(ty + 52, ty + 104) for x in range(tx + 2, tx + 252)]
     check("%s tile is empty between icon and label" % app, all(near(px(x, y), surf, 3) for x, y in blank))
     ink = [x for y in range(ty + 104, ty + 146) for x in range(tx + 2, tx + 252) if not near(px(x, y), surf, 3)]
@@ -121,7 +116,7 @@ for theme in ice brass olive slate carbon; do
         grep -v '^ok' "$OUT/$theme-$mode.checks"
         failed=$((failed + $(grep -vc '^ok' "$OUT/$theme-$mode.checks")))
         check "$theme/$mode: $(grep -c '^ok' "$OUT/$theme-$mode.checks") launcher checks passed" \
-            "$([ "$(grep -c '^ok' "$OUT/$theme-$mode.checks")" = 66 ] && echo 1 || echo 0)"
+            "$([ "$(grep -c '^ok' "$OUT/$theme-$mode.checks")" = 67 ] && echo 1 || echo 0)"
     done
 done
 
@@ -156,7 +151,7 @@ for c, t in enumerate(themes):
                 dst_row[GAP + c * (CW + GAP) + x] = tuple(sum(q[k] for q in p) // 4 for k in range(3))
 write(dst + "/launcher-contact.png", img)
 # Every tile's icon cell, 48 x 48 at twice size: rows theme/mode pairs,
-# columns the eleven apps in launcher order (Wave last, its glyph).
+# columns the eleven apps in launcher order.
 S, Z = 48, 2
 img = [[GREY] * (11 * S * Z + 12 * GAP) for _ in range(15 * S * Z + 16 * GAP)]
 for r, (t, m) in enumerate((t, m) for t in themes for m in modes):
@@ -184,7 +179,7 @@ if [ -S "$POCKETOS_RUNTIME_DIR/shell.sock" ]; then
     look "$OUT/live-carbon-night.png" carbon night "after a live switch" >"$OUT/live.checks" 2>&1
     grep -v '^ok' "$OUT/live.checks"; failed=$((failed + $(grep -vc '^ok' "$OUT/live.checks")))
     check "after a live switch to carbon/night every icon is in that accent ($(grep -c '^ok' "$OUT/live.checks") checks)" \
-        "$([ "$(grep -c '^ok' "$OUT/live.checks")" = 66 ] && echo 1 || echo 0)"
+        "$([ "$(grep -c '^ok' "$OUT/live.checks")" = 67 ] && echo 1 || echo 0)"
     opened=0
     for id in radio system fleet radar timber notes clock calendar calculator settings wave; do
         "$POS" app start "$id" >/dev/null 2>&1 && sleep 0.4 &&
@@ -199,7 +194,7 @@ if [ -S "$POCKETOS_RUNTIME_DIR/shell.sock" ]; then
     look "$OUT/after-apps.png" carbon night "after eleven apps" >"$OUT/after.checks" 2>&1
     grep -v '^ok' "$OUT/after.checks"; failed=$((failed + $(grep -vc '^ok' "$OUT/after.checks")))
     check "back home after all eleven, the launcher is drawn the same ($(grep -c '^ok' "$OUT/after.checks") checks)" \
-        "$([ "$(grep -c '^ok' "$OUT/after.checks")" = 66 ] && echo 1 || echo 0)"
+        "$([ "$(grep -c '^ok' "$OUT/after.checks")" = 67 ] && echo 1 || echo 0)"
 else
     check "the shell came up for the live checks" 0
 fi

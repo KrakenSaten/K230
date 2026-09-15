@@ -170,7 +170,8 @@ int main(void)
     lv_obj_set_style_pad_row(col, POCKETUI_PAD, 0);
     text_tile = pocketui_tile(col, LV_SYMBOL_WIFI, "Radio", on_click, &user_text);
     mask_tile = pocketui_tile_mask(col, &pos_app_icon_radio, LV_SYMBOL_WIFI, "Radio", on_click, &user_mask);
-    null_tile = pocketui_tile_mask(col, NULL, LV_SYMBOL_VOLUME_MAX, "Wave", on_click, NULL);
+    /* No launcher app goes without a mask; the NULL path is the API's own. */
+    null_tile = pocketui_tile_mask(col, NULL, LV_SYMBOL_VOLUME_MAX, "No icon", on_click, NULL);
     pump(60);
     lv_obj_update_layout(screen);
 
