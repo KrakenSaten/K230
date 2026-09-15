@@ -204,7 +204,8 @@ system info` (release line and label); `doors call sysd system.info`
 (`release_file`, `release_build`); the release section of `pos-hwcheck`; a
 reboot and the same again. Then `deploy.sh` from this branch onto a card
 running the PocketOS-era image, and the same checks, to confirm the BusyBox tar
-behaviour above on the device.
+behaviour above on the device. The bench checklist and the host validation
+record are in docs/hardware/DOORS_PHASE2_GATE.md.
 
 ## Consequences
 
