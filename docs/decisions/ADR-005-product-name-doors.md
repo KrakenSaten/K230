@@ -2,8 +2,9 @@
 
 Status: Accepted for Phase 1 (product owner, 2026-09-15). Phase 2 started with
 the owner's go (2026-09-15) and is implemented as recorded under "Phase 2 as
-implemented"; its acceptance waits for its hardware test. Phases 3 and 4 each
-need the owner's go before they start.
+implemented"; its hardware test passed on unit A on 2026-09-15
+(docs/hardware/DOORS_PHASE2_GATE.md), and its acceptance is the owner's
+decision. Phases 3 and 4 each need the owner's go before they start.
 Date: 2026-09-15
 Deciders: product owner (final), AI engineering partner (author)
 
@@ -176,10 +177,11 @@ unchanged).
   links. BusyBox tar 1.37.0, the one in the image, unlinks an existing
   non-directory before extracting an entry, so the unit's regular
   `/usr/bin/pos`, `/etc/pocketos-release` and old notices file become the links
-  (DOCUMENTED: `archival/libarchive/data_extract_all.c`; links whose target
-  contains `..` are created after every other entry,
+  (VERIFIED on unit A, 2026-09-15, over a PocketOS-era card, and idempotent on a
+  second deploy; source: `archival/libarchive/data_extract_all.c`, and links
+  whose target contains `..` are created after every other entry,
   `unsafe_symlink_target.c`). It cannot unlink a directory, so no directory is
-  turned into a link. Not yet exercised on hardware.
+  turned into a link; `/usr/share/pocketos` stayed a directory on the device.
 - **Rolling a Doors unit back with a PocketOS-era deploy** (an older checkout's
   `deploy.sh`): its archive writes regular files over the three links and, as
   always, deletes nothing, so `/usr/bin/doors`, `/etc/doors-release` and
@@ -187,6 +189,9 @@ unchanged).
   not read them, but `doors` would still run the newer binary and a later
   single-binary bench deploy would read the stale `/etc/doors-release`. After
   such a rollback: `rm -rf /usr/bin/doors /etc/doors-release /usr/share/doors`.
+  VERIFIED on unit A (gate B6): regular files extracted over the three links
+  replace them, and after the `rm -rf` the unit is byte-identical to its
+  PocketOS-era files and reports its old build.
 - **An SDK tree shared with older branches**: `apply_to_sdk.sh` never deletes
   from Buildroot's target tree either. A PocketOS-era source built in an SDK
   that has had this phase installed carries the same three stale paths into its
@@ -205,7 +210,9 @@ system info` (release line and label); `doors call sysd system.info`
 reboot and the same again. Then `deploy.sh` from this branch onto a card
 running the PocketOS-era image, and the same checks, to confirm the BusyBox tar
 behaviour above on the device. The bench checklist and the host validation
-record are in docs/hardware/DOORS_PHASE2_GATE.md.
+record are in docs/hardware/DOORS_PHASE2_GATE.md. **Passed on unit A,
+2026-09-15**, with a second deploy and the rollback as well; the results are in
+the same sheet.
 
 ## Consequences
 
