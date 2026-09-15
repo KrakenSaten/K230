@@ -264,7 +264,9 @@ Colours are tokens; geometry from §7; type from §3.
 
 **Status bar** — 56 px on `bg`, bottom `hairline` in `line`. Four cells left
 → right, separated by `hairline` rules in `line`, all caption style
-(0.08 em): (1) wordmark "PocketOS" weight 500, padding 0 20; (2) hint cell,
+(0.08 em): (1) wordmark "PocketOS" weight 500, padding 0 20 (the product name
+is Doors since ADR-005: the wordmark text is "Doors", everything else in this
+cell is unchanged); (2) hint cell,
 `text_secondary`, flex 1, padding 0 16 — shows AP dot (`net_connected`, 8 px)
 + SSID when connected, else context text ("3 unread", "First boot"); (3)
 radio cell, padding 0 10, containing the radio chip; (4) clock, padding 0 20.
