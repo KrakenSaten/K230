@@ -1,6 +1,6 @@
 # Known issues and open questions
 
-Updated 2026-09-13. Move items to git history when resolved.
+Updated 2026-09-15. Move items to git history when resolved.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
 B4 (the shell's `printf` diagnostics never reached a log; they go through
@@ -63,6 +63,23 @@ chip-state dependent and dumps both transports' windows when it does.
   optional nRF9151 base board. Potential conflict if both are used.
 - `aic8800` modules are modprobed by the vendor boot script although the board
   has RTL8189FTV; harmless warnings expected in dmesg.
+- No boot splash after a warm `reboot` (vendor U-Boot; VERIFIED on unit A
+  2026-09-15, docs/hardware/DOORS_GRAPHICS_GATE.md). From power-on the splash
+  shows and hands over cleanly to the shell. After `reboot` U-Boot still loads
+  `/logo.xrgb` and prints `RM69A10 direct XRGB8888 logo.xrgb full-screen OSD4`,
+  but the panel stays dark until the shell's first mode set re-initialises it
+  (about 17 s), so the unit boots normally with no splash rather than a broken
+  one. Held at the U-Boot prompt: panel power and reset GPIOs are high, and the
+  DSI PHY has lane 0 turned to receive with the data lanes in stop state
+  (`PHY_STATUS 0x15bb`); running the vendor `k230_logo` command once more
+  lights the splash (`0x1529`). U-Boot's first DSI bring-up after a warm reset
+  does not recover the link, while its write that would reset the DSI host is
+  commented out (`display_logo.c`). Independent of the splash file: U-Boot, the
+  kernel and the device tree are vendor code the Doors graphics did not touch
+  (whether the stock LILYGO splash does the same was not run). A fix belongs in
+  the vendor U-Boot overlay, for example resetting the DSI host before the
+  command phase or repeating the bring-up after a warm reset, and needs the
+  product owner's go.
 
 - PocketRadar H1: the scan screen repaints a 520 x 520 custom-drawn scope at
   20 Hz (RADAR_TICK_MS), which is the app's whole frame cost and is unmeasured

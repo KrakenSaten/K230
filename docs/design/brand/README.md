@@ -142,7 +142,8 @@ A is 2,799,104 bytes.
 
 **Byte order: DRM XRGB8888, stored `B, G, R, X` per pixel**, rows from the
 top, pixels from the left. Each pixel is the little-endian word `0xXXRRGGBB`.
-DOCUMENTED, not yet seen on glass for this file: U-Boot programs the layer
+VERIFIED on unit A on 2026-09-15 (right colours and orientation on the panel);
+the source basis: U-Boot programs the layer
 with format `0x03`, DMA map `0x40` and address mode `0x1100`
 (`display_logo.c`, `vo_osd4_logo_test`), the same three values the kernel's
 `canaan_vo.c` writes for `DRM_FORMAT_XRGB8888` and for no other format. The X
@@ -199,29 +200,29 @@ root filesystem as `/logo.xrgb`, which nothing reads. Consequences:
   To get the vendor splash back, copy
   `k230_bsp/overlay/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/logo.xrgb`
   (SHA-256 `9fd79fee…`) over the SDK's copy.
-- **Not yet seen on glass**: see the next section.
+- **Seen on glass** on unit A, 2026-09-15 (docs/hardware/DOORS_GRAPHICS_GATE.md).
+  From power-on the splash shows and hands over cleanly to the Doors shell. After
+  a warm `reboot` the vendor U-Boot's first panel bring-up leaves the panel
+  dark, so no splash is seen then: a vendor boot-path limitation, not a fault in
+  this file (docs/KNOWN_ISSUES.md).
 
-### Orientation and channel order: what is assumed
+### Orientation and channel order: what is known
 
 | Claim | Class | Basis |
 | --- | --- | --- |
-| U-Boot loads `/logo.xrgb` and accepts only 2,799,104 bytes | DOCUMENTED; load VERIFIED | `k230_logo.c`; unit A's U-Boot log printed `RM69A10 direct XRGB8888 logo.xrgb full-screen OSD4` for the 2,799,104-byte vendor file |
-| The splash in a built image is the committed file | VERIFIED by build | `verify_splash.sh` on a real image (docs/hardware/DOORS_GRAPHICS_GATE.md) |
-| Bytes are B, G, R, X per pixel | DOCUMENTED | U-Boot's OSD4 values equal `canaan_vo.c`'s for `DRM_FORMAT_XRGB8888` only |
-| Row 0 is the top of the panel in portrait, pixel 0 its left edge, no mirroring | DOCUMENTED | U-Boot sets the layer to exactly 568 × 1232 from the display zone's origin with no rotation (`vo_osd4_logo_test`); the Doors shell draws through the same VO block with DRM plane rotation 0 by default (`platform_drm.c`), and that was VERIFIED upright and unmirrored on unit A (docs/hardware/BRINGUP_SESSION_2026-09-07.md) |
-| Supporting evidence for both | INFERRED | the vendor's own splash, decoded with this convention, shows the "LILYGO" wordmark upright and readable left to right and a figure in natural skin tones; with R and B swapped the skin turns blue. The vendor made that file for this panel. It was not photographed on glass, so this supports the assumption without proving it |
-| No clipping or stretching | DOCUMENTED | 1:1 file; the layer size, window and stride are set from the same 568 × 1232 |
-| How the splash looks on the panel | **not verified** | needs one flash: docs/hardware/DOORS_GRAPHICS_GATE.md |
-
-If the channel order proves wrong on glass, the fix is the converter's byte
-order (and this table), not the artwork: the mark would show as `#ffcf8c`
-light orange instead of `#8ccfff` light blue.
+| U-Boot loads `/logo.xrgb` and accepts only 2,799,104 bytes | DOCUMENTED; load VERIFIED | `k230_logo.c`; unit A's U-Boot log prints `2799104 bytes read` and `RM69A10 direct XRGB8888 logo.xrgb full-screen OSD4` for this file |
+| The splash in a built image is the committed file | VERIFIED by build and on the device | `verify_splash.sh` on the image; `sha256sum /boot/logo.xrgb` on unit A |
+| Bytes are B, G, R, X per pixel | VERIFIED (operator, unit A) | the mark shows light blue, the word near-white, on black; source basis: U-Boot's OSD4 values equal `canaan_vo.c`'s for `DRM_FORMAT_XRGB8888` only |
+| Row 0 is the top of the panel in portrait, pixel 0 its left edge, no mirroring | VERIFIED (operator, unit A) | portrait and upright, not mirrored; source basis: U-Boot sets the layer to exactly 568 × 1232 from the display zone's origin with no rotation (`vo_osd4_logo_test`) |
+| No clipping or stretching | VERIFIED (operator, unit A) | centred, nothing cut off; 1:1 file, layer size, window and stride set from the same 568 × 1232 |
+| Earlier supporting evidence | INFERRED, now superseded | the vendor's own splash, decoded with this convention, reads upright with natural colours |
+| Splash after a warm reboot | vendor limitation | U-Boot's first DSI bring-up after a warm reset leaves the panel dark; running the same init again lights this splash (docs/KNOWN_ISSUES.md) |
 
 ## System identity
 
 The System app's identity panel starts with the row "Doors  0.0.9 · <build>".
 That row now carries the compact mark before the name. DS §19 (Amendment C,
-proposed, pending the owner's approval) is the rule for it.
+accepted 2026-09-15) is the rule for it.
 
 | | |
 | --- | --- |
@@ -254,7 +255,9 @@ purpose (DS §13). A desktop render, not the AMOLED panel.
 
 On the device: LVGL 9.5.0 with `LV_DRAW_SW_SUPPORT_A8 1` and `LV_USE_IMAGE 1`
 (VERIFIED in the SDK sysroot's `lv_conf.h`); PocketTimber's contact shadow
-uses the same recoloured-A8 drawing. **Not yet seen on glass.**
+uses the same recoloured-A8 drawing. **VERIFIED on unit A, 2026-09-15**
+(operator): crisp, in front of "Doors", the back arrow's accent in all five
+themes, legible in Outdoor and Night (docs/hardware/DOORS_GRAPHICS_GATE.md).
 
 ## Launcher — deferred
 

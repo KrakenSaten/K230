@@ -93,8 +93,9 @@ vendor's copy and the vendor `post-image.sh` copies it to the boot partition.
 It must stay exactly 568 × 1232 × 4 = 2,799,104 bytes, B, G, R, X per pixel,
 or U-Boot skips it. Only a flash changes it: `deploy.sh` never writes the boot
 partition. `scripts/verify_splash.sh <image>` checks a built image carries it.
-Details and hashes: docs/design/brand/README.md; the pending look on glass:
-docs/hardware/DOORS_GRAPHICS_GATE.md.
+Details and hashes: docs/design/brand/README.md; the hardware gate:
+docs/hardware/DOORS_GRAPHICS_GATE.md. The splash shows from power-on, not
+after a warm `reboot` (vendor U-Boot, docs/KNOWN_ISSUES.md).
 
 ## Logs on the device
 

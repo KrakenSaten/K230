@@ -941,12 +941,13 @@ Limits of this version, to be designed rather than inferred:
   sound or haptics, no auto-dismiss after a timeout, and no alerts raised
   from outside the shell process.
 
-## 19. Amendment C — the Doors brand mark [NORMATIVE once approved]
+## 19. Amendment C — the Doors brand mark [NORMATIVE]
 
-**Proposed 2026-09-15; pending the product owner's approval.** Brings the
-compact mark from the Doors graphics package (ADR-005,
-`docs/design/brand/README.md`) into the UI in one place. Nothing in §1–§18 is
-renumbered.
+**Accepted 2026-09-15** by the product owner, after the unit A hardware gate
+(`docs/hardware/DOORS_GRAPHICS_GATE.md`). Brings the compact mark from the
+Doors graphics package (ADR-005, `docs/design/brand/README.md`) into the UI in
+one place. Normative on the same terms as the rest of this document. Nothing in
+§1–§18 is renumbered.
 
 ### 19.1 What it is
 
@@ -995,4 +996,4 @@ renumbered.
 PocketOS Design System v0.1 — **STATUS: APPROVED FOR IMPLEMENTATION**
 Amendment A (§17) approved 2026-09-10; C8 closed.
 Amendment B (§18) approved 2026-09-11.
-Amendment C (§19) proposed 2026-09-15; pending approval.
+Amendment C (§19) accepted 2026-09-15.
