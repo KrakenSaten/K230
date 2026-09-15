@@ -37,3 +37,32 @@ VERIFIED (operator) or FAIL, with a photo where it helps.
 Pass: all nine. Then Amendment C can be put to the owner for acceptance, and
 the byte-order and orientation rows in docs/design/brand/README.md move to
 VERIFIED.
+
+## Validation done without hardware (2026-09-15)
+
+Source `e999ab1`, from fresh WSL clones. The commit that adds this section
+changes nothing but this sheet.
+
+| Check | Result |
+| --- | --- |
+| `make all`, `make test` (host, -Werror) | rc 0; 3,491 ok, 0 FAIL, 0 warnings (master 8070379: 3,401) |
+| New gates inside it | `boot_splash_test` (conversion, determinism, sizes, decode round trip), `brand_mark_test`, `splash_image_test`: 0 failures, none NOT RUN |
+| Shell (SDL) build and shell tests | 0 warnings; 350 ok, 0 FAIL (master: 317); `system_brand_shell_test` 33 ok across 5 themes × 3 modes, live switch, reduced motion |
+| riscv64 `make all` (ENABLE_SX1262=1) | rc 0, 4 warnings, all vendor ggwave, as on master |
+| riscv64 DRM/sysroot shell | rc 0, 0 warnings, `pos_brand_mark` linked |
+| Image build | rc 0; `verify_image.sh` IMAGE GATE: PASS |
+| `verify_splash.sh` | SPLASH: PASS, `/logo.xrgb` 2,799,104 bytes, SHA-256 `434f4a6cf697544764ccbd111d4b3a60eaf5ced5f86e41be731f1f7ce4f58f94` |
+| Boot-partition splash decoded as B, G, R rows from the top | equals the source PNG's pixels; content x 184–383, y 517–715 |
+| Shared SDK overlay afterwards | vendor splash restored, SHA-256 `9fd79fee…` |
+
+Candidate image, not flashed and not in the repository:
+`~/work/doors-gfx-image-e999ab1/` in the WSL build host,
+`sysimage-sdcard.img` 763,363,328 bytes, SHA-256
+`25f2f273a8f74ea2c2a1c59f4a6dbb0df00b5f1c3887103940a1b3996836359c`
+(`.gz` 204,497,237 bytes, `f1ed26169244cc9b7a95c2cd5a27cd9e47cc5beef17926a2f9d3a8063a3f017a`).
+BUILD_INFO says PocketOS 0.0.9 / `e999ab1`: VERSION is unchanged on purpose.
+Flash it as is, or build again from the branch tip and repeat "Before the
+bench".
+
+Still unverified, and only unit A can settle them: all nine items above. The
+host and simulator runs cover item 9's code, not the device.
