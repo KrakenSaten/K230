@@ -59,11 +59,12 @@ WSL gotchas found 2026-09-04 (all VERIFIED):
 Do not upgrade any of these without a proposal. The BSP overlay is a patch
 stack on top of the pinned SDK commit and will break on a different SDK.
 
-## Build PocketOS (inside WSL2 Ubuntu)
+## Build Doors (inside WSL2 Ubuntu)
 
-The PocketOS scripts wrap the vendor flow below and add the PocketOS package
-and defconfig. The vendor checkout lives in the Linux filesystem, the PocketOS
-repository on /mnt/c is only read and rsynced from.
+The Doors scripts wrap the vendor flow below and add the Doors package (the
+Buildroot package `pocketos`) and defconfig (`k230_pocketos_defconfig`). The
+vendor checkout lives in the Linux filesystem, the Doors repository on /mnt/c
+is only read and rsynced from.
 
 ```sh
 export POCKETOS_VENDOR_DIR=$HOME/work/t-display-k230
@@ -138,8 +139,9 @@ A release build must show `Source worktree : clean` and a BUILD_ID with no
 built binaries. `tests/build_outputs_test.sh` keeps the default path usable by
 making sure no build output can dirty a checkout by accident.
 
-Quick host checks without Buildroot: `make CC=gcc all` builds `pos`
-natively; the Xuantie gcc with `-mcpu=c908v -mtune=c908` cross-builds it.
+Quick host checks without Buildroot: `make CC=gcc all` builds the CLI
+(`tools/pos/pos`, installed as `doors` with `pos` as its alias) natively; the
+Xuantie gcc with `-mcpu=c908v -mtune=c908` cross-builds it.
 
 ## Build vendor baseline (inside WSL2 Ubuntu, Linux filesystem)
 
@@ -182,7 +184,8 @@ On Windows a tool such as Rufus or balenaEtcher writes the same image.
 
 `scripts/deploy_launcher.sh <ip>` copies the launcher (and optionally
 /boot/Image + DTB) over SSH as root and restarts the launcher via
-`/etc/init.d/S99zz_k230_phone_ui`. PocketOS can reuse the same mechanism.
+`/etc/init.d/S99zz_k230_phone_ui`. Doors uses the same mechanism in
+`platforms/k230/scripts/deploy.sh`.
 
 ## Serial console
 

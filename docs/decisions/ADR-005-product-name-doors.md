@@ -1,7 +1,9 @@
 # ADR-005: Product name Doors
 
-Status: Accepted for Phase 1 (product owner, 2026-09-15). Phases 2 to 4 are
-planned here; each needs the owner's go before it starts.
+Status: Accepted for Phase 1 (product owner, 2026-09-15). Phase 2 started with
+the owner's go (2026-09-15) and is implemented as recorded under "Phase 2 as
+implemented"; its acceptance waits for its hardware test. Phases 3 and 4 each
+need the owner's go before they start.
 Date: 2026-09-15
 Deciders: product owner (final), AI engineering partner (author)
 
@@ -136,11 +138,80 @@ carries data. Facts that constrain any rename:
 | 3. Shell service | `doors-shell` and `S90doors-shell`, falling back to `/etc/default/pocketos-shell`; `DOORS_*` spellings for the operator display and touch overrides, mapped in the init script; supervisor name; `deploy.sh` removes replaced files | init-script, supervisor and sysd tests | yes, mandatory: fresh flash, deploy over a PocketOS-era unit, two reboots, rollback |
 | 4. Optional internal cleanup | state, config and runtime directories with migration and an ADR-003 amendment; `DOORS_*_DIR`; `pos-*` helper names; Buildroot package and defconfig | full suite and image | yes, with real data on a unit |
 
+## Phase 2 as implemented
+
+Branch `rebrand/doors-2-identity`, from master `8070379`. VERSION stays 0.0.9;
+v0.0.10 is not tagged by this phase.
+
+### Compatibility model
+
+| PocketOS-era name | Doors name | What is on disk | Who reads it, and how |
+| --- | --- | --- | --- |
+| `/etc/pocketos-release` | `/etc/doors-release` | one regular file, `/etc/doors-release`; the old name is a same-directory symlink to it, so the two cannot disagree | `pocketos_release_read()` (`core/pocketpaths.c`), used by sysd's `system.info` and by `doors`/`pos system info`, and the same rule in `pos-hwcheck`: the new name when it exists, the old name only when the new one is absent (ENOENT, which a dangling link also gives). A new file that exists but cannot be read is an error, never a reason to report the old one. Format unchanged: the bare version on line 1, then `BUILD_ID=` |
+| `/usr/bin/pos` | `/usr/bin/doors` | one binary, installed as `doors`; `pos` is a same-directory symlink to it | the binary reads its own name (`tools/pos/pos_cli.h`). As `doors`: every usage line and message says doors, `doors version` prints `Doors <version> (build <id>)`, `doors system info` labels the release line `doors`. As `pos`, or any other name: output byte-identical to v0.0.9 (`pos <version> (build <id>)`, the `pocketos` label, the same usage text) |
+| `/usr/share/pocketos/THIRD_PARTY_NOTICES.txt` | `/usr/share/doors/THIRD_PARTY_NOTICES.txt` | the file under the new directory; `/usr/share/pocketos` stays a directory holding a symlink `../doors/THIRD_PARTY_NOTICES.txt` | nothing at runtime; the directory held nothing else and nothing stateful, which is why it could move |
+| `sysimage-sdcard.img` (vendor build output) | `doors-<version>[-rcN]-tdisplay-k230-<build_id>.img.gz` and `.sha256` | both exported; the artefact is `gzip -n` of the verified image, read back before export; `-rcN` from `POCKETOS_RELEASE_RC` | flashing either writes the same bytes |
+
+Unchanged on purpose: `pos-supervise`, `pos-hwcheck`, `pos-spixfer`,
+`pos-wave`, `tools/pos` and its build output `tools/pos/pos`, every C
+identifier in decision 4, PocketUI, `pocketos-shell` and every service and
+init-script name, `/var/lib/pocketos`, `/run/pocketos`, `/etc/pocketos`, the
+`POCKETOS_*` variables, the applied-manifest keys, the Buildroot package and
+defconfig names, and the "PocketOS authors" copyright lines (decision 7).
+
+Also in this phase: BUILD_INFO.txt says "Doors <version> image" and labels
+the source line "Doors"; THIRD_PARTY_NOTICES.txt opens with the unchanged
+no-licence statement under the Doors name, naming the former name and the
+copyright lines (regenerated with `pocketos.hash`); `POCKETOS_LICENSE` reads
+"Not yet decided (Doors; no licence granted)"; the CMake status line,
+apply and deploy messages, the settings and Wi-Fi store headers, the Buildroot
+package prompt, and the Radio app and pair-test LoRa payloads ("Doors test 01\n"
+and "Doors 01", each the length of the payload it replaced, so airtime is
+unchanged).
+
+### Upgrade and rollback
+
+- **Fresh flash**: the layout above, from `make install` in the image build.
+- **`deploy.sh` onto a PocketOS-era unit**: the archive carries the links as
+  links. BusyBox tar 1.37.0, the one in the image, unlinks an existing
+  non-directory before extracting an entry, so the unit's regular
+  `/usr/bin/pos`, `/etc/pocketos-release` and old notices file become the links
+  (DOCUMENTED: `archival/libarchive/data_extract_all.c`; links whose target
+  contains `..` are created after every other entry,
+  `unsafe_symlink_target.c`). It cannot unlink a directory, so no directory is
+  turned into a link. Not yet exercised on hardware.
+- **Rolling a Doors unit back with a PocketOS-era deploy** (an older checkout's
+  `deploy.sh`): its archive writes regular files over the three links and, as
+  always, deletes nothing, so `/usr/bin/doors`, `/etc/doors-release` and
+  `/usr/share/doors` stay behind with the newer content. The older binaries do
+  not read them, but `doors` would still run the newer binary and a later
+  single-binary bench deploy would read the stale `/etc/doors-release`. After
+  such a rollback: `rm -rf /usr/bin/doors /etc/doors-release /usr/share/doors`.
+- **An SDK tree shared with older branches**: `apply_to_sdk.sh` never deletes
+  from Buildroot's target tree either. A PocketOS-era source built in an SDK
+  that has had this phase installed carries the same three stale paths into its
+  image (and its `printf > /etc/pocketos-release` writes through the link).
+  Remove `usr/bin/doors`, `etc/doors-release`, `etc/pocketos-release` and
+  `usr/share/doors` from `output/k230_pocketos_defconfig/target` before such a
+  build.
+
+### Hardware test (required for acceptance, per the table above)
+
+On unit A: flash the Phase 2 image and boot it; `doors version` and
+`pos version`; `cat /etc/doors-release`; `ls -l /usr/bin/pos
+/etc/pocketos-release /usr/share/pocketos/`; `doors system info` and `pos
+system info` (release line and label); `doors call sysd system.info`
+(`release_file`, `release_build`); the release section of `pos-hwcheck`; a
+reboot and the same again. Then `deploy.sh` from this branch onto a card
+running the PocketOS-era image, and the same checks, to confirm the BusyBox tar
+behaviour above on the device.
+
 ## Consequences
 
-- From Phase 1 the device says Doors on screen. `pos system info`,
-  `/etc/pocketos-release`, the notices file and the System Services row
-  (`pocketos-shell`) still say PocketOS until Phases 2 and 3.
+- From Phase 1 the device says Doors on screen. From Phase 2 the release file,
+  the CLI (`doors`), the notices and the image artefact carry the Doors name,
+  while `pos` and the old paths keep answering. The System Services row
+  (`pocketos-shell`) still says PocketOS until Phase 3.
 - Developers read "Doors" in prose and `pocket*` or `pos` in code; decisions
   2 and 4 are the explanation. A search for "doors" also finds the Wave test
   payload `DOORS` and comments about "the app's only door to the

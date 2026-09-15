@@ -3,9 +3,11 @@
 Working folder for Doors development on the LILYGO T-Display K230.
 
 Doors was previously known as PocketOS through v0.0.9. Release history,
-hardware records and many identifiers (`pos`, `pocketos-shell`, `pocketui`,
-`/var/lib/pocketos`, `POCKETOS_*`) keep the old name on purpose; which ones,
-and when they may change, is in docs/decisions/ADR-005-product-name-doors.md.
+hardware records and many identifiers (`pos_*`, the `pos-*` helpers,
+`pocketos-shell`, `pocketui`, `/var/lib/pocketos`, `POCKETOS_*`) keep the old
+name on purpose; which ones, and when they may change, is in
+docs/decisions/ADR-005-product-name-doors.md. The CLI is `doors`, with `pos`
+as its permanent alias.
 
 ## Layout
 
@@ -38,7 +40,7 @@ docs/
   hardware/FIRST_BOOT.md   Day-one runbook: flash, console, hwcheck, PocketOS image, link test
   hardware/BRINGUP_CHECKLIST.md  Bench checklist for the first physical session (image, hash, checksum, tests)
 platforms/k230/            Defconfig, Buildroot package and apply/build scripts (ADR-001)
-tools/pos/                 `pos` CLI: system, hardware, network, radio, logs, app, shell
+tools/pos/                 `doors` CLI (`pos` is the same binary under its old name): system, hardware, network, radio, wifi, logs, app, shell
 tools/supervise/           `pos-supervise`: restart with backoff and crash-loop detection
 tools/design/              Generators: theme table from themes.json, LVGL fonts from IBM Plex
 tools/hwcheck/             `pos-hwcheck`: first-boot hardware inventory script

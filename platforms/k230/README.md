@@ -4,15 +4,18 @@ Board support for the LILYGO T-Display K230, layered on the pinned LILYGO BSP
 and Kendryte K230 Linux SDK (ADR-001).
 
 Doors was previously known as PocketOS through v0.0.9. The package, defconfig,
-binaries, init scripts, paths and variables on this page keep their
-PocketOS-era names, so the commands below are unchanged
-(docs/decisions/ADR-005-product-name-doors.md).
+init scripts, services, state paths and variables on this page keep their
+PocketOS-era names (docs/decisions/ADR-005-product-name-doors.md). Since
+Phase 2 the command-line tool is `doors`, with `pos` kept as a permanent
+alias that prints what it always printed, and the release file is
+`/etc/doors-release`, with `/etc/pocketos-release` a symlink to it; commands
+written with `pos` keep working.
 
 ```text
 configs/k230_pocketos_defconfig   Vendor board defconfig + BR2_PACKAGE_POCKETOS
 package/pocketos/                 Buildroot package building the repository root Makefile
 scripts/apply_to_sdk.sh           BSP overlay + vendor launcher + Doors package into the SDK
-scripts/build_image.sh            Build and export sysimage-sdcard.img to out/k230/
+scripts/build_image.sh            Build and export sysimage-sdcard.img and doors-*.img.gz (+ .sha256) to out/k230/
 scripts/deploy.sh                 Push built binaries to a running board over SSH
 vendor_bsp_commit.txt             Pinned Xinyuan-LilyGO/T-Display-K230 commit
 vendor_sdk_commit.txt             Pinned kendryte/k230_linux_sdk commit
@@ -35,7 +38,7 @@ echo RADIOD_BACKEND=sx1262 > /etc/default/radiod
 reboot
 ```
 
-After the reboot: `pos app list`, `pos radio info`. Without a reboot, the
+After the reboot: `doors app list`, `doors radio info`. Without a reboot, the
 same state is reached with `/etc/init.d/S99zz_k230_phone_ui stop`, then
 `/etc/init.d/S60radiod restart` and `/etc/init.d/S90pocketos-shell start`.
 S90 refuses to start while the launcher is enabled or running, so the two
@@ -88,14 +91,25 @@ every boot: read the IP after each boot (`ip -4 addr show eth0`).
 reports and supervisor logs in `/var/lib/pocketos/log` (persistent):
 `radiod.log`, `shell.log` (rotated once at 512 KB), `supervise-<name>.log`,
 `crash-<name>-<time>.txt`, and `<name>.stdio.log` (LVGL and raw stdio,
-restarted on every boot, previous copy in `.1`). `pos logs`, `pos logs
-<name>`, `pos logs --crashes`.
+restarted on every boot, previous copy in `.1`). `doors logs`, `doors logs
+<name>`, `doors logs --crashes`.
 
-Image contents from this package: `pos`, `pos-hwcheck`, `pos-supervise`,
-`radiod` (mock + sx1262), `pocketos-shell` (DRM/evdev, untested), init
-scripts `S60radiod` and `S90pocketos-shell`. Screenshots (`pos shell
-screenshot`) are not available on the device: the vendor LVGL build has
-LV_USE_SNAPSHOT off (docs/KNOWN_ISSUES.md).
+Image contents from this package: `doors` (and its `pos` alias),
+`pos-hwcheck`, `pos-supervise`, `radiod` (mock + sx1262), `pocketos-shell`
+(DRM/evdev, untested), init scripts `S60radiod` and `S90pocketos-shell`,
+`/etc/doors-release` (and its `/etc/pocketos-release` alias), and the
+third-party notices in `/usr/share/doors` (linked from `/usr/share/pocketos`).
+Screenshots (`doors shell screenshot`) are not available on the device: the
+vendor LVGL build has LV_USE_SNAPSHOT off (docs/KNOWN_ISSUES.md).
+
+## Bench deploy and the Doors names
+
+`scripts/deploy.sh` sends the aliases as symlinks, so a deploy onto a
+PocketOS-era unit leaves one file under each pair of names, like a flashed
+card. Rolling such a unit back with an older checkout's `deploy.sh` restores
+the old files but deletes nothing: remove the Doors-only files afterwards with
+`rm -rf /usr/bin/doors /etc/doors-release /usr/share/doors` (ADR-005,
+"Upgrade and rollback").
 
 Build inside WSL2 Ubuntu 22.04 (see docs/BUILD_ENVIRONMENT.md):
 

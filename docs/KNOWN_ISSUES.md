@@ -115,6 +115,14 @@ chip-state dependent and dumps both transports' windows when it does.
   VERSION or commit change leaves the old id in an object that is not stale by
   mtime. `radiod_mock_test` then fails on a build string that is otherwise
   correct. Run the suite from `make clean` before believing such a failure.
+- Neither `apply_to_sdk.sh` nor Buildroot removes files an earlier package
+  install left in the target tree. Since ADR-005 Phase 2 that matters across
+  branches: a PocketOS-era source built in an SDK where the Doors names have
+  been installed carries a stale `/usr/bin/doors`, `/etc/doors-release` and
+  `/usr/share/doors` into its image. Remove them, and the
+  `/etc/pocketos-release` link, from `output/k230_pocketos_defconfig/target`
+  before such a build (ADR-005, "Upgrade and rollback"; the same applies to a
+  unit rolled back with an older `deploy.sh`).
 
 ## Software
 

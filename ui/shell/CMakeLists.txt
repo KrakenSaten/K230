@@ -28,7 +28,7 @@ else()
         set(POCKETOS_BUILD_ID "unknown")
     endif()
 endif()
-message(STATUS "PocketOS ${POCKETOS_VERSION} build ${POCKETOS_BUILD_ID}")
+message(STATUS "Doors ${POCKETOS_VERSION} build ${POCKETOS_BUILD_ID}")
 
 find_package(PkgConfig REQUIRED)
 

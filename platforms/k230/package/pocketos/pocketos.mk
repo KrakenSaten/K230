@@ -1,10 +1,11 @@
 ################################################################################
 #
-# pocketos (first-party userspace, synced from the PocketOS repository)
+# pocketos (Doors first-party userspace, synced from the Doors repository; the
+# package keeps its PocketOS-era name, ADR-005 Phase 4)
 #
-# Two build steps: the GNU make tree (pos, radiod with the sx1262 backend,
-# pos-hwcheck, pos-supervise) and the CMake shell against the vendor LVGL
-# package in staging.
+# Two build steps: the GNU make tree (doors with its pos alias, radiod with the
+# sx1262 backend, pos-hwcheck, pos-supervise) and the CMake shell against the
+# vendor LVGL package in staging.
 #
 ################################################################################
 

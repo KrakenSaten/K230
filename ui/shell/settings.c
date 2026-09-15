@@ -153,7 +153,7 @@ static int write_file(void)
     if (!f) {
         return -1;
     }
-    fprintf(f, "# PocketOS settings (key=value). Written by the shell; edit while it is stopped.\n");
+    fprintf(f, "# Doors settings (key=value). Written by the shell; edit while it is stopped.\n");
     for (i = 0; i < count; i++) {
         fprintf(f, "%s=%s\n", entries[i].key, entries[i].value);
     }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Push PocketOS binaries from the Buildroot target tree to a running board
+# Push Doors binaries from the Buildroot target tree to a running board
 # over SSH, without reflashing. Restarts sysd, netd and radiod (and the shell
 # if enabled). A board flashed before netd existed has no S55netd to stop; the
 # stop loop skips a script that is not there yet, and the tar brings it. What it carries has to match what the flashed image carries, or a
@@ -30,7 +30,7 @@ for f in usr/bin/doors usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/b
     [ -e "${T}/${f}" ] || { echo "missing ${T}/${f}; build the image first (a full build_image.sh for a new init script)" >&2; exit 1; }
 done
 
-echo "Deploying PocketOS $(cat "${REPO_DIR}/VERSION") to ${TARGET_HOST}"
+echo "Deploying Doors $(cat "${REPO_DIR}/VERSION") to ${TARGET_HOST}"
 # Ownership comes from the archive, not from the build host's account. Without
 # this every deployed file lands owned by the builder's uid (1000 on this
 # host, VERIFIED on unit A during the v0.0.7 block 2a smoke), so a uid-1000
