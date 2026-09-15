@@ -7,7 +7,9 @@ developer tooling, not for applications.
 ## Methods
 
 - `shell.info`: `api_version`, `apps` (array of `{id, name}`), `current`
-  (open app id or `"home"`), `display` (`{width, height, backend}`).
+  (open app id or `"home"`), `display`: `{width, height, backend}` - the
+  logical size this run lays out in, 568x1232 or 1232x568 - and the
+  orientation fields `shell.rotation` returns.
 - `shell.open` params `{id}`: opens an app. Error 2 for unknown id.
 - `shell.home`: closes the current app and shows the launcher.
 - `shell.screenshot` params `{path}`: renders the current screen to a PNG at
@@ -31,11 +33,26 @@ developer tooling, not for applications.
   and the shell applies the stored level at start. `pos shell brightness
   [10..100]`.
 
+- `shell.rotation` params `{mode?}`: reads, or with `mode` stores, the
+  rotation mode (`automatic`, `portrait`, `landscape`; settings key
+  `display_rotation`). The orientation is decided when the shell starts and
+  does not change while it runs, so a stored mode takes effect at the next
+  start. Result: `{rotation_mode, rotation_mode_valid, rotation, orientation,
+  next_rotation, next_orientation, restart_required, keyboard,
+  bench_override}`: `rotation`/`orientation` are this run (degrees,
+  `portrait`/`landscape`), `next_*` what the stored mode gives with the
+  keyboard as it is now, `restart_required` whether those differ, `keyboard`
+  `unknown`/`absent`/`present`, and `bench_override` whether
+  `POCKETOS_DRM_ROTATION` decided instead. Any other `mode` is error 2;
+  error 4 when it could not be stored. `pos call shell shell.rotation
+  mode=landscape`.
+
 ## Events
 
-`shell.app` `{current}` when the visible app changes, and `shell.theme`
-`{theme, mode}` after a theme or mode change, to subscribed clients
-(`shell.subscribe` / `shell.unsubscribe`).
+`shell.app` `{current}` when the visible app changes, `shell.theme`
+`{theme, mode}` after a theme or mode change, and `shell.rotation` (the
+`shell.rotation` result) when the stored mode or the keyboard's presence
+changes, to subscribed clients (`shell.subscribe` / `shell.unsubscribe`).
 
 ## Security
 

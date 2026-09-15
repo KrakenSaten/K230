@@ -46,11 +46,28 @@ chip-state dependent and dumps both transports' windows when it does.
   options. BSP uses GPIO20 as DIO1. Assumed populated that way.
 - The PocketOS shell links the vendor-built liblvgl from the Buildroot
   package, which carries LILYGO's DRM patches (0002 plane rotation, 0004
-  staging scanout buffer), not a stock LVGL. The shell never calls the
-  rotation API (the panel mode is 568x1232 portrait, rotation 0) and runs
-  with `K230_LVGL_DRM_STAGING=1` set by S90pocketos-shell, as the vendor
-  launcher does. Whether that call sequence drives the RM69A10 correctly is
-  ASSUMED until tested (DS H1, H2).
+  staging scanout buffer), not a stock LVGL. The shell runs with
+  `K230_LVGL_DRM_STAGING=1` set by S90pocketos-shell, as the vendor launcher
+  does. It calls the rotation API only when the orientation is landscape
+  (rotation 270, feature/doors-display-geometry); portrait stays rotation 0.
+  Landscape on the panel, and touch following it, are ASSUMED until the gate
+  in docs/hardware/DOORS_DISPLAY_GEOMETRY_GATE.md.
+- Display rotation applies when the shell starts, not while it runs: the
+  vendor DRM path sizes its framebuffers for the rotation when the display is
+  opened, and the vendor launcher restarts its own process to switch between
+  portrait and landscape. Settings says so; a live switch needs a display
+  re-initialisation (a shell restart), which is proposed, not implemented.
+- The rounded corners' extent is PROVISIONAL (30 px squares, the vendor
+  launcher's status-bar side inset). No datasheet gives it; unit A decides
+  (POCKETOS_SAFE_CORNERS tries other values). Only the status bar uses the
+  safe area so far. The touch keyboard's bottom row (DEV-1 fixed 52 px keys,
+  6 px sheet padding) and the full-screen alert's card corners still reach
+  into the 30 px corner squares; widening them changes approved geometry and
+  is left for a design decision if unit A shows them cut.
+- Landscape is laid out for the status bar and the launcher only. App bodies
+  keep their portrait-derived widths (Timber 528, Radar 520, Calendar 528,
+  Fleet 522) inside a 1232 px wide, 440 px high body and scroll vertically;
+  the touch keyboard stays 568 px wide at the bottom centre.
 - The target lv_conf.h is the vendor package's, not ui/shell/lv_conf.defaults:
   LV_USE_FLOAT 1, LV_USE_SNAPSHOT 0, ThorVG/FreeType/FFmpeg compiled in,
   LVGL asserts abort the process (which pocketlog turns into a crash report).

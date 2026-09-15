@@ -182,20 +182,26 @@ always write the whole file with `ENABLE=1` in it, then
 WARN in `pos logs shell` and the default stays.
 
 ```sh
-# picture upside down: DRM plane rotation (0, 90, 180, 270; vendor LVGL patch).
-# 90 and 270 swap the framebuffer to 1232x568, which the layout does not follow: diagnostic only.
+# picture turned: DRM plane rotation (0, 90, 180, 270; vendor LVGL patch). Since the
+# display-geometry milestone this overrides Settings > Display > Rotation for display,
+# touch and layout together (90 and 270 lay out in 1232x568).
 printf 'ENABLE=1\nPOCKETOS_DRM_ROTATION=180\n' > /etc/default/pocketos-shell
-# touch lands in the wrong place: raw range to map onto the panel, and/or swapped axes.
+# touch lands in the wrong place: raw range at the panel's native top-left and bottom-right
+# (after any swap), and/or swapped axes. They describe the controller on the panel, so the
+# shell composes them with whatever rotation is in force.
 # The numbers come from the evtest corners in section 3 (inverted ranges are allowed, e.g. 1060,0,0,2400).
 printf 'ENABLE=1\nPOCKETOS_TOUCH_CALIB=0,0,1060,2400\n' > /etc/default/pocketos-shell
 printf 'ENABLE=1\nPOCKETOS_TOUCH_SWAP=1\n' > /etc/default/pocketos-shell
+# status bar text cut by the rounded corners: corner squares tl,tr,br,bl in pixels (default 30 each).
+printf 'ENABLE=1\nPOCKETOS_SAFE_CORNERS=36,36,36,36\n' > /etc/default/pocketos-shell
 # a specific touch node instead of discovery, or another DRM node
 printf 'ENABLE=1\nPOCKETOS_TOUCH_DEVICE=/dev/input/event1\n' > /etc/default/pocketos-shell
 printf 'ENABLE=1\nPOCKETOS_DRM_DEVICE=/dev/dri/card0\n' > /etc/default/pocketos-shell
 ```
 
 Combine lines as needed in one file. `pos logs shell` confirms what was
-applied (`touch calibration ...`, `touch axes swapped`, `DRM plane rotation`).
+applied (`display: rotation mode ...`, `touch raw ... rotation ...: swap ...,
+calibration ...`, `DRM plane rotation`, `display: corner insets ...`).
 Record any override that was needed in KNOWN_ISSUES.md: it is a finding
 about the board, not a setting to keep silently.
 
