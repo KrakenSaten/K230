@@ -1,11 +1,14 @@
-# PocketOS roadmap
+# Doors roadmap
 
 Product owner sets priorities. Dates are absolute; "done" means built and
 tested on the stated platform.
 
+Doors was previously known as PocketOS through v0.0.9. Entries written before
+the rename keep the old name.
+
 ## Phase 1: Core v0.1 (current)
 
-Goal: a PocketOS image that boots on the T-Display K230, shows the shell,
+Goal: a Doors image that boots on the T-Display K230, shows the shell,
 and exposes radio, network and system information through services and the
 `pos` CLI.
 
@@ -167,6 +170,14 @@ third-party compiled into PocketOS binaries and for LVGL, verified against the
 pinned upstream sources at packaging. PocketOS's own licence stays undecided
 and external redistribution is not authorised until the owner chooses one
 (`docs/LICENSING.md`).
+
+**Doors** (`rebrand/doors-1-visible`, 2026-09-15, not merged): the product is
+renamed from PocketOS to Doors in stages, under
+`docs/decisions/ADR-005-product-name-doors.md`. Phase 1 changes only what a
+user reads - the status bar wordmark, the System identity row and its
+dialogs, crash reports and the current documentation - and no path, command,
+service, environment variable or C identifier. v0.0.10 is the first Doors
+release. VERSION is unchanged.
 
 ### Settings fundamentals before v0.1.0
 

@@ -3,10 +3,15 @@
 Board support for the LILYGO T-Display K230, layered on the pinned LILYGO BSP
 and Kendryte K230 Linux SDK (ADR-001).
 
+Doors was previously known as PocketOS through v0.0.9. The package, defconfig,
+binaries, init scripts, paths and variables on this page keep their
+PocketOS-era names, so the commands below are unchanged
+(docs/decisions/ADR-005-product-name-doors.md).
+
 ```text
 configs/k230_pocketos_defconfig   Vendor board defconfig + BR2_PACKAGE_POCKETOS
 package/pocketos/                 Buildroot package building the repository root Makefile
-scripts/apply_to_sdk.sh           BSP overlay + vendor launcher + PocketOS package into the SDK
+scripts/apply_to_sdk.sh           BSP overlay + vendor launcher + Doors package into the SDK
 scripts/build_image.sh            Build and export sysimage-sdcard.img to out/k230/
 scripts/deploy.sh                 Push built binaries to a running board over SSH
 vendor_bsp_commit.txt             Pinned Xinyuan-LilyGO/T-Display-K230 commit
@@ -16,16 +21,16 @@ vendor_sdk_commit.txt             Pinned kendryte/k230_linux_sdk commit
 The vendor LVGL launcher is still installed by `apply_to_sdk.sh` and owns
 the display and the radio by default. `apply_to_sdk.sh` adds one switch to
 its init script (`ENABLE` in `/etc/default/k230_phone_ui`, default 1); the
-PocketOS shell is installed as `/usr/bin/pocketos-shell` with
+Doors shell is installed as `/usr/bin/pocketos-shell` with
 `S90pocketos-shell` disabled, and radiod runs with the mock backend.
 
 ## Panel ownership (persistent across reboots)
 
-Hand the panel and the radio to PocketOS:
+Hand the panel and the radio to Doors:
 
 ```sh
 echo ENABLE=0 > /etc/default/k230_phone_ui      # vendor launcher stays down
-echo ENABLE=1 > /etc/default/pocketos-shell     # PocketOS shell takes the panel
+echo ENABLE=1 > /etc/default/pocketos-shell     # Doors shell takes the panel
 echo RADIOD_BACKEND=sx1262 > /etc/default/radiod
 reboot
 ```
@@ -79,7 +84,7 @@ every boot: read the IP after each boot (`ip -4 addr show eth0`).
 
 ## Logs on the device
 
-`/var/log` is a tmpfs on this image, so PocketOS keeps its logs, crash
+`/var/log` is a tmpfs on this image, so Doors keeps its logs, crash
 reports and supervisor logs in `/var/lib/pocketos/log` (persistent):
 `radiod.log`, `shell.log` (rotated once at 512 KB), `supervise-<name>.log`,
 `crash-<name>-<time>.txt`, and `<name>.stdio.log` (LVGL and raw stdio,

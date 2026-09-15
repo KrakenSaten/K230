@@ -199,7 +199,7 @@ static void status_bar_create(lv_obj_t *screen)
     lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
 
-    title = pocketui_label(bar, "POCKETOS", POS_STYLE_CAPTION);
+    title = pocketui_label(bar, "DOORS", POS_STYLE_CAPTION);
     (void)title;
 
     sh.status_hint = pocketui_label(bar, "", POS_STYLE_CAPTION);

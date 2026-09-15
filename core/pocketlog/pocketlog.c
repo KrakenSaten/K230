@@ -254,7 +254,7 @@ static void crash_handler(int sig)
     fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     nframes = backtrace(frames, 64);
     if (fd >= 0) {
-        safe_write(fd, "PocketOS crash report\nversion: ");
+        safe_write(fd, "Doors crash report\nversion: ");
         safe_write(fd, POCKETOS_VERSION);
         safe_write(fd, "\nbuild: ");
         safe_write(fd, POCKETOS_BUILD_ID);

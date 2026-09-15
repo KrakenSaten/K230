@@ -514,7 +514,7 @@ static void build_live(struct system_app *a)
 
     /* identity */
     p = panel(a->body);
-    pocketui_kv_row(p, "PocketOS", v->os_version);
+    pocketui_kv_row(p, "Doors", v->os_version);
     if (v->show_card) {
         pocketui_kv_row(p, "Card", v->card_version);
     }

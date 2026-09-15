@@ -329,7 +329,7 @@ int main(void)
     system_view_request(&v, SYSTEM_VIEW_ACTION_REBOOT);
     check("asking to restart raises the dialog", v.phase == SYSTEM_VIEW_CONFIRM_REBOOT);
     check("the restart dialog is titled",
-          strcmp(system_view_dialog_title(&v), "Restart PocketOS?") == 0);
+          strcmp(system_view_dialog_title(&v), "Restart Doors?") == 0);
     check("the restart dialog says what will happen",
           strstr(system_view_dialog_body(&v), "board reboots") != NULL);
     check("the screen is still polling while the dialog is up", system_view_is_polling(&v));
@@ -352,7 +352,7 @@ int main(void)
     system_view_init(&v);
     system_view_request(&v, SYSTEM_VIEW_ACTION_POWEROFF);
     check("the power-off dialog is titled",
-          strcmp(system_view_dialog_title(&v), "Power off PocketOS?") == 0);
+          strcmp(system_view_dialog_title(&v), "Power off Doors?") == 0);
     check("the power-off dialog warns that it is not remotely recoverable",
           strstr(system_view_dialog_body(&v), "cannot be restarted remotely") != NULL);
     check("and gives the unplug instruction",
@@ -375,7 +375,7 @@ int main(void)
     check("a restart keeps the accent on the action",
           system_view_dialog_emphasis(&v) == SYSTEM_VIEW_EMPHASIS_CONFIRM);
     check("and its wording is unchanged",
-          strcmp(system_view_dialog_title(&v), "Restart PocketOS?") == 0 &&
+          strcmp(system_view_dialog_title(&v), "Restart Doors?") == 0 &&
               strstr(system_view_dialog_body(&v), "about 35 seconds") != NULL &&
               strcmp(system_view_dialog_confirm_label(&v), "Restart") == 0);
     system_view_cancel(&v);
@@ -383,7 +383,7 @@ int main(void)
     check("a power-off moves the accent to Cancel",
           system_view_dialog_emphasis(&v) == SYSTEM_VIEW_EMPHASIS_CANCEL);
     check("and its wording is unchanged too",
-          strcmp(system_view_dialog_title(&v), "Power off PocketOS?") == 0 &&
+          strcmp(system_view_dialog_title(&v), "Power off Doors?") == 0 &&
               strstr(system_view_dialog_body(&v), "cannot be restarted remotely") != NULL &&
               strstr(system_view_dialog_body(&v), "30 seconds") != NULL &&
               strcmp(system_view_dialog_confirm_label(&v), "Power off") == 0);

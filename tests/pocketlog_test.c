@@ -133,6 +133,8 @@ int main(void)
     report = find_crash_report(dir);
     check("crash report written", report != NULL);
     if (report) {
+        check("crash report is headed with the product name",
+              file_contains(report, "Doors crash report\n"));
         check("crash report has signal", file_contains(report, "signal: 11"));
         check("crash report has backtrace", file_contains(report, "backtrace:"));
         /* Without these a backtrace of bare offsets cannot be resolved

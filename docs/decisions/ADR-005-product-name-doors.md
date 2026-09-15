@@ -1,0 +1,168 @@
+# ADR-005: Product name Doors
+
+Status: Accepted for Phase 1 (product owner, 2026-09-15). Phases 2 to 4 are
+planned here; each needs the owner's go before it starts.
+Date: 2026-09-15
+Deciders: product owner (final), AI engineering partner (author)
+
+## Context
+
+The platform was called PocketOS from 2026-09-04 through v0.0.9. The product
+owner has approved a new name, **Doors**, with the brand direction
+"Threshold": doorway, portal, opening, transition. A finished graphics
+package exists; it is integrated in a separate session, not by this record.
+
+The old name lives in two very different kinds of text:
+
+- **what a user reads**: the status bar wordmark, the System app's identity
+  row and dialogs, crash reports, the documentation;
+- **what other code, scripts, stored data and operators depend on**: C
+  prefixes, file-system paths, the `pos` CLI, service and init-script names,
+  environment variables, the Buildroot package. On origin/master `a2e10d1`
+  (third_party excluded) `pocketos` appears in 165 files, `POCKETOS` in 156,
+  `pos_` in 115, `POS_` in 79 and `pocketui` in 77.
+
+Almost none of the second kind is ever seen by a user, and some of it
+carries data. Facts that constrain any rename:
+
+- `/var/lib/pocketos` is on the persistent root filesystem and holds Wi-Fi
+  credentials (ADR-003), notes, game saves and logs. A `deploy.sh` update
+  keeps it; a reflash replaces it (DOCUMENTED, platforms/k230/README.md and
+  the init scripts).
+- `/run/pocketos` is a tmpfs (VERIFIED, docs/hardware/V0.0.7_BLOCK2A_SMOKE.md)
+  but it is where every binary, test and tool finds the IPC sockets.
+- `deploy.sh` unpacks a tar over `/` and never deletes. A renamed init script
+  would leave the old one beside it, and two shells would compete for DRM
+  master (DOCUMENTED, platforms/k230/scripts/deploy.sh).
+- `/etc/default/pocketos-shell` is written by hand on each unit and holds the
+  panel-ownership switch; a shell service that stopped reading it would leave
+  the panel dark (DOCUMENTED, platforms/k230/README.md).
+- Three Pocket Games branches are open and use the internal identifiers
+  (`$POCKETOS_STATE_DIR`, the app API).
+- The boot splash is the vendor's `logo.xrgb`, not PocketOS artwork
+  (VERIFIED, docs/hardware/BRINGUP_SESSION_2026-09-07.md).
+
+## Options
+
+### A. Rename everything in one change
+
+- Con: the largest possible change, for identifiers nobody sees; conflicts
+  with every open branch; needs data migration and compatibility aliases on
+  day one.
+
+### B. Rename what users see; keep internal names; migrate the rest in stages (chosen)
+
+- Pro: small reviewable blocks. The risky parts (paths, services) each get
+  their own migration, validation and hardware test. Code keeps its history
+  and stays greppable against the evidence sheets that cite it.
+- Con: for a while the source carries two names: "Doors" in text, `pocket*`
+  and `pos` in identifiers. This record is what explains the split.
+
+### C. Wait
+
+- Con: every milestone adds more PocketOS text and documentation, and the
+  compatibility work only grows once units are in other people's hands.
+
+## Decision
+
+1. **Doors is the product and operating-system name.** It is written "Doors"
+   in prose and UI text. The status bar wordmark is set in the caption style,
+   in capitals, as "DOORS"; DS §9 is updated in place to say so. Wordmark
+   artwork, the compact mark and the boot splash come from the graphics
+   package, in their own session.
+2. **"Pocket" never names the platform again.** It may still name a
+   collection, a library or the form factor.
+3. **Brand hierarchy:**
+
+   | Name | Role |
+   | --- | --- |
+   | Doors | the product and operating system |
+   | Doors Design System | the design system's name in prose; its file stays `docs/design/POCKETOS-DS-v0.1.md` |
+   | PocketUI | the internal UI toolkit (`ui/pocketui`); keeps its name |
+   | Pocket Games | the game collection; a sub-brand under Doors |
+   | PocketLink | roadmap working title; named when work on it starts |
+   | Fleet, Radar, Timber, Notes, Clock, Calendar, Calculator, Wave, Radio, Settings, System | app names, without a prefix (the launcher already shows them this way) |
+
+4. **Internal identifiers stay stable for now.** Renaming them is not part of
+   the rebrand:
+   - C prefixes and symbols: `pos_*`, `POS_*`, `pocketui_*`, `POCKETUI_*`,
+     `pocketipc_*`, `pocketlog_*`, `pocketaudio_*`, `pocketos_*` (paths, the
+     shell API, `struct pocketos_app`, `POCKETOS_APP_API_VERSION`), header
+     guards;
+   - source directories: `ui/pocketui`, `core/pocketipc`, `core/pocketlog`,
+     `core/pocketaudio`, `tools/pos`;
+   - IPC socket names and method namespaces (they carry no product name);
+   - build-host and test variables (`POCKETOS_ALLOW_DIRTY_BUILD`,
+     `POCKETOS_ALLOW_PIN_DRIFT`, `POCKETOS_VENDOR_DIR`, `POCKETOS_OUT_DIR`,
+     `POCKETOS_TOOLCHAIN_CC`, test hooks).
+
+   On-disk format markers (`PFS1`, `PRR1`, `PTR1`, `pocketclock 1`) are file
+   formats, not branding, and are never renamed.
+5. **Compatibility-sensitive names are deferred**, each to a phase with its
+   own migration and validation:
+   - `/etc/pocketos-release`, the `pos` CLI, `/usr/share/pocketos` (Phase 2);
+   - `pocketos-shell`, `S90pocketos-shell`, `/etc/default/pocketos-shell` and
+     the supervisor name (Phase 3);
+   - `/var/lib/pocketos`, `/etc/pocketos`, `/run/pocketos` and the
+     `POCKETOS_*` variables the binaries read (Phase 4, decided together with
+     the data-partition work, if at all);
+   - the Buildroot package `pocketos` and `k230_pocketos_defconfig` (Phase 4,
+     on a fresh SDK tree).
+
+   Rules for those phases, fixed now: `pos` stays a permanent alias of
+   `doors`; `/etc/pocketos-release` stays a symlink at least until v0.1.0 and
+   readers fall back to it; state moves by an atomic rename on the same
+   filesystem with the old path left as a symlink, never by copy or merge; a
+   renamed shell service falls back to the old `/etc/default` file; `deploy.sh`
+   deletes the files a rename replaces.
+6. **History is not rewritten.** `docs/hardware/`, release and RC sheets,
+   tags v0.0.1 to v0.0.9, commit messages and past BUILD_INFO files keep the
+   name they were written under. ADR-001 to ADR-004 are amended when needed,
+   never rewritten. Document files that other documents cite by path keep
+   their names (`POCKETOS-DS-v0.1.md`, `POCKETFLEET.md` and the rest).
+7. **Copyright headers** ("PocketOS authors") are unchanged. They belong to
+   the licence decision (docs/LICENSING.md), not to the rebrand.
+8. **The first Doors release is v0.0.10.** Its scope is Phases 1 and 2 and
+   the graphics integration. Phase 3 joins only if its hardware test passes;
+   otherwise it moves to the next version. Phase 1 does not change VERSION.
+
+## Staged migration
+
+| Phase | Scope | Validation | Hardware |
+| --- | --- | --- | --- |
+| 1. Visible branding | this record; the status bar wordmark, System identity row, Restart and Power off dialog titles, crash report header and simulator window title; current prose in README.md, AGENTS.md, docs/ARCHITECTURE.md, docs/ROADMAP.md and platforms/k230/README.md; DS §9 wordmark text | host tests, shell tests, riscv64 and DRM builds, simulator screenshot of System | not required |
+| 2. Release and build identity, CLI | `/etc/doors-release` with `/etc/pocketos-release` as a symlink; `doors` with `pos` as a symlink; `/usr/share/doors`; notices wording regenerated with `pocketos.hash` (the owner approves the legal wording; no licence is added); BUILD_INFO.txt and a release image named `doors-<version>[-rcN]-tdisplay-k230-<build_id>.img.gz`; remaining text (settings and Wi-Fi file headers, CMake status line, LoRa test payload) | the above, plus Buildroot legal-info, image build, `verify_image.sh` | yes: flash and boot a unit |
+| Graphics integration | wordmark and compact mark, boot splash (`logo.xrgb`, 568 × 1232 XRGB8888), System and launcher branding, with a DS amendment | image build, screenshots | yes: splash on glass |
+| 3. Shell service | `doors-shell` and `S90doors-shell`, falling back to `/etc/default/pocketos-shell`; `DOORS_*` spellings for the operator display and touch overrides, mapped in the init script; supervisor name; `deploy.sh` removes replaced files | init-script, supervisor and sysd tests | yes, mandatory: fresh flash, deploy over a PocketOS-era unit, two reboots, rollback |
+| 4. Optional internal cleanup | state, config and runtime directories with migration and an ADR-003 amendment; `DOORS_*_DIR`; `pos-*` helper names; Buildroot package and defconfig | full suite and image | yes, with real data on a unit |
+
+## Consequences
+
+- From Phase 1 the device says Doors on screen. `pos system info`,
+  `/etc/pocketos-release`, the notices file and the System Services row
+  (`pocketos-shell`) still say PocketOS until Phases 2 and 3.
+- Developers read "Doors" in prose and `pocket*` or `pos` in code; decisions
+  2 and 4 are the explanation. A search for "doors" also finds the Wave test
+  payload `DOORS` and comments about "the app's only door to the
+  filesystem"; neither is the product name.
+- The open Pocket Games branches merge as before: they use identifiers this
+  record keeps.
+- Evidence recorded under the PocketOS name stays valid; the name does not
+  change what was measured.
+
+Migration: none in Phase 1. No path, file format, service, command or
+environment variable changes, and units need no action.
+
+## Evidence
+
+- Reference counts: `git grep` on origin/master `a2e10d1`, `third_party/`
+  excluded.
+- `/run/pocketos` is a tmpfs: VERIFIED (docs/hardware/V0.0.7_BLOCK2A_SMOKE.md,
+  cited in tools/supervise/pos-supervise).
+- Boot splash loaded by U-Boot from the boot partition as `/logo.xrgb`:
+  VERIFIED (docs/hardware/BRINGUP_SESSION_2026-09-07.md); it must be exactly
+  568 × 1232 XRGB8888 or U-Boot skips it: DOCUMENTED (vendor U-Boot overlay,
+  `board/canaan/common/logo/k230_logo.c`).
+- `deploy.sh` extracts without deleting; `/etc/default/pocketos-shell` is
+  written by hand: DOCUMENTED (platforms/k230/scripts/deploy.sh,
+  platforms/k230/README.md).

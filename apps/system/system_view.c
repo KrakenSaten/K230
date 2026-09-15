@@ -567,10 +567,10 @@ enum system_view_emphasis system_view_dialog_emphasis(const struct system_view *
 const char *system_view_dialog_title(const struct system_view *v)
 {
     if (v->phase == SYSTEM_VIEW_CONFIRM_REBOOT) {
-        return "Restart PocketOS?";
+        return "Restart Doors?";
     }
     if (v->phase == SYSTEM_VIEW_CONFIRM_POWEROFF) {
-        return "Power off PocketOS?";
+        return "Power off Doors?";
     }
     return NULL;
 }
