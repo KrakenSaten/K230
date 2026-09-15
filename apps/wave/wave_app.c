@@ -452,8 +452,9 @@ static void wave_destroy(void *priv)
 const struct pocketos_app app_wave = {
     .id = "wave",
     .name = "Wave",
-    /* A placeholder until the DS section 11 icon set exists: LVGL's symbol
-     * font has no microphone or waveform, and the volume glyph is the
+    /* No icon_mask: the Doors package has no Wave icon, so the launcher keeps
+     * this glyph until an approved one is supplied (DS section 20). LVGL's
+     * symbol font has no microphone or waveform, and the volume glyph is the
      * nearest thing to "sound goes out". */
     .icon = LV_SYMBOL_VOLUME_MAX,
     .create = wave_create,

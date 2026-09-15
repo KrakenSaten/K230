@@ -431,13 +431,16 @@ static void calendar_destroy(void *priv)
     lv_free(priv);
 }
 
+LV_IMAGE_DECLARE(pos_app_icon_calendar);
+
 const struct pocketos_app app_calendar = {
     .id = "calendar",
     .name = "Calendar",
-    /* A placeholder until the DS §11 icon set exists: LVGL's symbol font has
-     * no calendar glyph, and rows of bars are the nearest thing to a month
-     * grid in it. */
+    /* The launcher draws the Doors icon (DS §20). The glyph stays as the
+     * app's text icon: LVGL's symbol font has no calendar glyph, and rows of
+     * bars are the nearest thing to a month grid in it. */
     .icon = LV_SYMBOL_BARS,
+    .icon_mask = &pos_app_icon_calendar,
     .create = calendar_create,
     .tick = calendar_tick,
     .destroy = calendar_destroy,

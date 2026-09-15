@@ -316,12 +316,15 @@ static void timber_destroy(void *priv)
     free(app);
 }
 
+LV_IMAGE_DECLARE(pos_app_icon_timber);
+
 const struct pocketos_app app_timber = {
     .id = "timber",
     .name = "Timber",
-    /* Placeholder: the Design System stroke icon set does not exist yet, so
-     * the launcher uses the closest LV_SYMBOL glyph (DS section 11). */
+    /* The launcher draws the Doors icon (DS section 20); the glyph stays as
+     * the app's text icon, the closest LV_SYMBOL. */
     .icon = LV_SYMBOL_LIST,
+    .icon_mask = &pos_app_icon_timber,
     .create = timber_create,
     .tick = NULL,
     .destroy = timber_destroy,

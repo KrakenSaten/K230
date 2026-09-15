@@ -792,12 +792,16 @@ static void settings_destroy(void *priv)
     free(a);
 }
 
+LV_IMAGE_DECLARE(pos_app_icon_settings);
+
 const struct pocketos_app app_settings = {
     .id = "settings",
     .name = "Settings",
-    /* The gear is System's and the list glyph is Timber's; the pencil reads
-     * as "change things" without claiming either. */
+    /* The launcher draws the Doors icon (DS §20). For the text icon: the
+     * gear is System's and the list glyph is Timber's; the pencil reads as
+     * "change things" without claiming either. */
     .icon = LV_SYMBOL_EDIT,
+    .icon_mask = &pos_app_icon_settings,
     .create = settings_create,
     .tick = settings_tick,
     .destroy = settings_destroy,

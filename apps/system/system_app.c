@@ -732,10 +732,13 @@ static void system_destroy(void *priv)
     free(priv);
 }
 
+LV_IMAGE_DECLARE(pos_app_icon_system);
+
 const struct pocketos_app app_system = {
     .id = "system",
     .name = "System",
     .icon = LV_SYMBOL_SETTINGS,
+    .icon_mask = &pos_app_icon_system,
     .create = system_create,
     .tick = system_tick,
     .destroy = system_destroy,

@@ -169,10 +169,13 @@ static void radio_destroy(void *priv)
     free(priv);
 }
 
+LV_IMAGE_DECLARE(pos_app_icon_radio);
+
 const struct pocketos_app app_radio = {
     .id = "radio",
     .name = "Radio",
     .icon = LV_SYMBOL_WIFI,
+    .icon_mask = &pos_app_icon_radio,
     .create = radio_create,
     .tick = radio_tick,
     .destroy = radio_destroy,

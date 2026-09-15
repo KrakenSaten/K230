@@ -115,5 +115,54 @@ PY
 mkdir -p "${TMP}/clear" && mv "${TMP}/clear.png" "${TMP}/clear/radio.png"
 refused "a fully transparent icon" "${TMP}/clear" "every pixel is transparent"
 
+# ---- who draws them, and how ---------------------------------------------------
+# Every app the launcher lists, by its descriptor: the ten with a supplied icon
+# point at their own mask, Wave (no asset) has none and keeps its glyph.
+python3 - <<'PY' >"${TMP}/apps.txt" 2>&1
+import glob, re, sys
+shell = open("ui/shell/shell.c", encoding="utf-8").read()
+listed = re.findall(r"&(app_\w+)", re.search(r"apps\[\]\s*=\s*\{(.*?)\};", shell, re.S).group(1))
+descs = {}
+for path in sorted(glob.glob("apps/*/*.c")):
+    text = open(path, encoding="utf-8").read()
+    for var, body in re.findall(r"^const struct pocketos_app (app_\w+) = \{(.*?)^\};", text, re.S | re.M):
+        field = lambda f: (re.search(r"\.%s = &?([\w\"]+)," % f, body) or [None, None])[1]
+        descs[var] = (path, field("id").strip('"'), field("icon"), field("icon_mask"))
+for var in listed:
+    path, app_id, icon, mask = descs[var]
+    print(app_id, icon, mask or "-", path)
+PY
+check "every launcher app's descriptor was read" \
+    "$([ "$(grep -c . "${TMP}/apps.txt")" = "11" ] && ! grep -q Traceback "${TMP}/apps.txt" && echo 1 || echo 0)"
+for id in radio system fleet radar timber notes clock calendar calculator settings; do
+    check "${id} uses its own icon, pos_app_icon_${id}" \
+        "$(grep -qE "^${id} LV_SYMBOL_[A-Z_]+ pos_app_icon_${id} " "${TMP}/apps.txt" && echo 1 || echo 0)"
+done
+check "wave has no icon mask and keeps its launcher glyph, LV_SYMBOL_VOLUME_MAX" \
+    "$(grep -qE '^wave LV_SYMBOL_VOLUME_MAX - ' "${TMP}/apps.txt" && echo 1 || echo 0)"
+users=$(grep -rl 'pos_app_icon_' apps ui --include='*.c' --include='*.h' | grep -v "^${ICONS_C}$" | wc -l)
+check "the masks are referenced only by those ten app descriptors (found in ${users} files)" \
+    "$([ "${users}" = "10" ] && echo 1 || echo 0)"
+check "the brand mark is not used as an app icon (DS §19.1)" \
+    "$(grep -rqE 'icon_mask = &pos_brand_mark' apps ui && echo 0 || echo 1)"
+check "the launcher builds every tile from the app's icon_mask, with icon as the fallback" \
+    "$(grep -q 'pocketui_tile_mask(sh.home, apps\[i\]->icon_mask, apps\[i\]->icon,' ui/shell/shell.c && echo 1 || echo 0)"
+sed -n '/^lv_obj_t \*pocketui_tile_mask(/,/^}/p' ui/pocketui/pocketui.c > "${TMP}/tile.txt"
+check "the tile draws a mask as an image in POS_STYLE_APP_ICON" \
+    "$(grep -q 'pos_style_add(ic, POS_STYLE_APP_ICON, 0)' "${TMP}/tile.txt" &&
+       grep -q 'lv_image_set_src(ic, mask)' "${TMP}/tile.txt" && echo 1 || echo 0)"
+check "without a mask the tile draws the text icon exactly as before" \
+    "$(grep -q 'lv_label_set_text(ic, icon)' "${TMP}/tile.txt" &&
+       grep -q 'pos_style_add(ic, POS_STYLE_SYMBOL_LARGE, 0)' "${TMP}/tile.txt" &&
+       grep -q 'pos_style_add(ic, POS_STYLE_ACCENT_TEXT, 0)' "${TMP}/tile.txt" && echo 1 || echo 0)"
+check "the icon is not animated (reduced motion has nothing to change)" \
+    "$(grep -q 'lv_anim' "${TMP}/tile.txt" && echo 0 || echo 1)"
+sed -n '/styles\[POS_STYLE_APP_ICON\]/,/^}/p' ui/pocketui/pos_styles.c > "${TMP}/role.txt"
+check "the icon role draws in accent_primary at full opacity" \
+    "$(grep -q 'lv_style_set_image_recolor(s, tok(POS_COLOR_ACCENT_PRIMARY))' "${TMP}/role.txt" &&
+       grep -q 'lv_style_set_image_recolor_opa(s, LV_OPA_COVER)' "${TMP}/role.txt" && echo 1 || echo 0)"
+check "the shell build compiles the masks" \
+    "$(grep -q '^    ../pocketui/pos_app_icons.c$' ui/shell/CMakeLists.txt && echo 1 || echo 0)"
+
 echo "app_icons_test: $failed failure(s)"
 [ "$failed" -eq 0 ]

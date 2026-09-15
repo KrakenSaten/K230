@@ -48,6 +48,7 @@ add_executable(pocketos-shell
     ../pocketui/pos_theme.c
     ../pocketui/pos_styles.c
     ../pocketui/pos_brand_mark.c
+    ../pocketui/pos_app_icons.c
     ${REPO_DIR}/apps/radio/radio_app.c
     ${REPO_DIR}/apps/system/system_app.c
     ${REPO_DIR}/apps/system/system_view.c
@@ -310,6 +311,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/timber/ui/timber_table.c
         ${REPO_DIR}/apps/timber/ui/timber_screens.c
         ${REPO_DIR}/apps/timber/ui/timber_art.c
+        ../pocketui/pos_app_icons.c
         ${REPO_DIR}/core/pocketlog/pocketlog.c
         ${REPO_DIR}/core/pocketpaths.c
         ../pocketui/pocketui.c
@@ -385,6 +387,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/notes/notes_app.c
         ${REPO_DIR}/apps/notes/notes_store.c
         ${REPO_DIR}/apps/notes/notes_view.c
+        ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
@@ -413,6 +416,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/clock/clock_time.c
         ${REPO_DIR}/apps/clock/clock_alert.c
         ${REPO_DIR}/apps/clock/clock_runtime.c
+        ../pocketui/pos_app_icons.c
         shell_alarm.c
         shell_kb_state.c
         ../pocketui/pocketui.c
@@ -444,6 +448,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/calendar/cal_app.c
         ${REPO_DIR}/apps/calendar/cal_date.c
         ${REPO_DIR}/apps/calendar/cal_view.c
+        ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
@@ -472,6 +477,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/calculator/calc_app.c
         ${REPO_DIR}/apps/calculator/calc_engine.c
         ${REPO_DIR}/apps/calculator/calc_view.c
+        ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
@@ -498,6 +504,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/tests/settings_app_test.c
         ${REPO_DIR}/apps/settings/settings_app.c
         ${REPO_DIR}/apps/settings/settings_view.c
+        ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
