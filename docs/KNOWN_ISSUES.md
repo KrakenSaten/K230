@@ -553,8 +553,9 @@ Wave and ggwave:
 - ~~Ooura FFT licence terms are not stated in ggwave's `fft.h`.~~ Resolved
   from the author's page (docs/LICENSING.md, "Audio milestone"). The notices
   for ggwave, Reed-Solomon, the Ooura FFT, RadioLib, the IBM Plex fonts and
-  LVGL now ship in the image as /usr/share/pocketos/THIRD_PARTY_NOTICES.txt
-  (docs/LICENSING.md, "Third-party notices"). **Still blocking distribution,
+  LVGL now ship in the image as /usr/share/doors/THIRD_PARTY_NOTICES.txt,
+  linked from the old /usr/share/pocketos path (docs/LICENSING.md,
+  "Third-party notices"). **Still blocking distribution,
   not merging:** PocketOS's own licence is undecided and external
   redistribution is not authorised; the toolchain's C/C++ runtime licences
   and some vendor packages are not in legal-info (LICENSING.md open items 1,

@@ -9,6 +9,8 @@
 #     /usr/bin/pos a symlink to it. Invoked as doors it says Doors; invoked as
 #     pos it prints what pos printed through v0.0.9, byte for byte where this
 #     test pins it. The pos-* helpers keep their names.
+#   - The third-party notices, the only shared data, live in /usr/share/doors;
+#     /usr/share/pocketos stays a directory with a link to them in it.
 #   - Installing over a PocketOS-era tree, where the old names are regular
 #     files, ends in the same layout, and installing twice changes nothing.
 #   - No installed directory is a symlink and every link resolves inside the
@@ -71,17 +73,30 @@ done
 check "the pos-* helpers keep their names${missing:+ (missing:$missing)}" "$(yes_if [ -z "$missing" ])"
 check "and have no doors-* twins" "$(yes_if [ -z "$(find "$F" -name 'doors-*' ! -name doors-release)" ])"
 
+check "/usr/share/doors/THIRD_PARTY_NOTICES.txt is the notices file, mode 0644" \
+    "$(yes_if eval 'regular "$F/usr/share/doors/THIRD_PARTY_NOTICES.txt" && mode_is "$F/usr/share/doors/THIRD_PARTY_NOTICES.txt" 644 && cmp -s "$F/usr/share/doors/THIRD_PARTY_NOTICES.txt" THIRD_PARTY_NOTICES.txt')"
+check "/usr/share/pocketos stays a directory, not a link" \
+    "$(yes_if eval '[ -d "$F/usr/share/pocketos" ] && [ ! -L "$F/usr/share/pocketos" ]')"
+check "holding THIRD_PARTY_NOTICES.txt as a link to ../doors/THIRD_PARTY_NOTICES.txt" \
+    "$(yes_if link_is "$F/usr/share/pocketos/THIRD_PARTY_NOTICES.txt" ../doors/THIRD_PARTY_NOTICES.txt)"
+check "and nothing else lives in either shared directory" \
+    "$(yes_if [ "$(find "$F/usr/share" -mindepth 2 | LC_ALL=C sort | tr '\n' ' ')" = \
+        "$F/usr/share/doors/THIRD_PARTY_NOTICES.txt $F/usr/share/pocketos/THIRD_PARTY_NOTICES.txt " ])"
+
 # ---- over a PocketOS-era tree, and then again ---------------------------
 U="$TMP/upgrade"
-mkdir -p "$U/etc" "$U/usr/bin"
+mkdir -p "$U/etc" "$U/usr/bin" "$U/usr/share/pocketos"
 printf '0.0.9\nBUILD_ID=c6cf41b\n' > "$U/etc/pocketos-release"
 printf '#!/bin/sh\necho pos 0.0.9\n' > "$U/usr/bin/pos"
 chmod 0755 "$U/usr/bin/pos"
+printf 'PocketOS third-party notices, as v0.0.9 shipped them\n' > "$U/usr/share/pocketos/THIRD_PARTY_NOTICES.txt"
 install_into "$U"; rc=$?
 check "make install over a PocketOS-era tree succeeds" "$(yes_if [ $rc -eq 0 ])"
 check "the old regular release file became the symlink" \
     "$(yes_if link_is "$U/etc/pocketos-release" doors-release)"
 check "the old pos binary became the symlink to doors" "$(yes_if link_is "$U/usr/bin/pos" doors)"
+check "the old notices copy became the link, so it cannot go stale" \
+    "$(yes_if eval 'link_is "$U/usr/share/pocketos/THIRD_PARTY_NOTICES.txt" ../doors/THIRD_PARTY_NOTICES.txt && cmp -s "$U/usr/share/pocketos/THIRD_PARTY_NOTICES.txt" THIRD_PARTY_NOTICES.txt')"
 check "and no second copy of the release metadata is left" \
     "$(yes_if [ "$(find "$U" -name '*-release' -type f | wc -l)" = 1 ])"
 install_into "$U"; rc=$?
@@ -106,6 +121,7 @@ while IFS= read -r l; do
     t=$(readlink "$l")
     case "$t" in /*) bad="$bad ${l#"$F"/}(absolute)" ;; esac
     [ -e "$l" ] || bad="$bad ${l#"$F"/}(dangling)"
+    case "$(realpath -m "$l")" in "$(realpath "$F")"/*) ;; *) bad="$bad ${l#"$F"/}(outside)" ;; esac
 done < <(find "$F" -type l)
 check "every link is relative and resolves inside the tree${bad:+ (not:$bad)}" "$(yes_if [ -z "$bad" ])"
 

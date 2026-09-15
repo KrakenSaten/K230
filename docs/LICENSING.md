@@ -64,9 +64,11 @@ distribution, (c) unresolved:
 ## Third-party notices (2026-09-13)
 
 **What ships.** `THIRD_PARTY_NOTICES.txt` at the repository root, installed in
-the image as `/usr/share/pocketos/THIRD_PARTY_NOTICES.txt` (mode 0644; not
-under share/doc, which Buildroot strips), collected by `make legal-info` as
-the `pocketos` package's licence file, and sent by the bench `deploy.sh`. It
+the image as `/usr/share/doors/THIRD_PARTY_NOTICES.txt` (mode 0644; not
+under share/doc, which Buildroot strips) with a symlink to it at
+`/usr/share/pocketos/THIRD_PARTY_NOTICES.txt`, the path it had through
+v0.0.9 (ADR-005 Phase 2), collected by `make legal-info` as the `pocketos`
+package's licence file, and sent by the bench `deploy.sh`, link included. It
 opens with PocketOS's own undecided status, then lists and reproduces in full:
 
 | Material | Reaches the image as | Licence |

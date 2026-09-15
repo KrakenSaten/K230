@@ -692,8 +692,15 @@ install: all
 	install -D -m 0755 services/netd/netd $(DESTDIR)$(PREFIX)/sbin/netd
 	install -D -m 0755 tools/supervise/pos-supervise $(DESTDIR)$(PREFIX)/bin/pos-supervise
 # The third-party notices travel with the binaries that need them. Under
-# share/pocketos rather than share/doc, which Buildroot strips from the target.
-	install -D -m 0644 THIRD_PARTY_NOTICES.txt $(DESTDIR)$(PREFIX)/share/pocketos/THIRD_PARTY_NOTICES.txt
+# share/doors rather than share/doc, which Buildroot strips from the target.
+# share/pocketos, where they were through v0.0.9, stays a directory holding a
+# symlink to them (ADR-005 Phase 2): the old path still reads the same file,
+# and a bench deploy over a PocketOS-era unit replaces the copy it had there
+# rather than leaving it to go stale. The directory itself is not turned into
+# a link, which BusyBox tar could not unpack over the existing directory.
+	install -D -m 0644 THIRD_PARTY_NOTICES.txt $(DESTDIR)$(PREFIX)/share/doors/THIRD_PARTY_NOTICES.txt
+	install -d -m 0755 $(DESTDIR)$(PREFIX)/share/pocketos
+	ln -sfn ../doors/THIRD_PARTY_NOTICES.txt $(DESTDIR)$(PREFIX)/share/pocketos/THIRD_PARTY_NOTICES.txt
 # /etc/doors-release: line 1 stays the bare version, so every reader that
 # takes the first line keeps working, and the build identity follows as a
 # key=value line (system.info release_file and release_build, `pos system

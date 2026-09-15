@@ -117,8 +117,10 @@ check "every package dependency is covered or carries its own licence metadata${
     "$([ -z "$unknown" ] && echo 1 || echo 0)"
 
 # ---- shipped ----------------------------------------------------------------
-check "make install puts the notices at /usr/share/pocketos, mode 0644" \
-    "$(sed -n '/^install:/,/^$/p' Makefile | grep -q 'install -D -m 0644 THIRD_PARTY_NOTICES.txt $(DESTDIR)$(PREFIX)/share/pocketos/THIRD_PARTY_NOTICES.txt' && echo 1 || echo 0)"
+check "make install puts the notices at /usr/share/doors, mode 0644" \
+    "$(sed -n '/^install:/,/^$/p' Makefile | grep -q 'install -D -m 0644 THIRD_PARTY_NOTICES.txt $(DESTDIR)$(PREFIX)/share/doors/THIRD_PARTY_NOTICES.txt' && echo 1 || echo 0)"
+check "and links them from /usr/share/pocketos, where they were through v0.0.9" \
+    "$(sed -n '/^install:/,/^$/p' Makefile | grep -q 'ln -sfn ../doors/THIRD_PARTY_NOTICES.txt $(DESTDIR)$(PREFIX)/share/pocketos/THIRD_PARTY_NOTICES.txt' && echo 1 || echo 0)"
 TMPD=$(mktemp -d); trap 'rm -rf "$TMPD"' EXIT
 git archive --format=tar HEAD -- platforms/k230/scripts/apply_to_sdk.sh | tar -x -C "$TMPD" 2>/dev/null
 PATHSPEC=$(sed -n 's/^POCKETOS_PKG_PATHSPEC="\(.*\)"$/\1/p' "$TMPD/platforms/k230/scripts/apply_to_sdk.sh" 2>/dev/null)
@@ -128,8 +130,12 @@ git archive --format=tar HEAD -- $PATHSPEC 2>/dev/null | tar -x -C "$TMPD/pkg" 2
 check "the committed package source carries the notices, their sources and the tool" \
     "$([ -f "$TMPD/pkg/THIRD_PARTY_NOTICES.txt" ] && [ -f "$TMPD/pkg/$SOURCES" ] && [ -f "$TMPD/pkg/$GEN" ] && echo 1 || echo 0)"
 check "legal-info collects the notices" "$(grep -q '^POCKETOS_LICENSE_FILES = THIRD_PARTY_NOTICES.txt$' "$MK" && echo 1 || echo 0)"
-check "the bench deploy sends them like the image carries them" \
-    "$([ "$(grep -c 'usr/share/pocketos/THIRD_PARTY_NOTICES.txt' platforms/k230/scripts/deploy.sh)" -ge 2 ] && echo 1 || echo 0)"
+check "the bench deploy sends them like the image carries them, link included" \
+    "$([ "$(grep -c 'usr/share/doors/THIRD_PARTY_NOTICES.txt' platforms/k230/scripts/deploy.sh)" -ge 2 ] &&
+       [ "$(grep -c 'usr/share/pocketos/THIRD_PARTY_NOTICES.txt' platforms/k230/scripts/deploy.sh)" -ge 2 ] && echo 1 || echo 0)"
+check "build_image.sh checks the installed notices and the link at the old path" \
+    "$(grep -q 'target/usr/share/doors/THIRD_PARTY_NOTICES.txt' platforms/k230/scripts/build_image.sh &&
+       grep -q 'is not the link to' platforms/k230/scripts/build_image.sh && echo 1 || echo 0)"
 
 # ---- the hash legal-info checks them against ------------------------------
 # Buildroot's hash file for the package (manual, "The .hash file"). legal-info

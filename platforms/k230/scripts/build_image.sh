@@ -86,9 +86,16 @@ make -C "${SDK_DIR}" CONF="${CONF}" "${TARGET}"
 # packaging; this is the part only a build can see.
 PKG_SRC="${SDK_DIR}/buildroot-overlay/package/pocketos/src"
 if [ -f "${PKG_SRC}/tools/legal/gen_notices.sh" ]; then
-    TARGET_NOTICES="${SDK_DIR}/output/${CONF}/target/usr/share/pocketos/THIRD_PARTY_NOTICES.txt"
+    TARGET_NOTICES="${SDK_DIR}/output/${CONF}/target/usr/share/doors/THIRD_PARTY_NOTICES.txt"
     if ! cmp -s "${TARGET_NOTICES}" "${PKG_SRC}/THIRD_PARTY_NOTICES.txt"; then
         echo "ERROR: ${TARGET_NOTICES#"${SDK_DIR}"/} is missing or is not the packaged THIRD_PARTY_NOTICES.txt." >&2
+        exit 1
+    fi
+    # The path the notices had through v0.0.9 must be the link to them, not a
+    # copy an older package left in the target tree, which would go stale.
+    OLD_NOTICES="${SDK_DIR}/output/${CONF}/target/usr/share/pocketos/THIRD_PARTY_NOTICES.txt"
+    if [ ! -L "${OLD_NOTICES}" ] || ! cmp -s "${OLD_NOTICES}" "${TARGET_NOTICES}"; then
+        echo "ERROR: ${OLD_NOTICES#"${SDK_DIR}"/} is not the link to ${TARGET_NOTICES#"${SDK_DIR}"/}." >&2
         exit 1
     fi
     # Buildroot reads pocketos.hash only during legal-info, and accepts a hash
