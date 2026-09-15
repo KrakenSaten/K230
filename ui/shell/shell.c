@@ -5,6 +5,8 @@
  *   --open <app-id>          open an app at start
  *   --screenshot <file.png>  save the screen after the first tick
  *   --exit-after-ms <n>      quit after n milliseconds (headless testing)
+ *   --rotation <mode>        automatic|portrait|landscape for this run only,
+ *                            instead of the stored mode (nothing is stored)
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -85,6 +87,7 @@ struct shell {
     void (*kb_done_cb)(void *user);
     void *kb_done_user;
     struct brightness brightness; /* the panel's backlight device, probed once */
+    struct shell_display display; /* this run's orientation and geometry, decided once */
 };
 
 static struct shell sh;
@@ -322,6 +325,101 @@ static void brightness_restore(void)
     LOG_INFO("brightness: %s restored to %d%%", sh.brightness.name, pct);
 }
 
+/* ---- display orientation (shell_display.h) ------------------------------ *
+ *
+ * One orientation per shell run, decided before the display existed. What
+ * can change while the shell runs is the stored mode (Settings, shell.rotation)
+ * and, one day, the keyboard's presence; either only changes what the next
+ * start will use, and that is reported rather than applied: the display is
+ * rotated when it is opened (shell_display.h).
+ */
+
+_Static_assert((int)POCKETOS_ROTATION_AUTOMATIC == (int)ORIENTATION_AUTOMATIC &&
+                   (int)POCKETOS_ROTATION_PORTRAIT == (int)ORIENTATION_PORTRAIT &&
+                   (int)POCKETOS_ROTATION_LANDSCAPE == (int)ORIENTATION_LANDSCAPE,
+               "app.h rotation modes are orientation.h's");
+_Static_assert((int)POCKETOS_KEYBOARD_UNKNOWN == (int)KBD_PRESENCE_UNKNOWN &&
+                   (int)POCKETOS_KEYBOARD_ABSENT == (int)KBD_PRESENCE_ABSENT &&
+                   (int)POCKETOS_KEYBOARD_PRESENT == (int)KBD_PRESENCE_PRESENT,
+               "app.h keyboard states are kbd_presence.h's");
+
+static bool is_landscape(enum pos_rotation r)
+{
+    return pos_rotation_is_landscape_of(r, sh.display.panel.width, sh.display.panel.height);
+}
+
+void pocketos_shell_orientation(struct pocketos_orientation *out)
+{
+    enum pos_rotation next = shell_display_next_rotation(&sh.display);
+    bool valid;
+
+    out->mode = (enum pocketos_rotation_mode)orientation_mode_from_setting(
+        settings_get(ORIENTATION_SETTING, NULL), &valid);
+    out->mode_valid = valid;
+    out->landscape = is_landscape(sh.display.geometry.rotation);
+    out->next_landscape = is_landscape(next);
+    out->restart_required = next != sh.display.geometry.rotation;
+    out->keyboard = (enum pocketos_keyboard)kbd_presence_get();
+}
+
+static void rotation_to_json(cJSON *o)
+{
+    struct pocketos_orientation now;
+    enum pos_rotation next = shell_display_next_rotation(&sh.display);
+
+    pocketos_shell_orientation(&now);
+    cJSON_AddStringToObject(o, "rotation_mode", orientation_mode_name((enum orientation_mode)now.mode));
+    cJSON_AddBoolToObject(o, "rotation_mode_valid", now.mode_valid);
+    cJSON_AddNumberToObject(o, "rotation", pos_rotation_degrees(sh.display.geometry.rotation));
+    cJSON_AddStringToObject(o, "orientation", now.landscape ? "landscape" : "portrait");
+    cJSON_AddNumberToObject(o, "next_rotation", pos_rotation_degrees(next));
+    cJSON_AddStringToObject(o, "next_orientation", now.next_landscape ? "landscape" : "portrait");
+    cJSON_AddBoolToObject(o, "restart_required", now.restart_required);
+    cJSON_AddStringToObject(o, "keyboard", kbd_presence_name(kbd_presence_get()));
+    cJSON_AddBoolToObject(o, "bench_override", sh.display.bench_override);
+}
+
+static void announce_rotation(void)
+{
+    cJSON *data;
+
+    if (!sh.server) {
+        return;
+    }
+    data = cJSON_CreateObject();
+    rotation_to_json(data);
+    pocketipc_server_broadcast(sh.server, pocketipc_event("shell.rotation", data));
+}
+
+int pocketos_shell_set_rotation_mode(enum pocketos_rotation_mode mode)
+{
+    enum pos_rotation next;
+
+    if (mode != POCKETOS_ROTATION_AUTOMATIC && mode != POCKETOS_ROTATION_PORTRAIT &&
+        mode != POCKETOS_ROTATION_LANDSCAPE) {
+        return -1;
+    }
+    if (settings_set(ORIENTATION_SETTING, orientation_mode_name((enum orientation_mode)mode)) < 0) {
+        LOG_WARN("rotation mode %s not persisted to %s: %s", orientation_mode_name((enum orientation_mode)mode),
+                 settings_path(), strerror(errno));
+        return -1;
+    }
+    next = shell_display_next_rotation(&sh.display);
+    LOG_INFO("rotation mode %s stored: next start rotation %d%s", orientation_mode_name((enum orientation_mode)mode),
+             pos_rotation_degrees(next),
+             next != sh.display.geometry.rotation ? ", this run keeps its orientation until the shell restarts" : "");
+    announce_rotation();
+    return 0;
+}
+
+static void on_keyboard_presence(enum kbd_presence now, void *user)
+{
+    (void)user;
+    LOG_INFO("keyboard %s: next start rotation %d", kbd_presence_name(now),
+             pos_rotation_degrees(shell_display_next_rotation(&sh.display)));
+    announce_rotation();
+}
+
 /* ---- the one touch keyboard (DS §17.3, §17.4) -------------------------- *
  *
  * The shell owns it so that there is exactly one, and so that an app cannot
@@ -333,7 +431,7 @@ static void brightness_restore(void)
 
 static void content_height(int32_t reserve_bottom)
 {
-    lv_obj_set_height(sh.content, POCKETOS_PANEL_H - POCKETUI_STATUS_BAR_H - reserve_bottom);
+    lv_obj_set_height(sh.content, pocketui_display_geometry()->height - POCKETUI_STATUS_BAR_H - reserve_bottom);
 }
 
 static void on_keyboard_done(void *user)
@@ -488,8 +586,39 @@ static void on_tile(lv_event_t *e)
     app_open(lv_event_get_user_data(e));
 }
 
+#define LAUNCHER_MAX_COLUMNS 8
+
+/* How many tile columns the launcher uses in a content area of this size.
+ * Portrait keeps the two columns of DS C7: eleven apps take six rows,
+ * 6 * 150 + 5 * 20 = 1000 px plus the 40 px padding, inside the 1176 px
+ * below the status bar. A landscape area cannot hold six rows (512 px), so
+ * it gets the fewest columns whose rows fit with the same 150 px tiles, 20 px
+ * gaps and padding: for eleven apps on 1232x512 that is six columns and two
+ * rows. Tiles are never shortened and the grid never scrolls. */
+static uint8_t launcher_columns(int32_t width, int32_t height)
+{
+    uint8_t cols;
+
+    if (width <= height) {
+        return 2;
+    }
+    for (cols = 2; cols < LAUNCHER_MAX_COLUMNS; cols++) {
+        int32_t rows = (int32_t)((APP_COUNT + cols - 1) / cols);
+
+        if (2 * POCKETUI_PAD + rows * POCKETUI_TILE_H + (rows - 1) * POCKETUI_PAD <= height) {
+            break;
+        }
+    }
+    return cols;
+}
+
 static void home_create(void)
 {
+    static int32_t cols[LAUNCHER_MAX_COLUMNS + 1];
+    static int32_t rows[APP_COUNT + 1];
+    const struct pos_display_geometry *g = pocketui_display_geometry();
+    uint8_t ncols = launcher_columns(g->width, g->height - POCKETUI_STATUS_BAR_H);
+    uint8_t nrows = (uint8_t)((APP_COUNT + ncols - 1) / ncols);
     size_t i;
 
     sh.home = lv_obj_create(sh.content);
@@ -498,23 +627,23 @@ static void home_create(void)
     lv_obj_set_style_pad_all(sh.home, POCKETUI_PAD, 0);
     lv_obj_set_style_pad_gap(sh.home, POCKETUI_PAD, 0);
     lv_obj_set_layout(sh.home, LV_LAYOUT_GRID);
-    {
-        /* Two columns of 150 px tiles; eleven apps take six rows, which is
-         * 6 * 150 + 5 * 20 = 1000 px plus the 40 px padding, inside the
-         * 1176 px below the status bar. A seventh row would not fit. */
-        static const int32_t cols[] = { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
-        static const int32_t rows[] = { LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_CONTENT,
-                                        LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_CONTENT,
-                                        LV_GRID_TEMPLATE_LAST };
-        lv_obj_set_grid_dsc_array(sh.home, cols, rows);
+    for (i = 0; i < ncols; i++) {
+        cols[i] = LV_GRID_FR(1);
     }
+    cols[ncols] = LV_GRID_TEMPLATE_LAST;
+    for (i = 0; i < nrows; i++) {
+        rows[i] = LV_GRID_CONTENT;
+    }
+    rows[nrows] = LV_GRID_TEMPLATE_LAST;
+    lv_obj_set_grid_dsc_array(sh.home, cols, rows);
     for (i = 0; i < APP_COUNT; i++) {
         lv_obj_t *tile = pocketui_tile_mask(sh.home, apps[i]->icon_mask, apps[i]->icon,
                                             apps[i]->name, on_tile, (void *)apps[i]);
 
-        lv_obj_set_grid_cell(tile, LV_GRID_ALIGN_STRETCH, (uint8_t)(i % 2), 1,
-                             LV_GRID_ALIGN_START, (uint8_t)(i / 2), 1);
+        lv_obj_set_grid_cell(tile, LV_GRID_ALIGN_STRETCH, (uint8_t)(i % ncols), 1,
+                             LV_GRID_ALIGN_START, (uint8_t)(i / ncols), 1);
     }
+    LOG_INFO("launcher: %u column(s), %u row(s)", (unsigned)ncols, (unsigned)nrows);
 }
 
 /* ---- screenshot ------------------------------------------------------- */
@@ -648,9 +777,10 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         cJSON_AddStringToObject(result, "current", sh.app ? sh.app->id : "home");
         cJSON_AddStringToObject(result, "theme", pos_theme_current_def()->id);
         cJSON_AddStringToObject(result, "mode", pos_mode_name(pos_theme_current_mode()));
-        cJSON_AddNumberToObject(display, "width", POCKETOS_PANEL_W);
-        cJSON_AddNumberToObject(display, "height", POCKETOS_PANEL_H);
+        cJSON_AddNumberToObject(display, "width", sh.display.geometry.width);
+        cJSON_AddNumberToObject(display, "height", sh.display.geometry.height);
         cJSON_AddStringToObject(display, "backend", sh.backend_name);
+        rotation_to_json(display);
         cJSON_AddItemToObject(result, "display", display);
     } else if (strcmp(method, "shell.open") == 0) {
         const cJSON *aid = params ? cJSON_GetObjectItemCaseSensitive(params, "id") : NULL;
@@ -702,6 +832,24 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         cJSON_AddStringToObject(result, "mode", pos_mode_name(pos_theme_current_mode()));
         cJSON_AddBoolToObject(result, "fallback", fallback);
         cJSON_AddStringToObject(result, "reason", why);
+    } else if (strcmp(method, "shell.rotation") == 0) {
+        const cJSON *md = params ? cJSON_GetObjectItemCaseSensitive(params, "mode") : NULL;
+        enum orientation_mode mode;
+
+        if (md) {
+            if (!cJSON_IsString(md) || orientation_mode_parse(md->valuestring, &mode) < 0) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                    id, POCKETIPC_ERR_INVALID_PARAMS, "mode must be automatic, portrait or landscape"));
+                return;
+            }
+            if (pocketos_shell_set_rotation_mode((enum pocketos_rotation_mode)mode) < 0) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                    id, POCKETIPC_ERR_BACKEND, "rotation mode could not be stored"));
+                return;
+            }
+        }
+        result = cJSON_CreateObject();
+        rotation_to_json(result);
     } else if (strcmp(method, "shell.brightness") == 0) {
         const cJSON *p = params ? cJSON_GetObjectItemCaseSensitive(params, "percent") : NULL;
         int pct;
@@ -788,7 +936,9 @@ int main(int argc, char **argv)
     const char *open_id = NULL;
     const char *theme_arg = NULL;
     const char *mode_arg = NULL;
+    const char *rotation_arg = NULL;
     long exit_after_ms = -1;
+    int loaded;
     lv_display_t *disp;
     lv_obj_t *screen;
     uint32_t started;
@@ -805,20 +955,40 @@ int main(int argc, char **argv)
             theme_arg = argv[++i];
         } else if (strcmp(argv[i], "--mode") == 0 && i + 1 < argc) {
             mode_arg = argv[++i];
+        } else if (strcmp(argv[i], "--rotation") == 0 && i + 1 < argc) {
+            rotation_arg = argv[++i];
         } else {
             fprintf(stderr, "usage: pocketos-shell [--open APP] [--screenshot F.png] [--exit-after-ms N]"
-                            " [--theme ID] [--mode normal|outdoor|night]\n");
+                            " [--theme ID] [--mode normal|outdoor|night]"
+                            " [--rotation automatic|portrait|landscape]\n");
             return 2;
         }
     }
 
     pocketlog_init("shell");
     pocketlog_install_crash_handler();
+    /* The settings come first: the orientation is decided from them before
+     * the display exists, because the display is rotated when it is opened. */
+    loaded = settings_init();
+    shell_display_resolve(rotation_arg, &sh.display);
+    kbd_presence_set_listener(on_keyboard_presence, NULL);
     lv_init();
-    disp = pocketos_platform_init();
+    disp = pocketos_platform_init(&sh.display.panel, &sh.display.geometry);
     if (!disp) {
         LOG_ERROR("display init failed");
         return 1;
+    }
+    /* From here on the display, the touch transform and every layout use this
+     * one geometry, as the backend confirmed it. */
+    pocketui_set_display_geometry(&sh.display.geometry);
+    {
+        const struct pos_display_geometry *g = &sh.display.geometry;
+        struct pos_insets bar = pos_display_bar_insets(g, POS_EDGE_TOP);
+
+        LOG_INFO("display: %dx%d at rotation %d, corners %d,%d,%d,%d, status bar insets %d/%d",
+                 (int)g->width, (int)g->height, pos_rotation_degrees(g->rotation), (int)g->corners.top_left,
+                 (int)g->corners.top_right, (int)g->corners.bottom_right, (int)g->corners.bottom_left,
+                 (int)bar.left, (int)bar.right);
     }
     sh.backend_name = POCKETOS_DISPLAY_NAME;
     /* After the display, so the stream's own device is created with one to
@@ -840,7 +1010,6 @@ int main(int argc, char **argv)
     pocketui_init();
     {
         /* Appearance never blocks boot: any failure here logs and falls back. */
-        int loaded = settings_init();
         const char *theme = theme_arg ? theme_arg : settings_get("theme", NULL);
         const char *mode = mode_arg ? mode_arg : settings_get("display_mode", NULL);
         char why[128];
@@ -861,27 +1030,13 @@ int main(int argc, char **argv)
     /* Also before the first frame, so a dimmed panel does not flash at the
      * boot level while the launcher draws. */
     brightness_restore();
-    {
-        struct pos_panel panel;
-        struct pos_display_geometry geom;
-        struct pos_insets bar;
-
-        shell_display_panel(&panel);
-        pos_display_geometry_init(&geom, &panel, POS_ROTATION_0);
-        pocketui_set_display_geometry(&geom);
-        bar = pos_display_bar_insets(&geom, POS_EDGE_TOP);
-        LOG_INFO("display: %dx%d, corners %d,%d,%d,%d, status bar insets %d/%d", (int)geom.width,
-                 (int)geom.height, (int)geom.corners.top_left, (int)geom.corners.top_right,
-                 (int)geom.corners.bottom_right, (int)geom.corners.bottom_left, (int)bar.left,
-                 (int)bar.right);
-    }
     screen = lv_screen_active();
     pocketui_style_screen(screen);
     status_bar_create(screen);
 
     sh.content = lv_obj_create(screen);
     lv_obj_remove_style_all(sh.content);
-    lv_obj_set_size(sh.content, LV_PCT(100), POCKETOS_PANEL_H - POCKETUI_STATUS_BAR_H);
+    lv_obj_set_size(sh.content, LV_PCT(100), sh.display.geometry.height - POCKETUI_STATUS_BAR_H);
     lv_obj_align(sh.content, LV_ALIGN_TOP_MID, 0, POCKETUI_STATUS_BAR_H);
     home_create();
 

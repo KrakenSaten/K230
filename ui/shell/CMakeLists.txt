@@ -42,6 +42,8 @@ add_executable(pocketos-shell
     ../pocketui/pocketui.c
     ../pocketui/pos_display.c
     shell_display.c
+    orientation.c
+    kbd_presence.c
     ../pocketui/pos_input.c
     ../pocketui/pos_keyboard.c
     ../pocketui/pos_keymap.c
@@ -409,6 +411,24 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(pocketui_tile_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(pocketui_tile_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # Display and touch rotated together through LVGL's real evdev driver (run
+    # by tests/display_geometry_shell_test.sh). Linux only: it needs the evdev
+    # driver the SDL build enables there.
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(display_touch_test
+            ${REPO_DIR}/tests/display_touch_test.c
+            ../pocketui/pos_display.c)
+        target_include_directories(display_touch_test PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui")
+        target_compile_options(display_touch_test PRIVATE -Wall -Wextra)
+        target_compile_definitions(display_touch_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+        if(POCKETOS_LVGL_MODE STREQUAL "source")
+            target_include_directories(display_touch_test PRIVATE "${LVGL_DIR}")
+            target_compile_definitions(display_touch_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+        endif()
+        target_link_libraries(display_touch_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+    endif()
 
     # PocketNotes in the running app, tapped on the real keyboard against a
     # real store (run by tests/notes_shell_test.sh).

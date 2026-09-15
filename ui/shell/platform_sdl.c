@@ -1,6 +1,9 @@
 /*
- * SDL backend: a 568x1232 window scaled down by POCKETOS_SDL_ZOOM (default
- * 0.5) so it fits a laptop screen. Mouse acts as touch.
+ * SDL backend: a window of the logical display size - 568x1232, or
+ * 1232x568 when the geometry is landscape - scaled down by POCKETOS_SDL_ZOOM
+ * (default 0.5) so it fits a laptop screen. The mouse points in logical
+ * coordinates already, so there is no touch transform to derive here; the
+ * DRM backend's is tested on its own (tests/display_touch_test.c).
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -12,12 +15,14 @@
 
 static lv_indev_t *keyboard;
 
-lv_display_t *pocketos_platform_init(void)
+lv_display_t *pocketos_platform_init(const struct pos_panel *panel, struct pos_display_geometry *geometry)
 {
     const char *zoom_env = getenv("POCKETOS_SDL_ZOOM");
     float zoom = zoom_env ? (float)atof(zoom_env) : 0.5f;
-    lv_display_t *disp = lv_sdl_window_create(POCKETOS_PANEL_W, POCKETOS_PANEL_H);
+    lv_display_t *disp;
 
+    (void)panel;
+    disp = lv_sdl_window_create(geometry->width, geometry->height);
     if (!disp) {
         return NULL;
     }

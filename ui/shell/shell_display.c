@@ -6,6 +6,7 @@
 #include "shell_display.h"
 #include "platform.h"
 #include "pocketlog/pocketlog.h"
+#include "settings.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -69,4 +70,75 @@ void shell_display_panel(struct pos_panel *out)
                      "using %d", corners, POCKETOS_PANEL_W / 4, POCKETOS_PANEL_CORNER);
         }
     }
+}
+
+/* POCKETOS_DRM_ROTATION: 0, 90, 180 or 270, a bench override of the policy.
+ * Returns 1 and sets *out when set and valid, 0 when unset, and logs and
+ * returns 0 for anything else. */
+static int bench_rotation(enum pos_rotation *out)
+{
+    const char *v = getenv("POCKETOS_DRM_ROTATION");
+    char *end;
+    long deg;
+
+    if (!v || !*v) {
+        return 0;
+    }
+    errno = 0;
+    deg = strtol(v, &end, 10);
+    if (errno != 0 || *end != '\0' || deg < 0 || deg > 270 || pos_rotation_from_degrees((int)deg, out) < 0) {
+        LOG_WARN("POCKETOS_DRM_ROTATION=%s is not 0, 90, 180 or 270; ignored", v);
+        return 0;
+    }
+    return 1;
+}
+
+void shell_display_resolve(const char *mode_arg, struct shell_display *d)
+{
+    const char *stored = settings_get(ORIENTATION_SETTING, NULL);
+    const char *source = mode_arg ? "--rotation" : stored ? "stored" : "default";
+
+    memset(d, 0, sizeof(*d));
+    shell_display_panel(&d->panel);
+#if defined(POCKETOS_SHELL_TEST_HOOKS) && POCKETOS_SHELL_TEST_HOOKS
+    {
+        /* The simulator's stand-in for a keyboard driver: a test says what
+         * the keyboard is, the way a real driver will publish it. */
+        const char *k = getenv("POCKETOS_TEST_KEYBOARD_PRESENCE");
+        enum kbd_presence p;
+
+        if (k && kbd_presence_parse(k, &p) == 0) {
+            kbd_presence_publish(p);
+        }
+    }
+#endif
+    d->mode = orientation_mode_from_setting(mode_arg ? mode_arg : stored, &d->mode_valid);
+    if (!d->mode_valid) {
+        LOG_WARN("display: %s rotation mode \"%s\" is not automatic, portrait or landscape; using automatic",
+                 source, mode_arg ? mode_arg : stored);
+    }
+    d->keyboard = kbd_presence_get();
+    d->requested = orientation_resolve(d->mode, d->keyboard);
+    if (bench_rotation(&d->requested)) {
+        d->bench_override = true;
+        LOG_WARN("display: rotation %d from POCKETOS_DRM_ROTATION overrides the %s mode; display and touch "
+                 "both follow it", pos_rotation_degrees(d->requested), orientation_mode_name(d->mode));
+    }
+    pos_display_geometry_init(&d->geometry, &d->panel, d->requested);
+    LOG_INFO("display: rotation mode %s (%s), keyboard %s: rotation %d, %dx%d",
+             orientation_mode_name(d->mode), source, kbd_presence_name(d->keyboard),
+             pos_rotation_degrees(d->requested), (int)d->geometry.width, (int)d->geometry.height);
+}
+
+enum pos_rotation shell_display_next_rotation(const struct shell_display *d)
+{
+    enum pos_rotation r;
+    bool valid;
+
+    if (d->bench_override) {
+        return d->requested;
+    }
+    r = orientation_resolve(orientation_mode_from_setting(settings_get(ORIENTATION_SETTING, NULL), &valid),
+                            kbd_presence_get());
+    return r;
 }

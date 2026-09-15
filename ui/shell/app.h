@@ -11,6 +11,7 @@
 
 #include "lvgl.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #define POCKETOS_APP_API_VERSION 0
@@ -81,6 +82,40 @@ int pocketos_shell_brightness_set(int percent);
  * pos_theme_current_mode(). Returns 0, or -1 when the request was not a
  * valid theme or mode and the DS §8 fallback was applied instead. */
 int pocketos_shell_set_appearance(const char *theme_id, const char *mode_name);
+
+/* ---- display orientation (DS §21) --------------------------------------- *
+ *
+ * The shell owns the orientation; an app never rotates anything and lays out
+ * in whatever size its body is given. Settings chooses the mode here.
+ *
+ * The mode takes effect when the shell next starts, not at once: the display
+ * is rotated when it is opened. _orientation says what this run is, what the
+ * stored mode gives now (with the keyboard as it is now), and whether those
+ * differ. _set stores the mode; returns 0, or -1 when the mode is not one of
+ * the three or could not be stored. */
+enum pocketos_rotation_mode {
+    POCKETOS_ROTATION_AUTOMATIC = 0, /* keyboard present -> landscape, else portrait */
+    POCKETOS_ROTATION_PORTRAIT,
+    POCKETOS_ROTATION_LANDSCAPE,
+};
+
+enum pocketos_keyboard {
+    POCKETOS_KEYBOARD_UNKNOWN = 0,
+    POCKETOS_KEYBOARD_ABSENT,
+    POCKETOS_KEYBOARD_PRESENT,
+};
+
+struct pocketos_orientation {
+    enum pocketos_rotation_mode mode; /* stored (automatic when nothing or nonsense is stored) */
+    bool mode_valid;                  /* false: the stored value was not a mode */
+    bool landscape;                   /* this run */
+    bool next_landscape;              /* the stored mode, if the shell started now */
+    bool restart_required;            /* the two differ */
+    enum pocketos_keyboard keyboard;
+};
+
+void pocketos_shell_orientation(struct pocketos_orientation *out);
+int pocketos_shell_set_rotation_mode(enum pocketos_rotation_mode mode);
 
 /* ---- the touch keyboard (DS §17.3, §17.4) ------------------------------ *
  *
