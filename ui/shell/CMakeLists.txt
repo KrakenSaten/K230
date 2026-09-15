@@ -380,6 +380,29 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     endif()
     target_link_libraries(pos_keyboard_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
+    # The launcher tile with an app icon mask against the glyph tile, under a
+    # real pointer device (run by tests/launcher_icons_shell_test.sh). DS 20.
+    add_executable(pocketui_tile_test
+        ${REPO_DIR}/tests/pocketui_tile_test.c
+        ../pocketui/pos_app_icons.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(pocketui_tile_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core")
+    target_compile_options(pocketui_tile_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(pocketui_tile_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(pocketui_tile_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(pocketui_tile_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(pocketui_tile_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
     # PocketNotes in the running app, tapped on the real keyboard against a
     # real store (run by tests/notes_shell_test.sh).
     add_executable(notes_app_test
