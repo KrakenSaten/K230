@@ -1,8 +1,8 @@
 /*
- * pos - PocketOS command-line tool.
+ * doors (and pos) - the Doors command-line tool.
  *
- * Read-only system, hardware and network inspection for developers.
- * No dependencies beyond libc; reads /proc and /sys only.
+ * Read-only system, hardware and network inspection for developers, and the
+ * clients for the services. One binary under two names; see pos_cli.h.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -22,12 +22,38 @@
 #include <sys/utsname.h>
 #include <unistd.h>
 
+#include "pocketpaths.h"
+#include "pos_cli.h"
+
 #ifndef POCKETOS_VERSION
 #define POCKETOS_VERSION "unknown"
 #endif
 #ifndef POCKETOS_BUILD_ID
 #define POCKETOS_BUILD_ID "unknown"
 #endif
+
+const char *pos_cli_name = "pos";
+
+int pos_cli_is_doors(void)
+{
+    return strcmp(pos_cli_name, "doors") == 0;
+}
+
+/* Only the exact name doors selects the Doors wording. Every other name keeps
+ * pos's, so a copy or a link under some third name changes nothing. */
+static void set_cli_name(const char *argv0)
+{
+    const char *base;
+
+    if (!argv0) {
+        return;
+    }
+    base = strrchr(argv0, '/');
+    base = base ? base + 1 : argv0;
+    if (strcmp(base, "doors") == 0) {
+        pos_cli_name = "doors";
+    }
+}
 
 /* Read the first line of a file into buf and strip the newline. Device-tree
  * strings are NUL-terminated, so fread plus explicit termination is used
@@ -78,7 +104,8 @@ static void print_file_value(const char *label, const char *path)
 
 static int cmd_version(void)
 {
-    printf("pos %s (build %s)\n", POCKETOS_VERSION, POCKETOS_BUILD_ID);
+    printf("%s %s (build %s)\n", pos_cli_is_doors() ? "Doors" : "pos", POCKETOS_VERSION,
+           POCKETOS_BUILD_ID);
     return 0;
 }
 
@@ -100,43 +127,27 @@ static void print_vendor_sdk_version(void)
     fclose(f);
 }
 
-/* /etc/pocketos-release, printed deliberately rather than dumped: line 1 is
- * the bare version and stays that way so first-line readers keep working, and
- * the build identity follows as a "BUILD_ID=<id>" line (Makefile install
+/* The release file, printed deliberately rather than dumped: /etc/doors-release,
+ * or /etc/pocketos-release on a card that has only that (pocketpaths.h). Line 1
+ * is the bare version and stays that way so first-line readers keep working,
+ * and the build identity follows as a "BUILD_ID=<id>" line (Makefile install
  * target). A card flashed before v0.0.7 carries the version line only and is
  * printed without a build. sysd serves the same two facts as system.info's
- * release_file and release_build; this command reads the file directly so it
- * still answers when sysd is not running. */
+ * release_file and release_build, through the same reader; this command reads
+ * the file directly so it still answers when sysd is not running. */
 static void print_release_file(void)
 {
-    FILE *f = fopen("/etc/pocketos-release", "r");
-    char line[256];
-    char version[256];
-    char build[256];
-    int have_version = 0;
+    /* pos keeps the label it always had; see pos_cli.h. */
+    const char *label = pos_cli_is_doors() ? "doors" : "pocketos";
+    struct pocketos_release rel;
 
-    if (!f) {
+    if (pocketos_release_read("", &rel) != 0 || rel.version[0] == '\0') {
         return;
     }
-    version[0] = '\0';
-    build[0] = '\0';
-    while (fgets(line, sizeof(line), f)) {
-        line[strcspn(line, "\n")] = '\0';
-        if (!have_version) {
-            snprintf(version, sizeof(version), "%s", line);
-            have_version = 1;
-        } else if (strncmp(line, "BUILD_ID=", 9) == 0) {
-            snprintf(build, sizeof(build), "%s", line + 9);
-        }
-    }
-    fclose(f);
-    if (version[0] == '\0') {
-        return;
-    }
-    if (build[0] != '\0') {
-        printf("%-16s %s (build %s)\n", "pocketos", version, build);
+    if (rel.build[0] != '\0') {
+        printf("%-16s %s (build %s)\n", label, rel.version, rel.build);
     } else {
-        printf("%-16s %s\n", "pocketos", version);
+        printf("%-16s %s\n", label, rel.version);
     }
 }
 
@@ -289,27 +300,33 @@ int cmd_wifi(int argc, char **argv);  /* tools/pos/pos_wifi.c */
 
 static int usage(int rc)
 {
+    const char *n = pos_cli_name;
+
     fprintf(rc ? stderr : stdout,
-            "usage: pos <command> [subcommand]\n"
+            "usage: %s <command> [subcommand]\n"
             "  system info           kernel, memory, uptime, versions (read locally)\n"
             "  system status         the live view from sysd (system.status)\n"
             "  hardware list         device nodes and sysfs devices\n"
             "  network interfaces    interface state, MAC and IPv4\n"
-            "  radio <command>       talk to radiod (pos radio help)\n"
-            "  wifi <command>        Wi-Fi through netd (pos wifi help)\n"
+            "  radio <command>       talk to radiod (%s radio help)\n"
+            "  wifi <command>        Wi-Fi through netd (%s wifi help)\n"
             "  call <svc> <method>   any pocketipc method, key=value params\n"
             "  logs [name] [-n N]    service logs and crash reports\n"
             "  app list|start|home   drive the shell launcher\n"
             "  shell info|screenshot shell state and PNG capture\n"
-            "  version               print pos version\n");
+            "  version               print %s version\n",
+            n, n, n, n);
     return rc;
 }
 
 int main(int argc, char **argv)
 {
-    const char *cmd = argc > 1 ? argv[1] : "help";
-    const char *sub = argc > 2 ? argv[2] : "";
+    const char *cmd;
+    const char *sub;
 
+    set_cli_name(argc > 0 ? argv[0] : NULL);
+    cmd = argc > 1 ? argv[1] : "help";
+    sub = argc > 2 ? argv[2] : "";
     if (strcmp(cmd, "version") == 0) {
         return cmd_version();
     }

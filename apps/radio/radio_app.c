@@ -45,7 +45,9 @@ static void on_send(lv_event_t *e)
     cJSON *r;
     char err[96];
 
-    cJSON_AddStringToObject(params, "payload_hex", "506f636b65744f5320746573740a"); /* "PocketOS test\n" */
+    /* "Doors test 01\n": 14 bytes, the length of the "PocketOS test\n" it
+     * replaced, so the airtime on a given profile is unchanged. */
+    cJSON_AddStringToObject(params, "payload_hex", "446f6f727320746573742030310a");
     /* The one call that keeps waiting: the packet is on the air for the
      * airtime and the user asked for it (docs/api/pocketipc.md). */
     r = shell_ipc_call("radiod", "radio.send", params, err, sizeof(err));

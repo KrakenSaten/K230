@@ -132,6 +132,14 @@ chip-state dependent and dumps both transports' windows when it does.
   VERSION or commit change leaves the old id in an object that is not stale by
   mtime. `radiod_mock_test` then fails on a build string that is otherwise
   correct. Run the suite from `make clean` before believing such a failure.
+- Neither `apply_to_sdk.sh` nor Buildroot removes files an earlier package
+  install left in the target tree. Since ADR-005 Phase 2 that matters across
+  branches: a PocketOS-era source built in an SDK where the Doors names have
+  been installed carries a stale `/usr/bin/doors`, `/etc/doors-release` and
+  `/usr/share/doors` into its image. Remove them, and the
+  `/etc/pocketos-release` link, from `output/k230_pocketos_defconfig/target`
+  before such a build (ADR-005, "Upgrade and rollback"; the same applies to a
+  unit rolled back with an older `deploy.sh`).
 
 ## Software
 
@@ -570,9 +578,10 @@ Wave and ggwave:
 - ~~Ooura FFT licence terms are not stated in ggwave's `fft.h`.~~ Resolved
   from the author's page (docs/LICENSING.md, "Audio milestone"). The notices
   for ggwave, Reed-Solomon, the Ooura FFT, RadioLib, the IBM Plex fonts and
-  LVGL now ship in the image as /usr/share/pocketos/THIRD_PARTY_NOTICES.txt
-  (docs/LICENSING.md, "Third-party notices"). **Still blocking distribution,
-  not merging:** PocketOS's own licence is undecided and external
+  LVGL now ship in the image as /usr/share/doors/THIRD_PARTY_NOTICES.txt,
+  linked from the old /usr/share/pocketos path (docs/LICENSING.md,
+  "Third-party notices"). **Still blocking distribution, not merging:**
+  Doors' own licence (PocketOS through v0.0.9) is undecided and external
   redistribution is not authorised; the toolchain's C/C++ runtime licences
   and some vendor packages are not in legal-info (LICENSING.md open items 1,
   5, 8).

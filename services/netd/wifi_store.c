@@ -267,7 +267,7 @@ int wifi_store_save(const char *dir, const struct wifi_store *st)
         goto fail;
     }
     snprintf(line, sizeof(line),
-             "# PocketOS Wi-Fi networks, written by netd. Contains Wi-Fi passphrases:\n"
+             "# Doors Wi-Fi networks, written by netd. Contains Wi-Fi passphrases:\n"
              "# root only, mode 0600. See docs/decisions/ADR-003-wifi-credentials.md.\n"
              "version=%d\nenabled=%d\n", WIFI_STORE_VERSION, st->enabled ? 1 : 0);
     if (write_all(fd, line, strlen(line)) < 0) {

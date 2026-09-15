@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Build the PocketOS SD-card image for the T-Display K230 and export it.
+# Build the Doors SD-card image for the T-Display K230 and export it.
 #
 # Usage: build_image.sh [/path/to/T-Display-K230 checkout] [make-target]
 #   make-target defaults to "all"; use e.g. "pocketos-rebuild" for the package only.
-#   Images are exported to $POCKETOS_OUT_DIR or <repo>/out/k230/.
+#   Images are exported to $POCKETOS_OUT_DIR or <repo>/out/k230/: the vendor
+#   build's sysimage-sdcard.img, and the same image as the release artefact
+#   doors-<version>[-rcN]-tdisplay-k230-<build_id>.img.gz with a .sha256 beside it.
+#   POCKETOS_RELEASE_RC=N (a positive whole number) adds -rcN to that name.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,6 +29,16 @@ POCKETOS_TOOLCHAIN_CC="${POCKETOS_TOOLCHAIN_CC:-/opt/toolchain/Xuantie-900-gcc-l
 
 [ -f "${SDK_DIR}/buildroot-overlay/configs/${CONF}" ] \
     || { echo "run apply_to_sdk.sh first" >&2; exit 1; }
+
+# The release candidate number goes into the artefact's name, so a value that
+# cannot be one is refused before an hour of building, not after it.
+POCKETOS_RELEASE_RC="${POCKETOS_RELEASE_RC:-}"
+case "${POCKETOS_RELEASE_RC}" in
+    ""|[1-9]|[1-9][0-9]|[1-9][0-9][0-9]) ;;
+    *)
+        echo "ERROR: POCKETOS_RELEASE_RC must be a whole number from 1 to 999 (2 gives -rc2), not '${POCKETOS_RELEASE_RC}'." >&2
+        exit 1 ;;
+esac
 
 # The files the boot partition needs before U-Boot can start a kernel.
 BOOT_ARTEFACTS="Image k230-canmv-rm69a10.dtb k230-canmv-rm69a10-hdmi.dtb"
@@ -73,9 +86,16 @@ make -C "${SDK_DIR}" CONF="${CONF}" "${TARGET}"
 # packaging; this is the part only a build can see.
 PKG_SRC="${SDK_DIR}/buildroot-overlay/package/pocketos/src"
 if [ -f "${PKG_SRC}/tools/legal/gen_notices.sh" ]; then
-    TARGET_NOTICES="${SDK_DIR}/output/${CONF}/target/usr/share/pocketos/THIRD_PARTY_NOTICES.txt"
+    TARGET_NOTICES="${SDK_DIR}/output/${CONF}/target/usr/share/doors/THIRD_PARTY_NOTICES.txt"
     if ! cmp -s "${TARGET_NOTICES}" "${PKG_SRC}/THIRD_PARTY_NOTICES.txt"; then
         echo "ERROR: ${TARGET_NOTICES#"${SDK_DIR}"/} is missing or is not the packaged THIRD_PARTY_NOTICES.txt." >&2
+        exit 1
+    fi
+    # The path the notices had through v0.0.9 must be the link to them, not a
+    # copy an older package left in the target tree, which would go stale.
+    OLD_NOTICES="${SDK_DIR}/output/${CONF}/target/usr/share/pocketos/THIRD_PARTY_NOTICES.txt"
+    if [ ! -L "${OLD_NOTICES}" ] || ! cmp -s "${OLD_NOTICES}" "${TARGET_NOTICES}"; then
+        echo "ERROR: ${OLD_NOTICES#"${SDK_DIR}"/} is not the link to ${TARGET_NOTICES#"${SDK_DIR}"/}." >&2
         exit 1
     fi
     # Buildroot reads pocketos.hash only during legal-info, and accepts a hash
@@ -184,23 +204,57 @@ if [ "${TARGET}" = "all" ]; then
         fi
     done
 
+    # The release artefact (ADR-005 Phase 2): the SD-card image that was just
+    # verified, under the product's name, compressed, with a checksum file of
+    # its own so it can travel without this directory. It is the same bytes as
+    # sysimage-sdcard.img, which keeps the vendor build's name - not a second
+    # build. The version and build id come from the applied manifest, like
+    # everything the report says. gzip -n leaves the name and time out of the
+    # header, and the result is read back before it is exported.
+    REL_VERSION="$(m pocketos_version)"
+    REL_BUILD_ID="$(m pocketos_build_id)"
+    if [ -z "${REL_VERSION}" ] || [ -z "${REL_BUILD_ID}" ]; then
+        echo "ERROR: the applied-source manifest has no pocketos_version or pocketos_build_id," >&2
+        echo "       so the release artefact cannot be named. Run apply_to_sdk.sh again." >&2
+        echo "       Nothing has been exported; ${OUT_DIR} is untouched." >&2
+        exit 1
+    fi
+    RELEASE="doors-${REL_VERSION}${POCKETOS_RELEASE_RC:+-rc${POCKETOS_RELEASE_RC}}-tdisplay-k230-${REL_BUILD_ID}.img.gz"
+    case "${RELEASE}" in
+        *[!A-Za-z0-9._+-]*)
+            echo "ERROR: '${RELEASE}' is not a usable file name (version or build id from the manifest)." >&2
+            echo "       Nothing has been exported; ${OUT_DIR} is untouched." >&2
+            exit 1 ;;
+    esac
+    IMAGE_SHA256="$(sha256sum < "${STAGE}/sysimage-sdcard.img" | cut -d' ' -f1)"
+    gzip -n -c "${STAGE}/sysimage-sdcard.img" > "${STAGE}/${RELEASE}"
+    if [ "$(gzip -dc "${STAGE}/${RELEASE}" | sha256sum | cut -d' ' -f1)" != "${IMAGE_SHA256}" ]; then
+        echo "ERROR: ${RELEASE} does not decompress to sysimage-sdcard.img." >&2
+        echo "       Nothing has been exported; ${OUT_DIR} is untouched." >&2
+        exit 1
+    fi
+    (cd "${STAGE}" && sha256sum "${RELEASE}" > "${RELEASE}.sha256")
+    exported="${exported} ${RELEASE} ${RELEASE}.sha256"
+
     # The report describes the source that was applied to this SDK, read from
     # the manifest apply_to_sdk.sh left behind - not whatever the repository
     # happens to be checked out at now. Apply at A, check out B, build without
     # re-applying, and this still says A, because A is what is in the package.
     {
-        echo "PocketOS $(m pocketos_version) image for LILYGO T-Display K230"
+        echo "Doors $(m pocketos_version) image for LILYGO T-Display K230"
         echo "Build UTC : $(date -u +%Y-%m-%dT%H:%M:%SZ)"
         echo "Defconfig : ${CONF}"
         echo "Vendor BSP: $(m vendor_bsp_commit)"
         echo "SDK       : $(m sdk_commit)"
         echo "RadioLib  : $(m radiolib_commit)$([ "$(m radiolib_state)" != "clean" ] && echo " ($(m radiolib_state))")"
         echo "ggwave    : $(m ggwave_commit)$([ "$(m ggwave_state)" != "clean" ] && echo " ($(m ggwave_state))")"
-        echo "PocketOS  : $(m pocketos_commit_short)$([ "$(m source_tree_state)" = "dirty" ] && echo " (applied from a dirty tree)")"
+        echo "Doors     : $(m pocketos_commit_short)$([ "$(m source_tree_state)" = "dirty" ] && echo " (applied from a dirty tree)")"
         echo "BUILD_ID  : $(m pocketos_build_id)"
         echo "Applied   : $(m applied_utc) (source of the above; this build did not re-apply)"
         [ "$(m dirty_override)" = "yes" ] && \
             echo "Override  : POCKETOS_ALLOW_DIRTY_BUILD=1 at apply time -- uncommitted changes are NOT in this image"
+        echo "Image     : sysimage-sdcard.img sha256 ${IMAGE_SHA256}"
+        echo "Release   : ${RELEASE} (the image above, gzip -n; checksum in ${RELEASE}.sha256)"
         echo "Exported  :${exported}"
         [ -n "${carried}" ] && \
             echo "Carried   :${carried} (unchanged since before this source was applied; Buildroot rebuilds these only when their own package changes)"

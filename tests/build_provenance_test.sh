@@ -17,6 +17,10 @@
 # because what is under test is the bookkeeping around the build, not the
 # build. Nothing here runs Buildroot or needs a cross compiler.
 #
+# Since ADR-005 Phase 2 the export also carries the release artefact,
+# doors-<version>[-rcN]-tdisplay-k230-<build_id>.img.gz and its .sha256,
+# beside the vendor-named image; cases 1b, 10, 11 and 12 are about that.
+#
 # Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -105,10 +109,11 @@ fresh_images() { # the artefacts a real build would have just produced
 # exactly what case 6 is about, and clearing it here made that case vacuous -
 # it passed against a build_image.sh that copied straight into the output
 # directory. Each case sets the directory up as it needs it.
-run_build() { # leaves output in $TMP/out, combined log in $TMP/log
+run_build() { # leaves output in $TMP/out, combined log in $TMP/log; $RC is POCKETOS_RELEASE_RC
     ( cd "$REPO" && \
         POCKETOS_TOOLCHAIN_CC="$TMP/bin/cc-stub" \
         POCKETOS_OUT_DIR="$TMP/out" \
+        POCKETOS_RELEASE_RC="${RC:-}" \
         bash "$BUILD" "$VEND" all ) > "$TMP/log" 2>&1
     echo $?
 }
@@ -133,6 +138,33 @@ check "BUILD_INFO says the build did not re-apply" $(has "$INFO" "did not re-app
 check "BUILD_INFO carries the applied BUILD_ID" $(has "$INFO" "BUILD_ID  : $SHORT_A")
 check "BUILD_INFO carries the applied vendor pins" $(has "$INFO" "bbbbbbbbbbbb")
 
+# ---- 1b. the release artefact under the Doors name (ADR-005 Phase 2) ------
+#
+# The vendor build's sysimage-sdcard.img stays; beside it, the same image as
+# doors-<version>[-rcN]-tdisplay-k230-<build_id>.img.gz with its own checksum
+# file, named from the applied manifest like the rest of the report.
+REL="doors-9.9.9-tdisplay-k230-$SHORT_A.img.gz"
+check "BUILD_INFO names the product: Doors 9.9.9 image" $(has "$INFO" "^Doors 9.9.9 image for LILYGO T-Display K230$")
+check "BUILD_INFO's source line is labelled Doors" $(has "$INFO" "^Doors     : $SHORT_A$")
+check "BUILD_INFO no longer names PocketOS as the product" \
+      $(grep -v 'POCKETOS_' "$INFO" | grep -q 'PocketOS' && echo 0 || echo 1)
+check "the vendor-named image is still exported" $([ -f "$TMP/out/sysimage-sdcard.img" ] && echo 1 || echo 0)
+check "the release artefact is exported as $REL" $([ -f "$TMP/out/$REL" ] && echo 1 || echo 0)
+check "it is the SD-card image, gzip-compressed" \
+      $([ "$(gzip -dc "$TMP/out/$REL" 2>/dev/null | sha256sum | cut -d' ' -f1)" = \
+          "$(sha256sum < "$TMP/out/sysimage-sdcard.img" | cut -d' ' -f1)" ] && echo 1 || echo 0)
+check "its .sha256 names it and verifies on its own" \
+      $( (cd "$TMP/out" && [ "$(awk '{print $2}' "$REL.sha256")" = "$REL" ] &&
+          sha256sum -c "$REL.sha256" >/dev/null 2>&1) && echo 1 || echo 0)
+check "the gzip header carries no file name or time (gzip -n)" \
+      $([ "$(od -An -tx1 -j3 -N5 "$TMP/out/$REL" | tr -d ' \n')" = "0000000000" ] && echo 1 || echo 0)
+check "BUILD_INFO names the release artefact and the image's sha256" \
+      $(grep -q "^Release   : $REL " "$INFO" &&
+        grep -q "^Image     : sysimage-sdcard.img sha256 $(sha256sum < "$TMP/out/sysimage-sdcard.img" | cut -d' ' -f1)$" "$INFO" &&
+        echo 1 || echo 0)
+check "and lists it, and its checksum file, as exported" \
+      $(grep '^Exported  :' "$INFO" | grep -qF " $REL $REL.sha256" && echo 1 || echo 0)
+
 # ---- 2. a dirty apply is still visible in the report --------------------
 
 rm -rf "$TMP/out"
@@ -142,6 +174,8 @@ rc=$(run_build)
 check "a build applied from a dirty tree succeeds" $([ "$rc" = "0" ] && echo 1 || echo 0)
 check "and the report says the apply was dirty" $(has "$INFO" "applied from a dirty tree")
 check "and names the override" $(has "$INFO" "POCKETOS_ALLOW_DIRTY_BUILD=1 at apply time")
+check "and the release artefact's name carries the dirty build id" \
+      $([ -f "$TMP/out/doors-9.9.9-tdisplay-k230-${SHORT_A}-dirty.img.gz" ] && echo 1 || echo 0)
 
 # ---- 3. no manifest at all ----------------------------------------------
 
@@ -243,6 +277,54 @@ check "the SD-card image is not called carried" \
 check "the checksums still cover everything exported" \
       $( (cd "$TMP/out" && sha256sum -c SHA256SUMS.txt >/dev/null 2>&1) && echo 1 || echo 0)
 APPLIED_EPOCH=1
+
+# ---- 10. a release candidate number --------------------------------------
+
+rm -rf "$TMP/out"
+write_manifest "$SHORT_A" clean no
+fresh_images
+RC=2
+rc=$(run_build)
+RC=
+check "a build with POCKETOS_RELEASE_RC=2 succeeds" $([ "$rc" = "0" ] && echo 1 || echo 0)
+check "and names the artefact doors-9.9.9-rc2-tdisplay-k230-$SHORT_A.img.gz" \
+      $([ -f "$TMP/out/doors-9.9.9-rc2-tdisplay-k230-$SHORT_A.img.gz" ] &&
+        [ -f "$TMP/out/doors-9.9.9-rc2-tdisplay-k230-$SHORT_A.img.gz.sha256" ] && echo 1 || echo 0)
+check "and nothing without the rc" \
+      $([ -z "$(find "$TMP/out" -name "doors-9.9.9-tdisplay-k230-*")" ] && echo 1 || echo 0)
+check "and the checksums cover it" \
+      $(grep -q "doors-9.9.9-rc2-tdisplay-k230-$SHORT_A.img.gz$" "$SUMS" &&
+        (cd "$TMP/out" && sha256sum -c SHA256SUMS.txt >/dev/null 2>&1) && echo 1 || echo 0)
+
+# ---- 11. a release candidate number that is not one ----------------------
+
+bad_rc=1
+for value in rc2 0 02 -1 "2 " 1000 x; do
+    rm -rf "$TMP/out"
+    write_manifest "$SHORT_A" clean no
+    fresh_images
+    RC="$value"
+    rc=$(run_build)
+    RC=
+    if [ "$rc" = "0" ] || [ -d "$TMP/out" ] || ! grep -q 'POCKETOS_RELEASE_RC must be' "$TMP/log"; then
+        bad_rc=0
+        echo "     POCKETOS_RELEASE_RC='$value' was not refused"
+    fi
+done
+check "an unusable POCKETOS_RELEASE_RC is refused, before building, and exports nothing" "$bad_rc"
+check "the refusal comes before the build starts" \
+      $(grep -q '^Build k230_pocketos_defconfig' "$TMP/log" && echo 0 || echo 1)
+
+# ---- 12. a manifest that cannot name the artefact ------------------------
+
+rm -rf "$TMP/out"
+write_manifest "$SHORT_A" clean no
+sed -i '/^pocketos_version=/d' "$SDK/.pocketos-applied"
+fresh_images
+rc=$(run_build)
+check "a manifest without pocketos_version fails the export" $([ "$rc" != "0" ] && echo 1 || echo 0)
+check "and says the artefact cannot be named" $(has "$TMP/log" "release artefact cannot be named")
+check "and exports nothing" $([ ! -d "$TMP/out" ] && echo 1 || echo 0)
 
 echo "build_provenance_test: $failed failure(s)"
 exit $((failed > 0))

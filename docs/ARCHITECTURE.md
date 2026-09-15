@@ -4,9 +4,10 @@ Status: reflects the code as of 2026-09-08 (PocketOS 0.0.3, not yet built as
 an image; 0.0.1 has run on hardware). Binding decisions live in
 docs/decisions/; this file explains how the pieces fit.
 
-Doors was previously known as PocketOS through v0.0.9. The paths, commands,
-services and C identifiers below keep their PocketOS-era names
-(docs/decisions/ADR-005-product-name-doors.md).
+Doors was previously known as PocketOS through v0.0.9. The paths, services
+and C identifiers below keep their PocketOS-era names
+(docs/decisions/ADR-005-product-name-doors.md); the CLI is `doors`, with `pos`
+as its alias.
 
 ## Layers
 
@@ -20,7 +21,7 @@ services/        Hardware-owning daemons: radiod (mock and sx1262 backends), net
 core/pocketipc   IPC library used by everything above.
 core/pocketlog   Logging, rotation and crash reports.
 core/pocketsys   The system facts behind system.*, read from /proc, /sys and /etc.
-tools/           pos CLI, pos-hwcheck, pos-supervise.
+tools/           doors CLI (pos is its alias), pos-hwcheck, pos-supervise.
 platforms/k230   Buildroot integration on the pinned LILYGO BSP + Kendryte SDK.
 vendor/          Read-only upstream trees (git-ignored): LILYGO BSP, K230 SDK, LVGL, RadioLib, libgpiod.
 ```

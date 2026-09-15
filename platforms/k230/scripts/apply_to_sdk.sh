@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Apply the LILYGO BSP, the vendor launcher (temporary) and the PocketOS
-# package to a pinned K230 Linux SDK checkout.
+# Apply the LILYGO BSP, the vendor launcher (temporary) and the Doors package
+# (Buildroot package `pocketos`) to a pinned K230 Linux SDK checkout.
 #
 # Usage: apply_to_sdk.sh [/path/to/T-Display-K230 checkout]
 #   Default vendor checkout: $POCKETOS_VENDOR_DIR or <repo>/vendor/T-Display-K230
@@ -47,7 +47,7 @@ EXPECTED_SDK_COMMIT="$(cat "${PLATFORM_DIR}/vendor_sdk_commit.txt")"
 
 [ -d "${VENDOR_DIR}/k230_bsp" ] || { echo "not a T-Display-K230 checkout: ${VENDOR_DIR}" >&2; exit 1; }
 git -C "${SDK_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "SDK is not a git checkout: ${SDK_DIR}" >&2; exit 1; }
-git -C "${REPO_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "PocketOS repo is not a git checkout: ${REPO_DIR}" >&2; exit 1; }
+git -C "${REPO_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "Doors repository is not a git checkout: ${REPO_DIR}" >&2; exit 1; }
 
 BSP_COMMIT="$(git -C "${VENDOR_DIR}" rev-parse HEAD)"
 SDK_COMMIT="$(git -C "${SDK_DIR}" rev-parse HEAD)"
@@ -68,7 +68,7 @@ if [ -n "${REPO_STATUS}" ]; then
     TREE_STATE="dirty"
 fi
 BUILD_ID="${REPO_COMMIT}${DIRTY_TAG}"
-echo "PocketOS apply"
+echo "Doors apply"
 echo "Repo   : ${REPO_DIR} (version $(cat "${REPO_DIR}/VERSION")) @ ${REPO_COMMIT}${REPO_DIRTY}"
 echo "Vendor : ${VENDOR_DIR} @ ${BSP_COMMIT}"
 echo "SDK    : ${SDK_DIR} @ ${SDK_COMMIT}"
@@ -223,10 +223,10 @@ done
 echo "[1/5] Vendor BSP overlay"
 "${VENDOR_DIR}/k230_bsp/scripts/apply.sh" "${SDK_DIR}"
 
-echo "[2/5] PocketOS defconfig"
+echo "[2/5] Doors defconfig (${CONF})"
 install -m 0644 "${SNAPSHOT_DIR}/platforms/k230/configs/${CONF}" "${SDK_DIR}/buildroot-overlay/configs/${CONF}"
 
-echo "[3/5] Vendor launcher (temporary until the PocketOS shell exists)"
+echo "[3/5] Vendor launcher (kept in the image; the panel switch below hands the panel to the Doors shell)"
 "${VENDOR_DIR}/k230_launcher/scripts/install_to_sdk.sh" "${SDK_DIR}" "${CONF}"
 
 echo "[3b/5] Panel switch for the vendor launcher"
@@ -265,7 +265,7 @@ grep -q '^PermitEmptyPasswords no$' "${SSHD}" \
     || { echo "failed to set PermitEmptyPasswords no in ${SSHD}" >&2; exit 1; }
 grep -q '^PermitEmptyPasswords yes' "${SSHD}" && { echo "PermitEmptyPasswords yes still present in ${SSHD}" >&2; exit 1; }
 
-echo "[4/5] PocketOS rootfs overlay"
+echo "[4/5] Doors rootfs overlay"
 # Also from git, and for the same reason as the package below, but here the
 # reason is sharper: Buildroot copies this overlay into the rootfs with
 # rsync -a and BusyBox rcS runs `$i start`, so the mode on S60radiod and
@@ -277,7 +277,7 @@ git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" -- platforms/k230
     | tar -x --strip-components=3 \
           -C "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/"
 
-echo "[5/5] PocketOS package"
+echo "[5/5] Doors package (pocketos)"
 # Third-party notices (docs/LICENSING.md). The package installs
 # THIRD_PARTY_NOTICES.txt into the image and hands it to legal-info, so notices
 # that no longer describe what is built are refused before the package is

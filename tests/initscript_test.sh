@@ -674,11 +674,11 @@ fi
     done
     printf '#!/bin/sh\necho tar-ran >> "%s/tar.log"\n' "$d" > "$d/bin/tar"
     chmod 0755 "$d/bin/tar"
-    sed -n "/^    | \"\${SSH\[@\]}\"/,/^pos version/p" \
+    sed -n "/^    | \"\${SSH\[@\]}\"/,/^doors version/p" \
         "$REPO/platforms/k230/scripts/deploy.sh" \
         | sed -e "1s/.*'set -e\$/set -e/" \
               -e "s#/etc/init.d#$d/etc/init.d#g" \
-              -e "s/^pos version.*//" > "$d/remote.sh"
+              -e "s/^doors version.*//" > "$d/remote.sh"
     check "the remote half of deploy.sh was extracted" \
           $([ -s "$d/remote.sh" ] && grep -q 'could not be stopped' "$d/remote.sh" \
             && echo 1 || echo 0)

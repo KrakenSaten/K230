@@ -661,6 +661,7 @@ test: all $(TEST_BINS)
 	bash tests/notices_test.sh
 	bash tests/boot_splash_test.sh
 	bash tests/brand_mark_test.sh
+	bash tests/identity_test.sh
 	bash tests/style_lint.sh
 	bash tests/build_deps_test.sh
 	bash tests/build_outputs_test.sh
@@ -679,7 +680,13 @@ test: all $(TEST_BINS)
 	bash tests/settings_lint.sh
 
 install: all
-	install -D -m 0755 tools/pos/pos $(DESTDIR)$(PREFIX)/bin/pos
+# The command-line tool is installed as doors, and pos is a symlink to it: one
+# binary under two names, pos a permanent alias (ADR-005 decision 5). Invoked
+# as pos it prints what pos always printed (tools/pos/pos_cli.h). The build
+# output keeps its name, tools/pos/pos, like the pos-* helpers keep theirs.
+# ln -f replaces the regular file an earlier install left under the old name.
+	install -D -m 0755 tools/pos/pos $(DESTDIR)$(PREFIX)/bin/doors
+	ln -sfn doors $(DESTDIR)$(PREFIX)/bin/pos
 	install -D -m 0755 tools/hwcheck/hwcheck.sh $(DESTDIR)$(PREFIX)/bin/pos-hwcheck
 	install -D -m 0755 tools/hwcheck/pos-spixfer $(DESTDIR)$(PREFIX)/bin/pos-spixfer
 	install -D -m 0755 tools/wave/pos-wave $(DESTDIR)$(PREFIX)/bin/pos-wave
@@ -688,16 +695,29 @@ install: all
 	install -D -m 0755 services/netd/netd $(DESTDIR)$(PREFIX)/sbin/netd
 	install -D -m 0755 tools/supervise/pos-supervise $(DESTDIR)$(PREFIX)/bin/pos-supervise
 # The third-party notices travel with the binaries that need them. Under
-# share/pocketos rather than share/doc, which Buildroot strips from the target.
-	install -D -m 0644 THIRD_PARTY_NOTICES.txt $(DESTDIR)$(PREFIX)/share/pocketos/THIRD_PARTY_NOTICES.txt
-# /etc/pocketos-release: line 1 stays the bare version, so every reader that
+# share/doors rather than share/doc, which Buildroot strips from the target.
+# share/pocketos, where they were through v0.0.9, stays a directory holding a
+# symlink to them (ADR-005 Phase 2): the old path still reads the same file,
+# and a bench deploy over a PocketOS-era unit replaces the copy it had there
+# rather than leaving it to go stale. The directory itself is not turned into
+# a link, which BusyBox tar could not unpack over the existing directory.
+	install -D -m 0644 THIRD_PARTY_NOTICES.txt $(DESTDIR)$(PREFIX)/share/doors/THIRD_PARTY_NOTICES.txt
+	install -d -m 0755 $(DESTDIR)$(PREFIX)/share/pocketos
+	ln -sfn ../doors/THIRD_PARTY_NOTICES.txt $(DESTDIR)$(PREFIX)/share/pocketos/THIRD_PARTY_NOTICES.txt
+# /etc/doors-release: line 1 stays the bare version, so every reader that
 # takes the first line keeps working, and the build identity follows as a
 # key=value line (system.info release_file and release_build, `pos system
 # info`). The build id is the same one compiled into the binaries above.
+# /etc/pocketos-release, the name every release up to v0.0.9 used, is a
+# symlink to it (ADR-005 Phase 2): one file, so the two names cannot disagree.
+# Same directory, so the link resolves inside the Buildroot target tree and
+# BusyBox tar creates it on the spot during a bench deploy. ln -f replaces the
+# regular file an earlier install left there.
 	install -d -m 0755 $(DESTDIR)/etc
 	printf '%s\nBUILD_ID=%s\n' '$(POCKETOS_VERSION)' '$(POCKETOS_BUILD_ID)' \
-		> $(DESTDIR)/etc/pocketos-release
-	chmod 0644 $(DESTDIR)/etc/pocketos-release
+		> $(DESTDIR)/etc/doors-release
+	chmod 0644 $(DESTDIR)/etc/doors-release
+	ln -sfn doors-release $(DESTDIR)/etc/pocketos-release
 
 DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name '*.d' 2>/dev/null)
 -include $(DEPFILES)

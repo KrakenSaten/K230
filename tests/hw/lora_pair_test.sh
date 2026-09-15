@@ -3,13 +3,15 @@
 # script checks that A reported the packet with RSSI and SNR.
 #
 # Usage: lora_pair_test.sh <host-A> <host-B> [payload-hex] [profile key=value ...]
-# Both units need PocketOS radiod (sx1262 backend) and pos installed, and SSH
-# as root with key authentication. Uses the EU868 default profile unless
-# key=value overrides are given (applied to both units).
+# Both units need radiod (sx1262 backend) and the CLI installed, and SSH as
+# root with key authentication. It calls the CLI as pos, which a Doors unit
+# keeps as an alias of doors and a PocketOS-era unit has as the tool itself,
+# so it pairs either kind. Uses the EU868 default profile unless key=value
+# overrides are given (applied to both units).
 set -u
 A=${1:?host A}
 B=${2:?host B}
-PAYLOAD=${3:-506f636b65744f53}   # "PocketOS"
+PAYLOAD=${3:-446f6f7273203031}   # "Doors 01": 8 bytes, like the "PocketOS" it replaced
 shift 3 2>/dev/null || shift $#
 PROFILE=("$@")
 SSH="ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=no"

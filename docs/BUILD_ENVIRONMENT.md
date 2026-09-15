@@ -59,11 +59,12 @@ WSL gotchas found 2026-09-04 (all VERIFIED):
 Do not upgrade any of these without a proposal. The BSP overlay is a patch
 stack on top of the pinned SDK commit and will break on a different SDK.
 
-## Build PocketOS (inside WSL2 Ubuntu)
+## Build Doors (inside WSL2 Ubuntu)
 
-The PocketOS scripts wrap the vendor flow below and add the PocketOS package
-and defconfig. The vendor checkout lives in the Linux filesystem, the PocketOS
-repository on /mnt/c is only read and rsynced from.
+The Doors scripts wrap the vendor flow below and add the Doors package (the
+Buildroot package `pocketos`) and defconfig (`k230_pocketos_defconfig`). The
+vendor checkout lives in the Linux filesystem, the Doors repository on /mnt/c
+is only read and rsynced from.
 
 ```sh
 export POCKETOS_VENDOR_DIR=$HOME/work/t-display-k230
@@ -72,7 +73,15 @@ export POCKETOS_VENDOR_DIR=$HOME/work/t-display-k230
 /mnt/c/K230/platforms/k230/scripts/build_image.sh "" pocketos-rebuild   # package only
 ```
 
-Output: `out/k230/sysimage-sdcard.img` plus BUILD_INFO.txt and SHA256SUMS.txt.
+Output (`$POCKETOS_OUT_DIR`, default `out/k230/`): the vendor build's
+`sysimage-sdcard.img`, the same image as the release artefact
+`doors-<version>[-rcN]-tdisplay-k230-<build_id>.img.gz` with its own
+`.sha256` file, BUILD_INFO.txt and SHA256SUMS.txt. Version and build id come
+from the applied manifest, like the rest of BUILD_INFO.txt; `-rcN` appears
+only when the build is run with `POCKETOS_RELEASE_RC=N` (1 to 999). The
+artefact is `gzip -n` of the verified image and is read back before export,
+so flashing it and flashing `sysimage-sdcard.img` write the same bytes.
+
 VERIFIED 2026-09-04: PocketOS 0.0.1 image built (rc=0, 763 MB, about two
 hours after the vendor baseline, including two recoverable stops noted in
 KNOWN_ISSUES). radiod links RadioLib and libgpiod2, the shell links the
@@ -130,8 +139,9 @@ A release build must show `Source worktree : clean` and a BUILD_ID with no
 built binaries. `tests/build_outputs_test.sh` keeps the default path usable by
 making sure no build output can dirty a checkout by accident.
 
-Quick host checks without Buildroot: `make CC=gcc all` builds `pos`
-natively; the Xuantie gcc with `-mcpu=c908v -mtune=c908` cross-builds it.
+Quick host checks without Buildroot: `make CC=gcc all` builds the CLI
+(`tools/pos/pos`, installed as `doors` with `pos` as its alias) natively; the
+Xuantie gcc with `-mcpu=c908v -mtune=c908` cross-builds it.
 
 ## Build vendor baseline (inside WSL2 Ubuntu, Linux filesystem)
 
@@ -174,7 +184,8 @@ On Windows a tool such as Rufus or balenaEtcher writes the same image.
 
 `scripts/deploy_launcher.sh <ip>` copies the launcher (and optionally
 /boot/Image + DTB) over SSH as root and restarts the launcher via
-`/etc/init.d/S99zz_k230_phone_ui`. PocketOS can reuse the same mechanism.
+`/etc/init.d/S99zz_k230_phone_ui`. Doors uses the same mechanism in
+`platforms/k230/scripts/deploy.sh`.
 
 ## Serial console
 

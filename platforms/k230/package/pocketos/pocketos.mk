@@ -1,22 +1,25 @@
 ################################################################################
 #
-# pocketos (first-party userspace, synced from the PocketOS repository)
+# pocketos (Doors first-party userspace, synced from the Doors repository; the
+# package keeps its PocketOS-era name, ADR-005 Phase 4)
 #
-# Two build steps: the GNU make tree (pos, radiod with the sx1262 backend,
-# pos-hwcheck, pos-supervise) and the CMake shell against the vendor LVGL
-# package in staging.
+# Two build steps: the GNU make tree (doors with its pos alias, radiod with the
+# sx1262 backend, pos-hwcheck, pos-supervise) and the CMake shell against the
+# vendor LVGL package in staging.
 #
 ################################################################################
 
 POCKETOS_VERSION = $(shell cat $(realpath $(TOPDIR))/package/pocketos/src/VERSION 2>/dev/null || echo unknown)
 POCKETOS_SITE = $(realpath $(TOPDIR))/package/pocketos/src
 POCKETOS_SITE_METHOD = local
-# PocketOS's own licence is not chosen yet: no licence is granted and the
-# package is not redistributable (docs/LICENSING.md). What it contains from
-# others is listed, and reproduced in full, in THIRD_PARTY_NOTICES.txt, which
-# legal-info collects (checked against pocketos.hash) and the image installs as
-# /usr/share/pocketos/THIRD_PARTY_NOTICES.txt.
-POCKETOS_LICENSE = Not yet decided (PocketOS; no licence granted), MIT (RadioLib, ggwave, Reed-Solomon), Ooura FFT licence (ggwave FFT), OFL-1.1 (IBM Plex font bitmaps)
+# No licence is chosen yet for Doors' own code (PocketOS through v0.0.9): none
+# is granted and the package is not redistributable (docs/LICENSING.md). What
+# it contains from others is listed, and reproduced in full, in
+# THIRD_PARTY_NOTICES.txt, which legal-info collects (checked against
+# pocketos.hash) and the image installs as
+# /usr/share/doors/THIRD_PARTY_NOTICES.txt, with a link at the old
+# /usr/share/pocketos path.
+POCKETOS_LICENSE = Not yet decided (Doors; no licence granted), MIT (RadioLib, ggwave, Reed-Solomon), Ooura FFT licence (ggwave FFT), OFL-1.1 (IBM Plex font bitmaps)
 POCKETOS_LICENSE_FILES = THIRD_PARTY_NOTICES.txt
 POCKETOS_REDISTRIBUTE = NO
 POCKETOS_INSTALL_TARGET = YES

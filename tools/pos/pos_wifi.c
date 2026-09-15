@@ -9,6 +9,7 @@
  */
 #define _GNU_SOURCE
 #include "pocketipc/pocketipc.h"
+#include "pos_cli.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -71,14 +72,14 @@ static cJSON *wifi_call_quiet(const char *method, cJSON *params, int *code, int 
 
         cJSON_Delete(params);
         pocketipc_socket_path("netd", path, sizeof(path));
-        fprintf(stderr, "pos wifi: cannot connect to %s: %s\n", path, strerror(errno));
+        fprintf(stderr, "%s wifi: cannot connect to %s: %s\n", pos_cli_name, path, strerror(errno));
         *code = -1;
         return NULL;
     }
     result = pocketipc_call(fd, method, params, code, err, sizeof(err));
     close(fd);
     if (!result && !(quiet && *code == POCKETIPC_ERR_BUSY)) {
-        fprintf(stderr, "pos wifi: %s failed (code %d): %s\n", method, *code, err);
+        fprintf(stderr, "%s wifi: %s failed (code %d): %s\n", pos_cli_name, method, *code, err);
         if (*code == 0) {
             *code = -1;
         }
@@ -134,7 +135,7 @@ static int print_networks(const cJSON *res)
     const cJSON *e;
 
     if (!cJSON_IsNumber(age)) {
-        printf("no scan yet: run pos wifi scan\n");
+        printf("no scan yet: run %s wifi scan\n", pos_cli_name);
         return 0;
     }
     printf("%-8s %-5s %-11s %-6s %s\n", "signal", "bars", "security", "flags", "ssid");
@@ -227,8 +228,9 @@ static int cmd_connect(int argc, char **argv)
         }
     }
     if (!ssid) {
-        fprintf(stderr, "usage: pos wifi connect <ssid> [--ssid-hex] [--open] [--hidden open|wpa|wpa2|wpa3]\n"
-                        "  the passphrase is read from standard input, never from the command line\n");
+        fprintf(stderr, "usage: %s wifi connect <ssid> [--ssid-hex] [--open] [--hidden open|wpa|wpa2|wpa3]\n"
+                        "  the passphrase is read from standard input, never from the command line\n",
+                pos_cli_name);
         return 2;
     }
     params = cJSON_CreateObject();
@@ -244,7 +246,7 @@ static int cmd_connect(int argc, char **argv)
         cJSON *item;
 
         if (read_passphrase(ssid, pass, sizeof(pass)) < 0) {
-            fprintf(stderr, "pos wifi: no passphrase read (use --open for an open network)\n");
+            fprintf(stderr, "%s wifi: no passphrase read (use --open for an open network)\n", pos_cli_name);
             cJSON_Delete(params);
             return 2;
         }
@@ -300,15 +302,16 @@ static int cmd_connect(int argc, char **argv)
 static int usage(void)
 {
     fprintf(stderr,
-            "usage: pos wifi <command>\n"
+            "usage: %s wifi <command>\n"
             "  status                      state, network, signal, address\n"
             "  on | off                    turn Wi-Fi on or off (remembered)\n"
             "  scan                        scan and list networks\n"
             "  list                        networks from the last scan\n"
-            "  connect <ssid> [options]    join; passphrase from stdin (pos wifi connect help)\n"
+            "  connect <ssid> [options]    join; passphrase from stdin (%s wifi connect help)\n"
             "  disconnect                  leave the current network (until the next join or boot)\n"
             "  saved                       networks netd remembers (never their passphrases)\n"
-            "  forget <ssid> [--ssid-hex]  forget a saved network\n");
+            "  forget <ssid> [--ssid-hex]  forget a saved network\n",
+            pos_cli_name, pos_cli_name);
     return 2;
 }
 
@@ -359,7 +362,7 @@ int cmd_wifi(int argc, char **argv)
             cJSON_Delete(res);
         }
         if (bool_of(res, "scan_failed")) {
-            fprintf(stderr, "pos wifi: the scan did not complete; showing the previous results\n");
+            fprintf(stderr, "%s wifi: the scan did not complete; showing the previous results\n", pos_cli_name);
         }
         print_networks(res);
         cJSON_Delete(res);
