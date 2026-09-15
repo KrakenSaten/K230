@@ -14,6 +14,8 @@ package/pocketos/                 Buildroot package building the repository root
 scripts/apply_to_sdk.sh           BSP overlay + vendor launcher + Doors package into the SDK
 scripts/build_image.sh            Build and export sysimage-sdcard.img to out/k230/
 scripts/deploy.sh                 Push built binaries to a running board over SSH
+scripts/verify_image.sh           Refuse an image whose boot partition cannot boot
+scripts/verify_splash.sh          Check an image's boot partition carries the committed splash
 vendor_bsp_commit.txt             Pinned Xinyuan-LilyGO/T-Display-K230 commit
 vendor_sdk_commit.txt             Pinned kendryte/k230_linux_sdk commit
 ```
@@ -81,6 +83,19 @@ chmod 600 /root/.ssh/authorized_keys
 Neither step survives a re-flash, which is intended. The USB LAN adapter has
 no burned-in MAC, so its address and therefore the DHCP lease can change on
 every boot: read the IP after each boot (`ip -4 addr show eth0`).
+
+## Boot splash
+
+U-Boot shows `/logo.xrgb` from the boot partition before Linux starts. The
+Doors splash is `rootfs_overlay/logo.xrgb`, generated from the owner's
+artwork by `tools/design/png2xrgb.py`; `apply_to_sdk.sh` puts it over the
+vendor's copy and the vendor `post-image.sh` copies it to the boot partition.
+It must stay exactly 568 × 1232 × 4 = 2,799,104 bytes, B, G, R, X per pixel,
+or U-Boot skips it. Only a flash changes it: `deploy.sh` never writes the boot
+partition. `scripts/verify_splash.sh <image>` checks a built image carries it.
+Details and hashes: docs/design/brand/README.md; the hardware gate:
+docs/hardware/DOORS_GRAPHICS_GATE.md. The splash shows from power-on, not
+after a warm `reboot` (vendor U-Boot, docs/KNOWN_ISSUES.md).
 
 ## Logs on the device
 

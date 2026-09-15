@@ -83,7 +83,7 @@ else
               $([ "$(mode_of "$f")" = "100755" ] && echo 1 || echo 0)
     done
     # Overlay data files must NOT be executable.
-    for f in $OVERLAY/etc/default/telnet $OVERLAY/etc/pocketos/settings.conf; do
+    for f in $OVERLAY/etc/default/telnet $OVERLAY/etc/pocketos/settings.conf $OVERLAY/logo.xrgb; do
         check "image-critical: $(basename "$f") recorded 100644" \
               $([ "$(mode_of "$f")" = "100644" ] && echo 1 || echo 0)
     done

@@ -340,6 +340,14 @@ static void fill_styles(void)
     lv_style_set_border_color(s, tok(POS_COLOR_TEXT_ON_ACCENT));
     lv_style_set_border_width(s, 2);
     lv_style_set_border_side(s, LV_BORDER_SIDE_BOTTOM);
+
+    /* Brand mark, DS §19. The mark is an A8 mask with no colour of its own:
+     * LVGL draws an A8 image in its recolour, so the token lives here like
+     * any text colour and a theme or mode change repaints it. */
+    s = &styles[POS_STYLE_BRAND_MARK];
+    reset(s);
+    lv_style_set_image_recolor(s, tok(POS_COLOR_ACCENT_PRIMARY));
+    lv_style_set_image_recolor_opa(s, LV_OPA_COVER);
 }
 
 static void on_theme_changed(void *user)

@@ -659,12 +659,15 @@ test: all $(TEST_BINS)
 	bash tests/initscript_test.sh
 	bash tests/package_sync_test.sh
 	bash tests/notices_test.sh
+	bash tests/boot_splash_test.sh
+	bash tests/brand_mark_test.sh
 	bash tests/style_lint.sh
 	bash tests/build_deps_test.sh
 	bash tests/build_outputs_test.sh
 	bash tests/required_gates_test.sh
 	bash tests/build_provenance_test.sh
 	bash tests/image_contents_test.sh
+	bash tests/splash_image_test.sh
 	bash tests/hwcheck_test.sh
 	bash tests/fleet_lint.sh
 	bash tests/radar_lint.sh

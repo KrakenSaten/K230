@@ -47,6 +47,7 @@ add_executable(pocketos-shell
     shell_kbd.c
     ../pocketui/pos_theme.c
     ../pocketui/pos_styles.c
+    ../pocketui/pos_brand_mark.c
     ${REPO_DIR}/apps/radio/radio_app.c
     ${REPO_DIR}/apps/system/system_app.c
     ${REPO_DIR}/apps/system/system_view.c

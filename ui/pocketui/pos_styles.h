@@ -67,6 +67,8 @@ enum pos_style_role {
     POS_STYLE_KB_SHEET,            /* bg fill, hairline top rule in line */
     POS_STYLE_KEY_ENGAGED,         /* accent_primary fill, text_on_accent (Shift on, Done) */
     POS_STYLE_KEY_LOCKED,          /* 2 px text_on_accent underline (Shift locked) */
+    /* The Doors brand mark (DS §19): an A8 image drawn in accent_primary. */
+    POS_STYLE_BRAND_MARK,
     POS_STYLE_COUNT
 };
 
