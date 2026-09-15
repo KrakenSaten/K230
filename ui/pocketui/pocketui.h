@@ -34,6 +34,12 @@ lv_obj_t *pocketui_card(lv_obj_t *parent);
 /* Launcher tile (C7): slab, symbol icon top-left, row-title label bottom-left. */
 lv_obj_t *pocketui_tile(lv_obj_t *parent, const char *icon, const char *label,
                         lv_event_cb_t on_click, void *user_data);
+/* The same tile with an icon mask (DS §20): an A8 image in the icon's place,
+ * drawn in accent_primary through POS_STYLE_APP_ICON, so it follows theme
+ * and display mode. Tile, label and click area are pocketui_tile()'s. A NULL
+ * mask gives exactly pocketui_tile() with the text icon. */
+lv_obj_t *pocketui_tile_mask(lv_obj_t *parent, const lv_image_dsc_t *mask, const char *icon,
+                             const char *label, lv_event_cb_t on_click, void *user_data);
 /* Key/value row: secondary label left, value right; returns the value label. */
 lv_obj_t *pocketui_kv_row(lv_obj_t *parent, const char *key, const char *value);
 /* Primary button, full width of parent, 64 px tall. */

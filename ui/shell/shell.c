@@ -504,8 +504,8 @@ static void home_create(void)
         lv_obj_set_grid_dsc_array(sh.home, cols, rows);
     }
     for (i = 0; i < APP_COUNT; i++) {
-        lv_obj_t *tile = pocketui_tile(sh.home, apps[i]->icon, apps[i]->name, on_tile,
-                                       (void *)apps[i]);
+        lv_obj_t *tile = pocketui_tile_mask(sh.home, apps[i]->icon_mask, apps[i]->icon,
+                                            apps[i]->name, on_tile, (void *)apps[i]);
 
         lv_obj_set_grid_cell(tile, LV_GRID_ALIGN_STRETCH, (uint8_t)(i % 2), 1,
                              LV_GRID_ALIGN_START, (uint8_t)(i / 2), 1);

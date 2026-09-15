@@ -348,6 +348,14 @@ static void fill_styles(void)
     reset(s);
     lv_style_set_image_recolor(s, tok(POS_COLOR_ACCENT_PRIMARY));
     lv_style_set_image_recolor_opa(s, LV_OPA_COVER);
+
+    /* App icons, DS §20: the same treatment as the mark, in their own role so
+     * the two rules can change apart. Same accent the text icons had
+     * (POS_STYLE_ACCENT_TEXT), so a tile's icon keeps its colour. */
+    s = &styles[POS_STYLE_APP_ICON];
+    reset(s);
+    lv_style_set_image_recolor(s, tok(POS_COLOR_ACCENT_PRIMARY));
+    lv_style_set_image_recolor_opa(s, LV_OPA_COVER);
 }
 
 static void on_theme_changed(void *user)
