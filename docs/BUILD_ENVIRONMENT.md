@@ -72,7 +72,15 @@ export POCKETOS_VENDOR_DIR=$HOME/work/t-display-k230
 /mnt/c/K230/platforms/k230/scripts/build_image.sh "" pocketos-rebuild   # package only
 ```
 
-Output: `out/k230/sysimage-sdcard.img` plus BUILD_INFO.txt and SHA256SUMS.txt.
+Output (`$POCKETOS_OUT_DIR`, default `out/k230/`): the vendor build's
+`sysimage-sdcard.img`, the same image as the release artefact
+`doors-<version>[-rcN]-tdisplay-k230-<build_id>.img.gz` with its own
+`.sha256` file, BUILD_INFO.txt and SHA256SUMS.txt. Version and build id come
+from the applied manifest, like the rest of BUILD_INFO.txt; `-rcN` appears
+only when the build is run with `POCKETOS_RELEASE_RC=N` (1 to 999). The
+artefact is `gzip -n` of the verified image and is read back before export,
+so flashing it and flashing `sysimage-sdcard.img` write the same bytes.
+
 VERIFIED 2026-09-04: PocketOS 0.0.1 image built (rc=0, 763 MB, about two
 hours after the vendor baseline, including two recoverable stops noted in
 KNOWN_ISSUES). radiod links RadioLib and libgpiod2, the shell links the
