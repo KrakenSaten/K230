@@ -127,15 +127,23 @@ git archive --format=tar HEAD -- platforms/k230/rootfs_overlay |
     tar -x --strip-components=3 -C "$OVL"
 check "overlay extracted at the rootfs root" $([ -d "$OVL/etc/init.d" ] && echo 1 || echo 0)
 for f in etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S90pocketos-shell \
-         etc/default/telnet etc/pocketos/settings.conf; do
+         etc/default/telnet etc/pocketos/settings.conf logo.xrgb; do
     check "overlay carries $f" $([ -e "$OVL/$f" ] && echo 1 || echo 0)
 done
+# The boot splash. The vendor post-image.sh copies rootfs_overlay/logo.xrgb to
+# the boot partition, and U-Boot skips any size but 568 x 1232 x 4, so an
+# archive that mangled it (an EOL filter on a binary) would lose the splash
+# without an error anywhere. tests/boot_splash_test.sh checks its content.
+check "overlay logo.xrgb is exactly 2,799,104 bytes as archived" \
+      $([ "$(stat -c %s "$OVL/logo.xrgb" 2>/dev/null)" = "2799104" ] && echo 1 || echo 0)
+check "overlay logo.xrgb is archived byte-for-byte" \
+      $(cmp -s "$OVL/logo.xrgb" <(git show HEAD:platforms/k230/rootfs_overlay/logo.xrgb) && echo 1 || echo 0)
 if [ "$MODES" -eq 1 ]; then
     # These four are what BusyBox rcS executes.
     for f in etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S90pocketos-shell; do
         check "overlay $f is executable" $([ -x "$OVL/$f" ] && echo 1 || echo 0)
     done
-    for f in etc/default/telnet etc/pocketos/settings.conf; do
+    for f in etc/default/telnet etc/pocketos/settings.conf logo.xrgb; do
         check "overlay $f is not executable" $([ -x "$OVL/$f" ] && echo 0 || echo 1)
     done
 fi

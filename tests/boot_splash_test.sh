@@ -250,5 +250,26 @@ check "--check refuses an X byte that is not 0xFF, and names the pixel" \
 rc="$(conv --check "${TMP}/missing.xrgb")"
 check "--check refuses a missing file" "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
 
+# ---- the splash the image ships ------------------------------------------------
+# apply_to_sdk.sh merges platforms/k230/rootfs_overlay into the vendor overlay,
+# and the vendor post-image.sh copies logo.xrgb from there to the boot
+# partition. It must pass --check, and it must be exactly what the tool makes
+# of the committed artwork, so nobody can replace one without the other.
+SPLASH=platforms/k230/rootfs_overlay/logo.xrgb
+ART=docs/design/brand/doors-threshold/boot/doors-boot-568x1232.png
+ART_SHA=e98aacc22f8e9fd8ab18dc20bd8219021ccfd7bba6f7851fadfdb4ff537a1690
+SPLASH_SHA=434f4a6cf697544764ccbd111d4b3a60eaf5ced5f86e41be731f1f7ce4f58f94
+check "the boot artwork is the file the owner supplied (sha256 e98aacc2...)" \
+    "$([ "$(sha256sum "${ART}" 2>/dev/null | cut -c1-64)" = "${ART_SHA}" ] && echo 1 || echo 0)"
+rc="$(conv --check "${SPLASH}")"
+check "the shipped splash passes --check" "$([ "${rc}" = "0" ] && echo 1 || echo 0)"
+rc="$(conv "${ART}" "${TMP}/regenerated.xrgb")"
+check "the shipped splash is byte-for-byte the conversion of the committed artwork" \
+    "$([ "${rc}" = "0" ] && cmp -s "${TMP}/regenerated.xrgb" "${SPLASH}" && echo 1 || echo 0)"
+check "the shipped splash is the one documented (sha256 434f4a6c...)" \
+    "$([ "$(sha256sum "${SPLASH}" 2>/dev/null | cut -c1-64)" = "${SPLASH_SHA}" ] && echo 1 || echo 0)"
+check "converting did not touch the artwork" \
+    "$([ "$(sha256sum "${ART}" 2>/dev/null | cut -c1-64)" = "${ART_SHA}" ] && echo 1 || echo 0)"
+
 echo "boot_splash_test: $failed failure(s)"
 [ "$failed" -eq 0 ]

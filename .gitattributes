@@ -2,6 +2,7 @@
 * text=auto eol=lf
 *.png binary
 *.img binary
+*.xrgb binary
 # The Doors graphics package is kept byte-for-byte as supplied, so the hashes
 # in docs/design/brand/README.md stay true (its OFL text has CRLF endings).
 docs/design/brand/doors-threshold/** -text

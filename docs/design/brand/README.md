@@ -123,7 +123,7 @@ through a tint, so only the white `doors-mark.png` is converted.
 
 | Doors UI | Asset | Result |
 | --- | --- | --- |
-| Boot splash | `boot/doors-boot-568x1232.png` | converted by `tools/design/png2xrgb.py`, see Boot splash |
+| Boot splash | `boot/doors-boot-568x1232.png` | `platforms/k230/rootfs_overlay/logo.xrgb`, see Boot splash |
 | System identity | `brand/doors-mark.png` | the compact mark as a tinted alpha mask |
 | Status bar | none | unchanged: `mockups/doors-status-bar-568x56` shows the `DOORS` caption Phase 1 already ships |
 | Launcher | none | deferred, see Launcher |
@@ -156,6 +156,41 @@ rotation, dithering or colour management. It refuses a source that is not
 tagged with an ICC profile, gamma or chromaticities, and it never writes over
 its source. `tests/boot_splash_test.sh` (in `make test`) proves the byte
 order, the row order, every PNG filter type, the refusals and determinism.
+
+**What ships.** `platforms/k230/rootfs_overlay/logo.xrgb`, made by
+
+```sh
+python3 tools/design/png2xrgb.py docs/design/brand/doors-threshold/boot/doors-boot-568x1232.png \
+    platforms/k230/rootfs_overlay/logo.xrgb
+```
+
+| | |
+| --- | --- |
+| Source | `boot/doors-boot-568x1232.png`, SHA-256 `e98aacc22f8e9fd8ab18dc20bd8219021ccfd7bba6f7851fadfdb4ff537a1690` |
+| Splash | 568 × 1232 portrait, XRGB8888 stored B, G, R, `0xFF`, no header |
+| Size | 2,799,104 bytes |
+| SHA-256 | `434f4a6cf697544764ccbd111d4b3a60eaf5ced5f86e41be731f1f7ce4f58f94` |
+| Proof | decoded back to RGB, it equals the source's pixels exactly; content box x 184–383, y 517–715, as in the source |
+
+The test fails if the splash is not exactly the conversion of that source, if
+either hash changes, or if `git archive` would ship it altered
+(`tests/package_sync_test.sh`). `.gitattributes` marks `*.xrgb` binary.
+
+**How it reaches the board.** `apply_to_sdk.sh` merges
+`platforms/k230/rootfs_overlay` into the vendor's
+`board/canaan/k230-soc/rootfs_overlay`, replacing the vendor `logo.xrgb`, and
+the vendor `post-image.sh` copies that file into the boot partition (DOCUMENTED,
+`gen_boot_ext4`). As with the vendor file, Buildroot also copies it into the
+root filesystem as `/logo.xrgb`, which nothing reads. Consequences:
+
+- Only a flashed image changes the splash. `deploy.sh` does not write the boot
+  partition.
+- The apply never deletes from the vendor overlay, so an SDK tree applied from
+  this commit keeps the Doors splash even if an older commit is applied later.
+  Reset the SDK tree to get the vendor splash back.
+- **Not yet seen on glass.** The size is certain. The byte order and
+  orientation are DOCUMENTED, not VERIFIED, until a unit boots an image with
+  this file.
 
 ## Launcher — deferred
 

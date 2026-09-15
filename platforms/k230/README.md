@@ -82,6 +82,16 @@ Neither step survives a re-flash, which is intended. The USB LAN adapter has
 no burned-in MAC, so its address and therefore the DHCP lease can change on
 every boot: read the IP after each boot (`ip -4 addr show eth0`).
 
+## Boot splash
+
+U-Boot shows `/logo.xrgb` from the boot partition before Linux starts. The
+Doors splash is `rootfs_overlay/logo.xrgb`, generated from the owner's
+artwork by `tools/design/png2xrgb.py`; `apply_to_sdk.sh` puts it over the
+vendor's copy and the vendor `post-image.sh` copies it to the boot partition.
+It must stay exactly 568 × 1232 × 4 = 2,799,104 bytes, B, G, R, X per pixel,
+or U-Boot skips it. Only a flash changes it: `deploy.sh` never writes the boot
+partition. Details and hashes: docs/design/brand/README.md.
+
 ## Logs on the device
 
 `/var/log` is a tmpfs on this image, so Doors keeps its logs, crash
