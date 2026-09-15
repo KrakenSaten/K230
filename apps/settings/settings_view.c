@@ -412,3 +412,23 @@ int sv_brightness_step(int percent, int direction, int min, int max, int step)
     }
     return next;
 }
+
+void sv_rotation_apply(struct sv_rotation *r, int mode, int mode_valid, int landscape, int next_landscape,
+                       int restart_required, int keyboard_present)
+{
+    const char *prefix = mode_valid ? "" : "The stored rotation was not recognised, so Automatic is used. ";
+
+    memset(r, 0, sizeof(*r));
+    r->selected = mode >= 0 && mode < SV_ROTATION_MODES ? mode : 0;
+    if (restart_required) {
+        snprintf(r->note, sizeof(r->note), "%sShowing %s now. %s takes effect when the Doors shell restarts.",
+                 prefix, landscape ? "landscape" : "portrait", next_landscape ? "Landscape" : "Portrait");
+    } else if (r->selected == 0) {
+        snprintf(r->note, sizeof(r->note), "%s%s", prefix,
+                 keyboard_present ? "Landscape, because a keyboard is attached."
+                                  : "Portrait: no keyboard detected. Automatic turns to landscape with a keyboard.");
+    } else {
+        snprintf(r->note, sizeof(r->note), "%s%s, whatever the keyboard.", prefix,
+                 r->selected == 2 ? "Landscape" : "Portrait");
+    }
+}

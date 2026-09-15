@@ -122,6 +122,24 @@ void sv_brightness_apply(struct sv_brightness *b, int percent, int min, int max)
  * floor set by something else goes up to the floor. */
 int sv_brightness_step(int percent, int direction, int min, int max, int step);
 
+/* ---- rotation ------------------------------------------------------------ */
+
+/* The three modes in the order the buttons show them; the numbers are
+ * app.h's enum pocketos_rotation_mode. */
+#define SV_ROTATION_MODES 3
+
+struct sv_rotation {
+    int selected;           /* the stored mode: 0 automatic, 1 portrait, 2 landscape */
+    char note[160];         /* what the display is doing, and when a change applies */
+};
+
+/* The arguments are pocketos_shell_orientation()'s fields. The note always
+ * says what is shown now; when the stored mode gives something else it says
+ * that the change takes effect when the Doors shell restarts, because the
+ * display is rotated when it opens and not before. */
+void sv_rotation_apply(struct sv_rotation *r, int mode, int mode_valid, int landscape, int next_landscape,
+                       int restart_required, int keyboard_present);
+
 /* The security word as shown: "Open", "WPA2", "WPA2/3", ... */
 const char *sv_security_label(const char *api_word);
 

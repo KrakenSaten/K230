@@ -327,6 +327,34 @@ int main(void)
                                                               sv_brightness_step(0, 1, 10, 100, 10) == 10);
     check("near the ceiling clamps", sv_brightness_step(95, 1, 10, 100, 10) == 100);
     check("a zero step is treated as 10", sv_brightness_step(40, 1, 10, 100, 0) == 50);
+
+    /* ---- rotation ---------------------------------------------------------------------------------- */
+    {
+        struct sv_rotation r;
+
+        sv_rotation_apply(&r, 0, 1, 0, 0, 0, 0);
+        check("automatic, no keyboard, portrait: selected and explained",
+              r.selected == 0 && strcmp(r.note, "Portrait: no keyboard detected. Automatic turns to landscape "
+                                                "with a keyboard.") == 0);
+        sv_rotation_apply(&r, 0, 1, 1, 1, 0, 1);
+        check_str("automatic with a keyboard", r.note, "Landscape, because a keyboard is attached.");
+        sv_rotation_apply(&r, 2, 1, 0, 1, 1, 0);
+        check("landscape chosen while portrait shows: says a restart applies it",
+              r.selected == 2 &&
+                  strcmp(r.note, "Showing portrait now. Landscape takes effect when the Doors shell restarts.") == 0);
+        sv_rotation_apply(&r, 1, 1, 1, 0, 1, 1);
+        check_str("portrait chosen while landscape shows", r.note,
+                  "Showing landscape now. Portrait takes effect when the Doors shell restarts.");
+        sv_rotation_apply(&r, 1, 1, 0, 0, 0, 1);
+        check_str("forced portrait, nothing pending", r.note, "Portrait, whatever the keyboard.");
+        sv_rotation_apply(&r, 2, 1, 1, 1, 0, 0);
+        check_str("forced landscape, nothing pending", r.note, "Landscape, whatever the keyboard.");
+        sv_rotation_apply(&r, 0, 0, 0, 0, 0, 0);
+        check("an unrecognised stored value is said first",
+              strncmp(r.note, "The stored rotation was not recognised, so Automatic is used. Portrait", 70) == 0);
+        sv_rotation_apply(&r, 7, 1, 0, 0, 0, 0);
+        check("an out-of-range mode selects Automatic", r.selected == 0);
+    }
     {
         int pct;
         int ok = 1;
