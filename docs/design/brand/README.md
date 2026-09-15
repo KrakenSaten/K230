@@ -124,7 +124,7 @@ through a tint, so only the white `doors-mark.png` is converted.
 | Doors UI | Asset | Result |
 | --- | --- | --- |
 | Boot splash | `boot/doors-boot-568x1232.png` | `platforms/k230/rootfs_overlay/logo.xrgb`, see Boot splash |
-| System identity | `brand/doors-mark.png` | the compact mark as a tinted alpha mask |
+| System identity | `brand/doors-mark.png` | `ui/pocketui/pos_brand_mark.c`, see System identity |
 | Status bar | none | unchanged: `mockups/doors-status-bar-568x56` shows the `DOORS` caption Phase 1 already ships |
 | Launcher | none | deferred, see Launcher |
 | App icons | `icons/` | deferred, see App icons |
@@ -191,6 +191,40 @@ root filesystem as `/logo.xrgb`, which nothing reads. Consequences:
 - **Not yet seen on glass.** The size is certain. The byte order and
   orientation are DOCUMENTED, not VERIFIED, until a unit boots an image with
   this file.
+
+## System identity
+
+The System app's identity panel starts with the row "Doors  0.0.9 · <build>".
+That row now carries the compact mark before the name. DS §19 (Amendment C,
+proposed, pending the owner's approval) is the rule for it.
+
+| | |
+| --- | --- |
+| Source | `brand/doors-mark.png`, SHA-256 `5540077f5a0c14b1e56f629983fbbf4eacf55ad8da3d321944240d0ded432714` |
+| Generated | `ui/pocketui/pos_brand_mark.c` by `tools/design/gen_brand_mark.py`, committed like the fonts |
+| Format | LVGL `LV_COLOR_FORMAT_A8`, 20 × 24, the 32 × 32 canvas trimmed at (6, 4) with only transparent pixels dropped; 264 px lit, no partial alpha; not scaled |
+| Colour | none in the asset. `POS_STYLE_BRAND_MARK` sets `image_recolor` to `accent_primary`, and LVGL draws an A8 image in its recolour, so it follows all five themes and the three display modes, live |
+| Layout | the key/value row is unchanged: 64 px, divider, body label, value style. The mark sits at the panel's content edge, 8 px before the name, so only the name moves, by 28 px. No other screen changes |
+| Motion | none, so reduced motion changes nothing |
+
+Tests:
+
+- `tests/brand_mark_test.sh` (make test): the committed C file is the
+  generator's output for the committed PNG; the mask is pixel-exact to the
+  SVG path rasterised independently; the generator refuses the fixed-colour
+  variant, an image without alpha and an empty one; only the System app uses
+  the mark, through its role.
+- `tests/system_brand_shell_test.sh` (shell tests): finds the compiled mask in
+  screenshots, in the accent `themes.json` gives for each of the 15 theme and
+  mode pairs, at the content edge (x 41, or 42 with Outdoor's 2 px hairline),
+  with clear space, the 8 px gap and the name after it; again after a live
+  switch to carbon/night; again, unmoved, with reduced motion. Checked against
+  three deliberate breakages (mark in `text_primary`, a 12 px gap, the old
+  plain row), each of which fails it.
+
+On the device: LVGL 9.5.0 with `LV_DRAW_SW_SUPPORT_A8 1` and `LV_USE_IMAGE 1`
+(VERIFIED in the SDK sysroot's `lv_conf.h`); PocketTimber's contact shadow
+uses the same recoloured-A8 drawing. **Not yet seen on glass.**
 
 ## Launcher — deferred
 

@@ -660,6 +660,7 @@ test: all $(TEST_BINS)
 	bash tests/package_sync_test.sh
 	bash tests/notices_test.sh
 	bash tests/boot_splash_test.sh
+	bash tests/brand_mark_test.sh
 	bash tests/style_lint.sh
 	bash tests/build_deps_test.sh
 	bash tests/build_outputs_test.sh
