@@ -58,7 +58,11 @@ run uptime cat /proc/uptime
 run cpuinfo cat /proc/cpuinfo
 run meminfo head -5 /proc/meminfo
 run version cat /etc/version/release_version
-run pocketos cat /etc/pocketos-release
+# The release file: /etc/doors-release, or /etc/pocketos-release on a card
+# flashed before Doors (core/pocketpaths.h has the same rule).
+RELEASE_FILE=/etc/doors-release
+[ -e "$RELEASE_FILE" ] || RELEASE_FILE=/etc/pocketos-release
+run release cat "$RELEASE_FILE"
 run os-release cat /etc/os-release
 
 section "Storage"

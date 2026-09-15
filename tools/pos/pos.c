@@ -22,6 +22,8 @@
 #include <sys/utsname.h>
 #include <unistd.h>
 
+#include "pocketpaths.h"
+
 #ifndef POCKETOS_VERSION
 #define POCKETOS_VERSION "unknown"
 #endif
@@ -100,43 +102,25 @@ static void print_vendor_sdk_version(void)
     fclose(f);
 }
 
-/* /etc/pocketos-release, printed deliberately rather than dumped: line 1 is
- * the bare version and stays that way so first-line readers keep working, and
- * the build identity follows as a "BUILD_ID=<id>" line (Makefile install
+/* The release file, printed deliberately rather than dumped: /etc/doors-release,
+ * or /etc/pocketos-release on a card that has only that (pocketpaths.h). Line 1
+ * is the bare version and stays that way so first-line readers keep working,
+ * and the build identity follows as a "BUILD_ID=<id>" line (Makefile install
  * target). A card flashed before v0.0.7 carries the version line only and is
  * printed without a build. sysd serves the same two facts as system.info's
- * release_file and release_build; this command reads the file directly so it
- * still answers when sysd is not running. */
+ * release_file and release_build, through the same reader; this command reads
+ * the file directly so it still answers when sysd is not running. */
 static void print_release_file(void)
 {
-    FILE *f = fopen("/etc/pocketos-release", "r");
-    char line[256];
-    char version[256];
-    char build[256];
-    int have_version = 0;
+    struct pocketos_release rel;
 
-    if (!f) {
+    if (pocketos_release_read("", &rel) != 0 || rel.version[0] == '\0') {
         return;
     }
-    version[0] = '\0';
-    build[0] = '\0';
-    while (fgets(line, sizeof(line), f)) {
-        line[strcspn(line, "\n")] = '\0';
-        if (!have_version) {
-            snprintf(version, sizeof(version), "%s", line);
-            have_version = 1;
-        } else if (strncmp(line, "BUILD_ID=", 9) == 0) {
-            snprintf(build, sizeof(build), "%s", line + 9);
-        }
-    }
-    fclose(f);
-    if (version[0] == '\0') {
-        return;
-    }
-    if (build[0] != '\0') {
-        printf("%-16s %s (build %s)\n", "pocketos", version, build);
+    if (rel.build[0] != '\0') {
+        printf("%-16s %s (build %s)\n", "pocketos", rel.version, rel.build);
     } else {
-        printf("%-16s %s\n", "pocketos", version);
+        printf("%-16s %s\n", "pocketos", rel.version);
     }
 }
 

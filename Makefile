@@ -659,6 +659,7 @@ test: all $(TEST_BINS)
 	bash tests/initscript_test.sh
 	bash tests/package_sync_test.sh
 	bash tests/notices_test.sh
+	bash tests/identity_test.sh
 	bash tests/style_lint.sh
 	bash tests/build_deps_test.sh
 	bash tests/build_outputs_test.sh
@@ -687,14 +688,20 @@ install: all
 # The third-party notices travel with the binaries that need them. Under
 # share/pocketos rather than share/doc, which Buildroot strips from the target.
 	install -D -m 0644 THIRD_PARTY_NOTICES.txt $(DESTDIR)$(PREFIX)/share/pocketos/THIRD_PARTY_NOTICES.txt
-# /etc/pocketos-release: line 1 stays the bare version, so every reader that
+# /etc/doors-release: line 1 stays the bare version, so every reader that
 # takes the first line keeps working, and the build identity follows as a
 # key=value line (system.info release_file and release_build, `pos system
 # info`). The build id is the same one compiled into the binaries above.
+# /etc/pocketos-release, the name every release up to v0.0.9 used, is a
+# symlink to it (ADR-005 Phase 2): one file, so the two names cannot disagree.
+# Same directory, so the link resolves inside the Buildroot target tree and
+# BusyBox tar creates it on the spot during a bench deploy. ln -f replaces the
+# regular file an earlier install left there.
 	install -d -m 0755 $(DESTDIR)/etc
 	printf '%s\nBUILD_ID=%s\n' '$(POCKETOS_VERSION)' '$(POCKETOS_BUILD_ID)' \
-		> $(DESTDIR)/etc/pocketos-release
-	chmod 0644 $(DESTDIR)/etc/pocketos-release
+		> $(DESTDIR)/etc/doors-release
+	chmod 0644 $(DESTDIR)/etc/doors-release
+	ln -sfn doors-release $(DESTDIR)/etc/pocketos-release
 
 DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name '*.d' 2>/dev/null)
 -include $(DEPFILES)

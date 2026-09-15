@@ -71,6 +71,19 @@ static void rm(const char *rel)
     unlink(path);
 }
 
+/* A symlink below the fake root pointing at target, as given. */
+static void ln_s(const char *target, const char *rel)
+{
+    char path[700];
+
+    snprintf(path, sizeof(path), "%s/%s", root, rel);
+    unlink(path);
+    if (symlink(target, path) != 0) {
+        fprintf(stderr, "symlink %s failed: %s\n", rel, strerror(errno));
+        exit(1);
+    }
+}
+
 static const cJSON *get(const cJSON *o, const char *key)
 {
     return cJSON_GetObjectItemCaseSensitive(o, key);
@@ -121,8 +134,9 @@ static void fake_root(void)
     put("proc/mounts",
         "/dev/root / ext4 rw,relatime 0 0\nproc /proc proc rw 0 0\n"
         "tmpfs /run tmpfs rw 0 0\n/dev/mmcblk1p1 /boot ext4 rw,relatime 0 0\n", 0);
-    /* what a card flashed from `make install` carries: the bare version on
-     * line 1 for first-line readers, the build identity below it */
+    /* what a card flashed from `make install` before Doors carries, under the
+     * old name only: the bare version on line 1 for first-line readers, the
+     * build identity below it */
     put("etc/pocketos-release", "0.0.6\nBUILD_ID=deadbee\n", 0);
     put("etc/version/release_version",
         "#############SDK VERSION####\nsdk:v1.2-20260909-22d02c6\nCONF:k230_pocketos\n", 0);
@@ -182,6 +196,43 @@ int main(void)
     check("a release file without a BUILD_ID line gives a null release_build",
           cJSON_IsNull(get(info, "release_build")));
     cJSON_Delete(info);
+    put("etc/pocketos-release", "0.0.6\nBUILD_ID=deadbee\n", 0);
+
+    /* ---- the Doors release file (ADR-005 Phase 2) ---- */
+    /* the image's layout: one file under the new name, the old name a symlink */
+    put("etc/doors-release", "0.0.10\nBUILD_ID=d00r5aa\n", 0);
+    ln_s("doors-release", "etc/pocketos-release");
+    info = pocketsys_info("0.0.7", "abc1234");
+    check("new file plus compatibility symlink: release_file is the new file's",
+          str_is(info, "release_file", "0.0.10"));
+    check("new file plus compatibility symlink: release_build is the new file's",
+          str_is(info, "release_build", "d00r5aa"));
+    cJSON_Delete(info);
+
+    rm("etc/pocketos-release");
+    info = pocketsys_info("0.0.7", "abc1234");
+    check("only /etc/doors-release: release_file comes from it", str_is(info, "release_file", "0.0.10"));
+    check("only /etc/doors-release: release_build comes from it",
+          str_is(info, "release_build", "d00r5aa"));
+    cJSON_Delete(info);
+
+    /* two independent files (e.g. a unit rolled back by an old deploy): the
+     * new name is preferred, and both fields come from that one file */
+    put("etc/pocketos-release", "0.0.9\nBUILD_ID=0ld0ld0\n", 0);
+    put("etc/doors-release", "0.0.10\n", 0);
+    info = pocketsys_info("0.0.7", "abc1234");
+    check("a separate old file does not win over the new one", str_is(info, "release_file", "0.0.10"));
+    check("release_build is not borrowed from the other file", cJSON_IsNull(get(info, "release_build")));
+    cJSON_Delete(info);
+
+    /* a new name that points nowhere is absent, not a reason for null */
+    ln_s("nowhere", "etc/doors-release");
+    info = pocketsys_info("0.0.7", "abc1234");
+    check("a dangling /etc/doors-release falls back to the old file",
+          str_is(info, "release_file", "0.0.9") && str_is(info, "release_build", "0ld0ld0"));
+    cJSON_Delete(info);
+
+    rm("etc/doors-release");
     put("etc/pocketos-release", "0.0.6\nBUILD_ID=deadbee\n", 0);
 
     /* ---- system.status, everything present ---- */

@@ -91,3 +91,53 @@ int pocketos_mkdir_p(const char *path, mode_t mode)
     }
     return make_one(work, mode);
 }
+
+int pocketos_release_read(const char *root, struct pocketos_release *rel)
+{
+    static const char *const names[] = { POCKETOS_RELEASE_FILE, POCKETOS_RELEASE_FILE_COMPAT };
+    FILE *f = NULL;
+    char line[256];
+    size_t i;
+    int lines = 0;
+    int at_start = 1;
+    int have_build_line = 0;
+
+    memset(rel, 0, sizeof(*rel));
+    for (i = 0; i < sizeof(names) / sizeof(names[0]) && !f; i++) {
+        if (snprintf(rel->path, sizeof(rel->path), "%s%s", root ? root : "", names[i]) >=
+            (int)sizeof(rel->path)) {
+            rel->path[0] = '\0';
+            errno = ENAMETOOLONG;
+            return -1;
+        }
+        f = fopen(rel->path, "r");
+        if (!f && errno != ENOENT) {
+            return -1;
+        }
+    }
+    if (!f) {
+        rel->path[0] = '\0';
+        errno = ENOENT;
+        return -1;
+    }
+    /* A line longer than the buffer arrives in pieces; only the piece that
+     * starts a line is looked at. */
+    while (fgets(line, sizeof(line), f)) {
+        size_t len = strcspn(line, "\n");
+        int ends_line = line[len] == '\n';
+
+        line[len] = '\0';
+        if (at_start) {
+            if (lines == 0) {
+                snprintf(rel->version, sizeof(rel->version), "%s", line);
+            } else if (!have_build_line && strncmp(line, "BUILD_ID=", 9) == 0) {
+                snprintf(rel->build, sizeof(rel->build), "%s", line + 9);
+                have_build_line = 1;
+            }
+            lines++;
+        }
+        at_start = ends_line;
+    }
+    fclose(f);
+    return 0;
+}

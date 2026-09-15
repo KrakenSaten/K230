@@ -34,8 +34,8 @@ Identity that does not change while the system runs.
 | api_version | int | 0. Added by `sysd` (`SYSD_API_VERSION`), not by `core/pocketsys`: the number versions the served API, and the collector does not serve one. `system.status` carries no `api_version`; `system.info` is the method that answers it (docs/api/pocketipc.md, Versioning) | |
 | version | string | compiled into sysd (`POCKETOS_VERSION`) | |
 | build | string | compiled into sysd (`POCKETOS_BUILD_ID`) | |
-| release_file | string or null | first line of `/etc/pocketos-release`, what the card carries; can differ from `version` after a single-binary bench deployment (v0.0.6 M7 bench) | VERIFIED |
-| release_build | string or null | the `BUILD_ID=` line of `/etc/pocketos-release`, the build the card was flashed from. Line 1 of that file stays the bare version so that every first-line reader keeps working; the build identity is a `key=value` line below it, written by the Makefile `install` target from the same `BUILD_ID`/`git rev-parse` chain that is compiled into the binaries. A card flashed before v0.0.7 has no such line and reports `null`. Compare with `build` to see whether the running binary came from the flashed image | |
+| release_file | string or null | first line of the release file, what the card carries: `/etc/doors-release`, or `/etc/pocketos-release` when the card has only that (flashed before Doors). An image writes one file and makes `/etc/pocketos-release` a symlink to it (ADR-005 Phase 2). Can differ from `version` after a single-binary bench deployment (v0.0.6 M7 bench) | VERIFIED (under the old name) |
+| release_build | string or null | the `BUILD_ID=` line of the same release file, the build the card was flashed from; both fields always come from one file, never one from each. Line 1 of that file stays the bare version so that every first-line reader keeps working; the build identity is a `key=value` line below it, written by the Makefile `install` target from the same `BUILD_ID`/`git rev-parse` chain that is compiled into the binaries. A card flashed before v0.0.7 has no such line and reports `null`. Compare with `build` to see whether the running binary came from the flashed image | |
 | model | string or null | `/proc/device-tree/model` | VERIFIED ("Canaan CanMV-K230 with RM69A10 OLED") |
 | kernel, machine, hostname | string | `uname` | VERIFIED (6.6.36 riscv64) |
 | cpus | int or null | online CPUs | VERIFIED (1 hart visible) |
@@ -293,9 +293,10 @@ the service stays up (`tests/sysd_test.sh`).
   rest are strings. A developer tool: it invokes methods without knowing what
   they are, so a service's own parameter checks are the only guard.
 - `pos system info` deliberately does not go through sysd. It reads `/proc`,
-  `/sys` and `/etc/pocketos-release` itself so that it still answers when
-  sysd is not running, which is exactly when someone is looking. The two
-  therefore report the same facts from two readers; `system.info` is the
+  `/sys` and the release file itself so that it still answers when sysd is
+  not running, which is exactly when someone is looking. The two therefore
+  report the same facts from two callers of one reader
+  (`pocketos_release_read()` in `core/pocketpaths.c`); `system.info` is the
   contract, `pos system info` is the offline path.
 - The shell consumes `system.status` through `shell_ipc_call_timeout` with
   the UI deadline, like `radio.status` (a later release).

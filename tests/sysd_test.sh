@@ -72,7 +72,7 @@ check "info reports the build" "\"build\":[[:space:]]*\"${EXPECTED_BUILD}\"" "$o
 check "info kernel" '"kernel":[[:space:]]*"' "$out"
 check "info hostname" '"hostname":[[:space:]]*"' "$out"
 # Present whatever this host carries: a string on a flashed card, null on a
-# build machine with no /etc/pocketos-release.
+# build machine with no /etc/doors-release or /etc/pocketos-release.
 check "info carries release_build" '"release_build":' "$out"
 
 out=$("$POS" system status)

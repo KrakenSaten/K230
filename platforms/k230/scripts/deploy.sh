@@ -24,7 +24,7 @@ case "${TARGET_HOST}" in *@*) ;; *) TARGET_HOST="root@${TARGET_HOST}" ;; esac
 # file missing here would otherwise be discovered after they were down. An
 # init script new to the overlay reaches the target tree only when Buildroot
 # finalises the rootfs (a full build_image.sh), not with pocketos-rebuild.
-for f in usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-supervise usr/sbin/radiod usr/sbin/sysd usr/sbin/netd usr/bin/pocketos-shell etc/pocketos-release \
+for f in usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-supervise usr/sbin/radiod usr/sbin/sysd usr/sbin/netd usr/bin/pocketos-shell etc/doors-release etc/pocketos-release \
          usr/share/pocketos/THIRD_PARTY_NOTICES.txt \
          etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S90pocketos-shell; do
     [ -e "${T}/${f}" ] || { echo "missing ${T}/${f}; build the image first (a full build_image.sh for a new init script)" >&2; exit 1; }
@@ -39,9 +39,17 @@ echo "Deploying PocketOS $(cat "${REPO_DIR}/VERSION") to ${TARGET_HOST}"
 # assembles the rootfs, and the bench path has to match it. Numeric rather
 # than --owner=root: with --numeric-owner the stored name is unused anyway,
 # and 0 needs no passwd lookup on the build host.
+#
+# The compatibility names of ADR-005 Phase 2 travel as the symlinks the target
+# tree holds (etc/pocketos-release -> doors-release), not as copies, so the
+# board ends up with one file under two names, like a flashed card. That
+# relies on BusyBox tar (1.37.0 in the image; archival/libarchive/
+# data_extract_all.c): it unlinks an existing non-directory before extracting
+# an entry, so a PocketOS-era regular file is replaced by the link. It cannot
+# unlink a directory, which is why no directory is ever turned into a link.
 tar -C "${T}" --owner=0 --group=0 --numeric-owner -cf - \
     usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-supervise usr/sbin/radiod \
-    usr/sbin/sysd usr/sbin/netd usr/bin/pocketos-shell etc/pocketos-release \
+    usr/sbin/sysd usr/sbin/netd usr/bin/pocketos-shell etc/doors-release etc/pocketos-release \
     usr/share/pocketos/THIRD_PARTY_NOTICES.txt etc/init.d/S50sysd \
     etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S90pocketos-shell \
     | "${SSH[@]}" "${TARGET_HOST}" 'set -e

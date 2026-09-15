@@ -257,31 +257,6 @@ static const char *vendor_sdk(char *buf, size_t n)
     return found;
 }
 
-/* The build identity the card carries: the "BUILD_ID=" line of
- * /etc/pocketos-release, or NULL when the file has none. Line 1 of that file
- * stays the bare version so that every first-line reader keeps working
- * (release_file, `pos system info`), and the build identity is a key=value
- * line below it, written by the Makefile install target. A card flashed
- * before v0.0.7 carries only the version line and reports null here. */
-static const char *release_build(char *buf, size_t n)
-{
-    FILE *f = open_at("/etc/pocketos-release", "r");
-    const char *found = NULL;
-
-    if (!f) {
-        return NULL;
-    }
-    while (fgets(buf, (int)n, f)) {
-        if (strncmp(buf, "BUILD_ID=", 9) == 0) {
-            buf[strcspn(buf, "\n")] = '\0';
-            found = buf[9] != '\0' ? buf + 9 : NULL;
-            break;
-        }
-    }
-    fclose(f);
-    return found;
-}
-
 /* PRETTY_NAME from /etc/os-release without its quotes, or NULL. */
 static const char *os_name(char *buf, size_t n)
 {
@@ -314,14 +289,22 @@ cJSON *pocketsys_info(const char *version, const char *build)
 {
     cJSON *o = cJSON_CreateObject();
     struct utsname u;
+    struct pocketos_release rel;
+    int have_release;
     char buf[256];
     long cpus;
 
     cJSON_AddStringToObject(o, "version", version ? version : "unknown");
     cJSON_AddStringToObject(o, "build", build ? build : "unknown");
-    add_string_or_null(o, "release_file",
-                       read_line("/etc/pocketos-release", buf, sizeof(buf)) == 0 ? buf : NULL);
-    add_string_or_null(o, "release_build", release_build(buf, sizeof(buf)));
+    /* The release file the card carries (pocketpaths.h: /etc/doors-release,
+     * or /etc/pocketos-release on a card that has only that), read once so
+     * that both fields come from the same file. Line 1 is the bare version;
+     * the build identity is the BUILD_ID= line below it, written by the
+     * Makefile install target. A card flashed before v0.0.7 carries only the
+     * version line and reports a null release_build. */
+    have_release = pocketos_release_read(root_prefix(), &rel) == 0;
+    add_string_or_null(o, "release_file", have_release ? rel.version : NULL);
+    add_string_or_null(o, "release_build", have_release && rel.build[0] ? rel.build : NULL);
     add_string_or_null(o, "model",
                        read_line("/proc/device-tree/model", buf, sizeof(buf)) == 0 ? buf : NULL);
     if (uname(&u) == 0) {
