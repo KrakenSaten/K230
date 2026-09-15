@@ -331,12 +331,15 @@ static void radar_destroy(void *priv)
     free(app);
 }
 
+LV_IMAGE_DECLARE(pos_app_icon_radar);
+
 const struct pocketos_app app_radar = {
     .id = "radar",
     .name = "Radar",
-    /* Placeholder: the Design System stroke icon set does not exist yet, so
-     * the launcher uses the closest LV_SYMBOL glyph (DS section 11). */
+    /* The launcher draws the Doors icon (DS section 20); the glyph stays as
+     * the app's text icon, the closest LV_SYMBOL. */
     .icon = LV_SYMBOL_WIFI,
+    .icon_mask = &pos_app_icon_radar,
     .create = radar_create,
     .tick = NULL,
     .destroy = radar_destroy,

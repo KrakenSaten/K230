@@ -503,10 +503,13 @@ static void notes_destroy(void *priv)
     lv_free(a);
 }
 
+LV_IMAGE_DECLARE(pos_app_icon_notes);
+
 const struct pocketos_app app_notes = {
     .id = "notes",
     .name = "Notes",
     .icon = LV_SYMBOL_FILE,
+    .icon_mask = &pos_app_icon_notes,
     .create = notes_create,
     .tick = NULL,
     .destroy = notes_destroy,

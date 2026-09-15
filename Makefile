@@ -661,6 +661,7 @@ test: all $(TEST_BINS)
 	bash tests/notices_test.sh
 	bash tests/boot_splash_test.sh
 	bash tests/brand_mark_test.sh
+	bash tests/app_icons_test.sh
 	bash tests/identity_test.sh
 	bash tests/style_lint.sh
 	bash tests/build_deps_test.sh

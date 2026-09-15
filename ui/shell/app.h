@@ -18,13 +18,19 @@
 struct pocketos_app {
     const char *id;       /* stable identifier, e.g. "radio" */
     const char *name;     /* launcher label */
-    const char *icon;     /* LV_SYMBOL_* or short text */
+    const char *icon;     /* LV_SYMBOL_* or short text; see icon_mask */
     /* Build the UI under root. Return a private pointer or NULL. */
     void *(*create)(lv_obj_t *root);
     /* Called once per second while the app is visible. May be NULL. */
     void (*tick)(void *priv);
     /* Release resources; LVGL objects under root are deleted by the shell. */
     void (*destroy)(void *priv);
+    /* The app's launcher icon: an LVGL A8 alpha mask with no colour of its
+     * own, e.g. one of ui/pocketui/pos_app_icons.c, which the launcher draws
+     * in accent_primary (DS §20). May be NULL: the launcher then draws `icon`
+     * as text, as it always did. Appended, so an app that does not set it is
+     * unchanged and the API version stays. */
+    const lv_image_dsc_t *icon_mask;
 };
 
 /* Shell services available to apps. */

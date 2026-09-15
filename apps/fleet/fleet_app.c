@@ -303,12 +303,15 @@ static void fleet_destroy(void *priv)
     free(app);
 }
 
+LV_IMAGE_DECLARE(pos_app_icon_fleet);
+
 const struct pocketos_app app_fleet = {
     .id = "fleet",
     .name = "Fleet",
-    /* Placeholder: the Design System stroke icon set does not exist yet, so
-     * the launcher uses the closest LV_SYMBOL glyph (DS §11, step 5+). */
+    /* The launcher draws the Doors icon (DS §20); the glyph stays as the
+     * app's text icon, the closest LV_SYMBOL. */
     .icon = LV_SYMBOL_GPS,
+    .icon_mask = &pos_app_icon_fleet,
     .create = fleet_create,
     .tick = NULL,
     .destroy = fleet_destroy,

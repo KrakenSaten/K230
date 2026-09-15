@@ -305,15 +305,18 @@ static void calculator_destroy(void *priv)
     lv_free(priv);
 }
 
+LV_IMAGE_DECLARE(pos_app_icon_calculator);
+
 const struct pocketos_app app_calculator = {
     .id = "calculator",
     .name = "Calculator",
-    /* A placeholder until the DS section 11 icon set exists. LVGL's symbol
-     * font has no calculator; the plus sign is the nearest arithmetic glyph
-     * in it. The keyboard glyph was the other candidate and was passed over
-     * because PocketOS has a touch keyboard and a physical one, and a
-     * keyboard on the launcher would read as either. */
+    /* The launcher draws the Doors icon (DS section 20). The glyph stays as
+     * the app's text icon. LVGL's symbol font has no calculator; the plus
+     * sign is the nearest arithmetic glyph in it. The keyboard glyph was the
+     * other candidate and was passed over because PocketOS has a touch
+     * keyboard and a physical one, and a keyboard would read as either. */
     .icon = LV_SYMBOL_PLUS,
+    .icon_mask = &pos_app_icon_calculator,
     .create = calculator_create,
     .tick = NULL,
     .destroy = calculator_destroy,

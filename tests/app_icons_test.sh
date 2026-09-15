@@ -1,0 +1,186 @@
+#!/bin/bash
+# The Doors app icons as the shell compiles them (DS §20):
+# ui/pocketui/pos_app_icons.c must be tools/design/gen_app_icons.py's output
+# for the committed artwork - one icon per launcher app, from the package that
+# supplied it, and nothing else - each mask must be that artwork's alpha
+# exactly, and the generator must refuse what is not a tint mask.
+# tests/launcher_icons_shell_test.sh checks what the running shell draws.
+set -u
+cd "$(dirname "$0")/.." || exit 1
+GEN=tools/design/gen_app_icons.py
+ICONS_C=ui/pocketui/pos_app_icons.c
+ART=docs/design/brand/doors-threshold/icons/png-32
+EXT=docs/design/brand/doors-icon-extension/png-32
+failed=0
+check() { if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
+
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "NOT RUN app_icons_test: no python3, so the icons cannot be regenerated and compared."
+    echo "        This is a release gate; not running it is not a pass."
+    if [ "${POCKETOS_ALLOW_SKIPPED_GATES:-0}" = "1" ]; then
+        echo "        POCKETOS_ALLOW_SKIPPED_GATES=1 - continuing, but this gate did NOT pass."
+        exit 0
+    fi
+    exit 77
+fi
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "${TMP}"' EXIT
+
+# ---- provenance ----------------------------------------------------------------
+# The eleven launcher icons as the owner supplied them (docs/design/brand/
+# README.md), by hash: ten from the Threshold package, Wave from the icon
+# extension.
+cat > "${TMP}/want.sha" <<'EOF'
+3044610d013d949a00640fdce47da3486b5e27217b91d7ec45d6a1351517a9ab  docs/design/brand/doors-threshold/icons/png-32/calculator.png
+6e82a0598cc3780d3210ab7659fc39d80940d8933a9810c29c9833967471a3e2  docs/design/brand/doors-threshold/icons/png-32/calendar.png
+9be8cd73dbfc80e720513a098217d2da3a9066acdbc27fba879f02ca1823f983  docs/design/brand/doors-threshold/icons/png-32/clock.png
+ea10791e675b96ec9dc9dce74636ff56afeb9a3555bfe3e4f98388842eef7aa8  docs/design/brand/doors-threshold/icons/png-32/fleet.png
+76847f86b4a61d0d95965c77bcd203e527ddc3c3dc834c9eff63a3327792213f  docs/design/brand/doors-threshold/icons/png-32/notes.png
+53563555f2a12f5050b24fea77d5e45c576570808988aca06f6654c23ceacc87  docs/design/brand/doors-threshold/icons/png-32/radar.png
+5943609ff1ce85c7aee246c3420c09222d5b1cac6498cec419daf969a4c2cb0b  docs/design/brand/doors-threshold/icons/png-32/radio.png
+54380c06c1d307effdd971efd23445c10fb7c4fc091150052d3a996e74a7850a  docs/design/brand/doors-threshold/icons/png-32/settings.png
+9728382fc3a4b0c0c5347d3b8dd40b0bedaf4ef26cd583926b3126b5c440fb13  docs/design/brand/doors-threshold/icons/png-32/system.png
+f7fd51b4ee745d2417fb14e4e08123b71bb1299d47503c2d838005a8c4ab2ad9  docs/design/brand/doors-threshold/icons/png-32/timber.png
+c0f97b8789219ba0605d875f82f00fc69d043f407fb0999d4f82c87edf48cc02  docs/design/brand/doors-icon-extension/png-32/wave.png
+EOF
+cut -c67- "${TMP}/want.sha" > "${TMP}/paths.txt"
+xargs sha256sum < "${TMP}/paths.txt" > "${TMP}/have.sha" 2>/dev/null
+check "the eleven launcher icons are exactly the files the owner supplied" \
+    "$(cmp -s "${TMP}/want.sha" "${TMP}/have.sha" && echo 1 || echo 0)"
+python3 "${GEN}" -o "${TMP}/icons.c" >"${TMP}/gen.txt" 2>&1
+check "the generator accepts the artwork" "$([ "$?" = "0" ] && echo 1 || echo 0)"
+check "the committed pos_app_icons.c is exactly the generator's output" \
+    "$(cmp -s "${TMP}/icons.c" "${ICONS_C}" && echo 1 || echo 0)"
+python3 "${GEN}" -o "${TMP}/icons2.c" >/dev/null 2>&1
+check "generating twice gives identical files" "$(cmp -s "${TMP}/icons.c" "${TMP}/icons2.c" && echo 1 || echo 0)"
+xargs sha256sum < "${TMP}/paths.txt" > "${TMP}/after.sha" 2>/dev/null
+check "generating did not touch the artwork" "$(cmp -s "${TMP}/want.sha" "${TMP}/after.sha" && echo 1 || echo 0)"
+named=0
+while read -r sha path; do
+    grep -qx " \*   ${path}" "${ICONS_C}" && grep -qx " \*     sha256 ${sha}" "${ICONS_C}" && named=$((named + 1))
+done < "${TMP}/want.sha"
+check "the committed file names each of the eleven sources and its hash (${named})" \
+    "$([ "${named}" = "11" ] && echo 1 || echo 0)"
+
+# ---- each mask is its artwork's alpha ------------------------------------------
+# Decoded with the Timber art reader, not the generator's own, so a decoding
+# fault in one is not hidden by the same fault in the other.
+python3 - "${ICONS_C}" "${ART}" "${EXT}" <<'PY' >"${TMP}/masks.txt" 2>&1
+import re, sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, "docs/design/timber-art/tools")
+from pngio import read_png
+src, art, ext = sys.argv[1:4]
+text = open(src, encoding="utf-8").read()
+names = re.findall(r"^const lv_image_dsc_t pos_app_icon_(\w+) = \{", text, re.M)
+bad = 0
+for n in names:
+    body = re.search(r"pos_app_icon_%s_map\[\][^{]*\{(.*?)\};" % n, text, re.S).group(1)
+    data = [int(v, 16) for v in re.findall(r"0x([0-9a-f]{2})", body)]
+    dsc = re.search(r"pos_app_icon_%s = \{(.*?)\};" % n, text, re.S).group(1)
+    hdr = dict(re.findall(r"\.header\.(\w+) = (\w+),", dsc))
+    W, H, rows = read_png("%s/%s.png" % (ext if n == "wave" else art, n))
+    alpha = [p[3] for r in rows for p in r]
+    ok = (hdr.get("cf"), hdr.get("w"), hdr.get("h"), hdr.get("stride")) == ("LV_COLOR_FORMAT_A8", "32", "32", "32") \
+        and (W, H) == (32, 32) and data == alpha
+    print("%s %s bytes %d lit %d partial %d" % ("ok" if ok else "BAD", n, len(data),
+                                               sum(v == 255 for v in data), sum(0 < v < 255 for v in data)))
+    bad += not ok
+print("names", " ".join(names))
+sys.exit(1 if bad else 0)
+PY
+rc=$?
+check "every mask is A8, 32 x 32, and equals its PNG's alpha byte for byte" "$([ "${rc}" = "0" ] && echo 1 || echo 0)"
+check "there is one mask per launcher app, named by app id, and no other" \
+    "$(grep -qx 'names calculator calendar clock fleet notes radar radio settings system timber wave' "${TMP}/masks.txt" && echo 1 || echo 0)"
+check "the file holds 11,264 bytes of mask data and nothing else of size" \
+    "$([ "$(grep -o '0x[0-9a-f][0-9a-f]' "${ICONS_C}" | wc -l)" = "11264" ] && echo 1 || echo 0)"
+extra=$(grep -c 'doors-icon-extension' "${ICONS_C}")
+check "of the extension's thirteen icons only Wave is compiled in (${extra} source)" \
+    "$([ "${extra}" = "1" ] && grep -qx " \*   ${EXT}/wave.png" "${ICONS_C}" && echo 1 || echo 0)"
+
+# ---- refusals ------------------------------------------------------------------
+refused() { # <label> <message fragment> <source>...
+    local label=$1 why=$2
+    shift 2
+    rm -f "${TMP}/refused.c"
+    python3 "${GEN}" -o "${TMP}/refused.c" "$@" >"${TMP}/out.txt" 2>&1
+    rc=$?
+    check "${label} is refused" "$([ "${rc}" != "0" ] && [ ! -e "${TMP}/refused.c" ] && echo 1 || echo 0)"
+    check "${label}: the refusal says why" "$(grep -q -- "${why}" "${TMP}/out.txt" && echo 1 || echo 0)"
+}
+mkdir -p "${TMP}/coloured" "${TMP}/opaque" "${TMP}/mixed" "${TMP}/empty" "${TMP}/badname" "${TMP}/clear"
+# The package's fixed-colour brand variant is a natural wrong input: 32 x 32, not white.
+cp docs/design/brand/doors-threshold/brand/doors-mark-dark.png "${TMP}/coloured/radio.png"
+refused "an icon in a fixed colour" "not white" "${TMP}/coloured"
+cp docs/design/brand/doors-threshold/boot/doors-boot-568x1232.png "${TMP}/opaque/radio.png"
+refused "an icon with no alpha channel" "no alpha channel" "${TMP}/opaque"
+cp "${ART}/radio.png" "${TMP}/mixed/radio.png"
+cp docs/design/brand/doors-threshold/icons/png-24/system.png "${TMP}/mixed/system.png"
+refused "a set mixing 32 px and 24 px icons" "same square size" "${TMP}/mixed"
+refused "a folder with no icons" "no PNG files" "${TMP}/empty"
+refused "two icons for one app id" "a second icon for app id wave" "${EXT}/wave.png" "${ART}/radio.png" \
+    docs/design/brand/doors-icon-extension/png-24/wave.png
+cp "${ART}/radio.png" "${TMP}/badname/Radio-2.png"
+refused "an icon whose file name is not an app id" "not an app id" "${TMP}/badname"
+python3 - "${TMP}/clear/radio.png" <<'PY'
+import struct, sys, zlib
+def chunk(k, b): return struct.pack(">I", len(b)) + k + b + struct.pack(">I", zlib.crc32(k + b) & 0xFFFFFFFF)
+raw = b"".join(b"\x00" + b"\xff\xff\xff\x00" * 32 for _ in range(32))
+open(sys.argv[1], "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 32, 32, 8, 6, 0, 0, 0))
+                              + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+PY
+refused "a fully transparent icon" "every pixel is transparent" "${TMP}/clear"
+
+# ---- who draws them, and how ---------------------------------------------------
+# Every app the launcher lists, by its descriptor: each points at its own mask,
+# so no launcher tile is left on the text-glyph fallback.
+python3 - <<'PY' >"${TMP}/apps.txt" 2>&1
+import glob, re, sys
+shell = open("ui/shell/shell.c", encoding="utf-8").read()
+listed = re.findall(r"&(app_\w+)", re.search(r"apps\[\]\s*=\s*\{(.*?)\};", shell, re.S).group(1))
+descs = {}
+for path in sorted(glob.glob("apps/*/*.c")):
+    text = open(path, encoding="utf-8").read()
+    for var, body in re.findall(r"^const struct pocketos_app (app_\w+) = \{(.*?)^\};", text, re.S | re.M):
+        field = lambda f: (re.search(r"\.%s = &?([\w\"]+)," % f, body) or [None, None])[1]
+        descs[var] = (path, field("id").strip('"'), field("icon"), field("icon_mask"))
+for var in listed:
+    path, app_id, icon, mask = descs[var]
+    print(app_id, icon, mask or "-", path)
+PY
+check "every launcher app's descriptor was read" \
+    "$([ "$(grep -c . "${TMP}/apps.txt")" = "11" ] && ! grep -q Traceback "${TMP}/apps.txt" && echo 1 || echo 0)"
+for id in radio system fleet radar timber notes clock calendar calculator settings wave; do
+    check "${id} uses its own icon, pos_app_icon_${id}" \
+        "$(grep -qE "^${id} LV_SYMBOL_[A-Z_]+ pos_app_icon_${id} " "${TMP}/apps.txt" && echo 1 || echo 0)"
+done
+check "no launcher app is without an icon mask, so no tile falls back to a glyph" \
+    "$(awk '$3 == "-"' "${TMP}/apps.txt" | grep -q . && echo 0 || echo 1)"
+users=$(grep -rl 'pos_app_icon_' apps ui --include='*.c' --include='*.h' | grep -v "^${ICONS_C}$" | wc -l)
+check "the masks are referenced only by those eleven app descriptors (found in ${users} files)" \
+    "$([ "${users}" = "11" ] && echo 1 || echo 0)"
+check "the brand mark is not used as an app icon (DS §19.1)" \
+    "$(grep -rqE 'icon_mask = &pos_brand_mark' apps ui && echo 0 || echo 1)"
+check "the launcher builds every tile from the app's icon_mask" \
+    "$(grep -q 'pocketui_tile_mask(sh.home, apps\[i\]->icon_mask, apps\[i\]->icon,' ui/shell/shell.c && echo 1 || echo 0)"
+sed -n '/^lv_obj_t \*pocketui_tile_mask(/,/^}/p' ui/pocketui/pocketui.c > "${TMP}/tile.txt"
+check "the tile draws a mask as an image in POS_STYLE_APP_ICON" \
+    "$(grep -q 'pos_style_add(ic, POS_STYLE_APP_ICON, 0)' "${TMP}/tile.txt" &&
+       grep -q 'lv_image_set_src(ic, mask)' "${TMP}/tile.txt" && echo 1 || echo 0)"
+check "without a mask the tile still draws the text icon (the API's fallback, unused by the launcher)" \
+    "$(grep -q 'lv_label_set_text(ic, icon)' "${TMP}/tile.txt" &&
+       grep -q 'pos_style_add(ic, POS_STYLE_SYMBOL_LARGE, 0)' "${TMP}/tile.txt" &&
+       grep -q 'pos_style_add(ic, POS_STYLE_ACCENT_TEXT, 0)' "${TMP}/tile.txt" && echo 1 || echo 0)"
+check "the icon is not animated (reduced motion has nothing to change)" \
+    "$(grep -q 'lv_anim' "${TMP}/tile.txt" && echo 0 || echo 1)"
+sed -n '/styles\[POS_STYLE_APP_ICON\]/,/^}/p' ui/pocketui/pos_styles.c > "${TMP}/role.txt"
+check "the icon role draws in accent_primary at full opacity" \
+    "$(grep -q 'lv_style_set_image_recolor(s, tok(POS_COLOR_ACCENT_PRIMARY))' "${TMP}/role.txt" &&
+       grep -q 'lv_style_set_image_recolor_opa(s, LV_OPA_COVER)' "${TMP}/role.txt" && echo 1 || echo 0)"
+check "the shell build compiles the masks" \
+    "$(grep -q '^    ../pocketui/pos_app_icons.c$' ui/shell/CMakeLists.txt && echo 1 || echo 0)"
+
+echo "app_icons_test: $failed failure(s)"
+[ "$failed" -eq 0 ]

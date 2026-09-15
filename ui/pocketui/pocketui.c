@@ -33,6 +33,12 @@ lv_obj_t *pocketui_card(lv_obj_t *parent)
 lv_obj_t *pocketui_tile(lv_obj_t *parent, const char *icon, const char *label,
                         lv_event_cb_t on_click, void *user_data)
 {
+    return pocketui_tile_mask(parent, NULL, icon, label, on_click, user_data);
+}
+
+lv_obj_t *pocketui_tile_mask(lv_obj_t *parent, const lv_image_dsc_t *mask, const char *icon,
+                             const char *label, lv_event_cb_t on_click, void *user_data)
+{
     lv_obj_t *tile = lv_obj_create(parent);
     lv_obj_t *ic;
     lv_obj_t *lb;
@@ -47,10 +53,19 @@ lv_obj_t *pocketui_tile(lv_obj_t *parent, const char *icon, const char *label,
     if (on_click) {
         lv_obj_add_event_cb(tile, on_click, LV_EVENT_CLICKED, user_data);
     }
-    ic = lv_label_create(tile);
-    lv_label_set_text(ic, icon);
-    pos_style_add(ic, POS_STYLE_SYMBOL_LARGE, 0);
-    pos_style_add(ic, POS_STYLE_ACCENT_TEXT, 0);
+    /* Either way the icon is the tile's first child, top-left in the 12 px
+     * inset, and not clickable, so a tap on it is a tap on the tile. */
+    if (mask) {
+        ic = lv_image_create(tile);
+        lv_obj_remove_style_all(ic);
+        pos_style_add(ic, POS_STYLE_APP_ICON, 0);
+        lv_image_set_src(ic, mask);
+    } else {
+        ic = lv_label_create(tile);
+        lv_label_set_text(ic, icon);
+        pos_style_add(ic, POS_STYLE_SYMBOL_LARGE, 0);
+        pos_style_add(ic, POS_STYLE_ACCENT_TEXT, 0);
+    }
     lv_obj_align(ic, LV_ALIGN_TOP_LEFT, 0, 0);
     lb = lv_label_create(tile);
     lv_label_set_text(lb, label);

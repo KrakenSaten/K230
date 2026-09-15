@@ -1028,10 +1028,13 @@ static void clock_destroy(void *priv)
     lv_free(a);
 }
 
+LV_IMAGE_DECLARE(pos_app_icon_clock);
+
 const struct pocketos_app app_clock = {
     .id = "clock",
     .name = "Clock",
     .icon = LV_SYMBOL_BELL,
+    .icon_mask = &pos_app_icon_clock,
     .create = clock_create,
     .tick = NULL,
     .destroy = clock_destroy,
