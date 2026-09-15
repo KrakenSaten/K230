@@ -59,9 +59,9 @@ SHA-256 of the splash source: `e98aacc22f8e9fd8ab18dc20bd8219021ccfd7bba6f7851fa
 
 | Files | Format | Pixels | Alpha | Status |
 | --- | --- | --- | --- | --- |
-| `svg/{calculator,calendar,clock,fleet,notes,radar,radio,settings,system,timber}.svg` | SVG, one group: 1.5 stroke in `currentColor`, square caps, miter joins, no fill | 24 × 24 | — | deferred (masters) |
-| `png-24/<same ten>.png` | PNG, RGBA, white | 24 × 24 | antialiased: 0–23 opaque and 142–228 partial pixels each | deferred |
-| `png-32/<same ten>.png` | PNG, RGBA, white | 32 × 32 | antialiased: 59–232 opaque and 64–284 partial pixels each | deferred |
+| `svg/{calculator,calendar,clock,fleet,notes,radar,radio,settings,system,timber}.svg` | SVG, one group: 1.5 stroke in `currentColor`, square caps, miter joins, no fill | 24 × 24 | — | reference (masters) |
+| `png-24/<same ten>.png` | PNG, RGBA, white | 24 × 24 | antialiased: 0–23 opaque and 142–228 partial pixels each; none opaque in six | not used: soft at this size, see App icons |
+| `png-32/<same ten>.png` | PNG, RGBA, white | 32 × 32 | antialiased: 59–232 opaque and 64–284 partial pixels each | **used**: the launcher's app icons |
 
 Mapping, by file name to `struct pocketos_app.id`: `radio`, `system`, `fleet`,
 `radar`, `timber`, `notes`, `clock`, `calendar`, `calculator`, `settings`. The
@@ -126,8 +126,8 @@ through a tint, so only the white `doors-mark.png` is converted.
 | Boot splash | `boot/doors-boot-568x1232.png` | `platforms/k230/rootfs_overlay/logo.xrgb`, see Boot splash |
 | System identity | `brand/doors-mark.png` | `ui/pocketui/pos_brand_mark.c`, see System identity |
 | Status bar | none | unchanged: `mockups/doors-status-bar-568x56` shows the `DOORS` caption Phase 1 already ships |
-| Launcher | none | deferred, see Launcher |
-| App icons | `icons/` | deferred, see App icons |
+| Launcher, brand | none | no logo on the launcher, see Launcher |
+| Launcher, app icons | `icons/png-32/` | `ui/pocketui/pos_app_icons.c`, see App icons |
 | Settings, Appearance | `brand/doors-mark-16` | not in scope: not requested, mockup only |
 
 ## Boot splash
@@ -259,7 +259,7 @@ uses the same recoloured-A8 drawing. **VERIFIED on unit A, 2026-09-15**
 (operator): crisp, in front of "Doors", the back arrow's accent in all five
 themes, legible in Outdoor and Night (docs/hardware/DOORS_GRAPHICS_GATE.md).
 
-## Launcher — deferred
+## Launcher
 
 Nothing in the package puts a logo in the launcher: its launcher mockups keep
 the existing grid and add only the stroke icons, and the status bar keeps the
@@ -268,32 +268,70 @@ which changes launcher geometry (DS §14 C7) and needs a DS amendment, so none
 is added.
 
 The launcher mockups show ten tiles. Master has eleven apps (Wave was added
-after the mockups were drawn), so they are not a layout for today's launcher.
+after the mockups were drawn); the launcher keeps its eleven tiles in its own
+order, and the icons land in the same cells the mockups draw them in.
 
-## App icons — deferred
+## App icons
 
-The ten icons are inventoried above and map one-to-one onto app ids. They are
-not integrated, because every route to showing them changes an interface this
-session must not touch:
+Branch `rebrand/doors-app-icons`. DS §20 (Amendment D, **proposed**, for the
+owner to accept after the unit A visual gate,
+`docs/hardware/DOORS_APP_ICONS_GATE.md`) is the rule.
 
-1. **App API.** `struct pocketos_app.icon` is `const char *`, an `LV_SYMBOL_*`
-   glyph or short text (`ui/shell/app.h`). An image needs either a new field,
-   with a decision on `POCKETOS_APP_API_VERSION`, or a shell-owned table from
-   `app.id` to image that leaves the API alone.
-2. **PocketUI.** `pocketui_tile()` takes the icon as text and draws it as a
-   label in `POS_STYLE_SYMBOL_LARGE` (Montserrat 32, which the style's own
-   comment calls temporary "until DS icons"). An image tile needs a new
-   variant, tinted through a style role as the System mark is.
-3. **Design System.** DS §11 sets app icons on a 24 px grid at 1.5 px, and
-   §14 C7 puts a 24 px icon in the tile. The package draws them in a 32 px
-   cell at 2 px (the 24 px master scaled 4/3). Either `png-24` is used, which
-   matches the DS but is smaller than the mockups, or the DS is amended for
-   32 px.
-4. **Conversion.** No SVG rasteriser is available to a standard-library build,
-   so the PNGs are the practical source. They are white on transparent and
-   antialiased, so each converts to an A8 mask from its alpha channel with no
-   loss, by the same method as the System mark.
-5. **Wave has no icon.** The owner needs to supply one before the set is
-   complete.
-6. **Validation.** Screenshots in all five themes and the three display modes,
-   and one look on the device, where LVGL renders to RGB565.
+| App (`id`) | Launcher icon | Source |
+| --- | --- | --- |
+| Radio (`radio`) | `pos_app_icon_radio` | `icons/png-32/radio.png` |
+| System (`system`) | `pos_app_icon_system` | `icons/png-32/system.png` |
+| Fleet (`fleet`) | `pos_app_icon_fleet` | `icons/png-32/fleet.png` |
+| Radar (`radar`) | `pos_app_icon_radar` | `icons/png-32/radar.png` |
+| Timber (`timber`) | `pos_app_icon_timber` | `icons/png-32/timber.png` |
+| Notes (`notes`) | `pos_app_icon_notes` | `icons/png-32/notes.png` |
+| Clock (`clock`) | `pos_app_icon_clock` | `icons/png-32/clock.png` |
+| Calendar (`calendar`) | `pos_app_icon_calendar` | `icons/png-32/calendar.png` |
+| Calculator (`calculator`) | `pos_app_icon_calculator` | `icons/png-32/calculator.png` |
+| Settings (`settings`) | `pos_app_icon_settings` | `icons/png-32/settings.png` |
+| Wave (`wave`) | **fallback**: its glyph `LV_SYMBOL_VOLUME_MAX`, unchanged | none in the package; the owner supplies one |
+
+| | |
+| --- | --- |
+| Generated | `ui/pocketui/pos_app_icons.c` by `tools/design/gen_app_icons.py`, committed like the fonts; the header lists each source's SHA-256 |
+| Format | LVGL `LV_COLOR_FORMAT_A8`, 32 × 32 each, the whole canvas (not trimmed, so every icon keeps its place in the cell), alpha kept exactly with its antialiasing, not scaled |
+| Why `png-32` | the package's launcher size, and its launcher mockup's; at 24 px the 1.5 px strokes cover almost no whole pixel (none in six of the ten), so the icons would be soft; 32 px is the cell the glyph icons already filled, so the tile does not change. DS §20.2 records it |
+| Why not SVG | no SVG rasteriser in a standard-library build; the PNGs are the package's own renders of the SVGs, white on transparent, so the alpha channel is the icon |
+| Colour | none in the asset. `POS_STYLE_APP_ICON` sets `image_recolor` to `accent_primary` at full cover, the accent the glyph icons had, so the icons follow all five themes and three display modes, live |
+| Data model | `struct pocketos_app` gains one appended, optional field `const lv_image_dsc_t *icon_mask`; `icon` stays. `POCKETOS_APP_API_VERSION` stays 0 |
+| PocketUI | `pocketui_tile_mask(parent, mask, icon, label, cb, user)`: `pocketui_tile()` with the mask as an image in the icon's place; a NULL mask builds exactly the glyph tile, and `pocketui_tile()` is now that call |
+| Geometry | unchanged: 254 × 150 tile, 12 px inset, icon top-left, label bottom-left, 2 columns, 20 px gutter; the icon is not clickable and joins no focus group |
+| Size | 10,240 bytes of mask data (`.rodata`) plus ten 40-byte descriptors on a 64-bit build; no heap for the pixels, because LVGL 9.5's image decoder hands an uncompressed A8 variable to the renderer in place (`lv_bin_decoder.c`) and the image cache is off (`LV_CACHE_DEF_SIZE 0`). Measured in `docs/hardware/DOORS_APP_ICONS_GATE.md` |
+| Motion | none, so reduced motion changes nothing |
+
+Tests:
+
+- `tests/app_icons_test.sh` (make test): the ten sources by hash; the committed
+  C file is the generator's output; each mask equals its PNG's alpha decoded
+  by a second reader; the refusals (a colour under a visible pixel, no alpha,
+  nothing visible, mixed sizes, a file name that is not an app id); each app
+  descriptor points at its own mask and Wave at none; the masks are used
+  nowhere else and the brand mark is not an app icon; the tile's image and
+  glyph paths; the role's colour.
+- `tests/pocketui_tile_test.c` (run by the shell test): a mask tile and a
+  glyph tile built side by side under a real pointer device: same tile and
+  label boxes, icon at the 12 px inset, 32 × 32 unscaled, no clickable icon,
+  no focus-group change, a tap on the icon, the label and the empty middle
+  opens the app and one in the gutter does not, a press on the icon presses
+  the tile, and the tint equals `accent_primary` and the glyph's colour in all
+  15 theme and mode pairs.
+- `tests/launcher_icons_shell_test.sh` (shell tests): in the running shell, for
+  all 15 pairs, every tile's box, each app's own mask found at its tile's icon
+  origin blended from `surface` to `accent_primary` (max error 2 measured,
+  tolerance 4; the nearest wrong mask is 99 away), clear tile around it, the
+  empty band, the label from the inset, Wave's glyph where it was and no mask
+  there; again after a live switch to carbon/night and after opening all
+  eleven apps and coming home; with reduced motion the launcher is
+  pixel-identical. With `SHOTS_DIR=<dir>` it keeps the screenshots and writes
+  two contact sheets.
+
+`shots/launcher-contact.png` is that run's launchers at half size, columns ice,
+brass, olive, slate, carbon, rows Normal, Outdoor, Night.
+`shots/launcher-icons-contact.png` is every tile's icon cell at twice size:
+rows the 15 pairs in the same order, columns the eleven apps in launcher order,
+Wave's glyph last. SDL simulator renders, not the AMOLED panel.
