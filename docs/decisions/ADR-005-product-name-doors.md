@@ -1,10 +1,12 @@
 # ADR-005: Product name Doors
 
-Status: Accepted for Phase 1 (product owner, 2026-09-15). Phase 2 started with
-the owner's go (2026-09-15) and is implemented as recorded under "Phase 2 as
-implemented"; its hardware test passed on unit A on 2026-09-15
-(docs/hardware/DOORS_PHASE2_GATE.md), and its acceptance is the owner's
-decision. Phases 3 and 4 each need the owner's go before they start.
+Status: Accepted for Phases 1 and 2 (product owner, 2026-09-15). Phase 2 is
+implemented as recorded under "Phase 2 as implemented"; its hardware gate
+passed on unit A on 2026-09-15 (docs/hardware/DOORS_PHASE2_GATE.md). The
+graphics integration's hardware gate also passed on unit A on 2026-09-15
+(docs/hardware/DOORS_GRAPHICS_GATE.md). Both are merged to master. Phases 3
+and 4 have not started; each needs the product owner's explicit approval
+before it starts.
 Date: 2026-09-15
 Deciders: product owner (final), AI engineering partner (author)
 
@@ -141,8 +143,9 @@ carries data. Facts that constrain any rename:
 
 ## Phase 2 as implemented
 
-Branch `rebrand/doors-2-identity`, from master `8070379`. VERSION stays 0.0.9;
-v0.0.10 is not tagged by this phase.
+Branch `rebrand/doors-2-identity`, from master `8070379`; merged to master
+(`2caba9e`) and accepted by the product owner on 2026-09-15. VERSION stays
+0.0.9; v0.0.10 is not tagged by this phase.
 
 ### Compatibility model
 
