@@ -1,5 +1,5 @@
 #!/bin/bash
-# Third-party notices: what PocketOS ships about other people's work, and what
+# Third-party notices: what Doors ships about other people's work, and what
 # it must not claim about its own (docs/LICENSING.md).
 #
 #   - THIRD_PARTY_NOTICES.txt is exactly what third_party/notices produces, and
@@ -7,15 +7,16 @@
 #   - Each copied licence text is byte-identical to its pinned upstream wherever
 #     that source can be read here. apply_to_sdk.sh repeats this strictly,
 #     against the SDK's own source archives, before anything is packaged.
-#   - Third-party code cannot reach a PocketOS binary without an entry: the
+#   - Third-party code cannot reach a Doors binary without an entry: the
 #     vendored trees the Makefile and the shell build compile, the fonts the
 #     shell embeds, the LVGL it loads and the packages it depends on are all
 #     tied to entries or to a Buildroot package that carries its own licence.
 #   - The notices are installed into the image, handed to legal-info, and sent
 #     by the bench deploy; pocketos.hash holds their sha256 for legal-info, and
 #     a notices file that no longer matches it is refused.
-#   - PocketOS's own licence stays undecided: no licence file, the package says
-#     so and is not redistributable, and the notices say so first.
+#   - Doors' own licence (PocketOS through v0.0.9) stays undecided: no licence
+#     file, the package says so and is not redistributable, and the notices
+#     say so first.
 #
 # Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
 set -u
@@ -197,15 +198,17 @@ check "a wrong hash is refused" \
 reset_guard; rm -f "$G/$HASHF"
 check "a missing hash file is refused" "$(guard > /dev/null && echo 0 || echo 1)"
 
-# ---- PocketOS's own licence: undecided ------------------------------------
-check "no licence file claims a licence for PocketOS" \
+# ---- Doors' own licence (PocketOS through v0.0.9): undecided -----------------
+check "no licence file claims a licence for Doors" \
     "$(for f in LICENSE LICENSE.txt LICENSE.md LICENCE COPYING; do [ -e "$f" ] && exit 1; done; echo 1)"
 check "the package declares the licence not yet decided, with no licence granted" \
-    "$(grep -q '^POCKETOS_LICENSE = Not yet decided (PocketOS; no licence granted)' "$MK" && echo 1 || echo 0)"
-check "and not redistributable, so legal-info does not publish PocketOS's source" \
+    "$(grep -q '^POCKETOS_LICENSE = Not yet decided (Doors; no licence granted)' "$MK" && echo 1 || echo 0)"
+check "and not redistributable, so legal-info does not publish Doors' source" \
     "$(grep -q '^POCKETOS_REDISTRIBUTE = NO$' "$MK" && echo 1 || echo 0)"
 check "the notices say so before anything else" \
-    "$(head -8 "$NOTICES" | tr '\n' ' ' | grep -q 'no licence has been chosen for PocketOS.s own code.*not authorised' && echo 1 || echo 0)"
+    "$(head -8 "$NOTICES" | tr '\n' ' ' | grep -q 'no licence has been chosen for the code of Doors .*No licence to it is granted.*not authorised' && echo 1 || echo 0)"
+check "and tie the statement to the PocketOS name the copyright lines still carry" \
+    "$(head -8 "$NOTICES" | tr '\n' ' ' | grep -q 'called PocketOS through v0.0.9; its source files still name "PocketOS authors"' && echo 1 || echo 0)"
 
 echo "notices_test: $failed failure(s)"
 exit $((failed > 0))

@@ -1,21 +1,27 @@
 # Licensing register
 
-Started 2026-09-04. Commercial distribution of PocketOS is possible, so every
-component's licence must be known before it is redistributed.
+Started 2026-09-04. Commercial distribution of Doors (called PocketOS through
+v0.0.9, ADR-005) is possible, so every component's licence must be known
+before it is redistributed.
 
 ## First-party
 
-PocketOS licence: **not yet decided** (product owner). Until the owner chooses
-one:
+Doors licence: **not yet decided** (product owner). The rename changes no
+term below, and the owner's decisions recorded under the PocketOS name apply
+to Doors unchanged. Until the owner chooses a licence:
 
-- no licence is granted for PocketOS's own code, and there is no LICENSE file;
-- **redistributing PocketOS outside the project, as source or as binaries, is
+- no licence is granted for Doors' own code, and there is no LICENSE file;
+- **redistributing Doors outside the project, as source or as binaries, is
   not authorised** (owner, 2026-09-13);
-- source files carry "License: see LICENSE (TBD)" and nothing is published;
+- source files carry "Copyright (c) 2026 PocketOS authors. License: see
+  LICENSE (TBD)" and nothing is published. The copyright line keeps the
+  PocketOS name: who holds it is part of the licence decision, not of the
+  rename (ADR-005, decision 7);
 - the Buildroot package says the same: `POCKETOS_LICENSE = Not yet decided
-  (PocketOS; no licence granted), ...` and `POCKETOS_REDISTRIBUTE = NO`, so
-  `make legal-info` does not export PocketOS's source, and
-  THIRD_PARTY_NOTICES.txt opens with the statement.
+  (Doors; no licence granted), ...` and `POCKETOS_REDISTRIBUTE = NO`, so
+  `make legal-info` does not export Doors' source, and
+  THIRD_PARTY_NOTICES.txt opens with the statement, naming the former name
+  and the copyright lines.
 
 This does not block internal development, bench deployment or merging; it is
 the owner's release and public-distribution decision (open item 1).
@@ -29,14 +35,14 @@ the owner's release and public-distribution decision (open item 1).
 | Linux kernel + LILYGO BSP kernel patches | GPL-2.0 | DOCUMENTED (kernel licence; patches are derivative) | Kernel source for shipped images must be offered. |
 | U-Boot 2022.10 + overlay | GPL-2.0+ | DOCUMENTED | Same as kernel. |
 | Xinyuan-LilyGO/T-Display-K230 (BSP scripts, launcher `k230_phone_ui`) | **No LICENSE file, no headers** | VERIFIED locally 2026-09-04 | No right to copy code from the launcher (including its RadioLib Linux HAL) until LILYGO states a licence. Use as documentation only, or ask LILYGO. |
-| Xinyuan-LilyGo/T-Display-K230_canmv_rt | GPL-3.0 per README header | VERIFIED locally | Reference only. Not linked into PocketOS. |
+| Xinyuan-LilyGo/T-Display-K230_canmv_rt | GPL-3.0 per README header | VERIFIED locally | Reference only. Not linked into Doors. |
 | RadioLib 7.7.1 (vendor/RadioLib, compiled into radiod) | MIT (license.txt present) | VERIFIED locally | Fetched from upstream at tag 7.7.1; the launcher copy is not used. |
 | ggwave v0.4.3 (vendor/ggwave at a38e38b, compiled into pos-wave) | MIT (LICENSE, "Copyright (c) 2020 Georgi Gerganov") | VERIFIED locally 2026-09-13 | Fetched from upstream at tag ggwave-v0.4.3. Keep the notice; the package carries LICENSE. |
 | ggwave's Reed-Solomon (src/reed-solomon, Mike Lubinets) | MIT permission text (its own LICENSE; the word "MIT" does not appear) | VERIFIED locally 2026-09-13 | Keep the notice; the package carries it. |
 | ggwave's FFT (src/fft.h, Takuya Ooura's FFT package, fft4g-derived `rdft`) | Author's terms: use, copy, modify and distribute for any purpose including commercial use, without fee; refer to the package when modifying. The file itself carries only the copyright line and the package URL | VERIFIED 2026-09-13 on the author's page https://www.kurims.kyoto-u.ac.jp/~ooura/fft.html ("License" section, verbatim in docs/legal/third-party/ooura-fft.txt) | **Resolved** for use and redistribution. Keep the header (copyright and package reference) intact; ship the notice with pos-wave (see "Audio milestone", item B). |
 | alsa-lib 1.2.13 (Buildroot package, dynamically linked by pos-wave) | LGPL-2.1-or-later | DOCUMENTED (docs/legal/manifest.csv) | Already in the image for alsa-utils; dynamic linking. |
-| libgpiod 2.2 (Buildroot package, dynamically linked by radiod) | LGPL-2.1-or-later | DOCUMENTED (header SPDX) | Dynamic linking keeps PocketOS code separate; offer library source. Header copy in vendor/libgpiod is for host compile checks only. |
-| nofrendo (bundled) | GPL-2.0 upstream | DOCUMENTED | Not needed by PocketOS. |
+| libgpiod 2.2 (Buildroot package, dynamically linked by radiod) | LGPL-2.1-or-later | DOCUMENTED (header SPDX) | Dynamic linking keeps Doors code separate; offer library source. Header copy in vendor/libgpiod is for host compile checks only. |
+| nofrendo (bundled) | GPL-2.0 upstream | DOCUMENTED | Not needed by Doors. |
 | libtmt, qrcodegen (bundled, no LICENSE copies) | MIT upstream | DOCUMENTED | Fetch upstream with LICENSE if ever used. |
 | quirc (bundled) | ISC (LICENSE present) | VERIFIED locally | Fine if used, keep notice. |
 | LVGL 9 (pinned commit 59dc7e4, vendor/lvgl; on the device the vendor SDK package `lvgl` at the same commit, `liblvgl.so.9.5.0`) | MIT (LICENCE.txt present); bundled components carry their own licences (COPYRIGHTS.md and the LICENSE files beside them) | VERIFIED locally 2026-09-13, against the SDK's source archive | The vendor package declares no licence (legal-info: "unknown"), so THIRD_PARTY_NOTICES.txt covers LVGL, lv_port_linux and every bundled component the vendor configuration compiles in: LodePNG, TJpgDec, ThorVG, and the Montserrat, Font Awesome 5, DejaVu Sans, Source Han Sans SC and unscii-8 fonts (see "Third-party notices"). |
@@ -69,7 +75,7 @@ under share/doc, which Buildroot strips) with a symlink to it at
 `/usr/share/pocketos/THIRD_PARTY_NOTICES.txt`, the path it had through
 v0.0.9 (ADR-005 Phase 2), collected by `make legal-info` as the `pocketos`
 package's licence file, and sent by the bench `deploy.sh`, link included. It
-opens with PocketOS's own undecided status, then lists and reproduces in full:
+opens with Doors' own undecided status, then lists and reproduces in full:
 
 | Material | Reaches the image as | Licence |
 | --- | --- | --- |
@@ -104,7 +110,7 @@ its text comes from; `tools/legal/gen_notices.sh` generates the file.
 - `tests/notices_test.sh` (make test) fails if the generated file is stale or
   its hash does not match, if a vendored tree the Makefile compiles, an
   embedded font or a package dependency has no entry, if the file stops being
-  installed, collected, hashed or deployed, or if a licence for PocketOS
+  installed, collected, hashed or deployed, or if a licence for Doors
   itself appears. It also proves the hash check refuses a hand-edited file,
   regenerated notices without their new hash, a wrong hash and a missing hash
   file.
@@ -113,11 +119,11 @@ its text comes from; `tools/legal/gen_notices.sh` generates the file.
 
 | Item | Class |
 | --- | --- |
-| Notices for third-party code compiled into PocketOS binaries, and for LVGL and its bundled components | **(a) resolved** - shipped and verified |
-| Libraries PocketOS and LVGL load from Buildroot packages with licence metadata (cJSON, libgpiod2, alsa-lib, libdrm, libevdev, FreeType, FFmpeg) | **(a) covered by `make legal-info`**, provided its output accompanies a distributed image (open item 3) |
+| Notices for third-party code compiled into Doors binaries, and for LVGL and its bundled components | **(a) resolved** - shipped and verified |
+| Libraries Doors and LVGL load from Buildroot packages with licence metadata (cJSON, libgpiod2, alsa-lib, libdrm, libevdev, FreeType, FFmpeg) | **(a) covered by `make legal-info`**, provided its output accompanies a distributed image (open item 3) |
 | C and C++ runtime libraries from the external Xuantie toolchain (glibc, libstdc++, libgcc) | **(b) blocks distribution**: not in legal-info's manifest (open item 8) |
 | Other vendor SDK packages without licence metadata: libnncase and gsl-lite ("unknown" in the manifest), and the vendor local packages absent from it (`k230_phone_ui`, `vvcam`, `face_detect`, `ai_demo`) | **(b) blocks distribution**: unchanged (open item 5) |
-| PocketOS's own licence | **(c) undecided**; external redistribution not authorised (open item 1) |
+| Doors' own licence (PocketOS through v0.0.9) | **(c) undecided**; external redistribution not authorised (open item 1) |
 
 ## Image manifest (PocketOS 0.0.1, 2026-09-04)
 
@@ -147,14 +153,15 @@ Findings:
 
 ## Open items
 
-1. Decide the PocketOS licence (owner). Until then no licence is granted and
-   external redistribution of PocketOS, source or binaries, is not authorised.
+1. Decide the Doors licence (owner), and with it who the copyright lines name
+   (they say "PocketOS authors"). Until then no licence is granted and
+   external redistribution of Doors, source or binaries, is not authorised.
 2. Ask LILYGO to add a LICENSE to the T-Display-K230 repository, or treat it as
    all-rights-reserved documentation.
 3. Add `make legal-info` to the image build and archive the result per release
    (first run done 2026-09-04, see above).
 4. Decide whether to drop `rtl8723ds`, `rtl8723ds-bt` and `aic8800` from the
-   PocketOS defconfig (hardware absent; one proprietary blob less).
+   defconfig, k230_pocketos_defconfig (hardware absent; one proprietary blob less).
 5. Add manual manifest entries for vendor local packages.
 6. ~~Confirm the licence terms of Ooura's FFT (ggwave `src/fft.h`), which the
    file itself does not state, before a release ships pos-wave.~~ Resolved

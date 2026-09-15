@@ -1,4 +1,4 @@
-# Third-party material in PocketOS binaries and the libraries they load
+# Third-party material in Doors binaries and the libraries they load
 # whose Buildroot packages do not already carry the licence (docs/LICENSING.md).
 # tools/legal/gen_notices.sh turns this list into THIRD_PARTY_NOTICES.txt.
 #

@@ -32,7 +32,7 @@ docs/
   api/                     Public API contracts: pocketipc v0, radio.* v0, shell.* v0, system.* v0, wifi.* v0 (network.md)
   design/                  Design System v0.1 (normative), themes.json, feasibility review, shots/
   BUILD_ENVIRONMENT.md     Host, toolchain, SDK commits, build/flash/test commands
-  LICENSING.md             Licence register for vendor and third-party code; PocketOS's own licence is not decided, and redistribution is not authorised until it is
+  LICENSING.md             Licence register for vendor and third-party code; Doors' own licence is not decided, and redistribution is not authorised until it is
   decisions/               ADRs (ADR-001 base platform: Accepted; ADR-002 app model: Accepted; ADR-003 Wi-Fi credentials: Accepted for the post-v0.0.9 milestone; ADR-004 audio ownership: Accepted for the audio milestone as a narrow exception for Wave; ADR-005 product name Doors: Accepted for Phase 1)
   hardware/T-DISPLAY-K230.md  Hardware baseline with evidence classification
   hardware/FIRST_BOOT.md   Day-one runbook: flash, console, hwcheck, PocketOS image, link test
