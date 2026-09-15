@@ -9,6 +9,7 @@
 #define POCKETUI_H
 
 #include "lvgl.h"
+#include "pos_display.h"
 #include "pos_input.h"
 #include "pos_styles.h"
 
@@ -28,6 +29,18 @@
 void pocketui_init(void);
 /* Apply the screen role to a screen object. */
 void pocketui_style_screen(lv_obj_t *screen);
+
+/* ---- Display geometry and safe area (pos_display.h) --------------------- */
+
+/* The shell sets the effective geometry once, before building anything; the
+ * default is the 568x1232 reference panel, upright, with no unsafe area. */
+void pocketui_set_display_geometry(const struct pos_display_geometry *g);
+const struct pos_display_geometry *pocketui_display_geometry(void);
+/* For a bar lying along a screen edge (a status bar along the top, a sheet
+ * along the bottom): raise its padding to the safe-area insets of that edge
+ * where they are larger, so nothing in it enters a rounded corner. Padding
+ * that already clears the corners is left as it is. */
+void pocketui_apply_bar_insets(lv_obj_t *bar, enum pos_edge edge);
 
 /* Panel: hairline-bordered container with 20 px padding, vertical flex. */
 lv_obj_t *pocketui_card(lv_obj_t *parent);

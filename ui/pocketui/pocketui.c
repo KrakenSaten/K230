@@ -5,6 +5,17 @@
  */
 #include "pocketui.h"
 
+/* Until the shell says otherwise: the reference panel, upright, every pixel
+ * visible - so a test or tool that builds widgets without a shell lays out
+ * exactly as before safe areas existed. */
+static struct pos_display_geometry geometry = {
+    .rotation = POS_ROTATION_0,
+    .native_width = 568,
+    .native_height = 1232,
+    .width = 568,
+    .height = 1232,
+};
+
 void pocketui_init(void)
 {
     pos_styles_init();
@@ -14,6 +25,32 @@ void pocketui_style_screen(lv_obj_t *screen)
 {
     pos_style_add(screen, POS_STYLE_SCREEN, 0);
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+void pocketui_set_display_geometry(const struct pos_display_geometry *g)
+{
+    geometry = *g;
+}
+
+const struct pos_display_geometry *pocketui_display_geometry(void)
+{
+    return &geometry;
+}
+
+void pocketui_apply_bar_insets(lv_obj_t *bar, enum pos_edge edge)
+{
+    struct pos_insets in = pos_display_bar_insets(&geometry, edge);
+    int32_t left = lv_obj_get_style_pad_left(bar, LV_PART_MAIN);
+    int32_t right = lv_obj_get_style_pad_right(bar, LV_PART_MAIN);
+    int32_t top = lv_obj_get_style_pad_top(bar, LV_PART_MAIN);
+    int32_t bottom = lv_obj_get_style_pad_bottom(bar, LV_PART_MAIN);
+
+    /* The bar keeps its own padding wherever that already clears the unsafe
+     * area; only an inset larger than it moves the content. */
+    lv_obj_set_style_pad_left(bar, LV_MAX(left, in.left), LV_PART_MAIN);
+    lv_obj_set_style_pad_right(bar, LV_MAX(right, in.right), LV_PART_MAIN);
+    lv_obj_set_style_pad_top(bar, LV_MAX(top, in.top), LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(bar, LV_MAX(bottom, in.bottom), LV_PART_MAIN);
 }
 
 lv_obj_t *pocketui_card(lv_obj_t *parent)

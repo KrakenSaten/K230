@@ -20,6 +20,7 @@
 #include "pos_keyboard.h"
 #include "settings.h"
 #include "shell_alarm.h"
+#include "shell_display.h"
 #include "shell_ipc.h"
 #include "shell_kb_state.h"
 #include "shell_kbd.h"
@@ -193,6 +194,10 @@ static void status_bar_create(lv_obj_t *screen)
 
     lv_obj_remove_style_all(bar);
     pos_style_add(bar, POS_STYLE_STATUS_BAR, 0);
+    /* The bar runs corner to corner along the top edge, so its ends are where
+     * the panel's rounded corners are: the wordmark and the clock keep clear
+     * of them through the safe area, not through padding of their own. */
+    pocketui_apply_bar_insets(bar, POS_EDGE_TOP);
     lv_obj_set_size(bar, LV_PCT(100), POCKETUI_STATUS_BAR_H);
     lv_obj_align(bar, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
@@ -856,6 +861,20 @@ int main(int argc, char **argv)
     /* Also before the first frame, so a dimmed panel does not flash at the
      * boot level while the launcher draws. */
     brightness_restore();
+    {
+        struct pos_panel panel;
+        struct pos_display_geometry geom;
+        struct pos_insets bar;
+
+        shell_display_panel(&panel);
+        pos_display_geometry_init(&geom, &panel, POS_ROTATION_0);
+        pocketui_set_display_geometry(&geom);
+        bar = pos_display_bar_insets(&geom, POS_EDGE_TOP);
+        LOG_INFO("display: %dx%d, corners %d,%d,%d,%d, status bar insets %d/%d", (int)geom.width,
+                 (int)geom.height, (int)geom.corners.top_left, (int)geom.corners.top_right,
+                 (int)geom.corners.bottom_right, (int)geom.corners.bottom_left, (int)bar.left,
+                 (int)bar.right);
+    }
     screen = lv_screen_active();
     pocketui_style_screen(screen);
     status_bar_create(screen);

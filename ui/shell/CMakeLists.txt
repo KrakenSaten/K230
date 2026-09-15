@@ -40,6 +40,8 @@ add_executable(pocketos-shell
     brightness.c
     platform_${POCKETOS_DISPLAY}.c
     ../pocketui/pocketui.c
+    ../pocketui/pos_display.c
+    shell_display.c
     ../pocketui/pos_input.c
     ../pocketui/pos_keyboard.c
     ../pocketui/pos_keymap.c
@@ -274,6 +276,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/radar/engine/radar_rules.c
         ${REPO_DIR}/apps/radar/engine/radar_score.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -315,6 +318,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/core/pocketlog/pocketlog.c
         ${REPO_DIR}/core/pocketpaths.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -341,6 +345,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     add_executable(pos_input_test
         ${REPO_DIR}/tests/pos_input_test.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -363,6 +368,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     add_executable(pos_keyboard_test
         ${REPO_DIR}/tests/pos_keyboard_test.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -386,6 +392,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/tests/pocketui_tile_test.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -412,6 +419,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/notes/notes_view.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -443,6 +451,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         shell_alarm.c
         shell_kb_state.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -473,6 +482,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/calendar/cal_view.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -502,6 +512,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/calculator/calc_view.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -529,6 +540,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/settings/settings_view.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -558,6 +570,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/wave/wave_text.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -590,6 +603,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/clock/clock_alert.c
         ${REPO_DIR}/apps/clock/clock_runtime.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -637,6 +651,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         kbd_tca8418.c
         kbd_bus_absent.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c

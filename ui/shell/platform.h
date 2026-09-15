@@ -9,8 +9,17 @@
 
 #include "lvgl.h"
 
+/* The T-Display K230's RM69A10 panel, native portrait. */
 #define POCKETOS_PANEL_W 568
 #define POCKETOS_PANEL_H 1232
+/* Its corners are visibly rounded; the straight edges show every pixel. No
+ * datasheet or source in reach gives the corner radius or mask. 30 px is the
+ * side inset the vendor launcher gives its own status bar on this panel
+ * (k230_phone_ui main.c, STATUS_BAR_SAFE_SIDE), taken as the side of each
+ * corner square (pos_display.h). PROVISIONAL: accepted or corrected on unit A
+ * (docs/hardware/DOORS_DISPLAY_GEOMETRY_GATE.md), where POCKETOS_SAFE_CORNERS
+ * can try another value without a rebuild. */
+#define POCKETOS_PANEL_CORNER 30
 
 /* Create the display and pointer input. Returns the display or NULL. */
 lv_display_t *pocketos_platform_init(void);
@@ -19,7 +28,7 @@ void pocketos_platform_sleep_ms(unsigned ms);
 
 /* The host keyboard, if this backend has one - the SDL simulator does, the
  * panel does not. The shell adopts it as a source of the one logical key
- * stream (DS §17.4); the backend does not wire it up itself, so devices are
+ * stream (DS ï¿½17.4); the backend does not wire it up itself, so devices are
  * created after the display and the stream is built in one place. */
 lv_indev_t *pocketos_platform_keyboard(void);
 
