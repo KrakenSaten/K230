@@ -24,7 +24,7 @@ lv_display_t *pocketos_platform_init(void)
     if (zoom > 0.1f && zoom <= 2.0f) {
         lv_sdl_window_set_zoom(disp, zoom);
     }
-    lv_sdl_window_set_title(disp, "PocketOS shell (simulator)");
+    lv_sdl_window_set_title(disp, "Doors shell (simulator)");
     lv_sdl_mouse_create();
     /* Created here, adopted by the shell: it is a source of the one logical
      * key stream, not a second input path (DS §17.4), and it stands in for
