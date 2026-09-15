@@ -421,7 +421,7 @@ comparison:
   24 px in `accent_primary`.
 - The Doors brand mark is not an icon and these rules do not cover it: §19.
 - The launcher's app icons, and their 32 px size on a tile, are §20
-  (Amendment D, proposed).
+  (Amendment D).
 
 ## 12. Motion [NORMATIVE]
 
@@ -487,7 +487,7 @@ Per-token, per-mode numbers: `themes.json → themes.<id>.contrast`.
   language. Apply §2: hairline panel, `accent_primary` 24 px icon top-left,
   row-title label bottom-left, pressed = `surface_raised` + focus outline.
   Tile size 150 px, 2 columns, 20 px gutter unchanged. The icon's size and
-  source: §20 (proposed).
+  source: §20 (Amendment D; 32 px on a tile).
 - **C8 — Text input / keyboard, dialog.** **CLOSED 2026-09-10 by Amendment
   A (§17)**, which specifies the text field, the focus model, the touch
   keyboard with its approved deviation DEV-1, and the dialog. Was: undesigned
@@ -994,13 +994,13 @@ one place. Normative on the same terms as the rest of this document. Nothing in
   (`platforms/k230/rootfs_overlay/logo.xrgb`) is fixed artwork in the Ice &
   Ember colours on black. It is not themed and no token applies to it.
 
-## 20. Amendment D — Doors app icons on the launcher [PROPOSED]
+## 20. Amendment D — Doors app icons on the launcher [NORMATIVE]
 
-**PROPOSED 2026-09-15.** Becomes normative when the product owner accepts it
-after the unit A visual gate (`docs/hardware/DOORS_APP_ICONS_GATE.md`). Brings
-the app icons of the Doors graphics packages (ADR-005,
-`docs/design/brand/README.md`) onto the launcher tiles, the amendment §19.3
-asks for. Nothing in §1–§19 is renumbered.
+**Accepted 2026-09-15** by the product owner, after the unit A visual gate
+(`docs/hardware/DOORS_APP_ICONS_GATE.md`). Brings the app icons of the Doors
+graphics packages (ADR-005, `docs/design/brand/README.md`) onto the launcher
+tiles, the amendment §19.3 asks for. Normative on the same terms as the rest
+of this document. Nothing in §1–§19 is renumbered.
 
 ### 20.1 What they are
 
@@ -1064,4 +1064,4 @@ PocketOS Design System v0.1 — **STATUS: APPROVED FOR IMPLEMENTATION**
 Amendment A (§17) approved 2026-09-10; C8 closed.
 Amendment B (§18) approved 2026-09-11.
 Amendment C (§19) accepted 2026-09-15.
-Amendment D (§20) proposed 2026-09-15.
+Amendment D (§20) accepted 2026-09-15.

@@ -321,8 +321,8 @@ order, and the icons land in the same cells the mockups draw them in.
 
 ## App icons
 
-Branch `rebrand/doors-app-icons`. DS §20 (Amendment D, **proposed**, for the
-owner to accept after the unit A visual gate,
+Branch `rebrand/doors-app-icons`. DS §20 (Amendment D, **accepted
+2026-09-15** after the unit A visual gate,
 `docs/hardware/DOORS_APP_ICONS_GATE.md`) is the rule.
 
 | App (`id`) | Launcher icon | Source |
@@ -388,3 +388,11 @@ brass, olive, slate, carbon, rows Normal, Outdoor, Night.
 `shots/launcher-icons-contact.png` is every tile's icon cell at twice size:
 rows the 15 pairs in the same order, columns the eleven apps in launcher order,
 Wave last. SDL simulator renders, not the AMOLED panel.
+
+On the device: the same LVGL A8 drawing as the System mark, into RGB565.
+**VERIFIED on unit A, 2026-09-15** (operator, build `3174471` deployed): all
+eleven launcher apps show their Doors icon, Wave its waveform and no speaker
+symbol, crisp and in place with nothing else moved; the icons tint and stay
+legible through Ice & Ember / Normal, Carbon & Signal Orange / Outdoor and
+Slate & Lavender / Night; a tap on the Wave icon opens Wave and Back returns
+to the launcher (docs/hardware/DOORS_APP_ICONS_GATE.md).

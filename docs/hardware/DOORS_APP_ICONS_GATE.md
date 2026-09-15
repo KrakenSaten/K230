@@ -2,9 +2,11 @@
 
 Branch `rebrand/doors-app-icons`, from master `95b4f58`.
 
-**Result: NOT RUN.** Everything that can be checked without the panel passed
-(below). One short visual gate on unit A remains; DS Amendment D (§20) stays
-PROPOSED until the product owner accepts it after that gate.
+**Result: PASS on unit A, 2026-09-15** (product owner's visual confirmation,
+build `3174471` deployed over SSH). All eleven launcher apps show their Doors
+icon on the panel, tinted and legible in Normal, Outdoor and Night, and a tap
+on the Wave icon opens Wave. Every remote check passed. DS Amendment D (§20) is
+accepted.
 
 Not merged. No change to VERSION, release metadata, service or shell names,
 launcher layout, typography, spacing, the focus model, the boot splash or the
@@ -82,6 +84,103 @@ If all three pass: the gate is PASS, Amendment D can be put to the owner for
 acceptance, and this sheet records the evidence. A FAIL on 1 or 2 is a
 rendering question for the device (RGB565 or the panel), not a layout one: the
 simulator checks already fix the placement.
+
+## Result on unit A (2026-09-15)
+
+Every check below except the three visual answers ran by script, over SSH
+with key authentication and a host key read over the serial console in the
+Phase 2 gate, and printed `ok` or `FAIL`. The only operator actions were
+watching the panel and one tap.
+
+**Build and provenance.** Clean WSL clone at `3174471` (branch tip, clean
+tree, VERSION 0.0.9); `apply_to_sdk.sh` rc 0 (source worktree clean, RadioLib
+`034126e` and ggwave `a38e38b` clean, BUILD_ID `3174471`); `build_image.sh`
+rc 0 in 230 s, IMAGE GATE: PASS, SPLASH: PASS, `sha256sum -c` of
+SHA256SUMS.txt and of the release's `.sha256`: OK. The 488 compiler warnings
+in the build log are all in vendor code (opencv headers, the vendor
+`face_detect` package); none is in Doors sources.
+
+| File | Bytes | SHA-256 |
+| --- | --- | --- |
+| `sysimage-sdcard.img` (not flashed) | 763,363,328 | `c98ded1d77681ecd0b94efc806377bef667738f2b9aeeee34442fb7cce5ca0af` |
+| `/usr/bin/pocketos-shell` | 928,192 | `715018378f3a4416c6dd63909ce3ba1270db3c3742d11f4a70a17bbfb4df9bad` |
+
+The shell binary is the same file in the SDK target tree `deploy.sh` ships,
+in the image's root filesystem (debugfs), on the device, and behind the
+running process (`/proc/<pid>/exe`); it holds each of the eleven compiled mask
+byte sequences exactly once, and `/etc/doors-release` reads `0.0.9` /
+`BUILD_ID=3174471` in the image and on the device.
+
+**Before** (unit A as it was: `0.0.9` / `691b508`, Doors shell on the panel,
+Ice/Normal, 0 crash reports, no WARN or ERROR line in any service log). The
+old shell was restarted and measured the same way as the new one: 60 s idle on
+the launcher, then after all eleven apps opened and came home (11/11), with no
+WARN or ERROR logged across the restart and the round trip.
+
+**Deploy.** `deploy.sh 192.168.10.157` from the build clone: rc 0 in 4 s,
+services stopped, archive extracted, services started, `Doors 0.0.9 (build
+3174471)`, `pos 0.0.9 (build 3174471)`, radio info, `system.info`, `Done.`
+WSL's ssh printed a host-key-changed warning for a stale ECDSA entry in its
+own `known_hosts`; the ED25519 key the unit presented,
+`SHA256:q+QqO4nwkYQTH1h4Gk+JU50CufMwIpy0VN/vkik4E5g`, is the one read over
+the serial console, and the Phase 2 deploys printed the same warning.
+
+| # | Result | Evidence |
+| --- | --- | --- |
+| R1 | **PASS** | `doors version` `Doors 0.0.9 (build 3174471)`, `pos version` `pos 0.0.9 (build 3174471)`, `/etc/doors-release` `0.0.9` / `BUILD_ID=3174471` |
+| R2 | **PASS** | `/usr/bin/pocketos-shell` and the running process's executable both SHA-256 `71501837…9bad`; `shell.info` build `3174471`, backend `drm`, eleven apps listed |
+| R3 | **PASS** | `sysd`, `netd`, `radiod`, `pocketos-shell` running, 0 restarts, no crashloop |
+| R4 | **PASS** | all eleven apps opened through `app start`, seen open in `app list`, and returned home through `app home`: 11/11 |
+| R5 | **PASS** | 0 crash reports before, 0 after the round trip, 0 after the visual check; `doors logs --crashes` none |
+| R6 | **PASS** | 0 WARN or ERROR lines in the 45 service-log lines written from the deploy to the end of the round trip, 0 in the 56 by the end of the visual check; 0 in the shell's stdio log |
+| R7 | **PASS** | after the visual check: build still `3174471`, shell home on Ice/Normal, stored theme and display mode equal to before the gate, services and crash reports as in R3 and R5 |
+
+Shell memory on the device (`/proc/<pid>/status` and `smaps_rollup`; 60 s idle
+on the launcher, then 10 s after the eleven-app round trip):
+
+| | 691b508 idle | 3174471 idle | 691b508 after apps | 3174471 after apps |
+| --- | --- | --- | --- | --- |
+| VmRSS (= VmHWM) | 12,544 kB | 12,288 kB | 13,184 kB | 12,928 kB |
+| RssAnon | 4,352 kB | 4,352 kB | 4,608 kB | 4,608 kB |
+| RssFile | 8,192 kB | 7,936 kB | 8,576 kB | 8,320 kB |
+| Pss | 10,084 kB | 9,833 kB | 10,648 kB | 10,441 kB |
+| VmSize | 46,476 kB | 46,488 kB | 46,608 kB | 46,620 kB |
+
+Anonymous memory, where the launcher's objects live, is identical to the kB;
+resident memory is 256 kB lower, in file-backed pages. The icon change costs
+the device no measurable RAM.
+
+**Visual check.** A script on the unit cycled the launcher every 20 s through
+Ice & Ember / Normal, Carbon & Signal Orange / Outdoor and Slate & Lavender /
+Night (18:20:19 to 18:22:39 UTC, two full cycles and part of a third) and
+logged every app open and close it saw, with no app command sent from the
+session. The operator's tap opened Wave at 18:22:39 (`open app wave` in
+`shell.log`), the cycle stopped on Ice/Normal, and Back returned home at
+18:22:53.
+
+| # | Check | Result |
+| --- | --- | --- |
+| 1 | Icons: eleven Doors icons, Wave's waveform and no speaker symbol, crisp and in place, nothing else moved | **PASS** (operator) |
+| 2 | Tint and legibility in Normal, Outdoor and Night | **PASS** (operator) |
+| 3 | A tap on the Wave icon opens Wave; Back returns to the launcher | **PASS** (operator; open and return in the unit's log) |
+
+### After the test
+
+- Unit A runs `0.0.9` / `3174471` (this branch, deployed over the `691b508`
+  image), Doors shell on the panel, Ice/Normal, bench SSH key installed. No
+  flash, and `deploy.sh` does not write the boot partition: `/boot/logo.xrgb`
+  is still the `691b508` image's, the vendor splash (SHA-256 `9fd79fee…`). The
+  app icons do not touch the splash; a flashed image of this branch carries
+  the committed Doors splash (SPLASH: PASS above).
+- The shared SDK was put back as found: the target tree in the PocketOS-era
+  identity layout (the three links replaced by copies; `/usr/bin/doors`,
+  `/etc/doors-release`, `/usr/share/doors` removed), the applied manifest set
+  aside as `.pocketos-applied.icons-3174471`, the vendor splash (`9fd79fee…`)
+  back in the overlay. `git status` of the SDK differs from before only by that
+  set-aside manifest. The target tree's binaries are now this build's.
+- Evidence (not in the repository): the session's scratchpad holds the build,
+  apply, image and deploy logs, and the before, after, visual and final check
+  outputs; the unit keeps `/root/iconsgate/`.
 
 ## Validation done without hardware (2026-09-15)
 
