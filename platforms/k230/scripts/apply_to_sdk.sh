@@ -233,7 +233,7 @@ echo "[3b/5] Panel switch for the vendor launcher"
 # The vendor init script is patched in place at apply time rather than
 # copied into this repository (the LILYGO tree carries no licence): an ENABLE
 # switch in /etc/default/k230_phone_ui lets pocketos-shell own the panel
-# across reboots. S90pocketos-shell reads the same file and refuses to start
+# across reboots. S90doors-shell reads the same file and refuses to start
 # while the launcher is enabled. The launcher itself stays in the image.
 S99="${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/etc/init.d/S99zz_k230_phone_ui"
 [ -f "${S99}" ] || { echo "vendor launcher init script missing: ${S99}" >&2; exit 1; }

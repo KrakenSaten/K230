@@ -118,6 +118,36 @@ if [ -f "${PKG_SRC}/tools/legal/gen_notices.sh" ]; then
     echo "Third-party notices: installed, matching pocketos.hash, and the built LVGL matches them."
 fi
 
+# ADR-005 Phase 3: exactly one shell service, checked in the target tree before
+# the rootfs is assembled from it. verify_image.sh asks the same question of the
+# finished image; this one fails while the answer is still cheap to fix, and it
+# names what to remove. Buildroot never deletes from a target tree, so a tree
+# that has ever built a PocketOS-era shell keeps it until something says so.
+TGT="${SDK_DIR}/output/${CONF}/target"
+SHELL_TROUBLE=0
+for stale in usr/bin/pocketos-shell etc/init.d/S90pocketos-shell; do
+    if [ -e "${TGT}/${stale}" ]; then
+        echo "ERROR: the PocketOS-era shell is still in the target tree: ${stale}" >&2
+        echo "       Re-run apply_to_sdk.sh (it removes it), or delete ${TGT}/${stale}." >&2
+        SHELL_TROUBLE=1
+    fi
+done
+for want in usr/bin/doors-shell etc/init.d/S90doors-shell; do
+    if [ ! -e "${TGT}/${want}" ]; then
+        echo "ERROR: the Doors shell service is missing from the target tree: ${want}" >&2
+        SHELL_TROUBLE=1
+    fi
+done
+# Panel ownership is a per-unit decision, so neither settings file is packaged.
+for never in etc/default/doors-shell etc/default/pocketos-shell; do
+    if [ -e "${TGT}/${never}" ]; then
+        echo "ERROR: ${never} must not be shipped in the image (it is a unit's own setting)." >&2
+        SHELL_TROUBLE=1
+    fi
+done
+[ "${SHELL_TROUBLE}" -eq 0 ] || exit 1
+echo "Shell service: one identity in the target tree (doors-shell), no PocketOS-era leftovers."
+
 if [ "${TARGET}" = "all" ]; then
     IMAGES="${SDK_DIR}/output/${CONF}/images"
 
