@@ -220,7 +220,7 @@ Both are the same contract, and it is worth reading once.
 
 **They go through init.** sysd runs `/sbin/reboot` or `/sbin/poweroff`, which
 on this image are BusyBox applets that signal init. init runs `rcK`, which
-stops `S90pocketos-shell`, `S60radiod` and `S50sysd` in reverse order, then
+stops `S90doors-shell`, `S60radiod` and `S50sysd` in reverse order, then
 syncs and remounts the root filesystem read-only. sysd never calls `reboot(2)`
 itself: that would skip all of it — the shell would never release the panel,
 nothing would be flushed, and the SD card would be cut off mid-write.

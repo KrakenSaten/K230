@@ -4,9 +4,12 @@ Status: Accepted for Phases 1 and 2 (product owner, 2026-09-15). Phase 2 is
 implemented as recorded under "Phase 2 as implemented"; its hardware gate
 passed on unit A on 2026-09-15 (docs/hardware/DOORS_PHASE2_GATE.md). The
 graphics integration's hardware gate also passed on unit A on 2026-09-15
-(docs/hardware/DOORS_GRAPHICS_GATE.md). Both are merged to master. Phases 3
-and 4 have not started; each needs the product owner's explicit approval
-before it starts.
+(docs/hardware/DOORS_GRAPHICS_GATE.md). Both are merged to master.
+**Phase 3 is implemented on `rebrand/doors-3-shell` and recorded under
+"Phase 3 as implemented"; its hardware gate
+(docs/hardware/DOORS_PHASE3_GATE.md) has not run and it is not merged.**
+Phase 4 has not started and needs the product owner's explicit approval
+before it does.
 Date: 2026-09-15
 Deciders: product owner (final), AI engineering partner (author)
 
@@ -216,6 +219,58 @@ behaviour above on the device. The bench checklist and the host validation
 record are in docs/hardware/DOORS_PHASE2_GATE.md. **Passed on unit A,
 2026-09-15**, with a second deploy and the rollback as well; the results are in
 the same sheet.
+
+## Phase 3 as implemented
+
+Implemented on `rebrand/doors-3-shell` from master `15b1b7e`, 2026-09-16.
+VERSION stays 0.0.9 and no internal identifier is renamed: `POCKETOS_*`
+variables, PocketUI, pocketipc, pocketlog, pocketaudio, `/var/lib/pocketos`,
+`/run/pocketos` and `/etc/pocketos` are all untouched (Phase 4, if ever).
+
+Renamed, and nothing else:
+
+| Was | Is |
+| --- | --- |
+| `/usr/bin/pocketos-shell` | `/usr/bin/doors-shell` |
+| `/etc/init.d/S90pocketos-shell` | `/etc/init.d/S90doors-shell` |
+| supervised as `pocketos-shell` | supervised as `doors-shell` |
+| `/var/run/pocketos-shell-supervise.pid` | `/var/run/doors-shell-supervise.pid` |
+| `/run/pocketos/pocketos-shell.{pid,state,crashloop}` | `/run/pocketos/doors-shell.{pid,state,crashloop}` |
+| `supervise-pocketos-shell.log` | `supervise-doors-shell.log` |
+| `/etc/default/pocketos-shell` | `/etc/default/doors-shell`, with the old path still read when the new one is absent |
+
+`shell.sock`, `shell.log`, `shell.stdio.log` and the crash reports keep their
+names: they are the shell's, not the service's, and renaming them would move
+files a reader of every earlier bench sheet knows by name.
+
+The CMake target and the build artefact are still called `pocketos-shell`;
+the installed path is what carries the identity. That is the same rule as
+decision 2 - internal names stay until a phase says otherwise - and it keeps
+the shell tests, which take the binary through `SHELL_BIN`, unchanged.
+
+**One shell, always.** There is no `pocketos-shell` symlink: a compatibility
+name here would be a second way to start a second DRM owner. Instead the new
+service refuses to start when a PocketOS-era shell is running, or when its init
+script is installed and enabled and would start beside it at the next boot;
+`deploy.sh` removes the old init script before the old binary and then proves
+exactly one shell, one init script and one supervisor state exist; the build
+refuses a target tree or an image that carries both.
+
+**Settings.** `/etc/default/doors-shell` is the file. A PocketOS-era
+`/etc/default/pocketos-shell` is read only when the new one does not exist, as
+a whole file, never merged with it - and the service says which file it read
+and when it ignored the other, so a hand-edited old file is never dropped in
+silence. `POCKETOS_*` spellings inside those files are unchanged; the
+`DOORS_*` aliases sketched in the migration table above are not part of this
+phase.
+
+**Rollback.** `platforms/k230/scripts/rollback_phase3.sh` takes the Doors
+identity off a unit - stop, prove nothing is running, carry the settings back
+to the old name when only the new one exists, remove init script, then binary,
+then runtime state - and leaves the unit with no shell service, which is the
+only state a pre-Phase-3 `deploy.sh` can install exactly one into.
+
+Hardware gate: docs/hardware/DOORS_PHASE3_GATE.md. **Not run.** Not merged.
 
 ## Consequences
 

@@ -4,8 +4,8 @@ Doors is a handheld operating environment for the LILYGO T-Display K230.
 The human developer is the product owner and final authority.
 
 Doors was previously known as PocketOS through v0.0.9. Identifiers such as
-`pos_*`, `pocketui`, `pocketos-shell`, the `pos-*` helpers and
-`/var/lib/pocketos` keep the old name on purpose; do not rename them outside
+`pos_*`, `pocketui`, the `pos-*` helpers and `/var/lib/pocketos` keep the old
+name on purpose (the shell service itself is `doors-shell` since Phase 3); do not rename them outside
 the phases in docs/decisions/ADR-005-product-name-doors.md. The CLI is `doors`
 and `pos` stays its permanent alias; `/etc/pocketos-release` is a symlink to
 `/etc/doors-release`.

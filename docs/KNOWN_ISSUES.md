@@ -47,7 +47,7 @@ chip-state dependent and dumps both transports' windows when it does.
 - The PocketOS shell links the vendor-built liblvgl from the Buildroot
   package, which carries LILYGO's DRM patches (0002 plane rotation, 0004
   staging scanout buffer), not a stock LVGL. The shell runs with
-  `K230_LVGL_DRM_STAGING=1` set by S90pocketos-shell, as the vendor launcher
+  `K230_LVGL_DRM_STAGING=1` set by S90doors-shell, as the vendor launcher
   does. It calls the rotation API only when the orientation is landscape
   (rotation 270, feature/doors-display-geometry); portrait stays rotation 0.
   Landscape on the panel, and touch following it, are VERIFIED on unit A
@@ -275,7 +275,7 @@ chip-state dependent and dumps both transports' windows when it does.
   and the radio by default; radiod runs with the mock backend until the
   launcher is switched off. The switch is persistent
   (`/etc/default/k230_phone_ui`, see platforms/k230/README.md) and
-  S90pocketos-shell refuses to start while the launcher is enabled or
+  S90doors-shell refuses to start while the launcher is enabled or
   running. The launcher has no kernel driver for the LoRa module, so with
   it running the sx1262 backend must not be used.
 - On the K230 image /var/log is a tmpfs. PocketOS logs, crash reports and
