@@ -46,15 +46,55 @@ proves it under the new name with a daemon that re-executes itself: same pid,
 
 ## Validation without hardware (2026-09-16)
 
+From fresh clones of `11db02c`, one clone per build (a host build and a cross
+build in one tree leave objects of the wrong architecture, and build output
+inside the clone makes `apply_to_sdk.sh` refuse it, as it should).
+
 | Check | Result |
 | --- | --- |
-| `make test`, host | to be filled in from the fresh-clone run |
-| Shell/UI tests | to be filled in |
-| `tests/initscript_test.sh` | 176 checks: the identity, the settings fallback in all four combinations, both refusals, stale old runtime files, and the in-place re-exec keeping one process with no restart |
-| `tests/phase3_migration_test.sh` | 44 checks: the order of deploy.sh's migration and of the rollback, then both run in a fake root - migration, interrupted migration, repeat runs, settings preserved in both directions |
-| `tests/image_contents_test.sh` | 27 checks including the rootfs identity gate and its negative controls (two init scripts, a leftover old binary, no shell at all, a settings file shipped in the image) |
-| riscv64 and DRM/sysroot builds | to be filled in |
-| Full image build, `verify_image.sh`, `verify_splash.sh` | to be filled in |
+| `make all`, host, `-Werror` | rc 0, 0 warnings |
+| `make test`, host | 3,414 ok, 0 FAIL, 0 warnings; `initscript_test`, `phase3_migration_test`, `package_sync_test`, `identity_test`, `notices_test`, `required_gates_test` and `build_outputs_test` all 0 failures |
+| `tests/initscript_test.sh` | 177 checks: the identity, the settings fallback in all four combinations, both refusals (installed-and-enabled, and running - including a shell with no pid file, caught through /proc), stale old runtime files not blocking a start, and the in-place re-exec keeping one process with `restarts=0`, `crashloop=0`, `running=1` |
+| `tests/phase3_migration_test.sh` | 44 checks: the order of deploy.sh's migration and of the rollback, then both run in a fake root |
+| `tests/image_contents_test.sh` | 27 checks including the rootfs identity gate and its four negative controls |
+| Shell/UI tests | 20 scripts, 0 with rc != 0, 470 ok, 0 FAIL - the display and keyboard suites unchanged by the rename (`auto_rotation_shell_test` 29 ok, `display_geometry_shell_test` 69 ok) |
+| riscv64 `make all` (`ENABLE_SX1262=1`) | rc 0, 4 warnings, all in vendor ggwave - 0 first-party |
+| riscv64 DRM/sysroot shell | rc 0, 0 warnings |
+| Full image build | rc 0 in 223 s; `Shell service: one identity in the target tree (doors-shell), no PocketOS-era leftovers`; 0 first-party warnings |
+| `verify_image.sh` | **PASS** - boot-critical files present, and the root partition carries exactly one shell service |
+| `verify_splash.sh` | **PASS** |
+| The image itself, read with debugfs | present: `/usr/bin/doors-shell`, `/etc/init.d/S90doors-shell`, `/usr/bin/doors`, `/usr/bin/pos`, `/usr/bin/pos-supervise`; absent: `/usr/bin/pocketos-shell`, `/etc/init.d/S90pocketos-shell`, and both `/etc/default` settings files. The shipped init script reads `NAME=doors-shell`, `DAEMON=/usr/bin/doors-shell`, `PIDFILE=/var/run/doors-shell-supervise.pid`, `CHILD_PIDFILE=/run/pocketos/doors-shell.pid`, `CONF=/etc/default/doors-shell` |
+| Phase 3 boundaries | VERSION 0.0.9; no `pocketos-shell` symlink anywhere; the shell still reads its five `POCKETOS_*` overrides; PocketUI, pocketipc, pocketlog and pocketaudio untouched; `/var/lib/pocketos`, `/run/pocketos` and `/etc/pocketos` unchanged; 0 `DOORS_*_DIR` references (Phase 4 not started) |
+
+**One defect found and fixed by the new gates.** Buildroot syncs the rootfs
+overlay into its own tree and builds the image from that copy, so removing the
+old init script from the overlay this repository writes was not enough: the
+first image build after the rename put `S90pocketos-shell` back, and
+`build_image.sh` refused the build naming that exact file. Both the removal in
+`apply_to_sdk.sh` and the gate now cover all three places.
+
+**Deliberate breakages**, each reverted after the test it should fail did:
+
+| Mutation | Caught by |
+| --- | --- |
+| the service starts beside a running PocketOS-era shell | `initscript_test` (2 FAIL) |
+| an installed, enabled old service no longer blocks the start | `initscript_test` (3) |
+| the /proc sweep no longer recognises the old shell | `initscript_test` |
+| the two settings files are merged instead of chosen between | `initscript_test` |
+| deploy removes the old binary before its init script | `phase3_migration_test` (5) |
+| the old supervisor state is left behind (a second service row) | `phase3_migration_test` (2) |
+| the old service is not stopped before the unpack | `phase3_migration_test` |
+| a running shell no longer stops the deploy | `phase3_migration_test` |
+| the rollback removes the binary before its init script | `phase3_migration_test` (3) |
+| the rollback overwrites a hand-edited old settings file | `phase3_migration_test` (4) |
+| the image gate stops looking for the PocketOS-era shell | `image_contents_test` (4) |
+| the image gate stops requiring the Doors shell | `image_contents_test` (3) |
+
+12 of 12 caught. One further mutation - the old settings file winning over the
+new one - was not completed: breaking that guard leaves the harness's test
+holding a supervised daemon, and the run had to be abandoned rather than left
+hanging. The case itself is covered by the "with both files" and "ENABLE=0 in
+the new file" checks in `initscript_test`.
 
 ## The gate
 
