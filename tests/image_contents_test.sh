@@ -137,5 +137,65 @@ if make_img "${D}" "${TMP}/scrambled.img"; then
         "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
 fi
 
+# ---- the rootfs identity (ADR-005 Phase 3) -----------------------------------
+# An image that boots into two shell services is the same class of fault as one
+# with no kernel: it looks complete and it does not work. The gate reads
+# partition 2 and says which identity is in it.
+rootfs_img() { # <out.img> <populate-fn>
+    local out="$1" fn="$2" b r
+    b="${TMP}/boot.$$"; r="${TMP}/root.$$"
+    rm -rf "${b}" "${r}"; mkdir -p "${b}" "${r}"
+    populate_complete "${b}"
+    "${fn}" "${r}"
+    make_img "${b}" "${out}" || return 1
+    mkbootimg_rootfs "${r}" "${out}" || return 1
+    rm -rf "${b}" "${r}"
+}
+
+if rootfs_img "${TMP}/doors.img" mkbootimg_rootfs_doors; then
+    rc="$(run_gate "${TMP}/doors.img")"
+    check "a rootfs with the Doors shell service passes" "$([ "${rc}" = "0" ] && echo 1 || echo 0)"
+    check "the gate names the service it found" \
+        "$(grep -q '/usr/bin/doors-shell (the Doors shell service)' "${TMP}/out.txt" && echo 1 || echo 0)"
+    check "and says the PocketOS-era paths are absent" \
+        "$(grep -q '/usr/bin/pocketos-shell absent' "${TMP}/out.txt" && echo 1 || echo 0)"
+
+    both() { mkbootimg_rootfs_doors "$1"; printf '#!/bin/sh\n' > "$1/etc/init.d/S90pocketos-shell"; }
+    if rootfs_img "${TMP}/two-services.img" both; then
+        rc="$(run_gate "${TMP}/two-services.img")"
+        check "NEGATIVE CONTROL: two shell init scripts are refused" \
+            "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
+        check "NEGATIVE CONTROL: the refusal names the one that must go" \
+            "$(grep -q 'PRESENT: /etc/init.d/S90pocketos-shell' "${TMP}/out.txt" && echo 1 || echo 0)"
+    fi
+
+    oldbin() { mkbootimg_rootfs_doors "$1"; printf '#!/bin/sh\n' > "$1/usr/bin/pocketos-shell"; }
+    if rootfs_img "${TMP}/old-binary.img" oldbin; then
+        rc="$(run_gate "${TMP}/old-binary.img")"
+        check "NEGATIVE CONTROL: the PocketOS-era shell binary is refused" \
+            "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
+    fi
+
+    noshell() { mkdir -p "$1/usr/bin" "$1/etc/init.d"; }
+    if rootfs_img "${TMP}/no-shell.img" noshell; then
+        rc="$(run_gate "${TMP}/no-shell.img")"
+        check "NEGATIVE CONTROL: an image with no shell service at all is refused" \
+            "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
+        check "NEGATIVE CONTROL: it says which service is missing" \
+            "$(grep -q 'MISSING: /usr/bin/doors-shell' "${TMP}/out.txt" && echo 1 || echo 0)"
+    fi
+
+    shipped() { mkbootimg_rootfs_doors "$1"; printf 'ENABLE=1\n' > "$1/etc/default/doors-shell"; }
+    if rootfs_img "${TMP}/shipped-settings.img" shipped; then
+        rc="$(run_gate "${TMP}/shipped-settings.img")"
+        check "NEGATIVE CONTROL: a settings file shipped in the image is refused" \
+            "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
+        check "NEGATIVE CONTROL: it names the file that must not be there" \
+            "$(grep -q 'etc/default/doors-shell must not be in the image' "${TMP}/out.txt" && echo 1 || echo 0)"
+    fi
+else
+    check "could not build a two-partition test image (mkfs.ext4 -d unsupported?)" 0
+fi
+
 echo "$failed failure(s)"
 [ "$failed" -eq 0 ]

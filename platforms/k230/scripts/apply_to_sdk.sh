@@ -233,7 +233,7 @@ echo "[3b/5] Panel switch for the vendor launcher"
 # The vendor init script is patched in place at apply time rather than
 # copied into this repository (the LILYGO tree carries no licence): an ENABLE
 # switch in /etc/default/k230_phone_ui lets pocketos-shell own the panel
-# across reboots. S90pocketos-shell reads the same file and refuses to start
+# across reboots. S90doors-shell reads the same file and refuses to start
 # while the launcher is enabled. The launcher itself stays in the image.
 S99="${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/etc/init.d/S99zz_k230_phone_ui"
 [ -f "${S99}" ] || { echo "vendor launcher init script missing: ${S99}" >&2; exit 1; }
@@ -269,13 +269,35 @@ echo "[4/5] Doors rootfs overlay"
 # Also from git, and for the same reason as the package below, but here the
 # reason is sharper: Buildroot copies this overlay into the rootfs with
 # rsync -a and BusyBox rcS runs `$i start`, so the mode on S60radiod and
-# S90pocketos-shell decides whether the services start at all. Taken from the
+# S90doors-shell decides whether the services start at all. Taken from the
 # working tree it would be whatever the build host's filesystem reports, which
 # on a WSL /mnt/c checkout is 0777 for every file. Merged onto the vendor's
 # overlay, never deleting from it.
 git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" -- platforms/k230/rootfs_overlay \
     | tar -x --strip-components=3 \
           -C "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/"
+
+# ADR-005 Phase 3: the shell service is doors-shell, and there is never more
+# than one of them. The overlay above is merged and never deletes, and
+# Buildroot never deletes from an existing target tree either, so every place a
+# PocketOS-era shell can still be sitting in this SDK is cleared here - before
+# the image is assembled, rather than leaving the rootfs gate in build_image.sh
+# to refuse a build that is otherwise fine.
+# Three places, and the third is the one that bites: Buildroot syncs the
+# overlay into its own tree (output/buildroot-<version>/board/...) and builds
+# the rootfs from that copy, so cleaning only the overlay this script writes
+# leaves the old service to be copied back into the image.
+_stale=0
+for f in "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/etc/init.d/S90pocketos-shell" \
+         "${SDK_DIR}"/output/buildroot-*/board/canaan/k230-soc/rootfs_overlay/etc/init.d/S90pocketos-shell \
+         "${SDK_DIR}/output/${CONF}/target/etc/init.d/S90pocketos-shell" \
+         "${SDK_DIR}/output/${CONF}/target/usr/bin/pocketos-shell"; do
+    [ -e "${f}" ] || continue
+    rm -f "${f}" || { echo "cannot remove the PocketOS-era shell at ${f}" >&2; exit 1; }
+    echo "      removed the PocketOS-era shell: ${f#"${SDK_DIR}"/}"
+    _stale=$((_stale + 1))
+done
+[ "${_stale}" -eq 0 ] && echo "      no PocketOS-era shell in the SDK"
 
 echo "[5/5] Doors package (pocketos)"
 # Third-party notices (docs/LICENSING.md). The package installs

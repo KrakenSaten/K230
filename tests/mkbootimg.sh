@@ -58,6 +58,37 @@ mkbootimg_make() {
     printf '\x55\xaa' | dd of="${out}" bs=1 seek=510 conv=notrunc status=none
 }
 
+# mkbootimg_rootfs <dir> <out.img> - add <dir> as partition 2 of an image that
+# mkbootimg_make already wrote. The rootfs identity gate of verify_image.sh
+# reads that partition, so a test needs an image with one; everything else here
+# only ever needed partition 1.
+MKBOOTIMG_P2_MB="${MKBOOTIMG_P2_MB:-24}"
+mkbootimg_rootfs() {
+    local dir="$1" out="$2" part p1_sectors p2_lba p2_sectors size
+    part="$(mktemp)"
+    p1_sectors=$((MKBOOTIMG_PART_MB * 1024 * 1024 / 512))
+    p2_lba=$((MKBOOTIMG_LBA + p1_sectors))
+    p2_sectors=$((MKBOOTIMG_P2_MB * 1024 * 1024 / 512))
+    mkfs.ext4 -q -F -d "${dir}" -r 1 -N 0 -m 1 -L rootfs -O ^64bit \
+        "${part}" "${MKBOOTIMG_P2_MB}M" >/dev/null 2>&1 || { rm -f "${part}"; return 1; }
+    size=$(( (p2_lba + p2_sectors) * 512 ))
+    dd if=/dev/zero of="${out}" bs=1 count=0 seek="${size}" conv=notrunc status=none
+    dd if="${part}" of="${out}" bs=512 seek="${p2_lba}" conv=notrunc status=none
+    rm -f "${part}"
+    # Entry 1 of the table: the same shape as entry 0, 16 bytes further on.
+    printf '\x00\xfe\xff\xff\x83\xfe\xff\xff' | dd of="${out}" bs=1 seek=462 conv=notrunc status=none
+    _mkbootimg_le32 "${p2_lba}"     | dd of="${out}" bs=1 seek=470 conv=notrunc status=none
+    _mkbootimg_le32 "${p2_sectors}" | dd of="${out}" bs=1 seek=474 conv=notrunc status=none
+}
+
+# mkbootimg_rootfs_doors <dir> - a root filesystem with the Phase 3 identity.
+mkbootimg_rootfs_doors() {
+    local d="$1"
+    mkdir -p "${d}/usr/bin" "${d}/etc/init.d" "${d}/etc/default"
+    printf '#!/bin/sh\n' > "${d}/usr/bin/doors-shell"
+    printf '#!/bin/sh\n' > "${d}/etc/init.d/S90doors-shell"
+}
+
 # mkbootimg_complete <out.img> - the common case: a valid, complete image.
 mkbootimg_complete() {
     local out="$1" d

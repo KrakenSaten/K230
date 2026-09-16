@@ -1,12 +1,18 @@
 # ADR-005: Product name Doors
 
-Status: Accepted for Phases 1 and 2 (product owner, 2026-09-15). Phase 2 is
-implemented as recorded under "Phase 2 as implemented"; its hardware gate
-passed on unit A on 2026-09-15 (docs/hardware/DOORS_PHASE2_GATE.md). The
-graphics integration's hardware gate also passed on unit A on 2026-09-15
-(docs/hardware/DOORS_GRAPHICS_GATE.md). Both are merged to master. Phases 3
-and 4 have not started; each needs the product owner's explicit approval
-before it starts.
+Status: Accepted for Phases 1, 2 and 3 (product owner). Phases 1 and 2 were
+accepted on 2026-09-15; Phase 2 is implemented as recorded under "Phase 2 as
+implemented" and its hardware gate passed on unit A on 2026-09-15
+(docs/hardware/DOORS_PHASE2_GATE.md). The graphics integration's hardware gate
+also passed on unit A on 2026-09-15 (docs/hardware/DOORS_GRAPHICS_GATE.md).
+Both are merged to master.
+**Phase 3 was accepted by the product owner on 2026-09-16.** It is implemented
+on `rebrand/doors-3-shell` and recorded under "Phase 3 as implemented", and its
+hardware gate **passed** on unit A on 2026-09-16
+(docs/hardware/DOORS_PHASE3_GATE.md): all six steps, including the settings
+precedence, the rollback and a freshly flashed image.
+**Phase 4 has not started and is not approved.** It needs the product owner's
+explicit approval before any of it is written.
 Date: 2026-09-15
 Deciders: product owner (final), AI engineering partner (author)
 
@@ -129,7 +135,9 @@ carries data. Facts that constrain any rename:
    the licence decision (docs/LICENSING.md), not to the rebrand.
 8. **The first Doors release is v0.0.10.** Its scope is Phases 1 and 2 and
    the graphics integration. Phase 3 joins only if its hardware test passes;
-   otherwise it moves to the next version. Phase 1 does not change VERSION.
+   otherwise it moves to the next version. It passed on 2026-09-16, so
+   **Phase 3 is in v0.0.10's scope**. Phase 1 does not change VERSION, and
+   neither does Phase 3: VERSION is bumped by the release, not by a phase.
 
 ## Staged migration
 
@@ -138,7 +146,7 @@ carries data. Facts that constrain any rename:
 | 1. Visible branding | this record; the status bar wordmark, System identity row, Restart and Power off dialog titles, crash report header and simulator window title; current prose in README.md, AGENTS.md, docs/ARCHITECTURE.md, docs/ROADMAP.md and platforms/k230/README.md; DS §9 wordmark text | host tests, shell tests, riscv64 and DRM builds, simulator screenshot of System | not required |
 | 2. Release and build identity, CLI | `/etc/doors-release` with `/etc/pocketos-release` as a symlink; `doors` with `pos` as a symlink; `/usr/share/doors`; notices wording regenerated with `pocketos.hash` (the owner approves the legal wording; no licence is added); BUILD_INFO.txt and a release image named `doors-<version>[-rcN]-tdisplay-k230-<build_id>.img.gz`; remaining text (settings and Wi-Fi file headers, CMake status line, LoRa test payload) | the above, plus Buildroot legal-info, image build, `verify_image.sh` | yes: flash and boot a unit |
 | Graphics integration | wordmark and compact mark, boot splash (`logo.xrgb`, 568 × 1232 XRGB8888), System and launcher branding, with a DS amendment | image build, screenshots | yes: splash on glass |
-| 3. Shell service | `doors-shell` and `S90doors-shell`, falling back to `/etc/default/pocketos-shell`; `DOORS_*` spellings for the operator display and touch overrides, mapped in the init script; supervisor name; `deploy.sh` removes replaced files | init-script, supervisor and sysd tests | yes, mandatory: fresh flash, deploy over a PocketOS-era unit, two reboots, rollback |
+| 3. Shell service | `doors-shell` and `S90doors-shell`, falling back to `/etc/default/pocketos-shell`; `DOORS_*` spellings for the operator display and touch overrides, mapped in the init script; supervisor name; `deploy.sh` removes replaced files | init-script, supervisor and sysd tests | yes, mandatory: fresh flash, deploy over a PocketOS-era unit, two reboots, rollback. **Passed on unit A 2026-09-16** (DOORS_PHASE3_GATE.md) |
 | 4. Optional internal cleanup | state, config and runtime directories with migration and an ADR-003 amendment; `DOORS_*_DIR`; `pos-*` helper names; Buildroot package and defconfig | full suite and image | yes, with real data on a unit |
 
 ## Phase 2 as implemented
@@ -216,6 +224,73 @@ behaviour above on the device. The bench checklist and the host validation
 record are in docs/hardware/DOORS_PHASE2_GATE.md. **Passed on unit A,
 2026-09-15**, with a second deploy and the rollback as well; the results are in
 the same sheet.
+
+## Phase 3 as implemented
+
+Implemented on `rebrand/doors-3-shell` from master `15b1b7e`, 2026-09-16.
+VERSION stays 0.0.9 and no internal identifier is renamed: `POCKETOS_*`
+variables, PocketUI, pocketipc, pocketlog, pocketaudio, `/var/lib/pocketos`,
+`/run/pocketos` and `/etc/pocketos` are all untouched (Phase 4, if ever).
+
+Renamed, and nothing else:
+
+| Was | Is |
+| --- | --- |
+| `/usr/bin/pocketos-shell` | `/usr/bin/doors-shell` |
+| `/etc/init.d/S90pocketos-shell` | `/etc/init.d/S90doors-shell` |
+| supervised as `pocketos-shell` | supervised as `doors-shell` |
+| `/var/run/pocketos-shell-supervise.pid` | `/var/run/doors-shell-supervise.pid` |
+| `/run/pocketos/pocketos-shell.{pid,state,crashloop}` | `/run/pocketos/doors-shell.{pid,state,crashloop}` |
+| `supervise-pocketos-shell.log` | `supervise-doors-shell.log` |
+| `/etc/default/pocketos-shell` | `/etc/default/doors-shell`, with the old path still read when the new one is absent |
+
+`shell.sock`, `shell.log`, `shell.stdio.log` and the crash reports keep their
+names: they are the shell's, not the service's, and renaming them would move
+files a reader of every earlier bench sheet knows by name.
+
+The CMake target and the build artefact are still called `pocketos-shell`;
+the installed path is what carries the identity. That is the same rule as
+decision 2 - internal names stay until a phase says otherwise - and it keeps
+the shell tests, which take the binary through `SHELL_BIN`, unchanged.
+
+**One shell, always.** There is no `pocketos-shell` symlink: a compatibility
+name here would be a second way to start a second DRM owner. Instead the new
+service refuses to start when a PocketOS-era shell is running, or when its init
+script is installed and enabled and would start beside it at the next boot;
+`deploy.sh` removes the old init script before the old binary and then proves
+exactly one shell, one init script and one supervisor state exist; the build
+refuses a target tree or an image that carries both.
+
+**Settings.** `/etc/default/doors-shell` is the file. A PocketOS-era
+`/etc/default/pocketos-shell` is read only when the new one does not exist, as
+a whole file, never merged with it - and the service says which file it read
+and when it ignored the other, so a hand-edited old file is never dropped in
+silence. `POCKETOS_*` spellings inside those files are unchanged; the
+`DOORS_*` aliases sketched in the migration table above are not part of this
+phase.
+
+**Rollback.** `platforms/k230/scripts/rollback_phase3.sh` takes the Doors
+identity off a unit - stop, prove nothing is running, carry the settings back
+to the old name when only the new one exists, remove init script, then binary,
+then runtime state - and leaves the unit with no shell service, which is the
+only state a pre-Phase-3 `deploy.sh` can install exactly one into.
+
+### Hardware test (required for acceptance, per the table above)
+
+**Passed on unit A, 2026-09-16**, at `a885842`, over the serial console
+(the unit had no network that day). All six steps: `deploy.sh` over a
+master-era unit, two reboots, automatic rotation across power-off keyboard
+transitions, forced orientations applied in place, the settings precedence in
+all four combinations, `rollback_phase3.sh` followed by a pre-Phase-3
+`deploy.sh`, and a freshly flashed Phase 3 image. The one-shell guarantee held
+at every step: never two shells, two init scripts or two supervisor states, and
+no `pocketos-shell` service row survived the migration. Results, including the
+two check-side `FAIL` lines run down as the checks' own assumptions, are in
+docs/hardware/DOORS_PHASE3_GATE.md.
+
+**Accepted by the product owner on 2026-09-16**, on that gate. Phase 3 merges
+to master; VERSION stays 0.0.9, and the acceptance carries nothing into
+Phase 4, which remains neither started nor approved.
 
 ## Consequences
 

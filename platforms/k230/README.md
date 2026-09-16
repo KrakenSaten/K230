@@ -26,8 +26,8 @@ vendor_sdk_commit.txt             Pinned kendryte/k230_linux_sdk commit
 The vendor LVGL launcher is still installed by `apply_to_sdk.sh` and owns
 the display and the radio by default. `apply_to_sdk.sh` adds one switch to
 its init script (`ENABLE` in `/etc/default/k230_phone_ui`, default 1); the
-Doors shell is installed as `/usr/bin/pocketos-shell` with
-`S90pocketos-shell` disabled, and radiod runs with the mock backend.
+Doors shell is installed as `/usr/bin/doors-shell` with
+`S90doors-shell` disabled, and radiod runs with the mock backend.
 
 ## Panel ownership (persistent across reboots)
 
@@ -35,14 +35,14 @@ Hand the panel and the radio to Doors:
 
 ```sh
 echo ENABLE=0 > /etc/default/k230_phone_ui      # vendor launcher stays down
-echo ENABLE=1 > /etc/default/pocketos-shell     # Doors shell takes the panel
+echo ENABLE=1 > /etc/default/doors-shell        # Doors shell takes the panel
 echo RADIOD_BACKEND=sx1262 > /etc/default/radiod
 reboot
 ```
 
 After the reboot: `doors app list`, `doors radio info`. Without a reboot, the
 same state is reached with `/etc/init.d/S99zz_k230_phone_ui stop`, then
-`/etc/init.d/S60radiod restart` and `/etc/init.d/S90pocketos-shell start`.
+`/etc/init.d/S60radiod restart` and `/etc/init.d/S90doors-shell start`.
 S90 refuses to start while the launcher is enabled or running, so the two
 never fight for DRM master.
 
@@ -51,12 +51,12 @@ from the image):
 
 ```sh
 echo ENABLE=1 > /etc/default/k230_phone_ui
-echo ENABLE=0 > /etc/default/pocketos-shell
+echo ENABLE=0 > /etc/default/doors-shell
 rm -f /etc/default/radiod
 reboot
 ```
 
-`/etc/default/pocketos-shell` is a whole file: keep `ENABLE=1` in it when
+`/etc/default/doors-shell` is a whole file: keep `ENABLE=1` in it when
 adding the bench overrides (`K230_LVGL_DRM_STAGING`, `POCKETOS_DRM_ROTATION`,
 `POCKETOS_TOUCH_CALIB`, `POCKETOS_TOUCH_SWAP`, `POCKETOS_TOUCH_DEVICE`,
 `POCKETOS_DRM_DEVICE`; exact usage in docs/hardware/BRINGUP_CHECKLIST.md
@@ -110,8 +110,8 @@ restarted on every boot, previous copy in `.1`). `doors logs`, `doors logs
 <name>`, `doors logs --crashes`.
 
 Image contents from this package: `doors` (and its `pos` alias),
-`pos-hwcheck`, `pos-supervise`, `radiod` (mock + sx1262), `pocketos-shell`
-(DRM/evdev, untested), init scripts `S60radiod` and `S90pocketos-shell`,
+`pos-hwcheck`, `pos-supervise`, `radiod` (mock + sx1262), `doors-shell`
+(DRM/evdev, untested), init scripts `S60radiod` and `S90doors-shell`,
 `/etc/doors-release` (and its `/etc/pocketos-release` alias), and the
 third-party notices in `/usr/share/doors` (linked from `/usr/share/pocketos`).
 Screenshots (`doors shell screenshot`) are not available on the device: the

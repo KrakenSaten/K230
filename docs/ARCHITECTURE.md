@@ -45,7 +45,7 @@ BusyBox init (rcS runs S?? scripts in order; rcK stops them in reverse)
  ├─ S50sysd              pos-supervise sysd
  ├─ S55netd              pos-supervise netd --interface wlan0 (Wi-Fi off until turned on)
  ├─ S60radiod            pos-supervise radiod --backend <mock|sx1262> --region EU868
- ├─ S90pocketos-shell    pos-supervise pocketos-shell (ENABLE=1 in /etc/default/pocketos-shell)
+ ├─ S90doors-shell    pos-supervise doors-shell (ENABLE=1 in /etc/default/doors-shell)
  └─ S99zz_k230_phone_ui  vendor launcher (ENABLE in /etc/default/k230_phone_ui, default 1)
 ```
 

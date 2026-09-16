@@ -110,12 +110,55 @@ for ptr in lcd_dtb hdmi_dtb; do
     fi
 done
 
+# ---- the rootfs: one shell service, and only one -----------------------------
+# ADR-005 Phase 3. A boot-critical file being absent is what this gate was
+# written for; two shell services is the same class of fault seen from the
+# other side - the image boots, and then two processes fight for DRM master and
+# for shell.sock. So the rootfs is asked directly what identity it carries,
+# rather than trusting that whatever assembled it removed the old one.
+P2_LBA="$(le32 $((446 + 16 + 8)))"
+P2_CNT="$(le32 $((446 + 16 + 12)))"
+if [ "${P2_LBA:-0}" -gt 0 ] && [ "${P2_CNT:-0}" -gt 0 ]; then
+    P2="${WORK}/p2.img"
+    dd if="${IMG}" of="${P2}" bs=4M iflag=skip_bytes,count_bytes \
+       skip=$((P2_LBA * 512)) count=$((P2_CNT * 512)) status=none 2>/dev/null
+    if debugfs -R "ls /" "${P2}" >/dev/null 2>&1; then
+        echo ""
+        echo "Root partition of ${IMG} (partition 2, $((P2_CNT / 2048)) MiB):"
+        rootfs_has() { debugfs -R "stat \"$1\"" "${P2}" 2>/dev/null | grep -q '^Inode:'; }
+
+        for path in /usr/bin/doors-shell /etc/init.d/S90doors-shell; do
+            if rootfs_has "${path}"; then
+                note "ok  ${path} (the Doors shell service)"
+            else
+                bad "${path} (the Doors shell service) is not in the root partition"
+            fi
+        done
+        # The PocketOS-era service, and the settings files: a shipped
+        # /etc/default file would decide panel ownership for every unit from
+        # the image instead of from the unit, which is why neither is packaged.
+        for path in /usr/bin/pocketos-shell /etc/init.d/S90pocketos-shell \
+                    /etc/default/doors-shell /etc/default/pocketos-shell; do
+            if rootfs_has "${path}"; then
+                echo "  PRESENT: ${path} must not be in the image (ADR-005 Phase 3)" >&2
+                failed=$((failed + 1))
+            else
+                note "ok  ${path} absent, as it must be"
+            fi
+        done
+    else
+        echo "  note: partition 2 is not a readable ext filesystem; rootfs identity not checked"
+    fi
+else
+    echo "  note: ${IMG} has no second partition; rootfs identity not checked"
+fi
+
 if [ "${failed}" -ne 0 ]; then
     echo "" >&2
-    echo "IMAGE GATE: FAIL - ${failed} boot-critical file(s) missing from ${IMG}." >&2
-    echo "            This image cannot boot. It must not be released or flashed." >&2
+    echo "IMAGE GATE: FAIL - ${failed} problem(s) in ${IMG}." >&2
+    echo "            This image must not be released or flashed." >&2
     exit 1
 fi
 
-echo "IMAGE GATE: PASS - every boot-critical file is present and non-empty."
+echo "IMAGE GATE: PASS - every boot-critical file is present and non-empty, and the root partition carries exactly one shell service."
 exit 0

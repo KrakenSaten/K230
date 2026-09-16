@@ -4,8 +4,7 @@ Working folder for Doors development on the LILYGO T-Display K230.
 
 Doors was previously known as PocketOS through v0.0.9. Release history,
 hardware records and many identifiers (`pos_*`, the `pos-*` helpers,
-`pocketos-shell`, `pocketui`, `/var/lib/pocketos`, `POCKETOS_*`) keep the old
-name on purpose; which ones, and when they may change, is in
+`pocketui`, `/var/lib/pocketos`, `POCKETOS_*`) keep the old name on purpose; which ones, and when they may change, is in
 docs/decisions/ADR-005-product-name-doors.md. The CLI is `doors`, with `pos`
 as its permanent alias.
 
@@ -130,7 +129,7 @@ are classified per statement in docs/hardware/T-DISPLAY-K230.md.
   sheets and then from the flashed image; the gate that run had to clear is
   docs/hardware/V0.0.7_PRE_RELEASE_CHECKPOINT.md. The image ships with the
   vendor launcher still owning the panel: `/etc/default/k230_phone_ui`
-  `ENABLE=0` and `/etc/default/pocketos-shell` `ENABLE=1` hand it to the shell.
+  `ENABLE=0` and `/etc/default/doors-shell` `ENABLE=1` hand it to the shell.
 
 The K230 SD image is built by platforms/k230 (see docs/BUILD_ENVIRONMENT.md
 and docs/hardware/FIRST_BOOT.md).
