@@ -270,6 +270,7 @@ cell is unchanged); (2) hint cell,
 `text_secondary`, flex 1, padding 0 16 — shows AP dot (`net_connected`, 8 px)
 + SSID when connected, else context text ("3 unread", "First boot"); (3)
 radio cell, padding 0 10, containing the radio chip; (4) clock, padding 0 20.
+The bar's outer ends also clear the panel's rounded corners: §21.1 (proposed).
 Radio chip states: RX → `radio_rx` fill, `text_on_accent` glyph+label; TX →
 `radio_tx` fill; OFF → `surface` fill, `text_secondary` glyph+label; NA
 (service absent) → `surface` fill, `text_muted` dashed-ring glyph, label "—".
@@ -487,7 +488,8 @@ Per-token, per-mode numbers: `themes.json → themes.<id>.contrast`.
   language. Apply §2: hairline panel, `accent_primary` 24 px icon top-left,
   row-title label bottom-left, pressed = `surface_raised` + focus outline.
   Tile size 150 px, 2 columns, 20 px gutter unchanged. The icon's size and
-  source: §20 (Amendment D; 32 px on a tile).
+  source: §20 (Amendment D; 32 px on a tile). Landscape columns: §21.3
+  (proposed).
 - **C8 — Text input / keyboard, dialog.** **CLOSED 2026-09-10 by Amendment
   A (§17)**, which specifies the text field, the focus model, the touch
   keyboard with its approved deviation DEV-1, and the dialog. Was: undesigned
@@ -1058,6 +1060,68 @@ of this document. Nothing in §1–§19 is renumbered.
 - None. The icons are static in every state, so reduced motion (§12) changes
   nothing about them.
 
+## 21. Amendment E — safe area and orientation [ACCEPTED]
+
+**ACCEPTED 2026-09-16** by the product owner after the unit A gate
+(`docs/hardware/DOORS_DISPLAY_GEOMETRY_GATE.md`: PASS). Found on unit A: the
+panel's rounded top corners cut the left of the status bar wordmark and the
+last clock digit. Nothing in §1–§20 is renumbered.
+
+The orientation Doors opens with is verified on the panel for every case of
+§21.2's policy. A keyboard base attached or removed *while the board is
+powered* changes the orientation by the same rule, and that path is verified in
+the simulator and on the unit's own bus, but mating the connector live is not a
+verified hardware operation and nothing in this amendment asks for it.
+
+### 21.1 Safe area
+
+- The platform describes the physical panel: native size, straight-edge
+  strips that are not visible, and a square at each rounded corner that the
+  corner may cut (`ui/pocketui/pos_display.h`). Layout uses the logical
+  geometry derived from it for the orientation in force, never the screen's
+  rectangle alone.
+- A bar that lies along a screen edge from corner to corner - the status bar
+  (§9) - keeps its own padding where that clears the corner squares and takes
+  the corner inset where it does not. On the T-Display K230 the status bar's
+  side padding becomes 30 px instead of 20 px; nothing else in it changes.
+- Content that starts below the corner band keeps its geometry: the launcher
+  (C7), app headers and bodies are unchanged in portrait.
+- The corner square is PROVISIONAL at 30 px (the vendor launcher's own
+  status-bar side inset on this panel); unit A accepts or corrects it.
+
+### 21.2 Orientation
+
+- Orientation belongs to the system. Settings > Display > Rotation offers
+  **Automatic**, **Portrait** and **Landscape**; apps never choose or change
+  it and lay out in the body they are given.
+- Portrait and Landscape are forced whatever the keyboard. Automatic is
+  Landscape only when a keyboard is known to be present; absent or unknown is
+  Portrait. A keyboard attached or removed while Doors runs changes the
+  orientation in Automatic, and changes nothing in a forced mode.
+- Landscape is one direction: the device turned a quarter turn clockwise from
+  portrait (the portrait left edge at the top), the rotation the vendor
+  launcher uses on this board with its keyboard.
+- A change is applied by the system, not asked of the owner: the display is
+  rotated when it is opened, so Doors opens it again - it restarts itself in
+  place, in the same process, and comes back on the launcher. The screen is
+  dark for that moment, Settings says so before it happens (§2), and the
+  device itself is never restarted for it. A change settles first (about a
+  second), so a mode tapped twice, or a base board finding its contacts, costs
+  nothing. No animation: reduced motion (§12) changes nothing.
+- Display and touch always turn together; the safe area turns with them
+  (the portrait corners are the same physical corners in landscape).
+
+### 21.3 Landscape layout
+
+- Status bar: the same 56 px bar along the long edge, with the §21.1 insets.
+- Launcher: the same tiles - 150 px high, 20 px gutters and padding, the §20
+  icon, the row-title label - in as few columns as let every row fit without
+  scrolling: six columns and two rows for eleven apps on 1232x512. Only the
+  column count and so the tile width (182 px) differ from portrait.
+- App bodies are not re-laid out: fixed-width content stays at its portrait
+  width and the body scrolls vertically. An app that needs a landscape layout
+  gets one in its own amendment.
+
 ---
 
 PocketOS Design System v0.1 — **STATUS: APPROVED FOR IMPLEMENTATION**
@@ -1065,3 +1129,4 @@ Amendment A (§17) approved 2026-09-10; C8 closed.
 Amendment B (§18) approved 2026-09-11.
 Amendment C (§19) accepted 2026-09-15.
 Amendment D (§20) accepted 2026-09-15.
+Amendment E (§21) accepted 2026-09-16.

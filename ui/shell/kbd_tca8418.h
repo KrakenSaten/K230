@@ -53,6 +53,12 @@ struct kbd_tca8418 {
     uint64_t next_retry_us;
     unsigned retry_count;
 
+    /* Why the last attempt failed, which presence detection has to tell
+     * apart: a controller that does not answer its probe means the keyboard
+     * base is not there, while a bus that cannot even be taken - the pin mux,
+     * the GPIO lines, /dev/mem - means this board cannot tell (shell_kbd.c). */
+    bool last_bus_error;
+
     /* Diagnostics, reported rather than inferred. */
     unsigned overflow_count;
     unsigned unknown_count;
@@ -103,5 +109,16 @@ bool kbd_tca8418_ready(const struct kbd_tca8418 *k);
 /* Whether the INT line is still being used as a gate. For diagnostics and
  * for the hardware smoke, which has to know which mode it measured. */
 bool kbd_tca8418_gated(const struct kbd_tca8418 *k);
+
+/* True when the last failed attempt failed on the transport rather than on
+ * the controller: the bus could not be claimed or the reset line could not be
+ * driven. Presence reads this as "cannot tell", not as "no keyboard". */
+bool kbd_tca8418_bus_error(const struct kbd_tca8418 *k);
+
+/* Retry at the next poll instead of waiting out the throttle. The presence
+ * watch calls this on its own slower cadence, so a keyboard that comes back
+ * is noticed in a second rather than after the 30 s backoff. Does nothing
+ * unless the controller is in the failed state. */
+void kbd_tca8418_retry_now(struct kbd_tca8418 *k);
 
 #endif

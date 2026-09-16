@@ -40,6 +40,10 @@ add_executable(pocketos-shell
     brightness.c
     platform_${POCKETOS_DISPLAY}.c
     ../pocketui/pocketui.c
+    ../pocketui/pos_display.c
+    shell_display.c
+    orientation.c
+    kbd_presence.c
     ../pocketui/pos_input.c
     ../pocketui/pos_keyboard.c
     ../pocketui/pos_keymap.c
@@ -274,6 +278,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/radar/engine/radar_rules.c
         ${REPO_DIR}/apps/radar/engine/radar_score.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -315,6 +320,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/core/pocketlog/pocketlog.c
         ${REPO_DIR}/core/pocketpaths.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -341,6 +347,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     add_executable(pos_input_test
         ${REPO_DIR}/tests/pos_input_test.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -363,6 +370,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     add_executable(pos_keyboard_test
         ${REPO_DIR}/tests/pos_keyboard_test.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -386,6 +394,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/tests/pocketui_tile_test.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -403,6 +412,24 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     endif()
     target_link_libraries(pocketui_tile_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
+    # Display and touch rotated together through LVGL's real evdev driver (run
+    # by tests/display_geometry_shell_test.sh). Linux only: it needs the evdev
+    # driver the SDL build enables there.
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(display_touch_test
+            ${REPO_DIR}/tests/display_touch_test.c
+            ../pocketui/pos_display.c)
+        target_include_directories(display_touch_test PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui")
+        target_compile_options(display_touch_test PRIVATE -Wall -Wextra)
+        target_compile_definitions(display_touch_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+        if(POCKETOS_LVGL_MODE STREQUAL "source")
+            target_include_directories(display_touch_test PRIVATE "${LVGL_DIR}")
+            target_compile_definitions(display_touch_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+        endif()
+        target_link_libraries(display_touch_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+    endif()
+
     # PocketNotes in the running app, tapped on the real keyboard against a
     # real store (run by tests/notes_shell_test.sh).
     add_executable(notes_app_test
@@ -412,6 +439,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/notes/notes_view.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -443,6 +471,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         shell_alarm.c
         shell_kb_state.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -473,6 +502,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/calendar/cal_view.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -502,6 +532,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/calculator/calc_view.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -529,6 +560,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/settings/settings_view.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -558,6 +590,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/wave/wave_text.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -590,6 +623,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/clock/clock_alert.c
         ${REPO_DIR}/apps/clock/clock_runtime.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c
@@ -635,8 +669,10 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/tests/shell_kbd_test.c
         shell_kbd.c
         kbd_tca8418.c
+        kbd_presence.c
         kbd_bus_absent.c
         ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
         ../pocketui/pos_input.c
         ../pocketui/pos_keyboard.c
         ../pocketui/pos_keymap.c

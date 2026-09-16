@@ -346,7 +346,7 @@ check "S90 running-launcher refusal starts nothing" $([ ! -e "$ROOT/shell.env" ]
 kill "$LAUNCHER" 2>/dev/null
 rm -f "$ROOT/var/run/k230_phone_ui.pid"
 
-printf 'ENABLE=1\nPOCKETOS_DRM_ROTATION=180\n' > "$ROOT/etc/default/pocketos-shell"
+printf 'ENABLE=1\nPOCKETOS_DRM_ROTATION=180\nPOCKETOS_SAFE_CORNERS=24,24,24,24\n' > "$ROOT/etc/default/pocketos-shell"
 out=$("$S90" start 2>&1)
 check "S90 starts when it owns the panel" $(contains "$out" "OK")
 check "S90 starts the shell" $(wait_for "$ROOT/shell.env" && echo 1 || echo 0)
@@ -361,6 +361,8 @@ check "S90 exports the vendor staging default" \
       $(grep -q '^K230_LVGL_DRM_STAGING=1$' "$ROOT/shell.env" && echo 1 || echo 0)
 check "S90 exports a bench override that was set" \
       $(grep -q '^POCKETOS_DRM_ROTATION=180$' "$ROOT/shell.env" && echo 1 || echo 0)
+check "S90 exports the safe-area corner override when set" \
+      $(grep -q '^POCKETOS_SAFE_CORNERS=24,24,24,24$' "$ROOT/shell.env" && echo 1 || echo 0)
 check "S90 does not export a bench override that was not set" \
       $(grep -q '^POCKETOS_TOUCH_CALIB=' "$ROOT/shell.env" && echo 0 || echo 1)
 

@@ -23,10 +23,6 @@ check "the shell knows about Calculator" \
     "$(grep -q 'extern const struct pocketos_app app_calculator;' ui/shell/shell.c && echo 1 || echo 0)"
 check "it is on the launcher, after Calendar" \
     "$(grep -q '&app_calendar, &app_calculator' ui/shell/shell.c && echo 1 || echo 0)"
-# Six rows since Wave became the eleventh app (tests/wave_shell_test.sh).
-check "the launcher grid has a row for every app" \
-    "$(sed -n '/^static void home_create/,/^}/p' ui/shell/shell.c |
-       grep -o 'LV_GRID_CONTENT' | wc -l | grep -qx 6 && echo 1 || echo 0)"
 for src in calc_app.c calc_engine.c calc_view.c; do
     check "the shell builds $src" \
         "$(grep -q "apps/calculator/$src" ui/shell/CMakeLists.txt && echo 1 || echo 0)"
@@ -62,6 +58,11 @@ check "Calculator reports itself open" \
     "$(grep -q 'open app calculator' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
 check "and closed" \
     "$(grep -q 'close app calculator' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
+# Six rows since Wave became the eleventh app (tests/wave_shell_test.sh). The
+# shell derives the grid from the display (tests/display_geometry_shell_test.sh),
+# so this reads what the portrait launcher was built with.
+check "the launcher grid has a row for every app" \
+    "$(grep -q 'launcher: 2 column(s), 6 row(s)' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
 check "the shell did not call it unknown" \
     "$(grep -q 'unknown app calculator' "$LOGD/out" "$LOGD/shell.log" 2>/dev/null && echo 0 || echo 1)"
 # A calculation is not kept, so opening and leaving must write nothing at all.

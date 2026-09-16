@@ -1,6 +1,7 @@
 /*
- * Settings: Wi-Fi and display brightness. Everything it decides is in
- * settings_view.c; this builds the panels and turns taps into calls.
+ * Settings: Wi-Fi, display brightness and rotation, and appearance. Everything
+ * it decides is in settings_view.c; this builds the panels and turns taps into
+ * calls.
  *
  * It owns no hardware and reads nothing from the machine: Wi-Fi is netd's
  * (wifi.* over pocketipc, docs/api/network.md) and brightness is the shell's
@@ -67,6 +68,9 @@ struct settings_app {
     lv_obj_t *bright_note;
     lv_obj_t *theme_chip[SETTINGS_THEMES_MAX];
     lv_obj_t *mode_btn[POS_MODE_COUNT];
+    lv_obj_t *rot_btn[SV_ROTATION_MODES];
+    lv_obj_t *rot_note;
+    struct sv_rotation rot;
 
     /* network sheet */
     lv_obj_t *field;
@@ -470,6 +474,32 @@ static void on_bright_up(lv_event_t *e)
     brightness_step(lv_event_get_user_data(e), 1);
 }
 
+/* ---- rotation ------------------------------------------------------------------------ */
+
+/* The orientation is the shell's: this only stores a mode through it and
+ * shows what the shell says - including that a change takes effect when the
+ * Doors shell restarts. Nothing here rotates anything. */
+static void poll_rotation(struct settings_app *a)
+{
+    struct pocketos_orientation o;
+
+    pocketos_shell_orientation(&o);
+    sv_rotation_apply(&a->rot, (int)o.mode, o.mode_valid, o.landscape, o.next_landscape, o.applying,
+                      o.keyboard == POCKETOS_KEYBOARD_PRESENT);
+}
+
+static void on_rotation(lv_event_t *e)
+{
+    struct settings_app *a = lv_event_get_user_data(e);
+    intptr_t i = (intptr_t)lv_obj_get_user_data(lv_event_get_current_target(e));
+
+    if (i >= 0 && i < SV_ROTATION_MODES) {
+        pocketos_shell_set_rotation_mode((enum pocketos_rotation_mode)i);
+    }
+    poll_rotation(a);
+    repaint(a);
+}
+
 /* ---- appearance ---------------------------------------------------------------------- */
 
 /* The selection is the shell's: it applies it live, stores it and announces
@@ -669,6 +699,22 @@ static void build_main(struct settings_app *a)
     lv_obj_set_width(a->bright_up, SETTINGS_STEP_W);
     a->bright_note = wrap_label(p, "", POS_STYLE_TEXT_MUTED);
 
+    /* Rotation: three modes, the stored one accented, like the display mode
+     * buttons below; the note carries the words (DS §2). */
+    pocketui_label(p, "Rotation", POS_STYLE_TEXT_SECONDARY);
+    r = hrow(p, SETTINGS_BTN_H);
+    {
+        static const char *const labels[SV_ROTATION_MODES] = { "AUTOMATIC", "PORTRAIT", "LANDSCAPE" };
+        int i;
+
+        for (i = 0; i < SV_ROTATION_MODES; i++) {
+            a->rot_btn[i] = button(r, labels[i], on_rotation, a, 0);
+            lv_obj_set_flex_grow(a->rot_btn[i], 1);
+            lv_obj_set_user_data(a->rot_btn[i], (void *)(intptr_t)i);
+        }
+    }
+    a->rot_note = wrap_label(p, "", POS_STYLE_TEXT_SECONDARY);
+
     build_appearance(a, a->body);
 }
 
@@ -711,6 +757,17 @@ static void repaint(struct settings_app *a)
     set_enabled(a->bright_up, a->bright.can_up);
     lv_label_set_text(a->bright_note, a->bright.note);
     set_hidden(a->bright_note, a->bright.note[0] == '\0');
+    {
+        int i;
+
+        for (i = 0; i < SV_ROTATION_MODES; i++) {
+            lv_obj_remove_style(a->rot_btn[i], pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
+            lv_obj_remove_style(a->rot_btn[i], pos_style(POS_STYLE_BUTTON_SECONDARY), 0);
+            pos_style_add(a->rot_btn[i], i == a->rot.selected ? POS_STYLE_BUTTON_PRIMARY : POS_STYLE_BUTTON_SECONDARY,
+                          0);
+        }
+        lv_label_set_text(a->rot_note, a->rot.note);
+    }
     repaint_appearance(a);
 }
 
@@ -725,6 +782,8 @@ static void rebuild(struct settings_app *a)
     a->field = a->show_label = a->sheet_error = NULL;
     memset(a->theme_chip, 0, sizeof(a->theme_chip));
     memset(a->mode_btn, 0, sizeof(a->mode_btn));
+    memset(a->rot_btn, 0, sizeof(a->rot_btn));
+    a->rot_note = NULL;
 
     a->body = lv_obj_create(a->root);
     lv_obj_remove_style_all(a->body);
@@ -757,6 +816,7 @@ static void *settings_create(lv_obj_t *root)
     poll_status(a);
     poll_networks(a);
     poll_brightness(a);
+    poll_rotation(a);
     rebuild(a);
     return a;
 }
@@ -776,6 +836,7 @@ static void settings_tick(void *priv)
         poll_networks(a);
     }
     poll_brightness(a);
+    poll_rotation(a);
     repaint(a);
 }
 

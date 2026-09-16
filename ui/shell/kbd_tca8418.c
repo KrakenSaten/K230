@@ -120,12 +120,16 @@ static int configure(struct kbd_tca8418 *k)
 {
     uint8_t probe;
 
+    /* Anything that fails before the probe read is the transport's failure,
+     * not an answer about the keyboard; the probe itself is the answer. */
+    k->last_bus_error = true;
     if (k->bus->claim(k->bus->ctx) != 0) {
         return -1;
     }
     if (k->bus->reset_pulse(k->bus->ctx) != 0) {
         goto fail;
     }
+    k->last_bus_error = false;
     /* The presence probe. Nothing below matters if this does not answer. */
     if (read_reg(k, REG_KEY_LCK_EC, &probe) != 0) {
         goto fail;
@@ -190,6 +194,7 @@ int kbd_tca8418_init(struct kbd_tca8418 *k, const struct kbd_bus *bus,
     k->unknown_count = 0;
     k->events_total = 0;
     k->overflow_pending = false;
+    k->last_bus_error = false;
 
     if (configure(k) != 0) {
         return 0; /* absent is normal, not an error (design §9) */
@@ -325,6 +330,7 @@ int kbd_tca8418_poll(struct kbd_tca8418 *k, uint64_t now_us,
     }
 
     if (k->bus->claim(k->bus->ctx) != 0) {
+        k->last_bus_error = true;
         schedule_retry(k, now_us);
         return -1;
     }
@@ -332,6 +338,9 @@ int kbd_tca8418_poll(struct kbd_tca8418 *k, uint64_t now_us,
     bus_release(k);
 
     if (handled < 0) {
+        /* The bus was taken and the controller did not answer on it: that is
+         * the controller's silence, the same evidence as a failed probe. */
+        k->last_bus_error = false;
         schedule_retry(k, now_us);
         return -1;
     }
@@ -382,4 +391,16 @@ bool kbd_tca8418_ready(const struct kbd_tca8418 *k)
 bool kbd_tca8418_gated(const struct kbd_tca8418 *k)
 {
     return k && k->gate;
+}
+
+bool kbd_tca8418_bus_error(const struct kbd_tca8418 *k)
+{
+    return k && k->last_bus_error;
+}
+
+void kbd_tca8418_retry_now(struct kbd_tca8418 *k)
+{
+    if (k && k->state == KBD_TCA8418_FAILED) {
+        k->next_retry_us = 0;
+    }
 }

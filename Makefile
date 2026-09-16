@@ -219,6 +219,45 @@ tests/brightness_test.o: tests/brightness_test.c ui/shell/brightness.h
 tests/brightness_test: tests/brightness_test.o ui/shell/brightness.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# Display geometry and safe area (pure C, no LVGL): the one mapping between
+# panel and logical pixels, the inset transform and the touch calibration
+# derived from it. The shell and the widgets link the same source (CMake).
+ui/pocketui/pos_display.o: ui/pocketui/pos_display.c ui/pocketui/pos_display.h
+	$(CC) $(ALL_CFLAGS) -Iui/pocketui -c -o $@ $<
+
+tests/display_geometry_test.o: tests/display_geometry_test.c ui/pocketui/pos_display.h
+	$(CC) $(ALL_CFLAGS) -Iui/pocketui -c -o $@ $<
+
+tests/display_geometry_test: tests/display_geometry_test.o ui/pocketui/pos_display.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# The rotation policy and the keyboard-presence state it reads (pure C),
+# tested with the settings store they persist through. The shell links the
+# same sources (CMake).
+ORIENTATION_OBJS := ui/shell/orientation.o ui/shell/kbd_presence.o ui/pocketui/pos_display.o
+
+ui/shell/orientation.o: ui/shell/orientation.c ui/shell/orientation.h ui/shell/kbd_presence.h ui/pocketui/pos_display.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -Iui/pocketui -c -o $@ $<
+
+ui/shell/kbd_presence.o: ui/shell/kbd_presence.c ui/shell/kbd_presence.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/orientation_test.o: tests/orientation_test.c ui/shell/orientation.h ui/shell/kbd_presence.h ui/shell/settings.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -Iui/pocketui -c -o $@ $<
+
+tests/orientation_test: tests/orientation_test.o $(ORIENTATION_OBJS) ui/shell/settings.o $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# The debounce every keyboard-presence provider goes through: what a base
+# board being mated, unmated or bouncing does to the published state, and so
+# to the orientation. The provider itself (ui/shell/shell_kbd.c) needs LVGL
+# and is exercised by tests/shell_kbd_test.c and the shell tests.
+tests/kbd_presence_test.o: tests/kbd_presence_test.c ui/shell/kbd_presence.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/kbd_presence_test: tests/kbd_presence_test.o ui/shell/kbd_presence.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 # The physical keyboard's controller logic (docs/hardware/
 # KEYBOARD_DRIVER_DESIGN_2026-09-12.md). It is deliberately free of LVGL,
 # /dev/mem and libgpiod so the init sequence, the FIFO drain, overflow
@@ -591,7 +630,9 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
              tests/wifi_store_test tests/airtime_test tests/pocketlog_test tests/pocketipc_test \
              tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/settings_view_test \
              tests/theme_test \
-             tests/settings_test tests/brightness_test tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
+             tests/settings_test tests/brightness_test tests/display_geometry_test tests/orientation_test \
+             tests/kbd_presence_test \
+             tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
              $(NOTES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) $(CALC_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test \
              $(WAVE_TESTS)
 
@@ -610,6 +651,9 @@ test: all $(TEST_BINS)
 	./tests/theme_test docs/design/themes.json
 	./tests/settings_test
 	./tests/brightness_test
+	./tests/display_geometry_test
+	./tests/orientation_test
+	./tests/kbd_presence_test
 	./tests/fleet_rng_test
 	./tests/fleet_rules_test
 	./tests/fleet_ai_test
@@ -724,7 +768,7 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 -include $(DEPFILES)
 
 clean:
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/pos_wave_hooks.o tests/fake_audio_backend.o $(POCKETOS_BUILD_STAMP)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/pos_wave_hooks.o tests/fake_audio_backend.o $(POCKETOS_BUILD_STAMP)
 
 # The files `make all` and `make test` produce, one to a line, for
 # tests/build_outputs_test.sh.

@@ -5,21 +5,22 @@
  * /etc/default/pocketos-shell) so the shell carries no board-specific
  * constants:
  *   POCKETOS_DRM_DEVICE    default /dev/dri/card0
- *   POCKETOS_TOUCH_DEVICE  default: evdev discovery of the first touch device
- *   POCKETOS_DRM_ROTATION  0 | 90 | 180 | 270, default 0. Uses the vendor
- *                          LVGL DRM patch (lv_linux_drm_set_rotation, DRM
- *                          plane rotation); absent from stock LVGL, in which
- *                          case a set value is reported and ignored. 90 and
- *                          270 swap the framebuffer to 1232x568, which the
- *                          shell layout does not follow: diagnostic only.
- *   POCKETOS_TOUCH_CALIB   minx,miny,maxx,maxy raw touch range mapped onto
- *                          the panel, default: the device's own ABS ranges.
- *   POCKETOS_TOUCH_SWAP    1 swaps the touch X and Y axes, default 0.
- * An invalid value logs a warning and leaves the default in place. There is
- * no automatic hardware detection beyond what LVGL's evdev driver does.
+ *   POCKETOS_TOUCH_DEVICE  default: the first evdev node with ABS_X and ABS_Y
+ *   POCKETOS_TOUCH_CALIB   minx,miny,maxx,maxy: the raw values, after any
+ *                          swap, at the panel's native top-left and
+ *                          bottom-right, default: the device's own ABS ranges.
+ *   POCKETOS_TOUCH_SWAP    1 when the controller's X and Y axes are swapped
+ *                          relative to the panel, default 0.
+ * CALIB and SWAP describe how the controller sits on the panel, so they hold
+ * in every orientation. Rotation is not among them: it is decided by the
+ * shell (shell_display.c; POCKETOS_DRM_ROTATION is a bench override there)
+ * and arrives here as one geometry, from which the DRM plane rotation and the
+ * touch transform are both set. An invalid value logs a warning and leaves
+ * the default in place.
  *
- * Status: UNTESTED until hardware arrives. Whether the vendor-patched LVGL
- * DRM driver drives this panel correctly with this call sequence is ASSUMED.
+ * Rotation uses the vendor LVGL DRM patch (lv_linux_drm_set_rotation, DRM
+ * plane rotation, before the device is opened). Without it the backend runs
+ * at rotation 0 and tells the shell so.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -27,9 +28,12 @@
 #include "pocketlog/pocketlog.h"
 
 #include <errno.h>
+#include <fcntl.h>
+#include <linux/input.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -40,6 +44,7 @@ struct touch_override {
 };
 
 static struct touch_override touch;
+static struct pos_display_geometry active; /* what the display was set up with */
 
 static uint32_t tick_ms(void)
 {
@@ -65,22 +70,6 @@ static int parse_int(const char *s, int *out)
     }
     *out = (int)v;
     return 0;
-}
-
-/* POCKETOS_DRM_ROTATION -> DRM rotation index 0..3, or 0 when unset/invalid. */
-static int rotation_from_env(void)
-{
-    const char *v = getenv("POCKETOS_DRM_ROTATION");
-    int deg;
-
-    if (!v || !*v) {
-        return 0;
-    }
-    if (parse_int(v, &deg) < 0 || (deg != 0 && deg != 90 && deg != 180 && deg != 270)) {
-        LOG_WARN("POCKETOS_DRM_ROTATION=%s is not 0, 90, 180 or 270; using 0", v);
-        return 0;
-    }
-    return deg / 90;
 }
 
 static void touch_overrides_from_env(void)
@@ -126,10 +115,7 @@ static void touch_overrides_from_env(void)
 
 /* Diagnostic trace of what LVGL reads from the touch device, on when
  * POCKETOS_INPUT_TRACE is set: the state and the calibrated point of every
- * read whose state or point changed. It wraps the driver's read callback,
- * so it is installed only for a device named by POCKETOS_TOUCH_DEVICE:
- * discovery recognises its own devices by that callback and would attach
- * a second reader to a wrapped one. */
+ * read whose state or point changed. */
 static lv_indev_read_cb_t touch_read_orig;
 
 static void touch_read_traced(lv_indev_t *indev, lv_indev_data_t *data)
@@ -150,37 +136,118 @@ static void touch_read_traced(lv_indev_t *indev, lv_indev_data_t *data)
     last_point = data->point;
 }
 
-static void touch_apply(lv_indev_t *indev, const char *what)
+#define BIT_SET(bits, n) (((bits)[(n) / (8 * sizeof(unsigned long))] >> ((n) % (8 * sizeof(unsigned long)))) & 1UL)
+
+/* Whether an evdev node reports absolute X and Y, and their ranges. */
+static int abs_ranges(int fd, struct input_absinfo *x, struct input_absinfo *y)
 {
+    unsigned long ev[(EV_MAX + 1) / (8 * sizeof(unsigned long)) + 1];
+    unsigned long abs[(ABS_MAX + 1) / (8 * sizeof(unsigned long)) + 1];
+
+    memset(ev, 0, sizeof(ev));
+    memset(abs, 0, sizeof(abs));
+    if (ioctl(fd, EVIOCGBIT(0, sizeof(ev)), ev) < 0 || !BIT_SET(ev, EV_ABS) ||
+        ioctl(fd, EVIOCGBIT(EV_ABS, sizeof(abs)), abs) < 0 || !BIT_SET(abs, ABS_X) ||
+        !BIT_SET(abs, ABS_Y)) {
+        return -1;
+    }
+    if (ioctl(fd, EVIOCGABS(ABS_X), x) < 0 || ioctl(fd, EVIOCGABS(ABS_Y), y) < 0) {
+        return -1;
+    }
+    return 0;
+}
+
+/* The touch node: POCKETOS_TOUCH_DEVICE, or the first /dev/input/eventN that
+ * reports absolute X and Y. Its ranges are read here because the touch
+ * transform needs them for every rotation, and LVGL's driver keeps its own
+ * copy private. */
+static int find_touch(const char *named, char *path, size_t path_len, struct input_absinfo *x,
+                      struct input_absinfo *y)
+{
+    int n;
+
+    for (n = 0; n < 64; n++) {
+        int fd;
+        int ok;
+
+        if (named) {
+            snprintf(path, path_len, "%s", named);
+        } else {
+            snprintf(path, path_len, "/dev/input/event%d", n);
+        }
+        fd = open(path, O_RDONLY | O_CLOEXEC);
+        if (fd < 0) {
+            if (named) {
+                return -1;
+            }
+            continue;
+        }
+        ok = abs_ranges(fd, x, y) == 0;
+        close(fd);
+        if (ok || named) {
+            return ok ? 0 : -1;
+        }
+    }
+    return -1;
+}
+
+/* The one place touch is configured: from the geometry the display was set
+ * up with, never from a rotation of its own. */
+static void touch_configure(lv_indev_t *indev, const char *what, const struct input_absinfo *x,
+                            const struct input_absinfo *y)
+{
+    struct pos_touch_raw raw;
+    struct pos_evdev_config cfg;
+
     if (touch.have_calib) {
-        lv_evdev_set_calibration(indev, touch.calib[0], touch.calib[1], touch.calib[2], touch.calib[3]);
-        LOG_INFO("%s: touch calibration %d,%d,%d,%d", what, touch.calib[0], touch.calib[1],
-                 touch.calib[2], touch.calib[3]);
+        raw.x_at_left = touch.calib[0];
+        raw.y_at_top = touch.calib[1];
+        raw.x_at_right = touch.calib[2];
+        raw.y_at_bottom = touch.calib[3];
+    } else {
+        raw.x_at_left = x->minimum;
+        raw.y_at_top = y->minimum;
+        raw.x_at_right = x->maximum;
+        raw.y_at_bottom = y->maximum;
     }
-    if (touch.swap) {
-        lv_evdev_set_swap_axes(indev, true);
-        LOG_INFO("%s: touch axes swapped", what);
-    }
+    raw.swap = touch.swap != 0;
+    pos_display_touch_config(active.rotation, &raw, &cfg);
+    lv_evdev_set_swap_axes(indev, cfg.swap_axes);
+    lv_evdev_set_calibration(indev, cfg.cal_x1, cfg.cal_y1, cfg.cal_x2, cfg.cal_y2);
+    LOG_INFO("%s: touch raw x %d..%d y %d..%d%s%s; rotation %d: swap %d, calibration %d,%d,%d,%d onto %dx%d",
+             what, (int)raw.x_at_left, (int)raw.x_at_right, (int)raw.y_at_top, (int)raw.y_at_bottom,
+             raw.swap ? ", swapped" : "", touch.have_calib ? " (POCKETOS_TOUCH_CALIB)" : "",
+             pos_rotation_degrees(active.rotation), cfg.swap_axes ? 1 : 0, (int)cfg.cal_x1, (int)cfg.cal_y1,
+             (int)cfg.cal_x2, (int)cfg.cal_y2, (int)active.width, (int)active.height);
 }
 
 static void on_evdev_found(lv_indev_t *indev, lv_evdev_type_t type, void *user_data)
 {
+    char path[64];
+    struct input_absinfo ax;
+    struct input_absinfo ay;
+
     (void)user_data;
-    if (type == LV_EVDEV_TYPE_ABS || type == LV_EVDEV_TYPE_REL) {
-        LOG_INFO("input device attached (%s)",
-                 type == LV_EVDEV_TYPE_ABS ? "touch" : "pointer");
-        if (type == LV_EVDEV_TYPE_ABS) {
-            touch_apply(indev, "discovered touch device");
-        }
+    if (type != LV_EVDEV_TYPE_ABS) {
+        return;
+    }
+    if (find_touch(NULL, path, sizeof(path), &ax, &ay) == 0) {
+        touch_configure(indev, "discovered touch device", &ax, &ay);
+    } else {
+        LOG_WARN("discovered touch device: its ranges cannot be read; left uncalibrated");
     }
 }
 
-lv_display_t *pocketos_platform_init(void)
+lv_display_t *pocketos_platform_init(const struct pos_panel *panel, struct pos_display_geometry *geometry)
 {
     const char *drm_dev = getenv("POCKETOS_DRM_DEVICE");
     const char *touch_dev = getenv("POCKETOS_TOUCH_DEVICE");
-    int rotation = rotation_from_env();
+    char touch_path[64];
+    struct input_absinfo ax;
+    struct input_absinfo ay;
     lv_display_t *disp;
+    int32_t w;
+    int32_t h;
 
     lv_tick_set_cb(tick_ms);
     touch_overrides_from_env();
@@ -188,39 +255,62 @@ lv_display_t *pocketos_platform_init(void)
     if (!disp) {
         return NULL;
     }
-    if (rotation != 0) {
+    if (geometry->rotation != POS_ROTATION_0) {
 #ifdef POCKETOS_DRM_ROTATION_API
-        lv_linux_drm_set_rotation(disp, rotation);
-        LOG_INFO("DRM plane rotation %d degrees (POCKETOS_DRM_ROTATION)", rotation * 90);
+        lv_linux_drm_set_rotation(disp, (int)geometry->rotation);
+        LOG_INFO("DRM plane rotation %d degrees", pos_rotation_degrees(geometry->rotation));
 #else
-        LOG_WARN("POCKETOS_DRM_ROTATION set but this LVGL build has no lv_linux_drm_set_rotation; ignored");
+        LOG_ERROR("rotation %d requested but this LVGL build has no lv_linux_drm_set_rotation; "
+                  "display and touch stay at rotation 0", pos_rotation_degrees(geometry->rotation));
+        pos_display_geometry_init(geometry, panel, POS_ROTATION_0);
 #endif
     }
     if (lv_linux_drm_set_file(disp, drm_dev ? drm_dev : "/dev/dri/card0", -1) != LV_RESULT_OK) {
         LOG_ERROR("cannot open DRM device %s", drm_dev ? drm_dev : "/dev/dri/card0");
         return NULL;
     }
-    if (touch_dev) {
-        lv_indev_t *indev = lv_evdev_create(LV_INDEV_TYPE_POINTER, touch_dev);
+    w = lv_display_get_horizontal_resolution(disp);
+    h = lv_display_get_vertical_resolution(disp);
+    if (w != geometry->width || h != geometry->height) {
+        /* The panel mode is not what platform.h says. Lay out, and map touch,
+         * in what the display actually is rather than in a guess. */
+        struct pos_panel real = *panel;
+        bool quarter = geometry->rotation == POS_ROTATION_90 || geometry->rotation == POS_ROTATION_270;
+
+        real.width = quarter ? h : w;
+        real.height = quarter ? w : h;
+        LOG_WARN("display came up %dx%d, expected %dx%d; using the display's size",
+                 (int)w, (int)h, (int)geometry->width, (int)geometry->height);
+        pos_display_geometry_init(geometry, &real, geometry->rotation);
+    }
+    active = *geometry;
+
+    if (find_touch(touch_dev, touch_path, sizeof(touch_path), &ax, &ay) == 0) {
+        lv_indev_t *indev = lv_evdev_create(LV_INDEV_TYPE_POINTER, touch_path);
 
         if (indev) {
-            touch_apply(indev, touch_dev);
+            touch_configure(indev, touch_path, &ax, &ay);
             if (getenv("POCKETOS_INPUT_TRACE")) {
                 touch_read_orig = lv_indev_get_read_cb(indev);
                 lv_indev_set_read_cb(indev, touch_read_traced);
-                LOG_INFO("%s: touch trace on (POCKETOS_INPUT_TRACE)", touch_dev);
+                LOG_INFO("%s: touch trace on (POCKETOS_INPUT_TRACE)", touch_path);
             }
         } else {
-            LOG_WARN("cannot open touch device %s", touch_dev);
+            LOG_WARN("cannot open touch device %s", touch_path);
         }
+    } else if (touch_dev) {
+        LOG_WARN("touch device %s cannot be opened or has no absolute X and Y: touch unavailable", touch_dev);
     } else {
+        /* Not there yet at start: let LVGL watch /dev/input for it, and
+         * configure it from the same geometry when it appears. */
+        LOG_WARN("no touch device under /dev/input yet; watching for one");
         lv_evdev_discovery_start(on_evdev_found, NULL);
     }
     return disp;
 }
 
 /* The panel has no host keyboard; text comes from the touch keyboard, and
- * later from a physical one, both through the same stream (DS ง17.4). */
+ * later from a physical one, both through the same stream (DS ยง17.4). */
 lv_indev_t *pocketos_platform_keyboard(void)
 {
     return NULL;

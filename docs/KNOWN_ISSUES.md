@@ -46,11 +46,46 @@ chip-state dependent and dumps both transports' windows when it does.
   options. BSP uses GPIO20 as DIO1. Assumed populated that way.
 - The PocketOS shell links the vendor-built liblvgl from the Buildroot
   package, which carries LILYGO's DRM patches (0002 plane rotation, 0004
-  staging scanout buffer), not a stock LVGL. The shell never calls the
-  rotation API (the panel mode is 568x1232 portrait, rotation 0) and runs
-  with `K230_LVGL_DRM_STAGING=1` set by S90pocketos-shell, as the vendor
-  launcher does. Whether that call sequence drives the RM69A10 correctly is
-  ASSUMED until tested (DS H1, H2).
+  staging scanout buffer), not a stock LVGL. The shell runs with
+  `K230_LVGL_DRM_STAGING=1` set by S90pocketos-shell, as the vendor launcher
+  does. It calls the rotation API only when the orientation is landscape
+  (rotation 270, feature/doors-display-geometry); portrait stays rotation 0.
+  Landscape on the panel, and touch following it, are VERIFIED on unit A
+  (2026-09-16, docs/hardware/DOORS_DISPLAY_GEOMETRY_GATE.md: PASS).
+- The display cannot be turned while it is open: the vendor DRM path sizes its
+  framebuffers for the rotation when the display is opened, and the vendor
+  launcher restarts its own process to switch between portrait and landscape.
+  So Doors opens the display again - it re-executes itself in place, keeping
+  its pid, and comes back on the launcher; Settings says so before it happens.
+  The panel is dark for the length of a shell start (about a second on unit A),
+  and an app that was open is closed the ordinary way.
+- Keyboard presence is the TCA8418 answering its probe on the bit-banged bus
+  (`ui/shell/shell_kbd.c`), which is what the vendor launcher calls the base
+  being detected. Nothing on this board reports the base mechanically, so a
+  keyboard whose controller cannot be reached reads as absent, and a bus that
+  cannot be claimed at all reads as unknown. The orientation Doors opens with
+  is VERIFIED on unit A for every case of the policy (four power-off boots,
+  DOORS_DISPLAY_GEOMETRY_GATE.md).
+- **Attaching or removing the keyboard base while the board is powered is not
+  a verified hardware operation.** The software path is verified (simulator,
+  and on unit A with the controller held in reset), but the connector is a
+  plain 2x20 header whose 3V3 pin shares the net that feeds the K230's VDDIO
+  banks, with no load switch, series element or ESD part on any of its signals,
+  no board-detect pin, no mating specification, no base-board schematic and no
+  vendor statement about hot-plug either way (KEYBOARD_BRINGUP §8, which also
+  names the two measurements that would settle it). Mate and unmate with the
+  board powered down and USB power removed.
+- The rounded corners' extent is PROVISIONAL (30 px squares, the vendor
+  launcher's status-bar side inset). No datasheet gives it; unit A decides
+  (POCKETOS_SAFE_CORNERS tries other values). Only the status bar uses the
+  safe area so far. The touch keyboard's bottom row (DEV-1 fixed 52 px keys,
+  6 px sheet padding) and the full-screen alert's card corners still reach
+  into the 30 px corner squares; widening them changes approved geometry and
+  is left for a design decision if unit A shows them cut.
+- Landscape is laid out for the status bar and the launcher only. App bodies
+  keep their portrait-derived widths (Timber 528, Radar 520, Calendar 528,
+  Fleet 522) inside a 1232 px wide, 440 px high body and scroll vertically;
+  the touch keyboard stays 568 px wide at the bottom centre.
 - The target lv_conf.h is the vendor package's, not ui/shell/lv_conf.defaults:
   LV_USE_FLOAT 1, LV_USE_SNAPSHOT 0, ThorVG/FreeType/FFmpeg compiled in,
   LVGL asserts abort the process (which pocketlog turns into a crash report).

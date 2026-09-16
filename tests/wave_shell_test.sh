@@ -27,9 +27,6 @@ check "the shell knows about Wave" \
     "$(grep -q 'extern const struct pocketos_app app_wave;' ui/shell/shell.c && echo 1 || echo 0)"
 check "it is on the launcher, after Settings" \
     "$(grep -q '&app_settings, &app_wave' ui/shell/shell.c && echo 1 || echo 0)"
-check "the launcher grid has a sixth row for it" \
-    "$(sed -n '/^static void home_create/,/^}/p' ui/shell/shell.c |
-       grep -o 'LV_GRID_CONTENT' | wc -l | grep -qx 6 && echo 1 || echo 0)"
 for src in wave_app.c wave_view.c wave_session.c wave_text.c; do
     check "the shell builds $src" \
         "$(grep -q "apps/wave/$src" ui/shell/CMakeLists.txt && echo 1 || echo 0)"
@@ -51,6 +48,10 @@ check "the shell wrote its log" "$([ -s "$LOGD/shell.log" ] && echo 1 || echo 0)
 check "and logs no fault" "$(grep -qE ' ERROR |assert' "$LOGD/out" "$LOGD/shell.log" 2>/dev/null && echo 0 || echo 1)"
 check "Wave reports itself open" "$(grep -q 'open app wave' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
 check "and closed" "$(grep -q 'close app wave' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
+# The shell derives the grid from the display (tests/display_geometry_shell_test.sh):
+# in portrait, Wave's eleventh tile needs a sixth row.
+check "the launcher grid has a sixth row for it" \
+    "$(grep -q 'launcher: 2 column(s), 6 row(s)' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
 check "opening Wave takes no audio lock and stores nothing" \
     "$([ ! -e "$RUN/audio.lock" ] && [ -z "$(ls -A "$STATE" 2>/dev/null)" ] && echo 1 || echo 0)"
 rm -rf "$RUN" "$LOGD" "$CFG" "$STATE"

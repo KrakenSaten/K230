@@ -30,11 +30,13 @@ K230_LVGL_DRM_STAGING=1
 export K230_LVGL_DRM_STAGING
 export POCKETOS_LOG_DIR=$LOGDIR
 export POCKETOS_LOG_STDERR=0
-# Bench overrides for the display and input layer (ui/shell/platform_drm.c):
-# only exported when /etc/default/pocketos-shell sets them, so the shell's
-# defaults apply otherwise.
+# Bench overrides for the display and input layer (ui/shell/platform_drm.c,
+# ui/shell/shell_display.c): only exported when /etc/default/pocketos-shell
+# sets them, so the shell's defaults apply otherwise. The rotation itself is a
+# setting (Settings > Display > Rotation); POCKETOS_DRM_ROTATION overrides it
+# for display and touch together.
 for v in POCKETOS_DRM_DEVICE POCKETOS_TOUCH_DEVICE POCKETOS_DRM_ROTATION \
-         POCKETOS_TOUCH_CALIB POCKETOS_TOUCH_SWAP; do
+         POCKETOS_TOUCH_CALIB POCKETOS_TOUCH_SWAP POCKETOS_SAFE_CORNERS; do
 	eval "[ -n \"\${$v:-}\" ] && export $v"
 done
 

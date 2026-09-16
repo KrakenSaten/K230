@@ -163,6 +163,46 @@ int pocketos_shell_set_appearance(const char *theme_id, const char *mode_name)
     return pos_theme_apply(theme_id, mode_name, why, sizeof(why)) < 0 ? -1 : 0;
 }
 
+/* The shell's orientation, over a variable: stored mode, this run, the next. */
+static struct pocketos_orientation g_orient = {
+    .mode = POCKETOS_ROTATION_AUTOMATIC,
+    .mode_valid = true,
+    .keyboard = POCKETOS_KEYBOARD_UNKNOWN,
+};
+static int g_rot_sets;
+static int g_rot_last = -1;
+
+void pocketos_shell_orientation(struct pocketos_orientation *out)
+{
+    *out = g_orient;
+}
+
+int pocketos_shell_set_rotation_mode(enum pocketos_rotation_mode mode)
+{
+    g_rot_sets++;
+    g_rot_last = (int)mode;
+    g_orient.mode = mode;
+    g_orient.mode_valid = true;
+    g_orient.next_landscape = mode == POCKETOS_ROTATION_LANDSCAPE ||
+                              (mode == POCKETOS_ROTATION_AUTOMATIC && g_orient.keyboard == POCKETOS_KEYBOARD_PRESENT);
+    g_orient.applying = g_orient.next_landscape != g_orient.landscape;
+    return 0;
+}
+
+/* Whether a button is drawn as the accented (primary) one: its fill is the
+ * primary role's accent_primary rather than the secondary role's surface. */
+static int role_on(lv_obj_t *obj, enum pos_style_role role)
+{
+    lv_color_t accent = lv_color_hex(pos_theme_rgb(POS_COLOR_ACCENT_PRIMARY));
+    lv_color_t fill;
+
+    if (!obj || role != POS_STYLE_BUTTON_PRIMARY) {
+        return 0;
+    }
+    fill = lv_obj_get_style_bg_color(obj, LV_PART_MAIN);
+    return lv_color_eq(fill, accent);
+}
+
 int64_t pocketos_shell_system_day(void) { return -1; }
 void pocketos_shell_set_status_hint(const char *text) { (void)text; }
 void pocketos_shell_go_home(void) { }
@@ -639,6 +679,36 @@ int main(void)
         check("back to the first theme in Normal", pos_theme_current_def() == pos_theme_at(0) &&
                                                        pos_theme_current_mode() == POS_MODE_NORMAL);
     }
+
+    /* ---- 12. rotation --------------------------------------------------------------------------- */
+    tick();
+    check("rotation: three modes under Display", shows("Rotation") && shows("AUTOMATIC") && shows("PORTRAIT") &&
+                                                     shows("LANDSCAPE"));
+    check("rotation: Automatic with no keyboard says portrait, and why",
+          find_containing(app_body, "Portrait: no keyboard detected") != NULL);
+    check("rotation: Automatic is the accented mode", role_on(target_of("AUTOMATIC"), POS_STYLE_BUTTON_PRIMARY) &&
+                                                         !role_on(target_of("LANDSCAPE"), POS_STYLE_BUTTON_PRIMARY));
+    tap("LANDSCAPE");
+    check("tapping LANDSCAPE stores the mode through the shell",
+          g_rot_sets == 1 && g_rot_last == POCKETOS_ROTATION_LANDSCAPE);
+    check("and says it is being applied, and that Doors opens on the launcher",
+          find_containing(app_body, "Turning to landscape now. The screen goes dark for a moment and Doors opens "
+                                    "on the launcher.") != NULL);
+    check("and Landscape is now the accented mode", role_on(target_of("LANDSCAPE"), POS_STYLE_BUTTON_PRIMARY) &&
+                                                        !role_on(target_of("AUTOMATIC"), POS_STYLE_BUTTON_PRIMARY));
+    check("rotation: every target is at least 64 px", small_targets(app_body) == 0);
+    tap("AUTOMATIC");
+    check("back to Automatic: nothing pending", g_rot_last == POCKETOS_ROTATION_AUTOMATIC &&
+                                                    find_containing(app_body, "Turning to") == NULL);
+    g_orient.keyboard = POCKETOS_KEYBOARD_PRESENT;
+    g_orient.landscape = g_orient.next_landscape = true;
+    tick();
+    check("a shell started landscape with a keyboard says so",
+          find_containing(app_body, "Landscape, because a keyboard is attached.") != NULL);
+    g_orient.mode_valid = false;
+    tick();
+    check("a stored value that is not a mode is explained",
+          find_containing(app_body, "The stored rotation was not recognised, so Automatic is used.") != NULL);
     app_stop();
 
     printf("settings_app_test: %d checks, %d failure(s)\n", checks, failed);

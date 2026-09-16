@@ -5,6 +5,8 @@
  *   --open <app-id>          open an app at start
  *   --screenshot <file.png>  save the screen after the first tick
  *   --exit-after-ms <n>      quit after n milliseconds (headless testing)
+ *   --rotation <mode>        automatic|portrait|landscape for this run only,
+ *                            instead of the stored mode (nothing is stored)
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -20,15 +22,18 @@
 #include "pos_keyboard.h"
 #include "settings.h"
 #include "shell_alarm.h"
+#include "shell_display.h"
 #include "shell_ipc.h"
 #include "shell_kb_state.h"
 #include "shell_kbd.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #ifndef POCKETOS_DISPLAY_NAME
 #define POCKETOS_DISPLAY_NAME "unknown"
@@ -84,6 +89,7 @@ struct shell {
     void (*kb_done_cb)(void *user);
     void *kb_done_user;
     struct brightness brightness; /* the panel's backlight device, probed once */
+    struct shell_display display; /* this run's orientation and geometry, decided once */
 };
 
 static struct shell sh;
@@ -193,6 +199,10 @@ static void status_bar_create(lv_obj_t *screen)
 
     lv_obj_remove_style_all(bar);
     pos_style_add(bar, POS_STYLE_STATUS_BAR, 0);
+    /* The bar runs corner to corner along the top edge, so its ends are where
+     * the panel's rounded corners are: the wordmark and the clock keep clear
+     * of them through the safe area, not through padding of their own. */
+    pocketui_apply_bar_insets(bar, POS_EDGE_TOP);
     lv_obj_set_size(bar, LV_PCT(100), POCKETUI_STATUS_BAR_H);
     lv_obj_align(bar, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
@@ -317,6 +327,172 @@ static void brightness_restore(void)
     LOG_INFO("brightness: %s restored to %d%%", sh.brightness.name, pct);
 }
 
+/* ---- display orientation (shell_display.h) ------------------------------ *
+ *
+ * One orientation per shell run, decided before the display existed. What
+ * changes it while the shell runs is the stored mode (Settings,
+ * shell.rotation) or the keyboard being attached or removed, and since the
+ * display is rotated when it is opened (shell_display.h), applying either
+ * means opening it again: the shell re-executes itself in place, keeping its
+ * pid, so the supervisor sees no exit and the OS is never restarted.
+ *
+ * Two things keep that from becoming a loop or a flicker. The keyboard is
+ * probed before the display is opened, so a boot with the base attached opens
+ * landscape once instead of correcting itself afterwards; and a change waits
+ * out a settle window here, on top of the debounce in kbd_presence, so a
+ * connector making and breaking contact costs nothing.
+ */
+
+/* Long enough that a mode tapped twice in Settings, or a base board finding
+ * its contacts, resolves before anything is applied; short enough that the
+ * screen turns while the hand is still on the device. */
+#define ROTATE_SETTLE_MS 800
+
+static bool restart_pending;
+static lv_timer_t *rotate_timer;
+static char **shell_argv;
+
+_Static_assert((int)POCKETOS_ROTATION_AUTOMATIC == (int)ORIENTATION_AUTOMATIC &&
+                   (int)POCKETOS_ROTATION_PORTRAIT == (int)ORIENTATION_PORTRAIT &&
+                   (int)POCKETOS_ROTATION_LANDSCAPE == (int)ORIENTATION_LANDSCAPE,
+               "app.h rotation modes are orientation.h's");
+_Static_assert((int)POCKETOS_KEYBOARD_UNKNOWN == (int)KBD_PRESENCE_UNKNOWN &&
+                   (int)POCKETOS_KEYBOARD_ABSENT == (int)KBD_PRESENCE_ABSENT &&
+                   (int)POCKETOS_KEYBOARD_PRESENT == (int)KBD_PRESENCE_PRESENT,
+               "app.h keyboard states are kbd_presence.h's");
+
+static bool is_landscape(enum pos_rotation r)
+{
+    return pos_rotation_is_landscape_of(r, sh.display.panel.width, sh.display.panel.height);
+}
+
+void pocketos_shell_orientation(struct pocketos_orientation *out)
+{
+    enum pos_rotation next = shell_display_next_rotation(&sh.display);
+    bool valid;
+
+    out->mode = (enum pocketos_rotation_mode)orientation_mode_from_setting(
+        settings_get(ORIENTATION_SETTING, NULL), &valid);
+    out->mode_valid = valid;
+    out->landscape = is_landscape(sh.display.geometry.rotation);
+    out->next_landscape = is_landscape(next);
+    out->applying = next != sh.display.geometry.rotation;
+    out->keyboard = (enum pocketos_keyboard)kbd_presence_get();
+}
+
+static void rotation_to_json(cJSON *o)
+{
+    struct pocketos_orientation now;
+    enum pos_rotation next = shell_display_next_rotation(&sh.display);
+
+    pocketos_shell_orientation(&now);
+    cJSON_AddStringToObject(o, "rotation_mode", orientation_mode_name((enum orientation_mode)now.mode));
+    cJSON_AddBoolToObject(o, "rotation_mode_valid", now.mode_valid);
+    cJSON_AddNumberToObject(o, "rotation", pos_rotation_degrees(sh.display.geometry.rotation));
+    cJSON_AddStringToObject(o, "orientation", now.landscape ? "landscape" : "portrait");
+    cJSON_AddNumberToObject(o, "next_rotation", pos_rotation_degrees(next));
+    cJSON_AddStringToObject(o, "next_orientation", now.next_landscape ? "landscape" : "portrait");
+    cJSON_AddBoolToObject(o, "applying", now.applying);
+    cJSON_AddStringToObject(o, "keyboard", kbd_presence_name(kbd_presence_get()));
+    cJSON_AddBoolToObject(o, "bench_override", sh.display.bench_override);
+}
+
+static void rotate_settled(lv_timer_t *timer)
+{
+    enum pos_rotation next = shell_display_next_rotation(&sh.display);
+
+    (void)timer;
+    lv_timer_delete(rotate_timer);
+    rotate_timer = NULL;
+    if (next == sh.display.geometry.rotation) {
+        LOG_INFO("display: rotation %d again before it was applied; the shell stays up",
+                 pos_rotation_degrees(next));
+        return;
+    }
+    restart_pending = true;
+}
+
+/* Apply what the policy now says, unless it is already what this run is
+ * showing. Every caller goes through here, so there is one settle window and
+ * one restart however many times the mode or the keyboard changes inside it. */
+static void rotation_apply_soon(const char *why)
+{
+    enum pos_rotation next = shell_display_next_rotation(&sh.display);
+
+    if (restart_pending) {
+        return;
+    }
+    if (next == sh.display.geometry.rotation) {
+        if (rotate_timer) {
+            lv_timer_delete(rotate_timer);
+            rotate_timer = NULL;
+            LOG_INFO("display: %s puts the orientation back to rotation %d; nothing to apply", why,
+                     pos_rotation_degrees(next));
+        }
+        return;
+    }
+    if (rotate_timer) {
+        return;
+    }
+    rotate_timer = lv_timer_create(rotate_settled, ROTATE_SETTLE_MS, NULL);
+    if (!rotate_timer) {
+        LOG_WARN("display: no timer to apply rotation %d; it applies at the next start",
+                 pos_rotation_degrees(next));
+        return;
+    }
+    LOG_INFO("display: %s asks for rotation %d; applying it in %d ms", why, pos_rotation_degrees(next),
+             ROTATE_SETTLE_MS);
+}
+
+static void announce_rotation(void)
+{
+    cJSON *data;
+
+    if (!sh.server) {
+        return;
+    }
+    data = cJSON_CreateObject();
+    rotation_to_json(data);
+    pocketipc_server_broadcast(sh.server, pocketipc_event("shell.rotation", data));
+}
+
+int pocketos_shell_set_rotation_mode(enum pocketos_rotation_mode mode)
+{
+    enum pos_rotation next;
+
+    if (mode != POCKETOS_ROTATION_AUTOMATIC && mode != POCKETOS_ROTATION_PORTRAIT &&
+        mode != POCKETOS_ROTATION_LANDSCAPE) {
+        return -1;
+    }
+    if (settings_set(ORIENTATION_SETTING, orientation_mode_name((enum orientation_mode)mode)) < 0) {
+        LOG_WARN("rotation mode %s not persisted to %s: %s", orientation_mode_name((enum orientation_mode)mode),
+                 settings_path(), strerror(errno));
+        return -1;
+    }
+    next = shell_display_next_rotation(&sh.display);
+    LOG_INFO("rotation mode %s stored: rotation %d", orientation_mode_name((enum orientation_mode)mode),
+             pos_rotation_degrees(next));
+    announce_rotation();
+    rotation_apply_soon("Settings");
+    return 0;
+}
+
+/* The keyboard was attached or removed (shell_kbd.c), or detection stopped
+ * being able to tell. In Automatic that changes the orientation; in a forced
+ * mode orientation_resolve ignores it, so rotation_apply_soon finds nothing
+ * to do and the display is left alone. */
+static void on_keyboard_presence(enum kbd_presence now, void *user)
+{
+    char why[48];
+
+    (void)user;
+    LOG_INFO("keyboard %s: rotation %d", kbd_presence_name(now),
+             pos_rotation_degrees(shell_display_next_rotation(&sh.display)));
+    announce_rotation();
+    snprintf(why, sizeof(why), "the keyboard being %s", kbd_presence_name(now));
+    rotation_apply_soon(why);
+}
+
 /* ---- the one touch keyboard (DS §17.3, §17.4) -------------------------- *
  *
  * The shell owns it so that there is exactly one, and so that an app cannot
@@ -328,7 +504,7 @@ static void brightness_restore(void)
 
 static void content_height(int32_t reserve_bottom)
 {
-    lv_obj_set_height(sh.content, POCKETOS_PANEL_H - POCKETUI_STATUS_BAR_H - reserve_bottom);
+    lv_obj_set_height(sh.content, pocketui_display_geometry()->height - POCKETUI_STATUS_BAR_H - reserve_bottom);
 }
 
 static void on_keyboard_done(void *user)
@@ -483,8 +659,39 @@ static void on_tile(lv_event_t *e)
     app_open(lv_event_get_user_data(e));
 }
 
+#define LAUNCHER_MAX_COLUMNS 8
+
+/* How many tile columns the launcher uses in a content area of this size.
+ * Portrait keeps the two columns of DS C7: eleven apps take six rows,
+ * 6 * 150 + 5 * 20 = 1000 px plus the 40 px padding, inside the 1176 px
+ * below the status bar. A landscape area cannot hold six rows (512 px), so
+ * it gets the fewest columns whose rows fit with the same 150 px tiles, 20 px
+ * gaps and padding: for eleven apps on 1232x512 that is six columns and two
+ * rows. Tiles are never shortened and the grid never scrolls. */
+static uint8_t launcher_columns(int32_t width, int32_t height)
+{
+    uint8_t cols;
+
+    if (width <= height) {
+        return 2;
+    }
+    for (cols = 2; cols < LAUNCHER_MAX_COLUMNS; cols++) {
+        int32_t rows = (int32_t)((APP_COUNT + cols - 1) / cols);
+
+        if (2 * POCKETUI_PAD + rows * POCKETUI_TILE_H + (rows - 1) * POCKETUI_PAD <= height) {
+            break;
+        }
+    }
+    return cols;
+}
+
 static void home_create(void)
 {
+    static int32_t cols[LAUNCHER_MAX_COLUMNS + 1];
+    static int32_t rows[APP_COUNT + 1];
+    const struct pos_display_geometry *g = pocketui_display_geometry();
+    uint8_t ncols = launcher_columns(g->width, g->height - POCKETUI_STATUS_BAR_H);
+    uint8_t nrows = (uint8_t)((APP_COUNT + ncols - 1) / ncols);
     size_t i;
 
     sh.home = lv_obj_create(sh.content);
@@ -493,23 +700,23 @@ static void home_create(void)
     lv_obj_set_style_pad_all(sh.home, POCKETUI_PAD, 0);
     lv_obj_set_style_pad_gap(sh.home, POCKETUI_PAD, 0);
     lv_obj_set_layout(sh.home, LV_LAYOUT_GRID);
-    {
-        /* Two columns of 150 px tiles; eleven apps take six rows, which is
-         * 6 * 150 + 5 * 20 = 1000 px plus the 40 px padding, inside the
-         * 1176 px below the status bar. A seventh row would not fit. */
-        static const int32_t cols[] = { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
-        static const int32_t rows[] = { LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_CONTENT,
-                                        LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_CONTENT,
-                                        LV_GRID_TEMPLATE_LAST };
-        lv_obj_set_grid_dsc_array(sh.home, cols, rows);
+    for (i = 0; i < ncols; i++) {
+        cols[i] = LV_GRID_FR(1);
     }
+    cols[ncols] = LV_GRID_TEMPLATE_LAST;
+    for (i = 0; i < nrows; i++) {
+        rows[i] = LV_GRID_CONTENT;
+    }
+    rows[nrows] = LV_GRID_TEMPLATE_LAST;
+    lv_obj_set_grid_dsc_array(sh.home, cols, rows);
     for (i = 0; i < APP_COUNT; i++) {
         lv_obj_t *tile = pocketui_tile_mask(sh.home, apps[i]->icon_mask, apps[i]->icon,
                                             apps[i]->name, on_tile, (void *)apps[i]);
 
-        lv_obj_set_grid_cell(tile, LV_GRID_ALIGN_STRETCH, (uint8_t)(i % 2), 1,
-                             LV_GRID_ALIGN_START, (uint8_t)(i / 2), 1);
+        lv_obj_set_grid_cell(tile, LV_GRID_ALIGN_STRETCH, (uint8_t)(i % ncols), 1,
+                             LV_GRID_ALIGN_START, (uint8_t)(i / ncols), 1);
     }
+    LOG_INFO("launcher: %u column(s), %u row(s)", (unsigned)ncols, (unsigned)nrows);
 }
 
 /* ---- screenshot ------------------------------------------------------- */
@@ -643,9 +850,10 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         cJSON_AddStringToObject(result, "current", sh.app ? sh.app->id : "home");
         cJSON_AddStringToObject(result, "theme", pos_theme_current_def()->id);
         cJSON_AddStringToObject(result, "mode", pos_mode_name(pos_theme_current_mode()));
-        cJSON_AddNumberToObject(display, "width", POCKETOS_PANEL_W);
-        cJSON_AddNumberToObject(display, "height", POCKETOS_PANEL_H);
+        cJSON_AddNumberToObject(display, "width", sh.display.geometry.width);
+        cJSON_AddNumberToObject(display, "height", sh.display.geometry.height);
         cJSON_AddStringToObject(display, "backend", sh.backend_name);
+        rotation_to_json(display);
         cJSON_AddItemToObject(result, "display", display);
     } else if (strcmp(method, "shell.open") == 0) {
         const cJSON *aid = params ? cJSON_GetObjectItemCaseSensitive(params, "id") : NULL;
@@ -697,6 +905,24 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         cJSON_AddStringToObject(result, "mode", pos_mode_name(pos_theme_current_mode()));
         cJSON_AddBoolToObject(result, "fallback", fallback);
         cJSON_AddStringToObject(result, "reason", why);
+    } else if (strcmp(method, "shell.rotation") == 0) {
+        const cJSON *md = params ? cJSON_GetObjectItemCaseSensitive(params, "mode") : NULL;
+        enum orientation_mode mode;
+
+        if (md) {
+            if (!cJSON_IsString(md) || orientation_mode_parse(md->valuestring, &mode) < 0) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                    id, POCKETIPC_ERR_INVALID_PARAMS, "mode must be automatic, portrait or landscape"));
+                return;
+            }
+            if (pocketos_shell_set_rotation_mode((enum pocketos_rotation_mode)mode) < 0) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                    id, POCKETIPC_ERR_BACKEND, "rotation mode could not be stored"));
+                return;
+            }
+        }
+        result = cJSON_CreateObject();
+        rotation_to_json(result);
     } else if (strcmp(method, "shell.brightness") == 0) {
         const cJSON *p = params ? cJSON_GetObjectItemCaseSensitive(params, "percent") : NULL;
         int pct;
@@ -778,12 +1004,47 @@ static void on_tick(lv_timer_t *timer)
     }
 }
 
+/* The whole of applying an orientation: hand the same binary the same
+ * arguments, in the same process. execv keeps the pid, so pos-supervise sees
+ * no exit and counts no restart, and the settings the next start reads are
+ * already written. Everything this image opened is closed first - the DRM
+ * device above all, which the next one has to open as master - because only
+ * a close-on-exec flag would do it otherwise, and LVGL's fd is not ours to
+ * flag. If the exec fails the shell exits instead, and the supervisor starts
+ * it again: one counted restart, same orientation, still no reboot. */
+static void restart_in_place(void)
+{
+    char exe[PATH_MAX];
+    ssize_t n;
+    int fd;
+
+    n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    if (n > 0) {
+        exe[n] = '\0';
+    } else {
+        snprintf(exe, sizeof(exe), "%s", shell_argv[0]);
+    }
+    LOG_INFO("display: restarting in place (%s) to open the display at rotation %d", exe,
+             pos_rotation_degrees(shell_display_next_rotation(&sh.display)));
+    pocketlog_close();
+    for (fd = 3; fd < 64; fd++) {
+        close(fd);
+    }
+    execv(exe, shell_argv);
+    pocketlog_init("shell");
+    LOG_ERROR("display: cannot re-execute %s (%s); exiting so the supervisor starts the shell again", exe,
+              strerror(errno));
+    pocketlog_close();
+}
+
 int main(int argc, char **argv)
 {
     const char *open_id = NULL;
     const char *theme_arg = NULL;
     const char *mode_arg = NULL;
+    const char *rotation_arg = NULL;
     long exit_after_ms = -1;
+    int loaded;
     lv_display_t *disp;
     lv_obj_t *screen;
     uint32_t started;
@@ -800,20 +1061,46 @@ int main(int argc, char **argv)
             theme_arg = argv[++i];
         } else if (strcmp(argv[i], "--mode") == 0 && i + 1 < argc) {
             mode_arg = argv[++i];
+        } else if (strcmp(argv[i], "--rotation") == 0 && i + 1 < argc) {
+            rotation_arg = argv[++i];
         } else {
             fprintf(stderr, "usage: pocketos-shell [--open APP] [--screenshot F.png] [--exit-after-ms N]"
-                            " [--theme ID] [--mode normal|outdoor|night]\n");
+                            " [--theme ID] [--mode normal|outdoor|night]"
+                            " [--rotation automatic|portrait|landscape]\n");
             return 2;
         }
     }
 
+    shell_argv = argv;
     pocketlog_init("shell");
     pocketlog_install_crash_handler();
+    /* The settings come first: the orientation is decided from them before
+     * the display exists, because the display is rotated when it is opened.
+     * The keyboard is probed in the same breath and for the same reason -
+     * Automatic asks whether one is attached, and the answer has to be there
+     * before the display is opened, not a second later. The probe needs no
+     * LVGL: it takes the bus, asks the controller and gives an answer. */
+    loaded = settings_init();
+    shell_kbd_probe();
+    shell_display_resolve(rotation_arg, &sh.display);
+    kbd_presence_set_listener(on_keyboard_presence, NULL);
     lv_init();
-    disp = pocketos_platform_init();
+    disp = pocketos_platform_init(&sh.display.panel, &sh.display.geometry);
     if (!disp) {
         LOG_ERROR("display init failed");
         return 1;
+    }
+    /* From here on the display, the touch transform and every layout use this
+     * one geometry, as the backend confirmed it. */
+    pocketui_set_display_geometry(&sh.display.geometry);
+    {
+        const struct pos_display_geometry *g = &sh.display.geometry;
+        struct pos_insets bar = pos_display_bar_insets(g, POS_EDGE_TOP);
+
+        LOG_INFO("display: %dx%d at rotation %d, corners %d,%d,%d,%d, status bar insets %d/%d",
+                 (int)g->width, (int)g->height, pos_rotation_degrees(g->rotation), (int)g->corners.top_left,
+                 (int)g->corners.top_right, (int)g->corners.bottom_right, (int)g->corners.bottom_left,
+                 (int)bar.left, (int)bar.right);
     }
     sh.backend_name = POCKETOS_DISPLAY_NAME;
     /* After the display, so the stream's own device is created with one to
@@ -830,12 +1117,13 @@ int main(int argc, char **argv)
     }
     /* The physical keyboard is a source of the same stream, pushing rather
      * than being adopted (DS §17.4, and KNOWN_ISSUES on LV_KEY_NEXT). No
-     * keyboard attached is a normal outcome and says so once. */
+     * keyboard attached is a normal outcome and says so once. This starts the
+     * polling for a keyboard the probe found, and the watch that notices one
+     * attached or removed later. */
     shell_kbd_create();
     pocketui_init();
     {
         /* Appearance never blocks boot: any failure here logs and falls back. */
-        int loaded = settings_init();
         const char *theme = theme_arg ? theme_arg : settings_get("theme", NULL);
         const char *mode = mode_arg ? mode_arg : settings_get("display_mode", NULL);
         char why[128];
@@ -862,7 +1150,7 @@ int main(int argc, char **argv)
 
     sh.content = lv_obj_create(screen);
     lv_obj_remove_style_all(sh.content);
-    lv_obj_set_size(sh.content, LV_PCT(100), POCKETOS_PANEL_H - POCKETUI_STATUS_BAR_H);
+    lv_obj_set_size(sh.content, LV_PCT(100), sh.display.geometry.height - POCKETUI_STATUS_BAR_H);
     lv_obj_align(sh.content, LV_ALIGN_TOP_MID, 0, POCKETUI_STATUS_BAR_H);
     home_create();
 
@@ -929,6 +1217,9 @@ int main(int argc, char **argv)
             LOG_INFO("stopping on signal");
             break;
         }
+        if (restart_pending) {
+            break;
+        }
         if (exit_after_ms >= 0 && (long)(lv_tick_get() - started) >= exit_after_ms) {
             break;
         }
@@ -937,12 +1228,18 @@ int main(int argc, char **argv)
         }
         pocketos_platform_sleep_ms(wait > 20 ? 20 : wait);
     }
+    /* The open app is closed the ordinary way, so it persists what it holds
+     * exactly as it would on any other exit. */
     app_close();
     /* Before anything else on the way out: this is what puts the keyboard's
      * pin mux back the way it was found. */
     shell_kbd_destroy();
     pocketipc_server_free(sh.server);
     shell_ipc_shutdown();
+    if (restart_pending) {
+        restart_in_place(); /* returns only when the exec failed */
+        return 1;
+    }
     pocketlog_close();
     return 0;
 }
