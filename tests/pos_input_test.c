@@ -23,8 +23,10 @@
  */
 #include "pocketui.h"
 
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #define PANEL_W 568
 #define PANEL_H 1232
@@ -114,6 +116,39 @@ static void type(const char *s)
         pos_input_push_key((pos_key_t)(unsigned char)*s);
     }
     settle();
+}
+
+/* A layout that never settles never returns from lv_timer_handler(), so no
+ * check could see it; the alarm says so instead of hanging the run. */
+static void on_hang(int sig)
+{
+    static const char msg[] = "FAIL a field's layout never settled (stopped after 10 s)\n";
+
+    (void)sig;
+    (void)!write(STDOUT_FILENO, msg, sizeof(msg) - 1);
+    _exit(1);
+}
+
+/* Whether a field's error caption is shown below it and inside the wrapper,
+ * which clips it. */
+static int caption_inside(lv_obj_t *field)
+{
+    lv_obj_t *wrap = lv_obj_get_parent(field);
+    lv_obj_t *lb;
+    lv_area_t f;
+    lv_area_t w;
+    lv_area_t c;
+
+    if (lv_obj_get_child_count(wrap) < 2) {
+        return 0;
+    }
+    lb = lv_obj_get_child(wrap, 1);
+    lv_obj_update_layout(lb);
+    lv_obj_get_coords(field, &f);
+    lv_obj_get_coords(wrap, &w);
+    lv_obj_get_coords(lb, &c);
+    return !lv_obj_has_flag(lb, LV_OBJ_FLAG_HIDDEN) && lv_area_get_height(&c) > 0 &&
+           c.y1 > f.y2 && c.y1 >= w.y1 && c.y2 <= w.y2;
 }
 
 int main(void)
@@ -350,6 +385,57 @@ int main(void)
     pocketui_text_field_set_error(second, "");
     check("an empty message clears rather than shows",
           lv_obj_has_flag(lv_obj_get_child(lv_obj_get_parent(second), 1), LV_OBJ_FLAG_HIDDEN));
+
+    /* ---- 8b. a multi-line field makes room for its caption ------------ */
+
+    /* However its wrapper gets its height, the caption goes below the field
+     * and inside the wrapper. A field at 100% of its wrapper left no room:
+     * grown into a body, as the Notes editor is, the caption was laid out
+     * past the wrapper's edge and clipped away; sized by its content, as
+     * `field` is here, the field chased the caption's height and LVGL never
+     * came back - hence the alarm. */
+    signal(SIGALRM, on_hang);
+    alarm(10);
+    {
+        lv_obj_t *body;
+        lv_obj_t *grown;
+        int32_t h;
+
+        lv_obj_update_layout(field);
+        h = lv_obj_get_height(field);
+        pocketui_text_field_set_error(field, "Too long");
+        settle();
+        check("a multi-line caption is below the field, inside its wrapper",
+              caption_inside(field));
+        check("a wrapper sized by its content keeps the field's height",
+              lv_obj_get_height(field) == h);
+        pocketui_text_field_set_error(field, NULL);
+        settle();
+        lv_obj_update_layout(field);
+        check("clearing shrinks that wrapper back to the field",
+              lv_obj_get_height(lv_obj_get_parent(field)) == h);
+
+        body = lv_obj_create(screen);
+        lv_obj_remove_style_all(body);
+        lv_obj_set_size(body, PANEL_W, 600);
+        lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+        grown = pocketui_text_field(body, NULL, false);
+        lv_obj_set_flex_grow(lv_obj_get_parent(grown), 1);
+        settle();
+        lv_obj_update_layout(grown);
+        check("a field in a grown wrapper fills it", lv_obj_get_height(grown) == 600);
+        pocketui_text_field_set_error(grown, "Not saved");
+        settle();
+        check("its caption takes its room from the field, inside the wrapper",
+              caption_inside(grown));
+        pocketui_text_field_set_error(grown, NULL);
+        settle();
+        lv_obj_update_layout(grown);
+        check("clearing gives the field all of it back", lv_obj_get_height(grown) == 600);
+        lv_obj_delete(body);
+        settle();
+    }
+    alarm(0);
 
     /* ---- 9. the queue is bounded and keeps what came first ------------ */
 

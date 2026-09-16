@@ -215,12 +215,18 @@ lv_obj_t *pocketui_text_field(lv_obj_t *parent, const char *placeholder, bool si
     } else {
         /* Three body lines is the floor of DS §17.1. The field takes the
          * height its parent gives it and scrolls once the text passes that;
-         * body line-height is 1.5 (DS §3). */
+         * body line-height is 1.5 (DS §3). It grows into the wrapper rather
+         * than being 100% of it, so an error caption takes its room from the
+         * field: at 100% the caption was laid out under the wrapper's edge
+         * and clipped away, and in a wrapper sized by its content the field
+         * chased the caption's height without end. */
         const lv_font_t *f = lv_obj_get_style_text_font(ta, LV_PART_MAIN);
         int32_t line = f ? lv_font_get_line_height(f) : 16;
+        int32_t min_h = POCKETUI_FIELD_MIN_LINES * line * 3 / 2;
 
-        lv_obj_set_height(ta, LV_PCT(100));
-        lv_obj_set_style_min_height(ta, POCKETUI_FIELD_MIN_LINES * line * 3 / 2, 0);
+        lv_obj_set_height(ta, min_h);
+        lv_obj_set_style_min_height(ta, min_h, 0);
+        lv_obj_set_flex_grow(ta, 1);
     }
     if (placeholder) {
         lv_textarea_set_placeholder_text(ta, placeholder);

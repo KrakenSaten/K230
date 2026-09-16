@@ -65,6 +65,9 @@ lv_obj_t *pocketui_label(lv_obj_t *parent, const char *text, enum pos_style_role
 
 /* The text-entry primitive. Single-line is POCKETUI_ROW_H tall and never
  * wraps; multi-line wraps, scrolls vertically and starts at three body lines.
+ * A multi-line field grows into its wrapper, so one that should fill a body
+ * grows the wrapper (lv_obj_set_flex_grow on the returned object's parent);
+ * an error caption then takes its room from the field, not from the body.
  * placeholder may be NULL.
  *
  * Returns the LVGL text area, which is what an app reads and writes. It is

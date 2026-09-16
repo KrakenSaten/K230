@@ -197,9 +197,8 @@ static void type_text(const char *s)
 
 /* ---- finding things in the app's tree ---------------------------------- */
 
-/* Depth-first search for a label with this text; returns its clickable
- * ancestor, which is what a finger would press. */
-static lv_obj_t *find_labelled(lv_obj_t *obj, const char *text)
+/* Depth-first search for the label showing this text. */
+static lv_obj_t *find_label(lv_obj_t *obj, const char *text)
 {
     uint32_t i;
 
@@ -213,22 +212,30 @@ static lv_obj_t *find_labelled(lv_obj_t *obj, const char *text)
         const char *t = lv_label_get_text(obj);
 
         if (t && strcmp(t, text) == 0) {
-            lv_obj_t *p = obj;
-
-            while (p && !lv_obj_has_flag(p, LV_OBJ_FLAG_CLICKABLE)) {
-                p = lv_obj_get_parent(p);
-            }
-            return p ? p : obj;
+            return obj;
         }
     }
     for (i = 0; i < lv_obj_get_child_count(obj); i++) {
-        lv_obj_t *hit = find_labelled(lv_obj_get_child(obj, i), text);
+        lv_obj_t *hit = find_label(lv_obj_get_child(obj, i), text);
 
         if (hit) {
             return hit;
         }
     }
     return NULL;
+}
+
+/* The same search, returning the label's clickable ancestor, which is what a
+ * finger would press. */
+static lv_obj_t *find_labelled(lv_obj_t *obj, const char *text)
+{
+    lv_obj_t *lb = find_label(obj, text);
+    lv_obj_t *p = lb;
+
+    while (p && !lv_obj_has_flag(p, LV_OBJ_FLAG_CLICKABLE)) {
+        p = lv_obj_get_parent(p);
+    }
+    return p ? p : lb;
 }
 
 static lv_obj_t *find_field(lv_obj_t *obj)
@@ -391,6 +398,69 @@ static void drag(lv_obj_t *obj, int32_t dy)
     pump(1500);
 }
 
+/* ---- the editor's field and its error caption -------------------------- */
+
+/* DS §17.1: an error "MUST carry a caption below the field", and a caption
+ * that is cut off carries nothing. The caption lives in the field's wrapper,
+ * after the field, so it is only seen if the field leaves it room there: a
+ * field taking all of its wrapper's height pushed the caption out under the
+ * wrapper's edge, and only the red border was left on the panel. So it must
+ * lie below the field and wholly inside every ancestor up to the screen,
+ * clear of the keyboard when that is up, without the body having had to
+ * scroll to make room (DS §17.1, scrolling). */
+static void check_caption(const char *what, const char *text)
+{
+    lv_obj_t *lb = find_label(app_body, text);
+    lv_obj_t *field = find_field(app_body);
+    lv_area_t a = { 0 };
+    lv_area_t f = { 0 };
+    lv_area_t w = { 0 };
+    lv_obj_t *p;
+    int ok = lb && field;
+
+    if (ok) {
+        lv_obj_update_layout(lb);
+        lv_obj_get_coords(lb, &a);
+        lv_obj_get_coords(field, &f);
+        lv_obj_get_coords(lv_obj_get_parent(field), &w);
+        ok = lv_area_get_height(&a) > 0 && a.y1 > f.y2;
+        for (p = lv_obj_get_parent(lb); ok && p; p = lv_obj_get_parent(p)) {
+            ok = inside(lb, p);
+        }
+        if (ok && pos_keyboard_is_shown(g_keyboard)) {
+            lv_area_t k;
+
+            lv_obj_get_coords(g_keyboard, &k);
+            ok = a.y2 < k.y1;
+        }
+        ok = ok && lv_obj_get_scroll_y(app_body) == 0 &&
+             lv_obj_get_scroll_bottom(app_body) <= 0;
+    }
+    checks++;
+    if (!ok) {
+        failed++;
+        printf("FAIL %s: caption %d..%d x %d..%d, field y %d..%d, wrapper y %d..%d\n",
+               what, (int)a.x1, (int)a.x2, (int)a.y1, (int)a.y2, (int)f.y1, (int)f.y2,
+               (int)w.y1, (int)w.y2);
+    }
+}
+
+/* With no error shown the field is the whole of its wrapper, exactly as
+ * before the caption had room made for it. */
+static int fills_wrapper(lv_obj_t *field)
+{
+    lv_area_t f;
+    lv_area_t w;
+
+    if (!field) {
+        return 0;
+    }
+    lv_obj_update_layout(field);
+    lv_obj_get_coords(field, &f);
+    lv_obj_get_coords(lv_obj_get_parent(field), &w);
+    return f.x1 == w.x1 && f.x2 == w.x2 && f.y1 == w.y1 && f.y2 == w.y2;
+}
+
 int main(void)
 {
     lv_display_t *disp;
@@ -438,6 +508,7 @@ int main(void)
     field = find_field(app_body);
     check("the editor has a field", field != NULL);
     check("and it is focused", pos_input_focused() == field);
+    check("with no error the field is the whole of its wrapper", fills_wrapper(field));
 
     type_text("Shopping");
     check_str("typed characters reach the note", lv_textarea_get_text(field), "Shopping");
@@ -565,6 +636,8 @@ int main(void)
           lv_obj_has_state(field, LV_STATE_DISABLED));
     check("and says why", label_present(app_body, "This note could not be read. "
                                                   "It is left exactly as it is."));
+    check_caption("below the field, where it can be read",
+                  "This note could not be read. It is left exactly as it is.");
     check("the keyboard stays down for it", !pocketos_shell_keyboard_visible());
     tap_obj(find_labelled(app_body, "Done"));
     {
@@ -639,6 +712,8 @@ int main(void)
         check("and says why",
               label_present(app_body, "This note is too long to edit here. "
                                       "It is left exactly as it is."));
+        check_caption("below the field, where it can be read",
+                      "This note is too long to edit here. It is left exactly as it is.");
         check("showing all of it, not the first 2000 characters",
               field && strcmp(lv_textarea_get_text(field), big) == 0);
         check("the keyboard stays down for it", !pocketos_shell_keyboard_visible());
@@ -707,6 +782,7 @@ int main(void)
     {
         static char raw[NOTES_MAX_BYTES + 1];
         char path[256];
+        char why[128];
 
         notes_store_write(70, "Blocked\nfirst");
         notes_store_path(70, path, sizeof(path));
@@ -733,6 +809,15 @@ int main(void)
         check("and says so on the field too",
               label_present(app_body, "This note could not be saved. It is still "
                                       "here; Done tries again."));
+        check_caption("below the field, where it can be read",
+                      "This note could not be saved. It is still here; Done tries again.");
+        /* Outdoor's larger type makes the caption taller; the field gives up
+         * that much more. */
+        check("[outdoor] the mode applies over the error",
+              pos_theme_apply(NULL, "outdoor", why, sizeof(why)) == 0);
+        check_caption("[outdoor] the caption is still below the field, where it can be read",
+                      "This note could not be saved. It is still here; Done tries again.");
+        pos_theme_apply(NULL, "normal", why, sizeof(why));
 
         /* Nothing else may be opened over it: the list is not reachable, so
          * the only way another note could be opened is the app being torn
@@ -745,6 +830,9 @@ int main(void)
               read_raw(path, raw, sizeof(raw)) == 14 &&
                   memcmp(raw, "Blocked\nfirst!", 14) == 0);
         check("and the hint is cleared", !strcmp(g_hint, ""));
+        tap_obj(find_labelled(app_body, "Blocked"));
+        check("reopened, the field has the caption's room back",
+              fills_wrapper(find_field(app_body)));
         app_stop();
     }
 
@@ -807,6 +895,8 @@ int main(void)
         check("and says so on the field",
               label_present(app_body, "This note could not be deleted. It is "
                                       "still here."));
+        check_caption("below the field, where it can be read",
+                      "This note could not be deleted. It is still here.");
         check("the text is not thrown away either",
               field && strcmp(lv_textarea_get_text(field), "Stubborn\nbody") == 0);
 
