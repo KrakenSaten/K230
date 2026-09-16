@@ -120,6 +120,31 @@ static int save_open_note(struct notes_app *a)
 
 /* ---- the editor -------------------------------------------------------- */
 
+/* An error caption under the field (DS §17.1), which takes its room from the
+ * field (pocketui_text_field). The first caption of an app instance is
+ * created here, and for one layout pass its size is not yet its own: the
+ * field is squeezed past its real size - in the wide shape, where it has no
+ * floor, to nothing - and starts scrolling its caret into view for that
+ * moment. LVGL finishes that scroll after the field has its size back, so a
+ * short note on unit A was left scrolled out of sight above its caption. The
+ * editor is therefore laid out at once, the scroll begun for that moment is
+ * dropped with the field's other animations, the field is brought back inside
+ * its text, and the caret is placed again - a step aside and back, since
+ * LVGL ignores placing it where it already is - which scrolls it into view
+ * for the size the field really has and restarts its blink. */
+static void show_field_error(struct notes_app *a, const char *message)
+{
+    int32_t pos;
+
+    pocketui_text_field_set_error(a->field, message);
+    lv_obj_update_layout(a->frame);
+    lv_anim_delete(a->field, NULL);
+    lv_obj_readjust_scroll(a->field, LV_ANIM_OFF);
+    pos = lv_textarea_get_cursor_pos(a->field);
+    lv_textarea_set_cursor_pos(a->field, pos > 0 ? pos - 1 : pos + 1);
+    lv_textarea_set_cursor_pos(a->field, pos);
+}
+
 /* The way out of the editor, and the only place a note is written on the way
  * to the list. A save that failed does not take the editor with it: the text
  * is the only copy there is - open_id names the note it belongs to, and
@@ -129,9 +154,7 @@ static void editor_leave(struct notes_app *a)
 {
     if (save_open_note(a) != 0) {
         pocketos_shell_set_status_hint("Note not saved");
-        pocketui_text_field_set_error(a->field,
-                                      "This note could not be saved. It is still "
-                                      "here; Done tries again.");
+        show_field_error(a, "This note could not be saved. It is still here; Done tries again.");
         return;
     }
     pocketos_shell_set_status_hint("");
@@ -246,9 +269,7 @@ static void on_confirm_delete(lv_event_t *e)
     if (a->open_existing && notes_store_delete(a->open_id) != 0) {
         pocketos_shell_set_status_hint("Note not deleted");
         show_screen(a, NOTES_SCREEN_EDITOR);
-        pocketui_text_field_set_error(a->field,
-                                      "This note could not be deleted. It is "
-                                      "still here.");
+        show_field_error(a, "This note could not be deleted. It is still here.");
         return;
     }
     pocketos_shell_set_status_hint("");

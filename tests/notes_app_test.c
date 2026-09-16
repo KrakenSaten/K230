@@ -937,6 +937,30 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
         const lv_font_t *font;
         struct control c[3];
 
+        /* A short note fits beside the caption whole, and must be seen whole.
+         * The caption is created the first time an error is shown, and on
+         * unit A that first caption of an app instance left a two-line note
+         * scrolled out of sight above it. */
+        notes_store_path(20, path, sizeof(path));
+        tap_obj(find_labelled(app_body, "Note 20"));
+        field = find_field(app_body);
+        tap_key("?123");
+        tap_key("!");
+        tap_key("ABC");
+        unlink(path);
+        mkdir(path, 0755);
+        tap_obj(find_labelled(app_body, "Done"));
+        snprintf(what, sizeof(what), "[%s] failed save, a short note, the first caption", name);
+        check_caption(what, "This note could not be saved. It is still here; Done tries again.");
+        snprintf(what, sizeof(what), "[%s] failed save, a short note: all of it in view above the caption",
+                 name);
+        check(what, field && strcmp(lv_textarea_get_text(field), "Note 20\nbody!") == 0 &&
+                        caret_in_view(field) && lv_obj_get_scroll_y(field) == 0);
+        rmdir(path);
+        tap_obj(find_labelled(app_body, "Done"));
+        snprintf(what, sizeof(what), "[%s] failed save, a short note: saved once the way is clear", name);
+        check(what, label_present(app_body, "New note"));
+
         notes_store_path(1, path, sizeof(path));
         tap_obj(find_labelled(app_body, "Note 01"));
         field = find_field(app_body);
@@ -967,7 +991,30 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
                         text_buf[strlen(text_buf) - 1] == '!');
 
         /* A delete that fails comes back to the editor with the keyboard
-         * down, and says so under the field. */
+         * down, and says so under the field. The first caption of a new app
+         * instance again, on a short note, which must be seen whole. */
+        app_stop();
+        app_start();
+        tap_obj(find_labelled(app_body, "Note 20"));
+        field = find_field(app_body);
+        notes_store_read(20, text_buf, sizeof(text_buf));
+        notes_store_path(20, path, sizeof(path));
+        unlink(path);
+        mkdir(path, 0755);
+        snprintf(block, sizeof(block), "%s/keep", path);
+        close(open(block, O_CREAT | O_WRONLY, 0644));
+        tap_obj(find_labelled(app_body, "Delete"));
+        tap_obj(find_labelled(app_body, "Delete")); /* the confirmation */
+        snprintf(what, sizeof(what), "[%s] failed delete, a short note: all of it in view above the caption",
+                 name);
+        check(what, field && caret_in_view(field) && lv_obj_get_scroll_y(field) == 0);
+        unlink(block);
+        rmdir(path);
+        notes_store_write(20, text_buf);
+        tap_obj(find_labelled(app_body, "Done"));
+
+        notes_store_path(1, path, sizeof(path));
+        notes_store_read(1, text_buf, sizeof(text_buf));
         tap_obj(find_labelled(app_body, "Note 01"));
         field = find_field(app_body);
         unlink(path);
