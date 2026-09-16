@@ -179,6 +179,43 @@ dialogs, crash reports and the current documentation - and no path, command,
 service, environment variable or C identifier. v0.0.10 is the first Doors
 release. VERSION is unchanged.
 
+**v0.0.10, the first Doors release** (2026-09-16, `release/v0.0.10`): ADR-005
+Phases 1 to 3, the Doors splash and mark, the app icons, the rounded-corner
+safe area and system-owned rotation, together with everything above merged
+since v0.0.9 (Wi-Fi, brightness, Settings, Calculator, Wave, the third-party
+notices). Release notes: `docs/releases/v0.0.10.md`; the release candidate
+`9f9c802`, its image and the unit A gate (PASS, with a known boot-splash
+limitation): `docs/hardware/V0.0.10_RELEASE_SMOKE.md`. Phase 4 of ADR-005 is
+not started and not approved.
+
+### Landscape app adaptation (after v0.0.10)
+
+System rotation works (DS §21), but most app screens are still portrait
+layouts shown in the landscape body: fixed widths such as Timber 528, Radar
+520, Calendar 528 and Fleet 522 px, scrolled vertically (docs/KNOWN_ISSUES.md;
+confirmed by the product owner on unit A during the v0.0.10 gate). Each app
+gets a responsive landscape layout **on its own**, as its own change with its
+own DS amendment where §21.3 asks for one, its own tests in both orientations,
+and a unit A check - not one redesign of every app at once. The portrait
+layouts stay as they are. Apps: Radio, System, Fleet, Radar, Timber, Notes,
+Clock, Calendar, Calculator, Settings, Wave. Order: the product owner's.
+
+### Vendor U-Boot display bring-up investigation (after v0.0.10)
+
+The boot splash is intermittently black on cold boots and warm reboots, while
+the image, the splash file and the boot into Doors are fine
+(docs/KNOWN_ISSUES.md; docs/hardware/V0.0.10_RELEASE_SMOKE.md, "Boot splash:
+known vendor limitation"). Not started before v0.0.10 (product owner). Scope
+when it is taken up: the vendor U-Boot panel power, reset and DSI bring-up in
+the LILYGO overlay (`k230_logo.c`, `st7701.c`, `display_logo.c`), to find the
+root cause and a fix that is deterministic rather than a retry. Known going in:
+the console output of a black boot is identical to a lit one, a single
+`PHY_STATUS` read does not tell them apart, and a second `k230_logo` from
+`bootcmd` did not make cold boots reliable (`236a142`, branch
+`experiment/v0.0.10-splash-bootcmd-retry`, rejected). Any change is a vendor
+bootloader change, validated on many cold and warm boots with the panel
+watched.
+
 ### Settings fundamentals before v0.1.0
 
 Settings holds only what is backed by working functionality. Reviewed

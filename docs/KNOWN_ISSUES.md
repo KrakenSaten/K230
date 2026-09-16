@@ -1,6 +1,6 @@
 # Known issues and open questions
 
-Updated 2026-09-15. Move items to git history when resolved.
+Updated 2026-09-16. Move items to git history when resolved.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
 B4 (the shell's `printf` diagnostics never reached a log; they go through
@@ -98,9 +98,28 @@ chip-state dependent and dumps both transports' windows when it does.
   optional nRF9151 base board. Potential conflict if both are used.
 - `aic8800` modules are modprobed by the vendor boot script although the board
   has RTL8189FTV; harmless warnings expected in dmesg.
-- No boot splash after a warm `reboot` (vendor U-Boot; VERIFIED on unit A
-  2026-09-15, docs/hardware/DOORS_GRAPHICS_GATE.md). From power-on the splash
-  shows and hands over cleanly to the shell. After `reboot` U-Boot still loads
+- **The boot splash is intermittently black, on cold boots and warm reboots:
+  a known vendor U-Boot / display-init limitation** (product owner,
+  2026-09-16; v0.0.10 ships with it, docs/hardware/V0.0.10_RELEASE_SMOKE.md).
+  Observed on unit A: the splash sometimes appears on a cold boot and sometimes
+  stays black on a true cold boot (about 60 s without USB power, base
+  detached); a warm reboot can do the same; both `k230_logo` invocations can
+  execute and load 2,799,104 bytes while the panel stays black, with console
+  output identical to a boot that shows the splash; keyboard-base presence
+  does not explain it; the boot into Doors is otherwise successful. The image
+  is not the cause: its boot path is byte-identical to the one whose splash
+  was verified on 2026-09-15. Unknown: the root cause inside the vendor panel
+  power, reset and DSI bring-up, and a deterministic retry point that fixes it.
+  Not attributed to power-off time, discharge or keyboard-base back-feed. A
+  single `PHY_STATUS` read at the U-Boot prompt does not decide lit or black.
+  **Tried and rejected:** running `k230_logo` a second time from `bootcmd`
+  (`236a142`, branch `experiment/v0.0.10-splash-bootcmd-retry`) passed every
+  software and image gate, showed the splash on three warm reboots, but left
+  two cold boots black and added about 1 s to every boot. Investigating the
+  vendor bring-up is post-v0.0.10 work (ROADMAP).
+  The original finding, 2026-09-15: no boot splash after a warm `reboot`
+  (VERIFIED on unit A, docs/hardware/DOORS_GRAPHICS_GATE.md), while from
+  power-on the splash showed and handed over cleanly to the shell. After `reboot` U-Boot still loads
   `/logo.xrgb` and prints `RM69A10 direct XRGB8888 logo.xrgb full-screen OSD4`,
   but the panel stays dark until the shell's first mode set re-initialises it
   (about 17 s), so the unit boots normally with no splash rather than a broken
@@ -114,7 +133,8 @@ chip-state dependent and dumps both transports' windows when it does.
   (whether the stock LILYGO splash does the same was not run). A fix belongs in
   the vendor U-Boot overlay, for example resetting the DSI host before the
   command phase or repeating the bring-up after a warm reset, and needs the
-  product owner's go.
+  product owner's go. (The 2026-09-16 observations above supersede "from
+  power-on the splash shows": it does not always.)
 
 - PocketRadar H1: the scan screen repaints a 520 x 520 custom-drawn scope at
   20 Hz (RADAR_TICK_MS), which is the app's whole frame cost and is unmeasured
@@ -270,7 +290,10 @@ chip-state dependent and dumps both transports' windows when it does.
   actions (mount /boot, modprobes, isp_media_server, vo_init) when rcK calls
   it with `stop`. Harmless vendor noise, not a PocketOS action and not a
   corruption risk (`/boot` is already mounted and is unmounted normally by
-  `umount -a -r` afterwards).
+  `umount -a -r` afterwards). The same shutdown also prints `Stopping crond:
+  no /usr/sbin/crond found; none killed` followed by `FAIL`, from the vendor
+  crond init script (seen on unit A with v0.0.8 and v0.0.10); vendor noise
+  too.
 - The vendor launcher is still in the PocketOS image and owns the display
   and the radio by default; radiod runs with the mock backend until the
   launcher is switched off. The switch is persistent
