@@ -476,6 +476,20 @@ check "it refuses while a PocketOS-era shell is running" \
 kill "$OLDSH" 2>/dev/null; wait "$OLDSH" 2>/dev/null
 rm -f "$OLD_CHILD_PID"
 
+# The same shell with no pid file at all: a daemon whose supervisor was killed
+# still holds DRM and the socket, and only /proc knows about it. The stand-in
+# is a real executable copied to the old name - a shell script would show its
+# interpreter in /proc/<pid>/exe, which is not what the sweep reads.
+cp "$(command -v sleep)" "$OLD_DAEMON" 2>/dev/null && chmod 0755 "$OLD_DAEMON"
+"$OLD_DAEMON" 600 &
+ORPHAN=$!
+sleep 0.5
+out=$("$S90" start 2>&1)
+check "it refuses while a PocketOS-era shell runs with no pid file" \
+      $([ ! -e "$ROOT/shell.env" ] && [ "$(contains "$out" "is running")" = 1 ] && echo 1 || echo 0)
+kill "$ORPHAN" 2>/dev/null; wait "$ORPHAN" 2>/dev/null
+rm -f "$OLD_DAEMON"
+
 # Stale runtime files from the old identity are not a running shell. A reboot
 # clears /run, but a deploy that removed the service must not leave the new one
 # refusing for ever.

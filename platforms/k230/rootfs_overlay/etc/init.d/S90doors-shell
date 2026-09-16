@@ -87,7 +87,17 @@ old_running() {
 	running "$_p" && return 0
 	_p=""
 	[ -s "$OLD_CHILD_PIDFILE" ] && _p=$(cat "$OLD_CHILD_PIDFILE")
-	running "$_p"
+	running "$_p" && return 0
+	# A daemon whose supervisor was killed keeps running with no pid file to
+	# name it, and it still owns DRM and the socket. /proc is the only thing
+	# that still knows, so it is asked rather than assumed.
+	for _d in /proc/[0-9]*; do
+		_exe=$(readlink "$_d/exe" 2>/dev/null) || continue
+		case "$_exe" in
+		*/pocketos-shell) return 0 ;;
+		esac
+	done
+	return 1
 }
 
 start() {
