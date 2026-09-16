@@ -268,7 +268,7 @@ root filesystem as `/logo.xrgb`, which nothing reads. Consequences:
 
 ## System identity
 
-The System app's identity panel starts with the row "Doors  0.0.9 · <build>".
+The System app's identity panel starts with the row "Doors  <version> · <build>".
 That row now carries the compact mark before the name. DS §19 (Amendment C,
 accepted 2026-09-15) is the rule for it.
 
