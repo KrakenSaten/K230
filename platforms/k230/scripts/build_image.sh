@@ -137,6 +137,17 @@ else
             SHELL_TROUBLE=1
         fi
     done
+    # And in the overlay Buildroot actually builds the rootfs from: it keeps a
+    # synced copy of board/..., so an old service left there is copied back
+    # into every image however clean the target tree looks.
+    for stale in "${SDK_DIR}"/output/buildroot-*/board/canaan/k230-soc/rootfs_overlay/etc/init.d/S90pocketos-shell \
+                 "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/etc/init.d/S90pocketos-shell"; do
+        if [ -e "${stale}" ]; then
+            echo "ERROR: the PocketOS-era shell is still in a rootfs overlay: ${stale#"${SDK_DIR}"/}" >&2
+            echo "       Re-run apply_to_sdk.sh (it removes it)." >&2
+            SHELL_TROUBLE=1
+        fi
+    done
     for want in usr/bin/doors-shell etc/init.d/S90doors-shell; do
         if [ ! -e "${TGT}/${want}" ]; then
             echo "ERROR: the Doors shell service is missing from the target tree: ${want}" >&2

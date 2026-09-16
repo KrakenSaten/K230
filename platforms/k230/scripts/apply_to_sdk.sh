@@ -283,14 +283,18 @@ git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" -- platforms/k230
 # PocketOS-era shell can still be sitting in this SDK is cleared here - before
 # the image is assembled, rather than leaving the rootfs gate in build_image.sh
 # to refuse a build that is otherwise fine.
+# Three places, and the third is the one that bites: Buildroot syncs the
+# overlay into its own tree (output/buildroot-<version>/board/...) and builds
+# the rootfs from that copy, so cleaning only the overlay this script writes
+# leaves the old service to be copied back into the image.
 _stale=0
-for rel in "buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/etc/init.d/S90pocketos-shell" \
-           "output/${CONF}/target/etc/init.d/S90pocketos-shell" \
-           "output/${CONF}/target/usr/bin/pocketos-shell"; do
-    f="${SDK_DIR}/${rel}"
+for f in "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/etc/init.d/S90pocketos-shell" \
+         "${SDK_DIR}"/output/buildroot-*/board/canaan/k230-soc/rootfs_overlay/etc/init.d/S90pocketos-shell \
+         "${SDK_DIR}/output/${CONF}/target/etc/init.d/S90pocketos-shell" \
+         "${SDK_DIR}/output/${CONF}/target/usr/bin/pocketos-shell"; do
     [ -e "${f}" ] || continue
     rm -f "${f}" || { echo "cannot remove the PocketOS-era shell at ${f}" >&2; exit 1; }
-    echo "      removed the PocketOS-era shell: ${rel}"
+    echo "      removed the PocketOS-era shell: ${f#"${SDK_DIR}"/}"
     _stale=$((_stale + 1))
 done
 [ "${_stale}" -eq 0 ] && echo "      no PocketOS-era shell in the SDK"
