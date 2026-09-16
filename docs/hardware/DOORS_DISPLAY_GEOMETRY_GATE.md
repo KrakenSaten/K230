@@ -2,15 +2,16 @@
 
 Branch `feature/doors-display-geometry`, from master `13029a3`.
 
-**Result: NOT RUN.** Everything that can be checked without the panel passed
-(below), and everything that can be checked over SSH passed on unit A. One
-pass on the panel remains. DS Amendment E (§21) stays PROPOSED until the
-product owner accepts it after that pass.
+**Result: PASS on unit A, 2026-09-16** (four power-off boots with the product
+owner, plus everything below). **DS Amendment E (§21) ACCEPTED.**
 
-The safe area and manual rotation were shown to the owner on the panel on
-2026-09-16 and looked right; that is not a signed-off result, and the milestone
-was extended rather than closed: **Automatic now follows the physical
-keyboard**, which the one gate below covers together with the safe area.
+What the four boots settle, and what they deliberately do not: the orientation
+Doors opens with is **VERIFIED** for every case of the policy, and the
+keyboard base being **attached or removed while the board is powered stays
+UNVERIFIED as a hardware operation**. The software side of a live change is
+verified (the simulator's 29 checks, and on unit A the controller held in
+reset), but no base was ever mated or unmated live, by design: see "Hot-plug"
+below.
 
 Not merged. No change to VERSION, typography, icons, icon sizes, theme
 palette, tile styling or the focus model; Rebrand Phase 3 not started.
@@ -75,12 +76,33 @@ mechanically, and nothing here pretends otherwise.
   absent, and unknown resolves to portrait.
 - Forced Portrait and forced Landscape ignore all of it.
 
-**Hot-plugging the base is not a verified operation.** Every attach and detach
-on record was done with the SoC halted and every supply removed (§5.3 C3), and
-no vendor source says the connector may be mated live. Detection does not care
-either way - it sees the controller answer or not - but whether mating and
-unmating a powered board is safe *for the hardware* is open, and this gate is
-where it is decided.
+## Hot-plug: not done, and why
+
+Every attach and detach on record, this gate included, was done with the SoC
+halted and USB power removed (KEYBOARD_BRINGUP §5.3 C3, §8). Detection does
+not care either way - it sees the controller answer or not, and the simulator
+proves what the shell does when that changes while it runs - but whether
+mating a powered board is safe **for the hardware** is a separate question,
+and the documents do not answer it. What the vendor sources do and do not say
+is recorded in KEYBOARD_BRINGUP §8; the short of it:
+
+- The interconnect is **JP1, a plain 2x20 header** (`HEADER_20X2_H` in the
+  main-board schematic). No part number, pitch, gender or mating specification
+  exists in any vendor document, so **whether ground mates first is unknown**.
+- **JP1 pin 3 is the board's 3V3 rail** - the same net that feeds the K230's
+  VDDIO banks. A base board's bulk capacitance therefore charges through that
+  rail at the moment of contact, and nothing in the extracted netlist limits
+  it: **no load switch, no series resistance, no TVS or ESD part on any JP1
+  net** (protection exists only on USB, microSD and the antenna).
+- There is **no board-detect or ID pin**; the vendor detects the base in
+  software by probing I2C, exactly as this milestone does.
+- **No vendor statement about hot-plug exists at all**, permissive or
+  prohibitive, and there is **no schematic of any base board**.
+
+A controller that recovers after a dropout says nothing about this: I2C
+recovering is not evidence that the supply and the SoC's I/O rail survived the
+event. So live attach/detach stays **software-verified, hardware-UNVERIFIED**,
+and the gate above avoids it.
 
 ## Applying an orientation: the shell opens the display again
 
@@ -209,9 +231,10 @@ documented way, and whether GT9895 taps land under the finger once it has.
 
 ## The gate
 
-**Operator time: about four minutes, five physical steps and one answer.**
-Everything else is done over SSH by the session, and every scripted check
-prints `ok` or `FAIL`.
+**Operator time: about five minutes, four power cycles and one answer.**
+Everything else is done by the session over SSH, or over the USB serial
+console when there is no network, and every scripted check prints `ok` or
+`FAIL`.
 
 Before (session, no operator), all of it done for the run below:
 
@@ -223,7 +246,8 @@ Before (session, no operator), all of it done for the run below:
    shell. Record, and move aside for the test, any `POCKETOS_DRM_ROTATION`,
    `POCKETOS_TOUCH_CALIB`, `POCKETOS_TOUCH_SWAP` or `POCKETOS_SAFE_CORNERS` in
    `/etc/default/pocketos-shell` (each would override what is being tested).
-3. `platforms/k230/scripts/deploy.sh 192.168.10.157`; check `doors version`
+3. `platforms/k230/scripts/deploy.sh 192.168.10.157` (network), or the same
+   image already on the unit; check `doors version`
    shows the branch tip's build, `/usr/bin/pocketos-shell` matches the build's
    SHA-256, the four services run, the log says what the probe found and which
    way the display and touch were opened, `app list` shows eleven apps, every
@@ -239,29 +263,27 @@ Before (session, no operator), all of it done for the run below:
    "After the test"), and leave the unit on Automatic, Ice/Normal, on the
    launcher.
 
-Then one pass on the panel. The device starts with the keyboard base attached,
-so it is in landscape:
+Then one pass on the panel, **with every attach and detach done on a
+powered-down board**: the connector is not mated live (see "Hot-plug" above).
+Each boot is verified from the unit itself before the next one.
 
 | # | Operator does | Pass |
 | --- | --- | --- |
-| 1 | Looks at the launcher, in landscape and then in portrait later | the whole `D` of `DOORS` and the clock's last digit visible and clear of the rounded corners, with a little margin; six tiles in each of two rows, nothing cut off; a tap near the top-left tile and one near the bottom-right open the tile under the finger |
-| 2 | **A.** Disconnects the keyboard base, Rotation = Automatic | within a few seconds the panel goes dark briefly and comes back in **portrait**, upright, the launcher in two columns, `DOORS` and the clock clear of the corners |
-| 3 | **B.** Connects the keyboard base again | within a few seconds it turns itself to **landscape** |
-| 4 | **C.** Disconnects it again | it returns to **portrait** on its own |
-| 5 | **D.** Settings > Rotation > **PORTRAIT**, then connects the keyboard | it stays **portrait**: a forced mode ignores the keyboard |
-| 6 | **E.** Settings > Rotation > **LANDSCAPE**, then disconnects the keyboard | it stays **landscape**, then Settings > Rotation > **AUTOMATIC** to leave the unit as it was |
+| 1 | Boots with the base **attached**, Rotation = Automatic | opens in **landscape**, six tiles in each of two rows; the whole `D` of `DOORS` and the clock's last digit clear of the rounded corners; a tap near the top-left tile and one near the bottom-right open the tile under the finger |
+| 2 | Powers down, removes USB power, **detaches** the base, powers on | opens in **portrait**, two columns, wordmark and clock clear of the corners |
+| 3 | Rotation = **Portrait**, powers down, **attaches** the base, powers on | stays **portrait**: a forced mode ignores the keyboard |
+| 4 | Rotation = **Landscape**, powers down, **detaches** the base, powers on | stays **landscape** |
 
-One answer: PASS if all six hold, otherwise FAIL with the step letter. Every
-tap, restart and presence change is checked afterwards in the unit's log.
+One answer: PASS if all four hold, otherwise FAIL with the step number. The
+probe result, the resolved policy, the logical size, the DRM rotation, the
+touch transform, the services and the crash/error state are read from the unit
+for each boot; with no network the console over USB serial is enough for all of
+it, including the panel itself (`ffmpeg -f kmsgrab`, carried over the serial
+line and checked in pixels).
 
-**Before step 2, read this.** Mating and unmating the base while the board is
-powered is not a verified operation: every attach and detach on record was done
-with the SoC halted and every supply removed (KEYBOARD_BRINGUP §5.3 C3), and no
-vendor source says the connector may be mated live. The software side of B and
-C is already shown without touching the connector (step 4 above, the reset line
-held low). If the risk is not wanted, do A-E with the device powered off for
-each connect and disconnect: that still checks the policy and the orientation
-at start, and leaves "noticed while running" resting on the bench evidence.
+What this does **not** cover, and must not be inferred from it: a base
+attached or removed **while the board is powered**. That is the same policy in
+software, but a different question in hardware, and it stays open.
 
 If the corners clip in 1, the fix is a number, not code: try another
 `POCKETOS_SAFE_CORNERS` in `/etc/default/pocketos-shell` and restart, then
@@ -269,6 +291,41 @@ commit the value that clears. A landscape picture upside down means the plane
 turns the other way from the vendor's index (270 would become 90,
 `ORIENTATION_LANDSCAPE_ROTATION`); taps that land mirrored or on the wrong axis
 mean the transform, which the touch line in the log then shows.
+
+## Result on unit A: the four power-off boots (2026-09-16)
+
+Build `1bd7cbf` deployed with `deploy.sh` (no flash). Ethernet was not
+available, so this pass ran entirely over the **USB serial console** (CH342 A,
+COM9, 115200): every check below was read from the unit itself, and each panel
+image was captured on the device from the DRM plane (`ffmpeg -f kmsgrab`) and
+carried over the serial line as base64, checked in pixels here, MD5 confirmed
+end to end. The base was attached and detached only with the board powered
+down and USB power removed.
+
+| # | Boot | The shell's own account | Panel |
+| --- | --- | --- | --- |
+| 1 | base **attached**, Automatic | `keyboard: TCA8418 ready, polling every 15 ms (INT-gated)`; `rotation mode automatic (stored), keyboard present: rotation 270, 1232x568`; `DRM plane rotation 270 degrees`; touch `rotation 270: swap 1, calibration 2400,0,0,1060 onto 1232x568`; `launcher: 6 column(s), 2 row(s)`; **no restart** | landscape 1232x568; `DOORS` ink from x 31, clock ends x 1199, both inside the 30 px corners; 11 of 11 tiles 182x150 on the six-column grid |
+| 2 | base **detached**, Automatic | `keyboard: the controller did not answer; touch only`; `rotation mode automatic (stored), keyboard absent: rotation 0, 568x1232`; touch `rotation 0: swap 0, calibration 0,0,1060,2400 onto 568x1232`; `launcher: 2 column(s), 6 row(s)` | portrait 568x1232; `DOORS` from x 31, clock ends x 536, inside the corners; 11 of 11 tiles 254x150 on the two-column grid |
+| 3 | base **attached**, forced **Portrait** | `keyboard: TCA8418 ready`; `rotation mode portrait (stored), keyboard present: rotation 0, 568x1232`; touch at rotation 0; two columns. Held for 14 minutes with the keyboard attached: no drift, no in-place restart | portrait, identical bytes to boot 2's capture (the capture path proved live in the same boot: opening Notes changed the image) |
+| 4 | base **detached**, forced **Landscape** | `keyboard: the controller did not answer; touch only`; `rotation mode landscape (stored), keyboard absent: rotation 270, 1232x568`; `DRM plane rotation 270 degrees`; touch at 270; six columns | landscape, identical bytes to boot 1's capture; owner's visual answer: PASS |
+
+Throughout: services 4/4, **0 crash reports**, and the only ERROR in any log is
+one this session caused by asking for `shell.screenshot`, which the device
+build has compiled out (`built without LODEPNG/SNAPSHOT`) - the reason the
+captures go through ffmpeg. Applying a mode over IPC was exercised twice more
+on the panel (Portrait→Landscape, then back to Automatic): each applied itself
+in place within about 4 s, in the same process.
+
+**Also seen, unplanned and worth keeping.** In an earlier boot the controller
+went silent for 53 ms and the debounce absorbed it with no rotation; a longer
+dropout (about 3 s) published absent, turned the display portrait, and
+re-contact turned it back - the safety logic working on a real contact glitch
+rather than a simulated one.
+
+Evidence kept outside the repository: the session's scratchpad holds the four
+panel captures, the serial transcripts of each boot, and the remote pass below.
+The unit was left as found - Automatic, Ice/Normal, base detached, portrait -
+and the bench's gate scripts were removed.
 
 ## Result of the remote pass on unit A (2026-09-16)
 

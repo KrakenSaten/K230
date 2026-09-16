@@ -50,8 +50,8 @@ chip-state dependent and dumps both transports' windows when it does.
   `K230_LVGL_DRM_STAGING=1` set by S90pocketos-shell, as the vendor launcher
   does. It calls the rotation API only when the orientation is landscape
   (rotation 270, feature/doors-display-geometry); portrait stays rotation 0.
-  Landscape on the panel, and touch following it, are ASSUMED until the gate
-  in docs/hardware/DOORS_DISPLAY_GEOMETRY_GATE.md.
+  Landscape on the panel, and touch following it, are VERIFIED on unit A
+  (2026-09-16, docs/hardware/DOORS_DISPLAY_GEOMETRY_GATE.md: PASS).
 - The display cannot be turned while it is open: the vendor DRM path sizes its
   framebuffers for the rotation when the display is opened, and the vendor
   launcher restarts its own process to switch between portrait and landscape.
@@ -63,12 +63,18 @@ chip-state dependent and dumps both transports' windows when it does.
   (`ui/shell/shell_kbd.c`), which is what the vendor launcher calls the base
   being detected. Nothing on this board reports the base mechanically, so a
   keyboard whose controller cannot be reached reads as absent, and a bus that
-  cannot be claimed at all reads as unknown. The base being mated or unmated
-  **while the board is powered** is neither verified nor supported by any
-  vendor source: every attach and detach on record was done with the SoC
-  halted (KEYBOARD_BRINGUP §5.3 C3). Detection itself does not care, and the
-  three-reading debounce covers contacts that bounce, but whether hot-plugging
-  is safe for the hardware is an open question.
+  cannot be claimed at all reads as unknown. The orientation Doors opens with
+  is VERIFIED on unit A for every case of the policy (four power-off boots,
+  DOORS_DISPLAY_GEOMETRY_GATE.md).
+- **Attaching or removing the keyboard base while the board is powered is not
+  a verified hardware operation.** The software path is verified (simulator,
+  and on unit A with the controller held in reset), but the connector is a
+  plain 2x20 header whose 3V3 pin shares the net that feeds the K230's VDDIO
+  banks, with no load switch, series element or ESD part on any of its signals,
+  no board-detect pin, no mating specification, no base-board schematic and no
+  vendor statement about hot-plug either way (KEYBOARD_BRINGUP §8, which also
+  names the two measurements that would settle it). Mate and unmate with the
+  board powered down and USB power removed.
 - The rounded corners' extent is PROVISIONAL (30 px squares, the vendor
   launcher's status-bar side inset). No datasheet gives it; unit A decides
   (POCKETOS_SAFE_CORNERS tries other values). Only the status bar uses the

@@ -1060,12 +1060,18 @@ of this document. Nothing in §1–§19 is renumbered.
 - None. The icons are static in every state, so reduced motion (§12) changes
   nothing about them.
 
-## 21. Amendment E — safe area and orientation [PROPOSED]
+## 21. Amendment E — safe area and orientation [ACCEPTED]
 
-**PROPOSED 2026-09-15.** Becomes normative when the product owner accepts it
-after the unit A gate (`docs/hardware/DOORS_DISPLAY_GEOMETRY_GATE.md`). Found
-on unit A: the panel's rounded top corners cut the left of the status bar
-wordmark and the last clock digit. Nothing in §1–§20 is renumbered.
+**ACCEPTED 2026-09-16** by the product owner after the unit A gate
+(`docs/hardware/DOORS_DISPLAY_GEOMETRY_GATE.md`: PASS). Found on unit A: the
+panel's rounded top corners cut the left of the status bar wordmark and the
+last clock digit. Nothing in §1–§20 is renumbered.
+
+The orientation Doors opens with is verified on the panel for every case of
+§21.2's policy. A keyboard base attached or removed *while the board is
+powered* changes the orientation by the same rule, and that path is verified in
+the simulator and on the unit's own bus, but mating the connector live is not a
+verified hardware operation and nothing in this amendment asks for it.
 
 ### 21.1 Safe area
 
@@ -1123,4 +1129,4 @@ Amendment A (§17) approved 2026-09-10; C8 closed.
 Amendment B (§18) approved 2026-09-11.
 Amendment C (§19) accepted 2026-09-15.
 Amendment D (§20) accepted 2026-09-15.
-Amendment E (§21) proposed 2026-09-15.
+Amendment E (§21) accepted 2026-09-16.

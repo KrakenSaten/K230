@@ -654,3 +654,64 @@ Cost of watching: one probe a second while nothing is attached (a reset pulse
 and one register read), and no bus traffic at all while a keyboard is polled -
 the watch reads the driver's own state then. Three consecutive agreeing
 readings are needed before the published state changes.
+
+### 5.7 Boot-time presence on the panel, 2026-09-16 — VERIFIED
+
+Four power-off boots on unit A with the product owner (build `1bd7cbf`,
+deployed, card not reflashed), over the USB serial console with no network.
+The base was attached and detached only with the board powered down and USB
+power removed.
+
+| Boot | Base | Stored mode | The shell's account | Result |
+| --- | --- | --- | --- | --- |
+| 1 | attached | automatic | `keyboard: TCA8418 ready`; `keyboard present: rotation 270, 1232x568` | landscape at start, **VERIFIED** |
+| 2 | detached | automatic | `the controller did not answer; touch only`; `keyboard absent: rotation 0, 568x1232` | portrait at start, **VERIFIED** |
+| 3 | attached | portrait | `TCA8418 ready`; `rotation mode portrait (stored), keyboard present: rotation 0` | portrait, held 14 min, **VERIFIED** |
+| 4 | detached | landscape | `did not answer`; `rotation mode landscape (stored), keyboard absent: rotation 270` | landscape, **VERIFIED** |
+
+The panel itself was captured on the device from the DRM plane
+(`ffmpeg -f kmsgrab`, since this build has `LV_USE_SNAPSHOT 0`), carried over
+the serial line as base64 and checked in pixels: in both orientations the
+wordmark and the clock sit inside the 30 px corner squares and every tile is
+where the grid puts it. Services 4/4 and no crash report in every boot.
+
+## 8. The expansion connector, and hot-plug
+
+Asked because automatic rotation would be more useful if the base could be
+attached while Doors runs. **The documents do not support it**, and this
+section is what they do say, so the question is not re-opened from memory.
+
+| Fact | Source | Class |
+| --- | --- | --- |
+| The interconnect is `JP1`, symbol `HEADER_20X2_H` - a 2x20 header | main-board schematic (`vendor/T-Display-K230_canmv_rt/schematic/T-Display K230_V1.0_NEW.pdf`) | DOCUMENTED |
+| Its power pins are `USB-IN-5V`, `GND`, `3V3`, `5V`; **pin 3 (3V3) sits in the same net as the K230's VDDIO bank supply** | schematic netlist | DOCUMENTED |
+| Signals go **straight from the header to K230 balls**: no series resistor, no TVS/ESD part, no buffer or level shifter on any JP1 net (ESD parts exist, but on USB, microSD and the antenna) | schematic netlist | DOCUMENTED |
+| There is **no board-detect or ID pin**; all 40 pins are ADC/GPIO/power | pin map + netlist | DOCUMENTED |
+| The vendor detects a base **in software**, by probing 0x6B/0x55/0x34/0x20 and printing `Detected 6B:… 55:… 34:… XL:…` | `k230_phone_ui/src/ui_hardware.c:2990` | DOCUMENTED |
+| No connector part number, pitch, gender, stack height or mating specification anywhere - so **whether ground mates first is unknown** | absence | — |
+| **No schematic, PCB, BOM or layout of any base board** exists in any vendor repository | absence (also AUDIO_HARDWARE_MAP §3) | — |
+| **No vendor statement about hot-plug**, permissive or prohibitive; no assembly or removal instruction of any kind | absence | — |
+| The nRF52840 base is documented as feeding 5 V **back into the host** from its own cell, so current can flow either way across JP1 depending on the base | external firmware README (AUDIO_HARDWARE_MAP §4) | DOCUMENTED |
+
+What that leaves open is an electrical question, not a software one, and two
+measurements answer it. Both are made on the **detached** base, with a meter,
+nothing powered:
+
+1. **Bulk capacitance on the base's 3V3 pin to GND** (and on 5V). This is the
+   inrush the main board's 3V3 rail - the same rail as the SoC's VDDIO banks -
+   would have to absorb at the instant of contact. With no load switch or
+   series element anywhere on JP1, a large value means a brown-out risk on the
+   I/O supply; a small one (tens of nF) means the risk is negligible.
+2. **Whether the 3V3 pin reaches the TCA8418's supply directly**, or through
+   something: resistance from the base's 3V3 pin to the controller's VDD, and
+   whether the base's own battery/boost can back-feed that pin with the base's
+   switch off (resistance and diode drop from the 5V pin to the cell).
+
+A third, mechanical, would settle the sequencing: whether the base's socket
+has any longer (first-mate) ground contact. That needs the connector's part
+number or a look at the physical part, not a document.
+
+Until those exist, mate and unmate only with the board powered down and USB
+power removed, as every test on record has done. I2C recovering after a
+dropout is **not** evidence about this: the bus coming back says nothing about
+what the supply and the SoC's I/O rail did during the event.
