@@ -484,7 +484,7 @@ static void poll_rotation(struct settings_app *a)
     struct pocketos_orientation o;
 
     pocketos_shell_orientation(&o);
-    sv_rotation_apply(&a->rot, (int)o.mode, o.mode_valid, o.landscape, o.next_landscape, o.restart_required,
+    sv_rotation_apply(&a->rot, (int)o.mode, o.mode_valid, o.landscape, o.next_landscape, o.applying,
                       o.keyboard == POCKETOS_KEYBOARD_PRESENT);
 }
 

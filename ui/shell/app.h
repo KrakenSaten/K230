@@ -109,8 +109,8 @@ struct pocketos_orientation {
     enum pocketos_rotation_mode mode; /* stored (automatic when nothing or nonsense is stored) */
     bool mode_valid;                  /* false: the stored value was not a mode */
     bool landscape;                   /* this run */
-    bool next_landscape;              /* the stored mode, if the shell started now */
-    bool restart_required;            /* the two differ */
+    bool next_landscape;              /* what the mode and the keyboard now ask for */
+    bool applying;                    /* the two differ: the shell is restarting itself to apply it */
     enum pocketos_keyboard keyboard;
 };
 

@@ -185,7 +185,7 @@ int pocketos_shell_set_rotation_mode(enum pocketos_rotation_mode mode)
     g_orient.mode_valid = true;
     g_orient.next_landscape = mode == POCKETOS_ROTATION_LANDSCAPE ||
                               (mode == POCKETOS_ROTATION_AUTOMATIC && g_orient.keyboard == POCKETOS_KEYBOARD_PRESENT);
-    g_orient.restart_required = g_orient.next_landscape != g_orient.landscape;
+    g_orient.applying = g_orient.next_landscape != g_orient.landscape;
     return 0;
 }
 
@@ -691,14 +691,15 @@ int main(void)
     tap("LANDSCAPE");
     check("tapping LANDSCAPE stores the mode through the shell",
           g_rot_sets == 1 && g_rot_last == POCKETOS_ROTATION_LANDSCAPE);
-    check("and says it takes effect when the Doors shell restarts",
-          find_containing(app_body, "Showing portrait now. Landscape takes effect when the Doors shell restarts.") != NULL);
+    check("and says it is being applied, and that Doors opens on the launcher",
+          find_containing(app_body, "Turning to landscape now. The screen goes dark for a moment and Doors opens "
+                                    "on the launcher.") != NULL);
     check("and Landscape is now the accented mode", role_on(target_of("LANDSCAPE"), POS_STYLE_BUTTON_PRIMARY) &&
                                                         !role_on(target_of("AUTOMATIC"), POS_STYLE_BUTTON_PRIMARY));
     check("rotation: every target is at least 64 px", small_targets(app_body) == 0);
     tap("AUTOMATIC");
     check("back to Automatic: nothing pending", g_rot_last == POCKETOS_ROTATION_AUTOMATIC &&
-                                                    find_containing(app_body, "takes effect") == NULL);
+                                                    find_containing(app_body, "Turning to") == NULL);
     g_orient.keyboard = POCKETOS_KEYBOARD_PRESENT;
     g_orient.landscape = g_orient.next_landscape = true;
     tick();

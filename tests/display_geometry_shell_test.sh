@@ -73,10 +73,17 @@ check "no touch swap or calibration is set anywhere else in the backend" \
 hits=$(grep -rnE 'lv_display_set_rotation|lv_linux_drm_set_rotation|pos_display_geometry_init|orientation_resolve|kbd_presence_publish' apps 2>/dev/null)
 check "no app rotates the display, computes a geometry or publishes keyboard presence" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
-hits=$(grep -rnE 'kbd_presence_publish' ui --include='*.c' | grep -v 'ui/shell/kbd_presence.c' | grep -v 'POCKETOS_TEST_KEYBOARD_PRESENCE' )
-check "nothing in the shell publishes keyboard presence except the simulator's test hook" \
-    "$([ "$(printf '%s\n' "$hits" | grep -c .)" = 1 ] && printf '%s' "$hits" | grep -q 'shell_display.c' &&
-       sed -n '/POCKETOS_SHELL_TEST_HOOKS/,/#endif/p' ui/shell/shell_display.c | grep -q kbd_presence_publish && echo 1 || echo 0)"
+hits=$(grep -rlE 'kbd_presence_publish|kbd_presence_observe' ui --include='*.c' | grep -v 'ui/shell/kbd_presence.c' | sort | tr '\n' ' ')
+check "one provider publishes keyboard presence, and it is the keyboard driver ($hits)" \
+    "$([ "$hits" = "ui/shell/shell_kbd.c " ] && echo 1 || echo 0)"
+check "the shell probes the keyboard before it opens the display" \
+    "$(grep -q 'shell_kbd_probe();' ui/shell/shell.c &&
+       [ "$(grep -n 'shell_kbd_probe();' ui/shell/shell.c | cut -d: -f1)" -lt \
+         "$(grep -n 'shell_display_resolve(rotation_arg' ui/shell/shell.c | cut -d: -f1)" ] && echo 1 || echo 0)"
+check "the simulator's keyboard hooks are compiled out of the panel's build" \
+    "$([ "$(grep -c 'POCKETOS_TEST_KEYBOARD' ui/shell/shell_kbd.c)" = 2 ] &&
+       sed -n '/POCKETOS_SHELL_TEST_HOOKS/,/#else/p' ui/shell/shell_kbd.c | grep -q POCKETOS_TEST_KEYBOARD_FILE &&
+       grep -rq 'POCKETOS_TEST_KEYBOARD' ui/shell/shell_display.c && echo 0 || echo 1)"
 
 # look <png> <theme> <mode> <label> <corner>: status bar and launcher checks.
 look() {
@@ -230,27 +237,31 @@ check "and it is logged as an override of the policy" "$(grep -q 'rotation 90 fr
 policy "an invalid POCKETOS_DRM_ROTATION=45" 568x1232 POCKETOS_DRM_ROTATION=45 --
 check "is ignored with a warning" "$(grep -q 'POCKETOS_DRM_ROTATION=45 is not 0, 90, 180 or 270; ignored' "$OUT/policy.log" && echo 1 || echo 0)"
 
-# A mode stored while the shell runs applies at the next start.
+# A mode stored while the shell runs is applied by the shell restarting itself
+# in place (shell.c); the keyboard's side of the same mechanism is
+# tests/auto_rotation_shell_test.sh.
 fresh
 start_shell
 d=$(info)
 check "a fresh shell reports portrait, Automatic, nothing pending ($d)" \
     "$(printf '%s' "$d" | grep -q '"width":568,"height":1232' && printf '%s' "$d" | grep -q '"rotation_mode":"automatic"' &&
-       printf '%s' "$d" | grep -q '"restart_required":false' && echo 1 || echo 0)"
+       printf '%s' "$d" | grep -q '"applying":false' && echo 1 || echo 0)"
 r=$("$POS" call shell shell.rotation mode=landscape 2>&1 | tr -d ' \t\n')
-check "shell.rotation stores Landscape and says a restart applies it ($r)" \
+check "shell.rotation stores Landscape and says it is being applied ($r)" \
     "$(printf '%s' "$r" | grep -q '"rotation_mode":"landscape"' && printf '%s' "$r" | grep -q '"orientation":"portrait"' &&
-       printf '%s' "$r" | grep -q '"next_orientation":"landscape"' && printf '%s' "$r" | grep -q '"restart_required":true' && echo 1 || echo 0)"
-check "the running shell did not rotate" "$(info | grep -q '"width":568,"height":1232' && echo 1 || echo 0)"
+       printf '%s' "$r" | grep -q '"next_orientation":"landscape"' && printf '%s' "$r" | grep -q '"applying":true' && echo 1 || echo 0)"
 check "an invalid mode over IPC is refused" \
     "$("$POS" call shell shell.rotation mode=upside 2>&1 | grep -q 'mode must be automatic, portrait or landscape' && echo 1 || echo 0)"
-stop_shell
 check "the mode was persisted" "$(grep -qx 'display_rotation=landscape' "$POCKETOS_CONFIG_DIR/settings.conf" && echo 1 || echo 0)"
-start_shell
+# The settle window, then the shell opening the display again, in the same
+# process: the pid is the point, because that is what pos-supervise watches.
+for _ in $(seq 1 40); do info | grep -q '"width":1232' && break; sleep 0.2; done
 d=$(info)
-check "restarted, the shell is landscape and nothing is pending ($d)" \
+check "the shell applied it by opening the display again, landscape, nothing pending ($d)" \
     "$(printf '%s' "$d" | grep -q '"width":1232,"height":568' && printf '%s' "$d" | grep -q '"orientation":"landscape"' &&
-       printf '%s' "$d" | grep -q '"restart_required":false' && echo 1 || echo 0)"
+       printf '%s' "$d" | grep -q '"applying":false' && echo 1 || echo 0)"
+check "in the same process, so the supervisor saw no exit" \
+    "$(kill -0 "$SP" 2>/dev/null && grep -q 'restarting in place' "$POCKETOS_LOG_DIR/run.log" && echo 1 || echo 0)"
 "$POS" shell theme carbon night >/dev/null 2>&1
 sleep 0.4
 d=$(info)

@@ -28,10 +28,12 @@
 #include "shell_kbd.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #ifndef POCKETOS_DISPLAY_NAME
 #define POCKETOS_DISPLAY_NAME "unknown"
@@ -328,11 +330,27 @@ static void brightness_restore(void)
 /* ---- display orientation (shell_display.h) ------------------------------ *
  *
  * One orientation per shell run, decided before the display existed. What
- * can change while the shell runs is the stored mode (Settings, shell.rotation)
- * and, one day, the keyboard's presence; either only changes what the next
- * start will use, and that is reported rather than applied: the display is
- * rotated when it is opened (shell_display.h).
+ * changes it while the shell runs is the stored mode (Settings,
+ * shell.rotation) or the keyboard being attached or removed, and since the
+ * display is rotated when it is opened (shell_display.h), applying either
+ * means opening it again: the shell re-executes itself in place, keeping its
+ * pid, so the supervisor sees no exit and the OS is never restarted.
+ *
+ * Two things keep that from becoming a loop or a flicker. The keyboard is
+ * probed before the display is opened, so a boot with the base attached opens
+ * landscape once instead of correcting itself afterwards; and a change waits
+ * out a settle window here, on top of the debounce in kbd_presence, so a
+ * connector making and breaking contact costs nothing.
  */
+
+/* Long enough that a mode tapped twice in Settings, or a base board finding
+ * its contacts, resolves before anything is applied; short enough that the
+ * screen turns while the hand is still on the device. */
+#define ROTATE_SETTLE_MS 800
+
+static bool restart_pending;
+static lv_timer_t *rotate_timer;
+static char **shell_argv;
 
 _Static_assert((int)POCKETOS_ROTATION_AUTOMATIC == (int)ORIENTATION_AUTOMATIC &&
                    (int)POCKETOS_ROTATION_PORTRAIT == (int)ORIENTATION_PORTRAIT &&
@@ -358,7 +376,7 @@ void pocketos_shell_orientation(struct pocketos_orientation *out)
     out->mode_valid = valid;
     out->landscape = is_landscape(sh.display.geometry.rotation);
     out->next_landscape = is_landscape(next);
-    out->restart_required = next != sh.display.geometry.rotation;
+    out->applying = next != sh.display.geometry.rotation;
     out->keyboard = (enum pocketos_keyboard)kbd_presence_get();
 }
 
@@ -374,9 +392,56 @@ static void rotation_to_json(cJSON *o)
     cJSON_AddStringToObject(o, "orientation", now.landscape ? "landscape" : "portrait");
     cJSON_AddNumberToObject(o, "next_rotation", pos_rotation_degrees(next));
     cJSON_AddStringToObject(o, "next_orientation", now.next_landscape ? "landscape" : "portrait");
-    cJSON_AddBoolToObject(o, "restart_required", now.restart_required);
+    cJSON_AddBoolToObject(o, "applying", now.applying);
     cJSON_AddStringToObject(o, "keyboard", kbd_presence_name(kbd_presence_get()));
     cJSON_AddBoolToObject(o, "bench_override", sh.display.bench_override);
+}
+
+static void rotate_settled(lv_timer_t *timer)
+{
+    enum pos_rotation next = shell_display_next_rotation(&sh.display);
+
+    (void)timer;
+    lv_timer_delete(rotate_timer);
+    rotate_timer = NULL;
+    if (next == sh.display.geometry.rotation) {
+        LOG_INFO("display: rotation %d again before it was applied; the shell stays up",
+                 pos_rotation_degrees(next));
+        return;
+    }
+    restart_pending = true;
+}
+
+/* Apply what the policy now says, unless it is already what this run is
+ * showing. Every caller goes through here, so there is one settle window and
+ * one restart however many times the mode or the keyboard changes inside it. */
+static void rotation_apply_soon(const char *why)
+{
+    enum pos_rotation next = shell_display_next_rotation(&sh.display);
+
+    if (restart_pending) {
+        return;
+    }
+    if (next == sh.display.geometry.rotation) {
+        if (rotate_timer) {
+            lv_timer_delete(rotate_timer);
+            rotate_timer = NULL;
+            LOG_INFO("display: %s puts the orientation back to rotation %d; nothing to apply", why,
+                     pos_rotation_degrees(next));
+        }
+        return;
+    }
+    if (rotate_timer) {
+        return;
+    }
+    rotate_timer = lv_timer_create(rotate_settled, ROTATE_SETTLE_MS, NULL);
+    if (!rotate_timer) {
+        LOG_WARN("display: no timer to apply rotation %d; it applies at the next start",
+                 pos_rotation_degrees(next));
+        return;
+    }
+    LOG_INFO("display: %s asks for rotation %d; applying it in %d ms", why, pos_rotation_degrees(next),
+             ROTATE_SETTLE_MS);
 }
 
 static void announce_rotation(void)
@@ -405,19 +470,27 @@ int pocketos_shell_set_rotation_mode(enum pocketos_rotation_mode mode)
         return -1;
     }
     next = shell_display_next_rotation(&sh.display);
-    LOG_INFO("rotation mode %s stored: next start rotation %d%s", orientation_mode_name((enum orientation_mode)mode),
-             pos_rotation_degrees(next),
-             next != sh.display.geometry.rotation ? ", this run keeps its orientation until the shell restarts" : "");
+    LOG_INFO("rotation mode %s stored: rotation %d", orientation_mode_name((enum orientation_mode)mode),
+             pos_rotation_degrees(next));
     announce_rotation();
+    rotation_apply_soon("Settings");
     return 0;
 }
 
+/* The keyboard was attached or removed (shell_kbd.c), or detection stopped
+ * being able to tell. In Automatic that changes the orientation; in a forced
+ * mode orientation_resolve ignores it, so rotation_apply_soon finds nothing
+ * to do and the display is left alone. */
 static void on_keyboard_presence(enum kbd_presence now, void *user)
 {
+    char why[48];
+
     (void)user;
-    LOG_INFO("keyboard %s: next start rotation %d", kbd_presence_name(now),
+    LOG_INFO("keyboard %s: rotation %d", kbd_presence_name(now),
              pos_rotation_degrees(shell_display_next_rotation(&sh.display)));
     announce_rotation();
+    snprintf(why, sizeof(why), "the keyboard being %s", kbd_presence_name(now));
+    rotation_apply_soon(why);
 }
 
 /* ---- the one touch keyboard (DS §17.3, §17.4) -------------------------- *
@@ -931,6 +1004,39 @@ static void on_tick(lv_timer_t *timer)
     }
 }
 
+/* The whole of applying an orientation: hand the same binary the same
+ * arguments, in the same process. execv keeps the pid, so pos-supervise sees
+ * no exit and counts no restart, and the settings the next start reads are
+ * already written. Everything this image opened is closed first - the DRM
+ * device above all, which the next one has to open as master - because only
+ * a close-on-exec flag would do it otherwise, and LVGL's fd is not ours to
+ * flag. If the exec fails the shell exits instead, and the supervisor starts
+ * it again: one counted restart, same orientation, still no reboot. */
+static void restart_in_place(void)
+{
+    char exe[PATH_MAX];
+    ssize_t n;
+    int fd;
+
+    n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    if (n > 0) {
+        exe[n] = '\0';
+    } else {
+        snprintf(exe, sizeof(exe), "%s", shell_argv[0]);
+    }
+    LOG_INFO("display: restarting in place (%s) to open the display at rotation %d", exe,
+             pos_rotation_degrees(shell_display_next_rotation(&sh.display)));
+    pocketlog_close();
+    for (fd = 3; fd < 64; fd++) {
+        close(fd);
+    }
+    execv(exe, shell_argv);
+    pocketlog_init("shell");
+    LOG_ERROR("display: cannot re-execute %s (%s); exiting so the supervisor starts the shell again", exe,
+              strerror(errno));
+    pocketlog_close();
+}
+
 int main(int argc, char **argv)
 {
     const char *open_id = NULL;
@@ -965,11 +1071,17 @@ int main(int argc, char **argv)
         }
     }
 
+    shell_argv = argv;
     pocketlog_init("shell");
     pocketlog_install_crash_handler();
     /* The settings come first: the orientation is decided from them before
-     * the display exists, because the display is rotated when it is opened. */
+     * the display exists, because the display is rotated when it is opened.
+     * The keyboard is probed in the same breath and for the same reason -
+     * Automatic asks whether one is attached, and the answer has to be there
+     * before the display is opened, not a second later. The probe needs no
+     * LVGL: it takes the bus, asks the controller and gives an answer. */
     loaded = settings_init();
+    shell_kbd_probe();
     shell_display_resolve(rotation_arg, &sh.display);
     kbd_presence_set_listener(on_keyboard_presence, NULL);
     lv_init();
@@ -1005,7 +1117,9 @@ int main(int argc, char **argv)
     }
     /* The physical keyboard is a source of the same stream, pushing rather
      * than being adopted (DS §17.4, and KNOWN_ISSUES on LV_KEY_NEXT). No
-     * keyboard attached is a normal outcome and says so once. */
+     * keyboard attached is a normal outcome and says so once. This starts the
+     * polling for a keyboard the probe found, and the watch that notices one
+     * attached or removed later. */
     shell_kbd_create();
     pocketui_init();
     {
@@ -1103,6 +1217,9 @@ int main(int argc, char **argv)
             LOG_INFO("stopping on signal");
             break;
         }
+        if (restart_pending) {
+            break;
+        }
         if (exit_after_ms >= 0 && (long)(lv_tick_get() - started) >= exit_after_ms) {
             break;
         }
@@ -1111,12 +1228,18 @@ int main(int argc, char **argv)
         }
         pocketos_platform_sleep_ms(wait > 20 ? 20 : wait);
     }
+    /* The open app is closed the ordinary way, so it persists what it holds
+     * exactly as it would on any other exit. */
     app_close();
     /* Before anything else on the way out: this is what puts the keyboard's
      * pin mux back the way it was found. */
     shell_kbd_destroy();
     pocketipc_server_free(sh.server);
     shell_ipc_shutdown();
+    if (restart_pending) {
+        restart_in_place(); /* returns only when the exec failed */
+        return 1;
+    }
     pocketlog_close();
     return 0;
 }

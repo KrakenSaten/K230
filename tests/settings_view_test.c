@@ -339,12 +339,18 @@ int main(void)
         sv_rotation_apply(&r, 0, 1, 1, 1, 0, 1);
         check_str("automatic with a keyboard", r.note, "Landscape, because a keyboard is attached.");
         sv_rotation_apply(&r, 2, 1, 0, 1, 1, 0);
-        check("landscape chosen while portrait shows: says a restart applies it",
+        check("landscape chosen while portrait shows: says it is being applied, and what that costs",
               r.selected == 2 &&
-                  strcmp(r.note, "Showing portrait now. Landscape takes effect when the Doors shell restarts.") == 0);
+                  strcmp(r.note, "Turning to landscape now. The screen goes dark for a moment and Doors opens "
+                                 "on the launcher.") == 0);
         sv_rotation_apply(&r, 1, 1, 1, 0, 1, 1);
         check_str("portrait chosen while landscape shows", r.note,
-                  "Showing landscape now. Portrait takes effect when the Doors shell restarts.");
+                  "Turning to portrait now. The screen goes dark for a moment and Doors opens on the launcher.");
+        /* Automatic, a keyboard just attached: the same note, because the
+         * keyboard changes the orientation exactly as a tap does. */
+        sv_rotation_apply(&r, 0, 1, 0, 1, 1, 1);
+        check("automatic applying after a keyboard was attached", r.selected == 0 &&
+              strncmp(r.note, "Turning to landscape now.", 25) == 0);
         sv_rotation_apply(&r, 1, 1, 0, 0, 0, 1);
         check_str("forced portrait, nothing pending", r.note, "Portrait, whatever the keyboard.");
         sv_rotation_apply(&r, 2, 1, 1, 1, 0, 0);

@@ -130,15 +130,15 @@ int sv_brightness_step(int percent, int direction, int min, int max, int step);
 
 struct sv_rotation {
     int selected;           /* the stored mode: 0 automatic, 1 portrait, 2 landscape */
-    char note[160];         /* what the display is doing, and when a change applies */
+    char note[160];         /* what the display is doing, and what a change costs */
 };
 
-/* The arguments are pocketos_shell_orientation()'s fields. The note always
- * says what is shown now; when the stored mode gives something else it says
- * that the change takes effect when the Doors shell restarts, because the
- * display is rotated when it opens and not before. */
+/* The arguments are pocketos_shell_orientation()'s fields. The note says what
+ * the display is doing; while a change is being applied it says what that
+ * costs - the display is rotated when it opens, so Doors restarts itself and
+ * comes back on the launcher. */
 void sv_rotation_apply(struct sv_rotation *r, int mode, int mode_valid, int landscape, int next_landscape,
-                       int restart_required, int keyboard_present);
+                       int applying, int keyboard_present);
 
 /* The security word as shown: "Open", "WPA2", "WPA2/3", ... */
 const char *sv_security_label(const char *api_word);
