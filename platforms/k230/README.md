@@ -97,8 +97,10 @@ It must stay exactly 568 × 1232 × 4 = 2,799,104 bytes, B, G, R, X per pixel,
 or U-Boot skips it. Only a flash changes it: `deploy.sh` never writes the boot
 partition. `scripts/verify_splash.sh <image>` checks a built image carries it.
 Details and hashes: docs/design/brand/README.md; the hardware gate:
-docs/hardware/DOORS_GRAPHICS_GATE.md. The splash shows from power-on, not
-after a warm `reboot` (vendor U-Boot, docs/KNOWN_ISSUES.md).
+docs/hardware/DOORS_GRAPHICS_GATE.md. Doors includes the boot splash, but the
+vendor U-Boot's display bring-up is intermittent: on some boots, cold or warm,
+the panel stays black until Doors starts. The boot itself is unaffected
+(known vendor limitation, docs/KNOWN_ISSUES.md).
 
 ## Logs on the device
 
