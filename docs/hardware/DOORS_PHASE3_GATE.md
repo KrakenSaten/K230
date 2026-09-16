@@ -2,8 +2,9 @@
 
 Branch `rebrand/doors-3-shell`, from master `15b1b7e`.
 
-**Result: NOT RUN.** Everything that can be checked without a unit has passed
-(below). Not merged. VERSION stays 0.0.9; Phase 4 has not started.
+**Result: PASS on unit A, 2026-09-16, at `a885842`.** Everything that can be
+checked without a unit passed first (below), then all six steps ran on the
+hardware. Not merged. VERSION stays 0.0.9; Phase 4 has not started.
 
 ## What this phase changes
 
@@ -96,27 +97,55 @@ holding a supervised daemon, and the run had to be abandoned rather than left
 hanging. The case itself is covered by the "with both files" and "ENABLE=0 in
 the new file" checks in `initscript_test`.
 
-## The gate
+## The gate, as run on unit A (2026-09-16)
 
-**Operator time: about ten minutes, two card swaps and one answer.** The
-session does the rest over SSH (or the serial console when there is no
-network), and every scripted check prints `ok` or `FAIL`.
+The unit started on a master-era build (`15b1b7e`: `doors-shell` absent,
+`pocketos-shell` present and running). **Unit A had no network for this
+session** - Ethernet unplugged, USB only - so every step ran over the serial
+console (COM9, 115200), with `deploy.sh`'s own payload and remote script
+transferred as base64 and checked by MD5 on the unit (`8d56af35...` for the
+Phase 3 payload, `c10eeb6f...` for the pre-Phase-3 one). The scripts are the
+deployment's own; only the transport differs from SSH.
 
-The unit starts on a master-era build (`doors-shell` absent,
-`pocketos-shell` present and running).
+Two physical batches were asked of the operator - the keyboard base with the
+power off, and the card swap - and one final answer.
 
-| # | What happens | Pass |
+| # | What was checked | Result |
 | --- | --- | --- |
-| A | `deploy.sh` over the master-era unit | one shell process, one init script, one supervisor state; `system.status` lists `doors-shell` and no `pocketos-shell` row; the panel comes back with the launcher |
-| B | Two reboots | the shell starts both times, no crash report, no crash-loop marker, `restarts=0` |
-| C | Automatic rotation, keyboard attached and removed (power-off transitions) | landscape with the base attached, portrait without it, exactly as before the rename; touch follows the display |
-| D | Forced Portrait and forced Landscape from Settings | applied in place: same pid, `restarts=0`, no supervisor restart |
-| E | `rollback_phase3.sh`, then a pre-Phase-3 `deploy.sh` | the Doors identity is gone, the unit comes back on `pocketos-shell`, settings preserved, exactly one shell |
-| F | A fresh Phase 3 image, flashed and booted | `/usr/bin/doors-shell` and `/etc/init.d/S90doors-shell` present, the PocketOS-era pair absent, the shell starts once |
+| A | `deploy.sh` over the master-era unit | **PASS**. Every service stopped cleanly, then `Starting doors-shell: (settings from /etc/default/pocketos-shell) OK` - the hand-edited PocketOS-era settings were used, not defaults. `deploy: shell processes=0 init scripts=1 supervisor states=1` (the count runs while the supervisor is still starting the shell, so 0 is a timing artefact of the count, not an absent shell; the check a moment later found exactly one). 15 of 16 scripted checks ok: one shell process `/usr/bin/doors-shell`, one init script, old binary and old init script gone, `name=doors-shell`, no `pocketos-shell` state or crash-loop marker, `restarts=0`, the socket answering, `system.status` listing `doors-shell` and no `pocketos-shell`, all four services up, no crash report, `Doors 0.0.9 (build a885842)`, landscape 1232x568 at rotation 270 with `keyboard: present` |
+| B | Two reboots | **PASS** both times: one shell process, one init script, `name=doors-shell`, `restarts=0`, `crashloop=0`, no crash report, all four services, landscape with the base attached |
+| C | Automatic rotation across power-off keyboard transitions | **PASS**. Base absent: `display: rotation mode automatic (stored), keyboard absent: rotation 0, 568x1232`, touch `rotation 0: swap 0`. Base attached: `keyboard present: rotation 270, 1232x568`, touch `rotation 270: swap 1`. The operator confirmed portrait, landscape and touch visually |
+| D | Forced Portrait and forced Landscape | **PASS**, applied in place: pid 386 before and after each of `portrait`, `landscape` and back to `automatic`, `restarts=0`, `crashloop=0`, `running=1`, no crash report, and the touch transform following the display each time |
+| D' | Settings precedence on the unit | **PASS**. Old file only: `(settings from /etc/default/pocketos-shell)`. Both files: `(settings from /etc/default/doors-shell; /etc/default/pocketos-shell ignored, not merged)` - and a `POCKETOS_DRM_ROTATION=0` placed **only in the old file** had no effect (`bench_override: false`, rotation 270), which is what "never merged" has to mean. The same key in the doors-shell file did apply (`bench_override: true`, rotation 0). Restored afterwards: the old file byte-identical to its backup, no `/etc/default/doors-shell` |
+| E | `rollback_phase3.sh`, then a pre-Phase-3 `deploy.sh` | **PASS**. Dry run listed exactly what it would remove and changed nothing. The real run left `init scripts=0 binaries=0 supervisor states=0 shell processes=0` - deliberately no shell service at all - and kept `/etc/default/pocketos-shell` as it was. The master-era deploy then installed `pocketos-shell`, and 12 of 12 checks passed: one shell process and it is `/usr/bin/pocketos-shell`, no `doors-shell` binary, init script or runtime file anywhere, `system.status` listing `pocketos-shell` only, settings preserved, `Doors 0.0.9 (build 15b1b7e)`. A reboot gave the same 12 of 12 |
+| F | A fresh Phase 3 image, flashed and booted | **PASS**. `flash-devcard.ps1` wrote the image (`e8eb5e75...`, 763,363,328 bytes) and read it back: only the 4-byte MBR disk identifier differed. `RESULT: FLASH PASS`. On the fresh card: `/usr/bin/doors-shell`, `/etc/init.d/S90doors-shell`, `doors`, `pos` and `pos-supervise` present; `/usr/bin/pocketos-shell`, `/etc/init.d/S90pocketos-shell` and **both** `/etc/default` settings files absent; neither shell name is a symlink; the shipped init script reads `NAME=doors-shell DAEMON=/usr/bin/doors-shell PIDFILE=/var/run/doors-shell-supervise.pid CHILD_PIDFILE=/run/pocketos/doors-shell.pid CONF=/etc/default/doors-shell`. With no settings file the service said `disabled (/etc/default/doors-shell)`; with `ENABLE=1` but the vendor launcher still owning the panel it refused with `not started: vendor launcher owns the panel`; after the documented hand-over it started once: 11 apps, landscape 270, `keyboard: present`, `restarts=0`, no crash report, **no ERROR and no WARN at all**. A reboot brought it up the same way |
 
-One answer: PASS, or FAIL with the step letter. The operator's part is the
-power and card handling in E and F; everything else is read from the unit.
+**PASS**, answered by the operator after the last boot.
 
-What the gate is proving, in one line each: never two shells, never two init
+Two scripted `FAIL` lines in the transcript are the check's own assumptions,
+not defects, and both were run down rather than waved through:
+
+- *"no ERROR in any log"* on the migrated unit. The single ERROR is
+  `shell.log:477`, `built without LODEPNG/SNAPSHOT, no screenshot`, written by
+  a `pos shell screenshot` in an earlier session; this build's lines start at
+  571 and the fresh image has no ERROR at all.
+- *"the old settings file is preserved"* on the fresh image. Correct: the image
+  deliberately ships neither settings file, so there is nothing to preserve.
+  That check belongs to the migrated unit only.
+
+One further check was wrong rather than the software: `supervise-doors-shell.log`
+does not exist after a clean boot - `pos-supervise` writes that file on an
+event, and no service had one. Stopping the service produced
+`supervise-doors-shell.log` carrying `supervise doors-shell stopped`, and no
+`supervise-pocketos-shell.log`, which is the name the rename was about.
+
+What the gate proved, in one line each: never two shells, never two init
 scripts, no stale PocketOS service row, no crash-loop regression, display and
-touch rotation unchanged, and a deterministic rollback.
+touch rotation unchanged under the new name, settings chosen whole and never
+merged, and a deterministic rollback.
+
+**Unit A was left** on the freshly flashed Phase 3 image (`a885842`), the
+keyboard base attached, the shell enabled through the canonical
+`/etc/default/doors-shell` (`ENABLE=1`) with the vendor launcher disabled
+(`/etc/default/k230_phone_ui` `ENABLE=0`), landscape, no
+`/etc/default/pocketos-shell`, and the gate's scripts under `/root/p3gate`.

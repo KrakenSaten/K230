@@ -5,9 +5,11 @@ implemented as recorded under "Phase 2 as implemented"; its hardware gate
 passed on unit A on 2026-09-15 (docs/hardware/DOORS_PHASE2_GATE.md). The
 graphics integration's hardware gate also passed on unit A on 2026-09-15
 (docs/hardware/DOORS_GRAPHICS_GATE.md). Both are merged to master.
-**Phase 3 is implemented on `rebrand/doors-3-shell` and recorded under
-"Phase 3 as implemented"; its hardware gate
-(docs/hardware/DOORS_PHASE3_GATE.md) has not run and it is not merged.**
+**Phase 3 is implemented on `rebrand/doors-3-shell`, recorded under "Phase 3
+as implemented", and is an acceptance candidate: its hardware gate passed on
+unit A on 2026-09-16 (docs/hardware/DOORS_PHASE3_GATE.md), all six steps,
+including the rollback and a freshly flashed image. It is not merged and not
+yet accepted - Phase 3 acceptance is the product owner's to give.**
 Phase 4 has not started and needs the product owner's explicit approval
 before it does.
 Date: 2026-09-15
@@ -141,7 +143,7 @@ carries data. Facts that constrain any rename:
 | 1. Visible branding | this record; the status bar wordmark, System identity row, Restart and Power off dialog titles, crash report header and simulator window title; current prose in README.md, AGENTS.md, docs/ARCHITECTURE.md, docs/ROADMAP.md and platforms/k230/README.md; DS §9 wordmark text | host tests, shell tests, riscv64 and DRM builds, simulator screenshot of System | not required |
 | 2. Release and build identity, CLI | `/etc/doors-release` with `/etc/pocketos-release` as a symlink; `doors` with `pos` as a symlink; `/usr/share/doors`; notices wording regenerated with `pocketos.hash` (the owner approves the legal wording; no licence is added); BUILD_INFO.txt and a release image named `doors-<version>[-rcN]-tdisplay-k230-<build_id>.img.gz`; remaining text (settings and Wi-Fi file headers, CMake status line, LoRa test payload) | the above, plus Buildroot legal-info, image build, `verify_image.sh` | yes: flash and boot a unit |
 | Graphics integration | wordmark and compact mark, boot splash (`logo.xrgb`, 568 × 1232 XRGB8888), System and launcher branding, with a DS amendment | image build, screenshots | yes: splash on glass |
-| 3. Shell service | `doors-shell` and `S90doors-shell`, falling back to `/etc/default/pocketos-shell`; `DOORS_*` spellings for the operator display and touch overrides, mapped in the init script; supervisor name; `deploy.sh` removes replaced files | init-script, supervisor and sysd tests | yes, mandatory: fresh flash, deploy over a PocketOS-era unit, two reboots, rollback |
+| 3. Shell service | `doors-shell` and `S90doors-shell`, falling back to `/etc/default/pocketos-shell`; `DOORS_*` spellings for the operator display and touch overrides, mapped in the init script; supervisor name; `deploy.sh` removes replaced files | init-script, supervisor and sysd tests | yes, mandatory: fresh flash, deploy over a PocketOS-era unit, two reboots, rollback. **Passed on unit A 2026-09-16** (DOORS_PHASE3_GATE.md) |
 | 4. Optional internal cleanup | state, config and runtime directories with migration and an ADR-003 amendment; `DOORS_*_DIR`; `pos-*` helper names; Buildroot package and defconfig | full suite and image | yes, with real data on a unit |
 
 ## Phase 2 as implemented
@@ -270,7 +272,21 @@ to the old name when only the new one exists, remove init script, then binary,
 then runtime state - and leaves the unit with no shell service, which is the
 only state a pre-Phase-3 `deploy.sh` can install exactly one into.
 
-Hardware gate: docs/hardware/DOORS_PHASE3_GATE.md. **Not run.** Not merged.
+### Hardware test (required for acceptance, per the table above)
+
+**Passed on unit A, 2026-09-16**, at `a885842`, over the serial console
+(the unit had no network that day). All six steps: `deploy.sh` over a
+master-era unit, two reboots, automatic rotation across power-off keyboard
+transitions, forced orientations applied in place, the settings precedence in
+all four combinations, `rollback_phase3.sh` followed by a pre-Phase-3
+`deploy.sh`, and a freshly flashed Phase 3 image. The one-shell guarantee held
+at every step: never two shells, two init scripts or two supervisor states, and
+no `pocketos-shell` service row survived the migration. Results, including the
+two check-side `FAIL` lines run down as the checks' own assumptions, are in
+docs/hardware/DOORS_PHASE3_GATE.md.
+
+Phase 3 is therefore an **acceptance candidate**: implemented, validated,
+hardware-gated, not merged, and awaiting the product owner's acceptance.
 
 ## Consequences
 
