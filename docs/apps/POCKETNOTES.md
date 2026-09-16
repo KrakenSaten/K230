@@ -77,9 +77,16 @@ own height, so no body can bring a control under the touch minimum.
 **The foot clears the rounded corners** (DS §22.2): the frame pads its foot
 by however far a corner square reaches into the body, from
 `pocketui_display_geometry()`. That is 10 px when something reaches the foot
-of a full-height body - a long list, or the field of a note that opens
-read-only with the keyboard down - and 0 above the keyboard or on a panel
-with square corners.
+of a full-height body - a long list, or the field and caption of a note that
+opens read-only with the keyboard down - and 0 above the keyboard or on a
+panel with square corners.
+
+**Error captions** (DS §17.1). The field grows into its wrapper and a caption
+takes its room from the field (`pocketui_text_field`), so a refusal, a failed
+save or a failed delete is always read under the field, inside the wrapper,
+clear of the keyboard. The editor is shown and laid out - keyboard, caption
+and all - before the note goes into the field, so the field scrolls to the
+caret for the size it is seen at.
 
 **The frame has no row gap.** LVGL 9.5 takes a row gap from a growing flex
 item for every sibling before it, hidden ones included, so with the three
@@ -98,11 +105,12 @@ status bar − 296 sheet − 72 header − 24 − 20).
 | empty list | empty state 20..547 × 152..307, New note 20..547 × 328..391 - as v0.0.10 |
 | long list | rows 20..547 × 152..1117, New note 20..547 × 1138..1201: 10 px higher than v0.0.10, clear of the corners |
 | editor, keyboard up | Done 20..279 and Delete 288..547 × 152..207; field 20..547 × 228..915: **20 px taller than v0.0.10**, ending 20 px above the keyboard |
-| editor, keyboard down (a note shown read-only) | field 20..547 × 228..1201 |
+| editor, keyboard up, a save failed | field 20..547 × 228..886, caption 895..915 |
+| editor, keyboard down (a note shown read-only) | field 20..547 × 228..1172, caption 1181..1201 |
 | confirmation | 20..547 × 152..331 - as v0.0.10 |
 
 With `POCKETOS_SAFE_CORNERS=0,0,0,0` the long list is v0.0.10's to the pixel
-and the field of a read-only note reaches 1211.
+and a read-only note's caption reaches 1211.
 
 ### Landscape
 
@@ -113,16 +121,21 @@ The body is 1192 × 396 px, and 1192 × 100 with the keyboard up (568 − 56 −
 | --- | --- |
 | list | rows 20..903 × 152..537 (six rows in view; 152..307 for the empty state), New note 924..1211 × 152..215 |
 | editor, keyboard up | field 20..903 × 152..251; Done 924..1063 and Delete 1072..1211 × 152..207 |
-| editor, keyboard down | field 20..903 × 152..537 |
+| editor, keyboard up, a save failed | field 20..903 × 152..222 (Outdoor 152..217), caption 231..251 (Outdoor 226..251) |
+| editor, keyboard down (read-only) | field 20..903 × 152..508, caption 517..537 |
 | confirmation | 352..879 × 152..331: its portrait width, centred |
 
 A row is 884 px wide, so a title has 699 px before the time. The field shows
-four lines of Normal body type above the keyboard, and three of Outdoor's:
-the field's own floor of three body lines is counted by `pocketui` as the
-font's line height times 1.5 (94 px Normal, 117 px Outdoor), which does not
-fit 100 px, so in the wide shape the floor gives way to the height there is.
-A field taller than its box would scroll the caret into the part that is cut
-off.
+four lines of Normal body type above the keyboard, and three of Outdoor's.
+The field's own floor of three body lines is counted by `pocketui` as the
+font's line height times 1.5 (94 px Normal, 117 px Outdoor), which the 100 px
+above the keyboard cannot hold in Outdoor, nor in Normal together with a
+caption; a floor the wrapper cannot hold keeps the field taller than its box,
+which pushes the caption out of sight and scrolls the caret into the part that
+is cut off. So in the wide shape the field has no floor of its own: it is the
+whole wrapper, or all of it but the caption's room. A failed save therefore
+shows the note in 71 px (three lines) in Normal and 66 px (two and a half) in
+Outdoor, with the caption under it and the keyboard below that.
 
 ### Turning the display
 
@@ -192,7 +205,7 @@ move its time and its place in the list.
 | --- | --- |
 | `tests/notes_view_test.c` | titles: first non-blank line, trimming, truncation on a UTF-8 boundary, untitled; blankness; what counts as UTF-8; counting characters rather than bytes |
 | `tests/notes_store_test.c` | generated names, an absent store, write/read/list, newest first, the atomic write and its stale temporary, empty notes, files that are not text, the size cap, foreign filenames, delete and id reuse |
-| `tests/notes_app_test.c` | the app under a real pointer device and a real keyboard against a real store, hosted in the shell's own frame: create, type, Enter, æ ø å through the symbol layer, Done, the stored bytes, reopen and edit, a blank note, the app closing mid-edit, delete cancelled and delete confirmed, an unreadable note left alone, a long note scrolling, a 3000-character note opened read-only and left byte for byte as it was, a note nobody changed keeping its time, twenty notes scrolled to the oldest by a finger in Normal and Outdoor with New note on screen throughout, a short list keeping its height, and every error caption (an unreadable note, a note too long to edit, a failed save in Normal and Outdoor, a failed delete) below the field and on screen, the field filling its wrapper again once the error clears. On the reference panel with its 30 px corners, and in both orientations: every screen's rectangles to the pixel with 30 px and square corners; every screen - long list scrolled by finger, empty list, editor with a long note typed into it, confirmation, a read-only note with the keyboard down - checked in Normal and Outdoor for controls inside the body and the safe area, no overlaps, the touch minimum, nothing under the keyboard, rows with title and time apart, the field whole in its container and three lines tall, the caret in view, and a body that never scrolls; the display turned under an open note (text, caret, focus and keyboard kept, typing on at the caret by tap and from the key stream, nothing saved until Done), under the confirmation and under a scrolled list; the shell's own way of turning (close, reopen) keeping every edit; an 800 × 480 display keeping the tall shape; and six open-close rounds in both orientations leaving nothing behind |
+| `tests/notes_app_test.c` | the app under a real pointer device and a real keyboard against a real store, hosted in the shell's own frame: create, type, Enter, æ ø å through the symbol layer, Done, the stored bytes, reopen and edit, a blank note, the app closing mid-edit, delete cancelled and delete confirmed, an unreadable note left alone, a long note scrolling, a 3000-character note opened read-only and left byte for byte as it was, a note nobody changed keeping its time, twenty notes scrolled to the oldest by a finger in Normal and Outdoor with New note on screen throughout, a short list keeping its height, and every error caption (an unreadable note, a note too long to edit, a failed save in Normal and Outdoor, a failed delete) below the field and on screen, the field filling its wrapper again once the error clears. On the reference panel with its 30 px corners, and in both orientations: every screen's rectangles to the pixel with 30 px and square corners; every screen - long list scrolled by finger, empty list, editor with a long note typed into it, confirmation, a read-only note with the keyboard down - checked in Normal and Outdoor for controls inside the body and the safe area, no overlaps, the touch minimum, nothing under the keyboard, rows with title and time apart, the field whole in its container and three lines tall, the caret in view, and a body that never scrolls; the display turned under an open note (text, caret, focus and keyboard kept, typing on at the caret by tap and from the key stream, nothing saved until Done), under the confirmation and under a scrolled list; the shell's own way of turning (close, reopen) keeping every edit; in each shape and mode the errors: a failed save above the keyboard with its caption placed and the note still in view, a failed delete, a read-only note's caption at the foot clear of the corners; a note opened first after the app starts and a reopened long note never scrolled past their end; an 800 × 480 display keeping the tall shape; and six open-close rounds in both orientations leaving nothing behind |
 | `tests/notes_shell_test.sh` | the app test and a clean LVGL log, plus the shell owning exactly one keyboard, no app creating one, Notes opening from the launcher, and Notes drawn by the real shell in both orientations: New note where the app test lays it out, nothing in the rounded corners, no warning |
 | `tests/notes_lint.sh` | the store is the only file that touches the filesystem, the text rules are LVGL-free, no keyboard is named, no title reaches a path, the write stays atomic, none of the excluded features exist, and the layout: chosen from the body's size and never the orientation, redone on a size change, its handler gone before the app is freed, a gapless frame, corners from the display geometry, the wide shape's width guard, and rows rebuilt without rebuilding the objects around them |
 

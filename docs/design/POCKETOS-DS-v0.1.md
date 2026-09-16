@@ -1236,11 +1236,19 @@ not the shell, its keyboard, the rotation policy or any other app.
   a 1192 x 100 px body while the keyboard is up. Under a row of Done and
   Delete that left the field 4 px; beside the rail it has all 100 px: four
   lines of body type in Normal, three in Outdoor.
-- The field's floor of three body lines (§17.1), as `pocketui` computes it
-  (the font's line height times 1.5: 94 px Normal, 117 px Outdoor), does not
-  fit 100 px in Outdoor. In the wide shape only, the floor gives way to the
-  height there is: a field taller than its box scrolls its caret into the part
-  that is cut off. Three whole Outdoor lines (78 px) still show.
+- The field grows into its wrapper and an error caption takes its room from
+  the field (§17.1, `pocketui_text_field`). The field's floor of three body
+  lines, as `pocketui` computes it (the font's line height times 1.5: 94 px
+  Normal, 117 px Outdoor), does not fit 100 px in Outdoor, nor in Normal
+  together with a caption, and a floor the wrapper cannot hold pushes the
+  caption out of sight and scrolls the caret into the part that is cut off.
+  In the wide shape only, the field has no floor of its own: the whole
+  wrapper, or all of it but the caption's room while an error is shown. The
+  caption is always read; a failed save above the landscape keyboard shows
+  three lines of the note in Normal and two and a half in Outdoor.
+- The editor is shown and laid out, keyboard and caption in place, before the
+  note goes into the field, so the field scrolls to the caret for the size it
+  is seen at.
 
 ### 23.3 Consequences for portrait
 
@@ -1249,8 +1257,8 @@ not the shell, its keyboard, the rotation policy or any other app.
   flow LVGL 9.5 took a row gap from the editor screen for the hidden list
   screen before it; inside the gapless frame it has the full height.
 - **The foot clears the rounded corners** exactly as §22.2: with 30 px corner
-  squares a long list's New note sits 10 px higher (1138..1201), and the field
-  of a note shown read-only, with the keyboard down, ends at 1201. Above the
+  squares a long list's New note sits 10 px higher (1138..1201), and the
+  caption of a note shown read-only, with the keyboard down, ends at 1201. Above the
   keyboard, in the empty or short list and in the confirmation nothing reaches
   the foot and nothing moves.
 - With square corners the list and the confirmation are the previous layout
@@ -1265,8 +1273,10 @@ To §22.3, for the next app:
   controls keep their sizes, and the width guard (content never narrower than
   in portrait) replaces a height guard.
 - **Design the keyboard-up body.** In landscape it is 100 px tall. Any
-  per-control floor must be checked against it, and give way where it would
-  cut off what it protects.
+  per-control floor must be checked against it, with the error caption shown,
+  and give way where it would cut off what it protects.
+- **Lay a screen out before filling a scrolling control.** A text area
+  scrolls to its caret for the size it has when the text is set.
 - **Screens shown one at a time go in one gapless frame**, not straight into
   the body's flow, or LVGL takes a gap for every hidden one before the one on
   show.
