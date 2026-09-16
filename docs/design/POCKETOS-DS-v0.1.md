@@ -785,6 +785,7 @@ This is the design guidance the MVP needs and no more.
   lifecycle has no pause, so an app wanting continuity persists on change
   (ADR-002).
 - **Delete.** A dialog under §17.5, destructive, Cancel accented.
+- **Landscape.** §23.
 
 ### 17.7 Out of scope
 
@@ -1120,7 +1121,7 @@ verified hardware operation and nothing in this amendment asks for it.
   column count and so the tile width (182 px) differ from portrait.
 - App bodies are not re-laid out: fixed-width content stays at its portrait
   width and the body scrolls vertically. An app that needs a landscape layout
-  gets one in its own amendment. Calculator: §22.
+  gets one in its own amendment. Calculator: §22. Notes: §23.
 
 ## 22. Amendment F — Calculator in landscape [ACCEPTED]
 
@@ -1194,6 +1195,97 @@ extracted until a second app needs the same thing.
   body and the safe area, no overlaps, the touch minimum, text drawn whole in
   every display mode, and the body changing shape with the app open.
 
+Notes (§23) is the second app under this pattern and adds to it in §23.4.
+
+## 23. Amendment G — Notes in landscape [PROPOSED]
+
+**PROPOSED 2026-09-16**, pending the unit A gate
+(`docs/hardware/NOTES_LANDSCAPE_GATE.md`) and the product owner's acceptance.
+The second app given its own landscape layout under §21.3, on the pattern of
+§22.3, which it follows and extends (§23.4); it is not a second layout
+system. Nothing in §1–§22 is renumbered, and nothing outside Notes changes:
+not the shell, its keyboard, the rotation policy or any other app.
+
+### 23.1 Two shapes, chosen from the body
+
+- Notes lays its three screens - list, editor, delete confirmation - out in
+  one frame that is exactly the body's content box, and shapes each from that
+  box's size alone, never from the orientation: **wide** when the box is wider
+  than tall and at least 836 px across, **tall** otherwise. The shape is
+  chosen again whenever the box changes size, which in practice is the
+  keyboard coming up or going down. The objects are built once; a change of
+  shape moves only flow and sizes, so the open note, its caret, the focus and
+  the keyboard are untouched.
+- **Tall** (portrait: 528 x 1060, and 528 x 764 with the keyboard up) is the
+  existing layout: rows over New note, Done and Delete over the field, the
+  confirmation across the top.
+- **Wide** (landscape: 1192 x 396, and 1192 x 100 with the keyboard up): the
+  actions move into a **288 px rail on the right** and the content takes the
+  rest of the width and the full height. New note sits at the top of the rail
+  beside the rows (six rows in view instead of five); Done and Delete, side by
+  side at 140 x 56, at the top of the rail beside the field; the confirmation
+  keeps its **portrait width (528 px), centred**. Every control keeps its own
+  height, so no body can bring one under the §7 minimum.
+- The 836 px floor is the portrait body's 528 px, the §7 20 px gutter and the
+  rail: in the wide shape a note is never narrower than in portrait.
+
+### 23.2 Above the keyboard
+
+- The shell takes the §17.3 sheet's 296 px off the content area across its
+  full width (the shell's behaviour since v0.0.8, unchanged here), so in landscape the app has
+  a 1192 x 100 px body while the keyboard is up. Under a row of Done and
+  Delete that left the field 4 px; beside the rail it has all 100 px: four
+  lines of body type in Normal, three in Outdoor.
+- The field's floor of three body lines (§17.1), as `pocketui` computes it
+  (the font's line height times 1.5: 94 px Normal, 117 px Outdoor), does not
+  fit 100 px in Outdoor. In the wide shape only, the floor gives way to the
+  height there is: a field taller than its box scrolls its caret into the part
+  that is cut off. Three whole Outdoor lines (78 px) still show.
+
+### 23.3 Consequences for portrait
+
+- **The editor's field is 20 px taller** (228..915 above the keyboard, and it
+  stops 20 px above the sheet as §7 intends, not 40). In the body's own flex
+  flow LVGL 9.5 took a row gap from the editor screen for the hidden list
+  screen before it; inside the gapless frame it has the full height.
+- **The foot clears the rounded corners** exactly as §22.2: with 30 px corner
+  squares a long list's New note sits 10 px higher (1138..1201), and the field
+  of a note shown read-only, with the keyboard down, ends at 1201. Above the
+  keyboard, in the empty or short list and in the confirmation nothing reaches
+  the foot and nothing moves.
+- With square corners the list and the confirmation are the previous layout
+  to the pixel; the editor differs only by the 20 px of field.
+
+### 23.4 What Notes adds to the pattern
+
+To §22.3, for the next app:
+
+- **Height is what landscape lacks.** Where content and actions stack, put
+  the actions beside the content in a rail rather than sharing the height out:
+  controls keep their sizes, and the width guard (content never narrower than
+  in portrait) replaces a height guard.
+- **Design the keyboard-up body.** In landscape it is 100 px tall. Any
+  per-control floor must be checked against it, and give way where it would
+  cut off what it protects.
+- **Screens shown one at a time go in one gapless frame**, not straight into
+  the body's flow, or LVGL takes a gap for every hidden one before the one on
+  show.
+- **Dialogs keep their portrait width** in the wide shape, centred.
+- **Test with the keyboard up and with a screen hidden and shown again**, as
+  well as with the display turned under the open app.
+- **Shared code.** Notes needed Calculator's rule for how far the unsafe area
+  reaches into a box, unchanged, and carries a copy of it. That rule - one
+  pure function of a box and the platform geometry - is the one piece two apps
+  now demonstrably share, and is proposed for PocketUI beside
+  `pocketui_display_geometry()`. The shapes themselves are each app's own and
+  are not candidates. The extraction is a separate, owner-approved change.
+
+**Open for the shell, not decided here.** With a keyboard base attached,
+Automatic is landscape (§21.2) and the touch sheet still comes up over half
+the panel. Whether the sheet should stay down while a physical keyboard is
+present, or reserve only its own 568 px footprint in landscape, is a shell
+and §17.3 question for its own amendment.
+
 ---
 
 PocketOS Design System v0.1 — **STATUS: APPROVED FOR IMPLEMENTATION**
@@ -1203,3 +1295,4 @@ Amendment C (§19) accepted 2026-09-15.
 Amendment D (§20) accepted 2026-09-15.
 Amendment E (§21) accepted 2026-09-16.
 Amendment F (§22) accepted 2026-09-16.
+Amendment G (§23) proposed 2026-09-16.
