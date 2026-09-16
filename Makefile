@@ -701,6 +701,7 @@ test: all $(TEST_BINS)
 	bash tests/netd_test.sh
 	bash tests/supervise_test.sh
 	bash tests/initscript_test.sh
+	bash tests/phase3_migration_test.sh
 	bash tests/package_sync_test.sh
 	bash tests/notices_test.sh
 	bash tests/boot_splash_test.sh
