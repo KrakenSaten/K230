@@ -99,6 +99,12 @@ is recorded in KEYBOARD_BRINGUP §8; the short of it:
 - **No vendor statement about hot-plug exists at all**, permissive or
   prohibitive, and there is **no schematic of any base board**.
 
+**Observed, not evidence of safety (operator, 2026-09-16).** The base was
+connected and disconnected by hand on a running unit A and automatic rotation
+followed it correctly - connected landscape, disconnected portrait. It is kept
+as an observed functional result; the electrical conclusion above stands
+unchanged.
+
 A controller that recovers after a dropout says nothing about this: I2C
 recovering is not evidence that the supply and the SoC's I/O rail survived the
 event. So live attach/detach stays **software-verified, hardware-UNVERIFIED**,

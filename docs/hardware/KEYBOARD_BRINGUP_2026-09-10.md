@@ -693,6 +693,15 @@ section is what they do say, so the question is not re-opened from memory.
 | **No vendor statement about hot-plug**, permissive or prohibitive; no assembly or removal instruction of any kind | absence | — |
 | The nRF52840 base is documented as feeding 5 V **back into the host** from its own cell, so current can flow either way across JP1 depending on the base | external firmware README (AUDIO_HARDWARE_MAP §4) | DOCUMENTED |
 
+**Observed, 2026-09-16 (operator).** The base was connected and disconnected
+by hand with unit A running, and automatic rotation reacted correctly each
+time: connected gave landscape, disconnected gave portrait. That is recorded
+as an **observed functional result only**. It says nothing about the questions
+below: a mating that happened to do no visible harm is not a measurement of
+inrush, sequencing or what the SoC's I/O rail did, and this section's
+conclusion is unchanged - **the connector is still not vendor-documented or
+electrically verified as hot-plug-safe**.
+
 What that leaves open is an electrical question, not a software one, and two
 measurements answer it. Both are made on the **detached** base, with a meter,
 nothing powered:
