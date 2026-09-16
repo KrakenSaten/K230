@@ -3,8 +3,11 @@
 Branch `feature/calculator-landscape`, from master `8099e79` (Doors v0.0.10).
 Code `2203c2a`, docs `667ca37`; the build on unit A is `667ca37`.
 
-**Result: remote validation PASS on unit A, 2026-09-16. Physical check by
-the product owner: PENDING.** DS Amendment F (§22) is PROPOSED. Not merged.
+**Result: PASS on unit A, 2026-09-16** - remote validation, then the product
+owner's physical check, which also approved the 10 px portrait keypad lift.
+An unplanned, unclean reset during the physical check was recovered from
+normally and is recorded below as additional evidence, not as a failure.
+DS Amendment F (§22) is PROPOSED; its acceptance is the owner's. Not merged.
 VERSION stays 0.0.10.
 
 Scope: Calculator only. No other app, no rotation policy, no keyboard
@@ -73,8 +76,8 @@ and installing one was not done.
 | Back to portrait | `shell.rotation mode=automatic`: in place, pid 647, restarts 0, portrait (keyboard absent); `2 + 3 × 4 =` -> 14 | PASS |
 | Health after | 40 new `shell.log` lines, 0 ERROR, 0 WARN, no LVGL message; 0 crash reports; no crashloop marker; no segfault in `dmesg`; sysd, netd and radiod running, restarts 0; `doors-shell` VmRSS 12,672 kB with Calculator open | PASS |
 
-Unit A was left running build `667ca37`, portrait, Calculator open, with the
-rollback copy in `/root`. `settings.conf` now carries
+At the end of the remote pass unit A ran build `667ca37`, portrait, Calculator
+open, with the rollback copy in `/root`; `settings.conf` carried
 `display_rotation=automatic` (it had no rotation line before, which means the
 same). Captures and the bench scripts: `out/calculator-landscape-667ca37/
 hwgate-unitA/` (outside the repository).
@@ -95,4 +98,55 @@ lands. So the physical check is:
    the finger; `2 + 3 × 4 =` gives 14.
 3. Back to Portrait (Rotation > Automatic): still looks right.
 
-Result: **PENDING**.
+**Result: PASS** - the product owner at the panel, 2026-09-16, keyboard base
+not attached:
+
+| Check | Owner's finding |
+| --- | --- |
+| Portrait | looks correct |
+| Landscape | looks intentional and usable |
+| Touch | lands where tapped, in both orientations |
+| `2 + 3 × 4 =` | 14 |
+| Back to Automatic | restores the portrait layout correctly |
+| 10 px portrait keypad lift (DS §22.2) | acceptable |
+
+## Unplanned reset during the physical check
+
+The owner pressed Restart by accident during the check. The unit came back
+normally and Calculator worked afterwards. Recorded as regression evidence
+for the deployed build, not as a failure. Read over the serial console after
+the owner's report (17:10-17:12 UTC, uptime 278-362 s).
+
+**It was an unclean reset, not an orderly restart** (VERIFIED from the unit's
+own records; what was pressed is the owner's account). An orderly System >
+Restart goes through sysd and init: sysd logs `reboot accepted`, the shell
+logs `stopping on signal`, each supervisor logs `stopped`, and the
+filesystems are unmounted - the unit's earlier `poweroff` on this card left
+exactly those lines. For this restart there are none of them, and the kernel
+replayed both journals: `EXT4-fs (mmcblk1p2): recovery complete` and
+`EXT4-fs (mmcblk1p1): recovery complete`. The boot was at about 17:06:10 UTC.
+
+**Recovery:**
+
+| Evidence | Result |
+| --- | --- |
+| Build after the reset | `doors-shell` md5 `a5e7e33e…`, `shell.info` build `667ca37`: the deployed binary survived the unclean reset |
+| Services | doors-shell, sysd, netd, radiod running, crashloop 0, restarts 0 |
+| Faults | 0 crash reports, no crashloop marker, `shell.log` 0 ERROR and 0 WARN, no segfault, oops or panic in `dmesg` |
+| Settings store | read back after the replay; the owner's changes after boot landed in it (theme Slate, rotation Landscape) |
+| Shell after boot (log) | started portrait (Automatic, keyboard absent); System opened and closed; Settings: theme Slate, rotation Landscape stored and applied in place (same pid 386); Calculator opened in landscape at 17:06:58 and closed at 17:07:10 |
+
+**What the log does not hold.** `shell.log` has no line between the end of the
+remote pass (16:46:29, `open app calculator`) and the reset, and none after
+17:07:10. Taps inside an open app are not logged, so the portrait check fits
+that; leaving Calculator, opening Settings and changing the rotation are
+logged, and no such lines exist before the reset or after the landscape
+Calculator session. The return to Automatic in the table above is the owner's
+observation; when the unit was read at 17:12 UTC it was at the launcher in
+Landscape (stored), theme Slate. Whether the missing lines were never written
+or were lost with the unclean reset is not settled here: `pocketlog` writes
+each line with `write(2)`, and ext4 in ordered mode normally has lines older
+than a few tens of seconds on disk.
+
+Unit A was left as the owner left it: build `667ca37`, Landscape (stored),
+theme Slate, at the launcher, rollback copy in `/root`.

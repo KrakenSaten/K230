@@ -8,8 +8,8 @@ Status: **in Doors since v0.0.10 (from `feature/post-v0.0.9-foundations`).
 Host-tested, including taps under a real LVGL pointer device and keys through
 the real logical key stream; smoke-tested on unit A on 2026-09-13 (end of this
 page). Landscape layout on `feature/calculator-landscape` (DS §22,
-Amendment F, proposed): host-tested in both orientations, unit A check in
-`docs/hardware/CALCULATOR_LANDSCAPE_GATE.md`.**
+Amendment F, proposed): host-tested in both orientations; unit A gate PASS
+on 2026-09-16, remote and physical (`docs/hardware/CALCULATOR_LANDSCAPE_GATE.md`).**
 
 ## What it is
 
@@ -403,3 +403,14 @@ panel, TCA8418 keyboard attached). PASS: `2 + 3 × 4 =` by touch gives 14;
 -1, keyboard `n` gives 1, Esc gives 0; back to the launcher and reopened at 0
 (shell log: open, close, open). Touch keys were accurate. Not covered: `/` on
 the keyboard, Outdoor sunlight legibility.
+
+**Unit A landscape gate, 2026-09-16** (build `667ca37`, keyboard base not
+attached; `docs/hardware/CALCULATOR_LANDSCAPE_GATE.md`). PASS. Remote, over
+the serial console: the build installed with only the shell service
+restarted; every key tapped through the touch device in portrait, in
+landscape and back in portrait (`2 + 3 × 4 = 14`, decimal, negative, repeated
+`=`, division by zero, backspace, clear); the panel captured and matching the
+simulator; rotation applied in place; no fault. Physical, the product owner:
+both layouts right, touch accurate in both, `2 + 3 × 4 = 14`, back to portrait
+correct, the 10 px portrait keypad lift acceptable. An unclean reset during the
+check was recovered from with the build, services and store intact.
