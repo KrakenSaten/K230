@@ -125,12 +125,12 @@ with master `13029a3` built and run the same way as the baseline. VERSION
 | Check | Result |
 | --- | --- |
 | `make all`, host, `-Werror` | rc 0, 0 warnings |
-| `make test`, host | rc 0: 3,632 ok, 0 FAIL, 0 warnings (master 3,623); `display_geometry_test` 76 checks, `orientation_test` 29, `settings_view_test` 119 (rotation notes added), `initscript_test` (the corner override is exported); the six `NOT RUN` lines are check names, identical to master's |
-| Shell tests, SDL simulator | all 19 scripts rc 0 at the tip `e678332`, 439 ok, 0 FAIL, including `display_geometry_shell_test.sh` 67 ok (68 with `SHOTS_DIR`, which adds the contact sheet) with `display_touch_test` 58 checks, `settings_shell_test.sh` with `settings_app_test` 81, `launcher_icons_shell_test.sh`, `shell_ipc_test.sh`, `pos_input_test.sh`, `pos_keyboard_test.sh`, `kbd_shell_test.sh`. At `e3f900d` two static checks in `calculator_shell_test.sh` and `wave_shell_test.sh` still counted grid rows written out in `home_create()`; they now read the grid from the running shell (`5ac0569`) |
+| `make test`, host | rc 0 at the tip `1c85b16`: 3,633 ok, 0 FAIL, 0 warnings (master 3,623); `display_geometry_test` 76 checks, `orientation_test` 29, `kbd_presence_test` 28, `settings_view_test` 120, `initscript_test` (the corner override is exported); the six `NOT RUN` lines are check names, identical to master's |
+| Shell tests, SDL simulator | all 20 scripts rc 0 at the tip `1c85b16`, 472 ok, 0 FAIL, including `auto_rotation_shell_test.sh` 29 ok and `display_geometry_shell_test.sh` 70 ok (71 with `SHOTS_DIR`, which adds the contact sheet) with `display_touch_test` 58 checks, `settings_shell_test.sh` with `settings_app_test` 81, `kbd_shell_test.sh` with `shell_kbd_test` 18, `launcher_icons_shell_test.sh`, `shell_ipc_test.sh`, `pos_input_test.sh`, `pos_keyboard_test.sh`, `kbd_shell_test.sh`. At `e3f900d` two static checks in `calculator_shell_test.sh` and `wave_shell_test.sh` still counted grid rows written out in `home_create()`; they now read the grid from the running shell (`5ac0569`) |
 | Safe area, portrait | in all 15 theme/mode pairs every ink column of the status bar lies at least 30 px from each side; three ink groups (wordmark, radio chip, clock); the wordmark's left and the clock's right clear of the 30 px corners; every tile 254 x 150 in its place with its own icon, nothing below the last row |
 | Safe area, landscape | the same on 1232x568 in all 15 pairs, the bar's ends 30 px from both ends of the long edge; tiles 182 x 150 in six columns and two rows |
 | Rectangular panel | with `POCKETOS_SAFE_CORNERS=0,0,0,0`, in both orientations, the bar keeps its own 20 px; with the 30 px corners the wordmark is the same pixels moved 10 px in (drawn whole) and everything below the status bar is identical: the inset comes from the platform description, not from the bar |
-| Geometry against master | the portrait launcher screenshotted from both builds in all 15 pairs and compared pixel by pixel: **0 pixels differ below the status bar**; 1,277–1,281 differ in it (wordmark and clock 10 px further in) |
+| Geometry against master | the portrait launcher screenshotted from both builds in all 15 pairs and compared pixel by pixel: **0 pixels differ below the status bar**; 1,319–1,346 differ in it (wordmark and clock 10 px further in) |
 | Model | every rotation maps the native panel onto the logical one pixel for pixel and back; size swap at 90/270; four different edge strips and four different corners each land on the right logical edge and corner; top, bottom, left and right bars at 0, 90 and 270; a bar's end takes the larger of strip and corner; `rect_is_safe` at every corner, including the status-bar label and clock positions in both orientations; a rectangular panel gives no insets |
 | Touch | the per-rotation transform equals the vendor launcher's settings for the same DRM index; a touch on native corners, centre and off-axis points lands on the logical pixel the display draws there, at all four rotations with the controller mounted straight or swapped in the model, and through LVGL's own `lv_evdev` fed a GT9895-style multitouch stream at all four rotations (swapped at 0 and 270) (`display_touch_test`); the same checks catch a landscape display with portrait touch, 270 with 90's touch, 90 with 270's and 0 with 180's |
 | Policy | Automatic with the keyboard unknown, absent and present (Portrait, Portrait, Landscape); forced Portrait and Landscape with each keyboard state; manual overrides automatic; persisted across restart; invalid stored value → Automatic with a WARN, the stored text left alone; `POCKETOS_DRM_ROTATION` overrides display and touch together and is logged; an invalid one ignored |
@@ -180,13 +180,15 @@ Size and memory:
 
 | | master | branch | change |
 | --- | --- | --- | --- |
-| riscv64 DRM shell, `size` text / data / bss | 914,115 / 9,948 / 22,400 | 923,719 / 10,052 / 22,672 | +9,604 / +104 / +272 |
+| riscv64 DRM shell, `size` text / data / bss | 914,115 / 9,948 / 22,400 | 926,110 / 10,060 / 22,720 | +11,995 / +112 / +320 |
 | riscv64 DRM shell, stripped file (what ships) | 928,376 B | 940,720 B | **+12,344 B** |
-| SDL x86-64 shell, text / data / bss | 2,208,585 / 15,320 / 23,680 | 2,221,557 / 15,416 / 23,936 | +12,972 / +96 / +256 |
+| SDL x86-64 shell, text / data / bss | 2,208,585 / 15,320 / 23,680 | 2,224,836 / 15,424 / 24,000 | +16,251 / +104 / +320 |
 | Heap allocated by `home_create()` (glibc `mallinfo2`, simulator, 2 runs each, identical) | 13,856 B | portrait 13,856 B, landscape 13,856 B | **0** |
 
 The grid descriptors are static arrays sized for the largest grid (bss), so
-the launcher allocates the same in both orientations. The heap figure comes
+the launcher allocates the same in both orientations. The keyboard provider
+and the apply mechanism cost no heap at all on the launcher and fit inside the
+same stripped page count as the safe area alone. The heap figure comes
 from a measurement patch applied only in the validation clones, never
 committed. The device's own figure (VmRSS) is taken at the gate.
 
