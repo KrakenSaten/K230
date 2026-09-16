@@ -6,14 +6,16 @@
  * proves what they cannot: that a finger on a key reaches them, that a key
  * pushed into pos_input arrives at the display and not somewhere else, that
  * tapping does not steal focus from typing, that every key is a real target
- * on the glass in all three display modes, and that nothing is written or
- * asked of the shell while it all happens. It exists so that a board is the
- * first HARDWARE test of the calculator and not the first test of it at all.
+ * on the glass in all three display modes, in portrait and in landscape and
+ * clear of the panel's rounded corners, and that nothing is written or asked
+ * of the shell while it all happens. It exists so that a board is the first
+ * HARDWARE test of the calculator and not the first test of it at all.
  *
  * The shell is not here, so this file plays its part: it hosts the app the
- * way ui/shell/shell.c does (header, padded body), and it defines every
- * app.h entry point as a counter. The calculator needs none of them, and the
- * counters say whether that stays true.
+ * way ui/shell/shell.c does (header, padded body, the display geometry set
+ * before anything is built), and it defines every app.h entry point as a
+ * counter. The calculator needs none of them, and the counters say whether
+ * that stays true.
  *
  * Needs LVGL, so it is built by ui/shell/CMakeLists.txt beside the shell
  * (host builds only) and run by tests/calculator_shell_test.sh.
@@ -30,8 +32,11 @@
 #include <string.h>
 #include <unistd.h>
 
+/* The reference panel in its native portrait, and the corner squares the
+ * shell describes it with on the T-Display K230 (DS section 21.1). */
 #define PANEL_W 568
 #define PANEL_H 1232
+#define PANEL_CORNER 30
 #define STATUS_H POCKETUI_STATUS_BAR_H
 
 #define MINUS "\xE2\x88\x92"
@@ -39,7 +44,9 @@
 #define DIVIDE "\xC3\xB7"
 #define PLUS_MINUS "\xC2\xB1"
 
-/* The app's own layout under the body, as calc_app.c builds it. */
+/* The app's own layout under the body, as calc_app.c builds it: one frame,
+ * and in it the display and the keypad. */
+#define KID_FRAME 0
 #define KID_DISPLAY 0
 #define KID_PAD 1
 #define DISPLAY_EXPRESSION 0
@@ -111,9 +118,11 @@ int pocketos_shell_keyboard_visible(void)
 
 /* ---- display and finger ------------------------------------------------ */
 
-static uint8_t draw_buf[PANEL_W * 40 * 2];
+/* Forty rows of the long side, at up to four bytes a pixel. */
+static uint8_t draw_buf[PANEL_H * 40 * 4];
 static lv_indev_state_t finger_state = LV_INDEV_STATE_RELEASED;
 static lv_point_t finger_point;
+static lv_display_t *disp;
 
 static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px)
 {
@@ -179,6 +188,38 @@ static lv_obj_t *app_root;
 static lv_obj_t *app_body;
 static void *app_priv;
 
+/* The display the shell would open: the reference panel with corner squares
+ * of `corner` px, turned to `rotation`, the geometry handed to PocketUI and
+ * the content area below the status bar sized to it (shell.c). Called with
+ * the app open, it is the body changing size under a running app. */
+static void use_panel(enum pos_rotation rotation, struct pos_corners corners)
+{
+    struct pos_panel panel = {
+        .width = PANEL_W,
+        .height = PANEL_H,
+        .corners = corners,
+    };
+    struct pos_display_geometry g;
+
+    pos_display_geometry_init(&g, &panel, rotation);
+    pocketui_set_display_geometry(&g);
+    /* The lifted finger's last point could be off the turned display, which
+     * LVGL warns about on every read. */
+    finger_point.x = 0;
+    finger_point.y = 0;
+    lv_display_set_resolution(disp, g.width, g.height);
+    lv_obj_set_size(g_content, g.width, g.height - STATUS_H);
+    lv_obj_set_pos(g_content, 0, STATUS_H);
+    pump(60);
+}
+
+static void use_display(enum pos_rotation rotation, int32_t corner)
+{
+    struct pos_corners c = { corner, corner, corner, corner };
+
+    use_panel(rotation, c);
+}
+
 static void app_start(void)
 {
     lv_obj_t *header;
@@ -222,8 +263,9 @@ static lv_obj_t *kid(lv_obj_t *parent, int i)
     return parent ? lv_obj_get_child(parent, (int32_t)i) : NULL;
 }
 
-static lv_obj_t *display_panel(void) { return kid(app_body, KID_DISPLAY); }
-static lv_obj_t *keypad(void) { return kid(app_body, KID_PAD); }
+static lv_obj_t *frame(void) { return kid(app_body, KID_FRAME); }
+static lv_obj_t *display_panel(void) { return kid(frame(), KID_DISPLAY); }
+static lv_obj_t *keypad(void) { return kid(frame(), KID_PAD); }
 static lv_obj_t *expression_label(void) { return kid(display_panel(), DISPLAY_EXPRESSION); }
 static lv_obj_t *number_label(void) { return kid(display_panel(), DISPLAY_NUMBER); }
 
@@ -375,6 +417,22 @@ static int overlap(const lv_area_t *a, const lv_area_t *b)
     return a->x1 <= b->x2 && b->x1 <= a->x2 && a->y1 <= b->y2 && b->y1 <= a->y2;
 }
 
+static int safe(const lv_area_t *a)
+{
+    return pos_display_rect_is_safe(pocketui_display_geometry(), a->x1, a->y1, a->x2, a->y2);
+}
+
+static int same_area(const lv_area_t *a, int32_t x1, int32_t y1, int32_t x2, int32_t y2)
+{
+    return a->x1 == x1 && a->y1 == y1 && a->x2 == x2 && a->y2 == y2;
+}
+
+static void get_area(lv_obj_t *obj, lv_area_t *a)
+{
+    lv_obj_update_layout(obj);
+    lv_obj_get_coords(obj, a);
+}
+
 static int has_textarea(lv_obj_t *obj)
 {
     uint32_t i;
@@ -393,28 +451,60 @@ static int has_textarea(lv_obj_t *obj)
     return 0;
 }
 
-/* The whole keypad and display, checked for the mode currently applied. */
-static void check_layout(const char *mode)
+/* The smallest key width and height, for the report and the checks. */
+static void smallest_key(int32_t *w, int32_t *h)
 {
     lv_obj_t *keys[32];
-    lv_area_t screen = { 0, STATUS_H, PANEL_W - 1, PANEL_H - 1 };
+    int n = keypad_keys(keys, 32);
+    int i;
+
+    *w = LV_COORD_MAX;
+    *h = LV_COORD_MAX;
+    for (i = 0; i < n; i++) {
+        lv_area_t a;
+
+        lv_obj_get_coords(keys[i], &a);
+        *w = LV_MIN(*w, lv_area_get_width(&a));
+        *h = LV_MIN(*h, lv_area_get_height(&a));
+    }
+}
+
+/* The whole keypad and display, checked for the geometry and mode applied.
+ * The usable area is the body's content box inside the safe area: on screen,
+ * in the body, outside every rounded-corner square (pos_display.h). */
+static void check_layout(const char *mode)
+{
+    const struct pos_display_geometry *g = pocketui_display_geometry();
+    const bool wide = g->width > g->height;
+    lv_obj_t *keys[32];
+    lv_area_t screen = { 0, STATUS_H, g->width - 1, g->height - 1 };
     lv_area_t body;
+    lv_area_t content;
     lv_area_t panel;
     lv_area_t pad;
-    char what[128];
+    char what[160];
     int n;
     int i;
     int j;
     int small = 0;
     int off = 0;
+    int unsafe = 0;
     int overlapping = 0;
     int faces_out = 0;
+    int32_t kw;
+    int32_t kh;
+    int32_t foot;
 
     lv_obj_update_layout(app_body);
     n = keypad_keys(keys, 32);
     snprintf(what, sizeof(what), "%s: the keypad has 19 keys", mode);
     check(what, n == CALC_PAD_KEYS);
     lv_obj_get_coords(app_body, &body);
+    content = body;
+    content.x1 += POCKETUI_PAD;
+    content.x2 -= POCKETUI_PAD;
+    content.y1 += POCKETUI_BODY_PAD_TOP;
+    content.y2 -= POCKETUI_PAD;
     for (i = 0; i < n; i++) {
         lv_area_t a;
         lv_area_t f;
@@ -423,8 +513,11 @@ static void check_layout(const char *mode)
         if (lv_area_get_width(&a) < POCKETUI_TOUCH_MIN || lv_area_get_height(&a) < POCKETUI_TOUCH_MIN) {
             small++;
         }
-        if (!inside(&a, &screen) || !inside(&a, &body)) {
+        if (!inside(&a, &screen) || !inside(&a, &content)) {
             off++;
+        }
+        if (!safe(&a)) {
+            unsafe++;
         }
         for (j = i + 1; j < n; j++) {
             lv_area_t b;
@@ -441,8 +534,10 @@ static void check_layout(const char *mode)
     }
     snprintf(what, sizeof(what), "%s: every key is at least 64 x 64", mode);
     check(what, small == 0);
-    snprintf(what, sizeof(what), "%s: every key is wholly on screen, in the body", mode);
+    snprintf(what, sizeof(what), "%s: every key is wholly on screen, in the body's content box", mode);
     check(what, off == 0);
+    snprintf(what, sizeof(what), "%s: every key is in the safe area, clear of the rounded corners", mode);
+    check(what, unsafe == 0);
     snprintf(what, sizeof(what), "%s: no two keys overlap", mode);
     check(what, overlapping == 0);
     snprintf(what, sizeof(what), "%s: every key's face is inside its key", mode);
@@ -450,18 +545,141 @@ static void check_layout(const char *mode)
 
     lv_obj_get_coords(display_panel(), &panel);
     lv_obj_get_coords(keypad(), &pad);
-    snprintf(what, sizeof(what), "%s: the display is on screen", mode);
-    check(what, inside(&panel, &screen) && inside(&panel, &body));
-    snprintf(what, sizeof(what), "%s: and above the keypad", mode);
-    check(what, panel.y2 < pad.y1);
-    snprintf(what, sizeof(what), "%s: the keypad ends at the foot of the body", mode);
-    check(what, pad.y2 == body.y2 - POCKETUI_PAD);
+    snprintf(what, sizeof(what), "%s: the display is on screen, in the body and in the safe area", mode);
+    check(what, inside(&panel, &screen) && inside(&panel, &content) && safe(&panel));
+    snprintf(what, sizeof(what), "%s: the display and the keypad do not overlap", mode);
+    check(what, !overlap(&panel, &pad));
+
+    /* As low as the safe area lets it go: the body's foot, or the top of the
+     * corner squares where they reach higher. */
+    foot = LV_MIN(content.y2, g->height - 1 - LV_MAX(g->corners.bottom_left, g->corners.bottom_right));
+    if (!wide) {
+        snprintf(what, sizeof(what), "%s: tall: the display is above the keypad", mode);
+        check(what, panel.y2 < pad.y1);
+        snprintf(what, sizeof(what), "%s: tall: both are the body's full width", mode);
+        check(what, panel.x1 == content.x1 && panel.x2 == content.x2 && pad.x1 == content.x1 &&
+                        pad.x2 == content.x2);
+        snprintf(what, sizeof(what), "%s: tall: the keypad ends at the foot of the safe body (y %d)",
+                 mode, (int)foot);
+        check(what, pad.y2 == foot);
+    } else {
+        snprintf(what, sizeof(what), "%s: wide: the display is left of the keypad, a 20 px gutter apart",
+                 mode);
+        check(what, pad.x1 - panel.x2 - 1 == POCKETUI_PAD);
+        snprintf(what, sizeof(what), "%s: wide: together they span the body's width", mode);
+        check(what, panel.x1 == content.x1 && pad.x2 == content.x2);
+        snprintf(what, sizeof(what), "%s: wide: and share it equally (%d and %d px)", mode,
+                 (int)lv_area_get_width(&panel), (int)lv_area_get_width(&pad));
+        check(what, LV_ABS(lv_area_get_width(&panel) - lv_area_get_width(&pad)) <= 1);
+        snprintf(what, sizeof(what), "%s: wide: both run from the top of the body to its safe foot (y %d)",
+                 mode, (int)foot);
+        check(what, panel.y1 == content.y1 && pad.y1 == content.y1 && panel.y2 == foot &&
+                        pad.y2 == foot);
+    }
+    smallest_key(&kw, &kh);
+    snprintf(what, sizeof(what), "%s: the smallest key (%d x %d) is a comfortable target: %s", mode,
+             (int)kw, (int)kh, wide ? "at least 120 wide and 64 tall" : "at least 120 x 120");
+    check(what, kw >= 120 && kh >= (wide ? POCKETUI_TOUCH_MIN : 120));
     snprintf(what, sizeof(what), "%s: nothing scrolls", mode);
-    check(what, lv_obj_get_scroll_bottom(app_body) <= 0 && lv_obj_get_scroll_top(app_body) == 0);
+    check(what, lv_obj_get_scroll_bottom(app_body) <= 0 && lv_obj_get_scroll_top(app_body) == 0 &&
+                    lv_obj_get_scroll_bottom(frame()) <= 0 && lv_obj_get_scroll_top(frame()) == 0 &&
+                    !lv_obj_has_flag(frame(), LV_OBJ_FLAG_SCROLLABLE));
     snprintf(what, sizeof(what), "%s: the number is drawn whole", mode);
     check(what, label_fits(number_label()));
     snprintf(what, sizeof(what), "%s: and so is the expression", mode);
     check(what, label_fits(expression_label()));
+}
+
+/* Taps through everything the calculator does, in whatever layout is up. */
+static void check_behaviour(const char *where)
+{
+    char what[128];
+
+    tap_keys("c2+3*4=");
+    snprintf(what, sizeof(what), "%s: tapped 2 + 3 x 4 = is 14", where);
+    check_str(what, number(), "14");
+    snprintf(what, sizeof(what), "%s: with its expression", where);
+    check_str(what, expression(), "2 + 3 " TIMES " 4 =");
+    tap_keys("c");
+    snprintf(what, sizeof(what), "%s: C clears", where);
+    check(what, strcmp(number(), "0") == 0 && strcmp(expression(), "") == 0);
+    tap_keys("1.25*4=");
+    snprintf(what, sizeof(what), "%s: a decimal", where);
+    check_str(what, number(), "5");
+    tap_keys("c7n-3=");
+    snprintf(what, sizeof(what), "%s: a negative", where);
+    check_str(what, number(), "-10");
+    tap_keys("c2+3==");
+    snprintf(what, sizeof(what), "%s: = twice is = once", where);
+    check_str(what, number(), "5");
+    tap_keys("c9/0=");
+    snprintf(what, sizeof(what), "%s: division by zero says so", where);
+    check_str(what, number(), CALC_TEXT_DIVIDE_BY_ZERO);
+    tap_keys("c123b");
+    snprintf(what, sizeof(what), "%s: backspace", where);
+    check_str(what, number(), "12");
+    type_keys("\x1b" "6*7\n");
+    snprintf(what, sizeof(what), "%s: typed keys reach the same display", where);
+    check_str(what, number(), "42");
+    snprintf(what, sizeof(what), "%s: and the display keeps the focus", where);
+    check(what, pos_input_focused() == display_panel());
+    type_keys("c");
+}
+
+/* The whole mode loop: layout, the longest expression and the widest numbers
+ * in each of the three modes. */
+static void check_modes(const char *orientation)
+{
+    static const char *const modes[] = { "normal", "outdoor", "night" };
+    char why[128];
+    char what[160];
+    char label[64];
+    int i;
+    int m;
+
+    for (m = 0; m < 3; m++) {
+        snprintf(label, sizeof(label), "%s %s", orientation, modes[m]);
+        snprintf(what, sizeof(what), "%s mode applies", label);
+        check(what, pos_theme_apply(NULL, modes[m], why, sizeof(why)) == 0);
+        pump(60);
+        type_keys("c");
+        for (i = 0; i < 20; i++) {
+            type_keys("123456789012+");
+        }
+        check_layout(label);
+        snprintf(what, sizeof(what), "%s: the long expression is refitted and still fits", label);
+        check(what, strncmp(expression(), CALC_ELLIPSIS, 3) == 0 && label_fits(expression_label()));
+
+        /* The widest things the main line can be asked to show. */
+        {
+            static const char *const widest[][2] = {
+                { "c0.123456789012n", "-0.123456789012" },
+                { "c999999999999*999999999999=", "9.99999999998e23" },
+                { "c123456789012n*1000=", "-1.2345678901e14" },
+                { "c1/300=n", "-3.3333333333e-3" },
+                { "c888888888888n", "-888888888888" },
+                { "c5/0=", CALC_TEXT_DIVIDE_BY_ZERO },
+                { "c999999999999*999999999999*999999999999*999999999999*999999999999"
+                  "*999999999999*999999999999*999999999999*999999999999=", CALC_TEXT_OVERFLOW },
+            };
+            size_t w;
+
+            for (w = 0; w < sizeof(widest) / sizeof(widest[0]); w++) {
+                type_keys(widest[w][0]);
+                snprintf(what, sizeof(what), "%s: shows %s", label, widest[w][1]);
+                check_str(what, number(), widest[w][1]);
+                snprintf(what, sizeof(what), "%s: %s is drawn whole", label, widest[w][1]);
+                check(what, label_fits(number_label()));
+            }
+        }
+        /* And the keypad still takes taps. */
+        tap_keys("c6*7=");
+        snprintf(what, sizeof(what), "%s: the keypad works", label);
+        check_str(what, number(), "42");
+    }
+    pos_theme_apply(NULL, "normal", why, sizeof(why));
+    pump(60);
+    type_keys("c");
 }
 
 static int dir_is_empty(const char *path)
@@ -484,17 +702,14 @@ static int dir_is_empty(const char *path)
 
 int main(void)
 {
-    static const char *const modes[] = { "normal", "outdoor", "night" };
     static char state_dir[] = "/tmp/calc_app_state.XXXXXX";
     static char config_dir[] = "/tmp/calc_app_config.XXXXXX";
     static char runtime_dir[] = "/tmp/calc_app_runtime.XXXXXX";
-    lv_display_t *disp;
     lv_indev_t *finger;
     lv_obj_t *keys[32];
-    char why[128];
-    char what[128];
+    lv_area_t a;
+    lv_area_t b;
     int i;
-    int m;
 
     /* Wherever PocketOS would put anything, point it somewhere empty and
      * look again at the end. */
@@ -521,14 +736,14 @@ int main(void)
 
     g_content = lv_obj_create(lv_screen_active());
     lv_obj_remove_style_all(g_content);
-    lv_obj_set_size(g_content, PANEL_W, PANEL_H - STATUS_H);
-    lv_obj_set_pos(g_content, 0, STATUS_H);
-    pump(60);
+    /* The unit's panel, as the shell opens it in portrait. */
+    use_display(POS_ROTATION_0, PANEL_CORNER);
 
     /* ---- 1. it opens ---------------------------------------------------- */
 
     app_start();
     check("the app returns its state", app_priv != NULL);
+    check("the app adds one box to the body", lv_obj_get_child_count(app_body) == 1u);
     check_str("it opens on 0", number(), "0");
     check_str("with no expression", expression(), "");
     check("the display is the focused object", pos_input_focused() == display_panel());
@@ -541,10 +756,13 @@ int main(void)
 
     /* ---- 2. a finger on the keypad -------------------------------------- */
 
-    tap_keys("12+3*4=");
-    check_str("tapped 12 + 3 x 4 = is 24, with precedence", number(), "24");
+    tap_keys("2+3*4=");
+    check_str("tapped 2 + 3 x 4 = is 14, with precedence", number(), "14");
     check_str("and the expression is drawn with the operator glyphs", expression(),
-              "12 + 3 " TIMES " 4 =");
+              "2 + 3 " TIMES " 4 =");
+    tap_keys("c12+3*4=");
+    check_str("tapped 12 + 3 x 4 = is 24", number(), "24");
+    check_str("with its expression", expression(), "12 + 3 " TIMES " 4 =");
     check("tapping left the focus on the display", pos_input_focused() == display_panel());
     tap_keys("c");
     check_str("C clears", number(), "0");
@@ -578,7 +796,6 @@ int main(void)
     {
         lv_obj_t *seven = key_for('7');
         lv_obj_t *equals = key_for('=');
-        lv_area_t a;
 
         lv_obj_get_coords(seven, &a);
         finger_point.x = a.x1 + lv_area_get_width(&a) / 2;
@@ -717,64 +934,169 @@ int main(void)
         check("which begins at a space, not inside a number", e[3] == ' ');
     }
     check("it is no wider than the line", label_fits(expression_label()));
-
-    /* ---- 5. the glass, in every mode ------------------------------------ */
-
-    for (m = 0; m < 3; m++) {
-        snprintf(what, sizeof(what), "%s mode applies", modes[m]);
-        check(what, pos_theme_apply(NULL, modes[m], why, sizeof(why)) == 0);
-        pump(60);
-        check_layout(modes[m]);
-        snprintf(what, sizeof(what), "%s: the long expression is refitted and still fits", modes[m]);
-        check(what, strncmp(expression(), CALC_ELLIPSIS, 3) == 0 &&
-                        label_fits(expression_label()));
-
-        /* The widest things the main line can be asked to show. */
-        {
-            static const char *const widest[][2] = {
-                { "c0.123456789012n", "-0.123456789012" },
-                { "c999999999999*999999999999=", "9.99999999998e23" },
-                { "c123456789012n*1000=", "-1.2345678901e14" },
-                { "c1/300=n", "-3.3333333333e-3" },
-                { "c888888888888n", "-888888888888" },
-                { "c5/0=", CALC_TEXT_DIVIDE_BY_ZERO },
-                { "c999999999999*999999999999*999999999999*999999999999*999999999999"
-                  "*999999999999*999999999999*999999999999*999999999999=", CALC_TEXT_OVERFLOW },
-            };
-            size_t w;
-
-            for (w = 0; w < sizeof(widest) / sizeof(widest[0]); w++) {
-                type_keys(widest[w][0]);
-                snprintf(what, sizeof(what), "%s: shows %s", modes[m], widest[w][1]);
-                check_str(what, number(), widest[w][1]);
-                snprintf(what, sizeof(what), "%s: %s is drawn whole", modes[m], widest[w][1]);
-                check(what, label_fits(number_label()));
-            }
-        }
-        /* And the keypad still takes taps. */
-        tap_keys("c6*7=");
-        snprintf(what, sizeof(what), "%s: the keypad works", modes[m]);
-        check_str(what, number(), "42");
-        type_keys("c");
-        for (i = 0; i < 20; i++) {
-            type_keys("123456789012+");
-        }
-    }
-    pos_theme_apply(NULL, "normal", why, sizeof(why));
-    pump(60);
     type_keys("c");
 
-    /* ---- 6. opened and closed ------------------------------------------- */
+    /* ---- 5. portrait: the glass, in every mode -------------------------- */
 
+    check_modes("portrait");
+
+    /* The portrait geometry to the pixel. On a panel with square corners it
+     * is the v0.0.9 layout: the display 368 px tall at the top of the body,
+     * the keypad 672 px at its foot. With the unit's 30 px corners the only
+     * difference is the keypad and the display's foot lifted 10 px, clear of
+     * the corner squares; the keys themselves are unchanged. */
+    get_area(display_panel(), &a);
+    get_area(keypad(), &b);
+    check("portrait, 30 px corners: the display is 20..547 x 152..509",
+          same_area(&a, 20, 152, 547, 509));
+    check("portrait, 30 px corners: the keypad is 20..547 x 530..1201, 10 px above the body's foot",
+          same_area(&b, 20, 530, 547, 1201));
+    /* A panel's corners are fixed for a run, so another panel is another
+     * start. */
     app_stop();
+    use_display(POS_ROTATION_0, 0);
+    app_start();
+    get_area(display_panel(), &a);
+    get_area(keypad(), &b);
+    check("portrait, square corners: the display is the v0.0.9 20..547 x 152..519",
+          same_area(&a, 20, 152, 547, 519));
+    check("portrait, square corners: the keypad is the v0.0.9 20..547 x 540..1211",
+          same_area(&b, 20, 540, 547, 1211));
+    {
+        int32_t kw;
+        int32_t kh;
+
+        smallest_key(&kw, &kh);
+        check("and every key is at least the v0.0.9 126 x 128", kw >= 126 && kh == 128);
+    }
+    check_layout("portrait, square corners");
+    app_stop();
+
+    /* Each foot corner on its own, larger than the unit's: the clearance is
+     * whichever corner reaches furthest, from either end. */
+    {
+        static const struct pos_corners one[2] = { { 0, 0, 0, 44 }, { 0, 0, 44, 0 } };
+        static const char *const which[2] = { "bottom-left", "bottom-right" };
+        char what[96];
+        int k;
+
+        for (k = 0; k < 2; k++) {
+            use_panel(POS_ROTATION_0, one[k]);
+            app_start();
+            snprintf(what, sizeof(what), "portrait, only the %s corner rounded, 44 px", which[k]);
+            check_layout(what);
+            get_area(keypad(), &b);
+            snprintf(what, sizeof(what), "portrait, only the %s corner: the keypad ends at y 1187", which[k]);
+            check(what, b.y2 == PANEL_H - 1 - 44);
+            app_stop();
+        }
+    }
+
+    /* ---- 6. landscape ---------------------------------------------------- */
+
+    /* The shell applies a rotation by opening the display again, so an app
+     * meets landscape by being created in it. */
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    app_start();
+    check("landscape: it opens on 0", strcmp(number(), "0") == 0 && strcmp(expression(), "") == 0);
+    check("landscape: the display is the focused object", pos_input_focused() == display_panel());
+    check_layout("landscape");
+    get_area(display_panel(), &a);
+    get_area(keypad(), &b);
+    check("landscape: the display is 20..605 x 152..537", same_area(&a, 20, 152, 605, 537));
+    check("landscape: the keypad is 626..1211 x 152..537", same_area(&b, 626, 152, 1211, 537));
+    check_behaviour("landscape");
+    check_modes("landscape");
+    app_stop();
+    use_display(POS_ROTATION_270, 0);
+    app_start();
+    check_layout("landscape, square corners");
+    app_stop();
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    app_start();
+
+    /* ---- 7. the box changing shape under a running app ------------------- */
+
+    tap_keys("c2+3*4");
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    check("turned to portrait with the app open, the layout follows", lv_obj_get_child_count(app_body) == 1u);
+    check_layout("portrait, after landscape");
+    check_str("and the calculation in progress is still there", number(), "4");
+    check_str("with its expression", expression(), "2 + 3 " TIMES);
+    tap_keys("=");
+    check_str("finished in portrait, 2 + 3 x 4 = 14", number(), "14");
+    /* Short operands, so that the wider landscape line has room for more of
+     * them: a fitted line is only cut at a space. */
+    type_keys("c");
+    for (i = 0; i < 31; i++) {
+        type_keys("7+");
+    }
+    {
+        size_t tall_len = strlen(expression());
+
+        use_display(POS_ROTATION_270, PANEL_CORNER);
+        check_layout("landscape, after portrait");
+        check("the long expression is refitted to the wider line: more of it shows, and it fits",
+              strncmp(expression(), CALC_ELLIPSIS, 3) == 0 && strlen(expression()) > tall_len &&
+                  label_fits(expression_label()));
+        use_display(POS_ROTATION_0, PANEL_CORNER);
+        check("and refitted to the narrower line when turned back",
+              strlen(expression()) == tall_len && label_fits(expression_label()));
+        use_display(POS_ROTATION_270, PANEL_CORNER);
+    }
+    check("focus stayed on the display through both changes", pos_input_focused() == display_panel());
+    check_behaviour("landscape, after portrait");
+
+    /* A wide body too short for five rows of 64 px keys - the landscape
+     * content area with 300 px taken off its foot, as the touch keyboard's
+     * sheet would take them - keeps the tall layout whole and scrolls, rather
+     * than shrinking a key under the touch minimum. */
+    tap_keys("c42");
+    lv_obj_set_height(g_content, PANEL_W - STATUS_H - 300);
+    pump(60);
+    lv_obj_update_layout(app_body);
+    get_area(display_panel(), &a);
+    get_area(keypad(), &b);
+    check("a wide body 140 px tall keeps the display above the keypad", a.y2 < b.y1);
+    check("with the keypad its full 672 px", lv_area_get_height(&b) == 672);
+    check("and the display at its own height, not squeezed away", lv_area_get_height(&a) > 100);
+    {
+        int32_t kw;
+        int32_t kh;
+
+        smallest_key(&kw, &kh);
+        check("and no key under 64 px", kw >= POCKETUI_TOUCH_MIN && kh >= POCKETUI_TOUCH_MIN);
+    }
+    check("the frame scrolls to reach it", lv_obj_has_flag(frame(), LV_OBJ_FLAG_SCROLLABLE) &&
+                                               lv_obj_get_scroll_bottom(frame()) > 0);
+    check("and clips what it scrolls, so no key is drawn over the header",
+          !lv_obj_has_flag(frame(), LV_OBJ_FLAG_OVERFLOW_VISIBLE));
+    type_keys("+8");
+    lv_obj_scroll_to_y(frame(), lv_obj_get_scroll_bottom(frame()), LV_ANIM_OFF);
+    pump(60);
+    tap_keys("=");
+    check_str("scrolled to the foot, = is there to tap", number(), "50");
+    lv_obj_set_height(g_content, PANEL_W - STATUS_H);
+    pump(60);
+    check("given its height back, the frame is scrolled home and stops scrolling",
+          lv_obj_get_scroll_y(frame()) == 0 && !lv_obj_has_flag(frame(), LV_OBJ_FLAG_SCROLLABLE));
+    check_str("the result is still on the display", number(), "50");
+    check_layout("landscape, the sheet's height given back");
+    app_stop();
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+
+    /* ---- 8. opened and closed ------------------------------------------- */
+
     check("closing leaves nothing behind", lv_obj_get_child_count(g_content) == 0u);
     for (i = 0; i < 5; i++) {
+        use_display(i % 2 ? POS_ROTATION_270 : POS_ROTATION_0, PANEL_CORNER);
         app_start();
         tap_keys("9*9=");
         type_keys("+1\n");
         app_stop();
     }
-    check("five rounds leave nothing behind", lv_obj_get_child_count(g_content) == 0u);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    check("five rounds in both orientations leave nothing behind", lv_obj_get_child_count(g_content) == 0u);
     check("and no focusable object", pos_input_focused() == NULL);
     app_start();
     check_str("a fresh open remembers nothing", number(), "0");
@@ -784,7 +1106,7 @@ int main(void)
     check_str("and takes keys", number(), "42");
     app_stop();
 
-    /* ---- 7. it asked for nothing and wrote nothing ---------------------- */
+    /* ---- 9. it asked for nothing and wrote nothing ---------------------- */
 
     check("no keyboard was asked for or dismissed", keyboard_requests == 0);
     check("no shell service was called: no clock, no radio, no status hint",

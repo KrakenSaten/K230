@@ -129,6 +129,19 @@ check "and the only one" \
 hits=$(code $APP | grep -nE 'POS_STYLE_KEY_ENGAGED|POS_STYLE_CHIP_(RX|TX)')
 check "no other bright fill" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
+
+# DS 22: the layout is chosen from the body the app is given, not from the
+# orientation, and the corner clearance comes from the platform's description
+# of the panel rather than a number of the app's own.
+hits=$(code $APP | grep -nE 'pocketos_shell_orientation|POS_ROTATION_|lv_display_get_rotation|landscape|portrait')
+check "the layout never asks which way the display is turned" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+check "it is redone when the body changes size" \
+    "$(code $APP | grep -q 'LV_EVENT_SIZE_CHANGED, a);' && echo 1 || echo 0)"
+check "the corner clearance is read from the display geometry" \
+    "$(code $APP | grep -q 'pocketui_display_geometry()' && echo 1 || echo 0)"
+check "and the wide layout is held to the touch minimum" \
+    "$(code $APP | grep -q 'PAD_MIN_H (CALC_PAD_ROWS \* POCKETUI_TOUCH_MIN' && echo 1 || echo 0)"
 check "keys meet the 64 px minimum" \
     "$(code $APP | grep -qE 'POCKETUI_TOUCH_MIN' && echo 1 || echo 0)"
 
