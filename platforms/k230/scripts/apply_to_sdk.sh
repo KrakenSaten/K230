@@ -269,13 +269,31 @@ echo "[4/5] Doors rootfs overlay"
 # Also from git, and for the same reason as the package below, but here the
 # reason is sharper: Buildroot copies this overlay into the rootfs with
 # rsync -a and BusyBox rcS runs `$i start`, so the mode on S60radiod and
-# S90pocketos-shell decides whether the services start at all. Taken from the
+# S90doors-shell decides whether the services start at all. Taken from the
 # working tree it would be whatever the build host's filesystem reports, which
 # on a WSL /mnt/c checkout is 0777 for every file. Merged onto the vendor's
 # overlay, never deleting from it.
 git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" -- platforms/k230/rootfs_overlay \
     | tar -x --strip-components=3 \
           -C "${SDK_DIR}/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/"
+
+# ADR-005 Phase 3: the shell service is doors-shell, and there is never more
+# than one of them. The overlay above is merged and never deletes, and
+# Buildroot never deletes from an existing target tree either, so every place a
+# PocketOS-era shell can still be sitting in this SDK is cleared here - before
+# the image is assembled, rather than leaving the rootfs gate in build_image.sh
+# to refuse a build that is otherwise fine.
+_stale=0
+for rel in "buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/etc/init.d/S90pocketos-shell" \
+           "output/${CONF}/target/etc/init.d/S90pocketos-shell" \
+           "output/${CONF}/target/usr/bin/pocketos-shell"; do
+    f="${SDK_DIR}/${rel}"
+    [ -e "${f}" ] || continue
+    rm -f "${f}" || { echo "cannot remove the PocketOS-era shell at ${f}" >&2; exit 1; }
+    echo "      removed the PocketOS-era shell: ${rel}"
+    _stale=$((_stale + 1))
+done
+[ "${_stale}" -eq 0 ] && echo "      no PocketOS-era shell in the SDK"
 
 echo "[5/5] Doors package (pocketos)"
 # Third-party notices (docs/LICENSING.md). The package installs

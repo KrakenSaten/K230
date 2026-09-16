@@ -1,7 +1,7 @@
 #!/bin/bash
 # PocketOS init-script tests (M2).
 #
-# The boot path had no automated test: S60radiod and S90pocketos-shell were
+# The boot path had no automated test: S60radiod and S90doors-shell were
 # only ever checked with `sh -n`. This exercises their control flow against a
 # fake root, plus the file modes that decide whether they run at all on the
 # device.
@@ -30,7 +30,7 @@ OVERLAY=platforms/k230/rootfs_overlay
 S50_SRC=$OVERLAY/etc/init.d/S50sysd
 S55_SRC=$OVERLAY/etc/init.d/S55netd
 S60_SRC=$OVERLAY/etc/init.d/S60radiod
-S90_SRC=$OVERLAY/etc/init.d/S90pocketos-shell
+S90_SRC=$OVERLAY/etc/init.d/S90doors-shell
 failed=0
 
 check() { # <label> <0|1>
@@ -138,7 +138,7 @@ EOD
 }
 make_daemon "$ROOT/usr/sbin/radiod" "$ROOT/radiod.env"
 make_daemon "$ROOT/usr/sbin/sysd" "$ROOT/sysd.env"
-make_daemon "$ROOT/usr/bin/pocketos-shell" "$ROOT/shell.env"
+make_daemon "$ROOT/usr/bin/doors-shell" "$ROOT/shell.env"
 # netd's stub also records its arguments: the interface comes from the init
 # script, and that is what is being checked.
 cat > "$ROOT/usr/sbin/netd" <<EOD
@@ -153,7 +153,7 @@ chmod 0755 "$ROOT/usr/sbin/netd"
 # Rewrite the absolute paths of an init script into the fake root. /dev/null is
 # deliberately left alone.
 # The runtime directory is rewritten first and only where a separator (space
-# or "=") precedes it: "/var/run/pocketos-shell-supervise.pid" contains the literal string
+# or "=") precedes it: "/var/run/doors-shell-supervise.pid" contains the literal string
 # "/run/pocketos", so an unanchored rule would rewrite the middle of the shell
 # service's pid file path and the script would then write it nowhere.
 rewrite() { # <source> <destination>
@@ -163,6 +163,7 @@ rewrite() { # <source> <destination>
         -e "s#/var/run#$ROOT/var/run#g" \
         -e "s#/var/lib/pocketos#$ROOT/var/lib/pocketos#g" \
         -e "s#/etc/default#$ROOT/etc/default#g" \
+        -e "s#/etc/init.d/#$ROOT/etc/init.d/#g" \
         -e "s#/dev/dri/card0#$ROOT/dev/dri/card0#g" \
         -e "s#HOME=/root #HOME=$ROOT/root #g" \
         "$1" > "$2"
@@ -171,26 +172,26 @@ rewrite() { # <source> <destination>
 rewrite "$REPO/$S50_SRC" "$ROOT/etc/init.d/S50sysd"
 rewrite "$REPO/$S55_SRC" "$ROOT/etc/init.d/S55netd"
 rewrite "$REPO/$S60_SRC" "$ROOT/etc/init.d/S60radiod"
-rewrite "$REPO/$S90_SRC" "$ROOT/etc/init.d/S90pocketos-shell"
+rewrite "$REPO/$S90_SRC" "$ROOT/etc/init.d/S90doors-shell"
 
 # The rewrite must be complete: any surviving system path would make the test
 # lie about what it exercised (or touch the host).
 leaked=$(grep -nE '(^|[^A-Za-z0-9_/])/(etc|var|usr|run)/' "$ROOT/etc/init.d/S50sysd" \
                   "$ROOT/etc/init.d/S55netd" "$ROOT/etc/init.d/S60radiod" \
-                  "$ROOT/etc/init.d/S90pocketos-shell" | grep -v "$ROOT" | grep -v '^\s*#')
+                  "$ROOT/etc/init.d/S90doors-shell" | grep -v "$ROOT" | grep -v '^\s*#')
 check "path rewrite left no system path behind" $([ -z "$leaked" ] && echo 1 || echo 0)
 [ -n "$leaked" ] && echo "$leaked" | head -5
 
 # A rule that matches inside an already-rewritten path produces "$ROOT/var$ROOT/run/..."
 doubled=$(grep -n "$ROOT[^ ]*$ROOT" "$ROOT/etc/init.d/S50sysd" "$ROOT/etc/init.d/S55netd" \
                "$ROOT/etc/init.d/S60radiod" \
-               "$ROOT/etc/init.d/S90pocketos-shell")
+               "$ROOT/etc/init.d/S90doors-shell")
 check "path rewrite did not nest one prefix inside another" $([ -z "$doubled" ] && echo 1 || echo 0)
 [ -n "$doubled" ] && echo "$doubled" | head -5
 
 S50="$ROOT/etc/init.d/S50sysd"
 S60="$ROOT/etc/init.d/S60radiod"
-S90="$ROOT/etc/init.d/S90pocketos-shell"
+S90="$ROOT/etc/init.d/S90doors-shell"
 
 alive() { [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null; }
 pidof_file() { [ -s "$1" ] && cat "$1" || echo ""; }
@@ -323,7 +324,7 @@ check "S60 stop is bounded" $([ "$elapsed" -le 20 ] && echo 1 || echo 0)
 make_daemon "$ROOT/usr/sbin/radiod" "$ROOT/radiod.env"
 rm -f "$ROOT/radiod.env"
 
-# ---- S90pocketos-shell --------------------------------------------------
+# ---- S90doors-shell --------------------------------------------------
 
 out=$("$S90" start 2>&1)
 check "S90 is disabled by default" $(contains "$out" "disabled")
@@ -350,11 +351,11 @@ printf 'ENABLE=1\nPOCKETOS_DRM_ROTATION=180\nPOCKETOS_SAFE_CORNERS=24,24,24,24\n
 out=$("$S90" start 2>&1)
 check "S90 starts when it owns the panel" $(contains "$out" "OK")
 check "S90 starts the shell" $(wait_for "$ROOT/shell.env" && echo 1 || echo 0)
-SHPID=$(pidof_file "$ROOT/var/run/pocketos-shell-supervise.pid")
+SHPID=$(pidof_file "$ROOT/var/run/doors-shell-supervise.pid")
 check "S90 start writes the supervise pid file" $([ -n "$SHPID" ] && echo 1 || echo 0)
 check "S90 start leaves the supervisor running" $(alive "$SHPID" && echo 1 || echo 0)
 check "S90 start records the daemon pid in the runtime dir" \
-      $([ -s "$ROOT/run/pocketos/pocketos-shell.pid" ] && echo 1 || echo 0)
+      $([ -s "$ROOT/run/pocketos/doors-shell.pid" ] && echo 1 || echo 0)
 check "S90 exports the persistent log directory" \
       $(grep -q "^POCKETOS_LOG_DIR=$ROOT/var/lib/pocketos/log$" "$ROOT/shell.env" && echo 1 || echo 0)
 check "S90 exports the vendor staging default" \
@@ -369,8 +370,173 @@ check "S90 does not export a bench override that was not set" \
 out=$("$S90" stop 2>&1)
 check "S90 stop reports OK" $(contains "$out" "OK")
 check "S90 stop removes the supervise pid file" \
-      $([ ! -f "$ROOT/var/run/pocketos-shell-supervise.pid" ] && echo 1 || echo 0)
+      $([ ! -f "$ROOT/var/run/doors-shell-supervise.pid" ] && echo 1 || echo 0)
 check "S90 stop ends the supervisor" $(wait_gone "$SHPID" && echo 1 || echo 0)
+
+# ---- Phase 3: one identity, one settings file, one shell -----------------
+#
+# ADR-005 Phase 3 renamed the service. What is checked here is everything that
+# can go wrong while a unit is half-way between the two names: which settings
+# file is read (never both), and whether a second shell can start beside this
+# one.
+
+NEWCONF="$ROOT/etc/default/doors-shell"
+OLDCONF="$ROOT/etc/default/pocketos-shell"
+OLD_INIT="$ROOT/etc/init.d/S90pocketos-shell"
+OLD_DAEMON="$ROOT/usr/bin/pocketos-shell"
+OLD_SUP_PID="$ROOT/var/run/pocketos-shell-supervise.pid"
+OLD_CHILD_PID="$ROOT/run/pocketos/pocketos-shell.pid"
+shell_started() { wait_for "$ROOT/shell.env" && echo 1 || echo 0; }
+clear_run() { rm -f "$ROOT/shell.env"; }
+
+# The identity itself. The supervisor's name decides the runtime files and the
+# supervisor log, which is what sysd reads to build the service row.
+check "the overlay carries the doors-shell service and only it" \
+      $([ -f "$REPO/$S90_SRC" ] && [ ! -e "$REPO/$OVERLAY/etc/init.d/S90pocketos-shell" ] && echo 1 || echo 0)
+check "it supervises under that name" \
+      $(grep -q 'NAME=doors-shell' "$REPO/$S90_SRC" && echo 1 || echo 0)
+check "it runs /usr/bin/doors-shell" \
+      $(grep -q 'DAEMON=/usr/bin/doors-shell' "$REPO/$S90_SRC" && echo 1 || echo 0)
+check "its runtime files carry the new name" \
+      $(grep -q 'PIDFILE=/var/run/doors-shell-supervise.pid' "$REPO/$S90_SRC" &&
+        grep -q 'CHILD_PIDFILE=/run/pocketos/doors-shell.pid' "$REPO/$S90_SRC" && echo 1 || echo 0)
+check "the socket, logs and directories are unchanged" \
+      $(grep -q 'LOGDIR=/var/lib/pocketos/log' "$REPO/$S90_SRC" &&
+        grep -q 'shell.stdio.log' "$REPO/$S90_SRC" && echo 1 || echo 0)
+
+# Settings: whole file or nothing.
+rm -f "$NEWCONF" "$OLDCONF"; clear_run
+printf 'ENABLE=1\nPOCKETOS_SAFE_CORNERS=11,11,11,11\n' > "$OLDCONF"
+out=$("$S90" start 2>&1)
+check "with only the PocketOS-era settings file, that file is used" \
+      $([ "$(shell_started)" = 1 ] && contains "$out" "settings from" && echo 1 || echo 0)
+check "and the output names it" $(contains "$out" "etc/default/pocketos-shell")
+check "and its settings take effect" \
+      $(grep -q '^POCKETOS_SAFE_CORNERS=11,11,11,11$' "$ROOT/shell.env" && echo 1 || echo 0)
+"$S90" stop >/dev/null 2>&1; clear_run
+
+printf 'ENABLE=1\nPOCKETOS_SAFE_CORNERS=22,22,22,22\n' > "$NEWCONF"
+out=$("$S90" start 2>&1)
+wait_for "$ROOT/shell.env" || true
+check "with both files, the doors-shell one is used" \
+      $(grep -q '^POCKETOS_SAFE_CORNERS=22,22,22,22$' "$ROOT/shell.env" 2>/dev/null && echo 1 || echo 0)
+check "and it says the old one was ignored rather than merged" \
+      $(contains "$out" "ignored, not merged")
+check "nothing from the old file leaks in" \
+      $(grep -q '11,11,11,11' "$ROOT/shell.env" 2>/dev/null && echo 0 || echo 1)
+"$S90" stop >/dev/null 2>&1; clear_run
+
+# ENABLE belongs to that file too: a unit switched off in the new file stays
+# off however the old one reads.
+printf 'ENABLE=0\n' > "$NEWCONF"
+out=$("$S90" start 2>&1)
+check "ENABLE=0 in the new file wins over ENABLE=1 in the old one" \
+      $([ "$(contains "$out" "disabled")" = 1 ] && [ ! -e "$ROOT/shell.env" ] && echo 1 || echo 0)
+check "and the refusal names the file it read" $(contains "$out" "etc/default/doors-shell")
+
+rm -f "$OLDCONF"
+printf 'ENABLE=1\n' > "$NEWCONF"
+out=$("$S90" start 2>&1)
+check "with only the new file, it starts" $([ "$(shell_started)" = 1 ] && echo 1 || echo 0)
+"$S90" stop >/dev/null 2>&1; clear_run
+
+# One shell. A PocketOS-era service that is still installed and enabled would
+# start at the next boot beside this one: two DRM owners, two shell.sock
+# owners. The refusal is the guarantee, and it names what to remove.
+printf 'ENABLE=1\n' > "$OLDCONF"
+cp "$ROOT/usr/bin/doors-shell" "$OLD_DAEMON"
+cp "$S90" "$OLD_INIT"
+out=$("$S90" start 2>&1)
+check "it refuses to start beside an installed, enabled PocketOS-era service" \
+      $([ ! -e "$ROOT/shell.env" ] && [ "$(contains "$out" "not started")" = 1 ] && echo 1 || echo 0)
+check "the refusal names the init script to remove" $(contains "$out" "S90pocketos-shell")
+"$S90" start >/dev/null 2>&1
+check "the refusal is a failure, not a quiet success" $([ $? -ne 0 ] && echo 1 || echo 0)
+check "and it removed nothing itself" \
+      $([ -e "$OLD_INIT" ] && [ -e "$OLD_DAEMON" ] && echo 1 || echo 0)
+
+# Installed but disabled is not a second service; it may still be there while a
+# migration finishes, and the start reports it rather than refusing.
+printf 'ENABLE=0\n' > "$OLDCONF"
+out=$("$S90" start 2>&1)
+check "an installed but disabled PocketOS-era service does not block the start" \
+      $([ "$(shell_started)" = 1 ] && echo 1 || echo 0)
+check "but it is reported" $(contains "$out" "still installed but disabled")
+"$S90" stop >/dev/null 2>&1; clear_run
+rm -f "$OLD_INIT"
+
+# A PocketOS-era shell that is actually running is the dangerous case,
+# whatever the files say.
+sleep 600 &
+OLDSH=$!
+echo "$OLDSH" > "$OLD_CHILD_PID"
+out=$("$S90" start 2>&1)
+check "it refuses while a PocketOS-era shell is running" \
+      $([ ! -e "$ROOT/shell.env" ] && [ "$(contains "$out" "is running")" = 1 ] && echo 1 || echo 0)
+kill "$OLDSH" 2>/dev/null; wait "$OLDSH" 2>/dev/null
+rm -f "$OLD_CHILD_PID"
+
+# Stale runtime files from the old identity are not a running shell. A reboot
+# clears /run, but a deploy that removed the service must not leave the new one
+# refusing for ever.
+printf 'stale\n' > "$OLD_CHILD_PID"
+printf '99999999\n' > "$OLD_SUP_PID"
+: > "$ROOT/run/pocketos/pocketos-shell.state"
+: > "$ROOT/run/pocketos/pocketos-shell.crashloop"
+out=$("$S90" start 2>&1)
+check "stale PocketOS-era pid, state and crashloop files do not block the start" \
+      $([ "$(shell_started)" = 1 ] && echo 1 || echo 0)
+check "the new supervisor wrote its state under the new name" \
+      $([ -s "$ROOT/run/pocketos/doors-shell.state" ] && echo 1 || echo 0)
+check "the state file names this service" \
+      $(grep -qx 'name=doors-shell' "$ROOT/run/pocketos/doors-shell.state" && echo 1 || echo 0)
+check "the supervisor log carries the new name" \
+      $([ -f "$ROOT/var/lib/pocketos/log/supervise-doors-shell.log" ] && echo 1 || echo 0)
+"$S90" stop >/dev/null 2>&1
+rm -f "$OLD_CHILD_PID" "$OLD_SUP_PID" "$OLD_DAEMON" \
+      "$ROOT/run/pocketos/pocketos-shell.state" "$ROOT/run/pocketos/pocketos-shell.crashloop"
+clear_run
+
+# ---- the orientation apply, under the new service name ------------------
+#
+# The display milestone applies a rotation by re-executing the shell in place:
+# same pid, so pos-supervise sees no exit and counts no restart. Renaming the
+# service must not turn that into a restart, or worse into a crash-loop count,
+# so the daemon here does exactly what the shell does.
+cat > "$ROOT/usr/bin/doors-shell" <<EOD
+#!/bin/sh
+if [ -z "\${REEXEC_DONE:-}" ]; then
+	echo \$\$ > "$ROOT/reexec.first"
+	REEXEC_DONE=1 exec "\$0" "\$@"
+fi
+echo \$\$ > "$ROOT/reexec.second"
+env > "$ROOT/shell.env"
+trap 'exit 0' TERM INT
+while :; do sleep 0.2; done
+EOD
+chmod 0755 "$ROOT/usr/bin/doors-shell"
+rm -f "$ROOT/reexec.first" "$ROOT/reexec.second"
+printf 'ENABLE=1\n' > "$NEWCONF"
+"$S90" start >/dev/null 2>&1
+wait_for "$ROOT/reexec.second" || true
+sleep 1
+FIRST=$(pidof_file "$ROOT/reexec.first"); SECOND=$(pidof_file "$ROOT/reexec.second")
+CHILD=$(pidof_file "$ROOT/run/pocketos/doors-shell.pid")
+check "an orientation apply keeps the same process" \
+      $([ -n "$FIRST" ] && [ "$FIRST" = "$SECOND" ] && echo 1 || echo 0)
+check "the supervisor's child pid is still that process" \
+      $([ -n "$CHILD" ] && [ "$CHILD" = "$SECOND" ] && echo 1 || echo 0)
+check "the supervisor counted no restart" \
+      $(grep -qx 'restarts=0' "$ROOT/run/pocketos/doors-shell.state" && echo 1 || echo 0)
+check "and no crash loop" \
+      $(grep -qx 'crashloop=0' "$ROOT/run/pocketos/doors-shell.state" &&
+        [ ! -e "$ROOT/run/pocketos/doors-shell.crashloop" ] && echo 1 || echo 0)
+check "the service is still running after it" \
+      $(grep -qx 'running=1' "$ROOT/run/pocketos/doors-shell.state" && echo 1 || echo 0)
+"$S90" stop >/dev/null 2>&1
+make_daemon "$ROOT/usr/bin/doors-shell" "$ROOT/shell.env"
+rm -f "$NEWCONF" "$ROOT/reexec.first" "$ROOT/reexec.second"; clear_run
+printf 'ENABLE=1\n' > "$OLDCONF"
 
 # ---- S55netd ------------------------------------------------------------
 #
@@ -605,23 +771,23 @@ if start_zombie; then
     # The scripts wait STOP_TIMEOUT (3 s) three times before giving up, which
     # is 9 s per service of pure waiting. The staged copies get one second
     # instead, and the rewrite is asserted like every other one here.
-    for svc in S50sysd S55netd S60radiod S90pocketos-shell; do
+    for svc in S50sysd S55netd S60radiod S90doors-shell; do
         sed 's/^STOP_TIMEOUT=3$/STOP_TIMEOUT=1/' "$ROOT/etc/init.d/$svc" \
             > "$ROOT/etc/init.d/$svc.quick"
         chmod 0755 "$ROOT/etc/init.d/$svc.quick"
     done
     quick_ok=$(grep -l '^STOP_TIMEOUT=1$' "$ROOT/etc/init.d/S50sysd.quick" \
                "$ROOT/etc/init.d/S55netd.quick" "$ROOT/etc/init.d/S60radiod.quick" \
-               "$ROOT/etc/init.d/S90pocketos-shell.quick" 2>/dev/null | wc -l)
+               "$ROOT/etc/init.d/S90doors-shell.quick" 2>/dev/null | wc -l)
     check "the shortened stop budget reached all four copies" \
           $([ "$quick_ok" -eq 4 ] && echo 1 || echo 0)
 
-    for svc in S50sysd S55netd S60radiod S90pocketos-shell; do
+    for svc in S50sysd S55netd S60radiod S90doors-shell; do
         case $svc in
         S50sysd)           pidfile="$ROOT/var/run/sysd-supervise.pid" ;;
         S55netd)           pidfile="$ROOT/var/run/netd-supervise.pid" ;;
         S60radiod)         pidfile="$ROOT/var/run/radiod-supervise.pid" ;;
-        S90pocketos-shell) pidfile="$ROOT/var/run/pocketos-shell-supervise.pid" ;;
+        S90doors-shell) pidfile="$ROOT/var/run/doors-shell-supervise.pid" ;;
         esac
         script="$ROOT/etc/init.d/$svc.quick"
 
@@ -669,7 +835,7 @@ fi
 {
     d=$ROOT/deploy
     mkdir -p "$d/etc/init.d" "$d/bin"
-    for svc in S50sysd S55netd S60radiod S90pocketos-shell; do
+    for svc in S50sysd S55netd S60radiod S90doors-shell; do
         printf '#!/bin/sh\necho "Stopping %s: FAILED, still running"\nexit 1\n' "$svc" \
             > "$d/etc/init.d/$svc"
         chmod 0755 "$d/etc/init.d/$svc"

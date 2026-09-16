@@ -44,9 +44,18 @@ define POCKETOS_BUILD_CMDS
 	$(TARGET_MAKE_ENV) $(MAKE) -C $(POCKETOS_SHELL_BUILD_DIR)
 endef
 
+# The shell ships as doors-shell (ADR-005 Phase 3). The build artefact keeps
+# its CMake name - that is internal - and the identity is the installed path,
+# the init script and the supervisor's name. The two removals are what keeps a
+# rebuilt target tree from carrying both services at once: Buildroot never
+# deletes from $(TARGET_DIR) on its own, so a tree that once held the
+# PocketOS-era shell would otherwise still hold it, and the rootfs gate in
+# build_image.sh would refuse the image (correctly, but late).
 define POCKETOS_INSTALL_TARGET_CMDS
 	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 -C $(@D) DESTDIR=$(TARGET_DIR) PREFIX=/usr install
-	$(INSTALL) -D -m 0755 $(POCKETOS_SHELL_BUILD_DIR)/pocketos-shell $(TARGET_DIR)/usr/bin/pocketos-shell
+	$(INSTALL) -D -m 0755 $(POCKETOS_SHELL_BUILD_DIR)/pocketos-shell $(TARGET_DIR)/usr/bin/doors-shell
+	rm -f $(TARGET_DIR)/usr/bin/pocketos-shell
+	rm -f $(TARGET_DIR)/etc/init.d/S90pocketos-shell
 endef
 
 $(eval $(generic-package))

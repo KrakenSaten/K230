@@ -1,24 +1,36 @@
 #!/bin/sh
-# PocketOS shell (DRM + evdev) under pos-supervise. Disabled by default.
+# The Doors shell (DRM + evdev) under pos-supervise. Disabled by default.
+#
+# ADR-005 Phase 3: the service is doors-shell. The binary, this script, the
+# supervisor's identity and the runtime files it writes carry that name; the
+# socket, the logs and the directories under /run, /var/lib and /etc do not
+# change (they are Phase 4, if ever).
 #
 # Panel ownership (survives reboot, see platforms/k230/README.md):
 #   /etc/default/k230_phone_ui   ENABLE=0  vendor launcher stays down
-#   /etc/default/pocketos-shell  ENABLE=1  PocketOS shell takes the panel
+#   /etc/default/doors-shell     ENABLE=1  the Doors shell takes the panel
 # The shell refuses to start while the vendor launcher is enabled or running,
-# so the two never fight for DRM master. The launcher is not removed from the
-# image; setting the flags back the other way restores it.
+# and refuses to start beside a PocketOS-era shell service, so there is never
+# more than one owner of the panel.
 #
 # Logs: see S60radiod. Persistent directory /var/lib/pocketos/log.
 
 SUPERVISE=/usr/bin/pos-supervise
-DAEMON=/usr/bin/pocketos-shell
-PIDFILE=/var/run/pocketos-shell-supervise.pid
+NAME=doors-shell
+DAEMON=/usr/bin/doors-shell
+PIDFILE=/var/run/doors-shell-supervise.pid
 # pos-supervise records the daemon it is watching here. stop needs it: asking
 # the supervisor to go is not the same as the daemon going.
-CHILD_PIDFILE=/run/pocketos/pocketos-shell.pid
+CHILD_PIDFILE=/run/pocketos/doors-shell.pid
 LAUNCHER_PIDFILE=/var/run/k230_phone_ui.pid
 LOGDIR=/var/lib/pocketos/log
 LOGFILE=$LOGDIR/shell.stdio.log
+# The PocketOS-era service this one replaces. Nothing here recreates any of
+# these names: they are read to refuse to start beside them, never written.
+OLD_INIT=/etc/init.d/S90pocketos-shell
+OLD_DAEMON=/usr/bin/pocketos-shell
+OLD_PIDFILE=/var/run/pocketos-shell-supervise.pid
+OLD_CHILD_PIDFILE=/run/pocketos/pocketos-shell.pid
 ENABLE=0
 # Vendor LVGL DRM patch 0004 (lvgl/drm: K230 staging scanout buffer): render
 # into normal memory and copy whole frames to the scanout buffer, which the
@@ -26,12 +38,25 @@ ENABLE=0
 # The vendor launcher runs with it on; so does the shell. Override in
 # /etc/default/pocketos-shell if a measurement says otherwise.
 K230_LVGL_DRM_STAGING=1
-[ -r /etc/default/pocketos-shell ] && . /etc/default/pocketos-shell
+# Settings: /etc/default/doors-shell is the file, and a PocketOS-era
+# /etc/default/pocketos-shell is read only when there is no doors-shell file.
+# Whole file or nothing - the two are never merged, because a half-applied
+# hand-edited configuration is worse than either of them, and start() says
+# which one was used and whether the other was ignored.
+CONF=/etc/default/doors-shell
+CONF_OLD=/etc/default/pocketos-shell
+CONF_USED=""
+if [ -r "$CONF" ]; then
+	CONF_USED=$CONF
+elif [ -r "$CONF_OLD" ]; then
+	CONF_USED=$CONF_OLD
+fi
+[ -n "$CONF_USED" ] && . "$CONF_USED"
 export K230_LVGL_DRM_STAGING
 export POCKETOS_LOG_DIR=$LOGDIR
 export POCKETOS_LOG_STDERR=0
 # Bench overrides for the display and input layer (ui/shell/platform_drm.c,
-# ui/shell/shell_display.c): only exported when /etc/default/pocketos-shell
+# ui/shell/shell_display.c): only exported when the settings file above
 # sets them, so the shell's defaults apply otherwise. The rotation itself is a
 # setting (Settings > Display > Rotation); POCKETOS_DRM_ROTATION overrides it
 # for display and touch together.
@@ -49,10 +74,47 @@ launcher_running() {
 	[ -s "$LAUNCHER_PIDFILE" ] && kill -0 "$(cat "$LAUNCHER_PIDFILE")" 2>/dev/null
 }
 
+# The PocketOS-era service, if a migration was interrupted. Enabled is read
+# from its own file with its own default (0), never from what was sourced
+# above: this asks what that service would do, not what this one does.
+old_enabled() {
+	[ "$( ENABLE=0; [ -r "$CONF_OLD" ] && . "$CONF_OLD"; echo "$ENABLE" )" = "1" ]
+}
+
+old_running() {
+	_p=""
+	[ -s "$OLD_PIDFILE" ] && _p=$(cat "$OLD_PIDFILE")
+	running "$_p" && return 0
+	_p=""
+	[ -s "$OLD_CHILD_PIDFILE" ] && _p=$(cat "$OLD_CHILD_PIDFILE")
+	running "$_p"
+}
+
 start() {
-	printf "Starting pocketos-shell: "
-	[ "$ENABLE" = "1" ] || { echo "disabled (/etc/default/pocketos-shell)"; return 0; }
+	printf "Starting %s: " "$NAME"
+	[ "$ENABLE" = "1" ] || { echo "disabled (${CONF_USED:-$CONF})"; return 0; }
 	[ -x "$DAEMON" ] || { echo "missing"; return 0; }
+	# One shell, always. A PocketOS-era service that is still running, or is
+	# still installed and enabled and would therefore start at the next boot,
+	# is a second owner of the panel: refuse and say exactly what to remove.
+	# Nothing is removed from here - a service does not delete another one's
+	# files; deploy.sh and the rollback helper do that deliberately.
+	if old_running; then
+		echo "not started: the PocketOS-era shell is running; stop it ($OLD_INIT stop) and remove $OLD_INIT and $OLD_DAEMON"
+		return 1
+	fi
+	if [ -x "$OLD_INIT" ] && old_enabled; then
+		echo "not started: $OLD_INIT is installed and enabled; remove it and $OLD_DAEMON (deploy.sh does this)"
+		return 1
+	fi
+	if [ -x "$OLD_INIT" ] || [ -x "$OLD_DAEMON" ]; then
+		printf "(PocketOS-era shell still installed but disabled) "
+	fi
+	if [ "$CONF_USED" = "$CONF_OLD" ]; then
+		printf "(settings from %s) " "$CONF_OLD"
+	elif [ -n "$CONF_USED" ] && [ -r "$CONF_OLD" ]; then
+		printf "(settings from %s; %s ignored, not merged) " "$CONF" "$CONF_OLD"
+	fi
 	if launcher_enabled; then
 		echo "not started: vendor launcher owns the panel (set ENABLE=0 in /etc/default/k230_phone_ui)"
 		return 0
@@ -73,7 +135,7 @@ start() {
 	fi
 	for _ in 1 2 3 4 5 6 7 8 9 10; do [ -e /dev/dri/card0 ] && break; sleep 1; done
 	[ -f "$LOGFILE" ] && mv -f "$LOGFILE" "$LOGFILE.1"
-	HOME=/root nohup "$SUPERVISE" pocketos-shell "$DAEMON" >"$LOGFILE" 2>&1 &
+	HOME=/root nohup "$SUPERVISE" "$NAME" "$DAEMON" >"$LOGFILE" 2>&1 &
 	echo $! > "$PIDFILE"
 	echo "OK"
 }
@@ -94,7 +156,7 @@ wait_gone() { # <pid>: true when it is gone within STOP_TIMEOUT
 }
 
 stop() {
-	printf "Stopping pocketos-shell: "
+	printf "Stopping %s: " "$NAME"
 	sup=""; child=""
 	[ -s "$PIDFILE" ] && sup=$(cat "$PIDFILE")
 	[ -s "$CHILD_PIDFILE" ] && child=$(cat "$CHILD_PIDFILE")
