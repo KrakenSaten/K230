@@ -125,28 +125,34 @@ fi
 # that has ever built a PocketOS-era shell keeps it until something says so.
 TGT="${SDK_DIR}/output/${CONF}/target"
 SHELL_TROUBLE=0
-for stale in usr/bin/pocketos-shell etc/init.d/S90pocketos-shell; do
-    if [ -e "${TGT}/${stale}" ]; then
-        echo "ERROR: the PocketOS-era shell is still in the target tree: ${stale}" >&2
-        echo "       Re-run apply_to_sdk.sh (it removes it), or delete ${TGT}/${stale}." >&2
-        SHELL_TROUBLE=1
-    fi
-done
-for want in usr/bin/doors-shell etc/init.d/S90doors-shell; do
-    if [ ! -e "${TGT}/${want}" ]; then
-        echo "ERROR: the Doors shell service is missing from the target tree: ${want}" >&2
-        SHELL_TROUBLE=1
-    fi
-done
-# Panel ownership is a per-unit decision, so neither settings file is packaged.
-for never in etc/default/doors-shell etc/default/pocketos-shell; do
-    if [ -e "${TGT}/${never}" ]; then
-        echo "ERROR: ${never} must not be shipped in the image (it is a unit's own setting)." >&2
-        SHELL_TROUBLE=1
-    fi
-done
-[ "${SHELL_TROUBLE}" -eq 0 ] || exit 1
-echo "Shell service: one identity in the target tree (doors-shell), no PocketOS-era leftovers."
+if [ ! -d "${TGT}" ]; then
+    # No tree to look at (a stub SDK in a test); verify_image.sh still asks the
+    # finished image, which is the check that actually ships.
+    echo "Shell service: no target tree at output/${CONF}/target; checked on the image instead."
+else
+    for stale in usr/bin/pocketos-shell etc/init.d/S90pocketos-shell; do
+        if [ -e "${TGT}/${stale}" ]; then
+            echo "ERROR: the PocketOS-era shell is still in the target tree: ${stale}" >&2
+            echo "       Re-run apply_to_sdk.sh (it removes it), or delete ${TGT}/${stale}." >&2
+            SHELL_TROUBLE=1
+        fi
+    done
+    for want in usr/bin/doors-shell etc/init.d/S90doors-shell; do
+        if [ ! -e "${TGT}/${want}" ]; then
+            echo "ERROR: the Doors shell service is missing from the target tree: ${want}" >&2
+            SHELL_TROUBLE=1
+        fi
+    done
+    # Panel ownership is a per-unit decision, so neither settings file is packaged.
+    for never in etc/default/doors-shell etc/default/pocketos-shell; do
+        if [ -e "${TGT}/${never}" ]; then
+            echo "ERROR: ${never} must not be shipped in the image (it is a unit's own setting)." >&2
+            SHELL_TROUBLE=1
+        fi
+    done
+    [ "${SHELL_TROUBLE}" -eq 0 ] || exit 1
+    echo "Shell service: one identity in the target tree (doors-shell), no PocketOS-era leftovers."
+fi
 
 if [ "${TARGET}" = "all" ]; then
     IMAGES="${SDK_DIR}/output/${CONF}/images"
