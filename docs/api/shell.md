@@ -35,14 +35,17 @@ developer tooling, not for applications.
 
 - `shell.rotation` params `{mode?}`: reads, or with `mode` stores, the
   rotation mode (`automatic`, `portrait`, `landscape`; settings key
-  `display_rotation`). The orientation is decided when the shell starts and
-  does not change while it runs, so a stored mode takes effect at the next
-  start. Result: `{rotation_mode, rotation_mode_valid, rotation, orientation,
-  next_rotation, next_orientation, restart_required, keyboard,
+  `display_rotation`). The display is rotated when it is opened, so a change
+  is applied by the shell opening it again: about a second after the call (a
+  settle window) it re-executes itself in place, keeping its pid, and comes
+  back on the launcher. Result: `{rotation_mode, rotation_mode_valid,
+  rotation, orientation, next_rotation, next_orientation, applying, keyboard,
   bench_override}`: `rotation`/`orientation` are this run (degrees,
   `portrait`/`landscape`), `next_*` what the stored mode gives with the
-  keyboard as it is now, `restart_required` whether those differ, `keyboard`
-  `unknown`/`absent`/`present`, and `bench_override` whether
+  keyboard as it is now, `applying` whether those differ and the shell is
+  therefore about to restart itself, `keyboard` `unknown`/`absent`/`present`
+  (`ui/shell/shell_kbd.c` probes the keyboard base at start-up and watches for
+  one being attached or removed), and `bench_override` whether
   `POCKETOS_DRM_ROTATION` decided instead. Any other `mode` is error 2;
   error 4 when it could not be stored. `pos call shell shell.rotation
   mode=landscape`.

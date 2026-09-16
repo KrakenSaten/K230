@@ -1090,12 +1090,18 @@ wordmark and the last clock digit. Nothing in §1–§20 is renumbered.
   it and lay out in the body they are given.
 - Portrait and Landscape are forced whatever the keyboard. Automatic is
   Landscape only when a keyboard is known to be present; absent or unknown is
-  Portrait.
+  Portrait. A keyboard attached or removed while Doors runs changes the
+  orientation in Automatic, and changes nothing in a forced mode.
 - Landscape is one direction: the device turned a quarter turn clockwise from
   portrait (the portrait left edge at the top), the rotation the vendor
   launcher uses on this board with its keyboard.
-- A change of mode takes effect when the Doors shell restarts, and Settings
-  says so in words (§2). No animation: reduced motion (§12) changes nothing.
+- A change is applied by the system, not asked of the owner: the display is
+  rotated when it is opened, so Doors opens it again - it restarts itself in
+  place, in the same process, and comes back on the launcher. The screen is
+  dark for that moment, Settings says so before it happens (§2), and the
+  device itself is never restarted for it. A change settles first (about a
+  second), so a mode tapped twice, or a base board finding its contacts, costs
+  nothing. No animation: reduced motion (§12) changes nothing.
 - Display and touch always turn together; the safe area turns with them
   (the portrait corners are the same physical corners in landscape).
 

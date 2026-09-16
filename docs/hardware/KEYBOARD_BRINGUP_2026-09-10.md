@@ -631,3 +631,26 @@ PocketOS driver must never run at the same time.
 - Whether re-muxing io46/47 from a running PocketOS shell disturbs anything
   else. Nothing in the device tree claims those pins, so probably not — but
   "probably" is not a measurement.
+
+### 5.6 Presence as a published signal, 2026-09-16
+
+The driver now says whether the base is there, for automatic rotation
+(`ui/shell/kbd_presence.h`, provider in `ui/shell/shell_kbd.c`). Nothing new
+was measured for it: the signal is the probe this document already verified in
+both directions - §0 (the controller answering once the film was gone) and
+§5.3 C3 (unmated: "the controller did not answer; touch only"; remated:
+"TCA8418 ready").
+
+| Fact | Class |
+| --- | --- |
+| The TCA8418 answering its probe means the base is attached | **VERIFIED** (§0, §5.3 C3) |
+| It not answering means the base is not attached | **VERIFIED** (§5.3 C3) |
+| A bus that cannot be claimed (mux, GPIO, /dev/mem) says nothing either way; the shell publishes "unknown" and stays portrait | by construction |
+| The probe runs before the display is opened, so a boot with the base attached opens landscape directly | **VERIFIED** on unit A 2026-09-16 (build `1bd7cbf`) |
+| The controller held in reset from the bench (`gpioset -c gpiochip1 11=0`) makes the shell publish unknown within seconds and turn the display portrait; releasing it restores present and landscape | **VERIFIED** on unit A 2026-09-16 |
+| Mating or unmating the base **while the board is powered** | **UNRESOLVED** - never done; every attach and detach on record was with the SoC halted and all supplies removed (§5.3 C3). No vendor source supports hot-plug |
+
+Cost of watching: one probe a second while nothing is attached (a reset pulse
+and one register read), and no bus traffic at all while a keyboard is polled -
+the watch reads the driver's own state then. Three consecutive agreeing
+readings are needed before the published state changes.

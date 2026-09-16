@@ -52,11 +52,23 @@ chip-state dependent and dumps both transports' windows when it does.
   (rotation 270, feature/doors-display-geometry); portrait stays rotation 0.
   Landscape on the panel, and touch following it, are ASSUMED until the gate
   in docs/hardware/DOORS_DISPLAY_GEOMETRY_GATE.md.
-- Display rotation applies when the shell starts, not while it runs: the
-  vendor DRM path sizes its framebuffers for the rotation when the display is
-  opened, and the vendor launcher restarts its own process to switch between
-  portrait and landscape. Settings says so; a live switch needs a display
-  re-initialisation (a shell restart), which is proposed, not implemented.
+- The display cannot be turned while it is open: the vendor DRM path sizes its
+  framebuffers for the rotation when the display is opened, and the vendor
+  launcher restarts its own process to switch between portrait and landscape.
+  So Doors opens the display again - it re-executes itself in place, keeping
+  its pid, and comes back on the launcher; Settings says so before it happens.
+  The panel is dark for the length of a shell start (about a second on unit A),
+  and an app that was open is closed the ordinary way.
+- Keyboard presence is the TCA8418 answering its probe on the bit-banged bus
+  (`ui/shell/shell_kbd.c`), which is what the vendor launcher calls the base
+  being detected. Nothing on this board reports the base mechanically, so a
+  keyboard whose controller cannot be reached reads as absent, and a bus that
+  cannot be claimed at all reads as unknown. The base being mated or unmated
+  **while the board is powered** is neither verified nor supported by any
+  vendor source: every attach and detach on record was done with the SoC
+  halted (KEYBOARD_BRINGUP §5.3 C3). Detection itself does not care, and the
+  three-reading debounce covers contacts that bounce, but whether hot-plugging
+  is safe for the hardware is an open question.
 - The rounded corners' extent is PROVISIONAL (30 px squares, the vendor
   launcher's status-bar side inset). No datasheet gives it; unit A decides
   (POCKETOS_SAFE_CORNERS tries other values). Only the status bar uses the

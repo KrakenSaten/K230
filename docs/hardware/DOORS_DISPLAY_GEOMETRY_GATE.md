@@ -3,8 +3,14 @@
 Branch `feature/doors-display-geometry`, from master `13029a3`.
 
 **Result: NOT RUN.** Everything that can be checked without the panel passed
-(below). One visual and touch pass on unit A remains. DS Amendment E (§21)
-stays PROPOSED until the product owner accepts it after that pass.
+(below), and everything that can be checked over SSH passed on unit A. One
+pass on the panel remains. DS Amendment E (§21) stays PROPOSED until the
+product owner accepts it after that pass.
+
+The safe area and manual rotation were shown to the owner on the panel on
+2026-09-16 and looked right; that is not a signed-off result, and the milestone
+was extended rather than closed: **Automatic now follows the physical
+keyboard**, which the one gate below covers together with the safe area.
 
 Not merged. No change to VERSION, typography, icons, icon sizes, theme
 palette, tile styling or the focus model; Rebrand Phase 3 not started.
@@ -37,9 +43,7 @@ another value without a rebuild.
 
 **Rotation.** Settings > Display > Rotation: Automatic, Portrait, Landscape,
 stored as `display_rotation`. Portrait and Landscape are forced; Automatic is
-Landscape only with a keyboard known to be present. Nothing publishes
-keyboard presence yet (`ui/shell/kbd_presence.h`: unknown, absent, present),
-so on unit A Automatic is Portrait. Landscape is DRM rotation 270, the
+Landscape only with a keyboard known to be present. Landscape is DRM rotation 270, the
 rotation the vendor launcher runs at on this board with its keyboard
 (KEYBOARD_BRINGUP_2026-09-10.md §6): **the device turned a quarter turn
 clockwise, the portrait left edge at the top**.
@@ -50,10 +54,37 @@ per rotation equals the vendor launcher's for the same DRM index. The old
 `POCKETOS_DRM_ROTATION` path that turned the picture without touch is gone:
 that variable now overrides the policy for display and touch together.
 
-## Runtime rotation: not supported live
+## Automatic: what decides that a keyboard is there
 
-The orientation is applied when the shell starts, and Settings says a change
-"takes effect when the Doors shell restarts". Evidence:
+The keyboard base answers on the bit-banged bus or it does not, and that is
+the signal (`ui/shell/shell_kbd.c`). The TCA8418 acknowledging at 0x34 is what
+the vendor launcher calls the base being detected, and it is verified in both
+directions on this unit: with the base unmated the shell logs "the controller
+did not answer; touch only", and remating gives "TCA8418 ready"
+(KEYBOARD_BRINGUP §0, §5.3 C3). Nothing on this board reports the base
+mechanically, and nothing here pretends otherwise.
+
+- The probe runs **before the display is opened**, so a boot with the base
+  attached opens landscape directly instead of correcting itself afterwards.
+- A watch re-probes once a second while nothing is attached, and reads the
+  driver's own state while one is, so attaching or removing a keyboard is
+  noticed within seconds without any bus traffic in the common case.
+- Three consecutive agreeing readings - two whole seconds - are needed before
+  the state changes (`KBD_PRESENCE_STABLE`), so contacts that bounce cost
+  nothing. A transport that cannot be claimed at all is **unknown**, not
+  absent, and unknown resolves to portrait.
+- Forced Portrait and forced Landscape ignore all of it.
+
+**Hot-plugging the base is not a verified operation.** Every attach and detach
+on record was done with the SoC halted and every supply removed (§5.3 C3), and
+no vendor source says the connector may be mated live. Detection does not care
+either way - it sees the controller answer or not - but whether mating and
+unmating a powered board is safe *for the hardware* is open, and this gate is
+where it is decided.
+
+## Applying an orientation: the shell opens the display again
+
+The display cannot be turned while it is open. Evidence:
 
 - The vendor LVGL patch 0002 swaps the DRM framebuffer's width and height when
   the device is opened (`lv_linux_drm_set_file`); `lv_linux_drm_set_rotation`
@@ -66,22 +97,30 @@ The orientation is applied when the shell starts, and Settings says a change
 - The vendor launcher rotates 0 <-> 180 live but restarts its own process
   (`execl`) to go between portrait and landscape.
 
-**Proposed, not implemented (needs approval):** an "Apply now" that stores
-the mode, closes the app (apps already persist their state on each change),
-releases the DRM device and framebuffers with an orderly teardown, and
-re-executes the shell in place (`execv` of its own binary, same pid, so
-`pos-supervise` sees no exit and counts no restart). Cost: the panel shows
-nothing for the time of a shell start, and the open app is closed. The
-alternative, re-creating the LVGL display inside the running process, needs
-the whole shell UI rebuilt and gains nothing visible. The whole OS is never
-restarted for this.
+So the shell opens the display again, itself. It leaves its main loop the
+ordinary way - the open app is closed and persists what it holds, the
+keyboard's pin mux goes back, the IPC socket is unlinked - closes every
+descriptor it opened, above all the DRM device the next image must open as
+master, and re-executes its own binary with its own arguments. The pid does
+not change, so `pos-supervise` sees no exit and counts no restart, and the
+device is never rebooted. If the exec fails the shell exits instead and the
+supervisor starts it again: one counted restart, same orientation, still no
+reboot. A change settles for 800 ms first, on top of the presence debounce, so
+a mode tapped twice or a base finding its contacts costs nothing.
 
-## Validation done without hardware (2026-09-15)
+Cost, and Settings says it before it happens: the panel is dark for the length
+of a shell start, and Doors comes back on the launcher. Measured on unit A:
+four in-place restarts during the remote pass, pid unchanged (16105
+throughout), **0 supervisor restarts**. The alternative, re-creating the LVGL
+display inside the running process, needs the whole shell UI rebuilt and gains
+nothing visible.
 
-Source `e3f900d` (the last code commit; later commits change tests and
-documentation only, and the shell tests were run again at the tip), from
-fresh WSL clones; master `13029a3` built and run the same way as the
-baseline. VERSION 0.0.9 on both.
+## Validation done without hardware (2026-09-15, extended 2026-09-16)
+
+Source `e3f900d` for the safe area and the rotation policy, `1bd7cbf` for the
+keyboard provider and applying an orientation in place; from fresh WSL clones,
+with master `13029a3` built and run the same way as the baseline. VERSION
+0.0.9 on both.
 
 | Check | Result |
 | --- | --- |
@@ -95,7 +134,9 @@ baseline. VERSION 0.0.9 on both.
 | Model | every rotation maps the native panel onto the logical one pixel for pixel and back; size swap at 90/270; four different edge strips and four different corners each land on the right logical edge and corner; top, bottom, left and right bars at 0, 90 and 270; a bar's end takes the larger of strip and corner; `rect_is_safe` at every corner, including the status-bar label and clock positions in both orientations; a rectangular panel gives no insets |
 | Touch | the per-rotation transform equals the vendor launcher's settings for the same DRM index; a touch on native corners, centre and off-axis points lands on the logical pixel the display draws there, at all four rotations with the controller mounted straight or swapped in the model, and through LVGL's own `lv_evdev` fed a GT9895-style multitouch stream at all four rotations (swapped at 0 and 270) (`display_touch_test`); the same checks catch a landscape display with portrait touch, 270 with 90's touch, 90 with 270's and 0 with 180's |
 | Policy | Automatic with the keyboard unknown, absent and present (Portrait, Portrait, Landscape); forced Portrait and Landscape with each keyboard state; manual overrides automatic; persisted across restart; invalid stored value → Automatic with a WARN, the stored text left alone; `POCKETOS_DRM_ROTATION` overrides display and touch together and is logged; an invalid one ignored |
-| IPC and Settings | `shell.rotation` stores Landscape and reports `restart_required`, the running shell does not rotate, the restarted one is landscape with nothing pending; an invalid mode is error 2; Settings shows the selected mode and the note (restart pending, why Automatic chose what it did, stored value not recognised) |
+| IPC and Settings | `shell.rotation` stores Landscape, reports `applying`, and the shell opens the display again in the same process, coming back landscape with nothing pending; an invalid mode is error 2; Settings shows the selected mode and the note (what is being applied and what it costs, why Automatic chose what it did, stored value not recognised) |
+| Automatic and the keyboard (`auto_rotation_shell_test.sh`, 29 checks) | boot with a keyboard (landscape at once, no restart), without one, and with a provider that cannot tell; a keyboard attached and removed while Doors runs, each applied in the same process (checked by pid); forced Portrait with one attached and forced Landscape with one removed, neither moving; a base bouncing on its contacts changing nothing; detection failing falling back to portrait and recovering; no second restart while the state holds; an app open across the change, closed the ordinary way; the mode changed over IPC while a keyboard is attached |
+| Presence debounce (`kbd_presence_test.c`, 28 checks) | boot present, absent and unknown; attach and removal; bouncing contacts; a run broken by one good reading; a provider that fails publishing unknown rather than absent, and recovering; nothing announced twice |
 | Theme change | a live theme and mode switch keeps the orientation and redraws the landscape launcher in the new theme |
 | Every app | in landscape all eleven open through `app start` and come home, no ERROR; in portrait the per-app shell tests pass |
 | Reduced motion | the landscape launcher is pixel-identical below the status bar |
@@ -125,13 +166,13 @@ caught by the tests named):
 | status bar does not adopt the safe area | `display_geometry_shell_test` (126) |
 | landscape launcher keeps two columns | `display_geometry_shell_test` (368) |
 | landscape launcher one column too many | `display_geometry_shell_test` (368) |
-| next rotation stale (never `restart_required`) | `display_geometry_shell_test` (1) |
+| next rotation stale (so nothing is ever applied) | `display_geometry_shell_test` (1) |
 | DRM touch always at rotation 0 | `display_geometry_shell_test` (1, source check: the DRM backend cannot run on the host) |
 | DRM touch no longer taken from the display's geometry | `display_geometry_shell_test` (1, source check) |
 | an app rotates the display itself | `display_geometry_shell_test` (1) |
 | every Rotation button in Settings stores Automatic | `settings_app_test` (3) |
 | the forced note names the wrong orientation | `settings_view_test` (2) |
-| Settings never says a restart is needed | `settings_view_test` (2), `settings_app_test` (1) |
+| Settings never says a change is being applied | `settings_view_test` (2), `settings_app_test` (1) |
 
 23 of 23 caught.
 
@@ -166,58 +207,87 @@ documented way, and whether GT9895 taps land under the finger once it has.
 
 ## The gate
 
-**Operator time: about three minutes, a few taps and one answer.** Everything
-else is done over SSH by the session, and every scripted check prints `ok` or
-`FAIL`.
+**Operator time: about four minutes, five physical steps and one answer.**
+Everything else is done over SSH by the session, and every scripted check
+prints `ok` or `FAIL`.
 
-Before (session, no operator):
+Before (session, no operator), all of it done for the run below:
 
 1. Build from the branch tip: clean WSL clone, `apply_to_sdk.sh`,
    `build_image.sh` (runs `verify_image.sh`); record the shell binary's
    SHA-256 and that the DRM build found `lv_linux_drm_set_rotation`
    (`POCKETOS_DRM_ROTATION_API`).
 2. Over SSH, before deploying: `pocketos-shell` VmRSS and VmHWM on the running
-   shell, launcher showing, after 60 s idle. Record, and move aside for the
-   test, any `POCKETOS_DRM_ROTATION`, `POCKETOS_TOUCH_CALIB`,
-   `POCKETOS_TOUCH_SWAP` or `POCKETOS_SAFE_CORNERS` in
-   `/etc/default/pocketos-shell` (each would override what is being tested),
-   and any `display_rotation` in `settings.conf`.
+   shell. Record, and move aside for the test, any `POCKETOS_DRM_ROTATION`,
+   `POCKETOS_TOUCH_CALIB`, `POCKETOS_TOUCH_SWAP` or `POCKETOS_SAFE_CORNERS` in
+   `/etc/default/pocketos-shell` (each would override what is being tested).
 3. `platforms/k230/scripts/deploy.sh 192.168.10.157`; check `doors version`
    shows the branch tip's build, `/usr/bin/pocketos-shell` matches the build's
-   SHA-256, the four services run, and `shell.log` says
-   `rotation mode automatic (default), keyboard unknown: rotation 0, 568x1232`,
-   `status bar insets 30/30`, and a touch line at rotation 0 with the
-   controller's own ranges. `app list` shows eleven apps; every app opens and
-   comes home through `app start` / `app home`; no ERROR, no crash report.
-4. Landscape, still without the operator: `pos call shell shell.rotation
-   mode=landscape`, `S90pocketos-shell restart`; check `shell.log` says
-   `rotation 270, 1232x568`, `DRM plane rotation 270 degrees`, the touch line
-   at rotation 270 with swap on, `launcher: 6 column(s), 2 row(s)`, no ERROR;
-   `shell info` reports 1232x568; the eleven apps open and come home again.
-   VmRSS and VmHWM in landscape. Then `mode=automatic` and restart: portrait
-   again, same checks as 3, VmRSS and VmHWM.
+   SHA-256, the four services run, the log says what the probe found and which
+   way the display and touch were opened, `app list` shows eleven apps, every
+   app opens and comes home, no ERROR, no crash report.
+4. Both orientations and both ways of choosing them, without the operator:
+   forced Portrait and forced Landscape over `shell.rotation`, and Automatic
+   with the keyboard's answer changed underneath it - the bench holds the
+   TCA8418's reset line low (`gpioset -c gpiochip1 11=0`), which is the same
+   silence on the bus as an absent base, then releases it. Each change is
+   checked to be applied in the same process (pid and start time), with the
+   supervisor counting no restart, and VmRSS/VmHWM taken in each orientation.
 5. Put the SDK target tree back as found (docs/hardware/DOORS_PHASE2_GATE.md,
-   "After the test").
-6. Start a bench watcher on the unit for the operator's pass: once a second it
-   reads `shell info` and, when `restart_required` is true, runs
-   `S90pocketos-shell restart`. It stands in for the "Apply now" above, which
-   does not exist yet; it is stopped and removed afterwards.
+   "After the test"), and leave the unit on Automatic, Ice/Normal, on the
+   launcher.
 
-Then one pass on the panel, device upright (portrait), Ice/Normal:
+Then one pass on the panel. The device starts with the keyboard base attached,
+so it is in landscape:
 
 | # | Operator does | Pass |
 | --- | --- | --- |
-| 1 | Looks at the launcher | the whole `D` of `DOORS` and the clock's last digit are visible and clear of the rounded top corners, with a little margin; tiles where they were |
-| 2 | Opens Settings, scrolls to Rotation in the Display card, taps **LANDSCAPE**, then turns the device a quarter turn clockwise (the old left edge now on top) | LANDSCAPE is highlighted and the note says Landscape takes effect when the shell restarts; within about 3 s the panel goes dark briefly and comes back as an upright landscape launcher, six tiles in each of two rows |
-| 3 | Looks at the landscape launcher, then taps the top-left tile and the bottom-right tile (Back after each) | `DOORS` and the clock clear of the two corners at the ends of the long top edge; no tile or label cut off; each tap opens the tile under the finger |
-| 4 | Opens Settings, scrolls to Rotation, taps **AUTOMATIC**, turns the device back upright | within about 3 s the launcher is back in portrait, as in 1 |
+| 1 | Looks at the launcher, in landscape and then in portrait later | the whole `D` of `DOORS` and the clock's last digit visible and clear of the rounded corners, with a little margin; six tiles in each of two rows, nothing cut off; a tap near the top-left tile and one near the bottom-right open the tile under the finger |
+| 2 | **A.** Disconnects the keyboard base, Rotation = Automatic | within a few seconds the panel goes dark briefly and comes back in **portrait**, upright, the launcher in two columns, `DOORS` and the clock clear of the corners |
+| 3 | **B.** Connects the keyboard base again | within a few seconds it turns itself to **landscape** |
+| 4 | **C.** Disconnects it again | it returns to **portrait** on its own |
+| 5 | **D.** Settings > Rotation > **PORTRAIT**, then connects the keyboard | it stays **portrait**: a forced mode ignores the keyboard |
+| 6 | **E.** Settings > Rotation > **LANDSCAPE**, then disconnects the keyboard | it stays **landscape**, then Settings > Rotation > **AUTOMATIC** to leave the unit as it was |
 
-One answer: PASS if all four hold, otherwise FAIL with the step number. Taps
-and restarts are checked afterwards in the unit's log.
+One answer: PASS if all six hold, otherwise FAIL with the step letter. Every
+tap, restart and presence change is checked afterwards in the unit's log.
 
-If the corners clip on the panel in 1 or 3, the fix is a number, not code: try
-another `POCKETOS_SAFE_CORNERS` in `/etc/default/pocketos-shell` and restart,
-then commit the value that clears. A landscape picture upside down in 2 means
-the plane turns the other way from the vendor's index (270 would become 90,
+**Before step 2, read this.** Mating and unmating the base while the board is
+powered is not a verified operation: every attach and detach on record was done
+with the SoC halted and every supply removed (KEYBOARD_BRINGUP §5.3 C3), and no
+vendor source says the connector may be mated live. The software side of B and
+C is already shown without touching the connector (step 4 above, the reset line
+held low). If the risk is not wanted, do A-E with the device powered off for
+each connect and disconnect: that still checks the policy and the orientation
+at start, and leaves "noticed while running" resting on the bench evidence.
+
+If the corners clip in 1, the fix is a number, not code: try another
+`POCKETOS_SAFE_CORNERS` in `/etc/default/pocketos-shell` and restart, then
+commit the value that clears. A landscape picture upside down means the plane
+turns the other way from the vendor's index (270 would become 90,
 `ORIENTATION_LANDSCAPE_ROTATION`); taps that land mirrored or on the wrong axis
-mean the transform, which the log line from step 4 then shows.
+mean the transform, which the touch line in the log then shows.
+
+## Result of the remote pass on unit A (2026-09-16)
+
+Build `1bd7cbf`, deployed with `deploy.sh` (no flash); shell SHA-256
+`dbc76a6a…`, image `6942b2db…`, IMAGE GATE PASS. **23 scripted checks, 0
+FAIL**, plus the 26 + 6 of the earlier round on `e4abe90`.
+
+| Check | Result |
+| --- | --- |
+| The probe, before the display was opened | `keyboard: TCA8418 ready, polling every 15 ms (INT-gated)`; the base on unit A answers |
+| Automatic with a keyboard present | opened **landscape first time**, no restart: `rotation mode automatic (stored), keyboard present: rotation 270, 1232x568`, `DRM plane rotation 270 degrees`, touch `rotation 270: swap 1, calibration 2400,0,0,1060 onto 1232x568`, `launcher: 6 column(s), 2 row(s)` |
+| Forced Portrait with the keyboard attached | applied in place and stayed portrait; the keyboard stayed present and polled; touch went back to `rotation 0 … onto 568x1232` |
+| Presence lost while running (reset line held low) | the shell reported `keyboard: the controller stopped answering; retrying`, published **unknown** rather than absent, and turned the display **portrait** |
+| Presence restored (line released) | back to present, and the display turned **landscape** again |
+| Every change applied in place | pid **16105** throughout, same process start time, **4 in-place restarts, 0 supervisor restarts** |
+| No oscillation | 20 s idle with the keyboard attached: no further restart, still landscape |
+| The eleven apps, landscape, keyboard attached | all open and come home |
+| Faults | no new crash report, no ERROR in any log; the only WARN is the expected `the controller stopped answering; retrying` from the bench holding reset |
+| Shell memory (VmRSS = VmHWM) | landscape with keyboard 12,544 kB; forced portrait 12,416 kB; landscape again 12,288 kB; after the eleven apps 13,056 kB (the `54e01f7` build measured 12,288 kB idle / 12,928 kB after apps) |
+
+What the remote pass cannot show, and the panel must: the rounded corners, the
+direction the picture actually turns, taps landing under the finger, and a base
+board that is physically there or not - the reset line proves the shell reacts
+to the bus going silent, not that mating the connector is what does it.
