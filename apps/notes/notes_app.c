@@ -20,6 +20,13 @@
  * only the app being torn down has nowhere to keep it, and that says so in
  * the log rather than closing quietly over it.
  *
+ * LAYOUT. Each screen in two shapes, chosen from the body the app is given
+ * and chosen again whenever that body changes size - the keyboard coming up
+ * or going down is the everyday case (see "the layout" below): its content
+ * above its actions when the body is tall, beside them when it is wide. The
+ * orientation is the system's (DS section 21.2); nothing here asks what it
+ * is, only how much room there is.
+ *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #include "app.h"
@@ -28,9 +35,22 @@
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+
+/* The wide shape's action rail: two actions of 140 px and the 8 px pair gap,
+ * more than twice the 64 px touch minimum across, leaving the content about
+ * three quarters of the landscape body (884 of 1192 px). */
+#define NOTES_RAIL_W (2 * 140 + 8)
+
+/* The portrait body's width on the reference panel (568 less the 20 px side
+ * padding of DS section 7). The wide shape is only chosen when the content
+ * beside the rail keeps at least this much, so a note is never narrower
+ * there than in portrait; and the delete confirmation keeps this width in
+ * the wide shape, where the whole body would stretch it into a banner. */
+#define NOTES_COLUMN_W 528
 
 enum notes_screen {
     NOTES_SCREEN_LIST = 0,
@@ -39,9 +59,17 @@ enum notes_screen {
 };
 
 struct notes_app {
-    lv_obj_t *body;
+    lv_obj_t *frame;      /* the app's own box in the body: the three screens */
     lv_obj_t *screen[3];
     lv_obj_t *field;
+    lv_obj_t *list_card;  /* the rows or the empty state, rebuilt with the list */
+    lv_obj_t *new_note;
+    lv_obj_t *actions;    /* the editor's Done and Delete */
+    lv_obj_t *dialog;     /* the delete confirmation's panel */
+    lv_area_t laid_out;   /* the frame's area when the shape was last chosen */
+    int32_t field_min_h;  /* the field's own floor, as pocketui set it */
+    bool wide;
+    bool list_rows;       /* list_card holds rows, not the empty state */
     uint8_t screen_id;
     uint32_t open_id;    /* the note being edited, 0 when none */
     int open_existing;   /* 0 for a note that has never been stored */
@@ -53,6 +81,7 @@ struct notes_app {
 
 static void show_screen(struct notes_app *a, enum notes_screen which);
 static void build_list(struct notes_app *a);
+static void shape_list(struct notes_app *a);
 
 /* ---- saving ------------------------------------------------------------ */
 
@@ -272,7 +301,11 @@ static void build_list(struct notes_app *a)
     int n;
     int i;
 
-    lv_obj_clean(a->screen[NOTES_SCREEN_LIST]);
+    /* Only the rows are rebuilt; New note stays where it was built. */
+    if (a->list_card) {
+        lv_obj_delete(a->list_card);
+        a->list_card = NULL;
+    }
     n = notes_store_list(entries, NOTES_MAX_NOTES);
     if (n < 0) {
         n = 0;
@@ -298,19 +331,14 @@ static void build_list(struct notes_app *a)
         pos_style_add(glyph, POS_STYLE_TEXT_SECONDARY, 0);
         lv_obj_center(glyph);
         pocketui_label(empty, "No notes yet", POS_STYLE_CAPTION);
+        a->list_card = empty;
+        a->list_rows = false;
     } else {
         panel = pocketui_card(a->screen[NOTES_SCREEN_LIST]);
         lv_obj_set_style_pad_hor(panel, POCKETUI_PAD, 0);
         lv_obj_set_style_pad_ver(panel, 0, 0);
-        /* The rows scroll inside the list and nowhere else. The card grows
-         * into what New note leaves it but never past its own rows, so a
-         * short list is exactly as tall as it always was, a long one
-         * scrolls under the finger, and New note stays on screen below it
-         * however many notes there are. A card that simply grew put New
-         * note, and then the oldest notes, past the bottom of a screen that
-         * does not scroll, above a body that must not (DS §17.1). */
-        lv_obj_set_flex_grow(panel, 1);
-        lv_obj_set_style_max_height(panel, LV_SIZE_CONTENT, 0);
+        /* The rows scroll inside the list and nowhere else; how tall the
+         * card may grow is the layout's (shape_list). */
         lv_obj_add_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_scroll_dir(panel, LV_DIR_VER);
 
@@ -345,9 +373,13 @@ static void build_list(struct notes_app *a)
             when_text(entries[i].modified, when, sizeof(when));
             pocketui_label(row, when, POS_STYLE_CAPTION);
         }
+        a->list_card = panel;
+        a->list_rows = true;
     }
 
-    pocketui_button(a->screen[NOTES_SCREEN_LIST], "New note", on_new_note, a);
+    /* Before New note, which was built once and stays. */
+    lv_obj_move_to_index(a->list_card, 0);
+    shape_list(a);
 }
 
 /* ---- screens ----------------------------------------------------------- */
@@ -374,7 +406,9 @@ static lv_obj_t *make_screen(lv_obj_t *parent)
     lv_obj_set_width(s, LV_PCT(100));
     lv_obj_set_flex_grow(s, 1);
     lv_obj_set_flex_flow(s, LV_FLEX_FLOW_COLUMN);
+    /* The DS 7 gutter between content and actions, whichever way they lie. */
     lv_obj_set_style_pad_row(s, POCKETUI_PAD, 0);
+    lv_obj_set_style_pad_column(s, POCKETUI_PAD, 0);
     lv_obj_add_flag(s, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(s, LV_OBJ_FLAG_SCROLLABLE);
     return s;
@@ -392,6 +426,7 @@ static void build_editor(struct notes_app *a)
     lv_obj_set_flex_flow(actions, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(actions, 8, 0);
     lv_obj_clear_flag(actions, LV_OBJ_FLAG_SCROLLABLE);
+    a->actions = actions;
 
     done = pocketui_button(actions, "Done", on_editor_done, a);
     lv_obj_set_height(done, 56);
@@ -411,6 +446,7 @@ static void build_editor(struct notes_app *a)
     lv_textarea_set_max_length(a->field, NOTES_MAX_CHARS);
     lv_obj_set_flex_grow(lv_obj_get_parent(a->field), 1);
     lv_obj_add_event_cb(a->field, on_field_clicked, LV_EVENT_CLICKED, a);
+    a->field_min_h = lv_obj_get_style_min_height(a->field, LV_PART_MAIN);
 }
 
 static void build_confirm(struct notes_app *a)
@@ -421,6 +457,7 @@ static void build_confirm(struct notes_app *a)
     lv_obj_t *cancel;
     lv_obj_t *confirm;
 
+    a->dialog = panel;
     pocketui_label(panel, "Delete this note?", POS_STYLE_TITLE);
     body = pocketui_label(panel, "The note is removed from this device. "
                                  "There is no undo.",
@@ -457,6 +494,190 @@ static void build_confirm(struct notes_app *a)
     pos_input_add_obj(confirm);
 }
 
+/* ---- the layout -------------------------------------------------------- *
+ *
+ * The screens sit in one frame that is exactly the body's content box - the
+ * whole of the room the shell gives the app - and each is shaped from the
+ * size of that box alone:
+ *
+ *   TALL (portrait: 528 x 1060 on the reference panel, 528 x 764 with the
+ *   keyboard up). Content above, actions below it or above it as they always
+ *   were: the list's rows over New note, Done and Delete over the field, the
+ *   confirmation across the body's top. The v0.0.10 layout, except that the
+ *   field now reaches the foot of the body (build_frame says why it did not)
+ *   and that nothing reaches into the corners there (below).
+ *
+ *   WIDE (landscape: 1192 x 396, and 1192 x 100 with the keyboard up). Height
+ *   is what landscape is short of, and above a keyboard a field under a row
+ *   of buttons had 4 px left to show a note in. So the actions move beside
+ *   the content instead, into a rail of NOTES_RAIL_W on the right: New note
+ *   beside the rows, Done and Delete beside the field, both at the top of the
+ *   rail and at their usual heights. The content takes the rest of the width
+ *   and the full height. The confirmation keeps its portrait width, centred.
+ *   Chosen only when the content beside the rail keeps NOTES_COLUMN_W, so no
+ *   note is narrower than in portrait. No control's size is shared out of
+ *   the height, so no body a panel gives can bring one under 64 px.
+ *
+ * Neither shape needs the body to scroll, and it never does (DS 17.1).
+ *
+ * The objects are built once and only shaped here - the flow, sizes and the
+ * rail - so the note, its caret, the focus and the keyboard are never touched
+ * by a change of shape. The list's rows are the one exception, rebuilt from
+ * the store as they always were, and they are shaped when they are built.
+ *
+ * Whatever the shape, the content clears the panel's unsafe area (DS 21.1,
+ * 22.2): anything that reaches the foot of the body - a long list, the field
+ * with the keyboard down - would reach 10 px into the 30 px corner squares
+ * of the reference panel, so the frame pads its foot by however far a corner
+ * square reaches into the body, from the platform's description. With the
+ * keyboard up the foot is far from the corners and the pad is 0; on a panel
+ * with square corners it is always 0. */
+
+/* How far the unsafe area - straight-edge strips and corner squares - reaches
+ * into box, which is in display coordinates. A strip insets the side it lies
+ * along; a corner square insets the top or the foot of the box. The same
+ * rule as Calculator's (calc_app.c): see DS 22.3 before a third copy. */
+static struct pos_insets unsafe_insets(const lv_area_t *box)
+{
+    const struct pos_display_geometry *g = pocketui_display_geometry();
+    const struct pos_corners *c = &g->corners;
+    struct pos_insets in = {
+        .left = LV_MAX(0, g->edges.left - box->x1),
+        .top = LV_MAX(0, g->edges.top - box->y1),
+        .right = LV_MAX(0, box->x2 - (g->width - 1 - g->edges.right)),
+        .bottom = LV_MAX(0, box->y2 - (g->height - 1 - g->edges.bottom)),
+    };
+
+    if (c->top_left > 0 && box->x1 < c->top_left && box->y1 < c->top_left) {
+        in.top = LV_MAX(in.top, c->top_left - box->y1);
+    }
+    if (c->top_right > 0 && box->x2 >= g->width - c->top_right && box->y1 < c->top_right) {
+        in.top = LV_MAX(in.top, c->top_right - box->y1);
+    }
+    if (c->bottom_right > 0 && box->x2 >= g->width - c->bottom_right &&
+        box->y2 >= g->height - c->bottom_right) {
+        in.bottom = LV_MAX(in.bottom, box->y2 - (g->height - c->bottom_right) + 1);
+    }
+    if (c->bottom_left > 0 && box->x1 < c->bottom_left && box->y2 >= g->height - c->bottom_left) {
+        in.bottom = LV_MAX(in.bottom, box->y2 - (g->height - c->bottom_left) + 1);
+    }
+    return in;
+}
+
+/* The rows, then New note. Tall: the card grows into what New note leaves it
+ * but never past its own rows, so a short list is exactly as tall as it
+ * always was, a long one scrolls under the finger, and New note stays on
+ * screen below it however many notes there are. A card that simply grew put
+ * New note, and then the oldest notes, past the bottom of a screen that does
+ * not scroll, above a body that must not (DS §17.1). Wide: the card takes
+ * the width and is as tall as its rows up to the full height, and New note
+ * waits at the top of the rail. */
+static void shape_list(struct notes_app *a)
+{
+    lv_obj_t *s = a->screen[NOTES_SCREEN_LIST];
+
+    lv_obj_set_flex_flow(s, a->wide ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_width(a->new_note, a->wide ? NOTES_RAIL_W : LV_PCT(100));
+    if (!a->list_card) {
+        return;
+    }
+    if (a->wide) {
+        lv_obj_set_flex_grow(a->list_card, 1);
+        lv_obj_set_style_max_height(a->list_card, LV_PCT(100), 0);
+    } else if (a->list_rows) {
+        lv_obj_set_flex_grow(a->list_card, 1);
+        lv_obj_set_style_max_height(a->list_card, LV_SIZE_CONTENT, 0);
+    } else {
+        lv_obj_set_flex_grow(a->list_card, 0);
+        lv_obj_remove_local_style_prop(a->list_card, LV_STYLE_MAX_HEIGHT, 0);
+    }
+}
+
+/* Done and Delete, then the field. Wide: the flow runs right to left, so the
+ * actions - first in the tree - take the rail on the right and the field the
+ * rest of the row, at the full height h.
+ *
+ * The field's floor is DS 17.1's three body lines, which pocketui counts as
+ * the font's line height times the 1.5 line-height of DS 3: 94 px in Normal,
+ * 117 px in Outdoor, where the field draws its lines 26 px apart. Above the
+ * keyboard in landscape the body is 100 px, which holds three of those
+ * lines but not the 117 px floor, and a field taller than the box it is in
+ * scrolls its caret into the part that is cut off. So in the wide shape the
+ * floor gives way to the height there is, and nowhere else. */
+static void shape_editor(struct notes_app *a, int32_t h)
+{
+    lv_obj_t *wrap = lv_obj_get_parent(a->field);
+
+    lv_obj_set_flex_flow(a->screen[NOTES_SCREEN_EDITOR],
+                         a->wide ? LV_FLEX_FLOW_ROW_REVERSE : LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_width(a->actions, a->wide ? NOTES_RAIL_W : LV_PCT(100));
+    lv_obj_set_height(wrap, a->wide ? LV_PCT(100) : LV_SIZE_CONTENT);
+    lv_obj_set_style_min_height(a->field, a->wide ? LV_MIN(a->field_min_h, h) : a->field_min_h, 0);
+}
+
+/* The panel across the top of the body; in the wide shape at its portrait
+ * width, centred. */
+static void shape_confirm(struct notes_app *a)
+{
+    lv_flex_align_t across = a->wide ? LV_FLEX_ALIGN_CENTER : LV_FLEX_ALIGN_START;
+
+    lv_obj_set_flex_align(a->screen[NOTES_SCREEN_CONFIRM], LV_FLEX_ALIGN_START, across, across);
+    lv_obj_set_width(a->dialog, a->wide ? NOTES_COLUMN_W : LV_PCT(100));
+}
+
+static void layout(struct notes_app *a)
+{
+    lv_area_t box;
+    struct pos_insets in;
+    int32_t w;
+    int32_t h;
+
+    lv_obj_get_coords(a->frame, &box);
+    if (lv_area_get_width(&box) <= 0 || lv_area_get_height(&box) <= 0 ||
+        memcmp(&box, &a->laid_out, sizeof(box)) == 0) {
+        return;
+    }
+    a->laid_out = box;
+    in = unsafe_insets(&box);
+    lv_obj_set_style_pad_left(a->frame, in.left, 0);
+    lv_obj_set_style_pad_top(a->frame, in.top, 0);
+    lv_obj_set_style_pad_right(a->frame, in.right, 0);
+    lv_obj_set_style_pad_bottom(a->frame, in.bottom, 0);
+    w = lv_area_get_width(&box) - in.left - in.right;
+    h = lv_area_get_height(&box) - in.top - in.bottom;
+    a->wide = w > h && w >= NOTES_COLUMN_W + POCKETUI_PAD + NOTES_RAIL_W;
+    shape_list(a);
+    shape_editor(a, h);
+    shape_confirm(a);
+}
+
+/* The frame is the body's content box, so this is the body changing size:
+ * the keyboard came up or went down, or this is the first layout pass after
+ * the app was built. */
+static void on_frame_size(lv_event_t *e)
+{
+    layout(lv_event_get_user_data(e));
+}
+
+static void build_frame(struct notes_app *a, lv_obj_t *root)
+{
+    lv_obj_t *frame = lv_obj_create(root);
+
+    lv_obj_remove_style_all(frame);
+    /* Exactly the body's content box, whatever is in it, so the shape is
+     * always chosen from the room the shell gives and never from the size of
+     * what the shape itself put there. */
+    lv_obj_set_size(frame, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_flex_flow(frame, LV_FLEX_FLOW_COLUMN);
+    /* No gap between the screens, only one of which is ever shown. In the
+     * body's own flow the gap cost the editor 20 px: LVGL 9.5 takes a gap
+     * from a growing item for every sibling before it, hidden ones included,
+     * which above a landscape keyboard is a fifth of the editor. */
+    lv_obj_set_style_pad_row(frame, 0, 0);
+    lv_obj_clear_flag(frame, LV_OBJ_FLAG_SCROLLABLE);
+    a->frame = frame;
+}
+
 /* ---- the app ----------------------------------------------------------- */
 
 static void *notes_create(lv_obj_t *root)
@@ -467,14 +688,20 @@ static void *notes_create(lv_obj_t *root)
     if (!a) {
         return NULL;
     }
-    a->body = root;
+    build_frame(a, root);
     for (i = 0; i < 3; i++) {
-        a->screen[i] = make_screen(root);
+        a->screen[i] = make_screen(a->frame);
     }
     build_editor(a);
     build_confirm(a);
+    a->new_note = pocketui_button(a->screen[NOTES_SCREEN_LIST], "New note", on_new_note, a);
     build_list(a);
     show_screen(a, NOTES_SCREEN_LIST);
+    /* Only now: building lays objects out as it goes, and the layout step
+     * shapes objects that must all exist. */
+    lv_obj_add_event_cb(a->frame, on_frame_size, LV_EVENT_SIZE_CHANGED, a);
+    lv_obj_update_layout(a->frame);
+    layout(a);
     return a;
 }
 
@@ -485,6 +712,9 @@ static void notes_destroy(void *priv)
     if (!a) {
         return;
     }
+    /* The frame outlives this by a moment, until the shell deletes the app's
+     * objects; nothing may call back into a freed app in between. */
+    lv_obj_remove_event_cb_with_user_data(a->frame, on_frame_size, a);
     /* The last moment this app gets: v0.1 has no pause, so whatever is in
      * the editor is saved here or lost (ADR-002). There is nowhere left to
      * put it and no one left to ask, so a failure here is text the owner

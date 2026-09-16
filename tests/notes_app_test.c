@@ -12,6 +12,11 @@
  * against the real pos_keyboard. That is exactly what the shell does, and it
  * keeps the app honest: it can only ask, and it never sees a keyboard.
  *
+ * The display is the reference panel with its 30 px rounded corners, as the
+ * shell opens it, in portrait and in landscape (DS 21, 22): sections 17 on
+ * check every screen's layout in both, and the body changing shape under a
+ * note that is open.
+ *
  * Needs LVGL, so it is built by ui/shell/CMakeLists.txt beside the shell
  * (host builds only) and run by tests/notes_shell_test.sh.
  *
@@ -35,6 +40,7 @@
 
 #define PANEL_W 568
 #define PANEL_H 1232
+#define PANEL_CORNER 30 /* the corner squares of the unit's panel (DS 21.1) */
 #define STATUS_H POCKETUI_STATUS_BAR_H
 
 extern const struct pocketos_app app_notes;
@@ -42,6 +48,8 @@ extern const struct pocketos_app app_notes;
 static int failed;
 static int checks;
 static char root[128];
+static char text_buf[NOTES_MAX_BYTES + 1];
+static struct notes_entry list_buf[NOTES_MAX_NOTES];
 
 static void check(const char *what, int ok)
 {
@@ -97,14 +105,14 @@ void pocketos_shell_keyboard_show(enum pocketos_kb_return ret,
     (void)user;
     pos_keyboard_set_return(g_keyboard, ret == POCKETOS_KB_NEWLINE ? POS_KB_RETURN_NEWLINE
                                                                    : POS_KB_RETURN_DONE);
-    lv_obj_set_height(g_content, PANEL_H - STATUS_H - POS_KB_H);
+    lv_obj_set_height(g_content, pocketui_display_geometry()->height - STATUS_H - POS_KB_H);
     pos_keyboard_show(g_keyboard);
 }
 
 void pocketos_shell_keyboard_hide(void)
 {
     pos_keyboard_hide(g_keyboard);
-    lv_obj_set_height(g_content, PANEL_H - STATUS_H);
+    lv_obj_set_height(g_content, pocketui_display_geometry()->height - STATUS_H);
 }
 
 int pocketos_shell_keyboard_visible(void)
@@ -114,7 +122,8 @@ int pocketos_shell_keyboard_visible(void)
 
 /* ---- display and finger ------------------------------------------------ */
 
-static uint8_t draw_buf[PANEL_W * 40 * 2];
+static uint8_t draw_buf[PANEL_H * 40 * 4]; /* the long side, either way up */
+static lv_display_t *disp;
 static lv_indev_state_t finger_state = LV_INDEV_STATE_RELEASED;
 static lv_point_t finger_point;
 
@@ -272,6 +281,38 @@ static lv_obj_t *app_root;
 static lv_obj_t *app_body;
 static void *app_priv;
 
+/* The display the shell would open: a panel with corner squares of `corner`
+ * px, turned to `rotation`, the geometry handed to PocketUI and the content
+ * area below the status bar sized to it, less the keyboard's sheet when that
+ * is up (shell.c). Called with the app open, it is the body changing shape
+ * under a running app. */
+static void use_panel(int32_t w, int32_t h, enum pos_rotation rotation, int32_t corner)
+{
+    struct pos_panel panel = {
+        .width = w,
+        .height = h,
+        .corners = { corner, corner, corner, corner },
+    };
+    struct pos_display_geometry g;
+
+    pos_display_geometry_init(&g, &panel, rotation);
+    pocketui_set_display_geometry(&g);
+    /* The lifted finger's last point could be off the turned display, which
+     * LVGL warns about on every read. */
+    finger_point.x = 0;
+    finger_point.y = 0;
+    lv_display_set_resolution(disp, g.width, g.height);
+    lv_obj_set_size(g_content, g.width,
+                    g.height - STATUS_H - (pos_keyboard_is_shown(g_keyboard) ? POS_KB_H : 0));
+    lv_obj_set_pos(g_content, 0, STATUS_H);
+    pump(60);
+}
+
+static void use_display(enum pos_rotation rotation, int32_t corner)
+{
+    use_panel(PANEL_W, PANEL_H, rotation, corner);
+}
+
 static void app_start(void)
 {
     lv_obj_t *header;
@@ -383,6 +424,9 @@ static void drag(lv_obj_t *obj, int32_t dy)
     int32_t y0;
     int step;
 
+    if (!obj) {
+        return;
+    }
     lv_obj_update_layout(obj);
     lv_obj_get_coords(obj, &a);
     finger_point.x = a.x1 + lv_area_get_width(&a) / 2;
@@ -461,15 +505,577 @@ static int fills_wrapper(lv_obj_t *field)
     return f.x1 == w.x1 && f.x2 == w.x2 && f.y1 == w.y1 && f.y2 == w.y2;
 }
 
+/* ---- layout: where things are, in either orientation -------------------- */
+
+/* NULL-safe, so that a layout that lost an object fails its checks and the
+ * run goes on, rather than stopping in an LVGL assert that never returns. */
+static void area_of(lv_obj_t *obj, lv_area_t *a)
+{
+    if (!obj) {
+        lv_area_set(a, 0, 0, -1, -1);
+        return;
+    }
+    lv_obj_update_layout(obj);
+    lv_obj_get_coords(obj, a);
+}
+
+static lv_obj_t *parent_of(lv_obj_t *obj)
+{
+    return obj ? lv_obj_get_parent(obj) : NULL;
+}
+
+static const char *text_of(lv_obj_t *field)
+{
+    return field ? lv_textarea_get_text(field) : "(no field)";
+}
+
+static int within(const lv_area_t *in, const lv_area_t *out)
+{
+    return in->x1 >= out->x1 && in->x2 <= out->x2 && in->y1 >= out->y1 && in->y2 <= out->y2;
+}
+
+static int overlaps(const lv_area_t *a, const lv_area_t *b)
+{
+    return a->x1 <= b->x2 && b->x1 <= a->x2 && a->y1 <= b->y2 && b->y1 <= a->y2;
+}
+
+static int is_rect(const lv_area_t *a, int32_t x1, int32_t y1, int32_t x2, int32_t y2)
+{
+    return a->x1 == x1 && a->y1 == y1 && a->x2 == x2 && a->y2 == y2;
+}
+
+/* On the display and outside every rounded corner's square (pos_display.h). */
+static int is_safe(const lv_area_t *a)
+{
+    return pos_display_rect_is_safe(pocketui_display_geometry(), a->x1, a->y1, a->x2, a->y2);
+}
+
+/* Where the app may put anything: the body's content box. */
+static void body_box(lv_area_t *b)
+{
+    lv_obj_update_layout(app_body);
+    lv_obj_get_content_coords(app_body, b);
+}
+
+/* How far the foot corner squares reach above the body's foot: what the
+ * layout must leave clear at the foot. */
+static int32_t foot_inset(void)
+{
+    const struct pos_display_geometry *g = pocketui_display_geometry();
+    lv_area_t b;
+
+    body_box(&b);
+    return LV_MAX(0, b.y2 - (g->height - LV_MAX(g->corners.bottom_left, g->corners.bottom_right)) + 1);
+}
+
+static void report_rect(const char *what, lv_obj_t *obj, int32_t x1, int32_t y1, int32_t x2, int32_t y2)
+{
+    lv_area_t a;
+
+    checks++;
+    if (!obj) {
+        failed++;
+        printf("FAIL %s: no object\n", what);
+        return;
+    }
+    area_of(obj, &a);
+    if (!is_rect(&a, x1, y1, x2, y2)) {
+        failed++;
+        printf("FAIL %s: is %d..%d x %d..%d, want %d..%d x %d..%d\n", what, (int)a.x1, (int)a.x2,
+               (int)a.y1, (int)a.y2, (int)x1, (int)x2, (int)y1, (int)y2);
+    }
+}
+
+/* The controls of one screen, checked together: every one in the body's
+ * content box and the safe area, at least min_h tall and the touch minimum
+ * wide, none on another, none under the keyboard's sheet; and the body not
+ * scrolling (DS 17.1). */
+struct control {
+    const char *name;
+    lv_obj_t *obj;
+    int32_t min_h;
+};
+
+static void check_controls(const char *what, const struct control *c, int n)
+{
+    char msg[160];
+    lv_area_t box;
+    lv_area_t sheet;
+    lv_area_t a;
+    lv_area_t b;
+    int i;
+    int j;
+
+    body_box(&box);
+    area_of(g_keyboard, &sheet);
+    for (i = 0; i < n; i++) {
+        snprintf(msg, sizeof(msg), "%s: %s exists", what, c[i].name);
+        check(msg, c[i].obj != NULL);
+        if (!c[i].obj) {
+            return;
+        }
+        area_of(c[i].obj, &a);
+        snprintf(msg, sizeof(msg), "%s: %s is in the body", what, c[i].name);
+        check(msg, within(&a, &box));
+        snprintf(msg, sizeof(msg), "%s: %s is in the safe area, clear of the rounded corners", what,
+                 c[i].name);
+        check(msg, is_safe(&a));
+        snprintf(msg, sizeof(msg), "%s: %s is at least %d px tall and %d px wide", what, c[i].name,
+                 (int)c[i].min_h, POCKETUI_TOUCH_MIN);
+        check(msg, lv_area_get_height(&a) >= c[i].min_h && lv_area_get_width(&a) >= POCKETUI_TOUCH_MIN);
+        if (pos_keyboard_is_shown(g_keyboard)) {
+            snprintf(msg, sizeof(msg), "%s: %s is clear of the keyboard", what, c[i].name);
+            check(msg, !overlaps(&a, &sheet));
+        }
+        for (j = i + 1; j < n; j++) {
+            if (!c[j].obj) {
+                continue;
+            }
+            area_of(c[j].obj, &b);
+            snprintf(msg, sizeof(msg), "%s: %s and %s do not overlap", what, c[i].name, c[j].name);
+            check(msg, !overlaps(&a, &b));
+        }
+    }
+    snprintf(msg, sizeof(msg), "%s: the body does not scroll", what);
+    check(msg, lv_obj_get_scroll_top(app_body) <= 0 && lv_obj_get_scroll_bottom(app_body) <= 0);
+}
+
+/* Whether the caret's line lies inside the field's box, where it can be seen
+ * - not scrolled past the field, and not in a part of it that its container
+ * cuts off. Worked out from the field's own scroll rather than read off its
+ * label: after the editor has been hidden behind the confirmation and shown
+ * again, LVGL leaves the label's coordinates stale until the next draw, on
+ * master as here (the panel itself settles on the right picture). */
+static int caret_in_view(lv_obj_t *field)
+{
+    const lv_font_t *font = field ? lv_obj_get_style_text_font(field, LV_PART_MAIN) : NULL;
+    lv_point_t p;
+    lv_area_t content;
+    lv_area_t f;
+    lv_area_t w;
+    int32_t y1;
+
+    if (!field) {
+        return 0;
+    }
+    pump(400);
+    lv_obj_update_layout(field);
+    lv_label_get_letter_pos(lv_textarea_get_label(field), lv_textarea_get_cursor_pos(field), &p);
+    lv_obj_get_content_coords(field, &content);
+    lv_obj_get_coords(field, &f);
+    lv_obj_get_coords(lv_obj_get_parent(field), &w);
+    y1 = content.y1 - lv_obj_get_scroll_y(field) + p.y;
+    return y1 >= f.y1 && y1 + lv_font_get_line_height(font) - 1 <= LV_MIN(f.y2, w.y2);
+}
+
+/* Twenty "Note NN" notes, Note 01 the oldest, and one with a title longer
+ * than any row. */
+static void write_many(void)
+{
+    char path[256];
+    time_t base = time(NULL) - 100000;
+    int i;
+
+    for (i = 1; i <= 20; i++) {
+        char body[32];
+
+        snprintf(body, sizeof(body), "Note %02d\nbody", i);
+        notes_store_write((uint32_t)i, body);
+        notes_store_path((uint32_t)i, path, sizeof(path));
+        set_mtime(path, base + i * 60);
+    }
+    notes_store_write(21, "A title far longer than any row can hold in either orientation, "
+                          "on and on\nx");
+}
+
+static lv_obj_t *list_card(void)
+{
+    /* body > the app's frame > the list screen > the rows or the empty state */
+    return lv_obj_get_child(lv_obj_get_child(lv_obj_get_child(app_body, 0), 0), 0);
+}
+
+static void check_list(const char *what, int rows)
+{
+    char msg[160];
+    lv_obj_t *card = list_card();
+    lv_obj_t *new_note = find_labelled(app_body, "New note");
+    struct control c[] = {
+        { "the list", card, POCKETUI_ROW_H },
+        { "New note", new_note, POCKETUI_TOUCH_MIN },
+    };
+    uint32_t i;
+
+    check_controls(what, c, 2);
+    if (!rows || !card) {
+        return;
+    }
+    /* Every row a full-width 64 px hit area, its title and its time side by
+     * side, the title cut short rather than running into the time. */
+    for (i = 0; i < lv_obj_get_child_count(card); i++) {
+        lv_obj_t *row = lv_obj_get_child(card, i);
+        lv_area_t r;
+        lv_area_t t;
+        lv_area_t d;
+
+        area_of(row, &r);
+        area_of(lv_obj_get_child(row, 0), &t);
+        area_of(lv_obj_get_child(row, 1), &d);
+        if (lv_area_get_height(&r) != POCKETUI_ROW_H || !within(&t, &r) || !within(&d, &r) ||
+            overlaps(&t, &d)) {
+            snprintf(msg, sizeof(msg), "%s: row %u is 64 px, its title and time inside it and apart",
+                     what, (unsigned)i);
+            check(msg, 0);
+            return;
+        }
+    }
+    snprintf(msg, sizeof(msg), "%s: every row is 64 px, its title and time inside it and apart", what);
+    check(msg, 1);
+}
+
+static void check_editor(const char *what)
+{
+    char msg[160];
+    lv_obj_t *field = find_field(app_body);
+    const lv_font_t *font = field ? lv_obj_get_style_text_font(field, LV_PART_MAIN) : NULL;
+    struct control c[] = {
+        { "the field", field, 3 * (font ? lv_font_get_line_height(font) : 0) },
+        { "Done", find_labelled(app_body, "Done"), 56 },
+        { "Delete", find_labelled(app_body, "Delete"), 56 },
+    };
+    lv_area_t f;
+    lv_area_t w;
+
+    check_controls(what, c, 3);
+    if (!field) {
+        return;
+    }
+    /* The field whole inside what holds it: a field taller than its box is
+     * drawn cut off, and scrolls its caret into the cut. */
+    area_of(field, &f);
+    area_of(lv_obj_get_parent(field), &w);
+    snprintf(msg, sizeof(msg), "%s: the field is not cut off by its container", what);
+    check(msg, within(&f, &w));
+    snprintf(msg, sizeof(msg), "%s: the field shows three lines of its type or more", what);
+    check(msg, lv_area_get_height(&f) >= 3 * lv_font_get_line_height(font));
+}
+
+static void check_confirm(const char *what)
+{
+    lv_obj_t *title = find_label(app_body, "Delete this note?");
+    struct control c[] = {
+        { "the dialog", title ? lv_obj_get_parent(title) : NULL, 56 },
+    };
+    struct control b[] = {
+        { "Cancel", find_labelled(app_body, "Cancel"), 56 },
+        { "Delete", find_labelled(app_body, "Delete"), 56 },
+    };
+
+    check_controls(what, c, 1);
+    check_controls(what, b, 2);
+}
+
+/* Which shape the screen on show is in: its actions beside its content (1)
+ * or not (0). */
+static int beside(lv_obj_t *content, lv_obj_t *action)
+{
+    lv_area_t c;
+    lv_area_t a;
+
+    if (!content || !action) {
+        return -1;
+    }
+    area_of(content, &c);
+    area_of(action, &a);
+    return a.x1 > c.x2 && a.y1 < c.y2 ? 1 : a.y1 > c.y2 || a.y2 < c.y1 ? 0 : -1;
+}
+
+/* Every screen of the app on one display and in one mode: the list long and
+ * scrolled and empty, the editor above the keyboard with a long note typed
+ * into it, the confirmation, and a note the editor only shows, with the
+ * keyboard down. */
+static void check_orientation(const char *name, enum pos_rotation rotation, int32_t corner,
+                              const char *mode)
+{
+    char what[96];
+    char why[128];
+    lv_area_t box;
+    lv_area_t a;
+    lv_obj_t *field;
+    lv_obj_t *oldest;
+    int wide = rotation == POS_ROTATION_270;
+    int drags;
+    int i;
+
+    wipe();
+    write_many();
+    use_display(rotation, corner);
+    pos_theme_apply(NULL, mode, why, sizeof(why));
+    app_start();
+
+    snprintf(what, sizeof(what), "[%s] list", name);
+    check_list(what, 1);
+    snprintf(what, sizeof(what), "[%s] list: New note is %s the rows", name, wide ? "beside" : "below");
+    check(what, beside(list_card(), find_labelled(app_body, "New note")) == wide);
+    if (wide) {
+        area_of(list_card(), &a);
+        snprintf(what, sizeof(what), "[%s] list: the rows are no narrower than in portrait", name);
+        check(what, lv_area_get_width(&a) >= 528);
+    }
+    oldest = find_labelled(app_body, "Note 01");
+    for (drags = 0; drags < 8 && oldest && !inside(oldest, list_card()); drags++) {
+        drag(list_card(), wide ? -250 : -400);
+    }
+    snprintf(what, sizeof(what), "[%s] list: a finger scrolls to the oldest note", name);
+    check(what, oldest && inside(oldest, list_card()));
+    snprintf(what, sizeof(what), "[%s] list, scrolled", name);
+    check_list(what, 1);
+
+    tap_obj(oldest);
+    field = find_field(app_body);
+    snprintf(what, sizeof(what), "[%s] the oldest note opens with the keyboard up", name);
+    check(what, field && strcmp(lv_textarea_get_text(field), "Note 01\nbody") == 0 &&
+                    pocketos_shell_keyboard_visible() && pos_input_focused() == field);
+    snprintf(what, sizeof(what), "[%s] editor", name);
+    check_editor(what);
+    snprintf(what, sizeof(what), "[%s] editor: Done is %s the field", name, wide ? "beside" : "above");
+    check(what, wide ? beside(field, find_labelled(app_body, "Done")) == 1
+                     : beside(find_labelled(app_body, "Done"), field) == 0);
+    if (wide) {
+        body_box(&box);
+        area_of(field, &a);
+        snprintf(what, sizeof(what), "[%s] editor: the field has the body's full height above the keyboard",
+                 name);
+        check(what, a.y1 == box.y1 && a.y2 == box.y2);
+        snprintf(what, sizeof(what), "[%s] editor: and is no narrower than in portrait", name);
+        check(what, lv_area_get_width(&a) >= 528);
+    }
+
+    /* A long note, typed: the field scrolls and the caret stays in sight. */
+    tap_key("ENTER");
+    for (i = 0; i < 36; i++) { /* more lines than the portrait field shows */
+        type_text("line");
+        tap_key("ENTER");
+    }
+    type_text("end");
+    snprintf(what, sizeof(what), "[%s] editor: typing a long note keeps the caret in view", name);
+    check(what, caret_in_view(field));
+    snprintf(what, sizeof(what), "[%s] editor: the field scrolled to keep it there", name);
+    check(what, field && lv_obj_get_scroll_y(field) > 0);
+    snprintf(what, sizeof(what), "[%s] editor, long note", name);
+    check_editor(what);
+
+    tap_obj(find_labelled(app_body, "Delete"));
+    snprintf(what, sizeof(what), "[%s] confirmation", name);
+    check_confirm(what);
+    if (wide) {
+        lv_obj_t *title = find_label(app_body, "Delete this note?");
+
+        body_box(&box);
+        area_of(parent_of(title), &a);
+        snprintf(what, sizeof(what), "[%s] confirmation: at its portrait width, centred", name);
+        check(what, lv_area_get_width(&a) == 528 && LV_ABS((a.x1 - box.x1) - (box.x2 - a.x2)) <= 1);
+    }
+    tap_obj(find_labelled(app_body, "Cancel"));
+    snprintf(what, sizeof(what), "[%s] Cancel gives back the editor, the keyboard and the focus", name);
+    check(what, label_present(app_body, "Done") && pocketos_shell_keyboard_visible() &&
+                    pos_input_focused() == field);
+    snprintf(what, sizeof(what), "[%s] and the caret is in view again", name);
+    check(what, caret_in_view(field));
+    tap_obj(find_labelled(app_body, "Done"));
+    notes_store_read(1, text_buf, sizeof(text_buf));
+    snprintf(what, sizeof(what), "[%s] Done stores the long note", name);
+    check(what, strstr(text_buf, "line\nend") != NULL && label_present(app_body, "New note"));
+    app_stop();
+
+    /* A note the editor only shows: the keyboard stays down and the field
+     * reaches the foot of the body, clear of the corners there. */
+    {
+        static char big[2201];
+
+        for (i = 0; i < 2200; i++) {
+            big[i] = (i % 40 == 39) ? '\n' : 'a';
+        }
+        memcpy(big, "Too long\n", 9);
+        big[2200] = '\0';
+        wipe();
+        notes_store_write(5, big);
+    }
+    app_start();
+    tap_obj(find_labelled(app_body, "Too long"));
+    field = find_field(app_body);
+    snprintf(what, sizeof(what), "[%s] read-only note: the keyboard stays down", name);
+    check(what, field && lv_obj_has_state(field, LV_STATE_DISABLED) && !pocketos_shell_keyboard_visible());
+    snprintf(what, sizeof(what), "[%s] read-only note", name);
+    check_editor(what);
+    body_box(&box);
+    area_of(field, &a);
+    snprintf(what, sizeof(what), "[%s] read-only note: the field ends where the corners begin", name);
+    check(what, a.y2 == box.y2 - foot_inset());
+    tap_obj(find_labelled(app_body, "Done"));
+    app_stop();
+
+    wipe();
+    app_start();
+    snprintf(what, sizeof(what), "[%s] empty list", name);
+    check_list(what, 0);
+    snprintf(what, sizeof(what), "[%s] empty list: New note is %s the empty state", name,
+             wide ? "beside" : "below");
+    check(what, beside(list_card(), find_labelled(app_body, "New note")) == wide);
+    app_stop();
+    pos_theme_apply(NULL, "normal", why, sizeof(why));
+}
+
+/* ---- DS 21.2: the display turning, with a note open --------------------- */
+
+/* The shell applies a rotation by closing the app and opening the display
+ * again, so a note open at that moment is saved on the way out and the app
+ * meets the new orientation by being created in it. These change the display
+ * under the running app instead, which is the harder case: nothing is saved
+ * or rebuilt, and everything must still be where it was. */
+static void check_turning(void)
+{
+    lv_obj_t *field;
+    lv_obj_t *oldest;
+    lv_area_t a;
+    int i;
+
+    /* The editor, mid-edit, with the caret moved into the middle. */
+    wipe();
+    notes_store_write(1, "Alpha\nbeta");
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    tap_obj(find_labelled(app_body, "Alpha"));
+    field = find_field(app_body);
+    pos_input_push_key(LV_KEY_LEFT);
+    pos_input_push_key(LV_KEY_LEFT);
+    drain();
+    tap_key("x");
+    check_str("portrait: typed at the caret", text_of(field), "Alpha\nbexta");
+    check("portrait: the caret is after it", field && lv_textarea_get_cursor_pos(field) == 9);
+
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    check("turned: the editor is still on show", label_present(app_body, "Done"));
+    check_str("turned: the text is untouched", text_of(field), "Alpha\nbexta");
+    check("turned: the caret has not moved", field && lv_textarea_get_cursor_pos(field) == 9);
+    check("turned: the field keeps the focus", pos_input_focused() == field);
+    check("turned: the keyboard is still up", pocketos_shell_keyboard_visible());
+    check("turned: the caret is in view", caret_in_view(field));
+    check("turned: the actions moved beside the field",
+          beside(field, find_labelled(app_body, "Done")) == 1);
+    check_editor("turned to landscape with a note open");
+    tap_key("y");
+    pos_input_push_key('z'); /* a key from the stream, as a physical keyboard sends one */
+    drain();
+    check_str("turned: typing goes on at the caret, tapped or from the stream",
+              text_of(field), "Alpha\nbexyzta");
+
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    check("turned back: Done is above the field again", beside(find_labelled(app_body, "Done"), field) == 0);
+    check_editor("turned back to portrait with a note open");
+    check_str("turned back: the text is untouched", text_of(field), "Alpha\nbexyzta");
+    check("turned back: the caret has not moved", field && lv_textarea_get_cursor_pos(field) == 11);
+    check("turned back: the field keeps the focus", pos_input_focused() == field);
+    check("turned back: nothing was saved on the way", notes_store_read(1, text_buf, sizeof(text_buf)) == 10);
+    tap_obj(find_labelled(app_body, "Done"));
+    check("Done saves the note that was open, once",
+          notes_store_list(list_buf, NOTES_MAX_NOTES) == 1 &&
+              notes_store_read(1, text_buf, sizeof(text_buf)) == 13 &&
+              strcmp(text_buf, "Alpha\nbexyzta") == 0);
+
+    /* The confirmation, turned: still asking, and Cancel still goes back. */
+    tap_obj(find_labelled(app_body, "Alpha"));
+    field = find_field(app_body);
+    for (i = 0; i < 36; i++) { /* long enough to scroll in either shape */
+        tap_key("ENTER");
+        type_text("more");
+    }
+    tap_obj(find_labelled(app_body, "Delete"));
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    check("turned: the confirmation is still asking", label_present(app_body, "Delete this note?"));
+    check_confirm("confirmation, turned");
+    check("and nothing was deleted", notes_store_list(list_buf, NOTES_MAX_NOTES) == 1);
+    tap_obj(find_labelled(app_body, "Cancel"));
+    check("Cancel after turning gives back the editor, the keyboard and the focus",
+          label_present(app_body, "Done") && pocketos_shell_keyboard_visible() &&
+              pos_input_focused() == field);
+    check("with the caret of the long note in view", caret_in_view(field));
+    check_editor("editor after a turned confirmation");
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    tap_obj(find_labelled(app_body, "Done"));
+    app_stop();
+
+    /* The list, scrolled, turned. */
+    wipe();
+    write_many();
+    app_start();
+    oldest = find_labelled(app_body, "Note 01");
+    for (i = 0; i < 6 && !inside(oldest, list_card()); i++) {
+        drag(list_card(), -400);
+    }
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    check("turned: the list is still on show, all of it",
+          label_present(app_body, "New note") && list_card() && lv_obj_get_child_count(list_card()) == 21u);
+    check_list("list, turned", 1);
+    check("turned: New note moved beside the rows",
+          beside(list_card(), find_labelled(app_body, "New note")) == 1);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    check_list("list, turned back", 1);
+    tap_obj(find_labelled(app_body, "Note 01"));
+    field = find_field(app_body);
+    check("and a row still opens its note", field && strcmp(lv_textarea_get_text(field), "Note 01\nbody") == 0);
+    tap_obj(find_labelled(app_body, "Done"));
+    app_stop();
+
+    /* The way the shell turns the display: the app closed with a note open
+     * and created again in the other orientation. */
+    wipe();
+    notes_store_write(1, "Gamma");
+    app_start();
+    tap_obj(find_labelled(app_body, "Gamma"));
+    tap_key("SPACE");
+    type_text("two");
+    app_stop();
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    app_start();
+    check("reopened in landscape: the edit was kept on the way out",
+          notes_store_read(1, text_buf, sizeof(text_buf)) == 9 && strcmp(text_buf, "Gamma two") == 0);
+    check("and the list shows it", label_present(app_body, "Gamma two"));
+    tap_obj(find_labelled(app_body, "Gamma two"));
+    tap_key("?123");
+    tap_key("!");
+    tap_key("ABC");
+    app_stop();
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    check("reopened in portrait: kept again",
+          notes_store_read(1, text_buf, sizeof(text_buf)) == 10 && strcmp(text_buf, "Gamma two!") == 0);
+    app_stop();
+
+    /* A wide body with no room for the rail beside a portrait-wide list keeps
+     * the tall shape: an 800 x 480 panel turned, 760 px across. */
+    wipe();
+    write_many();
+    use_panel(480, 800, POS_ROTATION_270, 0);
+    app_start();
+    check("a wide body under 836 px keeps New note below the rows",
+          beside(list_card(), find_labelled(app_body, "New note")) == 0);
+    check_list("list on an 800 x 480 display", 1);
+    app_stop();
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    area_of(g_content, &a);
+    check("back on the reference panel", lv_area_get_width(&a) == PANEL_W);
+}
+
 int main(void)
 {
-    lv_display_t *disp;
     lv_indev_t *finger;
     struct notes_entry list[NOTES_MAX_NOTES];
     char text[NOTES_MAX_BYTES + 1];
     lv_obj_t *field;
     int n;
 
+    /* Line by line, so a run that stops says where. */
+    setvbuf(stdout, NULL, _IOLBF, 0);
     snprintf(root, sizeof(root), "/tmp/pocketnotes-app-%u", (unsigned)getpid());
     setenv("POCKETOS_STATE_DIR", root, 1);
     wipe();
@@ -488,10 +1094,9 @@ int main(void)
 
     g_content = lv_obj_create(lv_screen_active());
     lv_obj_remove_style_all(g_content);
-    lv_obj_set_size(g_content, PANEL_W, PANEL_H - STATUS_H);
-    lv_obj_set_pos(g_content, 0, STATUS_H);
     g_keyboard = pos_keyboard_create(lv_screen_active());
-    pump(60);
+    /* The unit's panel, as the shell opens it in portrait. */
+    use_display(POS_ROTATION_0, PANEL_CORNER);
 
     /* ---- 1. the empty state -------------------------------------------- */
 
@@ -939,7 +1544,7 @@ int main(void)
             snprintf(what, sizeof(what), "[%s] the mode applies", modes[m]);
             check(what, pos_theme_apply(NULL, modes[m], why, sizeof(why)) == 0);
             app_start();
-            list_screen = lv_obj_get_child(app_body, 0);
+            list_screen = lv_obj_get_child(lv_obj_get_child(app_body, 0), 0);
 
             snprintf(what, sizeof(what), "[%s] New note is on screen with twenty notes",
                      modes[m]);
@@ -1006,6 +1611,118 @@ int main(void)
         }
     }
     app_stop();
+
+    /* ---- 17. both shapes, to the pixel --------------------------------- */
+
+    /* Portrait is the v0.0.10 layout but for two things (DS 22.2 and the
+     * flex note in notes_app.c): the editor's field reaches the body's foot,
+     * 20 px further than it did, and whatever reaches the foot stops where
+     * the corner squares begin. Landscape puts the actions in a 288 px rail
+     * beside the content. Rectangles are inclusive. */
+    {
+        static const int32_t corners[] = { PANEL_CORNER, 0 };
+        size_t k;
+
+        for (k = 0; k < sizeof(corners) / sizeof(corners[0]); k++) {
+            int32_t c = corners[k];
+            int32_t foot = 1211 - (c > 20 ? c - 20 : 0); /* portrait body foot, less the corners */
+            int32_t lfoot = 547 - (c > 20 ? c - 20 : 0); /* the same in landscape */
+            char what[96];
+
+            use_display(POS_ROTATION_0, c);
+            wipe();
+            app_start();
+            snprintf(what, sizeof(what), "portrait %d px corners: empty state", (int)c);
+            report_rect(what, list_card(), 20, 152, 547, 307);
+            snprintf(what, sizeof(what), "portrait %d px corners: New note under it", (int)c);
+            report_rect(what, find_labelled(app_body, "New note"), 20, 328, 547, 391);
+            app_stop();
+            write_many();
+            app_start();
+            snprintf(what, sizeof(what), "portrait %d px corners: a long list", (int)c);
+            report_rect(what, list_card(), 20, 152, 547, foot - 84);
+            snprintf(what, sizeof(what), "portrait %d px corners: New note at the foot", (int)c);
+            report_rect(what, find_labelled(app_body, "New note"), 20, foot - 63, 547, foot);
+            tap_obj(find_labelled(app_body, "Note 20"));
+            snprintf(what, sizeof(what), "portrait %d px corners: Done", (int)c);
+            report_rect(what, find_labelled(app_body, "Done"), 20, 152, 279, 207);
+            snprintf(what, sizeof(what), "portrait %d px corners: Delete", (int)c);
+            report_rect(what, find_labelled(app_body, "Delete"), 288, 152, 547, 207);
+            snprintf(what, sizeof(what), "portrait %d px corners: the field, down to the keyboard's 20 px",
+                     (int)c);
+            report_rect(what, find_field(app_body), 20, 228, 547, 915);
+            tap_obj(find_labelled(app_body, "Delete"));
+            snprintf(what, sizeof(what), "portrait %d px corners: the confirmation", (int)c);
+            report_rect(what, parent_of(find_label(app_body, "Delete this note?")), 20, 152, 547, 331);
+            tap_obj(find_labelled(app_body, "Cancel"));
+            tap_obj(find_labelled(app_body, "Done"));
+            app_stop();
+
+            use_display(POS_ROTATION_270, c);
+            wipe();
+            app_start();
+            snprintf(what, sizeof(what), "landscape %d px corners: empty state", (int)c);
+            report_rect(what, list_card(), 20, 152, 903, 307);
+            snprintf(what, sizeof(what), "landscape %d px corners: New note in the rail", (int)c);
+            report_rect(what, find_labelled(app_body, "New note"), 924, 152, 1211, 215);
+            app_stop();
+            write_many();
+            app_start();
+            snprintf(what, sizeof(what), "landscape %d px corners: a long list", (int)c);
+            report_rect(what, list_card(), 20, 152, 903, lfoot);
+            snprintf(what, sizeof(what), "landscape %d px corners: New note in the rail", (int)c);
+            report_rect(what, find_labelled(app_body, "New note"), 924, 152, 1211, 215);
+            tap_obj(find_labelled(app_body, "Note 20"));
+            snprintf(what, sizeof(what), "landscape %d px corners: the field above the keyboard", (int)c);
+            report_rect(what, find_field(app_body), 20, 152, 903, 251);
+            snprintf(what, sizeof(what), "landscape %d px corners: Done in the rail", (int)c);
+            report_rect(what, find_labelled(app_body, "Done"), 924, 152, 1063, 207);
+            snprintf(what, sizeof(what), "landscape %d px corners: Delete in the rail", (int)c);
+            report_rect(what, find_labelled(app_body, "Delete"), 1072, 152, 1211, 207);
+            tap_obj(find_labelled(app_body, "Delete"));
+            snprintf(what, sizeof(what), "landscape %d px corners: the confirmation, centred", (int)c);
+            report_rect(what, parent_of(find_label(app_body, "Delete this note?")), 352, 152, 879, 331);
+            tap_obj(find_labelled(app_body, "Cancel"));
+            tap_obj(find_labelled(app_body, "Done"));
+            app_stop();
+        }
+        use_display(POS_ROTATION_0, PANEL_CORNER);
+    }
+
+    /* ---- 18. every screen in both orientations and both modes ---------- */
+
+    check_orientation("portrait", POS_ROTATION_0, PANEL_CORNER, "normal");
+    check_orientation("landscape", POS_ROTATION_270, PANEL_CORNER, "normal");
+    check_orientation("portrait, Outdoor", POS_ROTATION_0, PANEL_CORNER, "outdoor");
+    check_orientation("landscape, Outdoor", POS_ROTATION_270, PANEL_CORNER, "outdoor");
+    check_orientation("landscape, square corners", POS_ROTATION_270, 0, "normal");
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+
+    /* ---- 19. the display turning with a note open ---------------------- */
+
+    check_turning();
+
+    /* ---- 20. opened and closed, both ways up ---------------------------- */
+
+    wipe();
+    notes_store_write(1, "Kept");
+    {
+        int i;
+
+        for (i = 0; i < 6; i++) {
+            use_display(i % 2 ? POS_ROTATION_270 : POS_ROTATION_0, PANEL_CORNER);
+            app_start();
+            tap_obj(find_labelled(app_body, "Kept"));
+            tap_obj(find_labelled(app_body, "Done"));
+            app_stop();
+        }
+    }
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    check("six rounds in both orientations leave nothing behind", lv_obj_get_child_count(g_content) == 0u);
+    check("the keyboard is down", !pocketos_shell_keyboard_visible());
+    check("and the note is as it was", notes_store_list(list_buf, NOTES_MAX_NOTES) == 1 &&
+                                          notes_store_read(1, text_buf, sizeof(text_buf)) == 4);
+
     wipe();
     printf("notes_app_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;

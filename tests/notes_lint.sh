@@ -43,5 +43,28 @@ for banned in search folder tag undo sort; do
     [ -n "$hits" ] && echo "$hits" | head -3
 done
 
+# DS 22.3: the layout is chosen from the body the app is given, not from the
+# orientation, and the corner clearance comes from the platform's description
+# of the panel rather than a number of the app's own.
+APP=apps/notes/notes_app.c
+appcode() { grep -vE '^[[:space:]]*(/\*|\*|//)' "$APP" | sed 's|/\*.*\*/||'; }
+hits=$(appcode | grep -nE 'pocketos_shell_orientation|POS_ROTATION_|lv_display_get_rotation|landscape|portrait')
+check "the layout never asks which way the display is turned" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+check "the screens sit in one frame that is the body's content box" \
+    "$(appcode | grep -q 'lv_obj_set_size(frame, LV_PCT(100), LV_PCT(100));' && echo 1 || echo 0)"
+check "it is laid out again when the body changes size" \
+    "$(appcode | grep -q 'lv_obj_add_event_cb(a->frame, on_frame_size, LV_EVENT_SIZE_CHANGED, a);' && echo 1 || echo 0)"
+check "and the handler is gone before the app is freed" \
+    "$(appcode | grep -q 'lv_obj_remove_event_cb_with_user_data(a->frame, on_frame_size, a);' && echo 1 || echo 0)"
+check "with no gap between the screens for LVGL to take from the one on show" \
+    "$(appcode | grep -q 'lv_obj_set_style_pad_row(frame, 0, 0);' && echo 1 || echo 0)"
+check "the corner clearance is read from the display geometry" \
+    "$(appcode | grep -q 'pocketui_display_geometry()' && echo 1 || echo 0)"
+check "the wide shape keeps the content at least portrait-wide beside the rail" \
+    "$(appcode | grep -q 'w > h && w >= NOTES_COLUMN_W + POCKETUI_PAD + NOTES_RAIL_W' && echo 1 || echo 0)"
+hits=$(appcode | grep -nE 'lv_obj_clean\(')
+check "the list rebuilds its rows, not the objects around them" "$([ -z "$hits" ] && echo 1 || echo 0)"
+
 echo "notes_lint: $failed failure(s)"
 exit $((failed > 0))
