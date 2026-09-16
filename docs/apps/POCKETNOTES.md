@@ -84,9 +84,13 @@ panel with square corners.
 **Error captions** (DS §17.1). The field grows into its wrapper and a caption
 takes its room from the field (`pocketui_text_field`), so a refusal, a failed
 save or a failed delete is always read under the field, inside the wrapper,
-clear of the keyboard. The editor is shown and laid out - keyboard, caption
-and all - before the note goes into the field, so the field scrolls to the
-caret for the size it is seen at.
+clear of the keyboard. The editor is shown - keyboard, caption and all -
+before the note goes into the field, so the field scrolls to the caret for
+the size it is seen at. The first caption of an app instance is created when
+it is first shown, and for one layout pass it takes the field's room; the
+field's scroll begun for that moment is dropped and the caret placed again for
+the field's real size, or a short note in the landscape editor was left
+scrolled out of sight above its caption (found on unit A).
 
 **The frame has no row gap.** LVGL 9.5 takes a row gap from a growing flex
 item for every sibling before it, hidden ones included, so with the three

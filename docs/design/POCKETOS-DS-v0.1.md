@@ -1246,9 +1246,11 @@ not the shell, its keyboard, the rotation policy or any other app.
   wrapper, or all of it but the caption's room while an error is shown. The
   caption is always read; a failed save above the landscape keyboard shows
   three lines of the note in Normal and two and a half in Outdoor.
-- The editor is shown and laid out, keyboard and caption in place, before the
-  note goes into the field, so the field scrolls to the caret for the size it
-  is seen at.
+- The editor is shown, keyboard and caption in place, before the note goes
+  into the field, so the field scrolls to the caret for the size it is seen
+  at; and when an error caption first appears, the field is scrolled again for
+  the size it has once the caption has its own, so the note is never left
+  scrolled out of sight above it.
 
 ### 23.3 Consequences for portrait
 
