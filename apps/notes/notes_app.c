@@ -182,6 +182,22 @@ static void on_field_clicked(lv_event_t *e)
     }
 }
 
+/* The note as read into the field. */
+static void put_note_text(struct notes_app *a, int too_long)
+{
+    if (too_long) {
+        /* With a cap set, LVGL takes text in a character at a time and stops
+         * at the cap. It is lifted for as long as that takes, so what is
+         * shown is the whole note; the field is disabled, so nothing can be
+         * typed while it is. */
+        lv_textarea_set_max_length(a->field, 0);
+        lv_textarea_set_text(a->field, a->text);
+        lv_textarea_set_max_length(a->field, NOTES_MAX_CHARS);
+    } else {
+        lv_textarea_set_text(a->field, a->text);
+    }
+}
+
 static void open_editor(struct notes_app *a, uint32_t id, int existing)
 {
     const char *refusal = NULL;
@@ -210,13 +226,12 @@ static void open_editor(struct notes_app *a, uint32_t id, int existing)
         }
     }
     a->open_readable = refusal == NULL;
-    /* The editor is shown and laid out as it will be seen - the keyboard up
-     * or down, the caption there or not - before the note goes in. Setting
-     * the text scrolls the field to its caret for the size the field has at
-     * that moment, and LVGL does not scroll it again when the field then
-     * takes another size: a note set into a field still at its three-line
-     * floor, or still the size the keyboard left it, opened scrolled too far
-     * or not far enough. */
+    /* The editor is shown as it will be seen - the keyboard up or down, the
+     * caption there or not - before the note goes in. Setting the text lays
+     * the screen out and scrolls the field to its caret for the size it has
+     * then, and LVGL does not scroll it again when the field takes another
+     * size: a note set into a hidden editor, whose field was still at its
+     * three-line floor, opened scrolled past its end. */
     pocketui_text_field_set_enabled(a->field, a->open_readable);
     if (a->open_readable) {
         pocketui_text_field_set_error(a->field, NULL);
@@ -226,18 +241,7 @@ static void open_editor(struct notes_app *a, uint32_t id, int existing)
         pocketos_shell_keyboard_hide();
     }
     show_screen(a, NOTES_SCREEN_EDITOR);
-    lv_obj_update_layout(a->frame);
-    if (too_long) {
-        /* With a cap set, LVGL takes text in a character at a time and stops
-         * at the cap. It is lifted for as long as that takes, so what is
-         * shown is the whole note; the field is disabled above, so nothing
-         * can be typed while it is. */
-        lv_textarea_set_max_length(a->field, 0);
-        lv_textarea_set_text(a->field, a->text);
-        lv_textarea_set_max_length(a->field, NOTES_MAX_CHARS);
-    } else {
-        lv_textarea_set_text(a->field, a->text);
-    }
+    put_note_text(a, too_long);
     if (a->open_readable) {
         pos_input_focus(a->field);
     }
