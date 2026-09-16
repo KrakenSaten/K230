@@ -640,6 +640,18 @@ static void check_controls(const char *what, const struct control *c, int n)
     check(msg, lv_obj_get_scroll_top(app_body) <= 0 && lv_obj_get_scroll_bottom(app_body) <= 0);
 }
 
+/* Whether the field is scrolled no further than its text: a note that fits is
+ * shown from its top, and one that does not ends at the field's foot, never
+ * with blank field past its end. */
+static int not_past_the_end(lv_obj_t *field)
+{
+    if (!field) {
+        return 0;
+    }
+    lv_obj_update_layout(field);
+    return lv_obj_get_scroll_y(field) == 0 || lv_obj_get_scroll_bottom(field) >= 0;
+}
+
 /* Whether the caret's line lies inside the field's box, where it can be seen
  * - not scrolled past the field, and not in a part of it that its container
  * cuts off. Worked out from the field's own scroll rather than read off its
@@ -658,7 +670,7 @@ static int caret_in_view(lv_obj_t *field)
     if (!field) {
         return 0;
     }
-    pump(400);
+    pump(1000); /* a long scroll to the caret is animated */
     lv_obj_update_layout(field);
     lv_label_get_letter_pos(lv_textarea_get_label(field), lv_textarea_get_cursor_pos(field), &p);
     lv_obj_get_content_coords(field, &content);
@@ -808,6 +820,9 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
 
     wipe();
     write_many();
+    /* Twelve lines: the whole of it fits the portrait field and not the
+     * landscape one above the keyboard. */
+    notes_store_write(22, "Twelve lines\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12");
     use_display(rotation, corner);
     pos_theme_apply(NULL, mode, why, sizeof(why));
     app_start();
@@ -885,10 +900,98 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     notes_store_read(1, text_buf, sizeof(text_buf));
     snprintf(what, sizeof(what), "[%s] Done stores the long note", name);
     check(what, strstr(text_buf, "line\nend") != NULL && label_present(app_body, "New note"));
+
+    /* Opening a note never scrolls the field into blank space past the note's
+     * end. With the field growing into its wrapper (pocketui), text set into
+     * an editor not yet laid out scrolled for the field's three-line floor
+     * and stayed there once the field grew: a note that fits opened showing
+     * only its last lines over empty field. */
+    tap_obj(find_labelled(app_body, "Note 01"));
+    field = find_field(app_body);
+    /* Reopened in the same run, a long note shows from its top, as it did
+     * before this layout (0d46e34); what matters here is that it is never
+     * scrolled into blank field past its end. */
+    snprintf(what, sizeof(what), "[%s] reopening the long note: nothing past its end", name);
+    check(what, field && strstr(lv_textarea_get_text(field), "line\nend") != NULL && not_past_the_end(field));
+    tap_obj(find_labelled(app_body, "Done"));
+    /* The first note opened after the app starts, when the editor has never
+     * been laid out. */
+    app_stop();
+    app_start();
+    tap_obj(find_labelled(app_body, "Twelve lines"));
+    field = find_field(app_body);
+    snprintf(what, sizeof(what), "[%s] a twelve-line note opens %s", name,
+             wide ? "at its end, nothing past it" : "whole, from its top");
+    check(what, caret_in_view(field) && not_past_the_end(field) &&
+                    (wide ? lv_obj_get_scroll_y(field) > 0 : lv_obj_get_scroll_y(field) == 0));
+    tap_obj(find_labelled(app_body, "Done"));
+
+    /* The errors, met in this shape. DS 17.1: the caption is seen. A save
+     * that fails keeps the editor and the keyboard up, so its caption has to
+     * fit above the keyboard, which in landscape is a 100 px body; the field
+     * gives up the caption's room. The store's failure is forced as the
+     * sections above force it: a directory where the note's file goes. */
+    {
+        char path[256];
+        char block[288];
+        const lv_font_t *font;
+        struct control c[3];
+
+        notes_store_path(1, path, sizeof(path));
+        tap_obj(find_labelled(app_body, "Note 01"));
+        field = find_field(app_body);
+        tap_key("?123");
+        tap_key("!");
+        tap_key("ABC");
+        unlink(path);
+        mkdir(path, 0755);
+        tap_obj(find_labelled(app_body, "Done"));
+        snprintf(what, sizeof(what), "[%s] failed save: the editor stays, the keyboard up", name);
+        check(what, label_present(app_body, "Done") && pocketos_shell_keyboard_visible() &&
+                        pos_input_focused() == field);
+        snprintf(what, sizeof(what), "[%s] failed save, above the keyboard", name);
+        check_caption(what, "This note could not be saved. It is still here; Done tries again.");
+        font = field ? lv_obj_get_style_text_font(field, LV_PART_MAIN) : NULL;
+        c[0] = (struct control){ "the field", field, 2 * (font ? lv_font_get_line_height(font) : 0) };
+        c[1] = (struct control){ "Done", find_labelled(app_body, "Done"), 56 };
+        c[2] = (struct control){ "Delete", find_labelled(app_body, "Delete"), 56 };
+        snprintf(what, sizeof(what), "[%s] failed save: two lines of the note or more beside its caption", name);
+        check_controls(what, c, 3);
+        snprintf(what, sizeof(what), "[%s] failed save: the caret is in view", name);
+        check(what, caret_in_view(field));
+        rmdir(path);
+        tap_obj(find_labelled(app_body, "Done"));
+        snprintf(what, sizeof(what), "[%s] failed save: Done again saves and leaves", name);
+        check(what, label_present(app_body, "New note") &&
+                        notes_store_read(1, text_buf, sizeof(text_buf)) > 0 &&
+                        text_buf[strlen(text_buf) - 1] == '!');
+
+        /* A delete that fails comes back to the editor with the keyboard
+         * down, and says so under the field. */
+        tap_obj(find_labelled(app_body, "Note 01"));
+        field = find_field(app_body);
+        unlink(path);
+        mkdir(path, 0755);
+        snprintf(block, sizeof(block), "%s/keep", path);
+        close(open(block, O_CREAT | O_WRONLY, 0644));
+        tap_obj(find_labelled(app_body, "Delete"));
+        tap_obj(find_labelled(app_body, "Delete")); /* the confirmation */
+        snprintf(what, sizeof(what), "[%s] failed delete: the editor stays", name);
+        check(what, label_present(app_body, "Done") && field &&
+                        strcmp(lv_textarea_get_text(field), text_buf) == 0);
+        snprintf(what, sizeof(what), "[%s] failed delete", name);
+        check_caption(what, "This note could not be deleted. It is still here.");
+        snprintf(what, sizeof(what), "[%s] failed delete", name);
+        check_editor(what);
+        unlink(block);
+        rmdir(path);
+        tap_obj(find_labelled(app_body, "Done"));
+    }
     app_stop();
 
-    /* A note the editor only shows: the keyboard stays down and the field
-     * reaches the foot of the body, clear of the corners there. */
+    /* A note the editor only shows: the keyboard stays down, and the field
+     * and the caption saying why reach the foot of the body, clear of the
+     * corners there. */
     {
         static char big[2201];
 
@@ -907,9 +1010,12 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     check(what, field && lv_obj_has_state(field, LV_STATE_DISABLED) && !pocketos_shell_keyboard_visible());
     snprintf(what, sizeof(what), "[%s] read-only note", name);
     check_editor(what);
+    snprintf(what, sizeof(what), "[%s] read-only note: why, below the field", name);
+    check_caption(what, "This note is too long to edit here. It is left exactly as it is.");
     body_box(&box);
-    area_of(field, &a);
-    snprintf(what, sizeof(what), "[%s] read-only note: the field ends where the corners begin", name);
+    area_of(parent_of(field), &a);
+    snprintf(what, sizeof(what), "[%s] read-only note: the field and its caption end where the corners begin",
+             name);
     check(what, a.y2 == box.y2 - foot_inset());
     tap_obj(find_labelled(app_body, "Done"));
     app_stop();

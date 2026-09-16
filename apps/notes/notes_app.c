@@ -187,10 +187,27 @@ static void open_editor(struct notes_app *a, uint32_t id, int existing)
         }
     }
     a->open_readable = refusal == NULL;
+    /* The editor is shown and laid out as it will be seen - the keyboard up
+     * or down, the caption there or not - before the note goes in. Setting
+     * the text scrolls the field to its caret for the size the field has at
+     * that moment, and LVGL does not scroll it again when the field then
+     * takes another size: a note set into a field still at its three-line
+     * floor, or still the size the keyboard left it, opened scrolled too far
+     * or not far enough. */
+    pocketui_text_field_set_enabled(a->field, a->open_readable);
+    if (a->open_readable) {
+        pocketui_text_field_set_error(a->field, NULL);
+        pocketos_shell_keyboard_show(POCKETOS_KB_NEWLINE, NULL, a);
+    } else {
+        pocketui_text_field_set_error(a->field, refusal);
+        pocketos_shell_keyboard_hide();
+    }
+    show_screen(a, NOTES_SCREEN_EDITOR);
+    lv_obj_update_layout(a->frame);
     if (too_long) {
         /* With a cap set, LVGL takes text in a character at a time and stops
          * at the cap. It is lifted for as long as that takes, so what is
-         * shown is the whole note; the field is disabled below, so nothing
+         * shown is the whole note; the field is disabled above, so nothing
          * can be typed while it is. */
         lv_textarea_set_max_length(a->field, 0);
         lv_textarea_set_text(a->field, a->text);
@@ -198,16 +215,9 @@ static void open_editor(struct notes_app *a, uint32_t id, int existing)
     } else {
         lv_textarea_set_text(a->field, a->text);
     }
-    pocketui_text_field_set_enabled(a->field, a->open_readable);
     if (a->open_readable) {
-        pocketui_text_field_set_error(a->field, NULL);
         pos_input_focus(a->field);
-        pocketos_shell_keyboard_show(POCKETOS_KB_NEWLINE, NULL, a);
-    } else {
-        pocketui_text_field_set_error(a->field, refusal);
-        pocketos_shell_keyboard_hide();
     }
-    show_screen(a, NOTES_SCREEN_EDITOR);
 }
 
 /* ---- the delete confirmation (DS §17.5) -------------------------------- */
@@ -594,17 +604,22 @@ static void shape_list(struct notes_app *a)
 }
 
 /* Done and Delete, then the field. Wide: the flow runs right to left, so the
- * actions - first in the tree - take the rail on the right and the field the
- * rest of the row, at the full height h.
+ * actions - first in the tree - take the rail on the right and the field's
+ * wrapper the rest of the row, at the full height.
  *
- * The field's floor is DS 17.1's three body lines, which pocketui counts as
- * the font's line height times the 1.5 line-height of DS 3: 94 px in Normal,
- * 117 px in Outdoor, where the field draws its lines 26 px apart. Above the
- * keyboard in landscape the body is 100 px, which holds three of those
- * lines but not the 117 px floor, and a field taller than the box it is in
- * scrolls its caret into the part that is cut off. So in the wide shape the
- * floor gives way to the height there is, and nowhere else. */
-static void shape_editor(struct notes_app *a, int32_t h)
+ * The field grows into its wrapper and an error caption takes its room from
+ * the field (pocketui_text_field). Its floor is DS 17.1's three body lines,
+ * which pocketui counts as the font's line height times the 1.5 line-height
+ * of DS 3: 94 px in Normal, 117 px in Outdoor. Above the keyboard in
+ * landscape the whole wrapper is 100 px: that holds three lines as the field
+ * draws them (21 px apart, 26 in Outdoor) but not the Outdoor floor, and not
+ * the Normal floor and a caption. A floor the wrapper cannot hold keeps the
+ * field taller than its box, which pushes the caption out of sight (a failed
+ * save keeps the keyboard up) and scrolls the caret into the part that is cut
+ * off. So in the wide shape the field has no floor of its own: it is the
+ * whole wrapper, or all of it but a caption's room while an error is shown.
+ * Tall keeps pocketui's floor. */
+static void shape_editor(struct notes_app *a)
 {
     lv_obj_t *wrap = lv_obj_get_parent(a->field);
 
@@ -612,7 +627,7 @@ static void shape_editor(struct notes_app *a, int32_t h)
                          a->wide ? LV_FLEX_FLOW_ROW_REVERSE : LV_FLEX_FLOW_COLUMN);
     lv_obj_set_width(a->actions, a->wide ? NOTES_RAIL_W : LV_PCT(100));
     lv_obj_set_height(wrap, a->wide ? LV_PCT(100) : LV_SIZE_CONTENT);
-    lv_obj_set_style_min_height(a->field, a->wide ? LV_MIN(a->field_min_h, h) : a->field_min_h, 0);
+    lv_obj_set_style_min_height(a->field, a->wide ? 0 : a->field_min_h, 0);
 }
 
 /* The panel across the top of the body; in the wide shape at its portrait
@@ -647,7 +662,7 @@ static void layout(struct notes_app *a)
     h = lv_area_get_height(&box) - in.top - in.bottom;
     a->wide = w > h && w >= NOTES_COLUMN_W + POCKETUI_PAD + NOTES_RAIL_W;
     shape_list(a);
-    shape_editor(a, h);
+    shape_editor(a);
     shape_confirm(a);
 }
 
