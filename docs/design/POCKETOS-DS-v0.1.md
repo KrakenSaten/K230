@@ -1120,14 +1120,23 @@ verified hardware operation and nothing in this amendment asks for it.
   column count and so the tile width (182 px) differ from portrait.
 - App bodies are not re-laid out: fixed-width content stays at its portrait
   width and the body scrolls vertically. An app that needs a landscape layout
-  gets one in its own amendment. Calculator: §22 (proposed).
+  gets one in its own amendment. Calculator: §22.
 
-## 22. Amendment F — Calculator in landscape [PROPOSED]
+## 22. Amendment F — Calculator in landscape [ACCEPTED]
 
-**PROPOSED 2026-09-16.** Becomes normative when the product owner accepts it
-after the unit A check (`docs/hardware/CALCULATOR_LANDSCAPE_GATE.md`). The
-first app given its own landscape layout under §21.3. Nothing in §1–§21 is
-renumbered, and nothing outside Calculator changes.
+**ACCEPTED 2026-09-16** by the product owner, after the unit A gate
+(`docs/hardware/CALCULATOR_LANDSCAPE_GATE.md`: PASS). Proposed the same day.
+The acceptance rests on: the host validation (make test and every shell and
+UI test in both orientations, the layout mutations caught); the remote
+validation on unit A (the build installed with only the shell service
+restarted, every key tapped through the touch device in portrait, landscape
+and back, the panel captured and matching the simulator, rotation applied in
+place, no fault); the owner's physical check of portrait, landscape and touch
+in both; the owner's approval of the 10 px portrait keypad lift (§22.2); and
+the unit's clean recovery from an unplanned, unclean reset during that check.
+Normative on the same terms as the rest of this document. The first app given
+its own landscape layout under §21.3. Nothing in §1–§21 is renumbered, and
+nothing outside Calculator changes.
 
 ### 22.1 Two shapes, chosen from the body
 
@@ -1193,4 +1202,4 @@ Amendment B (§18) approved 2026-09-11.
 Amendment C (§19) accepted 2026-09-15.
 Amendment D (§20) accepted 2026-09-15.
 Amendment E (§21) accepted 2026-09-16.
-Amendment F (§22) proposed 2026-09-16.
+Amendment F (§22) accepted 2026-09-16.

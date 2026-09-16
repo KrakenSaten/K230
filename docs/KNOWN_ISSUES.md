@@ -78,13 +78,13 @@ chip-state dependent and dumps both transports' windows when it does.
 - The rounded corners' extent is PROVISIONAL (30 px squares, the vendor
   launcher's status-bar side inset). No datasheet gives it; unit A decides
   (POCKETOS_SAFE_CORNERS tries other values). Only the status bar and
-  Calculator's foot (DS §22.2, proposed) use the safe area so far. The touch
+  Calculator's foot (DS §22.2) use the safe area so far. The touch
   keyboard's bottom row (DEV-1 fixed 52 px keys,
   6 px sheet padding) and the full-screen alert's card corners still reach
   into the 30 px corner squares; widening them changes approved geometry and
   is left for a design decision if unit A shows them cut.
 - Landscape is laid out for the status bar, the launcher and Calculator
-  (DS §22, proposed). Other app bodies keep their portrait-derived widths
+  (DS §22). Other app bodies keep their portrait-derived widths
   (Timber 528, Radar 520, Calendar 528, Fleet 522) inside a 1232 px wide,
   440 px high body and scroll vertically; the touch keyboard stays 568 px
   wide at the bottom centre.

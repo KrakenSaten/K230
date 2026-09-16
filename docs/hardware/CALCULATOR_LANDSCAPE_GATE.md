@@ -7,8 +7,8 @@ Code `2203c2a`, docs `667ca37`; the build on unit A is `667ca37`.
 owner's physical check, which also approved the 10 px portrait keypad lift.
 An unplanned, unclean reset during the physical check was recovered from
 normally and is recorded below as additional evidence, not as a failure.
-DS Amendment F (§22) is PROPOSED; its acceptance is the owner's. Not merged.
-VERSION stays 0.0.10.
+**The product owner ACCEPTED the work and DS Amendment F (§22) on
+2026-09-16, for merge to master.** VERSION stays 0.0.10.
 
 Scope: Calculator only. No other app, no rotation policy, no keyboard
 presence logic, no boot splash, no first-boot or vendor-launcher behaviour,

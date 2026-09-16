@@ -7,8 +7,8 @@ nothing is sent anywhere, and there is no clock in it.
 Status: **in Doors since v0.0.10 (from `feature/post-v0.0.9-foundations`).
 Host-tested, including taps under a real LVGL pointer device and keys through
 the real logical key stream; smoke-tested on unit A on 2026-09-13 (end of this
-page). Landscape layout on `feature/calculator-landscape` (DS §22,
-Amendment F, proposed): host-tested in both orientations; unit A gate PASS
+page). Landscape layout from `feature/calculator-landscape` (DS §22,
+Amendment F, accepted): host-tested in both orientations; unit A gate PASS
 on 2026-09-16, remote and physical (`docs/hardware/CALCULATOR_LANDSCAPE_GATE.md`).**
 
 ## What it is
@@ -271,7 +271,7 @@ keyboard on the launcher would read as either.
 
 ## Layout
 
-DS §22 (Amendment F, proposed). The app puts one frame in the body the shell
+DS §22 (Amendment F, accepted). The app puts one frame in the body the shell
 gives it - exactly the body's content box - and lays the display and the
 keypad out inside it. The shape is chosen from that box's size, never from
 the orientation, and chosen again whenever the box changes size; the objects

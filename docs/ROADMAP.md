@@ -199,8 +199,9 @@ own DS amendment where §21.3 asks for one, its own tests in both orientations,
 and a unit A check - not one redesign of every app at once. The portrait
 layouts stay as they are. Apps: Radio, System, Fleet, Radar, Timber, Notes,
 Clock, Calendar, Calculator, Settings, Wave. Order: the product owner's.
-Calculator is the first, on `feature/calculator-landscape` (DS §22,
-Amendment F, proposed); §22.3 records the pattern it sets for the next app.
+Calculator is the first, done 2026-09-16 (`feature/calculator-landscape`,
+DS §22, Amendment F, accepted); §22.3 records the pattern it sets for the next
+app.
 
 ### Vendor U-Boot display bring-up investigation (after v0.0.10)
 
