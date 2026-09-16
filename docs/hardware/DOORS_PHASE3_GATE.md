@@ -4,7 +4,9 @@ Branch `rebrand/doors-3-shell`, from master `15b1b7e`.
 
 **Result: PASS on unit A, 2026-09-16, at `a885842`.** Everything that can be
 checked without a unit passed first (below), then all six steps ran on the
-hardware. Not merged. VERSION stays 0.0.9; Phase 4 has not started.
+hardware. **Phase 3 was accepted by the product owner on this gate, 2026-09-16,
+and merged to master.** VERSION stays 0.0.9; Phase 4 has not started and is not
+approved.
 
 ## What this phase changes
 

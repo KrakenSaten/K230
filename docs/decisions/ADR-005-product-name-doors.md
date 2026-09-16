@@ -1,17 +1,18 @@
 # ADR-005: Product name Doors
 
-Status: Accepted for Phases 1 and 2 (product owner, 2026-09-15). Phase 2 is
-implemented as recorded under "Phase 2 as implemented"; its hardware gate
-passed on unit A on 2026-09-15 (docs/hardware/DOORS_PHASE2_GATE.md). The
-graphics integration's hardware gate also passed on unit A on 2026-09-15
-(docs/hardware/DOORS_GRAPHICS_GATE.md). Both are merged to master.
-**Phase 3 is implemented on `rebrand/doors-3-shell`, recorded under "Phase 3
-as implemented", and is an acceptance candidate: its hardware gate passed on
-unit A on 2026-09-16 (docs/hardware/DOORS_PHASE3_GATE.md), all six steps,
-including the rollback and a freshly flashed image. It is not merged and not
-yet accepted - Phase 3 acceptance is the product owner's to give.**
-Phase 4 has not started and needs the product owner's explicit approval
-before it does.
+Status: Accepted for Phases 1, 2 and 3 (product owner). Phases 1 and 2 were
+accepted on 2026-09-15; Phase 2 is implemented as recorded under "Phase 2 as
+implemented" and its hardware gate passed on unit A on 2026-09-15
+(docs/hardware/DOORS_PHASE2_GATE.md). The graphics integration's hardware gate
+also passed on unit A on 2026-09-15 (docs/hardware/DOORS_GRAPHICS_GATE.md).
+Both are merged to master.
+**Phase 3 was accepted by the product owner on 2026-09-16.** It is implemented
+on `rebrand/doors-3-shell` and recorded under "Phase 3 as implemented", and its
+hardware gate **passed** on unit A on 2026-09-16
+(docs/hardware/DOORS_PHASE3_GATE.md): all six steps, including the settings
+precedence, the rollback and a freshly flashed image.
+**Phase 4 has not started and is not approved.** It needs the product owner's
+explicit approval before any of it is written.
 Date: 2026-09-15
 Deciders: product owner (final), AI engineering partner (author)
 
@@ -134,7 +135,9 @@ carries data. Facts that constrain any rename:
    the licence decision (docs/LICENSING.md), not to the rebrand.
 8. **The first Doors release is v0.0.10.** Its scope is Phases 1 and 2 and
    the graphics integration. Phase 3 joins only if its hardware test passes;
-   otherwise it moves to the next version. Phase 1 does not change VERSION.
+   otherwise it moves to the next version. It passed on 2026-09-16, so
+   **Phase 3 is in v0.0.10's scope**. Phase 1 does not change VERSION, and
+   neither does Phase 3: VERSION is bumped by the release, not by a phase.
 
 ## Staged migration
 
@@ -285,8 +288,9 @@ no `pocketos-shell` service row survived the migration. Results, including the
 two check-side `FAIL` lines run down as the checks' own assumptions, are in
 docs/hardware/DOORS_PHASE3_GATE.md.
 
-Phase 3 is therefore an **acceptance candidate**: implemented, validated,
-hardware-gated, not merged, and awaiting the product owner's acceptance.
+**Accepted by the product owner on 2026-09-16**, on that gate. Phase 3 merges
+to master; VERSION stays 0.0.9, and the acceptance carries nothing into
+Phase 4, which remains neither started nor approved.
 
 ## Consequences
 
