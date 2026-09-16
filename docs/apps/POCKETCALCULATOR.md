@@ -4,10 +4,12 @@ A simple calculator: the four operations with ordinary precedence, a decimal
 point, +/−, backspace and clear. It computes and forgets - nothing is stored,
 nothing is sent anywhere, and there is no clock in it.
 
-Status: **on `feature/post-v0.0.9-foundations` (from
-`feature/pocketcalculator`). Host-tested, including taps under a real LVGL
-pointer device and keys through the real logical key stream; smoke-tested on
-unit A on 2026-09-13 (end of this page).**
+Status: **in Doors since v0.0.10 (from `feature/post-v0.0.9-foundations`).
+Host-tested, including taps under a real LVGL pointer device and keys through
+the real logical key stream; smoke-tested on unit A on 2026-09-13 (end of this
+page). Landscape layout on `feature/calculator-landscape` (DS §22,
+Amendment F, proposed): host-tested in both orientations, unit A check in
+`docs/hardware/CALCULATOR_LANDSCAPE_GATE.md`.**
 
 ## What it is
 
@@ -26,7 +28,8 @@ One screen.
   ```
 
 That is the whole application. It is fully usable by touch alone and by
-keyboard alone, and the two can be mixed within one calculation.
+keyboard alone, and the two can be mixed within one calculation. In portrait
+the display is above the keypad; in landscape it is beside it (Layout, below).
 
 ## What it deliberately is not
 
@@ -268,26 +271,77 @@ keyboard on the launcher would read as either.
 
 ## Layout
 
+DS §22 (Amendment F, proposed). The app puts one frame in the body the shell
+gives it - exactly the body's content box - and lays the display and the
+keypad out inside it. The shape is chosen from that box's size, never from
+the orientation, and chosen again whenever the box changes size; the objects
+are built once and the calculation in progress is kept.
+
+| Shape | When | Arrangement |
+| --- | --- | --- |
+| **tall** | the box is at least as tall as it is wide | display above, keypad at the foot, five fixed 128 px rows |
+| **wide** | wider than tall, and tall enough for five 64 px rows and their gaps (352 px) | display left, keypad right, equal widths, rows share the height |
+| short | neither fits (no panel gives this; a body with the keyboard sheet's height taken off would) | the tall layout whole, the display at its own height, the frame scrolls |
+
+**The foot clears the rounded corners.** The body's 20 px padding does not
+clear the panel's 30 px corner squares (DS §21.1) at the foot, so the frame
+pads its own foot by however far a corner square reaches into it, read from
+`pocketui_display_geometry()`: 10 px on the T-Display K230, 0 on a panel with
+square corners. The foot gives way rather than the sides so everything stays
+in line with the header's Back button.
+
+### Portrait
+
 The shell gives the app 528 × 1060 px (568 − 2 × 20; 1232 − 56 status bar −
 72 header − 24 top padding − 20 bottom padding), a column with a 20 px gap.
 
 | Block | Arithmetic | Size |
 | --- | --- | --- |
 | keypad columns | 4 × 126 + 3 × 8 | 528 wide; `0` is 2 × 126 + 8 = 260 |
-| keypad rows | 5 × 128 + 4 × 8 | 672 tall, at the foot of the body |
+| keypad rows | 5 × 128 + 4 × 8 | 672 tall, 10 px above the foot of the body |
+| corner clearance | 30 − 20 | 10 |
 | gap | | 20 |
-| display panel | 1060 − 672 − 20 | 368 tall |
+| display panel | 1060 − 10 − 672 − 20 | 358 tall |
 | panel content | 528 − 2 × 20 − 2 × hairline | 486 wide (484 Outdoor) |
 | expression line | body line height | 21 (26 Outdoor) |
 | gap | | 8 |
 | number | hero-48 line height | 60 |
 
 Every key is 126 × 128 or larger, twice the 64 px minimum of DS §7 in height.
+Against v0.0.10 the only change is the 10 px clearance: the keypad and the
+two lines sit 10 px higher and the display is 10 px shorter; every key keeps
+its size. With `POCKETOS_SAFE_CORNERS=0,0,0,0` the screen below the status bar
+is pixel-identical to v0.0.10's.
+
+### Landscape
+
+The shell gives the app 1192 × 396 px (1232 − 2 × 20; 568 − 56 − 72 − 24 −
+20).
+
+| Block | Arithmetic | Size |
+| --- | --- | --- |
+| corner clearance | 30 − 20 | 10 at the foot: 386 tall |
+| display panel | (1192 − 20) / 2 | 586 × 386, x 20..605 |
+| gutter | DS §7 | 20 |
+| keypad | (1192 − 20) / 2 | 586 × 386, x 626..1211 |
+| keypad columns | (586 − 3 × 8) / 4 | 140.5: 140 or 141, LVGL's grid places the remainder; `0` is two and a gap |
+| keypad rows | (386 − 4 × 8) / 5 | 70.8: 70 or 71 likewise |
+
+Same nineteen keys in the same places, same styles. Keys are about 140 × 70: above
+the 64 px minimum, wider than in portrait and a little over half as tall,
+because the landscape body is only 396 px high. The display is wider than in
+portrait (586 against 528), so every string that fits there fits here.
+
+### Checked
+
 The longest number, 16 characters of hero-48 at 28.8 px a digit with −1 px
-tracking, is at most 445 px wide inside the panel's 484 px; `Can't divide by 0`
-is about 352 px. Nothing scrolls, in Normal, Outdoor or Night.
-`calc_app_test` checks all of that on the laid-out objects in all three
-modes, with the widest strings the main line can be given.
+tracking, is at most 445 px wide inside the portrait panel's 484 px; `Can't
+divide by 0` is about 352 px. Nothing scrolls, in Normal, Outdoor or Night,
+in either orientation. `calc_app_test` checks all of that on the laid-out
+objects in all three modes and both orientations, with the widest strings the
+main line can be given, plus every key and the display inside the safe area
+(`pos_display_rect_is_safe`), the exact portrait and landscape rectangles, and
+the body turning under the open app.
 
 **Launcher.** Nine apps in two columns of 150 px tiles take five rows:
 5 × 150 + 4 × 20 = 830 px plus the 20 px padding, inside the 1176 px below the
@@ -312,9 +366,9 @@ a counter.
 | --- | --- |
 | `tests/calc_engine_test` (288 checks) | Add, subtract, multiply, divide; precedence (`2+3×4`, `10−4÷2`, `2×3+4×5`, `8÷4÷2`, `7−2−1` and more); decimal input and the rejected second point; leading zeros; negative numbers with +/− and an operator first using 0; chaining after a result, including full-precision carry; operator replacement; clear; backspace down to `0` and never across an operator; division by zero, its expression line and every way out of it, and its precedence over overflow; the 12-digit cap and `999999999999 × 999999999999`; formatting (`0.1+0.2`, `1/3`, `2/3`, trailing zeros, no `-0`, plain/scientific boundaries, the sign costing a digit); cancellation to exact 0; overflow from products, from infinity and from a carried result, and underflow to an exact 0; the 32-operand bound and the longest expression; repeated `=` as a byte-for-byte no-op; a fuzz run of 400 000 keys from a fixed seed (a uniform mix, one weighted to huge products, one to tiny quotients) checking every main line is a well-formed number of at most 16 characters or one of the two messages, every operand is well-formed, no `nan`/`inf`/`-0` ever appears, and that divide-by-zero, overflow, scientific, negative and small results were all actually reached; and 200 000 random doubles through the formatter, each checked for form, class and that it reads back as the value it rounds |
 | `tests/calc_view_test` (197 checks) | Each of the 26 mapped keys to its action, and every one of the 19 actions reachable; every other 7-bit key, `%`, the arrows, Tab, Delete, `×` `÷` `−` as code points and out-of-range keys ignored; the two display strings through the key map, including Enter, Backspace and Esc by value; the messages; buffers too small cut rather than overrun; the operator glyphs; the keypad table (19 keys, every cell filled once, every action once, `=` bottom right, `0` two wide, operators in the right column) and the key labels matching the expression's glyphs; fitting from the left (fits untouched, cut at a space, a single long token, multi-byte glyphs never split, no room at all, empty and degenerate calls, the longest real expression) |
-| `tests/calculator_lint.sh` (50 checks) | No LVGL in the engine or view; no file I/O, console output, clock, network, IPC, environment, processes or threads anywhere in the app; no store; no keyboard created, included or asked for; exactly one focus-group object; keys received as `LV_EVENT_KEY` and mapped only by the view; no branching on key source; keypad keys not click-focusable; the view's key numbers asserted against LVGL's; no `%f`/`%g`, no `strtod`/`setlocale`; no percent or scientific functions and exactly 19 actions; no animation, no timer, no tick; `=` the only primary button; registered once, after Calendar, built by CMake with its include path, tests run by `make test` |
-| `calc_app_test` (171 checks) | The app under a real LVGL pointer device and the real key stream: it opens on `0` with the display focused; taps on the keypad by label give the right results and expression lines; focus stays on the display through every tap; the pressed state shows under a finger with no animation running; every mapped key pushed through `pos_input` does what the map says, unmapped keys change nothing, Next/Prev keep the focus; tapping and typing interleave into one calculation; overflow and a long expression are ellipsised and drawn whole; in Normal, Outdoor and Night every key is at least 64 × 64, wholly on screen, not overlapping another, with its face inside it, nothing scrolls, and the widest main-line strings are drawn whole; the long expression is refitted after each mode change; five open/close rounds leave nothing behind and a fresh open remembers nothing; no keyboard was requested, no shell service called, nothing written |
-| `tests/calculator_shell_test.sh` (19 checks) | Runs `calc_app_test`, then the wiring: declared and registered after Calendar, a fifth launcher row, all three sources and the include path in CMake, the app test a host-only target, no keyboard, no store, no tick; then the real shell opens and closes `calculator` headless, writes its log, logs no fault in the log or the output, logs the app open and closed, and writes nothing to the state directory |
+| `tests/calculator_lint.sh` (54 checks) | No LVGL in the engine or view; no file I/O, console output, clock, network, IPC, environment, processes or threads anywhere in the app; no store; no keyboard created, included or asked for; exactly one focus-group object; keys received as `LV_EVENT_KEY` and mapped only by the view; no branching on key source; keypad keys not click-focusable; the view's key numbers asserted against LVGL's; no `%f`/`%g`, no `strtod`/`setlocale`; no percent or scientific functions and exactly 19 actions; no animation, no timer, no tick; `=` the only primary button; the layout never asks the orientation, is redone on a size change, reads the corners from the display geometry and holds the wide layout to the touch minimum (DS §22); registered once, after Calendar, built by CMake with its include path, tests run by `make test` |
+| `calc_app_test` (456 checks) | The app under a real LVGL pointer device and the real key stream, hosted on the reference panel with its 30 px corners: it opens on `0` with the display focused; taps on the keypad by label give the right results and expression lines, `2 + 3 × 4 = 14` among them; focus stays on the display through every tap; the pressed state shows under a finger with no animation running; every mapped key pushed through `pos_input` does what the map says, unmapped keys change nothing, Next/Prev keep the focus; tapping and typing interleave into one calculation; overflow and a long expression are ellipsised and drawn whole. **In portrait and in landscape**, in Normal, Outdoor and Night: every key at least 64 × 64 (and at least 120 wide), wholly inside the body's content box and the safe area, not overlapping another, with its face inside it; the display in the body and the safe area and not overlapping the keypad; tall: display above, keypad at the safe foot; wide: display left, keypad right, a 20 px gutter, equal widths, both from the body's top to its safe foot; nothing scrolls; the widest main-line strings drawn whole, the long expression refitted. The exact rectangles: portrait 30 px corners, portrait square corners (the v0.0.9 layout to the pixel), landscape; a single rounded foot corner of 44 px on either side; the full behaviour set by touch in landscape (precedence, clear, decimal, negative, repeated `=`, division by zero, backspace, typed keys); the display turning under the open app both ways with the calculation kept and the expression refitted to each width; a wide body too short for 64 px rows keeping the tall layout and scrolling, `=` still tappable, then scrolled home when the room comes back; five open/close rounds in alternating orientations leave nothing behind and a fresh open remembers nothing; no keyboard was requested, no shell service called, nothing written |
+| `tests/calculator_shell_test.sh` (32 checks) | Runs `calc_app_test` and fails on any LVGL warning in its output, then the wiring: declared and registered after Calendar, a sixth launcher row, all three sources and the include path in CMake, the app test a host-only target, no keyboard, no store, no tick; then the real shell opens and closes `calculator` headless, writes its log, logs no fault in the log or the output, logs the app open and closed, and writes nothing to the state directory; then in portrait and in landscape the real shell draws Calculator with no fault and no warning but the simulator's missing radiod, on the right launcher grid, the `=` key filled where `calc_app_test` lays it out, and nothing but background in the rounded corner squares at the foot of the panel |
 
 The first three run in `make test`. The last two need a display and the
 CMake-built shell:

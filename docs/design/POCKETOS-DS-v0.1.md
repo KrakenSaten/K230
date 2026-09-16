@@ -1120,7 +1120,70 @@ verified hardware operation and nothing in this amendment asks for it.
   column count and so the tile width (182 px) differ from portrait.
 - App bodies are not re-laid out: fixed-width content stays at its portrait
   width and the body scrolls vertically. An app that needs a landscape layout
-  gets one in its own amendment.
+  gets one in its own amendment. Calculator: §22 (proposed).
+
+## 22. Amendment F — Calculator in landscape [PROPOSED]
+
+**PROPOSED 2026-09-16.** Becomes normative when the product owner accepts it
+after the unit A check (`docs/hardware/CALCULATOR_LANDSCAPE_GATE.md`). The
+first app given its own landscape layout under §21.3. Nothing in §1–§21 is
+renumbered, and nothing outside Calculator changes.
+
+### 22.1 Two shapes, chosen from the body
+
+- Calculator lays out in the body it is given (§21.2) and picks its shape
+  from that body's size alone, never from the orientation: **tall** when the
+  body is at least as tall as it is wide, **wide** otherwise - and wide only
+  when the body is tall enough for five rows of 64 px keys (§7), so no key
+  can ever come out under the touch minimum. The shape is chosen again
+  whenever the body changes size; the calculation in progress is kept.
+- **Tall** (portrait, 528 x 1060 on the reference panel) is the existing
+  layout: the display above, the keypad at the foot, five rows of 128 px,
+  keys 126 px wide, the display taking the rest.
+- **Wide** (landscape, 1192 x 396): the display on the left and the keypad on
+  the right, **sharing the width equally** with the §7 20 px gutter between
+  them (586 px each), both the full height. The keypad keeps its 4 x 5 grid,
+  the same nineteen keys in the same places, and its 8 px gaps; the five rows
+  share the height (70 px each, keys 140 px wide). The display keeps its two
+  right-aligned lines at its foot, and at 586 px is wider than in portrait, so
+  every number that fits there fits here.
+- Same styles, same glyphs, same `=` as the one primary button, no motion.
+  Keys stay taller than the §7 minimum; they are no longer the 128 px of
+  portrait, because the landscape body is only 396 px tall.
+
+### 22.2 The foot clears the rounded corners
+
+- The body's 20 px padding clears the straight edges but not the 30 px
+  corner squares of §21.1 at the foot of the panel, into which the bottom row
+  of keys (and, in wide, the display) would reach by 10 px. Calculator pads
+  its own foot by however far a corner square reaches into its body, measured
+  from the platform description (`pos_display.h`), so on a panel with square
+  corners the pad is 0.
+- The foot gives way rather than the sides, so the display and keypad stay in
+  line with the header's Back button and the §7 body edges in both shapes.
+- Consequence for portrait: the keypad sits 10 px higher and the display is
+  10 px shorter (358 px); every key keeps its 126 x 128. With square corners
+  the tall layout is the previous one to the pixel.
+
+### 22.3 The pattern for the next app
+
+What this amendment establishes for any app given a landscape layout later,
+one app at a time. It is a way of working, not shared code: nothing is
+extracted until a second app needs the same thing.
+
+- Choose the layout from the size of the body, not from the orientation; add
+  the size limit below which the wide layout would break §7, and fall back to
+  the portrait layout (which scrolls) under it.
+- Build the objects once; one layout step sets flow, sizes and grid tracks,
+  and runs again on the body's size change. No second set of widgets, no
+  rebuild, no state lost.
+- Keep portrait as it is; test that it is, pixel for pixel, on a panel with
+  square corners.
+- Anything that reaches the foot of the body takes the corner squares from
+  the platform geometry, never a hard-coded inset.
+- Test both orientations on the laid-out objects: every control inside the
+  body and the safe area, no overlaps, the touch minimum, text drawn whole in
+  every display mode, and the body changing shape with the app open.
 
 ---
 
@@ -1130,3 +1193,4 @@ Amendment B (§18) approved 2026-09-11.
 Amendment C (§19) accepted 2026-09-15.
 Amendment D (§20) accepted 2026-09-15.
 Amendment E (§21) accepted 2026-09-16.
+Amendment F (§22) proposed 2026-09-16.
