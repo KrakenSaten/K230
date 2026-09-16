@@ -3,9 +3,9 @@
 Branch `feature/notes-landscape`, from master `0d46e34` (Calculator landscape
 accepted). Code `45cecad`, docs `c025779`; the build on unit A is `c025779`.
 
-**Result: remote validation PASS on unit A, 2026-09-16. The product owner's
-physical check is pending.** VERSION stays 0.0.10. DS Amendment G (§23) is
-PROPOSED.
+**Result: PASS on unit A, 2026-09-16** - remote validation, then the product
+owner's physical check, which also approved the 20 px taller portrait editor
+field. VERSION stays 0.0.10. DS Amendment G (§23) is PROPOSED. Not merged.
 
 Scope: Notes only. No other app, no rotation policy, no keyboard presence
 logic, no shell keyboard change, no boot splash, no first-boot or
@@ -117,4 +117,18 @@ where a finger lands or how typing feels. The physical check:
 4. Optional, physical keyboard: power off, attach the base, power on
    (Automatic opens landscape), type a line into a note on the keys.
 
-Result: **pending**.
+**Result: PASS** - the product owner at the panel, 2026-09-16, build
+`c025779`:
+
+| Check | Owner's finding |
+| --- | --- |
+| Portrait | looks correct; text readable |
+| Touch | lands correctly |
+| Landscape | looks intentional; nothing clipped or overlapping |
+| List | scrolling feels correct |
+| Editor | the balance of field, Done and Delete looks good; typing works |
+| Delete, Cancel, Done | behave correctly |
+| Back to Automatic | restores the portrait layout correctly |
+| Portrait editor field 20 px taller (DS §23.3) | acceptable |
+
+The optional physical-keyboard check (4) was not reported and is not claimed.
