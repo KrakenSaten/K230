@@ -10,12 +10,14 @@
 #include "shell_kbd.h"
 
 #include "kbd_bus_k230.h"
+#include "kbd_presence.h"
 #include "kbd_tca8418.h"
 #include "pocketlog/pocketlog.h"
 #include "pos_input.h"
 #include "pos_keymap.h"
 
 #include <stdbool.h>
+#include <stdlib.h>
 #include <time.h>
 
 /* The INT line is read on this period and the bus is touched only when it
@@ -29,11 +31,22 @@
  * against 7 % at 15 ms. */
 #define KBD_POLL_FALLBACK_MS 20
 
+/* The presence watch. It costs one probe of the bus per period while no
+ * keyboard is attached - a reset pulse and one register read, about a
+ * millisecond - and nothing at all while one is, where it only reads the
+ * state the poll timer already keeps. A second is short enough that
+ * attaching the base and seeing the screen turn feels like one action, and
+ * long enough that the idle cost is noise. */
+#define KBD_WATCH_MS 1000
+
 static struct {
     struct kbd_bus bus;
     struct kbd_tca8418 chip;
     struct pos_keymap map;
     lv_timer_t *timer;
+    lv_timer_t *watch;
+    bool bus_ok;       /* the transport exists: lines taken, mux ours */
+    bool probed;
     bool present;
     bool ready;        /* the controller state this layer last saw, so a
                         * failure and a recovery are each logged once */
@@ -137,53 +150,113 @@ static void on_poll(lv_timer_t *timer)
     kbd.ready = ready;
 }
 
-int shell_kbd_attach(const struct kbd_bus *bus)
+/* ---- presence ----------------------------------------------------------- *
+ *
+ * The keyboard base answers on the bit-banged bus or it does not, and that is
+ * the whole signal: the controller acknowledging its address at 0x34 is what
+ * the vendor launcher calls the base being detected, and what
+ * KEYBOARD_BRINGUP §0 and §5.3 verified in both directions on unit A - the
+ * base unmated gives "the controller did not answer", remating restores
+ * "TCA8418 ready". No pin on this board says "a keyboard is attached", so
+ * nothing here pretends one does.
+ *
+ * A transport that cannot be taken at all - no /dev/mem, the lines held by
+ * something else, the simulator - is neither presence nor absence: it is
+ * unknown, which automatic rotation resolves to portrait.
+ */
+
+#if defined(POCKETOS_SHELL_TEST_HOOKS) && POCKETOS_SHELL_TEST_HOOKS
+#include <stdio.h>
+#include <string.h>
+
+/* The simulator's stand-in for the base board: a test says what the keyboard
+ * is, in the environment for the state at start-up and in a file it can
+ * rewrite while the shell runs, which is how attaching and removing one - and
+ * a provider that starts failing - are exercised without hardware. */
+static bool test_presence(enum kbd_presence *out)
 {
-    if (!bus || kbd.present) {
-        return kbd.present ? 1 : 0;
+    const char *path = getenv("POCKETOS_TEST_KEYBOARD_FILE");
+    const char *fixed = getenv("POCKETOS_TEST_KEYBOARD_PRESENCE");
+    char buf[32];
+    FILE *f;
+
+    if (path) {
+        f = fopen(path, "r");
+        if (!f) {
+            /* The provider cannot read its source: that is a failure to
+             * detect, not a keyboard that went away. */
+            *out = KBD_PRESENCE_UNKNOWN;
+            return true;
+        }
+        if (!fgets(buf, sizeof(buf), f)) {
+            buf[0] = '\0';
+        }
+        fclose(f);
+        buf[strcspn(buf, "\r\n")] = '\0';
+        if (kbd_presence_parse(buf, out) != 0) {
+            *out = KBD_PRESENCE_UNKNOWN;
+        }
+        return true;
     }
-    kbd.bus = *bus;
-    kbd.delivered = 0;
-    kbd.dropped = 0;
-    kbd.reserved = 0;
-    pos_keymap_reset(&kbd.map);
+    if (fixed && kbd_presence_parse(fixed, out) == 0) {
+        return true;
+    }
+    return false;
+}
+#else
+static bool test_presence(enum kbd_presence *out)
+{
+    (void)out;
+    return false;
+}
+#endif
+
+/* What this layer can say about the keyboard right now. */
+static enum kbd_presence observed(void)
+{
+    enum kbd_presence test;
+
+    if (test_presence(&test)) {
+        return test;
+    }
+    if (!kbd.bus_ok) {
+        return KBD_PRESENCE_UNKNOWN;
+    }
+    if (kbd_tca8418_ready(&kbd.chip)) {
+        return KBD_PRESENCE_PRESENT;
+    }
+    return kbd_tca8418_bus_error(&kbd.chip) ? KBD_PRESENCE_UNKNOWN : KBD_PRESENCE_ABSENT;
+}
+
+static int bring_up(void)
+{
     if (kbd_tca8418_init(&kbd.chip, &kbd.bus, now_us()) != 1) {
         return 0;
     }
     /* A board whose INT line was never usable starts in the fallback mode
      * rather than falling into it, so the period matches the mode in both
-     * cases and the edge below is only ever the runtime transition. */
+     * cases and the edge in on_poll is only ever the runtime transition. */
     kbd.gated = kbd_tca8418_gated(&kbd.chip);
     /* init() only returns 1 from READY, so the first poll's edge test starts
      * from the truth rather than from a default. */
     kbd.ready = kbd_tca8418_ready(&kbd.chip);
-    kbd.timer = lv_timer_create(on_poll,
-                                kbd.gated ? KBD_POLL_MS : KBD_POLL_FALLBACK_MS,
-                                NULL);
+    pos_keymap_reset(&kbd.map);
+    return 1;
+}
+
+static int start_polling(void)
+{
+    if (kbd.timer) {
+        return 1;
+    }
+    kbd.timer = lv_timer_create(on_poll, kbd.gated ? KBD_POLL_MS : KBD_POLL_FALLBACK_MS, NULL);
     if (!kbd.timer) {
         return 0;
     }
     kbd.present = true;
-    return 1;
-}
-
-int shell_kbd_create(void)
-{
-    struct kbd_bus bus;
-    char why[96];
-
-    if (kbd.present) {
-        return 1;
-    }
-    if (kbd_bus_k230_create(&bus, why, sizeof(why)) != 0) {
-        LOG_INFO("keyboard: none (%s)", why);
-        return 0;
-    }
-    if (!shell_kbd_attach(&bus)) {
-        LOG_INFO("keyboard: the controller did not answer; touch only");
-        kbd_bus_k230_destroy(&bus);
-        return 0;
-    }
+    kbd.delivered = 0;
+    kbd.dropped = 0;
+    kbd.reserved = 0;
     /* The period follows the mode, so it is reported rather than assumed:
      * a log saying 15 ms while the driver polls at 20 would be worse than
      * saying nothing. */
@@ -193,19 +266,116 @@ int shell_kbd_create(void)
     return 1;
 }
 
+static void on_watch(lv_timer_t *timer)
+{
+    (void)timer;
+    if (kbd.bus_ok && !kbd.present) {
+        /* Nothing attached: this probe is the only thing here that touches
+         * the bus, and a keyboard that answers it is taken into use at once -
+         * typing works from this tick, whatever the debounce below decides
+         * about the orientation. */
+        if (bring_up()) {
+            start_polling();
+        }
+    } else if (kbd.present && !kbd_tca8418_ready(&kbd.chip)) {
+        /* Failing: retry on this cadence rather than at the end of the 30 s
+         * backoff, so a keyboard that comes back is seen in a second. */
+        kbd_tca8418_retry_now(&kbd.chip);
+    }
+    kbd_presence_observe(observed());
+}
+
+int shell_kbd_probe(void)
+{
+    enum kbd_presence test;
+    char why[96];
+
+    if (kbd.probed) {
+        return kbd.bus_ok && kbd_tca8418_ready(&kbd.chip) ? 1 : 0;
+    }
+    kbd.probed = true;
+    if (test_presence(&test)) {
+        kbd_presence_publish(test);
+        return test == KBD_PRESENCE_PRESENT ? 1 : 0;
+    }
+    if (kbd_bus_k230_create(&kbd.bus, why, sizeof(why)) != 0) {
+        LOG_INFO("keyboard: none (%s)", why);
+        kbd_presence_publish(KBD_PRESENCE_UNKNOWN);
+        return 0;
+    }
+    kbd.bus_ok = true;
+    if (!bring_up()) {
+        LOG_INFO("keyboard: the controller did not answer; touch only");
+        /* The bus is kept, unlike before: it is what the watch probes with,
+         * and dropping it would mean a keyboard attached later was never
+         * noticed. The lines are the shell's either way until it exits. */
+        kbd_presence_publish(observed());
+        return 0;
+    }
+    kbd_presence_publish(KBD_PRESENCE_PRESENT);
+    return 1;
+}
+
+static void start_watching(void)
+{
+    /* The watch runs whether or not a keyboard was found: it is what notices
+     * one being attached, and what notices the attached one going away. */
+    if (!kbd.watch) {
+        kbd.watch = lv_timer_create(on_watch, KBD_WATCH_MS, NULL);
+    }
+}
+
+int shell_kbd_attach(const struct kbd_bus *bus)
+{
+    int answered;
+
+    if (!bus || kbd.present) {
+        return kbd.present ? 1 : 0;
+    }
+    kbd.bus = *bus;
+    kbd.bus_ok = true;
+    kbd.probed = true;
+    answered = bring_up() && start_polling();
+    kbd_presence_publish(answered ? KBD_PRESENCE_PRESENT : observed());
+    start_watching();
+    return answered;
+}
+
+int shell_kbd_create(void)
+{
+    if (!kbd.probed) {
+        shell_kbd_probe();
+    }
+    if (kbd.bus_ok && kbd_tca8418_ready(&kbd.chip)) {
+        start_polling();
+    }
+    start_watching();
+    return kbd.present ? 1 : 0;
+}
+
 void shell_kbd_destroy(void)
 {
     if (kbd.timer) {
         lv_timer_delete(kbd.timer);
         kbd.timer = NULL;
     }
+    if (kbd.watch) {
+        lv_timer_delete(kbd.watch);
+        kbd.watch = NULL;
+    }
     if (kbd.present) {
         LOG_INFO("keyboard: %u key(s) delivered, %u dropped, %u reserved",
                  kbd.delivered, kbd.dropped, kbd.reserved);
     }
     /* This is what puts the pin mux back, so it runs whether or not a
-     * keyboard was ever found. */
-    kbd_bus_k230_destroy(&kbd.bus);
+     * keyboard was ever found - but only when the lines were actually taken:
+     * the bus is now kept across a failed probe, and destroying one that was
+     * never created would restore a mux value nobody read. */
+    if (kbd.bus_ok) {
+        kbd_bus_k230_destroy(&kbd.bus);
+    }
+    kbd.bus_ok = false;
+    kbd.probed = false;
     kbd.present = false;
     kbd.ready = false;
     kbd.gated = false;

@@ -11,6 +11,18 @@
 static enum kbd_presence presence = KBD_PRESENCE_UNKNOWN;
 static kbd_presence_listener_t listener;
 static void *listener_user;
+/* The run of observations that has not been published: what they agree on,
+ * and how many of them there have been. */
+static enum kbd_presence candidate = KBD_PRESENCE_UNKNOWN;
+static unsigned agreed;
+
+static enum kbd_presence sane(enum kbd_presence state)
+{
+    if (state != KBD_PRESENCE_UNKNOWN && state != KBD_PRESENCE_ABSENT && state != KBD_PRESENCE_PRESENT) {
+        return KBD_PRESENCE_UNKNOWN;
+    }
+    return state;
+}
 
 enum kbd_presence kbd_presence_get(void)
 {
@@ -19,16 +31,41 @@ enum kbd_presence kbd_presence_get(void)
 
 void kbd_presence_publish(enum kbd_presence state)
 {
-    if (state != KBD_PRESENCE_UNKNOWN && state != KBD_PRESENCE_ABSENT && state != KBD_PRESENCE_PRESENT) {
-        state = KBD_PRESENCE_UNKNOWN;
-    }
+    state = sane(state);
     if (state == presence) {
+        kbd_presence_forget_observations();
         return;
     }
     presence = state;
+    kbd_presence_forget_observations();
     if (listener) {
         listener(presence, listener_user);
     }
+}
+
+void kbd_presence_observe(enum kbd_presence observed)
+{
+    observed = sane(observed);
+    if (observed == presence) {
+        /* Agreement with what is published ends any run against it: a single
+         * good reading between two bad ones is enough to keep the state. */
+        kbd_presence_forget_observations();
+        return;
+    }
+    if (observed != candidate) {
+        candidate = observed;
+        agreed = 0;
+    }
+    if (++agreed < KBD_PRESENCE_STABLE) {
+        return;
+    }
+    kbd_presence_publish(observed);
+}
+
+void kbd_presence_forget_observations(void)
+{
+    candidate = presence;
+    agreed = 0;
 }
 
 void kbd_presence_set_listener(kbd_presence_listener_t cb, void *user)

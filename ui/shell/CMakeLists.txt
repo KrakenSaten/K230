@@ -669,6 +669,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/tests/shell_kbd_test.c
         shell_kbd.c
         kbd_tca8418.c
+        kbd_presence.c
         kbd_bus_absent.c
         ../pocketui/pocketui.c
         ../pocketui/pos_display.c

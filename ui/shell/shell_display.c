@@ -100,18 +100,9 @@ void shell_display_resolve(const char *mode_arg, struct shell_display *d)
 
     memset(d, 0, sizeof(*d));
     shell_display_panel(&d->panel);
-#if defined(POCKETOS_SHELL_TEST_HOOKS) && POCKETOS_SHELL_TEST_HOOKS
-    {
-        /* The simulator's stand-in for a keyboard driver: a test says what
-         * the keyboard is, the way a real driver will publish it. */
-        const char *k = getenv("POCKETOS_TEST_KEYBOARD_PRESENCE");
-        enum kbd_presence p;
-
-        if (k && kbd_presence_parse(k, &p) == 0) {
-            kbd_presence_publish(p);
-        }
-    }
-#endif
+    /* The keyboard was probed before this (shell_kbd_probe), because the
+     * display is rotated when it is opened: a keyboard noticed afterwards
+     * would cost a restart on every boot with the base attached. */
     d->mode = orientation_mode_from_setting(mode_arg ? mode_arg : stored, &d->mode_valid);
     if (!d->mode_valid) {
         LOG_WARN("display: %s rotation mode \"%s\" is not automatic, portrait or landscape; using automatic",

@@ -17,10 +17,19 @@
 
 #include "kbd_bus.h"
 
-/* Take the bus, bring the controller up and start polling. Returns 1 when a
- * keyboard answered and 0 when none is attached. Absence is normal and is
- * not an error: the shell runs on touch alone. Call after pos_input_init(),
- * which is the stream this pushes into. */
+/* Take the bus and ask the controller whether it is there, before LVGL and
+ * the display exist: the orientation policy needs the answer to decide which
+ * way to open the display (shell_display.h), and a keyboard found after the
+ * display was opened would cost a restart. Publishes the answer through
+ * kbd_presence.h - present, absent, or unknown when this board has no
+ * transport at all. Returns 1 when the controller answered. */
+int shell_kbd_probe(void);
+
+/* Start polling the keyboard found by shell_kbd_probe(), and start watching
+ * for one being attached or removed while the shell runs. Returns 1 when a
+ * keyboard is being polled and 0 when none is attached. Absence is normal and
+ * is not an error: the shell runs on touch alone, and keeps watching. Call
+ * after pos_input_init(), which is the stream this pushes into. */
 int shell_kbd_create(void);
 
 /* Stop polling, release the lines and put the pin mux back. Must be called
@@ -29,8 +38,8 @@ void shell_kbd_destroy(void);
 
 /* Drive the driver from a bus the caller supplies, instead of the board's.
  * This is how tests/shell_kbd_test.c exercises the real glue - the poll
- * timer, the key path and the overflow recovery - with no hardware.
- * Returns 1 when the controller on that bus answered. */
+ * timer, the presence watch, the key path and the overflow recovery - with no
+ * hardware. Returns 1 when the controller on that bus answered. */
 int shell_kbd_attach(const struct kbd_bus *bus);
 
 #endif
