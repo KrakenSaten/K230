@@ -1,15 +1,15 @@
 # System in landscape: unit A gate
 
-Branch `feature/system-landscape` from origin/master `aaad9f4` (the shared
-corner-clearance helper). Code `a6ec564`, docs `d824e36`. VERSION stays 0.0.10.
+Branch `feature/system-landscape`, first from origin/master `aaad9f4` (code
+`a6ec564`, docs `d824e36`), then **rebased onto origin/master `f5d81ec`**
+(Settings in landscape, DS §24 accepted): code `5ad4b02`, docs `4cbeb0d`, this
+sheet `4972860`. The build on unit A is `4972860`. VERSION stays 0.0.10.
 
-**Result: host and simulator validation PASS, 2026-09-17. Unit A NOT RUN.**
-This work was done host and simulator only, by the product owner's
-instruction: unit A was not accessed in any way (no serial console, no SSH, no
-transfer, no restart of `doors-shell`, no rotation change, no flashing), and
-the state another session left it in after the Settings gate is untouched.
-The remote gate and the owner's physical check below are prepared, not run.
-DS Amendment I (§25) is PROPOSED.
+**Result: PASS on unit A, 2026-09-17** - host and simulator validation before
+and after the rebase, a userspace deployment of the rebased build with health
+checks over the serial console, then the product owner's physical check (last
+section). **The product owner ACCEPTED the work and DS Amendment I (§25) on
+2026-09-17.** Not merged.
 
 Scope: System only. No other app, no rotation policy, no keyboard presence
 logic, no shell or PocketUI change, no sysd change, no boot splash, no
@@ -31,7 +31,7 @@ Details: the "the layout" comment in `apps/system/system_app.c`.
 
 ## Host validation
 
-From a fresh clone of `d824e36`.
+First from a fresh clone of `d824e36` (on `aaad9f4`).
 
 | Check | Result |
 | --- | --- |
@@ -106,6 +106,103 @@ errors and warnings.
 | Landscape arrangement | two columns 20..604 and 627..1211, the gap empty; the freshness line and a refusal across the top; columns clipped at 537 above the corner squares; each column scrolled on its own to its end; the confirmations and the power-off panel at 352..879, in view whole in Outdoor |
 | Column balance | content length left / right: unit A 771 / 828 px, every value long 843 / 956, every row 1,379 / 1,404 |
 
+## The rebase onto `f5d81ec`
+
+Settings in landscape was accepted and merged while System waited, so the
+branch was rebased onto the new master before the unit A gate.
+
+- **Conflicts:** only `docs/design/POCKETOS-DS-v0.1.md`, as expected. §21.3's
+  list keeps "Settings: §24." and adds "System: §25." after it; §24 is kept
+  exactly as accepted and §25 follows it. Against `f5d81ec` the DS diff is 91
+  added lines and 0 removed, so nothing of §24 or any earlier section was
+  changed. §25's opening no longer calls §24 pending, and §25.3 names §24.4's
+  column rule as the one System follows. The DS commit's message was reworded
+  to match; its tree is the plain rebase result.
+- **Unchanged by the rebase:** every System file (`apps/system/`, the three
+  System tests, the brand test, this sheet), `Makefile` and
+  `ui/shell/CMakeLists.txt` are byte-identical to `de1295a`. The branch touches
+  no other application file; it fast-forwards from `f5d81ec`.
+
+Revalidated from a fresh clone of `4972860`:
+
+| Check | Result |
+| --- | --- |
+| `make all` (-Werror) | rc 0, 0 warnings |
+| `make test` | 3,753 ok, 0 FAIL, 0 warnings (master `f5d81ec`: 3,739, plus the 14 `system_lint` checks); clean checkout after |
+| SDL simulator build | rc 0, 0 warnings |
+| 21 shell and UI test scripts | 521 ok, 0 FAIL, every script rc 0; `system_app_test` 833 and `settings_app_test` 636, both 0 failures; `system_shell_test.sh` 21, `system_brand_shell_test.sh` 39, `settings_shell_test.sh` 9 |
+| riscv64 DRM/sysroot shell | rc 0, 0 warnings; `Doors 0.0.10 build 4972860`; stripped `doors-shell` 948,912 B, md5 `cf56ca1a7ae7d558c1912cb1b990888c` |
+| riscv64 `make all` (ENABLE_SX1262=1) | rc 0; 4 warnings, all `vendor/ggwave`; 0 first-party |
+| Simulator smoke, 30 px corners | System portrait, landscape, the restart and power-off confirmations and Cancel, Normal and Outdoor: 16 captures identical below the status bar to the accepted captures of `de1295a`; every object's geometry identical (112 objects live, 50 with a confirmation; the status-bar clock text masked); the foot corner squares background only in 16 of 16 |
+
+## Unit A: deployment
+
+Over the USB serial console (COM9, 115200); SSH was not used. Userspace only:
+the SD card was not flashed and only `S90doors-shell` was restarted. Helpers
+in `/tmp/sysgate` were read-only apart from the install script; the capture
+helper writes no input events, so nothing was pressed remotely, and neither
+Restart nor Power off was used in any automation.
+
+| Step | Evidence | Result |
+| --- | --- | --- |
+| Before | `/etc/doors-release` 0.0.10 / `9f9c802`; `doors-shell` build `8177aa7`, md5 `fa62288b…` (944,816 B), one process (pid 387) under `pos-supervise`, restarts 0; up 25 min; Automatic, portrait, keyboard absent; Slate, Normal, brightness 100; Wi-Fi off, 0 saved; sysd, netd, radiod running, restarts 0; 0 crash reports, no crashloop, no segfault/oops/panic; `shell.log`, `sysd.log`, `radiod.log` 0 ERROR and 0 WARN; `netd.log` 0 ERROR and the 3 WARN recorded in the Settings gate | recorded |
+| Transfer | gzip + base64 over the console, 460,574 B in 95 s; gzip md5 `3f79f8ff…` equal on both ends | PASS |
+| Install | rollback copy `/root/doors-shell.8177aa7`; installed 0755 root, md5 `cf56ca1a…` equal to the host artifact; the shell answers `build 4972860`; exactly one `doors-shell` (pid 862); supervised, running, crashloop 0, restarts 0 | PASS |
+| System opened remotely | `doors app start system`: open, no new ERROR or WARN in any log; the panel captured: the portrait layout with the unit's own values (LIVE, eth0 192.168.10.157, `/` and `/boot`, the running services), the panels clipped above the rounded corners, the foot corner squares background only | PASS |
+| Settings opened remotely | open with no fault; the panel captured: Display > Rotation with AUTOMATIC selected and PORTRAIT and LANDSCAPE offered; `shell.rotation` automatic, valid, not applying | PASS |
+| Ready | back on the launcher; health as before, `shell.log` 14 new lines since the install, 0 ERROR, 0 WARN; VmRSS 12,800 kB | PASS |
+
+The remote landscape captures, drags and simulator comparison planned earlier
+were not run: the product owner was at the unit and did the landscape part by
+hand (below). The two captures are portrait only.
+
+## Unit A: the physical check
+
+**Result: PASS** - the product owner at the panel, 2026-09-17, build
+`4972860`. The batch, never confirming Restart or Power off:
+
+| Steps | Check | Owner's finding |
+| --- | --- | --- |
+| 1-9 | Portrait: System looks correct; scroll to the bottom and back; Restart and its confirmation, Cancel; Power off and its confirmation, Cancel | PASS |
+| 10-11 | Settings > Display > Rotation > LANDSCAPE; System reopened | PASS |
+| 12-13 | Landscape looks designed rather than stretched; LIVE belongs to the whole screen | PASS |
+| 14-17 | Each column dragged; one drag started in the gap between two panels scrolls the intended column naturally; both columns usable under a thumb | PASS |
+| 18-23 | Restart: the dialog centred, Cancel; Power off: the dialog centred, Cancel | PASS |
+| 24-26 | Settings > Display > Rotation > AUTOMATIC; System reopened; portrait correct | PASS (see below) |
+
+**What the unit's logs recorded, read before the result was recorded** (times
+UTC, `shell.log`):
+
+- 16:00:52-16:01:01 System open in portrait.
+- 16:01:10 LANDSCAPE stored from Settings; the shell restarted in place (the
+  same pid 862, supervisor restarts 0) at rotation 270, 1232 x 568, touch
+  calibration swapped for it; launcher 6 x 2.
+- 16:01:24-16:02:21 System open in landscape.
+- 16:02:27 AUTOMATIC stored from Settings; the shell restarted in place at
+  rotation 0, 568 x 1232 (keyboard absent); launcher 2 x 6.
+- **Steps 25-26.** The owner's first PASS was followed by no System open in
+  portrait in the log; the owner was asked and replied "PASS 25-26", after
+  which the log showed Notes opened and closed (16:22:38-16:22:40) and still no
+  System. Asked again, the owner opened System (16:25:07-16:25:09, in portrait)
+  and replied "PASS 25-26". The steps are recorded on that second check.
+- `sysd.log` has no line during the check: neither a restart nor a power-off
+  reached sysd. Taps inside System are not logged, so the confirmations
+  themselves rest on the owner's finding.
+
+Afterwards, over the console (16:25:20 UTC): unit A running build `4972860`
+(md5 `cf56ca1a…`), one `doors-shell` (pid 862), restarts 0, no crashloop, 0
+crash reports, no segfault, oops or panic; sysd, netd and radiod running,
+restarts 0; since the install `shell.log` 51 new lines with 0 ERROR and 0 WARN,
+and no new line in `netd.log`, `sysd.log` or `radiod.log`; Automatic
+(portrait, keyboard absent), Slate, Normal, brightness 100, Wi-Fi off, on the
+launcher; `doors-shell` VmRSS 12,672 kB. Nothing needed restoring.
+
+Captures, logs and the bench helpers:
+`out/system-landscape-4972860/hwgate-unitA/` (outside the repository).
+
+**Rollback** (if wanted): stop `S90doors-shell`, copy
+`/root/doors-shell.8177aa7` to `/usr/bin/doors-shell`, start it again.
+
 ## Found on the way, left alone
 
 On master too, and outside this scope:
@@ -117,62 +214,15 @@ On master too, and outside this scope:
   changing) rebuilds it, so the scroll position goes back to the top - in
   landscape both columns.
 
-## Unresolved hardware questions
+## Hardware questions, as answered
 
-Only the panel and a finger can answer these; nothing here is claimed for
-unit A.
-
-- Whether two independently scrolling columns 343 px tall feel natural under a
-  thumb, drags starting in the gap between panels included, and whether the
-  scrollbars read clearly.
-- Whether the freshness line at the top right of the landscape body is noticed
-  as belonging to both columns.
-- Capture against the simulator on the real panel (RGB565, within 13 per
-  channel, as for Calculator, Notes and Settings). System's values are live, so
-  the simulator must be fed the unit's own `system.status` and `system.info`
-  taken at the moment of the capture.
-- On the unit a rotation restarts the shell in place and comes back on the
-  launcher (DS §21.2), so System is never open while the display turns there;
-  the relayout under an open app is host evidence only.
-
-## The gate to run later
-
-Only in a session the owner allows to use unit A. Build the stripped
-riscv64 DRM `doors-shell` from the branch tip as for the Settings gate (a
-build of `d824e36` was 944,816 B, md5 `3afdda5b…`; the gate rebuilds it).
-**Power off is never confirmed on the unit** - it cannot be undone remotely
-(docs/hardware/V0.0.7_BLOCK2C_SMOKE.md). Every confirmation is closed with
-Cancel.
-
-**Remote** (serial console or SSH, as the owner allows):
-
-1. Identity before (release file, `doors-shell` md5 and build, rotation mode,
-   theme, restarts, crash reports, `shell.log` errors). Rollback copy of the
-   installed `doors-shell`; install the build; restart only `S90doors-shell`;
-   the shell answers the new build, supervised, restarts 0.
-2. Portrait: open System; capture; compare with the simulator fed the unit's
-   own `system.info`/`system.status` taken at the same moment.
-3. Landscape (`doors call shell shell.rotation mode=landscape`, restart in
-   place, back on the launcher): open System; capture and compare; drag the
-   right column to Restart | Power off (the left column does not move), and
-   the left column to its end; tap Restart: the confirmation centred, capture;
-   Cancel; tap Power off: the confirmation centred, Cancel accented; Cancel.
-4. Back to the mode found (Automatic); health after (`shell.log` 0 ERROR and
-   WARN, no crash report, services running, restarts 0); the foot corner
-   squares of every capture hold only background.
-
-**Physical** (the owner, one batch):
-
-1. **Portrait** (as the unit is): open System. It looks as it did; drag to the
-   end and back; tap Restart, then Cancel; tap Power off, then Cancel.
-2. **Landscape** (Settings > Rotation > LANDSCAPE; open System): it looks
-   designed for landscape - two balanced columns, LIVE at the top right,
-   nothing clipped, overlapping or cut by the rounded corners; drag each column
-   with a thumb, once starting between two panels (each scrolls alone,
-   naturally); drag the right column to the actions; tap Restart (the
-   confirmation in the middle), Cancel; tap Power off, Cancel.
-3. **Back**: Settings > Rotation > AUTOMATIC. System still looks right in
-   portrait.
-
-**Result: NOT RUN** - host and simulator only by instruction; the owner's
-physical check and the remote gate are pending.
+- Two independently scrolling columns under a thumb, a drag that starts in the
+  gap between panels included: natural and usable (owner, steps 14-17).
+- The freshness line at the top right of the landscape body reads as belonging
+  to the whole screen (owner, step 13).
+- The confirmations in landscape are centred (owner, steps 18-23).
+- Not done: a pixel comparison of the panel with the simulator fed the unit's
+  own `system.info`/`system.status` (the physical check was done instead);
+  the relayout with System open while the display turns remains host evidence
+  only, because on the unit a rotation restarts the shell onto the launcher
+  (DS §21.2), as the log shows.

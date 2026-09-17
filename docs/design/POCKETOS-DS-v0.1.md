@@ -1416,15 +1416,30 @@ To §22.3 and §23.4, for the next app:
   helper is proposed: the frame, the shape choice and the size handler are a
   few lines each app writes against its own objects.
 
-## 25. Amendment I — System in landscape [PROPOSED]
+## 25. Amendment I — System in landscape [ACCEPTED]
 
-**PROPOSED 2026-09-17**, host and simulator only, pending the unit A gate
-(`docs/hardware/SYSTEM_LANDSCAPE_GATE.md`) and the product owner's acceptance.
-The fourth app given its own landscape layout under §21.3, after Settings
-(§24), on the pattern of §22.3, §23.4 and §24.4, which it follows and extends
-(§25.3); it is not a second layout system. Nothing in §1–§24 is renumbered,
-and nothing outside System changes: not the shell, the rotation policy,
-PocketUI, sysd or any other app.
+**ACCEPTED 2026-09-17** by the product owner, after the unit A gate
+(`docs/hardware/SYSTEM_LANDSCAPE_GATE.md`: PASS). Proposed the same day, host
+and simulator only, and rebased onto the accepted §24 before the gate. The
+acceptance rests on: the responsive-layout pattern of §22.3, §23.4 and §24.4
+reused - the arrangement chosen from the body's size, the screen arranged when
+it is built and again when the body changes size, columns that each scroll
+themselves, a confirmation at its portrait width, the corner clearance read
+from the platform; clean host validation before and after the rebase (make
+test, every shell and UI test, portrait pixel-identical to the previous layout
+with square corners, the layout mutations caught) and riscv64 and DRM builds;
+the rebased build installed on unit A with only the shell service restarted,
+healthy, and System and Settings rendering on the panel; and the owner's
+physical check of both orientations - the landscape screen designed rather
+than stretched, the freshness line belonging to the whole screen, each column
+scrolling naturally under a thumb, a drag started between two panels
+included, both confirmations centred and cancelled, and portrait correct
+before and after. Neither power action was confirmed on the unit. Normative on
+the same terms as the rest of this document. The fourth app given its own
+landscape layout under §21.3, after Settings (§24), on the pattern of §22.3,
+§23.4 and §24.4, which it follows and extends (§25.3); it is not a second
+layout system. Nothing in §1–§24 is renumbered, and nothing outside System
+changes: not the shell, the rotation policy, PocketUI, sysd or any other app.
 
 ### 25.1 Two shapes, chosen from the body
 
@@ -1482,9 +1497,8 @@ PocketUI, sysd or any other app.
 
 ### 25.3 What System adds to the pattern
 
-To §22.3, §23.4 and §24.4, for the next app. PROPOSED with this amendment; none
-of it is accepted until the unit A gate and the owner's review. The columns
-themselves are §24.4's rule, which System follows.
+To §22.3, §23.4 and §24.4, for the next app. The columns themselves are
+§24.4's rule, which System follows.
 
 - **What qualifies every value stays across the columns.** A line that says
   how far everything on the screen can be trusted - System's freshness line,
@@ -1517,3 +1531,4 @@ Amendment E (§21) accepted 2026-09-16.
 Amendment F (§22) accepted 2026-09-16.
 Amendment G (§23) accepted 2026-09-17.
 Amendment H (§24) accepted 2026-09-17.
+Amendment I (§25) accepted 2026-09-17.
