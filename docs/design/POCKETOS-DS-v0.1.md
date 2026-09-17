@@ -1314,11 +1314,23 @@ the panel. Whether the sheet should stay down while a physical keyboard is
 present, or reserve only its own 568 px footprint in landscape, is a shell
 and §17.3 question for its own amendment.
 
-## 24. Amendment H — Settings in landscape [PROPOSED]
+## 24. Amendment H — Settings in landscape [ACCEPTED]
 
-**PROPOSED 2026-09-17**, pending the unit A gate
-(`docs/hardware/SETTINGS_LANDSCAPE_GATE.md`) and the product owner's
-acceptance. The third app given its own landscape layout under §21.3, on the
+**ACCEPTED 2026-09-17** by the product owner, after the unit A gate
+(`docs/hardware/SETTINGS_LANDSCAPE_GATE.md`: PASS). Proposed the same day.
+The acceptance rests on: the responsive-layout pattern of §22.3 and §23.4
+reused - the shape chosen from the body's size, a screen shaped when it is
+built and again when the body changes size, the corner clearance read from the
+platform; clean host validation (make test, every shell and UI test, portrait
+pixel-identical to the previous layout with square corners, the layout
+mutations caught) and riscv64 and DRM builds; the remote validation on unit A
+(the build installed with only the shell service restarted, the panel matching
+the simulator in both orientations, taps and drags injected through the Wi-Fi
+switch, the independent columns, the passphrase sheet above the landscape
+keyboard with its error caption, and the rotation modes); and the owner's
+physical check of both orientations, touch, scrolling, typing and the error
+caption on the panel. Normative on the same terms as the rest of this
+document. The third app given its own landscape layout under §21.3, on the
 pattern of §22.3 and §23.4, which it follows and extends (§24.4); it is not a
 second layout system. Nothing in §1–§23 is renumbered, and nothing outside
 Settings changes: not the shell, its keyboard, the rotation policy, PocketUI
@@ -1413,3 +1425,4 @@ Amendment D (§20) accepted 2026-09-15.
 Amendment E (§21) accepted 2026-09-16.
 Amendment F (§22) accepted 2026-09-16.
 Amendment G (§23) accepted 2026-09-17.
+Amendment H (§24) accepted 2026-09-17.

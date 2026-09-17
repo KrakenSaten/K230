@@ -2,8 +2,8 @@
 
 Status: host-tested (view model, LVGL app test, shell test, lint) and
 validated on unit A on 2026-09-13 (end of this page). Added on `feature/post-v0.0.9-foundations`.
-Landscape layout (DS §24, proposed) on `feature/settings-landscape`: remote
-validation on unit A PASS 2026-09-17, physical check pending
+Landscape layout (DS §24, accepted) on `feature/settings-landscape`: unit A
+gate PASS 2026-09-17, remote validation and the product owner's physical check
 (`docs/hardware/SETTINGS_LANDSCAPE_GATE.md`).
 
 Settings is the launcher app for the OS-level controls that exist and work:
@@ -95,7 +95,7 @@ through the shared styles, so the scroll position stays where it was.
 
 ## Layout
 
-DS §24 (Amendment H, proposed), on the pattern of §22.3 and §23.4. Cards have
+DS §24 (Amendment H, accepted), on the pattern of §22.3 and §23.4. Cards have
 20 px padding; rows are 72 px and buttons 64 px tall; the toggle and the step
 buttons are 120 and 96 px wide. The app puts one frame in the body the shell
 gives it - exactly the body's content box - and the screen on show inside
@@ -197,5 +197,8 @@ brightness, the Wi-Fi switch, Scan, a network's sheet, the keyboard, SHOW,
 Cancel, the display mode and the rotation modes; each landscape column
 scrolled alone; the passphrase field and its error caption were in view above
 the landscape keyboard; state was kept across closing, reopening and turning
-the display; nothing reached the rounded corners; no fault, no restart. The
-product owner's physical check is pending.
+the display; nothing reached the rounded corners; no fault, no restart. Then
+the product owner's physical check PASS: portrait and landscape look correct
+and intentional, the two columns balanced and scrolling on their own under a
+finger, taps land, and the passphrase error is readable above the landscape
+keyboard.

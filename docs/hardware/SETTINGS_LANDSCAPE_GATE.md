@@ -4,8 +4,10 @@ Branch `feature/settings-landscape` from origin/master `aaad9f4` (the shared
 corner-clearance helper). Code `c8e847b`, docs `8177aa7`; the build on unit A
 is `8177aa7`. VERSION stays 0.0.10.
 
-**Result: remote validation PASS on unit A, 2026-09-17. The product owner's
-physical check is pending** (last section). DS Amendment H (§24) is PROPOSED.
+**Result: PASS on unit A, 2026-09-17** - remote validation, then the product
+owner's physical check (last section), with the deviations there recorded as
+the owner's deliberate actions. **The product owner ACCEPTED the work and DS
+Amendment H (§24) on 2026-09-17.** Not merged.
 
 Scope: Settings only. No other app, no rotation policy, no keyboard presence
 logic, no shell keyboard change, no PocketUI change, no boot splash, no
@@ -137,4 +139,56 @@ where a finger lands or how scrolling feels. The physical check, one batch:
 4. **Back**: tap Wi-Fi OFF; Rotation > AUTOMATIC. Settings still looks right
    in portrait.
 
-**Result: PENDING** - the product owner is not at the unit.
+**Result: PASS** - the product owner at the panel, 2026-09-17, build
+`8177aa7`, "all 21 steps look correct" (the batch as the owner received it:
+portrait 1-4, landscape 5-18, return 19-21):
+
+| Check | Owner's finding |
+| --- | --- |
+| Portrait | looks correct; scrolling natural; brightness taps land |
+| Landscape | the two-column layout looks intentional and balanced |
+| Columns | each scrolls on its own, naturally, under a finger |
+| Wi-Fi ON, SCAN, a passphrase network | correct |
+| Fewer than 8 characters, Done | the error message is clearly readable above the keyboard |
+| Sheet dragged up, CANCEL | correct |
+| Back in portrait | Settings still looks correct |
+
+Before the check, over the console: the unit had not rebooted since the remote
+gate (up 22 h), still build `8177aa7` with md5 `fa62288b…` equal to the tested
+riscv64 artifact, one `doors-shell` under its supervisor and no vendor
+launcher, restarts 0, no crashloop, 0 crash reports, sysd, netd and radiod
+healthy, `shell.log` and `netd.log` 0 ERROR and 0 WARN, no segfault, oops or
+panic; on the launcher in the gate's start state (Automatic, portrait, Slate,
+Normal, brightness 255 of 255, Wi-Fi off, 0 saved networks). Nothing needed
+restoring or redeploying. SSH was still unavailable (no authorized key).
+
+**What the unit's logs recorded during the check, and the owner's ruling.**
+Read afterwards over the console; the owner confirmed these as deliberate and
+the result as PASS:
+
+- **A reboot.** Settings opened in portrait and LANDSCAPE was chosen (stored,
+  restart in place); Settings was opened and closed twice; then System was
+  opened, and 4 s later sysd accepted a reboot and ran `/sbin/reboot` (clean:
+  "stopping on signal" in `shell.log`, no ext4 recovery in `dmesg`). Doors came
+  back in landscape, the stored mode, and the rest of the batch ran after it.
+- **A real join attempt.** With Wi-Fi turned on, netd logged a join to one of
+  the nearby networks (WPA2/WPA3) 25 s later and `auth_failed` 8 s after that;
+  a join reaches netd only once the passphrase passes the 8..63 character check,
+  so a passphrase of 8 or more characters was submitted after the short one.
+  Nothing was stored (0 saved networks). These are the three `netd.log` WARN
+  lines of the session: `STATUS: no answer from wpa_supplicant: Connection
+  timed out` (the 300 ms control timeout already recorded after the post-v0.0.9
+  Wi-Fi validation) and the two `auth_failed` lines. `shell.log` stayed at 0
+  ERROR and 0 WARN.
+- **The ending.** Wi-Fi was turned off, then PORTRAIT (not AUTOMATIC) was
+  stored and Doors restarted in place into portrait; in portrait Settings was
+  opened, Wi-Fi turned on again, and Settings closed. The unit was found in
+  Portrait mode with Wi-Fi on.
+
+Afterwards, over the console: `doors wifi off` and `shell.rotation
+mode=automatic` (no restart needed: keyboard absent, already portrait). Unit A
+left running build `8177aa7` (md5 `fa62288b…`), Automatic (portrait), theme
+Slate, Normal, brightness 255 of 255, Wi-Fi off, 0 saved networks, store ok,
+on the launcher; one `doors-shell`, restarts 0, no crashloop, 0 crash reports,
+no segfault, oops or panic; sysd, netd and radiod running, restarts 0;
+`doors-shell` VmRSS 12,416 kB.
