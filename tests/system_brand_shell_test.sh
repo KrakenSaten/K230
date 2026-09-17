@@ -5,6 +5,8 @@
 # mark in the wrong colour, the wrong place or at the wrong size is not found:
 #
 #   - every theme in every display mode, as selected at start;
+#   - one theme in every display mode in landscape, where the identity row is
+#     in the second of System's two columns (DS §25);
 #   - a live theme change, which must repaint it without a rebuild (DS §8);
 #   - reduced motion, which must change nothing about it (DS §19.4).
 #
@@ -98,6 +100,22 @@ for theme in ice brass olive slate carbon; do
         [ "$theme/$mode" = ice/normal ] && ICE_AT=$where
         printf '%s %s %s\n' "$theme" "$mode" "$where" >> "$OUT/where.txt"
     done
+done
+
+# ---- in landscape ----------------------------------------------------------------
+# The identity panel is in the right-hand of System's two columns there
+# (DS 25.1): the same mark on that panel's content edge, the screen's 20, the
+# left column's 585 and the 22 px gap before the hairline and the panel's 20.
+for mode in normal outdoor night; do
+    png="$OUT/system-landscape-ice-$mode.png"
+    "$SHELL_BIN" --rotation landscape --open system --theme ice --mode "$mode" --screenshot "$png" \
+        --exit-after-ms 900 >"$OUT/landscape-ice-$mode.log" 2>&1
+    where=$(find_mark "$png" ice "$mode" 2>&1)
+    check "landscape ice/$mode: the mark is drawn once, in accent_primary, clear space and gap intact ($where)" \
+        "$(printf '%s' "$where" | grep -qE '^[0-9]+ [0-9]+$' && echo 1 || echo 0)"
+    edge=$((20 + 585 + 22 + $(hairline "$mode") + 20))
+    check "landscape ice/$mode: it starts on the right column's panel content edge, x = $edge" \
+        "$([ "${where%% *}" = "$edge" ] && echo 1 || echo 0)"
 done
 
 # SHOTS_DIR=<dir>: keep the screenshots, and make one contact sheet of the

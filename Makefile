@@ -724,6 +724,7 @@ test: all $(TEST_BINS)
 	bash tests/calendar_lint.sh
 	bash tests/calculator_lint.sh
 	bash tests/settings_lint.sh
+	bash tests/system_lint.sh
 
 install: all
 # The command-line tool is installed as doors, and pos is a symlink to it: one
