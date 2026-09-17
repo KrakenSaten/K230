@@ -11,7 +11,8 @@ build `ebd5a01`: see the last section.
 owner's physical check, which also approved the 20 px taller portrait editor
 field; after the rebase, remote validation PASS on `ebd5a01`, with every
 non-error screen pixel-identical to the build the owner checked. VERSION stays
-0.0.10. DS Amendment G (§23) is PROPOSED. Not merged.
+0.0.10. **The product owner ACCEPTED the work and DS Amendment G (§23) on
+2026-09-17, for merge to master.**
 
 Scope: Notes only. No other app, no rotation policy, no keyboard presence
 logic, no shell keyboard change, no boot splash, no first-boot or

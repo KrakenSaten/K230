@@ -1197,11 +1197,22 @@ extracted until a second app needs the same thing.
 
 Notes (§23) is the second app under this pattern and adds to it in §23.4.
 
-## 23. Amendment G — Notes in landscape [PROPOSED]
+## 23. Amendment G — Notes in landscape [ACCEPTED]
 
-**PROPOSED 2026-09-16**, pending the unit A gate
-(`docs/hardware/NOTES_LANDSCAPE_GATE.md`) and the product owner's acceptance.
-The second app given its own landscape layout under §21.3, on the pattern of
+**ACCEPTED 2026-09-17** by the product owner, after the unit A gate
+(`docs/hardware/NOTES_LANDSCAPE_GATE.md`: PASS). Proposed 2026-09-16. The
+acceptance rests on: the responsive-layout pattern of §22.3 reused - the shape
+chosen from the body's size, the objects built once, the corner clearance
+read from the platform; the owner's physical check of Notes in portrait and in
+landscape, touch and typing included; the owner's approval of the 20 px
+taller portrait editor field (§23.3); the rebase onto the shared multi-line
+error-caption fix of `pocketui_text_field` and the Notes changes it needed,
+with the error captions verified on the panel in portrait and landscape; the
+state, persistence and rotation checks (a note open while the display turns
+keeps its edit); and clean host validation (make test, every shell and UI
+test, the layout mutations caught), riscv64 and DRM builds, and remote
+regression on unit A. Normative on the same terms as the rest of this
+document. The second app given its own landscape layout under §21.3, on the pattern of
 §22.3, which it follows and extends (§23.4); it is not a second layout
 system. Nothing in §1–§22 is renumbered, and nothing outside Notes changes:
 not the shell, its keyboard, the rotation policy or any other app.
@@ -1307,4 +1318,4 @@ Amendment C (§19) accepted 2026-09-15.
 Amendment D (§20) accepted 2026-09-15.
 Amendment E (§21) accepted 2026-09-16.
 Amendment F (§22) accepted 2026-09-16.
-Amendment G (§23) proposed 2026-09-16.
+Amendment G (§23) accepted 2026-09-17.

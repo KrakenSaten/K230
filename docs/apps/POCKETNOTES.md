@@ -53,7 +53,7 @@ field takes them like any other.
 
 ## Layout
 
-DS §23 (Amendment G, proposed), on the pattern of §22.3. The app puts one
+DS §23 (Amendment G, accepted), on the pattern of §22.3. The app puts one
 frame in the body the shell gives it - exactly the body's content box - and
 its three screens inside that. Each screen is shaped from the frame's size,
 never from the orientation, and shaped again whenever the frame changes size,
@@ -244,6 +244,14 @@ every note byte-identical across a restart and a power cycle. The one note
 that changed across the restart was changed by the operator: a Backspace in
 the open note, saved on the way out like any other edit.
 
+**In landscape, 2026-09-16/17** (`docs/hardware/NOTES_LANDSCAPE_GATE.md`,
+PASS, DS §23 accepted): the owner's physical check of both orientations,
+touch and typing on build `c025779`; then, rebased onto the shared
+error-caption fix, remote validation of build `ebd5a01` - failed save, failed
+delete and read-only captions in portrait and landscape, a note over 2000
+characters opening read-only, rotation with a note open saving its edit, and
+nothing drawn in the rounded corners.
+
 Still untested on hardware: Notes at its limits (64 notes, the 4096-byte
-cap, a note over 2000 characters opening read-only), an unreadable note on a
-real card, and the keyboard under Outdoor mode's 20 px body.
+cap), an unreadable note on a real card, and the keyboard under Outdoor mode's
+20 px body.
