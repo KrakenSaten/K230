@@ -110,5 +110,39 @@ for banned in ntp timezone recurrence rrule cron ical; do
     [ -n "$hits" ] && echo "$hits" | head -3
 done
 
+# DS 21.2, 22.3: the layout is chosen from the body the app is given, not from
+# the orientation; the corner clearance comes from the platform's description
+# of the panel rather than a number of the app's own; and a change of shape
+# moves the one set of objects rather than building another.
+APP=apps/clock/clock_app.c
+layout() { sed -n '/^\/\* ---- the layout/,/^\/\* ---- the app/p' "$APP" | grep -vE '^[[:space:]]*(/\*|\*|//)'; }
+hits=$(layout | grep -nE 'orientation|rotation|POS_ROTATION_|POCKETOS_ROTATION_|landscape|portrait')
+check "the layout never asks which way the display is turned" \
+    "$([ -n "$(layout)" ] && [ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+hits=$(layout | grep -nE 'build_(main|add|confirm|alarm_list|[a-z]+_pane)\(|lv_obj_clean|lv_obj_delete|_create\(' |
+       grep -v 'lv_obj_create(root)')
+check "and builds nothing there: it only shapes what exists" \
+    "$([ -n "$(layout)" ] && [ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+create=$(sed -n '/^static void \*clock_create/,/^}/p' "$APP")
+check "each screen is built once, when the app is created" \
+    "$([ "$(printf '%s\n' "$create" | grep -cE '^    build_(main|add|confirm)\(a\);')" = 3 ] &&
+       [ "$(grep -cE '^    build_(main|add|confirm)\(a\);' "$APP")" = 3 ] && echo 1 || echo 0)"
+check "the screens sit in one frame that is the body's content box" \
+    "$(grep -q 'lv_obj_set_size(frame, LV_PCT(100), LV_PCT(100));' "$APP" && echo 1 || echo 0)"
+check "they are shaped again when the body changes size" \
+    "$(printf '%s\n' "$create" |
+       grep -q 'lv_obj_add_event_cb(a->frame, on_frame_size, LV_EVENT_SIZE_CHANGED, a);' && echo 1 || echo 0)"
+check "nothing calls back into the app once it is freed" \
+    "$(sed -n '/^static void clock_destroy/,/^}/p' "$APP" |
+       grep -q 'lv_obj_remove_event_cb_with_user_data(a->frame, on_frame_size, a);' && echo 1 || echo 0)"
+hits=$(code | grep -nE 'corners|top_left|top_right|bottom_left|bottom_right')
+check "the corner clearance is PocketUI's one rule, read from the display geometry" \
+    "$(grep -q 'pos_display_rect_insets(pocketui_display_geometry(),' "$APP" && [ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+check "the wide shape keeps both halves at least portrait-wide" \
+    "$(grep -q 'w > h && w >= 2 \* CLOCK_COLUMN_W + POCKETUI_PAD' "$APP" && echo 1 || echo 0)"
+
 echo "clock_lint: $failed failure(s)"
 exit $((failed > 0))
