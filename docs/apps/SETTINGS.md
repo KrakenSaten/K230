@@ -2,6 +2,9 @@
 
 Status: host-tested (view model, LVGL app test, shell test, lint) and
 validated on unit A on 2026-09-13 (end of this page). Added on `feature/post-v0.0.9-foundations`.
+Landscape layout (DS §24, proposed) on `feature/settings-landscape`: remote
+validation on unit A PASS 2026-09-17, physical check pending
+(`docs/hardware/SETTINGS_LANDSCAPE_GATE.md`).
 
 Settings is the launcher app for the OS-level controls that exist and work:
 **Wi-Fi** (through netd, `docs/api/network.md`), **display brightness**
@@ -183,3 +186,16 @@ unit A sections of `docs/hardware/WIFI_2026-09-12.md` and
 - Appearance: all five themes and Normal, Outdoor and Night applied live and
   persisted; every section readable in each mode, nothing clipped or
   overlapping, no control hard to hit.
+
+## Landscape on unit A (2026-09-17)
+
+Build `8177aa7`, installed over the serial console with only the shell
+service restarted; `docs/hardware/SETTINGS_LANDSCAPE_GATE.md` has the evidence.
+Remote validation PASS, nobody at the unit: the panel matches the simulator in
+portrait and landscape; taps and drags injected into the touch device reached
+brightness, the Wi-Fi switch, Scan, a network's sheet, the keyboard, SHOW,
+Cancel, the display mode and the rotation modes; each landscape column
+scrolled alone; the passphrase field and its error caption were in view above
+the landscape keyboard; state was kept across closing, reopening and turning
+the display; nothing reached the rounded corners; no fault, no restart. The
+product owner's physical check is pending.
