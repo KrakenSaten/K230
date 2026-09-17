@@ -1190,7 +1190,8 @@ extracted until a second app needs the same thing.
 - Keep portrait as it is; test that it is, pixel for pixel, on a panel with
   square corners.
 - Anything that reaches the foot of the body takes the corner squares from
-  the platform geometry, never a hard-coded inset.
+  the platform geometry, never a hard-coded inset (`pos_display_rect_insets()`,
+  §23.4).
 - Test both orientations on the laid-out objects: every control inside the
   body and the safe area, no overlaps, the touch minimum, text drawn whole in
   every display mode, and the body changing shape with the app open.
@@ -1302,6 +1303,10 @@ To §22.3, for the next app:
   now demonstrably share, and is proposed for PocketUI beside
   `pocketui_display_geometry()`. The shapes themselves are each app's own and
   are not candidates. The extraction is a separate, owner-approved change.
+  *Done 2026-09-17, as an implementation refactor that changes no rule and no
+  pixel:* the rule is `pos_display_rect_insets()` in `pos_display.h`, and
+  Calculator and Notes call it with `pocketui_display_geometry()` instead of
+  carrying copies.
 
 **Open for the shell, not decided here.** With a keyboard base attached,
 Automatic is landscape (§21.2) and the touch sheet still comes up over half
