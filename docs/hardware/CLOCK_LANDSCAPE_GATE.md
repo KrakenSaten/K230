@@ -1,16 +1,16 @@
 # Clock in landscape: unit A gate
 
-Branch `feature/clock-landscape`, written from origin/master `aaad9f4` (the
-shared corner-clearance helper) and rebased onto origin/master `dcf906d`
-(Settings §24 and System §25 accepted). Code `3f4b584`, docs `912849c`; before
-the rebase `0d04b45` and `8d5dcc1`. VERSION stays 0.0.10.
+Branch `feature/clock-landscape`, first from origin/master `aaad9f4` (code
+`0d04b45`, docs `8d5dcc1`), then **rebased onto origin/master `dcf906d`**
+(Settings §24 and System §25 accepted): code `3f4b584`, docs `912849c`, this
+sheet `8aec2bc`. The build on unit A is `8aec2bc`. VERSION stays 0.0.10.
 
-**Result: host and simulator validation PASS, 2026-09-17, before the rebase.
-Unit A NOT RUN.** That work was done host and simulator only, by the product
-owner's instruction: unit A was not accessed in any way (no serial console, no
-SSH, no transfer, no restart of `doors-shell`, no rotation change, no
-flashing). The remote gate and the owner's physical check below are prepared,
-not run. DS §26 (Amendment J) is PROPOSED.
+**Result: PASS on unit A, 2026-09-17** - host and simulator validation before
+the rebase (done host and simulator only, by the product owner's instruction,
+without touching unit A), revalidation after it, a userspace deployment of
+the rebased build with health checks over the serial console, then the
+product owner's physical check (last sections). **The product owner ACCEPTED
+the work and DS Amendment J (§26) on 2026-09-17.** Not merged.
 
 Scope: Clock only. No other app, no rotation policy, no keyboard presence
 logic, no shell, PocketUI or alarm-alert change, no boot splash, no first-boot
@@ -121,6 +121,110 @@ form's label field or the Timer's Start: they were below the foot.
 | Landscape, keyboard up | body 1192 x 100 (152..251): field, Cancel and Add in view; a refused label's reason on one line at 224..249 in Outdoor (224..244 Normal), in view with them |
 | Shell-owned screens | the touch keyboard in portrait reaches its full 568 px width into the corner squares, and the alarm alert's panel edge touches them in landscape, on master exactly as on the branch; neither is Clock's |
 
+## The rebase onto `dcf906d`
+
+Settings in landscape (§24) and System in landscape (§25) were accepted and
+merged while this branch waited, so it was rebased onto origin/master
+`dcf906d` before the gate (a local backup branch keeps `48208b9`).
+
+- **Only the design system conflicted**, in one place: both branches appended
+  their amendments after §23. §24 and §25 are kept exactly as accepted - the
+  DS diff against `dcf906d` changes one line (§21.3's list gains "Clock: §26."
+  after "System: §25.") and otherwise only adds - and Clock's amendment, written
+  with its number left open, became **§26, Amendment J**. §26.4 now cites §25.3
+  for the pressable scrolling column and the width floor instead of restating
+  them.
+- **Every Clock code and test file is byte-identical** to the validated branch
+  (`apps/clock/clock_app.c`, `tests/clock_app_test.c`, `tests/clock_lint.sh`:
+  the same blobs as `48208b9`). The branch changes no Settings, System or other
+  application file; against `dcf906d` it touches only Clock's app, its test and
+  lint, POCKETCLOCK.md, the DS and this sheet.
+
+Revalidated from fresh clones of `8aec2bc` and, for comparison, `dcf906d`:
+
+| Check | Result |
+| --- | --- |
+| `make all` (-Werror) | rc 0, 0 warnings |
+| `make test` | 3,761 ok, 0 FAIL, 0 warnings (master `dcf906d`: 3,753; the 8 `clock_lint` checks); clean checkout after |
+| SDL simulator build | rc 0, 0 warnings |
+| 21 shell and UI test scripts | 521 ok, 0 FAIL, every script rc 0 (master: the same 21 and 521) |
+| `clock_app_test` / `clock_lint.sh` | 778 checks / 38 checks, 0 failures |
+| Clock engine, time, store and runtime tests | 210 / 39 / 76 / 85 checks, 0 failures |
+| `settings_app_test`, `settings_lint.sh`, `settings_shell_test.sh` | 636 checks, 0 failures; lint 0 failures; 9 ok |
+| `system_app_test`, `system_lint.sh`, `system_shell_test.sh`, `system_brand_shell_test.sh` | 833 checks, 0 failures; lint 0 failures; 21 ok; 39 ok |
+| riscv64 `make all` (ENABLE_SX1262=1) | rc 0; 4 warnings, all `vendor/ggwave`; 0 first-party |
+| riscv64 DRM/sysroot shell | rc 0, 0 warnings; `Doors 0.0.10 build 8aec2bc`; stripped 948,912 B, md5 `a893462f0ea58849c2dfc8f99986b1b8` |
+
+Simulator smoke set on the rebased tree, 30 px corners, against the accepted
+pre-rebase captures: Clock portrait and landscape (each tab), the new-alarm
+form with the keyboard down, up, typed and a label refused, the delete
+confirmation, a running and a paused countdown, the stopwatch with laps, and
+an alarm before, ringing and stopped - 14 runs free of errors and warnings, 30
+captures. **Object geometry identical in 30 of 30 states**; pixels identical in
+27 of 30, the other 3 only in live digits (a paused countdown, stopwatch and
+lap times).
+
+## Unit A: deployment
+
+Over the serial console (COM9), userspace only: nothing flashed, no SSH, only
+`S90doors-shell` restarted. Tools and log: `out/clock-landscape-8aec2bc/hwgate-unitA`.
+
+| Check | Result |
+| --- | --- |
+| Before | build `4972860` (md5 `cf56ca1a…`), one `doors-shell` (pid 862, restarts 0), Automatic, portrait, keyboard absent, theme Slate, Wi-Fi off; sysd, netd, radiod running, restarts 0; 0 crash reports; `shell.log` 0 ERROR and 0 WARN; `netd.log` 3 WARN from the Settings gate's failed Wi-Fi join, none new; the wall clock set |
+| Clock's store before | **no `clock.conf`** and no `/var/lib/pocketos/clock/` at all: no alarms stored and no timer duration |
+| Transfer | the gzip+base64 of the stripped build, 461,826 B in 95 s; on the unit gz md5 `67a2a42b…` and binary md5 `a893462f…`, both the host's |
+| Install | rollback copy `/root/doors-shell.4972860` (md5 `cf56ca1a…`); installed md5 `a893462f…`; the shell answers build `8aec2bc`; exactly one `doors-shell` (pid 1748); supervised, running, crashloop 0, restarts 0 |
+| After | Clock opened remotely (nothing tapped; opening writes nothing - still no `clock.conf`) and captured in portrait on the panel; Settings opened and captured, `shell.rotation` answering Automatic; back on the launcher; 0 new ERROR or WARN in `shell.log`, `netd.log`, `sysd.log`, `radiod.log`; 0 crash reports; doors-shell VmRSS 12,672 kB |
+
+## Unit A: the physical check
+
+The product owner, one batch, 2026-09-17 17:12-17:15 UTC: **PASS**.
+
+1. **Portrait**: Clock looks as before; a temporary alarm with a short label
+   added, shown correctly, and deleted through its confirmation.
+2. **Landscape** (Settings > Display > Rotation > LANDSCAPE, Clock reopened):
+   the layout intentional and nothing clipped by the corners; the face large
+   and readable; the alarm list dragged; Watch Start, Lap, Pause, Reset;
+   Timer Start, Cancel; Add alarm, the label field tapped, with the field,
+   Cancel and Add all visible above the keyboard; a short label typed, the
+   alarm added and deleted through the centred confirmation.
+3. **Optional observation**: the display turned once more (to PORTRAIT). What
+   happened to a countdown was not reported.
+4. **Return**: Settings > Display > Rotation > AUTOMATIC; Clock reopened;
+   portrait correct.
+
+The logs were read before this was recorded, and agree:
+
+- `open app clock` 17:12:16-17:12:50 in portrait; `rotation mode landscape
+  stored: rotation 270` and one restart in place (same pid, as `execv` keeps
+  it); `open app clock` 17:12:58-17:14:20 in landscape (1232x568, touch
+  calibration for rotation 270); `rotation mode portrait stored: rotation 0`
+  and a restart in place; Clock 17:14:31-17:15:00; `rotation mode automatic
+  stored: rotation 0` with no restart (still portrait); Clock 17:15:10-17:15:13.
+- **The portrait alarm is corroborated by the store**: the shell logs
+  `clock: N alarm(s) loaded` only when `clock.conf` exists. At the deploy it
+  did not; at the restart into landscape it logged `0 alarm(s) loaded`, so the
+  portrait session wrote the store, and left no alarm in it.
+- 0 ERROR and 0 WARN in `shell.log` (59 new lines), and nothing new in
+  `netd.log`, `sysd.log` or `radiod.log`; 0 crash reports, no crashloop, no
+  segfault, oops or panic in `dmesg`; one `doors-shell`, restarts 0; sysd,
+  netd and radiod running, restarts 0.
+- **Outside the batch**: at 17:15:17-18 Settings changed the theme from Slate
+  to Olive & Chalk, then to Carbon & Signal Orange. Not a Clock step; recorded
+  and left as the owner set it.
+
+**Clock's store after the gate**: `clock.conf` now exists (23 B, md5
+`857e643e…`) holding `pocketclock 1` and `timer 71` and **no alarm line**. The
+alarms are what they were before - none - so both temporary alarms were
+removed. The file itself and the 71-second timer duration are new: Start saves
+the duration as a setting (POCKETCLOCK.md, Storage), and there was no store
+before. A copy is `/root/clock.conf.post-clock-gate`.
+
+**Unit A left**: build `8aec2bc` (rollback `/root/doors-shell.4972860`),
+Automatic, portrait, keyboard absent, theme Carbon & Signal Orange (changed by
+the owner), display mode Normal, brightness 100, Wi-Fi off, Settings open.
+
 ## Found on the way, left alone
 
 Outside this scope:
@@ -129,8 +233,8 @@ Outside this scope:
   rotation restarts the shell in place (DS §21.2, `restart_in_place()` is an
   `execv`), and the clock runtime starts again from the store, which by design
   holds neither. With Automatic that includes attaching or removing the
-  keyboard base. From the code; not observed on unit A (a remote gate step
-  below can observe it).
+  keyboard base. From the code; on unit A the restart and the store reload are
+  in the log, but the countdown itself was not reported on. A separate bugfix.
 - A stepper's name sits at the top of its 64 px row, not centred; a single-line
   field's text sits at the top of the field. Both as on master.
 - The label keyboard's Done does nothing (KNOWN_ISSUES). In landscape, Add is
@@ -138,75 +242,22 @@ Outside this scope:
 - The shell's keyboard sheet (portrait) and alarm alert (landscape) reach the
   corner squares, as on master.
 
-## Unresolved hardware questions
+## Hardware questions, as answered
 
-Only the panel and a finger can answer these; nothing here is claimed for
-unit A.
-
-- Whether the label field and the Cancel | Add rail across the top of the
-  landscape form read naturally, above the keyboard and without it, given
-  that portrait puts the time first.
-- Whether two halves that scroll on their own feel natural under a thumb in
-  the Alarm pane, drags starting on a row and between the notice and the list
-  included, and whether a row's switch is never toggled by a drag.
-- Whether the big numbers in the left half, and the clock face across both,
-  read well at arm's length in Normal and Outdoor.
-- Capture against the simulator on the real panel (RGB565, within 13 per
-  channel, as for Calculator, Notes and Settings). The face, the status bar
-  and every running value follow the unit's clock, so the simulator must be
-  given the unit's time and store at the moment of capture, or those areas
-  masked.
+- The label field and the Cancel | Add rail across the top of the landscape
+  form, above the keyboard and without it: accepted by the owner (all three
+  visible above the keyboard).
+- The Alarm pane's halves under a thumb: the list dragged in landscape (step
+  11, PASS). No alarm was stored before the gate or left after it, so no
+  owner's alarm could have been switched by a drag.
+- The face across both halves: large and readable on the panel (step 10,
+  PASS). The stopwatch and countdown were run in landscape without a
+  remark; their legibility was not asked separately.
+- Capture against the simulator: Clock and Settings were captured on the panel
+  in portrait after the deployment; no pixel comparison was made (the unit's
+  theme and time differ from the simulator's), and the owner's check is the
+  acceptance.
 - On the unit a rotation comes back on the launcher, so Clock is never open
-  while the display turns; the relayout under an open app is host evidence,
-  and on the unit only the keyboard coming up and going down changes Clock's
-  body while it is open.
-
-## The gate to run later
-
-Only in a session the owner allows to use unit A. Build the stripped riscv64
-DRM `doors-shell` from the branch tip as for the Settings and System gates
-(a stripped build of `8d5dcc1` was 944,816 B, md5 `4f721e6c…`; the gate
-rebuilds it from the tip it runs).
-**Clock's store on unit A may hold the owner's alarms**: back it up first,
-add nothing that is left behind, and prove it unchanged at the end. An alarm
-the gate adds is deleted in the gate.
-
-**Remote** (serial console or SSH, as the owner allows):
-
-1. Identity before (release file, `doors-shell` md5 and build, rotation mode,
-   theme, restarts, crash reports, `shell.log` errors); md5 and a copy of
-   `/var/lib/pocketos/clock/clock.conf`. Rollback copy of the installed
-   `doors-shell`; install the build; restart only `S90doors-shell`; the shell
-   answers the new build, supervised, restarts 0.
-2. Portrait: open Clock; capture each tab and the new-alarm form; compare with
-   the simulator given the unit's time and store.
-3. Landscape (`doors call shell shell.rotation mode=landscape`, restart in
-   place, back on the launcher): open Clock; capture each tab (the face across
-   both halves; Alarm, Watch, Timer in halves); drag the alarm list (Add alarm
-   does not move); Watch Start, Lap, Lap, Pause, Reset; Timer +1 minute,
-   Start, capture, Cancel; Add alarm: capture; tap the label field (keyboard
-   up: field and the Cancel | Add rail in view), capture; type a label and
-   tap Add; tap that alarm's delete: the confirmation centred, capture; Delete.
-4. Optional, if the owner wants the rotation finding observed: start a
-   10-minute countdown, turn back to portrait (restart in place), reopen Clock:
-   record whether the countdown is gone.
-5. Back to the mode found (Automatic); health after (`shell.log` 0 ERROR and
-   WARN, no crash report, services running, restarts 0); `clock.conf` md5 as
-   before; the foot corner squares of every Clock capture hold only background.
-
-**Physical** (the owner, one batch):
-
-1. **Portrait** (as the unit is): open Clock. It looks as it did; each tab;
-   Add alarm, tap the label, type, Add; delete it (Cancel first, then Delete).
-2. **Landscape** (Settings > Rotation > LANDSCAPE; open Clock): it looks
-   designed for landscape - nothing clipped, overlapping or cut by the rounded
-   corners; the face large across the screen; drag the alarm list with a
-   thumb; Watch Start, Lap, Pause, Reset; Timer set, Start, Cancel; Add alarm:
-   tap the label field - with the keyboard up the field, Cancel and Add are
-   all visible - type a label, Add; delete that alarm (the confirmation in the
-   middle).
-3. **Back**: Settings > Rotation > AUTOMATIC. Clock still looks right in
-   portrait.
-
-**Result: NOT RUN** - host and simulator only by instruction; the owner's
-physical check and the remote gate are pending.
+  while the display turns; the relayout under an open app remains host
+  evidence, and on the panel the keyboard coming up in the form is the size
+  change that was exercised.

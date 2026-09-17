@@ -1520,17 +1520,33 @@ To §22.3, §23.4 and §24.4, for the next app. The columns themselves are
   `pos_display_rect_insets()` unchanged. The arrangement is its own. No new
   helper is proposed.
 
-## 26. Amendment J — Clock in landscape [PROPOSED]
+## 26. Amendment J — Clock in landscape [ACCEPTED]
 
-**PROPOSED 2026-09-17**, host and simulator only, pending the unit A gate
-(`docs/hardware/CLOCK_LANDSCAPE_GATE.md`) and the product owner's acceptance.
-Written against §23, and rebased onto the accepted §24 and §25 before the
-gate. The fifth app given its own landscape layout under §21.3, after Settings
-(§24) and System (§25), on the pattern of §22.3, §23.4, §24.4 and §25.3, which
-it follows and extends (§26.4); it is not a second layout system. Nothing in
-§1–§25 is renumbered, and nothing outside Clock changes: not the shell, its
-keyboard, the alarm alert (§18), the rotation policy, PocketUI or any other
-app.
+**ACCEPTED 2026-09-17** by the product owner, after the unit A gate
+(`docs/hardware/CLOCK_LANDSCAPE_GATE.md`: PASS). Proposed the same day, host
+and simulator only, written against §23 and rebased onto the accepted §24 and
+§25 before the gate. The acceptance rests on: the responsive-layout pattern of
+§22.3, §23.4, §24.4 and §25.3 reused - the shape chosen from the body's size,
+the objects built once and shaped again when the body changes size, halves
+that each scroll themselves, a confirmation at its portrait width, the corner
+clearance read from the platform; clean host validation before and after the
+rebase (make test, every shell and UI test, portrait identical to the previous
+layout with square corners, the layout mutations caught, the display turned
+under the open app with nothing lost or made twice) and riscv64 and DRM
+builds; the rebased build installed on unit A with only the shell service
+restarted, healthy, and Clock and Settings rendering on the panel; and the
+owner's physical check of both orientations - portrait as before, an alarm
+added and deleted through its confirmation; landscape designed rather than
+stretched, nothing cut by the rounded corners, the face large and readable,
+the alarm list dragged, the stopwatch and the countdown run, the label field,
+Cancel and Add in view above the keyboard, an alarm added and deleted through
+the centred confirmation; and portrait correct again in Automatic. Normative
+on the same terms as the rest of this document. The fifth app given its own
+landscape layout under §21.3, after Settings (§24) and System (§25), on the
+pattern of §22.3, §23.4, §24.4 and §25.3, which it follows and extends
+(§26.4); it is not a second layout system. Nothing in §1–§25 is renumbered,
+and nothing outside Clock changes: not the shell, its keyboard, the alarm
+alert (§18), the rotation policy, PocketUI or any other app.
 
 ### 26.1 Two shapes, chosen from the body
 
@@ -1605,9 +1621,7 @@ app.
 
 ### 26.4 What Clock adds to the pattern
 
-To §22.3, §23.4, §24.4 and §25.3, for the next app. PROPOSED with this
-amendment; none of it is accepted until the unit A gate and the owner's
-review.
+To §22.3, §23.4, §24.4 and §25.3, for the next app.
 
 - **Tabs stay where they are; the pane under them is what goes side by
   side.** A tabbed screen keeps its tab row across the top in the wide shape.
@@ -1653,3 +1667,4 @@ Amendment F (§22) accepted 2026-09-16.
 Amendment G (§23) accepted 2026-09-17.
 Amendment H (§24) accepted 2026-09-17.
 Amendment I (§25) accepted 2026-09-17.
+Amendment J (§26) accepted 2026-09-17.

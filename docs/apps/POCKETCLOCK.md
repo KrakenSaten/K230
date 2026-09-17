@@ -6,8 +6,8 @@ calendar: it has no events, no recurrence rules beyond "daily" and
 
 Status: **v0.0.8. Validated on unit A, 2026-09-11, in the release image
 (build `03851f5`).** The landscape layout (below) is on branch
-`feature/clock-landscape`: host and simulator validated, **not yet run on
-unit A** (`docs/hardware/CLOCK_LANDSCAPE_GATE.md`).
+`feature/clock-landscape`: **validated on unit A, 2026-09-17, build
+`8aec2bc`**, and accepted with DS §26 (`docs/hardware/CLOCK_LANDSCAPE_GATE.md`).
 
 ## What it is
 
@@ -32,7 +32,7 @@ shell, not to this app.
 PocketClock lays itself out in the body the shell gives it and picks its
 shape from that body's size, never from the orientation (DS §21.2), on the
 landscape pattern of DS §22.3, §23.4, §24.4 and §25.3. DS §26 (Amendment J,
-Clock in landscape, PROPOSED) is the normative version of this section.
+Clock in landscape, ACCEPTED) is the normative version of this section.
 
 - **Tall** - portrait, 528 x 1060 on the reference panel and 528 x 764 with
   the keyboard up - is the layout Clock always had.
@@ -75,8 +75,12 @@ Clock in landscape, PROPOSED) is the normative version of this section.
   Storage) is gone: a running stopwatch, a running countdown and any snooze.
   Alarms are unaffected. In Automatic, attaching or removing the keyboard
   base turns the display. From the code (`restart_in_place()` in
-  `ui/shell/shell.c` is an `execv`); not yet observed on unit A, and outside
-  this app.
+  `ui/shell/shell.c` is an `execv`), and outside this app. On unit A the
+  gate's optional step turned the display once more after the landscape
+  session, and the log shows the shell restarting in place and loading the
+  store again, but what happened to a countdown was not reported and the log
+  cannot show it; the loss remains unobserved on the panel and is a separate
+  bugfix.
 
 ## The one thing it cannot do, and says so
 
@@ -346,9 +350,12 @@ Found on the board:
 - **The label's keyboard Done does nothing**; tap Add. (KNOWN_ISSUES) In
   landscape Add is beside the field, above the keyboard.
 
-**Landscape: not run on unit A.** The layout above is validated on the host
-and in the simulator only; the remote gate and the owner's physical check are
-prepared in `docs/hardware/CLOCK_LANDSCAPE_GATE.md`.
+**Landscape: PASS on unit A, 2026-09-17**, build `8aec2bc`, installed in
+userspace over the serial console: the owner's physical check of portrait,
+landscape and portrait again - an alarm added and deleted in each
+orientation, the alarm list dragged, the stopwatch and the countdown run, and
+the label field, Cancel and Add in view above the landscape keyboard. The
+alarms stored afterwards are those before: none (`docs/hardware/CLOCK_LANDSCAPE_GATE.md`).
 
 Found in the simulator while making the landscape layout, and left alone:
 
