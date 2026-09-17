@@ -14,6 +14,12 @@
  * there, applied immediately, which is what DS §12 asks of a reduced-motion
  * build and is no worse for anyone else.
  *
+ * LAYOUT. One screen in two shapes, chosen from the box the app is given and
+ * chosen again whenever that box changes size: tall, the portrait layout it
+ * always had, and wide, the month beside what is said about it (see "the
+ * layout" below). The orientation is the system's (DS section 21.2); nothing
+ * here asks for it.
+ *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #include "cal_view.h"
@@ -46,9 +52,32 @@
 #define CELL_TEXT_RISE 8
 #define CELL_DOT_DROP 4
 
+/* The portrait body on the reference panel: 568 less the 20 px body padding
+ * each side (DS §7). The wide shape is only chosen when two of these and the
+ * gutter between them fit, so neither the month nor what is said about it is
+ * narrower there than in portrait. */
+#define CAL_COLUMN_W 528
+/* The wide shape's weeks. The landscape body is too short for six rows of 72
+ * px, or of 64 (6 * 64 + 5 * 4 = 404 px before the weekday headings, in a
+ * 396 px body), so there the weeks share the height instead: cells wider
+ * than tall, and at least as tall as DS §7's paired buttons. Rows and
+ * columns are both 4 px apart, and the headings keep 24 px of their 32. */
+#define WIDE_WEEKDAY_ROW_H 24
+#define WIDE_CELL_MIN_H 56
+#define WIDE_MONTH_MIN_H (WIDE_WEEKDAY_ROW_H + CAL_ROWS * (CELL_GAP + WIDE_CELL_MIN_H))
+
 struct cal_app {
     struct cal_view view;
+    lv_obj_t *frame;    /* the app's own box in the body: everything below */
+    lv_area_t laid_out; /* the frame's area when the shape was last chosen */
+    bool wide;
+    lv_obj_t *nav;   /* previous, the month's name and next */
     lv_obj_t *month_label;
+    lv_obj_t *month; /* the weekday headings over the six weeks */
+    lv_obj_t *headings;
+    lv_obj_t *heading[CAL_COLS];
+    lv_obj_t *week[CAL_ROWS];
+    lv_obj_t *panel; /* the notice and the date in words */
     lv_obj_t *cell[CAL_CELLS];
     lv_obj_t *cell_label[CAL_CELLS];
     lv_obj_t *cell_dot[CAL_CELLS];
@@ -254,6 +283,7 @@ static void build_nav(struct cal_app *a, lv_obj_t *parent)
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    a->nav = row;
 
     prev = lv_button_create(row);
     lv_obj_remove_style_all(prev);
@@ -299,13 +329,16 @@ static void build_grid(struct cal_app *a, lv_obj_t *parent)
     lv_obj_set_flex_flow(block, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(block, HEADER_GAP, 0);
     lv_obj_clear_flag(block, LV_OBJ_FLAG_SCROLLABLE);
+    a->month = block;
 
     headers = seven_columns(block, WEEKDAY_ROW_H);
+    a->headings = headers;
     for (i = 0; i < CAL_COLS; i++) {
         lv_obj_t *lb = pocketui_label(headers, cal_weekday_short(i), POS_STYLE_CAPTION);
 
         lv_obj_set_width(lb, CELL_SIZE);
         lv_obj_set_style_text_align(lb, LV_TEXT_ALIGN_CENTER, 0);
+        a->heading[i] = lb;
     }
 
     row = NULL;
@@ -315,6 +348,7 @@ static void build_grid(struct cal_app *a, lv_obj_t *parent)
 
         if (i % CAL_COLS == 0) {
             row = seven_columns(block, CELL_SIZE);
+            a->week[i / CAL_COLS] = row;
         }
         /* The slab, the pressed state and the clickability all belong to
          * paint_cell: whether this cell is a day at all changes every time
@@ -349,6 +383,8 @@ static void build_footer(struct cal_app *a, lv_obj_t *parent)
     lv_obj_t *body;
 
     lv_obj_set_style_pad_row(panel, 12, 0);
+    lv_obj_set_scroll_dir(panel, LV_DIR_VER);
+    a->panel = panel;
 
     /* The same shape PocketClock uses for a board that does not know the
      * time, said about the date (docs/apps/POCKETCLOCK.md): a warning title
@@ -386,6 +422,153 @@ static void build_footer(struct cal_app *a, lv_obj_t *parent)
     a->today_enabled = true;
 }
 
+/* ---- the layout -------------------------------------------------------- *
+ *
+ * Everything sits in one frame that is exactly the body's content box - the
+ * whole of the room the shell gives the app - laid out as one grid, and is
+ * shaped from the size of that box alone:
+ *
+ *   TALL (portrait: 528 x 1060 on the reference panel). The layout Calendar
+ *   always had, one item under the other: previous, the month's name and
+ *   next in a row of 64, the month's 72 px cells, the panel and Today.
+ *
+ *   WIDE (landscape: 1192 x 396). Height is what landscape lacks and width is
+ *   what it has, so the month goes beside the rest rather than above it, in
+ *   two halves of the width with the 20 px gutter between them. The month
+ *   takes the first half and the full height, its six weeks sharing it, so
+ *   every day of every month is on screen at once. The second half is the
+ *   portrait column without the month: the row of previous, the name and
+ *   next at the top, Today at the foot, and the panel between them, as tall
+ *   as that leaves. The panel says the most - the notice and a selected date,
+ *   in Outdoor type - in 201 px of its 218, and scrolls itself should it ever
+ *   say more. Chosen only when both halves keep CAL_COLUMN_W and the weeks
+ *   keep WIDE_CELL_MIN_H; under either, the tall layout is kept whole and the
+ *   frame scrolls.
+ *
+ * The objects are built once and only shaped here - tracks, cells, sizes, and
+ * which box scrolls - so the month on screen, the selection and today are
+ * never touched by a change of shape.
+ *
+ * Whatever the shape, the content clears the panel's unsafe area (DS §21.1,
+ * §22.2): the wide shape reaches the foot of the body, and would reach 10 px
+ * into the 30 px corner squares of the reference panel, so the frame pads its
+ * foot by however far a corner square reaches into the body
+ * (pos_display_rect_insets, the rule Calculator and Notes use). The
+ * tall layout ends far above the foot, so it does not move; on a panel with
+ * square corners the pad is 0. */
+
+/* Tall: one column, and in it the navigation, the month, the panel and Today. */
+static const int32_t tall_cols[] = { LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
+static const int32_t tall_rows[] = { NAV_H, LV_GRID_CONTENT, LV_GRID_CONTENT, POCKETUI_ROW_H,
+                                     LV_GRID_TEMPLATE_LAST };
+/* Wide: two halves; the month spans the second's navigation, panel and Today. */
+static const int32_t wide_cols[] = { LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST };
+static const int32_t wide_rows[] = { NAV_H, LV_GRID_FR(1), POCKETUI_ROW_H, LV_GRID_TEMPLATE_LAST };
+
+/* Tall: the portrait grid of 72 px cells, the headings over them. Wide: the
+ * weeks share the height and the cells the width. */
+static void shape_month(struct cal_app *a)
+{
+    bool wide = a->wide;
+    int i;
+
+    lv_obj_set_style_pad_row(a->month, wide ? CELL_GAP : HEADER_GAP, 0);
+    lv_obj_set_height(a->headings, wide ? WIDE_WEEKDAY_ROW_H : WEEKDAY_ROW_H);
+    for (i = 0; i < CAL_COLS; i++) {
+        lv_obj_set_flex_grow(a->heading[i], wide ? 1 : 0);
+        lv_obj_set_width(a->heading[i], CELL_SIZE);
+    }
+    for (i = 0; i < CAL_ROWS; i++) {
+        lv_obj_set_flex_grow(a->week[i], wide ? 1 : 0);
+        lv_obj_set_height(a->week[i], CELL_SIZE);
+    }
+    for (i = 0; i < CAL_CELLS; i++) {
+        lv_obj_set_flex_grow(a->cell[i], wide ? 1 : 0);
+        lv_obj_set_size(a->cell[i], CELL_SIZE, wide ? LV_PCT(100) : CELL_SIZE);
+    }
+}
+
+static void shape_tall(struct cal_app *a)
+{
+    lv_obj_set_grid_dsc_array(a->frame, tall_cols, tall_rows);
+    lv_obj_set_grid_cell(a->nav, LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_START, 0, 1);
+    lv_obj_set_grid_cell(a->month, LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_START, 1, 1);
+    lv_obj_set_grid_cell(a->panel, LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_START, 2, 1);
+    lv_obj_set_grid_cell(a->today_button, LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_START, 3, 1);
+    lv_obj_clear_flag(a->panel, LV_OBJ_FLAG_SCROLLABLE);
+    /* The frame scrolls as the body did, which is only ever needed in a box
+     * too small for the tall layout. */
+    lv_obj_add_flag(a->frame, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+static void shape_wide(struct cal_app *a)
+{
+    lv_obj_set_grid_dsc_array(a->frame, wide_cols, wide_rows);
+    lv_obj_set_grid_cell(a->month, LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 0, 3);
+    lv_obj_set_grid_cell(a->nav, LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_START, 0, 1);
+    lv_obj_set_grid_cell(a->panel, LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_STRETCH, 1, 1);
+    lv_obj_set_grid_cell(a->today_button, LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_START, 2, 1);
+    lv_obj_add_flag(a->panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_scroll_to_y(a->frame, 0, LV_ANIM_OFF);
+    lv_obj_clear_flag(a->frame, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+static void layout(struct cal_app *a)
+{
+    lv_area_t box;
+    struct pos_insets in;
+    int32_t w;
+    int32_t h;
+
+    lv_obj_get_coords(a->frame, &box);
+    if (lv_area_get_width(&box) <= 0 || lv_area_get_height(&box) <= 0 ||
+        memcmp(&box, &a->laid_out, sizeof(box)) == 0) {
+        return;
+    }
+    a->laid_out = box;
+    in = pos_display_rect_insets(pocketui_display_geometry(), box.x1, box.y1, box.x2, box.y2);
+    lv_obj_set_style_pad_left(a->frame, in.left, 0);
+    lv_obj_set_style_pad_top(a->frame, in.top, 0);
+    lv_obj_set_style_pad_right(a->frame, in.right, 0);
+    lv_obj_set_style_pad_bottom(a->frame, in.bottom, 0);
+    w = lv_area_get_width(&box) - in.left - in.right;
+    h = lv_area_get_height(&box) - in.top - in.bottom;
+    a->wide = w > h && w >= 2 * CAL_COLUMN_W + POCKETUI_PAD && h >= WIDE_MONTH_MIN_H;
+    shape_month(a);
+    if (a->wide) {
+        shape_wide(a);
+    } else {
+        shape_tall(a);
+    }
+}
+
+/* The frame is the body's content box, so this is the body changing size:
+ * the display turned, or this is the first layout pass after the app was
+ * built. */
+static void on_frame_size(lv_event_t *e)
+{
+    layout(lv_event_get_user_data(e));
+}
+
+static void build_frame(struct cal_app *a, lv_obj_t *root)
+{
+    lv_obj_t *frame = lv_obj_create(root);
+
+    lv_obj_remove_style_all(frame);
+    /* Exactly the body's content box, whatever is in it, so the shape is
+     * always chosen from the room the shell gives and never from the size of
+     * what the shape itself put there. */
+    lv_obj_set_size(frame, LV_PCT(100), LV_PCT(100));
+    /* The tracks before anything is placed on them: LVGL lays a grid with no
+     * tracks out with a warning. */
+    lv_obj_set_grid_dsc_array(frame, tall_cols, tall_rows);
+    lv_obj_set_style_pad_row(frame, POCKETUI_PAD, 0);
+    lv_obj_set_style_pad_column(frame, POCKETUI_PAD, 0);
+    lv_obj_set_scroll_dir(frame, LV_DIR_VER);
+    lv_obj_clear_flag(frame, LV_OBJ_FLAG_SCROLLABLE);
+    a->frame = frame;
+}
+
 /* ---- the app ----------------------------------------------------------- */
 
 static void *calendar_create(lv_obj_t *root)
@@ -400,10 +583,17 @@ static void *calendar_create(lv_obj_t *root)
      * the tick below picks the change up either way. */
     cal_view_init(&a->view, pocketos_shell_system_day());
 
-    build_nav(a, root);
-    build_grid(a, root);
-    build_footer(a, root);
+    build_frame(a, root);
+    build_nav(a, a->frame);
+    build_grid(a, a->frame);
+    build_footer(a, a->frame);
     refresh(a);
+
+    /* Only now: building lays objects out as it goes, and the layout step
+     * shapes objects that must all exist. */
+    lv_obj_add_event_cb(a->frame, on_frame_size, LV_EVENT_SIZE_CHANGED, a);
+    lv_obj_update_layout(a->frame);
+    layout(a);
     return a;
 }
 
@@ -425,10 +615,17 @@ static void calendar_tick(void *priv)
 
 static void calendar_destroy(void *priv)
 {
+    struct cal_app *a = priv;
+
+    if (!a) {
+        return;
+    }
     /* The shell deletes the objects under root, there is no timer of our own
      * and nothing is stored: a calendar with no events has nothing to write
-     * and no selection worth keeping. */
-    lv_free(priv);
+     * and no selection worth keeping. The frame outlives this by a moment,
+     * in which nothing may call back into a freed app. */
+    lv_obj_remove_event_cb_with_user_data(a->frame, on_frame_size, a);
+    lv_free(a);
 }
 
 LV_IMAGE_DECLARE(pos_app_icon_calendar);

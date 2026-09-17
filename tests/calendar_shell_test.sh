@@ -60,20 +60,24 @@ check "defined once, in the theme engine" \
     "$([ "$(grep -c 'styles\[POS_STYLE_SELECTED\]' ui/pocketui/pos_styles.c)" = "1" ] &&
        echo 1 || echo 0)"
 
-RUN=$(mktemp -d); LOGD=$(mktemp -d); CFG=$(mktemp -d); STATE=$(mktemp -d)
-SDL_VIDEODRIVER=dummy POCKETOS_RUNTIME_DIR="$RUN" POCKETOS_LOG_DIR="$LOGD" \
-POCKETOS_CONFIG_DIR="$CFG" POCKETOS_STATE_DIR="$STATE" \
-    "$SHELL_BIN" --open calendar --exit-after-ms 1200 >"$LOGD/out" 2>&1
-rc=$?
-check "the shell opens Calendar" "$([ "$rc" = "0" ] && echo 1 || echo 0)"
-check "and logs no fault" "$(grep -qE ' ERROR |assert' "$LOGD/out" && echo 0 || echo 1)"
-check "Calendar reports itself open" \
-    "$(grep -q 'open app calendar' "$LOGD/log/shell.log" 2>/dev/null ||
-       grep -q 'open app calendar' "$LOGD/out" && echo 1 || echo 0)"
-# There is nothing to store, so opening and leaving must write nothing at all.
-check "opening Calendar writes nothing to the store" \
-    "$([ -z "$(ls -A "$STATE" 2>/dev/null)" ] && echo 1 || echo 0)"
-rm -rf "$RUN" "$LOGD" "$CFG" "$STATE"
+# The real shell, upright and turned (DS 21.2: --rotation is for this run
+# only, and Calendar lays itself out in whichever body it is given).
+for rotation in portrait landscape; do
+    RUN=$(mktemp -d); LOGD=$(mktemp -d); CFG=$(mktemp -d); STATE=$(mktemp -d)
+    SDL_VIDEODRIVER=dummy POCKETOS_RUNTIME_DIR="$RUN" POCKETOS_LOG_DIR="$LOGD" \
+    POCKETOS_CONFIG_DIR="$CFG" POCKETOS_STATE_DIR="$STATE" \
+        "$SHELL_BIN" --rotation "$rotation" --open calendar --exit-after-ms 1200 >"$LOGD/out" 2>&1
+    rc=$?
+    check "the shell opens Calendar in $rotation" "$([ "$rc" = "0" ] && echo 1 || echo 0)"
+    check "and logs no fault" "$(grep -qE ' ERROR |assert' "$LOGD/out" && echo 0 || echo 1)"
+    check "Calendar reports itself open" \
+        "$(grep -q 'open app calendar' "$LOGD/log/shell.log" 2>/dev/null ||
+           grep -q 'open app calendar' "$LOGD/out" && echo 1 || echo 0)"
+    # There is nothing to store, so opening and leaving must write nothing at all.
+    check "opening Calendar writes nothing to the store" \
+        "$([ -z "$(ls -A "$STATE" 2>/dev/null)" ] && echo 1 || echo 0)"
+    rm -rf "$RUN" "$LOGD" "$CFG" "$STATE"
+done
 
 echo "calendar_shell_test: $failed failure(s)"
 exit $((failed > 0))
