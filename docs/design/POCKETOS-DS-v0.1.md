@@ -1122,6 +1122,7 @@ verified hardware operation and nothing in this amendment asks for it.
 - App bodies are not re-laid out: fixed-width content stays at its portrait
   width and the body scrolls vertically. An app that needs a landscape layout
   gets one in its own amendment. Calculator: §22. Notes: §23. Settings: §24.
+  System: §25.
 
 ## 22. Amendment F — Calculator in landscape [ACCEPTED]
 
@@ -1414,6 +1415,96 @@ To §22.3 and §23.4, for the next app:
   `pos_display_rect_insets()` unchanged. The shapes are its own. No new
   helper is proposed: the frame, the shape choice and the size handler are a
   few lines each app writes against its own objects.
+
+## 25. Amendment I — System in landscape [PROPOSED]
+
+**PROPOSED 2026-09-17**, host and simulator only, pending the unit A gate
+(`docs/hardware/SYSTEM_LANDSCAPE_GATE.md`) and the product owner's acceptance.
+The fourth app given its own landscape layout under §21.3, after Settings
+(§24), on the pattern of §22.3, §23.4 and §24.4, which it follows and extends
+(§25.3); it is not a second layout system. Nothing in §1–§24 is renumbered,
+and nothing outside System changes: not the shell, the rotation policy,
+PocketUI, sysd or any other app.
+
+### 25.1 Two shapes, chosen from the body
+
+- System lays its three screens - the live status screen, a confirmation
+  (§17.5), and the panel a power action leaves - out in one frame that is
+  exactly the body's content box, and arranges each from that box's size
+  alone, never from the orientation: **wide** when the box is wider than tall
+  and at least 1078 px across, **tall** otherwise. The 1078 px floor is two
+  portrait bodies (528 px) and the §7 22 px panel gap, so no panel, row or
+  button is narrower in the wide shape than in portrait. The screen is built
+  as before - again whenever what it holds changes shape: a service appears
+  or goes, the card row starts or stops disagreeing, a confirmation opens -
+  and arranged when it is built; a change of the box's size only arranges it
+  again (flow, sizes and which box scrolls), so the values on show, a
+  confirmation that is open and a refused action's reason are untouched.
+- **Tall** (portrait: 528 x 1060 on the reference panel) is the existing
+  layout: the freshness line, then the vitals, storage, network, services,
+  radio and identity panels and the Restart and Power off pair, one column
+  with the §7 22 px panel gap, the body scrolling; a confirmation or the
+  power-action panel across the top.
+- **Wide, live** (landscape: 1192 x 396): the freshness line, and a refused
+  action's reason while one is shown, **across the top**; below them the
+  panels in **two columns that share the width**, 585 px each with the 22 px
+  gap, **each scrolling on its own**, in portrait order down the first and
+  then the second: the machine on the left (vitals, storage, network), and on
+  the right what runs on it, what it is and what can be done (services,
+  radio, identity, and Restart and Power off). The actions stay last, so they
+  are still never under the thumb on arrival. The split keeps the two columns
+  of similar length with unit A's content and with every row the screen can
+  hold (six mounts, eight interfaces, twelve services).
+- **Wide, a confirmation or the power-action panel**: the portrait width
+  (528 px), **centred**, with the freshness line over it at the same width
+  (§23.4). All of it is in view without scrolling in Normal and Outdoor, the
+  power-off recovery sentence included; the body would scroll if it were not.
+- Every control keeps its portrait size or grows: the paired buttons stay
+  56 px tall (§7) and are 267-268 px wide in the wide shape (239 in portrait).
+  No control takes its size from the height, so no body can bring one under
+  the §7 minimum. Long values keep their portrait rule: cut short with an
+  ellipsis inside their row, never onto a neighbour.
+- There is no text field and no keyboard in System, so §23.2's keyboard-up
+  body does not arise.
+
+### 25.2 Consequences for portrait
+
+- **The foot clears the rounded corners** exactly as §22.2: the body scrolls,
+  so panels pass its foot, and with 30 px corner squares the box they scroll
+  in ends 10 px higher (1201). Unscrolled, the only pixels that change are
+  that 10 px strip; scrolled to the end, everything sits exactly 10 px higher.
+  A confirmation and the power-action panel do not reach the foot and do not
+  change. (Even with sysd not answering, the live screen is taller than the
+  body and reaches it.)
+- With square corners every screen - live, both confirmations, a refusal, both
+  power-action panels, Normal and Outdoor, unscrolled and scrolled to the end
+  - is the previous layout to the pixel.
+
+### 25.3 What System adds to the pattern
+
+To §22.3, §23.4 and §24.4, for the next app. PROPOSED with this amendment; none
+of it is accepted until the unit A gate and the owner's review. The columns
+themselves are §24.4's rule, which System follows.
+
+- **What qualifies every value stays across the columns.** A line that says
+  how far everything on the screen can be trusted - System's freshness line,
+  and the reason an action was refused - goes above both columns in the wide
+  shape and does not scroll with either, rather than into the first column
+  where the second column's values would lose it.
+- **A column that scrolls must be something a finger can press.** LVGL scrolls
+  what the pressed object, or a parent of it, can scroll, and only a clickable
+  object is found under a finger; a finger that lands in the 22 px gap between
+  two panels has to land on the column, or the drag does nothing. Test a drag
+  that starts in that gap.
+- **Centre a fixed-width dialog by its track as well as its items.** In a
+  column flow the one track is as wide as its widest item, so centring the
+  items alone leaves the dialog at the left.
+- **Test the width floor on both sides of it** - a body one pixel narrower
+  than the wide shape needs, and one exactly as wide - not only the reference
+  panel's two orientations.
+- **Shared code.** System needed the corner clearance and calls
+  `pos_display_rect_insets()` unchanged. The arrangement is its own. No new
+  helper is proposed.
 
 ---
 
