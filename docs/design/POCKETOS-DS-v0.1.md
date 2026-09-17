@@ -1122,7 +1122,7 @@ verified hardware operation and nothing in this amendment asks for it.
 - App bodies are not re-laid out: fixed-width content stays at its portrait
   width and the body scrolls vertically. An app that needs a landscape layout
   gets one in its own amendment. Calculator: §22. Notes: §23. Settings: §24.
-  System: §25. Clock: §26.
+  System: §25. Clock: §26. Calendar: §27.
 
 ## 22. Amendment F — Calculator in landscape [ACCEPTED]
 
@@ -1654,6 +1654,117 @@ design - end with it, while alarms, which are stored, do not. With Automatic
 that includes attaching or removing a keyboard base. Whether an orientation
 change should carry the runtime's running state across is a shell question;
 this amendment changes nothing about it.
+
+## 27. Amendment K — Calendar in landscape [PROPOSED]
+
+**PROPOSED 2026-09-17**, host and simulator only, written against §23 and
+rebased onto the accepted §24, §25 and §26; pending the unit A gate
+(`docs/hardware/CALENDAR_LANDSCAPE_GATE.md`) and the product owner's
+acceptance. The sixth app given its own landscape layout under §21.3, after
+Clock (§26), on the pattern of §22.3, §23.4, §24.4, §25.3 and §26.4, which it
+follows and extends (§27.4); it is not a second layout system. Nothing in
+§1–§26 is renumbered, and nothing outside Calendar changes: not the shell,
+PocketUI, the rotation policy or any other app.
+
+### 27.1 Two shapes, chosen from the body
+
+- Calendar lays its one screen out in a frame that is exactly the body's
+  content box and shapes it from that box's size alone, never from the
+  orientation: **wide** when the box, less the corner clearance of §22.2, is
+  wider than tall, at least **1076 px** across and at least **384 px** tall;
+  **tall** otherwise. 1076 px is two portrait bodies (528 px) and the §7 20 px
+  gutter, so neither half is narrower than portrait; 384 px is six weeks of
+  56 px cells (§27.2) under 24 px weekday headings, 4 px apart. The shape is
+  chosen again whenever the box changes size. The objects are built once; a
+  change of shape moves only tracks, sizes and which box scrolls, so the month
+  on screen, the selected day, today's mark, the "Date not set" notice and
+  whether Today can be pressed are untouched, and nothing is written.
+- **Tall** (portrait: 528 x 1060) is the existing layout: previous, the month
+  and next in a 64 px row; the weekday headings (32 px) and six weeks of 72 px
+  cells, 4 px apart across and 8 px down; the panel with the notice and the
+  date in words; Today (64 px); 20 px apart. Under either wide floor the tall
+  layout is kept whole and scrolls.
+- **Wide** (landscape: 1192 x 396, 1192 x 386 above the reference panel's
+  corners): **the month in the first half of the width** (586 px) at the full
+  height - 24 px headings over the six weeks, which share the height, cells
+  4 px apart both ways. **The second half** (586 px, past the 20 px gutter) is
+  the portrait column without the month, in portrait order: the row of
+  previous, the month and next at the top (72 x 64 slabs); **Today at the
+  foot**, full width of the half, level with the last week; and the **panel
+  between them**, as tall as that leaves (218 px above the reference panel's
+  corners). The panel's tallest content - the notice and a picked day in
+  Outdoor type - measures 201 px; should it ever say more, the panel scrolls
+  itself. Every day of every month is on screen at once, and nothing else
+  scrolls.
+- Same styles, the same today mark (accent number, dot beneath), the same
+  selected outline, the same disabled Today, no motion.
+
+### 27.2 Day cells in the wide shape
+
+- The landscape body is too short for the portrait cells: six weeks of 64 px
+  cells and their 5 gaps need 404 px before any heading, in a 386 px body.
+  The choice is between cells under 64 px tall and a month that is never
+  wholly on screen. This amendment proposes the first: **in the wide shape a
+  day is at least 64 px wide and at least 56 px tall** - wider than tall
+  (about 80 x 56 on the reference panel, and 80 x 58 with square corners),
+  the height §7 gives paired buttons and segmented controls, larger in area
+  than 64 x 64.
+- It rests on what a day is: tapping one only selects it, the selection is
+  shown at once in the grid and in words, and another tap corrects it. No
+  irreversible action is on a day. The arrows and Today keep 72 x 64 and
+  64 px.
+- It is **not** DEV-1 (§17.3) and does not cite it: DEV-1 is keyboard keys
+  only and narrower than 64 px; this is a day cell, at least 64 px across, in
+  the wide shape only. Portrait keeps its 72 px squares.
+- **The owner's physical check accepts or rejects it.** If a thumb misses
+  days in landscape, the alternative is 64 px weeks in a month that scrolls
+  in its half, which no other rule here depends on.
+
+### 27.3 Consequences for portrait
+
+- None visible. Nothing in portrait reaches the foot of the body, so the
+  corner clearance moves nothing: with square corners and with the reference
+  panel's 30 px corners every portrait screen is the previous layout to the
+  pixel (56 of 56 simulator captures, Normal and Outdoor).
+- The body no longer scrolls in the fallback: the frame does, when a box too
+  short for the tall layout is given, as the body did.
+
+### 27.4 What Calendar adds to the pattern
+
+To §22.3, §23.4, §24.4, §25.3 and §26.4, for the next app. PROPOSED with this
+amendment; none of it is accepted until the unit A gate and the owner's
+review.
+
+- **A fixed grid of targets that loses height shares it.** Where a screen's
+  content is a grid whose count cannot change (a month is always six weeks),
+  and landscape is too short for it at portrait size, let its rows share the
+  height and its cells go wide rather than cut or scroll it - down to a
+  stated floor that is itself a proposed touch size, with the shape falling
+  back to tall below it. Test both sides of that floor, as §25.3 asks of the
+  width floor.
+- **Move the tallest item beside the rest, and keep the rest in portrait
+  order.** When one item is most of a portrait column, it takes the first
+  half; the others stay in their order in the second half, the stretchy one
+  taking the room between the fixed ones.
+- **Measure the tallest text before rearranging.** The panel's worst case
+  wraps differently at the half's width than in portrait; size a stretched
+  panel against its tallest content in Outdoor type as laid out, not as
+  estimated.
+- **One grid can hold both shapes.** A frame laid out as one LVGL grid - one
+  column in the tall shape, two in the wide, with the tall item spanning the
+  rows beside it - needs no grouping boxes and no second tree; the tall
+  shape's tracks give the portrait positions to the pixel.
+- **Shared code.** Calendar needed the corner clearance and calls
+  `pos_display_rect_insets()` unchanged. The shapes are its own. No new helper
+  is proposed.
+
+**Open, not decided here.** The selected outline is drawn outside its cell
+(§7) and the week's row clips it, so a selected day shows the outline on its
+sides only, and a selected Monday on its right only; the same in portrait since
+v0.0.9. On the unit a change of orientation restarts the shell in place
+(§21.2) and comes back on the launcher; Calendar, opened again, lands on today,
+so a picked day does not survive the turn - nothing is stored, by design.
+Neither is changed here.
 
 ---
 
