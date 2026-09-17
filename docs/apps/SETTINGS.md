@@ -24,11 +24,12 @@ apps/settings/settings_view.[ch]  every decision, no LVGL: headlines, tones, lis
                                   what a tap on a network does, what a join sends,
                                   passphrase feedback, brightness stepping
 apps/settings/settings_app.c      panels and taps
-tests/settings_view_test.c        111 checks (Makefile)
-tests/settings_app_test.c         71 checks under a real LVGL pointer device and the key stream,
-                                  with netd and the shell scripted (CMake, host only)
+tests/settings_view_test.c        120 checks (Makefile)
+tests/settings_app_test.c         636 checks under a real LVGL pointer device and the key stream,
+                                  with netd and the shell scripted, hosted as the shell hosts it
+                                  in portrait and landscape (CMake, host only)
 tests/settings_shell_test.sh      the app test, registration, opening it in the real shell
-tests/settings_lint.sh            15 boundary checks (make test)
+tests/settings_lint.sh            21 boundary checks, the layout's among them (make test)
 ```
 
 ## Wi-Fi
@@ -91,10 +92,76 @@ through the shared styles, so the scroll position stays where it was.
 
 ## Layout
 
-Body width 528 px, cards with 20 px padding (488 px inner). Rows 72 px, buttons
-64 px tall; the toggle and the step buttons are 120 and 96 px wide. The body
-scrolls when the list is long. Verified in Normal, Night and Outdoor in the
-simulator against netd-testhooks and the fake supplicant.
+DS §24 (Amendment H, proposed), on the pattern of §22.3 and §23.4. Cards have
+20 px padding; rows are 72 px and buttons 64 px tall; the toggle and the step
+buttons are 120 and 96 px wide. The app puts one frame in the body the shell
+gives it - exactly the body's content box - and the screen on show inside
+that. The screen is shaped from the frame's size, never from the orientation,
+when it is built and again whenever the frame changes size (in practice the
+keyboard coming up or going down). A change of size moves nothing but flow,
+sizes and which box scrolls: the values, the typed passphrase, the focus and
+the keyboard are untouched by it.
+
+| Shape | When | Main screen | Network sheet |
+| --- | --- | --- | --- |
+| **tall** | the frame is at least as tall as it is wide, or narrower than 1078 px | Wi-Fi, Display and Appearance in one column 22 px apart; the body scrolls (the v0.0.10 layout) | the network's text above the field and buttons |
+| **wide** | wider than tall and at least 1078 px (two portrait bodies and the 22 px panel gap) | two columns of 585 px, 22 px apart: Wi-Fi on the left, Display and Appearance on the right, **each scrolling on its own** | one panel across the body in two halves 20 px apart: the network described on the left, the field, SHOW and the buttons on the right |
+
+**Why columns, and why each scrolls.** A single 1192 px column is the portrait
+screen stretched, with network names a screen's width from their badges. Two
+columns keep every panel at least as wide as in portrait. They are unequal in
+length - the network list alone can be longer than the screen - so each
+scrolls itself, and scrolling the list never moves the display controls.
+
+**Why the sheet has two halves.** With the keyboard up in landscape the app
+has a 1192 x 100 px body. Under the network's text the passphrase field
+opened out of sight (v0.0.10, where landscape was portrait stretched). Beside
+the text it is at the top of the panel, in view with the network's name.
+
+**Keeping the field in view.** When an error caption appears under the field
+(a passphrase refused locally or by netd), or the body changes size while the
+sheet is open, the sheet scrolls just far enough to show the field and its
+caption; where they already show, nothing moves. Every message the sheet shows
+today, netd's longest refusal included, fits one line across the landscape
+field in Normal and Outdoor, so the two are seen together above the keyboard
+(it wraps to two lines only in portrait Outdoor, where there is room). SHOW and
+the buttons are one short scroll away above the landscape keyboard; the
+keyboard's Done joins.
+
+**Corners.** Panels scroll past the foot of the body, which on the reference
+panel reaches 10 px into the 30 px rounded-corner squares (DS §21.1). The
+frame pads its foot by however far a corner square reaches into the body,
+from `pos_display_rect_insets()`, so the box the panels scroll in ends 10 px
+higher in portrait (1201) and in landscape (537). With the keyboard up, or on
+a panel with square corners, the pad is 0.
+
+Rectangles on the reference panel (30 px corners), as `tests/settings_app_test.c`
+pins them:
+
+| | Portrait | Landscape |
+| --- | --- | --- |
+| body content box | 20..547 x 152..1211 | 20..1211 x 152..547 |
+| main screen scrolls in | 20..547 x 152..1201 | Wi-Fi 20..604 x 152..537; Display and Appearance 627..1211 x 152..537 |
+| Wi-Fi switch | 407..526 x 199..262 | 464..583 x 199..262 |
+| sheet above the keyboard scrolls in | 20..547 x 152..915 | 20..1211 x 152..251 |
+| passphrase field (sheet just opened) | 41..526 x 277..340 | 626..1190 x 173..236 |
+
+**Portrait.** With square corners every screen is the v0.0.10 layout to the
+pixel (the main screen, every network sheet, the error captions; Normal and
+Outdoor), compared in the simulator. With the 30 px corners only the 10 px
+strip above the foot changes on an unscrolled screen.
+
+**Turning the display.** The shell restarts itself to rotate and comes back on
+the launcher (DS §21.2), so on the device Settings is never open while the
+display turns. The layout does not rely on that: `settings_app_test` turns the
+display six times under the open main screen (every object once, every value
+kept, reshaped each time), and under an open sheet with a passphrase half
+typed and with an error shown (the text, the focus, the keyboard and the
+caption kept, and what JOIN sends is what was typed across both turns).
+
+Verified in Normal and Outdoor in the simulator against netd-testhooks and the
+fake supplicant, and in `tests/settings_app_test.c` in portrait and landscape,
+Normal and Outdoor, rounded and square corners.
 
 ## Launcher
 

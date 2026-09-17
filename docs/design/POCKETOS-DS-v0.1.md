@@ -1121,7 +1121,7 @@ verified hardware operation and nothing in this amendment asks for it.
   column count and so the tile width (182 px) differ from portrait.
 - App bodies are not re-laid out: fixed-width content stays at its portrait
   width and the body scrolls vertically. An app that needs a landscape layout
-  gets one in its own amendment. Calculator: §22. Notes: §23.
+  gets one in its own amendment. Calculator: §22. Notes: §23. Settings: §24.
 
 ## 22. Amendment F — Calculator in landscape [ACCEPTED]
 
@@ -1313,6 +1313,95 @@ Automatic is landscape (§21.2) and the touch sheet still comes up over half
 the panel. Whether the sheet should stay down while a physical keyboard is
 present, or reserve only its own 568 px footprint in landscape, is a shell
 and §17.3 question for its own amendment.
+
+## 24. Amendment H — Settings in landscape [PROPOSED]
+
+**PROPOSED 2026-09-17**, pending the unit A gate
+(`docs/hardware/SETTINGS_LANDSCAPE_GATE.md`) and the product owner's
+acceptance. The third app given its own landscape layout under §21.3, on the
+pattern of §22.3 and §23.4, which it follows and extends (§24.4); it is not a
+second layout system. Nothing in §1–§23 is renumbered, and nothing outside
+Settings changes: not the shell, its keyboard, the rotation policy, PocketUI
+or any other app.
+
+### 24.1 Two shapes, chosen from the body
+
+- Settings lays its two screens - the main screen and the network sheet - out
+  in one frame that is exactly the body's content box, and shapes each from
+  that box's size alone, never from the orientation: **wide** when the box is
+  wider than tall and at least 1078 px across, **tall** otherwise. A screen is
+  built when it is shown, as before, and shaped when it is built; a change of
+  the box's size only shapes it again - flow, sizes and which box scrolls - so
+  the values on show, the typed passphrase, the focus and the keyboard are
+  untouched.
+- **Tall** (portrait: 528 x 1060, and 528 x 764 with the keyboard up) is the
+  existing layout: the Wi-Fi, Display and Appearance panels in one column with
+  the §7 22 px panel gap, the body scrolling; the network sheet's text above
+  its field and buttons.
+- **Wide, main screen** (landscape: 1192 x 396): the panels in **two columns
+  that share the width**, with the same 22 px gap between them (585 px each):
+  Wi-Fi on the left, Display and Appearance on the right. **Each column
+  scrolls on its own**, so the network list is scrolled without moving the
+  display controls, and neither column is ever narrower than the portrait
+  body.
+- **Wide, network sheet** (1192 x 396, and 1192 x 100 with the keyboard up):
+  one panel across the body in **two halves** with the §7 20 px gutter between
+  them: the network described on the left (name, security, what joining
+  means) and the field, SHOW and the buttons on the right, from the top of the
+  panel. It is a form, not a §17.5 dialog, so §23.4's dialog rule (portrait
+  width, centred) does not apply to it; §23.4's rail rule does - the actions go
+  beside the content because height is what landscape lacks.
+- The 1078 px floor is two portrait bodies and the panel gap: in the wide
+  shape no panel, row, button row or field is narrower than in portrait. No
+  control takes its size from the height, so no body can bring one under the
+  §7 minimum.
+
+### 24.2 Above the keyboard
+
+- In landscape the shell leaves the app a 1192 x 100 px body while the
+  keyboard is up (§23.2). Under the network's text, as in the tall shape, the
+  field would open out of sight. Beside it, the field is at the top of the
+  panel: it opens in view with the network's name beside it.
+- **A field and its error caption are kept in view.** When an error caption
+  appears under the field, or the body changes size while the sheet is open,
+  the sheet scrolls just far enough for the field and its caption to be seen;
+  where they already are, nothing moves. Every message the sheet shows today,
+  netd's longest refusal included, fits one line across the landscape field in
+  Normal and in Outdoor, so field and caption are seen together; a caption
+  that ever took more room than is left would still be read whole, the field
+  partly above it. SHOW and the buttons are one short scroll away; the
+  keyboard's Done joins, as before.
+
+### 24.3 Consequences for portrait
+
+- **The foot clears the rounded corners** exactly as §22.2: the body scrolls,
+  so panels pass its foot, and with 30 px corner squares the box they scroll in
+  ends 10 px higher (1201). Unscrolled, the only pixels that change are that
+  10 px strip; scrolled to the end, everything sits 10 px higher.
+- With square corners every screen - the main screen, each network sheet,
+  the error captions, Normal and Outdoor - is the previous layout to the
+  pixel.
+
+### 24.4 What Settings adds to the pattern
+
+To §22.3 and §23.4, for the next app:
+
+- **A scrolling screen of panels goes into columns in the wide shape, each
+  column scrolling itself**, rather than one scroller holding a two-column
+  grid: the columns are unequal in length, and a long list should scroll
+  without taking the other column with it. Keep the portrait reading order
+  down the first column, then the second.
+- **Forms are not dialogs.** A screen with a field and actions follows the
+  rail rule; only a §17.5 confirmation keeps its portrait width.
+- **Keep the focused field and its caption in view**, when a caption appears
+  and after the body changes size. The size change is learned in the middle
+  of the layout pass, so the scroll waits until the pass has finished.
+- **A screen that is rebuilt when shown is shaped when built**, as well as on
+  a size change; nothing else about rebuilding needs to change.
+- **Shared code.** Settings needed the corner clearance and called
+  `pos_display_rect_insets()` unchanged. The shapes are its own. No new
+  helper is proposed: the frame, the shape choice and the size handler are a
+  few lines each app writes against its own objects.
 
 ---
 
