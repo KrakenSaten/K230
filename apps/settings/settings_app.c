@@ -15,6 +15,12 @@
  * before the sheet closes, never logged, and never shown unless the person
  * taps Show.
  *
+ * LAYOUT. Each of the two screens in two shapes, chosen from the body the app
+ * is given and chosen again whenever that body changes size (see "the layout"
+ * below): the panels one above the other when the body is tall, side by side
+ * when it is wide. The orientation is the system's (DS section 21.2); nothing
+ * here asks what it is, only how much room there is.
+ *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #define _GNU_SOURCE
@@ -36,6 +42,13 @@
 #define SETTINGS_LIST_POLL_TICKS 3
 /* The Design System has five themes; room for a few more. */
 #define SETTINGS_THEMES_MAX 8
+/* DS section 7: the gap between panels, whichever way they lie. */
+#define SETTINGS_PANEL_GAP 22
+/* The portrait body's width on the reference panel (568 less the 20 px side
+ * padding of DS section 7). The wide shape is only chosen when each of its
+ * two columns keeps at least this much, so no panel is narrower there than
+ * in portrait. */
+#define SETTINGS_COLUMN_W 528
 
 enum settings_phase {
     PHASE_MAIN = 0,
@@ -44,7 +57,10 @@ enum settings_phase {
 
 struct settings_app {
     lv_obj_t *root;
-    lv_obj_t *body;
+    lv_obj_t *frame;      /* the app's own box in the body; built once */
+    lv_obj_t *body;       /* the screen on show, rebuilt with it */
+    lv_area_t laid_out;   /* the frame's area when the shape was last chosen */
+    bool wide;
     struct sv_wifi wifi;
     struct sv_brightness bright;
     enum settings_phase phase;
@@ -53,6 +69,7 @@ struct settings_app {
     int tick;
 
     /* main phase, repainted in place */
+    lv_obj_t *column[2];  /* Wi-Fi | Display and Appearance */
     lv_obj_t *toggle;
     lv_obj_t *toggle_label;
     lv_obj_t *headline;
@@ -73,6 +90,8 @@ struct settings_app {
     struct sv_rotation rot;
 
     /* network sheet */
+    lv_obj_t *sheet;
+    lv_obj_t *sheet_side[2]; /* the network described | the field and the actions */
     lv_obj_t *field;
     lv_obj_t *show_label;
     lv_obj_t *sheet_error;
@@ -84,6 +103,7 @@ struct settings_app {
 
 static void rebuild(struct settings_app *a);
 static void repaint(struct settings_app *a);
+static void shape(struct settings_app *a);
 
 /* ---- small builders ---------------------------------------------------------- */
 
@@ -101,6 +121,21 @@ static lv_obj_t *hrow(lv_obj_t *parent, int height)
      * misses its children and do nothing with it. */
     lv_obj_clear_flag(r, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     return r;
+}
+
+/* A box that stacks what is put in it, gap px apart, as tall as its content:
+ * a column of panels, or a side of one. Which way it lies, and how wide it
+ * is, is the layout's (shape). */
+static lv_obj_t *stack(lv_obj_t *parent, int gap)
+{
+    lv_obj_t *s = lv_obj_create(parent);
+
+    lv_obj_remove_style_all(s);
+    lv_obj_set_size(s, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(s, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(s, gap, 0);
+    lv_obj_clear_flag(s, LV_OBJ_FLAG_SCROLLABLE);
+    return s;
 }
 
 static lv_obj_t *wrap_label(lv_obj_t *parent, const char *text, enum pos_style_role role)
@@ -295,10 +330,33 @@ static void on_cancel(lv_event_t *e)
     close_sheet(lv_event_get_user_data(e));
 }
 
+/* The field and its error caption, brought into view in the sheet. Above the
+ * keyboard in landscape the body is 100 px tall, and a caption that appears
+ * under the field lands below it: the sheet scrolls just far enough for the
+ * caption to be read, which leaves the field in view with it. Anywhere the
+ * sheet already fits, nothing moves. */
+static void reveal_field(struct settings_app *a)
+{
+    if (a->phase != PHASE_NETWORK || !a->field) {
+        return;
+    }
+    lv_obj_update_layout(a->body);
+    lv_obj_scroll_to_view_recursive(lv_obj_get_parent(a->field), LV_ANIM_OFF);
+}
+
+/* The same once the body has changed size. That is learned in the middle of
+ * LVGL's layout pass, before the sheet inside has been laid out for the new
+ * size, so the field is brought into view straight after the pass instead. */
+static void reveal_field_later(void *user)
+{
+    reveal_field(user);
+}
+
 static void show_sheet_error(struct settings_app *a, const char *msg)
 {
     if (a->field && a->sel_kind == SV_JOIN_PASSPHRASE) {
         pocketui_text_field_set_error(a->field, msg);
+        reveal_field(a);
     } else if (a->sheet_error) {
         lv_label_set_text(a->sheet_error, msg);
         set_hidden(a->sheet_error, 0);
@@ -373,20 +431,36 @@ static void on_show(lv_event_t *e)
     lv_label_set_text(a->show_label, hidden ? "SHOW" : "HIDE");
 }
 
+/* One panel in two sides: what the network is, then the field and what can be
+ * done - one above the other when the body is tall, side by side when it is
+ * wide (shape_sheet). Tall, the sides are invisible: the panel's own 12 px
+ * gap between them is the gap there always was between the text and the
+ * field. */
 static void build_sheet(struct settings_app *a)
 {
     lv_obj_t *p = pocketui_card(a->body);
     lv_obj_t *buttons;
     lv_obj_t *b;
     char body[256];
+    int i;
 
     lv_obj_set_style_pad_row(p, 12, 0);
+    lv_obj_set_style_pad_column(p, POCKETUI_PAD, 0);
+    a->sheet = p;
+    for (i = 0; i < 2; i++) {
+        a->sheet_side[i] = stack(p, 12);
+        /* Layout boxes, not targets: a tap between the controls reaches the
+         * panel as it always did, and never takes focus off the field. */
+        lv_obj_clear_flag(a->sheet_side[i], LV_OBJ_FLAG_CLICKABLE);
+    }
+    p = a->sheet_side[0];
     pocketui_label(p, "NETWORK", POS_STYLE_CAPTION);
     b = wrap_label(p, a->sel.ssid, POS_STYLE_TITLE);
     (void)b;
     sv_join_text(&a->sel, body, sizeof(body));
     wrap_label(p, body, a->sel_kind == SV_JOIN_OPEN ? POS_STYLE_STATUS_WARN_TEXT : POS_STYLE_TEXT_SECONDARY);
 
+    p = a->sheet_side[1];
     if (a->sel_kind == SV_JOIN_PASSPHRASE) {
         lv_obj_t *r;
 
@@ -442,6 +516,9 @@ static void build_sheet(struct settings_app *a)
         break;
     }
 
+    /* Shaped before the field takes focus, so that anything focus scrolls
+     * into view is where it will be seen. */
+    shape(a);
     if (a->field) {
         pos_input_focus(a->field);
         pocketos_shell_keyboard_show(POCKETOS_KB_DONE, on_keyboard_done, a);
@@ -643,13 +720,23 @@ static void list_signature(const struct settings_app *a, char *out, size_t n)
     }
 }
 
+/* The three panels in two columns: Wi-Fi, whose list is the long one, and
+ * then Display and Appearance. Stacked when the body is tall they are the one
+ * column there always was, the same gap apart (shape_main). */
 static void build_main(struct settings_app *a)
 {
     lv_obj_t *p;
     lv_obj_t *r;
+    int i;
+
+    for (i = 0; i < 2; i++) {
+        a->column[i] = stack(a->body, SETTINGS_PANEL_GAP);
+        lv_obj_set_scroll_dir(a->column[i], LV_DIR_VER);
+        lv_obj_set_scrollbar_mode(a->column[i], LV_SCROLLBAR_MODE_AUTO);
+    }
 
     /* Wi-Fi */
-    p = pocketui_card(a->body);
+    p = pocketui_card(a->column[0]);
     lv_obj_set_style_pad_row(p, 8, 0);
     pocketui_label(p, "WI-FI", POS_STYLE_CAPTION);
     r = hrow(p, SETTINGS_BTN_H);
@@ -681,7 +768,7 @@ static void build_main(struct settings_app *a)
     a->list_note = wrap_label(p, "", POS_STYLE_TEXT_MUTED);
 
     /* Display */
-    p = pocketui_card(a->body);
+    p = pocketui_card(a->column[1]);
     lv_obj_set_style_pad_row(p, 8, 0);
     pocketui_label(p, "DISPLAY", POS_STYLE_CAPTION);
     /* One flat row - title, minus, value, plus - rather than a content-sized
@@ -715,7 +802,7 @@ static void build_main(struct settings_app *a)
     }
     a->rot_note = wrap_label(p, "", POS_STYLE_TEXT_SECONDARY);
 
-    build_appearance(a, a->body);
+    build_appearance(a, a->column[1]);
 }
 
 static void repaint(struct settings_app *a)
@@ -771,11 +858,160 @@ static void repaint(struct settings_app *a)
     repaint_appearance(a);
 }
 
+/* ---- the layout ---------------------------------------------------------------------- *
+ *
+ * The screen on show sits in one frame that is exactly the body's content box
+ * - the whole of the room the shell gives the app - and is shaped from the
+ * size of that box alone:
+ *
+ *   TALL (portrait: 528 x 1060 on the reference panel, 528 x 764 with the
+ *   keyboard up). The panels one above the other, the body scrolling: Wi-Fi,
+ *   Display, Appearance; the network sheet's text above its field and
+ *   buttons. The v0.0.10 layout, except that nothing scrolls into the corners
+ *   at the foot (below).
+ *
+ *   WIDE (landscape: 1192 x 396, and 1192 x 100 with the keyboard up). A
+ *   column of panels 1192 px wide is the portrait screen stretched, with a
+ *   network list whose names sit a screen's width from their badges. So the
+ *   panels go side by side instead, in two columns that share the width with
+ *   the DS 7 panel gap between them and each scroll on their own: Wi-Fi on the
+ *   left, Display and Appearance on the right. The network sheet is one panel
+ *   across the body with the network described on the left and the field and
+ *   the buttons on the right - the actions beside the content rather than
+ *   under it, as Notes does, because height is what landscape lacks: above
+ *   the keyboard the body is 100 px tall, and a field under the text would be
+ *   out of sight while it is typed into. Beside the text it is at the top of
+ *   the panel, in view with the network's name. Chosen only when each column
+ *   keeps SETTINGS_COLUMN_W, so no panel, row or field is narrower than in
+ *   portrait. No control's size is taken from the height, so no body can
+ *   bring one under 64 px.
+ *
+ * A screen is built when it is shown, as it always was - the network sheet
+ * when a network is tapped, the main screen again when it closes or the list
+ * comes or goes - and shaped when it is built. A change of the body's size
+ * only shapes: flow, sizes and which box scrolls. The objects, their values,
+ * the typed passphrase, the focus and the keyboard are not touched by it.
+ *
+ * Whatever the shape, nothing is drawn into the panel's unsafe area (DS 21.1,
+ * 22.2): scrolled panels pass the foot of the body, which reaches 10 px into
+ * the 30 px corner squares of the reference panel, so the frame pads its foot
+ * by however far a corner square reaches into the body, from the platform's
+ * description (pos_display_rect_insets, the rule Calculator and Notes use).
+ * With the keyboard up the foot is far from the corners and the pad is 0; on
+ * a panel with square corners it is always 0. */
+
+/* Tall: the body scrolls the one column the two make. Wide: the body lays the
+ * two side by side and each scrolls itself. */
+static void shape_main(struct settings_app *a)
+{
+    int i;
+
+    if (!a->column[0] || !a->column[1]) {
+        return;
+    }
+    lv_obj_set_flex_flow(a->body, a->wide ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+    if (a->wide) {
+        lv_obj_scroll_to_y(a->body, 0, LV_ANIM_OFF);
+        lv_obj_clear_flag(a->body, LV_OBJ_FLAG_SCROLLABLE);
+    } else {
+        lv_obj_add_flag(a->body, LV_OBJ_FLAG_SCROLLABLE);
+    }
+    for (i = 0; i < 2; i++) {
+        lv_obj_set_flex_grow(a->column[i], a->wide ? 1 : 0);
+        lv_obj_set_size(a->column[i], LV_PCT(100), a->wide ? LV_PCT(100) : LV_SIZE_CONTENT);
+        if (a->wide) {
+            lv_obj_add_flag(a->column[i], LV_OBJ_FLAG_SCROLLABLE);
+        } else {
+            lv_obj_scroll_to_y(a->column[i], 0, LV_ANIM_OFF);
+            lv_obj_clear_flag(a->column[i], LV_OBJ_FLAG_SCROLLABLE);
+        }
+    }
+}
+
+/* The sheet's two sides: stacked when tall, equal halves side by side when
+ * wide, both from the top of the panel. The body scrolls in either shape. */
+static void shape_sheet(struct settings_app *a)
+{
+    int i;
+
+    if (!a->sheet || !a->sheet_side[0] || !a->sheet_side[1]) {
+        return;
+    }
+    lv_obj_set_flex_flow(a->sheet, a->wide ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+    for (i = 0; i < 2; i++) {
+        lv_obj_set_flex_grow(a->sheet_side[i], a->wide ? 1 : 0);
+    }
+}
+
+static void shape(struct settings_app *a)
+{
+    if (!a->body) {
+        return;
+    }
+    if (a->phase == PHASE_NETWORK) {
+        shape_sheet(a);
+    } else {
+        shape_main(a);
+    }
+}
+
+static void layout(struct settings_app *a)
+{
+    lv_area_t box;
+    struct pos_insets in;
+    int32_t w;
+    int32_t h;
+
+    lv_obj_get_coords(a->frame, &box);
+    if (lv_area_get_width(&box) <= 0 || lv_area_get_height(&box) <= 0 ||
+        memcmp(&box, &a->laid_out, sizeof(box)) == 0) {
+        return;
+    }
+    a->laid_out = box;
+    in = pos_display_rect_insets(pocketui_display_geometry(), box.x1, box.y1, box.x2, box.y2);
+    lv_obj_set_style_pad_left(a->frame, in.left, 0);
+    lv_obj_set_style_pad_top(a->frame, in.top, 0);
+    lv_obj_set_style_pad_right(a->frame, in.right, 0);
+    lv_obj_set_style_pad_bottom(a->frame, in.bottom, 0);
+    w = lv_area_get_width(&box) - in.left - in.right;
+    h = lv_area_get_height(&box) - in.top - in.bottom;
+    a->wide = w > h && w >= 2 * SETTINGS_COLUMN_W + SETTINGS_PANEL_GAP;
+    shape(a);
+    if (a->phase == PHASE_NETWORK && a->field) {
+        lv_async_call_cancel(reveal_field_later, a);
+        lv_async_call(reveal_field_later, a);
+    }
+}
+
+/* The frame is the body's content box, so this is the body changing size:
+ * the keyboard came up or went down, or this is the first layout pass after
+ * the app was built. */
+static void on_frame_size(lv_event_t *e)
+{
+    layout(lv_event_get_user_data(e));
+}
+
+static void build_frame(struct settings_app *a)
+{
+    lv_obj_t *frame = lv_obj_create(a->root);
+
+    lv_obj_remove_style_all(frame);
+    /* Exactly the body's content box, whatever is in it, so the shape is
+     * always chosen from the room the shell gives and never from the size of
+     * what the shape itself put there. */
+    lv_obj_set_size(frame, LV_PCT(100), LV_PCT(100));
+    lv_obj_clear_flag(frame, LV_OBJ_FLAG_SCROLLABLE);
+    a->frame = frame;
+}
+
 static void rebuild(struct settings_app *a)
 {
     if (a->body) {
         lv_obj_delete(a->body);
     }
+    memset(a->column, 0, sizeof(a->column));
+    a->sheet = NULL;
+    memset(a->sheet_side, 0, sizeof(a->sheet_side));
     a->toggle = a->toggle_label = a->headline = a->detail = a->store_note = NULL;
     a->scan_btn = a->disc_btn = a->list = a->list_note = NULL;
     a->bright_value = a->bright_down = a->bright_up = a->bright_note = NULL;
@@ -785,12 +1021,13 @@ static void rebuild(struct settings_app *a)
     memset(a->rot_btn, 0, sizeof(a->rot_btn));
     a->rot_note = NULL;
 
-    a->body = lv_obj_create(a->root);
+    a->body = lv_obj_create(a->frame);
     lv_obj_remove_style_all(a->body);
     lv_obj_set_width(a->body, LV_PCT(100));
     lv_obj_set_height(a->body, LV_PCT(100));
     lv_obj_set_flex_flow(a->body, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(a->body, 22, 0);
+    lv_obj_set_style_pad_row(a->body, SETTINGS_PANEL_GAP, 0);
+    lv_obj_set_style_pad_column(a->body, SETTINGS_PANEL_GAP, 0);
     lv_obj_set_scroll_dir(a->body, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(a->body, LV_SCROLLBAR_MODE_AUTO);
 
@@ -798,6 +1035,7 @@ static void rebuild(struct settings_app *a)
         build_sheet(a);
     } else {
         build_main(a);
+        shape(a);
         repaint(a);
     }
 }
@@ -817,7 +1055,13 @@ static void *settings_create(lv_obj_t *root)
     poll_networks(a);
     poll_brightness(a);
     poll_rotation(a);
+    build_frame(a);
     rebuild(a);
+    /* Only now: building lays objects out as it goes, and the layout step
+     * shapes objects that must all exist. */
+    lv_obj_add_event_cb(a->frame, on_frame_size, LV_EVENT_SIZE_CHANGED, a);
+    lv_obj_update_layout(a->frame);
+    layout(a);
     return a;
 }
 
@@ -847,6 +1091,10 @@ static void settings_destroy(void *priv)
     if (!a) {
         return;
     }
+    /* The frame outlives this by a moment, until the shell deletes the app's
+     * objects; nothing may call back into a freed app in between. */
+    lv_obj_remove_event_cb_with_user_data(a->frame, on_frame_size, a);
+    lv_async_call_cancel(reveal_field_later, a);
     /* The shell deletes the objects after this; the passphrase goes first. */
     clear_field(a);
     explicit_bzero(&a->sel, sizeof(a->sel));
