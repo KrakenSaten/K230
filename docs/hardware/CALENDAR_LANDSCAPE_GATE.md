@@ -5,11 +5,13 @@ Branch `feature/calendar-landscape`, first from origin/master `aaad9f4` (code
 origin/master `2bdf279`** (Settings §24, System §25 and Clock §26 accepted):
 code `17e5da0`, docs `57fe9e6`, and this sheet. VERSION stays 0.0.10.
 
-**Result so far: host and simulator validation PASS, 2026-09-17**, done host
-and simulator only, by the product owner's instruction, without touching
-unit A. After the rebase the work is revalidated, the rebased build is
-deployed to unit A and the owner's physical check is run (later sections).
-The design system's amendment is §27, Amendment K, PROPOSED.
+**Result: PASS on unit A, 2026-09-17** - host and simulator validation before
+the rebase (done host and simulator only, by the product owner's instruction,
+without touching unit A), revalidation after it, a userspace deployment of the
+rebased build with health checks over the serial console, then the product
+owner's physical check (last sections), which he ruled PASS twice, including
+the landscape day cells of §27.2. **The product owner ACCEPTED the work and DS
+Amendment K (§27) on 2026-09-17.** Not merged.
 
 Scope: Calendar only. No other app, no rotation policy, no keyboard presence
 logic, no shell or PocketUI change, no boot splash, no first-boot or
@@ -157,67 +159,105 @@ Outside this scope:
   §21.3's list, that is for the merge, in merge order with the other pending
   landscape branches, none of which edits them either.
 
-## Unresolved hardware questions
+## Hardware questions, as answered
 
-Only the panel and a finger can answer these; nothing here is claimed for
-unit A.
-
-- Whether an 80 x 56 day, wider than tall, is hit as reliably by a thumb as a
-  72 px square, across the whole month and at its edges (Monday, Sunday, the
-  sixth week above the rounded corners).
-- Whether 24 px weekday headings in mono 14, today's accent number with its
-  dot in a 56 px cell, and the selected outline read at arm's length in
-  Normal and Outdoor.
-- Whether the stretched panel with one line of text reads as intended rather
-  than empty.
-- Capture against the simulator on the real panel (RGB565, within 13 per
-  channel, as for Calculator, Notes and Settings). The status bar and today's
-  mark follow the unit's clock, so the simulator must be given the unit's
-  date at the moment of capture, or those areas masked.
+- **Is an 80 x 56 day, wider than tall, hit as reliably by a thumb as a 72 px
+  square?** **Answered by the owner: yes** - he ruled the physical check PASS,
+  twice, with §27.2 named as its decisive step. Taps leave no trace in the
+  log, so this rests on his hands and his word, not on evidence this session
+  can show.
+- **Does the layout read on the panel?** Portrait and landscape were captured
+  from the unit over the serial console (`caps/`): the month fills the left
+  half, the arrows, the panel and Today the right, the whole of September 2026
+  on screen at once, nothing clipped and nothing in the corner squares.
+- **Outdoor on the panel: still unanswered.** The owner's batch asked for
+  OUTDOOR in landscape; `shell.log` shows `mode normal` throughout and no
+  appearance change, so it was not exercised on the unit. Outdoor is covered
+  in the simulator and by `cal_app_test` only.
+- **Portrait steps 1-3 (tapping days, the arrows and Today in portrait):**
+  Calendar was open in portrait for five seconds before the owner turned the
+  display, which is too short for them; portrait is unchanged from v0.0.10 by
+  pixel comparison, and the owner ruled the batch PASS.
+- **A pixel comparison against the simulator was not made.** The unit runs the
+  Carbon theme and its own clock; the captures were read as pictures instead.
 - On the unit a rotation comes back on the launcher, so Calendar is never open
-  while the display turns; the relayout under an open app is host evidence.
+  while the display turns; the relayout under an open app stays host evidence.
 
-## The gate to run later
+## The rebase onto `2bdf279`
 
-Only in a session the owner allows to use unit A. Build the stripped riscv64
-DRM `doors-shell` from the branch tip as for the Settings, System and Clock
-gates (a stripped build of `27718f2` was 944,816 B, md5 `793735a9…`; the gate
-rebuilds it from the tip it runs). Calendar stores nothing, so there is no
-store to back up; nothing else of the owner's is touched.
+Only `docs/design/POCKETOS-DS-v0.1.md` conflicted, in the one hunk at the end
+of the document where the accepted §24, §25 and §26 meet the section this
+branch had written with a placeholder number. Resolved by keeping master's
+three amendments untouched - the DS diff against `2bdf279` adds lines and
+removes only the one §21.3 list line it extends - and numbering Calendar
+**§27, Amendment K**, with `§27.1`-`§27.4` inside it, the §21.3 list reading
+"System: §25. Clock: §26. Calendar: §27.", and §27.4 citing §25.3 for the
+floor test rather than restating it. `apps/calendar/cal_app.c`, the three
+Calendar test files and the lint script are byte-identical to their pre-rebase
+blobs (`f9af93f`); `cal_date.c`, `cal_date.h`, `cal_view.c` and `cal_view.h`
+are byte-identical to master's, so the date arithmetic and the view model are
+untouched by both the work and the rebase. The pre-rebase tip is kept as the
+local branch `backup/calendar-landscape-pre-rebase`.
 
-**Remote** (serial console or SSH, as the owner allows):
+Revalidated from a fresh clone of the rebased sheet commit:
 
-1. Identity before (release file, `doors-shell` md5 and build, rotation mode,
-   theme, date valid or not, restarts, crash reports, `shell.log` errors).
-   Rollback copy of the installed `doors-shell`; install the build; restart
-   only `S90doors-shell`; the shell answers the new build, supervised,
-   restarts 0.
-2. Portrait: open Calendar; capture; tap previous, a day, next, Today;
-   capture; compare with the simulator given the unit's date.
-3. Landscape (`doors call shell shell.rotation mode=landscape`, restart in
-   place, back on the launcher): open Calendar; capture (month left, row,
-   panel and Today right, the foot corner squares background only); tap a day
-   in each corner of the month (the Monday of the first week, the Sunday of
-   the last), previous twice, next three times (to a six-week month if the
-   unit's date allows), Today; capture after each.
-4. Back to the mode found (Automatic); health after (`shell.log` 0 ERROR and
-   WARN, no crash report, services running, restarts 0); nothing written under
-   `/var/lib/pocketos` by Calendar.
+| Check | Result |
+| --- | --- |
+| `make all` (-Werror) | rc 0, 0 warnings |
+| `make test` | 3,769 ok, 0 FAIL, 0 warnings (master `2bdf279`: 3,761); clean checkout after |
+| SDL simulator build | rc 0, 0 warnings |
+| 21 shell and UI test scripts | 525 ok, 0 FAIL, every script rc 0 (master: the same 21 and 521) |
+| `cal_app_test` / `calendar_shell_test.sh` / `calendar_lint.sh` | 1,317 checks / 21 ok / 48 checks, 0 failures |
+| `settings_app_test` / `system_app_test` / `clock_app_test` | 636 / 833 / 778 checks, 0 failures: the three accepted layouts unaffected |
+| `cal_date_test` / `cal_view_test` | 127 / 98 checks, 0 failures |
+| riscv64 `make all` (ENABLE_SX1262=1) | rc 0; 4 warnings, all `vendor/ggwave`; 0 first-party |
+| riscv64 DRM/sysroot shell | rc 0, 0 warnings; `Doors 0.0.10 build 99b2374`; stripped `doors-shell` 948,912 B, md5 `06472f2e461bbe60d7626dc9b88ea25c` - the build installed on unit A |
+| Simulator smoke, 16 runs and 56 captures | every capture identical to the pre-rebase ones below the status bar; 56 of 56 states object-identical; the foot corner squares background only in 28 of 28 rounded-corner captures |
 
-**Physical** (the owner, one batch, about five minutes):
+## Unit A: deployment
 
-1. **Portrait** (as the unit is): open Calendar. It looks as it did. Tap a
-   few days, previous, next, Today.
-2. **Landscape** (Settings > Display > Rotation > LANDSCAPE; open Calendar):
-   it looks designed for landscape - the whole month on the left, nothing
-   clipped, overlapping or cut by the rounded corners; the month row, the
-   panel and Today on the right. With a thumb, tap ten days across the month, including
-   the first and last columns and the bottom week: **does every tap select
-   the day you meant?** (the §27.2 question). Previous, next, Today. In OUTDOOR
-   (Settings > Appearance) the numbers, headings and today's dot still read;
-   back to the mode it was in.
-3. **Back**: Settings > Display > Rotation > AUTOMATIC. Calendar still looks
-   right in portrait.
+Userspace only, over the serial console; the card was not flashed and nothing
+but `/usr/bin/doors-shell` changed.
 
-**Result: NOT RUN** - host and simulator only by instruction; the owner's
-physical check and the remote gate are pending.
+| Step | Result |
+| --- | --- |
+| Before | `0.0.10` build `8aec2bc` (the Clock gate's), md5 `a893462f…`, pid 1748, restarts 0, crashloop 0, 0 crash reports, `shell.log` 0 ERROR 0 WARN, Automatic/portrait, theme Carbon, Wi-Fi off, brightness 100; date valid (2026-09-17 UTC, ntpd running) |
+| Transfer | `doors-shell.gz.b64` (463,212 B) over COM9 in 96 s; decoded on the unit to md5 `06472f2e461bbe60d7626dc9b88ea25c`, the host artifact byte for byte |
+| Install | rollback copy `/root/doors-shell.8aec2bc` kept; only `S90doors-shell` restarted; 7 of 7 checks ok |
+| After | the shell answers `"build":"99b2374"`, exactly one `doors-shell` (pid 2612), supervised, restarts 0, crashloop 0; sysd, netd and radiod untouched and running |
+| Remote render | Calendar opened from the console in portrait and, after `shell.rotation mode=landscape`, in landscape; both captured (`caps/portrait-calendar.png`, `caps/landscape-calendar.png`); back to Automatic before handing over |
+| Stores | every file under `/var/lib/pocketos` byte-identical before and after, and no `calendar` directory: Calendar writes nothing |
+
+## Unit A: the physical check
+
+Handed to the owner as one batch: portrait (open, tap days, previous, next,
+Today); landscape via Settings > Display > Rotation (the whole month on the
+left, nothing clipped or in the corners, the right side intentional); **ten
+thumb taps across the month including the first and last columns and the top,
+middle and bottom weeks, each expected to select the day meant** (§27.2);
+previous, next and Today; OUTDOOR and back; then AUTOMATIC and portrait again.
+
+**The owner ruled PASS.** Asked once to reconcile the ruling with the log, he
+ruled PASS again.
+
+What `shell.log` shows of his session, and what it does not:
+
+- 17:51:23 Calendar opened in portrait, closed 17:51:28 (five seconds);
+  17:51:31 Settings; 17:51:33 rotation stored landscape and the shell
+  restarted in place; 17:51:39 Calendar opened in landscape and left open.
+- Taps are not logged, so the thumb test itself rests on the owner's hands
+  and his ruling.
+- OUTDOOR was not entered (`mode normal` throughout, no appearance change),
+  and the display was left in landscape rather than returned to Automatic.
+  Both are recorded as not exercised rather than as passed; Outdoor stays a
+  simulator and host result. After the ruling, the session set rotation back
+  to Automatic, reopened Calendar in portrait and captured it
+  (`caps/portrait-after-gate.png`).
+- Health throughout and after: 0 ERROR and 0 WARN in the 85 new `shell.log`
+  lines, no crash report, no crashloop marker, no segfault or oops in dmesg,
+  one `doors-shell`, restarts 0, sysd/netd/radiod running, VmRSS 12,672 kB,
+  and every store byte-identical to the pre-deploy listing.
+
+Unit A was left on build `99b2374`, Automatic/portrait, theme Carbon, Wi-Fi
+off, brightness 100, at the launcher, with `/root/doors-shell.8aec2bc` as the
+rollback copy.

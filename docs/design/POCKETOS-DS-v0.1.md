@@ -1655,12 +1655,28 @@ that includes attaching or removing a keyboard base. Whether an orientation
 change should carry the runtime's running state across is a shell question;
 this amendment changes nothing about it.
 
-## 27. Amendment K — Calendar in landscape [PROPOSED]
+## 27. Amendment K — Calendar in landscape [ACCEPTED]
 
-**PROPOSED 2026-09-17**, host and simulator only, written against §23 and
-rebased onto the accepted §24, §25 and §26; pending the unit A gate
-(`docs/hardware/CALENDAR_LANDSCAPE_GATE.md`) and the product owner's
-acceptance. The sixth app given its own landscape layout under §21.3, after
+**ACCEPTED 2026-09-17** by the product owner, after the unit A gate
+(`docs/hardware/CALENDAR_LANDSCAPE_GATE.md`: PASS). Proposed the same day,
+host and simulator only, written against §23 and rebased onto the accepted
+§24, §25 and §26 before the gate. The acceptance rests on: the
+responsive-layout pattern of §22.3, §23.4, §24.4, §25.3 and §26.4 reused - the
+shape chosen from the body's size, the objects built once and shaped again
+when the body changes size, the corner clearance read from the platform; clean
+host validation before and after the rebase (make test, every shell and UI
+test, portrait identical to the previous layout in every simulator capture,
+the layout mutations caught, the display turned under the open app with
+nothing lost or made twice) and riscv64 and DRM builds; the rebased build
+installed on unit A with only the shell service restarted, healthy, writing
+nothing, and Calendar rendering on the panel in both orientations; and the
+owner's physical check, which he ruled PASS twice, **including the landscape
+day cells of §27.2, the question the gate was for**. Not everything the batch
+asked was exercised on the unit: Outdoor in landscape was not entered, and
+portrait was on screen for five seconds, so both rest on the host and
+simulator evidence and on the owner's ruling (the gate sheet records this).
+Normative on the same terms as the rest of this document. The sixth app given
+its own landscape layout under §21.3, after
 Clock (§26), on the pattern of §22.3, §23.4, §24.4, §25.3 and §26.4, which it
 follows and extends (§27.4); it is not a second layout system. Nothing in
 §1–§26 is renumbered, and nothing outside Calendar changes: not the shell,
@@ -1716,9 +1732,10 @@ PocketUI, the rotation policy or any other app.
 - It is **not** DEV-1 (§17.3) and does not cite it: DEV-1 is keyboard keys
   only and narrower than 64 px; this is a day cell, at least 64 px across, in
   the wide shape only. Portrait keeps its 72 px squares.
-- **The owner's physical check accepts or rejects it.** If a thumb misses
-  days in landscape, the alternative is 64 px weeks in a month that scrolls
-  in its half, which no other rule here depends on.
+- **The owner's physical check accepted it** on unit A, 2026-09-17: thumb
+  taps across the month in landscape select the day meant. Had they missed,
+  the alternative was 64 px weeks in a month that scrolls in its half, which
+  no other rule here depends on.
 
 ### 27.3 Consequences for portrait
 
@@ -1731,9 +1748,7 @@ PocketUI, the rotation policy or any other app.
 
 ### 27.4 What Calendar adds to the pattern
 
-To §22.3, §23.4, §24.4, §25.3 and §26.4, for the next app. PROPOSED with this
-amendment; none of it is accepted until the unit A gate and the owner's
-review.
+To §22.3, §23.4, §24.4, §25.3 and §26.4, for the next app.
 
 - **A fixed grid of targets that loses height shares it.** Where a screen's
   content is a grid whose count cannot change (a month is always six weeks),
@@ -1779,3 +1794,4 @@ Amendment G (§23) accepted 2026-09-17.
 Amendment H (§24) accepted 2026-09-17.
 Amendment I (§25) accepted 2026-09-17.
 Amendment J (§26) accepted 2026-09-17.
+Amendment K (§27) accepted 2026-09-17.

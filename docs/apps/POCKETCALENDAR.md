@@ -4,8 +4,9 @@ A month, and which day it is. A calendar, not a scheduler: it has no events,
 no reminders, no recurrence and nothing to sync, and it stores nothing at all.
 
 Status: **shipped in v0.0.9 and v0.0.10.** The landscape layout (below) is on
-branch `feature/calendar-landscape`: host and simulator validated, **not yet
-run on unit A** (`docs/hardware/CALENDAR_LANDSCAPE_GATE.md`).
+branch `feature/calendar-landscape`: host and simulator validated, and
+**accepted on unit A, 2026-09-17** (`docs/hardware/CALENDAR_LANDSCAPE_GATE.md`:
+PASS; DS §27, Amendment K).
 
 ## What it is
 
@@ -25,8 +26,8 @@ because there is nothing else to attach to a day.
 
 PocketCalendar lays itself out in the body the shell gives it and picks its
 shape from that body's size, never from the orientation (DS §21.2), on the
-landscape pattern of DS §22.3 to §26.4. DS §27 (Amendment K, PROPOSED) is the
-normative version of this section.
+landscape pattern of DS §22.3 to §26.4. DS §27 (Amendment K) is the normative
+version of this section.
 
 - **Tall** - portrait, 528 x 1060 on the reference panel - is the layout
   Calendar always had (see Layout).
@@ -262,11 +263,14 @@ What only hardware can settle:
 - The unset-clock path in its natural setting: the app open across the moment
   SNTP sets the date.
 
-**Landscape: not run on unit A.** The layout above is validated on the host
-and in the simulator only; the remote gate and the owner's physical check are
-prepared in `docs/hardware/CALENDAR_LANDSCAPE_GATE.md`. Above all it has to
-settle whether an 80 × 56 day, wider than tall, is as easy to hit with a thumb
-as a 72 px square.
+**Landscape on unit A: PASS, 2026-09-17**
+(`docs/hardware/CALENDAR_LANDSCAPE_GATE.md`). The rebased build was installed
+over the serial console with only the shell service restarted; Calendar
+rendered in both orientations on the panel, wrote nothing, and left the unit
+with 0 ERROR and 0 WARN. The question the gate was for - whether an 80 × 56
+day, wider than tall, is as easy to hit with a thumb as a 72 px square - the
+owner answered by hand: yes. Outdoor in landscape was not exercised on the
+unit; it rests on the simulator and `cal_app_test`.
 
 Found in the simulator while making the landscape layout, and left alone:
 
