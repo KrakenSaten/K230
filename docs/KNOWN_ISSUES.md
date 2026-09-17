@@ -1,6 +1,6 @@
 # Known issues and open questions
 
-Updated 2026-09-16. Move items to git history when resolved.
+Updated 2026-09-17. Move items to git history when resolved.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
 B4 (the shell's `printf` diagnostics never reached a log; they go through
@@ -77,17 +77,25 @@ chip-state dependent and dumps both transports' windows when it does.
   board powered down and USB power removed.
 - The rounded corners' extent is PROVISIONAL (30 px squares, the vendor
   launcher's status-bar side inset). No datasheet gives it; unit A decides
-  (POCKETOS_SAFE_CORNERS tries other values). Only the status bar and
-  Calculator's foot (DS §22.2) use the safe area so far. The touch
-  keyboard's bottom row (DEV-1 fixed 52 px keys,
-  6 px sheet padding) and the full-screen alert's card corners still reach
+  (POCKETOS_SAFE_CORNERS tries other values). The status bar uses the safe
+  area, and so does every app that has been given a landscape layout -
+  Calculator, Notes, Settings, System, Clock and Calendar - through the one
+  rule pos_display_rect_insets() (DS §22.2, §23.4). The touch keyboard's
+  bottom row (DEV-1 fixed 52 px keys, 6 px sheet padding) and the full-screen
+  alert's card corners still reach
   into the 30 px corner squares; widening them changes approved geometry and
   is left for a design decision if unit A shows them cut.
-- Landscape is laid out for the status bar, the launcher and Calculator
-  (DS §22). Other app bodies keep their portrait-derived widths
-  (Timber 528, Radar 520, Calendar 528, Fleet 522) inside a 1232 px wide,
-  440 px high body and scroll vertically; the touch keyboard stays 568 px
-  wide at the bottom centre.
+- Landscape is laid out for the status bar, the launcher and, each under its
+  own accepted amendment, Calculator (DS §22), Notes (§23), Settings (§24),
+  System (§25), Clock (§26) and Calendar (§27). The app bodies that have not
+  been given one keep their portrait-derived fixed widths - Fleet 522, Radar
+  520, Timber 528 - inside a 1232 px wide, 440 px high body and scroll
+  vertically; Radio and Wave have no fixed width, so they stretch across the
+  landscape body without being laid out for it. The touch keyboard stays
+  568 px wide at the bottom centre. Fleet and Radar are the two still to be
+  done; Timber stays portrait on purpose (the vertical tower is the game);
+  Radio is not planned, because the app is expected to be replaced
+  (docs/ROADMAP.md, "Landscape app adaptation").
 - The target lv_conf.h is the vendor package's, not ui/shell/lv_conf.defaults:
   LV_USE_FLOAT 1, LV_USE_SNAPSHOT 0, ThorVG/FreeType/FFmpeg compiled in,
   LVGL asserts abort the process (which pocketlog turns into a crash report).

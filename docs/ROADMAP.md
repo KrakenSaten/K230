@@ -190,18 +190,42 @@ not started and not approved.
 
 ### Landscape app adaptation (after v0.0.10)
 
-System rotation works (DS §21), but most app screens are still portrait
-layouts shown in the landscape body: fixed widths such as Timber 528, Radar
-520, Calendar 528 and Fleet 522 px, scrolled vertically (docs/KNOWN_ISSUES.md;
-confirmed by the product owner on unit A during the v0.0.10 gate). Each app
-gets a responsive landscape layout **on its own**, as its own change with its
-own DS amendment where §21.3 asks for one, its own tests in both orientations,
-and a unit A check - not one redesign of every app at once. The portrait
-layouts stay as they are. Apps: Radio, System, Fleet, Radar, Timber, Notes,
-Clock, Calendar, Calculator, Settings, Wave. Order: the product owner's.
-Calculator is the first, done 2026-09-16 (`feature/calculator-landscape`,
-DS §22, Amendment F, accepted); §22.3 records the pattern it sets for the next
-app.
+System rotation works (DS §21). When this was written most app screens were
+still portrait layouts shown in the landscape body - fixed widths scrolled
+vertically (docs/KNOWN_ISSUES.md; confirmed by the product owner on unit A
+during the v0.0.10 gate). Each app gets a responsive landscape layout **on its
+own**, as its own change with its own DS amendment where §21.3 asks for one,
+its own tests in both orientations, and a unit A check - not one redesign of
+every app at once. The portrait layouts stay as they are. Order: the product
+owner's. §22.3 records the pattern Calculator set for the apps after it, and
+each amendment since adds what its app learned.
+
+Accepted, in the order they were done:
+
+| App | DS | Accepted | Merged |
+| --- | --- | --- | --- |
+| Calculator | §22, Amendment F | 2026-09-16 | `0d46e34` |
+| Notes | §23, Amendment G | 2026-09-17 | `228bf22` |
+| Settings | §24, Amendment H | 2026-09-17 | `f5d81ec` |
+| System | §25, Amendment I | 2026-09-17 | `dcf906d` |
+| Clock | §26, Amendment J | 2026-09-17 | `2bdf279` |
+| Calendar | §27, Amendment K | 2026-09-17 | `1608c3f` |
+
+Still to do:
+
+- **Fleet** and **Radar**. Both are still the portrait layouts of §21.3, at
+  their portrait-derived fixed widths (Fleet 522, Radar 520), scrolled
+  vertically in the landscape body. These are the two apps the landscape work
+  has left.
+- **Timber stays portrait**, on purpose: the tower is built upwards and the
+  vertical playing field is intrinsic to the game, so there is no landscape
+  layout to give it. Not a gap.
+- **Radio landscape is not planned.** The Radio app is expected to be
+  replaced, and laying out a screen that is going to be thrown away would be
+  work spent twice. To be reconsidered if that changes.
+- **Wave** has no fixed-width content, so it stretches across the landscape
+  body rather than being clipped or scrolled. Whether it is worth an amendment
+  of its own is the product owner's call, and no work is scheduled.
 
 ### Vendor U-Boot display bring-up investigation (after v0.0.10)
 
