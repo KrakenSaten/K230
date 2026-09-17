@@ -61,6 +61,10 @@ check "with no gap between the screens for LVGL to take from the one on show" \
     "$(appcode | grep -q 'lv_obj_set_style_pad_row(frame, 0, 0);' && echo 1 || echo 0)"
 check "the corner clearance is read from the display geometry" \
     "$(appcode | grep -q 'pocketui_display_geometry()' && echo 1 || echo 0)"
+hits=$(appcode | grep -nE 'corners|top_left|top_right|bottom_left|bottom_right')
+check "by PocketUI's one rule for it, not a copy of the app's own" \
+    "$(appcode | grep -q 'pos_display_rect_insets(pocketui_display_geometry(),' && [ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
 check "the wide shape keeps the content at least portrait-wide beside the rail" \
     "$(appcode | grep -q 'w > h && w >= NOTES_COLUMN_W + POCKETUI_PAD + NOTES_RAIL_W' && echo 1 || echo 0)"
 hits=$(appcode | grep -nE 'lv_obj_clean\(')

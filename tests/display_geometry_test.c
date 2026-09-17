@@ -282,6 +282,205 @@ static void test_geometry(void)
     }
 }
 
+/* ---- how far the unsafe area reaches into a box --------------------------- */
+
+static int insets_are(struct pos_insets in, int32_t left, int32_t top, int32_t right, int32_t bottom)
+{
+    return in.left == left && in.top == top && in.right == right && in.bottom == bottom;
+}
+
+/* Coordinates along an axis of n pixels worth trying: every distance from
+ * either end at which a strip or corner square of the panels below begins or
+ * ends, one pixel either side of it, and the middle. */
+static size_t probe_coords(int32_t n, int32_t *out)
+{
+    static const int32_t d[] = { 0, 1, 2, 3, 4, 5, 9, 10, 11, 19, 20, 21, 29, 30, 31, 39, 40, 41 };
+    size_t k = 0;
+    size_t i;
+
+    for (i = 0; i < sizeof(d) / sizeof(d[0]); i++) {
+        out[k++] = d[i];
+        out[k++] = n - 1 - d[i];
+    }
+    out[k++] = n / 2;
+    return k;
+}
+
+static void test_rect_insets(void)
+{
+    const struct pos_panel rounded = { 568, 1232, { 0, 0, 0, 0 }, { 30, 30, 30, 30 } };
+    const struct pos_panel square = { 568, 1232, { 0, 0, 0, 0 }, { 0, 0, 0, 0 } };
+    struct pos_display_geometry g;
+    char what[200];
+    size_t i;
+
+    /* The bodies Calculator and Notes lay their frames out in on the reference
+     * panel, in display coordinates: 20 px of body padding at the sides and
+     * the foot, and the 56 px status bar, 72 px header and 24 px of body
+     * padding above (152); the keyboard sheet takes 296 px off the foot. */
+    pos_display_geometry_init(&g, &rounded, POS_ROTATION_0);
+    CHECK("portrait body 528 x 1060, rounded corners: the foot is padded 10 px and nothing else",
+          insets_are(pos_display_rect_insets(&g, 20, 152, 547, 1211), 0, 0, 0, 10));
+    CHECK("portrait body above the keyboard (528 x 764): clear of the corners, no padding",
+          insets_are(pos_display_rect_insets(&g, 20, 152, 547, 915), 0, 0, 0, 0));
+    pos_display_geometry_init(&g, &rounded, POS_ROTATION_270);
+    CHECK("landscape (270) body 1192 x 396, rounded corners: the foot is padded 10 px and nothing else",
+          insets_are(pos_display_rect_insets(&g, 20, 152, 1211, 547), 0, 0, 0, 10));
+    CHECK("landscape (270) body above the keyboard (1192 x 100): clear of the corners, no padding",
+          insets_are(pos_display_rect_insets(&g, 20, 152, 1211, 251), 0, 0, 0, 0));
+    pos_display_geometry_init(&g, &rounded, POS_ROTATION_90);
+    CHECK("landscape (90) body 1192 x 396: the same 10 px at the foot",
+          insets_are(pos_display_rect_insets(&g, 20, 152, 1211, 547), 0, 0, 0, 10));
+
+    for (i = 0; i < 4; i++) {
+        pos_display_geometry_init(&g, &square, rotations[i]);
+        snprintf(what, sizeof(what),
+                 "square corners, rotation %d: the body, with and without the keyboard, and the whole display "
+                 "need no padding",
+                 pos_rotation_degrees(rotations[i]));
+        CHECK(what, insets_are(pos_display_rect_insets(&g, 20, 152, g.width - 21, g.height - 21), 0, 0, 0, 0) &&
+                        insets_are(pos_display_rect_insets(&g, 20, 152, g.width - 21, g.height - 21 - 296), 0, 0,
+                                   0, 0) &&
+                        insets_are(pos_display_rect_insets(&g, 0, 0, g.width - 1, g.height - 1), 0, 0, 0, 0));
+    }
+
+    /* Where the corner squares begin and end, portrait, 30 px corners. */
+    pos_display_geometry_init(&g, &rounded, POS_ROTATION_0);
+    CHECK("a body foot ending at y 1201, the row above the foot squares, needs no padding",
+          insets_are(pos_display_rect_insets(&g, 20, 152, 547, 1201), 0, 0, 0, 0));
+    CHECK("ending at y 1202, the squares' first row, it needs 1 px",
+          insets_are(pos_display_rect_insets(&g, 20, 152, 547, 1202), 0, 0, 0, 1));
+    CHECK("ending at the panel's last row it needs the whole 30 px",
+          insets_are(pos_display_rect_insets(&g, 20, 152, 547, 1231), 0, 0, 0, 30));
+    CHECK("a foot from x 30 to x 537 lies between the squares: no padding, and it is safe",
+          insets_are(pos_display_rect_insets(&g, 30, 152, 537, 1211), 0, 0, 0, 0) &&
+              pos_display_rect_is_safe(&g, 30, 152, 537, 1211));
+    CHECK("from x 29 it reaches the bottom-left square: 10 px",
+          insets_are(pos_display_rect_insets(&g, 29, 152, 537, 1211), 0, 0, 0, 10));
+    CHECK("to x 538 it reaches the bottom-right square: 10 px",
+          insets_are(pos_display_rect_insets(&g, 30, 152, 538, 1211), 0, 0, 0, 10));
+    CHECK("a box from y 0 across a top square is padded at its top by the square's 30 px",
+          insets_are(pos_display_rect_insets(&g, 20, 0, 547, 100), 0, 30, 0, 0));
+    CHECK("from y 29 by 1 px, from y 30 not at all",
+          insets_are(pos_display_rect_insets(&g, 0, 29, 100, 200), 0, 1, 0, 0) &&
+              insets_are(pos_display_rect_insets(&g, 0, 30, 100, 200), 0, 0, 0, 0));
+    CHECK("between the top squares (x 30 to 537) a box may start at y 0",
+          insets_are(pos_display_rect_insets(&g, 30, 0, 537, 100), 0, 0, 0, 0));
+    CHECK("a corner square pads the top or the foot, never a side",
+          insets_are(pos_display_rect_insets(&g, 0, 0, 567, 1231), 0, 30, 0, 30) &&
+              insets_are(pos_display_rect_insets(&g, 0, 1000, 20, 1231), 0, 0, 0, 30));
+    CHECK("a box nowhere near a corner or an edge needs nothing",
+          insets_are(pos_display_rect_insets(&g, 100, 400, 400, 800), 0, 0, 0, 0));
+
+    /* Edge strips, and corners that differ and turn with the panel. */
+    {
+        static const struct {
+            enum pos_rotation r;
+            struct pos_insets whole;
+        } want[] = {
+            { POS_ROTATION_0, { 1, 20, 3, 40 } },
+            { POS_ROTATION_90, { 2, 30, 4, 40 } },
+            { POS_ROTATION_180, { 3, 40, 1, 20 } },
+            { POS_ROTATION_270, { 4, 40, 2, 30 } },
+        };
+        struct pos_panel wide_edge = { 100, 200, { 0, 0, 0, 50 }, { 10, 10, 10, 10 } };
+
+        for (i = 0; i < 4; i++) {
+            const struct pos_insets *e = &want[i].whole;
+
+            pos_display_geometry_init(&g, &asym, want[i].r);
+            snprintf(what, sizeof(what),
+                     "asymmetric panel, rotation %d: the whole display is padded by each side's strip, and at "
+                     "the top and foot by the larger corner there",
+                     pos_rotation_degrees(want[i].r));
+            CHECK(what, insets_are(pos_display_rect_insets(&g, 0, 0, g.width - 1, g.height - 1), e->left, e->top,
+                                   e->right, e->bottom));
+        }
+        pos_display_geometry_init(&g, &asym, POS_ROTATION_0);
+        CHECK("asymmetric panel: a box over the left half of the foot takes only the bottom-left square (40)",
+              insets_are(pos_display_rect_insets(&g, 0, 1000, 283, 1231), 1, 0, 0, 40));
+        CHECK("and over the right half only the bottom-right square (30)",
+              insets_are(pos_display_rect_insets(&g, 284, 1000, 567, 1231), 0, 0, 3, 30));
+        pos_display_geometry_init(&g, &wide_edge, POS_ROTATION_0);
+        CHECK("an edge strip deeper than the corner square pads by the strip",
+              insets_are(pos_display_rect_insets(&g, 0, 0, 99, 199), 0, 10, 0, 50));
+    }
+
+    /* Against the definition of safe, box by box: the padding is all zero
+     * exactly when the box is already safe, what is left inside it is safe,
+     * and one pixel less on any padded side is not. */
+    {
+        const struct pos_panel *panels[] = { &rounded, &asym };
+        const char *names[] = { "30 px corners", "asymmetric panel" };
+        size_t p;
+
+        for (p = 0; p < 2; p++) {
+            for (i = 0; i < 4; i++) {
+                int32_t xs[40];
+                int32_t ys[40];
+                size_t nx;
+                size_t ny;
+                size_t a;
+                size_t b;
+                size_t c;
+                size_t d;
+                int zero_iff_safe = 1;
+                int inner_safe = 1;
+                int tight = 1;
+
+                pos_display_geometry_init(&g, panels[p], rotations[i]);
+                nx = probe_coords(g.width, xs);
+                ny = probe_coords(g.height, ys);
+                for (a = 0; a < nx; a++) {
+                    for (b = 0; b < nx; b++) {
+                        for (c = 0; c < ny; c++) {
+                            for (d = 0; d < ny; d++) {
+                                int32_t x1 = xs[a], x2 = xs[b], y1 = ys[c], y2 = ys[d];
+                                struct pos_insets in;
+                                int32_t l, t, r, bo;
+
+                                if (x1 > x2 || y1 > y2) {
+                                    continue;
+                                }
+                                in = pos_display_rect_insets(&g, x1, y1, x2, y2);
+                                l = x1 + in.left;
+                                t = y1 + in.top;
+                                r = x2 - in.right;
+                                bo = y2 - in.bottom;
+                                if (insets_are(in, 0, 0, 0, 0) != pos_display_rect_is_safe(&g, x1, y1, x2, y2) ||
+                                    in.left < 0 || in.top < 0 || in.right < 0 || in.bottom < 0) {
+                                    zero_iff_safe = 0;
+                                }
+                                if (l > r || t > bo) {
+                                    continue;
+                                }
+                                if (!pos_display_rect_is_safe(&g, l, t, r, bo)) {
+                                    inner_safe = 0;
+                                }
+                                if ((in.left > 0 && pos_display_rect_is_safe(&g, l - 1, t, r, bo)) ||
+                                    (in.top > 0 && pos_display_rect_is_safe(&g, l, t - 1, r, bo)) ||
+                                    (in.right > 0 && pos_display_rect_is_safe(&g, l, t, r + 1, bo)) ||
+                                    (in.bottom > 0 && pos_display_rect_is_safe(&g, l, t, r, bo + 1))) {
+                                    tight = 0;
+                                }
+                            }
+                        }
+                    }
+                }
+                snprintf(what, sizeof(what), "%s, rotation %d: no padding exactly for the boxes already safe",
+                         names[p], pos_rotation_degrees(rotations[i]));
+                CHECK(what, zero_iff_safe);
+                snprintf(what, sizeof(what), "%s, rotation %d: what the padding leaves of a box is safe",
+                         names[p], pos_rotation_degrees(rotations[i]));
+                CHECK(what, inner_safe);
+                snprintf(what, sizeof(what), "%s, rotation %d: one pixel less padding on any padded side is not",
+                         names[p], pos_rotation_degrees(rotations[i]));
+                CHECK(what, tight);
+            }
+        }
+    }
+}
+
 /* ---- touch ---------------------------------------------------------------- */
 
 /* LVGL 9.5 lv_evdev.c _evdev_calibrate, verbatim arithmetic. */
@@ -440,6 +639,7 @@ int main(void)
 {
     test_mapping();
     test_geometry();
+    test_rect_insets();
     test_touch();
     printf("display_geometry_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;

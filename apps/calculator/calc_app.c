@@ -347,41 +347,11 @@ static void build_keypad(struct calc_app *a, lv_obj_t *root)
  * is 20, so the keys in the bottom row would reach 10 px into the corner
  * squares at both ends. The frame therefore pads its foot by however far a
  * corner square reaches into it, measured from the platform's description
- * (pos_display.h), not assumed: on a panel with square corners the pad is 0
- * and the tall layout is the v0.0.9 layout to the pixel. The foot, rather
- * than the sides, gives way because the sides line up with the header's Back
- * button and the DS 7 body edges, and a few pixels of height cost less than
- * breaking that line. */
-
-/* How far the unsafe area - straight-edge strips and corner squares - reaches
- * into box, which is in display coordinates. A strip insets the side it lies
- * along; a corner square insets the top or the foot of the box. */
-static struct pos_insets unsafe_insets(const lv_area_t *box)
-{
-    const struct pos_display_geometry *g = pocketui_display_geometry();
-    const struct pos_corners *c = &g->corners;
-    struct pos_insets in = {
-        .left = LV_MAX(0, g->edges.left - box->x1),
-        .top = LV_MAX(0, g->edges.top - box->y1),
-        .right = LV_MAX(0, box->x2 - (g->width - 1 - g->edges.right)),
-        .bottom = LV_MAX(0, box->y2 - (g->height - 1 - g->edges.bottom)),
-    };
-
-    if (c->top_left > 0 && box->x1 < c->top_left && box->y1 < c->top_left) {
-        in.top = LV_MAX(in.top, c->top_left - box->y1);
-    }
-    if (c->top_right > 0 && box->x2 >= g->width - c->top_right && box->y1 < c->top_right) {
-        in.top = LV_MAX(in.top, c->top_right - box->y1);
-    }
-    if (c->bottom_right > 0 && box->x2 >= g->width - c->bottom_right &&
-        box->y2 >= g->height - c->bottom_right) {
-        in.bottom = LV_MAX(in.bottom, box->y2 - (g->height - c->bottom_right) + 1);
-    }
-    if (c->bottom_left > 0 && box->x1 < c->bottom_left && box->y2 >= g->height - c->bottom_left) {
-        in.bottom = LV_MAX(in.bottom, box->y2 - (g->height - c->bottom_left) + 1);
-    }
-    return in;
-}
+ * (pos_display_rect_insets), not assumed: on a panel with square corners the
+ * pad is 0 and the tall layout is the v0.0.9 layout to the pixel. The foot,
+ * rather than the sides, gives way because the sides line up with the
+ * header's Back button and the DS 7 body edges, and a few pixels of height
+ * cost less than breaking that line. */
 
 static void layout(struct calc_app *a)
 {
@@ -398,7 +368,7 @@ static void layout(struct calc_app *a)
         return;
     }
     a->laid_out = box;
-    in = unsafe_insets(&box);
+    in = pos_display_rect_insets(pocketui_display_geometry(), box.x1, box.y1, box.x2, box.y2);
     lv_obj_set_style_pad_left(a->frame, in.left, 0);
     lv_obj_set_style_pad_top(a->frame, in.top, 0);
     lv_obj_set_style_pad_right(a->frame, in.right, 0);

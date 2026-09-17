@@ -220,6 +220,34 @@ bool pos_display_rect_is_safe(const struct pos_display_geometry *g, int32_t x1, 
     return true;
 }
 
+struct pos_insets pos_display_rect_insets(const struct pos_display_geometry *g, int32_t x1,
+                                          int32_t y1, int32_t x2, int32_t y2)
+{
+    const struct pos_corners *c = &g->corners;
+    const int32_t w = g->width;
+    const int32_t h = g->height;
+    struct pos_insets in = {
+        .left = max32(0, g->edges.left - x1),
+        .top = max32(0, g->edges.top - y1),
+        .right = max32(0, x2 - (w - 1 - g->edges.right)),
+        .bottom = max32(0, y2 - (h - 1 - g->edges.bottom)),
+    };
+
+    if (c->top_left > 0 && x1 < c->top_left && y1 < c->top_left) {
+        in.top = max32(in.top, c->top_left - y1);
+    }
+    if (c->top_right > 0 && x2 >= w - c->top_right && y1 < c->top_right) {
+        in.top = max32(in.top, c->top_right - y1);
+    }
+    if (c->bottom_right > 0 && x2 >= w - c->bottom_right && y2 >= h - c->bottom_right) {
+        in.bottom = max32(in.bottom, y2 - (h - c->bottom_right) + 1);
+    }
+    if (c->bottom_left > 0 && x1 < c->bottom_left && y2 >= h - c->bottom_left) {
+        in.bottom = max32(in.bottom, y2 - (h - c->bottom_left) + 1);
+    }
+    return in;
+}
+
 void pos_display_touch_config(enum pos_rotation r, const struct pos_touch_raw *raw,
                               struct pos_evdev_config *out)
 {

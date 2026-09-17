@@ -112,6 +112,16 @@ struct pos_insets pos_display_bar_insets(const struct pos_display_geometry *g, e
 bool pos_display_rect_is_safe(const struct pos_display_geometry *g, int32_t x1, int32_t y1,
                               int32_t x2, int32_t y2);
 
+/* How far the unsafe area reaches into a logical rectangle (inclusive
+ * coordinates): the padding a box laid out there needs so that what it holds
+ * is safe. An edge strip insets the side it lies along. A corner square the
+ * rectangle reaches into insets its top (a top corner) or its foot (a bottom
+ * corner) by as far as the square reaches past that edge, and never a side,
+ * so the box stays in line with what lies above and below it (DS 22.2).
+ * Never negative; all zero for a rectangle already clear of the unsafe area. */
+struct pos_insets pos_display_rect_insets(const struct pos_display_geometry *g, int32_t x1,
+                                          int32_t y1, int32_t x2, int32_t y2);
+
 /* ---- touch -------------------------------------------------------------- */
 
 /* A touch controller as mounted on the panel: whether its X and Y axes are
