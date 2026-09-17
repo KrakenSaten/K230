@@ -1122,7 +1122,7 @@ verified hardware operation and nothing in this amendment asks for it.
 - App bodies are not re-laid out: fixed-width content stays at its portrait
   width and the body scrolls vertically. An app that needs a landscape layout
   gets one in its own amendment. Calculator: §22. Notes: §23. Settings: §24.
-  System: §25.
+  System: §25. Clock: §26.
 
 ## 22. Amendment F — Calculator in landscape [ACCEPTED]
 
@@ -1519,6 +1519,127 @@ To §22.3, §23.4 and §24.4, for the next app. The columns themselves are
 - **Shared code.** System needed the corner clearance and calls
   `pos_display_rect_insets()` unchanged. The arrangement is its own. No new
   helper is proposed.
+
+## 26. Amendment J — Clock in landscape [PROPOSED]
+
+**PROPOSED 2026-09-17**, host and simulator only, pending the unit A gate
+(`docs/hardware/CLOCK_LANDSCAPE_GATE.md`) and the product owner's acceptance.
+Written against §23, and rebased onto the accepted §24 and §25 before the
+gate. The fifth app given its own landscape layout under §21.3, after Settings
+(§24) and System (§25), on the pattern of §22.3, §23.4, §24.4 and §25.3, which
+it follows and extends (§26.4); it is not a second layout system. Nothing in
+§1–§25 is renumbered, and nothing outside Clock changes: not the shell, its
+keyboard, the alarm alert (§18), the rotation policy, PocketUI or any other
+app.
+
+### 26.1 Two shapes, chosen from the body
+
+- Clock lays its three screens - the tabbed main screen, the new-alarm form
+  and the delete confirmation (§17.5) - out in one frame that is exactly the
+  body's content box, and shapes each from that box's size alone, never from
+  the orientation: **wide** when the box, less the corner clearance of
+  §22.2, is wider than tall and at least **1076 px** across, **tall**
+  otherwise. 1076 px is two portrait bodies (528 px) and the §7 20 px
+  gutter, so nothing is narrower in the wide shape than in portrait. The
+  shape is chosen again whenever the box changes size. The objects are built
+  once; a change of shape moves only flow, sizes and which box scrolls, so
+  the time on show, a running stopwatch and its laps, a running countdown, a
+  half-made alarm, its typed label, caret and focus, the keyboard and an
+  open confirmation are untouched, and nothing is written.
+- **Tall** (portrait: 528 x 1060, and 528 x 764 with the keyboard up) is the
+  existing layout: the four tabs over one pane; the form's time, Hour,
+  Minute, Repeat, label field and Cancel | Add down the body; the
+  confirmation across its top.
+- **Wide, main screen** (landscape: 1192 x 396): the tabs stay **across the
+  top**. Under them the pane's content goes into **two halves of the width**
+  with the 20 px gutter (586 px each), both the full height, **each scrolling
+  on its own**:
+  - Clock: with a time to show, the face takes **both halves** and the full
+    height. Without one, the face and the
+    "Time not set" explanation share the width, each as tall as it needs.
+  - Alarm: the time-not-set notice when shown, then the alarms, on the left;
+    Add alarm or the eight-alarms notice, then what an alarm can and cannot
+    do, on the right.
+  - Watch: the running time **fills the left half**; Start | Lap and the laps
+    on the right, the laps growing to the foot and scrolling themselves.
+  - Timer: the countdown **fills the left half**; the minute and second
+    steppers, then Start | Cancel, on the right.
+- **Wide, new alarm** (1192 x 396, and 1192 x 100 with the keyboard up): the
+  **label field across the top**, with **Cancel and Add beside it in a
+  288 px rail** at 140 x 56 each (§23.1's rail); under them the time **in the
+  left half, as tall as Hour, Minute and Repeat** stacked in the right half
+  (232 px). The form scrolls. This departs from the portrait order on
+  purpose (§26.2).
+- **Wide, confirmation**: the portrait width (528 px), **centred** (§23.4).
+- Every control keeps its portrait size: tabs and steppers 64 px tall,
+  paired buttons 56 px, rows 64 px. No control takes its size from the
+  height, so no body can bring one under the §7 minimum. A long label keeps
+  its portrait rule: cut short with an ellipsis inside its row.
+
+### 26.2 Above the keyboard
+
+- In landscape the shell leaves the app a 1192 x 100 px body while the
+  keyboard is up (§23.2). Portrait's order - the time first, the label and
+  the actions last - would put the field, the reason a label was refused
+  and Add out of sight under a 100 px window onto the time. In the wide shape
+  the form therefore begins with them: the field at the top of the body,
+  Cancel and Add beside it, and the refusal's one line of caption under the
+  field - 64 + 8 + 21 px in Normal, 64 + 8 + 26 px in Outdoor, inside 100.
+  The time is a drag away.
+- A label refused with the form part-way scrolled brings the form back to
+  its top, so the reason is read. A new form opens at its top.
+- The keyboard's Done still does nothing in Clock (KNOWN_ISSUES); with Add
+  beside the field it is no further away in landscape than in portrait.
+
+### 26.3 Consequences for portrait
+
+- **The foot clears the rounded corners** exactly as §22.2. With 30 px corner
+  squares the clock face, which grows to the foot when it has a time to show,
+  and the laps, which grow to it, end 10 px higher (1201). Every other
+  portrait screen - the tabs, the alarm list, the form with the keyboard down
+  and up, the refusal, the confirmation, the running countdown - does not
+  reach the foot and does not move.
+- With square corners every screen is the previous layout to the pixel; the
+  objects that group items for the wide shape draw nothing, take no finger
+  and never scroll in the tall shape.
+
+### 26.4 What Clock adds to the pattern
+
+To §22.3, §23.4, §24.4 and §25.3, for the next app. PROPOSED with this
+amendment; none of it is accepted until the unit A gate and the owner's
+review.
+
+- **Tabs stay where they are; the pane under them is what goes side by
+  side.** A tabbed screen keeps its tab row across the top in the wide shape.
+- **A big number fills its half.** Where a pane is one large value and what
+  acts on it, the value takes the first half at the full height and the
+  controls go beside it; when there is nothing to act on beside it (the clock
+  face with a time), the value takes both halves.
+- **In the wide shape, a form begins with what the keyboard is up for.** When
+  a screen's field is typed into, the field, its caption and the actions that
+  finish the form go at the top - the actions in §23.1's rail beside the
+  field - even where that departs from the portrait reading order, because
+  the landscape keyboard leaves 100 px. The rest of the form follows and
+  scrolls.
+- **Grouping boxes are invisible in the tall shape.** A box that exists only
+  so that items can go side by side draws nothing, is not pressed and does
+  not scroll in the tall shape, so portrait keeps its pixels and its touch
+  behaviour; in the wide shape it scrolls and can be pressed (§25.3), so a
+  drag that starts between two items scrolls it. Test that it is reset - not
+  scrollable, scrolled to its top - after the display turns back.
+- **Test a wide body that is taller than it is wide**, as well as the width
+  floor on both sides (§25.3).
+- **Shared code.** Clock needed the corner clearance and calls
+  `pos_display_rect_insets()` unchanged. The shapes are its own. No new helper
+  is proposed.
+
+**Open, not decided here.** On the unit a change of orientation restarts the
+shell in place (§21.2). The one clock runtime is the shell's, so a running
+stopwatch, a running countdown and any snooze - none of which is stored, by
+design - end with it, while alarms, which are stored, do not. With Automatic
+that includes attaching or removing a keyboard base. Whether an orientation
+change should carry the runtime's running state across is a shell question;
+this amendment changes nothing about it.
 
 ---
 

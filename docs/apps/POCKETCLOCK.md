@@ -5,7 +5,9 @@ calendar: it has no events, no recurrence rules beyond "daily" and
 "weekdays", and no notion of a date you can schedule something on.
 
 Status: **v0.0.8. Validated on unit A, 2026-09-11, in the release image
-(build `03851f5`).**
+(build `03851f5`).** The landscape layout (below) is on branch
+`feature/clock-landscape`: host and simulator validated, **not yet run on
+unit A** (`docs/hardware/CLOCK_LANDSCAPE_GATE.md`).
 
 ## What it is
 
@@ -24,6 +26,57 @@ When something goes off, the whole panel becomes the alert - over whatever
 was on screen, app or launcher - showing what is ringing, which alarm it
 was, and Stop, with Snooze beside it for an alarm. That alert belongs to the
 shell, not to this app.
+
+## Portrait and landscape
+
+PocketClock lays itself out in the body the shell gives it and picks its
+shape from that body's size, never from the orientation (DS §21.2), on the
+landscape pattern of DS §22.3, §23.4, §24.4 and §25.3. DS §26 (Amendment J,
+Clock in landscape, PROPOSED) is the normative version of this section.
+
+- **Tall** - portrait, 528 x 1060 on the reference panel and 528 x 764 with
+  the keyboard up - is the layout Clock always had.
+- **Wide** - landscape, 1192 x 396 and 1192 x 100 with the keyboard up - is
+  chosen when the body is wider than tall and at least 1076 px across: two
+  portrait bodies and the 20 px gutter, so nothing in it is narrower than in
+  portrait. The tabs stay across the top, and what a portrait pane stacks
+  goes side by side in two halves of the width:
+
+  | Screen | Left half | Right half |
+  | --- | --- | --- |
+  | Clock, time set | the face, across both halves and the full height | |
+  | Clock, time not set | the face (`--:--`) | "Time not set" and why |
+  | Alarm | the time-not-set notice when shown, then the alarms | Add alarm or "That is all eight alarms", then what an alarm can and cannot do |
+  | Watch | the running time, the full height | Start/Pause and Lap/Reset, then the laps |
+  | Timer | the countdown, the full height | the minute and second steppers, then Start/Pause and Cancel |
+
+  Each half scrolls on its own, so a long list of alarms never moves Add
+  alarm. **New alarm** puts the label field across the top with Cancel and
+  Add in a 288 px rail beside it, and under that the time in the left half
+  beside Hour, Minute and Repeat; the form scrolls. It departs from the
+  portrait order on purpose: with the keyboard up the landscape body is
+  100 px tall, and the field, the reason a label was refused, Cancel and Add
+  are exactly what it holds. **Delete this alarm?** keeps its portrait width,
+  centred.
+- Nothing is built twice. The keyboard coming up or going down, or the body
+  changing size any other way, moves objects and changes nothing else: a
+  running stopwatch and its laps, a running countdown, a half-made alarm, the
+  typed label, its caret and focus, and an open confirmation all stay as they
+  are, and nothing is written to the store.
+- The foot of the body clears the panel's rounded corners
+  (`pos_display_rect_insets()`, as Calculator and Notes do). With the unit's
+  30 px corners that makes the portrait clock face, and the laps when there
+  are any, end 10 px higher (y 1201); with square corners portrait is the
+  previous layout to the pixel.
+- **On the unit, turning the display restarts the shell** (DS §21.2): it
+  comes back on the launcher, so Clock is never open while the display
+  turns. Because the shell process starts again, the one clock runtime
+  starts again from the store, and what is deliberately not stored (see
+  Storage) is gone: a running stopwatch, a running countdown and any snooze.
+  Alarms are unaffected. In Automatic, attaching or removing the keyboard
+  base turns the display. From the code (`restart_in_place()` in
+  `ui/shell/shell.c` is an `execv`); not yet observed on unit A, and outside
+  this app.
 
 ## The one thing it cannot do, and says so
 
@@ -226,8 +279,8 @@ alarm 0 22 45 0
 | `tests/clock_time_test.c` | 39 checks: the validity threshold, the local-date arithmetic across midnight, month and year ends, and that an unset clock never produces a digit |
 | `tests/clock_store_test.c` | 76 checks: the round trip, what is deliberately not stored, eleven kinds of damaged file, the atomic overwrite, and label storability |
 | `tests/clock_runtime_test.c` | 85 checks: the thing the runtime exists for — an alarm ringing with no app in sight, once, with the shell told exactly once; a one-shot acknowledgement reaching the disk; snooze, the countdown and a wall clock that is never set; a countdown that ends under a ringing alarm and rings after Stop; two snoozes waiting their turn; clock jumps; and that a read does not advance anything |
-| `tests/clock_app_test.c` | 118 checks: the app under a real LVGL pointer and the real touch keyboard, against a real store — tabs, adding an alarm by tapping the steppers and typing its label, toggling, switching an alarm back on after its time without it ringing, the delete confirmation, persistence across both closing the app and restarting the shell, the stopwatch, the timer, and the shell alert firing with the app shut, over the app, and for a countdown |
-| `tests/clock_lint.sh` | 30 checks: the layering above, one stepper, the atomic write, no keyboard of its own, no invented hardware, and no calendar machinery |
+| `tests/clock_app_test.c` | 778 checks: the app under a real LVGL pointer and the real touch keyboard, against a real store, hosted as the shell hosts it on the reference panel — tabs, adding an alarm by tapping the steppers and typing its label, toggling, switching an alarm back on after its time without it ringing, the delete confirmation, persistence across both closing the app and restarting the shell, the stopwatch, the timer, and the shell alert firing with the app shut, over the app, and for a countdown. Then the layout: portrait pinned to its previous places with square and 30 px corners; every screen (the face with and without a time, eight alarms with long labels, laps, a running countdown, the form with the keyboard down and up and a label refused, the confirmation) in portrait and landscape, rounded and square corners, Normal and Outdoor, each checked for its shape, every target at least 64 x 56 and on no other, every target scrollable wholly into view inside the body and the safe area, every label laid out whole, and the body never scrolled; a drag from the gap between two items; the width floor at 1075 and 1076 px and a wide body taller than it is wide; and the display turned under the open app with the stopwatch running, a countdown running, a half-made alarm with the keyboard up, a confirmation open and a list scrolled - nothing lost, nothing made twice, nothing written |
+| `tests/clock_lint.sh` | 38 checks: the layering above, one stepper, the atomic write, no keyboard of its own, no invented hardware, no calendar machinery, and the layout rules - shaped from the body and never the orientation, built once and only shaped after, one frame shaped again on a size change and unhooked on the way out, the corner clearance read from the display geometry, and the portrait-wide floor |
 | `tests/clock_shell_test.sh` | 16 checks: the shell starts and steps the runtime, builds exactly one alert, no app builds another, PocketClock has no ringing screen left, and the status bar uses the validity rule instead of formatting the time itself |
 
 **Nothing in the engine tests sleeps.** Both clocks are handed in as numbers,
@@ -290,7 +343,24 @@ Found on the board:
 - **The minute stepper wraps within the hour.** From :58, Minute +5 gives :03
   of the same hour, which has already passed, so the alarm arms for the next
   day. So does an alarm added during its own minute, by the rule above.
-- **The label's keyboard Done does nothing**; tap Add. (KNOWN_ISSUES)
+- **The label's keyboard Done does nothing**; tap Add. (KNOWN_ISSUES) In
+  landscape Add is beside the field, above the keyboard.
+
+**Landscape: not run on unit A.** The layout above is validated on the host
+and in the simulator only; the remote gate and the owner's physical check are
+prepared in `docs/hardware/CLOCK_LANDSCAPE_GATE.md`.
+
+Found in the simulator while making the landscape layout, and left alone:
+
+- **Before it, landscape was portrait stretched and cut short.** On master
+  (`aaad9f4`) the Timer's Start and Cancel were below the foot of the body and
+  could not be reached, the new-alarm form lost its label field, Cancel and
+  Add (so no alarm could be added), the Alarm pane's notes were clipped, and
+  the foot of the face and of the list drew into the rounded corners.
+- **A stepper's name sits at the top of its 64 px row**, not in the middle of
+  it ("Hour", "Minutes 01"). The same in portrait since v0.0.8.
+- **The label field's text sits at the top of the field**, as in every
+  single-line PocketUI field.
 
 ## Not in this app
 
