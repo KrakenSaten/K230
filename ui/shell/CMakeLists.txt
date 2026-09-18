@@ -302,8 +302,8 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     endif()
     target_link_libraries(radar_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
-# Host-only LVGL-linked tests (run by tests/radar_shell_test.sh). The
-# target build does not need them.
+    # The scope on its own: its geometry and its tap conversion, without the
+    # app around it. The target build does not need either of these.
     add_executable(radar_scope_test
         ${REPO_DIR}/tests/radar_scope_test.c
         ${REPO_DIR}/apps/radar/ui/radar_scope.c
