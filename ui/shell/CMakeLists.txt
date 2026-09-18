@@ -267,6 +267,7 @@ endif()
 
 install(TARGETS pocketos-shell RUNTIME DESTINATION bin)
 
+if(POCKETOS_DISPLAY STREQUAL "sdl")
     # PocketRadar in the running app, a finger on the scope (run by
     # tests/radar_shell_test.sh). The shell is not linked; the test defines the
     # app.h entry points the game uses and pocketlog's one entry point itself,
@@ -303,7 +304,6 @@ install(TARGETS pocketos-shell RUNTIME DESTINATION bin)
 
 # Host-only LVGL-linked tests (run by tests/radar_shell_test.sh). The
 # target build does not need them.
-if(POCKETOS_DISPLAY STREQUAL "sdl")
     add_executable(radar_scope_test
         ${REPO_DIR}/tests/radar_scope_test.c
         ${REPO_DIR}/apps/radar/ui/radar_scope.c
