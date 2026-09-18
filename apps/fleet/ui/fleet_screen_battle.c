@@ -9,10 +9,24 @@
  * what you are aiming at, then the button that commits it, then a glance at
  * your own waters.
  *
- * Aim-then-confirm (approved deviation for dense grids): a tap on the target
+ * Aim-then-confirm (approved deviation for dense grids): aiming at the target
  * grid only moves the crosshair, which is harmless and correctable. The shot
  * is committed by the 64 px FIRE button and nothing else. That is true at
- * every board size, the wide shape's 34 px cells included (DS §28.2).
+ * every board size.
+ *
+ * Across the page a row is 34 px, and no layout can make it more: ten rows in
+ * a 386 px body is the whole of the arithmetic. So the player is never asked
+ * to hit a row. There are two ways to aim and neither needs a small target:
+ *
+ *   - land anywhere on the board and slide. The square under the finger is
+ *     reported the whole way and named in the readout beside the board, so
+ *     the aim is corrected by watching rather than by hitting;
+ *   - the four STEP buttons, each a finger's size, move the crosshair one
+ *     square. With no crosshair the first one starts it in the middle.
+ *
+ * Between them, every square on the board is reachable exactly without a
+ * single precise touch, which is what deviation D1 assumes when it calls a
+ * mis-aim correctable.
  *
  * The objects are built once. Changing shape moves and resizes them and
  * changes the board's cell size; it never creates or deletes anything, so a
@@ -37,6 +51,9 @@
  * of the two by a long way - 218 px against 382 - and it is the last thing
  * the turn needs, so it is the one that gives up room. */
 #define OWN_CELL 20
+/* The one-square nudges: four of them, and the gap between them. */
+#define STEP_COUNT 4
+#define STEP_GAP 8
 #define PIP_H 14
 #define PIP_UNIT 7
 #define PIP_GAP 6
@@ -51,6 +68,7 @@ struct fleet_battle_ui {
     lv_obj_t *cell_value;
     lv_obj_t *pip[FLEET_SHIP_COUNT];
     lv_obj_t *fire;
+    lv_obj_t *step;                 /* the four one-square nudges */
     lv_obj_t *note;
     lv_obj_t *log;
     /* Everything beside the board in the wide shape, stacked under it in the
@@ -93,6 +111,82 @@ void fleet_screen_battle_aim(struct fleet_app *app, int row, int col)
     }
     fleet_grid_set_cursor(app->battle->target, row, col);
     fleet_screen_battle_refresh(app);
+}
+
+void fleet_screen_battle_nudge(struct fleet_app *app, int drow, int dcol)
+{
+    struct fleet_battle_ui *ui = app ? app->battle : NULL;
+    int row = 0;
+    int col = 0;
+
+    if (!ui) {
+        return;
+    }
+    if (fleet_grid_get_cursor(ui->target, &row, &col) != 0) {
+        /* Nothing aimed yet: start in the middle rather than in a corner, so
+         * the first press is never more than five of them from anywhere. */
+        row = FLEET_GRID / 2;
+        col = FLEET_GRID / 2;
+    } else {
+        row += drow;
+        col += dcol;
+        if (row < 0) {
+            row = 0;
+        }
+        if (col < 0) {
+            col = 0;
+        }
+        if (row >= FLEET_GRID) {
+            row = FLEET_GRID - 1;
+        }
+        if (col >= FLEET_GRID) {
+            col = FLEET_GRID - 1;
+        }
+    }
+    fleet_screen_battle_aim(app, row, col);
+}
+
+static void on_step(lv_event_t *e)
+{
+    struct fleet_battle_ui *ui = lv_event_get_user_data(e);
+    lv_obj_t *btn = lv_event_get_target_obj(e);
+    int i = (int)lv_obj_get_index(btn);
+    static const int drow[STEP_COUNT] = { 0, -1, 1, 0 };
+    static const int dcol[STEP_COUNT] = { -1, 0, 0, 1 };
+
+    if (!ui || i < 0 || i >= STEP_COUNT) {
+        return;
+    }
+    fleet_screen_battle_nudge(ui->app, drow[i], dcol[i]);
+}
+
+/* Four buttons in a row: left, up, down, right. A row rather than a pad
+ * because height is what this shape is short of, and each of them still has
+ * to be a finger's size. */
+static lv_obj_t *fleet_steps(lv_obj_t *parent, struct fleet_battle_ui *ui)
+{
+    static const char *const label[STEP_COUNT] = {
+        LV_SYMBOL_LEFT, LV_SYMBOL_UP, LV_SYMBOL_DOWN, LV_SYMBOL_RIGHT
+    };
+    lv_obj_t *row = fleet_hbox(parent, POCKETUI_TOUCH_MIN, STEP_GAP);
+    int i;
+
+    lv_obj_set_width(row, LV_PCT(100));
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    for (i = 0; i < STEP_COUNT; i++) {
+        lv_obj_t *btn = fleet_button_secondary(row, label[i], on_step, ui);
+        lv_obj_t *glyph = lv_obj_get_child(btn, 0);
+
+        /* The arrows live in the symbol font, not the text one (DS 11). */
+        if (glyph) {
+            pos_style_add(glyph, POS_STYLE_SYMBOL, 0);
+        }
+        lv_obj_set_height(btn, POCKETUI_TOUCH_MIN);
+        lv_obj_set_width(btn, LV_SIZE_CONTENT);
+        lv_obj_set_flex_grow(btn, 1);
+    }
+    return row;
 }
 
 /* A tap moves the crosshair and nothing else (aim-then-confirm). */
@@ -263,6 +357,10 @@ lv_obj_t *fleet_screen_battle_create(struct fleet_app *app, lv_obj_t *parent)
                               POS_STYLE_TEXT_SECONDARY);
     lv_label_set_long_mode(ui->note, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(ui->note, LV_PCT(100));
+    /* The nudges belong to the wide shape only: down the page a cell is the
+     * 48 px deviation D1 was approved at, and portrait stays the screen
+     * v0.0.10 shipped, to the pixel. */
+    ui->step = fleet_steps(ui->target_panel, ui);
 
     ui->fire = pocketui_button(ui->act, "FIRE", on_fire, ui);
 
@@ -289,29 +387,31 @@ static void reparent(lv_obj_t *obj, lv_obj_t *parent)
 /*
  * Across the page the screen is three things, in the order a turn is played.
  *
- *   +---------------+  +------------------------+ +---------------+
- *   |               |  | TARGET                 | | YOUR WATERS   |
- *   | target board  |  |  F6          [ pips ]  | |  [ own board ]|
- *   | 382 x 382     |  |  Ready to fire.        | |               |
- *   | 34 px cells   |  |  YOU F6 HIT . ENEMY C3 | |               |
- *   |               |  +------------------------+ +---------------+
- *   |               |  +----------------------------------------+
- *   |               |  |                FIRE                    |
- *   +---------------+  +----------------------------------------+
+ *   +-----------------+  +---------------------+ +---------------+
+ *   |                 |  | TARGET              | | YOUR WATERS   |
+ *   | target board    |  |  F6       [ pips ]  | |  [ own board ]|
+ *   | 552 x 382       |  |  Ready to fire.     | |               |
+ *   | 51 x 34 cells   |  |  YOU F6 . ENEMY C3  | |               |
+ *   |                 |  |  [<] [^] [v] [>]    | |               |
+ *   |                 |  +---------------------+ +---------------+
+ *   |                 |  +-------------------------------------+
+ *   |                 |  |                FIRE                 |
+ *   +-----------------+  +-------------------------------------+
  *
- * The board takes the body's whole height, because height is what a square
- * board of ten rows is short of and width is what this shape has too much of
- * (DS 28.2). What is left across goes, in order: the readout, which is the
- * widest of the three because it holds a line of text; your own waters, which
- * is only as wide as the small board in it; and FIRE across the foot of both
- * of them, its foot level with the board's.
+ * The board takes the body's whole height, and then as much of the width as
+ * the two columns beside it can spare, so its cells are wider than they are
+ * tall (DS 28.2). What is left across goes, in order: the readout, which
+ * holds what is aimed at, what firing would do, what the last exchange did,
+ * and the four one-square nudges; your own waters, only as wide as the small
+ * board in it; and FIRE across the foot of both, its foot level with the
+ * board's.
  *
  * Nothing is stretched to fill its column. A panel is exactly as tall as what
  * it holds, so a panel's bottom border is the end of it and not the edge of a
  * viewport - which is the whole of why this screen can be read at a glance.
  * The room left over goes to FIRE, and so is spent rather than left as a gap.
  */
-void fleet_screen_battle_relayout(struct fleet_app *app, int wide, int cell)
+void fleet_screen_battle_relayout(struct fleet_app *app, int wide, int cell_w, int cell_h)
 {
     struct fleet_battle_ui *ui = app ? app->battle : NULL;
 
@@ -319,14 +419,25 @@ void fleet_screen_battle_relayout(struct fleet_app *app, int wide, int cell)
         return;
     }
     fleet_app_screen_flow(app->screen[FLEET_SCREEN_BATTLE], wide, 1);
-    fleet_grid_set_cell(ui->target, cell);
+    fleet_grid_set_cell_size(ui->target, cell_w, cell_h);
     fleet_grid_set_cell(ui->own, OWN_CELL);
+    /* A hidden child takes no room in a flex layout, so the tall shape is the
+     * stack it always was and the nudges cost it nothing. */
+    if (wide) {
+        lv_obj_remove_flag(ui->step, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(ui->step, LV_OBJ_FLAG_HIDDEN);
+    }
 
     /* FIRE is at the foot of the readout column down the page, where it has
      * always been, and across the whole region over here. The log goes with
      * the readout across the page and stays under your own board down it. */
     reparent(ui->fire, wide ? ui->side : ui->act);
     reparent(ui->log, wide ? ui->target_panel : ui->waters_panel);
+    /* Re-parenting appends, so put the nudges back under the reading matter:
+     * what is aimed at, what firing would do, what the last exchange did, and
+     * then the controls, nearest FIRE. */
+    lv_obj_move_to_index(ui->step, (int32_t)lv_obj_get_child_count(ui->target_panel) - 1);
 
     /* side takes what the board leaves and is a column in both shapes: the
      * two columns, then FIRE under them. */

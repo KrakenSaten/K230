@@ -52,8 +52,9 @@ orientation, which `tests/fleet_lint.sh` enforces.
 TALL   portrait, 528 x 1060: the single column of v0.0.10, boards at 48 px
        cells, the frame scrolling what does not fit.
 WIDE   landscape, 1192 x 386 once the foot clears the rounded corners: the
-       board at the left, as large as the height allows, the readout and your
-       own waters beside it, and FIRE across the foot of both.
+       board at the left, as tall as the height allows and as wide as the
+       columns beside it can spare - 51 x 34 cells - the readout and your own
+       waters beside it, and FIRE across the foot of both.
 ```
 
 **Normal landscape Battle gameplay fits in one viewport and requires no
@@ -113,13 +114,29 @@ The global 64 px rule is unchanged. On the Deploy screen a tap places the
 selected ship directly: placing is reversible, and the irreversible action
 there is CONFIRM DEPLOYMENT, which is again a 64 px button.
 
-**Landscape (DS §28.2, PROVISIONAL).** A 386 px body holds ten cells at
-**34 px**, finer than the 48 px above, and 34 is the largest that fits rather
-than a figure chosen: the board is square, so its side is
-`24 + 10c + 9×2` and the body's height alone settles it at `c ≤ 34.4`. The
-width is not the constraint - 810 px of it are left over. DS §28.2 sets out
-the three ways of buying a larger cell and why each costs more than it
-returns. Nothing the deviation rests on changes:
+**Landscape (DS §28.2, PROVISIONAL).** A row across the page can never be more
+than 38 px: the board is ten rows plus a caption gutter and nine gaps, and the
+body is 386 px. D1's 48 px would need a 522 px body. A 34 x 34 cell was tried
+and rejected as too small under a thumb, and the answer is not a bigger row,
+because there is not one to be had. Instead:
+
+- the cell grows on the axis that has room - the board takes what the two
+  columns beside it can spare, up to half as wide again as it is tall, which
+  on this panel is **51 x 34**: half as much again in area, and wider than the
+  48 px the tall shape draws;
+- a press reports the square under it and so does every moment of a drag, so
+  the player lands anywhere on the board and slides, reading the square's name
+  off the readout beside it;
+- and four **one-square nudges**, each a full 64 px target, stand at the foot
+  of the readout panel, so every square can be reached without touching the
+  board at all. With no crosshair the first press starts in the middle.
+
+That is what makes D1's premise true at this size. D1 permits a small target
+because a mis-aim is *correctable*; a correction as hard as the original aim
+is not a correction. Nothing else about D1 changes - aiming still commits
+nothing, and FIRE is still the only thing that fires. The mapping stays exact
+on both axes and is tested at 48 x 48, 52 x 35 and 51 x 34, at the centre and
+all four corners of all 100 cells. Nothing the deviation rests on changes:
 a tap still only moves the crosshair, FIRE is still the only thing that
 commits and is still 64 px, and the mapping is exact at any cell size — tested
 at 48, 35 and 34 px at the centre and all four corners of all 100 cells. The

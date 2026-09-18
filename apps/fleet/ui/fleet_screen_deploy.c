@@ -235,7 +235,7 @@ lv_obj_t *fleet_screen_deploy_create(struct fleet_app *app, lv_obj_t *parent)
  * stands next to it and the three placement controls, the refusal line and
  * CONFIRM DEPLOYMENT stand beyond that, with CONFIRM at the foot of its
  * column where it is always in view. */
-void fleet_screen_deploy_relayout(struct fleet_app *app, int wide, int cell)
+void fleet_screen_deploy_relayout(struct fleet_app *app, int wide, int cell_w, int cell_h)
 {
     struct fleet_deploy_ui *ui = app ? app->deploy : NULL;
 
@@ -243,7 +243,10 @@ void fleet_screen_deploy_relayout(struct fleet_app *app, int wide, int cell)
         return;
     }
     fleet_app_screen_flow(app->screen[FLEET_SCREEN_DEPLOY], wide, 1);
-    fleet_grid_set_cell(ui->grid, cell);
+    /* The same board as Battle's, cell for cell: a fleet is placed on the
+     * squares the shots will later be aimed at, and the two screens must not
+     * disagree about where a square is. */
+    fleet_grid_set_cell_size(ui->grid, cell_w, cell_h);
     fleet_app_box_split(ui->side, wide);
     fleet_app_box_column(ui->roster_col, wide);
     fleet_app_box_column(ui->controls_col, wide);

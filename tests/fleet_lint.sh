@@ -10,7 +10,8 @@
 #   5. the boards' geometry has one source, so what is drawn and what is hit
 #      can never disagree;
 #   6. a normal turn of Battle is on the display, whole, and nothing it needs
-#      is reached by scrolling (DS 28.6).
+#      is reached by scrolling (DS 28.6);
+#   7. and no square on the board has to be hit exactly to be aimed at.
 # Fails the build when any of them is broken.
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -56,7 +57,8 @@ want "a repeated layout pass is refused" "apps/fleet/fleet_app.c"      'memcmp\(
 #    it may not draw or hit a cell itself.
 check "only the grid works in cells" "$UI"       'FLEET_GRID_GAP|FLEET_GRID_GUTTER'
 want "the span has one definition" "apps/fleet/ui/fleet_grid.c"      'int fleet_grid_span_for'
-want "and the hit test reads the size the drawing uses" "apps/fleet/ui/fleet_grid.c"      'g->cell \+ FLEET_GRID_GAP'
+want "and the hit test reads the width the drawing uses" "apps/fleet/ui/fleet_grid.c"      'g->cell_w \+ FLEET_GRID_GAP'
+want "and the height too" "apps/fleet/ui/fleet_grid.c"      'g->cell_h \+ FLEET_GRID_GAP'
 
 # 6. A normal turn of Battle is on the display, whole, and no part of playing
 #    it is reached by scrolling (DS 28.6). The screen may not make itself a
@@ -77,6 +79,17 @@ want "in Outdoor type as well" tests/fleet_app_test.c \
      'test_no_scroll_through_a_match\("outdoor", PANEL_CORNER\)'
 want "and on a panel with square corners" tests/fleet_app_test.c \
      'test_no_scroll_through_a_match\("(normal|outdoor)", 0\)'
+
+# 7. A row across the page is 34 px and no layout can make it more, so the
+#    player must never have to hit one exactly. The two ways of aiming that
+#    ask no precision of them have to stay: the square under the finger is
+#    reported throughout a drag, and the four one-square nudges are each a
+#    finger's size.
+want "aiming follows the finger, not just the tap" "apps/fleet/ui/fleet_grid.c"      'LV_EVENT_PRESSING'
+want "and a square can be reached one step at a time" "$BATTLE"      'void fleet_screen_battle_nudge'
+want "by buttons that are a finger's size" "$BATTLE"      'POCKETUI_TOUCH_MIN'
+want "the nudges are held to that size" tests/fleet_app_test.c      'every one of them is a finger.s size'
+want "and to reaching every square" tests/fleet_app_test.c      'static void test_aim_without_precision'
 
 echo "fleet_lint: $failed failure(s)"
 exit $((failed > 0))

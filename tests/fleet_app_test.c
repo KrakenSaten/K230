@@ -69,10 +69,17 @@
 #define TALL_H (PANEL_H - BODY_CHROME_H)         /* 1060 */
 #define WIDE_W (PANEL_H - 2 * POCKETUI_PAD)      /* 1192 */
 #define WIDE_H (PANEL_W - BODY_CHROME_H)         /* 396 */
+/* A cell across the page is as tall as ten rows in the body allow, and as
+ * wide as the two columns beside the board can spare - up to half as wide
+ * again as it is tall, which on this panel is what it comes to. */
 #define WIDE_CELL 34                             /* 396 less the 10 px foot */
+#define WIDE_CELL_W 51                           /* 34 x 3 / 2 */
 #define RECT_CELL 35                             /* a panel with square corners */
+#define RECT_CELL_W 52                           /* 35 x 3 / 2 */
 #define OWN_CELL_ANY 20                          /* your own waters, either shape */
 #define SPAN_OF(cell) (FLEET_GRID_GUTTER + FLEET_GRID * (cell) + (FLEET_GRID - 1) * FLEET_GRID_GAP)
+/* The four one-square nudges (fleet_screen_battle.c). */
+#define STEP_COUNT 4
 
 /* Long enough for the opponent's paced reply to have been played and the log
  * line rewritten with both halves of the exchange (fleet_screen_battle.c,
@@ -195,6 +202,26 @@ static void tap_at(int32_t x, int32_t y)
     finger_point.y = y;
     finger_state = LV_INDEV_STATE_PRESSED;
     pump(60);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(60);
+}
+
+/* Press at one point, slide through the points given, and let go at the last
+ * one. This is the aim a thumb makes: it lands anywhere and slides. */
+static void drag_through(const lv_point_t *points, int count)
+{
+    int i;
+
+    if (count < 1) {
+        return;
+    }
+    finger_point = points[0];
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(60);
+    for (i = 1; i < count; i++) {
+        finger_point = points[i];
+        pump(60);
+    }
     finger_state = LV_INDEV_STATE_RELEASED;
     pump(60);
 }
@@ -334,6 +361,15 @@ static lv_obj_t *battle_cell_value(void)
     return kid(kid(battle_target_panel(), KID_PANEL_FIRST), 0);
 }
 static lv_obj_t *battle_note(void) { return kid(battle_target_panel(), KID_PANEL_FIRST + 1); }
+/* The four one-square nudges, last in the readout panel across the page and
+ * hidden down it. */
+static lv_obj_t *battle_steps(void)
+{
+    lv_obj_t *p = battle_target_panel();
+
+    return kid(p, (int)lv_obj_get_child_count(p) - 1);
+}
+static lv_obj_t *battle_step(int i) { return kid(battle_steps(), i); }
 /* The log line is under your own board down the page and under the readout
  * across it. */
 static lv_obj_t *battle_log(void)
@@ -486,14 +522,15 @@ static int in_safe_area(lv_obj_t *obj)
 static void cell_box(lv_obj_t *grid, int labels, int row, int col, lv_area_t *out)
 {
     lv_area_t g;
-    int cell = fleet_grid_cell(grid);
+    int cell_w = fleet_grid_cell_across(grid);
+    int cell_h = fleet_grid_cell(grid);
     int gutter = labels ? FLEET_GRID_GUTTER : 0;
 
     box_of(grid, &g);
-    out->x1 = g.x1 + gutter + col * (cell + FLEET_GRID_GAP);
-    out->y1 = g.y1 + gutter + row * (cell + FLEET_GRID_GAP);
-    out->x2 = out->x1 + cell - 1;
-    out->y2 = out->y1 + cell - 1;
+    out->x1 = g.x1 + gutter + col * (cell_w + FLEET_GRID_GAP);
+    out->y1 = g.y1 + gutter + row * (cell_h + FLEET_GRID_GAP);
+    out->x2 = out->x1 + cell_w - 1;
+    out->y2 = out->y1 + cell_h - 1;
 }
 
 /* ---- the shape rule, as arithmetic ------------------------------------- */
@@ -501,6 +538,7 @@ static void cell_box(lv_obj_t *grid, int labels, int row, int col, lv_area_t *ou
 static void test_shape_rule(void)
 {
     int cell = 0;
+    int cell_w = 0;
     int32_t h_at_floor = FLEET_GRID_GUTTER + (FLEET_GRID - 1) * FLEET_GRID_GAP +
                          FLEET_GRID * FLEET_CELL_MIN;
     int32_t floor_w;
@@ -519,30 +557,47 @@ static void test_shape_rule(void)
               FLEET_GRID * 20 + (FLEET_GRID - 1) * FLEET_GRID_GAP);
 
     check("the landscape body is wide",
-          fleet_shape_is_wide(WIDE_W, WIDE_H - CORNER_REACH, &cell));
-    check_int("and draws a 34 px cell", cell, WIDE_CELL);
+          fleet_shape_is_wide(WIDE_W, WIDE_H - CORNER_REACH, &cell_w, &cell));
+    check_int("and draws a 34 px cell down the board", cell, WIDE_CELL);
+    check_int("and a 51 px cell across it", cell_w, WIDE_CELL_W);
+
+    /* The height is the binding constraint and the width is the one with
+     * room to spare, so the rule spends the spare width on the cell - up to
+     * half as wide again, and never less than it is tall. */
+    check_int("a cell is half as wide again where there is room",
+              fleet_cell_across(WIDE_W, WIDE_CELL), WIDE_CELL * 3 / 2);
+    check_int("and at the square-corner height too",
+              fleet_cell_across(WIDE_W, RECT_CELL), RECT_CELL * 3 / 2);
+    check("a body with no width to spare draws square cells",
+          fleet_cell_across(SPAN_OF(WIDE_CELL) + POCKETUI_PAD + 2 * FLEET_COL_MIN +
+                            POCKETUI_PAD, WIDE_CELL) == WIDE_CELL);
+    check("and one narrower still never goes below square",
+          fleet_cell_across(100, WIDE_CELL) == WIDE_CELL);
+    check("a much wider body stops at half as wide again",
+          fleet_cell_across(4000, WIDE_CELL) == WIDE_CELL * 3 / 2);
     check("the portrait body is not wide",
-          !fleet_shape_is_wide(TALL_W, TALL_H - CORNER_REACH, NULL));
-    check("a square body is not wide", !fleet_shape_is_wide(600, 600, NULL));
+          !fleet_shape_is_wide(TALL_W, TALL_H - CORNER_REACH, NULL, NULL));
+    check("a square body is not wide", !fleet_shape_is_wide(600, 600, NULL, NULL));
     /* Big enough across for the wide shape and no wider than it is high: the
      * one case where only "wider than it is tall" can refuse it. */
     check("nor is a square body with room to spare",
-          !fleet_shape_is_wide(1400, 1400, NULL));
+          !fleet_shape_is_wide(1400, 1400, NULL, NULL));
     check("nor a body taller than it is wide with the same room",
-          !fleet_shape_is_wide(1400, 1500, NULL));
+          !fleet_shape_is_wide(1400, 1500, NULL, NULL));
     check("while one pixel wider than it is tall is",
-          fleet_shape_is_wide(1401, 1400, NULL));
+          fleet_shape_is_wide(1401, 1400, NULL, NULL));
     check("a body exactly at the cell floor is still wide",
-          fleet_shape_is_wide(1192, h_at_floor, &cell));
+          fleet_shape_is_wide(1192, h_at_floor, &cell_w, &cell));
     check_int("at the floor cell", cell, FLEET_CELL_MIN);
+    check_int("and the widest that floor allows", cell_w, FLEET_CELL_MIN * 3 / 2);
     check("one whole cell below the floor it is not",
-          !fleet_shape_is_wide(1192, h_at_floor - FLEET_GRID, NULL));
+          !fleet_shape_is_wide(1192, h_at_floor - FLEET_GRID, NULL, NULL));
 
     floor_w = SPAN_OF(WIDE_CELL) + POCKETUI_PAD + 2 * FLEET_COL_MIN + POCKETUI_PAD;
     check("a body exactly at the width floor is wide",
-          fleet_shape_is_wide(floor_w, WIDE_H - CORNER_REACH, NULL));
+          fleet_shape_is_wide(floor_w, WIDE_H - CORNER_REACH, NULL, NULL));
     check("one pixel narrower it is not",
-          !fleet_shape_is_wide(floor_w - 1, WIDE_H - CORNER_REACH, NULL));
+          !fleet_shape_is_wide(floor_w - 1, WIDE_H - CORNER_REACH, NULL, NULL));
 }
 
 /* ---- structure --------------------------------------------------------- */
@@ -788,10 +843,21 @@ static void check_wide_battle(int want_cell)
     box_of(battle_side(), &side);
     turn_viewport(&view);
 
-    check_int("the board is square", lv_area_get_width(&board), lv_area_get_height(&board));
-    check_int("and as large as the body allows", lv_area_get_width(&board),
+    check_int("the board is as tall as the body allows", lv_area_get_height(&board),
               SPAN_OF(want_cell));
-    check_int("its cells are the wide cell", fleet_grid_cell(battle_board()), want_cell);
+    check_int("its rows are the wide cell", fleet_grid_cell(battle_board()), want_cell);
+    /* Height is the binding constraint and width the one with room to spare,
+     * so a cell is wider than it is tall - which is the only way this shape
+     * has of making the target bigger. */
+    check_int("its columns are half as wide again",
+              fleet_grid_cell_across(battle_board()), want_cell * 3 / 2);
+    check_int("so the board is wider than it is tall", lv_area_get_width(&board),
+              SPAN_OF(want_cell * 3 / 2));
+    check("a cell is larger than one down the page in area",
+          fleet_grid_cell_across(battle_board()) * fleet_grid_cell(battle_board()) >
+              want_cell * want_cell);
+    check("and wider than the 48 px the tall shape draws",
+          fleet_grid_cell_across(battle_board()) > FLEET_CELL_TALL);
     check("the readout stands beside the board, not under it", act.x1 > board.x2);
     check("your own waters stand beyond the readout", waters.x1 > act.x2);
 
@@ -800,6 +866,30 @@ static void check_wide_battle(int want_cell)
      * screen - by area, which is what a square board is measured in, not by
      * width, which the readout has more of because it holds lines of text -
      * and your own waters are the smallest of the three. */
+    /* The four one-square nudges: the path that asks the player to hit
+     * nothing small. Each is a full touch target whatever the board does. */
+    check_int("there are four one-square nudges",
+              (int)lv_obj_get_child_count(battle_steps()), STEP_COUNT);
+    {
+        int i;
+        int small = 0;
+
+        for (i = 0; i < STEP_COUNT; i++) {
+            lv_area_t b;
+
+            box_of(battle_step(i), &b);
+            if (lv_area_get_width(&b) < POCKETUI_TOUCH_MIN ||
+                lv_area_get_height(&b) < POCKETUI_TOUCH_MIN) {
+                small = 1;
+            }
+        }
+        check("every one of them is a finger's size", !small);
+        check("and they are shown across the page",
+              !lv_obj_has_flag(battle_steps(), LV_OBJ_FLAG_HIDDEN));
+        check("they stand with the readout, next to the board",
+              lv_obj_get_parent(battle_steps()) == battle_target_panel());
+    }
+
     check("the board is the largest thing on the screen",
           lv_area_get_width(&board) * lv_area_get_height(&board) >
               lv_area_get_width(&act) * lv_area_get_height(&act));
@@ -881,6 +971,12 @@ static void check_tall_battle(void)
     check_int("the board is the v0.0.10 board", lv_area_get_width(&board),
               SPAN_OF(FLEET_CELL_TALL));
     check_int("its cells are 48 px", fleet_grid_cell(battle_board()), FLEET_CELL_TALL);
+    check_int("and square, as they always were",
+              fleet_grid_cell_across(battle_board()), FLEET_CELL_TALL);
+    check_int("the board is square with them", lv_area_get_width(&board),
+              lv_area_get_height(&board));
+    check("the nudges are not on the screen at all down the page",
+          lv_obj_has_flag(battle_steps(), LV_OBJ_FLAG_HIDDEN));
     check_int("your own board is back to 20 px", fleet_grid_cell(battle_own()), 20);
     /* Where v0.0.10 put it: at the top of the body, centred across a column
      * six pixels wider than it is. */
@@ -976,6 +1072,53 @@ static void test_board_taps(const char *what)
 /* The pixels between cells, the caption gutter, and points just off the board.
  * A gap belongs to the cell before it - deterministic, and overlapping
  * nothing - while the gutter and everything outside must not aim at all. */
+/*
+ * What the grid draws and what it hits, compared rather than both taken on
+ * trust. cell_box() above is the test's own restatement of the layout's
+ * arithmetic; fleet_grid_cell_rect() is the grid's, and it is the one the
+ * drawing uses. If they part company - a cell painted narrower than the
+ * square that answers to a tap, say - the board is lying about where a square
+ * is, and the taps alone would not notice.
+ */
+static void test_drawn_is_hit(lv_obj_t *grid, int labels, const char *what)
+{
+    int row;
+    int col;
+    int wrong = 0;
+    int missing = 0;
+
+    phase = what;
+    for (row = 0; row < FLEET_GRID; row++) {
+        for (col = 0; col < FLEET_GRID; col++) {
+            lv_area_t drawn;
+            lv_area_t want;
+
+            if (fleet_grid_cell_rect(grid, row, col, &drawn) != 0) {
+                missing++;
+                continue;
+            }
+            cell_box(grid, labels, row, col, &want);
+            if (memcmp(&drawn, &want, sizeof(want)) != 0) {
+                if (!wrong) {
+                    printf("     cell %d,%d drawn x %d..%d y %d..%d, "
+                           "the layout says x %d..%d y %d..%d\n", row, col,
+                           (int)drawn.x1, (int)drawn.x2, (int)drawn.y1, (int)drawn.y2,
+                           (int)want.x1, (int)want.x2, (int)want.y1, (int)want.y2);
+                }
+                wrong++;
+            }
+        }
+    }
+    check_int("every square is drawn where the layout says it is", wrong, 0);
+    check_int("and the grid answers for all one hundred of them", missing, 0);
+    {
+        lv_area_t off;
+
+        check_int("a square off the board has no rectangle",
+                  fleet_grid_cell_rect(grid, FLEET_GRID, 0, &off), -1);
+    }
+}
+
 static void test_board_edges(const char *what)
 {
     lv_obj_t *grid = battle_board();
@@ -1266,6 +1409,106 @@ static void test_no_scroll_through_a_match(const char *mode, int32_t corner)
     use_mode("normal");
 }
 
+/*
+ * Aiming without a precise touch. A row across the page is 34 px, which no
+ * layout can improve on, so the screen offers two ways to reach a square that
+ * do not ask the player to hit one: land anywhere and slide, and four
+ * one-square nudges that are each a finger's size. Neither of them fires.
+ */
+static void test_aim_without_precision(const char *what)
+{
+    struct match_state before;
+    lv_area_t from;
+    lv_area_t to;
+    lv_point_t path[5];
+    int row = -1;
+    int col = -1;
+    int i;
+
+    phase = what;
+    fleet_grid_set_cursor(battle_board(), -1, -1);
+    pump(60);
+    snapshot(&before);
+
+    /* ---- landing anywhere and sliding ---------------------------------- */
+
+    cell_box(battle_board(), 1, 1, 1, &from);
+    cell_box(battle_board(), 1, 7, 6, &to);
+    path[0].x = (from.x1 + from.x2) / 2;
+    path[0].y = (from.y1 + from.y2) / 2;
+    path[4].x = (to.x1 + to.x2) / 2;
+    path[4].y = (to.y1 + to.y2) / 2;
+    for (i = 1; i < 4; i++) {
+        path[i].x = path[0].x + (path[4].x - path[0].x) * i / 4;
+        path[i].y = path[0].y + (path[4].y - path[0].y) * i / 4;
+    }
+    drag_through(path, 5);
+    check_int("a drag ends aimed at the square it ended on",
+              fleet_grid_get_cursor(battle_board(), &row, &col), 0);
+    check_int("its row", row, 7);
+    check_int("its column", col, 6);
+    check_str("and the readout names it", text_of(battle_cell_value()), "G8");
+    before.aimed = 1;
+    before.aim_row = 7;
+    before.aim_col = 6;
+    check_same_match("a drag fires nothing", &before);
+
+    /* The square under the finger is reported the whole way, not only at the
+     * end: that is what lets the aim be corrected by watching the readout
+     * rather than by hitting a small square. */
+    finger_point = path[0];
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(60);
+    check_int("the press alone aims", fleet_grid_get_cursor(battle_board(), &row, &col), 0);
+    check_int("at the square pressed", row, 1);
+    cell_box(battle_board(), 1, 4, 4, &to);
+    finger_point.x = (to.x1 + to.x2) / 2;
+    finger_point.y = (to.y1 + to.y2) / 2;
+    pump(60);
+    check_str("and the readout follows the finger mid-drag",
+              text_of(battle_cell_value()), "E5");
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(60);
+    check_str("letting go leaves it there", text_of(battle_cell_value()), "E5");
+
+    /* ---- the four one-square nudges ------------------------------------ */
+
+    tap_obj(battle_step(0));
+    check_str("a nudge left moves one square", text_of(battle_cell_value()), "D5");
+    tap_obj(battle_step(1));
+    check_str("up moves one row", text_of(battle_cell_value()), "D4");
+    tap_obj(battle_step(2));
+    check_str("down moves back", text_of(battle_cell_value()), "D5");
+    tap_obj(battle_step(3));
+    check_str("right moves one column", text_of(battle_cell_value()), "E5");
+    before.aimed = 1;
+    before.aim_row = 4;
+    before.aim_col = 4;
+    check_same_match("and none of them fires", &before);
+
+    /* They clamp rather than wrap: a crosshair driven at the edge stays on
+     * the board. */
+    fleet_screen_battle_aim(app, 0, 0);
+    pump(60);
+    tap_obj(battle_step(0));
+    tap_obj(battle_step(1));
+    check_str("the top left corner is a wall", text_of(battle_cell_value()), "A1");
+    fleet_screen_battle_aim(app, FLEET_GRID - 1, FLEET_GRID - 1);
+    pump(60);
+    tap_obj(battle_step(2));
+    tap_obj(battle_step(3));
+    check_str("and so is the bottom right", text_of(battle_cell_value()), "J10");
+
+    /* With nothing aimed the first nudge starts in the middle, so the whole
+     * board is within five presses of it. */
+    fleet_grid_set_cursor(battle_board(), -1, -1);
+    pump(60);
+    tap_obj(battle_step(1));
+    check_str("the first nudge starts in the middle", text_of(battle_cell_value()), "F6");
+    check("every square is reachable by nudges alone",
+          FLEET_GRID / 2 + FLEET_GRID / 2 <= 10);
+}
+
 static void test_roster(const char *what)
 {
     int wrong = 0;
@@ -1491,9 +1734,16 @@ int main(void)
         box_of(deploy_roster(), &r);
         box_of(deploy_controls(), &ctl);
         box_of(deploy_confirm(), &con);
-        check_int("the board is square", lv_area_get_width(&b), lv_area_get_height(&b));
-        check_int("and as large as the body allows", lv_area_get_width(&b), SPAN_OF(WIDE_CELL));
-        check_int("its cells are 34 px", fleet_grid_cell(deploy_board()), WIDE_CELL);
+        /* The same board Battle aims at, cell for cell: a fleet is placed on
+         * the squares the shots are later aimed at, so the two screens must
+         * not disagree about where a square is. */
+        check_int("the board is as tall as the body allows", lv_area_get_height(&b),
+                  SPAN_OF(WIDE_CELL));
+        check_int("and as wide as Battle's", lv_area_get_width(&b),
+                  SPAN_OF(WIDE_CELL_W));
+        check_int("its rows are 34 px", fleet_grid_cell(deploy_board()), WIDE_CELL);
+        check_int("its columns are 51 px", fleet_grid_cell_across(deploy_board()),
+                  WIDE_CELL_W);
         check("the roster stands beside the board", r.x1 > b.x2);
         check("the controls stand beyond the roster", ctl.x1 > r.x2);
         check("CONFIRM DEPLOYMENT is at the foot of that column", con.y1 > ctl.y2);
@@ -1577,6 +1827,7 @@ int main(void)
     check_singletons();
     check_own_board_is_not_a_target();
     test_board_taps("battle taps, 48 px");
+    test_drawn_is_hit(battle_board(), 1, "battle drawn is hit, 48 px");
     test_board_edges("battle edges, 48 px");
     {
         lv_area_t b;
@@ -1627,7 +1878,10 @@ int main(void)
     check_singletons();
     check_own_board_is_not_a_target();
     test_board_taps("battle taps, 34 px");
+    test_drawn_is_hit(battle_board(), 1, "battle drawn is hit, 51 x 34");
     test_board_edges("battle edges, 34 px");
+
+    test_aim_without_precision("aiming without a precise touch, wide");
 
     phase = "aim-then-confirm, wide";
     {
@@ -1732,6 +1986,7 @@ int main(void)
     check_battle_never_scrolls("battle, wide, square corners, whole on the screen");
     phase = "battle, wide, square corners";
     test_board_taps("battle taps, 35 px");
+    test_drawn_is_hit(battle_board(), 1, "battle drawn is hit, 52 x 35");
     app_stop();
 
     use_display(POS_ROTATION_270, PANEL_CORNER);

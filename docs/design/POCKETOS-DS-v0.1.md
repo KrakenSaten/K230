@@ -1806,10 +1806,13 @@ is what the body's scarce height is spent on in §28.3, and it is held by a test
 that plays whole matches out across the page and measures the screen after
 every turn, in both type sizes and with both corner shapes.
 
-**What this amendment asks the product owner to decide** is §28.2: a 34 px
-board cell, finer than the 48 px of Fleet's approved deviation D1, at which the
-interaction D1 rests on is unchanged. Everything else here follows the accepted
-pattern. The cell size is PROVISIONAL until he has had a thumb on it.
+**What this amendment asks the product owner to decide** is §28.2: a landscape
+board cell of **51 x 34 px**, and with it the two ways of aiming that mean no
+square has to be hit exactly. A 34 px row was tried first and rejected as too
+small for a thumb, which was right, and the answer is not a bigger row -
+§28.2 shows that ten rows in this body can never exceed 38 px - but a cell
+that grows on the axis with room, and an aim that does not depend on landing
+on it. §28.2 is PROVISIONAL until he has had a thumb on that.
 
 ### 28.1 Two shapes, chosen from the body
 
@@ -1838,42 +1841,57 @@ pattern. The cell size is PROVISIONAL until he has had a thumb on it.
 
 ### 28.2 The board across the page, and the cell it draws [PROVISIONAL]
 
-- A 386 px body holds a labelled board of **34 px cells** (382 x 382). That is
-  finer than the 48 px of deviation D1 (`docs/apps/POCKETFLEET.md`), which the
-  product owner approved for the portrait board, and it is what this amendment
-  asks him to rule on.
-- **34 px is the ceiling, not a budget.** The board is square and ten cells
-  across, so its side is `24 + 10c + 9×2` and the body's 386 px of height is
-  the only thing that limits it: `c ≤ (386 − 42) / 10 = 34.4`. Nothing else on
-  the screen competes for it — the wide shape has 810 px of width left over
-  once the board has its 382 — so a larger cell can only come from taking those
-  42 px back, and each of the three ways of doing that costs more than it
-  returns:
-  - **the 24 px caption gutter** would buy 36 px cells, and would cost the
-    A–J and 1–10 labels that the readout's "F6" is read against. Half a
-    coordinate system is worse than none;
-  - **a 16 px gutter** would buy 35 px, and would change the one piece of
-    arithmetic that the drawing and the hit test share (§28.5) for a 3 % gain;
-  - **the 10 px foot clearance** would buy 35 px, and would mean holding the
-    board clear of the bottom corner squares sideways, which §22.2 forbids for
-    exactly the reason it gives: a box shifted to dodge a corner no longer
-    lines up with what is above and below it.
-  With square corners the body is 396 px and the board draws 35 px cells, which
-  is where that second figure in the tests comes from.
-- **The interaction D1 rests on does not change.** A tap on a cell moves the
-  crosshair and does nothing else: it commits nothing, it is visible at once in
-  the readout, and it is corrected by tapping again. FIRE is the only thing
-  that fires, it is the full §7 64 px, and it is armed only when the crosshair
-  is on a square that has not been fired at. On the deployment board a tap
-  places the selected ship, which is equally reversible; the irreversible
-  action there is CONFIRM DEPLOYMENT, again 64 px.
-- **The mapping is exact at any cell size.** One stored cell size drives the
-  drawing and the hit test alike, so a cell can never be drawn at one size and
-  hit at another; a point maps to exactly one cell; the 2 px gap after a cell
-  belongs to that cell; and the caption gutter and everything outside the board
-  aim at nothing at all. This is tested at 48, 35 and 34 px, at the centre and
-  at all four corners of all 100 cells.
-- Below 32 px a cell the wide shape is refused and the tall stack is kept whole
+**A row can never be more than 38 px in this shape, so the design does not ask
+for a precise touch.** That is the whole of §28.2 in one line; the rest is why,
+and what is done instead.
+
+#### The arithmetic, which is not negotiable
+
+The board is ten rows of square-cornered cells with a caption gutter, so its
+height is `24 + 10h + 9×2`. The body across the page is 386 px once the foot
+has cleared the rounded corners, which gives `h ≤ 34.4`. Spending the gutter
+and the gaps as well - losing the A–J and 1–10 labels the readout's "F6" is
+read against - would buy 38. **The 48 px of deviation D1 would need a 522 px
+body**, which the wide shape does not have and cannot be given: the shell's
+status bar, the app header and the body's own padding are not the app's to
+take, and nothing may be scrolled (§28.6). No arrangement of anything else on
+the screen changes this by a pixel.
+
+#### What is done about it
+
+- **The cell grows on the axis that has room.** The board takes a third of the
+  width and 810 px are left over, so once the wide shape is taken the board
+  spreads into whatever the two columns beside it can spare, up to **half as
+  wide again as it is tall** and never less than square. On this panel that is
+  **51 x 34** - half as much again in area as the square 34, and wider than
+  the 48 px the tall shape draws. Past 3:2 a board of ten by ten stops reading
+  as a board, so that is the cap.
+- **Aiming does not depend on hitting a cell.** A press reports the square
+  under it, and so does every moment of a drag, so the player lands anywhere on
+  the 552 x 382 board and slides, reading the square's name off the readout
+  beside it. The aim is corrected by watching, not by hitting.
+- **And it can be done without touching the board at all.** Four one-square
+  nudges stand in the readout panel, each a full 64 px target. With no
+  crosshair the first press starts in the middle, so every square is within
+  five presses. This is what makes deviation D1's premise true at this size:
+  D1 permits a small target because a mis-aim is *correctable*, and a
+  correction that is as hard as the original aim is not a correction.
+- **Nothing about this commits a shot.** FIRE is still the only thing that
+  fires, still the full §7 size, and still armed only on a square that has not
+  been fired at.
+
+#### What is unchanged
+
+- **The mapping is exact on both axes.** One stored width and one stored
+  height drive the drawing and the hit test alike, so a cell can never be drawn
+  at one size and hit at another; a point maps to exactly one cell; the 2 px
+  gap after a cell belongs to that cell; and the caption gutter and everything
+  outside the board aim at nothing. This is tested at 48 x 48, 52 x 35 and
+  51 x 34, at the centre and at all four corners of all 100 cells.
+- **Deploy draws the same board, cell for cell.** A fleet is placed on the
+  squares the shots are later aimed at; the two screens may not disagree about
+  where a square is.
+- Below 32 px a row the wide shape is refused and the tall stack is kept whole
   and scrolled, as the body did before this layout existed.
 
 ### 28.3 What stands beside the board
@@ -1899,6 +1917,11 @@ pattern. The cell size is PROVISIONAL until he has had a thumb on it.
     which is at the foot of the readout column down the page and across the
     whole region over here; and the log line, which reports the exchange just
     played and so belongs beside the readout, where there is room for it.
+  - The readout panel also carries **the four one-square nudges** (§28.2), at
+    its foot, nearest FIRE: what is aimed at, what firing would do, what the
+    last exchange did, and then the controls. They are shown only in the wide
+    shape - a hidden child takes no room in a flex layout, so portrait is
+    untouched by them.
 - **Deploy.** The board at the left, YOUR FLEET beside it, and the placement
   controls beyond: TURN, AUTO and CLEAR across the top of that column, the
   refusal line taking the slack, and CONFIRM DEPLOYMENT at its foot.
@@ -1944,6 +1967,15 @@ To §22.3, §23.4, §24.4, §25.3, §26.4 and §27.4, for the next app.
   disagree. Put the arithmetic that turns a size into that geometry in the
   object's own module, so a layout asks it for a size rather than working one
   out from the gutters and the gaps itself.
+- **When a target cannot be made big enough, stop asking for a precise
+  touch.** Some shapes simply have less room than a finger needs, and no
+  arrangement of the rest of the screen changes it - work the limit out and
+  write it down rather than shaving pixels towards it. Then grow the target on
+  whichever axis does have room, and add a way to reach the thing that asks no
+  precision at all: a drag that reports what is under the finger the whole
+  way, and a set of one-step controls at full size. A small target is only
+  acceptable while a mis-aim is genuinely correctable, and a correction that
+  is as hard as the original aim is not one.
 - **A deviation follows its interaction, not its number.** Where a landscape
   layout makes an already-deviating target smaller, say plainly what the
   deviation rested on and show that it still holds. A number alone decides
@@ -2012,10 +2044,12 @@ player, not a property of one arrangement of boxes.
   check afterwards — and it is worth a named test and a lint rule, because
   nothing else stops the fold coming back the next time something is added.
 
-**Open, not decided here.** Whether 34 px cells are comfortable and reliable
-under a thumb, and whether the whole no-scroll Battle screen reads naturally at
-a glance, are the two things only the panel and a hand can answer; §28.2 is
-PROVISIONAL until they are. §28.6 is not one of them: that a turn fits and is
+**Open, not decided here.** Whether a 51 x 34 cell, a drag that reports what
+is under the finger, and four one-square nudges together make aiming
+comfortable under a thumb - and whether the whole no-scroll Battle screen
+reads naturally at a glance - are the two things only the panel and a hand can
+answer; §28.2 is PROVISIONAL until they are. A 34 x 34 cell was tried first
+and rejected as too small, which is what §28.2 is now written around. §28.6 is not one of them: that a turn fits and is
 never scrolled is measured, on the host after every turn of four played-out
 matches and on unit A by drags that move nothing. On the unit a change of orientation restarts the shell in place
 (§21.2) and comes back on the launcher, so Fleet is never open while the

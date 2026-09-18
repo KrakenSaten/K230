@@ -18,9 +18,21 @@
  *
  * status_error is never used here; it stays reserved for error state.
  *
- * Touch follows the approved aim-then-confirm pattern for dense grids: a tap
- * reports a cell and nothing else. Committing a shot is the caller's job, on
- * a 64 px button.
+ * Touch follows the approved aim-then-confirm pattern for dense grids: a
+ * press reports a cell and nothing else. Committing a shot is the caller's
+ * job, on a 64 px button.
+ *
+ * The press reports, and so does every moment of a drag. A cell in the wide
+ * shape is smaller than a thumb whatever the layout does - ten rows in a
+ * 386 px body can never be more than 38 px each - so the player is not asked
+ * to hit one. They land anywhere on the board and slide, and the square under
+ * the finger is reported the whole way, to be read off the readout beside the
+ * board. Nothing about that commits a shot.
+ *
+ * A cell need not be square. The wide shape is short of height and has width
+ * to spare, so its cells are wider than they are tall; the two sizes are
+ * stored separately and both the drawing and the hit test read them, so they
+ * cannot disagree.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -52,13 +64,21 @@ int fleet_grid_span_for(int cell, int labels);
  * none does. Board geometry lives here and nowhere else, so a layout asks for
  * a size rather than working one out from the gutter and the gaps itself. */
 int fleet_grid_cell_for_span(int span, int labels);
-/* The cell size the grid is drawing and hitting with now, or 0. */
+/* The cell height the grid is drawing and hitting with now, or 0. */
 int fleet_grid_cell(lv_obj_t *grid);
+/* Its width, which is the same unless the layout has asked for wider ones. */
+int fleet_grid_cell_across(lv_obj_t *grid);
 /* Change the cell size in place: the object is resized and repainted, and
- * nothing is rebuilt. Drawing and the tap conversion both read this one
- * stored size, so a cell can never be drawn at one size and hit at another.
- * A cell that is not positive, or the size already in force, does nothing. */
+ * nothing is rebuilt. Drawing and the tap conversion both read these stored
+ * sizes, so a cell can never be drawn at one size and hit at another. A size
+ * that is not positive, or the size already in force, does nothing. */
 void fleet_grid_set_cell(lv_obj_t *grid, int cell);
+/* The same, for cells that are wider than they are tall. */
+void fleet_grid_set_cell_size(lv_obj_t *grid, int cell_w, int cell_h);
+/* Where the grid draws a cell, in screen coordinates. This is the same
+ * arithmetic the drawing uses, exposed so that what is drawn can be compared
+ * with what is hit instead of both being taken on trust. */
+int fleet_grid_cell_rect(lv_obj_t *grid, int row, int col, lv_area_t *out);
 /* The board to read. The grid keeps the pointer, so it must outlive it. */
 void fleet_grid_bind(lv_obj_t *grid, const struct fleet_board *board);
 /* Crosshair position, or row < 0 to clear it. */
@@ -70,7 +90,8 @@ int fleet_grid_get_cursor(lv_obj_t *grid, int *row, int *col);
 void fleet_grid_set_preview(lv_obj_t *grid, int row, int col, int length, int vertical,
                             int valid);
 void fleet_grid_clear_preview(lv_obj_t *grid);
-/* Called with the cell a tap landed on. It must not commit anything. */
+/* Called with the cell under the finger, on the press and throughout a drag.
+ * It must not commit anything. */
 void fleet_grid_set_tap_cb(lv_obj_t *grid, void (*cb)(void *user, int row, int col),
                            void *user);
 void fleet_grid_refresh(lv_obj_t *grid);

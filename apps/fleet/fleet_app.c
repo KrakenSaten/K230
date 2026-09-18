@@ -135,9 +135,20 @@ void fleet_app_screen_flow(lv_obj_t *screen, int wide, int across)
 
 /* ---- the shape ---------------------------------------------------------- *
  *
- * One rule, in two pure functions, so a test can ask it without building
- * anything. The board is square and its side is whatever the body's height
- * can hold; everything else follows from what is left across.
+ * One rule, in three pure functions, so a test can ask it without building
+ * anything.
+ *
+ * A cell's HEIGHT is whatever the body's height can hold, and that is the
+ * binding constraint: ten rows, nine gaps and the caption gutter in a 386 px
+ * body come to 34 px a row, and no arrangement of anything else can change
+ * it. 48 px rows would need 522 px of body, which the wide shape does not
+ * have and cannot be given.
+ *
+ * A cell's WIDTH is the axis with room to spare - the board uses a third of
+ * the width and 810 px are left over - so the board takes what the two
+ * columns beside it do not need, and its cells are wider than they are tall.
+ * That is the only way this shape has of making a target bigger, and it is
+ * worth about half as much again in area.
  */
 
 int fleet_cell_for_height(int32_t h)
@@ -149,7 +160,25 @@ int fleet_cell_for_height(int32_t h)
     return cell > FLEET_CELL_TALL ? FLEET_CELL_TALL : cell;
 }
 
-int fleet_shape_is_wide(int32_t w, int32_t h, int *cell_out)
+int fleet_cell_across(int32_t w, int cell_down)
+{
+    int room = (int)w - FLEET_COL_GAP - (2 * FLEET_COL_MIN + FLEET_COL_GAP);
+    int cell = fleet_grid_cell_for_span(room, 1);
+    /* Half as wide again and no wider. Past that a board of ten by ten stops
+     * reading as a board, and the cell is already comfortably over the 48 px
+     * the tall shape draws. */
+    int widest = cell_down * 3 / 2;
+
+    if (cell > widest) {
+        cell = widest;
+    }
+    if (cell < cell_down) {
+        cell = cell_down;       /* never narrower than it is tall */
+    }
+    return cell;
+}
+
+int fleet_shape_is_wide(int32_t w, int32_t h, int *cell_w_out, int *cell_h_out)
 {
     int cell = fleet_cell_for_height(h);
     int span;
@@ -160,15 +189,21 @@ int fleet_shape_is_wide(int32_t w, int32_t h, int *cell_out)
     if (cell < FLEET_CELL_MIN) {
         return 0;               /* the board would be finer than it may be */
     }
+    /* The floor is measured on a square board: what has to fit is the board
+     * at its smallest, the gutter to it, and two columns that can each hold a
+     * 64 px action and a line of text. Short of that the tall stack is kept
+     * whole and scrolled, which is what the body did before this layout
+     * existed. Only once the shape is taken does the board spread into the
+     * width that is left. */
     span = fleet_grid_span_for(cell, 1);
-    /* The board, the gutter to it, and two columns that can each hold a 64 px
-     * action and a line of text. Short of that the tall stack is kept whole
-     * and scrolled, which is what the body did before this layout existed. */
     if (w < span + FLEET_COL_GAP + 2 * FLEET_COL_MIN + FLEET_COL_GAP) {
         return 0;
     }
-    if (cell_out) {
-        *cell_out = cell;
+    if (cell_h_out) {
+        *cell_h_out = cell;
+    }
+    if (cell_w_out) {
+        *cell_w_out = fleet_cell_across(w, cell);
     }
     return 1;
 }
@@ -183,12 +218,12 @@ int fleet_shape_is_wide(int32_t w, int32_t h, int *cell_out)
  *   what does not fit - which is what the shell's body did before.
  *
  *   WIDE (landscape: 1192 x 386, once the foot has cleared the rounded
- *   corners). The board is as large as the height allows and everything said
- *   about it stands beside it in two columns. Ten cells in 386 px give 34 px
- *   each, finer than the 48 px of deviation D1. Aim-then-confirm does not
- *   change: a tap on a cell still only moves the crosshair, which is harmless
- *   and correctable, and FIRE is still the only thing that commits a shot, at
- *   its full 64 px.
+ *   corners). The board is as large as the body allows on both axes and
+ *   everything said about it stands beside it in two columns. Ten rows in
+ *   386 px give 34 px, which no layout can improve on; the width has room to
+ *   spare, so a cell is drawn wider than it is tall. Aim-then-confirm does not
+ *   change: aiming only moves the crosshair, which is harmless and
+ *   correctable, and FIRE is still the only thing that commits a shot.
  *
  * Whatever the shape, the frame pads itself by however far the panel's rounded
  * corner squares reach into it - measured with pos_display_rect_insets
@@ -202,6 +237,7 @@ static void fleet_app_layout(struct fleet_app *app)
     int32_t w;
     int32_t h;
     int cell = FLEET_CELL_TALL;
+    int cell_w = FLEET_CELL_TALL;
     int wide;
 
     if (!app || !app->frame) {
@@ -231,12 +267,14 @@ static void fleet_app_layout(struct fleet_app *app)
     lv_obj_set_style_pad_bottom(app->frame, in.bottom, 0);
     w = lv_area_get_width(&box) - in.left - in.right;
     h = lv_area_get_height(&box) - in.top - in.bottom;
-    wide = fleet_shape_is_wide(w, h, &cell);
+    wide = fleet_shape_is_wide(w, h, &cell_w, &cell);
     if (!wide) {
         cell = FLEET_CELL_TALL;
+        cell_w = FLEET_CELL_TALL;
     }
     app->shape = (uint8_t)(wide ? FLEET_SHAPE_WIDE : FLEET_SHAPE_TALL);
     app->cell = cell;
+    app->cell_across = cell_w;
 
     /* The wide shape fits by construction, so nothing scrolls at the top
      * level; the tall stack is longer than the body and always has been. The
@@ -255,8 +293,8 @@ static void fleet_app_layout(struct fleet_app *app)
      * to be right the moment it is shown, and doing one at a time would leave
      * the others carrying the shape the body no longer has. */
     fleet_screen_command_relayout(app, wide);
-    fleet_screen_deploy_relayout(app, wide, cell);
-    fleet_screen_battle_relayout(app, wide, cell);
+    fleet_screen_deploy_relayout(app, wide, cell_w, cell);
+    fleet_screen_battle_relayout(app, wide, cell_w, cell);
     fleet_screen_result_relayout(app, wide);
 }
 

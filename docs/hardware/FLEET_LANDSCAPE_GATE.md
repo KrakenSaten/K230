@@ -18,11 +18,11 @@ arrangement was not accepted. The rule it is now built round is DS §28.6:
 scrolling.*
 
 ```text
-TALL   portrait, 528 x 1060: the v0.0.10 layout, boards at 48 px cells.
+TALL   portrait, 528 x 1060: the v0.0.10 layout, boards at 48 x 48 cells.
 WIDE   landscape, 1192 x 386 once the foot clears the rounded corners:
-       board 382 x 382 at 34 px a cell; beside it TARGET, the readout, and
-       YOUR WATERS, your own board at 20 px; FIRE 790 x 95 across the foot
-       of both, its foot level with the board's.
+       board 552 x 382 at 51 x 34 a cell; beside it TARGET - the readout and
+       the four one-square nudges - and YOUR WATERS, your own board at 20 px;
+       FIRE across the foot of both, its foot level with the board's.
 ```
 
 Fleet is the seventh app given a landscape layout under DS §21.3, after
@@ -34,19 +34,67 @@ landscape body makes them smaller than Fleet's already-approved deviation D1.
 
 ## What the owner is being asked
 
-1. **Are ~34 px board cells comfortable and reliable under a normal thumb?**
-   Everything that can be checked without a hand has been: the mapping is
-   exact, the whole square belongs to its cell, and a mis-tap costs nothing
-   because a tap only aims. Whether the square is big enough for a thumb is
-   not a thing a test can answer. DS §28.2 stays PROVISIONAL until it is.
+1. **Is aiming comfortable now?** A 34 x 34 cell was rejected as too small
+   under a thumb, and that was right. **It cannot be answered with a bigger
+   row** - ten rows in a 386 px body can never exceed 38 px, and D1's 48 would
+   need a 522 px body - so it is answered three ways at once, and the question
+   is whether they add up:
+   - the cell grows on the axis that has room: **51 x 34**, half as much again
+     in area, and wider than the 48 px the tall shape draws;
+   - **a press aims, and so does every moment of a drag**, so you land
+     anywhere on the 552 x 382 board and slide, reading the square's name off
+     the readout beside it rather than trying to hit it;
+   - **four one-square nudges**, each a full 64 px target, so every square can
+     be reached exactly without touching the board at all.
+   DS §28.2 stays PROVISIONAL until a thumb has been on it.
 2. **Does the whole Battle screen read naturally at a glance?** Board at the
-   left, the readout beside it, your own waters beyond that, FIRE across the
-   foot of both.
+   left, the readout and the nudges beside it, your own waters beyond that,
+   FIRE across the foot of both.
 
 Nothing else is outstanding. There is no third question about portrait: Deploy,
 Battle and Result are unchanged below the status bar apart from six rows at
 the foot in Outdoor, and Command's only change is nine pixels; both are
 measured in §28.4.
+
+## The cell, after it was rejected
+
+The landscape board drew 34 x 34 cells and the product owner ruled they were
+not comfortable enough under a normal thumb. The no-scroll layout was
+accepted; only the geometry and the touch were sent back.
+
+**There is no bigger square to be had.** The board is ten rows of cells with a
+caption gutter and 2 px gaps, so its height is `24 + 10h + 9×2` and the body
+across the page is 386 px: `h ≤ 34.4`. Spending the gutter and the gaps as
+well - losing the A–J and 1–10 labels that the readout's "F6" is read
+against - buys 38. Deviation D1's 48 px would need a **522 px** body. The
+shell's status bar, the app header and the body's padding are not the app's to
+take, and §28.6 forbids scrolling to find the rest. This is arithmetic, not a
+judgement, and no arrangement of anything else on the screen moves it.
+
+So the answer is not a bigger row. It is three changes that between them mean
+**no square has to be hit exactly**:
+
+| | Before | After |
+| --- | --- | --- |
+| Cell | 34 x 34 (1,156 px²) | **51 x 34 (1,734 px²)** - half as much again, and wider than the tall shape's 48 |
+| Board | 382 x 382 | 552 x 382 |
+| Aiming | a tap, which had to land on the right square | **a press or a drag**: the square under the finger is reported the whole way and named in the readout, so the aim is corrected by watching |
+| Correcting | another tap, exactly as hard | **four one-square nudges**, each a full 64 px target, reaching every square |
+
+The width is where the room was: the board used a third of the page and 810 px
+were spare. The cap is **3:2** - past that a board of ten by ten stops reading
+as a board, and 51 is already wider than the 48 px D1 was approved at.
+
+The nudges are the part that makes deviation D1 honest at this size. D1 permits
+a target smaller than §7's 64 px **because a mis-aim is correctable**; a
+correction that is exactly as hard as the original aim is not a correction.
+With no crosshair set the first nudge starts in the middle, so every square is
+within five presses.
+
+Nothing else about D1 moves: aiming still commits nothing, FIRE is still the
+only thing that fires, and it is still armed only on a square that has not been
+fired at. Deploy draws the same board, cell for cell, because a fleet is placed
+on the squares the shots are later aimed at.
 
 ## The rule, and what was actually wrong
 
@@ -128,10 +176,12 @@ one arrangement:
 
 ### The arrangements that were tried, and the arithmetic that decided it
 
-The body across the page is 1192 x 386. The board is square and height-bound
-at 382, so it uses a third of the width and **810 px are left over** — the
-shape has width to spare and no height at all. Everything below follows from
-that one fact.
+The body across the page is 1192 x 386. The board is height-bound at 382, so
+it uses a third of the width and **810 px are left over** — the shape has width
+to spare and no height at all. Everything below follows from that one fact:
+the arrangement of what stands beside the board, and, once the board had been
+sent back for being too fine, the decision to spend the spare width on the
+cell itself.
 
 Writing `C` for the height available beside the board (386 less the 9 px the
 panel captions need above their top borders = 377), and taking the readout's
@@ -143,7 +193,7 @@ worst case at 192 px (Outdoor, with both its lines wrapped):
 | **Three bands**: readout, then your waters beside the log, then FIRE | the same sum with the log alongside rather than under: `own ≤ 37` still |
 | **Two columns, both stretched** (what was there) | fits, and does not scroll — but both panels end at the edge of the body, which reads as a view cut off, and the board is the smallest of three near-equal columns |
 | **Two columns, FIRE at the foot of the near one** (what was there, unstretched) | leaves two ragged blocks of background under the panels, one in each column |
-| **Two columns, content-height, FIRE across the foot of both** | **chosen.** `cols = 40 + 218 = 258`, so FIRE gets `377 - 258 - 22 = 97`. Both panels close on one line; the room over is spent on FIRE; the board is the largest object on the screen |
+| **Two columns, content-height, FIRE across the foot of both** | **chosen.** Both panels close on one line; the room over is spent on FIRE; the board is the largest object on the screen. With the cell widened to 51 the board takes 552 and the two columns 620 of what is left |
 
 The last row is why your own board drops to 20 px: it is the tallest content
 beside the board and so sets the height of both panels, and every pixel it
@@ -151,18 +201,19 @@ gives up goes to FIRE. At 26 px it made its panel 318 tall, FIRE 37, and the
 screen read as two boards of equal standing. At 20 px — the size portrait
 already uses — it is 218, plainly the lesser of the two, and FIRE is 95.
 
-### The cell size, recalculated rather than assumed
+### The row height, and why nothing else was taken from it
 
-34 px is not a budget, it is the ceiling. The board is square and ten cells
-across, so its side is `24 + 10c + 9×2`, and the body's 386 px of height is the
-only thing that limits it: `c ≤ 34.4`. Width is not the constraint — 810 px of
-it are spare. The three ways to buy a larger cell all cost more than they
-return: the 24 px caption gutter buys 36 px and costs the A–J and 1–10 labels
-the readout's "F6" is read against; a 16 px gutter buys 35 px and would change
-the one piece of arithmetic the drawing and the hit test share; and taking the
-10 px foot clearance would mean shifting the board sideways out of the corner
-squares, which §22.2 forbids by name. **35 px is used when the panel has square
-corners**, which is where that figure in the tests comes from.
+The 34 px row is the ceiling, not a budget, and the three ways of buying more
+all cost more than they return: the 24 px caption gutter buys 36 and costs the
+A–J and 1–10 labels; a 16 px gutter buys 35 and would change the one piece of
+arithmetic the drawing and the hit test share; and taking the 10 px foot
+clearance would mean shifting the board sideways out of the corner squares,
+which §22.2 forbids by name. With square corners the body is 396 px and the
+board draws **52 x 35**, which is where that second figure in the tests comes
+from.
+
+The width is a different matter, and that is where the room was: see "The
+cell, after it was rejected" above.
 
 ## Host validation
 
@@ -171,11 +222,11 @@ From the branch tip, and from master `7d0d1ea` for comparison.
 | Check | Result |
 | --- | --- |
 | `make all` (-Werror) | rc 0, 0 warnings |
-| `make test` | 3,787 ok, 0 FAIL, 0 warnings (master: 3,772; the 15 new `fleet_lint` checks) |
+| `make test` | 3,793 ok, 0 FAIL, 0 warnings (master: 3,772; the 21 new `fleet_lint` checks) |
 | SDL simulator build | rc 0, 1 warning — a format-truncation in `tests/clock_app_test.c` that master carries too, and the only one in the build |
 | 21 shell and UI test scripts | 536 ok, 0 FAIL, every script rc 0 (master: 525; `fleet_shell_test.sh` 23 → 34) |
-| `fleet_app_test` | **537 checks, 0 failures** (280 before this redesign) |
-| `fleet_lint.sh` | 20 checks, 0 failures (13 before; master: 5) |
+| `fleet_app_test` | **599 checks, 0 failures** (280 before this work began) |
+| `fleet_lint.sh` | 26 checks, 0 failures (13 before; master: 5) |
 | `fleet_rules_test` / `fleet_ai_test` / `fleet_rng_test` / `fleet_save_test` / `fleet_theme_test` | unchanged and green: the engine is byte-identical to master |
 | `calc_app_test`, `notes_app_test`, `settings_app_test`, `system_app_test`, `clock_app_test`, `cal_app_test` | 456 / 1,138 / 636 / 833 / 778 / 1,317 checks, 0 failures: the other apps unaffected |
 | `display_geometry_shell_test.sh` | 69 ok, 0 FAIL: all eleven apps still open in landscape |
@@ -184,9 +235,9 @@ From the branch tip, and from master `7d0d1ea` for comparison.
 
 ### Mutation testing
 
-**56 mutations, 55 caught** — 36 of the shape rule, the board's geometry, the
-tap conversion and the other three screens, and **20 of the revised Battle
-layout and the rule it exists to keep**, run as their own suite.
+**71 mutations, 70 caught** — 33 of the shape rule, the board's geometry, the
+tap conversion and the other three screens, and **38 of the Battle layout, the
+two-axis board and the ways of aiming**, run as their own suite.
 
 The one that is not caught: the app compares the body's box (and the safe-area
 insets it implies) before laying out again, and disabling that comparison
@@ -194,18 +245,39 @@ changes nothing observable — LVGL reports a size change only when the size
 changed, so the comparison never gets the chance to refuse a pass. It is kept
 as the same defensive guard Calculator, Notes and Clock carry.
 
-Of the 20 on the revised Battle screen, these are the ones worth naming: FIRE
-left in the readout column, or never put back there down the page, or set
-beside the panels instead of under them, or only as wide as its label, or not
-taking the room the panels leave; the columns stretched to the foot of the
-body, your own waters stretched to fill its column, either panel ending short
-of its neighbour; your own board grown until it sets the height; the exchange
-left under your own board; **a screen made a scroller**; and **the frame left
-scrollable across the page**. Two of the twenty were gaps in `fleet_app_test`
-when they were first run — a check that compared the columns where it should
-have compared the panels, and a redundant height setting that made a mutation
-equivalent — and both are closed, in the test and in the code respectively,
-not argued away.
+Of the 38 on the Battle screen, these are the ones worth naming.
+
+On the layout: FIRE left in the readout column, or never put back there down
+the page, or set beside the panels instead of under them, or only as wide as
+its label, or not taking the room the panels leave; the columns stretched to
+the foot of the body, your own waters stretched to fill its column, either
+panel ending short of its neighbour; the exchange left under your own board;
+**a screen made a scroller**; and **the frame left scrollable across the
+page**.
+
+On the board: the cell never widened into the room it has; a cell allowed to
+be narrower than it is tall; the width rule never consulted; the target board
+left square; **Deploy disagreeing with Battle about where a square is**; **a
+cell drawn narrower than it is hit**; and the hit test reading the wrong axis,
+each way round.
+
+On aiming: **the aim no longer following the finger**; the first nudge
+starting in a corner instead of the middle; a nudge wrapping round the board
+instead of stopping at the edge; up and down, and left and right, the wrong
+way round; a nudge shorter or narrower than a finger; a nudge that moves
+nothing; and the nudges hidden in the shape that needs them, or shown in the
+shape that does not.
+
+Four were gaps in `fleet_app_test` when they were first run, and all four are
+closed rather than argued away: a check that compared the columns where it
+should have compared the panels; a redundant height setting that made a
+mutation equivalent; and - the one worth the most - **nothing at all compared
+what the grid draws with what it hits**. The grid now answers for a cell's
+rectangle (`fleet_grid_cell_rect`) and the test holds that against its own
+restatement of the layout's arithmetic, for all 100 cells at every board size.
+One mutation was withdrawn rather than counted: with the drag registered, a
+press that aims on release instead cannot be told apart by any host test,
+because an input read arrives before the finger lifts.
 
 Caught: the wide shape taken for any body; the cell floor removed; the width
 floor removed and off by one; the cell not capped at the tall cell; no corner
@@ -240,10 +312,19 @@ portrait and landscape, in Normal and Outdoor:
   finger's size, nothing outside the body or the safe area, and every panel
   caption drawn rather than cut;
 - **every cell of the board tapped at its centre and at all four of its
-  corners, at 48, 35 and 34 px** — 1,500 taps — plus the two-pixel gaps
-  between cells, the caption gutter and points just off the board;
-- aim-then-confirm: a tap never fires; FIRE fires exactly one shot and only on
-  a square not already fired at; your own waters are not a target at all;
+  corners, at 48 x 48, 52 x 35 and 51 x 34** — 1,500 taps — plus the two-pixel
+  gaps between cells, the caption gutter and points just off the board;
+- **what is drawn compared with what is hit**, cell by cell at all three
+  sizes: the rectangle the grid says a square occupies against the layout's
+  own arithmetic;
+- **aiming without a precise touch**: a drag across the board ending aimed at
+  the square it ended on and firing nothing; the readout following the finger
+  mid-drag and staying put when it lifts; each of the four nudges moving one
+  square the right way; the edges clamping rather than wrapping; and the first
+  nudge starting in the middle with nothing aimed;
+- aim-then-confirm: aiming never fires, however it is done; FIRE fires exactly
+  one shot and only on a square not already fired at; your own waters are not a
+  target at all;
 - the display turned under a match in progress, three times over: the same
   objects, none added, the match untouched — crosshair, turn, both boards, the
   fleet as placed — and a paced reply still in flight neither settled early nor
@@ -275,8 +356,9 @@ Result) × two orientations × 30 px and square corners × Normal and Outdoor.
 | The 6 rows | y 1212–1217: master drew the last panel's thicker Outdoor border into the body's bottom padding; the frame now clips at the body's content box. The foot clearance doing its work (§28.4) |
 | The 9 px | The caption of Command's first panel, which now has its room inside the frame instead of straddling into the shell's padding (§28.4) |
 | `battle_paced` in Outdoor | Differs between runs **on master too** — the resolution flash is timed, so a still of it is a race. Three runs of the branch were identical to each other; three of master were not |
-| Portrait against the branch **before this redesign** | **16 of 20 pixel-identical.** The four that are not are all `battle_paced`, all the same 56 x 56 box, and the same build renders them differently between two runs of its own — the flash again |
-| Landscape against the branch before the redesign | Only the two Battle states differ, and only to the right of the board (x ≥ 422): Command, Deploy and Result are untouched, and so is the board itself |
+| Portrait against the build before the **layout** was reworked | **16 of 20 pixel-identical.** The four that are not are all `battle_paced`, all the same 56 x 56 box, and the same build renders them differently between two runs of its own — the flash again |
+| Portrait against the build before the **cell** was reworked | **17 of 20 pixel-identical**, the other three that same flash. Widening the cell and adding the nudges changed nothing down the page: both are the wide shape's alone |
+| Landscape | Battle and Deploy both draw the wider board; Command and Result are untouched |
 
 Foot corner squares in **portrait** on Battle are not clear, on this branch or
 on master: the stack is longer than the body and, while it is scrolled,

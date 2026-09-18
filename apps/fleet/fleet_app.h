@@ -68,7 +68,8 @@ struct fleet_app {
      * change" something a test can hold the app to. */
     uint32_t layouts;
     uint8_t shape;                            /* enum fleet_shape */
-    int cell;                                 /* board cell size in force */
+    int cell;                                 /* board cell height in force */
+    int cell_across;                          /* and its width, which may be more */
     lv_obj_t *screen[FLEET_SCREEN_COUNT];     /* NULL until that screen exists */
     uint8_t current;
     /* Persistence is best effort. It is switched off for the session after
@@ -117,11 +118,13 @@ void fleet_app_box_column(lv_obj_t *box, int wide);
  * children centred across it; in the wide shape the screen fills the body. */
 void fleet_app_screen_flow(lv_obj_t *screen, int wide, int across);
 
-/* The cell size the wide shape would draw a labelled board at in a body this
- * high, and whether the wide shape fits at all. Pure arithmetic, so the rule
- * is one function and the tests can ask it directly. */
+/* The cell height the wide shape would draw a labelled board at in a body this
+ * high; the width it would draw it at, given that height, in a body this wide;
+ * and whether the wide shape fits at all. Pure arithmetic, so the rule is
+ * three functions and the tests can ask them directly. */
 int fleet_cell_for_height(int32_t h);
-int fleet_shape_is_wide(int32_t w, int32_t h, int *cell_out);
+int fleet_cell_across(int32_t w, int cell_down);
+int fleet_shape_is_wide(int32_t w, int32_t h, int *cell_w_out, int *cell_h_out);
 
 /* Screen modules. Each builds its objects once and then only moves and
  * resizes them: _relayout is called when the body's box changes and never
@@ -131,7 +134,7 @@ void fleet_screen_command_refresh(struct fleet_app *app);
 void fleet_screen_command_relayout(struct fleet_app *app, int wide);
 lv_obj_t *fleet_screen_deploy_create(struct fleet_app *app, lv_obj_t *parent);
 void fleet_screen_deploy_refresh(struct fleet_app *app);
-void fleet_screen_deploy_relayout(struct fleet_app *app, int wide, int cell);
+void fleet_screen_deploy_relayout(struct fleet_app *app, int wide, int cell_w, int cell_h);
 /* Reset the deployment screen for a freshly created match. */
 void fleet_screen_deploy_enter(struct fleet_app *app);
 lv_obj_t *fleet_screen_battle_create(struct fleet_app *app, lv_obj_t *parent);
@@ -140,12 +143,17 @@ void fleet_screen_battle_refresh(struct fleet_app *app);
 void fleet_screen_battle_enter(struct fleet_app *app);
 /* Move the crosshair. It never fires: only the FIRE button does. */
 void fleet_screen_battle_aim(struct fleet_app *app, int row, int col);
+/* Move the crosshair one square, clamped at the edges of the board. With no
+ * crosshair set it starts at the middle. This is the path that does not ask
+ * the player to hit anything small: the buttons that call it are a finger's
+ * size, whatever the board's cells are. */
+void fleet_screen_battle_nudge(struct fleet_app *app, int drow, int dcol);
 /* Stop the grids animating and settle any turn still being paced out, so the
  * match is never left half played. */
 void fleet_screen_battle_leave(struct fleet_app *app);
 /* Commit the aimed shot, exactly as the FIRE button does. */
 void fleet_screen_battle_fire(struct fleet_app *app);
-void fleet_screen_battle_relayout(struct fleet_app *app, int wide, int cell);
+void fleet_screen_battle_relayout(struct fleet_app *app, int wide, int cell_w, int cell_h);
 lv_obj_t *fleet_screen_result_create(struct fleet_app *app, lv_obj_t *parent);
 void fleet_screen_result_refresh(struct fleet_app *app);
 void fleet_screen_result_relayout(struct fleet_app *app, int wide);

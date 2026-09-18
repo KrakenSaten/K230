@@ -29,7 +29,8 @@
 struct fleet_grid {
     const struct fleet_board *board;
     uint8_t mode;
-    int cell;
+    int cell_w;
+    int cell_h;
     int gutter;
     int8_t cursor_row;
     int8_t cursor_col;
@@ -78,21 +79,34 @@ int fleet_grid_cell_for_span(int span, int labels)
     return room > 0 ? room / FLEET_GRID : 0;
 }
 
-static int span(const struct fleet_grid *g)
+static int span_w(const struct fleet_grid *g)
 {
-    return fleet_grid_span_for(g->cell, g->gutter != 0);
+    return fleet_grid_span_for(g->cell_w, g->gutter != 0);
+}
+
+static int span_h(const struct fleet_grid *g)
+{
+    return fleet_grid_span_for(g->cell_h, g->gutter != 0);
+}
+
+/* Everything drawn inside a cell - the miss dot, the hit square, the arms of
+ * the sunk cross - is sized from the shorter side, so a cell that is wider
+ * than it is tall carries the same marks rather than stretched ones. */
+static int mark_side(const struct fleet_grid *g)
+{
+    return g->cell_w < g->cell_h ? g->cell_w : g->cell_h;
 }
 
 static void cell_area(const struct fleet_grid *g, const lv_area_t *coords, int row, int col,
                       lv_area_t *out)
 {
-    int32_t x = coords->x1 + g->gutter + col * (g->cell + FLEET_GRID_GAP);
-    int32_t y = coords->y1 + g->gutter + row * (g->cell + FLEET_GRID_GAP);
+    int32_t x = coords->x1 + g->gutter + col * (g->cell_w + FLEET_GRID_GAP);
+    int32_t y = coords->y1 + g->gutter + row * (g->cell_h + FLEET_GRID_GAP);
 
     out->x1 = x;
     out->y1 = y;
-    out->x2 = x + g->cell - 1;
-    out->y2 = y + g->cell - 1;
+    out->x2 = x + g->cell_w - 1;
+    out->y2 = y + g->cell_h - 1;
 }
 
 static enum cell_look look_of(const struct fleet_grid *g, int idx)
@@ -186,24 +200,24 @@ static void draw_cell(lv_layer_t *layer, const struct fleet_grid *g, const lv_ar
         dsc.radius = LV_RADIUS_CIRCLE;
         dsc.bg_opa = LV_OPA_COVER;
         dsc.bg_color = pos_theme_color(POS_COLOR_TEXT_SECONDARY);
-        mark_area(area, g->cell / 6 + 2, &mark);
+        mark_area(area, mark_side(g) / 6 + 2, &mark);
         lv_draw_rect(layer, &dsc, &mark);
     } else if (look == LOOK_HIT || look == LOOK_SHIP_HIT) {
         lv_draw_rect_dsc_init(&dsc);
         dsc.radius = CELL_RADIUS;
         dsc.bg_opa = LV_OPA_COVER;
         dsc.bg_color = pos_theme_color(POS_COLOR_TEXT_ON_ACCENT);
-        mark_area(area, g->cell / 3, &mark);
+        mark_area(area, mark_side(g) / 3, &mark);
         lv_draw_rect(layer, &dsc, &mark);
     } else if (look == LOOK_SUNK || look == LOOK_SHIP_SUNK) {
         /* A cross, not a filled square: the two states share a fill and a
          * mark colour, so the shape has to carry the difference on its own. */
         lv_draw_line_dsc_t line;
 
-        mark_area(area, g->cell / 2, &mark);
+        mark_area(area, mark_side(g) / 2, &mark);
         lv_draw_line_dsc_init(&line);
         line.color = pos_theme_color(POS_COLOR_TEXT_ON_ACCENT);
-        line.width = g->cell >= 32 ? 3 : 2;
+        line.width = mark_side(g) >= 32 ? 3 : 2;
         line.opa = LV_OPA_COVER;
         line.round_start = 1;
         line.round_end = 1;
@@ -273,7 +287,7 @@ static void draw_labels(lv_layer_t *layer, lv_obj_t *obj, const struct fleet_gri
         area.x1 = coords->x1;
         area.x2 = coords->x1 + g->gutter - 6;
         /* Nudge onto the row's optical centre for the caption line height. */
-        area.y1 += (g->cell - 16) / 2;
+        area.y1 += (g->cell_h - 16) / 2;
         lv_draw_label(layer, &dsc, &area);
     }
 }
@@ -284,10 +298,11 @@ static void draw_sweep(lv_layer_t *layer, const struct fleet_grid *g,
                        const lv_area_t *coords)
 {
     lv_draw_line_dsc_t dsc;
-    int32_t play = FLEET_GRID * g->cell + (FLEET_GRID - 1) * FLEET_GRID_GAP;
-    int32_t cx = coords->x1 + g->gutter + play / 2;
-    int32_t cy = coords->y1 + g->gutter + play / 2;
-    int32_t reach = play / 2;
+    int32_t play_w = FLEET_GRID * g->cell_w + (FLEET_GRID - 1) * FLEET_GRID_GAP;
+    int32_t play_h = FLEET_GRID * g->cell_h + (FLEET_GRID - 1) * FLEET_GRID_GAP;
+    int32_t cx = coords->x1 + g->gutter + play_w / 2;
+    int32_t cy = coords->y1 + g->gutter + play_h / 2;
+    int32_t reach = (play_w > play_h ? play_w : play_h) / 2;
     int tail;
 
     lv_draw_line_dsc_init(&dsc);
@@ -422,8 +437,8 @@ static void grid_click(lv_event_t *e)
     if (x < 0 || y < 0) {
         return;
     }
-    col = (int)(x / (g->cell + FLEET_GRID_GAP));
-    row = (int)(y / (g->cell + FLEET_GRID_GAP));
+    col = (int)(x / (g->cell_w + FLEET_GRID_GAP));
+    row = (int)(y / (g->cell_h + FLEET_GRID_GAP));
     if (!fleet_in_bounds(row, col)) {
         return;
     }
@@ -458,7 +473,8 @@ lv_obj_t *fleet_grid_create(lv_obj_t *parent, enum fleet_grid_mode mode, int cel
         return NULL;
     }
     g->mode = (uint8_t)mode;
-    g->cell = cell;
+    g->cell_w = cell;
+    g->cell_h = cell;
     g->gutter = labels ? FLEET_GRID_GUTTER : 0;
     g->cursor_row = -1;
     g->cursor_col = -1;
@@ -469,11 +485,22 @@ lv_obj_t *fleet_grid_create(lv_obj_t *parent, enum fleet_grid_mode mode, int cel
     /* Only for the caption font the labels are drawn with. */
     pos_style_add(obj, POS_STYLE_CAPTION, 0);
     lv_obj_set_user_data(obj, g);
-    lv_obj_set_size(obj, span(g), span(g));
+    lv_obj_set_size(obj, span_w(g), span_h(g));
     lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(obj, grid_draw, LV_EVENT_DRAW_MAIN, NULL);
-    lv_obj_add_event_cb(obj, grid_click, LV_EVENT_CLICKED, NULL);
+    /* A press aims, and so does every moment of a drag: the square under the
+     * finger is reported the whole way, so the player lands anywhere on the
+     * board and slides to the cell they want, reading its name off the
+     * readout beside the board rather than trying to hit a small square
+     * exactly. Aim-then-confirm is untouched - none of this commits
+     * anything, and FIRE is still the only thing that does.
+     *
+     * Both events, not just the second: a tap short enough to be pressed and
+     * released inside one input read never produces a PRESSING at all, and it
+     * still has to aim. */
+    lv_obj_add_event_cb(obj, grid_click, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(obj, grid_click, LV_EVENT_PRESSING, NULL);
     lv_obj_add_event_cb(obj, grid_delete, LV_EVENT_DELETE, NULL);
     /* The theme engine repaints registered custom-drawn objects itself; it
      * only asks the caller to subscribe when its table is full. */
@@ -488,20 +515,48 @@ int fleet_grid_cell(lv_obj_t *grid)
 {
     const struct fleet_grid *g = state_of(grid);
 
-    return g ? g->cell : 0;
+    return g ? g->cell_h : 0;
+}
+
+int fleet_grid_cell_rect(lv_obj_t *grid, int row, int col, lv_area_t *out)
+{
+    struct fleet_grid *g = state_of(grid);
+    lv_area_t coords;
+
+    if (!g || !out || !fleet_in_bounds(row, col)) {
+        return -1;
+    }
+    lv_obj_get_coords(grid, &coords);
+    cell_area(g, &coords, row, col, out);
+    return 0;
+}
+
+int fleet_grid_cell_across(lv_obj_t *grid)
+{
+    struct fleet_grid *g = state_of(grid);
+
+    return g ? g->cell_w : 0;
 }
 
 void fleet_grid_set_cell(lv_obj_t *grid, int cell)
 {
+    fleet_grid_set_cell_size(grid, cell, cell);
+}
+
+void fleet_grid_set_cell_size(lv_obj_t *grid, int cell_w, int cell_h)
+{
     struct fleet_grid *g = state_of(grid);
 
-    if (!g || cell <= 0 || cell == g->cell) {
+    if (!g || cell_w <= 0 || cell_h <= 0 ||
+        (cell_w == g->cell_w && cell_h == g->cell_h)) {
         return;
     }
-    /* One stored size for the picture and for the hit test: cell_area() and
-     * grid_click() both read g->cell, so they cannot fall out of step. */
-    g->cell = cell;
-    lv_obj_set_size(grid, span(g), span(g));
+    /* One stored size per axis for the picture and for the hit test:
+     * cell_area() and grid_click() both read g->cell_w and g->cell_h, so they
+     * cannot fall out of step. */
+    g->cell_w = cell_w;
+    g->cell_h = cell_h;
+    lv_obj_set_size(grid, span_w(g), span_h(g));
     lv_obj_invalidate(grid);
 }
 
