@@ -129,7 +129,10 @@ because there is not one to be had. Instead:
   off the readout beside it;
 - and four **one-square nudges**, each a full 64 px target, stand at the foot
   of the readout panel, so every square can be reached without touching the
-  board at all. With no crosshair the first press starts in the middle.
+  board at all. With no crosshair the first press starts in the middle. The
+  panel's slack goes to the log line, so they are always on its content edge -
+  a control whose position a thumb can learn, rather than one that moves when
+  a line wraps.
 
 That is what makes D1's premise true at this size. D1 permits a small target
 because a mis-aim is *correctable*; a correction as hard as the original aim

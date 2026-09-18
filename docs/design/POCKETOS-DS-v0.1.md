@@ -1919,8 +1919,11 @@ the screen changes this by a pixel.
     played and so belongs beside the readout, where there is room for it.
   - The readout panel also carries **the four one-square nudges** (§28.2), at
     its foot, nearest FIRE: what is aimed at, what firing would do, what the
-    last exchange did, and then the controls. They are shown only in the wide
-    shape - a hidden child takes no room in a flex layout, so portrait is
+    last exchange did, and then the controls. The panel's slack goes to the
+    log line, so the nudges come to rest on the panel's content edge whatever
+    the text above them does - a control a thumb can learn the position of,
+    rather than one that moves when a line wraps. They are shown only in the
+    wide shape; a hidden child takes no room in a flex layout, so portrait is
     untouched by them.
 - **Deploy.** The board at the left, YOUR FLEET beside it, and the placement
   controls beyond: TURN, AUTO and CLEAR across the top of that column, the

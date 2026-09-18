@@ -7,15 +7,18 @@ unchanged). DS Amendment L (§28) is **PROPOSED**.
 left for the product owner, and both are about how it feels under a hand.**
 
 **Unit A is running this branch.** `doors shell info` answers
-**`build 2a32427`**; the unit is in landscape, on the launcher, with a match
+**`build 0dd9ee1`**; the unit is in landscape, on the launcher, with a match
 saved at Officer turn 4. Fleet → RESUME puts the screen in question on the
 display in two taps. (This was not true of the first pass, and that is what
 this round is about — see "The rule, and what was actually wrong".)
 
-**The Battle screen across the page has been redesigned** after the first
-arrangement was not accepted. The rule it is now built round is DS §28.6:
-*normal landscape Battle gameplay fits in one viewport and requires no
-scrolling.*
+**The Battle screen across the page has been through two rounds of rework.**
+First the arrangement, after the player was found to have to scroll: the rule
+it is now built round is DS §28.6, *normal landscape Battle gameplay fits in
+one viewport and requires no scrolling*. Then the board itself, after 34 x 34
+cells were ruled too small under a thumb: there is no bigger square to be had
+in this body, so the cell grew on the axis with room and aiming stopped
+needing a precise touch at all (§28.2).
 
 ```text
 TALL   portrait, 528 x 1060: the v0.0.10 layout, boards at 48 x 48 cells.
@@ -225,7 +228,7 @@ From the branch tip, and from master `7d0d1ea` for comparison.
 | `make test` | 3,793 ok, 0 FAIL, 0 warnings (master: 3,772; the 21 new `fleet_lint` checks) |
 | SDL simulator build | rc 0, 1 warning — a format-truncation in `tests/clock_app_test.c` that master carries too, and the only one in the build |
 | 21 shell and UI test scripts | 536 ok, 0 FAIL, every script rc 0 (master: 525; `fleet_shell_test.sh` 23 → 34) |
-| `fleet_app_test` | **599 checks, 0 failures** (280 before this work began) |
+| `fleet_app_test` | **605 checks, 0 failures** (280 before this work began) |
 | `fleet_lint.sh` | 26 checks, 0 failures (13 before; master: 5) |
 | `fleet_rules_test` / `fleet_ai_test` / `fleet_rng_test` / `fleet_save_test` / `fleet_theme_test` | unchanged and green: the engine is byte-identical to master |
 | `calc_app_test`, `notes_app_test`, `settings_app_test`, `system_app_test`, `clock_app_test`, `cal_app_test` | 456 / 1,138 / 636 / 833 / 778 / 1,317 checks, 0 failures: the other apps unaffected |
@@ -388,24 +391,26 @@ promises, a tap lands somewhere else and the capture shows it.
 
 | Step | Evidence | Result |
 | --- | --- | --- |
-| **What was on the unit before** | build `5881704` — the Radar branch, i.e. master's Fleet — rotation **landscape**, a resumable match waiting. Fleet opened on it: Command with its first caption cut off and no way on visible, and **Battle showing rows 1–8 of the board and nothing else** | recorded; this is the screen that was rejected |
-| Transfer | `doors-shell` from the riscv64 DRM build of `2a32427`, stripped, **953,008 B, md5 `5d535ccd…`**, equal on both ends | PASS |
-| Install | only `S90doors-shell` stopped and started; the shell answers **`build 2a32427`**; 1 doors-shell, 0 crashloop, 0 restarts; `/root/doors-shell.rollback` (the `99b2374` shell the unit was found with) untouched | PASS |
-| Geometry the app actually has | `shape wide cell 34 span 382 board at (20, 152) frame (20, 152, 1211, 547) foot 10`, and `fire at (816, 490)` — the centre of a button spanning x 422–1211, y 443–537. The arithmetic `fleet_app_test` pins on the host, arrived at independently on the unit | PASS |
+| **What was on the unit at the start of this work** | build `5881704` — the Radar branch, i.e. master's Fleet — rotation **landscape**. Fleet opened on it: Command with its first caption cut off and no way on visible, and **Battle showing rows 1–8 of the board and nothing else** | recorded; this is the screen the scrolling complaint was about |
+| Transfer | `doors-shell` from the riscv64 DRM build of `0dd9ee1`, stripped, **957,104 B, md5 `ea00f227…`**, equal on both ends | PASS |
+| Install | only `S90doors-shell` stopped and started; the shell answers **`build 0dd9ee1`**; 1 doors-shell, 0 crashloop, 0 restarts; `/root/doors-shell.rollback` (the `99b2374` shell the unit was found with) untouched | PASS |
+| Geometry the app actually has | `shape wide cell 51 x 34 span 552 x 382 board at (20, 152) frame (20, 152, 1211, 547) foot 10`, with `fire at (901, 490)` and the four nudges at `(647, 367) (723, 367) (799, 367) (875, 367)`. The bench tool works all of that out from the app's own rule rather than measuring the picture, so a tap that lands is itself the check | PASS |
 | **The whole screen, on the panel** | Battle after RESUME: the entire 10 x 10 board with its A–J and 1–10 labels, the TARGET readout, YOUR WATERS with your own board, and FIRE across the foot — all of it, nothing cut (`new-battle.png`) | **PASS** |
 | **Proof that it does not scroll (1)** | Two captures with no input differ only inside the board, x 51–401 — that is the tracer animation, and it is the noise floor | recorded |
-| **Proof that it does not scroll (2)** | Seven drags over the readout, your own waters and FIRE — with nothing aimed, so FIRE is disabled and none of them can change anything. The panel afterwards differs **only** at x 215–368, inside the board: the animation again. **Nothing in the region beside the board moved by one pixel** | **PASS** |
-| **Proof that it does not scroll (3)** | Four drags over the board itself, then the furniture that carries no game state compared rectangle by rectangle: the panel captions and top borders **identical**, the panels' bottom borders **identical**. FIRE's edges differ in colour only, at the same y 443 and y 537 they were at — it armed, because a drag aimed a square | **PASS** |
-| **34 px cells, on the panel** | Aimed at the four corners of the board and its middle: the readout named **A1, J1, A10, J10, E5**, each the cell asked for (`new-readouts.png`) | **PASS** |
-| **The whole square** | All four corners of cell C7 and its centre tapped: the readout named **C7** every time | **PASS** |
+| **Proof that it does not scroll (2)** | Seven drags over the readout, the nudges, your own waters and FIRE. Everything that differs afterwards is inside the board (x ≤ 571) — the tracer animation. **Nothing in the region beside the board moved by one pixel** | **PASS** |
+| **Proof that it does not scroll (3)** | And compared rectangle by rectangle, on the furniture that carries no game state: the panel captions and top borders **identical**; the panels' bottom borders **identical**; **the four nudges identical**; **FIRE identical edge to edge**; the board's A–J labels identical | **PASS** |
+| **51 x 34 cells, on the panel** | Aimed at the four corners of the board and its middle: the readout named **A1, J1, A10, J10, E5**, each the cell asked for | **PASS** |
+| **The whole square** | All four corners of cell C7 and its centre tapped: the readout named **C7** every time — the corners of a rectangle now, not a square | **PASS** |
+| **The four nudges, on the panel** | From C7: left → **B7**, up → **B6**, down → **B7**, right → **C7**. Each moved exactly one square, the right way, and none of them fired | **PASS** |
+| **Aiming by drag, on the panel** | A drag from A1's square to G8's, injected as a press, sixteen moves and a release: the readout ended at **G8**. Dragged back from J10 to A1: **A1**. The log line was unchanged throughout, so neither fired | **PASS** |
 | **Nothing else is a target** | Tapped inside the readout, inside YOUR WATERS, in the gutter between the board and the panels, and in the gap between the panels and FIRE: the readout still reads C7 · Ready to fire, the same log line, nothing fired. There is no hitbox on this screen that is not drawn | **PASS** |
-| A match played out | 80 aim-and-fire pairs, 160 injected taps, to the end of the engagement; Result showed **`Enemy fleet destroyed`**, 81 rounds, 1 of 5 afloat, 21 % / 20 % accuracy, both accounts and both ways on visible | PASS |
+| A match played out | 53 aim-and-fire pairs to the end of the engagement; Result showed **`Fleet lost`**, 59 rounds, 0 of 5 afloat, 24 % / 29 % accuracy, both accounts and both ways on visible | PASS |
 | Deploy across the page | NEW ENGAGEMENT → Deploy; AUTO placed the whole fleet and CONFIRM DEPLOYMENT, at the foot of its column, started the engagement | PASS |
 | **Save and resume** | Three turns played, the app left for the launcher, Fleet reopened: `fleet: resumable match … Officer turn 4`, RESUME taken, and the board came back with all three shots and the enemy's replies on your own waters (`resume-battle.png`) | **PASS** |
-| **Outdoor type** | `shell.theme mode=outdoor`, Battle reopened and a square aimed: the whole screen still fits — board, readout (`E5 · Ready to fire.`), your own waters, FIRE armed across the foot (`new-battle-outdoor.png`). Restored to Normal afterwards | **PASS** |
-| **Portrait on this build** | Turned to portrait: `shape tall cell 48 span 522`; Command is the v0.0.10 stack with RESUME inside the SAVED ENGAGEMENT panel, and Battle is the v0.0.10 stack with FIRE below TARGET and the log under your own board — both objects back where they belong (`portrait-command.png`, `portrait-battle.png`) | **PASS** |
+| **Outdoor type** | `shell.theme mode=outdoor`, a square aimed: the whole screen still fits — board, readout (`E5 · Ready to fire.`), the four nudges, your own waters, FIRE armed across the foot (`f-outdoor.png`). Restored to Normal afterwards | **PASS** |
+| **Portrait on this build** | Turned to portrait: the device derives `shape tall cell 48 x 48 span 522 x 522` — square again — and Battle is the v0.0.10 stack: board, TARGET, FIRE, YOUR WATERS with the log, **and no nudges at all** (`f-portrait.png`) | **PASS** |
 | Foot corners in the captures | all eight landscape captures of this build — Command, Battle, Battle in Outdoor, Result, the resumed match and the two drag captures — have clear bottom corner squares | PASS |
-| Resources | VmRSS 12,672 kB before the 80-shot match, 12,800 kB after it and two more matches, 12,416 kB at rest | PASS |
+| Resources | VmRSS 12,800 kB before the match and 12,288 kB at rest after it and another one | PASS |
 | Health after | 1 doors-shell; sysd, netd and radiod unchanged; 0 crashloop; 0 crash reports; `shell.log` **0 ERROR, 0 WARN**; no segfault in `dmesg` | PASS |
 
 ### What the unit found that the host had not
@@ -427,11 +432,12 @@ lands. So the physical check is the two questions at the top of this sheet.
 ## As left
 
 Unit A carries **this branch**: `doors shell info` answers
-**`build 2a32427`**, md5 `5d535ccd…`. It is in **landscape**, exactly as it was
+**`build 0dd9ee1`**, md5 `ea00f227…`. It is in **landscape**, exactly as it was
 found at the start of this work, on the launcher, theme carbon, Normal,
 brightness 100, Wi-Fi **off**, 1 doors-shell, 0 crashloop, 0 crash reports,
 `shell.log` 0 ERROR 0 WARN. **A match is saved and waiting at Officer turn 4**,
-so Fleet → RESUME puts the screen in question on the display in two taps.
+so Fleet → RESUME puts the screen in question on the display in two taps —
+three shots already played, so the board has something on it.
 
 That is deliberate, and it is the correction to the mistake described at the
 top of this sheet: the unit is left on the branch whose physical check is
@@ -450,8 +456,11 @@ The bench SSH key is removed: `/root/.ssh` no longer exists, and the unit
 refuses the key. Reinstalling it takes about a minute over the COM9 console
 (`C:\K230-ml\serial.ps1`).
 
-Captures and logs: `out/fleet-redesign/hwgate-unitA/` for this pass — the
-`masterfleet-landscape-*.png` ones are what was on the unit before it, and the
-`new-*`, `aim-*`, `corner-C7-*`, `ns-*`, `bd-*`, `resume-*` and `portrait-*`
-ones are this build. The first pass is in
-`out/fleet-landscape-a849784/hwgate-unitA/`. Both are outside the repository.
+Captures and logs: `out/fleet-redesign/hwgate-unitA/`. The
+`masterfleet-landscape-*.png` ones are what was on the unit when this work
+started; `new-*`, `aim-*`, `corner-C7-*`, `ns-*`, `bd-*`, `resume-*` and
+`portrait-*` are the no-scroll layout at 34 x 34; and **`f-*` are this build**
+— `f-battle`, `f-step_left`/`_up`/`_down`/`_right`, `f-drag`, `f-drag2`,
+`f-ns-before`/`f-ns-after`, `f-result`, `f-resume`, `f-outdoor`, `f-portrait`.
+The very first pass is in `out/fleet-landscape-a849784/hwgate-unitA/`. All are
+outside the repository.
