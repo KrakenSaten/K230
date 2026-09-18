@@ -8,6 +8,9 @@ Status: **v0.0.8. Validated on unit A, 2026-09-11, in the release image
 (build `03851f5`).** The landscape layout (below) is on branch
 `feature/clock-landscape`: **validated on unit A, 2026-09-17, build
 `8aec2bc`**, and accepted with DS §26 (`docs/hardware/CLOCK_LANDSCAPE_GATE.md`).
+The restart handoff (Storage, below) is on branch
+`fix/clock-rotation-state`: **PASS on unit A, 2026-09-18, build `646dcbb`**
+(`docs/hardware/CLOCK_ROTATION_STATE_GATE.md`), not merged.
 
 ## What it is
 
@@ -81,8 +84,13 @@ Clock in landscape, ACCEPTED) is the normative version of this section.
   it is paused. Alarms were never affected: they are in the settings file.
   *A shell that crashes writes no handoff, and a power cycle clears one; both
   still end a running stopwatch, countdown or snooze.* Host-tested, including
-  across real `execv` boundaries (`tests/clock_restart_test.c`); not yet
-  exercised on unit A.
+  across real `execv` boundaries (`tests/clock_restart_test.c`), and
+  **VERIFIED on unit A** (2026-09-18, build `646dcbb`): a stopwatch and a
+  countdown both ran through a turn of the display and came back continuing,
+  with `runtime state handed to the next shell` and `runtime state taken from
+  the shell before this one` 145 ms apart on either side of the same pid
+  (`docs/hardware/CLOCK_ROTATION_STATE_GATE.md`). The snooze was not run on
+  the panel.
 
 ## The one thing it cannot do, and says so
 

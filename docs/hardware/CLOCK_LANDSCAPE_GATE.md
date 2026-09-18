@@ -241,9 +241,9 @@ Outside this scope:
   that starts empty on every boot, and the incoming one takes it: the
   stopwatch, countdown, snoozes, ringing and "already rung today" come across
   the exec, and a power cycle still ends them. See "Storage" in
-  `docs/apps/POCKETCLOCK.md`. Host-tested across real `execv` boundaries; **the
-  fix has not been exercised on unit A**, so the observation above is still
-  the last word from the panel.
+  `docs/apps/POCKETCLOCK.md`. **PASS on unit A, 2026-09-18, build `646dcbb`**
+  (`docs/hardware/CLOCK_ROTATION_STATE_GATE.md`), which supersedes the
+  observation above as the last word from the panel.
 - A stepper's name sits at the top of its 64 px row, not centred; a single-line
   field's text sits at the top of the field. Both as on master.
 - The label keyboard's Done does nothing (KNOWN_ISSUES). In landscape, Add is

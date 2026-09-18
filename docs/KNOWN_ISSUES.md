@@ -360,11 +360,14 @@ Documented for v0.0.8:
 - ~~An orientation change ends a running stopwatch, countdown and snooze.~~
   Fixed on `fix/clock-rotation-state`: the outgoing shell hands its clock
   runtime to the incoming one through a boot-scoped file on the `/run` tmpfs
-  ("Storage" in docs/apps/POCKETCLOCK.md). What is left, and is by design: a
-  shell that is killed or crashes writes no handoff, so a running stopwatch,
-  countdown or snooze ends there; and a power cycle clears the handoff, which
-  is the whole point, because every instant in it is measured on a clock that
-  starts again at the boot. **Not exercised on unit A.**
+  ("Storage" in docs/apps/POCKETCLOCK.md). **PASS on unit A, 2026-09-18, build
+  `646dcbb`** (docs/hardware/CLOCK_ROTATION_STATE_GATE.md): a stopwatch and a
+  countdown both ran through a turn of the display and came back continuing.
+  What is left, and is by design: a shell that is killed or crashes writes no
+  handoff, so a running stopwatch, countdown or snooze ends there; and a power
+  cycle clears the handoff, which is the whole point, because every instant in
+  it is measured on a clock that starts again at the boot. The snooze leg was
+  not run on the panel; it is covered on the host across a real `execv`.
 - **The shell does not log that an alert was shown.** `open app` and
   `close app` lines prove that an alert navigated nowhere, but whether an
   alarm sheet appeared at all can only be read off the panel.
