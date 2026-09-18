@@ -468,6 +468,11 @@ void fleet_screen_battle_relayout(struct fleet_app *app, int wide, int cell_w, i
     lv_obj_set_height(ui->target_panel, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
     lv_obj_set_flex_grow(ui->target_panel, 0);
     lv_obj_set_flex_grow(ui->waters_panel, 0);
+    /* The readout's slack goes to the log line, so the nudges come to rest at
+     * the foot of the panel whatever the text above them does: controls
+     * nearest FIRE, and in one place rather than wherever a wrapped line
+     * happens to leave them. */
+    lv_obj_set_flex_grow(ui->log, wide ? 1 : 0);
     /* Your own waters are only as wide as the board in them - the panel's
      * caption is out of the layout, so it does not widen it - and the readout
      * takes the rest, because it is the one holding a line of text. */

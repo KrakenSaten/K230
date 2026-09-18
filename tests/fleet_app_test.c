@@ -888,6 +888,25 @@ static void check_wide_battle(int want_cell)
               !lv_obj_has_flag(battle_steps(), LV_OBJ_FLAG_HIDDEN));
         check("they stand with the readout, next to the board",
               lv_obj_get_parent(battle_steps()) == battle_target_panel());
+        {
+            lv_area_t steps;
+            lv_area_t panel;
+            lv_area_t words;
+
+            box_of(battle_steps(), &steps);
+            box_of(battle_target_panel(), &panel);
+            box_of(battle_log(), &words);
+            /* At the foot of the panel, under everything that is read, and
+             * in the same place however much the text above them wraps. */
+            /* Right down on the panel's content edge, whatever padding the
+             * type size gives it. */
+            check("and at the foot of it, nearest FIRE",
+                  panel.y2 - steps.y2 <=
+                      lv_obj_get_style_pad_bottom(battle_target_panel(), LV_PART_MAIN) +
+                      2 * lv_obj_get_style_border_width(battle_target_panel(),
+                                                        LV_PART_MAIN));
+            check("below the last thing that is read", steps.y1 > words.y1);
+        }
     }
 
     check("the board is the largest thing on the screen",
