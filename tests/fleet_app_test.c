@@ -333,7 +333,25 @@ static lv_obj_t *deploy_confirm(void) { return kid(kid(deploy_side(), 1), 2); }
 
 static lv_obj_t *command_cols(void) { return kid(screen_of(FLEET_SCREEN_COMMAND), 0); }
 static lv_obj_t *command_col(int i) { return kid(command_cols(), i); }
-static lv_obj_t *command_deploy(void) { return kid(kid(screen_of(FLEET_SCREEN_COMMAND), 1), 0); }
+static lv_obj_t *command_foot(void) { return kid(screen_of(FLEET_SCREEN_COMMAND), 1); }
+static lv_obj_t *command_saved(void) { return kid(command_col(2), 1); }
+/* DEPLOY FLEET is the last thing on the foot row in both shapes; RESUME joins
+ * it there across the page and goes back in the panel down it. */
+static lv_obj_t *command_deploy(void)
+{
+    lv_obj_t *f = command_foot();
+
+    return kid(f, (int)lv_obj_get_child_count(f) - 1);
+}
+static lv_obj_t *command_resume(void)
+{
+    lv_obj_t *f = command_foot();
+
+    if (lv_obj_get_child_count(f) > 1) {
+        return kid(f, 0);
+    }
+    return kid(command_saved(), (int)lv_obj_get_child_count(command_saved()) - 1);
+}
 static lv_obj_t *command_segments(void) { return kid(kid(command_col(0), 0), KID_PANEL_FIRST); }
 
 static lv_obj_t *result_heading(void) { return kid(screen_of(FLEET_SCREEN_RESULT), 0); }
@@ -989,6 +1007,10 @@ int main(void)
         box_of(command_col(1), &c1);
         box_of(command_col(2), &c2);
         check("the three groups are stacked down the page", c1.y1 >= c0.y2 && c2.y1 >= c1.y2);
+        check("RESUME is inside the panel that describes the saved match",
+              lv_obj_get_parent(command_resume()) == command_saved());
+        check_int("and the foot row holds only DEPLOY FLEET",
+                  (int)lv_obj_get_child_count(command_foot()), 1);
         check("no column scrolls down the page",
               !lv_obj_has_flag(command_col(0), LV_OBJ_FLAG_SCROLLABLE) &&
               !lv_obj_has_flag(command_col(1), LV_OBJ_FLAG_SCROLLABLE) &&
@@ -1018,6 +1040,23 @@ int main(void)
         check("it is in the safe area", in_safe_area(command_deploy()));
         check("a column that cannot show everything scrolls",
               lv_obj_has_flag(command_col(1), LV_OBJ_FLAG_SCROLLABLE));
+        /* The other way to start an engagement must not be the thing that has
+         * been scrolled out of sight either. */
+        check_int("RESUME joins DEPLOY FLEET on the foot row",
+                  (int)lv_obj_get_child_count(command_foot()), 2);
+        check("with RESUME first", kid(command_foot(), 0) == command_resume());
+        {
+            lv_area_t r;
+            lv_area_t dd;
+
+            box_of(command_resume(), &r);
+            box_of(command_deploy(), &dd);
+            check("RESUME stands beside DEPLOY FLEET", r.x2 < dd.x1);
+            check("it keeps the touch minimum",
+                  lv_area_get_height(&r) >= POCKETUI_TOUCH_MIN);
+            check("and it is wholly in the body", inside_body(command_resume()));
+            check("and in the safe area", in_safe_area(command_resume()));
+        }
         check("nothing on the screen leaves the body",
               inside_body(screen_of(FLEET_SCREEN_COMMAND)));
     }

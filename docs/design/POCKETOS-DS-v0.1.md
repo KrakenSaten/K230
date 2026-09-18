@@ -1122,7 +1122,7 @@ verified hardware operation and nothing in this amendment asks for it.
 - App bodies are not re-laid out: fixed-width content stays at its portrait
   width and the body scrolls vertically. An app that needs a landscape layout
   gets one in its own amendment. Calculator: §22. Notes: §23. Settings: §24.
-  System: §25. Clock: §26. Calendar: §27.
+  System: §25. Clock: §26. Calendar: §27. Fleet: §28.
 
 ## 22. Amendment F — Calculator in landscape [ACCEPTED]
 
@@ -1781,6 +1781,159 @@ v0.0.9. On the unit a change of orientation restarts the shell in place
 so a picked day does not survive the turn - nothing is stored, by design.
 Neither is changed here.
 
+## 28. Amendment L — Fleet in landscape [PROPOSED]
+
+**PROPOSED 2026-09-18.** Host and simulator validation complete; unit A
+exercised remotely (`docs/hardware/FLEET_LANDSCAPE_GATE.md`). It rests on: the
+responsive-layout pattern of §22.3, §23.4, §24.4, §25.3, §26.4 and §27.4
+reused — the shape chosen from the body's size, the objects built once and
+shaped again when the body changes size, the corner clearance read from the
+platform; clean host validation (make test, every shell and UI test, Deploy,
+Battle and Result in portrait pixel-identical to v0.0.10 below the status bar,
+every cell of the board hit at its centre and its four corners at three board
+sizes, the layout mutations caught) and riscv64 and DRM builds; and the build
+installed on unit A with only the shell service restarted, healthy, playing a
+turn in portrait and in landscape with taps injected into the touch device.
+The seventh app given its own landscape layout under §21.3, after Calendar
+(§27); it is not a second layout system. Nothing in §1–§27 is renumbered, and
+nothing outside Fleet changes: not the shell, PocketUI, the rotation policy or
+any other app.
+
+**What this amendment asks the product owner to decide** is §28.2: a 34 px
+board cell, finer than the 48 px of Fleet's approved deviation D1, at which the
+interaction D1 rests on is unchanged. Everything else here follows the accepted
+pattern. The cell size is PROVISIONAL until he has had a thumb on it.
+
+### 28.1 Two shapes, chosen from the body
+
+- Fleet lays its four screens out in a frame that is exactly the body's content
+  box and shapes them from that box's size alone, never from the orientation:
+  **wide** when the box is wider than tall, when a labelled board fits it at no
+  finer than **32 px** a cell, and when what is left across it after the board
+  and a §7 gutter is at least **two 280 px columns** — a column that can hold a
+  64 px action and a wrapped line of text; **tall** otherwise. The shape is
+  chosen again whenever the box changes size, and only then.
+- The board is square and its side is what the box's height can hold: ten
+  cells, nine 2 px gaps and the 24 px gutter the A–J and 1–10 captions take. A
+  taller box does not grow the board past the tall shape's 48 px; it gives the
+  room to what is said about the board instead.
+- **Tall** (portrait: 528 x 1060) is the v0.0.10 layout unchanged: each screen
+  a single column, the boards at 48 px cells, the frame scrolling what does not
+  fit. **Wide** (landscape: 1192 x 386 once the foot has cleared the rounded
+  corners) puts the board at the left and everything said about it beside it.
+- The objects are built once. A change of shape turns boxes, moves sizes and
+  changes the boards' cell size; it creates and deletes nothing, so a match in
+  progress — the crosshair, the turn, both boards, the fleet as placed, and an
+  opponent's reply still being paced out — is untouched by it.
+- Whatever the shape, the frame pads its foot by however far the panel's
+  rounded corner squares reach into it, measured with the one platform rule
+  (§22.2, §23.4), never worked out in the app.
+
+### 28.2 The board across the page, and the cell it draws [PROVISIONAL]
+
+- A 386 px body holds a labelled board of **34 px cells** (382 x 382). That is
+  finer than the 48 px of deviation D1 (`docs/apps/POCKETFLEET.md`), which the
+  product owner approved for the portrait board, and it is what this amendment
+  asks him to rule on.
+- **The interaction D1 rests on does not change.** A tap on a cell moves the
+  crosshair and does nothing else: it commits nothing, it is visible at once in
+  the readout, and it is corrected by tapping again. FIRE is the only thing
+  that fires, it is the full §7 64 px, and it is armed only when the crosshair
+  is on a square that has not been fired at. On the deployment board a tap
+  places the selected ship, which is equally reversible; the irreversible
+  action there is CONFIRM DEPLOYMENT, again 64 px.
+- **The mapping is exact at any cell size.** One stored cell size drives the
+  drawing and the hit test alike, so a cell can never be drawn at one size and
+  hit at another; a point maps to exactly one cell; the 2 px gap after a cell
+  belongs to that cell; and the caption gutter and everything outside the board
+  aim at nothing at all. This is tested at 48, 35 and 34 px, at the centre and
+  at all four corners of all 100 cells.
+- Below 32 px a cell the wide shape is refused and the tall stack is kept whole
+  and scrolled, as the body did before this layout existed.
+
+### 28.3 What stands beside the board
+
+- **Battle.** The board at the left; next to it the column the player acts in —
+  the TARGET readout above, FIRE at its foot — and beyond that the column they
+  only glance at: YOUR WATERS, your own board at 26 px cells, and the line
+  reporting the exchange. Both columns take an equal share of what the board
+  leaves, and both panels fill their column's height.
+- **Deploy.** The board at the left, YOUR FLEET beside it, and the placement
+  controls beyond: TURN, AUTO and CLEAR across the top of that column, the
+  refusal line taking the slack, and CONFIRM DEPLOYMENT at its foot.
+- **Command.** The four panels in three columns — the choice, the fleet, the
+  terms — with a foot row under them carrying the ways on: RESUME, when there
+  is a match to resume, and DEPLOY FLEET, each a third of the body wide and at
+  the end of the row. A column that cannot show all of its panels scrolls
+  (§24.1, §25.1, §26.1); the ways on are never in a column, so neither can be
+  the thing that has been scrolled out of sight.
+- **Result.** The outcome over everything, the two accounts of it side by side
+  in halves, and the two ways on side by side under them.
+
+### 28.4 Consequences for portrait
+
+- Deploy, Battle and Result are pixel-identical to v0.0.10 below the status
+  bar, in Normal and in Outdoor, with 30 px and with square corners.
+- Command's stack starts **9 px lower**. A panel's caption straddles its top
+  border and so is drawn above the panel; the frame now clips at the body's
+  content box, where before the shell's body clipped at its own outer edge and
+  the caption of the first panel was drawn into the body's padding. The nine
+  pixels are that caption's rise, given to it inside the frame.
+- The foot of a scrolled stack stops **10 px higher**, which is the corner
+  clearance doing its work: where the last panel used to come to rest in the
+  bottom corner squares, it now clears them. While a stack is being scrolled,
+  content still passes through that band, as scrolled content does.
+- Nothing else in portrait moves, and no portrait cell, button or behaviour
+  changes.
+
+### 28.5 What Fleet adds to the pattern
+
+To §22.3, §23.4, §24.4, §25.3, §26.4 and §27.4, for the next app.
+
+- **A custom-drawn viewport should own its geometry and be resizable in
+  place.** Where a screen is built round one custom-drawn object, give that
+  object the smallest possible setter for its size and let the drawing and the
+  hit test read the one size it stores. Then a change of shape is a resize, not
+  a rebuild, and there is no way for the picture and the touch target to
+  disagree. Put the arithmetic that turns a size into that geometry in the
+  object's own module, so a layout asks it for a size rather than working one
+  out from the gutters and the gaps itself.
+- **A deviation follows its interaction, not its number.** Where a landscape
+  layout makes an already-deviating target smaller, say plainly what the
+  deviation rested on and show that it still holds. A number alone decides
+  nothing; the interaction — here, that a tap is reversible and a separate
+  64 px action commits — is what was approved.
+- **Test the whole target, not its centre.** A dense grid is worth hitting at
+  all four corners of every cell, in the gaps between cells, in the caption
+  gutter and just outside the board, at every size the layout can produce. That
+  is what turns "the mapping is right" from a claim into a test.
+- **A transparent container clips too.** LVGL clips a child to its parent's box
+  grown by the parent's own extra draw size, so a caption that straddles a
+  panel's top border is cut by every grouping box it is nested in, not only by
+  the one that paints. A box that paints nothing should say so; where something
+  must clip — the frame, or a column made to scroll — the layout gives the
+  caption its room instead.
+- **An action must not live in a column that scrolls.** Put the ways on a foot
+  row of their own. Moving one button between a panel and that row across a
+  change of shape is a move, not a rebuild, and is preferable to leaving the
+  button below a fold.
+- **Shared code.** Fleet needed the corner clearance and calls
+  `pos_display_rect_insets()` unchanged. The shapes, the boxes and the board's
+  resize are its own. No new platform helper is proposed here — but see the
+  note below.
+
+**Open, not decided here.** Whether 34 px cells are comfortable and reliable
+under a thumb, and whether the board-and-columns arrangement reads well, are
+the two things only the panel and a hand can answer; §28.2 is PROVISIONAL until
+they are. On the unit a change of orientation restarts the shell in place
+(§21.2) and comes back on the launcher, so Fleet is never open while the
+display turns; the match survives because it is stored after every resolved
+turn and offered again, which is verified on unit A, while the relayout under
+an open app stays host evidence. Seven apps now carry the same size-change
+guard and two now carry a custom-drawn viewport with a resize setter; whether
+either is worth a shared helper is worth asking once Radar has landed, and is
+not proposed here.
+
 ---
 
 PocketOS Design System v0.1 — **STATUS: APPROVED FOR IMPLEMENTATION**
@@ -1795,3 +1948,4 @@ Amendment H (§24) accepted 2026-09-17.
 Amendment I (§25) accepted 2026-09-17.
 Amendment J (§26) accepted 2026-09-17.
 Amendment K (§27) accepted 2026-09-17.
+Amendment L (§28) proposed 2026-09-18.

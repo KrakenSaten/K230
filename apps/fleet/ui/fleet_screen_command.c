@@ -29,6 +29,7 @@ struct fleet_command_ui {
     lv_obj_t *left;
     lv_obj_t *mid;
     lv_obj_t *right;
+    lv_obj_t *saved;
     lv_obj_t *foot;
     lv_obj_t *deploy;
 };
@@ -129,6 +130,7 @@ lv_obj_t *fleet_screen_command_create(struct fleet_app *app, lv_obj_t *parent)
     pocketui_kv_row(panel, "Hulls to sink", "17");
 
     panel = fleet_panel(ui->right, "SAVED ENGAGEMENT");
+    ui->saved = panel;
     ui->saved_state = pocketui_label(panel, "", POS_STYLE_TEXT_SECONDARY);
     lv_label_set_long_mode(ui->saved_state, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(ui->saved_state, LV_PCT(100));
@@ -138,7 +140,7 @@ lv_obj_t *fleet_screen_command_create(struct fleet_app *app, lv_obj_t *parent)
     return screen;
 }
 
-/* Three columns of panels with the one action under them. The roster is taller
+/* Three columns of panels with the ways on under them. The roster is taller
  * than a 386 px body whatever the split, so a column scrolls - which is what a
  * landscape column does elsewhere (DS §24.1, §25.1, §26.1). Three columns
  * rather than two is what leaves only the roster needing it. DEPLOY FLEET is
@@ -169,6 +171,21 @@ void fleet_screen_command_relayout(struct fleet_app *app, int wide)
     lv_obj_set_flex_align(ui->foot, wide ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_width(ui->deploy, wide ? LV_PCT(33) : LV_PCT(100));
+
+    /* RESUME is the other way to start an engagement, and across the page it
+     * belongs beside DEPLOY FLEET rather than at the end of a column that
+     * scrolls - a saved match is exactly when it is the button you want, and
+     * it must not be the thing below the fold. Down the page it goes back
+     * inside the panel that describes the saved match, where v0.0.10 has it.
+     * The button is moved, never rebuilt, so its handler and its hidden state
+     * come with it. */
+    if (lv_obj_get_parent(ui->resume) != (wide ? ui->foot : ui->saved)) {
+        lv_obj_set_parent(ui->resume, wide ? ui->foot : ui->saved);
+        if (wide) {
+            lv_obj_move_to_index(ui->resume, 0);
+        }
+    }
+    lv_obj_set_width(ui->resume, wide ? LV_PCT(33) : LV_PCT(100));
     /* cols takes the height the foot leaves; a column shows what it can of
      * its panels and scrolls the rest. */
     lv_obj_set_flex_grow(ui->cols, wide ? 1 : 0);

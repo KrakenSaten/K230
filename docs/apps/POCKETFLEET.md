@@ -3,7 +3,8 @@
 A tactical naval game for PocketOS: Battleship on the 568 x 1232 panel,
 local single player. Phase 1 only — no networking of any kind.
 
-Status: phases P1 to P10 complete on branch `pocketfleet-engine`. Not merged.
+Status: merged. Landscape (DS §28, PROPOSED) is on branch
+`feature/fleet-landscape`.
 
 ## Layers
 
@@ -41,6 +42,41 @@ decisions do not shift when the player uses auto-deploy. The save carries
 both streams and the AI's record, so a resumed match makes exactly the
 decisions it would have made.
 
+## Layout
+
+The four screens lay out in a frame that is exactly the body the shell gives
+the app, and take their shape from that box's size alone — never from the
+orientation, which `tests/fleet_lint.sh` enforces.
+
+```text
+TALL   portrait, 528 x 1060: the single column of v0.0.10, boards at 48 px
+       cells, the frame scrolling what does not fit.
+WIDE   landscape, 1192 x 386 once the foot clears the rounded corners: the
+       board at the left, as large as the height allows, and everything said
+       about it beside it.
+```
+
+The wide shape is taken when the box is wider than tall, a labelled board fits
+it at no finer than `FLEET_CELL_MIN` (32 px), and what is left across it holds
+two `FLEET_COL_MIN` (280 px) columns. `fleet_shape_is_wide()` and
+`fleet_cell_for_height()` are that rule and nothing else, so a test can ask it
+without building anything.
+
+The board's geometry lives in `fleet_grid.c`: `fleet_grid_span_for()` turns a
+cell size into the board's side and `fleet_grid_cell_for_span()` turns a side
+back into the largest cell that fits. `fleet_grid_set_cell()` resizes a board
+in place — one stored cell size drives the drawing and the tap conversion
+alike, so a cell can never be drawn at one size and hit at another.
+
+Objects are built once. A change of shape turns boxes, changes sizes and
+resizes the boards; it creates and deletes nothing, so a match in progress
+survives it untouched. On the unit that never happens — a change of
+orientation restarts the shell and comes back on the launcher — but the
+guarantee is what lets the same objects serve both shapes, and it is tested.
+
+What stands beside the board, per screen, and what portrait gives up for it
+(9 px on Command, 10 px at the foot of a scrolled stack): DS §28.
+
 ## Approved deviations
 
 ### D1 — dense grid touch target (approved by the product owner, 2026-09-05)
@@ -59,6 +95,13 @@ interaction is **aim-then-confirm**:
 The global 64 px rule is unchanged. On the Deploy screen a tap places the
 selected ship directly: placing is reversible, and the irreversible action
 there is CONFIRM DEPLOYMENT, which is again a 64 px button.
+
+**Landscape (DS §28.2, PROVISIONAL).** A 386 px body holds ten cells at
+**34 px**, finer than the 48 px above. Nothing the deviation rests on changes:
+a tap still only moves the crosshair, FIRE is still the only thing that
+commits and is still 64 px, and the mapping is exact at any cell size — tested
+at 48, 35 and 34 px at the centre and all four corners of all 100 cells. The
+number itself is PROVISIONAL until the product owner has had a thumb on it.
 
 ### D2 — app-owned save file (approved by the product owner, 2026-09-05)
 
@@ -208,4 +251,5 @@ POCKETFLEET_SCREEN=battle pocketos-shell --open fleet --theme ice --mode normal 
 | `tests/fleet_save_test` | codec round trips, impossible saves, resume equivalence, the file |
 | `tests/fleet_theme_test` | the colour contract above, five themes by three modes |
 | `tests/fleet_lint.sh` | the structural rules |
-| `tests/fleet_shell_test.sh` | persistence and pacing in the running shell |
+| `tests/fleet_shell_test.sh` | persistence and pacing in the running shell, and every screen rendered in landscape |
+| `tests/fleet_app_test` | the app under a real pointer device: the shape rule, all four screens in both shapes, every cell of the board hit at its centre and its four corners at three sizes, the gaps and the gutter, aim-then-confirm, and the display turned under a match in progress |
