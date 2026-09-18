@@ -176,8 +176,15 @@ lands. So the physical check is the two questions at the top of this sheet.
 
 Unit A: **portrait, Automatic, on the launcher**, theme carbon, Normal,
 brightness 100, Wi-Fi **off** exactly as found, 1 doors-shell, 0 crashloop,
-0 crash reports, `shell.log` 0 ERROR 0 WARN. Running build `052e549`, with the
-rollback copy at `/root/doors-shell.rollback`.
+0 crash reports, `shell.log` 0 ERROR 0 WARN, with the rollback copy at
+`/root/doors-shell.rollback` — the `99b2374` shell the unit was found with.
+
+This gate and the Radar one shared the unit in one overnight pass. Fleet was
+validated first, on `052e549`; the unit was then moved to the Radar branch's
+build and is left there (`docs/hardware/RADAR_LANDSCAPE_GATE.md`). To put
+Fleet's landscape back on the unit, build `feature/fleet-landscape` and
+install it the same way; to put the unit back as it was found, use the
+rollback copy.
 
 **Rollback**: stop `S90doors-shell`, copy `/root/doors-shell.rollback` over
 `/usr/bin/doors-shell`, start it again.
