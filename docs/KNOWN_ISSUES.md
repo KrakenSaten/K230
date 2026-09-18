@@ -88,12 +88,13 @@ chip-state dependent and dumps both transports' windows when it does.
 - Landscape is laid out for the status bar, the launcher and, each under its
   own accepted amendment, Calculator (DS §22), Notes (§23), Settings (§24),
   System (§25), Clock (§26) and Calendar (§27). The app bodies that have not
-  been given one keep their portrait-derived fixed widths - Fleet 522, Radar
-  520, Timber 528 - inside a 1232 px wide, 440 px high body and scroll
+  been given one keep their portrait-derived fixed widths - Radar 520,
+  Timber 528 - inside a 1232 px wide, 440 px high body and scroll
   vertically; Radio and Wave have no fixed width, so they stretch across the
   landscape body without being laid out for it. The touch keyboard stays
-  568 px wide at the bottom centre. Fleet and Radar are the two still to be
-  done; Timber stays portrait on purpose (the vertical tower is the game);
+  568 px wide at the bottom centre. Fleet has a landscape layout on
+  `feature/fleet-landscape` (DS §28, PROPOSED), so Radar is the one still to
+  be done; Timber stays portrait on purpose (the vertical tower is the game);
   Radio is not planned, because the app is expected to be replaced
   (docs/ROADMAP.md, "Landscape app adaptation").
 - The target lv_conf.h is the vendor package's, not ui/shell/lv_conf.defaults:
