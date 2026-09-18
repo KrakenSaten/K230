@@ -52,9 +52,26 @@ orientation, which `tests/fleet_lint.sh` enforces.
 TALL   portrait, 528 x 1060: the single column of v0.0.10, boards at 48 px
        cells, the frame scrolling what does not fit.
 WIDE   landscape, 1192 x 386 once the foot clears the rounded corners: the
-       board at the left, as large as the height allows, and everything said
-       about it beside it.
+       board at the left, as large as the height allows, the readout and your
+       own waters beside it, and FIRE across the foot of both.
 ```
+
+**Normal landscape Battle gameplay fits in one viewport and requires no
+scrolling.** That is the rule the wide Battle screen is derived from, not a
+property it happens to have: the board, the square aimed at, what firing would
+do, what the last exchange did, your own waters, your fleet's state and FIRE
+are all on the display at once, and nothing a turn needs is reached by
+scrolling. Where something would not fit, the layout gives - a smaller own
+board, a shorter panel - never a scrollbar. DS §28.6 states it;
+`tests/fleet_lint.sh` refuses a Battle screen that turns scrolling on or
+scrolls anything into view; and `tests/fleet_app_test.c` plays whole matches
+out across the page, measuring the screen after every turn, in Normal and
+Outdoor type and with both corner shapes.
+
+Deploy may scroll, and does: setting a fleet out is a workflow with an end and
+its roster wants the room. Portrait Battle scrolls too, as it has since
+v0.0.10 - 528 px of width cannot hold a 48 px board and everything said about
+it on one screen. Neither is what the rule is about.
 
 The wide shape is taken when the box is wider than tall, a labelled board fits
 it at no finer than `FLEET_CELL_MIN` (32 px), and what is left across it holds
@@ -97,7 +114,12 @@ selected ship directly: placing is reversible, and the irreversible action
 there is CONFIRM DEPLOYMENT, which is again a 64 px button.
 
 **Landscape (DS §28.2, PROVISIONAL).** A 386 px body holds ten cells at
-**34 px**, finer than the 48 px above. Nothing the deviation rests on changes:
+**34 px**, finer than the 48 px above, and 34 is the largest that fits rather
+than a figure chosen: the board is square, so its side is
+`24 + 10c + 9×2` and the body's height alone settles it at `c ≤ 34.4`. The
+width is not the constraint - 810 px of it are left over. DS §28.2 sets out
+the three ways of buying a larger cell and why each costs more than it
+returns. Nothing the deviation rests on changes:
 a tap still only moves the crosshair, FIRE is still the only thing that
 commits and is still 64 px, and the mapping is exact at any cell size — tested
 at 48, 35 and 34 px at the centre and all four corners of all 100 cells. The

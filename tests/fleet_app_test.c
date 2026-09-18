@@ -71,8 +71,13 @@
 #define WIDE_H (PANEL_W - BODY_CHROME_H)         /* 396 */
 #define WIDE_CELL 34                             /* 396 less the 10 px foot */
 #define RECT_CELL 35                             /* a panel with square corners */
-#define OWN_CELL_WIDE 26                         /* your own waters, across the page */
+#define OWN_CELL_ANY 20                          /* your own waters, either shape */
 #define SPAN_OF(cell) (FLEET_GRID_GUTTER + FLEET_GRID * (cell) + (FLEET_GRID - 1) * FLEET_GRID_GAP)
+
+/* Long enough for the opponent's paced reply to have been played and the log
+ * line rewritten with both halves of the exchange (fleet_screen_battle.c,
+ * REPLY_PACE_MS). */
+#define REPLY_SETTLE_MS 700
 
 /* A panel's child 0 is its caption (DS 2), so its content starts at 1. */
 #define KID_PANEL_FIRST 1
@@ -309,10 +314,19 @@ static lv_obj_t *screen_of(int s) { return kid(frame_of(), s); }
 
 static lv_obj_t *battle_board(void) { return kid(screen_of(FLEET_SCREEN_BATTLE), KID_BOARD); }
 static lv_obj_t *battle_side(void) { return kid(screen_of(FLEET_SCREEN_BATTLE), KID_SIDE); }
-static lv_obj_t *battle_act(void) { return kid(battle_side(), 0); }
-static lv_obj_t *battle_waters(void) { return kid(battle_side(), 1); }
+static lv_obj_t *battle_cols(void) { return kid(battle_side(), 0); }
+static lv_obj_t *battle_act(void) { return kid(battle_cols(), 0); }
+static lv_obj_t *battle_waters(void) { return kid(battle_cols(), 1); }
 static lv_obj_t *battle_target_panel(void) { return kid(battle_act(), 0); }
-static lv_obj_t *battle_fire(void) { return kid(battle_act(), 1); }
+/* FIRE is the last thing in the readout column down the page and the last
+ * thing in the whole region across it; the test looks where the layout says
+ * it should be rather than being told. */
+static lv_obj_t *battle_fire(void)
+{
+    lv_obj_t *o = kid(battle_act(), 1);
+
+    return o ? o : kid(battle_side(), 1);
+}
 static lv_obj_t *battle_waters_panel(void) { return kid(battle_waters(), 0); }
 static lv_obj_t *battle_own(void) { return kid(battle_waters_panel(), KID_PANEL_FIRST); }
 static lv_obj_t *battle_cell_value(void)
@@ -320,7 +334,14 @@ static lv_obj_t *battle_cell_value(void)
     return kid(kid(battle_target_panel(), KID_PANEL_FIRST), 0);
 }
 static lv_obj_t *battle_note(void) { return kid(battle_target_panel(), KID_PANEL_FIRST + 1); }
-static lv_obj_t *battle_log(void) { return kid(battle_waters_panel(), KID_PANEL_FIRST + 1); }
+/* The log line is under your own board down the page and under the readout
+ * across it. */
+static lv_obj_t *battle_log(void)
+{
+    lv_obj_t *o = kid(battle_waters_panel(), KID_PANEL_FIRST + 1);
+
+    return o ? o : kid(battle_target_panel(), KID_PANEL_FIRST + 2);
+}
 
 static lv_obj_t *deploy_board(void) { return kid(screen_of(FLEET_SCREEN_DEPLOY), KID_BOARD); }
 static lv_obj_t *deploy_side(void) { return kid(screen_of(FLEET_SCREEN_DEPLOY), KID_SIDE); }
@@ -557,17 +578,215 @@ static void check_frame(int32_t want_w, int32_t want_h, int32_t corner)
               lv_obj_get_style_pad_right(frame_of(), LV_PART_MAIN), 0);
 }
 
+/* The body the app was given, less what the rounded corners take: the box a
+ * normal turn has to fit inside without being scrolled. */
+static void turn_viewport(lv_area_t *out)
+{
+    lv_obj_update_layout(frame_of());
+    lv_obj_get_content_coords(frame_of(), out);
+}
+
+static int inside_viewport(lv_obj_t *obj)
+{
+    lv_area_t a;
+    lv_area_t v;
+
+    turn_viewport(&v);
+    box_of(obj, &a);
+    return a.x1 >= v.x1 && a.y1 >= v.y1 && a.x2 <= v.x2 && a.y2 <= v.y2;
+}
+
+/* Anything in this subtree that could be scrolled, and by how far. Walks the
+ * whole of it rather than the containers the test happens to know about, so a
+ * box added later is covered without the test being changed. A hidden screen
+ * is skipped: the frame holds all four of them and only the one on show can
+ * be scrolled by anybody.
+ *
+ * Scrolled up is not asked about. A panel's caption is drawn above the
+ * panel's top border on purpose (DS 2), which is content above the box by
+ * every measure LVGL has; what matters is that nothing is reached by
+ * scrolling down or across, and that nothing has been scrolled already. */
+static int32_t scrollable_by(lv_obj_t *obj, lv_obj_t **worst_obj)
+{
+    int32_t worst = 0;
+    uint32_t i;
+
+    if (!obj || lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) {
+        return 0;
+    }
+    if (lv_obj_get_scroll_bottom(obj) > worst) {
+        worst = lv_obj_get_scroll_bottom(obj);
+    }
+    if (lv_obj_get_scroll_right(obj) > worst) {
+        worst = lv_obj_get_scroll_right(obj);
+    }
+    if (lv_obj_get_scroll_left(obj) > worst) {
+        worst = lv_obj_get_scroll_left(obj);
+    }
+    if (worst > 0 && worst_obj) {
+        *worst_obj = obj;
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        lv_obj_t *from_child = NULL;
+        int32_t child = scrollable_by(lv_obj_get_child(obj, i), &from_child);
+
+        if (child > worst) {
+            worst = child;
+            if (worst_obj) {
+                *worst_obj = from_child;
+            }
+        }
+    }
+    return worst;
+}
+
+/* The first thing in this subtree that sticks out of the box a turn has to
+ * fit in, or NULL. Returned rather than counted, so a failure says which. */
+static lv_obj_t *outside_of(lv_obj_t *obj, const lv_area_t *v)
+{
+    lv_area_t a;
+    uint32_t i;
+
+    if (!obj || lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) {
+        return NULL;
+    }
+    box_of(obj, &a);
+    /* A panel's caption is drawn above its top border on purpose (DS 2); it
+     * is checked by caption_would_be_drawn() instead. */
+    if (!lv_obj_has_flag(obj, LV_OBJ_FLAG_IGNORE_LAYOUT) &&
+        (a.x1 < v->x1 || a.y1 < v->y1 || a.x2 > v->x2 || a.y2 > v->y2)) {
+        return obj;
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        lv_obj_t *bad = outside_of(lv_obj_get_child(obj, i), v);
+
+        if (bad) {
+            return bad;
+        }
+    }
+    return NULL;
+}
+
+/* Where an object is, for a failure message. */
+static void say_where(const char *what, lv_obj_t *obj)
+{
+    lv_area_t a;
+
+    box_of(obj, &a);
+    printf("     %s: x %d..%d y %d..%d\n", what, (int)a.x1, (int)a.x2,
+           (int)a.y1, (int)a.y2);
+}
+
+/*
+ * The one thing this screen promises above all others: a normal turn is on
+ * the display, whole, and no part of playing it is reached by scrolling
+ * (DS 28.6). Everything a turn needs is named here rather than left to a
+ * sweep, so that taking one of them off the screen fails the test instead of
+ * quietly passing it.
+ */
+static void check_battle_never_scrolls(const char *what)
+{
+    lv_area_t v;
+    lv_area_t f;
+    lv_obj_t *screen = screen_of(FLEET_SCREEN_BATTLE);
+    int row;
+    int col;
+    int cells_in = 1;
+
+    phase = what;
+    turn_viewport(&v);
+
+    {
+        lv_obj_t *bad = NULL;
+        int32_t by = scrollable_by(screen, &bad);
+
+        check_int("nothing on the Battle screen can be scrolled", (long)by, 0);
+        if (by) {
+            say_where("the scroller", bad);
+        }
+        bad = NULL;
+        by = scrollable_by(frame_of(), &bad);
+        check_int("nor the frame it is in", (long)by, 0);
+        if (by) {
+            say_where("the scroller", bad);
+        }
+        bad = NULL;
+        by = scrollable_by(app_body, &bad);
+        check_int("nor the body the shell gave the app", (long)by, 0);
+        if (by) {
+            say_where("the scroller", bad);
+        }
+    }
+    check("the Battle screen is not itself a scroller",
+          !lv_obj_has_flag(screen, LV_OBJ_FLAG_SCROLLABLE));
+    check_int("and nothing has been scrolled to see it",
+              (long)(lv_obj_get_scroll_y(app_body) + lv_obj_get_scroll_x(app_body) +
+                     lv_obj_get_scroll_y(frame_of()) + lv_obj_get_scroll_x(frame_of())), 0);
+
+    check("the whole target board is in view", inside_viewport(battle_board()));
+    check("FIRE is in view", inside_viewport(battle_fire()));
+    check("the readout is in view", inside_viewport(battle_target_panel()));
+    check("what is aimed at is in view", inside_viewport(battle_cell_value()));
+    check("what the shot would do is in view", inside_viewport(battle_note()));
+    check("what the last exchange did is in view", inside_viewport(battle_log()));
+    check("your own waters are in view", inside_viewport(battle_waters_panel()));
+    check("your own board is in view", inside_viewport(battle_own()));
+
+    /* Every square of the board, not just the board's box: a board that fits
+     * but whose last row is drawn past its own edge would pass the check
+     * above and still cost the player the row. */
+    for (row = 0; row < FLEET_GRID; row++) {
+        for (col = 0; col < FLEET_GRID; col++) {
+            lv_area_t c;
+
+            cell_box(battle_board(), 1, row, col, &c);
+            if (c.x1 < v.x1 || c.y1 < v.y1 || c.x2 > v.x2 || c.y2 > v.y2) {
+                cells_in = 0;
+            }
+        }
+    }
+    check("every square of the board is in view", cells_in);
+    {
+        lv_obj_t *bad = outside_of(screen, &v);
+
+        check("and nothing else on the screen is out of it", bad == NULL);
+        if (bad) {
+            printf("     the turn has x %d..%d y %d..%d\n", (int)v.x1, (int)v.x2,
+                   (int)v.y1, (int)v.y2);
+            say_where("the stray object", bad);
+            say_where("its parent", lv_obj_get_parent(bad));
+        }
+    }
+    box_of(battle_fire(), &f);
+    check("FIRE is still a finger's size", lv_area_get_height(&f) >= POCKETUI_TOUCH_MIN);
+
+    /* Whose turn it is, and what state the game is in, is the one thing a turn
+     * needs that is not on this screen: it is in the status bar, which is
+     * above the body and cannot be scrolled at all. The app is held to
+     * keeping it current, because that is what makes it readable. */
+    check("the status bar carries the difficulty and the turn",
+          strstr(g_hint, "TURN") != NULL || strstr(g_hint, "COMPLETE") != NULL);
+}
+
+/*
+ * Across the page the screen is the board, the readout and your own waters
+ * beside it, and FIRE across the foot of both.
+ */
 static void check_wide_battle(int want_cell)
 {
     lv_area_t board;
     lv_area_t act;
     lv_area_t waters;
     lv_area_t fire;
+    lv_area_t side;
+    lv_area_t view;
 
     box_of(battle_board(), &board);
     box_of(battle_act(), &act);
     box_of(battle_waters(), &waters);
     box_of(battle_fire(), &fire);
+    box_of(battle_side(), &side);
+    turn_viewport(&view);
 
     check_int("the board is square", lv_area_get_width(&board), lv_area_get_height(&board));
     check_int("and as large as the body allows", lv_area_get_width(&board),
@@ -575,16 +794,68 @@ static void check_wide_battle(int want_cell)
     check_int("its cells are the wide cell", fleet_grid_cell(battle_board()), want_cell);
     check("the readout stands beside the board, not under it", act.x1 > board.x2);
     check("your own waters stand beyond the readout", waters.x1 > act.x2);
-    check_int("the two columns are the same width",
-              lv_area_get_width(&act), lv_area_get_width(&waters));
-    check("FIRE is at the foot of the column next to the board",
-          fire.x1 >= act.x1 && fire.x2 <= act.x2 && fire.y2 >= act.y2 - 1);
-    check("FIRE keeps the touch minimum", lv_area_get_height(&fire) >= POCKETUI_TOUCH_MIN);
-    check("and is wider than it is tall", lv_area_get_width(&fire) > lv_area_get_height(&fire));
-    check_int("your own board takes the room its column has", fleet_grid_cell(battle_own()),
-              OWN_CELL_WIDE);
-    check("and is still the lesser of the two",
+
+    /* The order the turn is played in is the order across the page, and the
+     * weight is in that order too. The board is the largest thing on the
+     * screen - by area, which is what a square board is measured in, not by
+     * width, which the readout has more of because it holds lines of text -
+     * and your own waters are the smallest of the three. */
+    check("the board is the largest thing on the screen",
+          lv_area_get_width(&board) * lv_area_get_height(&board) >
+              lv_area_get_width(&act) * lv_area_get_height(&act));
+    check("and larger than your own waters several times over",
+          lv_area_get_width(&board) * lv_area_get_height(&board) >
+              2 * lv_area_get_width(&waters) * lv_area_get_height(&waters));
+    check("your own waters are the narrowest column",
+          lv_area_get_width(&waters) < lv_area_get_width(&act));
+    check("your own board is smaller than the target board",
           fleet_grid_cell(battle_own()) < fleet_grid_cell(battle_board()));
+    check_int("your own board is the same 20 px it is down the page",
+              fleet_grid_cell(battle_own()), OWN_CELL_ANY);
+
+    /* Neither panel is stretched to the foot of the screen: a panel that ends
+     * where its neighbour ends reads as finished, and one that ends at the
+     * edge of the body reads as cut off. The panels themselves are what is
+     * measured, not the columns holding them - a column can be the right
+     * height with the panel in it half as tall. */
+    {
+        lv_area_t readout;
+        lv_area_t own;
+
+        box_of(battle_target_panel(), &readout);
+        box_of(battle_waters_panel(), &own);
+        check_int("the two panels start on the same line", readout.y1, own.y1);
+        check_int("and close on the same line", readout.y2, own.y2);
+        check("well above the foot of the body",
+              readout.y2 < view.y2 - POCKETUI_TOUCH_MIN);
+    }
+    check_int("their columns end together too", act.y2, waters.y2);
+
+    check("FIRE spans the whole region beside the board",
+          fire.x1 == side.x1 && fire.x2 == side.x2);
+    check("so it is wider than either panel", lv_area_get_width(&fire) >
+          lv_area_get_width(&act));
+    check("it is at the foot, under both panels", fire.y1 > act.y2 && fire.y1 > waters.y2);
+    check_int("and its foot is the foot of the body", fire.y2, view.y2);
+    check("FIRE keeps the touch minimum", lv_area_get_height(&fire) >= POCKETUI_TOUCH_MIN);
+    check("and is a larger target than the one down the page",
+          lv_area_get_width(&fire) * lv_area_get_height(&fire) >
+              TALL_W * POCKETUI_TOUCH_MIN);
+    check("and is wider than it is tall", lv_area_get_width(&fire) > lv_area_get_height(&fire));
+
+    /* The log reports the exchange just played, so across the page it is with
+     * the readout, where a line of text has room. */
+    check("the last exchange is read beside the board, with the readout",
+          lv_obj_get_parent(battle_log()) == battle_target_panel());
+    check("and FIRE has left the readout column for the whole region",
+          lv_obj_get_parent(battle_fire()) == battle_side());
+
+    /* Down the page the frame is what scrolls the stack; across it there is
+     * nothing to scroll, and the frame says so rather than being a scroller
+     * that happens to have nothing under the fold. */
+    check("across the page the frame is not a scroller",
+          !lv_obj_has_flag(frame_of(), LV_OBJ_FLAG_SCROLLABLE));
+
     check("nothing on the screen leaves the body", inside_body(screen_of(FLEET_SCREEN_BATTLE)));
     check("the board is in the safe area", in_safe_area(battle_board()));
     check("FIRE is in the safe area", in_safe_area(battle_fire()));
@@ -619,7 +890,12 @@ static void check_tall_battle(void)
     check("the readout is under the board", act.y1 > board.y2);
     check("your own waters are under the readout", waters.y1 > act.y2);
     check_int("FIRE is full width", lv_area_get_width(&fire), TALL_W);
-    check("FIRE keeps the touch minimum", lv_area_get_height(&fire) >= POCKETUI_TOUCH_MIN);
+    check_int("and the 64 px it has always been", lv_area_get_height(&fire),
+              POCKETUI_TOUCH_MIN);
+    check("FIRE is back at the foot of the readout column",
+          lv_obj_get_parent(battle_fire()) == battle_act());
+    check("and the log back under your own board",
+          lv_obj_get_parent(battle_log()) == battle_waters_panel());
     check("the TARGET caption is drawn, not cut", caption_would_be_drawn(battle_target_panel()));
     check("and so is YOUR WATERS", caption_would_be_drawn(battle_waters_panel()));
 }
@@ -912,6 +1188,84 @@ static void test_relayout_keeps_the_match(int32_t corner)
 
 /* Every roster row selects its own ship - the last one included. The proof is
  * behavioural: choose a ship, put it on the board, see which ship moved. */
+/* Defined with the other harness helpers, below. */
+static void with_screen(const char *screen);
+
+/*
+ * The invariant, held through a whole match rather than at the moment the
+ * screen is built: every turn of a game played across the page leaves the
+ * screen whole. The log line and the note under the readout are the two
+ * things on this screen whose height depends on what they say, so a match is
+ * played out - sinkings reported on both sides and all - and the screen is
+ * measured after every single turn.
+ */
+static void test_no_scroll_through_a_match(const char *mode, int32_t corner)
+{
+    char what[64];
+    int turn;
+    int worst = 0;
+    int row;
+    int col;
+
+    snprintf(what, sizeof(what), "a match across the page, %s", mode);
+    use_mode(mode);
+    use_display(POS_ROTATION_270, corner);
+    with_screen("battle");
+    app_start();
+    pump(120);
+
+    check_battle_never_scrolls(what);
+    phase = what;
+
+    for (turn = 0, row = 0; row < FLEET_GRID; row++) {
+        for (col = 0; col < FLEET_GRID; col++) {
+            lv_area_t c;
+            lv_area_t v;
+            lv_area_t log;
+            lv_obj_t *bad;
+
+            if (app->current != FLEET_SCREEN_BATTLE) {
+                break;
+            }
+            cell_box(battle_board(), 1, row, col, &c);
+            tap_at(c.x1 + 2, c.y1 + 2);
+            tap_obj(battle_fire());
+            /* Past the paced reply, so the turn is complete and the log line
+             * carries both halves of the exchange. */
+            pump(REPLY_SETTLE_MS);
+            if (app->current != FLEET_SCREEN_BATTLE) {
+                break;
+            }
+            turn++;
+            box_of(battle_log(), &log);
+            if (lv_area_get_height(&log) > worst) {
+                worst = lv_area_get_height(&log);
+            }
+            turn_viewport(&v);
+            bad = outside_of(screen_of(FLEET_SCREEN_BATTLE), &v);
+            if (scrollable_by(app_body, NULL) != 0 || bad) {
+                /* The turn it first went wrong on, rather than every turn
+                 * after it. */
+                check("no turn of the match needed the screen scrolled", 0);
+                printf("     first at turn %d, the log line %d px tall\n", turn,
+                       (int)lv_area_get_height(&log));
+                if (bad) {
+                    say_where("the stray object", bad);
+                    say_where("its parent", lv_obj_get_parent(bad));
+                }
+                row = FLEET_GRID;
+                break;
+            }
+        }
+    }
+    check("a whole match was played across the page", turn > 20);
+    check("with the exchange reported every turn", worst > 0);
+    check_battle_never_scrolls(what);
+    app_stop();
+    with_screen(NULL);
+    use_mode("normal");
+}
+
 static void test_roster(const char *what)
 {
     int wrong = 0;
@@ -1268,6 +1622,8 @@ int main(void)
     use_display(POS_ROTATION_270, PANEL_CORNER);
     phase = "battle, wide";
     check_wide_battle(WIDE_CELL);
+    check_battle_never_scrolls("battle, wide, whole on the screen");
+    phase = "battle, wide";
     check_singletons();
     check_own_board_is_not_a_target();
     test_board_taps("battle taps, 34 px");
@@ -1291,6 +1647,28 @@ int main(void)
         check_same_match("and fires nothing", &before);
         check_str("the readout names the square", text_of(battle_cell_value()), "G7");
         check_str("and says it is ready", text_of(battle_note()), "Ready to fire.");
+
+        /* Only the board and FIRE take a tap. The readout, your own waters and
+         * the gutter between the board and them are looked at, not pressed,
+         * and none of them may quietly be a target of its own: a hitbox that
+         * is not drawn is a hitbox nobody can avoid. */
+        {
+            lv_area_t board;
+            lv_area_t readout;
+            lv_area_t own;
+
+            box_of(battle_board(), &board);
+            box_of(battle_target_panel(), &readout);
+            box_of(battle_waters_panel(), &own);
+            tap_at((readout.x1 + readout.x2) / 2, (readout.y1 + readout.y2) / 2);
+            tap_at((own.x1 + own.x2) / 2, (own.y1 + own.y2) / 2);
+            tap_at((board.x2 + readout.x1) / 2, (board.y1 + board.y2) / 2);
+            pump(120);
+            check_same_match("a tap on the readout, your waters or the gutter "
+                             "fires nothing", &before);
+            check_str("and leaves the crosshair where it was",
+                      text_of(battle_cell_value()), "G7");
+        }
     }
 
     phase = "fire, wide";
@@ -1351,6 +1729,8 @@ int main(void)
     phase = "battle, wide, square corners";
     check_frame(WIDE_W, WIDE_H, 0);
     check_wide_battle(RECT_CELL);
+    check_battle_never_scrolls("battle, wide, square corners, whole on the screen");
+    phase = "battle, wide, square corners";
     test_board_taps("battle taps, 35 px");
     app_stop();
 
@@ -1366,6 +1746,9 @@ int main(void)
         box_of(battle_board(), &after);
         check("Outdoor does not move the board", memcmp(&before, &after, sizeof(after)) == 0);
         check_int("nor change its cells", fleet_grid_cell(battle_board()), WIDE_CELL);
+        check_wide_battle(WIDE_CELL);
+        check_battle_never_scrolls("battle, wide, outdoor, whole on the screen");
+        phase = "battle, wide, outdoor";
         use_mode("normal");
     }
 
@@ -1501,6 +1884,18 @@ int main(void)
     check_one_screen(FLEET_SCREEN_DEPLOY);
     check_int("NEW ENGAGEMENT starts a fresh match", app->game.turn, 0);
     app_stop();
+
+    /* ---- 6b. the no-scroll invariant, held through whole matches ------ *
+     *
+     * The screen is measured after every turn of a game played out across the
+     * page, in both type sizes and with the unit's corners and with square
+     * ones. This is the check the landscape Battle screen exists to pass.
+     */
+
+    test_no_scroll_through_a_match("normal", PANEL_CORNER);
+    test_no_scroll_through_a_match("outdoor", PANEL_CORNER);
+    test_no_scroll_through_a_match("normal", 0);
+    test_no_scroll_through_a_match("outdoor", 0);
 
     /* ---- 7. the save is the same file, whatever the shape -------------- */
 

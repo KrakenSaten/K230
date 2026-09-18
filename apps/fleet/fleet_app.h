@@ -107,7 +107,8 @@ lv_obj_t *fleet_app_box(lv_obj_t *parent);
 void fleet_app_box_split(lv_obj_t *box, int wide);
 /* One column of a splitter: always down the page, full width and as high as
  * its content in the tall shape, an equal share of the row and the full
- * height in the wide one. */
+ * height in the wide one. A caller wanting a column sized to what it holds
+ * rather than to its share says so afterwards, as Battle does. */
 void fleet_app_box_column(lv_obj_t *box, int wide);
 /* The same for a screen container. across says whether the wide shape turns
  * the screen itself across the page - which the two screens built round a

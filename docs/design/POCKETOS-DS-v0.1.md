@@ -1799,6 +1799,13 @@ The seventh app given its own landscape layout under §21.3, after Calendar
 nothing outside Fleet changes: not the shell, PocketUI, the rotation policy or
 any other app.
 
+**The rule this amendment is built round** is §28.6: *normal landscape Battle
+gameplay fits in one viewport and requires no scrolling.* That is not a
+consequence of the layout — it is the constraint the layout is derived from, it
+is what the body's scarce height is spent on in §28.3, and it is held by a test
+that plays whole matches out across the page and measures the screen after
+every turn, in both type sizes and with both corner shapes.
+
 **What this amendment asks the product owner to decide** is §28.2: a 34 px
 board cell, finer than the 48 px of Fleet's approved deviation D1, at which the
 interaction D1 rests on is unchanged. Everything else here follows the accepted
@@ -1835,6 +1842,24 @@ pattern. The cell size is PROVISIONAL until he has had a thumb on it.
   finer than the 48 px of deviation D1 (`docs/apps/POCKETFLEET.md`), which the
   product owner approved for the portrait board, and it is what this amendment
   asks him to rule on.
+- **34 px is the ceiling, not a budget.** The board is square and ten cells
+  across, so its side is `24 + 10c + 9×2` and the body's 386 px of height is
+  the only thing that limits it: `c ≤ (386 − 42) / 10 = 34.4`. Nothing else on
+  the screen competes for it — the wide shape has 810 px of width left over
+  once the board has its 382 — so a larger cell can only come from taking those
+  42 px back, and each of the three ways of doing that costs more than it
+  returns:
+  - **the 24 px caption gutter** would buy 36 px cells, and would cost the
+    A–J and 1–10 labels that the readout's "F6" is read against. Half a
+    coordinate system is worse than none;
+  - **a 16 px gutter** would buy 35 px, and would change the one piece of
+    arithmetic that the drawing and the hit test share (§28.5) for a 3 % gain;
+  - **the 10 px foot clearance** would buy 35 px, and would mean holding the
+    board clear of the bottom corner squares sideways, which §22.2 forbids for
+    exactly the reason it gives: a box shifted to dodge a corner no longer
+    lines up with what is above and below it.
+  With square corners the body is 396 px and the board draws 35 px cells, which
+  is where that second figure in the tests comes from.
 - **The interaction D1 rests on does not change.** A tap on a cell moves the
   crosshair and does nothing else: it commits nothing, it is visible at once in
   the readout, and it is corrected by tapping again. FIRE is the only thing
@@ -1853,11 +1878,27 @@ pattern. The cell size is PROVISIONAL until he has had a thumb on it.
 
 ### 28.3 What stands beside the board
 
-- **Battle.** The board at the left; next to it the column the player acts in —
-  the TARGET readout above, FIRE at its foot — and beyond that the column they
-  only glance at: YOUR WATERS, your own board at 26 px cells, and the line
-  reporting the exchange. Both columns take an equal share of what the board
-  leaves, and both panels fill their column's height.
+- **Battle.** The board at the left, taking the body's whole height. Beside it,
+  in the order a turn is played: **TARGET**, the readout — the square aimed at,
+  the enemy fleet, what firing would do, and what the last exchange did — then
+  **YOUR WATERS**, your own board at the same 20 px cells it has down the page,
+  and then **FIRE across the foot of both of them**, 790 x 95, its foot level
+  with the board's.
+  - The two panels are each **exactly as tall as what they hold**, and are
+    given the same height as each other so that they close on the same line.
+    Your own board is the taller content and sets that height; the readout,
+    which has the fewer pixels of content and the more words, takes the width.
+  - **Nothing is stretched to the foot of the body.** A panel that ends where
+    its neighbour ends reads as a panel; one that ends at the edge of the body
+    reads as a view that has been cut off, whether or not it can be scrolled.
+    The room the panels leave is spent on FIRE rather than left as a gap.
+  - The board is the largest object on the screen by area and your own waters
+    the smallest of the three; the readout is the widest because it is the only
+    one holding lines of text. Weight follows priority, not symmetry.
+  - Two objects move between the shapes rather than being built twice: FIRE,
+    which is at the foot of the readout column down the page and across the
+    whole region over here; and the log line, which reports the exchange just
+    played and so belongs beside the readout, where there is room for it.
 - **Deploy.** The board at the left, YOUR FLEET beside it, and the placement
   controls beyond: TURN, AUTO and CLEAR across the top of that column, the
   refusal line taking the slack, and CONFIRM DEPLOYMENT at its foot.
@@ -1873,7 +1914,10 @@ pattern. The cell size is PROVISIONAL until he has had a thumb on it.
 ### 28.4 Consequences for portrait
 
 - Deploy, Battle and Result are pixel-identical to v0.0.10 below the status
-  bar, in Normal and in Outdoor, with 30 px and with square corners.
+  bar, in Normal and in Outdoor, with 30 px and with square corners — with one
+  measured exception: in **Outdoor**, Battle's bottom panel border comes to
+  rest **6 px higher**, which is the foot clearance below doing its work, seen
+  at the one type size where the stack happens to end within those rows.
 - Command's stack starts **9 px lower**. A panel's caption straddles its top
   border and so is drawn above the panel; the frame now clips at the body's
   content box, where before the shell's body clipped at its own outer edge and
@@ -1884,7 +1928,9 @@ pattern. The cell size is PROVISIONAL until he has had a thumb on it.
   bottom corner squares, it now clears them. While a stack is being scrolled,
   content still passes through that band, as scrolled content does.
 - Nothing else in portrait moves, and no portrait cell, button or behaviour
-  changes.
+  changes. Portrait Battle still scrolls, as it has since v0.0.10: 528 px of
+  width cannot hold a 48 px board and everything said about it on one screen,
+  and the tall shape is the one deviation D1 was approved for.
 
 ### 28.5 What Fleet adds to the pattern
 
@@ -1917,15 +1963,61 @@ To §22.3, §23.4, §24.4, §25.3, §26.4 and §27.4, for the next app.
   row of their own. Moving one button between a panel and that row across a
   change of shape is a move, not a rebuild, and is preferable to leaving the
   button below a fold.
+- **A panel stretched to the edge of the body reads as a view that has been cut
+  off.** Filling a column with a panel is the obvious thing to do with room
+  left over, and it is the wrong thing: the eye takes a border that coincides
+  with the edge of the body as the edge of a viewport, and the screen reads as
+  though it continues past it. Size a panel to what it holds, line its foot up
+  with its neighbour's, and spend what is left on the action instead. See
+  §28.6.
 - **Shared code.** Fleet needed the corner clearance and calls
   `pos_display_rect_insets()` unchanged. The shapes, the boxes and the board's
   resize are its own. No new platform helper is proposed here — but see the
   note below.
 
+### 28.6 Normal landscape Battle gameplay fits in one viewport and requires no scrolling
+
+This is the rule. It is written as a sentence because it is a promise to the
+player, not a property of one arrangement of boxes.
+
+- **What "normal gameplay" means here**, exactly: seeing the whole target
+  board, every square of it; seeing the square currently aimed at and what
+  firing on it would do; seeing what the last exchange did; seeing your own
+  waters and how much of your fleet is left; knowing whose turn it is and what
+  state the game is in; and reaching FIRE. None of these may require the player
+  to change a scroll offset, in either direction. Whose turn it is is the one
+  of those that is not on the screen at all: it is in the status bar, above the
+  body and unscrollable by construction (§9), and the test holds the app to
+  keeping it current for exactly that reason.
+- **The screen is laid out to fit, not scrolled to fit.** Across the page the
+  Battle root is not a scroller, nothing under it is a scroller, and nothing it
+  holds has been scrolled. Where content would not fit, the layout is what
+  gives — a smaller own board, a shorter panel — never a scrollbar.
+  `tests/fleet_lint.sh` refuses a Battle screen that turns scrolling on or
+  scrolls anything into view.
+- **It is held through whole matches, not at the moment of building.** The two
+  things on this screen whose height depends on what they say — the note under
+  the readout and the line reporting the exchange — only grow once a game is
+  under way, which is exactly when the player cannot afford a fold.
+  `tests/fleet_app_test.c` plays a match out across the page and, after every
+  single turn, checks that nothing can be scrolled, that nothing has been
+  scrolled, and that no object on the screen lies outside the body: four times
+  over, in Normal and in Outdoor type, with the unit's corners and with square
+  ones.
+- **Deploy may scroll; Battle may not.** Setting a fleet out is a workflow with
+  an end, done once, and its roster genuinely wants the room. A turn of Battle
+  is the thing the game is, taken sixty times a match.
+- **For the next app.** Where a screen is a loop the player repeats, fitting it
+  on the display is a requirement to derive the layout from, not a result to
+  check afterwards — and it is worth a named test and a lint rule, because
+  nothing else stops the fold coming back the next time something is added.
+
 **Open, not decided here.** Whether 34 px cells are comfortable and reliable
-under a thumb, and whether the board-and-columns arrangement reads well, are
-the two things only the panel and a hand can answer; §28.2 is PROVISIONAL until
-they are. On the unit a change of orientation restarts the shell in place
+under a thumb, and whether the whole no-scroll Battle screen reads naturally at
+a glance, are the two things only the panel and a hand can answer; §28.2 is
+PROVISIONAL until they are. §28.6 is not one of them: that a turn fits and is
+never scrolled is measured, on the host after every turn of four played-out
+matches and on unit A by drags that move nothing. On the unit a change of orientation restarts the shell in place
 (§21.2) and comes back on the launcher, so Fleet is never open while the
 display turns; the match survives because it is stored after every resolved
 turn and offered again, which is verified on unit A, while the relayout under

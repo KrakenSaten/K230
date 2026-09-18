@@ -8,7 +8,9 @@
 #      corner clearance is taken from the one platform rule rather than worked
 #      out here (DS 21.3, 22.2, 28.1);
 #   5. the boards' geometry has one source, so what is drawn and what is hit
-#      can never disagree.
+#      can never disagree;
+#   6. a normal turn of Battle is on the display, whole, and nothing it needs
+#      is reached by scrolling (DS 28.6).
 # Fails the build when any of them is broken.
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -55,6 +57,26 @@ want "a repeated layout pass is refused" "apps/fleet/fleet_app.c"      'memcmp\(
 check "only the grid works in cells" "$UI"       'FLEET_GRID_GAP|FLEET_GRID_GUTTER'
 want "the span has one definition" "apps/fleet/ui/fleet_grid.c"      'int fleet_grid_span_for'
 want "and the hit test reads the size the drawing uses" "apps/fleet/ui/fleet_grid.c"      'g->cell \+ FLEET_GRID_GAP'
+
+# 6. A normal turn of Battle is on the display, whole, and no part of playing
+#    it is reached by scrolling (DS 28.6). The screen may not make itself a
+#    scroller and may not scroll anything into view: something that does not
+#    fit has to be laid out, not scrolled. The test that holds the screen to
+#    this has to still be there, and still cover both type sizes and both
+#    corner shapes.
+BATTLE=apps/fleet/ui/fleet_screen_battle.c
+check "Battle never turns scrolling on" "$BATTLE" 'lv_obj_add_flag\([^;]*LV_OBJ_FLAG_SCROLLABLE'
+check "nor scrolls anything into view" "$BATTLE" 'lv_obj_scroll_to|lv_obj_set_scroll_dir|lv_obj_scroll_by'
+want "the frame scrolls only in the tall shape" "apps/fleet/fleet_app.c" \
+     'lv_obj_remove_flag\(app->frame, LV_OBJ_FLAG_SCROLLABLE\)'
+want "a turn is held to fitting on the display" tests/fleet_app_test.c \
+     'static void check_battle_never_scrolls'
+want "through a whole match played across the page" tests/fleet_app_test.c \
+     'test_no_scroll_through_a_match\("normal", PANEL_CORNER\)'
+want "in Outdoor type as well" tests/fleet_app_test.c \
+     'test_no_scroll_through_a_match\("outdoor", PANEL_CORNER\)'
+want "and on a panel with square corners" tests/fleet_app_test.c \
+     'test_no_scroll_through_a_match\("(normal|outdoor)", 0\)'
 
 echo "fleet_lint: $failed failure(s)"
 exit $((failed > 0))

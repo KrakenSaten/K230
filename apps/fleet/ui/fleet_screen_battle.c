@@ -1,6 +1,14 @@
 /*
  * PocketFleet Battle screen: the target grid, the turn loop and your waters.
  *
+ * A whole normal turn is on the screen at once and nothing a turn needs is
+ * ever reached by scrolling - in either shape, at any type size, with any
+ * corner (DS 28.6). Across the page that is a deliberate arrangement rather
+ * than a happy fit: the board takes the height, which is the scarce
+ * dimension, and what is left over is spent in the order the turn is played -
+ * what you are aiming at, then the button that commits it, then a glance at
+ * your own waters.
+ *
  * Aim-then-confirm (approved deviation for dense grids): a tap on the target
  * grid only moves the crosshair, which is harmless and correctable. The shot
  * is committed by the 64 px FIRE button and nothing else. That is true at
@@ -23,12 +31,12 @@
 #include <stdlib.h>
 
 /* Your own waters are read, never aimed at, so the board is small and its
- * size is fixed rather than derived: 20 px under a 528 px column, and 26 px
- * across the page, where the column beside the target board has the room and
- * the same picture is easier to take in at a glance. Still visibly the lesser
- * of the two boards, which is the point. */
+ * size is fixed rather than derived: 20 px in both shapes. Across the page it
+ * was briefly larger, which made the panel holding it as tall as the target
+ * board and the screen read as two boards of equal standing. It is the lesser
+ * of the two by a long way - 218 px against 382 - and it is the last thing
+ * the turn needs, so it is the one that gives up room. */
 #define OWN_CELL 20
-#define OWN_CELL_WIDE 26
 #define PIP_H 14
 #define PIP_UNIT 7
 #define PIP_GAP 6
@@ -46,9 +54,16 @@ struct fleet_battle_ui {
     lv_obj_t *note;
     lv_obj_t *log;
     /* Everything beside the board in the wide shape, stacked under it in the
-     * tall one. side holds the two columns; act carries the readout and FIRE,
-     * waters carries your own board and the log. */
+     * tall one. side holds all of it; cols holds the two columns; act carries
+     * the readout, waters your own board.
+     *
+     * Two things move between shapes rather than being built twice, the way
+     * Command moves RESUME: FIRE, which is at the foot of the readout column
+     * down the page and spans the whole region across it; and the log line,
+     * which reports the exchange just played and so belongs with the readout
+     * across the page, where the room for it is. */
     lv_obj_t *side;
+    lv_obj_t *cols;
     lv_obj_t *act;
     lv_obj_t *waters;
     lv_obj_t *target_panel;
@@ -231,13 +246,14 @@ lv_obj_t *fleet_screen_battle_create(struct fleet_app *app, lv_obj_t *parent)
     fleet_grid_bind(ui->target, &app->game.board[FLEET_SIDE_OPPONENT]);
     fleet_grid_set_tap_cb(ui->target, on_target_cell, ui);
 
-    /* In the tall shape these three boxes are transparent and stack their
-     * children at the panel gap, so the screen reads exactly as the single
-     * column it was; in the wide shape they become the two columns beside
-     * the board. */
+    /* In the tall shape these boxes are transparent and stack their children
+     * at the panel gap, so the screen reads exactly as the single column it
+     * was; in the wide shape cols becomes the two columns beside the board and
+     * side holds them with FIRE under both. */
     ui->side = fleet_app_box(screen);
-    ui->act = fleet_app_box(ui->side);
-    ui->waters = fleet_app_box(ui->side);
+    ui->cols = fleet_app_box(ui->side);
+    ui->act = fleet_app_box(ui->cols);
+    ui->waters = fleet_app_box(ui->cols);
 
     ui->target_panel = fleet_panel(ui->act, "TARGET");
     row = fleet_row(ui->target_panel, 40, 0);
@@ -261,10 +277,40 @@ lv_obj_t *fleet_screen_battle_create(struct fleet_app *app, lv_obj_t *parent)
     return screen;
 }
 
-/* The board is the dominant thing on the screen and the rest stands beside it:
- * the readout and FIRE in the column next to the board, because that is what
- * the player acts on, and your own waters furthest out, because that is what
- * they only glance at. */
+/* Move an object to a new parent, at the end, only if it is not there
+ * already: re-parenting is not free and this runs on every layout pass. */
+static void reparent(lv_obj_t *obj, lv_obj_t *parent)
+{
+    if (obj && parent && lv_obj_get_parent(obj) != parent) {
+        lv_obj_set_parent(obj, parent);
+    }
+}
+
+/*
+ * Across the page the screen is three things, in the order a turn is played.
+ *
+ *   +---------------+  +------------------------+ +---------------+
+ *   |               |  | TARGET                 | | YOUR WATERS   |
+ *   | target board  |  |  F6          [ pips ]  | |  [ own board ]|
+ *   | 382 x 382     |  |  Ready to fire.        | |               |
+ *   | 34 px cells   |  |  YOU F6 HIT . ENEMY C3 | |               |
+ *   |               |  +------------------------+ +---------------+
+ *   |               |  +----------------------------------------+
+ *   |               |  |                FIRE                    |
+ *   +---------------+  +----------------------------------------+
+ *
+ * The board takes the body's whole height, because height is what a square
+ * board of ten rows is short of and width is what this shape has too much of
+ * (DS 28.2). What is left across goes, in order: the readout, which is the
+ * widest of the three because it holds a line of text; your own waters, which
+ * is only as wide as the small board in it; and FIRE across the foot of both
+ * of them, its foot level with the board's.
+ *
+ * Nothing is stretched to fill its column. A panel is exactly as tall as what
+ * it holds, so a panel's bottom border is the end of it and not the edge of a
+ * viewport - which is the whole of why this screen can be read at a glance.
+ * The room left over goes to FIRE, and so is spent rather than left as a gap.
+ */
 void fleet_screen_battle_relayout(struct fleet_app *app, int wide, int cell)
 {
     struct fleet_battle_ui *ui = app ? app->battle : NULL;
@@ -274,11 +320,18 @@ void fleet_screen_battle_relayout(struct fleet_app *app, int wide, int cell)
     }
     fleet_app_screen_flow(app->screen[FLEET_SCREEN_BATTLE], wide, 1);
     fleet_grid_set_cell(ui->target, cell);
-    fleet_grid_set_cell(ui->own, wide ? OWN_CELL_WIDE : OWN_CELL);
-    /* side takes what the board leaves; act and waters share that between
-     * them. Only the flow and the sizes change - every object here was built
-     * once and is only ever moved. */
-    fleet_app_box_split(ui->side, wide);
+    fleet_grid_set_cell(ui->own, OWN_CELL);
+
+    /* FIRE is at the foot of the readout column down the page, where it has
+     * always been, and across the whole region over here. The log goes with
+     * the readout across the page and stays under your own board down it. */
+    reparent(ui->fire, wide ? ui->side : ui->act);
+    reparent(ui->log, wide ? ui->target_panel : ui->waters_panel);
+
+    /* side takes what the board leaves and is a column in both shapes: the
+     * two columns, then FIRE under them. */
+    fleet_app_box_column(ui->side, wide);
+    fleet_app_box_split(ui->cols, wide);
     fleet_app_box_column(ui->act, wide);
     fleet_app_box_column(ui->waters, wide);
     lv_obj_set_flex_grow(ui->side, wide ? 1 : 0);
@@ -287,12 +340,41 @@ void fleet_screen_battle_relayout(struct fleet_app *app, int wide, int cell)
      * of their own. Down the page they sit below the board and rise into
      * the gap above them, as they always have. */
     lv_obj_set_style_pad_top(ui->side, wide ? FLEET_CAPTION_RISE : 0, 0);
-    /* The panels grow into their column, so FIRE is at the foot of the
-     * column next to the board and the log at the foot of the far one. */
-    lv_obj_set_flex_grow(ui->target_panel, wide ? 1 : 0);
-    lv_obj_set_flex_grow(ui->waters_panel, wide ? 1 : 0);
+
+    /* The two columns are as tall as what they hold and no taller - your own
+     * board is the taller of them and so sets the height, and the readout
+     * takes the same so the two panels close on the same line. A panel that
+     * ends where its neighbour ends reads as a panel; one that ends at the
+     * foot of the screen reads as a view that has been cut off. */
+    lv_obj_set_flex_align(ui->cols, LV_FLEX_ALIGN_START,
+                          wide ? LV_FLEX_ALIGN_START : LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_START);
+    lv_obj_set_height(ui->cols, LV_SIZE_CONTENT);
+    lv_obj_set_flex_grow(ui->cols, 0);
+    lv_obj_set_height(ui->waters, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui->waters_panel, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui->act, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
     lv_obj_set_height(ui->target_panel, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
-    lv_obj_set_height(ui->waters_panel, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
+    lv_obj_set_flex_grow(ui->target_panel, 0);
+    lv_obj_set_flex_grow(ui->waters_panel, 0);
+    /* Your own waters are only as wide as the board in them - the panel's
+     * caption is out of the layout, so it does not widen it - and the readout
+     * takes the rest, because it is the one holding a line of text. */
+    lv_obj_set_width(ui->waters_panel, wide ? LV_SIZE_CONTENT : LV_PCT(100));
+    lv_obj_set_width(ui->waters, wide ? LV_SIZE_CONTENT : LV_PCT(100));
+    lv_obj_set_flex_grow(ui->waters, 0);
+    lv_obj_set_flex_grow(ui->act, wide ? 1 : 0);
+
+    /* What the panels leave of the region's height is FIRE's, so the room over
+     * is spent on the one thing the turn is for rather than left as a gap.
+     * The arithmetic keeps it well clear of the 64 px minimum without a floor
+     * having to be set: the columns come to 260 px whatever the type size,
+     * because your own board is a fixed number of pixels, and the shortest
+     * body the wide shape is taken for is 362, so FIRE is never under 71.
+     * Down the page it is the 64 px button it has always been. */
+    lv_obj_set_width(ui->fire, LV_PCT(100));
+    lv_obj_set_height(ui->fire, POCKETUI_TOUCH_MIN);
+    lv_obj_set_flex_grow(ui->fire, wide ? 1 : 0);
 }
 
 void fleet_screen_battle_refresh(struct fleet_app *app)
