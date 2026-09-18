@@ -3,8 +3,8 @@
 A tactical naval game for PocketOS: Battleship on the 568 x 1232 panel,
 local single player. Phase 1 only — no networking of any kind.
 
-Status: merged. Landscape (DS §28, PROPOSED) is on branch
-`feature/fleet-landscape`.
+Status: merged. Landscape (DS §28, **ACCEPTED** 2026-09-18) is on branch
+`feature/fleet-landscape`, not yet merged.
 
 ## Layers
 
@@ -114,7 +114,8 @@ The global 64 px rule is unchanged. On the Deploy screen a tap places the
 selected ship directly: placing is reversible, and the irreversible action
 there is CONFIRM DEPLOYMENT, which is again a 64 px button.
 
-**Landscape (DS §28.2, PROVISIONAL).** A row across the page can never be more
+**Landscape (DS §28.2, approved by the product owner, 2026-09-18).** A row
+across the page can never be more
 than 38 px: the board is ten rows plus a caption gutter and nine gaps, and the
 body is 386 px. D1's 48 px would need a 522 px body. A 34 x 34 cell was tried
 and rejected as too small under a thumb, and the answer is not a bigger row,
@@ -136,14 +137,12 @@ because there is not one to be had. Instead:
 
 That is what makes D1's premise true at this size. D1 permits a small target
 because a mis-aim is *correctable*; a correction as hard as the original aim
-is not a correction. Nothing else about D1 changes - aiming still commits
+is not a correction. The owner tried a 34 x 34 cell first and ruled it too
+small under a thumb; he ruled the 51 x 34 cell with these two ways of aiming
+**PASS** on build `0dd9ee1`. Nothing else about D1 changes - aiming still commits
 nothing, and FIRE is still the only thing that fires. The mapping stays exact
 on both axes and is tested at 48 x 48, 52 x 35 and 51 x 34, at the centre and
-all four corners of all 100 cells. Nothing the deviation rests on changes:
-a tap still only moves the crosshair, FIRE is still the only thing that
-commits and is still 64 px, and the mapping is exact at any cell size — tested
-at 48, 35 and 34 px at the centre and all four corners of all 100 cells. The
-number itself is PROVISIONAL until the product owner has had a thumb on it.
+all four corners of all 100 cells.
 
 ### D2 — app-owned save file (approved by the product owner, 2026-09-05)
 

@@ -210,12 +210,7 @@ Accepted, in the order they were done:
 | System | §25, Amendment I | 2026-09-17 | `dcf906d` |
 | Clock | §26, Amendment J | 2026-09-17 | `2bdf279` |
 | Calendar | §27, Amendment K | 2026-09-17 | `1608c3f` |
-
-Proposed, not yet accepted:
-
-| App | DS | Proposed | Branch |
-| --- | --- | --- | --- |
-| Fleet | §28, Amendment L | 2026-09-18 | `feature/fleet-landscape` |
+| Fleet | §28, Amendment L | 2026-09-18 | `feature/fleet-landscape` (accepted, not yet merged) |
 
 Still to do:
 

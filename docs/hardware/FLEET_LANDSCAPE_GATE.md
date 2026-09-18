@@ -1,10 +1,20 @@
 # PocketFleet in landscape — validation gate
 
 Branch `feature/fleet-landscape`, from master `7d0d1ea` (VERSION 0.0.10,
-unchanged). DS Amendment L (§28) is **PROPOSED**.
+unchanged). DS Amendment L (§28) is **ACCEPTED**.
 
-**Verdict: host and simulator PASS; unit A remote PASS. Two questions are
-left for the product owner, and both are about how it feels under a hand.**
+**Verdict: PASS.** Host and simulator PASS; unit A remote PASS; and on
+2026-09-18 the product owner put a thumb on build `0dd9ee1` and **ruled PASS**
+on both of the questions this gate was for. Nothing is outstanding.
+
+The gate took three rulings to get there, and both of the rejections were
+right:
+
+| Ruling | What it was about | What came of it |
+| --- | --- | --- |
+| **Not accepted** | the player must scroll during normal play | true of what was on the unit, which was master's Fleet, not this branch — but the screen was rebuilt round the requirement anyway, and §28.6 now forbids scrolling outright and a test holds it after every turn of four played-out matches |
+| **FAIL** | 34 x 34 cells are not comfortable enough with a normal thumb | there is no bigger square to be had in this body, so the cell grew on the axis with room to **51 x 34** and aiming stopped needing a precise touch at all: a press and every moment of a drag aim, and four one-square nudges reach every square |
+| **pass** | the reworked cell and the whole screen | §28 ACCEPTED, §28.2 settled |
 
 **Unit A is running this branch.** `doors shell info` answers
 **`build 0dd9ee1`**; the unit is in landscape, on the launcher, with a match
@@ -35,24 +45,24 @@ orientation in the app. What is new against the six before it is that the
 thing being laid out is a **board of touch targets**, and the height of a
 landscape body makes them smaller than Fleet's already-approved deviation D1.
 
-## What the owner is being asked
+## What the owner was asked, and answered
 
 1. **Is aiming comfortable now?** A 34 x 34 cell was rejected as too small
-   under a thumb, and that was right. **It cannot be answered with a bigger
+   under a thumb, and that was right. **It could not be answered with a bigger
    row** - ten rows in a 386 px body can never exceed 38 px, and D1's 48 would
-   need a 522 px body - so it is answered three ways at once, and the question
-   is whether they add up:
+   need a 522 px body - so it was answered three ways at once:
    - the cell grows on the axis that has room: **51 x 34**, half as much again
      in area, and wider than the 48 px the tall shape draws;
-   - **a press aims, and so does every moment of a drag**, so you land
-     anywhere on the 552 x 382 board and slide, reading the square's name off
+   - **a press aims, and so does every moment of a drag**, so the player lands
+     anywhere on the 552 x 382 board and slides, reading the square's name off
      the readout beside it rather than trying to hit it;
    - **four one-square nudges**, each a full 64 px target, so every square can
      be reached exactly without touching the board at all.
-   DS §28.2 stays PROVISIONAL until a thumb has been on it.
+
+   **PASS**, on build `0dd9ee1`. §28.2 is settled.
 2. **Does the whole Battle screen read naturally at a glance?** Board at the
    left, the readout and the nudges beside it, your own waters beyond that,
-   FIRE across the foot of both.
+   FIRE across the foot of both. **PASS.**
 
 Nothing else is outstanding. There is no third question about portrait: Deploy,
 Battle and Result are unchanged below the status bar apart from six rows at
@@ -423,11 +433,13 @@ and neither can be scrolled out of sight; down the page RESUME goes back
 inside the panel that describes the saved match, where v0.0.10 has it. The
 fix was verified on the unit on the rebuilt binary.
 
-### What only the panel and a hand can show
+### What only the panel and a hand could show
 
 A capture is the framebuffer, not the glass: it cannot show the rounded
 corners cutting anything, and an injected event cannot show where a finger
-lands. So the physical check is the two questions at the top of this sheet.
+lands or how a 34 px row feels to slide along. That is what the two questions
+at the top of this sheet were for, and on 2026-09-18 the owner answered both
+of them **PASS** with the unit in his hand.
 
 ## As left
 

@@ -1781,10 +1781,15 @@ v0.0.9. On the unit a change of orientation restarts the shell in place
 so a picked day does not survive the turn - nothing is stored, by design.
 Neither is changed here.
 
-## 28. Amendment L — Fleet in landscape [PROPOSED]
+## 28. Amendment L — Fleet in landscape [ACCEPTED]
 
-**PROPOSED 2026-09-18.** Host and simulator validation complete; unit A
-exercised remotely (`docs/hardware/FLEET_LANDSCAPE_GATE.md`). It rests on: the
+**ACCEPTED 2026-09-18** by the product owner, after the unit A gate
+(`docs/hardware/FLEET_LANDSCAPE_GATE.md`: PASS). Proposed the same day and
+reworked twice before he passed it, each time on his ruling: first the
+arrangement, because normal play required scrolling, which §28.6 now forbids
+outright; then the board itself, because a 34 x 34 cell was too small under a
+thumb. Both rulings were right and neither was a matter a test could have
+settled. The acceptance rests on: the
 responsive-layout pattern of §22.3, §23.4, §24.4, §25.3, §26.4 and §27.4
 reused — the shape chosen from the body's size, the objects built once and
 shaped again when the body changes size, the corner clearance read from the
@@ -1792,9 +1797,13 @@ platform; clean host validation (make test, every shell and UI test, Deploy,
 Battle and Result in portrait pixel-identical to v0.0.10 below the status bar,
 every cell of the board hit at its centre and its four corners at three board
 sizes, the layout mutations caught) and riscv64 and DRM builds; and the build
-installed on unit A with only the shell service restarted, healthy, playing a
-turn in portrait and in landscape with taps injected into the touch device.
-The seventh app given its own landscape layout under §21.3, after Calendar
+installed on unit A with only the shell service restarted, healthy, playing
+matches out in portrait and in landscape with taps, drags and button presses
+injected into the touch device; and **the owner's physical check, which he
+ruled PASS** — on the two questions the gate was for, the 51 x 34 cell with
+the two ways of aiming (§28.2) and whether the whole no-scroll screen reads at
+a glance. Normative on the same terms as the rest of this document. The
+seventh app given its own landscape layout under §21.3, after Calendar
 (§27); it is not a second layout system. Nothing in §1–§27 is renumbered, and
 nothing outside Fleet changes: not the shell, PocketUI, the rotation policy or
 any other app.
@@ -1806,13 +1815,13 @@ is what the body's scarce height is spent on in §28.3, and it is held by a test
 that plays whole matches out across the page and measures the screen after
 every turn, in both type sizes and with both corner shapes.
 
-**What this amendment asks the product owner to decide** is §28.2: a landscape
-board cell of **51 x 34 px**, and with it the two ways of aiming that mean no
-square has to be hit exactly. A 34 px row was tried first and rejected as too
-small for a thumb, which was right, and the answer is not a bigger row -
-§28.2 shows that ten rows in this body can never exceed 38 px - but a cell
-that grows on the axis with room, and an aim that does not depend on landing
-on it. §28.2 is PROVISIONAL until he has had a thumb on that.
+**What the owner was asked to decide** was §28.2: a landscape board cell of
+**51 x 34 px**, and with it the two ways of aiming that mean no square has to
+be hit exactly. A 34 px row was tried first and rejected as too small for a
+thumb; the answer is not a bigger row - §28.2 shows that ten rows in this body
+can never exceed 38 px - but a cell that grows on the axis with room, and an
+aim that does not depend on landing on it. **He has had a thumb on it and
+ruled PASS**, so §28.2 is settled and no longer provisional.
 
 ### 28.1 Two shapes, chosen from the body
 
@@ -1839,7 +1848,7 @@ on it. §28.2 is PROVISIONAL until he has had a thumb on that.
   rounded corner squares reach into it, measured with the one platform rule
   (§22.2, §23.4), never worked out in the app.
 
-### 28.2 The board across the page, and the cell it draws [PROVISIONAL]
+### 28.2 The board across the page, and the cell it draws
 
 **A row can never be more than 38 px in this shape, so the design does not ask
 for a precise touch.** That is the whole of §28.2 in one line; the rest is why,
@@ -2047,12 +2056,13 @@ player, not a property of one arrangement of boxes.
   check afterwards — and it is worth a named test and a lint rule, because
   nothing else stops the fold coming back the next time something is added.
 
-**Open, not decided here.** Whether a 51 x 34 cell, a drag that reports what
-is under the finger, and four one-square nudges together make aiming
-comfortable under a thumb - and whether the whole no-scroll Battle screen
-reads naturally at a glance - are the two things only the panel and a hand can
-answer; §28.2 is PROVISIONAL until they are. A 34 x 34 cell was tried first
-and rejected as too small, which is what §28.2 is now written around. §28.6 is not one of them: that a turn fits and is
+**Settled by the owner's hand, not by a test.** Whether a 51 x 34 cell, a drag
+that reports what is under the finger, and four one-square nudges together
+make aiming comfortable under a thumb - and whether the whole no-scroll Battle
+screen reads naturally at a glance - were the two things only the panel and a
+hand could answer. Both were ruled **PASS** on 2026-09-18, on build `0dd9ee1`.
+A 34 x 34 cell was tried first and rejected as too small, which is what §28.2
+is written around. §28.6 is not one of them: that a turn fits and is
 never scrolled is measured, on the host after every turn of four played-out
 matches and on unit A by drags that move nothing. On the unit a change of orientation restarts the shell in place
 (§21.2) and comes back on the launcher, so Fleet is never open while the
@@ -2077,4 +2087,4 @@ Amendment H (§24) accepted 2026-09-17.
 Amendment I (§25) accepted 2026-09-17.
 Amendment J (§26) accepted 2026-09-17.
 Amendment K (§27) accepted 2026-09-17.
-Amendment L (§28) proposed 2026-09-18.
+Amendment L (§28) accepted 2026-09-18.
