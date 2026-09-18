@@ -1179,8 +1179,10 @@ nothing outside Calculator changes.
 ### 22.3 The pattern for the next app
 
 What this amendment establishes for any app given a landscape layout later,
-one app at a time. It is a way of working, not shared code: nothing is
-extracted until a second app needs the same thing.
+one app at a time. It is a way of working before it is shared code: nothing is
+extracted until several apps demonstrably need the same thing. Twice now
+something has been (§22.4), and both times as an implementation refactor that
+changed no rule and no pixel.
 
 - Choose the layout from the size of the body, not from the orientation; add
   the size limit below which the wide layout would break §7, and fall back to
@@ -1192,12 +1194,52 @@ extracted until a second app needs the same thing.
   square corners.
 - Anything that reaches the foot of the body takes the corner squares from
   the platform geometry, never a hard-coded inset (`pos_display_rect_insets()`,
-  §23.4).
+  §23.4, reached through `pocketui_layout_begin()` since §22.4).
 - Test both orientations on the laid-out objects: every control inside the
   body and the safe area, no overlaps, the touch minimum, text drawn whole in
   every display mode, and the body changing shape with the app open.
 
 Notes (§23) is the second app under this pattern and adds to it in §23.4.
+
+### 22.4 What the pattern has left behind in PocketUI
+
+A record of what the eight responsive apps have turned out to share, and
+where it now lives. Neither entry changes a rule of this document: both were
+mechanical extractions of code that eight apps had already written the same
+way, made after the eighth, and each was held to producing identical geometry
+and pixel-identical simulator captures before and after.
+
+- **The corner clearance of a box** — `pos_display_rect_insets()` in
+  `pos_display.h`, extracted 2026-09-17 after Calculator and Notes had both
+  written it. It is a pure function of a box and the platform geometry: no
+  LVGL, no state, no memory of who asked. That is what lets the shell, the
+  display backends, the widgets and the host tests share one definition of the
+  safe area, and it is why it may not grow into anything else.
+- **Whether a layout pass is needed at all** — `pocketui_layout_begin()` and
+  `struct pocketui_layout_guard` in `pocketui.h`, extracted 2026-09-18 after
+  all eight apps had written it. This is *PocketUI layout state*, not display
+  geometry, and that is the whole reason it is in `pocketui.[ch]` and not in
+  `pos_display.[ch]`: it holds LVGL types and it remembers the last pass.
+  `pos_display` stays pure C and LVGL-free.
+
+  The guard owns change detection and nothing else. It reads the frame's box,
+  refuses a frame with no area yet, asks `pos_display_rect_insets()` what the
+  panel leaves of it, and answers one question: is this box, with these
+  insets, the one the last pass was chosen from? Everything an app does with
+  the answer — the wide-or-tall decision and its size limits, padding, child
+  sizing, scroll rules, widget creation, Settings' async reveal, System's
+  rebuild, Fleet's and Radar's layout counters — stays in the app, where the
+  amendments put it. It is a guard, not a layout framework, and it is not to
+  become one.
+
+  The eight now share one behaviour where six had a weaker one: the six older
+  apps compared the box alone, and Fleet and Radar compared the box *and* the
+  insets. The stricter form is the shared one. On this hardware that changes
+  nothing that can be observed — the panel's corner geometry is fixed for the
+  whole life of an app, because a change of orientation restarts the shell in
+  place (§21.2) and every app is built again afterwards — so with the box
+  unchanged the insets cannot have moved. It is stricter on paper and
+  identical on the glass, which is why it needed no physical retest.
 
 ## 23. Amendment G — Notes in landscape [ACCEPTED]
 
@@ -1307,7 +1349,10 @@ To §22.3, for the next app:
   *Done 2026-09-17, as an implementation refactor that changes no rule and no
   pixel:* the rule is `pos_display_rect_insets()` in `pos_display.h`, and
   Calculator and Notes call it with `pocketui_display_geometry()` instead of
-  carrying copies.
+  carrying copies. *And again 2026-09-18, on the same terms:* the guard that
+  decides whether a layout pass is needed at all is
+  `pocketui_layout_begin()`, and all eight responsive apps open with it
+  (§22.4). The shapes themselves are still each app's own.
 
 **Open for the shell, not decided here.** With a keyboard base attached,
 Automatic is landscape (§21.2) and the touch sheet still comes up over half
@@ -1414,7 +1459,10 @@ To §22.3 and §23.4, for the next app:
 - **Shared code.** Settings needed the corner clearance and called
   `pos_display_rect_insets()` unchanged. The shapes are its own. No new
   helper is proposed: the frame, the shape choice and the size handler are a
-  few lines each app writes against its own objects.
+  few lines each app writes against its own objects. *Revised 2026-09-18:*
+  one of those few lines turned out to be the same in all eight apps and is
+  now `pocketui_layout_begin()` (§22.4); the frame, the shape choice, the
+  size handler and the async reveal are still Settings' own.
 
 ## 25. Amendment I — System in landscape [ACCEPTED]
 
@@ -1518,7 +1566,9 @@ To §22.3, §23.4 and §24.4, for the next app. The columns themselves are
   panel's two orientations.
 - **Shared code.** System needed the corner clearance and calls
   `pos_display_rect_insets()` unchanged. The arrangement is its own. No new
-  helper is proposed.
+  helper is proposed. *Revised 2026-09-18:* the corner clearance now reaches
+  System through `pocketui_layout_begin()`, the guard all eight responsive
+  apps share (§22.4); the rebuild and the arrangement are still its own.
 
 ## 26. Amendment J — Clock in landscape [ACCEPTED]
 
@@ -1645,7 +1695,9 @@ To §22.3, §23.4, §24.4 and §25.3, for the next app.
   floor on both sides (§25.3).
 - **Shared code.** Clock needed the corner clearance and calls
   `pos_display_rect_insets()` unchanged. The shapes are its own. No new helper
-  is proposed.
+  is proposed. *Revised 2026-09-18:* the corner clearance now reaches Clock
+  through `pocketui_layout_begin()`, the guard all eight responsive apps share
+  (§22.4); the shapes are still its own.
 
 **Open, not decided here.** On the unit a change of orientation restarts the
 shell in place (§21.2). The one clock runtime is the shell's, so a running
@@ -1771,7 +1823,9 @@ To §22.3, §23.4, §24.4, §25.3 and §26.4, for the next app.
   shape's tracks give the portrait positions to the pixel.
 - **Shared code.** Calendar needed the corner clearance and calls
   `pos_display_rect_insets()` unchanged. The shapes are its own. No new helper
-  is proposed.
+  is proposed. *Revised 2026-09-18:* the corner clearance now reaches Calendar
+  through `pocketui_layout_begin()`, the guard all eight responsive apps share
+  (§22.4); the shapes are still its own.
 
 **Open, not decided here.** The selected outline is drawn outside its cell
 (§7) and the week's row clips it, so a selected day shows the outline on its
@@ -2017,7 +2071,11 @@ To §22.3, §23.4, §24.4, §25.3, §26.4 and §27.4, for the next app.
 - **Shared code.** Fleet needed the corner clearance and calls
   `pos_display_rect_insets()` unchanged. The shapes, the boxes and the board's
   resize are its own. No new platform helper is proposed here — but see the
-  note below.
+  note below. *Revised 2026-09-18:* Fleet's stricter guard — box *and* insets,
+  behind an explicit valid flag — is the one all eight responsive apps now
+  share, as `pocketui_layout_begin()` (§22.4). Fleet's layout counter stays in
+  Fleet and still counts exactly the passes that were needed; the shapes, the
+  boxes and the board's resize are still its own.
 
 ### 28.6 Normal landscape Battle gameplay fits in one viewport and requires no scrolling
 
@@ -2187,7 +2245,12 @@ To §22.3 through §28.5, for whoever comes next.
   passed at one size and failed at the other for no reason but arithmetic.
 - **Shared code.** Radar needed the corner clearance and calls
   `pos_display_rect_insets()` unchanged. The shapes, the boxes and the scope's
-  resize are its own.
+  resize are its own. *Revised 2026-09-18:* Radar's guard — box *and* insets,
+  behind an explicit valid flag — is, with Fleet's, the one all eight
+  responsive apps now share, as `pocketui_layout_begin()` (§22.4). Radar's
+  layout counter stays in Radar, so §29.2's "never on a tick" is still checked
+  against the app's own number; the shapes, the boxes and the scope's resize
+  are still its own.
 
 **Open, not decided here.** Whether the landscape scope is comfortably
 readable, whether selecting and engaging contacts is comfortable with a real

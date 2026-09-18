@@ -67,7 +67,8 @@ Clock in landscape, ACCEPTED) is the normative version of this section.
   typed label, its caret and focus, and an open confirmation all stay as they
   are, and nothing is written to the store.
 - The foot of the body clears the panel's rounded corners
-  (`pos_display_rect_insets()`, as Calculator and Notes do). With the unit's
+  (`pos_display_rect_insets()`, reached through the shared layout guard
+  `pocketui_layout_begin()` as every responsive app does, DS §22.4). With the unit's
   30 px corners that makes the portrait clock face, and the laps when there
   are any, end 10 px higher (y 1201); with square corners portrait is the
   previous layout to the pixel.

@@ -134,7 +134,8 @@ keyboard's Done joins.
 **Corners.** Panels scroll past the foot of the body, which on the reference
 panel reaches 10 px into the 30 px rounded-corner squares (DS §21.1). The
 frame pads its foot by however far a corner square reaches into the body,
-from `pos_display_rect_insets()`, so the box the panels scroll in ends 10 px
+from `pos_display_rect_insets()` through the shared layout guard
+(`pocketui_layout_begin()`, DS §22.4), so the box the panels scroll in ends 10 px
 higher in portrait (1201) and in landscape (537). With the keyboard up, or on
 a panel with square corners, the pad is 0.
 

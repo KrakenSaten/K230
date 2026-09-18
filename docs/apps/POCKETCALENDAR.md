@@ -60,7 +60,8 @@ version of this section.
   notice and whether Today can be pressed all stay as they are. There is
   nothing to write.
 - The foot of the body clears the panel's rounded corners
-  (`pos_display_rect_insets()`, as Calculator and Notes do). In landscape the
+  (`pos_display_rect_insets()`, reached through the shared layout guard
+  `pocketui_layout_begin()` as every responsive app does, DS §22.4). In landscape the
   last week and Today end 10 px above the body's foot. In portrait nothing
   comes near the foot, so portrait is the previous layout to the pixel with
   square corners and with rounded ones.
