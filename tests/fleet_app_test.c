@@ -71,6 +71,7 @@
 #define WIDE_H (PANEL_W - BODY_CHROME_H)         /* 396 */
 #define WIDE_CELL 34                             /* 396 less the 10 px foot */
 #define RECT_CELL 35                             /* a panel with square corners */
+#define OWN_CELL_WIDE 26                         /* your own waters, across the page */
 #define SPAN_OF(cell) (FLEET_GRID_GUTTER + FLEET_GRID * (cell) + (FLEET_GRID - 1) * FLEET_GRID_GAP)
 
 /* A panel's child 0 is its caption (DS 2), so its content starts at 1. */
@@ -580,7 +581,9 @@ static void check_wide_battle(int want_cell)
           fire.x1 >= act.x1 && fire.x2 <= act.x2 && fire.y2 >= act.y2 - 1);
     check("FIRE keeps the touch minimum", lv_area_get_height(&fire) >= POCKETUI_TOUCH_MIN);
     check("and is wider than it is tall", lv_area_get_width(&fire) > lv_area_get_height(&fire));
-    check("your own board is the lesser of the two",
+    check_int("your own board takes the room its column has", fleet_grid_cell(battle_own()),
+              OWN_CELL_WIDE);
+    check("and is still the lesser of the two",
           fleet_grid_cell(battle_own()) < fleet_grid_cell(battle_board()));
     check("nothing on the screen leaves the body", inside_body(screen_of(FLEET_SCREEN_BATTLE)));
     check("the board is in the safe area", in_safe_area(battle_board()));
@@ -1007,6 +1010,8 @@ int main(void)
         box_of(command_col(1), &c1);
         box_of(command_col(2), &c2);
         check("the three groups are stacked down the page", c1.y1 >= c0.y2 && c2.y1 >= c1.y2);
+        check("the OPPONENT caption is drawn, not cut",
+              caption_would_be_drawn(kid(command_col(0), 0)));
         check("RESUME is inside the panel that describes the saved match",
               lv_obj_get_parent(command_resume()) == command_saved());
         check_int("and the foot row holds only DEPLOY FLEET",
@@ -1040,6 +1045,8 @@ int main(void)
         check("it is in the safe area", in_safe_area(command_deploy()));
         check("a column that cannot show everything scrolls",
               lv_obj_has_flag(command_col(1), LV_OBJ_FLAG_SCROLLABLE));
+        check("the OPPONENT caption is drawn, not cut",
+              caption_would_be_drawn(kid(command_col(0), 0)));
         /* The other way to start an engagement must not be the thing that has
          * been scrolled out of sight either. */
         check_int("RESUME joins DEPLOY FLEET on the foot row",
@@ -1081,6 +1088,22 @@ int main(void)
     tap_obj(kid(command_segments(), FLEET_OFFICER));
     check_int("and back again", app->difficulty, FLEET_OFFICER);
     check_int("nothing here asked the shell for a keyboard", g_keyboard_calls, 0);
+
+    /* And back down the page, RESUME returns to the panel it came from - the
+     * move goes both ways, or a portrait Command would keep a landscape foot
+     * row it never had. */
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    phase = "command, back down the page";
+    check("RESUME is back inside the saved-match panel",
+          lv_obj_get_parent(command_resume()) == command_saved());
+    check_int("and the foot row holds only DEPLOY FLEET again",
+              (int)lv_obj_get_child_count(command_foot()), 1);
+    {
+        lv_area_t d;
+
+        box_of(command_deploy(), &d);
+        check_int("which is full width once more", lv_area_get_width(&d), TALL_W);
+    }
     app_stop();
 
     /* ---- 3. Deploy ---------------------------------------------------- */
@@ -1461,6 +1484,7 @@ int main(void)
         check("the two accounts stand side by side", p1.x1 > p0.x2);
         check_int("in halves", lv_area_get_width(&p0), lv_area_get_width(&p1));
         check("the two ways on stand side by side under them", f1.x1 > f0.x2);
+        check_int("in halves", lv_area_get_width(&f0), lv_area_get_width(&f1));
         check("and are under the accounts", f0.y1 >= p0.y2);
         check("both keep the touch minimum",
               lv_area_get_height(&f0) >= POCKETUI_TOUCH_MIN &&
