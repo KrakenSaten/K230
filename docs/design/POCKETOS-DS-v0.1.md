@@ -1122,7 +1122,7 @@ verified hardware operation and nothing in this amendment asks for it.
 - App bodies are not re-laid out: fixed-width content stays at its portrait
   width and the body scrolls vertically. An app that needs a landscape layout
   gets one in its own amendment. Calculator: §22. Notes: §23. Settings: §24.
-  System: §25. Clock: §26. Calendar: §27. Fleet: §28.
+  System: §25. Clock: §26. Calendar: §27. Fleet: §28. Radar: §29.
 
 ## 22. Amendment F — Calculator in landscape [ACCEPTED]
 
@@ -2072,6 +2072,127 @@ an open app stays host evidence. Seven apps now carry the same size-change
 guard and two now carry a custom-drawn viewport with a resize setter; whether
 either is worth a shared helper is worth asking once Radar has landed, and is
 not proposed here.
+## 29. Amendment M — Radar in landscape [PROPOSED]
+
+**PROPOSED 2026-09-18.** Host and simulator validation complete; unit A
+exercised remotely (`docs/hardware/RADAR_LANDSCAPE_GATE.md`). It rests on: the
+responsive-layout pattern of §22.3 through §28.5 reused — the shape chosen
+from the body's size, the objects built once and shaped again when the body
+changes size, the corner clearance read from the platform; clean host
+validation (make test, every shell and UI test, **both screens in portrait
+pixel-identical to v0.0.10 below the status bar in all 24 simulator
+captures**, the scope's pixel round trip run at both sizes, the layout
+mutations caught) and riscv64 and DRM builds; and the build installed on
+unit A with only the shell service restarted, healthy, with a run played in
+both orientations through taps injected into the touch device. The eighth app
+given its own landscape layout under §21.3, after Fleet (§28); it is not a
+second layout system. Nothing in §1–§28 is renumbered, and nothing outside
+Radar changes.
+
+**What is different about this app** is that it costs something per frame.
+PocketRadar repaints a custom-drawn scope twenty times a second while a run is
+on, and that is the whole of its frame cost (`docs/KNOWN_ISSUES.md`, hardware
+verification H1, still unmeasured on the K230). A landscape layout therefore
+has to be shown not to have made it worse. §29.2 is how.
+
+### 29.1 Two shapes, chosen from the body
+
+- Radar lays its two screens out in a frame that is exactly the body's content
+  box and shapes them from that box's size alone, never from the orientation:
+  **wide** when the box is wider than tall, when the scope would be at least
+  **240 px**, and when what is left across it after the scope and a §7 gutter
+  is at least **360 px** — a region that can hold two cards abreast and a
+  64 px action under them; **tall** otherwise. The shape is chosen again
+  whenever the box changes size, and only then.
+- The scope is square and its side is what the box's height can hold, **never
+  more than the 520 px it has down the page** (§29.2).
+- **Tall** (portrait: 528 x 1060) is the v0.0.10 layout unchanged: the numbers
+  that persist, the scope, the contact being worked, the action. **Wide**
+  (landscape: 1192 x 386 once the foot has cleared the rounded corners) puts
+  the scope at the left, the two cards abreast beside it, and ENGAGE across
+  the whole foot of that region — it is hit often and in a hurry, and a wide
+  target is what the room is for.
+- The objects are built once. A change of shape turns boxes, moves sizes and
+  resizes the scope; it creates and deletes nothing, so a run in progress —
+  its contacts, its score, its level, its selection — is untouched by it. The
+  scope object itself is **moved** between the card column and the screen,
+  because down the page it belongs between the numbers and the contact card
+  and across the page it belongs before both; moving is not rebuilding, and
+  the pattern is §28.5's.
+- Whatever the shape, the frame pads its foot by however far the panel's
+  rounded corner squares reach into it, measured with the one platform rule
+  (§22.2, §23.4).
+
+### 29.2 The wide shape may not cost more per tick
+
+This is normative, and it is the reason the scope is capped rather than simply
+fitted:
+
+- **The scope across the page is never larger than the scope down it.** On the
+  reference panel it is 386 px against 520, which is 55 % of the pixels; a
+  taller body does not grow it past 520. So a tick invalidates fewer pixels in
+  the wide shape than in the tall one, never more, whatever body it is given.
+- **The layout runs only when the body's box or its safe-area insets change.**
+  It never runs on a tick. The run's clock steps the engine, drains its events
+  and invalidates the scope; it sizes, moves and reshapes nothing.
+- **The numbers are still written only when the value behind them changes.**
+  The `seen_*` comparison of v0.0.9 is untouched by this layout.
+
+All three are measured rather than asserted: over a hundred ticks of a running
+scan the scope is drawn 200 times, the numbers 10 and the contact card 0, and
+the layout is not worked out once.
+
+### 29.3 The figures on the Result screen
+
+Five Design System rows are taller than a landscape body. Across the page the
+figures therefore stand in **two columns inside their own card** — three and
+two — with the divider under the third dropped, because in a column it would
+be a line into the gutter beside it. Down the page they are the one column
+they have always been, divider and all. A results screen is the last place
+anything should have to be scrolled to.
+
+### 29.4 Consequences for portrait
+
+**None.** Both screens are pixel-identical to v0.0.10 below the status bar, in
+Normal and in Outdoor, with 30 px and with square corners, in all 24 simulator
+captures. Radar's cards carry no caption on their top border, and its stack
+already fits the body, so neither the caption headroom nor the foot clearance
+of §28.4 moves anything here.
+
+### 29.5 What Radar adds to the pattern
+
+To §22.3 through §28.5, for whoever comes next.
+
+- **Where a layout costs something per frame, cap it rather than fit it.** A
+  viewport that is repainted continuously should be given a ceiling equal to
+  what it costs in the shape that already exists, so that no body can make it
+  dearer. A floor keeps it usable; the ceiling is what keeps it affordable.
+  Then say so in a test that measures, not one that asserts.
+- **Count the draws.** A draw-event counter on each thing on the screen, over
+  a hundred ticks, turns "only the scope is repainted" from a design intention
+  into a number. It costs a few lines and it is the only way to catch a
+  layout that quietly starts invalidating a parent.
+- **A fixed list that will not fit goes into columns inside its own card**,
+  not into a scroll, when the screen exists to report it. Drop the divider
+  that a column turns into a line to nowhere.
+- **A tolerance derived from a geometry must be derived in the test too.** The
+  scope's round trip carries range in pixels of radius, so the same absolute
+  error is a larger share of the range on a smaller scope; a fixed tolerance
+  passed at one size and failed at the other for no reason but arithmetic.
+- **Shared code.** Radar needed the corner clearance and calls
+  `pos_display_rect_insets()` unchanged. The shapes, the boxes and the scope's
+  resize are its own.
+
+**Open, not decided here.** Whether the landscape scope is comfortably
+readable, whether selecting and engaging contacts is comfortable with a real
+thumb, and whether the scope and the right-hand region are in the right
+balance are the three things only the panel and a hand can answer. H1 — the
+frame cost on the K230 — remains unmeasured; this amendment does not close it,
+it only makes the wide shape cheaper than the shape H1 was written about. On
+the unit a change of orientation restarts the shell in place (§21.2) and comes
+back on the launcher, so Radar is never open while the display turns, and
+PocketRadar has no resume: a run is abandoned by a turn, as it is by leaving
+the app, which is v0.1 behaviour and not changed here.
 
 ---
 
@@ -2088,3 +2209,4 @@ Amendment I (§25) accepted 2026-09-17.
 Amendment J (§26) accepted 2026-09-17.
 Amendment K (§27) accepted 2026-09-17.
 Amendment L (§28) accepted 2026-09-18.
+Amendment M (§29) proposed 2026-09-18.

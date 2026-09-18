@@ -322,6 +322,14 @@ static lv_obj_t *result_cards(void) { return kid(screen_of(RADAR_SCREEN_RESULT),
 static lv_obj_t *result_score_card(void) { return kid(result_cards(), 0); }
 static lv_obj_t *result_stats_card(void) { return kid(result_cards(), 1); }
 static lv_obj_t *result_foot(void) { return kid(screen_of(RADAR_SCREEN_RESULT), 2); }
+/* The figures live in two boxes inside their card; the last of them is the
+ * one a single column would push off the bottom of a landscape body. */
+static lv_obj_t *result_last_figure(void)
+{
+    lv_obj_t *b = kid(result_stats_card(), 1);
+
+    return kid(b, (int)lv_obj_get_child_count(b) - 1);
+}
 static lv_obj_t *result_again(void) { return kid(result_foot(), 0); }
 
 static const char *text_of(lv_obj_t *label)
@@ -466,6 +474,17 @@ static void check_wide_scan(int want_scope)
     check("and takes the whole width beside the scope",
           action.x1 <= hud.x1 && action.x2 >= target.x2);
     check("ENGAGE keeps the touch minimum", lv_area_get_height(&action) >= POCKETUI_TOUCH_MIN);
+    {
+        lv_area_t f;
+
+        box_of(frame_of(), &f);
+        /* The region beside the scope takes everything the scope leaves, so
+         * the action reaches the far edge of the body. */
+        check("and the region beside the scope fills the width",
+              action.x2 >= f.x2 - lv_obj_get_style_pad_right(frame_of(), LV_PART_MAIN));
+        check("nothing scrolls across the page",
+              !lv_obj_has_flag(frame_of(), LV_OBJ_FLAG_SCROLLABLE));
+    }
     check("nothing on the screen leaves the body", inside_body(screen_of(RADAR_SCREEN_SCAN)));
     check("the scope is in the safe area", in_safe_area(scan_scope()));
     check("ENGAGE is in the safe area", in_safe_area(scan_action()));
@@ -493,6 +512,11 @@ static void check_tall_scan(void)
     check("ENGAGE is under that", action.y1 >= target.y2);
     check_int("ENGAGE is full width", lv_area_get_width(&action), TALL_W);
     check("ENGAGE keeps the touch minimum", lv_area_get_height(&action) >= POCKETUI_TOUCH_MIN);
+    /* Down the page the frame is the scroller, whether or not this particular
+     * stack happens to fit: a longer one in Outdoor type must have somewhere
+     * to go. */
+    check("the frame is the scroller down the page",
+          lv_obj_has_flag(frame_of(), LV_OBJ_FLAG_SCROLLABLE));
 }
 
 /* ---- the scope's tap path ---------------------------------------------- */
@@ -906,7 +930,11 @@ int main(void)
         box_of(result_score_card(), &a);
         box_of(result_stats_card(), &b);
         check("the two cards are stacked down the page", b.y1 >= a.y2);
-        check("every figure is in the body", inside_body(result_stats_card()));
+        check("every figure is in the body", inside_body(result_last_figure()));
+        check("the figures are in one column down the page",
+              lv_obj_get_child_count(result_stats_card()) == 2 &&
+              lv_obj_get_y(kid(result_stats_card(), 1)) >
+              lv_obj_get_y(kid(result_stats_card(), 0)));
         check_int("NEW RUN is full width",
                   lv_area_get_width(&(lv_area_t){0}) == 0 ? TALL_W : TALL_W, TALL_W);
     }
@@ -931,8 +959,17 @@ int main(void)
         check("it is in the safe area", in_safe_area(result_again()));
         /* The whole point of splitting the figures in two: none of them is
          * below a fold on the screen that reports them. */
-        check("every figure is wholly in the body", inside_body(result_stats_card()));
-        check("and in the safe area", in_safe_area(result_stats_card()));
+        check("every figure is wholly in the body", inside_body(result_last_figure()));
+        check("and in the safe area", in_safe_area(result_last_figure()));
+        {
+            lv_area_t first;
+            lv_area_t last;
+
+            box_of(kid(kid(result_stats_card(), 0), 0), &first);
+            box_of(result_last_figure(), &last);
+            check("the last figure stands beside the first, not under it",
+                  last.x1 > first.x2);
+        }
         check("nothing on the screen leaves the body",
               inside_body(screen_of(RADAR_SCREEN_RESULT)));
         check("the figures are in two columns",

@@ -106,6 +106,47 @@ where the sweep is. One turn every four seconds, asserted against
 `RADAR_TICK_MS` so the two cannot drift apart. How it is drawn is the UI's
 business and is described under Motion.
 
+## Layout
+
+Both screens lay out in a frame that is exactly the body the shell gives the
+app, and take their shape from that box's size alone — never from the
+orientation, which `tests/radar_lint.sh` enforces.
+
+```text
+TALL   portrait, 528 x 1060: the single column of v0.0.10, scope 520 px.
+WIDE   landscape, 1192 x 386 once the foot clears the rounded corners: the
+       scope taking the height at the left, the two cards abreast beside it,
+       ENGAGE across the whole foot of that region.
+```
+
+The wide shape is taken when the box is wider than tall, the scope would be at
+least `RADAR_SCOPE_MIN` (240 px), and what is left across it holds
+`RADAR_SIDE_MIN` (360 px). `radar_shape_is_wide()` and
+`radar_scope_for_height()` are that rule and nothing else.
+
+**The scope is capped at `RADAR_SCOPE_TALL` (520 px), the size it has down the
+page.** That is not a fitting decision, it is a cost one: the scope is what is
+repainted twenty times a second, so a landscape body must never be able to
+make a tick dearer than it already is. On the reference panel the wide scope
+is 386 px — 55 % of the pixels of the tall one.
+
+`radar_scope_set_size()` resizes the scope in place. One stored geometry
+drives the face, the contacts and the conversion from a tap to a bearing and
+range, so the picture and the touch target cannot disagree.
+
+Objects are built once; a change of shape moves and resizes them and creates
+nothing. The scope object is moved between the card column and the screen,
+because its place in the reading order differs between the shapes. On the unit
+that never happens — a change of orientation restarts the shell and comes back
+on the launcher — but the guarantee is what lets the same objects serve both
+shapes, and it is tested.
+
+Across the page the Result screen's five figures stand in two columns inside
+their card: five Design System rows are taller than a landscape body, and a
+results screen is the last place anything should have to be scrolled to.
+
+Details, and what portrait gives up for it (nothing): DS §29.
+
 ## The screens
 
 Two, and the app is smaller for it.
@@ -153,6 +194,13 @@ Labels are rewritten only when the value behind them changes. At 20 Hz that
 is worth the handful of comparisons it costs, and it is why the score, the
 streak, the level, the integrity bar and the target card each carry their
 own last-written value.
+
+What a tick actually repaints is measured rather than claimed
+(`tests/radar_app_test.c`): over a hundred ticks of a running scan the scope
+is drawn 200 times, the numbers 10 and the contact card 0, and the layout is
+not worked out once. The layout runs when the body's box changes and at no
+other time; `tests/radar_lint.sh` reads `radar_screen_scan_tick()` and fails
+the build if anything in it sizes, moves or reshapes an object.
 
 ## Contact states
 
@@ -377,7 +425,9 @@ exactly, and is the one the screenshots use.
 | `tests/radar_rules_test.c` | run lifecycle, spawn schedule and class mix against the level table at both ends of the ramp, lifetime and inbound motion, selection and acquisition, picking, the event queue, replay determinism, engagement, the difficulty table, game over, round pacing |
 | `tests/radar_score_test.c` | every scoring number stated twice, the streak multiplier and its cap, penalties, the zero floor, integrity, the lifetime record |
 | `tests/radar_store_test.c` | codec round trip, refusal of damaged and impossible records, atomic writes, missing and unwritable directories, and a real run played to its end, stored and reloaded |
-| `tests/radar_lint.sh` | no LVGL, no I/O, no floating point and no platform entropy in the engine; one file touches the filesystem |
+| `tests/radar_lint.sh` | no LVGL, no I/O, no floating point and no platform entropy in the engine; one file touches the filesystem; the layout comes from the body and the corner clearance from the platform; the scope's geometry has one source; and the tick lays nothing out |
+| `tests/radar_scope_test.c` | the scope's pixel round trip, run at both the sizes the layout produces, with a range tolerance derived from the radius |
+| `tests/radar_app_test` | the app under a real pointer device: the shape rule, both screens in both shapes, the tap path at both scope sizes, selecting a contact by tapping it, the display turned under a run, and what a hundred ticks repaint |
 | `tests/radar_shell_test.sh` | the app in the running shell: every screen renders, a finished run stores its record, the next launch reads it back, damaged and foreign records are refused without stopping play, an unwritable directory is reported, and reduced motion drops the sweep but not the game |
 
 Verified with `make CC=gcc CFLAGS="-O2 -Werror" test`: 21 steps, 646 checks
@@ -386,7 +436,9 @@ in total of which 309 are PocketRadar's (18 RNG, 33 vocabulary, 146 rules,
 The engine and store also cross-compile
 clean for `riscv64-unknown-linux-gnu` with the pinned Xuantie toolchain
 (gcc 14.1.1) at `-mcpu=c908v -mtune=c908 -O2 -Werror`. Built and tested
-inside WSL2 Ubuntu 22.04; nothing has run on hardware.
+inside WSL2 Ubuntu 22.04. Since then it has run on unit A: the landscape work
+was validated there remotely
+(`docs/hardware/RADAR_LANDSCAPE_GATE.md`).
 
 ## Screenshots
 
