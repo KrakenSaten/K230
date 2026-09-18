@@ -437,8 +437,9 @@ The engine and store also cross-compile
 clean for `riscv64-unknown-linux-gnu` with the pinned Xuantie toolchain
 (gcc 14.1.1) at `-mcpu=c908v -mtune=c908 -O2 -Werror`. Built and tested
 inside WSL2 Ubuntu 22.04. Since then it has run on unit A: the landscape work
-was validated there remotely
-(`docs/hardware/RADAR_LANDSCAPE_GATE.md`).
+was validated there remotely and then passed by the product owner with the
+unit in his hand, on all three questions
+(`docs/hardware/RADAR_LANDSCAPE_GATE.md`: PASS; DS §29 ACCEPTED 2026-09-18).
 
 ## Screenshots
 

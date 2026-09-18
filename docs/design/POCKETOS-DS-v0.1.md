@@ -2072,10 +2072,13 @@ an open app stays host evidence. Seven apps now carry the same size-change
 guard and two now carry a custom-drawn viewport with a resize setter; whether
 either is worth a shared helper is worth asking once Radar has landed, and is
 not proposed here.
-## 29. Amendment M — Radar in landscape [PROPOSED]
+## 29. Amendment M — Radar in landscape [ACCEPTED]
 
-**PROPOSED 2026-09-18.** Host and simulator validation complete; unit A
-exercised remotely (`docs/hardware/RADAR_LANDSCAPE_GATE.md`). It rests on: the
+**ACCEPTED 2026-09-18** by the product owner, after the unit A gate
+(`docs/hardware/RADAR_LANDSCAPE_GATE.md`: PASS on all three questions).
+Proposed the same day, developed independently of Fleet's §28 and numbered so
+the two would not collide, then rebased onto the master Fleet made and
+revalidated whole. The acceptance rests on: the
 responsive-layout pattern of §22.3 through §28.5 reused — the shape chosen
 from the body's size, the objects built once and shaped again when the body
 changes size, the corner clearance read from the platform; clean host
@@ -2084,10 +2087,13 @@ pixel-identical to v0.0.10 below the status bar in all 24 simulator
 captures**, the scope's pixel round trip run at both sizes, the layout
 mutations caught) and riscv64 and DRM builds; and the build installed on
 unit A with only the shell service restarted, healthy, with a run played in
-both orientations through taps injected into the touch device. The eighth app
-given its own landscape layout under §21.3, after Fleet (§28); it is not a
-second layout system. Nothing in §1–§28 is renumbered, and nothing outside
-Radar changes.
+both orientations through taps injected into the touch device; and **the
+owner's physical check, which he ruled PASS** on all three of the questions
+the gate was for - the scope's readability, targeting with a thumb, and the
+balance of scope-left against information-right. Normative on the same terms
+as the rest of this document. The eighth app given its own landscape layout
+under §21.3, after Fleet (§28); it is not a second layout system. Nothing in
+§1–§28 is renumbered, and nothing outside Radar changes.
 
 **What is different about this app** is that it costs something per frame.
 PocketRadar repaints a custom-drawn scope twenty times a second while a run is
@@ -2209,4 +2215,4 @@ Amendment I (§25) accepted 2026-09-17.
 Amendment J (§26) accepted 2026-09-17.
 Amendment K (§27) accepted 2026-09-17.
 Amendment L (§28) accepted 2026-09-18.
-Amendment M (§29) proposed 2026-09-18.
+Amendment M (§29) accepted 2026-09-18.

@@ -211,21 +211,15 @@ Accepted, in the order they were done:
 | Clock | §26, Amendment J | 2026-09-17 | `2bdf279` |
 | Calendar | §27, Amendment K | 2026-09-17 | `1608c3f` |
 | Fleet | §28, Amendment L | 2026-09-18 | `f577fff` |
-
-Proposed, not yet accepted:
-
-| App | DS | Proposed | Branch |
-| --- | --- | --- | --- |
 | Radar | §29, Amendment M | 2026-09-18 | `feature/radar-landscape` |
 
-Fleet went in first, as §28: the two branches were developed independently
-from `7d0d1ea` and numbered so they would not collide, and this one is rebased
-onto the master Fleet made.
+Fleet went in first, as §28: the two branches were developed independently from
+`7d0d1ea` and numbered so they would not collide, and Radar was rebased onto
+the master Fleet made. **Every app that is having a landscape layout now has
+one**; what is below is what is deliberately not getting one.
 
 Still to do:
 
-- **Radar**, until §29 is accepted. It is the last app the landscape work has
-  left; there is nothing behind it.
 - **Timber stays portrait**, on purpose: the tower is built upwards and the
   vertical playing field is intrinsic to the game, so there is no landscape
   layout to give it. Not a gap.

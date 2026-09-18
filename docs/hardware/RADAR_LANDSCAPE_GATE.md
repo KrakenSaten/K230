@@ -1,11 +1,17 @@
 # PocketRadar in landscape — validation gate
 
-Branch `feature/radar-landscape`, tip `5881704`, from master `7d0d1ea`
-(VERSION 0.0.10, unchanged). DS Amendment M (§29) is **PROPOSED**. The branch
-is independent of `feature/fleet-landscape`; neither is merged.
+Branch `feature/radar-landscape`, rebased onto master `f577fff` (the master
+Fleet made), tip `c39b7d4`. VERSION 0.0.10, unchanged. DS Amendment M (§29) is
+**ACCEPTED**.
 
-**Verdict: host and simulator PASS; unit A remote PASS. Three questions are
-left for the product owner, and all three are about how it feels.**
+**Verdict: PASS.** Host and simulator PASS; unit A remote PASS; and on
+2026-09-18 the product owner put a hand on build `c39b7d4` and **ruled PASS**
+on all three of the questions this gate was for. Nothing is outstanding.
+
+The branch was developed independently of `feature/fleet-landscape`, both from
+`7d0d1ea`, and numbered §29 against Fleet's §28 so the two would not collide.
+Fleet went in first; this is the rebase onto the master it made, revalidated
+whole.
 
 Radar is the eighth app given a landscape layout under DS §21.3. What is
 different about it is that it costs something per frame: it repaints a
@@ -21,22 +27,35 @@ WIDE   landscape, 1192 x 386 once the foot clears the rounded corners:
        scope 386 px at the left, the two cards abreast, ENGAGE across the foot.
 ```
 
-## What the owner is being asked
+## What the owner was asked, and answered
 
-1. **Is the landscape radar comfortably readable?** The scope is 386 px
+All three were ruled **PASS** on 2026-09-18, with the unit in hand on build
+`c39b7d4`:
+
+1. **Is the landscape radar scope comfortably readable?** The scope is 386 px
    against 520 — 74 % of the diameter — with the same rings, ticks and
-   contact shapes.
-2. **Are targeting and the controls comfortable with a real thumb?** Contacts
-   are selected by tapping them on the scope; ENGAGE is 786 x 64 across the
-   whole foot of the right-hand region.
-3. **Is the balance between the scope and the right-hand region right?**
+   contact shapes. **PASS.**
+2. **Tap a contact and then ENGAGE — does targeting feel comfortable with a
+   normal thumb?** Contacts are selected by tapping them on the scope; ENGAGE
+   is 786 x 64 across the whole foot of the right-hand region. **PASS.**
+3. **Does the scope-left / information-right layout feel balanced and
+   natural?** **PASS.**
 
-There is no fourth question about portrait: it is pixel-identical to v0.0.10
-below the status bar in all 24 simulator captures.
+There was no fourth question about portrait: it is pixel-identical to master
+below the status bar in all 24 simulator captures, before and after the
+rebase.
+
+This is the question a bench could not answer. A run of PocketRadar ends after
+five lost tracks, which is sooner than a round trip from the bench to the unit
+and back: taps injected from here find and engage contacts (the record rose
+from 120 to 265 doing it), but nothing here can chase a contact the way a
+thumb does. That is what question 2 was for.
 
 ## Host validation
 
-From a fresh clone of `5881704`, and of master `7d0d1ea` for comparison.
+The original pass, from a fresh clone of `5881704` and of master `7d0d1ea` for
+comparison. The rebase onto Fleet's master was revalidated whole as well, and
+those figures are further down.
 
 | Check | Result |
 | --- | --- |
@@ -127,29 +146,78 @@ key installed for the milestone through the console and removed at the end.
 | Resources | VmRSS 12,800 kB before 216 injected taps and several complete runs, and 12,800 kB after | PASS |
 | Health after | 1 doors-shell; sysd, netd and radiod unchanged; 0 crashloop; 0 crash reports; `shell.log` **0 ERROR, 0 WARN**; no segfault in `dmesg` | PASS |
 
-### What only the panel and a hand can show
+### What only the panel and a hand could show
 
 A capture is the framebuffer, not the glass, and an injected event cannot show
-where a finger lands or how a moving contact feels to chase. The three
-questions at the top of this sheet are what is left.
+where a finger lands or how a moving contact feels to chase. That is what the
+three questions at the top of this sheet were for, and on 2026-09-18 the owner
+answered all three **PASS** with the unit in his hand.
+
+## The rebase onto the master Fleet made
+
+Radar was validated whole on `5881704`, from `7d0d1ea`. Fleet was accepted and
+merged first, so this branch was rebased onto `f577fff` and revalidated. What
+the rebase touched and what it did not:
+
+| | |
+| --- | --- |
+| Radar's own files | **byte-identical**: all 26 blobs — `apps/radar/**`, `tests/radar_*`, `POCKETRADAR.md`, this sheet — have the same hashes they had on `4a77323` |
+| Fleet's files | **untouched**: nothing under `apps/fleet`, `tests/fleet_*` or Fleet's docs differs from master |
+| Conflicts | three documentation files, all resolved by keeping both amendments whole: §21.3's list becomes `… Calendar: §27. Fleet: §28. Radar: §29.`; §28 is kept entire and §29 follows it; the register carries both lines. Fleet's §28 is byte-identical to master's, checked |
+| One extra commit | Fleet and Radar both added an app test to the same `if(POCKETOS_DISPLAY STREQUAL "sdl")` block, and the merge left `radar_scope_test`'s comment without the `if` it used to open. Comment moved; same targets, same conditions |
+
+Revalidated from a fresh clone of `c39b7d4`: `make all` rc 0 with 0 warnings;
+`make test` **3,804 ok, 0 FAIL, 0 warnings**; 21 shell and UI scripts **549
+ok, 0 FAIL**, every script rc 0; `radar_app_test` 191, `radar_scope_test` 132,
+**`fleet_app_test` 605**, and Settings, System, Clock and Calendar all
+unchanged and green; every lint green including `radar_lint` 16 and
+`fleet_lint` 26; riscv64 `make all` rc 0 with 0 first-party warnings, and the
+riscv64 DRM/sysroot shell rc 0 with none at all.
+
+Installed on unit A the same way as before - userspace only, nothing flashed:
+the stripped riscv64 DRM build of `c39b7d4`, 957,104 B, md5 `5d2dcf83…` equal
+on both ends, with only `S90doors-shell` stopped and started and a rollback
+copy of the Fleet build kept first. The shell answers `build c39b7d4`; one
+doors-shell, 0 crashloop, sysd/netd/radiod unchanged, `shell.log` 0 ERROR and
+0 WARN, no segfault in `dmesg`, VmRSS steady at 12,544 kB. Exercised remotely
+before the owner was asked for anything: Radar opened, BEGIN SCAN, a live
+sweep with contacts on the scope, then 108 taps over three rings worked from
+the rim inwards with an ENGAGE after each and the whole set repeated three
+times, ending at RUN COMPLETE. **The record rose from 120 to 265**, which only
+happens by finding, selecting and engaging contacts. A running scan costs
+**14 % of one core**, the same figure measured before the rebase.
+
+The things the rebase could have broken, checked directly: **portrait is 24 of
+24 pixel-identical to master**; the foot corner squares are clear in 12 of 12
+landscape and 12 of 12 portrait captures; the landscape geometry is what
+`radar_app_test` pins; and the tick path is untouched — **a hundred ticks lay
+the app out not once**, the scope is drawn 200 times over them (twice a tick,
+the 20 Hz repaint), and it is 148,996 px against portrait's 270,400.
 
 ## As left
 
-Unit A: **portrait, Automatic, on the launcher**, theme carbon, Normal,
-brightness 100, Wi-Fi **off** exactly as found, 1 doors-shell, 0 crashloop,
-0 crash reports, `shell.log` 0 ERROR 0 WARN. Running build `5881704` — this
-branch — with the rollback copy at `/root/doors-shell.rollback`, which is the
-`99b2374` shell the unit was found with.
+Unit A: **landscape**, on the launcher, theme carbon, Normal, brightness 100,
+Wi-Fi **off** exactly as found, 1 doors-shell, 0 crashloop, 0 crash reports,
+`shell.log` 0 ERROR 0 WARN, 0 segfaults, VmRSS 12,544 kB. Running build
+**`c39b7d4`** — this branch.
 
-**Rollback**: stop `S90doors-shell`, copy `/root/doors-shell.rollback` over
-`/usr/bin/doors-shell`, start it again.
+It is in forced landscape rather than Automatic/portrait because that is how
+it was found at the start of this work, and it is what this gate needed.
 
-This gate and the Fleet one shared the unit in one overnight pass; Fleet was
-validated first, and the unit was then moved to this build. The rollback copy
-is the same for both, and is the state the unit started in.
+Two rollback copies: `/root/doors-shell.0dd9ee1`, the Fleet build the unit
+carried before this one, and `/root/doors-shell.rollback`, the `99b2374` shell
+it was originally found with.
 
-The bench SSH key installed for the milestone is removed, returning
-`/root/.ssh` to the state it was found in.
+**Rollback**: stop `S90doors-shell`, copy either over `/usr/bin/doors-shell`,
+start it again.
 
-Captures and logs: `out/radar-landscape-5881704/hwgate-unitA/` (outside the
-repository).
+`radar/record.v1` now reads **BEST 265 over 51 runs**, up from 120: the remote
+exercise played the game rather than pretending to. `fleet/save.v1` is
+untouched, still the match at Officer turn 4.
+
+The bench SSH key installed for this work is removed, returning `/root/.ssh`
+to the state it was found in.
+
+Captures and logs: `out/radar-rebase/hwgate-unitA/` for this pass, and
+`out/radar-landscape-5881704/hwgate-unitA/` for the original validation. Both
+outside the repository.
