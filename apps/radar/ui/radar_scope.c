@@ -564,6 +564,30 @@ lv_obj_t *radar_scope_create(lv_obj_t *parent, int size)
     return obj;
 }
 
+int radar_scope_size(lv_obj_t *scope)
+{
+    const struct radar_scope *s = state_of(scope);
+
+    return s ? s->centre * 2 : 0;
+}
+
+void radar_scope_set_size(lv_obj_t *scope, int size)
+{
+    struct radar_scope *s = state_of(scope);
+
+    if (!s || size <= 0 || size == s->centre * 2) {
+        return;
+    }
+    /* One stored geometry for the picture and for the tap: draw_face(),
+     * draw_contact(), radar_scope_point() and radar_scope_polar() all read
+     * s->centre and s->radius, so a scope cannot be drawn at one size and
+     * touched at another. */
+    s->centre = size / 2;
+    s->radius = size / 2 - RIM_INSET;
+    lv_obj_set_size(scope, size, size);
+    lv_obj_invalidate(scope);
+}
+
 void radar_scope_bind(lv_obj_t *scope, const struct radar_run *run)
 {
     struct radar_scope *s = state_of(scope);

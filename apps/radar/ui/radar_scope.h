@@ -44,6 +44,14 @@ enum radar_scope_flash {
 
 /* A square object of the given side; the scope is inscribed in it. */
 lv_obj_t *radar_scope_create(lv_obj_t *parent, int size);
+/* The side the scope is drawn at now, or 0. */
+int radar_scope_size(lv_obj_t *scope);
+/* Change that side in place: the object is resized and repainted, and nothing
+ * is rebuilt. The face, the contacts and the conversion between a tap and a
+ * bearing and range all read the one stored geometry, so they cannot fall out
+ * of step. A side that is not positive, or the one already in force, does
+ * nothing. */
+void radar_scope_set_size(lv_obj_t *scope, int size);
 /* The run to paint. The scope only reads it. */
 void radar_scope_bind(lv_obj_t *scope, const struct radar_run *run);
 /* Decorative motion on or off (DS section 12). With it off there is no

@@ -17,7 +17,8 @@
 #include <string.h>
 #include <time.h>
 
-/* Gap between panels (DS section 7). */
+/* Gap between panels (DS section 7). RADAR_COL_GAP, the gutter across the
+ * page, is in radar_app.h because the screens want it too. */
 #define RADAR_PANEL_GAP 22
 
 lv_obj_t *radar_app_screen_container(lv_obj_t *parent)
@@ -37,6 +38,188 @@ lv_obj_t *radar_app_screen_container(lv_obj_t *parent)
     return screen;
 }
 
+lv_obj_t *radar_app_box(lv_obj_t *parent)
+{
+    lv_obj_t *box = lv_obj_create(parent);
+
+    lv_obj_remove_style_all(box);
+    lv_obj_set_flex_align(box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_row(box, RADAR_PANEL_GAP, 0);
+    lv_obj_set_style_pad_column(box, RADAR_COL_GAP, 0);
+    radar_app_box_column(box, 0);
+    return box;
+}
+
+void radar_app_box_split(lv_obj_t *box, int wide)
+{
+    if (!box) {
+        return;
+    }
+    lv_obj_set_flex_flow(box, wide ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_width(box, LV_PCT(100));
+    lv_obj_set_flex_grow(box, 0);
+    lv_obj_set_height(box, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
+}
+
+void radar_app_box_column(lv_obj_t *box, int wide)
+{
+    if (!box) {
+        return;
+    }
+    /* A column is a column in both shapes. Down the page the gap between its
+     * children is the panel gap, so a column nested in a screen stacks exactly
+     * as the screen itself would have and the tall shape is the v0.0.10 one to
+     * the pixel. */
+    lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_width(box, LV_PCT(100));
+    if (wide) {
+        lv_obj_set_flex_grow(box, 1);
+        lv_obj_set_height(box, LV_PCT(100));
+    } else {
+        lv_obj_set_flex_grow(box, 0);
+        lv_obj_set_height(box, LV_SIZE_CONTENT);
+    }
+}
+
+void radar_app_screen_flow(lv_obj_t *screen, int wide, int across)
+{
+    if (!screen) {
+        return;
+    }
+    lv_obj_set_flex_flow(screen, (wide && across) ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(screen, RADAR_PANEL_GAP, 0);
+    lv_obj_set_style_pad_column(screen, RADAR_COL_GAP, 0);
+    if (wide) {
+        /* Tops in line: the scope and what stands beside it start together. */
+        lv_obj_set_flex_align(screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_START);
+        lv_obj_set_height(screen, LV_PCT(100));
+    } else {
+        lv_obj_set_flex_align(screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_height(screen, LV_SIZE_CONTENT);
+    }
+}
+
+/* ---- the shape ---------------------------------------------------------- *
+ *
+ * One rule, in two pure functions, so a test can ask it without building
+ * anything. The scope is square and its side is what the body's height can
+ * hold, never more than the tall shape's - so the wide shape can never
+ * invalidate more pixels per tick than the tall one already does, which is
+ * the whole of this app's frame cost (hardware verification H1).
+ */
+
+int radar_scope_for_height(int32_t h)
+{
+    if (h <= 0) {
+        return 0;
+    }
+    return h > RADAR_SCOPE_TALL ? RADAR_SCOPE_TALL : (int)h;
+}
+
+int radar_shape_is_wide(int32_t w, int32_t h, int *scope_out)
+{
+    int scope = radar_scope_for_height(h);
+
+    if (w <= h) {
+        return 0;               /* not a wide body at all */
+    }
+    if (scope < RADAR_SCOPE_MIN) {
+        return 0;               /* the scope would be too small to work */
+    }
+    if (w < scope + RADAR_COL_GAP + RADAR_SIDE_MIN) {
+        return 0;               /* nothing useful would stand beside it */
+    }
+    if (scope_out) {
+        *scope_out = scope;
+    }
+    return 1;
+}
+
+/* ---- the layout --------------------------------------------------------- *
+ *
+ * The frame is the whole of the body the shell gives the app, and the shape is
+ * chosen from its size alone:
+ *
+ *   TALL (portrait: 528 x 1060 on the reference panel). Both screens are the
+ *   single column of v0.0.10, the scope 520 px, and the frame scrolls what
+ *   does not fit - which is what the shell's body did before.
+ *
+ *   WIDE (landscape: 1192 x 386, once the foot has cleared the rounded
+ *   corners). The scope takes the height and the numbers read off it stand
+ *   beside it: the two cards abreast and ENGAGE across the foot of them.
+ *
+ * Whatever the shape, the frame pads its foot by however far the panel's
+ * rounded corner squares reach into it - measured with pos_display_rect_insets
+ * (DS 22.2, 23.4), never worked out here.
+ *
+ * This runs when the body's box changes and at no other time. It never runs
+ * on a tick: the run's clock steps the engine and invalidates the scope, and
+ * touches no layout at all.
+ */
+
+static void radar_app_layout(struct radar_app *app)
+{
+    lv_area_t box;
+    struct pos_insets in;
+    int32_t w;
+    int32_t h;
+    int scope = RADAR_SCOPE_TALL;
+    int wide;
+
+    if (!app || !app->frame) {
+        return;
+    }
+    lv_obj_get_coords(app->frame, &box);
+    if (lv_area_get_width(&box) <= 0 || lv_area_get_height(&box) <= 0) {
+        return;
+    }
+    in = pos_display_rect_insets(pocketui_display_geometry(), box.x1, box.y1, box.x2, box.y2);
+    /* Nothing the layout is chosen from has changed, so there is nothing to
+     * do. The insets are part of that: the same box on a panel with different
+     * corners leaves a different amount of room. */
+    if (app->laid_out_valid && memcmp(&box, &app->laid_out, sizeof(box)) == 0 &&
+        memcmp(&in, &app->laid_out_insets, sizeof(in)) == 0) {
+        return;
+    }
+    app->laid_out = box;
+    app->laid_out_insets = in;
+    app->laid_out_valid = 1;
+    app->layouts++;
+    lv_obj_set_style_pad_left(app->frame, in.left, 0);
+    lv_obj_set_style_pad_top(app->frame, in.top, 0);
+    lv_obj_set_style_pad_right(app->frame, in.right, 0);
+    lv_obj_set_style_pad_bottom(app->frame, in.bottom, 0);
+    w = lv_area_get_width(&box) - in.left - in.right;
+    h = lv_area_get_height(&box) - in.top - in.bottom;
+    wide = radar_shape_is_wide(w, h, &scope);
+    if (!wide) {
+        scope = RADAR_SCOPE_TALL;
+    }
+    app->shape = (uint8_t)(wide ? RADAR_SHAPE_WIDE : RADAR_SHAPE_TALL);
+    app->scope_size = scope;
+
+    if (wide) {
+        lv_obj_scroll_to_y(app->frame, 0, LV_ANIM_OFF);
+        lv_obj_remove_flag(app->frame, LV_OBJ_FLAG_SCROLLABLE);
+    } else {
+        lv_obj_add_flag(app->frame, LV_OBJ_FLAG_SCROLLABLE);
+    }
+    /* Both screens, not only the visible one: a hidden screen has to be right
+     * the moment it is shown. */
+    radar_screen_scan_relayout(app, wide, scope);
+    radar_screen_result_relayout(app, wide);
+}
+
+/* The frame is the body's content box, so this is the body changing size. */
+static void on_frame_size(lv_event_t *e)
+{
+    radar_app_layout(lv_event_get_user_data(e));
+}
+
 void radar_app_show(struct radar_app *app, enum radar_screen screen)
 {
     int i;
@@ -51,7 +234,9 @@ void radar_app_show(struct radar_app *app, enum radar_screen screen)
     }
     lv_obj_remove_flag(app->screen[screen], LV_OBJ_FLAG_HIDDEN);
     app->current = (uint8_t)screen;
-    lv_obj_scroll_to_y(app->body, 0, LV_ANIM_OFF);
+    /* The frame is the scroller in the tall shape; in the wide one it does not
+     * scroll and this is a no-op. */
+    lv_obj_scroll_to_y(app->frame ? app->frame : app->body, 0, LV_ANIM_OFF);
 
     if (screen == RADAR_SCREEN_RESULT) {
         radar_screen_result_refresh(app);
@@ -299,8 +484,20 @@ static void *radar_create(lv_obj_t *root)
                  radar_store_path());
     }
 
-    app->screen[RADAR_SCREEN_SCAN] = radar_screen_scan_create(app, root);
-    app->screen[RADAR_SCREEN_RESULT] = radar_screen_result_create(app, root);
+    /* Exactly the body's content box, whatever ends up in it, so the shape is
+     * always chosen from the room the shell gives and never from the size of
+     * what the layout itself put there. */
+    app->frame = lv_obj_create(root);
+    lv_obj_remove_style_all(app->frame);
+    lv_obj_set_size(app->frame, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_flex_flow(app->frame, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_scroll_dir(app->frame, LV_DIR_VER);
+    lv_obj_add_event_cb(app->frame, on_frame_size, LV_EVENT_SIZE_CHANGED, app);
+    app->shape = RADAR_SHAPE_TALL;
+    app->scope_size = RADAR_SCOPE_TALL;
+
+    app->screen[RADAR_SCREEN_SCAN] = radar_screen_scan_create(app, app->frame);
+    app->screen[RADAR_SCREEN_RESULT] = radar_screen_result_create(app, app->frame);
 
     app->clock = lv_timer_create(radar_clock, RADAR_TICK_MS, app);
     if (app->clock) {
@@ -325,6 +522,13 @@ static void radar_destroy(void *priv)
     if (app->clock) {
         lv_timer_delete(app->clock);
         app->clock = NULL;
+    }
+    /* Nothing may lay out against a half-freed app: the shell deletes the
+     * body's children after this returns, and a layout pass in between would
+     * reach the screens through a struct that is already gone. */
+    if (app->frame) {
+        lv_obj_remove_event_cb_with_user_data(app->frame, on_frame_size, app);
+        app->frame = NULL;
     }
     free(app->scan);
     free(app->result);

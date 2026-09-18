@@ -267,6 +267,40 @@ endif()
 
 install(TARGETS pocketos-shell RUNTIME DESTINATION bin)
 
+    # PocketRadar in the running app, a finger on the scope (run by
+    # tests/radar_shell_test.sh). The shell is not linked; the test defines the
+    # app.h entry points the game uses and pocketlog's one entry point itself,
+    # and points POCKETOS_STATE_DIR at a directory of its own.
+    add_executable(radar_app_test
+        ${REPO_DIR}/tests/radar_app_test.c
+        ${REPO_DIR}/apps/radar/radar_app.c
+        ${REPO_DIR}/apps/radar/radar_store.c
+        ${REPO_DIR}/apps/radar/engine/radar_rng.c
+        ${REPO_DIR}/apps/radar/engine/radar_rules.c
+        ${REPO_DIR}/apps/radar/engine/radar_score.c
+        ${REPO_DIR}/apps/radar/engine/radar_types.c
+        ${REPO_DIR}/apps/radar/ui/radar_scope.c
+        ${REPO_DIR}/apps/radar/ui/radar_screens.c
+        ../pocketui/pos_app_icons.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(radar_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/radar")
+    target_compile_options(radar_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(radar_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(radar_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(radar_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(radar_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
 # Host-only LVGL-linked tests (run by tests/radar_shell_test.sh). The
 # target build does not need them.
 if(POCKETOS_DISPLAY STREQUAL "sdl")

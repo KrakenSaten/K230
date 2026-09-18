@@ -9,6 +9,7 @@ set -u
 SHELL_BIN=${SHELL_BIN:?set SHELL_BIN to the pocketos-shell binary}
 # Built beside the shell by ui/shell/CMakeLists.txt (host builds).
 RADAR_SCOPE_TEST=${RADAR_SCOPE_TEST:-$(dirname "$SHELL_BIN")/radar_scope_test}
+RADAR_APP_TEST=${RADAR_APP_TEST:-$(dirname "$SHELL_BIN")/radar_app_test}
 export SDL_VIDEODRIVER=dummy
 POCKETOS_RUNTIME_DIR=$(mktemp -d)
 POCKETOS_LOG_DIR=$(mktemp -d)
@@ -41,6 +42,16 @@ if [ -x "$RADAR_SCOPE_TEST" ]; then
     check "scope pixel round trip" "$([ "$rc" = "0" ] && echo 1 || echo 0)"
 else
     echo "FAIL radar_scope_test binary missing: $RADAR_SCOPE_TEST"; failed=$((failed + 1))
+fi
+
+# 0b. The app itself under a finger, in both orientations: the layout, the
+#     scope's tap path at both sizes, and what a tick repaints.
+if [ -x "$RADAR_APP_TEST" ]; then
+    log=$("$RADAR_APP_TEST" 2>&1); rc=$?
+    printf '%s\n' "$log" | grep -E '^FAIL|^ *scope area|^ *over 100 ticks|radar_app_test:'
+    check "the app, the layout and the cost of a tick" "$([ "$rc" = "0" ] && echo 1 || echo 0)"
+else
+    echo "FAIL radar_app_test binary missing: $RADAR_APP_TEST"; failed=$((failed + 1))
 fi
 
 # 1. Every state the design review needs renders, and none of them logs a fault.
@@ -106,6 +117,18 @@ still=$(wc -c < "$OUT/reduced.png")
 check "reduced motion drops the sweep" "$([ "$still" -lt "$motion" ] && echo 1 || echo 0)"
 check "reduced motion still draws the scope" "$([ "$still" -gt 8000 ] && echo 1 || echo 0)"
 rm -f "$POCKETOS_CONFIG_DIR/settings.conf"
+
+# Every state renders in landscape too, with no fault in the log: the layout
+# is the app's own, but the shell is what hosts it.
+for screen in idle scan selected acquired decoy result; do
+    name="land-$screen"
+    export POCKETRADAR_SCREEN="$screen"
+    "$SHELL_BIN" --open radar --rotation landscape \
+        --screenshot "$OUT/$name.png" --exit-after-ms 900 >"$OUT/$name.log" 2>&1
+    check "$screen renders in landscape" "$([ -s "$OUT/$name.png" ] && echo 1 || echo 0)"
+    hasnt "no fault on $screen in landscape" 'ERROR\|Assert\|assert' "$(cat "$OUT/$name.log")"
+done
+unset POCKETRADAR_SCREEN
 
 rm -rf "$OUT" "$POCKETOS_RUNTIME_DIR" "$POCKETOS_LOG_DIR" "$POCKETOS_CONFIG_DIR" \
        "$POCKETOS_STATE_DIR"

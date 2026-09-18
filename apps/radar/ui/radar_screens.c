@@ -25,8 +25,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The shell body is the panel width less its padding on both sides. */
-#define SCOPE_SIZE 520
 /* One segment per leaker the sector can absorb, so the bar counts the lives
  * the player has left rather than an abstract percentage. */
 #define INTEGRITY_SEGMENTS (RADAR_INTEGRITY_MAX / RADAR_INTEGRITY_MISS)
@@ -34,6 +32,15 @@
 
 struct radar_scan_ui {
     lv_obj_t *scope;
+    /* Everything but the scope, and the boxes that hold it. Down the page the
+     * boxes are transparent and stack their children at the panel gap, so the
+     * screen reads exactly as the single column it was; across the page side
+     * carries the two cards abreast with ENGAGE under them, and the scope
+     * moves out of cards to stand first in the row. */
+    lv_obj_t *side;
+    lv_obj_t *cards;
+    lv_obj_t *hud;
+    lv_obj_t *target_card;
     /* HUD strip */
     lv_obj_t *score_caption;
     lv_obj_t *score_value;
@@ -61,6 +68,19 @@ struct radar_scan_ui {
 };
 
 struct radar_result_ui {
+    /* The outcome stays at the top in both shapes; across the page the two
+     * cards stand side by side and the one way on sits under them. */
+    lv_obj_t *cards;
+    lv_obj_t *score_card;
+    lv_obj_t *stats_card;
+    /* The five figures, in two boxes so the card can hold them in one column
+     * down the page and two across it. Five rows of a Design System row are
+     * taller than a landscape body, and a results screen is the last place
+     * anything should have to be scrolled to. */
+    lv_obj_t *stats_a;
+    lv_obj_t *stats_b;
+    lv_obj_t *foot;
+    lv_obj_t *again;
     lv_obj_t *score;
     lv_obj_t *best;
     lv_obj_t *engaged;
@@ -413,7 +433,7 @@ void radar_screen_scan_refresh(struct radar_app *app)
     button_set_text(ui->action, state == RADAR_RUN_ACTIVE ? "ENGAGE" : "BEGIN SCAN");
 }
 
-static void build_hud(struct radar_scan_ui *ui, lv_obj_t *parent)
+static lv_obj_t *build_hud(struct radar_scan_ui *ui, lv_obj_t *parent)
 {
     lv_obj_t *card = pocketui_card(parent);
     lv_obj_t *row = band(card, LV_SIZE_CONTENT, LV_FLEX_ALIGN_SPACE_BETWEEN);
@@ -455,9 +475,10 @@ static void build_hud(struct radar_scan_ui *ui, lv_obj_t *parent)
         lv_obj_set_height(seg, METER_HEIGHT);
         ui->segment[i] = seg;
     }
+    return card;
 }
 
-static void build_target_card(struct radar_scan_ui *ui, lv_obj_t *parent)
+static lv_obj_t *build_target_card(struct radar_scan_ui *ui, lv_obj_t *parent)
 {
     lv_obj_t *card = pocketui_card(parent);
     lv_obj_t *head = band(card, LV_SIZE_CONTENT, LV_FLEX_ALIGN_SPACE_BETWEEN);
@@ -473,6 +494,7 @@ static void build_target_card(struct radar_scan_ui *ui, lv_obj_t *parent)
     ui->range_value = stat(cols, "RANGE", POS_STYLE_VALUE);
     ui->third_value = stat(cols, "LOCK", POS_STYLE_VALUE);
     ui->third_caption = lv_obj_get_child(lv_obj_get_parent(ui->third_value), 0);
+    return card;
 }
 
 lv_obj_t *radar_screen_scan_create(struct radar_app *app, lv_obj_t *parent)
@@ -493,18 +515,55 @@ lv_obj_t *radar_screen_scan_create(struct radar_app *app, lv_obj_t *parent)
     ui->seen_streak = -1;
     ui->seen_level = -1;
 
-    /* Reading order, top to bottom: the numbers that persist, the scope, the
-     * contact being worked, the action. */
-    build_hud(ui, screen);
+    /* Reading order down the page, as it always was: the numbers that
+     * persist, the scope, the contact being worked, the action. The boxes
+     * around them are transparent and add nothing to that order. */
+    ui->side = radar_app_box(screen);
+    ui->cards = radar_app_box(ui->side);
+    ui->hud = build_hud(ui, ui->cards);
 
-    ui->scope = radar_scope_create(screen, SCOPE_SIZE);
+    ui->scope = radar_scope_create(ui->cards, RADAR_SCOPE_TALL);
     radar_scope_bind(ui->scope, &app->run);
     radar_scope_set_motion(ui->scope, !app->reduced_motion);
     radar_scope_set_tap(ui->scope, scan_tap_cb, app);
 
-    build_target_card(ui, screen);
-    ui->action = pocketui_button(screen, "BEGIN SCAN", scan_action_cb, app);
+    ui->target_card = build_target_card(ui, ui->cards);
+    ui->action = pocketui_button(ui->side, "BEGIN SCAN", scan_action_cb, app);
     return screen;
+}
+
+/* The scope is what the player watches, so across the page it takes the
+ * height and stands first; the two cards read off it go abreast beside it,
+ * and ENGAGE takes the whole foot of that region - it is hit often and in a
+ * hurry, and a wide target is the point of having the room.
+ *
+ * The scope is moved between the card column and the screen, never rebuilt:
+ * down the page it belongs between the numbers and the contact card, which is
+ * the v0.0.10 order, and across the page it belongs before both. */
+void radar_screen_scan_relayout(struct radar_app *app, int wide, int scope)
+{
+    struct radar_scan_ui *ui = app ? app->scan : NULL;
+
+    if (!ui) {
+        return;
+    }
+    radar_app_screen_flow(app->screen[RADAR_SCREEN_SCAN], wide, 1);
+    radar_scope_set_size(ui->scope, scope);
+    if (lv_obj_get_parent(ui->scope) != (wide ? app->screen[RADAR_SCREEN_SCAN]
+                                              : ui->cards)) {
+        lv_obj_set_parent(ui->scope, wide ? app->screen[RADAR_SCREEN_SCAN] : ui->cards);
+        lv_obj_move_to_index(ui->scope, wide ? 0 : 1);
+    }
+    radar_app_box_column(ui->side, wide);
+    radar_app_box_split(ui->cards, wide);
+    lv_obj_set_flex_grow(ui->side, wide ? 1 : 0);
+    /* The cards take the height ENGAGE leaves, and share the width. */
+    lv_obj_set_flex_grow(ui->cards, wide ? 1 : 0);
+    lv_obj_set_height(ui->cards, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
+    lv_obj_set_flex_grow(ui->hud, wide ? 1 : 0);
+    lv_obj_set_flex_grow(ui->target_card, wide ? 1 : 0);
+    lv_obj_set_height(ui->hud, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
+    lv_obj_set_height(ui->target_card, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
 }
 
 /* ---- result screen ----------------------------------------------------- */
@@ -557,22 +616,72 @@ lv_obj_t *radar_screen_result_create(struct radar_app *app, lv_obj_t *parent)
 
     pocketui_label(screen, "RUN COMPLETE", POS_STYLE_TITLE);
 
-    card = pocketui_card(screen);
+    ui->cards = radar_app_box(screen);
+    card = pocketui_card(ui->cards);
+    ui->score_card = card;
     lv_obj_set_style_pad_row(card, 6, 0);
     pocketui_label(card, "FINAL SCORE", POS_STYLE_CAPTION);
     ui->score = pocketui_label(card, "0", POS_STYLE_HERO_48);
     ui->best = pocketui_label(card, " ", POS_STYLE_CAPTION);
 
-    card = pocketui_card(screen);
-    ui->engaged = pocketui_kv_row(card, "Targets engaged", "0");
-    ui->mistakes = pocketui_kv_row(card, "Decoys engaged", "0");
-    ui->missed = pocketui_kv_row(card, "Tracks lost", "0");
-    ui->streak = pocketui_kv_row(card, "Best streak", "0");
-    ui->level = pocketui_kv_row(card, "Level reached", "0");
+    card = pocketui_card(ui->cards);
+    ui->stats_card = card;
+    ui->stats_a = radar_app_box(card);
+    ui->stats_b = radar_app_box(card);
+    /* Rows inside a card sit against each other, dividers and all. */
+    lv_obj_set_style_pad_row(ui->stats_a, 0, 0);
+    lv_obj_set_style_pad_row(ui->stats_b, 0, 0);
+    ui->engaged = pocketui_kv_row(ui->stats_a, "Targets engaged", "0");
+    ui->mistakes = pocketui_kv_row(ui->stats_a, "Decoys engaged", "0");
+    ui->missed = pocketui_kv_row(ui->stats_a, "Tracks lost", "0");
+    ui->streak = pocketui_kv_row(ui->stats_b, "Best streak", "0");
+    ui->level = pocketui_kv_row(ui->stats_b, "Level reached", "0");
     /* The last row sits on the card's own bottom padding, so its divider
      * would draw a line to nowhere. */
     lv_obj_remove_style(lv_obj_get_parent(ui->level), pos_style(POS_STYLE_DIVIDER), 0);
 
-    pocketui_button(screen, "NEW RUN", result_again_cb, app);
+    ui->foot = radar_app_box(screen);
+    ui->again = pocketui_button(ui->foot, "NEW RUN", result_again_cb, app);
     return screen;
+}
+
+/* The outcome over everything, the two accounts of it side by side, and the
+ * one way on under them - the same shape the other landscape screens take. */
+void radar_screen_result_relayout(struct radar_app *app, int wide)
+{
+    struct radar_result_ui *ui = app ? app->result : NULL;
+
+    if (!ui) {
+        return;
+    }
+    /* The screen keeps its column: the heading stays over everything. */
+    radar_app_screen_flow(app->screen[RADAR_SCREEN_RESULT], wide, 0);
+    radar_app_box_split(ui->cards, wide);
+    radar_app_box_split(ui->foot, wide);
+    lv_obj_set_flex_grow(ui->cards, wide ? 1 : 0);
+    lv_obj_set_height(ui->cards, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
+    lv_obj_set_flex_grow(ui->foot, 0);
+    lv_obj_set_height(ui->foot, LV_SIZE_CONTENT);
+    lv_obj_set_flex_grow(ui->score_card, wide ? 1 : 0);
+    lv_obj_set_flex_grow(ui->stats_card, wide ? 1 : 0);
+    lv_obj_set_width(ui->score_card, wide ? LV_PCT(50) : LV_PCT(100));
+    lv_obj_set_width(ui->stats_card, wide ? LV_PCT(50) : LV_PCT(100));
+    lv_obj_set_height(ui->score_card, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
+    lv_obj_set_height(ui->stats_card, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
+
+    /* The figures go into two columns inside their card across the page. In
+     * one column the last row of the first three would carry a divider into
+     * the gutter beside it, a line to nowhere, so it loses it there and has
+     * it back down the page. */
+    lv_obj_set_flex_flow(ui->stats_card, wide ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_column(ui->stats_card, RADAR_COL_GAP, 0);
+    radar_app_box_column(ui->stats_a, wide);
+    radar_app_box_column(ui->stats_b, wide);
+    lv_obj_set_height(ui->stats_a, LV_SIZE_CONTENT);
+    lv_obj_set_height(ui->stats_b, LV_SIZE_CONTENT);
+    if (wide) {
+        lv_obj_remove_style(lv_obj_get_parent(ui->missed), pos_style(POS_STYLE_DIVIDER), 0);
+    } else {
+        pos_style_add(lv_obj_get_parent(ui->missed), POS_STYLE_DIVIDER, 0);
+    }
 }
