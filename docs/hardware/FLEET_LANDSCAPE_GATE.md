@@ -108,7 +108,7 @@ one arrangement:
   the body: each is exactly as tall as what it holds, and the two are given the
   same height so that they close on the same line, well clear of the foot. The
   room left over goes to FIRE, which is now **790 x 95** rather than 385 x 64 —
-  2.3 times the area — spanning the whole region beside the board with its foot
+  three times the area — spanning the whole region beside the board with its foot
   level with the board's.
 - **Weight follows priority.** The board is the largest object on the screen by
   area; your own waters are the smallest of the three and drop from 26 px cells
