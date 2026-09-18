@@ -59,9 +59,9 @@ destroy=$(sed -n '/^static void settings_destroy/,/^}/p' "$APP")
 check "and nothing calls back into the app once it is freed" \
     "$(printf '%s\n' "$destroy" | grep -q 'lv_obj_remove_event_cb_with_user_data(a->frame, on_frame_size, a);' &&
        printf '%s\n' "$destroy" | grep -q 'lv_async_call_cancel(reveal_field_later, a);' && echo 1 || echo 0)"
-hits=$(code "$APP" | grep -nE 'corners|top_left|top_right|bottom_left|bottom_right')
-check "the corner clearance is PocketUI's one rule, read from the display geometry" \
-    "$(code "$APP" | grep -q 'pos_display_rect_insets(pocketui_display_geometry(),' && [ -z "$hits" ] && echo 1 || echo 0)"
+hits=$(code "$APP" | grep -nE 'corners|top_left|top_right|bottom_left|bottom_right|pos_display_rect_insets')
+check "the corner clearance is PocketUI's one rule, taken through the shared layout guard" \
+    "$(code "$APP" | grep -q 'pocketui_layout_begin(&a->layout_guard, a->frame' && [ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
 check "the wide shape keeps both columns at least portrait-wide" \
     "$(code "$APP" | grep -q 'w > h && w >= 2 \* SETTINGS_COLUMN_W + SETTINGS_PANEL_GAP' && echo 1 || echo 0)"

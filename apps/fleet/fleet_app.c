@@ -226,47 +226,40 @@ int fleet_shape_is_wide(int32_t w, int32_t h, int *cell_w_out, int *cell_h_out)
  *   correctable, and FIRE is still the only thing that commits a shot.
  *
  * Whatever the shape, the frame pads itself by however far the panel's rounded
- * corner squares reach into it - measured with pos_display_rect_insets
+ * corner squares reach into it - handed over by the shared layout guard
  * (DS §22.2, §23.4), never worked out here - so nothing at the foot is cut.
  */
 
 static void fleet_app_layout(struct fleet_app *app)
 {
-    lv_area_t box;
     struct pos_insets in;
+    const lv_area_t *box;
     int32_t w;
     int32_t h;
     int cell = FLEET_CELL_TALL;
     int cell_w = FLEET_CELL_TALL;
     int wide;
 
-    if (!app || !app->frame) {
+    if (!app) {
         return;
     }
-    lv_obj_get_coords(app->frame, &box);
-    if (lv_area_get_width(&box) <= 0 || lv_area_get_height(&box) <= 0) {
+    /* No frame, nothing to lay out in, or nothing that the layout is chosen
+     * from has changed - a pass that ran anyway would be the whole cost of
+     * this app repeated on every one. PocketUI owns that decision for every
+     * responsive app, insets included: the same box on a panel with different
+     * corners leaves a different amount of room, so a box alone is not enough
+     * to say the answer is unchanged. */
+    if (!pocketui_layout_begin(&app->layout_guard, app->frame, &in)) {
         return;
     }
-    in = pos_display_rect_insets(pocketui_display_geometry(), box.x1, box.y1, box.x2, box.y2);
-    /* Nothing that the layout is chosen from has changed, so there is nothing
-     * to do - and a layout pass that ran anyway would be the whole cost of
-     * this app repeated on every one. The insets are part of that: the same
-     * box on a panel with different corners leaves a different amount of
-     * room, so a box alone is not enough to say the answer is unchanged. */
-    if (app->laid_out_valid && memcmp(&box, &app->laid_out, sizeof(box)) == 0 &&
-        memcmp(&in, &app->laid_out_insets, sizeof(in)) == 0) {
-        return;
-    }
-    app->laid_out = box;
-    app->laid_out_insets = in;
-    app->laid_out_valid = 1;
+    box = &app->layout_guard.area;
     app->layouts++;
     lv_obj_set_style_pad_left(app->frame, in.left, 0);
     lv_obj_set_style_pad_top(app->frame, in.top, 0);
     lv_obj_set_style_pad_right(app->frame, in.right, 0);
     lv_obj_set_style_pad_bottom(app->frame, in.bottom, 0);
-    w = lv_area_get_width(&box) - in.left - in.right;
-    h = lv_area_get_height(&box) - in.top - in.bottom;
+    w = lv_area_get_width(box) - in.left - in.right;
+    h = lv_area_get_height(box) - in.top - in.bottom;
     wide = fleet_shape_is_wide(w, h, &cell_w, &cell);
     if (!wide) {
         cell = FLEET_CELL_TALL;

@@ -60,6 +60,33 @@ if [ -x "$BIN" ]; then
 else
     check "display_touch_test binary present ($BIN)" 0
 fi
+BIN=${POCKETUI_LAYOUT_TEST:-$(dirname "$SHELL_BIN")/pocketui_layout_test}
+if [ -x "$BIN" ]; then
+    log=$("$BIN" 2>&1); rc=$?
+    printf '%s\n' "$log" | grep -E '^FAIL|pocketui_layout_test:'
+    check "the shared layout guard compares every coordinate and every inset, and a degenerate frame changes nothing" \
+        "$(printf '%s\n' "$log" | grep -qE '^pocketui_layout_test: [0-9]+ checks, 0 failure' && echo 1 || echo 0)"
+else
+    check "pocketui_layout_test binary present ($BIN)" 0
+fi
+# Every responsive app opens its layout pass with that one guard, none of them
+# keeps a private copy of the comparison, and the corner clearance is worked
+# out in exactly one place (DS §21.3, §22.2).
+RESPONSIVE="apps/calculator/calc_app.c apps/notes/notes_app.c apps/settings/settings_app.c
+            apps/system/system_app.c apps/clock/clock_app.c apps/calendar/cal_app.c
+            apps/fleet/fleet_app.c apps/radar/radar_app.c"
+for f in $RESPONSIVE; do
+    check "$(basename "$f") opens its layout pass with the shared guard" \
+        "$(grep -q 'pocketui_layout_begin(&' "$f" && echo 1 || echo 0)"
+done
+hits=$(grep -rnE 'memcmp\(&(box|area|in|insets)' ui apps --include='*.c')
+check "and no app keeps a private layout-guard comparison of its own" \
+    "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -5
+hits=$(grep -rln 'pos_display_rect_insets(' ui apps --include='*.c' | grep -v '^ui/pocketui/pos_display.c$' | tr '\n' ' ')
+check "one caller works the corner clearance out, and it is PocketUI ($hits)" \
+    "$([ "$hits" = "ui/pocketui/pocketui.c " ] && echo 1 || echo 0)"
+
 check "only shell_display.c reads POCKETOS_DRM_ROTATION" \
     "$([ "$(grep -rl 'POCKETOS_DRM_ROTATION"' ui apps --include='*.c' | tr '\n' ' ')" = "ui/shell/shell_display.c " ] && echo 1 || echo 0)"
 check "the DRM backend rotates the plane from the geometry it is given" \

@@ -156,9 +156,9 @@ check "they are shaped again when the body changes size" \
 check "nothing calls back into the app once it is freed" \
     "$(sed -n '/^static void calendar_destroy/,/^}/p' "$APP" |
        grep -q 'lv_obj_remove_event_cb_with_user_data(a->frame, on_frame_size, a);' && echo 1 || echo 0)"
-hits=$(code | grep -nE 'corners|top_left|top_right|bottom_left|bottom_right')
-check "the corner clearance is PocketUI's one rule, read from the display geometry" \
-    "$(grep -q 'pos_display_rect_insets(pocketui_display_geometry(),' "$APP" && [ -z "$hits" ] && echo 1 || echo 0)"
+hits=$(code | grep -nE 'corners|top_left|top_right|bottom_left|bottom_right|pos_display_rect_insets')
+check "the corner clearance is PocketUI's one rule, taken through the shared layout guard" \
+    "$(grep -q 'pocketui_layout_begin(&a->layout_guard, a->frame' "$APP" && [ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
 check "the wide shape keeps both halves portrait-wide and the weeks a paired button tall" \
     "$(grep -q 'w > h && w >= 2 \* CAL_COLUMN_W + POCKETUI_PAD && h >= WIDE_MONTH_MIN_H' "$APP" &&

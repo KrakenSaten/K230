@@ -67,10 +67,10 @@ struct radar_app {
     lv_obj_t *frame;
     /* What the shape in force was chosen from: the box, and how far the
      * panel's unsafe area reaches into it. Both, because a panel with
-     * different corners gives the same box a different amount of room. */
-    lv_area_t laid_out;
-    struct pos_insets laid_out_insets;
-    uint8_t laid_out_valid;
+     * different corners gives the same box a different amount of room.
+     * PocketUI owns the comparison, and every responsive app makes it the
+     * same way (pocketui_layout_begin). */
+    struct pocketui_layout_guard layout_guard;
     /* How many times the layout has actually been worked out. A pass that
      * finds nothing changed does not count, which is what makes "only on a
      * change, never on a tick" something a test can hold the app to. */

@@ -48,10 +48,11 @@ UI="apps/fleet/fleet_app.c apps/fleet/ui/fleet_screen_battle.c     apps/fleet/ui
 # 4. The shape comes from the body's size. Nothing in the app may ask which way
 #    up the display is, or reach for the rotation the shell owns.
 check "the app never asks for the orientation" "$UI apps/fleet/ui/fleet_grid.c"       'pocketos_shell_orientation|pocketos_rotation_mode|POCKETOS_ROTATION|lv_display_get_rotation'
-check "nor works the corner clearance out for itself" "$UI"       'corners\.|top_left|bottom_left|bottom_right|top_right'
-want "the corner clearance comes from the platform rule" "apps/fleet/fleet_app.c"      'pos_display_rect_insets'
+check "nor works the corner clearance out for itself" "$UI"       'corners\.|top_left|bottom_left|bottom_right|top_right|pos_display_rect_insets'
+check "nor keeps a layout-guard comparison of its own" "apps/fleet/fleet_app.c"       'memcmp\(&(box|area|in|insets)'
+want "the corner clearance comes from the platform rule, through PocketUI" "apps/fleet/fleet_app.c"      'pocketui_layout_begin\(&app->layout_guard, app->frame'
 want "and the shape from the body's own box" "apps/fleet/fleet_app.c"      'LV_EVENT_SIZE_CHANGED'
-want "a repeated layout pass is refused" "apps/fleet/fleet_app.c"      'memcmp\(&box, &app->laid_out'
+want "a layout pass that found nothing changed is not counted" "apps/fleet/fleet_app.c"      'app->layouts\+\+;'
 
 # 5. One stored cell size per board. A screen may ask the grid to change size;
 #    it may not draw or hit a cell itself.

@@ -139,10 +139,10 @@ check "the layout never asks which way the display is turned" "$([ -z "$hits" ] 
 check "it is redone when the body changes size" \
     "$(code $APP | grep -q 'LV_EVENT_SIZE_CHANGED, a);' && echo 1 || echo 0)"
 check "the corner clearance is read from the display geometry" \
-    "$(code $APP | grep -q 'pocketui_display_geometry()' && echo 1 || echo 0)"
-hits=$(code $APP | grep -nE 'corners|top_left|top_right|bottom_left|bottom_right')
+    "$(code $APP | grep -q 'pocketui_layout_begin(&a->layout_guard, a->frame' && echo 1 || echo 0)"
+hits=$(code $APP | grep -nE 'corners|top_left|top_right|bottom_left|bottom_right|pos_display_rect_insets')
 check "by PocketUI's one rule for it, not a copy of the app's own" \
-    "$(code $APP | grep -q 'pos_display_rect_insets(pocketui_display_geometry(),' && [ -z "$hits" ] && echo 1 || echo 0)"
+    "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
 check "and the wide layout is held to the touch minimum" \
     "$(code $APP | grep -q 'PAD_MIN_H (CALC_PAD_ROWS \* POCKETUI_TOUCH_MIN' && echo 1 || echo 0)"

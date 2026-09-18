@@ -69,7 +69,9 @@
 struct cal_app {
     struct cal_view view;
     lv_obj_t *frame;    /* the app's own box in the body: everything below */
-    lv_area_t laid_out; /* the frame's area when the shape was last chosen */
+    /* What the layout in force was chosen from, and the one place that
+     * decides whether a pass is needed at all (pocketui.h). */
+    struct pocketui_layout_guard layout_guard;
     bool wide;
     lv_obj_t *nav;   /* previous, the month's name and next */
     lv_obj_t *month_label;
@@ -515,24 +517,24 @@ static void shape_wide(struct cal_app *a)
 
 static void layout(struct cal_app *a)
 {
-    lv_area_t box;
     struct pos_insets in;
+    const lv_area_t *box;
     int32_t w;
     int32_t h;
 
-    lv_obj_get_coords(a->frame, &box);
-    if (lv_area_get_width(&box) <= 0 || lv_area_get_height(&box) <= 0 ||
-        memcmp(&box, &a->laid_out, sizeof(box)) == 0) {
+    /* Nothing to lay out in, or nothing the layout is chosen from has
+     * changed: PocketUI owns that decision for every responsive app, and
+     * hands back the corner clearance the platform rule gives this box. */
+    if (!pocketui_layout_begin(&a->layout_guard, a->frame, &in)) {
         return;
     }
-    a->laid_out = box;
-    in = pos_display_rect_insets(pocketui_display_geometry(), box.x1, box.y1, box.x2, box.y2);
+    box = &a->layout_guard.area;
     lv_obj_set_style_pad_left(a->frame, in.left, 0);
     lv_obj_set_style_pad_top(a->frame, in.top, 0);
     lv_obj_set_style_pad_right(a->frame, in.right, 0);
     lv_obj_set_style_pad_bottom(a->frame, in.bottom, 0);
-    w = lv_area_get_width(&box) - in.left - in.right;
-    h = lv_area_get_height(&box) - in.top - in.bottom;
+    w = lv_area_get_width(box) - in.left - in.right;
+    h = lv_area_get_height(box) - in.top - in.bottom;
     a->wide = w > h && w >= 2 * CAL_COLUMN_W + POCKETUI_PAD && h >= WIDE_MONTH_MIN_H;
     shape_month(a);
     if (a->wide) {
