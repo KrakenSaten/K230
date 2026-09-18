@@ -446,6 +446,29 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     endif()
     target_link_libraries(pocketui_tile_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
+    # The shared responsive-layout guard every responsive app opens its layout
+    # pass with (run by tests/display_geometry_shell_test.sh). DS 21.3, 22.2.
+    add_executable(pocketui_layout_test
+        ${REPO_DIR}/tests/pocketui_layout_test.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(pocketui_layout_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core")
+    target_compile_options(pocketui_layout_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(pocketui_layout_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(pocketui_layout_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(pocketui_layout_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(pocketui_layout_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
     # Display and touch rotated together through LVGL's real evdev driver (run
     # by tests/display_geometry_shell_test.sh). Linux only: it needs the evdev
     # driver the SDL build enables there.

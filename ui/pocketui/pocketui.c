@@ -5,6 +5,8 @@
  */
 #include "pocketui.h"
 
+#include <string.h>
+
 /* Until the shell says otherwise: the reference panel, upright, every pixel
  * visible - so a test or tool that builds widgets without a shell lays out
  * exactly as before safe areas existed. */
@@ -51,6 +53,61 @@ void pocketui_apply_bar_insets(lv_obj_t *bar, enum pos_edge edge)
     lv_obj_set_style_pad_right(bar, LV_MAX(right, in.right), LV_PART_MAIN);
     lv_obj_set_style_pad_top(bar, LV_MAX(top, in.top), LV_PART_MAIN);
     lv_obj_set_style_pad_bottom(bar, LV_MAX(bottom, in.bottom), LV_PART_MAIN);
+}
+
+/* ---- Responsive layout guard (DS §21.3, §22.2) ------------------------ */
+
+/* Field by field, not memcmp: lv_area_t and struct pos_insets are plain
+ * coordinate records, but a memcmp compares whatever padding the compiler put
+ * between or after their members as well, and padding is not part of the
+ * answer. What the layout was chosen from is these eight numbers. */
+static bool area_same(const lv_area_t *a, const lv_area_t *b)
+{
+    return a->x1 == b->x1 && a->y1 == b->y1 && a->x2 == b->x2 && a->y2 == b->y2;
+}
+
+static bool insets_same(const struct pos_insets *a, const struct pos_insets *b)
+{
+    return a->left == b->left && a->top == b->top && a->right == b->right &&
+           a->bottom == b->bottom;
+}
+
+bool pocketui_layout_begin(struct pocketui_layout_guard *guard, lv_obj_t *frame,
+                           struct pos_insets *insets)
+{
+    lv_area_t box;
+    struct pos_insets in;
+
+    if (!guard || !frame || !insets) {
+        return false;
+    }
+    lv_obj_get_coords(frame, &box);
+    /* No area yet: nothing to lay out in, and nothing worth remembering
+     * either. The guard is left exactly as it was, so a first real pass is
+     * still treated as the first one. */
+    if (lv_area_get_width(&box) <= 0 || lv_area_get_height(&box) <= 0) {
+        return false;
+    }
+    in = pos_display_rect_insets(pocketui_display_geometry(), box.x1, box.y1, box.x2, box.y2);
+    /* Nothing the layout is chosen from has changed, so there is nothing to
+     * do - and a pass that ran anyway would be the whole cost of the app's
+     * layout repeated on every one. */
+    if (guard->valid && area_same(&box, &guard->area) && insets_same(&in, &guard->insets)) {
+        return false;
+    }
+    guard->area = box;
+    guard->insets = in;
+    guard->valid = true;
+    *insets = in;
+    return true;
+}
+
+void pocketui_layout_guard_reset(struct pocketui_layout_guard *guard)
+{
+    if (!guard) {
+        return;
+    }
+    memset(guard, 0, sizeof(*guard));
 }
 
 lv_obj_t *pocketui_card(lv_obj_t *parent)

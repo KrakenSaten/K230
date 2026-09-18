@@ -42,6 +42,50 @@ const struct pos_display_geometry *pocketui_display_geometry(void);
  * that already clears the corners is left as it is. */
 void pocketui_apply_bar_insets(lv_obj_t *bar, enum pos_edge edge);
 
+/* ---- Responsive layout guard (DS §21.3, §22.2) ------------------------ */
+
+/* What a responsive app's layout was last chosen from: the frame's box, and
+ * how far the panel's unsafe area reaches into it. Both, because the same box
+ * on a panel with different corners leaves a different amount of room, so a
+ * box alone is not enough to say the answer is unchanged.
+ *
+ * This is PocketUI layout state, not display geometry: pos_display.h stays
+ * pure C and knows nothing of LVGL or of who last laid anything out. The
+ * guard owns change detection and nothing else - which shape an app takes
+ * from the room it is given, and what it does with the insets, stays in the
+ * app. */
+struct pocketui_layout_guard {
+    lv_area_t area;
+    struct pos_insets insets;
+    bool valid;
+};
+
+/* Open a layout pass on frame. Returns false, and the caller lays nothing
+ * out, when there is nothing to do:
+ *
+ *   - no guard, no frame or nowhere to write the insets;
+ *   - the frame has no area yet (a fresh object, or one the parent has not
+ *     sized), which is nothing to lay out in and nothing worth remembering:
+ *     the guard is left as it was, so the next pass is still the first one;
+ *   - the box and the insets are both exactly what the last pass was chosen
+ *     from, so a pass that ran anyway would repeat the whole cost of the
+ *     app's layout for no change at all.
+ *
+ * Otherwise it records the box and the insets as what this pass is chosen
+ * from, writes the insets to *insets, and returns true. The insets are
+ * pos_display_rect_insets() over the current display geometry, so every app
+ * takes the corner clearance from the one platform rule rather than working
+ * it out for itself. The box the pass was chosen from is guard->area.
+ *
+ * A guard must be zeroed before its first use: an app struct cleared when the
+ * app starts, or pocketui_layout_guard_reset(). */
+bool pocketui_layout_begin(struct pocketui_layout_guard *guard, lv_obj_t *frame,
+                           struct pos_insets *insets);
+
+/* Forget what was laid out, so the next pocketui_layout_begin() behaves as
+ * the first one on a fresh guard. */
+void pocketui_layout_guard_reset(struct pocketui_layout_guard *guard);
+
 /* Panel: hairline-bordered container with 20 px padding, vertical flex. */
 lv_obj_t *pocketui_card(lv_obj_t *parent);
 /* Launcher tile (C7): slab, symbol icon top-left, row-title label bottom-left. */
