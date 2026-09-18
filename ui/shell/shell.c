@@ -1180,6 +1180,20 @@ int main(int argc, char **argv)
         LOG_WARN("clock: stored alarms could not be read; starting with none");
         break;
     }
+    /* Whether this start is a continuation. Worth a line either way: the
+     * handoff is the only evidence that a rotation kept a running stopwatch
+     * or countdown, which is otherwise invisible in a log. */
+    switch (clock_runtime_handoff_result()) {
+    case 0:
+        LOG_INFO("clock: runtime state taken from the shell before this one");
+        break;
+    case 1:
+        break; /* the first shell of this boot, or the last one crashed */
+    default:
+        LOG_WARN("clock: the handoff from the shell before this one could not "
+                 "be used; the stored alarms stand on their own");
+        break;
+    }
 
     if (open_id) {
         size_t k;
@@ -1231,6 +1245,24 @@ int main(int argc, char **argv)
     /* The open app is closed the ordinary way, so it persists what it holds
      * exactly as it would on any other exit. */
     app_close();
+    /* And then the one thing the app cannot persist, because it is not the
+     * app's: a running stopwatch, a running countdown, a snooze. They are
+     * elapsed time on the monotonic clock, which an exec does not disturb -
+     * so when this exit is a rotation restarting the shell in place, the
+     * clock the owner was watching carries on across it instead of starting
+     * again from an empty engine (clock_runtime.h). The handoff is
+     * boot-scoped, so a power cycle still ends all three, as it must. */
+    switch (clock_runtime_handoff_save()) {
+    case 0:
+        LOG_INFO("clock: runtime state handed to the next shell");
+        break;
+    case 1:
+        break; /* an idle clock: nothing to hand on, and no file left behind */
+    default:
+        LOG_WARN("clock: runtime state could not be handed on (%s); a running "
+                 "stopwatch, countdown or snooze ends here", strerror(errno));
+        break;
+    }
     /* Before anything else on the way out: this is what puts the keyboard's
      * pin mux back the way it was found. */
     shell_kbd_destroy();

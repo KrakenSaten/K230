@@ -75,6 +75,38 @@ for want in 'fsync' 'rename' '\.tmp'; do
     check "the store write uses $want" \
         "$(grep -qE "$want" apps/clock/clock_store.c && echo 1 || echo 0)"
 done
+
+# The restart handoff (clock_store.h). Two files, two lifetimes, and the
+# difference between them is which directory each is in: the settings outlive
+# a power cut, and the handoff must not, because every instant in it is
+# measured on a clock that starts again at the boot.
+check "the settings file is under the state directory" \
+    "$(grep -q 'getenv("POCKETOS_STATE_DIR")' apps/clock/clock_store.c && echo 1 || echo 0)"
+check "and the handoff under the runtime one, which is a tmpfs" \
+    "$(grep -q 'getenv("POCKETOS_RUNTIME_DIR")' apps/clock/clock_store.c &&
+       grep -q '#define CLOCK_HANDOFF_DEFAULT_DIR "/run/pocketos"' apps/clock/clock_store.h &&
+       echo 1 || echo 0)"
+check "the handoff is refused when the monotonic clock has gone backwards" \
+    "$(grep -q 'now->mono_ms < v\[0\]' apps/clock/clock_store.c && echo 1 || echo 0)"
+check "it is consumed, so one exit hands off to one start" \
+    "$(sed -n '/^int clock_handoff_load/,/^}/p' apps/clock/clock_store.c |
+       grep -q 'unlink(path);' && echo 1 || echo 0)"
+check "a countdown whose deadline went by comes back expired, never running" \
+    "$(sed -n '/^static void handoff_settle/,/^}/p' apps/clock/clock_store.c |
+       grep -q 'CLOCK_TIMER_EXPIRED' && echo 1 || echo 0)"
+# It is the shell's way out and nothing else. A tick that wrote it would put a
+# write behind every second the device is awake.
+check "only the shell writes the handoff" \
+    "$([ "$(grep -rl 'clock_runtime_handoff_save' apps/ ui/ 2>/dev/null |
+            grep -v 'apps/clock/clock_runtime\.' | tr '\n' ' ')" = "ui/shell/shell.c " ] &&
+       echo 1 || echo 0)"
+check "and no app does" \
+    "$(grep -rq 'clock_handoff_save\|clock_handoff_load' apps/clock/clock_app.c && echo 0 || echo 1)"
+hits=$(sed -n '/^static void on_tick/,/^}/p' ui/shell/shell.c | grep -nE 'handoff')
+check "the shell's tick does not write it" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits"
+check "the shell writes it once, on the way out" \
+    "$([ "$(grep -c 'clock_runtime_handoff_save' ui/shell/shell.c)" = "1" ] && echo 1 || echo 0)"
 tick=$(sed -n '/^static void on_refresh/,/^}/p' apps/clock/clock_app.c)
 check "the refresh timer exists" "$([ -n "$tick" ] && echo 1 || echo 0)"
 hits=$(printf '%s' "$tick" | grep -nE 'clock_store_save|clock_runtime_save|save\(|clock_runtime_step')

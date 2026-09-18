@@ -73,6 +73,51 @@ check "Clock reports itself open" \
 # when they change, and a stopwatch is never written at all.
 check "just opening Clock writes nothing to the store" \
     "$([ -z "$(ls -A "$STATE" 2>/dev/null)" ] && echo 1 || echo 0)"
+# Nor a restart handoff: this shell had no alarm, no stopwatch and no
+# countdown, so it has nothing that only it knew (clock_store.h).
+check "and leaves no restart handoff behind" \
+    "$([ ! -e "$RUN/clock/restart.state" ] && echo 1 || echo 0)"
+check "and says nothing about one, because there was nothing to say" \
+    "$(cat "$LOGD/log/shell.log" "$LOGD/out" 2>/dev/null |
+       grep -q 'clock: runtime state' && echo 0 || echo 1)"
+rm -rf "$RUN" "$LOGD" "$CFG" "$STATE"
+
+# And the other way round: a shell with an alarm in its store knows something
+# about today that the next one would otherwise work out from scratch, so it
+# does leave a handoff - and the shell after it takes it (clock_store.h).
+RUN=$(mktemp -d); LOGD=$(mktemp -d); CFG=$(mktemp -d); STATE=$(mktemp -d)
+mkdir -p "$STATE/clock"
+printf 'pocketclock 1\ntimer 0\nalarm 1 7 30 1 Wake up\n' >"$STATE/clock/clock.conf"
+SDL_VIDEODRIVER=dummy POCKETOS_RUNTIME_DIR="$RUN" POCKETOS_LOG_DIR="$LOGD" \
+POCKETOS_CONFIG_DIR="$CFG" POCKETOS_STATE_DIR="$STATE" \
+    "$SHELL_BIN" --exit-after-ms 2500 >"$LOGD/out" 2>&1
+rc=$?
+check "a shell with an alarm runs and stops cleanly" "$([ "$rc" = "0" ] && echo 1 || echo 0)"
+check "and logs no fault" "$(grep -qE ' ERROR |assert' "$LOGD/out" && echo 0 || echo 1)"
+check "it hands its clock runtime to the next shell" \
+    "$(cat "$LOGD/log/shell.log" "$LOGD/out" 2>/dev/null |
+       grep -q 'clock: runtime state handed to the next shell' && echo 1 || echo 0)"
+check "in the runtime directory, not the state one" \
+    "$([ -s "$RUN/clock/restart.state" ] && [ ! -e "$STATE/clock/restart.state" ] &&
+       echo 1 || echo 0)"
+check "and the handoff says what format it is" \
+    "$(head -1 "$RUN/clock/restart.state" 2>/dev/null | grep -q '^pocketclock-restart 1$' &&
+       echo 1 || echo 0)"
+check "the alarms are still the ones in the settings file" \
+    "$(grep -q 'alarm 1 7 30 1 Wake up' "$STATE/clock/clock.conf" && echo 1 || echo 0)"
+
+# The next shell in the same boot takes it, and it is gone afterwards: one
+# exit hands off to exactly one start.
+SDL_VIDEODRIVER=dummy POCKETOS_RUNTIME_DIR="$RUN" POCKETOS_LOG_DIR="$LOGD" \
+POCKETOS_CONFIG_DIR="$CFG" POCKETOS_STATE_DIR="$STATE" \
+    "$SHELL_BIN" --exit-after-ms 2500 >"$LOGD/out2" 2>&1
+rc=$?
+check "the shell after it runs too" "$([ "$rc" = "0" ] && echo 1 || echo 0)"
+check "and took the handoff" \
+    "$(cat "$LOGD/log/shell.log" "$LOGD/out2" 2>/dev/null |
+       grep -q 'clock: runtime state taken from the shell before this one' && echo 1 || echo 0)"
+check "leaving one of its own for the next" \
+    "$([ -s "$RUN/clock/restart.state" ] && echo 1 || echo 0)"
 rm -rf "$RUN" "$LOGD" "$CFG" "$STATE"
 
 echo "clock_shell_test: $failed failure(s)"

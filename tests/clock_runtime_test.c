@@ -24,6 +24,7 @@
 static int failed;
 static int checks;
 static char root[128];
+static char run_root[128];
 static int ring_changes;
 
 static void check(const char *what, int ok)
@@ -55,6 +56,16 @@ static void wipe(void)
     char cmd[256];
 
     snprintf(cmd, sizeof(cmd), "rm -rf '%s'", root);
+    if (system(cmd) != 0) {
+        /* nothing there yet */
+    }
+}
+
+static void wipe_run(void)
+{
+    char cmd[256];
+
+    snprintf(cmd, sizeof(cmd), "rm -rf '%s'", run_root);
     if (system(cmd) != 0) {
         /* nothing there yet */
     }
@@ -445,10 +456,98 @@ static void test_snoozes_wait_their_turn(void)
     check("after which nothing rings", e->ringing == CLOCK_RING_NONE && ring_changes == 8);
 }
 
+/* The runtime's two ends of the restart seam. The seam itself is
+ * tests/clock_restart_test.c, which really does exec; this is the wiring -
+ * that init takes the handoff after the settings file and not before it,
+ * that the result is reported, and that deinit and init together are not a
+ * way to lose a stopwatch. */
+static void test_handoff_across_a_restart(void)
+{
+    struct clock_engine *e;
+    int64_t base, back, t0;
+
+    wipe();
+    clock_handoff_clear();
+    fresh();
+    e = clock_runtime_engine();
+
+    /* Unlike every other test here, this one goes back through
+     * clock_runtime_init(), which reads the real monotonic clock - so the
+     * instants it invents have to sit around that one rather than start at
+     * zero. They are put a little way behind it, by however much there is to
+     * go back on a host that may have only just come up. */
+    base = clock_runtime_now()->mono_ms;
+    back = base < 200000 ? base : 200000;
+    t0 = base - back;
+
+    clock_alarm_add(e, 7, 30, CLOCK_REPEAT_DAILY, "Wake up", NULL);
+    tick(at(20260911, 9, 0, 5, t0), 2);
+    clock_sw_start(e, clock_runtime_now());
+    clock_timer_set(e, 0, 5, 0); /* five minutes, so the deadline is ahead */
+    clock_timer_start(e, clock_runtime_now());
+    /* The alarms and the duration go to the settings file, as the app saves
+     * them; everything else is this run's and has nowhere to go but the
+     * handoff. */
+    clock_runtime_save();
+    tick(at(20260911, 9, 3, 5, base - back / 2), 1);
+    check("the countdown is still running when the shell goes",
+          e->timer.state == CLOCK_TIMER_RUNNING);
+    check("the way out hands the running clock on",
+          clock_runtime_handoff_save() == 0);
+
+    /* What the shell does next: this process image goes, and the next one
+     * starts the runtime again from nothing. */
+    clock_runtime_deinit();
+    check("the alarms load as they always did", clock_runtime_init(NULL) == 0);
+    check("and the handoff was there", clock_runtime_handoff_result() == 0);
+    e = clock_runtime_engine();
+    check("one alarm", clock_alarm_count(e) == 1);
+    check_str("the one that was saved", clock_alarm_at(e, 0)->label, "Wake up");
+    check("the stopwatch is still running", e->sw.state == CLOCK_SW_RUNNING);
+    check("from the instant it started", e->sw.started_mono == t0);
+    check("the countdown is still running", e->timer.state == CLOCK_TIMER_RUNNING);
+    check("against the same deadline", e->timer.deadline_mono == t0 + 300000);
+    check("and the day it knows about came with it", e->wall_was_valid);
+    check("with the alarm still marked as rung today",
+          clock_alarm_at(e, 0)->fired_day == 20260911);
+
+    /* And it is taken once: a second start in the same boot, with nothing
+     * written in between, starts clean. */
+    clock_runtime_deinit();
+    clock_runtime_init(NULL);
+    check("a start after that finds no handoff",
+          clock_runtime_handoff_result() == 1);
+    check("and has no stopwatch",
+          clock_runtime_engine()->sw.state == CLOCK_SW_IDLE);
+    check("nor a running countdown",
+          clock_runtime_engine()->timer.state == CLOCK_TIMER_IDLE);
+    /* The duration is the settings file's, and is there as it always was. */
+    check("but the duration that was set is",
+          clock_runtime_engine()->timer.duration_ms == 300000);
+}
+
+static void test_an_idle_runtime_hands_nothing_on(void)
+{
+    wipe();
+    clock_handoff_clear();
+    fresh();
+    check("a runtime that has done nothing hands nothing on",
+          clock_runtime_handoff_save() == 1);
+    clock_runtime_deinit();
+    clock_runtime_init(NULL);
+    check("and the next start knows there was none",
+          clock_runtime_handoff_result() == 1);
+}
+
 int main(void)
 {
     snprintf(root, sizeof(root), "/tmp/pocketclock-runtime-%d", (int)getpid());
     setenv("POCKETOS_STATE_DIR", root, 1);
+    /* The handoff lives in the runtime directory, not this one, and the test
+     * must own that too or it would read and remove the real shell's. */
+    snprintf(run_root, sizeof(run_root), "/tmp/pocketclock-runtime-run-%d",
+             (int)getpid());
+    setenv("POCKETOS_RUNTIME_DIR", run_root, 1);
 
     test_init_and_load();
     test_fires_with_no_app();
@@ -461,9 +560,12 @@ int main(void)
     test_wall_clock_jumps();
     test_read_does_not_step();
     test_null_callback();
+    test_handoff_across_a_restart();
+    test_an_idle_runtime_hands_nothing_on();
 
     clock_runtime_deinit();
     wipe();
+    wipe_run();
     printf("clock_runtime_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

@@ -20,6 +20,16 @@
  * stopwatch and the countdown are still monotonic. This file owns an
  * instance and a tick, and decides nothing about time.
  *
+ * ONE ENGINE, AND MORE THAN ONE SHELL. An orientation change does not end
+ * the boot, it ends the process: the shell execs itself in place (DS §21.2),
+ * and this instance - a static in a process image that is about to be thrown
+ * away - goes with it. So there are two calls at the two ends of that seam,
+ * clock_runtime_handoff_save() on the way out and the handoff that
+ * clock_runtime_init() takes on the way in, and between them the stopwatch,
+ * the countdown and the snoozes keep running across a restart the way they
+ * always did across an app being closed. The file they travel in is
+ * boot-scoped, and why that is the whole of the argument is clock_store.h.
+ *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #ifndef POCKETCLOCK_RUNTIME_H
@@ -27,15 +37,24 @@
 
 #include "clock_engine.h"
 
-/* Create the engine and load the stored alarms. Returns what
- * clock_store_load() returned: 0 loaded, 1 nothing stored yet, -1 a stored
- * file that could not be used. Safe to call again; the second call is the
- * first one's result.
+/* Create the engine, load the stored alarms, and take the restart handoff if
+ * the shell before this one left one. Returns what clock_store_load()
+ * returned: 0 loaded, 1 nothing stored yet, -1 a stored file that could not
+ * be used. Safe to call again; the second call is the first one's result.
+ *
+ * The handoff is not in that answer, because its absence is not news: the
+ * first shell of a boot finds none, and so does the one after a crash, which
+ * had no chance to write anything. clock_runtime_handoff_result() has it for
+ * the caller that wants to log the difference.
  *
  * on_ring_change is called whenever something starts or stops ringing, so
  * the shell can put its alert up without waiting for its next tick. It may
- * be NULL. */
+ * be NULL. A ring the handoff brought back is announced on the first step,
+ * like any other. */
 int clock_runtime_init(void (*on_ring_change)(void));
+/* What clock_handoff_load() said at init: 0 a handoff was taken, 1 there was
+ * none, -1 there was one and it could not be used. */
+int clock_runtime_handoff_result(void);
 /* Forget everything, for tests and for an orderly shutdown. */
 void clock_runtime_deinit(void);
 
@@ -62,6 +81,16 @@ const struct clock_now *clock_runtime_now(void);
 /* Write the alarms and the timer duration. Returns 0, or -1. Call it on a
  * change, never from a tick. */
 int clock_runtime_save(void);
+
+/* Hand this run's stopwatch, countdown, snoozes, ringing and fired-today to
+ * whatever starts next in this boot. THE SHELL'S WAY OUT, AND NOTHING ELSE:
+ * once, after the open app has been closed, whether the shell is stopping or
+ * replacing itself for an orientation change.
+ *
+ * Returns what clock_handoff_save() returned: 0 written, 1 there was nothing
+ * to hand off, -1 it could not be written. It is never called from a tick,
+ * and it writes to a tmpfs, so it costs no flash write at all. */
+int clock_runtime_handoff_save(void);
 
 /* Stop whatever is ringing. An alarm is acknowledged - which switches a
  * one-shot alarm off, so this also saves - and an expired timer is

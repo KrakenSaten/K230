@@ -70,17 +70,19 @@ Clock in landscape, ACCEPTED) is the normative version of this section.
   previous layout to the pixel.
 - **On the unit, turning the display restarts the shell** (DS §21.2): it
   comes back on the launcher, so Clock is never open while the display
-  turns. Because the shell process starts again, the one clock runtime
-  starts again from the store, and what is deliberately not stored (see
-  Storage) is gone: a running stopwatch, a running countdown and any snooze.
-  Alarms are unaffected. In Automatic, attaching or removing the keyboard
-  base turns the display. From the code (`restart_in_place()` in
-  `ui/shell/shell.c` is an `execv`), and outside this app. On unit A the
-  gate's optional step turned the display once more after the landscape
-  session, and the log shows the shell restarting in place and loading the
-  store again, but what happened to a countdown was not reported and the log
-  cannot show it; the loss remains unobserved on the panel and is a separate
-  bugfix.
+  turns. In Automatic, attaching or removing the keyboard base turns the
+  display. The shell process is replaced (`restart_in_place()` in
+  `ui/shell/shell.c` is an `execv`), so the one clock runtime is built again
+  from nothing — and **the clock carries on across it**: the run's stopwatch,
+  countdown, snoozes and ringing go through the restart handoff, which the
+  outgoing shell writes and the incoming one takes (see Storage). The
+  countdown counts the restart in, because a countdown is elapsed time and
+  the exec does not stop the monotonic clock; a paused one does not, because
+  it is paused. Alarms were never affected: they are in the settings file.
+  *A shell that crashes writes no handoff, and a power cycle clears one; both
+  still end a running stopwatch, countdown or snooze.* Host-tested, including
+  across real `execv` boundaries (`tests/clock_restart_test.c`); not yet
+  exercised on unit A.
 
 ## The one thing it cannot do, and says so
 
@@ -250,6 +252,11 @@ an alarm off or deleting it cancels that alarm's snooze and no other.
 
 ## Storage
 
+Two files, with two different lifetimes. The settings outlive a power cut;
+the restart handoff must not, and does not, because of where it lives.
+
+### The settings
+
 `$POCKETOS_STATE_DIR/clock/clock.conf`, default
 `/var/lib/pocketos/clock/clock.conf`. One small text file:
 
@@ -269,11 +276,65 @@ alarm 0 22 45 0
   a wrong magic line, an unknown keyword, an out-of-range field, a line
   longer than the reader, or more alarms than the engine holds all leave the
   engine as it was.
-- **What is deliberately not stored**: the stopwatch, a running countdown,
-  and whether an alarm has already rung today. The first two are elapsed time
-  on a clock that does not survive a power cut, so a stored number would
-  become a lie the moment the board went off. The third is a fact about
-  today, and the engine works it out again on its first valid reading.
+- **What is deliberately not stored here**: the stopwatch, a running
+  countdown, and whether an alarm has already rung today. The first two are
+  elapsed time on a clock that does not survive a power cut, so a stored
+  number would become a lie the moment the board went off. The third is a
+  fact about today, and the engine works it out again on its first valid
+  reading. All three go in the handoff below instead, which cannot outlive
+  the boot they belong to.
+
+### The restart handoff
+
+`$POCKETOS_RUNTIME_DIR/clock/restart.state`, default
+`/run/pocketos/clock/restart.state`:
+
+```
+pocketclock-restart 1
+mono 12273418
+wall 1
+alarms 2
+alarm 0 12815026 20260918
+alarm 1 0 -1
+sw 1 12271000 0 2
+lap 1200
+lap 3400
+timer 1 600000 12873000 0
+ring 0 -1
+```
+
+- **Why this is not the lie the settings file refuses.** A rotation ends the
+  process, not the boot. `CLOCK_MONOTONIC` is a per-boot clock that an
+  `execv` does not disturb, so a monotonic instant written before the exec
+  still means the same instant after it. The one thing that must never happen
+  is such an instant outliving its boot — and `/run` is a tmpfs that starts
+  empty on every boot (`docs/hardware/T-DISPLAY-K230.md`, VERIFIED on unit A,
+  and a property `system.status` already depends on). The handoff is
+  boot-scoped by where it lives, exactly as `pos-supervise`'s state files
+  are. A reading that has gone backwards since the write refuses it as well,
+  as a second line.
+- **Written once, on the way out**, after the open app is closed and before
+  the shell exits or execs — never from a tick. It is on a tmpfs, so it costs
+  no flash write at all. A run with nothing to say (no alarm, no stopwatch,
+  no countdown, and no real wall clock yet) writes nothing, and takes any
+  stale handoff away with it.
+- **Consumed**: read and removed, so one exit hands off to exactly one start.
+  A crash writes nothing and so hands nothing on.
+- **Refused whole**, like the settings file: a wrong magic line, an unknown
+  keyword, a missing or repeated line, a count that does not match the alarm
+  list, a state the engine does not have, or a reading from after now. A
+  refused handoff leaves the engine exactly as the settings file made it, and
+  is removed rather than refused again at every start.
+- **A countdown whose deadline went by during the restart comes back
+  expired**, never running against a deadline already behind it, and the
+  engine's next step rings it. A snooze that came due in the same gap needs
+  nothing special: the engine already rings one that is up.
+- **`fired_day` and "the wall clock is real" travel too.** The engine marks
+  every alarm whose minute has gone by as done the first time it sees a real
+  wall clock, because it cannot have rung while the board did not know the
+  time. That is right after a boot without an RTC and wrong 300 ms after an
+  exec, where it would swallow an alarm due in the minute the restart landed
+  in. Carrying them means the restart is not mistaken for a boot.
 
 ## Tests
 
@@ -282,10 +343,12 @@ alarm 0 22 45 0
 | `tests/clock_engine_test.c` | 210 checks: validity and the boot with no RTC, firing once however often it is stepped, Once/Daily/Weekdays, midnight crossings, clock jumps forwards and backwards, snooze on the monotonic clock, adding an alarm in the past and switching one back on after its time, the dense alarm list and the snooze that moves with its alarm, the stopwatch over 25 days of milliseconds, the timer's single expiry and its 23-hour range, one ring at a time and nothing lost behind it (a countdown ending under an alarm, snoozes up under an alarm or a countdown, overlapping snoozes, and cancelling one without the others), the formatters, every null argument, and the alert seam |
 | `tests/clock_time_test.c` | 39 checks: the validity threshold, the local-date arithmetic across midnight, month and year ends, and that an unset clock never produces a digit |
 | `tests/clock_store_test.c` | 76 checks: the round trip, what is deliberately not stored, eleven kinds of damaged file, the atomic overwrite, and label storability |
-| `tests/clock_runtime_test.c` | 85 checks: the thing the runtime exists for — an alarm ringing with no app in sight, once, with the shell told exactly once; a one-shot acknowledgement reaching the disk; snooze, the countdown and a wall clock that is never set; a countdown that ends under a ringing alarm and rings after Stop; two snoozes waiting their turn; clock jumps; and that a read does not advance anything |
+| `tests/clock_runtime_test.c` | 103 checks: the thing the runtime exists for — an alarm ringing with no app in sight, once, with the shell told exactly once; a one-shot acknowledgement reaching the disk; snooze, the countdown and a wall clock that is never set; a countdown that ends under a ringing alarm and rings after Stop; two snoozes waiting their turn; clock jumps; that a read does not advance anything; and the two ends of the restart seam — the way out hands the running clock on, the next start takes it after the settings file and says so, and takes it once |
+| `tests/clock_handoff_test.c` | 212 checks: the restart handoff’s rules and codec with both clocks injected — a running and a paused stopwatch and its full lap list, a running and a paused countdown, a countdown that ended during the restart coming back expired and ringing on the first step, a snooze and one that came due in the gap, a ringing alarm, "already rung today" surviving so an alarm neither rings twice nor is swallowed by the restart minute, a wall clock corrected forwards or unset across the restart behaving as it does with no restart at all, an idle clock writing nothing and clearing a stale handoff, forty-two kinds of file this reader refuses, states below the bottom of a range as well as above the top, a temporary left by an interrupted write being beside the point, a clock.conf written before any of this existed still loading, the two files staying in their two directories, and six hundred steps writing nothing |
+| `tests/clock_restart_test.c` | 98 checks across 8 real `execv` boundaries: each scenario sets state up in one process image and checks it in the next, which has never seen the first — a running stopwatch whose elapsed time counts the exec in and whose start instant has not moved, a paused one that has not moved at all, a running countdown against the same deadline, one that expired during the replacement, a snooze due at the instant it was due (with the alarms as the control, out of the settings file unchanged), an alarm still ringing, an idle clock that hands nothing on, and a damaged handoff that is refused and removed |
 | `tests/clock_app_test.c` | 778 checks: the app under a real LVGL pointer and the real touch keyboard, against a real store, hosted as the shell hosts it on the reference panel — tabs, adding an alarm by tapping the steppers and typing its label, toggling, switching an alarm back on after its time without it ringing, the delete confirmation, persistence across both closing the app and restarting the shell, the stopwatch, the timer, and the shell alert firing with the app shut, over the app, and for a countdown. Then the layout: portrait pinned to its previous places with square and 30 px corners; every screen (the face with and without a time, eight alarms with long labels, laps, a running countdown, the form with the keyboard down and up and a label refused, the confirmation) in portrait and landscape, rounded and square corners, Normal and Outdoor, each checked for its shape, every target at least 64 x 56 and on no other, every target scrollable wholly into view inside the body and the safe area, every label laid out whole, and the body never scrolled; a drag from the gap between two items; the width floor at 1075 and 1076 px and a wide body taller than it is wide; and the display turned under the open app with the stopwatch running, a countdown running, a half-made alarm with the keyboard up, a confirmation open and a list scrolled - nothing lost, nothing made twice, nothing written |
-| `tests/clock_lint.sh` | 38 checks: the layering above, one stepper, the atomic write, no keyboard of its own, no invented hardware, no calendar machinery, and the layout rules - shaped from the body and never the orientation, built once and only shaped after, one frame shaped again on a size change and unhooked on the way out, the corner clearance read from the display geometry, and the portrait-wide floor |
-| `tests/clock_shell_test.sh` | 16 checks: the shell starts and steps the runtime, builds exactly one alert, no app builds another, PocketClock has no ringing screen left, and the status bar uses the validity rule instead of formatting the time itself |
+| `tests/clock_lint.sh` | 47 checks: the layering above, one stepper, the atomic write, no keyboard of its own, no invented hardware, no calendar machinery, and the layout rules - shaped from the body and never the orientation, built once and only shaped after, one frame shaped again on a size change and unhooked on the way out, the corner clearance read from the display geometry, and the portrait-wide floor |
+| `tests/clock_shell_test.sh` | 27 checks: the shell starts and steps the runtime, builds exactly one alert, no app builds another, PocketClock has no ringing screen left, and the status bar uses the validity rule instead of formatting the time itself; then two real shells in a row, the first handing its clock runtime on and the second taking it, with the handoff in the runtime directory and the alarms untouched in the state one — and a shell with nothing to hand on leaving neither a file nor a line in the log |
 
 **Nothing in the engine tests sleeps.** Both clocks are handed in as numbers,
 so a day, a midnight crossing, a clock correction and a nine-minute snooze

@@ -413,7 +413,8 @@ CLOCK_OBJS := $(CLOCK_DIR)/clock_engine.o $(CLOCK_DIR)/clock_alert.o \
               $(CLOCK_DIR)/clock_time.o $(CLOCK_DIR)/clock_store.o \
               $(CLOCK_DIR)/clock_runtime.o
 CLOCK_TESTS := tests/clock_engine_test tests/clock_time_test tests/clock_store_test \
-               tests/clock_runtime_test
+               tests/clock_runtime_test tests/clock_handoff_test \
+               tests/clock_restart_test
 
 $(CLOCK_DIR)/%.o: $(CLOCK_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(CLOCK_DIR) -c -o $@ $<
@@ -433,6 +434,19 @@ tests/clock_store_test: tests/clock_store_test.o $(CLOCK_DIR)/clock_store.o $(CL
 # The runtime the shell owns: one engine, loaded, stepped and saved. Its
 # clock is injectable, so an alarm can be reached without waiting for it.
 tests/clock_runtime_test: tests/clock_runtime_test.o $(CLOCK_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# The restart handoff: the codec and the rules, with both clocks injected, so
+# a countdown can end in the middle of a restart without one passing.
+tests/clock_handoff_test: tests/clock_handoff_test.o $(CLOCK_DIR)/clock_store.o \
+                          $(CLOCK_DIR)/clock_engine.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# And the seam itself. This one execs itself, so the second half of every
+# check below runs in a process image that has never seen the first: the same
+# thing restart_in_place() does to the shell, and the only way to prove that
+# what survives it is the file and not a static somebody forgot about.
+tests/clock_restart_test: tests/clock_restart_test.o $(CLOCK_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # PocketCalendar: the date arithmetic and the view model. Both are LVGL-free,
@@ -685,6 +699,8 @@ test: all $(TEST_BINS)
 	./tests/calc_engine_test
 	./tests/calc_view_test
 	./tests/clock_runtime_test
+	./tests/clock_handoff_test
+	./tests/clock_restart_test
 	./tests/kbd_tca8418_test
 	./tests/kbd_bus_k230_test
 	./tests/pocketaudio_test

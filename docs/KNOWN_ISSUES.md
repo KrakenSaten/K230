@@ -357,6 +357,14 @@ Documented for v0.0.8:
   save that fails (an unwritable store) closes the editor and drops the
   edit, silently when leaving by Back. The proper fix belongs to the common
   state facility (ROADMAP, step 5).
+- ~~An orientation change ends a running stopwatch, countdown and snooze.~~
+  Fixed on `fix/clock-rotation-state`: the outgoing shell hands its clock
+  runtime to the incoming one through a boot-scoped file on the `/run` tmpfs
+  ("Storage" in docs/apps/POCKETCLOCK.md). What is left, and is by design: a
+  shell that is killed or crashes writes no handoff, so a running stopwatch,
+  countdown or snooze ends there; and a power cycle clears the handoff, which
+  is the whole point, because every instant in it is measured on a clock that
+  starts again at the boot. **Not exercised on unit A.**
 - **The shell does not log that an alert was shown.** `open app` and
   `close app` lines prove that an alert navigated nowhere, but whether an
   alarm sheet appeared at all can only be read off the panel.

@@ -17,6 +17,7 @@ static void (*ring_change_cb)(void);
 static uint8_t last_ringing;
 static int inited;
 static int load_result;
+static int handoff_result = 1;
 
 /* Everything that can change what is ringing goes through here, so the shell
  * hears about it once and only when it actually changed. */
@@ -44,9 +45,22 @@ int clock_runtime_init(void (*on_ring_change)(void))
     last_ringing = CLOCK_RING_NONE;
     inited = 1;
     /* One reading before anything else runs, so the first view to ask does
-     * not paint a zeroed clock for a tick. */
+     * not paint a zeroed clock for a tick - and before the handoff, which is
+     * checked against it and may have a countdown in it that is already
+     * over (clock_store.h). */
     clock_runtime_read();
+    /* After the settings file and not before it: the handoff describes the
+     * alarms by position, so they have to be there to be described. */
+    handoff_result = clock_handoff_load(&engine, &now);
+    /* last_ringing stays NONE even when the handoff brought a ring back, so
+     * the first step tells the shell about it through the one path that
+     * announces any other ring. */
     return load_result;
+}
+
+int clock_runtime_handoff_result(void)
+{
+    return handoff_result;
 }
 
 void clock_runtime_deinit(void)
@@ -57,6 +71,7 @@ void clock_runtime_deinit(void)
     last_ringing = CLOCK_RING_NONE;
     inited = 0;
     load_result = 0;
+    handoff_result = 1;
 }
 
 void clock_runtime_read(void)
@@ -94,6 +109,15 @@ const struct clock_now *clock_runtime_now(void)
 int clock_runtime_save(void)
 {
     return clock_store_save(&engine);
+}
+
+int clock_runtime_handoff_save(void)
+{
+    /* The reading this engine was last advanced or read at, which is at most
+     * a tick old and is the one every instant in the engine is measured
+     * against. Taking a fresh one here would be reading a clock, which this
+     * file does not do (tests/clock_lint.sh). */
+    return clock_handoff_save(&engine, &now);
 }
 
 void clock_runtime_stop_ringing(void)

@@ -235,6 +235,15 @@ Outside this scope:
   holds neither. With Automatic that includes attaching or removing the
   keyboard base. From the code; on unit A the restart and the store reload are
   in the log, but the countdown itself was not reported on. A separate bugfix.
+
+  **Fixed on `fix/clock-rotation-state`** (2026-09-18), after this gate. The
+  outgoing shell writes a restart handoff to `/run/pocketos/clock`, a tmpfs
+  that starts empty on every boot, and the incoming one takes it: the
+  stopwatch, countdown, snoozes, ringing and "already rung today" come across
+  the exec, and a power cycle still ends them. See "Storage" in
+  `docs/apps/POCKETCLOCK.md`. Host-tested across real `execv` boundaries; **the
+  fix has not been exercised on unit A**, so the observation above is still
+  the last word from the panel.
 - A stepper's name sits at the top of its 64 px row, not centred; a single-line
   field's text sits at the top of the field. Both as on master.
 - The label keyboard's Done does nothing (KNOWN_ISSUES). In landscape, Add is
