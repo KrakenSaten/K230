@@ -10,7 +10,7 @@
 
 #define CAPTION_INSET 16   /* DS §2: 16 px from the panel's left edge */
 #define CAPTION_PAD 6
-#define CAPTION_RISE 9     /* half a mono-14 line, to centre it on the border */
+#define CAPTION_RISE FLEET_CAPTION_RISE
 #define SEGMENT_H 56
 #define SEGMENT_GAP 4
 #define PAIRED_H 56

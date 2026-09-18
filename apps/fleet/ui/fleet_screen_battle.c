@@ -3,7 +3,13 @@
  *
  * Aim-then-confirm (approved deviation for dense grids): a tap on the target
  * grid only moves the crosshair, which is harmless and correctable. The shot
- * is committed by the 64 px FIRE button and nothing else.
+ * is committed by the 64 px FIRE button and nothing else. That is true at
+ * every board size, the wide shape's 34 px cells included (DS §28.2).
+ *
+ * The objects are built once. Changing shape moves and resizes them and
+ * changes the board's cell size; it never creates or deletes anything, so a
+ * turn in flight - the crosshair, the paced reply, the log line - survives a
+ * relayout untouched.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -16,8 +22,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define TARGET_CELL 48
+/* Your own waters are read, never aimed at, so the board is small and its
+ * size is fixed rather than derived: 20 px under a 528 px column, and 26 px
+ * across the page, where the column beside the target board has the room and
+ * the same picture is easier to take in at a glance. Still visibly the lesser
+ * of the two boards, which is the point. */
 #define OWN_CELL 20
+#define OWN_CELL_WIDE 26
 #define PIP_H 14
 #define PIP_UNIT 7
 #define PIP_GAP 6
@@ -34,6 +45,14 @@ struct fleet_battle_ui {
     lv_obj_t *fire;
     lv_obj_t *note;
     lv_obj_t *log;
+    /* Everything beside the board in the wide shape, stacked under it in the
+     * tall one. side holds the two columns; act carries the readout and FIRE,
+     * waters carries your own board and the log. */
+    lv_obj_t *side;
+    lv_obj_t *act;
+    lv_obj_t *waters;
+    lv_obj_t *target_panel;
+    lv_obj_t *waters_panel;
     uint8_t exchanged;   /* an exchange has been reported in the log line */
     /* The opponent's reply is paced a moment after the player's shot so the
      * two are readable apart. It is never a blocking wait: input stays live
@@ -199,7 +218,6 @@ lv_obj_t *fleet_screen_battle_create(struct fleet_app *app, lv_obj_t *parent)
 {
     struct fleet_battle_ui *ui = calloc(1, sizeof(*ui));
     lv_obj_t *screen;
-    lv_obj_t *panel;
     lv_obj_t *row;
 
     if (!ui) {
@@ -209,29 +227,72 @@ lv_obj_t *fleet_screen_battle_create(struct fleet_app *app, lv_obj_t *parent)
     app->battle = ui;
     screen = fleet_app_screen_container(parent);
 
-    ui->target = fleet_grid_create(screen, FLEET_GRID_TARGET, TARGET_CELL, 1);
+    ui->target = fleet_grid_create(screen, FLEET_GRID_TARGET, FLEET_CELL_TALL, 1);
     fleet_grid_bind(ui->target, &app->game.board[FLEET_SIDE_OPPONENT]);
     fleet_grid_set_tap_cb(ui->target, on_target_cell, ui);
 
-    panel = fleet_panel(screen, "TARGET");
-    row = fleet_row(panel, 40, 0);
+    /* In the tall shape these three boxes are transparent and stack their
+     * children at the panel gap, so the screen reads exactly as the single
+     * column it was; in the wide shape they become the two columns beside
+     * the board. */
+    ui->side = fleet_app_box(screen);
+    ui->act = fleet_app_box(ui->side);
+    ui->waters = fleet_app_box(ui->side);
+
+    ui->target_panel = fleet_panel(ui->act, "TARGET");
+    row = fleet_row(ui->target_panel, 40, 0);
     ui->cell_value = pocketui_label(row, "\xe2\x80\x94", POS_STYLE_VALUE);
     fleet_pips(row, ui->pip);
-    ui->note = pocketui_label(panel, "Tap a square, then fire.", POS_STYLE_TEXT_SECONDARY);
+    ui->note = pocketui_label(ui->target_panel, "Tap a square, then fire.",
+                              POS_STYLE_TEXT_SECONDARY);
     lv_label_set_long_mode(ui->note, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(ui->note, LV_PCT(100));
 
-    ui->fire = pocketui_button(screen, "FIRE", on_fire, ui);
+    ui->fire = pocketui_button(ui->act, "FIRE", on_fire, ui);
 
-    panel = fleet_panel(screen, "YOUR WATERS");
-    lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+    ui->waters_panel = fleet_panel(ui->waters, "YOUR WATERS");
+    lv_obj_set_flex_align(ui->waters_panel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
-    ui->own = fleet_grid_create(panel, FLEET_GRID_OWN, OWN_CELL, 0);
+    ui->own = fleet_grid_create(ui->waters_panel, FLEET_GRID_OWN, OWN_CELL, 0);
     fleet_grid_bind(ui->own, &app->game.board[FLEET_SIDE_PLAYER]);
-    ui->log = pocketui_label(panel, "", POS_STYLE_CAPTION);
+    ui->log = pocketui_label(ui->waters_panel, "", POS_STYLE_CAPTION);
     lv_label_set_long_mode(ui->log, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(ui->log, LV_PCT(100));
     return screen;
+}
+
+/* The board is the dominant thing on the screen and the rest stands beside it:
+ * the readout and FIRE in the column next to the board, because that is what
+ * the player acts on, and your own waters furthest out, because that is what
+ * they only glance at. */
+void fleet_screen_battle_relayout(struct fleet_app *app, int wide, int cell)
+{
+    struct fleet_battle_ui *ui = app ? app->battle : NULL;
+
+    if (!ui) {
+        return;
+    }
+    fleet_app_screen_flow(app->screen[FLEET_SCREEN_BATTLE], wide, 1);
+    fleet_grid_set_cell(ui->target, cell);
+    fleet_grid_set_cell(ui->own, wide ? OWN_CELL_WIDE : OWN_CELL);
+    /* side takes what the board leaves; act and waters share that between
+     * them. Only the flow and the sizes change - every object here was built
+     * once and is only ever moved. */
+    fleet_app_box_split(ui->side, wide);
+    fleet_app_box_column(ui->act, wide);
+    fleet_app_box_column(ui->waters, wide);
+    lv_obj_set_flex_grow(ui->side, wide ? 1 : 0);
+    /* Across the page the panels start at the frame's top edge, and the
+     * frame clips: the captions on their top borders need that much room
+     * of their own. Down the page they sit below the board and rise into
+     * the gap above them, as they always have. */
+    lv_obj_set_style_pad_top(ui->side, wide ? FLEET_CAPTION_RISE : 0, 0);
+    /* The panels grow into their column, so FIRE is at the foot of the
+     * column next to the board and the log at the foot of the far one. */
+    lv_obj_set_flex_grow(ui->target_panel, wide ? 1 : 0);
+    lv_obj_set_flex_grow(ui->waters_panel, wide ? 1 : 0);
+    lv_obj_set_height(ui->target_panel, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
+    lv_obj_set_height(ui->waters_panel, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
 }
 
 void fleet_screen_battle_refresh(struct fleet_app *app)

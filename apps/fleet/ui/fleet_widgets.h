@@ -15,6 +15,11 @@
 #include "lvgl.h"
 #include "pocketui.h"
 
+/* How far a panel's caption rises above the panel's top border, so a layout
+ * that puts a panel at the very top of a clipping box can leave room for it.
+ * Half a mono-14 line, which is what centres the caption on the border. */
+#define FLEET_CAPTION_RISE 9
+
 /* Panel with the Design System caption set into its top border (DS §2).
  * title may be NULL for an untitled panel; it is shown as given, so pass
  * upper case. */

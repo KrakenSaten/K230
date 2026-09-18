@@ -489,6 +489,47 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     endif()
     target_link_libraries(clock_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
+    # PocketFleet in the running app, a finger on the board (run by
+    # tests/fleet_shell_test.sh). The shell is not linked; the test defines
+    # the app.h entry points the game uses and pocketlog's one entry point
+    # itself, and points POCKETOS_STATE_DIR at a directory of its own, so the
+    # save is exercised without touching anything of the host's.
+    add_executable(fleet_app_test
+        ${REPO_DIR}/tests/fleet_app_test.c
+        ${REPO_DIR}/apps/fleet/fleet_app.c
+        ${REPO_DIR}/apps/fleet/engine/fleet_ai.c
+        ${REPO_DIR}/apps/fleet/engine/fleet_rng.c
+        ${REPO_DIR}/apps/fleet/engine/fleet_rules.c
+        ${REPO_DIR}/apps/fleet/engine/fleet_save.c
+        ${REPO_DIR}/apps/fleet/engine/fleet_store.c
+        ${REPO_DIR}/apps/fleet/engine/fleet_types.c
+        ${REPO_DIR}/apps/fleet/ui/fleet_grid.c
+        ${REPO_DIR}/apps/fleet/ui/fleet_screen_battle.c
+        ${REPO_DIR}/apps/fleet/ui/fleet_screen_command.c
+        ${REPO_DIR}/apps/fleet/ui/fleet_screen_deploy.c
+        ${REPO_DIR}/apps/fleet/ui/fleet_screen_result.c
+        ${REPO_DIR}/apps/fleet/ui/fleet_view.c
+        ${REPO_DIR}/apps/fleet/ui/fleet_widgets.c
+        ../pocketui/pos_app_icons.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(fleet_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/fleet")
+    target_compile_options(fleet_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(fleet_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(fleet_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(fleet_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(fleet_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
     # PocketCalendar in the running app, tapped on the panel (run by
     # tests/calendar_shell_test.sh). The shell is not linked, so the test
     # supplies pocketos_shell_system_day() itself: an unset clock, the moment

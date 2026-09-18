@@ -64,9 +64,23 @@ static struct fleet_grid *state_of(lv_obj_t *grid)
     return grid ? lv_obj_get_user_data(grid) : NULL;
 }
 
+int fleet_grid_span_for(int cell, int labels)
+{
+    return (labels ? FLEET_GRID_GUTTER : 0) + FLEET_GRID * cell +
+           (FLEET_GRID - 1) * FLEET_GRID_GAP;
+}
+
+int fleet_grid_cell_for_span(int span, int labels)
+{
+    int room = span - (labels ? FLEET_GRID_GUTTER : 0) -
+               (FLEET_GRID - 1) * FLEET_GRID_GAP;
+
+    return room > 0 ? room / FLEET_GRID : 0;
+}
+
 static int span(const struct fleet_grid *g)
 {
-    return g->gutter + FLEET_GRID * g->cell + (FLEET_GRID - 1) * FLEET_GRID_GAP;
+    return fleet_grid_span_for(g->cell, g->gutter != 0);
 }
 
 static void cell_area(const struct fleet_grid *g, const lv_area_t *coords, int row, int col,
@@ -468,6 +482,27 @@ lv_obj_t *fleet_grid_create(lv_obj_t *parent, enum fleet_grid_mode mode, int cel
                             (lv_event_code_t)pos_event_theme_changed(), NULL);
     }
     return obj;
+}
+
+int fleet_grid_cell(lv_obj_t *grid)
+{
+    const struct fleet_grid *g = state_of(grid);
+
+    return g ? g->cell : 0;
+}
+
+void fleet_grid_set_cell(lv_obj_t *grid, int cell)
+{
+    struct fleet_grid *g = state_of(grid);
+
+    if (!g || cell <= 0 || cell == g->cell) {
+        return;
+    }
+    /* One stored size for the picture and for the hit test: cell_area() and
+     * grid_click() both read g->cell, so they cannot fall out of step. */
+    g->cell = cell;
+    lv_obj_set_size(grid, span(g), span(g));
+    lv_obj_invalidate(grid);
 }
 
 void fleet_grid_bind(lv_obj_t *grid, const struct fleet_board *board)

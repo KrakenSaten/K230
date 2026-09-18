@@ -21,6 +21,16 @@ struct fleet_command_ui {
     lv_obj_t *brief;
     lv_obj_t *saved_state;
     lv_obj_t *resume;
+    /* Four panels and one action. Across the page they stand in three
+     * columns - the choice, the fleet, the terms - which is the split that
+     * lets all four be read at once without scrolling anything, and DEPLOY
+     * FLEET sits on a foot row below them, one column wide. */
+    lv_obj_t *cols;
+    lv_obj_t *left;
+    lv_obj_t *mid;
+    lv_obj_t *right;
+    lv_obj_t *foot;
+    lv_obj_t *deploy;
 };
 
 static void on_difficulty(lv_event_t *e)
@@ -89,8 +99,13 @@ lv_obj_t *fleet_screen_command_create(struct fleet_app *app, lv_obj_t *parent)
     ui->app = app;
     app->command = ui;
     screen = fleet_app_screen_container(parent);
+    ui->cols = fleet_app_box(screen);
+    ui->left = fleet_app_box(ui->cols);
+    ui->mid = fleet_app_box(ui->cols);
+    ui->right = fleet_app_box(ui->cols);
+    ui->foot = fleet_app_box(screen);
 
-    panel = fleet_panel(screen, "OPPONENT");
+    panel = fleet_panel(ui->left, "OPPONENT");
     bar = fleet_segments(panel, levels, FLEET_DIFFICULTY_COUNT);
     for (i = 0; i < FLEET_DIFFICULTY_COUNT; i++) {
         lv_obj_add_event_cb(lv_obj_get_child(bar, i), on_difficulty, LV_EVENT_CLICKED, app);
@@ -100,7 +115,7 @@ lv_obj_t *fleet_screen_command_create(struct fleet_app *app, lv_obj_t *parent)
     lv_label_set_long_mode(ui->brief, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(ui->brief, LV_PCT(100));
 
-    panel = fleet_list_panel(screen, "YOUR FLEET");
+    panel = fleet_list_panel(ui->mid, "YOUR FLEET");
     for (i = 0; i < FLEET_SHIP_COUNT; i++) {
         lv_obj_t *row = fleet_row(panel, POCKETUI_ROW_H, i < FLEET_SHIP_COUNT - 1);
 
@@ -108,19 +123,82 @@ lv_obj_t *fleet_screen_command_create(struct fleet_app *app, lv_obj_t *parent)
         ship_pips(row, (enum fleet_ship)i);
     }
 
-    panel = fleet_list_panel(screen, "ENGAGEMENT");
+    panel = fleet_list_panel(ui->right, "ENGAGEMENT");
     pocketui_kv_row(panel, "Waters", "10 \xc3\x97 10");
     pocketui_kv_row(panel, "Shots per turn", "1");
     pocketui_kv_row(panel, "Hulls to sink", "17");
 
-    panel = fleet_panel(screen, "SAVED ENGAGEMENT");
+    panel = fleet_panel(ui->right, "SAVED ENGAGEMENT");
     ui->saved_state = pocketui_label(panel, "", POS_STYLE_TEXT_SECONDARY);
     lv_label_set_long_mode(ui->saved_state, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(ui->saved_state, LV_PCT(100));
     ui->resume = fleet_button_secondary(panel, "RESUME", on_resume, app);
 
-    pocketui_button(screen, "DEPLOY FLEET", on_deploy, app);
+    ui->deploy = pocketui_button(ui->foot, "DEPLOY FLEET", on_deploy, app);
     return screen;
+}
+
+/* Three columns of panels with the one action under them. The roster is taller
+ * than a 386 px body whatever the split, so a column scrolls - which is what a
+ * landscape column does elsewhere (DS §24.1, §25.1, §26.1). Three columns
+ * rather than two is what leaves only the roster needing it. DEPLOY FLEET is
+ * kept off the columns entirely, on a foot row at one column's width: the
+ * primary action must never be the thing that has been scrolled out of
+ * sight, and it has no business stretching across the whole body either. */
+void fleet_screen_command_relayout(struct fleet_app *app, int wide)
+{
+    struct fleet_command_ui *ui = app ? app->command : NULL;
+    lv_obj_t *col[3];
+    int i;
+
+    if (!ui) {
+        return;
+    }
+    /* The screen keeps its column in both shapes: the panels turn across the
+     * page, the action stays under them. */
+    fleet_app_screen_flow(app->screen[FLEET_SCREEN_COMMAND], wide, 0);
+    fleet_app_box_split(ui->cols, wide);
+    fleet_app_box_column(ui->left, wide);
+    fleet_app_box_column(ui->mid, wide);
+    fleet_app_box_column(ui->right, wide);
+    /* The foot is a row in the wide shape so its one button can take a third
+     * of it and sit at the end, rather than stretch across the whole body. */
+    fleet_app_box_split(ui->foot, wide);
+    lv_obj_set_flex_grow(ui->foot, 0);
+    lv_obj_set_height(ui->foot, LV_SIZE_CONTENT);
+    lv_obj_set_flex_align(ui->foot, wide ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_width(ui->deploy, wide ? LV_PCT(33) : LV_PCT(100));
+    /* cols takes the height the foot leaves; a column shows what it can of
+     * its panels and scrolls the rest. */
+    lv_obj_set_flex_grow(ui->cols, wide ? 1 : 0);
+    lv_obj_set_height(ui->cols, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
+
+    /* This is the one screen whose first object is a captioned panel, and a
+     * caption straddles the panel's top border. Whatever clips above that
+     * panel is what has to leave room for it: down the page that is the
+     * frame, so the room goes above the columns; across the page each column
+     * is its own scroller, so the room goes inside each of them. */
+    lv_obj_set_style_pad_top(ui->cols, wide ? 0 : FLEET_CAPTION_RISE, 0);
+    col[0] = ui->left;
+    col[1] = ui->mid;
+    col[2] = ui->right;
+    for (i = 0; i < 3; i++) {
+        lv_obj_set_style_pad_top(col[i], wide ? FLEET_CAPTION_RISE : 0, 0);
+        if (wide) {
+            lv_obj_add_flag(col[i], LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_set_scroll_dir(col[i], LV_DIR_VER);
+            /* A scroller clips: that is what makes a scroll look like one. */
+            lv_obj_remove_flag(col[i], LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+        } else {
+            /* Down the page there is one scroller, the frame. A column that
+             * kept a scroll position would hold its panels off the top of a
+             * stack that is already where it should be. */
+            lv_obj_scroll_to_y(col[i], 0, LV_ANIM_OFF);
+            lv_obj_remove_flag(col[i], LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_add_flag(col[i], LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+        }
+    }
 }
 
 void fleet_screen_command_refresh(struct fleet_app *app)

@@ -13,7 +13,9 @@
 #include "engine/fleet_store.h"
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
+#include "ui/fleet_grid.h"
 #include "ui/fleet_view.h"
+#include "ui/fleet_widgets.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -21,12 +23,32 @@
 
 /* Gap between panels (DS §7). */
 #define FLEET_PANEL_GAP 22
+/* Gutter between the columns of the wide shape (DS §7). */
+#define FLEET_COL_GAP POCKETUI_PAD
+
+/* A panel's caption straddles the panel's top border, so it is drawn a little
+ * above the panel (fleet_widgets.c). LVGL clips a child to its parent's box
+ * grown by the parent's own extra draw size, so every transparent container a
+ * panel is nested in has to allow for that rise or the caption is cut. The
+ * containers paint nothing themselves, so this costs no pixels. */
+static void box_ext_draw(lv_event_t *e)
+{
+    lv_event_set_ext_draw_size(e, FLEET_CAPTION_RISE + 4);
+}
+
+static void allow_caption(lv_obj_t *obj)
+{
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_add_event_cb(obj, box_ext_draw, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
+    lv_obj_refresh_ext_draw_size(obj);
+}
 
 lv_obj_t *fleet_app_screen_container(lv_obj_t *parent)
 {
     lv_obj_t *screen = lv_obj_create(parent);
 
     lv_obj_remove_style_all(screen);
+    allow_caption(screen);
     lv_obj_set_width(screen, LV_PCT(100));
     lv_obj_set_height(screen, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(screen, LV_FLEX_FLOW_COLUMN);
@@ -38,6 +60,212 @@ lv_obj_t *fleet_app_screen_container(lv_obj_t *parent)
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
     return screen;
+}
+
+lv_obj_t *fleet_app_box(lv_obj_t *parent)
+{
+    lv_obj_t *box = lv_obj_create(parent);
+
+    lv_obj_remove_style_all(box);
+    lv_obj_set_flex_align(box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+    /* A box paints nothing, so it has nothing to clip to: a panel caption
+     * straddling its top border must still be drawn. Clipping is the frame's
+     * job, and a column's when it is made to scroll. */
+    allow_caption(box);
+    lv_obj_set_style_pad_row(box, FLEET_PANEL_GAP, 0);
+    lv_obj_set_style_pad_column(box, FLEET_COL_GAP, 0);
+    fleet_app_box_column(box, 0);
+    return box;
+}
+
+void fleet_app_box_split(lv_obj_t *box, int wide)
+{
+    if (!box) {
+        return;
+    }
+    lv_obj_set_flex_flow(box, wide ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_width(box, LV_PCT(100));
+    lv_obj_set_flex_grow(box, 0);
+    lv_obj_set_height(box, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
+}
+
+void fleet_app_box_column(lv_obj_t *box, int wide)
+{
+    if (!box) {
+        return;
+    }
+    /* A column is a column in both shapes. Down the page the gap between its
+     * children is the panel gap, so a column nested in a screen stacks exactly
+     * as the screen itself would have and the tall shape is the v0.0.10 one to
+     * the pixel. */
+    lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_width(box, LV_PCT(100));
+    if (wide) {
+        lv_obj_set_flex_grow(box, 1);
+        lv_obj_set_height(box, LV_PCT(100));
+    } else {
+        lv_obj_set_flex_grow(box, 0);
+        lv_obj_set_height(box, LV_SIZE_CONTENT);
+    }
+}
+
+void fleet_app_screen_flow(lv_obj_t *screen, int wide, int across)
+{
+    if (!screen) {
+        return;
+    }
+    lv_obj_set_flex_flow(screen, (wide && across) ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(screen, FLEET_PANEL_GAP, 0);
+    lv_obj_set_style_pad_column(screen, FLEET_COL_GAP, 0);
+    if (wide) {
+        /* Tops in line: the board and what stands beside it start together. */
+        lv_obj_set_flex_align(screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_START);
+        lv_obj_set_height(screen, LV_PCT(100));
+    } else {
+        /* The panels fill the width and the boards, a few pixels narrower,
+         * are centred rather than left-aligned - as they always were. */
+        lv_obj_set_flex_align(screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_height(screen, LV_SIZE_CONTENT);
+    }
+}
+
+/* ---- the shape ---------------------------------------------------------- *
+ *
+ * One rule, in two pure functions, so a test can ask it without building
+ * anything. The board is square and its side is whatever the body's height
+ * can hold; everything else follows from what is left across.
+ */
+
+int fleet_cell_for_height(int32_t h)
+{
+    int cell = fleet_grid_cell_for_span((int)h, 1);
+
+    /* Never coarser than the tall shape's cell: a taller body does not grow
+     * the board past 48 px, it gives the room to what is said about it. */
+    return cell > FLEET_CELL_TALL ? FLEET_CELL_TALL : cell;
+}
+
+int fleet_shape_is_wide(int32_t w, int32_t h, int *cell_out)
+{
+    int cell = fleet_cell_for_height(h);
+    int span;
+
+    if (w <= h) {
+        return 0;               /* not a wide body at all */
+    }
+    if (cell < FLEET_CELL_MIN) {
+        return 0;               /* the board would be finer than it may be */
+    }
+    span = fleet_grid_span_for(cell, 1);
+    /* The board, the gutter to it, and two columns that can each hold a 64 px
+     * action and a line of text. Short of that the tall stack is kept whole
+     * and scrolled, which is what the body did before this layout existed. */
+    if (w < span + FLEET_COL_GAP + 2 * FLEET_COL_MIN + FLEET_COL_GAP) {
+        return 0;
+    }
+    if (cell_out) {
+        *cell_out = cell;
+    }
+    return 1;
+}
+
+/* ---- the layout --------------------------------------------------------- *
+ *
+ * The frame is the whole of the body the shell gives the app, and the shape is
+ * chosen from its size alone:
+ *
+ *   TALL (portrait: 528 x 1060 on the reference panel). Every screen is the
+ *   single column of v0.0.10, the boards at 48 px cells, and the frame scrolls
+ *   what does not fit - which is what the shell's body did before.
+ *
+ *   WIDE (landscape: 1192 x 386, once the foot has cleared the rounded
+ *   corners). The board is as large as the height allows and everything said
+ *   about it stands beside it in two columns. Ten cells in 386 px give 34 px
+ *   each, finer than the 48 px of deviation D1. Aim-then-confirm does not
+ *   change: a tap on a cell still only moves the crosshair, which is harmless
+ *   and correctable, and FIRE is still the only thing that commits a shot, at
+ *   its full 64 px.
+ *
+ * Whatever the shape, the frame pads itself by however far the panel's rounded
+ * corner squares reach into it - measured with pos_display_rect_insets
+ * (DS §22.2, §23.4), never worked out here - so nothing at the foot is cut.
+ */
+
+static void fleet_app_layout(struct fleet_app *app)
+{
+    lv_area_t box;
+    struct pos_insets in;
+    int32_t w;
+    int32_t h;
+    int cell = FLEET_CELL_TALL;
+    int wide;
+
+    if (!app || !app->frame) {
+        return;
+    }
+    lv_obj_get_coords(app->frame, &box);
+    if (lv_area_get_width(&box) <= 0 || lv_area_get_height(&box) <= 0) {
+        return;
+    }
+    in = pos_display_rect_insets(pocketui_display_geometry(), box.x1, box.y1, box.x2, box.y2);
+    /* Nothing that the layout is chosen from has changed, so there is nothing
+     * to do - and a layout pass that ran anyway would be the whole cost of
+     * this app repeated on every one. The insets are part of that: the same
+     * box on a panel with different corners leaves a different amount of
+     * room, so a box alone is not enough to say the answer is unchanged. */
+    if (app->laid_out_valid && memcmp(&box, &app->laid_out, sizeof(box)) == 0 &&
+        memcmp(&in, &app->laid_out_insets, sizeof(in)) == 0) {
+        return;
+    }
+    app->laid_out = box;
+    app->laid_out_insets = in;
+    app->laid_out_valid = 1;
+    app->layouts++;
+    lv_obj_set_style_pad_left(app->frame, in.left, 0);
+    lv_obj_set_style_pad_top(app->frame, in.top, 0);
+    lv_obj_set_style_pad_right(app->frame, in.right, 0);
+    lv_obj_set_style_pad_bottom(app->frame, in.bottom, 0);
+    w = lv_area_get_width(&box) - in.left - in.right;
+    h = lv_area_get_height(&box) - in.top - in.bottom;
+    wide = fleet_shape_is_wide(w, h, &cell);
+    if (!wide) {
+        cell = FLEET_CELL_TALL;
+    }
+    app->shape = (uint8_t)(wide ? FLEET_SHAPE_WIDE : FLEET_SHAPE_TALL);
+    app->cell = cell;
+
+    /* The wide shape fits by construction, so nothing scrolls at the top
+     * level; the tall stack is longer than the body and always has been. The
+     * frame is the one thing that always clips, whichever shape is in force:
+     * it is the body's content box, and nothing of this app may be drawn in
+     * the padding the shell left round it. A screen that puts a captioned
+     * panel against the frame's top edge leaves the caption its own room
+     * (fleet_screen_command.c, and the wide shapes of Battle and Deploy). */
+    if (wide) {
+        lv_obj_scroll_to_y(app->frame, 0, LV_ANIM_OFF);
+        lv_obj_remove_flag(app->frame, LV_OBJ_FLAG_SCROLLABLE);
+    } else {
+        lv_obj_add_flag(app->frame, LV_OBJ_FLAG_SCROLLABLE);
+    }
+    /* Every screen is laid out, not only the visible one: a hidden screen has
+     * to be right the moment it is shown, and doing one at a time would leave
+     * the others carrying the shape the body no longer has. */
+    fleet_screen_command_relayout(app, wide);
+    fleet_screen_deploy_relayout(app, wide, cell);
+    fleet_screen_battle_relayout(app, wide, cell);
+    fleet_screen_result_relayout(app, wide);
+}
+
+/* The frame is the body's content box, so this is the body changing size: the
+ * shell's content area was resized, or this is the first layout pass after the
+ * app was built. */
+static void on_frame_size(lv_event_t *e)
+{
+    fleet_app_layout(lv_event_get_user_data(e));
 }
 
 void fleet_app_show(struct fleet_app *app, enum fleet_screen screen)
@@ -58,7 +286,9 @@ void fleet_app_show(struct fleet_app *app, enum fleet_screen screen)
     }
     lv_obj_remove_flag(app->screen[screen], LV_OBJ_FLAG_HIDDEN);
     app->current = (uint8_t)screen;
-    lv_obj_scroll_to_y(app->body, 0, LV_ANIM_OFF);
+    /* The frame is the scroller in the tall shape; in the wide one it does not
+     * scroll and this is a no-op. */
+    lv_obj_scroll_to_y(app->frame ? app->frame : app->body, 0, LV_ANIM_OFF);
 
     switch (screen) {
     case FLEET_SCREEN_COMMAND:
@@ -274,10 +504,22 @@ static void *fleet_create(lv_obj_t *root)
         }
     }
 
-    app->screen[FLEET_SCREEN_COMMAND] = fleet_screen_command_create(app, root);
-    app->screen[FLEET_SCREEN_DEPLOY] = fleet_screen_deploy_create(app, root);
-    app->screen[FLEET_SCREEN_BATTLE] = fleet_screen_battle_create(app, root);
-    app->screen[FLEET_SCREEN_RESULT] = fleet_screen_result_create(app, root);
+    /* Exactly the body's content box, whatever ends up in it, so the shape is
+     * always chosen from the room the shell gives and never from the size of
+     * what the layout itself put there. */
+    app->frame = lv_obj_create(root);
+    lv_obj_remove_style_all(app->frame);
+    lv_obj_set_size(app->frame, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_flex_flow(app->frame, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_scroll_dir(app->frame, LV_DIR_VER);
+    lv_obj_add_event_cb(app->frame, on_frame_size, LV_EVENT_SIZE_CHANGED, app);
+    app->shape = FLEET_SHAPE_TALL;
+    app->cell = FLEET_CELL_TALL;
+
+    app->screen[FLEET_SCREEN_COMMAND] = fleet_screen_command_create(app, app->frame);
+    app->screen[FLEET_SCREEN_DEPLOY] = fleet_screen_deploy_create(app, app->frame);
+    app->screen[FLEET_SCREEN_BATTLE] = fleet_screen_battle_create(app, app->frame);
+    app->screen[FLEET_SCREEN_RESULT] = fleet_screen_result_create(app, app->frame);
     fleet_screen_deploy_enter(app);
     fleet_app_show(app, FLEET_SCREEN_COMMAND);
     debug_open(app);
@@ -294,6 +536,13 @@ static void fleet_destroy(void *priv)
     /* Settle a paced turn and stop every timer before the objects they refer
      * to go away with the shell's root. */
     fleet_screen_battle_leave(app);
+    /* Nothing may lay out against a half-freed app: the shell deletes the
+     * body's children after this returns, and a layout pass in between would
+     * reach the screens through a struct that is already gone. */
+    if (app->frame) {
+        lv_obj_remove_event_cb_with_user_data(app->frame, on_frame_size, app);
+        app->frame = NULL;
+    }
     /* The screen containers are children of the shell's root and are deleted
      * with it; only the private blocks are ours to release. */
     free(app->command);

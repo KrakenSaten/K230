@@ -4,10 +4,15 @@
 # every failure path (missing, unwritable, damaged, foreign) leaves the app
 # usable with no persistence rather than blocking it.
 #
+# It also runs fleet_app_test, which is the app itself under a real pointer
+# device in both orientations (the layout, the boards and the tap path).
+#
 # Requires: SHELL_BIN (the CMake-built pocketos-shell). Headless via SDL's
 # dummy driver, exactly like tests/shell_ipc_test.sh.
 set -u
 SHELL_BIN=${SHELL_BIN:?set SHELL_BIN to the pocketos-shell binary}
+# Built beside the shell by ui/shell/CMakeLists.txt (host builds).
+FLEET_APP_TEST=${FLEET_APP_TEST:-$(dirname "$SHELL_BIN")/fleet_app_test}
 export SDL_VIDEODRIVER=dummy
 POCKETOS_RUNTIME_DIR=$(mktemp -d)
 POCKETOS_LOG_DIR=$(mktemp -d)
@@ -32,6 +37,17 @@ run() { # <screen|-> <png>
         >"$OUT/$2.log" 2>&1
     cat "$OUT/$2.log"
 }
+
+# 0. The app under a finger, in both orientations. A missing test binary is a
+#    failure, not a skip.
+if [ -x "$FLEET_APP_TEST" ]; then
+    log=$("$FLEET_APP_TEST" 2>&1); rc=$?
+    printf '%s
+' "$log" | grep -E '^FAIL|fleet_app_test:'
+    check "the app, the layout and the tap path" "$([ "$rc" = "0" ] && echo 1 || echo 0)"
+else
+    echo "FAIL fleet_app_test binary missing: $FLEET_APP_TEST"; failed=$((failed + 1))
+fi
 
 # 1. A resolved turn stores the match.
 log=$(run battle a)
@@ -101,6 +117,19 @@ log=$(run battle_paced j)
 check "a turn completes with reduced motion" "$([ -f "$SAVE" ] && echo 1 || echo 0)"
 hasnt "no error with reduced motion" 'ERROR\|Assert\|assert' "$log"
 rm -f "$POCKETOS_CONFIG_DIR/settings.conf"
+
+# 9. Every screen renders in landscape too, with no fault in the log: the
+#    layout is the app's own, but the shell is what hosts it.
+rm -f "$SAVE"
+for screen in - deploy battle battle_paced result; do
+    name="land-$screen"
+    if [ "$screen" = "-" ]; then unset POCKETFLEET_SCREEN; else export POCKETFLEET_SCREEN="$screen"; fi
+    "$SHELL_BIN" --open fleet --rotation landscape \
+        --screenshot "$OUT/$name.png" --exit-after-ms 900 >"$OUT/$name.log" 2>&1
+    check "$screen renders in landscape" "$([ -s "$OUT/$name.png" ] && echo 1 || echo 0)"
+    hasnt "no fault on $screen in landscape" 'ERROR\|Assert\|assert' "$(cat "$OUT/$name.log")"
+done
+unset POCKETFLEET_SCREEN
 
 rm -rf "$POCKETOS_RUNTIME_DIR" "$POCKETOS_LOG_DIR" "$POCKETOS_CONFIG_DIR" \
        "$POCKETOS_STATE_DIR" "$OUT"

@@ -20,6 +20,15 @@ struct fleet_result_ui {
     lv_obj_t *accuracy;
     lv_obj_t *enemy_accuracy;
     lv_obj_t *survivors;
+    /* The outcome stays at the top in both shapes. Across the page the two
+     * accounts of it stand side by side and the two ways on stand under
+     * them, so nothing has to be scrolled to read how it ended. */
+    lv_obj_t *panels;
+    lv_obj_t *engagement;
+    lv_obj_t *gunnery;
+    lv_obj_t *foot;
+    lv_obj_t *again;
+    lv_obj_t *command;
 };
 
 static void on_again(lv_event_t *e)
@@ -50,19 +59,49 @@ lv_obj_t *fleet_screen_result_create(struct fleet_app *app, lv_obj_t *parent)
     lv_label_set_long_mode(ui->heading, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(ui->heading, LV_PCT(100));
 
-    panel = fleet_list_panel(screen, "ENGAGEMENT");
+    ui->panels = fleet_app_box(screen);
+    panel = fleet_list_panel(ui->panels, "ENGAGEMENT");
+    ui->engagement = panel;
     ui->opponent = pocketui_kv_row(panel, "Opponent", "-");
     ui->rounds = pocketui_kv_row(panel, "Rounds", "-");
     ui->survivors = pocketui_kv_row(panel, "Your fleet", "-");
 
-    panel = fleet_list_panel(screen, "GUNNERY");
+    panel = fleet_list_panel(ui->panels, "GUNNERY");
+    ui->gunnery = panel;
     ui->shots = pocketui_kv_row(panel, "Shots fired", "-");
     ui->accuracy = pocketui_kv_row(panel, "Your accuracy", "-");
     ui->enemy_accuracy = pocketui_kv_row(panel, "Enemy accuracy", "-");
 
-    pocketui_button(screen, "NEW ENGAGEMENT", on_again, app);
-    fleet_button_secondary(screen, "COMMAND", on_command, app);
+    ui->foot = fleet_app_box(screen);
+    ui->again = pocketui_button(ui->foot, "NEW ENGAGEMENT", on_again, app);
+    ui->command = fleet_button_secondary(ui->foot, "COMMAND", on_command, app);
     return screen;
+}
+
+void fleet_screen_result_relayout(struct fleet_app *app, int wide)
+{
+    struct fleet_result_ui *ui = app ? app->result : NULL;
+
+    if (!ui) {
+        return;
+    }
+    /* The screen keeps its column: the heading stays over everything. */
+    fleet_app_screen_flow(app->screen[FLEET_SCREEN_RESULT], wide, 0);
+    fleet_app_box_split(ui->panels, wide);
+    fleet_app_box_split(ui->foot, wide);
+    lv_obj_set_flex_grow(ui->panels, wide ? 1 : 0);
+    lv_obj_set_height(ui->panels, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
+    lv_obj_set_flex_grow(ui->foot, 0);
+    lv_obj_set_height(ui->foot, LV_SIZE_CONTENT);
+    /* Side by side across the page, each half of what the row holds. */
+    lv_obj_set_flex_grow(ui->engagement, wide ? 1 : 0);
+    lv_obj_set_flex_grow(ui->gunnery, wide ? 1 : 0);
+    lv_obj_set_width(ui->engagement, wide ? LV_PCT(50) : LV_PCT(100));
+    lv_obj_set_width(ui->gunnery, wide ? LV_PCT(50) : LV_PCT(100));
+    lv_obj_set_flex_grow(ui->again, wide ? 1 : 0);
+    lv_obj_set_flex_grow(ui->command, wide ? 1 : 0);
+    lv_obj_set_width(ui->again, wide ? LV_PCT(50) : LV_PCT(100));
+    lv_obj_set_width(ui->command, wide ? LV_PCT(50) : LV_PCT(100));
 }
 
 void fleet_screen_result_refresh(struct fleet_app *app)

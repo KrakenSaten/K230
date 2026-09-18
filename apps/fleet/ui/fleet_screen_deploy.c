@@ -3,7 +3,9 @@
  *
  * Placing is reversible, so a tap on the grid places the selected ship
  * directly. The aim-then-confirm rule that governs the dense grid applies to
- * the irreversible action, which on this screen is CONFIRM DEPLOYMENT.
+ * the irreversible action, which on this screen is CONFIRM DEPLOYMENT. That
+ * holds at the wide shape's 34 px cells too: a ship put a square out is put
+ * right by tapping again, and nothing is committed until CONFIRM.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -15,7 +17,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define DEPLOY_CELL 48
 #define ROSTER_ROW 56
 
 struct fleet_deploy_ui {
@@ -26,6 +27,12 @@ struct fleet_deploy_ui {
     lv_obj_t *state[FLEET_SHIP_COUNT];
     lv_obj_t *message;
     lv_obj_t *confirm;
+    /* Beside the board in the wide shape, under it in the tall one: the
+     * roster in one column, the placement controls in the other. */
+    lv_obj_t *side;
+    lv_obj_t *roster_col;
+    lv_obj_t *controls_col;
+    lv_obj_t *roster;
     uint8_t selected;
     uint8_t vertical;
 };
@@ -105,12 +112,16 @@ static void on_roster(lv_event_t *e)
 {
     struct fleet_deploy_ui *ui = lv_event_get_user_data(e);
     lv_obj_t *row = lv_event_get_target_obj(e);
-    lv_obj_t *panel = lv_obj_get_parent(row);
-    uint32_t count = lv_obj_get_child_count(panel);
-    uint32_t i;
+    int i;
 
-    for (i = 0; i < count && i < FLEET_SHIP_COUNT; i++) {
-        if (lv_obj_get_child(panel, (int32_t)i) == row) {
+    /* Which ship this row is, asked of the rows we kept rather than of the
+     * panel's child list: a panel's first child is its caption (DS §2), so a
+     * row's position among the children is one more than the ship's index,
+     * and the last ship has no position at all in a list that stops at
+     * FLEET_SHIP_COUNT. Holding the labels is what the roster already does
+     * to paint them, so there is nothing to count here. */
+    for (i = 0; i < FLEET_SHIP_COUNT; i++) {
+        if (lv_obj_get_parent(ui->name[i]) == row) {
             ui->selected = (uint8_t)i;
             break;
         }
@@ -188,11 +199,16 @@ lv_obj_t *fleet_screen_deploy_create(struct fleet_app *app, lv_obj_t *parent)
     app->deploy = ui;
     screen = fleet_app_screen_container(parent);
 
-    ui->grid = fleet_grid_create(screen, FLEET_GRID_DEPLOY, DEPLOY_CELL, 1);
+    ui->grid = fleet_grid_create(screen, FLEET_GRID_DEPLOY, FLEET_CELL_TALL, 1);
     fleet_grid_bind(ui->grid, player_board(app));
     fleet_grid_set_tap_cb(ui->grid, on_cell, ui);
 
-    panel = fleet_list_panel(screen, "YOUR FLEET");
+    ui->side = fleet_app_box(screen);
+    ui->roster_col = fleet_app_box(ui->side);
+    ui->controls_col = fleet_app_box(ui->side);
+
+    panel = fleet_list_panel(ui->roster_col, "YOUR FLEET");
+    ui->roster = panel;
     for (i = 0; i < FLEET_SHIP_COUNT; i++) {
         row = fleet_row(panel, ROSTER_ROW, i < FLEET_SHIP_COUNT - 1);
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
@@ -202,17 +218,47 @@ lv_obj_t *fleet_screen_deploy_create(struct fleet_app *app, lv_obj_t *parent)
         ui->state[i] = pocketui_label(row, "PENDING", POS_STYLE_CAPTION);
     }
 
-    box = fleet_hbox(screen, 56, 8);
+    box = fleet_hbox(ui->controls_col, 56, 8);
     fleet_button_paired(box, "TURN", on_rotate, ui);
     fleet_button_paired(box, "AUTO", on_auto, ui);
     fleet_button_paired(box, "CLEAR", on_clear, ui);
 
-    ui->message = pocketui_label(screen, "", POS_STYLE_STATUS_WARN_TEXT);
+    ui->message = pocketui_label(ui->controls_col, "", POS_STYLE_STATUS_WARN_TEXT);
     lv_label_set_long_mode(ui->message, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(ui->message, LV_PCT(100));
 
-    ui->confirm = pocketui_button(screen, "CONFIRM DEPLOYMENT", on_confirm, ui);
+    ui->confirm = pocketui_button(ui->controls_col, "CONFIRM DEPLOYMENT", on_confirm, ui);
     return screen;
+}
+
+/* The board is what the player works on, so it takes the height; the roster
+ * stands next to it and the three placement controls, the refusal line and
+ * CONFIRM DEPLOYMENT stand beyond that, with CONFIRM at the foot of its
+ * column where it is always in view. */
+void fleet_screen_deploy_relayout(struct fleet_app *app, int wide, int cell)
+{
+    struct fleet_deploy_ui *ui = app ? app->deploy : NULL;
+
+    if (!ui) {
+        return;
+    }
+    fleet_app_screen_flow(app->screen[FLEET_SCREEN_DEPLOY], wide, 1);
+    fleet_grid_set_cell(ui->grid, cell);
+    fleet_app_box_split(ui->side, wide);
+    fleet_app_box_column(ui->roster_col, wide);
+    fleet_app_box_column(ui->controls_col, wide);
+    lv_obj_set_flex_grow(ui->side, wide ? 1 : 0);
+    /* Across the page the panels start at the frame's top edge, and the
+     * frame clips: the captions on their top borders need that much room
+     * of their own. Down the page they sit below the board and rise into
+     * the gap above them, as they always have. */
+    lv_obj_set_style_pad_top(ui->side, wide ? FLEET_CAPTION_RISE : 0, 0);
+    lv_obj_set_flex_grow(ui->roster, wide ? 1 : 0);
+    lv_obj_set_height(ui->roster, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
+    /* The refusal line takes the slack, which puts CONFIRM at the foot
+     * without a spacer object that would have to exist in both shapes. */
+    lv_obj_set_flex_grow(ui->message, wide ? 1 : 0);
+    lv_obj_set_height(ui->message, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
 }
 
 void fleet_screen_deploy_refresh(struct fleet_app *app)

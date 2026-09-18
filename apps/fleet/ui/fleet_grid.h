@@ -44,6 +44,21 @@ enum fleet_grid_mode {
  * captions take a gutter on the top and left. */
 lv_obj_t *fleet_grid_create(lv_obj_t *parent, enum fleet_grid_mode mode, int cell,
                             int labels);
+/* The side of the whole grid - gutter, cells and gaps - for a cell of this
+ * size, with or without labels. The one place the span is worked out, so a
+ * layout can be measured before the grid it will hold exists. */
+int fleet_grid_span_for(int cell, int labels);
+/* Its inverse: the largest cell whose whole board fits in `span` px, or 0 when
+ * none does. Board geometry lives here and nowhere else, so a layout asks for
+ * a size rather than working one out from the gutter and the gaps itself. */
+int fleet_grid_cell_for_span(int span, int labels);
+/* The cell size the grid is drawing and hitting with now, or 0. */
+int fleet_grid_cell(lv_obj_t *grid);
+/* Change the cell size in place: the object is resized and repainted, and
+ * nothing is rebuilt. Drawing and the tap conversion both read this one
+ * stored size, so a cell can never be drawn at one size and hit at another.
+ * A cell that is not positive, or the size already in force, does nothing. */
+void fleet_grid_set_cell(lv_obj_t *grid, int cell);
 /* The board to read. The grid keeps the pointer, so it must outlive it. */
 void fleet_grid_bind(lv_obj_t *grid, const struct fleet_board *board);
 /* Crosshair position, or row < 0 to clear it. */
