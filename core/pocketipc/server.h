@@ -40,10 +40,18 @@ typedef void (*pocketipc_disconnect_t)(struct pocketipc_server *s,
 struct pocketipc_server *pocketipc_server_new(const char *service,
                                               pocketipc_handler_t handler, void *user);
 void pocketipc_server_free(struct pocketipc_server *s);
-/* Optional; NULL clears it. user is passed through unchanged. Callbacks are
- * never nested: one raised while another is running is queued and delivered
- * after it returns, so a handler is free to broadcast (which can itself drop
- * a client) without re-entering itself. */
+/* Optional; NULL clears it. user is passed through unchanged.
+ *
+ * Callbacks are never nested: one raised while another is running is queued
+ * and delivered after it returns, so a handler is free to broadcast - which
+ * can itself drop a slow client - without re-entering itself.
+ *
+ * A handler may be reached from inside a broadcast, because that is where a
+ * failing write drops a client. A broadcast the handler then makes is
+ * delivered immediately, so clients the outer broadcast has not reached yet
+ * see the handler's event first. Each connection's own stream stays in
+ * order and well formed; only the order of two unrelated events *between*
+ * connections can differ, and only when a client is being dropped. */
 void pocketipc_server_set_on_disconnect(struct pocketipc_server *s,
                                         pocketipc_disconnect_t cb, void *user);
 /* Accept new clients, read and dispatch requests. timeout_ms 0 = do not

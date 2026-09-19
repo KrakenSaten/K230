@@ -575,6 +575,47 @@ ok("a non-string owner label is ignored rather than accepted as one",
    e == {} or e.get("code") == 2, e)
 tx.result("radio.release") if obs.result("radio.lease").get("held") else None
 
+# ---------------------------------------------------------------------------
+# 11. A lease owner that stops reading its events.
+#
+# The new path this exercises is a nested one. radiod broadcasts an event;
+# the write to a client that has stopped reading eventually fails; that
+# closes the client from inside the broadcast; closing it raises the
+# disconnect callback, which releases the lease and broadcasts again. Before
+# the disconnect callback existed, closing a client did nothing but close it.
+#
+# What must come out of it: the lease is freed, the other subscriber's event
+# stream is still well-formed, and radiod is still there.
+# ---------------------------------------------------------------------------
+obs.drop_events()
+deaf = Conn()
+deaf.result("radio.subscribe")
+deaf.result("radio.acquire", {"owner": "deaf-daemon"})
+ok("the deaf client holds the lease", obs.result("radio.lease").get("held") is True)
+
+# Fill its socket until radiod's bounded write to it gives up. The mock's
+# receive queue is 16 deep, so this goes in batches and lets the daemon
+# drain between them.
+freed = False
+for batch in range(80):
+    for _ in range(16):
+        try:
+            obs.result("mock.inject_rx", {"payload_hex": "ab" * 255}, timeout=5)
+        except Exception:
+            pass
+    if obs.result("radio.lease", timeout=5).get("held") is False:
+        freed = True
+        break
+ok("a lease owner that stops reading is eventually dropped and the lease freed",
+   freed, "after %d batches" % (batch + 1))
+ok("and the other subscriber's stream is still readable",
+   obs.result("radio.status").get("state") in ("rx", "error"))
+ok("radiod is still serving", obs.result("radio.info").get("chip") == "mock")
+ok("another client can take the lease afterwards",
+   tx.result("radio.acquire", {"owner": "after"}).get("held") is True)
+tx.result("radio.release")
+deaf.close()
+
 print("driver: %d failure(s)" % fails)
 PYEOF
 
