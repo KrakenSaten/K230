@@ -275,6 +275,16 @@ int sx_channel(struct radio_backend *b, struct radio_channel *ch)
 {
     Sx1262Priv *p = (Sx1262Priv *)b->priv;
 
+    /* Only while the chip is actually in receive. GetRssiInst answers
+     * whatever mode the radio is in, and after a failed startReceive() it is
+     * in standby - so the number would be a reading of a receiver that is
+     * not receiving. Returning it with rssi_known set would be exactly the
+     * fabrication the rest of this struct exists to avoid, and it would come
+     * up at the worst moment: the radio is in the error state and a caller
+     * is trying to find out what is wrong with it. */
+    if (!p->receiving) {
+        return 0;   /* zeroed by the caller: nothing is known */
+    }
     ch->rssi_known = true;
     ch->rssi_dbm = p->radio->getRSSI(false);
     ch->noise_known = false;

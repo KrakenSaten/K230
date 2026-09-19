@@ -238,6 +238,25 @@ static const char *get_string(const cJSON *obj, const char *key)
     return cJSON_IsString(v) ? v->valuestring : NULL;
 }
 
+/* As get_int and get_bool: 1 if found and a string, 0 if absent, -1 if
+ * present with the wrong type. get_string above cannot tell "absent" from
+ * "sent as a number", so a caller using it silently accepts the second as
+ * the first - which for an optional field means a typed request is taken as
+ * an untyped one and nobody is told. */
+static int get_string_typed(const cJSON *obj, const char *key, const char **out)
+{
+    const cJSON *v = obj ? cJSON_GetObjectItemCaseSensitive(obj, key) : NULL;
+
+    if (!v || cJSON_IsNull(v)) {
+        return 0;
+    }
+    if (!cJSON_IsString(v)) {
+        return -1;
+    }
+    *out = v->valuestring;
+    return 1;
+}
+
 static cJSON *profile_to_json(const struct radio_profile *p)
 {
     cJSON *o = cJSON_CreateObject();
@@ -780,7 +799,7 @@ static void lease_changed(struct radiod *rd, const char *reason)
 static cJSON *m_acquire(struct radiod *rd, const cJSON *params, uint64_t client_id,
                         int *code, char *msg, size_t n)
 {
-    const char *owner = get_string(params, "owner");
+    const char *owner = NULL;
     bool was_held = radio_lease_held(&rd->lease);
     uint64_t owner_id = 0;
     int rc;
@@ -788,6 +807,11 @@ static cJSON *m_acquire(struct radiod *rd, const cJSON *params, uint64_t client_
     if (params && !cJSON_IsObject(params)) {
         *code = POCKETIPC_ERR_INVALID_PARAMS;
         snprintf(msg, n, "params must be an object");
+        return NULL;
+    }
+    if (get_string_typed(params, "owner", &owner) < 0) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(msg, n, "owner must be a string");
         return NULL;
     }
     if (owner && strlen(owner) >= RADIO_LEASE_OWNER_MAX) {
@@ -844,30 +868,42 @@ static cJSON *m_channel(struct radiod *rd, int *code, char *msg, size_t n)
 {
     struct radio_channel ch;
     bool transmitting = radio_tx_active(&rd->tx);
+    /* Backends without is_receiving() are taken to receive whenever they are
+     * not transmitting, the same reading update_rx_state uses. */
+    bool receiving = !transmitting &&
+                     (!rd->be.ops->is_receiving || rd->be.ops->is_receiving(&rd->be));
     cJSON *o;
 
     memset(&ch, 0, sizeof(ch));
-    if (transmitting) {
-        /* The radio is the one making the noise. Anything read from it now
-         * describes our own transmission, not the channel. */
-    } else if (rd->be.ops->channel) {
-        if (rd->be.ops->channel(&rd->be, &ch) < 0) {
-            *code = POCKETIPC_ERR_BACKEND;
-            snprintf(msg, n, "channel read failed");
-            return NULL;
-        }
-    } else if (rd->be.ops->rssi) {
-        double dbm = 0.0;
+    /* Nothing is asked of a radio that is not listening. While it transmits
+     * it is the one making the noise, and after a failed re-entry into
+     * receive it is sitting in standby - in both cases a channel
+     * measurement would describe the receiver rather than the channel. The
+     * rule is enforced here rather than left to each backend so it holds for
+     * every backend there will be, including the ones that answer this
+     * without checking. */
+    if (receiving) {
+        if (rd->be.ops->channel) {
+            if (rd->be.ops->channel(&rd->be, &ch) < 0) {
+                *code = POCKETIPC_ERR_BACKEND;
+                snprintf(msg, n, "channel read failed");
+                return NULL;
+            }
+        } else if (rd->be.ops->rssi) {
+            double dbm = 0.0;
 
-        if (rd->be.ops->rssi(&rd->be, &dbm) == 0) {
-            ch.rssi_known = true;
-            ch.rssi_dbm = dbm;
+            if (rd->be.ops->rssi(&rd->be, &dbm) == 0) {
+                ch.rssi_known = true;
+                ch.rssi_dbm = dbm;
+            }
         }
     }
 
     o = cJSON_CreateObject();
     cJSON_AddNumberToObject(o, "mono_ms", (double)mono_ms());
     cJSON_AddBoolToObject(o, "transmitting", transmitting);
+    /* Why everything below may be unknown. */
+    cJSON_AddBoolToObject(o, "receiving", receiving);
     cJSON_AddBoolToObject(o, "rssi_known", ch.rssi_known);
     if (ch.rssi_known) {
         cJSON_AddNumberToObject(o, "rssi_dbm", ch.rssi_dbm);
@@ -985,11 +1021,21 @@ static bool method_needs_lease(const char *method)
  * Before the asynchronous path existed this could not arise - the daemon was
  * inside the blocking send and answered nothing - so nothing guarded it.
  * Now a configure could land between tx_begin and tx_poll and change the
- * frequency of a packet already going out. */
+ * frequency of a packet already going out.
+ *
+ * radio.rssi is here for the same reason radio.channel reports nothing while
+ * transmitting: the number the chip would give back is a reading of a radio
+ * that is transmitting, not of the channel. The difference is that
+ * radio.channel can say "unknown" in its result and radio.rssi, whose whole
+ * result is the number, cannot - so it is refused instead of answered with
+ * something untrue. Unreachable on the SX1262 today, where the daemon is
+ * inside the blocking transmit and answering nothing, and observable the
+ * moment a backend implements tx_begin/tx_poll. */
 static bool method_conflicts_with_tx(const char *method)
 {
     return strcmp(method, "radio.configure") == 0 ||
-           strcmp(method, "radio.cad") == 0;
+           strcmp(method, "radio.cad") == 0 ||
+           strcmp(method, "radio.rssi") == 0;
 }
 
 static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, cJSON *req,

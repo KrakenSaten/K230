@@ -668,3 +668,37 @@ Wave and ggwave:
   (reported as "could not decode").
 - The launcher grid now has six rows and is full: a twelfth app needs a
   different launcher layout.
+
+## radiod, from the asynchronous transmit work (feat/radiod-async-ipc)
+
+- **No completion deadline for an asynchronous backend.** `radio.send_async`
+  drives a backend through `tx_begin`/`tx_poll`. If a backend ever loses a
+  hardware completion - a missed DIO1 edge, a chip that stops answering -
+  `tx_poll` returns "still on air" for ever and radiod stays in `tx`: later
+  transmits refused BUSY, `radio.configure` and `radio.cad` refused,
+  `radio.channel` reporting nothing, and no event to say why. Only a restart
+  clears it. **Deliberately deferred**, because no backend reaches that path
+  on hardware: the mock completes on a deterministic deadline of its own and
+  the SX1262 uses the blocking `send()` fallback, whose bound is RadioLib's.
+  Required before the first backend that implements the pair for real; a
+  deadline from the expected airtime, after which the transmit completes as
+  failed and the radio is taken back (services/radiod/tx.h, docs/api/radio.md
+  "Deferred: a completion deadline for asynchronous backends").
+- **The SX1262 has no asynchronous transmit.** It keeps RadioLib's blocking
+  `transmit()`, so radiod is still unresponsive for the airtime on hardware;
+  only the submitting client stops waiting. Changing it means
+  `startTransmit()` with a DIO1-driven completion, which alters the exact
+  sequence this board's two successful on-air runs used, and needs hardware
+  validation.
+- **`radio.channel` cannot say whether the channel is busy on real
+  hardware.** CAD detects a LoRa preamble at the configured modulation and
+  takes the radio off receive, so it is not a busy signal; deriving one from
+  RSSI needs a threshold nobody has measured on this board. Reported as
+  `activity_known: false` rather than a fabricated `busy: false`.
+- **None of the asynchronous transmit, lease, monotonic-timestamp or channel
+  work has run on unit A.** Host and mock verified, compile verified for the
+  SX1262 backend, hardware UNRESOLVED.
+- `tests/netd_test.sh`'s "a foreign supplicant on wlan0" check is flaky under
+  load: its `wait_state unavailable` window is 4 s, and it has been seen to
+  miss once on a machine busy with a parallel build, then pass repeatedly on
+  the same commit and on master. Pre-existing, unrelated to radiod.

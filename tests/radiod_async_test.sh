@@ -42,11 +42,61 @@ stop_radiod() {
 }
 
 # The python driver prints its own "ok"/"FAIL" lines; count the failures.
+#
+# Counting those lines is not enough on its own. A driver that dies on an
+# uncaught exception prints its traceback to stderr and stops, so the two
+# hundred checks after that point never run and never print anything - and a
+# harness that only counts the FAIL lines it was given would call that a
+# clean pass. That is the worst way for a test suite to fail, because it
+# fails silently and stays green.
+#
+# So three things have to line up: the driver must exit zero, it must print
+# the sentinel that only its last line prints, and it must have printed no
+# FAIL. Its status is taken directly from the invocation - no pipeline, no
+# command substitution - and its stderr is left alone so a traceback is
+# still on the screen.
 run_driver() { # run_driver <script-name>
-    local out
-    out=$(python3 - "$SOCK" < "$1")
-    printf '%s\n' "$out"
-    failed=$((failed + $(printf '%s\n' "$out" | grep -c '^FAIL' || true)))
+    local out="$POCKETOS_RUNTIME_DIR/driver.out"
+    local rc
+
+    python3 - "$SOCK" < "$1" > "$out"
+    rc=$?
+    cat "$out"
+    local printed
+    printed=$(grep -c '^FAIL' "$out" || true)
+    failed=$((failed + printed))
+    if ! grep -q '^driver: [0-9]* failure' "$out"; then
+        # No sentinel: it stopped early, whatever it managed to print first.
+        echo "FAIL the driver exited $rc without reaching its last line; the checks after that point did not run"
+        failed=$((failed + 1))
+    elif [ "$rc" -ne 0 ] && [ "$printed" -eq 0 ]; then
+        # It ran to the end and still failed, without saying what. The
+        # failures it did report are already counted above, so this is only
+        # for a status that nothing on stdout explains.
+        echo "FAIL the driver ran to the end but exited $rc without printing a failure"
+        failed=$((failed + 1))
+    fi
+}
+
+# Prove that harness, before trusting it with the real driver. A deliberately
+# crashing driver must be reported as a failure, not as the one "ok" it got
+# out before dying.
+self_test_harness() {
+    local probe="$POCKETOS_RUNTIME_DIR/crash_probe.py"
+    local saved=$failed
+    local got
+
+    printf 'print("ok   a check that did run")\nraise RuntimeError("deliberate")\n' > "$probe"
+    failed=0
+    run_driver "$probe" > "$POCKETOS_RUNTIME_DIR/selftest.out" 2>/dev/null
+    got=$failed
+    failed=$saved
+    if [ "$got" -gt 0 ]; then
+        echo "ok   a driver that dies with an uncaught exception fails this test"
+    else
+        echo "FAIL a driver that dies with an uncaught exception was reported as a pass"
+        failed=$((failed + 1))
+    fi
 }
 
 check() { # check <name> <expected-substring> <actual>
@@ -292,8 +342,15 @@ ok("radio.info still answers", obs.result("radio.info") is not None)
 ch = obs.result("radio.channel")
 ok("radio.channel still answers", ch is not None)
 ok("and says the radio is transmitting, so it knows nothing about the channel",
-   ch.get("transmitting") is True and ch.get("rssi_known") is False
-   and ch.get("activity_known") is False, ch)
+   ch.get("transmitting") is True and ch.get("receiving") is False
+   and ch.get("rssi_known") is False and ch.get("activity_known") is False, ch)
+ok("and offers no number while it is transmitting", "rssi_dbm" not in ch, ch)
+# radio.channel can answer "unknown"; radio.rssi, whose whole result is the
+# number, cannot - so it is refused rather than answered with a reading of a
+# radio that is transmitting.
+e = obs.error("radio.rssi")
+ok("radio.rssi is refused while a packet is on the air", e.get("code") == 5, e)
+ok("and says what is holding the radio", str(busy_id) in e.get("message", ""), e)
 
 done = obs.wait_event("radio.tx_done", timeout=5)
 ok("the refused requests did not disturb the one in flight",
@@ -534,6 +591,7 @@ ch = obs.result("radio.channel")
 ok("the channel report is timestamped monotonically",
    isinstance(ch.get("mono_ms"), (int, float)) and ch["mono_ms"] > 0, ch)
 ok("it says whether the radio is transmitting", ch.get("transmitting") is False, ch)
+ok("and whether it is listening", ch.get("receiving") is True, ch)
 ok("the mock knows its own channel",
    ch.get("rssi_known") is True and ch.get("noise_known") is True
    and ch.get("activity_known") is True, ch)
@@ -551,6 +609,27 @@ ok("and offers no value it cannot stand behind",
    "rssi_dbm" not in ch and "noise_dbm" not in ch and "busy" not in ch, ch)
 ok("but still says whether CAD exists", ch.get("cad_supported") is True, ch)
 knob(obs, "channel_unknown", 0)
+
+# A radio that is not listening has nothing to say about the channel, and
+# the number it would give back is a reading of a receiver in standby. The
+# rule is radiod's, not the backend's - the mock would happily answer here -
+# so it holds for every backend, including the SX1262 after a failed
+# re-entry into receive, which is exactly when someone is trying to find out
+# what is wrong with it.
+knob(obs, "rx_failing", 1)
+ok("a radio that cannot enter receive is in the error state",
+   obs.result("radio.status").get("state") == "error")
+ch = obs.result("radio.channel")
+ok("and reports that it is not listening", ch.get("receiving") is False, ch)
+ok("so it claims to know nothing about the channel",
+   ch.get("rssi_known") is False and ch.get("noise_known") is False
+   and ch.get("activity_known") is False, ch)
+ok("and offers no number it could not have measured",
+   "rssi_dbm" not in ch and "noise_dbm" not in ch and "busy" not in ch, ch)
+knob(obs, "rx_failing", 0)
+time.sleep(1.5)
+ok("once it is receiving again it answers properly",
+   obs.result("radio.channel").get("rssi_known") is True)
 
 # ---------------------------------------------------------------------------
 # 10. Malformed and extreme requests.
@@ -570,10 +649,16 @@ r = tx.result("radio.send_async", {"payload_hex": "ab" * 255})
 ok("the largest legal payload is accepted", r.get("bytes") == 255, r)
 obs.wait_event("radio.tx_done", timeout=10)
 
-e = tx.error("radio.acquire", {"owner": 7})
-ok("a non-string owner label is ignored rather than accepted as one",
-   e == {} or e.get("code") == 2, e)
-tx.result("radio.release") if obs.result("radio.lease").get("held") else None
+for bad, why in [(7, "a number"), (True, "a boolean"), ([], "an array"), ({}, "an object")]:
+    e = tx.error("radio.acquire", {"owner": bad})
+    ok("an owner label that is " + why + " is refused", e.get("code") == 2, e)
+    ok("and says why", "owner must be a string" in e.get("message", ""), e)
+ok("a refused label did not take the lease", obs.result("radio.lease").get("held") is False)
+# null is absent, not a wrong type: the label is optional.
+r = tx.result("radio.acquire", {"owner": None})
+ok("a null owner label is treated as none given, and still names something",
+   r.get("held") is True and bool(r.get("owner")), r)
+tx.result("radio.release")
 
 # ---------------------------------------------------------------------------
 # 11. A lease owner that stops reading its events.
@@ -617,8 +702,10 @@ tx.result("radio.release")
 deaf.close()
 
 print("driver: %d failure(s)" % fails)
+sys.exit(1 if fails else 0)
 PYEOF
 
+self_test_harness
 start_radiod radiod.log
 run_driver "$DRIVER"
 

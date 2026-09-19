@@ -133,6 +133,25 @@ const struct radio_tx_done *radio_tx_last(const struct radio_tx *tx);
  * while a transmission is active. */
 #define RADIO_TX_POLL_MS 5
 
+/* NOT IMPLEMENTED, and required before the first backend that drives a
+ * transmit from a hardware completion: a deadline on tx_poll.
+ *
+ * A lost completion - a missed DIO1 edge, a chip that stops answering -
+ * makes tx_poll return 0 for ever, and this state machine then stays in the
+ * transmit for good: every later send refused BUSY, configure and cad
+ * refused, radio.channel reporting nothing, and no event to say why. Only a
+ * restart would clear it. The fix is a deadline derived from the expected
+ * airtime, after which the transmit completes as failed and the radio is
+ * taken back.
+ *
+ * It is absent because there is nothing to protect yet. The mock completes
+ * on a deterministic deadline of its own, and the SX1262 uses the blocking
+ * send() whose bound is RadioLib's; no backend reaches the polling path on
+ * hardware. Adding it now would mean guessing a tolerance for a backend
+ * that does not exist and carrying the guess until one does. See
+ * docs/api/radio.md, "Deferred: a completion deadline for asynchronous
+ * backends". */
+
 #ifdef __cplusplus
 }
 #endif

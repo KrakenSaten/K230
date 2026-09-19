@@ -176,6 +176,14 @@ The packet went out, which is what this call answers; the receive state is
 in `radio.tx_done`, in `radio.status` and in the `radio.state` event that
 has already been sent.
 
+**Event ordering.** `radio.tx_done` is broadcast when the transmit
+completes, which for `radio.send` is *before* the reply to the request is
+written. So subscribers - including the submitting connection, if it is
+subscribed - can see a completion carrying a `tx_id` before the connection
+that submitted it has been told that `tx_id`. A client that needs
+acceptance to arrive before completion uses `radio.send_async`, where the
+id is in a reply sent before the radio is touched.
+
 A `timeout_ms` parameter is refused with error 2. The asynchronous path
 below is what replaced it: a deadline on a transmit whose completion is the
 point would report failure for a packet that went out.
@@ -247,6 +255,25 @@ While a transmission is in flight, `radio.configure` and `radio.cad` are
 refused with error 5: both would disturb a packet that is already going out.
 Reads (`radio.info`, `radio.status`, `radio.stats`, `radio.rssi`,
 `radio.channel`, `radio.lease`) stay available.
+
+#### Deferred: a completion deadline for asynchronous backends
+
+**Not implemented, and required before the first backend that implements
+`tx_begin`/`tx_poll` on real hardware.**
+
+A backend driving a transmit from a hardware completion can lose that
+completion - a missed DIO1 edge, a chip that stops answering. `tx_poll`
+would then return 0 for ever, and radiod would stay in `tx`: every later
+transmit refused with BUSY, `radio.configure` and `radio.cad` refused,
+`radio.channel` reporting nothing, and no event to say why. Only a restart
+would clear it. The fix is a deadline derived from the expected airtime,
+after which the transmit is completed as failed and the radio is taken back.
+
+It is deliberately absent here because there is nothing to protect yet: the
+mock completes on a deterministic deadline of its own, and the SX1262 uses
+the blocking `send()` fallback, whose bound is RadioLib's. Adding a watchdog
+now would mean guessing the tolerance for a backend that does not exist, and
+carrying that guess in the state machine until one does.
 
 #### What "asynchronous" does and does not mean per backend
 
@@ -346,7 +373,7 @@ No params. A **passive** observation of the channel: it never takes the
 radio out of receive, so it is safe to poll.
 
 Result: `mono_ms` (when the sample was taken), `transmitting` (bool),
-`cad_supported` (bool), and three pairs:
+`receiving` (bool), `cad_supported` (bool), and three pairs:
 
 | Known flag | Value, present only when the flag is true |
 | --- | --- |
@@ -357,8 +384,17 @@ Result: `mono_ms` (when the sample was taken), `transmitting` (bool),
 **Unknown information stays explicitly unknown.** The flags are the point:
 "unknown" and "quiet" are different answers, and a protocol daemon deciding
 whether to transmit would read a fabricated `busy: false` as permission. A
-value is absent whenever its flag is false. While `transmitting` is true
-everything is unknown - the radio is the one making the noise.
+value is absent whenever its flag is false.
+
+**Nothing is measured unless the radio is listening.** When `receiving` is
+false every value is unknown, and `transmitting` and `receiving` say why.
+That covers two cases: a packet is on the air, so the radio is the one
+making the noise; or re-entry into receive failed and the transceiver is
+sitting in standby, where the SX1262's `GetRssiInst` still answers and what
+it answers describes the receiver rather than the channel. The rule is
+radiod's, not each backend's, so it holds for every backend - including one
+that answers without checking. It matters most in the second case, because
+that is precisely when someone is trying to work out what is wrong.
 
 What each backend reports:
 
@@ -366,10 +402,12 @@ What each backend reports:
   say it knows its own channel). `mock.set channel_unknown=1` makes it
   report nothing, which is the shape a real backend produces.
   **VERIFIED host/mock**.
-- `sx1262`: `rssi_known: true` only. **Compile verified**; the RSSI read is
-  `getRSSI(false)`, the same GetRssiInst call `radio.rssi` has made on unit
-  A, so the value itself rests on existing hardware evidence. The other two
-  are deliberately false:
+- `sx1262`: `rssi_known: true` while it is in receive, and nothing at all
+  when it is not - the backend checks before reading, and radiod checks
+  again. **Compile verified**; the RSSI read is `getRSSI(false)`, the same
+  GetRssiInst call `radio.rssi` has made on unit A, so the value itself
+  rests on existing hardware evidence. The other two are deliberately
+  false:
   - **Noise: UNRESOLVED.** The SX1262 has no noise measurement. The RSSI
     read while nothing is arriving *is* the noise floor, but the chip cannot
     tell us nothing is arriving, so calling that number "noise" would be a
@@ -401,9 +439,16 @@ the cost and the narrowness are the caller's to accept.
 
 ### radio.rssi
 
-Result: `rssi_dbm` (instantaneous channel RSSI). Error 6 if unsupported.
-Unchanged, and not gated by the lease; `radio.channel` is the newer shape
-and says what it does not know.
+Result: `rssi_dbm` (instantaneous channel RSSI). Error 6 if unsupported,
+**error 5 while a transmission is in flight**. Not gated by the lease.
+
+The TX refusal is new. `radio.channel` answers "unknown" while the radio is
+transmitting; `radio.rssi`, whose entire result is the number, has no way to
+say that, so it is refused rather than answered with a reading of a radio
+that is transmitting. Unreachable on the SX1262 today - the daemon is inside
+the blocking transmit and answering nothing - and observable as soon as a
+backend implements the asynchronous pair. `radio.channel` is the newer shape
+and the one to prefer.
 
 ### radio.subscribe / radio.unsubscribe
 
@@ -448,8 +493,24 @@ time radiod did not read from the clock itself.
 - `radio.lease`: `held`, `reason` (`acquired`, `released`, `client_gone`),
   `mono_ms`, and `owner`/`owner_id` while held.
 
-All additions are additive: every field the v0 events carried is still
-there, with the same name and meaning.
+Every field the v0 events carried is still there, with the same name and
+meaning. **One behaviour did change, and it is not additive:**
+`radio.tx_done` used to be sent only when a transmit succeeded. It is now
+sent for **every accepted transmit**, including ones that failed and ones
+that transmitted but left the radio unable to receive.
+
+A client that treated the arrival of `radio.tx_done` as meaning "a packet
+went out" - counting events, or clearing a pending flag - will now also
+count failures. Read the fields instead:
+
+| Question | Field |
+| --- | --- |
+| Did everything go well? | `ok` |
+| Did the bytes go out? | `transmitted` |
+| Is the radio listening again? | `rx_resumed` |
+| Which case was it? | `result` |
+
+The event's presence means only that an accepted transmit finished.
 
 ## Time
 
@@ -506,6 +567,9 @@ and the channel status rest on. None of it has been near a radio.
 | Lease semantics (acquire, duplicate, conflict, wrong-owner release, disconnect, restart) | **VERIFIED host/mock** | `tests/radiod_tx_test.c` and `tests/radiod_async_test.sh` |
 | `mono_ms` is a different clock from `timestamp_ms`, monotonic, 64-bit, exact on the wire past 2^32 and 2^40 | **VERIFIED host/mock** | `tests/radiod_tx_test.c`, `tests/radiod_async_test.sh` |
 | `radio.channel` contract and the unknown-stays-unknown shape | **VERIFIED host/mock** | `tests/radiod_async_test.sh`, both directions of `channel_unknown` |
+| Nothing measured while the radio is not receiving (transmitting, or RX re-entry failed) | **VERIFIED host/mock** | `tests/radiod_async_test.sh` drives both states |
+| `radio.rssi` refused while a transmit is in flight | **VERIFIED host/mock** | `tests/radiod_async_test.sh` |
+| `radio.acquire` refuses a non-string `owner` | **VERIFIED host/mock** | `tests/radiod_async_test.sh`, four wrong types plus `null` |
 | The same code compiled for the SX1262 backend and riscv64 | **compile verified** | `make sx1262-objs`, riscv64 cross-build |
 | SX1262 RSSI underneath `radio.channel` | **DOCUMENTED** | the same `getRSSI(false)` call already run on unit A; the new wrapper has not been |
 | SX1262 async transmit | **UNRESOLVED** | not implemented; needs `startTransmit()` + DIO1 completion and hardware validation |
@@ -523,5 +587,6 @@ passive RSSI reader and one extra timestamp field.
 FSK, LoRaWAN, frequency hopping, multiple radios, RF timeslicing or
 arbitration between protocols (the lease is exclusivity, not scheduling),
 persistence of the profile or the lease across restarts, a transmit queue,
-an asynchronous transmit on the SX1262, and a truthful channel-busy signal
-on real hardware.
+an asynchronous transmit on the SX1262, a completion deadline for
+asynchronous backends (see above, and docs/KNOWN_ISSUES.md), and a truthful
+channel-busy signal on real hardware.
