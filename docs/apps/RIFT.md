@@ -3,10 +3,13 @@
 The mesh client for Doors: what this node is, what state its radio service is
 in, which nodes it has heard, and how a packet would get to one of them.
 
-**Status:** phase 1, host-complete on branch `feat/rift-ui-phase1`
-(2026-09-19). Built for riscv64 (`make all` and the DRM/sysroot shell,
-0 first-party warnings). **Nothing here has run on hardware, and nothing in
-it transmits.** It reads meshcored and draws what meshcored says.
+**Status:** phase 1, on branch `feat/rift-ui-phase1` (2026-09-19). Built for
+riscv64 (`make all` and the DRM/sysroot shell, 0 first-party warnings). Run
+on the panel against a live mesh: **PASS on unit A, 2026-09-19, build
+`d19146b`** (`docs/hardware/RIFT_PHASE1_BENCH_GATE.md`), not merged.
+**Nothing in it transmits**, and nothing did — the service counted
+`tx_submitted=0` across the whole session. It reads meshcored and draws what
+meshcored says.
 
 The design is `docs/design/rift/HANDOFF.md`, approved 2026-09-19; that
 package is the contract and this phase implements part of it.
