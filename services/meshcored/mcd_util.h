@@ -21,6 +21,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* The C daemon is the only caller in the service, but the runtime test - which
+ * is C++, because it drives the MeshCore runtime - checks that a name carrying
+ * raw bytes arrives intact at the seam and is made safe by this. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Decode hex into dst. Every character must be a hex digit and the string
  * must have even length; anything else is refused rather than substituted.
  * Returns the number of bytes written, or -1 when the string is not valid
@@ -38,10 +45,51 @@ char *mcd_hex_encode(const uint8_t *src, size_t len, char *dst, size_t dst_size)
  * cannot say how many bytes it means is not asking a precise question. */
 int mcd_key_prefix_parse(const char *hex, uint8_t *dst, size_t dst_size);
 
+/* ---- remote text on the way out ----------------------------------------
+ *
+ * An advert name and a message body are chosen by whoever is on the air. They
+ * reach this service as bytes MeshCore decrypted, and MeshCore does not - and
+ * should not - care what is in them. What must not happen is those bytes
+ * going out through mesh.* as if they were text this service vouched for:
+ *
+ *   - invalid UTF-8 makes the whole IPC frame unparsable, so one hostile
+ *     advert would break every client's read of every event, not just its own;
+ *   - an ESC sequence is escaped by JSON but decodes back to a real ESC, and
+ *     lands intact in whatever terminal or panel shows it.
+ *
+ * The policy, one rule, applied to every remote string the API emits:
+ *
+ *   - well-formed UTF-8 passes through byte for byte, including every
+ *     non-ASCII script, emoji and combining mark;
+ *   - a byte that is not part of a well-formed sequence is replaced with
+ *     U+FFFD REPLACEMENT CHARACTER, and decoding resumes at the next byte;
+ *   - C0 controls other than newline and tab, DEL, and the C1 range
+ *     U+0080..U+009F are replaced with U+FFFD as well - so no escape
+ *     sequence, cursor move or colour change survives;
+ *   - output is truncated on a character boundary if it will not fit, never
+ *     mid-sequence.
+ *
+ * The bytes are only changed on the way out. What MeshCore holds, hashes and
+ * would put back on the air is untouched: this is a presentation decision at
+ * the service boundary, not an edit to the protocol.
+ *
+ * dst_size must allow for growth - one bad byte becomes three - so a buffer
+ * of 3 * src_len + 1 always suffices. Returns dst.
+ */
+char *mcd_text_sanitize(const char *src, char *dst, size_t dst_size);
+
+/* The buffer size mcd_text_sanitize() can never overflow for a source of at
+ * most n bytes. */
+#define MCD_SANITIZED_SIZE(n) ((n) * 3 + 1)
+
 /* Is every byte of text printable UTF-8 that a MeshCore message may carry?
  * The rule is narrow on purpose: no NUL (the wire format is NUL-terminated),
  * no control characters other than a plain newline or tab, and at most
  * max_len bytes. Returns true when the text may be sent. */
 bool mcd_text_acceptable(const char *text, size_t max_len);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* MCD_UTIL_H */

@@ -758,3 +758,26 @@ Wave and ggwave:
   this service: a second submission while one is outstanding is refused, and
   MeshCore is told the send did not start. That is the honest shape, and it
   means a busy node drops its own outbound packets rather than delaying them.
+
+### meshcored, deferred from the review-fix pass (2026-09-19)
+
+Two low-severity findings from the independent review, left alone on purpose
+so that pass stayed the size it was scoped to be.
+
+- **`ensureDir()` accepts a state directory that already exists, whatever its
+  mode or owner.** It creates the leaf 0700, and the files inside it are
+  written 0600, so a fresh install is right. What it does not do is *correct*
+  a directory somebody else created 0777, or one owned by another user - it
+  takes what is there. On this image the service runs as root on a
+  root-owned tree, so there is nobody to take advantage of it; on a system
+  with other users there would be. The fix is to check the mode and ownership
+  of an existing directory and refuse, or repair, rather than assume.
+- **An outbound packet can be lost between two deadlines.** After a
+  `radio.tx_done` goes missing, MeshCore's dispatcher clears its outbound slot
+  at 1.5 times the packet's airtime while meshcored's transmit map holds its
+  own slot for five seconds. In that window the protocol core will hand over
+  another packet and meshcored refuses it, so the packet is dropped rather
+  than delayed - correct, and reported to MeshCore as a send that did not
+  start, but a packet nobody sends again. Narrowing it means either a shorter
+  transmit-map deadline (which risks calling a slow completion lost) or a
+  queue on this side, which is a design decision rather than a fix.

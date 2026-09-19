@@ -33,6 +33,20 @@
 
 /* ---- shared shapes ------------------------------------------------------ */
 
+/* A string chosen by whoever is on the air, on its way to a client. Every
+ * one of these goes through the sanitiser: an advert name and a message body
+ * are remote input, and the two things they must not be able to do are make
+ * the IPC frame unparsable and carry a terminal escape sequence through
+ * intact. See mcd_util.h for the policy. Internal state keeps the real
+ * bytes; only this boundary changes them. */
+static void add_remote_text(cJSON *o, const char *field, const char *text)
+{
+    char safe[MCD_SANITIZED_SIZE(MCD_MAX_TEXT)];
+
+    mcd_text_sanitize(text, safe, sizeof(safe));
+    cJSON_AddStringToObject(o, field, safe);
+}
+
 static void add_key(cJSON *o, const char *field, const uint8_t *key, size_t len)
 {
     char hex[MCD_PUB_KEY_LEN * 2 + 1];
@@ -54,7 +68,7 @@ static cJSON *node_json(const struct mcd_node *n)
     if (mcd_hex_encode(n->public_key, 1, hash, sizeof(hash))) {
         cJSON_AddStringToObject(o, "node_hash", hash);
     }
-    cJSON_AddStringToObject(o, "name", n->name);
+    add_remote_text(o, "name", n->name);
     cJSON_AddNumberToObject(o, "type", (double)n->type);
     cJSON_AddBoolToObject(o, "path_known", n->path_known);
     if (n->path_known) {
@@ -90,8 +104,8 @@ static cJSON *message_json(const struct mcd_message *m)
     cJSON_AddNumberToObject(o, "id", (double)m->id);
     cJSON_AddStringToObject(o, "direction", m->outgoing ? "out" : "in");
     add_key(o, "peer_public_key", m->peer_key, MCD_PUB_KEY_LEN);
-    cJSON_AddStringToObject(o, "peer_name", m->peer_name);
-    cJSON_AddStringToObject(o, "text", m->text);
+    add_remote_text(o, "peer_name", m->peer_name);
+    add_remote_text(o, "text", m->text);
     cJSON_AddNumberToObject(o, "timestamp", (double)m->timestamp);
     cJSON_AddNumberToObject(o, "mono_ms", (double)m->mono_ms);
     cJSON_AddStringToObject(o, "state", mcd_msg_state_name(m->state));
@@ -268,12 +282,25 @@ static cJSON *m_status(struct mcd *d)
     cJSON_AddNumberToObject(counters, "recv_direct", (double)st.recv_direct);
     cJSON_AddNumberToObject(counters, "path_payloads_refused",
                             (double)st.path_payloads_refused);
+    cJSON_AddNumberToObject(counters, "nodes_unretained", (double)st.nodes_unretained);
+    cJSON_AddNumberToObject(counters, "contacts_full", (double)st.contacts_full);
     cJSON_AddItemToObject(o, "counters", counters);
 
     cJSON_AddNumberToObject(o, "nodes", (double)st.contacts);
     cJSON_AddNumberToObject(o, "messages", (double)mcd_runtime_message_count(d->rt));
     cJSON_AddNumberToObject(o, "packets_free", (double)st.packets_free);
     cJSON_AddNumberToObject(o, "packets_total", (double)st.packets_total);
+    /* Present only when the stored node state could not be read at start-up.
+     * The node is running normally with an empty table, and this is how a
+     * client learns that it forgot what it knew rather than never having
+     * known it. */
+    {
+        char fault[256];
+
+        if (mcd_runtime_state_fault(d->rt, fault, sizeof(fault))) {
+            add_remote_text(o, "state_fault", fault);
+        }
+    }
     return o;
 }
 
@@ -289,7 +316,9 @@ static cJSON *m_identity(struct mcd *d)
     if (mcd_hex_encode(key, 1, hash, sizeof(hash))) {
         cJSON_AddStringToObject(o, "node_hash", hash);
     }
-    cJSON_AddStringToObject(o, "name", name);
+    /* Our own name, and still sanitised: it can come from state.v1, which is
+     * a file on disk that this service does not get to assume is well formed. */
+    add_remote_text(o, "name", name);
     /* The private half is never reported, by any method, at any verbosity. */
     return o;
 }

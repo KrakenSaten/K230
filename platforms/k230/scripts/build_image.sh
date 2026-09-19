@@ -20,6 +20,22 @@ OUT_DIR="${POCKETOS_OUT_DIR:-${REPO_DIR}/out/k230}"
 # WSL appends Windows PATH entries containing spaces; Buildroot refuses them.
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
+# meshcored may be built and tested at any time; it may not be shipped until
+# the notices cover what it contains (docs/LICENSING.md open item 9). The
+# package's install step refuses it, which is the real chokepoint - this is
+# the same refusal an hour earlier, because finding out at the end of an
+# image build is finding out too late. ENABLE_MESHCORED reaches the package
+# through the environment, so it is read the same way here.
+if [ "${ENABLE_MESHCORED:-0}" = "1" ]; then
+    echo "ERROR: ENABLE_MESHCORED=1 is set, and this image would therefore install" >&2
+    echo "       meshcored - which contains MeshCore, orlp's ed25519 and rweather's" >&2
+    echo "       Crypto, none of which the third-party notices mention." >&2
+    echo "       Build and test it as much as you like:" >&2
+    echo "         make ENABLE_MESHCORED=1 meshcored ; make meshcored-test" >&2
+    echo "       See docs/LICENSING.md open item 9 and docs/services/MESHCORED.md." >&2
+    exit 1
+fi
+
 # The toolchain the SDK expects. Overridable so the export path can be
 # exercised without one (tests/build_provenance_test.sh); the default is the
 # only location docs/BUILD_ENVIRONMENT.md describes.

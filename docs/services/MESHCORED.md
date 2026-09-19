@@ -51,6 +51,15 @@ take a lease from another owner, and the failure is reported as a service
 state (`waiting_for_lease`) with a bounded, doubling backoff — 0.5 s to a 30 s
 ceiling — rather than as a retry loop.
 
+And if radiod refuses the **profile** — the region guard turning it down, or a
+value it will not take — the service gives the radio back before it gives up.
+It asks for `radio.release` and closes the connection, which releases the
+lease on radiod's side as well, clears its own lease and profile state, and
+enters `error`. That state is terminal: the profile comes from the command
+line, so reconnecting would apply the same numbers and be refused the same
+way, for ever. What matters is what it does **not** do — sit in an error state
+holding a radio nothing else can then take.
+
 The seven service states, what each means and which failure produces which,
 are in docs/api/mesh.md.
 
@@ -194,7 +203,13 @@ choice worth naming:
 
 - **Contacts are added automatically**, as upstream does
   (`isAutoAddEnabled()` returns true). Any node that adverts within range
-  becomes a contact, up to 32.
+  becomes a contact, up to 32. Past that, MeshCore reports the discovery
+  anyway, with a contact it is about to throw away, so a UI can say somebody
+  adverted and it could not be kept. meshcored does not treat that as a node:
+  no `mesh.node` event, no state marked dirty, no telemetry slot taken from a
+  node that *was* kept. It is counted as `nodes_unretained` so that a full
+  table is visible rather than merely quiet. The table-full policy itself is
+  upstream's and unchanged.
 - **This node is not a repeater.** `allowPacketForward()` stays false, so it
   hears everything and forwards nothing.
 
@@ -254,10 +269,39 @@ table, per-node signal readings, every counter, and the radio profile.
 `mesh.messages` reports `persistent: false` rather than leaving that to be
 discovered.
 
+Both files are written whole or not at all, and **both are flushed twice**:
+once for the contents, once for the directory entry that names them. `fsync()`
+on a file says nothing about the entry pointing at it, so a power cut in
+between can leave a complete file nothing can reach - which for an identity is
+a node that silently becomes somebody else on its next start. A failed
+directory flush is reported as a failed write, and the identity file is
+removed rather than left half promised.
+
 Messages are left out deliberately. Writing decrypted message text to the
 device is a privacy decision the owner has not made, and this phase was asked
 to keep persistence small. It is the obvious next step and is recorded in
 docs/KNOWN_ISSUES.md.
+
+### A fault in one is not a fault in the other
+
+The identity and the node table are not the same kind of thing.
+
+- **`identity.id` is fatal.** It cannot be reconstructed, so a file that is
+  there and wrong stops the service and is never replaced.
+- **`state.v1` is a cache.** A corrupt or incompatible one used to be fatal
+  too - and that was wrong in a way that took the node off the air: the
+  runtime refused to start, meshcored exited, the supervisor restarted it, it
+  read the same file and exited again, and after five rounds gave up with a
+  crash-loop marker. A cache did that.
+
+  Now the file is **moved aside** - renamed to `state.v1.corrupt.N`, never
+  rewritten, because it is the only evidence of whatever went wrong - the node
+  starts with no known nodes, keeps its identity, and learns the mesh again
+  from the next adverts. `mesh.status` carries `state_fault` saying what was
+  wrong and where the file was kept.
+
+  If it cannot be moved, nothing is written for that run at all: the file is
+  the only record there is, and a fresh table over it would destroy that.
 
 ### The identity
 
@@ -285,9 +329,25 @@ renamed over the real one, so a reader sees either the whole previous file or
 the whole new one. The node table is written at most every 10 seconds while it
 has changed, and again on a clean stop.
 
+## Remote text
+
+An advert name and a message body are chosen by whoever is on the air. Every
+one of them leaves through a sanitiser: well-formed UTF-8 passes byte for
+byte, anything that is not becomes U+FFFD, and control characters other than
+newline and tab go the same way. Invalid UTF-8 would otherwise make an IPC
+frame unparsable - one hostile advert breaking every client's read of every
+event - and an ESC sequence, which JSON escapes and a client decodes straight
+back out, would land intact in whatever shows it.
+
+The bytes are changed **only on the way out**. What MeshCore holds, hashes and
+would put back on the air is untouched. The full rule is in docs/api/mesh.md,
+"Remote text".
+
 ## Security
 
 - The private key is loaded, used to sign, and reported by nothing.
+- Remote-controlled text cannot produce an invalid IPC frame or carry a
+  terminal escape sequence through (above).
 - Nothing a client sends becomes part of a path. The state directory comes
   from the command line or the environment; the file names are constants.
 - No `system()`, `popen()` or `exec*()` anywhere in the service.
@@ -362,6 +422,13 @@ Stopping it releases the lease and writes the node table.
 
 | Claim | Class | Basis |
 | --- | --- | --- |
+| An enabled build cannot be installed, packaged or imaged while the notices say nothing about what it contains | **VERIFIED host** | `tests/notices_test.sh` executes the refusal on the install, image and package paths, and proves the gate is driven by the notices rather than unconditional |
+| A refused profile releases the radio and another client can take it | **VERIFIED host** | `tests/meshcored_service_test.sh`, against the real radiod |
+| A full contact table produces no phantom node, no state churn and no telemetry eviction | **VERIFIED host** | `tests/meshcored_runtime_test.cpp`, 32 real contacts then 18 more adverts |
+| Remote text cannot make an IPC frame unparsable or carry an escape sequence | **VERIFIED host** | `tests/meshcored_util_test.c`, and end to end in the two-node harness |
+| The headers and the library come from one checkout, and a mismatch is refused | **VERIFIED host** | `tests/meshcored_source_identity_test.sh`, which also builds the refusal |
+| An identity is not reported as persisted until its directory entry is durable | **VERIFIED host** | `tests/meshcored_store_test.cpp`, through the directory-flush hook |
+| A corrupt node state does not stop the node | **VERIFIED host** | `tests/meshcored_runtime_test.cpp`, six kinds of bad file, each followed by a working node |
 | The lease, profile, subscription and reconnection against the **real radiod** | **VERIFIED host** | `tests/meshcored_service_test.sh`, radiod on its mock backend |
 | A signed MeshCore advert is verified and learned as a node | **VERIFIED host** | same, using a frame from `tools/meshcore-frame` — the tool whose frames the accepted P0 gate's peer accepted |
 | Two nodes: advert learned, directed text received, ACK returned, path learned | **VERIFIED host** | `tests/meshcored_harness_test.sh`, two whole processes over a mock air |

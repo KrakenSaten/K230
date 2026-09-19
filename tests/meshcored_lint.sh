@@ -144,12 +144,69 @@ check "the default preamble" \
 check "the default transmit power is the tested 2 dBm" \
     "$(grep -q 'MCD_DEFAULT_TX_POWER_DBM 2$' "$SRC/mcd.h" && echo 1 || echo 0)"
 
+# ---- 5b. remote text, and the test seam -----------------------------------
+
+# An advert name and a message body are chosen by whoever is on the air. Every
+# one of them leaves through the sanitiser; a raw cJSON_AddStringToObject on
+# one of those fields would put an escape sequence, or a byte sequence that is
+# not UTF-8, straight into an IPC frame.
+refuse "no remote string reaches a client unsanitised" \
+    'cJSON_AddStringToObject\([^,]*, *"(name|peer_name|text)"' \
+    "$SRC/api.c"
+check "remote strings go through the sanitiser" \
+    "$(grep -q 'add_remote_text' "$SRC/api.c" && echo 1 || echo 0)"
+check "which is the one in mcd_util" \
+    "$(grep -q 'mcd_text_sanitize' "$SRC/api.c" && echo 1 || echo 0)"
+
+# The directory-flush hook exists so a failure that a working filesystem will
+# not produce on request can be exercised. It must not be in the service.
+if [ -f "$SRC/meshcored" ]; then
+    check "the shipped binary carries no test hook" \
+        "$(strings "$SRC/meshcored" 2>/dev/null | grep -q 'failNextDirSyncForTest' && echo 0 || echo 1)"
+fi
+check "and the hook is declared only inside its guard" \
+    "$(awk '/#ifdef MCD_STORE_TEST_HOOKS/{g=1} /#endif/{g=0}
+            /failNextDirSyncForTest/{ if (!g) bad=1 }
+            END{exit bad ? 1 : 0}' "$SRC/mesh_store.h" && echo 1 || echo 0)"
+check "and defined only inside it" \
+    "$(awk '/#ifdef MCD_STORE_TEST_HOOKS/{g=1} /#endif/{g=0}
+            /^void failNextDirSyncForTest/{ if (!g) bad=1 }
+            END{exit bad ? 1 : 0}' "$SRC/mesh_store.cpp" && echo 1 || echo 0)"
+
+# ---- 5c. the lease is not held by a service that has given up -------------
+
+check "a permanently refused profile releases the radio" \
+    "$(grep -q 'link_fail_permanently' "$SRC/radio_link.c" && echo 1 || echo 0)"
+check "by asking, and by closing the connection" \
+    "$(grep -A 12 'static void link_fail_permanently' "$SRC/radio_link.c" |
+       grep -q 'radio.release' && echo 1 || echo 0)"
+check "and it does not reconnect afterwards" \
+    "$(grep -q 'l->permanent' "$SRC/radio_link.c" && echo 1 || echo 0)"
+
+# ---- 5d. a node the table did not keep is not a node ----------------------
+
+check "discovery is reported only for contacts the table kept" \
+    "$(grep -q 'isRetained' "$SRC/mesh_runtime.cpp" && echo 1 || echo 0)"
+check "and an unstored one does not mark the state dirty" \
+    "$(awk '/void onDiscoveredContact/,/^    }/' "$SRC/mesh_runtime.cpp" |
+       awk '/isRetained/{seen=1} seen && /_dirty = true/{after=1} END{exit !after}' &&
+       echo 1 || echo 0)"
+
 # ---- 6. it is off by default ----------------------------------------------
 
 check "the build switch defaults to off" \
     "$(grep -q '^ENABLE_MESHCORED ?= 0' Makefile && echo 1 || echo 0)"
 check "so a default build does not produce it" \
     "$(make -s print-build-outputs 2>/dev/null | grep -q 'services/meshcored/meshcored' && echo 0 || echo 1)"
+# Off by default is not the guarantee; the guarantee is that an enabled build
+# cannot be installed while the notices say nothing about what it contains.
+# tests/notices_test.sh executes that refusal - this only checks it is wired.
+check "and an enabled one cannot be installed without the notices" \
+    "$(grep -q '^install: all meshcored-shipping-check$' Makefile && echo 1 || echo 0)"
+check "the image path refuses it too" \
+    "$(grep -q 'ENABLE_MESHCORED' platforms/k230/scripts/build_image.sh && echo 1 || echo 0)"
+check "and so does the package path" \
+    "$(grep -q 'ENABLE_MESHCORED' platforms/k230/scripts/apply_to_sdk.sh && echo 1 || echo 0)"
 
 INIT=platforms/k230/rootfs_overlay/etc/init.d/S65meshcored
 check "the init script exists" "$([ -f "$INIT" ] && echo 1 || echo 0)"

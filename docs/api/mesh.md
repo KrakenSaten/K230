@@ -72,9 +72,16 @@ Which one a failure produces is a judgement about what the failure means:
   running and can still transmit, which is what radiod's own documentation
   says a send does in that state. A later `radio.state` of `rx` returns it to
   `online`.
-- **the profile was refused** (radiod error 3 or 2) is `error`. Asking again
-  with the same values would be refused again. A radiod disconnect clears it,
-  because the next radiod may be configured differently.
+- **the profile was refused** (radiod error 3 or 2) is `error`, and it is
+  terminal. Asking again with the same values would be refused again: the
+  profile comes from the command line, so a reconnect would apply exactly the
+  same numbers for ever. The lease is handed back and the connection closed
+  before the state changes, so the radio is not held by a service that has
+  stopped trying - `mesh.status` then shows `connected: false`,
+  `lease_held: false` and no applied profile, and another client can take the
+  radio immediately. Whoever changes the profile or radiod's region guard
+  restarts the service; until then `mesh.status` keeps answering and says
+  why.
 
 `degraded` and `waiting_*` are not the same answer and are not collapsed: one
 says the radio is here and not working, the other says it is not here.
@@ -106,6 +113,7 @@ Result:
 | `radio.profile` | the profile radiod applied - **absent until it has been applied** |
 | `counters` | see below |
 | `nodes`, `messages`, `packets_free`, `packets_total` | runtime sizes |
+| `state_fault` | **present only when the stored node state could not be read at start-up**; see "A node state this service will not read" below |
 
 The counters are deliberately meshcored's own, not the protocol library's:
 they count what radiod said, not what MeshCore believes.
@@ -126,6 +134,8 @@ they count what radiod said, not what MeshCore believes.
 | `lease_acquired` / `lease_refused` / `lease_lost` | |
 | `sent_flood` / `sent_direct` / `recv_flood` / `recv_direct` | the MeshCore dispatcher's own |
 | `path_payloads_refused` | see "The PATH guard" in docs/services/MESHCORED.md |
+| `nodes_unretained` | adverts from nodes the 32-slot contact table had no room for |
+| `contacts_full` | how often MeshCore reported the table full |
 
 `tx_ok`, `tx_rx_resume_failed`, `tx_failed` and `tx_unknown` are four
 different answers and are never collapsed into two. A daemon asking "must I
@@ -251,6 +261,75 @@ disconnecting.
 
 A client that treats the arrival of a `kind: "tx"` activity as "a packet went
 out" will be wrong for three of those five results. Read `result`.
+
+## Remote text
+
+An advert name and a message body are chosen by whoever is on the air. They
+are protocol bytes, and MeshCore neither knows nor should care what is in
+them - but they must not leave this service as text it vouched for. Two things
+in particular:
+
+- **invalid UTF-8** makes the whole IPC frame unparsable, so one hostile
+  advert would break every client's read of every event, not only its own;
+- **an ESC sequence** is escaped by JSON and decodes straight back out again,
+  landing intact in whatever terminal or panel shows it.
+
+So every remote string this API emits - `name` in a node, `peer_name` and
+`text` in a message - is passed through one rule:
+
+- well-formed UTF-8 goes through byte for byte, including every non-ASCII
+  script, emoji and combining mark;
+- a byte that is not part of a well-formed sequence becomes U+FFFD
+  REPLACEMENT CHARACTER, and decoding resumes at the next byte - a bad lead
+  byte does not get to say how much of what follows to swallow;
+- C0 controls other than newline and tab, DEL, and the C1 range
+  U+0080..U+009F become U+FFFD, so no escape sequence, cursor move or colour
+  change survives;
+- the result is truncated on a character boundary if it will not fit, never
+  mid-sequence.
+
+**The bytes are only changed on the way out.** What MeshCore holds, hashes and
+would put back on the air is untouched: this is a presentation decision at the
+service boundary, not an edit to the protocol. A client that needs the exact
+bytes a node sent is not served by this API and would need a method that says
+so.
+
+Outbound text, in `mesh.send`, is *rejected* rather than sanitised - a caller
+sending a control character has made a mistake and should be told, where a
+remote node sending one has done something this service simply will not pass
+on.
+
+## A node state this service will not read
+
+The identity and the node table are not the same kind of thing, and a fault in
+one is not answered like a fault in the other.
+
+- **The identity cannot be reconstructed.** A corrupt `identity.id` stops the
+  service, and is never replaced: a new key would make this a different node
+  to every peer that knows it.
+- **The node table is a cache the mesh refills.** A `state.v1` this build will
+  not read does *not* stop the service. It is moved aside - renamed, never
+  rewritten, because it is the only evidence of whatever went wrong - the node
+  starts with no known nodes, keeps its identity, and learns the mesh again
+  from the next adverts. `mesh.status` then carries `state_fault` describing
+  what was wrong and where the file was kept, so a client can tell "this node
+  forgot what it knew" from "this node has never heard anyone".
+
+If the file cannot be moved aside, nothing is written for that run: the file
+is the only record of the fault, and a fresh table written over it would
+destroy that. The node still runs; it simply starts empty again next time.
+
+## Nodes the table had no room for
+
+MeshCore's contact table holds 32. Once it is full an advert from a new node
+is reported to the service anyway, with a contact MeshCore is about to throw
+away, so that a UI can say "somebody adverted and I could not keep them".
+
+meshcored does not treat that as a node. It raises **no** `mesh.node` event
+for it - an event naming a node `mesh.node` cannot then find would be worse
+than silence - does not mark its state as changed, and does not record the
+node's signal. It counts them, as `nodes_unretained`, so that a table which is
+full is visible rather than merely quiet.
 
 ## Clients are observers
 

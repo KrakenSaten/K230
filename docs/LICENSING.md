@@ -182,7 +182,16 @@ Findings:
    Nothing from them reaches a binary today: `ENABLE_MESHCORED` defaults to 0,
    so `make all`, `make install`, the Buildroot package and the image contain
    no meshcored, and `S65meshcored` ships disabled
-   (docs/services/MESHCORED.md). `tests/notices_test.sh` checks that default
-   rather than assuming it, and starts demanding the three entries the moment
-   it changes. The same three are already compiled by `protocols/meshcore` and
-   `tools/meshcore-frame`, neither of which is installed or packaged either.
+   (docs/services/MESHCORED.md). The restriction is **enforced, not merely
+   documented**: `make install` refuses while `ENABLE_MESHCORED=1` and the
+   three entries are absent, and so do `build_image.sh` and `apply_to_sdk.sh`,
+   on the command line, from the environment and under `make -j`. Building and
+   testing meshcored is untouched by any of it. There is no override, because
+   this is a licensing decision rather than a build preference.
+   `tests/notices_test.sh` executes those refusals rather than reading the
+   Makefile's default - an earlier version only read the default, so
+   `ENABLE_MESHCORED=1 make install` shipped the binary while the test said it
+   could not. The gate is driven by the notices themselves, so it stops
+   refusing the moment the three entries exist. The same three are already
+   compiled by `protocols/meshcore` and `tools/meshcore-frame`, neither of
+   which is installed or packaged either.

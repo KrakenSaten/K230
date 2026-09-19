@@ -86,6 +86,27 @@ struct NodeState {
 int stateLoad(NodeState& st, const char* dir, char* err);
 bool stateSave(const NodeState& st, const char* dir, char* err);
 
+/* Move a state.v1 this build will not read out of the way, so the node can
+ * start with an empty table instead of dying on it.
+ *
+ * The file is RENAMED, never rewritten or deleted: it is the only evidence of
+ * whatever went wrong, and overwriting it before anybody has looked would
+ * destroy the one thing that could explain it. The new name is returned in
+ * kept, so the log and mesh.status can say where it went.
+ *
+ * Returns true when the file is out of the way. False means it is still
+ * there, and the caller must then not write a new one over it. */
+bool stateQuarantine(const char* dir, char* kept, size_t kept_len, char* err);
+
+#ifdef MCD_STORE_TEST_HOOKS
+/* Present only in the hooked build of mesh_store.cpp, which the test binaries
+ * link in place of the shipped one; tests/meshcored_lint.sh checks the symbol
+ * is absent from the service. Makes the next n directory flushes fail, which
+ * a working filesystem will not do on request - and an error path that has
+ * never been executed is a guess rather than a behaviour. */
+void failNextDirSyncForTest(int n);
+#endif
+
 }  // namespace mcdstore
 
 #endif /* MCD_MESH_STORE_H */

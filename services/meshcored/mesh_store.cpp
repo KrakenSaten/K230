@@ -61,6 +61,60 @@ uint32_t get32(const uint8_t* p)
            ((uint32_t)p[3] << 24);
 }
 
+#ifdef MCD_STORE_TEST_HOOKS
+/* Present only in the hooked build of this file (see the Makefile), and
+ * checked out of the shipped object by tests/meshcored_lint.sh.
+ *
+ * A directory fsync does not fail on a working filesystem, so without a seam
+ * the error path below would never once be executed - and an error path that
+ * has never run is a guess. The hook injects at the point the syscall
+ * returns; everything after it is the shipped code taking its real path. */
+int g_dirsync_fail_countdown;
+bool dirsync_should_fail(void)
+{
+    if (g_dirsync_fail_countdown > 0) {
+        g_dirsync_fail_countdown--;
+        return true;
+    }
+    return false;
+}
+#else
+bool dirsync_should_fail(void) { return false; }
+#endif
+
+/* Make a directory entry durable.
+ *
+ * fsync() on a file flushes its contents; it says nothing about the entry
+ * that names it. A power cut after the data was written and before the
+ * directory block was can leave a file that is complete and unreachable, or a
+ * name with no file behind it. For identity.id that is the difference between
+ * a node that comes back and one that has become a stranger to every peer it
+ * knows, so it is worth one more syscall. */
+bool syncDir(const char* dir, char* err)
+{
+    int fd;
+
+    if (dirsync_should_fail()) {
+        snprintf(err, ERR_SIZE, "cannot flush the directory %s: %s", dir, strerror(EIO));
+        return false;
+    }
+    fd = open(dir, O_RDONLY | O_DIRECTORY);
+    if (fd < 0) {
+        snprintf(err, ERR_SIZE, "cannot open %s to flush it: %s", dir, strerror(errno));
+        return false;
+    }
+    if (fsync(fd) != 0) {
+        snprintf(err, ERR_SIZE, "cannot flush the directory %s: %s", dir, strerror(errno));
+        close(fd);
+        return false;
+    }
+    if (close(fd) != 0) {
+        snprintf(err, ERR_SIZE, "cannot close %s after flushing: %s", dir, strerror(errno));
+        return false;
+    }
+    return true;
+}
+
 /* Write buf to path through a temporary in the same directory, then rename.
  * mode is the final mode; the temporary carries it from the start, so the
  * bytes are never on disk world-readable even for an instant. */
@@ -113,6 +167,23 @@ bool writeWhole(const char* path, const uint8_t* buf, size_t len, mode_t mode, c
         unlink(tmp);
         return false;
     }
+    /* And the directory, because the rename is a change to the directory:
+     * flushing the file made its contents durable, not the name that reaches
+     * them. The caller is told when this fails rather than being allowed to
+     * report a write that may not have landed. */
+    {
+        char dir[288];
+        char* slash;
+
+        snprintf(dir, sizeof(dir), "%s", path);
+        slash = strrchr(dir, '/');
+        if (slash != NULL && slash != dir) {
+            *slash = '\0';
+            if (!syncDir(dir, err)) {
+                return false;
+            }
+        }
+    }
     return true;
 }
 
@@ -142,6 +213,12 @@ long readWhole(const char* path, uint8_t* buf, size_t max, char* err)
 }
 
 }  // namespace
+
+#ifdef MCD_STORE_TEST_HOOKS
+/* At namespace scope, because it is what the test calls; the counter it sets
+ * stays private above. */
+void failNextDirSyncForTest(int n) { g_dirsync_fail_countdown = n; }
+#endif
 
 bool ensureDir(const char* dir, char* err)
 {
@@ -304,6 +381,52 @@ bool identitySave(const mesh::LocalIdentity& id, const char* dir, char* err)
         return false;
     }
     memset(buf, 0, sizeof(buf));
+    /* The entry, not just the contents. This is a brand-new name in the
+     * directory, and until the directory itself is durable the file may not
+     * be there after a power cut - which for an identity means a node that
+     * silently becomes somebody else on its next start. Reported as a
+     * failure, and the file is removed, so the caller never records a
+     * persisted identity that may not be persisted. */
+    if (!syncDir(dir, err)) {
+        unlink(path);
+        return false;
+    }
+    return true;
+}
+
+bool stateQuarantine(const char* dir, char* kept, size_t kept_len, char* err)
+{
+    char path[256];
+    char dest[288];
+    struct stat sb;
+    unsigned n;
+
+    joinPath(path, sizeof(path), dir, kStateName);
+    if (stat(path, &sb) != 0) {
+        snprintf(err, ERR_SIZE, "%s: %s", path, strerror(errno));
+        return false;
+    }
+    /* A name that does not collide with an earlier quarantine, and does not
+     * depend on the wall clock: this board starts at 1970 on every boot, so a
+     * timestamp would make two different faults share a name. */
+    for (n = 0; n < 1000; n++) {
+        snprintf(dest, sizeof(dest), "%s.corrupt.%u", path, n);
+        if (stat(dest, &sb) != 0 && errno == ENOENT) {
+            break;
+        }
+    }
+    if (n >= 1000) {
+        snprintf(err, ERR_SIZE, "%s: a thousand quarantined copies already exist", path);
+        return false;
+    }
+    if (rename(path, dest) != 0) {
+        snprintf(err, ERR_SIZE, "cannot move %s aside: %s", path, strerror(errno));
+        return false;
+    }
+    if (!syncDir(dir, err)) {
+        return false;
+    }
+    snprintf(kept, kept_len, "%s", dest);
     return true;
 }
 

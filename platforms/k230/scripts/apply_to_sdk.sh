@@ -45,6 +45,22 @@ CONF="k230_pocketos_defconfig"
 EXPECTED_BSP_COMMIT="$(cat "${PLATFORM_DIR}/vendor_bsp_commit.txt")"
 EXPECTED_SDK_COMMIT="$(cat "${PLATFORM_DIR}/vendor_sdk_commit.txt")"
 
+# meshcored may be built and tested at any time; it may not be packaged until
+# the notices cover MeshCore, orlp's ed25519 and rweather's Crypto
+# (docs/LICENSING.md open item 9). The package's install step refuses it and
+# is the real chokepoint; this is the same refusal before anything is
+# assembled. ENABLE_MESHCORED reaches the package build through the
+# environment, so it is read the same way here.
+if [ "${ENABLE_MESHCORED:-0}" = "1" ]; then
+    echo "ERROR: ENABLE_MESHCORED=1 is set, so this package would install meshcored," >&2
+    echo "       which contains MeshCore, orlp's ed25519 and rweather's Crypto - none" >&2
+    echo "       of which the third-party notices mention." >&2
+    echo "       Building and testing it is unaffected:" >&2
+    echo "         make ENABLE_MESHCORED=1 meshcored ; make meshcored-test" >&2
+    echo "       See docs/LICENSING.md open item 9 and docs/services/MESHCORED.md." >&2
+    exit 1
+fi
+
 [ -d "${VENDOR_DIR}/k230_bsp" ] || { echo "not a T-Display-K230 checkout: ${VENDOR_DIR}" >&2; exit 1; }
 git -C "${SDK_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "SDK is not a git checkout: ${SDK_DIR}" >&2; exit 1; }
 git -C "${REPO_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "Doors repository is not a git checkout: ${REPO_DIR}" >&2; exit 1; }

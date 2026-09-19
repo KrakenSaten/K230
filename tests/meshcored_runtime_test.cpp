@@ -29,6 +29,7 @@
 #include <Utils.h>
 #include <helpers/AdvertDataHelpers.h>
 
+#include "mcd_util.h"
 #include "mesh_runtime.h"
 #include "mesh_store.h"
 
@@ -828,6 +829,515 @@ static void test_restart(Node& a, Air& air)
           mcd_runtime_message_count(a.rt) == 0);
 }
 
+/* ---- the contact table, full -------------------------------------------
+ *
+ * MeshCore's table holds 32 contacts. Once it is full, allocateContactSlot()
+ * returns NULL and BaseChatMesh reports the discovery anyway, with a
+ * ContactInfo on its own stack, purely so a UI can say "somebody adverted and
+ * I could not keep them". It is not in the table and it is gone the moment
+ * the callback returns.
+ *
+ * A service that takes that at face value emits a mesh.node event for a node
+ * mesh.node cannot then find, marks its state dirty so state.v1 is rewritten
+ * with nothing changed, and evicts a real node's telemetry slot to hold
+ * readings for a node it did not keep. On a busy mesh that repeats for every
+ * advert from every stranger.
+ */
+static int craftAdvert(uint8_t* frame, const mesh::LocalIdentity& id, const char* name,
+                       uint32_t timestamp)
+{
+    uint8_t payload[MAX_PACKET_PAYLOAD];
+    uint8_t app_data[MAX_ADVERT_DATA_SIZE];
+    uint8_t message[PUB_KEY_SIZE + 4 + MAX_ADVERT_DATA_SIZE];
+    AdvertDataBuilder builder(ADV_TYPE_CHAT, name);
+    uint8_t app_len = builder.encodeTo(app_data);
+    int len = 0;
+    int msg_len = 0;
+
+    /* The same bytes Mesh::createAdvert() lays down, in the same order, and
+     * signed over the same message: public key, timestamp, signature, app
+     * data. Built here because the test needs adverts from identities that
+     * have no Mesh of their own. */
+    memcpy(&payload[len], id.pub_key, PUB_KEY_SIZE);
+    len += PUB_KEY_SIZE;
+    memcpy(&payload[len], &timestamp, 4);
+    len += 4;
+    uint8_t* signature = &payload[len];
+    len += SIGNATURE_SIZE;
+    memcpy(&payload[len], app_data, app_len);
+    len += app_len;
+
+    memcpy(&message[msg_len], id.pub_key, PUB_KEY_SIZE);
+    msg_len += PUB_KEY_SIZE;
+    memcpy(&message[msg_len], &timestamp, 4);
+    msg_len += 4;
+    memcpy(&message[msg_len], app_data, app_len);
+    msg_len += app_len;
+    id.sign(signature, message, msg_len);
+
+    return buildFrame(frame,
+                      (uint8_t)((PAYLOAD_TYPE_ADVERT << PH_TYPE_SHIFT) | ROUTE_TYPE_FLOOD),
+                      payload, len);
+}
+
+/* Remote text, where it is actually reachable.
+ *
+ * An advert name and a message body are chosen by whoever is on the air,
+ * and the two are not equally exposed. MeshCore truncates a NAME at the
+ * first byte that is not valid UTF-8, so a conforming encoder cannot put
+ * raw bytes there - but nothing anywhere looks at what a MESSAGE contains,
+ * and an escape sequence is valid UTF-8 so it travels either way.
+ *
+ * The point is that the bytes DO arrive, so the sanitiser at the mesh.*
+ * boundary is answering a real question rather than a hypothetical one.
+ */
+static void test_hostile_remote_text(void)
+{
+    Air air;
+    Node a;
+    Node b;
+    mesh::LocalIdentity a_id;
+    mesh::LocalIdentity b_id;
+    char store_err[mcdstore::ERR_SIZE] = "";
+    uint8_t frame[MCD_MAX_FRAME];
+    struct mcd_rx_meta meta;
+    struct mcd_node node;
+    uint64_t msg_id = 0;
+    uint32_t timeout = 0;
+    int len;
+
+    check("two identities for the hostile-text case",
+          mcdstore::identityCreate(a_id, store_err) &&
+          mcdstore::identityCreate(b_id, store_err));
+    check("the sender starts", makeNode(a, air, "RUDE", &a_id));
+    check("the listener starts", makeNode(b, air, "LISTENER", &b_id));
+    if (!a.rt || !b.rt) {
+        return;
+    }
+    mcd_runtime_set_radio_online(a.rt, true);
+    mcd_runtime_set_radio_online(b.rt, true);
+
+    /* ---- an advert name with an escape sequence ----
+     *
+     * Crafted rather than sent, because MeshCore's own AdvertDataBuilder
+     * truncates a name at the first byte that is not valid UTF-8 - which is
+     * why tools/meshcore-frame refuses one too. An escape sequence IS valid
+     * UTF-8, so it travels, and that is the case this proves. */
+    len = craftAdvert(frame, a_id, "A\x1b" "[2JB", 1789200000u);
+    defaultMeta(meta);
+    mcd_runtime_deliver_rx(b.rt, frame, len, &meta);
+    check("the advert is accepted and the node learned",
+          pumpUntil(air, [&] { return mcd_runtime_node_count(b.rt) >= 1; }));
+    check("it can be looked up",
+          mcd_runtime_node_by_prefix(b.rt, a_id.pub_key, 8, &node) == 1);
+    check("and the escape byte reached the runtime intact",
+          strchr(node.name, 0x1b) != NULL);
+    {
+        char safe[MCD_SANITIZED_SIZE(MCD_MAX_TEXT)];
+
+        mcd_text_sanitize(node.name, safe, sizeof(safe));
+        check("the sanitiser takes it out of the name", strchr(safe, 0x1b) == NULL);
+        check("while keeping what was printable",
+              strchr(safe, 'A') != NULL && strchr(safe, 'B') != NULL);
+    }
+
+    /* ---- a message body with bytes that are not text at all ----
+     *
+     * Nothing between the sender and onMessageRecv() looks at what a message
+     * body contains: it is a decrypted blob up to its terminator. The IPC
+     * side refuses a client that tries this (mcd_text_acceptable), but a node
+     * on the air answers to nobody, so the bytes arrive. This sends them the
+     * way that node would - past the IPC check, straight into the runtime. */
+    check("the listener adverts back", mcd_runtime_send_advert(b.rt));
+    check("and the sender learns it",
+          pumpUntil(air, [&] { return mcd_runtime_node_count(a.rt) >= 1; }));
+
+    {
+        const char nasty[] = { 'h', 'i', 0x1b, '[', '2', 'J', (char)0xff, (char)0xfe,
+                               '!', '\0' };
+        enum mcd_send_result rc =
+            mcd_runtime_send_text(a.rt, b_id.pub_key, 8, nasty, &msg_id, &timeout);
+
+        check("a message of bytes that are not text is sent",
+              rc == MCD_SEND_ACCEPTED_FLOOD || rc == MCD_SEND_ACCEPTED_DIRECT);
+        check("and arrives", pumpUntil(air, [&] { return b.message_events >= 1; }));
+        check("with the escape byte intact", strchr(b.last_message, 0x1b) != NULL);
+        {
+            bool has_raw = false;
+
+            for (const char* p = b.last_message; *p; p++) {
+                if ((unsigned char)*p == 0xff || (unsigned char)*p == 0xfe) {
+                    has_raw = true;
+                }
+            }
+            check("and the bytes that are not UTF-8 intact", has_raw);
+        }
+        {
+            char safe[MCD_SANITIZED_SIZE(MCD_MAX_TEXT)];
+            bool clean = true;
+
+            mcd_text_sanitize(b.last_message, safe, sizeof(safe));
+            for (const char* p = safe; *p; p++) {
+                unsigned char c = (unsigned char)*p;
+
+                if (c == 0xff || c == 0xfe || (c < 0x20 && c != '\n' && c != '\t')) {
+                    clean = false;
+                }
+            }
+            check("the sanitiser leaves nothing a terminal would act on", clean);
+            check("and keeps the text that was text",
+                  strstr(safe, "hi") != NULL && strchr(safe, '!') != NULL);
+        }
+    }
+
+    mcd_runtime_destroy(a.rt);
+    mcd_runtime_destroy(b.rt);
+    a.rt = NULL;
+    b.rt = NULL;
+}
+
+static void test_full_contact_table(void)
+{
+    Air air;
+    Node n;
+    mesh::LocalIdentity self;
+    char store_err[mcdstore::ERR_SIZE] = "";
+    const int TABLE = 32;
+    const int EXTRA = 6;
+    mesh::LocalIdentity peers[TABLE + EXTRA];
+    uint8_t frame[MCD_MAX_FRAME];
+    struct mcd_rx_meta meta;
+    struct mcd_runtime_stats st;
+    uint32_t stamp = 1789000000u;
+    int len;
+
+    check("an identity for the crowded node", mcdstore::identityCreate(self, store_err));
+    check("the crowded node starts", makeNode(n, air, "CROWD", &self));
+    if (!n.rt) {
+        return;
+    }
+    mcd_runtime_set_radio_online(n.rt, true);
+
+    /* Fill it. Each advert carries its own timestamp, because a receiver
+     * drops one that is not newer than the last it holds for that node. */
+    for (int i = 0; i < TABLE; i++) {
+        char name[16];
+
+        check("a peer identity", mcdstore::identityCreate(peers[i], store_err));
+        snprintf(name, sizeof(name), "PEER-%d", i);
+        len = craftAdvert(frame, peers[i], name, stamp++);
+        defaultMeta(meta);
+        mcd_runtime_deliver_rx(n.rt, frame, len, &meta);
+        pumpUntil(air, [&] { return mcd_runtime_node_count(n.rt) == i + 1; });
+    }
+    check("the table fills to its limit", mcd_runtime_node_count(n.rt) == TABLE);
+    check("and every one of them raised a discovery", n.node_discovered == TABLE);
+
+    /* A node that IS kept, whose telemetry must survive what follows. */
+    struct mcd_node kept;
+    check("the first peer is in the table",
+          mcd_runtime_node_by_prefix(n.rt, peers[0].pub_key, 8, &kept) == 1);
+    check("with the signal it was heard at", kept.last_rssi_known);
+    double kept_rssi = kept.last_rssi_dbm;
+    uint64_t kept_heard = kept.last_heard_mono_ms;
+
+    mcd_runtime_persist(n.rt);
+    int events_before = n.node_events;
+    int discovered_before = n.node_discovered;
+    mcd_runtime_stats(n.rt, &st);
+    uint64_t unretained_before = st.nodes_unretained;
+
+    /* Now node 33 and onwards, repeatedly - the case that used to churn. */
+    for (int round = 0; round < 3; round++) {
+        for (int i = 0; i < EXTRA; i++) {
+            char name[16];
+
+            if (round == 0) {
+                check("an identity for a node there is no room for",
+                      mcdstore::identityCreate(peers[TABLE + i], store_err));
+            }
+            snprintf(name, sizeof(name), "SPARE-%d", i);
+            /* Different metadata, so an eviction would be visible. */
+            memset(&meta, 0, sizeof(meta));
+            meta.mono_ms = nowMs();
+            meta.rssi_known = true;
+            meta.rssi_dbm = -11.0;
+            meta.snr_known = true;
+            meta.snr_db = 1.0;
+            len = craftAdvert(frame, peers[TABLE + i], name, stamp++);
+            mcd_runtime_deliver_rx(n.rt, frame, len, &meta);
+            pump(air, 6);
+        }
+    }
+    pump(air, 30);
+
+    check("no node event is raised for a node that was not kept",
+          n.node_events == events_before);
+    check("and no discovery either", n.node_discovered == discovered_before);
+    check("the node count is unchanged", mcd_runtime_node_count(n.rt) == TABLE);
+
+    /* Internally consistent: every node the list reports can be looked up,
+     * and none of the unstored ones can. */
+    {
+        bool all_found = true;
+
+        for (int i = 0; i < mcd_runtime_node_count(n.rt); i++) {
+            struct mcd_node node;
+
+            if (!mcd_runtime_node_at(n.rt, i, &node) ||
+                mcd_runtime_node_by_prefix(n.rt, node.public_key, 8, &node) != 1) {
+                all_found = false;
+            }
+        }
+        check("every node the list reports can be looked up", all_found);
+    }
+    {
+        int phantom = 0;
+
+        for (int i = 0; i < EXTRA; i++) {
+            struct mcd_node node;
+
+            if (mcd_runtime_node_by_prefix(n.rt, peers[TABLE + i].pub_key, 8, &node) != 0) {
+                phantom++;
+            }
+        }
+        check("and not one of the unstored nodes is findable", phantom == 0);
+    }
+
+    check("the state is not marked dirty by nodes that were not stored",
+          !mcd_runtime_dirty(n.rt));
+
+    {
+        uint64_t want = unretained_before + (uint64_t)(EXTRA * 3);
+        char label[160];
+        bool reached = pumpUntil(air, [&] {
+            struct mcd_runtime_stats s;
+
+            mcd_runtime_stats(n.rt, &s);
+            return s.nodes_unretained >= want;
+        });
+
+        mcd_runtime_stats(n.rt, &st);
+        snprintf(label, sizeof(label),
+                 "but they are counted, so the table being full is visible "
+                 "(%llu of %llu)", (unsigned long long)st.nodes_unretained,
+                 (unsigned long long)want);
+        check(label, reached);
+    }
+    check("and MeshCore's own table-full signal is counted too", st.contacts_full > 0);
+
+    /* The telemetry slot of a node that IS kept must not have been taken. */
+    check("a retained node is still in the table",
+          mcd_runtime_node_by_prefix(n.rt, peers[0].pub_key, 8, &kept) == 1);
+    check("with the signal it was heard at, not a stranger's",
+          kept.last_rssi_known && kept.last_rssi_dbm == kept_rssi);
+    check("and the time it was heard", kept.last_heard_mono_ms == kept_heard);
+
+    /* A retained node adverting again still works: the guard refuses the
+     * unstored, not everything. */
+    {
+        int before = n.node_discovered;
+
+        len = craftAdvert(frame, peers[1], "PEER-1", stamp++);
+        defaultMeta(meta);
+        mcd_runtime_deliver_rx(n.rt, frame, len, &meta);
+        check("a node that IS in the table still raises its events",
+              pumpUntil(air, [&] { return n.node_discovered > before; }));
+        check("and marks the state dirty", mcd_runtime_dirty(n.rt));
+    }
+
+    mcd_runtime_destroy(n.rt);
+    n.rt = NULL;
+}
+
+/* ---- a node state this build will not read ------------------------------
+ *
+ * The identity is fatal. The node table is a cache the mesh refills, so a
+ * corrupt one must not take the node off the air - which is what it did:
+ * the runtime refused to start, meshcored exited, the supervisor restarted
+ * it, it read the same file and exited again, and after five rounds gave up
+ * with a crash-loop marker.
+ */
+static void test_corrupt_state_is_survivable(void)
+{
+    char dir[256];
+    char err[256] = "";
+    char store_err[mcdstore::ERR_SIZE] = "";
+    struct mcd_runtime_hooks hooks;
+    struct mcd_runtime_config cfg;
+    struct mcd_runtime* rt;
+    mesh::LocalIdentity id;
+    Air air;
+    Node n;
+
+    snprintf(dir, sizeof(dir), "%s/badstate", g_root);
+    check("a directory for the corrupt-state case", mcdstore::ensureDir(dir, store_err));
+    check("with a good identity in it",
+          mcdstore::identityCreate(id, store_err) && mcdstore::identitySave(id, dir, store_err));
+
+    memset(&hooks, 0, sizeof(hooks));
+    hooks.tx_submit = hook_tx_submit;
+    hooks.on_node = hook_on_node;
+    hooks.on_message = hook_on_message;
+    hooks.on_frame = hook_on_frame;
+    n.air = &air;
+    hooks.user = &n;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.state_dir = dir;
+    cfg.node_name = "SURVIVOR";
+
+    struct Case {
+        const char* what;
+        const uint8_t* bytes;
+        size_t len;
+    };
+    uint8_t good[44 + 148];
+    /* A valid header with one node, built by the store itself, so the
+     * mutations below are mutations of something real. */
+    {
+        mcdstore::NodeState st = mcdstore::NodeState();
+        ContactInfo c = ContactInfo();
+        FILE* f;
+        char p[512];
+
+        snprintf(st.name, sizeof(st.name), "SURVIVOR");
+        for (int i = 0; i < PUB_KEY_SIZE; i++) {
+            c.id.pub_key[i] = (uint8_t)(0x40 + i);
+        }
+        snprintf(c.name, sizeof(c.name), "A-NODE");
+        c.type = ADV_TYPE_CHAT;
+        c.out_path_len = OUT_PATH_UNKNOWN;
+        st.nodes[0] = c;
+        st.count = 1;
+        check("a good state file to mutate", mcdstore::stateSave(st, dir, store_err));
+        snprintf(p, sizeof(p), "%s/state.v1", dir);
+        f = fopen(p, "rb");
+        check("which can be read as bytes",
+              f != NULL && fread(good, 1, sizeof(good), f) == sizeof(good));
+        if (f) {
+            fclose(f);
+        }
+    }
+
+    uint8_t bad_magic[44 + 148];
+    uint8_t bad_version[44 + 148];
+    uint8_t bad_record[44 + 148];
+    uint8_t dup_keys[44 + 296];
+
+    memcpy(bad_magic, good, sizeof(bad_magic));
+    bad_magic[0] = 'X';
+    memcpy(bad_version, good, sizeof(bad_version));
+    bad_version[4] = 9;
+    memcpy(bad_record, good, sizeof(bad_record));
+    bad_record[44 + 66] = 0xC0 | 10;  /* a path length MeshCore would refuse */
+    memcpy(dup_keys, good, 44 + 148);
+    memcpy(&dup_keys[44 + 148], &good[44], 148);
+    dup_keys[40] = 2;
+
+    Case cases[] = {
+        { "truncated", good, 44 + 60 },
+        { "a wrong magic", bad_magic, sizeof(bad_magic) },
+        { "a version this build does not read", bad_version, sizeof(bad_version) },
+        { "an invalid record", bad_record, sizeof(bad_record) },
+        { "two nodes with one key", dup_keys, sizeof(dup_keys) },
+        { "empty", good, 0 },
+    };
+
+    for (size_t ci = 0; ci < sizeof(cases) / sizeof(cases[0]); ci++) {
+        char p[512];
+        FILE* f;
+        char fault[256] = "";
+        uint8_t pub[MCD_PUB_KEY_LEN];
+        char name[MCD_NODE_NAME_LEN];
+
+        snprintf(p, sizeof(p), "%s/state.v1", dir);
+        unlink(p);
+        f = fopen(p, "wb");
+        if (f) {
+            if (cases[ci].len > 0) {
+                if (fwrite(cases[ci].bytes, 1, cases[ci].len, f) != cases[ci].len) {
+                    check("the case file was written", false);
+                }
+            }
+            fclose(f);
+        }
+
+        rt = mcd_runtime_create(&cfg, &hooks, err, sizeof(err));
+        char label[128];
+
+        snprintf(label, sizeof(label), "%s state does not stop the runtime", cases[ci].what);
+        check(label, rt != NULL);
+        if (!rt) {
+            continue;
+        }
+        snprintf(label, sizeof(label), "%s: the identity is kept", cases[ci].what);
+        mcd_runtime_identity(rt, pub, name, sizeof(name));
+        check(label, memcmp(pub, id.pub_key, PUB_KEY_SIZE) == 0);
+
+        snprintf(label, sizeof(label), "%s: it starts with no known nodes", cases[ci].what);
+        check(label, mcd_runtime_node_count(rt) == 0);
+
+        snprintf(label, sizeof(label), "%s: and says what was wrong", cases[ci].what);
+        check(label, mcd_runtime_state_fault(rt, fault, sizeof(fault)) && fault[0] != '\0');
+
+        /* Moved aside, not destroyed: the bytes are the only evidence. */
+        snprintf(label, sizeof(label), "%s: the bad file was kept for inspection",
+                 cases[ci].what);
+        check(label, strstr(fault, "kept as") != NULL);
+
+        /* And it is a working node, not just a live object. */
+        snprintf(label, sizeof(label), "%s: and it runs normally afterwards", cases[ci].what);
+        n.rt = rt;
+        air.count = 0;
+        air.nodes[air.count++] = &n;
+        n.index = 0;
+        mcd_runtime_set_radio_online(rt, true);
+        {
+            mesh::LocalIdentity peer;
+            uint8_t frame[MCD_MAX_FRAME];
+            struct mcd_rx_meta meta;
+            int len;
+
+            mcdstore::identityCreate(peer, store_err);
+            len = craftAdvert(frame, peer, "NEWCOMER", 1789100000u + (uint32_t)ci);
+            defaultMeta(meta);
+            mcd_runtime_deliver_rx(rt, frame, len, &meta);
+            check(label, pumpUntil(air, [&] { return mcd_runtime_node_count(rt) == 1; }));
+        }
+        snprintf(label, sizeof(label), "%s: and rebuilds its table from the air",
+                 cases[ci].what);
+        check(label, mcd_runtime_node_count(rt) == 1);
+
+        mcd_runtime_destroy(rt);
+        n.rt = NULL;
+    }
+
+    /* A good state file after all that still loads normally. */
+    {
+        char p[512];
+        FILE* f;
+        char fault[256] = "x";
+
+        snprintf(p, sizeof(p), "%s/state.v1", dir);
+        unlink(p);
+        f = fopen(p, "wb");
+        if (f) {
+            if (fwrite(good, 1, sizeof(good), f) != sizeof(good)) {
+                check("the good file was restored", false);
+            }
+            fclose(f);
+        }
+        rt = mcd_runtime_create(&cfg, &hooks, err, sizeof(err));
+        check("a good state file still loads", rt != NULL);
+        if (rt) {
+            check("with its node", mcd_runtime_node_count(rt) == 1);
+            check("and no fault reported",
+                  !mcd_runtime_state_fault(rt, fault, sizeof(fault)) && fault[0] == '\0');
+            mcd_runtime_destroy(rt);
+        }
+    }
+}
+
 static void test_corrupt_identity_stops_the_runtime(void)
 {
     char dir[256];
@@ -911,6 +1421,9 @@ int main(void)
     test_path_guard(a, b, air, a_id, b_id);
     test_restart(a, air);
     test_corrupt_identity_stops_the_runtime();
+    test_corrupt_state_is_survivable();
+    test_hostile_remote_text();
+    test_full_contact_table();
 
     mcd_runtime_destroy(a.rt);
     mcd_runtime_destroy(b.rt);

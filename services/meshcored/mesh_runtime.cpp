@@ -371,7 +371,8 @@ public:
          const mcd_runtime_hooks& hooks)
         : BaseChatMesh(radio, ms, rng, rtc, mgr, tables), _adapter(adapter), _hooks(hooks),
           _dirty(false), _msg_count(0), _msg_head(0), _next_msg_id(1),
-          _path_refused(0), _unparsed(0), _rx_logged(0)
+          _path_refused(0), _unparsed(0), _rx_logged(0), _unretained(0),
+          _contacts_full(0)
     {
         memset(_outbox, 0, sizeof(_outbox));
         memset(_messages, 0, sizeof(_messages));
@@ -388,6 +389,8 @@ public:
     void clearDirty() { _dirty = false; }
     uint64_t pathRefused() const { return _path_refused; }
     uint64_t unparsed() const { return _unparsed; }
+    uint64_t unretained() const { return _unretained; }
+    uint64_t contactsFull() const { return _contacts_full; }
 
     void noteHanded(uint64_t handed)
     {
@@ -437,16 +440,53 @@ public:
     /* ---- BaseChatMesh, the presentation side ---- */
 
 protected:
+    /* A discovered contact that the table did not keep.
+     *
+     * Once MeshCore's fixed 32-contact table is full, allocateContactSlot()
+     * returns NULL and BaseChatMesh calls this anyway, with a ContactInfo
+     * built on its own stack purely so a UI can say "somebody adverted and I
+     * could not keep them" (vendor/RIFT/src/helpers/BaseChatMesh.cpp:172-179).
+     * It is not in the table, it will not come back from mesh.nodes, and it
+     * will be gone the moment this returns.
+     *
+     * Treating it as stored - which is what happens if you just use it - gives
+     * a mesh.node event for a node mesh.node cannot then find, marks the state
+     * dirty so state.v1 is rewritten with nothing changed, and evicts a real
+     * node's telemetry slot to hold readings for a node nobody kept. On a busy
+     * mesh with a full table that repeats for every advert from every stranger.
+     *
+     * The test is exact rather than a guess. When the contact IS stored,
+     * upstream passes *from, which is the table entry itself, so looking its
+     * key up returns that same address. When it is transient there is no entry
+     * with that key at all - the transient path is only reached when the
+     * lookup upstream already did came back empty - so the lookup returns
+     * NULL. No well-formed case is misread either way.
+     *
+     * The table-full policy itself is unchanged: MeshCore still refuses the
+     * new contact and keeps the ones it has. */
+    bool isRetained(const ContactInfo& contact)
+    {
+        return lookupContactByPubKey(contact.id.pub_key, PUB_KEY_SIZE) == &contact;
+    }
+
     void onDiscoveredContact(ContactInfo& contact, bool, uint8_t, const uint8_t*) override
     {
         /* is_new is deliberately ignored: BaseChatMesh declares it false and
          * never assigns it (vendor/RIFT/src/helpers/BaseChatMesh.cpp:154 and
          * 198), so a contact added for the first time is reported as not new.
          * Upstream's to decide; nothing here is built on the flag. */
+        if (!isRetained(contact)) {
+            _unretained++;
+            return;
+        }
         _dirty = true;
         stamp(contact.id.pub_key);
         emitNode(contact, "discovered");
     }
+
+    /* Counted rather than logged per advert: on a full table this fires for
+     * every stranger that adverts, and a log line each would be the noise. */
+    void onContactsFull() override { _contacts_full++; }
 
     void onContactPathUpdated(const ContactInfo& contact) override
     {
@@ -836,6 +876,8 @@ private:
     uint64_t _path_refused;
     uint64_t _unparsed;
     uint64_t _rx_logged;
+    uint64_t _unretained;
+    uint64_t _contacts_full;
 
     char _name[MCD_NODE_NAME_LEN];
 };
@@ -864,12 +906,22 @@ struct mcd_runtime {
     RadiodRadio radio;
     Node node;
     char state_dir[512];
+    /* What was wrong with the stored node state, when something was. Empty on
+     * an ordinary start; reported through mesh.status so a client can see
+     * that this node forgot what it knew, rather than wondering why its
+     * table is empty. */
+    char state_fault[192];
+    /* Set when the unusable file could not be moved aside. Nothing is written
+     * for the rest of this run: the file is the only evidence there is. */
+    bool persist_blocked;
 
     explicit mcd_runtime(const mcd_runtime_hooks& hooks)
         : mgr(32), radio(hooks),
-          node(radio, clock, rng, rtc, mgr, tables, radio, hooks)
+          node(radio, clock, rng, rtc, mgr, tables, radio, hooks),
+          persist_blocked(false)
     {
         state_dir[0] = '\0';
+        state_fault[0] = '\0';
     }
 };
 
@@ -945,13 +997,55 @@ struct mcd_runtime* mcd_runtime_create(const struct mcd_runtime_config* cfg,
         mcport::logWrite(mcport::LOG_INFO, "meshcored: generated a new MeshCore identity");
     }
 
+    /* A state.v1 this build will not read is NOT fatal, and the difference
+     * from the identity above is the whole point.
+     *
+     * The identity cannot be reconstructed: lose it and every peer holds a
+     * contact for a node that no longer exists. state.v1 is a cache - names,
+     * advert types and return paths that the mesh will say again - so a
+     * corrupt one costs a rediscovery, not an identity. Treating the two the
+     * same way is what made one bad file fatal: the runtime refused to start,
+     * meshcored exited, the supervisor restarted it, it read the same file
+     * and exited again, five times, and then gave up with a crash-loop marker
+     * - a node taken off the air for the rest of the session by a cache.
+     *
+     * So the file is moved aside (renamed, never rewritten: it is the only
+     * evidence of what went wrong), the node starts with an empty table, and
+     * what happened is recorded where a client can read it. */
+    char state_fault[192] = "";
+    char quarantined[288] = "";
+    bool persist_blocked = false;
+
     rc = mcdstore::stateLoad(st, cfg->state_dir, store_err);
     if (rc < 0) {
-        snprintf(err, errlen, "%s", store_err);
-        return NULL;
+        char q_err[mcdstore::ERR_SIZE] = "";
+
+        mcport::logWrite(mcport::LOG_ERROR, "meshcored: the stored node state is unusable: %s",
+                         store_err);
+        if (mcdstore::stateQuarantine(cfg->state_dir, quarantined, sizeof(quarantined), q_err)) {
+            mcport::logWrite(mcport::LOG_WARN,
+                             "meshcored: it has been kept as %s; starting with no known nodes",
+                             quarantined);
+            snprintf(state_fault, sizeof(state_fault), "%s (kept as %s)", store_err, quarantined);
+        } else {
+            /* It could not be moved. Then it is not written over either:
+             * whatever is in it is the only record of the fault, and a new
+             * table on top of it would be the second mistake. This run keeps
+             * nothing, and says so. */
+            mcport::logWrite(mcport::LOG_ERROR,
+                             "meshcored: it could not be moved aside (%s); this run will not "
+                             "write node state, so the file is left for inspection", q_err);
+            snprintf(state_fault, sizeof(state_fault),
+                     "%s (left in place; node state is not being written)", store_err);
+            persist_blocked = true;
+        }
+        st = mcdstore::NodeState();
+        rc = 0;  /* as if there had been no file: a first start, with a note */
     }
 
     rt = new mcd_runtime(*hooks);
+    snprintf(rt->state_fault, sizeof(rt->state_fault), "%s", state_fault);
+    rt->persist_blocked = persist_blocked;
     snprintf(rt->state_dir, sizeof(rt->state_dir), "%s", cfg->state_dir);
     rt->node.self_id = id;
 
@@ -1222,11 +1316,19 @@ void mcd_runtime_stats(const struct mcd_runtime* rt, struct mcd_runtime_stats* o
     out->packets_total = 32;
     out->contacts = mcd_runtime_node_count(rt);
     out->path_payloads_refused = rt->node.pathRefused();
+    out->nodes_unretained = rt->node.unretained();
+    out->contacts_full = rt->node.contactsFull();
 }
 
 bool mcd_runtime_dirty(const struct mcd_runtime* rt)
 {
     return rt->node.dirty();
+}
+
+bool mcd_runtime_state_fault(const struct mcd_runtime* rt, char* buf, size_t buf_len)
+{
+    snprintf(buf, buf_len, "%s", rt->state_fault);
+    return rt->state_fault[0] != '\0';
 }
 
 int mcd_runtime_persist(struct mcd_runtime* rt)
@@ -1236,6 +1338,15 @@ int mcd_runtime_persist(struct mcd_runtime* rt)
     ContactInfo c;
     ContactsIterator it = rt->node.startContactsIterator();
 
+    if (rt->persist_blocked) {
+        /* An unusable state.v1 that could not be moved aside is still there,
+         * and it is the only record of whatever went wrong. Writing a fresh
+         * table over it would destroy that before anybody had looked. The
+         * node runs perfectly well without persisting; it simply starts empty
+         * again next time, which is the cheaper of the two losses. */
+        rt->node.clearDirty();
+        return 0;
+    }
     st = mcdstore::NodeState();
     snprintf(st.name, sizeof(st.name), "%s", rt->node.name());
     while (it.hasNext(&rt->node, c) && st.count < mcdstore::MAX_NODES) {

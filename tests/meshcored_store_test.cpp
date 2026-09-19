@@ -438,6 +438,103 @@ static void test_state_corruption(void)
           mcdstore::stateLoad(in, g_dir, g_err) == 1 && in.count == 1);
 }
 
+/* ---- durability ---------------------------------------------------------
+ *
+ * fsync() on a file flushes its contents and says nothing about the entry
+ * that names it. A power cut in between can leave a complete file nothing can
+ * reach - for identity.id, a node that silently becomes somebody else on its
+ * next start. The hooked build lets that syscall fail on request, because a
+ * working filesystem will not do it for us, and an error path nothing has
+ * executed is a guess.
+ */
+static void test_directory_durability(void)
+{
+    mesh::LocalIdentity id;
+    mcdstore::NodeState st;
+
+    removeFile("identity.id");
+    check("an identity to save", mcdstore::identityCreate(id, g_err));
+
+    mcdstore::failNextDirSyncForTest(1);
+    check("a directory flush that fails makes the save fail",
+          !mcdstore::identitySave(id, g_dir, g_err));
+    check("and says which directory", strstr(g_err, g_dir) != NULL);
+    /* And it does not leave a file behind that a later start would load as a
+     * persisted identity nobody could promise was persisted. */
+    check("and leaves no half-promised identity file", fileSize("identity.id") == -1);
+    check("so a reload reports no identity at all",
+          mcdstore::identityLoad(id, g_dir, g_err) == 0);
+
+    /* Without the hook it succeeds, which is what proves the hook was the
+     * thing that failed it rather than something else being wrong. */
+    check("the same save succeeds when the flush works",
+          mcdstore::identityCreate(id, g_err) && mcdstore::identitySave(id, g_dir, g_err));
+    check("and the file is there", fileSize("identity.id") == 96);
+
+    /* state.v1 goes through the same flush, after its rename. */
+    st = mcdstore::NodeState();
+    snprintf(st.name, sizeof(st.name), "K230-A");
+    st.count = 0;
+    removeFile("state.v1");
+    mcdstore::failNextDirSyncForTest(1);
+    check("a failed flush makes the node-state save fail",
+          !mcdstore::stateSave(st, g_dir, g_err));
+    check("the same save succeeds when the flush works",
+          mcdstore::stateSave(st, g_dir, g_err));
+    check("and the file is there", fileSize("state.v1") == 44);
+}
+
+/* ---- a state file this build will not read ------------------------------
+ *
+ * The identity is fatal and stays fatal. state.v1 is a cache the mesh refills,
+ * so it is moved aside rather than allowed to take the node off the air - and
+ * moved, not rewritten: it is the only evidence of whatever went wrong.
+ */
+static void test_quarantine(void)
+{
+    mcdstore::NodeState st;
+    uint8_t rubbish[64];
+    char kept[288] = "";
+    char err[mcdstore::ERR_SIZE] = "";
+
+    memset(rubbish, 0x41, sizeof(rubbish));
+    writeRaw("state.v1", rubbish, sizeof(rubbish), 0600);
+    check("a state file this build will not read is refused",
+          mcdstore::stateLoad(st, g_dir, err) == -1);
+
+    check("it can be moved aside",
+          mcdstore::stateQuarantine(g_dir, kept, sizeof(kept), err));
+    check("the name it was kept under is reported", strstr(kept, "corrupt") != NULL);
+    check("and state.v1 is gone", fileSize("state.v1") == -1);
+    {
+        struct stat sb;
+
+        check("the original bytes are still there, unchanged",
+              stat(kept, &sb) == 0 && sb.st_size == (off_t)sizeof(rubbish));
+    }
+    check("so a load now reports no file rather than a fault",
+          mcdstore::stateLoad(st, g_dir, err) == 0);
+
+    /* A second fault does not overwrite the first one's evidence. */
+    {
+        char kept2[288] = "";
+
+        writeRaw("state.v1", rubbish, sizeof(rubbish), 0600);
+        check("a second bad file can be moved aside too",
+              mcdstore::stateQuarantine(g_dir, kept2, sizeof(kept2), err));
+        check("under a different name", strcmp(kept, kept2) != 0);
+        {
+            struct stat sb;
+
+            check("and the first one is still there",
+                  stat(kept, &sb) == 0 && sb.st_size == (off_t)sizeof(rubbish));
+        }
+    }
+
+    check("moving aside a file that is not there fails rather than pretending",
+          !mcdstore::stateQuarantine(g_dir, kept, sizeof(kept), err));
+}
+
 static void test_dir_rules(void)
 {
     char err[mcdstore::ERR_SIZE];
@@ -480,6 +577,8 @@ int main(void)
     test_identity_corruption();
     test_state_round_trip();
     test_state_corruption();
+    test_quarantine();
+    test_directory_durability();
     test_dir_rules();
 
     /* Leave nothing behind; the files hold a private key. */

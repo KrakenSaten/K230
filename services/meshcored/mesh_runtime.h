@@ -254,11 +254,27 @@ struct mcd_runtime_stats {
     int packets_total;
     int contacts;
     uint64_t path_payloads_refused; /* see mesh_runtime.cpp, the PATH guard */
+    /* Adverts from nodes the contact table had no room for. MeshCore reports
+     * them anyway, with a ContactInfo it is about to throw away; meshcored
+     * counts them and does nothing else with them. */
+    uint64_t nodes_unretained;
+    uint64_t contacts_full;
 };
 void mcd_runtime_stats(const struct mcd_runtime *rt, struct mcd_runtime_stats *out);
 
+/* Was the stored node state unusable at start-up, and what happened to it?
+ *
+ * A corrupt or incompatible state.v1 does not stop the service - it is a
+ * cache the mesh will refill, not an identity - so the node starts with an
+ * empty table and this says so. Returns true when there was a fault, with a
+ * description in buf. False, and an empty buf, on an ordinary start. */
+bool mcd_runtime_state_fault(const struct mcd_runtime *rt, char *buf, size_t buf_len);
+
 /* Write the contact table out. Called when it changed and at shutdown; safe
- * to call when nothing changed (it does nothing). Returns 0 or -1. */
+ * to call when nothing changed (it does nothing). Returns 0 or -1.
+ *
+ * Does nothing, successfully, when an unusable state file could not be moved
+ * aside: that file is the only evidence of the fault and is not written over. */
 int mcd_runtime_persist(struct mcd_runtime *rt);
 bool mcd_runtime_dirty(const struct mcd_runtime *rt);
 

@@ -100,6 +100,29 @@ PEER_KEY=$(awk '/^public_key:/ {print $2}' "$TMP/peer.txt")
 check "its public key is printed" "$([ ${#PEER_KEY} -eq 64 ] && echo 1 || echo 0)"
 "$FRAME" advert --key "$TMP/peer.id" --name TEST-PEER --type chat > "$TMP/advert.txt" 2>&1
 ADVERT_HEX=$(awk '/^frame_hex:/ {print $2}' "$TMP/advert.txt")
+
+# One more advert, from a second identity, with a name no well-behaved node
+# would choose: a terminal escape sequence. It is a real signed MeshCore
+# advert - the name is remote input that has already passed every check
+# MeshCore itself makes - so what happens to it at the mesh.* boundary is the
+# only thing standing between a hostile node and a client's screen.
+"$FRAME" identity new "$TMP/nasty.id" > "$TMP/nasty.txt" 2>&1
+NASTY_KEY=$(awk '/^public_key:/ {print $2}' "$TMP/nasty.txt")
+"$FRAME" advert --key "$TMP/nasty.id" --name "$(printf 'A\033[2JB')" --type chat \
+    > "$TMP/esc.txt" 2>&1
+ESC_HEX=$(awk '/^frame_hex:/ {print $2}' "$TMP/esc.txt")
+check "an advert with an escape sequence in its name is built" \
+    "$([ -n "$ESC_HEX" ] && echo 1 || echo 0)"
+# A name that is not UTF-8 at all cannot be built here: meshcore-frame checks
+# its --name and refuses, which is correct for a tool that will not produce a
+# frame a MeshCore node would truncate. The byte-level case is covered where
+# it is reachable - a node that does not use this tool, in
+# tests/meshcored_runtime_test.cpp - and the sanitiser itself is covered
+# exhaustively in tests/meshcored_util_test.c. What this section proves is the
+# wiring: that the daemon really does put remote names through it.
+check "a name that is not UTF-8 is refused by the frame tool, as it should be" \
+    "$("$FRAME" advert --key "$TMP/nasty.id" --name "$(printf 'C\377D')" --type chat 2>&1 |
+        grep -q 'not valid UTF-8' && echo 1 || echo 0)"
 check "a signed MeshCore advert is built" "$([ -n "$ADVERT_HEX" ] && echo 1 || echo 0)"
 
 # ---- the driver -----------------------------------------------------------
@@ -475,6 +498,63 @@ PYEOF
 run_driver "$TMP/t3.py" "$TMP" "$MSOCK" "$RSOCK" "$ADVERT_HEX" "$PEER_KEY"
 
 # ---------------------------------------------------------------------------
+# 3b. a node whose name is hostile
+# ---------------------------------------------------------------------------
+echo "--- remote text that should not reach a client raw"
+
+cat > "$TMP/t3b.py" <<'PYEOF'
+import sys, time
+sys.path.insert(0, sys.argv[1])
+from lib import *
+
+msock, rsock = sys.argv[2], sys.argv[3]
+esc_hex, esc_key = sys.argv[4], sys.argv[5]
+
+m = Conn(msock)
+r = Conn(rsock)
+m.result("mesh.subscribe")
+r.result("radio.subscribe")
+
+# The driver reads frames with json.loads on bytes, which in Python 3 refuses
+# anything that is not valid UTF-8. So every call below is itself the test:
+# if a raw byte reached the wire, this connection would stop working here
+# rather than returning a wrong answer.
+r.result("mock.inject_rx", {"payload_hex": esc_hex})
+ev = m.wait_event("mesh.node", seconds=10)
+ok("a node with an escape sequence in its name is still learned", ev is not None)
+if ev:
+    name = ev["data"]["node"]["name"]
+    ok("and the node is the one that adverted",
+       ev["data"]["node"]["public_key"] == esc_key)
+    ok("the escape character does not reach the client", "\x1b" not in name, repr(name))
+    ok("nor does any other control character",
+       all(ord(c) >= 0x20 or c in "\n\t" for c in name), repr(name))
+    ok("it was replaced rather than dropped", "�" in name, repr(name))
+    ok("and the printable part survived", "A" in name and "B" in name, repr(name))
+
+# And the same through a method rather than an event, since a client may
+# never subscribe at all.
+nodes = m.result("mesh.nodes")
+found = [n for n in nodes["nodes"] if n["public_key"] == esc_key]
+ok("it is in the node list", len(found) == 1, len(found))
+for n in found:
+    ok("with no control character in the name",
+       all(ord(c) >= 0x20 or c in "\n\t" for c in n["name"]), repr(n["name"]))
+one = m.result("mesh.node", {"node": esc_key[:8]})
+ok("and mesh.node answers for it too", one["public_key"] == esc_key)
+ok("with the same safe name", "\x1b" not in one["name"])
+
+# Every call in this driver decoded a frame as UTF-8 to get here: had a raw
+# byte reached the wire, json.loads would have refused it and this section
+# would have died rather than returned a wrong answer.
+ok("every frame this section read was valid UTF-8", True)
+ok("the service is still online", m.result("mesh.status")["state"] == "online")
+ok("and still counts it as a real node", m.result("mesh.status")["nodes"] >= 2)
+done()
+PYEOF
+run_driver "$TMP/t3b.py" "$TMP" "$MSOCK" "$RSOCK" "$ESC_HEX" "$NASTY_KEY"
+
+# ---------------------------------------------------------------------------
 # 4. radiod goes away and comes back
 # ---------------------------------------------------------------------------
 echo "--- radiod restarts"
@@ -627,6 +707,65 @@ PYEOF
 run_driver "$TMP/t5.py" "$TMP" "$RSOCK" "$MSOCK" "$MESHCORED" "$POCKETOS_STATE_DIR"
 
 # ---------------------------------------------------------------------------
+# 5b. a profile radiod will not accept
+# ---------------------------------------------------------------------------
+#
+# 902 MHz is outside radiod's EU868 region guard (863 to 870), so radiod
+# refuses the configure with error 3 - after meshcored has already taken the
+# lease. The question this asks is not whether meshcored notices, but what it
+# does with the radio it is holding when it gives up: a service that enters an
+# error state and keeps the lease leaves radiod owned by something that has
+# stopped trying, and nothing short of killing the process gets the radio
+# back.
+echo "--- a profile radiod will not accept"
+start_meshcored --frequency-mhz 902.0
+
+cat > "$TMP/t5b.py" <<'PYEOF'
+import sys, time
+sys.path.insert(0, sys.argv[1])
+from lib import *
+
+m = Conn(sys.argv[2])
+r = Conn(sys.argv[3])
+
+reached, last = wait_state(m, "error", seconds=20)
+ok("a profile radiod refuses puts meshcored in the error state", reached, last)
+st = m.result("mesh.status")
+ok("and it says why", "869" not in st["reason"] and st["reason"] != "", st["reason"])
+
+# The point of the whole section.
+ok("it is not holding the radio lease", st["radio"]["lease_held"] is False, st["radio"])
+ok("it has closed the connection", st["radio"]["connected"] is False, st["radio"])
+ok("it claims no applied profile", "profile" not in st["radio"], st["radio"])
+ok("and the runtime knows it has no radio", st["radio"]["online"] is False)
+
+lease = r.result("radio.lease")
+ok("radiod agrees the radio is free", lease["held"] is False, lease)
+
+# Somebody else can have it, which is the thing that was impossible before.
+got = r.result("radio.acquire", {"owner": "the-next-client"})
+ok("another client can acquire radiod afterwards", got["held"] is True and got["mine"] is True)
+ok("and configure it", r.result("radio.configure", {"frequency_mhz": 868.1})["frequency_mhz"] == 868.1)
+r.result("radio.release")
+
+# Terminal, and quietly so: no reconnect loop, no retry of a profile that
+# cannot be accepted, and the service still answers.
+time.sleep(3.0)
+st = m.result("mesh.status")
+ok("it stays in error rather than retrying", st["state"] == "error", st["state"])
+ok("and has not reconnected", st["radio"]["connected"] is False)
+ok("and has not taken the lease back", st["radio"]["lease_held"] is False)
+ok("it still answers its own clients", m.result("mesh.info")["service"] == "meshcored")
+ok("and still has its identity", len(m.result("mesh.identity")["public_key"]) == 64)
+e = m.error("mesh.advert")
+ok("but will not transmit", e["code"] == 5, e)
+ok("radiod is still free at the end", r.result("radio.lease")["held"] is False)
+done()
+PYEOF
+run_driver "$TMP/t5b.py" "$TMP" "$MSOCK" "$RSOCK"
+stop_meshcored
+
+# ---------------------------------------------------------------------------
 # 6. clients come and go
 # ---------------------------------------------------------------------------
 echo "--- clients come and go"
@@ -744,14 +883,22 @@ done()
 PYEOF
 run_driver "$TMP/t7.py" "$TMP" "$RSOCK"
 
-# The logs must carry no error the service did not explain.
-if grep -q " ERROR " "$TMP/meshcored.log"; then
-    echo "FAIL meshcored logged an ERROR:"
-    grep " ERROR " "$TMP/meshcored.log" | head -5
+# The logs must carry no error the service did not explain. Exactly one is
+# explained: section 5b hands it a profile radiod will not accept, on purpose,
+# and an ERROR line is the correct answer to that. It is named here rather
+# than allowed by a blanket exemption, and its presence is asserted too - a
+# daemon that gave up silently would be worse than one that complained.
+EXPECTED_ERROR='radiod refused the radio profile permanently'
+unexplained=$(grep " ERROR " "$TMP/meshcored.log" | grep -v "$EXPECTED_ERROR" || true)
+if [ -n "$unexplained" ]; then
+    echo "FAIL meshcored logged an ERROR nothing in this suite asked for:"
+    printf '%s\n' "$unexplained" | head -5
     failed=$((failed + 1))
 else
-    check "meshcored logged no ERROR" 1
+    check "meshcored logged no ERROR it was not given" 1
 fi
+check "and it did log the refusal it was given" \
+    "$(grep -q "$EXPECTED_ERROR" "$TMP/meshcored.log" && echo 1 || echo 0)"
 if grep -qi "sanitizer\|AddressSanitizer\|runtime error" "$TMP/meshcored.log"; then
     echo "FAIL meshcored logged a sanitizer report"; failed=$((failed + 1))
 fi

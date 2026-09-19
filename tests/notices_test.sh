@@ -23,6 +23,8 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 failed=0
 check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
 
 GEN=tools/legal/gen_notices.sh
 SOURCES=third_party/notices/SOURCES
@@ -80,18 +82,69 @@ check "LVGL's entry names the commit the defconfig builds" \
 # Vendored source the GNU make tree compiles.
 vend=$(grep -v -E '^[[:space:]]*#' Makefile |
        grep -o -E '\$\((RADIOLIB|GGWAVE)_DIR\)|vendor/[A-Za-z0-9_.-]+|third_party/[A-Za-z0-9_.-]+' | sort -u | tr '\n' ' ')
-# meshcored compiles MeshCore, orlp's ed25519 and rweather's Crypto, and it is
-# OFF by default: with ENABLE_MESHCORED=0 nothing from those trees reaches a
-# binary, an install or an image, which is the thing this section is about.
-# The conditional is checked, not assumed - the moment meshcored becomes part
-# of a default build, or is installed by one, those three need entries exactly
-# as RadioLib and ggwave do. Recorded as an open item in docs/LICENSING.md.
-meshcored_off=0
-if grep -q '^ENABLE_MESHCORED ?= 0$' Makefile &&
-   awk '/^ifeq \(\$\(ENABLE_MESHCORED\),1\)/{c++} END{exit !(c >= 2)}' Makefile; then
-    meshcored_off=1
-fi
-check "meshcored, which compiles the MeshCore trees, is off by default" "$meshcored_off"
+# meshcored compiles MeshCore, orlp's ed25519 and rweather's Crypto. It is off
+# by default, and with ENABLE_MESHCORED=0 nothing from those trees reaches a
+# binary, an install or an image - which is what this section is about.
+#
+# The EFFECTIVE configuration decides, not the Makefile's default text. An
+# earlier version of this check read the default and nothing else, so
+# `ENABLE_MESHCORED=1 bash tests/notices_test.sh` passed while
+# `ENABLE_MESHCORED=1 make install` shipped the binary: the documented
+# restriction was false, and the test said it was true. A gate that reports on
+# a setting somebody can override, without looking at whether they did, is
+# worse than no gate.
+MESHCORED_ON="${ENABLE_MESHCORED:-0}"
+MESHCORE_IDS="meshcore ed25519 arduinolibs-crypto"
+
+check "the build default keeps meshcored out of an ordinary build" \
+    "$(grep -q '^ENABLE_MESHCORED ?= 0$' Makefile &&
+       awk '/^ifeq \(\$\(ENABLE_MESHCORED\),1\)/{c++} END{exit !(c >= 2)}' Makefile &&
+       echo 1 || echo 0)"
+# Wired to `install`, so the refusal happens before anything is written, and
+# under `make -j` too: a prerequisite completes before the recipe starts.
+check "installing is gated on the notices, not on a flag" \
+    "$(grep -q '^install: all meshcored-shipping-check$' Makefile && echo 1 || echo 0)"
+check "and the gate reads the notices themselves" \
+    "$(awk '/^MESHCORE_NOTICES_OK :=/{f=1} f && /third_party\/notices\/SOURCES/{print "1"; exit}' Makefile |
+       grep -qx 1 && echo 1 || echo 0)"
+
+# Executed, not read. These need no build and no vendored checkout: the gate
+# refuses before any of that.
+tmpd="$TMP/shipping"
+mkdir -p "$tmpd"
+make ENABLE_MESHCORED=1 meshcored-shipping-check > "$tmpd/on.log" 2>&1
+check "ENABLE_MESHCORED=1 cannot pass the shipping gate" \
+    "$([ $? -ne 0 ] && echo 1 || echo 0)"
+check "and says which notices entries are missing" \
+    "$(grep -q 'Missing notices entries' "$tmpd/on.log" && echo 1 || echo 0)"
+check "and says that building and testing it is still allowed" \
+    "$(grep -q 'make ENABLE_MESHCORED=1 meshcored' "$tmpd/on.log" && echo 1 || echo 0)"
+
+# Explicitly 0, not merely unset: this run may have been given a 1, and the
+# question here is what the disabled configuration does.
+ENABLE_MESHCORED=0 make ENABLE_MESHCORED=0 meshcored-shipping-check > "$tmpd/off.log" 2>&1
+check "the default configuration passes it" "$([ $? -eq 0 ] && echo 1 || echo 0)"
+
+# The positive control: the gate is driven by the notices, so an empty
+# requirement satisfies it. Without this the refusal above could be
+# unconditional and nobody would notice until the notices were written.
+make ENABLE_MESHCORED=1 MESHCORE_NOTICE_IDS= meshcored-shipping-check > "$tmpd/sat.log" 2>&1
+check "and it stops refusing once its requirement is met" \
+    "$([ $? -eq 0 ] && echo 1 || echo 0)"
+
+# The two image paths refuse early rather than at the end of a long build.
+ENABLE_MESHCORED=1 bash platforms/k230/scripts/build_image.sh > "$tmpd/img.log" 2>&1
+check "build_image.sh refuses an enabled build" "$([ $? -ne 0 ] && echo 1 || echo 0)"
+check "before it needs a toolchain or an SDK" \
+    "$(grep -q 'would therefore install' "$tmpd/img.log" && echo 1 || echo 0)"
+ENABLE_MESHCORED=1 bash platforms/k230/scripts/apply_to_sdk.sh > "$tmpd/app.log" 2>&1
+check "apply_to_sdk.sh refuses an enabled build" "$([ $? -ne 0 ] && echo 1 || echo 0)"
+check "before it assembles anything" \
+    "$(grep -q 'would install meshcored' "$tmpd/app.log" && echo 1 || echo 0)"
+
+# The notices requirement itself, against the configuration this run was
+# given, is asserted by the vendored-tree loop below - which is where every
+# other compiled tree is checked, and where this one belongs.
 
 unknown=""
 for v in $vend; do
@@ -99,9 +152,15 @@ for v in $vend; do
         '$(RADIOLIB_DIR)'|vendor/RadioLib|third_party/RadioLib) [ "$(has_id radiolib)" = 1 ] || unknown="$unknown $v" ;;
         '$(GGWAVE_DIR)'|vendor/ggwave|third_party/ggwave)
             for i in ggwave reed-solomon ooura-fft; do [ "$(has_id $i)" = 1 ] || unknown="$unknown $v($i)"; done ;;
+        # Not a vendored tree: the notices' own source directory, which the
+        # Makefile now names because the shipping gate reads it.
+        third_party/notices) ;;
         vendor/RIFT|third_party/RIFT|vendor/Crypto|third_party/Crypto)
-            if [ "$meshcored_off" != 1 ]; then
-                for i in meshcore ed25519 arduinolibs-crypto; do
+            # Only meshcored compiles these, and only an enabled build
+            # installs one. The effective setting decides - a run given
+            # ENABLE_MESHCORED=1 is a run that would ship it.
+            if [ "$MESHCORED_ON" = "1" ]; then
+                for i in $MESHCORE_IDS; do
                     [ "$(has_id $i)" = 1 ] || unknown="$unknown $v($i)"
                 done
             fi ;;

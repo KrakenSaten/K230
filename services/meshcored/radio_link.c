@@ -62,6 +62,9 @@ struct mcd_radio_link {
     int next_id;
     bool lease_held;
     uint64_t lease_owner_id;
+    /* A refusal that asking again cannot change. The connection is closed and
+     * never remade: see link_fail_permanently(). */
+    bool permanent;
 };
 
 /* ---- request bookkeeping ----------------------------------------------- */
@@ -139,7 +142,11 @@ static int link_request(struct mcd_radio_link *l, const char *method, cJSON *par
 
 /* ---- connection lifecycle ---------------------------------------------- */
 
-static void link_disconnect(struct mcd_radio_link *l, const char *reason)
+/* Close the connection and drop every assumption that came with it. The
+ * caller decides what the service state becomes afterwards, because the two
+ * reasons for being here are not the same answer: radiod going away is waited
+ * out, and a profile radiod will not accept is not. */
+static void link_close(struct mcd_radio_link *l, const char *reason, bool count_it)
 {
     struct mcd *d = l->d;
     uint64_t abandoned[MCD_TX_MAP_SLOTS];
@@ -149,8 +156,10 @@ static void link_disconnect(struct mcd_radio_link *l, const char *reason)
     if (l->fd >= 0) {
         close(l->fd);
         l->fd = -1;
-        d->counters.radiod_disconnects++;
-        LOG_WARN("radiod: connection lost (%s)", reason);
+        if (count_it) {
+            d->counters.radiod_disconnects++;
+        }
+        LOG_WARN("radiod: connection closed (%s)", reason);
     }
     pocketipc_reader_free(&l->reader);
     pocketipc_reader_init(&l->reader);
@@ -177,8 +186,44 @@ static void link_disconnect(struct mcd_radio_link *l, const char *reason)
      * timeouts, answers clients and holds every node it knows. It simply
      * cannot transmit, and is told so rather than left waiting. */
     mcd_runtime_set_radio_online(d->rt, false);
-    mcd_set_state(d, MCD_WAITING_FOR_RADIOD, reason);
+}
+
+/* radiod went away, or the connection did. Waited out. */
+static void link_disconnect(struct mcd_radio_link *l, const char *reason)
+{
+    link_close(l, reason, true);
+    mcd_set_state(l->d, MCD_WAITING_FOR_RADIOD, reason);
     mcd_backoff_failed(&l->backoff, mcd_mono_ms());
+}
+
+/* radiod refused something that asking again cannot change - the region guard
+ * turning down the profile, or a value it will not take.
+ *
+ * The important part is what this does NOT do: hold the radio. Entering an
+ * error state while keeping the lease and the socket would leave radiod owned
+ * by a service that has given up, with nothing able to take the radio back
+ * short of killing this process. So the lease is handed back explicitly,
+ * the connection is closed - which releases it again on radiod's side even if
+ * the request never arrived - and the phase is reset rather than left stale.
+ *
+ * It is terminal, deliberately. The profile comes from the command line, so
+ * reconnecting would apply exactly the same values and be refused exactly the
+ * same way, for ever. Whoever changes the profile or the region guard
+ * restarts the service; the supervisor makes that one command. Until then
+ * mesh.status keeps answering and says why, which is the one useful thing
+ * left to do. */
+static void link_fail_permanently(struct mcd_radio_link *l, const char *reason)
+{
+    if (l->fd >= 0 && l->lease_held) {
+        /* Best effort, and not waited for: the close below is what really
+         * guarantees the release, because radiod drops the lease of a
+         * connection that goes away (docs/api/radio.md, "Disconnect"). */
+        link_request(l, "radio.release", NULL, RQ_RELEASE);
+    }
+    LOG_ERROR("radiod refused the radio profile permanently: %s", reason);
+    link_close(l, reason, false);
+    l->permanent = true;
+    mcd_set_state(l->d, MCD_ERROR, reason);
 }
 
 static cJSON *profile_params(const struct mcd_profile *p)
@@ -410,11 +455,10 @@ static void on_reply(struct mcd_radio_link *l, enum req_kind kind, const cJSON *
         if (code != 0) {
             if (code == POCKETIPC_ERR_POLICY || code == POCKETIPC_ERR_INVALID_PARAMS) {
                 /* The region guard or a range check refused the profile.
-                 * Asking again with the same values would be refused again,
-                 * so this stops and says so; a radiod restart clears it,
-                 * because the next one may be configured differently. */
-                LOG_ERROR("radiod refused the MeshCore profile: %s", emsg);
-                mcd_set_state(d, MCD_ERROR, emsg[0] ? emsg : "the radio profile was refused");
+                 * Asking again with the same values would be refused again -
+                 * and the lease is given back rather than held by a service
+                 * that has stopped trying. */
+                link_fail_permanently(l, emsg[0] ? emsg : "the radio profile was refused");
                 return;
             }
             LOG_WARN("radiod: configure failed (%d) %s; retrying", code, emsg);
@@ -811,9 +855,11 @@ static void expire_transmits(struct mcd_radio_link *l, uint64_t now_ms)
 void mcd_link_step(struct mcd_radio_link *l, uint64_t now_ms)
 {
     expire_transmits(l, now_ms);
-    if (l->d->state == MCD_ERROR) {
-        /* A refused profile. Nothing is retried until radiod goes away and
-         * comes back, which is the only thing that can change the answer. */
+    if (l->permanent) {
+        /* A refused profile. The radio has been given back and nothing is
+         * reconnected: the same values would be refused the same way. Keyed
+         * on the link's own flag rather than on the service state, so a state
+         * change elsewhere can never quietly restart the attempt. */
         return;
     }
     switch (l->phase) {

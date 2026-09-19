@@ -12,6 +12,8 @@
  */
 #include "mcd_util.h"
 
+#include "mesh_runtime.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -127,12 +129,138 @@ static void test_text(void)
     check("one over the limit is not", !mcd_text_acceptable(long_text, 160));
 }
 
+/* ---- remote text on the way out ----------------------------------------
+ *
+ * An advert name and a message body are chosen by whoever is on the air.
+ * These are the cases that decide whether one hostile node can break every
+ * client's read of every event, or put an escape sequence on somebody's
+ * screen.
+ */
+static void expect_sanitized(const char *name, const char *src, const char *want)
+{
+    char got[MCD_SANITIZED_SIZE(MCD_MAX_TEXT)];
+
+    mcd_text_sanitize(src, got, sizeof(got));
+    if (strcmp(got, want) == 0) {
+        printf("ok   %s\n", name);
+    } else {
+        printf("FAIL %s: got \"%s\", wanted \"%s\"\n", name, got, want);
+        failed++;
+    }
+    checks++;
+}
+
+#define FFFD "\xEF\xBF\xBD"
+
+static void test_sanitize(void)
+{
+    /* Ordinary text is not touched at all. */
+    expect_sanitized("plain ASCII passes through", "HYTTA", "HYTTA");
+    expect_sanitized("so does a space and punctuation", "RPT-NORD (2)", "RPT-NORD (2)");
+    expect_sanitized("an empty string stays empty", "", "");
+
+    /* Valid Unicode survives: a node name in Norwegian must not come out as
+     * three replacement characters. */
+    expect_sanitized("two-byte UTF-8 survives", "\xc3\xa6\xc3\xb8\xc3\xa5",
+                     "\xc3\xa6\xc3\xb8\xc3\xa5");
+    expect_sanitized("three-byte UTF-8 survives", "\xe2\x82\xac", "\xe2\x82\xac");
+    expect_sanitized("four-byte UTF-8 survives", "\xf0\x9f\x93\xa1", "\xf0\x9f\x93\xa1");
+    expect_sanitized("a combining mark survives", "e\xcc\x81", "e\xcc\x81");
+
+    /* The escape sequence. JSON would encode the ESC and a client would
+     * decode it straight back out again, which is how a remote advert name
+     * ends up clearing somebody's terminal. */
+    expect_sanitized("an ESC is replaced", "\x1b[2J", FFFD "[2J");
+    expect_sanitized("a colour sequence loses its ESC", "\x1b[31mred", FFFD "[31mred");
+    expect_sanitized("an OSC title sequence loses its ESC",
+                     "\x1b]0;pwned\x07", FFFD "]0;pwned" FFFD);
+
+    /* Other control characters. */
+    expect_sanitized("a carriage return is replaced", "over\rwrite", "over" FFFD "write");
+    expect_sanitized("a bell is replaced", "ding\x07", "ding" FFFD);
+    expect_sanitized("a backspace is replaced", "a\x08" "b", "a" FFFD "b");
+    expect_sanitized("DEL is replaced", "a\x7f" "b", "a" FFFD "b");
+    expect_sanitized("a C1 control is replaced", "a\xc2\x9b" "b", "a" FFFD "b");
+    /* Newline and tab are kept: they are safe, and the outbound side already
+     * allows them, so a message can come back looking like it was sent. */
+    expect_sanitized("a newline is kept", "one\ntwo", "one\ntwo");
+    expect_sanitized("a tab is kept", "one\ttwo", "one\ttwo");
+
+    /* Malformed UTF-8, which is what makes an IPC frame unparsable. */
+    expect_sanitized("a lone continuation byte is replaced", "a\x80" "b", "a" FFFD "b");
+    expect_sanitized("a truncated two-byte sequence is replaced", "a\xc3", "a" FFFD);
+    expect_sanitized("a truncated three-byte sequence is replaced", "a\xe2\x82", "a" FFFD FFFD);
+    expect_sanitized("an overlong encoding is replaced", "\xc0\xaf", FFFD FFFD);
+    expect_sanitized("a surrogate half is replaced", "\xed\xa0\x80", FFFD FFFD FFFD);
+    expect_sanitized("a codepoint above U+10FFFF is replaced",
+                     "\xf5\x80\x80\x80", FFFD FFFD FFFD FFFD);
+    expect_sanitized("0xFF is replaced", "\xff", FFFD);
+    /* A bad lead byte must not decide how much of the rest to swallow: the
+     * decoder resyncs one byte on, so the text after it survives. */
+    expect_sanitized("a bad lead byte does not eat what follows",
+                     "\xf0" "HYTTA", FFFD "HYTTA");
+
+    /* Output is truncated on a character boundary, never mid-sequence: half a
+     * sequence would be the very thing this exists to prevent. */
+    {
+        char small[8];
+
+        mcd_text_sanitize("\xe2\x82\xac\xe2\x82\xac\xe2\x82\xac", small, sizeof(small));
+        check("truncation keeps whole characters",
+              strcmp(small, "\xe2\x82\xac\xe2\x82\xac") == 0);
+        check("and the result is still terminated", small[strlen(small)] == '\0');
+    }
+    {
+        char tiny[2];
+
+        mcd_text_sanitize("\xe2\x82\xac", tiny, sizeof(tiny));
+        check("a buffer too small for one character gives an empty string",
+              tiny[0] == '\0');
+    }
+
+    /* The longest a name and a message can legally be, unchanged. */
+    {
+        char name[MCD_NODE_NAME_LEN];
+        char out[MCD_SANITIZED_SIZE(MCD_MAX_TEXT)];
+
+        memset(name, 'N', sizeof(name) - 1);
+        name[sizeof(name) - 1] = '\0';
+        mcd_text_sanitize(name, out, sizeof(out));
+        check("a maximum-length node name survives whole", strcmp(out, name) == 0);
+    }
+    {
+        char text[MCD_MAX_TEXT + 1];
+        char out[MCD_SANITIZED_SIZE(MCD_MAX_TEXT)];
+
+        memset(text, 'M', MCD_MAX_TEXT);
+        text[MCD_MAX_TEXT] = '\0';
+        mcd_text_sanitize(text, out, sizeof(out));
+        check("a maximum-length message survives whole", strcmp(out, text) == 0);
+        check("and is still the length it was", strlen(out) == MCD_MAX_TEXT);
+    }
+    /* The worst case for growth: every byte replaced, three bytes each. The
+     * buffer size the header promises has to hold it. */
+    {
+        char text[MCD_MAX_TEXT + 1];
+        char out[MCD_SANITIZED_SIZE(MCD_MAX_TEXT)];
+
+        memset(text, (char)0xFF, MCD_MAX_TEXT);
+        text[MCD_MAX_TEXT] = '\0';
+        mcd_text_sanitize(text, out, sizeof(out));
+        check("a message of nothing but bad bytes fits the promised buffer",
+              strlen(out) == (size_t)MCD_MAX_TEXT * 3);
+    }
+
+    check("NULL is handled", (mcd_text_sanitize(NULL, (char[4]){ 'x' }, 4), true));
+}
+
 int main(void)
 {
     test_hex_decode();
     test_hex_encode();
     test_key_prefix();
     test_text();
+    test_sanitize();
     printf("meshcored_util_test: %d check(s), %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }
