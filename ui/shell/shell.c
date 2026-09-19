@@ -63,11 +63,15 @@ extern const struct pocketos_app app_calendar;
 extern const struct pocketos_app app_calculator;
 extern const struct pocketos_app app_settings;
 extern const struct pocketos_app app_wave;
+extern const struct pocketos_app app_rift;
 
+/* Appended, not inserted: the launcher's order is what
+ * tests/launcher_icons_shell_test.sh looks for each icon at, and moving an
+ * app would move ten tiles to add one. */
 static const struct pocketos_app *apps[] = { &app_radio, &app_system, &app_fleet,
                                             &app_radar, &app_timber, &app_notes,
                                             &app_clock, &app_calendar, &app_calculator,
-                                            &app_settings, &app_wave };
+                                            &app_settings, &app_wave, &app_rift };
 #define APP_COUNT (sizeof(apps) / sizeof(apps[0]))
 
 struct shell {

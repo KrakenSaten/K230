@@ -110,8 +110,23 @@ refuse "nothing here reaches into the RIFT design package or a RIFT app" \
     "$SRC" tests/meshcored_service_test.sh tests/meshcored_harness_test.sh \
     tests/meshcored_runtime_test.cpp tests/meshcored_store_test.cpp \
     tests/meshcored_util_test.c tests/meshcored_txmap_test.c
-check "apps/rift does not exist: this phase implements no UI" \
-    "$([ ! -e apps/rift ] && echo 1 || echo 0)"
+# apps/rift exists now (RIFT phase 1), and its existence was never the point:
+# what this file is for is the boundary. meshcored owns the MeshCore protocol
+# and runtime, RIFT is a UI above it, and the service must not know that the
+# UI is there - not by including it, not by linking it, and not by having a
+# build of its own that needs it. The `refuse` above already checks that no
+# source here names apps/rift; these check the other direction, that nothing
+# in the service's build reaches for it.
+check "the service's objects come from services/meshcored and nowhere else" \
+    "$(sed -n '/^MESHCORED_C_OBJS/,/^MESHCORED_OBJS/p' Makefile |
+       grep -oE '[a-z_/]+\.o' | grep -vE '^(services/meshcored|services/radiod|core)/' |
+       grep -q . && echo 0 || echo 1)"
+check "and no part of the app is built into it" \
+    "$(sed -n '/^MESHCORED_C_OBJS/,/^MESHCORED_OBJS/p' Makefile | grep -q 'apps/' &&
+       echo 0 || echo 1)"
+check "the service builds with no include path into the app" \
+    "$(grep -E '^MESHCORED_CXXFLAGS|^\$\(MESHCORED_C_OBJS\)' Makefile | grep -q 'apps/rift' &&
+       echo 0 || echo 1)"
 
 # ---- 4. secrets and side effects ------------------------------------------
 

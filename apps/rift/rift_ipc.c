@@ -1,0 +1,433 @@
+/*
+ * RIFT's meshcored client. See rift_ipc.h.
+ *
+ * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ */
+#include "rift_ipc.h"
+
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+
+static const char *method_of(enum rift_req what)
+{
+    switch (what) {
+    case RIFT_REQ_SUBSCRIBE:
+        return "mesh.subscribe";
+    case RIFT_REQ_UNSUBSCRIBE:
+        return "mesh.unsubscribe";
+    case RIFT_REQ_INFO:
+        return "mesh.info";
+    case RIFT_REQ_STATUS:
+        return "mesh.status";
+    case RIFT_REQ_IDENTITY:
+        return "mesh.identity";
+    case RIFT_REQ_NODES:
+        return "mesh.nodes";
+    case RIFT_REQ_NODE:
+        return "mesh.node";
+    case RIFT_REQ_NONE:
+    default:
+        return NULL;
+    }
+}
+
+void rift_ipc_init(struct rift_ipc *c, struct rift_model *m, const char *service)
+{
+    if (!c) {
+        return;
+    }
+    memset(c, 0, sizeof(*c));
+    c->model = m;
+    snprintf(c->service, sizeof(c->service), "%s", service ? service : RIFT_SERVICE);
+    c->fd = -1;
+    c->next_id = 1;
+    c->backoff_ms = RIFT_BACKOFF_MIN_MS;
+    pocketipc_reader_init(&c->reader);
+}
+
+int rift_ipc_connected(const struct rift_ipc *c)
+{
+    return c && c->fd >= 0;
+}
+
+static void forget_pending(struct rift_ipc *c)
+{
+    memset(c->pending, 0, sizeof(c->pending));
+}
+
+/* Drop the connection. reason is what a screen may show; it is this app's
+ * words about its own socket, never the service's. */
+static void drop(struct rift_ipc *c, const char *reason, int64_t now_ms)
+{
+    if (c->fd >= 0) {
+        close(c->fd);
+        c->fd = -1;
+        c->disconnects++;
+    }
+    c->subscribed = 0;
+    forget_pending(c);
+    pocketipc_reader_free(&c->reader);
+    pocketipc_reader_init(&c->reader);
+    snprintf(c->last_error, sizeof(c->last_error), "%s", reason ? reason : "");
+    rift_model_service_lost(c->model, reason);
+    c->next_attempt_ms = now_ms + c->backoff_ms;
+    if (c->backoff_ms < RIFT_BACKOFF_MAX_MS) {
+        c->backoff_ms *= 2;
+        if (c->backoff_ms > RIFT_BACKOFF_MAX_MS) {
+            c->backoff_ms = RIFT_BACKOFF_MAX_MS;
+        }
+    }
+    c->revision++;
+}
+
+static int remember(struct rift_ipc *c, int id, enum rift_req what)
+{
+    int i;
+
+    for (i = 0; i < RIFT_MAX_PENDING; i++) {
+        if (c->pending[i].what == RIFT_REQ_NONE) {
+            c->pending[i].id = id;
+            c->pending[i].what = what;
+            return 0;
+        }
+    }
+    return -1;
+}
+
+static enum rift_req take_pending(struct rift_ipc *c, int id)
+{
+    int i;
+
+    for (i = 0; i < RIFT_MAX_PENDING; i++) {
+        if (c->pending[i].what != RIFT_REQ_NONE && c->pending[i].id == id) {
+            enum rift_req what = c->pending[i].what;
+
+            c->pending[i].what = RIFT_REQ_NONE;
+            c->pending[i].id = 0;
+            return what;
+        }
+    }
+    return RIFT_REQ_NONE;
+}
+
+/* Write one request. params is consumed. Returns 0, or -1 with the
+ * connection already dropped when the write failed. */
+static int request(struct rift_ipc *c, enum rift_req what, cJSON *params, int64_t now_ms)
+{
+    const char *method = method_of(what);
+    cJSON *msg;
+    int id;
+    int rc;
+
+    if (c->fd < 0 || !method) {
+        cJSON_Delete(params);
+        return -1;
+    }
+    id = c->next_id++;
+    if (c->next_id <= 0) {
+        c->next_id = 1;
+    }
+    /* An unsubscribe on the way out is fire and forget: the reply would
+     * arrive after this app has stopped reading. */
+    if (what != RIFT_REQ_UNSUBSCRIBE && remember(c, id, what) != 0) {
+        c->requests_refused++;
+        cJSON_Delete(params);
+        return -1;
+    }
+    msg = cJSON_CreateObject();
+    if (!msg) {
+        cJSON_Delete(params);
+        return -1;
+    }
+    cJSON_AddNumberToObject(msg, "id", id);
+    cJSON_AddStringToObject(msg, "method", method);
+    if (params) {
+        cJSON_AddItemToObject(msg, "params", params);
+    }
+    rc = pocketipc_send(c->fd, msg);
+    cJSON_Delete(msg);
+    if (rc != 0) {
+        /* The only write that can fail slowly is one to a service that has
+         * stopped reading, and pocketipc bounds that at 200 ms per frame
+         * (POCKETIPC_SEND_TIMEOUT_MS). A failure here is the service gone. */
+        drop(c, "meshcored stopped reading", now_ms);
+        return -1;
+    }
+    c->requests_out++;
+    return 0;
+}
+
+int rift_ipc_request_node(struct rift_ipc *c, const char *key)
+{
+    cJSON *params;
+
+    if (!c || c->fd < 0 || !key || !key[0]) {
+        return -1;
+    }
+    params = cJSON_CreateObject();
+    if (!params) {
+        return -1;
+    }
+    cJSON_AddStringToObject(params, "node", key);
+    return request(c, RIFT_REQ_NODE, params, rift_mono_ms());
+}
+
+int rift_ipc_request_nodes(struct rift_ipc *c)
+{
+    if (!c || c->fd < 0) {
+        return -1;
+    }
+    c->last_nodes_ms = rift_mono_ms();
+    return request(c, RIFT_REQ_NODES, NULL, c->last_nodes_ms);
+}
+
+static void connect_now(struct rift_ipc *c, int64_t now_ms)
+{
+    int fd = pocketipc_connect_timeout(c->service, RIFT_CONNECT_TIMEOUT_MS);
+
+    if (fd < 0) {
+        snprintf(c->last_error, sizeof(c->last_error), "%s is not answering (%s)", c->service,
+                 strerror(errno));
+        rift_model_service_lost(c->model, c->last_error);
+        c->next_attempt_ms = now_ms + c->backoff_ms;
+        if (c->backoff_ms < RIFT_BACKOFF_MAX_MS) {
+            c->backoff_ms *= 2;
+            if (c->backoff_ms > RIFT_BACKOFF_MAX_MS) {
+                c->backoff_ms = RIFT_BACKOFF_MAX_MS;
+            }
+        }
+        c->revision++;
+        return;
+    }
+    c->fd = fd;
+    c->connects++;
+    c->last_error[0] = '\0';
+    c->backoff_ms = RIFT_BACKOFF_MIN_MS;
+    pocketipc_reader_free(&c->reader);
+    pocketipc_reader_init(&c->reader);
+    forget_pending(c);
+    rift_model_service_found(c->model);
+
+    /* Subscribe first, so nothing that happens while the snapshot is being
+     * answered is missed: the node list and the events that change it then
+     * both come from the same connection, in order. */
+    if (request(c, RIFT_REQ_SUBSCRIBE, NULL, now_ms) != 0) {
+        return;
+    }
+    c->subscribed = 1;
+    if (request(c, RIFT_REQ_INFO, NULL, now_ms) != 0) {
+        return;
+    }
+    if (request(c, RIFT_REQ_IDENTITY, NULL, now_ms) != 0) {
+        return;
+    }
+    c->last_status_ms = now_ms;
+    if (request(c, RIFT_REQ_STATUS, NULL, now_ms) != 0) {
+        return;
+    }
+    c->last_nodes_ms = now_ms;
+    if (request(c, RIFT_REQ_NODES, NULL, now_ms) != 0) {
+        return;
+    }
+    c->revision++;
+}
+
+/* One message off the wire. Returns 0, or -1 when the connection must go. */
+static int dispatch(struct rift_ipc *c, cJSON *msg)
+{
+    const cJSON *event = cJSON_GetObjectItemCaseSensitive(msg, "event");
+    const cJSON *id = cJSON_GetObjectItemCaseSensitive(msg, "id");
+    const cJSON *result;
+    const cJSON *error;
+    enum rift_req what;
+
+    if (cJSON_IsString(event) && event->valuestring) {
+        const cJSON *data = cJSON_GetObjectItemCaseSensitive(msg, "data");
+
+        c->events_in++;
+        /* A malformed event is refused by the model and counted there. It
+         * is not a reason to drop a connection: one bad event costs one
+         * event, and a peer on the air must not be able to disconnect this
+         * app from its own service. */
+        if (rift_model_apply_event(c->model, event->valuestring, data) == 0) {
+            c->revision++;
+        }
+        return 0;
+    }
+    if (!cJSON_IsNumber(id)) {
+        /* Neither an event nor a response: not something this protocol
+         * produces. Counted, ignored, connection kept. */
+        c->bad_frames++;
+        return 0;
+    }
+    c->replies_in++;
+    what = take_pending(c, (int)id->valuedouble);
+    error = cJSON_GetObjectItemCaseSensitive(msg, "error");
+    if (cJSON_IsObject(error)) {
+        const cJSON *message = cJSON_GetObjectItemCaseSensitive(error, "message");
+
+        c->errors_in++;
+        snprintf(c->last_error, sizeof(c->last_error), "%s: %s",
+                 method_of(what) ? method_of(what) : "meshcored",
+                 (cJSON_IsString(message) && message->valuestring) ? message->valuestring
+                                                                   : "refused");
+        c->revision++;
+        return 0;
+    }
+    result = cJSON_GetObjectItemCaseSensitive(msg, "result");
+    if (what == RIFT_REQ_NONE) {
+        /* A reply to a request this client does not hold. Nothing is done
+         * with it: acting on it would mean guessing which request it
+         * answered. */
+        c->bad_frames++;
+        return 0;
+    }
+    switch (what) {
+    case RIFT_REQ_INFO:
+        rift_model_apply_info(c->model, result);
+        break;
+    case RIFT_REQ_STATUS:
+        rift_model_apply_status(c->model, result);
+        break;
+    case RIFT_REQ_IDENTITY:
+        rift_model_apply_identity(c->model, result);
+        break;
+    case RIFT_REQ_NODES:
+        rift_model_apply_nodes(c->model, result);
+        break;
+    case RIFT_REQ_NODE: {
+        /* mesh.node answers one node in the shape mesh.nodes uses, so it
+         * goes through the same path as one node of a snapshot: an update,
+         * never a second row. */
+        cJSON *wrapper = cJSON_IsObject(result) ? cJSON_CreateObject() : NULL;
+
+        if (wrapper) {
+            cJSON_AddItemToObject(wrapper, "node", cJSON_Duplicate(result, 1));
+            rift_model_apply_event(c->model, "mesh.node", wrapper);
+            cJSON_Delete(wrapper);
+        }
+        break;
+    }
+    case RIFT_REQ_SUBSCRIBE:
+    case RIFT_REQ_UNSUBSCRIBE:
+    case RIFT_REQ_NONE:
+    default:
+        break;
+    }
+    c->revision++;
+    return 0;
+}
+
+static void pump(struct rift_ipc *c, int64_t now_ms)
+{
+    uint8_t buf[4096];
+    int frames = 0;
+
+    while (frames < RIFT_FRAMES_PER_POLL) {
+        ssize_t r;
+        int bad = 0;
+        cJSON *msg;
+
+        /* Everything already in the reader first: one read can carry many
+         * frames, and a pass that read once and parsed once would fall
+         * behind a burst it had already taken off the socket. */
+        while (frames < RIFT_FRAMES_PER_POLL &&
+               (msg = pocketipc_reader_next(&c->reader, &bad)) != NULL) {
+            frames++;
+            c->frames_in++;
+            if (dispatch(c, msg) != 0) {
+                cJSON_Delete(msg);
+                return;
+            }
+            cJSON_Delete(msg);
+        }
+        if (bad) {
+            /* A complete frame that was not JSON. The peer is speaking
+             * something else; pocketipc says drop it. */
+            drop(c, "meshcored sent a frame that is not JSON", now_ms);
+            return;
+        }
+        if (frames >= RIFT_FRAMES_PER_POLL) {
+            return;
+        }
+        r = read(c->fd, buf, sizeof(buf));
+        if (r > 0) {
+            if (pocketipc_reader_feed(&c->reader, buf, (size_t)r) != 0) {
+                drop(c, "meshcored sent an oversized frame", now_ms);
+                return;
+            }
+            continue;
+        }
+        if (r == 0) {
+            drop(c, "meshcored closed the connection", now_ms);
+            return;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return; /* nothing more waiting */
+        }
+        drop(c, "the connection to meshcored failed", now_ms);
+        return;
+    }
+}
+
+void rift_ipc_poll(struct rift_ipc *c, int64_t now_ms)
+{
+    if (!c || !c->model) {
+        return;
+    }
+    if (c->fd < 0) {
+        if (now_ms >= c->next_attempt_ms) {
+            connect_now(c, now_ms);
+        }
+        return;
+    }
+    pump(c, now_ms);
+    if (c->fd < 0) {
+        return;
+    }
+    /* What events do not carry. The service state does arrive as an event,
+     * but only on a transition, so a client that never asked would show
+     * nothing until something changed. */
+    if (now_ms - c->last_status_ms >= RIFT_STATUS_PERIOD_MS) {
+        c->last_status_ms = now_ms;
+        if (request(c, RIFT_REQ_STATUS, NULL, now_ms) != 0) {
+            return;
+        }
+    }
+    if (now_ms - c->last_nodes_ms >= RIFT_NODES_PERIOD_MS) {
+        c->last_nodes_ms = now_ms;
+        if (request(c, RIFT_REQ_NODES, NULL, now_ms) != 0) {
+            return;
+        }
+    }
+}
+
+void rift_ipc_close(struct rift_ipc *c)
+{
+    if (!c) {
+        return;
+    }
+    if (c->fd >= 0) {
+        /* Say so rather than merely going away. Disconnecting clears the
+         * subscription too (docs/api/mesh.md), so this is politeness with
+         * a purpose: the service stops writing to a socket nobody is
+         * reading before it learns that nobody is. The reply is never
+         * read, which is why it is not remembered as pending. */
+        if (c->subscribed) {
+            (void)request(c, RIFT_REQ_UNSUBSCRIBE, NULL, rift_mono_ms());
+        }
+        if (c->fd >= 0) {
+            close(c->fd);
+            c->fd = -1;
+        }
+        c->subscribed = 0;
+    }
+    forget_pending(c);
+    pocketipc_reader_free(&c->reader);
+    pocketipc_reader_init(&c->reader);
+}
