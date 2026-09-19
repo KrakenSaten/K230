@@ -96,14 +96,46 @@ not a default to apply everywhere:
   no limit before any request deadline can apply (unit A, v0.0.4). The
   bounded connect is non-blocking, retries until the deadline and leaves
   nothing queued when it gives up.
-- a **request whose completion is the point** should not, until the service
-  can report completion separately. `radio.send` is synchronous and blocks
+- a **request whose completion is the point** should not, unless the service
+  reports completion separately. `radio.send` is synchronous and blocks
   radiod for the airtime; a deadline there would tell the user the packet
-  failed while it was being transmitted. It keeps waiting.
+  failed while it was being transmitted. It keeps waiting. `radio.send_async`
+  is the shape that *can* be given a deadline: the reply only says the
+  request was accepted, and the outcome comes as an event.
 
-v0 has no way for a handler to accept a request and answer later, so a
-service is unavailable to every client for as long as any one handler runs.
-That, and the asynchronous transmit path it would allow, are design items.
+A handler still cannot accept a request and answer the *same* request later:
+it must send exactly one response before it returns, so a service is
+unavailable to every client for as long as any one handler runs. What a
+service can do is answer immediately with a handle and report the outcome as
+an event, which is what radiod's asynchronous transmit does (`tx_id` plus
+`radio.tx_done`, docs/api/radio.md). Deferred replies remain a design item;
+so far nothing has needed them.
+
+## Connection identity and disconnection
+
+The server helper gives each accepted connection an id, 1 upwards, never
+reused while the server lives (`pocketipc_client_id`). The file descriptor
+is not an identity: the kernel hands the same number to the next client the
+moment one closes, so per-connection state keyed by descriptor can be
+inherited by a stranger. Ids restart at 1 with the service, which is safe
+because a restart closes every connection there was.
+
+A service that keeps per-connection state registers
+`pocketipc_server_set_on_disconnect`. It is called once when a connection
+goes away for any reason - the peer closed it, it sent a frame the reader
+refused, or a write to it failed - with the id the handler saw, after the
+connection is already gone. radiod releases its radio lease there; without
+it, a protocol daemon that crashed would hold the radio until the service
+restarted.
+
+Two rules make it safe to do real work in that callback:
+
+- It is **never nested**. A callback that broadcasts can itself drop a slow
+  client, which would otherwise re-enter the callback from inside itself.
+  Those are queued and delivered after the current one returns.
+- It is **not called from `pocketipc_server_free`**. The service is shutting
+  down, every connection is ending at once, and per-connection cleanup has
+  nothing left to protect.
 
 ## Peer disappearance
 

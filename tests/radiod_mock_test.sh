@@ -76,7 +76,12 @@ out=$("$POS" radio configure spreading_factor=8.0 tx_power_dbm=12)
 check "integral-valued numbers still accepted" '"spreading_factor":[[:space:]]*8' "$out"
 "$POS" radio configure spreading_factor=7 tx_power_dbm=10 >/dev/null
 
-# Finding 3: timeout_ms is not part of the v0 contract and is refused explicitly
+# Finding 3: timeout_ms is not part of the contract and is refused explicitly.
+# It was documented once and never implemented. The refusal used to explain
+# that radio.send is synchronous; now that radio.send_async exists it points
+# there instead, which is the answer the caller actually wanted - a deadline
+# on a transmit whose completion is the point would report failure for a
+# packet that went out.
 out=$(python3 - "$POCKETOS_RUNTIME_DIR/radiod.sock" <<'PY'
 import socket, sys, json, struct
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.connect(sys.argv[1])
@@ -86,7 +91,7 @@ hdr = s.recv(4); n = struct.unpack(">I", hdr)[0]; print(s.recv(n).decode())
 PY
 )
 check "timeout_ms refused with code 2" '"code":2' "$out"
-check "timeout_ms refusal explains v0" 'synchronous' "$out"
+check "timeout_ms refusal points at the asynchronous path" 'send_async' "$out"
 
 # SF7 BW125 CR4/5, 10 bytes: 41.216 ms (tests/airtime_test.c)
 out=$("$POS" radio send 00112233445566778899)

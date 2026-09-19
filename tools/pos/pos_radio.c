@@ -118,6 +118,52 @@ static int radio_listen(int fd, int seconds)
     }
 }
 
+/* The lease belongs to the connection that took it, so a command that took
+ * one and exited would have given it back before the shell prompt came
+ * back. This holds the connection open instead, which is the only shape
+ * that means anything from a command line: the radio is held for as long as
+ * the command runs, and Ctrl-C gives it back. */
+static int radio_acquire(int fd, const char *name)
+{
+    cJSON *params = cJSON_CreateObject();
+    int code = 0;
+    char err[160];
+    cJSON *r;
+
+    cJSON_AddStringToObject(params, "owner", name && *name ? name : "pos");
+    r = pocketipc_call(fd, "radio.acquire", params, &code, err, sizeof(err));
+    if (!r) {
+        fprintf(stderr, "%s radio: acquire failed (code %d): %s\n", pos_cli_name, code, err);
+        return 1;
+    }
+    pos_print_json(r);
+    cJSON_Delete(r);
+    fprintf(stderr, "%s radio: holding the radio lease; interrupt to release it\n",
+            pos_cli_name);
+    for (;;) {
+        struct pollfd p = { .fd = fd, .events = POLLIN, .revents = 0 };
+
+        if (poll(&p, 1, -1) < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return 1;
+        }
+        /* Anything arriving here means the service has gone or is talking to
+         * us unbidden; either way the lease is no longer ours to hold. */
+        if (p.revents & (POLLIN | POLLHUP | POLLERR)) {
+            char *text = pocketipc_read_frame(fd, NULL);
+
+            if (!text) {
+                fprintf(stderr, "%s radio: connection closed; the lease is gone\n",
+                        pos_cli_name);
+                return 1;
+            }
+            free(text);
+        }
+    }
+}
+
 static int usage(void)
 {
     fprintf(stderr,
@@ -126,10 +172,16 @@ static int usage(void)
             "  status                   state and current profile\n"
             "  stats                    packet and airtime counters\n"
             "  configure key=value ...  e.g. frequency_mhz=868.1 spreading_factor=7\n"
-            "  send <hex>               transmit payload given as hex\n"
-            "  cad                      channel activity detection\n"
+            "  send <hex>               transmit payload given as hex, waiting for it\n"
+            "  send-async <hex>         accept a transmit and return its tx_id at once\n"
+            "  cad                      channel activity detection (takes the radio off receive)\n"
             "  rssi                     instantaneous channel RSSI\n"
-            "  listen [seconds]         print events (radio.rx, radio.tx_done, radio.state)\n"
+            "  channel                  what the backend can say about the channel\n"
+            "  lease                    who owns the radio, if anybody\n"
+            "  acquire [name]           take the radio lease (held until this exits)\n"
+            "  release                  give the radio lease back\n"
+            "  listen [seconds]         print events (radio.rx, radio.tx_done,\n"
+            "                           radio.state, radio.lease)\n"
             "  inject <hex> [rssi] [snr]  mock backend only: simulate a received packet\n"
             "  mock <key>=<int>         mock backend only: debug knob, e.g. rx_failing=1\n",
             pos_cli_name);
@@ -164,6 +216,12 @@ int cmd_radio(int argc, char **argv)
         rc = call_and_print(fd, "radio.cad", NULL);
     } else if (strcmp(sub, "rssi") == 0) {
         rc = call_and_print(fd, "radio.rssi", NULL);
+    } else if (strcmp(sub, "channel") == 0) {
+        rc = call_and_print(fd, "radio.channel", NULL);
+    } else if (strcmp(sub, "lease") == 0) {
+        rc = call_and_print(fd, "radio.lease", NULL);
+    } else if (strcmp(sub, "release") == 0) {
+        rc = call_and_print(fd, "radio.release", NULL);
     } else if (strcmp(sub, "configure") == 0) {
         char tool[32];
         cJSON *params;
@@ -177,6 +235,15 @@ int cmd_radio(int argc, char **argv)
 
         cJSON_AddStringToObject(params, "payload_hex", argv[1]);
         rc = call_and_print(fd, "radio.send", params);
+    } else if (strcmp(sub, "send-async") == 0 && argc >= 2) {
+        cJSON *params = cJSON_CreateObject();
+
+        cJSON_AddStringToObject(params, "payload_hex", argv[1]);
+        /* Prints the acceptance and the tx_id, not the outcome: the packet
+         * has not gone out yet. `pos radio listen` shows the completion. */
+        rc = call_and_print(fd, "radio.send_async", params);
+    } else if (strcmp(sub, "acquire") == 0) {
+        rc = radio_acquire(fd, argc >= 2 ? argv[1] : NULL);
     } else if (strcmp(sub, "inject") == 0 && argc >= 2) {
         cJSON *params = cJSON_CreateObject();
 

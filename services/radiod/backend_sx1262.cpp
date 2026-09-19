@@ -207,6 +207,7 @@ int sx_receive(struct radio_backend *b, struct radio_rx_packet *pkt)
     pkt->snr_db = p->radio->getSNR();
     pkt->frequency_error_hz = p->radio->getFrequencyError();
     pkt->timestamp_ms = radio_now_ms();
+    pkt->mono_ms = radio_mono_ms();
     enter_rx(p); /* result visible through sx_is_receiving() */
     if (st == RADIOLIB_ERR_CRC_MISMATCH) {
         return -EBADMSG;
@@ -241,6 +242,43 @@ int sx_rssi(struct radio_backend *b, double *dbm)
     Sx1262Priv *p = (Sx1262Priv *)b->priv;
 
     *dbm = p->radio->getRSSI(false);
+    return 0;
+}
+
+/* What this chip can honestly say about the channel, which is less than the
+ * datasheet's feature list suggests.
+ *
+ * RSSI is real: getRSSI(false) is GetRssiInst, the same register read
+ * sx_rssi() already does, and it does not move the radio out of receive.
+ *
+ * A noise floor is not. The SX1262 has no noise measurement; the RSSI read
+ * while nothing is being received is the noise floor, but the chip cannot
+ * tell us that nothing is being received, so calling that number "noise"
+ * would be a guess dressed as a measurement.
+ *
+ * "Busy" is not either, and this is the one worth being careful about. CAD
+ * is the obvious candidate and it is the wrong one twice over. What
+ * scanChannel() detects is a LoRa preamble at the modulation parameters
+ * currently configured - not FSK, not another spreading factor, and not a
+ * packet whose preamble has already passed - so a quiet CAD result is not a
+ * quiet channel. And running it takes the radio out of receive and back
+ * again, which is not something a passive status read may do to a service
+ * that is in the middle of receiving. Turning an RSSI sample into "busy"
+ * instead would need a threshold calibrated on this board against this
+ * antenna, and nobody has measured one.
+ *
+ * So activity stays unknown here, and radio.cad remains what it always was:
+ * an explicit, active LoRa-preamble check the caller asks for by name and
+ * knows the cost of. See docs/api/radio.md; the real busy determination is
+ * recorded there as UNRESOLVED. */
+int sx_channel(struct radio_backend *b, struct radio_channel *ch)
+{
+    Sx1262Priv *p = (Sx1262Priv *)b->priv;
+
+    ch->rssi_known = true;
+    ch->rssi_dbm = p->radio->getRSSI(false);
+    ch->noise_known = false;
+    ch->activity_known = false;
     return 0;
 }
 
@@ -300,9 +338,19 @@ extern "C" const struct radio_backend_ops radio_backend_sx1262_ops = {
     sx_get_caps,
     sx_configure,
     sx_send,
+    /* No asynchronous transmit. RadioLib's transmit() does not return until
+     * the packet has left, and replacing it with startTransmit() plus a
+     * DIO1-driven completion would change the exact transmit sequence this
+     * board's only two successful on-air runs were made with. radiod uses
+     * send() for this backend and the daemon is unresponsive for the airtime
+     * exactly as it was before - what changed is that the submitting client
+     * is no longer made to wait for it. See docs/api/radio.md. */
+    nullptr,        /* tx_begin */
+    nullptr,        /* tx_poll */
     sx_receive,
     sx_cad,
     sx_rssi,
+    sx_channel,
     nullptr,        /* inject_rx */
     sx_shutdown,
     sx_poll_fd,

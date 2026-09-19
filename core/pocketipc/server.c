@@ -18,8 +18,14 @@
 
 struct pocketipc_client {
     int fd;
+    uint64_t id;
     struct pocketipc_reader rd;
     bool subscribed;
+    /* Its disconnect callback is owed but has not been delivered yet, and
+     * the id to deliver it with - the slot's own id is cleared on close so
+     * a reused slot cannot be mistaken for the connection that left. */
+    bool disconnect_pending;
+    uint64_t closed_id;
 };
 
 struct pocketipc_server {
@@ -27,17 +33,65 @@ struct pocketipc_server {
     char path[256];
     pocketipc_handler_t handler;
     void *user;
+    pocketipc_disconnect_t on_disconnect;
+    void *disconnect_user;
+    /* Set while a disconnect callback is running, so a client dropped by
+     * something the callback did (a broadcast whose write fails, say) is
+     * queued instead of re-entering the callback from inside itself. */
+    bool dispatching;
+    bool quiet;              /* teardown: no callbacks are owed any more */
+    uint64_t next_client_id;
     struct pocketipc_client clients[SERVER_MAX_CLIENTS];
 };
 
-static void client_close(struct pocketipc_client *c)
+static void dispatch_disconnects(struct pocketipc_server *s);
+
+static void client_close(struct pocketipc_server *s, struct pocketipc_client *c)
 {
-    if (c->fd >= 0) {
+    uint64_t id = c->id;
+    bool was_open = c->fd >= 0;
+
+    if (was_open) {
         close(c->fd);
         c->fd = -1;
     }
     pocketipc_reader_free(&c->rd);
     c->subscribed = false;
+    c->id = 0;
+    if (!was_open || !s || !s->on_disconnect || s->quiet || id == 0) {
+        return;
+    }
+    /* The slot is already free and the id already detached, so whatever the
+     * callback does - including closing other clients - cannot reach this
+     * one again. */
+    c->disconnect_pending = true;
+    c->closed_id = id;
+    if (!s->dispatching) {
+        dispatch_disconnects(s);
+    }
+}
+
+/* Deliver every owed callback, including ones raised while delivering. */
+static void dispatch_disconnects(struct pocketipc_server *s)
+{
+    int i;
+    int again = 1;
+
+    s->dispatching = true;
+    while (again) {
+        again = 0;
+        for (i = 0; i < SERVER_MAX_CLIENTS; i++) {
+            if (s->clients[i].disconnect_pending) {
+                uint64_t id = s->clients[i].closed_id;
+
+                s->clients[i].disconnect_pending = false;
+                s->clients[i].closed_id = 0;
+                s->on_disconnect(s, id, s->disconnect_user);
+                again = 1;
+            }
+        }
+    }
+    s->dispatching = false;
 }
 
 struct pocketipc_server *pocketipc_server_new(const char *service,
@@ -51,6 +105,7 @@ struct pocketipc_server *pocketipc_server_new(const char *service,
     }
     s->handler = handler;
     s->user = user;
+    s->next_client_id = 1;
     for (i = 0; i < SERVER_MAX_CLIENTS; i++) {
         s->clients[i].fd = -1;
     }
@@ -63,6 +118,16 @@ struct pocketipc_server *pocketipc_server_new(const char *service,
     return s;
 }
 
+void pocketipc_server_set_on_disconnect(struct pocketipc_server *s,
+                                        pocketipc_disconnect_t cb, void *user)
+{
+    if (!s) {
+        return;
+    }
+    s->on_disconnect = cb;
+    s->disconnect_user = user;
+}
+
 void pocketipc_server_free(struct pocketipc_server *s)
 {
     int i;
@@ -70,8 +135,12 @@ void pocketipc_server_free(struct pocketipc_server *s)
     if (!s) {
         return;
     }
+    /* Teardown, not a disconnect: every connection is ending at once and the
+     * owner is on its way out, so per-connection cleanup has nothing left to
+     * protect and a callback here would run against a half-freed service. */
+    s->quiet = true;
     for (i = 0; i < SERVER_MAX_CLIENTS; i++) {
-        client_close(&s->clients[i]);
+        client_close(s, &s->clients[i]);
     }
     if (s->listen_fd >= 0) {
         close(s->listen_fd);
@@ -99,8 +168,12 @@ static void accept_client(struct pocketipc_server *s)
         return;
     }
     for (i = 0; i < SERVER_MAX_CLIENTS; i++) {
-        if (s->clients[i].fd < 0) {
+        /* A slot still owing its previous occupant's disconnect callback is
+         * not free: reusing it would hand the new connection the old one's
+         * unfinished business. */
+        if (s->clients[i].fd < 0 && !s->clients[i].disconnect_pending) {
             s->clients[i].fd = fd;
+            s->clients[i].id = s->next_client_id++;
             pocketipc_reader_init(&s->clients[i].rd);
             s->clients[i].subscribed = false;
             return;
@@ -118,14 +191,14 @@ static int service_client(struct pocketipc_server *s, struct pocketipc_client *c
     cJSON *req;
 
     if (r == 0 || (r < 0 && errno != EAGAIN && errno != EINTR)) {
-        client_close(c);
+        client_close(s, c);
         return 0;
     }
     if (r < 0) {
         return 0;
     }
     if (pocketipc_reader_feed(&c->rd, buf, (size_t)r) < 0) {
-        client_close(c);
+        client_close(s, c);
         return 0;
     }
     while (c->fd >= 0 && (req = pocketipc_reader_next(&c->rd, &bad)) != NULL) {
@@ -134,7 +207,7 @@ static int service_client(struct pocketipc_server *s, struct pocketipc_client *c
         handled++;
     }
     if (bad && c->fd >= 0) {
-        client_close(c);
+        client_close(s, c);
     }
     return handled;
 }
@@ -196,9 +269,8 @@ int pocketipc_server_poll(struct pocketipc_server *s, int timeout_ms)
 void pocketipc_server_reply(struct pocketipc_server *s, struct pocketipc_client *c,
                             cJSON *msg)
 {
-    (void)s;
     if (c->fd >= 0 && pocketipc_send(c->fd, msg) < 0) {
-        client_close(c);
+        client_close(s, c);
     }
     cJSON_Delete(msg);
 }
@@ -211,7 +283,7 @@ void pocketipc_server_broadcast(struct pocketipc_server *s, cJSON *msg)
         struct pocketipc_client *c = &s->clients[i];
 
         if (c->fd >= 0 && c->subscribed && pocketipc_send(c->fd, msg) < 0) {
-            client_close(c);
+            client_close(s, c);
         }
     }
     cJSON_Delete(msg);
@@ -230,4 +302,24 @@ bool pocketipc_client_subscribed(const struct pocketipc_client *c)
 int pocketipc_client_fd(const struct pocketipc_client *c)
 {
     return c->fd;
+}
+
+uint64_t pocketipc_client_id(const struct pocketipc_client *c)
+{
+    return c->id;
+}
+
+bool pocketipc_server_client_alive(const struct pocketipc_server *s, uint64_t client_id)
+{
+    int i;
+
+    if (!s || client_id == 0) {
+        return false;
+    }
+    for (i = 0; i < SERVER_MAX_CLIENTS; i++) {
+        if (s->clients[i].fd >= 0 && s->clients[i].id == client_id) {
+            return true;
+        }
+    }
+    return false;
 }

@@ -47,7 +47,12 @@ LOG_OBJS    := core/pocketlog/pocketlog.o
 SYS_OBJS    := core/pocketsys.o
 POS_OBJS    := tools/pos/pos.o tools/pos/pos_radio.o tools/pos/pos_logs.o tools/pos/pos_app.o tools/pos/pos_system.o \
                tools/pos/pos_wifi.o $(IPC_OBJS) $(PATHS_OBJS)
-RADIOD_OBJS := services/radiod/main.o services/radiod/backend_mock.o services/radiod/airtime.o $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
+# The transmit state machine, the lease and the two clocks are their own
+# objects so tests/radiod_tx_test.c can link them without main.c.
+RADIOD_CORE_OBJS := services/radiod/tx.o services/radiod/lease.o \
+                    services/radiod/radio_time.o services/radiod/backend_mock.o \
+                    services/radiod/airtime.o
+RADIOD_OBJS := services/radiod/main.o $(RADIOD_CORE_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
 # Everything sysd is except the power actions, which exist twice: once as
 # shipped and once with the test hook (see tests/sysd-testhooks below).
 SYSD_BASE_OBJS := services/sysd/main.o services/sysd/sysd_services.o $(SYS_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
@@ -173,6 +178,14 @@ tests/airtime_test: tests/airtime_test.o services/radiod/airtime.o
 	$(CC) $(ALL_CFLAGS) -Iservices/radiod -o $@ $^ $(LDFLAGS) -lm
 
 tests/airtime_test.o: tests/airtime_test.c
+	$(CC) $(ALL_CFLAGS) -Iservices/radiod -c -o $@ $<
+
+# radiod's transmit state machine and lease against the mock backend, with no
+# socket, no daemon and no poll loop around them.
+tests/radiod_tx_test: tests/radiod_tx_test.o $(RADIOD_CORE_OBJS)
+	$(CC) $(ALL_CFLAGS) -Iservices/radiod -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+tests/radiod_tx_test.o: tests/radiod_tx_test.c
 	$(CC) $(ALL_CFLAGS) -Iservices/radiod -c -o $@ $<
 
 tests/pocketlog_test: tests/pocketlog_test.o $(LOG_OBJS) $(PATHS_OBJS)
@@ -641,7 +654,8 @@ tests/wave_modem_test: tests/wave_modem_test.o $(WAVE_MODEM_OBJS) $(AUDIO_OBJS) 
 # claim changes it does not contain. tests/build_outputs_test.sh checks this
 # list against .gitignore, so a test added here without an entry there fails.
 TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant tests/wifi_parse_test \
-             tests/wifi_store_test tests/airtime_test tests/pocketlog_test tests/pocketipc_test \
+             tests/wifi_store_test tests/airtime_test tests/radiod_tx_test \
+             tests/pocketlog_test tests/pocketipc_test \
              tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/settings_view_test \
              tests/theme_test \
              tests/settings_test tests/brightness_test tests/display_geometry_test tests/orientation_test \
@@ -653,6 +667,7 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
 # Native tests only (they execute binaries).
 test: all $(TEST_BINS)
 	./tests/airtime_test
+	./tests/radiod_tx_test
 	./tests/pocketlog_test 2>/dev/null
 	./tests/paths_test
 	./tests/pocketipc_test
@@ -713,6 +728,7 @@ test: all $(TEST_BINS)
 	bash tests/wave_lint.sh
 	bash tests/kbd_lint.sh
 	bash tests/radiod_mock_test.sh
+	bash tests/radiod_async_test.sh
 	bash tests/sysd_test.sh
 	bash tests/netd_test.sh
 	bash tests/supervise_test.sh
