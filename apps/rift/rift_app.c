@@ -11,6 +11,7 @@
 #include "pos_input.h"
 #include "pos_styles.h"
 #include "rift_activity.h"
+#include "rift_comms.h"
 #include "rift_detail.h"
 #include "rift_nodes.h"
 
@@ -81,17 +82,22 @@ static void paint_tabs(struct rift_app *a)
     for (i = 0; i < RIFT_SEC_COUNT; i++) {
         int active = (i == (int)a->section);
 
-        if (!a->tab[i]) {
+        if (!a->tab[i] || !a->tab_label[i]) {
             continue;
         }
         if (active) {
-            pos_style_add(lv_obj_get_child(a->tab[i], 0), POS_STYLE_ACCENT_TEXT, 0);
+            pos_style_add(a->tab_label[i], POS_STYLE_ACCENT_TEXT, 0);
             lv_obj_remove_flag(a->tab_rule[i], LV_OBJ_FLAG_HIDDEN);
         } else {
-            lv_obj_remove_style(lv_obj_get_child(a->tab[i], 0), pos_style(POS_STYLE_ACCENT_TEXT),
-                                0);
+            lv_obj_remove_style(a->tab_label[i], pos_style(POS_STYLE_ACCENT_TEXT), 0);
             lv_obj_add_flag(a->tab_rule[i], LV_OBJ_FLAG_HIDDEN);
         }
+    }
+    /* The unread count rides on COMMS, which is where the design puts it
+     * (handoff §3, §6): a reader on another section still sees that
+     * something arrived. */
+    if (a->tab_pill[RIFT_SEC_COMMS]) {
+        rift_unread_pill_set(a->tab_pill[RIFT_SEC_COMMS], rift_model_unread_total(&a->model));
     }
 }
 
@@ -125,7 +131,7 @@ static void build_strip(struct rift_app *a)
     lv_obj_remove_flag(a->strip, LV_OBJ_FLAG_SCROLLABLE);
 
     for (i = 0; i < RIFT_SEC_COUNT; i++) {
-        lv_obj_t *label;
+        lv_obj_t *head;
 
         /* A tab is a 56 px navigation target, not a 36 px row: navigation
          * never shares the row exception (RIFT-DEV-1). */
@@ -140,11 +146,25 @@ static void build_strip(struct rift_app *a)
         lv_obj_add_flag(a->tab[i], LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(a->tab[i], on_tab, LV_EVENT_CLICKED, a);
 
-        label = lv_label_create(a->tab[i]);
-        lv_obj_remove_style_all(label);
-        pos_style_add(label, POS_STYLE_CAPTION, 0);
-        lv_label_set_text(label, section_name[i]);
-        lv_obj_set_flex_grow(label, 1);
+        /* The name and its unread pill share one row, so the pill sits
+         * beside the word rather than under it and the underline below
+         * still spans both. */
+        head = lv_obj_create(a->tab[i]);
+        lv_obj_remove_style_all(head);
+        lv_obj_set_width(head, LV_SIZE_CONTENT);
+        lv_obj_set_flex_grow(head, 1);
+        lv_obj_set_flex_flow(head, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(head, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(head, 6, 0);
+        lv_obj_remove_flag(head, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_remove_flag(head, LV_OBJ_FLAG_CLICKABLE);
+
+        a->tab_label[i] = lv_label_create(head);
+        lv_obj_remove_style_all(a->tab_label[i]);
+        pos_style_add(a->tab_label[i], POS_STYLE_CAPTION, 0);
+        lv_label_set_text(a->tab_label[i], section_name[i]);
+        a->tab_pill[i] = rift_unread_pill(head);
 
         /* The 2 px underline of handoff §3, in the accent. A fill role
          * rather than a colour set here (tests/style_lint.sh). */
@@ -169,6 +189,16 @@ static void build_strip(struct rift_app *a)
 }
 
 /* ---- the command line ----------------------------------------------------- */
+
+/* Enter in the landscape composer. A single-line field raises READY on
+ * Enter whether the character came from a physical key or the touch
+ * keyboard's Done (DS §17.4), and committing a composer means sending. */
+static void on_composer_ready(lv_event_t *e)
+{
+    struct rift_app *a = lv_event_get_user_data(e);
+
+    rift_comms_submit(a, lv_textarea_get_text(a->composer));
+}
 
 static void build_cmdline(struct rift_app *a)
 {
@@ -202,11 +232,92 @@ static void build_cmdline(struct rift_app *a)
     lv_obj_set_flex_grow(a->keysink, 1);
     lv_label_set_long_mode(a->keysink, LV_LABEL_LONG_CLIP);
     lv_label_set_text(a->keysink, "");
+
+    /* The landscape composer. The design makes the command line the
+     * composer in landscape (handoff §8), so the field is chrome and lives
+     * here; it is shown only in COMMS, only when the split is on, and only
+     * when there is a conversation for it to write to. */
+    a->composer = pocketui_text_field(a->cmdline, "Type to send", true);
+    if (a->composer) {
+        lv_obj_t *wrap = lv_obj_get_parent(a->composer);
+
+        lv_obj_set_flex_grow(wrap, 1);
+        lv_obj_add_flag(wrap, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_event_cb(a->composer, on_composer_ready, LV_EVENT_READY, a);
+    }
+
+    a->cmd_send_hint = lv_label_create(a->cmdline);
+    lv_obj_remove_style_all(a->cmd_send_hint);
+    pos_style_add(a->cmd_send_hint, POS_STYLE_CAPTION, 0);
+    lv_label_set_long_mode(a->cmd_send_hint, LV_LABEL_LONG_CLIP);
+    lv_label_set_text(a->cmd_send_hint, "");
+    lv_obj_add_flag(a->cmd_send_hint, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* Whether the landscape command line is currently a composer. */
+static int composer_is_live(const struct rift_app *a)
+{
+    return a->composer && a->wide && a->section == RIFT_SEC_COMMS &&
+           rift_comms_open_peer(a) != NULL;
 }
 
 static void paint_cmdline(struct rift_app *a)
 {
     const struct rift_model *m = &a->model;
+    lv_obj_t *wrap = a->composer ? lv_obj_get_parent(a->composer) : NULL;
+    int live = composer_is_live(a);
+
+    /* The command line is one of two things: the composer, in landscape
+     * COMMS with a conversation open, or the caption that says what the
+     * keys do and where the service is. It is never both. */
+    if (wrap) {
+        if (live) {
+            lv_obj_remove_flag(wrap, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            if (a->composer_focused) {
+                /* Focus does not stay in a field that is no longer there.
+                 * Moved before it is hidden, so the field's own DEFOCUSED
+                 * event is what clears the flag. */
+                pos_input_focus(a->keysink);
+            }
+            lv_obj_add_flag(wrap, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (a->cmd_send_hint) {
+        if (live) {
+            char to[RIFT_LABEL_MAX];
+
+            rift_comms_target_label(a, to, sizeof(to));
+            /* What the keys do from where the focus actually is. TAB is how
+             * the focus group reaches the field; once it is there, Esc is
+             * the way back, because TAB inside a text area types a tab. */
+            if (a->composer_focused) {
+                lv_label_set_text_fmt(a->cmd_send_hint,
+                                      "TO %s" RIFT_SEP "ENTER SEND" RIFT_SEP "ESC CLEAR", to);
+            } else {
+                lv_label_set_text_fmt(a->cmd_send_hint,
+                                      "TO %s" RIFT_SEP "TAB TO WRITE" RIFT_SEP
+                                      "\xE2\x86\x91\xE2\x86\x93 CHOOSE",
+                                      to);
+            }
+            lv_obj_remove_flag(a->cmd_send_hint, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(a->cmd_send_hint, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (live) {
+        /* Emptied and given no width, rather than hidden: the key sink is
+         * the object the list's arrows arrive on, and a hidden object
+         * cannot be focused - lv_group_focus_obj skips it - so hiding it
+         * would make Esc's way out of the composer a focus call that
+         * silently did nothing. */
+        lv_label_set_text(a->keysink, "");
+        lv_obj_set_flex_grow(a->keysink, 0);
+        lv_obj_set_width(a->keysink, 0);
+        return;
+    }
+    lv_obj_set_flex_grow(a->keysink, 1);
+    lv_obj_set_width(a->keysink, LV_SIZE_CONTENT);
 
     if (m->stale || m->state == RIFT_SVC_ABSENT) {
         lv_label_set_text(a->keysink, a->ipc.last_error[0]
@@ -214,13 +325,19 @@ static void paint_cmdline(struct rift_app *a)
                                           : "meshcored is not answering; reconnecting");
         return;
     }
-    if (a->wide) {
-        lv_label_set_text(a->keysink,
-                          "\xE2\x86\x91\xE2\x86\x93 SELECT" RIFT_SEP "ENTER DETAIL" RIFT_SEP
-                          "commands arrive with COMMS");
+    if (a->section == RIFT_SEC_COMMS) {
+        lv_label_set_text(a->keysink, a->wide
+                                          ? "\xE2\x86\x91\xE2\x86\x93 CHOOSE A CONVERSATION"
+                                            RIFT_SEP "then type to send"
+                                          : "Tap a conversation, then write below");
         return;
     }
-    lv_label_set_text(a->keysink, "Tap a node to select it; commands arrive with COMMS");
+    if (a->wide) {
+        lv_label_set_text(a->keysink, "\xE2\x86\x91\xE2\x86\x93 SELECT" RIFT_SEP
+                                      "ENTER DETAIL" RIFT_SEP "COMMS to write");
+        return;
+    }
+    lv_label_set_text(a->keysink, "Tap a node to select it; COMMS to write");
 }
 
 /* ---- sections -------------------------------------------------------------- */
@@ -243,12 +360,13 @@ static void build_placeholder(struct rift_app *a)
     pos_style_add(label, POS_STYLE_TEXT_SECONDARY, 0);
     lv_obj_set_width(label, LV_PCT(100));
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
-    /* An empty list here would read as a quiet mesh. The section keeps its
+    /* An empty view here would read as a quiet mesh. The section keeps its
      * place in the navigation - four sections is the approved design - and
      * says what it is instead of pretending to be empty. */
-    lv_label_set_text(label, "COMMS and NET are designed and are not in this build. "
-                             "Messages, contacts, channels and the network view arrive in a "
-                             "later phase; nothing is missing from the mesh.");
+    lv_label_set_text(label, "NET is designed and is not in this build. The hop rings, the "
+                             "path chain and the relay view arrive in a later phase; nothing "
+                             "is missing from the mesh. The routes NET would draw are in "
+                             "NODES, on each node's own detail.");
 }
 
 static void show_only(struct rift_app *a, lv_obj_t *keep)
@@ -284,10 +402,35 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section)
     case RIFT_SEC_NODES:
         show_only(a, a->nodes_root);
         break;
+    case RIFT_SEC_COMMS:
+        show_only(a, a->comms_root);
+        break;
     default:
         show_only(a, a->placeholder);
         break;
     }
+    rift_app_refresh(a);
+}
+
+void rift_app_open_conversation(struct rift_app *a, const char *key)
+{
+    if (!a || !key || !key[0]) {
+        return;
+    }
+    if (a->section != RIFT_SEC_COMMS) {
+        rift_app_show_section(a, RIFT_SEC_COMMS);
+    }
+    if (a->have_conv && strcmp(a->conv, key) == 0) {
+        return;
+    }
+    snprintf(a->conv, sizeof(a->conv), "%s", key);
+    a->have_conv = 1;
+    /* A failure belongs to the message it was about, not to the next
+     * conversation opened. */
+    rift_model_send_clear(&a->model);
+    /* Ask the service about this peer: the thread header draws its route,
+     * and the node may have been heard since the last snapshot. */
+    rift_ipc_request_node(&a->ipc, key);
     rift_app_refresh(a);
 }
 
@@ -324,12 +467,18 @@ void rift_app_refresh(struct rift_app *a)
     if (!a) {
         return;
     }
-    paint_cmdline(a);
+    /* COMMS first: it is what decides whether the command line is a
+     * composer, and paint_cmdline reads that. */
     if (a->section == RIFT_SEC_ACTIVITY) {
         rift_activity_refresh(a);
     } else if (a->section == RIFT_SEC_NODES) {
         rift_nodes_refresh(a);
+    } else if (a->section == RIFT_SEC_COMMS) {
+        rift_comms_refresh(a);
     }
+    paint_cmdline(a);
+    /* The unread pill moves with the messages, not with the section. */
+    paint_tabs(a);
     /* The strip's right caption. The design puts these counts in the app
      * header's right caption, and that header belongs to Doors: RIFT
      * changes nothing there (handoff §2), so they go at the end of the
@@ -365,6 +514,25 @@ void rift_app_refresh(struct rift_app *a)
 
 /* ---- keys ------------------------------------------------------------------ */
 
+/* Which of the two has the focus is LVGL's business, not this app's: the
+ * command line's field and the key sink are both in the one Doors focus
+ * group, and TAB moves between them because that is what a focus group
+ * does (DS §17.2). This only *follows* that, so the hint line and the
+ * arrow keys know where the keys are going. */
+static void on_composer_focus(lv_event_t *e)
+{
+    struct rift_app *a = lv_event_get_user_data(e);
+
+    a->composer_focused = (lv_event_get_code(e) == LV_EVENT_FOCUSED);
+    /* Asked for, not done here. This runs inside lv_group_focus_obj, which
+     * sends DEFOCUSED to the old object and *abandons the focus change* if
+     * that event does not come back clean - and a refresh rebuilds rows,
+     * which is exactly the kind of thing that does not. Leaving the group's
+     * bookkeeping alone and repainting on the next timer pass keeps Esc's
+     * way out of the composer working. */
+    a->refresh_pending = 1;
+}
+
 static void on_key(lv_event_t *e)
 {
     struct rift_app *a = lv_event_get_user_data(e);
@@ -373,9 +541,63 @@ static void on_key(lv_event_t *e)
     if (a->section == RIFT_SEC_NODES && rift_nodes_key(a, key)) {
         return;
     }
+    if (a->section == RIFT_SEC_COMMS && rift_comms_key(a, key)) {
+        return;
+    }
     if (key == LV_KEY_ESC && a->section != RIFT_SEC_ACTIVITY) {
         rift_app_show_section(a, RIFT_SEC_ACTIVITY);
     }
+}
+
+/* Keys while the landscape composer holds focus. Enter is the field's own
+ * READY event; this is Esc, which clears what was typed and, when there is
+ * nothing left to clear, hands the list its focus back.
+ *
+ * TAB is deliberately not handled. It reaches the field as character 9 and
+ * the text area inserts it, which is a tab in the message - legal text, one
+ * of the two control characters mesh.send takes. Taking it back off the
+ * field to move focus would mean undoing an edit the widget has already
+ * made; Esc is the way out, and the hint line says so. */
+static void on_composer_key(lv_event_t *e)
+{
+    struct rift_app *a = lv_event_get_user_data(e);
+    uint32_t key = lv_event_get_key(e);
+
+    const char *text;
+    int typed = 0;
+    int i;
+
+    if (key != LV_KEY_ESC || !a->composer) {
+        return;
+    }
+    /* The field already holds this Esc.
+     *
+     * A text area's own class handler runs before any callback added to it
+     * and puts the key in the buffer, so by the time this is reached the
+     * field contains character 27 whether or not anything was typed before
+     * it. Asking whether the field is empty would therefore always answer
+     * no, and Esc would never do anything but clear itself. What counts as
+     * typed is a character somebody could have meant: a control character
+     * is not one, and mesh.send would refuse it anyway. */
+    text = lv_textarea_get_text(a->composer);
+    for (i = 0; text && text[i]; i++) {
+        if ((unsigned char)text[i] >= 0x20 && (unsigned char)text[i] != 0x7F) {
+            typed = 1;
+            break;
+        }
+    }
+    lv_textarea_set_text(a->composer, "");
+    if (typed) {
+        /* There was something to clear, and now it is cleared. */
+        rift_model_send_clear(&a->model);
+        rift_app_refresh(a);
+        return;
+    }
+    /* Nothing to clear, so Esc means "give the list its focus back". Asked
+     * for rather than done here: changing the group's focus from inside the
+     * event LVGL is dispatching does not stick. */
+    a->focus_list_pending = 1;
+    a->refresh_pending = 1;
 }
 
 /* ---- layout ---------------------------------------------------------------- */
@@ -409,7 +631,13 @@ static void layout(struct rift_app *a)
     }
     rift_activity_shape(a);
     rift_nodes_shape(a);
+    rift_comms_shape(a);
+    /* Draw now, so the new shape is not empty for a frame, and ask for
+     * another pass from the timer: this one is inside LVGL's layout update,
+     * where no width can be settled on demand and anything fitted to a
+     * column would be fitted to a half-finished one. */
     rift_app_refresh(a);
+    a->refresh_pending = 1;
 }
 
 static void on_frame_size(lv_event_t *e)
@@ -425,10 +653,21 @@ static void pump(lv_timer_t *t)
     int64_t now = rift_mono_ms();
 
     rift_ipc_poll(&a->ipc, now);
-    if (a->ipc.revision != a->drawn_revision || now - a->last_repaint_ms >= RIFT_REPAINT_MS) {
+    if (a->refresh_pending || a->ipc.revision != a->drawn_revision ||
+        now - a->last_repaint_ms >= RIFT_REPAINT_MS) {
+        a->refresh_pending = 0;
         a->drawn_revision = a->ipc.revision;
         a->last_repaint_ms = now;
         rift_app_refresh(a);
+    }
+    /* After the refresh, not before: a refresh re-enables the portrait
+     * composer's field, and enabling a field puts it back in the focus
+     * group - which LVGL does by removing and re-appending it, moving the
+     * focus. Asking for the list's focus first and then repainting would
+     * hand it straight back. */
+    if (a->focus_list_pending) {
+        a->focus_list_pending = 0;
+        pos_input_focus(a->keysink);
     }
 }
 
@@ -477,8 +716,14 @@ static void *rift_create(lv_obj_t *root)
 
     a->activity_root = rift_activity_create(a, a->content);
     a->nodes_root = rift_nodes_create(a, a->content);
+    a->comms_root = rift_comms_create(a, a->content);
     build_placeholder(a);
     build_cmdline(a);
+    if (a->composer) {
+        lv_obj_add_event_cb(a->composer, on_composer_key, LV_EVENT_KEY, a);
+        lv_obj_add_event_cb(a->composer, on_composer_focus, LV_EVENT_FOCUSED, a);
+        lv_obj_add_event_cb(a->composer, on_composer_focus, LV_EVENT_DEFOCUSED, a);
+    }
 
     /* One key sink for the app, as the calculator has: the rows stay out of
      * the focus group, and the arrows, Enter and Esc reach whichever section
@@ -556,6 +801,12 @@ static void rift_destroy(void *priv)
     /* The subscription is given back rather than merely dropped, and the
      * socket is closed here rather than left to the process. */
     rift_ipc_close(&a->ipc);
+    /* The touch keyboard is the shell's and outlives this app. An app that
+     * left it up would hand the next screen a sheet over a third of it. */
+    if (pocketos_shell_keyboard_visible()) {
+        pocketos_shell_keyboard_hide();
+    }
+    rift_comms_destroy(a);
     rift_nodes_destroy(a);
     rift_activity_destroy(a);
     /* The LVGL objects are children of the shell's body and are deleted

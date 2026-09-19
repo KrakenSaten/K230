@@ -192,4 +192,66 @@ int rift_path_ladder_row(const struct rift_path *p, int index, const char *self_
                          const char *target_label, rift_resolve_fn resolve, void *user,
                          struct rift_ladder_row *out);
 
+/* ---- messages ----------------------------------------------------------- */
+
+/* The state word of a message, in the vocabulary of the handoff §6 rather
+ * than the API's: DELIVERED is what an ACK means to a reader, where the API
+ * calls it "acked". SENT is never DELIVERED - accepted is not transmitted
+ * and transmitted is not acknowledged (docs/api/mesh.md).
+ *
+ * A state this build does not know prints the service's own word rather
+ * than the nearest one this build has. */
+#define RIFT_MSG_STATE_MAX 24
+void rift_fmt_msg_state(const struct rift_message *msg, char *out, size_t out_len);
+
+/* Whether a message's caption is a warning: no ACK, failed, and a state
+ * word this build does not recognise. Colour never carries it alone - the
+ * word says it too - but the caption takes status_warn when this is set
+ * (handoff §5). */
+int rift_msg_is_warn(const struct rift_message *msg);
+
+/* The whole caption under a message body, in the fixed order
+ * state · evidence:
+ *
+ *   "RECEIVED"                     nothing was measured
+ *   "RECEIVED \xC2\xB7 \xE2\x88\x9288 dBm \xC2\xB7 SNR 7.3"
+ *   "DELIVERED \xC2\xB7 ACK 41 s"
+ *   "SENT \xC2\xB7 FLOOD"          submitted, no acknowledgement yet
+ *   "NO ACK"
+ *   "FAILED"
+ *
+ * The design also puts a per-message hop count and route in this caption
+ * ("RECEIVED \xC2\xB7 PATH 9"). The API carries no path on a message, only on a
+ * node, so this does not print one: the route belongs to the thread header
+ * and the route pane, where it is the peer's current path and is true. */
+#define RIFT_MSG_CAPTION_MAX 96
+void rift_fmt_msg_caption(const struct rift_message *msg, char *out, size_t out_len);
+
+/* How long the ACK took, as "41 s" / "1m 04s", or "" when it has not been
+ * acknowledged or the service reported no stamps to measure between. */
+#define RIFT_ACK_MAX 12
+void rift_fmt_ack(const struct rift_message *msg, char *out, size_t out_len);
+
+/* A conversation row's preview: the newest message on one line, prefixed
+ * "you: " when this device sent it. Newlines and tabs - the two control
+ * characters the API lets through - become spaces, because a row is one
+ * line and a body that wrapped would push the columns after it off the
+ * row. */
+#define RIFT_PREVIEW_MAX 96
+void rift_fmt_preview(const struct rift_message *msg, char *out, size_t out_len);
+
+/* Is this text one mesh.send will take? The service refuses a body that is
+ * empty, longer than 160 bytes, or carries a control character other than
+ * newline and tab, and answers with an error (docs/api/mesh.md). This is
+ * the same rule applied before the request is written, so the composer can
+ * say why rather than sending something it knows will be refused.
+ *
+ * Returns 0 when the text is sendable. Otherwise -1, and why holds a
+ * sentence for the reader. */
+int rift_send_text_check(const char *text, char *why, size_t why_len);
+
+/* The bytes a body would take on the air, which is what the 160-byte limit
+ * counts - not characters. */
+size_t rift_send_text_bytes(const char *text);
+
 #endif

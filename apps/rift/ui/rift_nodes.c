@@ -314,13 +314,11 @@ static void update_row(struct rift_nodes *v, struct node_row *r, const struct ri
         memset(&p, 0, sizeof(p));
     }
     rift_glyph_set(r->glyph, rift_app_glyph(n, now));
-    /* The tag first, and the row laid out, so the name is fitted to the
-     * width it will really have rather than to whatever the last pass left
-     * behind: the two share one column and the tag is the one with a size
-     * of its own. */
-    tag = rift_type_tag(n->type, n->have_type);
-    lv_label_set_text(r->tag, tag ? tag : "");
-    lv_obj_update_layout(r->line);
+    /* The tag was set, and the pane laid out, before this loop began: the
+     * name and the tag share one column, the tag is the one with a size of
+     * its own, and a name fitted before its tag had taken its width would be
+     * fitted to room it does not have. See rift_nodes_refresh. */
+    (void)tag;
     rift_fmt_label(n, text, sizeof(text));
     rift_cell_set_text_fit(r->name, text);
     rift_strip_set_width(r->strip, strip_width(a));
@@ -547,6 +545,24 @@ void rift_nodes_refresh(struct rift_app *app)
     for (i = 0; i < count; i++) {
         snprintf(v->order_key[i], sizeof(v->order_key[i]), "%s", order[i]->key);
     }
+    /* Everything that sizes a column first, then one layout, then the text
+     * that has to be fitted into what is left.
+     *
+     * rift_cell_set_text_fit measures the width the cell actually has. The
+     * name shares its column with the role tag, and the tag is content-sized,
+     * so a name measured before its tag had taken its width is measured
+     * against room that does not exist - and the name comes out unshortened
+     * and is then clipped instead of ellipsised. Whether that happened used
+     * to depend on how many refreshes had run since the row was built, which
+     * is to say on timing: the same fixtures gave two different screens.
+     * Sizing every tag, laying out once and only then fitting makes one
+     * refresh enough. */
+    for (i = 0; i < v->row_count && i < count; i++) {
+        const char *tag = rift_type_tag(order[i]->type, order[i]->have_type);
+
+        lv_label_set_text(v->row[i].tag, tag ? tag : "");
+    }
+    lv_obj_update_layout(v->pane_list);
     for (i = 0; i < v->row_count && i < count; i++) {
         update_row(v, &v->row[i], order[i], now);
     }

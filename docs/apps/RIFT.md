@@ -3,13 +3,19 @@
 The mesh client for Doors: what this node is, what state its radio service is
 in, which nodes it has heard, and how a packet would get to one of them.
 
-**Status:** phase 1, on branch `feat/rift-ui-phase1` (2026-09-19). Built for
-riscv64 (`make all` and the DRM/sysroot shell, 0 first-party warnings). Run
-on the panel against a live mesh: **PASS on unit A, 2026-09-19, build
-`d19146b`** (`docs/hardware/RIFT_PHASE1_BENCH_GATE.md`), not merged.
-**Nothing in it transmits**, and nothing did — the service counted
-`tx_submitted=0` across the whole session. It reads meshcored and draws what
-meshcored says.
+**Status:** phase 2 (COMMS), on branch `feat/rift-ui-phase2` (2026-09-20).
+Built for riscv64 (`make all` and the DRM/sysroot shell, 0 first-party
+warnings). **Host-complete and not yet run on hardware.**
+
+Phase 1 — ACTIVITY and NODES — is on master, and passed on the panel against
+a live mesh: **PASS on unit A, 2026-09-19, build `d19146b`**
+(`docs/hardware/RIFT_PHASE1_BENCH_GATE.md`). During that session the service
+counted `tx_submitted=0`, because phase 1 had no way to transmit.
+
+**Phase 2 does.** It is the first thing in Doors that puts a packet on the
+air at a reader's request, and the whole of "What it is not" below is about
+where that is allowed to happen and what it is not allowed to claim. Nothing
+in phase 2 has been on a radio.
 
 The design is `docs/design/rift/HANDOFF.md`, approved 2026-09-19; that
 package is the contract and this phase implements part of it.
@@ -17,7 +23,7 @@ package is the contract and this phase implements part of it.
 ## What it is
 
 Four sections, in the design's fixed order: **ACTIVITY · NODES · COMMS ·
-NET**. Phase 1 draws the first two.
+NET**. Phase 2 draws the first three.
 
 - **ACTIVITY** — the radio service's state and the reason for it in the
   service's own words, whether radiod is connected and what state it
@@ -32,28 +38,56 @@ NET**. Phase 1 draws the first two.
   path written out, the signal, and a 56 px action bar. **DETAIL** pushes a
   screen with the link state, the identity, the hop ladder and the path
   changes RIFT has seen.
-- **COMMS** and **NET** keep their place in the navigation and say they are
-  not in this build. An empty list would read as a quiet mesh.
+- **COMMS** — the conversations as 36 px rows: link glyph, name, the newest
+  message as a preview, the unread pill, and how that peer is reached.
+  Choosing one opens its thread: the messages oldest first, each with the
+  time since it happened, who said it, a 2 px rule on the side that says
+  which of you that was, and a caption carrying the service's own word for
+  its state — `RECEIVED`, `SENT · FLOOD`, `DELIVERED · ACK 41 s`, `NO ACK`,
+  `FAILED`. Under it the composer. The unread count rides on the COMMS tab,
+  so it is visible from the other sections.
+- **NET** keeps its place in the navigation and says it is not in this build.
+  An empty view would read as a quiet mesh.
+
+**COMMS is direct conversations only.** The design merges channels into the
+same list with a `#` glyph; the radio service has none — `MAX_GROUP_CHANNELS`
+is left undefined in `protocols/meshcore`, so upstream's channel code is not
+compiled, meshcored's `onChannelMessageRecv` is an empty override, and
+`docs/api/mesh.md` lists group channels under "Not in v0". The list says so
+where a reader who knows the design would otherwise be looking for them.
 
 Landscape (1232 × 568) is a recomposition, not a rotation: NODES becomes the
-list beside the selected node's detail, ACTIVITY becomes two columns, and the
-extra SNR column appears. Nothing exists in landscape that portrait cannot
-show. The split is chosen from the room the app is given, not from the
-orientation, so a body shrunk by a keyboard sheet keeps the single column.
+list beside the selected node's detail, ACTIVITY becomes two columns, COMMS
+becomes list, thread and route in three panes with the command line as the
+composer, and the extra SNR column appears. Nothing exists in landscape that
+portrait cannot show. The split is chosen from the room the app is given, not
+from the orientation, so a body shrunk by a keyboard sheet keeps the single
+column.
 
 ## What it is not
 
-- **It does not transmit.** `mesh.send` and `mesh.advert` are the only two
-  methods in the API that put a packet on the air, and nothing under
-  `apps/rift` names either. `tests/rift_lint.sh` checks the source;
-  `tests/rift_ipc_test.c` checks it from the other end, by recording every
-  method the service was asked for over a whole run.
-- Not a message client: no composer, no conversations, no channels. That is
-  COMMS.
+- **It transmits in one place, and never on its own.** `mesh.send` and
+  `mesh.advert` are the only two methods in the API that put a packet on the
+  air. `mesh.advert` is not named anywhere under `apps/rift`. `mesh.send` is
+  named once, in `rift_ipc.c`, written by one function, reached only from the
+  composer, reached only by a reader pressing SEND on text a reader typed —
+  so opening a screen, a snapshot, a period expiring and a reconnect all
+  still put nothing on the air. `tests/rift_lint.sh` checks each link in that
+  chain; `tests/rift_ipc_test.c` checks it from the other end, by recording
+  every method the service was asked for over a whole run and every body it
+  was asked to send.
+- **It does not decide that a message arrived.** A message's state is copied
+  from the service's word and never chosen here: accepted is not transmitted,
+  transmitted is not acknowledged, and nothing turns `sent_flood` into
+  delivered. While a request is in flight the thread says "Sending", which
+  claims only that.
+- Not a channel client: there are no channels to be a client of. See above.
 - Not a network map: no rings, no relay load, no inferred links. That is NET.
-- No command parser. The command line is drawn because it is permanent chrome
-  in the approved design and the vertical budget is measured with it there,
-  and it is in the DS §9 disabled treatment saying what it is waiting for.
+- No command parser. The command line is permanent chrome in the approved
+  design and the vertical budget is measured with it there. In landscape
+  COMMS it is the composer, as the design specifies; everywhere else it says
+  what the keys do, or that the service is not answering. `/msg`, `/join`
+  and the rest are a later phase.
 - It stores nothing, opens no device, links no radio or protocol library, and
   owns no colour.
 
@@ -105,10 +139,26 @@ for its reply, so a client that subscribes *and* calls on one connection
 drops whatever arrives during a call.
 
 Consumed: `mesh.info`, `mesh.status`, `mesh.identity`, `mesh.nodes`,
-`mesh.node`, `mesh.subscribe`, `mesh.unsubscribe`, and the `mesh.state`,
-`mesh.node` and `mesh.activity` events. `mesh.messages` is COMMS and is not
-read; a `mesh.message` event that arrives anyway is ignored without being
-counted as a fault.
+`mesh.node`, `mesh.messages`, `mesh.send`, `mesh.subscribe`,
+`mesh.unsubscribe`, and the `mesh.state`, `mesh.node`, `mesh.activity` and
+`mesh.message` events.
+
+`mesh.message` is raised three times over for one message — when it arrives
+or is sent, and again whenever its state changes. All three go through one
+path keyed on the message id, which is what makes the third arrival an update
+to one row rather than a third copy of it, and why a message with no id is
+refused outright: there would be nothing to match the next one against. A
+`mesh.messages` snapshot merges the same way, so a snapshot taken after
+events have already delivered some of the same messages updates them instead
+of doubling them.
+
+Sending is two halves that may arrive in either order. `mesh.send` answers
+with a `message_id`; `mesh.message` carries the message itself. Nothing is
+created from the reply — inventing a local copy and reconciling it later is
+how one message becomes two — so whichever arrives first makes the single
+row, under the service's id. A submission whose socket goes away before it is
+answered says that it does not know whether the message was sent, because
+nothing on this side does.
 
 When the service goes away the nodes stay, marked as cached, and the client
 reconnects with a backoff doubling from 0.5 s to 5 s - meshcored's own
@@ -125,6 +175,8 @@ the air must not be able to disconnect this app from its own service.
 | File | |
 | --- | --- |
 | `rift_model.c/.h` | what is known and how sure it is: the bounded node cache, the activity ring, the service state. No LVGL |
+| `rift_messages.c` | the model's other half, over the same struct: the message window, the conversations, how far each has been read, and the submission in flight. No LVGL |
+| `rift_json.h` | the four readers both halves parse the API with, so both apply the same rule: absent is not zero |
 | `rift_format.c/.h` | every string the screens print, and the path arithmetic. No LVGL, no cJSON, no I/O |
 | `rift_ipc.c/.h` | the meshcored connection, the framing and the reconnect. No LVGL |
 | `rift_app.c/.h` | chrome, sections, layout and lifecycle |
@@ -132,6 +184,8 @@ the air must not be able to disconnect this app from its own service.
 | `ui/rift_activity.c` | ACTIVITY |
 | `ui/rift_nodes.c` | the node list, the selection and the landscape split |
 | `ui/rift_detail.c` | the selected node in full: one builder for the landscape pane and the portrait DETAIL screen, so the two cannot drift |
+| `ui/rift_comms.c` | the conversation list, the three panes and the landscape route pane |
+| `ui/rift_thread.c` | the open conversation: the header, the messages and the portrait composer. One builder for both orientations, as `rift_detail.c` is for NODES |
 
 ## Tests
 
@@ -139,8 +193,9 @@ the air must not be able to disconnect this app from its own service.
 | --- | --- |
 | `tests/rift_format_test.c` | 92 checks: ages, signal, hop columns, state words, path compression, the inline chain, the ladder, UTF-8 names |
 | `tests/rift_model_test.c` | 106 checks: the initial snapshot, duplicate and update events, missing telemetry, malformed input, the bounded cache, the service going away and coming back, ordering |
-| `tests/rift_ipc_test.c` | 66 checks against a real socket and a scripted service in a child process: connect, snapshot, events, refusals, the service disappearing, reconnect, and the proof that nothing asked it to transmit |
-| `tests/rift_app_test.c` | 98 checks under a real LVGL pointer device: the chrome, both sections, the row that only selects, the pushed detail, the landscape split, and open/leave/open again. Writes the screenshots |
+| `tests/rift_comms_test.c` | 96 checks: the conversations and their order, duplicate and state-change events, unread and what clears it, the thread window, every state caption, telemetry that was never measured, the bounded message cache, the send state machine, what `mesh.send` will take, and remote text nobody here chose the length of |
+| `tests/rift_ipc_test.c` | 95 checks against a real socket and a scripted service in a child process: connect, snapshot, events, refusals, the service disappearing, reconnect, the proof that nothing the app does on its own transmits, and the send lifecycle — accepted, refused, accepted-then-silent, and with nobody there |
+| `tests/rift_app_test.c` | 147 checks under a real LVGL pointer device: the chrome, all three sections, the row that only selects, the pushed detail, both landscape splits, the composer, the unread pill, and open/leave/open again three times over. Writes the screenshots |
 | `tests/rift_shell_test.sh` | the app test, then the real shell opening RIFT in both orientations with a scripted meshcored on a real socket, then with no service at all, then the same fixtures twice for the same pixels |
 | `tests/rift_lint.sh` | the boundaries: no transmit, no colour, no device, no store, no monolith, and the gaps this phase leaves |
 
@@ -177,3 +232,36 @@ long the host has been up.
 5. **Path history is only what RIFT saw.** There is no history before the app
    opened, and the panel is headed "PATH CHANGES SEEN BY RIFT" so it is not
    read as the service's record.
+6. **No channels.** The service has none to show:
+   `MAX_GROUP_CHANNELS` is left undefined in `protocols/meshcore`, so
+   upstream's channel code is not compiled, meshcored's
+   `onChannelMessageRecv` is an empty override, and `docs/api/mesh.md` puts
+   group channels under "Not in v0". COMMS says so in the list rather than
+   drawing a channel nobody could speak on. Adding them is not a UI change:
+   it means compiling vendor code that has never run here, giving meshcored
+   channel state and addressing, and proving the frames on air, which is an
+   interop gate of its own.
+7. **A message carries no route.** The design's per-message caption is
+   `RECEIVED · PATH 9 · 1 UNKNOWN HOP`. The API carries a path on a *node*
+   and not on a message, so the route is drawn in the thread header and the
+   landscape route pane, where it is the peer's current path and is true,
+   rather than under each line where it would be a guess about the frame that
+   carried it. A message's own RSSI and SNR *are* reported, and are shown.
+8. **No attempt count and no return path.** The design's
+   `NO ACK · 3 ATTEMPTS · LAST 12:47` and `DELIVERED · ACK 41 s · RETURN PATH
+   9 HOPS` need how many times MeshCore tried and which way the ACK came
+   back. The API reports neither, so the captions stop at `NO ACK` and
+   `DELIVERED · ACK 41 s`. The delivery tally in the landscape route pane is
+   RIFT's own arithmetic over the messages it still holds, and is worded as
+   that rather than as the service's count.
+9. **Unread is this session's.** Nothing persists it, and meshcored's message
+   store does not survive its own restart (`"persistent": false`), so
+   "unread" means "arrived while RIFT was open and has not been drawn". The
+   first snapshot of a session is marked read, because it happened before
+   this app was watching and it has no way to know what was read then; a
+   snapshot after a *reconnect* is not, because what arrived while the
+   connection was down is genuinely unread.
+10. **The message window is bounded.** The newest 96 are kept, and a
+    conversation's unread count, preview and tally are derived from what is
+    still held. A thread longer than the pane says how many are earlier
+    rather than implying there are none.

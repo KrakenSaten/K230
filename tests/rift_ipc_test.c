@@ -369,7 +369,7 @@ int main(void)
                 saw_unsubscribe = 1;
             } else if (strcmp(line, "mesh.info") != 0 && strcmp(line, "mesh.status") != 0 &&
                        strcmp(line, "mesh.identity") != 0 && strcmp(line, "mesh.nodes") != 0 &&
-                       strcmp(line, "mesh.node") != 0) {
+                       strcmp(line, "mesh.node") != 0 && strcmp(line, "mesh.messages") != 0) {
                 saw_unexpected = 1;
                 printf("     unexpected method: %s\n", line);
             }
@@ -378,14 +378,160 @@ int main(void)
             fclose(f);
         }
         check("it was asked for something", lines > 0);
-        check("nothing in this app ever asked the service to send a message", !saw_send);
+        /* Everything above this point is what the app does on its own:
+         * connect, read a snapshot, subscribe, lose the service, reconnect.
+         * None of it may transmit. Phase 2 can send, but only when a reader
+         * asks it to, which is the section after this one. */
+        check("nothing the app does on its own asks the service to send", !saw_send);
         check("or to advert", !saw_advert);
-        check("only the seven methods phase 1 consumes were used", !saw_unexpected);
+        check("only the methods this phase consumes were used", !saw_unexpected);
         check("the subscription was taken", saw_subscribe);
         check("and given back rather than merely dropped", saw_unsubscribe);
         unlink(methods);
     }
 
+
+    /* ---- sending, against a real socket ---------------------------------- */
+    /* Everything above proved the app does not transmit on its own. This
+     * proves that when it does, the message goes out once, its outcome comes
+     * from the service, and a refusal reaches the reader. */
+    {
+        char sends[600];
+        struct fake_meshcored_script script;
+        pid_t pid;
+
+        snprintf(sends, sizeof(sends), "%s/sends", runtime);
+        unlink(sends);
+        unlink(methods);
+        memset(&script, 0, sizeof(script));
+        script.state = "online";
+        script.nodes_json = NODES_TWO;
+        script.messages_json =
+            "[{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+            "\"peer_name\":\"HYTTA\",\"text\":\"er du der?\",\"state\":\"received\","
+            "\"mono_ms\":-4000}]";
+        script.send_log = sends;
+        script.method_log = methods;
+        script.life_ms = 6000;
+        pid = fake_meshcored_spawn(&script);
+        check("a service that takes messages is running", pid > 0);
+        check("and its socket is there", fake_meshcored_wait_ready(2000));
+
+        rift_model_init(&m);
+        rift_ipc_init(&c, &m, "meshcored");
+        spin(&c, 2000, have_snapshot, &m);
+        check("the history was read with the snapshot", m.messages_valid && m.msg_count == 1);
+        check("and the service said it does not keep it", !m.messages_persistent);
+        check("nothing from that first snapshot is unread", rift_model_unread_total(&m) == 0);
+
+        check("a message is sent", rift_ipc_send_message(&c, KEY_B, "kommer nå") == 0);
+        /* The reply and the event may arrive in either order; either way the
+         * message must exist exactly once, under the service's id. */
+        spin(&c, 2000, NULL, &m);
+        check("the submission is finished", !rift_model_sending(&m));
+        check("the service gave it an id", m.outbox.message_id > 0);
+        check("and exactly one message was added", m.msg_count == 2);
+        {
+            const struct rift_message *thread[8];
+            int n = rift_model_thread(&m, KEY_B, thread, 8, NULL);
+
+            check("the thread holds both", n == 2);
+            check("ours is outgoing", thread[1]->dir == RIFT_MSG_OUT);
+            check("with the service's state, not ours", thread[1]->state == RIFT_MSG_SENT_FLOOD);
+            check("and it is not shown as delivered", thread[1]->state != RIFT_MSG_ACKED);
+        }
+
+        /* What went on the air is what the reader typed, once. */
+        {
+            FILE *f = fopen(sends, "r");
+            char line[256];
+            int lines = 0;
+
+            while (f && fgets(line, sizeof(line), f)) {
+                line[strcspn(line, "\n")] = '\0';
+                lines++;
+                text_is("the service was asked to send exactly what was typed", line,
+                        KEY_B "|kommer nå");
+            }
+            if (f) {
+                fclose(f);
+            }
+            check("once, not twice", lines == 1);
+        }
+
+        rift_ipc_close(&c);
+        fake_meshcored_stop(pid);
+        unlink(sends);
+        unlink(methods);
+    }
+
+    /* ---- a service that refuses the send --------------------------------- */
+    {
+        struct fake_meshcored_script script;
+        pid_t pid;
+
+        memset(&script, 0, sizeof(script));
+        script.state = "degraded";
+        script.nodes_json = NODES_TWO;
+        script.refuse_send = 1;
+        script.life_ms = 5000;
+        pid = fake_meshcored_spawn(&script);
+        check("a service that will not send is running", pid > 0);
+        check("and is answering", fake_meshcored_wait_ready(2000));
+
+        rift_model_init(&m);
+        rift_ipc_init(&c, &m, "meshcored");
+        spin(&c, 2000, have_snapshot, &m);
+        check("the send is written", rift_ipc_send_message(&c, KEY_B, "hallo") == 0);
+        spin(&c, 2000, NULL, &m);
+        check("and comes back refused", m.outbox.failed);
+        check("with the service's own words, not ours",
+              strstr(m.outbox.error, "the radio is not available") != NULL);
+        check("nothing was added to the thread", m.msg_count == 0);
+        check("and nothing is left in flight", !rift_model_sending(&m));
+
+        rift_ipc_close(&c);
+        fake_meshcored_stop(pid);
+    }
+
+    /* ---- a service that accepts and then says nothing --------------------- */
+    /* An id handed out and never spoken of again. The app must not decide
+     * for itself what became of it. */
+    {
+        struct fake_meshcored_script script;
+        pid_t pid;
+
+        memset(&script, 0, sizeof(script));
+        script.state = "online";
+        script.nodes_json = NODES_TWO;
+        script.send_is_silent = 1;
+        script.life_ms = 5000;
+        pid = fake_meshcored_spawn(&script);
+        check("a silent service is running", pid > 0 && fake_meshcored_wait_ready(2000));
+
+        rift_model_init(&m);
+        rift_ipc_init(&c, &m, "meshcored");
+        spin(&c, 2000, have_snapshot, &m);
+        rift_ipc_send_message(&c, KEY_B, "into the quiet");
+        spin(&c, 1500, NULL, &m);
+        check("the submission ended, because the reply came", !rift_model_sending(&m));
+        check("it was not a failure", !m.outbox.failed);
+        check("but no message exists, because none was ever reported", m.msg_count == 0);
+
+        rift_ipc_close(&c);
+        fake_meshcored_stop(pid);
+    }
+
+    /* ---- sending with nobody there ---------------------------------------- */
+    {
+        rift_model_init(&m);
+        rift_ipc_init(&c, &m, "meshcored-that-is-not-there");
+        check("a send with no connection is refused",
+              rift_ipc_send_message(&c, KEY_B, "hello?") == -1);
+        check("and says so rather than failing silently", m.outbox.failed);
+        check("nothing was queued", !rift_model_sending(&m));
+        rift_ipc_close(&c);
+    }
     rmdir(runtime);
     printf("rift_ipc_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;

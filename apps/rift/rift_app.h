@@ -13,17 +13,23 @@
  *   rift_app      chrome, sections, layout, lifecycle      LVGL
  *   ui/rift_*     one screen each                          LVGL
  *
- * Phase 1 draws ACTIVITY and NODES. COMMS and NET keep their place in the
- * navigation - the four sections are the approved design and removing two
- * of them would be a different design - and say plainly that they are not
- * in this build rather than showing an empty list that looks like a quiet
- * mesh.
+ * Phase 2 draws ACTIVITY, NODES and COMMS. NET keeps its place in the
+ * navigation - the four sections are the approved design and removing one
+ * would be a different design - and says plainly that it is not in this
+ * build rather than showing an empty view that looks like a quiet mesh.
  *
- * Nothing in this app transmits. It reads mesh.info, mesh.status,
- * mesh.identity, mesh.nodes and mesh.node, and subscribes to mesh.state,
- * mesh.node and mesh.activity. mesh.send and mesh.advert are not called
- * from anywhere in apps/rift, and tests/rift_lint.sh checks that: opening a
- * screen must not put a packet on the air.
+ * COMMS is direct conversations only. The approved design merges channels
+ * into the same list; the radio service has none - MAX_GROUP_CHANNELS is
+ * undefined in protocols/meshcore, so upstream's channel code is not
+ * compiled, and docs/api/mesh.md lists group channels under "Not in v0" -
+ * so this build says so instead of drawing a channel nobody could speak on.
+ *
+ * This app transmits in exactly one place. mesh.send is written only by
+ * rift_ipc_send_message, reached only from the composer, reached only by a
+ * reader pressing SEND on text a reader typed. Nothing automatic can reach
+ * it: opening a screen, a snapshot, a period expiring and a reconnect all
+ * still put nothing on the air. mesh.advert is not called from anywhere in
+ * apps/rift, and tests/rift_lint.sh checks both of those.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -65,6 +71,7 @@ enum rift_section {
 
 struct rift_nodes;
 struct rift_activity_view;
+struct rift_comms;
 
 struct rift_app {
     lv_obj_t *root;   /* the shell's body */
@@ -72,12 +79,36 @@ struct rift_app {
     lv_obj_t *strip;  /* the section strip */
     lv_obj_t *tab[RIFT_SEC_COUNT];
     lv_obj_t *tab_rule[RIFT_SEC_COUNT];
+    lv_obj_t *tab_label[RIFT_SEC_COUNT];
+    lv_obj_t *tab_pill[RIFT_SEC_COUNT];
     lv_obj_t *content;
     lv_obj_t *cmdline;
     lv_obj_t *cmd_hint;
     lv_obj_t *keysink;
+    /* The landscape composer. The command line *is* the composer in
+     * landscape (handoff §8), and the command line is chrome, so the field
+     * lives here rather than in the COMMS screen; portrait has its own, in
+     * the thread, where the design puts it. */
+    lv_obj_t *composer;
+    lv_obj_t *cmd_send_hint; /* "TO HYTTA · FLOOD · ENTER SEND · ESC CLEAR" */
+    int composer_focused;
 
     struct pocketui_layout_guard layout_guard;
+    /* A refresh is owed from outside a layout pass.
+     *
+     * The size-changed handler runs *inside* LVGL's layout update, and
+     * lv_obj_update_layout() is a no-op while one is running (it takes a
+     * mutex and returns). Anything that has to measure a settled width -
+     * every name and preview fitted to its column - therefore cannot be
+     * done from there: it would measure whatever the pass had reached so
+     * far. So the layout asks for a refresh, and the timer does it, outside
+     * the pass, where a layout can actually be forced. */
+    int refresh_pending;
+    /* Esc in the composer asks for the list's focus back. Like the refresh,
+     * it is done from the timer and not from the key handler: changing the
+     * group's focus from inside the event LVGL is dispatching does not
+     * stick. */
+    int focus_list_pending;
     int wide; /* the landscape split is on */
     int32_t body_w;
     int32_t body_h;
@@ -88,6 +119,12 @@ struct rift_app {
     int detail_open;
     char selected[RIFT_KEY_HEX];
     int have_selected;
+    /* The open conversation, which is a different selection from the
+     * selected node: a reader can be reading one node's detail and writing
+     * to another, and collapsing the two would move one when they moved the
+     * other. */
+    char conv[RIFT_KEY_HEX];
+    int have_conv;
 
     struct rift_model model;
     struct rift_ipc ipc;
@@ -98,8 +135,10 @@ struct rift_app {
 
     struct rift_nodes *nodes;
     struct rift_activity_view *activity;
+    struct rift_comms *comms;
     lv_obj_t *activity_root;
     lv_obj_t *nodes_root;
+    lv_obj_t *comms_root;
     lv_obj_t *placeholder;
     /* Set only when pos_theme_watch's table was full and this app had to
      * listen for the theme event itself; it is removed from the screen on
@@ -109,6 +148,9 @@ struct rift_app {
 
 /* Chrome, for the screens. */
 void rift_app_select(struct rift_app *a, const char *key);
+/* Open a conversation with this peer, in COMMS. Selecting a conversation
+ * never sends anything; it chooses where the composer would write. */
+void rift_app_open_conversation(struct rift_app *a, const char *key);
 void rift_app_open_detail(struct rift_app *a, int open);
 void rift_app_show_section(struct rift_app *a, enum rift_section section);
 /* Everything on screen, from the model as it stands. Cheap enough to call

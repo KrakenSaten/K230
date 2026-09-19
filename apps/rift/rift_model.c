@@ -6,6 +6,7 @@
 #include "rift_model.h"
 
 #include "rift_format.h"
+#include "rift_json.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -75,55 +76,6 @@ static enum rift_svc_state state_from_word(const char *w)
     return RIFT_SVC_UNKNOWN;
 }
 
-/* ---- reading JSON, one field at a time --------------------------------- */
-
-static const char *str_of(const cJSON *o, const char *key)
-{
-    const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, key);
-
-    return (v && cJSON_IsString(v) && v->valuestring) ? v->valuestring : NULL;
-}
-
-/* A number, only when it is one. An absent field and a field holding null,
- * a string or an object all mean "not reported", which is different from 0
- * (docs/api/mesh.md). */
-static int num_of(const cJSON *o, const char *key, double *out)
-{
-    const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, key);
-
-    if (!v || !cJSON_IsNumber(v)) {
-        return 0;
-    }
-    *out = v->valuedouble;
-    return 1;
-}
-
-static int bool_of(const cJSON *o, const char *key, int fallback)
-{
-    const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, key);
-
-    if (!v || !cJSON_IsBool(v)) {
-        return fallback;
-    }
-    return cJSON_IsTrue(v) ? 1 : 0;
-}
-
-static int hex_only(const char *s, size_t want_len)
-{
-    size_t i;
-
-    if (!s) {
-        return 0;
-    }
-    for (i = 0; s[i]; i++) {
-        if (!((s[i] >= '0' && s[i] <= '9') || (s[i] >= 'a' && s[i] <= 'f') ||
-              (s[i] >= 'A' && s[i] <= 'F'))) {
-            return 0;
-        }
-    }
-    return want_len == 0 ? (i > 0) : (i == want_len);
-}
-
 /* ---- the cache --------------------------------------------------------- */
 
 void rift_model_init(struct rift_model *m)
@@ -148,6 +100,19 @@ void rift_model_service_lost(struct rift_model *m, const char *reason)
      * that the screen must now say they are cached (handoff §5). */
     m->stale = 1;
     m->snapshot_valid = 0;
+    /* The messages stay too, and for the same reason; what stops being true
+     * is that they are complete. The next connection re-reads them. */
+    m->messages_valid = 0;
+    /* A submission that was in flight when the socket went has no answer
+     * coming: nothing on this side knows whether it reached the air, and
+     * saying so is the only honest answer. */
+    if (m->outbox.active) {
+        m->outbox.active = 0;
+        m->outbox.failed = 1;
+        rift_utf8_copy(m->outbox.error, sizeof(m->outbox.error),
+                       "meshcored went away before it answered; this message may or may not "
+                       "have been sent");
+    }
     m->have_status = 0;
     m->have_radio_state = 0;
     m->radio_connected = 0;
@@ -632,10 +597,20 @@ int rift_model_apply_event(struct rift_model *m, const char *name, const cJSON *
         m->events_applied++;
         return 0;
     }
-    /* mesh.message is v0 API and is COMMS, which this phase does not draw.
-     * An event nothing here consumes is not a fault; it is simply not ours
-     * and is not counted as malformed. */
+    /* mesh.message is raised when a message arrives, when one is sent, and
+     * again whenever its state changes - an ACK matching, or a timeout
+     * (docs/api/mesh.md). All three go through the same path, keyed by the
+     * message id, so the third kind updates the row the first one made
+     * instead of adding another copy of it. */
     if (strcmp(name, "mesh.message") == 0) {
+        const cJSON *msg = cJSON_GetObjectItemCaseSensitive(data, "message");
+
+        if (rift_model_apply_message(m, msg) != 0) {
+            m->events_malformed++;
+            return -1;
+        }
+        m->stale = 0;
+        m->events_applied++;
         return 0;
     }
     m->events_malformed++;
@@ -742,3 +717,4 @@ const char *rift_model_name_for_hash(const struct rift_model *m, const char *has
     }
     return hit->name;
 }
+

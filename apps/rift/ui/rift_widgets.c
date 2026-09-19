@@ -486,3 +486,121 @@ lv_obj_t *rift_cell(lv_obj_t *parent, enum pos_style_role role, int32_t width,
     lv_label_set_text(label, "");
     return label;
 }
+
+lv_obj_t *rift_unread_pill(lv_obj_t *parent)
+{
+    lv_obj_t *pill = lv_label_create(parent);
+
+    lv_obj_remove_style_all(pill);
+    /* The two tokens the handoff asks for - radio_rx fill and
+     * text_on_accent text - are exactly POS_STYLE_CHIP_RX's, so they come
+     * from the role rather than from a colour written here
+     * (tests/style_lint.sh). The chip's 36 px geometry is not what a pill
+     * is, so the size, radius and padding are set below. */
+    pos_style_add(pill, POS_STYLE_CAPTION, 0);
+    pos_style_add(pill, POS_STYLE_CHIP_RX, 0);
+    lv_obj_set_style_radius(pill, 2, 0);
+    lv_obj_set_style_pad_hor(pill, 5, 0);
+    lv_obj_set_style_pad_ver(pill, 0, 0);
+    lv_obj_set_height(pill, LV_SIZE_CONTENT);
+    lv_obj_set_width(pill, LV_SIZE_CONTENT);
+    lv_label_set_long_mode(pill, LV_LABEL_LONG_CLIP);
+    lv_label_set_text(pill, "");
+    lv_obj_add_flag(pill, LV_OBJ_FLAG_HIDDEN);
+    return pill;
+}
+
+void rift_unread_pill_set(lv_obj_t *pill, int count)
+{
+    if (!pill) {
+        return;
+    }
+    if (count <= 0) {
+        /* A pill reading 0 is a badge that says there is nothing to read. */
+        lv_obj_add_flag(pill, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(pill, "");
+        return;
+    }
+    if (count > 99) {
+        lv_label_set_text(pill, "99+");
+    } else {
+        lv_label_set_text_fmt(pill, "%d", count);
+    }
+    lv_obj_remove_flag(pill, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* ---- the vertical rule beside a message --------------------------------- */
+
+struct vrule_state {
+    enum rift_tone tone;
+};
+
+static void vrule_delete(lv_event_t *e)
+{
+    free(lv_obj_get_user_data(lv_event_get_target_obj(e)));
+}
+
+static void vrule_draw(lv_event_t *e)
+{
+    lv_obj_t *obj = lv_event_get_target_obj(e);
+    const struct vrule_state *s = lv_obj_get_user_data(obj);
+    lv_layer_t *layer = lv_event_get_layer(e);
+    lv_draw_rect_dsc_t dsc;
+    lv_area_t area;
+
+    if (!s || !layer) {
+        return;
+    }
+    lv_obj_get_coords(obj, &area);
+    lv_draw_rect_dsc_init(&dsc);
+    dsc.radius = 0;
+    dsc.bg_opa = LV_OPA_COVER;
+    switch (s->tone) {
+    case RIFT_TONE_RX:
+        dsc.bg_color = pos_theme_color(POS_COLOR_RADIO_RX);
+        break;
+    case RIFT_TONE_SECONDARY:
+        dsc.bg_color = pos_theme_color(POS_COLOR_TEXT_SECONDARY);
+        break;
+    case RIFT_TONE_MUTED:
+        dsc.bg_color = pos_theme_color(POS_COLOR_TEXT_MUTED);
+        break;
+    case RIFT_TONE_ACCENT:
+    default:
+        dsc.bg_color = pos_theme_color(POS_COLOR_ACCENT_PRIMARY);
+        break;
+    }
+    lv_draw_rect(layer, &dsc, &area);
+}
+
+lv_obj_t *rift_vrule(lv_obj_t *parent, int32_t width)
+{
+    lv_obj_t *obj = lv_obj_create(parent);
+    struct vrule_state *s = calloc(1, sizeof(*s));
+
+    if (!s) {
+        lv_obj_delete(obj);
+        return NULL;
+    }
+    lv_obj_remove_style_all(obj);
+    lv_obj_set_width(obj, width);
+    lv_obj_set_height(obj, LV_PCT(100));
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_user_data(obj, s);
+    s->tone = RIFT_TONE_SECONDARY;
+    lv_obj_add_event_cb(obj, vrule_draw, LV_EVENT_DRAW_MAIN, NULL);
+    lv_obj_add_event_cb(obj, vrule_delete, LV_EVENT_DELETE, NULL);
+    return obj;
+}
+
+void rift_vrule_set(lv_obj_t *rule, enum rift_tone tone)
+{
+    struct vrule_state *s = rule ? lv_obj_get_user_data(rule) : NULL;
+
+    if (!s || s->tone == tone) {
+        return;
+    }
+    s->tone = tone;
+    lv_obj_invalidate(rule);
+}

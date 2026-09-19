@@ -634,8 +634,15 @@ tests/calc_view_test: tests/calc_view_test.o $(CALC_OBJS)
 # real socket and a scripted service. The screens themselves need LVGL and
 # are built by ui/shell (CMake), run by tests/rift_shell_test.sh.
 RIFT_DIR := apps/rift
-RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_format.o $(RIFT_DIR)/rift_ipc.o
-RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_ipc_test tests/fake-meshcored
+RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_messages.o \
+             $(RIFT_DIR)/rift_format.o $(RIFT_DIR)/rift_ipc.o
+# The model is two translation units over one struct: rift_model.c dispatches
+# a mesh.message event into rift_messages.c, so anything linking one links
+# the other.
+RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_messages.o \
+                   $(RIFT_DIR)/rift_format.o
+RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_comms_test \
+              tests/rift_ipc_test tests/fake-meshcored
 
 $(RIFT_DIR)/%.o: $(RIFT_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(RIFT_DIR) -c -o $@ $<
@@ -646,10 +653,13 @@ tests/rift_%_test.o: tests/rift_%_test.c
 tests/fake_meshcored.o: tests/fake_meshcored.c tests/fake_meshcored.h
 	$(CC) $(ALL_CFLAGS) -I$(RIFT_DIR) -c -o $@ $<
 
-tests/rift_format_test: tests/rift_format_test.o $(RIFT_DIR)/rift_format.o $(RIFT_DIR)/rift_model.o
+tests/rift_format_test: tests/rift_format_test.o $(RIFT_MODEL_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
-tests/rift_model_test: tests/rift_model_test.o $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_format.o
+tests/rift_model_test: tests/rift_model_test.o $(RIFT_MODEL_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+tests/rift_comms_test: tests/rift_comms_test.o $(RIFT_MODEL_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 tests/rift_ipc_test: tests/rift_ipc_test.o tests/fake_meshcored.o $(RIFT_OBJS) $(IPC_OBJS) \
@@ -877,6 +887,7 @@ test: all $(TEST_BINS)
 	./tests/wave_modem_test
 	./tests/rift_format_test
 	./tests/rift_model_test
+	./tests/rift_comms_test
 	./tests/rift_ipc_test
 	bash tests/wave_tool_test.sh
 	bash tests/audio_recovery_test.sh
