@@ -849,8 +849,18 @@ ok("and the service says it is degraded, not online", reached, last)
 radio_a.inject_event("radio.state", {"state": "rx"})
 reached, last = wait_state(ca, "online", seconds=15)
 ok("and online again when radiod says it is receiving", reached, last)
+ok("and radiod's own state word is carried through",
+   ca.result("mesh.status")["radio"]["radio_state"] == "rx")
 radio_a.tx_rx_resumed = True
 radio_a.tx_state = "rx"
+
+# And the protocol core really has the radio back, not just the service
+# state: a failed completion clears the adapter's receive flag, and a node
+# that went on believing it was deaf would be wrong about its own link.
+before = ca.result("mesh.status")["counters"]
+ca.result("mesh.advert")
+reached, value = wait_counter(ca, ("counters", "tx_ok"), before["tx_ok"] + 1, seconds=25)
+ok("and it transmits normally after the recovery", reached, value)
 
 # A completion that never comes.
 before = ca.result("mesh.status")["counters"]

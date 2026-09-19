@@ -352,6 +352,12 @@ static void note_radio_state(struct mcd *d, const char *state)
          * being told it is in receive mode. */
         mcd_set_state(d, MCD_DEGRADED, "radiod reports the radio is not receiving");
     } else if (d->state == MCD_DEGRADED && rx) {
+        /* radiod got the receiver back. The adapter is told as well, not just
+         * the service state: a failed transmit completion clears its receive
+         * flag, and without this the protocol core would go on believing the
+         * radio was deaf for the rest of the connection while radiod said
+         * otherwise. */
+        mcd_runtime_set_radio_online(d->rt, true);
         mcd_set_state(d, MCD_ONLINE, "the radio is receiving again");
     }
 }

@@ -197,6 +197,14 @@ static int hook_tx_submit(void *user, const uint8_t *bytes, int len, uint64_t *s
 {
     struct mcd *d = user;
 
+    /* The runtime is created before the radiod connection, and it cannot
+     * transmit until that connection has told it the radio is online - so
+     * this is unreachable today. It is here because the ordering is the only
+     * thing that makes it so, and a daemon should not be one refactor away
+     * from dereferencing nothing. */
+    if (!d->link) {
+        return -1;
+    }
     return mcd_link_submit_tx(d->link, bytes, len, submit_id);
 }
 
