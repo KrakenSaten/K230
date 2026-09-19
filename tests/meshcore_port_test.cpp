@@ -378,6 +378,124 @@ static void test_host_rng(void) {
   check("the source recovers when the fault is cleared", mcport::randomBytes(buf, 32));
 }
 
+/* ---- 4b. the two sources underneath randomBytes() -----------------------
+ *
+ * randomBytes() has two: getrandom(2), and /dev/urandom for a kernel or a
+ * sandbox without it. On every machine this is built on the first one always
+ * succeeds, so until these seams existed the second had never once been
+ * executed - nor had the loop's handling of an interrupted call, of a short
+ * result, or of a source that opens and then gives nothing. The test build of
+ * port/mc_rng.cpp injects at the point each source returns, so everything
+ * after that is the shipped code taking its real path, and two counters say
+ * which source actually supplied the bytes rather than leaving the test to
+ * assume it.
+ *
+ * The policy is not what is under test and does not change: getrandom first,
+ * /dev/urandom second, never radio noise.
+ */
+static void test_host_rng_fallback(void) {
+  uint8_t buf[64];
+  uint8_t other[32];
+
+  /* ---- 1. getrandom succeeds ---- */
+  mcport::randomSetGetrandomFaultForTest(mcport::MC_GETRANDOM_NORMAL);
+  mcport::randomSetUrandomPathForTest(NULL);
+  mcport::randomResetCountersForTest();
+  memset(buf, 0, sizeof(buf));
+  check("getrandom alone fills the request", mcport::randomBytes(buf, 32));
+  check("and all 32 bytes came from getrandom",
+        mcport::randomBytesFromGetrandomForTest() == 32);
+  check("so the fallback was never reached",
+        mcport::randomBytesFromUrandomForTest() == 0);
+
+  /* ---- 2 and 3. getrandom is unavailable, /dev/urandom serves ----
+   * ENOSYS is what an older kernel gives, and what a seccomp filter is most
+   * likely to give; either way it is the condition the fallback exists for. */
+  mcport::randomSetGetrandomFaultForTest(mcport::MC_GETRANDOM_UNAVAILABLE);
+  mcport::randomResetCountersForTest();
+  memset(buf, 0, sizeof(buf));
+  check("the request still succeeds with getrandom unavailable",
+        mcport::randomBytes(buf, 32));
+  check("and every byte came from /dev/urandom",
+        mcport::randomBytesFromUrandomForTest() == 32);
+  check("with none from getrandom",
+        mcport::randomBytesFromGetrandomForTest() == 0);
+
+  bool varied = false;
+  for (size_t i = 1; i < 32; i++) if (buf[i] != buf[0]) varied = true;
+  check("the fallback's bytes are not a constant", varied);
+  check("a second fallback draw succeeds", mcport::randomBytes(other, sizeof(other)));
+  check("and differs from the first", memcmp(buf, other, sizeof(other)) != 0);
+
+  /* ---- 4. both mechanisms fail ---- */
+  mcport::randomSetUrandomPathForTest("/nonexistent/meshcore-no-such-random-device");
+  mcport::randomResetCountersForTest();
+  memset(buf, 0xC3, sizeof(buf));
+  check("with both sources gone the call fails", !mcport::randomBytes(buf, 32));
+  check("and it wrote nothing a caller could mistake for entropy", buf[0] == 0xC3);
+  check("neither source supplied a byte",
+        mcport::randomBytesFromGetrandomForTest() == 0
+        && mcport::randomBytesFromUrandomForTest() == 0);
+
+  /* A fallback that opens and then yields nothing is a different failure
+   * from one that will not open: read() returns 0, and the loop has to give
+   * up rather than ask again for ever. */
+  mcport::randomSetUrandomPathForTest("/dev/null");
+  memset(buf, 0xC3, sizeof(buf));
+  check("a fallback that opens but gives nothing fails rather than spinning",
+        !mcport::randomBytes(buf, 32));
+  check("and it too wrote nothing", buf[0] == 0xC3);
+
+  /* ---- the getrandom loop itself ---- */
+  mcport::randomSetUrandomPathForTest(NULL);
+
+  /* Interrupted before any byte was written. The loop must retry; counting
+   * the -1 as progress, or giving up on it, would both be wrong. */
+  mcport::randomSetGetrandomFaultForTest(mcport::MC_GETRANDOM_EINTR_ONCE);
+  mcport::randomResetCountersForTest();
+  memset(buf, 0, sizeof(buf));
+  check("an interrupted getrandom is retried, not abandoned",
+        mcport::randomBytes(buf, 32));
+  check("and the retry, not the fallback, supplied the bytes",
+        mcport::randomBytesFromGetrandomForTest() == 32
+        && mcport::randomBytesFromUrandomForTest() == 0);
+
+  /* A short result. The kernel is entitled to return fewer bytes than asked
+   * for; one byte at a time is the extreme of that. */
+  mcport::randomSetGetrandomFaultForTest(mcport::MC_GETRANDOM_SHORT);
+  mcport::randomResetCountersForTest();
+  memset(buf, 0, sizeof(buf));
+  check("a one-byte-at-a-time getrandom still fills the request",
+        mcport::randomBytes(buf, 32));
+  check("all 32 bytes accumulated from getrandom",
+        mcport::randomBytesFromGetrandomForTest() == 32);
+
+  /* Zero for a non-zero request. No working kernel does this; the point is
+   * what happened if one ever did. The loop only tested for a negative
+   * return, so `got` never advanced and nothing in the condition changed -
+   * it spun for ever, which a test cannot report. port/mc_rng.cpp now breaks
+   * on a zero return, so the call falls through to the fallback. */
+  mcport::randomSetGetrandomFaultForTest(mcport::MC_GETRANDOM_ZERO);
+  mcport::randomResetCountersForTest();
+  memset(buf, 0, sizeof(buf));
+  check("a getrandom returning zero does not loop for ever",
+        mcport::randomBytes(buf, 32));
+  check("it falls through to /dev/urandom instead",
+        mcport::randomBytesFromGetrandomForTest() == 0
+        && mcport::randomBytesFromUrandomForTest() == 32);
+
+  mcport::randomSetUrandomPathForTest("/nonexistent/meshcore-no-such-random-device");
+  check("and with no fallback either it fails rather than spinning",
+        !mcport::randomBytes(buf, 32));
+
+  /* Back to the shipped behaviour, for everything that runs after this. */
+  mcport::randomSetGetrandomFaultForTest(mcport::MC_GETRANDOM_NORMAL);
+  mcport::randomSetUrandomPathForTest(NULL);
+  mcport::randomResetCountersForTest();
+  check("the port is back on its normal sources", mcport::randomBytes(buf, 32));
+  check("served by getrandom again", mcport::randomBytesFromGetrandomForTest() == 32);
+}
+
 /* ---- the wall clock ----------------------------------------------------- */
 
 static void test_rtc(void) {
@@ -508,15 +626,122 @@ static void test_one_loop_with_a_fake_radio(void) {
   check("the pool is still whole", mgr.getFreeCount() == 16);
 }
 
+/* ---- 6. the delayed inbound queue --------------------------------------
+ *
+ * Dispatcher::checkRecv() does not always process a flood packet where it
+ * finds it. It asks the radio to score the reception and computes
+ * `(pow(10, 0.85 - score) - 1) * air_time` (Dispatcher.cpp:55-57); at 50 ms
+ * or more the packet goes to _mgr->queueInbound() instead, and comes back
+ * out of getNextInbound() at the top of a later loop (Dispatcher.cpp:139).
+ * Holding a marginal reception back is how MeshCore lets a node that heard
+ * the same flood more cleanly retransmit it first.
+ *
+ * Nothing had ever taken that branch. The fake radio scored every packet
+ * 1.0, which makes the delay negative, so every test went down the immediate
+ * path and queueInbound(), getNextInbound() and the delayed processing were
+ * dead code as far as this suite was concerned. One radio here scores 0.5 -
+ * per radio and per test, so no other test's timing or reading changes.
+ *
+ * At 0.5 the factor is 10^0.35 - 1, about 1.24, against an airtime this
+ * radio charges at 1 ms a byte: a ~100-byte advert gives roughly 130 ms,
+ * well over the 50 ms threshold and far under the dispatcher's 32 s cap. The
+ * clock is wound by hand, so which side of the deadline a loop falls on is
+ * decided here rather than by how fast the machine is.
+ */
+struct ScoredLink {
+  mctest::FakeAir air;
+  mctest::FakeRadio radio_tx;
+  mctest::FakeRadio radio_rx;
+  mctest::TestClock clock;
+  mctest::TestRTCClock rtc_tx;
+  mctest::TestRTCClock rtc_rx;
+  mcport::HostRNG rng;
+  StaticPoolPacketManager mgr_tx;
+  StaticPoolPacketManager mgr_rx;
+  SimpleMeshTables tables_tx;
+  SimpleMeshTables tables_rx;
+  MinimalNode tx;
+  MinimalNode rx;
+
+  explicit ScoredLink(float rx_score)
+      : radio_tx(air), radio_rx(air), mgr_tx(16), mgr_rx(16),
+        tx(radio_tx, clock, rng, rtc_tx, mgr_tx, tables_tx),
+        rx(radio_rx, clock, rng, rtc_rx, mgr_rx, tables_rx) {
+    radio_rx.setPacketScore(rx_score);
+    tx.self_id = mesh::LocalIdentity(&rng);
+    rx.self_id = mesh::LocalIdentity(&rng);
+    tx.begin();
+    rx.begin();
+  }
+
+  /* One signed advert onto the air, turning only the sender - so the frame
+   * ends up sitting in the receiver's radio queue with nothing having looked
+   * at it yet. */
+  bool sendOneAdvert() {
+    mesh::Packet* advert = tx.createAdvert(tx.self_id, (const uint8_t*) "K230", 4);
+    if (advert == NULL) return false;
+    tx.sendFlood(advert);
+    for (int i = 0; i < 200 && radio_tx.framesSent() == 0; i++) {
+      tx.loop();
+      clock.advance(10);
+    }
+    return radio_tx.framesSent() == 1;
+  }
+};
+
+static void test_delayed_inbound_queue(void) {
+  /* ---- the immediate branch, for contrast ---- */
+  {
+    ScoredLink link(1.0f);
+    check("a clean reception: the advert reaches the air", link.sendOneAdvert());
+    check("and nothing has looked at it yet", link.rx.adverts_seen == 0);
+
+    link.rx.loop();
+    check("a packet scoring 1.0 is processed in the loop it arrives in",
+          link.rx.adverts_seen == 1);
+    check("and nothing is left holding a packet from the pool",
+          link.mgr_rx.getFreeCount() == 16);
+  }
+
+  /* ---- the delayed branch ---- */
+  ScoredLink link(0.5f);
+  check("a marginal reception: the advert reaches the air", link.sendOneAdvert());
+
+  const unsigned long t0 = link.clock.getMillis();
+  link.rx.loop();
+  check("a packet scoring 0.5 is NOT processed in the loop it arrives in",
+        link.rx.adverts_seen == 0);
+  check("it is held in the inbound queue, so the pool is one short",
+        link.mgr_rx.getFreeCount() == 15);
+
+  /* Turning the handle is not what releases it; the clock is. */
+  for (int i = 0; i < 20; i++) link.rx.loop();
+  check("more loops at the same instant do not release it",
+        link.rx.adverts_seen == 0 && link.mgr_rx.getFreeCount() == 15);
+  check("and the clock really did not move", link.clock.getMillis() == t0);
+
+  link.clock.advance(2000);
+  link.rx.loop();
+  check("once the deadline has passed getNextInbound hands it back",
+        link.rx.adverts_seen == 1);
+  check("and the packet returns to the pool", link.mgr_rx.getFreeCount() == 16);
+
+  for (int i = 0; i < 20; i++) { link.rx.loop(); link.clock.advance(100); }
+  check("a delayed advert is delivered exactly once", link.rx.adverts_seen == 1);
+  check("and the receiver put nothing back on the air", link.radio_rx.framesSent() == 0);
+}
+
 int main(void) {
   test_monotonic_clock();
   test_dispatcher_timing_across_2_32();
   test_outbound_queue_across_2_32();
   test_a_widened_32_bit_clock_would_fail();
   test_host_rng();
+  test_host_rng_fallback();
   test_rtc();
   test_logging();
   test_one_loop_with_a_fake_radio();
+  test_delayed_inbound_queue();
 
   printf("meshcore_port_test: %d check(s), %d failure(s)\n", checks, failed);
   return failed ? 1 : 0;

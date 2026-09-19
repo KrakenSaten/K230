@@ -823,9 +823,16 @@ meshcore-core:
 # The three suites plain, then the same three under the address and
 # undefined-behaviour sanitizers. Both runs end with tests/meshcore_lint.sh,
 # which is what keeps the portable boundary from quietly widening.
+#
+# Then the build-integrity check, once rather than twice: it drives its own
+# out-of-tree builds against throwaway clones of the two vendored trees, so
+# it is a nested make and belongs here rather than inside the library's own
+# `test` target. Nothing it does touches vendor/RIFT, vendor/Crypto or
+# protocols/meshcore/build.
 meshcore-core-test:
 	$(MAKE) -C protocols/meshcore test
 	$(MAKE) -C protocols/meshcore ASAN=1 test
+	bash tests/meshcore_build_deps_test.sh
 
 # The cross-compile check. The portable core has to build for the board it is
 # eventually going to run on, and riscv64 is where `unsigned long` being

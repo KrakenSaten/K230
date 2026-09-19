@@ -78,17 +78,44 @@ Left out of the boundary on purpose, all present in the upstream tree:
 | Crypto | `rweather/arduinolibs`, commit `37a76b8f7516568e1c575b6dc9268da1ccaac6b6` |
 
 Both are recorded in `vendor_rift_commit.txt` and `vendor_crypto_commit.txt`,
-checked by the Makefile before anything compiles, and checked by
-`tests/meshcore_lint.sh` to match `tools/meshcore-frame` — the tool whose
-frames passed the accepted P0 on-air gate. If the two ever diverge, that
-gate's evidence stops carrying over to this library, and the lint says so.
+and four separate things check them — because until recently the lint could
+report "pinned, clean" about a library that was neither:
+
+1. **The Makefile validates the pins before it compiles anything.** Not
+   alongside: `protocols/meshcore/build/vendor-id.stamp` is a real
+   prerequisite of every object, so under `make -j` too, nothing is compiled
+   until both checkouts have been checked.
+2. **The stamp also carries the commits actually checked out**, so moving
+   either tree to another revision rebuilds *every* object rather than the
+   few files that happen to differ. A `libmeshcore.a` holding objects from
+   two revisions of the protocol is not a thing this build can produce.
+3. **`MESHCORE_ALLOW_UNPINNED=1` is recorded, not just permitted.** It remains
+   a deliberate escape hatch for working against a different revision, but the
+   stamp then says `pinned=no` and `tests/meshcore_lint.sh` refuses to call
+   the result pinned.
+4. **`tests/meshcore_lint.sh` checks the trees on disk**, not only the text
+   files: each checkout is at its pinned commit, each compiled tree has no
+   local edits and no added files, and the two pin files match
+   `tools/meshcore-frame` — the tool whose frames passed the accepted P0
+   on-air gate. If they ever diverge, that gate's evidence stops carrying over
+   to this library, and the lint says so.
 
 **Local divergence from upstream: none.** Not one vendored file is edited,
-copied or patched. `tests/meshcore_lint.sh` checks that `vendor/RIFT/src` and
-`vendor/RIFT/lib/ed25519` are byte-identical to the pinned commit, and that
-nothing under `protocols/meshcore/` shadows a vendored filename. Everything
-the port needs is supplied from outside those trees, through the headers
-MeshCore already includes.
+copied or patched. `tests/meshcore_lint.sh` checks that `vendor/RIFT/src`,
+`vendor/RIFT/lib/ed25519` and `vendor/Crypto/libraries/Crypto` — the three
+trees this library actually compiles — are at the pinned commits with no
+local edits and nothing added, and that nothing under `protocols/meshcore/`
+shadows a vendored filename. The Crypto tree is held to the same standard as
+the protocol tree because AES-128, SHA-256, the HMAC and `Ed25519::verify` all
+come from it: an edit there changes what goes on the air as much as an edit to
+`Mesh.cpp` would. Everything the port needs is supplied from outside those
+trees, through the headers MeshCore already includes.
+
+`tests/meshcore_build_deps_test.sh` is what keeps those claims honest. It
+builds out of tree against throwaway clones and then breaks each rule in turn
+— a header changed, a tree moved off its pin, a Crypto source edited, a file
+added, `make -j` against the wrong revision — and fails if the build or the
+lint lets any of them through.
 
 The two upstream checkouts are not vendored into this repository; they are
 ignored clones, as `vendor/RadioLib` and `vendor/ggwave` are:
@@ -134,13 +161,44 @@ least 64 bits, and `tests/meshcore_port_test.cpp` demonstrates both halves:
 the real clock crossing 2^32 correctly, and a deliberately wrapping clock
 failing in exactly that way.
 
-One 32-bit window does survive, correctly: `mesh::PacketManager`'s interface is
-`uint32_t` on both sides (`queueOutbound(..., uint32_t scheduled_for)` and
-`getNextOutbound(uint32_t now)`), so deadlines are truncated going in and
-"now" is truncated the same way coming out, and `PacketQueue` compares them
-with a wrap-safe `(int32_t)(scheduled - now) > 0`. Consistent truncation plus a
-wrap-safe compare is correct for any delay under about 24.8 days. The port test
-covers that crossing too.
+### …but not every deadline in the library is
+
+Worth stating plainly, because "the clock is 64-bit" invites the conclusion
+that nothing inside can wrap, and that is not what it means. Three separate
+widths are in play:
+
+- **The platform clock is a genuine 64-bit monotonic millisecond value.**
+  `mcport::MonotonicClock` reads `CLOCK_MONOTONIC`; it does not wrap, does not
+  go backwards and is not affected by the wall clock being set.
+- **`mesh::Dispatcher`'s own long-lived deadlines are `unsigned long`**, which
+  on riscv64 and on the x86-64 host is 64 bits — `next_tx_time`,
+  `outbound_expiry`, `next_floor_calib_time`, the duty-cycle window
+  (`Dispatcher.h:120-130`), all compared through
+  `millisHasNowPassed()`. Those really do inherit the full range.
+- **`mesh::PacketManager`'s queue scheduling is `uint32_t` on both sides** and
+  is not affected by any of that. `queueOutbound(..., uint32_t scheduled_for)`,
+  `queueInbound(..., uint32_t scheduled_for)`, `getNextOutbound(uint32_t now)`
+  and `getNextInbound(uint32_t now)` all truncate, and `PacketQueue` compares
+  what is left with `(int32_t)(_schedule_table[j] - now) > 0`
+  (`StaticPoolPacketManager.cpp:16` and `:26`).
+
+That last one is **correct, not broken**: the deadline is truncated going in,
+"now" is truncated the same way coming out, and the signed difference is
+modular arithmetic that stays right across the 2^32 boundary for any interval
+under about 24.8 days. Nothing in this library comes near it: the inbound
+delay is capped at `MAX_RX_DELAY_MILLIS`, 32 seconds
+(`Dispatcher.cpp:11`), and a retransmit delay is carried in the low 24 bits
+of a `DispatcherAction` (`Dispatcher.h:108`), about 4.7 hours at the absolute
+most. The only unbounded way in is a caller passing a large `delay_millis` to
+`Mesh::sendFlood()`, `sendDirect()` or `sendZeroHop()`, and nothing here does.
+
+The point is only that a 64-bit platform clock does not remove every 32-bit
+scheduling window from the library; it removes the dispatcher's. A future
+service that queued a packet further ahead than ~24.8 days would be relying on
+a range this interface does not have, and would need to say so rather than
+assume the clock underneath it settles the matter.
+`tests/meshcore_port_test.cpp` covers the outbound queue across that boundary,
+and the delayed inbound queue on the other side of it.
 
 ## Relationship to radiod
 
@@ -167,7 +225,8 @@ From the top of the repository:
 
 ```sh
 make meshcore-core         # libmeshcore.a
-make meshcore-core-test    # the three suites, plain then sanitised, then the lint
+make meshcore-core-test    # the three suites, plain then sanitised, then the
+                           # lint, then the build-integrity check
 make meshcore-core-riscv64 CROSS=/opt/toolchain/Xuantie-900-gcc-linux-6.6.0-glibc-x86_64-V3.0.2/bin/riscv64-unknown-linux-gnu-
 ```
 
@@ -183,12 +242,14 @@ them and reached with `-isystem`, so their warnings do not drown ours.
 
 | Suite | Checks | Covers |
 | --- | --- | --- |
-| `tests/meshcore_core_test.cpp` | 100 | packet encode/decode (flood, direct with path, transport codes), `path_len` bit packing, the duplicate table, hex, UTF-8 truncation, Ed25519 sign/verify and tamper rejection, X25519 agreement, AES-128 + MAC round trip, every single-bit MAC and ciphertext corruption rejected, SHA-256 against the published vector, advert app-data |
-| `tests/meshcore_port_test.cpp` | 74 | the monotonic clock, dispatcher timing at 2^32−1 / 2^32 / 2^32+1, the outbound queue across the same boundary, the widened-32-bit failure demonstration, the host RNG including its failure path, the wall clock, the log sink, and a full mesh node running a loop with no hardware |
-| `tests/meshcore_smoke_test.cpp` | 54 | two nodes over an in-memory air: signed ADVERT both ways, forged advert rejected, flood text A→B, PATH+ACK back, a second **directed** text and its ACK, a third node that hears everything and reads nothing |
-| `tests/meshcore_lint.sh` | 13 | the boundary itself, statically: no LVGL/DRM/GPIO/RadioLib/SPI/RTOS symbol demanded, no Arduino timing call, `clock_gettime` actually used, no test hook in the shipped library, no vendored file edited or shadowed, pins matching `meshcore-frame`, nothing installed |
+| `tests/meshcore_core_test.cpp` | 103 | packet encode/decode (flood, direct with path, transport codes), `path_len` bit packing, the duplicate table, hex, UTF-8 truncation, Ed25519 sign/verify and tamper rejection, X25519 agreement, AES-128 + MAC round trip, every single-bit MAC and ciphertext corruption rejected, the zero-length seal boundary, SHA-256 against the published vector, advert app-data |
+| `tests/meshcore_port_test.cpp` | 110 | the monotonic clock, dispatcher timing at 2^32−1 / 2^32 / 2^32+1, the outbound queue across the same boundary, the widened-32-bit failure demonstration, the host RNG — both sources, the fallback, the interrupted, short and zero returns, and both failing — the wall clock, the log sink, a full mesh node running a loop with no hardware, and the delayed inbound queue |
+| `tests/meshcore_smoke_test.cpp` | 67 | two nodes over an in-memory air: signed ADVERT both ways, forged advert rejected, flood text A→B, PATH+ACK back, a second **directed** text and its ACK, and a third node that has heard the adverts, holds real contact keys for both, captures the directed frame off the air and still cannot open it |
+| `tests/meshcore_lint.sh` | 19 | the boundary itself, statically: no LVGL/DRM/GPIO/RadioLib/SPI/RTOS symbol demanded, no Arduino timing call, `clock_gettime` actually used, no test hook in the shipped library, no vendored file edited, added or shadowed **in either tree**, both checkouts at their pinned commits, the build not having bypassed the pin, pins matching `meshcore-frame`, nothing installed |
+| `tests/meshcore_build_deps_test.sh` | 35 | the build itself, by building: vendored headers reaching the dependency files across both trees, a changed header rebuilding what included it, a moved checkout rebuilding everything, `make -j` compiling nothing before the pins are validated, and the lint failing on each vendor mutation in turn |
 
-All four run twice, plain and under ASan + UBSan. Every test uses the real
+The first four run twice, plain and under ASan + UBSan; the build-integrity
+one runs once, since it drives its own builds. Every test uses the real
 crypto; there is no mock AES or mock SHA-256 anywhere. That is a deliberate
 departure from upstream's own native test environment, which builds with
 `-I test/mocks` where `AES128::encryptBlock()` has an empty body and `SHA256`

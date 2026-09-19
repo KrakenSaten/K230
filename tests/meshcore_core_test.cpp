@@ -583,10 +583,41 @@ static void test_cipher_and_mac(void) {
   check("a truncated ciphertext is refused",
         mesh::Utils::MACThenDecrypt(secret, opened, sealed, sealed_len - CIPHER_BLOCK_SIZE) == 0);
 
-  /* An empty plaintext still produces a sealed blob that opens. */
+  /* ---- the empty plaintext ----
+   *
+   * This asserted rejection under the name "an empty plaintext seals and
+   * opens", which contradicted both itself and the truncation cases above.
+   * The assertion was the right one; the name was not.
+   *
+   * Upstream's behaviour, from vendor/RIFT/src/Utils.cpp: encryptThenMAC()
+   * of zero bytes produces no cipher block at all, so the sealed blob is
+   * exactly the two-byte MAC (line 154, CIPHER_MAC_SIZE + enc_len) - and
+   * MACThenDecrypt() opens with `if (src_len <= CIPHER_MAC_SIZE) return 0`
+   * (line 158). An empty plaintext therefore seals to something that can
+   * never be opened. That is a round trip MeshCore does not have, not a
+   * round trip this test was failing to observe, so the name is corrected
+   * rather than the behaviour: an empty message is not a thing the protocol
+   * carries, and MACThenDecrypt returning 0 is indistinguishable from a bad
+   * MAC either way.
+   *
+   * The one-byte case below is the contrast that makes that a boundary
+   * rather than a bug: one byte of plaintext seals to a MAC plus a whole
+   * block, and opens. */
   int e_len = mesh::Utils::encryptThenMAC(secret, sealed, (const uint8_t*) "", 0);
-  check("an empty plaintext seals and opens",
-        e_len == CIPHER_MAC_SIZE && mesh::Utils::MACThenDecrypt(secret, opened, sealed, e_len) == 0);
+  check("an empty plaintext seals to a bare MAC, with no cipher block",
+        e_len == CIPHER_MAC_SIZE);
+  check("and that blob cannot be opened - MACThenDecrypt refuses a MAC-only input",
+        mesh::Utils::MACThenDecrypt(secret, opened, sealed, e_len) == 0);
+
+  uint8_t one_sealed[MAX_PACKET_PAYLOAD];
+  const uint8_t one_byte = 0x42;
+  int one_len = mesh::Utils::encryptThenMAC(secret, one_sealed, &one_byte, 1);
+  check("one byte of plaintext seals to a MAC plus one whole block",
+        one_len == CIPHER_MAC_SIZE + CIPHER_BLOCK_SIZE);
+  memset(opened, 0, sizeof(opened));
+  int one_opened = mesh::Utils::MACThenDecrypt(secret, opened, one_sealed, one_len);
+  check("and it opens, so the refusal above is the zero-length boundary and not a broken MAC",
+        one_opened == CIPHER_BLOCK_SIZE && opened[0] == one_byte);
 }
 
 /* ---- 9. SHA-256 --------------------------------------------------------- */

@@ -18,7 +18,14 @@ check() {
     if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi
 }
 
-LIB="$LIB_DIR/libmeshcore.a"
+# Which trees and which build were checked. The defaults are what
+# `make meshcore-core-test` uses; tests/meshcore_build_deps_test.sh overrides
+# them to point this script at throwaway clones, which is how the negative
+# cases below are exercised without touching the real vendored checkouts.
+RIFT_DIR="${MESHCORE_RIFT_DIR:-vendor/RIFT}"
+CRYPTO_REPO="${MESHCORE_CRYPTO_REPO:-vendor/Crypto}"
+LIB="${MESHCORE_LIB:-$LIB_DIR/libmeshcore.a}"
+BUILD_STAMP="${MESHCORE_BUILD_STAMP:-$LIB_DIR/build/vendor-id.stamp}"
 if [ ! -f "$LIB" ]; then
     echo "NOT RUN meshcore_lint: $LIB has not been built."
     echo "        Build it with 'make meshcore-core' from the top of the repository."
@@ -56,7 +63,11 @@ check "the library uses clock_gettime for its clock" \
 # MC_RNG_TEST_HOOKS into the test binaries. The same arrangement sysd, netd
 # and pos-wave use. If the hook ever reached the library, a caller could
 # switch the CSPRNG off.
-hook=$(nm --defined-only --format=posix "$LIB" 2>/dev/null | grep -c 'randomForceFailureForTest' || true)
+# Every one of them, not just the first: port/mc_rng.cpp now carries several
+# seams (force a failure, make getrandom behave as an older kernel, point the
+# fallback somewhere else, count which source served the bytes), and a check
+# that names only one of them would pass while the others shipped.
+hook=$(nm --defined-only --format=posix "$LIB" 2>/dev/null | grep -c 'ForTest' || true)
 check "the shipped library contains no RNG test hook" "$([ "$hook" = "0" ] && echo 1 || echo 0)"
 
 # And the hook is compiled out by default, not merely unused.
@@ -82,11 +93,12 @@ check "the port includes no display, radio driver or RTOS header" \
 # a vendored source, because a copy is an edit nobody will notice.
 copies=$(find $LIB_DIR -name '*.cpp' -o -name '*.h' | while read -r f; do
     base=$(basename "$f")
-    if [ -f "vendor/RIFT/src/$base" ] || [ -f "vendor/RIFT/src/helpers/$base" ]; then
+    if [ -f "$RIFT_DIR/src/$base" ] || [ -f "$RIFT_DIR/src/helpers/$base" ] \
+       || [ -f "$CRYPTO_REPO/libraries/Crypto/$base" ]; then
         echo "$f shadows a vendored source of the same name"
     fi
 done)
-check "no file here shadows a vendored MeshCore source" \
+check "no file here shadows a vendored MeshCore or Crypto source" \
       "$([ -z "$copies" ] && echo 1 || echo 0)"
 [ -n "$copies" ] && printf '     %s\n' "$copies"
 
@@ -104,32 +116,92 @@ check "no file here shadows a vendored MeshCore source" \
 # blobs and calls all 909 files modified. Neither answer is a signal.
 # Ignoring the carriage return compares what the compiler will actually read,
 # and gives the same verdict from either side.
-if git -C vendor/RIFT rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    edited=$(git -C vendor/RIFT diff --numstat --ignore-cr-at-eol HEAD -- src lib/ed25519 2>/dev/null \
+# Both trees, to the same standard. vendor/Crypto is not "the support
+# library": AES-128, SHA-256, the HMAC and Ed25519::verify all come from it,
+# so an edit there changes what this library puts on the air exactly as much
+# as an edit to Mesh.cpp would. Checking only RIFT, as this did, left half of
+# the compiled bytes unchecked.
+#
+# The paths after each repository are the ones this library actually
+# compiles, not the whole clone: an edit outside them cannot reach
+# libmeshcore.a, and flagging it would be noise.
+check_tree_clean() {
+    label=$1; repo=$2; shift 2
+    if ! git -C "$repo" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "skip $label edit check: $repo is not a git work tree"
+        return
+    fi
+    edited=$(git -C "$repo" diff --numstat --ignore-cr-at-eol HEAD -- "$@" 2>/dev/null \
              | awk '$1 != 0 || $2 != 0 { print $3 }')
-    check "the vendored MeshCore protocol source has no local edits" \
+    check "the vendored $label source has no local edits" \
           "$([ -z "$edited" ] && echo 1 || echo 0)"
     [ -n "$edited" ] && printf '     edited: %s\n' "$edited"
 
-    added=$(git -C vendor/RIFT ls-files --others --exclude-standard -- src lib/ed25519 2>/dev/null)
-    check "nothing has been added to the vendored protocol source" \
+    added=$(git -C "$repo" ls-files --others --exclude-standard -- "$@" 2>/dev/null)
+    check "nothing has been added to the vendored $label source" \
           "$([ -z "$added" ] && echo 1 || echo 0)"
     [ -n "$added" ] && printf '     added: %s\n' "$added"
-else
-    echo "skip vendored-checkout edit check: vendor/RIFT is not a git work tree"
-fi
+}
 
-# ---- 5. the pins are the ones the frame tool already proved on air --------
-# tools/meshcore-frame built the frames that passed the accepted P0 gate
-# (docs/hardware/MESHCORE_INTEROP_GATE.md). If this library were built from a
-# different revision of the protocol, that evidence would no longer carry
-# over to it, and nothing would say so.
+check_tree_clean "MeshCore protocol" "$RIFT_DIR" src lib/ed25519
+check_tree_clean "Crypto" "$CRYPTO_REPO" libraries/Crypto
+
+# ---- 5. the pins ---------------------------------------------------------
+#
+# Three separate claims, and the lint used to make only the weakest of them.
+#
+# a) The pin files agree with tools/meshcore-frame. That tool built the
+#    frames that passed the accepted P0 on-air gate
+#    (docs/hardware/MESHCORE_INTEROP_GATE.md); if this library were built
+#    from a different revision, that evidence would stop carrying over.
+#
+# b) The trees on disk are ACTUALLY AT the pinned commits. Checking only (a)
+#    compared one text file against another and said nothing at all about the
+#    source the compiler read - vendor/RIFT could be at any revision and this
+#    script would still have printed "ok".
+#
+# c) The build that produced $LIB honoured the pin. MESHCORE_ALLOW_UNPINNED=1
+#    is a deliberate escape hatch, but a library built through it must not be
+#    reported as pinned; the build stamp is what tells the two apart.
 for f in vendor_rift_commit.txt vendor_crypto_commit.txt; do
     a=$(tr -d ' \t\r\n' < "$LIB_DIR/$f" 2>/dev/null)
     b=$(tr -d ' \t\r\n' < "tools/meshcore-frame/$f" 2>/dev/null)
     check "$f matches tools/meshcore-frame" \
           "$([ -n "$a" ] && [ "$a" = "$b" ] && echo 1 || echo 0)"
 done
+
+RIFT_PIN=$(tr -d ' \t\r\n' < "$LIB_DIR/vendor_rift_commit.txt" 2>/dev/null)
+CRYPTO_PIN=$(tr -d ' \t\r\n' < "$LIB_DIR/vendor_crypto_commit.txt" 2>/dev/null)
+
+check_tree_pinned() {
+    label=$1; repo=$2; pin=$3
+    head=$(git -C "$repo" rev-parse HEAD 2>/dev/null | tr -d ' \t\r\n')
+    check "$label is checked out at the pinned commit" \
+          "$([ -n "$pin" ] && [ "$head" = "$pin" ] && echo 1 || echo 0)"
+    [ "$head" != "$pin" ] && printf '     %s is at %s, pinned at %s\n' \
+        "$repo" "${head:-an unreadable commit}" "${pin:-nothing}"
+}
+
+check_tree_pinned "the MeshCore protocol source" "$RIFT_DIR" "$RIFT_PIN"
+check_tree_pinned "the Crypto source" "$CRYPTO_REPO" "$CRYPTO_PIN"
+
+# And what the build itself recorded. protocols/meshcore/Makefile writes this
+# stamp before it compiles anything; `pinned=no` means MESHCORE_ALLOW_UNPINNED
+# was used to build against whatever happened to be checked out.
+if [ -f "$BUILD_STAMP" ]; then
+    stamp_pinned=$(sed -n 's/^pinned=//p' "$BUILD_STAMP" | tr -d ' \t\r\n')
+    stamp_rift=$(sed -n 's/^rift_head=//p' "$BUILD_STAMP" | tr -d ' \t\r\n')
+    stamp_crypto=$(sed -n 's/^crypto_head=//p' "$BUILD_STAMP" | tr -d ' \t\r\n')
+    check "the build did not bypass the pin with MESHCORE_ALLOW_UNPINNED" \
+          "$([ "$stamp_pinned" = "yes" ] && echo 1 || echo 0)"
+    [ "$stamp_pinned" != "yes" ] && printf '     %s says pinned=%s\n' \
+        "$BUILD_STAMP" "${stamp_pinned:-unrecorded}"
+    check "the library was built from the commits checked out now" \
+          "$([ "$stamp_rift" = "$RIFT_PIN" ] && [ "$stamp_crypto" = "$CRYPTO_PIN" ] && echo 1 || echo 0)"
+else
+    check "the build recorded which commits it compiled" 0
+    printf '     %s is missing - rebuild with `make meshcore-core`\n' "$BUILD_STAMP"
+fi
 
 # ---- 6. the library builds nothing into an image --------------------------
 # Nothing here is installed yet, and the top-level Makefile must not have

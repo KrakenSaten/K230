@@ -72,8 +72,18 @@ INCLUDES   := -Iport -Icompat -Itest_support \
               -isystem $(CRYPTO_DIR)
 DEFINES    := -DMESHCORE_RIFT_COMMIT=\"$(RIFT_COMMIT)\" \
               -DMESHCORE_CRYPTO_COMMIT=\"$(CRYPTO_COMMIT)\"
-ALL_CXXFLAGS := $(CXXFLAGS) -std=gnu++17 $(SAN_FLAGS) $(INCLUDES) $(DEFINES) -MMD -MP
-ALL_CFLAGS   := $(CXXFLAGS) -std=gnu11 $(SAN_FLAGS) $(INCLUDES) -MMD -MP
+# -MD, not -MMD. The difference is the one that matters here: -MMD leaves
+# system headers out of the dependency files, and every vendored MeshCore and
+# Crypto header IS a system header to this build, because -isystem is how
+# they are reached (above). With -MMD, editing vendor/RIFT/src/Mesh.h - or
+# checking the tree out at a revision where it differs - left every object
+# that includes it alone, and the next `make` linked a stale one into
+# libmeshcore.a without a word. -MD lists them all. The cost is that the .d
+# files also name libc's headers, which is noise; the benefit is that a
+# header this library actually compiles against cannot change unnoticed.
+# tests/meshcore_build_deps_test.sh is the regression check.
+ALL_CXXFLAGS := $(CXXFLAGS) -std=gnu++17 $(SAN_FLAGS) $(INCLUDES) $(DEFINES) -MD -MP
+ALL_CFLAGS   := $(CXXFLAGS) -std=gnu11 $(SAN_FLAGS) $(INCLUDES) -MD -MP
 
 # ---- what is compiled from the vendored trees -----------------------------
 # The MeshCore protocol runtime and nothing else: framing, crypto, identity,
@@ -130,15 +140,45 @@ TESTS      := $(addprefix $(REPO)/tests/,$(addsuffix $(SUFFIX),$(TEST_NAMES)))
 vpath %.cpp port compat $(RIFT_DIR)/src $(RIFT_DIR)/src/helpers $(CRYPTO_DIR) $(REPO)/tests
 vpath %.c $(RIFT_DIR)/lib/ed25519
 
-.PHONY: all test check-vendor clean
+.PHONY: all test check-vendor clean FORCE
 
 all: check-vendor $(LIB)
 
-# The pinned checkouts, checked before anything is compiled. A protocol
-# implementation is only as faithful as the source it was taken from, and
-# README.md records which revision that was; this is what keeps the record
-# true.
-check-vendor:
+# ---- the vendor identity stamp -------------------------------------------
+#
+# One small file that does three jobs the build used to do badly or not at
+# all.
+#
+# 1. It GATES compilation. `all: check-vendor $(LIB)` only orders the check
+#    before the library under a serial make; under `make -j` the two start
+#    together and a build against an unpinned tree can be most of the way
+#    done before the check fails. Every object below has this stamp as a real
+#    prerequisite, and its recipe is what validates the pins, so make cannot
+#    compile anything until the validation has passed - in any -j order.
+#
+# 2. It INVALIDATES the objects when the source's identity changes. The pin
+#    files and the commit each tree is checked out at are written into it. A
+#    pin edit or a `git checkout` in either tree therefore rewrites the stamp
+#    and rebuilds every object, so libmeshcore.a cannot end up holding
+#    objects compiled from two different revisions. (Individual file changes
+#    are caught by the dependency files; this is for the whole-tree move,
+#    which no .d can see.)
+#
+# 3. It RECORDS whether the pin was honoured. MESHCORE_ALLOW_UNPINNED=1
+#    remains a deliberate escape hatch, but the build it produces is no
+#    longer indistinguishable from a pinned one: the stamp says
+#    `pinned=no`, and tests/meshcore_lint.sh refuses to call such a library
+#    pinned.
+#
+# The recipe rewrites the file only when its content changes, which is why a
+# FORCE prerequisite here does not mean recompiling on every make.
+VENDOR_ID := $(OBJDIR)/vendor-id.stamp
+
+FORCE:
+
+check-vendor: $(VENDOR_ID)
+
+$(VENDOR_ID): FORCE | $(OBJDIR)
 	@missing=0; \
 	for d in "$(RIFT_DIR)" "$(CRYPTO_DIR)"; do \
 	    [ -d "$$d" ] || { echo "ERROR: $$d is missing."; missing=1; }; \
@@ -150,20 +190,28 @@ check-vendor:
 	    echo "         git clone https://github.com/rweather/arduinolibs.git vendor/Crypto"; \
 	    echo "         git -C vendor/Crypto checkout $(CRYPTO_COMMIT)"; \
 	    exit 1; \
-	fi
-	@rift=$$(git -C "$(RIFT_DIR)" rev-parse HEAD 2>/dev/null); \
-	 crypto=$$(git -C "$(CRYPTO_REPO)" rev-parse HEAD 2>/dev/null); \
-	 bad=0; \
-	 [ "$$rift" = "$(RIFT_COMMIT)" ] || { echo "ERROR: vendor/RIFT is at $${rift:-an unreadable commit}, pinned at $(RIFT_COMMIT)"; bad=1; }; \
-	 [ "$$crypto" = "$(CRYPTO_COMMIT)" ] || { echo "ERROR: vendor/Crypto is at $${crypto:-an unreadable commit}, pinned at $(CRYPTO_COMMIT)"; bad=1; }; \
-	 if [ $$bad = 1 ]; then \
+	fi; \
+	rift=$$(git -C "$(RIFT_DIR)" rev-parse HEAD 2>/dev/null); \
+	crypto=$$(git -C "$(CRYPTO_REPO)" rev-parse HEAD 2>/dev/null); \
+	bad=0; \
+	[ "$$rift" = "$(RIFT_COMMIT)" ] || { echo "ERROR: vendor/RIFT is at $${rift:-an unreadable commit}, pinned at $(RIFT_COMMIT)"; bad=1; }; \
+	[ "$$crypto" = "$(CRYPTO_COMMIT)" ] || { echo "ERROR: vendor/Crypto is at $${crypto:-an unreadable commit}, pinned at $(CRYPTO_COMMIT)"; bad=1; }; \
+	pinned=yes; \
+	if [ $$bad = 1 ]; then \
 	    echo "       What goes on the air is decided by the protocol source this was"; \
 	    echo "       built from, so the pin is not advisory. Check the trees out at the"; \
 	    echo "       commits above, or set MESHCORE_ALLOW_UNPINNED=1 to build against"; \
 	    echo "       whatever is there."; \
 	    [ "$(MESHCORE_ALLOW_UNPINNED)" = "1" ] || exit 1; \
 	    echo "       MESHCORE_ALLOW_UNPINNED=1 set: building unpinned."; \
-	 fi
+	    pinned=no; \
+	fi; \
+	{ echo "rift_pin=$(RIFT_COMMIT)"; \
+	  echo "crypto_pin=$(CRYPTO_COMMIT)"; \
+	  echo "rift_head=$${rift:-unknown}"; \
+	  echo "crypto_head=$${crypto:-unknown}"; \
+	  echo "pinned=$$pinned"; } > $@.new; \
+	if cmp -s $@.new $@ 2>/dev/null; then rm -f $@.new; else mv -f $@.new $@; fi
 
 $(OBJDIR):
 	@mkdir -p $(OBJDIR)
@@ -194,6 +242,16 @@ $(OBJDIR)/ed25519_%.o: %.c | $(OBJDIR)
 $(HOOK_OBJ): port/mc_rng.cpp | $(OBJDIR)
 	$(CXX) $(ALL_CXXFLAGS) $(WARN_FLAGS) -DMC_RNG_TEST_HOOKS=1 -c -o $@ $<
 
+# Nothing compiles before the pins have been validated, and everything is
+# recompiled when the identity of either vendored tree changes. Both of those
+# are this one line; see $(VENDOR_ID) above for why.
+#
+# It comes after the rules above, not before them: prerequisites named in a
+# second rule are appended to the ones already there, and $(HOOK_OBJ) is
+# built by an explicit rule whose $< must stay port/mc_rng.cpp. (The pattern
+# rules are safe either way - $< is the prerequisite the pattern supplied.)
+$(LIB_OBJS) $(HOOK_OBJ) $(TEST_OBJS): $(VENDOR_ID)
+
 # The test binaries link the hooked mc_rng.o in place of the shipped one, so
 # what they exercise is otherwise object-for-object what a service would get.
 TEST_LIB_OBJS := $(HOOK_OBJ) $(filter-out $(OBJDIR)/mc_rng.o,$(LIB_OBJS))
@@ -215,7 +273,9 @@ LSAN_OPTS := suppressions=$(CURDIR)/lsan.supp
 
 test: all $(TESTS)
 	@set -e; for t in $(TESTS); do echo "--- $$t"; LSAN_OPTIONS=$(LSAN_OPTS) $$t; done
-	bash $(REPO)/tests/meshcore_lint.sh
+	MESHCORE_RIFT_DIR="$(abspath $(RIFT_DIR))" \
+	MESHCORE_CRYPTO_REPO="$(abspath $(CRYPTO_REPO))" \
+	    bash $(REPO)/tests/meshcore_lint.sh
 
 -include $(wildcard $(OBJDIR)/*.d)
 

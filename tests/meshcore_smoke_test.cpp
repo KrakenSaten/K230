@@ -223,22 +223,65 @@ struct World {
   TestNode a;
   TestNode b;
 
+  /* A third node on the same air, when one exists. It is turned with the
+   * other two rather than only during its own test, because what makes it a
+   * useful eavesdropper is that it was listening from the beginning - see
+   * Stranger below. */
+  TestNode* eavesdropper;
+
   World()
       : rtc_a(1789000000u), rtc_b(1789000000u),
         radio_a(air), radio_b(air),
         mgr_a(32), mgr_b(32),
         a("A", radio_a, clock, rng, rtc_a, mgr_a, tables_a),
-        b("B", radio_b, clock, rng, rtc_b, mgr_b, tables_b) { }
+        b("B", radio_b, clock, rng, rtc_b, mgr_b, tables_b),
+        eavesdropper(NULL) { }
 
-  /* Turn both handles, advancing the shared clock. 25 ms a step is fine
+  /* Turn every handle, advancing the shared clock. 25 ms a step is fine
    * grained enough for the 200 ms ACK delay to be observed rather than
    * skipped over. */
   void pump(int steps) {
     for (int i = 0; i < steps; i++) {
       a.loop();
       b.loop();
+      if (eavesdropper) eavesdropper->loop();
       clock.advance(25);
     }
+  }
+};
+
+/* ---- the third node -----------------------------------------------------
+ *
+ * Node C exists before either of the other two has said anything, so it
+ * hears both adverts and ends up holding REAL contact material for A and for
+ * B: genuine X25519 agreements, computed by the shipped implementation from
+ * the public keys that were actually broadcast. They are simply not the
+ * secret A and B share.
+ *
+ * The ordering is the whole point. Built after the adverts had crossed, as
+ * this node used to be, C had an empty contact table - so "node C read
+ * nothing" was a statement about its bookkeeping, not about the crypto: the
+ * packet was rejected on the destination hash before any key was consulted.
+ * Listening from the start, C has everything an eavesdropper on that air
+ * could have, and the exclusion has to hold anyway.
+ *
+ * It never transmits: mesh::Mesh::allowPacketForward() returns false by
+ * default (vendor/RIFT/src/Mesh.cpp:14), so a node that is not a repeater
+ * hears everything and puts nothing back. That is why C can sit through the
+ * two tests before its own without changing what either of them observes.
+ */
+struct Stranger {
+  mctest::FakeRadio radio;
+  StaticPoolPacketManager mgr;
+  SimpleMeshTables tables;
+  mctest::TestRTCClock rtc;
+  TestNode node;
+
+  explicit Stranger(World& w)
+      : radio(w.air), mgr(16), rtc(1789000000u),
+        node("C", radio, w.clock, w.rng, rtc, mgr, tables) {
+    node.self_id = mesh::LocalIdentity(&w.rng);
+    node.begin();
   }
 };
 
@@ -307,6 +350,18 @@ static void test_advert_exchange(World& w) {
 
 /* ---- 2. a directed text message, and the ACK back ----------------------- */
 
+/* The comparison the second ACK is judged by, given a name of its own.
+ *
+ * It used to be written inline as `ack2 != 0 && ack2 != w.a.expected_ack - 1`
+ * - and by the time that line ran, expected_ack had already been assigned
+ * ack2, so what it actually asked was `ack2 != ack2 - 1`: true for every
+ * value a uint32_t can hold, including the one value it was meant to catch.
+ * Pulling it out here is what lets the test below also assert what it
+ * REJECTS, so the assertion cannot quietly become a tautology again. */
+static bool ackIsDistinctFrom(uint32_t ack, uint32_t previous) {
+  return ack != 0 && ack != previous;
+}
+
 static void test_text_and_ack(World& w) {
   ContactInfo* b_contact = w.a.contactByName("K230-B");
   check("node A still knows node B", b_contact != NULL);
@@ -349,6 +404,7 @@ static void test_text_and_ack(World& w) {
    * the ACK comes back as a bare ACK packet rather than inside a PATH. */
   if (b_contact) {
     const char* second = "and a second one, directed";
+    const uint32_t first_ack = ack;   /* what the flood message expected back */
     uint32_t ack2 = 0, timeout2 = 0;
     w.rtc_a.setCurrentTime(w.rtc_a.getCurrentTime() + 1);
 
@@ -357,7 +413,15 @@ static void test_text_and_ack(World& w) {
     w.a.awaiting_ack = true;
 
     check("the second message is sent DIRECT", rc2 == MSG_SEND_SENT_DIRECT);
-    check("it has its own expected ACK", ack2 != 0 && ack2 != w.a.expected_ack - 1);
+    check("its expected ACK is not the first message's",
+          ackIsDistinctFrom(ack2, first_ack));
+
+    /* The negative half: the same comparison, given the value it exists to
+     * reject. Without these two, an assertion that had silently started
+     * comparing a value with itself would keep printing ok for ever. */
+    check("and the comparison does reject a repeat of the same ACK",
+          !ackIsDistinctFrom(ack2, ack2));
+    check("and rejects a zero ACK", !ackIsDistinctFrom(0, first_ack));
 
     w.pump(60);
 
@@ -373,19 +437,57 @@ static void test_text_and_ack(World& w) {
   check("node B's packet pool is whole", w.mgr_b.getFreeCount() == 32);
 }
 
-/* ---- 3. a third party cannot read or forge ------------------------------ */
+/* ---- 3. a third party cannot read or forge ------------------------------
+ *
+ * Node C has been on the air since before the first advert (see Stranger),
+ * so by the time this runs it holds real contact entries for both other
+ * nodes and a real X25519 agreement with each. It then hears the directed
+ * message A sends to B.
+ *
+ * Two things are asserted, and the second is the one that matters. The node
+ * reads nothing - but that alone could be bookkeeping, since MeshCore
+ * rejects a datagram on the destination hash (Mesh.cpp:147) before it
+ * consults any key. So the ciphertext that was really on the air is also
+ * taken apart by hand and offered to MACThenDecrypt twice: once with the
+ * secret node B legitimately holds, which opens it, and once with the
+ * genuine secret node C holds for node A, which does not. The positive half
+ * is what makes the negative half mean something - it proves the bytes and
+ * the offsets are right, so "C cannot open it" is about the key and not
+ * about the test looking in the wrong place.
+ */
+static void test_a_stranger_is_excluded(World& w, Stranger& s) {
+  TestNode& c = s.node;
+  mctest::FakeRadio& radio_c = s.radio;
 
-static void test_a_stranger_is_excluded(World& w) {
-  /* A node C on the same air, which the other two have never heard of. It
-   * hears every frame - the fake air is a broadcast medium - and must not be
-   * able to read a message addressed to B. */
-  mctest::FakeRadio radio_c(w.air);
-  StaticPoolPacketManager mgr_c(16);
-  SimpleMeshTables tables_c;
-  mctest::TestRTCClock rtc_c(1789000000u);
-  TestNode c("C", radio_c, w.clock, w.rng, rtc_c, mgr_c, tables_c);
-  c.self_id = mesh::LocalIdentity(&w.rng);
-  c.begin();
+  check("three radios are on the air while node C exists", w.air.attachedCount() == 3);
+  check("node C was listening before the adverts, and heard both",
+        c.contacts_discovered == 2);
+
+  ContactInfo* c_sees_a = c.contactByName("K230-A");
+  check("node C has node A in its contact table", c_sees_a != NULL);
+  if (c_sees_a == NULL) return;
+
+  check("and it carries node A's real public key",
+        memcmp(c_sees_a->id.pub_key, w.a.self_id.pub_key, PUB_KEY_SIZE) == 0);
+
+  /* Taken now, and copied: contactByName() returns a pointer into one
+   * per-node slot that the next lookup overwrites. */
+  uint8_t c_secret_for_a[PUB_KEY_SIZE];
+  memcpy(c_secret_for_a, c_sees_a->getSharedSecret(c.self_id), PUB_KEY_SIZE);
+
+  check("node C has node B in its contact table too", c.contactByName("K230-B") != NULL);
+
+  ContactInfo* b_sees_a = w.b.contactByName("K230-A");
+  check("node B still knows node A", b_sees_a != NULL);
+  if (b_sees_a == NULL) return;
+  uint8_t b_secret_for_a[PUB_KEY_SIZE];
+  memcpy(b_secret_for_a, b_sees_a->getSharedSecret(w.b.self_id), PUB_KEY_SIZE);
+
+  bool c_secret_is_set = false;
+  for (int i = 0; i < PUB_KEY_SIZE; i++) if (c_secret_for_a[i] != 0) c_secret_is_set = true;
+  check("node C's agreement with node A is a real key, not an empty one", c_secret_is_set);
+  check("and it is not the secret node A and node B share",
+        memcmp(c_secret_for_a, b_secret_for_a, PUB_KEY_SIZE) != 0);
 
   ContactInfo* b_contact = w.a.contactByName("K230-B");
   if (b_contact == NULL) { check("node A still knows node B", false); return; }
@@ -396,18 +498,57 @@ static void test_a_stranger_is_excluded(World& w) {
   w.a.expected_ack = ack;
   w.a.awaiting_ack = true;
 
+  /* The first TXT_MSG frame node C's radio hears, kept before node B's reply
+   * overwrites it. These are the bytes that were on the air, not a
+   * re-encoding of them: what a receiver in range would have captured. */
+  uint8_t heard_raw[MAX_TRANS_UNIT];
+  int heard_len = 0;
   int b_before = w.b.messages_received;
+  radio_c.forgetLastHeard();
+
   for (int i = 0; i < 60; i++) {
-    w.a.loop(); w.b.loop(); c.loop();
+    w.a.loop();
+    /* Snapshotted here rather than at the end of the step: node A is the
+     * only node that sends a TXT_MSG in this test, and node B's reply would
+     * otherwise overwrite the copy before it was taken. */
+    if (heard_len == 0 && radio_c.lastHeardLen() > 0) {
+      mesh::Packet seen;
+      if (seen.readFrom(radio_c.lastHeard(), (uint8_t) radio_c.lastHeardLen())
+          && seen.getPayloadType() == PAYLOAD_TYPE_TXT_MSG) {
+        heard_len = radio_c.lastHeardLen();
+        memcpy(heard_raw, radio_c.lastHeard(), (size_t) heard_len);
+      }
+    }
+    w.b.loop();
+    c.loop();
     w.clock.advance(25);
   }
 
   check("node B read the message", w.b.messages_received == b_before + 1);
-  check("node C heard the frame but read nothing", c.messages_received == 0);
-  check("node C did not acquire a contact from a message it cannot decrypt",
-        c.contacts_discovered == 0);
-  check("node C's pool is whole", mgr_c.getFreeCount() == 16);
-  check("three radios are on the air while node C exists", w.air.attachedCount() == 3);
+  check("node C's radio captured the directed frame off the air", heard_len > 0);
+  if (heard_len == 0) return;
+
+  /* dest hash, src hash, then MAC + ciphertext - Mesh::createDatagram(),
+   * Mesh.cpp:502-505. */
+  mesh::Packet heard;
+  check("the captured frame parses as a text-message datagram",
+        heard.readFrom(heard_raw, (uint8_t) heard_len)
+        && heard.getPayloadType() == PAYLOAD_TYPE_TXT_MSG
+        && heard.payload_len > 2 + CIPHER_MAC_SIZE);
+
+  const uint8_t* sealed = &heard.payload[2];
+  const int sealed_len = (int) heard.payload_len - 2;
+  uint8_t opened[MAX_PACKET_PAYLOAD];
+
+  check("node B's secret opens those exact captured bytes",
+        mesh::Utils::MACThenDecrypt(b_secret_for_a, opened, sealed, sealed_len) > 0);
+  check("node C's real - but wrong - secret for node A does not",
+        mesh::Utils::MACThenDecrypt(c_secret_for_a, opened, sealed, sealed_len) == 0);
+
+  check("node C's node consumed nothing", c.messages_received == 0);
+  check("and learned no new contact from traffic it cannot read",
+        c.contacts_discovered == 2);
+  check("node C's pool is whole", s.mgr.getFreeCount() == 16);
 }
 
 /* Node C's radio was built on this function's stack. Once it has returned,
@@ -523,9 +664,20 @@ static void test_debt_path_extra_len_underflow(World& w) {
 int main(void) {
   World w;
 
-  test_advert_exchange(w);
-  test_text_and_ack(w);
-  test_a_stranger_is_excluded(w);
+  /* Node C is on the air for the first three tests - from before the adverts
+   * cross - and gone for the last two, which is what
+   * test_a_departed_node_leaves_the_air checks. */
+  {
+    Stranger c(w);
+    w.eavesdropper = &c.node;
+
+    test_advert_exchange(w);
+    test_text_and_ack(w);
+    test_a_stranger_is_excluded(w, c);
+
+    w.eavesdropper = NULL;
+  }
+
   test_a_departed_node_leaves_the_air(w);
   test_debt_path_extra_len_underflow(w);
 

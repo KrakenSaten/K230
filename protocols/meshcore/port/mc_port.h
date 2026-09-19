@@ -114,10 +114,40 @@ public:
 };
 
 #ifdef MC_RNG_TEST_HOOKS
-/* Present only in the test build of port/mc_rng.cpp (see its comment). Makes
- * the next randomBytes() call fail, so the failure path can be exercised
- * without a kernel that refuses to produce entropy. */
+/* Present only in the test build of port/mc_rng.cpp (see its comment), and
+ * checked out of the shipped library by tests/meshcore_lint.sh.
+ *
+ * randomBytes() has two sources and four outcomes, and on every machine this
+ * is built on the first source always succeeds - so without these seams the
+ * /dev/urandom fallback, and the handling around it, would never once have
+ * been executed. They inject at the point the syscall returns; everything
+ * after that is the shipped code taking its real path.
+ */
+
+/* Makes the whole of randomBytes() fail, before either source is consulted:
+ * the outer contract a caller sees when the host has nothing to give. */
 void randomForceFailureForTest(bool on);
+
+/* What the getrandom(2) seam does. MC_GETRANDOM_NORMAL is the real syscall. */
+enum GetrandomFaultForTest {
+  MC_GETRANDOM_NORMAL = 0,
+  MC_GETRANDOM_UNAVAILABLE,  /* every call fails ENOSYS - an old kernel or a sandbox */
+  MC_GETRANDOM_EINTR_ONCE,   /* one EINTR, then the real syscall */
+  MC_GETRANDOM_SHORT,        /* the real syscall, one byte at a time */
+  MC_GETRANDOM_ZERO          /* returns 0 for a non-zero request */
+};
+void randomSetGetrandomFaultForTest(int fault);
+
+/* Where the fallback opens. NULL restores "/dev/urandom". A path that cannot
+ * be opened is the "both sources are gone" case; /dev/null is the "it opens
+ * and yields nothing" case. */
+void randomSetUrandomPathForTest(const char* path);
+
+/* How many bytes each source actually supplied since the last reset, so a
+ * test can prove WHICH mechanism served a request rather than assume it. */
+void randomResetCountersForTest(void);
+size_t randomBytesFromGetrandomForTest(void);
+size_t randomBytesFromUrandomForTest(void);
 #endif
 
 /* ---- logging ------------------------------------------------------------

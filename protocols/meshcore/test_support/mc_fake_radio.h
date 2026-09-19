@@ -113,9 +113,12 @@ class FakeRadio : public mesh::Radio {
 public:
   static const int MAX_QUEUED = 16;
 
-  explicit FakeRadio(FakeAir& air) : _air(air), _head(0), _tail(0), _sent(0), _dropped(0) {
+  explicit FakeRadio(FakeAir& air)
+      : _air(air), _head(0), _tail(0), _sent(0), _dropped(0),
+        _score(1.0f), _last_len(0) {
     memset(_len, 0, sizeof(_len));
     memset(_buf, 0, sizeof(_buf));
+    memset(_last, 0, sizeof(_last));
     _air.attach(this);
   }
 
@@ -141,10 +144,20 @@ public:
    * budget behave the way it will on a real link rather than being free. */
   uint32_t getEstAirtimeFor(int len_bytes) override { return (uint32_t) (len_bytes > 0 ? len_bytes : 1); }
 
-  /* Above the dispatcher's 50 ms threshold calculation, so a flood packet is
-   * processed on the spot instead of sitting in the delayed inbound queue.
-   * Real scoring is the radio's business; this radio has no noise to score. */
-  float packetScore(float, int) override { return 1.0f; }
+  /* Per radio, and 1.0 by default: above the dispatcher's 50 ms threshold
+   * calculation, so a flood packet is processed on the spot instead of
+   * sitting in the delayed inbound queue. Real scoring is the radio's
+   * business; this radio has no noise to score.
+   *
+   * setPacketScore() exists because the delayed branch was therefore never
+   * taken by any test. Dispatcher::calcRxDelay() is
+   * `(10^(0.85 - score) - 1) * air_time`, so a score below 0.85 gives a
+   * positive delay and - once it clears 50 ms - a packet that goes through
+   * queueInbound() and comes back out of getNextInbound(). It is set on one
+   * radio in one test rather than lowered globally, so every other test
+   * keeps the immediate path and its plain reading. */
+  float packetScore(float, int) override { return _score; }
+  void setPacketScore(float score) { _score = score; }
 
   bool startSendRaw(const uint8_t* bytes, int len) override {
     if (len <= 0 || len > MAX_TRANS_UNIT) return false;
@@ -164,6 +177,10 @@ public:
 
   /* ---- delivery, called by FakeAir ---- */
   void deliver(const uint8_t* bytes, int len) {
+    if (len > 0 && len <= (int) sizeof(_last)) {
+      memcpy(_last, bytes, (size_t) len);
+      _last_len = len;
+    }
     int next = (_tail + 1) % MAX_QUEUED;
     if (next == _head) { _dropped++; return; }  /* receiver not draining */
     if (len > (int) sizeof(_buf[0])) { _dropped++; return; }
@@ -176,12 +193,23 @@ public:
   int framesDropped() const { return _dropped; }
   bool hasPending() const { return _head != _tail; }
 
+  /* A copy of the last frame this radio heard, kept aside from the receive
+   * queue so it survives the dispatcher draining it. An eavesdropper test
+   * needs the bytes that were really on the air, not a re-encoding of them:
+   * this is what an attacker with a receiver would have. */
+  const uint8_t* lastHeard() const { return _last; }
+  int lastHeardLen() const { return _last_len; }
+  void forgetLastHeard() { _last_len = 0; }
+
 private:
   FakeAir& _air;
   uint8_t _buf[MAX_QUEUED][MAX_TRANS_UNIT];
   int _len[MAX_QUEUED];
   int _head, _tail;
   int _sent, _dropped;
+  float _score;
+  uint8_t _last[MAX_TRANS_UNIT];
+  int _last_len;
 };
 
 inline void FakeAir::broadcast(const FakeRadio* from, const uint8_t* bytes, int len) {
