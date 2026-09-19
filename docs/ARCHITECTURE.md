@@ -18,6 +18,9 @@ ui/shell         Shell: status bar, launcher, app host, display/input backend, s
 ui/pocketui      Design tokens, theme engine and shared role styles on top of LVGL 9.
 services/        Hardware-owning daemons: radiod (mock and sx1262 backends), netd (Wi-Fi: wifi.*);
                  sysd serves system.* (identity, resources, storage, network summary, service health).
+                 meshcored is the first daemon that owns no hardware: it owns the MeshCore protocol
+                 runtime and reaches the radio only through radiod (docs/services/MESHCORED.md).
+protocols/       Portable protocol cores with no service, no IPC and no radio: meshcore.
 core/pocketipc   IPC library used by everything above.
 core/pocketlog   Logging, rotation and crash reports.
 core/pocketsys   The system facts behind system.*, read from /proc, /sys and /etc.
@@ -45,6 +48,7 @@ BusyBox init (rcS runs S?? scripts in order; rcK stops them in reverse)
  ├─ S50sysd              pos-supervise sysd
  ├─ S55netd              pos-supervise netd --interface wlan0 (Wi-Fi off until turned on)
  ├─ S60radiod            pos-supervise radiod --backend <mock|sx1262> --region EU868
+ ├─ S65meshcored         pos-supervise meshcored (MESHCORED_ENABLE in /etc/default/meshcored, default 0)
  ├─ S90doors-shell    pos-supervise doors-shell (ENABLE=1 in /etc/default/doors-shell)
  └─ S99zz_k230_phone_ui  vendor launcher (ENABLE in /etc/default/k230_phone_ui, default 1)
 ```

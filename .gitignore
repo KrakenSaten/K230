@@ -103,3 +103,17 @@ BUILD_ID
 /tests/meshcore_port_test-*
 /tests/meshcore_smoke_test
 /tests/meshcore_smoke_test-*
+# meshcored (services/meshcored). Like protocols/meshcore and
+# tools/meshcore-frame above: not built by `make all` or `make test`, but an
+# untracked binary left in the checkout is still a dirty tree to
+# apply_to_sdk.sh, so its outputs are ignored like every other one here.
+# The patterns cover the plain and sanitised test builds.
+/services/meshcored/meshcored
+/tests/meshcored_util_test
+/tests/meshcored_util_test-*
+/tests/meshcored_txmap_test
+/tests/meshcored_txmap_test-*
+/tests/meshcored_store_test
+/tests/meshcored_store_test-*
+/tests/meshcored_runtime_test
+/tests/meshcored_runtime_test-*

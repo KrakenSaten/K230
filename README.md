@@ -25,12 +25,15 @@ core/pocketsys.c           System facts (identity, resources, storage, network) 
 services/radiod/           Radio service: policy, stats, IPC; backends mock and sx1262 (RadioLib, untested on hardware)
 services/sysd/             System service: system.info and system.status over pocketipc (read-only), plus the supervisor state reader
 services/netd/             Network service: wifi.* over pocketipc (wpa_supplicant and udhcpc owned by netd, root-only credential store)
+services/meshcored/        MeshCore protocol service: mesh.* over pocketipc, on top of radiod's radio.*; owns no radio (`make ENABLE_MESHCORED=1 meshcored`, disabled in the image)
+protocols/meshcore/        The portable MeshCore protocol core, `libmeshcore.a` (`make meshcore-core`)
 tests/                     Native unit tests (`make test`), shell tests (tests/*_shell_test.sh, need the CMake shell); tests/hw/ needs boards
 docs/
   ARCHITECTURE.md          How the layers, IPC, services and shell fit together
   ROADMAP.md               Phase 1 status table and later phases
   KNOWN_ISSUES.md          Open hardware, licensing, build and software issues
-  api/                     Public API contracts: pocketipc v0, radio.* v0, shell.* v0, system.* v0, wifi.* v0 (network.md)
+  api/                     Public API contracts: pocketipc v0, radio.* v0, mesh.* v0, shell.* v0, system.* v0, wifi.* v0 (network.md)
+  services/MESHCORED.md    The MeshCore service: ownership, persistence, safety and how to enable it on a unit
   design/                  Design System v0.1 (normative), themes.json, feasibility review, shots/
   BUILD_ENVIRONMENT.md     Host, toolchain, SDK commits, build/flash/test commands
   LICENSING.md             Licence register for vendor and third-party code; Doors' own licence is not decided, and redistribution is not authorised until it is
@@ -49,8 +52,8 @@ vendor/                    Read-only reference clones (git-ignored)
   T-Display-K230/          LILYGO BSP + LVGL launcher, pinned (see platforms/k230/vendor_bsp_commit.txt)
     k230_linux_sdk/        Kendryte K230 Linux SDK submodule, pinned
   T-Display-K230_canmv_rt/ LILYGO RT-Smart firmware, schematic, datasheets
-  RIFT/                    MeshCore protocol source, pinned (tools/meshcore-frame only)
-  Crypto/                  rweather/arduinolibs, the crypto MeshCore uses, pinned (tools/meshcore-frame only)
+  RIFT/                    MeshCore protocol source, pinned (protocols/meshcore, tools/meshcore-frame)
+  Crypto/                  rweather/arduinolibs, the crypto MeshCore uses, pinned (same two)
 ```
 
 `vendor/` is reference material only. Nothing in it is edited in place.

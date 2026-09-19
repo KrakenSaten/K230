@@ -82,8 +82,55 @@ RADIOD_LINK := $(CC)
 RADIOD_LIBS := $(LDLIBS)
 endif
 
+# ---- meshcored: the MeshCore protocol service ----------------------------
+#
+# ENABLE_MESHCORED=1 builds and installs it, the way ENABLE_SX1262=1 adds the
+# real radio backend. It is OFF by default, and the default build - `make
+# all`, `make test`, the Buildroot package and the image - is byte for byte
+# what it was without it.
+#
+# The reason is a prerequisite, not a doubt about the service: meshcored
+# links protocols/meshcore, which needs two upstream checkouts an ordinary
+# Doors build does not have (vendor/RIFT and vendor/Crypto, the same two
+# tools/meshcore-frame needs). Making every build depend on two extra clones
+# would be a poor trade while nothing in the image runs the service. See
+# docs/services/MESHCORED.md for what enabling it means on hardware.
+ENABLE_MESHCORED ?= 0
+AR ?= ar
+
+MESHCORE_DIR := protocols/meshcore
+MESHCORE_LIB := $(MESHCORE_DIR)/libmeshcore.a
+MESHCORE_RIFT_DIR ?= $(if $(wildcard third_party/RIFT/src),third_party/RIFT,vendor/RIFT)
+MESHCORE_CRYPTO_REPO ?= $(if $(wildcard third_party/Crypto/libraries/Crypto),third_party/Crypto,vendor/Crypto)
+# The vendored trees are reached with -isystem, as protocols/meshcore reaches
+# them: they are third-party code compiled as their authors wrote it, and
+# without it every translation unit here would repeat their warnings.
+MESHCORE_INCLUDES := -I$(MESHCORE_DIR)/port -I$(MESHCORE_DIR)/compat \
+                     -isystem $(MESHCORE_RIFT_DIR)/src \
+                     -isystem $(MESHCORE_RIFT_DIR)/lib/ed25519 \
+                     -isystem $(MESHCORE_CRYPTO_REPO)/libraries/Crypto
+MESHCORE_DEFINES := -DMESHCORE_RIFT_COMMIT=\"$(shell tr -d ' \t\r\n' < $(MESHCORE_DIR)/vendor_rift_commit.txt 2>/dev/null)\" \
+                    -DMESHCORE_CRYPTO_COMMIT=\"$(shell tr -d ' \t\r\n' < $(MESHCORE_DIR)/vendor_crypto_commit.txt 2>/dev/null)\"
+# -MD, not -MMD: every vendored MeshCore and Crypto header is a system header
+# to this build because -isystem is how they are reached, and -MMD would
+# leave them out of the dependency files. Same reason, same fix, as
+# protocols/meshcore/Makefile.
+MESHCORED_CXXFLAGS := $(CXXFLAGS) -std=gnu++17 $(COMMON_FLAGS) -Iservices/meshcored \
+                      -Iservices/radiod $(MESHCORE_INCLUDES) $(MESHCORE_DEFINES) -MD -MP
+MESHCORED_C_OBJS := services/meshcored/main.o services/meshcored/api.o \
+                    services/meshcored/radio_link.o services/meshcored/tx_map.o \
+                    services/meshcored/mcd_util.o
+MESHCORED_CXX_OBJS := services/meshcored/mesh_runtime.o services/meshcored/mesh_store.o
+# radiod's airtime formula, linked rather than copied: the time-on-air the
+# protocol core budgets with has to be the one the radio will really take.
+MESHCORED_OBJS := $(MESHCORED_C_OBJS) $(MESHCORED_CXX_OBJS) services/radiod/airtime.o \
+                  $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
+
 BINS := tools/pos/pos services/radiod/radiod services/sysd/sysd services/netd/netd tools/hwcheck/pos-spixfer \
         tools/wave/pos-wave
+ifeq ($(ENABLE_MESHCORED),1)
+BINS += services/meshcored/meshcored
+endif
 
 all: $(BINS)
 
@@ -104,6 +151,22 @@ services/sysd/sysd: $(SYSD_OBJS)
 
 services/netd/netd: $(NETD_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# meshcored: mesh.* over pocketipc on top of radiod's radio.* (docs/api/mesh.md).
+# The C half speaks JSON and knows no MeshCore; the two C++ objects are the
+# protocol runtime and its persistence and know no JSON. Its own pattern rule,
+# so the vendored include paths stay off every other object in the tree.
+.PHONY: meshcore-lib
+meshcore-lib:
+	$(MAKE) -C $(MESHCORE_DIR) CC="$(CC)" CXX="$(CXX)" AR="$(AR)" CXXFLAGS="$(CXXFLAGS)"
+
+services/meshcored/%.o: services/meshcored/%.cpp
+	$(CXX) $(MESHCORED_CXXFLAGS) -c -o $@ $<
+
+$(MESHCORED_C_OBJS): ALL_CFLAGS += -Iservices/meshcored
+
+services/meshcored/meshcored: meshcore-lib $(MESHCORED_OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $(MESHCORED_OBJS) $(MESHCORE_LIB) $(LDFLAGS) $(LDLIBS)
 
 # A netd whose paths can be pointed at a test tree and a fake wpa_supplicant
 # (services/netd/netd_sys.h). Only this object carries the hooks; the shipped
@@ -773,6 +836,12 @@ install: all
 	install -D -m 0755 services/sysd/sysd $(DESTDIR)$(PREFIX)/sbin/sysd
 	install -D -m 0755 services/netd/netd $(DESTDIR)$(PREFIX)/sbin/netd
 	install -D -m 0755 tools/supervise/pos-supervise $(DESTDIR)$(PREFIX)/bin/pos-supervise
+# meshcored only when it was built. Installing it does not start it: the init
+# script ships disabled and has to be switched on per unit, because starting
+# it acquires the radio (docs/services/MESHCORED.md).
+ifeq ($(ENABLE_MESHCORED),1)
+	install -D -m 0755 services/meshcored/meshcored $(DESTDIR)$(PREFIX)/sbin/meshcored
+endif
 # The third-party notices travel with the binaries that need them. Under
 # share/doors rather than share/doc, which Buildroot strips from the target.
 # share/pocketos, where they were through v0.0.9, stays a directory holding a
@@ -863,6 +932,117 @@ meshcore-core-riscv64:
 	        CXXFLAGS="-O2 -mcpu=c908v -mtune=c908" OBJDIR=build-riscv64 \
 	        LIB=libmeshcore-riscv64.a
 
+# ---- meshcored's own suite ------------------------------------------------
+#
+# Reached by name for the same reason the service is built by name: it needs
+# the two upstream checkouts. Nothing here is in `make all` or `make test`.
+#
+#   make meshcored             build the service
+#   make meshcored-test        its tests, plain then sanitised, then the lint
+#                              and the two host integration suites
+#
+# The riscv64 check is the ordinary cross-build with the switch on, in a copy
+# of the tree (docs/BUILD_ENVIRONMENT.md; objects land beside their sources,
+# so a cross-build in the working checkout would clobber the host ones):
+#
+#   make ENABLE_MESHCORED=1 CC=<cross>gcc CXX=<cross>g++ AR=<cross>ar \
+#        CFLAGS="--sysroot=$$SYSROOT -O2 -Wall -Wextra" \
+#        CXXFLAGS="--sysroot=$$SYSROOT -O2" LDFLAGS="--sysroot=$$SYSROOT" all
+#
+# meshcore-lib is a prerequisite of the binary and forwards CC/CXX/AR, so
+# that one line builds libmeshcore.a for the target too.
+meshcored: meshcore-lib services/meshcored/meshcored
+
+MESHCORED_SAN := -fsanitize=address,undefined -fno-omit-frame-pointer \
+                 -fno-sanitize-recover=all -g
+MESHCORE_LIB_ASAN := $(MESHCORE_DIR)/libmeshcore-asan.a
+MESHCORED_TESTS := tests/meshcored_util_test tests/meshcored_txmap_test \
+                   tests/meshcored_store_test tests/meshcored_runtime_test
+MESHCORED_TESTS_ASAN := $(addsuffix -asan,$(MESHCORED_TESTS))
+
+.PHONY: meshcore-lib-asan
+meshcore-lib-asan:
+	$(MAKE) -C $(MESHCORE_DIR) ASAN=1 CC="$(CC)" CXX="$(CXX)" AR="$(AR)" CXXFLAGS="$(CXXFLAGS)"
+
+tests/meshcored_util_test: tests/meshcored_util_test.o services/meshcored/mcd_util.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/meshcored_txmap_test: tests/meshcored_txmap_test.o services/meshcored/tx_map.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/meshcored_util_test.o tests/meshcored_txmap_test.o: ALL_CFLAGS += -Iservices/meshcored
+
+tests/meshcored_store_test: meshcore-lib tests/meshcored_store_test.o services/meshcored/mesh_store.o
+	$(CXX) $(CXXFLAGS) -o $@ tests/meshcored_store_test.o services/meshcored/mesh_store.o \
+	       $(MESHCORE_LIB) $(LDFLAGS)
+
+tests/meshcored_runtime_test: meshcore-lib tests/meshcored_runtime_test.o \
+                              services/meshcored/mesh_runtime.o services/meshcored/mesh_store.o \
+                              services/radiod/airtime.o
+	$(CXX) $(CXXFLAGS) -o $@ tests/meshcored_runtime_test.o \
+	       services/meshcored/mesh_runtime.o services/meshcored/mesh_store.o \
+	       services/radiod/airtime.o $(MESHCORE_LIB) $(LDFLAGS)
+
+tests/meshcored_store_test.o: tests/meshcored_store_test.cpp
+	$(CXX) $(MESHCORED_CXXFLAGS) -c -o $@ $<
+
+tests/meshcored_runtime_test.o: tests/meshcored_runtime_test.cpp
+	$(CXX) $(MESHCORED_CXXFLAGS) -c -o $@ $<
+
+# The sanitised builds compile from source into their own binaries rather
+# than reusing the objects above, so the two builds can never share a stale
+# one. ed25519's signed-limb shifts keep their narrow UBSan exemption inside
+# protocols/meshcore, which builds its own sanitised library.
+tests/meshcored_util_test-asan: tests/meshcored_util_test.c services/meshcored/mcd_util.c
+	$(CC) $(ALL_CFLAGS) $(MESHCORED_SAN) -Iservices/meshcored -o $@ $^ $(LDFLAGS)
+
+tests/meshcored_txmap_test-asan: tests/meshcored_txmap_test.c services/meshcored/tx_map.c
+	$(CC) $(ALL_CFLAGS) $(MESHCORED_SAN) -Iservices/meshcored -o $@ $^ $(LDFLAGS)
+
+tests/meshcored_airtime_asan.o: services/radiod/airtime.c
+	$(CC) $(ALL_CFLAGS) $(MESHCORED_SAN) -Iservices/radiod -c -o $@ $<
+
+tests/meshcored_store_test-asan: meshcore-lib-asan tests/meshcored_store_test.cpp \
+                                 services/meshcored/mesh_store.cpp
+	$(CXX) $(MESHCORED_CXXFLAGS) $(MESHCORED_SAN) -o $@ \
+	       tests/meshcored_store_test.cpp services/meshcored/mesh_store.cpp \
+	       $(MESHCORE_LIB_ASAN) $(LDFLAGS)
+
+tests/meshcored_runtime_test-asan: meshcore-lib-asan tests/meshcored_runtime_test.cpp \
+                                   services/meshcored/mesh_runtime.cpp \
+                                   services/meshcored/mesh_store.cpp \
+                                   tests/meshcored_airtime_asan.o
+	$(CXX) $(MESHCORED_CXXFLAGS) $(MESHCORED_SAN) -o $@ \
+	       tests/meshcored_runtime_test.cpp services/meshcored/mesh_runtime.cpp \
+	       services/meshcored/mesh_store.cpp tests/meshcored_airtime_asan.o \
+	       $(MESHCORE_LIB_ASAN) $(LDFLAGS)
+
+# LSAN_OPTIONS points at protocols/meshcore's suppression file, which
+# suppresses exactly two vendored constructors: StaticPoolPacketManager and
+# PacketQueue allocate with `new` and never free, which is harmless for a
+# pool that lives as long as the process and is recorded as upstream debt.
+MESHCORED_LSAN := suppressions=$(CURDIR)/$(MESHCORE_DIR)/lsan.supp
+
+meshcored-test: meshcored $(MESHCORED_TESTS) $(MESHCORED_TESTS_ASAN)
+	./tests/meshcored_util_test
+	./tests/meshcored_txmap_test
+	./tests/meshcored_store_test
+	./tests/meshcored_runtime_test
+	LSAN_OPTIONS=$(MESHCORED_LSAN) ./tests/meshcored_util_test-asan
+	LSAN_OPTIONS=$(MESHCORED_LSAN) ./tests/meshcored_txmap_test-asan
+	LSAN_OPTIONS=$(MESHCORED_LSAN) ./tests/meshcored_store_test-asan
+	LSAN_OPTIONS=$(MESHCORED_LSAN) ./tests/meshcored_runtime_test-asan
+	bash tests/meshcored_lint.sh
+	bash tests/meshcored_service_test.sh
+	bash tests/meshcored_harness_test.sh
+
+meshcored-clean:
+	rm -f $(MESHCORED_C_OBJS) $(MESHCORED_CXX_OBJS) services/meshcored/meshcored \
+	      $(MESHCORED_TESTS) $(MESHCORED_TESTS_ASAN) $(MESHCORED_TESTS:=.o) \
+	      tests/meshcored_airtime_asan.o \
+	      services/meshcored/*.d tests/meshcored_*.d
+
 .PHONY: all test install clean sx1262-objs print-build-outputs \
         meshcore-frame meshcore-frame-test \
-        meshcore-core meshcore-core-test meshcore-core-riscv64
+        meshcore-core meshcore-core-test meshcore-core-riscv64 \
+        meshcored meshcored-test meshcored-clean

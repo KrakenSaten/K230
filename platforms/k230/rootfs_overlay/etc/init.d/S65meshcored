@@ -1,0 +1,146 @@
+#!/bin/sh
+# Doors meshcored under pos-supervise (BusyBox init).
+#
+# DISABLED BY DEFAULT, and that is a decision rather than an oversight.
+# Starting meshcored acquires the radio: it takes radiod's lease, applies the
+# MeshCore profile and listens on 869.618 MHz for as long as it runs. On a
+# unit where nobody asked for that, the right number of radios to take is
+# none. Switch it on per unit, deliberately, in /etc/default/meshcored:
+#
+#   MESHCORED_ENABLE=1
+#
+# and read docs/services/MESHCORED.md first - in particular what a running
+# MeshCore node does with a message addressed to it, which is answer it.
+#
+# It starts after S60radiod, but nothing here waits for radiod: meshcored
+# looks for it, backs off and keeps looking, so the order of the two is a
+# preference and not a requirement.
+#
+# Logs: pocketlog files, crash reports and the supervisor log go to
+# /var/lib/pocketos/log, which is on the persistent root filesystem
+# (/var/log is a tmpfs on this image). The stdio capture there holds only what
+# is not already in the pocketlog file (POCKETOS_LOG_STDERR=0); it is started
+# fresh on every boot with the previous one kept as .1.
+
+SUPERVISE=/usr/bin/pos-supervise
+DAEMON=/usr/sbin/meshcored
+PIDFILE=/var/run/meshcored-supervise.pid
+# pos-supervise records the daemon it is watching here. stop needs it: asking
+# the supervisor to go is not the same as the daemon going.
+CHILD_PIDFILE=/run/pocketos/meshcored.pid
+LOGDIR=/var/lib/pocketos/log
+LOGFILE=$LOGDIR/meshcored.stdio.log
+
+# The switch, and the values it may change. Everything below is overridable
+# in /etc/default/meshcored.
+MESHCORED_ENABLE=0
+# The radio profile. These are the values the accepted P0 on-air gate used
+# (docs/hardware/MESHCORE_INTEROP_GATE.md) and they are what another MeshCore
+# node expects; changing any of them means this node is on a different
+# network, not a differently tuned one.
+MESHCORED_TX_POWER_DBM=2
+# The node's advert name. Empty means "keep the stored one", and on a first
+# start one is derived from the node's own key.
+MESHCORED_NAME=
+MESHCORED_ARGS=
+[ -r /etc/default/meshcored ] && . /etc/default/meshcored
+export POCKETOS_LOG_DIR=$LOGDIR
+export POCKETOS_LOG_STDERR=0
+
+running() { [ -n "$1" ] && kill -0 "$1" 2>/dev/null; }
+
+STOP_TIMEOUT=3
+if sleep 0.1 2>/dev/null; then STOP_STEP="0.1"; STOP_TICKS=$((STOP_TIMEOUT * 10)); else STOP_STEP="1"; STOP_TICKS=$STOP_TIMEOUT; fi
+
+wait_gone() { # <pid>: true when it is gone within STOP_TIMEOUT
+	_n=0
+	while running "$1"; do
+		_n=$((_n + 1))
+		[ "$_n" -gt "$STOP_TICKS" ] && return 1
+		sleep "$STOP_STEP"
+	done
+	return 0
+}
+
+start() {
+	printf "Starting meshcored: "
+	if [ "$MESHCORED_ENABLE" != "1" ]; then
+		echo "disabled (set MESHCORED_ENABLE=1 in /etc/default/meshcored)"
+		return 0
+	fi
+	[ -x "$DAEMON" ] || { echo "missing"; return 0; }
+	mkdir -p /run/pocketos /var/run "$LOGDIR" /var/lib/pocketos/meshcored
+	# The state directory holds a private key. Nothing else on the device
+	# has any business reading it, and the daemon sets this itself on
+	# first start; it is repeated here so a directory created by hand,
+	# or carried over from a restore, is not left readable.
+	chmod 0700 /var/lib/pocketos/meshcored 2>/dev/null
+	# Both pids, not only the supervisor's. A supervisor that was killed
+	# leaves its daemon running and adopted by init, and starting a second
+	# supervisor on top of that gives the board two daemons - which would
+	# mean two MeshCore nodes with one identity, both asking radiod for
+	# the same lease.
+	_sup=""; _child=""
+	[ -s "$PIDFILE" ] && _sup=$(cat "$PIDFILE")
+	[ -s "$CHILD_PIDFILE" ] && _child=$(cat "$CHILD_PIDFILE")
+	if running "$_sup" || running "$_child"; then
+		echo "already running"; return 0
+	fi
+	[ -f "$LOGFILE" ] && mv -f "$LOGFILE" "$LOGFILE.1"
+	set -- --tx-power-dbm "$MESHCORED_TX_POWER_DBM"
+	[ -n "$MESHCORED_NAME" ] && set -- "$@" --name "$MESHCORED_NAME"
+	# shellcheck disable=SC2086  # deliberately word-split: extra options
+	nohup "$SUPERVISE" meshcored "$DAEMON" "$@" $MESHCORED_ARGS >"$LOGFILE" 2>&1 &
+	echo $! > "$PIDFILE"
+	echo "OK"
+}
+
+stop() {
+	printf "Stopping meshcored: "
+	sup=""; child=""
+	[ -s "$PIDFILE" ] && sup=$(cat "$PIDFILE")
+	[ -s "$CHILD_PIDFILE" ] && child=$(cat "$CHILD_PIDFILE")
+	if ! running "$sup" && ! running "$child"; then
+		rm -f "$PIDFILE"
+		echo "not running"
+		return 0
+	fi
+	forced=""
+	kill "$sup" 2>/dev/null
+	if ! wait_gone "$sup"; then
+		# The supervisor is not responding to SIGTERM. Ask the daemon
+		# directly: killing only the supervisor would leave the daemon
+		# running, still holding the radio lease, and the next start
+		# would add a second one.
+		kill "$child" 2>/dev/null
+		if ! wait_gone "$sup"; then
+			kill -KILL "$child" 2>/dev/null
+			kill -KILL "$sup" 2>/dev/null
+			wait_gone "$sup"
+			forced=" (forced)"
+		fi
+	fi
+	if running "$child"; then
+		kill -KILL "$child" 2>/dev/null
+		wait_gone "$child"
+		forced=" (forced)"
+	fi
+	# The pid file is tracking, not decoration. Removing it before the
+	# processes are gone throws away the only handle the next stop has.
+	if running "$sup" || running "$child"; then
+		echo "FAILED, still running"
+		return 1
+	fi
+	rm -f "$PIDFILE"
+	echo "OK$forced"
+}
+
+case "$1" in
+	start) start ;;
+	stop) stop ;;
+	# A stop that failed leaves the daemon running and its binaries in use.
+	# Starting on top of it would add a second one, so restart stops here.
+	restart|reload) stop && start ;;
+	*) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
+esac
+exit $?

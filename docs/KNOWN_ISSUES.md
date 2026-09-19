@@ -702,3 +702,59 @@ Wave and ggwave:
   load: its `wait_state unavailable` window is 4 s, and it has been seen to
   miss once on a machine busy with a parallel build, then pass repeatedly on
   the same commit and on master. Pre-existing, unrelated to radiod.
+
+## meshcored, the MeshCore protocol service (feat/meshcored)
+
+- **Nothing about meshcored has run on hardware.** Everything it claims is
+  host evidence: `tests/meshcored_service_test.sh` against the real radiod on
+  its mock backend, and `tests/meshcored_harness_test.sh` between two whole
+  meshcored processes over a mock air. The MeshCore wire format it speaks is
+  the one the accepted P0 gate proved on air, from the same pinned sources -
+  that gate is evidence about the frames, not about this daemon. UNRESOLVED
+  until a hardware session.
+- **Messages are not persisted.** The identity and the node table survive a
+  restart; the message list does not, and `mesh.messages` reports
+  `persistent: false` rather than leaving that to be discovered. Writing
+  decrypted message text to the device is a privacy decision the owner has
+  not made. The obvious next step, and the one a RIFT conversation view will
+  want.
+- **A failed transmit stalls receive for up to 1.5 times the packet's
+  airtime.** `mesh::Dispatcher` returns early from its loop while an outbound
+  packet is unfinished, so a transmit meshcored cannot report as complete -
+  one radiod refused, or whose completion said the bytes did not go out - is
+  cleared by the dispatcher's own deadline rather than at once. For this
+  profile that is about 1.1 s for an advert and about 2.3 s for a full-length
+  packet. Bounded, upstream's mechanism, and not worth changing vendored
+  scheduling for.
+- **The PATH underflow is reachable over the air and is guarded, not fixed.**
+  `vendor/RIFT/src/Mesh.cpp:172` computes a trailing length as `len - k` with
+  nothing checking `k <= len` (debt 2 in `protocols/meshcore/README.md`).
+  Running the MeshCore receive path in a daemon is what makes it reachable:
+  it needs a valid MAC, and MeshCore adds contacts from adverts by itself, so
+  any node that adverts can get there. meshcored refuses such a payload in its
+  own handler before anything reads through the pointer, counts it as
+  `path_payloads_refused`, and does not touch the vendored tree. The upstream
+  defect is unchanged.
+- **Contacts are added automatically, as upstream does.** Any node that
+  adverts within range becomes a contact, up to 32; the table then refuses
+  new ones rather than evicting. There is no allow-list and no "known nodes
+  only" mode.
+- **The duty-cycle budget is upstream's default**, which is far above any
+  regional limit, and nothing has exercised it against one. meshcored
+  transmits only when a client asks or when the protocol owes a reply, so the
+  budget has never been the thing that limited it; on a busy network with a
+  UI above it, that changes. Regional policy belongs above the raw radio
+  backend and is still the operator's.
+- **There is no periodic advert**, by decision. A node that never adverts is
+  not discovered by nodes that have not heard it; a client has to ask. What
+  the right interval is - and whether it should exist at all on a handheld -
+  is a decision for the phase that has a UI.
+- **meshcored is not in any image's default behaviour.** `ENABLE_MESHCORED=1`
+  builds and installs it, and `S65meshcored` ships disabled. Enabling it on a
+  unit means the node acquires the radio and will answer messages addressed to
+  it. Shipping it enabled needs the third-party notices to cover the MeshCore
+  and ed25519 sources first (docs/LICENSING.md), which this phase did not do.
+- **One outstanding transmit at a time.** radiod has no queue and neither does
+  this service: a second submission while one is outstanding is refused, and
+  MeshCore is told the send did not start. That is the honest shape, and it
+  means a busy node drops its own outbound packets rather than delaying them.
