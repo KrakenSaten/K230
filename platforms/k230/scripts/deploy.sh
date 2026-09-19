@@ -26,9 +26,18 @@ case "${TARGET_HOST}" in *@*) ;; *) TARGET_HOST="root@${TARGET_HOST}" ;; esac
 # finalises the rootfs (a full build_image.sh), not with pocketos-rebuild.
 for f in usr/bin/doors usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-supervise usr/sbin/radiod usr/sbin/sysd usr/sbin/netd usr/bin/doors-shell etc/doors-release etc/pocketos-release \
          usr/share/doors/THIRD_PARTY_NOTICES.txt usr/share/pocketos/THIRD_PARTY_NOTICES.txt \
-         etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S90doors-shell; do
+         etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S65meshcored etc/init.d/S90doors-shell; do
     [ -e "${T}/${f}" ] || { echo "missing ${T}/${f}; build the image first (a full build_image.sh for a new init script)" >&2; exit 1; }
 done
+# meshcored is the one binary that is not required above, because it is not
+# part of a default build: ENABLE_MESHCORED is 0 unless somebody asked for it
+# (docs/services/MESHCORED.md). Its init script always travels - it is in the
+# overlay and it ships disabled - and the binary travels only when the tree
+# that was built has one.
+MESHCORED_FILE=""
+if [ -e "${T}/usr/sbin/meshcored" ]; then
+    MESHCORED_FILE="usr/sbin/meshcored"
+fi
 
 echo "Deploying Doors $(cat "${REPO_DIR}/VERSION") to ${TARGET_HOST}"
 # Ownership comes from the archive, not from the build host's account. Without
@@ -54,7 +63,8 @@ tar -C "${T}" --owner=0 --group=0 --numeric-owner -cf - \
     usr/bin/doors usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-supervise usr/sbin/radiod \
     usr/sbin/sysd usr/sbin/netd usr/bin/doors-shell etc/doors-release etc/pocketos-release \
     usr/share/doors/THIRD_PARTY_NOTICES.txt usr/share/pocketos/THIRD_PARTY_NOTICES.txt etc/init.d/S50sysd \
-    etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S90doors-shell \
+    etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S65meshcored etc/init.d/S90doors-shell \
+    ${MESHCORED_FILE} \
     | "${SSH[@]}" "${TARGET_HOST}" 'set -e
 # The tar below replaces the binaries these services are executing, so a stop
 # that did not finish has to end the deployment rather than be unpacked over.
@@ -68,7 +78,12 @@ tar -C "${T}" --owner=0 --group=0 --numeric-owner -cf - \
 # thing done to the old service before the payload is unpacked - the removals
 # come after, so an interrupted deploy leaves a unit that still has one
 # working shell rather than none (ADR-005 Phase 3).
-for s in S90doors-shell S90pocketos-shell S60radiod S55netd S50sysd; do
+# meshcored stops before radiod, which is the order they depend in: it holds
+# the radio lease for as long as it runs, and stopping it first hands that
+# lease back rather than leaving radiod to notice a closed socket.
+# (No apostrophes in here: this whole stanza is inside a single-quoted heredoc
+# sent over ssh, and one would end it.)
+for s in S90doors-shell S90pocketos-shell S65meshcored S60radiod S55netd S50sysd; do
 	[ -x /etc/init.d/$s ] || continue
 	if ! /etc/init.d/$s stop; then
 		echo "deploy: $s could not be stopped; nothing has been installed" >&2
@@ -113,6 +128,9 @@ rm -f /run/pocketos/pocketos-shell.pid /run/pocketos/pocketos-shell.state \
 /etc/init.d/S50sysd start
 /etc/init.d/S55netd start
 /etc/init.d/S60radiod start
+# Disabled unless the operator enabled it per unit, in which case this prints
+# "disabled" and returns; starting it acquires the radio.
+/etc/init.d/S65meshcored start
 /etc/init.d/S90doors-shell start
 # One shell, and the unit says so itself rather than the deploy assuming it.
 shells=0
