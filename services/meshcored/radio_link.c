@@ -383,19 +383,64 @@ static void apply_profile_result(struct mcd *d, const cJSON *result)
                             p.preamble_length, p.crc);
 }
 
-static void note_radio_state(struct mcd *d, const char *state)
+/* ---- what radiod's state word means here --------------------------------
+ *
+ * radiod reports state `tx` for the whole time a packet is on the air
+ * (services/radiod/main.c, tx_accept), and while this service holds the lease
+ * every one of those transmits is its own. Reading any non-`rx` state as a
+ * loss of radio service therefore made a node report `degraded` for the
+ * airtime of every frame it sent - four transmits out of four on unit A, up
+ * to 772 ms each, with nothing wrong (docs/hardware/MESHCORED_HARDWARE_GATE.md,
+ * finding 1).
+ *
+ * So `tx` is expected - but only while this service is actually waiting for a
+ * transmit of its own. The transmit table is the whole test, and it is the
+ * right one: a slot is taken before the radio.send_async request is written
+ * and is freed only by the completion, the refusal, the deadline or a
+ * disconnect, so it covers exactly the window radiod can be in `tx` on this
+ * service's behalf - including the moment before the reply, because radiod
+ * announces the state change before it answers the request.
+ *
+ * A `tx` with nothing outstanding is not ours. Something is driving a radio
+ * this service holds the lease on and cannot account for, which is the one
+ * thing `degraded` has always meant, so it keeps that answer rather than
+ * being waved through with the expected ones.
+ */
+static bool radio_state_expected(const struct mcd_radio_link *l, const char *state)
 {
+    if (strcmp(state, "rx") == 0) {
+        return true;
+    }
+    return strcmp(state, "tx") == 0 && mcd_tx_map_outstanding(&l->tx) > 0;
+}
+
+static const char *degraded_reason(const char *state)
+{
+    if (strcmp(state, "tx") == 0) {
+        return "radiod is transmitting something this service did not submit";
+    }
+    return "radiod reports the radio is not receiving";
+}
+
+static void note_radio_state(struct mcd_radio_link *l, const char *state)
+{
+    struct mcd *d = l->d;
     bool rx;
 
     snprintf(d->radio_state, sizeof(d->radio_state), "%s", state);
     d->radio_state_known = true;
     rx = (strcmp(state, "rx") == 0);
-    if (d->state == MCD_ONLINE && !rx) {
+    /* Asymmetric on purpose. Leaving `online` takes a state that is not one
+     * this service asked for; coming back takes a proven `rx` and nothing
+     * less. A transmit submitted while the receiver is broken would otherwise
+     * put `tx` on the wire and lift the service back to `online` on the
+     * strength of its own voice. */
+    if (d->state == MCD_ONLINE && !radio_state_expected(l, state)) {
         /* Attached and holding the radio, but it is not listening. The
          * protocol core keeps its transmit path - radiod's own documentation
          * is explicit that a send still works in state error - and stops
          * being told it is in receive mode. */
-        mcd_set_state(d, MCD_DEGRADED, "radiod reports the radio is not receiving");
+        mcd_set_state(d, MCD_DEGRADED, degraded_reason(state));
     } else if (d->state == MCD_DEGRADED && rx) {
         /* radiod got the receiver back. The adapter is told as well, not just
          * the service state: a failed transmit completion clears its receive
@@ -503,8 +548,12 @@ static void on_reply(struct mcd_radio_link *l, enum req_kind kind, const cJSON *
         l->phase = LP_READY;
         mcd_backoff_reset(&l->backoff);
         mcd_runtime_set_radio_online(d->rt, true);
-        if (d->radio_state_known && strcmp(d->radio_state, "rx") != 0) {
-            mcd_set_state(d, MCD_DEGRADED, "radiod reports the radio is not receiving");
+        /* The same rule as note_radio_state, so the first status answer and
+         * every later event agree about what a state word means. Nothing is
+         * outstanding on a connection this new, so a `tx` here is somebody
+         * else's and is degraded. */
+        if (d->radio_state_known && !radio_state_expected(l, d->radio_state)) {
+            mcd_set_state(d, MCD_DEGRADED, degraded_reason(d->radio_state));
         } else {
             mcd_set_state(d, MCD_ONLINE, "the radio is configured and listening");
         }
@@ -652,8 +701,12 @@ static void on_tx_done(struct mcd_radio_link *l, const cJSON *data)
         outcome = MCD_TX_OK;
         d->counters.tx_ok++;
     }
+    /* After the slot is freed, so the state radiod ended up in is judged
+     * with this transmit already accounted for: a completion that says `tx`
+     * is not this service's transmit any more, and a completion that says
+     * anything but `rx` is the degraded case it has always been. */
     if (cJSON_IsString(jstate)) {
-        note_radio_state(d, jstate->valuestring);
+        note_radio_state(l, jstate->valuestring);
     }
     mcd_runtime_tx_done(d->rt, submit_id, outcome);
     mcd_broadcast(d, mcd_event_activity_tx(submit_id, bytes, mcd_tx_outcome_name(outcome),
@@ -697,7 +750,7 @@ static void on_event(struct mcd_radio_link *l, const char *name, const cJSON *da
         const cJSON *st = cJSON_GetObjectItemCaseSensitive(data, "state");
 
         if (cJSON_IsString(st)) {
-            note_radio_state(l->d, st->valuestring);
+            note_radio_state(l, st->valuestring);
         }
     } else if (strcmp(name, "radio.lease") == 0) {
         on_lease_event(l, data);
@@ -837,18 +890,27 @@ void mcd_link_readable(struct mcd_radio_link *l)
  * quiet for the rest of the session with nothing to say why. */
 static void expire_transmits(struct mcd_radio_link *l, uint64_t now_ms)
 {
+    struct mcd *d = l->d;
     uint64_t expired[MCD_TX_MAP_SLOTS];
     int n = mcd_tx_map_expire(&l->tx, now_ms, expired);
     int i;
 
     for (i = 0; i < n; i++) {
-        struct mcd *d = l->d;
-
         d->counters.tx_unknown++;
         LOG_WARN("radiod sent no completion for a transmit within its deadline; "
                  "the outcome is unknown and it is not sent again");
         mcd_runtime_tx_done(d->rt, expired[i], MCD_TX_UNKNOWN);
         mcd_broadcast(d, mcd_event_activity_tx(expired[i], -1, "unknown", now_ms));
+    }
+    /* The expectation goes with the submission. A `tx` this service excused
+     * because it was waiting for its own completion stops being excusable
+     * when that completion never comes: radiod's last word still stands, and
+     * a radio left transmitting with nothing outstanding is not a radio this
+     * service can report as online. It only ever degrades here - coming back
+     * still takes a `rx` from radiod itself. */
+    if (n > 0 && d->state == MCD_ONLINE && d->radio_state_known &&
+        !radio_state_expected(l, d->radio_state)) {
+        mcd_set_state(d, MCD_DEGRADED, degraded_reason(d->radio_state));
     }
 }
 

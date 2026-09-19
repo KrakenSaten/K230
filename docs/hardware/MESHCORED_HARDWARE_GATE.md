@@ -432,6 +432,14 @@ so the same transition would occur on the host. It was simply never asserted
 by either host suite. Class: **VERIFIED hardware**. The fix, if any, is a
 decision for the next phase.
 
+**Resolved after the gate**, on `fix/meshcored-tx-state`: a `tx` reported
+while this service has a transmit outstanding is expected and keeps the state
+`online`; every other non-`rx` state, and a `tx` with nothing outstanding,
+still degrades ([mesh.md](../api/mesh.md), "Service state"). The observation
+above is what unit A produced and is left as it was recorded; nothing on the
+unit was changed then or since, and the fix is host-tested only - the four
+transmit windows in the table have not been re-measured on hardware.
+
 ### 2. doors-shell radio.status timeouts during meshcored transmits
 
 The shell's 200 ms poll deadline lapsed twice, once during the advert

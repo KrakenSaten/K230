@@ -71,7 +71,19 @@ Which one a failure produces is a judgement about what the failure means:
   the receiver did not come back - is `degraded`. The protocol runtime keeps
   running and can still transmit, which is what radiod's own documentation
   says a send does in that state. A later `radio.state` of `rx` returns it to
-  `online`.
+  `online`, and nothing else does: a service that is `degraded` stays
+  `degraded` while it transmits, because its own voice is not evidence that
+  the receiver came back.
+- **this service's own transmit is not** `degraded`. radiod reports state
+  `tx` for the whole airtime of a packet, and while meshcored holds the lease
+  that packet is its own: the service stays `online` and raises no
+  `mesh.state` event, so a client is not told the mesh is unusable every time
+  this node speaks. The test is the submission, not the state word. A `tx`
+  reported while this service has no transmit outstanding is a radio being
+  driven by something it cannot account for, and is `degraded` with a reason
+  that says which of the two it is. A submission given up on at its
+  completion deadline takes the excuse with it: if radiod is still reporting
+  `tx` after that, the service degrades.
 - **the profile was refused** (radiod error 3 or 2) is `error`, and it is
   terminal. Asking again with the same values would be refused again: the
   profile comes from the command line, so a reconnect would apply exactly the

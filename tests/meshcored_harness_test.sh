@@ -108,6 +108,10 @@ class MockRadiod(threading.Thread):
         self.state = "rx"
         self.profile = None
         self.pending = []          # (due_ms, cid, tx_id, bytes, payload_hex)
+        # How long a packet is "on the air" here. radiod is in state tx for
+        # all of it, which is the window the service's own transmit has to
+        # survive without reporting itself degraded.
+        self.tx_delay = 0.05
         # Fault knobs, all off.
         self.send_async_error = None   # (code, message)
         self.tx_transmitted = True
@@ -158,7 +162,12 @@ class MockRadiod(threading.Thread):
                 pass
 
     def reopen(self):
+        """radiod started again. It kept no transmit state across the restart
+        (docs/api/radio.md, "Restart") and it comes up receiving, so neither a
+        completion nor a stale tx state may survive from before."""
         with self.lock:
+            self.pending = []
+            self.state = "rx"
             self.open()
 
     def stop(self):
@@ -237,6 +246,17 @@ class MockRadiod(threading.Thread):
         for c in list(self.clients.values()):
             if c.subscribed:
                 self.send(c, {"event": name, "data": data})
+
+    def set_state(self, state):
+        """radiod's own set_state: record it, and tell every subscriber.
+
+        Modelled because leaving it out is what let a real defect through.
+        radiod announces state tx for the whole airtime of a packet and this
+        stand-in used to announce nothing at all, so the service's own
+        transmit looked like a radio that had stopped receiving on hardware
+        and like nothing whatsoever here."""
+        self.state = state
+        self.broadcast("radio.state", {"state": state})
 
     def dispatch(self, c):
         while len(c.buf) >= 4:
@@ -338,6 +358,12 @@ class MockRadiod(threading.Thread):
         nbytes = len(payload) // 2
         self.tx_count += 1
         self.last_tx_hex = payload
+        # Announced BEFORE the reply, as radiod does it: set_state runs inside
+        # tx_accept, which returns before m_send_async builds its result
+        # (services/radiod/main.c). So a client learns the radio is
+        # transmitting before it learns the tx_id of the transmit - and has to
+        # recognise its own transmit from the submission, not from the reply.
+        self.set_state("tx")
         self.reply(c, msg, {"accepted": True, "tx_id": tx_id, "bytes": nbytes,
                             "airtime_ms": 100.0})
         if self.close_on_send:
@@ -346,7 +372,8 @@ class MockRadiod(threading.Thread):
             # that must NOT become a retransmission.
             self.close_listener()
             return
-        self.pending.append((time.monotonic() + 0.05, c.cid, tx_id, nbytes, payload))
+        self.pending.append((time.monotonic() + self.tx_delay, c.cid, tx_id, nbytes,
+                             payload))
 
     def complete_pending(self):
         now = time.monotonic()
@@ -361,7 +388,17 @@ class MockRadiod(threading.Thread):
                     # deadlocks the pair the moment both are transmitting.
                     carries.append(payload)
                 if self.drop_tx_done:
+                    # A backend that lost its hardware completion leaves
+                    # radiod in tx for ever with no event to say why
+                    # (docs/KNOWN_ISSUES.md). So the state is NOT announced
+                    # either: the radio stays transmitting as far as anyone
+                    # watching can tell, which is the case the service's
+                    # completion deadline has to answer.
                     continue
+                # The receive state first, then the completion - radiod's own
+                # order, because tx_done carries the state the radio ended up
+                # in and it has to be one that was actually checked.
+                self.set_state(self.tx_state)
                 data = {"tx_id": tx_id,
                         "ok": bool(self.tx_transmitted and self.tx_rx_resumed),
                         "result": ("ok" if self.tx_transmitted and self.tx_rx_resumed
@@ -883,6 +920,11 @@ ok("a completion that never comes is resolved as unknown by the deadline",
    reached, value)
 ok("and still not as a failure, which would invite sending it again",
    ca.result("mesh.status")["counters"]["tx_failed"] == before["tx_failed"])
+# The radio is still transmitting as far as anyone watching can tell, and the
+# transmit that accounted for that has just been given up on. A service that
+# went on reporting online here would be reporting health it cannot see.
+reached, last = wait_state(ca, "degraded", seconds=15)
+ok("a radio left transmitting with nothing outstanding is degraded", reached, last)
 radio_a.drop_tx_done = False
 
 # ...and the service is not wedged: the next transmit completes normally.
@@ -890,6 +932,8 @@ before = ca.result("mesh.status")["counters"]
 ca.result("mesh.advert")
 reached, value = wait_counter(ca, ("counters", "tx_ok"), before["tx_ok"] + 1, seconds=25)
 ok("a lost completion does not wedge the service", reached, value)
+reached, last = wait_state(ca, "online", seconds=15)
+ok("and radiod receiving again is what brings the service back", reached, last)
 
 # Two completions for one transmit.
 before = ca.result("mesh.status")["counters"]
@@ -915,7 +959,152 @@ ok("and changes nothing else", after["tx_ok"] == before["tx_ok"])
 ok("A is still online", ca.result("mesh.status")["state"] == "online")
 
 # ---------------------------------------------------------------------------
-# 6. the stand-in radiod goes away with a transmit accepted
+# 6. a transmit of our own is not a loss of radio service
+# ---------------------------------------------------------------------------
+# radiod reports state tx for the whole airtime of a packet. meshcored read
+# any state that was not rx as a radio it could not use, so on unit A every
+# frame it sent announced degraded and then online again - four transmits out
+# of four, windows of 319 to 772 ms, with nothing wrong
+# (docs/hardware/MESHCORED_HARDWARE_GATE.md, finding 1). No host suite caught
+# it because the stand-in radiod above did not announce a state at all.
+#
+# The window is widened to 1.5 s here, close to the 754 ms the advert took on
+# air, so the transmit can be watched while it is happening rather than
+# inferred from counters afterwards.
+radio_a.tx_delay = 1.5
+
+
+def forget_state_events(conn):
+    conn.drain(0.3)
+    conn.events = [e for e in conn.events if e.get("event") != "mesh.state"]
+
+
+def state_events(conn):
+    conn.drain(0.5)
+    return [e["data"] for e in conn.events if e.get("event") == "mesh.state"]
+
+
+forget_state_events(ca)
+before = ca.result("mesh.status")["counters"]
+ok("A is online before its own transmit",
+   ca.result("mesh.status")["state"] == "online")
+
+ok("A submits a transmit", ca.result("mesh.advert")["accepted"] is True)
+
+# Watched, not inferred: the service is asked what it is while the packet is
+# on the air, which is the question a UI reading mesh.state would be asking.
+saw_tx = False
+off_line = []
+end = time.monotonic() + 6.0
+while time.monotonic() < end:
+    st = ca.result("mesh.status")
+    if st["state"] != "online":
+        off_line.append(st["state"])
+    if st["radio"].get("radio_state") == "tx":
+        saw_tx = True
+    elif saw_tx:
+        break
+    time.sleep(0.05)
+ok("radiod reported the radio transmitting", saw_tx)
+ok("and the service stayed online for the whole transmit",
+   off_line == [], off_line)
+
+reached, value = wait_counter(ca, ("counters", "tx_ok"), before["tx_ok"] + 1, seconds=25)
+ok("the transmit completed as ok", reached, value)
+ok("the radio is receiving again",
+   ca.result("mesh.status")["radio"]["radio_state"] == "rx")
+ok("and the service is online at the end of it",
+   ca.result("mesh.status")["state"] == "online")
+seen = state_events(ca)
+ok("and it announced no state change at all while it spoke", seen == [], seen)
+
+# A tx nobody here asked for is a different thing entirely. This service holds
+# the lease, so a radio transmitting with nothing outstanding is one it cannot
+# account for - which is what degraded has always meant.
+forget_state_events(ca)
+radio_a.inject_event("radio.state", {"state": "tx"})
+reached, last = wait_state(ca, "degraded", seconds=15)
+ok("a transmit this service did not submit is reported as degraded", reached, last)
+seen = state_events(ca)
+ok("and it says which of the two it is, in plain words",
+   any("did not submit" in e.get("reason", "") for e in seen), seen)
+radio_a.inject_event("radio.state", {"state": "rx"})
+reached, last = wait_state(ca, "online", seconds=15)
+ok("and rx brings it back", reached, last)
+
+# Any other state is still degraded, transmit or no transmit.
+radio_a.inject_event("radio.state", {"state": "error"})
+reached, last = wait_state(ca, "degraded", seconds=15)
+ok("a radio in error is still degraded", reached, last)
+
+# And the excuse does not work in reverse: a degraded service that transmits
+# must not report itself healthy on the strength of its own voice. Coming back
+# takes a rx from radiod and nothing less.
+ok("A transmits while degraded", ca.result("mesh.advert")["accepted"] is True)
+saw_tx = False
+claimed_online = []
+end = time.monotonic() + 6.0
+while time.monotonic() < end:
+    st = ca.result("mesh.status")
+    if st["radio"].get("radio_state") == "tx":
+        saw_tx = True
+        if st["state"] != "degraded":
+            claimed_online.append(st["state"])
+    elif saw_tx:
+        break
+    time.sleep(0.05)
+ok("radiod reported that transmit too", saw_tx)
+ok("and a degraded service did not call itself online for it",
+   claimed_online == [], claimed_online)
+reached, last = wait_state(ca, "online", seconds=15)
+ok("the completion's own rx is what brings it back", reached, last)
+
+# The same for a real failure that arrives while our transmit is in flight:
+# radiod says the packet went out and the receiver did not come back, and the
+# transmit outstanding at that moment does not make that healthy.
+before = ca.result("mesh.status")["counters"]
+radio_a.tx_rx_resumed = False
+radio_a.tx_state = "error"
+ca.result("mesh.advert")
+reached, value = wait_counter(ca, ("counters", "tx_rx_resume_failed"),
+                              before["tx_rx_resume_failed"] + 1, seconds=25)
+ok("a receiver that did not come back is counted apart", reached, value)
+reached, last = wait_state(ca, "degraded", seconds=15)
+ok("and a failed receive during our own transmit still reports degraded",
+   reached, last)
+radio_a.tx_rx_resumed = True
+radio_a.tx_state = "rx"
+radio_a.inject_event("radio.state", {"state": "rx"})
+reached, last = wait_state(ca, "online", seconds=15)
+ok("and only a rx from radiod lifts it", reached, last)
+
+# Completions that are not ours reach the same code. Neither a duplicate nor a
+# stale one may move the service state - including one carrying a state word
+# that would degrade it if it were read before the transmit was matched.
+forget_state_events(ca)
+before = ca.result("mesh.status")["counters"]
+radio_a.inject_stale_tx_done(4242)
+radio_a.inject_event("radio.tx_done", {
+    "tx_id": 4242, "ok": False, "result": "rx_resume_failed", "transmitted": True,
+    "rx_resumed": False, "state": "error", "bytes": 8, "airtime_ms": 1.0,
+    "mono_ms": int(time.monotonic() * 1000)})
+time.sleep(1.5)
+after = ca.result("mesh.status")["counters"]
+ok("both unmatched completions are counted",
+   after["tx_done_unmatched"] == before["tx_done_unmatched"] + 2,
+   after["tx_done_unmatched"] - before["tx_done_unmatched"])
+ok("neither is counted as a transmit of ours",
+   after["tx_ok"] == before["tx_ok"] and
+   after["tx_rx_resume_failed"] == before["tx_rx_resume_failed"])
+ok("the service state is untouched by them",
+   ca.result("mesh.status")["state"] == "online")
+seen = state_events(ca)
+ok("and nothing was announced", seen == [], seen)
+
+radio_a.tx_delay = 0.05
+
+# ---------------------------------------------------------------------------
+# 7. the stand-in radiod goes away with a transmit accepted
 # ---------------------------------------------------------------------------
 before = ca.result("mesh.status")["counters"]
 radio_a.close_on_send = True
@@ -957,7 +1146,7 @@ ok("and the identity is unchanged through all of them",
    ca.result("mesh.identity")["public_key"] == ident_a["public_key"])
 
 # ---------------------------------------------------------------------------
-# 7. restart a whole service
+# 8. restart a whole service
 # ---------------------------------------------------------------------------
 nodes_b_before = cb.result("mesh.nodes")["count"]
 ident_b_before = cb.result("mesh.identity")
@@ -1007,7 +1196,7 @@ ok("the node state is 0600", (os.stat(st_path).st_mode & 0o777) == 0o600)
 ok("and the directory is 0700", (os.stat(svc_b.state_dir).st_mode & 0o777) == 0o700)
 
 # ---------------------------------------------------------------------------
-# 8. shutdown
+# 9. shutdown
 # ---------------------------------------------------------------------------
 ca.close()
 cb.close()

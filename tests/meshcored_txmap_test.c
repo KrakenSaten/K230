@@ -8,7 +8,10 @@
  *   - a second completion for one it did (duplicate tx_done);
  *   - a submission whose reply never comes, because the connection went;
  *   - a tx_id of zero, which a submission awaiting acceptance also carries,
- *     and which must not select it.
+ *     and which must not select it;
+ *   - the window a submission is outstanding for, which is what the service
+ *     state machine reads to tell its own transmit from a radio somebody
+ *     else is driving.
  *
  * Each of those, answered wrongly, ends the same way: an outcome attributed
  * to the wrong packet, and a retransmission of something that already went
@@ -52,6 +55,52 @@ static void test_happy_path(void)
     check("the completion is matched by tx_id", done == s1);
     check("and the slot is free again", mcd_tx_map_outstanding(&m) == 0);
     check("the byte count is gone with it", mcd_tx_map_bytes(&m, s1) == -1);
+}
+
+/* The service state machine reads this table to tell its own transmit from
+ * somebody else's: radiod reporting state `tx` is expected exactly while a
+ * submission is outstanding (services/meshcored/radio_link.c,
+ * radio_state_expected). That makes the window's two edges load-bearing. It
+ * has to open before radiod answers the request, because radiod announces the
+ * state change before it replies; and it has to close on every one of the
+ * four ways a submission can end, or a node would keep excusing a radio that
+ * is transmitting nothing of its own. */
+static void test_outstanding_spans_the_transmit(void)
+{
+    struct mcd_tx_map m;
+    uint64_t out[MCD_TX_MAP_SLOTS];
+    uint64_t s;
+
+    mcd_tx_map_init(&m);
+    check("with no submission, nothing about the radio is expected",
+          mcd_tx_map_outstanding(&m) == 0);
+
+    s = mcd_tx_map_submit(&m, 1, 109, 0);
+    check("a submission counts before radiod has answered it",
+          s != 0 && mcd_tx_map_outstanding(&m) == 1);
+    check("and goes on counting through the airtime",
+          mcd_tx_map_accepted(&m, 1, 11, 754.0, 0) == s &&
+          mcd_tx_map_outstanding(&m) == 1);
+    check("the completion closes the window",
+          mcd_tx_map_completed(&m, 11) == s && mcd_tx_map_outstanding(&m) == 0);
+
+    s = mcd_tx_map_submit(&m, 2, 20, 0);
+    check("a refusal closes it too",
+          mcd_tx_map_refused(&m, 2) == s && mcd_tx_map_outstanding(&m) == 0);
+
+    s = mcd_tx_map_submit(&m, 3, 20, 0);
+    mcd_tx_map_accepted(&m, 3, 33, 10.0, 0);
+    check("a completion that never comes holds it open",
+          mcd_tx_map_expire(&m, MCD_TX_MIN_FLIGHT_DEADLINE_MS - 1, out) == 0 &&
+          mcd_tx_map_outstanding(&m) == 1);
+    check("until the deadline closes it",
+          mcd_tx_map_expire(&m, MCD_TX_MIN_FLIGHT_DEADLINE_MS, out) == 1 &&
+          out[0] == s && mcd_tx_map_outstanding(&m) == 0);
+
+    s = mcd_tx_map_submit(&m, 4, 20, 0);
+    check("and a lost connection closes it",
+          mcd_tx_map_abandon_all(&m, out) == 1 && out[0] == s &&
+          mcd_tx_map_outstanding(&m) == 0);
 }
 
 static void test_ids_are_not_reused(void)
@@ -258,6 +307,7 @@ static void test_deadline(void)
 int main(void)
 {
     test_happy_path();
+    test_outstanding_spans_the_transmit();
     test_deadline();
     test_ids_are_not_reused();
     test_duplicate_and_stale();

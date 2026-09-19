@@ -437,6 +437,15 @@ ok("a repeated advert does not raise a second node event",
 
 # Transmit. This is the whole asynchronous path: mesh.advert -> the protocol
 # core -> radio.send_async -> tx_id -> radio.tx_done -> the outcome.
+#
+# radiod announces state tx for the airtime of the packet, so this is also
+# where the service is held to not reporting its own voice as a radio it
+# cannot use (docs/hardware/MESHCORED_HARDWARE_GATE.md, finding 1). The
+# harness proves it against a stand-in that can be made slow; here it is the
+# real radiod, with a real radio.state event, and the check is the one a
+# client sees: the events that were announced.
+m.drain(0.3)
+m.events = [e for e in m.events if e.get("event") != "mesh.state"]
 tx_before = r.result("radio.stats")["tx_packets"]
 res = m.result("mesh.advert")
 ok("an advert is accepted", res["accepted"] is True)
@@ -461,6 +470,18 @@ ok("radiod accepted it", st["tx_accepted"] >= 1)
 ok("it completed", st["tx_ok"] >= 1)
 ok("nothing failed", st["tx_failed"] == 0 and st["tx_unknown"] == 0)
 ok("and no completion was left unmatched", st["tx_done_unmatched"] == 0)
+
+# radiod was in state tx and said so: that is the event this service used to
+# answer with two of its own.
+state_ev = r.wait_event("radio.state", seconds=5, match=lambda d: d.get("state") == "tx")
+ok("radiod announced the radio transmitting", state_ev is not None)
+m.drain(0.5)
+announced = [e["data"] for e in m.events if e.get("event") == "mesh.state"]
+ok("and meshcored announced no state change for its own transmit",
+   announced == [], announced)
+ok("it is online, with radiod receiving again",
+   m.result("mesh.status")["state"] == "online" and
+   m.result("mesh.status")["radio"]["radio_state"] == "rx")
 
 # Input the API must refuse.
 e = m.error("mesh.send", {"to": peer_key[:4], "text": ""})

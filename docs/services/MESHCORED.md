@@ -145,6 +145,8 @@ radiod's `tx_id`. See `services/meshcored/tx_map.h`.
 | What happens | What meshcored does |
 | --- | --- |
 | No lease, or a transmit already outstanding | refuses the submission; MeshCore is told the send did not start |
+| radiod reports state `tx` with a submission outstanding | nothing: the transmit is this service's own, and the state stays `online` (docs/api/mesh.md) |
+| radiod reports state `tx` with nothing outstanding | `degraded` - a radio this service holds the lease on is transmitting something it did not submit |
 | radiod refuses (BUSY, no lease, bad payload) | `tx_refused`, reported as `tx_failed` to the runtime |
 | `tx_done` with `transmitted: false` | `tx_failed`. Not complete: the dispatcher expires the packet on its own deadline and charges no airtime |
 | `tx_done` with `transmitted: true, rx_resumed: false` | `tx_rx_resume_failed`, and the service goes `degraded`. **Complete**, because the bytes went out |
