@@ -810,5 +810,36 @@ meshcore-frame-test:
 	$(MAKE) -C tools/meshcore-frame test
 	$(MAKE) -C tools/meshcore-frame ASAN=1 test
 
+# protocols/meshcore: the portable MeshCore protocol core (P1A). Reached by
+# name for the same reasons meshcore-frame is - it needs the same two ignored
+# upstream checkouts a Doors build does not - and, additionally, because
+# nothing links it yet. There is no MeshCore service; when there is, it will
+# depend on this library and this library will join `all`.
+#
+# It does not touch radiod, does not define a service, and is not installed.
+meshcore-core:
+	$(MAKE) -C protocols/meshcore
+
+# The three suites plain, then the same three under the address and
+# undefined-behaviour sanitizers. Both runs end with tests/meshcore_lint.sh,
+# which is what keeps the portable boundary from quietly widening.
+meshcore-core-test:
+	$(MAKE) -C protocols/meshcore test
+	$(MAKE) -C protocols/meshcore ASAN=1 test
+
+# The cross-compile check. The portable core has to build for the board it is
+# eventually going to run on, and riscv64 is where `unsigned long` being
+# 64-bit stops being an x86-64 coincidence and starts being the thing the
+# protocol clock depends on. Object-only: there is nothing to link yet, and
+# the tests cannot run here.
+#
+#   make meshcore-core-riscv64 CROSS=/opt/toolchain/.../bin/riscv64-unknown-linux-gnu-
+CROSS ?= riscv64-unknown-linux-gnu-
+meshcore-core-riscv64:
+	$(MAKE) -C protocols/meshcore CC=$(CROSS)gcc CXX=$(CROSS)g++ AR=$(CROSS)ar \
+	        CXXFLAGS="-O2 -mcpu=c908v -mtune=c908" OBJDIR=build-riscv64 \
+	        LIB=libmeshcore-riscv64.a
+
 .PHONY: all test install clean sx1262-objs print-build-outputs \
-        meshcore-frame meshcore-frame-test
+        meshcore-frame meshcore-frame-test \
+        meshcore-core meshcore-core-test meshcore-core-riscv64

@@ -1,0 +1,279 @@
+# protocols/meshcore — the portable MeshCore protocol core
+
+A static library, `libmeshcore.a`, holding the MeshCore protocol runtime and
+the smallest Linux adaptation layer it needs. It is the protocol and nothing
+else: no radio driver, no service, no IPC, no UI.
+
+Nothing links it yet. It exists so that the MeshCore service, when it is
+written, has a protocol layer that was ported once, deliberately, with tests —
+rather than one assembled inside a daemon.
+
+## What it owns
+
+The MeshCore wire format and runtime, compiled from upstream unchanged:
+
+| Compiled from `vendor/RIFT/src` | what it is |
+| --- | --- |
+| `Packet.cpp` | the wire frame: header, path, payload, packet hash |
+| `Utils.cpp` | SHA-256, AES-128, encrypt-then-MAC, hex |
+| `Identity.cpp` | Ed25519 keys and signatures, X25519 agreement |
+| `Dispatcher.cpp` | receive/transmit scheduling, airtime budget, duty cycle |
+| `Mesh.cpp` | payload types, routing, advert/datagram/ack/path construction |
+| `helpers/StaticPoolPacketManager.cpp` | the fixed packet pool and the in/out queues |
+| `helpers/AdvertDataHelpers.cpp` | advert app-data: node type, name, position |
+| `helpers/TxtDataHelpers.cpp` | string and float helpers the above use |
+| `helpers/BaseChatMesh.cpp` | contacts, directed messages, ACKs, return paths |
+
+Header-only and also in the boundary: `MeshCore.h`, `helpers/SimpleMeshTables.h`
+(the duplicate table), `helpers/ContactInfo.h`, `helpers/ChannelDetails.h`,
+`helpers/UTF8Helpers.h`.
+
+Crypto, from the two libraries MeshCore itself uses:
+
+- `vendor/RIFT/lib/ed25519` (orlp's ref10 Ed25519): `keypair.c`, `sign.c`,
+  `key_exchange.c`, `fe.c`, `ge.c`, `sc.c`, `sha512.c`. `seed.c` is left out —
+  randomness comes from the host — and so are `verify.c`, which MeshCore does
+  not call, and `add_scalar.c`, which nothing here calls.
+- `vendor/Crypto/libraries/Crypto` (rweather): `Crypto.cpp`, `Hash.cpp`,
+  `BlockCipher.cpp`, `AESCommon.cpp`, `AES128.cpp`, `SHA256.cpp`, `SHA512.cpp`,
+  `BigNumberUtil.cpp`, `Curve25519.cpp`, `Ed25519.cpp`.
+
+## What it explicitly does not own
+
+Left out of the boundary on purpose, all present in the upstream tree:
+
+- **Radio hardware.** `helpers/radiolib/*` (the SX1262, SX1268, SX1276, LLCC68,
+  LR1110, LR2021 and STM32WL wrappers), RadioLib itself, SPI and GPIO.
+  `mesh::Radio` stays an abstract interface, unchanged.
+- **Board support.** `helpers/ESP32Board.*`, `NRF52Board.*`, `stm32/STM32Board.h`,
+  `esp32/TBeamBoard.*`, `MeshadventurerBoard.h`, `RefCountedDigitalPin.h`,
+  `ExternalWatchdogManager.h`, and every FreeRTOS or ESP-IDF call.
+- **Display and input.** All of `helpers/ui/*` — the OLED, e-paper and ST77xx
+  drivers, the T-Deck keyboard, touch, trackball and speaker, the buzzer,
+  `UIScreen.h`, `DisplayDriver.h`.
+- **RIFT's UI.** `examples/companion_radio/ui-rift/*` — `RiftLogic`,
+  `RiftClock`, `RiftMutes`, `UITask`. This library is not RIFT.
+- **Links other than the mesh.** `helpers/esp32/SerialBLEInterface.*`,
+  `SerialWifiInterface.*`, `ESPNOWRadio.*`, `nrf52/SerialBLEInterface.*`,
+  `ArduinoSerialInterface.*`, `MultiSerialInterface.h`, `helpers/bridges/*`,
+  `helpers/ethernet/*`. The companion protocol is not needed by the protocol
+  core and is not here.
+- **Arduino storage.** `helpers/IdentityStore.*`, `stm32/InternalFileSystem.*`,
+  and `SimpleMeshTables`' `#ifdef ESP32` save/restore, which needs `<FS.h>`.
+  Persistence is the future service's business, over Doors' own storage.
+- **Node configuration and CLI.** `helpers/CommonCLI.*`, `ConfigSerializer.*`,
+  `ClientACL.*`, `TransportKeyStore.*`, `RegionMap.*`.
+- **Sensors and RTC hardware.** `helpers/sensors/*`, `AutoDiscoverRTCClock.*`,
+  `RTC_RX8130CE.*`.
+- **Group channels.** Compiled out: `MAX_GROUP_CHANNELS` is left undefined, so
+  `BaseChatMesh`'s channel code — and the `<base64.hpp>` Arduino library it
+  needs — is not built. Adding channels later means defining that macro and
+  supplying a base64 decoder.
+
+## Upstream
+
+| | |
+| --- | --- |
+| MeshCore protocol | `KrakenSaten/RIFT`, branch `rift-tdeck`, commit `3ca7e3f003bd270587b1d92e33ce999542dcb5b4` |
+| Crypto | `rweather/arduinolibs`, commit `37a76b8f7516568e1c575b6dc9268da1ccaac6b6` |
+
+Both are recorded in `vendor_rift_commit.txt` and `vendor_crypto_commit.txt`,
+checked by the Makefile before anything compiles, and checked by
+`tests/meshcore_lint.sh` to match `tools/meshcore-frame` — the tool whose
+frames passed the accepted P0 on-air gate. If the two ever diverge, that
+gate's evidence stops carrying over to this library, and the lint says so.
+
+**Local divergence from upstream: none.** Not one vendored file is edited,
+copied or patched. `tests/meshcore_lint.sh` checks that `vendor/RIFT/src` and
+`vendor/RIFT/lib/ed25519` are byte-identical to the pinned commit, and that
+nothing under `protocols/meshcore/` shadows a vendored filename. Everything
+the port needs is supplied from outside those trees, through the headers
+MeshCore already includes.
+
+The two upstream checkouts are not vendored into this repository; they are
+ignored clones, as `vendor/RadioLib` and `vendor/ggwave` are:
+
+```sh
+git clone https://github.com/KrakenSaten/RIFT.git vendor/RIFT
+git -C vendor/RIFT checkout 3ca7e3f003bd270587b1d92e33ce999542dcb5b4
+git clone https://github.com/rweather/arduinolibs.git vendor/Crypto
+git -C vendor/Crypto checkout 37a76b8f7516568e1c575b6dc9268da1ccaac6b6
+```
+
+## Platform seams
+
+MeshCore reaches its platform through four abstract classes it defines itself,
+plus the Arduino `Print`/`Stream` pair. Implementations live in `port/` and
+`compat/`; `port/mc_port.h` is the whole public surface.
+
+| Seam | Implementation | Notes |
+| --- | --- | --- |
+| `mesh::MillisecondClock` | `mcport::MonotonicClock` | `CLOCK_MONOTONIC`. See below. |
+| `mesh::RTCClock` | `mcport::SystemRTCClock` | `CLOCK_REALTIME` seconds. `setCurrentTime()` is accepted and ignored: the system clock is sysd's. `isSet()` reports whether time sync has happened. |
+| `mesh::RNG` | `mcport::HostRNG` over `mcport::randomBytes()` | `getrandom(2)`, falling back to `/dev/urandom`. Radio noise is **not** an entropy source here. `randomBytes()` returns failure; `HostRNG::random()` cannot (the interface returns void) and aborts rather than handing MeshCore predictable bytes. |
+| logging | `mcport::setLogSink()` / `logWrite()` | Levels mirror pocketlog's, in pocketlog's order, so a service wires the two together with a cast. Defaults to stderr. This library does **not** depend on `core/pocketlog`. |
+| `Print` / `Stream` | `compat/Stream.h` | `MemStream` over a byte buffer, which is how a MeshCore `.id` file is read and written, plus a `Serial` over stderr. The default build leaves `MESH_PACKET_LOGGING` off, but `make CXXFLAGS="-O2 -DMESH_PACKET_LOGGING=1"` compiles and links cleanly (checked at this commit, not on every run), which is what `Print::print(int, base)` and `Print::printf()` are there for. |
+| `<Arduino.h>` | `compat/Arduino.h` | The C library the four vendored includers actually want, plus `ltoa()`, which avr-libc has and glibc does not. No pin, bus, timer or RTOS API, and deliberately no `millis()`. |
+| Crypto's global `RNG` | `compat/rng_host.cpp` | rweather's library declares `extern RNGClass RNG` and defines it over Arduino entropy sources. Supplied here over the host CSPRNG. |
+
+### The clock is genuinely 64-bit
+
+`mesh::MillisecondClock::getMillis()` returns `unsigned long`, and
+`mesh::Dispatcher` compares two of them by casting the difference to signed
+(`(long)(now - deadline) > 0`). On an ESP32 both types are 32 bits and that
+cast is what survives the counter wrapping every 49.7 days. On riscv64 and on
+the x86-64 host both are 64 bits.
+
+A 32-bit counter widened into that 64-bit type would be **worse than the
+ESP32**: it would still wrap at 2^32, and the signed difference would then be
+a value near −2^32, which is not greater than zero — so every deadline set
+before the wrap reads as *not yet reached*, and the dispatcher stops
+transmitting instead of recovering. So the port uses a real monotonic 64-bit
+millisecond value, `mc_port.h` `static_assert`s that `unsigned long` is at
+least 64 bits, and `tests/meshcore_port_test.cpp` demonstrates both halves:
+the real clock crossing 2^32 correctly, and a deliberately wrapping clock
+failing in exactly that way.
+
+One 32-bit window does survive, correctly: `mesh::PacketManager`'s interface is
+`uint32_t` on both sides (`queueOutbound(..., uint32_t scheduled_for)` and
+`getNextOutbound(uint32_t now)`), so deadlines are truncated going in and
+"now" is truncated the same way coming out, and `PacketQueue` compares them
+with a wrap-safe `(int32_t)(scheduled - now) > 0`. Consistent truncation plus a
+wrap-safe compare is correct for any delay under about 24.8 days. The port test
+covers that crossing too.
+
+## Relationship to radiod
+
+There is no radio here, and no connection to `services/radiod`. The intended
+shape:
+
+```
+services/radiod/          generic SX1262 / LoRa hardware service (unchanged by this work)
+        ↓ IPC
+MeshCore service          a future process: protocols/meshcore + a radiod adapter
+        ↓ IPC
+apps/rift/                a future presentation layer
+```
+
+`mesh::Radio` is left exactly as upstream declares it. The real adapter will
+implement it over radiod's IPC and live in that service, not in this library —
+which is also why radiod is not being shaped around MeshCore: a Meshtastic
+protocol service could sit on the same radiod without either knowing about the
+other.
+
+## Building and testing
+
+From the top of the repository:
+
+```sh
+make meshcore-core         # libmeshcore.a
+make meshcore-core-test    # the three suites, plain then sanitised, then the lint
+make meshcore-core-riscv64 CROSS=/opt/toolchain/Xuantie-900-gcc-linux-6.6.0-glibc-x86_64-V3.0.2/bin/riscv64-unknown-linux-gnu-
+```
+
+It is not part of `make all` or `make test`, for the same reason
+`tools/meshcore-frame` is not: it needs two upstream checkouts a Doors build
+does not, and nothing links it yet. It installs nothing and reaches no image.
+
+Both the host and riscv64 builds are clean with `-Wall -Wextra` and no
+first-party warnings. The vendored trees are compiled as their authors wrote
+them and reached with `-isystem`, so their warnings do not drown ours.
+
+### Test coverage
+
+| Suite | Checks | Covers |
+| --- | --- | --- |
+| `tests/meshcore_core_test.cpp` | 100 | packet encode/decode (flood, direct with path, transport codes), `path_len` bit packing, the duplicate table, hex, UTF-8 truncation, Ed25519 sign/verify and tamper rejection, X25519 agreement, AES-128 + MAC round trip, every single-bit MAC and ciphertext corruption rejected, SHA-256 against the published vector, advert app-data |
+| `tests/meshcore_port_test.cpp` | 74 | the monotonic clock, dispatcher timing at 2^32−1 / 2^32 / 2^32+1, the outbound queue across the same boundary, the widened-32-bit failure demonstration, the host RNG including its failure path, the wall clock, the log sink, and a full mesh node running a loop with no hardware |
+| `tests/meshcore_smoke_test.cpp` | 54 | two nodes over an in-memory air: signed ADVERT both ways, forged advert rejected, flood text A→B, PATH+ACK back, a second **directed** text and its ACK, a third node that hears everything and reads nothing |
+| `tests/meshcore_lint.sh` | 13 | the boundary itself, statically: no LVGL/DRM/GPIO/RadioLib/SPI/RTOS symbol demanded, no Arduino timing call, `clock_gettime` actually used, no test hook in the shipped library, no vendored file edited or shadowed, pins matching `meshcore-frame`, nothing installed |
+
+All four run twice, plain and under ASan + UBSan. Every test uses the real
+crypto; there is no mock AES or mock SHA-256 anywhere. That is a deliberate
+departure from upstream's own native test environment, which builds with
+`-I test/mocks` where `AES128::encryptBlock()` has an empty body and `SHA256`
+is an xor-and-rotate toy — useful for testing `Packet` without a crypto
+library, useless for asking whether a MAC rejects a forgery.
+
+Tests ported from upstream's googletest suites, assertion for assertion, onto
+this repository's `check()` harness: `test_path_len` (6 cases), `test_mesh_tables`
+(8), `test_utils` (5), `test_utf8_helpers` (8). Upstream's remaining native
+cases are out of this boundary: `test_rift_logic` (331 cases) tests
+`examples/companion_radio/ui-rift/RiftLogic.h`, which is RIFT's UI;
+`test_rift_air_log`, `test_rift_cli_secret` and `test_config_serializer` test
+companion, CLI and config-storage code that is not compiled here; and
+`test_base64_key` and `test_kiss_modem` test libraries this library does not
+build.
+
+### Sanitizer exemptions
+
+Two, both narrow and both about vendored code:
+
+1. `-fno-sanitize=shift-base` for `vendor/RIFT/lib/ed25519` only. orlp's ref10
+   Ed25519 does its field and scalar arithmetic by left-shifting signed 64-bit
+   limbs that are often negative — formally undefined, universally an
+   arithmetic shift, and what runs on a real MeshCore node. About forty sites
+   in `sc.c` and `fe.c`, nowhere else in the build. Same exemption, same files,
+   as `tools/meshcore-frame`.
+2. `lsan.supp`, suppressing exactly two constructors in
+   `vendor/RIFT/src/helpers/StaticPoolPacketManager.cpp`. See that file.
+
+Everything else, ours and vendored, keeps the full address and
+undefined-behaviour checks.
+
+## Known hardening debt
+
+Recorded, not fixed. P1A is a faithful baseline; changing upstream's behaviour
+is separate work, and silently changing it while claiming a faithful port
+would be the worst of both. Each item has a regression test asserting **what
+the code does today** — when a fix lands, those tests are expected to fail and
+should be rewritten to assert the fixed behaviour.
+
+1. **`Packet::readFrom()` reads past a short buffer.**
+   `vendor/RIFT/src/Packet.cpp:65-85` consumes the header, four
+   transport-code bytes and `path_len`, then `memcpy`s up to 189 bytes of
+   path, all before its first comparison of `i` against `len` (line 80). A
+   caller passing a buffer shorter than the packet the bytes describe gets an
+   out-of-bounds read and only then `false`.
+   Reachable in this boundary through `BaseChatMesh::importContact()`
+   (`BaseChatMesh.cpp:560`), which passes a caller-supplied length straight
+   through. **Not** an over-the-air path: `Dispatcher::tryParsePacket()` does
+   its own bounds-checked parse and does not call `readFrom()`.
+   Tests: `meshcore_core_test.cpp`, `test_debt_readfrom_short_buffer`.
+
+2. **PATH `extra_len` underflow.**
+   `vendor/RIFT/src/Mesh.cpp:172`, `uint8_t extra_len = len - k;`. Nothing
+   checks `k <= len`. A decrypted PATH payload that declares a longer path
+   than it carries makes the subtraction negative, and the `uint8_t`
+   truncation turns it into a large positive length handed to
+   `onPeerPathRecv()` with a pointer near the end of the buffer. A crafted
+   payload reaches `extra_len = 207` over a 184-byte buffer.
+   Requires a valid MAC, so the sender must be an already-agreed contact —
+   which is why it is debt and not an emergency.
+   Tests: `meshcore_smoke_test.cpp`, `test_debt_path_extra_len_underflow`,
+   which crafts the payload and encrypts it with the real shared secret, so it
+   drives the genuine code path.
+
+3. **`Utils::fromHex()` validates length only.**
+   `vendor/RIFT/src/Utils.cpp:218-229` checks that the string is
+   `dest_size * 2` characters and nothing else; a non-hex character becomes
+   `0` and the call still returns `true`. `Utils::isHexChar()` exists beside
+   it for callers to validate with, so this may be deliberate — but a caller
+   that trusts the bool gets bytes nobody typed.
+   Tests: `meshcore_core_test.cpp`, `test_hex`.
+
+4. **`StaticPoolPacketManager` and `PacketQueue` have no destructors.**
+   Both allocate with `new` and never free. Harmless in the shape MeshCore was
+   written for and in the shape a service will use it — one manager for the
+   life of the process, a fixed pool — but it means a packet manager cannot be
+   recycled at runtime. Suppressed for LeakSanitizer; see `lsan.supp`.
+
+5. **`BaseChatMesh::onAdvertRecv()` never sets `is_new`.**
+   `vendor/RIFT/src/helpers/BaseChatMesh.cpp:154` declares `bool is_new = false`
+   and line 198 passes it to `onDiscoveredContact()` without it ever being
+   assigned, so a contact added for the first time is reported as not new.
+   A UI-notification quirk rather than a protocol fault, and upstream's to
+   decide — noted so that whoever writes the service does not build on the
+   flag. `meshcore_smoke_test.cpp` deliberately does not depend on it.
+
+Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).

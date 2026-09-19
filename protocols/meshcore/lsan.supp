@@ -1,0 +1,38 @@
+# LeakSanitizer suppressions for the portable MeshCore core.
+#
+# ONE vendored file, TWO constructors, and nothing else. Every other leak,
+# in our code or in any other part of the vendored trees, is still reported
+# and still fails the sanitised run.
+#
+# vendor/RIFT src/helpers/StaticPoolPacketManager.cpp:
+#
+#   PacketQueue::PacketQueue(int max_entries) {
+#     _table = new mesh::Packet*[max_entries];
+#     _pri_table = new uint8_t[max_entries];
+#     _schedule_table = new uint32_t[max_entries];
+#     ...
+#
+#   StaticPoolPacketManager::StaticPoolPacketManager(int pool_size) : ... {
+#     for (int i = 0; i < pool_size; i++) unused.add(new mesh::Packet(), 0, 0);
+#
+# Neither class declares a destructor, so the three arrays per queue and the
+# pool of Packets are never freed. On the devices MeshCore was written for
+# that is deliberate rather than careless: the packet manager is constructed
+# once at boot, from a fixed pool size, and lives until the device is
+# powered off. Freeing it would be dead code on an MCU.
+#
+# It is not a defect this port should paper over in the source, because
+# "fix somebody else's allocation lifetime" is exactly the kind of rewrite
+# P1A is meant not to do, and changing a vendored file to quiet a sanitizer
+# is the worst version of it. A MeshCore service will construct one manager
+# at start-up and keep it for the life of the process, so the leak is
+# bounded by the pool size and never grows - the same shape as on a device.
+#
+# What makes it visible here at all is only that the tests construct several
+# managers in one process and then exit.
+#
+# Recorded as hardening debt in README.md. If MeshCore ever gains a service
+# that recycles packet managers at runtime, this suppression must go and the
+# destructors must be contributed upstream.
+leak:PacketQueue::PacketQueue
+leak:StaticPoolPacketManager::StaticPoolPacketManager
