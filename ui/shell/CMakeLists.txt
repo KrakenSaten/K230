@@ -101,6 +101,14 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/wave/wave_view.c
     ${REPO_DIR}/apps/wave/wave_session.c
     ${REPO_DIR}/apps/wave/wave_text.c
+    ${REPO_DIR}/apps/rift/rift_app.c
+    ${REPO_DIR}/apps/rift/rift_model.c
+    ${REPO_DIR}/apps/rift/rift_format.c
+    ${REPO_DIR}/apps/rift/rift_ipc.c
+    ${REPO_DIR}/apps/rift/ui/rift_widgets.c
+    ${REPO_DIR}/apps/rift/ui/rift_activity.c
+    ${REPO_DIR}/apps/rift/ui/rift_nodes.c
+    ${REPO_DIR}/apps/rift/ui/rift_detail.c
     ${REPO_DIR}/apps/timber/timber_app.c
     ${REPO_DIR}/apps/timber/timber_store.c
     ${REPO_DIR}/apps/timber/engine/timber_types.c
@@ -121,7 +129,8 @@ add_executable(pocketos-shell
     ${REPO_DIR}/core/pocketlog/pocketlog.c
     ${POCKETUI_FONTS})
 target_include_directories(pocketos-shell PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui" "${REPO_DIR}/core")
+    "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui" "${REPO_DIR}/core"
+    "${REPO_DIR}/apps/rift" "${REPO_DIR}/apps/rift/ui")
 target_compile_options(pocketos-shell PRIVATE -Wall -Wextra)
 target_compile_definitions(pocketos-shell PRIVATE
     POCKETOS_DISPLAY_NAME="${POCKETOS_DISPLAY}"
@@ -675,6 +684,43 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(settings_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(settings_app_test PRIVATE lvgl ${SDL2_LIBRARIES} cjson m)
+
+    # RIFT in the running app, in both orientations (run by
+    # tests/rift_shell_test.sh). meshcored is not here: the app finds no
+    # service, which is one of the states it has to draw, and the fixtures
+    # go into its model through the same entry points its own client uses.
+    # The shell is not here either; the app.h entry points are counters.
+    add_executable(rift_app_test
+        ${REPO_DIR}/tests/rift_app_test.c
+        ${REPO_DIR}/apps/rift/rift_app.c
+        ${REPO_DIR}/apps/rift/rift_model.c
+        ${REPO_DIR}/apps/rift/rift_format.c
+        ${REPO_DIR}/apps/rift/rift_ipc.c
+        ${REPO_DIR}/apps/rift/ui/rift_widgets.c
+        ${REPO_DIR}/apps/rift/ui/rift_activity.c
+        ${REPO_DIR}/apps/rift/ui/rift_nodes.c
+        ${REPO_DIR}/apps/rift/ui/rift_detail.c
+        ${REPO_DIR}/core/pocketipc/pocketipc.c
+        ${REPO_DIR}/core/pocketpaths.c
+        ../pocketui/pos_app_icons.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(rift_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/rift" "${REPO_DIR}/apps/rift/ui")
+    target_compile_options(rift_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(rift_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(rift_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(rift_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(rift_app_test PRIVATE lvgl ${SDL2_LIBRARIES} cjson m)
 
     # System in the running app, tapped and scrolled in portrait and in
     # landscape (run by tests/system_shell_test.sh). The test plays sysd: it

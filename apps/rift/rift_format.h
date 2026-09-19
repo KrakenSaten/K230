@@ -1,0 +1,195 @@
+/*
+ * RIFT's words: every string the screens print, decided here.
+ *
+ * No LVGL, no cJSON, no I/O. The parts of a mesh screen that go wrong are
+ * the parts that say something the data does not support - a hop count
+ * printed as 0 because nobody measured it, an RSSI attributed to a node
+ * nine relays away, a path drawn through hops nobody named, a remote name
+ * cut in the middle of a UTF-8 character - so they are decided in pure C
+ * and tested without a display (tests/rift_format_test.c).
+ *
+ * Two rules from the design handoff (docs/design/rift/HANDOFF.md §6, §7):
+ *
+ *   - "?" when the backend could report a value and has not; U+2014 when
+ *     the value cannot exist at all, such as an end-to-end RSSI over
+ *     relays. Never 0, never a bar, never "good".
+ *   - The full hop list is kept and never truncated; only the *rendering*
+ *     compresses, and the numeric hop count is always printed beside it.
+ *
+ * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ */
+#ifndef RIFT_FORMAT_H
+#define RIFT_FORMAT_H
+
+#include "rift_model.h"
+
+#include <stddef.h>
+#include <stdint.h>
+
+/* The characters the product fonts carry (tools/design/gen_fonts.sh covers
+ * 0x20-0x7E, 0xA0-0xFF, 0x2013-0x2026, 0x2039-0x203A, 0x2190-0x2212), named
+ * once so no screen spells a code point itself. */
+#define RIFT_SEP " \xC2\xB7 "          /* U+00B7 middle dot, spaced */
+#define RIFT_ARROW " \xE2\x80\xBA "    /* U+203A single right guillemet */
+#define RIFT_ELLIPSIS "\xE2\x80\xA6"   /* U+2026 */
+#define RIFT_EMDASH "\xE2\x80\x94"     /* U+2014: the value cannot exist */
+#define RIFT_MINUS "\xE2\x88\x92"      /* U+2212: a real minus, not a hyphen */
+#define RIFT_UNKNOWN "?"               /* the value could be known and is not */
+
+/* Copy at most out_len-1 bytes of src, never splitting a UTF-8 character,
+ * and always NUL-terminating. Remote names arrive from meshcored already
+ * well-formed (docs/api/mesh.md, "Remote text"); this keeps them that way
+ * when they are longer than the field that holds them. Returns the bytes
+ * written. src may be NULL, which writes "". */
+size_t rift_utf8_copy(char *out, size_t out_len, const char *src);
+
+/* As rift_utf8_copy, but a string that had to be cut ends in U+2026, so a
+ * shortened name is visibly shortened rather than silently wrong. */
+size_t rift_utf8_ellipsis(char *out, size_t out_len, const char *src);
+
+/* ---- ages -------------------------------------------------------------- */
+
+#define RIFT_AGE_MAX 8
+
+/* "12s", "6m", "2h", "5d", ">99d", or "?" when the time is not known. A
+ * negative age - meshcored's monotonic clock ahead of ours, which can only
+ * be a fault - is "?" and never a time in the future. */
+void rift_fmt_age(int64_t age_ms, int known, char *out, size_t out_len);
+/* The same interval as two fields for the detail panel's big value: "12"
+ * and "min". value or unit may be NULL. Unknown gives "?" and "". */
+void rift_fmt_age_split(int64_t age_ms, int known, char *value, size_t value_len, char *unit,
+                        size_t unit_len);
+
+/* ---- signal ------------------------------------------------------------ */
+
+#define RIFT_SIGNAL_MAX 12
+
+/* RSSI as a whole number of dBm with a real minus sign, or "?". */
+void rift_fmt_rssi(double dbm, int known, char *out, size_t out_len);
+/* SNR to one decimal, or "?". */
+void rift_fmt_snr(double db, int known, char *out, size_t out_len);
+
+/* ---- a node's link ----------------------------------------------------- */
+
+enum rift_link rift_link_of(const struct rift_node *n);
+/* Not heard for longer than RIFT_STALE_MS. A node never heard at all is not
+ * stale; it is unheard, which the list groups separately. */
+int rift_node_is_stale(const struct rift_node *n, int64_t now_ms);
+
+/* The hop column: "DIR" for direct, the relay count for relayed, "?" when
+ * no route back is known. Never a bare 0 (handoff §6). */
+#define RIFT_HOPS_MAX 6
+void rift_fmt_hops(const struct rift_node *n, char *out, size_t out_len);
+
+/* The state line, in the fixed order state · hop count · uncertainty:
+ * "DIRECT", "RELAYED · 8 HOPS", "RELAYED · 8 HOPS · 2 UNKNOWN HOPS",
+ * "NO PATH". */
+#define RIFT_STATE_MAX 64
+void rift_fmt_state(const struct rift_node *n, char *out, size_t out_len);
+
+/* What a node is called on screen: its name when it has one, else its hash
+ * in the form the API gives it. Never empty. */
+#define RIFT_LABEL_MAX RIFT_NAME_MAX
+void rift_fmt_label(const struct rift_node *n, char *out, size_t out_len);
+
+/* MeshCore's ADV_TYPE_*: "chat", "repeater", "room", "sensor". NULL when
+ * the type was not reported or is not one this build knows - an unknown
+ * number is not turned into a word. */
+const char *rift_type_word(int type, int have_type);
+/* The short role tag beside a name in a row: "RPT" for a repeater, "ROOM",
+ * "SENS", or NULL for a plain chat node and for an unknown type. */
+const char *rift_type_tag(int type, int have_type);
+
+/* A public key as the detail screen shows it: four groups of four hex
+ * digits, an ellipsis, and the last four - "3F9A C21E 7D04 … 88B1". A key
+ * that is not 64 hex characters is printed as far as it goes rather than
+ * padded. */
+#define RIFT_KEY_SHORT_MAX 40
+void rift_fmt_key_short(const char *key, char *out, size_t out_len);
+
+/* ---- the path ---------------------------------------------------------- */
+
+/* A hop's identifier is the hash bytes MeshCore routes on, as hex. The
+ * path may carry more than one byte per hop (Packet::pathHashSize), so this
+ * is not always two characters. */
+#define RIFT_HOP_ID_MAX 17
+#define RIFT_MAX_HOPS 64
+
+struct rift_hop {
+    char id[RIFT_HOP_ID_MAX];
+    int have_id;
+};
+
+struct rift_path {
+    int known;         /* a route back is known at all */
+    int direct;        /* zero relays */
+    int hops;          /* relay hops, as the service reported them */
+    int identified;    /* relay hops this path carries an identifier for */
+    int unknown;       /* hops - identified, never negative */
+    int count;         /* entries written in hop[] */
+    int bytes_per_hop; /* 0 when the path could not be divided into hops */
+    struct rift_hop hop[RIFT_MAX_HOPS];
+};
+
+/* Take a node's path apart.
+ *
+ * The API gives a hop count and an opaque byte string (docs/api/mesh.md,
+ * mesh.nodes), and MeshCore packs pathHashSize() bytes per hop. When the
+ * string divides exactly by the hop count, every hop has an identifier.
+ * When it does not - the path was clipped at MCD_MAX_PATH, or the two
+ * disagree - the hops are real but none of them can be named, and they are
+ * reported as unknown rather than sliced into plausible pieces. Returns 0,
+ * or -1 for input this function will not take (a path_hex that is not an
+ * even-length hex string). */
+int rift_path_parse(const struct rift_node *n, struct rift_path *out);
+
+/* The hop strip (handoff §7): self, the relays, the target. More than four
+ * relays compresses to the first two, a "+n" cell and the last one; the
+ * numeric hop count is printed separately and is never compressed. */
+enum rift_cell {
+    RIFT_CELL_SELF = 0,
+    RIFT_CELL_RELAY,     /* a relay this path names */
+    RIFT_CELL_UNKNOWN,   /* a relay this path does not name */
+    RIFT_CELL_MORE,      /* "+n" */
+    RIFT_CELL_TARGET,
+};
+
+struct rift_strip_cell {
+    enum rift_cell kind;
+    int more;            /* RIFT_CELL_MORE only: how many are folded in */
+    int hop;             /* relay index, 0-based; -1 for self, target, more */
+};
+
+/* self + two relays + "+n" + one relay + target. */
+#define RIFT_STRIP_MAX 6
+/* Compress once there are more relays than this (handoff §7). */
+#define RIFT_STRIP_RELAYS_MAX 4
+
+int rift_strip_build(const struct rift_path *p, struct rift_strip_cell *out, int max);
+
+/* The inline chain: "K230 › RPT-NORD › 7f › ? › HYTTA". A hop the path
+ * does not name is "?", never a plausible hash. resolve may be NULL; it is
+ * asked for a name for a hop identifier and may answer NULL. */
+#define RIFT_CHAIN_MAX 512
+typedef const char *(*rift_resolve_fn)(const char *hop_id, void *user);
+void rift_path_chain(const char *self_label, const struct rift_path *p, const char *target_label,
+                     rift_resolve_fn resolve, void *user, char *out, size_t out_len);
+
+/* One line of the portrait hop ladder / landscape hop table:
+ *   index 0            self
+ *   1..hops            a relay
+ *   hops + 1           the target
+ * Writes the hop's label (a resolved name, a hash, or "?") and its kind.
+ * Returns 0, or -1 when index is past the end of the path. */
+struct rift_ladder_row {
+    int index;
+    enum rift_cell kind;
+    char label[RIFT_NAME_MAX];
+    char note[RIFT_TEXT_MAX];
+};
+
+int rift_path_ladder_row(const struct rift_path *p, int index, const char *self_label,
+                         const char *target_label, rift_resolve_fn resolve, void *user,
+                         struct rift_ladder_row *out);
+
+#endif

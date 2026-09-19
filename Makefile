@@ -627,6 +627,45 @@ tests/calc_engine_test: tests/calc_engine_test.o $(CALC_OBJS)
 tests/calc_view_test: tests/calc_view_test.o $(CALC_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
 
+# RIFT: the three halves of the app that are not LVGL. The model (what is
+# known and how sure it is), the formatting (every string the screens print)
+# and the meshcored client (the connection, the framing and the reconnect)
+# have no display in them, so they are unit-tested here, the client against a
+# real socket and a scripted service. The screens themselves need LVGL and
+# are built by ui/shell (CMake), run by tests/rift_shell_test.sh.
+RIFT_DIR := apps/rift
+RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_format.o $(RIFT_DIR)/rift_ipc.o
+RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_ipc_test tests/fake-meshcored
+
+$(RIFT_DIR)/%.o: $(RIFT_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) -I$(RIFT_DIR) -c -o $@ $<
+
+tests/rift_%_test.o: tests/rift_%_test.c
+	$(CC) $(ALL_CFLAGS) -I$(RIFT_DIR) -c -o $@ $<
+
+tests/fake_meshcored.o: tests/fake_meshcored.c tests/fake_meshcored.h
+	$(CC) $(ALL_CFLAGS) -I$(RIFT_DIR) -c -o $@ $<
+
+tests/rift_format_test: tests/rift_format_test.o $(RIFT_DIR)/rift_format.o $(RIFT_DIR)/rift_model.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+tests/rift_model_test: tests/rift_model_test.o $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_format.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+tests/rift_ipc_test: tests/rift_ipc_test.o tests/fake_meshcored.o $(RIFT_OBJS) $(IPC_OBJS) \
+                     core/pocketipc/server.o $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# The same scripted service as a program, so tests/rift_shell_test.sh can run
+# one beside the real shell and the app can be photographed with real data
+# on the other end of a real socket.
+tests/fake_meshcored_main.o: tests/fake_meshcored_main.c tests/fake_meshcored.h
+	$(CC) $(ALL_CFLAGS) -c -o $@ $<
+
+tests/fake-meshcored: tests/fake_meshcored_main.o tests/fake_meshcored.o $(IPC_OBJS) \
+                      core/pocketipc/server.o $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
 # PocketTimber game engine (pure C, no LVGL, no I/O, no floating point).
 # Arranged like PocketRadar: the engine lives beside its app in
 # apps/timber/engine and is built here so it is unit-tested with the rest
@@ -776,7 +815,7 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
              tests/kbd_presence_test \
              tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
              $(NOTES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) $(CALC_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test \
-             $(WAVE_TESTS)
+             $(WAVE_TESTS) $(RIFT_TESTS)
 
 # Native tests only (they execute binaries).
 test: all $(TEST_BINS)
@@ -836,6 +875,9 @@ test: all $(TEST_BINS)
 	./tests/wave_view_test
 	./tests/wave_session_test tests/fake_pos_wave.sh tests/pos-wave-testhooks
 	./tests/wave_modem_test
+	./tests/rift_format_test
+	./tests/rift_model_test
+	./tests/rift_ipc_test
 	bash tests/wave_tool_test.sh
 	bash tests/audio_recovery_test.sh
 	bash tests/capture_settle_test.sh
@@ -871,6 +913,7 @@ test: all $(TEST_BINS)
 	bash tests/calculator_lint.sh
 	bash tests/settings_lint.sh
 	bash tests/system_lint.sh
+	bash tests/rift_lint.sh
 
 install: all meshcored-shipping-check
 # The command-line tool is installed as doors, and pos is a symlink to it: one
@@ -923,7 +966,7 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 
 clean:
 	$(MAKE) -C tools/meshcore-frame clean
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/pos_wave_hooks.o tests/fake_audio_backend.o $(POCKETOS_BUILD_STAMP)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(POCKETOS_BUILD_STAMP)
 
 # The files `make all` and `make test` produce, one to a line, for
 # tests/build_outputs_test.sh.

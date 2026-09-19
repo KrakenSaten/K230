@@ -31,9 +31,13 @@ by intention: no device path, no GPIO call, no radio-library header, and no
 use of the synchronous `radio.send`, which would block radiod for the whole
 airtime and this service with it.
 
-It draws nothing. There is no LVGL, no theme token and no screen here, and
-`apps/rift/` does not exist. `docs/design/rift/` is the approved design for
-the client that will sit above this API; this phase does not touch it.
+It draws nothing. There is no LVGL, no theme token and no screen here.
+`apps/rift/` exists since RIFT phase 1 (docs/apps/RIFT.md) and this service
+knows nothing about it: nothing here names it, nothing here includes it, and
+its objects are not in this build (`tests/meshcored_lint.sh`). That is the
+boundary the name was chosen for - meshcored owns the MeshCore protocol and
+runtime, RIFT is a UI above it, and a second client, or none at all, changes
+nothing about the node.
 
 ## Ownership on start-up
 

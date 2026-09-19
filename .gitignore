@@ -117,3 +117,12 @@ BUILD_ID
 /tests/meshcored_store_test-*
 /tests/meshcored_runtime_test
 /tests/meshcored_runtime_test-*
+
+# RIFT (apps/rift). The three halves of the app without a display are built
+# and run by `make test`; the app itself needs LVGL and is built by ui/shell
+# (CMake), which builds out of tree. The fake meshcored is a test helper and
+# is never installed.
+/tests/rift_format_test
+/tests/rift_model_test
+/tests/rift_ipc_test
+/tests/fake-meshcored

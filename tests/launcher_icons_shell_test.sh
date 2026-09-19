@@ -8,8 +8,12 @@
 #      tile's icon origin, for each app's compiled 32 x 32 mask blended from
 #      that theme's surface to its accent_primary (both from themes.json). A
 #      wrong icon, colour, size or place is not found, and every one of the
-#      eleven apps must have one: no tile may fall back to a glyph. The tile
-#      grid and the labels are checked where the launcher always put them.
+#      eleven apps that has artwork must have one: no tile with an icon may
+#      fall back to a glyph. The tile grid and the labels are checked where
+#      the launcher always put them. RIFT is deliberately not in this list:
+#      no png-32 tint artwork for it has been supplied, so it draws its text
+#      icon, and tests/rift_lint.sh records that gap rather than this file
+#      hiding it.
 #   3. A live theme change repaints the icons, and they survive an app round
 #      trip; every app still opens.
 #   4. Reduced motion draws the identical launcher.

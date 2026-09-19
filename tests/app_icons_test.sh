@@ -136,6 +136,11 @@ refused "a fully transparent icon" "every pixel is transparent" "${TMP}/clear"
 # ---- who draws them, and how ---------------------------------------------------
 # Every app the launcher lists, by its descriptor: each points at its own mask,
 # so no launcher tile is left on the text-glyph fallback.
+#
+# An app with no mask is written "-" here, whatever the descriptor says. It
+# used to be written whatever the field held, so `.icon_mask = NULL` - which
+# is exactly the case this check exists to catch - read as a mask named NULL
+# and passed.
 python3 - <<'PY' >"${TMP}/apps.txt" 2>&1
 import glob, re, sys
 shell = open("ui/shell/shell.c", encoding="utf-8").read()
@@ -145,21 +150,43 @@ for path in sorted(glob.glob("apps/*/*.c")):
     text = open(path, encoding="utf-8").read()
     for var, body in re.findall(r"^const struct pocketos_app (app_\w+) = \{(.*?)^\};", text, re.S | re.M):
         field = lambda f: (re.search(r"\.%s = &?([\w\"]+)," % f, body) or [None, None])[1]
-        descs[var] = (path, field("id").strip('"'), field("icon"), field("icon_mask"))
+        mask = field("icon_mask")
+        if mask in (None, "NULL", "0"):
+            mask = "-"
+        descs[var] = (path, field("id").strip('"'), field("icon"), mask)
 for var in listed:
     path, app_id, icon, mask = descs[var]
-    print(app_id, icon, mask or "-", path)
+    print(app_id, icon, mask, path)
 PY
-check "every launcher app's descriptor was read" \
-    "$([ "$(grep -c . "${TMP}/apps.txt")" = "11" ] && ! grep -q Traceback "${TMP}/apps.txt" && echo 1 || echo 0)"
+listed=$(sed -n '/static const struct pocketos_app \*apps\[\]/,/};/p' ui/shell/shell.c |
+         grep -o '&app_[a-z_]*' | wc -l)
+check "every launcher app's descriptor was read (${listed} listed)" \
+    "$([ "$(grep -c . "${TMP}/apps.txt")" = "${listed}" ] && ! grep -q Traceback "${TMP}/apps.txt" &&
+       echo 1 || echo 0)"
 for id in radio system fleet radar timber notes clock calendar calculator settings wave; do
     check "${id} uses its own icon, pos_app_icon_${id}" \
         "$(grep -qE "^${id} LV_SYMBOL_[A-Z_]+ pos_app_icon_${id} " "${TMP}/apps.txt" && echo 1 || echo 0)"
 done
-check "no launcher app is without an icon mask, so no tile falls back to a glyph" \
-    "$(awk '$3 == "-"' "${TMP}/apps.txt" | grep -q . && echo 0 || echo 1)"
+# DS §20 wants a mask on every launcher tile, and this is the check that says
+# so. One app does not have one: RIFT, whose approved design package carries
+# its mark as a design sheet (docs/design/rift/shots/identity-sheet.png) and
+# not as the png-32 tint artwork the generator above turns into a mask.
+# Drawing one here would be inventing branding, so the gap is named rather
+# than hidden: the moment that artwork is supplied and generated, this list
+# goes back to empty and the exception with it. tests/rift_lint.sh records
+# the same gap from the app's side.
+NO_MASK_ALLOWED="rift"
+nomask=$(awk '$3 == "-" {print $1}' "${TMP}/apps.txt" | tr '\n' ' ')
+unexpected=""
+for id in ${nomask}; do
+    case " ${NO_MASK_ALLOWED} " in *" ${id} "*) ;; *) unexpected="${unexpected} ${id}" ;; esac
+done
+check "no launcher app is without an icon mask except the one known to have no artwork${unexpected:+ (${unexpected})}" \
+    "$([ -z "${unexpected}" ] && echo 1 || echo 0)"
+check "and that one is still without it, so this exception has not gone stale (${nomask:-none})" \
+    "$([ "$(echo ${nomask})" = "${NO_MASK_ALLOWED}" ] && echo 1 || echo 0)"
 users=$(grep -rl 'pos_app_icon_' apps ui --include='*.c' --include='*.h' | grep -v "^${ICONS_C}$" | wc -l)
-check "the masks are referenced only by those eleven app descriptors (found in ${users} files)" \
+check "the masks are referenced only by the eleven app descriptors that have one (found in ${users} files)" \
     "$([ "${users}" = "11" ] && echo 1 || echo 0)"
 check "the brand mark is not used as an app icon (DS §19.1)" \
     "$(grep -rqE 'icon_mask = &pos_brand_mark' apps ui && echo 0 || echo 1)"
