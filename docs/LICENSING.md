@@ -176,3 +176,13 @@ Findings:
 8. **Distribution blocker:** collect the licences of the C and C++ runtime
    libraries the external toolchain puts in the image (glibc, libstdc++,
    libgcc_s); they are not in legal-info's manifest.
+9. **Before meshcored ships in an image:** add notices entries for the three
+   trees it compiles — MeshCore (`vendor/RIFT` `src/` and its
+   `lib/ed25519`, orlp's ref10 Ed25519) and rweather's `arduinolibs` Crypto.
+   Nothing from them reaches a binary today: `ENABLE_MESHCORED` defaults to 0,
+   so `make all`, `make install`, the Buildroot package and the image contain
+   no meshcored, and `S65meshcored` ships disabled
+   (docs/services/MESHCORED.md). `tests/notices_test.sh` checks that default
+   rather than assuming it, and starts demanding the three entries the moment
+   it changes. The same three are already compiled by `protocols/meshcore` and
+   `tools/meshcore-frame`, neither of which is installed or packaged either.

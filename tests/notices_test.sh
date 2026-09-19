@@ -80,12 +80,31 @@ check "LVGL's entry names the commit the defconfig builds" \
 # Vendored source the GNU make tree compiles.
 vend=$(grep -v -E '^[[:space:]]*#' Makefile |
        grep -o -E '\$\((RADIOLIB|GGWAVE)_DIR\)|vendor/[A-Za-z0-9_.-]+|third_party/[A-Za-z0-9_.-]+' | sort -u | tr '\n' ' ')
+# meshcored compiles MeshCore, orlp's ed25519 and rweather's Crypto, and it is
+# OFF by default: with ENABLE_MESHCORED=0 nothing from those trees reaches a
+# binary, an install or an image, which is the thing this section is about.
+# The conditional is checked, not assumed - the moment meshcored becomes part
+# of a default build, or is installed by one, those three need entries exactly
+# as RadioLib and ggwave do. Recorded as an open item in docs/LICENSING.md.
+meshcored_off=0
+if grep -q '^ENABLE_MESHCORED ?= 0$' Makefile &&
+   awk '/^ifeq \(\$\(ENABLE_MESHCORED\),1\)/{c++} END{exit !(c >= 2)}' Makefile; then
+    meshcored_off=1
+fi
+check "meshcored, which compiles the MeshCore trees, is off by default" "$meshcored_off"
+
 unknown=""
 for v in $vend; do
     case "$v" in
         '$(RADIOLIB_DIR)'|vendor/RadioLib|third_party/RadioLib) [ "$(has_id radiolib)" = 1 ] || unknown="$unknown $v" ;;
         '$(GGWAVE_DIR)'|vendor/ggwave|third_party/ggwave)
             for i in ggwave reed-solomon ooura-fft; do [ "$(has_id $i)" = 1 ] || unknown="$unknown $v($i)"; done ;;
+        vendor/RIFT|third_party/RIFT|vendor/Crypto|third_party/Crypto)
+            if [ "$meshcored_off" != 1 ]; then
+                for i in meshcore ed25519 arduinolibs-crypto; do
+                    [ "$(has_id $i)" = 1 ] || unknown="$unknown $v($i)"
+                done
+            fi ;;
         *) unknown="$unknown $v" ;;
     esac
 done
