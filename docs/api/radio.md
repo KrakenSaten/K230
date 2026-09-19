@@ -25,11 +25,60 @@ v0 exposes LoRa only. FSK is a possible later addition behind the same API.
 - `sx1262`: real hardware, RadioLib 7.7.1 (MIT) with the PocketOS HAL on
   spidev and libgpiod v2 (`services/radiod/hal_linux.cpp`,
   `backend_sx1262.cpp`). Wiring and module parameters come from environment
-  variables with T-Display K230 defaults (see the file header). Compiles for
-  riscv64; not yet run on hardware.
+  variables with T-Display K230 defaults (see the file header). It has run on
+  unit A: receive, transmit, RX re-entry and bidirectional MeshCore
+  interoperability are VERIFIED (see below).
 - `mock`: in-process simulation for development and tests. Computes real
   LoRa time-on-air, keeps statistics, and delivers packets injected with
   `mock.inject_rx`.
+
+### What the sx1262 backend has done on hardware
+
+Two runs on unit A, both with radiod on the `sx1262` backend. The transcripts
+and the full evidence tables are in the two documents named.
+
+2026-09-07 bring-up, docs/hardware/BRINGUP_SESSION_2026-09-07.md §19-20. The
+K230 received the ambient Norwegian MeshCore network (58 packets, 0 CRC
+errors, RSSI -15 to -109 dBm across a three-round antenna test that also
+identified MMCX1 as the RF port), then transmitted once: 8 bytes at 2 dBm on
+the PocketOS default profile, airtime 123.904 ms, state `rx` again afterwards.
+VERIFIED: the backend receives and transmits on this board. Left open there,
+because that transmit deliberately used the PocketOS profile which no MeshCore
+node can demodulate: whether another node decodes what the K230 sends.
+
+2026-09-19 MeshCore over-the-air interoperability gate, P0 ACCEPTED,
+docs/hardware/MESHCORE_INTEROP_GATE.md. Unit A on build 646dcbb (Doors
+0.0.10), peer a LILYGO T-Deck on RIFT v0.9.5, on MeshCore's own profile:
+869.618 MHz, 62.5 kHz, SF8, CR 4/5, sync 0x12, preamble 32, CRC on, 2 dBm.
+VERIFIED by that gate:
+
+- Real MeshCore receive. A 100 s listen before any transmit took 10 ambient
+  packets with 0 CRC errors; four were parsed and returned `validation: ok` as
+  genuine third-party MeshCore traffic.
+- Real transmit. Exactly one 109-byte ADVERT, `radio.send` rc 0, airtime
+  754.688 ms computed.
+- Another MeshCore implementation decoded that transmission. The T-Deck
+  created a contact named `K230-A` with the matching key prefix, the gate's
+  primary PASS criterion. The gate classes the peer-side reading as operator
+  evidence, the owner reading the T-Deck's own UI; the peer's RSSI and SNR for
+  our frame were not captured and stay UNRESOLVED.
+- RX re-entry after the transmit: state `rx` immediately, at +1 s and at +3 s.
+- Reverse-direction traffic after the transmit. The peer's own advert arrived
+  and was signature-verified (`Tdeck RIFT`, RSSI about -34 to -36 dBm), and a
+  second copy of the same frame arrived one hop later, relayed by a
+  third-party node, at about -68 dBm. Whole frames decoded after the TX, not a
+  counter inferred to be healthy.
+- Bidirectional MeshCore interoperability, as the sum of those two directions:
+  a frame this project generated and signed was accepted by an independent
+  implementation, and frames that network produced were received and validated
+  here.
+
+Gate counters: 1 TX, 56 RX, 0 CRC errors, state `rx` throughout, 0 WARN or
+ERROR in either radiod log, no crash and no unplanned restart.
+
+Neither run measured radiated RF power, spectrum or harmonics; those remain
+UNRESOLVED. The RX-failure paths under radio.status are a separate and weaker
+case, DOCUMENTED rather than VERIFIED.
 
 ## Methods
 
@@ -51,8 +100,23 @@ the state becomes `error`, a `radio.state` event is sent, and radiod retries
 at most once per second until RX is back (then `rx` again). `radio.send`
 still transmits in state `error`; its result reports the transmit, not the
 receive state. On the mock backend `mock.set {key: "rx_failing", value: 1}`
-simulates this; on the SX1262 the paths are compiled but unverified until
-hardware testing (DOCUMENTED, not VERIFIED).
+simulates this.
+
+On the SX1262 the two halves of this carry different evidence, and they should
+not be read as one claim:
+
+- RX re-entry **succeeding** after a transmit is VERIFIED on unit A on two
+  dates. On 2026-09-07 the state was `rx` immediately after the send and again
+  1 s later, the backend's `enter_rx()` after `transmit()` reporting
+  `is_receiving` (docs/hardware/BRINGUP_SESSION_2026-09-07.md §20). On
+  2026-09-19 it was `rx` immediately, at +1 s and at +3 s, and whole MeshCore
+  frames were received and validated afterwards
+  (docs/hardware/MESHCORE_INTEROP_GATE.md).
+- The **failure** path is DOCUMENTED, not VERIFIED. The transition to `error`,
+  the `radio.state` event that announces it, and the once-per-second retry
+  until RX is back are compiled but have never been exercised on hardware.
+  Nothing has yet made `enter_rx()` fail on the SX1262, and the mock knob above
+  is the only place those paths run.
 
 ### radio.configure
 
