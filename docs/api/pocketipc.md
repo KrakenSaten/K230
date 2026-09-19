@@ -115,6 +115,14 @@ pocketipc sockets; sockets it opens by other means remain its own business.
 Confirmed on the bench (2026-09-07): before this rule the shell died with
 SIGPIPE on its next status poll whenever radiod crashed.
 
+A client that holds a connection across a service restart therefore sees the
+ordinary sequence: the write fails with `EPIPE`, the call reports a transport
+failure, the fd is closed, and `pocketipc_connect` succeeds again once the
+service is back. `tests/pocketipc_test.c` walks that whole sequence in
+`test_service_restart`, which does the failing write in a child with SIGPIPE
+at its default disposition so that a regression is reported as a named failed
+check rather than killing the test binary.
+
 ## Error codes
 
 | Code | Meaning |

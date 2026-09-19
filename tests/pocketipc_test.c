@@ -151,7 +151,11 @@ static void test_dead_peer(void)
     errno = 0;
     check("write to a closed peer fails", pocketipc_write_frame(sv[0], frame, sizeof(frame) - 1) < 0);
     check("write to a closed peer reports EPIPE", errno == EPIPE);
-    check("the writer is still alive", 1);
+    /* Reaching this line is the whole in-process proof: with the fix
+     * reverted the process is gone by now and nothing below runs. The
+     * named proof, which fails as a check instead, is in
+     * test_service_restart(). */
+    check("the writer reached the next statement rather than dying", 1);
 
     errno = 0;
     result = pocketipc_call(sv[0], "radio.status", NULL, &code, err, sizeof(err));
@@ -325,11 +329,140 @@ static void test_full_backlog(void)
     unsetenv("POCKETOS_RUNTIME_DIR");
 }
 
+/* riftd will hold a pocketipc connection to radiod across a radiod restart,
+ * so the whole sequence it depends on gets its own test: the service goes
+ * away, a write on the stale fd reports EPIPE without a signal, the call
+ * reports a plain transport failure, and the same process reconnects once
+ * the service is back.
+ *
+ * The survival is proved in a child with SIGPIPE at its default disposition,
+ * because test_dead_peer() above can only prove it by reaching the next
+ * line: with send(MSG_NOSIGNAL) reverted to write() this binary dies of
+ * signal 13 (rc 141) and every check after it never runs at all. Here the
+ * parent names how the child ended, so a regression fails as a check. */
+static void test_service_restart(void)
+{
+    char dir[] = "/tmp/pocketipc_restart.XXXXXX";
+    char frame[] = "{\"id\":1,\"method\":\"radio.status\"}";
+    char path[256];
+    char err[96] = "";
+    int lfd;
+    int fd;
+    int afd;
+    int status = 0;
+    int code = -1;
+    int said;
+    pid_t pid;
+    cJSON *result;
+
+    check("restart: runtime dir", mkdtemp(dir) != NULL);
+    setenv("POCKETOS_RUNTIME_DIR", dir, 1);
+    snprintf(path, sizeof(path), "%s/radiod.sock", dir);
+
+    lfd = pocketipc_listen("radiod");
+    check("restart: the service is listening", lfd >= 0);
+    fd = pocketipc_connect_timeout("radiod", 500);
+    check("restart: the client holds a connection", fd >= 0);
+    afd = accept(lfd, NULL, NULL);
+    check("restart: the service accepted it", afd >= 0);
+
+    /* radiod dies under the client, exactly as it did on the bench */
+    close(afd);
+    close(lfd);
+    unlink(path);
+
+    /* Everything that touches the dead fd happens in the child, with SIGPIPE
+     * at its default disposition: the parent must stay alive to report, and
+     * a parent that wrote here would be killed by the same signal. The child
+     * reports what it saw as a bitmask so each part gets its own check. */
+    fflush(stdout);   /* the child must not inherit a full stdio buffer */
+    pid = fork();
+    check("restart: fork", pid >= 0);
+    if (pid == 0) {
+        int bad = 0;
+
+        signal(SIGPIPE, SIG_DFL);   /* the default action is what used to kill */
+        errno = 0;
+        if (!(pocketipc_write_frame(fd, frame, sizeof(frame) - 1) < 0 && errno == EPIPE)) {
+            bad |= 1;
+        }
+        code = -1;
+        err[0] = '\0';
+        result = pocketipc_call(fd, "radio.status", NULL, &code, err, sizeof(err));
+        if (result != NULL) {
+            bad |= 2;
+        }
+        if (code != 0) {
+            bad |= 4;
+        }
+        if (strncmp(err, "send failed", 11) != 0) {
+            bad |= 8;
+        }
+        cJSON_Delete(result);
+        _exit(bad);
+    }
+    check("restart: the writer is reaped", waitpid(pid, &status, 0) == pid);
+    check("restart: no signal killed the writer", !WIFSIGNALED(status));
+    check("restart: SIGPIPE in particular did not kill it",
+          !(WIFSIGNALED(status) && WTERMSIG(status) == SIGPIPE));
+    check("restart: it exited normally", WIFEXITED(status));
+    said = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    check("restart: the write reported EPIPE", said >= 0 && !(said & 1));
+    check("restart: the call to the dead service returned NULL", said >= 0 && !(said & 2));
+    check("restart: reported as a transport failure (code 0)", said >= 0 && !(said & 4));
+    check("restart: the error names the send failure", said >= 0 && !(said & 8));
+    close(fd);
+
+    /* the service comes back and the same process reconnects on its own */
+    lfd = pocketipc_listen("radiod");
+    check("restart: the service is listening again", lfd >= 0);
+    fd = pocketipc_connect_timeout("radiod", 500);
+    check("restart: the client reconnects after the EPIPE", fd >= 0);
+    afd = accept(lfd, NULL, NULL);
+    check("restart: the new connection is accepted", afd >= 0);
+
+    fflush(stdout);
+    pid = fork();
+    if (pid == 0) {
+        char *text = pocketipc_read_frame(afd, NULL);
+        cJSON *req = text ? cJSON_Parse(text) : NULL;
+        cJSON *id = req ? cJSON_GetObjectItemCaseSensitive(req, "id") : NULL;
+        cJSON *resp = cJSON_CreateObject();
+        int ok;
+
+        cJSON_AddNumberToObject(resp, "id", id ? id->valuedouble : 0);
+        cJSON_AddItemToObject(resp, "result", cJSON_CreateObject());
+        ok = pocketipc_send(afd, resp) == 0;
+        free(text);
+        cJSON_Delete(req);
+        cJSON_Delete(resp);
+        _exit(ok ? 0 : 1);
+    }
+    code = -1;
+    err[0] = '\0';
+    result = pocketipc_call(fd, "radio.status", NULL, &code, err, sizeof(err));
+    check("restart: the reconnected client gets an answer", result != NULL);
+    cJSON_Delete(result);
+    check("restart: the restarted service answered",
+          waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+
+    close(afd);
+    close(fd);
+    close(lfd);
+    unlink(path);
+    rmdir(dir);
+    unsetenv("POCKETOS_RUNTIME_DIR");
+}
+
 int main(void)
 {
     test_stalled_peer();
     test_slow_peer();
     test_limits();
+    /* test_service_restart() runs before test_dead_peer() on purpose: it is
+     * the one that names a SIGPIPE death as a failed check, and test_dead_peer()
+     * would take the whole binary down with it (rc 141) before it got there. */
+    test_service_restart();
     test_dead_peer();
     test_wedged_service();
     test_full_backlog();
