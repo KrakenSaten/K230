@@ -78,3 +78,13 @@ BUILD_ID
 /tests/wave_session_test
 /tests/wave_modem_test
 /tests/pos-wave-testhooks
+# meshcore-frame (tools/meshcore-frame). Not built by `make all` or `make
+# test`, but an untracked binary left in the checkout is still a dirty tree to
+# apply_to_sdk.sh, so its outputs are ignored like every other one here.
+# The patterns are wider than the two default builds because the tool takes a
+# SUFFIX: the sanitised build is meshcore-frame-asan in build-asan, and a
+# cross-compile check names its own.
+/tools/meshcore-frame/meshcore-frame*
+/tools/meshcore-frame/build*/
+/tests/meshcore_frame_test
+/tests/meshcore_frame_test-*

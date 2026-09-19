@@ -786,6 +786,7 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 -include $(DEPFILES)
 
 clean:
+	$(MAKE) -C tools/meshcore-frame clean
 	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/pos_wave_hooks.o tests/fake_audio_backend.o $(POCKETOS_BUILD_STAMP)
 
 # The files `make all` and `make test` produce, one to a line, for
@@ -793,4 +794,21 @@ clean:
 print-build-outputs:
 	@printf '%s\n' $(BINS) $(TEST_BINS) $(POCKETOS_BUILD_STAMP)
 
-.PHONY: all test install clean sx1262-objs print-build-outputs
+# meshcore-frame (tools/meshcore-frame): a host-side tool that builds and
+# parses MeshCore wire frames from the real MeshCore protocol and crypto
+# sources, for proving K230-to-MeshCore interoperability over radiod. It has
+# its own Makefile and its own prerequisites - two ignored upstream checkouts
+# a Doors build does not need - so it is reached by name and stays out of
+# all, test and install. Nothing it produces is installed or reaches an
+# image, and its build outputs are git-ignored like every other one here.
+meshcore-frame:
+	$(MAKE) -C tools/meshcore-frame
+
+# The suite plain, then the same suite under the address and
+# undefined-behaviour sanitizers.
+meshcore-frame-test:
+	$(MAKE) -C tools/meshcore-frame test
+	$(MAKE) -C tools/meshcore-frame ASAN=1 test
+
+.PHONY: all test install clean sx1262-objs print-build-outputs \
+        meshcore-frame meshcore-frame-test

@@ -44,10 +44,13 @@ tools/supervise/           `pos-supervise`: restart with backoff and crash-loop 
 tools/design/              Generators: theme table from themes.json, LVGL fonts from IBM Plex
 tools/hwcheck/             `pos-hwcheck`: first-boot hardware inventory script
 tools/legal/               `gen_notices.sh`: generates and verifies THIRD_PARTY_NOTICES.txt
+tools/meshcore-frame/      `meshcore-frame`: host-side MeshCore wire frames, built and parsed with the real protocol and crypto (`make meshcore-frame`)
 vendor/                    Read-only reference clones (git-ignored)
   T-Display-K230/          LILYGO BSP + LVGL launcher, pinned (see platforms/k230/vendor_bsp_commit.txt)
     k230_linux_sdk/        Kendryte K230 Linux SDK submodule, pinned
   T-Display-K230_canmv_rt/ LILYGO RT-Smart firmware, schematic, datasheets
+  RIFT/                    MeshCore protocol source, pinned (tools/meshcore-frame only)
+  Crypto/                  rweather/arduinolibs, the crypto MeshCore uses, pinned (tools/meshcore-frame only)
 ```
 
 `vendor/` is reference material only. Nothing in it is edited in place.
