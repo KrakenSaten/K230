@@ -217,23 +217,35 @@ static void on_back(lv_event_t *e)
     rift_app_open_detail(d->app, 0);
 }
 
+static void on_message(lv_event_t *e)
+{
+    struct rift_detail *d = lv_event_get_user_data(e);
+    const struct rift_node *n = rift_app_selected(d->app);
+
+    /* This screen always shows the selected node, so that is the peer to
+     * write to. It opens the conversation and nothing else. */
+    if (n) {
+        rift_app_open_conversation(d->app, n->key);
+    }
+}
+
 static void build_actions(struct rift_detail *d, lv_obj_t *parent)
 {
     d->actions = row_of(parent, RIFT_TOUCH_H, 12);
     if (!d->compact) {
         rift_action(d->actions, "\xE2\x80\xB9 NODES", 0, 1, on_back, d);
     }
-    /* Drawn, and plainly not working. The bar keeps the geometry the design
-     * approved, and the two actions this phase does not have are in the
-     * DS §9 disabled treatment rather than absent, so the screen does not
-     * quietly change shape when COMMS and NET arrive. The caption below is
-     * not optional: DS §2 forbids a treatment from carrying the meaning on
-     * its own. */
-    rift_action(d->actions, "MESSAGE", 1, 0, NULL, NULL);
+    /* MESSAGE works from phase 2: it opens COMMS on a conversation with
+     * this node, which may hold nothing yet. NET is still drawn and plainly
+     * not working - the bar keeps the geometry the design approved, and an
+     * action this phase does not have is in the DS §9 disabled treatment
+     * rather than absent, so the screen does not quietly change shape when
+     * NET arrives. The caption below is not optional: DS §2 forbids a
+     * treatment from carrying the meaning on its own. */
+    rift_action(d->actions, "MESSAGE", 1, 1, on_message, d);
     rift_action(d->actions, "NET", 0, 0, NULL, NULL);
     lv_label_set_text(wrapping(parent, POS_STYLE_TEXT_MUTED),
-                      "MESSAGE arrives with COMMS and NET with the network view; neither is in "
-                      "this build.");
+                      "NET arrives with the network view and is not in this build.");
 }
 
 struct rift_detail *rift_detail_create(struct rift_app *app, lv_obj_t *parent, int compact)

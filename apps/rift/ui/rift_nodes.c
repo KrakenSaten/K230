@@ -160,6 +160,16 @@ static void on_detail(lv_event_t *e)
     rift_app_open_detail(v->app, 1);
 }
 
+/* Write to this node. It opens COMMS on a conversation with the peer -
+ * which may hold nothing yet, and is not given anything to make it look as
+ * though it does. It sends nothing; it only points the composer. */
+static void on_message(lv_event_t *e)
+{
+    const struct node_row *r = lv_event_get_user_data(e);
+
+    rift_app_open_conversation(r->owner->app, r->key);
+}
+
 static void build_expansion(struct rift_nodes *v, struct node_row *r)
 {
     lv_obj_t *line;
@@ -195,7 +205,7 @@ static void build_expansion(struct rift_nodes *v, struct node_row *r)
 
     bar = dense_row(r->expand, RIFT_TOUCH_H);
     lv_obj_set_style_pad_column(bar, 12, 0);
-    rift_action(bar, "MESSAGE", 1, 0, NULL, NULL);
+    rift_action(bar, "MESSAGE", 1, 1, on_message, r);
     rift_action(bar, "PATH", 0, 0, NULL, NULL);
     rift_action(bar, "DETAIL \xE2\x80\xBA", 0, 1, on_detail, v);
 }

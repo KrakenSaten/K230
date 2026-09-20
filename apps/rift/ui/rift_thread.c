@@ -49,6 +49,13 @@ struct rift_thread {
     struct msg_row row[RIFT_THREAD_ROWS];
     int row_count;
 
+    /* What the composer was last told. Enabling a field puts it back in the
+     * focus group, and lv_group_add_obj() does that by removing and
+     * re-appending it, which moves the focus off it - so saying "enabled"
+     * to an already-enabled field once a refresh took the keyboard away
+     * from whoever was typing. -1 is "not told yet". */
+    int field_enabled;
+
     /* The thread as it was built: the ids, so a state change updates a row
      * in place and only a new or departed message rebuilds anything. */
     int64_t shape_id[RIFT_THREAD_ROWS];
@@ -320,6 +327,9 @@ struct rift_thread *rift_thread_create(struct rift_app *app, lv_obj_t *parent)
     lv_obj_set_scrollbar_mode(t->scroll, LV_SCROLLBAR_MODE_AUTO);
 
     t->note = wrap_label(t->root, POS_STYLE_CAPTION);
+    /* Not 0 and not 1: nothing has been said to the field yet, so the first
+     * refresh sets it whichever way it goes. */
+    t->field_enabled = -1;
     build_composer(t);
     return t;
 }
@@ -467,7 +477,16 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
     /* The composer: usable only when there is somewhere for a message to go
      * and a service to take it. */
     if (t->field) {
-        pocketui_text_field_set_enabled(t->field, refusal == NULL);
+        int want = (refusal == NULL);
+
+        /* Only on a change. This is called on every refresh, and every
+         * refresh that re-enabled an already-enabled field stole the focus
+         * from it (see field_enabled above): typing survived only until the
+         * next repaint. */
+        if (want != t->field_enabled) {
+            t->field_enabled = want;
+            pocketui_text_field_set_enabled(t->field, want != 0);
+        }
     }
     if (t->send) {
         if (refusal) {

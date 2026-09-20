@@ -45,7 +45,11 @@ NET**. Phase 2 draws the first three.
   which of you that was, and a caption carrying the service's own word for
   its state — `RECEIVED`, `SENT · FLOOD`, `DELIVERED · ACK 41 s`, `NO ACK`,
   `FAILED`. Under it the composer. The unread count rides on the COMMS tab,
-  so it is visible from the other sections.
+  so it is visible from the other sections. A conversation that does not
+  exist yet is started from **NODES**: select a node and press **MESSAGE**,
+  from the row's action bar or the detail screen's, and COMMS opens on that
+  peer with the composer live and the thread honestly empty — no placeholder
+  message is invented to make it look begun.
 - **NET** keeps its place in the navigation and says it is not in this build.
   An empty view would read as a quiet mesh.
 

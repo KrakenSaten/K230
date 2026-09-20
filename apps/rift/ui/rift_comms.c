@@ -476,6 +476,37 @@ void rift_comms_refresh(struct rift_app *app)
     }
     count = rift_model_conversations(m, conv, RIFT_MAX_CONVERSATIONS);
 
+    /* A conversation can be open before anything has been said in it:
+     * NODES' MESSAGE points the composer at a peer that may have no
+     * messages at all. The model does not call that a conversation - it
+     * holds no messages, and inventing one there would be inventing history
+     * - but the list has to show it, because it is where what you type is
+     * going. Nothing is fabricated: no preview, no unread, a total of zero.
+     * It goes first because it is the one being written to. */
+    if (peer && count < RIFT_MAX_CONVERSATIONS) {
+        int held = 0;
+
+        for (i = 0; i < count; i++) {
+            if (strcmp(conv[i].key, peer) == 0) {
+                held = 1;
+            }
+        }
+        if (!held) {
+            const char *nm = rift_model_peer_name(m, peer);
+
+            for (i = count; i > 0; i--) {
+                conv[i] = conv[i - 1];
+            }
+            memset(&conv[0], 0, sizeof(conv[0]));
+            copy_key(conv[0].key, sizeof(conv[0].key), peer);
+            if (nm && nm[0]) {
+                rift_utf8_copy(conv[0].name, sizeof(conv[0].name), nm);
+                conv[0].have_name = 1;
+            }
+            count++;
+        }
+    }
+
     v->order_count = count;
     for (i = 0; i < count; i++) {
         copy_key(v->order_key[i], sizeof(v->order_key[i]), conv[i].key);

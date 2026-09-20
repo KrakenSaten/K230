@@ -499,6 +499,14 @@ lv_obj_t *rift_unread_pill(lv_obj_t *parent)
      * is, so the size, radius and padding are set below. */
     pos_style_add(pill, POS_STYLE_CAPTION, 0);
     pos_style_add(pill, POS_STYLE_CHIP_RX, 0);
+    /* CHIP_RX carries the two colours and nothing else: the opacity that
+     * makes a chip's fill appear lives in POS_STYLE_CHIP, with the 36 px
+     * geometry this is not allowed to take. Without it the pill painted no
+     * fill at all and its text_on_accent text landed on the page
+     * background - on unit A, in ice/outdoor, completely invisible while
+     * still taking its space in the row. The fill opacity is the one thing
+     * that has to be said here; the colour is still the role's. */
+    lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(pill, 2, 0);
     lv_obj_set_style_pad_hor(pill, 5, 0);
     lv_obj_set_style_pad_ver(pill, 0, 0);

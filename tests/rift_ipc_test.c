@@ -465,6 +465,59 @@ int main(void)
         unlink(methods);
     }
 
+    /* ---- the first message of a conversation ------------------------------ */
+    /* NODES -> MESSAGE opens a conversation that holds nothing. Sending from
+     * there is the case where there is no history to hide a mistake in: the
+     * service must be asked exactly once, and exactly one message must
+     * exist afterwards - the service's, not one this app made up. */
+    {
+        char sends[600];
+        struct fake_meshcored_script script;
+        pid_t pid;
+
+        snprintf(sends, sizeof(sends), "%s/sends-new", runtime);
+        unlink(sends);
+        memset(&script, 0, sizeof(script));
+        script.state = "online";
+        script.nodes_json = NODES_TWO;
+        script.send_log = sends;
+        script.life_ms = 6000;
+        pid = fake_meshcored_spawn(&script);
+        check("a service with no message history is running",
+              pid > 0 && fake_meshcored_wait_ready(2000));
+
+        rift_model_init(&m);
+        rift_ipc_init(&c, &m, "meshcored");
+        spin(&c, 2000, have_snapshot, &m);
+        check("and it holds none", m.messages_valid && m.msg_count == 0);
+        check("so the peer has no conversation yet",
+              rift_model_thread(&m, KEY_A, NULL, 0, NULL) == 0);
+
+        check("the first message is written", rift_ipc_send_message(&c, KEY_A, "first") == 0);
+        spin(&c, 2000, NULL, &m);
+        check("exactly one message exists afterwards", m.msg_count == 1);
+        check("and it is the service's, under the service's id", m.msg[0].id > 0);
+        check("nothing was invented before the service answered", m.msgs_duplicate == 0);
+        {
+            FILE *f = fopen(sends, "r");
+            char line[256];
+            int lines = 0;
+
+            while (f && fgets(line, sizeof(line), f)) {
+                line[strcspn(line, "\n")] = '\0';
+                lines++;
+                text_is("the service was asked to send just that", line, KEY_A "|first");
+            }
+            if (f) {
+                fclose(f);
+            }
+            check("once", lines == 1);
+        }
+        rift_ipc_close(&c);
+        fake_meshcored_stop(pid);
+        unlink(sends);
+    }
+
     /* ---- a service that refuses the send --------------------------------- */
     {
         struct fake_meshcored_script script;
