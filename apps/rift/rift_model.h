@@ -48,6 +48,23 @@
 #define RIFT_MAX_NODES 64
 /* The raw feed is a window, not a log: the newest entries, bounded. */
 #define RIFT_MAX_ACTIVITY 48
+/* mesh.send takes 1 to 160 bytes (docs/api/mesh.md); this holds one of
+ * those and its NUL, with room for a body meshcored may have replaced
+ * bytes in on the way out. A longer body is refused before it is sent,
+ * with a reason, rather than silently cut. */
+#define RIFT_MSG_TEXT_MAX 176
+#define RIFT_SEND_TEXT_MAX 160
+/* The message history this app keeps. meshcored's own store does not
+ * survive its restart (mesh.messages, "persistent": false), so this is a
+ * window on a window: the newest messages, bounded, oldest dropped and
+ * counted. Everything derived from it - a conversation's unread count, its
+ * preview, the delivery tally - is derived from what is still in here and
+ * says so rather than implying a complete history. */
+#define RIFT_MAX_MESSAGES 96
+/* Distinct peers a conversation is tracked for. MeshCore's contact table
+ * holds 32, so a mesh that fills this one is already a mesh the service
+ * cannot hold. */
+#define RIFT_MAX_CONVERSATIONS 32
 /* Path changes this app has seen for one node, newest first. Only what was
  * observed while RIFT was running; there is no history before that. */
 #define RIFT_PATH_HISTORY 3
@@ -138,6 +155,111 @@ struct rift_activity {
     double snr_db;
 };
 
+/* A message's direction, as the API words it. */
+enum rift_msg_dir {
+    RIFT_MSG_IN = 0,
+    RIFT_MSG_OUT,
+};
+
+/* The six states of docs/api/mesh.md, plus the two this app owns:
+ *
+ *   RIFT_MSG_SENDING   this app has written a mesh.send and has not been
+ *                      answered yet. It is not a state meshcored reports
+ *                      and is never shown as delivered - it says the
+ *                      request is in flight and nothing more.
+ *   RIFT_MSG_UNKNOWN   a state word this build does not know. The message
+ *                      is kept and shown with its word rather than being
+ *                      mapped onto the nearest state this build happens to
+ *                      have; a v0 API may grow one.
+ *
+ * "sent" and "delivered" are deliberately not the same answer. The API is
+ * explicit that accepted is not transmitted and that an ACK is what makes
+ * it delivered, so nothing here collapses sent_flood or sent_direct into
+ * success. */
+enum rift_msg_state {
+    RIFT_MSG_STATE_UNKNOWN = 0,
+    RIFT_MSG_SENDING,
+    RIFT_MSG_RECEIVED,
+    RIFT_MSG_SENT_FLOOD,
+    RIFT_MSG_SENT_DIRECT,
+    RIFT_MSG_ACKED,
+    RIFT_MSG_NO_ACK,
+    RIFT_MSG_FAILED,
+};
+
+struct rift_message {
+    /* meshcored's own id, 1 upwards, never reused while it runs. It is the
+     * identity a duplicate event is matched on, which is why a message
+     * without one is not kept. */
+    int64_t id;
+    enum rift_msg_dir dir;
+    enum rift_msg_state state;
+    char state_word[24]; /* what the service called it, for an unknown state */
+
+    char peer_key[RIFT_KEY_HEX];
+    char peer_name[RIFT_NAME_MAX];
+    int have_peer_name;
+
+    char text[RIFT_MSG_TEXT_MAX];
+
+    int have_timestamp;
+    int64_t timestamp; /* the sender's clock, MeshCore's own stamp */
+    int have_mono;
+    int64_t mono_ms; /* when the service saw it: ours, CLOCK_MONOTONIC */
+    int have_ack_mono;
+    int64_t ack_mono_ms;
+    int have_snr;
+    double snr_db;
+    int have_rssi;
+    double rssi_dbm;
+
+    uint32_t seq; /* arrival order in this cache, newest highest */
+};
+
+/* One conversation, built on demand from the messages that are still held.
+ * It is a view and not a record: nothing is stored per conversation except
+ * how far the screen has read (see rift_model_mark_read). */
+struct rift_conv {
+    char key[RIFT_KEY_HEX];
+    char name[RIFT_NAME_MAX];
+    int have_name;
+    int unread;   /* incoming messages newer than the read mark */
+    int total;    /* messages held for this peer */
+    int outgoing; /* of which sent by us */
+    int acked;    /* of which acknowledged */
+    int no_ack;   /* of which timed out */
+    int failed;
+    int have_newest_mono;
+    int64_t newest_mono_ms;
+    const struct rift_message *newest; /* for the preview line */
+};
+
+/* A mesh.send this app has written and not yet been answered.
+ *
+ * It exists so the thread can say "sending" without saying "sent". The
+ * message itself is not created here: meshcored raises mesh.message for it
+ * and answers mesh.send with its id, and whichever arrives first creates
+ * the one message, keyed by that id. Inventing a local copy and then
+ * reconciling it would be the way one message became two. */
+struct rift_outbox {
+    int active;
+    char peer_key[RIFT_KEY_HEX];
+    char text[RIFT_MSG_TEXT_MAX];
+    int have_submitted;
+    int64_t submitted_mono_ms;
+    int64_t message_id; /* 0 until the reply names it */
+    char route[8];      /* "flood" or "direct", when the reply said */
+    int failed;
+    char error[RIFT_TEXT_MAX];
+};
+
+/* How far a conversation has been read. Kept per peer because it is the one
+ * piece of conversation state that is this app's and cannot be derived. */
+struct rift_read_mark {
+    char key[RIFT_KEY_HEX];
+    int64_t last_read_id;
+};
+
 struct rift_model {
     /* ---- the service ---------------------------------------------- */
     enum rift_svc_state state;
@@ -195,6 +317,35 @@ struct rift_model {
     int activity_head;                   /* index of the newest */
     int activity_count;
     unsigned activity_total;
+
+    /* ---- messages --------------------------------------------------- */
+    /* Oldest first, which is the order mesh.messages gives and the order a
+     * thread is read in. A full cache drops the oldest and counts it. */
+    struct rift_message msg[RIFT_MAX_MESSAGES];
+    int msg_count;
+    uint32_t msg_seq;
+    unsigned msgs_dropped;     /* the cache was full */
+    unsigned msgs_applied;     /* created or updated */
+    unsigned msgs_duplicate;   /* an id already held: updated, not added */
+    /* The service has answered mesh.messages on this connection. Until it
+     * has, an empty thread is "not read yet" rather than "nothing said". */
+    int messages_valid;
+    /* The first snapshot of a session has been taken in. What it carried
+     * happened before this app was watching, so it is marked read: "unread"
+     * here means "arrived while RIFT was open and has not been drawn", and
+     * this app has no way to know what was read before it started. A later
+     * snapshot - after a reconnect - is *not* treated this way, because
+     * messages that arrived while the connection was down are unread. */
+    int messages_seeded;
+    /* meshcored's own total, which may be larger than what is held here. */
+    int have_messages_reported;
+    int messages_reported;
+    int messages_persistent;
+
+    struct rift_read_mark read_mark[RIFT_MAX_CONVERSATIONS];
+    int read_mark_count;
+
+    struct rift_outbox outbox;
 };
 
 /* An empty model: no service, no identity, no nodes, nothing known. */
@@ -248,6 +399,68 @@ int rift_model_fresh_count(const struct rift_model *m, int64_t now_ms);
  * resolved are the ones in this cache, and an ambiguous hash resolves to
  * nothing rather than to a guess (two nodes can share a first byte). */
 const char *rift_model_name_for_hash(const struct rift_model *m, const char *hash_hex);
+
+/* ---- messages ----------------------------------------------------------- */
+
+/* One message object, in the shape docs/api/mesh.md gives it. Both the
+ * mesh.message event and every entry of a mesh.messages snapshot go through
+ * here, so all three kinds of arrival - new, sent, state changed - are one
+ * path keyed on the message id. Returns 0, or -1 for a message this model
+ * will not hold (no id, no peer key, no direction, no text). */
+int rift_model_apply_message(struct rift_model *m, const cJSON *message);
+
+/* A whole mesh.messages result. The messages are merged by id, so a
+ * snapshot taken after events have already delivered some of the same
+ * messages updates them rather than doubling them. Returns 0 or -1. */
+int rift_model_apply_messages(struct rift_model *m, const cJSON *result);
+
+/* The conversations, newest message first. A peer with no message held is
+ * not a conversation and is not returned: the contacts a screen offers to
+ * start one with come from the node list, which is a different question.
+ * Writes at most max and returns how many. */
+int rift_model_conversations(const struct rift_model *m, struct rift_conv *out, int max);
+
+/* One conversation's messages, oldest first - the order they happened and
+ * the order a thread is read in. Writes at most max pointers, and when
+ * there are more than max it writes the *newest* max: a thread that does
+ * not fit is read from its end. Returns how many were written, and sets
+ * *older to how many were left off the front. */
+int rift_model_thread(const struct rift_model *m, const char *peer_key,
+                      const struct rift_message **out, int max, int *older);
+
+/* Everything the screen has now drawn for this peer is read. Returns the
+ * number of messages that stopped being unread. Marking a conversation
+ * that is not held does nothing.
+ *
+ * The mark is an id and not a count, so a message arriving between the draw
+ * and the mark is still unread afterwards. */
+int rift_model_mark_read(struct rift_model *m, const char *peer_key);
+int rift_model_unread(const struct rift_model *m, const char *peer_key);
+int rift_model_unread_total(const struct rift_model *m);
+
+/* The peer's display name from the newest message that carried one, else
+ * the node cache, else NULL. */
+const char *rift_model_peer_name(const struct rift_model *m, const char *peer_key);
+
+/* ---- sending ------------------------------------------------------------ */
+
+/* Take a submission. Fails (-1) when one is already in flight, when the
+ * peer or text is not one this app will send, or when the model is not in a
+ * state to send at all. The text is not put on the air here - this only
+ * records that a request is about to be written, so the thread can say so. */
+int rift_model_send_begin(struct rift_model *m, const char *peer_key, const char *text,
+                          int64_t now_ms);
+/* meshcored answered mesh.send. route may be NULL. */
+void rift_model_send_accepted(struct rift_model *m, int64_t message_id, const char *route);
+/* meshcored refused it, or the connection went away under it. */
+void rift_model_send_failed(struct rift_model *m, const char *error);
+/* Forget the last failure, so the caption goes when the composer is used
+ * again. */
+void rift_model_send_clear(struct rift_model *m);
+/* A submission is in flight: the composer's SEND is disabled while one is,
+ * because this radio sends one message at a time and a queue would be this
+ * app's fiction rather than the service's. */
+int rift_model_sending(const struct rift_model *m);
 
 const char *rift_svc_state_word(enum rift_svc_state s);
 

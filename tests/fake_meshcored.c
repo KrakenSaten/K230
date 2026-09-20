@@ -25,6 +25,7 @@ struct state {
     int events_sent;
     int raw_sent;
     int clients_gone;
+    int sent;
     int64_t subscribe_ms;
 };
 
@@ -166,6 +167,86 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
                                                             "no node matches that prefix"));
             return;
         }
+    } else if (strcmp(name, "mesh.messages") == 0) {
+        const cJSON *params = cJSON_GetObjectItemCaseSensitive(req, "params");
+        const cJSON *limit = cJSON_GetObjectItemCaseSensitive(params, "limit");
+        cJSON *arr = st->script->messages_json ? cJSON_Parse(st->script->messages_json)
+                                               : cJSON_CreateArray();
+        int total;
+
+        if (!cJSON_IsArray(arr)) {
+            cJSON_Delete(arr);
+            arr = cJSON_CreateArray();
+        }
+        total = cJSON_GetArraySize(arr);
+        {
+            cJSON *item;
+
+            /* Same rule as a node's last_heard: a negative stamp in a
+             * fixture means "this long ago", so the ages on screen do not
+             * depend on how long this host has been up. */
+            cJSON_ArrayForEach (item, arr) {
+                relative_to_now(item, "mono_ms");
+                relative_to_now(item, "ack_mono_ms");
+            }
+        }
+        /* With a limit, the newest that many, still oldest first - which is
+         * what the real service does, and the thing a client that asked for
+         * ten and got the oldest ten would get wrong. */
+        if (cJSON_IsNumber(limit) && limit->valuedouble >= 0) {
+            while (cJSON_GetArraySize(arr) > (int)limit->valuedouble) {
+                cJSON_DeleteItemFromArray(arr, 0);
+            }
+        }
+        result = cJSON_CreateObject();
+        cJSON_AddNumberToObject(result, "count", cJSON_GetArraySize(arr));
+        cJSON_AddNumberToObject(result, "total", total);
+        cJSON_AddBoolToObject(result, "persistent", 0);
+        cJSON_AddItemToObject(result, "messages", arr);
+    } else if (strcmp(name, "mesh.send") == 0) {
+        const cJSON *params = cJSON_GetObjectItemCaseSensitive(req, "params");
+        const cJSON *to = cJSON_GetObjectItemCaseSensitive(params, "to");
+        const cJSON *text = cJSON_GetObjectItemCaseSensitive(params, "text");
+
+        if (st->script->send_log && cJSON_IsString(to) && cJSON_IsString(text)) {
+            FILE *f = fopen(st->script->send_log, "a");
+
+            if (f) {
+                fprintf(f, "%s|%s\n", to->valuestring, text->valuestring);
+                fclose(f);
+            }
+        }
+        if (st->script->refuse_send) {
+            pocketipc_server_reply(s, c,
+                                   pocketipc_error_response(id, POCKETIPC_ERR_BUSY,
+                                                            "the radio is not available"));
+            return;
+        }
+        st->sent++;
+        result = cJSON_CreateObject();
+        cJSON_AddBoolToObject(result, "accepted", 1);
+        cJSON_AddNumberToObject(result, "message_id", 1000 + st->sent);
+        cJSON_AddStringToObject(result, "route", "flood");
+        cJSON_AddNumberToObject(result, "ack_timeout_ms", 30000);
+        pocketipc_server_reply(s, c, pocketipc_response(id, result));
+        /* The real service raises mesh.message for a message it has taken,
+         * and again when its state changes. Scripted silence is the other
+         * case a client must survive: an id it was given and never heard
+         * about again. */
+        if (!st->script->send_is_silent && cJSON_IsString(to) && cJSON_IsString(text)) {
+            cJSON *data = cJSON_CreateObject();
+            cJSON *msg = cJSON_CreateObject();
+
+            cJSON_AddNumberToObject(msg, "id", 1000 + st->sent);
+            cJSON_AddStringToObject(msg, "direction", "out");
+            cJSON_AddStringToObject(msg, "peer_public_key", to->valuestring);
+            cJSON_AddStringToObject(msg, "text", text->valuestring);
+            cJSON_AddStringToObject(msg, "state", "sent_flood");
+            cJSON_AddNumberToObject(msg, "mono_ms", (double)now_ms());
+            cJSON_AddItemToObject(data, "message", msg);
+            pocketipc_server_broadcast(s, pocketipc_event("mesh.message", data));
+        }
+        return;
     } else if (strcmp(name, "mesh.subscribe") == 0) {
         pocketipc_client_set_subscribed(c, true);
         st->subscribed = 1;

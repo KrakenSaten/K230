@@ -20,11 +20,17 @@
  * whatever arrives during a call. Matching by id keeps one connection and
  * loses nothing.
  *
- * What it talks: only what Phase 1 needs - mesh.info, mesh.status,
- * mesh.identity, mesh.nodes, mesh.node, mesh.subscribe, mesh.unsubscribe,
- * and the mesh.state, mesh.node and mesh.activity events. It sends nothing
- * that transmits: no mesh.send, no mesh.advert. Opening RIFT must not put
- * anything on the air.
+ * What it talks: mesh.info, mesh.status, mesh.identity, mesh.nodes,
+ * mesh.node, mesh.messages, mesh.send, mesh.subscribe and mesh.unsubscribe,
+ * and the mesh.state, mesh.node, mesh.activity and mesh.message events.
+ *
+ * Exactly one of those transmits. mesh.send is written only from
+ * rift_ipc_send_message, which is reached only from the composer, which is
+ * reached only by a reader pressing SEND on text a reader typed. Nothing
+ * that happens on its own - opening the app, a snapshot, a period expiring,
+ * a reconnect - can reach it, so opening RIFT still puts nothing on the air.
+ * mesh.advert is not called at all: this app has no reason to make this
+ * node shout, and tests/rift_lint.sh checks that it stays that way.
  *
  * No LVGL: the connection, the reconnect and the framing are host-tested
  * against a real socket and a scripted service (tests/rift_ipc_test.c).
@@ -55,6 +61,15 @@
  * has forgotten stops being shown here. */
 #define RIFT_STATUS_PERIOD_MS 2000
 #define RIFT_NODES_PERIOD_MS 20000
+/* Messages arrive as events, so this is the catch-up rather than the feed:
+ * it exists so a message that happened during a gap in the subscription -
+ * a reconnect, a burst this client was slow to drain - is still read. */
+#define RIFT_MESSAGES_PERIOD_MS 30000
+/* How many to ask for. mesh.messages with a limit answers the newest that
+ * many, oldest first (docs/api/mesh.md), which is exactly the window this
+ * app keeps: asking for more than it can hold would be asking the service
+ * to serialise messages straight into the drop counter. */
+#define RIFT_MESSAGES_LIMIT RIFT_MAX_MESSAGES
 
 /* Reconnect backoff. meshcored's own ceiling is 30 s, which is right for a
  * daemon and wrong here: somebody is looking at the screen, and a screen
@@ -81,6 +96,8 @@ enum rift_req {
     RIFT_REQ_IDENTITY,
     RIFT_REQ_NODES,
     RIFT_REQ_NODE,
+    RIFT_REQ_MESSAGES,
+    RIFT_REQ_SEND,
 };
 
 struct rift_pending {
@@ -103,6 +120,7 @@ struct rift_ipc {
     int backoff_ms;
     int64_t last_status_ms;
     int64_t last_nodes_ms;
+    int64_t last_messages_ms;
 
     /* Counters a screen may show, and a test may check. */
     unsigned connects;
@@ -134,6 +152,22 @@ int rift_ipc_request_node(struct rift_ipc *c, const char *key);
 
 /* Ask for a fresh node list now, rather than at the next period. */
 int rift_ipc_request_nodes(struct rift_ipc *c);
+
+/* Ask for the message history now. */
+int rift_ipc_request_messages(struct rift_ipc *c);
+
+/* Send one message (mesh.send).
+ *
+ * This is the only call in RIFT that transmits, and it exists only from
+ * phase 2: nothing on a screen reaches it except a reader pressing SEND on
+ * text a reader typed. It records the submission in the model first, so a
+ * thread can say a message is on its way without saying it arrived, and
+ * fails without writing anything when a submission is already in flight or
+ * the text is not one mesh.send will take.
+ *
+ * Returns 0 when the request went out, -1 otherwise; on -1 the model holds
+ * the reason. */
+int rift_ipc_send_message(struct rift_ipc *c, const char *peer_key, const char *text);
 
 int rift_ipc_connected(const struct rift_ipc *c);
 

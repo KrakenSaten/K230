@@ -5,6 +5,8 @@
  */
 #include "rift_ipc.h"
 
+#include "rift_format.h"
+
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
@@ -27,6 +29,10 @@ static const char *method_of(enum rift_req what)
         return "mesh.nodes";
     case RIFT_REQ_NODE:
         return "mesh.node";
+    case RIFT_REQ_MESSAGES:
+        return "mesh.messages";
+    case RIFT_REQ_SEND:
+        return "mesh.send";
     case RIFT_REQ_NONE:
     default:
         return NULL;
@@ -183,6 +189,76 @@ int rift_ipc_request_nodes(struct rift_ipc *c)
     return request(c, RIFT_REQ_NODES, NULL, c->last_nodes_ms);
 }
 
+int rift_ipc_request_messages(struct rift_ipc *c)
+{
+    cJSON *params;
+
+    if (!c || c->fd < 0) {
+        return -1;
+    }
+    params = cJSON_CreateObject();
+    if (!params) {
+        return -1;
+    }
+    cJSON_AddNumberToObject(params, "limit", RIFT_MESSAGES_LIMIT);
+    c->last_messages_ms = rift_mono_ms();
+    return request(c, RIFT_REQ_MESSAGES, params, c->last_messages_ms);
+}
+
+int rift_ipc_send_message(struct rift_ipc *c, const char *peer_key, const char *text)
+{
+    char why[RIFT_TEXT_MAX];
+    cJSON *params;
+    int64_t now;
+
+    if (!c || !c->model) {
+        return -1;
+    }
+    /* Refused before anything is written, and the reason is the model's to
+     * show: a composer that cleared itself and then said nothing would look
+     * like a message that went. */
+    if (rift_send_text_check(text, why, sizeof(why)) != 0) {
+        rift_model_send_failed(c->model, why);
+        c->revision++;
+        return -1;
+    }
+    if (c->fd < 0) {
+        rift_model_send_failed(c->model, "meshcored is not answering; nothing was sent");
+        c->revision++;
+        return -1;
+    }
+    if (rift_model_sending(c->model)) {
+        rift_model_send_failed(c->model, "one message is already on its way");
+        c->revision++;
+        return -1;
+    }
+    now = rift_mono_ms();
+    if (rift_model_send_begin(c->model, peer_key, text, now) != 0) {
+        rift_model_send_failed(c->model, "that is not a node this app can address");
+        c->revision++;
+        return -1;
+    }
+    params = cJSON_CreateObject();
+    if (!params) {
+        rift_model_send_failed(c->model, "out of memory");
+        c->revision++;
+        return -1;
+    }
+    cJSON_AddStringToObject(params, "to", peer_key);
+    cJSON_AddStringToObject(params, "text", text);
+    if (request(c, RIFT_REQ_SEND, params, now) != 0) {
+        /* request() has already dropped the connection if the write failed,
+         * and rift_model_service_lost says what became of the submission. */
+        if (rift_model_sending(c->model)) {
+            rift_model_send_failed(c->model, "the request could not be written");
+        }
+        c->revision++;
+        return -1;
+    }
+    c->revision++;
+    return 0;
+}
+
 static void connect_now(struct rift_ipc *c, int64_t now_ms)
 {
     int fd = pocketipc_connect_timeout(c->service, RIFT_CONNECT_TIMEOUT_MS);
@@ -231,6 +307,10 @@ static void connect_now(struct rift_ipc *c, int64_t now_ms)
     if (request(c, RIFT_REQ_NODES, NULL, now_ms) != 0) {
         return;
     }
+    c->last_messages_ms = now_ms;
+    if (rift_ipc_request_messages(c) != 0) {
+        return;
+    }
     c->revision++;
 }
 
@@ -268,11 +348,20 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
     if (cJSON_IsObject(error)) {
         const cJSON *message = cJSON_GetObjectItemCaseSensitive(error, "message");
 
+        const char *why = (cJSON_IsString(message) && message->valuestring)
+                              ? message->valuestring
+                              : "refused";
+
         c->errors_in++;
         snprintf(c->last_error, sizeof(c->last_error), "%s: %s",
-                 method_of(what) ? method_of(what) : "meshcored",
-                 (cJSON_IsString(message) && message->valuestring) ? message->valuestring
-                                                                   : "refused");
+                 method_of(what) ? method_of(what) : "meshcored", why);
+        /* A refused send is the one error a reader is owed directly: they
+         * typed the message and pressed the button, and the composer must
+         * say what became of it rather than leaving it in the command
+         * line's general error caption. */
+        if (what == RIFT_REQ_SEND) {
+            rift_model_send_failed(c->model, why);
+        }
         c->revision++;
         return 0;
     }
@@ -308,6 +397,29 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
             rift_model_apply_event(c->model, "mesh.node", wrapper);
             cJSON_Delete(wrapper);
         }
+        break;
+    }
+    case RIFT_REQ_MESSAGES:
+        rift_model_apply_messages(c->model, result);
+        break;
+    case RIFT_REQ_SEND: {
+        /* "accepted" is always true when there is a result at all
+         * (docs/api/mesh.md); what matters here is the id, because that is
+         * what the message itself will arrive under. The message is not
+         * created from this reply: mesh.message carries it, and keying both
+         * on the id is what keeps one message one row however they race. */
+        const cJSON *id_of = cJSON_IsObject(result)
+                                 ? cJSON_GetObjectItemCaseSensitive(result, "message_id")
+                                 : NULL;
+        const cJSON *route = cJSON_IsObject(result)
+                                 ? cJSON_GetObjectItemCaseSensitive(result, "route")
+                                 : NULL;
+
+        rift_model_send_accepted(c->model,
+                                 cJSON_IsNumber(id_of) ? (int64_t)id_of->valuedouble : 0,
+                                 (cJSON_IsString(route) && route->valuestring)
+                                     ? route->valuestring
+                                     : NULL);
         break;
     }
     case RIFT_REQ_SUBSCRIBE:
@@ -402,6 +514,11 @@ void rift_ipc_poll(struct rift_ipc *c, int64_t now_ms)
     if (now_ms - c->last_nodes_ms >= RIFT_NODES_PERIOD_MS) {
         c->last_nodes_ms = now_ms;
         if (request(c, RIFT_REQ_NODES, NULL, now_ms) != 0) {
+            return;
+        }
+    }
+    if (now_ms - c->last_messages_ms >= RIFT_MESSAGES_PERIOD_MS) {
+        if (rift_ipc_request_messages(c) != 0) {
             return;
         }
     }

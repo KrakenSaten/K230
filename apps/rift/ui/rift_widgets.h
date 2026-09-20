@@ -57,8 +57,35 @@ lv_obj_t *rift_panel(lv_obj_t *parent, const char *caption);
 /* A 24 px group label: "HEARD < 12 H · 12". */
 lv_obj_t *rift_group_label(lv_obj_t *parent, const char *text);
 
+/* The unread pill (handoff §6): Mono 14/500 in text_on_accent on a radio_rx
+ * fill, padding 0 5, radius 2. The colours are POS_STYLE_CHIP_RX's, which
+ * are exactly those two tokens; the chip's own 36 px geometry is not, so
+ * the size, radius and padding are set here. A count of 0 hides it - a pill
+ * reading "0" would be a badge saying there is nothing to read. */
+lv_obj_t *rift_unread_pill(lv_obj_t *parent);
+void rift_unread_pill_set(lv_obj_t *pill, int count);
+
 /* One hairline rule across the parent. */
 lv_obj_t *rift_rule(lv_obj_t *parent);
+
+/* A vertical rule in one of the token roles, for the 2 px rule beside a
+ * message body (handoff §6: own messages carry it on the right in
+ * accent_primary, received on the left in text_secondary, or radio_rx when
+ * the peer was heard direct).
+ *
+ * It exists because none of the shared fill roles carries text_secondary or
+ * text_muted as a *fill*, and a colour written here would be RIFT owning a
+ * colour. It reads the token in a draw callback, which is the sanctioned
+ * way (pos_styles.h, tests/style_lint.sh). */
+enum rift_tone {
+    RIFT_TONE_ACCENT = 0,
+    RIFT_TONE_RX,
+    RIFT_TONE_SECONDARY,
+    RIFT_TONE_MUTED,
+};
+
+lv_obj_t *rift_vrule(lv_obj_t *parent, int32_t width);
+void rift_vrule_set(lv_obj_t *rule, enum rift_tone tone);
 
 /* A 56 px action in a row of them. A disabled action takes the DS §9
  * treatment and no focus, and says why in its own caption elsewhere: this

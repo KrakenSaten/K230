@@ -24,15 +24,36 @@ check "the parts without a display are built and tested by the root Makefile" \
     "$(grep -q 'tests/rift_model_test' Makefile && grep -q 'tests/rift_ipc_test' Makefile &&
        echo 1 || echo 0)"
 
-# ---- nothing here transmits ----------------------------------------------------
+# ---- what may transmit, and from where -----------------------------------------
 # The API has exactly two methods that put a packet on the air (docs/api/
-# mesh.md). Opening a screen must not reach either. tests/rift_ipc_test.c
-# proves the same thing from the other end, by recording what the service was
-# asked for.
-for method in mesh.send mesh.advert; do
-    check "no source under apps/rift names $method" \
-        "$(grep -rn "\"$method\"" "$SRC" >/dev/null 2>&1 && echo 0 || echo 1)"
-done
+# mesh.md). Phase 1 named neither. Phase 2 sends messages, so the gate is no
+# longer "never" - it is "from one place, on purpose, and never on its own".
+#
+# mesh.advert is still never: this app has no reason to make the node shout.
+check "no source under apps/rift names mesh.advert" \
+    "$(grep -rn '"mesh.advert"' "$SRC" >/dev/null 2>&1 && echo 0 || echo 1)"
+# mesh.send is named once, in the client, and nowhere else - not in a screen,
+# not in the model, not in the chrome.
+sendhits=$(grep -rln '"mesh.send"' "$SRC" | sort | tr '\n' ' ')
+check "mesh.send is named only in the meshcored client (${sendhits:-nowhere})" \
+    "$([ "$sendhits" = "$SRC/rift_ipc.c " ] && echo 1 || echo 0)"
+check "and only one call writes it" \
+    "$([ "$(grep -c 'RIFT_REQ_SEND, params' "$SRC/rift_ipc.c")" = "1" ] && echo 1 || echo 0)"
+# Nothing automatic may reach the transmit. The only callers of the send are
+# the two composers - the portrait SEND button and the landscape command
+# line - both of which go through rift_comms_submit.
+callers=$(grep -rln 'rift_ipc_send_message' "$SRC" --include='*.c' | sort | tr '\n' ' ')
+check "the send is called only from COMMS (${callers:-nowhere})" \
+    "$([ "$callers" = "$SRC/rift_ipc.c $SRC/ui/rift_comms.c " ] && echo 1 || echo 0)"
+check "no timer, poll or create path sends" \
+    "$(grep -nE 'rift_ipc_send_message' "$SRC/rift_app.c" >/dev/null 2>&1 && echo 0 || echo 1)"
+# Everything that reaches the submit passes it the contents of a text field.
+# A call with a string literal or a built buffer would be this app choosing
+# what goes on the air, which is the thing it must never do.
+badsubmit=$(grep -rn 'rift_comms_submit(' "$SRC" --include='*.c' |
+            grep -v 'lv_textarea_get_text' | grep -v 'void rift_comms_submit')
+check "every send carries text a reader typed${badsubmit:+ (}${badsubmit:+)}" \
+    "$([ -z "$badsubmit" ] && echo 1 || echo 0)"
 
 # ---- RIFT owns no colour, no font and no hardware ------------------------------
 # tests/style_lint.sh covers ui/ and apps/ for colour literals; these are the
@@ -72,10 +93,15 @@ check "and the screens parse no JSON of their own" \
 # above anything here and well below a monolith.
 big=$(find "$SRC" -name '*.c' -exec wc -l {} + | awk '$1 > 900 && $2 != "total" {print $2}')
 check "no source file has become a monolith${big:+ ($big)}" "$([ -z "$big" ] && echo 1 || echo 0)"
-for part in rift_model.c rift_format.c rift_ipc.c rift_app.c ui/rift_widgets.c \
-            ui/rift_activity.c ui/rift_nodes.c ui/rift_detail.c; do
+for part in rift_model.c rift_messages.c rift_format.c rift_ipc.c rift_app.c \
+            ui/rift_widgets.c ui/rift_activity.c ui/rift_nodes.c ui/rift_detail.c \
+            ui/rift_comms.c ui/rift_thread.c; do
     check "$part is its own file" "$([ -f "$SRC/$part" ] && echo 1 || echo 0)"
 done
+# The messages are the model's other half and are held to the same rule as
+# the first: no LVGL, and the screens do not reach into them.
+check "the messages know nothing about LVGL" \
+    "$(grep -q 'lvgl' "$SRC/rift_messages.c" && echo 0 || echo 1)"
 
 # ---- the lifecycle -------------------------------------------------------------
 # A timer that outlives the app reaches a freed block on its next pass, and
@@ -104,13 +130,51 @@ check "and its one bounded wait is the connect" \
 
 # ---- what this phase does not have ---------------------------------------------
 # Recorded here so the gaps are checked rather than remembered.
-check "COMMS and NET keep their place in the navigation" \
+check "all four sections keep their place in the navigation" \
     "$(grep -q 'RIFT_SEC_COMMS' "$SRC/rift_app.h" && grep -q 'RIFT_SEC_NET' "$SRC/rift_app.h" &&
        echo 1 || echo 0)"
-check "and say they are not in this build rather than showing an empty list" \
+check "and NET says it is not in this build rather than showing an empty view" \
     "$(grep -q 'not in this build' "$SRC/rift_app.c" && echo 1 || echo 0)"
 check "there is no command parser in this phase" \
     "$(grep -rqE 'strcmp\(.*"/msg"|"/nodes"|"/advert"' "$SRC" && echo 0 || echo 1)"
+
+# ---- channels are the service's gap, not this app's ----------------------------
+# The approved design merges channels into the COMMS list with a "#" glyph.
+# There is nothing to merge: MAX_GROUP_CHANNELS is left undefined in
+# protocols/meshcore so upstream's channel code is not compiled, meshcored's
+# onChannelMessageRecv is an empty override, and docs/api/mesh.md lists group
+# channels under "Not in v0". A channel row here would be this app inventing
+# a feature the mesh does not have, so the gate is that it does not draw one
+# and does say why.
+check "the radio service still has no channels to draw" \
+    "$(grep -rq 'MAX_GROUP_CHANNELS' protocols/meshcore/port protocols/meshcore/compat \
+        protocols/meshcore/Makefile 2>/dev/null && echo 0 || echo 1)"
+check "and COMMS says so rather than drawing one" \
+    "$(grep -q 'channels are not in' "$SRC/ui/rift_comms.c" && echo 1 || echo 0)"
+check "no channel is invented in the app" \
+    "$(grep -rqiE 'rift_channel|channel_row|#define RIFT_MAX_CHANNELS' "$SRC" && echo 0 || echo 1)"
+
+# ---- the composer ---------------------------------------------------------------
+# A message is not shown as delivered before the service says it was, and the
+# app does not invent a local copy to reconcile later: mesh.message carries
+# the message and the id is what keeps one message one row.
+# A message's state is only ever copied from the service's own word. The one
+# place a state is assigned is where the API's word is mapped, so a screen
+# cannot decide that something arrived.
+assigns=$(grep -rn -- 'state = RIFT_MSG_' "$SRC" --include='*.c' |
+          sed 's/:.*//' | sort -u | tr '\n' ' ')
+check "no screen decides a message's state${assigns:+ ($assigns)}" \
+    "$([ -z "$assigns" ] && echo 1 || echo 0)"
+check "and the one that sets it reads the service's word" \
+    "$(grep -q 'msg->state = msg_state_from_word' "$SRC/rift_messages.c" && echo 1 || echo 0)"
+check "the outbox never turns into a sent message" \
+    "$(grep -q 'Nothing here marks it sent' "$SRC/rift_messages.c" && echo 1 || echo 0)"
+check "and no message is created without an id from the service" \
+    "$(grep -q 'there is no way to tell an update from a second copy' \
+        "$SRC/rift_messages.c" && echo 1 || echo 0)"
+check "the touch keyboard is given back when the app goes" \
+    "$(sed -n '/^static void rift_destroy/,/^}/p' "$SRC/rift_app.c" |
+       grep -q 'pocketos_shell_keyboard_hide' && echo 1 || echo 0)"
 # DS §20 wants an icon mask on every launcher tile. RIFT has no png-32 tint
 # artwork: the approved package carries the mark as a design sheet, not as
 # the artwork tools/design/gen_app_icons.py generates from, and drawing one

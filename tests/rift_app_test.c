@@ -25,7 +25,9 @@
 #include "pocketui.h"
 #include "pos_input.h"
 #include "rift_app.h"
+#include "rift_comms.h"
 #include "rift_nodes.h"
+#include "rift_thread.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -314,6 +316,61 @@ static void give_service(void)
     pump(60);
 }
 
+/* A conversation with two peers: one where the last word was theirs and one
+ * where it was ours, an acknowledged message, one that timed out, and a body
+ * with a newline in it - which is one of the two control characters the API
+ * lets through, and must not break a one-line row. */
+static void give_messages(void)
+{
+    char json[2048];
+    cJSON *o;
+    int64_t now = rift_mono_ms();
+
+    snprintf(json, sizeof(json),
+             "{\"count\":5,\"total\":5,\"persistent\":false,\"messages\":["
+             "{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+             "\"peer_name\":\"HYTTA\",\"text\":\"Str\xC3\xB8m tilbake p\xC3\xA5 hytta\","
+             "\"state\":\"received\",\"mono_ms\":%lld,\"rssi_dbm\":-88.0,\"snr_db\":6.5},"
+             "{\"id\":2,\"direction\":\"out\",\"peer_public_key\":\"" KEY_B "\","
+             "\"text\":\"Fint, ser deg\",\"state\":\"acked\",\"mono_ms\":%lld,"
+             "\"ack_mono_ms\":%lld},"
+             "{\"id\":3,\"direction\":\"out\",\"peer_public_key\":\"" KEY_B "\","
+             "\"text\":\"Pr\xC3\xB8ver direct\",\"state\":\"no_ack\",\"mono_ms\":%lld},"
+             "{\"id\":4,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+             "\"peer_name\":\"HYTTA\",\"text\":\"to linjer\\nher\",\"state\":\"received\","
+             "\"mono_ms\":%lld},"
+             "{\"id\":5,\"direction\":\"out\",\"peer_public_key\":\"" KEY_A "\","
+             "\"text\":\"On my way\",\"state\":\"sent_direct\",\"mono_ms\":%lld}]}",
+             (long long)(now - 300000), (long long)(now - 240000),
+             (long long)(now - 199000), (long long)(now - 120000),
+             (long long)(now - 60000), (long long)(now - 30000));
+    o = cJSON_Parse(json);
+    check("the message fixture is valid JSON", o != NULL);
+    check("and the model takes it", rift_model_apply_messages(&app->model, o) == 0);
+    cJSON_Delete(o);
+    rift_app_refresh(app);
+    pump(60);
+}
+
+/* One message arriving now, from the peer whose thread is not open: the only
+ * thing that can make an unread badge appear. */
+static void give_unread(void)
+{
+    char json[512];
+    cJSON *o;
+
+    snprintf(json, sizeof(json),
+             "{\"message\":{\"id\":20,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
+             "\"peer_name\":\"OSLO-01\",\"text\":\"er du der?\",\"state\":\"received\","
+             "\"mono_ms\":%lld}}",
+             (long long)rift_mono_ms());
+    o = cJSON_Parse(json);
+    rift_model_apply_event(&app->model, "mesh.message", o);
+    cJSON_Delete(o);
+    rift_app_refresh(app);
+    pump(60);
+}
+
 /* ---- finding things -------------------------------------------------------- */
 
 static lv_obj_t *kid(lv_obj_t *parent, uint32_t i)
@@ -331,6 +388,33 @@ static int visible(lv_obj_t *obj)
         obj = lv_obj_get_parent(obj);
     }
     return 1;
+}
+
+/* The composer is private to its screen, and what these tests are about is
+ * whether the keys reach it, so it is found the way a finger would: the one
+ * text area showing under this subtree. */
+static lv_obj_t *find_textarea(lv_obj_t *obj)
+{
+    uint32_t n = lv_obj_get_child_count(obj);
+    uint32_t i;
+
+    if (lv_obj_check_type(obj, &lv_textarea_class) && visible(obj)) {
+        return obj;
+    }
+    for (i = 0; i < n; i++) {
+        lv_obj_t *hit = find_textarea(lv_obj_get_child(obj, (int32_t)i));
+
+        if (hit) {
+            return hit;
+        }
+    }
+    return NULL;
+}
+
+/* The button a label belongs to: rift_action puts the label inside it. */
+static lv_obj_t *action_of(lv_obj_t *label)
+{
+    return label ? lv_obj_get_parent(label) : NULL;
 }
 
 static lv_obj_t *find_text(lv_obj_t *obj, const char *text)
@@ -650,13 +734,202 @@ int main(void)
     pump(60);
     check("closed again", !app->detail_open);
 
-    /* COMMS and NET keep their place and say what they are. */
+    /* ---- COMMS, in portrait --------------------------------------------- */
     tap(kid(strip(), 2));
     check("COMMS is reachable", app->section == RIFT_SEC_COMMS);
-    check("and says it is not in this build",
-          find_text(content(), "not in this build") != NULL);
+    check("before the service has answered it says it is waiting",
+          find_text(content(), "Waiting for meshcored") != NULL);
+    {
+        /* A service that answered and has nothing: a different thing from
+         * not having asked yet, and drawn as a different thing. */
+        cJSON *o = cJSON_Parse("{\"messages\":[],\"count\":0,\"total\":0,\"persistent\":false}");
+
+        rift_model_apply_messages(&app->model, o);
+        cJSON_Delete(o);
+        rift_app_refresh(app);
+        pump(60);
+    }
+    check("an answered, empty history says so instead",
+          find_text(content(), "No messages yet") != NULL);
+    /* The design merges channels into this list. There are none in the
+     * service, and the list says which of the two it is rather than leaving
+     * a reader who knows the design to wonder. */
+    check("and names channels as the service's gap, not as an empty list",
+          find_text(content(), "Channels are not in the radio service") != NULL);
+
+    give_messages();
+    check("with conversations, the note still says the list is direct only",
+          find_text(content(), "channels are not in") != NULL);
+    check("both conversations are listed", find_text(content(), "HYTTA") != NULL &&
+                                               find_text(content(), "OSLO-01") != NULL);
+    check("a preview says who spoke last", find_text(content(), "you: On my way") != NULL);
+    check("nothing is open yet", rift_comms_open_peer(app) == NULL);
+    check("so the composer says what it is waiting for",
+          find_text(content(), "Choose a conversation") != NULL);
+    shot("portrait-comms-list");
+
+    /* Opening a conversation shows its thread, and choosing where a message
+     * would go must not send one. */
+    rift_app_open_conversation(app, KEY_B);
+    pump(80);
+    check("the thread is open", rift_comms_open_peer(app) != NULL);
+    check("and holds the messages", find_text(content(), "Fint, ser deg") != NULL);
+    check("an acknowledged message says how long the ACK took",
+          find_text(content(), "DELIVERED") != NULL && find_text(content(), "ACK 41 s") != NULL);
+    check("one that timed out says NO ACK", find_text(content(), "NO ACK") != NULL);
+    check("a received one carries what was measured for it",
+          find_text(content(), "RECEIVED \xC2\xB7 \xE2\x88\x92" "88 dBm \xC2\xB7 SNR 6.5") !=
+              NULL);
+    check("nothing anywhere claims a submitted message was delivered",
+          find_text(content(), "SENT \xC2\xB7 DIRECT") == NULL ||
+              find_text(content(), "DELIVERED \xC2\xB7 ACK") != NULL);
+    check("the thread header says how this peer is reached",
+          find_text(content(), "RELAYED") != NULL);
+    check("and the composer is usable now", find_text(content(), "SEND") != NULL);
+    shot("portrait-comms-thread");
+
+    /* An unread message from the other conversation puts the pill on the
+     * COMMS tab, and reading it takes it away. */
+    give_unread();
+    check("an arrival while another thread is open is unread",
+          rift_model_unread(&app->model, KEY_A) == 1);
+    check("which the tab says", rift_model_unread_total(&app->model) == 1);
+    rift_app_open_conversation(app, KEY_A);
+    pump(80);
+    check("opening that conversation reads it", rift_model_unread(&app->model, KEY_A) == 0);
+    check("and the tab has nothing left to say", rift_model_unread_total(&app->model) == 0);
+
+    /* ---- the three things unit A found, 2026-09-20 ---------------------- */
+
+    /* 1. The unread pill painted nothing: POS_STYLE_CHIP_RX carries the two
+     * colours and not the opacity that makes a chip's fill appear, so the
+     * pill took its space in the row and showed neither fill nor readable
+     * text. Checked on the widget itself, because that is where the defect
+     * was and a row is a poor place to see a missing opacity. */
+    {
+        lv_obj_t *pill = rift_unread_pill(content());
+
+        rift_unread_pill_set(pill, 3);
+        pump(30);
+        check("an unread pill is not hidden when there is something to read",
+              !lv_obj_has_flag(pill, LV_OBJ_FLAG_HIDDEN));
+        check("and says how many", strcmp(lv_label_get_text(pill), "3") == 0);
+        check("its fill is actually painted",
+              lv_obj_get_style_bg_opa(pill, LV_PART_MAIN) == LV_OPA_COVER);
+        check("in the token the handoff asks for",
+              lv_color_eq(lv_obj_get_style_bg_color(pill, LV_PART_MAIN),
+                          pos_theme_color(POS_COLOR_RADIO_RX)));
+        check("and its text is the one meant to sit on that fill",
+              lv_color_eq(lv_obj_get_style_text_color(pill, LV_PART_MAIN),
+                          pos_theme_color(POS_COLOR_TEXT_ON_ACCENT)));
+        /* Colour never carries it alone, and neither does a fill: nothing
+         * is drawn at all when there is nothing unread. */
+        rift_unread_pill_set(pill, 0);
+        check("and nothing is drawn at zero", lv_obj_has_flag(pill, LV_OBJ_FLAG_HIDDEN));
+        lv_obj_delete(pill);
+    }
+
+    /* 2. The composer lost the keyboard about once a second, because every
+     * refresh re-enabled an already-enabled field and lv_group_add_obj()
+     * re-adds by removing first. Ten refreshes is ten chances to lose it. */
+    rift_app_open_conversation(app, KEY_B);
+    pump(80);
+    {
+        lv_obj_t *field = find_textarea(content());
+        int r;
+
+        check("the portrait composer is there", field != NULL);
+        pos_input_focus(field);
+        pump(40);
+        check("and takes the focus", pos_input_focused() == field);
+        for (r = 0; r < 10; r++) {
+            rift_app_refresh(app);
+            pump(40);
+        }
+        check("ten refreshes later it still has it", pos_input_focused() == field);
+
+        /* 3. What that cost was typing. A character before the refreshes and
+         * one after must both arrive, in order. */
+        lv_textarea_set_text(field, "");
+        pos_input_push_key('h');
+        pump(60);
+        for (r = 0; r < 8; r++) {
+            rift_app_refresh(app);
+            pump(40);
+        }
+        pos_input_push_key('e');
+        pump(60);
+        for (r = 0; r < 8; r++) {
+            rift_app_refresh(app);
+            pump(40);
+        }
+        pos_input_push_key('i');
+        pump(60);
+        check("typing survives the refreshes in between",
+              strcmp(lv_textarea_get_text(field), "hei") == 0);
+        lv_textarea_set_text(field, "");
+    }
+
+    /* 4. There was no way to start one. The list holds only peers with
+     * messages, so a node nobody had written to could not be written to.
+     * NODES -> select -> MESSAGE now opens the conversation, and it opens
+     * empty: no history is invented for it. */
+    tap(kid(strip(), 1));
+    pump(60);
+    check("NODES again", app->section == RIFT_SEC_NODES);
+    rift_app_select(app, KEY_C);
+    pump(80);
+    check("a node with nothing ever said to it is selected",
+          rift_app_selected(app) && strcmp(rift_app_selected(app)->key, KEY_C) == 0);
+    {
+        lv_obj_t *msg = action_of(find_text(content(), "MESSAGE"));
+
+        check("the selected row offers MESSAGE", msg != NULL);
+        tap(msg);
+        pump(100);
+        check("which opens COMMS", app->section == RIFT_SEC_COMMS);
+        check("on a conversation with that node",
+              rift_comms_open_peer(app) && strcmp(rift_comms_open_peer(app), KEY_C) == 0);
+        check("the conversation is in the list", find_text(content(), "NO-3241 FO") != NULL);
+        check("and it holds nothing", find_text(content(), "Nothing said yet.") != NULL);
+        /* The one thing that must not have happened: a row invented to make
+         * the thread look started. */
+        {
+            const struct rift_message *t[4];
+            int older = 0;
+
+            check("no message was invented for it",
+                  rift_model_thread(&app->model, KEY_C, t, 4, &older) == 0 && older == 0);
+        }
+        check("but the composer is usable", rift_thread_refusal(app) == NULL);
+        {
+            lv_obj_t *field = find_textarea(content());
+
+            pos_input_focus(field);
+            pump(40);
+            pos_input_push_key('x');
+            pump(60);
+            check("and takes what is typed into it",
+                  strcmp(lv_textarea_get_text(field), "x") == 0);
+            lv_textarea_set_text(field, "");
+        }
+        /* The conversation that already had messages is untouched by any of
+         * this. */
+        rift_app_open_conversation(app, KEY_B);
+        pump(80);
+        {
+            const struct rift_message *t[8];
+            int older = 0;
+
+            check("and the existing conversation still holds its messages",
+                  rift_model_thread(&app->model, KEY_B, t, 8, &older) == 4);
+        }
+    }
+
     tap(kid(strip(), 3));
     check("NET is reachable", app->section == RIFT_SEC_NET);
+    check("and is the one section that says it is not in this build",
+          find_text(content(), "not in this build") != NULL);
     tap(kid(strip(), 1));
     check("and NODES comes back", app->section == RIFT_SEC_NODES);
 
@@ -698,11 +971,107 @@ int main(void)
     check("and inside the body", inside_body(content()));
     shot("landscape-activity");
 
+    /* ---- COMMS, turned --------------------------------------------------- */
+    tap(kid(strip(), 2));
+    pump(80);
+    check("COMMS splits too", app->section == RIFT_SEC_COMMS && app->wide);
+    check("the list is on the left", find_text(content(), "HYTTA") != NULL);
+    rift_app_open_conversation(app, KEY_B);
+    pump(80);
+    check("and the thread beside it", find_text(content(), "Fint, ser deg") != NULL);
+    check("with the route pane's own heading", find_text(content(), "ROUTE") != NULL);
+    check("the delivery tally is this app's arithmetic, and says what it counts",
+          find_text(content(), "OF 2 SENT") != NULL);
+    check("everything is inside the turned body", inside_body(content()));
+    /* The command line is the composer in landscape (handoff §8), so the
+     * thread does not carry a second one. */
+    check("the command line has become the composer", app->composer != NULL &&
+                                                          visible(lv_obj_get_parent(app->composer)));
+    check("naming the peer it is addressing", find_text(cmdline(), "TO HYTTA") != NULL);
+    check("the thread shows no second composer", find_text(content(), "SEND") == NULL);
+    shot("landscape-comms");
+
+    /* TAB moves between the list and the composer - the design's "TAB PANE"
+     * (handoff §9), and the only way to reach the composer from the list
+     * without touching the panel. Pushed through the real key stream, not
+     * by calling the handler, because what is being tested is that the key
+     * arrives where this app thinks it does. */
+    /* The refresh defect would have taken this composer too - the thread's
+     * field is re-enabled on every refresh whichever orientation is up, and
+     * re-adding it to the group moves the focus off whatever had it. */
+    {
+        int r;
+
+        pos_input_focus(app->composer);
+        pump(40);
+        check("the landscape composer takes the focus", pos_input_focused() == app->composer);
+        for (r = 0; r < 10; r++) {
+            rift_app_refresh(app);
+            pump(40);
+        }
+        check("and keeps it across ten refreshes", pos_input_focused() == app->composer);
+        lv_textarea_set_text(app->composer, "");
+        pos_input_push_key('z');
+        pump(60);
+        for (r = 0; r < 8; r++) {
+            rift_app_refresh(app);
+            pump(40);
+        }
+        pos_input_push_key('y');
+        pump(60);
+        check("and typing into it survives them",
+              strcmp(lv_textarea_get_text(app->composer), "zy") == 0);
+        lv_textarea_set_text(app->composer, "");
+    }
+
+    pos_input_focus(app->keysink);
+    /* Long enough for the timer to repaint: the focus change is followed,
+     * not acted on, from inside the event (see on_composer_focus). */
+    pump(160);
+    check("the list has the focus to begin with", pos_input_focused() == app->keysink);
+    check("and the hint says how to reach the field",
+          find_text(cmdline(), "TAB TO WRITE") != NULL);
+    pos_input_push_key(LV_KEY_NEXT);
+    pump(200);
+    check("TAB moves it to the composer", pos_input_focused() == app->composer);
+    check("which the app follows rather than decides", app->composer_focused);
+    check("and the hint changes to what the keys do there",
+          find_text(cmdline(), "ENTER SEND") != NULL);
+    /* Esc is the way back, because TAB inside a text area types a tab. It
+     * clears first, so nothing typed is lost by one keystroke. */
+    pos_input_push_key('x');
+    pump(120);
+    check("what is typed reaches the composer",
+          lv_textarea_get_text(app->composer)[0] == 'x');
+    pos_input_push_key(LV_KEY_ESC);
+    pump(120);
+    check("Esc clears it and keeps the focus", pos_input_focused() == app->composer &&
+                                                   lv_textarea_get_text(app->composer)[0] ==
+                                                       '\0');
+    pos_input_push_key(LV_KEY_ESC);
+    pump(160);
+    check("and Esc on an empty field gives the list its focus back",
+          pos_input_focused() == app->keysink);
+    check("which the app follows too", !app->composer_focused);
+
+    /* Leaving the conversation takes the composer away again: a command line
+     * that still offered to send would be addressing nobody. */
+    tap(kid(strip(), 1));
+    pump(80);
+    check("leaving COMMS puts the caption back",
+          !visible(lv_obj_get_parent(app->composer)));
+    tap(kid(strip(), 2));
+    pump(80);
+
     use_display(POS_ROTATION_0, PANEL_CORNER);
     pump(120);
     check("turning back gives the single column", !app->wide);
+    /* ACTIVITY, NODES, COMMS and the one placeholder NET uses. Turning the
+     * panel twice must not build a second set of them. */
     check("without making a second set of panels",
-          lv_obj_get_child_count(content()) == 3u);
+          lv_obj_get_child_count(content()) == 4u);
+    check("and the portrait composer is back under the thread",
+          find_text(content(), "SEND") != NULL);
 
     app_stop();
 
@@ -713,8 +1082,21 @@ int main(void)
         quiet_client();
         give_nodes();
         give_service();
-        check("with its sections built once", lv_obj_get_child_count(content()) == 3u);
+        check("with its sections built once", lv_obj_get_child_count(content()) == 4u);
         check("and the mesh on screen", find_text(content(), "OSLO-01") != NULL);
+        /* COMMS is reached on every round, so its IPC client, its rows and
+         * its composer are created and destroyed three times over. A
+         * conversation opened in the previous round must not survive into
+         * this one: the app is new. */
+        check("no conversation is carried over from the last time",
+              rift_comms_open_peer(app) == NULL);
+        give_messages();
+        rift_app_show_section(app, RIFT_SEC_COMMS);
+        pump(60);
+        check("COMMS builds from nothing again", find_text(content(), "HYTTA") != NULL);
+        rift_app_open_conversation(app, KEY_B);
+        pump(60);
+        check("and its thread with it", find_text(content(), "Fint, ser deg") != NULL);
         app_stop();
         check("and leaves nothing of itself behind",
               lv_obj_get_child_count(g_content) == 0u);

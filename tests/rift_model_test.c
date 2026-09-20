@@ -195,11 +195,24 @@ int main(void)
               apply_event(&m, "mesh.activity", "{\"kind\":\"telepathy\"}") == -1);
         check("none of them added a node", m.node_count == nodes_before);
         check("and every one of them was counted", m.events_malformed == before + 8);
-        /* A message event is COMMS, which this phase does not draw. Not
-         * ours is not malformed. */
-        check("a mesh.message is ignored without being called a fault",
-              apply_event(&m, "mesh.message", "{\"message\":{}}") == 0);
-        check("and is not counted as one", m.events_malformed == before + 8);
+        /* Phase 1 ignored mesh.message, because COMMS was not drawn, and
+         * this asserted that ignoring it was not a fault. COMMS is drawn
+         * now, so the assertion has become untrue and is replaced by the
+         * one that matters: a message event is applied, and a *malformed*
+         * one is still refused and counted like any other.
+         *
+         * What a message event does with a well-formed message is
+         * tests/rift_comms_test.c's subject; this is the event path. */
+        check("an empty message is refused",
+              apply_event(&m, "mesh.message", "{\"message\":{}}") == -1);
+        check("and counted", m.events_malformed == before + 9);
+        check("a message with everything it needs is applied",
+              apply_event(&m, "mesh.message",
+                          "{\"message\":{\"id\":1,\"direction\":\"in\","
+                          "\"peer_public_key\":\"" KEY_A "\",\"text\":\"hei\","
+                          "\"state\":\"received\",\"mono_ms\":1000}}") == 0);
+        check("and is not counted as malformed", m.events_malformed == before + 9);
+        check("nor did it become a node", m.node_count == nodes_before);
     }
 
     /* ---- a snapshot replaces; it does not merge -------------------------- */
