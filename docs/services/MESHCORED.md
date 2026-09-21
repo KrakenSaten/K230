@@ -295,6 +295,14 @@ the most sensitive thing this service owns, and does not lower the bar. It
 never leaves the service: no `mesh.*` method reports a key, and
 `tests/meshcored_lint.sh` checks that.
 
+**The message id counter is runtime only as well**, and that is the half of
+it a client can be caught by: `_next_msg_id` starts at 1 in the runtime's
+constructor, so the ids of one run mean nothing in the next. A client that
+keeps messages of its own has to empty them when this service restarts. There
+is no per-run identifier in the API to tell it so; see "Read 'while it runs'"
+under `mesh.messages` in docs/api/mesh.md for the signal that is available
+and what RIFT does with it.
+
 Both files are written whole or not at all, and **both are flushed twice**:
 once for the contents, once for the directory entry that names them. `fsync()`
 on a file says nothing about the entry pointing at it, so a power cut in

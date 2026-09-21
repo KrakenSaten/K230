@@ -20,10 +20,16 @@
  *     app owns is SENDING, which says a request is in flight and claims
  *     nothing else.
  *
+ * It also holds the answer to which run of meshcored the ids it is keyed on
+ * came from, because it is the only thing that needs it: the service hands
+ * them out from 1 again on every run.
+ *
  * It is a window, not a log. meshcored's own store does not survive its
  * restart, and this holds the newest RIFT_MAX_MESSAGES of whatever it has;
  * a conversation's unread count, its preview and its delivery tally are all
- * derived from what is still held and are honest about being bounded.
+ * derived from what is still held and are honest about being bounded. Nor
+ * does the id space survive a restart, which is why the window is emptied
+ * when the run changes rather than merged across it - forget_old_run below.
  *
  * No LVGL and no sockets: host-tested by tests/rift_model_test.c and
  * tests/rift_comms_test.c with no display and no service.
@@ -106,6 +112,93 @@ static enum rift_msg_state msg_state_from_word(const char *w)
     /* A state word this build does not know is kept as a word and not
      * mapped onto the nearest one this build happens to have. */
     return RIFT_MSG_STATE_UNKNOWN;
+}
+
+/* Longer than any monotonic clock reports. An uptime past this is not a
+ * large uptime, it is a number that would overflow the milliseconds it is
+ * turned into below. */
+#define RIFT_UPTIME_MAX_S (100LL * 365 * 24 * 3600)
+
+/* Which run of meshcored answered this status, and whether it is the one
+ * that answered the last. See "which run of the service this is" in
+ * rift_model.h for why the message cache needs to know, and for why one
+ * test is not enough. It is here rather than beside the rest of the status
+ * parsing because the cache below is the only thing that needs the answer:
+ * rift_model_apply_status reads the field, this decides what it means.
+ *
+ * A status that says nothing about the run - no uptime, or one no clock
+ * could have reached - concludes nothing, in either direction: what is
+ * already held about the run stays held. */
+void rift_model_note_service_run(struct rift_model *m, const cJSON *result, int64_t now_ms)
+{
+    int64_t uptime;
+    int64_t start;
+    double d;
+
+    if (!num_of(result, "uptime_s", &d) || d < 0 || d > (double)RIFT_UPTIME_MAX_S) {
+        return;
+    }
+    uptime = (int64_t)d;
+    start = now_ms - uptime * 1000;
+    if (!m->have_svc_start) {
+        m->have_svc_start = 1;
+        m->have_uptime = 1;
+        m->svc_start_ms = start;
+        m->uptime_s = uptime;
+        return;
+    }
+    if (uptime < m->uptime_s || start > m->svc_start_ms + RIFT_SVC_RESTART_SLACK_MS) {
+        /* A different process, with a message id space that has started
+         * again. Counted rather than acted on here: forget_old_run below
+         * empties the cache, the next time a message is applied to it, so
+         * that a status and the messages that follow it cannot disagree. */
+        m->svc_restarts++;
+        m->svc_start_ms = start;
+    } else if (start < m->svc_start_ms) {
+        /* Still the same run. The uptime is truncated to whole seconds, so
+         * a derived start can only be too late; the lowest seen is the
+         * least wrong, and holding it keeps the comparison above honest. */
+        m->svc_start_ms = start;
+    }
+    m->uptime_s = uptime;
+    m->have_uptime = 1;
+}
+
+/* The ids in this cache belong to one run of the service, and to no other.
+ * meshcored hands them out from 1 on every run and keeps no messages across
+ * one (mesh.messages, "persistent": false), so when the run changes the
+ * cache is emptied rather than merged into. Merging is what unit A found on
+ * 2026-09-21: a new id 1 landing on top of an old id 1, a new id 2 on an old
+ * id 2, and every old id with no new counterpart orphaned - a history
+ * blended from two sessions, with a message the service had forgotten still
+ * on the panel. The node list has been replaced outright by every snapshot
+ * from the start, for the same reason.
+ *
+ * The read marks go with the messages. A mark is a conversation's
+ * last_read_id, so an id space that has started again would mark the new
+ * 1..n as already read: unread counts wrong in the direction that hides a
+ * message, which is the more visible half of the same fault.
+ *
+ * What is deliberately NOT reset is messages_seeded. Everything the new run
+ * holds arrived while this app was not watching, which is the same case as
+ * a snapshot after any reconnect, and is unread for the same reason.
+ *
+ * Nothing here decides that the run changed; rift_model_apply_status does,
+ * and this reads the count it keeps. */
+static void forget_old_run(struct rift_model *m)
+{
+    if (m->msg_generation == m->svc_restarts) {
+        return;
+    }
+    m->msgs_forgotten += (unsigned)m->msg_count;
+    m->msg_count = 0;
+    memset(m->msg, 0, sizeof(m->msg));
+    m->read_mark_count = 0;
+    memset(m->read_mark, 0, sizeof(m->read_mark));
+    /* Nothing has been read from this run yet, which is not the same as
+     * this run holding nothing. The next snapshot says which. */
+    m->messages_valid = 0;
+    m->msg_generation = m->svc_restarts;
 }
 
 static struct rift_message *find_msg(struct rift_model *m, int64_t id)
@@ -214,6 +307,10 @@ int rift_model_apply_message(struct rift_model *m, const cJSON *o)
     } else if (!hex_only(peer, 64)) {
         return -1;
     }
+    /* After the message has been found acceptable and before it is filed:
+     * a message that is refused must change nothing, and a message that is
+     * kept must never be filed beside ids from an older run. */
+    forget_old_run(m);
     msg = msg_slot(m, id, &is_new);
     if (!msg) {
         return -1;
@@ -368,6 +465,10 @@ int rift_model_apply_messages(struct rift_model *m, const cJSON *result)
     if (!cJSON_IsArray(arr)) {
         return -1;
     }
+    /* Here as well as in apply_message, because a snapshot that is empty -
+     * a service that has just restarted and heard nothing yet - would
+     * otherwise leave the whole of the previous run's cache standing. */
+    forget_old_run(m);
     seeding = !m->messages_seeded;
     cJSON_ArrayForEach (it, arr) {
         /* One bad entry inside an otherwise good snapshot is refused on its

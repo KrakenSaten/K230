@@ -27,6 +27,7 @@ struct state {
     int clients_gone;
     int sent;
     int64_t subscribe_ms;
+    int64_t started_ms;
 };
 
 static int64_t now_ms(void)
@@ -46,7 +47,13 @@ static cJSON *status_json(const struct state *st)
     cJSON_AddStringToObject(o, "state", st->script->state ? st->script->state : "online");
     cJSON_AddStringToObject(o, "reason", st->script->reason ? st->script->reason : "receiving");
     cJSON_AddNumberToObject(o, "state_since_mono_ms", 100);
-    cJSON_AddNumberToObject(o, "uptime_s", 42);
+    /* Grows with this process, the way meshcored's own does - it is
+     * (now - start_ms) / 1000 there. A constant would be a service whose
+     * clock had stopped, and a client that tells one run from the next by
+     * this field would read the drift as a restart. */
+    cJSON_AddNumberToObject(o, "uptime_s",
+                            (double)((st->script->uptime_s ? st->script->uptime_s : 42) +
+                                     (now_ms() - st->started_ms) / 1000));
     cJSON_AddBoolToObject(radio, "connected", 1);
     cJSON_AddBoolToObject(radio, "lease_held", 1);
     cJSON_AddBoolToObject(radio, "online", 1);
@@ -348,6 +355,7 @@ int fake_meshcored_run(const struct fake_meshcored_script *script)
 
     memset(&st, 0, sizeof(st));
     st.script = script;
+    st.started_ms = started;
     signal(SIGPIPE, SIG_IGN);
     st.server = pocketipc_server_new("meshcored", on_request, &st);
     if (!st.server) {

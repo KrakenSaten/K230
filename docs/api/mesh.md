@@ -306,11 +306,24 @@ busy channel cannot push a direct conversation out of the history and a busy
 conversation cannot push a channel out of it; `mesh.messages` merges the two
 by `id`, which is one counter handed out in arrival order.
 
+**Read "while it runs" in the `id` row below as the warning it is.** That one
+counter starts again at 1 on every run of the service, so an id identifies a
+message within one run and not across two. A client that holds messages of
+its own - as RIFT does, in a window this service's rings cannot be relied on
+to refill - must notice that the service restarted and empty that window, or
+a new id 1 lands on top of an old id 1 and what it shows is a history blended
+from two sessions. There is no per-run identifier in this version of the API;
+the signal available to a client is `mesh.status`'s `uptime_s` read against
+its own monotonic clock, which is what RIFT does
+(`apps/rift/rift_messages.c`). Unit A found this the hard way on 2026-09-21,
+in part D of the channels gate, and it is not a channel fault: the counter
+has always been one counter and has always started again.
+
 A message:
 
 | Field | |
 | --- | --- |
-| `id` | meshcored's own, 1 upwards, never reused while it runs |
+| `id` | meshcored's own, 1 upwards, never reused **while it runs**; the next run starts at 1 again |
 | `direction` | `in` or `out` |
 | `kind` | `direct` or `channel`. Which of the two shapes below this is. |
 | `peer_public_key`, `peer_name` | **`direct` only** |

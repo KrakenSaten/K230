@@ -71,6 +71,35 @@ static int apply_event(struct rift_model *m, const char *name, const char *json)
     return rc;
 }
 
+/* One mesh.status, read at a stated moment on the shared monotonic clock.
+ * The uptime and that moment are how the model tells one run of meshcored
+ * from the next, which is what the message cache is keyed to. */
+static void give_status(struct rift_model *m, int uptime_s, int64_t now_ms)
+{
+    char json[96];
+    cJSON *o;
+
+    snprintf(json, sizeof(json), "{\"state\":\"online\",\"reason\":\"receiving\","
+                                 "\"uptime_s\":%d}", uptime_s);
+    o = cJSON_Parse(json);
+    rift_model_apply_status(m, o, now_ms);
+    cJSON_Delete(o);
+}
+
+/* Is there a message holding this text? Used to ask whether something the
+ * service has forgotten is still on this side. */
+static int holds_text(const struct rift_model *m, const char *want)
+{
+    int i;
+
+    for (i = 0; i < m->msg_count; i++) {
+        if (strcmp(m->msg[i].text, want) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int main(void)
 {
     struct rift_model m;
@@ -423,6 +452,247 @@ int main(void)
         text_is("with the newline folded to a space", text, "line one line two");
     }
 
+    /* ---- the service restarts, and its ids start again ---------------------- */
+    /* Found on unit A, 2026-09-21 (docs/hardware/RIFT_CHANNELS_GATE.md):
+     * meshcored hands out ids from 1 on every run and keeps no messages
+     * across one, so a cache that merged a snapshot by id let a new id 1
+     * land on an old id 1 and orphaned every old id with no new counterpart.
+     * The panel showed four messages while the service held three. */
+    {
+        struct rift_model s;
+        int64_t t = 3600000;
+
+        rift_model_init(&s);
+        give_status(&s, 3600, t);
+
+        /* One run of the service, with a history read at the start and one
+         * message that arrived while RIFT was watching. */
+        apply_messages(&s,
+                       "{\"messages\":["
+                       "{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
+                       "\"peer_name\":\"HYTTA\",\"text\":\"old one\",\"state\":\"received\","
+                       "\"mono_ms\":1000},"
+                       "{\"id\":2,\"direction\":\"out\",\"peer_public_key\":\"" KEY_A "\","
+                       "\"text\":\"old two\",\"state\":\"acked\",\"mono_ms\":2000},"
+                       "{\"id\":3,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+                       "\"peer_name\":\"OSLO-01\",\"text\":\"old three\",\"state\":\"received\","
+                       "\"mono_ms\":3000}"
+                       "],\"count\":3,\"total\":3,\"persistent\":false}");
+        apply_event(&s, "mesh.message",
+                    "{\"message\":{\"id\":4,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B
+                    "\",\"peer_name\":\"OSLO-01\",\"text\":\"old four\",\"state\":\"received\","
+                    "\"mono_ms\":4000}}");
+        check("four messages before the restart", s.msg_count == 4);
+        check("the one that arrived while watching is unread",
+              rift_model_unread(&s, KEY_B) == 1);
+        rift_model_mark_read(&s, KEY_B);
+        check("and reading it clears it", rift_model_unread_total(&s) == 0);
+
+        /* A snapshot merging with an event already delivered in the same run
+         * is the behaviour this fix must not break: id 4 is already held, so
+         * the snapshot updates it rather than doubling it. */
+        apply_messages(&s,
+                       "{\"messages\":["
+                       "{\"id\":4,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+                       "\"peer_name\":\"OSLO-01\",\"text\":\"old four\",\"state\":\"received\","
+                       "\"mono_ms\":4000}"
+                       "],\"count\":1,\"total\":4,\"persistent\":false}");
+        check("a snapshot in the same run still merges", s.msg_count == 4);
+        check("and forgets nothing", s.msgs_forgotten == 0 && s.svc_restarts == 0);
+
+        /* meshcored goes, and another comes up in its place. A dropped socket
+         * is all a client sees; the uptime is what says the process behind it
+         * is a different one. */
+        rift_model_service_lost(&s, "meshcored closed the connection");
+        check("what was known is still shown while it is away", s.msg_count == 4);
+        rift_model_service_found(&s);
+        give_status(&s, 2, t + 9000);
+        check("the restart is noticed", s.svc_restarts == 1);
+
+        /* The new run has heard two messages of its own, under ids 1 and 2.
+         * Merged, they would have landed on the old 1 and 2 - one of them
+         * replacing a message in a different conversation - and the old 3
+         * and 4 would have stayed on screen with nothing behind them. */
+        apply_messages(&s,
+                       "{\"messages\":["
+                       "{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+                       "\"peer_name\":\"OSLO-01\",\"text\":\"new one\",\"state\":\"received\","
+                       "\"mono_ms\":12000},"
+                       "{\"id\":2,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+                       "\"peer_name\":\"OSLO-01\",\"text\":\"new two\",\"state\":\"received\","
+                       "\"mono_ms\":13000}"
+                       "],\"count\":2,\"total\":2,\"persistent\":false}");
+        check("the cache holds exactly what the service holds", s.msg_count == 2);
+        check("nothing from the run before it is left behind",
+              !holds_text(&s, "old three") && !holds_text(&s, "old four"));
+        check("and the new ids are the new messages, not overwritten old ones",
+              holds_text(&s, "new one") && holds_text(&s, "new two"));
+        check("what was dropped is counted rather than merely gone", s.msgs_forgotten == 4);
+        check("the history is valid again once it has been re-read", s.messages_valid);
+        /* The read mark was an id in the old run's space. Kept, it would have
+         * marked both of the new messages as already read - the same fault in
+         * the direction that hides a message. */
+        check("the messages of the new run are unread", rift_model_unread(&s, KEY_B) == 2);
+        check("and the conversation the new run has never heard of is gone",
+              rift_model_thread(&s, KEY_A, thread, RIFT_MAX_MESSAGES, NULL) == 0);
+        n = rift_model_conversations(&s, conv, RIFT_MAX_CONVERSATIONS);
+        check("one conversation, not three", n == 1);
+
+        /* The run after a restart behaves like any other: an event merges, a
+         * snapshot merges with it, and nothing is forgotten again until the
+         * service restarts again. */
+        apply_event(&s, "mesh.message",
+                    "{\"message\":{\"id\":3,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B
+                    "\",\"text\":\"new three\",\"state\":\"received\",\"mono_ms\":14000}}");
+        give_status(&s, 12, t + 19000);
+        apply_messages(&s,
+                       "{\"messages\":["
+                       "{\"id\":3,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+                       "\"text\":\"new three\",\"state\":\"received\",\"mono_ms\":14000}"
+                       "],\"count\":1,\"total\":3,\"persistent\":false}");
+        check("the same run keeps merging", s.msg_count == 3);
+        check("and nothing more was forgotten", s.msgs_forgotten == 4 && s.svc_restarts == 1);
+    }
+
+    /* ---- a message of the new run arrives before its history does ----------- */
+    /* On a reconnect the client subscribes before it asks for the history, so
+     * a mesh.message event reaches the cache first whenever one is raised in
+     * between. The event path has to empty the cache as well, or the first
+     * message of the new run is filed beside the old run's ids and the
+     * snapshot then merges into the mixture. */
+    {
+        struct rift_model s;
+
+        rift_model_init(&s);
+        give_status(&s, 1200, 1200000);
+        apply_messages(&s,
+                       "{\"messages\":["
+                       "{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
+                       "\"text\":\"old one\",\"state\":\"received\",\"mono_ms\":1000},"
+                       "{\"id\":2,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
+                       "\"text\":\"old two\",\"state\":\"received\",\"mono_ms\":2000}"
+                       "],\"count\":2,\"total\":2,\"persistent\":false}");
+        check("two messages, read, because the first snapshot is history",
+              s.msg_count == 2 && rift_model_unread_total(&s) == 0);
+
+        rift_model_service_lost(&s, "meshcored closed the connection");
+        rift_model_service_found(&s);
+        give_status(&s, 3, 1206000);
+        check("the restart is noticed", s.svc_restarts == 1);
+
+        apply_event(&s, "mesh.message",
+                    "{\"message\":{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B
+                    "\",\"text\":\"new one\",\"state\":\"received\",\"mono_ms\":9000}}");
+        check("the event empties the old run before it is filed", s.msg_count == 1);
+        check("and what is held is the new message, not an old one rewritten",
+              holds_text(&s, "new one") && !holds_text(&s, "old one"));
+        check("with the history not read yet, which is not the same as empty",
+              !s.messages_valid);
+        check("and the old run's read marks gone with it, so it is unread",
+              rift_model_unread(&s, KEY_B) == 1);
+
+        apply_messages(&s,
+                       "{\"messages\":["
+                       "{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+                       "\"text\":\"new one\",\"state\":\"received\",\"mono_ms\":9000},"
+                       "{\"id\":2,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+                       "\"text\":\"new two\",\"state\":\"received\",\"mono_ms\":10000}"
+                       "],\"count\":2,\"total\":2,\"persistent\":false}");
+        check("the history that follows merges with it rather than doubling it",
+              s.msg_count == 2);
+        check("nothing was forgotten a second time", s.msgs_forgotten == 2);
+        check("and the history is valid again", s.messages_valid);
+    }
+
+    /* ---- a restart with nothing to show for it ------------------------------ */
+    /* The snapshot that follows a restart is often empty: the service has
+     * heard nothing yet. An empty one must empty the cache too, or the whole
+     * of the previous run stays on the panel with nothing behind it. */
+    {
+        struct rift_model s;
+
+        rift_model_init(&s);
+        give_status(&s, 900, 900000);
+        apply_messages(&s,
+                       "{\"messages\":["
+                       "{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
+                       "\"text\":\"before\",\"state\":\"received\",\"mono_ms\":1000}"
+                       "],\"count\":1,\"total\":1,\"persistent\":false}");
+        check("one message before the restart", s.msg_count == 1);
+        rift_model_service_lost(&s, "meshcored closed the connection");
+        rift_model_service_found(&s);
+        give_status(&s, 1, 903000);
+        apply_messages(&s, "{\"messages\":[],\"count\":0,\"total\":0,\"persistent\":false}");
+        check("an empty snapshot after a restart empties the cache", s.msg_count == 0);
+        check("and says the history was read rather than missing", s.messages_valid);
+        n = rift_model_conversations(&s, conv, RIFT_MAX_CONVERSATIONS);
+        check("so no conversation is left", n == 0);
+    }
+
+    /* ---- emptied is not the same as empty ----------------------------------- */
+    /* A cache emptied because the run changed has not been read from the new
+     * one yet, and that is the difference COMMS draws between "Waiting for
+     * meshcored." and "No messages yet." Nothing drops the connection here,
+     * because this is the cache's own rule and not the socket's: the model
+     * is asked for a status and then for a message, which is all it takes. */
+    {
+        struct rift_model s;
+
+        rift_model_init(&s);
+        give_status(&s, 600, 600000);
+        apply_messages(&s,
+                       "{\"messages\":["
+                       "{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
+                       "\"text\":\"read from that run\",\"state\":\"received\","
+                       "\"mono_ms\":1000}"
+                       "],\"count\":1,\"total\":1,\"persistent\":false}");
+        check("a history has been read", s.messages_valid && s.msg_count == 1);
+        give_status(&s, 1, 602000);
+        check("the run changed", s.svc_restarts == 1);
+        apply_event(&s, "mesh.message",
+                    "{\"message\":{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A
+                    "\",\"text\":\"heard since\",\"state\":\"received\",\"mono_ms\":3000}}");
+        check("emptying the cache un-reads the history", !s.messages_valid);
+        check("though what has arrived since is held",
+              s.msg_count == 1 && holds_text(&s, "heard since"));
+        apply_messages(&s,
+                       "{\"messages\":["
+                       "{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
+                       "\"text\":\"heard since\",\"state\":\"received\",\"mono_ms\":3000}"
+                       "],\"count\":1,\"total\":1,\"persistent\":false}");
+        check("and reading the new run's history makes it valid again", s.messages_valid);
+    }
+
+    /* ---- a reconnect that is not a restart ---------------------------------- */
+    /* A socket can go without the process behind it going. This cache of 96
+     * can hold more of one kind than either of the service's two rings of
+     * 64, so emptying on every reconnect would throw away messages the
+     * service can no longer supply. Only a changed run empties it. */
+    {
+        struct rift_model s;
+
+        rift_model_init(&s);
+        give_status(&s, 4000, 4000000);
+        apply_messages(&s,
+                       "{\"messages\":["
+                       "{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
+                       "\"text\":\"kept\",\"state\":\"received\",\"mono_ms\":1000}"
+                       "],\"count\":1,\"total\":1,\"persistent\":false}");
+        rift_model_service_lost(&s, "meshcored stopped reading");
+        rift_model_service_found(&s);
+        /* The same process, five seconds older. */
+        give_status(&s, 4005, 4005000);
+        check("a reconnect to the same run is not a restart", s.svc_restarts == 0);
+        apply_messages(&s,
+                       "{\"messages\":["
+                       "{\"id\":2,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
+                       "\"text\":\"and this\",\"state\":\"received\",\"mono_ms\":5000}"
+                       "],\"count\":1,\"total\":2,\"persistent\":false}");
+        check("so a message the service can no longer supply is kept",
+              s.msg_count == 2 && holds_text(&s, "kept"));
+        check("and nothing was forgotten", s.msgs_forgotten == 0);
+    }
+
     /* ---- a peer with no name anywhere --------------------------------------- */
     {
         struct rift_model s;
@@ -731,7 +1001,7 @@ int main(void)
                                    "(kept as channels.v1.corrupt.0)\"}");
 
             check("a status with a channel fault is taken",
-                  rift_model_apply_status(&s, o) == 0);
+                  rift_model_apply_status(&s, o, rift_mono_ms()) == 0);
             cJSON_Delete(o);
         }
         check("the channel fault is reported", s.have_channel_fault);

@@ -285,7 +285,7 @@ static void give_service(void)
                            "\"nodes\":5,\"counters\":{\"rx_events\":12,\"rx_delivered\":11,"
                            "\"nodes_unretained\":0}}");
 
-    rift_model_apply_status(&app->model, o);
+    rift_model_apply_status(&app->model, o, rift_mono_ms());
     cJSON_Delete(o);
     o = cJSON_Parse("{\"public_key\":\"5f0000000000000000000000000000000000000000000000000000"
                     "00000000ff\",\"node_hash\":\"5f\",\"name\":\"K230-A\"}");

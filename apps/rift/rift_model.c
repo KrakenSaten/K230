@@ -513,7 +513,7 @@ int rift_model_apply_info(struct rift_model *m, const cJSON *result)
     return 0;
 }
 
-int rift_model_apply_status(struct rift_model *m, const cJSON *result)
+int rift_model_apply_status(struct rift_model *m, const cJSON *result, int64_t now_ms)
 {
     const cJSON *radio;
     const cJSON *counters;
@@ -527,6 +527,11 @@ int rift_model_apply_status(struct rift_model *m, const cJSON *result)
     if (!s) {
         return -1;
     }
+    /* Which run of the service answered. It lives beside the cache it exists
+     * for (rift_messages.c), and it is read before anything below, so a status
+     * and the messages that follow it on the same connection agree about
+     * which run's ids they are. */
+    rift_model_note_service_run(m, result, now_ms);
     m->state = state_from_word(s);
     s = str_of(result, "reason");
     rift_utf8_copy(m->reason, sizeof(m->reason), s ? s : "");

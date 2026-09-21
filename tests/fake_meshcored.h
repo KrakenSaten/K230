@@ -24,6 +24,14 @@ struct fake_meshcored_script {
      * once a client subscribes. */
     const char *state;
     const char *reason;
+    /* How long mesh.status says this service had been up when it started,
+     * in seconds; 0 means the default, 42. What it reports grows with this
+     * process, as a real one's does. It is how a client tells one run of the
+     * service from the next - the message ids restart with the process - so
+     * a script standing in for a service that has just come up gives a small
+     * one, and one standing in for a service that has been running for hours
+     * gives a large one. */
+    int uptime_s;
     /* The mesh.nodes result's "nodes" array, as JSON text. */
     const char *nodes_json;
     /* The mesh.messages result's "messages" array, as JSON text. Oldest

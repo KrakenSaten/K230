@@ -64,13 +64,22 @@ static int apply_event(struct rift_model *m, const char *name, const char *json)
     return rc;
 }
 
-static int apply_status(struct rift_model *m, const char *json)
+/* A status read at a given moment on the shared monotonic clock. The clock
+ * is a parameter of the model's rather than something it reads, so which
+ * run of the service answered - derived from the moment and the uptime the
+ * reply carries - can be exercised without waiting for a real one. */
+static int apply_status_at(struct rift_model *m, const char *json, int64_t now_ms)
 {
     cJSON *o = cJSON_Parse(json);
-    int rc = rift_model_apply_status(m, o);
+    int rc = rift_model_apply_status(m, o, now_ms);
 
     cJSON_Delete(o);
     return rc;
+}
+
+static int apply_status(struct rift_model *m, const char *json)
+{
+    return apply_status_at(m, json, rift_mono_ms());
 }
 
 static int apply_identity(struct rift_model *m, const char *json)
@@ -322,6 +331,124 @@ int main(void)
     check("a state word this build does not know is not guessed at",
           apply_status(&m, "{\"state\":\"transcendent\"}") == 0 &&
               m.state == RIFT_SVC_UNKNOWN);
+
+    /* ---- which run of the service answered -------------------------------- */
+    /* meshcored hands out message ids from 1 on every run, so the message
+     * cache has to know when the run changed. The signal is mesh.status's
+     * uptime, read against the clock the reply was read on. Nothing here
+     * empties anything - that is rift_comms_test's half - this is only
+     * whether a restart is seen, and whether one is seen that did not
+     * happen. */
+    {
+        struct rift_model s;
+
+        rift_model_init(&s);
+        check("nothing is known about the run before a status",
+              !s.have_svc_start && s.svc_restarts == 0);
+        /* One run, started 3600 s before this status was read. */
+        check("the first status names the run it is in",
+              apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":3600}", 3600000) == 0);
+        check("and is not a restart, because there was nothing to restart from",
+              s.svc_restarts == 0 && s.have_svc_start && s.svc_start_ms == 0);
+
+        /* Still the same process. The uptime is truncated to whole seconds,
+         * so the derived start drifts up to a second later without anything
+         * having happened - which must not read as a restart. */
+        apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":3600}", 3600999);
+        check("a start that drifts within the second is the same run", s.svc_restarts == 0);
+        apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":3601}", 3601000);
+        check("and so is the next whole second of it", s.svc_restarts == 0);
+        check("with the lowest start seen kept, which is the least wrong one",
+              s.svc_start_ms == 0);
+
+        /* A new process: the uptime it reports is smaller than the one
+         * before it, which within one run cannot happen. */
+        check("a smaller uptime is a restart",
+              apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":1}", 3602000) == 0 &&
+                  s.svc_restarts == 1);
+        check("and the run it belongs to is the new one", s.svc_start_ms == 3601000);
+        apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":2}", 3603000);
+        check("the run after a restart is a run like any other", s.svc_restarts == 1);
+    }
+    {
+        /* The case the backwards test alone would miss, and the reason
+         * there are two: a service that had been up three seconds when it
+         * died, replaced ten seconds later by one whose uptime is already
+         * larger than the three seconds last seen. Nothing went backwards;
+         * the run changed all the same. */
+        struct rift_model s;
+
+        rift_model_init(&s);
+        apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":3}", 3000);
+        check("a short-lived run is a run", s.svc_restarts == 0 && s.svc_start_ms == 0);
+        check("its replacement is caught by the start moving, not by the uptime",
+              apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":10}", 23000) == 0 &&
+                  s.svc_restarts == 1);
+        check("and the new run's start is where it really is", s.svc_start_ms == 13000);
+    }
+    {
+        /* Why the lowest start seen in a run is the one kept. The uptime is
+         * truncated to whole seconds, so the first status of a run can put
+         * its start up to a second later than it really was, and every
+         * comparison after it would be measured from there. Here the run
+         * really started at 0, the first status says 999, and the second
+         * says 0 - and it is the second that makes the replacement visible. */
+        struct rift_model s;
+
+        rift_model_init(&s);
+        apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":1}", 1999);
+        check("the first status of a run can only put its start too late",
+              s.svc_start_ms == 999);
+        apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":2}", 2000);
+        check("a later one can say where it really was", s.svc_start_ms == 0);
+        check("which is the same run, not a restart", s.svc_restarts == 0);
+        /* A different process, read when it happens to be exactly as old as
+         * the one it replaced: nothing went backwards, and the whole jump is
+         * 2.3 s - visible from where the run really started, and not from
+         * where the first status put it. */
+        check("and the replacement is seen from there",
+              apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":2}", 4300) == 0 &&
+                  s.svc_restarts == 1);
+    }
+    {
+        /* And the other way round: a restart the start test alone would
+         * miss, because the whole of it - the old run's life and the gap -
+         * fits inside the slack. The uptime going backwards is what says
+         * so. */
+        struct rift_model s;
+
+        rift_model_init(&s);
+        apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":1}", 1900);
+        check("a run barely a second old", s.svc_restarts == 0);
+        check("replaced inside the slack is still a restart",
+              apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":0}", 2100) == 0 &&
+                  s.svc_restarts == 1);
+    }
+    {
+        /* What must not happen: a status that says nothing about the run
+         * must not be read as one, in either direction. */
+        struct rift_model s;
+
+        rift_model_init(&s);
+        apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":600}", 600000);
+        apply_status_at(&s, "{\"state\":\"online\"}", 601000);
+        check("a status with no uptime concludes nothing", s.svc_restarts == 0);
+        check("and does not forget the run it was already on",
+              s.have_svc_start && s.svc_start_ms == 0 && s.uptime_s == 600);
+        apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":601}", 601000);
+        check("so the run it was on is still the one it is on", s.svc_restarts == 0);
+        apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":\"ages\"}", 602000);
+        check("an uptime that is not a number is not an uptime", s.svc_restarts == 0);
+        apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":-5}", 603000);
+        check("nor is a negative one", s.svc_restarts == 0);
+        apply_status_at(&s, "{\"state\":\"online\",\"uptime_s\":1e30}", 604000);
+        check("nor one no clock could have reached", s.svc_restarts == 0);
+        check("and none of them moved the run", s.svc_start_ms == 0 && s.uptime_s == 601);
+        /* A status that is refused outright is not a status at all. */
+        check("a status with no state is refused",
+              apply_status_at(&s, "{\"uptime_s\":1}", 605000) == -1);
+        check("and says nothing about the run either", s.svc_restarts == 0);
+    }
 
     /* ---- the service goes away, and comes back ---------------------------- */
     apply_nodes(&m, "{\"nodes\":[{\"public_key\":\"" KEY_A "\",\"name\":\"OSLO-01\","
