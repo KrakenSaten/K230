@@ -1459,6 +1459,21 @@ static void test_channels(Node& a, Node& b, Air& air)
     check("node A joins a channel",
           mcd_runtime_channel_add(a.rt, "SITE", KEY_A, &ca) == MCD_CHANNEL_OK);
     check("it went into the lowest free slot", ca.slot == 0);
+    {
+        /* Written on the join, not on the daemon's persist timer. A channel
+         * key is the one thing here nothing can give back: a power cut inside
+         * a ten-second window would cost a key the operator typed by hand,
+         * where the same window costs the node table only a rediscovery. */
+        char path[512];
+        struct stat sb;
+
+        snprintf(path, sizeof(path), "%s/channels.v1", a.dir);
+        check("and the key is on disk before anything else happens",
+              stat(path, &sb) == 0 && sb.st_size > 0);
+        check("at 0600, because it is key material", (sb.st_mode & 07777) == 0600);
+        check("and the join left nothing for the timer to write",
+              !mcd_runtime_dirty(a.rt));
+    }
     check("an added event was raised", a.channel_added == 1 && a.last_channel.slot == 0);
     check("the channel is a 256-bit one", ca.key_bits == 256);
     check("and its name is what was asked for", strcmp(ca.name, "SITE") == 0);
@@ -1624,6 +1639,9 @@ static void test_channels(Node& a, Node& b, Air& air)
         check("leaving a channel nobody is in is refused",
               mcd_runtime_channel_remove(a.rt, 6) == MCD_CHANNEL_NOT_FOUND);
         check("leaving channel 1 works", mcd_runtime_channel_remove(a.rt, 1) == MCD_CHANNEL_OK);
+        /* mesh.channel_remove answers key_forgotten; a key still on the disk
+         * ten seconds later would make that untrue. */
+        check("and the removal is on disk at once", !mcd_runtime_dirty(a.rt));
         check("a removed event was raised",
               a.channel_removed == 1 && a.last_channel.slot == 1);
         check("one fewer channel is held", mcd_runtime_channel_count(a.rt) == held - 1);
@@ -1747,9 +1765,12 @@ static void test_channel_restart(Node& a, Air& air)
     check("there are channels to lose", n_before > 0);
 
     /* Persist, then stop and start again against the same directory. */
-    check("the node has something to write", mcd_runtime_dirty(a.rt));
-    check("it writes", mcd_runtime_persist(a.rt) == 0);
-    check("and then has nothing left to write", !mcd_runtime_dirty(a.rt));
+    /* Nothing is waiting to be written: the channels went to disk as each
+     * one was joined, not on the daemon's timer, so this restart is not
+     * standing on a persist the test performed for it. The node table is
+     * written here as the daemon would, and is allowed to be clean too. */
+    check("the channels are already written", !mcd_runtime_dirty(a.rt));
+    check("and writing again is harmless", mcd_runtime_persist(a.rt) == 0);
     mcd_runtime_destroy(a.rt);
 
     memset(&hooks, 0, sizeof(hooks));

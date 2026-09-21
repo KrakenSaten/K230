@@ -1409,6 +1409,11 @@ struct mcd_runtime {
 
 extern "C" {
 
+/* Defined with the rest of the persistence, below. Declared here because
+ * joining or leaving a channel writes the table straight away rather than
+ * waiting for the daemon's timer - see mcd_runtime_channel_add. */
+static int persistChannels(struct mcd_runtime* rt);
+
 const char* mcd_tx_outcome_name(enum mcd_tx_outcome o)
 {
     switch (o) {
@@ -1909,6 +1914,20 @@ enum mcd_channel_result mcd_runtime_channel_add(struct mcd_runtime* rt, const ch
     if (!rt->node.installChannel(slot, name, key, (int)klen)) {
         return MCD_CHANNEL_FAILED;
     }
+    /* Written now, not on the daemon's ten-second persist timer.
+     *
+     * A channel key is the one thing this service holds that nothing can give
+     * back. The node table is a cache the mesh refills, so a power cut inside
+     * its write window costs a rediscovery; a key inside this window is gone,
+     * and the operator typed it by hand and may not have it any more. Joining
+     * and leaving are operator actions and happen a handful of times in a
+     * node's life, so writing on each one costs nothing the timer was
+     * protecting against - unlike the node table, which changes on every
+     * advert and would churn the flash if it were written the same way.
+     *
+     * A failed write does not fail the join: the channel is installed and
+     * usable either way, and persistChannels has already logged it. */
+    (void)persistChannels(rt);
     if (out && !rt->node.channelBySlot(slot, *out)) {
         return MCD_CHANNEL_FAILED;
     }
@@ -1920,6 +1939,10 @@ enum mcd_channel_result mcd_runtime_channel_remove(struct mcd_runtime* rt, int s
     if (!rt->node.removeChannel(slot)) {
         return MCD_CHANNEL_NOT_FOUND;
     }
+    /* And forgotten now, for the mirror of the reason above: mesh.channel_remove
+     * answers `key_forgotten`, and a key still on the disk ten seconds after
+     * that answer would make it untrue. */
+    (void)persistChannels(rt);
     return MCD_CHANNEL_OK;
 }
 

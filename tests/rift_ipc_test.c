@@ -209,6 +209,13 @@ int main(void)
 
         /* One node, asked for by name. */
         check("a single node can be asked for", rift_ipc_request_node(&c, KEY_A) == 0);
+        /* A channel is not a node. Asking meshcored about one would be a
+         * question it refuses - it is not a hex key - and the refusal would
+         * sit in the client's last error, which is what the command line
+         * shows once the service goes away. Refused before it is written. */
+        check("but a channel is not a node and is never asked about",
+              rift_ipc_request_node(&c, "#0") == -1);
+        check("whichever slot it is", rift_ipc_request_node(&c, "#7") == -1);
         spin(&c, 800, NULL, &m);
         check("and the answer updates the row it belongs to", m.node_count == 2);
 

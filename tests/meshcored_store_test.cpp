@@ -763,6 +763,31 @@ static void test_channels_corruption(void)
         check("and says why", strstr(g_err, "zero-padded") != NULL);
     }
     {
+        /* A 256-bit key whose upper half is all zero: the key
+         * mcd_runtime_channel_add refuses as ambiguous, because MeshCore's
+         * setChannel() reads it as a 128-bit key and hashes it over 16 bytes
+         * while a peer that added it through addChannel() would hash it over
+         * 32. A file must not be able to reintroduce a key the API will not
+         * take - the node would report key_bits 256 while deriving the
+         * 128-bit hash, and half its peers could not reach it. */
+        uint8_t bad[12 + 68];
+
+        memcpy(bad, buf, one);
+        bad[13] = 32;               /* key_len says 256-bit */
+        memset(&bad[48 + 16], 0, 16); /* ...and the upper half is zero */
+        writeRaw("channels.v1", bad, one, 0600);
+        check("a 256-bit key with an all-zero upper half is refused",
+              mcdstore::channelsLoad(in, g_dir, g_err) == -1);
+        check("and says which half", strstr(g_err, "upper half") != NULL);
+        /* The two halves of the same boundary: 16 needs the top zeroed, 32
+         * needs it not zeroed, and nothing is accepted in between. */
+        bad[13] = 16;
+        writeRaw("channels.v1", bad, one, 0600);
+        check("the same bytes as a 128-bit key are fine",
+              mcdstore::channelsLoad(in, g_dir, g_err) == 1);
+        check("and load as 16 bytes", in.channels[0].key_len == 16);
+    }
+    {
         uint8_t bad[12 + 68];
 
         memcpy(bad, buf, one);

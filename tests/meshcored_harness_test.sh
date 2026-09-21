@@ -47,6 +47,7 @@ import os
 import select
 import socket
 import struct
+import stat
 import subprocess
 import sys
 import threading
@@ -897,6 +898,73 @@ e = ca.error("mesh.channel_remove", {"channel": 1})
 ok("leaving it twice is refused", e["code"] == 2, e)
 e = ca.error("mesh.send", {"channel": 1, "text": "gone"})
 ok("and sending on it is refused", e["code"] == 2, e)
+
+# ---------------------------------------------------------------------------
+# 3c. the key does not leave the service
+#
+# The whole confidentiality of a channel is its key, and this service is the
+# only thing that holds one. A negative test is worth nothing unless it can
+# fail, so this first proves the search FINDS the key where it is supposed to
+# live - channels.v1 - and only then proves it is nowhere else: not in any
+# method result, not in any event, and not in the log of a service that is
+# running with --verbose (which is how this harness starts it, so the log
+# being scanned really is the chattiest one meshcored produces).
+# ---------------------------------------------------------------------------
+import base64
+
+key_raw = base64.b64decode(KEY_ONE)
+key_hex_l = key_raw.hex()
+key_hex_u = key_hex_l.upper()
+# Every shape the key could plausibly escape in: the base64 the operator
+# typed, the raw bytes, and hex either way round.
+needles_txt = [KEY_ONE, KEY_ONE.rstrip("="), key_hex_l, key_hex_u]
+needles_bin = [key_raw] + [n.encode() for n in needles_txt]
+
+def leaks(blob):
+    if isinstance(blob, str):
+        blob = blob.encode()
+    return [n for n in needles_bin if n in blob]
+
+# ---- the control: it IS in channels.v1, so the search works ----
+chan_file = os.path.join(svc_a.state_dir, "channels.v1")
+ok("channels.v1 exists", os.path.exists(chan_file), chan_file)
+if os.path.exists(chan_file):
+    with open(chan_file, "rb") as f:
+        stored = f.read()
+    ok("the key really is in channels.v1, so this search can fail",
+       key_raw in stored)
+    st = os.stat(chan_file)
+    ok("channels.v1 is 0600", stat.S_IMODE(st.st_mode) == 0o600,
+       oct(stat.S_IMODE(st.st_mode)))
+    ok("and is owned by the user running the service", st.st_uid == os.getuid())
+    ok("its directory is 0700",
+       stat.S_IMODE(os.stat(svc_a.state_dir).st_mode) == 0o700)
+    # A write that failed half way would leave one of these behind, and it
+    # would hold key bytes at whatever mode the temporary was created with.
+    leftovers = [n for n in os.listdir(svc_a.state_dir) if n.endswith(".tmp")]
+    ok("no temporary file was left behind", leftovers == [], leftovers)
+
+# ---- every method result ----
+found = []
+for method, params in (("mesh.info", None), ("mesh.status", None),
+                       ("mesh.identity", None), ("mesh.nodes", None),
+                       ("mesh.channels", None), ("mesh.channel", {"channel": 0}),
+                       ("mesh.messages", None)):
+    body = json.dumps(ca.result(method, params))
+    if leaks(body):
+        found.append(method)
+ok("no method result carries the key", found == [], found)
+
+# ---- every event this client was sent ----
+ev_leaks = [e.get("event") for e in ca.events if leaks(json.dumps(e))]
+ok("no event carries the key", ev_leaks == [], ev_leaks)
+
+# ---- the verbose log ----
+for svc in (svc_a, svc_b):
+    with open(svc.log, "rb") as f:
+        log_blob = f.read()
+    ok("the verbose log of %s does not carry the key" % svc.name,
+       leaks(log_blob) == [])
 
 # ---------------------------------------------------------------------------
 # 4. malformed and hostile radio.rx

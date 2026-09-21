@@ -41,6 +41,13 @@ speaks is the one the accepted P0 gate proved on air
 (docs/hardware/MESHCORE_INTEROP_GATE.md), from the same pinned sources; that
 gate is evidence about the frames, not about this daemon.
 
+**Channels are host evidence only.** Every channel method, event and field
+below is exercised by the suites and by two whole `meshcored` processes over a
+mock air, and **no group frame has been on a radio**. That gate is
+[docs/hardware/RIFT_CHANNELS_GATE.md](../hardware/RIFT_CHANNELS_GATE.md), and
+it has not been run. The P0 interop gate covers adverts and direct text, which
+are a different payload type and a different routing mode.
+
 ## Service state
 
 `mesh.status` reports one of seven states. The order below is the start-up

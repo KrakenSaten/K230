@@ -689,6 +689,30 @@ int channelsLoad(ChannelState& cs, const char* dir, char* err)
                     return -1;
                 }
             }
+        } else {
+            /* And the same boundary from the other side. A 256-bit key whose
+             * upper half is all zero is exactly the key mcd_runtime_channel_add
+             * refuses as ambiguous: MeshCore's setChannel() would read it as a
+             * 128-bit key and hash it over 16 bytes, while a peer that added it
+             * through addChannel() would hash it over 32. Accepting it here
+             * would reintroduce through a file the key the API will not take,
+             * and the node would then report key_bits 256 while deriving the
+             * 128-bit hash - visible to nobody, and unreachable by half its
+             * peers. The two paths have to refuse the same keys. */
+            bool upper_zero = true;
+
+            for (j = 16; j < 32; j++) {
+                if (c.secret[j] != 0) {
+                    upper_zero = false;
+                }
+            }
+            if (upper_zero) {
+                snprintf(err, ERR_SIZE,
+                         "%s: channel %u has a 256-bit key with an all-zero upper half, which "
+                         "MeshCore reads as a 128-bit key",
+                         path, (unsigned)i);
+                return -1;
+            }
         }
         for (j = 0; j < c.key_len; j++) {
             if (c.secret[j] != 0) {

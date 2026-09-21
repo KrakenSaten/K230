@@ -264,8 +264,9 @@ long the host has been up.
    what it is.
    Channels themselves have **not been on a radio**. The frames are proved on
    air only for the direct-message path (`docs/hardware/MESHCORE_INTEROP_GATE.md`);
-   everything about channels here is host evidence, and an on-air gate against
-   a second MeshCore node is still owed.
+   everything about channels here is host evidence. The gate that would close
+   that is written and not run:
+   [docs/hardware/RIFT_CHANNELS_GATE.md](../hardware/RIFT_CHANNELS_GATE.md).
 7. **A message carries no route.** The design's per-message caption is
    `RECEIVED · PATH 9 · 1 UNKNOWN HOP`. The API carries a path on a *node*
    and not on a message, so the route is drawn in the thread header and the

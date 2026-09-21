@@ -1251,6 +1251,40 @@ int main(void)
         rift_app_open_conversation(app, KEY_B);
         pump(60);
         check("and its thread with it", find_text(content(), "Fint, ser deg") != NULL);
+        /* The channels too: the list, a thread on one, and a channel removed
+         * while the rows for it are on screen. A row holds its conversation
+         * key and its owner, so a removal that left one behind would be a
+         * tap into a channel the model no longer has. */
+        check("no channel is carried over either", app->model.channel_count == 0);
+        give_channels();
+        give_channel_message();
+        pump(60);
+        check("the channels build from nothing too", find_text(content(), "SITE") != NULL);
+        rift_app_open_conversation(app, "#0");
+        pump(60);
+        check("and a channel thread opens in a fresh app",
+              find_text(content(), "tilbake") != NULL);
+        {
+            cJSON *o = cJSON_Parse("{\"reason\":\"removed\",\"channel\":{\"channel\":0}}");
+
+            rift_model_apply_event(&app->model, "mesh.channel", o);
+            cJSON_Delete(o);
+            rift_app_refresh(app);
+            pump(80);
+        }
+        check("removing the open channel takes it out of the model",
+              rift_model_channel(&app->model, 0) == NULL);
+        /* The messages on it happened, so the thread is still readable; what
+         * is gone is the channel, and the header says so rather than the
+         * screen going blank or the app following a dead row. */
+        check("but the thread it was in is still drawn",
+              find_text(content(), "tilbake") != NULL);
+        check("and says the channel is no longer joined",
+              find_text(content(), "NOT JOINED ANY MORE") != NULL);
+        rift_app_open_conversation(app, "#2");
+        pump(60);
+        check("another channel still opens afterwards",
+              find_text(content(), "Nothing on this channel yet") != NULL);
         app_stop();
         check("and leaves nothing of itself behind",
               lv_obj_get_child_count(g_content) == 0u);

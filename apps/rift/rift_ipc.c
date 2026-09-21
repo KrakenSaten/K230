@@ -174,6 +174,21 @@ int rift_ipc_request_node(struct rift_ipc *c, const char *key)
     if (!c || c->fd < 0 || !key || !key[0]) {
         return -1;
     }
+    /* A channel is not a node, and mesh.node is a question about nodes.
+     *
+     * COMMS opens a conversation the same way whichever kind it is, and the
+     * open used to ask the service about the peer unconditionally - so
+     * opening a channel sent `{"node": "#0"}`, which meshcored refuses
+     * because it is not a hex key. The refusal was invisible while the
+     * service was healthy and wrong the moment it was not: the command line
+     * shows the client's last error when the service goes away, and it would
+     * have said the node prefix was malformed rather than that meshcored had
+     * stopped answering. It also spent a pending slot and an error count on
+     * every channel opened. Refused here, in the one place that knows what
+     * this method is for, rather than at each caller. */
+    if (rift_key_is_channel(key) >= 0) {
+        return -1;
+    }
     params = cJSON_CreateObject();
     if (!params) {
         return -1;
@@ -409,10 +424,16 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
          * list any channels. Leaving the list "not read yet" would make
          * COMMS say it is waiting for a service that is plainly replying -
          * which is what a build of meshcored older than this method would
-         * produce. */
+         * produce.
+         *
+         * What it does NOT do is empty the list. A refusal says the service
+         * would not answer, not that the channels are gone, and throwing
+         * them away would take a joined channel off the screen because one
+         * request was refused. mesh.nodes behaves the same way: a refused
+         * snapshot leaves the nodes alone. Only a successful answer replaces
+         * the list. */
         if (what == RIFT_REQ_CHANNELS) {
             c->model->channels_valid = 1;
-            c->model->channel_count = 0;
         }
         c->revision++;
         return 0;

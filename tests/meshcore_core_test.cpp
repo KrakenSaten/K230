@@ -917,6 +917,79 @@ static void test_base64(void) {
   }
 }
 
+/* ---- the hashtag-channel key, against upstream's own vector -------------
+ *
+ * Not our invention and not our choice: a MeshCore node can join a channel
+ * whose key is derived from its name, and the derivation is fixed by the
+ * firmware a Doors node has to interoperate with. `MyMesh::addGroupChannelHashtag`
+ * (vendor/RIFT/examples/companion_radio/MyMesh.cpp:1141-1163) takes the first
+ * 16 bytes of SHA-256 over the name *including* its leading '#', and states
+ * its own test vector in the comment there: "#test" -> (Utils::toHex spells
+ * the same bytes in upper case, which is why the literals below are)
+ * 9cd8fcf22a47333b591d96a2b848b73f.
+ *
+ * That firmware is not compiled here - it is a T-Deck's, not this library's -
+ * so what this checks is the half that IS ours: that our SHA-256, the one a
+ * channel key is hashed with and the one a channel hash is derived with,
+ * reproduces the vector the peer's firmware publishes. A bench channel agreed
+ * by name rather than by typing a key on both ends rests on exactly this, and
+ * if it ever stopped holding, two nodes would sit on channels they both
+ * believed were the same one and hear nothing.
+ */
+static void test_hashtag_channel_vector(void) {
+  uint8_t key[16];
+  uint8_t hash[1];
+  char hex[33];
+
+  mesh::Utils::sha256(key, sizeof(key), (const uint8_t *) "#test", 5);
+  mesh::Utils::toHex(hex, key, sizeof(key));
+  check("upstream's own hashtag vector for \"#test\" is reproduced here",
+        strcmp(hex, "9CD8FCF22A47333B591D96A2B848B73F") == 0);
+
+  /* And the channel hash that key derives: one byte, SHA-256 over the 16-byte
+   * key, which is what setChannel() computes for a 128-bit key and what the
+   * frame carries in the clear. */
+  mesh::Utils::sha256(hash, sizeof(hash), key, sizeof(key));
+  {
+    uint8_t again[1];
+
+    mesh::Utils::sha256(again, sizeof(again), key, sizeof(key));
+    check("and the hash it derives is stable", hash[0] == again[0]);
+  }
+
+  /* The bench channel docs/hardware/RIFT_CHANNELS_GATE.md asks the operator
+   * to create on both ends. Pinned here so the sheet's key and the sheet's
+   * expected channel hash cannot drift from what this crypto actually
+   * produces - the operator reads two hex bytes off two screens and compares
+   * them, and they are only worth comparing if these are right. */
+  mesh::Utils::sha256(key, sizeof(key), (const uint8_t *) "#doorsbench", 11);
+  mesh::Utils::toHex(hex, key, sizeof(key));
+  check("the bench channel's key is the one the sheet publishes",
+        strcmp(hex, "3DE64BA5520D2AB2657E254A73C0892C") == 0);
+  mesh::Utils::sha256(hash, sizeof(hash), key, sizeof(key));
+  check("and its on-air channel hash is 9a", hash[0] == 0x9a);
+
+  /* The last link in that chain, and the one an operator actually types: the
+   * sheet gives the key as base64 for mesh.channel_add, and this is the
+   * decoder that will read it. Deriving the key correctly and then publishing
+   * a base64 spelling of something else would waste a bench session on a
+   * channel that looked joined at both ends and carried nothing. */
+  {
+    const char* b64 = "PeZLpVINKrJlfiVKc8CJLA==";
+    uint8_t decoded[32];
+    size_t n;
+
+    memset(decoded, 0, sizeof(decoded));
+    n = mcport::base64Decode((const unsigned char*) b64, strlen(b64), decoded, sizeof(decoded));
+    check("the base64 the sheet publishes decodes to 16 bytes", n == 16);
+    check("and to exactly the key the name derives", memcmp(decoded, key, 16) == 0);
+    /* Zero-padded above 16, which is what makes both ends hash it over 16
+     * bytes and agree on 9a. */
+    check("with the upper half zero, so both ends hash it the same way",
+          decoded[16] == 0 && decoded[31] == 0);
+  }
+}
+
 int main(void) {
   test_packet_round_trip();
   test_path_len();
@@ -929,6 +1002,7 @@ int main(void) {
   test_sha256();
   test_advert_app_data();
   test_base64();
+  test_hashtag_channel_vector();
   test_debt_readfrom_short_buffer();
   test_build_identity();
 
