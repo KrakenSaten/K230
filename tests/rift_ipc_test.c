@@ -112,6 +112,25 @@ static int is_up_again(const struct rift_ipc *c, const struct rift_model *m)
     return c->connects >= 2 && m->snapshot_valid;
 }
 
+static int has_read_messages_again(const struct rift_ipc *c, const struct rift_model *m)
+{
+    return c->connects >= 2 && m->snapshot_valid && m->messages_valid;
+}
+
+/* Is there a message holding this text? A message the service has forgotten
+ * and this side has not is what the defect looked like on the panel. */
+static int holds_text(const struct rift_model *m, const char *want)
+{
+    int i;
+
+    for (i = 0; i < m->msg_count; i++) {
+        if (strcmp(m->msg[i].text, want) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int main(void)
 {
     char runtime[] = "/tmp/rift_ipc_test.XXXXXX";
@@ -294,6 +313,135 @@ int main(void)
             rift_ipc_close(&c);
             fake_meshcored_stop(pid);
         }
+    }
+
+    /* ---- the service is restarted under a live client ------------------------ */
+    /* The one part D of the channels gate on unit A found, 2026-09-21:
+     * meshcored hands out message ids from 1 on every run and keeps no
+     * messages across one, so a client that merged a snapshot by id ended up
+     * showing a history blended from two sessions - four messages on the
+     * panel against the three the service held.
+     *
+     * Two whole processes, a real socket and a real reconnect, because that
+     * is the only way the ordering is real: the status that says the run
+     * changed and the snapshot that refills the cache arrive on the same
+     * connection, in that order, with events in between.
+     *
+     * It has nothing to do with channels. This is a direct-only client and a
+     * direct-only service. */
+    {
+        struct fake_meshcored_script first;
+        struct fake_meshcored_script second;
+
+        memset(&first, 0, sizeof(first));
+        first.state = "online";
+        first.uptime_s = 3600;
+        first.nodes_json = NODES_TWO;
+        first.messages_json =
+            "[{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+            "\"peer_name\":\"HYTTA\",\"text\":\"before one\",\"state\":\"received\","
+            "\"mono_ms\":-9000},"
+            "{\"id\":2,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+            "\"peer_name\":\"HYTTA\",\"text\":\"before two\",\"state\":\"received\","
+            "\"mono_ms\":-8000},"
+            "{\"id\":3,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
+            "\"peer_name\":\"OSLO-01\",\"text\":\"before three\",\"state\":\"received\","
+            "\"mono_ms\":-7000}]";
+        first.life_ms = 4000;
+        first.method_log = methods;
+
+        pid = fake_meshcored_spawn(&first);
+        check("a service that has been up an hour is running",
+              pid > 0 && fake_meshcored_wait_ready(2000));
+        rift_model_init(&m);
+        rift_ipc_init(&c, &m, RIFT_SERVICE);
+        spin(&c, 2500, have_snapshot, &m);
+        check("its history is read", m.messages_valid && m.msg_count == 3);
+        check("and it is the run the client thinks it is on", m.svc_restarts == 0);
+
+        fake_meshcored_stop(pid);
+        spin(&c, 2000, is_down, &m);
+        check("the client notices it has gone", !rift_ipc_connected(&c));
+        check("and keeps what it was shown, marked cached", m.msg_count == 3 && m.stale);
+
+        /* The replacement: a new process, seconds old, with an id space that
+         * has started again. Two messages, under ids 1 and 2, which are not
+         * the ids 1 and 2 the client is holding - one of them was even in a
+         * different conversation. */
+        memset(&second, 0, sizeof(second));
+        second.state = "online";
+        second.uptime_s = 2;
+        second.nodes_json = NODES_TWO;
+        second.messages_json =
+            "[{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
+            "\"peer_name\":\"OSLO-01\",\"text\":\"after one\",\"state\":\"received\","
+            "\"mono_ms\":-2000},"
+            "{\"id\":2,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
+            "\"peer_name\":\"OSLO-01\",\"text\":\"after two\",\"state\":\"received\","
+            "\"mono_ms\":-1000}]";
+        second.life_ms = 6000;
+        second.method_log = methods;
+        pid = fake_meshcored_spawn(&second);
+        check("a service that has just come up takes its place",
+              pid > 0 && fake_meshcored_wait_ready(2000));
+        spin(&c, 6000, has_read_messages_again, &m);
+        check("the client reconnects and reads again", c.connects >= 2 && m.messages_valid);
+        check("the restart is noticed", m.svc_restarts == 1);
+        check("and the client holds exactly what the service holds", m.msg_count == 2);
+        check("nothing the service has forgotten is still on this side",
+              !holds_text(&m, "before one") && !holds_text(&m, "before two") &&
+                  !holds_text(&m, "before three"));
+        check("the new ids are the new messages, not old ones rewritten",
+              holds_text(&m, "after one") && holds_text(&m, "after two"));
+        check("what was dropped is counted", m.msgs_forgotten == 3);
+        /* The read marks went with the messages. Had they stayed, the marks
+         * from the old id space would have covered both new ids and the
+         * conversation would have looked read. */
+        check("what arrived while the client was away is unread",
+              rift_model_unread_total(&m) == 2);
+
+        rift_ipc_close(&c);
+        fake_meshcored_stop(pid);
+    }
+
+    /* ---- and a reconnect that is not a restart ------------------------------- */
+    /* The socket can go without the process behind it going. This cache of 96
+     * can hold more of one kind than either of meshcored's two rings of 64,
+     * so a client that emptied on every reconnect would throw away messages
+     * the service can no longer supply. Only a changed run empties it. */
+    {
+        struct fake_meshcored_script script;
+
+        memset(&script, 0, sizeof(script));
+        script.state = "online";
+        script.uptime_s = 4000;
+        script.nodes_json = NODES_TWO;
+        script.messages_json =
+            "[{\"id\":1,\"direction\":\"in\",\"peer_public_key\":\"" KEY_B "\","
+            "\"peer_name\":\"HYTTA\",\"text\":\"still here\",\"state\":\"received\","
+            "\"mono_ms\":-3000}]";
+        /* Two clients, so the service outlives the first one going. */
+        script.serve_clients = 2;
+        script.life_ms = 8000;
+        script.method_log = methods;
+        pid = fake_meshcored_spawn(&script);
+        check("a long-lived service is running", pid > 0 && fake_meshcored_wait_ready(2000));
+
+        rift_model_init(&m);
+        rift_ipc_init(&c, &m, RIFT_SERVICE);
+        spin(&c, 2500, have_snapshot, &m);
+        check("the history is read", m.msg_count == 1);
+
+        /* The client's socket goes; the service does not. */
+        rift_ipc_close(&c);
+        spin(&c, 4000, has_read_messages_again, &m);
+        check("the client comes back to the same run", c.connects >= 2 && m.svc_restarts == 0);
+        check("so nothing was forgotten", m.msgs_forgotten == 0);
+        check("and what it was holding is still held",
+              m.msg_count == 1 && holds_text(&m, "still here"));
+
+        rift_ipc_close(&c);
+        fake_meshcored_stop(pid);
     }
 
     /* ---- a service that refuses ---------------------------------------------- */

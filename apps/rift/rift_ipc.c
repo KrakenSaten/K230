@@ -451,7 +451,11 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
         rift_model_apply_info(c->model, result);
         break;
     case RIFT_REQ_STATUS:
-        rift_model_apply_status(c->model, result);
+        /* Stamped now rather than when the request went out: the model
+         * derives which run of the service answered from this and the
+         * uptime the reply carries, and the reply is the half that is
+         * fresh. */
+        rift_model_apply_status(c->model, result, rift_mono_ms());
         break;
     case RIFT_REQ_IDENTITY:
         rift_model_apply_identity(c->model, result);

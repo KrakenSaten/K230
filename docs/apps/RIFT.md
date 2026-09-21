@@ -175,6 +175,22 @@ refused outright: there would be nothing to match the next one against. A
 events have already delivered some of the same messages updates them instead
 of doubling them.
 
+An id identifies a message **within one run of the service**, and not across
+two: meshcored hands them out from 1 on every run and keeps no messages over
+one. So the message window is emptied, with the read marks that are ids in
+the same space, whenever the run changes — the way the node list has been
+replaced outright by every snapshot from the start. The run is told from the
+one before it by `mesh.status`'s `uptime_s` read against this app's own
+monotonic clock: a smaller uptime than the last is certain, and a run start
+that has moved forward by more than two seconds catches the short-lived run a
+smaller uptime would miss. Not on every reconnect: a socket can go without
+the process behind it going, and this window of 96 can hold more of one kind
+than either of the service's two rings of 64, so emptying on a reconnect
+would throw away messages the service can no longer supply. Found on unit A
+on 2026-09-21, during part D of the channels gate, as four messages on the
+panel against the three the service held — and not a channel fault: the id
+counter has always been one counter and has always started again.
+
 Sending is two halves that may arrive in either order. `mesh.send` answers
 with a `message_id`; `mesh.message` carries the message itself. Nothing is
 created from the reply — inventing a local copy and reconciling it later is
@@ -198,7 +214,7 @@ the air must not be able to disconnect this app from its own service.
 | File | |
 | --- | --- |
 | `rift_model.c/.h` | what is known and how sure it is: the bounded node cache, the activity ring, the service state. No LVGL |
-| `rift_messages.c` | the model's other half, over the same struct: the message window, the conversations, how far each has been read, and the submission in flight. No LVGL |
+| `rift_messages.c` | the model's other half, over the same struct: the message window, the conversations, how far each has been read, the submission in flight, and which run of the service the ids in all of it came from. No LVGL |
 | `rift_json.h` | the four readers both halves parse the API with, so both apply the same rule: absent is not zero |
 | `rift_format.c/.h` | every string the screens print, and the path arithmetic. No LVGL, no cJSON, no I/O |
 | `rift_ipc.c/.h` | the meshcored connection, the framing and the reconnect. No LVGL |
@@ -215,17 +231,19 @@ the air must not be able to disconnect this app from its own service.
 | | |
 | --- | --- |
 | `tests/rift_format_test.c` | 92 checks: ages, signal, hop columns, state words, path compression, the inline chain, the ladder, UTF-8 names |
-| `tests/rift_model_test.c` | 106 checks: the initial snapshot, duplicate and update events, missing telemetry, malformed input, the bounded cache, the service going away and coming back, ordering |
-| `tests/rift_comms_test.c` | 96 checks: the conversations and their order, duplicate and state-change events, unread and what clears it, the thread window, every state caption, telemetry that was never measured, the bounded message cache, the send state machine, what `mesh.send` will take, and remote text nobody here chose the length of |
-| `tests/rift_ipc_test.c` | 95 checks against a real socket and a scripted service in a child process: connect, snapshot, events, refusals, the service disappearing, reconnect, the proof that nothing the app does on its own transmits, and the send lifecycle — accepted, refused, accepted-then-silent, and with nobody there |
-| `tests/rift_app_test.c` | 147 checks under a real LVGL pointer device: the chrome, all three sections, the row that only selects, the pushed detail, both landscape splits, the composer, the unread pill, and open/leave/open again three times over. Writes the screenshots |
+| `tests/rift_model_test.c` | 136 checks: the initial snapshot, duplicate and update events, missing telemetry, malformed input, the bounded cache, the service going away and coming back, which run of the service answered, ordering |
+| `tests/rift_comms_test.c` | 224 checks: the conversations and their order, duplicate and state-change events, unread and what clears it, the thread window, every state caption, telemetry that was never measured, the bounded message cache, the service restarting under the cache and the reconnect that is not a restart, the send state machine, what `mesh.send` will take, and remote text nobody here chose the length of |
+| `tests/rift_ipc_test.c` | 154 checks against a real socket and a scripted service in a child process: connect, snapshot, events, refusals, the service disappearing, reconnect, one whole service replaced by another with an id space that starts again, the proof that nothing the app does on its own transmits, and the send lifecycle — accepted, refused, accepted-then-silent, and with nobody there |
+| `tests/rift_app_test.c` | 242 checks under a real LVGL pointer device: the chrome, all three sections, the row that only selects, the pushed detail, both landscape splits, the composer, the unread pill, and open/leave/open again three times over. Writes the screenshots |
 | `tests/rift_shell_test.sh` | the app test, then the real shell opening RIFT in both orientations with a scripted meshcored on a real socket, then with no service at all, then the same fixtures twice for the same pixels |
 | `tests/rift_lint.sh` | the boundaries: no transmit, no colour, no device, no store, no monolith, and the gaps this phase leaves |
 
 `tests/fake-meshcored` is a scripted stand-in for the service, built by the
 root Makefile and never installed. A negative `last_heard_mono_ms` in its
 fixtures means "this long ago", so an age on screen does not depend on how
-long the host has been up.
+long the host has been up. Its `uptime_s` grows with its own process, the way
+the real service's does, and a script says what it started at — so two of
+them, one after the other, are two runs of a service and not one.
 
 ## Known gaps
 
@@ -290,7 +308,10 @@ long the host has been up.
    first snapshot of a session is marked read, because it happened before
    this app was watching and it has no way to know what was read then; a
    snapshot after a *reconnect* is not, because what arrived while the
-   connection was down is genuinely unread.
+   connection was down is genuinely unread. A read mark is a conversation's
+   last read id, so the marks go when the message window does — everything a
+   restarted service holds arrived while this app was not watching, and is
+   unread by the same rule.
 10. **The message window is bounded.** The newest 96 are kept, and a
     conversation's unread count, preview and tally are derived from what is
     still held. A thread longer than the pane says how many are earlier

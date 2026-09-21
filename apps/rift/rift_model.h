@@ -87,6 +87,15 @@
 #define RIFT_REASON_MAX 72
 #define RIFT_TEXT_MAX 96
 
+/* How far the start of meshcored's current run may appear to move without
+ * the service having restarted. mesh.status reports its uptime in whole
+ * seconds, so a start derived from it is up to a second late, and the reply
+ * is read some time after the service stamped it. Two seconds covers both
+ * with room to spare, and is short enough that a restart is noticed while
+ * the message ids that restarted with it are still only a handful. See
+ * "which run of the service this is" below. */
+#define RIFT_SVC_RESTART_SLACK_MS 2000
+
 /* The seven service states of docs/api/mesh.md, plus the two answers that
  * are about this app's connection rather than about the service:
  * RIFT_SVC_ABSENT (meshcored is not answering) and RIFT_SVC_UNKNOWN (it is,
@@ -225,7 +234,9 @@ enum rift_msg_state {
 };
 
 struct rift_message {
-    /* meshcored's own id, 1 upwards, never reused while it runs. It is the
+    /* meshcored's own id, 1 upwards, never reused while it runs - and note
+     * "while it runs": the next run starts again at 1, which is why the
+     * cache is emptied when the run changes (msg_generation). It is the
      * identity a duplicate event is matched on, which is why a message
      * without one is not kept. */
     int64_t id;
@@ -368,6 +379,37 @@ struct rift_model {
     unsigned rx_delivered;
     unsigned nodes_unretained;
 
+    /* ---- which run of the service this is --------------------------- */
+    /* meshcored hands out message ids from 1 on every run and keeps no
+     * messages across one (mesh.messages, "persistent": false), so an id
+     * identifies a message only within a single run of the service. This
+     * is how a new run is told from the one before it.
+     *
+     * What is held is the run's start on the shared monotonic clock - the
+     * moment a status was read, less the uptime it reported - which is one
+     * value per run rather than a number that keeps moving. The lowest seen
+     * is kept, because the truncation to whole seconds can only make it
+     * look later than it is.
+     *
+     * Two things say the run has changed, and both are needed:
+     *
+     *   - uptime_s going backwards. Within one run it cannot, so this is
+     *     certain, but it misses the case below.
+     *   - the start moving forward by more than RIFT_SVC_RESTART_SLACK_MS.
+     *     This catches the restart the first test misses: a service that
+     *     had been up 3 s when it died, replaced ten seconds later by one
+     *     whose uptime is already larger than the 3 s last seen.
+     *
+     * The residual gap is a run that lived, and was replaced, inside the
+     * slack - a couple of seconds. Nothing else this app holds is affected:
+     * nodes are keyed by public key and replaced by every snapshot, and the
+     * activity ring is stamped on the board's clock, not the service's. */
+    int have_uptime;
+    int64_t uptime_s;                    /* the service's own, as last read */
+    int have_svc_start;
+    int64_t svc_start_ms;                /* this run's start, ours */
+    unsigned svc_restarts;               /* runs of it this app has seen end */
+
     int have_identity;
     char self_key[RIFT_KEY_HEX];
     char self_hash[RIFT_HASH_HEX];
@@ -408,6 +450,12 @@ struct rift_model {
     unsigned msgs_dropped;     /* the cache was full */
     unsigned msgs_applied;     /* created or updated */
     unsigned msgs_duplicate;   /* an id already held: updated, not added */
+    unsigned msgs_forgotten;   /* the service restarted under them */
+    /* Which run of the service the ids in here belong to: svc_restarts as
+     * it stood when the cache was last filled. When it falls behind, the
+     * cache is emptied before anything new is merged into it - see
+     * rift_messages.c. */
+    unsigned msg_generation;
     /* The service has answered mesh.messages on this connection. Until it
      * has, an empty thread is "not read yet" rather than "nothing said". */
     int messages_valid;
@@ -457,7 +505,11 @@ void rift_model_service_found(struct rift_model *m);
 /* Each returns 0 when the result was applied, -1 when it was not a result
  * this model will take. A refusal changes nothing and is counted. */
 int rift_model_apply_info(struct rift_model *m, const cJSON *result);
-int rift_model_apply_status(struct rift_model *m, const cJSON *result);
+/* A mesh.status result. now_ms is CLOCK_MONOTONIC as this app reads it
+ * (rift_mono_ms), and it is taken rather than read here so that the run the
+ * service is on - which is derived from it and the reported uptime - can be
+ * tested without waiting for a real clock. */
+int rift_model_apply_status(struct rift_model *m, const cJSON *result, int64_t now_ms);
 int rift_model_apply_identity(struct rift_model *m, const cJSON *result);
 /* A whole mesh.nodes result: the cache becomes exactly this list, in the
  * order the service gave, and the snapshot becomes valid. */
@@ -512,6 +564,15 @@ const char *rift_model_name_for_hash(const struct rift_model *m, const char *has
 
 /* ---- messages ----------------------------------------------------------- */
 
+/* Read which run of the service a mesh.status result came from, and count a
+ * restart when it is not the run the last one came from. now_ms is when the
+ * result was read, on this app's own CLOCK_MONOTONIC.
+ *
+ * rift_model_apply_status calls this and nothing else does; it lives with
+ * the message cache because the cache is the only thing the answer is for.
+ * A result that says nothing about the run leaves what is held alone. */
+void rift_model_note_service_run(struct rift_model *m, const cJSON *result, int64_t now_ms);
+
 /* One message object, in the shape docs/api/mesh.md gives it. Both the
  * mesh.message event and every entry of a mesh.messages snapshot go through
  * here, so all three kinds of arrival - new, sent, state changed - are one
@@ -521,7 +582,10 @@ int rift_model_apply_message(struct rift_model *m, const cJSON *message);
 
 /* A whole mesh.messages result. The messages are merged by id, so a
  * snapshot taken after events have already delivered some of the same
- * messages updates them rather than doubling them. Returns 0 or -1. */
+ * messages updates them rather than doubling them - unless the service has
+ * restarted since the cache was filled, in which case the cache is emptied
+ * first, because the ids have started again and merging would land a new
+ * id 1 on top of an old one. Returns 0 or -1. */
 int rift_model_apply_messages(struct rift_model *m, const cJSON *result);
 
 /* The conversations, newest message first. A peer with no message held is

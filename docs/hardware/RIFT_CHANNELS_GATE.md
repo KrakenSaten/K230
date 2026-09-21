@@ -3,7 +3,8 @@
 **Status, 2026-09-21: PASS. A, B, C and D are all ON-AIR VERIFIED.**
 
 One defect was found, in RIFT's message cache, and it is neither a channel
-defect nor new — see "A defect part D found".
+defect nor new — see "A defect part D found". It has since been fixed on its
+own branch, host-verified; nothing in this sheet's observations changed.
 
 | | |
 | --- | --- |
@@ -775,6 +776,18 @@ it already clears its node list. Recorded here rather than fixed, because it
 belongs to the message cache and not to channels, and a gate is not the place
 to widen a branch.
 
+**FIXED afterwards, on its own branch**, in `apps/rift/rift_messages.c`: the
+cache and the read marks are emptied when the run of the service changes, and
+nothing else about it was touched. One thing found on the way is worth adding
+to the paragraph above, because it makes the suggested signal insufficient on
+its own: **`uptime_s` going backwards is certain but not complete.** A service
+that had been up three seconds when it died, replaced ten seconds later by one
+whose uptime is already larger than the three seconds last seen, restarts
+without anything going backwards. So the fix uses two tests — a smaller
+uptime, and the run's *start* (now, less the uptime) moving forward by more
+than two seconds. There is no hardware claim here: the fix is host-verified
+only, and this sheet's own observations are unchanged.
+
 ## What remains
 
 | Part | State |
@@ -784,7 +797,7 @@ to widen a branch.
 | C — interleaving channel + direct | **ON-AIR VERIFIED** — see part C. |
 | D — restart with both kinds live | **ON-AIR VERIFIED** — see part D. |
 | E — post-test health | **DEVICE VERIFIED**, at the end of every part. |
-| **Nothing** | Every part of this gate has been run. The one open item is the message-cache defect above, which is not a channel defect. |
+| **Nothing** | Every part of this gate has been run. The one item it left open, the message-cache defect above, has since been fixed on its own branch — not a channel defect, and not a change to anything this gate measured. |
 
 Unit A is **left ready**: the three binaries installed, `#doorsbench`
 configured in slot 0, `meshcored` running by hand (no init script, so it does
