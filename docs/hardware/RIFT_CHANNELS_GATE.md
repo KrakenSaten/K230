@@ -1,20 +1,20 @@
 # RIFT Channels on unit A: the two-node on-air gate
 
-**Status, 2026-09-21: the protocol is proven on the air in both directions.
-The gate is NOT COMPLETE — parts C and D have not been run.**
+**Status, 2026-09-21: A, B and C are ON-AIR VERIFIED. Only D remains.**
 
 | | |
 | --- | --- |
 | The local, device-only half | **RUN and GREEN** — "The device run" |
-| Unit A → T-Deck (part B) | **ON-AIR VERIFIED** — executed deliberately |
-| T-Deck → unit A (part A) | **ON-AIR VERIFIED**, but **outside the procedure** — the peer transmitted before the step that was meant to produce it. The protocol question is answered; the procedural one is not. |
-| C — interleaving channel and direct | **not run** |
-| D — restart with both kinds live | channel-only restart verified; with a peer, **not run** |
+| A — T-Deck → unit A | **ON-AIR VERIFIED.** First shown accidentally, then executed properly inside part C: deliberate sends with the thread closed, unread 0 → 1 twice, cleared on opening. |
+| B — unit A → T-Deck | **ON-AIR VERIFIED** — executed deliberately |
+| C — channel and direct together | **ON-AIR VERIFIED** |
+| D — restart with both kinds live | channel-only restart verified twice; with a peer and direct traffic, **not run** |
 
-So group frames built by this code cross real RF to an independently built
-MeshCore implementation, and back, on the MeshCore profile at 2 dBm. What has
-not been shown is that channels and direct messages stay correct alongside
-each other, and that both survive a restart together.
+Group frames built by this code cross real RF to an independently built
+MeshCore implementation and back, on the MeshCore profile at 2 dBm; and a
+channel conversation and a direct one run side by side on the same node with
+their own delivery semantics intact. What has not been shown is that both
+survive a restart of the service together.
 
 **The build under test is `feat/rift-channels`**, from origin/master
 `a120f8b`. VERSION stays `0.0.10`. Not merged, and not to be merged unless
@@ -373,9 +373,16 @@ CR5, sync word 18 (`0x12`), preamble 32, 2 dBm, CRC on. 32 nodes restored from
 `state.v1`. **0 WARN and 0 ERROR** from `meshcored` across the whole session.
 
 No crashloop markers. `radiod`, `sysd`, `netd` and `doors-shell` all alive
-before and after. The two `ERROR` lines in `/var/log/messages` are kernel
-Goodix touch-firmware messages from boot at `00:00:07`, before anything was
-deployed.
+before and after.
+
+The two `ERROR` matches in `/var/log/messages` at this point were **not** what
+an earlier revision of this sheet said they were. They are `ntpd` lines —
+`kernel reports TIME_ERROR: 0x41: Clock Unsynchronized`, at `daemon.info`
+level — and the grep matched `ERROR` inside `TIME_ERROR`. The sheet previously
+attributed them to the Goodix touch-firmware messages, which are real boot
+noise but log as `[GTP-ERR]` and `user.err` and match nothing. Corrected here
+rather than quietly: a gate sheet that misidentifies its own log lines is
+teaching the next reader to misread them.
 
 ### Channels, on the device
 
@@ -584,13 +591,111 @@ and why RIFT marks it with a `?` rather than showing it the way it shows a
 `radiod` still `sx1262` / `EU868` / `765a3a3`. No crashloop. **0 WARN and 0
 ERROR** from `meshcored` across the entire session.
 
+## Part C — channel and direct together. ON-AIR VERIFIED, 2026-09-21
+
+### What had to be cleared first, and what it cost
+
+Two things blocked this, both worth recording because neither is a channel
+defect and both will recur.
+
+**The contact table was full.** `nodes 32` — `MAX_CONTACTS` — with
+`nodes_unretained 5` and `contacts_full 5`. Five adverts had arrived from nodes
+with no room, and one of them was the peer's: **the T-Deck's key was not in the
+table at all**, so `mesh.send to=…` had no contact to agree a secret with. A
+channel message needs no contact, which is exactly why the channel half worked
+throughout and the direct half could not start. There is no eviction policy and
+no node-removal method (both under "Not in v0"), so the only way to make room
+was to set the node table aside: `state.v1` was moved to
+`/root/rollback-channels/state.v1.kept` (sha256 `9ee8d96f…`, verified) and
+`meshcored` restarted. `identity.id` was not touched.
+
+That restart also demonstrated something worth having: the node table went to
+**0** and `#doorsbench` came back untouched in slot 0 with hash `9a`. The two
+files are genuinely independent, which is why they are two files.
+
+**The peer had been re-keyed.** The accepted P0 interop gate recorded the
+T-Deck as `Tdeck RIFT` / `367bff15…`. Its advert now identifies it as
+`T-Deck-RIFT` / **`e34a0352bb535d71a602e30b147108f7453e0c34cd5c3aefefb5a4596f686d38`**
+— a different key. Addressing the recorded one would have produced a `no_ack`
+that meant nothing. A group frame names no node, so the channel traffic could
+not have revealed this; only the advert did.
+
+### The direct message needed unit A to advert first
+
+The first attempt timed out honestly:
+
+| | |
+| --- | --- |
+| `direct C 3133` | `kind: direct`, `ack_expected: true`, → **`no_ack`** after ~16 s |
+
+The peer had been re-keyed, so it had lost its own contact for unit A and could
+not decrypt a message addressed to it — and therefore could not acknowledge it.
+Unit A sent one `mesh.advert`, the peer learned its key, and the retry
+succeeded. The product owner confirmed the ordering from the T-Deck's side:
+the advert arrived first, then the message.
+
+**`direct C 3133` is still `no_ack`, permanently.** It really was never
+acknowledged, and nothing retroactively tidies it up.
+
+### Both kinds, interleaved
+
+The message list, in the order it happened:
+
+| id | kind | direction | text | state | `ack_expected` |
+| --- | --- | --- | --- | --- | --- |
+| 1 | **channel** | in | `T-Deck-RIFT: hi` | `received` | `false` |
+| 2 | **direct** | out | `direct C 3133` | **`no_ack`** | `true` |
+| 3 | **direct** | out | `direct C 3012` | **`acked`**, `ack_mono_ms` set | `true` |
+| 4 | **channel** | in | `T-Deck-RIFT: hello` | `received` | `false` |
+
+| Check | Result |
+| --- | --- |
+| Direct arrives on the peer | **confirmed by the product owner on the T-Deck** |
+| Direct ACK semantics | `acked`, with `ack_timeout_ms 15256` in the send answer |
+| The ACK carried a return path | `path_known: true`, `hops: 0`, `direct: true`; `sent_direct` 0 → 1 |
+| Direct is not classified as a channel | `kind: direct`, with `peer_public_key` and `peer_name`, and **no** `channel` field |
+| Channel is not classified as direct | `kind: channel`, with `channel`/`channel_hash`/`sender_name`, and **no** `peer_public_key` |
+| Channel state unchanged by direct traffic | `#doorsbench` still slot 0, hash `9a`, `key_bits 128`, `ack_expected false` |
+| Unread 0 → 1 with COMMS closed | `COMMS 1` pill, read off the panel, twice |
+| Unread cleared on opening | no pill in the final capture |
+| Duplicates | none — every frame produced exactly one message |
+
+### What the panel shows with both conversations live
+
+[`shots/rift-channels-unitA-partC-2026-09-21.png`](shots/rift-channels-unitA-partC-2026-09-21.png)
+
+| | |
+| --- | --- |
+| `# #doorsbench` | `#` glyph, route **`FLOOD`** |
+| `T-Deck-RIFT` | filled direct glyph, route **`DIRECT`** |
+| List note | `1 direct · 1 channel · nothing acknowledges a channel message` |
+| Both received messages | byline `T-Deck-RIFT?` — the claim marker, on both |
+| Route pane | `HASH 9a · 128-BIT KEY` and `Nothing sent on this channel yet.` — true for this session: the two channel sends were before the restart, and the message history is runtime-only |
+
+Two conversations, two glyphs, two routes, two delivery semantics, one list.
+
+### Health after part C
+
+`online`, lease held, `radio_state rx`. `tx_ok 4`, `tx_failed 0`,
+`tx_refused 0`, `tx_unknown 0`. `rx_rejected 0`, `rx_dropped 0`.
+`sent_flood 3`, `sent_direct 1`, `recv_flood 23`.
+`path_payloads_refused 0`, `nodes_unretained 0`,
+`channel_frames_unmatched 11`. `packets_free 32` of 32 — the packet pool is
+whole, nothing leaked. `radiod` still `sx1262` / `EU868` / `765a3a3`. Six
+processes, no crashloop, and **0 WARN and 0 ERROR from `meshcored` across
+every session today**.
+
+`/var/log/messages` gained one line during part C: a third `ntpd`
+`TIME_ERROR: 0x41: Clock Unsynchronized` at 15:34:36, `daemon.info`, when the
+clock stepped. No service logged anything.
+
 ## What remains
 
 | Part | State |
 | --- | --- |
-| A — second node → unit A | **protocol question answered** (ON-AIR, by the known-good peer), but **not executed as written**. What is left is procedural: a deliberate send with the unread count watched from a **closed** thread, which the accidental reception skipped. |
+| A — second node → unit A | **ON-AIR VERIFIED.** The protocol question was answered by the accidental reception; the procedure was then executed inside part C — deliberate sends with COMMS closed, unread 0 → 1 twice, cleared on opening, each message once, sender marked a claim. |
 | B — unit A → second node | **ON-AIR VERIFIED.** |
-| C — interleaving channel and direct | **not run.** |
+| C — interleaving channel + direct | **ON-AIR VERIFIED** — see part C. |
 | D — restart with both kinds live | restart of the channel alone is DEVICE VERIFIED; with a peer and direct traffic it is not run. |
 | E — post-test health | DEVICE VERIFIED for the local run. |
 
