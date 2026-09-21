@@ -67,6 +67,12 @@ public:
   uint32_t expected_ack;
   bool awaiting_ack;
 
+  int channel_messages;
+  char last_channel_text[MAX_TEXT_LEN + 1];
+  uint8_t last_channel_secret[PUB_KEY_SIZE];
+  uint8_t last_channel_hash;
+  uint32_t last_channel_timestamp;
+
   /* Set only by the crafted-PATH case at the end of this file. */
   bool record_raw_path;
   uint8_t observed_extra_len;
@@ -82,6 +88,11 @@ public:
     last_msg_timestamp = 0;
     expected_ack = 0;
     awaiting_ack = false;
+    channel_messages = 0;
+    last_channel_text[0] = 0;
+    memset(last_channel_secret, 0, sizeof(last_channel_secret));
+    last_channel_hash = 0;
+    last_channel_timestamp = 0;
     record_raw_path = false;
     observed_extra_len = 0;
     observed_extra_type = 0;
@@ -148,7 +159,18 @@ protected:
   }
   void onCommandDataRecv(const ContactInfo&, mesh::Packet*, uint32_t, const char*) override { }
   void onSignedMessageRecv(const ContactInfo&, mesh::Packet*, uint32_t, const uint8_t*, const char*) override { }
-  void onChannelMessageRecv(const mesh::GroupChannel&, mesh::Packet*, uint32_t, const char*) override { }
+  /* A channel message. Recorded the same way a direct one is, and the
+   * channel it opened under is kept: BaseChatMesh hands back the matching
+   * GroupChannel, which is how a client knows WHICH of its channels a frame
+   * turned out to belong to when several share the one-byte hash. */
+  void onChannelMessageRecv(const mesh::GroupChannel& channel, mesh::Packet*, uint32_t timestamp,
+                            const char* text) override {
+    channel_messages++;
+    last_channel_timestamp = timestamp;
+    memcpy(last_channel_secret, channel.secret, PUB_KEY_SIZE);
+    last_channel_hash = channel.hash[0];
+    snprintf(last_channel_text, sizeof(last_channel_text), "%s", text);
+  }
 
   /* ---- acks ----
    * BaseChatMesh hands us four bytes and asks whose ACK it is. A real client
@@ -661,6 +683,353 @@ static void test_debt_path_extra_len_underflow(World& w) {
   check("node B's pool is whole after the crafted frames", w.mgr_b.getFreeCount() == 32);
 }
 
+/* ---- 6. group channels -------------------------------------------------
+ *
+ * A MeshCore channel is not an address. It is a pre-shared key: a 16- or
+ * 32-byte secret, a name that is purely local and never goes on the air, and
+ * a ONE-BYTE hash derived from the secret which the frame carries in the
+ * clear so a receiver knows which keys are worth trying
+ * (vendor/RIFT/src/Mesh.cpp:227-247). Everything below follows from that, and
+ * each of these checks is one of the consequences.
+ */
+
+/* Install a channel the way a node would: MeshCore's own setChannel()
+ * derives the hash, so this exercises the shipped derivation rather than a
+ * reimplementation of it. */
+static void install_channel(TestNode& n, int slot, const char* name,
+                            const uint8_t* key, int key_len) {
+  ChannelDetails ch;
+  memset(&ch, 0, sizeof(ch));
+  snprintf(ch.name, sizeof(ch.name), "%s", name);
+  memcpy(ch.channel.secret, key, (size_t) key_len);
+  n.setChannel(slot, ch);
+}
+
+/* A subclass carrying the guard services/meshcored applies: only slots that
+ * hold a channel are offered to the receive path. The unguarded behaviour is
+ * checked first, below, so the two are demonstrated side by side rather than
+ * one being asserted and the other assumed. */
+class GuardedNode : public TestNode {
+public:
+  GuardedNode(const char* lbl, mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng,
+              mesh::RTCClock& rtc, mesh::PacketManager& mgr, mesh::MeshTables& tables)
+      : TestNode(lbl, radio, ms, rng, rtc, mgr, tables) {
+    memset(occupied, 0, sizeof(occupied));
+  }
+  bool occupied[MAX_GROUP_CHANNELS];
+
+protected:
+  int searchChannelsByHash(const uint8_t* hash, mesh::GroupChannel dest[],
+                           int max_matches) override {
+    ChannelDetails ch;
+    int n = 0;
+    for (int i = 0; i < MAX_GROUP_CHANNELS && n < max_matches; i++) {
+      if (!occupied[i]) continue;
+      if (!getChannel(i, ch)) continue;
+      if (ch.channel.hash[0] == hash[0]) dest[n++] = ch.channel;
+    }
+    return n;
+  }
+};
+
+static void test_channels(World& w) {
+  uint8_t key1[32];
+  uint8_t key2[32];
+  ChannelDetails ch1;
+  ChannelDetails ch2;
+
+  for (int i = 0; i < 32; i++) key1[i] = (uint8_t) (0x10 + i);
+  install_channel(w.a, 0, "SITE", key1, 32);
+  install_channel(w.b, 0, "site-b", key1, 32);
+
+  check("both nodes hold the channel", w.a.getChannel(0, ch1) && w.b.getChannel(0, ch2));
+  check("the channel hash is derived from the key, not from the name",
+        ch1.channel.hash[0] == ch2.channel.hash[0]);
+  check("and the name is local: the two never have to agree",
+        strcmp(ch1.name, ch2.name) != 0);
+  {
+    /* The derivation, stated independently of setChannel(). */
+    uint8_t expect[1];
+    mesh::Utils::sha256(expect, 1, key1, 32);
+    check("the hash is the first byte of SHA-256 over the key",
+          ch1.channel.hash[0] == expect[0]);
+  }
+
+  /* ---- send and receive ---- */
+  {
+    int before = w.b.channel_messages;
+    int air_before = w.air.framesCarried();
+    uint32_t ts = w.rtc_a.getCurrentTimeUnique();
+
+    check("node A sends a channel message",
+          w.a.sendGroupMessage(ts, ch1.channel, "K230-A", "site check", 10));
+    w.pump(40);
+    check("node B received it on the channel", w.b.channel_messages == before + 1);
+    check("a frame crossed the air", w.air.framesCarried() > air_before);
+    /* Upstream puts the sender's name INSIDE the encrypted payload as a
+     * "<name>: " prefix (BaseChatMesh.cpp:492). There is no other sender
+     * identity in a group frame - nothing signs it - so that string is a
+     * claim and not a proof, and anything above this layer has to say so. */
+    check("the text arrives with the sender's claimed name prefixed",
+          strcmp(w.b.last_channel_text, "K230-A: site check") == 0);
+    check("the sender's timestamp came through", w.b.last_channel_timestamp == ts);
+    check("and node B is told which of its channels opened it",
+          memcmp(w.b.last_channel_secret, key1, 32) == 0);
+    check("the channel hash handed back is the derived one",
+          w.b.last_channel_hash == ch1.channel.hash[0]);
+    check("node A did not receive its own channel message", w.a.channel_messages == 0);
+  }
+
+  /* ---- a duplicate of the same frame is suppressed ---- */
+  {
+    int b_before = w.b.channel_messages;
+    mesh::Packet* p1 = w.a.createGroupDatagram(PAYLOAD_TYPE_GRP_TXT, ch1.channel,
+                                               (const uint8_t*) "\x01\x02\x03\x04\x00hi", 7);
+
+    check("a group datagram is built by hand", p1 != NULL);
+    if (p1) {
+      uint8_t raw[MAX_TRANS_UNIT];
+      int len = p1->writeTo(raw);
+
+      /* Delivered straight to node B's radio, twice, so the two copies are
+       * genuinely the same bytes rather than two sends whose timestamps
+       * differ. Mesh marks a packet seen on receipt (Mesh.cpp:233-234), so
+       * the second is dropped on the duplicate table before it is ever
+       * decrypted - which is what stops one flood delivering N copies. */
+      w.radio_b.deliver(raw, len);
+      w.radio_b.deliver(raw, len);
+      w.pump(30);
+      check("the first copy was delivered", w.b.channel_messages == b_before + 1);
+      check("and the identical second copy was not",
+            w.b.channel_messages == b_before + 1);
+      w.a.releasePacket(p1);
+    }
+  }
+
+  /* ---- a node without the key cannot read it ---- */
+  {
+    mctest::FakeRadio radio_c(w.air);
+    StaticPoolPacketManager mgr_c(16);
+    SimpleMeshTables tables_c;
+    mctest::TestRTCClock rtc_c(1789000000u);
+    TestNode c("C", radio_c, w.clock, w.rng, rtc_c, mgr_c, tables_c);
+    uint8_t wrong[32];
+    int c_before;
+    int b_before;
+
+    c.self_id = mesh::LocalIdentity(&w.rng);
+    c.begin();
+    w.eavesdropper = &c;
+
+    /* Node C holds a real channel of its own, with a real key: it is not an
+     * empty table. It simply is not this channel. */
+    for (int i = 0; i < 32; i++) wrong[i] = (uint8_t) (0xA0 + i);
+    install_channel(c, 0, "OTHER", wrong, 32);
+
+    c_before = c.channel_messages;
+    b_before = w.b.channel_messages;
+    check("node A sends again while node C is listening",
+          w.a.sendGroupMessage(w.rtc_a.getCurrentTimeUnique(), ch1.channel, "K230-A",
+                               "second", 6));
+    w.pump(40);
+    check("node B read it", w.b.channel_messages == b_before + 1);
+    check("node C, on the same air with a real key of its own, did not",
+          c.channel_messages == c_before);
+    check("node C's pool is whole", mgr_c.getFreeCount() == 16);
+
+    /* ---- a colliding hash: the key decides, not the hash ---- */
+    {
+      uint8_t h[1];
+      int tries = 0;
+
+      for (int i = 0; i < 32; i++) key2[i] = (uint8_t) (0x50 + i);
+      /* Walk the key until its derived hash byte equals channel 0's. One
+       * byte, so this lands within a few hundred attempts, and it makes the
+       * "several channels share a hash" path real rather than hypothetical. */
+      for (;;) {
+        mesh::Utils::sha256(h, 1, key2, 32);
+        if (h[0] == ch1.channel.hash[0]) break;
+        key2[31]++;
+        if (++tries > 100000) break;
+      }
+      check("a second key with the SAME one-byte channel hash was found",
+            h[0] == ch1.channel.hash[0] && memcmp(key1, key2, 32) != 0);
+    }
+    install_channel(c, 1, "COLLIDE", key2, 32);
+    c_before = c.channel_messages;
+    check("node A sends a third time",
+          w.a.sendGroupMessage(w.rtc_a.getCurrentTimeUnique(), ch1.channel, "K230-A",
+                               "third", 5));
+    w.pump(40);
+    check("a colliding channel hash does not open the message: the MAC does",
+          c.channel_messages == c_before);
+
+    /* And the other way round: node B holds BOTH keys, and the right one is
+     * what opens it. searchChannelsByHash offers up to four candidates and
+     * the first whose MAC verifies wins (Mesh.cpp:236-246). */
+    install_channel(w.b, 1, "COLLIDE", key2, 32);
+    b_before = w.b.channel_messages;
+    check("node A sends a fourth time",
+          w.a.sendGroupMessage(w.rtc_a.getCurrentTimeUnique(), ch1.channel, "K230-A",
+                               "fourth", 6));
+    w.pump(40);
+    check("a node holding both colliding channels still opens it once",
+          w.b.channel_messages == b_before + 1);
+    check("and under the channel whose key actually decrypted it",
+          memcmp(w.b.last_channel_secret, key1, 32) == 0);
+
+    w.eavesdropper = NULL;
+  }
+
+  /* ---- the empty slot ------------------------------------------------
+   *
+   * DEBT, and the reason services/meshcored overrides searchChannelsByHash.
+   *
+   * BaseChatMesh::searchChannelsByHash walks all MAX_GROUP_CHANNELS slots and
+   * compares hash bytes (BaseChatMesh.cpp:367-376). A slot with no channel in
+   * it is all zeroes, so its hash byte is 0 and its key is 32 zero bytes -
+   * and a frame whose channel-hash byte is 0 therefore matches every free
+   * slot and is offered to an all-zero key. Anybody can build such a frame:
+   * that key is not a secret.
+   *
+   * Upstream's own firmware does not meet this, because its slot 0 always
+   * holds the public channel and its screens skip empty slots. A service
+   * whose table starts empty meets it on the first frame. So the fault is
+   * demonstrated here on an unguarded subclass and the fix on a guarded one -
+   * the same shape services/meshcored uses. */
+  {
+    mctest::FakeRadio radio_d(w.air);
+    mctest::FakeRadio radio_e(w.air);
+    StaticPoolPacketManager mgr_d(16);
+    StaticPoolPacketManager mgr_e(16);
+    SimpleMeshTables tables_d;
+    SimpleMeshTables tables_e;
+    mctest::TestRTCClock rtc_d(1789000000u);
+    mctest::TestRTCClock rtc_e(1789000000u);
+    TestNode unguarded("D", radio_d, w.clock, w.rng, rtc_d, mgr_d, tables_d);
+    GuardedNode guarded("E", radio_e, w.clock, w.rng, rtc_e, mgr_e, tables_e);
+    mesh::GroupChannel zero;
+    uint8_t hash_of_zero[1];
+
+    unguarded.self_id = mesh::LocalIdentity(&w.rng);
+    unguarded.begin();
+    guarded.self_id = mesh::LocalIdentity(&w.rng);
+    guarded.begin();
+
+    /* One real channel each, in slot 3, so seven slots are free. */
+    install_channel(unguarded, 3, "REAL", key1, 32);
+    install_channel(guarded, 3, "REAL", key1, 32);
+    guarded.occupied[3] = true;
+
+    /* The attacker's "channel": an all-zero key, and the hash byte an unused
+     * slot carries. This is not a guess about what upstream does - it is
+     * exactly the bytes an unused slot holds. */
+    memset(&zero, 0, sizeof(zero));
+    mesh::Utils::sha256(hash_of_zero, 1, zero.secret, PUB_KEY_SIZE);
+    check("an unused slot's hash byte is zero, and is not the hash of its key",
+          zero.hash[0] == 0 && hash_of_zero[0] != 0);
+    {
+      mesh::Packet* p = w.a.createGroupDatagram(PAYLOAD_TYPE_GRP_TXT, zero,
+                                                (const uint8_t*) "\x01\x02\x03\x04\x00pwn", 8);
+
+      check("a frame encrypted to the all-zero key is built", p != NULL);
+      if (p) {
+        uint8_t raw[MAX_TRANS_UNIT];
+        int len = p->writeTo(raw);
+
+        radio_d.deliver(raw, len);
+        radio_e.deliver(raw, len);
+        for (int i = 0; i < 30; i++) {
+          unguarded.loop();
+          guarded.loop();
+          w.clock.advance(25);
+        }
+        check("DEBT an unguarded node accepts it on a channel it never joined",
+              unguarded.channel_messages == 1);
+        check("the guard refuses it: an empty slot is not a channel",
+              guarded.channel_messages == 0);
+        check("and the guarded node still holds its real channel",
+              guarded.getChannel(3, ch2) && ch2.channel.hash[0] == ch1.channel.hash[0]);
+        w.a.releasePacket(p);
+      }
+    }
+  }
+
+  /* ---- a 128-bit key ---- */
+  {
+    uint8_t k16[32];
+    ChannelDetails c16;
+
+    memset(k16, 0, sizeof(k16));
+    for (int i = 0; i < 16; i++) k16[i] = (uint8_t) (0x70 + i);
+    install_channel(w.a, 2, "SHORT", k16, 16);
+    install_channel(w.b, 2, "SHORT", k16, 16);
+    check("a 128-bit channel installs", w.a.getChannel(2, c16));
+    {
+      /* setChannel decides the key length by looking at the upper 16 bytes
+       * (BaseChatMesh.cpp:896-906): all zero means a 128-bit key, hashed over
+       * 16 bytes rather than 32. A 256-bit key whose upper half happens to be
+       * zero is therefore indistinguishable from a 128-bit one, and the two
+       * derive DIFFERENT hashes - which is why services/meshcored refuses
+       * such a key rather than joining a channel its peers hash differently. */
+      uint8_t as16[1];
+      uint8_t as32[1];
+
+      mesh::Utils::sha256(as16, 1, k16, 16);
+      mesh::Utils::sha256(as32, 1, k16, 32);
+      check("its hash is taken over 16 bytes, not 32", c16.channel.hash[0] == as16[0]);
+      check("and the two derivations genuinely differ", as16[0] != as32[0]);
+    }
+    {
+      int b_before = w.b.channel_messages;
+
+      check("a message crosses on the 128-bit channel",
+            w.a.sendGroupMessage(w.rtc_a.getCurrentTimeUnique(), c16.channel, "K230-A",
+                                 "short key", 9));
+      w.pump(40);
+      check("and node B reads it", w.b.channel_messages == b_before + 1);
+      check("under the 128-bit channel's key",
+            memcmp(w.b.last_channel_secret, k16, 32) == 0);
+      /* The cipher key is the first 16 bytes either way (CIPHER_KEY_SIZE is
+       * 16); what the key length changes is the hash and the 32-byte HMAC
+       * key, which is why the upper half still has to be zero on both ends. */
+    }
+  }
+
+  check("node A's pool is whole after the channel traffic", w.mgr_a.getFreeCount() == 32);
+  check("node B's pool is whole after the channel traffic", w.mgr_b.getFreeCount() == 32);
+}
+
+/* ---- 7. direct messages are unchanged ----------------------------------
+ *
+ * The whole point of enabling channels is that nothing else moves. This runs
+ * after all the channel traffic above, on the same two nodes, with their
+ * channel tables populated. */
+static void test_direct_still_works_after_channels(World& w) {
+  ContactInfo* b_contact = w.a.contactByName("K230-B");
+  uint32_t ack = 0;
+  uint32_t est = 0;
+  int before = w.b.messages_received;
+  int acks_before = w.a.acks_matched;
+  int channels_before = w.b.channel_messages;
+  int rc;
+
+  check("node A still knows node B after the channel traffic", b_contact != NULL);
+  if (!b_contact) return;
+
+  rc = w.a.sendMessage(*b_contact, w.rtc_a.getCurrentTimeUnique(), 0, "still direct", ack, est);
+  w.a.expected_ack = ack;
+  w.a.awaiting_ack = true;
+  check("a direct message is still accepted", rc != MSG_SEND_FAILED);
+  w.pump(60);
+  check("node B received it as a direct message", w.b.messages_received == before + 1);
+  check("with its text intact and no sender prefix added",
+        strcmp(w.b.last_text, "still direct") == 0);
+  check("the ACK still came back", w.a.acks_matched == acks_before + 1);
+  check("and no channel callback fired for it",
+        w.b.channel_messages == channels_before);
+}
+
 int main(void) {
   World w;
 
@@ -679,6 +1048,8 @@ int main(void) {
   }
 
   test_a_departed_node_leaves_the_air(w);
+  test_channels(w);
+  test_direct_still_works_after_channels(w);
   test_debt_path_extra_len_underflow(w);
 
   printf("meshcore_smoke_test: %d check(s), %d failure(s)\n", checks, failed);

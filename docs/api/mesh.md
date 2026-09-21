@@ -194,6 +194,82 @@ matches nothing, or matches **more than one node**. An ambiguous prefix is
 refused rather than answered: the answer is a key-exchange partner, and
 picking one would be a guess about which node the caller meant.
 
+### mesh.channels
+
+No params. Result: `channels` (array, in slot order), `count`, `max`,
+`persistent` (`true`).
+
+A channel:
+
+| Field | |
+| --- | --- |
+| `channel` | the **slot**, 0 to `max`-1. This is what a channel is named by. |
+| `name` | local, and **never on the air**. Two nodes on one channel routinely call it different things. |
+| `channel_hash` | one byte, hex: `SHA-256(key)[0]`, which is what MeshCore puts in the clear at the head of every group frame |
+| `key_bits` | 128 or 256 |
+| `text_limit` | the longest body `mesh.send` will take on this channel |
+| `ack_expected` | always `false` |
+
+**The key is not here, and no method reports it.** It is written to
+`channels.v1` at mode 0600 and read back, and that is the whole of its travel:
+anything else would put a shared secret into an IPC frame, a log, or a
+screenshot. What a client gets is enough to show a channel and tell two apart,
+and not enough to join one.
+
+**The slot is the identity, not the position.** Leaving a channel empties its
+slot rather than compacting the table, so no channel changes slot while it
+exists. A slot that has been emptied may later be taken by a **different**
+channel, which is why the hash and the name travel with it: a client that
+caches a slot re-reads on a `mesh.channel` event rather than assuming it still
+means what it did.
+
+**The one-byte hash is a routing hint, not an identity.** Collisions are
+ordinary - it is one byte - and MeshCore tries up to four channels whose hash
+matches and lets the MAC decide (`Mesh.cpp:236-246`). Two channels with the
+same `channel_hash` are not the same channel.
+
+### mesh.channel
+
+Params: `channel` (a slot). Result: one channel, as above.
+
+A slot is an integer and nothing else: no prefix matching and no name lookup.
+Two channels may legitimately carry the same name - the name is local and
+nobody has to agree about it - so a name is not an identity and resolving one
+would mean guessing which the caller meant.
+
+Errors: 2 for a slot that is not a whole number in range, or that holds no
+channel.
+
+### mesh.channel_add
+
+Params: `name` (1 to 31 bytes, no control characters), `key` (standard base64,
+decoding to exactly 16 or 32 bytes). Result: the channel that was created.
+
+This is the **only** way a key reaches the service, and deliberately the only
+one: nothing here derives a key from a name, generates one, or ships a
+well-known one. A channel exists because somebody supplied the secret for it.
+It goes into the lowest free slot.
+
+Errors, all code 2 except a full table (5):
+
+| | |
+| --- | --- |
+| not base64, or not 16/32 bytes | a decoder that mapped unknown characters to `0` would turn a mistyped key into a *different* key that still appeared to work, so the decode is strict: any character outside the RFC 4648 alphabet is a refusal |
+| an all-zero key | that is what an unused MeshCore slot holds, and the key is public by construction |
+| a 32-byte key whose upper 16 bytes are zero | **refused as ambiguous.** MeshCore's `setChannel()` reads such a key as a 128-bit one and hashes it over 16 bytes, while its `addChannel()` would use the decoded length and hash it over 32. The same key would then derive two different channel hashes depending on which path a peer took, and this node would sit on a channel some of its peers cannot reach it on. The symptom would be silence, so it is refused with a reason instead. |
+| a key already in the table | the key **is** the channel, so a second copy under another name would be one that can never be routed to: MeshCore's scan finds whichever comes first and stops |
+| all slots taken | code 5 |
+
+### mesh.channel_remove
+
+Params: `channel` (a slot). Result: `removed`, `channel`, `key_forgotten`.
+
+The key is overwritten in the service's own table, not merely marked unused,
+and `channels.v1` is rewritten without it. This node held the only copy, and
+nothing on the air will give it back - which is what `key_forgotten` says.
+
+Errors: 2 for a slot that holds no channel.
+
 ### mesh.messages
 
 Params: `limit` (optional). Result: `messages` (array, oldest first),
@@ -207,36 +283,83 @@ happened.
 discovered: the message list does not survive a restart. See "What is
 persistent" in docs/services/MESHCORED.md.
 
+The list holds direct messages and channel messages together, in the order
+they happened. They are held in **separate rings** inside the service, so a
+busy channel cannot push a direct conversation out of the history and a busy
+conversation cannot push a channel out of it; `mesh.messages` merges the two
+by `id`, which is one counter handed out in arrival order.
+
 A message:
 
 | Field | |
 | --- | --- |
 | `id` | meshcored's own, 1 upwards, never reused while it runs |
 | `direction` | `in` or `out` |
-| `peer_public_key`, `peer_name` | |
+| `kind` | `direct` or `channel`. Which of the two shapes below this is. |
+| `peer_public_key`, `peer_name` | **`direct` only** |
+| `channel`, `channel_name`, `channel_hash` | **`channel` only**: the slot, this node's local name for it, and the one byte that was on the air |
+| `sender_name` | **`channel` only**, and only when it parses: the name the sender **claimed**. See below. |
 | `text`, `timestamp` | `timestamp` is the **sender's** clock, MeshCore's own stamp |
 | `mono_ms` | when this service saw it |
 | `state` | `received`, `sent_flood`, `sent_direct`, `acked`, `no_ack`, `failed` |
+| `ack_expected` | whether an acknowledgement can **ever** arrive for this message |
 | `ack_mono_ms` | when the ACK matched; absent until it does |
 | `snr_db`, `rssi_dbm` | only when known, by the same rule as a node's |
 
+**A channel message names no node.** A MeshCore group frame carries no public
+key and nothing signs it, so there is no `peer_public_key` on one and there
+cannot be. What it has instead is `sender_name`: MeshCore writes `"<name>: "`
+into the *encrypted payload* (`BaseChatMesh.cpp:492`) and this service parses
+it back out, on the first `": "`. It is a **claim**, not an identity - anyone
+holding the channel key can send any name - and a client that draws it the way
+it draws a `peer_name` is saying something the protocol does not support.
+`text` is the whole payload including the prefix, so a client that wants the
+body alone skips `strlen(sender_name) + 2`.
+
+**`ack_expected` is `false` for everything on a channel.**
+`PAYLOAD_TYPE_GRP_TXT` is flooded and unacknowledged: there is no
+`expected_ack`, no timeout and no delivery report anywhere in the protocol. An
+outgoing channel message therefore reaches `sent_flood` and stays there
+forever. A client that draws "delivered" or "no ack" where `ack_expected` is
+`false` is inventing a guarantee MeshCore does not offer - and one that shows
+a permanent `sent_flood` the way it shows a direct message waiting for an ACK
+teaches a reader to read it as a failure.
+
 ### mesh.send
 
-Params: `to` (a public key or prefix, as `mesh.node`), `text` (1 to 160
-bytes, no control characters other than newline and tab).
+Params: exactly **one** of `to` (a public key or prefix, as `mesh.node`) or
+`channel` (a channel slot), plus `text` (1 to 160 bytes, no control characters
+other than newline and tab).
 
-Result: `accepted` (always `true`), `message_id`, `route` (`flood` or
-`direct`), `ack_timeout_ms`.
+Giving both is an error rather than a precedence rule: they are different
+destinations with different delivery semantics, and silently preferring one
+would send a message somewhere the caller did not mean. Giving neither is an
+error too.
+
+Result: `accepted` (always `true`), `message_id`, `route`, `ack_expected`, and
+then one of:
+
+| | |
+| --- | --- |
+| to a node | `route` is `flood` or `direct`, `ack_timeout_ms` is how long MeshCore will wait, `ack_expected` is `true` |
+| to a channel | `route` is `flood`, `channel` is the slot, `ack_expected` is `false`, and **there is no `ack_timeout_ms`** - there is no ACK to time out, and a timeout of 0 would read as "answered instantly" |
 
 **Accepted is not transmitted.** The frame is queued for the MeshCore
 dispatcher, goes to radiod as an asynchronous transmit, and its outcome
 arrives later as a `mesh.activity` event and in the message's own `state`. The
 first message to a node goes `flood`, because no route back is known yet; that
-is what the ACK supplies, and the next one goes `direct`.
+is what the ACK supplies, and the next one goes `direct`. A channel message is
+always flooded and there is no second attempt.
 
-Errors: 2 for a recipient or text the service will not take, 5 when the radio
-is not available (the message text says which state it is in), 4 when the
-protocol core could not build the message.
+**A channel's text limit is smaller than 160.** MeshCore puts `"<this node's
+name>: "` inside a channel payload, and upstream's `sendGroupMessage()`
+silently truncates the caller's text to make the whole thing fit. This service
+refuses instead, and `mesh.channels` reports the real number as `text_limit`
+so a composer can show it rather than discover it.
+
+Errors: 2 for a recipient, channel or text the service will not take, 5 when
+the radio is not available (the message text says which state it is in), 4
+when the protocol core could not build the message.
 
 ### mesh.advert
 
@@ -259,6 +382,8 @@ disconnecting.
 
 - `mesh.state`: `state`, `reason`, `mono_ms`. One per transition.
 - `mesh.node`: `reason` (`discovered`, `path`), `node` (as above).
+- `mesh.channel`: `reason` (`added`, `removed`), `channel` (as above, and
+  still without the key). One per change.
 - `mesh.message`: `message` (as above). Raised when a message arrives, when
   one is sent, and again when its state changes - an ACK matching, or a
   timeout.
@@ -370,11 +495,27 @@ Code 3 is not used by this service: a policy refusal about the radio is
 radiod's to make, and meshcored reports it as a service state rather than as
 an answer to an unrelated request.
 
+## What a channel is, and is not
+
+Worth stating in one place, because almost every mistake a client can make
+about channels follows from expecting one to behave like a conversation with a
+node.
+
+| | a node | a channel |
+| --- | --- | --- |
+| identity | a public key, which nothing else can forge | a **pre-shared key**, which everybody on the channel holds |
+| named by | `public_key` | `channel` (a slot) |
+| who sent it | proved: the frame is addressed and the contact's key opened it | **claimed**: a name inside the payload, unsigned |
+| route | learned, reported as `hops`/`path_hex` | none. Flooded to whoever holds the key. |
+| delivery | an ACK, a timeout, `acked`/`no_ack` | **nothing**. `sent_flood` is the end. |
+| confidentiality | an X25519 agreement between two nodes | the group key: every holder can read every message |
+| forgetting it | the node re-adverts | the key is gone; nothing on the air brings it back |
+
 ## Not in v0
 
-Group channels (`MAX_GROUP_CHANNELS` is left undefined in
-`protocols/meshcore`, so upstream's channel code is not compiled), contact
-import and export, a message store that survives a restart, renaming the node
-over IPC, `/trace`, repeater behaviour (`allowPacketForward()` stays false, so
-this node hears everything and forwards nothing), a periodic advert, and any
-protocol other than MeshCore.
+Contact import and export, a message store that survives a restart, renaming
+the node over IPC, `/trace`, repeater behaviour (`allowPacketForward()` stays
+false, so this node hears everything and forwards nothing), a periodic advert,
+group **data** frames (`PAYLOAD_TYPE_GRP_DATA` is parsed by the protocol core
+and this service does nothing with it - only `GRP_TXT` becomes a message), and
+any protocol other than MeshCore.

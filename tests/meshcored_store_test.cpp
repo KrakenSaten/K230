@@ -561,6 +561,304 @@ static void test_dir_rules(void)
     }
 }
 
+/* ---- channels.v1 --------------------------------------------------------
+ *
+ * The same shape as state.v1 and the same rules, with one difference that
+ * runs through every case below: this file holds KEY MATERIAL. A channel key
+ * is the whole of a channel's identity and its confidentiality, so the mode
+ * matters, a shrinking table must not leave an old key in the tail of the
+ * file, and a record that is not exactly right is a refusal rather than
+ * something to patch up.
+ */
+
+static mcdstore::ChannelRecord makeChannel(int slot, const char* name, uint8_t seed,
+                                           int key_len)
+{
+    mcdstore::ChannelRecord r = mcdstore::ChannelRecord();
+
+    r.slot = slot;
+    r.key_len = key_len;
+    snprintf(r.name, sizeof(r.name), "%s", name);
+    memset(r.secret, 0, sizeof(r.secret));
+    for (int i = 0; i < key_len; i++) {
+        r.secret[i] = (uint8_t)(seed + i);
+    }
+    return r;
+}
+
+static void test_channels_round_trip(void)
+{
+    mcdstore::ChannelState in;
+    mcdstore::ChannelState out = mcdstore::ChannelState();
+
+    removeFile("channels.v1");
+    check("no channels.v1 is not a fault",
+          mcdstore::channelsLoad(in, g_dir, g_err) == 0 && in.count == 0);
+
+    out.channels[0] = makeChannel(0, "SITE", 0x11, 32);
+    out.channels[1] = makeChannel(3, "OPS", 0x71, 16);
+    out.count = 2;
+    check("the channels save", mcdstore::channelsSave(out, g_dir, g_err));
+    /* 0600, like identity.id. This file is a secret, and the temporary it is
+     * written through carries the mode from the start. */
+    check("the file is not readable by anyone else", fileMode("channels.v1") == 0600);
+    check("and is exactly the size two records need", fileSize("channels.v1") == 12 + 68 * 2);
+
+    check("it loads", mcdstore::channelsLoad(in, g_dir, g_err) == 1);
+    check("with both channels", in.count == 2);
+    check("the first keeps its slot", in.channels[0].slot == 0);
+    check("its name", strcmp(in.channels[0].name, "SITE") == 0);
+    check("its key length", in.channels[0].key_len == 32);
+    check("and its key, byte for byte",
+          memcmp(in.channels[0].secret, out.channels[0].secret, 32) == 0);
+    /* The slot is the identity, and it is NOT the position in the file: the
+     * second record is in slot 3 because a channel between them was left. */
+    check("the second keeps the slot it was in, not the index it was written at",
+          in.channels[1].slot == 3);
+    check("its 128-bit key is zero-padded above 16 bytes",
+          in.channels[1].key_len == 16 && in.channels[1].secret[16] == 0 &&
+              in.channels[1].secret[31] == 0);
+
+    /* A table that shrinks must not leave the removed channel's key behind
+     * in the tail of the file: the record it was in is gone, but the bytes
+     * would still be a key somebody could read. */
+    {
+        char p[512];
+        FILE* f;
+        uint8_t raw[12 + 68 * 2];
+        long n;
+        bool found = false;
+
+        out.count = 1;
+        check("saving one channel replaces the file",
+              mcdstore::channelsSave(out, g_dir, g_err));
+        check("the file is one record shorter", fileSize("channels.v1") == 12 + 68);
+        joinp(p, sizeof(p), "channels.v1");
+        f = fopen(p, "rb");
+        check("and can be read as bytes", f != NULL);
+        if (f) {
+            n = (long)fread(raw, 1, sizeof(raw), f);
+            fclose(f);
+            for (long i = 0; i + 16 <= n; i++) {
+                if (memcmp(&raw[i], out.channels[1].secret, 16) == 0) {
+                    found = true;
+                }
+            }
+            check("the removed channel's key is nowhere in it", !found);
+        }
+        check("and only one channel loads",
+              mcdstore::channelsLoad(in, g_dir, g_err) == 1 && in.count == 1);
+    }
+}
+
+static void test_channels_corruption(void)
+{
+    mcdstore::ChannelState in;
+    mcdstore::ChannelState out = mcdstore::ChannelState();
+    uint8_t buf[12 + 68 * 2];
+    const size_t one = 12 + 68;
+
+    out.channels[0] = makeChannel(0, "SITE", 0x11, 32);
+    out.count = 1;
+    check("a good channels file to mutate", mcdstore::channelsSave(out, g_dir, g_err));
+    {
+        char p[512];
+        FILE* f;
+
+        joinp(p, sizeof(p), "channels.v1");
+        f = fopen(p, "rb");
+        check("which can be read as bytes", f != NULL && fread(buf, 1, one, f) == one);
+        if (f) {
+            fclose(f);
+        }
+    }
+
+    {
+        uint8_t bad[12 + 68];
+
+        memcpy(bad, buf, one);
+        bad[0] = 'X';
+        writeRaw("channels.v1", bad, one, 0600);
+        check("a wrong magic is refused", mcdstore::channelsLoad(in, g_dir, g_err) == -1);
+        check("and the reason names the magic", strstr(g_err, "magic") != NULL);
+    }
+    {
+        /* A state.v1 renamed onto channels.v1. The two files have different
+         * magic precisely so this is a refusal rather than a table of
+         * nonsense read as keys. */
+        uint8_t bad[12 + 68];
+
+        memcpy(bad, buf, one);
+        memcpy(bad, "MCDS", 4);
+        writeRaw("channels.v1", bad, one, 0600);
+        check("a node table in the channel file's place is refused",
+              mcdstore::channelsLoad(in, g_dir, g_err) == -1);
+    }
+    {
+        uint8_t bad[12 + 68];
+
+        memcpy(bad, buf, one);
+        bad[4] = 7;
+        writeRaw("channels.v1", bad, one, 0600);
+        check("a version this build does not read is refused",
+              mcdstore::channelsLoad(in, g_dir, g_err) == -1);
+        check("and says which version it found", strstr(g_err, "version 7") != NULL);
+    }
+    {
+        /* Truncated inside a record: the case an "at least N bytes" check
+         * would let through, loading a key that is half somebody else's. */
+        writeRaw("channels.v1", buf, one - 20, 0600);
+        check("a file truncated inside a record is refused",
+              mcdstore::channelsLoad(in, g_dir, g_err) == -1);
+    }
+    {
+        uint8_t bad[12 + 68];
+
+        memcpy(bad, buf, one);
+        bad[8] = 4;  /* claims four channels */
+        writeRaw("channels.v1", bad, one, 0600);
+        check("a count larger than the file is refused",
+              mcdstore::channelsLoad(in, g_dir, g_err) == -1);
+    }
+    {
+        uint8_t bad[12 + 68];
+
+        memcpy(bad, buf, one);
+        bad[8] = 99;
+        writeRaw("channels.v1", bad, one, 0600);
+        check("a count beyond the table is refused",
+              mcdstore::channelsLoad(in, g_dir, g_err) == -1);
+    }
+    {
+        uint8_t bad[12 + 68];
+
+        memcpy(bad, buf, one);
+        bad[12] = 99;  /* slot */
+        writeRaw("channels.v1", bad, one, 0600);
+        check("a slot outside the table is refused",
+              mcdstore::channelsLoad(in, g_dir, g_err) == -1);
+        check("and says so", strstr(g_err, "slot") != NULL);
+    }
+    {
+        uint8_t bad[12 + 68];
+
+        memcpy(bad, buf, one);
+        bad[13] = 24;  /* key_len */
+        writeRaw("channels.v1", bad, one, 0600);
+        check("a key length that is neither 16 nor 32 is refused",
+              mcdstore::channelsLoad(in, g_dir, g_err) == -1);
+    }
+    {
+        /* Claims a 128-bit key but carries bytes above 16. Those bytes are
+         * part of the 32-byte HMAC key MeshCore derives the MAC with, so a
+         * record like this would MAC differently from the peer that wrote
+         * it - a channel that looks joined and silently works for nobody. */
+        uint8_t bad[12 + 68];
+
+        memcpy(bad, buf, one);
+        bad[13] = 16;
+        writeRaw("channels.v1", bad, one, 0600);
+        check("a 128-bit key that is not zero-padded is refused",
+              mcdstore::channelsLoad(in, g_dir, g_err) == -1);
+        check("and says why", strstr(g_err, "zero-padded") != NULL);
+    }
+    {
+        uint8_t bad[12 + 68];
+
+        memcpy(bad, buf, one);
+        memset(&bad[48], 0, 32);  /* the key: header(12) + record offset 36 */
+        writeRaw("channels.v1", bad, one, 0600);
+        /* An all-zero key is what an unused MeshCore slot holds, so it is
+         * not a channel - it is the thing the receive-path guard exists to
+         * keep out. */
+        check("an all-zero key is refused", mcdstore::channelsLoad(in, g_dir, g_err) == -1);
+        check("and says so", strstr(g_err, "all-zero") != NULL);
+    }
+    {
+        uint8_t bad[12 + 68];
+
+        memcpy(bad, buf, one);
+        memset(&bad[16], 0, 32);  /* the name: header(12) + record offset 4 */
+        writeRaw("channels.v1", bad, one, 0600);
+        check("a channel with no name is refused",
+              mcdstore::channelsLoad(in, g_dir, g_err) == -1);
+    }
+    {
+        /* Two records in one slot, and two records holding one key. Both
+         * make the table ambiguous in a way nothing downstream can resolve:
+         * the slot is what a client names a channel by, and the key is what
+         * routes one. */
+        uint8_t bad[12 + 68 * 2];
+
+        memcpy(bad, buf, one);
+        memcpy(&bad[one], &buf[12], 68);
+        bad[8] = 2;
+        writeRaw("channels.v1", bad, sizeof(bad), 0600);
+        check("two channels in one slot are refused",
+              mcdstore::channelsLoad(in, g_dir, g_err) == -1);
+        check("and says which two", strstr(g_err, "slot") != NULL);
+
+        bad[one + 0] = 1;  /* a different slot, same key */
+        writeRaw("channels.v1", bad, sizeof(bad), 0600);
+        check("two channels with the same key are refused",
+              mcdstore::channelsLoad(in, g_dir, g_err) == -1);
+        check("and says so", strstr(g_err, "same key") != NULL);
+    }
+    {
+        /* A name with no terminator in it: the loader forces one rather
+         * than reading off the end of the record. */
+        uint8_t bad[12 + 68];
+
+        memcpy(bad, buf, one);
+        memset(&bad[16], 'Z', 32);
+        writeRaw("channels.v1", bad, one, 0600);
+        check("a name filling its field loads", mcdstore::channelsLoad(in, g_dir, g_err) == 1);
+        check("and is terminated at the field's end",
+              strlen(in.channels[0].name) == 31);
+    }
+
+    /* Put a good file back. */
+    writeRaw("channels.v1", buf, one, 0600);
+    check("the good file loads again", mcdstore::channelsLoad(in, g_dir, g_err) == 1);
+}
+
+static void test_channels_quarantine(void)
+{
+    mcdstore::ChannelState in;
+    char kept[288] = "";
+    char err[mcdstore::ERR_SIZE] = "";
+    struct stat sb;
+    char p[512];
+    uint8_t junk[20];
+
+    memset(junk, 0xEE, sizeof(junk));
+    check("an unreadable channels.v1", writeRaw("channels.v1", junk, sizeof(junk), 0600));
+    check("which is indeed refused", mcdstore::channelsLoad(in, g_dir, g_err) == -1);
+    check("it can be moved aside",
+          mcdstore::channelsQuarantine(g_dir, kept, sizeof(kept), err));
+    check("the name it was kept under is reported", strstr(kept, "channels.v1.corrupt") != NULL);
+    /* Renamed, never rewritten: the file is the only evidence of the fault,
+     * and it still holds whatever key material was in it, so it keeps its
+     * mode too. */
+    check("the file is still there", stat(kept, &sb) == 0);
+    check("with its bytes", sb.st_size == (off_t)sizeof(junk));
+    check("and its mode", (sb.st_mode & 07777) == 0600);
+    joinp(p, sizeof(p), "channels.v1");
+    check("and is out of the way", stat(p, &sb) != 0);
+    check("so a load now finds nothing rather than failing",
+          mcdstore::channelsLoad(in, g_dir, g_err) == 0);
+
+    /* A second fault does not overwrite the first. */
+    check("a second unreadable file", writeRaw("channels.v1", junk, sizeof(junk), 0600));
+    check("is kept under its own name",
+          mcdstore::channelsQuarantine(g_dir, kept, sizeof(kept), err) &&
+              strstr(kept, ".corrupt.1") != NULL);
+    /* And quarantining the node table and the channels are separate acts:
+     * one file being moved aside says nothing about the other. */
+    check("quarantining a channels file that is not there is refused",
+          !mcdstore::channelsQuarantine(g_dir, kept, sizeof(kept), err));
+}
+
 int main(void)
 {
     char tmpl[] = "/tmp/meshcored-store-XXXXXX";
@@ -578,6 +876,9 @@ int main(void)
     test_state_round_trip();
     test_state_corruption();
     test_quarantine();
+    test_channels_round_trip();
+    test_channels_corruption();
+    test_channels_quarantine();
     test_directory_durability();
     test_dir_rules();
 

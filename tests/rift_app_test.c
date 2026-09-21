@@ -352,6 +352,62 @@ static void give_messages(void)
     pump(60);
 }
 
+/* The channels the service holds, and one message on one of them.
+ *
+ * The fixture is the service's answer, verbatim: every channel on screen has
+ * to be one mesh.channels reported, because this app has no key and cannot
+ * derive a channel from anything. */
+static void give_channels(void)
+{
+    cJSON *o;
+
+    o = cJSON_Parse("{\"count\":2,\"max\":8,\"persistent\":true,\"channels\":["
+                    "{\"channel\":0,\"name\":\"SITE\",\"channel_hash\":\"8c\","
+                    "\"key_bits\":256,\"text_limit\":147,\"ack_expected\":false},"
+                    "{\"channel\":2,\"name\":\"OPS\",\"channel_hash\":\"4d\","
+                    "\"key_bits\":128,\"text_limit\":147,\"ack_expected\":false}]}");
+    check("the channel fixture is valid JSON", o != NULL);
+    check("and the model takes it", rift_model_apply_channels(&app->model, o) == 0);
+    cJSON_Delete(o);
+    rift_app_refresh(app);
+    pump(60);
+}
+
+static void give_channel_message(void)
+{
+    char json[512];
+    cJSON *o;
+    int64_t now = rift_mono_ms();
+
+    snprintf(json, sizeof(json),
+             "{\"message\":{\"id\":30,\"direction\":\"in\",\"kind\":\"channel\","
+             "\"channel\":0,\"channel_name\":\"SITE\",\"channel_hash\":\"8c\","
+             "\"sender_name\":\"HYTTA\",\"text\":\"HYTTA: str\xC3\xB8m tilbake\","
+             "\"state\":\"received\",\"ack_expected\":false,\"mono_ms\":%lld}}",
+             (long long)(now - 45000));
+    o = cJSON_Parse(json);
+    check("the channel message fixture is valid JSON", o != NULL);
+    rift_model_apply_event(&app->model, "mesh.message", o);
+    cJSON_Delete(o);
+
+    /* And one of ours, which is where the caption that matters is drawn:
+     * sent_flood is the last state a channel message can reach, and the
+     * caption has to say that rather than leave a permanent "SENT" reading
+     * as a delivery that has not turned up. */
+    snprintf(json, sizeof(json),
+             "{\"message\":{\"id\":31,\"direction\":\"out\",\"kind\":\"channel\","
+             "\"channel\":0,\"channel_name\":\"SITE\",\"channel_hash\":\"8c\","
+             "\"sender_name\":\"K230-A\",\"text\":\"K230-A: mottatt\","
+             "\"state\":\"sent_flood\",\"ack_expected\":false,\"mono_ms\":%lld}}",
+             (long long)(now - 20000));
+    o = cJSON_Parse(json);
+    check("the outgoing channel fixture is valid JSON", o != NULL);
+    rift_model_apply_event(&app->model, "mesh.message", o);
+    cJSON_Delete(o);
+    rift_app_refresh(app);
+    pump(60);
+}
+
 /* One message arriving now, from the peer whose thread is not open: the only
  * thing that can make an unread badge appear. */
 static void give_unread(void)
@@ -746,20 +802,27 @@ int main(void)
 
         rift_model_apply_messages(&app->model, o);
         cJSON_Delete(o);
+        /* And the channel half of the same answer. "No channels" is only
+         * true once the service has said so, so until mesh.channels has been
+         * answered the list is still waiting rather than empty. */
+        o = cJSON_Parse("{\"channels\":[],\"count\":0,\"max\":8,\"persistent\":true}");
+        rift_model_apply_channels(&app->model, o);
+        cJSON_Delete(o);
         rift_app_refresh(app);
         pump(60);
     }
     check("an answered, empty history says so instead",
-          find_text(content(), "No messages yet") != NULL);
-    /* The design merges channels into this list. There are none in the
-     * service, and the list says which of the two it is rather than leaving
-     * a reader who knows the design to wonder. */
-    check("and names channels as the service's gap, not as an empty list",
-          find_text(content(), "Channels are not in the radio service") != NULL);
+          find_text(content(), "No conversations and no channels") != NULL);
+    /* The design merges channels into this list, and a channel is joined
+     * with its key on the service rather than here. An empty list says which
+     * of the two it is rather than leaving a reader who knows the design to
+     * wonder where the channels went. */
+    check("and says where a channel is joined",
+          find_text(content(), "joined with its key on the radio service") != NULL);
 
     give_messages();
-    check("with conversations, the note still says the list is direct only",
-          find_text(content(), "channels are not in") != NULL);
+    check("with conversations, the note says there are no channels",
+          find_text(content(), "no channels joined") != NULL);
     check("both conversations are listed", find_text(content(), "HYTTA") != NULL &&
                                                find_text(content(), "OSLO-01") != NULL);
     check("a preview says who spoke last", find_text(content(), "you: On my way") != NULL);
@@ -798,6 +861,70 @@ int main(void)
     pump(80);
     check("opening that conversation reads it", rift_model_unread(&app->model, KEY_A) == 0);
     check("and the tab has nothing left to say", rift_model_unread_total(&app->model) == 0);
+
+    /* ---- channels, in portrait ------------------------------------------
+     *
+     * The approved design merges channels into this list with a "#" glyph.
+     * Each of these is one of the ways a channel is NOT a conversation with
+     * a node: it has no route, nobody is named by a key, and nothing
+     * acknowledges what is sent on it.
+     */
+    give_channels();
+    check("a joined channel is a row before anything has been said on it",
+          find_text(content(), "SITE") != NULL && find_text(content(), "OPS") != NULL);
+    check("and the note counts the two kinds apart",
+          find_text(content(), "2 channel") != NULL);
+    check("saying what a channel cannot do",
+          find_text(content(), "nothing acknowledges a channel message") != NULL);
+    /* A channel has no path and cannot have one: a group frame is flooded to
+     * whoever holds the key. FLOOD is the whole truth about how it travels,
+     * and the route column says that rather than NO PATH, which would read
+     * as something that could be learned. */
+    check("a channel row says FLOOD in the route column",
+          find_text(content(), "FLOOD") != NULL);
+    shot("portrait-comms-channels");
+
+    give_channel_message();
+    check("a channel message arrives into its own conversation",
+          rift_model_unread(&app->model, "#0") == 1);
+    check("and not into a peer's",
+          rift_model_unread(&app->model, KEY_B) == 0 &&
+              rift_model_unread(&app->model, KEY_A) == 0);
+    rift_app_open_conversation(app, "#0");
+    pump(80);
+    check("the channel thread opens", rift_comms_open_peer(app) != NULL &&
+                                          strcmp(rift_comms_open_peer(app), "#0") == 0);
+    check("and reading it clears the badge", rift_model_unread(&app->model, "#0") == 0);
+    check("the message is there", find_text(content(), "tilbake") != NULL);
+    check("and so is ours", find_text(content(), "mottatt") != NULL);
+    /* The sender's name came out of the payload and nothing signs it, so it
+     * is drawn as a claim rather than the way a peer_name is. */
+    check("the sender's name is marked as a claim",
+          find_text(content(), "HYTTA?") != NULL);
+    /* The header says what a channel is reached by - the hash that actually
+     * goes on the air - and never a hop count. */
+    check("the header names the channel and how it travels",
+          find_text(content(), "CHANNEL") != NULL && find_text(content(), "HASH 8c") != NULL);
+    /* Nothing claims a delivery. DELIVERED and an ACK age are drawn only in
+     * a message caption, and only the open thread draws captions - so with
+     * the channel thread open they must be nowhere, even though the direct
+     * conversation that has them is still listed above. */
+    check("and nothing claims a channel message was delivered",
+          find_text(content(), "DELIVERED") == NULL);
+    check("nor that one timed out waiting",
+          find_text(content(), "NO ACK \xC2\xB7") == NULL);
+    check("it says outright that nothing acknowledges it",
+          find_text(content(), "NO ACK ON CHANNELS") != NULL);
+    check("the composer is usable on a channel", find_text(content(), "SEND") != NULL);
+    shot("portrait-comms-channel-thread");
+
+    /* An empty channel says what will happen rather than nothing. */
+    rift_app_open_conversation(app, "#2");
+    pump(80);
+    check("an empty channel is still somewhere to write",
+          find_text(content(), "Nothing on this channel yet") != NULL);
+    check("and says who will be able to read it",
+          find_text(content(), "holding the same key") != NULL);
 
     /* ---- the three things unit A found, 2026-09-20 ---------------------- */
 
@@ -983,6 +1110,33 @@ int main(void)
     check("the delivery tally is this app's arithmetic, and says what it counts",
           find_text(content(), "OF 2 SENT") != NULL);
     check("everything is inside the turned body", inside_body(content()));
+
+    /* The same pane, for a channel. There is no chain to draw and no
+     * delivery to count, and it says so rather than drawing an empty one. */
+    rift_app_open_conversation(app, "#0");
+    pump(80);
+    check("a channel opens in landscape too",
+          find_text(content(), "SITE") != NULL && find_text(content(), "tilbake") != NULL);
+    check("the route pane says a channel is a key and not a route",
+          find_text(content(), "shared key, not a route") != NULL);
+    check("and gives the hash that goes on the air",
+          find_text(content(), "HASH 8c") != NULL);
+    /* The route pane's own words, not the list's: the hop chain a peer gets
+     * is replaced by what a channel actually is. */
+    check("and nothing about hops in what it says instead",
+          find_text(content(), "UNKNOWN HOP") == NULL);
+    /* The tally counts what was sent and then stops: there is no DELIVERED
+     * and no NO ACK, because neither is a number this protocol can produce
+     * for a channel, and "0 DELIVERED" would read as a failure rather than
+     * as something that cannot be measured. */
+    check("the tally counts what was sent", find_text(content(), "1 SENT") != NULL);
+    check("and says nothing acknowledges it",
+          find_text(content(), "NOTHING ACKNOWLEDGES A CHANNEL") != NULL);
+    check("without a delivery count", find_text(content(), "DELIVERED") == NULL);
+    check("the turned channel view stays inside the body", inside_body(content()));
+    shot("landscape-comms-channel");
+    rift_app_open_conversation(app, KEY_B);
+    pump(80);
     /* The command line is the composer in landscape (handoff §8), so the
      * thread does not carry a second one. */
     check("the command line has become the composer", app->composer != NULL &&

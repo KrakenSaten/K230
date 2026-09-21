@@ -36,6 +36,10 @@ extern "C" {
 #define MCD_MAX_TEXT 160
 #define MCD_MAX_FRAME 255
 #define MCD_NODE_NAME_LEN 32
+/* MeshCore's MAX_GROUP_CHANNELS and ChannelDetails::name. Static-asserted
+ * against the vendored values in mesh_runtime.cpp, like the five above. */
+#define MCD_MAX_CHANNELS 8
+#define MCD_CHANNEL_NAME_LEN 32
 
 /* ---- what came off the air --------------------------------------------
  *
@@ -93,6 +97,38 @@ struct mcd_node {
     double last_rssi_dbm;
 };
 
+/* ---- a channel ---------------------------------------------------------
+ *
+ * A MeshCore group channel is a pre-shared key and nothing else. Two nodes
+ * are on the same channel when they hold the same bytes; the name is local
+ * and never goes on the air; and the one-byte hash the frame carries is
+ * derived from the key, so it is a routing hint rather than an identity -
+ * collisions are ordinary and the MAC is what decides
+ * (protocols/meshcore/README.md, "Group channels").
+ *
+ * The KEY IS NOT IN THIS STRUCT, and there is no accessor for it anywhere
+ * above the runtime. It is written to channels.v1 at 0600 and read back, and
+ * that is the whole of its travel. A client names a channel by its slot.
+ *
+ * The slot is the identity a client uses, and it is stable: removing a
+ * channel empties its slot rather than compacting the table, so no channel
+ * ever changes slot while it exists. A slot that has been emptied may later
+ * be taken by a different channel, which is why the hash and the name travel
+ * with it and a client re-reads on a mesh.channel event rather than assuming
+ * a cached slot still means what it did.
+ */
+struct mcd_channel {
+    int slot;
+    char name[MCD_CHANNEL_NAME_LEN];
+    uint8_t hash;     /* SHA-256(key)[0] - what MeshCore puts on the air */
+    int key_bits;     /* 128 or 256 */
+    /* The longest body this node can send on this channel. MeshCore puts
+     * "<our name>: " inside the encrypted payload (BaseChatMesh.cpp:492) and
+     * silently TRUNCATES the text to make it fit MAX_TEXT_LEN; this service
+     * refuses instead, so a client needs the real number rather than 160. */
+    int text_limit;
+};
+
 /* ---- a message --------------------------------------------------------- */
 
 enum mcd_msg_state {
@@ -109,12 +145,35 @@ const char *mcd_msg_state_name(enum mcd_msg_state s);
 struct mcd_message {
     uint64_t id;                  /* meshcored's own, 1 upwards, never reused */
     bool outgoing;
+    /* ---- who it was with ----
+     *
+     * Exactly one of these two is meaningful. A direct message has a peer;
+     * a channel message has a channel and no peer at all - peer_key stays
+     * zero and peer_name empty, because a group frame names no node.
+     */
+    bool is_channel;
     uint8_t peer_key[MCD_PUB_KEY_LEN];
     char peer_name[MCD_NODE_NAME_LEN];
+    int channel_slot;             /* only when is_channel */
+    uint8_t channel_hash;         /* only when is_channel */
+    char channel_name[MCD_CHANNEL_NAME_LEN]; /* our local name for it */
+    /* The name the sender CLAIMED, parsed back out of the payload prefix
+     * MeshCore writes there. Empty when the text does not begin with
+     * "<something>: ". It is not authenticated - nothing signs a group frame
+     * - and `text` still holds the whole payload including the prefix, so a
+     * caller that wants the body alone skips strlen(sender_name) + 2. */
+    char sender_name[MCD_NODE_NAME_LEN];
     char text[MCD_MAX_TEXT + 1];
     uint32_t timestamp;           /* the sender's clock, MeshCore's own stamp */
     uint64_t mono_ms;
     enum mcd_msg_state state;
+    /* Whether an acknowledgement can ever arrive for this message. True for
+     * an outgoing direct message; false for everything on a channel, because
+     * PAYLOAD_TYPE_GRP_TXT is flooded and unacknowledged - there is no
+     * expected_ack, no timeout and no delivery report in the protocol. A
+     * client must not draw "delivered" or "no ack" where this is false: it
+     * would be inventing a guarantee MeshCore does not offer. */
+    bool ack_expected;
     bool ack_known;
     uint64_t ack_mono_ms;
     bool snr_known;
@@ -145,6 +204,8 @@ struct mcd_runtime_hooks {
 
     void (*on_node)(void *user, const struct mcd_node *n, const char *reason);
     void (*on_message)(void *user, const struct mcd_message *m);
+    /* A channel was added or removed. reason is a short word. */
+    void (*on_channel)(void *user, const struct mcd_channel *c, const char *reason);
     /* A frame that was not a node or a message: someone else's traffic, or
      * one of ours that could not be opened. outcome is a short word. */
     void (*on_frame)(void *user, const struct mcd_rx_meta *meta, int bytes,
@@ -227,8 +288,61 @@ enum mcd_send_result {
     MCD_SEND_NO_RADIO,       /* the radio is not online */
     MCD_SEND_NO_CONTACT,     /* no such node */
     MCD_SEND_TOO_LONG,       /* the text does not fit a MeshCore message */
+    MCD_SEND_NO_CHANNEL,     /* no channel in that slot */
     MCD_SEND_FAILED          /* MeshCore refused it (no free packet, encode failure) */
 };
+
+/* ---- channels -----------------------------------------------------------
+ *
+ * The table is fixed at MCD_MAX_CHANNELS slots and starts empty. Nothing
+ * here joins a channel on its own: a channel exists because somebody asked
+ * for it with a key, which is the only way the key can arrive.
+ */
+int mcd_runtime_channel_count(const struct mcd_runtime *rt);
+/* Copy the idx'th occupied channel (0-based, in slot order) into c. */
+bool mcd_runtime_channel_at(const struct mcd_runtime *rt, int idx, struct mcd_channel *c);
+/* By slot. False when that slot holds no channel. */
+bool mcd_runtime_channel_by_slot(const struct mcd_runtime *rt, int slot, struct mcd_channel *c);
+
+enum mcd_channel_result {
+    MCD_CHANNEL_OK = 0,
+    MCD_CHANNEL_BAD_KEY,     /* not base64, or not 16/32 bytes, or all zero */
+    MCD_CHANNEL_AMBIGUOUS_KEY, /* 32 bytes whose upper half is zero: see below */
+    MCD_CHANNEL_BAD_NAME,
+    MCD_CHANNEL_FULL,
+    MCD_CHANNEL_DUPLICATE,   /* that key is already in the table */
+    MCD_CHANNEL_NOT_FOUND,
+    MCD_CHANNEL_FAILED       /* MeshCore refused the slot */
+};
+
+const char *mcd_channel_result_name(enum mcd_channel_result r);
+
+/* Join a channel from a base64 pre-shared key, into the lowest free slot.
+ *
+ * MCD_CHANNEL_AMBIGUOUS_KEY is the one refusal that needs explaining. MeshCore's
+ * setChannel() decides a key's length by looking at its upper 16 bytes and
+ * hashes over 16 when they are all zero (BaseChatMesh.cpp:896-906), while its
+ * addChannel() uses the decoded length instead - so a 32-byte key whose upper
+ * half happens to be zero derives two different channel hashes depending on
+ * which path a node took. Joining on one of them would put this node on a
+ * channel its peers may hash differently, and the symptom would be silence
+ * rather than an error. It is refused instead.
+ *
+ * On MCD_CHANNEL_OK, *out (when given) is the channel that was created. */
+enum mcd_channel_result mcd_runtime_channel_add(struct mcd_runtime *rt, const char *name,
+                                                const char *psk_base64,
+                                                struct mcd_channel *out);
+/* Leave a channel: its slot is emptied, not compacted, so every other
+ * channel keeps the slot a client already knows it by. */
+enum mcd_channel_result mcd_runtime_channel_remove(struct mcd_runtime *rt, int slot);
+
+/* Send text on a channel. There is no ACK, no timeout and no delivery
+ * report: the message's state goes to sent_flood and stays there, and its
+ * ack_expected is false. Refuses rather than truncating when the text plus
+ * this node's name prefix does not fit; mcd_channel::text_limit is the
+ * number a composer should be shown. */
+enum mcd_send_result mcd_runtime_send_channel_text(struct mcd_runtime *rt, int slot,
+                                                   const char *text, uint64_t *msg_id);
 
 /* Send text to the node whose public key starts with prefix. On acceptance
  * *msg_id is the message this created and *est_timeout_ms is how long
@@ -259,6 +373,12 @@ struct mcd_runtime_stats {
      * counts them and does nothing else with them. */
     uint64_t nodes_unretained;
     uint64_t contacts_full;
+    int channels;
+    /* Group frames whose one-byte channel hash matched a slot this node does
+     * not hold a channel in. Counted rather than logged: on a busy mesh
+     * every channel anybody else uses lands here, and it is the number that
+     * says whether the hash space is crowded. */
+    uint64_t channel_frames_unmatched;
 };
 void mcd_runtime_stats(const struct mcd_runtime *rt, struct mcd_runtime_stats *out);
 
@@ -269,6 +389,12 @@ void mcd_runtime_stats(const struct mcd_runtime *rt, struct mcd_runtime_stats *o
  * empty table and this says so. Returns true when there was a fault, with a
  * description in buf. False, and an empty buf, on an ordinary start. */
 bool mcd_runtime_state_fault(const struct mcd_runtime *rt, char *buf, size_t buf_len);
+
+/* The same question for channels.v1, answered separately because the two
+ * files have different consequences. A lost node table costs a rediscovery
+ * the mesh performs on its own; a lost channel table costs every key an
+ * operator typed in by hand, and nothing on the air will bring those back. */
+bool mcd_runtime_channel_fault(const struct mcd_runtime *rt, char *buf, size_t buf_len);
 
 /* Write the contact table out. Called when it changed and at shutdown; safe
  * to call when nothing changed (it does nothing). Returns 0 or -1.

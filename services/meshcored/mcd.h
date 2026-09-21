@@ -182,6 +182,7 @@ void mcd_handle_request(struct pocketipc_server *s, struct pocketipc_client *c,
 cJSON *mcd_event_state(const struct mcd *d);
 cJSON *mcd_event_node(const struct mcd_node *n, const char *reason);
 cJSON *mcd_event_message(const struct mcd_message *m);
+cJSON *mcd_event_channel(const struct mcd_channel *c, const char *reason);
 cJSON *mcd_event_activity_rx(const struct mcd_rx_meta *meta, int bytes, const char *outcome);
 cJSON *mcd_event_activity_tx(uint64_t submit_id, int bytes, const char *result, uint64_t mono_ms);
 

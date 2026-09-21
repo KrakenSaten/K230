@@ -129,6 +129,21 @@ static void glyph_draw(lv_event_t *e)
     case RIFT_GLYPH_STALE:
         fill_box(layer, cx, cy, GLYPH_PX, pos_theme_color(POS_COLOR_TEXT_MUTED));
         break;
+    case RIFT_GLYPH_CHANNEL: {
+        /* The "#" of handoff §6, drawn rather than typed. A label here would
+         * put a second font and a second baseline into a row whose height is
+         * already fixed by the glyph box; four strokes in the same 8 px box
+         * every other glyph uses sit exactly where those do. */
+        lv_color_t c = pos_theme_color(POS_COLOR_TEXT_SECONDARY);
+        int32_t h = GLYPH_PX / 2;
+        int32_t q = GLYPH_PX / 4;
+
+        seg(layer, cx - q, cy - h, cx - q, cy + h, c, 1, 0);
+        seg(layer, cx + q, cy - h, cx + q, cy + h, c, 1, 0);
+        seg(layer, cx - h, cy - q, cx + h, cy - q, c, 1, 0);
+        seg(layer, cx - h, cy + q, cx + h, cy + q, c, 1, 0);
+        break;
+    }
     case RIFT_GLYPH_SELF:
     default:
         fill_box(layer, cx, cy, GLYPH_PX, pos_theme_color(POS_COLOR_TEXT_PRIMARY));

@@ -167,6 +167,21 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
                                                             "no node matches that prefix"));
             return;
         }
+    } else if (strcmp(name, "mesh.channels") == 0) {
+        cJSON *arr = st->script->channels_json ? cJSON_Parse(st->script->channels_json)
+                                               : cJSON_CreateArray();
+
+        if (!cJSON_IsArray(arr)) {
+            cJSON_Delete(arr);
+            arr = cJSON_CreateArray();
+        }
+        result = cJSON_CreateObject();
+        cJSON_AddNumberToObject(result, "count", cJSON_GetArraySize(arr));
+        cJSON_AddNumberToObject(result, "max", 8);
+        /* The opposite of mesh.messages, and said for the same reason: a
+         * client should not have to reboot to find out. */
+        cJSON_AddBoolToObject(result, "persistent", 1);
+        cJSON_AddItemToObject(result, "channels", arr);
     } else if (strcmp(name, "mesh.messages") == 0) {
         const cJSON *params = cJSON_GetObjectItemCaseSensitive(req, "params");
         const cJSON *limit = cJSON_GetObjectItemCaseSensitive(params, "limit");
@@ -206,13 +221,27 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
     } else if (strcmp(name, "mesh.send") == 0) {
         const cJSON *params = cJSON_GetObjectItemCaseSensitive(req, "params");
         const cJSON *to = cJSON_GetObjectItemCaseSensitive(params, "to");
+        const cJSON *chan = cJSON_GetObjectItemCaseSensitive(params, "channel");
         const cJSON *text = cJSON_GetObjectItemCaseSensitive(params, "text");
 
-        if (st->script->send_log && cJSON_IsString(to) && cJSON_IsString(text)) {
+        /* The real service refuses both together rather than preferring one
+         * (docs/api/mesh.md), and a client that wrote both would otherwise
+         * be tested against something more forgiving than what it will meet. */
+        if (to != NULL && chan != NULL) {
+            pocketipc_server_reply(s, c,
+                                   pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                            "give either to or channel"));
+            return;
+        }
+        if (st->script->send_log && cJSON_IsString(text)) {
             FILE *f = fopen(st->script->send_log, "a");
 
             if (f) {
-                fprintf(f, "%s|%s\n", to->valuestring, text->valuestring);
+                if (cJSON_IsNumber(chan)) {
+                    fprintf(f, "#%d|%s\n", (int)chan->valuedouble, text->valuestring);
+                } else if (cJSON_IsString(to)) {
+                    fprintf(f, "%s|%s\n", to->valuestring, text->valuestring);
+                }
                 fclose(f);
             }
         }
@@ -227,7 +256,14 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         cJSON_AddBoolToObject(result, "accepted", 1);
         cJSON_AddNumberToObject(result, "message_id", 1000 + st->sent);
         cJSON_AddStringToObject(result, "route", "flood");
-        cJSON_AddNumberToObject(result, "ack_timeout_ms", 30000);
+        if (cJSON_IsNumber(chan)) {
+            /* No ack_timeout_ms for a channel: there is no ACK to time out. */
+            cJSON_AddNumberToObject(result, "channel", chan->valuedouble);
+            cJSON_AddBoolToObject(result, "ack_expected", 0);
+        } else {
+            cJSON_AddNumberToObject(result, "ack_timeout_ms", 30000);
+            cJSON_AddBoolToObject(result, "ack_expected", 1);
+        }
         pocketipc_server_reply(s, c, pocketipc_response(id, result));
         /* The real service raises mesh.message for a message it has taken,
          * and again when its state changes. Scripted silence is the other

@@ -22,8 +22,14 @@
  *                 by the record count so a truncated file is refused rather
  *                 than half read.
  *
- * What is NOT here, by decision: messages. They are runtime-only in this
- * phase (docs/services/MESHCORED.md, "What is persistent").
+ *   channels.v1   the group channels this node has joined: a slot, a local
+ *                 name and the pre-shared key itself. Same shape, same
+ *                 rules, same mode as state.v1 - and, like identity.id, it
+ *                 holds key material, which is why it is 0600 and why the
+ *                 keys never leave this service through any IPC method.
+ *
+ * What is NOT here, by decision: messages, channel ones included. They are
+ * runtime-only (docs/services/MESHCORED.md, "What is persistent").
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -97,6 +103,52 @@ bool stateSave(const NodeState& st, const char* dir, char* err);
  * Returns true when the file is out of the way. False means it is still
  * there, and the caller must then not write a new one over it. */
 bool stateQuarantine(const char* dir, char* kept, size_t kept_len, char* err);
+
+/* ---- the channels -------------------------------------------------------
+ *
+ * Kept in their own file rather than inside state.v1, for two reasons that
+ * both matter. It holds key material and state.v1 does not, so the two have
+ * different consequences when one of them is unreadable; and a corrupt node
+ * table costing a rediscovery is very different from a corrupt channel table
+ * costing every channel the operator typed in by hand. Separate files mean
+ * one fault cannot take the other with it.
+ *
+ * The secret is stored as MeshCore holds it: 32 bytes, zero-padded when the
+ * key is 128-bit. key_len says which it is, because that decides the derived
+ * channel hash (BaseChatMesh.cpp:896-906) and a guess would put this node on
+ * a channel its peers hash differently.
+ */
+static const int MAX_CHANNELS = 8;
+
+struct ChannelRecord {
+    int slot;          /* 0 .. MAX_CHANNELS-1; the identity a client names */
+    char name[32];     /* local only; never on the air */
+    uint8_t secret[32];
+    int key_len;       /* 16 or 32 */
+};
+
+struct ChannelState {
+    int count;
+    ChannelRecord channels[MAX_CHANNELS];
+};
+
+/* Load <dir>/channels.v1.
+ *
+ *   1  loaded
+ *   0  the file does not exist (cs is left empty)
+ *  -1  it exists and is not readable as channels.v1; err says why
+ *
+ * Range-checked the same way stateLoad is: the exact length implied by the
+ * record count, a slot inside the table, a key length of 16 or 32, a name
+ * forced NUL-terminated and non-empty, no two records in one slot, no
+ * all-zero key (which is what an unused MeshCore slot holds, and is
+ * therefore not a channel), and no two records holding the same key. */
+int channelsLoad(ChannelState& cs, const char* dir, char* err);
+bool channelsSave(const ChannelState& cs, const char* dir, char* err);
+
+/* Move a channels.v1 this build will not read out of the way. Same contract
+ * as stateQuarantine: renamed, never rewritten. */
+bool channelsQuarantine(const char* dir, char* kept, size_t kept_len, char* err);
 
 #ifdef MCD_STORE_TEST_HOOKS
 /* Present only in the hooked build of mesh_store.cpp, which the test binaries

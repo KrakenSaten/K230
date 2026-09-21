@@ -138,9 +138,14 @@ void rift_comms_target_label(const struct rift_app *app, char *out, size_t out_l
     if (!peer) {
         return;
     }
-    name = rift_model_peer_name(&app->model, peer);
+    name = rift_model_conv_name(&app->model, peer);
     if (name && name[0]) {
         rift_utf8_ellipsis(out, out_len, name);
+        return;
+    }
+    if (rift_key_is_channel(peer) >= 0) {
+        /* A channel with no name: the slot is what it is addressed by. */
+        snprintf(out, out_len, "CHANNEL %s", peer + 1);
         return;
     }
     /* No name anywhere: the node hash is what MeshCore routes on, and is the
@@ -234,12 +239,15 @@ static void update_conv_row(struct rift_comms *v, struct conv_row *r, const stru
                             int64_t now)
 {
     struct rift_app *a = v->app;
-    const struct rift_node *n = rift_model_find(&a->model, c->key);
+    const struct rift_node *n = c->is_channel ? NULL : rift_model_find(&a->model, c->key);
     char text[RIFT_PREVIEW_MAX];
 
-    rift_glyph_set(r->glyph, rift_app_glyph(n, now));
+    rift_glyph_set(r->glyph, c->is_channel ? RIFT_GLYPH_CHANNEL : rift_app_glyph(n, now));
     if (c->have_name && c->name[0]) {
         rift_cell_set_text_fit(r->name, c->name);
+    } else if (c->is_channel) {
+        snprintf(text, sizeof(text), "CHANNEL %d", c->channel_slot);
+        rift_cell_set_text_fit(r->name, text);
     } else {
         /* A peer with no name anywhere is named by the hash MeshCore routes
          * on, never by an empty row. */
@@ -251,7 +259,12 @@ static void update_conv_row(struct rift_comms *v, struct conv_row *r, const stru
     /* The pill and the preview's visibility were set before the layout that
      * preceded this loop; setting them again here would be setting them
      * after the widths they decide have already been used. */
-    if (!n) {
+    if (c->is_channel) {
+        /* A channel has no path and cannot have one: a group frame is
+         * flooded to everyone who holds the key, and there is no peer for a
+         * route to lead to. FLOOD is the whole truth about how it travels. */
+        lv_label_set_text(r->route, "FLOOD");
+    } else if (!n) {
         /* A conversation with a peer the contact table no longer holds. */
         lv_label_set_text(r->route, RIFT_UNKNOWN);
     } else if (rift_link_of(n) == RIFT_LINK_DIRECT) {
@@ -310,6 +323,38 @@ static void refresh_ctx(struct rift_comms *v, const struct rift_conv *conv, int6
         lv_label_set_text(v->ctx_chain, "No conversation is open.");
         lv_label_set_text(v->ctx_stats, "");
         lv_label_set_text(v->ctx_tally, "");
+        return;
+    }
+    if (rift_key_is_channel(peer) >= 0) {
+        const struct rift_channel *ch = rift_model_channel(m, rift_key_is_channel(peer));
+
+        /* A channel has no route and no signal of its own. What it has is a
+         * key, the one-byte hash that key derives, and the fact that every
+         * message on it is flooded to whoever holds the same bytes. Drawing
+         * a hop chain here would be drawing a path that does not exist. */
+        lv_label_set_text(v->ctx_chain,
+                          "A channel is a shared key, not a route. Messages are flooded to "
+                          "every node that holds the same key; there is no path to show and "
+                          "nothing acknowledges them.");
+        if (ch && ch->have_hash) {
+            if (ch->have_key_bits) {
+                lv_label_set_text_fmt(v->ctx_stats, "HASH %s" RIFT_SEP "%d-BIT KEY",
+                                      ch->hash, ch->key_bits);
+            } else {
+                lv_label_set_text_fmt(v->ctx_stats, "HASH %s", ch->hash);
+            }
+        } else {
+            lv_label_set_text(v->ctx_stats, "");
+        }
+        if (conv && conv->outgoing > 0) {
+            /* No DELIVERED and no NO ACK: neither is a number this protocol
+             * can produce for a channel. */
+            lv_label_set_text_fmt(v->ctx_tally,
+                                  "%d SENT" RIFT_SEP "NOTHING ACKNOWLEDGES A CHANNEL",
+                                  conv->outgoing);
+        } else {
+            lv_label_set_text(v->ctx_tally, "Nothing sent on this channel yet.");
+        }
         return;
     }
     if (!n) {
@@ -476,6 +521,45 @@ void rift_comms_refresh(struct rift_app *app)
     }
     count = rift_model_conversations(m, conv, RIFT_MAX_CONVERSATIONS);
 
+    /* Every channel the service holds is a row, whether or not anything has
+     * been said on it.
+     *
+     * The model does not call a channel with no messages a conversation -
+     * it holds no messages, and inventing history is what this app must not
+     * do - but a joined channel that is invisible until somebody speaks is
+     * a channel nobody can be the first to speak on. So the channels are
+     * added here, as rows with no preview, no unread and a total of zero,
+     * which is exactly what they are. They go after the conversations that
+     * do hold messages, because those have something to show. */
+    for (i = 0; i < m->channel_count && count < RIFT_MAX_CONVERSATIONS; i++) {
+        const struct rift_channel *ch = &m->channels[i];
+        char key[RIFT_KEY_HEX];
+        int held = 0;
+        int j;
+
+        rift_channel_key(ch->slot, key, sizeof(key));
+        if (!key[0]) {
+            continue;
+        }
+        for (j = 0; j < count; j++) {
+            if (strcmp(conv[j].key, key) == 0) {
+                held = 1;
+            }
+        }
+        if (held) {
+            continue;
+        }
+        memset(&conv[count], 0, sizeof(conv[count]));
+        copy_key(conv[count].key, sizeof(conv[count].key), key);
+        conv[count].is_channel = 1;
+        conv[count].channel_slot = ch->slot;
+        if (ch->have_name && ch->name[0]) {
+            rift_utf8_copy(conv[count].name, sizeof(conv[count].name), ch->name);
+            conv[count].have_name = 1;
+        }
+        count++;
+    }
+
     /* A conversation can be open before anything has been said in it:
      * NODES' MESSAGE points the composer at a peer that may have no
      * messages at all. The model does not call that a conversation - it
@@ -492,13 +576,18 @@ void rift_comms_refresh(struct rift_app *app)
             }
         }
         if (!held) {
-            const char *nm = rift_model_peer_name(m, peer);
+            const char *nm = rift_model_conv_name(m, peer);
+            int slot = rift_key_is_channel(peer);
 
             for (i = count; i > 0; i--) {
                 conv[i] = conv[i - 1];
             }
             memset(&conv[0], 0, sizeof(conv[0]));
             copy_key(conv[0].key, sizeof(conv[0].key), peer);
+            if (slot >= 0) {
+                conv[0].is_channel = 1;
+                conv[0].channel_slot = slot;
+            }
             if (nm && nm[0]) {
                 rift_utf8_copy(conv[0].name, sizeof(conv[0].name), nm);
                 conv[0].have_name = 1;
@@ -554,26 +643,46 @@ void rift_comms_refresh(struct rift_app *app)
         update_conv_row(v, &v->row[i], &conv[i], now);
     }
 
-    /* The list's own note. Channels are named here rather than left to be
-     * noticed as an absence: the approved design puts them in this list, so
-     * a reader who knows the design would otherwise be looking for a
-     * feature and finding a short list. */
-    if (count == 0) {
-        if (!m->messages_valid) {
-            lv_label_set_text(v->note, "Waiting for meshcored.");
-        } else {
-            lv_label_set_text(v->note,
-                              "No messages yet. Channels are not in the radio service, so this "
-                              "list holds direct conversations only.");
+    /* The list's own note. It counts the two kinds apart, because they are
+     * not the same thing: a channel is somewhere to write whether or not
+     * anybody has, and a direct conversation exists only because something
+     * was said. */
+    {
+        int channels = 0;
+
+        for (i = 0; i < count; i++) {
+            if (conv[i].is_channel) {
+                channels++;
+            }
         }
-    } else if (m->stale) {
-        lv_label_set_text_fmt(v->note, "%d conversation%s, cached: meshcored is not answering.",
-                              count, count == 1 ? "" : "s");
-    } else {
-        lv_label_set_text_fmt(v->note,
-                              "%d conversation%s" RIFT_SEP "direct only: channels are not in "
-                              "the radio service",
-                              count, count == 1 ? "" : "s");
+        if (m->have_channel_fault) {
+            /* Said before anything else about this list, because it is the
+             * one thing here the mesh cannot put right: a channel key is
+             * not re-advertised by anybody. */
+            lv_label_set_text_fmt(v->note,
+                                  "The radio service could not read its stored channels: %s",
+                                  m->channel_fault);
+        } else if (count == 0) {
+            if (!m->messages_valid || !m->channels_valid) {
+                lv_label_set_text(v->note, "Waiting for meshcored.");
+            } else {
+                lv_label_set_text(v->note,
+                                  "No conversations and no channels. A channel is joined with "
+                                  "its key on the radio service, not here.");
+            }
+        } else if (m->stale) {
+            lv_label_set_text_fmt(v->note, "%d row%s, cached: meshcored is not answering.",
+                                  count, count == 1 ? "" : "s");
+        } else if (channels > 0) {
+            lv_label_set_text_fmt(v->note,
+                                  "%d direct" RIFT_SEP "%d channel%s" RIFT_SEP
+                                  "nothing acknowledges a channel message",
+                                  count - channels, channels, channels == 1 ? "" : "s");
+        } else {
+            lv_label_set_text_fmt(v->note,
+                                  "%d conversation%s" RIFT_SEP "no channels joined",
+                                  count, count == 1 ? "" : "s");
+        }
     }
 
     rift_thread_refresh(v->thread, peer, open_conv);

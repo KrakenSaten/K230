@@ -29,6 +29,14 @@
 
 #include <Stream.h>
 
+/* MAX_GROUP_CHANNELS, which decides the size of BaseChatMesh's channel table
+ * and therefore that class's layout. It is reached from here, and not from a
+ * -D in two makefiles, because BaseChatMesh.h and ChannelDetails.h both
+ * include <Arduino.h> before they expand it - so no translation unit anywhere
+ * in this repository can see the class with a different value. mc_channels.h
+ * explains the rest. */
+#include "mc_channels.h"
+
 /* avr-libc's ltoa(), which the Arduino cores inherit and which MeshCore's
  * float formatter calls (TxtDataHelpers.cpp, _ftoa). It is not in the C
  * library on Linux, so it is supplied here rather than by editing a vendored

@@ -97,18 +97,81 @@ static cJSON *node_json(const struct mcd_node *n)
     return o;
 }
 
+/* A channel, as a client sees it.
+ *
+ * The key is NOT here, and there is no method that reports it. It is written
+ * to channels.v1 at 0600 and read back, and that is the whole of its travel:
+ * anything else would put a shared secret into an IPC frame, a log, or a
+ * screenshot of a screen. What a client gets is the slot it names the channel
+ * by, the local name, the one-byte hash MeshCore actually puts on the air,
+ * and how long the key is - enough to show a channel and to tell two apart,
+ * and not enough to join one.
+ */
+static cJSON *channel_json(const struct mcd_channel *c)
+{
+    cJSON *o = cJSON_CreateObject();
+    char hash[3];
+
+    cJSON_AddNumberToObject(o, "channel", (double)c->slot);
+    /* A channel name comes from whoever typed it and is read back from a
+     * file, so it goes through the sanitiser like any other remote string. */
+    add_remote_text(o, "name", c->name);
+    if (mcd_hex_encode(&c->hash, 1, hash, sizeof(hash))) {
+        cJSON_AddStringToObject(o, "channel_hash", hash);
+    }
+    cJSON_AddNumberToObject(o, "key_bits", (double)c->key_bits);
+    /* The longest body mesh.send will take on this channel. It is smaller
+     * than a direct message's 160 because MeshCore puts this node's name
+     * inside the payload, and it is given rather than left to be worked out
+     * because getting it wrong means a refusal a composer could have
+     * prevented. */
+    cJSON_AddNumberToObject(o, "text_limit", (double)c->text_limit);
+    /* Said once, here, rather than left to be inferred from a state that
+     * never changes: a group frame is flooded and unacknowledged. */
+    cJSON_AddBoolToObject(o, "ack_expected", false);
+    return o;
+}
+
 static cJSON *message_json(const struct mcd_message *m)
 {
     cJSON *o = cJSON_CreateObject();
 
     cJSON_AddNumberToObject(o, "id", (double)m->id);
     cJSON_AddStringToObject(o, "direction", m->outgoing ? "out" : "in");
-    add_key(o, "peer_public_key", m->peer_key, MCD_PUB_KEY_LEN);
-    add_remote_text(o, "peer_name", m->peer_name);
+    /* Which of the two kinds this is, said plainly rather than left to be
+     * deduced from which fields are present. The two carry different
+     * identities and different delivery semantics, and a client that guessed
+     * from a missing field would get it wrong the first time a field was
+     * added. */
+    cJSON_AddStringToObject(o, "kind", m->is_channel ? "channel" : "direct");
+    if (m->is_channel) {
+        char hash[3];
+
+        cJSON_AddNumberToObject(o, "channel", (double)m->channel_slot);
+        add_remote_text(o, "channel_name", m->channel_name);
+        if (mcd_hex_encode(&m->channel_hash, 1, hash, sizeof(hash))) {
+            cJSON_AddStringToObject(o, "channel_hash", hash);
+        }
+        /* The name the sender CLAIMED. MeshCore writes it into the encrypted
+         * payload and nothing signs it, so it is a claim and not an identity
+         * - which is why it is not called peer_name, and why there is no
+         * peer_public_key here at all. A group frame names no node. */
+        if (m->sender_name[0]) {
+            add_remote_text(o, "sender_name", m->sender_name);
+        }
+    } else {
+        add_key(o, "peer_public_key", m->peer_key, MCD_PUB_KEY_LEN);
+        add_remote_text(o, "peer_name", m->peer_name);
+    }
     add_remote_text(o, "text", m->text);
     cJSON_AddNumberToObject(o, "timestamp", (double)m->timestamp);
     cJSON_AddNumberToObject(o, "mono_ms", (double)m->mono_ms);
     cJSON_AddStringToObject(o, "state", mcd_msg_state_name(m->state));
+    /* Whether an acknowledgement can ever arrive for this message. False for
+     * everything on a channel. A client that drew "delivered" or "no ack"
+     * where this is false would be inventing a guarantee MeshCore does not
+     * offer. */
+    cJSON_AddBoolToObject(o, "ack_expected", m->ack_expected);
     if (m->ack_known) {
         cJSON_AddNumberToObject(o, "ack_mono_ms", (double)m->ack_mono_ms);
     }
@@ -155,6 +218,15 @@ cJSON *mcd_event_node(const struct mcd_node *n, const char *reason)
     cJSON_AddStringToObject(data, "reason", reason);
     cJSON_AddItemToObject(data, "node", node_json(n));
     return pocketipc_event("mesh.node", data);
+}
+
+cJSON *mcd_event_channel(const struct mcd_channel *c, const char *reason)
+{
+    cJSON *data = cJSON_CreateObject();
+
+    cJSON_AddStringToObject(data, "reason", reason);
+    cJSON_AddItemToObject(data, "channel", channel_json(c));
+    return pocketipc_event("mesh.channel", data);
 }
 
 cJSON *mcd_event_message(const struct mcd_message *m)
@@ -284,9 +356,16 @@ static cJSON *m_status(struct mcd *d)
                             (double)st.path_payloads_refused);
     cJSON_AddNumberToObject(counters, "nodes_unretained", (double)st.nodes_unretained);
     cJSON_AddNumberToObject(counters, "contacts_full", (double)st.contacts_full);
+    /* Group frames whose channel hash matched none of ours. Ordinary on any
+     * mesh carrying more than one channel - the hash is one byte - and the
+     * number is what says whether this node is simply hearing other people's
+     * channels or is failing to open its own. */
+    cJSON_AddNumberToObject(counters, "channel_frames_unmatched",
+                            (double)st.channel_frames_unmatched);
     cJSON_AddItemToObject(o, "counters", counters);
 
     cJSON_AddNumberToObject(o, "nodes", (double)st.contacts);
+    cJSON_AddNumberToObject(o, "channels", (double)st.channels);
     cJSON_AddNumberToObject(o, "messages", (double)mcd_runtime_message_count(d->rt));
     cJSON_AddNumberToObject(o, "packets_free", (double)st.packets_free);
     cJSON_AddNumberToObject(o, "packets_total", (double)st.packets_total);
@@ -299,6 +378,12 @@ static cJSON *m_status(struct mcd *d)
 
         if (mcd_runtime_state_fault(d->rt, fault, sizeof(fault))) {
             add_remote_text(o, "state_fault", fault);
+        }
+        /* And the same for the channels, separately, because the two losses
+         * are not comparable: the mesh re-advertises a forgotten node, and
+         * nothing anywhere can give back a channel key. */
+        if (mcd_runtime_channel_fault(d->rt, fault, sizeof(fault))) {
+            add_remote_text(o, "channel_fault", fault);
         }
     }
     return o;
@@ -390,6 +475,162 @@ static cJSON *m_node(struct mcd *d, const cJSON *params, int *code, char *err, s
     return node_json(&node);
 }
 
+/* Take a channel slot from a request. Returns the slot, or -1 with a message
+ * written to err.
+ *
+ * A slot is an integer and nothing else: no prefix matching, no name lookup.
+ * Two channels may legitimately carry the same name - the name is local and
+ * nobody has to agree about it - so a name is not an identity, and resolving
+ * one would mean guessing which the caller meant. */
+static int params_slot(const cJSON *params, char *err, size_t errlen)
+{
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(params, "channel");
+    double d;
+
+    if (!cJSON_IsNumber(v)) {
+        snprintf(err, errlen, "channel must be a channel slot number");
+        return -1;
+    }
+    d = v->valuedouble;
+    /* Compared as a double before it is cast: converting a value outside
+     * int's range is undefined, and this one came from a client. */
+    if (!(d >= 0.0 && d < (double)MCD_MAX_CHANNELS) || d != (double)(int)d) {
+        snprintf(err, errlen, "channel must be a whole number from 0 to %d",
+                 MCD_MAX_CHANNELS - 1);
+        return -1;
+    }
+    return (int)d;
+}
+
+static cJSON *m_channels(struct mcd *d)
+{
+    cJSON *o = cJSON_CreateObject();
+    cJSON *arr = cJSON_CreateArray();
+    int n = mcd_runtime_channel_count(d->rt);
+    int i;
+
+    for (i = 0; i < n; i++) {
+        struct mcd_channel c;
+
+        if (mcd_runtime_channel_at(d->rt, i, &c)) {
+            cJSON_AddItemToArray(arr, channel_json(&c));
+        }
+    }
+    cJSON_AddItemToObject(o, "channels", arr);
+    cJSON_AddNumberToObject(o, "count", (double)n);
+    cJSON_AddNumberToObject(o, "max", (double)MCD_MAX_CHANNELS);
+    /* Unlike the message list, this one does survive a restart. Said here
+     * for the same reason mesh.messages says the opposite: a client should
+     * not have to find out by rebooting. */
+    cJSON_AddBoolToObject(o, "persistent", true);
+    return o;
+}
+
+static cJSON *m_channel(struct mcd *d, const cJSON *params, int *code, char *err, size_t errlen)
+{
+    struct mcd_channel c;
+    int slot = params_slot(params, err, errlen);
+
+    if (slot < 0) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        return NULL;
+    }
+    if (!mcd_runtime_channel_by_slot(d->rt, slot, &c)) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "there is no channel in slot %d", slot);
+        return NULL;
+    }
+    return channel_json(&c);
+}
+
+/* Join a channel.
+ *
+ * This is the only way a key reaches the service, and it is deliberately the
+ * only way: nothing here derives a key from a name, generates one, or ships
+ * a well-known one. A channel exists because somebody supplied the secret
+ * for it. */
+static cJSON *m_channel_add(struct mcd *d, const cJSON *params, int *code, char *err,
+                            size_t errlen)
+{
+    const cJSON *jname = cJSON_GetObjectItemCaseSensitive(params, "name");
+    const cJSON *jkey = cJSON_GetObjectItemCaseSensitive(params, "key");
+    struct mcd_channel c;
+    enum mcd_channel_result rc;
+
+    if (!cJSON_IsString(jname) || jname->valuestring == NULL ||
+        !mcd_text_acceptable(jname->valuestring, MCD_CHANNEL_NAME_LEN - 1)) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen,
+                 "name must be 1 to %d bytes and hold no control characters",
+                 MCD_CHANNEL_NAME_LEN - 1);
+        return NULL;
+    }
+    if (!cJSON_IsString(jkey) || jkey->valuestring == NULL || jkey->valuestring[0] == '\0') {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "key must be a base64 pre-shared key of 16 or 32 bytes");
+        return NULL;
+    }
+    rc = mcd_runtime_channel_add(d->rt, jname->valuestring, jkey->valuestring, &c);
+    switch (rc) {
+    case MCD_CHANNEL_OK:
+        return channel_json(&c);
+    case MCD_CHANNEL_BAD_KEY:
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen,
+                 "key must be standard base64 decoding to exactly 16 or 32 non-zero bytes");
+        return NULL;
+    case MCD_CHANNEL_AMBIGUOUS_KEY:
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen,
+                 "that 32-byte key has an all-zero upper half, which MeshCore reads as a "
+                 "16-byte key; the two derive different channel hashes, so peers may not "
+                 "reach this node on it");
+        return NULL;
+    case MCD_CHANNEL_BAD_NAME:
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "name must be 1 to %d bytes", MCD_CHANNEL_NAME_LEN - 1);
+        return NULL;
+    case MCD_CHANNEL_FULL:
+        *code = POCKETIPC_ERR_BUSY;
+        snprintf(err, errlen, "all %d channel slots are taken", MCD_MAX_CHANNELS);
+        return NULL;
+    case MCD_CHANNEL_DUPLICATE:
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "that key is already a channel on this node");
+        return NULL;
+    case MCD_CHANNEL_NOT_FOUND:
+    case MCD_CHANNEL_FAILED:
+    default:
+        *code = POCKETIPC_ERR_BACKEND;
+        snprintf(err, errlen, "the MeshCore runtime could not install that channel");
+        return NULL;
+    }
+}
+
+static cJSON *m_channel_remove(struct mcd *d, const cJSON *params, int *code, char *err,
+                               size_t errlen)
+{
+    int slot = params_slot(params, err, errlen);
+    cJSON *o;
+
+    if (slot < 0) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        return NULL;
+    }
+    if (mcd_runtime_channel_remove(d->rt, slot) != MCD_CHANNEL_OK) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "there is no channel in slot %d", slot);
+        return NULL;
+    }
+    o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "removed", true);
+    cJSON_AddNumberToObject(o, "channel", (double)slot);
+    /* The key is gone from this node, and it was the only copy here. Said in
+     * the answer because it cannot be undone from the mesh. */
+    cJSON_AddBoolToObject(o, "key_forgotten", true);
+    return o;
+}
+
 static cJSON *m_messages(struct mcd *d, const cJSON *params)
 {
     cJSON *o = cJSON_CreateObject();
@@ -429,18 +670,51 @@ static cJSON *m_messages(struct mcd *d, const cJSON *params)
     return o;
 }
 
+/* mesh.send: to a node, or to a channel.
+ *
+ * Exactly one of `to` and `channel` is given, and giving both is a refusal
+ * rather than a precedence rule. They are different destinations with
+ * different delivery semantics, and a caller that supplied both has made a
+ * mistake worth telling them about - silently preferring one would send a
+ * message somewhere the caller did not mean.
+ *
+ * The direct half below is unchanged: same parameters, same answers, same
+ * errors. A client written against the previous API is not affected by the
+ * channel half existing. */
 static cJSON *m_send(struct mcd *d, const cJSON *params, int *code, char *err, size_t errlen)
 {
     uint8_t prefix[MCD_PUB_KEY_LEN];
     const cJSON *jtext = cJSON_GetObjectItemCaseSensitive(params, "text");
+    const cJSON *jto = cJSON_GetObjectItemCaseSensitive(params, "to");
+    const cJSON *jchan = cJSON_GetObjectItemCaseSensitive(params, "channel");
     uint64_t msg_id = 0;
     uint32_t est = 0;
     enum mcd_send_result rc;
-    int n = params_key(params, "to", prefix, sizeof(prefix), err, errlen);
+    int slot = -1;
+    int n = 0;
 
-    if (n < 0) {
+    if (jto != NULL && jchan != NULL) {
         *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "give either to or channel, not both");
         return NULL;
+    }
+    if (jto == NULL && jchan == NULL) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "give to (a node) or channel (a channel slot)");
+        return NULL;
+    }
+    if (jchan != NULL) {
+        slot = params_slot(params, err, errlen);
+        if (slot < 0) {
+            *code = POCKETIPC_ERR_INVALID_PARAMS;
+            return NULL;
+        }
+    } else {
+        n = params_key(params, "to", prefix, sizeof(prefix), err, errlen);
+        if (n < 0) {
+            *code = POCKETIPC_ERR_INVALID_PARAMS;
+            return NULL;
+        }
     }
     if (!cJSON_IsString(jtext) || jtext->valuestring == NULL) {
         *code = POCKETIPC_ERR_INVALID_PARAMS;
@@ -454,7 +728,11 @@ static cJSON *m_send(struct mcd *d, const cJSON *params, int *code, char *err, s
         return NULL;
     }
 
-    rc = mcd_runtime_send_text(d->rt, prefix, (size_t)n, jtext->valuestring, &msg_id, &est);
+    if (slot >= 0) {
+        rc = mcd_runtime_send_channel_text(d->rt, slot, jtext->valuestring, &msg_id);
+    } else {
+        rc = mcd_runtime_send_text(d->rt, prefix, (size_t)n, jtext->valuestring, &msg_id, &est);
+    }
     switch (rc) {
     case MCD_SEND_ACCEPTED_FLOOD:
     case MCD_SEND_ACCEPTED_DIRECT: {
@@ -464,7 +742,18 @@ static cJSON *m_send(struct mcd *d, const cJSON *params, int *code, char *err, s
         cJSON_AddNumberToObject(o, "message_id", (double)msg_id);
         cJSON_AddStringToObject(o, "route",
                                 rc == MCD_SEND_ACCEPTED_DIRECT ? "direct" : "flood");
-        cJSON_AddNumberToObject(o, "ack_timeout_ms", (double)est);
+        if (slot >= 0) {
+            cJSON_AddNumberToObject(o, "channel", (double)slot);
+            /* No ack_timeout_ms, because there is no ACK to time out: a
+             * group frame is flooded and unacknowledged. Reporting a timeout
+             * of 0 would read as "answered instantly", and reporting any
+             * other number would be a promise about something that will
+             * never arrive. The field is absent, and this says why. */
+            cJSON_AddBoolToObject(o, "ack_expected", false);
+        } else {
+            cJSON_AddNumberToObject(o, "ack_timeout_ms", (double)est);
+            cJSON_AddBoolToObject(o, "ack_expected", true);
+        }
         /* Accepted by the protocol core, which is not the same as
          * transmitted: the frame is queued for the dispatcher, goes to
          * radiod as an asynchronous transmit, and its outcome arrives as a
@@ -480,9 +769,28 @@ static cJSON *m_send(struct mcd *d, const cJSON *params, int *code, char *err, s
         *code = POCKETIPC_ERR_INVALID_PARAMS;
         snprintf(err, errlen, "no single node matches that public key prefix");
         return NULL;
+    case MCD_SEND_NO_CHANNEL:
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "there is no channel in slot %d", slot);
+        return NULL;
     case MCD_SEND_TOO_LONG:
         *code = POCKETIPC_ERR_INVALID_PARAMS;
-        snprintf(err, errlen, "the text does not fit a MeshCore message");
+        if (slot >= 0) {
+            struct mcd_channel c;
+
+            /* The real limit, not the 160 a direct message gets: MeshCore
+             * puts this node's name inside a channel payload. Upstream would
+             * truncate silently; this refuses and says how much fits. */
+            if (mcd_runtime_channel_by_slot(d->rt, slot, &c)) {
+                snprintf(err, errlen,
+                         "the text must be 1 to %d bytes on this channel, because this "
+                         "node's name is sent inside the message", c.text_limit);
+            } else {
+                snprintf(err, errlen, "the text does not fit a MeshCore channel message");
+            }
+        } else {
+            snprintf(err, errlen, "the text does not fit a MeshCore message");
+        }
         return NULL;
     case MCD_SEND_FAILED:
     default:
@@ -551,6 +859,14 @@ void mcd_handle_request(struct pocketipc_server *s, struct pocketipc_client *c, 
         result = m_nodes(d);
     } else if (strcmp(name, "mesh.node") == 0) {
         result = m_node(d, params, &code, err, sizeof(err));
+    } else if (strcmp(name, "mesh.channels") == 0) {
+        result = m_channels(d);
+    } else if (strcmp(name, "mesh.channel") == 0) {
+        result = m_channel(d, params, &code, err, sizeof(err));
+    } else if (strcmp(name, "mesh.channel_add") == 0) {
+        result = m_channel_add(d, params, &code, err, sizeof(err));
+    } else if (strcmp(name, "mesh.channel_remove") == 0) {
+        result = m_channel_remove(d, params, &code, err, sizeof(err));
     } else if (strcmp(name, "mesh.messages") == 0) {
         result = m_messages(d, params);
     } else if (strcmp(name, "mesh.send") == 0) {

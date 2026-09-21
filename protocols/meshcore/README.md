@@ -28,6 +28,55 @@ Header-only and also in the boundary: `MeshCore.h`, `helpers/SimpleMeshTables.h`
 (the duplicate table), `helpers/ContactInfo.h`, `helpers/ChannelDetails.h`,
 `helpers/UTF8Helpers.h`.
 
+### Group channels
+
+`MAX_GROUP_CHANNELS` is **defined**, so `BaseChatMesh`'s channel table and the
+group send and receive paths are compiled. A channel in MeshCore is a
+pre-shared key and nothing else:
+
+| | |
+| --- | --- |
+| identity | a 16- or 32-byte secret. Two nodes are on the same channel when they hold the same bytes. |
+| routing hint | one byte, `SHA-256(secret)[0]`, carried in the clear at the head of the frame (`Mesh.cpp:227`). Collisions are ordinary — a receiver tries up to four matching channels and lets the MAC decide (`Mesh.cpp:236-246`). |
+| name | **local**. It is never transmitted, and two nodes on one channel routinely call it different things. |
+| receive | `Mesh::onRecvPacket` → `searchChannelsByHash()` → `Utils::MACThenDecrypt` → `BaseChatMesh::onGroupDataRecv` → `onChannelMessageRecv()`. |
+| send | `BaseChatMesh::sendGroupMessage()` → `Mesh::createGroupDatagram()` → `sendFlood()`. |
+| sender identity | none. `sendGroupMessage()` writes `"<name>: "` into the *encrypted payload* (`BaseChatMesh.cpp:492`); nothing signs it. The name on a channel message is a claim. |
+| acknowledgement | none. `PAYLOAD_TYPE_GRP_TXT` is flooded and unacknowledged: there is no `expected_ack`, no timeout and no delivery report. |
+
+Two first-party files make that possible, both in `compat/`:
+
+- **`mc_channels.h`** holds the `MAX_GROUP_CHANNELS` definition. It is a
+  header rather than a `-D` because the macro decides `BaseChatMesh`'s
+  *layout* (`channels[MAX_GROUP_CHANNELS]`), and two makefiles compile
+  against that class — this library and `services/meshcored`. Given through
+  `-D` in two places, a change to one would produce a library and a service
+  that disagree about where every member after `channels` lives: a
+  one-definition-rule violation the linker cannot see. It is reached the one
+  way upstream guarantees — `BaseChatMesh.h:3` and `ChannelDetails.h:3` both
+  include `<Arduino.h>` before expanding it, and `compat/Arduino.h` includes
+  `mc_channels.h`. There is no include order in which a translation unit sees
+  the class without first seeing the value.
+- **`base64.hpp`**, because `BaseChatMesh.cpp:878` includes `<base64.hpp>`
+  inside the channel guard and upstream satisfies it with an Arduino library
+  it does **not** vendor (`densaugeo/base64 @ ~1.4.0`, `platformio.ini:180`).
+  There is therefore no upstream source here to be faithful to. Ours differs
+  from densaugeo's in two deliberate ways, both recorded in the file: it
+  writes no terminator past the decoded bytes (densaugeo's `output[len] = 0`
+  runs one byte past a full 32-byte `GroupChannel::secret`), and the
+  capacity-less three-argument form caps at 32 bytes — the size of the only
+  destination any caller in this boundary passes — instead of overrunning it.
+  It is strict: a character outside the RFC 4648 alphabet is a refusal, not a
+  zero byte, because a decoder that maps unknown characters to `0` turns a
+  mistyped key into a *different* key that still appears to work.
+
+`BaseChatMesh::addChannel()` is **not called** by this library or by
+`services/meshcored`. Upstream's own firmware says why not
+(`examples/companion_radio/MyMesh.h:343-347`): it writes at `num_channels`,
+which counts only channels added through that method and stays 0 for channels
+restored from storage, so it silently overwrites one. Channels are installed
+through `setChannel()`, which derives the hash and takes a slot.
+
 Crypto, from the two libraries MeshCore itself uses:
 
 - `vendor/RIFT/lib/ed25519` (orlp's ref10 Ed25519): `keypair.c`, `sign.c`,
@@ -65,10 +114,10 @@ Left out of the boundary on purpose, all present in the upstream tree:
   `ClientACL.*`, `TransportKeyStore.*`, `RegionMap.*`.
 - **Sensors and RTC hardware.** `helpers/sensors/*`, `AutoDiscoverRTCClock.*`,
   `RTC_RX8130CE.*`.
-- **Group channels.** Compiled out: `MAX_GROUP_CHANNELS` is left undefined, so
-  `BaseChatMesh`'s channel code — and the `<base64.hpp>` Arduino library it
-  needs — is not built. Adding channels later means defining that macro and
-  supplying a base64 decoder.
+- **Channel *policy*.** Group channels themselves are in (see above), but
+  which channels a node holds, what they are called, whether they survive a
+  restart and who may add one are not this library's business. It compiles
+  the table and the two code paths; `services/meshcored` owns the rest.
 
 ## Upstream
 
@@ -242,9 +291,9 @@ them and reached with `-isystem`, so their warnings do not drown ours.
 
 | Suite | Checks | Covers |
 | --- | --- | --- |
-| `tests/meshcore_core_test.cpp` | 103 | packet encode/decode (flood, direct with path, transport codes), `path_len` bit packing, the duplicate table, hex, UTF-8 truncation, Ed25519 sign/verify and tamper rejection, X25519 agreement, AES-128 + MAC round trip, every single-bit MAC and ciphertext corruption rejected, the zero-length seal boundary, SHA-256 against the published vector, advert app-data |
+| `tests/meshcore_core_test.cpp` | 129 | packet encode/decode (flood, direct with path, transport codes), `path_len` bit packing, the duplicate table, hex, UTF-8 truncation, Ed25519 sign/verify and tamper rejection, X25519 agreement, AES-128 + MAC round trip, every single-bit MAC and ciphertext corruption rejected, the zero-length seal boundary, SHA-256 against the published vector, advert app-data, the base64 channel-key decoder (RFC 4648 vectors, every refusal, the capacity, the absent terminator) |
 | `tests/meshcore_port_test.cpp` | 110 | the monotonic clock, dispatcher timing at 2^32−1 / 2^32 / 2^32+1, the outbound queue across the same boundary, the widened-32-bit failure demonstration, the host RNG — both sources, the fallback, the interrupted, short and zero returns, and both failing — the wall clock, the log sink, a full mesh node running a loop with no hardware, and the delayed inbound queue |
-| `tests/meshcore_smoke_test.cpp` | 67 | two nodes over an in-memory air: signed ADVERT both ways, forged advert rejected, flood text A→B, PATH+ACK back, a second **directed** text and its ACK, and a third node that has heard the adverts, holds real contact keys for both, captures the directed frame off the air and still cannot open it |
+| `tests/meshcore_smoke_test.cpp` | 111 | two nodes over an in-memory air: signed ADVERT both ways, forged advert rejected, flood text A→B, PATH+ACK back, a second **directed** text and its ACK, and a third node that has heard the adverts, holds real contact keys for both, captures the directed frame off the air and still cannot open it. Then **channels**: the hash derived from the key and not the name, a message across, the sender not hearing itself, an identical frame deduplicated, a listener with a real key of its own excluded, a deliberately colliding one-byte hash refused by the MAC, a node holding both colliding keys opening it once under the right one, the empty-slot debt and its guard, a 128-bit key and the two derivations that differ — and a direct message still working afterwards |
 | `tests/meshcore_lint.sh` | 19 | the boundary itself, statically: no LVGL/DRM/GPIO/RadioLib/SPI/RTOS symbol demanded, no Arduino timing call, `clock_gettime` actually used, no test hook in the shipped library, no vendored file edited, added or shadowed **in either tree**, both checkouts at their pinned commits, the build not having bypassed the pin, pins matching `meshcore-frame`, nothing installed |
 | `tests/meshcore_build_deps_test.sh` | 35 | the build itself, by building: vendored headers reaching the dependency files across both trees, a changed header rebuilding what included it, a moved checkout rebuilding everything, `make -j` compiling nothing before the pins are validated, and the lint failing on each vendor mutation in turn |
 
@@ -329,7 +378,33 @@ should be rewritten to assert the fixed behaviour.
    life of the process, a fixed pool — but it means a packet manager cannot be
    recycled at runtime. Suppressed for LeakSanitizer; see `lsan.supp`.
 
-5. **`BaseChatMesh::onAdvertRecv()` never sets `is_new`.**
+5. **An unused channel slot is a channel whose key is 32 zero bytes.**
+   `BaseChatMesh::searchChannelsByHash()`
+   (`vendor/RIFT/src/helpers/BaseChatMesh.cpp:367-376`) walks all
+   `MAX_GROUP_CHANNELS` slots and compares hash bytes. A slot with no channel
+   in it is all zeroes, so its hash byte is `0` and its secret is 32 zero
+   bytes — and any frame whose channel-hash byte is `0` therefore matches
+   every free slot and is offered to that key. The key is not a secret, so
+   anybody can build such a frame, and an unguarded node accepts the message
+   on a channel it never joined.
+   Upstream's firmware does not meet this because its slot 0 always holds the
+   public channel and its screens skip empty slots; a service whose table
+   starts empty meets it on the first frame. `services/meshcored` overrides
+   `searchChannelsByHash()` to offer only occupied slots.
+   Tests: `meshcore_smoke_test.cpp`, `test_channels` — the fault on an
+   unguarded subclass and the fix on a guarded one, side by side.
+
+6. **`setChannel()` guesses the key length from its content.**
+   `vendor/RIFT/src/helpers/BaseChatMesh.cpp:896-906` hashes over 16 bytes
+   when `secret[16..31]` are all zero and over 32 otherwise, so a genuine
+   256-bit key whose upper half happens to be zero is hashed as a 128-bit one
+   — and `addChannel()`, which uses the *decoded* length instead, would hash
+   the same key differently. Two nodes could then derive different hashes for
+   one key and never route to each other. `services/meshcored` refuses such a
+   key rather than joining a channel its peers may hash differently.
+   Tests: `meshcore_smoke_test.cpp`, `test_channels`.
+
+7. **`BaseChatMesh::onAdvertRecv()` never sets `is_new`.**
    `vendor/RIFT/src/helpers/BaseChatMesh.cpp:154` declares `bool is_new = false`
    and line 198 passes it to `onDiscoveredContact()` without it ever being
    assigned, so a contact added for the first time is reported as not new.

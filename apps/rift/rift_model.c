@@ -103,6 +103,10 @@ void rift_model_service_lost(struct rift_model *m, const char *reason)
     /* The messages stay too, and for the same reason; what stops being true
      * is that they are complete. The next connection re-reads them. */
     m->messages_valid = 0;
+    /* The channels stay and stop being current, the same way. They are the
+     * service's table and it may have changed while nobody was looking, so
+     * the next connection re-reads it. */
+    m->channels_valid = 0;
     /* A submission that was in flight when the socket went has no answer
      * coming: nothing on this side knows whether it reached the air, and
      * saying so is the only honest answer. */
@@ -127,6 +131,7 @@ void rift_model_service_found(struct rift_model *m)
     }
     m->stale = 0;
     m->snapshot_valid = 0;
+    m->channels_valid = 0;
     if (m->state == RIFT_SVC_ABSENT) {
         m->state = RIFT_SVC_UNKNOWN;
         m->reason[0] = '\0';
@@ -351,6 +356,118 @@ int rift_model_apply_nodes(struct rift_model *m, const cJSON *result)
     return 0;
 }
 
+/* ---- channels ----------------------------------------------------------- */
+
+const struct rift_channel *rift_model_channel(const struct rift_model *m, int slot)
+{
+    int i;
+
+    if (!m || slot < 0) {
+        return NULL;
+    }
+    for (i = 0; i < m->channel_count; i++) {
+        if (m->channels[i].slot == slot) {
+            return &m->channels[i];
+        }
+    }
+    return NULL;
+}
+
+/* One channel object, in the shape of docs/api/mesh.md, mesh.channels.
+ * Returns 0 when it was taken, -1 when it was not one this model will hold. */
+static int apply_channel(struct rift_model *m, const cJSON *o)
+{
+    struct rift_channel *ch = NULL;
+    const char *name;
+    const char *hash;
+    double d;
+    int slot;
+    int i;
+
+    if (!cJSON_IsObject(o)) {
+        return -1;
+    }
+    /* The slot is the identity a channel is named by, so a channel without a
+     * usable one is refused rather than held as a row nothing can address. */
+    if (!num_of(o, "channel", &d) || d < 0 || d >= (double)RIFT_MAX_CHANNELS ||
+        d != (double)(int)d) {
+        return -1;
+    }
+    slot = (int)d;
+    for (i = 0; i < m->channel_count; i++) {
+        if (m->channels[i].slot == slot) {
+            ch = &m->channels[i];
+            break;
+        }
+    }
+    if (!ch) {
+        if (m->channel_count >= RIFT_MAX_CHANNELS) {
+            /* The service holds more channels than this build can show.
+             * Counted rather than silently dropped, so a screen can say the
+             * list is short instead of implying it is complete. */
+            m->channels_dropped++;
+            return -1;
+        }
+        ch = &m->channels[m->channel_count++];
+    }
+    memset(ch, 0, sizeof(*ch));
+    ch->slot = slot;
+    name = str_of(o, "name");
+    if (name && name[0]) {
+        rift_utf8_copy(ch->name, sizeof(ch->name), name);
+        ch->have_name = 1;
+    }
+    hash = str_of(o, "channel_hash");
+    if (hex_only(hash, 2)) {
+        snprintf(ch->hash, sizeof(ch->hash), "%s", hash);
+        ch->have_hash = 1;
+    }
+    if (num_of(o, "key_bits", &d)) {
+        ch->have_key_bits = 1;
+        ch->key_bits = (int)d;
+    }
+    if (num_of(o, "text_limit", &d) && d > 0) {
+        ch->have_text_limit = 1;
+        ch->text_limit = (int)d;
+    }
+    return 0;
+}
+
+int rift_model_apply_channels(struct rift_model *m, const cJSON *result)
+{
+    const cJSON *arr;
+    const cJSON *item;
+    double d;
+
+    if (!m || !cJSON_IsObject(result)) {
+        return -1;
+    }
+    arr = cJSON_GetObjectItemCaseSensitive(result, "channels");
+    if (!cJSON_IsArray(arr)) {
+        return -1;
+    }
+    /* A snapshot replaces the list, for the reason mesh.nodes does: a
+     * channel the service no longer holds has been left, and keeping it here
+     * would offer a reader somewhere to write that nothing would carry. */
+    m->channel_count = 0;
+    memset(m->channels, 0, sizeof(m->channels));
+    cJSON_ArrayForEach (item, arr) {
+        if (apply_channel(m, item) != 0) {
+            m->events_malformed++;
+        }
+    }
+    m->have_channels_reported = num_of(result, "count", &d);
+    if (m->have_channels_reported) {
+        m->channels_reported = (int)d;
+    }
+    if (num_of(result, "max", &d)) {
+        m->channels_max = (int)d;
+    }
+    m->channels_valid = 1;
+    m->stale = 0;
+    return 0;
+}
+
 int rift_model_apply_identity(struct rift_model *m, const cJSON *result)
 {
     const char *key;
@@ -443,6 +560,17 @@ int rift_model_apply_status(struct rift_model *m, const cJSON *result)
     } else {
         m->have_state_fault = 0;
         m->state_fault[0] = '\0';
+    }
+    /* Separately from the node table's, because the two losses are not
+     * comparable: the mesh re-advertises a forgotten node, and nothing
+     * anywhere gives back a channel key. */
+    s = str_of(result, "channel_fault");
+    if (s && s[0]) {
+        m->have_channel_fault = 1;
+        rift_utf8_copy(m->channel_fault, sizeof(m->channel_fault), s);
+    } else {
+        m->have_channel_fault = 0;
+        m->channel_fault[0] = '\0';
     }
     counters = cJSON_GetObjectItemCaseSensitive(result, "counters");
     if (cJSON_IsObject(counters)) {
@@ -584,6 +712,44 @@ int rift_model_apply_event(struct rift_model *m, const char *name, const cJSON *
             record_path(n, n->have_heard, n->heard_mono_ms);
         }
         (void)reason;
+        m->stale = 0;
+        m->events_applied++;
+        return 0;
+    }
+    if (strcmp(name, "mesh.channel") == 0) {
+        const cJSON *ch = cJSON_GetObjectItemCaseSensitive(data, "channel");
+        const char *reason = str_of(data, "reason");
+        double d;
+
+        if (!cJSON_IsObject(ch) || !reason ||
+            !num_of(ch, "channel", &d) || d < 0 || d >= (double)RIFT_MAX_CHANNELS ||
+            d != (double)(int)d) {
+            m->events_malformed++;
+            return -1;
+        }
+        if (strcmp(reason, "removed") == 0) {
+            /* The channel is gone from the service. It goes from the list
+             * too, so nothing offers a reader somewhere to write that
+             * nothing would carry. Its messages stay: they happened, and
+             * they are still what this node heard. */
+            int slot = (int)d;
+            int i;
+
+            for (i = 0; i < m->channel_count; i++) {
+                if (m->channels[i].slot != slot) {
+                    continue;
+                }
+                for (; i + 1 < m->channel_count; i++) {
+                    m->channels[i] = m->channels[i + 1];
+                }
+                m->channel_count--;
+                memset(&m->channels[m->channel_count], 0, sizeof(m->channels[0]));
+                break;
+            }
+        } else if (apply_channel(m, ch) != 0) {
+            m->events_malformed++;
+            return -1;
+        }
         m->stale = 0;
         m->events_applied++;
         return 0;

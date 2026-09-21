@@ -744,6 +744,161 @@ if ev:
     ok("with its own text", ev["data"]["message"]["text"] == "and a second")
 
 # ---------------------------------------------------------------------------
+# 3b. channels, over the same two processes and the same air
+#
+# A channel is a pre-shared key. The two nodes below join the SAME key under
+# DIFFERENT names, which is the ordinary case: the name is local and never
+# goes on the air. Everything that follows is read through the real mesh.*
+# IPC, from two real meshcored processes, over the mock radio.
+# ---------------------------------------------------------------------------
+KEY_ONE = "//79/Pv6+fj39vX08/Lx8O/u7ezr6uno5+bl5OPi4eA="
+KEY_TWO = "kJeepayzusHIz9bd5Ovy+QAHDhUcIyoxOD9GTVRbYmk="
+
+ok("A holds no channels to begin with", ca.result("mesh.channels")["count"] == 0)
+ok("and the list says how many it could hold",
+   ca.result("mesh.channels")["max"] >= 1)
+ok("and that channels do survive a restart",
+   ca.result("mesh.channels")["persistent"] is True)
+
+cha = ca.result("mesh.channel_add", {"name": "HARNESS", "key": KEY_ONE})
+ok("A joins a channel", cha["channel"] == 0, cha)
+ok("the key itself is not reported back",
+   "key" not in cha and "secret" not in cha, cha)
+ok("but the hash MeshCore puts on the air is", len(cha["channel_hash"]) == 2, cha)
+ok("and the key length", cha["key_bits"] == 256, cha)
+ok("and the body length this node may send on it",
+   cha["text_limit"] == 160 - len("MESHCORED-A: "), cha)
+ok("and that nothing acknowledges a channel message",
+   cha["ack_expected"] is False, cha)
+
+ev = ca.wait_event("mesh.channel", seconds=10,
+                   match=lambda d: d["reason"] == "added")
+ok("an added event was raised", ev is not None, ev)
+ok("naming the channel", ev is not None and ev["data"]["channel"]["channel"] == 0, ev)
+ok("and not the key", ev is not None and "key" not in ev["data"]["channel"], ev)
+
+chb = cb.result("mesh.channel_add", {"name": "site-b", "key": KEY_ONE})
+ok("B joins the same key under another name", chb["name"] == "site-b", chb)
+ok("and derives the same channel hash from it",
+   chb["channel_hash"] == cha["channel_hash"], chb)
+
+one = ca.result("mesh.channel", {"channel": 0})
+ok("one channel can be read back by slot", one["name"] == "HARNESS", one)
+e = ca.error("mesh.channel", {"channel": 4})
+ok("an empty slot is refused", e["code"] == 2, e)
+e = ca.error("mesh.channel", {"channel": "nought"})
+ok("and so is a slot that is not a number", e["code"] == 2, e)
+e = ca.error("mesh.channel_add", {"name": "DUP", "key": KEY_ONE})
+ok("the same key twice is refused", e["code"] == 2, e)
+e = ca.error("mesh.channel_add", {"name": "BAD", "key": "not base64"})
+ok("a key that is not base64 is refused", e["code"] == 2, e)
+e = ca.error("mesh.channel_add", {"name": "", "key": KEY_TWO})
+ok("an empty name is refused", e["code"] == 2, e)
+
+# ---- a message on the channel ----
+res = ca.result("mesh.send", {"channel": 0, "text": "channel check"})
+ok("A sends on the channel", res["accepted"] is True, res)
+ok("flood, because that is all a group frame is", res["route"] == "flood", res)
+ok("it names the channel back", res["channel"] == 0, res)
+# No ack_timeout_ms: there is no ACK to time out, and a timeout of 0 would
+# read as "answered instantly".
+ok("no acknowledgement is expected", res["ack_expected"] is False, res)
+ok("and no ACK deadline is offered", "ack_timeout_ms" not in res, res)
+chan_msg_id = res["message_id"]
+
+ev = cb.wait_event("mesh.message", seconds=25)
+ok("B received a channel message", ev is not None)
+if ev:
+    m = ev["data"]["message"]
+    ok("marked as a channel message", m["kind"] == "channel", m)
+    ok("in the slot B holds that key in", m["channel"] == chb["channel"], m)
+    ok("under B's own name for it", m["channel_name"] == "site-b", m)
+    ok("with the hash that was on the air",
+       m["channel_hash"] == cha["channel_hash"], m)
+    # The whole payload, prefix and all. The prefix is the only sender
+    # identity a group frame has, and nothing signs it.
+    ok("the text is the whole payload", m["text"] == "MESHCORED-A: channel check", m)
+    ok("with the sender's claimed name parsed out",
+       m["sender_name"] == "MESHCORED-A", m)
+    ok("and no peer key, because a group frame names no node",
+       "peer_public_key" not in m, m)
+    ok("nor a peer name", "peer_name" not in m, m)
+    ok("and nothing will acknowledge it", m["ack_expected"] is False, m)
+
+# A's own copy, through the snapshot rather than the event.
+mine = [m for m in ca.result("mesh.messages")["messages"] if m["id"] == chan_msg_id]
+ok("A kept its own copy", len(mine) == 1, mine)
+if mine:
+    m = mine[0]
+    ok("as an outgoing channel message",
+       m["direction"] == "out" and m["kind"] == "channel", m)
+    ok("with the bytes the receiver saw", m["text"] == "MESHCORED-A: channel check", m)
+    # sent_flood is where this ends: nothing will ever move it on.
+    ok("its state is sent_flood", m["state"] == "sent_flood", m)
+    ok("and no acknowledgement is expected", m["ack_expected"] is False, m)
+
+# The direct messages from section 3 are still in the same list, unchanged,
+# and still marked as what they are.
+direct = [m for m in ca.result("mesh.messages")["messages"] if m["kind"] == "direct"]
+ok("the direct messages are still there", len(direct) >= 2, len(direct))
+ok("still carrying a peer public key",
+   all("peer_public_key" in m for m in direct), direct)
+ok("and still expecting an acknowledgement when they are ours",
+   all(m["ack_expected"] for m in direct if m["direction"] == "out"), direct)
+
+# ---- a channel B does not hold ----
+before = cb.result("mesh.status")["counters"]["channel_frames_unmatched"]
+ca.result("mesh.channel_add", {"name": "PRIVATE", "key": KEY_TWO})
+res = ca.result("mesh.send", {"channel": 1, "text": "not for you"})
+ok("A sends on a channel B has not joined", res["accepted"] is True, res)
+time.sleep(3)
+after = cb.result("mesh.status")["counters"]["channel_frames_unmatched"]
+ok("B counted a group frame it could not match", after > before, (before, after))
+held = [m for m in cb.result("mesh.messages")["messages"]
+        if m.get("text") == "MESHCORED-A: not for you"]
+ok("and did not read it", held == [], held)
+
+# ---- the length limit is a refusal, not a truncation ----
+limit = cha["text_limit"]
+res = ca.result("mesh.send", {"channel": 0, "text": "y" * limit})
+ok("a body of exactly the limit is accepted", res["accepted"] is True, res)
+e = ca.error("mesh.send", {"channel": 0, "text": "y" * (limit + 1)})
+ok("one byte more is refused rather than cut", e["code"] == 2, e)
+ok("and the message says how much fits", str(limit) in e["message"], e)
+
+# ---- addressing ----
+e = ca.error("mesh.send", {"to": ident_b["public_key"][:8], "channel": 0, "text": "both"})
+ok("giving both a node and a channel is refused", e["code"] == 2, e)
+e = ca.error("mesh.send", {"text": "neither"})
+ok("and giving neither is refused", e["code"] == 2, e)
+e = ca.error("mesh.send", {"channel": 6, "text": "nobody"})
+ok("sending on an empty slot is refused", e["code"] == 2, e)
+
+# ---- status ----
+st = ca.result("mesh.status")
+ok("the status counts the channels", st["channels"] == 2, st)
+ok("and reports no channel fault", "channel_fault" not in st, st)
+
+# ---- leaving ----
+res = ca.result("mesh.channel_remove", {"channel": 1})
+ok("A leaves the second channel", res["removed"] is True, res)
+ok("and is told the key is gone", res["key_forgotten"] is True, res)
+ev = ca.wait_event("mesh.channel", seconds=10,
+                   match=lambda d: d["reason"] == "removed")
+ok("a removed event was raised", ev is not None, ev)
+ok("naming the slot that was left",
+   ev is not None and ev["data"]["channel"]["channel"] == 1, ev)
+ok("A now holds one channel", ca.result("mesh.channels")["count"] == 1)
+# The slot is emptied rather than compacted, so the channel a client already
+# knows by slot 0 is still in slot 0.
+ok("and the one it kept is still in the slot it was in",
+   ca.result("mesh.channel", {"channel": 0})["name"] == "HARNESS")
+e = ca.error("mesh.channel_remove", {"channel": 1})
+ok("leaving it twice is refused", e["code"] == 2, e)
+e = ca.error("mesh.send", {"channel": 1, "text": "gone"})
+ok("and sending on it is refused", e["code"] == 2, e)
+
+# ---------------------------------------------------------------------------
 # 4. malformed and hostile radio.rx
 # ---------------------------------------------------------------------------
 before = ca.result("mesh.status")["counters"]
