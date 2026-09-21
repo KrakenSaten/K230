@@ -18,7 +18,7 @@ below it has.
 
 | | |
 | --- | --- |
-| **HOST VERIFIED** | The protocol, the service, the IPC and the app, on a build host: 1 900+ checks across the suites, plain and under ASan + UBSan with leak detection. Two whole `meshcored` processes exchanging channel messages over a mock air. The channel key never leaving the service. Persistence across a restart. |
+| **HOST VERIFIED** | The protocol, the service, the IPC and the app, on a build host: **1 865 named checks**, 0 failures, from a clean rebuild — plus the lints and the two `meshcored` integration suites, which count failures rather than checks. The RIFT suites run again under ASan + UBSan with leak detection. Two whole `meshcored` processes exchange channel messages over a mock air. The channel key never leaves the service. Channels survive a restart. |
 | **HOST VERIFIED** | The target build: `libmeshcore-riscv64.a`, and `meshcored`, `radiod` and `doors-shell` linked for riscv64 from wiped objects. |
 | **NOT VERIFIED — this gate** | That a channel frame this code puts on a real SX1262 is received and decrypted by a second, independently built MeshCore node — and the reverse. |
 
@@ -92,7 +92,7 @@ reboot — which is what makes this reversible.
 | --- | --- |
 | `/usr/bin/doors-shell` | RIFT is compiled into the shell; the channel screens are in here |
 | `/usr/sbin/meshcored` | the service with channels |
-| `/usr/sbin/radiod` | only if step 1 shows the unit's `radiod` predates `radio.send_async` |
+| `/usr/sbin/radiod` | unchanged by this branch, and carried anyway: `meshcored` needs `radio.send_async` and the lease, which arrived after the image on the card, and installing the matching one is cheaper than finding out at step 3b |
 
 **The licensing gate is not touched.** `make install`, the Buildroot package
 and `build_image.sh` are never invoked; only the binary targets are built.
@@ -359,4 +359,48 @@ crossing between the two radios is ON-AIR.
 
 ## Provenance
 
-Filled in when the artefacts are built; see the commit that adds this section.
+Built **2026-09-21** on the WSL build host, before the unit was found to be
+off. They are ready to copy; nothing about them needs redoing.
+
+| | |
+| --- | --- |
+| Commit | `765a3a34737c0fea32cb88005024babf210c1808` (`feat/rift-channels`). Commits after it on this branch change this sheet and nothing else — `git diff --stat 765a3a3..HEAD` says so — so these artefacts are still the branch's code. |
+| Working tree at build time | clean — 0 tracked files modified |
+| Source | `git archive` of that commit, so nothing uncommitted could reach a binary that is going on a radio |
+| `BUILD_ID` | `765a3a3`, written beside `VERSION` the way `apply_to_sdk.sh` does for a tree with no git history |
+| Toolchain | the Buildroot one, `riscv64-unknown-linux-gnu-`, against its own sysroot |
+| Objects before the build | **0** — every object compiled in this one configuration, which is the lesson the `meshcored` gate recorded after a relink over stale objects produced a `radiod` that linked the SX1262 backend and then refused to select it |
+| Warnings | **0**, all three |
+
+They are in `~/work/k230-gate-out` on the build host (`$OUT` in step 3).
+
+| Artefact | sha256 | Says of itself |
+| --- | --- | --- |
+| `doors-shell` | `37ce3f60d953439578d18e4a297f52c7d3cb92c1e680e0624920c26349e7ccc5` | `0.0.10`, `765a3a3` |
+| `meshcored` | `6d6f3cf4236b3de4077884c62b73d168b4730b691cb3ecf5640fc094c9985211` | `0.0.10`, `765a3a3` |
+| `radiod` | `e23717030fa0bc73f0e3166e54fcc3bb7b24c2e5c6e45025df786e560a763964` | `0.0.10`, `765a3a3` |
+
+All three are `ELF 64-bit LSB pie, UCB RISC-V, RVC, double-float ABI`.
+
+What was checked on them, before they left the build host:
+
+| | |
+| --- | --- |
+| `meshcored` speaks the pinned protocol | `3ca7e3f0…` (RIFT) and `37a76b8f…` (Crypto), the two commits `protocols/meshcore` pins and `tools/meshcore-frame` was built from for the accepted P0 gate |
+| `meshcored` carries no fake radio and no test hook | 0 matching symbols |
+| `radiod` has the real backend | 22 `libgpiod` symbols; it also carries the mock's *name*, because it always has — the backend is chosen by `/etc/default/radiod`, which is what step 1 checks |
+| `doors-shell` has the channel UI | the channel methods and `NO ACK ON CHANNELS` are in it |
+| `doors-shell` still transmits in one place | `mesh.send` appears once; **`mesh.advert` zero times** |
+
+### One of these hashes is not reproducible, and that is not a fault
+
+`meshcored` builds byte-for-byte identically from the same sources — verified
+by building it twice. `radiod` does not: `vendor/RadioLib/src/BuildOpt.h:623`
+puts `__DATE__ " " __TIME__` into a RadioLib build-info string, so every
+`radiod` link differs in those bytes and nowhere else. `meshcored` does not
+link RadioLib and has no such string.
+
+So the `radiod` hash above identifies **this artefact**, which is the one
+step 3 copies and the one step 3 verifies on the unit. It is not a hash to
+rebuild and match, and a differing hash from a later build is RadioLib's
+clock, not a different `radiod`.
