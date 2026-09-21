@@ -38,6 +38,7 @@ enum rift_glyph {
     RIFT_GLYPH_UNKNOWN,    /* dashed text_muted */
     RIFT_GLYPH_STALE,      /* filled text_muted */
     RIFT_GLYPH_SELF,       /* filled text_primary inside a focus ring */
+    RIFT_GLYPH_CHANNEL,    /* a "#" in text_secondary (handoff §6) */
 };
 
 lv_obj_t *rift_glyph_create(lv_obj_t *parent);

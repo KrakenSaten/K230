@@ -222,6 +222,13 @@ static void hook_on_message(void *user, const struct mcd_message *m)
     mcd_broadcast(d, mcd_event_message(m));
 }
 
+static void hook_on_channel(void *user, const struct mcd_channel *c, const char *reason)
+{
+    struct mcd *d = user;
+
+    mcd_broadcast(d, mcd_event_channel(c, reason));
+}
+
 static void hook_on_frame(void *user, const struct mcd_rx_meta *meta, int bytes,
                           const char *outcome)
 {
@@ -449,6 +456,7 @@ int main(int argc, char **argv)
     hooks.tx_submit = hook_tx_submit;
     hooks.on_node = hook_on_node;
     hooks.on_message = hook_on_message;
+    hooks.on_channel = hook_on_channel;
     hooks.on_frame = hook_on_frame;
     hooks.user = &d;
 

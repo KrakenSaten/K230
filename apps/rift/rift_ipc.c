@@ -29,6 +29,8 @@ static const char *method_of(enum rift_req what)
         return "mesh.nodes";
     case RIFT_REQ_NODE:
         return "mesh.node";
+    case RIFT_REQ_CHANNELS:
+        return "mesh.channels";
     case RIFT_REQ_MESSAGES:
         return "mesh.messages";
     case RIFT_REQ_SEND:
@@ -172,6 +174,21 @@ int rift_ipc_request_node(struct rift_ipc *c, const char *key)
     if (!c || c->fd < 0 || !key || !key[0]) {
         return -1;
     }
+    /* A channel is not a node, and mesh.node is a question about nodes.
+     *
+     * COMMS opens a conversation the same way whichever kind it is, and the
+     * open used to ask the service about the peer unconditionally - so
+     * opening a channel sent `{"node": "#0"}`, which meshcored refuses
+     * because it is not a hex key. The refusal was invisible while the
+     * service was healthy and wrong the moment it was not: the command line
+     * shows the client's last error when the service goes away, and it would
+     * have said the node prefix was malformed rather than that meshcored had
+     * stopped answering. It also spent a pending slot and an error count on
+     * every channel opened. Refused here, in the one place that knows what
+     * this method is for, rather than at each caller. */
+    if (rift_key_is_channel(key) >= 0) {
+        return -1;
+    }
     params = cJSON_CreateObject();
     if (!params) {
         return -1;
@@ -205,7 +222,16 @@ int rift_ipc_request_messages(struct rift_ipc *c)
     return request(c, RIFT_REQ_MESSAGES, params, c->last_messages_ms);
 }
 
-int rift_ipc_send_message(struct rift_ipc *c, const char *peer_key, const char *text)
+int rift_ipc_request_channels(struct rift_ipc *c)
+{
+    if (!c || c->fd < 0) {
+        return -1;
+    }
+    c->last_channels_ms = rift_mono_ms();
+    return request(c, RIFT_REQ_CHANNELS, NULL, c->last_channels_ms);
+}
+
+int rift_ipc_send_message(struct rift_ipc *c, const char *conv_key, const char *text)
 {
     char why[RIFT_TEXT_MAX];
     cJSON *params;
@@ -233,8 +259,24 @@ int rift_ipc_send_message(struct rift_ipc *c, const char *peer_key, const char *
         return -1;
     }
     now = rift_mono_ms();
-    if (rift_model_send_begin(c->model, peer_key, text, now) != 0) {
-        rift_model_send_failed(c->model, "that is not a node this app can address");
+    if (rift_model_send_begin(c->model, conv_key, text, now) != 0) {
+        int slot = rift_key_is_channel(conv_key);
+        int limit = rift_model_text_limit(c->model, conv_key);
+
+        /* Two different refusals, said apart. A channel's limit is shorter
+         * than a direct message's because this node's name travels inside a
+         * channel payload, and a reader told only "too long" would not know
+         * that their 150-character message was fine yesterday to a node. */
+        if (slot >= 0 && limit > 0 && (int)strlen(text) > limit) {
+            char why_long[RIFT_TEXT_MAX];
+
+            snprintf(why_long, sizeof(why_long),
+                     "too long: %d bytes fit here, this node's name goes inside it", limit);
+            rift_model_send_failed(c->model, why_long);
+        } else {
+            rift_model_send_failed(c->model,
+                                   "that is not a node or channel this app can address");
+        }
         c->revision++;
         return -1;
     }
@@ -244,7 +286,18 @@ int rift_ipc_send_message(struct rift_ipc *c, const char *peer_key, const char *
         c->revision++;
         return -1;
     }
-    cJSON_AddStringToObject(params, "to", peer_key);
+    {
+        int slot = rift_key_is_channel(conv_key);
+
+        /* The one place this app transmits, addressing either kind. Exactly
+         * one of the two parameters is written: mesh.send refuses both
+         * together rather than preferring one (docs/api/mesh.md). */
+        if (slot >= 0) {
+            cJSON_AddNumberToObject(params, "channel", slot);
+        } else {
+            cJSON_AddStringToObject(params, "to", conv_key);
+        }
+    }
     cJSON_AddStringToObject(params, "text", text);
     if (request(c, RIFT_REQ_SEND, params, now) != 0) {
         /* request() has already dropped the connection if the write failed,
@@ -307,6 +360,10 @@ static void connect_now(struct rift_ipc *c, int64_t now_ms)
     if (request(c, RIFT_REQ_NODES, NULL, now_ms) != 0) {
         return;
     }
+    c->last_channels_ms = now_ms;
+    if (request(c, RIFT_REQ_CHANNELS, NULL, now_ms) != 0) {
+        return;
+    }
     c->last_messages_ms = now_ms;
     if (rift_ipc_request_messages(c) != 0) {
         return;
@@ -362,6 +419,22 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
         if (what == RIFT_REQ_SEND) {
             rift_model_send_failed(c->model, why);
         }
+        /* A refused mesh.channels is still an answer, and for a screen it is
+         * the same answer as an empty list: this service is not going to
+         * list any channels. Leaving the list "not read yet" would make
+         * COMMS say it is waiting for a service that is plainly replying -
+         * which is what a build of meshcored older than this method would
+         * produce.
+         *
+         * What it does NOT do is empty the list. A refusal says the service
+         * would not answer, not that the channels are gone, and throwing
+         * them away would take a joined channel off the screen because one
+         * request was refused. mesh.nodes behaves the same way: a refused
+         * snapshot leaves the nodes alone. Only a successful answer replaces
+         * the list. */
+        if (what == RIFT_REQ_CHANNELS) {
+            c->model->channels_valid = 1;
+        }
         c->revision++;
         return 0;
     }
@@ -399,6 +472,9 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
         }
         break;
     }
+    case RIFT_REQ_CHANNELS:
+        rift_model_apply_channels(c->model, result);
+        break;
     case RIFT_REQ_MESSAGES:
         rift_model_apply_messages(c->model, result);
         break;
@@ -514,6 +590,11 @@ void rift_ipc_poll(struct rift_ipc *c, int64_t now_ms)
     if (now_ms - c->last_nodes_ms >= RIFT_NODES_PERIOD_MS) {
         c->last_nodes_ms = now_ms;
         if (request(c, RIFT_REQ_NODES, NULL, now_ms) != 0) {
+            return;
+        }
+    }
+    if (now_ms - c->last_channels_ms >= RIFT_CHANNELS_PERIOD_MS) {
+        if (rift_ipc_request_channels(c) != 0) {
             return;
         }
     }

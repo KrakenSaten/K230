@@ -269,11 +269,31 @@ directory mode **0700**.
 | --- | --- | --- |
 | `identity.id` | 0600 | 96 bytes: public key then private key. Byte for byte a MeshCore `.id` — the same file `tools/meshcore-frame` writes and reads, so a bench identity moves between them without conversion |
 | `state.v1` | 0600 | the node's advert name and its known nodes: public key, name, advert type, flags, return path, last advert timestamp, last modified, position |
+| `channels.v1` | 0600 | the group channels this node has joined: slot, local name, key length, and **the pre-shared key itself** |
 
-**Runtime only, and not persisted in this phase:** messages, the duplicate
-table, per-node signal readings, every counter, and the radio profile.
-`mesh.messages` reports `persistent: false` rather than leaving that to be
-discovered.
+**Runtime only, and not persisted in this phase:** messages — channel ones
+included — the duplicate table, per-node signal readings, every counter, and
+the radio profile. `mesh.messages` reports `persistent: false` rather than
+leaving that to be discovered, and `mesh.channels` reports `persistent: true`
+for the same reason.
+
+`channels.v1` is a separate file from `state.v1` rather than a section of it,
+for two reasons that both matter. It holds key material and `state.v1` does
+not, so the two have different consequences when one of them is unreadable.
+And the losses are not comparable: a corrupt node table costs a rediscovery
+the mesh performs on its own, while a corrupt channel table costs every key an
+operator typed in by hand, and **nothing on the air will bring one back**.
+Separate files mean one fault cannot take the other with it, and
+`mesh.status` reports `state_fault` and `channel_fault` apart for the same
+reason.
+
+A channel key is persisted at all because the alternative is a node that
+forgets every channel on each reboot, which makes the feature unusable. It is
+0600 in a 0700 directory, beside `identity.id`, which already holds this
+node's private key — so the file adds a secret to a directory that was already
+the most sensitive thing this service owns, and does not lower the bar. It
+never leaves the service: no `mesh.*` method reports a key, and
+`tests/meshcored_lint.sh` checks that.
 
 Both files are written whole or not at all, and **both are flushed twice**:
 once for the contents, once for the directory entry that names them. `fsync()`

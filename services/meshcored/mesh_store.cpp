@@ -24,12 +24,20 @@ namespace {
 
 const char kIdentityName[] = "identity.id";
 const char kStateName[] = "state.v1";
+const char kChannelsName[] = "channels.v1";
 
 /* state.v1, little-endian, fixed widths. */
 const uint8_t kMagic[4] = { 'M', 'C', 'D', 'S' };
 const uint16_t kVersion = 1;
 const size_t kHeaderSize = 44;
 const size_t kRecordSize = 148;
+
+/* channels.v1, same shape. Its own magic, so a state.v1 renamed onto it - or
+ * the other way round - is refused rather than read as the wrong thing. */
+const uint8_t kChanMagic[4] = { 'M', 'C', 'D', 'C' };
+const uint16_t kChanVersion = 1;
+const size_t kChanHeaderSize = 12;
+const size_t kChanRecordSize = 68;
 
 void joinPath(char* dest, size_t dest_len, const char* dir, const char* name)
 {
@@ -394,14 +402,20 @@ bool identitySave(const mesh::LocalIdentity& id, const char* dir, char* err)
     return true;
 }
 
-bool stateQuarantine(const char* dir, char* kept, size_t kept_len, char* err)
+/* Move one unreadable file in the state directory aside. Shared by state.v1
+ * and channels.v1, which want exactly the same treatment: renamed, never
+ * rewritten or deleted, because the file is the only evidence of whatever
+ * went wrong and overwriting it before anybody has looked destroys the one
+ * thing that could explain it. */
+static bool quarantineFile(const char* dir, const char* name, char* kept, size_t kept_len,
+                           char* err)
 {
     char path[256];
     char dest[288];
     struct stat sb;
     unsigned n;
 
-    joinPath(path, sizeof(path), dir, kStateName);
+    joinPath(path, sizeof(path), dir, name);
     if (stat(path, &sb) != 0) {
         snprintf(err, ERR_SIZE, "%s: %s", path, strerror(errno));
         return false;
@@ -428,6 +442,16 @@ bool stateQuarantine(const char* dir, char* kept, size_t kept_len, char* err)
     }
     snprintf(kept, kept_len, "%s", dest);
     return true;
+}
+
+bool stateQuarantine(const char* dir, char* kept, size_t kept_len, char* err)
+{
+    return quarantineFile(dir, kStateName, kept, kept_len, err);
+}
+
+bool channelsQuarantine(const char* dir, char* kept, size_t kept_len, char* err)
+{
+    return quarantineFile(dir, kChannelsName, kept, kept_len, err);
 }
 
 int stateLoad(NodeState& st, const char* dir, char* err)
@@ -570,6 +594,201 @@ bool stateSave(const NodeState& st, const char* dir, char* err)
     }
 
     joinPath(path, sizeof(path), dir, kStateName);
+    return writeWhole(path, buf, len, 0600, err);
+}
+
+/* ---- channels.v1 --------------------------------------------------------
+ *
+ * Header 12 bytes: magic(4) version(2) flags(2) count(2) reserved(2).
+ * Record 68 bytes: slot(1) key_len(1) reserved(2) name(32) secret(32).
+ *
+ * Every field is checked on the way in, and a record that fails any check
+ * fails the whole file rather than being skipped. A channel table half read
+ * is worse than none: the operator sees the channels that survived and has no
+ * reason to suspect the ones that did not, so messages go quietly nowhere.
+ */
+int channelsLoad(ChannelState& cs, const char* dir, char* err)
+{
+    char path[256];
+    static uint8_t buf[kChanHeaderSize + kChanRecordSize * MAX_CHANNELS];
+    long n;
+    uint16_t version;
+    uint16_t count;
+    size_t expect;
+
+    cs = ChannelState();
+    joinPath(path, sizeof(path), dir, kChannelsName);
+    n = readWhole(path, buf, sizeof(buf), err);
+    if (n == -2) {
+        return 0;
+    }
+    if (n < 0) {
+        return -1;
+    }
+    if ((size_t)n < kChanHeaderSize) {
+        snprintf(err, ERR_SIZE, "%s is %ld bytes; the header alone is %zu", path, n,
+                 kChanHeaderSize);
+        return -1;
+    }
+    if (memcmp(buf, kChanMagic, sizeof(kChanMagic)) != 0) {
+        snprintf(err, ERR_SIZE, "%s does not start with the channels.v1 magic", path);
+        return -1;
+    }
+    version = get16(&buf[4]);
+    if (version != kChanVersion) {
+        snprintf(err, ERR_SIZE, "%s is version %u; this build reads version %u",
+                 path, (unsigned)version, (unsigned)kChanVersion);
+        return -1;
+    }
+    count = get16(&buf[8]);
+    if (count > MAX_CHANNELS) {
+        snprintf(err, ERR_SIZE, "%s declares %u channels; the limit is %d",
+                 path, (unsigned)count, MAX_CHANNELS);
+        return -1;
+    }
+    expect = kChanHeaderSize + kChanRecordSize * (size_t)count;
+    if ((size_t)n != expect) {
+        snprintf(err, ERR_SIZE, "%s is %ld bytes; %u channels need exactly %zu",
+                 path, n, (unsigned)count, expect);
+        return -1;
+    }
+
+    for (uint16_t i = 0; i < count; i++) {
+        const uint8_t* r = &buf[kChanHeaderSize + kChanRecordSize * (size_t)i];
+        ChannelRecord& c = cs.channels[i];
+        bool all_zero = true;
+        int j;
+
+        c.slot = (int)r[0];
+        c.key_len = (int)r[1];
+        memcpy(c.name, &r[4], sizeof(c.name));
+        c.name[sizeof(c.name) - 1] = '\0';
+        memcpy(c.secret, &r[36], sizeof(c.secret));
+
+        if (c.slot < 0 || c.slot >= MAX_CHANNELS) {
+            snprintf(err, ERR_SIZE, "%s: channel %u is in slot %d; the table has %d",
+                     path, (unsigned)i, c.slot, MAX_CHANNELS);
+            return -1;
+        }
+        if (c.key_len != 16 && c.key_len != 32) {
+            snprintf(err, ERR_SIZE, "%s: channel %u has a key length of %d; it must be 16 or 32",
+                     path, (unsigned)i, c.key_len);
+            return -1;
+        }
+        /* A 128-bit key must be zero-padded, because that padding is part of
+         * the 32-byte HMAC key MeshCore derives the MAC with (Utils.cpp:149
+         * keys the HMAC with PUB_KEY_SIZE bytes, not CIPHER_KEY_SIZE). A
+         * record claiming 16 with rubbish above it would MAC differently
+         * from the peer that wrote it. */
+        if (c.key_len == 16) {
+            for (j = 16; j < 32; j++) {
+                if (c.secret[j] != 0) {
+                    snprintf(err, ERR_SIZE,
+                             "%s: channel %u claims a 128-bit key but is not zero-padded",
+                             path, (unsigned)i);
+                    return -1;
+                }
+            }
+        } else {
+            /* And the same boundary from the other side. A 256-bit key whose
+             * upper half is all zero is exactly the key mcd_runtime_channel_add
+             * refuses as ambiguous: MeshCore's setChannel() would read it as a
+             * 128-bit key and hash it over 16 bytes, while a peer that added it
+             * through addChannel() would hash it over 32. Accepting it here
+             * would reintroduce through a file the key the API will not take,
+             * and the node would then report key_bits 256 while deriving the
+             * 128-bit hash - visible to nobody, and unreachable by half its
+             * peers. The two paths have to refuse the same keys. */
+            bool upper_zero = true;
+
+            for (j = 16; j < 32; j++) {
+                if (c.secret[j] != 0) {
+                    upper_zero = false;
+                }
+            }
+            if (upper_zero) {
+                snprintf(err, ERR_SIZE,
+                         "%s: channel %u has a 256-bit key with an all-zero upper half, which "
+                         "MeshCore reads as a 128-bit key",
+                         path, (unsigned)i);
+                return -1;
+            }
+        }
+        for (j = 0; j < c.key_len; j++) {
+            if (c.secret[j] != 0) {
+                all_zero = false;
+            }
+        }
+        /* An all-zero key is what an unused MeshCore slot holds, so it is not
+         * a channel - it is the thing the receive-path guard exists to keep
+         * out (protocols/meshcore/README.md, known debt 5). */
+        if (all_zero) {
+            snprintf(err, ERR_SIZE, "%s: channel %u has an all-zero key", path, (unsigned)i);
+            return -1;
+        }
+        if (c.name[0] == '\0') {
+            snprintf(err, ERR_SIZE, "%s: channel %u has no name", path, (unsigned)i);
+            return -1;
+        }
+        for (uint16_t k = 0; k < i; k++) {
+            if (cs.channels[k].slot == c.slot) {
+                snprintf(err, ERR_SIZE, "%s: channels %u and %u are both in slot %d",
+                         path, (unsigned)k, (unsigned)i, c.slot);
+                return -1;
+            }
+            /* The key IS the channel, so two records holding one key are two
+             * names for one thing: the second could never be routed to, and
+             * MeshCore would report whichever the scan reached first. */
+            if (cs.channels[k].key_len == c.key_len &&
+                memcmp(cs.channels[k].secret, c.secret, sizeof(c.secret)) == 0) {
+                snprintf(err, ERR_SIZE, "%s: channels %u and %u hold the same key",
+                         path, (unsigned)k, (unsigned)i);
+                return -1;
+            }
+        }
+    }
+    cs.count = count;
+    return 1;
+}
+
+bool channelsSave(const ChannelState& cs, const char* dir, char* err)
+{
+    char path[256];
+    static uint8_t buf[kChanHeaderSize + kChanRecordSize * MAX_CHANNELS];
+    int count = cs.count;
+    size_t len;
+
+    if (count < 0) {
+        count = 0;
+    }
+    if (count > MAX_CHANNELS) {
+        count = MAX_CHANNELS;
+    }
+    len = kChanHeaderSize + kChanRecordSize * (size_t)count;
+    memset(buf, 0, sizeof(buf));
+    memcpy(buf, kChanMagic, sizeof(kChanMagic));
+    put16(&buf[4], kChanVersion);
+    put16(&buf[6], 0); /* flags, reserved */
+    put16(&buf[8], (uint16_t)count);
+    put16(&buf[10], 0); /* reserved */
+
+    for (int i = 0; i < count; i++) {
+        uint8_t* r = &buf[kChanHeaderSize + kChanRecordSize * (size_t)i];
+        const ChannelRecord& c = cs.channels[i];
+
+        r[0] = (uint8_t)c.slot;
+        r[1] = (uint8_t)c.key_len;
+        r[2] = 0;
+        r[3] = 0;
+        memcpy(&r[4], c.name, sizeof(c.name));
+        r[4 + sizeof(c.name) - 1] = '\0';
+        memcpy(&r[36], c.secret, sizeof(c.secret));
+    }
+
+    joinPath(path, sizeof(path), dir, kChannelsName);
+    /* 0600, like identity.id: this file is key material. The whole buffer is
+     * zeroed above rather than only the used part, so a table that shrinks
+     * does not leave a removed channel's key in the tail of the file. */
     return writeWhole(path, buf, len, 0600, err);
 }
 

@@ -88,17 +88,25 @@ struct Node {
     int node_discovered;
     int node_path;
     int message_events;
+    int channel_events;
+    int channel_added;
+    int channel_removed;
     int frame_events;
     char last_message[MCD_MAX_TEXT + 1];
     char last_message_peer[MCD_NODE_NAME_LEN];
+    struct mcd_message last_msg;
+    struct mcd_channel last_channel;
     char last_frame_type[24];
     bool last_frame_rssi_known;
     bool last_frame_snr_known;
     int tx_submits;
 
     Node() : rt(NULL), air(NULL), index(0), node_events(0), node_discovered(0),
-             node_path(0), message_events(0), frame_events(0), tx_submits(0)
+             node_path(0), message_events(0), channel_events(0), channel_added(0),
+             channel_removed(0), frame_events(0), tx_submits(0)
     {
+        memset(&last_msg, 0, sizeof(last_msg));
+        memset(&last_channel, 0, sizeof(last_channel));
         dir[0] = '\0';
         last_message[0] = '\0';
         last_message_peer[0] = '\0';
@@ -146,8 +154,22 @@ static void hook_on_message(void* user, const struct mcd_message* m)
     Node* n = (Node*)user;
 
     n->message_events++;
+    n->last_msg = *m;
     snprintf(n->last_message, sizeof(n->last_message), "%s", m->text);
     snprintf(n->last_message_peer, sizeof(n->last_message_peer), "%s", m->peer_name);
+}
+
+static void hook_on_channel(void* user, const struct mcd_channel* c, const char* reason)
+{
+    Node* n = (Node*)user;
+
+    n->channel_events++;
+    n->last_channel = *c;
+    if (strcmp(reason, "added") == 0) {
+        n->channel_added++;
+    } else if (strcmp(reason, "removed") == 0) {
+        n->channel_removed++;
+    }
 }
 
 static void hook_on_frame(void* user, const struct mcd_rx_meta* meta, int bytes,
@@ -285,6 +307,7 @@ static bool makeNode(Node& n, Air& air, const char* name, const mesh::LocalIdent
     hooks.tx_submit = hook_tx_submit;
     hooks.on_node = hook_on_node;
     hooks.on_message = hook_on_message;
+    hooks.on_channel = hook_on_channel;
     hooks.on_frame = hook_on_frame;
     hooks.user = &n;
 
@@ -805,6 +828,7 @@ static void test_restart(Node& a, Air& air)
     hooks.tx_submit = hook_tx_submit;
     hooks.on_node = hook_on_node;
     hooks.on_message = hook_on_message;
+    hooks.on_channel = hook_on_channel;
     hooks.on_frame = hook_on_frame;
     hooks.user = &a;
     memset(&cfg, 0, sizeof(cfg));
@@ -1179,6 +1203,7 @@ static void test_corrupt_state_is_survivable(void)
     hooks.tx_submit = hook_tx_submit;
     hooks.on_node = hook_on_node;
     hooks.on_message = hook_on_message;
+    hooks.on_channel = hook_on_channel;
     hooks.on_frame = hook_on_frame;
     n.air = &air;
     hooks.user = &n;
@@ -1386,6 +1411,486 @@ static void test_corrupt_identity_stops_the_runtime(void)
     }
 }
 
+/* ---- channels ----------------------------------------------------------
+ *
+ * The keys below are literals rather than anything derived, so the two nodes
+ * demonstrably hold the same bytes and the test says which. They are 32-byte
+ * keys with a non-zero upper half, because a 32-byte key whose upper half is
+ * zero is the one shape this service refuses - see the ambiguity case.
+ */
+static const char KEY_A[] = "//79/Pv6+fj39vX08/Lx8O/u7ezr6uno5+bl5OPi4eA=";
+static const char KEY_B[] = "kJeepayzusHIz9bd5Ovy+QAHDhUcIyoxOD9GTVRbYmk=";
+
+/* How many messages this node holds for a given channel slot. The merged
+ * list is what a client reads, so the count is taken from it. */
+static int channelMessagesFor(Node& n, int slot)
+{
+    int total = mcd_runtime_message_count(n.rt);
+    int found = 0;
+
+    for (int i = 0; i < total; i++) {
+        struct mcd_message m;
+
+        if (mcd_runtime_message_at(n.rt, i, &m) && m.is_channel && m.channel_slot == slot) {
+            found++;
+        }
+    }
+    return found;
+}
+
+static void test_channels(Node& a, Node& b, Air& air)
+{
+    struct mcd_channel ca;
+    struct mcd_channel cb;
+    struct mcd_runtime_stats st;
+    uint64_t msg_id = 0;
+
+    /* test_restart left node A with a runtime that has just been created, and
+     * a fresh runtime's radio is offline until the daemon says otherwise. */
+    mcd_runtime_set_radio_online(a.rt, true);
+    mcd_runtime_set_radio_online(b.rt, true);
+
+    check("this node starts with no channels", mcd_runtime_channel_count(a.rt) == 0);
+    check("and sending on one is refused while there are none",
+          mcd_runtime_send_channel_text(a.rt, 0, "nobody", &msg_id) == MCD_SEND_NO_CHANNEL);
+
+    /* ---- joining ---- */
+    a.channel_events = 0;
+    check("node A joins a channel",
+          mcd_runtime_channel_add(a.rt, "SITE", KEY_A, &ca) == MCD_CHANNEL_OK);
+    check("it went into the lowest free slot", ca.slot == 0);
+    {
+        /* Written on the join, not on the daemon's persist timer. A channel
+         * key is the one thing here nothing can give back: a power cut inside
+         * a ten-second window would cost a key the operator typed by hand,
+         * where the same window costs the node table only a rediscovery. */
+        char path[512];
+        struct stat sb;
+
+        snprintf(path, sizeof(path), "%s/channels.v1", a.dir);
+        check("and the key is on disk before anything else happens",
+              stat(path, &sb) == 0 && sb.st_size > 0);
+        check("at 0600, because it is key material", (sb.st_mode & 07777) == 0600);
+        check("and the join left nothing for the timer to write",
+              !mcd_runtime_dirty(a.rt));
+    }
+    check("an added event was raised", a.channel_added == 1 && a.last_channel.slot == 0);
+    check("the channel is a 256-bit one", ca.key_bits == 256);
+    check("and its name is what was asked for", strcmp(ca.name, "SITE") == 0);
+    /* MeshCore puts "<our name>: " inside the payload, so the body a composer
+     * may send is shorter than a direct message's 160 by exactly that. */
+    check("the text limit allows for this node's name prefix",
+          ca.text_limit == MCD_MAX_TEXT - (int)strlen("K230-A: "));
+
+    /* The name is local. Node B joins the SAME key under a DIFFERENT name,
+     * which is the ordinary case on a real mesh: nothing about the name
+     * crosses the air. */
+    check("node B joins the same key under another name",
+          mcd_runtime_channel_add(b.rt, "site-b", KEY_A, &cb) == MCD_CHANNEL_OK);
+    check("and derives the same channel hash from it", cb.hash == ca.hash);
+    check("though the names differ", strcmp(ca.name, cb.name) != 0);
+
+    /* ---- refusals ---- */
+    check("the same key twice is refused",
+          mcd_runtime_channel_add(a.rt, "AGAIN", KEY_A, NULL) == MCD_CHANNEL_DUPLICATE);
+    check("a key that is not base64 is refused",
+          mcd_runtime_channel_add(a.rt, "BAD", "not base64!", NULL) == MCD_CHANNEL_BAD_KEY);
+    check("a key of the wrong length is refused",
+          mcd_runtime_channel_add(a.rt, "BAD", "Zm9vYmFy", NULL) == MCD_CHANNEL_BAD_KEY);
+    check("an all-zero key is refused",
+          mcd_runtime_channel_add(a.rt, "ZERO", "AAAAAAAAAAAAAAAAAAAAAA==", NULL) ==
+              MCD_CHANNEL_BAD_KEY);
+    /* 32 bytes whose upper 16 are zero: MeshCore's setChannel() would read it
+     * as a 128-bit key and hash it over 16 bytes, while its addChannel()
+     * would hash it over 32. Two peers could then derive different channel
+     * hashes for one key and never reach each other, so it is refused with a
+     * reason rather than joined. */
+    check("a 32-byte key with an all-zero upper half is refused as ambiguous",
+          mcd_runtime_channel_add(a.rt, "AMBIG",
+                                  "AQIDBAUGBwgJCgsMDQ4PEAAAAAAAAAAAAAAAAAAAAAA=",
+                                  NULL) == MCD_CHANNEL_AMBIGUOUS_KEY);
+    check("an empty name is refused",
+          mcd_runtime_channel_add(a.rt, "", KEY_B, NULL) == MCD_CHANNEL_BAD_NAME);
+
+    /* ---- sending and receiving ---- */
+    b.message_events = 0;
+    a.message_events = 0;
+    check("node A sends on the channel",
+          mcd_runtime_send_channel_text(a.rt, 0, "site check", &msg_id) ==
+              MCD_SEND_ACCEPTED_FLOOD);
+    check("the send has a message id", msg_id != 0);
+    check("node B received it", pumpUntil(air, [&] { return b.message_events >= 1; }));
+
+    check("it is a channel message", b.last_msg.is_channel);
+    check("in the slot node B holds that key in", b.last_msg.channel_slot == cb.slot);
+    check("carrying node B's own name for the channel",
+          strcmp(b.last_msg.channel_name, "site-b") == 0);
+    check("and the channel hash that was on the air", b.last_msg.channel_hash == ca.hash);
+    /* The text is the whole payload, prefix and all, and sender_name is the
+     * claim parsed back out of it. Neither is authenticated: nothing signs a
+     * group frame. */
+    check("the text is the whole payload, prefix included",
+          strcmp(b.last_msg.text, "K230-A: site check") == 0);
+    check("with the sender's claimed name parsed out of it",
+          strcmp(b.last_msg.sender_name, "K230-A") == 0);
+    check("and no peer key at all: a group frame names no node",
+          b.last_msg.peer_key[0] == 0 && b.last_msg.peer_name[0] == '\0');
+    check("no acknowledgement is expected for it", !b.last_msg.ack_expected);
+    check("and it is recorded as received", b.last_msg.state == MCD_MSG_RECEIVED);
+
+    /* The sender's own copy. */
+    {
+        int total = mcd_runtime_message_count(a.rt);
+        struct mcd_message mine;
+        bool found = false;
+
+        for (int i = 0; i < total; i++) {
+            if (mcd_runtime_message_at(a.rt, i, &mine) && mine.id == msg_id) {
+                found = true;
+                break;
+            }
+        }
+        check("node A kept its own copy", found);
+        check("as an outgoing channel message", found && mine.outgoing && mine.is_channel);
+        check("with the same bytes the receiver saw",
+              found && strcmp(mine.text, "K230-A: site check") == 0);
+        /* sent_flood is where this ends. There is no ACK for a group frame,
+         * so nothing will ever move it to acked or to no_ack. */
+        check("its state is sent_flood", found && mine.state == MCD_MSG_SENT_FLOOD);
+        check("and no acknowledgement is expected", found && !mine.ack_expected);
+    }
+    check("node A did not receive its own message back",
+          channelMessagesFor(a, 0) == 1);
+
+    /* ---- a channel nobody holds ---- */
+    check("sending on an empty slot is refused",
+          mcd_runtime_send_channel_text(a.rt, 5, "nobody", &msg_id) == MCD_SEND_NO_CHANNEL);
+    check("and so is a slot outside the table",
+          mcd_runtime_send_channel_text(a.rt, MCD_MAX_CHANNELS, "nobody", &msg_id) ==
+              MCD_SEND_NO_CHANNEL);
+
+    /* ---- the length limit is a refusal, not a truncation ---- */
+    {
+        char body[MCD_MAX_TEXT + 4];
+
+        memset(body, 'x', sizeof(body));
+        body[ca.text_limit] = '\0';
+        check("a body of exactly the limit is accepted",
+              mcd_runtime_send_channel_text(a.rt, 0, body, &msg_id) == MCD_SEND_ACCEPTED_FLOOD);
+        body[ca.text_limit] = 'x';
+        body[ca.text_limit + 1] = '\0';
+        /* Upstream's sendGroupMessage() would silently cut this to fit
+         * (BaseChatMesh.cpp:496). Reporting success for a message somebody
+         * typed and this node shortened is not something the service does. */
+        check("one byte more is refused rather than truncated",
+              mcd_runtime_send_channel_text(a.rt, 0, body, &msg_id) == MCD_SEND_TOO_LONG);
+        check("and an empty body is refused",
+              mcd_runtime_send_channel_text(a.rt, 0, "", &msg_id) == MCD_SEND_TOO_LONG);
+    }
+
+    /* ---- two channels, and messages kept apart ---- */
+    {
+        struct mcd_channel c2;
+        int before;
+
+        check("a second channel joins the next free slot",
+              mcd_runtime_channel_add(a.rt, "OPS", KEY_B, &c2) == MCD_CHANNEL_OK &&
+                  c2.slot == 1);
+        check("node B joins it too",
+              mcd_runtime_channel_add(b.rt, "OPS", KEY_B, NULL) == MCD_CHANNEL_OK);
+        check("node A now holds two channels", mcd_runtime_channel_count(a.rt) == 2);
+
+        before = channelMessagesFor(b, 1);
+        b.message_events = 0;
+        check("a message on the second channel is sent",
+              mcd_runtime_send_channel_text(a.rt, 1, "ops only", &msg_id) ==
+                  MCD_SEND_ACCEPTED_FLOOD);
+        check("and arrives", pumpUntil(air, [&] { return b.message_events >= 1; }));
+        check("on the second channel and not the first",
+              channelMessagesFor(b, 1) == before + 1 && b.last_msg.channel_slot == 1);
+    }
+
+    /* ---- a key node B does not hold ---- */
+    {
+        struct mcd_channel c3;
+        static const char KEY_C[] = "q6qpqKempaSjoqGgn56dnJuamZiXlpWUk5KRkI+OjYw=";
+        int before = mcd_runtime_message_count(b.rt);
+
+        check("node A joins a third channel alone",
+              mcd_runtime_channel_add(a.rt, "PRIVATE", KEY_C, &c3) == MCD_CHANNEL_OK);
+        check("and sends on it",
+              mcd_runtime_send_channel_text(a.rt, c3.slot, "not for you", &msg_id) ==
+                  MCD_SEND_ACCEPTED_FLOOD);
+        pump(air, 30);
+        check("node B, which does not hold that key, read nothing",
+              mcd_runtime_message_count(b.rt) == before);
+        mcd_runtime_stats(b.rt, &st);
+        check("and counted a group frame it could not match",
+              st.channel_frames_unmatched >= 1);
+        check("node A's own copy is there", channelMessagesFor(a, c3.slot) == 1);
+    }
+
+    /* ---- leaving ---- */
+    {
+        struct mcd_channel gone;
+        int held = mcd_runtime_channel_count(a.rt);
+
+        a.channel_removed = 0;
+        check("leaving a channel nobody is in is refused",
+              mcd_runtime_channel_remove(a.rt, 6) == MCD_CHANNEL_NOT_FOUND);
+        check("leaving channel 1 works", mcd_runtime_channel_remove(a.rt, 1) == MCD_CHANNEL_OK);
+        /* mesh.channel_remove answers key_forgotten; a key still on the disk
+         * ten seconds later would make that untrue. */
+        check("and the removal is on disk at once", !mcd_runtime_dirty(a.rt));
+        check("a removed event was raised",
+              a.channel_removed == 1 && a.last_channel.slot == 1);
+        check("one fewer channel is held", mcd_runtime_channel_count(a.rt) == held - 1);
+        check("slot 1 is empty", !mcd_runtime_channel_by_slot(a.rt, 1, &gone));
+        /* The slot is emptied, not compacted: every other channel keeps the
+         * slot a client already knows it by. */
+        check("and slot 0 is still the same channel",
+              mcd_runtime_channel_by_slot(a.rt, 0, &gone) && gone.hash == ca.hash &&
+                  strcmp(gone.name, "SITE") == 0);
+        check("sending on the slot that was left is refused",
+              mcd_runtime_send_channel_text(a.rt, 1, "gone", &msg_id) == MCD_SEND_NO_CHANNEL);
+        /* And the freed slot is the next one an add takes. */
+        check("a new channel takes the freed slot",
+              mcd_runtime_channel_add(a.rt, "BACK", KEY_B, &gone) == MCD_CHANNEL_OK &&
+                  gone.slot == 1);
+        check("leaving it again", mcd_runtime_channel_remove(a.rt, 1) == MCD_CHANNEL_OK);
+    }
+
+    /* ---- the table is bounded ---- */
+    {
+        char key[64];
+        int added = 0;
+        enum mcd_channel_result rc = MCD_CHANNEL_OK;
+
+        /* Distinct 32-byte keys, each with a non-zero upper half. */
+        for (int i = 0; i < MCD_MAX_CHANNELS + 2; i++) {
+            uint8_t raw[32];
+            static const char alphabet[] =
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            int o = 0;
+
+            for (int j = 0; j < 32; j++) {
+                raw[j] = (uint8_t)(0x80 + i * 3 + j);
+            }
+            for (int j = 0; j < 30; j += 3) {
+                key[o++] = alphabet[raw[j] >> 2];
+                key[o++] = alphabet[((raw[j] & 3) << 4) | (raw[j + 1] >> 4)];
+                key[o++] = alphabet[((raw[j + 1] & 15) << 2) | (raw[j + 2] >> 6)];
+                key[o++] = alphabet[raw[j + 2] & 63];
+            }
+            key[o++] = alphabet[raw[30] >> 2];
+            key[o++] = alphabet[((raw[30] & 3) << 4) | (raw[31] >> 4)];
+            key[o++] = alphabet[(raw[31] & 15) << 2];
+            key[o++] = '=';
+            key[o] = '\0';
+            rc = mcd_runtime_channel_add(a.rt, "FILL", key, NULL);
+            if (rc != MCD_CHANNEL_OK) {
+                break;
+            }
+            added++;
+        }
+        check("the table fills and then refuses", rc == MCD_CHANNEL_FULL);
+        check("with every slot taken", mcd_runtime_channel_count(a.rt) == MCD_MAX_CHANNELS);
+        check("and it took as many as there were free slots",
+              added == MCD_MAX_CHANNELS - 2);
+        mcd_runtime_stats(a.rt, &st);
+        check("the stats agree", st.channels == MCD_MAX_CHANNELS);
+
+        /* Back to two, so what follows is not testing a full table. */
+        for (int i = 2; i < MCD_MAX_CHANNELS; i++) {
+            mcd_runtime_channel_remove(a.rt, i);
+        }
+        check("and back down again", mcd_runtime_channel_count(a.rt) == 2);
+    }
+}
+
+/* ---- the empty-slot guard, from the air --------------------------------
+ *
+ * The one thing enabling channels could have let through. An unused slot in
+ * MeshCore's table is all zeroes, so its hash byte is 0 and its key is 32
+ * zero bytes; an unguarded node offers that key to any frame whose channel
+ * hash is 0, and the key is not a secret. This builds exactly such a frame -
+ * real AES, real HMAC, encrypted to the all-zero key - and delivers it. */
+static void test_channel_empty_slot_guard(Node& a, Air& air)
+{
+    uint8_t zero_key[32];
+    uint8_t plain[32];
+    uint8_t payload[MCD_MAX_FRAME];
+    uint8_t frame[MCD_MAX_FRAME];
+    int before = mcd_runtime_message_count(a.rt);
+    int plen = 0;
+    int flen;
+
+    memset(zero_key, 0, sizeof(zero_key));
+    /* A GRP_TXT payload: timestamp(4), txt_type(1), then "name: text". */
+    memset(plain, 0, sizeof(plain));
+    plain[0] = 0x01;
+    plain[4] = 0;  /* TXT_TYPE_PLAIN */
+    memcpy(&plain[5], "EVIL: pwn", 9);
+
+    payload[plen++] = 0x00;  /* the channel hash an unused slot carries */
+    plen += mesh::Utils::encryptThenMAC(zero_key, &payload[plen], plain, 5 + 9);
+    flen = buildFrame(frame, (uint8_t)(PAYLOAD_TYPE_GRP_TXT << PH_TYPE_SHIFT) | ROUTE_TYPE_FLOOD,
+                      payload, plen);
+
+    {
+        struct mcd_rx_meta meta;
+
+        defaultMeta(meta);
+        check("the frame encrypted to the all-zero key is delivered",
+              mcd_runtime_deliver_rx(a.rt, frame, flen, &meta));
+    }
+    pump(air, 20);
+    check("and the node did not accept it as a message",
+          mcd_runtime_message_count(a.rt) == before);
+}
+
+/* ---- channels survive a restart ---------------------------------------- */
+static void test_channel_restart(Node& a, Air& air)
+{
+    struct mcd_runtime_hooks hooks;
+    struct mcd_runtime_config cfg;
+    char err[256] = "";
+    struct mcd_channel before[MCD_MAX_CHANNELS];
+    int n_before = mcd_runtime_channel_count(a.rt);
+    uint64_t msg_id = 0;
+
+    for (int i = 0; i < n_before; i++) {
+        check("a held channel reads back", mcd_runtime_channel_at(a.rt, i, &before[i]));
+    }
+    check("there are channels to lose", n_before > 0);
+
+    /* Persist, then stop and start again against the same directory. */
+    /* Nothing is waiting to be written: the channels went to disk as each
+     * one was joined, not on the daemon's timer, so this restart is not
+     * standing on a persist the test performed for it. The node table is
+     * written here as the daemon would, and is allowed to be clean too. */
+    check("the channels are already written", !mcd_runtime_dirty(a.rt));
+    check("and writing again is harmless", mcd_runtime_persist(a.rt) == 0);
+    mcd_runtime_destroy(a.rt);
+
+    memset(&hooks, 0, sizeof(hooks));
+    hooks.tx_submit = hook_tx_submit;
+    hooks.on_node = hook_on_node;
+    hooks.on_message = hook_on_message;
+    hooks.on_channel = hook_on_channel;
+    hooks.on_frame = hook_on_frame;
+    hooks.user = &a;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.state_dir = a.dir;
+    cfg.node_name = "K230-A";
+
+    a.rt = mcd_runtime_create(&cfg, &hooks, err, sizeof(err));
+    check("the node starts again", a.rt != NULL);
+    if (!a.rt) {
+        return;
+    }
+    check("with the same number of channels", mcd_runtime_channel_count(a.rt) == n_before);
+    for (int i = 0; i < n_before; i++) {
+        struct mcd_channel now;
+
+        check("a channel came back", mcd_runtime_channel_at(a.rt, i, &now));
+        check("in the same slot", now.slot == before[i].slot);
+        check("with the same name", strcmp(now.name, before[i].name) == 0);
+        /* The hash is derived from the key, so it coming back identical is
+         * what says the KEY came back - the one thing that is not reported
+         * over IPC and cannot be checked directly. */
+        check("and the same derived hash, so the same key", now.hash == before[i].hash);
+        check("and the same key length", now.key_bits == before[i].key_bits);
+    }
+    /* Restoring is not a change: a start that rewrote the file it had just
+     * read would churn the flash on every boot. */
+    check("a restored table is not dirty", !mcd_runtime_dirty(a.rt));
+    /* And it still works, which a hash comparison alone would not prove. */
+    mcd_runtime_set_radio_online(a.rt, true);
+    check("and a restored channel can still be sent on",
+          mcd_runtime_send_channel_text(a.rt, before[0].slot, "after a restart", &msg_id) ==
+              MCD_SEND_ACCEPTED_FLOOD);
+    pump(air, 5);
+
+    /* Messages, by contrast, do NOT survive: they are runtime-only, and this
+     * says so rather than leaving it to be discovered. */
+    check("but the messages did not come back",
+          mcd_runtime_message_count(a.rt) == 1);
+}
+
+/* ---- an unreadable channels.v1 is survivable --------------------------- */
+static void test_corrupt_channels_is_survivable(void)
+{
+    struct mcd_runtime_hooks hooks;
+    struct mcd_runtime_config cfg;
+    struct mcd_runtime* rt;
+    char err[256] = "";
+    char dir[300];
+    char path[400];
+    char fault[256] = "";
+    Node holder;
+    Air air;
+    FILE* f;
+
+    snprintf(dir, sizeof(dir), "%s/corrupt-channels", g_root);
+    {
+        char store_err[mcdstore::ERR_SIZE] = "";
+
+        check("a directory for it", mcdstore::ensureDir(dir, store_err));
+    }
+    snprintf(path, sizeof(path), "%s/channels.v1", dir);
+    f = fopen(path, "wb");
+    check("a channels.v1 this build will not read", f != NULL);
+    if (f) {
+        /* The right magic and a version this build does not know, so the
+         * refusal is the version check and not the magic. */
+        fwrite("MCDC\x09\x00\x00\x00\x00\x00\x00\x00", 1, 12, f);
+        fclose(f);
+    }
+
+    holder.air = &air;
+    memset(&hooks, 0, sizeof(hooks));
+    hooks.tx_submit = hook_tx_submit;
+    hooks.on_node = hook_on_node;
+    hooks.on_message = hook_on_message;
+    hooks.on_channel = hook_on_channel;
+    hooks.on_frame = hook_on_frame;
+    hooks.user = &holder;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.state_dir = dir;
+    cfg.node_name = "K230-C";
+
+    rt = mcd_runtime_create(&cfg, &hooks, err, sizeof(err));
+    /* Not fatal. A daemon that will not start is a node off the air, and the
+     * channels are a cache of what an operator typed - painful to lose, but
+     * not a reason to take the radio down. */
+    check("the runtime starts anyway", rt != NULL);
+    if (!rt) {
+        return;
+    }
+    check("with no channels", mcd_runtime_channel_count(rt) == 0);
+    check("and says what happened to them", mcd_runtime_channel_fault(rt, fault, sizeof(fault)));
+    check("naming the version it could not read", strstr(fault, "version") != NULL);
+    check("and where the file was kept", strstr(fault, "kept as") != NULL);
+    /* Reported separately from the node table's fault, because the two
+     * losses are not comparable: the mesh re-advertises a forgotten node. */
+    check("the node state is reported as fine",
+          !mcd_runtime_state_fault(rt, fault, sizeof(fault)));
+    {
+        struct stat sb;
+
+        snprintf(path, sizeof(path), "%s/channels.v1.corrupt.0", dir);
+        check("the unreadable file was kept, not deleted", stat(path, &sb) == 0);
+        snprintf(path, sizeof(path), "%s/channels.v1", dir);
+        check("and is no longer in the way", stat(path, &sb) != 0);
+    }
+    /* A channel can be joined again on top of it. */
+    check("a channel can be joined after the fault",
+          mcd_runtime_channel_add(rt, "RECOVERED", KEY_A, NULL) == MCD_CHANNEL_OK);
+    check("and written", mcd_runtime_persist(rt) == 0);
+    mcd_runtime_destroy(rt);
+}
+
 int main(void)
 {
     char tmpl[] = "/tmp/meshcored-runtime-XXXXXX";
@@ -1420,6 +1925,10 @@ int main(void)
     test_duplicate_suppression(a, b, air);
     test_path_guard(a, b, air, a_id, b_id);
     test_restart(a, air);
+    test_channels(a, b, air);
+    test_channel_empty_slot_guard(a, air);
+    test_channel_restart(a, air);
+    test_corrupt_channels_is_survivable();
     test_corrupt_identity_stops_the_runtime();
     test_corrupt_state_is_survivable();
     test_hostile_remote_text();

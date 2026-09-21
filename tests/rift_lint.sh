@@ -138,21 +138,37 @@ check "and NET says it is not in this build rather than showing an empty view" \
 check "there is no command parser in this phase" \
     "$(grep -rqE 'strcmp\(.*"/msg"|"/nodes"|"/advert"' "$SRC" && echo 0 || echo 1)"
 
-# ---- channels are the service's gap, not this app's ----------------------------
-# The approved design merges channels into the COMMS list with a "#" glyph.
-# There is nothing to merge: MAX_GROUP_CHANNELS is left undefined in
-# protocols/meshcore so upstream's channel code is not compiled, meshcored's
-# onChannelMessageRecv is an empty override, and docs/api/mesh.md lists group
-# channels under "Not in v0". A channel row here would be this app inventing
-# a feature the mesh does not have, so the gate is that it does not draw one
-# and does say why.
-check "the radio service still has no channels to draw" \
-    "$(grep -rq 'MAX_GROUP_CHANNELS' protocols/meshcore/port protocols/meshcore/compat \
-        protocols/meshcore/Makefile 2>/dev/null && echo 0 || echo 1)"
-check "and COMMS says so rather than drawing one" \
-    "$(grep -q 'channels are not in' "$SRC/ui/rift_comms.c" && echo 1 || echo 0)"
-check "no channel is invented in the app" \
-    "$(grep -rqiE 'rift_channel|channel_row|#define RIFT_MAX_CHANNELS' "$SRC" && echo 0 || echo 1)"
+# ---- channels are the service's, and this app only shows them -----------------
+# The approved design merges channels into the COMMS list with a "#" glyph,
+# and now there is something to merge. What must stay true is that every
+# channel on screen is one the service reported: this app holds no key,
+# derives no channel from a name, and cannot join one. A channel row that did
+# not come from mesh.channels would be this app inventing a place to write
+# that nothing would carry.
+check "channels are compiled into the protocol core" \
+    "$(grep -q 'MAX_GROUP_CHANNELS' protocols/meshcore/compat/mc_channels.h && echo 1 || echo 0)"
+check "the app holds no channel key" \
+    "$(grep -rqiE 'psk|pre_shared|secret\[|channel_key\[|base64' "$SRC" && echo 0 || echo 1)"
+# The quoted method string, which is what a call looks like - rift_ipc.h
+# names both methods in prose to say why they are not used, and a check that
+# could not tell the two apart would fail on the explanation.
+check "and cannot join or leave one: that takes a key" \
+    "$(grep -rq --include='*.c' '"mesh\.channel_add"\|"mesh\.channel_remove"' "$SRC" &&
+       echo 0 || echo 1)"
+check "the channel list comes from the service" \
+    "$(grep -q 'mesh.channels' "$SRC/rift_ipc.c" && echo 1 || echo 0)"
+check "and a channel row is drawn only from it" \
+    "$(grep -q 'm->channel_count' "$SRC/ui/rift_comms.c" && echo 1 || echo 0)"
+# The one thing a channel is not: acknowledged. A group frame is flooded and
+# unacknowledged, so nothing in this app may draw a delivery for one.
+check "a channel message is never shown as delivered" \
+    "$(grep -q 'NO ACK ON CHANNELS' "$SRC/rift_format.c" && echo 1 || echo 0)"
+check "and the delivery tally counts channel sends apart" \
+    "$(grep -q 'unacknowledgeable' "$SRC/rift_messages.c" && echo 1 || echo 0)"
+# A sender's name on a channel is a claim: nothing signs a group frame. It
+# must not be drawn the way a peer's name is.
+check "a claimed sender name is marked as a claim" \
+    "$(grep -q 'sender_name' "$SRC/ui/rift_thread.c" && echo 1 || echo 0)"
 
 # ---- the composer ---------------------------------------------------------------
 # A message is not shown as delivered before the service says it was, and the

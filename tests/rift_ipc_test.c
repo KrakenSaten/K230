@@ -209,6 +209,13 @@ int main(void)
 
         /* One node, asked for by name. */
         check("a single node can be asked for", rift_ipc_request_node(&c, KEY_A) == 0);
+        /* A channel is not a node. Asking meshcored about one would be a
+         * question it refuses - it is not a hex key - and the refusal would
+         * sit in the client's last error, which is what the command line
+         * shows once the service goes away. Refused before it is written. */
+        check("but a channel is not a node and is never asked about",
+              rift_ipc_request_node(&c, "#0") == -1);
+        check("whichever slot it is", rift_ipc_request_node(&c, "#7") == -1);
         spin(&c, 800, NULL, &m);
         check("and the answer updates the row it belongs to", m.node_count == 2);
 
@@ -369,7 +376,8 @@ int main(void)
                 saw_unsubscribe = 1;
             } else if (strcmp(line, "mesh.info") != 0 && strcmp(line, "mesh.status") != 0 &&
                        strcmp(line, "mesh.identity") != 0 && strcmp(line, "mesh.nodes") != 0 &&
-                       strcmp(line, "mesh.node") != 0 && strcmp(line, "mesh.messages") != 0) {
+                       strcmp(line, "mesh.node") != 0 && strcmp(line, "mesh.messages") != 0 &&
+                       strcmp(line, "mesh.channels") != 0) {
                 saw_unexpected = 1;
                 printf("     unexpected method: %s\n", line);
             }
@@ -463,6 +471,193 @@ int main(void)
         fake_meshcored_stop(pid);
         unlink(sends);
         unlink(methods);
+    }
+
+    /* ---- channels, against a real socket ---------------------------------- */
+    /* The whole path: the channel list read on connect, a channel message
+     * arriving as an event, a message sent to a channel rather than a node,
+     * and the list re-read after the service has gone and come back. */
+    {
+        char sends[600];
+        struct fake_meshcored_script script;
+        pid_t pid;
+        static const char *const chan_events[] = {
+            "mesh.message|{\"message\":{\"id\":5,\"direction\":\"in\",\"kind\":\"channel\","
+            "\"channel\":0,\"channel_name\":\"SITE\",\"channel_hash\":\"8c\","
+            "\"sender_name\":\"HYTTA\",\"text\":\"HYTTA: all clear\","
+            "\"state\":\"received\",\"ack_expected\":false,\"mono_ms\":-1000}}",
+            "mesh.channel|{\"reason\":\"added\",\"channel\":{\"channel\":3,"
+            "\"name\":\"LATE\",\"channel_hash\":\"2a\",\"key_bits\":256,"
+            "\"text_limit\":147}}",
+            NULL,
+        };
+
+        snprintf(sends, sizeof(sends), "%s/sends", runtime);
+        unlink(sends);
+        unlink(methods);
+        memset(&script, 0, sizeof(script));
+        script.state = "online";
+        script.nodes_json = NODES_TWO;
+        script.channels_json =
+            "[{\"channel\":0,\"name\":\"SITE\",\"channel_hash\":\"8c\",\"key_bits\":256,"
+            "\"text_limit\":147,\"ack_expected\":false}]";
+        script.events = chan_events;
+        script.send_log = sends;
+        script.method_log = methods;
+        script.life_ms = 6000;
+        pid = fake_meshcored_spawn(&script);
+        check("a service with a channel is running", pid > 0);
+        check("and its socket is there", fake_meshcored_wait_ready(2000));
+
+        rift_model_init(&m);
+        rift_ipc_init(&c, &m, "meshcored");
+        spin(&c, 2000, have_snapshot, &m);
+        check("the channel list was read on connect", m.channels_valid);
+        check("and holds the one the service has", m.channel_count >= 1);
+        check("in the slot it named", rift_model_channel(&m, 0) != NULL);
+        check("with the limit the service gave, not the API's 160",
+              rift_model_text_limit(&m, "#0") == 147);
+
+        /* The event that arrives on the channel. */
+        spin(&c, 2000, NULL, &m);
+        {
+            const struct rift_message *thread[8];
+            int n = rift_model_thread(&m, "#0", thread, 8, NULL);
+
+            check("a channel message arrived as an event", n == 1);
+            check("as a channel message", n == 1 && thread[0]->is_channel);
+            check("with the sender's claimed name",
+                  n == 1 && thread[0]->have_sender_name &&
+                      strcmp(thread[0]->sender_name, "HYTTA") == 0);
+            check("and nothing that could acknowledge it",
+                  n == 1 && !thread[0]->ack_expected);
+            /* Deliberately no unread assertion here. This event races the
+             * first mesh.messages reply, and whatever is in the cache when
+             * that lands is seeded as read - nothing has been drawn yet, so
+             * "unread since you last looked" is not a question that has an
+             * answer (rift_model.h, messages_seeded). Whether this one is
+             * unread therefore depends on which frame arrived first, which
+             * is not a property of channels. tests/rift_comms_test.c settles
+             * the unread behaviour deterministically instead. */
+            {
+                struct rift_conv conv[RIFT_MAX_CONVERSATIONS];
+
+                check("and it is in the conversation list",
+                      rift_model_conversations(&m, conv, RIFT_MAX_CONVERSATIONS) >= 1);
+            }
+        }
+        /* A channel added while the client was connected turns up without a
+         * snapshot being asked for. */
+        check("a channel added later arrives as an event",
+              rift_model_channel(&m, 3) != NULL);
+
+        /* Sending to a channel. */
+        check("a message is sent to the channel",
+              rift_ipc_send_message(&c, "#0", "pa vei") == 0);
+        spin(&c, 2000, NULL, &m);
+        check("the submission finished", !rift_model_sending(&m));
+        check("the service gave it an id", m.outbox.message_id > 0);
+        /* What went on the air, and to where: a channel slot, not a node. */
+        {
+            FILE *f = fopen(sends, "r");
+            char line[256];
+            int lines = 0;
+
+            while (f && fgets(line, sizeof(line), f)) {
+                line[strcspn(line, "\n")] = '\0';
+                lines++;
+                text_is("the service was asked to send to the channel", line, "#0|pa vei");
+            }
+            if (f) {
+                fclose(f);
+            }
+            check("once, not twice", lines == 1);
+        }
+        /* A body too long for the channel is refused before anything is
+         * written: the limit is the service's, and it is shorter than a
+         * direct message's because this node's name travels inside. */
+        {
+            char too_long[200];
+            FILE *f;
+            char line[256];
+            int lines = 0;
+
+            memset(too_long, 'x', sizeof(too_long));
+            too_long[148] = '\0';
+            check("a body over the channel's limit is refused",
+                  rift_ipc_send_message(&c, "#0", too_long) == -1);
+            check("and the reader is told why", m.outbox.failed && m.outbox.error[0]);
+            f = fopen(sends, "r");
+            while (f && fgets(line, sizeof(line), f)) {
+                lines++;
+            }
+            if (f) {
+                fclose(f);
+            }
+            check("nothing more was written to the service", lines == 1);
+        }
+
+        rift_ipc_close(&c);
+        fake_meshcored_stop(pid);
+        unlink(sends);
+        unlink(methods);
+    }
+
+    /* ---- a channel list that changes across a reconnect -------------------- */
+    {
+        struct fake_meshcored_script script;
+        pid_t pid;
+
+        memset(&script, 0, sizeof(script));
+        script.state = "online";
+        script.nodes_json = NODES_TWO;
+        script.channels_json =
+            "[{\"channel\":0,\"name\":\"SITE\",\"channel_hash\":\"8c\",\"key_bits\":256,"
+            "\"text_limit\":147},"
+            "{\"channel\":1,\"name\":\"OPS\",\"channel_hash\":\"4d\",\"key_bits\":128,"
+            "\"text_limit\":147}]";
+        script.serve_clients = 1;
+        script.life_ms = 4000;
+        pid = fake_meshcored_spawn(&script);
+        check("a service with two channels came up", fake_meshcored_wait_ready(3000));
+
+        rift_model_init(&m);
+        rift_ipc_init(&c, &m, "meshcored");
+        spin(&c, 2000, have_snapshot, &m);
+        check("both channels were read", m.channel_count == 2);
+
+        fake_meshcored_stop(pid);
+        spin(&c, 2000, NULL, &m);
+        check("the service went away", m.state == RIFT_SVC_ABSENT);
+        /* The channels stay on screen and stop being current. Blanking them
+         * would say something less true than a stale list does. */
+        check("the channels are still shown", m.channel_count == 2);
+        check("but are no longer current", !m.channels_valid);
+        {
+            struct fake_meshcored_script again;
+            pid_t pid2;
+
+            memset(&again, 0, sizeof(again));
+            again.state = "online";
+            again.nodes_json = NODES_TWO;
+            /* One of them has been left while nobody was watching. */
+            again.channels_json =
+                "[{\"channel\":1,\"name\":\"OPS\",\"channel_hash\":\"4d\",\"key_bits\":128,"
+                "\"text_limit\":147}]";
+            again.life_ms = 4000;
+            pid2 = fake_meshcored_spawn(&again);
+            check("the service comes back", fake_meshcored_wait_ready(3000));
+            spin(&c, 8000, have_snapshot, &m);
+            check("the channel list was re-read", m.channels_valid);
+            check("and is now what the service holds", m.channel_count == 1);
+            /* The one that was left is gone rather than lingering as
+             * somewhere to write that nothing would carry. */
+            check("the channel that was left is not offered",
+                  rift_model_channel(&m, 0) == NULL);
+            check("and the one still held is", rift_model_channel(&m, 1) != NULL);
+            rift_ipc_close(&c);
+            fake_meshcored_stop(pid2);
+        }
     }
 
     /* ---- the first message of a conversation ------------------------------ */

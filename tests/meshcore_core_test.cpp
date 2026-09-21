@@ -40,6 +40,8 @@
 #include <helpers/TxtDataHelpers.h>
 #include <helpers/UTF8Helpers.h>
 
+#include <base64.hpp>
+
 #include "mc_port.h"
 
 static int failed;
@@ -784,6 +786,210 @@ static void test_build_identity(void) {
         fresh.verify(sig, (const uint8_t*) "port", 4));
 }
 
+/* ---- base64, the channel-key decoder -----------------------------------
+ *
+ * compat/base64.hpp exists because BaseChatMesh.cpp includes <base64.hpp>
+ * inside the MAX_GROUP_CHANNELS guard and upstream satisfies it with an
+ * Arduino library it does not vendor. It is therefore first-party code in
+ * this boundary, and it is the thing that turns a key somebody typed into
+ * the bytes a channel is. A decoder that is loose about its input is a
+ * decoder that turns two different keys into the same channel, or one key
+ * into two - so the refusals matter at least as much as the successes.
+ */
+static void test_base64(void) {
+  uint8_t out[64];
+
+  /* RFC 4648 section 10, the published vectors. */
+  struct { const char* in; const char* want; } ok[] = {
+    { "",         ""       },   /* refused: see below, not a vector */
+    { "Zg==",     "f"      },
+    { "Zm8=",     "fo"     },
+    { "Zm9v",     "foo"    },
+    { "Zm9vYg==", "foob"   },
+    { "Zm9vYmE=", "fooba"  },
+    { "Zm9vYmFy", "foobar" },
+  };
+  for (size_t i = 1; i < sizeof(ok) / sizeof(ok[0]); i++) {
+    size_t n = mcport::base64Decode((const unsigned char*) ok[i].in, strlen(ok[i].in),
+                                    out, sizeof(out));
+    bool good = n == strlen(ok[i].want) && memcmp(out, ok[i].want, n) == 0;
+    char what[64];
+
+    snprintf(what, sizeof(what), "RFC 4648 vector %s decodes to \"%s\"", ok[i].in, ok[i].want);
+    check(what, good);
+  }
+  check("an empty string decodes to nothing",
+        mcport::base64Decode((const unsigned char*) "", 0, out, sizeof(out)) == 0);
+
+  /* A 32-byte channel key: the length this is really for. */
+  {
+    const char* k = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+    size_t n = mcport::base64Decode((const unsigned char*) k, strlen(k), out, sizeof(out));
+    bool seq = n == 32;
+
+    for (size_t i = 0; seq && i < 32; i++) seq = out[i] == (uint8_t) i;
+    check("a 32-byte channel key decodes to 32 bytes", n == 32);
+    check("and to the bytes it names", seq);
+  }
+  /* And a 16-byte one, which MeshCore also accepts as a channel key. */
+  {
+    const char* k = "AAECAwQFBgcICQoLDA0ODw==";
+
+    check("a 16-byte channel key decodes to 16 bytes",
+          mcport::base64Decode((const unsigned char*) k, strlen(k), out, sizeof(out)) == 16);
+  }
+
+  /* ---- what it refuses ---- */
+  check("a length that is not a multiple of four is refused",
+        mcport::base64Decode((const unsigned char*) "Zm9vY", 5, out, sizeof(out)) == 0);
+  check("a character outside the alphabet is refused, not mapped to zero",
+        mcport::base64Decode((const unsigned char*) "Zm9!", 4, out, sizeof(out)) == 0);
+  check("a space is refused",
+        mcport::base64Decode((const unsigned char*) "Zm9 ", 4, out, sizeof(out)) == 0);
+  check("a newline is refused",
+        mcport::base64Decode((const unsigned char*) "Zm9\n", 4, out, sizeof(out)) == 0);
+  /* URL-safe base64 is a different alphabet. Accepting it silently would
+   * decode "-" and "_" as the standard "+" and "/" - a different key that
+   * still looks like it worked. */
+  check("the URL-safe alphabet is refused",
+        mcport::base64Decode((const unsigned char*) "-_9v", 4, out, sizeof(out)) == 0);
+  check("padding in the middle is refused",
+        mcport::base64Decode((const unsigned char*) "Zm==Zm9v", 8, out, sizeof(out)) == 0);
+  check("a lone pad in the third position is refused",
+        mcport::base64Decode((const unsigned char*) "Zm=v", 4, out, sizeof(out)) == 0);
+  check("a high byte is refused",
+        mcport::base64Decode((const unsigned char*) "Zm9\xC3", 4, out, sizeof(out)) == 0);
+
+  /* ---- the capacity is real, and nothing is written past it ---- */
+  {
+    uint8_t small[8];
+
+    memset(small, 0xAA, sizeof(small));
+    check("a decode that does not fit its buffer is refused",
+          mcport::base64Decode((const unsigned char*) "Zm9vYmFy", 8, small, 4) == 0);
+    check("and nothing was written when it was refused",
+          small[0] == 0xAA && small[3] == 0xAA);
+  }
+
+  /* ---- the compatibility form BaseChatMesh::addChannel() calls ----
+   *
+   * Upstream's densaugeo decoder has no output capacity and writes a NUL one
+   * byte past what it decoded. compat/base64.hpp does neither: it caps at
+   * MC_BASE64_MAX_DECODE, which is the size of a GroupChannel::secret - the
+   * only destination any caller inside this boundary passes - and writes no
+   * terminator. protocols/meshcore/compat/base64.hpp says why. */
+  {
+    uint8_t guarded[MC_BASE64_MAX_DECODE + 1];
+    const char* k32 = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+    const char* k48 = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4v";
+
+    memset(guarded, 0xAA, sizeof(guarded));
+    check("the three-argument form decodes a 32-byte key",
+          decode_base64((const unsigned char*) k32, (unsigned int) strlen(k32), guarded) == 32);
+    check("and writes no terminator past it", guarded[MC_BASE64_MAX_DECODE] == 0xAA);
+
+    memset(guarded, 0xAA, sizeof(guarded));
+    check("a 48-byte key is refused rather than overrunning a 32-byte secret",
+          decode_base64((const unsigned char*) k48, (unsigned int) strlen(k48), guarded) == 0);
+    check("and nothing was written", guarded[0] == 0xAA);
+  }
+
+  /* ---- a key is only the same channel if the bytes are the same ---- */
+  {
+    uint8_t a[32];
+    uint8_t b[32];
+    const char* ka = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+    const char* kb = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHiA=";
+    uint8_t ha[1];
+    uint8_t hb[1];
+
+    check("two near-identical keys both decode",
+          mcport::base64Decode((const unsigned char*) ka, strlen(ka), a, sizeof(a)) == 32 &&
+          mcport::base64Decode((const unsigned char*) kb, strlen(kb), b, sizeof(b)) == 32);
+    check("and differ in exactly the byte they name", memcmp(a, b, 31) == 0 && a[31] != b[31]);
+    mesh::Utils::sha256(ha, 1, a, 32);
+    mesh::Utils::sha256(hb, 1, b, 32);
+    /* Their one-byte channel hashes may well collide - one byte - which is
+     * the whole reason MeshCore tries up to four matching channels and lets
+     * the MAC decide. The keys are what differ. */
+    (void) ha;
+    (void) hb;
+  }
+}
+
+/* ---- the hashtag-channel key, against upstream's own vector -------------
+ *
+ * Not our invention and not our choice: a MeshCore node can join a channel
+ * whose key is derived from its name, and the derivation is fixed by the
+ * firmware a Doors node has to interoperate with. `MyMesh::addGroupChannelHashtag`
+ * (vendor/RIFT/examples/companion_radio/MyMesh.cpp:1141-1163) takes the first
+ * 16 bytes of SHA-256 over the name *including* its leading '#', and states
+ * its own test vector in the comment there: "#test" -> (Utils::toHex spells
+ * the same bytes in upper case, which is why the literals below are)
+ * 9cd8fcf22a47333b591d96a2b848b73f.
+ *
+ * That firmware is not compiled here - it is a T-Deck's, not this library's -
+ * so what this checks is the half that IS ours: that our SHA-256, the one a
+ * channel key is hashed with and the one a channel hash is derived with,
+ * reproduces the vector the peer's firmware publishes. A bench channel agreed
+ * by name rather than by typing a key on both ends rests on exactly this, and
+ * if it ever stopped holding, two nodes would sit on channels they both
+ * believed were the same one and hear nothing.
+ */
+static void test_hashtag_channel_vector(void) {
+  uint8_t key[16];
+  uint8_t hash[1];
+  char hex[33];
+
+  mesh::Utils::sha256(key, sizeof(key), (const uint8_t *) "#test", 5);
+  mesh::Utils::toHex(hex, key, sizeof(key));
+  check("upstream's own hashtag vector for \"#test\" is reproduced here",
+        strcmp(hex, "9CD8FCF22A47333B591D96A2B848B73F") == 0);
+
+  /* And the channel hash that key derives: one byte, SHA-256 over the 16-byte
+   * key, which is what setChannel() computes for a 128-bit key and what the
+   * frame carries in the clear. */
+  mesh::Utils::sha256(hash, sizeof(hash), key, sizeof(key));
+  {
+    uint8_t again[1];
+
+    mesh::Utils::sha256(again, sizeof(again), key, sizeof(key));
+    check("and the hash it derives is stable", hash[0] == again[0]);
+  }
+
+  /* The bench channel docs/hardware/RIFT_CHANNELS_GATE.md asks the operator
+   * to create on both ends. Pinned here so the sheet's key and the sheet's
+   * expected channel hash cannot drift from what this crypto actually
+   * produces - the operator reads two hex bytes off two screens and compares
+   * them, and they are only worth comparing if these are right. */
+  mesh::Utils::sha256(key, sizeof(key), (const uint8_t *) "#doorsbench", 11);
+  mesh::Utils::toHex(hex, key, sizeof(key));
+  check("the bench channel's key is the one the sheet publishes",
+        strcmp(hex, "3DE64BA5520D2AB2657E254A73C0892C") == 0);
+  mesh::Utils::sha256(hash, sizeof(hash), key, sizeof(key));
+  check("and its on-air channel hash is 9a", hash[0] == 0x9a);
+
+  /* The last link in that chain, and the one an operator actually types: the
+   * sheet gives the key as base64 for mesh.channel_add, and this is the
+   * decoder that will read it. Deriving the key correctly and then publishing
+   * a base64 spelling of something else would waste a bench session on a
+   * channel that looked joined at both ends and carried nothing. */
+  {
+    const char* b64 = "PeZLpVINKrJlfiVKc8CJLA==";
+    uint8_t decoded[32];
+    size_t n;
+
+    memset(decoded, 0, sizeof(decoded));
+    n = mcport::base64Decode((const unsigned char*) b64, strlen(b64), decoded, sizeof(decoded));
+    check("the base64 the sheet publishes decodes to 16 bytes", n == 16);
+    check("and to exactly the key the name derives", memcmp(decoded, key, 16) == 0);
+    /* Zero-padded above 16, which is what makes both ends hash it over 16
+     * bytes and agree on 9a. */
+    check("with the upper half zero, so both ends hash it the same way",
+          decoded[16] == 0 && decoded[31] == 0);
+  }
+}
+
 int main(void) {
   test_packet_round_trip();
   test_path_len();
@@ -795,6 +1001,8 @@ int main(void) {
   test_cipher_and_mac();
   test_sha256();
   test_advert_app_data();
+  test_base64();
+  test_hashtag_channel_vector();
   test_debt_readfrom_short_buffer();
   test_build_identity();
 

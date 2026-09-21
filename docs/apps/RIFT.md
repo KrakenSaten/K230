@@ -53,12 +53,29 @@ NET**. Phase 2 draws the first three.
 - **NET** keeps its place in the navigation and says it is not in this build.
   An empty view would read as a quiet mesh.
 
-**COMMS is direct conversations only.** The design merges channels into the
-same list with a `#` glyph; the radio service has none — `MAX_GROUP_CHANNELS`
-is left undefined in `protocols/meshcore`, so upstream's channel code is not
-compiled, meshcored's `onChannelMessageRecv` is an empty override, and
-`docs/api/mesh.md` lists group channels under "Not in v0". The list says so
-where a reader who knows the design would otherwise be looking for them.
+**COMMS holds direct conversations and channels in one list**, as the design
+asks, with the `#` glyph on a channel row. A channel is a conversation like
+any other here — one list, one thread, one read mark, one unread count, one
+composer — and the places it is *not* are the places the protocol differs:
+
+- **Nothing acknowledges a channel message.** A MeshCore group frame is
+  flooded and unacknowledged, so an outgoing one reaches `sent_flood` and
+  stays there. Its caption says `SENT · FLOOD · NO ACK ON CHANNELS` rather
+  than leaving a permanent `SENT` to be read as a delivery that has not turned
+  up, and the tally counts channel sends apart from delivered and no-ack
+  instead of reporting `0 DELIVERED`, which would read as a failure.
+- **A sender's name on a channel is a claim.** It comes out of the message
+  payload and nothing signs it; anyone holding the key can send any name. It
+  is drawn with a trailing `?` rather than the way a `peer_name` is, because a
+  `peer_name` arrived with a public key behind it.
+- **A channel has no route.** The route column says `FLOOD`, and the landscape
+  route pane says a channel is a shared key rather than drawing a hop chain
+  that does not exist.
+- **RIFT cannot join or leave one.** `mesh.channel_add` takes a pre-shared
+  key, and there is nowhere on a RIFT screen to type one; adding it would be
+  this app growing a key-entry surface nobody asked for. The app holds no key,
+  derives no channel from a name, and draws only channels `mesh.channels`
+  reported. `tests/rift_lint.sh` checks each of those.
 
 Landscape (1232 × 568) is a recomposition, not a rotation: NODES becomes the
 list beside the selected node's detail, ACTIVITY becomes two columns, COMMS
@@ -85,7 +102,9 @@ column.
   transmitted is not acknowledged, and nothing turns `sent_flood` into
   delivered. While a request is in flight the thread says "Sending", which
   claims only that.
-- Not a channel client: there are no channels to be a client of. See above.
+- **Not a channel *manager*.** It shows the channels the service holds and
+  writes to them. Joining one takes a key, which is the service's business and
+  not a screen's. See above.
 - Not a network map: no rings, no relay load, no inferred links. That is NET.
 - No command parser. The command line is permanent chrome in the approved
   design and the vertical budget is measured with it there. In landscape
@@ -236,15 +255,22 @@ long the host has been up.
 5. **Path history is only what RIFT saw.** There is no history before the app
    opened, and the panel is headed "PATH CHANGES SEEN BY RIFT" so it is not
    read as the service's record.
-6. **No channels.** The service has none to show:
-   `MAX_GROUP_CHANNELS` is left undefined in `protocols/meshcore`, so
-   upstream's channel code is not compiled, meshcored's
-   `onChannelMessageRecv` is an empty override, and `docs/api/mesh.md` puts
-   group channels under "Not in v0". COMMS says so in the list rather than
-   drawing a channel nobody could speak on. Adding them is not a UI change:
-   it means compiling vendor code that has never run here, giving meshcored
-   channel state and addressing, and proving the frames on air, which is an
-   interop gate of its own.
+6. **A channel row is drawn before anything is said on it.** The model does
+   not call a channel with no messages a conversation — it holds no messages,
+   and inventing history is what this app must not do — but a joined channel
+   that stayed invisible until somebody spoke would be a channel nobody could
+   be the first to speak on. So COMMS adds a row per channel the service
+   reported, with no preview, no unread and a total of zero, which is exactly
+   what it is.
+   Channels have been **on a radio**, in both directions, against a real
+   MeshCore peer:
+   [docs/hardware/RIFT_CHANNELS_GATE.md](../hardware/RIFT_CHANNELS_GATE.md)
+   (unit A, 2026-09-21, **PASS**). That gate also read every string on this
+   page off the unit's own DRM plane rather than off a description — the `#`
+   glyph and `FLOOD` on a channel row, `CHANNEL · HASH 9a · FLOOD` in the
+   header, the claim marker on a received sender's name, and
+   `SENT · FLOOD · NO ACK ON CHANNELS` under an outgoing one — and confirmed
+   that the words `DELIVERED` and `ACKED` appear nowhere on a channel.
 7. **A message carries no route.** The design's per-message caption is
    `RECEIVED · PATH 9 · 1 UNKNOWN HOP`. The API carries a path on a *node*
    and not on a message, so the route is drawn in the thread header and the

@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <base64.hpp>
 #include <helpers/AdvertDataHelpers.h>
 #include <helpers/BaseChatMesh.h>
 #include <helpers/SimpleMeshTables.h>
@@ -47,6 +48,17 @@ static_assert(MCD_MAX_TEXT == MAX_TEXT_LEN, "text length drifted from MeshCore")
 static_assert(MCD_MAX_FRAME == MAX_TRANS_UNIT, "frame size drifted from MeshCore");
 static_assert(MCD_NODE_NAME_LEN == sizeof(((ContactInfo*)0)->name),
               "contact name size drifted from MeshCore");
+/* The channel table's size is decided by protocols/meshcore/compat/mc_channels.h
+ * and reached through <Arduino.h>, which BaseChatMesh.h includes before it
+ * declares channels[MAX_GROUP_CHANNELS]. This service repeats the number in
+ * its C header so that header stands alone; the assertion is what stops the
+ * two from ever being different values for the same array. */
+static_assert(MCD_MAX_CHANNELS == MAX_GROUP_CHANNELS,
+              "channel table size drifted from MeshCore");
+static_assert(MCD_CHANNEL_NAME_LEN == sizeof(((ChannelDetails*)0)->name),
+              "channel name size drifted from MeshCore");
+static_assert(MCD_MAX_CHANNELS == mcdstore::MAX_CHANNELS,
+              "the channel table and channels.v1 disagree about how many channels there are");
 
 #ifndef MESHCORE_RIFT_COMMIT
 #define MESHCORE_RIFT_COMMIT ""
@@ -62,9 +74,19 @@ namespace {
  * daemon allocate without bound because somebody is transmitting quickly. */
 const int RX_QUEUE_DEPTH = 32;
 
-/* The last N messages, in memory. Messages are not persisted in this phase -
- * see docs/services/MESHCORED.md, "What is persistent". */
+/* The last N messages, in memory. Messages are not persisted - see
+ * docs/services/MESHCORED.md, "What is persistent".
+ *
+ * TWO rings, not one, and that is deliberate. A channel can be busy in a way
+ * a direct conversation never is: one chatty group would otherwise push every
+ * direct message out of a shared ring within seconds, and "channels were
+ * added" would read to a user as "my messages disappeared". Separate rings
+ * mean channel traffic cannot evict direct history and direct traffic cannot
+ * evict a channel's, which is what keeps the existing direct behaviour
+ * exactly as it was. The two are merged by message id - one id space, handed
+ * out in arrival order - wherever a caller wants them as one list. */
 const int MSG_RING = 64;
+const int CHAN_MSG_RING = 64;
 
 /* How many messages may be waiting for an ACK at once. MeshCore itself
  * tracks one timeout (BaseChatMesh::txt_send_timeout), so this is about
@@ -370,12 +392,16 @@ public:
          mesh::PacketManager& mgr, mesh::MeshTables& tables, RadiodRadio& adapter,
          const mcd_runtime_hooks& hooks)
         : BaseChatMesh(radio, ms, rng, rtc, mgr, tables), _adapter(adapter), _hooks(hooks),
-          _dirty(false), _msg_count(0), _msg_head(0), _next_msg_id(1),
+          _dirty(false), _channels_dirty(false), _msg_count(0), _msg_head(0),
+          _chan_count(0), _chan_head(0), _next_msg_id(1),
           _path_refused(0), _unparsed(0), _rx_logged(0), _unretained(0),
-          _contacts_full(0)
+          _contacts_full(0), _chan_unmatched(0)
     {
         memset(_outbox, 0, sizeof(_outbox));
         memset(_messages, 0, sizeof(_messages));
+        memset(_chan_messages, 0, sizeof(_chan_messages));
+        memset(_occupied, 0, sizeof(_occupied));
+        memset(_key_len, 0, sizeof(_key_len));
         _name[0] = '\0';
     }
 
@@ -387,6 +413,9 @@ public:
 
     bool dirty() const { return _dirty; }
     void clearDirty() { _dirty = false; }
+    bool channelsDirty() const { return _channels_dirty; }
+    void clearChannelsDirty() { _channels_dirty = false; }
+    uint64_t channelFramesUnmatched() const { return _chan_unmatched; }
     uint64_t pathRefused() const { return _path_refused; }
     uint64_t unparsed() const { return _unparsed; }
     uint64_t unretained() const { return _unretained; }
@@ -405,16 +434,43 @@ public:
 
     /* ---- messages ---- */
 
-    int messageCount() const { return _msg_count; }
+    int messageCount() const { return _msg_count + _chan_count; }
+
+    /* The two rings as one list, oldest first.
+     *
+     * Both are already in ascending id order - one counter hands ids out in
+     * arrival order and each ring is appended to - so this is a merge, and
+     * the result is every message in the order it happened regardless of
+     * which ring it is in. O(idx) per call and at most 128 entries, which is
+     * not worth an index for. */
     bool messageAt(int idx, mcd_message& out) const
     {
-        if (idx < 0 || idx >= _msg_count) {
+        int total = _msg_count + _chan_count;
+        int i = 0;
+        int j = 0;
+        int k;
+
+        if (idx < 0 || idx >= total) {
             return false;
         }
-        int pos = (_msg_head - _msg_count + idx + MSG_RING * 2) % MSG_RING;
+        for (k = 0; k <= idx; k++) {
+            const mcd_message* a = (i < _msg_count) ? &_messages[directAt(i)] : NULL;
+            const mcd_message* b = (j < _chan_count) ? &_chan_messages[channelAt(j)] : NULL;
+            const mcd_message* take;
 
-        out = _messages[pos];
-        return true;
+            if (a != NULL && (b == NULL || a->id < b->id)) {
+                take = a;
+                i++;
+            } else {
+                take = b;
+                j++;
+            }
+            if (k == idx) {
+                out = *take;
+                return true;
+            }
+        }
+        return false;
     }
 
     uint64_t recordOutgoing(const ContactInfo& to, const char* text, uint32_t timestamp,
@@ -425,16 +481,242 @@ public:
         memset(&m, 0, sizeof(m));
         m.id = _next_msg_id++;
         m.outgoing = true;
+        m.is_channel = false;
         memcpy(m.peer_key, to.id.pub_key, PUB_KEY_SIZE);
         snprintf(m.peer_name, sizeof(m.peer_name), "%s", to.name);
         snprintf(m.text, sizeof(m.text), "%s", text);
         m.timestamp = timestamp;
         m.mono_ms = mcport::monotonicMillis();
         m.state = state;
+        /* A directed message is acknowledged: MeshCore produced an
+         * expected_ack for it and will time it out if none arrives. */
+        m.ack_expected = true;
         push(m);
         addToOutbox(expected_ack, m.id, to.id.pub_key, m.mono_ms);
         emitMessage(m.id);
         return m.id;
+    }
+
+    /* ---- channels ------------------------------------------------------
+     *
+     * MeshCore holds the table; this class holds which of its slots are
+     * real. The two are separate because BaseChatMesh has no idea: its
+     * `channels` array is a fixed array of ChannelDetails that starts zeroed,
+     * and a zeroed slot is indistinguishable from a channel whose key is 32
+     * zero bytes. That distinction is the whole of the guard below.
+     */
+
+    int channelCount() const
+    {
+        int n = 0;
+
+        for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
+            if (_occupied[i]) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    bool channelBySlot(int slot, mcd_channel& out) const
+    {
+        ChannelDetails ch;
+
+        if (slot < 0 || slot >= MAX_GROUP_CHANNELS || !_occupied[slot]) {
+            return false;
+        }
+        if (!const_cast<Node*>(this)->getChannel(slot, ch)) {
+            return false;
+        }
+        memset(&out, 0, sizeof(out));
+        out.slot = slot;
+        snprintf(out.name, sizeof(out.name), "%s", ch.name);
+        out.hash = ch.channel.hash[0];
+        out.key_bits = _key_len[slot] * 8;
+        out.text_limit = channelTextLimit();
+        return true;
+    }
+
+    bool channelAt(int idx, mcd_channel& out) const
+    {
+        int seen = 0;
+
+        for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
+            if (!_occupied[i]) {
+                continue;
+            }
+            if (seen == idx) {
+                return channelBySlot(i, out);
+            }
+            seen++;
+        }
+        return false;
+    }
+
+    /* The longest body this node can put on a channel.
+     *
+     * sendGroupMessage() writes "<our name>: " into the payload and then
+     * SILENTLY TRUNCATES the caller's text to make the whole thing fit
+     * MAX_TEXT_LEN (BaseChatMesh.cpp:496). Truncating a message somebody
+     * typed and reporting success is not something this service will do, so
+     * it refuses instead - and a composer needs this number rather than the
+     * 160 that applies to a direct message. */
+    int channelTextLimit() const
+    {
+        int prefix = (int)strlen(_name) + 2;
+        int limit = MAX_TEXT_LEN - prefix;
+
+        return limit > 0 ? limit : 0;
+    }
+
+    /* Install a channel. key_len is 16 or 32; the caller has already
+     * validated the key, because the reasons a key is refused are things a
+     * client needs told apart. */
+    bool installChannel(int slot, const char* name, const uint8_t* key, int key_len)
+    {
+        ChannelDetails ch;
+
+        if (slot < 0 || slot >= MAX_GROUP_CHANNELS) {
+            return false;
+        }
+        memset(&ch, 0, sizeof(ch));
+        snprintf(ch.name, sizeof(ch.name), "%s", name ? name : "");
+        memcpy(ch.channel.secret, key, (size_t)key_len);
+        /* setChannel() is upstream's own installer: it derives the channel
+         * hash from the key exactly as every other MeshCore node does. The
+         * derivation is not reimplemented here, because a channel whose hash
+         * this service computed differently would be a channel nobody else
+         * can route to. */
+        if (!setChannel(slot, ch)) {
+            return false;
+        }
+        _occupied[slot] = true;
+        _key_len[slot] = key_len;
+        _channels_dirty = true;
+        emitChannel(slot, "added");
+        return true;
+    }
+
+    bool removeChannel(int slot)
+    {
+        ChannelDetails blank;
+        mcd_channel gone;
+
+        if (slot < 0 || slot >= MAX_GROUP_CHANNELS || !_occupied[slot]) {
+            return false;
+        }
+        (void)channelBySlot(slot, gone);
+        memset(&blank, 0, sizeof(blank));
+        /* The key is overwritten in MeshCore's own table, not merely marked
+         * unused: leaving it there would keep a secret this node has been
+         * told to forget. */
+        setChannel(slot, blank);
+        _occupied[slot] = false;
+        _key_len[slot] = 0;
+        _channels_dirty = true;
+        if (_hooks.on_channel) {
+            _hooks.on_channel(_hooks.user, &gone, "removed");
+        }
+        return true;
+    }
+
+    int freeChannelSlot() const
+    {
+        for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
+            if (!_occupied[i]) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /* Is this key already in the table? The key is the channel, so a second
+     * copy under another name would be a channel that can never be routed
+     * to: MeshCore's scan would find whichever came first and stop. */
+    bool holdsKey(const uint8_t* key, int key_len) const
+    {
+        ChannelDetails ch;
+
+        for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
+            if (!_occupied[i] || _key_len[i] != key_len) {
+                continue;
+            }
+            if (!const_cast<Node*>(this)->getChannel(i, ch)) {
+                continue;
+            }
+            if (memcmp(ch.channel.secret, key, PUB_KEY_SIZE) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool channelKeyAt(int slot, uint8_t* key, int* key_len) const
+    {
+        ChannelDetails ch;
+
+        if (slot < 0 || slot >= MAX_GROUP_CHANNELS || !_occupied[slot]) {
+            return false;
+        }
+        if (!const_cast<Node*>(this)->getChannel(slot, ch)) {
+            return false;
+        }
+        memcpy(key, ch.channel.secret, PUB_KEY_SIZE);
+        *key_len = _key_len[slot];
+        return true;
+    }
+
+    /* Send on a channel. Flood, unacknowledged, and recorded as such. */
+    mcd_send_result sendChannelText(int slot, const char* text, uint64_t* msg_id)
+    {
+        ChannelDetails ch;
+        mcd_message m;
+        uint32_t timestamp;
+
+        if (slot < 0 || slot >= MAX_GROUP_CHANNELS || !_occupied[slot]) {
+            return MCD_SEND_NO_CHANNEL;
+        }
+        if (text == NULL || text[0] == '\0') {
+            return MCD_SEND_TOO_LONG;
+        }
+        if ((int)strlen(text) > channelTextLimit()) {
+            return MCD_SEND_TOO_LONG;
+        }
+        if (!getChannel(slot, ch)) {
+            return MCD_SEND_NO_CHANNEL;
+        }
+        timestamp = getRTCClock()->getCurrentTimeUnique();
+        if (!sendGroupMessage(timestamp, ch.channel, _name, text, (int)strlen(text))) {
+            return MCD_SEND_FAILED;
+        }
+
+        memset(&m, 0, sizeof(m));
+        m.id = _next_msg_id++;
+        m.outgoing = true;
+        m.is_channel = true;
+        m.channel_slot = slot;
+        m.channel_hash = ch.channel.hash[0];
+        snprintf(m.channel_name, sizeof(m.channel_name), "%s", ch.name);
+        snprintf(m.sender_name, sizeof(m.sender_name), "%s", _name);
+        /* The text as it went on the air, prefix and all, so a sender and a
+         * receiver hold the same bytes for the same message. It is built the
+         * same way BaseChatMesh.cpp:492 builds it. */
+        snprintf(m.text, sizeof(m.text), "%s: %s", _name, text);
+        m.timestamp = timestamp;
+        m.mono_ms = mcport::monotonicMillis();
+        /* sent_flood is where this ends. There is no ACK for a group frame -
+         * no expected_ack, no timeout, no delivery report - so nothing will
+         * ever move it to acked or to no_ack, and ack_expected says so
+         * rather than leaving a client to infer it from a state that never
+         * changes. */
+        m.state = MCD_MSG_SENT_FLOOD;
+        m.ack_expected = false;
+        pushChannel(m);
+        emitMessage(m.id);
+        if (msg_id) {
+            *msg_id = m.id;
+        }
+        return MCD_SEND_ACCEPTED_FLOOD;
     }
 
     /* ---- BaseChatMesh, the presentation side ---- */
@@ -591,8 +873,104 @@ protected:
     void onCommandDataRecv(const ContactInfo&, mesh::Packet*, uint32_t, const char*) override { }
     void onSignedMessageRecv(const ContactInfo&, mesh::Packet*, uint32_t, const uint8_t*,
                              const char*) override { }
-    void onChannelMessageRecv(const mesh::GroupChannel&, mesh::Packet*, uint32_t,
-                              const char*) override { }
+    /* ---- the empty-slot guard ------------------------------------------
+     *
+     * BaseChatMesh::searchChannelsByHash() walks all MAX_GROUP_CHANNELS slots
+     * and offers every one whose hash byte matches the frame's
+     * (vendor/RIFT/src/helpers/BaseChatMesh.cpp:367-376; known debt 5 in
+     * protocols/meshcore/README.md). A slot with no channel in it is all
+     * zeroes - hash byte 0, key 32 zero bytes - so a frame whose channel-hash
+     * byte is 0 matches EVERY free slot and is handed to an all-zero key.
+     * That key is not a secret. Anyone can encrypt to it, and an unguarded
+     * node then accepts the message on a channel it never joined, with a
+     * MAC that verifies.
+     *
+     * Upstream's own firmware never meets this: its slot 0 always holds the
+     * public channel and its screens skip empty slots. A service whose table
+     * starts empty meets it on the very first group frame.
+     *
+     * So the table is filtered here, before any key is consulted, by the one
+     * thing MeshCore does not record: which slots actually hold a channel.
+     * The test is exact rather than a heuristic - a slot is occupied because
+     * installChannel() put something in it - so no real channel is hidden and
+     * no empty slot is offered. tests/meshcore_smoke_test.cpp demonstrates
+     * both halves: the fault on an unguarded node, the refusal on a guarded
+     * one.
+     */
+    int searchChannelsByHash(const uint8_t* hash, mesh::GroupChannel dest[],
+                             int max_matches) override
+    {
+        ChannelDetails ch;
+        int n = 0;
+
+        for (int i = 0; i < MAX_GROUP_CHANNELS && n < max_matches; i++) {
+            if (!_occupied[i] || !getChannel(i, ch)) {
+                continue;
+            }
+            if (ch.channel.hash[0] == hash[0]) {
+                dest[n++] = ch.channel;
+            }
+        }
+        if (n == 0) {
+            /* A group frame for a channel this node does not hold. Ordinary
+             * on any mesh with more than one channel on it, and counted
+             * rather than logged for exactly that reason. */
+            _chan_unmatched++;
+        }
+        return n;
+    }
+
+    /* A message on one of our channels.
+     *
+     * `channel` is the entry whose key actually decrypted it, which is how a
+     * node holding two channels that share the one-byte hash learns which of
+     * them this was - the hash cannot say, and the MAC already has. */
+    void onChannelMessageRecv(const mesh::GroupChannel& channel, mesh::Packet*,
+                              uint32_t timestamp, const char* text) override
+    {
+        mcd_message m;
+        mcd_rx_meta meta;
+        ChannelDetails ch;
+        int slot = slotForChannel(channel);
+
+        if (slot < 0) {
+            /* Unreachable through the guard above, which only ever offers a
+             * slot that is occupied. Counted rather than asserted: this is a
+             * daemon, and the honest answer to "that cannot happen" is to
+             * drop the frame and say so in a number. */
+            _chan_unmatched++;
+            return;
+        }
+        if (!getChannel(slot, ch)) {
+            _chan_unmatched++;
+            return;
+        }
+        memset(&m, 0, sizeof(m));
+        m.id = _next_msg_id++;
+        m.outgoing = false;
+        m.is_channel = true;
+        m.channel_slot = slot;
+        m.channel_hash = channel.hash[0];
+        snprintf(m.channel_name, sizeof(m.channel_name), "%s", ch.name);
+        snprintf(m.text, sizeof(m.text), "%s", text);
+        claimedSender(text, m.sender_name, sizeof(m.sender_name));
+        m.timestamp = timestamp;
+        m.mono_ms = mcport::monotonicMillis();
+        m.state = MCD_MSG_RECEIVED;
+        m.ack_expected = false;
+        if (_adapter.currentMeta(meta)) {
+            m.snr_known = meta.snr_known;
+            m.snr_db = meta.snr_db;
+            m.rssi_known = meta.rssi_known;
+            m.rssi_dbm = meta.rssi_dbm;
+        }
+        /* No stamp() call, and no contact is touched. A group frame names no
+         * node: there is no public key in it, nothing signs it, and the name
+         * in the text is a claim. Recording it against a contact would be
+         * this service deciding who sent it. */
+        pushChannel(m);
+        emitMessage(m.id);
+    }
 
     /* This node serves no requests. Returning 0 means "no reply", and
      * `data`/`len` are deliberately not read: for a RESPONSE carried in a
@@ -657,6 +1035,13 @@ protected:
     }
 
 private:
+    /* Where the i'th oldest entry of each ring lives. */
+    int directAt(int i) const { return (_msg_head - _msg_count + i + MSG_RING * 2) % MSG_RING; }
+    int channelAt(int i) const
+    {
+        return (_chan_head - _chan_count + i + CHAN_MSG_RING * 2) % CHAN_MSG_RING;
+    }
+
     void push(const mcd_message& m)
     {
         _messages[_msg_head] = m;
@@ -666,16 +1051,91 @@ private:
         }
     }
 
+    void pushChannel(const mcd_message& m)
+    {
+        _chan_messages[_chan_head] = m;
+        _chan_head = (_chan_head + 1) % CHAN_MSG_RING;
+        if (_chan_count < CHAN_MSG_RING) {
+            _chan_count++;
+        }
+    }
+
     mcd_message* find(uint64_t id)
     {
         for (int i = 0; i < _msg_count; i++) {
-            int pos = (_msg_head - _msg_count + i + MSG_RING * 2) % MSG_RING;
-
-            if (_messages[pos].id == id) {
-                return &_messages[pos];
+            if (_messages[directAt(i)].id == id) {
+                return &_messages[directAt(i)];
+            }
+        }
+        for (int i = 0; i < _chan_count; i++) {
+            if (_chan_messages[channelAt(i)].id == id) {
+                return &_chan_messages[channelAt(i)];
             }
         }
         return NULL;
+    }
+
+    /* Which of our channels this GroupChannel is. The key is the identity -
+     * the one-byte hash is not, because two channels can share it - so the
+     * comparison is over the whole secret. */
+    int slotForChannel(const mesh::GroupChannel& channel) const
+    {
+        ChannelDetails ch;
+
+        for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
+            if (!_occupied[i] || !const_cast<Node*>(this)->getChannel(i, ch)) {
+                continue;
+            }
+            if (memcmp(ch.channel.secret, channel.secret, PUB_KEY_SIZE) == 0) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /* The sender's CLAIMED name, parsed back out of the payload.
+     *
+     * MeshCore's sendGroupMessage() writes "<name>: " ahead of the body
+     * inside the encrypted payload (BaseChatMesh.cpp:492), and that is the
+     * only sender identity a group frame has. Nothing signs it, so it is a
+     * claim - and this parse is its inverse, with the same ambiguity: the
+     * rule is the FIRST ": ", because a name containing one, or a body whose
+     * first words do, cannot be told apart from the prefix by anything in
+     * the frame. `text` keeps the whole payload either way, so a caller that
+     * disagrees with the split still has the bytes.
+     *
+     * Empty when the text does not begin with a prefix at all, which is what
+     * a sender that is not MeshCore's own chat client would produce. */
+    static void claimedSender(const char* text, char* out, size_t out_len)
+    {
+        const char* sep;
+        size_t n;
+
+        out[0] = '\0';
+        if (text == NULL) {
+            return;
+        }
+        sep = strstr(text, ": ");
+        if (sep == NULL || sep == text) {
+            return;
+        }
+        n = (size_t)(sep - text);
+        if (n >= out_len) {
+            /* Longer than any name MeshCore could have written, so it is not
+             * a prefix - it is a body with a colon in it. */
+            return;
+        }
+        memcpy(out, text, n);
+        out[n] = '\0';
+    }
+
+    void emitChannel(int slot, const char* reason)
+    {
+        mcd_channel c;
+
+        if (_hooks.on_channel && channelBySlot(slot, c)) {
+            _hooks.on_channel(_hooks.user, &c, reason);
+        }
     }
 
     void markAcked(uint64_t id)
@@ -864,11 +1324,24 @@ private:
     RadiodRadio& _adapter;
     mcd_runtime_hooks _hooks;
     bool _dirty;
+    bool _channels_dirty;
 
     mcd_message _messages[MSG_RING];
     int _msg_count;
     int _msg_head;
+    mcd_message _chan_messages[CHAN_MSG_RING];
+    int _chan_count;
+    int _chan_head;
     uint64_t _next_msg_id;
+
+    /* Which of MeshCore's channel slots hold a channel, and how long each
+     * key is. MeshCore records neither: a zeroed slot and a channel keyed
+     * with zeroes are one thing to it, and setChannel() infers the key
+     * length from the key's own content. Both are kept here so the guard
+     * above is exact and so channels.v1 stores what it was told rather than
+     * what can be guessed back. */
+    bool _occupied[MAX_GROUP_CHANNELS];
+    int _key_len[MAX_GROUP_CHANNELS];
 
     OutboxSlot _outbox[OUTBOX_SLOTS];
     Telemetry _telemetry[MAX_CONTACTS];
@@ -878,6 +1351,7 @@ private:
     uint64_t _rx_logged;
     uint64_t _unretained;
     uint64_t _contacts_full;
+    uint64_t _chan_unmatched;
 
     char _name[MCD_NODE_NAME_LEN];
 };
@@ -911,21 +1385,34 @@ struct mcd_runtime {
      * that this node forgot what it knew, rather than wondering why its
      * table is empty. */
     char state_fault[192];
+    /* The same for channels.v1, kept apart because the two losses are not
+     * comparable. A lost node table costs a rediscovery the mesh performs by
+     * itself; a lost channel table costs every key an operator typed in, and
+     * nothing on the air will bring one back. */
+    char channel_fault[192];
     /* Set when the unusable file could not be moved aside. Nothing is written
      * for the rest of this run: the file is the only evidence there is. */
     bool persist_blocked;
+    bool channels_blocked;
 
     explicit mcd_runtime(const mcd_runtime_hooks& hooks)
         : mgr(32), radio(hooks),
           node(radio, clock, rng, rtc, mgr, tables, radio, hooks),
-          persist_blocked(false)
+          persist_blocked(false)  /* channels_blocked is set in the body */
     {
         state_dir[0] = '\0';
         state_fault[0] = '\0';
+        channel_fault[0] = '\0';
+        channels_blocked = false;
     }
 };
 
 extern "C" {
+
+/* Defined with the rest of the persistence, below. Declared here because
+ * joining or leaving a channel writes the table straight away rather than
+ * waiting for the daemon's timer - see mcd_runtime_channel_add. */
+static int persistChannels(struct mcd_runtime* rt);
 
 const char* mcd_tx_outcome_name(enum mcd_tx_outcome o)
 {
@@ -936,6 +1423,21 @@ const char* mcd_tx_outcome_name(enum mcd_tx_outcome o)
     case MCD_TX_UNKNOWN: return "unknown";
     }
     return "unknown";
+}
+
+const char* mcd_channel_result_name(enum mcd_channel_result r)
+{
+    switch (r) {
+    case MCD_CHANNEL_OK: return "ok";
+    case MCD_CHANNEL_BAD_KEY: return "bad_key";
+    case MCD_CHANNEL_AMBIGUOUS_KEY: return "ambiguous_key";
+    case MCD_CHANNEL_BAD_NAME: return "bad_name";
+    case MCD_CHANNEL_FULL: return "full";
+    case MCD_CHANNEL_DUPLICATE: return "duplicate";
+    case MCD_CHANNEL_NOT_FOUND: return "not_found";
+    case MCD_CHANNEL_FAILED: return "failed";
+    }
+    return "failed";
 }
 
 const char* mcd_msg_state_name(enum mcd_msg_state s)
@@ -1082,8 +1584,57 @@ struct mcd_runtime* mcd_runtime_create(const struct mcd_runtime_config* cfg,
             mcport::logWrite(mcport::LOG_WARN, "meshcored: could not write the node state");
         }
     }
-    mcport::logWrite(mcport::LOG_INFO, "meshcored: node %s, %d known node(s)",
-                     rt->node.name(), rt->node.getNumContacts());
+    /* ---- the channels --------------------------------------------------
+     *
+     * Treated like state.v1 and not like identity.id: an unreadable file is
+     * moved aside and the node starts with no channels rather than refusing
+     * to run, because a daemon that will not start is a node off the air.
+     * The difference from state.v1 is what it costs - the mesh cannot give a
+     * channel key back - so the fault is reported separately and said
+     * plainly rather than folded in with the node table's. */
+    {
+        mcdstore::ChannelState cs;
+        char q_err[mcdstore::ERR_SIZE] = "";
+        char kept[288] = "";
+        int crc;
+
+        crc = mcdstore::channelsLoad(cs, cfg->state_dir, store_err);
+        if (crc < 0) {
+            mcport::logWrite(mcport::LOG_ERROR,
+                             "meshcored: the stored channels are unusable: %s", store_err);
+            if (mcdstore::channelsQuarantine(cfg->state_dir, kept, sizeof(kept), q_err)) {
+                mcport::logWrite(mcport::LOG_WARN,
+                                 "meshcored: they have been kept as %s; starting with no "
+                                 "channels. The keys cannot be recovered from the mesh and "
+                                 "must be entered again.", kept);
+                snprintf(rt->channel_fault, sizeof(rt->channel_fault), "%s (kept as %s)",
+                         store_err, kept);
+            } else {
+                mcport::logWrite(mcport::LOG_ERROR,
+                                 "meshcored: they could not be moved aside (%s); this run will "
+                                 "not write channels, so the file is left for inspection", q_err);
+                snprintf(rt->channel_fault, sizeof(rt->channel_fault),
+                         "%s (left in place; channels are not being written)", store_err);
+                rt->channels_blocked = true;
+            }
+            cs = mcdstore::ChannelState();
+        }
+        for (int i = 0; i < cs.count; i++) {
+            const mcdstore::ChannelRecord& r = cs.channels[i];
+
+            if (!rt->node.installChannel(r.slot, r.name, r.secret, r.key_len)) {
+                mcport::logWrite(mcport::LOG_WARN,
+                                 "meshcored: channel %s could not be restored into slot %d",
+                                 r.name, r.slot);
+            }
+        }
+        /* Restoring is not a change. Leaving the flag set would rewrite a
+         * file identical to the one just read, on every start. */
+        rt->node.clearChannelsDirty();
+    }
+
+    mcport::logWrite(mcport::LOG_INFO, "meshcored: node %s, %d known node(s), %d channel(s)",
+                     rt->node.name(), rt->node.getNumContacts(), rt->node.channelCount());
     return rt;
 }
 
@@ -1288,6 +1839,122 @@ enum mcd_send_result mcd_runtime_send_text(struct mcd_runtime* rt, const uint8_t
     return (rc == MSG_SEND_SENT_DIRECT) ? MCD_SEND_ACCEPTED_DIRECT : MCD_SEND_ACCEPTED_FLOOD;
 }
 
+int mcd_runtime_channel_count(const struct mcd_runtime* rt)
+{
+    return rt->node.channelCount();
+}
+
+bool mcd_runtime_channel_at(const struct mcd_runtime* rt, int idx, struct mcd_channel* c)
+{
+    return rt->node.channelAt(idx, *c);
+}
+
+bool mcd_runtime_channel_by_slot(const struct mcd_runtime* rt, int slot, struct mcd_channel* c)
+{
+    return rt->node.channelBySlot(slot, *c);
+}
+
+enum mcd_channel_result mcd_runtime_channel_add(struct mcd_runtime* rt, const char* name,
+                                                const char* psk_base64, struct mcd_channel* out)
+{
+    uint8_t key[PUB_KEY_SIZE];
+    size_t klen;
+    int slot;
+    bool all_zero = true;
+
+    if (name == NULL || name[0] == '\0' || strlen(name) >= MCD_CHANNEL_NAME_LEN) {
+        return MCD_CHANNEL_BAD_NAME;
+    }
+    if (psk_base64 == NULL) {
+        return MCD_CHANNEL_BAD_KEY;
+    }
+    memset(key, 0, sizeof(key));
+    klen = mcport::base64Decode((const unsigned char*)psk_base64, strlen(psk_base64), key,
+                                sizeof(key));
+    if (klen != 16 && klen != 32) {
+        return MCD_CHANNEL_BAD_KEY;
+    }
+    for (size_t i = 0; i < klen; i++) {
+        if (key[i] != 0) {
+            all_zero = false;
+        }
+    }
+    /* An all-zero key is what an unused MeshCore slot holds. Installing one
+     * would put a real channel where the receive-path guard expects nothing,
+     * and its key is public by construction. */
+    if (all_zero) {
+        return MCD_CHANNEL_BAD_KEY;
+    }
+    if (klen == 32) {
+        bool upper_zero = true;
+
+        for (int i = 16; i < 32; i++) {
+            if (key[i] != 0) {
+                upper_zero = false;
+            }
+        }
+        /* MeshCore's setChannel() reads a 32-byte key whose upper half is
+         * zero as a 128-bit key and hashes it over 16 bytes, while its
+         * addChannel() would use the decoded length and hash it over 32. The
+         * same key therefore derives two different channel hashes depending
+         * on which path a peer took, and this node would sit on a channel
+         * some of its peers cannot route to it on. The symptom would be
+         * silence, so it is refused with a reason instead. */
+        if (upper_zero) {
+            return MCD_CHANNEL_AMBIGUOUS_KEY;
+        }
+    }
+    if (rt->node.holdsKey(key, (int)klen)) {
+        return MCD_CHANNEL_DUPLICATE;
+    }
+    slot = rt->node.freeChannelSlot();
+    if (slot < 0) {
+        return MCD_CHANNEL_FULL;
+    }
+    if (!rt->node.installChannel(slot, name, key, (int)klen)) {
+        return MCD_CHANNEL_FAILED;
+    }
+    /* Written now, not on the daemon's ten-second persist timer.
+     *
+     * A channel key is the one thing this service holds that nothing can give
+     * back. The node table is a cache the mesh refills, so a power cut inside
+     * its write window costs a rediscovery; a key inside this window is gone,
+     * and the operator typed it by hand and may not have it any more. Joining
+     * and leaving are operator actions and happen a handful of times in a
+     * node's life, so writing on each one costs nothing the timer was
+     * protecting against - unlike the node table, which changes on every
+     * advert and would churn the flash if it were written the same way.
+     *
+     * A failed write does not fail the join: the channel is installed and
+     * usable either way, and persistChannels has already logged it. */
+    (void)persistChannels(rt);
+    if (out && !rt->node.channelBySlot(slot, *out)) {
+        return MCD_CHANNEL_FAILED;
+    }
+    return MCD_CHANNEL_OK;
+}
+
+enum mcd_channel_result mcd_runtime_channel_remove(struct mcd_runtime* rt, int slot)
+{
+    if (!rt->node.removeChannel(slot)) {
+        return MCD_CHANNEL_NOT_FOUND;
+    }
+    /* And forgotten now, for the mirror of the reason above: mesh.channel_remove
+     * answers `key_forgotten`, and a key still on the disk ten seconds after
+     * that answer would make it untrue. */
+    (void)persistChannels(rt);
+    return MCD_CHANNEL_OK;
+}
+
+enum mcd_send_result mcd_runtime_send_channel_text(struct mcd_runtime* rt, int slot,
+                                                   const char* text, uint64_t* msg_id)
+{
+    if (!rt->radio.online()) {
+        return MCD_SEND_NO_RADIO;
+    }
+    return rt->node.sendChannelText(slot, text, msg_id);
+}
+
 bool mcd_runtime_send_advert(struct mcd_runtime* rt)
 {
     mesh::Packet* pkt;
@@ -1318,11 +1985,13 @@ void mcd_runtime_stats(const struct mcd_runtime* rt, struct mcd_runtime_stats* o
     out->path_payloads_refused = rt->node.pathRefused();
     out->nodes_unretained = rt->node.unretained();
     out->contacts_full = rt->node.contactsFull();
+    out->channels = rt->node.channelCount();
+    out->channel_frames_unmatched = rt->node.channelFramesUnmatched();
 }
 
 bool mcd_runtime_dirty(const struct mcd_runtime* rt)
 {
-    return rt->node.dirty();
+    return rt->node.dirty() || rt->node.channelsDirty();
 }
 
 bool mcd_runtime_state_fault(const struct mcd_runtime* rt, char* buf, size_t buf_len)
@@ -1331,12 +2000,62 @@ bool mcd_runtime_state_fault(const struct mcd_runtime* rt, char* buf, size_t buf
     return rt->state_fault[0] != '\0';
 }
 
+bool mcd_runtime_channel_fault(const struct mcd_runtime* rt, char* buf, size_t buf_len)
+{
+    snprintf(buf, buf_len, "%s", rt->channel_fault);
+    return rt->channel_fault[0] != '\0';
+}
+
+/* Write the channel table out. Separate from the node table because the two
+ * files are separate, and because one of them failing must not stop the
+ * other: a node that cannot write its contacts should still not forget the
+ * channel somebody just joined. */
+static int persistChannels(struct mcd_runtime* rt)
+{
+    char err[mcdstore::ERR_SIZE] = "";
+    mcdstore::ChannelState cs;
+
+    if (rt->channels_blocked) {
+        rt->node.clearChannelsDirty();
+        return 0;
+    }
+    cs = mcdstore::ChannelState();
+    for (int slot = 0; slot < MAX_GROUP_CHANNELS; slot++) {
+        mcd_channel c;
+        mcdstore::ChannelRecord& r = cs.channels[cs.count];
+        int key_len = 0;
+
+        if (!rt->node.channelBySlot(slot, c)) {
+            continue;
+        }
+        r = mcdstore::ChannelRecord();
+        if (!rt->node.channelKeyAt(slot, r.secret, &key_len)) {
+            continue;
+        }
+        r.slot = slot;
+        r.key_len = key_len;
+        snprintf(r.name, sizeof(r.name), "%s", c.name);
+        cs.count++;
+    }
+    if (!mcdstore::channelsSave(cs, rt->state_dir, err)) {
+        mcport::logWrite(mcport::LOG_ERROR, "meshcored: %s", err);
+        return -1;
+    }
+    rt->node.clearChannelsDirty();
+    return 0;
+}
+
 int mcd_runtime_persist(struct mcd_runtime* rt)
 {
     char err[mcdstore::ERR_SIZE] = "";
     mcdstore::NodeState st;
     ContactInfo c;
     ContactsIterator it = rt->node.startContactsIterator();
+    int rc = 0;
+
+    if (rt->node.channelsDirty()) {
+        rc = persistChannels(rt);
+    }
 
     if (rt->persist_blocked) {
         /* An unusable state.v1 that could not be moved aside is still there,
@@ -1345,7 +2064,7 @@ int mcd_runtime_persist(struct mcd_runtime* rt)
          * node runs perfectly well without persisting; it simply starts empty
          * again next time, which is the cheaper of the two losses. */
         rt->node.clearDirty();
-        return 0;
+        return rc;
     }
     st = mcdstore::NodeState();
     snprintf(st.name, sizeof(st.name), "%s", rt->node.name());
@@ -1360,7 +2079,7 @@ int mcd_runtime_persist(struct mcd_runtime* rt)
         return -1;
     }
     rt->node.clearDirty();
-    return 0;
+    return rc;
 }
 
 }  /* extern "C" */

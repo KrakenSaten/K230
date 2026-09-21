@@ -239,7 +239,8 @@ static void update_row(struct rift_thread *t, struct msg_row *r,
                        const struct rift_message *msg, int64_t now)
 {
     struct rift_app *a = t->app;
-    const struct rift_node *n = rift_model_find(&a->model, msg->peer_key);
+    const struct rift_node *n = msg->is_channel ? NULL
+                                                : rift_model_find(&a->model, msg->peer_key);
     char text[RIFT_MSG_CAPTION_MAX];
     char age[RIFT_AGE_MAX];
     int out = (msg->dir == RIFT_MSG_OUT);
@@ -256,6 +257,18 @@ static void update_row(struct rift_thread *t, struct msg_row *r,
 
     if (out) {
         lv_label_set_text(r->who, "you");
+    } else if (msg->is_channel) {
+        /* On a channel the only sender identity is the name written into the
+         * payload, and nothing signs it. It is marked as a claim - a
+         * trailing "?" - rather than printed the way a peer_name is, because
+         * a peer_name arrived with a public key behind it and this did not.
+         * Anyone on the channel can send any name. */
+        if (msg->have_sender_name && msg->sender_name[0]) {
+            snprintf(text, sizeof(text), "%s?", msg->sender_name);
+            rift_cell_set_text_fit(r->who, text);
+        } else {
+            rift_cell_set_text_fit(r->who, "unnamed");
+        }
     } else if (msg->have_peer_name && msg->peer_name[0]) {
         rift_cell_set_text_fit(r->who, msg->peer_name);
     } else {
@@ -287,8 +300,13 @@ static void update_row(struct rift_thread *t, struct msg_row *r,
         rift_vrule_set(r->rule, RIFT_TONE_ACCENT);
     } else {
         lv_obj_move_to_index(r->rule, 0);
-        rift_vrule_set(r->rule, (n && rift_link_of(n) == RIFT_LINK_DIRECT) ? RIFT_TONE_RX
-                                                                          : RIFT_TONE_SECONDARY);
+        /* A channel message was heard from nobody in particular - a group
+         * frame carries no sender - so it never gets the radio_rx tone that
+         * says "this peer was heard direct". */
+        rift_vrule_set(r->rule,
+                       (!msg->is_channel && n && rift_link_of(n) == RIFT_LINK_DIRECT)
+                           ? RIFT_TONE_RX
+                           : RIFT_TONE_SECONDARY);
     }
 }
 
@@ -422,13 +440,30 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
         lv_label_set_text(t->earlier, "");
         rift_glyph_set(t->glyph, RIFT_GLYPH_UNKNOWN);
     } else {
-        const struct rift_node *n = rift_model_find(m, peer);
+        int slot = rift_key_is_channel(peer);
+        const struct rift_node *n = slot >= 0 ? NULL : rift_model_find(m, peer);
         char label[RIFT_STATE_MAX];
 
         rift_comms_target_label(a, label, sizeof(label));
         lv_label_set_text(t->who, label);
-        rift_glyph_set(t->glyph, rift_app_glyph(n, now));
-        if (n) {
+        rift_glyph_set(t->glyph, slot >= 0 ? RIFT_GLYPH_CHANNEL : rift_app_glyph(n, now));
+        if (slot >= 0) {
+            const struct rift_channel *ch = rift_model_channel(m, slot);
+
+            /* A channel has no route: a group frame is flooded to whoever
+             * holds the key. The hash is what actually goes on the air, and
+             * is the one fact here that identifies the channel to the mesh. */
+            if (!ch) {
+                /* Messages on a channel the service no longer holds. The
+                 * messages happened; there is nowhere to write now. */
+                lv_label_set_text(t->state, "LEFT" RIFT_SEP "NOT JOINED ANY MORE");
+            } else if (ch->have_hash) {
+                lv_label_set_text_fmt(t->state, "CHANNEL" RIFT_SEP "HASH %s" RIFT_SEP "FLOOD",
+                                      ch->hash);
+            } else {
+                lv_label_set_text(t->state, "CHANNEL" RIFT_SEP "FLOOD");
+            }
+        } else if (n) {
             rift_fmt_state(n, label, sizeof(label));
             lv_label_set_text(t->state, label);
         } else {
@@ -456,7 +491,20 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
     } else if (refusal) {
         lv_label_set_text(t->note, refusal);
     } else if (peer && shown == 0) {
-        lv_label_set_text(t->note, "Nothing said yet.");
+        if (rift_key_is_channel(peer) >= 0) {
+            lv_label_set_text(t->note,
+                              "Nothing on this channel yet. Anyone holding the same key can "
+                              "read what you send, and nothing will acknowledge it.");
+        } else {
+            lv_label_set_text(t->note, "Nothing said yet.");
+        }
+    } else if (peer && conv && conv->outgoing > 0 && conv->is_channel && !a->wide) {
+        /* No DELIVERED and no NO ACK. Neither is a number this protocol can
+         * produce for a channel, and printing "0 DELIVERED" would read as a
+         * failure rather than as a thing that cannot be measured. */
+        lv_label_set_text_fmt(t->note,
+                              "%d SENT" RIFT_SEP "NOTHING ACKNOWLEDGES A CHANNEL",
+                              conv->outgoing);
     } else if (peer && conv && conv->outgoing > 0 && !a->wide) {
         /* Landscape puts this in the route pane; portrait has no route pane,
          * so it goes here. Either way it is this app's arithmetic over the

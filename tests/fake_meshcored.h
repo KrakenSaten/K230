@@ -29,15 +29,19 @@ struct fake_meshcored_script {
     /* The mesh.messages result's "messages" array, as JSON text. Oldest
      * first, the way the real service answers. NULL is an empty history. */
     const char *messages_json;
+    /* The mesh.channels result's "channels" array, as JSON text. NULL is a
+     * service holding no channels, which is what a fresh one does. */
+    const char *channels_json;
     /* Answer mesh.send with an error instead of accepting it. */
     int refuse_send;
     /* Accept mesh.send and then say nothing more about it: no mesh.message
      * event ever arrives for the id that was handed out. A client must not
      * show that message as sent, because nothing ever said it was. */
     int send_is_silent;
-    /* Every mesh.send, one to a line, as "<to>|<text>", appended here. What
-     * a client put on the air is proved by what the service was asked to
-     * transmit, not by reading the client's source. */
+    /* Every mesh.send, one to a line, appended here: "<to>|<text>" for a
+     * node and "#<slot>|<text>" for a channel. What a client put on the air
+     * is proved by what the service was asked to transmit, not by reading
+     * the client's source. */
     const char *send_log;
     /* Raised, in order, after the first subscribe: each is "<event name>|
      * <data as JSON>". NULL-terminated. */

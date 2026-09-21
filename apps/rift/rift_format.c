@@ -721,6 +721,19 @@ void rift_fmt_msg_caption(const struct rift_message *msg, char *out, size_t out_
     if (at >= out_len) {
         return;
     }
+    /* A message nothing can acknowledge.
+     *
+     * A MeshCore group frame is flooded and unacknowledged: there is no
+     * expected_ack, no timeout and no delivery report, so an outgoing
+     * channel message reaches sent_flood and stops there. The caption says
+     * that outright. Leaving it at "SENT · FLOOD", the way a direct message
+     * reads while it waits, would promise a second line that is never
+     * coming, and a reader would learn to read a permanent "SENT" as a
+     * failure. */
+    if (msg->is_channel && msg->dir == RIFT_MSG_OUT && !msg->ack_expected) {
+        snprintf(out + at, out_len - at, RIFT_SEP "FLOOD" RIFT_SEP "NO ACK ON CHANNELS");
+        return;
+    }
     if (msg->state == RIFT_MSG_ACKED) {
         rift_fmt_ack(msg, ack, sizeof(ack));
         if (ack[0]) {

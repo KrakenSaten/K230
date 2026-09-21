@@ -21,8 +21,14 @@
  * loses nothing.
  *
  * What it talks: mesh.info, mesh.status, mesh.identity, mesh.nodes,
- * mesh.node, mesh.messages, mesh.send, mesh.subscribe and mesh.unsubscribe,
- * and the mesh.state, mesh.node, mesh.activity and mesh.message events.
+ * mesh.node, mesh.channels, mesh.messages, mesh.send, mesh.subscribe and
+ * mesh.unsubscribe, and the mesh.state, mesh.node, mesh.channel,
+ * mesh.activity and mesh.message events.
+ *
+ * It does not JOIN or LEAVE a channel. mesh.channel_add takes a pre-shared
+ * key, and there is nowhere on a RIFT screen to type one; adding it here
+ * would be this app growing a key-entry surface nobody asked for. This
+ * client reads the channels the service holds and writes to them.
  *
  * Exactly one of those transmits. mesh.send is written only from
  * rift_ipc_send_message, which is reached only from the composer, which is
@@ -65,6 +71,11 @@
  * it exists so a message that happened during a gap in the subscription -
  * a reconnect, a burst this client was slow to drain - is still read. */
 #define RIFT_MESSAGES_PERIOD_MS 30000
+/* Channels change when somebody joins or leaves one, which raises an event,
+ * so this is the catch-up rather than the feed - the same shape as the node
+ * list, and slower, because a channel table changes far less often than a
+ * mesh does. */
+#define RIFT_CHANNELS_PERIOD_MS 60000
 /* How many to ask for. mesh.messages with a limit answers the newest that
  * many, oldest first (docs/api/mesh.md), which is exactly the window this
  * app keeps: asking for more than it can hold would be asking the service
@@ -96,6 +107,7 @@ enum rift_req {
     RIFT_REQ_IDENTITY,
     RIFT_REQ_NODES,
     RIFT_REQ_NODE,
+    RIFT_REQ_CHANNELS,
     RIFT_REQ_MESSAGES,
     RIFT_REQ_SEND,
 };
@@ -120,6 +132,7 @@ struct rift_ipc {
     int backoff_ms;
     int64_t last_status_ms;
     int64_t last_nodes_ms;
+    int64_t last_channels_ms;
     int64_t last_messages_ms;
 
     /* Counters a screen may show, and a test may check. */
@@ -156,6 +169,9 @@ int rift_ipc_request_nodes(struct rift_ipc *c);
 /* Ask for the message history now. */
 int rift_ipc_request_messages(struct rift_ipc *c);
 
+/* Ask for the channel list now, rather than at the next period. */
+int rift_ipc_request_channels(struct rift_ipc *c);
+
 /* Send one message (mesh.send).
  *
  * This is the only call in RIFT that transmits, and it exists only from
@@ -165,9 +181,13 @@ int rift_ipc_request_messages(struct rift_ipc *c);
  * fails without writing anything when a submission is already in flight or
  * the text is not one mesh.send will take.
  *
+ * conv_key is a peer's public key or a channel's "#<slot>"; the one call
+ * writes `to` or `channel` accordingly, so the "one place this app
+ * transmits" rule holds for channels too.
+ *
  * Returns 0 when the request went out, -1 otherwise; on -1 the model holds
  * the reason. */
-int rift_ipc_send_message(struct rift_ipc *c, const char *peer_key, const char *text);
+int rift_ipc_send_message(struct rift_ipc *c, const char *conv_key, const char *text);
 
 int rift_ipc_connected(const struct rift_ipc *c);
 

@@ -4,8 +4,13 @@ The first protocol daemon on top of `radiod`. It owns the MeshCore runtime and
 nothing below it: no SPI device, no GPIO, no radio library, no LoRa driver.
 
 ```
-SX1262 -> radiod -> [radio.*] -> meshcored -> [mesh.*] -> a future RIFT client
+SX1262 -> radiod -> [radio.*] -> meshcored -> [mesh.*] -> a client
 ```
+
+It speaks direct messages and group channels. A channel is a pre-shared key:
+the key never leaves this service, the one-byte hash derived from it is what
+goes on the air, and nothing acknowledges what is sent on one. See
+[docs/api/mesh.md](../../docs/api/mesh.md), "What a channel is, and is not".
 
 Full documentation:
 
@@ -28,7 +33,7 @@ Full documentation:
 | `mcd_util.c/.h` | strict hex and input validation |
 | `mesh_runtime.h` | **the seam** — the one door between the C daemon and the C++ protocol core |
 | `mesh_runtime.cpp` | the MeshCore runtime and the `mesh::Radio` adapter |
-| `mesh_store.h/.cpp` | the identity and node-table files |
+| `mesh_store.h/.cpp` | the identity, node-table and channel files |
 
 The seam is the thing to keep. Above `mesh_runtime.h` everything speaks JSON
 and knows no MeshCore; below it everything is the protocol core and knows no

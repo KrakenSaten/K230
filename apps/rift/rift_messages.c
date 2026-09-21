@@ -38,6 +38,46 @@
 #include <stdio.h>
 #include <string.h>
 
+/* ---- the conversation key -----------------------------------------------
+ *
+ * A direct conversation is keyed by the peer's public key, which is 64 hex
+ * characters. A channel is keyed by "#<slot>". The two cannot collide - no
+ * hex character is '#' - and that is what lets a channel be an ordinary
+ * conversation everywhere below rather than a second implementation of the
+ * list, the thread, the read mark and the unread count.
+ */
+void rift_channel_key(int slot, char *out, size_t out_len)
+{
+    if (!out || out_len == 0) {
+        return;
+    }
+    if (slot < 0 || slot >= RIFT_MAX_CHANNELS) {
+        out[0] = '\0';
+        return;
+    }
+    snprintf(out, out_len, "#%d", slot);
+}
+
+int rift_key_is_channel(const char *key)
+{
+    int slot = 0;
+    int i;
+
+    if (!key || key[0] != '#' || !key[1]) {
+        return -1;
+    }
+    for (i = 1; key[i]; i++) {
+        if (key[i] < '0' || key[i] > '9') {
+            return -1;
+        }
+        slot = slot * 10 + (key[i] - '0');
+        if (slot >= RIFT_MAX_CHANNELS) {
+            return -1;
+        }
+    }
+    return slot;
+}
+
 /* ---- messages ----------------------------------------------------------- */
 
 static enum rift_msg_state msg_state_from_word(const char *w)
@@ -129,10 +169,13 @@ int rift_model_apply_message(struct rift_model *m, const cJSON *o)
     const char *text;
     const char *state;
     const char *name;
+    const char *kind;
     struct rift_message *msg;
     double d;
     int64_t id;
     int is_new;
+    int is_channel;
+    int slot = 0;
 
     if (!cJSON_IsObject(o)) {
         return -1;
@@ -144,13 +187,31 @@ int rift_model_apply_message(struct rift_model *m, const cJSON *o)
         return -1;
     }
     id = (int64_t)d;
-    peer = str_of(o, "peer_public_key");
     dir = str_of(o, "direction");
     text = str_of(o, "text");
-    if (!hex_only(peer, 64) || !dir || !text) {
+    if (!dir || !text) {
         return -1;
     }
     if (strcmp(dir, "in") != 0 && strcmp(dir, "out") != 0) {
+        return -1;
+    }
+    /* Which of the two kinds this is. The service says so outright
+     * (docs/api/mesh.md, mesh.messages); anything that is not the word
+     * "channel" is read as a direct message, which is also what a service
+     * that predates the field produces. */
+    kind = str_of(o, "kind");
+    is_channel = kind && strcmp(kind, "channel") == 0;
+    peer = str_of(o, "peer_public_key");
+    if (is_channel) {
+        /* A channel message has a slot and no peer. A slot this build
+         * cannot hold is refused whole rather than shown in a conversation
+         * a reader cannot open. */
+        if (!num_of(o, "channel", &d) || d < 0 || d >= (double)RIFT_MAX_CHANNELS ||
+            d != (double)(int)d) {
+            return -1;
+        }
+        slot = (int)d;
+    } else if (!hex_only(peer, 64)) {
         return -1;
     }
     msg = msg_slot(m, id, &is_new);
@@ -163,12 +224,38 @@ int rift_model_apply_message(struct rift_model *m, const cJSON *o)
     msg->id = id;
     msg->seq = ++m->msg_seq;
     msg->dir = (strcmp(dir, "out") == 0) ? RIFT_MSG_OUT : RIFT_MSG_IN;
-    snprintf(msg->peer_key, sizeof(msg->peer_key), "%s", peer);
-    name = str_of(o, "peer_name");
-    if (name && name[0]) {
-        rift_utf8_copy(msg->peer_name, sizeof(msg->peer_name), name);
-        msg->have_peer_name = 1;
+    msg->is_channel = is_channel;
+    if (is_channel) {
+        msg->channel_slot = slot;
+        rift_channel_key(slot, msg->conv_key, sizeof(msg->conv_key));
+        name = str_of(o, "channel_name");
+        if (name && name[0]) {
+            rift_utf8_copy(msg->channel_name, sizeof(msg->channel_name), name);
+            msg->have_channel_name = 1;
+        }
+        /* The name the sender claimed inside the payload. Kept as a claim:
+         * nothing signs a group frame, and no screen may present this the
+         * way it presents a peer_name, which came with a public key. */
+        name = str_of(o, "sender_name");
+        if (name && name[0]) {
+            rift_utf8_copy(msg->sender_name, sizeof(msg->sender_name), name);
+            msg->have_sender_name = 1;
+        }
+    } else {
+        snprintf(msg->peer_key, sizeof(msg->peer_key), "%s", peer);
+        snprintf(msg->conv_key, sizeof(msg->conv_key), "%s", peer);
+        name = str_of(o, "peer_name");
+        if (name && name[0]) {
+            rift_utf8_copy(msg->peer_name, sizeof(msg->peer_name), name);
+            msg->have_peer_name = 1;
+        }
     }
+    /* Whether an acknowledgement can ever arrive. The service says so; the
+     * fallback is what the protocol gives - an outgoing direct message is
+     * acknowledged and nothing else is - so a service that did not say it
+     * still cannot make this app draw a delivery that cannot happen. */
+    msg->ack_expected = bool_of(o, "ack_expected",
+                                !is_channel && msg->dir == RIFT_MSG_OUT);
     /* The body is remote text: meshcored has already made it well-formed
      * UTF-8 with no control characters but newline and tab (docs/api/mesh.md,
      * "Remote text"). This keeps that true when it is longer than the field
@@ -260,7 +347,7 @@ static void seed_read_marks(struct rift_model *m)
         if (m->msg[i].dir != RIFT_MSG_IN) {
             continue;
         }
-        mk = mark_for(m, m->msg[i].peer_key, 1);
+        mk = mark_for(m, m->msg[i].conv_key, 1);
         if (mk && m->msg[i].id > mk->last_read_id) {
             mk->last_read_id = m->msg[i].id;
         }
@@ -303,22 +390,22 @@ int rift_model_apply_messages(struct rift_model *m, const cJSON *result)
     return 0;
 }
 
-int rift_model_mark_read(struct rift_model *m, const char *peer_key)
+int rift_model_mark_read(struct rift_model *m, const char *conv_key)
 {
     struct rift_read_mark *mk;
     int64_t newest = 0;
     int cleared;
     int i;
 
-    if (!m || !peer_key || !peer_key[0]) {
+    if (!m || !conv_key || !conv_key[0]) {
         return 0;
     }
-    cleared = rift_model_unread(m, peer_key);
+    cleared = rift_model_unread(m, conv_key);
     if (cleared == 0) {
         return 0;
     }
     for (i = 0; i < m->msg_count; i++) {
-        if (m->msg[i].dir != RIFT_MSG_IN || strcmp(m->msg[i].peer_key, peer_key) != 0) {
+        if (m->msg[i].dir != RIFT_MSG_IN || strcmp(m->msg[i].conv_key, conv_key) != 0) {
             continue;
         }
         if (m->msg[i].id > newest) {
@@ -328,7 +415,7 @@ int rift_model_mark_read(struct rift_model *m, const char *peer_key)
     if (newest == 0) {
         return 0;
     }
-    mk = mark_for(m, peer_key, 1);
+    mk = mark_for(m, conv_key, 1);
     if (!mk) {
         return 0;
     }
@@ -336,19 +423,19 @@ int rift_model_mark_read(struct rift_model *m, const char *peer_key)
     return cleared;
 }
 
-int rift_model_unread(const struct rift_model *m, const char *peer_key)
+int rift_model_unread(const struct rift_model *m, const char *conv_key)
 {
     int64_t mark;
     int n = 0;
     int i;
 
-    if (!m || !peer_key || !peer_key[0]) {
+    if (!m || !conv_key || !conv_key[0]) {
         return 0;
     }
-    mark = read_id_of(m, peer_key);
+    mark = read_id_of(m, conv_key);
     for (i = 0; i < m->msg_count; i++) {
         if (m->msg[i].dir == RIFT_MSG_IN && m->msg[i].id > mark &&
-            strcmp(m->msg[i].peer_key, peer_key) == 0) {
+            strcmp(m->msg[i].conv_key, conv_key) == 0) {
             n++;
         }
     }
@@ -367,34 +454,55 @@ int rift_model_unread_total(const struct rift_model *m)
         if (m->msg[i].dir != RIFT_MSG_IN) {
             continue;
         }
-        if (m->msg[i].id > read_id_of(m, m->msg[i].peer_key)) {
+        if (m->msg[i].id > read_id_of(m, m->msg[i].conv_key)) {
             n++;
         }
     }
     return n;
 }
 
-const char *rift_model_peer_name(const struct rift_model *m, const char *peer_key)
+const char *rift_model_conv_name(const struct rift_model *m, const char *conv_key)
 {
     const struct rift_node *n;
     const char *name = NULL;
+    int slot;
     int i;
 
-    if (!m || !peer_key || !peer_key[0]) {
+    if (!m || !conv_key || !conv_key[0]) {
         return NULL;
+    }
+    slot = rift_key_is_channel(conv_key);
+    if (slot >= 0) {
+        /* A channel's name is this node's own for it - it is never on the
+         * air, so there is nobody else's to prefer. The list is the first
+         * source because it is what mesh.channels last said; a message's
+         * copy is the fallback for a channel that has since been left but
+         * whose messages are still held. */
+        const struct rift_channel *ch = rift_model_channel(m, slot);
+
+        if (ch && ch->have_name && ch->name[0]) {
+            return ch->name;
+        }
+        for (i = 0; i < m->msg_count; i++) {
+            if (m->msg[i].have_channel_name && m->msg[i].channel_name[0] &&
+                strcmp(m->msg[i].conv_key, conv_key) == 0) {
+                name = m->msg[i].channel_name;
+            }
+        }
+        return name;
     }
     /* The newest message that carried a name wins: it is what the service
      * called the peer most recently. */
     for (i = 0; i < m->msg_count; i++) {
         if (m->msg[i].have_peer_name && m->msg[i].peer_name[0] &&
-            strcmp(m->msg[i].peer_key, peer_key) == 0) {
+            strcmp(m->msg[i].peer_key, conv_key) == 0) {
             name = m->msg[i].peer_name;
         }
     }
     if (name) {
         return name;
     }
-    n = rift_model_find(m, peer_key);
+    n = rift_model_find(m, conv_key);
     if (n && n->have_name && n->name[0]) {
         return n->name;
     }
@@ -417,7 +525,7 @@ int rift_model_conversations(const struct rift_model *m, struct rift_conv *out, 
         struct rift_conv *c = NULL;
 
         for (j = 0; j < n; j++) {
-            if (strcmp(out[j].key, msg->peer_key) == 0) {
+            if (strcmp(out[j].key, msg->conv_key) == 0) {
                 c = &out[j];
                 break;
             }
@@ -428,12 +536,21 @@ int rift_model_conversations(const struct rift_model *m, struct rift_conv *out, 
             }
             c = &out[n++];
             memset(c, 0, sizeof(*c));
-            snprintf(c->key, sizeof(c->key), "%s", msg->peer_key);
+            snprintf(c->key, sizeof(c->key), "%s", msg->conv_key);
+            c->is_channel = msg->is_channel;
+            c->channel_slot = msg->channel_slot;
         }
         c->total++;
         if (msg->dir == RIFT_MSG_OUT) {
             c->outgoing++;
-            if (msg->state == RIFT_MSG_ACKED) {
+            if (!msg->ack_expected) {
+                /* Nothing will ever acknowledge this one, so it is counted
+                 * apart rather than in with the messages that could have
+                 * been delivered and were not. A tally that put a channel
+                 * message in no_ack would be reporting a failure the
+                 * protocol never promised to avoid. */
+                c->unacknowledgeable++;
+            } else if (msg->state == RIFT_MSG_ACKED) {
                 c->acked++;
             } else if (msg->state == RIFT_MSG_NO_ACK) {
                 c->no_ack++;
@@ -450,7 +567,7 @@ int rift_model_conversations(const struct rift_model *m, struct rift_conv *out, 
         }
     }
     for (i = 0; i < n; i++) {
-        const char *name = rift_model_peer_name(m, out[i].key);
+        const char *name = rift_model_conv_name(m, out[i].key);
 
         if (name) {
             rift_utf8_copy(out[i].name, sizeof(out[i].name), name);
@@ -487,7 +604,7 @@ int rift_model_conversations(const struct rift_model *m, struct rift_conv *out, 
     return n;
 }
 
-int rift_model_thread(const struct rift_model *m, const char *peer_key,
+int rift_model_thread(const struct rift_model *m, const char *conv_key,
                       const struct rift_message **out, int max, int *older)
 {
     int total = 0;
@@ -498,11 +615,11 @@ int rift_model_thread(const struct rift_model *m, const char *peer_key,
     if (older) {
         *older = 0;
     }
-    if (!m || !out || !peer_key || !peer_key[0] || max <= 0) {
+    if (!m || !out || !conv_key || !conv_key[0] || max <= 0) {
         return 0;
     }
     for (i = 0; i < m->msg_count; i++) {
-        if (strcmp(m->msg[i].peer_key, peer_key) == 0) {
+        if (strcmp(m->msg[i].conv_key, conv_key) == 0) {
             total++;
         }
     }
@@ -515,7 +632,7 @@ int rift_model_thread(const struct rift_model *m, const char *peer_key,
         *older = skip;
     }
     for (i = 0; i < m->msg_count && n < max; i++) {
-        if (strcmp(m->msg[i].peer_key, peer_key) != 0) {
+        if (strcmp(m->msg[i].conv_key, conv_key) != 0) {
             continue;
         }
         if (skip > 0) {
@@ -529,23 +646,62 @@ int rift_model_thread(const struct rift_model *m, const char *peer_key,
 
 /* ---- sending -------------------------------------------------------------- */
 
+int rift_model_text_limit(const struct rift_model *m, const char *conv_key)
+{
+    int slot;
+
+    if (!m || !conv_key || !conv_key[0]) {
+        return 0;
+    }
+    slot = rift_key_is_channel(conv_key);
+    if (slot < 0) {
+        /* A direct message: mesh.send takes 1 to 160 bytes, which is a
+         * constant of the API rather than something the service reports. */
+        return RIFT_SEND_TEXT_MAX;
+    }
+    {
+        const struct rift_channel *ch = rift_model_channel(m, slot);
+
+        /* A channel's limit is shorter, and by how much depends on this
+         * node's own name, which is why it comes from the service rather
+         * than being worked out here. Until mesh.channels has said, 0 means
+         * "not known" and the composer does not enforce a number it guessed. */
+        if (ch && ch->have_text_limit) {
+            return ch->text_limit;
+        }
+    }
+    return 0;
+}
+
 int rift_model_sending(const struct rift_model *m)
 {
     return m && m->outbox.active;
 }
 
-int rift_model_send_begin(struct rift_model *m, const char *peer_key, const char *text,
+int rift_model_send_begin(struct rift_model *m, const char *conv_key, const char *text,
                           int64_t now_ms)
 {
-    if (!m || !peer_key || !hex_only(peer_key, 64) || !text || !text[0]) {
+    int limit;
+
+    if (!m || !conv_key || !text || !text[0]) {
+        return -1;
+    }
+    /* Either a peer's public key or a channel this build can name. Anything
+     * else is not a destination, and a request built from it would be a
+     * request meshcored refuses after the fact. */
+    if (rift_key_is_channel(conv_key) < 0 && !hex_only(conv_key, 64)) {
         return -1;
     }
     if (m->outbox.active) {
         return -1;
     }
+    limit = rift_model_text_limit(m, conv_key);
+    if (limit > 0 && (int)strlen(text) > limit) {
+        return -1;
+    }
     memset(&m->outbox, 0, sizeof(m->outbox));
     m->outbox.active = 1;
-    snprintf(m->outbox.peer_key, sizeof(m->outbox.peer_key), "%s", peer_key);
+    snprintf(m->outbox.conv_key, sizeof(m->outbox.conv_key), "%s", conv_key);
     rift_utf8_copy(m->outbox.text, sizeof(m->outbox.text), text);
     m->outbox.have_submitted = 1;
     m->outbox.submitted_mono_ms = now_ms;

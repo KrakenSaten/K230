@@ -32,7 +32,15 @@
 
 #include <stdint.h>
 
-/* A public key is 64 hex characters (docs/api/mesh.md, mesh.identity). */
+/* A public key is 64 hex characters (docs/api/mesh.md, mesh.identity).
+ *
+ * The same field width holds a CONVERSATION key, which is either such a
+ * public key or "#<slot>" for a channel. The two can never be confused: a
+ * public key is 64 hex characters and nothing else, and no hex character is
+ * '#'. Using one field for both is what lets a channel be an ordinary
+ * conversation everywhere below - one list, one thread, one read mark, one
+ * unread count - instead of a second copy of all of it.
+ * rift_channel_key() and rift_key_is_channel() are the two ends of it. */
 #define RIFT_KEY_HEX 65
 /* The node hash is its first byte, two hex characters. */
 #define RIFT_HASH_HEX 3
@@ -65,6 +73,14 @@
  * holds 32, so a mesh that fills this one is already a mesh the service
  * cannot hold. */
 #define RIFT_MAX_CONVERSATIONS 32
+/* Channels the service will hold (mesh.channels, "max"). A service that
+ * grows its table past this shows its first RIFT_MAX_CHANNELS here and says
+ * so rather than silently listing some of them. */
+#define RIFT_MAX_CHANNELS 8
+/* A channel name is chosen locally and meshcored keeps 31 bytes of it; this
+ * holds that and a little, cut on a character boundary like every other
+ * remote string here. */
+#define RIFT_CHANNEL_NAME_MAX 40
 /* Path changes this app has seen for one node, newest first. Only what was
  * observed while RIFT was running; there is no history before that. */
 #define RIFT_PATH_HISTORY 3
@@ -137,6 +153,27 @@ struct rift_node {
     uint32_t seq;                        /* update order, newest highest */
 };
 
+/* One channel, as mesh.channels reports it.
+ *
+ * There is no key here and no way to ask for one: meshcored does not report
+ * it through any method (docs/api/mesh.md). What this holds is what a screen
+ * needs - the slot it is named by, the local name, the one-byte hash that
+ * actually goes on the air, and how long a body may be on it. */
+struct rift_channel {
+    int slot;
+    char name[RIFT_CHANNEL_NAME_MAX];
+    int have_name;
+    char hash[RIFT_HASH_HEX];
+    int have_hash;
+    int key_bits;
+    int have_key_bits;
+    /* The longest body mesh.send will take on this channel. Smaller than a
+     * direct message's 160, because this node's name is sent inside a
+     * channel payload. */
+    int text_limit;
+    int have_text_limit;
+};
+
 enum rift_act_kind {
     RIFT_ACT_RX = 0,
     RIFT_ACT_TX,
@@ -196,9 +233,39 @@ struct rift_message {
     enum rift_msg_state state;
     char state_word[24]; /* what the service called it, for an unknown state */
 
+    /* The conversation this belongs to: a peer's public key, or "#<slot>"
+     * for a channel. It is what the list, the thread and the read mark are
+     * all keyed on. */
+    char conv_key[RIFT_KEY_HEX];
+
+    /* Exactly one of the two halves below is filled.
+     *
+     * A direct message has a peer. A channel message has no peer at all -
+     * a MeshCore group frame carries no public key and nothing signs it - so
+     * peer_key stays empty and what it has instead is a channel and a name
+     * somebody CLAIMED inside the payload. The two are kept apart here
+     * because they are not the same kind of fact. */
+    int is_channel;
+
     char peer_key[RIFT_KEY_HEX];
     char peer_name[RIFT_NAME_MAX];
     int have_peer_name;
+
+    int channel_slot;
+    char channel_name[RIFT_CHANNEL_NAME_MAX];
+    int have_channel_name;
+    /* The sender's claimed name, which meshcored parsed back out of the
+     * payload prefix. Not authenticated, and never shown as if it were: see
+     * rift_fmt_msg_caption. `text` still holds the whole payload including
+     * the prefix. */
+    char sender_name[RIFT_NAME_MAX];
+    int have_sender_name;
+
+    /* Whether an acknowledgement can ever arrive for this message. False for
+     * everything on a channel: a group frame is flooded and unacknowledged,
+     * so sent_flood is where an outgoing channel message ends. Nothing in
+     * this app may draw "delivered" or "no ack" where this is 0. */
+    int ack_expected;
 
     char text[RIFT_MSG_TEXT_MAX];
 
@@ -223,12 +290,21 @@ struct rift_conv {
     char key[RIFT_KEY_HEX];
     char name[RIFT_NAME_MAX];
     int have_name;
+    /* A channel conversation. Its key is "#<slot>" and there is no peer
+     * behind it. */
+    int is_channel;
+    int channel_slot;
     int unread;   /* incoming messages newer than the read mark */
-    int total;    /* messages held for this peer */
+    int total;    /* messages held for this conversation */
     int outgoing; /* of which sent by us */
     int acked;    /* of which acknowledged */
     int no_ack;   /* of which timed out */
     int failed;
+    /* Of the outgoing ones, how many could never be acknowledged at all
+     * because they went to a channel. Counted apart from acked/no_ack so a
+     * tally can say "3 SENT, NO ACK ON CHANNELS" rather than implying three
+     * deliveries were expected and did not arrive. */
+    int unacknowledgeable;
     int have_newest_mono;
     int64_t newest_mono_ms;
     const struct rift_message *newest; /* for the preview line */
@@ -243,7 +319,7 @@ struct rift_conv {
  * reconciling it would be the way one message became two. */
 struct rift_outbox {
     int active;
-    char peer_key[RIFT_KEY_HEX];
+    char conv_key[RIFT_KEY_HEX];
     char text[RIFT_MSG_TEXT_MAX];
     int have_submitted;
     int64_t submitted_mono_ms;
@@ -282,6 +358,11 @@ struct rift_model {
     int nodes_reported;                  /* the service's own node count */
     int have_state_fault;
     char state_fault[RIFT_TEXT_MAX];
+    /* The service could not read its stored channels. Reported apart from
+     * state_fault because the two losses are not comparable: the mesh
+     * re-advertises a forgotten node, and nothing gives back a channel key. */
+    int have_channel_fault;
+    char channel_fault[RIFT_TEXT_MAX];
     int have_counters;
     unsigned rx_events;
     unsigned rx_delivered;
@@ -342,6 +423,19 @@ struct rift_model {
     int messages_reported;
     int messages_persistent;
 
+    /* ---- channels ---------------------------------------------------- */
+    struct rift_channel channels[RIFT_MAX_CHANNELS];
+    int channel_count;
+    /* The service has answered mesh.channels on this connection. Until it
+     * has, no channels is "not read yet" rather than "none joined". */
+    int channels_valid;
+    /* What the service said its table holds in total, which may be more than
+     * RIFT_MAX_CHANNELS. */
+    int have_channels_reported;
+    int channels_reported;
+    int channels_max;
+    unsigned channels_dropped; /* the service listed more than this app holds */
+
     struct rift_read_mark read_mark[RIFT_MAX_CONVERSATIONS];
     int read_mark_count;
 
@@ -368,8 +462,24 @@ int rift_model_apply_identity(struct rift_model *m, const cJSON *result);
 /* A whole mesh.nodes result: the cache becomes exactly this list, in the
  * order the service gave, and the snapshot becomes valid. */
 int rift_model_apply_nodes(struct rift_model *m, const cJSON *result);
+/* A whole mesh.channels result: the list becomes exactly what the service
+ * reported, in the order it gave, and channels_valid becomes true. */
+int rift_model_apply_channels(struct rift_model *m, const cJSON *result);
 
-/* One event: "mesh.state", "mesh.node" or "mesh.activity". Anything else -
+/* ---- channels ----------------------------------------------------------
+ *
+ * The conversation key for a channel, and its inverse. A channel's key is
+ * "#<slot>", which cannot collide with a 64-hex-character public key.
+ * rift_key_is_channel returns the slot, or -1 when the key is not a
+ * channel's. */
+void rift_channel_key(int slot, char *out, size_t out_len);
+int rift_key_is_channel(const char *key);
+
+/* The channel in that slot, or NULL. */
+const struct rift_channel *rift_model_channel(const struct rift_model *m, int slot);
+
+/* One event: "mesh.state", "mesh.node", "mesh.channel" or "mesh.activity".
+ * Anything else -
  * an unknown name, a data that is not an object, a node with no usable key -
  * is ignored and counted in events_malformed. Returns 0 or -1. */
 int rift_model_apply_event(struct rift_model *m, const char *name, const cJSON *data);
@@ -440,16 +550,27 @@ int rift_model_unread_total(const struct rift_model *m);
 
 /* The peer's display name from the newest message that carried one, else
  * the node cache, else NULL. */
-const char *rift_model_peer_name(const struct rift_model *m, const char *peer_key);
+/* A conversation's display name: for a peer, the newest message that
+ * carried one, else the node cache; for a channel, this node's own name for
+ * it. NULL when there is none, which a caller shows as the node hash or the
+ * slot rather than as an empty row. */
+const char *rift_model_conv_name(const struct rift_model *m, const char *conv_key);
 
 /* ---- sending ------------------------------------------------------------ */
 
 /* Take a submission. Fails (-1) when one is already in flight, when the
- * peer or text is not one this app will send, or when the model is not in a
- * state to send at all. The text is not put on the air here - this only
+ * destination or text is not one this app will send, or when the model is
+ * not in a state to send at all. conv_key is a peer's public key or a
+ * channel's "#<slot>". The text is not put on the air here - this only
  * records that a request is about to be written, so the thread can say so. */
-int rift_model_send_begin(struct rift_model *m, const char *peer_key, const char *text,
+int rift_model_send_begin(struct rift_model *m, const char *conv_key, const char *text,
                           int64_t now_ms);
+
+/* The longest body this conversation will take, or 0 when it is not known.
+ * A channel's limit is shorter than a direct message's and comes from the
+ * service (mesh.channels, text_limit); asking here keeps the composer from
+ * having to know which kind it is looking at. */
+int rift_model_text_limit(const struct rift_model *m, const char *conv_key);
 /* meshcored answered mesh.send. route may be NULL. */
 void rift_model_send_accepted(struct rift_model *m, int64_t message_id, const char *route);
 /* meshcored refused it, or the connection went away under it. */
