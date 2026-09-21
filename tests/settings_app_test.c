@@ -35,7 +35,10 @@
 #define PANEL_W 568
 #define PANEL_H 1232
 #define PANEL_CORNER 30 /* the corner squares of the unit's panel (DS 21.1) */
-#define STATUS_H POCKETUI_STATUS_BAR_H
+/* The status bar the shell gives this app in the display's orientation
+ * (ui/shell/chrome.h, DS section 30), so the frame built here is the one
+ * shell.c builds: 56 px in portrait, 32 px under an app in landscape. */
+#define STATUS_H chrome_height(chrome_resolve(app_settings.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
 #define PASS "correct horse 9"
 
 extern const struct pocketos_app app_settings;
@@ -1366,20 +1369,23 @@ int main(void)
             use_display(POS_ROTATION_270, c);
             app_start();
             tick();
+            /* From row 128, not 152: the 32 px COMPACT bar of DS section 30
+             * above the same header and padding; the keyboard's edge at the
+             * foot does not move. */
             snprintf(what, sizeof(what), "landscape %d px corners: Wi-Fi's column", (int)c);
-            check_rect(what, scroller_of(panel_of("WI-FI")), 20, 152, 604, 547 - lift);
+            check_rect(what, scroller_of(panel_of("WI-FI")), 20, 128, 604, 547 - lift);
             snprintf(what, sizeof(what), "landscape %d px corners: Display and Appearance's column", (int)c);
-            check_rect(what, scroller_of(panel_of("DISPLAY")), 627, 152, 1211, 547 - lift);
+            check_rect(what, scroller_of(panel_of("DISPLAY")), 627, 128, 1211, 547 - lift);
             snprintf(what, sizeof(what), "landscape %d px corners: the switch", (int)c);
-            check_rect(what, target_of("ON"), 464, 199, 583, 262);
+            check_rect(what, target_of("ON"), 464, 175, 583, 238);
             tap("New");
             pump(60);
             snprintf(what, sizeof(what), "landscape %d px corners: the sheet scrolls in the body above the keyboard",
                      (int)c);
-            check_rect(what, screen_obj(), 20, 152, 1211, 567 - POS_KB_H - 20);
+            check_rect(what, screen_obj(), 20, 128, 1211, 567 - POS_KB_H - 20);
             snprintf(what, sizeof(what), "landscape %d px corners: the field at the top of the sheet's right half",
                      (int)c);
-            check_rect(what, pos_input_focused(), 626, 173, 1190, 236);
+            check_rect(what, pos_input_focused(), 626, 149, 1190, 212);
             app_stop();
         }
     }

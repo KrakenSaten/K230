@@ -9,7 +9,11 @@ developer tooling, not for applications.
 - `shell.info`: `api_version`, `apps` (array of `{id, name}`), `current`
   (open app id or `"home"`), `display`: `{width, height, backend}` - the
   logical size this run lays out in, 568x1232 or 1232x568 - and the
-  orientation fields `shell.rotation` returns.
+  orientation fields `shell.rotation` returns; `chrome`: `{policy,
+  status_bar_height}` - the status chrome in force for the current screen
+  (DS §30): `"full"` (56), `"compact"` (32) or `"none"` (0). FULL on the
+  launcher and everywhere in portrait; COMPACT under an app in landscape
+  unless the app declared otherwise.
 - `shell.open` params `{id}`: opens an app. Error 2 for unknown id.
 - `shell.home`: closes the current app and shows the launcher.
 - `shell.screenshot` params `{path}`: renders the current screen to a PNG at

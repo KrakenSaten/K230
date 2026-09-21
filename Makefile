@@ -375,6 +375,19 @@ tests/orientation_test.o: tests/orientation_test.c ui/shell/orientation.h ui/she
 tests/orientation_test: tests/orientation_test.o $(ORIENTATION_OBJS) ui/shell/settings.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# The status chrome policy (pure C, DS §30): what an app's declaration
+# resolves to in each orientation and on the launcher, the bar's height under
+# it, and the content box below it with and without the keyboard. The shell
+# and every app test link the same source (CMake).
+ui/shell/chrome.o: ui/shell/chrome.c ui/shell/chrome.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/chrome_test.o: tests/chrome_test.c ui/shell/chrome.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/chrome_test: tests/chrome_test.o ui/shell/chrome.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 # The debounce every keyboard-presence provider goes through: what a base
 # board being mated, unmated or bouncing does to the published state, and so
 # to the orientation. The provider itself (ui/shell/shell_kbd.c) needs LVGL
@@ -822,7 +835,7 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
              tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/settings_view_test \
              tests/theme_test \
              tests/settings_test tests/brightness_test tests/display_geometry_test tests/orientation_test \
-             tests/kbd_presence_test \
+             tests/kbd_presence_test tests/chrome_test \
              tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
              $(NOTES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) $(CALC_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test \
              $(WAVE_TESTS) $(RIFT_TESTS)
@@ -846,6 +859,7 @@ test: all $(TEST_BINS)
 	./tests/display_geometry_test
 	./tests/orientation_test
 	./tests/kbd_presence_test
+	./tests/chrome_test
 	./tests/fleet_rng_test
 	./tests/fleet_rules_test
 	./tests/fleet_ai_test

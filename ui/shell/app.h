@@ -9,6 +9,7 @@
 #ifndef POCKETOS_APP_H
 #define POCKETOS_APP_H
 
+#include "chrome.h"
 #include "lvgl.h"
 
 #include <stdbool.h>
@@ -32,6 +33,14 @@ struct pocketos_app {
      * as text, as it always did. Appended, so an app that does not set it is
      * unchanged and the API version stays. */
     const lv_image_dsc_t *icon_mask;
+    /* The status chrome the app needs above its body (DS §30, chrome.h):
+     * DEFAULT, FULL, COMPACT or NONE. A declaration, not a command: the
+     * shell resolves it against the orientation and the rollout stage
+     * before create() runs, and the app is created in the body that
+     * results. It never learns the bar's height and never touches the bar.
+     * Appended and zero, so an app that says nothing is DEFAULT and the
+     * API version stays. */
+    enum pocketos_chrome chrome;
 };
 
 /* Shell services available to apps. */

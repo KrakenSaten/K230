@@ -42,6 +42,7 @@ add_executable(pocketos-shell
     ../pocketui/pocketui.c
     ../pocketui/pos_display.c
     shell_display.c
+    chrome.c
     orientation.c
     kbd_presence.c
     ../pocketui/pos_input.c
@@ -286,6 +287,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     # and points POCKETOS_STATE_DIR at a directory of its own.
     add_executable(radar_app_test
         ${REPO_DIR}/tests/radar_app_test.c
+        chrome.c
         ${REPO_DIR}/apps/radar/radar_app.c
         ${REPO_DIR}/apps/radar/radar_store.c
         ${REPO_DIR}/apps/radar/engine/radar_rng.c
@@ -503,6 +505,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     # real store (run by tests/notes_shell_test.sh).
     add_executable(notes_app_test
         ${REPO_DIR}/tests/notes_app_test.c
+        chrome.c
         ${REPO_DIR}/apps/notes/notes_app.c
         ${REPO_DIR}/apps/notes/notes_store.c
         ${REPO_DIR}/apps/notes/notes_view.c
@@ -530,6 +533,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     # keyboard, against a real store (run by tests/clock_shell_test.sh).
     add_executable(clock_app_test
         ${REPO_DIR}/tests/clock_app_test.c
+        chrome.c
         ${REPO_DIR}/apps/clock/clock_app.c
         ${REPO_DIR}/apps/clock/clock_engine.c
         ${REPO_DIR}/apps/clock/clock_store.c
@@ -565,6 +569,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     # save is exercised without touching anything of the host's.
     add_executable(fleet_app_test
         ${REPO_DIR}/tests/fleet_app_test.c
+        chrome.c
         ${REPO_DIR}/apps/fleet/fleet_app.c
         ${REPO_DIR}/apps/fleet/engine/fleet_ai.c
         ${REPO_DIR}/apps/fleet/engine/fleet_rng.c
@@ -607,6 +612,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     # because the app has none.
     add_executable(cal_app_test
         ${REPO_DIR}/tests/cal_app_test.c
+        chrome.c
         ${REPO_DIR}/apps/calendar/cal_app.c
         ${REPO_DIR}/apps/calendar/cal_date.c
         ${REPO_DIR}/apps/calendar/cal_view.c
@@ -637,6 +643,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     # and the test checks that nothing is written anywhere.
     add_executable(calc_app_test
         ${REPO_DIR}/tests/calc_app_test.c
+        chrome.c
         ${REPO_DIR}/apps/calculator/calc_app.c
         ${REPO_DIR}/apps/calculator/calc_engine.c
         ${REPO_DIR}/apps/calculator/calc_view.c
@@ -666,6 +673,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     # what the app sent, and it supplies the shell's brightness entry points.
     add_executable(settings_app_test
         ${REPO_DIR}/tests/settings_app_test.c
+        chrome.c
         ${REPO_DIR}/apps/settings/settings_app.c
         ${REPO_DIR}/apps/settings/settings_view.c
         ../pocketui/pos_app_icons.c
@@ -695,6 +703,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     # The shell is not here either; the app.h entry points are counters.
     add_executable(rift_app_test
         ${REPO_DIR}/tests/rift_app_test.c
+        chrome.c
         ${REPO_DIR}/apps/rift/rift_app.c
         ${REPO_DIR}/apps/rift/rift_model.c
         ${REPO_DIR}/apps/rift/rift_messages.c
@@ -735,6 +744,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     # every call. The shell's app.h entry points are counters.
     add_executable(system_app_test
         ${REPO_DIR}/tests/system_app_test.c
+        chrome.c
         ${REPO_DIR}/apps/system/system_app.c
         ${REPO_DIR}/apps/system/system_view.c
         ../pocketui/pos_app_icons.c

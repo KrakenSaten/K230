@@ -94,7 +94,8 @@ for o in portrait landscape; do
         set -- $(look "$LOGD/notes.png" ice normal 20 328 547 391)
         check "$o: New note is drawn under the empty state, where notes_app_test lays it out" "${1:-0}"
     else
-        set -- $(look "$LOGD/notes.png" ice normal 924 152 1211 215)
+        # From row 128: the 32 px COMPACT bar of DS section 30 in landscape.
+        set -- $(look "$LOGD/notes.png" ice normal 924 128 1211 191)
         check "$o: New note is drawn in the rail beside the empty state, where notes_app_test lays it out" "${1:-0}"
     fi
     check "$o: nothing is drawn in the rounded corner squares at the foot of the panel" "${2:-0}"

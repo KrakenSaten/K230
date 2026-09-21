@@ -38,7 +38,10 @@
 #define PANEL_W 568
 #define PANEL_H 1232
 #define PANEL_CORNER 30 /* the corner squares of the unit's panel (DS 21.1) */
-#define STATUS_H POCKETUI_STATUS_BAR_H
+/* The status bar the shell gives this app in the display's orientation
+ * (ui/shell/chrome.h, DS section 30), so the frame built here is the one
+ * shell.c builds: 56 px in portrait, 32 px under an app in landscape. */
+#define STATUS_H chrome_height(chrome_resolve(app_calendar.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
 /* Above the body in landscape and below it: the status bar, the header and
  * the body's own top and foot padding (DS 7) - and how far the unit's 30 px
  * corners reach above the body's foot. */
@@ -1185,11 +1188,15 @@ int main(void)
     use_display(POS_ROTATION_270, PANEL_CORNER);
     g_system_day = DAY_2026_09_12;
     app_start();
-    check("landscape: the month is 586 x 386, its cells 80 wide and 56 tall",
-          rect_is(grid_block(), 20, 605, 152, 537) && lv_obj_get_height(cell_at(0)) >= WIDE_CELL_MIN_H &&
+    /* From row 128: the 32 px COMPACT bar of DS section 30 above the same
+     * header and padding, so the month is 24 px taller than the 386 the
+     * amendment was written for, and the panel between the arrows and
+     * Today takes the same 24. */
+    check("landscape: the month is 586 x 410, its cells 80 wide and 56 tall",
+          rect_is(grid_block(), 20, 605, 128, 537) && lv_obj_get_height(cell_at(0)) >= WIDE_CELL_MIN_H &&
               lv_obj_get_width(cell_at(0)) >= 80);
     check("landscape: the arrows, the panel and Today in the second half",
-          rect_is(nav_row(), 626, 1211, 152, 215) && rect_is(panel_of(), 626, 1211, 236, 453) &&
+          rect_is(nav_row(), 626, 1211, 128, 191) && rect_is(panel_of(), 626, 1211, 212, 453) &&
               rect_is(today_button(), 626, 1211, 474, 537));
     app_stop();
 

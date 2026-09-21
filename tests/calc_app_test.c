@@ -37,7 +37,10 @@
 #define PANEL_W 568
 #define PANEL_H 1232
 #define PANEL_CORNER 30
-#define STATUS_H POCKETUI_STATUS_BAR_H
+/* The status bar the shell gives this app in the display's orientation
+ * (ui/shell/chrome.h, DS section 30), so the frame built here is the one
+ * shell.c builds: 56 px in portrait, 32 px under an app in landscape. */
+#define STATUS_H chrome_height(chrome_resolve(app_calculator.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
 
 #define MINUS "\xE2\x88\x92"
 #define TIMES "\xC3\x97"
@@ -1003,8 +1006,10 @@ int main(void)
     check_layout("landscape");
     get_area(display_panel(), &a);
     get_area(keypad(), &b);
-    check("landscape: the display is 20..605 x 152..537", same_area(&a, 20, 152, 605, 537));
-    check("landscape: the keypad is 626..1211 x 152..537", same_area(&b, 626, 152, 1211, 537));
+    /* From row 128: the 32 px COMPACT bar of DS section 30, not the 56 px
+     * one, above the same 72 px header and 24 px body padding. */
+    check("landscape: the display is 20..605 x 128..537", same_area(&a, 20, 128, 605, 537));
+    check("landscape: the keypad is 626..1211 x 128..537", same_area(&b, 626, 128, 1211, 537));
     check_behaviour("landscape");
     check_modes("landscape");
     app_stop();

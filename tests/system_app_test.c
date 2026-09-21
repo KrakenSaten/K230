@@ -37,7 +37,10 @@
 #define PANEL_W 568
 #define PANEL_H 1232
 #define PANEL_CORNER 30 /* the corner squares of the unit's panel (DS 21.1) */
-#define STATUS_H POCKETUI_STATUS_BAR_H
+/* The status bar the shell gives this app in the display's orientation
+ * (ui/shell/chrome.h, DS section 30), so the frame built here is the one
+ * shell.c builds: 56 px in portrait, 32 px under an app in landscape. */
+#define STATUS_H chrome_height(chrome_resolve(app_system.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
 #define PAIRED_BUTTON_H 56 /* DS 7: paired buttons inside a panel */
 #define PANEL_GAP 22       /* DS 7 */
 #define COLUMN_W 528       /* the portrait body on the reference panel */
@@ -1207,28 +1210,31 @@ int main(void)
             use_display(POS_ROTATION_270, c);
             app_start();
             tick();
+            /* Everything 24 px higher than in portrait's numbering: the 32 px
+             * COMPACT bar of DS section 30 above the same header and padding,
+             * so the body starts at row 128 and the columns at 171. */
             snprintf(what, sizeof(what), "landscape %d px corners: LIVE at the right of the body", (int)c);
-            check_rect(what, find_visible(app_body, "LIVE"), 1176, 152, 1211, 172);
+            check_rect(what, find_visible(app_body, "LIVE"), 1176, 128, 1211, 148);
             snprintf(what, sizeof(what), "landscape %d px corners: the left column", (int)c);
-            check_rect(what, column_obj(0), 20, 195, 604, 547 - lift);
+            check_rect(what, column_obj(0), 20, 171, 604, 547 - lift);
             snprintf(what, sizeof(what), "landscape %d px corners: the right column", (int)c);
-            check_rect(what, column_obj(1), 627, 195, 1211, 547 - lift);
+            check_rect(what, column_obj(1), 627, 171, 1211, 547 - lift);
             snprintf(what, sizeof(what), "landscape %d px corners: SERVICES at the top of the right column", (int)c);
-            check_rect(what, find_visible(app_body, "SERVICES"), 648, 216, 718, 241);
+            check_rect(what, find_visible(app_body, "SERVICES"), 648, 192, 718, 217);
             snprintf(what, sizeof(what), "landscape %d px corners: Restart, below the fold", (int)c);
-            check_rect(what, target_of("Restart"), 648, 946, 915, 1001);
+            check_rect(what, target_of("Restart"), 648, 922, 915, 977);
             snprintf(what, sizeof(what), "landscape %d px corners: Power off", (int)c);
-            check_rect(what, target_of("Power off"), 924, 946, 1190, 1001);
+            check_rect(what, target_of("Power off"), 924, 922, 1190, 977);
             tap("Power off");
             snprintf(what, sizeof(what), "landscape %d px corners: the confirmation in the middle", (int)c);
             {
                 lv_area_t d;
 
                 area_of(dialog_obj(), &d);
-                check(what, d.x1 == 352 && d.x2 == 879 && d.y1 == 195);
+                check(what, d.x1 == 352 && d.x2 == 879 && d.y1 == 171);
             }
             snprintf(what, sizeof(what), "landscape %d px corners: LIVE over its right edge", (int)c);
-            check_rect(what, find_visible(app_body, "LIVE"), 844, 152, 879, 172);
+            check_rect(what, find_visible(app_body, "LIVE"), 844, 128, 879, 148);
             app_stop();
         }
     }

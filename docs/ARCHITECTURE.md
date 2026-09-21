@@ -221,7 +221,13 @@ where the vendor `ifup wlan0` path was confirmed not to compete for wlan0.
 One LVGL process. The status bar polls radiod once per second. Apps
 implement `struct pocketos_app` (create / tick / destroy) and are built into
 the shell binary for v0.1; the same API is intended for out-of-process apps
-later (ADR-002). Display backends: SDL (simulator, WSLg) and DRM + evdev
+later (ADR-002). The status chrome above an app - the 56 px bar, a 32 px
+compact one, or none - is the shell's (DS §30, `ui/shell/chrome.h`): an app
+declares a policy in its `struct pocketos_app`, the shell resolves it
+against the orientation before the app is created (FULL everywhere in
+portrait and on the launcher, COMPACT under an app in landscape by default),
+and the content area, the launcher grid and the keyboard reserve all follow
+from that one resolved height. An app never reads or sets it. Display backends: SDL (simulator, WSLg) and DRM + evdev
 (K230, untested; links the vendor-patched LVGL from the Buildroot package).
 `--screenshot` renders any screen headlessly to PNG in the simulator only:
 the target LVGL build has no snapshot support (docs/KNOWN_ISSUES.md).

@@ -211,7 +211,7 @@ not change between modes except the `type_default` and `hairline` tokens.
 
 | Constant | Value |
 | --- | --- |
-| status bar height | 56 |
+| status bar height | 56 (FULL chrome); 32 (COMPACT); 0 (NONE) — which one a screen gets is §30 |
 | app header height | 72 |
 | screen horizontal padding | 20 |
 | body top padding | 24 (first-boot: 40) |
@@ -262,7 +262,10 @@ not change between modes except the `type_default` and `hairline` tokens.
 
 Colours are tokens; geometry from §7; type from §3.
 
-**Status bar** — 56 px on `bg`, bottom `hairline` in `line`. Four cells left
+**Status bar** — 56 px on `bg`, bottom `hairline` in `line` (this is the
+FULL chrome of §30; the COMPACT chrome is the same bar at 32 px, and NONE is
+its absence — which one a screen gets is decided there, by the shell). Four
+cells left
 → right, separated by `hairline` rules in `line`, all caption style
 (0.08 em): (1) wordmark "PocketOS" weight 500, padding 0 20 (the product name
 is Doors since ADR-005: the wordmark text is "Doors", everything else in this
@@ -344,8 +347,10 @@ keys, future) reuses the same outline.
 
 ## 10. Screen specifications [NORMATIVE]
 
-All screens: status bar, then (except 10.4) header, then body with §7
-spacing. Content strings shown are sample data.
+All screens: status bar (in the chrome §30 gives the screen: FULL in
+portrait and on the launcher, COMPACT under an app in landscape), then
+(except 10.4) header, then body with §7 spacing. Content strings shown are
+sample data.
 
 ### 10.1 Settings
 Header "Settings". Panels: **Network** (Wi-Fi with connected dot; Mesh;
@@ -1114,7 +1119,9 @@ verified hardware operation and nothing in this amendment asks for it.
 
 ### 21.3 Landscape layout
 
-- Status bar: the same 56 px bar along the long edge, with the §21.1 insets.
+- Status bar: the same bar along the long edge, with the §21.1 insets - 56 px
+  on the launcher, and under an app the chrome §30 resolves for it, which in
+  landscape is COMPACT (32 px) unless the app declares otherwise.
 - Launcher: the same tiles - 150 px high, 20 px gutters and padding, the §20
   icon, the row-title label - in as few columns as let every row fit without
   scrolling: six columns and two rows for eleven apps on 1232x512. Only the
@@ -2263,6 +2270,142 @@ back on the launcher, so Radar is never open while the display turns, and
 PocketRadar has no resume: a run is abandoned by a turn, as it is by leaving
 the app, which is v0.1 behaviour and not changed here.
 
+## 30. Amendment N — Status chrome policy [PROPOSED]
+
+**PROPOSED 2026-09-21**, and implemented on master the same day as stage 1
+(§30.4) for validation on unit A. It becomes normative on the same terms as
+the rest of this document when the owner accepts it after that gate; until
+then the implementation is what is described here and nothing else. Nothing
+in §1–§29 is renumbered. §7, §9, §10 and §21.3 point here where they said
+the status bar is 56 px.
+
+**Why.** The 56 px status bar is 4.5 % of the height in portrait and 10 % in
+landscape, where it sits above a 72 px header and 44 px of body padding and
+leaves 396 px of body on a 568 px panel - 100 px with the keyboard up.
+Landscape is what §21–§29 were written to make usable, and this is the
+cheapest pixel in it.
+
+### 30.1 The three chromes
+
+- **FULL** — the status bar of §7 and §9: 56 px, four cells, the bottom
+  hairline, the §21.1 insets. Unchanged.
+- **COMPACT** — the same bar at 32 px: the same four cells in the same order,
+  the same caption type, the same insets and hairline. Nothing is dropped and
+  nothing moves horizontally. Only the height changes, and with it the radio
+  chip: 24 px tall (36 in FULL), the 14 px caption centred in it by 5 px of
+  vertical padding; the §7 chip style itself is not changed. 32 is more than
+  the 30 px corner squares of §21.1, so whatever sits under a COMPACT bar
+  starts below the corner band and needs no inset of its own.
+- **NONE** — no bar. The bar's objects exist and keep being written (clock,
+  chip, hint), so the §9 hint API and the radio poll are unchanged, but
+  nothing of it is drawn and the content area starts at the top edge. An app
+  header directly under the top edge then runs corner to corner and takes the
+  §21.1 bar insets exactly as the bar does: on the T-Display K230 its side
+  padding becomes 30 px. Defined here; no screen uses it yet (§30.4).
+
+### 30.2 Who decides
+
+- **The shell owns the chrome**: its lifecycle, its height, and everything
+  that follows from the height - the content area, the launcher's column
+  count, the keyboard reserve. All of it is derived from the chrome in force,
+  in one place (`ui/shell/chrome.h`), never from a constant.
+- **An app declares; it does not manipulate.** `struct pocketos_app` carries
+  one field, `chrome`: DEFAULT (the shell's choice for the orientation),
+  FULL, COMPACT or NONE. The shell resolves it against the orientation
+  *before* the app is created, so the body an app is created in is its final
+  one and its first layout pass is its only one. An app never reads the
+  bar's height and never sets it; it lays out in the body it is given, as
+  §21.3 already requires. Changing a screen's chrome must never require an
+  app to know a pixel of it.
+- **The launcher is FULL in every orientation.** Home is where the wordmark,
+  the clock and the radio chip belong, and the §21.3 grid was chosen for the
+  height below a 56 px bar. Coming home from any app restores it.
+- **The chrome is invisible to an app.** The hint, the clock and the radio
+  poll continue under every chrome. An app that writes a hint under NONE is
+  not wrong, it is merely not seen - which is why an app that relies on the
+  hint (Fleet's turn, Radar's run state, Timber's play state, Wave's MIC ON)
+  must not declare NONE until that text has a place of its own in its body.
+
+### 30.3 Resolution
+
+| Screen | Portrait | Landscape |
+| --- | --- | --- |
+| Launcher | FULL | FULL |
+| App declaring DEFAULT | FULL | COMPACT |
+| App declaring FULL | FULL | FULL |
+| App declaring COMPACT | FULL (stage 1, §30.4) | COMPACT |
+| App declaring NONE | FULL (stage 1, §30.4) | NONE |
+
+### 30.4 Staged rollout
+
+The portrait column above is a rollout stage, not an architectural rule: it
+is the state of the implementation, and each stage is lifted by its own
+change and its own gate.
+
+- **Stage 1 (this amendment).** Portrait is FULL for every screen whatever an
+  app declares, so every portrait screen is pixel-identical to v0.0.10.
+  Landscape is COMPACT by default. One app declares: **Fleet declares FULL**,
+  because the wide shape of §28 was constructed for the 386 px body under the
+  56 px bar and does not hold at the 410 px under a 32 px one - the cell
+  grows to 36, the board widens to 54 across, the readout column loses 30 px,
+  the four one-square nudges fall to 60 px (under the 64 px minimum of §7),
+  and in Outdoor the log line overflows the column by 10 px at turn 37 of a
+  match, which §28.6 forbids. All of it measured in `tests/fleet_app_test.c`
+  before this stage shipped. Fleet's stage 2 change re-derives §28 for the
+  taller body at the same time as it moves the COMMAND hint into its own
+  body; until then Fleet keeps the bar it was validated under. No app is NONE.
+  The infrastructure for NONE is complete and exercised in the simulator,
+  and no screen on the panel uses it.
+- **Stage 2.** After unit A has validated stage 1 (§30.7): apps opt into NONE
+  in landscape, one per change, each first moving whatever it wrote to the
+  hint into its own body. Notes, Fleet, Radar, Timber, in that order of need.
+- **Stage 3.** COMPACT and NONE in portrait are evaluated on the panel. The
+  stage 1 portrait rule is one line in `chrome_resolve()` and one group of
+  checks in `tests/chrome_test.c`.
+- The 72 px app header is not part of this amendment. It is the larger cost
+  in landscape - RIFT spends 240 px of chrome before its first message - and
+  is the next thing to bring under the same policy.
+
+### 30.5 What it buys
+
+Body frame below all chrome and padding, landscape 1232x568:
+
+| Chrome | Frame | Above the keyboard |
+| --- | --- | --- |
+| FULL | 396 | 100 |
+| COMPACT | 420 | 124 |
+| NONE | 452 | 156 |
+
+Portrait is unchanged: 1060 and 764.
+
+### 30.6 Validation on the host
+
+`tests/chrome_test` (make test): the resolver in both orientations and on the
+launcher, the three heights, the content box under each chrome with and
+without the keyboard, and that hiding the keyboard gives the box back to
+exactly the foot under every chrome - no dead strip. `tests/chrome_shell_test.sh`:
+the running simulator in both orientations - FULL at home and under every
+app in portrait, COMPACT under every app in landscape and drawn so, FULL
+again on coming home, open/close/reopen over IPC, the radio poll seeing a
+radiod that starts under COMPACT, a hint drawn in the compact bar, and NONE
+through the simulator's test hook with the header's back slab moved clear of
+the corner. Every app test builds its frame from the same resolver, so an
+app is tested under the bar the shell gives it.
+
+### 30.7 Unit A gate (before stage 2)
+
+The build's identity stated first. Both orientations: the launcher unchanged
+in both; every app but Fleet in landscape under the 32 px bar with the
+wordmark, the chip and the clock readable and clear of the corners, and the
+app's header straight under the hairline; Fleet in landscape under the 56 px
+bar it declares, its Battle screen exactly as §28 left it; the keyboard up in
+Notes, Settings and Clock in landscape with the field and its caption in view
+above it, and no dead strip after it hides; Radar's SCANNING, Timber's
+STANDBY and Wave's MIC ON visible in the compact hint cell, Fleet's COMMAND
+in its full one; coming home from each app restoring the 56 px bar; a
+rotation change through Settings landing on the launcher with the right bar.
+Portrait: any screen, pixel for pixel what v0.0.10 showed.
+
 ---
 
 PocketOS Design System v0.1 — **STATUS: APPROVED FOR IMPLEMENTATION**
@@ -2279,3 +2422,4 @@ Amendment J (§26) accepted 2026-09-17.
 Amendment K (§27) accepted 2026-09-17.
 Amendment L (§28) accepted 2026-09-18.
 Amendment M (§29) accepted 2026-09-18.
+Amendment N (§30) proposed 2026-09-21; stage 1 implemented, unit A gate pending.

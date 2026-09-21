@@ -595,4 +595,14 @@ const struct pocketos_app app_fleet = {
     .create = fleet_create,
     .tick = NULL,
     .destroy = fleet_destroy,
+    /* FULL, declared, while every other app takes the landscape default
+     * (DS §30.4, stage 1). The wide shape of §28 was constructed for the
+     * 386 px body under the 56 px bar: given the 410 px under a 32 px one,
+     * the cell grows to 36 and the board widens to 54 across, which takes
+     * 30 px from the readout column - the four nudges fall to 60 px, under
+     * the 64 px touch minimum, and in Outdoor the log line overflows the
+     * column by 10 px at turn 37 of a match (tests/fleet_app_test.c). That
+     * is the stage 2 change for this app, with the COMMAND hint moved into
+     * its own body; until then Fleet keeps the bar it was validated under. */
+    .chrome = POCKETOS_CHROME_FULL,
 };

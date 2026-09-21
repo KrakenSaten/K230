@@ -67,6 +67,7 @@ BUILD_ID
 /tests/display_geometry_test
 /tests/orientation_test
 /tests/kbd_presence_test
+/tests/chrome_test
 /services/netd/netd
 /tests/netd-testhooks
 /tests/fake_wpa_supplicant

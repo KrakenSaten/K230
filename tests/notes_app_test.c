@@ -41,7 +41,10 @@
 #define PANEL_W 568
 #define PANEL_H 1232
 #define PANEL_CORNER 30 /* the corner squares of the unit's panel (DS 21.1) */
-#define STATUS_H POCKETUI_STATUS_BAR_H
+/* The status bar the shell gives this app in the display's orientation
+ * (ui/shell/chrome.h, DS section 30), so the frame built here is the one
+ * shell.c builds: 56 px in portrait, 32 px under an app in landscape. */
+#define STATUS_H chrome_height(chrome_resolve(app_notes.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
 
 extern const struct pocketos_app app_notes;
 
@@ -1814,27 +1817,30 @@ int main(void)
             use_display(POS_ROTATION_270, c);
             wipe();
             app_start();
+            /* From row 128, not 152: the 32 px COMPACT bar of DS section 30
+             * above the same header and padding. What is pinned to the foot
+             * (the list, the field's keyboard edge at 251) keeps its foot. */
             snprintf(what, sizeof(what), "landscape %d px corners: empty state", (int)c);
-            report_rect(what, list_card(), 20, 152, 903, 307);
+            report_rect(what, list_card(), 20, 128, 903, 283);
             snprintf(what, sizeof(what), "landscape %d px corners: New note in the rail", (int)c);
-            report_rect(what, find_labelled(app_body, "New note"), 924, 152, 1211, 215);
+            report_rect(what, find_labelled(app_body, "New note"), 924, 128, 1211, 191);
             app_stop();
             write_many();
             app_start();
             snprintf(what, sizeof(what), "landscape %d px corners: a long list", (int)c);
-            report_rect(what, list_card(), 20, 152, 903, lfoot);
+            report_rect(what, list_card(), 20, 128, 903, lfoot);
             snprintf(what, sizeof(what), "landscape %d px corners: New note in the rail", (int)c);
-            report_rect(what, find_labelled(app_body, "New note"), 924, 152, 1211, 215);
+            report_rect(what, find_labelled(app_body, "New note"), 924, 128, 1211, 191);
             tap_obj(find_labelled(app_body, "Note 20"));
             snprintf(what, sizeof(what), "landscape %d px corners: the field above the keyboard", (int)c);
-            report_rect(what, find_field(app_body), 20, 152, 903, 251);
+            report_rect(what, find_field(app_body), 20, 128, 903, 251);
             snprintf(what, sizeof(what), "landscape %d px corners: Done in the rail", (int)c);
-            report_rect(what, find_labelled(app_body, "Done"), 924, 152, 1063, 207);
+            report_rect(what, find_labelled(app_body, "Done"), 924, 128, 1063, 183);
             snprintf(what, sizeof(what), "landscape %d px corners: Delete in the rail", (int)c);
-            report_rect(what, find_labelled(app_body, "Delete"), 1072, 152, 1211, 207);
+            report_rect(what, find_labelled(app_body, "Delete"), 1072, 128, 1211, 183);
             tap_obj(find_labelled(app_body, "Delete"));
             snprintf(what, sizeof(what), "landscape %d px corners: the confirmation, centred", (int)c);
-            report_rect(what, parent_of(find_label(app_body, "Delete this note?")), 352, 152, 879, 331);
+            report_rect(what, parent_of(find_label(app_body, "Delete this note?")), 352, 128, 879, 307);
             tap_obj(find_labelled(app_body, "Cancel"));
             tap_obj(find_labelled(app_body, "Done"));
             app_stop();

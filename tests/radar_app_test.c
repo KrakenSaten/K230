@@ -55,7 +55,10 @@
 #define PANEL_W 568
 #define PANEL_H 1232
 #define PANEL_CORNER 30 /* the corner squares of the unit's panel (DS 21.1) */
-#define STATUS_H POCKETUI_STATUS_BAR_H
+/* The status bar the shell gives this app in the display's orientation
+ * (ui/shell/chrome.h, DS section 30), so the frame built here is the one
+ * shell.c builds: 56 px in portrait, 32 px under an app in landscape. */
+#define STATUS_H chrome_height(chrome_resolve(app_radar.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
 #define BODY_CHROME_H (STATUS_H + POCKETUI_HEADER_H + POCKETUI_BODY_PAD_TOP + POCKETUI_PAD)
 #define CORNER_REACH 10
 

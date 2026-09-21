@@ -129,7 +129,9 @@ for o in portrait landscape; do
     else
         check "$o: on the six-column launcher" \
             "$(grep -q 'launcher: 6 column(s), 2 row(s)' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
-        set -- $(look "$LOGD/calc.png" ice normal 1072 468 1211 537)
+        # The keypad is 410 px tall under the 32 px COMPACT bar of DS section
+        # 30 (386 under the 56 px one), so its bottom row is 75 px, not 70.
+        set -- $(look "$LOGD/calc.png" ice normal 1072 463 1211 537)
     fi
     check "$o: the = key is drawn where calc_app_test lays it out, bottom right" "${1:-0}"
     check "$o: nothing is drawn in the rounded corner squares at the foot of the panel" "${2:-0}"

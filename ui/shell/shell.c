@@ -13,6 +13,7 @@
 #define _GNU_SOURCE
 #include "app.h"
 #include "brightness.h"
+#include "chrome.h"
 #include "clock_runtime.h"
 #include "clock_time.h"
 #include "platform.h"
@@ -79,7 +80,9 @@ struct shell {
     lv_obj_t *status_clock;
     lv_obj_t *status_radio;
     lv_obj_t *status_hint;
-    lv_obj_t *content;      /* below the status bar */
+    lv_obj_t *content;      /* below the status chrome */
+    enum pocketos_chrome chrome; /* the status chrome in force (chrome.h), resolved by the shell */
+    int32_t chrome_h;       /* its height: where the content area starts */
     lv_obj_t *home;         /* launcher */
     lv_obj_t *app_root;     /* current app container or NULL */
     const struct pocketos_app *app;
@@ -506,9 +509,19 @@ static void on_keyboard_presence(enum kbd_presence now, void *user)
  * to know the keyboard's geometry.
  */
 
-static void content_height(int32_t reserve_bottom)
+/* The content area: below whatever chrome is in force, above whatever is
+ * reserved at the foot - the keyboard sheet while it is shown, nothing
+ * otherwise. One function for both edges (chrome_content_box), so the box
+ * reaches the keyboard exactly while it is up and reaches the foot again
+ * when it hides, under FULL, COMPACT and NONE alike: a constant bar
+ * subtracted here would leave a dead strip under every chrome but FULL. */
+static void content_box(int32_t reserve_bottom)
 {
-    lv_obj_set_height(sh.content, pocketui_display_geometry()->height - POCKETUI_STATUS_BAR_H - reserve_bottom);
+    struct chrome_box b = chrome_content_box(sh.chrome, pocketui_display_geometry()->height,
+                                             reserve_bottom);
+
+    lv_obj_set_y(sh.content, b.y);
+    lv_obj_set_height(sh.content, b.height);
 }
 
 static void on_keyboard_done(void *user)
@@ -533,7 +546,7 @@ void pocketos_shell_keyboard_show(enum pocketos_kb_return ret,
     sh.kb_done_user = user;
     pos_keyboard_set_return(sh.keyboard, ret == POCKETOS_KB_NEWLINE ? POS_KB_RETURN_NEWLINE
                                                                     : POS_KB_RETURN_DONE);
-    content_height(POS_KB_H);
+    content_box(POS_KB_H);
     pos_keyboard_show(sh.keyboard);
 }
 
@@ -543,7 +556,7 @@ void pocketos_shell_keyboard_hide(void)
         return;
     }
     pos_keyboard_hide(sh.keyboard);
-    content_height(0);
+    content_box(0);
     sh.kb_done_cb = NULL;
     sh.kb_done_user = NULL;
 }
@@ -551,6 +564,78 @@ void pocketos_shell_keyboard_hide(void)
 int pocketos_shell_keyboard_visible(void)
 {
     return sh.keyboard && pos_keyboard_is_shown(sh.keyboard);
+}
+
+/* ---- status chrome (DS §30, chrome.h) ---------------------------------- *
+ *
+ * The shell owns the bar and everything that follows from its height: the
+ * content area, the launcher's grid, the keyboard reserve. An app declares
+ * a policy and is created under the result; it never learns the number and
+ * never touches the bar. Resolved before create() runs, so the body an app
+ * is created in is its final one and its first layout pass is its only one.
+ */
+
+_Static_assert(POCKETUI_STATUS_BAR_H == POCKETOS_CHROME_FULL_H,
+               "FULL chrome is the DS §7 status bar");
+
+/* DS §30.1: the compact bar's chip, 24 px tall with the 14 px caption font
+ * centred by its padding. The §7 chip (36 px, pos_styles.c) is not changed;
+ * these are local properties on the one chip, put on for COMPACT and taken
+ * off again for FULL, so FULL is drawn exactly as it always was. */
+#define COMPACT_CHIP_H 24
+#define COMPACT_CHIP_PAD_V 5
+
+static void chrome_apply(enum pocketos_chrome effective, const char *what)
+{
+    sh.chrome = effective;
+    sh.chrome_h = chrome_height(effective);
+    if (effective == POCKETOS_CHROME_NONE) {
+        /* Hidden, not deleted: the clock, the chip and the hint keep being
+         * written (status_update, pocketos_shell_set_status_hint) and keep
+         * their state for the next chrome that shows them. The screen has
+         * no layout, so a hidden bar takes no room by itself; the content
+         * box below is what moves the content to the top edge. */
+        lv_obj_add_flag(sh.status_bar, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_remove_flag(sh.status_bar, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_height(sh.status_bar, sh.chrome_h);
+    }
+    if (effective == POCKETOS_CHROME_COMPACT) {
+        lv_obj_set_style_height(sh.status_radio, COMPACT_CHIP_H, 0);
+        lv_obj_set_style_pad_ver(sh.status_radio, COMPACT_CHIP_PAD_V, 0);
+    } else {
+        lv_obj_remove_local_style_prop(sh.status_radio, LV_STYLE_HEIGHT, 0);
+        lv_obj_remove_local_style_prop(sh.status_radio, LV_STYLE_PAD_TOP, 0);
+        lv_obj_remove_local_style_prop(sh.status_radio, LV_STYLE_PAD_BOTTOM, 0);
+    }
+    content_box(pocketos_shell_keyboard_visible() ? POS_KB_H : 0);
+    LOG_INFO("chrome: %s, status bar %d px, content from y %d, for %s", chrome_name(effective),
+             (int)sh.chrome_h, (int)sh.chrome_h, what);
+}
+
+/* What the app declared - or, in the simulator only, what a test asked for.
+ * The hook is how NONE and an explicit FULL are exercised in the running
+ * shell before any app opts in (tests/chrome_shell_test.sh); the panel's
+ * build has no such environment and compiles it out. */
+static enum pocketos_chrome declared_chrome(const struct pocketos_app *app)
+{
+#if defined(POCKETOS_SHELL_TEST_HOOKS) && POCKETOS_SHELL_TEST_HOOKS
+    const char *forced = getenv("POCKETOS_TEST_CHROME");
+
+    if (forced && forced[0]) {
+        if (strcmp(forced, "full") == 0) {
+            return POCKETOS_CHROME_FULL;
+        }
+        if (strcmp(forced, "compact") == 0) {
+            return POCKETOS_CHROME_COMPACT;
+        }
+        if (strcmp(forced, "none") == 0) {
+            return POCKETOS_CHROME_NONE;
+        }
+        LOG_WARN("test hook: chrome '%s' is not full, compact or none; ignored", forced);
+    }
+#endif
+    return app->chrome;
 }
 
 /* ---- app hosting ------------------------------------------------------ */
@@ -590,6 +675,9 @@ static void app_close(void)
 void pocketos_shell_go_home(void)
 {
     app_close();
+    /* The launcher's own chrome, whatever the app that just closed had. */
+    chrome_apply(chrome_resolve(POCKETOS_CHROME_DEFAULT, is_landscape(sh.display.geometry.rotation), true),
+                 "home");
     lv_obj_clear_flag(sh.home, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -608,6 +696,10 @@ static void app_open(const struct pocketos_app *app)
 
     app_close();
     lv_obj_add_flag(sh.home, LV_OBJ_FLAG_HIDDEN);
+    /* Before anything of the app exists, so the body it is created in is
+     * its final one and its first layout pass is its only one (DS §30.2). */
+    chrome_apply(chrome_resolve(declared_chrome(app), is_landscape(sh.display.geometry.rotation), false),
+                 app->id);
 
     sh.app_root = lv_obj_create(sh.content);
     lv_obj_remove_style_all(sh.app_root);
@@ -622,6 +714,14 @@ static void app_open(const struct pocketos_app *app)
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_hor(header, POCKETUI_PAD, 0);
     lv_obj_set_style_pad_column(header, 16, 0);
+    if (sh.chrome == POCKETOS_CHROME_NONE) {
+        /* With no bar above it the header runs corner to corner along the
+         * top edge, where the panel's rounded corners are: the back slab and
+         * the title keep clear of them through the safe area, as the bar
+         * does (DS §21.1, §30.1). A COMPACT or FULL bar covers the corner
+         * band itself, so the header under it needs nothing. */
+        pocketui_apply_bar_insets(header, POS_EDGE_TOP);
+    }
 
     back = lv_button_create(header);
     lv_obj_remove_style_all(back);
@@ -694,7 +794,10 @@ static void home_create(void)
     static int32_t cols[LAUNCHER_MAX_COLUMNS + 1];
     static int32_t rows[APP_COUNT + 1];
     const struct pos_display_geometry *g = pocketui_display_geometry();
-    uint8_t ncols = launcher_columns(g->width, g->height - POCKETUI_STATUS_BAR_H);
+    /* Below the launcher's own chrome (DS §30.2: FULL, in both orientations),
+     * not below whatever an app had. */
+    uint8_t ncols = launcher_columns(g->width, g->height - chrome_height(chrome_resolve(POCKETOS_CHROME_DEFAULT,
+                                                                                         is_landscape(g->rotation), true)));
     uint8_t nrows = (uint8_t)((APP_COUNT + ncols - 1) / ncols);
     size_t i;
 
@@ -859,6 +962,14 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         cJSON_AddStringToObject(display, "backend", sh.backend_name);
         rotation_to_json(display);
         cJSON_AddItemToObject(result, "display", display);
+        {
+            /* The status chrome in force for the current screen (DS §30). */
+            cJSON *chrome = cJSON_CreateObject();
+
+            cJSON_AddStringToObject(chrome, "policy", chrome_name(sh.chrome));
+            cJSON_AddNumberToObject(chrome, "status_bar_height", sh.chrome_h);
+            cJSON_AddItemToObject(result, "chrome", chrome);
+        }
     } else if (strcmp(method, "shell.open") == 0) {
         const cJSON *aid = params ? cJSON_GetObjectItemCaseSensitive(params, "id") : NULL;
         const struct pocketos_app *app = find_app(cJSON_IsString(aid) ? aid->valuestring : NULL);
@@ -1154,8 +1265,13 @@ int main(int argc, char **argv)
 
     sh.content = lv_obj_create(screen);
     lv_obj_remove_style_all(sh.content);
-    lv_obj_set_size(sh.content, LV_PCT(100), sh.display.geometry.height - POCKETUI_STATUS_BAR_H);
-    lv_obj_align(sh.content, LV_ALIGN_TOP_MID, 0, POCKETUI_STATUS_BAR_H);
+    lv_obj_set_width(sh.content, LV_PCT(100));
+    lv_obj_align(sh.content, LV_ALIGN_TOP_MID, 0, 0);
+    /* The launcher's chrome, applied before the launcher is built (DS §30);
+     * an app opened below resolves its own. This sets the content's top and
+     * height, so nothing above sized it. */
+    chrome_apply(chrome_resolve(POCKETOS_CHROME_DEFAULT, is_landscape(sh.display.geometry.rotation), true),
+                 "home");
     home_create();
 
     /* One keyboard for the whole shell, built hidden and never rebuilt. It

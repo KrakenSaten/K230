@@ -39,7 +39,7 @@ brightness carries meaning (brighter = more important), not colour alone.
 
 | Name | Value |
 | --- | --- |
-| status bar height | 56 px |
+| status bar height | 56 px (FULL); 32 px COMPACT under an app in landscape; the shell decides (DS §30) |
 | screen padding | 20 px |
 | card / tile radius | 16 px |
 | minimum touch target | 72 px |
