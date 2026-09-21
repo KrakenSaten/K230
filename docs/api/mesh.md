@@ -41,12 +41,22 @@ speaks is the one the accepted P0 gate proved on air
 (docs/hardware/MESHCORE_INTEROP_GATE.md), from the same pinned sources; that
 gate is evidence about the frames, not about this daemon.
 
-**Channels are host evidence only.** Every channel method, event and field
-below is exercised by the suites and by two whole `meshcored` processes over a
-mock air, and **no group frame has been on a radio**. That gate is
-[docs/hardware/RIFT_CHANNELS_GATE.md](../hardware/RIFT_CHANNELS_GATE.md), and
-it has not been run. The P0 interop gate covers adverts and direct text, which
-are a different payload type and a different routing mode.
+**Channels are ON-AIR VERIFIED.** Every channel method, event and field below
+is exercised by the suites and by two whole `meshcored` processes over a mock
+air — and the group frames themselves have been on a real SX1262, in both
+directions, against an independently built MeshCore implementation (LILYGO
+T-Deck, RIFT v0.9.5) on the MeshCore profile at 2 dBm. A channel conversation
+and a direct one were run side by side on one node with their own delivery
+semantics intact, and both survived a restart of this service with the peer's
+learned path reloaded and used.
+
+The evidence, part by part, is
+[docs/hardware/RIFT_CHANNELS_GATE.md](../hardware/RIFT_CHANNELS_GATE.md)
+(unit A, 2026-09-21, **PASS**). What it does **not** establish is anything
+about delivery: `ack_expected` is `false` on a channel because the protocol
+acknowledges nothing, and the gate demonstrated exactly that — a message the
+peer demonstrably received, with this service still reporting `sent_flood`
+and refusing to claim it.
 
 ## Service state
 

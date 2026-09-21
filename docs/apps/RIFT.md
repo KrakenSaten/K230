@@ -262,11 +262,15 @@ long the host has been up.
    be the first to speak on. So COMMS adds a row per channel the service
    reported, with no preview, no unread and a total of zero, which is exactly
    what it is.
-   Channels themselves have **not been on a radio**. The frames are proved on
-   air only for the direct-message path (`docs/hardware/MESHCORE_INTEROP_GATE.md`);
-   everything about channels here is host evidence. The gate that would close
-   that is written and not run:
-   [docs/hardware/RIFT_CHANNELS_GATE.md](../hardware/RIFT_CHANNELS_GATE.md).
+   Channels have been **on a radio**, in both directions, against a real
+   MeshCore peer:
+   [docs/hardware/RIFT_CHANNELS_GATE.md](../hardware/RIFT_CHANNELS_GATE.md)
+   (unit A, 2026-09-21, **PASS**). That gate also read every string on this
+   page off the unit's own DRM plane rather than off a description — the `#`
+   glyph and `FLOOD` on a channel row, `CHANNEL · HASH 9a · FLOOD` in the
+   header, the claim marker on a received sender's name, and
+   `SENT · FLOOD · NO ACK ON CHANNELS` under an outgoing one — and confirmed
+   that the words `DELIVERED` and `ACKED` appear nowhere on a channel.
 7. **A message carries no route.** The design's per-message caption is
    `RECEIVED · PATH 9 · 1 UNKNOWN HOP`. The API carries a path on a *node*
    and not on a message, so the route is drawn in the thread header and the
