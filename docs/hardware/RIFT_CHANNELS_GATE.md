@@ -1,7 +1,15 @@
 # RIFT Channels on unit A: the two-node on-air gate
 
-**Status: NOT RUN.** This is the sheet for a test that has not happened. No
-part of it has been on a radio, and nothing below may be read as a result.
+**Status: the local, device-only half is RUN and GREEN, 2026-09-21. The
+two-node gate is NOT COMPLETE.** Steps 1 to 3b and 7 to 15 were performed on
+unit A and are recorded under "The device run" below. Steps 4 to 8 — the parts
+that need the second node — were **not** performed as written.
+
+One thing did happen on the air that was not part of the procedure, and it is
+recorded honestly rather than counted: while the local run was in progress a
+node calling itself `T-Deck-RIFT` transmitted on `#doorsbench` and unit A
+received and decrypted it. See "The unplanned reception". It is real evidence
+and it is not a gate result.
 
 **The build under test is `feat/rift-channels`**, from origin/master
 `a120f8b`. VERSION stays `0.0.10`. Not merged, and not to be merged unless
@@ -20,9 +28,11 @@ below it has.
 | --- | --- |
 | **HOST VERIFIED** | The protocol, the service, the IPC and the app, on a build host: **1 865 named checks**, 0 failures, from a clean rebuild — plus the lints and the two `meshcored` integration suites, which count failures rather than checks. The RIFT suites run again under ASan + UBSan with leak detection. Two whole `meshcored` processes exchange channel messages over a mock air. The channel key never leaves the service. Channels survive a restart. |
 | **HOST VERIFIED** | The target build: `libmeshcore-riscv64.a`, and `meshcored`, `radiod` and `doors-shell` linked for riscv64 from wiped objects. |
-| **NOT VERIFIED — this gate** | That a channel frame this code puts on a real SX1262 is received and decrypted by a second, independently built MeshCore node — and the reverse. |
+| **DEVICE VERIFIED**, 2026-09-21 | The service and the app on unit A itself: the channel created with the predicted hash, persisted, restarted, removed and re-added; the key confined; one real frame transmitted on the SX1262; and every string on the panel read off its own DRM plane. "The device run" below. |
+| **ON-AIR VERIFIED**, one direction, **outside the procedure** | A second MeshCore node's `#doorsbench` frame received and decrypted by unit A. Evidence, not a gate result — "The unplanned reception". |
+| **STILL NOT VERIFIED — what this gate is for** | That a channel frame unit A puts on the air is received by a second node. Nothing has yet confirmed the reverse direction. |
 
-Nothing in the channel path has been on a radio. The accepted P0 interop gate
+The accepted P0 interop gate
 ([MESHCORE_INTEROP_GATE.md](MESHCORE_INTEROP_GATE.md)) proved adverts and
 direct text against the same peer, on the same profile; it says nothing about
 group frames, which are a different payload type and a different routing mode.
@@ -68,17 +78,18 @@ not the reason.
 
 ## Before you start
 
-Unit A must be reachable over SSH and on the real radio backend. **It was not
-reachable while this sheet was written** (no host answered at
-`192.168.10.157`, and a sweep of `192.168.10.0/24` found no board), so it was
-never touched: nothing was deployed, nothing was configured, and the unit is
-in whatever state it was last left in.
+Unit A must be reachable over SSH and on the real radio backend.
 
-That means step 1 below is a survey, not a formality. In particular
+**As of 2026-09-21 the payload is already installed and `#doorsbench` is
+already configured** — see "The device run". Steps 1 to 3 below are the record
+of how it got there and what to do on a unit that has been reflashed since;
+they do not need repeating on a unit still in that state. Step 1's survey is
+worth running anyway, because it is the rollback record.
+
 `/etc/default/radiod` decides the backend, and a reflash removes it —
-`S60radiod` then defaults to `RADIOD_BACKEND=mock`, which cannot transmit.
-The interop gate left unit A configured for `sx1262`; confirm it rather than
-assume it.
+`S60radiod` then defaults to `RADIOD_BACKEND=mock`, which cannot transmit. On
+2026-09-21 it was found already set to `sx1262`/`EU868`/2 dBm by the interop
+gate and **was not modified**. Confirm it rather than assume it.
 
 ## The payload
 
@@ -320,6 +331,190 @@ Nothing else was changed: no init script was added, no `/etc/default/meshcored`
 was written, no image was built and the SD card was never touched.
 
 ---
+
+## The device run — 2026-09-21
+
+Unit A, `192.168.10.157`. Everything in this section is **DEVICE VERIFIED**:
+observed on the unit, over SSH or off its own DRM plane. Nothing here rests on
+the build host.
+
+### What was there first, and what changed
+
+| | Before | After |
+| --- | --- | --- |
+| `/etc/doors-release` | `0.0.10`, `646dcbb` | untouched |
+| `/usr/bin/doors-shell` | `3d5d3fe2…` | `37ce3f60…` |
+| `/usr/sbin/meshcored` | `d8244490…` (`e241805`) | `6d6f3cf4…` |
+| `/usr/sbin/radiod` | `06c7d678…` (`e241805`) | `e2371703…` |
+| `/etc/default/radiod` | `sx1262`, `EU868`, 2 dBm | **untouched — nothing was configured** |
+| `identity.id` | `19f7b327…`, sha256 `41e8a50a…` | **untouched**, same mtime |
+| `channels.v1` | absent | `#doorsbench`, 80 bytes |
+
+The three installed hashes match the build host byte for byte, and all three
+report `0.0.10` / `765a3a3` when asked — `doors-shell` through `shell.info`,
+`radiod` through `radio info`, `meshcored` through `mesh.info`. The `doors`
+CLI still reports `646dcbb`: it was not part of the payload and was not
+replaced.
+
+Rollback copies of all three are on the unit at `/root/rollback-channels/`.
+
+### Health
+
+`meshcored` reached `online` **82 ms** after start (`starting` →
+`waiting_for_radiod` → `configuring` → `online`), took the radio lease
+(`owner_id 1`), and applied the profile exactly: 869.618 MHz, 62.5 kHz, SF8,
+CR5, sync word 18 (`0x12`), preamble 32, 2 dBm, CRC on. 32 nodes restored from
+`state.v1`. **0 WARN and 0 ERROR** from `meshcored` across the whole session.
+
+No crashloop markers. `radiod`, `sysd`, `netd` and `doors-shell` all alive
+before and after. The two `ERROR` lines in `/var/log/messages` are kernel
+Goodix touch-firmware messages from boot at `00:00:07`, before anything was
+deployed.
+
+### Channels, on the device
+
+| Check | Result |
+| --- | --- |
+| `mesh.channel_add` | slot 0, `channel_hash 9a`, `key_bits 128`, `text_limit 152`, `ack_expected false` |
+| The hash | **`9a`** — the value `test_hashtag_channel_vector` predicts on the host, derived independently here |
+| `text_limit 152` | 160 − `len("K230-A: ")`; the node's own name, not a constant |
+| `mesh.channels` | one channel, `count 1`, `max 8`, `persistent true` |
+| `mesh.channel channel=0` | the same object |
+| An empty slot | refused, code 2, "there is no channel in slot 3" |
+| The same key twice | refused, code 2 |
+| A 32-byte key with an all-zero upper half | **refused**, code 2, with the reason — the load/add asymmetry fixed in `765a3a3`, demonstrated on hardware |
+| `channels.v1` | 80 bytes = 12-byte header + one 68-byte record, `-rw-------`, `root:root` |
+| its directory | `drwx------`, `root:root` |
+| stray `.tmp` | none |
+
+### The key does not leave the service
+
+Proven on the unit, with a control that makes the negative meaningful:
+
+- **Control:** the key's bytes **are** found in `channels.v1`, so the search
+  can fail.
+- `mesh.info`, `mesh.status`, `mesh.identity`, `mesh.nodes`, `mesh.channels`,
+  `mesh.channel`, `mesh.messages` — **clean**, none carries it.
+- `/tmp/meshcored-bench.log` (a `--verbose` run) and `/var/log/messages` —
+  **clean**.
+- Nothing on the panel shows it (see the capture).
+
+### Restart, remove, re-add
+
+Restarting `meshcored` brought `#doorsbench` back in the same slot with the
+same hash, and the log said so: `node K230-A, 32 known node(s), 1 channel(s)`.
+Identity unchanged.
+
+`mesh.channel_remove` answered `key_forgotten: true`, and the key was then
+**absent from `channels.v1`**, which had shrunk to its 12-byte header. That is
+the claim being true at the moment it is made, which is what the immediate
+persist in `765a3a3` is for. Re-adding restored slot 0 and hash `9a`.
+
+### The transmit — LOCAL TX PATH VERIFIED
+
+One real frame, on the antenna the owner confirmed on MMCX1.
+
+```
+mesh.send channel=0 text=doors bench tx 1
+  -> {"accepted":true,"message_id":1,"route":"flood","channel":0,"ack_expected":false}
+```
+
+No `ack_timeout_ms` in the answer, because there is no ACK to time out.
+
+| Counter | Before | After |
+| --- | --- | --- |
+| `tx_submitted` | 0 | 1 |
+| `tx_accepted` | 0 | 1 |
+| `tx_ok` | 0 | **1** |
+| `tx_failed`, `tx_refused` | 0 | 0 |
+| `sent_flood` | 0 | 1 |
+
+`meshcore: tx 37 bytes` in the log; `radio_state` back to `rx`. The message
+holds `state: sent_flood`, `ack_expected: false`, and stays there.
+
+**This is LOCAL TX PATH VERIFIED and not delivery.** 37 bytes were modulated
+and `radiod` reported the transmit complete. Whether anything received it is
+not knowable from this end, and never will be for a channel frame.
+
+### What the panel actually says
+
+Read off unit A's own DRM plane (`ffmpeg -f kmsgrab`), not from a description:
+[`shots/rift-channels-unitA-comms-2026-09-21.png`](shots/rift-channels-unitA-comms-2026-09-21.png).
+Landscape, so this is the three-pane layout.
+
+| Element | On the panel |
+| --- | --- |
+| List row | `# #doorsbench` with the `#` glyph, route column `FLOOD` |
+| Thread header | `# #doorsbench  CHANNEL · HASH 9a · FLOOD` |
+| Our message | byline `you`, body `K230-A: doors bench tx 1` |
+| its caption | `SENT · FLOOD · NO ACK ON CHANNELS` |
+| Received message | byline **`T-Deck-RIFT?`** — with the claim marker |
+| its caption | `RECEIVED · −27 dBm · SNR 12.0` |
+| List note | `0 direct · 1 channel · nothing acknowledges a channel message` |
+| Thread note | `This history is the radio service's, and it does not survive a restart of it.` |
+| Route pane | `A channel is a shared key, not a route. Messages are flooded to every node that holds the same key; there is no path to show and nothing acknowledges them.` |
+| | `HASH 9a · 128-BIT KEY` |
+| | `1 SENT · NOTHING ACKNOWLEDGES A CHANNEL` |
+| Command line | `TO #doorsbench · TAB TO WRITE · ↑↓ CHOOSE` |
+
+**The words `DELIVERED` and `ACKED` do not appear anywhere on the panel.** The
+only occurrences of "ACK" are `NO ACK ON CHANNELS` and `NOTHING ACKNOWLEDGES A
+CHANNEL`.
+
+The product owner separately confirmed the physical rendering — no clipping,
+no wrong glyph, no wrong state — and asked that the exact values be read from
+the device rather than from their report. They were; that is this table.
+
+## The unplanned reception
+
+**A channel message arrived over the air from a second node, and it was not
+part of this procedure.**
+
+At 15:37, between the local transmit and the panel capture, `meshcored`
+received, MAC-verified and decrypted a `#doorsbench` frame:
+
+```
+id 2, direction in, kind channel, channel 0, channel_name "#doorsbench",
+channel_hash "9a", sender_name "T-Deck-RIFT", text "T-Deck-RIFT: test",
+state "received", ack_expected false, snr_db 12, rssi_dbm -27
+```
+
+Counters at that point: `rx_events 25`, `rx_delivered 25`, `rx_rejected 0`,
+`rx_dropped 0`, `recv_flood 25`, and **`channel_frames_unmatched 19`** — so
+nineteen group frames in range belonged to channels this node does not hold,
+and were correctly ignored, while the one that matched decrypted.
+
+What this is, precisely:
+
+- **ON-AIR VERIFIED**, one direction only: a real MeshCore node on real RF
+  put a group frame on 869.618 MHz that this code received, matched to the
+  right channel by its one-byte hash, opened with the right key, and showed
+  once, in the right conversation, with the sender's name marked as a claim.
+  The hashtag derivation agreed between two independently built
+  implementations — which is the single thing the bench channel exists to
+  test.
+- **Not a gate result.** The procedure was not followed: the sending node was
+  not configured, observed or controlled as part of this run, nobody recorded
+  its state, and the test that was supposed to produce this evidence (part A)
+  was not executed. Evidence that arrives by accident is still evidence, but
+  it is not a pass, and it is written here rather than in a results table.
+
+It also leaves the **reverse direction unverified**: nothing confirms the
+T-Deck received unit A's transmit. That is part B, and it is still owed.
+
+## What remains
+
+| Part | State |
+| --- | --- |
+| A — second node → unit A | **demonstrated once, outside the procedure.** Repeat it under control: known peer state, deliberate send, unread behaviour observed from a clean thread. |
+| B — unit A → second node | **not verified.** Nothing has confirmed the T-Deck received anything from unit A. |
+| C — interleaving channel and direct | **not run.** |
+| D — restart with both kinds live | restart of the channel alone is DEVICE VERIFIED; with a peer and direct traffic it is not run. |
+| E — post-test health | DEVICE VERIFIED for the local run. |
+
+Unit A is **left ready**: the three binaries installed, `#doorsbench`
+configured in slot 0, `meshcored` running by hand (no init script, so it does
+not survive a reboot), rollback copies in `/root/rollback-channels/`.
 
 ## What counts as PASS
 
