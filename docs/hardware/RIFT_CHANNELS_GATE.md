@@ -1,6 +1,9 @@
 # RIFT Channels on unit A: the two-node on-air gate
 
-**Status, 2026-09-21: A, B and C are ON-AIR VERIFIED. Only D remains.**
+**Status, 2026-09-21: PASS. A, B, C and D are all ON-AIR VERIFIED.**
+
+One defect was found, in RIFT's message cache, and it is neither a channel
+defect nor new — see "A defect part D found".
 
 | | |
 | --- | --- |
@@ -8,13 +11,13 @@
 | A — T-Deck → unit A | **ON-AIR VERIFIED.** First shown accidentally, then executed properly inside part C: deliberate sends with the thread closed, unread 0 → 1 twice, cleared on opening. |
 | B — unit A → T-Deck | **ON-AIR VERIFIED** — executed deliberately |
 | C — channel and direct together | **ON-AIR VERIFIED** |
-| D — restart with both kinds live | channel-only restart verified twice; with a peer and direct traffic, **not run** |
+| D — restart with both kinds live | **ON-AIR VERIFIED** |
 
 Group frames built by this code cross real RF to an independently built
-MeshCore implementation and back, on the MeshCore profile at 2 dBm; and a
-channel conversation and a direct one run side by side on the same node with
-their own delivery semantics intact. What has not been shown is that both
-survive a restart of the service together.
+MeshCore implementation and back, on the MeshCore profile at 2 dBm; a channel
+conversation and a direct one run side by side on the same node with their own
+delivery semantics intact; and both survive a restart of the service, with the
+contact's learned path reloaded and actually used.
 
 **The build under test is `feat/rift-channels`**, from origin/master
 `a120f8b`. VERSION stays `0.0.10`. Not merged, and not to be merged unless
@@ -689,6 +692,89 @@ every session today**.
 `TIME_ERROR: 0x41: Clock Unsynchronized` at 15:34:36, `daemon.info`, when the
 clock stepped. No service logged anything.
 
+## Part D — a restart with both kinds live. ON-AIR VERIFIED, 2026-09-21
+
+`meshcored` was restarted with a channel, a contact carrying a learned path,
+and four messages of both kinds in play.
+
+| | Before | After |
+| --- | --- | --- |
+| Channel | `#doorsbench`, slot 0, hash `9a` | **same** |
+| Contact | `T-Deck-RIFT`, `path_known: true`, `hops: 0`, `direct: true` | **same, path and all** |
+| Nodes | 2 | 2 |
+| Messages | 4 | **0** — runtime-only, as documented |
+| Identity | `19f7b327…` | unchanged |
+
+The contact's **path** surviving is what part D adds over the three earlier
+restarts, and the proof is not that the field reads back but that it is used:
+the first direct message after the restart answered
+
+```
+{"accepted":true,"message_id":1,"route":"direct","ack_timeout_ms":6814,"ack_expected":true}
+```
+
+**`route: "direct"`, not `"flood"`** — the reloaded path was taken — with a
+6814 ms deadline instead of the 15256 ms a flood gets, because the direct
+timeout is computed from the path length. It reached `acked`. The channel
+message sent beside it answered `route: "flood"`, `ack_expected: false`, and
+stopped at `sent_flood`. A channel message from the peer then arrived and
+decrypted (`−44 dBm`, SNR 13.75).
+
+Both kinds, both directions, after a restart, each with its own routing and
+its own delivery semantics.
+
+### Health, at the end of everything
+
+`online`, lease held, `radio_state rx`. `tx_ok 2`, `tx_failed 0`,
+`tx_refused 0`, `tx_unknown 0`, `tx_done_unmatched 0`. `rx_rejected 0`,
+`rx_dropped 0`. `radiod_disconnects 0`, `lease_lost 0`.
+`path_payloads_refused 0`, `nodes_unretained 0`, `contacts_full 0`.
+`packets_free 32` of 32 — the pool is whole. `radiod` `sx1262` / `EU868` /
+`765a3a3`; the shell `0.0.10` / `765a3a3`. Six processes, no crashloop.
+
+**Across every `meshcored` session today: 0 WARN and 0 ERROR.** And
+`/var/log/messages` contains **no line from any Doors service at all** — the
+only matches for "ERROR" in it are `ntpd`'s `TIME_ERROR` clock notices.
+
+## A defect part D found: RIFT's message cache outlives the service's ids
+
+**This is not a channel defect and it is not new. Part D is simply the first
+thing that restarted the service while a client was watching.**
+
+The final panel shows **four** messages; `meshcored` holds **three**.
+`T-Deck-RIFT: hello` is on screen and the service has forgotten it.
+
+The mechanism, from the two halves that meet:
+
+- `meshcored` hands out message ids from **1 on every run**
+  (`mesh_runtime.cpp`, `_next_msg_id(1)`) and does not persist messages, so
+  the id space restarts whenever the service does.
+- `rift_model_apply_messages` **merges a snapshot by id without clearing**,
+  unlike `rift_model_apply_nodes`, which replaces its list outright
+  (`rift_model.c:345`, `m->node_count = 0`).
+
+So after a restart, new id 1 lands on top of old id 1, new id 2 on old id 2,
+and any old id with no new counterpart is left behind. That is exactly what
+the panel shows: the pre-restart ids 1-3 were overwritten by the post-restart
+ids 1-3, and pre-restart id 4 survived as an orphan.
+
+What it does **not** do, checked rather than assumed: it does not misfile a
+message. An overwrite rewrites `conv_key` along with everything else, so each
+message still appears in the conversation it belongs to, and no content is
+fabricated — every line on screen was genuinely received at some point. The
+damage is that the history shown is a blend of two sessions, and that a
+message the service has forgotten lingers until the app is restarted.
+
+Both halves predate this branch: a direct-only RIFT had the same collision.
+Channels did not cause it and do not worsen it.
+
+**Severity: moderate, and not a blocker for this branch.** It needs a fix —
+most cheaply by RIFT noticing the service restarted (`mesh.status` `uptime_s`
+going backwards is a sufficient signal) and clearing its message cache the way
+it already clears its node list. Recorded here rather than fixed, because it
+belongs to the message cache and not to channels, and a gate is not the place
+to widen a branch.
+
 ## What remains
 
 | Part | State |
@@ -696,8 +782,9 @@ clock stepped. No service logged anything.
 | A — second node → unit A | **ON-AIR VERIFIED.** The protocol question was answered by the accidental reception; the procedure was then executed inside part C — deliberate sends with COMMS closed, unread 0 → 1 twice, cleared on opening, each message once, sender marked a claim. |
 | B — unit A → second node | **ON-AIR VERIFIED.** |
 | C — interleaving channel + direct | **ON-AIR VERIFIED** — see part C. |
-| D — restart with both kinds live | restart of the channel alone is DEVICE VERIFIED; with a peer and direct traffic it is not run. |
-| E — post-test health | DEVICE VERIFIED for the local run. |
+| D — restart with both kinds live | **ON-AIR VERIFIED** — see part D. |
+| E — post-test health | **DEVICE VERIFIED**, at the end of every part. |
+| **Nothing** | Every part of this gate has been run. The one open item is the message-cache defect above, which is not a channel defect. |
 
 Unit A is **left ready**: the three binaries installed, `#doorsbench`
 configured in slot 0, `meshcored` running by hand (no init script, so it does
