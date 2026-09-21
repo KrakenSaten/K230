@@ -6,10 +6,12 @@ unit A and are recorded under "The device run" below. Steps 4 to 8 — the parts
 that need the second node — were **not** performed as written.
 
 One thing did happen on the air that was not part of the procedure, and it is
-recorded honestly rather than counted: while the local run was in progress a
-node calling itself `T-Deck-RIFT` transmitted on `#doorsbench` and unit A
-received and decrypted it. See "The unplanned reception". It is real evidence
-and it is not a gate result.
+recorded honestly rather than counted: while the local run was in progress the
+T-Deck — the known-good peer, confirmed by the product owner afterwards, and
+already joined to `#doorsbench` before the run began — transmitted on the
+channel and unit A received and decrypted it. It settles the hashtag key
+derivation between the two implementations. It is real evidence and it is not
+a gate result; see "The unplanned reception".
 
 **The build under test is `feat/rift-channels`**, from origin/master
 `a120f8b`. VERSION stays `0.0.10`. Not merged, and not to be merged unless
@@ -29,8 +31,8 @@ below it has.
 | **HOST VERIFIED** | The protocol, the service, the IPC and the app, on a build host: **1 865 named checks**, 0 failures, from a clean rebuild — plus the lints and the two `meshcored` integration suites, which count failures rather than checks. The RIFT suites run again under ASan + UBSan with leak detection. Two whole `meshcored` processes exchange channel messages over a mock air. The channel key never leaves the service. Channels survive a restart. |
 | **HOST VERIFIED** | The target build: `libmeshcore-riscv64.a`, and `meshcored`, `radiod` and `doors-shell` linked for riscv64 from wiped objects. |
 | **DEVICE VERIFIED**, 2026-09-21 | The service and the app on unit A itself: the channel created with the predicted hash, persisted, restarted, removed and re-added; the key confined; one real frame transmitted on the SX1262; and every string on the panel read off its own DRM plane. "The device run" below. |
-| **ON-AIR VERIFIED**, one direction, **outside the procedure** | A second MeshCore node's `#doorsbench` frame received and decrypted by unit A. Evidence, not a gate result — "The unplanned reception". |
-| **STILL NOT VERIFIED — what this gate is for** | That a channel frame unit A puts on the air is received by a second node. Nothing has yet confirmed the reverse direction. |
+| **ON-AIR VERIFIED**, one direction, **outside the procedure** | The T-Deck's `#doorsbench` frame received and decrypted by unit A. Proves the two implementations derive the same key from the channel name. Evidence, not a gate result — "The unplanned reception". |
+| **STILL NOT VERIFIED — what this gate is for** | That a **group** frame unit A puts on the air is parsed by the peer. Its adverts and direct text already are (the P0 gate); the group payload type is what remains. |
 
 The accepted P0 interop gate
 ([MESHCORE_INTEROP_GATE.md](MESHCORE_INTEROP_GATE.md)) proved adverts and
@@ -484,20 +486,32 @@ Counters at that point: `rx_events 25`, `rx_delivered 25`, `rx_rejected 0`,
 nineteen group frames in range belonged to channels this node does not hold,
 and were correctly ignored, while the one that matched decrypted.
 
+**Who sent it.** Asked afterwards, the product owner confirmed it was theirs:
+the LILYGO T-Deck of "The peers" above, RIFT v0.9.5, which already had
+`#doorsbench` joined before this run began. So the sender is the known-good
+interoperable peer and not an unidentified node — which matters, because
+`#doorsbench` is a *hashtag* channel whose key derives from a public name, and
+until that was established any node that had joined the same hashtag was an
+equally good explanation.
+
 What this is, precisely:
 
-- **ON-AIR VERIFIED**, one direction only: a real MeshCore node on real RF
-  put a group frame on 869.618 MHz that this code received, matched to the
-  right channel by its one-byte hash, opened with the right key, and showed
-  once, in the right conversation, with the sender's name marked as a claim.
-  The hashtag derivation agreed between two independently built
-  implementations — which is the single thing the bench channel exists to
-  test.
-- **Not a gate result.** The procedure was not followed: the sending node was
-  not configured, observed or controlled as part of this run, nobody recorded
-  its state, and the test that was supposed to produce this evidence (part A)
-  was not executed. Evidence that arrives by accident is still evidence, but
-  it is not a pass, and it is written here rather than in a results table.
+- **ON-AIR VERIFIED**, one direction only: a real MeshCore node on real RF put
+  a group frame on 869.618 MHz that this code received, matched to the right
+  channel by its one-byte hash, opened with the right key, and showed once, in
+  the right conversation, with the sender's name marked as a claim.
+- **It settles the hashtag derivation**, which was the single largest unknown
+  the bench channel existed to test. Two independently built implementations —
+  RIFT v0.9.5's `addGroupChannelHashtag` and this service's
+  `mesh.channel_add` — arrived at byte-identical keys from the name alone. The
+  MAC verifying is the proof: it cannot verify under a key that differs by one
+  bit. The predicted hash `9a` was right on both ends.
+- **It is still not a gate result.** The procedure was not followed: the
+  T-Deck's state was not recorded, the send was not deliberate as part of this
+  run, and nobody watched an unread count go from zero to one on a clean
+  thread. Part A remains to be executed properly. Evidence that arrives by
+  accident is still evidence; it is not a pass, and it is written here rather
+  than in a results table.
 
 It also leaves the **reverse direction unverified**: nothing confirms the
 T-Deck received unit A's transmit. That is part B, and it is still owed.
@@ -506,8 +520,8 @@ T-Deck received unit A's transmit. That is part B, and it is still owed.
 
 | Part | State |
 | --- | --- |
-| A — second node → unit A | **demonstrated once, outside the procedure.** Repeat it under control: known peer state, deliberate send, unread behaviour observed from a clean thread. |
-| B — unit A → second node | **not verified.** Nothing has confirmed the T-Deck received anything from unit A. |
+| A — second node → unit A | **demonstrated once, outside the procedure, by the known-good peer.** The protocol question it was meant to answer is answered. What is left is procedural: a deliberate send with the peer's state recorded, and the unread count watched from a clean thread. |
+| B — unit A → second node | **not verified, and now the only real risk left.** Nothing has confirmed the T-Deck received anything from unit A. Note what it is *not*: the accepted P0 gate already proved this unit's transmit is intelligible to this peer on this profile for adverts and direct text, so the modulation, the frequency and the power are not in question. What is untested is only whether our **group** frame — a different payload type, flood-routed — is parsed by their receiver. |
 | C — interleaving channel and direct | **not run.** |
 | D — restart with both kinds live | restart of the channel alone is DEVICE VERIFIED; with a peer and direct traffic it is not run. |
 | E — post-test health | DEVICE VERIFIED for the local run. |
