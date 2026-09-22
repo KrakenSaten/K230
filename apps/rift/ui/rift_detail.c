@@ -67,6 +67,20 @@ struct rift_detail {
     lv_obj_t *history_row[RIFT_PATH_HISTORY];
 
     lv_obj_t *actions;
+    lv_obj_t *act_message;
+    lv_obj_t *act_reset;
+    lv_obj_t *act_forget;
+    /* What became of the last change asked for on this node. */
+    lv_obj_t *op_line;
+    int op_warn;
+
+    /* The confirmation FORGET asks for before anything is sent (DS §17.5):
+     * shown in place of the action bar, for one node, and dropped the moment
+     * the selection moves to another. */
+    lv_obj_t *confirm;
+    lv_obj_t *confirm_title;
+    int confirming;
+    char confirm_key[RIFT_KEY_HEX];
 };
 
 /* ---- small builders ----------------------------------------------------- */
@@ -229,23 +243,102 @@ static void on_message(lv_event_t *e)
     }
 }
 
+/* Forget the route to this node: nothing is transmitted, and the next
+ * message to it floods and learns a new one. Not destructive - the mesh
+ * gives a route back with the next reply - so it is one press. */
+static void on_reset(lv_event_t *e)
+{
+    struct rift_detail *d = lv_event_get_user_data(e);
+    const struct rift_node *n = rift_app_selected(d->app);
+    char label[RIFT_LABEL_MAX];
+
+    if (!n) {
+        return;
+    }
+    rift_fmt_label(n, label, sizeof(label));
+    rift_ipc_reset_path(&d->app->ipc, n->key, label);
+    rift_app_refresh(d->app);
+}
+
+/* FORGET only asks. Nothing is sent until the confirmation is pressed. */
+static void on_forget(lv_event_t *e)
+{
+    struct rift_detail *d = lv_event_get_user_data(e);
+    const struct rift_node *n = rift_app_selected(d->app);
+
+    if (!n) {
+        return;
+    }
+    d->confirming = 1;
+    snprintf(d->confirm_key, sizeof(d->confirm_key), "%s", n->key);
+    rift_app_refresh(d->app);
+}
+
+static void on_forget_cancel(lv_event_t *e)
+{
+    struct rift_detail *d = lv_event_get_user_data(e);
+
+    d->confirming = 0;
+    rift_app_refresh(d->app);
+}
+
+/* The one place a node is forgotten from: the confirmation, for the node it
+ * was asked about - never the first press, and never a node the selection
+ * has since moved to. */
+static void on_forget_confirm(lv_event_t *e)
+{
+    struct rift_detail *d = lv_event_get_user_data(e);
+    const struct rift_node *n = rift_app_selected(d->app);
+    char label[RIFT_LABEL_MAX];
+
+    if (n && d->confirming && strcmp(n->key, d->confirm_key) == 0) {
+        rift_fmt_label(n, label, sizeof(label));
+        rift_ipc_forget_node(&d->app->ipc, n->key, label);
+    }
+    d->confirming = 0;
+    rift_app_refresh(d->app);
+}
+
+/* The actions come first, under the title, where a reader reaches them
+ * without scrolling: at the foot of four panels they were below the fold in
+ * the landscape pane and on the portrait screen alike. */
 static void build_actions(struct rift_detail *d, lv_obj_t *parent)
 {
+    lv_obj_t *buttons;
+    lv_obj_t *body;
+
     d->actions = row_of(parent, RIFT_TOUCH_H, 12);
     if (!d->compact) {
         rift_action(d->actions, "\xE2\x80\xB9 NODES", 0, 1, on_back, d);
     }
-    /* MESSAGE works from phase 2: it opens COMMS on a conversation with
-     * this node, which may hold nothing yet. NET is still drawn and plainly
-     * not working - the bar keeps the geometry the design approved, and an
-     * action this phase does not have is in the DS §9 disabled treatment
-     * rather than absent, so the screen does not quietly change shape when
-     * NET arrives. The caption below is not optional: DS §2 forbids a
-     * treatment from carrying the meaning on its own. */
-    rift_action(d->actions, "MESSAGE", 1, 1, on_message, d);
-    rift_action(d->actions, "NET", 0, 0, NULL, NULL);
-    lv_label_set_text(wrapping(parent, POS_STYLE_TEXT_MUTED),
-                      "NET arrives with the network view and is not in this build.");
+    d->act_message = rift_action(d->actions, "MESSAGE", 1, 1, on_message, d);
+    d->act_reset = rift_action(d->actions, "RE-ROUTE", 0, 1, on_reset, d);
+    d->act_forget = rift_action(d->actions, "FORGET", 0, 1, on_forget, d);
+
+    /* DS §17.5: a panel with a title, the consequence in words, and exactly
+     * two buttons, Cancel first. Forgetting a node cannot be undone from
+     * here - it comes back only when it adverts - so the accent is on
+     * Cancel, the power-off precedent. */
+    d->confirm = rift_panel(parent, NULL);
+    d->confirm_title = lv_label_create(d->confirm);
+    lv_obj_remove_style_all(d->confirm_title);
+    pos_style_add(d->confirm_title, POS_STYLE_TITLE, 0);
+    lv_obj_set_width(d->confirm_title, LV_PCT(100));
+    lv_label_set_long_mode(d->confirm_title, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(d->confirm_title, "");
+    body = wrapping(d->confirm, POS_STYLE_TEXT_SECONDARY);
+    lv_obj_set_style_pad_top(body, 12, 0);
+    lv_obj_set_style_pad_bottom(body, 20, 0);
+    lv_label_set_text(body, "The radio service drops this node, its route and its last "
+                            "advert. It comes back when it next adverts; until then no "
+                            "message can be sent to it.");
+    buttons = row_of(d->confirm, RIFT_TOUCH_H, 8);
+    rift_action(buttons, "CANCEL", 1, 1, on_forget_cancel, d);
+    rift_action(buttons, "FORGET", 0, 1, on_forget_confirm, d);
+    lv_obj_add_flag(d->confirm, LV_OBJ_FLAG_HIDDEN);
+
+    d->op_line = wrapping(parent, POS_STYLE_CAPTION);
+    lv_obj_add_flag(d->op_line, LV_OBJ_FLAG_HIDDEN);
 }
 
 struct rift_detail *rift_detail_create(struct rift_app *app, lv_obj_t *parent, int compact)
@@ -284,12 +377,24 @@ struct rift_detail *rift_detail_create(struct rift_app *app, lv_obj_t *parent, i
     lv_obj_set_flex_grow(d->title_tag, 1);
     lv_label_set_text(d->title_tag, "");
 
+    /* What a reader acts on first, then what they came to read: the link,
+     * the route and how it changed. The identity panel - the name and role
+     * are already in the title - goes last. */
+    build_actions(d, d->body);
     build_link_panel(d, d->body);
-    build_identity_panel(d, d->body);
     build_path_panel(d, d->body);
     build_history_panel(d, d->body);
-    build_actions(d, d->body);
+    build_identity_panel(d, d->body);
     return d;
+}
+
+void rift_detail_cancel_confirm(struct rift_detail *d)
+{
+    /* Equivalent to Cancel (DS §17.5: any other way out is Cancel). The
+     * next refresh puts the action bar back. */
+    if (d) {
+        d->confirming = 0;
+    }
 }
 
 void rift_detail_destroy(struct rift_detail *d)
@@ -440,6 +545,56 @@ static void refresh_history(struct rift_detail *d, const struct rift_node *n, in
     show(d->history_panel, shown > 1);
 }
 
+/* Which actions can be pressed, whether the confirmation is up, and what
+ * became of the last change asked for on this node. */
+static void refresh_actions(struct rift_detail *d, const struct rift_node *n)
+{
+    const struct rift_model *m = &d->app->model;
+    const struct rift_action_state *op = &m->node_op;
+    /* The model's word for it, as the composer uses (rift_thread_refusal):
+     * a request made while the socket is between connections is refused by
+     * the client with a reason, where the reader pressed. */
+    int answering = !m->stale && m->state != RIFT_SVC_ABSENT;
+    int busy = rift_model_action_busy(m, RIFT_ACTION_FORGET);
+    char label[RIFT_LABEL_MAX];
+    char text[RIFT_ACTION_TEXT_MAX];
+    int warn;
+
+    /* A confirmation belongs to the node it was asked about. */
+    if (d->confirming && strcmp(d->confirm_key, n->key) != 0) {
+        d->confirming = 0;
+    }
+    show(d->actions, !d->confirming);
+    show(d->confirm, d->confirming);
+    if (d->confirming) {
+        rift_fmt_label(n, label, sizeof(label));
+        lv_label_set_text_fmt(d->confirm_title, "Forget %s?", label);
+    }
+    /* A route can be forgotten only when there is one; either change needs a
+     * service to ask, and one change at a time. MESSAGE is always there: it
+     * only opens a conversation. */
+    rift_action_set_enabled(d->act_reset, 0, answering && !busy && n->path_known);
+    rift_action_set_enabled(d->act_forget, 0, answering && !busy);
+
+    if (op->kind == RIFT_ACTION_NONE || strcmp(op->key, n->key) != 0) {
+        show(d->op_line, 0);
+        return;
+    }
+    rift_fmt_action(op, rift_app_now(d->app), text, sizeof(text));
+    set_text(d->op_line, text);
+    show(d->op_line, text[0] != '\0');
+    /* Colour agrees with the words, never carries them (DS §2). */
+    warn = op->failed;
+    if (warn != d->op_warn) {
+        if (warn) {
+            pos_style_add(d->op_line, POS_STYLE_STATUS_WARN_TEXT, 0);
+        } else {
+            lv_obj_remove_style(d->op_line, pos_style(POS_STYLE_STATUS_WARN_TEXT), 0);
+        }
+        d->op_warn = warn;
+    }
+}
+
 void rift_detail_refresh(struct rift_detail *d, const struct rift_node *n)
 {
     int64_t now = rift_app_now(d ? d->app : NULL);
@@ -457,8 +612,10 @@ void rift_detail_refresh(struct rift_detail *d, const struct rift_node *n)
     show(d->empty, n == NULL);
     show(d->body, n != NULL);
     if (!n) {
+        d->confirming = 0;
         return;
     }
+    refresh_actions(d, n);
     rift_fmt_label(n, label, sizeof(label));
     set_text(d->title, label);
     word = rift_type_tag(n->type, n->have_type);
@@ -495,16 +652,14 @@ void rift_detail_refresh(struct rift_detail *d, const struct rift_node *n)
      * the last hop is the node, so the same value is its own. */
     set_text(d->kv[3].value, direct ? rssi : RIFT_EMDASH);
     set_text(d->kv[3].unit, direct && n->have_rssi ? "dBm" : "");
+    /* One line each: the same two facts the three-line versions said. */
     if (direct) {
-        set_text(d->signal_note,
-                 "This node was heard with no relay between, so the signal above is its own.");
+        set_text(d->signal_note, "Heard with no relay between: the signal is its own.");
     } else {
         /* mesh.* reports the signal of the frame that was heard and does
          * not name which hop transmitted it, so this screen does not name
          * one either. */
-        set_text(d->signal_note, "The signal belongs to the last hop this node was heard "
-                                 "through, not to the node. End to end is not measurable over "
-                                 "relays.");
+        set_text(d->signal_note, "Signal of the last hop heard, not of the node.");
     }
 
     set_text(d->ident_name, n->have_name && n->name[0] ? n->name : RIFT_UNKNOWN);

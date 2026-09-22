@@ -29,6 +29,11 @@
 #define RIFT_STRIP_W_WIDE 150
 #define RIFT_GLYPH_BOX 12 /* the 8 px glyph plus room for the 2 px self ring */
 #define RIFT_CAPTION_H 18 /* one line of Mono 14, the caption role's type */
+/* How far a panel's caption rises above the panel's own box: it is centred on
+ * the top rule, so half its line, plus the 3 px that put the rule through the
+ * middle of the capitals rather than along their tops (rift_panel). A parent
+ * whose top edge a captioned panel sits on leaves this much room. */
+#define RIFT_CAPTION_OVERHANG (RIFT_CAPTION_H / 2 + 3)
 
 /* The link glyph of handoff §6: colour never carries it alone, so every
  * caller prints the state word beside one of these. */
@@ -89,11 +94,16 @@ lv_obj_t *rift_vrule(lv_obj_t *parent, int32_t width);
 void rift_vrule_set(lv_obj_t *rule, enum rift_tone tone);
 
 /* A 56 px action in a row of them. A disabled action takes the DS §9
- * treatment and no focus, and says why in its own caption elsewhere: this
- * phase draws MESSAGE and PATH so the bar keeps the approved geometry, and
- * neither pretends to work. */
+ * treatment and no focus, and says why in its own caption elsewhere. In a
+ * row the actions share its width equally, whatever their words need (flex
+ * grow), so a row of four has room for about ten characters each in
+ * portrait: tests/rift_app_test.c checks that every word fits its button. */
 lv_obj_t *rift_action(lv_obj_t *parent, const char *text, int primary, int enabled,
                       lv_event_cb_t cb, void *user);
+/* Enable or disable an action made by rift_action, in the treatment it was
+ * made with. A disabled action takes no clicks, so its callback cannot fire;
+ * whatever says why belongs in a caption beside it (DS §2, §9). */
+void rift_action_set_enabled(lv_obj_t *button, int primary, int enabled);
 
 /* A label in a dense row: caption type, one line, clipped rather than
  * wrapped, and given an exact width so the columns line up. */

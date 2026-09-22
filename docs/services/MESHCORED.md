@@ -215,14 +215,65 @@ choice worth naming:
   no `mesh.node` event, no state marked dirty, no telemetry slot taken from a
   node that *was* kept. It is counted as `nodes_unretained` so that a full
   table is visible rather than merely quiet. The table-full policy itself is
-  upstream's and unchanged.
+  upstream's and unchanged: nothing is evicted on its own. What makes room is
+  a client asking, by `mesh.node_remove` (below).
 - **This node is not a repeater.** `allowPacketForward()` stays false, so it
   hears everything and forwards nothing.
+
+One place where upstream's behaviour is **not** kept, because it was wrong
+for more than one message at a time:
+
+- **Each sent message waits for its own ACK.** MeshCore keeps a single send
+  timeout for the whole node (`BaseChatMesh::txt_send_timeout`): every
+  `sendMessage()` overwrites it and any matched ACK clears it
+  (`BaseChatMesh.cpp:339`, `:350`, `:451`, `:455`). With two direct messages
+  in flight, an ACK for one cancelled the other's timeout, which then stayed
+  `sent_*` for ever; and a timeout that did fire was pinned on the *oldest*
+  unanswered message rather than the one it was for. meshcored no longer
+  uses that timer (`onSendTimeout()` does nothing). Every accepted message
+  takes an outbox slot with its **own deadline** - the send time plus the
+  timeout MeshCore computed for that very packet, flood or direct - and
+  `mcd_runtime_tick()` answers `no_ack` for each message whose own deadline
+  has passed, earliest first - but only once every received frame has been
+  handed to the protocol core: the daemon hands over one frame a turn, and an
+  ACK that arrived in time but is queued behind others is matched before its
+  message's deadline is judged. Eight messages may wait at once; a ninth is
+  refused with `mesh.send` error 5 and nothing is built or sent, because a
+  message the service could not watch would never be answered either way.
+  `mesh.send` answers any deadline already passed before it judges the
+  outbox full, since requests are served between ticks. RIFT allows a second
+  message as soon as the first is accepted, so this was reachable from the
+  composer.
+
+### Forgetting a node
+
+`mesh.node_remove` takes a node's **whole** public key - never a prefix - and
+removes the contact (`BaseChatMesh::removeContact`): its learned route, its
+last advert, and the signal this service recorded for it. The table is
+written out before the call returns, and the answer's `persisted` says
+whether it was: when it is `true` a node answered as forgotten does not come
+back with the next restart; it is `false` when the stored table could not be
+read at start (the service does not write over a file it could not read) or
+the write failed. Subscribers get a `mesh.node` event with the reason
+`removed`, carrying the node as it was, before the answer is sent. A message still waiting for
+its ACK keeps waiting; an ACK names the message, not the contact.
+
+The node is not banned: it is added back the next time it adverts. Until
+then no message can be sent to it - there is no contact to encrypt to - which
+is exactly the state a full table leaves a *new* node in, and why forgetting
+one is the remedy for a full table.
+
+`mesh.node_reset_path` takes a whole key too, and forgets only the learned
+route (`BaseChatMesh::resetPathTo`), so the next message floods and the
+reply teaches a fresh one: the remedy for a node that has moved. It transmits
+nothing, and raises `mesh.node` with the reason `path`.
 
 ### What it transmits unasked
 
 Nothing on a timer. There is no periodic advert, and `mesh.advert` and
-`mesh.send` are the only ways a client makes it transmit.
+`mesh.send` are the only ways a client makes it transmit. `mesh.advert` takes
+`zero_hop: true` for an advert sent zero-hop - heard in direct range and
+repeated by nobody, at the airtime of one packet - and floods otherwise.
 
 What it does send without being asked is what the protocol owes a sender: an
 **ACK**, and a **return path**, for a message addressed to this node. That is
@@ -395,17 +446,24 @@ would put back on the air is untouched. The full rule is in docs/api/mesh.md,
 
 ## Building, installing and enabling
 
-Not in `make all` or `make test`, and **off by default**. It links
-`protocols/meshcore`, which needs two upstream checkouts an ordinary Doors
-build does not have (`vendor/RIFT` and `vendor/Crypto`, the same two
-`tools/meshcore-frame` needs). With `ENABLE_MESHCORED` unset, `make all`,
-`make test`, the Buildroot package and the image are byte for byte what they
-were.
+**In every image, disabled per unit.** The image package builds and installs
+meshcored (`pocketos.mk`, `ENABLE_MESHCORED=1`) together with `S65meshcored`,
+since the third-party notices gained entries for the three trees it compiles
+(docs/LICENSING.md item 9, 2026-09-22). An ordinary host build leaves it out:
+it links `protocols/meshcore`, which needs two upstream checkouts an ordinary
+Doors build does not have (`vendor/RIFT` and `vendor/Crypto`, the same two
+`tools/meshcore-frame` needs). `apply_to_sdk.sh` exports those two, pin-checked,
+into the package's `third_party/`, with the verified commit beside each
+(`.doors-pinned-commit`), because the package tree has no `.git`. A checkout
+exported with uncommitted changes (only under `POCKETOS_ALLOW_PIN_DRIFT=1`)
+is recorded as `<commit>-dirty`, which the pin check refuses unless the
+package is built with `MESHCORE_ALLOW_UNPINNED=1`: it is not the
+pinned source, and the record says so.
 
 ```sh
 make ENABLE_MESHCORED=1 meshcored     # build
 make meshcored-test                   # its suites, plain then sanitised
-make ENABLE_MESHCORED=1 install       # install /usr/sbin/meshcored
+make ENABLE_MESHCORED=1 install       # install /usr/sbin/meshcored (gated on the notices)
 ```
 
 The riscv64 check is the ordinary cross-build with the switch on, in a copy of
@@ -418,6 +476,75 @@ make ENABLE_MESHCORED=1 CC=<cross>gcc CXX=<cross>g++ AR=<cross>ar \
      CXXFLAGS="--sysroot=$SYSROOT -O2" LDFLAGS="--sysroot=$SYSROOT" all
 ```
 
+### The service
+
+`S65meshcored` runs meshcored under `pos-supervise`, like radiod and the
+shell: restart with a backoff doubling from 1 s to 30 s, a crash loop declared
+after more than five restarts in a minute, and the supervisor's state file
+`/run/pocketos/meshcored.state`, which is what `system.status` reports as the
+`meshcored` service. Its order is radiod (S60), meshcored (S65), the shell
+(S90); nothing waits on anything, because meshcored looks for radiod, backs
+off and keeps looking (sections 1, 2 and 4 of `tests/meshcored_service_test.sh`),
+and RIFT does the same for meshcored (`tests/rift_ipc_test.c`). On the way
+down BusyBox stops them in reverse, so meshcored hands the lease back before
+radiod goes, and writes its node table on SIGTERM.
+
+What the script refuses, and says so:
+
+| Situation | `start` | `stop` |
+| --- | --- | --- |
+| `MESHCORED_ENABLE` not 1 | `disabled`, exit 0 | stops any meshcored that is running |
+| enabled, `/usr/sbin/meshcored` missing or not executable | `FAILED: enabled, but ...`, exit 1 | — |
+| enabled, `pos-supervise` missing | `FAILED`, exit 1: meshcored is never run unsupervised | — |
+| already running under it | `already running`, exit 0 | stops supervisor and daemon, confirms both gone |
+| a meshcored it did not start is running (by hand, or orphaned) | `FAILED: ... running unsupervised (pid N)`, exit 1 | ends it too: SIGTERM, then SIGKILL after 3 s |
+| stale pid files naming nothing | starts normally | `not running`, and removes both |
+| the supervisor killed, its meshcored still running (an orphan) | — | SIGTERM to meshcored, so it writes its node table; SIGKILL only if it has not gone in 3 s |
+
+Beneath the script, **one process per node and per socket**: before it reads
+the identity or opens its socket, meshcored takes an exclusive `flock` on
+`<runtime dir>/<socket name>.lock`, then one on its state directory. A second
+one on either leaves at once with exit code 3 - `another process is already
+serving the meshcored socket`, or `another meshcored is already running on
+...`. Two processes on one state directory would be two radios claiming one
+identity, each rewriting the other's node table; two on one socket name, even
+with different state directories, would have the second take the first one's
+clients, because pocketipc unlinks a socket path before it binds. The locks
+are the kernel's, so they cannot go stale. The socket's is taken first, so a
+second meshcored on the same node and the same socket gives the socket's
+reason.
+
+### Keeping a service whole
+
+Unit A was found (2026-09-22) with `/usr/sbin/meshcored` installed and no
+`/etc/init.d/S65meshcored`, so nothing started it at boot, and with
+`/etc/doors-release` naming a different build from the binaries beside it.
+Nothing in the repository put it in that state: its image predated meshcored,
+and every bench gate since had copied the binary alone and started it by hand.
+Three checks now stand in the way of that, all built on
+`tools/release/check_rootfs.sh`, which asks a root filesystem whether every
+service is a binary and its init script together, both executable, whether
+`pos-supervise` is there, and whether every Doors binary is the build its
+release file names (each carries the string `DOORS_BUILD_ID=<id>`):
+
+- `deploy.sh` runs it on the tree it is about to send and refuses before it
+  contacts the unit. Init scripts carry no build stamp, and a package-only
+  rebuild does not refresh the tree's copies (Buildroot copies the overlay in
+  only when it finalises the rootfs), so it also refuses a tree whose init
+  scripts differ from the overlay `apply_to_sdk.sh` applied. On the unit it
+  stops any meshcored no init script started before it stops radiod, and
+  refuses to start services if what arrived is not whole. If `S65meshcored`
+  itself fails to start, the rest - the shell included - still starts, and
+  the deploy then exits non-zero naming it (`tests/deploy_staging_test.sh`,
+  `tests/initscript_test.sh`).
+- `verify_image.sh` runs it on the image's root partition, so an image with
+  either half of a service missing, a mode wrong or a binary from another build
+  is refused before it is flashed (`tests/image_contents_test.sh`). An image
+  with no root partition it can read passes as `PASS (boot partition only)`,
+  and says the root partition was not checked.
+- Copying one binary onto a unit by hand is what produced the state above.
+  Deploy with `deploy.sh`, which carries the whole set from one build.
+
 ### Enabling it on a unit
 
 `S65meshcored` ships in the image and **starts nothing**: it prints
@@ -426,16 +553,16 @@ radiod's lease, applies the MeshCore profile and listens on 869.618 MHz for as
 long as it runs — and on a unit where nobody asked for that, the right number
 of radios to take is none.
 
-To switch it on for a hardware session, per unit:
+To switch it on, per unit:
 
 ```sh
-cat > /etc/default/meshcored <<'EOF'
-MESHCORED_ENABLE=1
-MESHCORED_TX_POWER_DBM=2
-MESHCORED_NAME=K230-A
-EOF
+echo MESHCORED_ENABLE=1 > /etc/default/meshcored
 /etc/init.d/S65meshcored restart
 ```
+
+Leave `MESHCORED_NAME` unset unless the node is to be renamed: the name is
+stored in `state.v1`, and a name given here replaces it at every start.
+`MESHCORED_TX_POWER_DBM` defaults to 2 dBm.
 
 Before doing that on a real radio, know what it means:
 
@@ -447,8 +574,6 @@ Before doing that on a real radio, know what it means:
 3. **The node will answer.** A message addressed to it produces an ACK and a
    return path, without a client and without being asked. That is correct
    MeshCore behaviour and it is airtime.
-4. **Nothing about this service has been on a radio.** Everything below is
-   host evidence.
 
 Stopping it releases the lease and writes the node table.
 
@@ -459,6 +584,10 @@ Stopping it releases the lease and writes the node table.
 | An enabled build cannot be installed, packaged or imaged while the notices say nothing about what it contains | **VERIFIED host** | `tests/notices_test.sh` executes the refusal on the install, image and package paths, and proves the gate is driven by the notices rather than unconditional |
 | A refused profile releases the radio and another client can take it | **VERIFIED host** | `tests/meshcored_service_test.sh`, against the real radiod |
 | A full contact table produces no phantom node, no state churn and no telemetry eviction | **VERIFIED host** | `tests/meshcored_runtime_test.cpp`, 32 real contacts then 18 more adverts |
+| Each sent message times out on its own deadline; an ACK for one does not strand another; a full outbox refuses rather than overwrites | **VERIFIED host** | `tests/meshcored_runtime_test.cpp` (`test_ack_deadlines`), three nodes, deadlines driven through `mcd_runtime_expire_acks` |
+| A send after every deadline has passed is not refused as busy; an ACK queued behind another frame is matched before its deadline is judged | **VERIFIED host** | same, in real time: no tick between the deadlines passing and the send, and an ACK held one turn behind a frame A hears back |
+| A forgotten node is gone from the table, the file and the list, refuses a message, and is learned again from its next advert; a route can be forgotten on its own | **VERIFIED host** | same, and over IPC in `tests/meshcored_service_test.sh` (section 3c) |
+| A zero-hop advert goes out as MeshCore's zero-hop (route bits DIRECT, empty path) and is learned by a peer in range | **VERIFIED host** | `tests/meshcored_runtime_test.cpp`; accepted over IPC in `tests/meshcored_service_test.sh` |
 | Remote text cannot make an IPC frame unparsable or carry an escape sequence | **VERIFIED host** | `tests/meshcored_util_test.c`, and end to end in the two-node harness |
 | The headers and the library come from one checkout, and a mismatch is refused | **VERIFIED host** | `tests/meshcored_source_identity_test.sh`, which also builds the refusal |
 | An identity is not reported as persisted until its directory entry is durable | **VERIFIED host** | `tests/meshcored_store_test.cpp`, through the directory-flush hook |
@@ -473,6 +602,10 @@ Stopping it releases the lease and writes the node table.
 | The PATH guard refuses the crafted payload and accepts every well-formed one | **VERIFIED host** | `tests/meshcored_runtime_test.cpp`, plain and under ASan/UBSan |
 | The boundary: no SPI, GPIO, radio library, LVGL, or JSON below the seam | **DOCUMENTED** | `tests/meshcored_lint.sh`, statically |
 | The MeshCore wire format this speaks | **VERIFIED hardware**, by inheritance | the accepted P0 gate, from the same pinned sources; that gate is evidence about the frames, not about this daemon |
-| Anything at all on unit A | **UNRESOLVED** | no hardware was touched |
+| The daemon on unit A's radio | **VERIFIED hardware** | docs/hardware/MESHCORED_HARDWARE_GATE.md, RIFT_CHANNELS_GATE.md, RIFT_IMPROVEMENTS_GATE.md - every one of them started meshcored by hand, none through `S65meshcored` |
+| `S65meshcored`: opt-in, start, stop, restart, stale pid files, each refusal, a crash restarted and a crash loop declared, under the real `pos-supervise` | **VERIFIED host** | `tests/initscript_test.sh` |
+| One process per state directory and per socket name; the second leaves before it touches the identity or the socket | **VERIFIED host** | `tests/meshcored_service_test.sh`, section 1b: same node, same socket from another node, same node under another socket |
+| A tree or image with half a service, a wrong mode, no `pos-supervise`, a per-unit switch shipped, a binary from another build, or init scripts older than the applied overlay is refused before it reaches a unit | **VERIFIED build/packaging** | `tests/deploy_staging_test.sh`, `tests/image_contents_test.sh`, `tests/initscript_test.sh` (the unit-side half of `deploy.sh`) |
+| meshcored started by `S65meshcored` at boot on a unit, and a unit deployed with `deploy.sh` since | **UNRESOLVED** | not yet run on hardware |
 | Behaviour on a real, busy MeshCore network | **UNRESOLVED** | the mock air is lossless, instant, collision-free and has no range |
 | The service under a real duty cycle | **UNRESOLVED** | the dispatcher's airtime budget is upstream's default and has not been exercised against a regulatory limit |

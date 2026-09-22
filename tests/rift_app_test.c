@@ -286,7 +286,8 @@ static void give_service(void)
                            "\"state_since_mono_ms\":100,\"radio\":{\"connected\":true,"
                            "\"lease_held\":true,\"online\":true,\"radio_state\":\"rx\"},"
                            "\"nodes\":5,\"counters\":{\"rx_events\":12,\"rx_delivered\":11,"
-                           "\"nodes_unretained\":0}}");
+                           "\"nodes_unretained\":0,\"contacts_full\":0,\"tx_ok\":3,"
+                           "\"tx_failed\":1,\"tx_unknown\":0,\"tx_rx_resume_failed\":0}}");
 
     rift_model_apply_status(&app->model, o, rift_mono_ms());
     cJSON_Delete(o);
@@ -411,6 +412,30 @@ static void give_channel_message(void)
     pump(60);
 }
 
+/* A conversation longer than any pane it is drawn in: twenty-four messages
+ * with the fourth node, the last of them "the newest line". */
+static void give_long_thread(void)
+{
+    char json[512];
+    cJSON *o;
+    int64_t now = rift_mono_ms();
+    int i;
+
+    for (i = 0; i < 24; i++) {
+        snprintf(json, sizeof(json),
+                 "{\"message\":{\"id\":%d,\"direction\":\"%s\",\"peer_public_key\":\"" KEY_D "\","
+                 "\"peer_name\":\"S\xC3\xB8rlandet\",\"text\":\"%s %d\",\"state\":\"%s\","
+                 "\"mono_ms\":%lld}}",
+                 100 + i, i % 2 ? "out" : "in", i == 23 ? "the newest line" : "line", i,
+                 i % 2 ? "sent_direct" : "received", (long long)(now - 1000LL * (60 - i)));
+        o = cJSON_Parse(json);
+        rift_model_apply_event(&app->model, "mesh.message", o);
+        cJSON_Delete(o);
+    }
+    rift_app_refresh(app);
+    pump(60);
+}
+
 /* One message arriving now, from the peer whose thread is not open: the only
  * thing that can make an unread badge appear. */
 static void give_unread(void)
@@ -515,6 +540,195 @@ static int count_visible_of_height(lv_obj_t *obj, int32_t height)
         n += count_visible_of_height(lv_obj_get_child(obj, (int32_t)i), height);
     }
     return n;
+}
+
+/* Is the top of this caption drawn? LVGL clips a child to its parent's box,
+ * or - for a parent that lets its children overflow - to that box grown by
+ * the parent's extended draw size, and every ancestor clips again
+ * (lv_obj_redraw). A caption centred on its panel's top rule rises above
+ * the panel, so each ancestor between it and the screen has to leave room. */
+static lv_obj_t *content(void);
+
+/* How far an object says it draws beyond its box, asked the way LVGL asks it
+ * (LV_EVENT_REFR_EXT_DRAW_SIZE) - the getter's name is not the same in every
+ * LVGL this builds against. */
+static int32_t ext_draw_of(lv_obj_t *obj)
+{
+    int32_t size = 0;
+
+    lv_obj_send_event(obj, LV_EVENT_REFR_EXT_DRAW_SIZE, &size);
+    return size;
+}
+
+static int caption_unclipped_in(lv_obj_t *root, const char *text)
+{
+    lv_obj_t *caption = find_text(root, text);
+    lv_obj_t *o;
+    lv_area_t c;
+
+    if (!caption) {
+        return 0;
+    }
+    lv_obj_update_layout(caption);
+    lv_obj_get_coords(caption, &c);
+    for (o = lv_obj_get_parent(caption); o; o = lv_obj_get_parent(o)) {
+        lv_area_t a;
+
+        lv_obj_get_coords(o, &a);
+        if (lv_obj_has_flag(o, LV_OBJ_FLAG_OVERFLOW_VISIBLE)) {
+            int32_t e = ext_draw_of(o);
+
+            lv_area_increase(&a, e, e);
+        }
+        if (c.y1 < a.y1) {
+            printf("     caption \"%s\" clipped %d px by an ancestor\n", text, (int)(a.y1 - c.y1));
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* COMMS's thread pane, so a search for a message's words finds its body and
+ * not the conversation list's preview of it. */
+static lv_obj_t *thread_pane(void)
+{
+    return kid(kid(content(), 2), 1);
+}
+
+static int caption_unclipped(const char *text)
+{
+    return caption_unclipped_in(content(), text);
+}
+
+static lv_obj_t *ancestor(lv_obj_t *obj, int n)
+{
+    while (obj && n-- > 0) {
+        obj = lv_obj_get_parent(obj);
+    }
+    return obj;
+}
+
+/* Every visible button under obj whose label is wider than the button: a
+ * word cut at both edges. LVGL's flex grow gives buttons equal shares
+ * whatever their words need, so a long word in a row of four is the case. */
+static int labels_overflowing(lv_obj_t *obj)
+{
+    uint32_t i;
+    int n = 0;
+
+    if (!obj || !visible(obj)) {
+        return 0;
+    }
+    if (lv_obj_check_type(obj, &lv_button_class) && lv_obj_get_child_count(obj) > 0) {
+        lv_obj_t *label = lv_obj_get_child(obj, 0);
+
+        lv_obj_update_layout(obj);
+        if (lv_obj_check_type(label, &lv_label_class) &&
+            lv_obj_get_width(label) > lv_obj_get_width(obj)) {
+            printf("     \"%s\" is %d px in a %d px button\n", lv_label_get_text(label),
+                   (int)lv_obj_get_width(label), (int)lv_obj_get_width(obj));
+            n++;
+        }
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        n += labels_overflowing(lv_obj_get_child(obj, (int32_t)i));
+    }
+    return n;
+}
+
+/* Visible objects in the disabled state under obj. */
+static int count_disabled(lv_obj_t *obj)
+{
+    uint32_t i;
+    int n = 0;
+
+    if (!obj || !visible(obj)) {
+        return 0;
+    }
+    if (lv_obj_has_state(obj, LV_STATE_DISABLED)) {
+        n++;
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        n += count_disabled(lv_obj_get_child(obj, (int32_t)i));
+    }
+    return n;
+}
+
+/* A label whose text is exactly this, shown under obj. */
+static lv_obj_t *find_exact(lv_obj_t *obj, const char *text)
+{
+    uint32_t i;
+
+    if (!obj) {
+        return NULL;
+    }
+    if (lv_obj_check_type(obj, &lv_label_class) && visible(obj)) {
+        const char *t = lv_label_get_text(obj);
+
+        if (t && strcmp(t, text) == 0) {
+            return obj;
+        }
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        lv_obj_t *hit = find_exact(lv_obj_get_child(obj, (int32_t)i), text);
+
+        if (hit) {
+            return hit;
+        }
+    }
+    return NULL;
+}
+
+/* Is all of obj inside the visible part of view? */
+static int within(lv_obj_t *obj, lv_obj_t *view)
+{
+    lv_area_t a;
+    lv_area_t v;
+
+    if (!obj || !view) {
+        return 0;
+    }
+    lv_obj_update_layout(view);
+    lv_obj_get_coords(obj, &a);
+    lv_obj_get_coords(view, &v);
+    return a.y1 >= v.y1 && a.y2 <= v.y2;
+}
+
+/* A mesh of n nodes, every one heard a different number of seconds ago, so
+ * the list is taller than any body it is drawn in. */
+static void give_many_nodes(int n)
+{
+    char *json = malloc(16384);
+    size_t at = 0;
+    cJSON *o;
+    int64_t now = rift_mono_ms();
+    int i;
+
+    if (!json) {
+        return;
+    }
+    at += (size_t)snprintf(json + at, 16384 - at, "{\"nodes\":[");
+    for (i = 0; i < n; i++) {
+        char key[RIFT_KEY_HEX];
+
+        /* 64 hex characters: a distinct first byte, zeros, a distinct tail. */
+        snprintf(key, sizeof(key), "%02x", 0x10 + i);
+        memset(key + 2, '0', 58);
+        snprintf(key + 60, sizeof(key) - 60, "%04x", i);
+        at += (size_t)snprintf(json + at, 16384 - at,
+                               "%s{\"public_key\":\"%s\",\"name\":\"MANY-%02d\",\"type\":1,"
+                               "\"path_known\":true,\"hops\":1,\"direct\":false,"
+                               "\"path_hex\":\"a1\",\"last_heard_mono_ms\":%lld}",
+                               i ? "," : "", key, i, (long long)(now - 1000LL * (i + 1)));
+    }
+    snprintf(json + at, 16384 - at, "]}");
+    o = cJSON_Parse(json);
+    check("the many-node fixture is valid JSON", o != NULL);
+    rift_model_apply_nodes(&app->model, o);
+    cJSON_Delete(o);
+    free(json);
+    rift_app_refresh(app);
+    pump(80);
 }
 
 static void tap(lv_obj_t *obj)
@@ -676,6 +890,13 @@ int main(void)
     check("the strip is a 56 px navigation row, not a 36 px data row",
           lv_obj_get_height(strip()) == RIFT_TOUCH_H);
     check("and so is the command line", lv_obj_get_height(cmdline()) == RIFT_TOUCH_H);
+    /* The key sink moved out of the command line so the line can go away
+     * without taking the keys with it. It is 1 px, takes no taps, and is
+     * never hidden. */
+    check("the key sink is outside the command line",
+          app->keysink && lv_obj_get_parent(app->keysink) == frame());
+    check("takes no taps", !lv_obj_has_flag(app->keysink, LV_OBJ_FLAG_CLICKABLE));
+    check("and is never hidden", visible(app->keysink));
     check("all four sections are in the navigation",
           find_text(strip(), "ACTIVITY") && find_text(strip(), "NODES") &&
               find_text(strip(), "COMMS") && find_text(strip(), "NET"));
@@ -708,6 +929,106 @@ int main(void)
     check("everything on ACTIVITY is inside the body", inside_body(content()));
     shot("portrait-activity");
 
+    /* A panel's caption is centred on its top rule, so half of it lies
+     * above the panel's own box. LVGL clips a child to its parent, and every
+     * caption was drawn with the top of its capitals cut off - on unit A as
+     * well as here - until the panel let it overhang. */
+    {
+        lv_obj_t *caption = find_text(content(), "RADIO SERVICE");
+        lv_obj_t *panel = caption ? lv_obj_get_parent(caption) : NULL;
+        lv_area_t c;
+        lv_area_t p;
+        lv_area_t v;
+
+        check("a panel caption is found", caption != NULL && panel != NULL);
+        if (caption && panel) {
+            lv_obj_update_layout(panel);
+            lv_obj_get_coords(caption, &c);
+            lv_obj_get_coords(panel, &p);
+            lv_obj_get_coords(content(), &v);
+            check("it straddles the panel's top rule", c.y1 < p.y1 && c.y2 > p.y1);
+            check("and the panel lets it overhang instead of clipping it",
+                  lv_obj_has_flag(panel, LV_OBJ_FLAG_OVERFLOW_VISIBLE) &&
+                      ext_draw_of(panel) >= p.y1 - c.y1);
+            check("into room the section has, not off the top of it", c.y1 >= v.y1);
+        }
+        check("and no ancestor clips any ACTIVITY caption either",
+              caption_unclipped("RADIO SERVICE") && caption_unclipped("THIS DEVICE") &&
+                  caption_unclipped("RECENTLY HEARD") && caption_unclipped("MESH ACTIVITY"));
+    }
+
+    /* The traffic the service counted, in its own words. */
+    check("the service's transmit counts are drawn, outcomes kept apart",
+          find_text(content(), "TX 3 OK \xC2\xB7 1 FAILED") != NULL);
+
+    /* ---- ADVERT: only on a press ------------------------------------------ */
+    {
+        lv_obj_t *near = action_of(find_text(content(), "ADVERT NEAR"));
+        lv_obj_t *mesh = action_of(find_text(content(), "ADVERT MESH"));
+
+        check("THIS DEVICE offers both adverts", near != NULL && mesh != NULL);
+        check("as 56 px actions", near && lv_obj_get_height(near) == RIFT_TOUCH_H);
+        check("which a service whose radio can send makes pressable",
+              near && !lv_obj_has_state(near, LV_STATE_DISABLED) && mesh &&
+                  !lv_obj_has_state(mesh, LV_STATE_DISABLED));
+        check("and says what the two do before either is pressed",
+              find_text(content(), "heard in direct range") != NULL);
+        check("their words fit their buttons", labels_overflowing(content()) == 0);
+        check("opening the app and drawing it asked for no advert",
+              app->model.advert.kind == RIFT_ACTION_NONE);
+        tap(near);
+        /* The client is parked here - there is no service - so the press
+         * reaches the client and is refused there, with a reason, where it
+         * was made. tests/rift_ipc_test.c has the one that is answered. */
+        check("a press asks for a zero-hop advert",
+              app->model.advert.kind == RIFT_ACTION_ADVERT_NEAR);
+        check("and with nobody to ask, says it was not sent rather than that it was",
+              app->model.advert.failed && !app->model.advert.done &&
+                  find_text(content(), "ZERO-HOP ADVERT \xC2\xB7 NOT DONE") != NULL);
+        rift_model_action_clear(&app->model, RIFT_ACTION_ADVERT_NEAR);
+        /* A radio the service says cannot send is not offered. */
+        {
+            cJSON *o = cJSON_Parse("{\"state\":\"degraded\",\"reason\":\"receiver down\","
+                                   "\"radio\":{\"connected\":true,\"lease_held\":true,"
+                                   "\"online\":false},\"nodes\":5,\"counters\":{"
+                                   "\"rx_events\":12,\"nodes_unretained\":2,"
+                                   "\"contacts_full\":2}}");
+
+            rift_model_apply_status(&app->model, o, rift_mono_ms());
+            cJSON_Delete(o);
+            rift_app_refresh(app);
+            pump(60);
+        }
+        check("a radio that cannot send takes the adverts away",
+              lv_obj_has_state(near, LV_STATE_DISABLED) &&
+                  lv_obj_has_state(mesh, LV_STATE_DISABLED));
+        check("and says why", find_text(content(), "not ready to send") != NULL);
+        /* A full node table: the service keeps no more, and a node it could
+         * not keep is one nothing can be sent to. */
+        check("a full node table is said, with what to do about it",
+              find_text(content(), "node table is full") != NULL &&
+                  find_text(content(), "Forget a node in NODES") != NULL);
+        {
+            /* The service's counter only grows. Once a node has been
+             * forgotten - here, by another client - the table has room, and
+             * the adverts it turned away before say nothing about now. */
+            cJSON *o = cJSON_Parse("{\"reason\":\"removed\",\"node\":{\"public_key\":\"" KEY_C
+                                   "\"}}");
+
+            rift_model_apply_event(&app->model, "mesh.node", o);
+            cJSON_Delete(o);
+            rift_app_refresh(app);
+            pump(60);
+        }
+        check("once a node is forgotten, the table is not called full",
+              find_text(content(), "node table is full") == NULL &&
+                  app->model.nodes_unretained == 2);
+        give_nodes();
+        give_service();
+        lv_obj_scroll_to_y(kid(content(), 0), 0, LV_ANIM_OFF);
+        pump(40);
+    }
+
     /* ---- NODES, portrait ---------------------------------------------- */
     tap(kid(strip(), 1));
     check("tapping NODES opens it", app->section == RIFT_SEC_NODES);
@@ -733,6 +1054,12 @@ int main(void)
         check("the list is dense: five 36 px rows and nothing taller", rows >= 5);
     }
     check("nothing has spilled out of the body", inside_body(content()));
+    /* The footer used to repeat the group labels' counts on every list. It
+     * is there now only for what the rows cannot say themselves. */
+    check("an ordinary list has no footer repeating its counts",
+          find_text(content(), "heard in the last 12 h") == NULL);
+    check("and no command line under it either: there is nothing to type here",
+          !visible(cmdline()));
     shot("portrait-nodes");
 
     /* A row selects, and only selects. */
@@ -757,9 +1084,14 @@ int main(void)
               find_text(content(), "8 HOPS") != NULL);
         check("a 56 px action bar appears with it",
               count_visible_of_height(content(), RIFT_TOUCH_H) >= 3);
-        check("the actions this build does not have are drawn as not working",
-              find_text(content(), "MESSAGE") != NULL);
+        check("the expansion offers MESSAGE", find_text(content(), "MESSAGE") != NULL);
         check("and DETAIL is there to open", find_text(content(), "DETAIL") != NULL);
+        /* The design's third action, PATH, had nothing behind it and was
+         * drawn disabled; a button that can never be pressed is width taken
+         * from the two that can. */
+        check("and nothing in it is a button that cannot be pressed",
+              count_disabled(content()) == 0);
+        check("each word fits its button", labels_overflowing(content()) == 0);
         shot("portrait-nodes-selected");
     }
 
@@ -776,6 +1108,110 @@ int main(void)
           find_text(content(), RIFT_EMDASH) != NULL);
     check("the detail screen fits the body", inside_body(content()));
     shot("portrait-node-detail");
+
+    /* ---- the actions, first, and FORGET asking first ------------------- */
+    {
+        lv_obj_t *msg = action_of(find_text(content(), "MESSAGE"));
+        lv_obj_t *reset = action_of(find_text(content(), "RE-ROUTE"));
+        lv_obj_t *forget = action_of(find_exact(content(), "FORGET"));
+        lv_obj_t *link = find_text(content(), "LINK STATE");
+        lv_obj_t *cancel;
+        lv_obj_t *confirm;
+        lv_area_t a;
+        lv_area_t b;
+
+        check("the detail offers MESSAGE, RE-ROUTE and FORGET",
+              msg != NULL && reset != NULL && forget != NULL);
+        check("its panel captions are drawn whole",
+              caption_unclipped("LINK STATE") && caption_unclipped("PATH"));
+        check("and every action's word fits its button, four abreast in portrait",
+              labels_overflowing(content()) == 0);
+        if (msg && link) {
+            lv_obj_get_coords(msg, &a);
+            lv_obj_get_coords(link, &b);
+            check("above the panels, where they are reached without scrolling", a.y2 < b.y1);
+            check("and on screen as the detail opens", within(msg, content()));
+        }
+        check("the disabled NET action and its apology are gone",
+              find_text(content(), "NET arrives") == NULL && count_disabled(content()) == 0);
+        check("a node with a route can have it forgotten",
+              reset && !lv_obj_has_state(reset, LV_STATE_DISABLED));
+        check("and can be forgotten", forget && !lv_obj_has_state(forget, LV_STATE_DISABLED));
+
+        tap(forget);
+        check("FORGET asks before anything is done",
+              find_text(content(), "Forget HYTTA?") != NULL);
+        check("and nothing has been asked of the service yet",
+              app->model.node_op.kind == RIFT_ACTION_NONE);
+        check("saying what forgetting costs",
+              find_text(content(), "comes back when it next adverts") != NULL);
+        cancel = action_of(find_exact(content(), "CANCEL"));
+        confirm = action_of(find_exact(content(), "FORGET"));
+        check("the confirmation is two buttons, Cancel first",
+              cancel && confirm && lv_obj_get_x(cancel) < lv_obj_get_x(confirm));
+        /* DS §17.5: forgetting cannot be undone from here, so the accent
+         * goes on the safe choice - the power-off precedent. */
+        check("with the accent on Cancel, the safe choice",
+              cancel && lv_color_eq(lv_obj_get_style_bg_color(cancel, LV_PART_MAIN),
+                                    pos_theme_color(POS_COLOR_ACCENT_PRIMARY)));
+        check("and the action bar out of the way while it asks", !visible(msg));
+        check("the confirmation's words fit its buttons", labels_overflowing(content()) == 0);
+        shot("portrait-forget-confirm");
+        tap(cancel);
+        check("Cancel puts the actions back", visible(msg) &&
+                                                 find_text(content(), "Forget HYTTA?") == NULL);
+        check("having asked nothing of anybody", app->model.node_op.kind == RIFT_ACTION_NONE);
+
+        /* DS §17.5: any other way out is Cancel. A confirmation left up
+         * behind the reader is a FORGET armed for whoever comes back. */
+        tap(forget);
+        tap(kid(strip(), 0));
+        pump(60);
+        check("leaving NODES with FORGET asking closes the detail",
+              app->section == RIFT_SEC_ACTIVITY && !app->detail_open);
+        tap(kid(strip(), 1));
+        rift_app_open_detail(app, 1);
+        pump(60);
+        check("and coming back finds the actions, not the question",
+              visible(msg) && find_text(content(), "Forget HYTTA?") == NULL);
+        tap(forget);
+        rift_app_open_detail(app, 0);
+        pump(60);
+        rift_app_open_detail(app, 1);
+        pump(60);
+        check("closing the detail is a Cancel too",
+              visible(msg) && find_text(content(), "Forget HYTTA?") == NULL);
+        check("and neither asked the service anything",
+              app->model.node_op.kind == RIFT_ACTION_NONE);
+
+        /* A confirmation belongs to the node it was asked about. */
+        tap(forget);
+        rift_app_select(app, KEY_A);
+        pump(80);
+        check("moving the selection drops a confirmation about another node",
+              find_text(content(), "Forget ") == NULL && visible(msg));
+        rift_app_select(app, KEY_C);
+        pump(80);
+        check("a node with no route has no route to forget",
+              lv_obj_has_state(reset, LV_STATE_DISABLED));
+        rift_app_select(app, KEY_B);
+        pump(80);
+        tap(forget);
+        tap(action_of(find_exact(content(), "FORGET")));
+        check("confirming asks for it, for that node",
+              app->model.node_op.kind == RIFT_ACTION_FORGET &&
+                  strcmp(app->model.node_op.key, KEY_B) == 0);
+        /* The client is parked: the request is refused where it was made,
+         * and nothing is claimed done. tests/rift_ipc_test.c has the one
+         * that is answered. */
+        check("and with nobody to ask, says it was not done",
+              app->model.node_op.failed &&
+                  find_text(content(), "FORGET \xC2\xB7 NOT DONE") != NULL);
+        check("so the node is still listed", rift_model_find(&app->model, KEY_B) != NULL);
+        rift_model_action_clear(&app->model, RIFT_ACTION_FORGET);
+        rift_app_refresh(app);
+        pump(40);
+    }
     /* The way back is the detail's own action bar: the shell's back slab
      * goes home, not up a level, and RIFT changes nothing about it. */
     tap(find_text(content(), "NODES"));
@@ -792,6 +1228,72 @@ int main(void)
     check("and Esc leaves it", rift_nodes_key(app, LV_KEY_ESC) == 1);
     pump(60);
     check("closed again", !app->detail_open);
+    {
+        /* The selection is a key, and the node it names can be forgotten
+         * under it - by another client, or by a snapshot that no longer
+         * holds it. Enter then has nothing to open. */
+        char was[RIFT_KEY_HEX];
+
+        snprintf(was, sizeof(was), "%s", app->selected);
+        rift_model_drop_node(&app->model, was);
+        rift_app_refresh(app);
+        pump(40);
+        check("Enter on a selection whose node has gone opens nothing",
+              rift_nodes_key(app, LV_KEY_ENTER) == 0 && !app->detail_open);
+        give_nodes();
+        rift_app_refresh(app);
+        pump(40);
+    }
+
+    /* ---- a long list keeps its place ------------------------------------ */
+    give_many_nodes(44);
+    {
+        lv_obj_t *list = ancestor(find_exact(content(), "MANY-00"), 4);
+        int32_t y;
+        int i;
+
+        check("a list longer than the body scrolls",
+              list && lv_obj_get_scroll_bottom(list) > 0);
+        lv_obj_scroll_to_y(list, 200, LV_ANIM_OFF);
+        pump(40);
+        y = lv_obj_get_scroll_y(list);
+        check("and is read from part way down", y == 200);
+        {
+            /* A node heard for the first time: the list gains a row and
+             * re-orders, which is a rebuild - and lv_obj_clean puts a
+             * list's scroll back to its top. On a live mesh that happened
+             * every few seconds under whoever was reading it. */
+            cJSON *o = cJSON_Parse("{\"reason\":\"discovered\",\"node\":{\"public_key\":"
+                                   "\"fe0000000000000000000000000000000000000000000000000000"
+                                   "00000000fe\",\"name\":\"NEWCOMER\",\"path_known\":false,"
+                                   "\"last_heard_mono_ms\":1}}");
+            int before = app->model.node_count;
+
+            check("a node heard for the first time is taken",
+                  rift_model_apply_event(&app->model, "mesh.node", o) == 0 &&
+                      app->model.node_count == before + 1);
+            cJSON_Delete(o);
+            rift_app_refresh(app);
+            pump(60);
+        }
+        check("a new node rebuilds the list without throwing the reader back to the top",
+              lv_obj_get_scroll_y(list) == y);
+        for (i = 0; i < 40; i++) {
+            rift_nodes_key(app, LV_KEY_DOWN);
+            pump(20);
+        }
+        {
+            const struct rift_node *sel = rift_app_selected(app);
+            lv_obj_t *slot = sel ? ancestor(find_exact(content(), sel->name), 3) : NULL;
+
+            check("forty presses of the down arrow select forty rows down",
+                  sel && strncmp(sel->name, "MANY-", 5) == 0);
+            check("and the selected row, expansion and all, is in view", within(slot, list));
+        }
+    }
+    give_nodes();
+    rift_app_select(app, KEY_B);
+    pump(60);
 
     /* ---- COMMS, in portrait --------------------------------------------- */
     tap(kid(strip(), 2));
@@ -824,8 +1326,11 @@ int main(void)
           find_text(content(), "joined with its key on the radio service") != NULL);
 
     give_messages();
-    check("with conversations, the note says there are no channels",
-          find_text(content(), "no channels joined") != NULL);
+    /* The rows say what is there; a note counting them was a line taken
+     * from the list. It is shown only when it says something they cannot. */
+    check("with conversations the list's note has nothing to add, and is gone",
+          find_text(content(), "no channels joined") == NULL &&
+              find_text(content(), "No conversations") == NULL);
     check("both conversations are listed", find_text(content(), "HYTTA") != NULL &&
                                                find_text(content(), "OSLO-01") != NULL);
     check("a preview says who spoke last", find_text(content(), "you: On my way") != NULL);
@@ -852,7 +1357,82 @@ int main(void)
     check("the thread header says how this peer is reached",
           find_text(content(), "RELAYED") != NULL);
     check("and the composer is usable now", find_text(content(), "SEND") != NULL);
+    /* One caption line per message: how long ago, then what became of it.
+     * The line of "you" / the peer's name that sat over every body said what
+     * the side of the rule and the thread's header already say. */
+    check("a message's caption is one line: age, state, evidence",
+          find_text(content(), "4m \xC2\xB7 DELIVERED \xC2\xB7 ACK 41 s") != NULL);
+    check("with no sender line over it", find_exact(content(), "you") == NULL);
+    {
+        lv_obj_t *send = action_of(find_text(content(), "SEND"));
+        lv_obj_t *field = find_textarea(content());
+
+        check("SEND is as wide as its word, not half the row",
+              send && lv_obj_get_width(send) == 128);
+        check("so the width goes to the field somebody types in",
+              field && lv_obj_get_width(lv_obj_get_parent(field)) > 2 * 128);
+    }
+    check("with messages to read, the thread carries no standing note",
+          find_text(content(), "does not survive a restart") == NULL &&
+              find_text(content(), "OF 2 SENT") == NULL);
     shot("portrait-comms-thread");
+    {
+        /* A submission with no answer is not one the service refused: the
+         * connection went before it said, and the message may be on the
+         * air. The note says which of the two it was. */
+        app->model.outbox.failed = 1;
+        app->model.outbox.unknown = 1;
+        snprintf(app->model.outbox.error, sizeof(app->model.outbox.error), "%s",
+                 "meshcored went away before it answered");
+        rift_app_refresh(app);
+        pump(40);
+        check("an unanswered submission says there was no answer",
+              find_text(content(), "No answer: meshcored went away") != NULL &&
+                  find_text(content(), "Not sent") == NULL);
+        app->model.outbox.unknown = 0;
+        snprintf(app->model.outbox.error, sizeof(app->model.outbox.error), "%s", "radio busy");
+        rift_app_refresh(app);
+        pump(40);
+        check("and one the service refused says it was not sent",
+              find_text(content(), "Not sent: radio busy") != NULL);
+        rift_model_send_clear(&app->model);
+        rift_app_refresh(app);
+        pump(40);
+        check("both go when the failure is put away",
+              find_text(content(), "Not sent") == NULL &&
+                  find_text(content(), "No answer") == NULL);
+    }
+    {
+        /* The touch keyboard takes 296 px off the body (the shell shrinks
+         * the content box). The thread shrinks with it, and is read at its
+         * end again rather than keeping an offset that now hides the newest
+         * message behind the sheet. */
+        int32_t full = lv_obj_get_height(g_content);
+        lv_obj_t *newest;
+
+        give_long_thread();
+        rift_app_open_conversation(app, KEY_D);
+        pump(120);
+        newest = find_text(thread_pane(), "the newest line");
+        if (!newest || !within(newest, ancestor(newest, 4)) ||
+            lv_obj_get_scroll_y(ancestor(newest, 4)) <= 0) {
+            printf("     long thread: found=%d scroll_y=%d h=%d\n", newest != NULL,
+                   newest ? (int)lv_obj_get_scroll_y(ancestor(newest, 4)) : -1,
+                   newest ? (int)lv_obj_get_height(ancestor(newest, 4)) : -1);
+        }
+        check("a thread longer than its pane opens at its end",
+              newest && within(newest, ancestor(newest, 4)) &&
+                  lv_obj_get_scroll_y(ancestor(newest, 4)) > 0);
+        lv_obj_set_height(g_content, full - 296);
+        pump(300);
+        newest = find_text(thread_pane(), "the newest line");
+        check("with the keyboard up, the newest message is still in view",
+              newest && within(newest, ancestor(newest, 4)));
+        lv_obj_set_height(g_content, full);
+        pump(300);
+        rift_app_open_conversation(app, KEY_B);
+        pump(120);
+    }
 
     /* An unread message from the other conversation puts the pill on the
      * COMMS tab, and reading it takes it away. */
@@ -875,10 +1455,11 @@ int main(void)
     give_channels();
     check("a joined channel is a row before anything has been said on it",
           find_text(content(), "SITE") != NULL && find_text(content(), "OPS") != NULL);
-    check("and the note counts the two kinds apart",
-          find_text(content(), "2 channel") != NULL);
-    check("saying what a channel cannot do",
-          find_text(content(), "nothing acknowledges a channel message") != NULL);
+    /* What a channel cannot do is said where it matters - under every
+     * message sent on one (NO ACK ON CHANNELS, below) - and not as a
+     * permanent note over the list. */
+    check("the list carries no standing note about channels",
+          find_text(content(), "nothing acknowledges a channel message") == NULL);
     /* A channel has no path and cannot have one: a group frame is flooded to
      * whoever holds the key. FLOOD is the whole truth about how it travels,
      * and the route column says that rather than NO PATH, which would read
@@ -919,6 +1500,15 @@ int main(void)
     check("it says outright that nothing acknowledges it",
           find_text(content(), "NO ACK ON CHANNELS") != NULL);
     check("the composer is usable on a channel", find_text(content(), "SEND") != NULL);
+    /* MeshCore writes "<sender>: " into a channel payload, and the caption
+     * already names the sender as a claim. The body says it once. */
+    check("a channel line is its body, not the sender's name again",
+          find_text(content(), "HYTTA: str") == NULL &&
+              find_text(content(), "str\xC3\xB8m tilbake") != NULL);
+    check("and this node's own line is what the reader typed",
+          find_text(content(), "K230-A: mottatt") == NULL &&
+              find_exact(content(), "mottatt") != NULL);
+    check("which the list's preview says too", find_text(content(), "you: mottatt") != NULL);
     shot("portrait-comms-channel-thread");
 
     /* An empty channel says what will happen rather than nothing. */
@@ -1021,7 +1611,11 @@ int main(void)
         check("on a conversation with that node",
               rift_comms_open_peer(app) && strcmp(rift_comms_open_peer(app), KEY_C) == 0);
         check("the conversation is in the list", find_text(content(), "NO-3241 FO") != NULL);
-        check("and it holds nothing", find_text(content(), "Nothing said yet.") != NULL);
+        check("and it holds nothing", find_text(content(), "Nothing said yet") != NULL);
+        /* The one place a reader needs to know the history is the
+         * service's and does not outlive its restart: a thread that is
+         * empty, which may be empty for that reason. */
+        check("saying why that may be", find_text(content(), "keeps no history") != NULL);
         /* The one thing that must not have happened: a row invented to make
          * the thread look started. */
         {
@@ -1072,9 +1666,26 @@ int main(void)
           !app->detail_open && find_text(content(), "LINK STATE") != NULL);
     check("landscape shows the SNR column portrait has no room for",
           find_text(content(), "SNR") != NULL);
-    check("the command line names the keys rather than offering a field",
-          find_text(cmdline(), "SELECT") != NULL);
+    /* The command line has nothing to hold on NODES - no field, no service
+     * fault - so it is not there, and the keys are named in the strip. */
+    check("the command line is not drawn where it has nothing to hold",
+          !visible(cmdline()));
+    check("the keys are named in the strip instead",
+          find_text(strip(), "SELECT") != NULL && find_text(strip(), "ENTER MESSAGE") != NULL);
+    check("and the section has the 56 px it gave back",
+          lv_obj_get_height(content()) ==
+              lv_obj_get_content_height(frame()) - lv_obj_get_height(strip()));
     check("and everything is inside the turned body", inside_body(content()));
+    {
+        /* The detail pane beside the list: its actions under the title,
+         * not at the foot of four panels below the fold. */
+        lv_obj_t *pane = kid(kid(content(), 1), 1);
+        lv_obj_t *msg = action_of(find_text(pane, "MESSAGE"));
+
+        check("the landscape detail's actions are in view without scrolling",
+              msg && within(msg, pane));
+        check("and their words fit their buttons", labels_overflowing(pane) == 0);
+    }
     shot("landscape-nodes");
     {
         lv_area_t list;
@@ -1088,9 +1699,42 @@ int main(void)
         check("and both have real width",
               lv_area_get_width(&list) > 300 && lv_area_get_width(&pane) > 300);
     }
-    /* Landscape never pushes a detail screen: the pane is the detail. */
-    check("Enter does not push a screen in landscape", rift_nodes_key(app, LV_KEY_ENTER) == 0);
-    check("so nothing is pushed", !app->detail_open);
+    {
+        /* A confirmation does not follow the reader into the other shape:
+         * turning the panel is a way out, and any way out is Cancel. */
+        lv_obj_t *pane = kid(kid(content(), 1), 1);
+
+        tap(action_of(find_exact(pane, "FORGET")));
+        check("FORGET asks in the landscape pane too",
+              find_text(pane, "Forget ") != NULL);
+        use_display(POS_ROTATION_0, PANEL_CORNER);
+        pump(120);
+        check("turned to portrait, nothing is pushed in its place",
+              !app->wide && !app->detail_open && find_text(content(), "Forget ") == NULL);
+        use_display(POS_ROTATION_270, PANEL_CORNER);
+        pump(120);
+        check("and turned back, the pane is not asking either",
+              app->wide && find_text(content(), "Forget ") == NULL &&
+                  find_text(kid(kid(content(), 1), 1), "MESSAGE") != NULL);
+        check("and nothing was asked of the service",
+              app->model.node_op.kind == RIFT_ACTION_NONE);
+    }
+    /* Landscape never pushes a detail screen: the pane is the detail. Enter
+     * does what the keyboard is there for instead - it opens the selected
+     * node's conversation, and sends nothing. */
+    {
+        char want[RIFT_KEY_HEX];
+
+        snprintf(want, sizeof(want), "%s", app->selected);
+        check("Enter in landscape opens the selected node's conversation",
+              rift_nodes_key(app, LV_KEY_ENTER) == 1 && app->section == RIFT_SEC_COMMS &&
+                  rift_comms_open_peer(app) && strcmp(rift_comms_open_peer(app), want) == 0);
+        check("so nothing is pushed", !app->detail_open);
+        check("and nothing is sent", !rift_model_sending(&app->model) &&
+                                         !app->model.outbox.failed);
+        tap(kid(strip(), 1));
+        pump(60);
+    }
 
     tap(kid(strip(), 0));
     check("ACTIVITY is laid out in landscape too", app->section == RIFT_SEC_ACTIVITY);
@@ -1098,6 +1742,14 @@ int main(void)
                                            find_text(content(), "THIS DEVICE") != NULL &&
                                            find_text(content(), "RECENTLY HEARD") != NULL &&
                                            find_text(content(), "MESH ACTIVITY") != NULL);
+    check("their captions drawn whole side by side too",
+          caption_unclipped("RADIO SERVICE") && caption_unclipped("THIS DEVICE") &&
+              caption_unclipped("RECENTLY HEARD"));
+    /* THIS DEVICE heads the right column, so the one action on ACTIVITY is
+     * on screen as it opens, not under a scroll. */
+    check("the ADVERT buttons are in view without scrolling",
+          within(action_of(find_text(content(), "ADVERT NEAR")), kid(content(), 0)) &&
+              within(action_of(find_text(content(), "ADVERT MESH")), kid(content(), 0)));
     check("and inside the body", inside_body(content()));
     shot("landscape-activity");
 
@@ -1110,6 +1762,8 @@ int main(void)
     pump(80);
     check("and the thread beside it", find_text(content(), "Fint, ser deg") != NULL);
     check("with the route pane's own heading", find_text(content(), "ROUTE") != NULL);
+    /* The route pane's, not the conversation list's column header. */
+    check("drawn whole", caption_unclipped_in(kid(kid(content(), 2), 2), "ROUTE"));
     check("the delivery tally is this app's arithmetic, and says what it counts",
           find_text(content(), "OF 2 SENT") != NULL);
     check("everything is inside the turned body", inside_body(content()));
@@ -1121,7 +1775,7 @@ int main(void)
     check("a channel opens in landscape too",
           find_text(content(), "SITE") != NULL && find_text(content(), "tilbake") != NULL);
     check("the route pane says a channel is a key and not a route",
-          find_text(content(), "shared key, not a route") != NULL);
+          find_text(content(), "No route: a channel is a shared key") != NULL);
     check("and gives the hash that goes on the air",
           find_text(content(), "HASH 8c") != NULL);
     /* The route pane's own words, not the list's: the hop chain a peer gets
@@ -1146,7 +1800,36 @@ int main(void)
                                                           visible(lv_obj_get_parent(app->composer)));
     check("naming the peer it is addressing", find_text(cmdline(), "TO HYTTA") != NULL);
     check("the thread shows no second composer", find_text(content(), "SEND") == NULL);
+    {
+        /* The composer took its 56 px from under the thread after the
+         * thread had been scrolled to its end, and hid the newest message -
+         * until the command line was decided first and a thread whose pane
+         * changed height is read at its end again. */
+        lv_obj_t *newest = find_text(thread_pane(), "to linjer");
+
+        check("the newest message is in view above the composer",
+              newest && within(newest, ancestor(newest, 4)));
+    }
     shot("landscape-comms");
+    {
+        /* The same, isolated from the thread's own re-scroll: in the one
+         * refresh that opens a conversation, with no timer pass after it.
+         * The command line is decided before the thread is laid out, so the
+         * thread is scrolled to its end against the height it will have. */
+        lv_obj_t *newest;
+
+        app->have_conv = 0;
+        rift_app_refresh(app);
+        pump(60);
+        check("with no conversation open the command line is not drawn", !visible(cmdline()));
+        rift_app_open_conversation(app, KEY_D);
+        newest = find_text(thread_pane(), "the newest line");
+        check("opening one draws the composer, and the newest message above it, in one pass",
+              visible(cmdline()) && newest && within(newest, ancestor(newest, 4)));
+        pump(80);
+        rift_app_open_conversation(app, KEY_B);
+        pump(80);
+    }
 
     /* TAB moves between the list and the composer - the design's "TAB PANE"
      * (handoff §9), and the only way to reach the composer from the list
@@ -1288,6 +1971,17 @@ int main(void)
         pump(60);
         check("another channel still opens afterwards",
               find_text(content(), "Nothing on this channel yet") != NULL);
+        /* The app goes with a confirmation up and a refused request on
+         * screen: the detail's objects, its handlers and the request state
+         * all go with it. */
+        rift_app_show_section(app, RIFT_SEC_NODES);
+        rift_app_select(app, KEY_B);
+        rift_app_open_detail(app, 1);
+        pump(60);
+        tap(action_of(find_exact(content(), "FORGET")));
+        check("a confirmation can be up when the app goes",
+              find_text(content(), "Forget HYTTA?") != NULL);
+        rift_ipc_send_advert(&app->ipc, 1);
         app_stop();
         check("and leaves nothing of itself behind",
               lv_obj_get_child_count(g_content) == 0u);

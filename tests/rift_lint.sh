@@ -29,9 +29,36 @@ check "the parts without a display are built and tested by the root Makefile" \
 # mesh.md). Phase 1 named neither. Phase 2 sends messages, so the gate is no
 # longer "never" - it is "from one place, on purpose, and never on its own".
 #
-# mesh.advert is still never: this app has no reason to make the node shout.
-check "no source under apps/rift names mesh.advert" \
-    "$(grep -rn '"mesh.advert"' "$SRC" >/dev/null 2>&1 && echo 0 || echo 1)"
+# mesh.advert follows the same rule since the ADVERT buttons: named once, in
+# the client; one function writes it; only ACTIVITY's two buttons call that
+# function; and nothing on a timer, a poll, a snapshot or the app's creation
+# reaches it.
+advhits=$(grep -rln '"mesh.advert"' "$SRC" | sort | tr '\n' ' ')
+check "mesh.advert is named only in the meshcored client (${advhits:-nowhere})" \
+    "$([ "$advhits" = "$SRC/rift_ipc.c " ] && echo 1 || echo 0)"
+check "and only one call writes it" \
+    "$([ "$(grep -c 'RIFT_REQ_ADVERT, params' "$SRC/rift_ipc.c")" = "1" ] && echo 1 || echo 0)"
+advcallers=$(grep -rln 'rift_ipc_send_advert' "$SRC" --include='*.c' | sort | tr '\n' ' ')
+check "the advert is called only from ACTIVITY (${advcallers:-nowhere})" \
+    "$([ "$advcallers" = "$SRC/rift_ipc.c $SRC/ui/rift_activity.c " ] && echo 1 || echo 0)"
+check "and only from the handler of a button a reader pressed" \
+    "$([ "$(grep -c 'rift_ipc_send_advert(' "$SRC/ui/rift_activity.c")" = "1" ] &&
+       grep -B 12 'rift_ipc_send_advert(' "$SRC/ui/rift_activity.c" |
+       grep -q 'static void on_advert(lv_event_t' && echo 1 || echo 0)"
+# Forgetting a node, or its route, transmits nothing but changes what the
+# service holds, so it is held to the same rule: named once, called only from
+# the node's detail - and forgetting only after the reader confirmed it.
+nodehits=$(grep -rlnE '"mesh\.node_(remove|reset_path)"' "$SRC" | sort | tr '\n' ' ')
+check "the node changes are named only in the meshcored client (${nodehits:-nowhere})" \
+    "$([ "$nodehits" = "$SRC/rift_ipc.c " ] && echo 1 || echo 0)"
+nodecallers=$(grep -rlnE 'rift_ipc_(forget_node|reset_path)' "$SRC" --include='*.c' |
+              sort | tr '\n' ' ')
+check "and are called only from the node's detail (${nodecallers:-nowhere})" \
+    "$([ "$nodecallers" = "$SRC/rift_ipc.c $SRC/ui/rift_detail.c " ] && echo 1 || echo 0)"
+check "a node is forgotten only from the confirmation, never from the first press" \
+    "$([ "$(grep -c 'rift_ipc_forget_node(' "$SRC/ui/rift_detail.c")" = "1" ] &&
+       grep -B 12 'rift_ipc_forget_node(' "$SRC/ui/rift_detail.c" |
+       grep -q 'static void on_forget_confirm(lv_event_t' && echo 1 || echo 0)"
 # mesh.send is named once, in the client, and nowhere else - not in a screen,
 # not in the model, not in the chrome.
 sendhits=$(grep -rln '"mesh.send"' "$SRC" | sort | tr '\n' ' ')
@@ -45,8 +72,9 @@ check "and only one call writes it" \
 callers=$(grep -rln 'rift_ipc_send_message' "$SRC" --include='*.c' | sort | tr '\n' ' ')
 check "the send is called only from COMMS (${callers:-nowhere})" \
     "$([ "$callers" = "$SRC/rift_ipc.c $SRC/ui/rift_comms.c " ] && echo 1 || echo 0)"
-check "no timer, poll or create path sends" \
-    "$(grep -nE 'rift_ipc_send_message' "$SRC/rift_app.c" >/dev/null 2>&1 && echo 0 || echo 1)"
+check "no timer, poll or create path sends or adverts" \
+    "$(grep -nE 'rift_ipc_send_(message|advert)' "$SRC/rift_app.c" >/dev/null 2>&1 && echo 0 ||
+       echo 1)"
 # Everything that reaches the submit passes it the contents of a text field.
 # A call with a string literal or a built buffer would be this app choosing
 # what goes on the air, which is the thing it must never do.
@@ -81,11 +109,13 @@ check "and creates no keyboard: there is one and the shell owns it" \
 check "the model has no LVGL in it" \
     "$(grep -q 'lvgl' "$SRC/rift_model.c" "$SRC/rift_model.h" && echo 0 || echo 1)"
 check "neither has the formatting" \
-    "$(grep -q 'lvgl' "$SRC/rift_format.c" "$SRC/rift_format.h" && echo 0 || echo 1)"
+    "$(grep -q 'lvgl' "$SRC/rift_format.c" "$SRC/rift_format_msg.c" "$SRC/rift_format.h" &&
+       echo 0 || echo 1)"
 check "nor the meshcored client" \
     "$(grep -q 'lvgl' "$SRC/rift_ipc.c" "$SRC/rift_ipc.h" && echo 0 || echo 1)"
 check "the formatting does no I/O" \
-    "$(grep -qE 'fopen|socket|read\(|write\(' "$SRC/rift_format.c" && echo 0 || echo 1)"
+    "$(grep -qE 'fopen|socket|read\(|write\(' "$SRC/rift_format.c" "$SRC/rift_format_msg.c" &&
+       echo 0 || echo 1)"
 check "and the screens parse no JSON of their own" \
     "$(grep -rq 'cJSON_Parse' "$SRC/ui" && echo 0 || echo 1)"
 
@@ -93,15 +123,18 @@ check "and the screens parse no JSON of their own" \
 # above anything here and well below a monolith.
 big=$(find "$SRC" -name '*.c' -exec wc -l {} + | awk '$1 > 900 && $2 != "total" {print $2}')
 check "no source file has become a monolith${big:+ ($big)}" "$([ -z "$big" ] && echo 1 || echo 0)"
-for part in rift_model.c rift_messages.c rift_format.c rift_ipc.c rift_app.c \
+for part in rift_model.c rift_messages.c rift_channels.c rift_actions.c rift_order.c \
+            rift_format.c rift_format_msg.c rift_ipc.c rift_app.c \
             ui/rift_widgets.c ui/rift_activity.c ui/rift_nodes.c ui/rift_detail.c \
             ui/rift_comms.c ui/rift_thread.c; do
     check "$part is its own file" "$([ -f "$SRC/$part" ] && echo 1 || echo 0)"
 done
-# The messages are the model's other half and are held to the same rule as
-# the first: no LVGL, and the screens do not reach into them.
-check "the messages know nothing about LVGL" \
-    "$(grep -q 'lvgl' "$SRC/rift_messages.c" && echo 0 || echo 1)"
+# The model's other translation units are held to the same rule as the first:
+# no LVGL, and the screens do not reach into them.
+for part in rift_messages.c rift_channels.c rift_actions.c rift_order.c; do
+    check "$part knows nothing about LVGL" \
+        "$(grep -q 'lvgl' "$SRC/$part" && echo 0 || echo 1)"
+done
 
 # ---- the lifecycle -------------------------------------------------------------
 # A timer that outlives the app reaches a freed block on its next pass, and
@@ -162,13 +195,24 @@ check "and a channel row is drawn only from it" \
 # The one thing a channel is not: acknowledged. A group frame is flooded and
 # unacknowledged, so nothing in this app may draw a delivery for one.
 check "a channel message is never shown as delivered" \
-    "$(grep -q 'NO ACK ON CHANNELS' "$SRC/rift_format.c" && echo 1 || echo 0)"
+    "$(grep -q 'NO ACK ON CHANNELS' "$SRC/rift_format_msg.c" && echo 1 || echo 0)"
+# An advert the service answered was accepted - queued for its dispatcher -
+# and nothing in this app may call it sent: the transmit's outcome is the
+# service's to report, in the activity feed.
+check "an answered advert is called accepted, never sent" \
+    "$(grep -q 'ACCEPTED %s AGO' "$SRC/rift_format_msg.c" &&
+       ! grep -qE 'ADVERT[^"]*SENT' "$SRC/rift_format_msg.c" && echo 1 || echo 0)"
 check "and the delivery tally counts channel sends apart" \
     "$(grep -q 'unacknowledgeable' "$SRC/rift_messages.c" && echo 1 || echo 0)"
 # A sender's name on a channel is a claim: nothing signs a group frame. It
 # must not be drawn the way a peer's name is.
 check "a claimed sender name is marked as a claim" \
-    "$(grep -q 'sender_name' "$SRC/ui/rift_thread.c" && echo 1 || echo 0)"
+    "$(grep -q '"%s?", msg->sender_name' "$SRC/rift_format_msg.c" &&
+       grep -q 'rift_fmt_msg_meta' "$SRC/ui/rift_thread.c" && echo 1 || echo 0)"
+# And the thread prints the body without the "<sender>: " MeshCore writes
+# into a channel payload - the caption names the sender, once, as a claim.
+check "a channel body is printed without the sender prefix" \
+    "$(grep -q 'rift_msg_body(msg)' "$SRC/ui/rift_thread.c" && echo 1 || echo 0)"
 
 # ---- the composer ---------------------------------------------------------------
 # A message is not shown as delivered before the service says it was, and the

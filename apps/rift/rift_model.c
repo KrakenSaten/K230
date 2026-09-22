@@ -10,7 +10,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <strings.h>
 #include <time.h>
 
 int64_t rift_mono_ms(void)
@@ -113,10 +112,34 @@ void rift_model_service_lost(struct rift_model *m, const char *reason)
     if (m->outbox.active) {
         m->outbox.active = 0;
         m->outbox.failed = 1;
+        m->outbox.unknown = 1;
         rift_utf8_copy(m->outbox.error, sizeof(m->outbox.error),
                        "meshcored went away before it answered; this message may or may not "
                        "have been sent");
     }
+    /* The same for an advert, or a change to a node, that was asked for and
+     * not answered. Marked unknown as well as failed, so a screen says there
+     * was no answer rather than that it was not done. */
+    if (m->advert.active) {
+        m->advert.active = 0;
+        m->advert.failed = 1;
+        m->advert.unknown = 1;
+        rift_utf8_copy(m->advert.error, sizeof(m->advert.error),
+                       "meshcored went away before it answered; the advert may or may not "
+                       "have been sent");
+    }
+    if (m->node_op.active) {
+        m->node_op.active = 0;
+        m->node_op.failed = 1;
+        m->node_op.unknown = 1;
+        rift_utf8_copy(m->node_op.error, sizeof(m->node_op.error),
+                       "meshcored went away before it answered; it may or may not have been "
+                       "done");
+    }
+    /* The counters were the service's, and there is no service: shown on,
+     * they would be a live-looking count of a process that is not there. */
+    m->have_traffic = 0;
+    m->have_contacts_full = 0;
     m->have_status = 0;
     m->have_radio_state = 0;
     m->radio_connected = 0;
@@ -209,8 +232,13 @@ static struct rift_node *slot_for(struct rift_model *m, const char *key)
 
 /* Remember a path this app has just observed, newest first, and only when
  * it differs from the newest one already held: a node adverting the same
- * path every few minutes is not a history of changes. */
-static void record_path(struct rift_node *n, int have_mono, int64_t mono_ms)
+ * path every few minutes is not a history of changes.
+ *
+ * Stamped with when THIS APP saw it - the panel is "path changes seen by
+ * RIFT" - and not with when the node was last heard: a route forgotten on
+ * request changes without the node saying anything, and the last-heard time
+ * would date the change hours before it happened. */
+static void record_path(struct rift_node *n, int64_t seen_ms)
 {
     int i;
 
@@ -226,8 +254,8 @@ static void record_path(struct rift_node *n, int have_mono, int64_t mono_ms)
         n->hist[i] = n->hist[i - 1];
     }
     memset(&n->hist[0], 0, sizeof(n->hist[0]));
-    n->hist[0].have_mono = have_mono;
-    n->hist[0].mono_ms = mono_ms;
+    n->hist[0].have_mono = 1;
+    n->hist[0].mono_ms = seen_ms;
     n->hist[0].path_known = n->path_known;
     n->hist[0].hops = n->hops;
     snprintf(n->hist[0].path_hex, sizeof(n->hist[0].path_hex), "%s", n->path_hex);
@@ -327,10 +355,58 @@ static int apply_node(struct rift_model *m, const cJSON *o)
     return 0;
 }
 
+/* Take a node out of the cache, keeping the rest in order. */
+static void drop_node(struct rift_model *m, int at)
+{
+    int i;
+
+    for (i = at; i + 1 < m->node_count; i++) {
+        m->nodes[i] = m->nodes[i + 1];
+    }
+    m->node_count--;
+    memset(&m->nodes[m->node_count], 0, sizeof(m->nodes[0]));
+}
+
+/* Forget everything the service said about a node and keep what this app
+ * observed of it: the path history and how many events named it. Those are
+ * RIFT's own and no snapshot carries them, so a snapshot that replaced them
+ * would erase the history every time it arrived - which, at one snapshot
+ * every RIFT_NODES_PERIOD_MS, is what the path-changes panel used to do. */
+static void forget_service_fields(struct rift_node *n)
+{
+    struct rift_path_obs hist[RIFT_PATH_HISTORY];
+    char key[RIFT_KEY_HEX];
+    int hist_count = n->hist_count;
+    unsigned observations = n->observations;
+
+    memcpy(hist, n->hist, sizeof(hist));
+    memcpy(key, n->key, sizeof(key));
+    memset(n, 0, sizeof(*n));
+    memcpy(n->key, key, sizeof(key));
+    memcpy(n->hist, hist, sizeof(hist));
+    n->hist_count = hist_count;
+    n->observations = observations;
+}
+
+static int in_snapshot(const cJSON *arr, const char *key)
+{
+    const cJSON *item;
+
+    cJSON_ArrayForEach (item, arr) {
+        const char *k = str_of(item, "public_key");
+
+        if (k && strcmp(k, key) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int rift_model_apply_nodes(struct rift_model *m, const cJSON *result)
 {
     const cJSON *arr;
     const cJSON *item;
+    int i;
 
     if (!m || !cJSON_IsObject(result)) {
         return -1;
@@ -341,129 +417,37 @@ int rift_model_apply_nodes(struct rift_model *m, const cJSON *result)
     }
     /* A snapshot replaces the list: a node the service no longer holds has
      * been forgotten there, and keeping it here would be this app inventing
-     * a node nobody can be asked about. */
-    m->node_count = 0;
-    memset(m->nodes, 0, sizeof(m->nodes));
+     * a node nobody can be asked about. So the nodes it does not name go
+     * first - before anything is added, so a full cache never evicts a node
+     * this very snapshot is about to name - and every node it does name has
+     * the service's half replaced outright below. */
+    for (i = m->node_count - 1; i >= 0; i--) {
+        if (!in_snapshot(arr, m->nodes[i].key)) {
+            drop_node(m, i);
+        }
+    }
     cJSON_ArrayForEach (item, arr) {
+        const char *key = str_of(item, "public_key");
+        struct rift_node *n = hex_only(key, 64) ? find_mut(m, key) : NULL;
+
+        if (n) {
+            forget_service_fields(n);
+        }
         if (apply_node(m, item) != 0) {
             m->events_malformed++;
+            continue;
+        }
+        /* A route can change while no event reaches this app - across a
+         * reconnect, say - and the snapshot is then the only witness. A path
+         * already the newest in the history is not recorded twice. */
+        n = find_mut(m, key);
+        if (n) {
+            record_path(n, rift_mono_ms());
         }
     }
     m->snapshot_valid = 1;
     m->have_snapshot_mono = 1;
     m->snapshot_mono_ms = rift_mono_ms();
-    m->stale = 0;
-    return 0;
-}
-
-/* ---- channels ----------------------------------------------------------- */
-
-const struct rift_channel *rift_model_channel(const struct rift_model *m, int slot)
-{
-    int i;
-
-    if (!m || slot < 0) {
-        return NULL;
-    }
-    for (i = 0; i < m->channel_count; i++) {
-        if (m->channels[i].slot == slot) {
-            return &m->channels[i];
-        }
-    }
-    return NULL;
-}
-
-/* One channel object, in the shape of docs/api/mesh.md, mesh.channels.
- * Returns 0 when it was taken, -1 when it was not one this model will hold. */
-static int apply_channel(struct rift_model *m, const cJSON *o)
-{
-    struct rift_channel *ch = NULL;
-    const char *name;
-    const char *hash;
-    double d;
-    int slot;
-    int i;
-
-    if (!cJSON_IsObject(o)) {
-        return -1;
-    }
-    /* The slot is the identity a channel is named by, so a channel without a
-     * usable one is refused rather than held as a row nothing can address. */
-    if (!num_of(o, "channel", &d) || d < 0 || d >= (double)RIFT_MAX_CHANNELS ||
-        d != (double)(int)d) {
-        return -1;
-    }
-    slot = (int)d;
-    for (i = 0; i < m->channel_count; i++) {
-        if (m->channels[i].slot == slot) {
-            ch = &m->channels[i];
-            break;
-        }
-    }
-    if (!ch) {
-        if (m->channel_count >= RIFT_MAX_CHANNELS) {
-            /* The service holds more channels than this build can show.
-             * Counted rather than silently dropped, so a screen can say the
-             * list is short instead of implying it is complete. */
-            m->channels_dropped++;
-            return -1;
-        }
-        ch = &m->channels[m->channel_count++];
-    }
-    memset(ch, 0, sizeof(*ch));
-    ch->slot = slot;
-    name = str_of(o, "name");
-    if (name && name[0]) {
-        rift_utf8_copy(ch->name, sizeof(ch->name), name);
-        ch->have_name = 1;
-    }
-    hash = str_of(o, "channel_hash");
-    if (hex_only(hash, 2)) {
-        snprintf(ch->hash, sizeof(ch->hash), "%s", hash);
-        ch->have_hash = 1;
-    }
-    if (num_of(o, "key_bits", &d)) {
-        ch->have_key_bits = 1;
-        ch->key_bits = (int)d;
-    }
-    if (num_of(o, "text_limit", &d) && d > 0) {
-        ch->have_text_limit = 1;
-        ch->text_limit = (int)d;
-    }
-    return 0;
-}
-
-int rift_model_apply_channels(struct rift_model *m, const cJSON *result)
-{
-    const cJSON *arr;
-    const cJSON *item;
-    double d;
-
-    if (!m || !cJSON_IsObject(result)) {
-        return -1;
-    }
-    arr = cJSON_GetObjectItemCaseSensitive(result, "channels");
-    if (!cJSON_IsArray(arr)) {
-        return -1;
-    }
-    /* A snapshot replaces the list, for the reason mesh.nodes does: a
-     * channel the service no longer holds has been left, and keeping it here
-     * would offer a reader somewhere to write that nothing would carry. */
-    m->channel_count = 0;
-    memset(m->channels, 0, sizeof(m->channels));
-    cJSON_ArrayForEach (item, arr) {
-        if (apply_channel(m, item) != 0) {
-            m->events_malformed++;
-        }
-    }
-    m->have_channels_reported = num_of(result, "count", &d);
-    if (m->have_channels_reported) {
-        m->channels_reported = (int)d;
-    }
-    if (num_of(result, "max", &d)) {
-        m->channels_max = (int)d;
-    }
-    m->channels_valid = 1;
     m->stale = 0;
     return 0;
 }
@@ -588,7 +572,31 @@ int rift_model_apply_status(struct rift_model *m, const cJSON *result, int64_t n
         }
         if (num_of(counters, "nodes_unretained", &d)) {
             m->nodes_unretained = (unsigned)d;
+            /* A counter that went backwards is a new run of the service,
+             * counting from nothing again: nothing has been forgotten in
+             * that run, so every advert it turned away is recent. */
+            if (m->nodes_unretained < m->unretained_baseline) {
+                m->unretained_baseline = 0;
+            }
         }
+        /* How the transmits went, in the service's four answers and never
+         * fewer (docs/api/mesh.md): a transmit that went out and one that
+         * did not are not collapsed into "sent". Held only when the service
+         * reported the one that says the most. */
+        m->have_traffic = num_of(counters, "tx_ok", &d);
+        if (m->have_traffic) {
+            m->tx_ok = (unsigned)d;
+            m->tx_failed = num_of(counters, "tx_failed", &d) ? (unsigned)d : 0;
+            m->tx_unknown = num_of(counters, "tx_unknown", &d) ? (unsigned)d : 0;
+            m->tx_rx_resume_failed =
+                num_of(counters, "tx_rx_resume_failed", &d) ? (unsigned)d : 0;
+            m->sent_flood = num_of(counters, "sent_flood", &d) ? (unsigned)d : 0;
+            m->sent_direct = num_of(counters, "sent_direct", &d) ? (unsigned)d : 0;
+            m->recv_flood = num_of(counters, "recv_flood", &d) ? (unsigned)d : 0;
+            m->recv_direct = num_of(counters, "recv_direct", &d) ? (unsigned)d : 0;
+        }
+        m->have_contacts_full = num_of(counters, "contacts_full", &d);
+        m->contacts_full = m->have_contacts_full ? (unsigned)d : 0;
     }
     m->have_status = 1;
     m->stale = 0;
@@ -703,6 +711,20 @@ int rift_model_apply_event(struct rift_model *m, const char *name, const cJSON *
             m->events_malformed++;
             return -1;
         }
+        /* The service has forgotten this node (mesh.node_remove). It goes
+         * from here too, rather than being applied as an update: the node
+         * object that comes with the reason is the node as it WAS, and
+         * filing it would put back the row the reader just asked to be rid
+         * of. A node this app never held is not an error. */
+        if (reason && strcmp(reason, "removed") == 0) {
+            rift_model_drop_node(m, key);
+            /* Room has been made in the service's table: adverts it turned
+             * away before this say nothing about whether it is full now. */
+            m->unretained_baseline = m->nodes_unretained;
+            m->stale = 0;
+            m->events_applied++;
+            return 0;
+        }
         /* An event for a node already held updates that node. It never adds
          * a second row for it: slot_for keys on the public key, which is a
          * fact about the node rather than a position in a list the service
@@ -714,44 +736,16 @@ int rift_model_apply_event(struct rift_model *m, const char *name, const cJSON *
         n = find_mut(m, key);
         if (n) {
             n->observations++;
-            record_path(n, n->have_heard, n->heard_mono_ms);
+            record_path(n, rift_mono_ms());
         }
-        (void)reason;
         m->stale = 0;
         m->events_applied++;
         return 0;
     }
     if (strcmp(name, "mesh.channel") == 0) {
-        const cJSON *ch = cJSON_GetObjectItemCaseSensitive(data, "channel");
-        const char *reason = str_of(data, "reason");
-        double d;
-
-        if (!cJSON_IsObject(ch) || !reason ||
-            !num_of(ch, "channel", &d) || d < 0 || d >= (double)RIFT_MAX_CHANNELS ||
-            d != (double)(int)d) {
-            m->events_malformed++;
-            return -1;
-        }
-        if (strcmp(reason, "removed") == 0) {
-            /* The channel is gone from the service. It goes from the list
-             * too, so nothing offers a reader somewhere to write that
-             * nothing would carry. Its messages stay: they happened, and
-             * they are still what this node heard. */
-            int slot = (int)d;
-            int i;
-
-            for (i = 0; i < m->channel_count; i++) {
-                if (m->channels[i].slot != slot) {
-                    continue;
-                }
-                for (; i + 1 < m->channel_count; i++) {
-                    m->channels[i] = m->channels[i + 1];
-                }
-                m->channel_count--;
-                memset(&m->channels[m->channel_count], 0, sizeof(m->channels[0]));
-                break;
-            }
-        } else if (apply_channel(m, ch) != 0) {
+        /* rift_channels.c: an added channel is applied, a removed one leaves
+         * the list, and anything without a usable slot is refused. */
+        if (rift_model_apply_channel_event(m, data) != 0) {
             m->events_malformed++;
             return -1;
         }
@@ -788,104 +782,50 @@ int rift_model_apply_event(struct rift_model *m, const char *name, const cJSON *
     return -1;
 }
 
-/* ---- order ------------------------------------------------------------- */
-
-/* Three groups, in this order: heard within the stale boundary (newest
- * first), heard longer ago (newest first), never heard at all. */
-static int group_of(const struct rift_node *n, int64_t now_ms)
+unsigned rift_model_unretained_recent(const struct rift_model *m)
 {
-    if (!n->have_heard) {
-        return 2;
-    }
-    return rift_node_is_stale(n, now_ms) ? 1 : 0;
-}
-
-static int before(const struct rift_node *a, const struct rift_node *b, int64_t now_ms)
-{
-    int ga = group_of(a, now_ms);
-    int gb = group_of(b, now_ms);
-
-    if (ga != gb) {
-        return ga < gb;
-    }
-    if (a->have_heard && b->have_heard && a->heard_mono_ms != b->heard_mono_ms) {
-        return a->heard_mono_ms > b->heard_mono_ms;
-    }
-    /* A total order, so a list that is rebuilt every second does not
-     * reshuffle rows whose ages are equal. */
-    return strcmp(a->key, b->key) < 0;
-}
-
-int rift_model_order(const struct rift_model *m, int64_t now_ms, const struct rift_node **out,
-                     int max)
-{
-    int n = 0;
-    int i;
-    int j;
-
-    if (!m || !out || max <= 0) {
+    if (!m || m->nodes_unretained < m->unretained_baseline) {
         return 0;
     }
-    for (i = 0; i < m->node_count && n < max; i++) {
-        const struct rift_node *node = &m->nodes[i];
-
-        for (j = n; j > 0 && before(node, out[j - 1], now_ms); j--) {
-            out[j] = out[j - 1];
-        }
-        out[j] = node;
-        n++;
-    }
-    return n;
+    return m->nodes_unretained - m->unretained_baseline;
 }
 
-int rift_model_fresh_count(const struct rift_model *m, int64_t now_ms)
+int rift_model_drop_node(struct rift_model *m, const char *key)
 {
-    int n = 0;
     int i;
 
-    if (!m) {
+    if (!m || !key) {
         return 0;
     }
     for (i = 0; i < m->node_count; i++) {
-        if (group_of(&m->nodes[i], now_ms) == 0) {
-            n++;
+        if (strcmp(m->nodes[i].key, key) == 0) {
+            drop_node(m, i);
+            return 1;
         }
     }
-    return n;
+    return 0;
 }
 
-const char *rift_model_name_for_hash(const struct rift_model *m, const char *hash_hex)
+int rift_model_apply_node_reply(struct rift_model *m, const cJSON *result)
 {
-    const struct rift_node *hit = NULL;
-    size_t len;
-    int i;
+    const char *key = str_of(result, "public_key");
+    struct rift_node *n;
 
-    if (!m || !hash_hex) {
-        return NULL;
+    if (!m || !cJSON_IsObject(result) || !hex_only(key, 64)) {
+        return -1;
     }
-    len = strlen(hash_hex);
-    if (len == 0 || len > RIFT_KEY_HEX - 1) {
-        return NULL;
+    /* The same shape as one node of a snapshot, and filed the same way as an
+     * event - an update, never a second row - but not COUNTED as an event:
+     * this is the service answering a question RIFT asked, not the mesh
+     * saying something about the node. */
+    if (apply_node(m, result) != 0) {
+        return -1;
     }
-    if (m->have_identity && strncasecmp(m->self_key, hash_hex, len) == 0) {
-        return m->self_name[0] ? m->self_name : NULL;
+    n = find_mut(m, key);
+    if (n) {
+        record_path(n, rift_mono_ms());
     }
-    for (i = 0; i < m->node_count; i++) {
-        if (strncasecmp(m->nodes[i].key, hash_hex, len) != 0) {
-            continue;
-        }
-        if (hit) {
-            /* Two nodes share this prefix. mesh.node refuses an ambiguous
-             * prefix rather than answering one (docs/api/mesh.md) and so
-             * does this: a guessed name on a hop is a wrong route drawn
-             * confidently. */
-            return NULL;
-        }
-        hit = &m->nodes[i];
-    }
-    if (!hit || !hit->have_name || !hit->name[0]) {
-        return NULL;
-    }
-    return hit->name;
+    m->stale = 0;
+    return 0;
 }
 

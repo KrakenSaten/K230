@@ -475,6 +475,76 @@ static cJSON *m_node(struct mcd *d, const cJSON *params, int *code, char *err, s
     return node_json(&node);
 }
 
+/* Take a WHOLE public key from a request: 64 hex characters, nothing less.
+ * For the methods that change what this node holds, where acting on
+ * whichever node a prefix happened to match would be acting on a guess.
+ * Returns 0, or -1 with a message written to err. */
+static int params_full_key(const cJSON *params, uint8_t key[MCD_PUB_KEY_LEN], char *err,
+                           size_t errlen)
+{
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(params, "node");
+
+    if (!cJSON_IsString(v) || v->valuestring == NULL ||
+        strlen(v->valuestring) != MCD_PUB_KEY_LEN * 2 ||
+        mcd_key_prefix_parse(v->valuestring, key, MCD_PUB_KEY_LEN) != MCD_PUB_KEY_LEN) {
+        snprintf(err, errlen, "node must be a whole public key, 64 hex characters");
+        return -1;
+    }
+    return 0;
+}
+
+/* Forget a node. It is the node's entry in this service's table that goes -
+ * the contact, its learned route and its last advert - and not the node: it
+ * is added back the next time it adverts. The answer carries the node as it
+ * was, and every subscriber is told by a mesh.node event with the reason
+ * "removed". */
+static cJSON *m_node_remove(struct mcd *d, const cJSON *params, int *code, char *err,
+                            size_t errlen)
+{
+    uint8_t key[MCD_PUB_KEY_LEN];
+    struct mcd_node was;
+    bool persisted = false;
+    cJSON *o;
+
+    if (params_full_key(params, key, err, errlen) != 0) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        return NULL;
+    }
+    if (!mcd_runtime_node_remove(d->rt, key, &was, &persisted)) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "no node with that public key is held");
+        return NULL;
+    }
+    o = cJSON_CreateObject();
+    cJSON_AddBoolToObject(o, "removed", true);
+    /* Whether the forgetting reached state.v1. False means this run only:
+     * the node would be back after a restart. */
+    cJSON_AddBoolToObject(o, "persisted", persisted);
+    cJSON_AddItemToObject(o, "node", node_json(&was));
+    return o;
+}
+
+/* Forget the route to a node, so the next message to it floods and the
+ * reply teaches a fresh one. Nothing is transmitted by this: it changes what
+ * the next send will do. The answer is the node afterwards. */
+static cJSON *m_node_reset_path(struct mcd *d, const cJSON *params, int *code, char *err,
+                                size_t errlen)
+{
+    uint8_t key[MCD_PUB_KEY_LEN];
+    struct mcd_node now;
+
+    if (params_full_key(params, key, err, errlen) != 0) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        return NULL;
+    }
+    if (!mcd_runtime_node_reset_path(d->rt, key, &now)) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "no node with that public key is held");
+        return NULL;
+    }
+    return node_json(&now);
+}
+
 /* Take a channel slot from a request. Returns the slot, or -1 with a message
  * written to err.
  *
@@ -792,6 +862,12 @@ static cJSON *m_send(struct mcd *d, const cJSON *params, int *code, char *err, s
             snprintf(err, errlen, "the text does not fit a MeshCore message");
         }
         return NULL;
+    case MCD_SEND_BUSY:
+        *code = POCKETIPC_ERR_BUSY;
+        snprintf(err, errlen,
+                 "%d messages are already waiting for an acknowledgement; nothing was sent",
+                 mcd_runtime_acks_waiting(d->rt));
+        return NULL;
     case MCD_SEND_FAILED:
     default:
         *code = POCKETIPC_ERR_BACKEND;
@@ -800,11 +876,28 @@ static cJSON *m_send(struct mcd *d, const cJSON *params, int *code, char *err, s
     }
 }
 
-static cJSON *m_advert(struct mcd *d, int *code, char *err, size_t errlen)
+/* One signed self-advert. Flooded unless zero_hop is true, in which case it
+ * is sent zero-hop: heard by the nodes in direct range and repeated by none
+ * of them. The answer says which of the two went, as `route`. */
+static cJSON *m_advert(struct mcd *d, const cJSON *params, int *code, char *err, size_t errlen)
 {
+    const cJSON *jzero = cJSON_GetObjectItemCaseSensitive(params, "zero_hop");
+    bool zero_hop = false;
+    bool ok;
     cJSON *o;
 
-    if (!mcd_runtime_send_advert(d->rt)) {
+    if (jzero != NULL) {
+        /* A boolean and nothing else. A string "false" read as truthy would
+         * flood an advert the caller asked to keep local. */
+        if (!cJSON_IsBool(jzero)) {
+            *code = POCKETIPC_ERR_INVALID_PARAMS;
+            snprintf(err, errlen, "zero_hop must be true or false");
+            return NULL;
+        }
+        zero_hop = cJSON_IsTrue(jzero);
+    }
+    ok = zero_hop ? mcd_runtime_send_advert_zero_hop(d->rt) : mcd_runtime_send_advert(d->rt);
+    if (!ok) {
         if (!mcd_runtime_radio_online(d->rt)) {
             *code = POCKETIPC_ERR_BUSY;
             snprintf(err, errlen, "the radio is not available (service state %s)",
@@ -817,6 +910,7 @@ static cJSON *m_advert(struct mcd *d, int *code, char *err, size_t errlen)
     }
     o = cJSON_CreateObject();
     cJSON_AddBoolToObject(o, "accepted", true);
+    cJSON_AddStringToObject(o, "route", zero_hop ? "zero_hop" : "flood");
     return o;
 }
 
@@ -859,6 +953,10 @@ void mcd_handle_request(struct pocketipc_server *s, struct pocketipc_client *c, 
         result = m_nodes(d);
     } else if (strcmp(name, "mesh.node") == 0) {
         result = m_node(d, params, &code, err, sizeof(err));
+    } else if (strcmp(name, "mesh.node_remove") == 0) {
+        result = m_node_remove(d, params, &code, err, sizeof(err));
+    } else if (strcmp(name, "mesh.node_reset_path") == 0) {
+        result = m_node_reset_path(d, params, &code, err, sizeof(err));
     } else if (strcmp(name, "mesh.channels") == 0) {
         result = m_channels(d);
     } else if (strcmp(name, "mesh.channel") == 0) {
@@ -872,7 +970,7 @@ void mcd_handle_request(struct pocketipc_server *s, struct pocketipc_client *c, 
     } else if (strcmp(name, "mesh.send") == 0) {
         result = m_send(d, params, &code, err, sizeof(err));
     } else if (strcmp(name, "mesh.advert") == 0) {
-        result = m_advert(d, &code, err, sizeof(err));
+        result = m_advert(d, params, &code, err, sizeof(err));
     } else if (strcmp(name, "mesh.subscribe") == 0) {
         pocketipc_client_set_subscribed(c, true);
         result = cJSON_CreateObject();
