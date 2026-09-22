@@ -448,9 +448,14 @@ int main(void)
         /* A moment longer, so a duplicate would have time to arrive too. */
         spin(&c, 500, NULL, &m);
         check("the one event it raised arrives exactly once", c.events_in == 1);
-        check("and each is applied once: the node updated, not doubled",
-              rift_model_find(&m, KEY_B) && rift_model_find(&m, KEY_B)->hops == 5 &&
-                  m.node_count == 2);
+        /* Applied once and filed once. Not "hops == 5": the fake's node
+         * snapshot is fixed text, so whether it is read before or after the
+         * event decides the hop count - which a sanitised run's timing
+         * reordered - while a real service's snapshot already says what its
+         * event said. The counter and the row count do not depend on that. */
+        check("and it is applied exactly once, to the row it names, with no second row",
+              m.events_applied == 1 && m.events_malformed == 0 &&
+                  rift_model_find(&m, KEY_B) != NULL && m.node_count == 2);
         f = fopen(methods, "r");
         while (f && fgets(line, sizeof(line), f)) {
             line[strcspn(line, "\n")] = '\0';
