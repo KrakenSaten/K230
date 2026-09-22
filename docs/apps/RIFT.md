@@ -434,8 +434,10 @@ them, one after the other, are two runs of a service and not one.
 
 ## What needs hardware
 
-Nothing on this branch has been on unit A. A gate should see, on the panel
-and in the service's counters:
+Nothing on this branch has been on unit A. The gate sheet, with the payload's
+hashes and every command, is
+[docs/hardware/RIFT_IMPROVEMENTS_GATE.md](../hardware/RIFT_IMPROVEMENTS_GATE.md).
+In short, a gate should see, on the panel and in the service's counters:
 
 1. **ADVERT NEAR and ADVERT MESH** each put exactly one advert on the air -
    `tx_submitted` up by one, `mesh.activity` `tx` `ok` - and a peer in range
