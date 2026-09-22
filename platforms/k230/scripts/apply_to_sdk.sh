@@ -45,19 +45,23 @@ CONF="k230_pocketos_defconfig"
 EXPECTED_BSP_COMMIT="$(cat "${PLATFORM_DIR}/vendor_bsp_commit.txt")"
 EXPECTED_SDK_COMMIT="$(cat "${PLATFORM_DIR}/vendor_sdk_commit.txt")"
 
-# meshcored may be built and tested at any time; it may not be packaged until
-# the notices cover MeshCore, orlp's ed25519 and rweather's Crypto
-# (docs/LICENSING.md open item 9). The package's install step refuses it and
-# is the real chokepoint; this is the same refusal before anything is
-# assembled. ENABLE_MESHCORED reaches the package build through the
-# environment, so it is read the same way here.
-if [ "${ENABLE_MESHCORED:-0}" = "1" ]; then
-    echo "ERROR: ENABLE_MESHCORED=1 is set, so this package would install meshcored," >&2
-    echo "       which contains MeshCore, orlp's ed25519 and rweather's Crypto - none" >&2
-    echo "       of which the third-party notices mention." >&2
-    echo "       Building and testing it is unaffected:" >&2
-    echo "         make ENABLE_MESHCORED=1 meshcored ; make meshcored-test" >&2
-    echo "       See docs/LICENSING.md open item 9 and docs/services/MESHCORED.md." >&2
+# meshcored is part of the package (pocketos.mk builds it with
+# ENABLE_MESHCORED=1), and it compiles MeshCore, orlp's ed25519 and rweather's
+# Crypto. It may be packaged because the third-party notices cover all three
+# (docs/LICENSING.md item 9, resolved 2026-09-22). The package's install step
+# refuses it without them (the Makefile's meshcored-shipping-check) and is the
+# real chokepoint; this is the same refusal before anything is assembled,
+# because finding out at the end of a package build is finding out too late.
+missing_notices=""
+for id in meshcore ed25519 arduinolibs-crypto; do
+    grep -q "^${id} *|" "${REPO_DIR}/third_party/notices/SOURCES" 2>/dev/null \
+        || missing_notices="${missing_notices} ${id}"
+done
+if [ -n "${missing_notices}" ]; then
+    echo "ERROR: the package builds meshcored, which contains MeshCore, orlp's ed25519" >&2
+    echo "       and rweather's Crypto, and third_party/notices/SOURCES has no entry" >&2
+    echo "       for:${missing_notices}. See docs/LICENSING.md item 9." >&2
+    echo "       There is no override: this is a licensing rule, not a build preference." >&2
     exit 1
 fi
 
@@ -214,6 +218,46 @@ if [ "${GGWAVE_STATE}" = "dirty" ]; then
 fi
 echo "ggwave  : ${GGWAVE_DIR_SRC} @ ${GGWAVE_COMMIT} (${GGWAVE_STATE})"
 
+# MeshCore (vendor/RIFT) and rweather's Crypto (vendor/Crypto) are the third
+# and fourth trees that reach the image as source: meshcored compiles them
+# (protocols/meshcore). Same rules as RadioLib and ggwave - ignored checkouts,
+# pinned by protocols/meshcore/vendor_*_commit.txt, refused when they drift or
+# are dirty - because what goes on the air is decided by the protocol source,
+# and a package built from an unpinned tree would say it was pinned.
+meshcore_tree_check() { # <what> <dir> <pin file> -> sets TREE_COMMIT, TREE_STATE
+    local what="$1" dir="$2" expected
+    expected="$(tr -d ' \t\r\n' < "$3")"
+    if git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        TREE_COMMIT="$(git -C "${dir}" rev-parse HEAD)"
+        TREE_STATE="clean"
+        [ -n "$(git -c core.autocrlf=true -C "${dir}" status --porcelain)" ] && TREE_STATE="dirty"
+    else
+        TREE_COMMIT="unknown"
+        TREE_STATE="not-a-git-checkout"
+    fi
+    pin_check "${what} commit" "${TREE_COMMIT}" "${expected}"
+    if [ "${TREE_STATE}" = "dirty" ]; then
+        if [ "${POCKETOS_ALLOW_PIN_DRIFT:-0}" = "1" ]; then
+            echo "WARNING: the ${what} checkout is dirty; its uncommitted changes WILL be" >&2
+            echo "         compiled into meshcored (POCKETOS_ALLOW_PIN_DRIFT=1)." >&2
+        else
+            echo "ERROR: the ${what} checkout at ${dir} is dirty; its uncommitted" >&2
+            echo "       changes would be compiled into meshcored." >&2
+            echo "       Commit or discard them, or set POCKETOS_ALLOW_PIN_DRIFT=1 and say" >&2
+            echo "       so in the build report." >&2
+            exit 1
+        fi
+    fi
+}
+RIFT_DIR_SRC="${REPO_DIR}/vendor/RIFT"
+meshcore_tree_check "MeshCore (vendor/RIFT)" "${RIFT_DIR_SRC}" "${REPO_DIR}/protocols/meshcore/vendor_rift_commit.txt"
+RIFT_COMMIT="${TREE_COMMIT}"; RIFT_STATE="${TREE_STATE}"
+echo "MeshCore: ${RIFT_DIR_SRC} @ ${RIFT_COMMIT} (${RIFT_STATE})"
+CRYPTO_DIR_SRC="${REPO_DIR}/vendor/Crypto"
+meshcore_tree_check "Crypto (vendor/Crypto)" "${CRYPTO_DIR_SRC}" "${REPO_DIR}/protocols/meshcore/vendor_crypto_commit.txt"
+CRYPTO_COMMIT="${TREE_COMMIT}"; CRYPTO_STATE="${TREE_STATE}"
+echo "Crypto  : ${CRYPTO_DIR_SRC} @ ${CRYPTO_COMMIT} (${CRYPTO_STATE})"
+
 # The defconfig, Config.in and pocketos.mk used to be installed straight from
 # the working tree while everything else came from git. They decide what is in
 # the image and how it is built, so an uncommitted edit to any of them changed
@@ -329,6 +373,7 @@ NOTICES_DIR="$(mktemp -d)"
 git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" -- \
     THIRD_PARTY_NOTICES.txt third_party/notices tools/legal docs/legal/fonts docs/legal/third-party \
     platforms/k230/vendor_radiolib_commit.txt platforms/k230/vendor_ggwave_commit.txt \
+    protocols/meshcore/vendor_rift_commit.txt protocols/meshcore/vendor_crypto_commit.txt \
     platforms/k230/package/pocketos/pocketos.hash \
     "platforms/k230/configs/${CONF}" | tar -x -C "${NOTICES_DIR}"
 ln -s "${REPO_DIR}/vendor" "${NOTICES_DIR}/vendor"
@@ -405,6 +450,27 @@ install -m 0644 "${GGWAVE_DIR_SRC}/src/ggwave.cpp" "${GGWAVE_DIR_SRC}/src/fft.h"
 install -m 0644 "${GGWAVE_DIR_SRC}/src/reed-solomon/rs.hpp" "${GGWAVE_DIR_SRC}/src/reed-solomon/gf.hpp" \
     "${GGWAVE_DIR_SRC}/src/reed-solomon/poly.hpp" "${GGWAVE_DIR_SRC}/src/reed-solomon/LICENSE" \
     "${PKG_DIR}/src/third_party/ggwave/src/reed-solomon/"
+# MeshCore and Crypto (meshcored): what protocols/meshcore compiles and the
+# licences the notices were checked against, nothing else - MeshCore's src/
+# and its bundled ed25519, and the Crypto library. The Makefile prefers
+# third_party/ over vendor/ when it is there, which is how the package build
+# finds them. The tree has no .git here, so the commit verified above travels
+# beside it (.doors-pinned-commit), and protocols/meshcore's pin check reads
+# that in place of `git rev-parse` - it is only ever written by this script,
+# after the pin check passed.
+rm -rf "${PKG_DIR}/src/third_party/RIFT" "${PKG_DIR}/src/third_party/Crypto"
+mkdir -p "${PKG_DIR}/src/third_party/RIFT/lib" "${PKG_DIR}/src/third_party/Crypto/libraries"
+rsync -a --exclude '*.o' --exclude '*.d' --exclude '*.a' \
+    "${RIFT_DIR_SRC}/src" "${PKG_DIR}/src/third_party/RIFT/"
+rsync -a --exclude '*.o' --exclude '*.d' --exclude '*.a' \
+    "${RIFT_DIR_SRC}/lib/ed25519" "${PKG_DIR}/src/third_party/RIFT/lib/"
+install -m 0644 "${RIFT_DIR_SRC}/license.txt" "${PKG_DIR}/src/third_party/RIFT/license.txt"
+printf '%s\n' "${RIFT_COMMIT}" > "${PKG_DIR}/src/third_party/RIFT/.doors-pinned-commit"
+rsync -a --exclude '*.o' --exclude '*.d' --exclude '*.a' \
+    "${CRYPTO_DIR_SRC}/libraries/Crypto" "${PKG_DIR}/src/third_party/Crypto/libraries/"
+install -m 0644 "${CRYPTO_DIR_SRC}/libraries/LICENSE.txt" \
+    "${PKG_DIR}/src/third_party/Crypto/libraries/LICENSE.txt"
+printf '%s\n' "${CRYPTO_COMMIT}" > "${PKG_DIR}/src/third_party/Crypto/.doors-pinned-commit"
 CONFIG_IN="${SDK_DIR}/buildroot-overlay/package/Config_canaan.in"
 if ! grep -q 'source "package/pocketos/Config.in"' "${CONFIG_IN}"; then
     printf '\nsource "package/pocketos/Config.in"\n' >> "${CONFIG_IN}"
@@ -441,6 +507,10 @@ radiolib_commit=${RADIOLIB_COMMIT}
 radiolib_state=${RADIOLIB_STATE}
 ggwave_commit=${GGWAVE_COMMIT}
 ggwave_state=${GGWAVE_STATE}
+meshcore_commit=${RIFT_COMMIT}
+meshcore_state=${RIFT_STATE}
+crypto_commit=${CRYPTO_COMMIT}
+crypto_state=${CRYPTO_STATE}
 defconfig=${CONF}
 applied_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 applied_epoch=$(date +%s)
@@ -460,6 +530,8 @@ if [ "${DIRTY_OVERRIDE}" = "yes" ]; then
 fi
 echo "  RadioLib        : ${RADIOLIB_COMMIT} (${RADIOLIB_STATE})"
 echo "  ggwave          : ${GGWAVE_COMMIT} (${GGWAVE_STATE})"
+echo "  MeshCore        : ${RIFT_COMMIT} (${RIFT_STATE})"
+echo "  Crypto          : ${CRYPTO_COMMIT} (${CRYPTO_STATE})"
 echo "  BUILD_ID        : ${BUILD_ID}"
 echo "  The working tree is never packaged, with or without the override."
 echo "Done. Build with: ${PLATFORM_DIR}/scripts/build_image.sh ${VENDOR_DIR}"

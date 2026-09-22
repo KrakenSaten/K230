@@ -126,8 +126,8 @@ OVL="$TMP/overlay"; mkdir -p "$OVL"
 git archive --format=tar HEAD -- platforms/k230/rootfs_overlay |
     tar -x --strip-components=3 -C "$OVL"
 check "overlay extracted at the rootfs root" $([ -d "$OVL/etc/init.d" ] && echo 1 || echo 0)
-for f in etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S90doors-shell \
-         etc/default/telnet etc/pocketos/settings.conf logo.xrgb; do
+for f in etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S65meshcored \
+         etc/init.d/S90doors-shell etc/default/telnet etc/pocketos/settings.conf logo.xrgb; do
     check "overlay carries $f" $([ -e "$OVL/$f" ] && echo 1 || echo 0)
 done
 # The boot splash. The vendor post-image.sh copies rootfs_overlay/logo.xrgb to
@@ -139,8 +139,9 @@ check "overlay logo.xrgb is exactly 2,799,104 bytes as archived" \
 check "overlay logo.xrgb is archived byte-for-byte" \
       $(cmp -s "$OVL/logo.xrgb" <(git show HEAD:platforms/k230/rootfs_overlay/logo.xrgb) && echo 1 || echo 0)
 if [ "$MODES" -eq 1 ]; then
-    # These four are what BusyBox rcS executes.
-    for f in etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S90doors-shell; do
+    # These five are what BusyBox rcS executes.
+    for f in etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S65meshcored \
+             etc/init.d/S90doors-shell; do
         check "overlay $f is executable" $([ -x "$OVL/$f" ] && echo 1 || echo 0)
     done
     for f in etc/default/telnet etc/pocketos/settings.conf logo.xrgb; do
@@ -245,6 +246,11 @@ cp platforms/k230/scripts/apply_to_sdk.sh "$GUARD/repo/platforms/k230/scripts/"
 cp platforms/k230/vendor_bsp_commit.txt platforms/k230/vendor_sdk_commit.txt \
    "$GUARD/repo/platforms/k230/"
 cp VERSION "$GUARD/repo/"
+# The package builds meshcored, and the script refuses before anything else
+# when the notices lack its three entries - so the scratch repo carries the
+# real list, or every guard below would be measured behind that refusal.
+mkdir -p "$GUARD/repo/third_party/notices"
+cp third_party/notices/SOURCES "$GUARD/repo/third_party/notices/"
 # The script refuses to run if a first-party build input is missing from the
 # snapshot, so the scratch repo has to carry them the way a real one does.
 mkdir -p "$GUARD/repo/platforms/k230/configs" "$GUARD/repo/platforms/k230/package/pocketos"
@@ -267,6 +273,18 @@ git -C "$GUARD/repo/vendor/ggwave" init -q
 git -C "$GUARD/repo/vendor/ggwave" add -A
 git -C "$GUARD/repo/vendor/ggwave" -c user.name=t -c user.email=t@t commit -qm stub
 git -C "$GUARD/repo/vendor/ggwave" rev-parse HEAD > "$GUARD/repo/platforms/k230/vendor_ggwave_commit.txt"
+# MeshCore (vendor/RIFT) and Crypto (vendor/Crypto) are pinned the same way
+# (meshcored), by protocols/meshcore, so they need the same two things too.
+mkdir -p "$GUARD/repo/protocols/meshcore"
+for t in RIFT Crypto; do
+    mkdir -p "$GUARD/repo/vendor/$t"
+    printf 'stub\n' > "$GUARD/repo/vendor/$t/README.md"
+    git -C "$GUARD/repo/vendor/$t" init -q
+    git -C "$GUARD/repo/vendor/$t" add -A
+    git -C "$GUARD/repo/vendor/$t" -c user.name=t -c user.email=t@t commit -qm stub
+done
+git -C "$GUARD/repo/vendor/RIFT" rev-parse HEAD > "$GUARD/repo/protocols/meshcore/vendor_rift_commit.txt"
+git -C "$GUARD/repo/vendor/Crypto" rev-parse HEAD > "$GUARD/repo/protocols/meshcore/vendor_crypto_commit.txt"
 printf 'committed\n' > "$GUARD/repo/tracked.txt"
 # The real repository ignores /vendor/, so the scratch one must too: an
 # embedded checkout showing as untracked would make the tree dirty, and the
@@ -395,6 +413,37 @@ check "a dirty ggwave checkout is refused" \
 check "and the refusal says it would be compiled into pos-wave" \
       $(said 'compiled into pos-wave')
 git -C "$GUARD/repo/vendor/ggwave" checkout -q -- README.md 2>/dev/null
+
+# MeshCore and Crypto: the protocol source meshcored is built from.
+MC_PIN="$GUARD/repo/protocols/meshcore/vendor_rift_commit.txt"
+MC_REAL=$(git -C "$GUARD/repo/vendor/RIFT" rev-parse HEAD)
+printf '%s\n' 0000000000000000000000000000000000000000 > "$MC_PIN"
+guard_commit
+run_strict >/dev/null
+check "a drifted MeshCore pin is refused" \
+      $([ "$(said '\[1/5\]')" = "0" ] && echo 1 || echo 0)
+check "and the refusal names MeshCore" $(said 'ERROR: MeshCore (vendor/RIFT) commit is')
+printf '%s\n' "$MC_REAL" > "$MC_PIN"
+guard_commit
+run_strict >/dev/null
+check "with the MeshCore pin right, the apply gets past it" $(said '\[1/5\]')
+printf 'edited\n' >> "$GUARD/repo/vendor/RIFT/README.md"
+run_strict >/dev/null
+check "a dirty MeshCore checkout is refused" \
+      $([ "$(said '\[1/5\]')" = "0" ] && echo 1 || echo 0)
+check "and the refusal says it would be compiled into meshcored" \
+      $(said 'compiled into meshcored')
+git -C "$GUARD/repo/vendor/RIFT" checkout -q -- README.md 2>/dev/null
+CR_PIN="$GUARD/repo/protocols/meshcore/vendor_crypto_commit.txt"
+CR_REAL=$(git -C "$GUARD/repo/vendor/Crypto" rev-parse HEAD)
+printf '%s\n' 0000000000000000000000000000000000000000 > "$CR_PIN"
+guard_commit
+run_strict >/dev/null
+check "a drifted Crypto pin is refused" \
+      $([ "$(said '\[1/5\]')" = "0" ] && echo 1 || echo 0)
+check "and the refusal names Crypto" $(said 'ERROR: Crypto (vendor/Crypto) commit is')
+printf '%s\n' "$CR_REAL" > "$CR_PIN"
+guard_commit
 # The provenance summary prints only on a run that finishes, which the stub
 # vendor cannot reach, so it is checked where it is written instead. What
 # matters about it is placement as much as content: a summary in the header
@@ -523,6 +572,19 @@ check "and BUILD_INFO reports ggwave" \
 check "the package carries ggwave's licences with it" \
       $(grep -q 'ggwave}/LICENSE\|GGWAVE_DIR_SRC}/LICENSE' "$APPLY" &&
         grep -q 'reed-solomon/LICENSE' "$APPLY" && echo 1 || echo 0)
+check "apply_to_sdk.sh enforces the MeshCore and Crypto pins with pin_check" \
+      $(grep -q 'pin_check "${what} commit"' "$APPLY" &&
+        grep -q 'meshcore_tree_check "MeshCore (vendor/RIFT)"' "$APPLY" &&
+        grep -q 'meshcore_tree_check "Crypto (vendor/Crypto)"' "$APPLY" && echo 1 || echo 0)
+check "their commits and states reach the applied manifest" \
+      $(grep -q '^meshcore_commit=' "$APPLY" && grep -q '^meshcore_state=' "$APPLY" &&
+        grep -q '^crypto_commit=' "$APPLY" && grep -q '^crypto_state=' "$APPLY" && echo 1 || echo 0)
+check "and BUILD_INFO reports them" \
+      $(grep -q 'MeshCore  : $(m meshcore_commit)' platforms/k230/scripts/build_image.sh &&
+        grep -q 'Crypto    : $(m crypto_commit)' platforms/k230/scripts/build_image.sh && echo 1 || echo 0)
+check "the package carries the MeshCore and Crypto licences with them" \
+      $(grep -q 'RIFT_DIR_SRC}/license.txt' "$APPLY" &&
+        grep -q 'CRYPTO_DIR_SRC}/libraries/LICENSE.txt' "$APPLY" && echo 1 || echo 0)
 check "the package build links alsa-lib for pos-wave" \
       $(grep -q 'alsa-lib' platforms/k230/package/pocketos/pocketos.mk &&
         grep -q 'BR2_PACKAGE_ALSA_LIB' platforms/k230/package/pocketos/Config.in && echo 1 || echo 0)

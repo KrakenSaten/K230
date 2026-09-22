@@ -288,5 +288,45 @@ check "vendor/RIFT is still at the pinned commit" \
 check "vendor/Crypto is still at the pinned commit" \
       "$([ "$(git -C vendor/Crypto rev-parse HEAD)" = "$CRYPTO_PIN" ] && echo 1 || echo 0)"
 
+# ---- 6. an exported tree, inside somebody else's repository ---------------
+# The image package builds MeshCore from copies apply_to_sdk.sh exports into
+# third_party/, which have no .git, and the package is built inside the SDK's
+# own checkout. There `git -C third_party/RIFT rev-parse HEAD` does not fail:
+# it answers with the SDK's commit. So the pin check reads git only when the
+# tree is its own top level, and otherwise the .doors-pinned-commit
+# apply_to_sdk.sh wrote after checking the source checkout against the pin.
+PKG="$WORK/sdk"
+mkdir -p "$PKG/third_party/RIFT/lib" "$PKG/third_party/Crypto/libraries"
+git -C "$PKG" init -q && git -C "$PKG" -c user.email=t@t -c user.name=t commit -q --allow-empty -m sdk
+SDK_HEAD=$(git -C "$PKG" rev-parse HEAD)
+git -C "$WORK/RIFT" checkout -q "$RIFT_PIN"; git -C "$WORK/Crypto" checkout -q "$CRYPTO_PIN"
+cp -a "$WORK/RIFT/src" "$PKG/third_party/RIFT/"
+cp -a "$WORK/RIFT/lib/ed25519" "$PKG/third_party/RIFT/lib/"
+cp -a "$WORK/Crypto/libraries/Crypto" "$PKG/third_party/Crypto/libraries/"
+EXP_OBJ="$WORK/obj-export"
+exp_check() { # vendor check only: nothing needs compiling to answer this
+    rm -rf "$EXP_OBJ"
+    make -C "$REPO/$LIB_DIR" RIFT_DIR="$PKG/third_party/RIFT" CRYPTO_REPO="$PKG/third_party/Crypto" \
+         OBJDIR="$EXP_OBJ" check-vendor >"$WORK/export.log" 2>&1
+}
+exp_check; rc=$?
+check "an exported tree with no pin record is refused" "$([ $rc -ne 0 ] && echo 1 || echo 0)"
+check "and the enclosing repository's commit is not taken for MeshCore's" \
+      "$(grep -q "$SDK_HEAD" "$WORK/export.log" "$EXP_OBJ/vendor-id.stamp" 2>/dev/null && echo 0 || echo 1)"
+echo "$RIFT_PIN" > "$PKG/third_party/RIFT/.doors-pinned-commit"
+echo "$CRYPTO_PIN" > "$PKG/third_party/Crypto/.doors-pinned-commit"
+exp_check; rc=$?
+check "an exported tree carrying the pinned commits passes" "$([ $rc -eq 0 ] && echo 1 || echo 0)"
+check "and the stamp says where each commit came from" \
+      "$(grep -qx 'rift_source=export' "$EXP_OBJ/vendor-id.stamp" 2>/dev/null &&
+         grep -qx 'crypto_source=export' "$EXP_OBJ/vendor-id.stamp" && echo 1 || echo 0)"
+check "and that the pin was honoured" \
+      "$(grep -qx 'pinned=yes' "$EXP_OBJ/vendor-id.stamp" 2>/dev/null && echo 1 || echo 0)"
+echo "$RIFT_OTHER" > "$PKG/third_party/RIFT/.doors-pinned-commit"
+exp_check; rc=$?
+check "an exported tree recorded at another commit is refused" "$([ $rc -ne 0 ] && echo 1 || echo 0)"
+check "and says which commit it is at" \
+      "$(grep -q "is at $RIFT_OTHER" "$WORK/export.log" && echo 1 || echo 0)"
+
 echo "meshcore_build_deps: $checks check(s), $failed failure(s)"
 exit $((failed > 0))

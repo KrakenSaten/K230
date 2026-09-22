@@ -164,6 +164,14 @@ all: check-vendor $(LIB)
 #    are caught by the dependency files; this is for the whole-tree move,
 #    which no .d can see.)
 #
+# Where a tree's commit comes from: git, when the tree is its own repository
+# (a checkout in vendor/), or .doors-pinned-commit, which apply_to_sdk.sh writes
+# into the copy it exports to the Buildroot package after checking that very
+# checkout against the pin - that copy has no .git. Git is asked only when the
+# tree is its own top level: the package is built inside the SDK's checkout, and
+# `git rev-parse HEAD` there answers with the SDK's commit, not MeshCore's. The
+# stamp records which of the two it was (rift_source, crypto_source).
+#
 # 3. It RECORDS whether the pin was honoured. MESHCORE_ALLOW_UNPINNED=1
 #    remains a deliberate escape hatch, but the build it produces is no
 #    longer indistinguishable from a pinned one: the stamp says
@@ -191,8 +199,16 @@ $(VENDOR_ID): FORCE | $(OBJDIR)
 	    echo "         git -C vendor/Crypto checkout $(CRYPTO_COMMIT)"; \
 	    exit 1; \
 	fi; \
-	rift=$$(git -C "$(RIFT_DIR)" rev-parse HEAD 2>/dev/null); \
-	crypto=$$(git -C "$(CRYPTO_REPO)" rev-parse HEAD 2>/dev/null); \
+	head_of() { \
+	    if [ "$$(git -C "$$1" rev-parse --show-toplevel 2>/dev/null)" = "$$(cd "$$1" && pwd -P)" ]; then \
+	        git -C "$$1" rev-parse HEAD 2>/dev/null; echo git; \
+	    elif [ -f "$$1/.doors-pinned-commit" ]; then \
+	        tr -d ' \t\r\n' < "$$1/.doors-pinned-commit"; echo; echo export; \
+	    fi; \
+	}; \
+	rift_id=$$(head_of "$(RIFT_DIR)"); crypto_id=$$(head_of "$(CRYPTO_REPO)"); \
+	rift=$$(echo "$$rift_id" | sed -n 1p); rift_src=$$(echo "$$rift_id" | sed -n 2p); \
+	crypto=$$(echo "$$crypto_id" | sed -n 1p); crypto_src=$$(echo "$$crypto_id" | sed -n 2p); \
 	bad=0; \
 	[ "$$rift" = "$(RIFT_COMMIT)" ] || { echo "ERROR: vendor/RIFT is at $${rift:-an unreadable commit}, pinned at $(RIFT_COMMIT)"; bad=1; }; \
 	[ "$$crypto" = "$(CRYPTO_COMMIT)" ] || { echo "ERROR: vendor/Crypto is at $${crypto:-an unreadable commit}, pinned at $(CRYPTO_COMMIT)"; bad=1; }; \
@@ -210,6 +226,8 @@ $(VENDOR_ID): FORCE | $(OBJDIR)
 	  echo "crypto_pin=$(CRYPTO_COMMIT)"; \
 	  echo "rift_head=$${rift:-unknown}"; \
 	  echo "crypto_head=$${crypto:-unknown}"; \
+	  echo "rift_source=$${rift_src:-none}"; \
+	  echo "crypto_source=$${crypto_src:-none}"; \
 	  echo "pinned=$$pinned"; } > $@.new; \
 	if cmp -s $@.new $@ 2>/dev/null; then rm -f $@.new; else mv -f $@.new $@; fi
 
