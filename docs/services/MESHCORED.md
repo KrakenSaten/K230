@@ -454,7 +454,11 @@ it links `protocols/meshcore`, which needs two upstream checkouts an ordinary
 Doors build does not have (`vendor/RIFT` and `vendor/Crypto`, the same two
 `tools/meshcore-frame` needs). `apply_to_sdk.sh` exports those two, pin-checked,
 into the package's `third_party/`, with the verified commit beside each
-(`.doors-pinned-commit`), because the package tree has no `.git`.
+(`.doors-pinned-commit`), because the package tree has no `.git`. A checkout
+exported with uncommitted changes (only under `POCKETOS_ALLOW_PIN_DRIFT=1`)
+is recorded as `<commit>-dirty`, which the pin check refuses unless the
+package is built with `MESHCORE_ALLOW_UNPINNED=1`: it is not the
+pinned source, and the record says so.
 
 ```sh
 make ENABLE_MESHCORED=1 meshcored     # build
@@ -494,16 +498,21 @@ What the script refuses, and says so:
 | enabled, `pos-supervise` missing | `FAILED`, exit 1: meshcored is never run unsupervised | — |
 | already running under it | `already running`, exit 0 | stops supervisor and daemon, confirms both gone |
 | a meshcored it did not start is running (by hand, or orphaned) | `FAILED: ... running unsupervised (pid N)`, exit 1 | ends it too: SIGTERM, then SIGKILL after 3 s |
-| stale pid files naming nothing | starts normally | `not running` |
+| stale pid files naming nothing | starts normally | `not running`, and removes both |
+| the supervisor killed, its meshcored still running (an orphan) | — | SIGTERM to meshcored, so it writes its node table; SIGKILL only if it has not gone in 3 s |
 
-Beneath the script, **one process per node**: meshcored takes an exclusive
-`flock` on its state directory before it reads the identity or opens its
-socket, and a second one on the same directory leaves at once with exit code 3
-(`another meshcored is already running on ...`). Two processes on one state
-directory would be two radios claiming one identity, each rewriting the
-other's node table, and the second listener would take the first one's socket
-(pocketipc unlinks a socket path before it binds). The lock is the kernel's, so
-it cannot go stale.
+Beneath the script, **one process per node and per socket**: before it reads
+the identity or opens its socket, meshcored takes an exclusive `flock` on
+`<runtime dir>/<socket name>.lock`, then one on its state directory. A second
+one on either leaves at once with exit code 3 - `another process is already
+serving the meshcored socket`, or `another meshcored is already running on
+...`. Two processes on one state directory would be two radios claiming one
+identity, each rewriting the other's node table; two on one socket name, even
+with different state directories, would have the second take the first one's
+clients, because pocketipc unlinks a socket path before it binds. The locks
+are the kernel's, so they cannot go stale. The socket's is taken first, so a
+second meshcored on the same node and the same socket gives the socket's
+reason.
 
 ### Keeping a service whole
 
@@ -519,12 +528,20 @@ service is a binary and its init script together, both executable, whether
 release file names (each carries the string `DOORS_BUILD_ID=<id>`):
 
 - `deploy.sh` runs it on the tree it is about to send and refuses before it
-  contacts the unit; on the unit it stops any meshcored no init script started
-  before unpacking, and refuses to start services if what arrived is not
-  whole (`tests/deploy_staging_test.sh`, `tests/initscript_test.sh`).
+  contacts the unit. Init scripts carry no build stamp, and a package-only
+  rebuild does not refresh the tree's copies (Buildroot copies the overlay in
+  only when it finalises the rootfs), so it also refuses a tree whose init
+  scripts differ from the overlay `apply_to_sdk.sh` applied. On the unit it
+  stops any meshcored no init script started before it stops radiod, and
+  refuses to start services if what arrived is not whole. If `S65meshcored`
+  itself fails to start, the rest - the shell included - still starts, and
+  the deploy then exits non-zero naming it (`tests/deploy_staging_test.sh`,
+  `tests/initscript_test.sh`).
 - `verify_image.sh` runs it on the image's root partition, so an image with
   either half of a service missing, a mode wrong or a binary from another build
-  is refused before it is flashed (`tests/image_contents_test.sh`).
+  is refused before it is flashed (`tests/image_contents_test.sh`). An image
+  with no root partition it can read passes as `PASS (boot partition only)`,
+  and says the root partition was not checked.
 - Copying one binary onto a unit by hand is what produced the state above.
   Deploy with `deploy.sh`, which carries the whole set from one build.
 
@@ -587,8 +604,8 @@ Stopping it releases the lease and writes the node table.
 | The MeshCore wire format this speaks | **VERIFIED hardware**, by inheritance | the accepted P0 gate, from the same pinned sources; that gate is evidence about the frames, not about this daemon |
 | The daemon on unit A's radio | **VERIFIED hardware** | docs/hardware/MESHCORED_HARDWARE_GATE.md, RIFT_CHANNELS_GATE.md, RIFT_IMPROVEMENTS_GATE.md - every one of them started meshcored by hand, none through `S65meshcored` |
 | `S65meshcored`: opt-in, start, stop, restart, stale pid files, each refusal, a crash restarted and a crash loop declared, under the real `pos-supervise` | **VERIFIED host** | `tests/initscript_test.sh` |
-| One process per state directory; the second leaves before it touches the identity or the socket | **VERIFIED host** | `tests/meshcored_service_test.sh`, section 1b |
-| A tree or image with half a service, a wrong mode, no `pos-supervise`, a per-unit switch shipped, or a binary from another build is refused before it reaches a unit | **VERIFIED build/packaging** | `tests/deploy_staging_test.sh`, `tests/image_contents_test.sh`, `tests/initscript_test.sh` (the unit-side half of `deploy.sh`) |
+| One process per state directory and per socket name; the second leaves before it touches the identity or the socket | **VERIFIED host** | `tests/meshcored_service_test.sh`, section 1b: same node, same socket from another node, same node under another socket |
+| A tree or image with half a service, a wrong mode, no `pos-supervise`, a per-unit switch shipped, a binary from another build, or init scripts older than the applied overlay is refused before it reaches a unit | **VERIFIED build/packaging** | `tests/deploy_staging_test.sh`, `tests/image_contents_test.sh`, `tests/initscript_test.sh` (the unit-side half of `deploy.sh`) |
 | meshcored started by `S65meshcored` at boot on a unit, and a unit deployed with `deploy.sh` since | **UNRESOLVED** | not yet run on hardware |
 | Behaviour on a real, busy MeshCore network | **UNRESOLVED** | the mock air is lossless, instant, collision-free and has no range |
 | The service under a real duty cycle | **UNRESOLVED** | the dispatcher's airtime budget is upstream's default and has not been exercised against a regulatory limit |
