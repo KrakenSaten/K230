@@ -602,6 +602,12 @@ void pocketos_shell_keyboard_show(enum pocketos_kb_return ret,
     if (!sh.keyboard || !pocketos_shell_keyboard_may_show()) {
         return;
     }
+    /* Nor while the lock covers the app: the sheet raises itself to the
+     * foreground and would lie over the lock, taking the touches it is
+     * there to keep off the app (DS §31.4). */
+    if (shell_lock_is_locked()) {
+        return;
+    }
     sh.kb_done_cb = on_done;
     sh.kb_done_user = user;
     pos_keyboard_set_return(sh.keyboard, ret == POCKETOS_KB_NEWLINE ? POS_KB_RETURN_NEWLINE
