@@ -37,3 +37,15 @@ gen pos_font_mono_20          IBMPlexMono-Regular.ttf  20
 gen pos_font_mono_24          IBMPlexMono-Regular.ttf  24
 gen pos_font_mono_32          IBMPlexMono-Regular.ttf  32
 echo "done: $(ls "$OUT"/*.c | wc -l) fonts in $OUT"
+# The DOORS clock (lock screen and launcher header): digits, colon, minus and
+# space only, so two display sizes cost a few kilobytes rather than a full
+# Latin-1 set each. "--:--" is what an unset clock draws.
+CLOCK_RANGE="0x20,0x2D,0x30-0x3A"
+gen_clock() { # name ttf size
+  local name=$1 ttf=$2 size=$3
+  "$CONV" --font "$SRC/$ttf" --range "$CLOCK_RANGE" --size "$size" --bpp 4 --format lvgl \
+          --no-compress --lv-font-name "$name" -o "$OUT/$name.c"
+  echo "$name: $(wc -c < "$OUT/$name.c") bytes of C"
+}
+gen_clock pos_font_clock_64 IBMPlexSans-Regular.ttf 64
+gen_clock pos_font_clock_96 IBMPlexSans-Regular.ttf 96
