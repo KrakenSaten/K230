@@ -1,0 +1,862 @@
+{
+  "version": "1.0",
+  "kind": "visual asset handoff, not firmware",
+  "colors": {
+    "foreground": "#eeeae2",
+    "secondary": "#c3c0b9",
+    "focus": "#e6d5b7",
+    "background": "#101214"
+  },
+  "font": {
+    "family": "Nimbus Sans",
+    "file": "fonts/NimbusSans-Regular.otf",
+    "runtime": "Prefer existing project font if available; verify text widths."
+  },
+  "sample_data": {
+    "clock": "17:24",
+    "date": "Monday, 21 September",
+    "battery_percent": 86,
+    "boot_progress": 0.4,
+    "selected_app": "Radio"
+  },
+  "orientations": {
+    "portrait": {
+      "width": 568,
+      "height": 1232,
+      "safe_margin": 28,
+      "screens": {
+        "boot": {
+          "background": "backgrounds/portrait/boot.png",
+          "preview": "screens/portrait/boot.png",
+          "overlay_svg": "overlays/portrait/boot.svg",
+          "overlay_png": "overlays/portrait/boot.png",
+          "text": [
+            {
+              "id": "brand",
+              "sample": "DOORS",
+              "x": 28,
+              "baseline_y": 46,
+              "font_px": 17,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 3
+            },
+            {
+              "id": "hardware",
+              "sample": "K230",
+              "x": 540,
+              "baseline_y": 46,
+              "font_px": 14,
+              "anchor": "end",
+              "color": "#c3c0b9",
+              "letter_spacing": 2
+            },
+            {
+              "id": "wordmark",
+              "sample": "DOORS",
+              "x": 284.0,
+              "baseline_y": 530,
+              "font_px": 52,
+              "anchor": "middle",
+              "color": "#eeeae2",
+              "letter_spacing": 8
+            },
+            {
+              "id": "tagline",
+              "sample": "Open. Explore. Connect.",
+              "x": 284.0,
+              "baseline_y": 574,
+              "font_px": 20,
+              "anchor": "middle",
+              "color": "#e6d5b7",
+              "letter_spacing": 0.7
+            },
+            {
+              "id": "boot_status",
+              "sample": "Starting system",
+              "x": 284.0,
+              "baseline_y": 993,
+              "font_px": 17,
+              "anchor": "middle",
+              "color": "#c3c0b9",
+              "letter_spacing": 0
+            }
+          ],
+          "progress": {
+            "x": 149.0,
+            "y": 1015,
+            "width": 270,
+            "height": 4,
+            "sample_fraction": 0.4
+          }
+        },
+        "lock": {
+          "background": "backgrounds/portrait/lock.png",
+          "preview": "screens/portrait/lock.png",
+          "overlay_svg": "overlays/portrait/lock.svg",
+          "overlay_png": "overlays/portrait/lock.png",
+          "text": [
+            {
+              "id": "brand",
+              "sample": "DOORS",
+              "x": 28,
+              "baseline_y": 46,
+              "font_px": 17,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 3
+            },
+            {
+              "id": "battery",
+              "sample": "86%",
+              "x": 540,
+              "baseline_y": 45,
+              "font_px": 16,
+              "anchor": "end",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "clock",
+              "sample": "17:24",
+              "x": 284.0,
+              "baseline_y": 294,
+              "font_px": 98,
+              "anchor": "middle",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "date",
+              "sample": "Monday, 21 September",
+              "x": 284.0,
+              "baseline_y": 336,
+              "font_px": 21,
+              "anchor": "middle",
+              "color": "#c3c0b9",
+              "letter_spacing": 0
+            },
+            {
+              "id": "unlock_hint",
+              "sample": "Tap to open",
+              "x": 284.0,
+              "baseline_y": 1113,
+              "font_px": 18,
+              "anchor": "middle",
+              "color": "#c3c0b9",
+              "letter_spacing": 0
+            }
+          ]
+        },
+        "open": {
+          "background": "backgrounds/portrait/open.png",
+          "preview": "screens/portrait/open.png",
+          "overlay_svg": "overlays/portrait/open.svg",
+          "overlay_png": "overlays/portrait/open.png",
+          "text": [
+            {
+              "id": "brand",
+              "sample": "DOORS",
+              "x": 28,
+              "baseline_y": 46,
+              "font_px": 17,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 3
+            },
+            {
+              "id": "battery",
+              "sample": "86%",
+              "x": 540,
+              "baseline_y": 45,
+              "font_px": 16,
+              "anchor": "end",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "clock",
+              "sample": "17:24",
+              "x": 284.0,
+              "baseline_y": 127,
+              "font_px": 42,
+              "anchor": "middle",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "tagline",
+              "sample": "Open. Explore. Connect.",
+              "x": 284.0,
+              "baseline_y": 1201,
+              "font_px": 17,
+              "anchor": "middle",
+              "color": "#eeeae2",
+              "letter_spacing": 0.5
+            }
+          ]
+        },
+        "launcher": {
+          "background": "backgrounds/portrait/launcher.png",
+          "preview": "screens/portrait/launcher.png",
+          "overlay_svg": "overlays/portrait/launcher.svg",
+          "overlay_png": "overlays/portrait/launcher.png",
+          "text": [
+            {
+              "id": "brand",
+              "sample": "DOORS",
+              "x": 28,
+              "baseline_y": 46,
+              "font_px": 17,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 3
+            },
+            {
+              "id": "battery",
+              "sample": "86%",
+              "x": 540,
+              "baseline_y": 45,
+              "font_px": 16,
+              "anchor": "end",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "clock",
+              "sample": "17:24",
+              "x": 284.0,
+              "baseline_y": 244,
+              "font_px": 68,
+              "anchor": "middle",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "date",
+              "sample": "Monday, 21 September",
+              "x": 284.0,
+              "baseline_y": 283,
+              "font_px": 20,
+              "anchor": "middle",
+              "color": "#c3c0b9",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_radio",
+              "sample": "Radio",
+              "x": 62,
+              "baseline_y": 491,
+              "font_px": 25,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_mesh",
+              "sample": "Mesh",
+              "x": 212,
+              "baseline_y": 491,
+              "font_px": 25,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_network",
+              "sample": "Network",
+              "x": 362,
+              "baseline_y": 491,
+              "font_px": 25,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_tools",
+              "sample": "Tools",
+              "x": 62,
+              "baseline_y": 665,
+              "font_px": 25,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_ai",
+              "sample": "AI",
+              "x": 212,
+              "baseline_y": 665,
+              "font_px": 25,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_games",
+              "sample": "Games",
+              "x": 362,
+              "baseline_y": 665,
+              "font_px": 25,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_settings",
+              "sample": "Settings",
+              "x": 62,
+              "baseline_y": 839,
+              "font_px": 25,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_files",
+              "sample": "Files",
+              "x": 212,
+              "baseline_y": 839,
+              "font_px": 25,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_apps",
+              "sample": "Apps",
+              "x": 362,
+              "baseline_y": 839,
+              "font_px": 25,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "tagline",
+              "sample": "Open. Explore. Connect.",
+              "x": 284.0,
+              "baseline_y": 1156,
+              "font_px": 16,
+              "anchor": "middle",
+              "color": "#c3c0b9",
+              "letter_spacing": 0.4
+            },
+            {
+              "id": "navigation_hint",
+              "sample": "Tap or Enter to open",
+              "x": 284.0,
+              "baseline_y": 1194,
+              "font_px": 15,
+              "anchor": "middle",
+              "color": "#c3c0b9",
+              "letter_spacing": 0
+            }
+          ],
+          "cells": [
+            {
+              "app_id": "radio",
+              "label": "Radio",
+              "x": 48,
+              "y": 451,
+              "width": 144,
+              "height": 100,
+              "selected": true
+            },
+            {
+              "app_id": "mesh",
+              "label": "Mesh",
+              "x": 198,
+              "y": 451,
+              "width": 144,
+              "height": 100,
+              "selected": false
+            },
+            {
+              "app_id": "network",
+              "label": "Network",
+              "x": 348,
+              "y": 451,
+              "width": 144,
+              "height": 100,
+              "selected": false
+            },
+            {
+              "app_id": "tools",
+              "label": "Tools",
+              "x": 48,
+              "y": 625,
+              "width": 144,
+              "height": 100,
+              "selected": false
+            },
+            {
+              "app_id": "ai",
+              "label": "AI",
+              "x": 198,
+              "y": 625,
+              "width": 144,
+              "height": 100,
+              "selected": false
+            },
+            {
+              "app_id": "games",
+              "label": "Games",
+              "x": 348,
+              "y": 625,
+              "width": 144,
+              "height": 100,
+              "selected": false
+            },
+            {
+              "app_id": "settings",
+              "label": "Settings",
+              "x": 48,
+              "y": 799,
+              "width": 144,
+              "height": 100,
+              "selected": false
+            },
+            {
+              "app_id": "files",
+              "label": "Files",
+              "x": 198,
+              "y": 799,
+              "width": 144,
+              "height": 100,
+              "selected": false
+            },
+            {
+              "app_id": "apps",
+              "label": "Apps",
+              "x": 348,
+              "y": 799,
+              "width": 144,
+              "height": 100,
+              "selected": false
+            }
+          ]
+        }
+      }
+    },
+    "landscape": {
+      "width": 1232,
+      "height": 568,
+      "safe_margin": 28,
+      "screens": {
+        "boot": {
+          "background": "backgrounds/landscape/boot.png",
+          "preview": "screens/landscape/boot.png",
+          "overlay_svg": "overlays/landscape/boot.svg",
+          "overlay_png": "overlays/landscape/boot.png",
+          "text": [
+            {
+              "id": "brand",
+              "sample": "DOORS",
+              "x": 28,
+              "baseline_y": 46,
+              "font_px": 17,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 3
+            },
+            {
+              "id": "hardware",
+              "sample": "K230",
+              "x": 1204,
+              "baseline_y": 46,
+              "font_px": 14,
+              "anchor": "end",
+              "color": "#c3c0b9",
+              "letter_spacing": 2
+            },
+            {
+              "id": "wordmark",
+              "sample": "DOORS",
+              "x": 616.0,
+              "baseline_y": 248,
+              "font_px": 62,
+              "anchor": "middle",
+              "color": "#eeeae2",
+              "letter_spacing": 8
+            },
+            {
+              "id": "tagline",
+              "sample": "Open. Explore. Connect.",
+              "x": 616.0,
+              "baseline_y": 289,
+              "font_px": 20,
+              "anchor": "middle",
+              "color": "#e6d5b7",
+              "letter_spacing": 0.7
+            },
+            {
+              "id": "boot_status",
+              "sample": "Starting system",
+              "x": 616.0,
+              "baseline_y": 430,
+              "font_px": 17,
+              "anchor": "middle",
+              "color": "#c3c0b9",
+              "letter_spacing": 0
+            }
+          ],
+          "progress": {
+            "x": 481.0,
+            "y": 452,
+            "width": 270,
+            "height": 4,
+            "sample_fraction": 0.4
+          }
+        },
+        "lock": {
+          "background": "backgrounds/landscape/lock.png",
+          "preview": "screens/landscape/lock.png",
+          "overlay_svg": "overlays/landscape/lock.svg",
+          "overlay_png": "overlays/landscape/lock.png",
+          "text": [
+            {
+              "id": "brand",
+              "sample": "DOORS",
+              "x": 28,
+              "baseline_y": 46,
+              "font_px": 17,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 3
+            },
+            {
+              "id": "battery",
+              "sample": "86%",
+              "x": 1204,
+              "baseline_y": 45,
+              "font_px": 16,
+              "anchor": "end",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "clock",
+              "sample": "17:24",
+              "x": 616.0,
+              "baseline_y": 210,
+              "font_px": 108,
+              "anchor": "middle",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "date",
+              "sample": "Monday, 21 September",
+              "x": 616.0,
+              "baseline_y": 253,
+              "font_px": 21,
+              "anchor": "middle",
+              "color": "#c3c0b9",
+              "letter_spacing": 0
+            },
+            {
+              "id": "unlock_hint",
+              "sample": "Tap to open",
+              "x": 616.0,
+              "baseline_y": 503,
+              "font_px": 18,
+              "anchor": "middle",
+              "color": "#c3c0b9",
+              "letter_spacing": 0
+            }
+          ]
+        },
+        "open": {
+          "background": "backgrounds/landscape/open.png",
+          "preview": "screens/landscape/open.png",
+          "overlay_svg": "overlays/landscape/open.svg",
+          "overlay_png": "overlays/landscape/open.png",
+          "text": [
+            {
+              "id": "brand",
+              "sample": "DOORS",
+              "x": 28,
+              "baseline_y": 46,
+              "font_px": 17,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 3
+            },
+            {
+              "id": "battery",
+              "sample": "86%",
+              "x": 1204,
+              "baseline_y": 45,
+              "font_px": 16,
+              "anchor": "end",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "clock",
+              "sample": "17:24",
+              "x": 616.0,
+              "baseline_y": 46,
+              "font_px": 28,
+              "anchor": "middle",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "tagline",
+              "sample": "Open. Explore. Connect.",
+              "x": 616.0,
+              "baseline_y": 537,
+              "font_px": 17,
+              "anchor": "middle",
+              "color": "#eeeae2",
+              "letter_spacing": 0.5
+            }
+          ]
+        },
+        "launcher": {
+          "background": "backgrounds/landscape/launcher.png",
+          "preview": "screens/landscape/launcher.png",
+          "overlay_svg": "overlays/landscape/launcher.svg",
+          "overlay_png": "overlays/landscape/launcher.png",
+          "text": [
+            {
+              "id": "brand",
+              "sample": "DOORS",
+              "x": 28,
+              "baseline_y": 46,
+              "font_px": 17,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 3
+            },
+            {
+              "id": "battery",
+              "sample": "86%",
+              "x": 1204,
+              "baseline_y": 45,
+              "font_px": 16,
+              "anchor": "end",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "clock",
+              "sample": "17:24",
+              "x": 616.0,
+              "baseline_y": 91,
+              "font_px": 50,
+              "anchor": "middle",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "date",
+              "sample": "Monday, 21 September",
+              "x": 616.0,
+              "baseline_y": 123,
+              "font_px": 20,
+              "anchor": "middle",
+              "color": "#c3c0b9",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_radio",
+              "sample": "Radio",
+              "x": 302,
+              "baseline_y": 219,
+              "font_px": 33,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_mesh",
+              "sample": "Mesh",
+              "x": 534,
+              "baseline_y": 219,
+              "font_px": 33,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_network",
+              "sample": "Network",
+              "x": 766,
+              "baseline_y": 219,
+              "font_px": 33,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_tools",
+              "sample": "Tools",
+              "x": 302,
+              "baseline_y": 327,
+              "font_px": 33,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_ai",
+              "sample": "AI",
+              "x": 534,
+              "baseline_y": 327,
+              "font_px": 33,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_games",
+              "sample": "Games",
+              "x": 766,
+              "baseline_y": 327,
+              "font_px": 33,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_settings",
+              "sample": "Settings",
+              "x": 302,
+              "baseline_y": 435,
+              "font_px": 33,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_files",
+              "sample": "Files",
+              "x": 534,
+              "baseline_y": 435,
+              "font_px": 33,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "app_apps",
+              "sample": "Apps",
+              "x": 766,
+              "baseline_y": 435,
+              "font_px": 33,
+              "anchor": "start",
+              "color": "#eeeae2",
+              "letter_spacing": 0
+            },
+            {
+              "id": "tagline",
+              "sample": "Open. Explore. Connect.",
+              "x": 28,
+              "baseline_y": 540,
+              "font_px": 16,
+              "anchor": "start",
+              "color": "#c3c0b9",
+              "letter_spacing": 0.4
+            },
+            {
+              "id": "navigation_hint",
+              "sample": "Tap or Enter to open",
+              "x": 1204,
+              "baseline_y": 540,
+              "font_px": 15,
+              "anchor": "end",
+              "color": "#c3c0b9",
+              "letter_spacing": 0
+            }
+          ],
+          "cells": [
+            {
+              "app_id": "radio",
+              "label": "Radio",
+              "x": 288,
+              "y": 179,
+              "width": 216,
+              "height": 100,
+              "selected": true
+            },
+            {
+              "app_id": "mesh",
+              "label": "Mesh",
+              "x": 520,
+              "y": 179,
+              "width": 216,
+              "height": 100,
+              "selected": false
+            },
+            {
+              "app_id": "network",
+              "label": "Network",
+              "x": 752,
+              "y": 179,
+              "width": 216,
+              "height": 100,
+              "selected": false
+            },
+            {
+              "app_id": "tools",
+              "label": "Tools",
+              "x": 288,
+              "y": 287,
+              "width": 216,
+              "height": 100,
+              "selected": false
+            },
+            {
+              "app_id": "ai",
+              "label": "AI",
+              "x": 520,
+              "y": 287,
+              "width": 216,
+              "height": 100,
+              "selected": false
+            },
+            {
+              "app_id": "games",
+              "label": "Games",
+              "x": 752,
+              "y": 287,
+              "width": 216,
+              "height": 100,
+              "selected": false
+            },
+            {
+              "app_id": "settings",
+              "label": "Settings",
+              "x": 288,
+              "y": 395,
+              "width": 216,
+              "height": 100,
+              "selected": false
+            },
+            {
+              "app_id": "files",
+              "label": "Files",
+              "x": 520,
+              "y": 395,
+              "width": 216,
+              "height": 100,
+              "selected": false
+            },
+            {
+              "app_id": "apps",
+              "label": "Apps",
+              "x": 752,
+              "y": 395,
+              "width": 216,
+              "height": 100,
+              "selected": false
+            }
+          ]
+        }
+      }
+    }
+  }
+}

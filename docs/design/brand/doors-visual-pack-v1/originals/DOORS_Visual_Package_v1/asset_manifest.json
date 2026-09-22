@@ -1,0 +1,371 @@
+{
+  "package": "DOORS Visual Package v1",
+  "verified_native_pngs": 24,
+  "validation": [
+    "native dimensions",
+    "RGB backgrounds/screens",
+    "alpha overlay PNGs",
+    "PNG decode and CRC",
+    "launcher cell bounds",
+    "SHA-256 inventory"
+  ],
+  "not_validated": [
+    "physical K230 rendering",
+    "hardware memory/performance",
+    "pixel registration between door states"
+  ],
+  "assets": [
+    {
+      "file": "INTEGRATION.md",
+      "bytes": 6321,
+      "sha256": "3637abfe7fd6caab6a380b4b7a7fbe1771064bbbcaf95f67d071194088fdb4aa"
+    },
+    {
+      "file": "Landscape_overview.png",
+      "bytes": 3442893,
+      "sha256": "5cacfb923a8588ce0e4a6b980a8d6b473f196a273cbb18516a25b2ffa31b6472",
+      "width": 1280,
+      "height": 616,
+      "mode": "RGB"
+    },
+    {
+      "file": "PROJECT_HANDOFF_PROMPT.md",
+      "bytes": 2820,
+      "sha256": "7a6339129c1ecbd954b0c5fdb279978a1abba4cfc86bac8656d3914a3396d620"
+    },
+    {
+      "file": "PROVENANCE.md",
+      "bytes": 2359,
+      "sha256": "a361b1493e798a31dcc0af05879d013abfb53537e85c6d697a5d7be62f8bc2fa"
+    },
+    {
+      "file": "Portrait_overview.png",
+      "bytes": 3441670,
+      "sha256": "3052eda596827a0d441daa67cec395f0279f99c1e8e8b5ee34df1f8626b0554d",
+      "width": 1232,
+      "height": 640,
+      "mode": "RGB"
+    },
+    {
+      "file": "START_HERE.md",
+      "bytes": 2746,
+      "sha256": "cf62087108781053ea7aceb2165b622cd907349856d5232047e42b148efd930f"
+    },
+    {
+      "file": "backgrounds/landscape/boot.png",
+      "bytes": 809097,
+      "sha256": "dcdcfec8c26e4a02c2705ad8ae1a19694a783f27a8b3131e45031ff8418cf7ed",
+      "width": 1232,
+      "height": 568,
+      "mode": "RGB"
+    },
+    {
+      "file": "backgrounds/landscape/launcher.png",
+      "bytes": 689904,
+      "sha256": "5918d431d81954659e9ad3f071eda7bfd91e47f2e73071a6c55a49cbeb0d1641",
+      "width": 1232,
+      "height": 568,
+      "mode": "RGB"
+    },
+    {
+      "file": "backgrounds/landscape/lock.png",
+      "bytes": 824815,
+      "sha256": "0e613324e3b5b151614374107cdf6b7044edebecee73ce30447bc256a3c8bc1f",
+      "width": 1232,
+      "height": 568,
+      "mode": "RGB"
+    },
+    {
+      "file": "backgrounds/landscape/open.png",
+      "bytes": 1037580,
+      "sha256": "ba5eba764fdf8dbe9f1ed6d28f6411bc91ee5cd1a90b13c6c4062605127da754",
+      "width": 1232,
+      "height": 568,
+      "mode": "RGB"
+    },
+    {
+      "file": "backgrounds/portrait/boot.png",
+      "bytes": 649947,
+      "sha256": "c6394bf46fd2bb3dbee163876edad8d564d91edc2739f6d933a07d26bcef6210",
+      "width": 568,
+      "height": 1232,
+      "mode": "RGB"
+    },
+    {
+      "file": "backgrounds/portrait/launcher.png",
+      "bytes": 800134,
+      "sha256": "1fc2986a65815db11e5eac8c9c30c624e5f578f626108d85d81c8b31f57b5491",
+      "width": 568,
+      "height": 1232,
+      "mode": "RGB"
+    },
+    {
+      "file": "backgrounds/portrait/lock.png",
+      "bytes": 787001,
+      "sha256": "8da11d019d17d72880471ee5211efcfce15c7a58a315079a60d9722bafd000f4",
+      "width": 568,
+      "height": 1232,
+      "mode": "RGB"
+    },
+    {
+      "file": "backgrounds/portrait/open.png",
+      "bytes": 1002314,
+      "sha256": "8629239e1ca5b0919826754653c288f29713269226cf2367058e4e7e21fe6c89",
+      "width": 568,
+      "height": 1232,
+      "mode": "RGB"
+    },
+    {
+      "file": "fonts/LICENSE.txt",
+      "bytes": 52517,
+      "sha256": "1315a62758a603a3e6e87a79b8389563789c59c1740b9db8bc2b20e2e2145458"
+    },
+    {
+      "file": "fonts/NimbusSans-Regular.otf",
+      "bytes": 82264,
+      "sha256": "7c25be4d78155523080ab85b10277150657ff7dabbcad7037bdd536c9b6d0d08"
+    },
+    {
+      "file": "masters/landscape/boot.png",
+      "bytes": 1832076,
+      "sha256": "360657c89b9cc8c40131560c6a11bfcde84c62af9d63a6e89b2d09832452b855",
+      "width": 1846,
+      "height": 852,
+      "mode": "RGB"
+    },
+    {
+      "file": "masters/landscape/launcher.png",
+      "bytes": 1514872,
+      "sha256": "fc4d5a0e6d45ba89bea35333389b2323d44ce3e93bedbc9c7d440a610919b75e",
+      "width": 1846,
+      "height": 852,
+      "mode": "RGB"
+    },
+    {
+      "file": "masters/landscape/lock.png",
+      "bytes": 1845778,
+      "sha256": "39d334d91660493a9ab2c4b8dab4a97fa16c7020574e7ca3558818ac5e16371b",
+      "width": 1846,
+      "height": 852,
+      "mode": "RGB"
+    },
+    {
+      "file": "masters/landscape/open.png",
+      "bytes": 2237215,
+      "sha256": "8c88c354c6f7e98d6928e2dee74fd06641e623cf13c57b117bc4fb13795dcfa2",
+      "width": 1846,
+      "height": 852,
+      "mode": "RGB"
+    },
+    {
+      "file": "masters/portrait/boot.png",
+      "bytes": 1461362,
+      "sha256": "d22d3f65c4fc59bee165e7f5331786aa2bc0812e56b44ad5f9989e93a8ac5e8c",
+      "width": 852,
+      "height": 1847,
+      "mode": "RGB"
+    },
+    {
+      "file": "masters/portrait/launcher.png",
+      "bytes": 1720282,
+      "sha256": "d2ff731d4c550f811666bc3c8f826eb5b620858465bc24ffb320ee636d1b2c39",
+      "width": 852,
+      "height": 1846,
+      "mode": "RGB"
+    },
+    {
+      "file": "masters/portrait/lock.png",
+      "bytes": 1803146,
+      "sha256": "0e769272917ad242501a4315330c136f5cda24e2cb14103f4d3a163177885412",
+      "width": 852,
+      "height": 1846,
+      "mode": "RGB"
+    },
+    {
+      "file": "masters/portrait/open.png",
+      "bytes": 2184178,
+      "sha256": "65db463e733da61572c03fc972cae17a8d2b6fbfe7ca0c1034bbdec72fe97fcc",
+      "width": 852,
+      "height": 1846,
+      "mode": "RGB"
+    },
+    {
+      "file": "overlays/landscape/boot.png",
+      "bytes": 19132,
+      "sha256": "91d7f557cdadac93949082984dace976099ae6fa4f67d11fe3ad44497e5a858e",
+      "width": 1232,
+      "height": 568,
+      "mode": "RGBA"
+    },
+    {
+      "file": "overlays/landscape/boot.svg",
+      "bytes": 1022,
+      "sha256": "3ae155ef35713e41d6299c72013fa0950d7aeb506d412a9c84d6eae078e12c42"
+    },
+    {
+      "file": "overlays/landscape/launcher.png",
+      "bytes": 46740,
+      "sha256": "be8a065896e947bcc8e2f94c197d61073e9f1df38796eb1ea516162a260fb524",
+      "width": 1232,
+      "height": 568,
+      "mode": "RGBA"
+    },
+    {
+      "file": "overlays/landscape/launcher.svg",
+      "bytes": 3493,
+      "sha256": "0c09c4c934ddc74cd39b6129d2fb462ff43b1ab105177c71bc939273e3cf83bb"
+    },
+    {
+      "file": "overlays/landscape/lock.png",
+      "bytes": 18298,
+      "sha256": "abbf8bfdd6b3451c308fe2ca5cf44611223790c0cef021cf34796d5c0d017c87",
+      "width": 1232,
+      "height": 568,
+      "mode": "RGBA"
+    },
+    {
+      "file": "overlays/landscape/lock.svg",
+      "bytes": 1372,
+      "sha256": "6b197de70eac4a0e56b7d3d7f6900a506912ea377ae7f01af0b2fdcadfe1b753"
+    },
+    {
+      "file": "overlays/landscape/open.png",
+      "bytes": 14015,
+      "sha256": "9070b71c0288c7fff8cba81e8d0a9ac9d90e37ed5b84094bbb647fa1ea25e764",
+      "width": 1232,
+      "height": 568,
+      "mode": "RGBA"
+    },
+    {
+      "file": "overlays/landscape/open.svg",
+      "bytes": 1138,
+      "sha256": "f4c72579d83318877c7510899dfdab2a94faf2d6b25524ba6464938dfebadd13"
+    },
+    {
+      "file": "overlays/portrait/boot.png",
+      "bytes": 16487,
+      "sha256": "67e59e0e9c8a619cd11d82986564e13a28b98ae39b2045aa274eea0feba691dd",
+      "width": 568,
+      "height": 1232,
+      "mode": "RGBA"
+    },
+    {
+      "file": "overlays/portrait/boot.svg",
+      "bytes": 1022,
+      "sha256": "bae3d89771878403901646ecbc99b5a668ab2d7097ba38e36b7698834debeb05"
+    },
+    {
+      "file": "overlays/portrait/launcher.png",
+      "bytes": 43910,
+      "sha256": "b7f12b5f0de36192f79dbbc49d38791eafcc2b248e8b0c7bcbed028568e558cd",
+      "width": 568,
+      "height": 1232,
+      "mode": "RGBA"
+    },
+    {
+      "file": "overlays/portrait/launcher.svg",
+      "bytes": 3484,
+      "sha256": "513681df381a114f3b8022b6c3a64428fe3c5d8754db9bd0275361994cc2b74e"
+    },
+    {
+      "file": "overlays/portrait/lock.png",
+      "bytes": 16180,
+      "sha256": "20e5f6293c071d6776dbf4ee5998a075185981768353751736650cf858ea401b",
+      "width": 568,
+      "height": 1232,
+      "mode": "RGBA"
+    },
+    {
+      "file": "overlays/portrait/lock.svg",
+      "bytes": 1361,
+      "sha256": "2c9de91820ce4a7e2766ac0f358cba7a645c97d812d95aeefaaeee0188ac015e"
+    },
+    {
+      "file": "overlays/portrait/open.png",
+      "bytes": 12426,
+      "sha256": "46a807497e9704624ba5130103ab4f542a5bc2f3796097709f0b3753581f4e89",
+      "width": 568,
+      "height": 1232,
+      "mode": "RGBA"
+    },
+    {
+      "file": "overlays/portrait/open.svg",
+      "bytes": 1128,
+      "sha256": "6fc821add5e52a0648c46cd51151786ce61074909e693019f2fea14100cc06eb"
+    },
+    {
+      "file": "screens/landscape/boot.png",
+      "bytes": 811960,
+      "sha256": "477f10a33a2ccb8a2642cbb2365e95edd14925a326d812403dd6da7245e50397",
+      "width": 1232,
+      "height": 568,
+      "mode": "RGB"
+    },
+    {
+      "file": "screens/landscape/launcher.png",
+      "bytes": 662796,
+      "sha256": "dff478b588ec34f8b92f52aab12fc348e90482700fa91bd44d87bc3325ff8d96",
+      "width": 1232,
+      "height": 568,
+      "mode": "RGB"
+    },
+    {
+      "file": "screens/landscape/lock.png",
+      "bytes": 827543,
+      "sha256": "46b1398796d12d0534073e56d1ba5d1acb291eebf3b0ed56adda909f2526581c",
+      "width": 1232,
+      "height": 568,
+      "mode": "RGB"
+    },
+    {
+      "file": "screens/landscape/open.png",
+      "bytes": 1022196,
+      "sha256": "33db27d9220e2e998459e00bf60e08ad168b09722d1728fc8863478144bd3940",
+      "width": 1232,
+      "height": 568,
+      "mode": "RGB"
+    },
+    {
+      "file": "screens/portrait/boot.png",
+      "bytes": 660212,
+      "sha256": "4c207c9f79bb128e6dc8a6b064961ebda2154643772f4d06bfb9485e3e751df6",
+      "width": 568,
+      "height": 1232,
+      "mode": "RGB"
+    },
+    {
+      "file": "screens/portrait/launcher.png",
+      "bytes": 768114,
+      "sha256": "d204169ac1036c5d8a04339eaf50cafa6ff00ee48fc68c640e42c8ab712fa8c5",
+      "width": 568,
+      "height": 1232,
+      "mode": "RGB"
+    },
+    {
+      "file": "screens/portrait/lock.png",
+      "bytes": 794057,
+      "sha256": "42d1fe85631449229b7b9a42a5507192aa53258b8a878b1d90a1931adc04d52e",
+      "width": 568,
+      "height": 1232,
+      "mode": "RGB"
+    },
+    {
+      "file": "screens/portrait/open.png",
+      "bytes": 1000876,
+      "sha256": "05c979ba2274fe0f6833f3be94defb9dfd9cda84de7890c708c792573dc2217f",
+      "width": 568,
+      "height": 1232,
+      "mode": "RGB"
+    },
+    {
+      "file": "tools/build_package.py",
+      "bytes": 8125,
+      "sha256": "35efb7f1afe6cf2f667eee8396d7bb8fa8c5f65d0dcfd6aafbdda551f0758602"
+    },
+    {
+      "file": "ui_layout.json",
+      "bytes": 24151,
+      "sha256": "92a98ffa5a1b00243311ad717c9b65671767bed327f151831d106ee383f95f50"
+    }
+  ]
+}
