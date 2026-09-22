@@ -7,13 +7,23 @@
  *   --exit-after-ms <n>      quit after n milliseconds (headless testing)
  *   --rotation <mode>        automatic|portrait|landscape for this run only,
  *                            instead of the stored mode (nothing is stored)
+ *   --no-lock                start open, without the lock screen
+ *   --controls               start on DOORS Controls (implies --no-lock)
+ *
+ * The shell starts behind the lock screen (shell_lock.h) unless one of the
+ * above says otherwise, --open names an app, the settings say lock_screen=0,
+ * or this start is the shell restarting itself to apply a rotation.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #define _GNU_SOURCE
 #include "app.h"
+#include "art.h"
 #include "brightness.h"
 #include "chrome.h"
+#include "controls.h"
+#include "home.h"
+#include "shell_lock.h"
 #include "clock_runtime.h"
 #include "clock_time.h"
 #include "platform.h"
@@ -66,10 +76,10 @@ extern const struct pocketos_app app_settings;
 extern const struct pocketos_app app_wave;
 extern const struct pocketos_app app_rift;
 
-/* Appended, not inserted: the launcher's order is what
- * tests/launcher_icons_shell_test.sh looks for each icon at, and moving an
- * app would move ten tiles to add one. */
-static const struct pocketos_app *apps[] = { &app_radio, &app_system, &app_fleet,
+/* The registry. Where each app is shown on the launcher - its group, its
+ * place in the group, its colour - is the launcher's table (home_layout.c),
+ * not this order; an app added here and nowhere else is shown under MORE. */
+static const struct pocketos_app *const apps[] = { &app_radio, &app_system, &app_fleet,
                                             &app_radar, &app_timber, &app_notes,
                                             &app_clock, &app_calendar, &app_calculator,
                                             &app_settings, &app_wave, &app_rift };
@@ -77,6 +87,7 @@ static const struct pocketos_app *apps[] = { &app_radio, &app_system, &app_fleet
 
 struct shell {
     lv_obj_t *status_bar;
+    lv_obj_t *status_title; /* the DOORS wordmark */
     lv_obj_t *status_clock;
     lv_obj_t *status_radio;
     lv_obj_t *status_hint;
@@ -84,6 +95,10 @@ struct shell {
     enum pocketos_chrome chrome; /* the status chrome in force (chrome.h), resolved by the shell */
     int32_t chrome_h;       /* its height: where the content area starts */
     lv_obj_t *home;         /* launcher */
+    lv_obj_t *controls;     /* DOORS Controls, over the launcher (controls.h) */
+    lv_obj_t *backdrop;     /* the home photograph, behind the bar and the launcher */
+    lv_image_dsc_t *home_bg;
+    bool landscape;
     lv_obj_t *app_root;     /* current app container or NULL */
     const struct pocketos_app *app;
     void *app_priv;
@@ -160,6 +175,15 @@ static void status_update(void)
      * is looking at would win, because it looks like a clock. */
     clock_format_wall(&clock_runtime_now()->wall, buf, sizeof(buf));
     lv_label_set_text(sh.status_clock, buf);
+    {
+        /* The launcher's and the lock's large clock read the same reading,
+         * through the same rule: an unset clock is "--:--", not 01:00. */
+        char date[48];
+
+        clock_format_date(&clock_runtime_now()->wall, date, sizeof(date));
+        home_set_time(buf, date);
+        shell_lock_set_time(buf, date);
+    }
 
     /* This runs on the LVGL thread once a second. Before the deadline, a
      * radiod that was alive but not answering held the whole UI: nothing
@@ -217,7 +241,7 @@ static void status_bar_create(lv_obj_t *screen)
                           LV_FLEX_ALIGN_CENTER);
 
     title = pocketui_label(bar, "DOORS", POS_STYLE_CAPTION);
-    (void)title;
+    sh.status_title = title;
 
     sh.status_hint = pocketui_label(bar, "", POS_STYLE_CAPTION);
 
@@ -229,6 +253,37 @@ static void status_bar_create(lv_obj_t *screen)
 
     sh.status_clock = pocketui_label(bar, "--:--", POS_STYLE_CAPTION);
     sh.status_bar = bar;
+}
+
+/* ---- the DOORS environment (DS §31) ------------------------------------ *
+ *
+ * On the shell's own screens - the launcher, Controls, the lock - the home
+ * photograph lies behind everything and the status bar is drawn straight
+ * onto it: no fill, no rule, and no clock, because each of those screens
+ * shows the time large already. In an app the bar is exactly what it always
+ * was. One function decides which, from what is in front.
+ */
+static void environment_apply(void)
+{
+    bool env = !sh.app || shell_lock_is_locked();
+
+    lv_obj_remove_style(sh.status_bar, pos_style(POS_STYLE_ENV_BAR), 0);
+    lv_obj_remove_style(sh.status_title, pos_style(POS_STYLE_ENV_CAPTION), 0);
+    if (env) {
+        /* The wordmark as the package sets it: warm, tracked, sans. */
+        pos_style_add(sh.status_bar, POS_STYLE_ENV_BAR, 0);
+        pos_style_add(sh.status_title, POS_STYLE_ENV_CAPTION, 0);
+        lv_obj_add_flag(sh.status_clock, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_remove_flag(sh.status_clock, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (sh.backdrop) {
+        if (!sh.app && sh.home_bg) {
+            lv_obj_remove_flag(sh.backdrop, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(sh.backdrop, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
 }
 
 void pocketos_shell_set_status_hint(const char *text)
@@ -354,6 +409,11 @@ static void brightness_restore(void)
  * its contacts, resolves before anything is applied; short enough that the
  * screen turns while the hand is still on the device. */
 #define ROTATE_SETTLE_MS 800
+
+/* The mark restart_in_place leaves for the shell it becomes (main). */
+#define RESUME_ENV "DOORS_SHELL_RESUMED"
+/* settings.conf: lock_screen=0 starts the shell open (a bench unit, a kiosk). */
+#define LOCK_SETTING "lock_screen"
 
 static bool restart_pending;
 static lv_timer_t *rotate_timer;
@@ -678,7 +738,45 @@ void pocketos_shell_go_home(void)
     /* The launcher's own chrome, whatever the app that just closed had. */
     chrome_apply(chrome_resolve(POCKETOS_CHROME_DEFAULT, is_landscape(sh.display.geometry.rotation), true),
                  "home");
+    controls_hide();
     lv_obj_clear_flag(sh.home, LV_OBJ_FLAG_HIDDEN);
+    environment_apply();
+}
+
+/* ---- the shell's own actions: Lock, Controls ---------------------------- */
+
+static void shell_lock_now(void)
+{
+    shell_lock_engage("Lock");
+}
+
+static void controls_open(void)
+{
+    if (sh.app) {
+        pocketos_shell_go_home();
+    }
+    lv_obj_add_flag(sh.home, LV_OBJ_FLAG_HIDDEN);
+    controls_show();
+}
+
+static void controls_close(void)
+{
+    controls_hide();
+    lv_obj_clear_flag(sh.home, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void open_by_id(const char *id);
+
+static void on_lock_engaged(void)
+{
+    /* The touch keyboard belongs to a field the lock now covers. */
+    pocketos_shell_keyboard_hide();
+    environment_apply();
+}
+
+static void on_lock_opened(void)
+{
+    environment_apply();
 }
 
 static void on_back(lv_event_t *e)
@@ -696,6 +794,7 @@ static void app_open(const struct pocketos_app *app)
 
     app_close();
     lv_obj_add_flag(sh.home, LV_OBJ_FLAG_HIDDEN);
+    controls_hide();
     /* Before anything of the app exists, so the body it is created in is
      * its final one and its first layout pass is its only one (DS §30.2). */
     chrome_apply(chrome_resolve(declared_chrome(app), is_landscape(sh.display.geometry.rotation), false),
@@ -750,6 +849,7 @@ static void app_open(const struct pocketos_app *app)
     lv_obj_set_scroll_dir(body, LV_DIR_VER);
 
     sh.app = app;
+    environment_apply();
     sh.app_priv = app->create(body);
     LOG_INFO("open app %s", app->id);
     if (app->tick) {
@@ -758,72 +858,37 @@ static void app_open(const struct pocketos_app *app)
     announce_current();
 }
 
-static void on_tile(lv_event_t *e)
+static void open_app_from_home(const struct pocketos_app *app)
 {
-    app_open(lv_event_get_user_data(e));
+    app_open(app);
 }
 
-#define LAUNCHER_MAX_COLUMNS 8
-
-/* How many tile columns the launcher uses in a content area of this size.
- * Portrait keeps the two columns of DS C7: eleven apps take six rows,
- * 6 * 150 + 5 * 20 = 1000 px plus the 40 px padding, inside the 1176 px
- * below the status bar. A landscape area cannot hold six rows (512 px), so
- * it gets the fewest columns whose rows fit with the same 150 px tiles, 20 px
- * gaps and padding: for eleven apps on 1232x512 that is six columns and two
- * rows. Tiles are never shortened and the grid never scrolls. */
-static uint8_t launcher_columns(int32_t width, int32_t height)
+static void open_by_id(const char *id)
 {
-    uint8_t cols;
+    size_t k;
 
-    if (width <= height) {
-        return 2;
-    }
-    for (cols = 2; cols < LAUNCHER_MAX_COLUMNS; cols++) {
-        int32_t rows = (int32_t)((APP_COUNT + cols - 1) / cols);
-
-        if (2 * POCKETUI_PAD + rows * POCKETUI_TILE_H + (rows - 1) * POCKETUI_PAD <= height) {
-            break;
+    for (k = 0; k < APP_COUNT; k++) {
+        if (strcmp(apps[k]->id, id) == 0) {
+            app_open(apps[k]);
+            return;
         }
     }
-    return cols;
+    LOG_WARN("no app %s to open", id);
 }
 
-static void home_create(void)
+/* The launcher and Controls, built once for this run's orientation, in the
+ * content area at the launcher's chrome (DS §30.2: FULL, in both). */
+static void home_build(void)
 {
-    static int32_t cols[LAUNCHER_MAX_COLUMNS + 1];
-    static int32_t rows[APP_COUNT + 1];
-    const struct pos_display_geometry *g = pocketui_display_geometry();
-    /* Below the launcher's own chrome (DS §30.2: FULL, in both orientations),
-     * not below whatever an app had. */
-    uint8_t ncols = launcher_columns(g->width, g->height - chrome_height(chrome_resolve(POCKETOS_CHROME_DEFAULT,
-                                                                                         is_landscape(g->rotation), true)));
-    uint8_t nrows = (uint8_t)((APP_COUNT + ncols - 1) / ncols);
-    size_t i;
+    static const struct home_actions ha = { open_app_from_home, shell_lock_now, controls_open };
+    static const struct controls_actions ca = { open_by_id, shell_lock_now, controls_close };
 
-    sh.home = lv_obj_create(sh.content);
-    lv_obj_remove_style_all(sh.home);
-    lv_obj_set_size(sh.home, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_pad_all(sh.home, POCKETUI_PAD, 0);
-    lv_obj_set_style_pad_gap(sh.home, POCKETUI_PAD, 0);
-    lv_obj_set_layout(sh.home, LV_LAYOUT_GRID);
-    for (i = 0; i < ncols; i++) {
-        cols[i] = LV_GRID_FR(1);
+    sh.home = home_create(sh.content, apps, APP_COUNT, sh.landscape, &ha);
+    if (!sh.home) {
+        sh.home = lv_obj_create(sh.content); /* never NULL for the rest of the shell */
+        lv_obj_remove_style_all(sh.home);
     }
-    cols[ncols] = LV_GRID_TEMPLATE_LAST;
-    for (i = 0; i < nrows; i++) {
-        rows[i] = LV_GRID_CONTENT;
-    }
-    rows[nrows] = LV_GRID_TEMPLATE_LAST;
-    lv_obj_set_grid_dsc_array(sh.home, cols, rows);
-    for (i = 0; i < APP_COUNT; i++) {
-        lv_obj_t *tile = pocketui_tile_mask(sh.home, apps[i]->icon_mask, apps[i]->icon,
-                                            apps[i]->name, on_tile, (void *)apps[i]);
-
-        lv_obj_set_grid_cell(tile, LV_GRID_ALIGN_STRETCH, (uint8_t)(i % ncols), 1,
-                             LV_GRID_ALIGN_START, (uint8_t)(i / ncols), 1);
-    }
-    LOG_INFO("launcher: %u column(s), %u row(s)", (unsigned)ncols, (unsigned)nrows);
+    sh.controls = controls_create(sh.content, sh.landscape, &ca);
 }
 
 /* ---- screenshot ------------------------------------------------------- */
@@ -970,6 +1035,55 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
             cJSON_AddNumberToObject(chrome, "status_bar_height", sh.chrome_h);
             cJSON_AddItemToObject(result, "chrome", chrome);
         }
+        {
+            /* The DOORS environment (DS §31): lock, launcher, Controls, art. */
+            cJSON *lock = cJSON_CreateObject();
+            cJSON *launcher = cJSON_CreateObject();
+            cJSON *art = cJSON_CreateObject();
+            struct home_info hi;
+
+            cJSON_AddBoolToObject(lock, "locked", shell_lock_is_locked());
+            cJSON_AddBoolToObject(lock, "opening", shell_lock_is_opening());
+            cJSON_AddNumberToObject(lock, "engaged", shell_lock_engage_count());
+            cJSON_AddNumberToObject(lock, "opened", shell_lock_open_count());
+            cJSON_AddItemToObject(result, "lock", lock);
+            home_info(&hi);
+            cJSON_AddNumberToObject(launcher, "groups", hi.groups);
+            cJSON_AddNumberToObject(launcher, "apps", hi.apps);
+            cJSON_AddNumberToObject(launcher, "icons_art", hi.icons_art);
+            cJSON_AddNumberToObject(launcher, "icons_fallback", hi.icons_fallback);
+            cJSON_AddNumberToObject(launcher, "cell_width", hi.cell_w);
+            cJSON_AddBoolToObject(launcher, "scrolls", hi.scrolls);
+            cJSON_AddBoolToObject(launcher, "controls", controls_visible());
+            {
+                /* Where each app's cell is on the screen, for the bench and
+                 * the tests: a tap there opens it. */
+                cJSON *cells = cJSON_CreateArray();
+                size_t k;
+
+                for (k = 0; k < APP_COUNT; k++) {
+                    lv_area_t a;
+
+                    if (home_cell_area(apps[k]->id, &a)) {
+                        cJSON *c = cJSON_CreateObject();
+
+                        cJSON_AddStringToObject(c, "id", apps[k]->id);
+                        cJSON_AddNumberToObject(c, "x", a.x1);
+                        cJSON_AddNumberToObject(c, "y", a.y1);
+                        cJSON_AddNumberToObject(c, "w", lv_area_get_width(&a));
+                        cJSON_AddNumberToObject(c, "h", lv_area_get_height(&a));
+                        cJSON_AddItemToArray(cells, c);
+                    }
+                }
+                cJSON_AddItemToObject(launcher, "cells", cells);
+            }
+            cJSON_AddItemToObject(result, "launcher", launcher);
+            cJSON_AddStringToObject(art, "dir", art_dir());
+            cJSON_AddBoolToObject(art, "background", sh.home_bg != NULL);
+            cJSON_AddNumberToObject(art, "files_read", art_loads());
+            cJSON_AddNumberToObject(art, "bytes_held", (double)art_bytes_held());
+            cJSON_AddItemToObject(result, "art", art);
+        }
     } else if (strcmp(method, "shell.open") == 0) {
         const cJSON *aid = params ? cJSON_GetObjectItemCaseSensitive(params, "id") : NULL;
         const struct pocketos_app *app = find_app(cJSON_IsString(aid) ? aid->valuestring : NULL);
@@ -979,13 +1093,46 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
                                                                   "unknown app id"));
             return;
         }
+        /* Opening an app from outside is somebody at the bench or a script
+         * acting for the owner: it opens the device too, without the door
+         * sequence (shell_lock.h - the lock is not security). */
+        shell_lock_open(false, "shell.open");
         app_open(app);
         result = cJSON_CreateObject();
         cJSON_AddStringToObject(result, "current", app->id);
     } else if (strcmp(method, "shell.home") == 0) {
+        shell_lock_open(false, "shell.home");
         pocketos_shell_go_home();
         result = cJSON_CreateObject();
         cJSON_AddStringToObject(result, "current", "home");
+    } else if (strcmp(method, "shell.lock") == 0) {
+        shell_lock_engage("shell.lock");
+        result = cJSON_CreateObject();
+        cJSON_AddBoolToObject(result, "locked", shell_lock_is_locked());
+    } else if (strcmp(method, "shell.unlock") == 0) {
+        const cJSON *an = params ? cJSON_GetObjectItemCaseSensitive(params, "animate") : NULL;
+
+        shell_lock_open(cJSON_IsTrue(an), "shell.unlock");
+        result = cJSON_CreateObject();
+        cJSON_AddBoolToObject(result, "locked", shell_lock_is_locked());
+    } else if (strcmp(method, "shell.controls") == 0) {
+        const cJSON *show = params ? cJSON_GetObjectItemCaseSensitive(params, "show") : NULL;
+
+        if (show && !cJSON_IsBool(show)) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                  "show must be true or false"));
+            return;
+        }
+        if (cJSON_IsFalse(show)) {
+            if (controls_visible()) {
+                controls_close();
+            }
+        } else {
+            shell_lock_open(false, "shell.controls");
+            controls_open();
+        }
+        result = cJSON_CreateObject();
+        cJSON_AddBoolToObject(result, "controls", controls_visible());
     } else if (strcmp(method, "shell.screenshot") == 0) {
         const cJSON *p = params ? cJSON_GetObjectItemCaseSensitive(params, "path") : NULL;
 
@@ -1107,6 +1254,7 @@ static void on_tick(lv_timer_t *timer)
      * (clock_runtime.h). */
     clock_runtime_step();
     status_update();
+    controls_tick();
     if (sh.app && sh.app->tick) {
         sh.app->tick(sh.app_priv);
     }
@@ -1145,6 +1293,7 @@ static void restart_in_place(void)
     for (fd = 3; fd < 64; fd++) {
         close(fd);
     }
+    setenv(RESUME_ENV, "1", 1);
     execv(exe, shell_argv);
     pocketlog_init("shell");
     LOG_ERROR("display: cannot re-execute %s (%s); exiting so the supervisor starts the shell again", exe,
@@ -1158,6 +1307,9 @@ int main(int argc, char **argv)
     const char *theme_arg = NULL;
     const char *mode_arg = NULL;
     const char *rotation_arg = NULL;
+    bool no_lock = false;
+    bool start_controls = false;
+    bool resumed;
     long exit_after_ms = -1;
     int loaded;
     lv_display_t *disp;
@@ -1178,15 +1330,27 @@ int main(int argc, char **argv)
             mode_arg = argv[++i];
         } else if (strcmp(argv[i], "--rotation") == 0 && i + 1 < argc) {
             rotation_arg = argv[++i];
+        } else if (strcmp(argv[i], "--no-lock") == 0) {
+            no_lock = true;
+        } else if (strcmp(argv[i], "--controls") == 0) {
+            start_controls = true;
+            no_lock = true;
         } else {
             fprintf(stderr, "usage: pocketos-shell [--open APP] [--screenshot F.png] [--exit-after-ms N]"
                             " [--theme ID] [--mode normal|outdoor|night]"
-                            " [--rotation automatic|portrait|landscape]\n");
+                            " [--rotation automatic|portrait|landscape] [--no-lock] [--controls]\n");
             return 2;
         }
     }
 
     shell_argv = argv;
+    /* A start that is this shell re-executing itself for a rotation carries
+     * a mark in its environment (restart_in_place). It is the same session
+     * turning round, so it does not lock; and the mark is spent here, so
+     * whatever starts after this one - a supervisor restart after a crash -
+     * locks as a cold start does. */
+    resumed = getenv(RESUME_ENV) != NULL;
+    unsetenv(RESUME_ENV);
     pocketlog_init("shell");
     pocketlog_install_crash_handler();
     /* The settings come first: the orientation is decided from them before
@@ -1261,6 +1425,19 @@ int main(int argc, char **argv)
     brightness_restore();
     screen = lv_screen_active();
     pocketui_style_screen(screen);
+    sh.landscape = is_landscape(sh.display.geometry.rotation);
+    /* The home photograph first, so everything else is drawn over it. Kept
+     * for the whole run: the launcher is where every app returns to. */
+    sh.home_bg = art_load_background("home", sh.landscape);
+    sh.backdrop = lv_image_create(screen);
+    pos_style_add(sh.backdrop, POS_STYLE_ENV_BG, 0);
+    lv_obj_set_pos(sh.backdrop, 0, 0);
+    lv_obj_remove_flag(sh.backdrop, LV_OBJ_FLAG_CLICKABLE);
+    if (sh.home_bg) {
+        lv_image_set_src(sh.backdrop, sh.home_bg);
+    } else {
+        lv_obj_add_flag(sh.backdrop, LV_OBJ_FLAG_HIDDEN);
+    }
     status_bar_create(screen);
 
     sh.content = lv_obj_create(screen);
@@ -1272,7 +1449,12 @@ int main(int argc, char **argv)
      * height, so nothing above sized it. */
     chrome_apply(chrome_resolve(POCKETOS_CHROME_DEFAULT, is_landscape(sh.display.geometry.rotation), true),
                  "home");
-    home_create();
+    {
+        uint32_t t0 = lv_tick_get();
+
+        home_build();
+        LOG_INFO("launcher: built with Controls in %u ms", (unsigned)lv_tick_elaps(t0));
+    }
 
     /* One keyboard for the whole shell, built hidden and never rebuilt. It
      * sits on the screen rather than inside an app, so leaving an app cannot
@@ -1282,6 +1464,25 @@ int main(int argc, char **argv)
         pos_keyboard_set_done_cb(sh.keyboard, on_keyboard_done, NULL);
     } else {
         LOG_WARN("touch keyboard unavailable; text entry will not work");
+    }
+
+    /* The lock: over the apps, the launcher and the keyboard, under the
+     * status bar and the alarm alert (shell_lock.h). */
+    {
+        static const struct shell_lock_hooks hooks = { on_lock_engaged, on_lock_opened };
+
+        uint32_t t0 = lv_tick_get();
+
+        shell_lock_create(screen, sh.landscape, &hooks);
+        lv_obj_move_foreground(sh.status_bar);
+        LOG_INFO("lock: built in %u ms", (unsigned)lv_tick_elaps(t0));
+#if defined(POCKETOS_SHELL_TEST_HOOKS) && POCKETOS_SHELL_TEST_HOOKS
+        {
+            const char *hold = getenv("POCKETOS_TEST_LOCK_HOLD");
+
+            shell_lock_test_hold_at_door(hold && strcmp(hold, "door") == 0);
+        }
+#endif
     }
 
     /* The alarms, and the one alert that shows them. Both belong to the
@@ -1327,6 +1528,18 @@ int main(int argc, char **argv)
             LOG_WARN("unknown app %s", open_id);
         }
     }
+    if (start_controls && !sh.app) {
+        controls_open();
+    }
+    if (no_lock || open_id || resumed || strcmp(settings_get(LOCK_SETTING, "1"), "0") == 0) {
+        LOG_INFO("lock: not engaged at start (%s)", resumed   ? "rotation restart"
+                                                    : no_lock ? "--no-lock"
+                                                    : open_id ? "--open"
+                                                              : LOCK_SETTING "=0");
+    } else {
+        shell_lock_engage("start");
+    }
+    environment_apply();
     sh.server = pocketipc_server_new("shell", on_shell_request, NULL);
     if (sh.server) {
         LOG_INFO("shell.* listening on %s", pocketipc_server_path(sh.server));
