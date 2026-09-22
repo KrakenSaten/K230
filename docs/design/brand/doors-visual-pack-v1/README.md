@@ -8,6 +8,17 @@ layer specifications that go with them.
 any UI. Nothing was converted, resized or re-encoded. Nothing was seen on the
 panel: every claim below is about files, not about unit A.
 
+**Integrated 2026-09-22 (branch `feat/doors-visual-refresh`, DS §31,
+PROPOSED).** This folder is still never shipped and nothing in it was
+changed. `tools/design/gen_doors_ui.py` derives the runtime art from it into
+`ui/assets/doors/` (backgrounds from `device/backgrounds`, portal icons
+redrawn from `source/app-icons/svg` and the glyph SVGs, glyphs from
+`device/system-icons/png32`), and `ui/assets/doors/MANIFEST.txt` records the
+hash of every source used. The "Before implementation" points below were
+decided there: the app icons are drawn per app (not per category) in the
+package's frame and hues, the layouts were re-measured in the Doors fonts,
+and the launcher and system menu have their own amendment (§31).
+
 ## Provenance
 
 Two archives from the product owner, supplied together on 2026-09-22.

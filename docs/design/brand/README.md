@@ -379,7 +379,8 @@ Tests:
   opens the app and one in the gutter does not, a press on the icon presses
   the tile, and the tint equals `accent_primary` and the glyph's colour in all
   15 theme and mode pairs.
-- `tests/launcher_icons_shell_test.sh` (shell tests): in the running shell, for
+- `tests/launcher_icons_shell_test.sh` (shell tests; retired with the tile
+  launcher by DS §31, whose launcher `tests/doors_shell_test.sh` checks): in the running shell, for
   all 15 pairs, every tile's box, each app's own mask found at its tile's icon
   origin blended from `surface` to `accent_primary` (max error 2 measured,
   tolerance 4; the nearest wrong mask is 99 away), clear tile around it, the
