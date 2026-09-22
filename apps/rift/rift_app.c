@@ -1,5 +1,5 @@
 /*
- * RIFT for Doors, phase 1: the chrome, the sections and the lifecycle.
+ * RIFT for Doors: the chrome, the sections and the lifecycle.
  * See rift_app.h for what lives where and why.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
@@ -204,11 +204,17 @@ static void build_cmdline(struct rift_app *a)
 {
     lv_obj_t *prompt;
 
-    /* The command line is permanent chrome in the approved design and the
-     * whole vertical budget is measured with it there (handoff §2). Phase 1
-     * has no parser, so it is drawn in the DS §9 disabled treatment and
-     * says what it is waiting for rather than offering an entry that would
-     * do nothing. It is also where this app says the service has gone. */
+    /* The command line is there only when it has something to hold.
+     *
+     * The approved design made it permanent chrome, with a command parser
+     * behind it; there is no parser, and on ACTIVITY and NODES - and on
+     * every portrait screen, where COMMS has its own composer - it held one
+     * line of key hints: 56 px of the 378 a landscape body has under its
+     * strip (568 less the 32 px bar, the 72 px header and the 30 px corner
+     * inset). So it is shown for exactly two things: the landscape composer
+     * (landscape COMMS with a conversation open), and the words for a
+     * service that is not answering. The key hints moved to the section
+     * strip's right caption, which had the room. */
     a->cmdline = lv_obj_create(a->frame);
     lv_obj_remove_style_all(a->cmdline);
     lv_obj_set_width(a->cmdline, LV_PCT(100));
@@ -219,6 +225,7 @@ static void build_cmdline(struct rift_app *a)
     lv_obj_set_style_pad_hor(a->cmdline, RIFT_PAD, 0);
     lv_obj_set_style_pad_column(a->cmdline, 12, 0);
     lv_obj_remove_flag(a->cmdline, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(a->cmdline, LV_OBJ_FLAG_HIDDEN);
 
     prompt = lv_label_create(a->cmdline);
     lv_obj_remove_style_all(prompt);
@@ -226,11 +233,22 @@ static void build_cmdline(struct rift_app *a)
     lv_obj_set_width(prompt, 12);
     lv_label_set_text(prompt, "\xE2\x80\xBA");
 
-    a->keysink = lv_label_create(a->cmdline);
+    a->cmd_status = lv_label_create(a->cmdline);
+    lv_obj_remove_style_all(a->cmd_status);
+    pos_style_add(a->cmd_status, POS_STYLE_CAPTION, 0);
+    lv_obj_set_flex_grow(a->cmd_status, 1);
+    lv_label_set_long_mode(a->cmd_status, LV_LABEL_LONG_CLIP);
+    lv_label_set_text(a->cmd_status, "");
+
+    /* The one key sink, outside the command line so the line can go away
+     * without taking the keys with it. It stays in the layout at 1 px and is
+     * never hidden: it is the object the arrows arrive on, and a hidden
+     * object is not one LVGL will move focus to reliably. */
+    a->keysink = lv_label_create(a->frame);
     lv_obj_remove_style_all(a->keysink);
-    pos_style_add(a->keysink, POS_STYLE_CAPTION, 0);
-    lv_obj_set_flex_grow(a->keysink, 1);
-    lv_label_set_long_mode(a->keysink, LV_LABEL_LONG_CLIP);
+    lv_obj_add_flag(a->keysink, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_size(a->keysink, 1, 1);
+    lv_obj_set_pos(a->keysink, 0, 0);
     lv_label_set_text(a->keysink, "");
 
     /* The landscape composer. The design makes the command line the
@@ -261,15 +279,26 @@ static int composer_is_live(const struct rift_app *a)
            rift_comms_open_peer(a) != NULL;
 }
 
+/* The service is not answering, and the command line says so. */
+static int service_down(const struct rift_app *a)
+{
+    return a->model.stale || a->model.state == RIFT_SVC_ABSENT;
+}
+
 static void paint_cmdline(struct rift_app *a)
 {
-    const struct rift_model *m = &a->model;
     lv_obj_t *wrap = a->composer ? lv_obj_get_parent(a->composer) : NULL;
     int live = composer_is_live(a);
+    int down = !live && service_down(a);
 
-    /* The command line is one of two things: the composer, in landscape
-     * COMMS with a conversation open, or the caption that says what the
-     * keys do and where the service is. It is never both. */
+    /* The command line is one of two things, or it is not there: the
+     * composer, in landscape COMMS with a conversation open, or the line
+     * that says the service is not answering. It is never both. */
+    if (live || down) {
+        lv_obj_remove_flag(a->cmdline, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(a->cmdline, LV_OBJ_FLAG_HIDDEN);
+    }
     if (wrap) {
         if (live) {
             lv_obj_remove_flag(wrap, LV_OBJ_FLAG_HIDDEN);
@@ -306,38 +335,55 @@ static void paint_cmdline(struct rift_app *a)
         }
     }
     if (live) {
-        /* Emptied and given no width, rather than hidden: the key sink is
-         * the object the list's arrows arrive on, and a hidden object
-         * cannot be focused - lv_group_focus_obj skips it - so hiding it
-         * would make Esc's way out of the composer a focus call that
-         * silently did nothing. */
-        lv_label_set_text(a->keysink, "");
-        lv_obj_set_flex_grow(a->keysink, 0);
-        lv_obj_set_width(a->keysink, 0);
+        lv_obj_add_flag(a->cmd_status, LV_OBJ_FLAG_HIDDEN);
         return;
     }
-    lv_obj_set_flex_grow(a->keysink, 1);
-    lv_obj_set_width(a->keysink, LV_SIZE_CONTENT);
+    lv_obj_remove_flag(a->cmd_status, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(a->cmd_status, a->ipc.last_error[0]
+                                         ? a->ipc.last_error
+                                         : "meshcored is not answering; reconnecting");
+}
 
-    if (m->stale || m->state == RIFT_SVC_ABSENT) {
-        lv_label_set_text(a->keysink, a->ipc.last_error[0]
-                                          ? a->ipc.last_error
-                                          : "meshcored is not answering; reconnecting");
+/* The strip's right caption, landscape only: what the keys do here, then
+ * the counts the design puts in the header's right caption - that header is
+ * Doors's, so they come here (handoff §2). Portrait has no room for either
+ * beside four section names, and a caption clipped to its tail is worse than
+ * none; the touch actions there say what they do. */
+static void paint_strip_caption(struct rift_app *a)
+{
+    const struct rift_model *m = &a->model;
+    char hops[12];
+    const char *keys = "";
+    int64_t now;
+    int max_hops = -1;
+    int i;
+
+    if (!a->cmd_hint) {
         return;
     }
-    if (a->section == RIFT_SEC_COMMS) {
-        lv_label_set_text(a->keysink, a->wide
-                                          ? "\xE2\x86\x91\xE2\x86\x93 CHOOSE A CONVERSATION"
-                                            RIFT_SEP "then type to send"
-                                          : "Tap a conversation, then write below");
+    if (!a->wide) {
+        lv_obj_add_flag(a->cmd_hint, LV_OBJ_FLAG_HIDDEN);
         return;
     }
-    if (a->wide) {
-        lv_label_set_text(a->keysink, "\xE2\x86\x91\xE2\x86\x93 SELECT" RIFT_SEP
-                                      "ENTER DETAIL" RIFT_SEP "COMMS to write");
-        return;
+    if (a->section == RIFT_SEC_NODES) {
+        keys = "\xE2\x86\x91\xE2\x86\x93 SELECT" RIFT_SEP "ENTER MESSAGE" RIFT_SEP;
+    } else if (a->section == RIFT_SEC_COMMS && !composer_is_live(a)) {
+        keys = "\xE2\x86\x91\xE2\x86\x93 CHOOSE" RIFT_SEP;
     }
-    lv_label_set_text(a->keysink, "Tap a node to select it; COMMS to write");
+    now = rift_app_now(a);
+    for (i = 0; i < m->node_count; i++) {
+        if (m->nodes[i].path_known && m->nodes[i].hops > max_hops) {
+            max_hops = m->nodes[i].hops;
+        }
+    }
+    if (max_hops < 0) {
+        snprintf(hops, sizeof(hops), "%s", RIFT_UNKNOWN);
+    } else {
+        snprintf(hops, sizeof(hops), "%d", max_hops);
+    }
+    lv_label_set_text_fmt(a->cmd_hint, "%s%d KNOWN" RIFT_SEP "%d FRESH" RIFT_SEP "MAX %s HOPS",
+                          keys, m->node_count, rift_model_fresh_count(m, now), hops);
+    lv_obj_remove_flag(a->cmd_hint, LV_OBJ_FLAG_HIDDEN);
 }
 
 /* ---- sections -------------------------------------------------------------- */
@@ -393,6 +439,8 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section)
     a->section = section;
     if (section != RIFT_SEC_NODES) {
         a->detail_open = 0;
+        /* Leaving NODES is a Cancel for any confirmation left up there. */
+        rift_nodes_cancel_confirm(a);
     }
     paint_tabs(a);
     switch (section) {
@@ -459,6 +507,9 @@ void rift_app_open_detail(struct rift_app *a, int open)
     }
     /* Landscape never pushes: the pane beside the list is the detail. */
     a->detail_open = (open && !a->wide) ? 1 : 0;
+    if (!a->detail_open) {
+        rift_nodes_cancel_confirm(a);
+    }
     rift_app_refresh(a);
 }
 
@@ -467,8 +518,13 @@ void rift_app_refresh(struct rift_app *a)
     if (!a) {
         return;
     }
-    /* COMMS first: it is what decides whether the command line is a
-     * composer, and paint_cmdline reads that. */
+    /* The command line first. Whether it is there decides how tall the
+     * section's body is, and the section below lays itself out - a thread
+     * scrolls to its newest line - against that height. Painted after, it
+     * took its 56 px from under a thread that had just been scrolled to the
+     * end, and hid the newest message. It depends only on the section, the
+     * open conversation and the service, none of which the refresh changes. */
+    paint_cmdline(a);
     if (a->section == RIFT_SEC_ACTIVITY) {
         rift_activity_refresh(a);
     } else if (a->section == RIFT_SEC_NODES) {
@@ -476,40 +532,9 @@ void rift_app_refresh(struct rift_app *a)
     } else if (a->section == RIFT_SEC_COMMS) {
         rift_comms_refresh(a);
     }
-    paint_cmdline(a);
     /* The unread pill moves with the messages, not with the section. */
     paint_tabs(a);
-    /* The strip's right caption. The design puts these counts in the app
-     * header's right caption, and that header belongs to Doors: RIFT
-     * changes nothing there (handoff §2), so they go at the end of the
-     * strip instead. In portrait the four section names leave too little
-     * room for them, and a caption clipped to its own tail is worse than
-     * none - the list's own footer carries the same counts in full. */
-    if (a->cmd_hint && !a->wide) {
-        lv_obj_add_flag(a->cmd_hint, LV_OBJ_FLAG_HIDDEN);
-    } else if (a->cmd_hint) {
-        const struct rift_model *m = &a->model;
-        int64_t now = rift_app_now(a);
-        int fresh = rift_model_fresh_count(m, now);
-        int max_hops = -1;
-        int i;
-
-        for (i = 0; i < m->node_count; i++) {
-            if (m->nodes[i].path_known && m->nodes[i].hops > max_hops) {
-                max_hops = m->nodes[i].hops;
-            }
-        }
-        if (max_hops < 0) {
-            lv_label_set_text_fmt(a->cmd_hint, "%d KNOWN" RIFT_SEP "%d FRESH" RIFT_SEP
-                                               "MAX %s HOPS",
-                                  m->node_count, fresh, RIFT_UNKNOWN);
-        } else {
-            lv_label_set_text_fmt(a->cmd_hint, "%d KNOWN" RIFT_SEP "%d FRESH" RIFT_SEP
-                                               "MAX %d HOPS",
-                                  m->node_count, fresh, max_hops);
-        }
-        lv_obj_remove_flag(a->cmd_hint, LV_OBJ_FLAG_HIDDEN);
-    }
+    paint_strip_caption(a);
 }
 
 /* ---- keys ------------------------------------------------------------------ */

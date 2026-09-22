@@ -1,5 +1,5 @@
 /*
- * RIFT: the mesh client for Doors, phase 1.
+ * RIFT: the mesh client for Doors.
  *
  * This header is the app's internal contract - the chrome owns it, the
  * three screen modules read it - and nothing outside apps/rift includes it.
@@ -13,23 +13,22 @@
  *   rift_app      chrome, sections, layout, lifecycle      LVGL
  *   ui/rift_*     one screen each                          LVGL
  *
- * Phase 2 draws ACTIVITY, NODES and COMMS. NET keeps its place in the
+ * RIFT draws ACTIVITY, NODES and COMMS. NET keeps its place in the
  * navigation - the four sections are the approved design and removing one
  * would be a different design - and says plainly that it is not in this
  * build rather than showing an empty view that looks like a quiet mesh.
  *
- * COMMS is direct conversations only. The approved design merges channels
- * into the same list; the radio service has none - MAX_GROUP_CHANNELS is
- * undefined in protocols/meshcore, so upstream's channel code is not
- * compiled, and docs/api/mesh.md lists group channels under "Not in v0" -
- * so this build says so instead of drawing a channel nobody could speak on.
+ * COMMS holds direct conversations and the channels the service reported,
+ * in one list; a channel is a conversation keyed "#<slot>" (rift_model.h).
  *
- * This app transmits in exactly one place. mesh.send is written only by
- * rift_ipc_send_message, reached only from the composer, reached only by a
- * reader pressing SEND on text a reader typed. Nothing automatic can reach
- * it: opening a screen, a snapshot, a period expiring and a reconnect all
- * still put nothing on the air. mesh.advert is not called from anywhere in
- * apps/rift, and tests/rift_lint.sh checks both of those.
+ * This app transmits in two places, each reached only by a reader's press.
+ * mesh.send is written only by rift_ipc_send_message, reached only from the
+ * composer, on text a reader typed. mesh.advert is written only by
+ * rift_ipc_send_advert, reached only from ACTIVITY's two ADVERT buttons.
+ * Nothing automatic can reach either: opening a screen, a snapshot, a period
+ * expiring and a reconnect all still put nothing on the air.
+ * tests/rift_lint.sh checks each link, and tests/rift_ipc_test.c proves it
+ * from the service's side.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -68,6 +67,9 @@ enum rift_section {
  * not, and the rule is the room rather than the orientation (DS §21.3). */
 #define RIFT_SPLIT_MIN_W 900
 #define RIFT_CONTEXT_W 552
+/* How long the list says a node was forgotten. The node has left the list,
+ * and with it the detail that would have said so. */
+#define RIFT_ACTION_NOTE_MS 30000
 
 struct rift_nodes;
 struct rift_activity_view;
@@ -82,8 +84,14 @@ struct rift_app {
     lv_obj_t *tab_label[RIFT_SEC_COUNT];
     lv_obj_t *tab_pill[RIFT_SEC_COUNT];
     lv_obj_t *content;
+    /* The command line: present only as the landscape composer, or to say
+     * the service is not answering (cmd_status). Otherwise hidden, and the
+     * section above it has the room. */
     lv_obj_t *cmdline;
+    lv_obj_t *cmd_status;
+    /* The strip's right caption: the landscape key hints and counts. */
     lv_obj_t *cmd_hint;
+    /* The app's one key sink: 1 px, outside the command line, never hidden. */
     lv_obj_t *keysink;
     /* The landscape composer. The command line *is* the composer in
      * landscape (handoff §8), and the command line is chrome, so the field

@@ -15,15 +15,22 @@
 #include <string.h>
 
 #define COL_GAP 8
-#define COL_AGE 44
 #define MSG_RULE_W 2
 #define MSG_GAP 8
+/* SEND is an action, 56 tall like every other, and as wide as its word
+ * needs - not half the row: the field is what a reader works in. */
+#define SEND_W 128
 
+/* One message: the 2 px rule that says whose it is, the body, and ONE
+ * caption line under it - age · [claimed sender] · state · evidence.
+ *
+ * It used to be three lines: a line of age and sender over the body, then
+ * the state under it. In a direct thread the sender line said "you" or the
+ * peer's name, which the rule's side and the thread's header already say;
+ * folded into the caption, the same messages take about a quarter less
+ * height, and a landscape pane shows a message more. */
 struct msg_row {
     lv_obj_t *slot;
-    lv_obj_t *head;
-    lv_obj_t *age;
-    lv_obj_t *who;
     lv_obj_t *body_row;
     lv_obj_t *rule;
     lv_obj_t *column;
@@ -61,6 +68,14 @@ struct rift_thread {
     int64_t shape_id[RIFT_THREAD_ROWS];
     int shape_count;
     int shape_valid;
+    /* The height the messages had at the last refresh, and whether the
+     * reader was at the end of them. When the pane changes height - the
+     * landscape composer appearing under it, the portrait keyboard coming
+     * up - a thread that was being read at its end is read at its end
+     * again, or the newest message is the one the change hides. A reader
+     * who had scrolled back into the history is left where they were. */
+    int32_t scroll_h;
+    int at_end;
 };
 
 /* ---- small shared bits --------------------------------------------------- */
@@ -186,6 +201,10 @@ static void build_composer(struct rift_thread *t)
         lv_obj_add_event_cb(t->field, on_field_ready, LV_EVENT_READY, t);
     }
     t->send = rift_action(t->composer, "SEND", 1, 1, on_send, t);
+    if (t->send) {
+        lv_obj_set_flex_grow(t->send, 0);
+        lv_obj_set_width(t->send, SEND_W);
+    }
 }
 
 /* ---- message rows -------------------------------------------------------- */
@@ -202,12 +221,7 @@ static void build_row(struct rift_thread *t)
     lv_obj_set_flex_flow(r->slot, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_bottom(r->slot, MSG_GAP, 0);
     lv_obj_remove_flag(r->slot, LV_OBJ_FLAG_SCROLLABLE);
-
-    r->head = dense_row(r->slot, RIFT_CAPTION_H);
-    r->age = rift_cell(r->head, POS_STYLE_CAPTION, COL_AGE, LV_TEXT_ALIGN_LEFT);
-    r->who = rift_cell(r->head, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_flex_grow(r->who, 1);
-    lv_obj_set_width(r->who, 1);
+    lv_obj_remove_flag(r->slot, LV_OBJ_FLAG_CLICKABLE);
 
     r->body_row = lv_obj_create(r->slot);
     lv_obj_remove_style_all(r->body_row);
@@ -241,46 +255,21 @@ static void update_row(struct rift_thread *t, struct msg_row *r,
     struct rift_app *a = t->app;
     const struct rift_node *n = msg->is_channel ? NULL
                                                 : rift_model_find(&a->model, msg->peer_key);
-    char text[RIFT_MSG_CAPTION_MAX];
-    char age[RIFT_AGE_MAX];
+    char text[RIFT_MSG_META_MAX];
     int out = (msg->dir == RIFT_MSG_OUT);
     lv_text_align_t align = out ? LV_TEXT_ALIGN_RIGHT : LV_TEXT_ALIGN_LEFT;
 
+    /* The body is what was said: on a channel, without the "<sender>: "
+     * MeshCore writes into the payload, because the caption below names the
+     * sender - as a claim, with a trailing "?", since nothing signs a group
+     * frame and anyone holding the key can send any name. */
+    lv_label_set_text(r->body, rift_msg_body(msg));
+    lv_obj_set_style_text_align(r->body, align, 0);
     /* An age, not a time of day. The design's mock reads "11:32"; this board
      * has no clock that survives a power cut (docs/hardware/T-DISPLAY-K230.md)
      * and a message's own timestamp is the *sender's* clock (docs/api/mesh.md),
-     * so neither is a local wall time this app could honestly print. The one
-     * clock an interval may be measured on here is the monotonic one both
-     * ends of this socket share. */
-    rift_fmt_age(now - msg->mono_ms, msg->have_mono, age, sizeof(age));
-    lv_label_set_text(r->age, age);
-
-    if (out) {
-        lv_label_set_text(r->who, "you");
-    } else if (msg->is_channel) {
-        /* On a channel the only sender identity is the name written into the
-         * payload, and nothing signs it. It is marked as a claim - a
-         * trailing "?" - rather than printed the way a peer_name is, because
-         * a peer_name arrived with a public key behind it and this did not.
-         * Anyone on the channel can send any name. */
-        if (msg->have_sender_name && msg->sender_name[0]) {
-            snprintf(text, sizeof(text), "%s?", msg->sender_name);
-            rift_cell_set_text_fit(r->who, text);
-        } else {
-            rift_cell_set_text_fit(r->who, "unnamed");
-        }
-    } else if (msg->have_peer_name && msg->peer_name[0]) {
-        rift_cell_set_text_fit(r->who, msg->peer_name);
-    } else {
-        snprintf(text, sizeof(text), "%.2s", msg->peer_key);
-        rift_cell_set_text_fit(r->who, text);
-    }
-    lv_obj_set_style_text_align(r->who, align, 0);
-    lv_obj_set_style_text_align(r->age, align, 0);
-
-    lv_label_set_text(r->body, msg->text);
-    lv_obj_set_style_text_align(r->body, align, 0);
-    rift_fmt_msg_caption(msg, text, sizeof(text));
+     * so neither is a local wall time this app could honestly print. */
+    rift_fmt_msg_meta(msg, now, text, sizeof(text));
     lv_label_set_text(r->caption, text);
     lv_obj_set_style_text_align(r->caption, align, 0);
     /* Colour never carries a state on its own (handoff §5): the caption
@@ -307,6 +296,55 @@ static void update_row(struct rift_thread *t, struct msg_row *r,
                        (!msg->is_channel && n && rift_link_of(n) == RIFT_LINK_DIRECT)
                            ? RIFT_TONE_RX
                            : RIFT_TONE_SECONDARY);
+    }
+}
+
+/* The note under the thread, only when there is something to say: what
+ * became of the last send, what the composer cannot do, or that nothing has
+ * been said yet. The rest of the time its lines are the thread's.
+ *
+ * What used to fill it otherwise - a delivery tally, and that the history
+ * does not survive the service's restart - is said once where there is
+ * room: every message carries its own state, the landscape route pane keeps
+ * the tally and the caveat, and an empty thread, the one place the caveat
+ * changes what a reader expects, says it here.
+ *
+ * Decided before the messages are laid out: whether it is shown changes how
+ * tall they are, and the thread is scrolled to its end against that. */
+static void paint_note(struct rift_thread *t, const char *peer, int shown)
+{
+    const struct rift_model *m = &t->app->model;
+    const char *refusal = rift_thread_refusal(t->app);
+
+    lv_obj_remove_style(t->note, pos_style(POS_STYLE_STATUS_WARN_TEXT), 0);
+    if (m->outbox.failed && m->outbox.error[0]) {
+        /* "Not sent" only when the service said no: a submission whose
+         * connection went before the answer may well have gone out. */
+        lv_label_set_text_fmt(t->note, "%s: %s", m->outbox.unknown ? "No answer" : "Not sent",
+                              m->outbox.error);
+        pos_style_add(t->note, POS_STYLE_STATUS_WARN_TEXT, 0);
+    } else if (rift_model_sending(m)) {
+        lv_label_set_text(t->note, "Sending\xE2\x80\xA6");
+    } else if (refusal) {
+        lv_label_set_text(t->note, refusal);
+    } else if (peer && shown == 0) {
+        if (rift_key_is_channel(peer) >= 0) {
+            lv_label_set_text(t->note,
+                              "Nothing on this channel yet. Anyone holding the same key can "
+                              "read what you send, and nothing will acknowledge it.");
+        } else if (m->messages_valid && !m->messages_persistent) {
+            lv_label_set_text(t->note, "Nothing said yet, or nothing since the radio service "
+                                       "last started: it keeps no history across a restart.");
+        } else {
+            lv_label_set_text(t->note, "Nothing said yet.");
+        }
+    } else {
+        lv_label_set_text(t->note, "");
+    }
+    if (lv_label_get_text(t->note)[0]) {
+        lv_obj_remove_flag(t->note, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(t->note, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -348,6 +386,7 @@ struct rift_thread *rift_thread_create(struct rift_app *app, lv_obj_t *parent)
     /* Not 0 and not 1: nothing has been said to the field yet, so the first
      * refresh sets it whichever way it goes. */
     t->field_enabled = -1;
+    t->at_end = 1;
     build_composer(t);
     return t;
 }
@@ -417,18 +456,29 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
             t->shape_id[i] = thread[i]->id;
         }
     }
-    /* Settle the pane before a sender's name is fitted to its column, for
-     * the reason given in rift_nodes.c: a row built in this pass has not
-     * been laid out, and fitting against an unsettled width would make the
-     * result depend on which refresh this is. */
+    (void)conv;
+    paint_note(t, peer, shown);
+    /* Settle the pane before the rows are filled in and the thread scrolled
+     * to its end: a row built in this pass has not been laid out, and
+     * anything measured against an unsettled pane would depend on which
+     * refresh this is. */
     lv_obj_update_layout(t->root);
     for (i = 0; i < t->row_count && i < shown; i++) {
         update_row(t, &t->row[i], thread[i], now);
     }
-    if (changed && shown > 0) {
-        /* A thread is read at its end. */
-        lv_obj_update_layout(t->scroll);
-        lv_obj_scroll_to_y(t->scroll, LV_COORD_MAX, LV_ANIM_OFF);
+    {
+        int32_t h = lv_obj_get_height(t->scroll);
+
+        /* A thread is read at its end: when its messages change, and when
+         * the pane it is in changes height under a reader who was at the
+         * end of it. */
+        if ((changed || (h != t->scroll_h && t->at_end)) && shown > 0) {
+            lv_obj_update_layout(t->scroll);
+            lv_obj_scroll_to_y(t->scroll, LV_COORD_MAX, LV_ANIM_OFF);
+        }
+        t->scroll_h = h;
+        /* Within a caption's height of the end counts as at the end. */
+        t->at_end = lv_obj_get_scroll_bottom(t->scroll) <= RIFT_CAPTION_H;
     }
 
     /* The header: who, and how this peer is reached. The route is the
@@ -478,49 +528,7 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
         }
     }
 
-    /* The note under the thread: what became of the last send, what the
-     * composer cannot do, and - when there is nothing else to say - the one
-     * thing about this history that is not obvious from looking at it. */
     refusal = rift_thread_refusal(a);
-    lv_obj_remove_style(t->note, pos_style(POS_STYLE_STATUS_WARN_TEXT), 0);
-    if (m->outbox.failed && m->outbox.error[0]) {
-        lv_label_set_text_fmt(t->note, "Not sent: %s", m->outbox.error);
-        pos_style_add(t->note, POS_STYLE_STATUS_WARN_TEXT, 0);
-    } else if (rift_model_sending(m)) {
-        lv_label_set_text(t->note, "Sending\xE2\x80\xA6");
-    } else if (refusal) {
-        lv_label_set_text(t->note, refusal);
-    } else if (peer && shown == 0) {
-        if (rift_key_is_channel(peer) >= 0) {
-            lv_label_set_text(t->note,
-                              "Nothing on this channel yet. Anyone holding the same key can "
-                              "read what you send, and nothing will acknowledge it.");
-        } else {
-            lv_label_set_text(t->note, "Nothing said yet.");
-        }
-    } else if (peer && conv && conv->outgoing > 0 && conv->is_channel && !a->wide) {
-        /* No DELIVERED and no NO ACK. Neither is a number this protocol can
-         * produce for a channel, and printing "0 DELIVERED" would read as a
-         * failure rather than as a thing that cannot be measured. */
-        lv_label_set_text_fmt(t->note,
-                              "%d SENT" RIFT_SEP "NOTHING ACKNOWLEDGES A CHANNEL",
-                              conv->outgoing);
-    } else if (peer && conv && conv->outgoing > 0 && !a->wide) {
-        /* Landscape puts this in the route pane; portrait has no route pane,
-         * so it goes here. Either way it is this app's arithmetic over the
-         * messages it still holds, not a count the service keeps. */
-        lv_label_set_text_fmt(t->note,
-                              "OF %d SENT" RIFT_SEP "%d DELIVERED" RIFT_SEP "%d NO ACK",
-                              conv->outgoing, conv->acked, conv->no_ack);
-    } else if (peer && m->messages_valid && !m->messages_persistent) {
-        /* Said once, where it matters: this history is the service's, and
-         * the service's does not survive its restart (mesh.messages,
-         * "persistent": false). */
-        lv_label_set_text(t->note, "This history is the radio service's, and it does not "
-                                   "survive a restart of it.");
-    } else {
-        lv_label_set_text(t->note, "");
-    }
 
     /* The composer: usable only when there is somewhere for a message to go
      * and a service to take it. */

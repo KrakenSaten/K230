@@ -207,21 +207,26 @@ check "and an unstored one does not mark the state dirty" \
        awk '/isRetained/{seen=1} seen && /_dirty = true/{after=1} END{exit !after}' &&
        echo 1 || echo 0)"
 
-# ---- 6. it is off by default ----------------------------------------------
+# ---- 6. how it ships ------------------------------------------------------
+#
+# In every image, disabled per unit. An ordinary host build still leaves it out
+# (it needs vendor/RIFT and vendor/Crypto); the image package builds and
+# installs it, and installing it is still gated on the notices - which
+# tests/notices_test.sh executes, both ways. This only checks the wiring.
 
-check "the build switch defaults to off" \
+check "the host build switch defaults to off" \
     "$(grep -q '^ENABLE_MESHCORED ?= 0' Makefile && echo 1 || echo 0)"
-check "so a default build does not produce it" \
+check "so a default host build does not produce it" \
     "$(make -s print-build-outputs 2>/dev/null | grep -q 'services/meshcored/meshcored' && echo 0 || echo 1)"
-# Off by default is not the guarantee; the guarantee is that an enabled build
-# cannot be installed while the notices say nothing about what it contains.
-# tests/notices_test.sh executes that refusal - this only checks it is wired.
-check "and an enabled one cannot be installed without the notices" \
+check "installing it is gated on the notices" \
     "$(grep -q '^install: all meshcored-shipping-check$' Makefile && echo 1 || echo 0)"
-check "the image path refuses it too" \
-    "$(grep -q 'ENABLE_MESHCORED' platforms/k230/scripts/build_image.sh && echo 1 || echo 0)"
-check "and so does the package path" \
-    "$(grep -q 'ENABLE_MESHCORED' platforms/k230/scripts/apply_to_sdk.sh && echo 1 || echo 0)"
+check "the image package builds and installs it" \
+    "$([ "$(grep -c 'ENABLE_MESHCORED=1 -C' platforms/k230/package/pocketos/pocketos.mk)" -eq 2 ] && echo 1 || echo 0)"
+check "the package path checks its notices before assembling anything" \
+    "$(grep -q 'for id in meshcore ed25519 arduinolibs-crypto' platforms/k230/scripts/apply_to_sdk.sh && echo 1 || echo 0)"
+check "and exports the MeshCore and Crypto trees it compiles, pin-checked" \
+    "$(grep -q 'doors-pinned-commit' platforms/k230/scripts/apply_to_sdk.sh &&
+       grep -q 'doors-pinned-commit' protocols/meshcore/Makefile && echo 1 || echo 0)"
 
 INIT=platforms/k230/rootfs_overlay/etc/init.d/S65meshcored
 check "the init script exists" "$([ -f "$INIT" ] && echo 1 || echo 0)"
@@ -232,9 +237,19 @@ if [ -f "$INIT" ]; then
         "$(grep -q '/etc/default/meshcored' "$INIT" && echo 1 || echo 0)"
     check "it is supervised like the other services" \
         "$(grep -q 'pos-supervise' "$INIT" && echo 1 || echo 0)"
+    check "enabled and not installed, it fails loudly rather than quietly" \
+        "$(grep -q 'FAILED: enabled, but' "$INIT" && echo 1 || echo 0)"
+    check "it will not start beside a meshcored it did not start, and stop ends one" \
+        "$(grep -q 'meshcored_pids' "$INIT" && grep -q 'stop_unsupervised' "$INIT" && echo 1 || echo 0)"
     check "and its mode is 0755 in git, which is the mode in the image" \
         "$(git ls-files --stage -- "$INIT" 2>/dev/null | grep -q '^100755' && echo 1 || echo 0)"
 fi
+# One process per node, whoever started it: the daemon locks its state
+# directory before it reads the identity or takes the socket
+# (tests/meshcored_service_test.sh, section 1b, executes the refusal).
+check "meshcored locks its state directory before it reads the identity" \
+    "$(awk '/mcd_runtime_lock_state_dir\(/{l=NR} /mcd_runtime_create\(/{c=NR} END{exit !(l && c && l < c)}' \
+       "$SRC/main.c" && echo 1 || echo 0)"
 
 # ---- 7. no periodic transmit ----------------------------------------------
 #

@@ -85,15 +85,15 @@ endif
 # ---- meshcored: the MeshCore protocol service ----------------------------
 #
 # ENABLE_MESHCORED=1 builds and installs it, the way ENABLE_SX1262=1 adds the
-# real radio backend. It is OFF by default, and the default build - `make
-# all`, `make test`, the Buildroot package and the image - is byte for byte
-# what it was without it.
+# real radio backend. The image package turns it on (pocketos.mk), so every
+# image carries meshcored and its init script, disabled per unit. An ordinary
+# host build - `make all`, `make test` - leaves it off.
 #
 # The reason is a prerequisite, not a doubt about the service: meshcored
 # links protocols/meshcore, which needs two upstream checkouts an ordinary
 # Doors build does not have (vendor/RIFT and vendor/Crypto, the same two
-# tools/meshcore-frame needs). Making every build depend on two extra clones
-# would be a poor trade while nothing in the image runs the service. See
+# tools/meshcore-frame needs). apply_to_sdk.sh exports them, pin-checked, into
+# the package's third_party/, which the two variables below prefer. See
 # docs/services/MESHCORED.md for what enabling it means on hardware.
 ENABLE_MESHCORED ?= 0
 AR ?= ar
@@ -139,10 +139,12 @@ MESHCORED_OBJS := $(MESHCORED_C_OBJS) $(MESHCORED_CXX_OBJS) services/radiod/airt
 
 # ---- the shipping gate ----------------------------------------------------
 #
-# meshcored may be BUILT and TESTED with ENABLE_MESHCORED=1 at any time. What
-# it may not do is travel: installing it puts MeshCore, orlp's ed25519 and
-# rweather's Crypto into something distributable, and the notices for those
-# three do not exist yet (docs/LICENSING.md open item 9).
+# meshcored may be BUILT and TESTED with ENABLE_MESHCORED=1 at any time.
+# Installing it puts MeshCore, orlp's ed25519 and rweather's Crypto into
+# something distributable, so it may travel only while the notices carry an
+# entry for each of the three. They have since 2026-09-22 (docs/LICENSING.md
+# item 9), which is what lets the image package install it; the check stays,
+# so an entry removed later stops the install again.
 #
 # The check is on the notices themselves rather than on a flag somebody could
 # also set, so it answers the real question - do the notices cover what this
@@ -648,12 +650,17 @@ tests/calc_view_test: tests/calc_view_test.o $(CALC_OBJS)
 # are built by ui/shell (CMake), run by tests/rift_shell_test.sh.
 RIFT_DIR := apps/rift
 RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_messages.o \
-             $(RIFT_DIR)/rift_format.o $(RIFT_DIR)/rift_ipc.o
-# The model is two translation units over one struct: rift_model.c dispatches
-# a mesh.message event into rift_messages.c, so anything linking one links
-# the other.
+             $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o \
+             $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_format.o $(RIFT_DIR)/rift_format_msg.o \
+             $(RIFT_DIR)/rift_ipc.o
+# The model is several translation units over one struct: rift_model.c
+# dispatches mesh.message and mesh.channel events into rift_messages.c and
+# rift_channels.c, and the service going away settles the requests
+# rift_actions.c holds, so anything linking one links them all.
 RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_messages.o \
-                   $(RIFT_DIR)/rift_format.o
+                   $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o \
+                   $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_format.o \
+                   $(RIFT_DIR)/rift_format_msg.o
 RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_comms_test \
               tests/rift_ipc_test tests/fake-meshcored
 
@@ -927,6 +934,7 @@ test: all $(TEST_BINS)
 	bash tests/required_gates_test.sh
 	bash tests/build_provenance_test.sh
 	bash tests/image_contents_test.sh
+	bash tests/deploy_staging_test.sh
 	bash tests/splash_image_test.sh
 	bash tests/hwcheck_test.sh
 	bash tests/fleet_lint.sh

@@ -25,18 +25,27 @@
  * mesh.unsubscribe, and the mesh.state, mesh.node, mesh.channel,
  * mesh.activity and mesh.message events.
  *
+ * And, on a reader's explicit request: mesh.advert, mesh.node_remove and
+ * mesh.node_reset_path.
+ *
  * It does not JOIN or LEAVE a channel. mesh.channel_add takes a pre-shared
  * key, and there is nowhere on a RIFT screen to type one; adding it here
  * would be this app growing a key-entry surface nobody asked for. This
  * client reads the channels the service holds and writes to them.
  *
- * Exactly one of those transmits. mesh.send is written only from
- * rift_ipc_send_message, which is reached only from the composer, which is
- * reached only by a reader pressing SEND on text a reader typed. Nothing
- * that happens on its own - opening the app, a snapshot, a period expiring,
- * a reconnect - can reach it, so opening RIFT still puts nothing on the air.
- * mesh.advert is not called at all: this app has no reason to make this
- * node shout, and tests/rift_lint.sh checks that it stays that way.
+ * Two of those transmit, and each from exactly one function. mesh.send is
+ * written only by rift_ipc_send_message, which is reached only from the
+ * composer, by a reader pressing SEND on text a reader typed. mesh.advert is
+ * written only by rift_ipc_send_advert, which is reached only from the two
+ * ADVERT buttons on ACTIVITY. Nothing that happens on its own - opening the
+ * app, a snapshot, a period expiring, a reconnect - can reach either, so
+ * opening RIFT still puts nothing on the air. tests/rift_lint.sh checks each
+ * link of both chains, and tests/rift_ipc_test.c proves it from the
+ * service's side.
+ *
+ * Forgetting a node or its route transmits nothing; it changes what the
+ * service holds, so it too is reached only from a button a reader pressed,
+ * and forgetting a node only after the reader confirmed it.
  *
  * No LVGL: the connection, the reconnect and the framing are host-tested
  * against a real socket and a scripted service (tests/rift_ipc_test.c).
@@ -110,6 +119,9 @@ enum rift_req {
     RIFT_REQ_CHANNELS,
     RIFT_REQ_MESSAGES,
     RIFT_REQ_SEND,
+    RIFT_REQ_ADVERT,
+    RIFT_REQ_NODE_REMOVE,
+    RIFT_REQ_NODE_RESET_PATH,
 };
 
 struct rift_pending {
@@ -188,6 +200,24 @@ int rift_ipc_request_channels(struct rift_ipc *c);
  * Returns 0 when the request went out, -1 otherwise; on -1 the model holds
  * the reason. */
 int rift_ipc_send_message(struct rift_ipc *c, const char *conv_key, const char *text);
+
+/* Advert this node (mesh.advert): zero-hop when zero_hop is set - heard in
+ * direct range and repeated by nobody - flooded otherwise.
+ *
+ * The one call in RIFT that makes this node advert, reached only from the
+ * ADVERT buttons a reader presses. It records the request in the model
+ * (m->advert) before writing it; the service's answer is "accepted", and
+ * that is all the model will ever say about it. Returns 0 when the request
+ * went out, -1 otherwise, with the reason in the model. */
+int rift_ipc_send_advert(struct rift_ipc *c, int zero_hop);
+
+/* Ask the service to forget a node (mesh.node_remove), or only its learned
+ * route (mesh.node_reset_path). key is the node's whole public key; label
+ * is what it is called, kept for the screen to say what was done. Neither
+ * transmits. Returns 0 when the request went out, -1 otherwise, with the
+ * reason in the model (m->node_op). */
+int rift_ipc_forget_node(struct rift_ipc *c, const char *key, const char *label);
+int rift_ipc_reset_path(struct rift_ipc *c, const char *key, const char *label);
 
 int rift_ipc_connected(const struct rift_ipc *c);
 

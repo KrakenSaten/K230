@@ -113,6 +113,22 @@ NASTY_KEY=$(awk '/^public_key:/ {print $2}' "$TMP/nasty.txt")
 ESC_HEX=$(awk '/^frame_hex:/ {print $2}' "$TMP/esc.txt")
 check "an advert with an escape sequence in its name is built" \
     "$([ -n "$ESC_HEX" ] && echo 1 || echo 0)"
+
+# A third identity, for forgetting a node: two adverts from it, in two
+# different seconds. MeshCore stamps an advert in whole seconds and drops one
+# that is not newer than the last it held (and drops the same bytes twice as
+# a duplicate), so a node that is to be learned, forgotten and learned again
+# has to speak twice.
+"$FRAME" identity new "$TMP/gone.id" > "$TMP/gone.txt" 2>&1
+GONE_KEY=$(awk '/^public_key:/ {print $2}' "$TMP/gone.txt")
+"$FRAME" advert --key "$TMP/gone.id" --name FORGET-ME --type chat > "$TMP/gone1.txt" 2>&1
+sleep 1.1
+"$FRAME" advert --key "$TMP/gone.id" --name FORGET-ME --type chat > "$TMP/gone2.txt" 2>&1
+GONE1_HEX=$(awk '/^frame_hex:/ {print $2}' "$TMP/gone1.txt")
+GONE2_HEX=$(awk '/^frame_hex:/ {print $2}' "$TMP/gone2.txt")
+check "two adverts from a node to forget are built" \
+    "$([ -n "$GONE1_HEX" ] && [ -n "$GONE2_HEX" ] && [ "$GONE1_HEX" != "$GONE2_HEX" ] &&
+       echo 1 || echo 0)"
 # A name that is not UTF-8 at all cannot be built here: meshcore-frame checks
 # its --name and refuses, which is correct for a tool that will not produce a
 # frame a MeshCore node would truncate. The byte-level case is covered where
@@ -318,6 +334,71 @@ PYEOF
 run_driver "$TMP/t1.py" "$TMP" "$MSOCK"
 
 # ---------------------------------------------------------------------------
+# 1b. a second meshcored on the same node
+# ---------------------------------------------------------------------------
+# What unit A was one command away from: a meshcored started by hand, then the
+# init script starting another beside it. Same state directory, same socket
+# name. The second must leave before it reads the identity or touches the
+# socket - pocketipc unlinks a socket path before it binds, so a second
+# listener would have taken the first one's clients.
+echo "--- a second meshcored on the same node"
+sock_inode_before=$(stat -c %i "$MSOCK" 2>/dev/null)
+second_rc=0
+timeout 10 "$MESHCORED" --verbose > "$TMP/second.log" 2>&1 || second_rc=$?
+check "a second meshcored on the same state directory refuses to start (exit 3)" \
+      "$([ "$second_rc" -eq 3 ] && echo 1 || echo 0)"
+# Same socket as well, so the socket lock is the first it meets; the state
+# lock is exercised on its own below, under another socket name.
+check "and says why" \
+      "$(grep -q 'already serving the meshcored socket' "$TMP/second.log" && echo 1 || echo 0)"
+check "the first one is still running" "$(kill -0 "$MCD_PID" 2>/dev/null && echo 1 || echo 0)"
+check "and still owns its socket - the same inode, not a replacement" \
+      "$([ -n "$sock_inode_before" ] && [ "$(stat -c %i "$MSOCK" 2>/dev/null)" = "$sock_inode_before" ] && echo 1 || echo 0)"
+cat > "$TMP/t1b.py" <<'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+from lib import *
+m = Conn(sys.argv[2])
+st = m.result("mesh.status")
+ok("the first one still answers, in the state it was in",
+   st["state"] == "waiting_for_radiod", st["state"])
+done()
+PYEOF
+run_driver "$TMP/t1b.py" "$TMP" "$MSOCK"
+# Another state directory with the same socket name: a different node, but the
+# socket is the running one's. pocketipc would unlink it before binding, so the
+# socket has a lock of its own.
+same_sock_rc=0
+timeout 10 "$MESHCORED" --state-dir "$TMP/state-other" > "$TMP/samesock.log" 2>&1 || same_sock_rc=$?
+check "a meshcored on another state directory but the same socket refuses to start (exit 3)" \
+      "$([ "$same_sock_rc" -eq 3 ] && echo 1 || echo 0)"
+check "and says the socket is already served" \
+      "$(grep -q 'already serving the meshcored socket' "$TMP/samesock.log" && echo 1 || echo 0)"
+check "and the running one still has its socket" \
+      "$([ "$(stat -c %i "$MSOCK" 2>/dev/null)" = "$sock_inode_before" ] && echo 1 || echo 0)"
+check "and its state directory was not touched" \
+      "$([ ! -e "$TMP/state-other/identity.id" ] && echo 1 || echo 0)"
+# The same state directory under another socket name: the socket is free,
+# the node is not. Two radios with one identity is what the state lock is for.
+same_node_rc=0
+timeout 10 "$MESHCORED" --socket-name meshcored-twin > "$TMP/samenode.log" 2>&1 || same_node_rc=$?
+check "a meshcored on the same state directory under another socket refuses to start (exit 3)" \
+      "$([ "$same_node_rc" -eq 3 ] && echo 1 || echo 0)"
+check "and says the node is already running" \
+      "$(grep -q 'another meshcored is already running on' "$TMP/samenode.log" && echo 1 || echo 0)"
+check "and never listened on the socket it was given" \
+      "$([ ! -e "$POCKETOS_RUNTIME_DIR/meshcored-twin.sock" ] && echo 1 || echo 0)"
+# A different state directory under a different socket is a different node,
+# and is not refused: the locks are on the node and on the socket, not on the
+# program.
+other_rc=0
+timeout 3 "$MESHCORED" --state-dir "$TMP/state-other" --socket-name meshcored-other \
+    > "$TMP/other.log" 2>&1 || other_rc=$?
+check "a meshcored on another state directory is not refused (it runs until stopped)" \
+      "$([ "$other_rc" -eq 124 ] && echo 1 || echo 0)"
+rm -f "$POCKETOS_RUNTIME_DIR/meshcored-other.sock"
+
+# ---------------------------------------------------------------------------
 # 2. radiod appears later: acquire, configure, subscribe, online
 # ---------------------------------------------------------------------------
 echo "--- radiod appears"
@@ -449,6 +530,7 @@ m.events = [e for e in m.events if e.get("event") != "mesh.state"]
 tx_before = r.result("radio.stats")["tx_packets"]
 res = m.result("mesh.advert")
 ok("an advert is accepted", res["accepted"] is True)
+ok("and flooded when nothing else was asked for", res.get("route") == "flood", res)
 done_ev = r.wait_event("radio.tx_done", seconds=15)
 ok("radiod reports a completion", done_ev is not None)
 if done_ev:
@@ -514,9 +596,104 @@ one = [x for x in msgs["messages"] if x["id"] == msg_id][0]
 ok("recorded as outgoing", one["direction"] == "out")
 ok("with the text", one["text"] == "hello over the mock air")
 ok("and a state that is not 'acknowledged'", one["state"] != "acked", one["state"])
+
+# A zero-hop advert: the same signed advert, heard in direct range and
+# repeated by nobody. Asked for with a boolean and nothing else.
+e = m.error("mesh.advert", {"zero_hop": "yes"})
+ok("zero_hop that is not a boolean is refused", e["code"] == 2, e)
+tx_before = r.result("radio.stats")["tx_packets"]
+res = m.result("mesh.advert", {"zero_hop": True})
+ok("a zero-hop advert is accepted", res["accepted"] is True, res)
+ok("and says it went zero-hop", res.get("route") == "zero_hop", res)
+went = False
+for _ in range(60):
+    if r.result("radio.stats")["tx_packets"] > tx_before:
+        went = True
+        break
+    time.sleep(0.1)
+ok("and it went out through radiod", went)
+res = m.result("mesh.advert", {"zero_hop": False})
+ok("zero_hop false is an ordinary flood", res.get("route") == "flood", res)
 done()
 PYEOF
 run_driver "$TMP/t3.py" "$TMP" "$MSOCK" "$RSOCK" "$ADVERT_HEX" "$PEER_KEY"
+
+# ---------------------------------------------------------------------------
+# 3c. forgetting a node, and forgetting a route
+# ---------------------------------------------------------------------------
+echo "--- forgetting a node"
+
+cat > "$TMP/t3c.py" <<'PYEOF'
+import sys, time
+sys.path.insert(0, sys.argv[1])
+from lib import *
+
+msock, rsock = sys.argv[2], sys.argv[3]
+gone1_hex, gone2_hex, gone_key = sys.argv[4], sys.argv[5], sys.argv[6]
+
+m = Conn(msock)
+r = Conn(rsock)
+m.result("mesh.subscribe")
+
+r.result("mock.inject_rx", {"payload_hex": gone1_hex})
+ev = m.wait_event("mesh.node", seconds=10,
+                  match=lambda d: d["node"]["public_key"] == gone_key)
+ok("the node to forget is learned", ev is not None)
+held = m.result("mesh.nodes")["count"]
+
+# Both methods take a whole key and nothing less: they change what this node
+# holds, and doing that to whichever node a prefix matched would be a guess.
+e = m.error("mesh.node_remove", {"node": gone_key[:8]})
+ok("forgetting by a prefix is refused", e["code"] == 2, e)
+e = m.error("mesh.node_remove", {"node": "zz" * 32})
+ok("a key that is not hex is refused", e["code"] == 2, e)
+e = m.error("mesh.node_remove", {})
+ok("so is no key at all", e["code"] == 2, e)
+e = m.error("mesh.node_reset_path", {"node": gone_key[:8]})
+ok("resetting a route by a prefix is refused", e["code"] == 2, e)
+e = m.error("mesh.node_remove", {"node": "00" * 32})
+ok("a node nobody holds cannot be forgotten", e["code"] == 2, e)
+ok("and nothing was forgotten by any of those", m.result("mesh.nodes")["count"] == held)
+
+m.events = []
+res = m.result("mesh.node_reset_path", {"node": gone_key})
+ok("a route is forgotten on request", res["public_key"] == gone_key, res)
+ok("and the answer says no route is known", res["path_known"] is False, res)
+ev = m.wait_event("mesh.node", seconds=5, match=lambda d: d["reason"] == "path")
+ok("subscribers are told, as a path change", ev is not None)
+
+m.events = []
+res = m.result("mesh.node_remove", {"node": gone_key})
+ok("a node is forgotten on request", res["removed"] is True, res)
+ok("the answer is the node as it was", res["node"]["public_key"] == gone_key, res)
+ok("by its name too", res["node"]["name"] == "FORGET-ME", res)
+ok("and says the forgetting was written down, not only done",
+   res.get("persisted") is True, res)
+ev = m.wait_event("mesh.node", seconds=5, match=lambda d: d["reason"] == "removed")
+ok("subscribers are told it was removed", ev is not None)
+if ev:
+    ok("naming the node that went", ev["data"]["node"]["public_key"] == gone_key, ev)
+nodes = m.result("mesh.nodes")
+ok("it is gone from the node list", nodes["count"] == held - 1 and
+   all(n["public_key"] != gone_key for n in nodes["nodes"]), nodes["count"])
+e = m.error("mesh.node", {"node": gone_key})
+ok("and mesh.node no longer finds it", e["code"] == 2, e)
+e = m.error("mesh.node_remove", {"node": gone_key})
+ok("forgetting it twice is refused", e["code"] == 2, e)
+e = m.error("mesh.send", {"to": gone_key, "text": "hello?"})
+ok("and a message to it is refused: there is no contact to encrypt to", e["code"] == 2, e)
+ok("the service is still online", m.result("mesh.status")["state"] == "online")
+
+# It comes back the next time it adverts.
+r.result("mock.inject_rx", {"payload_hex": gone2_hex})
+ev = m.wait_event("mesh.node", seconds=10,
+                  match=lambda d: d["node"]["public_key"] == gone_key and
+                  d["reason"] == "discovered")
+ok("a forgotten node is learned again from its next advert", ev is not None)
+ok("and the table is as full as it was", m.result("mesh.nodes")["count"] == held)
+done()
+PYEOF
+run_driver "$TMP/t3c.py" "$TMP" "$MSOCK" "$RSOCK" "$GONE1_HEX" "$GONE2_HEX" "$GONE_KEY"
 
 # ---------------------------------------------------------------------------
 # 3b. a node whose name is hostile

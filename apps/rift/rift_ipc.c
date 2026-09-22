@@ -35,6 +35,12 @@ static const char *method_of(enum rift_req what)
         return "mesh.messages";
     case RIFT_REQ_SEND:
         return "mesh.send";
+    case RIFT_REQ_ADVERT:
+        return "mesh.advert";
+    case RIFT_REQ_NODE_REMOVE:
+        return "mesh.node_remove";
+    case RIFT_REQ_NODE_RESET_PATH:
+        return "mesh.node_reset_path";
     case RIFT_REQ_NONE:
     default:
         return NULL;
@@ -312,6 +318,104 @@ int rift_ipc_send_message(struct rift_ipc *c, const char *conv_key, const char *
     return 0;
 }
 
+int rift_ipc_send_advert(struct rift_ipc *c, int zero_hop)
+{
+    enum rift_action kind = zero_hop ? RIFT_ACTION_ADVERT_NEAR : RIFT_ACTION_ADVERT_MESH;
+    cJSON *params;
+    int64_t now;
+
+    if (!c || !c->model) {
+        return -1;
+    }
+    now = rift_mono_ms();
+    if (rift_model_action_begin(c->model, kind, NULL, NULL, now) != 0) {
+        /* The one already on its way keeps its caption; this one is not
+         * written and says nothing over it. */
+        return -1;
+    }
+    if (c->fd < 0) {
+        rift_model_action_failed(c->model, kind, "meshcored is not answering; nothing was sent",
+                                 now);
+        c->revision++;
+        return -1;
+    }
+    params = cJSON_CreateObject();
+    if (!params) {
+        rift_model_action_failed(c->model, kind, "out of memory", now);
+        c->revision++;
+        return -1;
+    }
+    /* The one place this app makes the node advert. zero_hop is written
+     * either way, so what was asked for is in the request rather than left
+     * to a default on the other side. */
+    cJSON_AddBoolToObject(params, "zero_hop", zero_hop ? 1 : 0);
+    if (request(c, RIFT_REQ_ADVERT, params, now) != 0) {
+        if (rift_model_action_busy(c->model, kind)) {
+            rift_model_action_failed(c->model, kind, "the request could not be written", now);
+        }
+        c->revision++;
+        return -1;
+    }
+    c->revision++;
+    return 0;
+}
+
+/* The two requests that change what the service holds about one node. One
+ * writer for both, so the rules are the same: a whole key, one request at a
+ * time, recorded before it is written. */
+static int node_request(struct rift_ipc *c, enum rift_req what, enum rift_action kind,
+                        const char *key, const char *label)
+{
+    cJSON *params;
+    int64_t now;
+
+    if (!c || !c->model) {
+        return -1;
+    }
+    now = rift_mono_ms();
+    /* Recorded first, so a refusal below is filed against the node it was
+     * about and the screen that asked can say so there. */
+    if (rift_model_action_begin(c->model, kind, key, label, now) != 0) {
+        if (!rift_model_action_busy(c->model, kind)) {
+            rift_model_action_failed(c->model, kind, "that is not a node this app can name", now);
+            c->revision++;
+        }
+        return -1;
+    }
+    if (c->fd < 0) {
+        rift_model_action_failed(c->model, kind, "meshcored is not answering; nothing was asked",
+                                 now);
+        c->revision++;
+        return -1;
+    }
+    params = cJSON_CreateObject();
+    if (!params) {
+        rift_model_action_failed(c->model, kind, "out of memory", now);
+        c->revision++;
+        return -1;
+    }
+    cJSON_AddStringToObject(params, "node", key);
+    if (request(c, what, params, now) != 0) {
+        if (rift_model_action_busy(c->model, kind)) {
+            rift_model_action_failed(c->model, kind, "the request could not be written", now);
+        }
+        c->revision++;
+        return -1;
+    }
+    c->revision++;
+    return 0;
+}
+
+int rift_ipc_forget_node(struct rift_ipc *c, const char *key, const char *label)
+{
+    return node_request(c, RIFT_REQ_NODE_REMOVE, RIFT_ACTION_FORGET, key, label);
+}
+
+int rift_ipc_reset_path(struct rift_ipc *c, const char *key, const char *label)
+{
+    return node_request(c, RIFT_REQ_NODE_RESET_PATH, RIFT_ACTION_RESET_PATH, key, label);
+}
+
 static void connect_now(struct rift_ipc *c, int64_t now_ms)
 {
     int fd = pocketipc_connect_timeout(c->service, RIFT_CONNECT_TIMEOUT_MS);
@@ -419,6 +523,13 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
         if (what == RIFT_REQ_SEND) {
             rift_model_send_failed(c->model, why);
         }
+        /* The same for the requests a reader made by pressing a button: the
+         * refusal is theirs to see, where they pressed it. */
+        if (what == RIFT_REQ_ADVERT) {
+            rift_model_action_failed(c->model, c->model->advert.kind, why, rift_mono_ms());
+        } else if (what == RIFT_REQ_NODE_REMOVE || what == RIFT_REQ_NODE_RESET_PATH) {
+            rift_model_action_failed(c->model, c->model->node_op.kind, why, rift_mono_ms());
+        }
         /* A refused mesh.channels is still an answer, and for a screen it is
          * the same answer as an empty list: this service is not going to
          * list any channels. Leaving the list "not read yet" would make
@@ -463,19 +574,42 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
     case RIFT_REQ_NODES:
         rift_model_apply_nodes(c->model, result);
         break;
-    case RIFT_REQ_NODE: {
-        /* mesh.node answers one node in the shape mesh.nodes uses, so it
-         * goes through the same path as one node of a snapshot: an update,
-         * never a second row. */
-        cJSON *wrapper = cJSON_IsObject(result) ? cJSON_CreateObject() : NULL;
+    case RIFT_REQ_NODE:
+        /* mesh.node answers one node in the shape mesh.nodes uses: an
+         * update, never a second row - and not an event, so it is not
+         * counted among the events that named the node. */
+        rift_model_apply_node_reply(c->model, result);
+        break;
+    case RIFT_REQ_ADVERT:
+        /* "accepted": queued for the dispatcher. Not transmitted - the
+         * transmit's own outcome arrives as mesh.activity. */
+        rift_model_action_done(c->model, c->model->advert.kind, rift_mono_ms());
+        break;
+    case RIFT_REQ_NODE_REMOVE: {
+        const cJSON *node = cJSON_IsObject(result)
+                                ? cJSON_GetObjectItemCaseSensitive(result, "node")
+                                : NULL;
+        const cJSON *key = cJSON_IsObject(node)
+                               ? cJSON_GetObjectItemCaseSensitive(node, "public_key")
+                               : NULL;
 
-        if (wrapper) {
-            cJSON_AddItemToObject(wrapper, "node", cJSON_Duplicate(result, 1));
-            rift_model_apply_event(c->model, "mesh.node", wrapper);
-            cJSON_Delete(wrapper);
+        /* The mesh.node event with reason "removed" takes the node off the
+         * list as well; the answer does it too, so a client that is between
+         * subscriptions does not go on showing a node the service has
+         * forgotten. Only the node the answer names, and only when it is
+         * the one that was asked about. */
+        if (cJSON_IsString(key) && key->valuestring &&
+            strcmp(key->valuestring, c->model->node_op.key) == 0) {
+            rift_model_drop_node(c->model, key->valuestring);
         }
+        rift_model_action_done(c->model, RIFT_ACTION_FORGET, rift_mono_ms());
         break;
     }
+    case RIFT_REQ_NODE_RESET_PATH:
+        /* The node afterwards, in the shape mesh.node answers. */
+        rift_model_apply_node_reply(c->model, result);
+        rift_model_action_done(c->model, RIFT_ACTION_RESET_PATH, rift_mono_ms());
+        break;
     case RIFT_REQ_CHANNELS:
         rift_model_apply_channels(c->model, result);
         break;

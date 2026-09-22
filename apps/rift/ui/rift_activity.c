@@ -40,17 +40,21 @@ struct rift_activity_view {
 
     lv_obj_t *svc_state;
     lv_obj_t *svc_reason;
-    lv_obj_t *svc_radio;
-    lv_obj_t *svc_lease;
-    lv_obj_t *svc_tx;
+    lv_obj_t *svc_radio; /* radiod, its state, the lease, and transmit: one line */
     lv_obj_t *svc_nodes;
     lv_obj_t *svc_build;
     lv_obj_t *svc_fault;
+
+    lv_obj_t *svc_traffic;
 
     lv_obj_t *id_glyph;
     lv_obj_t *id_name;
     lv_obj_t *id_hash;
     lv_obj_t *id_key;
+    lv_obj_t *advert_near;
+    lv_obj_t *advert_mesh;
+    lv_obj_t *advert_line;
+    int advert_warn;
 
     lv_obj_t *heard_note;
     struct heard_row heard[HEARD_ROWS];
@@ -95,6 +99,11 @@ static lv_obj_t *column(lv_obj_t *parent)
     lv_obj_set_height(c, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(c, 20, 0);
+    /* Room for the first panel's caption, which rises above the panel into
+     * whatever is over it: a column clips its children to its own box, so
+     * the room has to be the column's (rift_panel). Taken from the padding
+     * above, so the panels sit where they did. */
+    lv_obj_set_style_pad_top(c, RIFT_CAPTION_OVERHANG, 0);
     lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
     return c;
 }
@@ -113,18 +122,34 @@ static void build_service(struct rift_activity_view *v, lv_obj_t *parent)
     lv_label_set_text(v->svc_state, "");
     v->state_role = POS_STYLE_TEXT_MUTED;
     v->svc_reason = wrapping(panel, POS_STYLE_TEXT_SECONDARY);
-    v->svc_radio = pocketui_kv_row(panel, "Radio", RIFT_UNKNOWN);
-    v->svc_lease = pocketui_kv_row(panel, "Lease", RIFT_UNKNOWN);
-    v->svc_tx = pocketui_kv_row(panel, "Transmit", RIFT_UNKNOWN);
+    v->svc_radio = wrapping(panel, POS_STYLE_CAPTION);
     v->svc_nodes = pocketui_kv_row(panel, "Nodes held", RIFT_UNKNOWN);
     v->svc_build = pocketui_kv_row(panel, "Service", RIFT_UNKNOWN);
+    /* The service's own counts of what it put on the air and what it heard,
+     * in its own words: a transmit that went out is not one that failed. A
+     * caption line rather than a key/value row: a row's value is cut with an
+     * ellipsis at 60 % of the width, and a count cut short is a wrong count. */
+    v->svc_traffic = wrapping(panel, POS_STYLE_CAPTION);
     v->svc_fault = wrapping(panel, POS_STYLE_STATUS_WARN_TEXT);
+}
+
+/* An advert, on a reader's press, and only then: the one handler for both
+ * buttons, and the only caller of the advert in this app. Zero-hop is heard
+ * in direct range and repeated by nobody; the mesh one is flooded. */
+static void on_advert(lv_event_t *e)
+{
+    struct rift_activity_view *v = lv_event_get_user_data(e);
+    int zero_hop = lv_event_get_target_obj(e) == v->advert_near;
+
+    rift_ipc_send_advert(&v->app->ipc, zero_hop);
+    rift_app_refresh(v->app);
 }
 
 static void build_identity(struct rift_activity_view *v, lv_obj_t *parent)
 {
     lv_obj_t *panel = rift_panel(parent, "THIS DEVICE");
     lv_obj_t *line = dense(panel, 10);
+    lv_obj_t *bar;
 
     v->id_glyph = rift_glyph_create(line);
     rift_glyph_set(v->id_glyph, RIFT_GLYPH_SELF);
@@ -132,6 +157,17 @@ static void build_identity(struct rift_activity_view *v, lv_obj_t *parent)
     lv_obj_set_flex_grow(v->id_name, 1);
     v->id_hash = rift_cell(line, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_RIGHT);
     v->id_key = pocketui_kv_row(panel, "Key", RIFT_UNKNOWN);
+
+    /* Telling the mesh this node is here. Nothing in RIFT does it on its
+     * own - there is no periodic advert, by decision (docs/services/
+     * MESHCORED.md) - so a peer that has lost this node's key, or one that
+     * has never heard it, waits for a reader to press one of these. */
+    bar = dense(panel, 12);
+    lv_obj_set_height(bar, RIFT_TOUCH_H);
+    lv_obj_remove_flag(bar, LV_OBJ_FLAG_CLICKABLE);
+    v->advert_near = rift_action(bar, "ADVERT NEAR", 0, 0, on_advert, v);
+    v->advert_mesh = rift_action(bar, "ADVERT MESH", 0, 0, on_advert, v);
+    v->advert_line = wrapping(panel, POS_STYLE_CAPTION);
 }
 
 static void build_heard(struct rift_activity_view *v, lv_obj_t *parent)
@@ -185,6 +221,7 @@ lv_obj_t *rift_activity_create(struct rift_app *app, lv_obj_t *parent)
     lv_obj_set_size(v->root, LV_PCT(100), LV_PCT(100));
     lv_obj_set_flex_flow(v->root, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(v->root, RIFT_PAD, 0);
+    lv_obj_set_style_pad_top(v->root, RIFT_PAD - RIFT_CAPTION_OVERHANG, 0);
     lv_obj_set_scroll_dir(v->root, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(v->root, LV_SCROLLBAR_MODE_AUTO);
 
@@ -193,14 +230,20 @@ lv_obj_t *rift_activity_create(struct rift_app *app, lv_obj_t *parent)
     lv_obj_set_width(v->split, LV_PCT(100));
     lv_obj_set_height(v->split, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(v->split, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(v->split, 20, 0);
+    /* 20 between the stacked columns, of which the second column's own
+     * caption room (above) is part. */
+    lv_obj_set_style_pad_row(v->split, 20 - RIFT_CAPTION_OVERHANG, 0);
     lv_obj_set_style_pad_column(v->split, 20, 0);
     lv_obj_remove_flag(v->split, LV_OBJ_FLAG_SCROLLABLE);
 
     v->col[0] = column(v->split);
     v->col[1] = column(v->split);
+    /* The radio service alone on the left; this device - with the ADVERT
+     * buttons - at the head of the right, where landscape shows it without
+     * a scroll. Stacked in portrait, the order is the same as ever: service,
+     * device, heard, feed. */
     build_service(v, v->col[0]);
-    build_identity(v, v->col[0]);
+    build_identity(v, v->col[1]);
     build_heard(v, v->col[1]);
     build_feed(v, v->col[1]);
     return v->root;
@@ -280,24 +323,52 @@ static void refresh_service(struct rift_activity_view *v)
     lv_label_set_text(v->svc_reason, m->reason[0] ? m->reason
                                                   : "meshcored has not said why yet.");
     if (!m->have_status) {
-        lv_label_set_text(v->svc_radio, RIFT_UNKNOWN);
-        lv_label_set_text(v->svc_lease, RIFT_UNKNOWN);
-        lv_label_set_text(v->svc_tx, RIFT_UNKNOWN);
+        lv_label_set_text(v->svc_radio, "RADIOD " RIFT_UNKNOWN RIFT_SEP "LEASE " RIFT_UNKNOWN
+                                        RIFT_SEP "TRANSMIT " RIFT_UNKNOWN);
     } else {
         /* radiod's own state word is absent until radiod has said, and
-         * absent is not "off" (docs/api/mesh.md). Three short answers
-         * rather than two long ones: a value row clips, and half a sentence
-         * about the radio is worse than none. */
-        lv_label_set_text_fmt(v->svc_radio, "%s" RIFT_SEP "%s",
-                              m->radio_connected ? "connected" : "no radiod",
-                              m->have_radio_state ? m->radio_state : RIFT_UNKNOWN);
-        lv_label_set_text(v->svc_lease, m->radio_lease_held ? "held" : "not held");
-        lv_label_set_text(v->svc_tx, m->radio_online ? "ready" : "not ready");
+         * absent is not "off" (docs/api/mesh.md). Three short answers on
+         * one caption line - they were three 64 px rows, which in landscape
+         * pushed everything under this panel below the fold - and a line
+         * that wraps rather than clips, because half a sentence about the
+         * radio is worse than none. */
+        lv_label_set_text_fmt(v->svc_radio,
+                              "RADIOD %s" RIFT_SEP "%s" RIFT_SEP "LEASE %s" RIFT_SEP "TRANSMIT %s",
+                              m->radio_connected ? "CONNECTED" : "NOT CONNECTED",
+                              m->have_radio_state ? m->radio_state : RIFT_UNKNOWN,
+                              m->radio_lease_held ? "HELD" : "NOT HELD",
+                              m->radio_online ? "READY" : "NOT READY");
     }
     if (m->have_nodes_reported) {
         lv_label_set_text_fmt(v->svc_nodes, "%d", m->nodes_reported);
     } else {
         lv_label_set_text(v->svc_nodes, RIFT_UNKNOWN);
+    }
+    if (m->have_traffic) {
+        /* "RX 2627 · TX 6 OK", and the other transmit outcomes only when
+         * there were any: a value row clips, and "0 failed" twice over is
+         * width that says nothing. */
+        char tail[48] = "";
+        size_t at = 0;
+
+        if (m->tx_failed) {
+            at += (size_t)snprintf(tail + at, sizeof(tail) - at, RIFT_SEP "%u FAILED",
+                                   m->tx_failed);
+        }
+        if (m->tx_unknown && at < sizeof(tail)) {
+            at += (size_t)snprintf(tail + at, sizeof(tail) - at, RIFT_SEP "%u UNKNOWN",
+                                   m->tx_unknown);
+        }
+        if (m->tx_rx_resume_failed && at < sizeof(tail)) {
+            snprintf(tail + at, sizeof(tail) - at, RIFT_SEP "%u NO RX AFTER",
+                     m->tx_rx_resume_failed);
+        }
+        lv_label_set_text_fmt(v->svc_traffic, "TRAFFIC" RIFT_SEP "RX %u" RIFT_SEP "TX %u OK%s",
+                              m->rx_events, m->tx_ok, tail);
+        lv_obj_remove_flag(v->svc_traffic, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        /* Not reported is not zero: no line at all rather than a row of 0s. */
+        lv_obj_add_flag(v->svc_traffic, LV_OBJ_FLAG_HIDDEN);
     }
     if (m->have_info) {
         lv_label_set_text_fmt(v->svc_build, "%s %s" RIFT_SEP "%s", m->protocol, m->version,
@@ -312,6 +383,20 @@ static void refresh_service(struct rift_activity_view *v)
         lv_label_set_text_fmt(v->svc_fault, "Stored node table was not read: %s",
                               m->state_fault);
         lv_obj_remove_flag(v->svc_fault, LV_OBJ_FLAG_HIDDEN);
+    } else if (rift_model_unretained_recent(m) > 0) {
+        /* The table is full, and it matters beyond the list: a node the
+         * service could not keep is one no message can be sent to. It found
+         * its way onto unit A's bench as a direct message that could not be
+         * sent (docs/hardware/RIFT_CHANNELS_GATE.md). Counted since the last
+         * node this app saw forgotten, so it goes away once room is made. */
+        unsigned turned_away = rift_model_unretained_recent(m);
+
+        lv_label_set_text_fmt(v->svc_fault,
+                              "The node table is full: %u advert%s could not be kept, and "
+                              "nothing can be sent to those nodes. Forget a node in NODES "
+                              "to make room.",
+                              turned_away, turned_away == 1 ? "" : "s");
+        lv_obj_remove_flag(v->svc_fault, LV_OBJ_FLAG_HIDDEN);
     } else if (m->events_malformed > 0) {
         lv_label_set_text_fmt(v->svc_fault, "%u message%s from meshcored could not be read and "
                                             "%s ignored.",
@@ -323,11 +408,50 @@ static void refresh_service(struct rift_activity_view *v)
     }
 }
 
+/* The ADVERT buttons: pressable only when the service is answering, its
+ * radio can send, and no advert is already on its way. The line under them
+ * says what became of the last one, or - before any - what the two do. */
+static void refresh_advert(struct rift_activity_view *v)
+{
+    const struct rift_model *m = &v->app->model;
+    /* The model's word for it, as the composer's (rift_thread_refusal): the
+     * service said its radio can send. A press while the socket is between
+     * connections is refused by the client, with a reason, here. */
+    int ready = !m->stale && m->state != RIFT_SVC_ABSENT && m->have_status &&
+                m->radio_online && !rift_model_action_busy(m, RIFT_ACTION_ADVERT_MESH);
+    char text[RIFT_ACTION_TEXT_MAX];
+    int warn = 0;
+
+    rift_action_set_enabled(v->advert_near, 0, ready);
+    rift_action_set_enabled(v->advert_mesh, 0, ready);
+    rift_fmt_action(&m->advert, rift_app_now(v->app), text, sizeof(text));
+    if (text[0]) {
+        warn = m->advert.failed;
+        lv_label_set_text(v->advert_line, text);
+    } else if (!ready && (m->stale || m->state == RIFT_SVC_ABSENT)) {
+        lv_label_set_text(v->advert_line, "meshcored is not answering.");
+    } else if (!ready && !m->advert.active) {
+        lv_label_set_text(v->advert_line, "The radio is not ready to send.");
+    } else {
+        lv_label_set_text(v->advert_line, "NEAR: heard in direct range, repeated by nobody. "
+                                          "MESH: flooded through every repeater.");
+    }
+    if (warn != v->advert_warn) {
+        if (warn) {
+            pos_style_add(v->advert_line, POS_STYLE_STATUS_WARN_TEXT, 0);
+        } else {
+            lv_obj_remove_style(v->advert_line, pos_style(POS_STYLE_STATUS_WARN_TEXT), 0);
+        }
+        v->advert_warn = warn;
+    }
+}
+
 static void refresh_identity(struct rift_activity_view *v)
 {
     const struct rift_model *m = &v->app->model;
     char text[RIFT_KEY_SHORT_MAX];
 
+    refresh_advert(v);
     if (!m->have_identity) {
         lv_label_set_text(v->id_name, RIFT_UNKNOWN);
         lv_label_set_text(v->id_hash, "");

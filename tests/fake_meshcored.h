@@ -20,8 +20,9 @@
 #include <sys/types.h>
 
 struct fake_meshcored_script {
-    /* mesh.status answers with this state, and mesh.state is raised with it
-     * once a client subscribes. */
+    /* mesh.status answers with this state. No mesh.state event is raised on
+     * its own: a client subscribing receives the scripted events below and
+     * nothing else. */
     const char *state;
     const char *reason;
     /* How long mesh.status says this service had been up when it started,
@@ -69,6 +70,14 @@ struct fake_meshcored_script {
      * is not supposed to transmit is not proved by reading its source; it
      * is proved by what the service was asked for. */
     const char *method_log;
+    /* Every mesh.advert, one to a line, appended here: "zero_hop" or
+     * "flood", as the request asked. */
+    const char *advert_log;
+    /* Answer mesh.advert with an error instead of accepting it. */
+    int refuse_advert;
+    /* Take mesh.node_remove and mesh.node_reset_path requests and never
+     * answer them, the way a service that dies mid-request would not. */
+    int node_ops_silent;
 };
 
 /* Run the service until the script says to stop. Returns 0. Never returns

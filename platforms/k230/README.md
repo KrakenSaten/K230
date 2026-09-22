@@ -27,7 +27,10 @@ The vendor LVGL launcher is still installed by `apply_to_sdk.sh` and owns
 the display and the radio by default. `apply_to_sdk.sh` adds one switch to
 its init script (`ENABLE` in `/etc/default/k230_phone_ui`, default 1); the
 Doors shell is installed as `/usr/bin/doors-shell` with
-`S90doors-shell` disabled, and radiod runs with the mock backend.
+`S90doors-shell` disabled, radiod runs with the mock backend, and meshcored
+is installed as `/usr/sbin/meshcored` with `S65meshcored` disabled
+(`MESHCORED_ENABLE=1` in `/etc/default/meshcored` switches it on; see
+docs/services/MESHCORED.md before doing that on a real radio).
 
 ## Panel ownership (persistent across reboots)
 

@@ -4,8 +4,14 @@
 # package keeps its PocketOS-era name, ADR-005 Phase 4)
 #
 # Two build steps: the GNU make tree (doors with its pos alias, radiod with the
-# sx1262 backend, pos-hwcheck, pos-supervise) and the CMake shell against the
-# vendor LVGL package in staging.
+# sx1262 backend, meshcored, pos-hwcheck, pos-supervise) and the CMake shell
+# against the vendor LVGL package in staging.
+#
+# meshcored is built and installed here (ENABLE_MESHCORED=1) since its
+# third-party notices landed (docs/LICENSING.md item 9). The MeshCore and
+# Crypto sources it compiles are exported by apply_to_sdk.sh into
+# third_party/, pin-checked. Installing it starts nothing: S65meshcored ships
+# disabled and each unit switches it on in /etc/default/meshcored.
 #
 ################################################################################
 
@@ -19,7 +25,7 @@ POCKETOS_SITE_METHOD = local
 # pocketos.hash) and the image installs as
 # /usr/share/doors/THIRD_PARTY_NOTICES.txt, with a link at the old
 # /usr/share/pocketos path.
-POCKETOS_LICENSE = Not yet decided (Doors; no licence granted), MIT (RadioLib, ggwave, Reed-Solomon), Ooura FFT licence (ggwave FFT), OFL-1.1 (IBM Plex font bitmaps)
+POCKETOS_LICENSE = Not yet decided (Doors; no licence granted), MIT (RadioLib, ggwave, Reed-Solomon, MeshCore, Arduino Cryptography Library), Zlib (Ed25519, in MeshCore), Ooura FFT licence (ggwave FFT), OFL-1.1 (IBM Plex font bitmaps)
 POCKETOS_LICENSE_FILES = THIRD_PARTY_NOTICES.txt
 POCKETOS_REDISTRIBUTE = NO
 POCKETOS_INSTALL_TARGET = YES
@@ -35,7 +41,7 @@ POCKETOS_DEPENDENCIES = cjson libgpiod2 lvgl libdrm libevdev alsa-lib host-cmake
 POCKETOS_SHELL_BUILD_DIR = $(@D)/ui/shell/build-k230
 
 define POCKETOS_BUILD_CMDS
-	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 -C $(@D) all
+	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 ENABLE_MESHCORED=1 -C $(@D) all
 	mkdir -p $(POCKETOS_SHELL_BUILD_DIR)
 	cd $(POCKETOS_SHELL_BUILD_DIR) && $(TARGET_MAKE_ENV) $(BR2_CMAKE) $(@D)/ui/shell \
 		-DCMAKE_TOOLCHAIN_FILE=$(HOST_DIR)/share/buildroot/toolchainfile.cmake \
@@ -52,7 +58,7 @@ endef
 # PocketOS-era shell would otherwise still hold it, and the rootfs gate in
 # build_image.sh would refuse the image (correctly, but late).
 define POCKETOS_INSTALL_TARGET_CMDS
-	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 -C $(@D) DESTDIR=$(TARGET_DIR) PREFIX=/usr install
+	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 ENABLE_MESHCORED=1 -C $(@D) DESTDIR=$(TARGET_DIR) PREFIX=/usr install
 	$(INSTALL) -D -m 0755 $(POCKETOS_SHELL_BUILD_DIR)/pocketos-shell $(TARGET_DIR)/usr/bin/doors-shell
 	rm -f $(TARGET_DIR)/usr/bin/pocketos-shell
 	rm -f $(TARGET_DIR)/etc/init.d/S90pocketos-shell

@@ -23,6 +23,9 @@ void rift_nodes_shape(struct rift_app *app);
  * ordinary behaviour of a list in the one Doors focus group (DS §17.2,
  * §17.4), not a shortcut layer. Returns 1 when the key was used. */
 int rift_nodes_key(struct rift_app *app, uint32_t key);
+/* The reader left the node's detail: any FORGET confirmation it had up is
+ * cancelled, in both the landscape pane and the portrait screen. */
+void rift_nodes_cancel_confirm(struct rift_app *app);
 void rift_nodes_destroy(struct rift_app *app);
 
 #endif

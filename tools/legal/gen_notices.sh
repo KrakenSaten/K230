@@ -18,7 +18,7 @@
 #                                  entry here
 #
 # Upstream files are read from git objects at the pinned commits (vendor/
-# RadioLib, vendor/ggwave, vendor/lvgl) or, for LVGL and lv_port_linux, from
+# RadioLib, vendor/ggwave, vendor/lvgl, vendor/RIFT, vendor/Crypto) or, for LVGL and lv_port_linux, from
 # the source archives in the SDK's download directory (--sdk), which are what
 # the image is actually built from.
 #
@@ -67,6 +67,10 @@ text_file() { # <id> <text spec>
 # Carriage returns stripped: a Windows checkout may hand these over with CRLF.
 pin_radiolib() { tr -d '\r\n' < "${REPO}/platforms/k230/vendor_radiolib_commit.txt"; }
 pin_ggwave() { tr -d '\r\n' < "${REPO}/platforms/k230/vendor_ggwave_commit.txt"; }
+# MeshCore and rweather's Crypto are pinned by protocols/meshcore, which is what
+# builds them into meshcored; the notices name the same commits.
+pin_meshcore() { tr -d '\r\n' < "${REPO}/protocols/meshcore/vendor_rift_commit.txt"; }
+pin_arduinolibs() { tr -d '\r\n' < "${REPO}/protocols/meshcore/vendor_crypto_commit.txt"; }
 pin_lvgl() { tr -d '\r' < "${REPO}/platforms/k230/configs/k230_pocketos_defconfig" |
     sed -n 's/^BR2_PACKAGE_LVGL_CUSTOM_VERSION="\([0-9a-f]*\)"$/\1/p'; }
 commit_in() { printf '%s\n' "$1" | grep -o -E 'commit [0-9a-f]{40}' | head -1 | cut -d' ' -f2; }
@@ -86,6 +90,16 @@ upstream() { # <text spec> <version field>
             [ -n "${commit}" ] || { echo "gen_notices.sh: no ggwave pin" >&2; return 2; }
             git -C "${REPO}/vendor/ggwave" cat-file -e "${commit}:${path}" 2>/dev/null || return 3
             git -C "${REPO}/vendor/ggwave" show "${commit}:${path}" ;;
+        meshcore)
+            commit="$(pin_meshcore)"
+            [ -n "${commit}" ] || { echo "gen_notices.sh: no MeshCore pin" >&2; return 2; }
+            git -C "${REPO}/vendor/RIFT" cat-file -e "${commit}:${path}" 2>/dev/null || return 3
+            git -C "${REPO}/vendor/RIFT" show "${commit}:${path}" ;;
+        arduinolibs)
+            commit="$(pin_arduinolibs)"
+            [ -n "${commit}" ] || { echo "gen_notices.sh: no Crypto pin" >&2; return 2; }
+            git -C "${REPO}/vendor/Crypto" cat-file -e "${commit}:${path}" 2>/dev/null || return 3
+            git -C "${REPO}/vendor/Crypto" show "${commit}:${path}" ;;
         lvgl)
             commit="$(pin_lvgl)"
             [ -n "${commit}" ] || { echo "gen_notices.sh: no LVGL commit in the defconfig" >&2; return 2; }
@@ -202,6 +216,8 @@ case "${MODE}" in
             case "${spec%%:*}" in
                 radiolib) pinned="$(pin_radiolib)" ;;
                 ggwave) pinned="$(pin_ggwave)" ;;
+                meshcore) pinned="$(pin_meshcore)" ;;
+                arduinolibs) pinned="$(pin_arduinolibs)" ;;
                 lvgl) pinned="$(pin_lvgl)" ;;
                 *) pinned="" ;;
             esac
