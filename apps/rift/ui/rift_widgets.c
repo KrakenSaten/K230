@@ -339,6 +339,15 @@ void rift_strip_set_width(lv_obj_t *strip, int32_t width)
 
 /* ---- panels, rules and rows --------------------------------------------- */
 
+/* LVGL clips an OVERFLOW_VISIBLE object's children to the object's box
+ * GROWN BY ITS EXTENDED DRAW SIZE, not to nothing (lv_obj_redraw in
+ * lv_refr.c), and a panel's is 0. So the flag alone left the caption cut
+ * exactly where it was; the panel also has to say it draws that far out. */
+static void on_panel_ext_draw(lv_event_t *e)
+{
+    lv_event_set_ext_draw_size(e, RIFT_CAPTION_OVERHANG);
+}
+
 lv_obj_t *rift_panel(lv_obj_t *parent, const char *caption)
 {
     lv_obj_t *panel = lv_obj_create(parent);
@@ -350,6 +359,20 @@ lv_obj_t *rift_panel(lv_obj_t *parent, const char *caption)
     lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(panel, 8, 0);
     lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+    if (caption && caption[0]) {
+        /* The caption is centred ON the top rule, so its upper half lies
+         * outside the panel's own box, and LVGL clips a child to its parent:
+         * every caption used to be drawn with the top of its capitals cut
+         * off - on unit A too (docs/hardware/shots/rift-phase1-unitA-
+         * activity-2055.png). The panel lets it overhang, by exactly as much
+         * as it rises; what it overhangs is the gap above the panel, which
+         * is the parent's padding or the row gap between panels, and a
+         * parent whose top edge a panel sits on has to leave that much room
+         * (rift_activity.c's columns). */
+        lv_obj_add_flag(panel, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+        lv_obj_add_event_cb(panel, on_panel_ext_draw, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
+        lv_obj_refresh_ext_draw_size(panel);
+    }
     if (caption && caption[0]) {
         lv_obj_t *label = lv_label_create(panel);
 
@@ -429,10 +452,45 @@ lv_obj_t *rift_action(lv_obj_t *parent, const char *text, int primary, int enabl
     pos_style_add(label, POS_STYLE_BUTTON_LABEL, 0);
     lv_label_set_text(label, text ? text : "");
     lv_obj_center(label);
-    if (enabled && cb) {
+    /* The callback is attached whatever the starting state, so an action
+     * that is enabled later works; a disabled one cannot be clicked, so it
+     * cannot fire. */
+    if (cb) {
         lv_obj_add_event_cb(button, cb, LV_EVENT_CLICKED, user);
     }
     return button;
+}
+
+void rift_action_set_enabled(lv_obj_t *button, int primary, int enabled)
+{
+    if (!button) {
+        return;
+    }
+    /* Only on a change, so a refresh that repaints every second does not
+     * restyle - and invalidate - a button nobody touched. */
+    if (enabled == !lv_obj_has_state(button, LV_STATE_DISABLED)) {
+        return;
+    }
+    lv_obj_remove_style(button, pos_style(POS_STYLE_BUTTON_DISABLED), 0);
+    lv_obj_remove_style(button, pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
+    lv_obj_remove_style(button, pos_style(POS_STYLE_BUTTON_PRIMARY_PRESSED), LV_STATE_PRESSED);
+    lv_obj_remove_style(button, pos_style(POS_STYLE_BUTTON_SECONDARY), 0);
+    lv_obj_remove_style(button, pos_style(POS_STYLE_SLAB_PRESSED), LV_STATE_PRESSED);
+    if (!enabled) {
+        pos_style_add(button, POS_STYLE_BUTTON_DISABLED, 0);
+        lv_obj_add_state(button, LV_STATE_DISABLED);
+        lv_obj_remove_flag(button, LV_OBJ_FLAG_CLICKABLE);
+        return;
+    }
+    lv_obj_remove_state(button, LV_STATE_DISABLED);
+    lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
+    if (primary) {
+        pos_style_add(button, POS_STYLE_BUTTON_PRIMARY, 0);
+        pos_style_add(button, POS_STYLE_BUTTON_PRIMARY_PRESSED, LV_STATE_PRESSED);
+    } else {
+        pos_style_add(button, POS_STYLE_BUTTON_SECONDARY, 0);
+        pos_style_add(button, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+    }
 }
 
 static int32_t text_width(const char *text, const lv_font_t *font, int32_t letter_space)

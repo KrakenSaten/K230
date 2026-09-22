@@ -18,6 +18,9 @@ struct rift_detail;
  * no pushed-screen chrome. Otherwise the portrait DETAIL screen. */
 struct rift_detail *rift_detail_create(struct rift_app *app, lv_obj_t *parent, int compact);
 void rift_detail_refresh(struct rift_detail *d, const struct rift_node *n);
+/* The reader has left the detail - another section, the list, the other
+ * orientation - with a FORGET confirmation up: that is a Cancel. */
+void rift_detail_cancel_confirm(struct rift_detail *d);
 void rift_detail_destroy(struct rift_detail *d);
 
 #endif

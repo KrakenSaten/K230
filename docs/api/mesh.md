@@ -211,6 +211,48 @@ matches nothing, or matches **more than one node**. An ambiguous prefix is
 refused rather than answered: the answer is a key-exchange partner, and
 picking one would be a guess about which node the caller meant.
 
+### mesh.node_remove
+
+Params: `node` - a node's **whole** public key, 64 hex characters. A prefix is
+refused: this changes what the service holds, and doing that to whichever node
+a prefix happened to match would be acting on a guess.
+
+Result: `removed` (`true`), `persisted` (boolean), `node` - the node **as it
+was**, in the shape above.
+
+Forgets the node: its contact, its learned route, its last advert and the
+signal this service recorded for it. The node table is written to `state.v1`
+before the answer is sent, and `persisted` says whether that write happened:
+`true`, and a node answered as forgotten does not return with the next
+restart; `false` - the stored table could not be read at start
+(`state_fault`), so this service does not write over it, or the write failed -
+and it is forgotten for this run only. Every subscriber gets a `mesh.node`
+event with the reason `removed`, raised before the answer is sent. Nothing is
+transmitted.
+
+It is the node's entry that goes, not the node: it is **added back the next
+time it adverts**. Until then a message to it is refused (error 2, no single
+node matches) because there is no contact to encrypt to. MeshCore's table
+holds 32 and evicts nothing on its own, so this is what makes room when
+`nodes_unretained` says adverts are being turned away. A message already
+waiting for its ACK keeps waiting.
+
+Errors: 2 for a key that is not 64 hex characters, or a node this service
+does not hold.
+
+### mesh.node_reset_path
+
+Params: `node` - a whole public key, as `mesh.node_remove`.
+
+Result: the node afterwards, in the shape above, with `path_known` false.
+
+Forgets only the learned route, so the next message to the node floods and
+the reply teaches a fresh one - the remedy for a node that has moved and whose
+direct messages are no longer acknowledged. Nothing is transmitted by this
+call. Subscribers get a `mesh.node` event with the reason `path`.
+
+Errors: as `mesh.node_remove`.
+
 ### mesh.channels
 
 No params. Result: `channels` (array, in slot order), `count`, `max`,
@@ -388,15 +430,37 @@ refuses instead, and `mesh.channels` reports the real number as `text_limit`
 so a composer can show it rather than discover it.
 
 Errors: 2 for a recipient, channel or text the service will not take, 5 when
-the radio is not available (the message text says which state it is in), 4
-when the protocol core could not build the message.
+the radio is not available (the message text says which state it is in) or
+when eight direct messages are already waiting for their ACK, 4 when the
+protocol core could not build the message.
+
+**Each direct message waits for its own ACK.** `ack_timeout_ms` is that
+message's own deadline, and when it passes with no ACK the message - that
+one, not the oldest one waiting - becomes `no_ack`. An ACK for one message
+does not end another's wait. (MeshCore itself keeps one timer for the whole
+node; see docs/services/MESHCORED.md for why the service does not use it.) A
+send that finds eight messages still waiting is refused with error 5 and
+nothing is built or transmitted: a message the service could not watch would
+never be answered either way. "Still" waiting: any whose deadline has already
+passed are answered `no_ack` first, so a send is never turned away by messages
+nobody is waiting for any more. A deadline is not judged while received
+frames are still queued behind the one being handled, so an ACK that arrived
+in time is matched before its message is called unacknowledged.
 
 ### mesh.advert
 
-No params. Result: `accepted`.
+Params: `zero_hop` (optional, a boolean). Result: `accepted`, `route`
+(`"flood"` or `"zero_hop"`).
 
-Builds and floods one signed self-advert. Errors: 5 when the radio is not
-available, 4 when the runtime could not build one.
+Builds one signed self-advert and floods it, or with `zero_hop: true` sends it
+zero-hop: heard by the nodes in direct range and repeated by none of them, at
+the airtime of one packet rather than a flood across the mesh. `accepted`
+means the protocol core queued it; how the transmit went arrives as
+`mesh.activity`, as for any packet.
+
+Errors: 2 when `zero_hop` is present and not a boolean (a string `"false"`
+read as true would flood an advert the caller meant to keep local), 5 when the
+radio is not available, 4 when the runtime could not build one.
 
 **This and `mesh.send` are the only ways meshcored transmits without having
 been sent something first.** There is no periodic advert. What it does send
@@ -411,7 +475,10 @@ disconnecting.
 ## Events
 
 - `mesh.state`: `state`, `reason`, `mono_ms`. One per transition.
-- `mesh.node`: `reason` (`discovered`, `path`), `node` (as above).
+- `mesh.node`: `reason` (`discovered`, `path`, `removed`), `node` (as above).
+  With `removed` the node is the one `mesh.node_remove` forgot, **as it
+  was**; a client takes it off its list rather than applying it as an
+  update.
 - `mesh.channel`: `reason` (`added`, `removed`), `channel` (as above, and
   still without the key). One per change.
 - `mesh.message`: `message` (as above). Raised when a message arrives, when

@@ -9,6 +9,8 @@
 #                     and verified against the pinned upstream source; origins:
 #                     radiolib (vendor/RadioLib at vendor_radiolib_commit.txt),
 #                     ggwave (vendor/ggwave at vendor_ggwave_commit.txt),
+#                     meshcore (vendor/RIFT at protocols/meshcore/vendor_rift_commit.txt),
+#                     arduinolibs (vendor/Crypto at protocols/meshcore/vendor_crypto_commit.txt),
 #                     lvgl (the LVGL commit in the defconfig),
 #                     lv_port_linux (the commit named in version)
 #   repo:<path>       a notice kept in this repository
@@ -17,6 +19,9 @@ radiolib | RadioLib | 7.7.1, commit 034126ef3b5305394d1e4e14a5049482ec10c1c4 | M
 ggwave | ggwave | v0.4.3, commit a38e38b7373f9adf45baf737a104206664b225a1 | MIT | compiled into /usr/bin/pos-wave | ggwave:LICENSE
 reed-solomon | Reed-Solomon codec (Mike Lubinets), bundled in ggwave | as in ggwave v0.4.3 | MIT | compiled into /usr/bin/pos-wave | ggwave:src/reed-solomon/LICENSE
 ooura-fft | FFT routines (Takuya Ooura), bundled in ggwave | as in ggwave v0.4.3 | Ooura FFT package terms | compiled into /usr/bin/pos-wave | repo:docs/legal/third-party/ooura-fft.txt
+meshcore | MeshCore (Scott Powell / rippleradios.com), from the RIFT tree | commit 3ca7e3f003bd270587b1d92e33ce999542dcb5b4 | MIT | compiled into /usr/sbin/meshcored | meshcore:license.txt
+ed25519 | Ed25519 (Orson Peters), bundled in MeshCore | as in MeshCore 3ca7e3f | Zlib | compiled into /usr/sbin/meshcored | meshcore:lib/ed25519/license.txt
+arduinolibs-crypto | Arduino Cryptography Library (Rhys Weatherley, Southern Storm Software) | commit 37a76b8f7516568e1c575b6dc9268da1ccaac6b6 | MIT | compiled into /usr/sbin/meshcored | arduinolibs:libraries/LICENSE.txt
 ibm-plex | IBM Plex Sans and IBM Plex Mono | converted to bitmap fonts named pos_font_* | OFL-1.1, Reserved Font Name "Plex" | compiled into /usr/bin/pocketos-shell | repo:docs/legal/fonts/IBMPlex-OFL-1.1.txt
 lvgl | LVGL | commit 59dc7e436ae97a25e32656739ea6a943f9f11b6a (liblvgl 9.5.0) | MIT | /usr/lib/liblvgl*.so (vendor SDK package), loaded by /usr/bin/pocketos-shell | lvgl:LICENCE.txt
 lv-port-linux | lv_port_linux | commit b492d738b00cb7733c2ea442e2a2d5070f74d663 | MIT | /usr/lib/liblvgl_linux.so (vendor LVGL package) | lv_port_linux:LICENSE

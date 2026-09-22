@@ -87,6 +87,8 @@ struct Node {
     int node_events;
     int node_discovered;
     int node_path;
+    int node_removed;
+    struct mcd_node last_removed;
     int message_events;
     int channel_events;
     int channel_added;
@@ -102,9 +104,10 @@ struct Node {
     int tx_submits;
 
     Node() : rt(NULL), air(NULL), index(0), node_events(0), node_discovered(0),
-             node_path(0), message_events(0), channel_events(0), channel_added(0),
-             channel_removed(0), frame_events(0), tx_submits(0)
+             node_path(0), node_removed(0), message_events(0), channel_events(0),
+             channel_added(0), channel_removed(0), frame_events(0), tx_submits(0)
     {
+        memset(&last_removed, 0, sizeof(last_removed));
         memset(&last_msg, 0, sizeof(last_msg));
         memset(&last_channel, 0, sizeof(last_channel));
         dir[0] = '\0';
@@ -145,8 +148,10 @@ static void hook_on_node(void* user, const struct mcd_node* nd, const char* reas
         n->node_discovered++;
     } else if (strcmp(reason, "path") == 0) {
         n->node_path++;
+    } else if (strcmp(reason, "removed") == 0) {
+        n->node_removed++;
+        n->last_removed = *nd;
     }
-    (void)nd;
 }
 
 static void hook_on_message(void* user, const struct mcd_message* m)
@@ -1180,6 +1185,42 @@ static void test_full_contact_table(void)
         check("and marks the state dirty", mcd_runtime_dirty(n.rt));
     }
 
+    /* Forgetting a node frees a telemetry slot in the MIDDLE of the table.
+     * A node held further on that is heard again must keep its own slot,
+     * not take the free one as a second; otherwise the next new node finds
+     * no free slot and evicts a real node's last-heard time. */
+    {
+        struct mcd_node was;
+        struct mcd_node node;
+        int discovered = n.node_discovered;
+        bool all_heard = true;
+
+        check("a node in the middle of a full table is forgotten",
+              mcd_runtime_node_remove(n.rt, peers[5].pub_key, &was, NULL) &&
+                  mcd_runtime_node_count(n.rt) == TABLE - 1);
+        len = craftAdvert(frame, peers[20], "PEER-20", stamp++);
+        defaultMeta(meta);
+        mcd_runtime_deliver_rx(n.rt, frame, len, &meta);
+        pumpUntil(air, [&] { return n.node_discovered > discovered; });
+        len = craftAdvert(frame, peers[TABLE], "SPARE-0", stamp++);
+        defaultMeta(meta);
+        mcd_runtime_deliver_rx(n.rt, frame, len, &meta);
+        check("a node that had no room is taken into the room made",
+              pumpUntil(air, [&] {
+                  return mcd_runtime_node_by_prefix(n.rt, peers[TABLE].pub_key, 8, &node) == 1;
+              }) &&
+                  mcd_runtime_node_count(n.rt) == TABLE);
+        for (int i = 0; i < mcd_runtime_node_count(n.rt); i++) {
+            if (!mcd_runtime_node_at(n.rt, i, &node) || !node.last_heard_known) {
+                all_heard = false;
+            }
+        }
+        check("and no node the table holds lost the time it was heard", all_heard);
+        check("the first peer's signal least of all",
+              mcd_runtime_node_by_prefix(n.rt, peers[0].pub_key, 8, &kept) == 1 &&
+                  kept.last_heard_known && kept.last_heard_mono_ms == kept_heard);
+    }
+
     mcd_runtime_destroy(n.rt);
     n.rt = NULL;
 }
@@ -1901,6 +1942,322 @@ static void test_corrupt_channels_is_survivable(void)
     mcd_runtime_destroy(rt);
 }
 
+/* ---- each message waits for its own ACK ---------------------------------- */
+
+/* A message's state as the runtime holds it, or -1 when it is not held. */
+static int stateOf(mcd_runtime* rt, uint64_t id)
+{
+    int n = mcd_runtime_message_count(rt);
+    struct mcd_message m;
+
+    for (int i = 0; i < n; i++) {
+        if (mcd_runtime_message_at(rt, i, &m) && m.id == id) {
+            return (int)m.state;
+        }
+    }
+    return -1;
+}
+
+/* Every sent message is watched for its ACK against its OWN deadline.
+ *
+ * MeshCore keeps one timeout for the whole node: each send overwrites it and
+ * any matched ACK clears it (BaseChatMesh.cpp:339/350/451/455). Before this
+ * service kept its own deadlines, an ACK for one message cancelled the
+ * timeout of another still in flight - which then stayed `sent_*` for ever -
+ * and a timeout that did fire was pinned on the oldest message, not the one
+ * it was for. The deadlines are driven here through mcd_runtime_expire_acks
+ * with times computed from the reported timeouts, because the real ones are
+ * six to twelve seconds long. */
+static void test_ack_deadlines(Node& a, Node& b, Air& air)
+{
+    Node c;
+    uint8_t b_key[MCD_PUB_KEY_LEN];
+    uint8_t c_key[MCD_PUB_KEY_LEN];
+    char name[MCD_NODE_NAME_LEN];
+    struct mcd_node node;
+    uint64_t m1 = 0, m2 = 0, m3 = 0, id = 0;
+    uint32_t t1 = 0, t2 = 0, t3 = 0, t = 0;
+    uint64_t sent1_lo, sent1_hi, sent3_hi;
+    int path_events;
+
+    check("a third node starts", makeNode(c, air, "K230-C", NULL));
+    if (!c.rt) {
+        return;
+    }
+    mcd_runtime_set_radio_online(a.rt, true);
+    mcd_runtime_set_radio_online(b.rt, true);
+    mcd_runtime_set_radio_online(c.rt, true);
+    mcd_runtime_identity(b.rt, b_key, name, sizeof(name));
+    mcd_runtime_identity(c.rt, c_key, name, sizeof(name));
+
+    /* A knows B and C, C knows A, and A has a direct route to C. */
+    a.node_discovered = 0;
+    c.node_discovered = 0;
+    waitForANewSecond(air);
+    check("A adverts again", mcd_runtime_send_advert(a.rt));
+    check("B adverts again", mcd_runtime_send_advert(b.rt));
+    check("C adverts", mcd_runtime_send_advert(c.rt));
+    check("A holds B and C, and C holds A", pumpUntil(air, [&] {
+              uint8_t a_key[MCD_PUB_KEY_LEN];
+              char nm[MCD_NODE_NAME_LEN];
+
+              mcd_runtime_identity(a.rt, a_key, nm, sizeof(nm));
+              return mcd_runtime_node_by_prefix(a.rt, b_key, 8, &node) == 1 &&
+                     mcd_runtime_node_by_prefix(a.rt, c_key, 8, &node) == 1 &&
+                     mcd_runtime_node_by_prefix(c.rt, a_key, 8, &node) == 1;
+          }));
+    check("A writes to C once, to learn a route",
+          mcd_runtime_send_text(a.rt, c_key, 8, "route please", &id, &t) ==
+              MCD_SEND_ACCEPTED_FLOOD);
+    check("which C's answer teaches", pumpUntil(air, [&] {
+              return stateOf(a.rt, id) == MCD_MSG_ACKED &&
+                     mcd_runtime_node_by_prefix(a.rt, c_key, 8, &node) == 1 && node.path_known;
+          }));
+    check("nothing is left waiting", mcd_runtime_acks_waiting(a.rt) == 0);
+
+    /* ---- resetting a route ---- */
+    path_events = a.node_path;
+    check("the route to B is forgotten on request",
+          mcd_runtime_node_reset_path(a.rt, b_key, &node) && !node.path_known);
+    check("and subscribers are told, as a path change", a.node_path == path_events + 1);
+    check("so the next message to B floods", mcd_runtime_node_by_prefix(a.rt, b_key, 8, &node) ==
+                                                     1 && !node.path_known);
+
+    /* ---- an ACK for one message does not strand another ---- */
+    air.deliver = false;
+    sent1_lo = nowMs();
+    check("M1 goes to B by flood, into an air that carries nothing",
+          mcd_runtime_send_text(a.rt, b_key, 8, "lost one", &m1, &t1) == MCD_SEND_ACCEPTED_FLOOD);
+    sent1_hi = nowMs();
+    pump(air, 5);
+    air.deliver = true;
+    check("M2 goes to C directly",
+          mcd_runtime_send_text(a.rt, c_key, 8, "kept one", &m2, &t2) ==
+              MCD_SEND_ACCEPTED_DIRECT);
+    check("and C acknowledges it",
+          pumpUntil(air, [&] { return stateOf(a.rt, m2) == MCD_MSG_ACKED; }));
+    check("M1 is still waiting for its own answer, not closed by M2's",
+          stateOf(a.rt, m1) == MCD_MSG_SENT_FLOOD);
+    check("one message is still watched", mcd_runtime_acks_waiting(a.rt) == 1);
+
+    /* ---- the timeout lands on the message it belongs to ---- */
+    air.deliver = false;
+    check("M3 goes to C directly, and is lost",
+          mcd_runtime_send_text(a.rt, c_key, 8, "lost two", &m3, &t3) ==
+              MCD_SEND_ACCEPTED_DIRECT);
+    sent3_hi = nowMs();
+    pump(air, 5);
+    air.deliver = true;
+    /* Sent later with the shorter (direct) timeout, M3 falls due first. The
+     * old rule - "the oldest unanswered one" - would have marked M1. */
+    check("M3 falls due before M1 does", sent3_hi + t3 < sent1_lo + t1);
+    {
+        uint64_t between = (sent3_hi + t3 + sent1_lo + t1) / 2;
+
+        check("at a time between the two deadlines exactly one message times out",
+              mcd_runtime_expire_acks(a.rt, between) == 1);
+        check("and it is M3", stateOf(a.rt, m3) == MCD_MSG_NO_ACK);
+        check("M1 is still waiting", stateOf(a.rt, m1) == MCD_MSG_SENT_FLOOD);
+        check("M2 is still acknowledged", stateOf(a.rt, m2) == MCD_MSG_ACKED);
+    }
+    check("at M1's own deadline M1 times out",
+          mcd_runtime_expire_acks(a.rt, sent1_hi + t1) == 1 &&
+              stateOf(a.rt, m1) == MCD_MSG_NO_ACK);
+    check("and nothing is left waiting", mcd_runtime_acks_waiting(a.rt) == 0);
+    check("a deadline is not answered twice", mcd_runtime_expire_acks(a.rt, sent1_hi + t1) == 0);
+
+    /* ---- a full watch refuses rather than overwriting ---- */
+    {
+        int accepted = 0;
+        int msgs_before;
+        int submits_before;
+        uint64_t last = 0;
+
+        air.deliver = false;
+        for (int i = 0; i < 8; i++) {
+            if (mcd_runtime_send_text(a.rt, c_key, 8, "one of eight", &last, &t) ==
+                MCD_SEND_ACCEPTED_DIRECT) {
+                accepted++;
+            }
+        }
+        /* Long enough for all eight to have been transmitted, so the count
+         * below can only move if the ninth were built. */
+        pump(air, 80);
+        check("eight messages can wait at once", accepted == 8 &&
+                                                     mcd_runtime_acks_waiting(a.rt) == 8);
+        msgs_before = mcd_runtime_message_count(a.rt);
+        submits_before = a.tx_submits;
+        check("a ninth is refused as busy",
+              mcd_runtime_send_text(a.rt, c_key, 8, "ninth", &id, &t) == MCD_SEND_BUSY);
+        pump(air, 10);
+        check("and is neither recorded nor transmitted",
+              mcd_runtime_message_count(a.rt) == msgs_before && a.tx_submits == submits_before);
+        check("none of the eight was pushed out to make room",
+              mcd_runtime_acks_waiting(a.rt) == 8 &&
+                  stateOf(a.rt, last) == MCD_MSG_SENT_DIRECT);
+        /* Requests are served between ticks. Once every deadline has
+         * passed, a send that comes before the next tick has answered them
+         * answers them itself, rather than being turned away as busy by
+         * eight messages nobody is waiting for any more. No tick, and no
+         * mcd_runtime_expire_acks, between the wait and the send. */
+        {
+            uint64_t due = nowMs() + t + 100;
+
+            while (nowMs() < due) {
+                usleep(10000);
+            }
+        }
+        air.deliver = true;
+        check("once their deadlines have passed, a send is not turned away as busy",
+              mcd_runtime_send_text(a.rt, c_key, 8, "room again", &id, &t) ==
+                  MCD_SEND_ACCEPTED_DIRECT);
+        check("the eight were answered first, each as no ACK",
+              stateOf(a.rt, last) == MCD_MSG_NO_ACK && mcd_runtime_acks_waiting(a.rt) == 1);
+        check("and the new one is acknowledged",
+              pumpUntil(air, [&] { return stateOf(a.rt, id) == MCD_MSG_ACKED; }));
+    }
+
+    /* ---- an ACK that came in time is not overtaken by its deadline ---- */
+    {
+        uint64_t m4 = 0;
+        uint64_t sent4_hi;
+        uint8_t ahead[MCD_MAX_FRAME];
+        int ahead_len = 0;
+        bool queued = false;
+        struct mcd_rx_meta meta;
+
+        check("M4 goes to C directly",
+              mcd_runtime_send_text(a.rt, c_key, 8, "answer me", &m4, &t) ==
+                  MCD_SEND_ACCEPTED_DIRECT);
+        sent4_hi = nowMs();
+        /* The air, carried by hand: when C's answer goes out, A's receive
+         * queue gets another frame first - A's own M4, heard back, which it
+         * drops as already seen. The daemon hands over one frame a turn, so
+         * the ACK waits a turn behind it. */
+        for (int step = 0; step < 600 && !queued; step++) {
+            for (int i = 0; i < air.count; i++) {
+                mcd_runtime_tick(air.nodes[i]->rt);
+            }
+            int n = air.qn;
+
+            air.qn = 0;
+            for (int q = 0; q < n; q++) {
+                Frame& f = air.queue[q];
+
+                defaultMeta(meta);
+                if (f.from == a.index && f.len <= (int)sizeof(ahead)) {
+                    memcpy(ahead, f.bytes, (size_t)f.len);
+                    ahead_len = f.len;
+                }
+                if (f.from == c.index && ahead_len > 0 && !queued) {
+                    mcd_runtime_deliver_rx(a.rt, ahead, ahead_len, &meta);
+                    queued = true;
+                }
+                for (int i = 0; i < air.count; i++) {
+                    if (i != f.from) {
+                        mcd_runtime_deliver_rx(air.nodes[i]->rt, f.bytes, f.len, &meta);
+                    }
+                }
+                mcd_runtime_tx_done(air.nodes[f.from]->rt, f.submit_id, MCD_TX_OK);
+            }
+            usleep(10000);
+        }
+        check("C's answer reaches A behind another frame, before M4's deadline",
+              queued && mcd_runtime_rx_pending(a.rt) && nowMs() < sent4_hi + t);
+        {
+            uint64_t due = sent4_hi + t + 100;
+
+            while (nowMs() < due) {
+                usleep(10000);
+            }
+        }
+        /* The deadline has passed with the ACK sitting in the queue. */
+        mcd_runtime_tick(a.rt);
+        check("one turn takes the frame ahead of it, and the ACK still waits",
+              mcd_runtime_rx_pending(a.rt));
+        check("so M4 is not called unacknowledged while its ACK is queued",
+              stateOf(a.rt, m4) == MCD_MSG_SENT_DIRECT);
+        mcd_runtime_tick(a.rt);
+        check("the next turn takes the ACK, and M4 is acknowledged",
+              stateOf(a.rt, m4) == MCD_MSG_ACKED && mcd_runtime_acks_waiting(a.rt) == 0);
+        pump(air, 5);
+    }
+
+    /* ---- forgetting a node ---- */
+    {
+        int removed_before = a.node_removed;
+        bool persisted = false;
+        struct mcd_node was;
+        uint8_t nobody[MCD_PUB_KEY_LEN];
+
+        memset(&was, 0, sizeof(was));
+        check("C is forgotten on request", mcd_runtime_node_remove(a.rt, c_key, &was, &persisted));
+        check("and the forgetting is written to the node table", persisted);
+        check("the answer is C as it was, route included",
+              memcmp(was.public_key, c_key, MCD_PUB_KEY_LEN) == 0 && was.path_known);
+        check("subscribers are told it was removed", a.node_removed == removed_before + 1 &&
+                                                          memcmp(a.last_removed.public_key,
+                                                                 c_key, MCD_PUB_KEY_LEN) == 0);
+        check("A no longer holds C", mcd_runtime_node_by_prefix(a.rt, c_key, 8, &node) == 0);
+        check("and has written that down already", !mcd_runtime_dirty(a.rt));
+        check("a message to C is refused: there is no contact to encrypt to",
+              mcd_runtime_send_text(a.rt, c_key, 8, "hello?", &id, &t) == MCD_SEND_NO_CONTACT);
+        check("forgetting C twice is refused", !mcd_runtime_node_remove(a.rt, c_key, &was, NULL));
+        memset(nobody, 0x5a, sizeof(nobody));
+        check("so is forgetting a node never held", !mcd_runtime_node_remove(a.rt, nobody, &was, NULL));
+        check("or resetting its route", !mcd_runtime_node_reset_path(a.rt, nobody, &node));
+        check("B is untouched", mcd_runtime_node_by_prefix(a.rt, b_key, 8, &node) == 1);
+    }
+
+    /* ---- and it comes back when it adverts, zero-hop included ---- */
+    {
+        int discovered = a.node_discovered;
+        bool zero_hop_frame = false;
+
+        waitForANewSecond(air);
+        air.deliver = false;
+        air.qn = 0;
+        check("C sends a zero-hop advert", mcd_runtime_send_advert_zero_hop(c.rt));
+        for (int i = 0; i < 40 && air.qn == 0; i++) {
+            mcd_runtime_tick(c.rt);
+            usleep(10000);
+        }
+        if (air.qn > 0) {
+            const Frame& f = air.queue[0];
+
+            /* Header route bits DIRECT with an empty path: MeshCore's
+             * zero-hop, which a repeater does not forward. */
+            zero_hop_frame = f.len > 2 && (f.bytes[0] & PH_ROUTE_MASK) == ROUTE_TYPE_DIRECT &&
+                             f.bytes[1] == 0;
+        }
+        check("the frame is zero-hop: direct, with no path", zero_hop_frame);
+        air.deliver = true;
+        {
+            /* Hand the captured frame to the air as if it had just gone out. */
+            int n = air.qn;
+
+            air.qn = 0;
+            for (int q = 0; q < n; q++) {
+                struct mcd_rx_meta meta;
+
+                defaultMeta(meta);
+                mcd_runtime_deliver_rx(a.rt, air.queue[q].bytes, air.queue[q].len, &meta);
+                mcd_runtime_tx_done(c.rt, air.queue[q].submit_id, MCD_TX_OK);
+            }
+        }
+        check("A learns C again from it", pumpUntil(air, [&] {
+                  return a.node_discovered > discovered &&
+                         mcd_runtime_node_by_prefix(a.rt, c_key, 8, &node) == 1;
+              }));
+        check("with no route yet: the old one was forgotten with it", !node.path_known);
+    }
+
+    air.nodes[c.index] = NULL;
+    air.count = c.index;
+    mcd_runtime_destroy(c.rt);
+    c.rt = NULL;
+}
+
 int main(void)
 {
     char tmpl[] = "/tmp/meshcored-runtime-XXXXXX";
@@ -1943,6 +2300,7 @@ int main(void)
     test_corrupt_state_is_survivable();
     test_hostile_remote_text();
     test_full_contact_table();
+    test_ack_deadlines(a, b, air);
 
     mcd_runtime_destroy(a.rt);
     mcd_runtime_destroy(b.rt);

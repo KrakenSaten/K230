@@ -78,6 +78,11 @@ struct rift_nodes {
     /* The order of the last refresh, so a key press can step through it. */
     char order_key[RIFT_MAX_NODES][RIFT_KEY_HEX];
     int order_count;
+
+    /* The selection moved: bring its row into view on this refresh. A list
+     * of thirty nodes is taller than a landscape body, and arrows that moved
+     * the selection off the bottom of the pane were moving it out of sight. */
+    int reveal;
 };
 
 static int32_t strip_width(const struct rift_app *a)
@@ -203,10 +208,12 @@ static void build_expansion(struct rift_nodes *v, struct node_row *r)
     lv_label_set_long_mode(r->exp_signal, LV_LABEL_LONG_WRAP);
     lv_label_set_text(r->exp_signal, "");
 
+    /* Two actions. The design's third, PATH, was drawn in the disabled
+     * treatment with nothing behind it; the path is on DETAIL, whole, and a
+     * button that can never be pressed is width taken from the two that can. */
     bar = dense_row(r->expand, RIFT_TOUCH_H);
     lv_obj_set_style_pad_column(bar, 12, 0);
     rift_action(bar, "MESSAGE", 1, 1, on_message, r);
-    rift_action(bar, "PATH", 0, 0, NULL, NULL);
     rift_action(bar, "DETAIL \xE2\x80\xBA", 0, 1, on_detail, v);
 }
 
@@ -396,10 +403,12 @@ void rift_nodes_shape(struct rift_app *app)
         lv_obj_add_flag(v->pane_ctx, LV_OBJ_FLAG_HIDDEN);
     }
     /* Portrait pushes a DETAIL screen; landscape never does, because the
-     * pane beside the list is already showing it. */
+     * pane beside the list is already showing it. A confirmation up in the
+     * old shape does not follow the reader into the new one. */
     if (app->wide && app->detail_open) {
         app->detail_open = 0;
     }
+    rift_nodes_cancel_confirm(app);
     if (v->head_cell[1]) {
         lv_obj_set_width(v->head_cell[1], strip_width(app));
     }
@@ -476,8 +485,10 @@ lv_obj_t *rift_nodes_create(struct rift_app *app, lv_obj_t *parent)
     lv_obj_remove_style_all(v->note);
     pos_style_add(v->note, POS_STYLE_CAPTION, 0);
     lv_obj_set_width(v->note, LV_PCT(100));
-    lv_label_set_long_mode(v->note, LV_LABEL_LONG_CLIP);
+    lv_obj_set_style_pad_ver(v->note, 6, 0);
+    lv_label_set_long_mode(v->note, LV_LABEL_LONG_WRAP);
     lv_label_set_text(v->note, "");
+    lv_obj_add_flag(v->note, LV_OBJ_FLAG_HIDDEN);
 
     v->pane_ctx = lv_obj_create(v->root);
     lv_obj_remove_style_all(v->pane_ctx);
@@ -495,6 +506,16 @@ lv_obj_t *rift_nodes_create(struct rift_app *app, lv_obj_t *parent)
     return v->root;
 }
 
+void rift_nodes_cancel_confirm(struct rift_app *app)
+{
+    struct rift_nodes *v = app ? app->nodes : NULL;
+
+    if (v) {
+        rift_detail_cancel_confirm(v->detail_pane);
+        rift_detail_cancel_confirm(v->detail_full);
+    }
+}
+
 void rift_nodes_destroy(struct rift_app *app)
 {
     struct rift_nodes *v = app ? app->nodes : NULL;
@@ -510,11 +531,62 @@ void rift_nodes_destroy(struct rift_app *app)
     app->nodes = NULL;
 }
 
+/* The list's footer: shown only for what the rows cannot say themselves -
+ * that there are none, that they are cached, that a node was just forgotten,
+ * or that the service's table had no room for some. */
+static void paint_note(struct rift_nodes *v, int count)
+{
+    const struct rift_model *m = &v->app->model;
+    const struct rift_action_state *op = &m->node_op;
+    int64_t now = rift_app_now(v->app);
+    char text[RIFT_ACTION_TEXT_MAX];
+    int show = 1;
+
+    unsigned turned_away = rift_model_unretained_recent(m);
+    int forgot = op->kind == RIFT_ACTION_FORGET && op->done;
+
+    if (count > 0 && m->stale) {
+        lv_label_set_text_fmt(v->note, "%d node%s, cached: meshcored is not answering.", count,
+                              count == 1 ? "" : "s");
+    } else if (op->kind == RIFT_ACTION_FORGET && (op->done || op->failed) && op->have_mono &&
+               now - op->mono_ms < RIFT_ACTION_NOTE_MS) {
+        /* A forgotten node has left the list, and with it the detail that
+         * would have said so; the list says it instead, for a while - ahead
+         * of saying the list is empty, when it was the last one. */
+        rift_fmt_action(op, now, text, sizeof(text));
+        lv_label_set_text(v->note, text);
+    } else if (count == 0) {
+        lv_label_set_text(v->note, !m->snapshot_valid ? "Waiting for meshcored."
+                                   : forgot ? "The service holds no node."
+                                            : "No node has adverted since this service "
+                                              "started.");
+    } else if (turned_away > 0) {
+        /* MeshCore's contact table holds 32 and keeps no more; a node it had
+         * no room for is one nobody can be asked about or written to, and a
+         * quiet list would not say so (docs/api/mesh.md). Forgetting a node
+         * on its DETAIL is what makes room. Counted from the last node this
+         * app saw forgotten: the service's counter only grows, and once room
+         * has been made the table is not full until adverts are turned away
+         * again. */
+        lv_label_set_text_fmt(v->note, "%u advert%s the service had no room to keep" RIFT_SEP
+                                       "forget a node to make room",
+                              turned_away, turned_away == 1 ? "" : "s");
+    } else {
+        show = 0;
+    }
+    if (show) {
+        lv_obj_remove_flag(v->note, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(v->note, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 void rift_nodes_refresh(struct rift_app *app)
 {
     struct rift_nodes *v = app ? app->nodes : NULL;
     const struct rift_node *order[RIFT_MAX_NODES];
     const struct rift_node *sel;
+    int32_t keep_y = -1;
     int64_t now;
     int count;
     int fresh;
@@ -532,6 +604,14 @@ void rift_nodes_refresh(struct rift_app *app)
     }
     sel = rift_app_selected(app);
 
+    /* A detail with nothing to show is closed rather than left saying so: the
+     * node was forgotten, or the service no longer holds it. */
+    if (app->detail_open && !sel) {
+        app->detail_open = 0;
+    }
+    if (strcmp(sel ? sel->key : "", v->shape_sel) != 0) {
+        v->reveal = 1;
+    }
     changed = !v->shape_valid || count != v->shape_count || fresh != v->shape_fresh ||
               app->wide != v->shape_wide ||
               strcmp(sel ? sel->key : "", v->shape_sel) != 0;
@@ -541,6 +621,12 @@ void rift_nodes_refresh(struct rift_app *app)
         }
     }
     if (changed) {
+        /* Rebuilt in place, and read from where the reader was. lv_obj_clean
+         * scrolls the list back to its top, and a rebuild is what every new
+         * node, every re-ordering by last heard and every selection is - so
+         * on a live mesh a list somebody had scrolled down jumped back to
+         * its first row every few seconds. */
+        keep_y = lv_obj_get_scroll_y(v->list);
         rebuild(v, order, count, fresh);
         v->shape_valid = 1;
         v->shape_count = count;
@@ -572,30 +658,31 @@ void rift_nodes_refresh(struct rift_app *app)
 
         lv_label_set_text(v->row[i].tag, tag ? tag : "");
     }
+    /* The footer, only when it has something the list does not already say.
+     * The counts are in the group labels (and in landscape the strip), so
+     * an ordinary list gives the footer's line back to its rows. */
+    paint_note(v, count);
     lv_obj_update_layout(v->pane_list);
     for (i = 0; i < v->row_count && i < count; i++) {
         update_row(v, &v->row[i], order[i], now);
     }
-
-    if (count == 0) {
-        lv_label_set_text(v->note,
-                          app->model.snapshot_valid
-                              ? "No node has adverted since this service started."
-                              : "Waiting for meshcored.");
-    } else if (app->model.stale) {
-        lv_label_set_text_fmt(v->note, "%d node%s, cached: meshcored is not answering.", count,
-                              count == 1 ? "" : "s");
-    } else if (app->model.nodes_unretained > 0) {
-        /* MeshCore's contact table holds 32; a node it had no room for is
-         * one nobody can be asked about, and a quiet list would not say so
-         * (docs/api/mesh.md). */
-        lv_label_set_text_fmt(v->note, "%d node%s" RIFT_SEP "%u advert%s the service had no room "
-                                       "to keep",
-                              count, count == 1 ? "" : "s", app->model.nodes_unretained,
-                              app->model.nodes_unretained == 1 ? "" : "s");
-    } else {
-        lv_label_set_text_fmt(v->note, "%d node%s" RIFT_SEP "%d heard in the last 12 h", count,
-                              count == 1 ? "" : "s", fresh);
+    if (keep_y > 0) {
+        /* Settled first: the rows' text is what decides how tall the list
+         * is, and the scroll is bounded by that. */
+        lv_obj_update_layout(v->pane_list);
+        lv_obj_scroll_to_y(v->list, keep_y, LV_ANIM_OFF);
+    }
+    if (v->reveal) {
+        v->reveal = 0;
+        for (i = 0; i < v->row_count; i++) {
+            if (sel && strcmp(v->row[i].key, sel->key) == 0) {
+                /* The whole slot, expansion and action bar included, so a
+                 * selection made at the bottom of the pane shows what it
+                 * offers rather than hiding it under the edge. */
+                lv_obj_scroll_to_view(v->row[i].slot, LV_ANIM_OFF);
+                break;
+            }
+        }
     }
 
     ensure_detail_full(v, app->detail_open && !app->wide);
@@ -633,11 +720,20 @@ int rift_nodes_key(struct rift_app *app, uint32_t key)
         rift_app_select(app, v->order_key[at]);
         return 1;
     case LV_KEY_ENTER:
-        if (app->have_selected && !app->wide) {
-            rift_app_open_detail(app, 1);
-            return 1;
+        /* The node as the cache holds it now: a selection whose node was
+         * forgotten opens nothing. */
+        if (!rift_app_selected(app)) {
+            return 0;
         }
-        return 0;
+        /* Portrait pushes the detail. Landscape already shows it beside the
+         * list, so Enter does what the keyboard is there for: it opens the
+         * conversation with the selected node. It sends nothing. */
+        if (app->wide) {
+            rift_app_open_conversation(app, app->selected);
+        } else {
+            rift_app_open_detail(app, 1);
+        }
+        return 1;
     case LV_KEY_ESC:
         if (app->detail_open) {
             rift_app_open_detail(app, 0);

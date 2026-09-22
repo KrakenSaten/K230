@@ -81,12 +81,33 @@ mkbootimg_rootfs() {
     _mkbootimg_le32 "${p2_sectors}" | dd of="${out}" bs=1 seek=474 conv=notrunc status=none
 }
 
-# mkbootimg_rootfs_doors <dir> - a root filesystem with the Phase 3 identity.
+# mkbootimg_rootfs_doors <dir> [build] - a root filesystem holding one complete
+# Doors installation, as tools/release/check_rootfs.sh requires: every service
+# a binary and the init script that names it as its DAEMON, both executable,
+# pos-supervise, and /etc/doors-release naming the build every binary is
+# stamped with. The binaries are stand-ins that carry the stamp the way a real
+# one does - as a string in the file.
 mkbootimg_rootfs_doors() {
-    local d="$1"
-    mkdir -p "${d}/usr/bin" "${d}/etc/init.d" "${d}/etc/default"
-    printf '#!/bin/sh\n' > "${d}/usr/bin/doors-shell"
-    printf '#!/bin/sh\n' > "${d}/etc/init.d/S90doors-shell"
+    local d="$1" id="${2:-abc1234}" entry name bin init
+    mkdir -p "${d}/usr/bin" "${d}/usr/sbin" "${d}/etc/init.d" "${d}/etc/default"
+    printf '0.0.10\nBUILD_ID=%s\n' "${id}" > "${d}/etc/doors-release"
+    for entry in sysd:usr/sbin/sysd:S50sysd netd:usr/sbin/netd:S55netd \
+                 radiod:usr/sbin/radiod:S60radiod meshcored:usr/sbin/meshcored:S65meshcored \
+                 doors-shell:usr/bin/doors-shell:S90doors-shell; do
+        name="${entry%%:*}"; bin="${entry#*:}"; bin="${bin%%:*}"; init="${entry##*:}"
+        mkbootimg_stamped "${d}/${bin}" "${id}"
+        printf '#!/bin/sh\n# %s\nDAEMON=/%s\n' "${name}" "${bin}" > "${d}/etc/init.d/${init}"
+        chmod 0755 "${d}/etc/init.d/${init}"
+    done
+    mkbootimg_stamped "${d}/usr/bin/doors" "${id}"
+    printf '#!/bin/sh\n' > "${d}/usr/bin/pos-supervise"
+    chmod 0755 "${d}/usr/bin/pos-supervise"
+}
+
+# mkbootimg_stamped <file> <build> - a stand-in binary carrying a build stamp.
+mkbootimg_stamped() {
+    printf '\177ELF stand-in\000DOORS_BUILD_ID=%s\000' "$2" > "$1"
+    chmod 0755 "$1"
 }
 
 # mkbootimg_complete <out.img> - the common case: a valid, complete image.

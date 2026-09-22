@@ -83,6 +83,9 @@ opens with Doors' own undecided status, then lists and reproduces in full:
 | ggwave v0.4.3 (a38e38b) | compiled into pos-wave | MIT |
 | Reed-Solomon (in ggwave) | compiled into pos-wave | MIT |
 | Ooura FFT (in ggwave) | compiled into pos-wave | author's terms |
+| MeshCore (3ca7e3f, from the RIFT tree) | compiled into meshcored | MIT |
+| Ed25519, Orson Peters (in MeshCore) | compiled into meshcored | Zlib |
+| Arduino Cryptography Library, rweather (37a76b8) | compiled into meshcored | MIT |
 | IBM Plex Sans / Mono | bitmap fonts compiled into pocketos-shell | OFL-1.1, RFN "Plex" |
 | LVGL 59dc7e4 | liblvgl, loaded by pocketos-shell | MIT |
 | lv_port_linux b492d73 | liblvgl_linux | MIT |
@@ -176,22 +179,22 @@ Findings:
 8. **Distribution blocker:** collect the licences of the C and C++ runtime
    libraries the external toolchain puts in the image (glibc, libstdc++,
    libgcc_s); they are not in legal-info's manifest.
-9. **Before meshcored ships in an image:** add notices entries for the three
+9. ~~**Before meshcored ships in an image:** add notices entries for the three
    trees it compiles — MeshCore (`vendor/RIFT` `src/` and its
-   `lib/ed25519`, orlp's ref10 Ed25519) and rweather's `arduinolibs` Crypto.
-   Nothing from them reaches a binary today: `ENABLE_MESHCORED` defaults to 0,
-   so `make all`, `make install`, the Buildroot package and the image contain
-   no meshcored, and `S65meshcored` ships disabled
-   (docs/services/MESHCORED.md). The restriction is **enforced, not merely
-   documented**: `make install` refuses while `ENABLE_MESHCORED=1` and the
-   three entries are absent, and so do `build_image.sh` and `apply_to_sdk.sh`,
-   on the command line, from the environment and under `make -j`. Building and
-   testing meshcored is untouched by any of it. There is no override, because
-   this is a licensing decision rather than a build preference.
-   `tests/notices_test.sh` executes those refusals rather than reading the
-   Makefile's default - an earlier version only read the default, so
-   `ENABLE_MESHCORED=1 make install` shipped the binary while the test said it
-   could not. The gate is driven by the notices themselves, so it stops
-   refusing the moment the three entries exist. The same three are already
-   compiled by `protocols/meshcore` and `tools/meshcore-frame`, neither of
-   which is installed or packaged either.
+   `lib/ed25519`, orlp's ref10 Ed25519) and rweather's `arduinolibs` Crypto.~~
+   Resolved 2026-09-22 (product owner's decision to ship it): third_party/notices
+   carries `meshcore` (MIT, Scott Powell / rippleradios.com), `ed25519` (Zlib,
+   Orson Peters) and `arduinolibs-crypto` (MIT, Southern Storm Software), each
+   text a verbatim copy of the licence at the commit protocols/meshcore pins,
+   checked byte for byte by `gen_notices.sh --verify-upstream` and so on every
+   `apply_to_sdk.sh`. The image package now builds and installs meshcored
+   (`pocketos.mk`, `ENABLE_MESHCORED=1`); `S65meshcored` still ships disabled,
+   switched on per unit (docs/services/MESHCORED.md). The rule itself stays
+   **enforced, not merely documented**: `make install` refuses meshcored while
+   any of the three entries is absent, and `apply_to_sdk.sh` refuses the
+   package before assembling anything; `tests/notices_test.sh` executes both
+   directions - the gate passing with the notices as they are, and refusing
+   with an entry it cannot find - because an earlier version only read the
+   Makefile's default, and `ENABLE_MESHCORED=1 make install` shipped the binary
+   while the test said it could not. There is still no override: this is a
+   licensing rule rather than a build preference.

@@ -20,8 +20,9 @@
 #include <sys/types.h>
 
 struct fake_meshcored_script {
-    /* mesh.status answers with this state, and mesh.state is raised with it
-     * once a client subscribes. */
+    /* mesh.status answers with this state. No mesh.state event is raised on
+     * its own: a client subscribing receives the scripted events below and
+     * nothing else. */
     const char *state;
     const char *reason;
     /* How long mesh.status says this service had been up when it started,
@@ -54,6 +55,14 @@ struct fake_meshcored_script {
     /* Raised, in order, after the first subscribe: each is "<event name>|
      * <data as JSON>". NULL-terminated. */
     const char *const *events;
+    /* Hold the events until this service has answered mesh.nodes,
+     * mesh.channels and mesh.messages. Without it they start as soon as a
+     * client subscribes - which a client does before it asks for anything
+     * else - so they interleave with those answers, and a snapshot of fixed
+     * text that lands after an event undoes it. A real service's snapshot
+     * would already say what its event said; this one's cannot. Set it where
+     * a check needs an event to land on top of the snapshot. */
+    int events_after_snapshot;
     /* Broadcast verbatim after the events: a well-formed JSON object that
      * is neither an event nor a response, which a client must count and
      * ignore rather than drop the connection over. NULL for none. */
@@ -63,12 +72,20 @@ struct fake_meshcored_script {
     /* Stop after this many clients have connected and gone (0: run until
      * killed). Used to make the service disappear under a live client. */
     int serve_clients;
-    /* Exit this long after the last scripted event, whatever else happens. */
+    /* Exit this long after starting, whatever else happens. */
     int life_ms;
     /* Every method asked for, one to a line, appended here. A client that
      * is not supposed to transmit is not proved by reading its source; it
      * is proved by what the service was asked for. */
     const char *method_log;
+    /* Every mesh.advert, one to a line, appended here: "zero_hop" or
+     * "flood", as the request asked. */
+    const char *advert_log;
+    /* Answer mesh.advert with an error instead of accepting it. */
+    int refuse_advert;
+    /* Take mesh.node_remove and mesh.node_reset_path requests and never
+     * answer them, the way a service that dies mid-request would not. */
+    int node_ops_silent;
 };
 
 /* Run the service until the script says to stop. Returns 0. Never returns
@@ -76,12 +93,14 @@ struct fake_meshcored_script {
 int fake_meshcored_run(const struct fake_meshcored_script *script);
 
 /* Fork one, with $POCKETOS_RUNTIME_DIR already pointing where it should.
- * Returns the child's pid, or -1. */
+ * Returns the child's pid, or -1. The child does not outlive the process
+ * that forked it. */
 pid_t fake_meshcored_spawn(const struct fake_meshcored_script *script);
 
 /* Wait for the socket to exist, up to timeout_ms. Returns 1 when it does. */
 int fake_meshcored_wait_ready(int timeout_ms);
-/* Stop a child and reap it. */
+/* Stop a child, reap it, and remove the socket it was killed before it
+ * could remove itself. */
 void fake_meshcored_stop(pid_t pid);
 
 #endif

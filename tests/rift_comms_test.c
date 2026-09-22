@@ -100,6 +100,98 @@ static int holds_text(const struct rift_model *m, const char *want)
     return 0;
 }
 
+/* The message as a reader sees it: the body once, and one caption line.
+ *
+ * A channel payload is "<sender>: <body>" (MeshCore writes the name in), and
+ * the thread names the claimed sender in its caption. Printing the payload
+ * whole said the name twice, and put this node's own name in front of every
+ * line the reader wrote on a channel. */
+static const struct rift_message *held(const struct rift_model *m, int64_t id)
+{
+    int i;
+
+    for (i = 0; i < m->msg_count; i++) {
+        if (m->msg[i].id == id) {
+            return &m->msg[i];
+        }
+    }
+    return NULL;
+}
+
+static void test_body_and_meta(void)
+{
+    static struct rift_model s;
+    const struct rift_message *msg;
+    char text[RIFT_MSG_META_MAX];
+
+    rift_model_init(&s);
+    apply_message(&s, "{\"id\":1,\"direction\":\"in\",\"kind\":\"channel\",\"channel\":0,"
+                      "\"sender_name\":\"HYTTA\",\"text\":\"HYTTA: str\xC3\xB8m tilbake\","
+                      "\"state\":\"received\",\"ack_expected\":false,\"mono_ms\":1000,"
+                      "\"rssi_dbm\":-88.0}");
+    apply_message(&s, "{\"id\":2,\"direction\":\"out\",\"kind\":\"channel\",\"channel\":0,"
+                      "\"sender_name\":\"K230-A\",\"text\":\"K230-A: mottatt\","
+                      "\"state\":\"sent_flood\",\"ack_expected\":false,\"mono_ms\":2000}");
+    /* A payload whose claimed name does not match its prefix is shown as it
+     * came: where a name ends is not guessed at. */
+    apply_message(&s, "{\"id\":3,\"direction\":\"in\",\"kind\":\"channel\",\"channel\":0,"
+                      "\"sender_name\":\"ANNA\",\"text\":\"ANNAB: hei\","
+                      "\"state\":\"received\",\"ack_expected\":false,\"mono_ms\":3000}");
+    apply_message(&s, "{\"id\":4,\"direction\":\"in\",\"kind\":\"channel\",\"channel\":0,"
+                      "\"text\":\"no prefix at all\",\"state\":\"received\","
+                      "\"ack_expected\":false,\"mono_ms\":4000}");
+    apply_message(&s, "{\"id\":5,\"direction\":\"in\",\"peer_public_key\":"
+                      "\"b2cafe1e7d0411223344556677889900aabbccddeeff001122334455667788b2\","
+                      "\"peer_name\":\"HYTTA\",\"text\":\"HYTTA: this is a direct message\","
+                      "\"state\":\"received\",\"mono_ms\":5000,\"snr_db\":6.5}");
+    apply_message(&s, "{\"id\":6,\"direction\":\"out\",\"peer_public_key\":"
+                      "\"b2cafe1e7d0411223344556677889900aabbccddeeff001122334455667788b2\","
+                      "\"text\":\"ok\",\"state\":\"acked\",\"mono_ms\":6000,"
+                      "\"ack_mono_ms\":7000}");
+
+    msg = held(&s, 1);
+    text_is("a channel body loses the prefix the sender's name was written into",
+            rift_msg_body(msg), "str\xC3\xB8m tilbake");
+    text_is("while the whole payload is still kept", msg ? msg->text : "",
+            "HYTTA: str\xC3\xB8m tilbake");
+    rift_fmt_msg_meta(msg, 61000, text, sizeof(text));
+    text_is("its caption says how long ago, who it CLAIMS to be, and what was measured", text,
+            "1m \xC2\xB7 HYTTA? \xC2\xB7 RECEIVED \xC2\xB7 \xE2\x88\x92" "88 dBm");
+    rift_fmt_preview(msg, text, sizeof(text));
+    text_is("and its preview marks the claim too", text, "HYTTA?: str\xC3\xB8m tilbake");
+
+    msg = held(&s, 2);
+    text_is("this node's own channel line is what the reader typed", rift_msg_body(msg),
+            "mottatt");
+    rift_fmt_msg_meta(msg, 12000, text, sizeof(text));
+    text_is("with no name in front of it and no delivery claimed", text,
+            "10s \xC2\xB7 SENT \xC2\xB7 FLOOD \xC2\xB7 NO ACK ON CHANNELS");
+    rift_fmt_preview(msg, text, sizeof(text));
+    text_is("and its preview is the reader's own words", text, "you: mottatt");
+
+    text_is("a prefix that is not exactly the claimed name is left alone",
+            rift_msg_body(held(&s, 3)), "ANNAB: hei");
+    text_is("so is a channel line with no claimed name", rift_msg_body(held(&s, 4)),
+            "no prefix at all");
+    rift_fmt_msg_meta(held(&s, 4), 5000, text, sizeof(text));
+    text_is("which is said to be unnamed rather than left blank", text,
+            "1s \xC2\xB7 UNNAMED \xC2\xB7 RECEIVED");
+
+    /* A direct message is never cut: a peer_name came with a public key, and
+     * whatever its text begins with is what was said. */
+    text_is("a direct message's text is never shortened", rift_msg_body(held(&s, 5)),
+            "HYTTA: this is a direct message");
+    rift_fmt_msg_meta(held(&s, 5), 5000, text, sizeof(text));
+    text_is("and its caption names nobody: the thread already does", text,
+            "0s \xC2\xB7 RECEIVED \xC2\xB7 SNR 6.5");
+    rift_fmt_msg_meta(held(&s, 6), 66000, text, sizeof(text));
+    text_is("an acknowledged one says how long the ACK took", text,
+            "1m \xC2\xB7 DELIVERED \xC2\xB7 ACK 1 s");
+    rift_fmt_msg_meta(NULL, 0, text, sizeof(text));
+    text_is("and no message is no caption", text, "");
+    text_is("nor any body", rift_msg_body(NULL), "");
+}
+
 int main(void)
 {
     struct rift_model m;
@@ -1007,6 +1099,8 @@ int main(void)
         check("the channel fault is reported", s.have_channel_fault);
         check("and is not the node table's", !s.have_state_fault);
     }
+
+    test_body_and_meta();
 
     printf("rift_comms_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;

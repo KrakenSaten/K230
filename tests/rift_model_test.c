@@ -91,6 +91,248 @@ static int apply_identity(struct rift_model *m, const char *json)
     return rc;
 }
 
+/* ---- what RIFT observed survives a snapshot; what the service said does not */
+static void test_snapshot_keeps_observations(void)
+{
+    static struct rift_model m;
+    const struct rift_node *n;
+
+    rift_model_init(&m);
+    apply_nodes(&m, "{\"nodes\":[{\"public_key\":\"" KEY_B "\",\"name\":\"HYTTA\","
+                    "\"path_known\":true,\"hops\":3,\"direct\":false,\"path_hex\":\"a1c2d3\","
+                    "\"last_heard_mono_ms\":500}]}");
+    apply_event(&m, "mesh.node",
+                "{\"reason\":\"path\",\"node\":{\"public_key\":\"" KEY_B "\","
+                "\"path_known\":true,\"hops\":5,\"direct\":false,\"path_hex\":\"a1c2d3e4f5\","
+                "\"last_heard_mono_ms\":9000,\"last_rssi_dbm\":-88.0,\"last_snr_db\":4.5}}");
+    n = rift_model_find(&m, KEY_B);
+    check("two paths and one event are known before the periodic snapshot",
+          n && n->hist_count == 2 && n->observations == 1);
+    /* A route change is dated when this app saw it. The node's last-heard
+     * time is when the service last heard ANYTHING from it - an advert on
+     * the old route, often - and dating the change by it put route changes
+     * minutes or hours before they happened. */
+    {
+        int64_t now = rift_mono_ms();
+
+        check("a route change is dated when it was seen, not when the node was last heard",
+              n && n->hist[0].have_mono && n->hist[0].mono_ms != 9000 &&
+                  n->hist[0].mono_ms <= now && now - n->hist[0].mono_ms < 5000);
+    }
+
+    /* The periodic snapshot (every RIFT_NODES_PERIOD_MS) names the same node
+     * on the same path. It used to wipe RIFT's history of it every time. */
+    apply_nodes(&m, "{\"nodes\":[{\"public_key\":\"" KEY_B "\",\"name\":\"HYTTA\","
+                    "\"path_known\":true,\"hops\":5,\"direct\":false,\"path_hex\":\"a1c2d3e4f5\","
+                    "\"last_heard_mono_ms\":9000}]}");
+    n = rift_model_find(&m, KEY_B);
+    check("the path history survives a snapshot of the same node", n && n->hist_count == 2);
+    check("newest first, as it was", n && n->hist[0].hops == 5 && n->hist[1].hops == 3);
+    check("and so does the count of events that named it", n && n->observations == 1);
+    /* What the service says is replaced outright, and an absent value is
+     * absent: this snapshot carried no signal, so none is shown - not the
+     * one an earlier event carried, which the service no longer vouches for. */
+    check("a signal the snapshot does not carry is not kept from before",
+          n && !n->have_rssi && !n->have_snr);
+
+    apply_nodes(&m, "{\"nodes\":[{\"public_key\":\"" KEY_B "\",\"name\":\"HYTTA\","
+                    "\"path_known\":true,\"hops\":1,\"direct\":false,\"path_hex\":\"e1\","
+                    "\"last_heard_mono_ms\":12000}]}");
+    n = rift_model_find(&m, KEY_B);
+    check("a route that changed where no event was seen is recorded from the snapshot",
+          n && n->hist_count == 3 && n->hist[0].hops == 1);
+
+    apply_nodes(&m, "{\"nodes\":[{\"public_key\":\"" KEY_A "\",\"name\":\"OSLO-01\"}]}");
+    check("a node the snapshot does not name is gone, history and all",
+          rift_model_find(&m, KEY_B) == NULL && m.node_count == 1);
+    apply_nodes(&m, "{\"nodes\":[{\"public_key\":\"" KEY_A "\",\"name\":\"OSLO-01\"},"
+                    "{\"public_key\":\"" KEY_B "\",\"name\":\"HYTTA\",\"path_known\":false}]}");
+    n = rift_model_find(&m, KEY_B);
+    check("and one that comes back starts a history of its own",
+          n && n->hist_count == 1 && n->observations == 0);
+}
+
+/* ---- a reply is not an event, and a removal is not an update ---------------- */
+static void test_replies_and_removals(void)
+{
+    static struct rift_model m;
+    const struct rift_node *n;
+    cJSON *o;
+    unsigned malformed;
+
+    rift_model_init(&m);
+    apply_nodes(&m, "{\"nodes\":[{\"public_key\":\"" KEY_A "\",\"name\":\"OSLO-01\"},"
+                    "{\"public_key\":\"" KEY_B "\",\"name\":\"HYTTA\"}]}");
+    o = cJSON_Parse("{\"public_key\":\"" KEY_B "\",\"name\":\"HYTTA\",\"path_known\":true,"
+                    "\"hops\":2,\"direct\":false,\"path_hex\":\"a1c2\"}");
+    check("mesh.node's answer is filed", rift_model_apply_node_reply(&m, o) == 0);
+    cJSON_Delete(o);
+    n = rift_model_find(&m, KEY_B);
+    check("as an update to the row that was there", m.node_count == 2 && n && n->hops == 2);
+    check("and not counted as an event that named the node", n && n->observations == 0);
+    check("a reply with no whole key is refused",
+          rift_model_apply_node_reply(&m, NULL) == -1);
+
+    malformed = m.events_malformed;
+    check("a removal is applied",
+          apply_event(&m, "mesh.node",
+                      "{\"reason\":\"removed\",\"node\":{\"public_key\":\"" KEY_B "\","
+                      "\"name\":\"HYTTA\",\"path_known\":true,\"hops\":2}}") == 0);
+    /* The node that comes with the reason is the node as it WAS. Applying it
+     * as an update would put back the very row the reader asked to be rid of. */
+    check("and takes the node off the list rather than updating it",
+          rift_model_find(&m, KEY_B) == NULL && m.node_count == 1);
+    check("a removal of a node never held changes nothing and is no fault",
+          apply_event(&m, "mesh.node",
+                      "{\"reason\":\"removed\",\"node\":{\"public_key\":\"" KEY_C "\"}}") == 0 &&
+              m.node_count == 1 && m.events_malformed == malformed);
+    check("a removal with no usable key is refused",
+          apply_event(&m, "mesh.node", "{\"reason\":\"removed\",\"node\":{\"name\":\"x\"}}") ==
+                  -1 &&
+              m.events_malformed == malformed + 1);
+    check("dropping a node by key says whether it was held",
+          rift_model_drop_node(&m, KEY_A) == 1 && rift_model_drop_node(&m, KEY_A) == 0 &&
+              m.node_count == 0);
+}
+
+/* ---- the counters the service keeps, read as it words them ------------------ */
+static void test_traffic_counters(void)
+{
+    static struct rift_model m;
+
+    rift_model_init(&m);
+    apply_status(&m, "{\"state\":\"online\",\"counters\":{\"rx_events\":10}}");
+    check("no transmit counters reported is not zero transmits", !m.have_traffic);
+    check("nor a table that was never reported full", !m.have_contacts_full);
+    apply_status(&m, "{\"state\":\"online\",\"counters\":{\"rx_events\":2627,"
+                     "\"tx_ok\":6,\"tx_failed\":1,\"tx_unknown\":2,\"tx_rx_resume_failed\":3,"
+                     "\"sent_flood\":4,\"sent_direct\":5,\"recv_flood\":70,\"recv_direct\":8,"
+                     "\"contacts_full\":3,\"nodes_unretained\":5}}");
+    check("the transmit outcomes are kept apart, as the service words them",
+          m.have_traffic && m.tx_ok == 6 && m.tx_failed == 1 && m.tx_unknown == 2 &&
+              m.tx_rx_resume_failed == 3);
+    check("and so are flood and direct, both ways",
+          m.sent_flood == 4 && m.sent_direct == 5 && m.recv_flood == 70 && m.recv_direct == 8);
+    check("a full contact table is kept with how often it was full",
+          m.have_contacts_full && m.contacts_full == 3 && m.nodes_unretained == 5);
+}
+
+/* ---- "the table is full" is about now, not about the whole run ------------ */
+static void test_unretained_since_forget(void)
+{
+    static struct rift_model m;
+
+    rift_model_init(&m);
+    apply_status(&m, "{\"state\":\"online\",\"counters\":{\"nodes_unretained\":5}}");
+    check("adverts turned away with nothing forgotten since are recent",
+          rift_model_unretained_recent(&m) == 5);
+
+    /* The reader makes room: the service's cumulative counter does not move,
+     * and the five it counts were turned away from a table that has room. */
+    apply_nodes(&m, "{\"count\":1,\"nodes\":[{\"public_key\":\"" KEY_A "\",\"name\":\"OSLO-01\"}]}");
+    rift_model_action_begin(&m, RIFT_ACTION_FORGET, KEY_A, "OSLO-01", 1000);
+    rift_model_action_done(&m, RIFT_ACTION_FORGET, 1100);
+    check("a forget answered makes room, and they stop counting",
+          rift_model_unretained_recent(&m) == 0 && m.nodes_unretained == 5);
+    apply_status(&m, "{\"state\":\"online\",\"counters\":{\"nodes_unretained\":5}}");
+    check("the same count read again does not bring them back",
+          rift_model_unretained_recent(&m) == 0);
+    apply_status(&m, "{\"state\":\"online\",\"counters\":{\"nodes_unretained\":7}}");
+    check("adverts turned away after it do count", rift_model_unretained_recent(&m) == 2);
+
+    /* Another client forgets a node: the event says so as well. */
+    apply_event(&m, "mesh.node",
+                "{\"reason\":\"removed\",\"node\":{\"public_key\":\"" KEY_A "\"}}");
+    check("a removed event makes room the same way", rift_model_unretained_recent(&m) == 0);
+    apply_status(&m, "{\"state\":\"online\",\"counters\":{\"nodes_unretained\":8}}");
+    check("and counts from there", rift_model_unretained_recent(&m) == 1);
+
+    /* A new run of the service counts from nothing: a counter that went down
+     * cannot be under a baseline set by the old run. */
+    apply_status(&m, "{\"state\":\"online\",\"counters\":{\"nodes_unretained\":2}}");
+    check("a counter that went backwards is a new run, all of it recent: nothing "
+          "has been forgotten in that run",
+          rift_model_unretained_recent(&m) == 2 && m.nodes_unretained == 2);
+    apply_status(&m, "{\"state\":\"online\",\"counters\":{\"nodes_unretained\":3}}");
+    check("and the new run's next refusal counts", rift_model_unretained_recent(&m) == 3);
+    check("a model that is not there has turned nothing away",
+          rift_model_unretained_recent(NULL) == 0);
+}
+
+/* ---- an advert, or a change to a node: asked, then answered --------------- */
+static void test_actions(void)
+{
+    static struct rift_model m;
+    const struct rift_action_state *s;
+    char text[RIFT_ACTION_TEXT_MAX];
+
+    rift_model_init(&m);
+    check("nothing has been asked", !rift_model_action_busy(&m, RIFT_ACTION_ADVERT_NEAR) &&
+                                        !rift_model_action_busy(&m, RIFT_ACTION_FORGET));
+    rift_fmt_action(&m.advert, 0, text, sizeof(text));
+    text_is("and there is nothing to say about it", text, "");
+
+    check("a zero-hop advert is asked for",
+          rift_model_action_begin(&m, RIFT_ACTION_ADVERT_NEAR, NULL, NULL, 1000) == 0);
+    check("and is in flight", rift_model_action_busy(&m, RIFT_ACTION_ADVERT_MESH));
+    check("a second advert is refused while it is",
+          rift_model_action_begin(&m, RIFT_ACTION_ADVERT_MESH, NULL, NULL, 1100) == -1);
+    rift_fmt_action(&m.advert, 1200, text, sizeof(text));
+    text_is("which claims only that it was asked", text, "ZERO-HOP ADVERT \xC2\xB7 ASKED\xE2\x80\xA6");
+    check("the advert and a node change are separate slots",
+          rift_model_action_begin(&m, RIFT_ACTION_RESET_PATH, KEY_B, "HYTTA", 1300) == 0);
+    rift_model_action_done(&m, RIFT_ACTION_ADVERT_NEAR, 4000);
+    s = rift_model_action_of(&m, RIFT_ACTION_ADVERT_NEAR);
+    check("an answer settles it", s && s->done && !s->active && !s->failed);
+    rift_fmt_action(s, 16000, text, sizeof(text));
+    /* ACCEPTED, never SENT: the service queued it, and how the transmit went
+     * is the activity feed's to say. */
+    text_is("as accepted, with how long ago", text,
+            "ZERO-HOP ADVERT \xC2\xB7 ACCEPTED 12s AGO");
+    rift_model_action_done(&m, RIFT_ACTION_ADVERT_NEAR, 5000);
+    check("an answer with nothing in flight changes nothing", s->mono_ms == 4000);
+
+    check("a node change is still in flight", rift_model_action_busy(&m, RIFT_ACTION_FORGET));
+    check("so a forget is refused until it is answered",
+          rift_model_action_begin(&m, RIFT_ACTION_FORGET, KEY_B, "HYTTA", 1400) == -1);
+    rift_model_action_failed(&m, RIFT_ACTION_RESET_PATH, "no node with that public key", 1500);
+    s = rift_model_action_of(&m, RIFT_ACTION_RESET_PATH);
+    rift_fmt_action(s, 1600, text, sizeof(text));
+    text_is("a refusal says so, in the service's words", text,
+            "RE-ROUTE \xC2\xB7 NOT DONE: no node with that public key");
+    check("a node change needs a whole key",
+          rift_model_action_begin(&m, RIFT_ACTION_FORGET, "b2ca", "HYTTA", 1700) == -1);
+    check("and is not an advert",
+          rift_model_action_begin(&m, RIFT_ACTION_NONE, NULL, NULL, 1700) == -1);
+    check("with one, a forget is asked for",
+          rift_model_action_begin(&m, RIFT_ACTION_FORGET, KEY_B, "HYTTA", 1800) == 0);
+    text_is("naming the node", m.node_op.key, KEY_B);
+
+    /* The service goes away with the forget and an advert both unanswered:
+     * nothing on this side knows whether either happened. */
+    rift_model_action_begin(&m, RIFT_ACTION_ADVERT_MESH, NULL, NULL, 1900);
+    rift_model_service_lost(&m, "meshcored closed the connection");
+    check("an unanswered forget is not called done",
+          m.node_op.failed && !m.node_op.done && !m.node_op.active);
+    check("and says it may or may not have happened",
+          strstr(m.node_op.error, "may or may not") != NULL);
+    check("nor is an unanswered advert called sent",
+          m.advert.failed && !m.advert.done && strstr(m.advert.error, "may or may not"));
+    /* "NOT DONE" in front of "may or may not" would contradict itself: the
+     * line says there was no answer, which is all that is known. */
+    rift_fmt_action(&m.node_op, 2000, text, sizeof(text));
+    check("and the line says there was no answer, not that it was not done",
+          strncmp(text, "FORGET \xC2\xB7 NO ANSWER: ", 20) == 0 && strstr(text, "NOT DONE") == NULL);
+    rift_fmt_action(&m.advert, 2000, text, sizeof(text));
+    check("the advert's the same", strstr(text, "\xC2\xB7 NO ANSWER: ") != NULL);
+    rift_model_action_failed(&m, RIFT_ACTION_ADVERT_MESH, "radio busy", 2100);
+    rift_fmt_action(&m.advert, 2200, text, sizeof(text));
+    text_is("while a refusal that did come back is still NOT DONE", text,
+            "FLOOD ADVERT \xC2\xB7 NOT DONE: radio busy");
+    rift_model_action_clear(&m, RIFT_ACTION_FORGET);
+    check("a settled request can be put away", m.node_op.kind == RIFT_ACTION_NONE);
+}
+
 int main(void)
 {
     struct rift_model m;
@@ -160,12 +402,16 @@ int main(void)
     check("a repeated event still does not add a row", m.node_count == 2);
     n = rift_model_find(&m, KEY_B);
     check("but it is counted as another observation", n->observations == 2);
-    check("and an unchanged path is not recorded as a change", n->hist_count == 1);
+    /* Two paths so far: the snapshot's 3 hops - a snapshot is a witness to a
+     * route too - and the event's 5. The repeat of the 5 is not a third. */
+    check("and an unchanged path is not recorded as a change", n->hist_count == 2);
+    check("the snapshot's path is in the history, oldest last",
+          n->hist[1].hops == 3 && n->hist[0].hops == 5);
     apply_event(&m, "mesh.node",
                 "{\"reason\":\"path\",\"node\":{\"public_key\":\"" KEY_B "\","
                 "\"path_known\":true,\"hops\":2,\"direct\":false,\"path_hex\":\"a1c2\","
                 "\"last_heard_mono_ms\":9800}}");
-    check("a different path is", rift_model_find(&m, KEY_B)->hist_count == 2);
+    check("a different path is", rift_model_find(&m, KEY_B)->hist_count == 3);
     check("newest first", rift_model_find(&m, KEY_B)->hist[0].hops == 2);
 
     /* A node that has never been heard of arrives as an event. */
@@ -534,6 +780,12 @@ int main(void)
         check("the order is total, so a list rebuilt every second does not reshuffle",
               memcmp(again, order, sizeof(order[0]) * 3) == 0);
     }
+
+    test_snapshot_keeps_observations();
+    test_replies_and_removals();
+    test_traffic_counters();
+    test_unretained_since_forget();
+    test_actions();
 
     printf("rift_model_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;

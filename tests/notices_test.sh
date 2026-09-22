@@ -82,21 +82,20 @@ check "LVGL's entry names the commit the defconfig builds" \
 # Vendored source the GNU make tree compiles.
 vend=$(grep -v -E '^[[:space:]]*#' Makefile |
        grep -o -E '\$\((RADIOLIB|GGWAVE)_DIR\)|vendor/[A-Za-z0-9_.-]+|third_party/[A-Za-z0-9_.-]+' | sort -u | tr '\n' ' ')
-# meshcored compiles MeshCore, orlp's ed25519 and rweather's Crypto. It is off
-# by default, and with ENABLE_MESHCORED=0 nothing from those trees reaches a
-# binary, an install or an image - which is what this section is about.
-#
-# The EFFECTIVE configuration decides, not the Makefile's default text. An
-# earlier version of this check read the default and nothing else, so
-# `ENABLE_MESHCORED=1 bash tests/notices_test.sh` passed while
-# `ENABLE_MESHCORED=1 make install` shipped the binary: the documented
-# restriction was false, and the test said it was true. A gate that reports on
-# a setting somebody can override, without looking at whether they did, is
-# worse than no gate.
-MESHCORED_ON="${ENABLE_MESHCORED:-0}"
+# meshcored compiles MeshCore, orlp's ed25519 and rweather's Crypto. The image
+# package builds and installs it (pocketos.mk, ENABLE_MESHCORED=1) since the
+# notices gained entries for all three (docs/LICENSING.md item 9, 2026-09-22);
+# an ordinary host build still leaves it out, because it needs two extra
+# checkouts. What must stay true is the rule, not the default: nothing installs
+# meshcored while the notices say nothing about what it contains. So the gate
+# is executed below with the notices as they are - where it must pass - and
+# with an entry it cannot find - where it must still refuse. An earlier version
+# of this file only read the Makefile's default text, and
+# `ENABLE_MESHCORED=1 make install` shipped the binary while the test said it
+# could not; a gate that is only read is not tested.
 MESHCORE_IDS="meshcore ed25519 arduinolibs-crypto"
 
-check "the build default keeps meshcored out of an ordinary build" \
+check "an ordinary host build leaves meshcored out (it needs vendor/RIFT and vendor/Crypto)" \
     "$(grep -q '^ENABLE_MESHCORED ?= 0$' Makefile &&
        awk '/^ifeq \(\$\(ENABLE_MESHCORED\),1\)/{c++} END{exit !(c >= 2)}' Makefile &&
        echo 1 || echo 0)"
@@ -109,16 +108,24 @@ check "and the gate reads the notices themselves" \
        grep -qx 1 && echo 1 || echo 0)"
 
 # Executed, not read. These need no build and no vendored checkout: the gate
-# refuses before any of that.
+# decides before any of that.
 tmpd="$TMP/shipping"
 mkdir -p "$tmpd"
 make ENABLE_MESHCORED=1 meshcored-shipping-check > "$tmpd/on.log" 2>&1
-check "ENABLE_MESHCORED=1 cannot pass the shipping gate" \
+check "with the notices as they are, an enabled build may be installed" \
+    "$([ $? -eq 0 ] && echo 1 || echo 0)"
+check "and the gate says the notices cover it" \
+    "$(grep -q 'the notices cover what it contains' "$tmpd/on.log" && echo 1 || echo 0)"
+# The negative control: one entry it cannot find, and it refuses again. Without
+# this the pass above could be unconditional and nobody would notice.
+make ENABLE_MESHCORED=1 MESHCORE_NOTICE_IDS="$MESHCORE_IDS no-such-notice" \
+    meshcored-shipping-check > "$tmpd/miss.log" 2>&1
+check "the gate still refuses when a notices entry is missing" \
     "$([ $? -ne 0 ] && echo 1 || echo 0)"
-check "and says which notices entries are missing" \
-    "$(grep -q 'Missing notices entries' "$tmpd/on.log" && echo 1 || echo 0)"
+check "and names the missing entry" \
+    "$(grep -q 'no-such-notice' "$tmpd/miss.log" && echo 1 || echo 0)"
 check "and says that building and testing it is still allowed" \
-    "$(grep -q 'make ENABLE_MESHCORED=1 meshcored' "$tmpd/on.log" && echo 1 || echo 0)"
+    "$(grep -q 'make ENABLE_MESHCORED=1 meshcored' "$tmpd/miss.log" && echo 1 || echo 0)"
 
 # Explicitly 0, not merely unset: this run may have been given a 1, and the
 # question here is what the disabled configuration does.
@@ -132,15 +139,27 @@ make ENABLE_MESHCORED=1 MESHCORE_NOTICE_IDS= meshcored-shipping-check > "$tmpd/s
 check "and it stops refusing once its requirement is met" \
     "$([ $? -eq 0 ] && echo 1 || echo 0)"
 
-# The two image paths refuse early rather than at the end of a long build.
-ENABLE_MESHCORED=1 bash platforms/k230/scripts/build_image.sh > "$tmpd/img.log" 2>&1
-check "build_image.sh refuses an enabled build" "$([ $? -ne 0 ] && echo 1 || echo 0)"
-check "before it needs a toolchain or an SDK" \
-    "$(grep -q 'would therefore install' "$tmpd/img.log" && echo 1 || echo 0)"
-ENABLE_MESHCORED=1 bash platforms/k230/scripts/apply_to_sdk.sh > "$tmpd/app.log" 2>&1
-check "apply_to_sdk.sh refuses an enabled build" "$([ $? -ne 0 ] && echo 1 || echo 0)"
-check "before it assembles anything" \
-    "$(grep -q 'would install meshcored' "$tmpd/app.log" && echo 1 || echo 0)"
+# The image package builds it, and installs it.
+check "the image package builds meshcored" \
+    "$(grep -Eq '^\s.*ENABLE_MESHCORED=1 -C \$\(@D\) all$' platforms/k230/package/pocketos/pocketos.mk && echo 1 || echo 0)"
+check "and installs it through the gated install target" \
+    "$(grep -Eq '^\s.*ENABLE_MESHCORED=1 -C \$\(@D\) DESTDIR=.* install$' platforms/k230/package/pocketos/pocketos.mk && echo 1 || echo 0)"
+
+# The package path refuses early rather than at the end of a long build, and
+# this is executed: apply_to_sdk.sh, copied into a scratch tree whose notices
+# lack the three entries, must stop before it looks for an SDK.
+fake="$tmpd/fakerepo"
+mkdir -p "$fake/platforms/k230/scripts" "$fake/third_party/notices"
+cp platforms/k230/scripts/apply_to_sdk.sh "$fake/platforms/k230/scripts/"
+cp platforms/k230/vendor_bsp_commit.txt platforms/k230/vendor_sdk_commit.txt "$fake/platforms/k230/"
+grep -v -E '^(meshcore|ed25519|arduinolibs-crypto) *[|]' third_party/notices/SOURCES \
+    > "$fake/third_party/notices/SOURCES"
+bash "$fake/platforms/k230/scripts/apply_to_sdk.sh" "$fake/no-sdk" > "$tmpd/app.log" 2>&1
+check "apply_to_sdk.sh refuses a package whose notices lack the MeshCore entries" \
+    "$([ $? -ne 0 ] && echo 1 || echo 0)"
+check "before it assembles anything, and names them" \
+    "$(grep -q 'has no entry' "$tmpd/app.log" && grep -q 'meshcore ed25519 arduinolibs-crypto' "$tmpd/app.log" &&
+       ! grep -q 'not a T-Display-K230 checkout' "$tmpd/app.log" && echo 1 || echo 0)"
 
 # The notices requirement itself, against the configuration this run was
 # given, is asserted by the vendored-tree loop below - which is where every
@@ -156,14 +175,10 @@ for v in $vend; do
         # Makefile now names because the shipping gate reads it.
         third_party/notices) ;;
         vendor/RIFT|third_party/RIFT|vendor/Crypto|third_party/Crypto)
-            # Only meshcored compiles these, and only an enabled build
-            # installs one. The effective setting decides - a run given
-            # ENABLE_MESHCORED=1 is a run that would ship it.
-            if [ "$MESHCORED_ON" = "1" ]; then
-                for i in $MESHCORE_IDS; do
-                    [ "$(has_id $i)" = 1 ] || unknown="$unknown $v($i)"
-                done
-            fi ;;
+            # meshcored compiles these, and every image ships it.
+            for i in $MESHCORE_IDS; do
+                [ "$(has_id $i)" = 1 ] || unknown="$unknown $v($i)"
+            done ;;
         *) unknown="$unknown $v" ;;
     esac
 done
