@@ -59,6 +59,18 @@ static void text_is(const char *what, const char *got, const char *want)
     "\"path_known\":true,\"hops\":3,\"direct\":false,\"path_hex\":\"a1c2d3\","              \
     "\"last_heard_mono_ms\":500}]"
 
+/* How long any one wait may take before it is called a failure. Every wait
+ * below ends as soon as what it waits for has happened, so this is headroom,
+ * not a delay: a sanitised build, a loaded host and a reconnect that misses
+ * once and backs off all fit inside it, and a passing run never gets near it. */
+#define WAIT_MS 15000
+
+/* How long a scripted service runs if nobody stops it. Every section stops
+ * its own; this only has to outlast the most waits one section makes (six),
+ * each at its longest, so that no service ends under a check still waiting
+ * for it. */
+#define FAKE_LIFE_MS (8 * WAIT_MS)
+
 static int64_t now_ms(void)
 {
     struct timespec ts;
@@ -95,10 +107,54 @@ static int have_snapshot(const struct rift_ipc *c, const struct rift_model *m)
     return m->snapshot_valid && m->have_identity && m->have_info && m->have_status;
 }
 
+/* Is a request of this kind still waiting for its answer? */
+static int outstanding(const struct rift_ipc *c, enum rift_req what)
+{
+    int i;
+
+    for (i = 0; i < RIFT_MAX_PENDING; i++) {
+        if (c->pending[i].what == what) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Connected, and everything the client asked for on connecting has been
+ * answered. This, not have_snapshot, is what a check about the channel list
+ * or the message history waits for: both are asked for after the node list,
+ * so a wait that ends on the node list can end before either has arrived. */
+static int opening_answered(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)m;
+    return c->fd >= 0 && !outstanding(c, RIFT_REQ_SUBSCRIBE) && !outstanding(c, RIFT_REQ_INFO) &&
+           !outstanding(c, RIFT_REQ_IDENTITY) && !outstanding(c, RIFT_REQ_STATUS) &&
+           !outstanding(c, RIFT_REQ_NODES) && !outstanding(c, RIFT_REQ_CHANNELS) &&
+           !outstanding(c, RIFT_REQ_MESSAGES);
+}
+
 static int have_events(const struct rift_ipc *c, const struct rift_model *m)
 {
     (void)m;
     return c->events_in >= 3;
+}
+
+/* The five scripted events of "a service that answers", and the junk frame
+ * the service sends after them. */
+static int have_all_events(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)m;
+    return c->events_in >= 5 && c->bad_frames >= 1;
+}
+
+/* What the next wait on events_reached waits for: how many events the client
+ * has read, in all. Set just before the wait. */
+static unsigned events_target;
+
+static int events_reached(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)m;
+    return c->events_in >= events_target;
 }
 
 static int is_down(const struct rift_ipc *c, const struct rift_model *m)
@@ -107,14 +163,53 @@ static int is_down(const struct rift_ipc *c, const struct rift_model *m)
     return c->fd < 0;
 }
 
+/* A second connection, and everything asked for on it answered. Not the
+ * model's validity flags: rift_ipc_close leaves messages_valid standing from
+ * the first connection, so a wait on it could end before the second
+ * connection's history had been read. */
 static int is_up_again(const struct rift_ipc *c, const struct rift_model *m)
 {
-    return c->connects >= 2 && m->snapshot_valid;
+    return c->connects >= 2 && opening_answered(c, m);
 }
 
-static int has_read_messages_again(const struct rift_ipc *c, const struct rift_model *m)
+static int node_answered(const struct rift_ipc *c, const struct rift_model *m)
 {
-    return c->connects >= 2 && m->snapshot_valid && m->messages_valid;
+    (void)m;
+    return c->fd >= 0 && !outstanding(c, RIFT_REQ_NODE);
+}
+
+static int nodes_answered(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)m;
+    return c->fd >= 0 && !outstanding(c, RIFT_REQ_NODES);
+}
+
+static int send_answered(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)m;
+    return c->fd >= 0 && !outstanding(c, RIFT_REQ_SEND);
+}
+
+/* The reply to a send and the mesh.message the service raises beside it.
+ * Both, because the two may arrive in either order and a count of messages
+ * taken after only one of them cannot tell one message from two. */
+static int send_reported(const struct rift_ipc *c, const struct rift_model *m)
+{
+    return send_answered(c, m) && events_reached(c, m);
+}
+
+/* A round trip, for a check that something did NOT arrive. The service
+ * answers in order and writes an event raised beside a reply straight after
+ * that reply, so once the answer to a later request is in, anything it had
+ * to say about an earlier one has been read too. A fixed wait could only say
+ * that nothing had arrived yet. Returns 1 when the answer came. */
+static int round_trip(struct rift_ipc *c, struct rift_model *m)
+{
+    if (rift_ipc_request_nodes(c) != 0) {
+        return 0;
+    }
+    spin(c, WAIT_MS, nodes_answered, m);
+    return nodes_answered(c, m);
 }
 
 /* Is there a message holding this text? A message the service has forgotten
@@ -194,15 +289,15 @@ int main(void)
         script.nodes_json = NODES_TWO;
         script.events = events;
         script.junk_frame = "{\"hello\":\"this is not a message\"}";
-        script.life_ms = 8000;
+        script.life_ms = FAKE_LIFE_MS;
         script.method_log = methods;
 
         pid = fake_meshcored_spawn(&script);
-        check("the fake service came up", fake_meshcored_wait_ready(3000));
+        check("the fake service came up", fake_meshcored_wait_ready(WAIT_MS));
 
         rift_model_init(&m);
         rift_ipc_init(&c, &m, RIFT_SERVICE);
-        spin(&c, 3000, have_snapshot, &m);
+        spin(&c, WAIT_MS, have_snapshot, &m);
         check("the client connects", rift_ipc_connected(&c));
         check("and reads the whole opening set", have_snapshot(&c, &m));
         check("the node list is the service's", m.node_count == 2);
@@ -210,16 +305,26 @@ int main(void)
         text_is("and the service's protocol", m.protocol, "meshcore");
         check("nothing is stale while it is answering", !m.stale);
 
-        spin(&c, 3000, have_events, &m);
+        spin(&c, WAIT_MS, have_events, &m);
         check("events arrive", c.events_in >= 3);
         check("a state event is applied", m.state == RIFT_SVC_ONLINE);
         check("an activity event is kept", m.activity_total >= 1);
-        check("a node event updates the node it names",
-              rift_model_find(&m, KEY_B) && rift_model_find(&m, KEY_B)->hops == 5);
+        /* Applied once, to the node it names. Not "hops == 5": these events
+         * start as soon as the client subscribes, so they interleave with the
+         * answers to what it asks next, and the node snapshot is fixed text -
+         * whether it or the event lands last decides the hop count, and a
+         * sanitised run's timing reorders them. A real service's snapshot
+         * already says what its event said. The first three events are the
+         * good ones, so all three applied and none twice is a count the order
+         * cannot change. What an event does to a row is
+         * tests/rift_model_test.c's to prove; one landing on top of a
+         * snapshot over a socket is the channels section's. */
+        check("a node event is applied to the node it names",
+              m.events_applied == 3 && rift_model_find(&m, KEY_B) != NULL);
         check("and does not add a row", m.node_count == 2);
 
-        /* Let the two bad events and the junk frame arrive. */
-        spin(&c, 1500, NULL, &m);
+        /* The two bad events and the junk frame, which come last. */
+        spin(&c, WAIT_MS, have_all_events, &m);
         check("a malformed event is refused", m.events_malformed >= 2);
         check("and refusing it did not drop the connection", rift_ipc_connected(&c));
         check("a frame that is neither event nor reply is counted", c.bad_frames >= 1);
@@ -235,8 +340,9 @@ int main(void)
         check("but a channel is not a node and is never asked about",
               rift_ipc_request_node(&c, "#0") == -1);
         check("whichever slot it is", rift_ipc_request_node(&c, "#7") == -1);
-        spin(&c, 800, NULL, &m);
-        check("and the answer updates the row it belongs to", m.node_count == 2);
+        spin(&c, WAIT_MS, node_answered, &m);
+        check("and the answer updates the row it belongs to",
+              node_answered(&c, &m) && m.node_count == 2);
 
         /* A prefix that matches nothing is refused by the service, and the
          * refusal is reported rather than swallowed. */
@@ -244,7 +350,7 @@ int main(void)
             unsigned errors = c.errors_in;
 
             rift_ipc_request_node(&c, "ffff");
-            spin(&c, 800, NULL, &m);
+            spin(&c, WAIT_MS, node_answered, &m);
             check("a refusal from the service is counted", c.errors_in == errors + 1);
             check("and said in words", strstr(c.last_error, "mesh.node") != NULL);
             check("without dropping the connection", rift_ipc_connected(&c));
@@ -264,18 +370,20 @@ int main(void)
         memset(&script, 0, sizeof(script));
         script.state = "online";
         script.nodes_json = NODES_TWO;
-        script.life_ms = 1200;
+        /* Short-lived because it is stopped below, once the client has read
+         * it. A life_ms of its own could end before a slow client had. */
+        script.life_ms = FAKE_LIFE_MS;
         script.method_log = methods;
 
         pid = fake_meshcored_spawn(&script);
-        check("a short-lived service came up", fake_meshcored_wait_ready(3000));
+        check("a short-lived service came up", fake_meshcored_wait_ready(WAIT_MS));
         rift_model_init(&m);
         rift_ipc_init(&c, &m, RIFT_SERVICE);
-        spin(&c, 3000, have_snapshot, &m);
+        spin(&c, WAIT_MS, have_snapshot, &m);
         check("the client read its snapshot", m.node_count == 2);
 
         fake_meshcored_stop(pid);
-        spin(&c, 3000, is_down, &m);
+        spin(&c, WAIT_MS, is_down, &m);
         check("the client notices the service has gone", !rift_ipc_connected(&c));
         check("and says so", m.state == RIFT_SVC_ABSENT);
         /* The nodes stay, marked as what they are. An empty list would say
@@ -297,11 +405,11 @@ int main(void)
             again.nodes_json = "[{\"public_key\":\"" KEY_A "\",\"node_hash\":\"a1\","
                                "\"name\":\"OSLO-01\",\"path_known\":false,"
                                "\"last_heard_mono_ms\":2000}]";
-            again.life_ms = 6000;
+            again.life_ms = FAKE_LIFE_MS;
             again.method_log = methods;
             pid = fake_meshcored_spawn(&again);
-            check("the service comes back", fake_meshcored_wait_ready(3000));
-            spin(&c, 6000, is_up_again, &m);
+            check("the service comes back", fake_meshcored_wait_ready(WAIT_MS));
+            spin(&c, WAIT_MS, is_up_again, &m);
             check("the client reconnects on its own", c.connects >= 2);
             check("re-reads the snapshot", m.snapshot_valid);
             check("which replaces what it had", m.node_count == 1);
@@ -347,20 +455,20 @@ int main(void)
             "{\"id\":3,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
             "\"peer_name\":\"OSLO-01\",\"text\":\"before three\",\"state\":\"received\","
             "\"mono_ms\":-7000}]";
-        first.life_ms = 4000;
+        first.life_ms = FAKE_LIFE_MS;
         first.method_log = methods;
 
         pid = fake_meshcored_spawn(&first);
         check("a service that has been up an hour is running",
-              pid > 0 && fake_meshcored_wait_ready(2000));
+              pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
         rift_model_init(&m);
         rift_ipc_init(&c, &m, RIFT_SERVICE);
-        spin(&c, 2500, have_snapshot, &m);
+        spin(&c, WAIT_MS, opening_answered, &m);
         check("its history is read", m.messages_valid && m.msg_count == 3);
         check("and it is the run the client thinks it is on", m.svc_restarts == 0);
 
         fake_meshcored_stop(pid);
-        spin(&c, 2000, is_down, &m);
+        spin(&c, WAIT_MS, is_down, &m);
         check("the client notices it has gone", !rift_ipc_connected(&c));
         check("and keeps what it was shown, marked cached", m.msg_count == 3 && m.stale);
 
@@ -379,12 +487,12 @@ int main(void)
             "{\"id\":2,\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
             "\"peer_name\":\"OSLO-01\",\"text\":\"after two\",\"state\":\"received\","
             "\"mono_ms\":-1000}]";
-        second.life_ms = 6000;
+        second.life_ms = FAKE_LIFE_MS;
         second.method_log = methods;
         pid = fake_meshcored_spawn(&second);
         check("a service that has just come up takes its place",
-              pid > 0 && fake_meshcored_wait_ready(2000));
-        spin(&c, 6000, has_read_messages_again, &m);
+              pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
+        spin(&c, WAIT_MS, is_up_again, &m);
         check("the client reconnects and reads again", c.connects >= 2 && m.messages_valid);
         check("the restart is noticed", m.svc_restarts == 1);
         check("and the client holds exactly what the service holds", m.msg_count == 2);
@@ -422,19 +530,20 @@ int main(void)
             "\"mono_ms\":-3000}]";
         /* Two clients, so the service outlives the first one going. */
         script.serve_clients = 2;
-        script.life_ms = 8000;
+        script.life_ms = FAKE_LIFE_MS;
         script.method_log = methods;
         pid = fake_meshcored_spawn(&script);
-        check("a long-lived service is running", pid > 0 && fake_meshcored_wait_ready(2000));
+        check("a long-lived service is running",
+              pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
 
         rift_model_init(&m);
         rift_ipc_init(&c, &m, RIFT_SERVICE);
-        spin(&c, 2500, have_snapshot, &m);
+        spin(&c, WAIT_MS, opening_answered, &m);
         check("the history is read", m.msg_count == 1);
 
         /* The client's socket goes; the service does not. */
         rift_ipc_close(&c);
-        spin(&c, 4000, has_read_messages_again, &m);
+        spin(&c, WAIT_MS, is_up_again, &m);
         check("the client comes back to the same run", c.connects >= 2 && m.svc_restarts == 0);
         check("so nothing was forgotten", m.msgs_forgotten == 0);
         check("and what it was holding is still held",
@@ -452,13 +561,13 @@ int main(void)
         script.state = "error";
         script.reason = "radiod refused the profile";
         script.refuse_nodes = 1;
-        script.life_ms = 3000;
+        script.life_ms = FAKE_LIFE_MS;
         script.method_log = methods;
         pid = fake_meshcored_spawn(&script);
-        check("a refusing service came up", fake_meshcored_wait_ready(3000));
+        check("a refusing service came up", fake_meshcored_wait_ready(WAIT_MS));
         rift_model_init(&m);
         rift_ipc_init(&c, &m, RIFT_SERVICE);
-        spin(&c, 2000, NULL, &m);
+        spin(&c, WAIT_MS, opening_answered, &m);
         check("the client stays connected to a service that refuses one method",
               rift_ipc_connected(&c));
         check("the refusal is counted", c.errors_in >= 1);
@@ -477,14 +586,14 @@ int main(void)
         memset(&script, 0, sizeof(script));
         script.state = "online";
         script.nodes_json = NODES_TWO;
-        script.life_ms = 8000;
+        script.life_ms = FAKE_LIFE_MS;
         script.method_log = methods;
         pid = fake_meshcored_spawn(&script);
-        check("a service for the restart rounds came up", fake_meshcored_wait_ready(3000));
+        check("a service for the restart rounds came up", fake_meshcored_wait_ready(WAIT_MS));
         for (round = 0; round < 3; round++) {
             rift_model_init(&m);
             rift_ipc_init(&c, &m, RIFT_SERVICE);
-            spin(&c, 2500, have_snapshot, &m);
+            spin(&c, WAIT_MS, have_snapshot, &m);
             check("each time the app opens it reads the service fresh", m.node_count == 2);
             /* Closing gives the subscription back and closes the socket; a
              * second close must be safe, because a failed create reaches
@@ -568,22 +677,23 @@ int main(void)
             "\"mono_ms\":-4000}]";
         script.send_log = sends;
         script.method_log = methods;
-        script.life_ms = 6000;
+        script.life_ms = FAKE_LIFE_MS;
         pid = fake_meshcored_spawn(&script);
         check("a service that takes messages is running", pid > 0);
-        check("and its socket is there", fake_meshcored_wait_ready(2000));
+        check("and its socket is there", fake_meshcored_wait_ready(WAIT_MS));
 
         rift_model_init(&m);
         rift_ipc_init(&c, &m, "meshcored");
-        spin(&c, 2000, have_snapshot, &m);
+        spin(&c, WAIT_MS, opening_answered, &m);
         check("the history was read with the snapshot", m.messages_valid && m.msg_count == 1);
         check("and the service said it does not keep it", !m.messages_persistent);
         check("nothing from that first snapshot is unread", rift_model_unread_total(&m) == 0);
 
+        events_target = c.events_in + 1;
         check("a message is sent", rift_ipc_send_message(&c, KEY_B, "kommer nå") == 0);
         /* The reply and the event may arrive in either order; either way the
          * message must exist exactly once, under the service's id. */
-        spin(&c, 2000, NULL, &m);
+        spin(&c, WAIT_MS, send_reported, &m);
         check("the submission is finished", !rift_model_sending(&m));
         check("the service gave it an id", m.outbox.message_id > 0);
         check("and exactly one message was added", m.msg_count == 2);
@@ -592,9 +702,11 @@ int main(void)
             int n = rift_model_thread(&m, KEY_B, thread, 8, NULL);
 
             check("the thread holds both", n == 2);
-            check("ours is outgoing", thread[1]->dir == RIFT_MSG_OUT);
-            check("with the service's state, not ours", thread[1]->state == RIFT_MSG_SENT_FLOOD);
-            check("and it is not shown as delivered", thread[1]->state != RIFT_MSG_ACKED);
+            check("ours is outgoing", n == 2 && thread[1]->dir == RIFT_MSG_OUT);
+            check("with the service's state, not ours",
+                  n == 2 && thread[1]->state == RIFT_MSG_SENT_FLOOD);
+            check("and it is not shown as delivered",
+                  n == 2 && thread[1]->state != RIFT_MSG_ACKED);
         }
 
         /* What went on the air is what the reader typed, once. */
@@ -650,24 +762,29 @@ int main(void)
             "[{\"channel\":0,\"name\":\"SITE\",\"channel_hash\":\"8c\",\"key_bits\":256,"
             "\"text_limit\":147,\"ack_expected\":false}]";
         script.events = chan_events;
+        /* "Added later" means after the list was read. Raised as soon as the
+         * client subscribed, the added channel could land before the list,
+         * which is fixed text without it and would replace it. */
+        script.events_after_snapshot = 1;
         script.send_log = sends;
         script.method_log = methods;
-        script.life_ms = 6000;
+        script.life_ms = FAKE_LIFE_MS;
         pid = fake_meshcored_spawn(&script);
         check("a service with a channel is running", pid > 0);
-        check("and its socket is there", fake_meshcored_wait_ready(2000));
+        check("and its socket is there", fake_meshcored_wait_ready(WAIT_MS));
 
         rift_model_init(&m);
         rift_ipc_init(&c, &m, "meshcored");
-        spin(&c, 2000, have_snapshot, &m);
+        spin(&c, WAIT_MS, opening_answered, &m);
         check("the channel list was read on connect", m.channels_valid);
         check("and holds the one the service has", m.channel_count >= 1);
         check("in the slot it named", rift_model_channel(&m, 0) != NULL);
         check("with the limit the service gave, not the API's 160",
               rift_model_text_limit(&m, "#0") == 147);
 
-        /* The event that arrives on the channel. */
-        spin(&c, 2000, NULL, &m);
+        /* The event that arrives on the channel, and the channel added. */
+        events_target = 2;
+        spin(&c, WAIT_MS, events_reached, &m);
         {
             const struct rift_message *thread[8];
             int n = rift_model_thread(&m, "#0", thread, 8, NULL);
@@ -679,14 +796,16 @@ int main(void)
                       strcmp(thread[0]->sender_name, "HYTTA") == 0);
             check("and nothing that could acknowledge it",
                   n == 1 && !thread[0]->ack_expected);
-            /* Deliberately no unread assertion here. This event races the
-             * first mesh.messages reply, and whatever is in the cache when
-             * that lands is seeded as read - nothing has been drawn yet, so
-             * "unread since you last looked" is not a question that has an
-             * answer (rift_model.h, messages_seeded). Whether this one is
-             * unread therefore depends on which frame arrived first, which
-             * is not a property of channels. tests/rift_comms_test.c settles
-             * the unread behaviour deterministically instead. */
+            /* Deliberately no unread assertion here. Whatever is in the cache
+             * when the first mesh.messages reply lands is seeded as read -
+             * nothing has been drawn yet, so "unread since you last looked"
+             * is not a question that has an answer (rift_model.h,
+             * messages_seeded) - and a real service raises this event
+             * whenever it likes, so which side of that reply it falls on is
+             * not a property of channels. This service holds it until after
+             * the reply only so the channel added below lands after the
+             * list. tests/rift_comms_test.c settles the unread behaviour
+             * deterministically instead. */
             {
                 struct rift_conv conv[RIFT_MAX_CONVERSATIONS];
 
@@ -702,7 +821,7 @@ int main(void)
         /* Sending to a channel. */
         check("a message is sent to the channel",
               rift_ipc_send_message(&c, "#0", "pa vei") == 0);
-        spin(&c, 2000, NULL, &m);
+        spin(&c, WAIT_MS, send_answered, &m);
         check("the submission finished", !rift_model_sending(&m));
         check("the service gave it an id", m.outbox.message_id > 0);
         /* What went on the air, and to where: a channel slot, not a node. */
@@ -765,17 +884,17 @@ int main(void)
             "{\"channel\":1,\"name\":\"OPS\",\"channel_hash\":\"4d\",\"key_bits\":128,"
             "\"text_limit\":147}]";
         script.serve_clients = 1;
-        script.life_ms = 4000;
+        script.life_ms = FAKE_LIFE_MS;
         pid = fake_meshcored_spawn(&script);
-        check("a service with two channels came up", fake_meshcored_wait_ready(3000));
+        check("a service with two channels came up", fake_meshcored_wait_ready(WAIT_MS));
 
         rift_model_init(&m);
         rift_ipc_init(&c, &m, "meshcored");
-        spin(&c, 2000, have_snapshot, &m);
+        spin(&c, WAIT_MS, opening_answered, &m);
         check("both channels were read", m.channel_count == 2);
 
         fake_meshcored_stop(pid);
-        spin(&c, 2000, NULL, &m);
+        spin(&c, WAIT_MS, is_down, &m);
         check("the service went away", m.state == RIFT_SVC_ABSENT);
         /* The channels stay on screen and stop being current. Blanking them
          * would say something less true than a stale list does. */
@@ -792,10 +911,10 @@ int main(void)
             again.channels_json =
                 "[{\"channel\":1,\"name\":\"OPS\",\"channel_hash\":\"4d\",\"key_bits\":128,"
                 "\"text_limit\":147}]";
-            again.life_ms = 4000;
+            again.life_ms = FAKE_LIFE_MS;
             pid2 = fake_meshcored_spawn(&again);
-            check("the service comes back", fake_meshcored_wait_ready(3000));
-            spin(&c, 8000, have_snapshot, &m);
+            check("the service comes back", fake_meshcored_wait_ready(WAIT_MS));
+            spin(&c, WAIT_MS, is_up_again, &m);
             check("the channel list was re-read", m.channels_valid);
             check("and is now what the service holds", m.channel_count == 1);
             /* The one that was left is gone rather than lingering as
@@ -824,20 +943,21 @@ int main(void)
         script.state = "online";
         script.nodes_json = NODES_TWO;
         script.send_log = sends;
-        script.life_ms = 6000;
+        script.life_ms = FAKE_LIFE_MS;
         pid = fake_meshcored_spawn(&script);
         check("a service with no message history is running",
-              pid > 0 && fake_meshcored_wait_ready(2000));
+              pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
 
         rift_model_init(&m);
         rift_ipc_init(&c, &m, "meshcored");
-        spin(&c, 2000, have_snapshot, &m);
+        spin(&c, WAIT_MS, opening_answered, &m);
         check("and it holds none", m.messages_valid && m.msg_count == 0);
         check("so the peer has no conversation yet",
               rift_model_thread(&m, KEY_A, NULL, 0, NULL) == 0);
 
+        events_target = c.events_in + 1;
         check("the first message is written", rift_ipc_send_message(&c, KEY_A, "first") == 0);
-        spin(&c, 2000, NULL, &m);
+        spin(&c, WAIT_MS, send_reported, &m);
         check("exactly one message exists afterwards", m.msg_count == 1);
         check("and it is the service's, under the service's id", m.msg[0].id > 0);
         check("nothing was invented before the service answered", m.msgs_duplicate == 0);
@@ -870,19 +990,20 @@ int main(void)
         script.state = "degraded";
         script.nodes_json = NODES_TWO;
         script.refuse_send = 1;
-        script.life_ms = 5000;
+        script.life_ms = FAKE_LIFE_MS;
         pid = fake_meshcored_spawn(&script);
         check("a service that will not send is running", pid > 0);
-        check("and is answering", fake_meshcored_wait_ready(2000));
+        check("and is answering", fake_meshcored_wait_ready(WAIT_MS));
 
         rift_model_init(&m);
         rift_ipc_init(&c, &m, "meshcored");
-        spin(&c, 2000, have_snapshot, &m);
+        spin(&c, WAIT_MS, opening_answered, &m);
         check("the send is written", rift_ipc_send_message(&c, KEY_B, "hallo") == 0);
-        spin(&c, 2000, NULL, &m);
+        spin(&c, WAIT_MS, send_answered, &m);
         check("and comes back refused", m.outbox.failed);
         check("with the service's own words, not ours",
               strstr(m.outbox.error, "the radio is not available") != NULL);
+        check("the service answered a later request too", round_trip(&c, &m));
         check("nothing was added to the thread", m.msg_count == 0);
         check("and nothing is left in flight", !rift_model_sending(&m));
 
@@ -901,17 +1022,18 @@ int main(void)
         script.state = "online";
         script.nodes_json = NODES_TWO;
         script.send_is_silent = 1;
-        script.life_ms = 5000;
+        script.life_ms = FAKE_LIFE_MS;
         pid = fake_meshcored_spawn(&script);
-        check("a silent service is running", pid > 0 && fake_meshcored_wait_ready(2000));
+        check("a silent service is running", pid > 0 && fake_meshcored_wait_ready(WAIT_MS));
 
         rift_model_init(&m);
         rift_ipc_init(&c, &m, "meshcored");
-        spin(&c, 2000, have_snapshot, &m);
+        spin(&c, WAIT_MS, opening_answered, &m);
         rift_ipc_send_message(&c, KEY_B, "into the quiet");
-        spin(&c, 1500, NULL, &m);
+        spin(&c, WAIT_MS, send_answered, &m);
         check("the submission ended, because the reply came", !rift_model_sending(&m));
         check("it was not a failure", !m.outbox.failed);
+        check("the service answered a later request too", round_trip(&c, &m));
         check("but no message exists, because none was ever reported", m.msg_count == 0);
 
         rift_ipc_close(&c);
