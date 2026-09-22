@@ -45,6 +45,10 @@ make_tree() { # <vendor dir>
     ln -sfn doors-release "$t/etc/pocketos-release"
     printf 'notices\n' > "$t/usr/share/doors/THIRD_PARTY_NOTICES.txt"
     ln -sfn ../doors/THIRD_PARTY_NOTICES.txt "$t/usr/share/pocketos/THIRD_PARTY_NOTICES.txt"
+    # The overlay apply_to_sdk.sh applied, which a finalised tree matches.
+    local o="$1/k230_linux_sdk/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/etc/init.d"
+    mkdir -p "$o"
+    cp -p "$t"/etc/init.d/S* "$o/"
 }
 deploy() { # <vendor dir>: runs deploy.sh, prints its exit code
     rm -f "$TMP/archive.tar" "$TMP/ssh.args"
@@ -79,18 +83,31 @@ refused() { # <label> <vendor dir> <message>
     check "REFUSED: $1 - before anything was sent" "$([ ! -e "$TMP/ssh.args" ] && echo 1 || echo 0)"
     check "REFUSED: $1 - and it says why" "$(grep -qF -- "$3" "$TMP/out.txt" && echo 1 || echo 0)"
 }
-V="$TMP/noinit"; make_tree "$V"; rm -f "$V/k230_linux_sdk/output/k230_pocketos_defconfig/target/etc/init.d/S65meshcored"
-refused "a tree with meshcored and no S65meshcored" "$V" "missing"
-V="$TMP/nobin"; make_tree "$V"; rm -f "$V/k230_linux_sdk/output/k230_pocketos_defconfig/target/usr/sbin/meshcored"
-refused "a tree with S65meshcored and no meshcored" "$V" "usr/sbin/meshcored"
+# These three are refused by deploy.sh's own list of what it carries, before
+# the installation check runs; they say so, rather than claim the checker.
+T_OF() { echo "$1/k230_linux_sdk/output/k230_pocketos_defconfig/target"; }
+V="$TMP/noinit"; make_tree "$V"; rm -f "$(T_OF "$V")/etc/init.d/S65meshcored"
+refused "a tree with meshcored and no S65meshcored (deploy.sh's file list)" "$V" \
+    "missing $(T_OF "$V")/etc/init.d/S65meshcored"
+V="$TMP/nobin"; make_tree "$V"; rm -f "$(T_OF "$V")/usr/sbin/meshcored"
+refused "a tree with S65meshcored and no meshcored (deploy.sh's file list)" "$V" \
+    "missing $(T_OF "$V")/usr/sbin/meshcored"
 V="$TMP/stale"; make_tree "$V"
 mkbootimg_stamped "$V/k230_linux_sdk/output/k230_pocketos_defconfig/target/usr/sbin/meshcored" 3e89c9c
 refused "a tree holding a meshcored from another build" "$V" \
     "/usr/sbin/meshcored is build 3e89c9c, and /etc/doors-release says abc1234"
 V="$TMP/mode"; make_tree "$V"; chmod 0644 "$V/k230_linux_sdk/output/k230_pocketos_defconfig/target/etc/init.d/S65meshcored"
 refused "a tree whose S65meshcored is not executable" "$V" "/etc/init.d/S65meshcored is not executable"
-V="$TMP/nosup"; make_tree "$V"; rm -f "$V/k230_linux_sdk/output/k230_pocketos_defconfig/target/usr/bin/pos-supervise"
-refused "a tree with no pos-supervise" "$V" "usr/bin/pos-supervise"
+V="$TMP/nosup"; make_tree "$V"; rm -f "$(T_OF "$V")/usr/bin/pos-supervise"
+refused "a tree with no pos-supervise (deploy.sh's file list)" "$V" \
+    "missing $(T_OF "$V")/usr/bin/pos-supervise"
+# A package-only rebuild does not refresh the target tree's init scripts, which
+# carry no build stamp: compared with the applied overlay instead.
+V="$TMP/stale-init"; make_tree "$V"
+printf '# the version apply_to_sdk.sh applied since\n' \
+    >> "$V/k230_linux_sdk/buildroot-overlay/board/canaan/k230-soc/rootfs_overlay/etc/init.d/S65meshcored"
+refused "a tree whose S65meshcored is older than the applied overlay" "$V" \
+    "has not been finalised since apply_to_sdk.sh"
 V="$TMP/default"; make_tree "$V"; mkdir -p "$V/k230_linux_sdk/output/k230_pocketos_defconfig/target/etc/default"
 printf 'MESHCORED_ENABLE=1\n' > "$V/k230_linux_sdk/output/k230_pocketos_defconfig/target/etc/default/meshcored"
 refused "a tree carrying a per-unit meshcored switch" "$V" "/etc/default/meshcored is in the tree"
@@ -106,6 +123,12 @@ known=$(sed -n '/^SERVICES="/,/"$/p; /^SUPERVISE=/p' tools/release/check_rootfs.
 check "deploy.sh requires exactly the services check_rootfs.sh checks" \
     "$([ -n "$required" ] && [ "$required" = "$known" ] && echo 1 || echo 0)"
 [ "$required" = "$known" ] || diff <(echo "$required") <(echo "$known") | head
+# And the list the unit checks after unpacking, which cannot run the checker.
+on_unit=$(sed -n '/^for f in \/usr\/sbin\/sysd/,/; do$/p' platforms/k230/scripts/deploy.sh \
+          | grep -oE "$SVC_RE" | sort -u)
+check "the unit's own completeness check names the same services" \
+    "$([ -n "$on_unit" ] && [ "$on_unit" = "$known" ] && echo 1 || echo 0)"
+[ "$on_unit" = "$known" ] || diff <(echo "$on_unit") <(echo "$known") | head
 
 echo "deploy_staging_test: $failed failure(s)"
 exit $((failed > 0))

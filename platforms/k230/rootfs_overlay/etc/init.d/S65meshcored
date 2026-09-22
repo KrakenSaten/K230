@@ -136,7 +136,9 @@ stop() {
 	[ -s "$CHILD_PIDFILE" ] && child=$(cat "$CHILD_PIDFILE")
 	forced=""
 	if ! running "$sup" && ! running "$child"; then
-		rm -f "$PIDFILE"
+		# Both name nothing: stale, and the child's would otherwise sit there
+		# until its pid is handed to something else.
+		rm -f "$PIDFILE" "$CHILD_PIDFILE"
 		if [ -z "$(meshcored_pids)" ]; then
 			echo "not running"
 			return 0
@@ -159,9 +161,16 @@ stop() {
 		fi
 	fi
 	if running "$child"; then
-		kill -KILL "$child" 2>/dev/null
-		wait_gone "$child"
-		forced=" (forced)"
+		# The supervisor is gone and its daemon is not - an orphan, whose
+		# supervisor was killed. Asked to leave first: meshcored writes its
+		# node table on SIGTERM, and a SIGKILL would lose what this session
+		# learned. Forced only if it will not go.
+		kill "$child" 2>/dev/null
+		if ! wait_gone "$child"; then
+			kill -KILL "$child" 2>/dev/null
+			wait_gone "$child"
+			forced=" (forced)"
+		fi
 	fi
 	# The pid file is tracking, not decoration. Removing it before the
 	# processes are gone throws away the only handle the next stop has.
@@ -169,7 +178,7 @@ stop() {
 		echo "FAILED, still running"
 		return 1
 	fi
-	rm -f "$PIDFILE"
+	rm -f "$PIDFILE" "$CHILD_PIDFILE"
 	# A meshcored this script never started is still a meshcored on this
 	# unit, and "stopped" has to mean none is left - deploy.sh unpacks new
 	# binaries on the strength of it.

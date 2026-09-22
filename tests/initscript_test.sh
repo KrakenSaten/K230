@@ -425,12 +425,42 @@ wait_mcd 0
 # and would run this script's EXIT trap - which removes $ROOT.
 dead=$(sh -c 'echo $$')
 echo "$dead" > "$MCD_SUP_PIDFILE"; echo "$dead" > "$ROOT/run/pocketos/meshcored.pid"
+out=$("$S65" stop 2>&1)
+check "S65 stop with only stale pid files says not running" $(contains "$out" "not running")
+check "and removes both, so a reused pid is never taken for meshcored" \
+      $([ ! -e "$MCD_SUP_PIDFILE" ] && [ ! -e "$ROOT/run/pocketos/meshcored.pid" ] && echo 1 || echo 0)
+echo "$dead" > "$MCD_SUP_PIDFILE"; echo "$dead" > "$ROOT/run/pocketos/meshcored.pid"
 rm -f "$ROOT/meshcored.env"
 out=$("$S65" start 2>&1)
 check "S65 start is not blocked by stale pid files" $(contains "$out" "OK")
 check "and starts exactly one meshcored" $(wait_mcd 1 && echo 1 || echo 0)
 "$S65" stop >/dev/null 2>&1
 wait_mcd 0
+
+# An orphan: the supervisor killed outright, its daemon still running. stop
+# must ask the daemon to leave (meshcored writes its node table on SIGTERM)
+# rather than SIGKILL it, and leave no child pid file behind for a reused pid.
+cat > "$ROOT/usr/sbin/meshcored" <<EOD
+#!/bin/sh
+env > "$ROOT/meshcored.env"
+trap 'echo term > "$ROOT/mcd.term"; exit 0' TERM INT
+while :; do sleep 0.2; done
+EOD
+chmod 0755 "$ROOT/usr/sbin/meshcored"
+rm -f "$ROOT/meshcored.env" "$ROOT/mcd.term"
+"$S65" start >/dev/null 2>&1
+wait_for "$ROOT/meshcored.env"
+kill -9 "$(pidof_file "$MCD_SUP_PIDFILE")" 2>/dev/null
+sleep 0.3
+check "S65: with its supervisor killed, the daemon is an orphan still running" \
+      $([ "$(count_mcd)" -eq 1 ] && [ -s "$ROOT/run/pocketos/meshcored.pid" ] && echo 1 || echo 0)
+out=$("$S65" stop 2>&1)
+check "S65 stop asks an orphaned meshcored to leave rather than killing it" \
+      $([ -e "$ROOT/mcd.term" ] && [ "$(contains "$out" "forced")" -eq 0 ] && echo 1 || echo 0)
+check "and leaves no daemon and no child pid file" \
+      $([ "$(count_mcd)" -eq 0 ] && [ ! -e "$ROOT/run/pocketos/meshcored.pid" ] && echo 1 || echo 0)
+make_meshcored
+rm -f "$ROOT/mcd.term" "$ROOT/meshcored.env"
 
 # Enabled and not installable: loud, and a non-zero exit.
 mv "$ROOT/usr/sbin/meshcored" "$ROOT/usr/sbin/meshcored.away"
@@ -1125,10 +1155,17 @@ deploy_payload() { # <dir> <deploy dir>: every service whole, as the archive car
     mkdir -p "$d/hand"; cp "$(command -v sleep)" "$d/hand/$FAKE_MCD"
     "$d/hand/$FAKE_MCD" 600 & hand=$!
     sleep 0.3
+    # radiod's stop records whether the hand-started meshcored was still there:
+    # it must already be gone, since it holds radiod's lease.
+    printf '#!/bin/sh\n[ "$1" = stop ] && { kill -0 %s 2>/dev/null && echo mcd-alive-at-radiod-stop >> "%s/calls.log"; }\necho "$1 S60radiod" >> "%s/calls.log"\nexit 0\n' \
+        "$hand" "$d" "$d" > "$d/etc/init.d/S60radiod"
+    chmod 0755 "$d/etc/init.d/S60radiod"
     out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" 2>&1 </dev/null); rc=$?
     check "deploy stops a meshcored no init script started, before it unpacks" \
           $(contains "$out" "stopping a meshcored no init script started: $hand")
     check "and it is gone" $(wait_gone "$hand" && echo 1 || echo 0)
+    check "before radiod is stopped, the order the two depend in" \
+          $(grep -q 'mcd-alive-at-radiod-stop' "$d/calls.log" && echo 0 || echo 1)
     wait "$hand" 2>/dev/null
     check "a complete unpack starts every service" \
           $([ "$rc" -eq 0 ] && grep -q '^start S65meshcored' "$d/calls.log" \
@@ -1139,6 +1176,19 @@ deploy_payload() { # <dir> <deploy dir>: every service whole, as the archive car
     check "meshcored stops before radiod on the way down" \
           $(awk '/^stop S65meshcored/{m=NR} /^stop S60radiod/{r=NR} END{exit !(m && r && m < r)}' \
             "$d/calls.log" && echo 1 || echo 0)
+
+    # meshcored failing to start is reported, and does not keep the shell down.
+    d=$ROOT/deploy-mcdfail; p=$ROOT/payload-mcdfail
+    deploy_payload "$p" "$d"
+    printf '#!/bin/sh\necho "$1 S65meshcored" >> "%s/calls.log"\n[ "$1" = start ] && exit 1\nexit 0\n' "$d" \
+        > "$p/etc/init.d/S65meshcored"
+    chmod 0755 "$p/etc/init.d/S65meshcored"
+    mkdir -p "$d"; deploy_remote "$d"; deploy_root "$d" "$p"
+    out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" 2>&1 </dev/null); rc=$?
+    check "a meshcored that will not start fails the deploy" \
+          $([ "$rc" -ne 0 ] && [ "$(contains "$out" "S65meshcored did not start")" = 1 ] && echo 1 || echo 0)
+    check "but the shell is started all the same" \
+          $(grep -q '^start S90doors-shell' "$d/calls.log" && echo 1 || echo 0)
 }
 
 echo "initscript_test: $failed failure(s)"
