@@ -11,12 +11,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
 #define SELF_KEY "5f000000000000000000000000000000000000000000000000000000000000ff"
+
+/* The three snapshots a scripted event can race: see events_after_snapshot. */
+#define ANSWERED_NODES 1
+#define ANSWERED_CHANNELS 2
+#define ANSWERED_MESSAGES 4
+#define ANSWERED_ALL (ANSWERED_NODES | ANSWERED_CHANNELS | ANSWERED_MESSAGES)
 
 struct state {
     const struct fake_meshcored_script *script;
@@ -26,6 +33,7 @@ struct state {
     int raw_sent;
     int clients_gone;
     int sent;
+    int snapshots_answered;
     int64_t subscribe_ms;
     int64_t started_ms;
 };
@@ -151,6 +159,7 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         result = cJSON_CreateObject();
         cJSON_AddNumberToObject(result, "count", cJSON_GetArraySize(arr));
         cJSON_AddItemToObject(result, "nodes", arr);
+        st->snapshots_answered |= ANSWERED_NODES;
     } else if (strcmp(name, "mesh.node") == 0) {
         const cJSON *params = cJSON_GetObjectItemCaseSensitive(req, "params");
         const cJSON *node = cJSON_GetObjectItemCaseSensitive(params, "node");
@@ -189,6 +198,7 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
          * client should not have to reboot to find out. */
         cJSON_AddBoolToObject(result, "persistent", 1);
         cJSON_AddItemToObject(result, "channels", arr);
+        st->snapshots_answered |= ANSWERED_CHANNELS;
     } else if (strcmp(name, "mesh.messages") == 0) {
         const cJSON *params = cJSON_GetObjectItemCaseSensitive(req, "params");
         const cJSON *limit = cJSON_GetObjectItemCaseSensitive(params, "limit");
@@ -225,6 +235,7 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         cJSON_AddNumberToObject(result, "total", total);
         cJSON_AddBoolToObject(result, "persistent", 0);
         cJSON_AddItemToObject(result, "messages", arr);
+        st->snapshots_answered |= ANSWERED_MESSAGES;
     } else if (strcmp(name, "mesh.send") == 0) {
         const cJSON *params = cJSON_GetObjectItemCaseSensitive(req, "params");
         const cJSON *to = cJSON_GetObjectItemCaseSensitive(params, "to");
@@ -364,7 +375,11 @@ int fake_meshcored_run(const struct fake_meshcored_script *script)
     pocketipc_server_set_on_disconnect(st.server, on_disconnect, &st);
     for (;;) {
         pocketipc_server_poll(st.server, 10);
-        if (st.subscribed && script->events) {
+        /* Replies are written as each request is handled, so an event raised
+         * here, after the last snapshot's reply went out, reaches the client
+         * after it too. */
+        if (st.subscribed && script->events &&
+            (!script->events_after_snapshot || st.snapshots_answered == ANSWERED_ALL)) {
             /* One per pass, so the client gets them as separate frames and
              * a burst is still a burst. */
             if (script->events[st.events_sent]) {
@@ -388,9 +403,17 @@ int fake_meshcored_run(const struct fake_meshcored_script *script)
 
 pid_t fake_meshcored_spawn(const struct fake_meshcored_script *script)
 {
+    pid_t parent = getpid();
     pid_t pid = fork();
 
     if (pid == 0) {
+        /* A script's life_ms is a backstop, and a test gives it a long one so
+         * that no service ends under a check still waiting for it. A test that
+         * dies before stopping it must not leave it running that long. */
+        prctl(PR_SET_PDEATHSIG, SIGTERM);
+        if (getppid() != parent) {
+            _exit(0);
+        }
         _exit(fake_meshcored_run(script));
     }
     return pid;
@@ -418,6 +441,7 @@ int fake_meshcored_wait_ready(int timeout_ms)
 
 void fake_meshcored_stop(pid_t pid)
 {
+    char path[512];
     int status;
 
     if (pid <= 0) {
@@ -425,4 +449,11 @@ void fake_meshcored_stop(pid_t pid)
     }
     kill(pid, SIGTERM);
     waitpid(pid, &status, 0);
+    /* Killed, it never removed its socket. Left there, the next service's
+     * fake_meshcored_wait_ready would find it at once and return before that
+     * service was listening, and a client that connected then would be
+     * refused and back off. */
+    if (pocketipc_socket_path("meshcored", path, sizeof(path)) == 0) {
+        unlink(path);
+    }
 }
