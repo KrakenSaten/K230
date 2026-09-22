@@ -71,8 +71,50 @@ enum pos_style_role {
     POS_STYLE_BRAND_MARK,
     /* App icons on launcher tiles (DS §20): A8 masks drawn in accent_primary. */
     POS_STYLE_APP_ICON,
+    /* The DOORS environment (DS §31): the shell's own screens - lock,
+     * launcher, quick controls - drawn over the photographic backgrounds of
+     * the approved visual package. One fixed palette from that package (warm
+     * white on dark glass), not the theme's: the art is the same in every
+     * theme. The display mode still applies - Night dims and warms it,
+     * Outdoor brightens the text and thickens the glass - so these are
+     * refreshed with every other style. */
+    POS_STYLE_ENV_BG,              /* background image: the mode's scrim as image recolour */
+    POS_STYLE_ENV_BAR,             /* status bar over the environment: no fill, no rule */
+    POS_STYLE_ENV_TEXT,            /* sans 20, env text */
+    POS_STYLE_ENV_TEXT_SMALL,      /* sans 16, env text */
+    POS_STYLE_ENV_TEXT_SECONDARY,  /* sans 20, env secondary text */
+    POS_STYLE_ENV_CAPTION,         /* sans 16, env text, +2 px tracking (group names) */
+    POS_STYLE_ENV_CLOCK,           /* 64 px clock digits */
+    POS_STYLE_ENV_CLOCK_LARGE,     /* 96 px clock digits (lock screen) */
+    POS_STYLE_ENV_TITLE,           /* sans 40 semibold, env text */
+    POS_STYLE_ENV_PANEL,           /* dark glass: translucent fill, hairline, radius 4 */
+    POS_STYLE_ENV_PANEL_PRESSED,   /* the same glass, lit */
+    POS_STYLE_ENV_DIVIDER,         /* a 1 px rule: an object filled in the divider colour */
+    POS_STYLE_ENV_GLYPH,           /* A8 glyph drawn in env text */
+    POS_STYLE_ENV_SLIDER,          /* slider track */
+    POS_STYLE_ENV_SLIDER_FILL,     /* slider indicator (LV_PART_INDICATOR) */
+    POS_STYLE_ENV_SLIDER_KNOB,     /* slider knob (LV_PART_KNOB) */
+    POS_STYLE_ENV_DOT,             /* a small "on" dot: env text fill, round */
     POS_STYLE_COUNT
 };
+
+/* The DOORS package's hues (b_ui_layout.json "colors"), each app's colour on
+ * the launcher. For icons' focus marks and other custom drawing; adjusted
+ * for the display mode like the rest of the environment. */
+enum pos_env_hue {
+    POS_HUE_RADIO = 0,
+    POS_HUE_MESH,
+    POS_HUE_NETWORK,
+    POS_HUE_TOOLS,
+    POS_HUE_AI,
+    POS_HUE_GAMES,
+    POS_HUE_SETTINGS,
+    POS_HUE_FILES,
+    POS_HUE_APPS,
+    POS_HUE_COUNT
+};
+
+lv_color_t pos_env_hue(enum pos_env_hue hue);
 
 /* Initialise all styles from the current theme and hook the theme engine so
  * later selections refresh them. Call once after lv_init(). */

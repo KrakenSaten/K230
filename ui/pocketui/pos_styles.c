@@ -18,6 +18,8 @@ LV_FONT_DECLARE(pos_font_sans_48_semibold)
 LV_FONT_DECLARE(pos_font_mono_14)
 LV_FONT_DECLARE(pos_font_mono_16_medium)
 LV_FONT_DECLARE(pos_font_mono_20)
+LV_FONT_DECLARE(pos_font_clock_64)
+LV_FONT_DECLARE(pos_font_clock_96)
 
 #define POS_RADIUS 6
 #define POS_PAD 20
@@ -46,6 +48,140 @@ static lv_color_t tok(enum pos_color_token token)
 static void reset(lv_style_t *s)
 {
     lv_style_reset(s);
+}
+
+/* ---- the DOORS environment (DS §31) ------------------------------------ *
+ *
+ * The colours of the approved visual package (docs/design/brand/
+ * doors-visual-pack-v1, b_ui_layout.json and the ui-layer SVGs): warm white
+ * text on dark glass over the photographs. They are the art's, not a
+ * theme's, so they do not follow the theme; they do follow the display
+ * mode, by the same rules the theme engine uses for its own tokens.
+ */
+#define ENV_TEXT 0xeeeae2
+#define ENV_TEXT_2 0xc3c0b9
+#define ENV_PANEL 0x161c20
+#define ENV_PANEL_LIT 0x2c3439
+#define ENV_STROKE 0xa0a8a4
+#define ENV_DIVIDER 0x929892
+#define ENV_TRACK 0x777b7e
+
+static const uint32_t env_hues[POS_HUE_COUNT] = {
+    0xb5cfa5, 0xa6c4da, 0x9fbdd5, 0xdcb387, 0xb9afd4, 0xdfad85, 0xd5d7d5, 0xd7b78a, 0xe5e2d4,
+};
+
+/* A package colour as the current mode shows it: Night dims and warms it
+ * exactly as it does the theme's text (pos_theme.c, apply_night); Outdoor
+ * lifts it toward white like the theme's accents. */
+static lv_color_t env(uint32_t rgb)
+{
+    enum pos_mode m = pos_theme_current_mode();
+
+    if (m == POS_MODE_NIGHT) {
+        rgb = pos_mix(pos_mix(rgb, 0x000000, 0.50), 0xffb060, 0.15);
+    } else if (m == POS_MODE_OUTDOOR) {
+        rgb = pos_mix(rgb, 0xffffff, 0.15);
+    }
+    return lv_color_hex(rgb);
+}
+
+lv_color_t pos_env_hue(enum pos_env_hue hue)
+{
+    return env(env_hues[(hue >= 0 && hue < POS_HUE_COUNT) ? hue : POS_HUE_APPS]);
+}
+
+static void env_text(lv_style_t *s, uint32_t rgb, const lv_font_t *font)
+{
+    reset(s);
+    lv_style_set_text_color(s, env(rgb));
+    lv_style_set_text_font(s, font);
+}
+
+static void fill_env_styles(void)
+{
+    enum pos_mode m = pos_theme_current_mode();
+    /* Glass: the package's 56 % fill and 42 % hairline; Outdoor makes both
+     * denser so text on them survives sunlight. */
+    lv_opa_t panel_opa = m == POS_MODE_OUTDOOR ? 204 : 143;
+    lv_opa_t stroke_opa = m == POS_MODE_OUTDOOR ? 178 : 107;
+    lv_style_t *s;
+
+    /* The scrims are baked into the backgrounds for Normal (tools/design/
+     * gen_doors_ui.py); the other modes darken the photograph further at
+     * draw time rather than shipping three copies of it. */
+    s = &styles[POS_STYLE_ENV_BG];
+    reset(s);
+    lv_style_set_image_recolor(s, lv_color_hex(0x000000));
+    lv_style_set_image_recolor_opa(s, m == POS_MODE_NIGHT ? 150 : m == POS_MODE_OUTDOOR ? 90 : LV_OPA_TRANSP);
+
+    s = &styles[POS_STYLE_ENV_BAR];
+    reset(s);
+    lv_style_set_bg_opa(s, LV_OPA_TRANSP);
+    lv_style_set_border_width(s, 0);
+
+    env_text(&styles[POS_STYLE_ENV_TEXT], m == POS_MODE_OUTDOOR ? 0xffffff : ENV_TEXT, &pos_font_sans_20);
+    env_text(&styles[POS_STYLE_ENV_TEXT_SMALL], m == POS_MODE_OUTDOOR ? 0xffffff : ENV_TEXT, &pos_font_sans_16);
+    env_text(&styles[POS_STYLE_ENV_TEXT_SECONDARY], ENV_TEXT_2, &pos_font_sans_20);
+    env_text(&styles[POS_STYLE_ENV_CAPTION], ENV_TEXT, &pos_font_sans_16);
+    lv_style_set_text_letter_space(&styles[POS_STYLE_ENV_CAPTION], 2);
+    env_text(&styles[POS_STYLE_ENV_CLOCK], m == POS_MODE_OUTDOOR ? 0xffffff : ENV_TEXT, &pos_font_clock_64);
+    env_text(&styles[POS_STYLE_ENV_CLOCK_LARGE], m == POS_MODE_OUTDOOR ? 0xffffff : ENV_TEXT,
+             &pos_font_clock_96);
+    env_text(&styles[POS_STYLE_ENV_TITLE], m == POS_MODE_OUTDOOR ? 0xffffff : ENV_TEXT,
+             &pos_font_sans_40_semibold);
+
+    s = &styles[POS_STYLE_ENV_PANEL];
+    reset(s);
+    lv_style_set_bg_color(s, env(ENV_PANEL));
+    lv_style_set_bg_opa(s, panel_opa);
+    lv_style_set_border_color(s, env(ENV_STROKE));
+    lv_style_set_border_opa(s, stroke_opa);
+    lv_style_set_border_width(s, 1);
+    lv_style_set_radius(s, 4);
+    lv_style_set_pad_all(s, 0);
+
+    s = &styles[POS_STYLE_ENV_PANEL_PRESSED];
+    reset(s);
+    lv_style_set_bg_color(s, env(ENV_PANEL_LIT));
+    lv_style_set_bg_opa(s, 220);
+
+    s = &styles[POS_STYLE_ENV_DIVIDER];
+    reset(s);
+    lv_style_set_bg_color(s, env(ENV_DIVIDER));
+    lv_style_set_bg_opa(s, 102);
+    lv_style_set_border_width(s, 0);
+    lv_style_set_radius(s, 0);
+
+    s = &styles[POS_STYLE_ENV_GLYPH];
+    reset(s);
+    lv_style_set_image_recolor(s, env(m == POS_MODE_OUTDOOR ? 0xffffff : ENV_TEXT));
+    lv_style_set_image_recolor_opa(s, LV_OPA_COVER);
+
+    s = &styles[POS_STYLE_ENV_SLIDER];
+    reset(s);
+    lv_style_set_bg_color(s, env(ENV_TRACK));
+    lv_style_set_bg_opa(s, 140);
+    lv_style_set_radius(s, 2);
+
+    s = &styles[POS_STYLE_ENV_SLIDER_FILL];
+    reset(s);
+    lv_style_set_bg_color(s, env(ENV_TEXT));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_radius(s, 2);
+
+    s = &styles[POS_STYLE_ENV_SLIDER_KNOB];
+    reset(s);
+    lv_style_set_bg_color(s, env(ENV_TEXT));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_radius(s, LV_RADIUS_CIRCLE);
+    lv_style_set_pad_all(s, 8);
+
+    s = &styles[POS_STYLE_ENV_DOT];
+    reset(s);
+    lv_style_set_bg_color(s, env(ENV_TEXT));
+    lv_style_set_bg_opa(s, LV_OPA_COVER);
+    lv_style_set_radius(s, LV_RADIUS_CIRCLE);
+    lv_style_set_border_width(s, 0);
 }
 
 /* Fill every style from the current tokens. Called at init and on change. */
@@ -356,6 +492,8 @@ static void fill_styles(void)
     reset(s);
     lv_style_set_image_recolor(s, tok(POS_COLOR_ACCENT_PRIMARY));
     lv_style_set_image_recolor_opa(s, LV_OPA_COVER);
+
+    fill_env_styles();
 }
 
 static void on_theme_changed(void *user)
