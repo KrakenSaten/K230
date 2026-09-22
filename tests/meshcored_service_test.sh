@@ -347,8 +347,10 @@ second_rc=0
 timeout 10 "$MESHCORED" --verbose > "$TMP/second.log" 2>&1 || second_rc=$?
 check "a second meshcored on the same state directory refuses to start (exit 3)" \
       "$([ "$second_rc" -eq 3 ] && echo 1 || echo 0)"
+# Same socket as well, so the socket lock is the first it meets; the state
+# lock is exercised on its own below, under another socket name.
 check "and says why" \
-      "$(grep -q 'another meshcored is already running on' "$TMP/second.log" && echo 1 || echo 0)"
+      "$(grep -q 'already serving the meshcored socket' "$TMP/second.log" && echo 1 || echo 0)"
 check "the first one is still running" "$(kill -0 "$MCD_PID" 2>/dev/null && echo 1 || echo 0)"
 check "and still owns its socket - the same inode, not a replacement" \
       "$([ -n "$sock_inode_before" ] && [ "$(stat -c %i "$MSOCK" 2>/dev/null)" = "$sock_inode_before" ] && echo 1 || echo 0)"
@@ -363,8 +365,32 @@ ok("the first one still answers, in the state it was in",
 done()
 PYEOF
 run_driver "$TMP/t1b.py" "$TMP" "$MSOCK"
-# A different state directory is a different node, and is not refused: the
-# lock is on the node, not on the program.
+# Another state directory with the same socket name: a different node, but the
+# socket is the running one's. pocketipc would unlink it before binding, so the
+# socket has a lock of its own.
+same_sock_rc=0
+timeout 10 "$MESHCORED" --state-dir "$TMP/state-other" > "$TMP/samesock.log" 2>&1 || same_sock_rc=$?
+check "a meshcored on another state directory but the same socket refuses to start (exit 3)" \
+      "$([ "$same_sock_rc" -eq 3 ] && echo 1 || echo 0)"
+check "and says the socket is already served" \
+      "$(grep -q 'already serving the meshcored socket' "$TMP/samesock.log" && echo 1 || echo 0)"
+check "and the running one still has its socket" \
+      "$([ "$(stat -c %i "$MSOCK" 2>/dev/null)" = "$sock_inode_before" ] && echo 1 || echo 0)"
+check "and its state directory was not touched" \
+      "$([ ! -e "$TMP/state-other/identity.id" ] && echo 1 || echo 0)"
+# The same state directory under another socket name: the socket is free,
+# the node is not. Two radios with one identity is what the state lock is for.
+same_node_rc=0
+timeout 10 "$MESHCORED" --socket-name meshcored-twin > "$TMP/samenode.log" 2>&1 || same_node_rc=$?
+check "a meshcored on the same state directory under another socket refuses to start (exit 3)" \
+      "$([ "$same_node_rc" -eq 3 ] && echo 1 || echo 0)"
+check "and says the node is already running" \
+      "$(grep -q 'another meshcored is already running on' "$TMP/samenode.log" && echo 1 || echo 0)"
+check "and never listened on the socket it was given" \
+      "$([ ! -e "$POCKETOS_RUNTIME_DIR/meshcored-twin.sock" ] && echo 1 || echo 0)"
+# A different state directory under a different socket is a different node,
+# and is not refused: the locks are on the node and on the socket, not on the
+# program.
 other_rc=0
 timeout 3 "$MESHCORED" --state-dir "$TMP/state-other" --socket-name meshcored-other \
     > "$TMP/other.log" 2>&1 || other_rc=$?

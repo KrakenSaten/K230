@@ -35,10 +35,12 @@
 #include "pocketpaths.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -347,6 +349,44 @@ static int arg_double(const char *s, double *out)
     return 0;
 }
 
+/* The socket is the second thing only one process may hold. pocketipc
+ * unlinks a socket path before it binds, so a second meshcored - even one on a
+ * different state directory, which the state lock does not stop - would take
+ * the running one's socket from under every client. A lock file beside the
+ * socket, flocked for the life of the process, refuses it first. Returns the
+ * descriptor, or -1 with why in err and *busy set when another holds it. */
+static int lock_socket_name(const char *name, bool *busy, char *err, size_t errlen)
+{
+    char path[512];
+    int fd;
+
+    *busy = false;
+    if (pocketos_mkdir_p(pocketipc_runtime_dir(), 0770) < 0 ||
+        snprintf(path, sizeof(path), "%s/%s.lock", pocketipc_runtime_dir(), name) >=
+            (int)sizeof(path)) {
+        snprintf(err, errlen, "cannot prepare a lock for the %s socket", name);
+        return -1;
+    }
+    fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        snprintf(err, errlen, "cannot open %s: %s", path, strerror(errno));
+        return -1;
+    }
+    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        int e = errno;
+
+        close(fd);
+        if (e == EWOULDBLOCK) {
+            *busy = true;
+            snprintf(err, errlen, "another process is already serving the %s socket", name);
+        } else {
+            snprintf(err, errlen, "cannot lock %s: %s", path, strerror(e));
+        }
+        return -1;
+    }
+    return fd;
+}
+
 int main(int argc, char **argv)
 {
     struct mcd d;
@@ -359,6 +399,7 @@ int main(int argc, char **argv)
 
     memset(&d, 0, sizeof(d));
     d.state_lock_fd = -1;
+    d.socket_lock_fd = -1;
     snprintf(d.cfg.socket_name, sizeof(d.cfg.socket_name), "%s", MCD_SERVICE_NAME);
     snprintf(d.cfg.radiod_socket, sizeof(d.cfg.radiod_socket), "radiod");
     mcd_profile_defaults(&d.cfg.profile);
@@ -443,18 +484,27 @@ int main(int argc, char **argv)
                  MCD_SERVICE_NAME);
     }
 
-    /* One process per node, before anything reads the identity or takes the
-     * socket: a second meshcored - a hand-started one beside the supervised
-     * one, say - would otherwise be a second radio with the same identity,
-     * rewriting the same node table, and its listen would unlink the first
-     * one's socket from under every client. It leaves with 3, which
-     * pos-supervise treats like any failure: backoff, then crash loop. */
+    /* One process per node and one per socket, before anything reads the
+     * identity or takes the socket: a second meshcored - a hand-started one
+     * beside the supervised one, say - would otherwise be a second radio with
+     * the same identity rewriting the same node table (the state lock), or
+     * would unlink the first one's socket from under every client (the socket
+     * lock, which also covers a second one given another state directory).
+     * It leaves with 3, which pos-supervise treats like any failure: backoff,
+     * then crash loop. */
     {
         bool busy = false;
 
+        d.socket_lock_fd = lock_socket_name(d.cfg.socket_name, &busy, err, sizeof(err));
+        if (d.socket_lock_fd < 0) {
+            LOG_ERROR("%s", err);
+            pocketlog_close();
+            return busy ? 3 : 1;
+        }
         d.state_lock_fd = mcd_runtime_lock_state_dir(d.cfg.state_dir, &busy, err, sizeof(err));
         if (d.state_lock_fd < 0) {
             LOG_ERROR("%s", err);
+            close(d.socket_lock_fd);
             pocketlog_close();
             return busy ? 3 : 1;
         }
@@ -491,6 +541,7 @@ int main(int argc, char **argv)
          * key nothing else holds. */
         LOG_ERROR("cannot start the MeshCore runtime: %s", err);
         close(d.state_lock_fd);
+        close(d.socket_lock_fd);
         pocketlog_close();
         return 1;
     }
@@ -504,6 +555,7 @@ int main(int argc, char **argv)
         LOG_ERROR("out of memory");
         mcd_runtime_destroy(d.rt);
         close(d.state_lock_fd);
+        close(d.socket_lock_fd);
         pocketlog_close();
         return 1;
     }
@@ -514,6 +566,7 @@ int main(int argc, char **argv)
         mcd_link_free(d.link);
         mcd_runtime_destroy(d.rt);
         close(d.state_lock_fd);
+        close(d.socket_lock_fd);
         pocketlog_close();
         return 1;
     }
@@ -536,6 +589,7 @@ int main(int argc, char **argv)
     /* Last, after the node table is written: the next process may take the
      * directory the moment this is released. */
     close(d.state_lock_fd);
+    close(d.socket_lock_fd);
     pocketlog_close();
     return rc;
 }
