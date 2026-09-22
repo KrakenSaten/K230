@@ -28,7 +28,36 @@ struct state {
     int sent;
     int64_t subscribe_ms;
     int64_t started_ms;
+    /* What this service has been asked to forget, so a snapshot after a
+     * mesh.node_remove no longer carries the node and one after a
+     * mesh.node_reset_path carries it with no route - as the real one's
+     * would. */
+    char removed[8][65];
+    int removed_count;
+    char unrouted[8][65];
+    int unrouted_count;
 };
+
+static int listed(char (*keys)[65], int count, const char *key)
+{
+    int i;
+
+    for (i = 0; i < count; i++) {
+        if (strcmp(keys[i], key) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void forget_route(cJSON *node)
+{
+    cJSON_DeleteItemFromObjectCaseSensitive(node, "hops");
+    cJSON_DeleteItemFromObjectCaseSensitive(node, "direct");
+    cJSON_DeleteItemFromObjectCaseSensitive(node, "path_hex");
+    cJSON_DeleteItemFromObjectCaseSensitive(node, "path_known");
+    cJSON_AddBoolToObject(node, "path_known", 0);
+}
 
 static int64_t now_ms(void)
 {
@@ -91,20 +120,55 @@ static void relative_to_now(cJSON *o, const char *field)
     cJSON_SetNumberValue(v, at);
 }
 
-static cJSON *nodes_array(const struct state *st)
+static cJSON *nodes_array(struct state *st)
 {
     cJSON *arr = st->script->nodes_json ? cJSON_Parse(st->script->nodes_json) : NULL;
     cJSON *item;
+    int i;
 
     if (!arr || !cJSON_IsArray(arr)) {
         cJSON_Delete(arr);
         arr = cJSON_CreateArray();
         return arr;
     }
+    for (i = cJSON_GetArraySize(arr) - 1; i >= 0; i--) {
+        const cJSON *key = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(arr, i),
+                                                           "public_key");
+
+        if (cJSON_IsString(key) && listed(st->removed, st->removed_count, key->valuestring)) {
+            cJSON_DeleteItemFromArray(arr, i);
+        }
+    }
     cJSON_ArrayForEach (item, arr) {
+        const cJSON *key = cJSON_GetObjectItemCaseSensitive(item, "public_key");
+
         relative_to_now(item, "last_heard_mono_ms");
+        if (cJSON_IsString(key) && listed(st->unrouted, st->unrouted_count, key->valuestring)) {
+            forget_route(item);
+        }
     }
     return arr;
+}
+
+/* The node this service holds under exactly this whole key, or NULL. */
+static cJSON *node_by_key(struct state *st, const char *key)
+{
+    cJSON *arr = nodes_array(st);
+    cJSON *found = NULL;
+    const cJSON *item;
+
+    if (key && strlen(key) == 64) {
+        cJSON_ArrayForEach (item, arr) {
+            const cJSON *k = cJSON_GetObjectItemCaseSensitive(item, "public_key");
+
+            if (cJSON_IsString(k) && strcmp(k->valuestring, key) == 0) {
+                found = cJSON_Duplicate(item, 1);
+                break;
+            }
+        }
+    }
+    cJSON_Delete(arr);
+    return found;
 }
 
 static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, cJSON *req,
@@ -289,6 +353,78 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
             cJSON_AddItemToObject(data, "message", msg);
             pocketipc_server_broadcast(s, pocketipc_event("mesh.message", data));
         }
+        return;
+    } else if (strcmp(name, "mesh.advert") == 0) {
+        const cJSON *params = cJSON_GetObjectItemCaseSensitive(req, "params");
+        const cJSON *zero = cJSON_GetObjectItemCaseSensitive(params, "zero_hop");
+        int zero_hop = cJSON_IsTrue(zero);
+
+        if (zero != NULL && !cJSON_IsBool(zero)) {
+            pocketipc_server_reply(s, c,
+                                   pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                            "zero_hop must be true or false"));
+            return;
+        }
+        if (st->script->advert_log) {
+            FILE *f = fopen(st->script->advert_log, "a");
+
+            if (f) {
+                fprintf(f, "%s\n", zero_hop ? "zero_hop" : "flood");
+                fclose(f);
+            }
+        }
+        if (st->script->refuse_advert) {
+            pocketipc_server_reply(s, c,
+                                   pocketipc_error_response(id, POCKETIPC_ERR_BUSY,
+                                                            "the radio is not available"));
+            return;
+        }
+        result = cJSON_CreateObject();
+        cJSON_AddBoolToObject(result, "accepted", 1);
+        cJSON_AddStringToObject(result, "route", zero_hop ? "zero_hop" : "flood");
+    } else if (strcmp(name, "mesh.node_remove") == 0 ||
+               strcmp(name, "mesh.node_reset_path") == 0) {
+        const cJSON *params = cJSON_GetObjectItemCaseSensitive(req, "params");
+        const cJSON *key = cJSON_GetObjectItemCaseSensitive(params, "node");
+        int remove = strcmp(name, "mesh.node_remove") == 0;
+        cJSON *node;
+        cJSON *data;
+
+        if (st->script->node_ops_silent) {
+            return;
+        }
+        node = cJSON_IsString(key) ? node_by_key(st, key->valuestring) : NULL;
+        if (!node) {
+            pocketipc_server_reply(s, c,
+                                   pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                            "no node with that public key is "
+                                                            "held"));
+            return;
+        }
+        if (remove) {
+            if (st->removed_count < 8) {
+                snprintf(st->removed[st->removed_count++], sizeof(st->removed[0]), "%s",
+                         key->valuestring);
+            }
+            result = cJSON_CreateObject();
+            cJSON_AddBoolToObject(result, "removed", 1);
+            cJSON_AddItemToObject(result, "node", cJSON_Duplicate(node, 1));
+        } else {
+            if (st->unrouted_count < 8) {
+                snprintf(st->unrouted[st->unrouted_count++], sizeof(st->unrouted[0]), "%s",
+                         key->valuestring);
+            }
+            forget_route(node);
+            result = cJSON_Duplicate(node, 1);
+        }
+        /* The event every subscriber gets, BEFORE the answer: the real
+         * service raises it from inside the runtime call that does the work
+         * (forgetNode, resetPath) and replies once that call has returned. */
+        data = cJSON_CreateObject();
+        cJSON_AddStringToObject(data, "reason", remove ? "removed" : "path");
+        cJSON_AddItemToObject(data, "node", node);
+        pocketipc_server_broadcast(s, pocketipc_event("mesh.node", data));
+        pocketipc_server_reply(s, c, pocketipc_response(id, result));
         return;
     } else if (strcmp(name, "mesh.subscribe") == 0) {
         pocketipc_client_set_subscribed(c, true);

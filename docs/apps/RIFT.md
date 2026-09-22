@@ -3,19 +3,20 @@
 The mesh client for Doors: what this node is, what state its radio service is
 in, which nodes it has heard, and how a packet would get to one of them.
 
-**Status:** phase 2 (COMMS), on branch `feat/rift-ui-phase2` (2026-09-20).
-Built for riscv64 (`make all` and the DRM/sysroot shell, 0 first-party
-warnings). **Host-complete and not yet run on hardware.**
+**Status:** on master: phase 1 (ACTIVITY, NODES — unit A bench gate PASS
+2026-09-19, `docs/hardware/RIFT_PHASE1_BENCH_GATE.md`), phase 2 (COMMS —
+unit A re-gate PASS 2026-09-20) and channels (on-air gate A–D PASS
+2026-09-21, `docs/hardware/RIFT_CHANNELS_GATE.md`).
 
-Phase 1 — ACTIVITY and NODES — is on master, and passed on the panel against
-a live mesh: **PASS on unit A, 2026-09-19, build `d19146b`**
-(`docs/hardware/RIFT_PHASE1_BENCH_GATE.md`). During that session the service
-counted `tx_submitted=0`, because phase 1 had no way to transmit.
+**Branch `feat/rift-improvements` (2026-09-21) is host-only.** It adds the
+ADVERT buttons, forgetting a node or its route, the per-message ACK deadlines
+in meshcored, and the screen-space changes described below; none of it has
+been on unit A yet. "What needs hardware" at the end lists what a gate has to
+see.
 
-**Phase 2 does.** It is the first thing in Doors that puts a packet on the
-air at a reader's request, and the whole of "What it is not" below is about
-where that is allowed to happen and what it is not allowed to claim. Nothing
-in phase 2 has been on a radio.
+RIFT puts a packet on the air in two places, both at a reader's press, and
+the whole of "What it is not" below is about where that is allowed to happen
+and what it is not allowed to claim.
 
 The design is `docs/design/rift/HANDOFF.md`, approved 2026-09-19; that
 package is the contract and this phase implements part of it.
@@ -23,35 +24,112 @@ package is the contract and this phase implements part of it.
 ## What it is
 
 Four sections, in the design's fixed order: **ACTIVITY · NODES · COMMS ·
-NET**. Phase 2 draws the first three.
+NET**. RIFT draws the first three.
 
 - **ACTIVITY** — the radio service's state and the reason for it in the
-  service's own words, whether radiod is connected and what state it
-  reported, whether the lease is held and whether the node can transmit, how
-  many nodes the service holds, which build of meshcored is answering, this
-  device's own name, hash and key, the nodes heard most recently, and the raw
-  frame feed underneath.
+  service's own words; on one line, whether radiod is connected and what
+  state it reported, whether the lease is held and whether the node can
+  transmit; how many nodes the service holds, which build of meshcored is
+  answering, and the service's own traffic count (`RX 2627 · TX 6 OK`, with
+  failed, unknown and no-receive-after transmits named only when there were
+  any). **THIS DEVICE** — this node's name, hash and key, and the two
+  **ADVERT** buttons (below). Then the nodes heard most recently, and the raw
+  frame feed. A full node table is said here in words, with what to do about
+  it.
 - **NODES** — every node the service holds, as 36 px rows: link glyph, name,
   role, hop strip, hop count, RSSI, SNR (landscape), last heard. Grouped into
   heard within 12 h, not heard for longer, and never heard. A row selects and
   does nothing else; the selection expands in place into the state line, the
-  path written out, the signal, and a 56 px action bar. **DETAIL** pushes a
-  screen with the link state, the identity, the hop ladder and the path
-  changes RIFT has seen.
+  path written out, the signal, and a 56 px action bar: **MESSAGE** and
+  **DETAIL ›**. **DETAIL** pushes a screen that opens with its actions —
+  **MESSAGE**, **RE-ROUTE**, **FORGET** — then the link state, the hop
+  ladder, the path changes RIFT has seen, and the identity. In landscape the
+  same detail is the pane beside the list.
 - **COMMS** — the conversations as 36 px rows: link glyph, name, the newest
   message as a preview, the unread pill, and how that peer is reached.
-  Choosing one opens its thread: the messages oldest first, each with the
-  time since it happened, who said it, a 2 px rule on the side that says
-  which of you that was, and a caption carrying the service's own word for
-  its state — `RECEIVED`, `SENT · FLOOD`, `DELIVERED · ACK 41 s`, `NO ACK`,
-  `FAILED`. Under it the composer. The unread count rides on the COMMS tab,
-  so it is visible from the other sections. A conversation that does not
-  exist yet is started from **NODES**: select a node and press **MESSAGE**,
-  from the row's action bar or the detail screen's, and COMMS opens on that
-  peer with the composer live and the thread honestly empty — no placeholder
-  message is invented to make it look begun.
+  Choosing one opens its thread: the messages oldest first, each a body, a
+  2 px rule on the side that says which of you said it, and **one** caption
+  line — how long ago, then the service's own word for its state:
+  `4m · DELIVERED · ACK 41 s`, `1m · RECEIVED · −88 dBm · SNR 6.5`,
+  `SENT · FLOOD`, `NO ACK`, `FAILED`. Under it the composer. The unread count
+  rides on the COMMS tab, so it is visible from the other sections. A
+  conversation that does not exist yet is started from **NODES**: select a
+  node and press **MESSAGE**, from the row's action bar or the detail's, and
+  COMMS opens on that peer with the composer live and the thread honestly
+  empty — no placeholder message is invented to make it look begun.
 - **NET** keeps its place in the navigation and says it is not in this build.
   An empty view would read as a quiet mesh.
+
+### Advert, forget, re-route
+
+- **ADVERT NEAR / ADVERT MESH** (ACTIVITY, THIS DEVICE) send one signed
+  self-advert, zero-hop or flooded (`mesh.advert`, `zero_hop`). Zero-hop is
+  heard in direct range and repeated by nobody, at the airtime of one packet.
+  Nothing in RIFT or meshcored adverts on its own. The caption under the
+  buttons says `ZERO-HOP ADVERT · ACCEPTED 12s AGO` — **accepted**, because
+  that is what the service's answer means; how the transmit went is the
+  activity feed's, in the service's own words. The buttons are there only
+  while the service says its radio can send, and one advert at a time.
+- **FORGET** (the node's detail) asks the service to drop the node
+  (`mesh.node_remove`): its contact, its learned route, its last advert. It
+  asks first — a DS §17.5 confirmation, Cancel first and accented, saying
+  what it costs — and nothing is sent until the confirmation is pressed. A
+  confirmation belongs to the node it was asked about and is dropped if the
+  selection moves; any other way out — another section, closing the detail,
+  turning the panel — is Cancel, so nobody comes back to a FORGET left armed.
+  The node comes back when it next adverts; until then no
+  message can be sent to it. MeshCore's contact table holds 32 and evicts
+  nothing on its own, so this is what makes room when a new node's adverts
+  are being turned away — which on unit A blocked a direct message to a new
+  peer until the state file was moved aside by hand
+  (`docs/hardware/RIFT_CHANNELS_GATE.md`). The warning that the table is
+  full counts adverts turned away **since the last node this app saw
+  forgotten** (by this app or, through the `mesh.node` event, another client):
+  the service's `nodes_unretained` only grows, and once room has been made the
+  earlier refusals no longer say the table is full.
+- **RE-ROUTE** asks the service to forget only the learned route
+  (`mesh.node_reset_path`), so the next message floods and the reply teaches
+  a new one: the remedy for a node that has moved and whose direct messages
+  go unacknowledged. One press; it transmits nothing, and is offered only
+  when there is a route to forget.
+
+Each says what became of it where it was pressed, in the service's words when
+it refuses (`FORGET · NOT DONE: …`), and a request whose connection went
+before it was answered says there was no answer and that it may or may not
+have happened (`FORGET · NO ANSWER: …`). A message is the same: `Not sent`
+only when the service said no, `No answer` when the connection went first.
+
+### What the screen gives the data
+
+The command line is there only when it holds something: the landscape
+composer (landscape COMMS with a conversation open), or the line that says
+the service is not answering. Elsewhere its 56 px go to the section: of the
+378 px a landscape body has under its strip, that is 15 % more list. The
+landscape key hints moved to the strip's right caption beside the counts —
+`↑↓ SELECT · ENTER MESSAGE · 5 KNOWN · 3 FRESH · MAX 8 HOPS` — and Enter in
+landscape NODES opens the selected node's conversation (it used to be named
+`ENTER DETAIL` and do nothing, the detail being already on screen).
+
+Footers are shown only for what the rows cannot say themselves: no nodes,
+cached data, a forgotten node, a full table, a channel fault. The counts they
+used to repeat are in the group labels. A thread's note likewise: a failed or
+pending send, why the composer cannot send, or an empty thread — which is
+where the history's one caveat, that it does not survive the service's
+restart, is said. The landscape route pane keeps the delivery tally and that
+caveat.
+
+A list keeps its place: a rebuild — a new node, a re-ordering by last heard, a
+selection — used to put the list back at its top (`lv_obj_clean` does), which
+on a live mesh happened every few seconds under whoever was reading. The
+selected row is scrolled into view when the selection moves, so the arrows
+never walk it off the pane. A thread is read at its end again whenever its
+pane changes height — the landscape composer appearing, the portrait
+keyboard — so the newest message is not the one a height change hides.
+
+Panel captions are drawn whole. They are centred on the panel's top rule, so
+half of each lies above the panel, and LVGL clipped every one of them at the
+rule — on unit A as well (`docs/hardware/shots/rift-phase1-unitA-activity-
+2055.png`).
 
 **COMMS holds direct conversations and channels in one list**, as the design
 asks, with the `#` glyph on a channel row. A channel is a conversation like
@@ -67,7 +145,10 @@ composer — and the places it is *not* are the places the protocol differs:
 - **A sender's name on a channel is a claim.** It comes out of the message
   payload and nothing signs it; anyone holding the key can send any name. It
   is drawn with a trailing `?` rather than the way a `peer_name` is, because a
-  `peer_name` arrived with a public key behind it.
+  `peer_name` arrived with a public key behind it. The body is printed
+  without the `<name>: ` MeshCore writes into the payload - taken off only
+  when it is exactly the name the service parsed - so the name is said once,
+  as a claim, and a reader's own line on a channel is what they typed.
 - **A channel has no route.** The route column says `FLOOD`, and the landscape
   route pane says a channel is a shared key rather than drawing a hop chain
   that does not exist.
@@ -87,16 +168,18 @@ column.
 
 ## What it is not
 
-- **It transmits in one place, and never on its own.** `mesh.send` and
+- **It transmits in two places, and never on its own.** `mesh.send` and
   `mesh.advert` are the only two methods in the API that put a packet on the
-  air. `mesh.advert` is not named anywhere under `apps/rift`. `mesh.send` is
-  named once, in `rift_ipc.c`, written by one function, reached only from the
-  composer, reached only by a reader pressing SEND on text a reader typed —
-  so opening a screen, a snapshot, a period expiring and a reconnect all
-  still put nothing on the air. `tests/rift_lint.sh` checks each link in that
-  chain; `tests/rift_ipc_test.c` checks it from the other end, by recording
-  every method the service was asked for over a whole run and every body it
-  was asked to send.
+  air. Each is named once, in `rift_ipc.c`, and written by one function.
+  `mesh.send` is reached only from the composer, by a reader pressing SEND
+  on text a reader typed; `mesh.advert` only from the two ADVERT buttons'
+  handler. Opening a screen, a snapshot, a period expiring and a reconnect
+  all still put nothing on the air. `tests/rift_lint.sh` checks each link in
+  both chains; `tests/rift_ipc_test.c` checks it from the other end, by
+  recording every method the service was asked for over a whole run, every
+  body it was asked to send and every advert. Forgetting a node or its route
+  transmits nothing, and is held to the same rule: named once, reached only
+  from the detail's buttons, and forgetting only from the confirmation.
 - **It does not decide that a message arrived.** A message's state is copied
   from the service's word and never chosen here: accepted is not transmitted,
   transmitted is not acknowledged, and nothing turns `sent_flood` into
@@ -105,12 +188,15 @@ column.
 - **Not a channel *manager*.** It shows the channels the service holds and
   writes to them. Joining one takes a key, which is the service's business and
   not a screen's. See above.
+- **Not a contact manager either.** It forgets a node, or its route, when a
+  reader asks; it does not add, import, export, favourite or rename one.
 - Not a network map: no rings, no relay load, no inferred links. That is NET.
-- No command parser. The command line is permanent chrome in the approved
-  design and the vertical budget is measured with it there. In landscape
-  COMMS it is the composer, as the design specifies; everywhere else it says
-  what the keys do, or that the service is not answering. `/msg`, `/join`
-  and the rest are a later phase.
+- No command parser. The approved design makes the command line permanent
+  chrome with `/msg`, `/join` and the rest behind it; without a parser it
+  held a line of key hints, so it is now drawn only as the landscape composer
+  or to say the service is not answering, and the section has the room the
+  rest of the time. The commands are a later phase, and would bring the line
+  back as what the design meant it to be.
 - It stores nothing, opens no device, links no radio or protocol library, and
   owns no colour.
 
@@ -149,6 +235,16 @@ nodes sharing a first byte resolve to nothing, for the same reason
 `mesh.node` refuses an ambiguous prefix: a guessed name on a hop is a wrong
 route drawn confidently.
 
+The path changes RIFT has seen are its own record, and they now survive the
+periodic node snapshot. A snapshot replaces everything the service says
+about a node - an absent signal is absent, not the last one an event
+carried - and keeps what RIFT observed of it: the last three paths and how
+many events named it. It used to replace those too, so the "path changes"
+panel was emptied every 20 s and could hardly ever show a change. A route
+that changed while no event reached RIFT - across a reconnect - is recorded
+from the snapshot that shows it. A reply to RIFT's own `mesh.node` question
+updates the node without being counted as an event about it.
+
 ## How it talks to meshcored
 
 One connection, asynchronous throughout (`apps/rift/rift_ipc.c`).
@@ -162,9 +258,11 @@ for its reply, so a client that subscribes *and* calls on one connection
 drops whatever arrives during a call.
 
 Consumed: `mesh.info`, `mesh.status`, `mesh.identity`, `mesh.nodes`,
-`mesh.node`, `mesh.messages`, `mesh.send`, `mesh.subscribe`,
-`mesh.unsubscribe`, and the `mesh.state`, `mesh.node`, `mesh.activity` and
-`mesh.message` events.
+`mesh.node`, `mesh.channels`, `mesh.messages`, `mesh.send`, `mesh.advert`,
+`mesh.node_remove`, `mesh.node_reset_path`, `mesh.subscribe`,
+`mesh.unsubscribe`, and the `mesh.state`, `mesh.node` (including its
+`removed` reason, which takes the node off the list rather than applying it),
+`mesh.channel`, `mesh.activity` and `mesh.message` events.
 
 `mesh.message` is raised three times over for one message — when it arrives
 or is sent, and again whenever its state changes. All three go through one
@@ -213,10 +311,14 @@ the air must not be able to disconnect this app from its own service.
 
 | File | |
 | --- | --- |
-| `rift_model.c/.h` | what is known and how sure it is: the bounded node cache, the activity ring, the service state. No LVGL |
-| `rift_messages.c` | the model's other half, over the same struct: the message window, the conversations, how far each has been read, the submission in flight, and which run of the service the ids in all of it came from. No LVGL |
-| `rift_json.h` | the four readers both halves parse the API with, so both apply the same rule: absent is not zero |
-| `rift_format.c/.h` | every string the screens print, and the path arithmetic. No LVGL, no cJSON, no I/O |
+| `rift_model.c/.h` | what is known and how sure it is: the bounded node cache, the activity ring, the service state and its counters. No LVGL |
+| `rift_messages.c` | the model's second translation unit, over the same struct: the message window, the conversations, how far each has been read, the submission in flight, and which run of the service the ids in all of it came from. No LVGL |
+| `rift_channels.c` | the channel table mesh.channels reports and the mesh.channel events that change it. No LVGL |
+| `rift_actions.c` | an advert, forgetting a node, forgetting a route: asked, then answered or refused. No LVGL |
+| `rift_order.c` | read-only questions over the node cache: list order, how many are fresh, which name a hop gets. No LVGL |
+| `rift_json.h` | the four readers every part parses the API with, so all apply the same rule: absent is not zero |
+| `rift_format.c/.h` | every string the screens print about nodes and paths, and the path arithmetic. No LVGL, no cJSON, no I/O |
+| `rift_format_msg.c` | the same for messages and requests: states, the one-line caption, the preview, the channel body, what became of an advert or a node change |
 | `rift_ipc.c/.h` | the meshcored connection, the framing and the reconnect. No LVGL |
 | `rift_app.c/.h` | chrome, sections, layout and lifecycle |
 | `ui/rift_widgets.c` | the link glyph, the hop strip, the panel with its caption in the rule, the action bar |
@@ -231,12 +333,12 @@ the air must not be able to disconnect this app from its own service.
 | | |
 | --- | --- |
 | `tests/rift_format_test.c` | 92 checks: ages, signal, hop columns, state words, path compression, the inline chain, the ladder, UTF-8 names |
-| `tests/rift_model_test.c` | 136 checks: the initial snapshot, duplicate and update events, missing telemetry, malformed input, the bounded cache, the service going away and coming back, which run of the service answered, ordering |
-| `tests/rift_comms_test.c` | 224 checks: the conversations and their order, duplicate and state-change events, unread and what clears it, the thread window, every state caption, telemetry that was never measured, the bounded message cache, the service restarting under the cache and the reconnect that is not a restart, the send state machine, what `mesh.send` will take, and remote text nobody here chose the length of |
-| `tests/rift_ipc_test.c` | 154 checks against a real socket and a scripted service in a child process: connect, snapshot, events, refusals, the service disappearing, reconnect, one whole service replaced by another with an id space that starts again, the proof that nothing the app does on its own transmits, and the send lifecycle — accepted, refused, accepted-then-silent, and with nobody there |
-| `tests/rift_app_test.c` | 242 checks under a real LVGL pointer device: the chrome, all three sections, the row that only selects, the pushed detail, both landscape splits, the composer, the unread pill, and open/leave/open again three times over. Writes the screenshots |
+| `tests/rift_model_test.c` | 193 checks: the initial snapshot, duplicate and update events, missing telemetry, malformed input, the bounded cache, the service going away and coming back, which run of the service answered, ordering; the path history and event count surviving a snapshot while the service's values are replaced, a reply that is not an event, a removal that is not an update, the traffic counters, the table-full count since the last forget (and a new run counting from nothing), a route change dated when it was seen, and the advert and node-change state machine with NOT DONE kept apart from NO ANSWER |
+| `tests/rift_comms_test.c` | 239 checks: the conversations and their order, duplicate and state-change events, unread and what clears it, the thread window, every state caption, telemetry that was never measured, the bounded message cache, the service restarting under the cache and the reconnect that is not a restart, the send state machine, what `mesh.send` will take, remote text nobody here chose the length of, and the channel body without its sender prefix and the one-line caption |
+| `tests/rift_ipc_test.c` | 186 checks against a real socket and a scripted service in a child process: connect, snapshot, events, refusals, the service disappearing, reconnect, one whole service replaced by another with an id space that starts again, the proof that nothing the app does on its own transmits or adverts, the send lifecycle, adverts asked for and refused, and forgetting a node or its route - answered, refused in the service's words, and unanswered when the service dies |
+| `tests/rift_app_test.c` | 338 checks under a real LVGL pointer device: the chrome, all three sections, the row that only selects, the pushed detail and its FORGET confirmation (cancelled by leaving the section, closing the detail or turning the panel), Enter on a node that has gone, the table-full warning clearing once room is made, a thread's No answer and Not sent, both landscape splits, the composer, the unread pill, the command line present only when it holds something, a long list keeping its place and its selection in view, the newest message in view above the landscape composer, every panel caption drawn whole, every action's word inside its button, the ADVERT buttons, and open/leave/open again three times over. Writes the screenshots |
 | `tests/rift_shell_test.sh` | the app test, then the real shell opening RIFT in both orientations with a scripted meshcored on a real socket, then with no service at all, then the same fixtures twice for the same pixels |
-| `tests/rift_lint.sh` | the boundaries: no transmit, no colour, no device, no store, no monolith, and the gaps this phase leaves |
+| `tests/rift_lint.sh` | the boundaries: what transmits and from where (send and advert), what changes a node and from where, no colour, no device, no store, no monolith, and the gaps this build leaves |
 
 `tests/fake-meshcored` is a scripted stand-in for the service, built by the
 root Makefile and never installed. A negative `last_heard_mono_ms` in its
@@ -266,13 +368,15 @@ them, one after the other, are two runs of a service and not one.
 4. **The chrome is Doors's.** The design's landscape chrome merges the header
    and the section strip into one 56 px row and shrinks the back slab. The
    status bar and the back slab are Doors-owned and RIFT changes nothing
-   there, so the app lays out in the body it is given: 56 px of strip and
-   56 px of command line inside it, in both orientations. The counts the
-   design puts in the header's right caption are at the end of the section
-   strip in landscape, and in the list's own footer in portrait.
+   there, so the app lays out in the body it is given: 56 px of strip, and
+   the command line only while it is the landscape composer or says the
+   service is not answering. The counts the design puts in the header's
+   right caption are at the end of the section strip in landscape, beside the
+   key hints; portrait's group labels carry them.
 5. **Path history is only what RIFT saw.** There is no history before the app
    opened, and the panel is headed "PATH CHANGES SEEN BY RIFT" so it is not
-   read as the service's record.
+   read as the service's record. It holds the last three paths, from events
+   and snapshots alike, for as long as the app is open.
 6. **A channel row is drawn before anything is said on it.** The model does
    not call a channel with no messages a conversation — it holds no messages,
    and inventing history is what this app must not do — but a joined channel
@@ -316,3 +420,40 @@ them, one after the other, are two runs of a service and not one.
     conversation's unread count, preview and tally are derived from what is
     still held. A thread longer than the pane says how many are earlier
     rather than implying there are none.
+11. **A forgotten node comes back only by its own advert.** There is nothing
+    else that can bring it back: the service keeps no copy, and RIFT asks for
+    none. That is what the confirmation says. Forgetting is also the only
+    way to make room in a full table - there is no favourite to protect a
+    node and no automatic eviction - which is upstream's policy, unchanged.
+12. **Adverts carry no position.** `mesh.advert` builds the advert with the
+    node's name only; MeshCore can add a location, and this service has no
+    location to add and no setting for one.
+13. **No trace, no path discovery, no repeater login.** MeshCore has all
+    three, and each transmits and needs a request/response the service does
+    not yet match. They are not in the API (docs/api/mesh.md, "Not in v0").
+
+## What needs hardware
+
+Nothing on this branch has been on unit A. A gate should see, on the panel
+and in the service's counters:
+
+1. **ADVERT NEAR and ADVERT MESH** each put exactly one advert on the air -
+   `tx_submitted` up by one, `mesh.activity` `tx` `ok` - and a peer in range
+   learns this node from the zero-hop one (a T-Deck's node list, or its
+   advert decoded with `tools/meshcore-frame parse`); a peer two hops away
+   learns it from the flooded one and not the zero-hop one.
+2. **FORGET** on the T-Deck peer: gone from the list, from `mesh.nodes` and
+   from `state.v1` after a meshcored restart; a message to it refused; back
+   in the list at its next advert; a direct message to it acknowledged again
+   after the peer has adverted.
+3. **RE-ROUTE** on a peer with a learned route: the next message goes
+   `sent_flood`, the ACK returns, and the route is learned again.
+4. **Two direct messages in flight**, the first to a peer that is switched off
+   and the second to one that answers: the second `acked`, the first `no_ack`
+   at its own deadline and not before (about 12 s flood, 6 s direct plus
+   airtime) - the case the service used to leave `sent_*` for ever.
+5. The **screens** read off the DRM plane with `ffmpeg -f kmsgrab`, both
+   orientations: panel captions whole, no command line on NODES and
+   ACTIVITY, the landscape composer with the newest message above it, the
+   four detail actions' words inside their buttons in portrait, and a list of
+   more than a screenful keeping its place while the mesh re-orders it.

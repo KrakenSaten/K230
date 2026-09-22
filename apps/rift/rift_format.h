@@ -240,6 +240,35 @@ void rift_fmt_ack(const struct rift_message *msg, char *out, size_t out_len);
 #define RIFT_PREVIEW_MAX 96
 void rift_fmt_preview(const struct rift_message *msg, char *out, size_t out_len);
 
+/* What was said, without the "<sender>: " MeshCore writes into a channel
+ * payload - taken off only when it is exactly the sender_name the service
+ * parsed out of it. A direct message's text, and a channel payload that does
+ * not start that way, come back whole. Never NULL. */
+const char *rift_msg_body(const struct rift_message *msg);
+
+/* The one caption line under a message body, in the fixed order
+ * age · [claimed sender] · state · evidence:
+ *
+ *   "4m · DELIVERED · ACK 41 s"
+ *   "1m · RECEIVED · −88 dBm · SNR 6.5"
+ *   "45s · HYTTA? · RECEIVED"          a channel line names who it claims
+ *
+ * A direct thread names nobody here: its header names the peer, and the side
+ * of the rule says which of the two a line is. */
+#define RIFT_MSG_META_MAX (RIFT_AGE_MAX + RIFT_NAME_MAX + RIFT_MSG_CAPTION_MAX + 16)
+void rift_fmt_msg_meta(const struct rift_message *msg, int64_t now_ms, char *out,
+                       size_t out_len);
+
+/* What became of the last advert or node change a reader asked for:
+ * "ZERO-HOP ADVERT · ASKED…", "FLOOD ADVERT · ACCEPTED 12s AGO",
+ * "ROUTE FORGOTTEN 3s AGO · NEXT MESSAGE FLOODS", "… · NOT DONE: <why>".
+ * An advert that was answered is ACCEPTED, never SENT: the service queued
+ * it, and the transmit's outcome is the activity feed's. "" when there is
+ * nothing to report. */
+#define RIFT_ACTION_TEXT_MAX (RIFT_NAME_MAX + RIFT_TEXT_MAX + 48)
+void rift_fmt_action(const struct rift_action_state *s, int64_t now_ms, char *out,
+                     size_t out_len);
+
 /* Is this text one mesh.send will take? The service refuses a body that is
  * empty, longer than 160 bytes, or carries a control character other than
  * newline and tab, and answers with an error (docs/api/mesh.md). This is

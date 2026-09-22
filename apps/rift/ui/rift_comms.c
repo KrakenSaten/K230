@@ -59,6 +59,7 @@ struct rift_comms {
     lv_obj_t *ctx_chain;
     lv_obj_t *ctx_stats;
     lv_obj_t *ctx_tally;
+    lv_obj_t *ctx_history;
 
     /* what the built list was chosen from */
     char shape_key[RIFT_MAX_CONVERSATIONS][RIFT_KEY_HEX];
@@ -71,6 +72,16 @@ struct rift_comms {
     char order_key[RIFT_MAX_CONVERSATIONS][RIFT_KEY_HEX];
     int order_count;
 };
+
+/* Show the list's note only when there is something in it. */
+static void note_shown(lv_obj_t *note, int shown)
+{
+    if (shown) {
+        lv_obj_remove_flag(note, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(note, LV_OBJ_FLAG_HIDDEN);
+    }
+}
 
 /* ---- small shared bits ---------------------------------------------------- */
 
@@ -300,7 +311,19 @@ static void build_ctx(struct rift_comms *v)
     v->ctx_chain = wrap_label(panel, POS_STYLE_CAPTION);
     v->ctx_stats = wrap_label(v->pane_ctx, POS_STYLE_CAPTION);
     v->ctx_tally = wrap_label(v->pane_ctx, POS_STYLE_CAPTION);
+    v->ctx_history = wrap_label(v->pane_ctx, POS_STYLE_TEXT_MUTED);
     lv_obj_add_flag(v->pane_ctx, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* The one thing about a thread's history that looking at it does not tell
+ * you. Said once, in the route pane where there is room, rather than under
+ * every thread in two lines (mesh.messages, "persistent": false). */
+static const char *history_note(const struct rift_model *m)
+{
+    if (m->messages_valid && !m->messages_persistent) {
+        return "This history is the radio service's, and does not survive a restart of it.";
+    }
+    return "";
 }
 
 static void refresh_ctx(struct rift_comms *v, const struct rift_conv *conv, int64_t now)
@@ -323,6 +346,7 @@ static void refresh_ctx(struct rift_comms *v, const struct rift_conv *conv, int6
         lv_label_set_text(v->ctx_chain, "No conversation is open.");
         lv_label_set_text(v->ctx_stats, "");
         lv_label_set_text(v->ctx_tally, "");
+        lv_label_set_text(v->ctx_history, history_note(m));
         return;
     }
     if (rift_key_is_channel(peer) >= 0) {
@@ -332,10 +356,9 @@ static void refresh_ctx(struct rift_comms *v, const struct rift_conv *conv, int6
          * key, the one-byte hash that key derives, and the fact that every
          * message on it is flooded to whoever holds the same bytes. Drawing
          * a hop chain here would be drawing a path that does not exist. */
-        lv_label_set_text(v->ctx_chain,
-                          "A channel is a shared key, not a route. Messages are flooded to "
-                          "every node that holds the same key; there is no path to show and "
-                          "nothing acknowledges them.");
+        lv_label_set_text(v->ctx_chain, "No route: a channel is a shared key. Every node "
+                                        "holding it hears a message; nothing acknowledges "
+                                        "one.");
         if (ch && ch->have_hash) {
             if (ch->have_key_bits) {
                 lv_label_set_text_fmt(v->ctx_stats, "HASH %s" RIFT_SEP "%d-BIT KEY",
@@ -355,6 +378,7 @@ static void refresh_ctx(struct rift_comms *v, const struct rift_conv *conv, int6
         } else {
             lv_label_set_text(v->ctx_tally, "Nothing sent on this channel yet.");
         }
+        lv_label_set_text(v->ctx_history, history_note(m));
         return;
     }
     if (!n) {
@@ -387,6 +411,7 @@ static void refresh_ctx(struct rift_comms *v, const struct rift_conv *conv, int6
     } else {
         lv_label_set_text(v->ctx_tally, "Nothing sent to this peer yet.");
     }
+    lv_label_set_text(v->ctx_history, history_note(m));
 }
 
 /* ---- layout -------------------------------------------------------------------- */
@@ -496,9 +521,11 @@ void rift_comms_refresh(struct rift_app *app)
     const struct rift_conv *open_conv = NULL;
     const struct rift_model *m;
     const char *peer;
+    int32_t keep_y = -1;
     int64_t now;
     int count;
     int changed;
+    int reveal;
     int i;
 
     if (!v) {
@@ -604,6 +631,7 @@ void rift_comms_refresh(struct rift_app *app)
         }
     }
 
+    reveal = strcmp(peer ? peer : "", v->shape_open) != 0;
     changed = !v->shape_valid || count != v->shape_count || app->wide != v->shape_wide ||
               strcmp(peer ? peer : "", v->shape_open) != 0;
     for (i = 0; !changed && i < count; i++) {
@@ -612,6 +640,9 @@ void rift_comms_refresh(struct rift_app *app)
         }
     }
     if (changed) {
+        /* Rebuilt and read from where the reader was: lv_obj_clean scrolls
+         * the list to its top, and a new message re-orders the list. */
+        keep_y = lv_obj_get_scroll_y(v->list);
         lv_obj_clean(v->list);
         v->row_count = 0;
         for (i = 0; i < count && v->row_count < RIFT_MAX_CONVERSATIONS; i++) {
@@ -638,50 +669,48 @@ void rift_comms_refresh(struct rift_app *app)
             lv_obj_remove_flag(v->row[i].preview, LV_OBJ_FLAG_HIDDEN);
         }
     }
+    /* The list's own note, only for what the rows cannot say themselves. A
+     * count of rows is not that - they are on screen - and that a channel
+     * is unacknowledged is said under every message sent on one. */
+    if (m->have_channel_fault) {
+        /* Said before anything else about this list, because it is the one
+         * thing here the mesh cannot put right: a channel key is not
+         * re-advertised by anybody. */
+        lv_label_set_text_fmt(v->note,
+                              "The radio service could not read its stored channels: %s",
+                              m->channel_fault);
+        note_shown(v->note, 1);
+    } else if (count == 0) {
+        if (!m->messages_valid || !m->channels_valid) {
+            lv_label_set_text(v->note, "Waiting for meshcored.");
+        } else {
+            lv_label_set_text(v->note,
+                              "No conversations and no channels. A channel is joined with its "
+                              "key on the radio service, not here; a conversation is started "
+                              "from a node's MESSAGE.");
+        }
+        note_shown(v->note, 1);
+    } else if (m->stale) {
+        lv_label_set_text_fmt(v->note, "%d row%s, cached: meshcored is not answering.", count,
+                              count == 1 ? "" : "s");
+        note_shown(v->note, 1);
+    } else {
+        note_shown(v->note, 0);
+    }
     lv_obj_update_layout(v->pane_list);
     for (i = 0; i < v->row_count && i < count; i++) {
         update_conv_row(v, &v->row[i], &conv[i], now);
     }
-
-    /* The list's own note. It counts the two kinds apart, because they are
-     * not the same thing: a channel is somewhere to write whether or not
-     * anybody has, and a direct conversation exists only because something
-     * was said. */
-    {
-        int channels = 0;
-
-        for (i = 0; i < count; i++) {
-            if (conv[i].is_channel) {
-                channels++;
+    if (keep_y > 0) {
+        lv_obj_update_layout(v->pane_list);
+        lv_obj_scroll_to_y(v->list, keep_y, LV_ANIM_OFF);
+    }
+    if (reveal && peer) {
+        for (i = 0; i < v->row_count; i++) {
+            if (strcmp(v->row[i].key, peer) == 0) {
+                lv_obj_scroll_to_view(v->row[i].slot, LV_ANIM_OFF);
+                break;
             }
-        }
-        if (m->have_channel_fault) {
-            /* Said before anything else about this list, because it is the
-             * one thing here the mesh cannot put right: a channel key is
-             * not re-advertised by anybody. */
-            lv_label_set_text_fmt(v->note,
-                                  "The radio service could not read its stored channels: %s",
-                                  m->channel_fault);
-        } else if (count == 0) {
-            if (!m->messages_valid || !m->channels_valid) {
-                lv_label_set_text(v->note, "Waiting for meshcored.");
-            } else {
-                lv_label_set_text(v->note,
-                                  "No conversations and no channels. A channel is joined with "
-                                  "its key on the radio service, not here.");
-            }
-        } else if (m->stale) {
-            lv_label_set_text_fmt(v->note, "%d row%s, cached: meshcored is not answering.",
-                                  count, count == 1 ? "" : "s");
-        } else if (channels > 0) {
-            lv_label_set_text_fmt(v->note,
-                                  "%d direct" RIFT_SEP "%d channel%s" RIFT_SEP
-                                  "nothing acknowledges a channel message",
-                                  count - channels, channels, channels == 1 ? "" : "s");
-        } else {
-            lv_label_set_text_fmt(v->note,
-                                  "%d conversation%s" RIFT_SEP "no channels joined",
-                                  count, count == 1 ? "" : "s");
         }
     }
 

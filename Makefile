@@ -648,12 +648,17 @@ tests/calc_view_test: tests/calc_view_test.o $(CALC_OBJS)
 # are built by ui/shell (CMake), run by tests/rift_shell_test.sh.
 RIFT_DIR := apps/rift
 RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_messages.o \
-             $(RIFT_DIR)/rift_format.o $(RIFT_DIR)/rift_ipc.o
-# The model is two translation units over one struct: rift_model.c dispatches
-# a mesh.message event into rift_messages.c, so anything linking one links
-# the other.
+             $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o \
+             $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_format.o $(RIFT_DIR)/rift_format_msg.o \
+             $(RIFT_DIR)/rift_ipc.o
+# The model is several translation units over one struct: rift_model.c
+# dispatches mesh.message and mesh.channel events into rift_messages.c and
+# rift_channels.c, and the service going away settles the requests
+# rift_actions.c holds, so anything linking one links them all.
 RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_messages.o \
-                   $(RIFT_DIR)/rift_format.o
+                   $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o \
+                   $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_format.o \
+                   $(RIFT_DIR)/rift_format_msg.o
 RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_comms_test \
               tests/rift_ipc_test tests/fake-meshcored
 

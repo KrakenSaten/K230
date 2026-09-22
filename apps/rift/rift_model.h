@@ -337,6 +337,34 @@ struct rift_outbox {
     int64_t message_id; /* 0 until the reply names it */
     char route[8];      /* "flood" or "direct", when the reply said */
     int failed;
+    int unknown;        /* of failed: the service went before it answered */
+    char error[RIFT_TEXT_MAX];
+};
+
+/* The requests a reader makes that are not a message: an advert, forgetting
+ * a node, forgetting a route. The same shape as the outbox - written, then
+ * answered or refused - and for the same reason: nothing here decides that a
+ * request happened. An advert that was answered was ACCEPTED by the service,
+ * which is not the same as transmitted; how the transmit went is in the
+ * activity feed, in the service's own words. */
+enum rift_action {
+    RIFT_ACTION_NONE = 0,
+    RIFT_ACTION_ADVERT_NEAR,  /* mesh.advert, zero_hop: direct range only */
+    RIFT_ACTION_ADVERT_MESH,  /* mesh.advert, flooded */
+    RIFT_ACTION_FORGET,       /* mesh.node_remove */
+    RIFT_ACTION_RESET_PATH,   /* mesh.node_reset_path */
+};
+
+struct rift_action_state {
+    enum rift_action kind;
+    int active;  /* written, not answered */
+    int done;    /* the service said yes */
+    int failed;  /* it said no, or nobody knows */
+    int unknown; /* of failed: nobody knows - the service went before answering */
+    char key[RIFT_KEY_HEX];     /* the node, for FORGET and RESET_PATH */
+    char label[RIFT_NAME_MAX];  /* what the node was called when asked */
+    int have_mono;
+    int64_t mono_ms;            /* written, and then answered */
     char error[RIFT_TEXT_MAX];
 };
 
@@ -378,6 +406,30 @@ struct rift_model {
     unsigned rx_events;
     unsigned rx_delivered;
     unsigned nodes_unretained;
+    /* The transmit side, in the service's own words: went out and the radio
+     * came back (tx_ok), went out and it did not (tx_rx_resume_failed), did
+     * not go out (tx_failed), nobody knows (tx_unknown). And what the
+     * protocol core sent and received, flooded or direct. */
+    int have_traffic;
+    unsigned tx_ok;
+    unsigned tx_failed;
+    unsigned tx_unknown;
+    unsigned tx_rx_resume_failed;
+    unsigned sent_flood;
+    unsigned sent_direct;
+    unsigned recv_flood;
+    unsigned recv_direct;
+    /* How often MeshCore reported its contact table full. Above zero, a new
+     * node's advert could not be kept and a message to that node cannot be
+     * sent until a node is forgotten. */
+    int have_contacts_full;
+    unsigned contacts_full;
+    /* nodes_unretained as it stood when this app last saw a node forgotten
+     * (or when the counter last went backwards, which is a new run of the
+     * service). The counter only grows, so "the table is full" is said only
+     * while adverts are still being turned away SINCE then - not for the rest
+     * of the service's run once room has been made. */
+    unsigned unretained_baseline;
 
     /* ---- which run of the service this is --------------------------- */
     /* meshcored hands out message ids from 1 on every run and keeps no
@@ -488,6 +540,13 @@ struct rift_model {
     int read_mark_count;
 
     struct rift_outbox outbox;
+
+    /* ---- actions (rift_actions.c) ------------------------------------- */
+    /* Two slots, so an advert and a change to one node are not each other's
+     * business: the last advert is what ACTIVITY reports, the last node
+     * change is what NODES reports. Each holds one request at a time. */
+    struct rift_action_state advert;
+    struct rift_action_state node_op;
 };
 
 /* An empty model: no service, no identity, no nodes, nothing known. */
@@ -646,6 +705,47 @@ void rift_model_send_clear(struct rift_model *m);
  * because this radio sends one message at a time and a queue would be this
  * app's fiction rather than the service's. */
 int rift_model_sending(const struct rift_model *m);
+
+/* ---- actions (rift_actions.c) --------------------------------------------
+ *
+ * The slot an action kind lives in: m->advert for the two adverts, m->node_op
+ * for FORGET and RESET_PATH. NULL for anything else. */
+struct rift_action_state *rift_model_action_slot(struct rift_model *m, enum rift_action kind);
+const struct rift_action_state *rift_model_action_of(const struct rift_model *m,
+                                                     enum rift_action kind);
+/* Record that a request is about to be written. Fails (-1) when that slot
+ * already has one in flight, when a node action names no whole public key,
+ * or when kind is not an action. label is what the node is called, for a
+ * screen to say later what was done to whom; it may be NULL. */
+int rift_model_action_begin(struct rift_model *m, enum rift_action kind, const char *key,
+                            const char *label, int64_t now_ms);
+/* The service answered the request in flight for this kind. */
+void rift_model_action_done(struct rift_model *m, enum rift_action kind, int64_t now_ms);
+/* It refused, or the request could not be written; why is for the reader. */
+void rift_model_action_failed(struct rift_model *m, enum rift_action kind, const char *why,
+                              int64_t now_ms);
+/* Forget what happened to the last request of this kind's slot. */
+void rift_model_action_clear(struct rift_model *m, enum rift_action kind);
+/* A request of this kind's slot is in flight. */
+int rift_model_action_busy(const struct rift_model *m, enum rift_action kind);
+
+/* A node, parsed as mesh.node answers it - one node in the shape of a
+ * snapshot entry - and filed as an update, never a second row. Unlike a
+ * mesh.node EVENT it is not counted among the events that named the node:
+ * it is the service answering RIFT, not the mesh speaking. Returns 0 or -1. */
+int rift_model_apply_node_reply(struct rift_model *m, const cJSON *result);
+/* The service has forgotten this node: it leaves the cache, with the path
+ * history RIFT kept for it. Returns 1 when it was held. */
+int rift_model_drop_node(struct rift_model *m, const char *key);
+
+/* Adverts the service's full node table has turned away since this app last
+ * saw a node forgotten - the number worth saying "the table is full" about.
+ * 0 when room has been made since and nothing has been turned away. */
+unsigned rift_model_unretained_recent(const struct rift_model *m);
+
+/* One mesh.channel event's data (rift_channels.c). Returns 0, or -1 for one
+ * without a usable slot or reason; the caller counts the refusal. */
+int rift_model_apply_channel_event(struct rift_model *m, const cJSON *data);
 
 const char *rift_svc_state_word(enum rift_svc_state s);
 

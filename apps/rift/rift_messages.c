@@ -831,6 +831,7 @@ void rift_model_send_failed(struct rift_model *m, const char *error)
     }
     m->outbox.active = 0;
     m->outbox.failed = 1;
+    m->outbox.unknown = 0;
     snprintf(m->outbox.error, sizeof(m->outbox.error), "%s", error ? error : "refused");
 }
 

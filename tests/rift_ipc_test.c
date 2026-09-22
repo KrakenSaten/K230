@@ -59,6 +59,216 @@ static void text_is(const char *what, const char *got, const char *want)
     "\"path_known\":true,\"hops\":3,\"direct\":false,\"path_hex\":\"a1c2d3\","              \
     "\"last_heard_mono_ms\":500}]"
 
+#define KEY_C "c3beef1e7d0411223344556677889900aabbccddeeff001122334455667788b3"
+
+static int64_t now_ms(void);
+static int spin(struct rift_ipc *c, int budget_ms,
+                int (*done)(const struct rift_ipc *, const struct rift_model *),
+                const struct rift_model *m);
+static int have_snapshot(const struct rift_ipc *c, const struct rift_model *m);
+static int is_down(const struct rift_ipc *c, const struct rift_model *m);
+
+/* The lines a log file holds, each compared against want[] in order; returns
+ * how many lines there were, or -1 when the file could not be read. */
+static int log_lines(const char *path, const char *const *want, int want_n, int *matched)
+{
+    char line[256];
+    int n = 0;
+    FILE *f = fopen(path, "r");
+
+    *matched = 1;
+    if (!f) {
+        return -1;
+    }
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\n")] = '\0';
+        if (n >= want_n || strcmp(line, want[n]) != 0) {
+            *matched = 0;
+        }
+        n++;
+    }
+    fclose(f);
+    return n;
+}
+
+static int advert_settled(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)c;
+    return !m->advert.active;
+}
+
+static int node_op_settled(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)c;
+    return !m->node_op.active;
+}
+
+/* An advert, on request and only then, against a real socket. */
+static void test_adverts(const char *runtime)
+{
+    static struct rift_model m;
+    static struct rift_ipc c;
+    struct fake_meshcored_script script;
+    char adverts[600];
+    int matched = 0;
+    pid_t pid;
+
+    snprintf(adverts, sizeof(adverts), "%s/adverts", runtime);
+    unlink(adverts);
+    memset(&script, 0, sizeof(script));
+    script.state = "online";
+    script.nodes_json = NODES_TWO;
+    script.advert_log = adverts;
+    script.life_ms = 8000;
+    pid = fake_meshcored_spawn(&script);
+    check("a service that takes adverts is running", pid > 0 && fake_meshcored_wait_ready(2000));
+
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, RIFT_SERVICE);
+    spin(&c, 2500, have_snapshot, &m);
+    spin(&c, 500, NULL, &m);
+    check("connecting and reading adverts nothing",
+          log_lines(adverts, NULL, 0, &matched) <= 0);
+
+    check("a zero-hop advert is asked for", rift_ipc_send_advert(&c, 1) == 0);
+    check("and is in flight until the service answers", m.advert.active);
+    check("a second, while it is, is refused and not written", rift_ipc_send_advert(&c, 0) == -1);
+    spin(&c, 2000, advert_settled, &m);
+    check("the service's answer settles it as accepted",
+          m.advert.done && !m.advert.failed && m.advert.kind == RIFT_ACTION_ADVERT_NEAR);
+    check("a flooded one is asked for next", rift_ipc_send_advert(&c, 0) == 0);
+    spin(&c, 2000, advert_settled, &m);
+    check("and settled the same way",
+          m.advert.done && m.advert.kind == RIFT_ACTION_ADVERT_MESH);
+    {
+        static const char *const want[] = { "zero_hop", "flood" };
+
+        check("the service was asked for exactly those two, in that order, as asked",
+              log_lines(adverts, want, 2, &matched) == 2 && matched);
+    }
+    rift_ipc_close(&c);
+    fake_meshcored_stop(pid);
+
+    /* A service that refuses: the reader sees its words, not a success. */
+    memset(&script, 0, sizeof(script));
+    script.state = "online";
+    script.nodes_json = NODES_TWO;
+    script.refuse_advert = 1;
+    script.life_ms = 5000;
+    pid = fake_meshcored_spawn(&script);
+    check("a service that refuses adverts is running",
+          pid > 0 && fake_meshcored_wait_ready(2000));
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, RIFT_SERVICE);
+    spin(&c, 2500, have_snapshot, &m);
+    rift_ipc_send_advert(&c, 1);
+    spin(&c, 2000, advert_settled, &m);
+    check("a refused advert is not called accepted", m.advert.failed && !m.advert.done);
+    check("and carries the service's reason",
+          strstr(m.advert.error, "the radio is not available") != NULL);
+    rift_ipc_close(&c);
+    fake_meshcored_stop(pid);
+
+    /* Nobody there. */
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, "meshcored-that-is-not-there");
+    check("an advert with no connection is refused", rift_ipc_send_advert(&c, 0) == -1);
+    check("and says so", m.advert.failed && !m.advert.active);
+    rift_ipc_close(&c);
+}
+
+/* Forgetting a node, and forgetting a route. Nothing transmits; what is
+ * checked is that the change is asked for once, for the node named, and that
+ * what the list shows afterwards is the service's answer. */
+static void test_node_changes(const char *runtime)
+{
+    static struct rift_model m;
+    static struct rift_ipc c;
+    struct fake_meshcored_script script;
+    char methods[600];
+    const struct rift_node *n;
+    pid_t pid;
+
+    snprintf(methods, sizeof(methods), "%s/node-methods", runtime);
+    unlink(methods);
+    memset(&script, 0, sizeof(script));
+    script.state = "online";
+    script.nodes_json = NODES_TWO;
+    script.method_log = methods;
+    script.life_ms = 8000;
+    pid = fake_meshcored_spawn(&script);
+    check("a service holding two nodes is running", pid > 0 && fake_meshcored_wait_ready(2000));
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, RIFT_SERVICE);
+    spin(&c, 2500, have_snapshot, &m);
+    check("both nodes are listed", m.node_count == 2);
+
+    check("a prefix is not a node this app will ask to change",
+          rift_ipc_reset_path(&c, "a19a", "OSLO-01") == -1 && m.node_op.failed);
+    check("the route to a node is forgotten on request", rift_ipc_reset_path(&c, KEY_A, "OSLO-01") == 0);
+    spin(&c, 2000, node_op_settled, &m);
+    n = rift_model_find(&m, KEY_A);
+    check("the answer settles it", m.node_op.done && m.node_op.kind == RIFT_ACTION_RESET_PATH);
+    check("and the node is shown with no route", n && !n->path_known);
+
+    check("a node is forgotten on request", rift_ipc_forget_node(&c, KEY_B, "HYTTA") == 0);
+    spin(&c, 2000, node_op_settled, &m);
+    check("the answer settles it", m.node_op.done && m.node_op.kind == RIFT_ACTION_FORGET);
+    text_is("naming the node it was about", m.node_op.label, "HYTTA");
+    check("and the node is gone from the list", rift_model_find(&m, KEY_B) == NULL &&
+                                                    m.node_count == 1);
+    rift_ipc_request_nodes(&c);
+    spin(&c, 800, NULL, &m);
+    check("and stays gone in the next snapshot", rift_model_find(&m, KEY_B) == NULL);
+
+    rift_ipc_forget_node(&c, KEY_C, "nobody");
+    spin(&c, 2000, node_op_settled, &m);
+    check("a node the service does not hold is refused in its words",
+          m.node_op.failed && strstr(m.node_op.error, "no node") != NULL);
+    rift_ipc_close(&c);
+    fake_meshcored_stop(pid);
+    {
+        /* Asked for once each, and never on the way in or out. */
+        char line[128];
+        int removes = 0;
+        int resets = 0;
+        FILE *f = fopen(methods, "r");
+
+        while (f && fgets(line, sizeof(line), f)) {
+            line[strcspn(line, "\n")] = '\0';
+            removes += strcmp(line, "mesh.node_remove") == 0;
+            resets += strcmp(line, "mesh.node_reset_path") == 0;
+        }
+        if (f) {
+            fclose(f);
+        }
+        check("the service was asked to forget twice - HYTTA, and the one it did not hold",
+              removes == 2);
+        check("and to forget a route once: the prefix never left this app", resets == 1);
+    }
+
+    /* A service that takes the request and dies before it answers. */
+    memset(&script, 0, sizeof(script));
+    script.state = "online";
+    script.nodes_json = NODES_TWO;
+    script.node_ops_silent = 1;
+    script.life_ms = 1500;
+    pid = fake_meshcored_spawn(&script);
+    check("a service that will not answer is running", pid > 0 && fake_meshcored_wait_ready(2000));
+    rift_model_init(&m);
+    rift_ipc_init(&c, &m, RIFT_SERVICE);
+    spin(&c, 1000, have_snapshot, &m);
+    rift_ipc_forget_node(&c, KEY_B, "HYTTA");
+    spin(&c, 4000, is_down, &m);
+    check("a forget nobody answered is not called done",
+          !m.node_op.done && !m.node_op.active && m.node_op.failed);
+    check("it says it may or may not have happened",
+          strstr(m.node_op.error, "may or may not") != NULL);
+    check("and the node is still shown, as cached", rift_model_find(&m, KEY_B) != NULL && m.stale);
+    rift_ipc_close(&c);
+    fake_meshcored_stop(pid);
+}
+
 static int64_t now_ms(void)
 {
     struct timespec ts;
@@ -927,6 +1137,17 @@ int main(void)
         check("and says so rather than failing silently", m.outbox.failed);
         check("nothing was queued", !rift_model_sending(&m));
         rift_ipc_close(&c);
+    }
+
+    test_adverts(runtime);
+    test_node_changes(runtime);
+    {
+        char path[700];
+
+        snprintf(path, sizeof(path), "%s/adverts", runtime);
+        unlink(path);
+        snprintf(path, sizeof(path), "%s/node-methods", runtime);
+        unlink(path);
     }
     rmdir(runtime);
     printf("rift_ipc_test: %d checks, %d failure(s)\n", checks, failed);
