@@ -434,10 +434,12 @@ them, one after the other, are two runs of a service and not one.
 
 ## What needs hardware
 
-Nothing on this branch has been on unit A. The gate sheet, with the payload's
-hashes and every command, is
-[docs/hardware/RIFT_IMPROVEMENTS_GATE.md](../hardware/RIFT_IMPROVEMENTS_GATE.md).
-In short, a gate should see, on the panel and in the service's counters:
+The unit A gate **passed on 2026-09-22**, with one portrait check inconclusive
+and minor follow-ups recorded (the RE-ROUTE and FORGET captions outlive what
+they say):
+[docs/hardware/RIFT_IMPROVEMENTS_GATE.md](../hardware/RIFT_IMPROVEMENTS_GATE.md),
+which also holds the payload's hashes and every command. What it had to see,
+on the panel and in the service's counters:
 
 1. **ADVERT NEAR and ADVERT MESH** each put exactly one advert on the air -
    `tx_submitted` up by one, `mesh.activity` `tx` `ok` - and a peer in range

@@ -1,7 +1,9 @@
 # RIFT improvements on unit A: the gate
 
-**Status: NOT RUN. Prepared 2026-09-22.** Nothing on this branch has been on
-unit A, and preparing this sheet did not touch the unit.
+**Status: PASS, 2026-09-22** (product owner's decision, after steps 1–9 and
+portrait checks 1–2 of step 10). `3e89c9c` on unit A from 03:30:40 UTC. One
+check inconclusive (a long list keeping its place in portrait), minor findings
+recorded — see "Findings" and "Results". Unit A left healthy on `3e89c9c`.
 
 ## The build the unit must carry — check this before anything else
 
@@ -11,12 +13,12 @@ this table's right-hand column must be filled in from step 3.
 
 | On the unit | The gate needs | Last recorded on the unit (2026-09-21 20:18 UTC) | Filled in at step 3 |
 | --- | --- | --- | --- |
-| `/usr/bin/doors-shell` | **`3e89c9c`** — this branch. It carries master's chrome policy stage 1 (`a89b456`) as well, because the branch is built on it | `a89b456` | |
-| `/usr/sbin/meshcored` | **`3e89c9c`** | `765a3a3` | |
-| `/usr/sbin/radiod` | `765a3a3`, **not replaced**: `services/radiod` has no change since `765a3a3` (`git diff --stat 765a3a3..3e89c9c -- services/radiod` is empty) | `765a3a3` | |
-| `sysd`, `netd` | not replaced | `646dcbb` | |
-| `doors` CLI, `/etc/doors-release` | not replaced; neither says anything about RIFT | `a89b456` | |
-| Rotation mode | record it in step 1, restore it at step 12 | not recorded | |
+| `/usr/bin/doors-shell` | **`3e89c9c`** — this branch. It carries master's chrome policy stage 1 (`a89b456`) as well, because the branch is built on it | `a89b456` | **`3e89c9c`**, sha256 `dddc541f…` |
+| `/usr/sbin/meshcored` | **`3e89c9c`** | `765a3a3` | **`3e89c9c`**, sha256 `7e538a07…` |
+| `/usr/sbin/radiod` | `765a3a3`, **not replaced**: `services/radiod` has no change since `765a3a3` (`git diff --stat 765a3a3..3e89c9c -- services/radiod` is empty) | `765a3a3` | `765a3a3` |
+| `sysd`, `netd` | not replaced | `646dcbb` | not replaced |
+| `doors` CLI, `/etc/doors-release` | not replaced; neither says anything about RIFT | `a89b456` | `a89b456` |
+| Rotation mode | record it in step 1, restore it at step 12 | not recorded | `automatic` (keyboard present, so landscape); `portrait` during step 10 only, restored |
 
 "Last recorded" is the chrome stage 1 bench record,
 `out/chrome-a89b456/hwgate-unitA/STATE.md` on the build host. The unit may
@@ -96,7 +98,11 @@ and ADVERT MESH on its home screen.
    RIFT empties its own copy when it sees the new run. An empty thread after a
    restart is correct.
 6. `doors call` takes `key=value`; `true` and `false` become JSON booleans,
-   numbers become numbers, and everything else is a string.
+   a value that parses as a number is sent as a **number**, and everything
+   else is a string (`tools/pos/pos_radio.c`, `pos_params_from_kv`). A hex key
+   made only of digits — 64 zeros, say — therefore reaches the service as the
+   number 0 and is refused as "not a key" before any lookup. Any key typed for
+   a test must contain a letter; every real key here does.
 7. If taps are injected rather than made by hand, hold them 150 ms; 60 ms is
    marginal on this panel.
 
@@ -256,10 +262,10 @@ EOF
 ```bash
 u <<'EOF'
 tx() { doors call meshcored mesh.status | tr -d ' \t\n' | grep -oE '"tx_submitted":[0-9]+'; }
-Z=0000000000000000000000000000000000000000000000000000000000000000
+K=abababababababababababababababababababababababababababababababab
 echo "before: $(tx)"
 echo "-- a prefix is refused:";           doors call meshcored mesh.node_remove node=19f7b327
-echo "-- a key nobody holds is refused:"; doors call meshcored mesh.node_reset_path node=$Z
+echo "-- a key nobody holds is refused:"; doors call meshcored mesh.node_reset_path node=$K
 echo "-- zero_hop must be a boolean:";    doors call meshcored mesh.advert zero_hop=yes
 echo "after:  $(tx)"
 EOF
@@ -268,7 +274,7 @@ EOF
 | Must be true | |
 | --- | --- |
 | the prefix: error 2, `node must be a whole public key, 64 hex characters` | a guess is never acted on |
-| the unknown key: error 2, `no node with that public key is held` | |
+| the unknown key: error 2, `no node with that public key is held` | the key is 64 hex characters with letters in it, so `doors call` sends it as a string (trap 6). An earlier revision used 64 zeros, which went as the number 0 and was refused as `node must be a whole public key` — the right refusal for the wrong reason, and not a test of the lookup |
 | `zero_hop=yes`: error 2, `zero_hop must be true or false` | a string is not read as "true" |
 | `tx_submitted` unchanged | none of the three reached the radio |
 
@@ -599,13 +605,57 @@ Only what crossed between two radios is ON-AIR.
 | a FORGET confirmation cancelled by turning the panel | on the device a rotation restarts the shell (trap 4) | `tests/rift_app_test.c` |
 | a zero-hop advert not learned by a node two hops away | needs a peer two hops away | not proven anywhere; a later bench with a relay could |
 
-## Results
+## Findings
 
-Not run.
+| # | Finding | Kind | Severity | State |
+| --- | --- | --- | --- | --- |
+| F1 | **The RE-ROUTE caption outlives what it says.** After RE-ROUTE the node's detail reads `ROUTE FORGOTTEN …s AGO · NEXT MESSAGE FLOODS`. Once the next message has flooded and its ACK has taught a new route, the caption is still there — seen on unit A as `ROUTE FORGOTTEN 2m AGO · NEXT MESSAGE FLOODS` directly above `LINK STATE · DIRECT` (`out/rift-gate-3e89c9c/caps/08b4-armed-then-other-row.png`). The first half stays true; "next message floods" stops being true the moment the route is learned again, and the screen then contradicts itself. The caption is the node-change action's settled state (`rift_fmt_action`, `RIFT_ACTION_RESET_PATH`), shown until it ages out, with nothing tying it to the node's `path_known`. | RIFT, display honesty | minor — nothing is sent or lost, and LINK STATE beside it is right | **follow-up; not fixed on this branch by decision** |
+| F1b | **The FORGET caption outlives what it says, the same way.** `T-Deck-RIFT FORGOTTEN 59s AGO · BACK WHEN IT ADVERTS` stayed on the T-Deck's detail after its advert had brought it back (`caps/08e1-tdeck-back.png`, and still at 3 m in `caps/09a-unread-comms-closed.png`). Same cause as F1. | RIFT, display honesty | minor | **follow-up, with F1** |
+| F2 | **Step 4 tested the unknown-key refusal with an all-digit key**, which `doors call` sends as a number (trap 6). Re-run on the unit with a key containing letters: `no node with that public key is held`, `tx_submitted` 0 → 0. | this sheet | — | corrected in step 4 |
+| F3 | **"A long list keeps its place" in portrait is INCONCLUSIVE, not failed.** The owner's swipe did not show in two captures two minutes apart (list at its top in both). A controlled injected drag then scrolled the list (`caps/10c4-swiped-t0.png`), and the capture 130 s later found RIFT closed by an ordinary app close at 04:11:48 (`close app rift` in `shell.log`, no crash, no restart), so there was nothing left to compare. In landscape the property **was** seen on the device: the list kept its scroll when forgetting the T-Deck rebuilt it (`caps/08c5-tdeck-forgotten.png`). Host: `tests/rift_app_test.c`, "a new node rebuilds the list without throwing the reader back to the top". | this gate | — | **inconclusive in portrait**; one clean re-check on a later bench |
+| F4 | **After a `meshcored` restart every restored node is grouped `NEVER HEARD`.** The service does not keep last-heard times across a restart, so "never heard" means "not heard since the service started". | RIFT wording, **pre-existing** (not this branch) | minor | follow-up |
+| F5 | **The Service row shortens the build in portrait:** `meshcore 0.0.10 · 3e8...` (`pocketui_kv_row` gives the value 60 % of the row). | RIFT layout, probably pre-existing | cosmetic | follow-up |
+| F6 | **Composer texts carried a double space** (`gate9 k230  chan`, `chan9  k230 dm`); the owner thinks the keyboard may have doubled it. | keyboard base (TCA8418), **not this branch** | unconfirmed | observe separately |
+| F7 | **One tap on the portrait NODES tab did not register**; the second did. Seen once, not reproduced. | touch, unattributed | — | observation only |
+| F8 | **The zero-hop HEARD check on the T-Deck is not discriminating:** its card read `11m` for `Mstr_k230`, which fits the zero-hop advert (03:33:37) but equally the flooded one 49 s earlier at minute resolution. That nobody **repeated** the zero-hop advert is shown on the air (step 5). | this gate | — | recorded; a solo ADVERT NEAR read at once would settle it |
 
-## As left
+## Results — 2026-09-22, unit A, `192.168.10.157`
 
-Not run.
+**PASS**, by the product owner's decision at 04:12 UTC. Evidence (logs and 40
+panel captures read off the DRM plane) is in `out/rift-gate-3e89c9c/` on the
+build host; `PROGRESS.md` there is the running log.
+
+| Step | Result | Class |
+| --- | --- | --- |
+| 1 Survey | shell `a89b456`, meshcored `765a3a3` (argv without `--name`), sx1262/EU868/2 dBm, all libraries present, table **full** (32; 76 adverts turned away in the old run), rotation automatic with the keyboard present | DEVICE |
+| 2 Rollback | copies and helpers in `/root/rollback-rift-improvements/`, hashes match step 1 | DEVICE |
+| 3 Install | both hashes match; shell and meshcored `3e89c9c`, radiod `765a3a3`; `Mstr_k230`, hash 19; online, lease held; one shell | DEVICE |
+| 4 New methods | prefix, unknown key (see F2) and `zero_hop=yes` refused in the service's words; `tx_submitted` 0 → 0 | DEVICE |
+| 5 Adverts | one transmit per press, `tx_ok` +1 each, captions `FLOOD ADVERT · ACCEPTED 3s AGO` / `ZERO-HOP ADVERT · ACCEPTED 2s AGO`. MESH: our advert heard back relayed (`route_type 1`, `path_hex 30`). NEAR: no relayed copy in 45 s while another node's advert was heard. T-Deck HEARD: see F8 | LOCAL TX PATH; **ON-AIR** |
+| 6 RE-ROUTE | `ROUTE FORGOTTEN · NEXT MESSAGE FLOODS`, `path_known` false, button disabled, nothing sent; the next message `sent_flood` then `acked` in ~2 s, route learned again. See F1 | DEVICE; **ON-AIR** |
+| 7 Two in flight | T-Deck **off**, plus `Mstr_m5` (owner-approved, one message): `inflight two` `acked` in ~2–3 s; `inflight one` still `sent_direct` after that ACK, `no_ack` at t 44313.27 against its own deadline 44312.87 — not before it, at most 0.4 s after. RIFT: `NO ACK` / `DELIVERED · ACK 2 s` | DEVICE; **ON-AIR** |
+| 8a Table full | warning appeared live (1 advert turned away); forgetting a stranger (`SE1480 Kålltorp`) cleared it with `nodes_unretained` unchanged; it returned only when a new advert was turned away | DEVICE |
+| 8b Ways out | CANCEL, leaving the section, moving the selection: each cancelled; nothing asked, nothing sent | DEVICE |
+| 8c Forget the T-Deck | the confirmation named it; 32 → 31, `mesh.node` refused, nothing sent, footer `T-Deck-RIFT FORGOTTEN 3s AGO · BACK WHEN IT ADVERTS`, list kept its scroll | DEVICE |
+| 8d Across a restart | shown on the stranger, to keep the T-Deck's slot exposure short: still forgotten after the restart, `mesh.send` refused, nothing sent | DEVICE |
+| 8e Back by its advert | back 36 s after the forget, on the owner's ADVERT NEAR (−46 dBm, SNR 12.5, no route); the next message flooded, `acked` in ~1 s, route learned | **ON-AIR** |
+| 9 Unchanged | `#doorsbench` and direct both ways, before and after a restart; claim marker `T-Deck-RIFT?`; `SENT · FLOOD · NO ACK ON CHANNELS`, never `DELIVERED` on a channel; unread 0 → 2 with COMMS closed, cleared on opening; two messages typed by the owner in RIFT's composer went out (`DELIVERED · ACK 1 s`); after the restart channels 0/1/2 back (`9a`/`11`/`7b`), route kept, threads emptied, no stale rows | **ON-AIR** |
+| 10 Screens | landscape ACTIVITY, NODES, the detail pane, the confirmation, COMMS threads and the composer checked from captures throughout; portrait ACTIVITY (captions whole, buttons fit — owner confirmed) and portrait NODES (no command line, `DIR`/`?`, footer — owner confirmed) **pass**; portrait list place **inconclusive** (F3); the remaining portrait checks (DETAIL, confirmation, thread) were not run — stopped by the owner | DEVICE |
+| 11 Health | online, lease held, `radio_state` rx; `tx_failed`, `tx_refused`, `tx_unknown`, `rx_rejected`, `rx_dropped`, `lease_lost` 0; packets 32/32; shell, sysd, netd, radiod 0 restarts; no crashloop, no crash report, no segfault; the only WARNs are the known `radio.status poll` ones | DEVICE |
+
+## As left — 2026-09-22 04:12 UTC
+
+| | |
+| --- | --- |
+| `/usr/bin/doors-shell` | `3e89c9c`, sha256 `dddc541f…`, one process, 0 restarts |
+| `/usr/sbin/meshcored` | `3e89c9c`, sha256 `7e538a07…`, running by hand with the saved argv (no `--name`, no init script — it does not survive a reboot) |
+| `/usr/sbin/radiod` | `765a3a3`, unchanged, sx1262 |
+| Rotation | `automatic`; keyboard present, so landscape; launcher |
+| Node table | 32 (full); the T-Deck held with a learned direct route; `SE1480 Kålltorp` forgotten (it returns when it adverts) |
+| Channels | slots 0/1/2 `#doorsbench`/`Public`/`test`; `channels.v1` untouched |
+| `identity.id` | untouched (mtime 2026-09-19) |
+| `/etc/default/doors-shell` | untouched (`POCKETOS_SAFE_CORNERS=50,30,30,50`) |
+| Rollback | `/root/rollback-rift-improvements/RESTORE.sh` (shell `a89b456` and meshcored `765a3a3`; `--with-state` for the node table) |
 
 ## Provenance
 
