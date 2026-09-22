@@ -756,11 +756,6 @@ static void test_path_guard(Node& a, Node& b, Air& air, const mesh::LocalIdentit
         uint8_t crafted[3] = { 63, 0xAA, 0xBB };  /* claims 63 one-byte hops */
         struct mcd_node a_seen_by_b;
         const uint8_t* a_key = a_id.pub_key;
-        uint8_t path_before = 0;
-
-        if (mcd_runtime_node_by_prefix(b.rt, a_key, 8, &a_seen_by_b) == 1) {
-            path_before = a_seen_by_b.path_len;
-        }
 
         mcd_runtime_stats(b.rt, &before);
         len = craftPath(frame, a_id, b_id, crafted, (int)sizeof(crafted));
@@ -772,14 +767,29 @@ static void test_path_guard(Node& a, Node& b, Air& air, const mesh::LocalIdentit
                   mcd_runtime_stats(b.rt, &s);
                   return s.path_payloads_refused == before.path_payloads_refused + 1;
               }));
-        /* Asserted on the stored path rather than on a counter of events:
-         * the two nodes are still exchanging return paths from the message
-         * above, so "no path update happened at all" would be a claim about
-         * the rest of the mesh going quiet. What must hold is that THIS
-         * payload's 63 hops were not adopted. */
+        /* Asserted on what the stored path is, not on whether it changed.
+         * The only thing that rewrites B's path to A is a PATH from A
+         * (vendor/RIFT/src/helpers/BaseChatMesh.cpp:331), and A may still
+         * owe B one from the messages above: it answers a flood PATH with a
+         * return path of its own 500 ms later (vendor/RIFT/src/Mesh.cpp:177).
+         * The duplicate test normally transmits that into nothing, but a slow
+         * enough run lets it through to land here, genuinely rewriting B's
+         * path while this payload is refused. "The path is what it was
+         * before" was a claim about the mesh having gone quiet, and it failed
+         * that way, rarely, under ASan.
+         *
+         * What must hold is that THIS payload's hops were not adopted:
+         * neither its packed length nor the 0xAA 0xBB it carries. A genuine
+         * update cannot look like either. meshcored leaves MeshCore's
+         * allowPacketForward() at its default of false, so every return path
+         * A and B build for each other is empty, and the only other path B
+         * has been given is the 0x11 0x22 above. B must also still know A,
+         * or this would pass for a node that is not there. */
         check("and its impossible path was not adopted",
-              mcd_runtime_node_by_prefix(b.rt, a_key, 8, &a_seen_by_b) != 1 ||
-              (a_seen_by_b.path_len != 63 && a_seen_by_b.path_len == path_before));
+              mcd_runtime_node_by_prefix(b.rt, a_key, 8, &a_seen_by_b) == 1 &&
+              a_seen_by_b.path_len != crafted[0] &&
+              !(a_seen_by_b.path_bytes >= 2 && a_seen_by_b.path[0] == crafted[1] &&
+                a_seen_by_b.path[1] == crafted[2]));
     }
 
     /* The boundary. A payload whose declared path exactly fills the
