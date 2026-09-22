@@ -446,17 +446,20 @@ would put back on the air is untouched. The full rule is in docs/api/mesh.md,
 
 ## Building, installing and enabling
 
-Not in `make all` or `make test`, and **off by default**. It links
-`protocols/meshcore`, which needs two upstream checkouts an ordinary Doors
-build does not have (`vendor/RIFT` and `vendor/Crypto`, the same two
-`tools/meshcore-frame` needs). With `ENABLE_MESHCORED` unset, `make all`,
-`make test`, the Buildroot package and the image are byte for byte what they
-were.
+**In every image, disabled per unit.** The image package builds and installs
+meshcored (`pocketos.mk`, `ENABLE_MESHCORED=1`) together with `S65meshcored`,
+since the third-party notices gained entries for the three trees it compiles
+(docs/LICENSING.md item 9, 2026-09-22). An ordinary host build leaves it out:
+it links `protocols/meshcore`, which needs two upstream checkouts an ordinary
+Doors build does not have (`vendor/RIFT` and `vendor/Crypto`, the same two
+`tools/meshcore-frame` needs). `apply_to_sdk.sh` exports those two, pin-checked,
+into the package's `third_party/`, with the verified commit beside each
+(`.doors-pinned-commit`), because the package tree has no `.git`.
 
 ```sh
 make ENABLE_MESHCORED=1 meshcored     # build
 make meshcored-test                   # its suites, plain then sanitised
-make ENABLE_MESHCORED=1 install       # install /usr/sbin/meshcored
+make ENABLE_MESHCORED=1 install       # install /usr/sbin/meshcored (gated on the notices)
 ```
 
 The riscv64 check is the ordinary cross-build with the switch on, in a copy of
@@ -469,6 +472,62 @@ make ENABLE_MESHCORED=1 CC=<cross>gcc CXX=<cross>g++ AR=<cross>ar \
      CXXFLAGS="--sysroot=$SYSROOT -O2" LDFLAGS="--sysroot=$SYSROOT" all
 ```
 
+### The service
+
+`S65meshcored` runs meshcored under `pos-supervise`, like radiod and the
+shell: restart with a backoff doubling from 1 s to 30 s, a crash loop declared
+after more than five restarts in a minute, and the supervisor's state file
+`/run/pocketos/meshcored.state`, which is what `system.status` reports as the
+`meshcored` service. Its order is radiod (S60), meshcored (S65), the shell
+(S90); nothing waits on anything, because meshcored looks for radiod, backs
+off and keeps looking (sections 1, 2 and 4 of `tests/meshcored_service_test.sh`),
+and RIFT does the same for meshcored (`tests/rift_ipc_test.c`). On the way
+down BusyBox stops them in reverse, so meshcored hands the lease back before
+radiod goes, and writes its node table on SIGTERM.
+
+What the script refuses, and says so:
+
+| Situation | `start` | `stop` |
+| --- | --- | --- |
+| `MESHCORED_ENABLE` not 1 | `disabled`, exit 0 | stops any meshcored that is running |
+| enabled, `/usr/sbin/meshcored` missing or not executable | `FAILED: enabled, but ...`, exit 1 | — |
+| enabled, `pos-supervise` missing | `FAILED`, exit 1: meshcored is never run unsupervised | — |
+| already running under it | `already running`, exit 0 | stops supervisor and daemon, confirms both gone |
+| a meshcored it did not start is running (by hand, or orphaned) | `FAILED: ... running unsupervised (pid N)`, exit 1 | ends it too: SIGTERM, then SIGKILL after 3 s |
+| stale pid files naming nothing | starts normally | `not running` |
+
+Beneath the script, **one process per node**: meshcored takes an exclusive
+`flock` on its state directory before it reads the identity or opens its
+socket, and a second one on the same directory leaves at once with exit code 3
+(`another meshcored is already running on ...`). Two processes on one state
+directory would be two radios claiming one identity, each rewriting the
+other's node table, and the second listener would take the first one's socket
+(pocketipc unlinks a socket path before it binds). The lock is the kernel's, so
+it cannot go stale.
+
+### Keeping a service whole
+
+Unit A was found (2026-09-22) with `/usr/sbin/meshcored` installed and no
+`/etc/init.d/S65meshcored`, so nothing started it at boot, and with
+`/etc/doors-release` naming a different build from the binaries beside it.
+Nothing in the repository put it in that state: its image predated meshcored,
+and every bench gate since had copied the binary alone and started it by hand.
+Three checks now stand in the way of that, all built on
+`tools/release/check_rootfs.sh`, which asks a root filesystem whether every
+service is a binary and its init script together, both executable, whether
+`pos-supervise` is there, and whether every Doors binary is the build its
+release file names (each carries the string `DOORS_BUILD_ID=<id>`):
+
+- `deploy.sh` runs it on the tree it is about to send and refuses before it
+  contacts the unit; on the unit it stops any meshcored no init script started
+  before unpacking, and refuses to start services if what arrived is not
+  whole (`tests/deploy_staging_test.sh`, `tests/initscript_test.sh`).
+- `verify_image.sh` runs it on the image's root partition, so an image with
+  either half of a service missing, a mode wrong or a binary from another build
+  is refused before it is flashed (`tests/image_contents_test.sh`).
+- Copying one binary onto a unit by hand is what produced the state above.
+  Deploy with `deploy.sh`, which carries the whole set from one build.
+
 ### Enabling it on a unit
 
 `S65meshcored` ships in the image and **starts nothing**: it prints
@@ -477,16 +536,16 @@ radiod's lease, applies the MeshCore profile and listens on 869.618 MHz for as
 long as it runs — and on a unit where nobody asked for that, the right number
 of radios to take is none.
 
-To switch it on for a hardware session, per unit:
+To switch it on, per unit:
 
 ```sh
-cat > /etc/default/meshcored <<'EOF'
-MESHCORED_ENABLE=1
-MESHCORED_TX_POWER_DBM=2
-MESHCORED_NAME=K230-A
-EOF
+echo MESHCORED_ENABLE=1 > /etc/default/meshcored
 /etc/init.d/S65meshcored restart
 ```
+
+Leave `MESHCORED_NAME` unset unless the node is to be renamed: the name is
+stored in `state.v1`, and a name given here replaces it at every start.
+`MESHCORED_TX_POWER_DBM` defaults to 2 dBm.
 
 Before doing that on a real radio, know what it means:
 
@@ -498,8 +557,6 @@ Before doing that on a real radio, know what it means:
 3. **The node will answer.** A message addressed to it produces an ACK and a
    return path, without a client and without being asked. That is correct
    MeshCore behaviour and it is airtime.
-4. **Nothing about this service has been on a radio.** Everything below is
-   host evidence.
 
 Stopping it releases the lease and writes the node table.
 
@@ -528,6 +585,10 @@ Stopping it releases the lease and writes the node table.
 | The PATH guard refuses the crafted payload and accepts every well-formed one | **VERIFIED host** | `tests/meshcored_runtime_test.cpp`, plain and under ASan/UBSan |
 | The boundary: no SPI, GPIO, radio library, LVGL, or JSON below the seam | **DOCUMENTED** | `tests/meshcored_lint.sh`, statically |
 | The MeshCore wire format this speaks | **VERIFIED hardware**, by inheritance | the accepted P0 gate, from the same pinned sources; that gate is evidence about the frames, not about this daemon |
-| Anything at all on unit A | **UNRESOLVED** | no hardware was touched |
+| The daemon on unit A's radio | **VERIFIED hardware** | docs/hardware/MESHCORED_HARDWARE_GATE.md, RIFT_CHANNELS_GATE.md, RIFT_IMPROVEMENTS_GATE.md - every one of them started meshcored by hand, none through `S65meshcored` |
+| `S65meshcored`: opt-in, start, stop, restart, stale pid files, each refusal, a crash restarted and a crash loop declared, under the real `pos-supervise` | **VERIFIED host** | `tests/initscript_test.sh` |
+| One process per state directory; the second leaves before it touches the identity or the socket | **VERIFIED host** | `tests/meshcored_service_test.sh`, section 1b |
+| A tree or image with half a service, a wrong mode, no `pos-supervise`, a per-unit switch shipped, or a binary from another build is refused before it reaches a unit | **VERIFIED build/packaging** | `tests/deploy_staging_test.sh`, `tests/image_contents_test.sh`, `tests/initscript_test.sh` (the unit-side half of `deploy.sh`) |
+| meshcored started by `S65meshcored` at boot on a unit, and a unit deployed with `deploy.sh` since | **UNRESOLVED** | not yet run on hardware |
 | Behaviour on a real, busy MeshCore network | **UNRESOLVED** | the mock air is lossless, instant, collision-free and has no range |
 | The service under a real duty cycle | **UNRESOLVED** | the dispatcher's airtime budget is upstream's default and has not been exercised against a regulatory limit |
