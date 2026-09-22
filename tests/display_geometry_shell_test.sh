@@ -34,13 +34,18 @@ fresh() { # a new set of state directories
 shot() { # <png> <log> [shell args]
     local png=$1 log=$2
     shift 2
-    "$SHELL_BIN" --screenshot "$png" --exit-after-ms 900 "$@" >"$log" 2>&1
+    "$SHELL_BIN" --no-lock --screenshot "$png" --exit-after-ms 900 "$@" >"$log" 2>&1
 }
+# The launcher over a plain background: what is measured here is where the
+# status bar puts its ink, and the home photograph (DS §31) would be ink
+# everywhere. The art and its fallback are tests/doors_shell_test.sh's.
+mkdir -p "$OUT/noart"
+export POCKETOS_ART_DIR="$OUT/noart"
 info() { # shell.info's display object, compact
     "$POS" shell info 2>/dev/null | tr -d ' \t\n' | grep -oE '"display":\{[^}]*\}'
 }
-start_shell() { # [args]: a running shell, waited for
-    "$SHELL_BIN" "$@" >"$POCKETOS_LOG_DIR/run.log" 2>&1 &
+start_shell() { # [args]: a running shell, waited for (open: the launcher is what is looked at)
+    "$SHELL_BIN" --no-lock "$@" >"$POCKETOS_LOG_DIR/run.log" 2>&1 &
     SP=$!
     for _ in $(seq 1 50); do [ -S "$POCKETOS_RUNTIME_DIR/shell.sock" ] && break; sleep 0.1; done
     sleep 0.3
@@ -148,35 +153,21 @@ for x in xs:
         groups.append([x, x])
 check("status bar ink starts at x %d and ends at x %d, inside %d px of each side" % (xs[0], xs[-1], corner),
       xs[0] >= corner and xs[-1] <= W - 1 - corner)
-check("status bar has the wordmark, the radio chip and the clock (%d ink groups)" % len(groups), len(groups) == 3)
+# On the launcher the clock is the header's, large (DS §31.1), not the bar's.
+check("status bar has the wordmark and the radio chip, and no clock (%d ink groups)" % len(groups), len(groups) == 2)
 word = groups[0]
 wy = [y for x, y in ink if word[0] <= x <= word[1]]
 check("the wordmark (x %d..%d, y %d..%d) is clear of the %d px corner" % (word[0], word[1], min(wy), max(wy), corner),
       word[0] >= corner)
-clock = groups[-1]
-check("the clock (x %d..%d) is wholly in the safe area" % (clock[0], clock[1]), clock[1] <= W - 1 - corner)
-# The launcher below the bar.
-if not landscape:
-    cols, tw = 2, 254
-else:
-    cols, tw = 6, 182
-for i, app in enumerate(["radio", "system", "fleet", "radar", "timber", "notes", "clock", "calendar",
-                         "calculator", "settings", "wave"]):
-    tx, ty = 20 + (i % cols) * (tw + 20), 76 + (i // cols) * 170
-    edges = [((tx, ty + 75), surf), ((tx + tw - 1, ty + 75), surf), ((tx + tw // 2, ty), surf),
-             ((tx + tw // 2, ty + 149), surf), ((tx - 1, ty + 75), bg), ((tx + tw, ty + 75), bg),
-             ((tx + tw // 2, ty - 1), bg), ((tx + tw // 2, ty + 150), bg)]
-    if not all(near(px(x, y), c, 3) for (x, y), c in edges):
-        check("%s tile is %d x 150 at (%d, %d)" % (app, tw, tx, ty), False)
-    mask = masks[app]
-    blend = lambda a: tuple((surf[k] * (255 - a) + acc[k] * a + 127) // 255 for k in range(3))
-    err = max(abs(px(tx + 12 + j % 32, ty + 12 + j // 32)[k] - blend(a)[k]) for j, a in enumerate(mask) for k in range(3))
-    if err > 4:
-        check("%s tile: its icon at the 12 px inset (error %d)" % (app, err), False)
-last = 76 + ((11 + cols - 1) // cols) * 170 - 20
-below = [(x, y) for y in range(last + 1, H, 4) for x in range(0, W, 4)]
-check("%d x 150 tiles in %d columns with their icons; nothing below the last row (y %d)" % (tw, cols, last),
-      all(near(px(x, y), bg, 3) for x, y in below) and not any(o.startswith("FAIL") and "tile" in o for o in out))
+chip = groups[-1]
+check("the radio chip (x %d..%d) is wholly in the safe area" % (chip[0], chip[1]), chip[1] <= W - 1 - corner)
+# The DOORS launcher below the bar. Its geometry is tests/home_layout_test.c's
+# and its art tests/doors_shell_test.sh's; here, that it is drawn and keeps
+# out of the bottom corners.
+drawn = sum(1 for y in range(60, H, 8) for x in range(0, W, 8) if not near(px(x, y), bg, 6))
+check("the launcher is drawn below the bar (%d sampled points of ink)" % drawn, drawn > 150)
+cor = [(x, y) for y in range(H - corner, H) for x in list(range(0, corner)) + list(range(W - corner, W))]
+check("nothing is drawn in the bottom corner squares", all(near(px(x, y), bg, 3) for x, y in cor))
 print("\n".join(out))
 PY
 }
@@ -192,7 +183,10 @@ from pngio import read_png
 a, b, dx = read_png(sys.argv[1])[2], read_png(sys.argv[2])[2], int(sys.argv[3])
 W = len(a[0])
 word_same = all(a[y][x][:3] == b[y][x + dx][:3] for y in range(6, 50) for x in range(0, 120))
-below_same = a[56:] == b[56:]
+# Below the bar, less the launcher's header (DS §31.3): its time is the wall
+# clock's, and the two shots compared are seconds apart.
+below_same = a[56 + 8:56 + 8] == b[56 + 8:56 + 8] and a[56 + 124:] == b[56 + 124:] and \
+    all(a[y][:120] == b[y][:120] and a[y][-120:] == b[y][-120:] for y in range(56, 56 + 124))
 print("%d %d" % (word_same, below_same))
 PY
 }
@@ -208,7 +202,7 @@ for orient in portrait landscape; do
             grep -v '^ok' "$OUT/$orient-$theme-$mode.checks"
             failed=$((failed + $(grep -vc '^ok' "$OUT/$orient-$theme-$mode.checks")))
             check "$orient $theme/$mode: $(grep -c '^ok' "$OUT/$orient-$theme-$mode.checks") status bar and launcher checks passed" \
-                "$([ "$(grep -c '^ok' "$OUT/$orient-$theme-$mode.checks")" = 5 ] && echo 1 || echo 0)"
+                "$([ "$(grep -c '^ok' "$OUT/$orient-$theme-$mode.checks")" = 6 ] && echo 1 || echo 0)"
         done
     done
     # A rectangular panel: no rounded corners, so the bar keeps its own 20 px.
@@ -298,7 +292,7 @@ check "a theme and mode change keeps the orientation ($d)" \
 look "$OUT/landscape-after-theme.png" carbon night "landscape after a live theme change" 30 >"$OUT/after-theme.checks" 2>&1
 grep -v '^ok' "$OUT/after-theme.checks"; failed=$((failed + $(grep -vc '^ok' "$OUT/after-theme.checks")))
 check "and the landscape launcher is drawn in that theme ($(grep -c '^ok' "$OUT/after-theme.checks") checks)" \
-    "$([ "$(grep -c '^ok' "$OUT/after-theme.checks")" = 5 ] && echo 1 || echo 0)"
+    "$([ "$(grep -c '^ok' "$OUT/after-theme.checks")" = 6 ] && echo 1 || echo 0)"
 opened=0
 for id in radio system fleet radar timber notes clock calendar calculator settings wave; do
     "$POS" app start "$id" >/dev/null 2>&1 && sleep 0.4 &&

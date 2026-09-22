@@ -192,8 +192,10 @@ for o in portrait landscape; do
 import json, sys
 d = json.load(open(sys.argv[1]))
 for c in d["launcher"]["cells"]:
-    print(c["id"], c["x"] + (c["w"] - 96) // 2, c["y"], c["w"], c["h"])
-print("apps", d["launcher"]["apps"], d["launcher"]["icons_art"], d["launcher"]["icons_fallback"], d["launcher"]["scrolls"])
+    # C's division truncates toward zero; a landscape cell is narrower than the icon.
+    print(c["id"], c["x"] + int((c["w"] - 96) / 2), c["y"], c["w"], c["h"])
+print("apps", d["launcher"]["apps"], d["launcher"]["icons_art"], d["launcher"]["icons_fallback"],
+      json.dumps(d["launcher"]["scrolls"]))
 PY
     set -- $(grep '^apps' "$OUT/$o-cells.txt")
     check "$o: twelve apps, twelve portal icons from the art, none on a fallback, no scrolling ($2 $3 $4 $5)" \
@@ -241,7 +243,7 @@ python3 - "$(info)" > "$OUT/fo.txt" <<'PY'
 import json, sys
 d = json.loads(sys.argv[1])
 for c in d["launcher"]["cells"]:
-    print(c["id"], c["x"] + (c["w"] - 96) // 2, c["y"])
+    print(c["id"], c["x"] + int((c["w"] - 96) / 2), c["y"])
 PY
 good=0
 while read -r id x y; do

@@ -64,11 +64,10 @@ check "Calculator reports itself open" \
     "$(grep -q 'open app calculator' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
 check "and closed" \
     "$(grep -q 'close app calculator' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
-# Six rows since Wave became the eleventh app (tests/wave_shell_test.sh). The
-# shell derives the grid from the display (tests/display_geometry_shell_test.sh),
-# so this reads what the portrait launcher was built with.
-check "the launcher grid has a row for every app" \
-    "$(grep -q 'launcher: 2 column(s), 6 row(s)' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
+# The DOORS launcher groups the apps (DS §31, tests/home_layout_test.c); this
+# reads what the portrait launcher was built with.
+check "the launcher holds every app in its groups" \
+    "$(grep -q 'launcher: 4 group(s), 12 app(s), portrait' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
 check "the shell did not call it unknown" \
     "$(grep -q 'unknown app calculator' "$LOGD/out" "$LOGD/shell.log" 2>/dev/null && echo 0 || echo 1)"
 # A calculation is not kept, so opening and leaving must write nothing at all.
@@ -123,12 +122,12 @@ for o in portrait landscape; do
     check "$o: and no warning but the simulator's missing radiod" "$([ -z "$hits" ] && echo 1 || echo 0)"
     [ -n "$hits" ] && echo "$hits" | head -3
     if [ $o = portrait ]; then
-        check "$o: on the two-column launcher" \
-            "$(grep -q 'launcher: 2 column(s), 6 row(s)' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
+        check "$o: on the portrait launcher" \
+            "$(grep -q 'launcher: 4 group(s), 12 app(s), portrait' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
         set -- $(look "$LOGD/calc.png" ice normal 422 1074 547 1201)
     else
-        check "$o: on the six-column launcher" \
-            "$(grep -q 'launcher: 6 column(s), 2 row(s)' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
+        check "$o: on the landscape launcher" \
+            "$(grep -q 'launcher: 4 group(s), 12 app(s), landscape' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
         # The keypad is 410 px tall under the 32 px COMPACT bar of DS section
         # 30 (386 under the 56 px one), so its bottom row is 75 px, not 70.
         set -- $(look "$LOGD/calc.png" ice normal 1072 463 1211 537)

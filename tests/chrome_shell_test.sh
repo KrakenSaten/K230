@@ -47,8 +47,13 @@ check "and so before the app is created" \
 check "coming home puts the launcher's chrome back" \
     "$(sed -n '/^void pocketos_shell_go_home/,/^}/p' ui/shell/shell.c |
        grep -q 'chrome_apply(chrome_resolve(POCKETOS_CHROME_DEFAULT' && echo 1 || echo 0)"
-check "the launcher's columns are chosen below the launcher's own chrome" \
-    "$(grep -q 'g->height - chrome_height(chrome_resolve(POCKETOS_CHROME_DEFAULT' ui/shell/shell.c && echo 1 || echo 0)"
+# The DOORS launcher (DS §31.3) lays out in the content area as the
+# launcher's own chrome left it: that chrome is applied, then the launcher
+# built, and the launcher measures its parent rather than assuming a bar.
+check "the launcher is laid out below the launcher's own chrome" \
+    "$(grep -A6 'chrome_apply(chrome_resolve(POCKETOS_CHROME_DEFAULT, is_landscape(sh.display.geometry.rotation), true),' ui/shell/shell.c |
+       grep -q 'home_build();' &&
+       grep -q 'in.height = lv_obj_get_height(parent);' ui/shell/home.c && echo 1 || echo 0)"
 check "the keyboard reserve goes through the same box" \
     "$([ "$(grep -c 'content_box(POS_KB_H)' ui/shell/shell.c)" = 1 ] &&
        [ "$(grep -c 'content_box(0)' ui/shell/shell.c)" = 1 ] && echo 1 || echo 0)"
@@ -144,7 +149,7 @@ PY
 # Portrait: FULL at home and under every app, and drawn as it always was -
 # the hairline at row 55, the back slab from row 64 at x 20.
 fresh
-shot "$OUT/p-home.png" "$OUT/p-home.log" --rotation portrait
+shot "$OUT/p-home.png" "$OUT/p-home.log" --rotation portrait --no-lock
 check "portrait, home: FULL, 56 px" \
     "$(logs "$OUT/p-home.log" | grep -q 'chrome: full, status bar 56 px, content from y 56, for home' && echo 1 || echo 0)"
 n=0
@@ -166,14 +171,16 @@ check "portrait System: the wordmark, the chip and the clock are in the bar ($4 
 # the back slab from row 40 at x 20, the same three things in the bar, and
 # Fleet's COMMAND hint drawn as a fourth.
 fresh
-shot "$OUT/l-home.png" "$OUT/l-home.log" --rotation landscape
+shot "$OUT/l-home.png" "$OUT/l-home.log" --rotation landscape --no-lock
 check "landscape, home: FULL, 56 px" \
     "$(logs "$OUT/l-home.log" | grep -q 'chrome: full, status bar 56 px, content from y 56, for home' && echo 1 || echo 0)"
-check "landscape, home: on the six-column launcher below a 56 px bar" \
-    "$(logs "$OUT/l-home.log" | grep -q 'launcher: 6 column(s), 2 row(s)' && echo 1 || echo 0)"
+check "landscape, home: the grouped launcher below a 56 px bar" \
+    "$(logs "$OUT/l-home.log" | grep -q 'launcher: 4 group(s), 12 app(s), landscape' && echo 1 || echo 0)"
+# On the launcher the bar lies on the home photograph with no fill and no
+# rule (DS §31.1); its height is still FULL's, as the log line above says.
 set -- $(geometry "$OUT/l-home.png")
-check "landscape home: the bar's hairline is row 55 (got $1), three things in the bar ($4)" \
-    "$([ "$1" = 55 ] && [ "$4" = 3 ] && echo 1 || echo 0)"
+check "landscape home: the bar draws no hairline over the photograph (got $1)" \
+    "$([ "$1" = -1 ] && echo 1 || echo 0)"
 n=0
 for id in $APPS; do
     # Every app takes the landscape default but Fleet, which declares FULL

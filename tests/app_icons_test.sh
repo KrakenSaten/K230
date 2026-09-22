@@ -4,7 +4,7 @@
 # for the committed artwork - one icon per launcher app, from the package that
 # supplied it, and nothing else - each mask must be that artwork's alpha
 # exactly, and the generator must refuse what is not a tint mask.
-# tests/launcher_icons_shell_test.sh checks what the running shell draws.
+# tests/doors_shell_test.sh checks what the running shell draws (DS §31).
 set -u
 cd "$(dirname "$0")/.." || exit 1
 GEN=tools/design/gen_app_icons.py
@@ -158,7 +158,7 @@ for var in listed:
     path, app_id, icon, mask = descs[var]
     print(app_id, icon, mask, path)
 PY
-listed=$(sed -n '/static const struct pocketos_app \*apps\[\]/,/};/p' ui/shell/shell.c |
+listed=$(sed -n '/static const struct pocketos_app \*const apps\[\]/,/};/p' ui/shell/shell.c |
          grep -o '&app_[a-z_]*' | wc -l)
 check "every launcher app's descriptor was read (${listed} listed)" \
     "$([ "$(grep -c . "${TMP}/apps.txt")" = "${listed}" ] && ! grep -q Traceback "${TMP}/apps.txt" &&
@@ -190,8 +190,12 @@ check "the masks are referenced only by the eleven app descriptors that have one
     "$([ "${users}" = "11" ] && echo 1 || echo 0)"
 check "the brand mark is not used as an app icon (DS §19.1)" \
     "$(grep -rqE 'icon_mask = &pos_brand_mark' apps ui && echo 0 || echo 1)"
-check "the launcher builds every tile from the app's icon_mask" \
-    "$(grep -q 'pocketui_tile_mask(sh.home, apps\[i\]->icon_mask, apps\[i\]->icon,' ui/shell/shell.c && echo 1 || echo 0)"
+# The DOORS launcher (DS §31) draws each app's portal icon from the runtime
+# art; the app's own mask is what it draws, on the empty portal, when that
+# art is missing (tests/doors_shell_test.sh runs that fallback).
+check "the launcher falls back to the app's icon_mask, drawn in the environment's glyph style" \
+    "$(grep -q 'lv_image_set_src(img, c->app->icon_mask)' ui/shell/home.c &&
+       grep -q 'pos_style_add(img, POS_STYLE_ENV_GLYPH, 0)' ui/shell/home.c && echo 1 || echo 0)"
 sed -n '/^lv_obj_t \*pocketui_tile_mask(/,/^}/p' ui/pocketui/pocketui.c > "${TMP}/tile.txt"
 check "the tile draws a mask as an image in POS_STYLE_APP_ICON" \
     "$(grep -q 'pos_style_add(ic, POS_STYLE_APP_ICON, 0)' "${TMP}/tile.txt" &&
