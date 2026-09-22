@@ -209,7 +209,9 @@ choice worth naming:
 
 - **Contacts are added automatically**, as upstream does
   (`isAutoAddEnabled()` returns true). Any node that adverts within range
-  becomes a contact, up to 32. Past that, MeshCore reports the discovery
+  becomes a contact, up to 256 (`MAX_CONTACTS`, set in
+  `protocols/meshcore/compat/mc_contacts.h`; upstream's default is 32, which
+  a dense mesh filled within minutes). Past that, MeshCore reports the discovery
   anyway, with a contact it is about to throw away, so a UI can say somebody
   adverted and it could not be kept. meshcored does not treat that as a node:
   no `mesh.node` event, no state marked dirty, no telemetry slot taken from a
@@ -583,7 +585,9 @@ Stopping it releases the lease and writes the node table.
 | --- | --- | --- |
 | An enabled build cannot be installed, packaged or imaged while the notices say nothing about what it contains | **VERIFIED host** | `tests/notices_test.sh` executes the refusal on the install, image and package paths, and proves the gate is driven by the notices rather than unconditional |
 | A refused profile releases the radio and another client can take it | **VERIFIED host** | `tests/meshcored_service_test.sh`, against the real radiod |
-| A full contact table produces no phantom node, no state churn and no telemetry eviction | **VERIFIED host** | `tests/meshcored_runtime_test.cpp`, 32 real contacts then 18 more adverts |
+| A full contact table produces no phantom node, no state churn and no telemetry eviction | **VERIFIED host** | `tests/meshcored_runtime_test.cpp`, 256 real contacts (255, then the 256th, then the 257th turned away) then 18 more adverts |
+| A full table of 256 is persisted and reloaded whole, and is still full after the reload | **VERIFIED host** | same (`test_full_contact_table`); the 256 / 257 record boundary of `state.v1` in `tests/meshcored_store_test.cpp` |
+| `mesh.nodes` lists the most recently heard first, and after a restart by the stored last-updated time | **VERIFIED host** | `tests/meshcored_runtime_test.cpp` (`test_nodes_newest_first`); RIFT's 64-node cache keeps the head of that list, `tests/rift_model_test.c` |
 | Each sent message times out on its own deadline; an ACK for one does not strand another; a full outbox refuses rather than overwrites | **VERIFIED host** | `tests/meshcored_runtime_test.cpp` (`test_ack_deadlines`), three nodes, deadlines driven through `mcd_runtime_expire_acks` |
 | A send after every deadline has passed is not refused as busy; an ACK queued behind another frame is matched before its deadline is judged | **VERIFIED host** | same, in real time: no tick between the deadlines passing and the send, and an ACK held one turn behind a frame A hears back |
 | A forgotten node is gone from the table, the file and the list, refuses a message, and is learned again from its next advert; a route can be forgotten on its own | **VERIFIED host** | same, and over IPC in `tests/meshcored_service_test.sh` (section 3c) |

@@ -870,7 +870,7 @@ static void test_restart(Node& a, Air& air)
 
 /* ---- the contact table, full -------------------------------------------
  *
- * MeshCore's table holds 32 contacts. Once it is full, allocateContactSlot()
+ * MeshCore's table holds MAX_CONTACTS (256) contacts. Once it is full, allocateContactSlot()
  * returns NULL and BaseChatMesh reports the discovery anyway, with a
  * ContactInfo on its own stack, purely so a UI can say "somebody adverted and
  * I could not keep them". It is not in the table and it is gone the moment
@@ -1041,36 +1041,51 @@ static void test_full_contact_table(void)
     Node n;
     mesh::LocalIdentity self;
     char store_err[mcdstore::ERR_SIZE] = "";
-    const int TABLE = 32;
+    const int TABLE = MAX_CONTACTS;
     const int EXTRA = 6;
-    mesh::LocalIdentity peers[TABLE + EXTRA];
+    static mesh::LocalIdentity peers[TABLE + EXTRA];
     uint8_t frame[MCD_MAX_FRAME];
     struct mcd_rx_meta meta;
     struct mcd_runtime_stats st;
     uint32_t stamp = 1789000000u;
     int len;
+    bool ids_ok = true;
 
+    check("the table is 256, not upstream's 32", TABLE == 256 && TABLE == MCD_MAX_NODES);
     check("an identity for the crowded node", mcdstore::identityCreate(self, store_err));
     check("the crowded node starts", makeNode(n, air, "CROWD", &self));
     if (!n.rt) {
         return;
     }
     mcd_runtime_set_radio_online(n.rt, true);
+    for (int i = 0; i < TABLE + EXTRA; i++) {
+        ids_ok = ids_ok && mcdstore::identityCreate(peers[i], store_err);
+    }
+    check("an identity for every peer, the spares included", ids_ok);
 
     /* Fill it. Each advert carries its own timestamp, because a receiver
      * drops one that is not newer than the last it holds for that node. */
     for (int i = 0; i < TABLE; i++) {
         char name[16];
 
-        check("a peer identity", mcdstore::identityCreate(peers[i], store_err));
         snprintf(name, sizeof(name), "PEER-%d", i);
         len = craftAdvert(frame, peers[i], name, stamp++);
         defaultMeta(meta);
         mcd_runtime_deliver_rx(n.rt, frame, len, &meta);
         pumpUntil(air, [&] { return mcd_runtime_node_count(n.rt) == i + 1; });
+        if (i == TABLE - 2) {
+            mcd_runtime_stats(n.rt, &st);
+            check("255 nodes are held", mcd_runtime_node_count(n.rt) == TABLE - 1);
+            check("with nothing turned away yet", st.nodes_unretained == 0 && st.contacts_full == 0);
+        }
     }
-    check("the table fills to its limit", mcd_runtime_node_count(n.rt) == TABLE);
+    mcd_runtime_stats(n.rt, &st);
+    check("the 256th is kept: the table fills to its limit", mcd_runtime_node_count(n.rt) == TABLE);
+    check("and nothing was turned away to get there",
+          st.nodes_unretained == 0 && st.contacts_full == 0);
     check("and every one of them raised a discovery", n.node_discovered == TABLE);
+    check("the last one in can be looked up",
+          mcd_runtime_node_by_prefix(n.rt, peers[TABLE - 1].pub_key, 8, NULL) == 1);
 
     /* A node that IS kept, whose telemetry must survive what follows. */
     struct mcd_node kept;
@@ -1086,15 +1101,33 @@ static void test_full_contact_table(void)
     mcd_runtime_stats(n.rt, &st);
     uint64_t unretained_before = st.nodes_unretained;
 
-    /* Now node 33 and onwards, repeatedly - the case that used to churn. */
+    /* The 257th, on its own first: turned away, counted, and nowhere. */
+    {
+        uint64_t full_before = st.contacts_full;
+
+        len = craftAdvert(frame, peers[TABLE], "SPARE-0", stamp++);
+        defaultMeta(meta);
+        mcd_runtime_deliver_rx(n.rt, frame, len, &meta);
+        pumpUntil(air, [&] {
+            struct mcd_runtime_stats s;
+
+            mcd_runtime_stats(n.rt, &s);
+            return s.nodes_unretained > unretained_before;
+        });
+        mcd_runtime_stats(n.rt, &st);
+        check("the 257th is turned away and counted",
+              st.nodes_unretained == unretained_before + 1 && st.contacts_full == full_before + 1);
+        check("the table still holds 256", mcd_runtime_node_count(n.rt) == TABLE);
+        check("and the 257th cannot be looked up",
+              mcd_runtime_node_by_prefix(n.rt, peers[TABLE].pub_key, 8, NULL) == 0);
+        unretained_before = st.nodes_unretained;
+    }
+
+    /* Now node 257 and onwards, repeatedly - the case that used to churn. */
     for (int round = 0; round < 3; round++) {
         for (int i = 0; i < EXTRA; i++) {
             char name[16];
 
-            if (round == 0) {
-                check("an identity for a node there is no room for",
-                      mcdstore::identityCreate(peers[TABLE + i], store_err));
-            }
             snprintf(name, sizeof(name), "SPARE-%d", i);
             /* Different metadata, so an eviction would be visible. */
             memset(&meta, 0, sizeof(meta));
@@ -1220,6 +1253,188 @@ static void test_full_contact_table(void)
               mcd_runtime_node_by_prefix(n.rt, peers[0].pub_key, 8, &kept) == 1 &&
                   kept.last_heard_known && kept.last_heard_mono_ms == kept_heard);
     }
+
+    /* ---- a full table across a restart ----
+     *
+     * All 256 written, all 256 read back - none lost to a limit on either
+     * side of the file - and the table is still full afterwards, so the next
+     * stranger is turned away exactly as before. */
+    {
+        static uint8_t keys[TABLE][PUB_KEY_SIZE];
+        int held = mcd_runtime_node_count(n.rt);
+        bool all_back = true;
+        char err[256] = "";
+        struct mcd_runtime_hooks hooks;
+        struct mcd_runtime_config cfg;
+
+        check("the table is full before the restart", held == TABLE);
+        for (int i = 0; i < held; i++) {
+            struct mcd_node node;
+
+            mcd_runtime_node_at(n.rt, i, &node);
+            memcpy(keys[i], node.public_key, PUB_KEY_SIZE);
+        }
+        check("the full table is written", mcd_runtime_persist(n.rt) == 0);
+        mcd_runtime_destroy(n.rt);
+
+        memset(&hooks, 0, sizeof(hooks));
+        hooks.tx_submit = hook_tx_submit;
+        hooks.on_node = hook_on_node;
+        hooks.user = &n;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.state_dir = n.dir;
+        n.rt = mcd_runtime_create(&cfg, &hooks, err, sizeof(err));
+        check("the runtime starts again on the full table", n.rt != NULL);
+        if (!n.rt) {
+            return;
+        }
+        air.nodes[n.index] = &n;
+        mcd_runtime_set_radio_online(n.rt, true);
+        check("with all 256 nodes", mcd_runtime_node_count(n.rt) == TABLE);
+        for (int i = 0; i < held; i++) {
+            if (mcd_runtime_node_by_prefix(n.rt, keys[i], PUB_KEY_SIZE, NULL) != 1) {
+                all_back = false;
+            }
+        }
+        check("every one of them the node it was", all_back);
+
+        mcd_runtime_stats(n.rt, &st);
+        len = craftAdvert(frame, peers[TABLE + 1], "SPARE-1", stamp++);
+        defaultMeta(meta);
+        mcd_runtime_deliver_rx(n.rt, frame, len, &meta);
+        pumpUntil(air, [&] {
+            struct mcd_runtime_stats s;
+
+            mcd_runtime_stats(n.rt, &s);
+            return s.nodes_unretained > st.nodes_unretained;
+        });
+        check("and a new node is still turned away after the reload",
+              mcd_runtime_node_count(n.rt) == TABLE &&
+                  mcd_runtime_node_by_prefix(n.rt, peers[TABLE + 1].pub_key, 8, NULL) == 0);
+    }
+
+    mcd_runtime_destroy(n.rt);
+    n.rt = NULL;
+}
+
+/* ---- mesh.nodes: most recently heard first ------------------------------
+ *
+ * The service holds 256 nodes and RIFT keeps 64, so the order mesh.nodes
+ * lists them in decides which 64 a client keeps. Nodes heard during this run
+ * come first, newest first; after a restart nothing has been heard yet, and
+ * the stored last-updated time (MeshCore's lastmod) is what orders them. */
+static void test_nodes_newest_first(void)
+{
+    Air air;
+    Node n;
+    mesh::LocalIdentity self;
+    mesh::LocalIdentity p[3];
+    char store_err[mcdstore::ERR_SIZE] = "";
+    uint8_t frame[MCD_MAX_FRAME];
+    struct mcd_rx_meta meta;
+    struct mcd_node out[MCD_MAX_NODES];
+    uint32_t stamp = 1789500000u;
+    uint64_t t0 = nowMs();
+    char dir[512];
+    int len;
+
+    /* ---- after a restart: three stored nodes, none heard yet ----
+     *
+     * Table order A, B, C; last updated at 100, 300 and 200 seconds. */
+    {
+        mcdstore::NodeState* st = new mcdstore::NodeState();
+
+        snprintf(dir, sizeof(dir), "%s/ORDER", g_root);
+        check("a state directory for the ordering case", mcdstore::ensureDir(dir, store_err));
+        snprintf(st->name, sizeof(st->name), "ORDER");
+        for (int i = 0; i < 3; i++) {
+            ContactInfo& c = st->nodes[i];
+            static const uint32_t lastmod[3] = { 100, 300, 200 };
+
+            c = ContactInfo();
+            memset(c.id.pub_key, 0xA0 + i, PUB_KEY_SIZE);
+            snprintf(c.name, sizeof(c.name), "STORED-%c", 'A' + i);
+            c.type = ADV_TYPE_CHAT;
+            c.out_path_len = OUT_PATH_UNKNOWN;
+            c.lastmod = lastmod[i];
+        }
+        st->count = 3;
+        check("and a stored table", mcdstore::stateSave(*st, dir, store_err));
+        delete st;
+    }
+    check("an identity for the ordering node", mcdstore::identityCreate(self, store_err));
+    check("the ordering node starts on it", makeNode(n, air, "ORDER", &self));
+    if (!n.rt) {
+        return;
+    }
+    mcd_runtime_set_radio_online(n.rt, true);
+    check("the three stored nodes are listed",
+          mcd_runtime_nodes_recent(n.rt, out, MCD_MAX_NODES) == 3);
+    check("with none heard during this run",
+          !out[0].last_heard_known && !out[1].last_heard_known && !out[2].last_heard_known);
+    check("newest stored first: B (300), C (200), A (100)",
+          out[0].public_key[0] == 0xA1 && out[1].public_key[0] == 0xA2 &&
+              out[2].public_key[0] == 0xA0);
+
+    /* ---- heard during this run ----
+     *
+     * Three peers advert in the order P0, P1, P2, each heard a second after
+     * the one before. The table holds them in that order too; the list must
+     * not. */
+    for (int i = 0; i < 3; i++) {
+        char name[16];
+
+        check("a peer identity for the ordering case", mcdstore::identityCreate(p[i], store_err));
+        snprintf(name, sizeof(name), "HEARD-%d", i);
+        len = craftAdvert(frame, p[i], name, stamp++);
+        defaultMeta(meta);
+        meta.mono_ms = t0 + 1000u * (uint64_t)i;
+        mcd_runtime_deliver_rx(n.rt, frame, len, &meta);
+        pumpUntil(air, [&] { return mcd_runtime_node_count(n.rt) == 4 + i; });
+    }
+    check("all six are held", mcd_runtime_nodes_recent(n.rt, out, MCD_MAX_NODES) == 6);
+    check("the newest heard first: P2, P1, P0",
+          memcmp(out[0].public_key, p[2].pub_key, PUB_KEY_SIZE) == 0 &&
+              memcmp(out[1].public_key, p[1].pub_key, PUB_KEY_SIZE) == 0 &&
+              memcmp(out[2].public_key, p[0].pub_key, PUB_KEY_SIZE) == 0);
+    check("every heard node ahead of every one not heard this run",
+          out[2].last_heard_known && !out[3].last_heard_known);
+    check("which keep their stored order behind them",
+          out[3].public_key[0] == 0xA1 && out[4].public_key[0] == 0xA2 &&
+              out[5].public_key[0] == 0xA0);
+    {
+        struct mcd_node first;
+
+        check("and the table itself is not in that order",
+              mcd_runtime_node_at(n.rt, 0, &first) && first.public_key[0] == 0xA0);
+    }
+
+    /* P0 heard again, later than anyone: it moves to the front. */
+    {
+        struct mcd_node was;
+
+        mcd_runtime_node_by_prefix(n.rt, p[0].pub_key, 8, &was);
+        len = craftAdvert(frame, p[0], "HEARD-0", stamp++);
+        defaultMeta(meta);
+        meta.mono_ms = t0 + 5000u;
+        mcd_runtime_deliver_rx(n.rt, frame, len, &meta);
+        check("P0 is heard again", pumpUntil(air, [&] {
+                  struct mcd_node node;
+
+                  return mcd_runtime_node_by_prefix(n.rt, p[0].pub_key, 8, &node) == 1 &&
+                         node.last_heard_mono_ms != was.last_heard_mono_ms;
+              }));
+    }
+    mcd_runtime_nodes_recent(n.rt, out, MCD_MAX_NODES);
+    check("a node heard again moves to the front",
+          memcmp(out[0].public_key, p[0].pub_key, PUB_KEY_SIZE) == 0 &&
+              memcmp(out[1].public_key, p[2].pub_key, PUB_KEY_SIZE) == 0);
+
+    /* A shorter list is the head of the same order, not the table's first. */
+    check("a smaller max gets the newest",
+          mcd_runtime_nodes_recent(n.rt, out, 2) == 2 &&
+              memcmp(out[0].public_key, p[0].pub_key, PUB_KEY_SIZE) == 0 &&
+              memcmp(out[1].public_key, p[2].pub_key, PUB_KEY_SIZE) == 0);
 
     mcd_runtime_destroy(n.rt);
     n.rt = NULL;
@@ -2300,6 +2515,7 @@ int main(void)
     test_corrupt_state_is_survivable();
     test_hostile_remote_text();
     test_full_contact_table();
+    test_nodes_newest_first();
     test_ack_deadlines(a, b, air);
 
     mcd_runtime_destroy(a.rt);

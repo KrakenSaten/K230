@@ -37,6 +37,10 @@
  * explains the rest. */
 #include "mc_channels.h"
 
+/* MAX_CONTACTS, for the same reason and by the same route: it sizes
+ * BaseChatMesh's contact table (BaseChatMesh.h:64). See mc_contacts.h. */
+#include "mc_contacts.h"
+
 /* avr-libc's ltoa(), which the Arduino cores inherit and which MeshCore's
  * float formatter calls (TxtDataHelpers.cpp, _ftoa). It is not in the C
  * library on Linux, so it is supplied here rather than by editing a vendored

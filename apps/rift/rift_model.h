@@ -50,9 +50,11 @@
 #define RIFT_NAME_MAX 48
 /* MeshCore's path is at most 64 bytes (MCD_MAX_PATH), so 128 hex + NUL. */
 #define RIFT_PATH_HEX_MAX 129
-/* MeshCore's contact table holds 32; this is the cache above it, with room
- * for a service whose table grows without this app being rebuilt. A full
- * cache drops the stalest node and counts it rather than growing. */
+/* The cache above meshcored's node table, which holds more than this (256,
+ * MCD_MAX_NODES). mesh.nodes lists most recently heard first and a snapshot
+ * fills the cache from the head of that list; a mesh.node event for a node
+ * not held evicts the stalest one. Either way the rest are counted, not
+ * kept. Held at 64 because the NODES list builds a row per cached node. */
 #define RIFT_MAX_NODES 64
 /* The raw feed is a window, not a log: the newest entries, bounded. */
 #define RIFT_MAX_ACTIVITY 48
@@ -69,9 +71,9 @@
  * preview, the delivery tally - is derived from what is still in here and
  * says so rather than implying a complete history. */
 #define RIFT_MAX_MESSAGES 96
-/* Distinct peers a conversation is tracked for. MeshCore's contact table
- * holds 32, so a mesh that fills this one is already a mesh the service
- * cannot hold. */
+/* Distinct peers a conversation is tracked for. Part of the message
+ * history's bounds, which are deliberately unchanged while meshcored's node
+ * table grew past this. */
 #define RIFT_MAX_CONVERSATIONS 32
 /* Channels the service will hold (mesh.channels, "max"). A service that
  * grows its table past this shows its first RIFT_MAX_CHANNELS here and says

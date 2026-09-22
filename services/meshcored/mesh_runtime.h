@@ -40,6 +40,10 @@ extern "C" {
  * against the vendored values in mesh_runtime.cpp, like the five above. */
 #define MCD_MAX_CHANNELS 8
 #define MCD_CHANNEL_NAME_LEN 32
+/* MeshCore's MAX_CONTACTS (protocols/meshcore/compat/mc_contacts.h): the
+ * most nodes the table holds and mesh.nodes can list. Static-asserted like
+ * the rest. */
+#define MCD_MAX_NODES 256
 
 /* ---- what came off the air --------------------------------------------
  *
@@ -288,6 +292,18 @@ void mcd_runtime_identity(const struct mcd_runtime *rt, uint8_t pub_key[MCD_PUB_
 int mcd_runtime_node_count(const struct mcd_runtime *rt);
 /* Copy node idx (0-based, stable within one call sequence) into n. */
 bool mcd_runtime_node_at(const struct mcd_runtime *rt, int idx, struct mcd_node *n);
+/* Every node, most recently heard first, into out[0..max). Returns how many
+ * were written; with max at MCD_MAX_NODES that is all of them, and a
+ * smaller max gets the most recent ones.
+ *
+ * The order is what mesh.nodes promises (docs/api/mesh.md): nodes heard
+ * during this run first, newest last_heard_mono_ms first; then the nodes
+ * not heard since the service started, newest first by the time MeshCore
+ * last updated the contact (its lastmod, kept in state.v1), so after a
+ * restart the list still leads with what was heard last; ties in table
+ * order. A client that keeps fewer nodes than the service holds keeps the
+ * head of the list and so keeps the ones that matter. */
+int mcd_runtime_nodes_recent(const struct mcd_runtime *rt, struct mcd_node *out, int max);
 /* Look a node up by a public-key prefix of prefix_len bytes. Returns 1 on a
  * unique match (copied into n), 0 for no match, and -1 when the prefix
  * matches more than one node - which is a question the caller must ask more

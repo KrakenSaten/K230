@@ -306,6 +306,87 @@ static void test_state_round_trip(void)
           mcdstore::stateLoad(in, g_dir, g_err) == 1 && in.count == 0);
 }
 
+/* ---- the node limit, at its edge -----------------------------------------
+ *
+ * state.v1 carries every contact MeshCore's table can hold, 256. A full table
+ * must come back whole and in order, and a well-formed file one node longer -
+ * which only a build with a bigger table could have written - must be refused
+ * by its count rather than read as far as fits. */
+static void test_state_capacity(void)
+{
+    mcdstore::NodeState* out = new mcdstore::NodeState();
+    mcdstore::NodeState* in = new mcdstore::NodeState();
+    const int limit = mcdstore::MAX_NODES;
+    const size_t full = 44 + 148 * (size_t)limit;
+    uint8_t* raw = (uint8_t*)malloc(full + 148);
+
+    check("the persisted limit is MeshCore's table, 256",
+          limit == 256 && limit == MAX_CONTACTS);
+    snprintf(out->name, sizeof(out->name), "K230-A");
+    for (int i = 0; i < limit; i++) {
+        char name[16];
+
+        snprintf(name, sizeof(name), "N%03d", i);
+        out->nodes[i] = makeNode((uint8_t)i, name, 0);  /* distinct first bytes */
+    }
+
+    out->count = limit - 1;
+    check("255 nodes save", mcdstore::stateSave(*out, g_dir, g_err));
+    check("255 nodes load as 255",
+          mcdstore::stateLoad(*in, g_dir, g_err) == 1 && in->count == limit - 1);
+
+    out->count = limit;
+    check("256 nodes save", mcdstore::stateSave(*out, g_dir, g_err));
+    check("as exactly 256 records", fileSize("state.v1") == (long)full);
+    check("256 nodes load as 256",
+          mcdstore::stateLoad(*in, g_dir, g_err) == 1 && in->count == limit);
+    {
+        bool same = true;
+
+        for (int i = 0; i < limit; i++) {
+            if (memcmp(in->nodes[i].id.pub_key, out->nodes[i].id.pub_key, PUB_KEY_SIZE) != 0 ||
+                strcmp(in->nodes[i].name, out->nodes[i].name) != 0 ||
+                in->nodes[i].lastmod != out->nodes[i].lastmod) {
+                same = false;
+            }
+        }
+        check("every one of them, in order", same);
+    }
+
+    /* 257: the full file plus one well-formed record with a key of its own,
+     * and a count that says so. */
+    {
+        char p[512];
+        FILE* f;
+        bool read_ok;
+
+        joinp(p, sizeof(p), "state.v1");
+        f = fopen(p, "rb");
+        read_ok = raw && f && fread(raw, 1, full, f) == full;
+        if (f) {
+            fclose(f);
+        }
+        check("the full file can be read as bytes", read_ok);
+        if (read_ok) {
+            memcpy(&raw[full], &raw[44], 148);
+            raw[full + 1] = 0xEE;  /* no other key starts 00 EE */
+            raw[40] = 0x01;        /* 257 */
+            raw[41] = 0x01;
+            writeRaw("state.v1", raw, full + 148, 0600);
+            check("a well-formed file of 257 nodes is refused",
+                  mcdstore::stateLoad(*in, g_dir, g_err) == -1);
+            /* Before its count is even read: the file is longer than 256
+             * records can be. A count of 257 in a short file is refused by
+             * the count itself - see test_state_corruption. */
+            check("as longer than 256 nodes can be", strstr(g_err, "longer than") != NULL);
+        }
+    }
+    removeFile("state.v1");
+    free(raw);
+    delete in;
+    delete out;
+}
+
 static void test_state_corruption(void)
 {
     mcdstore::NodeState in;
@@ -369,7 +450,8 @@ static void test_state_corruption(void)
         uint8_t bad[44 + 148];
 
         memcpy(bad, buf, sizeof(bad));
-        bad[40] = 200;  /* more nodes than the format allows */
+        bad[40] = 0x01;  /* 257, little-endian: one more than the limit */
+        bad[41] = 0x01;
         writeRaw("state.v1", bad, sizeof(bad), 0600);
         check("a count beyond the node limit is refused",
               mcdstore::stateLoad(in, g_dir, g_err) == -1);
@@ -899,6 +981,7 @@ int main(void)
     test_identity_generate_and_reload();
     test_identity_corruption();
     test_state_round_trip();
+    test_state_capacity();
     test_state_corruption();
     test_quarantine();
     test_channels_round_trip();

@@ -31,6 +31,7 @@
 #include <fcntl.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/file.h>
 #include <unistd.h>
@@ -63,6 +64,11 @@ static_assert(MCD_CHANNEL_NAME_LEN == sizeof(((ChannelDetails*)0)->name),
               "channel name size drifted from MeshCore");
 static_assert(MCD_MAX_CHANNELS == mcdstore::MAX_CHANNELS,
               "the channel table and channels.v1 disagree about how many channels there are");
+/* The contact table, the same way: sized by compat/mc_contacts.h, repeated
+ * in the C header, persisted by mesh_store.h. */
+static_assert(MCD_MAX_NODES == MAX_CONTACTS, "contact table size drifted from MeshCore");
+static_assert(mcdstore::MAX_NODES == MAX_CONTACTS,
+              "the contact table and state.v1 disagree about how many nodes there are");
 
 #ifndef MESHCORE_RIFT_COMMIT
 #define MESHCORE_RIFT_COMMIT ""
@@ -848,7 +854,7 @@ public:
 protected:
     /* A discovered contact that the table did not keep.
      *
-     * Once MeshCore's fixed 32-contact table is full, allocateContactSlot()
+     * Once MeshCore's fixed MAX_CONTACTS table is full, allocateContactSlot()
      * returns NULL and BaseChatMesh calls this anyway, with a ContactInfo
      * built on its own stack purely so a UI can say "somebody adverted and I
      * could not keep them" (vendor/RIFT/src/helpers/BaseChatMesh.cpp:172-179).
@@ -1913,6 +1919,67 @@ bool mcd_runtime_node_at(const struct mcd_runtime* rt, int idx, struct mcd_node*
         seen++;
     }
     return false;
+}
+
+/* One contact's place in mcd_runtime_nodes_recent's order. */
+struct NodeRank {
+    int slot;          /* MeshCore's table index, for the copy and the tie */
+    bool heard;        /* heard during this run */
+    uint64_t heard_ms;
+    uint32_t lastmod;  /* MeshCore's, by our wall clock; survives a restart */
+};
+
+static int newestFirst(const void* pa, const void* pb)
+{
+    const NodeRank* a = (const NodeRank*)pa;
+    const NodeRank* b = (const NodeRank*)pb;
+
+    if (a->heard != b->heard) {
+        return a->heard ? -1 : 1;
+    }
+    if (a->heard && a->heard_ms != b->heard_ms) {
+        return a->heard_ms > b->heard_ms ? -1 : 1;
+    }
+    if (a->lastmod != b->lastmod) {
+        return a->lastmod > b->lastmod ? -1 : 1;
+    }
+    return a->slot - b->slot;
+}
+
+int mcd_runtime_nodes_recent(const struct mcd_runtime* rt, struct mcd_node* out, int max)
+{
+    NodeRank rank[MAX_CONTACTS];
+    Node& node = const_cast<Node&>(rt->node);
+    ContactInfo c;
+    int n = 0;
+
+    if (out == NULL || max <= 0) {
+        return 0;
+    }
+    /* From the first real slot, as ContactsIterator walks: the eight before
+     * it are MeshCore's reserved anonymous ones. */
+    for (int slot = MAX_ANON_CONTACTS; slot < node.getTotalContactSlots() && n < MAX_CONTACTS;
+         slot++) {
+        if (!node.getContactByIdx((uint32_t)slot, c) || c.type == ADV_TYPE_NONE) {
+            continue;
+        }
+        const Node::Telemetry* t = node.telemetryFor(c.id.pub_key);
+
+        rank[n].slot = slot;
+        rank[n].heard = t && t->heard_known;
+        rank[n].heard_ms = rank[n].heard ? t->heard_ms : 0;
+        rank[n].lastmod = c.lastmod;
+        n++;
+    }
+    qsort(rank, (size_t)n, sizeof(rank[0]), newestFirst);
+    if (n > max) {
+        n = max;
+    }
+    for (int i = 0; i < n; i++) {
+        node.getContactByIdx((uint32_t)rank[i].slot, c);
+        node.fill(c, out[i]);
+    }
+    return n;
 }
 
 int mcd_runtime_node_by_prefix(const struct mcd_runtime* rt, const uint8_t* prefix,
