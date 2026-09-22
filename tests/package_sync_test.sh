@@ -582,6 +582,10 @@ check "their commits and states reach the applied manifest" \
 check "and BUILD_INFO reports them" \
       $(grep -q 'MeshCore  : $(m meshcore_commit)' platforms/k230/scripts/build_image.sh &&
         grep -q 'Crypto    : $(m crypto_commit)' platforms/k230/scripts/build_image.sh && echo 1 || echo 0)
+check "an exported tree with uncommitted changes is recorded as <commit>-dirty, never as the pin" \
+      $(grep -q "pin_record() { \[ \"\$2\" = \"dirty\" \] && printf '%s-dirty" "$APPLY" &&
+        grep -q 'pin_record "${RIFT_COMMIT}" "${RIFT_STATE}"' "$APPLY" &&
+        grep -q 'pin_record "${CRYPTO_COMMIT}" "${CRYPTO_STATE}"' "$APPLY" && echo 1 || echo 0)
 check "the package carries the MeshCore and Crypto licences with them" \
       $(grep -q 'RIFT_DIR_SRC}/license.txt' "$APPLY" &&
         grep -q 'CRYPTO_DIR_SRC}/libraries/LICENSE.txt' "$APPLY" && echo 1 || echo 0)

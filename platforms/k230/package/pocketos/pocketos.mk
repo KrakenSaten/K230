@@ -25,7 +25,7 @@ POCKETOS_SITE_METHOD = local
 # pocketos.hash) and the image installs as
 # /usr/share/doors/THIRD_PARTY_NOTICES.txt, with a link at the old
 # /usr/share/pocketos path.
-POCKETOS_LICENSE = Not yet decided (Doors; no licence granted), MIT (RadioLib, ggwave, Reed-Solomon), Ooura FFT licence (ggwave FFT), OFL-1.1 (IBM Plex font bitmaps)
+POCKETOS_LICENSE = Not yet decided (Doors; no licence granted), MIT (RadioLib, ggwave, Reed-Solomon, MeshCore, Arduino Cryptography Library), Zlib (Ed25519, in MeshCore), Ooura FFT licence (ggwave FFT), OFL-1.1 (IBM Plex font bitmaps)
 POCKETOS_LICENSE_FILES = THIRD_PARTY_NOTICES.txt
 POCKETOS_REDISTRIBUTE = NO
 POCKETOS_INSTALL_TARGET = YES

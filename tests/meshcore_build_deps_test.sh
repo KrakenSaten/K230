@@ -327,6 +327,14 @@ exp_check; rc=$?
 check "an exported tree recorded at another commit is refused" "$([ $rc -ne 0 ] && echo 1 || echo 0)"
 check "and says which commit it is at" \
       "$(grep -q "is at $RIFT_OTHER" "$WORK/export.log" && echo 1 || echo 0)"
+# What apply_to_sdk.sh writes for a checkout at the pin with uncommitted
+# changes: the pin, marked. The bytes are not the pinned bytes, so it is not
+# taken for the pin.
+echo "$RIFT_PIN-dirty" > "$PKG/third_party/RIFT/.doors-pinned-commit"
+exp_check; rc=$?
+check "an exported tree recorded as <pin>-dirty is refused" "$([ $rc -ne 0 ] && echo 1 || echo 0)"
+check "and says so" \
+      "$(grep -q "is at $RIFT_PIN-dirty" "$WORK/export.log" && echo 1 || echo 0)"
 
 echo "meshcore_build_deps: $checks check(s), $failed failure(s)"
 exit $((failed > 0))

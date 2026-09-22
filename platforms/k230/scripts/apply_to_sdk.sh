@@ -239,7 +239,9 @@ meshcore_tree_check() { # <what> <dir> <pin file> -> sets TREE_COMMIT, TREE_STAT
     if [ "${TREE_STATE}" = "dirty" ]; then
         if [ "${POCKETOS_ALLOW_PIN_DRIFT:-0}" = "1" ]; then
             echo "WARNING: the ${what} checkout is dirty; its uncommitted changes WILL be" >&2
-            echo "         compiled into meshcored (POCKETOS_ALLOW_PIN_DRIFT=1)." >&2
+            echo "         compiled into meshcored (POCKETOS_ALLOW_PIN_DRIFT=1). The export is" >&2
+            echo "         recorded as <commit>-dirty, so protocols/meshcore will refuse it unless" >&2
+            echo "         the package is built with MESHCORE_ALLOW_UNPINNED=1." >&2
         else
             echo "ERROR: the ${what} checkout at ${dir} is dirty; its uncommitted" >&2
             echo "       changes would be compiled into meshcored." >&2
@@ -465,12 +467,16 @@ rsync -a --exclude '*.o' --exclude '*.d' --exclude '*.a' \
 rsync -a --exclude '*.o' --exclude '*.d' --exclude '*.a' \
     "${RIFT_DIR_SRC}/lib/ed25519" "${PKG_DIR}/src/third_party/RIFT/lib/"
 install -m 0644 "${RIFT_DIR_SRC}/license.txt" "${PKG_DIR}/src/third_party/RIFT/license.txt"
-printf '%s\n' "${RIFT_COMMIT}" > "${PKG_DIR}/src/third_party/RIFT/.doors-pinned-commit"
+# A tree exported with uncommitted changes is recorded as <commit>-dirty, never
+# as the commit: protocols/meshcore then refuses to call it pinned, which is
+# the truth about it.
+pin_record() { [ "$2" = "dirty" ] && printf '%s-dirty\n' "$1" || printf '%s\n' "$1"; }
+pin_record "${RIFT_COMMIT}" "${RIFT_STATE}" > "${PKG_DIR}/src/third_party/RIFT/.doors-pinned-commit"
 rsync -a --exclude '*.o' --exclude '*.d' --exclude '*.a' \
     "${CRYPTO_DIR_SRC}/libraries/Crypto" "${PKG_DIR}/src/third_party/Crypto/libraries/"
 install -m 0644 "${CRYPTO_DIR_SRC}/libraries/LICENSE.txt" \
     "${PKG_DIR}/src/third_party/Crypto/libraries/LICENSE.txt"
-printf '%s\n' "${CRYPTO_COMMIT}" > "${PKG_DIR}/src/third_party/Crypto/.doors-pinned-commit"
+pin_record "${CRYPTO_COMMIT}" "${CRYPTO_STATE}" > "${PKG_DIR}/src/third_party/Crypto/.doors-pinned-commit"
 CONFIG_IN="${SDK_DIR}/buildroot-overlay/package/Config_canaan.in"
 if ! grep -q 'source "package/pocketos/Config.in"' "${CONFIG_IN}"; then
     printf '\nsource "package/pocketos/Config.in"\n' >> "${CONFIG_IN}"
