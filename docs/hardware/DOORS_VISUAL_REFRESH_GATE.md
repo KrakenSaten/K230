@@ -18,6 +18,11 @@ build.
 | Controls | Radio, Wi-Fi, Rotation, Display tiles; Brightness slider; Settings / Mesh messages / About DOORS; Lock, Power |
 | Apps | unchanged, including the status bar (§7, §30) |
 
+What the simulator draws, at half size (clock and date are the capture's):
+`docs/design/doors-visual-refresh/portrait.png` (lock, open door, launcher,
+Controls, an app, launcher in Night) and `landscape-1.png`, `landscape-2.png`
+(lock, open door, launcher, Controls). The panel is to be compared with these.
+
 ## Deploy (no flash)
 
 The art is new under `/usr/share/doors/ui`, and `deploy.sh` now carries
