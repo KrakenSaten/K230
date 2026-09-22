@@ -27,9 +27,13 @@
  */
 #include "mesh_runtime.h"
 
+#include <errno.h>
+#include <fcntl.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/file.h>
+#include <unistd.h>
 
 #include <base64.hpp>
 #include <helpers/AdvertDataHelpers.h>
@@ -1577,6 +1581,46 @@ void mcd_runtime_set_log_sink(void (*sink)(int level, const char* line))
 {
     g_c_sink = sink;
     mcport::setLogSink(sink ? cxx_sink : NULL);
+}
+
+int mcd_runtime_lock_state_dir(const char* state_dir, bool* busy, char* err, size_t errlen)
+{
+    char store_err[mcdstore::ERR_SIZE] = "";
+    int fd;
+
+    if (busy) {
+        *busy = false;
+    }
+    if (state_dir == NULL || !mcdstore::ensureDir(state_dir, store_err)) {
+        snprintf(err, errlen, "%s", state_dir ? store_err : "no state directory");
+        return -1;
+    }
+    /* The directory itself, not a file inside it: nothing new appears in a
+     * directory whose listing the gates read, and there is no lock file to
+     * leave behind. flock on a directory descriptor is ordinary Linux. */
+    fd = open(state_dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) {
+        snprintf(err, errlen, "cannot open %s: %s", state_dir, strerror(errno));
+        return -1;
+    }
+    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        int e = errno;
+
+        close(fd);
+        if (e == EWOULDBLOCK) {
+            if (busy) {
+                *busy = true;
+            }
+            snprintf(err, errlen,
+                     "another meshcored is already running on %s; refusing to start a "
+                     "second node with the same identity",
+                     state_dir);
+        } else {
+            snprintf(err, errlen, "cannot lock %s: %s", state_dir, strerror(e));
+        }
+        return -1;
+    }
+    return fd;
 }
 
 const char* mcd_runtime_rift_commit(void) { return MESHCORE_RIFT_COMMIT; }

@@ -221,6 +221,22 @@ struct mcd_runtime_config {
 
 struct mcd_runtime;
 
+/* Claim the state directory for this process: create it if it is not there
+ * (parents 0755, the directory itself 0700, as the runtime does) and take an
+ * exclusive, non-blocking flock on it. Returns the descriptor that holds the
+ * lock - keep it open for the life of the process; the kernel releases it on
+ * exit however the process ends, so a lock is never stale - or -1 with why in
+ * err. *busy is set when another process holds it.
+ *
+ * One state directory is one MeshCore node: its identity, its contacts, its
+ * channel keys. Two processes on it would be two radios claiming one identity,
+ * each rewriting the other's node table, and the second one's socket would
+ * replace the first one's (pocketipc unlinks before it binds). The init script
+ * prevents that for the processes it starts; this refuses it for all of them,
+ * a hand-started one included. Call it before mcd_runtime_create and before
+ * listening. */
+int mcd_runtime_lock_state_dir(const char *state_dir, bool *busy, char *err, size_t errlen);
+
 /* Create the runtime: load or generate the identity, load the contacts, and
  * bring the MeshCore node up. Returns NULL with why in err on a failure that
  * must stop the service - a corrupt identity file above all, which is never

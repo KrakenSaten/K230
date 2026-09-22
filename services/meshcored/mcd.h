@@ -159,6 +159,9 @@ struct mcd {
     struct pocketipc_server *server;
     struct mcd_radio_link *link;
     struct mcd_runtime *rt;
+    /* Holds the flock on the state directory for the life of the process
+     * (mcd_runtime_lock_state_dir). -1 when not held. */
+    int state_lock_fd;
 
     struct mcd_counters counters;
 

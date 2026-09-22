@@ -334,6 +334,45 @@ PYEOF
 run_driver "$TMP/t1.py" "$TMP" "$MSOCK"
 
 # ---------------------------------------------------------------------------
+# 1b. a second meshcored on the same node
+# ---------------------------------------------------------------------------
+# What unit A was one command away from: a meshcored started by hand, then the
+# init script starting another beside it. Same state directory, same socket
+# name. The second must leave before it reads the identity or touches the
+# socket - pocketipc unlinks a socket path before it binds, so a second
+# listener would have taken the first one's clients.
+echo "--- a second meshcored on the same node"
+sock_inode_before=$(stat -c %i "$MSOCK" 2>/dev/null)
+second_rc=0
+timeout 10 "$MESHCORED" --verbose > "$TMP/second.log" 2>&1 || second_rc=$?
+check "a second meshcored on the same state directory refuses to start (exit 3)" \
+      "$([ "$second_rc" -eq 3 ] && echo 1 || echo 0)"
+check "and says why" \
+      "$(grep -q 'another meshcored is already running on' "$TMP/second.log" && echo 1 || echo 0)"
+check "the first one is still running" "$(kill -0 "$MCD_PID" 2>/dev/null && echo 1 || echo 0)"
+check "and still owns its socket - the same inode, not a replacement" \
+      "$([ -n "$sock_inode_before" ] && [ "$(stat -c %i "$MSOCK" 2>/dev/null)" = "$sock_inode_before" ] && echo 1 || echo 0)"
+cat > "$TMP/t1b.py" <<'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+from lib import *
+m = Conn(sys.argv[2])
+st = m.result("mesh.status")
+ok("the first one still answers, in the state it was in",
+   st["state"] == "waiting_for_radiod", st["state"])
+done()
+PYEOF
+run_driver "$TMP/t1b.py" "$TMP" "$MSOCK"
+# A different state directory is a different node, and is not refused: the
+# lock is on the node, not on the program.
+other_rc=0
+timeout 3 "$MESHCORED" --state-dir "$TMP/state-other" --socket-name meshcored-other \
+    > "$TMP/other.log" 2>&1 || other_rc=$?
+check "a meshcored on another state directory is not refused (it runs until stopped)" \
+      "$([ "$other_rc" -eq 124 ] && echo 1 || echo 0)"
+rm -f "$POCKETOS_RUNTIME_DIR/meshcored-other.sock"
+
+# ---------------------------------------------------------------------------
 # 2. radiod appears later: acquire, configure, subscribe, online
 # ---------------------------------------------------------------------------
 echo "--- radiod appears"
