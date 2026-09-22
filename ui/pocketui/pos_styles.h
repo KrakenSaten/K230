@@ -95,6 +95,7 @@ enum pos_style_role {
     POS_STYLE_ENV_SLIDER_FILL,     /* slider indicator (LV_PART_INDICATOR) */
     POS_STYLE_ENV_SLIDER_KNOB,     /* slider knob (LV_PART_KNOB) */
     POS_STYLE_ENV_DOT,             /* a small "on" dot: env text fill, round */
+    POS_STYLE_ENV_ICON,            /* full-colour portal icons: dimmed with the photograph in Night */
     POS_STYLE_COUNT
 };
 

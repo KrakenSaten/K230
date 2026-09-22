@@ -176,6 +176,14 @@ static void fill_env_styles(void)
     lv_style_set_radius(s, LV_RADIUS_CIRCLE);
     lv_style_set_pad_all(s, 8);
 
+    /* The portal icons carry their own colours (they are art, not masks),
+     * so Night has to dim them the way it dims the photograph under them,
+     * or they would be the brightest thing on a dark screen. */
+    s = &styles[POS_STYLE_ENV_ICON];
+    reset(s);
+    lv_style_set_image_recolor(s, lv_color_hex(0x000000));
+    lv_style_set_image_recolor_opa(s, m == POS_MODE_NIGHT ? 110 : LV_OPA_TRANSP);
+
     s = &styles[POS_STYLE_ENV_DOT];
     reset(s);
     lv_style_set_bg_color(s, env(ENV_TEXT));

@@ -134,6 +134,7 @@ static void cell_icon(struct cell *c, int32_t ix)
     c->icon = home_entry_find(c->app->id) ? art_load(name) : NULL;
     if (c->icon) {
         img = lv_image_create(c->obj);
+        pos_style_add(img, POS_STYLE_ENV_ICON, 0);
         lv_image_set_src(img, c->icon);
         lv_obj_set_pos(img, ix, 0);
         lv_obj_remove_flag(img, LV_OBJ_FLAG_CLICKABLE);
@@ -148,6 +149,7 @@ static void cell_icon(struct cell *c, int32_t ix)
     }
     if (home.frame) {
         img = lv_image_create(c->obj);
+        pos_style_add(img, POS_STYLE_ENV_ICON, 0);
         lv_image_set_src(img, home.frame);
         lv_obj_set_pos(img, ix, 0);
     } else {
