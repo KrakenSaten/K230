@@ -354,7 +354,9 @@ static int arg_double(const char *s, double *out)
  * different state directory, which the state lock does not stop - would take
  * the running one's socket from under every client. A lock file beside the
  * socket, flocked for the life of the process, refuses it first. Returns the
- * descriptor, or -1 with why in err and *busy set when another holds it. */
+ * descriptor, or -1 with why in err and *busy set when another holds it. The
+ * path in a message is cut at 200 bytes, so the reason after it always fits
+ * the caller's 256. */
 static int lock_socket_name(const char *name, bool *busy, char *err, size_t errlen)
 {
     char path[512];
@@ -369,7 +371,7 @@ static int lock_socket_name(const char *name, bool *busy, char *err, size_t errl
     }
     fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
     if (fd < 0) {
-        snprintf(err, errlen, "cannot open %s: %s", path, strerror(errno));
+        snprintf(err, errlen, "cannot open %.200s: %s", path, strerror(errno));
         return -1;
     }
     if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
@@ -380,7 +382,7 @@ static int lock_socket_name(const char *name, bool *busy, char *err, size_t errl
             *busy = true;
             snprintf(err, errlen, "another process is already serving the %s socket", name);
         } else {
-            snprintf(err, errlen, "cannot lock %s: %s", path, strerror(e));
+            snprintf(err, errlen, "cannot lock %.200s: %s", path, strerror(e));
         }
         return -1;
     }
