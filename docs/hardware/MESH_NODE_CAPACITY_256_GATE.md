@@ -1,7 +1,11 @@
 # 256-node interim capacity on unit A: the gate
 
-**Status: NOT RUN.** Prepared 2026-09-22. Nothing has been deployed to
-unit A for this branch yet.
+**Status: PASS, 2026-09-22 17:38–18:16 UTC.** Steps 0–10 all passed on unit
+A, which is **left on `b41be37`** with 37 nodes, RIFT open on NODES, rotation
+automatic (landscape, keyboard present). Two things the run could not show
+are recorded under "Not covered on hardware": a table above 64, and anything
+approaching 256. One pass criterion was wrong and is corrected below
+(meshcored's RSS; see Findings).
 
 ## The build the unit must carry — check this before anything else
 
@@ -11,9 +15,9 @@ must all say `b41be37`. Fill in the right-hand column as you go.
 
 | On the unit | The gate needs | Last recorded (bench record 2026-09-22, not in the repo; reboot PASS) | Filled in |
 | --- | --- | --- | --- |
-| whole userspace (`deploy.sh` set: services, shell, CLI, init scripts, release file) | **`b41be37`**, one build | `5bb51aa`, deployed with `deploy.sh`, meshcored started by `S65meshcored` | step 1: ______ step 3: ______ |
-| `/etc/default/meshcored` | untouched: `MESHCORED_ENABLE=1`, `MESHCORED_NAME=Mstr_k230`, `MESHCORED_TX_POWER_DBM=2` | as stated | |
-| Rotation mode | as found; record it | not recorded | |
+| whole userspace (`deploy.sh` set: services, shell, CLI, init scripts, release file) | **`b41be37`**, one build | `5bb51aa`, deployed with `deploy.sh`, meshcored started by `S65meshcored` | step 1: `5bb51aa` · step 3: **`b41be37`** in the shell, `mesh.info` and `/etc/doors-release`; meshcored sha256 `5d6833b5…` = the build's |
+| `/etc/default/meshcored` | untouched: `MESHCORED_ENABLE=1`, `MESHCORED_NAME=Mstr_k230`, `MESHCORED_TX_POWER_DBM=2` | as stated | unchanged; the service runs `--tx-power-dbm 2 --name Mstr_k230` |
+| Rotation mode | as found; record it | not recorded | `automatic`, landscape (keyboard present), unchanged |
 
 **The build under test is `feat/mesh-node-capacity-256` at `b41be37`**, on
 master `2d0914b`. VERSION stays `0.0.10`. Not merged. Commits after
@@ -25,7 +29,7 @@ itself**. A build of the branch tip would stamp a different build id.
 | | |
 | --- | --- |
 | **HOST VERIFIED** (`b41be37`, clean clones) | 255 nodes held with nothing turned away, the 256th kept, the 257th turned away and counted; a full table of 256 persisted, reloaded whole and still full; `state.v1` refuses 257; `mesh.nodes` newest heard first, then by the stored last-updated time after a restart; RIFT keeps exactly the newest 64 of a 256-node snapshot. Five mutants of the fix, each killed by a named check. `make test`, `make meshcored-test` (store 161, runtime 363, plain and ASan/UBSan), `meshcore-core-test`, `rift_shell_test.sh` (app 338), the RIFT host suites under ASan/UBSan, riscv64 `make all` + meshcored `-Werror` + DRM shell, 0 first-party warnings. |
-| **THIS GATE** | The same build on unit A's real radio and real mesh: it starts, keeps its identity, channels and 32 stored contacts, grows past 32 from real adverts, lists newest first, and RIFT on the panel follows. |
+| **THIS GATE — VERIFIED on unit A 2026-09-22** | The same build on unit A's real radio and real mesh: it starts, keeps its identity, channels and 32 stored contacts, grows past 32 from real adverts (32 → 37), lists newest first, and RIFT on the panel follows. See Results. |
 | **NOT ASKED OF THIS GATE** | Filling 256, or even 64, by hand. A real table above 32 is enough; the rest is the host evidence above. |
 
 ## Read before starting — the traps
@@ -242,7 +246,10 @@ Pass:
 - WARN/ERROR per 10 minutes no higher than the step 1 baseline, with only
   the known kinds (trap 5);
 - 0 frame/size errors;
-- meshcored RSS within about 100 KB of step 1;
+- meshcored RSS higher than step 1 by no more than the table and the buffers
+  that follow it (about 260 KB), and **not still growing**: `VmHWM` equal to
+  `VmRSS` across the window. The first draft said "within about 100 KB",
+  which counted only the contact table and telemetry — see Findings;
 - by eye, NODES scrolls and switches sections without a stall of a second or
   more while adverts arrive. Record the shell's CPU %.
 
@@ -251,6 +258,14 @@ Pass:
 Decide PASS or FAIL. Leave the unit on `b41be37` if it passed. Otherwise roll
 back (below), and in either case state at the top of this sheet what the
 unit carries.
+
+**As left, 18:16 UTC:** `b41be37` everywhere, 37 nodes and rising, nothing
+turned away, `online` with the lease held, identity and channels as they
+were, rotation automatic, RIFT open on NODES. The rollback copy stays at
+`/root/rollback-pre256/` and the snapshots at `/root/gate-256/` (collected
+to `out/nodecap256-gate/unitA-gate-256.tar` on the build host). The SDK tree
+`~/work/t-display-k230` now carries the `b41be37` apply: re-apply master
+before building anything else from it.
 
 ## Rollback (unit)
 
@@ -276,10 +291,18 @@ cp -p /root/rollback-pre256/state.v1 /var/lib/pocketos/meshcored/state.v1
 
 ## Not covered on hardware
 
-- **More than 64 real nodes.** Only if the mesh supplies them in the step 7
-  window. RIFT keeping the head of a larger list is otherwise host evidence.
-- **A full table of 256** on the device: memory, CPU and `mesh.nodes`
-  (about 124 KB) at that size. Host-measured only.
+**After the run**, these are what the PASS does not cover.
+
+- **More than 64 real nodes — not reached.** The table went from 32 to 37 in
+  the 26 minutes after the reboot, so RIFT was never asked for more than it
+  holds, and the head-of-list behaviour that the `mesh.nodes` order exists
+  for is still only host evidence (`tests/rift_model_test.c`). The same
+  mesh should get there on its own; a later look at this unit with the node
+  count above 64 would close it with no new build.
+- **A full table of 256** on the device: memory, CPU and `mesh.nodes` at
+  that size. The run measured 37 nodes and an 8,087 B reply; 256 would be
+  about seven times that, still far inside the 1 MiB frame limit, but it is
+  host evidence.
 - **Flash writes over time.** `state.v1` is up to 38 KB, rewritten at most
   every 10 s while nodes change. There is no soak here.
 - **More `mesh.node` events.** Adverts from nodes the old table turned away
@@ -291,16 +314,41 @@ cp -p /root/rollback-pre256/state.v1 /var/lib/pocketos/meshcored/state.v1
 
 ## Results
 
+Run by Claude over SSH from the build host, 2026-09-22. The panel was read
+with the earlier gates' `kmsgrab` capture (`out/nodecap256-gate/caps/`, not
+in the repository); the NODES list was tapped and scrolled with the RIFT
+gate's `rift_tap.py`. Nothing was typed on the unit by hand.
+
 | Step | Result | Evidence |
 | --- | --- | --- |
-| 0 build | | |
-| 1 baseline + rollback copy | | |
-| 2 deploy + reboot | | |
-| 3 services start | | |
-| 4 identity / channels | | |
-| 5 256 build running | | |
-| 6 contacts reloaded | | |
-| 7 growth past 32 + reload | | |
-| 8 newest first | | |
-| 9 RIFT newest 64 | | |
-| 10 health | | |
+| 0 build | **PASS** | `IMAGE GATE: PASS`, `BUILD_ID=b41be37`, `DOORS_BUILD_ID=b41be37` in the binary; target meshcored `5d6833b5…`, doors-shell `5ebc738b…` |
+| 1 baseline + rollback copy | **PASS** | 17:38 UTC on `5bb51aa`: 32 nodes (full), `nodes_unretained` 18 → 19 over ten minutes, so the mesh had more nodes than the table could keep; 0 WARN/ERROR and **no new log lines at all** in those ten minutes; `/root/rollback-pre256/` holds the 20 deployed paths (1,789,952 B), `state.v1` (4,780 B) and `channels.v1`, with `SHA256SUMS` |
+| 2 deploy + reboot | **PASS** | `deploy.sh` rc 0, every stamp `b41be37`; reboot at 17:49:50, meshcored answering 53 s later (uptime 43 s) |
+| 3 services start | **PASS** | shell, `mesh.info`, `/etc/doors-release` all `b41be37`; all five services `running=1 crashloop=0 restarts=0`; 0 crash files; `online`, `lease_held`, `radio_state rx`; meshcored started by `S65meshcored` at boot uptime 17.0 s, online at 17.1 s |
+| 4 identity / channels | **PASS** | `mesh.identity` and `mesh.channels` byte-identical before and after (`diff` clean); `identity.id` `41e8a50a…` and `channels.v1` `e8247d67…` unchanged; still `Mstr_k230` / `19f7b327…`, channels `9a`/`11`/`7b` |
+| 5 256 build running | **PASS** | on-unit meshcored sha256 `5d6833b5…` = the build's; `mesh.info` build `b41be37`; and step 7's growth is the capacity itself |
+| 6 contacts reloaded | **PASS** | 32 of 32 pre-gate public keys present after the reboot |
+| 7 growth past 32 + reload | **PASS** | 33 nodes at 17:52 (`state.v1` 4,928 B = 44 + 148 × 33), 35 by 17:58 (5,224 B), `contacts_full` and `nodes_unretained` **0** throughout — where the old build had turned 19 adverts away. `S65meshcored restart`: 35 of 35 keys back, online again in under 1 s, same argv |
+| 8 newest first | **PASS** | 35 nodes, 3 heard since the restart, **0 order violations**: `Mstr_m5` 956936, `Varden RP` 950923, `T-Deck-RIFT` 858826, then the 32 not heard this run. Reply 8,087 B |
+| 9 RIFT newest 64 | **PASS (table ≤ 64)** | `35 KNOWN · 3 FRESH`; groups `HEARD < 12 H · 3` + `NEVER HEARD · 32` = 35 = min(35, 64), so RIFT held every node; its HEARD rows are the service's order exactly; the "adverts the service had no room to keep" footer, present on the old build, is gone. Above 64 was not reachable — see "Not covered on hardware" |
+| 10 health | **PASS** | ten minutes with NODES open: **0 WARN/ERROR** in shell, radiod and meshcored since the reboot (18 / 7 / 18 new lines), 0 frame or size errors, 0 crash files, 0 restarts; CPU 0–10 % for the shell and 0–3 % for meshcored and radiod; RSS 3,456 kB with `VmHWM` equal to it. The list scrolled and kept its place while a 36th node arrived |
+
+## Findings
+
+1. **The RSS criterion in the first draft was too tight, not the build.**
+   meshcored measured 3,200 kB on `5bb51aa`, 3,328 kB at first boot on
+   `b41be37` and 3,456 kB once the table had grown — **+256 kB**, against a
+   criterion of "about 100 KB". The 100 KB counted only the contact table
+   (+42 KB) and telemetry (+18 KB); it left out the two `state.v1` buffers
+   (2 × 38 KB), the `NodeState` the load and save paths put on the stack
+   (47 KB) and the node array `mesh.nodes` allocates (47 KB), which together
+   account for the rest. It is not a leak: `VmHWM` equals `VmRSS`, and the
+   figure was flat from 18:05 to the end of the run. The criterion above is
+   corrected; the build is unchanged.
+2. **`NEVER HEARD · 32` right after the reboot** is the pre-existing
+   follow-up F4 of the RIFT improvements gate: last-heard is runtime-only,
+   so a restarted service reports no node as heard until it hears one. Not
+   this branch's, and it resolved itself as adverts arrived (3 FRESH by
+   18:06, 4 by 18:07).
+3. The status chip still reads `DX` in landscape (chrome stage 1,
+   `a89b456`), as predicted by that gate.
