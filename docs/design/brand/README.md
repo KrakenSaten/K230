@@ -5,6 +5,12 @@ The artwork for the product name Doors (ADR-005), brand direction
 inventory of the graphics packages, what was checked in them, and where each
 asset is used in the Doors UI.
 
+A later delivery, the DOORS visual pack v1 (photographic boot, lock, open,
+launcher and system-menu backgrounds, direction-B app and system icons,
+supplied 2026-09-22), is imported in `doors-visual-pack-v1/` and is not used by
+anything yet. Its own README is its inventory; the rest of this file is about
+the two packages below.
+
 ## Provenance
 
 Two packages, both from the product owner. Together they are the current Doors
