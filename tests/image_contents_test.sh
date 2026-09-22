@@ -56,6 +56,8 @@ if make_img "${D}" "${TMP}/complete.img"; then
         "$(grep -q 'IMAGE GATE: PASS' "${TMP}/out.txt" && echo 1 || echo 0)"
     check "the kernel is reported by name and size" \
         "$(grep -q '/Image (kernel)' "${TMP}/out.txt" && echo 1 || echo 0)"
+    check "an image with no root partition says its pass covers the boot partition only" \
+        "$(grep -q 'PASS (boot partition only)' "${TMP}/out.txt" && grep -q 'root partition was NOT checked' "${TMP}/out.txt" && echo 1 || echo 0)"
 else
     check "could not build a test filesystem (mkfs.ext4 -d unsupported?)" 0
 fi
@@ -163,6 +165,8 @@ if rootfs_img "${TMP}/doors.img" mkbootimg_rootfs_doors; then
         "$(grep -q 'meshcored: /usr/sbin/meshcored and /etc/init.d/S65meshcored, both executable' "${TMP}/out.txt" && echo 1 || echo 0)"
     check "and every binary is the build the release file names" \
         "$(grep -q '/usr/sbin/meshcored is build abc1234' "${TMP}/out.txt" && echo 1 || echo 0)"
+    check "and the pass says the services were checked" \
+        "$(grep -q 'every service is whole and from one build' "${TMP}/out.txt" && echo 1 || echo 0)"
 
     both() { mkbootimg_rootfs_doors "$1"; printf '#!/bin/sh\n' > "$1/etc/init.d/S90pocketos-shell"; }
     if rootfs_img "${TMP}/two-services.img" both; then
@@ -233,6 +237,9 @@ if rootfs_img "${TMP}/doors.img" mkbootimg_rootfs_doors; then
     mcd_default() { mkbootimg_rootfs_doors "$1"; printf 'MESHCORED_ENABLE=1\n' > "$1/etc/default/meshcored"; }
     gate_refuses "a per-unit meshcored switch shipped in the image" mcd-default mcd_default \
         "/etc/default/meshcored is in the tree; it is per-unit"
+    nodoors() { mkbootimg_rootfs_doors "$1"; rm -f "$1/usr/bin/doors"; }
+    gate_refuses "an image with no /usr/bin/doors (a stamped binary that is no service)" no-doors nodoors \
+        "/usr/bin/doors is missing"
     norel() { mkbootimg_rootfs_doors "$1"; rm -f "$1/etc/doors-release"; }
     gate_refuses "an image with no release file" no-release norel \
         "/etc/doors-release is missing or names no BUILD_ID"

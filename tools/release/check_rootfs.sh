@@ -29,10 +29,11 @@
 #     decide that for every unit at once.
 #
 # Exit 0 when every check passes, 1 when any fails, 2 on usage.
+#
+# check_rootfs.sh --list prints every path it reads, one per line, relative to
+# the root, so verify_image.sh extracts exactly those rather than keeping a
+# list of its own that could fall behind this one.
 set -uo pipefail
-
-ROOT="${1:-}"
-[ -n "${ROOT}" ] && [ -d "${ROOT}" ] || { echo "usage: $(basename "$0") <root>" >&2; exit 2; }
 
 failed=0
 ok()   { echo "  ok   $*"; }
@@ -48,6 +49,20 @@ SUPERVISE=usr/bin/pos-supervise
 # The binaries that carry a build stamp. pos-wave and pos-spixfer link no
 # pocketlog and print no build; pos-supervise and pos-hwcheck are scripts.
 STAMPED="usr/bin/doors usr/bin/doors-shell usr/sbin/radiod usr/sbin/sysd usr/sbin/netd usr/sbin/meshcored"
+PER_UNIT="etc/default/meshcored"
+
+if [ "${1:-}" = "--list" ]; then
+    {
+        echo etc/doors-release
+        echo "${SUPERVISE}"
+        while IFS='|' read -r _ bin init; do echo "${bin}"; echo "${init}"; done <<< "${SERVICES}"
+        for b in ${STAMPED} ${PER_UNIT}; do echo "${b}"; done
+    } | sort -u
+    exit 0
+fi
+
+ROOT="${1:-}"
+[ -n "${ROOT}" ] && [ -d "${ROOT}" ] || { echo "usage: $(basename "$0") <root> | --list" >&2; exit 2; }
 
 echo "Installation in ${ROOT}:"
 
@@ -95,7 +110,12 @@ if [ -z "${release_id}" ]; then
 else
     ok "/etc/doors-release: BUILD_ID=${release_id}"
     for b in ${STAMPED}; do
-        [ -f "${ROOT}/${b}" ] || continue   # absence is section 1's to report
+        if [ ! -f "${ROOT}/${b}" ]; then
+            # A service binary's absence is section 1's to report; any other
+            # stamped binary is reported here, or nobody would.
+            case "${SERVICES}" in *"|${b}|"*) ;; *) fail "/${b} is missing" ;; esac
+            continue
+        fi
         stamps=$(grep -a -o 'DOORS_BUILD_ID=[A-Za-z0-9._+-]*' "${ROOT}/${b}" 2>/dev/null \
                  | sed 's/^DOORS_BUILD_ID=//' | sort -u)
         count=$(printf '%s' "${stamps}" | grep -c .)
@@ -112,7 +132,7 @@ else
 fi
 
 # ---- 3. no per-unit settings --------------------------------------------------
-for f in etc/default/meshcored; do
+for f in ${PER_UNIT}; do
     if [ -e "${ROOT}/${f}" ]; then
         fail "/${f} is in the tree; it is per-unit and decided on the unit"
     else

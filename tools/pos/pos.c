@@ -103,7 +103,7 @@ static void print_file_value(const char *label, const char *path)
 }
 
 /* The same stamp every daemon carries (core/pocketlog/pocketlog.c), read by
- * tools/build_identity_check.sh. This binary prints its own identity rather
+ * tools/release/check_rootfs.sh. This binary prints its own identity rather
  * than pocketlog's, so it keeps its own copy of the stamp. */
 static const char build_stamp[] = "DOORS_BUILD_ID=" POCKETOS_BUILD_ID;
 

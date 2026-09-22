@@ -20,6 +20,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHECK_ROOTFS="${SCRIPT_DIR}/../../../tools/release/check_rootfs.sh"
+ROOTFS_CHECKED=0
 IMG="${1:-}"
 [ -n "${IMG}" ] || { echo "usage: $(basename "$0") <sysimage-sdcard.img>" >&2; exit 2; }
 [ -f "${IMG}" ] || { echo "ERROR: no such image: ${IMG}" >&2; exit 2; }
@@ -159,10 +160,10 @@ if [ "${P2_LBA:-0}" -gt 0 ] && [ "${P2_CNT:-0}" -gt 0 ]; then
         # script that is not executable in the image is not executable in the
         # copy either.
         MINI="${WORK}/rootfs"
-        for path in etc/doors-release etc/default/meshcored usr/bin/pos-supervise \
-                    usr/bin/doors usr/bin/doors-shell usr/sbin/radiod usr/sbin/sysd usr/sbin/netd \
-                    usr/sbin/meshcored etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod \
-                    etc/init.d/S65meshcored etc/init.d/S90doors-shell; do
+        mkdir -p "${MINI}"
+        # The paths are the checker's own (check_rootfs.sh --list), so the two
+        # cannot fall out of step.
+        for path in $(bash "${CHECK_ROOTFS}" --list 2>/dev/null); do
             rootfs_has "/${path}" || continue
             mkdir -p "${MINI}/$(dirname "${path}")"
             mode=$(debugfs -R "stat \"/${path}\"" "${P2}" 2>/dev/null \
@@ -171,13 +172,13 @@ if [ "${P2_LBA:-0}" -gt 0 ] && [ "${P2_CNT:-0}" -gt 0 ]; then
                 || : > "${MINI}/${path}"
             chmod "${mode:-0644}" "${MINI}/${path}"
         done
-        mkdir -p "${MINI}"
         if [ ! -f "${CHECK_ROOTFS}" ]; then
             echo "  MISSING: ${CHECK_ROOTFS}; the installation cannot be checked" >&2
             failed=$((failed + 1))
         elif ! bash "${CHECK_ROOTFS}" "${MINI}" | sed 's/^/  /'; then
             failed=$((failed + 1))
         fi
+        ROOTFS_CHECKED=1
     else
         echo "  note: partition 2 is not a readable ext filesystem; rootfs identity not checked"
     fi
@@ -192,5 +193,11 @@ if [ "${failed}" -ne 0 ]; then
     exit 1
 fi
 
-echo "IMAGE GATE: PASS - every boot-critical file is present and non-empty, the root partition carries exactly one shell service, and every service is whole and from one build."
+if [ "${ROOTFS_CHECKED}" = 1 ]; then
+    echo "IMAGE GATE: PASS - every boot-critical file is present and non-empty, the root partition carries exactly one shell service, and every service is whole and from one build."
+else
+    # Said, not implied: a pass that never read the root partition is a pass
+    # about the boot partition only.
+    echo "IMAGE GATE: PASS (boot partition only) - every boot-critical file is present and non-empty; the root partition was NOT checked."
+fi
 exit 0
