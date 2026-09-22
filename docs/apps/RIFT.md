@@ -78,7 +78,7 @@ NET**. RIFT draws the first three.
   selection moves; any other way out — another section, closing the detail,
   turning the panel — is Cancel, so nobody comes back to a FORGET left armed.
   The node comes back when it next adverts; until then no
-  message can be sent to it. MeshCore's contact table holds 32 and evicts
+  message can be sent to it. MeshCore's contact table holds 256 and evicts
   nothing on its own, so this is what makes room when a new node's adverts
   are being turned away — which on unit A blocked a direct message to a new
   peer until the state file was moved aside by hand

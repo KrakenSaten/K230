@@ -388,13 +388,19 @@ static void forget_service_fields(struct rift_node *n)
     n->observations = observations;
 }
 
+/* Whether key is among the first RIFT_MAX_NODES entries of a snapshot - the
+ * part of it this cache takes. See rift_model_apply_nodes. */
 static int in_snapshot(const cJSON *arr, const char *key)
 {
     const cJSON *item;
+    int at = 0;
 
     cJSON_ArrayForEach (item, arr) {
         const char *k = str_of(item, "public_key");
 
+        if (at++ >= RIFT_MAX_NODES) {
+            break;
+        }
         if (k && strcmp(k, key) == 0) {
             return 1;
         }
@@ -420,16 +426,28 @@ int rift_model_apply_nodes(struct rift_model *m, const cJSON *result)
      * a node nobody can be asked about. So the nodes it does not name go
      * first - before anything is added, so a full cache never evicts a node
      * this very snapshot is about to name - and every node it does name has
-     * the service's half replaced outright below. */
+     * the service's half replaced outright below.
+     *
+     * The service can hold more nodes than this cache, and lists them most
+     * recently heard first (docs/api/mesh.md), so the cache is the head of
+     * the list: its first RIFT_MAX_NODES entries, and the rest are counted
+     * as dropped. Taking every entry instead would let each one past the
+     * bound evict the stalest node held, and leave the cache holding the
+     * newest nodes but one and the single stalest node the service has. */
     for (i = m->node_count - 1; i >= 0; i--) {
         if (!in_snapshot(arr, m->nodes[i].key)) {
             drop_node(m, i);
         }
     }
+    i = 0;
     cJSON_ArrayForEach (item, arr) {
         const char *key = str_of(item, "public_key");
         struct rift_node *n = hex_only(key, 64) ? find_mut(m, key) : NULL;
 
+        if (i++ >= RIFT_MAX_NODES) {
+            m->nodes_dropped++;
+            continue;
+        }
         if (n) {
             forget_service_fields(n);
         }

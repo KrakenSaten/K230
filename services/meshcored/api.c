@@ -408,20 +408,28 @@ static cJSON *m_identity(struct mcd *d)
     return o;
 }
 
+/* Most recently heard first (mcd_runtime_nodes_recent), so a client that
+ * keeps fewer nodes than the service holds - RIFT keeps 64 - keeps the ones
+ * that were heard last rather than whichever the table happens to list
+ * first. */
 static cJSON *m_nodes(struct mcd *d)
 {
-    cJSON *o = cJSON_CreateObject();
-    cJSON *arr = cJSON_CreateArray();
-    int n = mcd_runtime_node_count(d->rt);
+    struct mcd_node *nodes = calloc(MCD_MAX_NODES, sizeof(*nodes));
+    cJSON *o;
+    cJSON *arr;
+    int n;
     int i;
 
-    for (i = 0; i < n; i++) {
-        struct mcd_node node;
-
-        if (mcd_runtime_node_at(d->rt, i, &node)) {
-            cJSON_AddItemToArray(arr, node_json(&node));
-        }
+    if (!nodes) {
+        return NULL;
     }
+    n = mcd_runtime_nodes_recent(d->rt, nodes, MCD_MAX_NODES);
+    o = cJSON_CreateObject();
+    arr = cJSON_CreateArray();
+    for (i = 0; i < n; i++) {
+        cJSON_AddItemToArray(arr, node_json(&nodes[i]));
+    }
+    free(nodes);
     cJSON_AddItemToObject(o, "nodes", arr);
     cJSON_AddNumberToObject(o, "count", (double)n);
     return o;

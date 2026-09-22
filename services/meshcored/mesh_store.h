@@ -44,10 +44,12 @@
 
 namespace mcdstore {
 
-/* The most nodes state.v1 carries. MeshCore's own contact table is
- * MAX_CONTACTS (32) plus eight reserved anonymous slots; only real contacts
- * are persisted. */
-static const int MAX_NODES = 32;
+/* The most nodes state.v1 carries: every contact MeshCore's table can hold
+ * (MAX_CONTACTS, protocols/meshcore/compat/mc_contacts.h), and not its eight
+ * reserved anonymous slots. The file's count is 16 bits, so the format is
+ * unchanged by the number; a file written with more nodes than an older
+ * build allows is refused and moved aside by that build, not half read. */
+static const int MAX_NODES = MAX_CONTACTS;
 
 static const size_t IDENTITY_FILE_SIZE = PUB_KEY_SIZE + PRV_KEY_SIZE;  /* 96 */
 static const size_t ERR_SIZE = 1024;

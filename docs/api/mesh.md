@@ -163,7 +163,7 @@ they count what radiod said, not what MeshCore believes.
 | `lease_acquired` / `lease_refused` / `lease_lost` | |
 | `sent_flood` / `sent_direct` / `recv_flood` / `recv_direct` | the MeshCore dispatcher's own |
 | `path_payloads_refused` | see "The PATH guard" in docs/services/MESHCORED.md |
-| `nodes_unretained` | adverts from nodes the 32-slot contact table had no room for |
+| `nodes_unretained` | adverts from nodes the 256-slot contact table had no room for |
 | `contacts_full` | how often MeshCore reported the table full |
 
 `tx_ok`, `tx_rx_resume_failed`, `tx_failed` and `tx_unknown` are four
@@ -182,6 +182,13 @@ The private key is not reported by this method or any other, at any verbosity.
 ### mesh.nodes
 
 Result: `nodes` (array), `count`.
+
+At most 256 nodes, **most recently heard first**: the nodes heard since the
+service started, newest `last_heard_mono_ms` first; then the ones not heard
+since it started, newest first by when MeshCore last updated the contact
+(kept in the service's state across a restart); ties in table order. A
+client that keeps fewer nodes than this - RIFT keeps 64 - takes the head of
+the list and so keeps the nodes heard last.
 
 A node:
 
@@ -555,7 +562,8 @@ destroy that. The node still runs; it simply starts empty again next time.
 
 ## Nodes the table had no room for
 
-MeshCore's contact table holds 32. Once it is full an advert from a new node
+MeshCore's contact table holds 256 on this port (upstream's default is 32;
+`protocols/meshcore/compat/mc_contacts.h`). Once it is full an advert from a new node
 is reported to the service anyway, with a contact MeshCore is about to throw
 away, so that a UI can say "somebody adverted and I could not keep them".
 
