@@ -32,9 +32,19 @@ const char *pocketlog_version(void)
     return POCKETOS_VERSION;
 }
 
+/* The build identity as one string a tool can find in the binary without
+ * running it: "DOORS_BUILD_ID=<id>". deploy.sh and verify_image.sh read it out
+ * of every Doors binary and refuse a tree whose binaries disagree with its
+ * release file (tools/build_identity_check.sh) - which is how a stale binary
+ * left in a build tree, or a hand-installed one from another build, gets
+ * caught before it reaches a unit. pocketlog_build_id() returns the part after
+ * the '=', so the stamp is the id the logs, the crash reports and <service>.info
+ * report, and no linker can drop it as unused. */
+static const char build_stamp[] = "DOORS_BUILD_ID=" POCKETOS_BUILD_ID;
+
 const char *pocketlog_build_id(void)
 {
-    return POCKETOS_BUILD_ID;
+    return build_stamp + sizeof("DOORS_BUILD_ID=") - 1;
 }
 
 static enum pocketlog_level level_from_string(const char *s)

@@ -49,6 +49,21 @@ export POCKETOS_LOG_STDERR=0
 
 running() { [ -n "$1" ] && kill -0 "$1" 2>/dev/null; }
 
+# Every process executing the meshcored binary, supervised or not. A meshcored
+# started by hand (every bench gate before this script was installed did that)
+# or orphaned by a supervisor that was killed has no pid file to name it, and
+# it still holds the node's identity and, with radiod up, the radio lease.
+# /proc is the only thing that still knows, so it is asked rather than assumed.
+# A binary replaced under a running process reads "<path> (deleted)".
+meshcored_pids() {
+	for _d in /proc/[0-9]*; do
+		_exe=$(readlink "$_d/exe" 2>/dev/null) || continue
+		case "$_exe" in
+		"$DAEMON"|"$DAEMON (deleted)") echo "${_d#/proc/}" ;;
+		esac
+	done
+}
+
 STOP_TIMEOUT=3
 if sleep 0.1 2>/dev/null; then STOP_STEP="0.1"; STOP_TICKS=$((STOP_TIMEOUT * 10)); else STOP_STEP="1"; STOP_TICKS=$STOP_TIMEOUT; fi
 
@@ -68,7 +83,17 @@ start() {
 		echo "disabled (set MESHCORED_ENABLE=1 in /etc/default/meshcored)"
 		return 0
 	fi
-	[ -x "$DAEMON" ] || { echo "missing"; return 0; }
+	# Enabled and not installable is a broken installation, not a quiet
+	# no-op: the unit was told to run this service and cannot. Said loudly,
+	# and the exit status says it too.
+	if [ ! -x "$DAEMON" ]; then
+		echo "FAILED: enabled, but $DAEMON is not installed or not executable"
+		return 1
+	fi
+	if [ ! -x "$SUPERVISE" ]; then
+		echo "FAILED: $SUPERVISE is not installed; meshcored is never run unsupervised"
+		return 1
+	fi
 	mkdir -p /run/pocketos /var/run "$LOGDIR" /var/lib/pocketos/meshcored
 	# The state directory holds a private key. Nothing else on the device
 	# has any business reading it, and the daemon sets this itself on
@@ -86,6 +111,15 @@ start() {
 	if running "$_sup" || running "$_child"; then
 		echo "already running"; return 0
 	fi
+	# Not ours, and running: starting another would be a second node with
+	# the same identity. meshcored refuses that itself (it locks its state
+	# directory), but under supervision the refusal would become a crash
+	# loop; saying so here, once, is the useful answer.
+	_other=$(meshcored_pids | tr '\n' ' ')
+	if [ -n "$_other" ]; then
+		echo "FAILED: meshcored is already running unsupervised (pid ${_other% }); $0 stop ends it"
+		return 1
+	fi
 	[ -f "$LOGFILE" ] && mv -f "$LOGFILE" "$LOGFILE.1"
 	set -- --tx-power-dbm "$MESHCORED_TX_POWER_DBM"
 	[ -n "$MESHCORED_NAME" ] && set -- "$@" --name "$MESHCORED_NAME"
@@ -100,12 +134,16 @@ stop() {
 	sup=""; child=""
 	[ -s "$PIDFILE" ] && sup=$(cat "$PIDFILE")
 	[ -s "$CHILD_PIDFILE" ] && child=$(cat "$CHILD_PIDFILE")
+	forced=""
 	if ! running "$sup" && ! running "$child"; then
 		rm -f "$PIDFILE"
-		echo "not running"
-		return 0
+		if [ -z "$(meshcored_pids)" ]; then
+			echo "not running"
+			return 0
+		fi
+		stop_unsupervised
+		return $?
 	fi
-	forced=""
 	kill "$sup" 2>/dev/null
 	if ! wait_gone "$sup"; then
 		# The supervisor is not responding to SIGTERM. Ask the daemon
@@ -132,7 +170,35 @@ stop() {
 		return 1
 	fi
 	rm -f "$PIDFILE"
+	# A meshcored this script never started is still a meshcored on this
+	# unit, and "stopped" has to mean none is left - deploy.sh unpacks new
+	# binaries on the strength of it.
+	if [ -n "$(meshcored_pids)" ]; then
+		stop_unsupervised
+		return $?
+	fi
 	echo "OK$forced"
+}
+
+# Ends every meshcored this script did not start. SIGTERM first - meshcored
+# writes its node table on the way out - and SIGKILL only for one that did
+# not leave within STOP_TIMEOUT.
+stop_unsupervised() {
+	_pids=$(meshcored_pids | tr '\n' ' ')
+	for _p in $_pids; do kill "$_p" 2>/dev/null; done
+	for _p in $_pids; do
+		if ! wait_gone "$_p"; then
+			kill -KILL "$_p" 2>/dev/null
+			wait_gone "$_p"
+			forced=" (forced)"
+		fi
+	done
+	if [ -n "$(meshcored_pids)" ]; then
+		echo "FAILED, still running (unsupervised pid ${_pids% })"
+		return 1
+	fi
+	echo "OK$forced (stopped unsupervised pid ${_pids% })"
+	return 0
 }
 
 case "$1" in

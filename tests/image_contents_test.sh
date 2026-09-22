@@ -159,6 +159,10 @@ if rootfs_img "${TMP}/doors.img" mkbootimg_rootfs_doors; then
         "$(grep -q '/usr/bin/doors-shell (the Doors shell service)' "${TMP}/out.txt" && echo 1 || echo 0)"
     check "and says the PocketOS-era paths are absent" \
         "$(grep -q '/usr/bin/pocketos-shell absent' "${TMP}/out.txt" && echo 1 || echo 0)"
+    check "a complete installation names meshcored with its init script" \
+        "$(grep -q 'meshcored: /usr/sbin/meshcored and /etc/init.d/S65meshcored, both executable' "${TMP}/out.txt" && echo 1 || echo 0)"
+    check "and every binary is the build the release file names" \
+        "$(grep -q '/usr/sbin/meshcored is build abc1234' "${TMP}/out.txt" && echo 1 || echo 0)"
 
     both() { mkbootimg_rootfs_doors "$1"; printf '#!/bin/sh\n' > "$1/etc/init.d/S90pocketos-shell"; }
     if rootfs_img "${TMP}/two-services.img" both; then
@@ -184,6 +188,54 @@ if rootfs_img "${TMP}/doors.img" mkbootimg_rootfs_doors; then
         check "NEGATIVE CONTROL: it says which service is missing" \
             "$(grep -q 'MISSING: /usr/bin/doors-shell' "${TMP}/out.txt" && echo 1 || echo 0)"
     fi
+
+    # ---- every service whole, and one build (tools/release/check_rootfs.sh) --
+    # Unit A, 2026-09-22: /usr/sbin/meshcored installed, /etc/init.d/S65meshcored
+    # not, and a release file naming a build none of the new binaries were. Each
+    # half of that, and its mirror image, must stop an image here.
+
+    gate_refuses() { # <label> <image name> <populate-fn> <message the refusal must carry>
+        if rootfs_img "${TMP}/$2.img" "$3"; then
+            rc="$(run_gate "${TMP}/$2.img")"
+            check "NEGATIVE CONTROL: $1 is refused" "$([ "${rc}" != "0" ] && echo 1 || echo 0)"
+            check "NEGATIVE CONTROL: $1 - the refusal says why" \
+                "$(grep -qF -- "$4" "${TMP}/out.txt" && echo 1 || echo 0)"
+            check "NEGATIVE CONTROL: $1 - the gate does not claim a pass" \
+                "$(grep -q 'IMAGE GATE: PASS' "${TMP}/out.txt" && echo 0 || echo 1)"
+        else
+            check "could not build the image for: $1" 0
+        fi
+    }
+    mcd_noinit() { mkbootimg_rootfs_doors "$1"; rm -f "$1/etc/init.d/S65meshcored"; }
+    gate_refuses "meshcored installed with no init script (unit A's state)" mcd-noinit mcd_noinit \
+        "/usr/sbin/meshcored is installed and /etc/init.d/S65meshcored is not"
+    mcd_nobin() { mkbootimg_rootfs_doors "$1"; rm -f "$1/usr/sbin/meshcored"; }
+    gate_refuses "an init script for a meshcored that is not installed" mcd-nobin mcd_nobin \
+        "/etc/init.d/S65meshcored is installed and /usr/sbin/meshcored is not"
+    mcd_mode() { mkbootimg_rootfs_doors "$1"; chmod 0644 "$1/etc/init.d/S65meshcored"; }
+    gate_refuses "a meshcored init script that is not executable" mcd-mode mcd_mode \
+        "/etc/init.d/S65meshcored is not executable"
+    mcd_binmode() { mkbootimg_rootfs_doors "$1"; chmod 0644 "$1/usr/sbin/meshcored"; }
+    gate_refuses "a meshcored binary that is not executable" mcd-binmode mcd_binmode \
+        "/usr/sbin/meshcored is not executable"
+    mcd_mixed() { mkbootimg_rootfs_doors "$1"; mkbootimg_stamped "$1/usr/sbin/meshcored" 3e89c9c; }
+    gate_refuses "a meshcored from another build than the release file" mcd-mixed mcd_mixed \
+        "/usr/sbin/meshcored is build 3e89c9c, and /etc/doors-release says abc1234"
+    mcd_unstamped() { mkbootimg_rootfs_doors "$1"; printf '\177ELF old\000' > "$1/usr/sbin/meshcored"; }
+    gate_refuses "a binary with no build stamp" mcd-unstamped mcd_unstamped \
+        "/usr/sbin/meshcored carries no build stamp"
+    nosup() { mkbootimg_rootfs_doors "$1"; rm -f "$1/usr/bin/pos-supervise"; }
+    gate_refuses "an image with no pos-supervise" no-supervise nosup \
+        "/usr/bin/pos-supervise is missing or not executable"
+    mcd_daemon() { mkbootimg_rootfs_doors "$1"; sed -i 's#^DAEMON=.*#DAEMON=/usr/sbin/radiod#' "$1/etc/init.d/S65meshcored"; }
+    gate_refuses "a meshcored init script that starts another binary" mcd-daemon mcd_daemon \
+        "/etc/init.d/S65meshcored starts '/usr/sbin/radiod', not /usr/sbin/meshcored"
+    mcd_default() { mkbootimg_rootfs_doors "$1"; printf 'MESHCORED_ENABLE=1\n' > "$1/etc/default/meshcored"; }
+    gate_refuses "a per-unit meshcored switch shipped in the image" mcd-default mcd_default \
+        "/etc/default/meshcored is in the tree; it is per-unit"
+    norel() { mkbootimg_rootfs_doors "$1"; rm -f "$1/etc/doors-release"; }
+    gate_refuses "an image with no release file" no-release norel \
+        "/etc/doors-release is missing or names no BUILD_ID"
 
     shipped() { mkbootimg_rootfs_doors "$1"; printf 'ENABLE=1\n' > "$1/etc/default/doors-shell"; }
     if rootfs_img "${TMP}/shipped-settings.img" shipped; then

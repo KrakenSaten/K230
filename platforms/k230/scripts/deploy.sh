@@ -24,20 +24,26 @@ case "${TARGET_HOST}" in *@*) ;; *) TARGET_HOST="root@${TARGET_HOST}" ;; esac
 # file missing here would otherwise be discovered after they were down. An
 # init script new to the overlay reaches the target tree only when Buildroot
 # finalises the rootfs (a full build_image.sh), not with pocketos-rebuild.
-for f in usr/bin/doors usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-supervise usr/sbin/radiod usr/sbin/sysd usr/sbin/netd usr/bin/doors-shell etc/doors-release etc/pocketos-release \
+for f in usr/bin/doors usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-supervise usr/sbin/radiod usr/sbin/sysd usr/sbin/netd usr/sbin/meshcored usr/bin/doors-shell etc/doors-release etc/pocketos-release \
          usr/share/doors/THIRD_PARTY_NOTICES.txt usr/share/pocketos/THIRD_PARTY_NOTICES.txt \
          etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S65meshcored etc/init.d/S90doors-shell; do
     [ -e "${T}/${f}" ] || { echo "missing ${T}/${f}; build the image first (a full build_image.sh for a new init script)" >&2; exit 1; }
 done
-# meshcored is the one binary that is not required above, because it is not
-# part of a default build: ENABLE_MESHCORED is 0 unless somebody asked for it
-# (docs/services/MESHCORED.md). Its init script always travels - it is in the
-# overlay and it ships disabled - and the binary travels only when the tree
-# that was built has one.
-MESHCORED_FILE=""
-if [ -e "${T}/usr/sbin/meshcored" ]; then
-    MESHCORED_FILE="usr/sbin/meshcored"
-fi
+# meshcored is part of every image since its third-party notices landed
+# (docs/LICENSING.md item 9), so it is required like the others: a tree without
+# it is an old or incomplete build, and deploying from one would leave the unit
+# with an init script and no service - or, on a unit that had it, a service
+# from another build.
+#
+# The whole tree is then checked the way verify_image.sh checks an image: every
+# service a binary and its init script together, and every binary the build its
+# release file names (tools/release/check_rootfs.sh). Buildroot never deletes
+# from its target tree, so a binary an earlier build left there would otherwise
+# travel with this one, under a release file that describes something else.
+bash "${REPO_DIR}/tools/release/check_rootfs.sh" "${T}" || {
+    echo "deploy: ${T} is not one complete build (above); nothing has been touched" >&2
+    exit 1
+}
 
 echo "Deploying Doors $(cat "${REPO_DIR}/VERSION") to ${TARGET_HOST}"
 # Ownership comes from the archive, not from the build host's account. Without
@@ -61,10 +67,9 @@ echo "Deploying Doors $(cat "${REPO_DIR}/VERSION") to ${TARGET_HOST}"
 # is ever turned into a link.
 tar -C "${T}" --owner=0 --group=0 --numeric-owner -cf - \
     usr/bin/doors usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-supervise usr/sbin/radiod \
-    usr/sbin/sysd usr/sbin/netd usr/bin/doors-shell etc/doors-release etc/pocketos-release \
+    usr/sbin/sysd usr/sbin/netd usr/sbin/meshcored usr/bin/doors-shell etc/doors-release etc/pocketos-release \
     usr/share/doors/THIRD_PARTY_NOTICES.txt usr/share/pocketos/THIRD_PARTY_NOTICES.txt etc/init.d/S50sysd \
     etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S65meshcored etc/init.d/S90doors-shell \
-    ${MESHCORED_FILE} \
     | "${SSH[@]}" "${TARGET_HOST}" 'set -e
 # The tar below replaces the binaries these services are executing, so a stop
 # that did not finish has to end the deployment rather than be unpacked over.
@@ -111,6 +116,29 @@ for d in /proc/[0-9]*; do
 		exit 1 ;;
 	esac
 done
+# A meshcored no init script started - by hand, as every bench gate before
+# S65meshcored was installed did - survives the stop loop above on a unit that
+# has no S65meshcored yet. Left running it keeps the old binary, the node
+# identity and the radio lease, and blocks the supervised one. It is asked to
+# leave (it writes its node table on SIGTERM), and the deploy stops if it will
+# not.
+mcd=""
+for d in /proc/[0-9]*; do
+	exe=$(readlink "$d/exe" 2>/dev/null) || continue
+	case "$exe" in */meshcored|*"/meshcored (deleted)") mcd="$mcd ${d#/proc/}" ;; esac
+done
+if [ -n "$mcd" ]; then
+	echo "deploy: stopping a meshcored no init script started:$mcd"
+	for p in $mcd; do kill "$p" 2>/dev/null || true; done
+	for p in $mcd; do
+		n=0
+		while kill -0 "$p" 2>/dev/null && [ $n -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+		if kill -0 "$p" 2>/dev/null; then
+			echo "deploy: meshcored $p did not stop; nothing has been installed" >&2
+			exit 1
+		fi
+	done
+fi
 tar -C / -xf -
 sync
 # The PocketOS-era identity goes now, and in this order: the init script first,
@@ -125,11 +153,27 @@ rm -f /usr/bin/pocketos-shell
 # system.status. The logs stay: they are history, and they are persistent.
 rm -f /run/pocketos/pocketos-shell.pid /run/pocketos/pocketos-shell.state \
       /run/pocketos/pocketos-shell.crashloop /var/run/pocketos-shell-supervise.pid
+# What arrived, asked of the unit rather than assumed from the archive: every
+# service a binary and an init script, both executable, and the supervisor they
+# run under. A unit left with one half of a service is exactly the state this
+# deploy exists to prevent, so it ends the deploy loudly instead of starting
+# whatever happens to be whole.
+incomplete=0
+for f in /usr/sbin/sysd /etc/init.d/S50sysd /usr/sbin/netd /etc/init.d/S55netd \
+         /usr/sbin/radiod /etc/init.d/S60radiod /usr/sbin/meshcored /etc/init.d/S65meshcored \
+         /usr/bin/doors-shell /etc/init.d/S90doors-shell /usr/bin/pos-supervise; do
+	[ -x "$f" ] || { echo "deploy: $f is missing or not executable after unpacking" >&2; incomplete=1; }
+done
+if [ "$incomplete" -ne 0 ]; then
+	echo "deploy: the installation is incomplete (above); services were NOT started" >&2
+	exit 1
+fi
 /etc/init.d/S50sysd start
 /etc/init.d/S55netd start
 /etc/init.d/S60radiod start
-# Disabled unless the operator enabled it per unit, in which case this prints
-# "disabled" and returns; starting it acquires the radio.
+# Disabled unless the operator enabled it per unit (MESHCORED_ENABLE=1 in
+# /etc/default/meshcored, which this deploy never writes); disabled, it prints
+# "disabled" and returns. Enabled, starting it acquires the radio.
 /etc/init.d/S65meshcored start
 /etc/init.d/S90doors-shell start
 # One shell, and the unit says so itself rather than the deploy assuming it.

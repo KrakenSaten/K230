@@ -30,6 +30,7 @@ OVERLAY=platforms/k230/rootfs_overlay
 S50_SRC=$OVERLAY/etc/init.d/S50sysd
 S55_SRC=$OVERLAY/etc/init.d/S55netd
 S60_SRC=$OVERLAY/etc/init.d/S60radiod
+S65_SRC=$OVERLAY/etc/init.d/S65meshcored
 S90_SRC=$OVERLAY/etc/init.d/S90doors-shell
 failed=0
 
@@ -78,7 +79,7 @@ else
     echo "note: file modes read from $MODE_SOURCE"
     # Image-critical: these modes are copied into the rootfs by Buildroot and
     # BusyBox rcS runs `$i start`, which needs the executable bit.
-    for f in "$S50_SRC" "$S55_SRC" "$S60_SRC" "$S90_SRC"; do
+    for f in "$S50_SRC" "$S55_SRC" "$S60_SRC" "$S65_SRC" "$S90_SRC"; do
         check "image-critical: $(basename "$f") recorded 100755" \
               $([ "$(mode_of "$f")" = "100755" ] && echo 1 || echo 0)
     done
@@ -172,12 +173,14 @@ rewrite() { # <source> <destination>
 rewrite "$REPO/$S50_SRC" "$ROOT/etc/init.d/S50sysd"
 rewrite "$REPO/$S55_SRC" "$ROOT/etc/init.d/S55netd"
 rewrite "$REPO/$S60_SRC" "$ROOT/etc/init.d/S60radiod"
+rewrite "$REPO/$S65_SRC" "$ROOT/etc/init.d/S65meshcored"
 rewrite "$REPO/$S90_SRC" "$ROOT/etc/init.d/S90doors-shell"
 
 # The rewrite must be complete: any surviving system path would make the test
 # lie about what it exercised (or touch the host).
 leaked=$(grep -nE '(^|[^A-Za-z0-9_/])/(etc|var|usr|run)/' "$ROOT/etc/init.d/S50sysd" \
                   "$ROOT/etc/init.d/S55netd" "$ROOT/etc/init.d/S60radiod" \
+                  "$ROOT/etc/init.d/S65meshcored" \
                   "$ROOT/etc/init.d/S90doors-shell" | grep -v "$ROOT" | grep -v '^\s*#')
 check "path rewrite left no system path behind" $([ -z "$leaked" ] && echo 1 || echo 0)
 [ -n "$leaked" ] && echo "$leaked" | head -5
@@ -185,12 +188,14 @@ check "path rewrite left no system path behind" $([ -z "$leaked" ] && echo 1 || 
 # A rule that matches inside an already-rewritten path produces "$ROOT/var$ROOT/run/..."
 doubled=$(grep -n "$ROOT[^ ]*$ROOT" "$ROOT/etc/init.d/S50sysd" "$ROOT/etc/init.d/S55netd" \
                "$ROOT/etc/init.d/S60radiod" \
+               "$ROOT/etc/init.d/S65meshcored" \
                "$ROOT/etc/init.d/S90doors-shell")
 check "path rewrite did not nest one prefix inside another" $([ -z "$doubled" ] && echo 1 || echo 0)
 [ -n "$doubled" ] && echo "$doubled" | head -5
 
 S50="$ROOT/etc/init.d/S50sysd"
 S60="$ROOT/etc/init.d/S60radiod"
+S65="$ROOT/etc/init.d/S65meshcored"
 S90="$ROOT/etc/init.d/S90doors-shell"
 
 alive() { [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null; }
@@ -323,6 +328,182 @@ check "S60 stop leaves no supervisor behind" $([ "$(count_supervisors)" -eq 0 ] 
 check "S60 stop is bounded" $([ "$elapsed" -le 20 ] && echo 1 || echo 0)
 make_daemon "$ROOT/usr/sbin/radiod" "$ROOT/radiod.env"
 rm -f "$ROOT/radiod.env"
+
+# ---- S65meshcored ------------------------------------------------------
+#
+# Until 2026-09-22 this script had no test at all, and unit A showed what that
+# cost: meshcored installed by hand, no init script, nothing at boot. What is
+# exercised here is the whole lifecycle through the real pos-supervise - the
+# opt-in, start, the refusals, stop, restart, stale pid files, a meshcored no
+# init script started, a crash and a crash loop.
+
+# A well-behaved stand-in that also records its arguments, which carry the
+# per-unit settings.
+make_meshcored() {
+    cat > "$ROOT/usr/sbin/meshcored" <<EOD
+#!/bin/sh
+env > "$ROOT/meshcored.env"
+echo "\$*" > "$ROOT/meshcored.args"
+trap 'exit 0' TERM INT
+while :; do sleep 0.2; done
+EOD
+    chmod 0755 "$ROOT/usr/sbin/meshcored"
+}
+make_meshcored
+count_mcd() { pgrep -af "$ROOT/usr/sbin/meshcored" 2>/dev/null | grep -vc 'pos-supervise'; }
+wait_mcd() { # <expected count> - up to 5 s
+    n=0
+    while [ "$(count_mcd)" -ne "$1" ] && [ $n -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+    [ "$(count_mcd)" -eq "$1" ]
+}
+MCD_SUP_PIDFILE="$ROOT/var/run/meshcored-supervise.pid"
+MCD_STATE="$ROOT/run/pocketos/meshcored.state"
+mcd_state() { sed -n "s/^$1=//p" "$MCD_STATE" 2>/dev/null; }
+
+out=$("$S65" start 2>&1); rc=$?
+check "S65 is disabled by default" $(contains "$out" "disabled (set MESHCORED_ENABLE=1")
+check "S65 disabled start exits 0 (nothing was asked of it)" $([ "$rc" -eq 0 ] && echo 1 || echo 0)
+check "S65 disabled starts nothing" \
+      $([ ! -e "$ROOT/meshcored.env" ] && [ ! -s "$MCD_SUP_PIDFILE" ] && echo 1 || echo 0)
+
+printf 'MESHCORED_ENABLE=1\n' > "$ROOT/etc/default/meshcored"
+out=$("$S65" start 2>&1); rc=$?
+check "S65 enabled start reports OK" $(contains "$out" "OK")
+check "S65 enabled start exits 0" $([ "$rc" -eq 0 ] && echo 1 || echo 0)
+SUPPID=$(pidof_file "$MCD_SUP_PIDFILE")
+check "S65 start leaves a supervisor running" $(alive "$SUPPID" && echo 1 || echo 0)
+check "S65 start starts meshcored" $(wait_for "$ROOT/meshcored.env" && echo 1 || echo 0)
+check "S65 start runs exactly one meshcored" $(wait_mcd 1 && echo 1 || echo 0)
+check "S65 start records the daemon pid for stop" \
+      $([ -s "$ROOT/run/pocketos/meshcored.pid" ] && echo 1 || echo 0)
+check "S65 status is visible: the supervisor's state file says running" \
+      $([ "$(mcd_state running)" = "1" ] && [ "$(mcd_state crashloop)" = "0" ] && echo 1 || echo 0)
+check "S65 passes the bench-safe transmit power" \
+      $(grep -q -- '--tx-power-dbm 2' "$ROOT/meshcored.args" && echo 1 || echo 0)
+check "S65 passes no --name when none is set (the stored one is kept)" \
+      $(grep -q -- '--name' "$ROOT/meshcored.args" && echo 0 || echo 1)
+check "S65 exports the persistent log directory" \
+      $(grep -q "^POCKETOS_LOG_DIR=$ROOT/var/lib/pocketos/log$" "$ROOT/meshcored.env" && echo 1 || echo 0)
+check "S65 exports POCKETOS_LOG_STDERR=0" \
+      $(grep -q '^POCKETOS_LOG_STDERR=0$' "$ROOT/meshcored.env" && echo 1 || echo 0)
+check "S65 creates the state directory 0700 (it holds a private key)" \
+      $([ "$(stat -c %a "$ROOT/var/lib/pocketos/meshcored" 2>/dev/null)" = "700" ] && echo 1 || echo 0)
+
+out=$("$S65" start 2>&1)
+check "S65 start is idempotent" $(contains "$out" "already running")
+check "S65 does not start a second meshcored" $(wait_mcd 1 && echo 1 || echo 0)
+
+out=$("$S65" stop 2>&1); rc=$?
+check "S65 stop reports OK" $(contains "$out" "OK")
+check "S65 stop exits 0" $([ "$rc" -eq 0 ] && echo 1 || echo 0)
+check "S65 stop ends the supervisor" $(wait_gone "$SUPPID" && echo 1 || echo 0)
+check "S65 stop ends meshcored" $(wait_mcd 0 && echo 1 || echo 0)
+check "S65 stop leaves no supervise pid file" $([ ! -e "$MCD_SUP_PIDFILE" ] && echo 1 || echo 0)
+check "S65 stop leaves no daemon pid file" $([ ! -e "$ROOT/run/pocketos/meshcored.pid" ] && echo 1 || echo 0)
+check "S65 stop leaves a state file that says stopped, not running" \
+      $([ "$(mcd_state running)" = "0" ] && [ -z "$(mcd_state child_pid)" ] && echo 1 || echo 0)
+
+out=$("$S65" stop 2>&1); rc=$?
+check "S65 stop when stopped says not running" $(contains "$out" "not running")
+check "S65 repeated stop is safe (exit 0)" $([ "$rc" -eq 0 ] && echo 1 || echo 0)
+
+rm -f "$ROOT/meshcored.env"
+out=$("$S65" restart 2>&1)
+check "S65 restart starts the service" $(wait_for "$ROOT/meshcored.env" && echo 1 || echo 0)
+check "S65 restart leaves exactly one meshcored" $(wait_mcd 1 && echo 1 || echo 0)
+out=$("$S65" restart 2>&1)
+check "S65 restart of a running service leaves exactly one meshcored" $(wait_mcd 1 && echo 1 || echo 0)
+check "and exactly one supervisor for it" \
+      $([ "$(pgrep -af "pos-supervise meshcored" 2>/dev/null | grep -c "$ROOT")" -eq 1 ] && echo 1 || echo 0)
+"$S65" stop >/dev/null 2>&1
+wait_mcd 0
+
+# Stale pid files from a previous boot or a killed supervisor: pids that name
+# nothing. They must neither block the start nor be mistaken for a service.
+# The pid of a process that has already exited, taken without signalling
+# anything: a background job killed before it has exec'd is still this shell,
+# and would run this script's EXIT trap - which removes $ROOT.
+dead=$(sh -c 'echo $$')
+echo "$dead" > "$MCD_SUP_PIDFILE"; echo "$dead" > "$ROOT/run/pocketos/meshcored.pid"
+rm -f "$ROOT/meshcored.env"
+out=$("$S65" start 2>&1)
+check "S65 start is not blocked by stale pid files" $(contains "$out" "OK")
+check "and starts exactly one meshcored" $(wait_mcd 1 && echo 1 || echo 0)
+"$S65" stop >/dev/null 2>&1
+wait_mcd 0
+
+# Enabled and not installable: loud, and a non-zero exit.
+mv "$ROOT/usr/sbin/meshcored" "$ROOT/usr/sbin/meshcored.away"
+out=$("$S65" start 2>&1); rc=$?
+check "S65 enabled with no meshcored binary fails loudly" $(contains "$out" "FAILED: enabled, but")
+check "and exits non-zero" $([ "$rc" -ne 0 ] && echo 1 || echo 0)
+mv "$ROOT/usr/sbin/meshcored.away" "$ROOT/usr/sbin/meshcored"
+mv "$ROOT/usr/bin/pos-supervise" "$ROOT/usr/bin/pos-supervise.away"
+out=$("$S65" start 2>&1); rc=$?
+check "S65 with no pos-supervise refuses rather than run meshcored unsupervised" \
+      $(contains "$out" "pos-supervise is not installed")
+check "and exits non-zero" $([ "$rc" -ne 0 ] && echo 1 || echo 0)
+check "and started nothing" $(wait_mcd 0 && echo 1 || echo 0)
+mv "$ROOT/usr/bin/pos-supervise.away" "$ROOT/usr/bin/pos-supervise"
+
+# A meshcored no init script started - unit A's bench state: started by hand
+# with nohup, no pid file. A real ELF (a copy of sleep) under the daemon's
+# path, so /proc/<pid>/exe names it exactly as it would on the unit.
+cp "$(command -v sleep)" "$ROOT/usr/sbin/meshcored"
+"$ROOT/usr/sbin/meshcored" 600 &
+hand=$!
+sleep 0.3
+out=$("$S65" start 2>&1); rc=$?
+check "S65 refuses to start beside a meshcored it did not start" \
+      $(contains "$out" "already running unsupervised (pid $hand)")
+check "and exits non-zero" $([ "$rc" -ne 0 ] && echo 1 || echo 0)
+check "and did not start a supervisor" $([ ! -s "$MCD_SUP_PIDFILE" ] && echo 1 || echo 0)
+out=$("$S65" stop 2>&1); rc=$?
+check "S65 stop ends a meshcored it did not start" $(contains "$out" "stopped unsupervised pid $hand")
+check "and exits 0" $([ "$rc" -eq 0 ] && echo 1 || echo 0)
+check "and it is gone" $(wait_gone "$hand" && echo 1 || echo 0)
+wait "$hand" 2>/dev/null
+make_meshcored
+
+# A crash, then a clean run: the supervisor restarts it and says so.
+cat > "$ROOT/usr/sbin/meshcored" <<EOD
+#!/bin/sh
+if [ ! -e "$ROOT/mcd.crashed" ]; then : > "$ROOT/mcd.crashed"; exit 1; fi
+env > "$ROOT/meshcored.env"
+trap 'exit 0' TERM INT
+while :; do sleep 0.2; done
+EOD
+chmod 0755 "$ROOT/usr/sbin/meshcored"
+rm -f "$ROOT/meshcored.env" "$ROOT/mcd.crashed"
+"$S65" start >/dev/null 2>&1
+check "S65: a meshcored that crashes is restarted by the supervisor" \
+      $(n=0; while [ ! -e "$ROOT/meshcored.env" ] && [ $n -lt 50 ]; do sleep 0.1; n=$((n + 1)); done; \
+        [ -e "$ROOT/meshcored.env" ] && echo 1 || echo 0)
+check "and the state file counts the restart and the exit code" \
+      $([ "$(mcd_state restarts)" = "1" ] && [ "$(mcd_state last_exit_code)" = "1" ] \
+        && [ "$(mcd_state running)" = "1" ] && echo 1 || echo 0)
+"$S65" stop >/dev/null 2>&1
+wait_mcd 0
+
+# A meshcored that always crashes ends in a crash loop, reported the way every
+# other supervised service reports it. The restart limit is lowered for the
+# test through the supervisor's own knob; the backoff is the real one.
+printf '#!/bin/sh\nexit 3\n' > "$ROOT/usr/sbin/meshcored"
+chmod 0755 "$ROOT/usr/sbin/meshcored"
+POS_SUPERVISE_MAX_RESTARTS=2 "$S65" start >/dev/null 2>&1
+n=0
+while [ "$(mcd_state crashloop)" != "1" ] && [ $n -lt 150 ]; do sleep 0.1; n=$((n + 1)); done
+check "S65: a meshcored that keeps crashing ends in a crash loop" \
+      $([ "$(mcd_state crashloop)" = "1" ] && echo 1 || echo 0)
+check "with the marker the bring-up checklist names" \
+      $([ -s "$ROOT/run/pocketos/meshcored.crashloop" ] && echo 1 || echo 0)
+check "its last exit code recorded" $([ "$(mcd_state last_exit_code)" = "3" ] && echo 1 || echo 0)
+check "and no daemon or pid file left behind" \
+      $([ "$(count_mcd)" -eq 0 ] && [ ! -e "$ROOT/run/pocketos/meshcored.pid" ] && echo 1 || echo 0)
+out=$("$S65" stop 2>&1); rc=$?
+check "S65 stop after a crash loop is safe" $([ "$rc" -eq 0 ] && echo 1 || echo 0)
+make_meshcored
+rm -f "$ROOT/etc/default/meshcored" "$ROOT/meshcored.env" "$ROOT/meshcored.args" "$ROOT/mcd.crashed"
 
 # ---- S90doors-shell --------------------------------------------------
 
@@ -869,6 +1050,95 @@ fi
           $([ "$rc" -ne 0 ] && echo 1 || echo 0)
     check "deploy says nothing was installed" $(contains "$out" "nothing has been installed")
     check "deploy unpacked no files" $([ ! -f "$d/tar.log" ] && echo 1 || echo 0)
+}
+
+# ---- deploy.sh refuses to start an incomplete installation ---------------
+#
+# The same remote half, with every path it names moved into a fake root and a
+# tar that unpacks a prepared payload there. What is under test: after the
+# unpack the unit is asked whether every service arrived whole, and a unit
+# holding one half of a service (unit A, 2026-09-22: meshcored without
+# S65meshcored) ends the deploy before anything is started.
+#
+# The /proc sweeps stay real, so the meshcored pattern is renamed to a name
+# only this test's own stand-in carries: nothing else on the build host can
+# match it, and nothing else can be signalled.
+FAKE_MCD="mcdgate$$"
+deploy_remote() { # <dir>: writes <dir>/remote.sh
+    sed -n "/^    | \"\${SSH\[@\]}\"/,/^doors version/p" \
+        "$REPO/platforms/k230/scripts/deploy.sh" \
+        | sed -e "1s/.*'set -e\$/set -e/" \
+              -e "s#/var/run#$1/var/run#g" \
+              -e "s#\([[:space:]]\)/run/pocketos#\1$1/run/pocketos#g" \
+              -e "s#/etc/init.d#$1/etc/init.d#g" \
+              -e "s#/usr/sbin/#$1/usr/sbin/#g" \
+              -e "s#/usr/bin/#$1/usr/bin/#g" \
+              -e "s#\*/meshcored|\*\"/meshcored (deleted)\"#*/$FAKE_MCD|*\"/$FAKE_MCD (deleted)\"#" \
+              -e "s/^doors version.*//" > "$1/remote.sh"
+}
+deploy_root() { # <dir> <payload dir>: stop/start stubs that record, and a tar that unpacks <payload>
+    mkdir -p "$1/etc/init.d" "$1/bin" "$1/run/pocketos" "$1/var/run"
+    for svc in S50sysd S55netd S60radiod S65meshcored S90doors-shell; do
+        printf '#!/bin/sh\necho "$1 %s" >> "%s/calls.log"\nexit 0\n' "$svc" "$1" > "$1/etc/init.d/$svc"
+        chmod 0755 "$1/etc/init.d/$svc"
+    done
+    printf '#!/bin/sh\ncp -a "%s"/. "%s"/\n' "$2" "$1" > "$1/bin/tar"
+    chmod 0755 "$1/bin/tar"
+}
+deploy_payload() { # <dir> <deploy dir>: every service whole, as the archive carries it
+    mkdir -p "$1/usr/sbin" "$1/usr/bin" "$1/etc/init.d"
+    for f in usr/sbin/sysd usr/sbin/netd usr/sbin/radiod usr/sbin/meshcored usr/bin/doors-shell \
+             usr/bin/pos-supervise etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod \
+             etc/init.d/S65meshcored etc/init.d/S90doors-shell; do
+        printf '#!/bin/sh\necho "$1 %s" >> "%s/calls.log"\nexit 0\n' "${f##*/}" "$2" > "$1/$f"
+        chmod 0755 "$1/$f"
+    done
+}
+{
+    d=$ROOT/deploy-incomplete; p=$ROOT/payload-incomplete
+    deploy_payload "$p" "$ROOT/deploy-incomplete"; rm -f "$p/etc/init.d/S65meshcored"
+    mkdir -p "$d"; deploy_remote "$d"
+    check "the remote half was extracted with the completeness check" \
+          $(grep -q 'missing or not executable after unpacking' "$d/remote.sh" && echo 1 || echo 0)
+    # The stand-in init scripts that exist before the unpack stop cleanly; the
+    # payload then lacks S65meshcored, so the one the unit ends up with is the
+    # stub from before - removed here, which is unit A's state exactly.
+    deploy_root "$d" "$p"; rm -f "$d/etc/init.d/S65meshcored"
+    out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" 2>&1 </dev/null); rc=$?
+    check "deploy refuses a unit left with meshcored and no S65meshcored" $([ "$rc" -ne 0 ] && echo 1 || echo 0)
+    check "and names the missing piece" $(contains "$out" "S65meshcored is missing or not executable after unpacking")
+    check "and says services were not started" $(contains "$out" "services were NOT started")
+    check "and started nothing" $(grep -q '^start' "$d/calls.log" 2>/dev/null && echo 0 || echo 1)
+
+    d=$ROOT/deploy-mode; p=$ROOT/payload-mode
+    deploy_payload "$p" "$ROOT/deploy-mode"; chmod 0644 "$p/usr/sbin/meshcored"
+    mkdir -p "$d"; deploy_remote "$d"; deploy_root "$d" "$p"
+    out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" 2>&1 </dev/null); rc=$?
+    check "deploy refuses a meshcored binary that arrived not executable" \
+          $([ "$rc" -ne 0 ] && [ "$(contains "$out" "usr/sbin/meshcored is missing or not executable")" = 1 ] && echo 1 || echo 0)
+
+    d=$ROOT/deploy-complete; p=$ROOT/payload-complete
+    deploy_payload "$p" "$d"
+    mkdir -p "$d"; deploy_remote "$d"; deploy_root "$d" "$p"
+    # A meshcored no init script started, under the renamed pattern: a real
+    # ELF (a copy of sleep), so /proc/<pid>/exe names it.
+    mkdir -p "$d/hand"; cp "$(command -v sleep)" "$d/hand/$FAKE_MCD"
+    "$d/hand/$FAKE_MCD" 600 & hand=$!
+    sleep 0.3
+    out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" 2>&1 </dev/null); rc=$?
+    check "deploy stops a meshcored no init script started, before it unpacks" \
+          $(contains "$out" "stopping a meshcored no init script started: $hand")
+    check "and it is gone" $(wait_gone "$hand" && echo 1 || echo 0)
+    wait "$hand" 2>/dev/null
+    check "a complete unpack starts every service" \
+          $([ "$rc" -eq 0 ] && grep -q '^start S65meshcored' "$d/calls.log" \
+            && grep -q '^start S60radiod' "$d/calls.log" && echo 1 || echo 0)
+    check "radiod starts before meshcored, and meshcored before the shell" \
+          $(awk '/^start S60radiod/{r=NR} /^start S65meshcored/{m=NR} /^start S90doors-shell/{s=NR} END{exit !(r && m && s && r < m && m < s)}' \
+            "$d/calls.log" && echo 1 || echo 0)
+    check "meshcored stops before radiod on the way down" \
+          $(awk '/^stop S65meshcored/{m=NR} /^stop S60radiod/{r=NR} END{exit !(m && r && m < r)}' \
+            "$d/calls.log" && echo 1 || echo 0)
 }
 
 echo "initscript_test: $failed failure(s)"

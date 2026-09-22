@@ -18,6 +18,8 @@
 # assembled with mkfs.ext4.
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CHECK_ROOTFS="${SCRIPT_DIR}/../../../tools/release/check_rootfs.sh"
 IMG="${1:-}"
 [ -n "${IMG}" ] || { echo "usage: $(basename "$0") <sysimage-sdcard.img>" >&2; exit 2; }
 [ -f "${IMG}" ] || { echo "ERROR: no such image: ${IMG}" >&2; exit 2; }
@@ -146,6 +148,36 @@ if [ "${P2_LBA:-0}" -gt 0 ] && [ "${P2_CNT:-0}" -gt 0 ]; then
                 note "ok  ${path} absent, as it must be"
             fi
         done
+        # Every service whole, and every binary the build the release file
+        # names: the same check deploy.sh makes of the tree it copies from
+        # (tools/release/check_rootfs.sh), made here of what the card will
+        # carry. Unit A had meshcored with no init script and a release file
+        # naming another build; an image with either fault stops here. The
+        # files the check reads are dumped out of the partition and given the
+        # mode the partition records for them (read with stat, set with chmod,
+        # rather than debugfs dump -p, whose chown part needs root), so an init
+        # script that is not executable in the image is not executable in the
+        # copy either.
+        MINI="${WORK}/rootfs"
+        for path in etc/doors-release etc/default/meshcored usr/bin/pos-supervise \
+                    usr/bin/doors usr/bin/doors-shell usr/sbin/radiod usr/sbin/sysd usr/sbin/netd \
+                    usr/sbin/meshcored etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod \
+                    etc/init.d/S65meshcored etc/init.d/S90doors-shell; do
+            rootfs_has "/${path}" || continue
+            mkdir -p "${MINI}/$(dirname "${path}")"
+            mode=$(debugfs -R "stat \"/${path}\"" "${P2}" 2>/dev/null \
+                   | sed -n 's/.*Mode: *\(0[0-7]*\).*/\1/p' | head -1)
+            debugfs -R "dump \"/${path}\" \"${MINI}/${path}\"" "${P2}" >/dev/null 2>&1 \
+                || : > "${MINI}/${path}"
+            chmod "${mode:-0644}" "${MINI}/${path}"
+        done
+        mkdir -p "${MINI}"
+        if [ ! -f "${CHECK_ROOTFS}" ]; then
+            echo "  MISSING: ${CHECK_ROOTFS}; the installation cannot be checked" >&2
+            failed=$((failed + 1))
+        elif ! bash "${CHECK_ROOTFS}" "${MINI}" | sed 's/^/  /'; then
+            failed=$((failed + 1))
+        fi
     else
         echo "  note: partition 2 is not a readable ext filesystem; rootfs identity not checked"
     fi
@@ -160,5 +192,5 @@ if [ "${failed}" -ne 0 ]; then
     exit 1
 fi
 
-echo "IMAGE GATE: PASS - every boot-critical file is present and non-empty, and the root partition carries exactly one shell service."
+echo "IMAGE GATE: PASS - every boot-critical file is present and non-empty, the root partition carries exactly one shell service, and every service is whole and from one build."
 exit 0
