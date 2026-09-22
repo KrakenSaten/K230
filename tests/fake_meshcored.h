@@ -20,8 +20,9 @@
 #include <sys/types.h>
 
 struct fake_meshcored_script {
-    /* mesh.status answers with this state, and mesh.state is raised with it
-     * once a client subscribes. */
+    /* mesh.status answers with this state. No mesh.state event is raised on
+     * its own: a client subscribing receives the scripted events below and
+     * nothing else. */
     const char *state;
     const char *reason;
     /* How long mesh.status says this service had been up when it started,

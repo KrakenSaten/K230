@@ -311,6 +311,12 @@ static int have_events(const struct rift_ipc *c, const struct rift_model *m)
     return c->events_in >= 3;
 }
 
+static int have_one_event(const struct rift_ipc *c, const struct rift_model *m)
+{
+    (void)m;
+    return c->events_in >= 1;
+}
+
 static int is_down(const struct rift_ipc *c, const struct rift_model *m)
 {
     (void)m;
@@ -367,17 +373,97 @@ int main(void)
     check("nothing was invented to show", m.node_count == 0 && !m.snapshot_valid);
     {
         /* A poll before the backoff has expired must not hammer the socket:
-         * the first attempt failed, so the next one waits. */
-        unsigned attempts = c.connects;
+         * the first attempt failed, so the next one waits. Every failed
+         * attempt sets the time of the next one, so an unchanged time is the
+         * proof that none was made. (This compared c.connects, which counts
+         * only connections that succeeded - 0 before and 0 after, whatever
+         * the client did - and so could not fail.) */
+        int64_t next = c.next_attempt_ms;
         int64_t t = now_ms();
         int i;
 
         for (i = 0; i < 50; i++) {
             rift_ipc_poll(&c, t);
         }
-        check("polling harder does not retry harder", c.connects == attempts);
+        check("polling harder does not retry harder", c.next_attempt_ms == next);
     }
     rift_ipc_close(&c);
+
+    /* ---- no service yet, and then the service appears ---------------------- */
+    /* Unit A after a boot with no meshcored: the shell up first and RIFT open
+     * on a service that is not there. The client has to keep looking without
+     * hammering the socket, find the service by itself when it starts,
+     * subscribe once, and apply each event once. */
+    {
+        static const char *const late_events[] = {
+            "mesh.node|{\"reason\":\"path\",\"node\":{\"public_key\":\"" KEY_B "\","
+            "\"node_hash\":\"b2\",\"name\":\"HYTTA\",\"type\":2,\"path_known\":true,"
+            "\"hops\":5,\"direct\":false,\"path_hex\":\"a1c2d3e4f5\","
+            "\"last_heard_mono_ms\":1400}}",
+            NULL,
+        };
+        struct fake_meshcored_script script;
+        /* Thirty seconds of polling every 10 ms, on a clock that ends a
+         * second ago, so the next attempt it leaves falls due in real time
+         * shortly after the service below appears. */
+        int64_t base = now_ms() - 31000;
+        int64_t last_next = -1;
+        unsigned tries = 0;
+        int subscribes = 0;
+        char line[128];
+        FILE *f;
+        pid_t pid;
+        int k;
+
+        unlink(methods);
+        rift_model_init(&m);
+        rift_ipc_init(&c, &m, RIFT_SERVICE);
+        for (k = 0; k <= 3000; k++) {
+            rift_ipc_poll(&c, base + (int64_t)k * 10);
+            if (c.next_attempt_ms != last_next) {
+                tries++;
+                last_next = c.next_attempt_ms;
+            }
+        }
+        /* 0.5, 1, 2, 4, then 5 s apart: nine tries in thirty seconds. */
+        check("thirty seconds with no service is a handful of tries, not a storm",
+              tries >= 3 && tries <= 10);
+        check("the interval stops growing at its ceiling", c.backoff_ms == RIFT_BACKOFF_MAX_MS);
+        check("and the service is reported absent throughout",
+              m.state == RIFT_SVC_ABSENT && !rift_ipc_connected(&c) && c.connects == 0);
+
+        memset(&script, 0, sizeof(script));
+        script.state = "online";
+        script.nodes_json = NODES_TWO;
+        script.events = late_events;
+        script.life_ms = 8000;
+        script.method_log = methods;
+        pid = fake_meshcored_spawn(&script);
+        check("the service comes up after the client", fake_meshcored_wait_ready(3000));
+        spin(&c, 8000, have_snapshot, &m);
+        check("the client finds it on its own", rift_ipc_connected(&c) && have_snapshot(&c, &m));
+        check("with one connection, not several", c.connects == 1);
+        check("and says so: absent no longer", m.state != RIFT_SVC_ABSENT && !m.stale);
+        spin(&c, 3000, have_one_event, &m);
+        /* A moment longer, so a duplicate would have time to arrive too. */
+        spin(&c, 500, NULL, &m);
+        check("the one event it raised arrives exactly once", c.events_in == 1);
+        check("and each is applied once: the node updated, not doubled",
+              rift_model_find(&m, KEY_B) && rift_model_find(&m, KEY_B)->hops == 5 &&
+                  m.node_count == 2);
+        f = fopen(methods, "r");
+        while (f && fgets(line, sizeof(line), f)) {
+            line[strcspn(line, "\n")] = '\0';
+            subscribes += strcmp(line, "mesh.subscribe") == 0;
+        }
+        if (f) {
+            fclose(f);
+        }
+        check("it subscribed exactly once", subscribes == 1);
+        rift_ipc_close(&c);
+        fake_meshcored_stop(pid);
+        unlink(methods);
+    }
 
     /* ---- a service that answers -------------------------------------------- */
     {
