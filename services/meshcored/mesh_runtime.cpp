@@ -88,10 +88,21 @@ const int RX_QUEUE_DEPTH = 32;
 const int MSG_RING = 64;
 const int CHAN_MSG_RING = 64;
 
-/* How many messages may be waiting for an ACK at once. MeshCore itself
- * tracks one timeout (BaseChatMesh::txt_send_timeout), so this is about
- * matching an ACK that arrives to the message it answers, not about running
- * several timers. */
+/* How many messages may be waiting for an ACK at once.
+ *
+ * Each one carries its OWN deadline, and that is the point of this table.
+ * MeshCore tracks a single timeout (BaseChatMesh::txt_send_timeout): every
+ * sendMessage() overwrites it and any matched ACK zeroes it
+ * (BaseChatMesh.cpp:339, :350, :451, :455). With two messages in flight that
+ * one timer belongs to whichever was sent last, so an ACK for the first
+ * cancelled the second's timeout and left it `sent_*` for ever, and a timeout
+ * that did fire was pinned on the oldest message rather than the one it was
+ * for. So upstream's timer is not used here at all (onSendTimeout does
+ * nothing) and expireAcks() gives each message the answer that belongs to it.
+ *
+ * A full table refuses the next send (MCD_SEND_BUSY) rather than overwriting
+ * a slot: an overwritten message would never hear its ACK matched and would
+ * never time out either, which is the same fault by another route. */
 const int OUTBOX_SLOTS = 8;
 
 /* ---- the radio --------------------------------------------------------- */
@@ -384,6 +395,10 @@ struct OutboxSlot {
     uint64_t msg_id;
     uint8_t peer_key[PUB_KEY_SIZE];
     uint64_t sent_ms;
+    /* When this message stops waiting: sent_ms plus the timeout MeshCore
+     * computed for this very packet (flood or direct, from its airtime and
+     * the path length). */
+    uint64_t deadline_ms;
 };
 
 class Node : public BaseChatMesh {
@@ -474,7 +489,7 @@ public:
     }
 
     uint64_t recordOutgoing(const ContactInfo& to, const char* text, uint32_t timestamp,
-                            mcd_msg_state state, uint32_t expected_ack)
+                            mcd_msg_state state, uint32_t expected_ack, uint32_t timeout_ms)
     {
         mcd_message m;
 
@@ -492,9 +507,114 @@ public:
          * expected_ack for it and will time it out if none arrives. */
         m.ack_expected = true;
         push(m);
-        addToOutbox(expected_ack, m.id, to.id.pub_key, m.mono_ms);
+        addToOutbox(expected_ack, m.id, to.id.pub_key, m.mono_ms, m.mono_ms + timeout_ms);
         emitMessage(m.id);
         return m.id;
+    }
+
+    /* Is there room to watch one more message for its ACK? Asked BEFORE the
+     * message is built and handed to the dispatcher, so a refusal puts
+     * nothing on the air. */
+    bool outboxFull() const
+    {
+        for (int i = 0; i < OUTBOX_SLOTS; i++) {
+            if (!_outbox[i].used) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    int outboxWaiting() const
+    {
+        int n = 0;
+
+        for (int i = 0; i < OUTBOX_SLOTS; i++) {
+            n += _outbox[i].used ? 1 : 0;
+        }
+        return n;
+    }
+
+    /* Every message whose own deadline has passed without an ACK becomes
+     * no_ack, earliest deadline first so the events come out in the order
+     * the deadlines fell. Each message is judged against its own deadline
+     * and nobody else's - see OUTBOX_SLOTS. */
+    int expireAcks(uint64_t now_ms)
+    {
+        int expired = 0;
+
+        for (;;) {
+            int due = -1;
+
+            for (int i = 0; i < OUTBOX_SLOTS; i++) {
+                if (!_outbox[i].used || _outbox[i].deadline_ms > now_ms) {
+                    continue;
+                }
+                if (due < 0 || _outbox[i].deadline_ms < _outbox[due].deadline_ms) {
+                    due = i;
+                }
+            }
+            if (due < 0) {
+                return expired;
+            }
+            _outbox[due].used = false;
+            markState(_outbox[due].msg_id, MCD_MSG_NO_ACK);
+            expired++;
+        }
+    }
+
+    /* ---- contacts --------------------------------------------------------
+     *
+     * The contact table holds MAX_CONTACTS and MeshCore does not evict from
+     * it (shouldOverwriteWhenFull() is false), so once it is full an advert
+     * from a new node is counted as unretained and a direct message to that
+     * node cannot be sent: there is no contact to encrypt to. Forgetting a
+     * node is what makes room. It is the node's entry here that goes - its
+     * learned route and its last advert - not the node: it is added back the
+     * next time it adverts. */
+    bool forgetNode(const uint8_t* key, mcd_node& was)
+    {
+        ContactInfo* c = lookupContactByPubKey(key, PUB_KEY_SIZE);
+
+        if (c == NULL || c->type == ADV_TYPE_NONE) {
+            return false;
+        }
+        fill(*c, was);
+        if (!removeContact(*c)) {
+            return false;
+        }
+        /* What this service kept beside the contact goes with it, so a node
+         * that adverts again is heard afresh rather than inheriting the
+         * signal of a node that was forgotten. A message still waiting for
+         * its ACK keeps waiting: an ACK names the message, not the contact. */
+        for (int i = 0; i < MAX_CONTACTS; i++) {
+            if (_telemetry[i].used && memcmp(_telemetry[i].key, key, PUB_KEY_SIZE) == 0) {
+                memset(&_telemetry[i], 0, sizeof(_telemetry[i]));
+            }
+        }
+        _dirty = true;
+        if (_hooks.on_node) {
+            _hooks.on_node(_hooks.user, &was, "removed");
+        }
+        return true;
+    }
+
+    /* Forget the learned route to a node, so the next message to it floods
+     * and the reply teaches a fresh one. The remedy when a node has moved and
+     * the stored route no longer reaches it, which shows up as direct
+     * messages that are never acknowledged. */
+    bool resetPath(const uint8_t* key, mcd_node& now)
+    {
+        ContactInfo* c = lookupContactByPubKey(key, PUB_KEY_SIZE);
+
+        if (c == NULL || c->type == ADV_TYPE_NONE) {
+            return false;
+        }
+        resetPathTo(*c);
+        _dirty = true;
+        fill(*c, now);
+        emitNode(*c, "path");
+        return true;
     }
 
     /* ---- channels ------------------------------------------------------
@@ -998,24 +1118,12 @@ protected:
 
     void onSendTimeout() override
     {
-        /* MeshCore keeps one timeout, so this says "the message it was
-         * watching did not get an ACK". The oldest unanswered one is that
-         * message. */
-        int oldest = -1;
-
-        for (int i = 0; i < OUTBOX_SLOTS; i++) {
-            if (!_outbox[i].used) {
-                continue;
-            }
-            if (oldest < 0 || _outbox[i].sent_ms < _outbox[oldest].sent_ms) {
-                oldest = i;
-            }
-        }
-        if (oldest < 0) {
-            return;
-        }
-        markState(_outbox[oldest].msg_id, MCD_MSG_NO_ACK);
-        _outbox[oldest].used = false;
+        /* Deliberately nothing. MeshCore's one timer belongs to whichever
+         * message was sent last and is cancelled by an ACK for any of them,
+         * so it cannot say which message went unanswered - and pinning it on
+         * the oldest, as this used to, marked the wrong one. Every message
+         * in the outbox has its own deadline instead, and expireAcks() is
+         * what reads them (see OUTBOX_SLOTS). */
     }
 
     /* ---- dispatcher logging hooks ---- */
@@ -1162,25 +1270,27 @@ private:
         emitMessage(id);
     }
 
-    void addToOutbox(uint32_t expected_ack, uint64_t msg_id, const uint8_t* key, uint64_t now)
+    /* The caller has already checked outboxFull(): a send that could not be
+     * watched is refused before it is built. Should a slot nevertheless not
+     * be found, the message is answered no_ack at once rather than left
+     * `sent_*` with nothing watching it - a message nothing will ever time
+     * out is the fault this table exists to prevent. */
+    void addToOutbox(uint32_t expected_ack, uint64_t msg_id, const uint8_t* key, uint64_t now,
+                     uint64_t deadline)
     {
-        int oldest = 0;
-
         for (int i = 0; i < OUTBOX_SLOTS; i++) {
-            if (!_outbox[i].used) {
-                oldest = i;
-                goto take;
+            if (_outbox[i].used) {
+                continue;
             }
-            if (_outbox[i].sent_ms < _outbox[oldest].sent_ms) {
-                oldest = i;
-            }
+            _outbox[i].used = true;
+            _outbox[i].expected_ack = expected_ack;
+            _outbox[i].msg_id = msg_id;
+            memcpy(_outbox[i].peer_key, key, PUB_KEY_SIZE);
+            _outbox[i].sent_ms = now;
+            _outbox[i].deadline_ms = deadline;
+            return;
         }
-    take:
-        _outbox[oldest].used = true;
-        _outbox[oldest].expected_ack = expected_ack;
-        _outbox[oldest].msg_id = msg_id;
-        memcpy(_outbox[oldest].peer_key, key, PUB_KEY_SIZE);
-        _outbox[oldest].sent_ms = now;
+        markState(msg_id, MCD_MSG_NO_ACK);
     }
 
     /* Per-node telemetry. It is recorded only while the frame that caused
@@ -1274,22 +1384,32 @@ public:
     }
 
 private:
+    /* The node's own slot wherever it is; else a free one; else the one heard
+     * longest ago. In that order, and the first search over the whole table:
+     * forgetting a node (forgetNode) frees a slot in the MIDDLE, and a search
+     * that stopped at the first free slot would give a node already held
+     * further on a second slot - after which a later eviction could wipe a
+     * real node's last-heard time to make room for a duplicate. */
     Telemetry& slotFor(const uint8_t* key)
     {
         int oldest = 0;
+        int free_slot = -1;
 
         for (int i = 0; i < MAX_CONTACTS; i++) {
             if (_telemetry[i].used && memcmp(_telemetry[i].key, key, PUB_KEY_SIZE) == 0) {
                 return _telemetry[i];
             }
             if (!_telemetry[i].used) {
-                return _telemetry[i];
+                if (free_slot < 0) {
+                    free_slot = i;
+                }
+                continue;
             }
             if (_telemetry[i].heard_ms < _telemetry[oldest].heard_ms) {
                 oldest = i;
             }
         }
-        return _telemetry[oldest];
+        return _telemetry[free_slot >= 0 ? free_slot : oldest];
     }
 
     void emitMessage(uint64_t id)
@@ -1651,6 +1771,23 @@ void mcd_runtime_tick(struct mcd_runtime* rt)
     rt->radio.beginTurn();
     rt->node.loop();
     rt->node.noteHanded(rt->radio.handed());
+    /* After the loop, and only once every frame already received has been
+     * handed to the protocol core: the daemon hands over one frame a turn,
+     * and an ACK that arrived in time but is queued behind others must be
+     * matched before its message's deadline is judged. */
+    if (!rt->radio.pending()) {
+        mcd_runtime_expire_acks(rt, mcport::monotonicMillis());
+    }
+}
+
+int mcd_runtime_expire_acks(struct mcd_runtime* rt, uint64_t now_ms)
+{
+    return rt->node.expireAcks(now_ms);
+}
+
+int mcd_runtime_acks_waiting(const struct mcd_runtime* rt)
+{
+    return rt->node.outboxWaiting();
 }
 
 bool mcd_runtime_rx_pending(const struct mcd_runtime* rt)
@@ -1819,6 +1956,18 @@ enum mcd_send_result mcd_runtime_send_text(struct mcd_runtime* rt, const uint8_t
     if (matches != 1) {
         return MCD_SEND_NO_CONTACT;
     }
+    /* Before anything is built: a message this service could not watch for
+     * its ACK would never be answered either way, so it is not sent. Any
+     * message already past its deadline is answered first - requests are
+     * served between ticks, and a slot that was due must not turn a send
+     * away as busy. Not while received frames are still queued, for the
+     * reason mcd_runtime_tick gives. */
+    if (!rt->radio.pending()) {
+        mcd_runtime_expire_acks(rt, mcport::monotonicMillis());
+    }
+    if (rt->node.outboxFull()) {
+        return MCD_SEND_BUSY;
+    }
 
     timestamp = rt->rtc.getCurrentTimeUnique();
     rc = rt->node.sendMessage(found, timestamp, 0, text, expected_ack, est);
@@ -1827,7 +1976,7 @@ enum mcd_send_result mcd_runtime_send_text(struct mcd_runtime* rt, const uint8_t
     }
     {
         mcd_msg_state st = (rc == MSG_SEND_SENT_DIRECT) ? MCD_MSG_SENT_DIRECT : MCD_MSG_SENT_FLOOD;
-        uint64_t id = rt->node.recordOutgoing(found, text, timestamp, st, expected_ack);
+        uint64_t id = rt->node.recordOutgoing(found, text, timestamp, st, expected_ack, est);
 
         if (msg_id) {
             *msg_id = id;
@@ -1967,6 +2116,63 @@ bool mcd_runtime_send_advert(struct mcd_runtime* rt)
         return false;
     }
     rt->node.sendFlood(pkt);
+    return true;
+}
+
+bool mcd_runtime_send_advert_zero_hop(struct mcd_runtime* rt)
+{
+    mesh::Packet* pkt;
+
+    if (!rt->radio.online()) {
+        return false;
+    }
+    pkt = rt->node.createSelfAdvert(rt->node.name());
+    if (pkt == NULL) {
+        return false;
+    }
+    /* Heard by the nodes in direct range and repeated by none of them: the
+     * same signed advert, at the airtime cost of one packet rather than of a
+     * flood across the whole mesh. */
+    rt->node.sendZeroHop(pkt);
+    return true;
+}
+
+bool mcd_runtime_node_remove(struct mcd_runtime* rt, const uint8_t key[MCD_PUB_KEY_LEN],
+                             struct mcd_node* was, bool* persisted)
+{
+    struct mcd_node n;
+    bool written;
+
+    if (!rt->node.forgetNode(key, n)) {
+        return false;
+    }
+    if (was) {
+        *was = n;
+    }
+    /* Written now rather than at the next persist interval: a node answered
+     * as forgotten that came back after a restart ten seconds later would
+     * make the answer untrue. The same reasoning as a channel's key. And
+     * whether it was written is part of the answer: a table that cannot be
+     * written (a failed write, or an unreadable state.v1 kept as evidence)
+     * forgets the node for this run only. */
+    written = !rt->persist_blocked && mcd_runtime_persist(rt) == 0 && !rt->node.dirty();
+    if (persisted) {
+        *persisted = written;
+    }
+    return true;
+}
+
+bool mcd_runtime_node_reset_path(struct mcd_runtime* rt, const uint8_t key[MCD_PUB_KEY_LEN],
+                                 struct mcd_node* now)
+{
+    struct mcd_node n;
+
+    if (!rt->node.resetPath(key, n)) {
+        return false;
+    }
+    if (now) {
+        *now = n;
+    }
     return true;
 }
 

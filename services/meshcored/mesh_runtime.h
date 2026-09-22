@@ -289,7 +289,11 @@ enum mcd_send_result {
     MCD_SEND_NO_CONTACT,     /* no such node */
     MCD_SEND_TOO_LONG,       /* the text does not fit a MeshCore message */
     MCD_SEND_NO_CHANNEL,     /* no channel in that slot */
-    MCD_SEND_FAILED          /* MeshCore refused it (no free packet, encode failure) */
+    MCD_SEND_FAILED,         /* MeshCore refused it (no free packet, encode failure) */
+    /* Every slot that watches a message for its ACK is in use. The message
+     * is not built and nothing is sent: one this service could not watch
+     * would never be answered delivered or not. */
+    MCD_SEND_BUSY
 };
 
 /* ---- channels -----------------------------------------------------------
@@ -345,16 +349,56 @@ enum mcd_send_result mcd_runtime_send_channel_text(struct mcd_runtime *rt, int s
                                                    const char *text, uint64_t *msg_id);
 
 /* Send text to the node whose public key starts with prefix. On acceptance
- * *msg_id is the message this created and *est_timeout_ms is how long
- * MeshCore will wait for the ACK. */
+ * *msg_id is the message this created and *est_timeout_ms is how long this
+ * service will wait for its ACK before calling it no_ack.
+ *
+ * Every accepted message is watched for its ACK against its own deadline, up
+ * to a small fixed number at once; MCD_SEND_BUSY is the answer when that many
+ * are already waiting, and nothing is sent. */
 enum mcd_send_result mcd_runtime_send_text(struct mcd_runtime *rt, const uint8_t *prefix,
                                            size_t prefix_len, const char *text,
                                            uint64_t *msg_id, uint32_t *est_timeout_ms);
 
-/* Build and flood one self-advert. This is the only way meshcored ever
- * transmits without having been sent something first: there is no periodic
- * advert, by decision - see docs/services/MESHCORED.md. */
+/* Answer no_ack for every watched message whose deadline is at or before
+ * now_ms (this service's CLOCK_MONOTONIC milliseconds). mcd_runtime_tick()
+ * calls it with the clock; it is exposed so a caller holding its own notion
+ * of the time - a test - can drive the deadlines without waiting for them.
+ * Returns how many messages it answered. */
+int mcd_runtime_expire_acks(struct mcd_runtime *rt, uint64_t now_ms);
+/* How many sent messages are waiting for their ACK now. */
+int mcd_runtime_acks_waiting(const struct mcd_runtime *rt);
+
+/* Build and flood one self-advert. This and the zero-hop one below are the
+ * only ways meshcored ever transmits without having been sent something
+ * first: there is no periodic advert, by decision - see
+ * docs/services/MESHCORED.md. */
 bool mcd_runtime_send_advert(struct mcd_runtime *rt);
+/* The same advert, sent zero-hop: heard by the nodes in direct range and
+ * repeated by none of them. */
+bool mcd_runtime_send_advert_zero_hop(struct mcd_runtime *rt);
+
+/* ---- the contact table ---------------------------------------------------
+ *
+ * Both take a WHOLE public key, never a prefix: they change what this node
+ * holds, and doing that to whichever node a short prefix happened to match
+ * would be acting on a guess.
+ */
+
+/* Forget a node: its contact, its learned route and the signal this service
+ * recorded for it. It is added back when it next adverts. The table is
+ * written out before this returns, and *persisted (when given) says whether
+ * that write happened: false when it failed, or when an unreadable state.v1
+ * is being kept as evidence and nothing is written - the node is then
+ * forgotten for this run only. *was (when given) is the node as it was;
+ * on_node is raised with it and the reason "removed". False when no such
+ * node is held. */
+bool mcd_runtime_node_remove(struct mcd_runtime *rt, const uint8_t key[MCD_PUB_KEY_LEN],
+                             struct mcd_node *was, bool *persisted);
+/* Forget the route to a node, so the next message to it floods. *now (when
+ * given) is the node afterwards; on_node is raised with the reason "path".
+ * False when no such node is held. */
+bool mcd_runtime_node_reset_path(struct mcd_runtime *rt, const uint8_t key[MCD_PUB_KEY_LEN],
+                                 struct mcd_node *now);
 
 /* Protocol-level statistics, from the MeshCore dispatcher itself. */
 struct mcd_runtime_stats {

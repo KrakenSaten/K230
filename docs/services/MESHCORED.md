@@ -215,14 +215,65 @@ choice worth naming:
   no `mesh.node` event, no state marked dirty, no telemetry slot taken from a
   node that *was* kept. It is counted as `nodes_unretained` so that a full
   table is visible rather than merely quiet. The table-full policy itself is
-  upstream's and unchanged.
+  upstream's and unchanged: nothing is evicted on its own. What makes room is
+  a client asking, by `mesh.node_remove` (below).
 - **This node is not a repeater.** `allowPacketForward()` stays false, so it
   hears everything and forwards nothing.
+
+One place where upstream's behaviour is **not** kept, because it was wrong
+for more than one message at a time:
+
+- **Each sent message waits for its own ACK.** MeshCore keeps a single send
+  timeout for the whole node (`BaseChatMesh::txt_send_timeout`): every
+  `sendMessage()` overwrites it and any matched ACK clears it
+  (`BaseChatMesh.cpp:339`, `:350`, `:451`, `:455`). With two direct messages
+  in flight, an ACK for one cancelled the other's timeout, which then stayed
+  `sent_*` for ever; and a timeout that did fire was pinned on the *oldest*
+  unanswered message rather than the one it was for. meshcored no longer
+  uses that timer (`onSendTimeout()` does nothing). Every accepted message
+  takes an outbox slot with its **own deadline** - the send time plus the
+  timeout MeshCore computed for that very packet, flood or direct - and
+  `mcd_runtime_tick()` answers `no_ack` for each message whose own deadline
+  has passed, earliest first - but only once every received frame has been
+  handed to the protocol core: the daemon hands over one frame a turn, and an
+  ACK that arrived in time but is queued behind others is matched before its
+  message's deadline is judged. Eight messages may wait at once; a ninth is
+  refused with `mesh.send` error 5 and nothing is built or sent, because a
+  message the service could not watch would never be answered either way.
+  `mesh.send` answers any deadline already passed before it judges the
+  outbox full, since requests are served between ticks. RIFT allows a second
+  message as soon as the first is accepted, so this was reachable from the
+  composer.
+
+### Forgetting a node
+
+`mesh.node_remove` takes a node's **whole** public key - never a prefix - and
+removes the contact (`BaseChatMesh::removeContact`): its learned route, its
+last advert, and the signal this service recorded for it. The table is
+written out before the call returns, and the answer's `persisted` says
+whether it was: when it is `true` a node answered as forgotten does not come
+back with the next restart; it is `false` when the stored table could not be
+read at start (the service does not write over a file it could not read) or
+the write failed. Subscribers get a `mesh.node` event with the reason
+`removed`, carrying the node as it was, before the answer is sent. A message still waiting for
+its ACK keeps waiting; an ACK names the message, not the contact.
+
+The node is not banned: it is added back the next time it adverts. Until
+then no message can be sent to it - there is no contact to encrypt to - which
+is exactly the state a full table leaves a *new* node in, and why forgetting
+one is the remedy for a full table.
+
+`mesh.node_reset_path` takes a whole key too, and forgets only the learned
+route (`BaseChatMesh::resetPathTo`), so the next message floods and the
+reply teaches a fresh one: the remedy for a node that has moved. It transmits
+nothing, and raises `mesh.node` with the reason `path`.
 
 ### What it transmits unasked
 
 Nothing on a timer. There is no periodic advert, and `mesh.advert` and
-`mesh.send` are the only ways a client makes it transmit.
+`mesh.send` are the only ways a client makes it transmit. `mesh.advert` takes
+`zero_hop: true` for an advert sent zero-hop - heard in direct range and
+repeated by nobody, at the airtime of one packet - and floods otherwise.
 
 What it does send without being asked is what the protocol owes a sender: an
 **ACK**, and a **return path**, for a message addressed to this node. That is
@@ -459,6 +510,10 @@ Stopping it releases the lease and writes the node table.
 | An enabled build cannot be installed, packaged or imaged while the notices say nothing about what it contains | **VERIFIED host** | `tests/notices_test.sh` executes the refusal on the install, image and package paths, and proves the gate is driven by the notices rather than unconditional |
 | A refused profile releases the radio and another client can take it | **VERIFIED host** | `tests/meshcored_service_test.sh`, against the real radiod |
 | A full contact table produces no phantom node, no state churn and no telemetry eviction | **VERIFIED host** | `tests/meshcored_runtime_test.cpp`, 32 real contacts then 18 more adverts |
+| Each sent message times out on its own deadline; an ACK for one does not strand another; a full outbox refuses rather than overwrites | **VERIFIED host** | `tests/meshcored_runtime_test.cpp` (`test_ack_deadlines`), three nodes, deadlines driven through `mcd_runtime_expire_acks` |
+| A send after every deadline has passed is not refused as busy; an ACK queued behind another frame is matched before its deadline is judged | **VERIFIED host** | same, in real time: no tick between the deadlines passing and the send, and an ACK held one turn behind a frame A hears back |
+| A forgotten node is gone from the table, the file and the list, refuses a message, and is learned again from its next advert; a route can be forgotten on its own | **VERIFIED host** | same, and over IPC in `tests/meshcored_service_test.sh` (section 3c) |
+| A zero-hop advert goes out as MeshCore's zero-hop (route bits DIRECT, empty path) and is learned by a peer in range | **VERIFIED host** | `tests/meshcored_runtime_test.cpp`; accepted over IPC in `tests/meshcored_service_test.sh` |
 | Remote text cannot make an IPC frame unparsable or carry an escape sequence | **VERIFIED host** | `tests/meshcored_util_test.c`, and end to end in the two-node harness |
 | The headers and the library come from one checkout, and a mismatch is refused | **VERIFIED host** | `tests/meshcored_source_identity_test.sh`, which also builds the refusal |
 | An identity is not reported as persisted until its directory entry is durable | **VERIFIED host** | `tests/meshcored_store_test.cpp`, through the directory-flush hook |
