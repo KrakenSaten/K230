@@ -770,9 +770,18 @@ static void name_commit(struct files_app *a)
               name, "");
 }
 
-static void on_kb_done(void *user)
+/* Enter from any source (DS 17.4): the touch keyboard's Done pushes Enter
+ * into the one key stream, and so does a physical keyboard, and either way
+ * the single-line field reports itself ready. So the name is committed here,
+ * once, and the shell is given no Done callback of its own. */
+static void on_name_ready(lv_event_t *e)
 {
-    name_commit(user);
+    struct files_app *a = lv_event_get_user_data(e);
+
+    if (lv_obj_has_flag(a->screen[SCREEN_NAME], LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
+    name_commit(a);
 }
 
 static void on_name_ok(lv_event_t *e)
@@ -793,14 +802,14 @@ static void on_name_field_clicked(lv_event_t *e)
 {
     struct files_app *a = lv_event_get_user_data(e);
 
-    /* Done commits and then pushes Enter, which reaches the field as a click
-     * after the name entry has already closed: only a field on show brings
-     * the keyboard back. */
+    /* Enter commits (on_name_ready) and then reaches the field as a click as
+     * well, after the name entry has already closed: only a field on show
+     * brings the keyboard back. */
     if (lv_obj_has_flag(a->screen[SCREEN_NAME], LV_OBJ_FLAG_HIDDEN)) {
         return;
     }
     if (!pocketos_shell_keyboard_visible()) {
-        pocketos_shell_keyboard_show(POCKETOS_KB_DONE, on_kb_done, a);
+        pocketos_shell_keyboard_show(POCKETOS_KB_DONE, NULL, NULL);
     }
 }
 
@@ -816,7 +825,7 @@ static void open_name(struct files_app *a, enum files_name_mode mode)
     lv_textarea_set_placeholder_text(a->n_field, mode == NAME_NEW_FOLDER ? "Folder name" : "New name");
     lv_label_set_text(lv_obj_get_child(a->n_ok, 0), mode == NAME_NEW_FOLDER ? "Create" : "Rename");
     pocketui_text_field_set_error(a->n_field, NULL);
-    pocketos_shell_keyboard_show(POCKETOS_KB_DONE, on_kb_done, a);
+    pocketos_shell_keyboard_show(POCKETOS_KB_DONE, NULL, NULL);
     show_screen(a, SCREEN_NAME);
     lv_textarea_set_text(a->n_field, mode == NAME_RENAME ? e->name : "");
     pos_input_focus(a->n_field);
@@ -1025,6 +1034,7 @@ static void build_name(struct files_app *a)
     a->n_field = pocketui_text_field(a->n_form, "Folder name", true);
     lv_textarea_set_max_length(a->n_field, FILES_NAME_MAX);
     lv_obj_add_event_cb(a->n_field, on_name_field_clicked, LV_EVENT_CLICKED, a);
+    lv_obj_add_event_cb(a->n_field, on_name_ready, LV_EVENT_READY, a);
     a->n_buttons = box(a->n_form, LV_FLEX_FLOW_ROW);
     lv_obj_set_height(a->n_buttons, FILES_BTN_H);
     lv_obj_set_style_pad_column(a->n_buttons, 8, 0);

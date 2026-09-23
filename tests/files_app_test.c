@@ -720,6 +720,17 @@ static void make_and_rename(void)
     tap_obj(find_labelled("Cancel"));
     check("Cancel makes nothing", !pocketos_shell_keyboard_visible() && row("Projects") && !row("a-b"));
 
+    /* Enter from a physical keyboard reaches the same logical stream as the
+     * touch keyboard's Done (DS 17.4), and commits the same way, once. */
+    tap_obj(find_labelled("New folder"));
+    type_text("Base");
+    pos_input_push_key(LV_KEY_ENTER);
+    drain();
+    check("Enter from any keyboard creates it", exists(at("Base")) && !pocketos_shell_keyboard_visible() &&
+                                                  shows_part("Created \xE2\x80\x9C" "Base"));
+    check("and only once: no error shown over it", !shows_part("already there"));
+    rmdir(at("Base"));
+
     tap_obj(row("notes.txt"));
     tap_obj(find_labelled("Rename"));
     field = find_field(app_body);
