@@ -146,8 +146,12 @@ fresh; say absent; start_shell
 "$POS" app start notes >/dev/null 2>&1; sleep 0.5
 say present
 check "with an app open, the display still turns" "$(await landscape 8 && echo 1 || echo 0)"
+# A negative about the app list is only evidence if the list came back: a
+# shell that does not answer has no open app either, and must fail this.
+apps=$("$POS" app list 2>/dev/null); apps_rc=$?
 check "and Doors comes back on the launcher, as Settings says it will" \
-    "$("$POS" app list 2>/dev/null | grep -q ' open$' && echo 0 || echo 1)"
+    "$([ "$apps_rc" = 0 ] && printf '%s\n' "$apps" | grep -qE '^notes ' &&
+       ! printf '%s\n' "$apps" | grep -qE ' open$' && echo 1 || echo 0)"
 check "the app was closed the ordinary way, not killed" \
     "$(grep -q 'close app notes' "$POCKETOS_LOG_DIR/shell.log" && echo 1 || echo 0)"
 check "no ERROR anywhere in the run" \
