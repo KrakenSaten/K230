@@ -1,7 +1,12 @@
 # meshcored — the MeshCore protocol service
 
-Status: implemented, host-validated, **not enabled in any image and never run
-on hardware**. VERSION is unchanged at 0.0.10.
+Status: on master and in every image since the shipping change of
+2026-09-22, **disabled by default** (`S65meshcored`, `MESHCORED_ENABLE=0`):
+a unit runs it only when enabled per unit (below). RF VERIFIED on unit A
+against a T-Deck RIFT peer on bench-deployed builds - the hardware gate
+(2026-09-19, `docs/hardware/MESHCORED_HARDWARE_GATE.md`) and the RIFT
+channel, improvement and 256-node gates after it; not yet run from a flashed
+image. Known limits: docs/KNOWN_ISSUES.md (meshcored).
 
 `meshcored` is the first protocol daemon on top of `radiod`. It owns the
 MeshCore runtime — the identity, the packet pool, the dispatcher, the node
@@ -15,7 +20,7 @@ radiod                         owns the radio, exclusively (ADR-002)
    |  radio.* over pocketipc
 meshcored                      owns the MeshCore protocol runtime
    |  mesh.* over pocketipc
-a future RIFT client           owns the presentation
+RIFT (apps/rift)               owns the presentation
 ```
 
 The name is `meshcored`, not `riftd`, and the reason is the boundary itself:

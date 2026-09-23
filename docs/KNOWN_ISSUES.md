@@ -1,6 +1,7 @@
 # Known issues and open questions
 
-Updated 2026-09-17. Move items to git history when resolved.
+Updated 2026-09-23 for v0.0.11 (VERSION 0.0.11, not released). Move items to
+git history when resolved.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
 B4 (the shell's `printf` diagnostics never reached a log; they go through
@@ -28,6 +29,41 @@ on every run that read `14 24`), so the value depends on the SX1262's
 state after reset. Not a radiod defect, not a runtime blocker, and not
 investigated further unless it recurs: the probe now names it
 chip-state dependent and dumps both transports' windows when it does.
+
+## Open for v0.0.11
+
+What a v0.0.11 reader most needs to know, gathered here; the detail is in the
+sections below. Evidence classes as in AGENTS.md: nothing in this section is
+DEVICE VERIFIED unless it says so.
+
+- **No v0.0.11 image has been built, flashed or gated.** Everything merged
+  since `v0.0.10` that reached unit A did so by bench deploy (`deploy.sh`) on
+  a unit that also carries per-unit settings; the release smoke on a freshly
+  flashed card is still owed.
+- **Landscape safe corners: owner decision pending.** The image ships the
+  PROVISIONAL 30 px corner squares (DS §21.1). Unit A needed 50 px top
+  corners in landscape (`POCKETOS_SAFE_CORNERS=50,30,30,50` in
+  `/etc/default/doors-shell`, a bench setting that is not in the repository):
+  50 px passed and 45 px failed on 2026-09-21. The DOORS environment (DS §31)
+  was accepted on unit A with that override in place. Whether the default
+  becomes 50 px, or 30 px ships and is documented, is the owner's decision
+  and needs the device (see "Hardware and BSP").
+- **The landscape status chrome (DS §30, COMPACT 32 px) is PROPOSED, and its
+  unit A gate (§30.7) has not been run.** The COMPACT bar clipped the RX chip
+  on unit A (2026-09-21); the fix (`ab3c05d`, the chip sized from its font's
+  line) is merged and host-tested, not seen on the device.
+- **The Doors app theme and UI polish (DS §32) is PROPOSED** until its unit
+  A visual gate. `theme=doors` is the shipped default in `settings.conf`; a
+  unit that already has a settings file keeps its theme.
+- **A MeshCore message's state does not say whether it was transmitted**
+  (meshcored section below; docs/api/mesh.md, "Accepted is not transmitted").
+- **Notes shows 1970 dates for notes saved before the clock is set** (below,
+  under "No RTC").
+- **Adverts sent before the clock is set are ignored by peers** (meshcored
+  section below).
+- **RIFT holds the 64 most recently heard of meshcored's up to 256 nodes**;
+  the rest are counted, not listed (RIFT section below).
+
 
 ## Hardware and BSP
 
@@ -85,6 +121,13 @@ chip-state dependent and dumps both transports' windows when it does.
   alert's card corners still reach
   into the 30 px corner squares; widening them changes approved geometry and
   is left for a design decision if unit A shows them cut.
+  **Unit A has answered part of it and the default is not changed:** in
+  landscape its top corners needed 50 px (50 PASS, 45 FAIL, 2026-09-21), and
+  the unit runs with `POCKETOS_SAFE_CORNERS=50,30,30,50` in
+  `/etc/default/doors-shell` - a per-unit bench setting, not in the repository
+  and not in the image. `platform.h` still ships 30 px. Adopting 50 px (and
+  for which corners) or shipping 30 px with this note is an owner decision,
+  pending, to be confirmed on the device.
 - Landscape is laid out for the status bar, the launcher and, each under its
   own accepted amendment, Calculator (DS §22), Notes (§23), Settings (§24),
   System (§25), Clock (§26), Calendar (§27), Fleet (§28) and Radar (§29) - which
@@ -239,7 +282,9 @@ chip-state dependent and dumps both transports' windows when it does.
 - `radio.send` is synchronous and blocks radiod for the airtime (about 1.3 s
   for the EU868 default with 255 bytes, 9 s at SF12/BW125, up to 225 s in
   the SF12/BW7.8/CR4/8 corner). Documented v0 behaviour; `timeout_ms` is
-  refused. An asynchronous TX path is a later design item.
+  refused. `radio.send_async` (radiod async IPC, 2026-09-19) is the
+  asynchronous path, and it is what meshcored uses; `radio.send` stays
+  synchronous for its existing callers (the Radio app, `doors radio send`).
 - pocketipc disconnects a client that does not drain its socket within
   200 ms of a blocked write (documented backpressure policy). Event
   subscribers must read continuously.
@@ -292,8 +337,17 @@ chip-state dependent and dumps both transports' windows when it does.
   network. Log timestamps and crash-report names before that are
   boot-relative and cannot be ordered across boots; crash names carry the
   pid so they do not collide; the supervisor measures run time from
-  /proc/uptime. Persisted app state does not use the clock; PocketFleet
-  seeds from `time(NULL)`, so a boot without network can repeat a layout.
+  /proc/uptime. PocketFleet seeds from `time(NULL)`, so a boot without
+  network can repeat a layout.
+- **Notes dates and order come from the file's modification time, which is
+  the wall clock** (`notes_store.c`, `st_mtime`). A note saved before NTP has
+  answered - or on a unit that never reaches it - shows a real-looking date
+  such as `1970-01-01 00:02`, and sorts below notes saved after a sync in an
+  earlier boot; on a unit that never syncs, "newest first" across boots is
+  not reliable. No text is lost. Clock's rule for an unset wall clock
+  (`CLOCK_WALL_VALID_FROM`: say nothing rather than a time the board does not
+  know) is not applied here. Found by the 2026-09-23 cold review (R6), host
+  evidence from reading the code; follow-up.
 - Shutdown prints `mount: mounting /dev/mmcblk1p1 on /boot failed: Device or
   resource busy`, three `Can't open blockdev` lines and `vo_init: not found`:
   the vendor `S31canaan_isp` ignores its argument and re-runs its start
@@ -705,13 +759,17 @@ Wave and ggwave:
 
 ## meshcored, the MeshCore protocol service (feat/meshcored)
 
-- **Nothing about meshcored has run on hardware.** Everything it claims is
-  host evidence: `tests/meshcored_service_test.sh` against the real radiod on
-  its mock backend, and `tests/meshcored_harness_test.sh` between two whole
-  meshcored processes over a mock air. The MeshCore wire format it speaks is
-  the one the accepted P0 gate proved on air, from the same pinned sources -
-  that gate is evidence about the frames, not about this daemon. UNRESOLVED
-  until a hardware session.
+- **What has run on hardware, and how.** meshcored on unit A with the SX1262,
+  on air against a T-Deck RIFT peer: the first hardware gate (2026-09-19,
+  docs/hardware/MESHCORED_HARDWARE_GATE.md), RIFT channels parts A-D
+  (2026-09-21, RIFT_CHANNELS_GATE.md), RIFT improvements (2026-09-22,
+  RIFT_IMPROVEMENTS_GATE.md) and 256 retained nodes (2026-09-22,
+  MESH_NODE_CAPACITY_256_GATE.md) - RF VERIFIED on those builds. Every one
+  of them ran bench-deployed binaries on a unit configured by hand
+  (`/etc/default/meshcored`, the sx1262 backend in `/etc/default/radiod`);
+  none ran from a flashed image. Nothing under `services/`, `core/` or
+  `protocols/` has changed since the last of them (`b41be37`) except the
+  netd late-reply fix (2026-09-23), which is host-tested only.
 - **Messages are not persisted.** The identity and the node table survive a
   restart; the message list does not, and `mesh.messages` reports
   `persistent: false` rather than leaving that to be discovered. Writing
@@ -736,9 +794,24 @@ Wave and ggwave:
   `path_payloads_refused`, and does not touch the vendored tree. The upstream
   defect is unchanged.
 - **Contacts are added automatically, as upstream does.** Any node that
-  adverts within range becomes a contact, up to 32; the table then refuses
-  new ones rather than evicting. There is no allow-list and no "known nodes
+  adverts within range becomes a contact, up to 256 on this port (upstream's
+  default is 32); the table then refuses new ones rather than evicting -
+  `mesh.node_remove` makes room. There is no allow-list and no "known nodes
   only" mode.
+- **An advert sent before the clock is set is ignored by peers that know this
+  node.** The board has no RTC and nothing checks the clock before signing
+  (`SystemRTCClock::isSet()` exists in the port and is not called): an
+  advert stamped 1970 is transmitted, and a MeshCore peer holding a newer one
+  from this node drops it as a replay (upstream `BaseChatMesh.cpp:131`), so
+  a name or route refresh silently does not arrive. Direct messages sent then
+  carry 1970 timestamps too. Advert after NTP has set the clock. Follow-up:
+  refuse or warn when the clock is not set. (Cold review 2026-09-23, R13.)
+- **A direct message a peer resends is recorded once per attempt.** A resend
+  carries the next attempt number, which changes the ciphertext and so the
+  packet hash MeshCore de-duplicates on; meshcored does not de-duplicate on
+  sender, timestamp and text, and RIFT shows each copy. Seen only if our ACK
+  is lost and the peer retries (the T-Deck RIFT firmware sends attempt 0
+  only). (Cold review 2026-09-23, R13; code path confirmed, rate unmeasured.)
 - **The duty-cycle budget is upstream's default**, which is far above any
   regional limit, and nothing has exercised it against one. meshcored
   transmits only when a client asks or when the protocol owes a reply, so the
@@ -749,11 +822,13 @@ Wave and ggwave:
   not discovered by nodes that have not heard it; a client has to ask. What
   the right interval is - and whether it should exist at all on a handheld -
   is a decision for the phase that has a UI.
-- **meshcored is not in any image's default behaviour.** `ENABLE_MESHCORED=1`
-  builds and installs it, and `S65meshcored` ships disabled. Enabling it on a
-  unit means the node acquires the radio and will answer messages addressed to
-  it. Shipping it enabled needs the third-party notices to cover the MeshCore
-  and ed25519 sources first (docs/LICENSING.md), which this phase did not do.
+- **meshcored is in every image and runs on none by default.** The image
+  package builds and installs it (`ENABLE_MESHCORED=1`, gated on the
+  third-party notices, which cover MeshCore, ed25519 and Crypto since
+  2026-09-22), and `S65meshcored` ships with `MESHCORED_ENABLE=0`. Enabling
+  it on a unit (`/etc/default/meshcored`) means the node acquires the radio,
+  needs radiod on the sx1262 backend, and will answer messages addressed to
+  it (docs/services/MESHCORED.md).
 - **One outstanding transmit at a time.** radiod has no queue and neither does
   this service: a second submission while one is outstanding is refused, and
   MeshCore is told the send did not start. That is the honest shape, and it
@@ -798,3 +873,74 @@ so that pass stayed the size it was scoped to be.
   start, but a packet nobody sends again. Narrowing it means either a shorter
   transmit-map deadline (which risks calling a slow completion lost) or a
   queue on this side, which is a design decision rather than a fix.
+
+## RIFT, the mesh client
+
+- **RIFT holds the 64 most recently heard of meshcored's up to 256 nodes.**
+  `mesh.nodes` lists newest first and a snapshot fills the cache from the
+  head; a `mesh.node` event for a node not held evicts the stalest one. The
+  rest are counted, not listed (`RIFT_MAX_NODES`, rift_model.h) - the NODES
+  list builds a row per cached node. VERIFIED with 256 nodes on unit A
+  (MESH_NODE_CAPACITY_256_GATE.md); showing more than 64 is open.
+- **A message's state is meshcored's, and that state does not report
+  transmission** (see "A message's state does not say whether it was
+  transmitted" under meshcored). An outgoing channel message reads
+  `SENT · FLOOD · NO ACK ON CHANNELS` whether or not it went out.
+- **Channel identity after a slot is reused.** A channel conversation is keyed
+  by slot, one-byte channel hash and local name (2026-09-23, cold review R3),
+  so a different channel added into a slot that was emptied no longer
+  inherits the old channel's history, and a reply from the old thread is
+  refused instead of reaching the new channel. What stays indistinguishable
+  is a different channel re-added into the same slot under the same local
+  name with the same one-byte hash; telling that apart needs a per-channel
+  identity meshcored does not report. Host-tested; not yet seen on air.
+- **RIFT cannot tell a hung meshcored from a quiet one.** A pending request
+  has no reply deadline; once the 16 request slots are full, requests are
+  refused without dropping the connection, and the last state ("online")
+  stays on screen. A dead meshcored is noticed (the socket closes); a
+  stopped one (SIGSTOP, a stuck write) is not. (Cold review R14, deferred.)
+
+## Deferred from the 2026-09-23 cold review
+
+Low-severity findings, confirmed by reading the code, left for after v0.0.11
+on purpose. None has been reproduced on hardware.
+
+- **Keyboard presence probe on the UI thread.** With no keyboard attached the
+  shell's 1 s presence watch runs a full controller configure, including a
+  3 + 12 ms reset pulse, on the LVGL thread - about one dropped frame per
+  second, and GPIO43 toggled every second. The cost on unit A is unmeasured
+  (R5).
+- **A refused store is overwritten by the next save.** A `clock.conf` or
+  `settings.conf` that fails to load (damaged, EIO, or a newer format after a
+  rollback) is replaced, not preserved, the next time an alarm or a setting
+  changes (R7).
+- **Clock:** a backward wall-clock step across midnight rings a daily alarm
+  at once and again the next morning; a damaged `/run` handoff naming a timer
+  ring with no expired timer wedges the alert until reboot (R8).
+- **No directory fsync after rename or unlink** in the Clock, Notes and
+  settings stores: a power cut just after a save can revert it or bring a
+  deleted note back. A torn file is not possible (R9).
+- **System:** if `/sbin/reboot` or `/sbin/poweroff` fails after sysd accepted
+  the request, the screen stays on "Restarting…" / "Powering off…" while the
+  system runs on (R10).
+- **Settings Wi-Fi:** one missed 200 ms netd poll shows "Wi-Fi service is not
+  running" and rebuilds the screen until the next poll (R11).
+- **Fleet:** after one failed save, a stale saved match can be offered as
+  Resume at the next launch (R12).
+- **pocketipc / init:** a second instance of a service started by hand takes
+  over, and on exit removes, the running service's socket (meshcored guards
+  against this, the others do not); supervisor pid files stay stale after a
+  crash loop and are trusted with `kill -0` only (R15).
+- **netd:** forgetting a network while a join is pending breaks the restore of
+  the saved entry it displaced; netd can flag its own dying supplicant as
+  foreign for up to 5 s (R16).
+- **Shell:** `--rotation` is ignored when working out the next rotation, so a
+  bench shell started with it restarts to the same orientation; Controls
+  keeps polling netd behind the lock (R17).
+- **Build:** `make clean` misses several objects (two missing spaces in its
+  list, and the meshcored objects); `ENABLE_SX1262` is not part of the build
+  stamp. Host builds only - the image package builds from a fresh tree.
+- **Provenance quirk:** `apply_to_sdk.sh` asks git whether `vendor/RIFT` and
+  `vendor/Crypto` are checkouts; a plain copy with no `.git` sits inside the
+  Doors repository and git answers for that instead. The pin check still
+  refuses such a tree unless the drift override is set.

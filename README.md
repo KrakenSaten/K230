@@ -60,9 +60,14 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-**Doors 0.0.10** is the first release under the Doors name: the release notes
-are docs/releases/v0.0.10.md. The history below was written under the
-PocketOS name and stops at 0.0.7.
+**Doors 0.0.11 is in preparation** (VERSION 0.0.11). It is not
+released: no image has been built or flashed for it and no unit A gate has
+been run on it. The draft release notes are docs/releases/v0.0.11.md, and
+what still needs unit A is listed there.
+
+**Doors 0.0.10** (tag `v0.0.10`, 2026-09-16) is the first release under the
+Doors name: the release notes are docs/releases/v0.0.10.md. The history below
+was written under the PocketOS name and stops at 0.0.7.
 
 PocketOS 0.0.6, the third focused release after the v0.0.3 and v0.0.4
 hardware sessions. Implemented and host-tested:
@@ -126,7 +131,7 @@ are classified per statement in docs/hardware/T-DISPLAY-K230.md.
   recurs on hardware.
 - **0.0.7** is the core system layer. Its release image is built, flashed and
   validated (`4ab5a55`, docs/hardware/V0.0.7_RELEASE_SMOKE.md, PASS on all
-  nine steps); it is **not yet tagged or merged**.
+  nine steps); it was merged and tagged `v0.0.7`.
   `core/pocketsys` turns /proc, /sys
   and the mount table into system facts with unknown as null and never as
   zero; `services/sysd` serves `system.info`, `system.status`,
