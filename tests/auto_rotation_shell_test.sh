@@ -163,6 +163,32 @@ check "choosing Portrait overrides the keyboard and applies itself" "$(await por
 check "choosing Automatic again gives the keyboard back its say" "$(await landscape 8 && echo 1 || echo 0)"
 stop_shell
 
+# ---- 7. the lock across keyboard-driven restarts ----------------------------
+# The case the lock exists for: the device lies locked in a pocket and the
+# base is mated or removed. Every restart must bring the lock back as it was.
+# locked() is empty when the shell does not answer, which fails every check.
+locked() { "$POS" shell info 2>/dev/null | tr -d ' \t\n' | grep -oE '"locked":(true|false)' | head -1 | cut -d: -f2; }
+fresh; say absent; start_shell
+before=$(shell_pid)
+check "a cold start in Automatic is locked" "$([ "$(locked)" = true ] && echo 1 || echo 0)"
+say present
+check "locked, the base mated: the display turns" "$(await landscape 8 && echo 1 || echo 0)"
+check "and the device is still locked, in the same process" \
+    "$([ "$(locked)" = true ] && [ "$(shell_pid)" = "$before" ] && kill -0 "$before" 2>/dev/null && echo 1 || echo 0)"
+say absent
+check "locked, the base removed: portrait, still locked" "$(await portrait 8 && [ "$(locked)" = true ] && echo 1 || echo 0)"
+say present
+check "mated again: landscape, still locked, three restarts" \
+    "$(await landscape 8 && [ "$(locked)" = true ] && [ "$(restarts)" = 3 ] && echo 1 || echo 0)"
+"$POS" call shell shell.unlock >/dev/null 2>&1
+check "unlocked by hand" "$([ "$(locked)" = false ] && echo 1 || echo 0)"
+say absent
+check "open, the base removed: portrait, still open" "$(await portrait 8 && [ "$(locked)" = false ] && echo 1 || echo 0)"
+say present
+check "open, mated again: landscape, still open, five restarts" \
+    "$(await landscape 8 && [ "$(locked)" = false ] && [ "$(restarts)" = 5 ] && echo 1 || echo 0)"
+stop_shell
+
 rm -rf "$OUT"
 echo "auto_rotation_shell_test: $failed failure(s)"
 exit $((failed > 0))

@@ -432,8 +432,14 @@ static void brightness_restore(void)
  * screen turns while the hand is still on the device. */
 #define ROTATE_SETTLE_MS 800
 
-/* The mark restart_in_place leaves for the shell it becomes (main). */
+/* The mark restart_in_place leaves for the shell it becomes (main). Its value
+ * is the lock as the restart found it, so the next run puts it back exactly:
+ * RESUME_LOCKED or RESUME_OPEN. Anything else - an empty mark, or "1" from a
+ * build before the value meant anything - is not a continuation the shell can
+ * vouch for, and starts as a cold start does. */
 #define RESUME_ENV "DOORS_SHELL_RESUMED"
+#define RESUME_LOCKED "locked"
+#define RESUME_OPEN "open"
 /* settings.conf: lock_screen=0 starts the shell open (a bench unit, a kiosk). */
 #define LOCK_SETTING "lock_screen"
 
@@ -1315,8 +1321,15 @@ static void on_tick(lv_timer_t *timer)
  * device above all, which the next one has to open as master - because only
  * a close-on-exec flag would do it otherwise, and LVGL's fd is not ours to
  * flag. If the exec fails the shell exits instead, and the supervisor starts
- * it again: one counted restart, same orientation, still no reboot. */
-static void restart_in_place(void)
+ * it again: one counted restart, same orientation, still no reboot.
+ *
+ * The lock goes across with it. A rotation can come from the keyboard base
+ * being attached or removed while the device lies locked in a pocket, and
+ * the lock is there to keep the pocket from opening apps; a restart that came
+ * back open would defeat it. `locked` is the lock as the loop left it - a
+ * door that was still opening counts as locked, so the owner swipes again
+ * rather than finding it open. */
+static void restart_in_place(bool locked)
 {
     char exe[PATH_MAX];
     ssize_t n;
@@ -1334,7 +1347,7 @@ static void restart_in_place(void)
     for (fd = 3; fd < 64; fd++) {
         close(fd);
     }
-    setenv(RESUME_ENV, "1", 1);
+    setenv(RESUME_ENV, locked ? RESUME_LOCKED : RESUME_OPEN, 1);
     execv(exe, shell_argv);
     pocketlog_init("shell");
     LOG_ERROR("display: cannot re-execute %s (%s); exiting so the supervisor starts the shell again", exe,
@@ -1350,7 +1363,10 @@ int main(int argc, char **argv)
     const char *rotation_arg = NULL;
     bool no_lock = false;
     bool start_controls = false;
-    bool resumed;
+    bool resumed = false;
+    bool resumed_locked = false;
+    bool restart_locked = false;
+    const char *resume;
     long exit_after_ms = -1;
     int loaded;
     lv_display_t *disp;
@@ -1387,13 +1403,22 @@ int main(int argc, char **argv)
     shell_argv = argv;
     /* A start that is this shell re-executing itself for a rotation carries
      * a mark in its environment (restart_in_place). It is the same session
-     * turning round, so it does not lock; and the mark is spent here, so
-     * whatever starts after this one - a supervisor restart after a crash -
-     * locks as a cold start does. */
-    resumed = getenv(RESUME_ENV) != NULL;
-    unsetenv(RESUME_ENV);
+     * turning round, so the lock comes back as the mark says it was - no
+     * lock where it was open, the lock where it was locked. The mark is read
+     * before it is spent (unsetenv may free the string), and it is spent here,
+     * so whatever starts after this one - a supervisor restart after a
+     * crash - locks as a cold start does. */
+    resume = getenv(RESUME_ENV);
+    if (resume) {
+        resumed_locked = strcmp(resume, RESUME_LOCKED) == 0;
+        resumed = resumed_locked || strcmp(resume, RESUME_OPEN) == 0;
+    }
     pocketlog_init("shell");
     pocketlog_install_crash_handler();
+    if (resume && !resumed) {
+        LOG_WARN("lock: resume mark '%.16s' not understood; starting as a cold start", resume);
+    }
+    unsetenv(RESUME_ENV);
     /* The settings come first: the orientation is decided from them before
      * the display exists, because the display is rotated when it is opened.
      * The keyboard is probed in the same breath and for the same reason -
@@ -1572,7 +1597,12 @@ int main(int argc, char **argv)
     if (start_controls && !sh.app) {
         controls_open();
     }
-    if (no_lock || open_id || resumed || strcmp(settings_get(LOCK_SETTING, "1"), "0") == 0) {
+    /* A continuation decides before the arguments do: the restart keeps the
+     * argv, so a shell started with --no-lock or --open and locked since is
+     * locked again after it turns, not opened by its own command line. */
+    if (resumed_locked) {
+        shell_lock_engage("rotation restart, locked before it");
+    } else if (no_lock || open_id || resumed || strcmp(settings_get(LOCK_SETTING, "1"), "0") == 0) {
         LOG_INFO("lock: not engaged at start (%s)", resumed   ? "rotation restart"
                                                     : no_lock ? "--no-lock"
                                                     : open_id ? "--open"
@@ -1606,6 +1636,7 @@ int main(int argc, char **argv)
             break;
         }
         if (restart_pending) {
+            restart_locked = shell_lock_is_locked();
             break;
         }
         if (exit_after_ms >= 0 && (long)(lv_tick_get() - started) >= exit_after_ms) {
@@ -1643,7 +1674,7 @@ int main(int argc, char **argv)
     pocketipc_server_free(sh.server);
     shell_ipc_shutdown();
     if (restart_pending) {
-        restart_in_place(); /* returns only when the exec failed */
+        restart_in_place(restart_locked); /* returns only when the exec failed */
         return 1;
     }
     pocketlog_close();

@@ -2485,8 +2485,11 @@ colour. No page, folder or second level: every app is one tap from home.
 ### 31.4 Lock screen
 
 Engaged at every cold start, from Lock (launcher or Controls) and
-`shell.lock`; not on a rotation restart (the same session), and not when
-`lock_screen=0` is in settings.conf. It shows the lock photograph, the time
+`shell.lock`, and not when `lock_screen=0` is in settings.conf. A rotation
+restart is the same session and keeps the lock exactly as it was: locked
+stays locked (a door still opening counts as locked), open stays open. The
+restart carries the state across explicitly (`DOORS_SHELL_RESUMED=locked|open`),
+so the keyboard base mated or removed in a pocket cannot open the device. It shows the lock photograph, the time
 (96 px) and date, and "Swipe up to open". It is **not security**: no code,
 services keep running, `shell.open`/`shell.home` open it. It sits above apps,
 launcher and keyboard and below the status bar and the alarm alert, so an
@@ -2530,8 +2533,10 @@ empty frame), never fatal.
 `tests/shell_lock_test.c` and `tests/doors_shell_test.sh` (simulator:
 lock/open lifecycle, twenty rounds with no art leaked, every app opens and
 comes home, every icon pixel-exact where `shell.info` places it in both
-orientations, no-art and frame-only fallbacks, rotation restart stays open,
-a fresh start locks).
+orientations, no-art and frame-only fallbacks, a rotation restart keeps the
+lock as it was - open or locked, through repeated restarts - a fresh start
+locks; `tests/auto_rotation_shell_test.sh` the same across keyboard-presence
+restarts).
 
 ### 31.8 Follow-ups (not part of the acceptance)
 
