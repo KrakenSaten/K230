@@ -11,7 +11,7 @@
  * theme and display mode and compared with the accent the glyph is drawn in.
  *
  * Needs LVGL, so it is built by ui/shell/CMakeLists.txt beside the shell
- * (host builds only) and run by tests/launcher_icons_shell_test.sh.
+ * (host builds only) and run by tests/doors_shell_test.sh.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */

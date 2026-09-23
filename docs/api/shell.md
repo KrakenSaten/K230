@@ -54,6 +54,24 @@ developer tooling, not for applications.
   error 4 when it could not be stored. `pos call shell shell.rotation
   mode=landscape`.
 
+- `shell.lock`: engages the lock screen (DS §31.4). Result `{locked}`. The
+  lock is accidental-input protection and identity, not security: there is
+  no code, and every service keeps running under it.
+- `shell.unlock` params `{animate?}`: opens it; with `animate: true` the
+  door sequence plays (about 0.8 s), otherwise it opens at once. Result
+  `{locked}` (still `true` while an animated open runs). `shell.open` and
+  `shell.home` also open the device, without the sequence: a bench or a
+  script asking for an app is acting for the owner.
+- `shell.controls` params `{show?}`: shows DOORS Controls over the launcher
+  (DS §31.5), or with `show: false` closes it. Result `{controls}`; `show`
+  that is not a boolean is error 2.
+- `shell.info` also carries the DOORS environment: `lock` `{locked, opening,
+  engaged, opened}` (counts since start), `launcher` `{groups, apps,
+  icons_art, icons_fallback, cell_width, scrolls, controls, cells}` -
+  `cells` is every app's cell on the screen, `[{id, x, y, w, h}]` - and `art`
+  `{dir, background, files_read, bytes_held}` (ui/shell/art.h).
+  `pos call shell shell.lock`, `pos call shell shell.unlock animate=true`.
+
 ## Events
 
 `shell.app` `{current}` when the visible app changes, `shell.theme`

@@ -390,6 +390,28 @@ tests/chrome_test.o: tests/chrome_test.c ui/shell/chrome.h
 tests/chrome_test: tests/chrome_test.o ui/shell/chrome.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# The DOORS launcher's geometry and groups (pure C, DS §31.2-31.3) and the
+# rules for the shell's runtime art files (ui/shell/art_format.h). The shell
+# links the same sources (CMake); tests/doors_ui_assets_test.sh checks the
+# committed art itself.
+ui/shell/home_layout.o: ui/shell/home_layout.c ui/shell/home_layout.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+ui/shell/art_format.o: ui/shell/art_format.c ui/shell/art_format.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/home_layout_test.o: tests/home_layout_test.c ui/shell/home_layout.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/home_layout_test: tests/home_layout_test.o ui/shell/home_layout.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/art_format_test.o: tests/art_format_test.c ui/shell/art_format.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/art_format_test: tests/art_format_test.o ui/shell/art_format.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 # The debounce every keyboard-presence provider goes through: what a base
 # board being mated, unmated or bouncing does to the published state, and so
 # to the orientation. The provider itself (ui/shell/shell_kbd.c) needs LVGL
@@ -842,7 +864,7 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
              tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/settings_view_test \
              tests/theme_test \
              tests/settings_test tests/brightness_test tests/display_geometry_test tests/orientation_test \
-             tests/kbd_presence_test tests/chrome_test \
+             tests/kbd_presence_test tests/chrome_test tests/home_layout_test tests/art_format_test \
              tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
              $(NOTES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) $(CALC_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test \
              $(WAVE_TESTS) $(RIFT_TESTS)
@@ -867,6 +889,8 @@ test: all $(TEST_BINS)
 	./tests/orientation_test
 	./tests/kbd_presence_test
 	./tests/chrome_test
+	./tests/home_layout_test
+	./tests/art_format_test ui/assets/doors
 	./tests/fleet_rng_test
 	./tests/fleet_rules_test
 	./tests/fleet_ai_test
@@ -927,6 +951,7 @@ test: all $(TEST_BINS)
 	bash tests/boot_splash_test.sh
 	bash tests/brand_mark_test.sh
 	bash tests/app_icons_test.sh
+	bash tests/doors_ui_assets_test.sh
 	bash tests/identity_test.sh
 	bash tests/style_lint.sh
 	bash tests/build_deps_test.sh
@@ -979,6 +1004,11 @@ endif
 	install -D -m 0644 THIRD_PARTY_NOTICES.txt $(DESTDIR)$(PREFIX)/share/doors/THIRD_PARTY_NOTICES.txt
 	install -d -m 0755 $(DESTDIR)$(PREFIX)/share/pocketos
 	ln -sfn ../doors/THIRD_PARTY_NOTICES.txt $(DESTDIR)$(PREFIX)/share/pocketos/THIRD_PARTY_NOTICES.txt
+# The DOORS shell's runtime art (ui/shell/art.h): backgrounds and launcher
+# icons, read by the shell from files so only the screen in front is in
+# memory. The design sources stay in docs/ and never reach the image.
+	install -d -m 0755 $(DESTDIR)$(PREFIX)/share/doors/ui
+	install -m 0644 ui/assets/doors/*.bin $(DESTDIR)$(PREFIX)/share/doors/ui/
 # /etc/doors-release: line 1 stays the bare version, so every reader that
 # takes the first line keeps working, and the build identity follows as a
 # key=value line (system.info release_file and release_build, `pos system

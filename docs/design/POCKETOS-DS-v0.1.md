@@ -2423,3 +2423,107 @@ Amendment K (§27) accepted 2026-09-17.
 Amendment L (§28) accepted 2026-09-18.
 Amendment M (§29) accepted 2026-09-18.
 Amendment N (§30) proposed 2026-09-21; stage 1 implemented, unit A gate pending.
+
+## 31. Amendment O — The DOORS environment [PROPOSED]
+
+**PROPOSED 2026-09-22** on branch `feat/doors-visual-refresh`, for a unit A
+visual gate (docs/hardware/DOORS_VISUAL_REFRESH_GATE.md). It becomes
+normative when the owner accepts it after that gate. It supersedes §14 C7
+and §20's tile launcher; §20's masks stay (they are the launcher's
+fallback, §31.3). Nothing in §1–§30 is renumbered, and §30 is unchanged.
+
+**What.** The shell's own screens - lock, launcher, Controls - are drawn in
+the approved visual package (`docs/design/brand/doors-visual-pack-v1`,
+direction B "Framed spaces"): its photographs, its dark glass panels, its
+portal icons and glyphs, its warm white. Apps keep their theme and look
+exactly as before; the environment is the threshold, the apps are the
+spaces behind it.
+
+### 31.1 Environment
+
+- One fixed palette from the package (`pos_styles.c`, ENV_* roles): text
+  `#eeeae2`, secondary `#c3c0b9`, glass `#161c20` at 56 % with a `#a0a8a4`
+  hairline at 42 %, the nine package hues for per-app colour. Not the
+  theme's: the art is the same in every theme. The display mode applies -
+  Night dims and warms it by §8's night rule and darkens the photograph;
+  Outdoor whitens the text and thickens the glass.
+- On the environment the status bar keeps its height and cells (FULL,
+  §30) but has no fill and no hairline, and no clock: every environment
+  screen shows the time large. In an app the bar is §7's, unchanged.
+- The wordmark is live text (the package has no standalone mark; §19's mark
+  stays on System).
+
+### 31.2 Groups
+
+Shell-owned, by app id (`ui/shell/home_layout.c`); no app declares or knows
+its group. CONNECTIONS: RIFT, Radio, Wave. WORKSPACE: Notes, Calendar,
+Clock, Calculator. PLAY: Fleet, Radar, Timber. DEVICE: Settings, System. An
+app the table does not name is shown under MORE; an empty group is not
+drawn. The package's own nine categories (Mesh, Network, Tools, AI, Files,
+Apps …) are not apps and are not shown; their glyphs and hues are reused.
+
+### 31.3 Launcher
+
+Header (time 64 px, date), one glass panel per group, a footer with Lock and
+Controls (64 px). Portrait: panels stacked, four 124 px cells across.
+Landscape: the panels side by side in one row, each exactly as wide as its
+apps (87 px cells, 16 px labels), the row centred; with more apps than fit
+at 84 px a cell, the panels wrap and the launcher scrolls - nothing is
+shortened. A cell is the app's 96 px portal icon over its name; held, it
+shows the package's focus mark (a bracket over the frame, a rule under the
+name) in the app's hue. An app with no portal icon is drawn on the empty
+portal with its §20 mask (or its text icon) in the environment's text
+colour. No page, folder or second level: every app is one tap from home.
+
+### 31.4 Lock screen
+
+Engaged at every cold start, from Lock (launcher or Controls) and
+`shell.lock`; not on a rotation restart (the same session), and not when
+`lock_screen=0` is in settings.conf. It shows the lock photograph, the time
+(96 px) and date, and "Swipe up to open". It is **not security**: no code,
+services keep running, `shell.open`/`shell.home` open it. It sits above apps,
+launcher and keyboard and below the status bar and the alarm alert, so an
+alarm can be stopped while locked. It takes the keys (focused, group
+frozen). A swipe up of 140 px (100 landscape) opens it - the content follows
+the finger, a short drag springs back, a tap only lifts the hint - as do
+Enter, Space and Up. Opening: the closed door fades to the open door (0.3
+s), which holds (0.22 s) with the package tagline, then fades to what is
+underneath (0.32 s); reduced motion opens at once. Only image opacity is
+animated: no layer, no blur.
+
+### 31.5 Controls
+
+The package's system menu, limited to real providers: Radio (radiod state,
+opens Radio), Wi-Fi (netd `wifi.status`, opens Settings), Rotation (cycles
+the stored mode), Display (cycles Normal/Night/Outdoor), Brightness (the
+shell's backlight control; "Not available" without one), rows to Settings,
+RIFT ("Mesh messages") and System ("About DOORS"), and Lock / Power (Power
+opens System, whose power actions confirm). Bluetooth and Sound are in the
+mock-up and not here: nothing provides them.
+
+### 31.6 Runtime art
+
+`ui/assets/doors/*.bin`, installed to `/usr/share/doors/ui` and read by
+`ui/shell/art.c` when a screen needs them (never compiled in): six
+backgrounds (lock, open, home × portrait, landscape; RGB565, the panel's
+own format, 1,399,564 bytes each, the package's static scrims baked in,
+Floyd–Steinberg dithered) and thirteen 96 px RGB565A8 portal icons (27,660
+bytes each). 8.76 MB in all. The B system glyphs (32 px A8) are compiled
+in (`pos_glyphs.c`). Everything is generated by `tools/design/gen_doors_ui.py`
+from the package (icons redrawn from its SVG, within 0.2/255 of its own
+128 px export) and recorded in `MANIFEST.txt`; `tests/doors_ui_assets_test.sh`
+holds art and sources together. Memory: the home photograph and the icons
+stay loaded (1.73 MB); the lock and open photographs only while shown. A
+missing or damaged file is logged and drawn around (plain background,
+empty frame), never fatal.
+
+### 31.7 Validation on the host
+
+`tests/home_layout_test.c`, `tests/art_format_test.c` (make test),
+`tests/shell_lock_test.c` and `tests/doors_shell_test.sh` (simulator:
+lock/open lifecycle, twenty rounds with no art leaked, every app opens and
+comes home, every icon pixel-exact where `shell.info` places it in both
+orientations, no-art and frame-only fallbacks, rotation restart stays open,
+a fresh start locks).
+
+Amendment O (§31) proposed 2026-09-22; unit A visual gate PASS 2026-09-23 on `3c3d2b5`, awaiting the owner's acceptance.

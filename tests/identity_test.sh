@@ -79,9 +79,16 @@ check "/usr/share/pocketos stays a directory, not a link" \
     "$(yes_if eval '[ -d "$F/usr/share/pocketos" ] && [ ! -L "$F/usr/share/pocketos" ]')"
 check "holding THIRD_PARTY_NOTICES.txt as a link to ../doors/THIRD_PARTY_NOTICES.txt" \
     "$(yes_if link_is "$F/usr/share/pocketos/THIRD_PARTY_NOTICES.txt" ../doors/THIRD_PARTY_NOTICES.txt)"
-check "and nothing else lives in either shared directory" \
-    "$(yes_if [ "$(find "$F/usr/share" -mindepth 2 | LC_ALL=C sort | tr '\n' ' ')" = \
+check "and nothing else lives in either shared directory but the shell's art" \
+    "$(yes_if [ "$(find "$F/usr/share" -mindepth 2 ! -path "$F/usr/share/doors/ui*" | LC_ALL=C sort | tr '\n' ' ')" = \
         "$F/usr/share/doors/THIRD_PARTY_NOTICES.txt $F/usr/share/pocketos/THIRD_PARTY_NOTICES.txt " ])"
+art_ok=1
+for a in ui/assets/doors/*.bin; do
+    t="$F/usr/share/doors/ui/$(basename "$a")"
+    { regular "$t" && mode_is "$t" 644 && cmp -s "$t" "$a"; } || art_ok=0
+done
+check "/usr/share/doors/ui holds exactly the committed DOORS art, mode 0644" \
+    "$(yes_if eval '[ "$art_ok" = 1 ] && [ "$(ls "$F/usr/share/doors/ui" | wc -l)" = "$(ls ui/assets/doors/*.bin | wc -l)" ]')"
 
 # ---- over a PocketOS-era tree, and then again ---------------------------
 U="$TMP/upgrade"
@@ -245,9 +252,18 @@ checked=$(sed -n '/^for f in /,/; do$/p' "$DEPLOY" | tr ' \\;' '\n\n\n' | grep -
 sent=$(sed -n '/^tar -C "\${T}"/,/SSH\[@\]/p' "$DEPLOY" | tr ' \\' '\n\n' | grep -E '^(usr|etc)/')
 miss_checked=""
 miss_sent=""
+# A directory in either list carries every file under it (usr/share/doors/ui,
+# the shell's art: tar sends a directory whole).
+covered() { # <list> <path>
+    local d=$2
+    while :; do
+        printf '%s\n' "$1" | grep -qxF -- "$d" && return 0
+        case "$d" in */*) d=${d%/*} ;; *) return 1 ;; esac
+    done
+}
 while IFS= read -r p; do
-    printf '%s\n' "$checked" | grep -qxF -- "$p" || miss_checked="$miss_checked $p"
-    printf '%s\n' "$sent" | grep -qxF -- "$p" || miss_sent="$miss_sent $p"
+    covered "$checked" "$p" || miss_checked="$miss_checked $p"
+    covered "$sent" "$p" || miss_sent="$miss_sent $p"
 done < <(tree_paths "$F")
 check "deploy.sh checks for every path make install creates${miss_checked:+ (missing:$miss_checked)}" \
     "$(yes_if [ -z "$miss_checked" ])"

@@ -1,0 +1,1019 @@
+{
+  "version": "2.0-B",
+  "coordinates": "native pixels; text y is baseline",
+  "colors": {
+    "radio": "#b5cfa5",
+    "mesh": "#a6c4da",
+    "network": "#9fbdd5",
+    "tools": "#dcb387",
+    "ai": "#b9afd4",
+    "games": "#dfad85",
+    "settings": "#d5d7d5",
+    "files": "#d7b78a",
+    "apps": "#e5e2d4"
+  },
+  "groups": [
+    {
+      "name": "Connections",
+      "apps": [
+        "radio",
+        "mesh",
+        "network"
+      ]
+    },
+    {
+      "name": "Workspace",
+      "apps": [
+        "tools",
+        "ai",
+        "files"
+      ]
+    },
+    {
+      "name": "Device & play",
+      "apps": [
+        "games",
+        "settings",
+        "apps"
+      ]
+    }
+  ],
+  "orientations": {
+    "portrait": {
+      "width": 568,
+      "height": 1232,
+      "screens": {
+        "launcher": {
+          "background": "backgrounds/portrait/launcher.png",
+          "preview": "screens/portrait/launcher.png",
+          "overlay": "overlays/portrait/launcher.svg",
+          "text": [
+            {
+              "id": "brand",
+              "sample": "DOORS",
+              "x": 28,
+              "baseline_y": 43,
+              "font_px": 17,
+              "anchor": "start"
+            },
+            {
+              "id": "battery",
+              "sample": "86%",
+              "x": 540,
+              "baseline_y": 41,
+              "font_px": 16,
+              "anchor": "end"
+            },
+            {
+              "id": "clock",
+              "sample": "17:24",
+              "x": 284.0,
+              "baseline_y": 225,
+              "font_px": 76,
+              "anchor": "middle"
+            },
+            {
+              "id": "date",
+              "sample": "Monday, 21 September",
+              "x": 284.0,
+              "baseline_y": 267,
+              "font_px": 21,
+              "anchor": "middle"
+            },
+            {
+              "id": "group0",
+              "sample": "CONNECTIONS",
+              "x": 54,
+              "baseline_y": 365,
+              "font_px": 15,
+              "anchor": "start"
+            },
+            {
+              "id": "radio",
+              "sample": "Radio",
+              "x": 118.66666666666667,
+              "baseline_y": 526,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "mesh",
+              "sample": "Mesh",
+              "x": 284.0,
+              "baseline_y": 526,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "network",
+              "sample": "Network",
+              "x": 449.3333333333333,
+              "baseline_y": 526,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "group1",
+              "sample": "WORKSPACE",
+              "x": 54,
+              "baseline_y": 600,
+              "font_px": 15,
+              "anchor": "start"
+            },
+            {
+              "id": "tools",
+              "sample": "Tools",
+              "x": 118.66666666666667,
+              "baseline_y": 761,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "ai",
+              "sample": "AI",
+              "x": 284.0,
+              "baseline_y": 761,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "files",
+              "sample": "Files",
+              "x": 449.3333333333333,
+              "baseline_y": 761,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "group2",
+              "sample": "DEVICE & PLAY",
+              "x": 54,
+              "baseline_y": 835,
+              "font_px": 15,
+              "anchor": "start"
+            },
+            {
+              "id": "games",
+              "sample": "Games",
+              "x": 118.66666666666667,
+              "baseline_y": 996,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "settings",
+              "sample": "Settings",
+              "x": 284.0,
+              "baseline_y": 996,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "apps",
+              "sample": "Apps",
+              "x": 449.3333333333333,
+              "baseline_y": 996,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "hint",
+              "sample": "Open a space",
+              "x": 284.0,
+              "baseline_y": 1177,
+              "font_px": 18,
+              "anchor": "middle"
+            }
+          ],
+          "controls": [
+            {
+              "id": "app_radio",
+              "x": 42.0,
+              "y": 386,
+              "width": 153.33333333333334,
+              "height": 156,
+              "role": "app"
+            },
+            {
+              "id": "app_mesh",
+              "x": 207.33333333333331,
+              "y": 386,
+              "width": 153.33333333333334,
+              "height": 156,
+              "role": "app"
+            },
+            {
+              "id": "app_network",
+              "x": 372.66666666666663,
+              "y": 386,
+              "width": 153.33333333333334,
+              "height": 156,
+              "role": "app"
+            },
+            {
+              "id": "app_tools",
+              "x": 42.0,
+              "y": 621,
+              "width": 153.33333333333334,
+              "height": 156,
+              "role": "app"
+            },
+            {
+              "id": "app_ai",
+              "x": 207.33333333333331,
+              "y": 621,
+              "width": 153.33333333333334,
+              "height": 156,
+              "role": "app"
+            },
+            {
+              "id": "app_files",
+              "x": 372.66666666666663,
+              "y": 621,
+              "width": 153.33333333333334,
+              "height": 156,
+              "role": "app"
+            },
+            {
+              "id": "app_games",
+              "x": 42.0,
+              "y": 856,
+              "width": 153.33333333333334,
+              "height": 156,
+              "role": "app"
+            },
+            {
+              "id": "app_settings",
+              "x": 207.33333333333331,
+              "y": 856,
+              "width": 153.33333333333334,
+              "height": 156,
+              "role": "app"
+            },
+            {
+              "id": "app_apps",
+              "x": 372.66666666666663,
+              "y": 856,
+              "width": 153.33333333333334,
+              "height": 156,
+              "role": "app"
+            }
+          ]
+        },
+        "system": {
+          "background": "backgrounds/portrait/system.png",
+          "preview": "screens/portrait/system.png",
+          "overlay": "overlays/portrait/system.svg",
+          "text": [
+            {
+              "id": "brand",
+              "sample": "DOORS",
+              "x": 28,
+              "baseline_y": 43,
+              "font_px": 17,
+              "anchor": "start"
+            },
+            {
+              "id": "battery",
+              "sample": "86%",
+              "x": 540,
+              "baseline_y": 41,
+              "font_px": 16,
+              "anchor": "end"
+            },
+            {
+              "id": "title",
+              "sample": "System",
+              "x": 36,
+              "baseline_y": 151,
+              "font_px": 46,
+              "anchor": "start"
+            },
+            {
+              "id": "subtitle",
+              "sample": "Quick controls",
+              "x": 36,
+              "baseline_y": 186,
+              "font_px": 21,
+              "anchor": "start"
+            },
+            {
+              "id": "wifi",
+              "sample": "Wi-Fi",
+              "x": 114,
+              "baseline_y": 299,
+              "font_px": 21,
+              "anchor": "start"
+            },
+            {
+              "id": "wifi_state",
+              "sample": "Connected",
+              "x": 114,
+              "baseline_y": 328,
+              "font_px": 17,
+              "anchor": "start"
+            },
+            {
+              "id": "bluetooth",
+              "sample": "Bluetooth",
+              "x": 370,
+              "baseline_y": 299,
+              "font_px": 21,
+              "anchor": "start"
+            },
+            {
+              "id": "bluetooth_state",
+              "sample": "Off",
+              "x": 370,
+              "baseline_y": 328,
+              "font_px": 17,
+              "anchor": "start"
+            },
+            {
+              "id": "radio",
+              "sample": "Radio",
+              "x": 114,
+              "baseline_y": 435,
+              "font_px": 21,
+              "anchor": "start"
+            },
+            {
+              "id": "radio_state",
+              "sample": "Ready",
+              "x": 114,
+              "baseline_y": 464,
+              "font_px": 17,
+              "anchor": "start"
+            },
+            {
+              "id": "sound",
+              "sample": "Sound",
+              "x": 370,
+              "baseline_y": 435,
+              "font_px": 21,
+              "anchor": "start"
+            },
+            {
+              "id": "sound_state",
+              "sample": "On",
+              "x": 370,
+              "baseline_y": 464,
+              "font_px": 17,
+              "anchor": "start"
+            },
+            {
+              "id": "sun_label",
+              "sample": "Brightness",
+              "x": 98,
+              "baseline_y": 583,
+              "font_px": 19,
+              "anchor": "start"
+            },
+            {
+              "id": "sun_value",
+              "sample": "60%",
+              "x": 510,
+              "baseline_y": 583,
+              "font_px": 18,
+              "anchor": "end"
+            },
+            {
+              "id": "sound_label",
+              "sample": "Volume",
+              "x": 98,
+              "baseline_y": 687,
+              "font_px": 19,
+              "anchor": "start"
+            },
+            {
+              "id": "sound_value",
+              "sample": "40%",
+              "x": 510,
+              "baseline_y": 687,
+              "font_px": 18,
+              "anchor": "end"
+            },
+            {
+              "id": "display_row",
+              "sample": "Display & sleep",
+              "x": 104,
+              "baseline_y": 825.0,
+              "font_px": 21,
+              "anchor": "start"
+            },
+            {
+              "id": "network_row",
+              "sample": "Connections",
+              "x": 104,
+              "baseline_y": 897.0,
+              "font_px": 21,
+              "anchor": "start"
+            },
+            {
+              "id": "info_row",
+              "sample": "About DOORS",
+              "x": 104,
+              "baseline_y": 969.0,
+              "font_px": 21,
+              "anchor": "start"
+            },
+            {
+              "id": "lock_action",
+              "sample": "Lock",
+              "x": 111,
+              "baseline_y": 1075.5,
+              "font_px": 22,
+              "anchor": "start"
+            },
+            {
+              "id": "power_action",
+              "sample": "Power",
+              "x": 367,
+              "baseline_y": 1075.5,
+              "font_px": 22,
+              "anchor": "start"
+            }
+          ],
+          "controls": [
+            {
+              "id": "wifi",
+              "x": 36,
+              "y": 250,
+              "width": 240,
+              "height": 120,
+              "role": "quick_control"
+            },
+            {
+              "id": "bluetooth",
+              "x": 292,
+              "y": 250,
+              "width": 240,
+              "height": 120,
+              "role": "quick_control"
+            },
+            {
+              "id": "radio",
+              "x": 36,
+              "y": 386,
+              "width": 240,
+              "height": 120,
+              "role": "quick_control"
+            },
+            {
+              "id": "sound",
+              "x": 292,
+              "y": 386,
+              "width": 240,
+              "height": 120,
+              "role": "quick_control"
+            },
+            {
+              "id": "brightness",
+              "x": 88,
+              "y": 595,
+              "width": 426,
+              "height": 32,
+              "role": "slider"
+            },
+            {
+              "id": "volume",
+              "x": 88,
+              "y": 699,
+              "width": 426,
+              "height": 32,
+              "role": "slider"
+            },
+            {
+              "id": "display_details",
+              "x": 36,
+              "y": 782,
+              "width": 496,
+              "height": 72,
+              "role": "navigate"
+            },
+            {
+              "id": "network_details",
+              "x": 36,
+              "y": 854,
+              "width": 496,
+              "height": 72,
+              "role": "navigate"
+            },
+            {
+              "id": "info_details",
+              "x": 36,
+              "y": 926,
+              "width": 496,
+              "height": 72,
+              "role": "navigate"
+            },
+            {
+              "id": "lock",
+              "x": 36,
+              "y": 1030,
+              "width": 240,
+              "height": 77,
+              "role": "action"
+            },
+            {
+              "id": "power",
+              "x": 292,
+              "y": 1030,
+              "width": 240,
+              "height": 77,
+              "role": "action"
+            }
+          ]
+        }
+      }
+    },
+    "landscape": {
+      "width": 1232,
+      "height": 568,
+      "screens": {
+        "launcher": {
+          "background": "backgrounds/landscape/launcher.png",
+          "preview": "screens/landscape/launcher.png",
+          "overlay": "overlays/landscape/launcher.svg",
+          "text": [
+            {
+              "id": "brand",
+              "sample": "DOORS",
+              "x": 28,
+              "baseline_y": 43,
+              "font_px": 17,
+              "anchor": "start"
+            },
+            {
+              "id": "battery",
+              "sample": "86%",
+              "x": 1204,
+              "baseline_y": 41,
+              "font_px": 16,
+              "anchor": "end"
+            },
+            {
+              "id": "clock",
+              "sample": "17:24",
+              "x": 616.0,
+              "baseline_y": 79,
+              "font_px": 46,
+              "anchor": "middle"
+            },
+            {
+              "id": "date",
+              "sample": "Monday, 21 September",
+              "x": 616.0,
+              "baseline_y": 111,
+              "font_px": 18,
+              "anchor": "middle"
+            },
+            {
+              "id": "group0",
+              "sample": "CONNECTIONS",
+              "x": 54,
+              "baseline_y": 181,
+              "font_px": 15,
+              "anchor": "start"
+            },
+            {
+              "id": "radio",
+              "sample": "Radio",
+              "x": 98.66666666666666,
+              "baseline_y": 365,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "mesh",
+              "sample": "Mesh",
+              "x": 224.0,
+              "baseline_y": 365,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "network",
+              "sample": "Network",
+              "x": 349.3333333333333,
+              "baseline_y": 365,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "group1",
+              "sample": "WORKSPACE",
+              "x": 446,
+              "baseline_y": 181,
+              "font_px": 15,
+              "anchor": "start"
+            },
+            {
+              "id": "tools",
+              "sample": "Tools",
+              "x": 490.6666666666667,
+              "baseline_y": 365,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "ai",
+              "sample": "AI",
+              "x": 616.0,
+              "baseline_y": 365,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "files",
+              "sample": "Files",
+              "x": 741.3333333333333,
+              "baseline_y": 365,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "group2",
+              "sample": "DEVICE & PLAY",
+              "x": 838,
+              "baseline_y": 181,
+              "font_px": 15,
+              "anchor": "start"
+            },
+            {
+              "id": "games",
+              "sample": "Games",
+              "x": 882.6666666666666,
+              "baseline_y": 365,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "settings",
+              "sample": "Settings",
+              "x": 1008.0,
+              "baseline_y": 365,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "apps",
+              "sample": "Apps",
+              "x": 1133.3333333333333,
+              "baseline_y": 365,
+              "font_px": 20,
+              "anchor": "middle"
+            },
+            {
+              "id": "hint",
+              "sample": "Open a space",
+              "x": 616.0,
+              "baseline_y": 513,
+              "font_px": 18,
+              "anchor": "middle"
+            }
+          ],
+          "controls": [
+            {
+              "id": "app_radio",
+              "x": 41.99999999999999,
+              "y": 202,
+              "width": 113.33333333333333,
+              "height": 247,
+              "role": "app"
+            },
+            {
+              "id": "app_mesh",
+              "x": 167.33333333333334,
+              "y": 202,
+              "width": 113.33333333333333,
+              "height": 247,
+              "role": "app"
+            },
+            {
+              "id": "app_network",
+              "x": 292.66666666666663,
+              "y": 202,
+              "width": 113.33333333333333,
+              "height": 247,
+              "role": "app"
+            },
+            {
+              "id": "app_tools",
+              "x": 434.0,
+              "y": 202,
+              "width": 113.33333333333333,
+              "height": 247,
+              "role": "app"
+            },
+            {
+              "id": "app_ai",
+              "x": 559.3333333333334,
+              "y": 202,
+              "width": 113.33333333333333,
+              "height": 247,
+              "role": "app"
+            },
+            {
+              "id": "app_files",
+              "x": 684.6666666666666,
+              "y": 202,
+              "width": 113.33333333333333,
+              "height": 247,
+              "role": "app"
+            },
+            {
+              "id": "app_games",
+              "x": 826.0,
+              "y": 202,
+              "width": 113.33333333333333,
+              "height": 247,
+              "role": "app"
+            },
+            {
+              "id": "app_settings",
+              "x": 951.3333333333334,
+              "y": 202,
+              "width": 113.33333333333333,
+              "height": 247,
+              "role": "app"
+            },
+            {
+              "id": "app_apps",
+              "x": 1076.6666666666665,
+              "y": 202,
+              "width": 113.33333333333333,
+              "height": 247,
+              "role": "app"
+            }
+          ]
+        },
+        "system": {
+          "background": "backgrounds/landscape/system.png",
+          "preview": "screens/landscape/system.png",
+          "overlay": "overlays/landscape/system.svg",
+          "text": [
+            {
+              "id": "brand",
+              "sample": "DOORS",
+              "x": 28,
+              "baseline_y": 43,
+              "font_px": 17,
+              "anchor": "start"
+            },
+            {
+              "id": "battery",
+              "sample": "86%",
+              "x": 1204,
+              "baseline_y": 41,
+              "font_px": 16,
+              "anchor": "end"
+            },
+            {
+              "id": "title",
+              "sample": "System",
+              "x": 36,
+              "baseline_y": 102,
+              "font_px": 38,
+              "anchor": "start"
+            },
+            {
+              "id": "subtitle",
+              "sample": "Quick controls",
+              "x": 36,
+              "baseline_y": 130,
+              "font_px": 21,
+              "anchor": "start"
+            },
+            {
+              "id": "wifi",
+              "sample": "Wi-Fi",
+              "x": 114,
+              "baseline_y": 209,
+              "font_px": 21,
+              "anchor": "start"
+            },
+            {
+              "id": "wifi_state",
+              "sample": "Connected",
+              "x": 114,
+              "baseline_y": 238,
+              "font_px": 17,
+              "anchor": "start"
+            },
+            {
+              "id": "bluetooth",
+              "sample": "Bluetooth",
+              "x": 382,
+              "baseline_y": 209,
+              "font_px": 21,
+              "anchor": "start"
+            },
+            {
+              "id": "bluetooth_state",
+              "sample": "Off",
+              "x": 382,
+              "baseline_y": 238,
+              "font_px": 17,
+              "anchor": "start"
+            },
+            {
+              "id": "radio",
+              "sample": "Radio",
+              "x": 114,
+              "baseline_y": 340,
+              "font_px": 21,
+              "anchor": "start"
+            },
+            {
+              "id": "radio_state",
+              "sample": "Ready",
+              "x": 114,
+              "baseline_y": 369,
+              "font_px": 17,
+              "anchor": "start"
+            },
+            {
+              "id": "sound",
+              "sample": "Sound",
+              "x": 382,
+              "baseline_y": 340,
+              "font_px": 21,
+              "anchor": "start"
+            },
+            {
+              "id": "sound_state",
+              "sample": "On",
+              "x": 382,
+              "baseline_y": 369,
+              "font_px": 17,
+              "anchor": "start"
+            },
+            {
+              "id": "sun_label",
+              "sample": "Brightness",
+              "x": 656,
+              "baseline_y": 205,
+              "font_px": 19,
+              "anchor": "start"
+            },
+            {
+              "id": "sun_value",
+              "sample": "60%",
+              "x": 1174,
+              "baseline_y": 205,
+              "font_px": 18,
+              "anchor": "end"
+            },
+            {
+              "id": "sound_label",
+              "sample": "Volume",
+              "x": 656,
+              "baseline_y": 270,
+              "font_px": 19,
+              "anchor": "start"
+            },
+            {
+              "id": "sound_value",
+              "sample": "40%",
+              "x": 1174,
+              "baseline_y": 270,
+              "font_px": 18,
+              "anchor": "end"
+            },
+            {
+              "id": "display_row",
+              "sample": "Display & sleep",
+              "x": 662,
+              "baseline_y": 350.5,
+              "font_px": 21,
+              "anchor": "start"
+            },
+            {
+              "id": "network_row",
+              "sample": "Connections",
+              "x": 662,
+              "baseline_y": 405.5,
+              "font_px": 21,
+              "anchor": "start"
+            },
+            {
+              "id": "info_row",
+              "sample": "About DOORS",
+              "x": 662,
+              "baseline_y": 460.5,
+              "font_px": 21,
+              "anchor": "start"
+            },
+            {
+              "id": "lock_action",
+              "sample": "Lock",
+              "x": 111,
+              "baseline_y": 483.0,
+              "font_px": 22,
+              "anchor": "start"
+            },
+            {
+              "id": "power_action",
+              "sample": "Power",
+              "x": 379,
+              "baseline_y": 483.0,
+              "font_px": 22,
+              "anchor": "start"
+            }
+          ],
+          "controls": [
+            {
+              "id": "wifi",
+              "x": 36,
+              "y": 160,
+              "width": 252,
+              "height": 115,
+              "role": "quick_control"
+            },
+            {
+              "id": "bluetooth",
+              "x": 304,
+              "y": 160,
+              "width": 252,
+              "height": 115,
+              "role": "quick_control"
+            },
+            {
+              "id": "radio",
+              "x": 36,
+              "y": 291,
+              "width": 252,
+              "height": 115,
+              "role": "quick_control"
+            },
+            {
+              "id": "sound",
+              "x": 304,
+              "y": 291,
+              "width": 252,
+              "height": 115,
+              "role": "quick_control"
+            },
+            {
+              "id": "brightness",
+              "x": 646,
+              "y": 205,
+              "width": 532,
+              "height": 32,
+              "role": "slider"
+            },
+            {
+              "id": "volume",
+              "x": 646,
+              "y": 270,
+              "width": 532,
+              "height": 32,
+              "role": "slider"
+            },
+            {
+              "id": "display_details",
+              "x": 594,
+              "y": 316,
+              "width": 602,
+              "height": 55,
+              "role": "navigate"
+            },
+            {
+              "id": "network_details",
+              "x": 594,
+              "y": 371,
+              "width": 602,
+              "height": 55,
+              "role": "navigate"
+            },
+            {
+              "id": "info_details",
+              "x": 594,
+              "y": 426,
+              "width": 602,
+              "height": 55,
+              "role": "navigate"
+            },
+            {
+              "id": "lock",
+              "x": 36,
+              "y": 444,
+              "width": 252,
+              "height": 64,
+              "role": "action"
+            },
+            {
+              "id": "power",
+              "x": 304,
+              "y": 444,
+              "width": 252,
+              "height": 64,
+              "role": "action"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

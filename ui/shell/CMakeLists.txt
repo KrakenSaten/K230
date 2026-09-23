@@ -45,6 +45,13 @@ add_executable(pocketos-shell
     chrome.c
     orientation.c
     kbd_presence.c
+    art.c
+    art_format.c
+    home.c
+    home_layout.c
+    shell_lock.c
+    controls.c
+    ../pocketui/pos_glyphs.c
     ../pocketui/pos_input.c
     ../pocketui/pos_keyboard.c
     ../pocketui/pos_keymap.c
@@ -146,6 +153,14 @@ target_compile_definitions(pocketos-shell PRIVATE
     POCKETOS_BUILD_ID="${POCKETOS_BUILD_ID}"
     LV_LVGL_H_INCLUDE_SIMPLE)
 target_link_libraries(pocketos-shell PRIVATE cjson m)
+
+# Where the shell reads the DOORS art (ui/shell/art.h). The device reads the
+# installed copy; the simulator reads the committed files in place, so a
+# screenshot test needs no install step. POCKETOS_ART_DIR overrides either.
+if(POCKETOS_DISPLAY STREQUAL "sdl")
+    get_filename_component(POCKETOS_ART_SRC_DIR "${REPO_DIR}/ui/assets/doors" ABSOLUTE)
+    target_compile_definitions(pocketos-shell PRIVATE POCKETOS_ART_DIR_DEFAULT="${POCKETOS_ART_SRC_DIR}")
+endif()
 
 # PocketTimber art (docs/apps/POCKETTIMBER_ART.md): the sprites Blender
 # rendered into docs/design/timber-art/rendered are converted to LVGL image
@@ -441,7 +456,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     target_link_libraries(pos_keyboard_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
     # The launcher tile with an app icon mask against the glyph tile, under a
-    # real pointer device (run by tests/launcher_icons_shell_test.sh). DS 20.
+    # real pointer device (run by tests/doors_shell_test.sh). DS 20.
     add_executable(pocketui_tile_test
         ${REPO_DIR}/tests/pocketui_tile_test.c
         ../pocketui/pos_app_icons.c
@@ -463,6 +478,37 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(pocketui_tile_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(pocketui_tile_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # The DOORS lock screen under a real pointer and the shell's input stream
+    # (DS §31.4; run by tests/doors_shell_test.sh).
+    add_executable(shell_lock_test
+        ${REPO_DIR}/tests/shell_lock_test.c
+        shell_lock.c
+        art.c
+        art_format.c
+        ../pocketui/pos_glyphs.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${REPO_DIR}/core/pocketlog/pocketlog.c
+        ${REPO_DIR}/core/pocketpaths.c
+        ${POCKETUI_FONTS})
+    target_include_directories(shell_lock_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core")
+    target_compile_options(shell_lock_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(shell_lock_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE
+        POCKETOS_VERSION="${POCKETOS_VERSION}" POCKETOS_BUILD_ID="${POCKETOS_BUILD_ID}"
+        POCKETOS_ART_DIR_DEFAULT="${POCKETOS_ART_SRC_DIR}")
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(shell_lock_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(shell_lock_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(shell_lock_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
     # The shared responsive-layout guard every responsive app opens its layout
     # pass with (run by tests/display_geometry_shell_test.sh). DS 21.3, 22.2.
