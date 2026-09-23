@@ -13,7 +13,6 @@
 #define HEADER_H_PORTRAIT 116
 #define HEADER_H_LANDSCAPE 100
 #define BUTTON_W_LANDSCAPE 240
-#define HINT_H 28
 /* Under the footer: clear of a 30 px rounded corner with 12 px to spare, and
  * the same on a rectangular panel, so the launcher above it does not move
  * with the corners (a larger bench corner pushes it up, footer_pad()). */
@@ -96,9 +95,6 @@ static void portrait(const struct home_layout_in *in, struct home_layout *out)
     bw = (pw - 16) / 2;
     out->lock_button = rect(m, by, bw, HOME_BUTTON_H);
     out->controls_button = rect(m + pw - bw, by, bw, HOME_BUTTON_H);
-    if (by - end >= HINT_H + 2 * 24) {
-        out->hint = rect(m, end + (by - end - HINT_H) / 2, pw, HINT_H);
-    }
     out->content_h = max32(in->height, by + HOME_BUTTON_H + footer_pad(in));
 }
 
@@ -211,14 +207,6 @@ static void landscape(const struct home_layout_in *in, struct home_layout *out)
     out->lock_button = rect(max32(m, in->inset_left + 12), by, BUTTON_W_LANDSCAPE, HOME_BUTTON_H);
     out->controls_button = rect(in->width - max32(m, in->inset_right + 12) - BUTTON_W_LANDSCAPE, by,
                                 BUTTON_W_LANDSCAPE, HOME_BUTTON_H);
-    {
-        int32_t hx = out->lock_button.x + BUTTON_W_LANDSCAPE + 16;
-        int32_t hw = out->controls_button.x - 16 - hx;
-
-        if (hw >= 160) {
-            out->hint = rect(hx, by + (HOME_BUTTON_H - HINT_H) / 2, hw, HINT_H);
-        }
-    }
     out->content_h = max32(in->height, by + HOME_BUTTON_H + footer_pad(in));
 }
 

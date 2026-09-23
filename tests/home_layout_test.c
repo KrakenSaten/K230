@@ -195,7 +195,6 @@ static void test_reference(void)
     check("portrait lays out", home_layout_compute(&in, &l) == 0);
     check_layout("portrait", &in, &l, false);
     check("portrait: four 124 px columns, 20 px labels", l.cell_w == 124 && !l.small_labels);
-    check("portrait: room for the hint", l.hint.h > 0);
     check("portrait: the panels share one column", l.panel[0].x == l.panel[3].x && l.panel[0].w == l.panel[3].w);
 
     input(&in, true, today, 5);

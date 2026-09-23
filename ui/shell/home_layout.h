@@ -67,7 +67,6 @@ struct home_layout {
     struct home_rect cell[HOME_MAX_APPS];    /* every app, group by group, in content coordinates */
     struct home_rect lock_button;
     struct home_rect controls_button;
-    struct home_rect hint;                   /* h == 0: no room for it */
     int32_t cell_w;                          /* the landscape row's cell width (portrait: the fixed one) */
     bool small_labels;                       /* cells too narrow for the 20 px label font */
     bool wrapped;                            /* landscape panels did not fit one row */

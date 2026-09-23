@@ -353,15 +353,6 @@ lv_obj_t *home_create(lv_obj_t *parent, const struct pocketos_app *const *apps, 
     }
     action_button(&lay.lock_button, &pos_glyph_lock, "Lock", actions->lock);
     action_button(&lay.controls_button, &pos_glyph_settings, "Controls", actions->controls);
-    if (lay.hint.h) {
-        lv_obj_t *hint = lv_label_create(home.root);
-
-        pos_style_add(hint, POS_STYLE_ENV_TEXT_SECONDARY, 0);
-        lv_label_set_text(hint, "Open a space");
-        lv_obj_set_width(hint, lay.hint.w);
-        lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_pos(hint, lay.hint.x, lay.hint.y);
-    }
     home.info.apps = placed;
     home.info.scrolls = lay.content_h > in.height;
     home.info.wrapped = lay.wrapped;
