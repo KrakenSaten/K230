@@ -241,7 +241,7 @@ static void section_caption(lv_obj_t *parent, const char *text)
 static enum pos_style_role service_chip_role(enum system_view_service_state s)
 {
     if (s == SYSTEM_VIEW_SVC_RUNNING) {
-        return POS_STYLE_CHIP_RX;
+        return POS_STYLE_CHIP_ACTIVE;
     }
     if (s == SYSTEM_VIEW_SVC_CRASHLOOP) {
         return POS_STYLE_CHIP_TX;
@@ -309,10 +309,10 @@ static void repaint(struct system_app *a)
     for (i = 0; i < v->iface_count && i < SYSTEM_VIEW_MAX_IFACES; i++) {
         if (a->iface_chip[i]) {
             lv_label_set_text(a->iface_chip[i], v->ifaces[i].state);
-            lv_obj_remove_style(a->iface_chip[i], pos_style(POS_STYLE_CHIP_RX), 0);
+            lv_obj_remove_style(a->iface_chip[i], pos_style(POS_STYLE_CHIP_ACTIVE), 0);
             lv_obj_remove_style(a->iface_chip[i], pos_style(POS_STYLE_CHIP_OFF), 0);
             pos_style_add(a->iface_chip[i],
-                          v->ifaces[i].up ? POS_STYLE_CHIP_RX : POS_STYLE_CHIP_OFF, 0);
+                          v->ifaces[i].up ? POS_STYLE_CHIP_ACTIVE : POS_STYLE_CHIP_OFF, 0);
         }
         if (a->iface_addr[i]) {
             lv_label_set_text(a->iface_addr[i], v->ifaces[i].addr);
@@ -321,7 +321,7 @@ static void repaint(struct system_app *a)
     for (i = 0; i < v->service_count && i < SYSTEM_VIEW_MAX_SERVICES; i++) {
         if (a->svc_chip[i]) {
             lv_label_set_text(a->svc_chip[i], service_chip_text(v->services[i].state));
-            lv_obj_remove_style(a->svc_chip[i], pos_style(POS_STYLE_CHIP_RX), 0);
+            lv_obj_remove_style(a->svc_chip[i], pos_style(POS_STYLE_CHIP_ACTIVE), 0);
             lv_obj_remove_style(a->svc_chip[i], pos_style(POS_STYLE_CHIP_TX), 0);
             lv_obj_remove_style(a->svc_chip[i], pos_style(POS_STYLE_CHIP_OFF), 0);
             pos_style_add(a->svc_chip[i], service_chip_role(v->services[i].state), 0);

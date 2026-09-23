@@ -340,7 +340,15 @@ static void fill_styles(void)
     reset(s);
     lv_style_set_height(s, POS_CHIP_HEIGHT);
     lv_style_set_pad_hor(s, 12);
-    lv_style_set_pad_ver(s, 0);
+    {
+        /* A label draws from the top of its content box, so the caption is
+         * centred by the padding its own line leaves (DS §7). A chip drawn
+         * in another font sets its own (the shell's radio chip, chrome.h). */
+        int32_t spare = POS_CHIP_HEIGHT - lv_font_get_line_height(&pos_font_mono_14);
+
+        lv_style_set_pad_top(s, spare > 0 ? spare / 2 : 0);
+        lv_style_set_pad_bottom(s, spare > 0 ? spare - spare / 2 : 0);
+    }
     lv_style_set_radius(s, POS_RADIUS);
     lv_style_set_border_width(s, 0);
     lv_style_set_text_font(s, &pos_font_mono_14);
@@ -366,6 +374,11 @@ static void fill_styles(void)
     reset(s);
     lv_style_set_bg_color(s, tok(POS_COLOR_SURFACE));
     lv_style_set_text_color(s, tok(POS_COLOR_TEXT_MUTED));
+
+    s = &styles[POS_STYLE_CHIP_ACTIVE];
+    reset(s);
+    lv_style_set_bg_color(s, tok(POS_COLOR_ACCENT_PRIMARY));
+    lv_style_set_text_color(s, tok(POS_COLOR_TEXT_ON_ACCENT));
 
     s = &styles[POS_STYLE_ACCENT_TEXT];
     reset(s);

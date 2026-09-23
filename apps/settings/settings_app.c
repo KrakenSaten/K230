@@ -40,7 +40,7 @@
 /* wifi.networks every this many ticks while nothing is changing; every tick
  * while a scan runs. */
 #define SETTINGS_LIST_POLL_TICKS 3
-/* The Design System has five themes; room for a few more. */
+/* The Design System has six themes; room for a few more. */
 #define SETTINGS_THEMES_MAX 8
 /* DS section 7: the gap between panels, whichever way they lie. */
 #define SETTINGS_PANEL_GAP 22
@@ -629,7 +629,7 @@ static void build_appearance(struct settings_app *a, lv_obj_t *body)
         pocketui_label(row, d->name, POS_STYLE_ROW_TITLE);
         a->theme_chip[i] = lv_label_create(row);
         pos_style_add(a->theme_chip[i], POS_STYLE_CHIP, 0);
-        pos_style_add(a->theme_chip[i], POS_STYLE_CHIP_RX, 0);
+        pos_style_add(a->theme_chip[i], POS_STYLE_CHIP_ACTIVE, 0);
         lv_label_set_text(a->theme_chip[i], "SELECTED");
     }
     pocketui_label(p, "Display mode", POS_STYLE_TEXT_SECONDARY);
@@ -703,7 +703,7 @@ static void build_list(struct settings_app *a)
         if (n->badge[0]) {
             lb = lv_label_create(row);
             pos_style_add(lb, POS_STYLE_CHIP, 0);
-            pos_style_add(lb, n->connected ? POS_STYLE_CHIP_RX : POS_STYLE_CHIP_OFF, 0);
+            pos_style_add(lb, n->connected ? POS_STYLE_CHIP_ACTIVE : POS_STYLE_CHIP_OFF, 0);
             lv_label_set_text(lb, n->badge);
         }
     }

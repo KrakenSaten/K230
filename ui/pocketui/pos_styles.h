@@ -40,6 +40,10 @@ enum pos_style_role {
     POS_STYLE_CHIP_TX,             /* radio_tx fill, text_on_accent */
     POS_STYLE_CHIP_OFF,            /* surface fill, text_secondary */
     POS_STYLE_CHIP_NA,             /* surface fill, text_muted */
+    /* A chip for an active, selected or running thing that is not the radio
+     * (DS §4: accent_primary is "active/selected", radio_rx is the RX chip).
+     * The same fill as CHIP_RX in the themes where accent and RX coincide. */
+    POS_STYLE_CHIP_ACTIVE,         /* accent_primary fill, text_on_accent */
     POS_STYLE_ACCENT_TEXT,         /* accent_primary text (chevrons, tile icons) */
     POS_STYLE_STATUS_OK_TEXT,
     POS_STYLE_STATUS_WARN_TEXT,
