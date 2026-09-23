@@ -36,7 +36,10 @@ int wpa_ctrl_open(struct wpa_ctrl *c, const char *ctrl_dir, const char *iface,
 void wpa_ctrl_close(struct wpa_ctrl *c);
 /* Send cmd and wait up to timeout_ms for its reply, which is NUL-terminated
  * into reply (at most n-1 bytes). Unsolicited messages that arrive first are
- * skipped. Returns the reply length, or -1 (errno ETIMEDOUT on no answer). */
+ * skipped. Returns the reply length, or -1 (errno ETIMEDOUT on no answer).
+ * After a timeout the connection is renewed from a new local address (c->fd
+ * changes), so an answer that turns up late cannot be read as the reply to
+ * the next command; if the renewal fails the old connection is kept. */
 int wpa_ctrl_request(struct wpa_ctrl *c, const char *cmd, char *reply, size_t n, int timeout_ms);
 /* For the event connection: ATTACH, expecting "OK". Returns 0 or -1. */
 int wpa_ctrl_attach(struct wpa_ctrl *c, int timeout_ms);

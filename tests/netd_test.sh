@@ -323,6 +323,35 @@ check "the debug log records the psk field name only" "$(grep -q 'SET_NETWORK [0
 check "the hex form is in exactly one file: the store" \
     "$([ "$(grep -rlF "$PASS_HEX" "$TMP" 2>/dev/null | grep -v '/scenario$' | wc -l)" = 1 ] && echo 1 || echo 0)"
 
+# ---- a late reply is never taken for the next command's -------------------------------------------
+# wpa_supplicant's replies carry no request id. A SCAN_RESULTS answered after netd stopped waiting
+# (300 ms) used to arrive while netd waited for its next command and was read as that answer: a scan
+# list has no wpa_state, so netd took the association as gone and stopped the DHCP client, dropping
+# a working lease. late_scan makes the fake hold the answer and send it just before it answers the
+# next command - that ordering every time, not when the timing happens to fall that way.
+rel_before=$(grep -c released "$TMP/dhcp.log")
+log_before=$(wc -l < "$POCKETOS_LOG_DIR/netd.log")
+since() { tail -n +$((log_before + 1)) "$POCKETOS_LOG_DIR/netd.log"; }
+echo late_scan >> "$FAKE_WPA_SCENARIO"
+"$POS" wifi scan >/dev/null 2>&1
+for _ in $(seq 1 60); do grep -q 'late SCAN_RESULTS sent before' "$FAKE_WPA_RECORD" && break; sleep 0.1; done
+sed -i '/^late_scan$/d' "$FAKE_WPA_SCENARIO"
+# Status polls after the late answer, so a misread has had its chance to act.
+for _ in $(seq 1 50); do [ "$(since | grep -c 'STATUS -> ')" -ge 3 ] && break; sleep 0.1; done
+check "the fake held a SCAN_RESULTS answer past netd's deadline" \
+    "$(grep -q 'late SCAN_RESULTS held' "$FAKE_WPA_RECORD" && since | grep -q 'SCAN_RESULTS: no answer' && echo 1 || echo 0)"
+check "and sent it while netd waited for its next command" \
+    "$(grep -q 'late SCAN_RESULTS sent before' "$FAKE_WPA_RECORD" && echo 1 || echo 0)"
+check "to an address netd no longer listens on" \
+    "$(grep -qE 'late SCAN_RESULTS sent before [A-Z_]+: undeliverable' "$FAKE_WPA_RECORD" && echo 1 || echo 0)"
+check "so no STATUS was answered with a scan list" \
+    "$(since | grep -q 'STATUS -> bssid / frequency' && echo 0 || echo 1)"
+check "netd kept polling the supplicant afterwards" "$([ "$(since | grep -c 'STATUS -> ')" -ge 3 ] && echo 1 || echo 0)"
+out=$(st)
+check "the association held through it" \
+    "$(all "$(has "$out" '"state":[[:space:]]*"connected"')$(has "$out" '"ipv4":[[:space:]]*"192.168.50.23"')")"
+check "and the lease was never released" "$([ "$(grep -c released "$TMP/dhcp.log")" = "$rel_before" ] && echo 1 || echo 0)"
+
 # ---- disconnect ----------------------------------------------------------------------------------
 out=$("$POS" wifi disconnect 2>&1); check "pos wifi disconnect" "$(has "$out" 'disconnected')"
 check "status: disconnected" "$(wait_state disconnected 3 && echo 1 || echo 0)"

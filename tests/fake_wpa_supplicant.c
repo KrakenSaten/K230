@@ -10,6 +10,14 @@
  *   key <ssid hex> <passphrase hex>                        the passphrase that works
  *   reject <ssid hex>                                      the AP refuses association
  *   sae 1                                                  the driver reports SAE
+ *   late_scan                                              SCAN_RESULTS is answered late
+ *
+ * late_scan models a supplicant that stalls on SCAN_RESULTS: the answer is
+ * held, and sent to whoever asked just before the NEXT command is answered -
+ * the ordering in which a late reply lands while the client is waiting for
+ * something else. Every time, not when the timing happens to fall that way.
+ * Recorded as "late SCAN_RESULTS sent before <cmd>: delivered|undeliverable";
+ * undeliverable means the address it was sent to no longer exists.
  *
  * The file ($FAKE_WPA_SCENARIO) is read again at every scan and every join
  * attempt, so a test can change the world while netd runs. What the fake
@@ -67,6 +75,12 @@ static int next_id;
 static struct bss bsss[MAX_BSS];
 static int bss_count;
 static int sae;
+static int late_scan;
+/* A SCAN_RESULTS answer being held (late_scan), and who asked for it. */
+static char late_text[8192];
+static struct sockaddr_un late_to;
+static socklen_t late_tolen;
+static int late_held;
 static char path[108];
 static int sock = -1;
 static struct sockaddr_un subs[MAX_SUBS];
@@ -121,6 +135,7 @@ static void load_scenario(void)
 
     bss_count = 0;
     sae = 0;
+    late_scan = 0;
     if (!file || !(f = fopen(file, "r"))) {
         return;
     }
@@ -147,6 +162,8 @@ static void load_scenario(void)
             bss_count++;
         } else if (strcmp(kind, "sae") == 0) {
             sae = 1;
+        } else if (strcmp(kind, "late_scan") == 0) {
+            late_scan = 1;
         }
     }
     fclose(f);
@@ -360,6 +377,15 @@ static void handle(char *cmd, const struct sockaddr_un *from, socklen_t fromlen)
     char *arg;
     int i;
 
+    if (late_held) {
+        ssize_t r = sendto(sock, late_text, strlen(late_text), MSG_DONTWAIT,
+                           (struct sockaddr *)&late_to, late_tolen);
+
+        late_held = 0;
+        record("late SCAN_RESULTS sent before %.*s: %s", (int)strcspn(cmd, " "), cmd,
+               r >= 0 ? "delivered" : "undeliverable");
+    }
+
     if (strncmp(cmd, "SET_NETWORK ", 12) == 0) {
         char *id_s = cmd + 12;
         char *field = strchr(id_s, ' ');
@@ -452,6 +478,14 @@ static void handle(char *cmd, const struct sockaddr_un *from, socklen_t fromlen)
             }
             o += snprintf(out + o, sizeof(out) - (size_t)o, "%s\t%d\t%d\t%s\t%s\n", bsss[i].bssid,
                           bsss[i].freq, bsss[i].signal, bsss[i].flags, esc);
+        }
+        if (late_scan) {
+            snprintf(late_text, sizeof(late_text), "%s", out);
+            memcpy(&late_to, from, sizeof(late_to));
+            late_tolen = fromlen;
+            late_held = 1;
+            record("late SCAN_RESULTS held");
+            return;
         }
         reply(from, fromlen, out);
     } else if (strcmp(cmd, "ADD_NETWORK") == 0) {

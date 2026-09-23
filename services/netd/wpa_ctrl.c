@@ -79,6 +79,39 @@ void wpa_ctrl_close(struct wpa_ctrl *c)
     c->local[0] = '\0';
 }
 
+/* The same connection again, from a new local address. A reply carries no
+ * request id, so the only way to be sure a late one is never read as the
+ * answer to something else is to not be at the address it is sent to: the
+ * supplicant's sendto() to the old, unlinked path fails and the reply is
+ * gone. The new socket is made first and swapped in only once it is up, so
+ * a supplicant that has gone away leaves the old connection exactly as it
+ * was - a failure the caller already counts, not a new state. Returns 0 when
+ * the connection was renewed. */
+static int renew(struct wpa_ctrl *c)
+{
+    char ctrl_dir[sizeof(c->remote)];
+    char local_dir[sizeof(c->local)];
+    char *iface;
+    char *slash;
+    struct wpa_ctrl fresh;
+
+    memcpy(ctrl_dir, c->remote, sizeof(ctrl_dir));
+    memcpy(local_dir, c->local, sizeof(local_dir));
+    iface = strrchr(ctrl_dir, '/');
+    slash = strrchr(local_dir, '/');
+    if (!iface || !slash) {
+        return -1;
+    }
+    *iface++ = '\0';
+    *slash = '\0';
+    if (wpa_ctrl_open(&fresh, ctrl_dir, iface, local_dir) != 0) {
+        return -1;
+    }
+    wpa_ctrl_close(c);
+    *c = fresh;
+    return 0;
+}
+
 int wpa_ctrl_request(struct wpa_ctrl *c, const char *cmd, char *reply, size_t n, int timeout_ms)
 {
     size_t len = strlen(cmd);
@@ -89,8 +122,10 @@ int wpa_ctrl_request(struct wpa_ctrl *c, const char *cmd, char *reply, size_t n,
         errno = EBADF;
         return -1;
     }
-    /* Anything already queued belongs to an earlier exchange that timed out;
-     * it must not be taken as this command's reply. */
+    /* Anything already queued belongs to an earlier exchange; it must not be
+     * taken as this command's reply. This only catches a reply that arrived
+     * before this send - one that arrives after it is what the renewal on a
+     * timeout below is for. */
     while (recv(c->fd, drain, sizeof(drain), 0) > 0) {
     }
     if (send(c->fd, cmd, len, 0) != (ssize_t)len) {
@@ -102,6 +137,11 @@ int wpa_ctrl_request(struct wpa_ctrl *c, const char *cmd, char *reply, size_t n,
         ssize_t r;
 
         if (left <= 0) {
+            /* The answer may still come - after the next command has been
+             * sent, where it would be read as that command's (a scan list
+             * taken for STATUS reads as "not associated", and netd then
+             * drops a working lease). So it must not find this socket. */
+            renew(c);
             errno = ETIMEDOUT;
             return -1;
         }
