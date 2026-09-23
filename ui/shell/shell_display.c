@@ -47,7 +47,7 @@ static int parse_corners(const char *s, int32_t limit, struct pos_corners *out)
     return 0;
 }
 
-void shell_display_panel(struct pos_panel *out)
+int shell_display_panel(struct pos_panel *out)
 {
     const char *corners = getenv("POCKETOS_SAFE_CORNERS");
 
@@ -65,11 +65,12 @@ void shell_display_panel(struct pos_panel *out)
             out->corners = c;
             LOG_INFO("display: corner insets %d,%d,%d,%d (POCKETOS_SAFE_CORNERS)", (int)c.top_left,
                      (int)c.top_right, (int)c.bottom_right, (int)c.bottom_left);
-        } else {
-            LOG_WARN("POCKETOS_SAFE_CORNERS=%s is not four pixel counts tl,tr,br,bl of at most %d; "
-                     "using %d", corners, POCKETOS_PANEL_W / 4, POCKETOS_PANEL_CORNER);
+            return 1;
         }
+        LOG_WARN("POCKETOS_SAFE_CORNERS=%s is not four pixel counts tl,tr,br,bl of at most %d; "
+                 "using the defaults", corners, POCKETOS_PANEL_W / 4);
     }
+    return 0;
 }
 
 /* POCKETOS_DRM_ROTATION: 0, 90, 180 or 270, a bench override of the policy.
@@ -98,8 +99,10 @@ void shell_display_resolve(const char *mode_arg, struct shell_display *d)
     const char *stored = settings_get(ORIENTATION_SETTING, NULL);
     const char *source = mode_arg ? "--rotation" : stored ? "stored" : "default";
 
+    int corners_given;
+
     memset(d, 0, sizeof(*d));
-    shell_display_panel(&d->panel);
+    corners_given = shell_display_panel(&d->panel);
     /* The keyboard was probed before this (shell_kbd_probe), because the
      * display is rotated when it is opened: a keyboard noticed afterwards
      * would cost a restart on every boot with the base attached. */
@@ -115,10 +118,19 @@ void shell_display_resolve(const char *mode_arg, struct shell_display *d)
         LOG_WARN("display: rotation %d from POCKETOS_DRM_ROTATION overrides the %s mode; display and touch "
                  "both follow it", pos_rotation_degrees(d->requested), orientation_mode_name(d->mode));
     }
+    /* Landscape's top corners are the native left ones, and they need more
+     * than portrait does (platform.h). Decided here, with the rotation, and
+     * never over corners the bench gave explicitly. */
+    if (!corners_given && pos_rotation_is_landscape_of(d->requested, d->panel.width, d->panel.height)) {
+        d->panel.corners.top_left = POCKETOS_PANEL_CORNER_LANDSCAPE_TOP;
+        d->panel.corners.bottom_left = POCKETOS_PANEL_CORNER_LANDSCAPE_TOP;
+    }
     pos_display_geometry_init(&d->geometry, &d->panel, d->requested);
-    LOG_INFO("display: rotation mode %s (%s), keyboard %s: rotation %d, %dx%d",
+    LOG_INFO("display: rotation mode %s (%s), keyboard %s: rotation %d, %dx%d, corners %d,%d,%d,%d",
              orientation_mode_name(d->mode), source, kbd_presence_name(d->keyboard),
-             pos_rotation_degrees(d->requested), (int)d->geometry.width, (int)d->geometry.height);
+             pos_rotation_degrees(d->requested), (int)d->geometry.width, (int)d->geometry.height,
+             (int)d->panel.corners.top_left, (int)d->panel.corners.top_right,
+             (int)d->panel.corners.bottom_right, (int)d->panel.corners.bottom_left);
 }
 
 enum pos_rotation shell_display_next_rotation(const struct shell_display *d)

@@ -118,7 +118,8 @@ stop_shell() {
 #   hairline: the first row at mid-width drawn in the line token (the bar's
 #             bottom rule), -1 when there is none in the top 64 rows;
 #   slab:     the first row at x 56 drawn in surface - the header's back slab,
-#             whether its left edge is at 20 or, inset for the corner, 30;
+#             whether its left edge is at 20 or, inset for the corner, 30 (50
+#             at the top of landscape);
 #   left:     that slab's left edge, 20 px below its top;
 #   groups:   ink runs across the band above the hairline, separated by more
 #             than 24 px: wordmark, [hint,] chip, clock.
@@ -261,8 +262,9 @@ check "the landscape shell logged no fault" \
 stop_shell
 
 # NONE, which no app declares yet, through the simulator's hook: no bar, the
-# content from the top edge, the header's back slab moved to x 30 so it clears
-# the 30 px corner square, and an app that writes a hint faulting nothing.
+# content from the top edge, the header's back slab moved to x 50 so it clears
+# the 50 px corner square landscape has at its top (platform.h, DS §21.1), and
+# an app that writes a hint faulting nothing.
 fresh
 POCKETOS_TEST_CHROME=none shot "$OUT/l-none.png" "$OUT/l-none.log" --rotation landscape --open system
 check "landscape, NONE forced: the shell says so" \
@@ -270,8 +272,8 @@ check "landscape, NONE forced: the shell says so" \
 check "and home before it was still FULL: the hook reaches apps only" \
     "$(logs "$OUT/l-none.log" | grep -q 'chrome: full, status bar 56 px, content from y 56, for home' && echo 1 || echo 0)"
 set -- $(geometry "$OUT/l-none.png")
-check "landscape NONE: no bar hairline, the back slab from row 8 at x 30, clear of the corner (got $1 $2 $3)" \
-    "$([ "$1" = -1 ] && [ "$2" = 8 ] && [ "$3" = 30 ] && echo 1 || echo 0)"
+check "landscape NONE: no bar hairline, the back slab from row 8 at x 50, clear of the corner (got $1 $2 $3)" \
+    "$([ "$1" = -1 ] && [ "$2" = 8 ] && [ "$3" = 50 ] && echo 1 || echo 0)"
 check "landscape NONE: nothing drawn in the top-left corner square" \
     "$(python3 - "$OUT/l-none.png" <<'PY'
 import json, sys
@@ -281,7 +283,7 @@ from pngio import read_png
 tok = json.load(open("docs/design/themes.json", encoding="utf-8"))["themes"]["ice"]["modes"]["normal"]
 bg = tuple(int(tok["bg"][i:i + 2], 16) for i in (1, 3, 5))
 W, H, rows = read_png(sys.argv[1])
-print(1 if all(all(abs(rows[y][x][k] - bg[k]) <= 3 for k in range(3)) for y in range(30) for x in range(30)) else 0)
+print(1 if all(all(abs(rows[y][x][k] - bg[k]) <= 3 for k in range(3)) for y in range(50) for x in range(50)) else 0)
 PY
 )"
 check "landscape NONE: faulted nothing" "$(logs "$OUT/l-none.log" | grep -qE ' ERROR |assert' && echo 0 || echo 1)"

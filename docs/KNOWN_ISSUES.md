@@ -40,14 +40,13 @@ DEVICE VERIFIED unless it says so.
   since `v0.0.10` that reached unit A did so by bench deploy (`deploy.sh`) on
   a unit that also carries per-unit settings; the release smoke on a freshly
   flashed card is still owed.
-- **Landscape safe corners: owner decision pending.** The image ships the
-  PROVISIONAL 30 px corner squares (DS §21.1). Unit A needed 50 px top
-  corners in landscape (`POCKETOS_SAFE_CORNERS=50,30,30,50` in
-  `/etc/default/doors-shell`, a bench setting that is not in the repository):
-  50 px passed and 45 px failed on 2026-09-21. The DOORS environment (DS §31)
-  was accepted on unit A with that override in place. Whether the default
-  becomes 50 px, or 30 px ships and is documented, is the owner's decision
-  and needs the device (see "Hardware and BSP").
+- **Landscape safe corners: decided, 50 px at the top, device confirmation
+  owed.** In landscape the two top corner squares are 50 px (the bottom ones
+  and every portrait corner stay 30 px), the owner's decision of 2026-09-23
+  (DS §21.1). The value comes from unit A's calibration with
+  `POCKETOS_SAFE_CORNERS` on 2026-09-21 (45 px failed, 50 px the smallest
+  that passed); the built-in default replacing that bench override is
+  confirmed on the device by the v0.0.11 release gate.
 - **The landscape status chrome (DS §30, COMPACT 32 px) is PROPOSED, and its
   unit A gate (§30.7) has not been run.** The COMPACT bar clipped the RX chip
   on unit A (2026-09-21); the fix (`ab3c05d`, the chip sized from its font's
@@ -111,23 +110,22 @@ DEVICE VERIFIED unless it says so.
   vendor statement about hot-plug either way (KEYBOARD_BRINGUP §8, which also
   names the two measurements that would settle it). Mate and unmate with the
   board powered down and USB power removed.
-- The rounded corners' extent is PROVISIONAL (30 px squares, the vendor
-  launcher's status-bar side inset). No datasheet gives it; unit A decides
-  (POCKETOS_SAFE_CORNERS tries other values). The status bar uses the safe
-  area, and so does every app that has been given a landscape layout -
-  Calculator, Notes, Settings, System, Clock and Calendar - through the one
-  rule pos_display_rect_insets() (DS §22.2, §23.4). The touch keyboard's
-  bottom row (DEV-1 fixed 52 px keys, 6 px sheet padding) and the full-screen
-  alert's card corners still reach
-  into the 30 px corner squares; widening them changes approved geometry and
-  is left for a design decision if unit A shows them cut.
-  **Unit A has answered part of it and the default is not changed:** in
-  landscape its top corners needed 50 px (50 PASS, 45 FAIL, 2026-09-21), and
-  the unit runs with `POCKETOS_SAFE_CORNERS=50,30,30,50` in
-  `/etc/default/doors-shell` - a per-unit bench setting, not in the repository
-  and not in the image. `platform.h` still ships 30 px. Adopting 50 px (and
-  for which corners) or shipping 30 px with this note is an owner decision,
-  pending, to be confirmed on the device.
+- The rounded corners' extent has no datasheet; the corner squares are what
+  unit A measured (`platform.h`, DS §21.1, owner decision 2026-09-23): 30 px
+  at every corner in portrait, the vendor launcher's status-bar side inset;
+  in landscape 50 px at the two top corners (the native left ones) and 30 px
+  at the bottom. Landscape's top needed 50 there (50 PASS, 45 FAIL,
+  2026-09-21, with `POCKETOS_SAFE_CORNERS`). `POCKETOS_SAFE_CORNERS` in
+  `/etc/default/doors-shell` still overrides all four in both orientations;
+  the old bench line `50,30,30,50` also puts 50 px at the portrait left
+  corners, which the default does not, so remove it from a unit to run the
+  default. The status bar uses the safe area, and so does every app that has
+  been given a landscape layout - Calculator, Notes, Settings, System, Clock,
+  Calendar, Fleet and Radar - through the one rule pos_display_rect_insets()
+  (DS §22.2, §23.4). The touch keyboard's bottom row (DEV-1 fixed 52 px keys,
+  6 px sheet padding) and the full-screen alert's card corners are not inset
+  for the corners; widening them changes approved geometry and is left for a
+  design decision if unit A shows them cut.
 - Landscape is laid out for the status bar, the launcher and, each under its
   own accepted amendment, Calculator (DS §22), Notes (§23), Settings (§24),
   System (§25), Clock (§26), Calendar (§27), Fleet (§28) and Radar (§29) - which

@@ -17,10 +17,20 @@
  * datasheet or source in reach gives the corner radius or mask. 30 px is the
  * side inset the vendor launcher gives its own status bar on this panel
  * (k230_phone_ui main.c, STATUS_BAR_SAFE_SIDE), taken as the side of each
- * corner square (pos_display.h). PROVISIONAL: accepted or corrected on unit A
- * (docs/hardware/DOORS_DISPLAY_GEOMETRY_GATE.md), where POCKETOS_SAFE_CORNERS
- * can try another value without a rebuild. */
+ * corner square (pos_display.h), and what portrait uses at every corner: every
+ * portrait layout since v0.0.10 was accepted on unit A with it.
+ *
+ * Landscape needs more at its top: the two native LEFT corners, which a
+ * quarter turn clockwise puts at the top, cut the landscape status bar at
+ * 30 px. Calibrated on unit A with POCKETOS_SAFE_CORNERS on 2026-09-21: 45 px
+ * still cut, 50 px was the smallest that passed; adopted by the owner as the
+ * landscape value, 2026-09-23 (DS §21.1). shell_display_resolve applies it
+ * once the orientation is known.
+ *
+ * POCKETOS_SAFE_CORNERS=tl,tr,br,bl still overrides all four, in both
+ * orientations, without a rebuild. */
 #define POCKETOS_PANEL_CORNER 30
+#define POCKETOS_PANEL_CORNER_LANDSCAPE_TOP 50
 
 /* Create the display and pointer input for one geometry. The display is
  * rotated to geometry->rotation and the touch transform is derived from the

@@ -1089,11 +1089,22 @@ verified hardware operation and nothing in this amendment asks for it.
 - A bar that lies along a screen edge from corner to corner - the status bar
   (§9) - keeps its own padding where that clears the corner squares and takes
   the corner inset where it does not. On the T-Display K230 the status bar's
-  side padding becomes 30 px instead of 20 px; nothing else in it changes.
+  side padding becomes the corner square's side instead of 20 px; nothing
+  else in it changes.
 - Content that starts below the corner band keeps its geometry: the launcher
   (C7), app headers and bodies are unchanged in portrait.
-- The corner square is PROVISIONAL at 30 px (the vendor launcher's own
-  status-bar side inset on this panel); unit A accepts or corrects it.
+- The corner squares are **30 px at every corner in portrait**, the vendor
+  launcher's own status-bar side inset on this panel, with which every
+  portrait layout since v0.0.10 was accepted on unit A. **In landscape the two
+  TOP corners are 50 px** (the native left corners, §21.2) and the two bottom
+  corners 30 px - owner decision 2026-09-23. The 50 comes from unit A's
+  calibration with `POCKETOS_SAFE_CORNERS` on 2026-09-21: 45 px still cut the
+  landscape status bar, 50 px was the smallest that passed, and §31 was
+  accepted on the unit with it. That calibration is the device evidence; the
+  built-in default (`platform.h`, applied by `shell_display_resolve` once the
+  orientation is known) is confirmed on the device by the v0.0.11 release
+  gate, not before. Until then it was one PROVISIONAL 30 px square at every
+  corner in both orientations.
 
 ### 21.2 Orientation
 
