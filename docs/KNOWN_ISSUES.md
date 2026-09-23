@@ -1,6 +1,6 @@
 # Known issues and open questions
 
-Updated 2026-09-23 for v0.0.11 (VERSION 0.0.11, not released). Move items to
+Updated 2026-09-23 for v0.0.11 (released 2026-09-23, tag `v0.0.11`). Move items to
 git history when resolved.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:

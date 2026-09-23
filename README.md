@@ -60,10 +60,9 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-**Doors 0.0.11 is in preparation** (VERSION 0.0.11). It is not
-released: no image has been built or flashed for it and no unit A gate has
-been run on it. The draft release notes are docs/releases/v0.0.11.md, and
-what still needs unit A is listed there.
+**Doors 0.0.11** (tag `v0.0.11`, 2026-09-23) is the current release: the
+release notes are docs/releases/v0.0.11.md and its unit A gate is
+docs/hardware/V0.0.11_RELEASE_SMOKE.md.
 
 **Doors 0.0.10** (tag `v0.0.10`, 2026-09-16) is the first release under the
 Doors name: the release notes are docs/releases/v0.0.10.md. The history below

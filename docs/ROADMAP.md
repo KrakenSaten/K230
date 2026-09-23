@@ -188,17 +188,15 @@ notices). Release notes: `docs/releases/v0.0.10.md`; the release candidate
 limitation): `docs/hardware/V0.0.10_RELEASE_SMOKE.md`. Phase 4 of ADR-005 is
 not started and not approved.
 
-**v0.0.11, in preparation** (2026-09-23, `release/v0.0.11-prep`, VERSION
-0.0.11): everything merged since the `v0.0.10` tag - landscape layouts for
+**v0.0.11** (released 2026-09-23, tag `v0.0.11`, image built at `9a4afeb`): everything merged since the `v0.0.10` tag - landscape layouts for
 every app that is having one (below), the MeshCore stack (the portable
 protocol core, radiod's asynchronous transmit and lease, meshcored as a
 supervised per-unit opt-in service, and RIFT, the mesh client, with channels
 and 256 retained nodes), the DOORS environment (DS §31: lock screen, grouped
 launcher, Controls), the landscape status chrome (DS §30, accepted), the
 Doors app theme (DS §32, accepted), and the pre-release fixes from the
-2026-09-23 cold review. Draft release notes: `docs/releases/v0.0.11.md`,
-which also lists what is still owed before a release candidate. No image
-built, no unit A gate run on it; not tagged.
+2026-09-23 cold review. Release notes: `docs/releases/v0.0.11.md`; the RC1
+image and its unit A gate (PASS): `docs/hardware/V0.0.11_RELEASE_SMOKE.md`.
 
 ### Landscape app adaptation (after v0.0.10)
 
