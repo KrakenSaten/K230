@@ -4,12 +4,13 @@ A file explorer: browse folders, read text files, and create, rename, copy,
 move and delete - with the places Doors and the system depend on kept
 read-only.
 
-Status: **v1 on branch `feat/files-app`, not merged. Host-tested (unit tests
+Status: **v1, merged to master 2026-09-23 (after v0.0.11). Host-tested (unit tests
 against a real temporary tree, and the app under a real LVGL pointer and the
 real touch keyboard in portrait and landscape). Unit A gate run 2026-09-23
 on build `2bccc5b` (`docs/hardware/FILES_GATE.md`): everything run passes,
-after three fixes the gate found; the keyboard-base step and the owner's
-decisions are open. The layout is DS §33 (Amendment Q), PROPOSED.**
+after three fixes the gate found; the keyboard-base step was not run. The
+layout is DS §33 (Amendment Q), ACCEPTED 2026-09-23, with the landscape
+launcher wrap it brings.**
 
 ## What it does
 

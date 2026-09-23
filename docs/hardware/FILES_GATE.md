@@ -1,8 +1,9 @@
 # Files on unit A: the gate
 
-**Status: RUN 2026-09-23, 19:33–20:19 UTC. Everything that was run PASSES on
-`2bccc5b`; step 8 (the keyboard base) is NOT RUN and needs the owner's hands;
-DS §33 and the landscape launcher are the owner's decisions.**
+**Status: PASS — ACCEPTED by the owner 2026-09-23.** Run 19:33–20:19 UTC;
+everything that was run passes on `2bccc5b`; step 8 (the keyboard base) was
+not run. The owner accepted DS §33 and the landscape launcher wrap (7.1) and
+had `feat/files-app` merged.
 
 **Unit A carries `2bccc5b`** (`/usr/bin/doors-shell` sha256 `d99e954f…`,
 `icon-files.bin` `c3cee7e8…`; everything else RC1 `9a4afeb`). Left at home,
@@ -23,7 +24,7 @@ two, so the other `6465e38` results stand for `2bccc5b`.
 | **PASS** | Install and identity (both builds); Files from the launcher in both orientations; browsing `/root`, `/`, `/etc` (through a link), `/var/lib/pocketos`; the viewer (14 KB text, scrolled); a binary refused; the touch keyboard for New folder (DONE) and Rename; the empty-name caption, portrait and landscape; Copy, a duplicate `readme (2).txt`, Move up a folder, Delete with Cancel then Delete, a folder deleted with its contents — each confirmed on disk; the read-only places (`/root/.ssh`, `/etc`, `/etc/pocketos`, `/tmp` itself, `/var/lib/pocketos` and `meshcored` in it) show only Open and Copy, and a tap on the disabled Delete does nothing; the landscape details pane and actions, Sort through all four, the carry bar in the pane; nothing in the rounded corners; long copies (below) |
 | **FIXED ON THE GATE** | F1 long names wrapped out of their rows; F2 the selection outline ran through the glyph; F3 closing Files mid-copy held the shell 2.6 s and logged the wrong outcome — all three re-verified on `2bccc5b` |
 | **NOT RUN** | Step 8, Enter on the keyboard base (its keys cannot be injected remotely: TCA8418 over I2C). The same path is host-tested (`files_app_test`: Enter pushed into the key stream creates the folder, once) |
-| **OWNER** | DS §33; the landscape launcher (7.1 below) |
+| **OWNER** | DS §33 ACCEPTED; the landscape launcher wrap and scroll (7.1) ACCEPTED, 2026-09-23 |
 
 ## Findings
 
@@ -56,7 +57,7 @@ after Back (20:16:48.167 → .411), copy stopped, nothing left behind, log
 - 7.1 **The landscape launcher** wraps DEVICE onto a second line, as DS §33.4
   says, and **Lock and Controls are entirely below the fold** until the
   launcher is scrolled (`caps/l-7.1a-launcher.png`, `l-7.1b-launcher-scrolled.png`).
-  Owner's decision.
+  Accepted by the owner 2026-09-23.
 - After Copy, Move, New folder or Rename the result is selected, so the next
   tap on its row opens it rather than selecting it. As designed; worth
   knowing (seen at 9.1).
@@ -99,8 +100,8 @@ shell reports its own build in `shell.info`, which is the one that counts.
 
 **The build under test is `feat/files-app` at `2bccc5b`** (first `6465e38`), from origin/master
 `63a276c` (the v0.0.11 release commit; its image is RC1 `9a4afeb`, and the
-commits between are docs only). VERSION stays `0.0.11`. Not merged, and not to
-be merged unless this gate passes. Commits after `2bccc5b` on the branch change
+commits between are docs only). VERSION stays `0.0.11`. Merged to master on
+2026-09-23 after this gate passed. Commits after `2bccc5b` on the branch change
 this sheet and nothing else.
 
 ## What this gate is for

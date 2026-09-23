@@ -2725,8 +2725,12 @@ each; Ice selected and back.
 
 Amendment P (§32) accepted 2026-09-23 (v0.0.11 RC1 unit A gate, docs/hardware/V0.0.11_RELEASE_SMOKE.md).
 
-## 33. Amendment Q — Files [PROPOSED]
+## 33. Amendment Q — Files [ACCEPTED]
 
+**ACCEPTED 2026-09-23** by the owner, on the unit A gate of build `2bccc5b`
+(`docs/hardware/FILES_GATE.md`), together with §33.4's landscape launcher:
+DEVICE wraps to a second line and the launcher scrolls to Lock and Controls.
+Step 8 of the gate (Enter on the keyboard base) was not run.
 **Proposed 2026-09-23** on branch `feat/files-app`, validated on the host
 (§33.5); not yet run on unit A and not accepted. It adds one app and changes
 no existing screen; its only effect outside the app is on the launcher
@@ -2774,9 +2778,9 @@ portrait DEVICE still fits one row of four. In landscape thirteen cells in one
 row would be 81 px, under `HOME_CELL_MIN_W` (84), so by §31.3's own rule the
 panels wrap: CONNECTIONS, WORKSPACE and PLAY on the first line, DEVICE on a
 second, and the launcher scrolls (about 100 px) to Lock and Controls. §31's
-"neither orientation scrolls" held for twelve apps; whether landscape should
-instead keep one row (a smaller minimum cell, or Files elsewhere) is the
-owner's decision.
+"neither orientation scrolls" held for twelve apps. **Accepted by the owner
+2026-09-23**: with thirteen apps the landscape launcher wraps and scrolls, by
+§31.3's own rule; no smaller minimum cell and no other group for Files.
 
 ### 33.5 Validation on the host
 
@@ -2795,3 +2799,5 @@ DEVICE (and, in landscape, the second line and the scroll to the footer);
 Files opened, browsed from `/root` to `/` and back; a folder made, renamed,
 a file copied, moved and deleted on the SD card; `/etc` and
 `/var/lib/pocketos` shown read-only; a text file opened.
+
+Amendment Q (§33) accepted 2026-09-23 (Files unit A gate, docs/hardware/FILES_GATE.md), with the landscape launcher wrap of §33.4.
