@@ -77,16 +77,28 @@ REPO_COMMIT="$(git -C "${REPO_DIR}" rev-parse --short HEAD)"
 # and a commit landing between them would assemble a package out of two
 # different trees. Naming the object once removes the question.
 SNAPSHOT_COMMIT="$(git -C "${REPO_DIR}" rev-parse HEAD)"
-REPO_STATUS="$(git -C "${REPO_DIR}" status --porcelain)"
-DIRTY_TAG=""
-REPO_DIRTY=""
-TREE_STATE="clean"
+# The Doors checkout's own state, decided once and read-only from here on: it
+# is what the manifest's source_tree_state and the provenance summary report.
+# The dependency checks further down write to variables of their own
+# (meshcore_tree_check: DEP_COMMIT, DEP_STATE). They once shared TREE_STATE
+# with this, and the manifest then reported the Crypto checkout's state as the
+# Doors tree's; a dirty Doors tree built with the override lost its note in
+# BUILD_INFO. readonly turns any repeat of that into a failed apply.
+# tests/provenance_state_test.sh runs these functions out of this file.
+doors_tree_state() { # <repo> -> sets REPO_STATUS, DIRTY_TAG, REPO_DIRTY, SOURCE_TREE_STATE
+    REPO_STATUS="$(git -C "$1" status --porcelain)"
+    DIRTY_TAG=""
+    REPO_DIRTY=""
+    SOURCE_TREE_STATE="clean"
+    if [ -n "${REPO_STATUS}" ]; then
+        DIRTY_TAG="-dirty"
+        REPO_DIRTY=" (working tree dirty)"
+        SOURCE_TREE_STATE="dirty"
+    fi
+}
+doors_tree_state "${REPO_DIR}"
+readonly SOURCE_TREE_STATE
 DIRTY_OVERRIDE="no"
-if [ -n "${REPO_STATUS}" ]; then
-    DIRTY_TAG="-dirty"
-    REPO_DIRTY=" (working tree dirty)"
-    TREE_STATE="dirty"
-fi
 BUILD_ID="${REPO_COMMIT}${DIRTY_TAG}"
 echo "Doors apply"
 echo "Repo   : ${REPO_DIR} (version $(cat "${REPO_DIR}/VERSION")) @ ${REPO_COMMIT}${REPO_DIRTY}"
@@ -224,19 +236,19 @@ echo "ggwave  : ${GGWAVE_DIR_SRC} @ ${GGWAVE_COMMIT} (${GGWAVE_STATE})"
 # pinned by protocols/meshcore/vendor_*_commit.txt, refused when they drift or
 # are dirty - because what goes on the air is decided by the protocol source,
 # and a package built from an unpinned tree would say it was pinned.
-meshcore_tree_check() { # <what> <dir> <pin file> -> sets TREE_COMMIT, TREE_STATE
+meshcore_tree_check() { # <what> <dir> <pin file> -> sets DEP_COMMIT, DEP_STATE
     local what="$1" dir="$2" expected
     expected="$(tr -d ' \t\r\n' < "$3")"
     if git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        TREE_COMMIT="$(git -C "${dir}" rev-parse HEAD)"
-        TREE_STATE="clean"
-        [ -n "$(git -c core.autocrlf=true -C "${dir}" status --porcelain)" ] && TREE_STATE="dirty"
+        DEP_COMMIT="$(git -C "${dir}" rev-parse HEAD)"
+        DEP_STATE="clean"
+        [ -n "$(git -c core.autocrlf=true -C "${dir}" status --porcelain)" ] && DEP_STATE="dirty"
     else
-        TREE_COMMIT="unknown"
-        TREE_STATE="not-a-git-checkout"
+        DEP_COMMIT="unknown"
+        DEP_STATE="not-a-git-checkout"
     fi
-    pin_check "${what} commit" "${TREE_COMMIT}" "${expected}"
-    if [ "${TREE_STATE}" = "dirty" ]; then
+    pin_check "${what} commit" "${DEP_COMMIT}" "${expected}"
+    if [ "${DEP_STATE}" = "dirty" ]; then
         if [ "${POCKETOS_ALLOW_PIN_DRIFT:-0}" = "1" ]; then
             echo "WARNING: the ${what} checkout is dirty; its uncommitted changes WILL be" >&2
             echo "         compiled into meshcored (POCKETOS_ALLOW_PIN_DRIFT=1). The export is" >&2
@@ -253,11 +265,11 @@ meshcore_tree_check() { # <what> <dir> <pin file> -> sets TREE_COMMIT, TREE_STAT
 }
 RIFT_DIR_SRC="${REPO_DIR}/vendor/RIFT"
 meshcore_tree_check "MeshCore (vendor/RIFT)" "${RIFT_DIR_SRC}" "${REPO_DIR}/protocols/meshcore/vendor_rift_commit.txt"
-RIFT_COMMIT="${TREE_COMMIT}"; RIFT_STATE="${TREE_STATE}"
+RIFT_COMMIT="${DEP_COMMIT}"; RIFT_STATE="${DEP_STATE}"
 echo "MeshCore: ${RIFT_DIR_SRC} @ ${RIFT_COMMIT} (${RIFT_STATE})"
 CRYPTO_DIR_SRC="${REPO_DIR}/vendor/Crypto"
 meshcore_tree_check "Crypto (vendor/Crypto)" "${CRYPTO_DIR_SRC}" "${REPO_DIR}/protocols/meshcore/vendor_crypto_commit.txt"
-CRYPTO_COMMIT="${TREE_COMMIT}"; CRYPTO_STATE="${TREE_STATE}"
+CRYPTO_COMMIT="${DEP_COMMIT}"; CRYPTO_STATE="${DEP_STATE}"
 echo "Crypto  : ${CRYPTO_DIR_SRC} @ ${CRYPTO_COMMIT} (${CRYPTO_STATE})"
 
 # The defconfig, Config.in and pocketos.mk used to be installed straight from
@@ -499,13 +511,14 @@ done
 # read. One fact per line, no spaces in values, the shape pos-supervise's state
 # file already established.
 MANIFEST="${SDK_DIR}/.pocketos-applied"
-cat > "${MANIFEST}" <<EOF
+write_manifest() { # <file>
+    cat > "$1" <<EOF
 manifest_version=1
 pocketos_commit=${SNAPSHOT_COMMIT}
 pocketos_commit_short=${REPO_COMMIT}
 pocketos_version=$(cat "${REPO_DIR}/VERSION")
 pocketos_build_id=${BUILD_ID}
-source_tree_state=${TREE_STATE}
+source_tree_state=${SOURCE_TREE_STATE}
 dirty_override=${DIRTY_OVERRIDE}
 vendor_bsp_commit=${BSP_COMMIT}
 sdk_commit=${SDK_COMMIT}
@@ -521,6 +534,8 @@ defconfig=${CONF}
 applied_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 applied_epoch=$(date +%s)
 EOF
+}
+write_manifest "${MANIFEST}"
 
 # Provenance, repeated where it cannot be missed. The warning above is printed
 # before everything this script does, so it is the first thing to scroll away
@@ -530,7 +545,7 @@ EOF
 echo
 echo "Provenance"
 echo "  Packaged source : ${REPO_COMMIT} (${SNAPSHOT_COMMIT}) via git archive"
-echo "  Source worktree : ${TREE_STATE}"
+echo "  Source worktree : ${SOURCE_TREE_STATE}"
 if [ "${DIRTY_OVERRIDE}" = "yes" ]; then
     echo "  Dirty override  : POCKETOS_ALLOW_DIRTY_BUILD=1 -- uncommitted changes are NOT included"
 fi
