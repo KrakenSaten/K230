@@ -30,7 +30,7 @@ OUT=$(mktemp -d)
 failed=0
 check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 line() { grep -n "$1" "$2" | head -1 | cut -d: -f1; }
-APPS="radio system fleet radar timber notes clock calendar calculator settings wave rift"
+APPS="radio system fleet radar timber notes clock calendar calculator settings wave rift files"
 
 # ---- 1. the rules in the source ------------------------------------------------
 check "the shell names the DS §7 bar twice: to build it, and to check FULL is it" \
@@ -163,8 +163,8 @@ for id in $APPS; do
     logs "$OUT/p-$id.log" | grep -q "chrome: full, status bar 56 px, content from y 56, for $id" &&
         ! logs "$OUT/p-$id.log" | grep -qE ' ERROR |assert' && n=$((n + 1))
 done
-check "portrait: every one of the twelve apps opens under FULL, faulting nothing ($n of 12)" \
-    "$([ "$n" = 12 ] && echo 1 || echo 0)"
+check "portrait: every one of the thirteen apps opens under FULL, faulting nothing ($n of 13)" \
+    "$([ "$n" = 13 ] && echo 1 || echo 0)"
 set -- $(geometry "$OUT/p-system.png")
 check "portrait System: the bar's hairline is row 55, the back slab starts at row 64, x 20 (got $1 $2 $3)" \
     "$([ "$1" = 55 ] && [ "$2" = 64 ] && [ "$3" = 20 ] && echo 1 || echo 0)"
@@ -179,7 +179,7 @@ shot "$OUT/l-home.png" "$OUT/l-home.log" --rotation landscape --no-lock
 check "landscape, home: FULL, 56 px" \
     "$(logs "$OUT/l-home.log" | grep -q 'chrome: full, status bar 56 px, content from y 56, for home' && echo 1 || echo 0)"
 check "landscape, home: the grouped launcher below a 56 px bar" \
-    "$(logs "$OUT/l-home.log" | grep -q 'launcher: 4 group(s), 12 app(s), landscape' && echo 1 || echo 0)"
+    "$(logs "$OUT/l-home.log" | grep -q 'launcher: 4 group(s), 13 app(s), landscape' && echo 1 || echo 0)"
 # On the launcher the bar lies on the home photograph with no fill and no
 # rule (DS §31.1); its height is still FULL's, as the log line above says.
 set -- $(geometry "$OUT/l-home.png")
@@ -197,8 +197,8 @@ for id in $APPS; do
         logs "$OUT/l-$id.log" | grep -q 'chrome: full, status bar 56 px, content from y 56, for home' &&
         ! logs "$OUT/l-$id.log" | grep -qE ' ERROR |assert' && n=$((n + 1))
 done
-check "landscape: the eleven DEFAULT apps open under COMPACT and Fleet under its declared FULL, all after a FULL home, faulting nothing ($n of 12)" \
-    "$([ "$n" = 12 ] && echo 1 || echo 0)"
+check "landscape: the twelve DEFAULT apps open under COMPACT and Fleet under its declared FULL, all after a FULL home, faulting nothing ($n of 13)" \
+    "$([ "$n" = 13 ] && echo 1 || echo 0)"
 set -- $(geometry "$OUT/l-system.png")
 check "landscape System: the bar's hairline is row 31, the back slab starts at row 40, x 20 (got $1 $2 $3)" \
     "$([ "$1" = 31 ] && [ "$2" = 40 ] && [ "$3" = 20 ] && echo 1 || echo 0)"

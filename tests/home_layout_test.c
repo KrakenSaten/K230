@@ -1,15 +1,15 @@
 /*
  * The DOORS launcher's geometry and groups (ui/shell/home_layout.h, DS §31):
  *
- *   - the registry's twelve apps land in four groups in the table's order,
+ *   - the registry's thirteen apps land in four groups in the table's order,
  *     an app the table does not name goes to MORE (after the named groups,
  *     in registry order), an empty group is not drawn;
- *   - in both orientations of the reference panel nothing scrolls, every
- *     cell is inside its panel and inside the content area, no two cells
- *     or panels overlap, cells are at least the DS touch minimum, and the
- *     footer lies below the panels and clear of the rounded corners;
- *   - landscape keeps its one row of panels with today's apps and wraps
- *     (and then scrolls) instead of squeezing cells when there are many.
+ *   - in both orientations of the reference panel every cell is inside its
+ *     panel and inside the content area, no two cells or panels overlap,
+ *     cells are at least the DS touch minimum, and the footer lies below the
+ *     panels and clear of the rounded corners; portrait does not scroll;
+ *   - landscape wraps (and then scrolls) instead of squeezing cells: with
+ *     today's thirteen apps DEVICE goes to a second line (twelve fitted one).
  *
  * Pure C: built and run by the root Makefile (make test).
  *
@@ -18,6 +18,7 @@
 #include "home_layout.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* The reference panel and the launcher's FULL status bar (DS §7, §30). */
@@ -41,7 +42,8 @@ static void check(const char *what, int ok)
 
 /* The shell's registry order (ui/shell/shell.c apps[]). */
 static const char *const registry[] = { "radio", "system", "fleet", "radar", "timber", "notes",
-                                        "clock", "calendar", "calculator", "settings", "wave", "rift" };
+                                        "clock", "calendar", "calculator", "settings", "wave", "rift",
+                                        "files" };
 #define NREG ((int)(sizeof(registry) / sizeof(registry[0])))
 
 static int inside(const struct home_rect *a, const struct home_rect *b)
@@ -59,19 +61,20 @@ static void test_groups(void)
     uint8_t order[HOME_MAX_APPS];
     uint8_t count[HOME_GROUP_COUNT];
     static const char *const want[] = { "rift", "radio", "wave", "notes", "calendar", "clock",
-                                        "calculator", "fleet", "radar", "timber", "settings", "system" };
+                                        "calculator", "fleet", "radar", "timber", "settings", "system",
+                                        "files" };
     int n = home_group_order(registry, NREG, order, count);
     int k;
-    int same = n == 12;
+    int same = n == 13;
 
     for (k = 0; same && k < n; k++) {
         same = strcmp(registry[order[k]], want[k]) == 0;
     }
-    check("the twelve apps are shown in the table's order", same);
+    check("the thirteen apps are shown in the table's order", same);
     check("CONNECTIONS holds RIFT, Radio, Wave", count[HOME_GROUP_CONNECT] == 3);
     check("WORKSPACE holds Notes, Calendar, Clock, Calculator", count[HOME_GROUP_WORK] == 4);
     check("PLAY holds Fleet, Radar, Timber", count[HOME_GROUP_PLAY] == 3);
-    check("DEVICE holds Settings, System", count[HOME_GROUP_DEVICE] == 2);
+    check("DEVICE holds Settings, System, Files", count[HOME_GROUP_DEVICE] == 3);
     check("nothing is left for MORE", count[HOME_GROUP_MORE] == 0);
     check("group names are the package's capitals",
           strcmp(home_group_name(HOME_GROUP_CONNECT), "CONNECTIONS") == 0 &&
@@ -185,7 +188,7 @@ static void check_layout(const char *name, const struct home_layout_in *in, cons
 
 static void test_reference(void)
 {
-    static const uint8_t today[] = { 3, 4, 3, 2, 0 };
+    static const uint8_t today[] = { 3, 4, 3, 3, 0 };
     struct home_layout_in in;
     struct home_layout l;
     int k;
@@ -197,20 +200,25 @@ static void test_reference(void)
     check("portrait: four 124 px columns, 20 px labels", l.cell_w == 124 && !l.small_labels);
     check("portrait: the panels share one column", l.panel[0].x == l.panel[3].x && l.panel[0].w == l.panel[3].w);
 
+    /* Thirteen apps in one row would squeeze a cell to 81 px, under
+     * HOME_CELL_MIN_W, so by the layout's own rule the panels wrap: three on
+     * the first line, DEVICE on a second, and the launcher scrolls to its
+     * footer (home_layout.h). Twelve fitted one row; Files is the thirteenth. */
     input(&in, true, today, 5);
     check("landscape lays out", home_layout_compute(&in, &l) == 0);
-    check_layout("landscape", &in, &l, false);
-    for (k = 1; k < 4; k++) {
+    check_layout("landscape", &in, &l, true);
+    for (k = 1; k < 3; k++) {
         one_row = one_row && l.panel[k].y == l.panel[0].y && l.panel[k].x > l.panel[k - 1].x;
     }
-    check("landscape: the four panels in one row, left to right", one_row && !l.wrapped);
-    check("landscape: cells no narrower than the minimum, 16 px labels",
-          l.cell_w >= HOME_CELL_MIN_W && l.small_labels);
+    check("landscape: thirteen apps wrap - three panels on the first line, left to right", one_row && l.wrapped);
+    check("landscape: DEVICE on the second line", l.panel[3].y > l.panel[0].y);
+    check("landscape: wrapped cells are the wrap width, 16 px labels",
+          l.cell_w == HOME_CELL_WRAP_W && l.small_labels);
     check("landscape: a panel is exactly as wide as its apps",
-          l.panel[1].w == 4 * l.cell_w + 2 * HOME_PANEL_PAD && l.panel[3].w == 2 * l.cell_w + 2 * HOME_PANEL_PAD);
-    check("landscape: the row is centred",
-          l.panel[0].x - 0 == in.width - (l.panel[3].x + l.panel[3].w) ||
-              l.panel[0].x + 1 == in.width - (l.panel[3].x + l.panel[3].w));
+          l.panel[1].w == 4 * l.cell_w + 2 * HOME_PANEL_PAD && l.panel[3].w == 3 * l.cell_w + 2 * HOME_PANEL_PAD);
+    check("landscape: each line is centred",
+          abs(l.panel[0].x - (in.width - (l.panel[2].x + l.panel[2].w))) <= 1 &&
+              abs(l.panel[3].x - (in.width - (l.panel[3].x + l.panel[3].w))) <= 1);
 }
 
 static void test_growth(void)

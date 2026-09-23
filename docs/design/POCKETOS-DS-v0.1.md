@@ -2724,3 +2724,74 @@ Fleet, Radar and Timber recognisably themselves. Outdoor and Night once
 each; Ice selected and back.
 
 Amendment P (§32) accepted 2026-09-23 (v0.0.11 RC1 unit A gate, docs/hardware/V0.0.11_RELEASE_SMOKE.md).
+
+## 33. Amendment Q — Files [PROPOSED]
+
+**Proposed 2026-09-23** on branch `feat/files-app`, validated on the host
+(§33.5); not yet run on unit A and not accepted. It adds one app and changes
+no existing screen; its only effect outside the app is on the launcher
+(§33.4). Nothing in §1-§32 is renumbered. The app itself is described in
+`docs/apps/FILES.md`.
+
+### 33.1 Components
+
+Only existing PocketUI parts and roles: `pocketui_card` panels, 64 px list
+rows with the whole row as the hit area and `POS_STYLE_SELECTED` for the
+selection, 56 px primary and secondary buttons with the §9 disabled
+treatment, the Up slab (72 x 56, `POS_STYLE_SLAB`, the back slab's size),
+the single-line text field and the shell's keyboard (§17), and the §17.5
+confirmation (Cancel accented). A row is a symbol glyph (folder in
+`accent_primary`, file in `text_secondary`), the name in the row-title role
+with an ellipsis, and a caption line (size or type, and the time). No new
+role, token or colour.
+
+### 33.2 Tall (portrait)
+
+One column in the body: the path bar (Up, then the path shortened from the
+front so its end stays visible), Sort and New folder side by side, the list
+(the only thing that scrolls), a caption status line (what just happened, or
+why this place is read-only), and Open, Rename, Copy, Move, Delete across the
+foot in one row. While a file is carried the foot shows what is carried,
+Paste here and Cancel instead. Nothing reaches into the corner squares
+(§21.1, via `pocketui_layout_begin`).
+
+### 33.3 Wide (landscape)
+
+Chosen when the list keeps at least the portrait body width (528 px) beside
+a 420 px details pane. Sort and New folder move up into the path bar; the
+pane shows the selected entry's name (two lines, then an ellipsis), type and
+size, modification time and access, with Open across the pane and the other
+four actions in pairs under it (or the carry bar). The name entry puts the
+field, Cancel and Create in one row, which is what fits above the keyboard;
+the confirmation keeps the portrait width, centred.
+
+### 33.4 Launcher
+
+Files joins **DEVICE** (Settings, System, Files) in the files hue, with the B
+package's `files` glyph in its portal (`icon-files.bin`, §31.6) and the icon
+extension's `files` mask as its §20 fallback. That makes thirteen apps. In
+portrait DEVICE still fits one row of four. In landscape thirteen cells in one
+row would be 81 px, under `HOME_CELL_MIN_W` (84), so by §31.3's own rule the
+panels wrap: CONNECTIONS, WORKSPACE and PLAY on the first line, DEVICE on a
+second, and the launcher scrolls (about 100 px) to Lock and Controls. §31's
+"neither orientation scrolls" held for twelve apps; whether landscape should
+instead keep one row (a smaller minimum cell, or Files elsewhere) is the
+owner's decision.
+
+### 33.5 Validation on the host
+
+`tests/files_fs_test.c`, `tests/files_view_test.c`, `tests/files_lint.sh`,
+`tests/files_shell_test.sh` (with `tests/files_app_test.c`: every screen in
+both orientations, touch targets and the corner safe area checked), and the
+launcher and shell suites with thirteen apps (`tests/home_layout_test.c`,
+`tests/doors_shell_test.sh`, `tests/chrome_shell_test.sh`,
+`tests/display_geometry_shell_test.sh`, `tests/app_icons_test.sh`,
+`tests/doors_ui_assets_test.sh`).
+
+### 33.6 Unit A gate (before acceptance)
+
+The build's identity first. Both orientations: the launcher with Files in
+DEVICE (and, in landscape, the second line and the scroll to the footer);
+Files opened, browsed from `/root` to `/` and back; a folder made, renamed,
+a file copied, moved and deleted on the SD card; `/etc` and
+`/var/lib/pocketos` shown read-only; a text file opened.

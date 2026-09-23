@@ -105,6 +105,10 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/notes/notes_app.c
     ${REPO_DIR}/apps/notes/notes_store.c
     ${REPO_DIR}/apps/notes/notes_view.c
+    ${REPO_DIR}/apps/files/files_app.c
+    ${REPO_DIR}/apps/files/files_fs.c
+    ${REPO_DIR}/apps/files/files_job.c
+    ${REPO_DIR}/apps/files/files_view.c
     ${REPO_DIR}/apps/wave/wave_app.c
     ${REPO_DIR}/apps/wave/wave_view.c
     ${REPO_DIR}/apps/wave/wave_session.c
@@ -154,6 +158,9 @@ target_compile_definitions(pocketos-shell PRIVATE
     POCKETOS_BUILD_ID="${POCKETOS_BUILD_ID}"
     LV_LVGL_H_INCLUDE_SIMPLE)
 target_link_libraries(pocketos-shell PRIVATE cjson m)
+# Files runs copy, move and delete on a worker thread (apps/files/files_job.h).
+find_package(Threads REQUIRED)
+target_link_libraries(pocketos-shell PRIVATE Threads::Threads)
 
 # Where the shell reads the DOORS art (ui/shell/art.h). The device reads the
 # installed copy; the simulator reads the committed files in place, so a
@@ -197,6 +204,7 @@ endif()
 target_compile_definitions(pocketos-shell PRIVATE POCKETTIMBER_ART=${POCKETTIMBER_ART})
 target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/notes"
+                                                  "${REPO_DIR}/apps/files"
                                                   "${REPO_DIR}/apps/clock"
                                                   "${REPO_DIR}/apps/calendar"
                                                   "${REPO_DIR}/apps/calculator"
@@ -579,6 +587,36 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(notes_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(notes_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # Files in the running app, tapped on the panel and on the real keyboard,
+    # against a real (temporary) directory tree (run by tests/files_shell_test.sh).
+    add_executable(files_app_test
+        ${REPO_DIR}/tests/files_app_test.c
+        chrome.c
+        ${REPO_DIR}/apps/files/files_app.c
+        ${REPO_DIR}/apps/files/files_fs.c
+        ${REPO_DIR}/apps/files/files_job.c
+        ${REPO_DIR}/apps/files/files_view.c
+        ${REPO_DIR}/core/pocketpaths.c
+        ../pocketui/pos_app_icons.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(files_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/files")
+    target_compile_options(files_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(files_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(files_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(files_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(files_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m Threads::Threads)
 
     # PocketClock in the running app, tapped on the panel and on the real
     # keyboard, against a real store (run by tests/clock_shell_test.sh).
