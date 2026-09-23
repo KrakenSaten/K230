@@ -50,6 +50,8 @@ BUILD_ID
 /tests/timber_store_test
 /tests/notes_view_test
 /tests/notes_store_test
+/tests/files_fs_test
+/tests/files_view_test
 /tests/clock_engine_test
 /tests/clock_time_test
 /tests/clock_store_test

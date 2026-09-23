@@ -16,7 +16,8 @@
  *
  * Nothing is shortened to fit: when the whole does not fit the content area
  * the layout grows past it (content_h > height) and the launcher scrolls.
- * With today's twelve apps neither orientation scrolls.
+ * With today's thirteen apps portrait does not scroll; landscape wraps DEVICE
+ * onto a second line and scrolls to its footer (twelve fitted one row).
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */

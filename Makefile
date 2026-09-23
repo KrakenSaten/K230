@@ -565,6 +565,28 @@ tests/notes_view_test: tests/notes_view_test.o $(NOTES_DIR)/notes_view.o
 tests/notes_store_test: tests/notes_store_test.o $(NOTES_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# Files: the filesystem layer with its write policy, the worker that runs
+# copy, move and delete, and the on-screen text. All LVGL-free
+# (tests/files_lint.sh), so navigation, the policy and every operation -
+# including what each one leaves behind when it fails - are unit-tested here
+# against a real temporary tree. The app itself needs a display and is built
+# by ui/shell (tests/files_shell_test.sh).
+FILES_DIR := apps/files
+FILES_OBJS := $(FILES_DIR)/files_fs.o $(FILES_DIR)/files_job.o $(FILES_DIR)/files_view.o
+FILES_TESTS := tests/files_fs_test tests/files_view_test
+
+$(FILES_DIR)/%.o: $(FILES_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) -I$(FILES_DIR) -c -o $@ $<
+
+tests/files_%_test.o: tests/files_%_test.c
+	$(CC) $(ALL_CFLAGS) -I$(FILES_DIR) -c -o $@ $<
+
+tests/files_fs_test: tests/files_fs_test.o $(FILES_OBJS) $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -pthread
+
+tests/files_view_test: tests/files_view_test.o $(FILES_DIR)/files_view.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 # PocketClock: the timekeeping, the alert seam, the clock reader and the
 # store. All four are LVGL-free (tests/clock_lint.sh), so the decisions that
 # go wrong in a clock - an alarm firing on every poll, a countdown measured
@@ -866,7 +888,7 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
              tests/settings_test tests/brightness_test tests/display_geometry_test tests/orientation_test \
              tests/kbd_presence_test tests/chrome_test tests/home_layout_test tests/art_format_test \
              tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
-             $(NOTES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) $(CALC_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test \
+             $(NOTES_TESTS) $(FILES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) $(CALC_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test \
              $(WAVE_TESTS) $(RIFT_TESTS)
 
 # Native tests only (they execute binaries).
@@ -914,6 +936,8 @@ test: all $(TEST_BINS)
 	./tests/timber_store_test
 	./tests/notes_view_test
 	./tests/notes_store_test
+	./tests/files_fs_test
+	TZ=UTC ./tests/files_view_test
 	./tests/clock_engine_test
 	TZ=UTC ./tests/clock_time_test
 	./tests/clock_store_test
@@ -967,6 +991,7 @@ test: all $(TEST_BINS)
 	bash tests/radar_lint.sh
 	bash tests/timber_lint.sh
 	bash tests/notes_lint.sh
+	bash tests/files_lint.sh
 	bash tests/clock_lint.sh
 	bash tests/calendar_lint.sh
 	bash tests/calculator_lint.sh
@@ -1030,7 +1055,7 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 
 clean:
 	$(MAKE) -C tools/meshcore-frame clean
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(POCKETOS_BUILD_STAMP)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(POCKETOS_BUILD_STAMP)
 
 # The files `make all` and `make test` produce, one to a line, for
 # tests/build_outputs_test.sh.

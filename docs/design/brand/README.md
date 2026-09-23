@@ -180,8 +180,8 @@ would need an id such as `wifi_scanner` and the file mapped to it explicitly.
 | System identity | `brand/doors-mark.png` | `ui/pocketui/pos_brand_mark.c`, see System identity |
 | Status bar | none | unchanged: `mockups/doors-status-bar-568x56` shows the `DOORS` caption Phase 1 already ships |
 | Launcher, brand | none | no logo on the launcher, see Launcher |
-| Launcher, app icons | `doors-threshold/icons/png-32/` (ten), `doors-icon-extension/png-32/wave.png` | `ui/pocketui/pos_app_icons.c`, see App icons |
-| Future apps | `doors-icon-extension/` (twelve icons) | deferred: no such apps |
+| Launcher, app icons | `doors-threshold/icons/png-32/` (ten), `doors-icon-extension/png-32/wave.png` and `files.png` | `ui/pocketui/pos_app_icons.c`, see App icons |
+| Future apps | `doors-icon-extension/` (twelve icons; `files` is now used by Files, DS §33) | deferred: no such apps |
 | Settings, Appearance | `brand/doors-mark-16` | not in scope: not requested, mockup only |
 
 ## Boot splash

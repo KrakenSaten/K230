@@ -80,6 +80,7 @@ APP_ICONS = {
     "timber": (THRESHOLD + "timber.svg", "files"),
     "settings": (B_GLYPH + "settings.svg", "settings"),
     "system": (THRESHOLD + "system.svg", "apps"),
+    "files": (B_GLYPH + "files.svg", "files"),
 }
 # The system glyphs the shell uses, from the package's 32 px exports.
 GLYPHS = ["lock", "power", "wifi", "radio", "sun", "display", "info", "settings", "apps",
