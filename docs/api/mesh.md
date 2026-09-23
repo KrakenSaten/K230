@@ -380,7 +380,7 @@ A message:
 | `sender_name` | **`channel` only**, and only when it parses: the name the sender **claimed**. See below. |
 | `text`, `timestamp` | `timestamp` is the **sender's** clock, MeshCore's own stamp |
 | `mono_ms` | when this service saw it |
-| `state` | `received`, `sent_flood`, `sent_direct`, `acked`, `no_ack`, `failed` |
+| `state` | `received`, `sent_flood`, `sent_direct`, `acked`, `no_ack`, `failed`. `sent_*` means accepted, not transmitted, and `failed` is not produced in this version: see "Accepted is not transmitted" under `mesh.send` |
 | `ack_expected` | whether an acknowledgement can **ever** arrive for this message |
 | `ack_mono_ms` | when the ACK matched; absent until it does |
 | `snr_db`, `rssi_dbm` | only when known, by the same rule as a node's |
@@ -423,12 +423,45 @@ then one of:
 | to a node | `route` is `flood` or `direct`, `ack_timeout_ms` is how long MeshCore will wait, `ack_expected` is `true` |
 | to a channel | `route` is `flood`, `channel` is the slot, `ack_expected` is `false`, and **there is no `ack_timeout_ms`** - there is no ACK to time out, and a timeout of 0 would read as "answered instantly" |
 
-**Accepted is not transmitted.** The frame is queued for the MeshCore
-dispatcher, goes to radiod as an asynchronous transmit, and its outcome
-arrives later as a `mesh.activity` event and in the message's own `state`. The
-first message to a node goes `flood`, because no route back is known yet; that
-is what the ACK supplies, and the next one goes `direct`. A channel message is
-always flooded and there is no second attempt.
+**Accepted is not transmitted, and a message's `state` does not say whether
+it was.** This is a known limitation of this version (docs/KNOWN_ISSUES.md),
+stated exactly so no client reads more into a state than it carries:
+
+- **`sent_flood` and `sent_direct` mean accepted and queued, on that route.**
+  The outgoing message is recorded with one of them the moment `mesh.send` is
+  accepted, before anything reaches radiod. They are not a report that the
+  frame went on the air.
+- **The radio's outcome is not in the message.** The frame goes to radiod as
+  an asynchronous transmit, and what radiod says about it arrives only as a
+  `mesh.activity` event of `kind: "tx"` - keyed by radiod's `submit_id`,
+  which no field of the message carries. A client cannot tie that outcome to
+  a message, and the service does not do it either.
+- **`failed` is never produced in this version.** It is in the `state` table
+  because the API reserves it; nothing assigns it.
+- So a frame that never left - radiod restarted before the dispatcher handed
+  it over, a `tx` outcome of `tx_failed` or `refused`, the dispatcher giving
+  up on it - leaves a **channel** message at `sent_flood` for good, exactly
+  like one that went out, and a **direct** message at `sent_*` until its ACK
+  deadline passes and then `no_ack`, not `failed`.
+
+What the states do promise, by kind:
+
+| | direct (`ack_expected: true`) | channel (`ack_expected: false`) |
+| --- | --- | --- |
+| `sent_flood` / `sent_direct` | accepted, waiting for the recipient's ACK | `sent_flood` only: accepted, and final |
+| `acked` | the recipient's ACK matched this message: it was delivered | never |
+| `no_ack` | the deadline passed without an ACK - whether or not the frame was ever transmitted | never |
+| `failed` | not produced in this version | not produced in this version |
+
+A **channel message is an unacknowledged flood**: `PAYLOAD_TYPE_GRP_TXT` has
+no ACK, no timeout and no delivery report, so nothing - in the protocol or in
+this service - ever says a channel message arrived anywhere, and in this
+version nothing says it was transmitted either. Only a direct message can be
+confirmed, and only by its ACK.
+
+The first message to a node goes `flood`, because no route back is known yet;
+that is what the ACK supplies, and the next one goes `direct`. A channel
+message is always flooded and there is no second attempt.
 
 **A channel's text limit is smaller than 160.** MeshCore puts `"<this node's
 name>: "` inside a channel payload, and upstream's `sendGroupMessage()`

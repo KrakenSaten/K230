@@ -758,6 +758,23 @@ Wave and ggwave:
   this service: a second submission while one is outstanding is refused, and
   MeshCore is told the send did not start. That is the honest shape, and it
   means a busy node drops its own outbound packets rather than delaying them.
+- **A message's state does not say whether it was transmitted** (known
+  limitation, follow-up; cold review R2, 2026-09-23). `mesh.send` records the
+  outgoing message as `sent_flood` / `sent_direct` when it is *accepted*,
+  before anything reaches radiod, and the radio's outcome reaches only the
+  `mesh.activity` `tx` event, keyed by radiod's `submit_id`, which the
+  message does not carry. `failed` is never assigned. So a frame that never
+  left - radiod restarted before dispatch, a `tx_failed` or `refused`
+  outcome, the dispatcher giving up on it - leaves a channel message at
+  `sent_flood` for good, looking exactly like one that went out (RIFT draws
+  it `SENT · FLOOD · NO ACK ON CHANNELS`), and a direct message at `sent_*`
+  until its ACK deadline, then `no_ack` rather than `failed`. A channel
+  message is an unacknowledged flood in any case; only a direct message's
+  `acked` confirms anything. docs/api/mesh.md ("Accepted is not
+  transmitted") states the contract as it is. The fix is to carry the
+  transmit outcome into the message - the submit belongs to one message id -
+  and assign `failed` when the frame provably did not go out; it changes the
+  meshcored TX state machine and is out of scope for the pre-release fixes.
 
 ### meshcored, deferred from the review-fix pass (2026-09-19)
 

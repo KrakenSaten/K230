@@ -14,8 +14,10 @@
 #      portal icon is drawn exactly where shell.info says, from its own art;
 #   4. with no art installed the shell still starts, locks, opens and draws
 #      every app on a fallback, and says so in shell.info;
-#   5. a rotation restart carries on unlocked; a fresh start locks again; the
-#      lock_screen=0 setting starts open.
+#   5. a rotation restart keeps the lock as it was - locked stays locked and
+#      open stays open, through repeated restarts and whatever the argv says;
+#      a mark from an older build starts as a cold start; a fresh start locks
+#      again; the lock_screen=0 setting starts open.
 #
 # Requires SHELL_BIN (the CMake-built pocketos-shell) and pos (make all).
 # SHOTS_DIR=<dir> keeps the screenshots.
@@ -255,25 +257,76 @@ check "with only the empty frame installed, every app is drawn on it ($good of 1
 stop_shell
 
 # ---- 5. restarts ------------------------------------------------------------------
+# A rotation restarts the shell in place and is the same session: the lock
+# comes back exactly as it was. Every check reads shell.info, so a shell that
+# does not answer after a restart fails them rather than slipping through.
+turn() { # <portrait|landscape>: ask for it and wait until the restarted shell shows it
+    call shell.rotation mode="$1"
+    for _ in $(seq 1 50); do
+        [ "$(field '["display"]["orientation"]')" = "\"$1\"" ] && return 0
+        sleep 0.2
+    done
+    return 1
+}
+restarts() { grep -c 'restarting in place' "$POCKETOS_LOG_DIR/shell.log" 2>/dev/null; true; }
+locked_is() { [ "$(field '["lock"]["locked"]')" = "$1" ]; }
+
 fresh
 # Automatic with no keyboard: portrait. No --rotation here, or the restart
 # (which keeps the arguments) would keep it.
 start_shell
-call shell.unlock
 pid1=$SP
-call shell.rotation mode=landscape
-for _ in $(seq 1 40); do
-    [ "$(field '["display"]["orientation"]')" = '"landscape"' ] && break
-    sleep 0.2
+check "the session starts locked" "$(yes_if locked_is true)"
+check "locked -> rotation: the shell restarts in place, landscape" \
+    "$(turn landscape && kill -0 "$pid1" 2>/dev/null && [ "$(restarts)" = 1 ] && echo 1 || echo 0)"
+check "and comes back locked, not on an open launcher" "$(yes_if locked_is true)"
+check "the log says it locked again because it was locked" \
+    "$(yes_if grep -q 'lock: engaged (rotation restart, locked before it)' "$POCKETOS_LOG_DIR/shell.log")"
+ok=1
+for o in portrait landscape portrait; do
+    turn "$o" && locked_is true || ok=0
 done
-check "a rotation restarts the shell in place, landscape" \
-    "$([ "$(field '["display"]["orientation"]')" = '"landscape"' ] && kill -0 "$pid1" 2>/dev/null && echo 1 || echo 0)"
-check "and carries on open: a rotation is not a new session" \
-    "$([ "$(field '["lock"]["locked"]')" = false ] && echo 1 || echo 0)"
+check "locked through three more restarts in a row ($(restarts) in all)" \
+    "$([ "$ok" = 1 ] && [ "$(restarts)" = 4 ] && kill -0 "$pid1" 2>/dev/null && echo 1 || echo 0)"
+
+call shell.unlock
+check "shell.unlock opens it" "$(yes_if locked_is false)"
+check "open -> rotation: comes back open, a rotation is not a new session" \
+    "$(turn landscape && locked_is false && echo 1 || echo 0)"
 check "the log says why it did not lock" "$(yes_if grep -q 'lock: not engaged at start (rotation restart)' "$POCKETOS_LOG_DIR/shell.log")"
+ok=1
+for o in portrait landscape; do
+    turn "$o" && locked_is false || ok=0
+done
+check "open through repeated restarts ($(restarts) in all)" \
+    "$([ "$ok" = 1 ] && [ "$(restarts)" = 7 ] && echo 1 || echo 0)"
+call shell.lock
+check "locked again by hand -> rotation: locked" \
+    "$(locked_is true && turn portrait && locked_is true && echo 1 || echo 0)"
 stop_shell
 start_shell
-check "a fresh start after that locks again" "$([ "$(field '["lock"]["locked"]')" = true ] && echo 1 || echo 0)"
+check "a fresh start after that locks again" "$(yes_if locked_is true)"
+stop_shell
+
+# The restart keeps its argv, so the mark must decide before the arguments do:
+# a bench shell started --no-lock and locked since stays locked when it turns.
+fresh
+start_shell --no-lock
+check "--no-lock starts open" "$(yes_if locked_is false)"
+call shell.lock
+check "--no-lock, locked since -> rotation: still locked" \
+    "$(turn landscape && locked_is true && echo 1 || echo 0)"
+stop_shell
+
+# A mark the shell does not understand - "1" is what builds before this one
+# left - is no continuation it can vouch for: it starts as a cold start.
+fresh
+export DOORS_SHELL_RESUMED=1
+start_shell
+unset DOORS_SHELL_RESUMED
+check "an old-style resume mark starts locked, as a cold start" "$(yes_if locked_is true)"
+check "and says the mark was not understood" \
+    "$(yes_if grep -q "resume mark '1' not understood" "$POCKETOS_LOG_DIR/shell.log")"
 stop_shell
 fresh
 printf 'lock_screen=0\n' > "$POCKETOS_CONFIG_DIR/settings.conf"

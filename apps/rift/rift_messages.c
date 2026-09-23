@@ -44,46 +44,6 @@
 #include <stdio.h>
 #include <string.h>
 
-/* ---- the conversation key -----------------------------------------------
- *
- * A direct conversation is keyed by the peer's public key, which is 64 hex
- * characters. A channel is keyed by "#<slot>". The two cannot collide - no
- * hex character is '#' - and that is what lets a channel be an ordinary
- * conversation everywhere below rather than a second implementation of the
- * list, the thread, the read mark and the unread count.
- */
-void rift_channel_key(int slot, char *out, size_t out_len)
-{
-    if (!out || out_len == 0) {
-        return;
-    }
-    if (slot < 0 || slot >= RIFT_MAX_CHANNELS) {
-        out[0] = '\0';
-        return;
-    }
-    snprintf(out, out_len, "#%d", slot);
-}
-
-int rift_key_is_channel(const char *key)
-{
-    int slot = 0;
-    int i;
-
-    if (!key || key[0] != '#' || !key[1]) {
-        return -1;
-    }
-    for (i = 1; key[i]; i++) {
-        if (key[i] < '0' || key[i] > '9') {
-            return -1;
-        }
-        slot = slot * 10 + (key[i] - '0');
-        if (slot >= RIFT_MAX_CHANNELS) {
-            return -1;
-        }
-    }
-    return slot;
-}
-
 /* ---- messages ----------------------------------------------------------- */
 
 static enum rift_msg_state msg_state_from_word(const char *w)
@@ -324,12 +284,21 @@ int rift_model_apply_message(struct rift_model *m, const cJSON *o)
     msg->is_channel = is_channel;
     if (is_channel) {
         msg->channel_slot = slot;
-        rift_channel_key(slot, msg->conv_key, sizeof(msg->conv_key));
         name = str_of(o, "channel_name");
         if (name && name[0]) {
             rift_utf8_copy(msg->channel_name, sizeof(msg->channel_name), name);
             msg->have_channel_name = 1;
         }
+        name = str_of(o, "channel_hash");
+        if (hex_only(name, 2)) {
+            snprintf(msg->channel_hash, sizeof(msg->channel_hash), "%s", name);
+            msg->have_channel_hash = 1;
+        }
+        /* Filed under the channel it was on, not the slot it was in: the
+         * slot may hold a different channel by the time anyone reads it. */
+        rift_channel_key(slot, msg->have_channel_hash ? msg->channel_hash : NULL,
+                         msg->have_channel_name ? msg->channel_name : NULL, msg->conv_key,
+                         sizeof(msg->conv_key));
         /* The name the sender claimed inside the payload. Kept as a claim:
          * nothing signs a group frame, and no screen may present this the
          * way it presents a peer_name, which came with a public key. */
@@ -578,8 +547,10 @@ const char *rift_model_conv_name(const struct rift_model *m, const char *conv_ke
          * air, so there is nobody else's to prefer. The list is the first
          * source because it is what mesh.channels last said; a message's
          * copy is the fallback for a channel that has since been left but
-         * whose messages are still held. */
-        const struct rift_channel *ch = rift_model_channel(m, slot);
+         * whose messages are still held. The list counts only while its slot
+         * still holds this channel: once another channel has taken the slot,
+         * its name is somebody else's. */
+        const struct rift_channel *ch = rift_model_key_channel(m, conv_key);
 
         if (ch && ch->have_name && ch->name[0]) {
             return ch->name;
@@ -761,7 +732,7 @@ int rift_model_text_limit(const struct rift_model *m, const char *conv_key)
         return RIFT_SEND_TEXT_MAX;
     }
     {
-        const struct rift_channel *ch = rift_model_channel(m, slot);
+        const struct rift_channel *ch = rift_model_key_channel(m, conv_key);
 
         /* A channel's limit is shorter, and by how much depends on this
          * node's own name, which is why it comes from the service rather
@@ -791,6 +762,13 @@ int rift_model_send_begin(struct rift_model *m, const char *conv_key, const char
      * else is not a destination, and a request built from it would be a
      * request meshcored refuses after the fact. */
     if (rift_key_is_channel(conv_key) < 0 && !hex_only(conv_key, 64)) {
+        return -1;
+    }
+    /* A channel is written to only while the key still names the channel
+     * that is joined. mesh.send addresses a slot, and a slot that has been
+     * emptied and taken by another channel would carry a reply written in
+     * the old conversation to the new channel's audience. */
+    if (rift_key_is_channel(conv_key) >= 0 && !rift_model_key_channel(m, conv_key)) {
         return -1;
     }
     if (m->outbox.active) {

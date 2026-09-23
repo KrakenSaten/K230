@@ -35,12 +35,30 @@
 /* A public key is 64 hex characters (docs/api/mesh.md, mesh.identity).
  *
  * The same field width holds a CONVERSATION key, which is either such a
- * public key or "#<slot>" for a channel. The two can never be confused: a
- * public key is 64 hex characters and nothing else, and no hex character is
- * '#'. Using one field for both is what lets a channel be an ordinary
- * conversation everywhere below - one list, one thread, one read mark, one
- * unread count - instead of a second copy of all of it.
- * rift_channel_key() and rift_key_is_channel() are the two ends of it. */
+ * public key or a channel's key, which starts with '#'. The two can never be
+ * confused: a public key is 64 hex characters and nothing else, and no hex
+ * character is '#'. Using one field for both is what lets a channel be an
+ * ordinary conversation everywhere below - one list, one thread, one read
+ * mark, one unread count - instead of a second copy of all of it.
+ *
+ * A channel's key is "#<slot>:<hash>:<name>" - the slot, the one-byte
+ * channel hash and an FNV-1a fingerprint of this node's local name for it
+ * (8 hex). The slot alone is NOT an identity: leaving a channel empties its
+ * slot, and the next channel added takes the lowest empty one (mesh.md,
+ * mesh.channels), while the old channel's messages are kept. Keyed by slot,
+ * those messages would be shown under the new channel's name and a reply
+ * would go to the new channel's audience. The hash tells channels with
+ * different keys apart, and the name - fixed when the channel is added,
+ * there is no rename - tells apart most of the rest; both travel with every
+ * channel message (captured when meshcored recorded it) and with every
+ * channel in mesh.channels, and neither is key material. A message missing
+ * either one gets "#<slot>:?", a conversation of its own that no channel
+ * ever matches and nothing can be sent to: separated rather than guessed.
+ * What stays indistinguishable is a different channel re-added into the same
+ * slot under the same local name with the same one-byte hash; telling that
+ * apart needs a per-channel identity the service does not report.
+ * rift_channel_key() and rift_key_is_channel() are the two ends of it, and
+ * rift_model_key_channel() says whether a key still names a joined channel. */
 #define RIFT_KEY_HEX 65
 /* The node hash is its first byte, two hex characters. */
 #define RIFT_HASH_HEX 3
@@ -267,6 +285,10 @@ struct rift_message {
     int channel_slot;
     char channel_name[RIFT_CHANNEL_NAME_MAX];
     int have_channel_name;
+    /* The one byte that was on the air, as meshcored recorded it. With the
+     * slot and the name it is the channel's identity (conv_key). */
+    char channel_hash[RIFT_HASH_HEX];
+    int have_channel_hash;
     /* The sender's claimed name, which meshcored parsed back out of the
      * payload prefix. Not authenticated, and never shown as if it were: see
      * rift_fmt_msg_caption. `text` still holds the whole payload including
@@ -303,8 +325,8 @@ struct rift_conv {
     char key[RIFT_KEY_HEX];
     char name[RIFT_NAME_MAX];
     int have_name;
-    /* A channel conversation. Its key is "#<slot>" and there is no peer
-     * behind it. */
+    /* A channel conversation. Its key is the channel's (rift_channel_key)
+     * and there is no peer behind it. */
     int is_channel;
     int channel_slot;
     int unread;   /* incoming messages newer than the read mark */
@@ -581,15 +603,26 @@ int rift_model_apply_channels(struct rift_model *m, const cJSON *result);
 
 /* ---- channels ----------------------------------------------------------
  *
- * The conversation key for a channel, and its inverse. A channel's key is
- * "#<slot>", which cannot collide with a 64-hex-character public key.
- * rift_key_is_channel returns the slot, or -1 when the key is not a
- * channel's. */
-void rift_channel_key(int slot, char *out, size_t out_len);
+ * The conversation key for a channel, and its inverse (the identity is
+ * described at RIFT_KEY_HEX). rift_channel_key writes "#<slot>:<hash>:<name>"
+ * when both hash (two hex characters) and name (non-empty) are given, and
+ * "#<slot>:?" when either is missing; an out-of-range slot writes "".
+ * rift_channel_conv_key is the same for a channel in the list.
+ * rift_key_is_channel returns the slot of either form, or -1 when the key is
+ * not a channel's - including the bare "#<slot>" of builds before this one,
+ * which named a slot and not a channel. */
+void rift_channel_key(int slot, const char *hash, const char *name, char *out, size_t out_len);
+void rift_channel_conv_key(const struct rift_channel *ch, char *out, size_t out_len);
 int rift_key_is_channel(const char *key);
 
 /* The channel in that slot, or NULL. */
 const struct rift_channel *rift_model_channel(const struct rift_model *m, int slot);
+/* The joined channel a conversation key names, or NULL: the channel in the
+ * key's slot, only while it is still the same channel (its own key is this
+ * one). NULL for a channel that has been left, for a slot another channel
+ * has taken since, for "#<slot>:?", and for anything that is not a channel
+ * key. This, and never the slot alone, is what may be written to. */
+const struct rift_channel *rift_model_key_channel(const struct rift_model *m, const char *key);
 
 /* One event: "mesh.state", "mesh.node", "mesh.channel" or "mesh.activity".
  * Anything else -

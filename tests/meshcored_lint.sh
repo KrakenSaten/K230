@@ -216,8 +216,36 @@ check "and an unstored one does not mark the state dirty" \
 
 check "the host build switch defaults to off" \
     "$(grep -q '^ENABLE_MESHCORED ?= 0' Makefile && echo 1 || echo 0)"
+# What make builds when nobody has asked for anything. This lint runs inside
+# `make meshcored-test`, and a variable on an enclosing make's command line
+# (`make ENABLE_MESHCORED=1 meshcored-test`) reaches every make below it
+# through MAKEFLAGS - a bare `make` here then answered for the caller's
+# build, not the default one, and this check failed whenever meshcored was
+# being tested with its own switch on. So the question is asked with nothing
+# inherited: no MAKEFLAGS and relatives, and no switch in the environment.
+MCD_BIN=services/meshcored/meshcored
+outputs() { # [make args...]: the build outputs, as make reports them with nothing inherited
+    env -u MAKEFLAGS -u MFLAGS -u GNUMAKEFLAGS -u MAKELEVEL -u MAKEOVERRIDES -u ENABLE_MESHCORED \
+        make -s "$@" print-build-outputs 2>/dev/null
+}
 check "so a default host build does not produce it" \
-    "$(make -s print-build-outputs 2>/dev/null | grep -q 'services/meshcored/meshcored' && echo 0 || echo 1)"
+    "$(outputs | grep -q "$MCD_BIN" && echo 0 || echo 1)"
+check "and the check can see it: switched on, the same question lists it" \
+    "$(outputs ENABLE_MESHCORED=1 | grep -q "$MCD_BIN" && echo 1 || echo 0)"
+# The caller's switch, the way each kind of caller passes it on. Each is shown
+# to switch a bare make on - so the environment below is a real threat - and
+# then not to reach the question above.
+hostile_ok=1
+hostile_seen=1
+for how in "MAKEFLAGS= -- ENABLE_MESHCORED=1" "GNUMAKEFLAGS=ENABLE_MESHCORED=1" "ENABLE_MESHCORED=1"; do
+    var=${how%%=*}
+    val=${how#*=}
+    ( export "$var=$val"; make -s print-build-outputs 2>/dev/null ) | grep -q "$MCD_BIN" || hostile_seen=0
+    ( export "$var=$val"; outputs ) | grep -q "$MCD_BIN" && hostile_ok=0
+done
+check "a caller's switch (MAKEFLAGS, GNUMAKEFLAGS, the environment) does switch a bare make on" \
+    "$hostile_seen"
+check "and none of them changes the default-build answer" "$hostile_ok"
 check "installing it is gated on the notices" \
     "$(grep -q '^install: all meshcored-shipping-check$' Makefile && echo 1 || echo 0)"
 check "the image package builds and installs it" \

@@ -156,7 +156,7 @@ void rift_comms_target_label(const struct rift_app *app, char *out, size_t out_l
     }
     if (rift_key_is_channel(peer) >= 0) {
         /* A channel with no name: the slot is what it is addressed by. */
-        snprintf(out, out_len, "CHANNEL %s", peer + 1);
+        snprintf(out, out_len, "CHANNEL %d", rift_key_is_channel(peer));
         return;
     }
     /* No name anywhere: the node hash is what MeshCore routes on, and is the
@@ -350,7 +350,7 @@ static void refresh_ctx(struct rift_comms *v, const struct rift_conv *conv, int6
         return;
     }
     if (rift_key_is_channel(peer) >= 0) {
-        const struct rift_channel *ch = rift_model_channel(m, rift_key_is_channel(peer));
+        const struct rift_channel *ch = rift_model_key_channel(m, peer);
 
         /* A channel has no route and no signal of its own. What it has is a
          * key, the one-byte hash that key derives, and the fact that every
@@ -564,7 +564,7 @@ void rift_comms_refresh(struct rift_app *app)
         int held = 0;
         int j;
 
-        rift_channel_key(ch->slot, key, sizeof(key));
+        rift_channel_conv_key(ch, key, sizeof(key));
         if (!key[0]) {
             continue;
         }

@@ -661,9 +661,15 @@ int main(void)
          * question it refuses - it is not a hex key - and the refusal would
          * sit in the client's last error, which is what the command line
          * shows once the service goes away. Refused before it is written. */
-        check("but a channel is not a node and is never asked about",
-              rift_ipc_request_node(&c, "#0") == -1);
-        check("whichever slot it is", rift_ipc_request_node(&c, "#7") == -1);
+        {
+            char chan[RIFT_KEY_HEX];
+
+            rift_channel_key(0, "8c", "SITE", chan, sizeof(chan));
+            check("but a channel is not a node and is never asked about",
+                  rift_ipc_request_node(&c, chan) == -1);
+        }
+        check("nor one that cannot be identified", rift_ipc_request_node(&c, "#7:?") == -1);
+        check("nor the bare slot older builds used", rift_ipc_request_node(&c, "#0") == -1);
         spin(&c, WAIT_MS, node_answered, &m);
         check("and the answer updates the row it belongs to",
               node_answered(&c, &m) && m.node_count == 2);
@@ -1065,6 +1071,7 @@ int main(void)
         char sends[600];
         struct fake_meshcored_script script;
         pid_t pid;
+        char site[RIFT_KEY_HEX];
         static const char *const chan_events[] = {
             "mesh.message|{\"message\":{\"id\":5,\"direction\":\"in\",\"kind\":\"channel\","
             "\"channel\":0,\"channel_name\":\"SITE\",\"channel_hash\":\"8c\","
@@ -1103,15 +1110,16 @@ int main(void)
         check("the channel list was read on connect", m.channels_valid);
         check("and holds the one the service has", m.channel_count >= 1);
         check("in the slot it named", rift_model_channel(&m, 0) != NULL);
+        rift_channel_key(0, "8c", "SITE", site, sizeof(site));
         check("with the limit the service gave, not the API's 160",
-              rift_model_text_limit(&m, "#0") == 147);
+              rift_model_text_limit(&m, site) == 147);
 
         /* The event that arrives on the channel, and the channel added. */
         events_target = 2;
         spin(&c, WAIT_MS, events_reached, &m);
         {
             const struct rift_message *thread[8];
-            int n = rift_model_thread(&m, "#0", thread, 8, NULL);
+            int n = rift_model_thread(&m, site, thread, 8, NULL);
 
             check("a channel message arrived as an event", n == 1);
             check("as a channel message", n == 1 && thread[0]->is_channel);
@@ -1144,7 +1152,7 @@ int main(void)
 
         /* Sending to a channel. */
         check("a message is sent to the channel",
-              rift_ipc_send_message(&c, "#0", "pa vei") == 0);
+              rift_ipc_send_message(&c, site, "pa vei") == 0);
         spin(&c, WAIT_MS, send_answered, &m);
         check("the submission finished", !rift_model_sending(&m));
         check("the service gave it an id", m.outbox.message_id > 0);
@@ -1176,7 +1184,7 @@ int main(void)
             memset(too_long, 'x', sizeof(too_long));
             too_long[148] = '\0';
             check("a body over the channel's limit is refused",
-                  rift_ipc_send_message(&c, "#0", too_long) == -1);
+                  rift_ipc_send_message(&c, site, too_long) == -1);
             check("and the reader is told why", m.outbox.failed && m.outbox.error[0]);
             f = fopen(sends, "r");
             while (f && fgets(line, sizeof(line), f)) {
@@ -1186,6 +1194,30 @@ int main(void)
                 fclose(f);
             }
             check("nothing more was written to the service", lines == 1);
+        }
+        /* A conversation key for a different channel in the same slot - the
+         * old channel's, after it was left and the slot taken - is refused
+         * here too, with nothing written: mesh.send names only the slot, so
+         * the service could not tell the difference. */
+        {
+            char other[RIFT_KEY_HEX];
+            FILE *f;
+            char line[256];
+            int lines = 0;
+
+            rift_channel_key(0, "77", "OLD", other, sizeof(other));
+            check("a key for another channel in the slot is refused",
+                  rift_ipc_send_message(&c, other, "reply") == -1);
+            check("and the reader is told it is not joined",
+                  m.outbox.failed && strstr(m.outbox.error, "not joined") != NULL);
+            f = fopen(sends, "r");
+            while (f && fgets(line, sizeof(line), f)) {
+                lines++;
+            }
+            if (f) {
+                fclose(f);
+            }
+            check("and nothing was written to the service", lines == 1);
         }
 
         rift_ipc_close(&c);
