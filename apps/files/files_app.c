@@ -207,6 +207,16 @@ static void button_enable(lv_obj_t *b, bool on)
     lv_obj_invalidate(b);
 }
 
+/* One line, cut with an ellipsis. LV_LABEL_LONG_DOT alone does not do that:
+ * a label that sizes its own height wraps instead, which on unit A put a
+ * 235-character name over three lines and out of its row. The height is one
+ * line of the label's own font, so the dots have a line to end. */
+static void one_line(lv_obj_t *lb)
+{
+    lv_label_set_long_mode(lb, LV_LABEL_LONG_DOT);
+    lv_obj_set_height(lb, lv_font_get_line_height(lv_obj_get_style_text_font(lb, LV_PART_MAIN)));
+}
+
 /* The status line: what just happened, or why this place is read-only. */
 static void say(struct files_app *a, const char *text, bool error)
 {
@@ -381,6 +391,9 @@ static lv_obj_t *add_row(struct files_app *a, int i)
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(row, 16, 0);
+    /* Room inside the row for the selection outline, which is drawn on its
+     * edge: without it the outline ran through the glyph. */
+    lv_obj_set_style_pad_hor(row, 8, 0);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     /* The whole row is the hit area (DS section 9). */
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
@@ -409,12 +422,12 @@ static lv_obj_t *add_row(struct files_app *a, int i)
 
     files_view_name(name, sizeof(name), e->name);
     lb = pocketui_label(text, name, POS_STYLE_ROW_TITLE);
-    lv_label_set_long_mode(lb, LV_LABEL_LONG_DOT);
     lv_obj_set_width(lb, LV_PCT(100));
+    one_line(lb);
     files_view_caption(caption, sizeof(caption), e);
     lb = pocketui_label(text, caption, POS_STYLE_CAPTION);
-    lv_label_set_long_mode(lb, LV_LABEL_LONG_DOT);
     lv_obj_set_width(lb, LV_PCT(100));
+    one_line(lb);
     return row;
 }
 
@@ -913,8 +926,8 @@ static lv_obj_t *caption(lv_obj_t *parent, enum pos_style_role role)
 {
     lv_obj_t *lb = pocketui_label(parent, "", role);
 
-    lv_label_set_long_mode(lb, LV_LABEL_LONG_DOT);
     lv_obj_set_width(lb, LV_PCT(100));
+    one_line(lb);
     return lb;
 }
 
@@ -944,7 +957,7 @@ static void build_browser(struct files_app *a)
     pos_style_add(glyph, POS_STYLE_ACCENT_TEXT, 0);
     lv_obj_center(glyph);
     a->path = pocketui_label(a->bar, "", POS_STYLE_TEXT_PRIMARY);
-    lv_label_set_long_mode(a->path, LV_LABEL_LONG_DOT);
+    one_line(a->path);
     lv_obj_set_flex_grow(a->path, 1);
 
     a->tools = box(a->main, LV_FLEX_FLOW_ROW);
@@ -953,8 +966,11 @@ static void build_browser(struct files_app *a)
     a->new_folder = button(a->tools, "New folder", on_new_folder, a, false);
 
     a->list = pocketui_card(a->main);
-    lv_obj_set_style_pad_hor(a->list, POCKETUI_PAD, 0);
-    lv_obj_set_style_pad_ver(a->list, 0, 0);
+    /* The rows carry 8 px of their own on each side (add_row), so the text
+     * keeps its place; 4 px above and below keep the first and last row's
+     * selection outline off the card's border. */
+    lv_obj_set_style_pad_hor(a->list, POCKETUI_PAD - 8, 0);
+    lv_obj_set_style_pad_ver(a->list, 4, 0);
     lv_obj_set_flex_grow(a->list, 1);
     /* The rows scroll inside the list and nowhere else (DS section 17.1). */
     lv_obj_add_flag(a->list, LV_OBJ_FLAG_SCROLLABLE);
@@ -991,7 +1007,7 @@ static void build_browser(struct files_app *a)
     lv_obj_set_style_pad_column(a->paste, 8, 0);
     lv_obj_set_style_pad_row(a->paste, 8, 0);
     a->paste_label = pocketui_label(a->paste, "", POS_STYLE_TEXT_PRIMARY);
-    lv_label_set_long_mode(a->paste_label, LV_LABEL_LONG_DOT);
+    one_line(a->paste_label);
     a->paste_here = button(a->paste, "Paste here", on_paste, a, true);
     button(a->paste, "Cancel", on_paste_cancel, a, false);
     lv_obj_add_flag(a->paste, LV_OBJ_FLAG_HIDDEN);
@@ -1008,7 +1024,7 @@ static void build_viewer(struct files_app *a)
     close = button(head, "Close", on_viewer_close, a, true);
     lv_obj_set_width(close, FILES_NAME_BTN_W);
     a->v_title = pocketui_label(head, "", POS_STYLE_ROW_TITLE);
-    lv_label_set_long_mode(a->v_title, LV_LABEL_LONG_DOT);
+    one_line(a->v_title);
     lv_obj_set_flex_grow(a->v_title, 1);
 
     a->v_card = pocketui_card(s);
@@ -1258,9 +1274,21 @@ static void files_destroy(void *priv)
     /* No thread may outlive the app. A copy stops at its next chunk and
      * removes what it made; a delete stops at its next entry. */
     if (files_job_busy(&a->job)) {
-        LOG_WARN("files: closed while %s was running; it was stopped",
-                 a->job.op == FILES_OP_COPY ? "a copy" : a->job.op == FILES_OP_MOVE ? "a move" : "a delete");
+        static const char *const what[] = { "a copy", "a move", "a delete" };
+        enum files_op op = a->job.op;
+
         files_job_abandon(&a->job);
+        /* Said as it ended, not as it was asked to: a job can finish in the
+         * moment between the stop and the join, and on unit A one did. */
+        if (a->job.result == 0) {
+            LOG_WARN("files: closed while %s was running; it had finished", what[op]);
+        } else if (a->job.result == -FILES_ECANCELED) {
+            LOG_WARN("files: closed while %s was running; it was stopped and nothing was left half done",
+                     what[op]);
+        } else {
+            LOG_WARN("files: closed while %s was running; it failed: %s", what[op],
+                     files_strerror(a->job.result));
+        }
     }
     pocketos_shell_keyboard_hide();
     files_dir_free(&a->dir);

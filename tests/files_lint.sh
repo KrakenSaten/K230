@@ -34,6 +34,9 @@ check "renames never replace (RENAME_NOREPLACE)" \
     "$(grep -q 'RENAME_NOREPLACE' $D/files_fs.c && echo 1 || echo 0)"
 check "a copied file is created exclusively" \
     "$(grep -q 'O_CREAT | O_EXCL' $D/files_fs.c && echo 1 || echo 0)"
+check "a copy is flushed as it goes, so a stop never waits on a whole file (gate F3)" \
+    "$(grep -q 'fdatasync(out)' $D/files_fs.c && grep -qE '^#define COPY_SYNC_EVERY \(4 \* 1024 \* 1024\)' $D/files_fs.c &&
+       echo 1 || echo 0)"
 check "a copy is synced before a move removes its original" \
     "$(grep -q 'fsync(out)' $D/files_fs.c && echo 1 || echo 0)"
 check "deletes never follow a link" \

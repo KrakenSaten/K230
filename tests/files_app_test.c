@@ -627,9 +627,86 @@ static int same_row(lv_obj_t *a, lv_obj_t *b)
     return x.y1 == y.y1;
 }
 
+/* Every label in a list row lies inside the row, one line each: a label left
+ * to size its own height wraps a long name instead of ending it in an
+ * ellipsis, and on unit A a 235-character name took three lines, ran out of
+ * its row and hid its caption (Files gate, finding F1). */
+static int text_inside_row(lv_obj_t *r)
+{
+    lv_area_t ra;
+    uint32_t i;
+    uint32_t j;
+
+    if (!r) {
+        return 0;
+    }
+    lv_obj_update_layout(r);
+    lv_obj_get_coords(r, &ra);
+    for (i = 0; i < lv_obj_get_child_count(r); i++) {
+        lv_obj_t *c = lv_obj_get_child(r, i);
+
+        for (j = 0; j < (lv_obj_check_type(c, &lv_label_class) ? 1 : lv_obj_get_child_count(c)); j++) {
+            lv_obj_t *lb = lv_obj_check_type(c, &lv_label_class) ? c : lv_obj_get_child(c, j);
+            lv_area_t la;
+            const lv_font_t *f = lv_obj_get_style_text_font(lb, LV_PART_MAIN);
+
+            if (!lv_obj_check_type(lb, &lv_label_class)) {
+                continue;
+            }
+            lv_obj_get_coords(lb, &la);
+            if (la.y1 < ra.y1 || la.y2 > ra.y2 || la.x2 > ra.x2 ||
+                lv_area_get_height(&la) > lv_font_get_line_height(f)) {
+                printf("note: \"%.24s\" is %d px tall at %d..%d in a row %d..%d\n", lv_label_get_text(lb),
+                       (int)lv_area_get_height(&la), (int)la.y1, (int)la.y2, (int)ra.y1, (int)ra.y2);
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
+static int rows_hold_their_text(void)
+{
+    lv_obj_t *docs = row("docs");
+    lv_obj_t *list = docs ? lv_obj_get_parent(docs) : NULL;
+    uint32_t i;
+
+    if (!list) {
+        return 0;
+    }
+    for (i = 0; i < lv_obj_get_child_count(list); i++) {
+        if (!text_inside_row(lv_obj_get_child(list, i))) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* ---- the fixture --------------------------------------------------------------------- */
 
 static char longname[241];
+
+/* The long name is only ever shown cut with an ellipsis, and LVGL writes the
+ * ellipsis into the label's own text, so it is found by its first 40
+ * characters, which no other name has. */
+static lv_obj_t *long_row(void)
+{
+    char prefix[41];
+
+    snprintf(prefix, sizeof(prefix), "%.40s", longname);
+    return pressable(find_label_ex(app_body, prefix, 1));
+}
+
+/* The same name in the landscape details pane: the one that is not in a row. */
+static lv_obj_t *long_label_in_pane(void)
+{
+    char prefix[41];
+    lv_obj_t *side = find_label("Can be changed");
+    lv_obj_t *card = side ? lv_obj_get_parent(side) : NULL;
+
+    snprintf(prefix, sizeof(prefix), "%.40s", longname);
+    return card ? find_label_ex(card, prefix, 1) : NULL;
+}
 
 static void fixture(void)
 {
@@ -664,7 +741,9 @@ static void browse_and_open(void)
     check("nothing is selected yet, so nothing can be done to anything",
           !enabled("Open") && !enabled("Rename") && !enabled("Delete"));
     check("but a folder can be made here", enabled("New folder"));
-    check("a long name is shown, not refused", row(longname) != NULL);
+    check("a long name is shown, not refused", long_row() != NULL);
+    check("and cut to one line inside its row, with its caption under it", text_inside_row(long_row()));
+    check("every row's text stays inside its row", rows_hold_their_text());
 
     tap_obj(row("notes.txt"));
     check("a tap selects", enabled("Open") && enabled("Rename") && enabled("Copy") && enabled("Move") &&
@@ -909,8 +988,9 @@ static void landscape_layout(void)
           up && sort && same_row(up, sort) && left_of(up, sort) && same_row(sort, find_labelled("New folder")));
     check("landscape: a details pane beside the list", shows("Nothing selected") && docs &&
                                                         left_of(docs, find_label("Nothing selected")));
-    tap_obj(row(longname));
-    name = find_label(longname);
+    tap_obj(long_row());
+    name = long_label_in_pane();
+    check("landscape: every row's text stays inside its row", rows_hold_their_text());
     check("selecting shows the entry in the pane", name != NULL && shows("TXT file \xC2\xB7 4 B") &&
                                                        shows_part("Modified ") && shows("Can be changed"));
     open = find_labelled("Open");

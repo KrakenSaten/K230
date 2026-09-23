@@ -24,6 +24,9 @@
 #endif
 
 #define COPY_CHUNK (64 * 1024)
+/* How much of a copied file may wait in the page cache before it is flushed
+ * (copy_file). */
+#define COPY_SYNC_EVERY (4 * 1024 * 1024)
 
 const char *files_strerror(int err)
 {
@@ -701,6 +704,7 @@ static int copy_file(const char *src, const char *dst, const struct stat *st, at
     char *buf;
     int in;
     int out;
+    size_t unsynced = 0;
     int r = 0;
 
     in = open(src, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
@@ -731,6 +735,18 @@ static int copy_file(const char *src, const char *dst, const struct stat *st, at
             r = -FILES_ECANCELED;
         } else {
             r = write_all(out, buf, (size_t)got);
+            unsynced += (size_t)got;
+        }
+        /* Flushed as it goes. Left to the end, the whole file sat in the
+         * page cache and the final fsync - which nothing can interrupt -
+         * took as long as the card needed for all of it: closing Files in
+         * the middle of a 40 MB copy held the shell for 2.6 s on unit A.
+         * Now a stop waits for one COPY_SYNC_EVERY at most. */
+        if (r == 0 && unsynced >= COPY_SYNC_EVERY) {
+            if (fdatasync(out) != 0) {
+                r = -errno;
+            }
+            unsynced = 0;
         }
     }
     free(buf);
