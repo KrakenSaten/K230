@@ -185,6 +185,28 @@ static void status_update(void)
         shell_lock_set_time(buf, date);
     }
 
+#if defined(POCKETOS_SHELL_TEST_HOOKS) && POCKETOS_SHELL_TEST_HOOKS
+    {
+        /* Simulator only: hold the chip in one state, so every state can be
+         * drawn under every chrome (tests/chrome_shell_test.sh). The mock
+         * radio leaves TX as soon as it enters it. Compiled out of the
+         * panel's build, like the chrome hook below. */
+        const char *forced = getenv("POCKETOS_TEST_RADIO_STATE");
+
+        if (forced && forced[0]) {
+            if (strcmp(forced, "rx") == 0) {
+                radio_chip_set(POS_STYLE_CHIP_RX, "RX");
+            } else if (strcmp(forced, "tx") == 0) {
+                radio_chip_set(POS_STYLE_CHIP_TX, "TX");
+            } else if (strcmp(forced, "off") == 0) {
+                radio_chip_set(POS_STYLE_CHIP_OFF, "OFF");
+            } else {
+                radio_chip_set(POS_STYLE_CHIP_NA, "--");
+            }
+            return;
+        }
+    }
+#endif
     /* This runs on the LVGL thread once a second. Before the deadline, a
      * radiod that was alive but not answering held the whole UI: nothing
      * repainted, touch did nothing, and the supervisor saw a healthy process
@@ -644,12 +666,18 @@ int pocketos_shell_keyboard_visible(void)
 _Static_assert(POCKETUI_STATUS_BAR_H == POCKETOS_CHROME_FULL_H,
                "FULL chrome is the DS §7 status bar");
 
-/* DS §30.1: the compact bar's chip, 24 px tall with the 14 px caption font
- * centred by its padding. The §7 chip (36 px, pos_styles.c) is not changed;
- * these are local properties on the one chip, put on for COMPACT and taken
- * off again for FULL, so FULL is drawn exactly as it always was. */
-#define COMPACT_CHIP_H 24
-#define COMPACT_CHIP_PAD_V 5
+/* The radio chip's height and padding under the chrome in force, from the
+ * line height of the font it draws in (chrome_chip_box, DS §30.1): its text
+ * centred in 36 px under FULL and 26 under COMPACT, and never clipped. */
+static void status_chip_fit(enum pocketos_chrome effective)
+{
+    const lv_font_t *font = lv_obj_get_style_text_font(sh.status_radio, LV_PART_MAIN);
+    struct chrome_chip c = chrome_chip_box(effective, lv_font_get_line_height(font));
+
+    lv_obj_set_style_height(sh.status_radio, c.height, 0);
+    lv_obj_set_style_pad_top(sh.status_radio, c.pad_top, 0);
+    lv_obj_set_style_pad_bottom(sh.status_radio, c.pad_bottom, 0);
+}
 
 static void chrome_apply(enum pocketos_chrome effective, const char *what)
 {
@@ -666,14 +694,7 @@ static void chrome_apply(enum pocketos_chrome effective, const char *what)
         lv_obj_remove_flag(sh.status_bar, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_height(sh.status_bar, sh.chrome_h);
     }
-    if (effective == POCKETOS_CHROME_COMPACT) {
-        lv_obj_set_style_height(sh.status_radio, COMPACT_CHIP_H, 0);
-        lv_obj_set_style_pad_ver(sh.status_radio, COMPACT_CHIP_PAD_V, 0);
-    } else {
-        lv_obj_remove_local_style_prop(sh.status_radio, LV_STYLE_HEIGHT, 0);
-        lv_obj_remove_local_style_prop(sh.status_radio, LV_STYLE_PAD_TOP, 0);
-        lv_obj_remove_local_style_prop(sh.status_radio, LV_STYLE_PAD_BOTTOM, 0);
-    }
+    status_chip_fit(effective);
     content_box(pocketos_shell_keyboard_visible() ? POS_KB_H : 0);
     LOG_INFO("chrome: %s, status bar %d px, content from y %d, for %s", chrome_name(effective),
              (int)sh.chrome_h, (int)sh.chrome_h, what);
@@ -1039,6 +1060,20 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
 
             cJSON_AddStringToObject(chrome, "policy", chrome_name(sh.chrome));
             cJSON_AddNumberToObject(chrome, "status_bar_height", sh.chrome_h);
+            {
+                /* The radio chip as drawn: its box, the box its text gets,
+                 * and the line that text needs (tests/chrome_shell_test.sh
+                 * holds content_h >= line_h under every chrome). */
+                cJSON *chip = cJSON_CreateObject();
+                const lv_font_t *font = lv_obj_get_style_text_font(sh.status_radio, LV_PART_MAIN);
+
+                cJSON_AddNumberToObject(chip, "h", lv_obj_get_height(sh.status_radio));
+                cJSON_AddNumberToObject(chip, "content_h", lv_obj_get_content_height(sh.status_radio));
+                cJSON_AddNumberToObject(chip, "line_h", lv_font_get_line_height(font));
+                cJSON_AddNumberToObject(chip, "y", lv_obj_get_y(sh.status_radio));
+                cJSON_AddStringToObject(chip, "text", lv_label_get_text(sh.status_radio));
+                cJSON_AddItemToObject(chrome, "chip", chip);
+            }
             cJSON_AddItemToObject(result, "chrome", chrome);
         }
         {

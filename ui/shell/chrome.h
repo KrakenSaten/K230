@@ -64,4 +64,26 @@ struct chrome_box {
 struct chrome_box chrome_content_box(enum pocketos_chrome effective, int32_t display_h,
                                      int32_t reserve);
 
+/* The radio chip in the bar (DS §7, §30.1): 36 px tall under FULL, 26 under
+ * COMPACT, and its text centred in it. A label draws its text from the top
+ * of its content box and clips whatever does not fit, so the chip's height
+ * and padding are derived from the line height of the font it actually
+ * draws in (the symbol font, 22 px), never from constants alone: a fixed
+ * padding that left less than a line cut the tops off "RX" in the 32 px bar.
+ * The chip grows past its nominal height rather than clip, up to what the
+ * bar leaves above its thickest hairline (2 px, Outdoor); only a font taller
+ * than that could still be clipped. NONE draws no chip and gets FULL's. */
+#define POCKETOS_CHROME_CHIP_FULL_H 36
+#define POCKETOS_CHROME_CHIP_COMPACT_H 26
+#define POCKETOS_CHROME_CHIP_MIN_PAD 2
+#define POCKETOS_CHROME_HAIRLINE_MAX 2
+
+struct chrome_chip {
+    int32_t height;
+    int32_t pad_top;
+    int32_t pad_bottom;
+};
+
+struct chrome_chip chrome_chip_box(enum pocketos_chrome effective, int32_t line_h);
+
 #endif

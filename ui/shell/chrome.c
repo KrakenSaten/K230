@@ -74,3 +74,33 @@ struct chrome_box chrome_content_box(enum pocketos_chrome effective, int32_t dis
     }
     return b;
 }
+
+struct chrome_chip chrome_chip_box(enum pocketos_chrome effective, int32_t line_h)
+{
+    struct chrome_chip c;
+    int32_t room;
+    int32_t spare;
+
+    if (effective == POCKETOS_CHROME_NONE) {
+        effective = POCKETOS_CHROME_FULL;
+    }
+    if (line_h < 0) {
+        line_h = 0;
+    }
+    room = chrome_height(effective) - POCKETOS_CHROME_HAIRLINE_MAX;
+    c.height = effective == POCKETOS_CHROME_COMPACT ? POCKETOS_CHROME_CHIP_COMPACT_H
+                                                    : POCKETOS_CHROME_CHIP_FULL_H;
+    if (c.height < line_h + 2 * POCKETOS_CHROME_CHIP_MIN_PAD) {
+        c.height = line_h + 2 * POCKETOS_CHROME_CHIP_MIN_PAD;
+    }
+    if (c.height > room) {
+        c.height = room;
+    }
+    spare = c.height - line_h;
+    if (spare < 0) {
+        spare = 0;
+    }
+    c.pad_top = spare / 2;
+    c.pad_bottom = spare - c.pad_top;
+    return c;
+}

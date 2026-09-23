@@ -14,6 +14,9 @@
 #      hook - no bar, the content from the top edge, the header's back slab
 #      moved clear of the rounded corner, the hint written and nothing
 #      faulting.
+#   4. The radio chip (DS §30.1, §32.4): its text drawn whole under COMPACT
+#      from a real radiod poll, and RX, TX, OFF and -- each given a whole
+#      line in a chip inside its bar, at home and in apps, both orientations.
 #
 # Requires: SHELL_BIN (the CMake-built simulator) and pos and radiod (make
 # all). Run from the repository root. SHOTS_DIR=<dir> keeps the screenshots.
@@ -303,6 +306,91 @@ POCKETOS_TEST_CHROME=sideways shot "$OUT/l-bad.png" "$OUT/l-bad.log" --rotation 
 check "a hook value that is not a chrome is ignored with a warning, and the default applies" \
     "$(logs "$OUT/l-bad.log" | grep -q "test hook: chrome 'sideways'" &&
        logs "$OUT/l-bad.log" | grep -q 'chrome: compact, status bar 32 px' && echo 1 || echo 0)"
+
+# ---- 4. the radio chip under every chrome (DS §30.1) ----------------------------
+# The chip is a label, and a label clips what its content box cannot hold.
+# Under the 32 px bar a 24 px chip with 5 px of padding left 14 px for the
+# 22 px line of the symbol font it draws in, and "RX" lost its top on unit A.
+# The simulator never showed it: with no radiod the chip says "--", which
+# sits mid-line. So the chip is drawn here with a radio that answers RX, and
+# measured: its text must be as tall under COMPACT as under FULL.
+chip_ink() { # <png> <bar height>: rows of text inside the RX chip's fill, in the bar
+    python3 - "$1" "$2" <<'PY'
+import json, sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, "docs/design/timber-art/tools")
+from pngio import read_png
+tok = json.load(open("docs/design/themes.json", encoding="utf-8"))["themes"]["ice"]["modes"]["normal"]
+fill = tuple(int(tok["radio_rx"][i:i + 2], 16) for i in (1, 3, 5))
+W, H, rows = read_png(sys.argv[1])
+near = lambda p, c, d: all(abs(p[k] - c[k]) <= d for k in range(3))
+pts = [(x, y) for y in range(0, int(sys.argv[2])) for x in range(W) if near(rows[y][x], fill, 3)]
+if not pts:
+    print(0)
+    sys.exit()
+x1, x2 = min(p[0] for p in pts), max(p[0] for p in pts)
+y1, y2 = min(p[1] for p in pts), max(p[1] for p in pts)
+ink = [y for y in range(y1, y2 + 1) if any(not near(rows[y][x], fill, 40) for x in range(x1 + 6, x2 - 5))]
+print(len(ink))
+PY
+}
+if [ -x "$RADIOD" ]; then
+    fresh
+    "$RADIOD" --backend mock >"$OUT/radiod-chip.log" 2>&1 &
+    RP=$!
+    sleep 0.4
+    shot "$OUT/chip-full.png" "$OUT/chip-full.log" --rotation portrait --open system
+    shot "$OUT/chip-compact.png" "$OUT/chip-compact.log" --rotation landscape --open system
+    kill "$RP" 2>/dev/null; wait "$RP" 2>/dev/null
+    full=$(chip_ink "$OUT/chip-full.png" 56)
+    compact=$(chip_ink "$OUT/chip-compact.png" 32)
+    check "the RX chip is drawn with its text in FULL, from a real radiod poll ($full rows of ink)" \
+        "$([ "$full" -ge 10 ] && echo 1 || echo 0)"
+    check "and its text is not clipped under COMPACT: as many rows of ink as in FULL ($compact of $full)" \
+        "$([ "$compact" = "$full" ] && echo 1 || echo 0)"
+else
+    check "radiod present for the chip check ($RADIOD)" 0
+fi
+# Every state the chip has, in every bar it can sit in, through the
+# simulator's hook that holds the chip in one state (the mock radio leaves TX
+# as soon as it enters it): shell.info reports the chip as drawn, and its
+# text must get a whole line inside a chip that stays clear of the hairline.
+chip_of() { "$POS" shell info 2>/dev/null | tr -d ' \t\n' | grep -oE '"chip":\{[^}]*\}'; }
+chip_fits() { # <chip json> <bar height>
+    python3 - "$1" "$2" <<'PY'
+import json, sys
+try:
+    c = json.loads(sys.argv[1].split(":", 1)[1])
+except (ValueError, IndexError):
+    print(0)
+    sys.exit()
+bar = int(sys.argv[2])
+print(1 if c["content_h"] >= c["line_h"] and c["y"] >= 0 and c["y"] + c["h"] <= bar - 2 else 0)
+PY
+}
+n=0
+bad=""
+for state in rx tx off na; do
+    for rot in portrait landscape; do
+        fresh
+        POCKETOS_TEST_RADIO_STATE=$state start_shell --rotation $rot --no-lock
+        sleep 1.1
+        c=$(chip_of)
+        [ "$(chip_fits "$c" 56)" = 1 ] && n=$((n + 1)) || bad="$bad $state/$rot/home:$c"
+        for id in system fleet; do
+            "$POS" app start "$id" >/dev/null 2>&1; sleep 0.4
+            bar=56
+            [ "$rot" = landscape ] && [ "$id" != fleet ] && bar=32
+            c=$(chip_of)
+            [ "$(chip_fits "$c" $bar)" = 1 ] && n=$((n + 1)) || bad="$bad $state/$rot/$id:$c"
+            "$POS" app home >/dev/null 2>&1; sleep 0.3
+        done
+        stop_shell
+    done
+done
+check "RX, TX, OFF and -- each get a whole line in the chip at home, in System and in Fleet, portrait and landscape ($n of 24)" \
+    "$([ "$n" = 24 ] && echo 1 || echo 0)"
+[ -n "$bad" ] && echo "$bad" | tr ' ' '\n' | head -4
 
 check "no errors from any shell" "$(cat "$OUT"/*.log | grep -qE ' ERROR |Assert|assert' && echo 0 || echo 1)"
 

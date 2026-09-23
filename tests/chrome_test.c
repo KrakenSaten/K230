@@ -181,12 +181,68 @@ static void test_keyboard_round_trip(void)
     }
 }
 
+/* The radio chip (DS §30.1). The chip is a label, and a label clips what
+ * does not fit its content box: the 24 px COMPACT chip with 5 px of padding
+ * left 14 px for the 22 px line of the symbol font it draws in, and "RX"
+ * lost its top on unit A. Every line height a status font could have, under
+ * every chrome: the text gets a whole line, it is centred, and the chip
+ * stays inside the bar above its thickest hairline. */
+#define SYMBOL_FONT_LINE_H 22 /* lv_font_montserrat_20, the chip's font (POS_STYLE_SYMBOL) */
+#define SMALL_LINE_H 17
+
+static void test_chip(void)
+{
+    size_t i;
+    int32_t lh;
+    struct chrome_chip c;
+
+    for (i = 1; i < ALL_COUNT; i++) {
+        for (lh = 10; lh <= 26; lh++) {
+            char label[160];
+
+            c = chrome_chip_box(all[i], lh);
+            snprintf(label, sizeof(label), "%s chip, %d px line: the text gets the whole line (%d)",
+                     chrome_name(all[i]), (int)lh, (int)(c.height - c.pad_top - c.pad_bottom));
+            check(label, c.height - c.pad_top - c.pad_bottom >= lh);
+            snprintf(label, sizeof(label), "%s chip, %d px line: centred, no negative padding",
+                     chrome_name(all[i]), (int)lh);
+            check(label, c.pad_top >= 0 && c.pad_bottom >= 0 && c.pad_bottom - c.pad_top >= 0 &&
+                             c.pad_bottom - c.pad_top <= 1);
+            if (all[i] != POCKETOS_CHROME_NONE) {
+                snprintf(label, sizeof(label), "%s chip, %d px line: %d px fits the %d px bar over a 2 px hairline",
+                         chrome_name(all[i]), (int)lh, (int)c.height, (int)chrome_height(all[i]));
+                check(label, c.height <= chrome_height(all[i]) - POCKETOS_CHROME_HAIRLINE_MAX);
+            }
+        }
+    }
+    /* The fonts the bar has: the numbers DS §7 and §30.1 give. */
+    c = chrome_chip_box(POCKETOS_CHROME_FULL, SYMBOL_FONT_LINE_H);
+    check("FULL, symbol font: the §7 chip, 36 px, text centred by 7 px",
+          c.height == 36 && c.pad_top == 7 && c.pad_bottom == 7);
+    c = chrome_chip_box(POCKETOS_CHROME_COMPACT, SYMBOL_FONT_LINE_H);
+    check("COMPACT, symbol font: 26 px, 2 px above and below the 22 px line",
+          c.height == 26 && c.pad_top == 2 && c.pad_bottom == 2);
+    check("the defect: 24 px less 2 x 5 px of padding leaves less than the symbol font's line",
+          24 - 2 * 5 < SYMBOL_FONT_LINE_H);
+    c = chrome_chip_box(POCKETOS_CHROME_COMPACT, SMALL_LINE_H);
+    check("COMPACT, a smaller font: the nominal 26 px, centred", c.height == 26 && c.pad_top == 4);
+    c = chrome_chip_box(POCKETOS_CHROME_NONE, SYMBOL_FONT_LINE_H);
+    check("NONE: no chip is drawn; it keeps FULL's box for the next bar that shows it",
+          c.height == 36 && c.pad_top == 7);
+    c = chrome_chip_box(POCKETOS_CHROME_COMPACT, 40);
+    check("a font taller than the bar: the chip is held inside the bar, never over its rule",
+          c.height == POCKETOS_CHROME_COMPACT_H - POCKETOS_CHROME_HAIRLINE_MAX && c.pad_top == 0);
+    c = chrome_chip_box(POCKETOS_CHROME_COMPACT, -3);
+    check("a negative line height counts as none", c.height == 26 && c.pad_top == 13);
+}
+
 int main(void)
 {
     test_resolve();
     test_heights();
     test_boxes();
     test_keyboard_round_trip();
+    test_chip();
     printf("chrome_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }
