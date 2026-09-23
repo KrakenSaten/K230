@@ -381,7 +381,7 @@ lv_obj_t *controls_create(lv_obj_t *parent, bool landscape, const struct control
     tile(ct.root, TILE_RADIO, m, y, tw, th, &pos_glyph_radio, "Radio", on_open_app, (void *)"radio");
     tile(ct.root, TILE_WIFI, m + tw + GAP, y, tw, th, &pos_glyph_wifi, "Wi-Fi", on_open_app, (void *)"settings");
     tile(ct.root, TILE_ROTATION, m, y + th + GAP, tw, th, &pos_glyph_display, "Rotation", on_rotation, NULL);
-    tile(ct.root, TILE_MODE, m + tw + GAP, y + th + GAP, tw, th, &pos_glyph_sun, "Display", on_mode, NULL);
+    tile(ct.root, TILE_MODE, m + tw + GAP, y + th + GAP, tw, th, &pos_glyph_mode, "Display", on_mode, NULL);
 
     if (landscape) {
         int32_t rx = m + col + 32;

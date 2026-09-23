@@ -21,5 +21,6 @@ extern const lv_image_dsc_t pos_glyph_apps;
 extern const lv_image_dsc_t pos_glyph_network;
 extern const lv_image_dsc_t pos_glyph_mesh;
 extern const lv_image_dsc_t pos_glyph_sound;
+extern const lv_image_dsc_t pos_glyph_mode;
 
 #endif
