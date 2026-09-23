@@ -6,7 +6,8 @@ read-only.
 
 Status: **v1 on branch `feat/files-app`, not merged. Host-tested (unit tests
 against a real temporary tree, and the app under a real LVGL pointer and the
-real touch keyboard in portrait and landscape); not yet run on unit A. The
+real touch keyboard in portrait and landscape); not yet run on unit A - the
+gate is prepared in `docs/hardware/FILES_GATE.md` (build `6465e38`). The
 layout is DS §33 (Amendment Q), PROPOSED.**
 
 ## What it does
