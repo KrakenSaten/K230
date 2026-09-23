@@ -361,6 +361,24 @@ static void give_messages(void)
  * The fixture is the service's answer, verbatim: every channel on screen has
  * to be one mesh.channels reported, because this app has no key and cannot
  * derive a channel from anything. */
+/* The conversation keys of the two channels give_channels joins, built the
+ * way the model builds them (slot, hash, local name). */
+static const char *site_key(void)
+{
+    static char key[RIFT_KEY_HEX];
+
+    rift_channel_key(0, "8c", "SITE", key, sizeof(key));
+    return key;
+}
+
+static const char *ops_key(void)
+{
+    static char key[RIFT_KEY_HEX];
+
+    rift_channel_key(2, "4d", "OPS", key, sizeof(key));
+    return key;
+}
+
 static void give_channels(void)
 {
     cJSON *o;
@@ -1470,15 +1488,15 @@ int main(void)
 
     give_channel_message();
     check("a channel message arrives into its own conversation",
-          rift_model_unread(&app->model, "#0") == 1);
+          rift_model_unread(&app->model, site_key()) == 1);
     check("and not into a peer's",
           rift_model_unread(&app->model, KEY_B) == 0 &&
               rift_model_unread(&app->model, KEY_A) == 0);
-    rift_app_open_conversation(app, "#0");
+    rift_app_open_conversation(app, site_key());
     pump(80);
     check("the channel thread opens", rift_comms_open_peer(app) != NULL &&
-                                          strcmp(rift_comms_open_peer(app), "#0") == 0);
-    check("and reading it clears the badge", rift_model_unread(&app->model, "#0") == 0);
+                                          strcmp(rift_comms_open_peer(app), site_key()) == 0);
+    check("and reading it clears the badge", rift_model_unread(&app->model, site_key()) == 0);
     check("the message is there", find_text(content(), "tilbake") != NULL);
     check("and so is ours", find_text(content(), "mottatt") != NULL);
     /* The sender's name came out of the payload and nothing signs it, so it
@@ -1512,7 +1530,7 @@ int main(void)
     shot("portrait-comms-channel-thread");
 
     /* An empty channel says what will happen rather than nothing. */
-    rift_app_open_conversation(app, "#2");
+    rift_app_open_conversation(app, ops_key());
     pump(80);
     check("an empty channel is still somewhere to write",
           find_text(content(), "Nothing on this channel yet") != NULL);
@@ -1770,7 +1788,7 @@ int main(void)
 
     /* The same pane, for a channel. There is no chain to draw and no
      * delivery to count, and it says so rather than drawing an empty one. */
-    rift_app_open_conversation(app, "#0");
+    rift_app_open_conversation(app, site_key());
     pump(80);
     check("a channel opens in landscape too",
           find_text(content(), "SITE") != NULL && find_text(content(), "tilbake") != NULL);
@@ -1946,7 +1964,7 @@ int main(void)
         give_channel_message();
         pump(60);
         check("the channels build from nothing too", find_text(content(), "SITE") != NULL);
-        rift_app_open_conversation(app, "#0");
+        rift_app_open_conversation(app, site_key());
         pump(60);
         check("and a channel thread opens in a fresh app",
               find_text(content(), "tilbake") != NULL);
@@ -1967,7 +1985,34 @@ int main(void)
               find_text(content(), "tilbake") != NULL);
         check("and says the channel is no longer joined",
               find_text(content(), "NOT JOINED ANY MORE") != NULL);
-        rift_app_open_conversation(app, "#2");
+        /* A different channel takes the emptied slot while the old thread is
+         * open. The thread stays the old channel's - its messages, its
+         * header - and there is nowhere to write from it: mesh.send names a
+         * slot, and a reply here would reach the new channel's audience. */
+        {
+            cJSON *o = cJSON_Parse("{\"reason\":\"added\",\"channel\":{\"channel\":0,"
+                                   "\"name\":\"NYTT\",\"channel_hash\":\"e5\","
+                                   "\"key_bits\":256,\"text_limit\":147}}");
+
+            rift_model_apply_event(&app->model, "mesh.channel", o);
+            cJSON_Delete(o);
+            rift_app_refresh(app);
+            pump(80);
+        }
+        check("a new channel in the slot leaves the open thread the old one's",
+              rift_comms_open_peer(app) && strcmp(rift_comms_open_peer(app), site_key()) == 0 &&
+                  find_text(content(), "tilbake") != NULL &&
+                  find_text(content(), "NOT JOINED ANY MORE") != NULL);
+        check("the new channel is a row of its own", find_text(content(), "NYTT") != NULL);
+        check("the composer says there is nowhere to write",
+              find_text(content(), "This channel is not joined any more") != NULL);
+        rift_comms_submit(app, "svar");
+        pump(40);
+        check("and a reply from the old thread is refused, not sent to the new channel",
+              app->model.outbox.failed && !rift_model_sending(&app->model) &&
+                  strstr(app->model.outbox.error, "not joined") != NULL);
+        rift_model_send_clear(&app->model);
+        rift_app_open_conversation(app, ops_key());
         pump(60);
         check("another channel still opens afterwards",
               find_text(content(), "Nothing on this channel yet") != NULL);

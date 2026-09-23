@@ -129,6 +129,15 @@ const char *rift_thread_refusal(const struct rift_app *app)
          * better than sending something to be refused. */
         return "The radio is not ready to send.";
     }
+    /* A channel conversation whose channel is gone - left, or its slot
+     * taken by another channel since. Its messages are still shown; there
+     * is nowhere to write, and the slot's new owner is not it. Until the
+     * list has been read nothing is known either way, and nothing is sent. */
+    if (rift_key_is_channel(rift_comms_open_peer(app)) >= 0 &&
+        !rift_model_key_channel(m, rift_comms_open_peer(app))) {
+        return m->channels_valid ? "This channel is not joined any more."
+                                 : "The channel list has not been read yet.";
+    }
     if (rift_model_sending(m)) {
         return "One message is on its way.";
     }
@@ -498,7 +507,7 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
         lv_label_set_text(t->who, label);
         rift_glyph_set(t->glyph, slot >= 0 ? RIFT_GLYPH_CHANNEL : rift_app_glyph(n, now));
         if (slot >= 0) {
-            const struct rift_channel *ch = rift_model_channel(m, slot);
+            const struct rift_channel *ch = rift_model_key_channel(m, peer);
 
             /* A channel has no route: a group frame is flooded to whoever
              * holds the key. The hash is what actually goes on the air, and

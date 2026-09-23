@@ -44,6 +44,18 @@ static void text_is(const char *what, const char *got, const char *want)
 #define KEY_A "a19ac21e7d0411223344556677889900aabbccddeeff001122334455667788b1"
 #define KEY_B "b2cafe1e7d0411223344556677889900aabbccddeeff001122334455667788b2"
 
+/* A channel's conversation key, built the way the model builds it. A few
+ * rotating buffers, so one check can name several. */
+static const char *chan_key(int slot, const char *hash, const char *name)
+{
+    static char buf[6][RIFT_KEY_HEX];
+    static int at;
+    char *out = buf[at++ % 6];
+
+    rift_channel_key(slot, hash, name, out, RIFT_KEY_HEX);
+    return out;
+}
+
 static int apply_message(struct rift_model *m, const char *json)
 {
     cJSON *o = cJSON_Parse(json);
@@ -116,6 +128,171 @@ static const struct rift_message *held(const struct rift_model *m, int64_t id)
         }
     }
     return NULL;
+}
+
+/* ---- a slot reused by a different channel ------------------------------
+ *
+ * Leaving a channel empties its slot and keeps its messages; the next channel
+ * added takes the lowest empty slot (docs/api/mesh.md). Keyed by slot alone,
+ * the old channel's history showed under the new channel's name and a reply
+ * written in it went to the new channel's audience. */
+static int thread_len(const struct rift_model *m, const char *key)
+{
+    const struct rift_message *t[RIFT_MAX_MESSAGES];
+
+    return rift_model_thread(m, key, t, RIFT_MAX_MESSAGES, NULL);
+}
+
+static int apply_channels_json(struct rift_model *m, const char *json)
+{
+    cJSON *o = cJSON_Parse(json);
+    int rc = rift_model_apply_channels(m, o);
+
+    cJSON_Delete(o);
+    return rc;
+}
+
+static int name_is(const char *got, const char *want)
+{
+    return got && strcmp(got, want) == 0;
+}
+
+#define MSG_ON(id, dir, hash, name, text, state)                                                   \
+    "{\"id\":" #id ",\"direction\":\"" dir "\",\"kind\":\"channel\",\"channel\":0,"                \
+    "\"channel_name\":\"" name "\",\"channel_hash\":\"" hash "\",\"sender_name\":\"X\","           \
+    "\"text\":\"" text "\",\"state\":\"" state "\",\"ack_expected\":false,\"mono_ms\":" #id "00}"
+#define MSG_DIRECT(id)                                                                             \
+    "{\"id\":" #id ",\"direction\":\"in\",\"kind\":\"direct\",\"peer_public_key\":\"" KEY_A "\","  \
+    "\"peer_name\":\"HYTTA\",\"text\":\"direct\",\"state\":\"received\","                          \
+    "\"ack_expected\":false,\"mono_ms\":" #id "00}"
+
+static void test_slot_reuse(void)
+{
+    static struct rift_model s;
+    static struct rift_model r;
+    struct rift_conv conv[RIFT_MAX_CONVERSATIONS];
+    char a[RIFT_KEY_HEX];
+    char b[RIFT_KEY_HEX];
+    char c[RIFT_KEY_HEX];
+    int n;
+    int i;
+    int a_rows = 0;
+    int b_rows = 0;
+
+    rift_channel_key(0, "a1", "ALPHA", a, sizeof(a));
+    rift_channel_key(0, "b2", "BRAVO", b, sizeof(b));
+    rift_channel_key(0, "b2", "CHARLIE", c, sizeof(c));
+    rift_model_init(&s);
+
+    /* 1. A is joined in slot 0; a direct conversation runs beside it. */
+    apply_channels_json(&s, "{\"channels\":[{\"channel\":0,\"name\":\"ALPHA\",\"channel_hash\":"
+                            "\"a1\",\"key_bits\":256,\"text_limit\":147}],\"count\":1,\"max\":8}");
+    check("slot reuse: A is joined in slot 0", rift_model_key_channel(&s, a) != NULL);
+
+    /* 2. History on A, both ways, and a direct message. */
+    check("slot reuse: A's history is taken",
+          apply_message(&s, MSG_ON(1, "in", "a1", "ALPHA", "X: from A", "received")) == 0 &&
+              apply_message(&s, MSG_ON(2, "out", "a1", "ALPHA", "X: to A", "sent_flood")) == 0 &&
+              apply_message(&s, MSG_DIRECT(3)) == 0);
+    check("slot reuse: A holds two messages", thread_len(&s, a) == 2);
+
+    /* 3. A is left. */
+    apply_event(&s, "mesh.channel", "{\"reason\":\"removed\",\"channel\":{\"channel\":0}}");
+    check("slot reuse: A left, its key names no joined channel", rift_model_key_channel(&s, a) == NULL);
+    check("slot reuse: and its history is kept", thread_len(&s, a) == 2);
+
+    /* 4. B, a different channel, is added into the same slot. */
+    apply_event(&s, "mesh.channel",
+                "{\"reason\":\"added\",\"channel\":{\"channel\":0,\"name\":\"BRAVO\","
+                "\"channel_hash\":\"b2\",\"key_bits\":256,\"text_limit\":140}}");
+    check("slot reuse: B takes slot 0",
+          rift_model_channel(&s, 0) && strcmp(rift_model_channel(&s, 0)->name, "BRAVO") == 0);
+    check("slot reuse: B's conversation is not A's", strcmp(a, b) != 0);
+
+    /* 5. B inherits nothing of A. */
+    check("slot reuse: B's thread is empty", thread_len(&s, b) == 0);
+    check("slot reuse: B has nothing unread of A's", rift_model_unread(&s, b) == 0);
+    check("slot reuse: A's history stays A's", thread_len(&s, a) == 2);
+    check("slot reuse: and is still named ALPHA, not BRAVO", name_is(rift_model_conv_name(&s, a), "ALPHA"));
+    n = rift_model_conversations(&s, conv, RIFT_MAX_CONVERSATIONS);
+    for (i = 0; i < n; i++) {
+        a_rows += strcmp(conv[i].key, a) == 0 && conv[i].total == 2;
+        b_rows += strcmp(conv[i].key, b) == 0;
+    }
+    check("slot reuse: the list holds A's conversation, whole", a_rows == 1);
+    check("slot reuse: and no conversation of B's made of A's messages", b_rows == 0);
+
+    /* 6. A reply in A's conversation cannot reach B's audience. */
+    check("slot reuse: writing in A's conversation is refused",
+          rift_model_send_begin(&s, a, "reply", 1000) == -1 && !rift_model_sending(&s));
+    rift_model_send_clear(&s);
+    check("slot reuse: writing to B is not", rift_model_send_begin(&s, b, "hello", 1000) == 0);
+    rift_model_send_clear(&s);
+    check("slot reuse: B's limit is B's", rift_model_text_limit(&s, b) == 140);
+    check("slot reuse: A's is no longer known", rift_model_text_limit(&s, a) == 0);
+
+    /* 7. B's own messages stay with B. */
+    check("slot reuse: a message on B is taken",
+          apply_message(&s, MSG_ON(4, "in", "b2", "BRAVO", "X: on B", "received")) == 0);
+    check("slot reuse: it is B's", thread_len(&s, b) == 1);
+    check("slot reuse: and not A's", thread_len(&s, a) == 2);
+    check("slot reuse: B is named BRAVO", name_is(rift_model_conv_name(&s, b), "BRAVO"));
+    check("slot reuse: B's unread is B's own", rift_model_unread(&s, b) == 1);
+
+    /* 8. Direct messages are untouched. */
+    check("slot reuse: the direct conversation is unchanged",
+          thread_len(&s, KEY_A) == 1 && rift_model_unread(&s, KEY_A) == 1 &&
+              name_is(rift_model_conv_name(&s, KEY_A), "HYTTA"));
+    check("slot reuse: and still a destination",
+          rift_model_send_begin(&s, KEY_A, "direct", 1000) == 0);
+    rift_model_send_clear(&s);
+
+    /* 9. The same hash under another name is another channel too. */
+    apply_event(&s, "mesh.channel", "{\"reason\":\"removed\",\"channel\":{\"channel\":0}}");
+    apply_event(&s, "mesh.channel",
+                "{\"reason\":\"added\",\"channel\":{\"channel\":0,\"name\":\"CHARLIE\","
+                "\"channel_hash\":\"b2\",\"key_bits\":256,\"text_limit\":140}}");
+    check("slot reuse: C, same hash as B, is not B",
+          rift_model_key_channel(&s, c) != NULL && rift_model_key_channel(&s, b) == NULL);
+    check("slot reuse: C inherits neither", thread_len(&s, c) == 0);
+    check("slot reuse: and B's conversation cannot reach C",
+          rift_model_send_begin(&s, b, "reply", 1000) == -1);
+    rift_model_send_clear(&s);
+
+    /* 10. A run that never saw the swap - RIFT opened afterwards - sees the
+     * channel list and meshcored's ring, and still files each message under
+     * the channel it was on. */
+    rift_model_init(&r);
+    apply_channels_json(&r, "{\"channels\":[{\"channel\":0,\"name\":\"CHARLIE\",\"channel_hash\":"
+                            "\"b2\",\"key_bits\":256,\"text_limit\":140}],\"count\":1,\"max\":8}");
+    check("slot reuse: a fresh run takes the ring",
+          apply_messages(&r, "{\"messages\":[" MSG_ON(1, "in", "a1", "ALPHA", "X: from A", "received")
+                             "," MSG_ON(2, "out", "a1", "ALPHA", "X: to A", "sent_flood")
+                             "," MSG_DIRECT(3)
+                             "," MSG_ON(4, "in", "b2", "BRAVO", "X: on B", "received")
+                             "],\"count\":4,\"total\":4,\"persistent\":false}") == 0);
+    check("slot reuse: fresh run, A's history is A's", thread_len(&r, a) == 2);
+    check("slot reuse: fresh run, B's is B's", thread_len(&r, b) == 1);
+    check("slot reuse: fresh run, C has none of it", thread_len(&r, c) == 0);
+    check("slot reuse: fresh run, the left channels keep their own names",
+          name_is(rift_model_conv_name(&r, a), "ALPHA") && name_is(rift_model_conv_name(&r, b), "BRAVO"));
+    check("slot reuse: fresh run, only C can be written to",
+          rift_model_send_begin(&r, a, "x", 1000) == -1 && rift_model_send_begin(&r, b, "x", 1000) == -1 &&
+              rift_model_send_begin(&r, c, "x", 1000) == 0);
+    rift_model_send_clear(&r);
+    check("slot reuse: fresh run, the direct conversation is there", thread_len(&r, KEY_A) == 1);
+
+    /* 11. A channel message that cannot be identified is kept apart, not
+     * guessed into whatever the slot holds now. */
+    check("slot reuse: a message with no hash is taken",
+          apply_message(&r, "{\"id\":5,\"direction\":\"in\",\"kind\":\"channel\",\"channel\":0,"
+                            "\"channel_name\":\"CHARLIE\",\"text\":\"X: ?\",\"state\":\"received\","
+                            "\"ack_expected\":false,\"mono_ms\":500}") == 0);
+    check("slot reuse: in a conversation of its own", thread_len(&r, "#0:?") == 1);
+    check("slot reuse: not in C's", thread_len(&r, c) == 0);
+    check("slot reuse: and nothing can be written there",
+          rift_model_send_begin(&r, "#0:?", "x", 1000) == -1);
+    rift_model_send_clear(&r);
 }
 
 static void test_body_and_meta(void)
@@ -808,26 +985,45 @@ int main(void)
     {
         struct rift_model s;
         const char *nm;
+        char site[RIFT_KEY_HEX];
 
         rift_model_init(&s);
+        rift_channel_key(0, "8c", "SITE", site, sizeof(site));
 
         /* The key, and its inverse. These two are what let a channel be an
          * ordinary conversation everywhere else. */
         {
-            char key[RIFT_KEY_HEX];
+            const char *k = chan_key(0, "8c", "SITE");
 
-            rift_channel_key(0, key, sizeof(key));
-            text_is("a channel's conversation key is its slot", key, "#0");
-            rift_channel_key(3, key, sizeof(key));
-            text_is("and so is any other slot's", key, "#3");
-            rift_channel_key(RIFT_MAX_CHANNELS, key, sizeof(key));
-            text_is("a slot outside the table has no key", key, "");
-            check("a channel key reads back as its slot", rift_key_is_channel("#3") == 3);
-            check("slot zero is a slot, not an absence", rift_key_is_channel("#0") == 0);
+            check("a channel's key is its slot, its hash and its name",
+                  strncmp(k, "#0:8c:", 6) == 0 && strlen(k) == 14);
+            check("and it reads back as its slot", rift_key_is_channel(k) == 0);
+            text_is("the hash is written one way whatever case it came in",
+                    chan_key(0, "8C", "SITE"), k);
+            /* The three parts each tell channels apart. */
+            check("another slot is another channel", strcmp(chan_key(3, "8c", "SITE"), k) != 0);
+            check("so is another hash in the same slot", strcmp(chan_key(0, "8d", "SITE"), k) != 0);
+            check("and another name in the same slot with the same hash",
+                  strcmp(chan_key(0, "8c", "SITE2"), k) != 0);
+            /* A channel that cannot be identified is kept apart, not guessed. */
+            text_is("no hash: a key of its own", chan_key(3, NULL, "SITE"), "#3:?");
+            text_is("no name: the same", chan_key(3, "8c", NULL), "#3:?");
+            text_is("an empty name: the same", chan_key(3, "8c", ""), "#3:?");
+            text_is("a hash that is not one byte of hex: the same", chan_key(3, "zz", "SITE"), "#3:?");
+            text_is("a slot outside the table has no key", chan_key(RIFT_MAX_CHANNELS, "8c", "S"), "");
+            check("an unidentified channel's key reads back as its slot",
+                  rift_key_is_channel("#3:?") == 3);
+            check("slot zero is a slot, not an absence", rift_key_is_channel("#0:?") == 0);
+            check("the bare slot of older builds is not a channel key",
+                  rift_key_is_channel("#3") == -1 && rift_key_is_channel("#0") == -1);
             check("a public key is not a channel", rift_key_is_channel(KEY_A) == -1);
             check("nor is a bare hash", rift_key_is_channel("#") == -1);
-            check("nor is a slot that is not a number", rift_key_is_channel("#x") == -1);
-            check("nor one past the table", rift_key_is_channel("#9") == -1);
+            check("nor is a slot that is not a number", rift_key_is_channel("#x:?") == -1);
+            check("nor one past the table", rift_key_is_channel("#9:?") == -1);
+            check("nor a fingerprint one digit short", rift_key_is_channel("#0:8c:0000000") == -1);
+            check("nor one with a digit too many", rift_key_is_channel("#0:8c:000000000") == -1);
+            check("nor an upper-case one", rift_key_is_channel("#0:8C:00000000") == -1);
+            check("nor anything after the '?'", rift_key_is_channel("#0:?x") == -1);
             check("and neither is nothing at all", rift_key_is_channel("") == -1);
         }
 
@@ -857,7 +1053,11 @@ int main(void)
         check("nor one outside the table", rift_model_channel(&s, 99) == NULL);
         /* No key is reported by the API and none is held here. */
         check("the text limit is the service's, not 160",
-              rift_model_text_limit(&s, "#0") == 147);
+              rift_model_text_limit(&s, site) == 147);
+        check("the list's channel is the one its key names",
+              rift_model_key_channel(&s, site) == rift_model_channel(&s, 0));
+        check("and a key for another channel in that slot is not",
+              rift_model_key_channel(&s, chan_key(0, "8d", "SITE")) == NULL);
         check("and a direct conversation keeps the API's own limit",
               rift_model_text_limit(&s, KEY_A) == RIFT_SEND_TEXT_MAX);
 
@@ -870,7 +1070,8 @@ int main(void)
                                 "\"ack_expected\":false,\"mono_ms\":100}") == 0);
         check("it is marked as a channel message", s.msg[0].is_channel);
         check("in the slot it named", s.msg[0].channel_slot == 0);
-        text_is("its conversation key is that slot's", s.msg[0].conv_key, "#0");
+        text_is("its conversation key is that channel's", s.msg[0].conv_key, site);
+        text_is("and the hash that was on the air is kept", s.msg[0].channel_hash, "8c");
         text_is("it carries no peer key at all", s.msg[0].peer_key, "");
         check("and no peer name", !s.msg[0].have_peer_name);
         text_is("the sender's claimed name is kept as a claim", s.msg[0].sender_name, "HYTTA");
@@ -895,7 +1096,7 @@ int main(void)
         /* The conversation. */
         n = rift_model_conversations(&s, conv, RIFT_MAX_CONVERSATIONS);
         check("the channel is one conversation", n == 1);
-        text_is("keyed by its slot", conv[0].key, "#0");
+        text_is("keyed by its channel", conv[0].key, site);
         check("and marked as a channel", conv[0].is_channel && conv[0].channel_slot == 0);
         text_is("named by this node's own name for it", conv[0].name, "SITE");
         check("with one message in it", conv[0].total == 1);
@@ -906,7 +1107,7 @@ int main(void)
 
         /* The thread. */
         {
-            int nn = rift_model_thread(&s, "#0", thread, RIFT_MAX_MESSAGES, &older);
+            int nn = rift_model_thread(&s, site, thread, RIFT_MAX_MESSAGES, &older);
 
             check("the thread holds it", nn == 1 && older == 0);
             check("and it is the message that was sent", nn == 1 && thread[0]->id == 10);
@@ -916,14 +1117,15 @@ int main(void)
         }
 
         /* Reading it clears the badge, and only for that conversation. */
-        check("marking it read clears one", rift_model_mark_read(&s, "#0") == 1);
-        check("and it is read now", rift_model_unread(&s, "#0") == 0);
+        check("marking it read clears one", rift_model_mark_read(&s, site) == 1);
+        check("and it is read now", rift_model_unread(&s, site) == 0);
         check("a second message is unread again",
               apply_message(&s, "{\"id\":14,\"direction\":\"in\",\"kind\":\"channel\","
-                                "\"channel\":0,\"text\":\"K230-A: hi\","
+                                "\"channel\":0,\"channel_name\":\"SITE\","
+                                "\"channel_hash\":\"8c\",\"text\":\"K230-A: hi\","
                                 "\"sender_name\":\"K230-A\",\"state\":\"received\","
                                 "\"ack_expected\":false,\"mono_ms\":200}") == 0 &&
-                  rift_model_unread(&s, "#0") == 1);
+                  rift_model_unread(&s, site) == 1);
 
         /* Two conversations at once: a channel and a peer, kept apart. */
         check("a direct message arrives too",
@@ -937,12 +1139,13 @@ int main(void)
               n == 2 && strcmp(conv[0].key, KEY_A) == 0 && !conv[0].is_channel);
         check("and the channel second", n == 2 && conv[1].is_channel);
         check("reading the channel leaves the direct one unread",
-              rift_model_mark_read(&s, "#0") == 1 && rift_model_unread(&s, KEY_A) == 1);
+              rift_model_mark_read(&s, site) == 1 && rift_model_unread(&s, KEY_A) == 1);
 
         /* The tally: nothing on a channel can be delivered or time out. */
         check("an outgoing channel message is taken",
               apply_message(&s, "{\"id\":16,\"direction\":\"out\",\"kind\":\"channel\","
-                                "\"channel\":0,\"text\":\"K230-A: sending\","
+                                "\"channel\":0,\"channel_name\":\"SITE\","
+                                "\"channel_hash\":\"8c\",\"text\":\"K230-A: sending\","
                                 "\"sender_name\":\"K230-A\",\"state\":\"sent_flood\","
                                 "\"ack_expected\":false,\"mono_ms\":400}") == 0);
         n = rift_model_conversations(&s, conv, RIFT_MAX_CONVERSATIONS);
@@ -989,11 +1192,23 @@ int main(void)
         }
 
         /* Sending. */
-        check("a channel is a destination this app will send to",
-              rift_model_send_begin(&s, "#0", "hello", 1000) == 0);
+        check("a joined channel is a destination this app will send to",
+              rift_model_send_begin(&s, site, "hello", 1000) == 0);
         rift_model_send_clear(&s);
-        check("a slot with no channel in it is still a destination it can address",
-              rift_model_send_begin(&s, "#1", "hello", 1000) == 0);
+        /* mesh.send addresses a slot. A key that does not name the channel
+         * now in its slot must never reach it: that is how a reply to one
+         * audience would go to another. */
+        check("a slot with no channel in it is not a destination",
+              rift_model_send_begin(&s, chan_key(1, "8c", "SITE"), "hello", 1000) == -1);
+        rift_model_send_clear(&s);
+        check("nor is a different channel's key for an occupied slot",
+              rift_model_send_begin(&s, chan_key(0, "77", "OTHER"), "hello", 1000) == -1);
+        rift_model_send_clear(&s);
+        check("nor a channel that cannot be identified",
+              rift_model_send_begin(&s, "#0:?", "hello", 1000) == -1);
+        rift_model_send_clear(&s);
+        check("nor the bare slot older builds used",
+              rift_model_send_begin(&s, "#0", "hello", 1000) == -1);
         rift_model_send_clear(&s);
         check("but a key that is neither is refused",
               rift_model_send_begin(&s, "not-a-key", "hello", 1000) == -1);
@@ -1004,7 +1219,7 @@ int main(void)
             memset(too_long, 'x', sizeof(too_long));
             too_long[147] = '\0';
             check("a body of exactly the channel's limit is taken",
-                  rift_model_send_begin(&s, "#0", too_long, 1000) == 0);
+                  rift_model_send_begin(&s, site, too_long, 1000) == 0);
             rift_model_send_clear(&s);
             too_long[147] = 'x';
             too_long[148] = '\0';
@@ -1012,7 +1227,7 @@ int main(void)
              * the limit is shorter on a channel because this node's name
              * travels inside the payload. */
             check("and one byte more is refused before anything is written",
-                  rift_model_send_begin(&s, "#0", too_long, 1000) == -1);
+                  rift_model_send_begin(&s, site, too_long, 1000) == -1);
             rift_model_send_clear(&s);
         }
 
@@ -1028,8 +1243,12 @@ int main(void)
                           "{\"reason\":\"added\",\"channel\":{\"channel\":4,"
                           "\"name\":\"RENAMED\",\"channel_hash\":\"11\"}}") == 0 &&
                   s.channel_count == 3);
-        nm = rift_model_conv_name(&s, "#4");
+        nm = rift_model_conv_name(&s, chan_key(4, "11", "RENAMED"));
         check("under its new name", nm && strcmp(nm, "RENAMED") == 0);
+        /* The name is part of the identity, so what the slot held under the
+         * old name is not this channel any more - kept apart, not merged. */
+        check("and the old name's key no longer names a joined channel",
+              rift_model_key_channel(&s, chan_key(4, "11", "NEW")) == NULL);
         check("a removal takes it out",
               apply_event(&s, "mesh.channel",
                           "{\"reason\":\"removed\",\"channel\":{\"channel\":4}}") == 0 &&
@@ -1049,18 +1268,21 @@ int main(void)
 
         /* Leaving a channel does not erase what was said on it. */
         check("the messages on a channel outlive leaving it",
-              rift_model_thread(&s, "#0", thread, RIFT_MAX_MESSAGES, &older) > 0);
+              rift_model_thread(&s, site, thread, RIFT_MAX_MESSAGES, &older) > 0);
         check("and a name is still found for them",
-              rift_model_conv_name(&s, "#0") != NULL);
+              rift_model_conv_name(&s, site) != NULL);
         {
             /* Even after the channel itself is gone: the name falls back to
              * what the messages carried. */
             apply_event(&s, "mesh.channel",
                         "{\"reason\":\"removed\",\"channel\":{\"channel\":0}}");
-            nm = rift_model_conv_name(&s, "#0");
+            nm = rift_model_conv_name(&s, site);
             check("a left channel is still named by its messages",
                   nm && strcmp(nm, "SITE") == 0);
             check("but it is no longer in the list", rift_model_channel(&s, 0) == NULL);
+            check("and nothing can be written to it any more",
+                  rift_model_send_begin(&s, site, "hello", 1000) == -1);
+            rift_model_send_clear(&s);
         }
 
         /* Reconnect: the channel list is re-read, and stops being valid
@@ -1101,6 +1323,7 @@ int main(void)
     }
 
     test_body_and_meta();
+    test_slot_reuse();
 
     printf("rift_comms_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;

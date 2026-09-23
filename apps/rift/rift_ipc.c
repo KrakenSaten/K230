@@ -191,8 +191,9 @@ int rift_ipc_request_node(struct rift_ipc *c, const char *key)
      * have said the node prefix was malformed rather than that meshcored had
      * stopped answering. It also spent a pending slot and an error count on
      * every channel opened. Refused here, in the one place that knows what
-     * this method is for, rather than at each caller. */
-    if (rift_key_is_channel(key) >= 0) {
+     * this method is for, rather than at each caller - by its first
+     * character, so no channel-shaped key of any form gets through. */
+    if (key[0] == '#') {
         return -1;
     }
     params = cJSON_CreateObject();
@@ -273,7 +274,12 @@ int rift_ipc_send_message(struct rift_ipc *c, const char *conv_key, const char *
          * than a direct message's because this node's name travels inside a
          * channel payload, and a reader told only "too long" would not know
          * that their 150-character message was fine yesterday to a node. */
-        if (slot >= 0 && limit > 0 && (int)strlen(text) > limit) {
+        if (slot >= 0 && !rift_model_key_channel(c->model, conv_key)) {
+            rift_model_send_failed(c->model,
+                                   c->model->channels_valid
+                                       ? "that channel is not joined any more; nothing was sent"
+                                       : "the channel list has not been read yet; nothing was sent");
+        } else if (slot >= 0 && limit > 0 && (int)strlen(text) > limit) {
             char why_long[RIFT_TEXT_MAX];
 
             snprintf(why_long, sizeof(why_long),

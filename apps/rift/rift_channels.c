@@ -7,7 +7,9 @@
  * There is no key here and no way to ask for one: meshcored does not report
  * it through any method (docs/api/mesh.md). What this holds is what a screen
  * needs - the slot a channel is named by, the local name, the one-byte hash
- * that actually goes on the air, and how long a body may be on it.
+ * that actually goes on the air, and how long a body may be on it - and the
+ * conversation key a channel is filed under, which is built from those three
+ * and not from the slot alone (rift_model.h, RIFT_KEY_HEX).
  *
  * No LVGL and no sockets: host-tested by tests/rift_model_test.c and
  * tests/rift_comms_test.c.
@@ -177,4 +179,135 @@ int rift_model_apply_channel_event(struct rift_model *m, const cJSON *data)
         break;
     }
     return 0;
+}
+
+/* ---- the conversation key -----------------------------------------------
+ *
+ * A direct conversation is keyed by the peer's public key, which is 64 hex
+ * characters. A channel is keyed by its slot, its hash and a fingerprint of
+ * its local name (rift_model.h, RIFT_KEY_HEX, says why the slot alone is not
+ * enough). The two cannot collide - no hex character is '#' - and that is
+ * what lets a channel be an ordinary conversation everywhere below rather
+ * than a second implementation of the list, the thread, the read mark and
+ * the unread count.
+ */
+
+/* FNV-1a over the name as this app holds it - both the list and every
+ * message keep it through rift_utf8_copy into RIFT_CHANNEL_NAME_MAX, so the
+ * same name gives the same bytes whichever it came from. */
+static uint32_t name_fingerprint(const char *name)
+{
+    uint32_t h = 2166136261u;
+
+    for (; *name; name++) {
+        h ^= (uint8_t)*name;
+        h *= 16777619u;
+    }
+    return h;
+}
+
+static int is_hex_char(char c)
+{
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
+void rift_channel_key(int slot, const char *hash, const char *name, char *out, size_t out_len)
+{
+    char lower[RIFT_HASH_HEX];
+    int i;
+
+    if (!out || out_len == 0) {
+        return;
+    }
+    if (slot < 0 || slot >= RIFT_MAX_CHANNELS) {
+        out[0] = '\0';
+        return;
+    }
+    if (!hash || !is_hex_char(hash[0]) || !is_hex_char(hash[1]) || hash[2] || !name || !name[0]) {
+        snprintf(out, out_len, "#%d:?", slot);
+        return;
+    }
+    for (i = 0; i < 2; i++) {
+        lower[i] = (hash[i] >= 'A' && hash[i] <= 'F') ? (char)(hash[i] - 'A' + 'a') : hash[i];
+    }
+    lower[2] = '\0';
+    snprintf(out, out_len, "#%d:%s:%08x", slot, lower, (unsigned)name_fingerprint(name));
+}
+
+void rift_channel_conv_key(const struct rift_channel *ch, char *out, size_t out_len)
+{
+    if (!ch) {
+        if (out && out_len) {
+            out[0] = '\0';
+        }
+        return;
+    }
+    rift_channel_key(ch->slot, ch->have_hash ? ch->hash : NULL, ch->have_name ? ch->name : NULL,
+                     out, out_len);
+}
+
+int rift_key_is_channel(const char *key)
+{
+    int slot = 0;
+    int i;
+
+    if (!key || key[0] != '#' || key[1] < '0' || key[1] > '9') {
+        return -1;
+    }
+    for (i = 1; key[i] >= '0' && key[i] <= '9'; i++) {
+        slot = slot * 10 + (key[i] - '0');
+        if (slot >= RIFT_MAX_CHANNELS) {
+            return -1;
+        }
+    }
+    if (key[i] != ':') {
+        return -1;
+    }
+    i++;
+    if (key[i] == '?' && !key[i + 1]) {
+        return slot;
+    }
+    /* <2 lowercase hex>:<8 lowercase hex>, exactly as rift_channel_key writes it */
+    {
+        static const char shape[] = "hh:ffffffff";
+        int k;
+
+        for (k = 0; shape[k]; k++, i++) {
+            char c = key[i];
+
+            if (shape[k] == ':') {
+                if (c != ':') {
+                    return -1;
+                }
+            } else if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+                return -1;
+            }
+        }
+        if (key[i]) {
+            return -1;
+        }
+    }
+    return slot;
+}
+
+const struct rift_channel *rift_model_key_channel(const struct rift_model *m, const char *key)
+{
+    const struct rift_channel *ch;
+    char now[RIFT_KEY_HEX];
+    int slot = rift_key_is_channel(key);
+
+    if (!m || slot < 0) {
+        return NULL;
+    }
+    ch = rift_model_channel(m, slot);
+    if (!ch) {
+        return NULL;
+    }
+    rift_channel_conv_key(ch, now, sizeof(now));
+    /* A channel the list cannot identify has the "#<slot>:?" key, which is
+     * never a live one: nothing may be written to what cannot be told apart. */
+    if (strchr(now, '?') || strcmp(now, key) != 0) {
+        return NULL;
+    }
+    return ch;
 }
