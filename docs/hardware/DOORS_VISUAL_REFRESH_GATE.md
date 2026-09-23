@@ -1,7 +1,8 @@
 # DOORS visual refresh: unit A visual gate
 
-Branch `feat/doors-visual-refresh`, from master `84df75a`. DS Amendment O
-(§31), PROPOSED.
+Branch `feat/doors-visual-refresh`, from master `84df75a`, merged to master
+`36d216f`. DS Amendment O (§31) ACCEPTED by the owner 2026-09-23, on this
+gate; follow-ups in DS §31.8.
 
 **Build under test: `3c3d2b5`** (branch tip `6abde21` plus the memory fix
 found by this gate). Unit A carries it in every deployed file

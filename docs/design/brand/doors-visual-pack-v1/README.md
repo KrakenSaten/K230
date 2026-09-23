@@ -8,8 +8,8 @@ layer specifications that go with them.
 any UI. Nothing was converted, resized or re-encoded. Nothing was seen on the
 panel: every claim below is about files, not about unit A.
 
-**Integrated 2026-09-22 (branch `feat/doors-visual-refresh`, DS §31,
-PROPOSED).** This folder is still never shipped and nothing in it was
+**Integrated 2026-09-22 (branch `feat/doors-visual-refresh`, merged to
+master `36d216f`; DS §31 ACCEPTED 2026-09-23).** This folder is still never shipped and nothing in it was
 changed. `tools/design/gen_doors_ui.py` derives the runtime art from it into
 `ui/assets/doors/` (backgrounds from `device/backgrounds`, portal icons
 redrawn from `source/app-icons/svg` and the glyph SVGs, glyphs from

@@ -2424,13 +2424,18 @@ Amendment L (§28) accepted 2026-09-18.
 Amendment M (§29) accepted 2026-09-18.
 Amendment N (§30) proposed 2026-09-21; stage 1 implemented, unit A gate pending.
 
-## 31. Amendment O — The DOORS environment [PROPOSED]
+## 31. Amendment O — The DOORS environment [ACCEPTED]
 
-**PROPOSED 2026-09-22** on branch `feat/doors-visual-refresh`, for a unit A
-visual gate (docs/hardware/DOORS_VISUAL_REFRESH_GATE.md). It becomes
-normative when the owner accepts it after that gate. It supersedes §14 C7
-and §20's tile launcher; §20's masks stay (they are the launcher's
-fallback, §31.3). Nothing in §1–§30 is renumbered, and §30 is unchanged.
+**ACCEPTED 2026-09-23 by the product owner** as the production design
+direction of Doors, and normative from that date. Proposed 2026-09-22 on
+branch `feat/doors-visual-refresh`; **hardware-validated on unit A on
+2026-09-23 in both portrait and landscape** (build `3c3d2b5`: lock screen,
+unlock gesture and door sequence, launcher, Controls, apps opened and closed
+by touch, keyboard input while locked, the 50 px landscape corners, rotation
+both ways, memory returning after unlock; docs/hardware/DOORS_VISUAL_REFRESH_GATE.md);
+merged to master `36d216f`. It supersedes §14 C7 and §20's tile launcher;
+§20's masks stay (they are the launcher's fallback, §31.3). Nothing in
+§1–§30 is renumbered, and §30 is unchanged.
 
 **What.** The shell's own screens - lock, launcher, Controls - are drawn in
 the approved visual package (`docs/design/brand/doors-visual-pack-v1`,
@@ -2526,4 +2531,20 @@ comes home, every icon pixel-exact where `shell.info` places it in both
 orientations, no-art and frame-only fallbacks, rotation restart stays open,
 a fresh start locks).
 
-Amendment O (§31) proposed 2026-09-22; unit A visual gate PASS 2026-09-23 on `3c3d2b5`, awaiting the owner's acceptance.
+### 31.8 Follow-ups (not part of the acceptance)
+
+Recorded at acceptance; none of them blocks §31, and none is decided here.
+
+1. A DOORS-aligned default app theme, derived from the launcher and lock
+   visual language (apps still default to Ice & Ember, §8).
+2. Whether to keep the launcher's "Open a space" hint (§31.3).
+3. Landscape launcher labels at 16 px against 20 px in portrait (§31.3).
+4. Distinct glyphs for Display mode and Brightness in Controls; both use
+   the package's sun today (§31.5).
+5. Keyboard navigation on the launcher (there is none, as before §31).
+6. The boot splash stays a separate task (§19; the package's boot image
+   carries no wordmark, and U-Boot cannot draw live text).
+7. The COMPACT landscape bar clipping the `RX` radio chip is unrelated to
+   §31 and stays with §30's stage 1 follow-ups.
+
+Amendment O (§31) accepted 2026-09-23; unit A visual gate PASS 2026-09-23 on `3c3d2b5`, portrait and landscape.
