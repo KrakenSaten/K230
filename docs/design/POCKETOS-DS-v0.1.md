@@ -22,7 +22,7 @@ Files in this handoff:
 | File | Role |
 | --- | --- |
 | `POCKETOS-DS-v0.1.md` | this document — the contract |
-| `themes.json` | machine-readable token tables: 5 themes × 3 modes, derived tokens, contrast audit. Generated from §4–§6 rules; if they ever disagree, this document wins and the JSON is regenerated |
+| `themes.json` | machine-readable token tables: 6 themes × 3 modes (the sixth, `doors`, is §32), derived tokens, contrast audit. Generated from §4–§6 rules; if they ever disagree, this document wins and the JSON is regenerated |
 | `PocketOS Design System.dc.html` | reference screens (visual reference only, §12) |
 | `PocketOS Visual Directions.dc.html` | exploration history; not normative |
 
@@ -246,7 +246,7 @@ not change between modes except the `type_default` and `hairline` tokens.
 - **Fallback.** Unknown id, missing key, unparsable value, or a table failing
   the §4 invariants → use `ice` + `normal`, log a warning, leave the stored
   value untouched until the user changes it. Appearance MUST never prevent
-  boot.
+  boot. (§32, proposed: the fallback, and so the default, becomes `doors`.)
 - **Live switch, no restart.** Token lookups go through `pos_theme_color()`
   at style-apply time. The engine keeps one shared LVGL style per token role;
   on switch it rewrites the properties and calls
@@ -452,9 +452,9 @@ test time from `themes.json`:
 
 - Normal and Outdoor: `text_primary` ≥ 7; `text_secondary` ≥ 4.5; every
   accent/status/radio colour ≥ 4.5; `text_on_accent` on filled slabs ≥ 4.5.
-  All five themes pass (Normal minima: text 16.8, text_secondary 6.7,
-  status_error 5.4, accent 7.8, on-accent 7.8; Outdoor minima: text 21,
-  text_secondary 11.6, all others ≥ 6.8).
+  All six themes pass (Normal minima: text 16.4, text_secondary 6.7,
+  status_error 5.3, accent 7.8, on-accent 7.8; Outdoor minima: text 21,
+  text_secondary 11.6, all others ≥ 6.8; the sixth theme, `doors`, is §32).
 - Night: intentionally below AA for dark adaptation; `text_primary` ≥ 5,
   `text_secondary` ≥ 3, status/radio ≥ 2.8 (lowest: `status_error` 2.8–3.1,
   always paired with an outline and an "ERROR" label). `text_muted` ≈ 1.9
@@ -532,7 +532,7 @@ Outdoor column (C4).
 4. Shared LVGL styles per token role; `lv_obj_report_style_change` on
    switch; `POS_EVENT_THEME_CHANGED`.
 5. Persistence: `theme`, `display_mode` keys; read before first frame;
-   fallback `ice` + `normal` on any failure.
+   fallback `ice` + `normal` on any failure (`doors` + `normal` under §32).
 6. Update components to §9: panel (hairline, radius 6, caption-in-rule),
    slab back button, status bar with four cells and chip states, key/value
    row 64, toggle, segmented control, segmented meter, spectrum, track
@@ -2293,7 +2293,9 @@ cheapest pixel in it.
   the same caption type, the same insets and hairline. Nothing is dropped and
   nothing moves horizontally. Only the height changes, and with it the radio
   chip: 24 px tall (36 in FULL), the 14 px caption centred in it by 5 px of
-  vertical padding; the §7 chip style itself is not changed. 32 is more than
+  vertical padding; the §7 chip style itself is not changed. (§32.4,
+  proposed: 26 px, and in FULL too its text centred by the line height of
+  the font it is drawn in - the 24 px chip clipped `RX`.) 32 is more than
   the 30 px corner squares of §21.1, so whatever sits under a COMPACT bar
   starts below the corner band and needs no inset of its own.
 - **NONE** — no bar. The bar's objects exist and keep being written (clock,
@@ -2534,6 +2536,7 @@ a fresh start locks).
 ### 31.8 Follow-ups (not part of the acceptance)
 
 Recorded at acceptance; none of them blocks §31, and none is decided here.
+Items 1-4 and 7 are answered by §32 (Amendment P, proposed).
 
 1. A DOORS-aligned default app theme, derived from the launcher and lock
    visual language (apps still default to Ice & Ember, §8).
@@ -2548,3 +2551,149 @@ Recorded at acceptance; none of them blocks §31, and none is decided here.
    §31 and stays with §30's stage 1 follow-ups.
 
 Amendment O (§31) accepted 2026-09-23; unit A visual gate PASS 2026-09-23 on `3c3d2b5`, portrait and landscape.
+
+## 32. Amendment P — DOORS app theme and UI polish [PROPOSED]
+
+**PROPOSED 2026-09-23** on branch `feat/doors-app-theme-polish`, validated in
+the simulator and on the host; not yet on unit A (§32.8). It answers §31.8
+items 1-4 and 7 and changes nothing in §31's environment. Nothing in §1-§31
+is renumbered.
+
+**Why.** After §31 the launcher, lock and Controls are charcoal, warm white
+and dark glass, and every app behind them was still Ice & Ember: blue-black
+surfaces, an ice-blue accent on every primary button, selected segment and
+focus outline. The threshold and the spaces behind it looked like two
+products.
+
+### 32.1 The `doors` theme
+
+A sixth theme in `themes.json`, with the same 13 base tokens as the other
+five and every derived and mode value by §4 and §6:
+
+| token | `doors` Doors | reason |
+| --- | --- | --- |
+| bg | #0b0b0a | near-black with a warm cast, not Ice's blue-black |
+| surface | #161513 | charcoal |
+| surface_raised | #211f1c | one step up, for rows and pressed slabs |
+| line | #36332e | a warm hairline |
+| text_primary | #eeeae2 | the package's warm white (§31.1): app text and launcher text are one colour |
+| text_secondary | #a8a399 | warm grey |
+| accent_primary | #d8bf94 | pale sand, between the package's Files and Apps hues: the one warm fill in an app |
+| accent_secondary | #b9b3a6 | stone |
+| status_ok | #57c785 | Ice's, unchanged: status means the same in every theme |
+| status_warn | #e3b341 | Ice's |
+| status_error | #e5534b | Ice's |
+| radio_rx | #8fc1e8 | a softened sky blue |
+| radio_tx | #ee9960 | a softened ember |
+
+Contrast (`themes.json → themes.doors.contrast`): Normal - text 16.4,
+text_secondary 7.8, lowest accent/status/radio status_error 5.3,
+text_on_accent at least 8.8; Outdoor - text 21, text_secondary 12.6, all
+others at least 6.8; Night - text_primary 5.3, text_secondary 3.5,
+status/radio at least 2.8. Every §4 invariant and §13 target holds, and
+`tests/theme_test.c` holds the engine to every value. RX and TX stay the two
+distinct hues §13 asks for in every mode, apart from the accent's sand and
+from status_warn's amber.
+
+There is deliberately no gradient, glow or shadow: the depth is the three
+tonal steps bg, surface, surface_raised and the hairline, as in every theme.
+No new style mechanism exists for this theme; it is a table row.
+
+### 32.2 Default and fallback
+
+`doors` is first in the theme order and is the §8 fallback, and so the
+default of a device that stores no theme; the image's `settings.conf` ships
+`theme=doors`. Ice & Ember and the other four are unchanged and stay
+selectable in Settings. A stored `theme=ice` is honoured: a device keeps Ice
+until someone chooses otherwise.
+
+### 32.3 Where it reaches, and where it does not
+
+Every app screen, the dialogs apps build from the shared roles (§17.5),
+the system alert (§18), the status bar inside apps and the keyboard follow
+the theme, as they always have. The environment (§31.1) does not: its
+palette is the art's.
+
+Fleet, Radar and Timber keep their own identity. Their gameplay drawing is
+unchanged: Timber's felt and pieces are art in every theme, and Fleet and
+Radar draw their game signals in `radio_rx` and `radio_tx`, which Doors
+keeps as a blue and an ember, so their signal language survives on the
+charcoal. What reaches them is only what reaches every app: background,
+status bar, cards, buttons and focus.
+
+### 32.4 Chips
+
+- **Active chip.** `POS_STYLE_CHIP_ACTIVE`, an `accent_primary` fill with
+  `text_on_accent`, for a chip that means selected, on, running or up and is
+  not the radio: Settings' SELECTED theme and connected network, System's
+  running services and interfaces that are up. Those used the RX chip, which
+  §4 gives to the radio alone; the misuse was invisible because in Ice (and
+  Brass) `accent_primary` equals `radio_rx` - which also means those chips are
+  pixel-identical in both. The radio's own chips keep their roles, and the
+  games' chips their colours.
+- **Centred text.** A chip is a label, and a label draws from the top of its
+  content box: the §7 chip showed its caption at the top of 36 px. Its
+  padding now comes from the line of its caption font, so the text is
+  centred - in every chip that uses the §7 style, Radar's and Timber's state
+  chips included (their captions move down to the middle; nothing else of
+  them changes).
+- **The status bar's radio chip** draws in the symbol font (a 22 px line),
+  not the caption font. Its height and padding are derived from that line
+  under each chrome (`chrome_chip_box`, `ui/shell/chrome.h`): FULL 36 px with
+  the text centred by 7 px; COMPACT **26 px** (was 24) centred by 2 px. The
+  §31.8 item 7 defect was 24 px less 2 × 5 px of padding: 14 px of content
+  for a 22 px line, so the label clipped the top of `RX` - the simulator
+  never showed it because without radiod the chip says `--`, which sits
+  mid-line. The chip is never taller than its bar less a 2 px hairline.
+
+### 32.5 Launcher
+
+- **"Open a space" is removed** (§31.3, §31.8 item 2). In the simulator it
+  sat alone in portrait, in the band between DEVICE and the footer, naming
+  nothing on the screen - "space" is not a word the launcher uses anywhere
+  else, and every cell already carries its app's name - and in landscape it
+  sat in the footer row between Lock and Controls at the height of their
+  labels, where it read as a third action that does nothing. The layout
+  already dropped it whenever apps filled its band. The lock screen's "Swipe
+  up to open" stays: that one is an instruction.
+- **Landscape labels stay 16 px** (§31.8 item 3). Measured from the font: at
+  20 px "Calculator" is 92 px wide and "Calendar" 81 px, against the 87 px
+  landscape cell that twelve apps in four panels leave on a 1160 px line.
+  20 px would shorten "Calculator", which §31.3 forbids, and crowd
+  "Calendar" to 3 px of its cell edges; the cell cannot widen without
+  wrapping the row. Portrait keeps 20 px in its 124 px cells.
+
+### 32.6 Controls
+
+Display (Normal / Night / Outdoor) has its own glyph, a disc half filled -
+the usual display-mode sign - drawn first-party in the package's line
+language (`docs/design/doors-glyphs/mode.svg`, 48-unit canvas, 2-unit round
+strokes) and rasterised to 32 px by the renderer that reproduces the
+package's own 32 px glyphs to within 3/255 mean alpha
+(`gen_doors_ui.py --compare`). Brightness keeps the package's sun. Nothing
+else in Controls changes, and no behaviour does.
+
+### 32.7 Validation on the host
+
+`tests/theme_test.c` (Doors against `themes.json` in all three modes, the
+§13 thresholds and the sanctioned pairs), `tests/fleet_theme_test.c`,
+`tests/chrome_test.c` (the radio chip for every line height from 10 to 26 px
+under every chrome), `tests/chrome_shell_test.sh` (the RX chip drawn from a
+real radiod poll has as many rows of ink under COMPACT as under FULL; RX, TX,
+OFF and `--` at home, in System and in Fleet, in both orientations, each
+with a whole line in a chip inside its bar), `tests/home_layout_test.c`,
+`tests/doors_ui_assets_test.sh` (the glyph regenerates byte for byte), and
+every app and shell suite. Contact sheets of every screen in both
+orientations: `docs/design/doors-app-theme/`.
+
+### 32.8 Unit A gate (before acceptance)
+
+The build's identity first. If the device stores `theme=ice`, select Doors
+in Settings (or `pos shell theme doors normal`). Both orientations: the
+launcher without the hint; Controls with the new Display glyph beside the
+Brightness sun; System, Notes, Clock, Calculator, Settings and RIFT under
+Doors; a landscape app with the radio in RX and the compact chip's `RX` whole;
+Fleet, Radar and Timber recognisably themselves. Outdoor and Night once
+each; Ice selected and back.
+
+Amendment P (§32) proposed 2026-09-23; host-validated, unit A gate pending.
