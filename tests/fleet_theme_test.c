@@ -4,9 +4,9 @@
  *
  * PocketFleet invents no colours; it composes Design System tokens. The DS
  * contrast gate (tests/theme_test) checks each token against bg, but not the
- * combinations an app chooses, so this test states them and holds the five
- * themes to them. If a sixth theme is ever added, this is what tells us
- * whether the grid still reads in it.
+ * combinations an app chooses, so this test states them and holds every
+ * theme to them. When a theme is added (the sixth, doors, in DS §32), this
+ * is what tells us whether the grid still reads in it.
  *
  * Night is deliberately below AA (DS §13), so it has its own lower floors.
  *

@@ -80,7 +80,8 @@ rm -rf "$RUN" "$LOGD" "$CFG" "$STATE"
 # below the status bar (DS section 21.1; the corners are the simulator's
 # default 30 px, the reference panel's).
 #
-# look <png> <theme> <mode> <= key x1 y1 x2 y2>
+# look <png> <theme> <mode> <= key x1 y1 x2 y2>; theme "default" is the
+# fallback themes.json names, which is what a shell with nothing stored draws.
 look() {
     python3 - "$@" <<'PY'
 import json, sys
@@ -89,7 +90,8 @@ sys.path.insert(0, "docs/design/timber-art/tools")
 from pngio import read_png
 path, theme, mode = sys.argv[1:4]
 x1, y1, x2, y2 = (int(v) for v in sys.argv[4:8])
-tok = json.load(open("docs/design/themes.json", encoding="utf-8"))["themes"][theme]["modes"][mode]
+data = json.load(open("docs/design/themes.json", encoding="utf-8"))
+tok = data["themes"][data["fallback_theme"] if theme == "default" else theme]["modes"][mode]
 hexrgb = lambda s: tuple(int(s[i:i + 2], 16) for i in (1, 3, 5))
 acc, bg = hexrgb(tok["accent_primary"]), hexrgb(tok["bg"])
 W, H, rows = read_png(path)
@@ -124,13 +126,13 @@ for o in portrait landscape; do
     if [ $o = portrait ]; then
         check "$o: on the portrait launcher" \
             "$(grep -q 'launcher: 4 group(s), 12 app(s), portrait' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
-        set -- $(look "$LOGD/calc.png" ice normal 422 1074 547 1201)
+        set -- $(look "$LOGD/calc.png" default normal 422 1074 547 1201)
     else
         check "$o: on the landscape launcher" \
             "$(grep -q 'launcher: 4 group(s), 12 app(s), landscape' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
         # The keypad is 410 px tall under the 32 px COMPACT bar of DS section
         # 30 (386 under the 56 px one), so its bottom row is 75 px, not 70.
-        set -- $(look "$LOGD/calc.png" ice normal 1072 463 1211 537)
+        set -- $(look "$LOGD/calc.png" default normal 1072 463 1211 537)
     fi
     check "$o: the = key is drawn where calc_app_test lays it out, bottom right" "${1:-0}"
     check "$o: nothing is drawn in the rounded corner squares at the foot of the panel" "${2:-0}"

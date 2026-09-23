@@ -2,7 +2,7 @@
  * PocketOS theme engine core (Design System v0.1, docs/design/POCKETOS-DS-v0.1.md).
  *
  * Pure C, no LVGL dependency, so it can be unit-tested natively. Holds the
- * five Normal-mode base token tables (generated from themes.json), derives
+ * Normal-mode base token tables (generated from themes.json), derives
  * the remaining tokens (§4), applies the Outdoor and Night rules (§6),
  * checks the §4 invariants and keeps the current (theme, mode) selection
  * with fallback (§8). Colour values are 0xRRGGBB.

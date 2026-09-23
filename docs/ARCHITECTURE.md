@@ -186,7 +186,8 @@ literal, colour style call or font symbol outside `pos_theme.c`,
 `pos_styles.c` and the generated fonts. Apps and the shell add role styles
 only. Selection is persisted by the shell in `/etc/pocketos/settings.conf`
 (`theme`, `display_mode`), read before the first frame; invalid stored values
-fall back to `ice` + `normal`, are logged, and are left untouched.
+fall back to `doors` + `normal` (DS §32; `ice` before it), are logged, and are
+left untouched.
 
 The settings store is for non-secret preferences only. It is plain text,
 world-readable and unauthenticated, and must never hold passwords, private

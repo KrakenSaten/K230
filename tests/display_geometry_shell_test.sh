@@ -194,7 +194,7 @@ PY
 # ---- 2. both orientations, every theme and mode --------------------------------
 fresh
 for orient in portrait landscape; do
-    for theme in ice brass olive slate carbon; do
+    for theme in doors ice brass olive slate carbon; do
         for mode in normal outdoor night; do
             png="$OUT/$orient-$theme-$mode.png"
             shot "$png" "$OUT/$orient-$theme-$mode.log" --rotation "$orient" --theme "$theme" --mode "$mode"
@@ -206,7 +206,8 @@ for orient in portrait landscape; do
         done
     done
     # A rectangular panel: no rounded corners, so the bar keeps its own 20 px.
-    POCKETOS_SAFE_CORNERS=0,0,0,0 shot "$OUT/$orient-rect.png" "$OUT/$orient-rect.log" --rotation "$orient"
+    POCKETOS_SAFE_CORNERS=0,0,0,0 shot "$OUT/$orient-rect.png" "$OUT/$orient-rect.log" --rotation "$orient" \
+        --theme ice --mode normal
     look "$OUT/$orient-rect.png" ice normal "$orient rectangular" 20 >"$OUT/$orient-rect.checks" 2>&1
     first=$(grep -oE 'ink starts at x [0-9]+' "$OUT/$orient-rect.checks" | grep -oE '[0-9]+$')
     check "$orient, rectangular panel: the bar's padding stays 20 px (wordmark ink from x $first)" \

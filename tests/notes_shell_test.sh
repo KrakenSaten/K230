@@ -51,7 +51,8 @@ rm -rf "$RUN" "$LOGD" "$CFG" "$STATE"
 # corner squares at the foot of the panel (DS 21.1; the simulator's corners
 # are the reference panel's 30 px).
 #
-# look <png> <theme> <mode> <New note x1 y1 x2 y2>
+# look <png> <theme> <mode> <New note x1 y1 x2 y2>; theme "default" is the
+# fallback themes.json names, which is what a shell with nothing stored draws.
 look() {
     python3 - "$@" <<'PY'
 import json, sys
@@ -60,7 +61,8 @@ sys.path.insert(0, "docs/design/timber-art/tools")
 from pngio import read_png
 path, theme, mode = sys.argv[1:4]
 x1, y1, x2, y2 = (int(v) for v in sys.argv[4:8])
-tok = json.load(open("docs/design/themes.json", encoding="utf-8"))["themes"][theme]["modes"][mode]
+data = json.load(open("docs/design/themes.json", encoding="utf-8"))
+tok = data["themes"][data["fallback_theme"] if theme == "default" else theme]["modes"][mode]
 hexrgb = lambda s: tuple(int(s[i:i + 2], 16) for i in (1, 3, 5))
 acc, bg = hexrgb(tok["accent_primary"]), hexrgb(tok["bg"])
 W, H, rows = read_png(path)
@@ -91,11 +93,11 @@ for o in portrait landscape; do
     check "$o: and no warning but the simulator's missing radiod" "$([ -z "$hits" ] && echo 1 || echo 0)"
     [ -n "$hits" ] && echo "$hits" | head -3
     if [ $o = portrait ]; then
-        set -- $(look "$LOGD/notes.png" ice normal 20 328 547 391)
+        set -- $(look "$LOGD/notes.png" default normal 20 328 547 391)
         check "$o: New note is drawn under the empty state, where notes_app_test lays it out" "${1:-0}"
     else
         # From row 128: the 32 px COMPACT bar of DS section 30 in landscape.
-        set -- $(look "$LOGD/notes.png" ice normal 924 128 1211 191)
+        set -- $(look "$LOGD/notes.png" default normal 924 128 1211 191)
         check "$o: New note is drawn in the rail beside the empty state, where notes_app_test lays it out" "${1:-0}"
     fi
     check "$o: nothing is drawn in the rounded corner squares at the foot of the panel" "${2:-0}"

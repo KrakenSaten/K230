@@ -181,7 +181,7 @@ green or red.
 ## Colour contract
 
 PocketFleet invents no colours. `tests/fleet_theme_test.c` states every
-foreground/background pair the grid actually draws and holds all five themes
+foreground/background pair the grid actually draws and holds every theme (six since DS §32)
 in all three modes to a floor. Worst ratio observed across the whole matrix:
 
 | Pair | Tokens | Worst |
@@ -290,7 +290,7 @@ POCKETFLEET_SCREEN=battle pocketos-shell --open fleet --theme ice --mode normal 
 | `tests/fleet_rules_test` | deployment, firing, turn order, win, determinism |
 | `tests/fleet_ai_test` | no-cheat replay, legality, termination, strategy, strength order |
 | `tests/fleet_save_test` | codec round trips, impossible saves, resume equivalence, the file |
-| `tests/fleet_theme_test` | the colour contract above, five themes by three modes |
+| `tests/fleet_theme_test` | the colour contract above, every theme by three modes |
 | `tests/fleet_lint.sh` | the structural rules |
 | `tests/fleet_shell_test.sh` | persistence and pacing in the running shell, and every screen rendered in landscape |
 | `tests/fleet_app_test` | the app under a real pointer device: the shape rule, all four screens in both shapes, every cell of the board hit at its centre and its four corners at three sizes, the gaps and the gutter, aim-then-confirm, and the display turned under a match in progress |

@@ -856,7 +856,31 @@ static int scroll_to(lv_obj_t *obj, int32_t dy)
     int i;
 
     for (i = 0; i < 12 && obj && !in_view(obj); i++) {
-        drag(scroller_of(obj), dy);
+        lv_area_t a;
+        lv_area_t s;
+        lv_area_t b;
+        int32_t need;
+
+        /* Toward the target and no further than it needs, at most |dy|: a
+         * full-length fling at a target just past the edge throws the page
+         * to its end and past it, and back again on the next try. "In view"
+         * is inside the scroller and the body's content box (in_view), so
+         * the distance is to the edge of both; the 24 px margin clears
+         * LVGL's scroll threshold. dy is the drag for a target below. */
+        area_of(obj, &a);
+        area_of(scroller_of(obj), &s);
+        body_box(&b);
+        s.y1 = LV_MAX(s.y1, b.y1);
+        s.y2 = LV_MIN(s.y2, b.y2);
+        need = (a.y1 < s.y1 ? s.y1 - a.y1 : a.y2 - s.y2) + 24;
+        if (need > LV_ABS(dy)) {
+            need = LV_ABS(dy);
+        }
+        if (getenv("SETTINGS_TEST_DEBUG")) {
+            printf("     scroll_to: target %d..%d, scroller %d..%d, scroll_y %d, drag %d\n", (int)a.y1,
+                   (int)a.y2, (int)s.y1, (int)s.y2, (int)lv_obj_get_scroll_y(scroller_of(obj)), (int)need);
+        }
+        drag(scroller_of(obj), (a.y1 < s.y1) == (dy < 0) ? need : -need);
     }
     return in_view(obj);
 }

@@ -210,7 +210,7 @@ about the board, not a setting to keep silently.
 - [ ] `pos shell theme brass outdoor` changes the panel live; `cat
       /etc/pocketos/settings.conf` shows `theme=brass`, `display_mode=outdoor`.
 - [ ] `reboot`: the shell comes back in brass/outdoor. (V: settings persistence)
-- [ ] `pos shell theme neon`: the panel falls back to ice with a fallback
+- [ ] `pos shell theme neon`: the panel falls back to doors (ice before DS §32) with a fallback
       message, and the stored value stays brass (DS section 8).
 
 ## 8. PocketFleet

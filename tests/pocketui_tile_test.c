@@ -126,7 +126,7 @@ static int same_area(const lv_area_t *a, const lv_area_t *b)
 
 int main(void)
 {
-    static const char *themes[] = { "ice", "brass", "olive", "slate", "carbon" };
+    static const char *themes[] = { "doors", "ice", "brass", "olive", "slate", "carbon" };
     static const char *modes[] = { "normal", "outdoor", "night" };
     static int user_text = 1;
     static int user_mask = 2;

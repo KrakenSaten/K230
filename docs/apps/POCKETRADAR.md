@@ -463,7 +463,7 @@ pocketos-shell --open radar --theme carbon \
 | `radar-acquired.png` | a NORMAL target acquired, ENGAGE armed and priced |
 | `radar-decoy.png` | a DECOY acquired, DO NOT ENGAGE, ENGAGE still armed |
 | `radar-result.png` | the run over, statistics, new best |
-| `radar-scan-ice.png`, `radar-acquired-ice.png` | the same in the platform default theme |
+| `radar-scan-ice.png`, `radar-acquired-ice.png` | the same in Ice, the platform default theme when they were taken (before DS §32) |
 | `radar-scan-reduced-motion.png` | the sweep replaced by a static bearing reference |
 
 

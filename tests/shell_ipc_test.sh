@@ -44,9 +44,9 @@ check "screenshot is a PNG" 'PNG' "$(head -c 8 "$OUT/radio.png" | tr -d '\0')"
 out=$("$POS" shell theme brass outdoor 2>&1); check "theme switch brass/outdoor" 'theme brass mode outdoor' "$out"
 out=$("$POS" shell info); check "info reports theme" '"theme":[[:space:]]*"brass"' "$out"; check "info reports mode" '"mode":[[:space:]]*"outdoor"' "$out"
 "$POS" shell screenshot "$OUT/radio-brass-outdoor.png" >/dev/null
-check "themed screenshot differs from ice" '1' "$(cmp -s "$OUT/radio.png" "$OUT/radio-brass-outdoor.png" && echo 0 || echo 1)"
+check "themed screenshot differs from the default theme" '1' "$(cmp -s "$OUT/radio.png" "$OUT/radio-brass-outdoor.png" && echo 0 || echo 1)"
 out=$("$POS" shell theme neon 2>&1); check "unknown theme falls back" 'fallback' "$out"
-out=$("$POS" shell info); check "fallback theme is ice" '"theme":[[:space:]]*"ice"' "$out"; check "fallback mode is normal" '"mode":[[:space:]]*"normal"' "$out"
+out=$("$POS" shell info); check "fallback theme is doors (DS §32)" '"theme":[[:space:]]*"doors"' "$out"; check "fallback mode is normal" '"mode":[[:space:]]*"normal"' "$out"
 out=$("$POS" shell theme ice dusk 2>&1); check "unknown mode falls back" 'fallback' "$out"
 out=$("$POS" shell theme slate 2>&1); check "theme only keeps mode" 'theme slate mode normal' "$out"
 check "selection persisted" 'theme=slate' "$(cat "$POCKETOS_CONFIG_DIR/settings.conf")"
@@ -151,7 +151,7 @@ display_mode=normal
 ' > "$POCKETOS_CONFIG_DIR/settings.conf"
 "$SHELL_BIN" >"$OUT/shell2.log" 2>&1 & SP=$!
 for _ in $(seq 1 50); do [ -S "$POCKETOS_RUNTIME_DIR/shell.sock" ] && break; sleep 0.1; done
-out=$("$POS" shell info); check "corrupt stored theme falls back to ice" '"theme":[[:space:]]*"ice"' "$out"
+out=$("$POS" shell info); check "corrupt stored theme falls back to doors (DS §32)" '"theme":[[:space:]]*"doors"' "$out"
 check "fallback is logged" 'fallback' "$(cat "$OUT/shell2.log")"
 check "corrupt value left in file" 'theme=zzz' "$(cat "$POCKETOS_CONFIG_DIR/settings.conf")"
 kill $SP; wait $SP 2>/dev/null

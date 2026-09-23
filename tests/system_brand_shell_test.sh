@@ -86,7 +86,7 @@ PY
 hairline() { [ "$1" = outdoor ] && echo 2 || echo 1; }
 
 # ---- every theme, every mode ---------------------------------------------------
-for theme in ice brass olive slate carbon; do
+for theme in doors ice brass olive slate carbon; do
     for mode in normal outdoor night; do
         png="$OUT/system-$theme-$mode.png"
         "$SHELL_BIN" --open system --theme "$theme" --mode "$mode" --screenshot "$png" \
@@ -130,7 +130,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, "docs/design/timber-art/tools")
 from pngio import read_png
 out, sheet = sys.argv[1:3]
-themes, modes = ["ice", "brass", "olive", "slate", "carbon"], ["normal", "outdoor", "night"]
+themes, modes = ["doors", "ice", "brass", "olive", "slate", "carbon"], ["normal", "outdoor", "night"]
 at = {}
 for line in open(out + "/where.txt"):
     t, m, x, y = line.split()

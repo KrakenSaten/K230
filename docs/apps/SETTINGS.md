@@ -184,7 +184,7 @@ unit A sections of `docs/hardware/WIFI_2026-09-12.md` and
   on a wrong passphrase, the ON/OFF switch with automatic rejoin, Scan.
 - Brightness: `-` disabled at 10 %, `+` in steps of 10 with an immediate
   change, stored and restored after a shell restart and a reboot.
-- Appearance: all five themes and Normal, Outdoor and Night applied live and
+- Appearance: all six themes (five before DS §32) and Normal, Outdoor and Night applied live and
   persisted; every section readable in each mode, nothing clipped or
   overlapping, no control hard to hit.
 
