@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <time.h>
 
@@ -23,6 +24,25 @@
 
 static unsigned loads;
 static size_t held;
+
+/* The pixels live in a mapping of their own, not in the heap. A background
+ * is 1.4 MB and is freed the moment the lock opens; from the heap, glibc
+ * kept one such block after a few rapid lock/open rounds on unit A (RssAnon
+ * stayed 1.3 MB up, flat, until the shell exited). munmap gives the pages
+ * back to the system every time, which is what "only while shown" means. */
+static void *pixels_alloc(size_t n)
+{
+    void *p = mmap(NULL, n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+    return p == MAP_FAILED ? NULL : p;
+}
+
+static void pixels_free(void *p, size_t n)
+{
+    if (p) {
+        munmap(p, n);
+    }
+}
 
 const char *art_dir(void)
 {
@@ -43,7 +63,7 @@ lv_image_dsc_t *art_load(const char *name)
 {
     char path[512];
     uint8_t head[ART_HEADER_SIZE];
-    struct art_header h;
+    struct art_header h = { 0 };
     struct stat st;
     const char *why = NULL;
     lv_image_dsc_t *img = NULL;
@@ -64,7 +84,7 @@ lv_image_dsc_t *art_load(const char *name)
         fread(head, 1, sizeof(head), f) != sizeof(head)) {
         why = "unreadable";
     } else if (art_header_parse(head, (size_t)st.st_size, &h, &why) == 0) {
-        data = malloc(h.data_size);
+        data = pixels_alloc(h.data_size);
         img = calloc(1, sizeof(*img));
         if (!data || !img) {
             why = "out of memory";
@@ -77,7 +97,7 @@ lv_image_dsc_t *art_load(const char *name)
     fclose(f);
     if (why) {
         LOG_WARN("art: %s: %s; drawing the fallback", path, why);
-        free(data);
+        pixels_free(data, h.data_size);
         free(img);
         return NULL;
     }
@@ -103,7 +123,7 @@ void art_free(lv_image_dsc_t *img)
     /* Nothing may still be drawing it; LVGL may still remember it. */
     lv_image_cache_drop(img);
     held -= img->data_size;
-    free((void *)img->data);
+    pixels_free((void *)img->data, img->data_size);
     free(img);
 }
 
