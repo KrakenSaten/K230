@@ -2526,4 +2526,4 @@ comes home, every icon pixel-exact where `shell.info` places it in both
 orientations, no-art and frame-only fallbacks, rotation restart stays open,
 a fresh start locks).
 
-Amendment O (§31) proposed 2026-09-22; implemented on `feat/doors-visual-refresh`, unit A visual gate pending.
+Amendment O (§31) proposed 2026-09-22; unit A visual gate PASS 2026-09-23 on `3c3d2b5`, awaiting the owner's acceptance.

@@ -1,13 +1,46 @@
 # DOORS visual refresh: unit A visual gate
 
 Branch `feat/doors-visual-refresh`, from master `84df75a`. DS Amendment O
-(§31), PROPOSED. **Not run yet.** Nothing was deployed or flashed while the
-branch was built; unit A still carries whatever it carried before.
+(§31), PROPOSED.
 
-**Build under test:** record here, before anything else, the build unit A
-shows in `doors system info` (and `doors call shell shell.info` → `build`).
-It must be the branch tip named in the gate's result line, not an earlier
-build.
+**Build under test: `3c3d2b5`** (branch tip `6abde21` plus the memory fix
+found by this gate). Unit A carries it in every deployed file
+(`/etc/doors-release` `BUILD_ID=3c3d2b5`, `shell.info` `build`), deployed with
+`deploy.sh`, no flash. **Left locked, landscape, rotation Automatic, keyboard
+base attached.** Rollback of the `b41be37` userspace:
+`/root/rollback-pre-dvr/RESTORE.sh`.
+
+**Result: PASS on unit A, 2026-09-23** (remote checks and captures, and the
+owner's physical checks: "all fine"). Not merged.
+
+## Result
+
+| Check | Result |
+| --- | --- |
+| Deploy | image `3c3d2b5` IMAGE GATE PASS; `deploy.sh` rc 0; 19 art files, 8,756,964 B, byte-identical to `ui/assets/doors`; all services running, 0 restarts, 0 crash reports |
+| shell.info | `art.background` true, `icons_art` 12, `icons_fallback` 0; cold start `lock.locked` true |
+| Lock (portrait, landscape) | frame captures match the simulator; bar clear of the 50 px corners; framebuffer shows dither, no contour bands at 4x contrast; owner: smooth, readable |
+| Gestures (touch controller) | tap and a 40 px drag stay locked; a 220 px swipe opens, door sequence 925 ms end to end on the device (designed 840 ms); owner: smooth |
+| Keyboard while locked | owner: typing reached nothing, Enter opened |
+| Launcher | portrait 124 px cells, landscape 87 px, no scroll; portrait footer 20 px higher than in the simulator because the 50 px bottom-left corner override feeds the layout's inset, as designed; owner: icons sharp, labels readable, press mark shows |
+| Controls | real radio (`Receiving`), Wi-Fi (`Off`), brightness 50 % from the backlight; owner: brightness moves the panel, Night darkens photograph and icons |
+| Apps | Notes, Calculator, RIFT, Clock opened by touch and closed by the back slab; apps unchanged |
+| Rotation | portrait and back to Automatic landscape in place (same pid), both times open, not locked |
+| Timing on the device | launcher + Controls built in 20-25 ms, lock 1-3 ms, each background read 1-14 ms |
+| Memory | see the fix below: `3c3d2b5` locked 7,552 kB RssAnon, open 6,196 kB, after 60 further rounds 6,204 kB, flat; `art.bytes_held` 1,731,328 open every time |
+
+**Defect found and fixed (`3c3d2b5`).** On `6abde21`, after twenty rapid
+lock/open rounds the shell's RssAnon stayed 1.3 MB up (7,508 kB) and flat for
+forty more rounds, while `art.bytes_held` was correct: glibc kept one freed
+1.4 MB background in the heap. The art pixels are now an anonymous `mmap`,
+unmapped on release; re-measured on the unit as above.
+
+Not part of this branch, seen again: the COMPACT bar clips the `RX` chip in
+apps in landscape (shell chrome stage 1 follow-up).
+
+The SDK tree `~/work/t-display-k230` now carries the `3c3d2b5` apply:
+re-apply master before building anything else from it. Evidence:
+`out/doors-visual-gate/` (scripts, logs, `caps/`), not committed.
 
 ## What is new on the panel
 
