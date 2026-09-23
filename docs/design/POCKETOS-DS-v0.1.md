@@ -246,7 +246,7 @@ not change between modes except the `type_default` and `hairline` tokens.
 - **Fallback.** Unknown id, missing key, unparsable value, or a table failing
   the §4 invariants → use `ice` + `normal`, log a warning, leave the stored
   value untouched until the user changes it. Appearance MUST never prevent
-  boot. (§32, proposed: the fallback, and so the default, becomes `doors`.)
+  boot. (§32, accepted 2026-09-23: the fallback, and so the default, is `doors`.)
 - **Live switch, no restart.** Token lookups go through `pos_theme_color()`
   at style-apply time. The engine keeps one shared LVGL style per token role;
   on switch it rewrites the properties and calls
@@ -2281,9 +2281,13 @@ back on the launcher, so Radar is never open while the display turns, and
 PocketRadar has no resume: a run is abandoned by a turn, as it is by leaving
 the app, which is v0.1 behaviour and not changed here.
 
-## 30. Amendment N — Status chrome policy [PROPOSED]
+## 30. Amendment N — Status chrome policy [ACCEPTED]
 
-**PROPOSED 2026-09-21**, and implemented on master the same day as stage 1
+**ACCEPTED 2026-09-23** by the owner, on the v0.0.11 RC1 unit A gate
+(`docs/hardware/V0.0.11_RELEASE_SMOKE.md`), which is what §30.7 below asked of the device
+only in part: see that sheet for the items it covered and the ones it did
+not. Stage 1 only; stages 2 and later are not part of the acceptance.
+**Proposed 2026-09-21**, and implemented on master the same day as stage 1
 (§30.4) for validation on unit A. It becomes normative on the same terms as
 the rest of this document when the owner accepts it after that gate; until
 then the implementation is what is described here and nothing else. Nothing
@@ -2305,10 +2309,15 @@ cheapest pixel in it.
   nothing moves horizontally. Only the height changes, and with it the radio
   chip: 24 px tall (36 in FULL), the 14 px caption centred in it by 5 px of
   vertical padding; the §7 chip style itself is not changed. (§32.4,
-  proposed: 26 px, and in FULL too its text centred by the line height of
-  the font it is drawn in - the 24 px chip clipped `RX`.) 32 is more than
-  the 30 px corner squares of §21.1, so whatever sits under a COMPACT bar
-  starts below the corner band and needs no inset of its own.
+  accepted: 26 px, and in FULL too its text centred by the line height of
+  the font it is drawn in - the 24 px chip clipped `RX`.) 32 was more than
+  the 30 px corner squares of §21.1 when this was written. Since the
+  landscape top corners became 50 px (§21.1, 2026-09-23) it is not: the
+  first 18 px of what sits under a COMPACT bar lie in the corner band, and
+  the headers do not inset for it. Unit A showed nothing of an app header cut
+  under COMPACT with 50 px corners (the §31 gate ran with them as a bench
+  override, the v0.0.11 RC1 gate with them as the default); a header that
+  reached further into the corner would need the §21.1 inset.
 - **NONE** — no bar. The bar's objects exist and keep being written (clock,
   chip, hint), so the §9 hint API and the radio poll are unchanged, but
   nothing of it is drawn and the content area starts at the top edge. An app
@@ -2435,7 +2444,7 @@ Amendment J (§26) accepted 2026-09-17.
 Amendment K (§27) accepted 2026-09-17.
 Amendment L (§28) accepted 2026-09-18.
 Amendment M (§29) accepted 2026-09-18.
-Amendment N (§30) proposed 2026-09-21; stage 1 implemented, unit A gate pending.
+Amendment N (§30) accepted 2026-09-23 (stage 1; v0.0.11 RC1 unit A gate, docs/hardware/V0.0.11_RELEASE_SMOKE.md).
 
 ## 31. Amendment O — The DOORS environment [ACCEPTED]
 
@@ -2552,7 +2561,7 @@ restarts).
 ### 31.8 Follow-ups (not part of the acceptance)
 
 Recorded at acceptance; none of them blocks §31, and none is decided here.
-Items 1-4 and 7 are answered by §32 (Amendment P, proposed).
+Items 1-4 and 7 are answered by §32 (Amendment P, accepted 2026-09-23).
 
 1. A DOORS-aligned default app theme, derived from the launcher and lock
    visual language (apps still default to Ice & Ember, §8).
@@ -2568,10 +2577,12 @@ Items 1-4 and 7 are answered by §32 (Amendment P, proposed).
 
 Amendment O (§31) accepted 2026-09-23; unit A visual gate PASS 2026-09-23 on `3c3d2b5`, portrait and landscape.
 
-## 32. Amendment P — DOORS app theme and UI polish [PROPOSED]
+## 32. Amendment P — DOORS app theme and UI polish [ACCEPTED]
 
-**PROPOSED 2026-09-23** on branch `feat/doors-app-theme-polish`, validated in
-the simulator and on the host; not yet on unit A (§32.8). It answers §31.8
+**ACCEPTED 2026-09-23** by the owner, on the v0.0.11 RC1 unit A gate
+(`docs/hardware/V0.0.11_RELEASE_SMOKE.md`), which covered §32.8 in part: see that sheet.
+**Proposed 2026-09-23** on branch `feat/doors-app-theme-polish`, validated in
+the simulator and on the host before the device (§32.8). It answers §31.8
 items 1-4 and 7 and changes nothing in §31's environment. Nothing in §1-§31
 is renumbered.
 
@@ -2712,4 +2723,4 @@ Doors; a landscape app with the radio in RX and the compact chip's `RX` whole;
 Fleet, Radar and Timber recognisably themselves. Outdoor and Night once
 each; Ice selected and back.
 
-Amendment P (§32) proposed 2026-09-23; host-validated, unit A gate pending.
+Amendment P (§32) accepted 2026-09-23 (v0.0.11 RC1 unit A gate, docs/hardware/V0.0.11_RELEASE_SMOKE.md).

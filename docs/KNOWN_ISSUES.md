@@ -36,10 +36,10 @@ What a v0.0.11 reader most needs to know, gathered here; the detail is in the
 sections below. Evidence classes as in AGENTS.md: nothing in this section is
 DEVICE VERIFIED unless it says so.
 
-- **No v0.0.11 image has been built, flashed or gated.** Everything merged
-  since `v0.0.10` that reached unit A did so by bench deploy (`deploy.sh`) on
-  a unit that also carries per-unit settings; the release smoke on a freshly
-  flashed card is still owed.
+- **v0.0.11 RC1 (`9a4afeb`) was flashed on unit A and passed its short
+  release gate** on 2026-09-23 (docs/hardware/V0.0.11_RELEASE_SMOKE.md). Not covered there:
+  keyboard-base attach and removal while running, service kill and
+  recovery, power-off from System, a cold power cycle.
 - **Landscape safe corners: decided, 50 px at the top, device confirmation
   owed.** In landscape the two top corner squares are 50 px (the bottom ones
   and every portrait corner stay 30 px), the owner's decision of 2026-09-23
@@ -47,13 +47,12 @@ DEVICE VERIFIED unless it says so.
   `POCKETOS_SAFE_CORNERS` on 2026-09-21 (45 px failed, 50 px the smallest
   that passed); the built-in default replacing that bench override is
   confirmed on the device by the v0.0.11 release gate.
-- **The landscape status chrome (DS §30, COMPACT 32 px) is PROPOSED, and its
-  unit A gate (§30.7) has not been run.** The COMPACT bar clipped the RX chip
-  on unit A (2026-09-21); the fix (`ab3c05d`, the chip sized from its font's
-  line) is merged and host-tested, not seen on the device.
-- **The Doors app theme and UI polish (DS §32) is PROPOSED** until its unit
-  A visual gate. `theme=doors` is the shipped default in `settings.conf`; a
-  unit that already has a settings file keeps its theme.
+- **DS §30 (landscape COMPACT status bar) and DS §32 (Doors app theme) are
+  ACCEPTED** (owner, 2026-09-23) on the v0.0.11 RC1 unit A gate
+  (docs/hardware/V0.0.11_RELEASE_SMOKE.md). That gate covered their §30.7 and §32.8 checklists
+  in part; what it did not exercise on the device is listed in the sheet
+  (among it: the keyboard up in landscape apps, every app under COMPACT,
+  Fleet's full bar, Outdoor, and Ice and back).
 - **A MeshCore message's state does not say whether it was transmitted**
   (meshcored section below; docs/api/mesh.md, "Accepted is not transmitted").
 - **Notes shows 1970 dates for notes saved before the clock is set** (below,

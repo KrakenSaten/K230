@@ -194,8 +194,8 @@ every app that is having one (below), the MeshCore stack (the portable
 protocol core, radiod's asynchronous transmit and lease, meshcored as a
 supervised per-unit opt-in service, and RIFT, the mesh client, with channels
 and 256 retained nodes), the DOORS environment (DS §31: lock screen, grouped
-launcher, Controls), the landscape status chrome (DS §30, proposed), the
-Doors app theme (DS §32, proposed), and the pre-release fixes from the
+launcher, Controls), the landscape status chrome (DS §30, accepted), the
+Doors app theme (DS §32, accepted), and the pre-release fixes from the
 2026-09-23 cold review. Draft release notes: `docs/releases/v0.0.11.md`,
 which also lists what is still owed before a release candidate. No image
 built, no unit A gate run on it; not tagged.
