@@ -1,37 +1,114 @@
 # Files on unit A: the gate
 
-**Status: PREPARED, NOT RUN** (2026-09-23). Unit A has not been touched for
-this branch. Nothing below has been done on the device.
+**Status: RUN 2026-09-23, 19:33–20:19 UTC. Everything that was run PASSES on
+`2bccc5b`; step 8 (the keyboard base) is NOT RUN and needs the owner's hands;
+DS §33 and the landscape launcher are the owner's decisions.**
+
+**Unit A carries `2bccc5b`** (`/usr/bin/doors-shell` sha256 `d99e954f…`,
+`icon-files.bin` `c3cee7e8…`; everything else RC1 `9a4afeb`). Left at home,
+rotation Automatic (landscape, keyboard base attached), not locked, all five
+services up, `meshcored` online. Rollback to RC1's shell:
+`sh /root/rollback-files/RESTORE.sh` (copy sha256 `d5b78286…`).
+
+The gate was prepared for `6465e38` and started on it. It found three defects
+(F1–F3 below); they were fixed in `2bccc5b`, which was built the same way
+(twice, byte-identical), installed over `6465e38` at 20:15 UTC, and the checks
+the defects touched were run again on it. Nothing else changed between the
+two, so the other `6465e38` results stand for `2bccc5b`.
+
+## Result
+
+| | |
+| --- | --- |
+| **PASS** | Install and identity (both builds); Files from the launcher in both orientations; browsing `/root`, `/`, `/etc` (through a link), `/var/lib/pocketos`; the viewer (14 KB text, scrolled); a binary refused; the touch keyboard for New folder (DONE) and Rename; the empty-name caption, portrait and landscape; Copy, a duplicate `readme (2).txt`, Move up a folder, Delete with Cancel then Delete, a folder deleted with its contents — each confirmed on disk; the read-only places (`/root/.ssh`, `/etc`, `/etc/pocketos`, `/tmp` itself, `/var/lib/pocketos` and `meshcored` in it) show only Open and Copy, and a tap on the disabled Delete does nothing; the landscape details pane and actions, Sort through all four, the carry bar in the pane; nothing in the rounded corners; long copies (below) |
+| **FIXED ON THE GATE** | F1 long names wrapped out of their rows; F2 the selection outline ran through the glyph; F3 closing Files mid-copy held the shell 2.6 s and logged the wrong outcome — all three re-verified on `2bccc5b` |
+| **NOT RUN** | Step 8, Enter on the keyboard base (its keys cannot be injected remotely: TCA8418 over I2C). The same path is host-tested (`files_app_test`: Enter pushed into the key stream creates the folder, once) |
+| **OWNER** | DS §33; the landscape launcher (7.1 below) |
+
+## Findings
+
+**F1 — long names wrapped (6.7, 7.3). FIXED `2bccc5b`.** The 235-character
+name took three lines, ran out of its 64 px row and hid its caption, in both
+orientations (`caps/p-6.3b-entered.png`, `caps/l-7.2b-files-gate.png`).
+`LV_LABEL_LONG_DOT` on a label that sizes its own height wraps instead of
+ending in `…`. Every single-line label is now one line of its font tall. The
+host test had only checked the row existed; `files_app_test` now checks every
+row's text stays inside its row in both orientations, and fails 3 checks with
+the old code. On `2bccc5b`: one line, `…`, caption shown
+(`caps/p-R5-rows.png`, `caps/l-R2-selected.png`). The landscape details pane
+(two lines then `…`) was right from the start.
+
+**F2 — selection outline through the glyph (6.6). FIXED `2bccc5b`.** Cosmetic.
+Rows now keep 8 px inside and the list 4 px top and bottom
+(`caps/l-R2-selected.png`).
+
+**F3 — closing Files mid-copy blocked the shell (9.3). FIXED `2bccc5b`.** On
+`6465e38`, Back pressed at once after Paste here on a 40 MB copy: the
+copy was in the page cache and the final `fsync` cannot be interrupted, so
+`destroy()` waited 2.6 s (log 19:56:12.111 → 14.741), the copy completed, and
+the log said "it was stopped". Data safe (identical, no partial), UI not. A
+copy now flushes every 4 MB. On `2bccc5b` the same test: home **245 ms**
+after Back (20:16:48.167 → .411), copy stopped, nothing left behind, log
+"it was stopped and nothing was left half done".
+
+**Observations (not defects of this branch):**
+
+- 7.1 **The landscape launcher** wraps DEVICE onto a second line, as DS §33.4
+  says, and **Lock and Controls are entirely below the fold** until the
+  launcher is scrolled (`caps/l-7.1a-launcher.png`, `l-7.1b-launcher-scrolled.png`).
+  Owner's decision.
+- After Copy, Move, New folder or Rename the result is selected, so the next
+  tap on its row opens it rather than selecting it. As designed; worth
+  knowing (seen at 9.1).
+- `/root/.config`, `/root/.ssh` and several `/` entries show 1970 dates:
+  their real mtimes, from before the clock was set.
+- Notes' empty-state glyph box: not checked here (Notes not opened).
+
+## Deviations from the procedure
+
+- **Free space**: 121.8 MB on `/` (step 1), under the 150 MB of trap 5. Step 9
+  ran scaled: 24 MB for the responsiveness copy (twice) and 40 MB (not 96)
+  for close-mid-copy.
+- **9.1 measured, not only watched**: the capture tool takes ~8 s, too slow to
+  see a copy in progress, so the shell's IPC (served on its LVGL thread) was
+  timed every 100 ms instead: idle mean 20 ms / max 30 ms; during a 24 MB copy
+  18 / 30; during a 40 MB copy on `2bccc5b` 17 / 30. The UI thread was never
+  held.
+- **Taps were injected** (evdev, 150 ms holds, `rift_tap.py`) and every screen
+  captured with `kmsgrab`; the owner did not operate the unit. All captures:
+  `out/files-gate-6465e38/caps/` on the build host (not committed).
+- Step 4's `app start` also unlocks the shell, by design of `shell.home`.
+
 
 ## The build the unit must carry — check this before anything else
 
 A physical check is only evidence about the build on the glass
 (`docs/hardware/FLEET_LANDSCAPE_GATE.md` is why this section comes first).
-Before anything is written down, `doors shell info` must say **`6465e38`**,
+Before anything is written down, `doors shell info` must say **`2bccc5b`**,
 and the right-hand column is filled in at step 3.
 
 | On the unit | The gate needs | Last recorded (v0.0.11 RC1 gate, 2026-09-23) | Filled in at step 3 |
 | --- | --- | --- | --- |
-| `/usr/bin/doors-shell` | **`6465e38`**, sha256 `f7ba3d90…` (this branch) | `9a4afeb` (RC1 image) | |
-| `/usr/share/doors/ui/icon-files.bin` | **new**, sha256 `c3cee7e8…` | absent | |
-| everything else (`radiod`, `sysd`, `netd`, `meshcored`, `doors` CLI, the other art, `/etc/doors-release`) | **not replaced**: `git diff 9a4afeb..6465e38` touches nothing they are built or installed from | `9a4afeb` | not replaced |
-| Rotation mode | record at step 1, restore at step 10 | Automatic, keyboard base attached (landscape), locked | |
+| `/usr/bin/doors-shell` | **`2bccc5b`**, sha256 `d99e954f…` (this branch) | `9a4afeb` (RC1 image) | **`2bccc5b`**, `d99e954f…` (first `6465e38`, `f7ba3d90…`) |
+| `/usr/share/doors/ui/icon-files.bin` | **new**, sha256 `c3cee7e8…` | absent | `c3cee7e8…` |
+| everything else (`radiod`, `sysd`, `netd`, `meshcored`, `doors` CLI, the other art, `/etc/doors-release`) | **not replaced**: `git diff 9a4afeb..2bccc5b` touches nothing they are built or installed from | `9a4afeb` | not replaced |
+| Rotation mode | record at step 1, restore at step 10 | Automatic, keyboard base attached (landscape), locked | Automatic (landscape); portrait for steps 6 and the F1 re-check; restored |
 
 `/etc/doors-release` keeps saying `9a4afeb`: only the shell is swapped. The
 shell reports its own build in `shell.info`, which is the one that counts.
 
-**The build under test is `feat/files-app` at `6465e38`,** from origin/master
+**The build under test is `feat/files-app` at `2bccc5b`** (first `6465e38`), from origin/master
 `63a276c` (the v0.0.11 release commit; its image is RC1 `9a4afeb`, and the
 commits between are docs only). VERSION stays `0.0.11`. Not merged, and not to
-be merged unless this gate passes. Commits after `6465e38` on the branch change
+be merged unless this gate passes. Commits after `2bccc5b` on the branch change
 this sheet and nothing else.
 
 ## What this gate is for
 
 | | |
 | --- | --- |
-| **HOST VERIFIED** | `files_fs_test` 179 checks, `files_view_test` 36, `files_app_test` 82 (portrait and landscape, every journey tapped and typed), `files_lint`, `files_shell_test`; `make test` green; the launcher and shell suites with thirteen apps (`doors_shell_test`, `chrome_shell_test`, `display_geometry_shell_test`, `notes_shell_test`, `wave_shell_test`, `calculator_shell_test`, `home_layout_test`, `app_icons_test`, `doors_ui_assets_test`) green. |
-| **HOST VERIFIED** | The target build: riscv64 `doors-shell` from a `git archive` of `6465e38`, 0 objects before the build, 0 warnings, built twice and byte-identical. See The payload. |
+| **HOST VERIFIED** | `files_fs_test` 179 checks, `files_view_test` 36, `files_app_test` 85 (portrait and landscape, every journey tapped and typed), `files_lint`, `files_shell_test`; `make test` green; the launcher and shell suites with thirteen apps (`doors_shell_test`, `chrome_shell_test`, `display_geometry_shell_test`, `notes_shell_test`, `wave_shell_test`, `calculator_shell_test`, `home_layout_test`, `app_icons_test`, `doors_ui_assets_test`) green. |
+| **HOST VERIFIED** | The target build: riscv64 `doors-shell` from a `git archive` of `6465e38`, and again of `2bccc5b`, 0 objects before the build, 0 warnings, each built twice and byte-identical. See The payload. |
 | **NOT VERIFIED — this gate** | Everything on the panel: Files in both orientations, touch on the real controller, the keyboard for names, the operations on the unit's own ext4 root filesystem, the read-only places as they exist on the device, the worker thread keeping the UI alive during a long copy, and the thirteen-app launcher (DS §33.4). |
 
 What the branch adds (details in `docs/apps/FILES.md`, layout in DS §33):
@@ -68,16 +145,16 @@ Files on the launcher in DEVICE, which makes the landscape launcher wrap.
 
 ## The payload
 
-Two files, on the build host (WSL) in **`~/work/files-gate-out-6465e38/`**
+Two files, on the build host (WSL) in **`~/work/files-gate-out-2bccc5b/`**
 (`$OUT` below), with `SHA256SUMS` beside them. No image is built, `deploy.sh`
 is not used, nothing under `/etc` is written.
 
 | Path on the unit | sha256 | Size |
 | --- | --- | --- |
-| `/usr/bin/doors-shell` | `f7ba3d90b102362a374b595ee15138a76815246bed826b134e5bdad94140abbf` | 1 243 896 |
+| `/usr/bin/doors-shell` | `d99e954f45e867e938515218bce169d05753c119a1102d1f7f2597de9e2fa0cc` | 1 243 968 |
 | `/usr/share/doors/ui/icon-files.bin` | `c3cee7e8d32f0bdb43e51be70aac66f1c1264a2b23ae179543e02dece5ffc688` | 27 660 |
 
-Provenance: `git archive 6465e38`, `BUILD_ID` file `6465e38` beside `VERSION`
+Provenance: `git archive 2bccc5b`, `BUILD_ID` file `2bccc5b` beside `VERSION`
 (as `apply_to_sdk.sh` writes it), `cmake -S ui/shell` with the SDK's
 `toolchainfile.cmake`, `-DPOCKETOS_DISPLAY=drm -DPOCKETOS_LVGL_MODE=sysroot`,
 target `pocketos-shell`, installed as `doors-shell`, not stripped (as the
@@ -94,6 +171,10 @@ field's ready event, DS §17.4), not only on the touch keyboard's Done — so
 Enter on the keyboard base works (step 8). Host-tested: `files_app_test` 82
 checks, `files_shell_test`, `files_lint`.
 
+`2bccc5b` is `6465e38` plus the three fixes this gate found (F1–F3, at the
+top). Host-tested: `files_app_test` 85 checks, `files_fs_test` 179,
+`files_view_test` 36, `files_lint`, `files_shell_test`.
+
 ---
 
 # The procedure
@@ -106,7 +187,7 @@ and leaves the unit. From the build host (WSL):
 A=root@192.168.10.157                      # unit A on the bench; confirm
 KH=$HOME/work/rc1-gate-ssh/known_hosts     # the host key pinned after the RC1 flash
 SSHO="-i $HOME/.ssh/pocketos_bench -o UserKnownHostsFile=$KH -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=8"
-OUT=$HOME/work/files-gate-out-6465e38
+OUT=$HOME/work/files-gate-out-2bccc5b
 RB=/root/rollback-files
 u() { ssh $SSHO $A sh -s -- "$@"; }        # runs the script on stdin on the unit
 ```
@@ -187,7 +268,7 @@ EOF
 | Must be true | |
 | --- | --- |
 | both installed hashes match the payload table | **write them into the table at the top now** |
-| shell `"build":"6465e38"`, exactly one `doors-shell` | |
+| shell `"build":"2bccc5b"`, exactly one `doors-shell` | |
 | `icons_art` 13, `icons_fallback` 0 | the new portal icon was found |
 | the log says `launcher: 4 group(s), 13 app(s), <orientation>` | Files is registered |
 | `"locked":true` | trap 2 |
@@ -343,7 +424,7 @@ df -h / | tail -1
 EOF
 ```
 
-Then either **leave the unit on `6465e38`** (the default for a passed gate,
+Then either **leave the unit on `2bccc5b`** (the default for a passed gate,
 until the next build replaces it) and say so at the top of this sheet, or run
 `sh /root/rollback-files/RESTORE.sh` to go back to RC1's shell. Either way,
 record which in "Results".
@@ -354,16 +435,16 @@ record which in "Results".
 
 | Step | Result | Evidence |
 | --- | --- | --- |
-| 1 Survey | | |
-| 2 Rollback copy | | |
-| 3 Install / identity | | |
-| 4 Remote open, both orientations | | |
-| 5 Test folder | | |
-| 6 Portrait (6.1–6.20) | | |
-| 7 Landscape (7.1–7.8) | | |
-| 8 Keyboard base | | |
-| 9 Long copy / close mid-copy | | |
-| 10 Clean up, unit left on | | |
+| 1 Survey | PASS | RC1 `9a4afeb`, shell `d5b78286…`, all libraries present, one shell, Automatic/landscape/keyboard present, 121.8 MB free; `step1-survey.log` |
+| 2 Rollback copy | PASS | `/root/rollback-files/doors-shell` `d5b78286…` = step 1, `RESTORE.sh` written |
+| 3 Install / identity | PASS ×2 | `6465e38` (`f7ba3d90…`) at 19:34; `2bccc5b` (`d99e954f…`) at 20:15. Both: 13 icons from the art, 0 fallback, `launcher: 4 group(s), 13 app(s), landscape, 104 px cells (wrapped) … scrolls`, locked at start, one shell |
+| 4 Remote open, both orientations | PASS | `current: files` at 568×1232 and 1232×568; no ERROR, no WARN, no crash report |
+| 5 Test folder | PASS | `step5-fixture.log` |
+| 6 Portrait (6.1–6.20) | PASS, F1 and F2 fixed | 6.1 DEVICE = Settings, System, Files, folder portal icon, no scroll; 6.2–6.6, 6.8–6.20 as the table says, each operation confirmed on disk; 6.7 failed on `6465e38` (F1), passes on `2bccc5b` |
+| 7 Landscape (7.1–7.8) | PASS, F1 fixed | 7.1 wraps and scrolls (owner); 7.2–7.8 as the table says; 7.3's rows had F1 |
+| 8 Keyboard base | NOT RUN | owner: Files → New folder, type on the base, Enter → the folder is made; then Delete it |
+| 9 Long copy / close mid-copy | PASS on `2bccc5b`, F3 fixed | 9.1 IPC 17–18 ms mean during copies; 9.2 sha256 / `cmp` identical (24 MB ×2, 40 MB); 9.3–9.5 above |
+| 10 Clean up, unit left on | PASS | `/root/files-gate` removed, Automatic restored, 5 services, `meshcored` online 181 nodes, `identity.id` `41e8a50a…` unchanged, 0 ERROR, 0 crash reports; unit left on `2bccc5b`; `step10-asleft.log` |
 
 ## Host only (not checked here)
 
