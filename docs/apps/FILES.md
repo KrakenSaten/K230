@@ -6,9 +6,10 @@ read-only.
 
 Status: **v1 on branch `feat/files-app`, not merged. Host-tested (unit tests
 against a real temporary tree, and the app under a real LVGL pointer and the
-real touch keyboard in portrait and landscape); not yet run on unit A - the
-gate was run on 2026-09-23 on build `2bccc5b` (`docs/hardware/FILES_GATE.md`): everything run passed after three fixes it found; the keyboard-base step and the owner decisions are open. The
-layout is DS §33 (Amendment Q), PROPOSED.**
+real touch keyboard in portrait and landscape). Unit A gate run 2026-09-23
+on build `2bccc5b` (`docs/hardware/FILES_GATE.md`): everything run passes,
+after three fixes the gate found; the keyboard-base step and the owner's
+decisions are open. The layout is DS §33 (Amendment Q), PROPOSED.**
 
 ## What it does
 
@@ -100,7 +101,8 @@ takes, so they run on the worker; a 30 ms LVGL timer collects the result.
 No file operation runs in a layout or draw pass. Opening from a row is
 deferred to that timer, because it rebuilds the row it was tapped on. Closing
 the app while a job runs stops it (a copy at its next 64 KB chunk, removing
-what it made) and waits for the thread.
+what it made) and waits for the thread; a copy flushes every 4 MB, so that
+wait is short (245 ms for a 40 MB copy on unit A).
 
 Registered like any other app: `ui/shell/shell.c` registry, launcher group
 DEVICE in the files colour (`ui/shell/home_layout.c`), the B package's `files`
@@ -137,5 +139,6 @@ from the body the app is given, never from the orientation, through
   real shell opening Files in both orientations with nothing drawn in the
   panel's rounded corners.
 
-Not tested: unit A (not touched for this branch), and the behaviour on a real
-SD card or a vfat mount.
+On unit A (the gate): the operations on the card's ext4 root, the read-only
+places as they are on the device, long copies with the UI unaffected, and
+closing mid-copy. Not tested: a vfat mount, and Enter on the keyboard base.
