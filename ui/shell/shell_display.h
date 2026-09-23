@@ -25,8 +25,11 @@
  * described in platform.h. Both backends describe the same panel so the
  * simulator lays out what the board shows. POCKETOS_SAFE_CORNERS=tl,tr,br,bl
  * (non-negative pixels) overrides the corner squares on the bench or in a
- * test; an invalid value logs a warning and the default stays. */
-void shell_display_panel(struct pos_panel *out);
+ * test, in both orientations; an invalid value logs a warning and the
+ * default stays. The default here is portrait's (30 px at every corner);
+ * shell_display_resolve raises the landscape top corners to 50 px once the
+ * orientation is known (platform.h). Returns 1 when the override was used. */
+int shell_display_panel(struct pos_panel *out);
 
 struct shell_display {
     struct pos_panel panel;

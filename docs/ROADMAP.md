@@ -188,6 +188,18 @@ notices). Release notes: `docs/releases/v0.0.10.md`; the release candidate
 limitation): `docs/hardware/V0.0.10_RELEASE_SMOKE.md`. Phase 4 of ADR-005 is
 not started and not approved.
 
+**v0.0.11, in preparation** (2026-09-23, `release/v0.0.11-prep`, VERSION
+0.0.11): everything merged since the `v0.0.10` tag - landscape layouts for
+every app that is having one (below), the MeshCore stack (the portable
+protocol core, radiod's asynchronous transmit and lease, meshcored as a
+supervised per-unit opt-in service, and RIFT, the mesh client, with channels
+and 256 retained nodes), the DOORS environment (DS §31: lock screen, grouped
+launcher, Controls), the landscape status chrome (DS §30, proposed), the
+Doors app theme (DS §32, proposed), and the pre-release fixes from the
+2026-09-23 cold review. Draft release notes: `docs/releases/v0.0.11.md`,
+which also lists what is still owed before a release candidate. No image
+built, no unit A gate run on it; not tagged.
+
 ### Landscape app adaptation (after v0.0.10)
 
 System rotation works (DS §21). When this was written most app screens were
@@ -211,7 +223,7 @@ Accepted, in the order they were done:
 | Clock | §26, Amendment J | 2026-09-17 | `2bdf279` |
 | Calendar | §27, Amendment K | 2026-09-17 | `1608c3f` |
 | Fleet | §28, Amendment L | 2026-09-18 | `f577fff` |
-| Radar | §29, Amendment M | 2026-09-18 | `feature/radar-landscape` |
+| Radar | §29, Amendment M | 2026-09-18 | `b9c4a47` |
 
 Fleet went in first, as §28: the two branches were developed independently from
 `7d0d1ea` and numbered so they would not collide, and Radar was rebased onto
@@ -268,8 +280,11 @@ Settings holds only what is backed by working functionality. Reviewed
 ## Phase 3: first strong application
 
 RIFT was the planned first application; the owner deprioritised it on
-2026-09-04. The slot is open. Candidates: RadioLab (link measurements,
-airtime, CAD scans) because radiod already provides the data.
+2026-09-04 and it came back as the MeshCore client on 2026-09-19. It is on
+master with ACTIVITY, NODES and COMMS (direct messages and channels), over
+meshcored (docs/apps/RIFT.md, docs/services/MESHCORED.md); NET is not in
+this build. Open follow-ups are in docs/KNOWN_ISSUES.md (meshcored and RIFT).
+RadioLab (link measurements, airtime, CAD scans) remains a candidate.
 
 ## Phase 4: PocketLink
 

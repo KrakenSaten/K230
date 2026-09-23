@@ -212,8 +212,11 @@ for orient in portrait landscape; do
     first=$(grep -oE 'ink starts at x [0-9]+' "$OUT/$orient-rect.checks" | grep -oE '[0-9]+$')
     check "$orient, rectangular panel: the bar's padding stays 20 px (wordmark ink from x $first)" \
         "$([ "${first:-0}" -ge 20 ] && [ "${first:-99}" -le 22 ] && echo 1 || echo 0)"
-    set -- $(same_but_bar "$OUT/$orient-rect.png" "$OUT/$orient-ice-normal.png" 10)
-    check "$orient: with 30 px corners the wordmark is the same pixels moved 10 px right (drawn whole)" "${1:-0}"
+    # The corners in force: 30 px in portrait; in landscape the top ones are
+    # 50 px (platform.h, DS §21.1), so the bar's 20 px padding grows by 30.
+    corner=30; [ "$orient" = landscape ] && corner=50
+    set -- $(same_but_bar "$OUT/$orient-rect.png" "$OUT/$orient-ice-normal.png" $((corner - 20)))
+    check "$orient: with $corner px top corners the wordmark is the same pixels moved $((corner - 20)) px right (drawn whole)" "${1:-0}"
     check "$orient: and everything below the status bar is identical to the rectangular panel" "${2:-0}"
 done
 

@@ -8,11 +8,16 @@ in, which nodes it has heard, and how a packet would get to one of them.
 unit A re-gate PASS 2026-09-20) and channels (on-air gate A–D PASS
 2026-09-21, `docs/hardware/RIFT_CHANNELS_GATE.md`).
 
-**Branch `feat/rift-improvements` (2026-09-21) is host-only.** It adds the
-ADVERT buttons, forgetting a node or its route, the per-message ACK deadlines
-in meshcored, and the screen-space changes described below; none of it has
-been on unit A yet. "What needs hardware" at the end lists what a gate has to
-see.
+Also on master: the RIFT improvements - the ADVERT buttons, forgetting a node
+or its route, the per-message ACK deadlines in meshcored and the screen-space
+changes described below (unit A gate PASS 2026-09-22,
+`docs/hardware/RIFT_IMPROVEMENTS_GATE.md`); 256 retained nodes, newest first
+(unit A gate PASS 2026-09-22, `docs/hardware/MESH_NODE_CAPACITY_256_GATE.md`);
+and, host-tested only (2026-09-23), channel conversations keyed by the
+channel rather than the slot, so a reused slot does not inherit an old
+channel's history and a reply from a left channel is refused. Every gate
+above ran bench-deployed builds; none ran from a flashed v0.0.11 image.
+Known limits are in docs/KNOWN_ISSUES.md ("RIFT, the mesh client").
 
 RIFT puts a packet on the air in two places, both at a reader's press, and
 the whole of "What it is not" below is about where that is allowed to happen

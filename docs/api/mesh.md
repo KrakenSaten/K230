@@ -240,7 +240,7 @@ transmitted.
 It is the node's entry that goes, not the node: it is **added back the next
 time it adverts**. Until then a message to it is refused (error 2, no single
 node matches) because there is no contact to encrypt to. MeshCore's table
-holds 32 and evicts nothing on its own, so this is what makes room when
+holds 256 and evicts nothing on its own, so this is what makes room when
 `nodes_unretained` says adverts are being turned away. A message already
 waiting for its ACK keeps waiting.
 
@@ -501,6 +501,14 @@ means the protocol core queued it; how the transmit went arrives as
 Errors: 2 when `zero_hop` is present and not a boolean (a string `"false"`
 read as true would flood an advert the caller meant to keep local), 5 when the
 radio is not available, 4 when the runtime could not build one.
+
+**An advert is stamped with the wall clock, and nothing checks that the clock
+is set.** The board has no RTC: until NTP answers, the clock reads 1970. An
+advert built then is accepted and transmitted, but a MeshCore peer that already
+holds a newer advert from this node treats it as a replay and ignores it
+(upstream `BaseChatMesh.cpp:131`), so name and route refreshes do not arrive
+and nothing reports that. A known limitation (docs/KNOWN_ISSUES.md); advert
+after the clock has been set.
 
 **This and `mesh.send` are the only ways meshcored transmits without having
 been sent something first.** There is no periodic advert. What it does send
