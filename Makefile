@@ -671,7 +671,7 @@ tests/calc_view_test: tests/calc_view_test.o $(CALC_OBJS)
 # real socket and a scripted service. The screens themselves need LVGL and
 # are built by ui/shell (CMake), run by tests/rift_shell_test.sh.
 RIFT_DIR := apps/rift
-RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_messages.o \
+RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_messages.o \
              $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o \
              $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_format.o $(RIFT_DIR)/rift_format_msg.o \
              $(RIFT_DIR)/rift_ipc.o
@@ -679,7 +679,7 @@ RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_messages.o \
 # dispatches mesh.message and mesh.channel events into rift_messages.c and
 # rift_channels.c, and the service going away settles the requests
 # rift_actions.c holds, so anything linking one links them all.
-RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_messages.o \
+RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_messages.o \
                    $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o \
                    $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_format.o \
                    $(RIFT_DIR)/rift_format_msg.o

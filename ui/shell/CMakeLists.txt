@@ -111,6 +111,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/wave/wave_text.c
     ${REPO_DIR}/apps/rift/rift_app.c
     ${REPO_DIR}/apps/rift/rift_model.c
+    ${REPO_DIR}/apps/rift/rift_clock.c
     ${REPO_DIR}/apps/rift/rift_messages.c
     ${REPO_DIR}/apps/rift/rift_channels.c
     ${REPO_DIR}/apps/rift/rift_actions.c
@@ -751,8 +752,15 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     # service, which is one of the states it has to draw, and the fixtures
     # go into its model through the same entry points its own client uses.
     # The shell is not here either; the app.h entry points are counters.
+    #
+    # The one RIFT source it does not take is rift_clock.c: the test links
+    # tests/rift_test_clock.c in its place, a virtual monotonic clock that
+    # moves only as the test pumps LVGL, so the same fixtures draw the same
+    # ages however long a run takes (tests/rift_shell_test.sh, section 4).
+    # The shell links the real clock; nothing of this reaches it.
     add_executable(rift_app_test
         ${REPO_DIR}/tests/rift_app_test.c
+        ${REPO_DIR}/tests/rift_test_clock.c
         chrome.c
         ${REPO_DIR}/apps/rift/rift_app.c
         ${REPO_DIR}/apps/rift/rift_model.c

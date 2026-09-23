@@ -27,6 +27,7 @@
 #include "rift_app.h"
 #include "rift_comms.h"
 #include "rift_nodes.h"
+#include "rift_test_clock.h"
 #include "rift_thread.h"
 
 #include <stdio.h>
@@ -153,12 +154,20 @@ static void read_cb(lv_indev_t *indev, lv_indev_data_t *data)
     data->point = finger_point;
 }
 
+/* Time here is the test's, not the machine's. LVGL's tick and RIFT's clock
+ * (rift_test_clock.c, linked in place of the real one) move together, by
+ * exactly what is pumped, so the ages a screen draws - "45 s" - depend on the
+ * fixtures and the pumping and never on how fast this run happens to be. With
+ * the real clock, a second boundary crossed between stamping a fixture and
+ * photographing it turned one label and failed the same-pixels check of
+ * tests/rift_shell_test.sh now and then (more often under ASan or load). */
 static void pump(int ms)
 {
     int t;
 
     for (t = 0; t < ms; t += 5) {
         lv_tick_inc(5);
+        rift_test_clock_advance(5);
         lv_timer_handler();
     }
 }

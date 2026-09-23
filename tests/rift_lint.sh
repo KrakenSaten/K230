@@ -136,6 +136,23 @@ for part in rift_messages.c rift_channels.c rift_actions.c rift_order.c; do
         "$(grep -q 'lvgl' "$SRC/$part" && echo 0 || echo 1)"
 done
 
+# The clock. RIFT reads the system clock in one file, rift_clock.c, so that
+# rift_app_test can link a virtual clock in its place and draw the same ages
+# in every run. That substitution is a test's only: the shell links the real
+# file, and the virtual one appears in the rift_app_test target and nowhere
+# else.
+clocks=$(grep -rlE 'clock_gettime|gettimeofday|time\(NULL\)' "$SRC" --include='*.c' | sort | tr '\n' ' ')
+check "the system clock is read in rift_clock.c and nowhere else in RIFT (${clocks% })" \
+    "$([ "$clocks" = "$SRC/rift_clock.c " ] && echo 1 || echo 0)"
+CMAKE=ui/shell/CMakeLists.txt
+check "the shell links the real clock" \
+    "$(awk '/^add_executable\(pocketos-shell/,/\)$/' "$CMAKE" | grep -q 'apps/rift/rift_clock.c' &&
+       awk '/^add_executable\(pocketos-shell/,/\)$/' "$CMAKE" | grep -q 'rift_test_clock' && echo 0 || echo 1)"
+check "and the virtual clock is linked by rift_app_test alone, in place of it" \
+    "$([ "$(grep -cE '^[[:space:]]*\$\{REPO_DIR\}/tests/rift_test_clock\.c$' "$CMAKE")" = 1 ] &&
+       awk '/add_executable\(rift_app_test/,/\)$/' "$CMAKE" | grep -q 'tests/rift_test_clock.c' &&
+       ! awk '/add_executable\(rift_app_test/,/\)$/' "$CMAKE" | grep -q 'apps/rift/rift_clock.c' && echo 1 || echo 0)"
+
 # ---- the lifecycle -------------------------------------------------------------
 # A timer that outlives the app reaches a freed block on its next pass, and
 # a subscription that is merely dropped leaves the service writing to a
