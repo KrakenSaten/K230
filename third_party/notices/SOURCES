@@ -22,14 +22,14 @@ ooura-fft | FFT routines (Takuya Ooura), bundled in ggwave | as in ggwave v0.4.3
 meshcore | MeshCore (Scott Powell / rippleradios.com), from the RIFT tree | commit 3ca7e3f003bd270587b1d92e33ce999542dcb5b4 | MIT | compiled into /usr/sbin/meshcored | meshcore:license.txt
 ed25519 | Ed25519 (Orson Peters), bundled in MeshCore | as in MeshCore 3ca7e3f | Zlib | compiled into /usr/sbin/meshcored | meshcore:lib/ed25519/license.txt
 arduinolibs-crypto | Arduino Cryptography Library (Rhys Weatherley, Southern Storm Software) | commit 37a76b8f7516568e1c575b6dc9268da1ccaac6b6 | MIT | compiled into /usr/sbin/meshcored | arduinolibs:libraries/LICENSE.txt
-ibm-plex | IBM Plex Sans and IBM Plex Mono | converted to bitmap fonts named pos_font_* | OFL-1.1, Reserved Font Name "Plex" | compiled into /usr/bin/pocketos-shell | repo:docs/legal/fonts/IBMPlex-OFL-1.1.txt
-lvgl | LVGL | commit 59dc7e436ae97a25e32656739ea6a943f9f11b6a (liblvgl 9.5.0) | MIT | /usr/lib/liblvgl*.so (vendor SDK package), loaded by /usr/bin/pocketos-shell | lvgl:LICENCE.txt
+ibm-plex | IBM Plex Sans and IBM Plex Mono | converted to bitmap fonts named pos_font_* | OFL-1.1, Reserved Font Name "Plex" | compiled into /usr/bin/doors-shell | repo:docs/legal/fonts/IBMPlex-OFL-1.1.txt
+lvgl | LVGL | commit 59dc7e436ae97a25e32656739ea6a943f9f11b6a (liblvgl 9.5.0) | MIT | /usr/lib/liblvgl*.so (vendor SDK package), loaded by /usr/bin/doors-shell | lvgl:LICENCE.txt
 lv-port-linux | lv_port_linux | commit b492d738b00cb7733c2ea442e2a2d5070f74d663 | MIT | /usr/lib/liblvgl_linux.so (vendor LVGL package) | lv_port_linux:LICENSE
 lodepng | LodePNG, bundled in LVGL | as in LVGL 59dc7e4 | Zlib | compiled into /usr/lib/liblvgl.so | lvgl:src/libs/lodepng/LICENSE.txt
 tjpgd | TJpgDec (ChaN), bundled in LVGL | as in LVGL 59dc7e4 | TJpgDec licence (BSD-style, see text) | compiled into /usr/lib/liblvgl.so | lvgl:src/libs/tjpgd/LICENSE.txt
 thorvg | ThorVG, bundled in LVGL | as in LVGL 59dc7e4 | MIT | compiled into /usr/lib/liblvgl_thorvg.so | lvgl:src/libs/thorvg/LICENSE.txt
-montserrat | Montserrat font, LVGL built-in fonts | as in LVGL 59dc7e4 | OFL-1.1 | compiled into /usr/lib/liblvgl.so; used by /usr/bin/pocketos-shell | lvgl:scripts/built_in_font/font_license/Montserrat/OFL.txt
-font-awesome-5 | Font Awesome Free 5 glyphs in LVGL's built-in fonts | as in LVGL 59dc7e4 | OFL-1.1 for the font glyphs (see text) | compiled into /usr/lib/liblvgl.so; LV_SYMBOL_* glyphs used by /usr/bin/pocketos-shell | lvgl:scripts/built_in_font/font_license/FontAwesome5/LICENSE.txt
+montserrat | Montserrat font, LVGL built-in fonts | as in LVGL 59dc7e4 | OFL-1.1 | compiled into /usr/lib/liblvgl.so; used by /usr/bin/doors-shell | lvgl:scripts/built_in_font/font_license/Montserrat/OFL.txt
+font-awesome-5 | Font Awesome Free 5 glyphs in LVGL's built-in fonts | as in LVGL 59dc7e4 | OFL-1.1 for the font glyphs (see text) | compiled into /usr/lib/liblvgl.so; LV_SYMBOL_* glyphs used by /usr/bin/doors-shell | lvgl:scripts/built_in_font/font_license/FontAwesome5/LICENSE.txt
 dejavu-sans | DejaVu Sans, LVGL built-in font (Persian and Hebrew subset) | as in LVGL 59dc7e4 | Bitstream Vera and Arev font licences, DejaVu changes public domain | compiled into /usr/lib/liblvgl.so | lvgl:scripts/built_in_font/font_license/DejaVuSans/LICENSE
 source-han-sans-sc | Source Han Sans SC, LVGL built-in font (CJK subset) | as in LVGL 59dc7e4 | OFL-1.1 | compiled into /usr/lib/liblvgl.so | lvgl:scripts/built_in_font/font_license/SourceHanSansSC/LICENSE.txt
 unscii-8 | unscii-8 font (Viznut), LVGL built-in font | as in LVGL 59dc7e4 | public domain | compiled into /usr/lib/liblvgl.so | text:unscii-8.txt

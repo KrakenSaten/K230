@@ -61,12 +61,12 @@ Components
  8. IBM Plex Sans and IBM Plex Mono
     Version: converted to bitmap fonts named pos_font_*
     Licence: OFL-1.1, Reserved Font Name "Plex"
-    In the image: compiled into /usr/bin/pocketos-shell
+    In the image: compiled into /usr/bin/doors-shell
 
  9. LVGL
     Version: commit 59dc7e436ae97a25e32656739ea6a943f9f11b6a (liblvgl 9.5.0)
     Licence: MIT
-    In the image: /usr/lib/liblvgl*.so (vendor SDK package), loaded by /usr/bin/pocketos-shell
+    In the image: /usr/lib/liblvgl*.so (vendor SDK package), loaded by /usr/bin/doors-shell
 
 10. lv_port_linux
     Version: commit b492d738b00cb7733c2ea442e2a2d5070f74d663
@@ -91,12 +91,12 @@ Components
 14. Montserrat font, LVGL built-in fonts
     Version: as in LVGL 59dc7e4
     Licence: OFL-1.1
-    In the image: compiled into /usr/lib/liblvgl.so; used by /usr/bin/pocketos-shell
+    In the image: compiled into /usr/lib/liblvgl.so; used by /usr/bin/doors-shell
 
 15. Font Awesome Free 5 glyphs in LVGL's built-in fonts
     Version: as in LVGL 59dc7e4
     Licence: OFL-1.1 for the font glyphs (see text)
-    In the image: compiled into /usr/lib/liblvgl.so; LV_SYMBOL_* glyphs used by /usr/bin/pocketos-shell
+    In the image: compiled into /usr/lib/liblvgl.so; LV_SYMBOL_* glyphs used by /usr/bin/doors-shell
 
 16. DejaVu Sans, LVGL built-in font (Persian and Hebrew subset)
     Version: as in LVGL 59dc7e4
