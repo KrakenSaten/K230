@@ -314,6 +314,32 @@ PY
 out=$("$POS" call sysd system.info 2>&1)
 check "sysd survives an invalid JSON frame" '"kernel"' "$out"
 
+# ---- system.logs / system.crashes (field-level checks: tests/sysd_logs_test.c) ----
+out=$("$POS" call sysd system.logs 2>&1)
+check "system.logs reads sysd's own log" '"source":[[:space:]]*"sysd"' "$out"
+check "system.logs says the directory is there" '"available":[[:space:]]*true' "$out"
+printf '2026-09-24T10:00:00.000Z radiod WARN  receive recovery failed: -5\n2026-09-24T10:00:01.000Z radiod ERROR state error\n' \
+    > "$POCKETOS_LOG_DIR/radiod.log"
+out=$("$POS" call sysd system.logs level=error source=radiod 2>&1)
+check "system.logs filters by level and source" '"message":[[:space:]]*"state error"' "$out"
+absent "and leaves the warning out" 'receive recovery' "$out"
+out=$("$POS" call sysd system.logs level=loud 2>&1)
+check "system.logs refuses an unknown level (code 2)" 'code 2' "$out"
+out=$("$POS" call sysd system.logs limit=500 2>&1)
+check "system.logs refuses a limit above the bound (code 2)" 'code 2' "$out"
+out=$("$POS" call sysd system.crashes 2>&1)
+check "system.crashes with none" '"total":[[:space:]]*0' "$out"
+printf 'Doors crash report\nversion: 0.0.12\nbuild: abc\nprocess: radiod\npid: 7\nsignal: 11\nbacktrace:\n/usr/sbin/radiod(+0x10)[0x1]\n' \
+    > "$POCKETOS_LOG_DIR/crash-radiod-1790000000-7.txt"
+out=$("$POS" call sysd system.crashes 2>&1)
+check "system.crashes lists a report" '"process":[[:space:]]*"radiod"' "$out"
+check "with its signal" '"signal_name":[[:space:]]*"SIGSEGV"' "$out"
+out=$("$POS" call sysd system.crashes x=1 2>&1)
+check "system.crashes takes no params (code 2)" 'code 2' "$out"
+out=$("$POS" call sysd system.status 2>&1)
+check "system.status carries a bluetooth object" '"bluetooth"' "$out"
+check "and the power source" '"source"' "$out"
+
 kill $SYSD_PID
 wait $SYSD_PID 2>/dev/null
 rc=$?

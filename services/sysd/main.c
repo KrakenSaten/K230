@@ -12,7 +12,9 @@
 #include "pocketipc/pocketipc.h"
 #include "pocketipc/server.h"
 #include "pocketlog/pocketlog.h"
+#include "pocketpaths.h"
 #include "pocketsys.h"
+#include "sysd_logs.h"
 #include "sysd_power.h"
 #include "sysd_services.h"
 
@@ -130,6 +132,22 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
          * services on it: two sources, joined here rather than in core. */
         result = pocketsys_status(&sd->cpu);
         sysd_services_add(result);
+    } else if (strcmp(method, "system.logs") == 0) {
+        struct sysd_logs_query q;
+
+        if (sysd_logs_parse_query(params, &q, msg, sizeof(msg)) < 0) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS, msg));
+            return;
+        }
+        result = sysd_logs_query(pocketos_log_dir(), &q);
+    } else if (strcmp(method, "system.crashes") == 0) {
+        if (params && !cJSON_IsNull(params) &&
+            !(cJSON_IsObject(params) && cJSON_GetArraySize(params) == 0)) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                  "system.crashes takes no params"));
+            return;
+        }
+        result = sysd_crashes_list(pocketos_log_dir());
     } else if (strcmp(method, "system.reboot") == 0) {
         on_power(s, c, id, params, sd, SYSD_POWER_REBOOT);
         return;
@@ -193,7 +211,8 @@ static void usage(FILE *out)
 {
     fprintf(out,
             "usage: sysd [--socket-name NAME] [--verbose]\n"
-            "Serves system.info, system.status, system.reboot and system.poweroff\n"
+            "Serves system.info, system.status, system.logs, system.crashes,\n"
+            "system.reboot and system.poweroff\n"
             "(docs/api/system.md).\n"
             "Runtime directory: $POCKETOS_RUNTIME_DIR or %s\n",
             POCKETIPC_DEFAULT_DIR);

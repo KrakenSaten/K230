@@ -12,6 +12,7 @@
 /services/sysd/sysd
 /tests/pocketsys_test
 /tests/sysd_services_test
+/tests/sysd_logs_test
 /tests/sysd-testhooks
 /tests/system_view_test
 /tests/airtime_test
