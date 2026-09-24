@@ -202,7 +202,9 @@ deps=$(sed -n 's/^POCKETOS_DEPENDENCIES = //p' "$MK")
 unknown=""
 for d in $deps; do
     case "$d" in
-        cjson|libgpiod2|libdrm|libevdev|alsa-lib|host-*) ;;
+        # jpeg: libjpeg 9f for pos-camera, in the image and its legal manifest
+        # already (docs/legal/licenses/libjpeg-9f), with its own IJG metadata.
+        cjson|libgpiod2|libdrm|libevdev|alsa-lib|jpeg|host-*) ;;
         lvgl) [ "$(has_id lvgl)" = 1 ] || unknown="$unknown lvgl" ;;
         *) unknown="$unknown $d" ;;
     esac
