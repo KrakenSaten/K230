@@ -218,8 +218,8 @@ PY
         fi
         [ "$w" -ge 64 ] && [ "$h" -ge 64 ] || echo "     $o: $id cell $w x $h is below the touch minimum"
     done < "$OUT/$o-cells.txt"
-    check "$o: every app's own portal icon is drawn in its cell, pixel for pixel ($good of 13)" \
-        "$([ "$good" = 13 ] && echo 1 || echo 0)"
+    check "$o: every app's own portal icon is drawn in its cell, pixel for pixel ($good of 14)" \
+        "$([ "$good" = 14 ] && echo 1 || echo 0)"
 done
 
 # ---- 4. no art installed --------------------------------------------------------
@@ -229,7 +229,7 @@ POCKETOS_ART_DIR="$OUT/noart" start_shell --rotation portrait
 check "with no art the shell starts, locked" "$([ "$(field '["lock"]["locked"]')" = true ] && echo 1 || echo 0)"
 check "and says it has no background" "$([ "$(field '["art"]["background"]')" = false ] && echo 1 || echo 0)"
 check "every app is on the fallback frame" \
-    "$([ "$(field '["launcher"]["icons_fallback"]')" = 13 ] && [ "$(field '["launcher"]["icons_art"]')" = 0 ] && echo 1 || echo 0)"
+    "$([ "$(field '["launcher"]["icons_fallback"]')" = 14 ] && [ "$(field '["launcher"]["icons_art"]')" = 0 ] && echo 1 || echo 0)"
 shot "$OUT/noart-lock.png"
 call shell.unlock
 sleep 0.2
@@ -258,7 +258,7 @@ while read -r id x y; do
     # The frame's opaque pixels, less the few the app's mask covers.
     [ "${2:-0}" -gt 2000 ] && [ $(( ${2:-0} - ${1:-0} )) -lt 400 ] && good=$((good + 1))
 done < "$OUT/fo.txt"
-check "with only the empty frame installed, every app is drawn on it ($good of 13)" "$([ "$good" = 13 ] && echo 1 || echo 0)"
+check "with only the empty frame installed, every app is drawn on it ($good of 14)" "$([ "$good" = 14 ] && echo 1 || echo 0)"
 stop_shell
 
 # ---- 5. restarts ------------------------------------------------------------------
