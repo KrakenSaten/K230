@@ -109,12 +109,12 @@ static void test_fake(void)
     check("open=busy is busy", pocketcam_open(&b, "fake", "open=busy", &info) == -EBUSY);
     check("open=fail is an I/O error", pocketcam_open(&b, "fake", "open=fail", &info) == -EIO);
 
-    r = pocketcam_open(&b, "fake", "size=64x36,still=128x72,period=5,mount=90m", &info);
+    r = pocketcam_open(&b, "fake", "size=64x36,still=128x72,period=5,mount=270m", &info);
     check("the fake opens", r == 0);
     check("it says it is simulated", info.simulated);
     check("with the scripted sizes", info.preview_w == 64 && info.preview_h == 36 &&
                                          info.still_w == 128 && info.still_h == 72);
-    check("and the scripted mount", info.mount_rotation == 90 && info.mount_mirror);
+    check("and the scripted mount", info.mount_rotation == 270 && info.mount_mirror);
     check("no frame before start", pocketcam_next(&b, 10, &f) == -EINVAL);
     check("start", pocketcam_start(&b) == 0);
     check("a frame", pocketcam_next(&b, 200, &f) == 0);
@@ -303,9 +303,9 @@ static void test_convert(void)
     check("which is that pixel's colour",
           abs(row[0] - rgb[0]) < 24 && abs(row[1] - rgb[1]) < 24 && abs(row[2] - rgb[2]) < 24);
     check("a line past the end is refused", pocketcam_row_rgb888(&f, 90, false, W, row) == -EINVAL);
-    check("portrait adds a quarter turn", pocketcam_view_rotation(0, true) == 90 &&
-                                              pocketcam_view_rotation(270, true) == 0 &&
-                                              pocketcam_view_rotation(180, false) == 180);
+    check("the display's rotation is taken off the mount (unit A: 90 -> 90 and 180)",
+          pocketcam_view_rotation(90, 0) == 90 && pocketcam_view_rotation(90, 270) == 180 &&
+              pocketcam_view_rotation(90, 90) == 0 && pocketcam_view_rotation(0, 90) == 270);
 }
 
 /* ---- the encoder ---------------------------------------------------------------- */

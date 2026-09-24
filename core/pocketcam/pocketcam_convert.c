@@ -21,9 +21,9 @@ void pocketcam_turned_size(uint32_t w, uint32_t h, int rotation, uint32_t *tw, u
     *th = quarter ? w : h;
 }
 
-int pocketcam_view_rotation(int mount_rotation, bool portrait)
+int pocketcam_view_rotation(int mount_rotation, int display_rotation)
 {
-    int r = mount_rotation + (portrait ? 90 : 0);
+    int r = mount_rotation - display_rotation;
 
     r %= 360;
     return r < 0 ? r + 360 : r;

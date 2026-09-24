@@ -31,7 +31,8 @@
  *   crash_at=N                     the process aborts at frame N
  *   capture=ok|fail|lost|hang      how still() ends
  *   capture_delay=MS               still() takes this long first
- *   mount=R or mount=Rm            mount rotation (0/90/180/270), m mirrored
+ *   mount=R or mount=Rm            mount rotation (0/90/180/270, default 90,
+ *                                  as unit A), m mirrored
  *
  * Unknown keys are refused (-EINVAL), so a misspelt fault in a test fails
  * the test rather than silently testing the happy path.
@@ -345,6 +346,9 @@ static int fake_open(struct pocketcam_backend *b, const char *config, struct poc
     f->still_h = 1080;
     f->format = POCKETCAM_FMT_NV16;
     f->period = 66;
+    /* Mounted like unit A's sensor, so the fake turns the way the real one
+     * does: upright in portrait. */
+    f->mount_rotation = 90;
     r = parse_script(f, config);
     if (r != 0) {
         return r;

@@ -46,8 +46,11 @@ int pocketcam_to_rgb565(const struct pocketcam_frame *f, int rotation, bool mirr
 int pocketcam_row_rgb888(const struct pocketcam_frame *f, int rotation, bool mirror, uint32_t y,
                          uint8_t *row);
 
-/* The rotation a frame needs for the panel: the sensor's mount rotation,
- * plus a quarter turn in portrait (the sensor is landscape). */
-int pocketcam_view_rotation(int mount_rotation, bool portrait);
+/* The turn a frame needs to look upright on the panel: the sensor's mount
+ * rotation (the turn it needs on the panel's native orientation, rotation 0)
+ * less the rotation the display is shown at (0, 90, 180, 270; the shell's
+ * own number, POS_ROTATION_*). Unit A: mount 90, portrait 0 -> 90, the
+ * shell's landscape 270 -> 180 (VERIFIED with printed text, 2026-09-25). */
+int pocketcam_view_rotation(int mount_rotation, int display_rotation);
 
 #endif

@@ -198,14 +198,15 @@ static void test_happy(void)
     check("ready", wait_for(&s, CAMERA_EV_READY, 3000, &ev));
     check("simulated, an empty folder", ev.simulated && ev.value == 0 && ev.text[0] == '\0' &&
                                             ev.w == 128 && ev.h == 72);
-    camera_session_view(&s, pic_w, pic_h, true);
+    camera_session_view(&s, pic_w, pic_h, 0);
     camera_session_preview(&s, true, now_ms());
     frames_taken = 0;
     check("a frame", wait_for(&s, CAMERA_EV_FRAME, 2000, NULL));
     wait_for(&s, CAMERA_EV_FRAME, 1000, NULL);
     check("taken into the app's buffer", frames_taken >= 1);
-    /* Portrait: a quarter turn clockwise, the marker top-right. */
-    check("upright for portrait: the marker top-right",
+    /* Portrait (display 0): the fake is mounted like unit A's sensor (90), so
+     * a quarter turn clockwise puts its marker top-right. */
+    check("portrait: turned a quarter clockwise, the marker top-right",
           is_orange(pic[1 * pic_w + pic_w - 2]) && !is_orange(pic[1 * pic_w + 1]));
     t0 = now_ms();
     frames_taken = 0;
@@ -231,21 +232,22 @@ static void test_happy(void)
     /* Landscape. */
     pic_w = 64;
     pic_h = 36;
-    camera_session_view(&s, pic_w, pic_h, false);
+    camera_session_view(&s, pic_w, pic_h, 270);
     frames_taken = 0;
     while (frames_taken == 0 && wait_for(&s, CAMERA_EV_FRAME, 1000, NULL)) {
     }
-    check("landscape: the marker top-left", is_orange(pic[1 * pic_w + 1]) &&
-                                                !is_orange(pic[1 * pic_w + pic_w - 2]));
+    /* The shell's landscape (display 270): 90 - 270, a half turn. */
+    check("landscape: turned a half turn, the marker bottom-right",
+          is_orange(pic[(pic_h - 2) * pic_w + pic_w - 2]) && !is_orange(pic[1 * pic_w + 1]));
 
-    camera_session_capture(&s, false, now_ms());
+    camera_session_capture(&s, 270, now_ms());
     check("saving", wait_for(&s, CAMERA_EV_SAVING, 3000, NULL));
     check("captured", wait_for(&s, CAMERA_EV_CAPTURED, 5000, &ev));
     check("a photo of the view's size for review", ev.w == 64 && ev.h == 36 && ev.value == 1);
     check("named as a photo with no clock or a clock", strncmp(ev.name, "IMG_", 4) == 0);
     memset(pic, 0, sizeof(pic));
     check("the review picture is taken", camera_session_take_review(&s, pic, 64, 36) == 1 &&
-                                             is_orange(pic[1 * 64 + 1]));
+                                             is_orange(pic[34 * 64 + 62]));
     check("and only once", camera_session_take_review(&s, pic, 64, 36) == 0);
     check("the photo is in the folder, whole", files_in(photos, &tmp) == 1 && tmp == 0);
     frames_taken = 0;
@@ -326,7 +328,7 @@ static void test_stream_failures(void)
 
     start(&s, FAST ",lost_after=4", NULL);
     wait_for(&s, CAMERA_EV_READY, 3000, NULL);
-    camera_session_view(&s, pic_w, pic_h, false);
+    camera_session_view(&s, pic_w, pic_h, 270);
     camera_session_preview(&s, true, now_ms());
     check("the camera goes away: lost", wait_for(&s, CAMERA_EV_LOST, 3000, &ev));
     check("the helper leaves with 4", wait_for(&s, CAMERA_EV_EXITED, 3000, &ev) && ev.value == 4);
@@ -334,7 +336,7 @@ static void test_stream_failures(void)
     start(&s, "size=64x36,period=50,delay_at=3:1600", NULL);
     wait_for(&s, CAMERA_EV_READY, 3000, NULL);
     camera_session_preview(&s, true, now_ms());
-    camera_session_view(&s, pic_w, pic_h, false);
+    camera_session_view(&s, pic_w, pic_h, 270);
     check("a late frame: a stall is reported", wait_for(&s, CAMERA_EV_STALL, 3000, &ev) &&
                                                    ev.value >= 1000);
     check("then the frames come back", wait_for(&s, CAMERA_EV_FRAME, 3000, NULL));
@@ -342,7 +344,7 @@ static void test_stream_failures(void)
 
     start(&s, "size=64x36,period=5,malformed_at=3", NULL);
     wait_for(&s, CAMERA_EV_READY, 3000, NULL);
-    camera_session_view(&s, pic_w, pic_h, false);
+    camera_session_view(&s, pic_w, pic_h, 270);
     camera_session_preview(&s, true, now_ms());
     check("a damaged frame is reported", wait_for(&s, CAMERA_EV_MALFORMED, 3000, &ev));
     check("and the stream goes on", wait_for(&s, CAMERA_EV_FRAME, 3000, NULL));
@@ -351,7 +353,7 @@ static void test_stream_failures(void)
     t0 = now_ms();
     start(&s, "size=64x36,period=5,hang_at=5", NULL);
     wait_for(&s, CAMERA_EV_READY, 3000, NULL);
-    camera_session_view(&s, pic_w, pic_h, false);
+    camera_session_view(&s, pic_w, pic_h, 270);
     camera_session_preview(&s, true, now_ms());
     check("a helper stuck in the driver is killed by the watchdog",
           wait_for(&s, CAMERA_EV_EXITED, CAMERA_SILENCE_MS + 3000, &ev) &&
@@ -360,7 +362,7 @@ static void test_stream_failures(void)
 
     start(&s, "size=64x36,period=5,crash_at=4", NULL);
     wait_for(&s, CAMERA_EV_READY, 3000, NULL);
-    camera_session_view(&s, pic_w, pic_h, false);
+    camera_session_view(&s, pic_w, pic_h, 270);
     camera_session_preview(&s, true, now_ms());
     check("a crash is a crash", wait_for(&s, CAMERA_EV_EXITED, 3000, &ev) &&
                                     ev.reason == CAMERA_EXIT_CRASHED && ev.value == 128 + SIGABRT);
@@ -368,7 +370,7 @@ static void test_stream_failures(void)
 
     start(&s, FAST, NULL);
     wait_for(&s, CAMERA_EV_READY, 3000, NULL);
-    camera_session_view(&s, pic_w, pic_h, false);
+    camera_session_view(&s, pic_w, pic_h, 270);
     camera_session_preview(&s, true, now_ms());
     wait_for(&s, CAMERA_EV_FRAME, 2000, NULL);
     kill(s.pid, SIGKILL);
@@ -386,10 +388,10 @@ static void test_capture_failures(void)
     setenv("POCKETCAM_TEST_FREE_BYTES", "1000", 1);
     start(&s, FAST, NULL);
     wait_for(&s, CAMERA_EV_READY, 3000, NULL);
-    camera_session_view(&s, pic_w, pic_h, false);
+    camera_session_view(&s, pic_w, pic_h, 270);
     camera_session_preview(&s, true, now_ms());
     wait_for(&s, CAMERA_EV_FRAME, 2000, NULL);
-    camera_session_capture(&s, false, now_ms());
+    camera_session_capture(&s, 270, now_ms());
     check("a full disk: capfail nospace", wait_for(&s, CAMERA_EV_CAPFAIL, 3000, &ev) &&
                                               ev.reason == CAMERA_CAPFAIL_NOSPACE);
     camera_session_preview(&s, true, now_ms());
@@ -400,8 +402,8 @@ static void test_capture_failures(void)
     setenv("POCKETCAM_TEST_FAIL_AFTER", "100", 1);
     start(&s, FAST, NULL);
     wait_for(&s, CAMERA_EV_READY, 3000, NULL);
-    camera_session_view(&s, pic_w, pic_h, false);
-    camera_session_capture(&s, false, now_ms());
+    camera_session_view(&s, pic_w, pic_h, 270);
+    camera_session_capture(&s, 270, now_ms());
     check("a disk that fills mid-photo: capfail nospace",
           wait_for(&s, CAMERA_EV_CAPFAIL, 3000, &ev) && ev.reason == CAMERA_CAPFAIL_NOSPACE);
     check("no half photo and no temporary", files_in(photos, &tmp) == 0 && tmp == 0);
@@ -410,8 +412,8 @@ static void test_capture_failures(void)
 
     start(&s, FAST ",capture=fail", NULL);
     wait_for(&s, CAMERA_EV_READY, 3000, NULL);
-    camera_session_view(&s, pic_w, pic_h, false);
-    camera_session_capture(&s, false, now_ms());
+    camera_session_view(&s, pic_w, pic_h, 270);
+    camera_session_capture(&s, 270, now_ms());
     check("the camera refuses a still: capfail device",
           wait_for(&s, CAMERA_EV_CAPFAIL, 3000, &ev) && ev.reason == CAMERA_CAPFAIL_DEVICE);
     camera_session_preview(&s, true, now_ms());
@@ -420,14 +422,14 @@ static void test_capture_failures(void)
 
     start(&s, FAST ",capture=lost", NULL);
     wait_for(&s, CAMERA_EV_READY, 3000, NULL);
-    camera_session_capture(&s, false, now_ms());
+    camera_session_capture(&s, 270, now_ms());
     check("the camera goes away during a still: lost", wait_for(&s, CAMERA_EV_LOST, 3000, NULL));
     wait_for(&s, CAMERA_EV_EXITED, 3000, NULL);
 
     /* Capture without a view: saved, but no review picture. */
     start(&s, FAST, NULL);
     wait_for(&s, CAMERA_EV_READY, 3000, NULL);
-    camera_session_capture(&s, true, now_ms());
+    camera_session_capture(&s, 0, now_ms());
     check("no view: captured with no review picture",
           wait_for(&s, CAMERA_EV_CAPTURED, 5000, &ev) && ev.w == 0 && ev.h == 0);
     check("nothing to take", camera_session_take_review(&s, pic, 36, 64) == 0);
@@ -513,7 +515,7 @@ static void test_lifetime(void)
         }
         if (i % 5 != 0) {
             ok &= wait_for(&s, CAMERA_EV_READY, 3000, NULL);
-            camera_session_view(&s, pic_w, pic_h, false);
+            camera_session_view(&s, pic_w, pic_h, 270);
             camera_session_preview(&s, true, now_ms());
             ok &= wait_for(&s, CAMERA_EV_FRAME, 2000, NULL);
         }

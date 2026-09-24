@@ -158,9 +158,11 @@ int camera_session_start(struct camera_session *s, const struct camera_session_c
 int camera_session_poll(struct camera_session *s, struct camera_event *ev, int64_t now_ms);
 
 /* Commands. Each returns 0, or -1 when there is no helper to send it to. */
-int camera_session_view(struct camera_session *s, uint32_t w, uint32_t h, bool portrait);
+/* display_rotation: the display's rotation in degrees (0, 90, 180, 270), from
+ * which the helper works out how to turn the sensor's picture upright. */
+int camera_session_view(struct camera_session *s, uint32_t w, uint32_t h, int display_rotation);
 int camera_session_preview(struct camera_session *s, bool on, int64_t now_ms);
-int camera_session_capture(struct camera_session *s, bool portrait, int64_t now_ms);
+int camera_session_capture(struct camera_session *s, int display_rotation, int64_t now_ms);
 int camera_session_delete(struct camera_session *s, const char *name, int64_t now_ms);
 
 /* Copy the newest preview picture into dst (w x h RGB565, tightly packed)

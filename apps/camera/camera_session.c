@@ -680,7 +680,7 @@ int camera_session_poll(struct camera_session *s, struct camera_event *ev, int64
 
 /* ---- commands ------------------------------------------------------------------ */
 
-int camera_session_view(struct camera_session *s, uint32_t w, uint32_t h, bool portrait)
+int camera_session_view(struct camera_session *s, uint32_t w, uint32_t h, int display_rotation)
 {
     if (w == 0 || h == 0 || w > POCKETCAM_VIEW_MAX_W || h > POCKETCAM_VIEW_MAX_H) {
         return -1;
@@ -690,7 +690,7 @@ int camera_session_view(struct camera_session *s, uint32_t w, uint32_t h, bool p
         release_slot(s, s->frame_slot);
         s->frame_slot = -1;
     }
-    return send_line(s, "view %u %u %s", w, h, portrait ? "portrait" : "landscape");
+    return send_line(s, "view %u %u %d", w, h, display_rotation);
 }
 
 int camera_session_preview(struct camera_session *s, bool on, int64_t now_ms)
@@ -718,7 +718,7 @@ int camera_session_preview(struct camera_session *s, bool on, int64_t now_ms)
     return r;
 }
 
-int camera_session_capture(struct camera_session *s, bool portrait, int64_t now_ms)
+int camera_session_capture(struct camera_session *s, int display_rotation, int64_t now_ms)
 {
     int r;
 
@@ -730,7 +730,7 @@ int camera_session_capture(struct camera_session *s, bool portrait, int64_t now_
         release_slot(s, s->frame_slot);
         s->frame_slot = -1;
     }
-    r = send_line(s, "capture %s", portrait ? "portrait" : "landscape");
+    r = send_line(s, "capture %d", display_rotation);
     if (r == 0) {
         s->capture_by = now_ms + CAMERA_CAPTURE_MS;
     }

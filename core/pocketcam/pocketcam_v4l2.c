@@ -61,6 +61,12 @@
 #define V4L2_STILL_W 1920
 #define V4L2_STILL_H 1080
 #define V4L2_BUFS 4
+/* How the sensor sits on unit A: a frame needs a quarter turn clockwise to be
+ * upright on the native (portrait) panel, and is not mirrored. VERIFIED
+ * 2026-09-25 with printed text, the owner holding the unit: upright in
+ * portrait (display 0, turn 90) and in the shell's landscape (display 270,
+ * turn 180). pocketcam_view_rotation() takes the display rotation off. */
+#define V4L2_MOUNT_ROTATION 90
 #define V4L2_STILL_BUFS 3
 /* How long to drop black frames after a stream starts. On unit A light
  * arrives after ~0.7 s; a scene that is really black is shown after this. */
@@ -496,6 +502,7 @@ static int v4l2_open(struct pocketcam_backend *b, const char *config, struct poc
     snprintf(c->still_path, sizeof(c->still_path), "%s", V4L2_STILL_NODE);
     c->still_w = V4L2_STILL_W;
     c->still_h = V4L2_STILL_H;
+    c->mount_rotation = V4L2_MOUNT_ROTATION;
     r = parse_config(config, pv_path, &pw, &ph, c);
     if (r != 0) {
         return r;

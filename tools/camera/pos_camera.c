@@ -135,7 +135,7 @@ struct session {
     bool held[POCKETCAM_SLOTS];
     uint32_t view_w;
     uint32_t view_h;
-    bool portrait;
+    int display_rotation;
     bool streaming;
     int64_t last_sent_ms;
     int64_t last_frame_ms;
@@ -178,15 +178,16 @@ static uint16_t *slot_pixels(struct session *s, int slot)
     return (uint16_t *)(void *)(s->shm + pocketcam_slot_offset((uint32_t)slot));
 }
 
-static int parse_orientation(const char *w, bool *portrait)
+/* A display rotation: 0, 90, 180 or 270. */
+static int parse_rotation(const char *w, int *deg)
 {
-    if (strcmp(w, "portrait") == 0) {
-        *portrait = true;
-    } else if (strcmp(w, "landscape") == 0) {
-        *portrait = false;
-    } else {
+    char *end;
+    long v = strtol(w, &end, 10);
+
+    if (end == w || *end || (v != 0 && v != 90 && v != 180 && v != 270)) {
         return -1;
     }
+    *deg = (int)v;
     return 0;
 }
 
@@ -212,7 +213,7 @@ static int write_photo(FILE *fp, void *user)
     return pocketcam_encode(fp, j->f, j->rotation, j->mirror);
 }
 
-static void capture(struct session *s, bool portrait)
+static void capture(struct session *s, int display_rotation)
 {
     struct pocketcam_frame f;
     struct encode_job job;
@@ -254,7 +255,7 @@ static void capture(struct session *s, bool portrait)
     }
     say("saving");
     job.f = &f;
-    job.rotation = pocketcam_view_rotation(s->info.mount_rotation, portrait);
+    job.rotation = pocketcam_view_rotation(s->info.mount_rotation, display_rotation);
     job.mirror = s->info.mount_mirror;
     /* The review picture first: it is what the screen shows next. */
     if (s->view_w && s->view_h &&
@@ -294,13 +295,13 @@ static void command(struct session *s, char *line)
     if (strcmp(verb, "view") == 0 && a3) {
         long w = strtol(a1, NULL, 10);
         long h = strtol(a2, NULL, 10);
-        bool portrait;
+        int deg;
 
         if (w > 0 && h > 0 && w <= POCKETCAM_VIEW_MAX_W && h <= POCKETCAM_VIEW_MAX_H &&
-            parse_orientation(a3, &portrait) == 0) {
+            parse_rotation(a3, &deg) == 0) {
             s->view_w = (uint32_t)w;
             s->view_h = (uint32_t)h;
-            s->portrait = portrait;
+            s->display_rotation = deg;
         }
     } else if (strcmp(verb, "start") == 0) {
         int r = pocketcam_start(&s->cam);
@@ -324,10 +325,10 @@ static void command(struct session *s, char *line)
             s->held[slot] = false;
         }
     } else if (strcmp(verb, "capture") == 0 && a1) {
-        bool portrait;
+        int deg;
 
-        if (parse_orientation(a1, &portrait) == 0) {
-            capture(s, portrait);
+        if (parse_rotation(a1, &deg) == 0) {
+            capture(s, deg);
         }
     } else if (strcmp(verb, "delete") == 0 && a1) {
         int r = s->store_ok ? pocketcam_store_delete(&s->store, a1) : -EIO;
@@ -424,7 +425,7 @@ static void stream_once(struct session *s)
         int slot = free_preview_slot(s);
 
         if (slot >= 0 &&
-            pocketcam_to_rgb565(&f, pocketcam_view_rotation(s->info.mount_rotation, s->portrait),
+            pocketcam_to_rgb565(&f, pocketcam_view_rotation(s->info.mount_rotation, s->display_rotation),
                                 s->info.mount_mirror, POCKETCAM_FIT_COVER, slot_pixels(s, slot),
                                 s->view_w, s->view_h, s->view_w) == 0) {
             s->held[slot] = true;
@@ -533,7 +534,7 @@ static int run_probe(const char *backend, const char *script)
     return 0;
 }
 
-static int run_snap(const char *backend, const char *script, const char *path, bool portrait)
+static int run_snap(const char *backend, const char *script, const char *path, int display_rotation)
 {
     struct pocketcam_backend cam;
     struct pocketcam_info info;
@@ -557,7 +558,7 @@ static int run_snap(const char *backend, const char *script, const char *path, b
         pocketcam_close(&cam);
         return EXIT_USAGE;
     }
-    r = pocketcam_encode(fp, &f, pocketcam_view_rotation(info.mount_rotation, portrait),
+    r = pocketcam_encode(fp, &f, pocketcam_view_rotation(info.mount_rotation, display_rotation),
                          info.mount_mirror);
     if (fclose(fp) != 0 && r == 0) {
         r = -errno;
@@ -571,8 +572,9 @@ static int run_snap(const char *backend, const char *script, const char *path, b
 
 /* For the bench (docs/hardware/CAMERA_GATE.md): what the camera costs on this
  * board. Timings are this process's own, on the wall clock. */
-static int run_bench(const char *backend, const char *script, bool portrait)
+static int run_bench(const char *backend, const char *script, int display_rotation)
 {
+    bool portrait = display_rotation % 180 == 0;
     struct pocketcam_backend cam;
     struct pocketcam_info info;
     struct pocketcam_frame f;
@@ -594,7 +596,7 @@ static int run_bench(const char *backend, const char *script, bool portrait)
         free(view);
         return EXIT_NOCAMERA;
     }
-    rot = pocketcam_view_rotation(info.mount_rotation, portrait);
+    rot = pocketcam_view_rotation(info.mount_rotation, display_rotation);
     t_open = mono_ms() - t0;
     r = pocketcam_start(&cam);
     if (r != 0) {
@@ -684,8 +686,10 @@ static void usage(void)
     fprintf(stderr,
             "usage: pos-camera session [--backend NAME] [--config CONFIG] [--dir DIR]\n"
             "       pos-camera probe [--backend NAME] [--config CONFIG]\n"
-            "       pos-camera snap FILE [--backend NAME] [--config CONFIG] [--portrait]\n"
-            "       pos-camera bench [--backend NAME] [--config CONFIG] [--portrait]\n"
+            "       pos-camera snap FILE [--backend NAME] [--config CONFIG] [--rotation DEG]\n"
+            "       pos-camera bench [--backend NAME] [--config CONFIG] [--rotation DEG]\n"
+            "DEG is the display rotation the picture is turned for: 0 (portrait,\n"
+            "the default) or the shell's landscape, 270.\n"
             "CONFIG is the fake's script (--fake is the same) or the v4l2 backend's\n"
             "settings; the default comes from $POCKETOS_CAMERA_FAKE or\n"
             "$POCKETOS_CAMERA_CONFIG, whichever belongs to the backend.\n");
@@ -697,7 +701,7 @@ int main(int argc, char **argv)
     const char *script = NULL;
     const char *dir = NULL;
     const char *file = NULL;
-    bool portrait = false;
+    int display_rotation = 0;
     struct sigaction sa;
     int i;
 
@@ -713,8 +717,9 @@ int main(int argc, char **argv)
             script = argv[++i];
         } else if (strcmp(argv[i], "--dir") == 0 && i + 1 < argc) {
             dir = argv[++i];
-        } else if (strcmp(argv[i], "--portrait") == 0) {
-            portrait = true;
+        } else if (strcmp(argv[i], "--rotation") == 0 && i + 1 < argc &&
+                   parse_rotation(argv[i + 1], &display_rotation) == 0) {
+            i++;
         } else if (argv[i][0] != '-' && !file) {
             file = argv[i];
         } else {
@@ -744,10 +749,10 @@ int main(int argc, char **argv)
         return run_probe(backend, script);
     }
     if (strcmp(argv[1], "snap") == 0 && file) {
-        return run_snap(backend, script, file, portrait);
+        return run_snap(backend, script, file, display_rotation);
     }
     if (strcmp(argv[1], "bench") == 0 && !file) {
-        return run_bench(backend, script, portrait);
+        return run_bench(backend, script, display_rotation);
     }
     usage();
     return EXIT_USAGE;

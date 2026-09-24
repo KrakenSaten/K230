@@ -86,6 +86,13 @@ static int64_t now_ms(void)
     return (int64_t)lv_tick_get();
 }
 
+/* The display's rotation in degrees: the sensor is fixed to the unit, so how
+ * its picture is turned follows the panel, not the body's shape. */
+static int display_rotation(void)
+{
+    return pos_rotation_degrees(pocketui_display_geometry()->rotation);
+}
+
 static bool portrait_now(void)
 {
     struct pocketos_orientation o;
@@ -346,14 +353,14 @@ static void do_actions(struct camera_app *a, unsigned acts)
         }
     }
     if (acts & CAMERA_DO_START_PREVIEW) {
-        camera_session_view(&a->session, a->preview.w, a->preview.h, portrait_now());
+        camera_session_view(&a->session, a->preview.w, a->preview.h, display_rotation());
         camera_session_preview(&a->session, true, now);
     }
     if (acts & CAMERA_DO_STOP_PREVIEW) {
         camera_session_preview(&a->session, false, now);
     }
     if (acts & CAMERA_DO_CAPTURE) {
-        camera_session_capture(&a->session, portrait_now(), now);
+        camera_session_capture(&a->session, display_rotation(), now);
     }
     if (acts & CAMERA_DO_DELETE) {
         if (camera_session_delete(&a->session, a->model.review_name, now) != 0) {
@@ -503,7 +510,7 @@ static void layout(struct camera_app *a)
         /* The review picture was of the old size: it is gone. */
         a->model.review_picture = false;
         if (camera_session_active(&a->session) && a->model.state == CAMERA_PREVIEW) {
-            camera_session_view(&a->session, w, h, portrait_now());
+            camera_session_view(&a->session, w, h, display_rotation());
         }
     }
     repaint(a);

@@ -22,11 +22,12 @@
  * app never holds a pointer into this memory at all.
  *
  * COMMANDS (session to helper):
- *   view <w> <h> <portrait|landscape>   the size and orientation of the preview
+ *   view <w> <h> <rotation>             the preview's size, and the display's
+ *                                       rotation (0, 90, 180 or 270)
  *   start                               stream the preview
  *   stop                                stop it; answered by `stopped`
  *   release <slot>                      the session is done with a slot
- *   capture <portrait|landscape>        take, save and review one still
+ *   capture <rotation>                  take, save and review one still
  *   delete <name>                       delete a photo from the store
  *   quit                                close the camera and leave; `bye`
  *

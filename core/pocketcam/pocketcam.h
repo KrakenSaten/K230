@@ -85,9 +85,9 @@ struct pocketcam_frame {
 };
 
 /* What an opened camera is. Rotation and mirroring are how the sensor is
- * mounted: what has to be applied to a frame so that "up" in the picture is
- * "up" on the panel held in landscape. On the K230 this is UNKNOWN until it is
- * measured on unit A (CAMERA_PLATFORM_RESEARCH.md, U4). */
+ * mounted: the clockwise turn, then mirror, that makes "up" in the picture
+ * "up" on the panel in its native orientation (display rotation 0, portrait
+ * on the K230). Unit A: 90, not mirrored (VERIFIED 2026-09-25). */
 struct pocketcam_info {
     char name[POCKETCAM_NAME_MAX];
     uint32_t preview_w;
