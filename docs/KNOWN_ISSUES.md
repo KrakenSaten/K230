@@ -30,6 +30,48 @@ state after reset. Not a radiod defect, not a runtime blocker, and not
 investigated further unless it recurs: the probe now names it
 chip-state dependent and dumps both transports' windows when it does.
 
+## Open on feat/device-controls-diagnostics (not merged)
+
+Radio on/off with SX1262 off by default, the antenna question, system volume
+and mute, Bluetooth and battery status, and System > Diagnostics. Host-built
+and host-tested only; **nothing of it has run on unit A**
+(docs/hardware/DEVICE_CONTROLS_GATE.md, NOT RUN).
+
+- **Unit A's radio goes off on deploy.** v0.0.12 stored no on/off choice, so
+  the first start of this radiod finds none and, on the sx1262 backend,
+  starts off (docs/api/radio.md, "Radio on and off"). meshcored stays
+  connected, `degraded` "the radio is switched off", with its identity and
+  channels untouched. Switch it on once in Controls or with `doors radio on`.
+- **Bluetooth cannot be switched: there is nothing to switch.** Unit A has no
+  HCI device (VERIFIED 2026-09-07), the kernel has RFKILL unset, no Doors
+  service owns Bluetooth, and the nRF52840 base-board BLE bridge (UART1, AT
+  protocol) is unverified. Controls and Diagnostics say "Not available" /
+  "No controller" from sysd's `bluetooth.controllers`. A real toggle needs a
+  controller and an owner (ADR-002 names netd): a product decision, not
+  in this branch.
+- **No battery reading on unit A.** The BQ27220 gauge and BQ25896 charger on
+  the keyboard base have no kernel driver bound and the power_supply class is
+  empty (VERIFIED); the keyboard driver bit-bangs that bus, and adding charger
+  or gauge support needs the bus ownership decided first
+  (KEYBOARD_DRIVER_DESIGN_2026-09-12.md). Battery shows "External power";
+  the percentage path (the driver's own `capacity`, never computed from a
+  voltage) is host-tested only.
+- **Volume is a digital gain.** The speaker route has no mixer volume
+  (AUDIO_HARDWARE_MAP §7), so 100 % is the validated -12 dBFS level and the
+  control only attenuates (to -27 dB at 10 %). It applies to what Wave plays;
+  the 3.5 mm jack's `PCM Playback Volume` is not driven (nothing plays to the
+  jack). A bench `pos-wave send` without `--volume-percent` still plays at
+  100 %.
+- **Built without LVGL, RadioLib, ggwave or the vendor MeshCore trees.**
+  `controls.c`, `system_app.c`, `wave_app.c`, `rift_activity.c` and `shell.c`
+  were type-checked against a declaration stub (which found one real bug);
+  `backend_sx1262.cpp` is unchanged; meshcored's `radio_link.c` was
+  syntax-checked, not linked or run. Step 1 of the gate is the first real
+  build of these.
+- **Controls glyphs for Bluetooth and Battery are borrowed** (network and
+  power) until the DS draws their own; the landscape Controls moves Lock and
+  Power into the header row to fit three tile rows (DS §31.5, proposed).
+
 ## Open for v0.0.12
 
 What changed since v0.0.11 is Files (DS §33) and the fullscreen apps

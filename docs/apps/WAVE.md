@@ -38,7 +38,10 @@ decided.
 - Not ultrasound, dual-tone or mono-tone ggwave: those protocols are left out
   until the speaker and microphone have been measured.
 - No volume control in the app. The level is fixed (§ Limits) and the audio
-  layer clamps it.
+  layer clamps it. The system volume in Controls (feat/device-controls-
+  diagnostics, DEVICE UNVERIFIED) is applied on top as a digital gain -
+  `pos-wave send --volume-percent L`, 100 % being this validated level - and
+  while it is muted Wave does not send at all.
 
 ## Privacy
 
@@ -120,7 +123,7 @@ Icon: `LV_SYMBOL_VOLUME_MAX`, a placeholder until the DS §11 icon set exists.
 pos-wave info
 pos-wave encode [--protocol P] [--volume V] [--text T] OUT.wav
 pos-wave decode [--channel C] IN.wav
-pos-wave send   [--protocol P] [--volume V] [--text T] [--events] [--allow-unverified]
+pos-wave send   [--protocol P] [--volume V] [--volume-percent L] [--text T] [--events] [--allow-unverified]
 pos-wave listen [--seconds N] [--channel C] [--events] [--allow-unverified]
 pos-wave record [--seconds N] [--channel C] [--allow-unverified] OUT.wav
 pos-wave recover

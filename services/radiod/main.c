@@ -1094,7 +1094,7 @@ static cJSON *m_set_enabled(struct radiod *rd, const cJSON *params, int *code, c
         if (radio_hw_up(rd, err, sizeof(err)) < 0) {
             LOG_ERROR("the radio could not be switched on: %s", err);
             *code = POCKETIPC_ERR_BACKEND;
-            snprintf(msg, n, "the radio could not be switched on: %s", err);
+            snprintf(msg, n, "the radio could not be switched on: %.80s", err);
             update_rx_state(rd);
             return NULL;
         }
@@ -1103,7 +1103,7 @@ static cJSON *m_set_enabled(struct radiod *rd, const cJSON *params, int *code, c
             update_rx_state(rd);
             LOG_ERROR("radio on not stored (%s); switched back off", err);
             *code = POCKETIPC_ERR_BACKEND;
-            snprintf(msg, n, "the choice could not be stored, so the radio stays off: %s", err);
+            snprintf(msg, n, "the choice could not be stored, so the radio stays off: %.80s", err);
             return NULL;
         }
         rd->enabled = true;
@@ -1128,7 +1128,7 @@ static cJSON *m_set_enabled(struct radiod *rd, const cJSON *params, int *code, c
     if (rf_state_store(rd->rf_path, false, err, sizeof(err)) < 0) {
         LOG_ERROR("radio off not stored: %s", err);
         *code = POCKETIPC_ERR_BACKEND;
-        snprintf(msg, n, "the radio is off, but the choice could not be stored (%s): "
+        snprintf(msg, n, "the radio is off, but the choice could not be stored (%.60s): "
                          "it will be on again after a restart", err);
         return NULL;
     }
