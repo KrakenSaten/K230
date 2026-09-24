@@ -2430,10 +2430,12 @@ in its full one; coming home from each app restoring the 56 px bar; a
 rotation change through Settings landing on the launcher with the right bar.
 Portrait: any screen, pixel for pixel what v0.0.10 showed.
 
-### 30.8 Stage 2: the fullscreen apps [PROPOSED]
+### 30.8 Stage 2: the fullscreen apps [ACCEPTED]
 
-**Proposed 2026-09-24** on branch `feat/fullscreen-apps`, at the owner's
-request; not hardware-validated. Six apps are fullscreen: **RIFT, Notes,
+**ACCEPTED 2026-09-24** on the unit A gate of `a30678e`
+(docs/hardware/FULLSCREEN_APPS_GATE.md, PASS), as the owner asked for when
+the implementation matched this proposal. Proposed the same day on branch
+`feat/fullscreen-apps`, at the owner's request. Six apps are fullscreen: **RIFT, Notes,
 Wave, Fleet, Radar and Timber** declare NONE, and have no status bar in
 either orientation. Every other screen - the launcher, Controls, the lock
 and the other seven apps - keeps exactly the chrome §30.3 gave it.
@@ -2475,7 +2477,8 @@ Validation on the host: `tests/chrome_test` (the resolver in both
 orientations), `tests/chrome_shell_test.sh` (every app under the chrome it
 declares in both orientations, the hint in the header, open/close/reopen of
 all six over IPC, the lock over fullscreen Notes), and the app tests of the
-six, which build their frames from the resolver. Unit A: not run.
+six, which build their frames from the resolver. Unit A: PASS on `a30678e`
+(docs/hardware/FULLSCREEN_APPS_GATE.md).
 
 ---
 
@@ -2494,6 +2497,7 @@ Amendment K (§27) accepted 2026-09-17.
 Amendment L (§28) accepted 2026-09-18.
 Amendment M (§29) accepted 2026-09-18.
 Amendment N (§30) accepted 2026-09-23 (stage 1; v0.0.11 RC1 unit A gate, docs/hardware/V0.0.11_RELEASE_SMOKE.md).
+Amendment N §30.8 (stage 2, the fullscreen apps) accepted 2026-09-24 (unit A gate, docs/hardware/FULLSCREEN_APPS_GATE.md).
 
 ## 31. Amendment O — The DOORS environment [ACCEPTED]
 
