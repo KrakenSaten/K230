@@ -43,7 +43,8 @@
 #define PANEL_CORNER 30
 /* The status bar the shell gives this app in the display's orientation
  * (ui/shell/chrome.h, DS section 30), so the frame built here is the one
- * shell.c builds: 56 px in portrait, 32 px under an app in landscape. */
+ * shell.c builds: none in either orientation, since the app is
+ * fullscreen (DS section 30.4, stage 2). */
 #define STATUS_H chrome_height(chrome_resolve(app_rift.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
 
 extern const struct pocketos_app app_rift;

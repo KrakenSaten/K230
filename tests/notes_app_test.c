@@ -38,12 +38,16 @@
 #include <time.h>
 #include <unistd.h>
 
+#if LV_USE_LODEPNG && LV_USE_SNAPSHOT
+#include "src/libs/lodepng/lodepng.h"
+#endif
+
 #define PANEL_W 568
 #define PANEL_H 1232
 #define PANEL_CORNER 30 /* the corner squares of the unit's panel (DS 21.1) */
 /* The status bar the shell gives this app in the display's orientation
  * (ui/shell/chrome.h, DS section 30), so the frame built here is the one
- * shell.c builds: 56 px in portrait, 32 px under an app in landscape. */
+ * shell.c builds: none in either, since Notes is fullscreen (30.4). */
 #define STATUS_H chrome_height(chrome_resolve(app_notes.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
 
 extern const struct pocketos_app app_notes;
@@ -352,6 +356,53 @@ static void app_stop(void)
     app_root = NULL;
     app_body = NULL;
     pump(60);
+}
+
+/* $NOTES_SHOTS_DIR: a PNG of the screens that show where the keyboard's
+ * reserve lands, taken from the same fixtures every run. There is no status
+ * bar and no header text in them: those are the shell's. */
+static void shot(const char *name)
+{
+#if LV_USE_LODEPNG && LV_USE_SNAPSHOT
+    const char *dir = getenv("NOTES_SHOTS_DIR");
+    char path[512];
+    lv_draw_buf_t *snap;
+    unsigned char *rgb;
+    uint32_t y;
+
+    if (!dir || !dir[0]) {
+        return;
+    }
+    pump(120);
+    snap = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB888);
+    if (!snap) {
+        check("a snapshot is taken", 0);
+        return;
+    }
+    rgb = malloc((size_t)snap->header.w * snap->header.h * 3);
+    if (rgb) {
+        /* LVGL RGB888 is stored B,G,R in memory; PNG wants R,G,B. */
+        for (y = 0; y < snap->header.h; y++) {
+            const unsigned char *src =
+                (const unsigned char *)snap->data + (size_t)y * snap->header.stride;
+            unsigned char *dst = rgb + (size_t)y * snap->header.w * 3;
+            uint32_t x;
+
+            for (x = 0; x < snap->header.w; x++) {
+                dst[x * 3 + 0] = src[x * 3 + 2];
+                dst[x * 3 + 1] = src[x * 3 + 1];
+                dst[x * 3 + 2] = src[x * 3 + 0];
+            }
+        }
+        snprintf(path, sizeof(path), "%s/%s.png", dir, name);
+        check("a screenshot is written", lodepng_encode24_file(path, rgb, snap->header.w,
+                                                               snap->header.h) == 0);
+        free(rgb);
+    }
+    lv_draw_buf_destroy(snap);
+#else
+    (void)name;
+#endif
 }
 
 static void wipe(void)
@@ -1770,10 +1821,11 @@ int main(void)
 
     /* ---- 17. both shapes, to the pixel --------------------------------- */
 
-    /* Portrait is the v0.0.10 layout but for two things (DS 22.2 and the
-     * flex note in notes_app.c): the editor's field reaches the body's foot,
-     * 20 px further than it did, and whatever reaches the foot stops where
-     * the corner squares begin. Landscape puts the actions in a 288 px rail
+    /* Portrait is the v0.0.10 layout but for three things (DS 22.2, 30.4 and
+     * the flex note in notes_app.c): there is no status bar, so everything
+     * starts 56 px higher; the editor's field reaches the body's foot, 20 px
+     * further than it did; and whatever reaches the foot stops where the
+     * corner squares begin. Landscape puts the actions in a 288 px rail
      * beside the content. Rectangles are inclusive. */
     {
         static const int32_t corners[] = { PANEL_CORNER, 0 };
@@ -1789,27 +1841,30 @@ int main(void)
             wipe();
             app_start();
             snprintf(what, sizeof(what), "portrait %d px corners: empty state", (int)c);
-            report_rect(what, list_card(), 20, 152, 547, 307);
+            report_rect(what, list_card(), 20, 96, 547, 251);
             snprintf(what, sizeof(what), "portrait %d px corners: New note under it", (int)c);
-            report_rect(what, find_labelled(app_body, "New note"), 20, 328, 547, 391);
+            report_rect(what, find_labelled(app_body, "New note"), 20, 272, 547, 335);
             app_stop();
             write_many();
             app_start();
             snprintf(what, sizeof(what), "portrait %d px corners: a long list", (int)c);
-            report_rect(what, list_card(), 20, 152, 547, foot - 84);
+            report_rect(what, list_card(), 20, 96, 547, foot - 84);
             snprintf(what, sizeof(what), "portrait %d px corners: New note at the foot", (int)c);
             report_rect(what, find_labelled(app_body, "New note"), 20, foot - 63, 547, foot);
             tap_obj(find_labelled(app_body, "Note 20"));
             snprintf(what, sizeof(what), "portrait %d px corners: Done", (int)c);
-            report_rect(what, find_labelled(app_body, "Done"), 20, 152, 279, 207);
+            report_rect(what, find_labelled(app_body, "Done"), 20, 96, 279, 151);
             snprintf(what, sizeof(what), "portrait %d px corners: Delete", (int)c);
-            report_rect(what, find_labelled(app_body, "Delete"), 288, 152, 547, 207);
+            report_rect(what, find_labelled(app_body, "Delete"), 288, 96, 547, 151);
             snprintf(what, sizeof(what), "portrait %d px corners: the field, down to the keyboard's 20 px",
                      (int)c);
-            report_rect(what, find_field(app_body), 20, 228, 547, 915);
+            report_rect(what, find_field(app_body), 20, 172, 547, 915);
+            if (c == PANEL_CORNER) {
+                shot("portrait-editor-keyboard");
+            }
             tap_obj(find_labelled(app_body, "Delete"));
             snprintf(what, sizeof(what), "portrait %d px corners: the confirmation", (int)c);
-            report_rect(what, parent_of(find_label(app_body, "Delete this note?")), 20, 152, 547, 331);
+            report_rect(what, parent_of(find_label(app_body, "Delete this note?")), 20, 96, 547, 275);
             tap_obj(find_labelled(app_body, "Cancel"));
             tap_obj(find_labelled(app_body, "Done"));
             app_stop();
@@ -1817,30 +1872,35 @@ int main(void)
             use_display(POS_ROTATION_270, c);
             wipe();
             app_start();
-            /* From row 128, not 152: the 32 px COMPACT bar of DS section 30
-             * above the same header and padding. What is pinned to the foot
-             * (the list, the field's keyboard edge at 251) keeps its foot. */
+            /* From row 96 in both orientations: Notes is fullscreen (NONE,
+             * DS section 30.4 stage 2), so the header sits on the top edge
+             * and the body starts 72 + 24 px down. What is pinned to the foot
+             * (the list, the field's keyboard edge at 915 and 251) keeps its
+             * foot, so the field gains the whole of the bar. */
             snprintf(what, sizeof(what), "landscape %d px corners: empty state", (int)c);
-            report_rect(what, list_card(), 20, 128, 903, 283);
+            report_rect(what, list_card(), 20, 96, 903, 251);
             snprintf(what, sizeof(what), "landscape %d px corners: New note in the rail", (int)c);
-            report_rect(what, find_labelled(app_body, "New note"), 924, 128, 1211, 191);
+            report_rect(what, find_labelled(app_body, "New note"), 924, 96, 1211, 159);
             app_stop();
             write_many();
             app_start();
             snprintf(what, sizeof(what), "landscape %d px corners: a long list", (int)c);
-            report_rect(what, list_card(), 20, 128, 903, lfoot);
+            report_rect(what, list_card(), 20, 96, 903, lfoot);
             snprintf(what, sizeof(what), "landscape %d px corners: New note in the rail", (int)c);
-            report_rect(what, find_labelled(app_body, "New note"), 924, 128, 1211, 191);
+            report_rect(what, find_labelled(app_body, "New note"), 924, 96, 1211, 159);
             tap_obj(find_labelled(app_body, "Note 20"));
             snprintf(what, sizeof(what), "landscape %d px corners: the field above the keyboard", (int)c);
-            report_rect(what, find_field(app_body), 20, 128, 903, 251);
+            report_rect(what, find_field(app_body), 20, 96, 903, 251);
+            if (c == PANEL_CORNER) {
+                shot("landscape-editor-keyboard");
+            }
             snprintf(what, sizeof(what), "landscape %d px corners: Done in the rail", (int)c);
-            report_rect(what, find_labelled(app_body, "Done"), 924, 128, 1063, 183);
+            report_rect(what, find_labelled(app_body, "Done"), 924, 96, 1063, 151);
             snprintf(what, sizeof(what), "landscape %d px corners: Delete in the rail", (int)c);
-            report_rect(what, find_labelled(app_body, "Delete"), 1072, 128, 1211, 183);
+            report_rect(what, find_labelled(app_body, "Delete"), 1072, 96, 1211, 151);
             tap_obj(find_labelled(app_body, "Delete"));
             snprintf(what, sizeof(what), "landscape %d px corners: the confirmation, centred", (int)c);
-            report_rect(what, parent_of(find_label(app_body, "Delete this note?")), 352, 128, 879, 307);
+            report_rect(what, parent_of(find_label(app_body, "Delete this note?")), 352, 96, 879, 275);
             tap_obj(find_labelled(app_body, "Cancel"));
             tap_obj(find_labelled(app_body, "Done"));
             app_stop();

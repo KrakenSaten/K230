@@ -32,6 +32,14 @@
  * the controls have their rows, each a single row so the tower gets the
  * height (docs/apps/POCKETTIMBER_ART.md, composition). */
 #define TABLE_HEIGHT 672
+/* The body the 672 px viewport was measured in: 1060 px, the portrait body
+ * under the 56 px status bar. Everything else on the table screen takes the
+ * other 388. Timber is fullscreen (DS §30.4 stage 2), and whatever a body
+ * has beyond this goes to the viewport, never to an empty strip under the
+ * controls: the tower stands on the viewport's foot, so a taller one only
+ * shows more felt above it and room for more layers. A body shorter than
+ * this - landscape - keeps the 672 px viewport and scrolls, as before. */
+#define TABLE_BODY_REF 1060
 #define METER_WIDTH 196
 #define METER_SEGMENTS 10
 #define METER_HEIGHT 10
@@ -731,10 +739,25 @@ static void build_controls(struct timber_app *app, struct timber_table_ui *ui, l
     lv_obj_set_width(ui->action, 0);
 }
 
+/* The viewport's height for the body the shell gave the app: 672 px, plus
+ * whatever the body has beyond the 1060 px it was measured in. Read once, at
+ * creation, from the body's content box - the shell resolves the chrome
+ * before it creates the app, so this box is final (DS §30.2), and it is
+ * measured here, never inside an LVGL event. */
+static int32_t timber_table_height(lv_obj_t *body)
+{
+    int32_t spare;
+
+    lv_obj_update_layout(body);
+    spare = lv_obj_get_content_height(body) - TABLE_BODY_REF;
+    return TABLE_HEIGHT + (spare > 0 ? spare : 0);
+}
+
 lv_obj_t *timber_screen_table_create(struct timber_app *app, lv_obj_t *parent)
 {
     lv_obj_t *screen = timber_app_screen_container(parent);
     struct timber_table_ui *ui = calloc(1, sizeof(*ui));
+    int32_t table_h;
 
     if (!ui) {
         return screen;
@@ -751,8 +774,9 @@ lv_obj_t *timber_screen_table_create(struct timber_app *app, lv_obj_t *parent)
     ui->seen_class = -2;
 
     build_hud(ui, screen);
-    timber_view_init(&app->view, TABLE_WIDTH, TABLE_HEIGHT, !app->reduced_motion);
-    ui->table = timber_table_create(screen, TABLE_WIDTH, TABLE_HEIGHT);
+    table_h = timber_table_height(parent);
+    timber_view_init(&app->view, TABLE_WIDTH, table_h, !app->reduced_motion);
+    ui->table = timber_table_create(screen, TABLE_WIDTH, table_h);
     timber_table_bind(ui->table, &app->run, &app->view);
     timber_table_set_tap(ui->table, table_tap_cb, app);
     build_piece_card(ui, screen);

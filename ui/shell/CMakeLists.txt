@@ -392,6 +392,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/timber/ui/timber_table.c
         ${REPO_DIR}/apps/timber/ui/timber_screens.c
         ${REPO_DIR}/apps/timber/ui/timber_art.c
+        chrome.c
         ../pocketui/pos_app_icons.c
         ${REPO_DIR}/core/pocketlog/pocketlog.c
         ${REPO_DIR}/core/pocketpaths.c

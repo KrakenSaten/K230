@@ -43,6 +43,7 @@
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #include "app.h"
+#include "chrome.h"
 #include "pocketui.h"
 #include "timber_app.h"
 #include "engine/timber_pull.h"
@@ -59,7 +60,12 @@
 #define PANEL_W 568
 #define PANEL_H 1232
 #define TABLE_W 528
-#define TABLE_H 672
+/* The status bar the shell gives Timber in portrait (ui/shell/chrome.h, DS
+ * section 30): none, since Timber is fullscreen. */
+#define STATUS_H chrome_height(chrome_resolve(app_timber.chrome, false, false))
+/* The viewport is 672 px in the 1060 px body under the 56 px bar, and takes
+ * whatever a taller body has beyond that (timber_screens.c). */
+#define TABLE_H (672 + POCKETUI_STATUS_BAR_H - STATUS_H)
 
 extern const struct pocketos_app app_timber;
 
@@ -945,11 +951,12 @@ int main(void)
     lv_indev_set_read_cb(finger, read_cb);
     pocketui_init();
 
-    /* The shell's content area: everything below the status bar. */
+    /* The shell's content area: everything below the status bar the shell
+     * gives this app, which for fullscreen Timber is none. */
     content = lv_obj_create(lv_screen_active());
     lv_obj_remove_style_all(content);
-    lv_obj_set_size(content, LV_PCT(100), PANEL_H - POCKETUI_STATUS_BAR_H);
-    lv_obj_set_pos(content, 0, POCKETUI_STATUS_BAR_H);
+    lv_obj_set_size(content, LV_PCT(100), PANEL_H - STATUS_H);
+    lv_obj_set_pos(content, 0, STATUS_H);
     pump(60);
 
     bench_sequence();

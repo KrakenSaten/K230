@@ -92,12 +92,13 @@ for o in portrait landscape; do
     hits=$(grep -hE ' WARN |\[Warn\]' "$LOGD/out" "$LOGD/shell.log" 2>/dev/null | grep -v 'radiod unavailable')
     check "$o: and no warning but the simulator's missing radiod" "$([ -z "$hits" ] && echo 1 || echo 0)"
     [ -n "$hits" ] && echo "$hits" | head -3
+    # Notes is fullscreen (DS section 30.4 stage 2): no status bar in either
+    # orientation, so the body starts at row 96, under the 72 px header.
     if [ $o = portrait ]; then
-        set -- $(look "$LOGD/notes.png" default normal 20 328 547 391)
+        set -- $(look "$LOGD/notes.png" default normal 20 272 547 335)
         check "$o: New note is drawn under the empty state, where notes_app_test lays it out" "${1:-0}"
     else
-        # From row 128: the 32 px COMPACT bar of DS section 30 in landscape.
-        set -- $(look "$LOGD/notes.png" default normal 924 128 1211 191)
+        set -- $(look "$LOGD/notes.png" default normal 924 96 1211 159)
         check "$o: New note is drawn in the rail beside the empty state, where notes_app_test lays it out" "${1:-0}"
     fi
     check "$o: nothing is drawn in the rounded corner squares at the foot of the panel" "${2:-0}"

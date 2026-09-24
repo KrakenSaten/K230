@@ -49,6 +49,13 @@ enum fleet_shape {
  * wrapped line of text. Two of them and the board are what the wide shape
  * needs across. */
 #define FLEET_COL_MIN 280
+/* The widest a cell across the wide board is drawn: 51 px, the §28 cell of 34
+ * down made half as wide again, which is what the two columns beside the board
+ * were measured against (DS §28.6). A taller body - the fullscreen one, with
+ * no status bar - grows the cells down the board, not across it, so the
+ * readout column, its four nudges and the log line keep the width they were
+ * validated at. */
+#define FLEET_CELL_ACROSS_MAX 51
 
 struct fleet_app {
     struct fleet_game game;

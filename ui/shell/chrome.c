@@ -11,12 +11,12 @@ enum pocketos_chrome chrome_resolve(enum pocketos_chrome declared, bool landscap
     if (home) {
         return POCKETOS_CHROME_FULL;
     }
-    /* DS §30.4, stage 1: portrait keeps the bar every screen has had,
-     * whatever an app declares, so every portrait screen stays what
-     * v0.0.10 drew. This line is the whole of that rule; lifting it is
-     * lifting this line, and the checks in tests/chrome_test.c that hold
-     * it. */
-    if (!landscape) {
+    /* DS §30.4: portrait keeps the bar every screen has had unless an app
+     * declares NONE (stage 2, the fullscreen apps). DEFAULT and COMPACT
+     * stay FULL in portrait, so every screen that has not opted out of the
+     * bar is still what v0.0.10 drew. This line is the whole of that rule,
+     * held by one group of checks in tests/chrome_test.c. */
+    if (!landscape && declared != POCKETOS_CHROME_NONE) {
         return POCKETOS_CHROME_FULL;
     }
     switch (declared) {

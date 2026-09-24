@@ -53,13 +53,19 @@ static void test_resolve(void)
               chrome_resolve(all[i], true, true) == POCKETOS_CHROME_FULL);
     }
 
-    /* Stage 1 (DS §30.4): portrait is FULL for every app, whatever it
-     * declares. When this stage is lifted, these four checks change with
-     * the one line in chrome_resolve() that holds them. */
-    for (i = 0; i < ALL_COUNT; i++) {
-        check("stage 1: an app in portrait is FULL, whatever it declared",
-              chrome_resolve(all[i], false, false) == POCKETOS_CHROME_FULL);
-    }
+    /* DS §30.4: portrait is FULL for every app except one that declares
+     * NONE (stage 2, the fullscreen apps). These four checks change with the
+     * one line in chrome_resolve() that holds them. */
+    check("portrait: DEFAULT is FULL",
+          chrome_resolve(POCKETOS_CHROME_DEFAULT, false, false) == POCKETOS_CHROME_FULL);
+    check("portrait: FULL stays FULL",
+          chrome_resolve(POCKETOS_CHROME_FULL, false, false) == POCKETOS_CHROME_FULL);
+    check("portrait: COMPACT is FULL (stage 1 still holds for it)",
+          chrome_resolve(POCKETOS_CHROME_COMPACT, false, false) == POCKETOS_CHROME_FULL);
+    check("portrait: NONE stays NONE (stage 2)",
+          chrome_resolve(POCKETOS_CHROME_NONE, false, false) == POCKETOS_CHROME_NONE);
+    check("an out-of-range declaration in portrait is treated as DEFAULT",
+          chrome_resolve((enum pocketos_chrome)99, false, false) == POCKETOS_CHROME_FULL);
 
     /* Landscape: the default is COMPACT, and an explicit policy is honoured. */
     check("landscape: DEFAULT resolves to COMPACT",
@@ -137,10 +143,11 @@ static void test_boxes(void)
     box_is("landscape COMPACT, keyboard up", POCKETOS_CHROME_COMPACT, PANEL_W, KB_H, 32, 240);
     box_is("landscape NONE", POCKETOS_CHROME_NONE, PANEL_W, 0, 0, 568);
     box_is("landscape NONE, keyboard up", POCKETOS_CHROME_NONE, PANEL_W, KB_H, 0, 272);
-    /* Portrait under the chromes no portrait screen gets yet (stage 1), so
-     * that lifting the stage changes no geometry, only the resolver. */
+    /* Portrait under NONE (the fullscreen apps, stage 2) and under COMPACT,
+     * which no portrait screen gets yet. */
     box_is("portrait COMPACT", POCKETOS_CHROME_COMPACT, PANEL_H, 0, 32, 1200);
     box_is("portrait NONE", POCKETOS_CHROME_NONE, PANEL_H, 0, 0, 1232);
+    box_is("portrait NONE, keyboard up", POCKETOS_CHROME_NONE, PANEL_H, KB_H, 0, 936);
 }
 
 /* The keyboard's whole life under each chrome: shown, hidden, and the box
