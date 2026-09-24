@@ -60,11 +60,13 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-**Doors 0.0.11** (tag `v0.0.11`, 2026-09-23) is the current release: the
-release notes are docs/releases/v0.0.11.md and its unit A gate is
-docs/hardware/V0.0.11_RELEASE_SMOKE.md. **Doors 0.0.12** is in preparation
-(Files, and fullscreen RIFT, Notes, Wave, Fleet, Radar and Timber): draft
-notes in docs/releases/v0.0.12.md.
+**Doors 0.0.12** (tag `v0.0.12`, 2026-09-25) is the current release: Files,
+and fullscreen RIFT, Notes, Wave, Fleet, Radar and Timber. The release notes
+are docs/releases/v0.0.12.md and its unit A gate is
+docs/hardware/V0.0.12_RELEASE_SMOKE.md.
+
+**Doors 0.0.11** (tag `v0.0.11`, 2026-09-23): release notes
+docs/releases/v0.0.11.md, unit A gate docs/hardware/V0.0.11_RELEASE_SMOKE.md.
 
 **Doors 0.0.10** (tag `v0.0.10`, 2026-09-16) is the first release under the
 Doors name: the release notes are docs/releases/v0.0.10.md. The history below

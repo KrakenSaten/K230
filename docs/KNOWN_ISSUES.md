@@ -1,7 +1,7 @@
 # Known issues and open questions
 
-Updated 2026-09-24 for v0.0.12 (in preparation; v0.0.11 released 2026-09-23,
-tag `v0.0.11`). Move items to git history when resolved.
+Updated 2026-09-25 for v0.0.12 (released 2026-09-25, tag `v0.0.12`). Move items
+to git history when resolved.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
 B4 (the shell's `printf` diagnostics never reached a log; they go through
