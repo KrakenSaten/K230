@@ -101,6 +101,16 @@ always 20 px shorter than the body: it stopped 40 px above the keyboard in
 portrait instead of the 20 of DS §7. Inside a gapless frame it has the full
 height.
 
+**Since DS §30.8 (2026-09-24) Notes is fullscreen**: no status bar in either
+orientation. The tables below are the layouts under the status bar they were
+drawn for (56 px in portrait, 56 then 32 px in landscape). Under the
+fullscreen body everything pinned to the top starts at row 96 in both
+orientations (the header on the top edge, then 24 px of padding), and
+everything pinned to the foot or to the keyboard keeps its row. So the
+portrait body is 528 × 1116 (820 with the keyboard up), and the landscape
+field above the keyboard is 20..903 × 96..251, which is 156 px
+(`tests/notes_app_test.c` section 17; unit A, docs/hardware/FULLSCREEN_APPS_GATE.md).
+
 ### Portrait
 
 The body is 528 × 1060 px, and 528 × 764 with the keyboard up (1232 − 56

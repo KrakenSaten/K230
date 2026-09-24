@@ -373,7 +373,9 @@ them, one after the other, are two runs of a service and not one.
 4. **The chrome is Doors's.** The design's landscape chrome merges the header
    and the section strip into one 56 px row and shrinks the back slab. The
    status bar and the back slab are Doors-owned and RIFT changes nothing
-   there, so the app lays out in the body it is given: 56 px of strip, and
+   there, so the app lays out in the body it is given. RIFT is fullscreen
+   (DS §30.8, 2026-09-24): there is no status bar above the header in either
+   orientation, and the body takes the height it gave back: 56 px of strip, and
    the command line only while it is the landscape composer or says the
    service is not answering. The counts the design puts in the header's
    right caption are at the end of the section strip in landscape, beside the

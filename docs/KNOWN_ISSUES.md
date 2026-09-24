@@ -1,7 +1,7 @@
 # Known issues and open questions
 
-Updated 2026-09-23 for v0.0.11 (released 2026-09-23, tag `v0.0.11`). Move items to
-git history when resolved.
+Updated 2026-09-24 for v0.0.12 (in preparation; v0.0.11 released 2026-09-23,
+tag `v0.0.11`). Move items to git history when resolved.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
 B4 (the shell's `printf` diagnostics never reached a log; they go through
@@ -29,6 +29,34 @@ on every run that read `14 24`), so the value depends on the SX1262's
 state after reset. Not a radiod defect, not a runtime blocker, and not
 investigated further unless it recurs: the probe now names it
 chip-state dependent and dumps both transports' windows when it does.
+
+## Open for v0.0.12
+
+What changed since v0.0.11 is Files (DS §33) and the fullscreen apps
+(DS §30.8); both have unit A gates. Nothing here is DEVICE VERIFIED unless it
+says so. Everything under "Open for v0.0.11" still applies.
+
+- **Files: Enter on the keyboard base was not run on the device** (its keys
+  cannot be injected remotely); host-tested (docs/hardware/FILES_GATE.md).
+- **Timber and Wave have no landscape layout**: in landscape they are their
+  portrait pages in a wide body and scroll (Wave's TRANSMIT is below the fold
+  on the send page). Seen on unit A, 2026-09-24.
+- **Radar in portrait** keeps the §29 scope, which the panel's width limits;
+  under the fullscreen body the page ends about 200 px above the foot.
+- **RIFT's landscape ROUTE pane reaches the right edge of the screen** (the
+  COMMS details column). Seen in the simulator before the fullscreen change
+  and on unit A after it; cosmetic, nothing in it is cut.
+- **A landscape app under the 32 px COMPACT bar has its back slab's top
+  10 px inside the 50 px top corner band.** The rounded edge there is about
+  1 px, and nothing was seen cut on unit A (v0.0.11 RC1 gate, fullscreen
+  gate), but the header is not inset for it (DS §30.1).
+- **The shipped shell still reads the games' development variables**
+  (`POCKETFLEET_SCREEN`, `POCKETRADAR_SCREEN`, `POCKETTIMBER_SCREEN`,
+  `POCKETTIMBER_TRACE`, `POCKETTIMBER_PLACEHOLDER`; docs/apps/POCKET*.md), as
+  every release before it has. They do nothing unless set in the shell's
+  environment, which no init script does. The simulator's test hooks
+  (`POCKETOS_TEST_*`) are compiled out of the panel's build (checked in the
+  `a30678e` target tree, 2026-09-24).
 
 ## Open for v0.0.11
 
