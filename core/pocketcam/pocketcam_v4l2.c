@@ -75,6 +75,9 @@
  * started yet (measured 0.0-0.2), not a dark room (1.5 and up). */
 #define V4L2_BLACK_LUMA_X10 8
 #define V4L2_HANDLE_STILL 100
+/* Opening again after an EIO, while the ISP daemon starts. */
+#define V4L2_OPEN_RETRIES 4
+#define V4L2_OPEN_RETRY_MS 500
 
 struct node {
     int fd;
@@ -478,6 +481,7 @@ static int v4l2_open(struct pocketcam_backend *b, const char *config, struct poc
     char pv_path[64] = V4L2_PREVIEW_NODE;
     uint32_t pw = V4L2_PREVIEW_W;
     uint32_t ph = V4L2_PREVIEW_H;
+    int attempt;
     int r;
 
     if (!c) {
@@ -500,7 +504,22 @@ static int v4l2_open(struct pocketcam_backend *b, const char *config, struct poc
     snprintf(c->pv_path, sizeof(c->pv_path), "%s", pv_path);
     c->pv_w = pw;
     c->pv_h = ph;
-    r = node_open(&c->pv, pv_path, pw, ph, V4L2_BUFS);
+    /* Right after boot the ISP daemon may not have the sensor up yet: on unit
+     * A an open about two minutes after power-on failed with EIO once and
+     * worked a minute later. A few bounded retries, well inside the session's
+     * CAMERA_OPEN_MS. */
+    for (attempt = 0;; attempt++) {
+        r = node_open(&c->pv, pv_path, pw, ph, V4L2_BUFS);
+        if (r != -EIO || attempt >= V4L2_OPEN_RETRIES) {
+            break;
+        }
+        {
+            struct timespec d = { 0, V4L2_OPEN_RETRY_MS * 1000000L };
+
+            while (nanosleep(&d, &d) != 0 && errno == EINTR) {
+            }
+        }
+    }
     if (r != 0) {
         return r;
     }
