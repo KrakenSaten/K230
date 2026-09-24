@@ -66,6 +66,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/radio/radio_app.c
     ${REPO_DIR}/apps/system/system_app.c
     ${REPO_DIR}/apps/system/system_view.c
+    ${REPO_DIR}/apps/system/diag_view.c
     ${REPO_DIR}/apps/settings/settings_app.c
     ${REPO_DIR}/apps/settings/settings_view.c
     ${REPO_DIR}/apps/fleet/fleet_app.c
@@ -889,6 +890,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         chrome.c
         ${REPO_DIR}/apps/system/system_app.c
         ${REPO_DIR}/apps/system/system_view.c
+        ${REPO_DIR}/apps/system/diag_view.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pos_brand_mark.c
         ../pocketui/pocketui.c

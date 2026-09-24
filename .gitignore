@@ -15,6 +15,7 @@
 /tests/sysd_logs_test
 /tests/sysd-testhooks
 /tests/system_view_test
+/tests/diag_view_test
 /tests/airtime_test
 /tests/radiod_tx_test
 /tests/pocketlog_test

@@ -16,9 +16,10 @@ code() { grep -vE '^[[:space:]]*(/\*|\*|//)' "$@"; }
 
 APP=apps/system/system_app.c
 VIEW=apps/system/system_view.c
-ALL="apps/system/system_app.c apps/system/system_view.c apps/system/system_view.h"
+ALL="apps/system/system_app.c apps/system/system_view.c apps/system/system_view.h apps/system/diag_view.c apps/system/diag_view.h"
 
 check "the view model has no LVGL" "$(code "$VIEW" apps/system/system_view.h | grep -q 'lvgl\|lv_' && echo 0 || echo 1)"
+check "nor does the Diagnostics model" "$(code apps/system/diag_view.c apps/system/diag_view.h | grep -q 'lvgl\|lv_' && echo 0 || echo 1)"
 check "System reads nothing from the machine itself: no file I/O" \
     "$(code $ALL | grep -qE '\b(fopen|open|openat|read|write|opendir|statvfs)\s*\(' && echo 0 || echo 1)"
 check "and no /proc, /sys or /run path" "$(code $ALL | grep -qE '"/(proc|sys|run)' && echo 0 || echo 1)"

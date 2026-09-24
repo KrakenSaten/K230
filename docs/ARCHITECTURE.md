@@ -167,6 +167,18 @@ the status bar already polls (`pocketos_shell_radio_state`) rather than asking
 radiod a second time. The screen reads nothing from `/proc`, `/sys` or `/run`:
 it is a client like any other.
 
+**Diagnostics** (a page behind a button above the power actions;
+`apps/system/diag_view.c` decides, `system_app.c` draws): version and
+build, uptime, memory, storage, battery, a services summary with restarts
+and crash loops, the LoRa radio (`radio.status`), the mesh (`mesh.status`),
+Bluetooth, the newest crash reports (`system.crashes`) and the newest log
+lines (`system.logs`) with All / Warnings / Errors. It refreshes one bounded
+call per tick, so however many services are down a refresh never holds the
+LVGL thread for more than one UI deadline, and it holds at most 40 log lines,
+replaced whole. The log reading itself is sysd's and bounded there
+(docs/api/system.md): the page never opens a file. No terminal and no command
+of any kind is reachable from it.
+
 Null is the only unknown and renders as a muted em dash; a number, zero
 included, is a number. A failed poll changes the freshness line and nothing
 else. Services are RUNNING, CRASH LOOP or STOPPED, and a restart count is
