@@ -95,6 +95,9 @@ struct node {
 struct cam {
     struct node pv;
     struct node st;
+    char pv_path[64];
+    uint32_t pv_w;
+    uint32_t pv_h;
     char still_path[64];
     uint32_t still_w;
     uint32_t still_h;
@@ -306,22 +309,6 @@ static int node_start(struct node *n)
     return 0;
 }
 
-static void node_stop(struct node *n)
-{
-    int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    unsigned i;
-
-    if (!n->streaming) {
-        return;
-    }
-    xioctl(n->fd, VIDIOC_STREAMOFF, &type);
-    /* STREAMOFF hands every buffer back. */
-    for (i = 0; i < n->nbuf; i++) {
-        n->queued[i] = false;
-    }
-    n->streaming = false;
-}
-
 /* Sampled luma average, times ten. */
 static unsigned luma_x10(const uint8_t *y, uint32_t w, uint32_t h, uint32_t stride)
 {
@@ -510,6 +497,9 @@ static int v4l2_open(struct pocketcam_backend *b, const char *config, struct poc
     if (access(c->still_path, F_OK) != 0) {
         return -ENODEV;
     }
+    snprintf(c->pv_path, sizeof(c->pv_path), "%s", pv_path);
+    c->pv_w = pw;
+    c->pv_h = ph;
     r = node_open(&c->pv, pv_path, pw, ph, V4L2_BUFS);
     if (r != 0) {
         return r;
@@ -525,10 +515,22 @@ static int v4l2_open(struct pocketcam_backend *b, const char *config, struct poc
     return 0;
 }
 
+/* A stream is never started twice on one open node: after a stop the node was
+ * closed, and it is opened afresh here. Restarting a stopped stream on the
+ * same descriptor (STREAMOFF, then STREAMON) is the step after which unit A
+ * locked up entirely on 2026-09-25 (CAMERA_GATE.md, H1); the vendor app never
+ * does it either - it closes and reopens the node for every preview. */
 static int v4l2_start(struct pocketcam_backend *b)
 {
     struct cam *c = b->priv;
+    int r;
 
+    if (c->pv.fd < 0) {
+        r = node_open(&c->pv, c->pv_path, c->pv_w, c->pv_h, V4L2_BUFS);
+        if (r != 0) {
+            return r;
+        }
+    }
     return node_start(&c->pv);
 }
 
@@ -560,8 +562,8 @@ static int v4l2_still(struct pocketcam_backend *b, int timeout_ms, struct pocket
         r = node_next(&c->st, left > 0 ? (int)left : 0, f, V4L2_HANDLE_STILL);
     }
     /* The interface's promise: after a still the preview is stopped, and the
-     * caller starts it again when it wants it. */
-    node_stop(&c->pv);
+     * caller starts it again when it wants it - on a freshly opened node. */
+    node_close(&c->pv);
     if (r != 0) {
         node_close(&c->st);
     }
@@ -583,7 +585,7 @@ static void v4l2_stop(struct pocketcam_backend *b)
 {
     struct cam *c = b->priv;
 
-    node_stop(&c->pv);
+    node_close(&c->pv);
 }
 
 static void v4l2_close(struct pocketcam_backend *b)

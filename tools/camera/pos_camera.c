@@ -659,6 +659,72 @@ static int run_bench(const char *backend, const char *script, int display_rotati
     return 0;
 }
 
+/* The app's sequence, repeated: preview for a second, a still while it runs,
+ * the still encoded, and the preview started again - the path that locked
+ * unit A up once (docs/hardware/CAMERA_GATE.md). One line a cycle, flushed,
+ * so a hang shows where it stopped. */
+static int run_soak(const char *backend, const char *script, int cycles)
+{
+    struct pocketcam_backend cam;
+    struct pocketcam_info info;
+    struct pocketcam_frame f;
+    int i;
+    int r = 0;
+
+    setvbuf(stdout, NULL, _IOLBF, 0);
+    if (open_camera(&cam, &info, backend, script, false) != 0) {
+        return EXIT_NOCAMERA;
+    }
+    for (i = 1; i <= cycles && !stop_requested; i++) {
+        int64_t t0 = mono_ms();
+        int frames = 0;
+        FILE *fp;
+
+        r = pocketcam_start(&cam);
+        if (r != 0) {
+            printf("cycle %d: start: %s\n", i, pocketcam_strerror(r));
+            break;
+        }
+        while (mono_ms() - t0 < 1000) {
+            r = pocketcam_next(&cam, 500, &f);
+            if (r == 0) {
+                frames++;
+                pocketcam_release(&cam, &f);
+            } else if (r != -ETIMEDOUT) {
+                break;
+            }
+        }
+        if (r != 0 && r != -ETIMEDOUT) {
+            printf("cycle %d: frame: %s\n", i, pocketcam_strerror(r));
+            break;
+        }
+        printf("cycle %d: %d frames;", i, frames);
+        t0 = mono_ms();
+        r = pocketcam_still(&cam, POCKETCAM_STILL_TIMEOUT_MS, &f);
+        if (r != 0) {
+            printf(" still: %s\n", pocketcam_strerror(r));
+            break;
+        }
+        printf(" still %lld ms;", (long long)(mono_ms() - t0));
+        fp = fopen("/tmp/pos-camera-soak.out", "wb");
+        if (fp) {
+            r = pocketcam_encode(fp, &f, 0, false);
+            fclose(fp);
+        }
+        pocketcam_release(&cam, &f);
+        printf(" encoded %s\n", r == 0 ? "ok" : strerror(-r));
+        if (i % 3 == 0) {
+            /* Sometimes stopped from the preview rather than by a still. */
+            pocketcam_start(&cam);
+            pocketcam_stop(&cam);
+        }
+    }
+    remove("/tmp/pos-camera-soak.out");
+    pocketcam_close(&cam);
+    printf("soak: %d of %d cycles\n", i - 1, cycles);
+    return i - 1 == cycles ? 0 : EXIT_LOST;
+}
+
 #ifdef POS_CAMERA_TEST_HOOKS
 /* pos-camera-testhooks only: a disk of a given size. */
 static int64_t test_free_bytes(const char *dir)
@@ -688,6 +754,7 @@ static void usage(void)
             "       pos-camera probe [--backend NAME] [--config CONFIG]\n"
             "       pos-camera snap FILE [--backend NAME] [--config CONFIG] [--rotation DEG]\n"
             "       pos-camera bench [--backend NAME] [--config CONFIG] [--rotation DEG]\n"
+            "       pos-camera soak CYCLES [--backend NAME] [--config CONFIG]\n"
             "DEG is the display rotation the picture is turned for: 0 (portrait,\n"
             "the default) or the shell's landscape, 270.\n"
             "CONFIG is the fake's script (--fake is the same) or the v4l2 backend's\n"
@@ -750,6 +817,11 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "snap") == 0 && file) {
         return run_snap(backend, script, file, display_rotation);
+    }
+    if (strcmp(argv[1], "soak") == 0 && file) {
+        int n = atoi(file);
+
+        return n > 0 && n <= 10000 ? run_soak(backend, script, n) : EXIT_USAGE;
     }
     if (strcmp(argv[1], "bench") == 0 && !file) {
         return run_bench(backend, script, display_rotation);
