@@ -102,6 +102,7 @@ struct pocketaudio_stream {
     int record_route;   /* what that record says to restore the route to, or -1 */
     int recovered;      /* open found and undid a previous owner's leftovers */
     int peak_limit;
+    int gain_q15;         /* playback: the system volume as a Q15 gain */
     unsigned settle_left; /* capture: startup frames still to be discarded */
     unsigned xruns;
     int16_t wire[POCKETAUDIO_PERIOD_FRAMES * POCKETAUDIO_MAX_CHANNELS];
@@ -164,6 +165,25 @@ const char *pocketaudio_strerror(int err)
     case POCKETAUDIO_E_LOCK: return "audio lock unavailable";
     default: return "unknown audio error";
     }
+}
+
+int pocketaudio_volume_gain_q15(int percent)
+{
+    /* 10^(dB/20) x 32768 at 0, 10, ..., 100 percent, dB = 0.3 x percent - 30. */
+    static const int table[11] = { 1036,  1464,  2068,  2920,  4125, 5827,
+                                   8231, 11627, 16423, 23198, 32768 };
+    int i;
+    int frac;
+
+    if (percent <= 0) {
+        return table[0];
+    }
+    if (percent >= 100) {
+        return table[10];
+    }
+    i = percent / 10;
+    frac = percent % 10;
+    return table[i] + (table[i + 1] - table[i]) * frac / 10;
 }
 
 int pocketaudio_peak(const int16_t *samples, size_t n)
@@ -545,7 +565,7 @@ int pocketaudio_open(struct pocketaudio_stream **out, enum pocketaudio_dir dir,
 
     say(err, errlen, "%s", "");
     if (!out || (dir != POCKETAUDIO_PLAYBACK && dir != POCKETAUDIO_CAPTURE) || o->peak_limit < 0 ||
-        o->peak_limit > POCKETAUDIO_PEAK_CEILING) {
+        o->peak_limit > POCKETAUDIO_PEAK_CEILING || o->volume_percent < 0 || o->volume_percent > 100) {
         if (out) {
             *out = NULL;
         }
@@ -565,6 +585,7 @@ int pocketaudio_open(struct pocketaudio_stream **out, enum pocketaudio_dir dir,
     s->route_saved = -1;
     s->amp = -1;
     s->peak_limit = o->peak_limit ? o->peak_limit : POCKETAUDIO_PEAK_CEILING;
+    s->gain_q15 = pocketaudio_volume_gain_q15(o->volume_percent ? o->volume_percent : 100);
     if (o->board) {
         s->board = *o->board;
     } else {
@@ -699,7 +720,10 @@ long pocketaudio_write(struct pocketaudio_stream *s, const int16_t *mono, size_t
         return 0;
     }
     for (i = 0; i < n; i++) {
-        int v = mono[i];
+        /* Volume first, then the ceiling: the clamp is the safety limit and
+         * must hold whatever the gain is. Division, not a shift, so negative
+         * samples round the same way as positive ones. */
+        int v = (int)((int32_t)mono[i] * s->gain_q15 / 32768);
 
         if (v > s->peak_limit) {
             v = s->peak_limit;

@@ -113,6 +113,13 @@ void wave_session_init(struct wave_session *s);
 int wave_session_start_send(struct wave_session *s, const char *helper, const char *protocol,
                             int volume, const char *text, size_t len, char *err, size_t errlen);
 
+/* The same at a system volume (1..100 percent, Controls' Volume): adds
+ * `--volume-percent L` when L is below 100, so a send at full volume runs
+ * exactly the command above. Mute is the caller's: it does not start a send. */
+int wave_session_start_send_at(struct wave_session *s, const char *helper, const char *protocol,
+                               int volume, int volume_percent, const char *text, size_t len,
+                               char *err, size_t errlen);
+
 /* Start `helper listen --events --seconds <seconds>`. */
 int wave_session_start_listen(struct wave_session *s, const char *helper, int seconds, char *err,
                               size_t errlen);

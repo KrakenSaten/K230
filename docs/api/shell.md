@@ -37,6 +37,20 @@ developer tooling, not for applications.
   and the shell applies the stored level at start. `pos shell brightness
   [10..100]`.
 
+- `shell.volume` params `{percent?, muted?}`: reads, or sets, the system
+  volume (ui/shell/volume.h). Result: `{available, percent, muted,
+  effective, min, max, step}`. `percent` is 10..100 in steps of 10 (default
+  100, the level validated on unit A) and is kept while muted; `effective` is
+  what playback uses, 0 while muted. `available` is false when the kernel
+  lists no sound card. Both params are checked before either is applied:
+  anything else is error 2 with nothing changed; error 4 when the value could
+  not be stored. Stored as `audio_volume` and `audio_muted` in settings.conf,
+  read at start. The speaker has no mixer volume (AUDIO_HARDWARE_MAP §7), so
+  this is a digital gain pocketaudio applies to every sample (0 dB at 100 %,
+  -27 dB at 10 %, under the unchanged -12 dBFS ceiling); the Wave app passes
+  it to pos-wave (`--volume-percent`) and sends nothing while muted.
+  `pos shell volume [10..100|mute|unmute]`.
+
 - `shell.rotation` params `{mode?}`: reads, or with `mode` stores, the
   rotation mode (`automatic`, `portrait`, `landscape`; settings key
   `display_rotation`). The display is rotated when it is opened, so a change

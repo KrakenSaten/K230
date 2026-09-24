@@ -163,6 +163,41 @@ int cmd_shell(int argc, char **argv)
         cJSON_Delete(result);
         return 0;
     }
+    if (argc >= 1 && strcmp(argv[0], "volume") == 0) {
+        cJSON *params = NULL;
+        const cJSON *pct;
+
+        if (argc >= 2) {
+            params = cJSON_CreateObject();
+            if (strcmp(argv[1], "mute") == 0 || strcmp(argv[1], "unmute") == 0) {
+                cJSON_AddBoolToObject(params, "muted", strcmp(argv[1], "mute") == 0);
+            } else {
+                char *end;
+                long v;
+
+                errno = 0;
+                v = strtol(argv[1], &end, 10);
+                if (errno != 0 || end == argv[1] || *end != '\0' || v < 0 || v > 1000) {
+                    fprintf(stderr, "%s: volume takes 10..100 in steps of 10, mute or unmute\n",
+                            pos_cli_name);
+                    cJSON_Delete(params);
+                    return 2;
+                }
+                cJSON_AddNumberToObject(params, "percent", (double)v);
+            }
+        }
+        rc = shell_call("shell.volume", params, &result);
+        if (rc) {
+            return rc;
+        }
+        pct = cJSON_GetObjectItemCaseSensitive(result, "percent");
+        printf("volume %d%%%s%s\n", cJSON_IsNumber(pct) ? pct->valueint : -1,
+               cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(result, "muted")) ? ", muted" : "",
+               cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(result, "available")) ? ""
+                                                                                    : " (no sound card)");
+        cJSON_Delete(result);
+        return 0;
+    }
     if (argc >= 1 && strcmp(argv[0], "info") == 0) {
         char *text;
 
@@ -178,7 +213,7 @@ int cmd_shell(int argc, char **argv)
     }
     /* The second line lines up under the first, whichever name is printed. */
     fprintf(stderr, "usage: %s shell info | screenshot <path.png> | theme <id> [normal|outdoor|night]\n"
-                    "%*s| brightness [10..100]\n",
+                    "%*s| brightness [10..100] | volume [10..100|mute|unmute]\n",
             pos_cli_name, (int)strlen("usage:  shell ") + (int)strlen(pos_cli_name), "");
     return 2;
 }

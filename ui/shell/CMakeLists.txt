@@ -38,6 +38,7 @@ add_executable(pocketos-shell
     shell_kb_state.c
     settings.c
     brightness.c
+    volume.c
     platform_${POCKETOS_DISPLAY}.c
     ../pocketui/pocketui.c
     ../pocketui/pos_display.c

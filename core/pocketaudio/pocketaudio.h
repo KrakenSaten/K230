@@ -29,6 +29,11 @@
  *                     open. Nothing grows afterwards.
  *   Safe level.       Every played sample is clamped to the stream's peak
  *                     limit, which can never exceed POCKETAUDIO_PEAK_CEILING.
+ *   System volume.    Every played sample is scaled by the stream's volume
+ *                     (options.volume_percent) before that clamp: a digital
+ *                     gain, because the speaker route has no mixer volume
+ *                     (AUDIO_HARDWARE_MAP §7). 100 % is the level validated
+ *                     on hardware; lower settings only ever attenuate.
  *   Cleanup.          pocketaudio_close() turns the amplifier off first, then
  *                     drops and closes the PCM, restores the route it found,
  *                     and releases the lock - in that order, on every path
@@ -171,6 +176,11 @@ struct pocketaudio_options {
     /* Playback only: the largest sample magnitude that will be played, 1 to
      * POCKETAUDIO_PEAK_CEILING. 0 means the ceiling. */
     int peak_limit;
+    /* Playback only: the system volume, 1 to 100 percent of the validated
+     * level (pocketaudio_volume_gain_q15). 0 means 100, so a caller that
+     * does not know about volume plays exactly as before. Mute is the
+     * caller's to decide: it does not open a stream. */
+    int volume_percent;
     /* Where the lock lives; NULL means pocketos_runtime_dir(). */
     const char *lock_dir;
 };
@@ -231,6 +241,11 @@ unsigned pocketaudio_xruns(const struct pocketaudio_stream *s);
 const char *pocketaudio_last_error(const struct pocketaudio_stream *s);
 
 const char *pocketaudio_strerror(int err);
+
+/* The gain for a volume, in Q15 (32768 is unity): 0 dB at 100 %, falling
+ * linearly in decibels to -27 dB at 10 % and -30 dB at 0 %, interpolated
+ * between the ten-percent points. Out-of-range values are clamped to 0..100. */
+int pocketaudio_volume_gain_q15(int percent);
 
 /* The largest sample magnitude in a buffer (32768 for -32768). */
 int pocketaudio_peak(const int16_t *samples, size_t n);

@@ -84,6 +84,27 @@ const char *pocketos_shell_radio_state(void);
 int pocketos_shell_brightness_get(void);
 int pocketos_shell_brightness_set(int percent);
 
+/* ---- system volume ----------------------------------------------------- *
+ *
+ * How loud the device plays (volume.h): a percentage from VOLUME_MIN_PCT to
+ * VOLUME_MAX_PCT in VOLUME_STEP_PCT steps, and mute, both kept in
+ * settings.conf. The shell holds the setting; the one program that plays
+ * sound (pos-wave, started by Wave) is given it. An app that plays passes
+ * pocketos_shell_volume_effective() on and starts nothing while it is 0.
+ *
+ * _get: the stored level (unchanged by mute). _muted: 1 while muted.
+ * _effective: 0 while muted, else the level. _available: 0 when the kernel
+ * lists no sound card, so there is nothing a volume could change.
+ * _set / _set_muted: apply and store. Return 0, or -1 when the value was not
+ * one the control can take (nothing changes) or could not be stored (the
+ * running value changes, the next start will not have it). */
+int pocketos_shell_volume_get(void);
+int pocketos_shell_volume_muted(void);
+int pocketos_shell_volume_effective(void);
+int pocketos_shell_volume_available(void);
+int pocketos_shell_volume_set(int percent);
+int pocketos_shell_volume_set_muted(int muted);
+
 /* Select the Design System theme and/or display mode (either may be NULL to
  * keep the current one), live, and remember it - the same path as
  * shell.theme over IPC, so the stored selection and the shell.theme event

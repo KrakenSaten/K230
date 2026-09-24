@@ -414,22 +414,35 @@ static int spawn(struct wave_session *s, const char *helper, char *const argv[],
     return 0;
 }
 
-int wave_session_start_send(struct wave_session *s, const char *helper, const char *protocol,
-                            int volume, const char *text, size_t len, char *err, size_t errlen)
+int wave_session_start_send_at(struct wave_session *s, const char *helper, const char *protocol,
+                               int volume, int volume_percent, const char *text, size_t len,
+                               char *err, size_t errlen)
 {
     char vol[16];
+    char pct[16];
     char *argv[] = { (char *)helper, "send", "--events", "--protocol", (char *)protocol,
-                     "--volume", vol, NULL };
+                     "--volume", vol, NULL, NULL, NULL };
 
-    if (!helper || !valid_word(protocol) || volume < 1 || volume > 100 || !text || len == 0 ||
-        len > WAVE_EVENT_TEXT_MAX) {
+    if (!helper || !valid_word(protocol) || volume < 1 || volume > 100 || volume_percent < 1 ||
+        volume_percent > 100 || !text || len == 0 || len > WAVE_EVENT_TEXT_MAX) {
         if (err && errlen) {
             snprintf(err, errlen, "invalid send request");
         }
         return -1;
     }
     snprintf(vol, sizeof(vol), "%d", volume);
+    if (volume_percent < 100) {
+        snprintf(pct, sizeof(pct), "%d", volume_percent);
+        argv[7] = "--volume-percent";
+        argv[8] = pct;
+    }
     return spawn(s, helper, argv, text, len, err, errlen);
+}
+
+int wave_session_start_send(struct wave_session *s, const char *helper, const char *protocol,
+                            int volume, const char *text, size_t len, char *err, size_t errlen)
+{
+    return wave_session_start_send_at(s, helper, protocol, volume, 100, text, len, err, errlen);
 }
 
 int wave_session_start_listen(struct wave_session *s, const char *helper, int seconds, char *err,
