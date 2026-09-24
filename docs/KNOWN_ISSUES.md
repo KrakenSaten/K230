@@ -50,6 +50,13 @@ says so. Everything under "Open for v0.0.11" still applies.
   10 px inside the 50 px top corner band.** The rounded edge there is about
   1 px, and nothing was seen cut on unit A (v0.0.11 RC1 gate, fullscreen
   gate), but the header is not inset for it (DS §30.1).
+- **The shipped shell still reads the games' development variables**
+  (`POCKETFLEET_SCREEN`, `POCKETRADAR_SCREEN`, `POCKETTIMBER_SCREEN`,
+  `POCKETTIMBER_TRACE`, `POCKETTIMBER_PLACEHOLDER`; docs/apps/POCKET*.md), as
+  every release before it has. They do nothing unless set in the shell's
+  environment, which no init script does. The simulator's test hooks
+  (`POCKETOS_TEST_*`) are compiled out of the panel's build (checked in the
+  `a30678e` target tree, 2026-09-24).
 
 ## Open for v0.0.11
 
