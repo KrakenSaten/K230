@@ -155,8 +155,9 @@ In order; nothing before step 1 needs the hardware, everything from it does.
    `POCKETCAM_JPEG=1` (already compile-checked for riscv64 on this branch).
    It is already in the image, so this adds a build dependency, not a
    package - the same step alsa-lib took for Wave.
-5. **Packaging:** add `usr/bin/pos-camera` to `platforms/k230/scripts/
-   deploy.sh`'s lists (and its staging test), like `pos-wave`.
+5. **Packaging:** done on this branch - `make install` installs
+   `usr/bin/pos-camera` and `deploy.sh` carries it, like `pos-wave`. Nothing
+   has been deployed; the first deploy is part of step 7.
 6. **Measure U6, U7, U11** with the app; revisit the 10 fps cap and the
    capture watchdog; check U9 with a keyboard base fitted.
 7. **Unit A gate** for the app (a gate sheet like FILES_GATE.md), then the
