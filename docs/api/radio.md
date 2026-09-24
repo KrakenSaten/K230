@@ -91,8 +91,13 @@ Result: `chip` ("sx1262" or "mock"), `backend`, `api_version`,
 
 ### radio.status
 
-Result: `state` (`off`, `idle`, `rx`, `tx`, `error`), `profile` (current
-profile object, see radio.configure), `uptime_s`.
+Result: `state` (`off`, `idle`, `rx`, `tx`, `error`), `enabled` (bool, the
+owner's on/off choice, see "Radio on and off"), `profile` (current profile
+object, see radio.configure), `uptime_s`.
+
+`off` is now a state a client sees: the owner has switched the radio off
+(`enabled` false). Before this revision it existed only for the instant
+before the socket was listening.
 
 The state values are unchanged. `tx` now covers an asynchronous transmission
 as well as a synchronous one, so it can be observed from another connection
@@ -124,6 +129,68 @@ not be read as one claim:
   until RX is back are compiled but have never been exercised on hardware.
   Nothing has yet made `enter_rx()` fail on the SX1262, and the mock knob above
   is the only place those paths run.
+
+### radio.set_enabled
+
+Params: `enabled` (bool, required). Result: the same object as
+`radio.status`. Errors: 2 when `enabled` is missing or not a boolean, 4 when
+the radio could not be switched on or the choice could not be stored, 5 when
+switching off while a transmit is on the air (it is finished, not cut; ask
+again when `radio.tx_done` has arrived).
+
+The owner's switch for the transceiver, used by Controls
+(`ui/shell/controls.c`) and `doors radio on|off`. It is not behind the lease:
+the owner switching the radio off wins over whichever daemon holds it, the
+way Wi-Fi off wins over a connection. Asking for the state it is already in
+changes nothing and answers the status, so a repeated or duplicated request
+is harmless. The antenna confirmation is the UI's (Controls asks before every
+off-to-on); this method never asks and never refuses for that reason, so
+scripts and the bench are not tied to a screen.
+
+#### Radio on and off
+
+- **The choice is kept** in `$POCKETOS_STATE_DIR/radiod/radio.conf`
+  (`/var/lib/pocketos/radiod/radio.conf`, `enabled=0|1`, written atomically),
+  and read once at every start. It survives a service restart, a crash
+  (the supervisor's restart reads it), a shell restart and a reboot.
+- **With nothing stored** the radio starts **off on the sx1262 backend** and
+  on with the mock, which has no transmitter and which the simulator and the
+  host suites expect receiving. `--radio-default on|off` overrides that
+  default only; a stored choice always wins. radiod does not store anything
+  until the owner chooses, so a fresh card and a card upgraded from v0.0.12
+  or earlier (which had no such choice) both start with the radio off until
+  somebody switches it on.
+- **On** is applied first and stored second: the backend is initialised and
+  configured with the current profile (the same path as every start), then
+  `enabled=1` is written. A store that fails switches the radio straight back
+  off and answers 4, so the radio is never on unless the next start would
+  also find it on.
+- **Off** is applied first, always, and stored second: the backend runs the
+  shutdown every stop runs (on the SX1262: receive cleared, the chip put to
+  sleep, its power line GPIO44 driven low, SPI and GPIO released). A store
+  that fails answers 4 with the radio already off.
+- **Starting with the radio off** parks the transceiver: init, configure,
+  then the same shutdown, so whatever the previous owner left behind (a
+  daemon killed in receive leaves the SX1262 receiving) ends asleep and
+  unpowered. Nothing on this path transmits. A backend that cannot even be
+  initialised while the radio is off is logged and the service stays up and
+  answers `off`; with the radio on it is a start failure as before.
+- **While off**: `radio.send`, `radio.send_async`, `radio.cad`, `radio.rssi`,
+  `mock.inject_rx` and `mock.set` are refused with 3 ("switched off").
+  `radio.configure` is validated exactly as when on (region guard, ranges)
+  and the profile is **kept** for the moment the radio comes back; it is not
+  refused, because a refusal is final for the protocol daemon
+  (docs/api/mesh.md) and all that is true is that the owner switched the
+  radio off. `radio.info`, `radio.status`, `radio.stats`, `radio.lease`,
+  `radio.channel` (`receiving` false, everything unknown) and the lease
+  methods answer as usual. The lease is kept by its holder.
+- **Events**: `radio.state` announces `off` when the radio goes off and `rx`
+  (or `error`) when it comes back on.
+- **What is not touched**: the profile in radiod's memory, the lease, and
+  everything meshcored stores (identity, channels, contacts). A MeshCore node
+  stays connected to radiod and holding its lease while the radio is off; it
+  reports `degraded` with `radio_state` `off` and is `online` again on the
+  first `rx` (docs/api/mesh.md).
 
 ### radio.configure
 
@@ -489,7 +556,8 @@ time radiod did not read from the clock itself.
 - `radio.tx_done`: `tx_id`, `ok`, `result`, `transmitted`, `rx_resumed`,
   `state`, `bytes`, `airtime_ms`, `mono_ms`, `timestamp_ms`, and `error`
   when not `ok`. See `radio.send_async`.
-- `radio.state`: `state`.
+- `radio.state`: `state`. `off` when the owner switches the radio off
+  (`radio.set_enabled`).
 - `radio.lease`: `held`, `reason` (`acquired`, `released`, `client_gone`),
   `mono_ms`, and `owner`/`owner_id` while held.
 

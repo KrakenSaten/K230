@@ -310,7 +310,9 @@ static void upper(const char *src, char *out, size_t out_len)
 static void refresh_service(struct rift_activity_view *v)
 {
     const struct rift_model *m = &v->app->model;
-    enum pos_style_role role = role_for(m->state);
+    /* Switched off by the owner is a choice, not a warning. */
+    enum pos_style_role role = rift_model_radio_off(m) && m->state == RIFT_SVC_DEGRADED
+                                   ? POS_STYLE_TEXT_MUTED : role_for(m->state);
     char text[RIFT_TEXT_MAX];
 
     if (role != v->state_role) {
@@ -318,7 +320,7 @@ static void refresh_service(struct rift_activity_view *v)
         pos_style_add(v->svc_state, role, 0);
         v->state_role = role;
     }
-    upper(rift_svc_state_word(m->state), text, sizeof(text));
+    upper(rift_model_state_label(m), text, sizeof(text));
     lv_label_set_text(v->svc_state, text);
     lv_label_set_text(v->svc_reason, m->reason[0] ? m->reason
                                                   : "meshcored has not said why yet.");

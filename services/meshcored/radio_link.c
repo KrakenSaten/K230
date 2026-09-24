@@ -416,6 +416,9 @@ static bool radio_state_expected(const struct mcd_radio_link *l, const char *sta
 
 static const char *degraded_reason(const char *state)
 {
+    if (strcmp(state, "off") == 0) {
+        return "the radio is switched off";
+    }
     if (strcmp(state, "tx") == 0) {
         return "radiod is transmitting something this service did not submit";
     }
@@ -430,6 +433,18 @@ static void note_radio_state(struct mcd_radio_link *l, const char *state)
     snprintf(d->radio_state, sizeof(d->radio_state), "%s", state);
     d->radio_state_known = true;
     rx = (strcmp(state, "rx") == 0);
+    /* The owner switched the radio off (radio.set_enabled). Unlike `error`,
+     * radiod refuses every transmit then, so the protocol core is told the
+     * radio is not there - the same as a lost connection - rather than left
+     * to build adverts and forwards that can only be refused. The link, the
+     * lease and the profile are kept; the first `rx` brings it all back. */
+    if (strcmp(state, "off") == 0) {
+        mcd_runtime_set_radio_online(d->rt, false);
+        if (d->state == MCD_ONLINE || d->state == MCD_DEGRADED) {
+            mcd_set_state(d, MCD_DEGRADED, degraded_reason(state));
+        }
+        return;
+    }
     /* Asymmetric on purpose. Leaving `online` takes a state that is not one
      * this service asked for; coming back takes a proven `rx` and nothing
      * less. A transmit submitted while the receiver is broken would otherwise
@@ -547,7 +562,11 @@ static void on_reply(struct mcd_radio_link *l, enum req_kind kind, const cJSON *
         }
         l->phase = LP_READY;
         mcd_backoff_reset(&l->backoff);
-        mcd_runtime_set_radio_online(d->rt, true);
+        /* Connected to a radio the owner has switched off: attached, lease
+         * held, profile given to radiod for later, and nothing to transmit
+         * with until the first `rx` (note_radio_state). */
+        mcd_runtime_set_radio_online(d->rt, !(d->radio_state_known &&
+                                              strcmp(d->radio_state, "off") == 0));
         /* The same rule as note_radio_state, so the first status answer and
          * every later event agree about what a state word means. Nothing is
          * outstanding on a connection this new, so a `tx` here is somebody

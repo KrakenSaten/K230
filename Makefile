@@ -52,7 +52,7 @@ POS_OBJS    := tools/pos/pos.o tools/pos/pos_radio.o tools/pos/pos_logs.o tools/
 RADIOD_CORE_OBJS := services/radiod/tx.o services/radiod/lease.o \
                     services/radiod/radio_time.o services/radiod/backend_mock.o \
                     services/radiod/airtime.o
-RADIOD_OBJS := services/radiod/main.o $(RADIOD_CORE_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
+RADIOD_OBJS := services/radiod/main.o services/radiod/rf_state.o $(RADIOD_CORE_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
 # Everything sysd is except the power actions, which exist twice: once as
 # shipped and once with the test hook (see tests/sysd-testhooks below).
 SYSD_BASE_OBJS := services/sysd/main.o services/sysd/sysd_services.o $(SYS_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
@@ -1042,6 +1042,7 @@ test: all $(TEST_BINS)
 	bash tests/kbd_lint.sh
 	bash tests/radiod_mock_test.sh
 	bash tests/radiod_async_test.sh
+	bash tests/radiod_power_test.sh
 	bash tests/sysd_test.sh
 	bash tests/netd_test.sh
 	bash tests/supervise_test.sh

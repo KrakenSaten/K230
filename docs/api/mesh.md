@@ -91,6 +91,17 @@ Which one a failure produces is a judgement about what the failure means:
   `online`, and nothing else does: a service that is `degraded` stays
   `degraded` while it transmits, because its own voice is not evidence that
   the receiver came back.
+- **the owner switched the radio off** (radiod state `off`,
+  docs/api/radio.md "Radio on and off") is `degraded` with the reason "the
+  radio is switched off" and `radio.radio_state` `off`. Unlike `error`, radiod
+  refuses every transmit then, so the protocol runtime is told the radio is
+  not there (`radio.online` false; adverts are refused with 5 as when
+  disconnected) instead of building packets that can only be refused. The
+  connection, the lease and the profile are kept - radiod accepts the profile
+  while off and applies it when the radio comes back - so there is no
+  reconnect, no backoff and no `error`. The first `rx` after the owner
+  switches it on returns the service to `online`. Identity, channels and
+  contacts are not touched.
 - **this service's own transmit is not** `degraded`. radiod reports state
   `tx` for the whole airtime of a packet, and while meshcored holds the lease
   that packet is its own: the service stays `online` and raises no

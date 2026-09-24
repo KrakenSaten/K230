@@ -36,6 +36,19 @@ const char *rift_svc_state_word(enum rift_svc_state s)
     }
 }
 
+int rift_model_radio_off(const struct rift_model *m)
+{
+    return m && m->have_status && m->have_radio_state && strcmp(m->radio_state, "off") == 0;
+}
+
+const char *rift_model_state_label(const struct rift_model *m)
+{
+    if (m && m->state == RIFT_SVC_DEGRADED && rift_model_radio_off(m)) {
+        return "radio off";
+    }
+    return rift_svc_state_word(m ? m->state : RIFT_SVC_UNKNOWN);
+}
+
 static enum rift_svc_state state_from_word(const char *w)
 {
     if (!w) {
