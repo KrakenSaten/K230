@@ -33,7 +33,9 @@ chip-state dependent and dumps both transports' windows when it does.
 ## Open for v0.0.12
 
 What changed since v0.0.11 is Files (DS §33) and the fullscreen apps
-(DS §30.8); both have unit A gates. Nothing here is DEVICE VERIFIED unless it
+(DS §30.8); both have unit A gates. **v0.0.12 RC1 (`a8b1a9f`) is built and
+gated on unit A as a deploy, not yet flashed** (docs/hardware/V0.0.12_RELEASE_SMOKE.md,
+which lists what that run did not cover). Nothing here is DEVICE VERIFIED unless it
 says so. Everything under "Open for v0.0.11" still applies.
 
 - **Files: Enter on the keyboard base was not run on the device** (its keys
