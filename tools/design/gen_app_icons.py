@@ -4,7 +4,7 @@
     gen_app_icons.py [-o pos_app_icons.c] [SOURCE ...]
 
 A SOURCE is a PNG or a directory of PNGs. Without sources: the launcher's
-twelve icons, LAUNCHER_ICONS below, into ui/pocketui/pos_app_icons.c. The
+thirteen icons, LAUNCHER_ICONS below, into ui/pocketui/pos_app_icons.c. The
 generated file is committed, like the fonts and the brand mark, so a build
 needs neither this script nor the PNGs; tests/app_icons_test.sh fails if it no
 longer matches its sources.
@@ -42,7 +42,8 @@ EXTENSION = "docs/design/brand/doors-icon-extension/png-32/"
 LAUNCHER_ICONS = [THRESHOLD + n + ".png" for n in
                   ("radio", "system", "fleet", "radar", "timber", "notes",
                    "clock", "calendar", "calculator", "settings")] + [EXTENSION + "wave.png",
-                                                                    EXTENSION + "files.png"]
+                                                                    EXTENSION + "files.png",
+                                                                    EXTENSION + "camera.png"]
 
 
 def mask(png, src):

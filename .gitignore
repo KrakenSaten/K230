@@ -132,3 +132,10 @@ BUILD_ID
 /tests/rift_comms_test
 /tests/rift_ipc_test
 /tests/fake-meshcored
+# Camera (docs/apps/CAMERA.md)
+/tools/camera/pos-camera
+/tests/pocketcam_test
+/tests/camera_state_test
+/tests/camera_layout_test
+/tests/camera_session_test
+/tests/pos-camera-testhooks

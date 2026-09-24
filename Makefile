@@ -179,7 +179,7 @@ ifeq ($(ENABLE_MESHCORED),1)
 endif
 
 BINS := tools/pos/pos services/radiod/radiod services/sysd/sysd services/netd/netd tools/hwcheck/pos-spixfer \
-        tools/wave/pos-wave
+        tools/wave/pos-wave tools/camera/pos-camera
 ifeq ($(ENABLE_MESHCORED),1)
 BINS += services/meshcored/meshcored
 endif
@@ -874,6 +874,79 @@ tests/wave_session_test: tests/wave_session_test.o $(WAVE_DIR)/wave_session.o
 tests/wave_modem_test: tests/wave_modem_test.o $(WAVE_MODEM_OBJS) $(AUDIO_OBJS) $(PATHS_OBJS)
 	$(CXX) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
 
+# Camera (docs/apps/CAMERA.md, ADR-006 PROPOSED; not merged, not on unit A).
+#
+# core/pocketcam is the camera layer: the backend seam with the fake backend
+# and the v4l2 placeholder (which answers "not built"), the pixel conversion,
+# the photo store and the still encoder - all pure C, all tested here.
+# pos-camera is the helper, the only program that opens the camera; the app's
+# state machine, layout and helper client in apps/camera are LVGL-free and
+# tested here too, against the real helper on the fake backend. The screen is
+# built by ui/shell (tests/camera_shell_test.sh).
+#
+# POCKETCAM_JPEG=1 encodes photos with libjpeg (in the K230 image and its
+# sysroot); without it they are PPM, because this host has no libjpeg
+# headers. The Buildroot package does not set it yet: making `jpeg` a build
+# dependency of pocketos is part of the post-v0.0.12 hardware work.
+POCKETCAM_JPEG ?= 0
+CAM_DIR := core/pocketcam
+CAM_OBJS := $(CAM_DIR)/pocketcam.o $(CAM_DIR)/pocketcam_fake.o $(CAM_DIR)/pocketcam_convert.o \
+            $(CAM_DIR)/pocketcam_store.o $(CAM_DIR)/pocketcam_codec.o
+CAM_LIBS :=
+ifeq ($(POCKETCAM_JPEG),1)
+CAM_LIBS := -ljpeg
+$(CAM_DIR)/pocketcam_codec.o: ALL_CFLAGS += -DPOCKETCAM_HAVE_JPEG
+endif
+CAMERA_DIR := apps/camera
+CAMERA_OBJS := $(CAMERA_DIR)/camera_state.o $(CAMERA_DIR)/camera_layout.o $(CAMERA_DIR)/camera_session.o
+POS_CAMERA_OBJS := tools/camera/pos_camera.o $(CAM_OBJS) $(PATHS_OBJS)
+CAMERA_TESTS := tests/pocketcam_test tests/camera_state_test tests/camera_layout_test \
+                tests/camera_session_test tests/pos-camera-testhooks
+
+$(CAMERA_DIR)/%.o: $(CAMERA_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) -I$(CAMERA_DIR) -c -o $@ $<
+
+tools/camera/pos-camera: $(POS_CAMERA_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(CAM_LIBS)
+
+# A pos-camera that reads a pretend free space and a pretend full disk from
+# its environment (POCKETCAM_TEST_FREE_BYTES, POCKETCAM_TEST_FAIL_AFTER), so
+# the session test can fill the store. Only this object carries the hook.
+tests/pos_camera_hooks.o: tools/camera/pos_camera.c
+	$(CC) $(ALL_CFLAGS) -DPOS_CAMERA_TEST_HOOKS=1 -c -o $@ $<
+
+tests/pos-camera-testhooks: tests/pos_camera_hooks.o $(CAM_OBJS) $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(CAM_LIBS)
+
+tests/camera_%_test.o: tests/camera_%_test.c
+	$(CC) $(ALL_CFLAGS) -I$(CAMERA_DIR) -c -o $@ $<
+
+tests/pocketcam_test: tests/pocketcam_test.o $(CAM_OBJS) $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(CAM_LIBS)
+
+tests/camera_state_test: tests/camera_state_test.o $(CAMERA_DIR)/camera_state.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/camera_layout_test: tests/camera_layout_test.o $(CAMERA_DIR)/camera_layout.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/camera_session_test: tests/camera_session_test.o $(CAMERA_DIR)/camera_session.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# The camera suites again under the address and undefined-behaviour
+# sanitizers, in a separate build tree so the ordinary objects are untouched.
+# The helper is built with them too: the session test drives it.
+CAMERA_SAN_DIR := out/camera-san
+camera-san-test:
+	rm -rf $(CAMERA_SAN_DIR) && mkdir -p $(CAMERA_SAN_DIR)
+	git ls-files --cached --others --exclude-standard core apps/camera tools/camera tests/camera_* tests/pocketcam_test.c Makefile VERSION \
+	    | tar -cf - -T - | tar -xf - -C $(CAMERA_SAN_DIR)
+	$(MAKE) -C $(CAMERA_SAN_DIR) CC="$(CC)" POCKETOS_BUILD_ID=$(POCKETOS_BUILD_ID) \
+	    CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all" \
+	    LDFLAGS="-fsanitize=address,undefined" $(CAMERA_TESTS)
+	cd $(CAMERA_SAN_DIR) && ./tests/pocketcam_test && ./tests/camera_state_test && \
+	    ./tests/camera_layout_test && ./tests/camera_session_test tests/pos-camera-testhooks
+
 # Every binary `make test` builds on top of $(BINS). Each of them, and each of
 # $(BINS), has to be git-ignored: apply_to_sdk.sh calls an image's BUILD_ID
 # "<commit>-dirty" when `git status --porcelain` shows anything, so a single
@@ -889,7 +962,7 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
              tests/kbd_presence_test tests/chrome_test tests/home_layout_test tests/art_format_test \
              tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
              $(NOTES_TESTS) $(FILES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) $(CALC_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test \
-             $(WAVE_TESTS) $(RIFT_TESTS)
+             $(WAVE_TESTS) $(RIFT_TESTS) $(CAMERA_TESTS)
 
 # Native tests only (they execute binaries).
 test: all $(TEST_BINS)
@@ -958,6 +1031,10 @@ test: all $(TEST_BINS)
 	./tests/rift_model_test
 	./tests/rift_comms_test
 	./tests/rift_ipc_test
+	./tests/pocketcam_test
+	./tests/camera_state_test
+	./tests/camera_layout_test
+	./tests/camera_session_test tests/pos-camera-testhooks
 	bash tests/wave_tool_test.sh
 	bash tests/audio_recovery_test.sh
 	bash tests/capture_settle_test.sh
@@ -998,6 +1075,7 @@ test: all $(TEST_BINS)
 	bash tests/settings_lint.sh
 	bash tests/system_lint.sh
 	bash tests/rift_lint.sh
+	bash tests/camera_lint.sh
 
 install: all meshcored-shipping-check
 # The command-line tool is installed as doors, and pos is a symlink to it: one
@@ -1010,6 +1088,7 @@ install: all meshcored-shipping-check
 	install -D -m 0755 tools/hwcheck/hwcheck.sh $(DESTDIR)$(PREFIX)/bin/pos-hwcheck
 	install -D -m 0755 tools/hwcheck/pos-spixfer $(DESTDIR)$(PREFIX)/bin/pos-spixfer
 	install -D -m 0755 tools/wave/pos-wave $(DESTDIR)$(PREFIX)/bin/pos-wave
+	install -D -m 0755 tools/camera/pos-camera $(DESTDIR)$(PREFIX)/bin/pos-camera
 	install -D -m 0755 services/radiod/radiod $(DESTDIR)$(PREFIX)/sbin/radiod
 	install -D -m 0755 services/sysd/sysd $(DESTDIR)$(PREFIX)/sbin/sysd
 	install -D -m 0755 services/netd/netd $(DESTDIR)$(PREFIX)/sbin/netd
@@ -1055,7 +1134,7 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 
 clean:
 	$(MAKE) -C tools/meshcore-frame clean
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(POCKETOS_BUILD_STAMP)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o $(POCKETOS_BUILD_STAMP)
 
 # The files `make all` and `make test` produce, one to a line, for
 # tests/build_outputs_test.sh.

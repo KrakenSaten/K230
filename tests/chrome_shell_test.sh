@@ -34,9 +34,9 @@ OUT=$(mktemp -d)
 failed=0
 check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 line() { grep -n "$1" "$2" | head -1 | cut -d: -f1; }
-APPS="radio system fleet radar timber notes clock calendar calculator settings wave rift files"
+APPS="radio system fleet radar timber notes clock calendar calculator settings wave rift files camera"
 # DS §30.4 stage 2: the apps that declare NONE, fullscreen in both orientations.
-FULLSCREEN="rift notes wave fleet radar timber"
+FULLSCREEN="rift notes wave fleet radar timber camera"
 is_fullscreen() { case " $FULLSCREEN " in *" $1 "*) return 0 ;; esac; return 1; }
 
 # ---- 1. the rules in the source ------------------------------------------------
@@ -78,8 +78,8 @@ check "no app resolves, reads or touches the chrome" "$([ -z "$hits" ] && echo 1
 [ -n "$hits" ] && echo "$hits" | head -5
 hits=$(grep -rn '\.chrome = ' apps --include='*.c' | grep -v 'POCKETOS_CHROME_NONE')
 declared=$(grep -rln '\.chrome = POCKETOS_CHROME_NONE' apps --include='*.c' | cut -d/ -f2 | sort | tr '\n' ' ')
-check "stage 2: the six fullscreen apps declare NONE and no app declares anything else ($declared) (DS §30.4)" \
-    "$([ -z "$hits" ] && [ "$declared" = "fleet notes radar rift timber wave " ] && echo 1 || echo 0)"
+check "stage 2: the seven fullscreen apps declare NONE and no app declares anything else ($declared) (DS §30.4, §34)" \
+    "$([ -z "$hits" ] && [ "$declared" = "camera fleet notes radar rift timber wave " ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
 check "the test hook that forces a chrome is compiled out of the panel's build" \
     "$(sed -n '/POCKETOS_SHELL_TEST_HOOKS/,/#endif/p' ui/shell/shell.c | grep -q 'getenv("POCKETOS_TEST_CHROME")' &&
@@ -213,7 +213,7 @@ shot "$OUT/l-home.png" "$OUT/l-home.log" --rotation landscape --no-lock
 check "landscape, home: FULL, 56 px" \
     "$(logs "$OUT/l-home.log" | grep -q 'chrome: full, status bar 56 px, content from y 56, for home' && echo 1 || echo 0)"
 check "landscape, home: the grouped launcher below a 56 px bar" \
-    "$(logs "$OUT/l-home.log" | grep -q 'launcher: 4 group(s), 13 app(s), landscape' && echo 1 || echo 0)"
+    "$(logs "$OUT/l-home.log" | grep -q 'launcher: 4 group(s), 14 app(s), landscape' && echo 1 || echo 0)"
 # On the launcher the bar lies on the home photograph with no fill and no
 # rule (DS §31.1); its height is still FULL's, as the log line above says.
 set -- $(geometry "$OUT/l-home.png")

@@ -163,12 +163,12 @@ sleep 0.3
 check "shell.home while locked opens the device at home" \
     "$([ "$(field '["lock"]["locked"]')" = false ] && [ "$(field '["current"]')" = '"home"' ] && echo 1 || echo 0)"
 opened=0
-for id in rift radio wave notes calendar clock calculator fleet radar timber settings system files; do
+for id in rift radio wave notes calendar clock calculator fleet radar timber settings system files camera; do
     "$POS" app start "$id" >/dev/null 2>&1 && sleep 0.4 &&
         [ "$(field '["current"]')" = "\"$id\"" ] && opened=$((opened + 1))
     "$POS" app home >/dev/null 2>&1; sleep 0.2
 done
-check "every one of the thirteen apps opens and comes home ($opened)" "$([ "$opened" = 13 ] && echo 1 || echo 0)"
+check "every one of the fourteen apps opens and comes home ($opened)" "$([ "$opened" = 14 ] && echo 1 || echo 0)"
 check "and the shell is home again" "$([ "$(field '["current"]')" = '"home"' ] && echo 1 || echo 0)"
 call shell.controls
 sleep 0.3
@@ -200,12 +200,13 @@ print("apps", d["launcher"]["apps"], d["launcher"]["icons_art"], d["launcher"]["
       json.dumps(d["launcher"]["scrolls"]))
 PY
     set -- $(grep '^apps' "$OUT/$o-cells.txt")
-    # Portrait does not scroll. Landscape does since Files made thirteen: one
+    # Portrait does not scroll. Landscape does since Files made thirteen (Camera
+    # is the fourteenth, a fourth cell in DEVICE's second line): one
     # row would squeeze a cell under HOME_CELL_MIN_W, so DEVICE wraps to a
     # second line and the footer is below it (ui/shell/home_layout.h).
     scrolls=false; [ "$o" = landscape ] && scrolls=true
-    check "$o: thirteen apps, thirteen portal icons from the art, none on a fallback, scrolls: $scrolls ($2 $3 $4 $5)" \
-        "$([ "$2" = 13 ] && [ "$3" = 13 ] && [ "$4" = 0 ] && [ "$5" = "$scrolls" ] && echo 1 || echo 0)"
+    check "$o: fourteen apps, fourteen portal icons from the art, none on a fallback, scrolls: $scrolls ($2 $3 $4 $5)" \
+        "$([ "$2" = 14 ] && [ "$3" = 14 ] && [ "$4" = 0 ] && [ "$5" = "$scrolls" ] && echo 1 || echo 0)"
     good=0
     while read -r id x y w h; do
         [ "$id" = apps ] && continue
