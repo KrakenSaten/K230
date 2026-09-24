@@ -45,7 +45,8 @@ decided.
 - The microphone is on only while a listen runs. While it runs, and until
   its helper process has actually exited, the panel shows **MICROPHONE ON**
   in the warning tone above the received list, the status line says
-  "Microphone on", and the status bar hint reads **MIC ON**. The indicator is
+  "Microphone on", and the hint reads **MIC ON** - at the right end of the app header, since
+  Wave is fullscreen and has no status bar (DS §30.8). The indicator is
   on from the moment a listen is started - before the helper confirms it -
   and off only when the process is gone, because the device may be open in
   both of those gaps (tests/wave_view_test.c).

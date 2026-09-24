@@ -198,6 +198,13 @@ Doors app theme (DS §32, accepted), and the pre-release fixes from the
 2026-09-23 cold review. Release notes: `docs/releases/v0.0.11.md`; the RC1
 image and its unit A gate (PASS): `docs/hardware/V0.0.11_RELEASE_SMOKE.md`.
 
+**v0.0.12** (in preparation 2026-09-24, `release/v0.0.12-prep`): everything
+merged since the `v0.0.11` tag - Files, the file explorer (DS §33, accepted,
+unit A gate `docs/hardware/FILES_GATE.md`), and the fullscreen apps (DS §30.8,
+accepted: RIFT, Notes, Wave, Fleet, Radar and Timber without the status bar,
+unit A gate `docs/hardware/FULLSCREEN_APPS_GATE.md`). Draft release notes:
+`docs/releases/v0.0.12.md`.
+
 ### Landscape app adaptation (after v0.0.10)
 
 System rotation works (DS §21). When this was written most app screens were
