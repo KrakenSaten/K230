@@ -1,6 +1,7 @@
 /*
  * core/pocketcam on a host: frame validation, the fake backend and every
- * fault its script can raise, the v4l2 placeholder, pixel conversion in all
+ * fault its script can raise, the v4l2 backend on a host that has no camera,
+ * its refusal of bad settings, pixel conversion in all
  * four turns (checked against the fake's own pattern, not hard-coded bytes),
  * the encoder this build has, and the photo store - names, atomic writes, the
  * limits, a full disk and a disk that fills up mid-photo.
@@ -92,7 +93,14 @@ static void test_fake(void)
     int64_t t0;
     int r;
 
-    check("v4l2 is not built in", pocketcam_open(&b, "v4l2", NULL, &info) == -ENOTSUP);
+    /* The real backend on a host: no camera nodes, so no camera. */
+    check("v4l2 on a host without the nodes: no camera",
+          access("/dev/video1", F_OK) == 0 || pocketcam_open(&b, "v4l2", NULL, &info) == -ENODEV);
+    check("v4l2 refuses unknown settings", pocketcam_open(&b, "v4l2", "zoom=2", &info) == -EINVAL);
+    check("v4l2 refuses a size the ISP cannot align",
+          pocketcam_open(&b, "v4l2", "size=641x360", &info) == -EINVAL);
+    check("v4l2 refuses a node outside /dev",
+          pocketcam_open(&b, "v4l2", "preview=/tmp/x", &info) == -EINVAL);
     check("an unknown backend is refused", pocketcam_open(&b, "webcam", NULL, &info) == -ENOTSUP);
     check("a misspelt script key is refused",
           pocketcam_open(&b, "fake", "frmaes=3", &info) == -EINVAL);

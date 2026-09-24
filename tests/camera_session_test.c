@@ -290,8 +290,8 @@ static void test_open_failures(void)
     cfg.dir = photos;
     camera_session_init(&s);
     camera_session_start(&s, &cfg, now_ms(), err, sizeof(err));
-    check("v4l2 (not built): nodevice", wait_for(&s, CAMERA_EV_NODEVICE, 3000, &ev) &&
-                                            strstr(ev.text, "not built") != NULL);
+    check("v4l2 on a host with no camera: nodevice", wait_for(&s, CAMERA_EV_NODEVICE, 3000, &ev) &&
+                                                         strstr(ev.text, "no camera") != NULL);
     check("then the helper leaves with 3", wait_for(&s, CAMERA_EV_EXITED, 3000, &ev) &&
                                                ev.value == 3 && ev.reason == CAMERA_EXIT_NORMAL);
 

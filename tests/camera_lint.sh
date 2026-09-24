@@ -36,10 +36,17 @@ check "only the session starts a process" "$([ "$hits" = "$A/camera_session.c" ]
 hits=$(code $C/*.c $H | grep -nE '\b(system|popen)\(')
 check "no shell is ever run" "$([ -z "$hits" ] && echo 1 || echo 0)"
 
-# ---- the real backend is not guessed -----------------------------------------------
-check "the v4l2 backend is a placeholder that answers 'not built'" \
-    "$(awk '/^static int v4l2_open\(/,/^}/' $C/pocketcam.c | grep -q 'return -ENOTSUP;' &&
-       ! grep -qE 'VIDIOC|videodev2|/dev/video' $C/*.c $H && echo 1 || echo 0)"
+# ---- the real backend (CAMERA_PLATFORM_RESEARCH.md §10) -----------------------------
+hits=$(grep -lE 'VIDIOC|videodev2|/dev/video' $C/*.c $H | tr '\n' ' ')
+check "only pocketcam_v4l2.c speaks V4L2 ($hits)" \
+    "$([ "$hits" = "$C/pocketcam_v4l2.c " ] && echo 1 || echo 0)"
+check "it never enumerates controls (the vvcam main path spins on it)" \
+    "$(code $C/pocketcam_v4l2.c | grep -qE 'QUERYCTRL|QUERY_EXT_CTRL|ENUM_FMT' && echo 0 || echo 1)"
+check "every wait on the driver is a bounded poll on a non-blocking node" \
+    "$(grep -q 'O_RDWR | O_NONBLOCK | O_CLOEXEC' $C/pocketcam_v4l2.c && grep -q 'pr = poll(&p, 1, (int)left);' $C/pocketcam_v4l2.c &&
+       echo 1 || echo 0)"
+check "a frame is mapped read-only" \
+    "$(grep -q 'PROT_READ, MAP_SHARED, n->fd' $C/pocketcam_v4l2.c && ! grep -q 'PROT_WRITE' $C/pocketcam_v4l2.c && echo 1 || echo 0)"
 check "the device's default backend is the real one, never the fake" \
     "$(grep -q '#define CAMERA_BACKEND_DEFAULT "v4l2"' $A/camera_session.c &&
        grep -q 'return env && \*env ? env : "v4l2";' $H && echo 1 || echo 0)"

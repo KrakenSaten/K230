@@ -18,10 +18,10 @@
  *          It exists to develop and test everything above the driver on a
  *          host. It measures nothing about a real camera: its timing is
  *          whatever the script says, and its pixels are a test pattern.
- *   v4l2   the real one, NOT IMPLEMENTED on this branch. Opening it returns
- *          -ENOTSUP, which the helper reports as "no camera". What it has to
- *          do on the T-Display K230 is written down, with the evidence for
- *          each step, in docs/hardware/CAMERA_PLATFORM_RESEARCH.md.
+ *   v4l2   the real camera (pocketcam_v4l2.c): standard V4L2 on the capture
+ *          nodes of the K230's vvcam ISP driver, preview and still on two of
+ *          the ISP's outputs. Measured on unit A in
+ *          docs/hardware/CAMERA_PLATFORM_RESEARCH.md §10.
  *
  * Frames are borrowed: a frame returned by next() or still() stays valid
  * until release(), and a backend may hand out a bounded number at once

@@ -569,6 +569,94 @@ static int run_snap(const char *backend, const char *script, const char *path, b
     return r == 0 ? 0 : EXIT_USAGE;
 }
 
+/* For the bench (docs/hardware/CAMERA_GATE.md): what the camera costs on this
+ * board. Timings are this process's own, on the wall clock. */
+static int run_bench(const char *backend, const char *script, bool portrait)
+{
+    struct pocketcam_backend cam;
+    struct pocketcam_info info;
+    struct pocketcam_frame f;
+    uint32_t vw = portrait ? 528 : 802;
+    uint32_t vh = portrait ? 938 : 452;
+    uint16_t *view = malloc((size_t)vw * vh * 2);
+    int64_t t0 = mono_ms();
+    int64_t t_open;
+    int64_t t_first = -1;
+    int64_t t_end;
+    int64_t conv_ms = 0;
+    int frames = 0;
+    int timeouts = 0;
+    int rot;
+    FILE *fp;
+    int r;
+
+    if (!view || open_camera(&cam, &info, backend, script, false) != 0) {
+        free(view);
+        return EXIT_NOCAMERA;
+    }
+    rot = pocketcam_view_rotation(info.mount_rotation, portrait);
+    t_open = mono_ms() - t0;
+    r = pocketcam_start(&cam);
+    if (r != 0) {
+        fprintf(stderr, "pos-camera: start: %s\n", pocketcam_strerror(r));
+        pocketcam_close(&cam);
+        free(view);
+        return EXIT_NOCAMERA;
+    }
+    t0 = mono_ms();
+    while (mono_ms() - t0 < 4000) {
+        int64_t c0;
+
+        r = pocketcam_next(&cam, 500, &f);
+        if (r == -ETIMEDOUT) {
+            timeouts++;
+            continue;
+        }
+        if (r != 0) {
+            fprintf(stderr, "pos-camera: frame: %s\n", pocketcam_strerror(r));
+            break;
+        }
+        if (t_first < 0) {
+            t_first = mono_ms() - t0;
+        }
+        c0 = mono_ms();
+        pocketcam_to_rgb565(&f, rot, info.mount_mirror, POCKETCAM_FIT_COVER, view, vw, vh, vw);
+        conv_ms += mono_ms() - c0;
+        frames++;
+        pocketcam_release(&cam, &f);
+    }
+    t_end = mono_ms() - t0;
+    printf("open %lld ms, first frame %lld ms after start, %d frames in %lld ms (%.1f fps), "
+           "%d timeouts\n",
+           (long long)t_open, (long long)t_first, frames, (long long)t_end,
+           t_first >= 0 && frames > 1 ? (frames - 1) * 1000.0 / (double)(t_end - t_first) : 0.0,
+           timeouts);
+    printf("convert %ux%u turn %d: %.1f ms a frame\n", vw, vh, rot,
+           frames ? (double)conv_ms / frames : 0.0);
+    t0 = mono_ms();
+    r = pocketcam_still(&cam, POCKETCAM_STILL_TIMEOUT_MS, &f);
+    if (r != 0) {
+        printf("still: %s\n", pocketcam_strerror(r));
+    } else {
+        int64_t t_still = mono_ms() - t0;
+
+        fp = fopen("/tmp/pos-camera-bench.out", "wb");
+        t0 = mono_ms();
+        r = fp ? pocketcam_encode(fp, &f, rot, info.mount_mirror) : -errno;
+        if (fp) {
+            fseek(fp, 0, SEEK_END);
+            printf("still %ux%u in %lld ms, %s encode %lld ms, %ld bytes (%s)\n", f.width, f.height,
+                   (long long)t_still, pocketcam_codec_ext(), (long long)(mono_ms() - t0),
+                   ftell(fp), r == 0 ? "ok" : strerror(-r));
+            fclose(fp);
+        }
+        pocketcam_release(&cam, &f);
+    }
+    pocketcam_close(&cam);
+    free(view);
+    return 0;
+}
+
 #ifdef POS_CAMERA_TEST_HOOKS
 /* pos-camera-testhooks only: a disk of a given size. */
 static int64_t test_free_bytes(const char *dir)
@@ -594,9 +682,13 @@ static void install_test_hooks(void)
 static void usage(void)
 {
     fprintf(stderr,
-            "usage: pos-camera session [--backend NAME] [--fake SCRIPT] [--dir DIR]\n"
-            "       pos-camera probe [--backend NAME] [--fake SCRIPT]\n"
-            "       pos-camera snap FILE [--backend NAME] [--fake SCRIPT] [--portrait]\n");
+            "usage: pos-camera session [--backend NAME] [--config CONFIG] [--dir DIR]\n"
+            "       pos-camera probe [--backend NAME] [--config CONFIG]\n"
+            "       pos-camera snap FILE [--backend NAME] [--config CONFIG] [--portrait]\n"
+            "       pos-camera bench [--backend NAME] [--config CONFIG] [--portrait]\n"
+            "CONFIG is the fake's script (--fake is the same) or the v4l2 backend's\n"
+            "settings; the default comes from $POCKETOS_CAMERA_FAKE or\n"
+            "$POCKETOS_CAMERA_CONFIG, whichever belongs to the backend.\n");
 }
 
 int main(int argc, char **argv)
@@ -616,7 +708,8 @@ int main(int argc, char **argv)
     for (i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--backend") == 0 && i + 1 < argc) {
             backend = argv[++i];
-        } else if (strcmp(argv[i], "--fake") == 0 && i + 1 < argc) {
+        } else if ((strcmp(argv[i], "--fake") == 0 || strcmp(argv[i], "--config") == 0) &&
+                   i + 1 < argc) {
             script = argv[++i];
         } else if (strcmp(argv[i], "--dir") == 0 && i + 1 < argc) {
             dir = argv[++i];
@@ -629,10 +722,13 @@ int main(int argc, char **argv)
             return EXIT_USAGE;
         }
     }
-    if (!script) {
-        script = getenv("POCKETOS_CAMERA_FAKE");
-    }
     backend = pick_backend(backend);
+    /* Each backend reads its own settings: a fake's fault script must never
+     * reach the real camera, nor the real camera's settings the fake. */
+    if (!script) {
+        script = getenv(strcmp(backend, "fake") == 0 ? "POCKETOS_CAMERA_FAKE"
+                                                     : "POCKETOS_CAMERA_CONFIG");
+    }
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = on_term;
     sigaction(SIGTERM, &sa, NULL);
@@ -649,6 +745,9 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "snap") == 0 && file) {
         return run_snap(backend, script, file, portrait);
+    }
+    if (strcmp(argv[1], "bench") == 0 && !file) {
+        return run_bench(backend, script, portrait);
     }
     usage();
     return EXIT_USAGE;

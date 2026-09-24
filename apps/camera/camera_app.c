@@ -312,7 +312,11 @@ static void start_session(struct camera_app *a)
     char err[CAMERA_EVENT_TEXT_MAX - 8];
 
     camera_session_abandon(&a->session, CAMERA_DESTROY_GRACE_MS);
-    cfg.fake = getenv("POCKETOS_CAMERA_FAKE");
+    /* The fake's fault script goes to the fake only; the real backend reads
+     * its own settings from the environment the helper inherits. */
+    if (strcmp(camera_session_backend(), "fake") == 0) {
+        cfg.fake = getenv("POCKETOS_CAMERA_FAKE");
+    }
     if (camera_session_start(&a->session, &cfg, now_ms(), err, sizeof(err)) != 0) {
         struct camera_event ev;
 

@@ -874,24 +874,24 @@ tests/wave_session_test: tests/wave_session_test.o $(WAVE_DIR)/wave_session.o
 tests/wave_modem_test: tests/wave_modem_test.o $(WAVE_MODEM_OBJS) $(AUDIO_OBJS) $(PATHS_OBJS)
 	$(CXX) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
 
-# Camera (docs/apps/CAMERA.md, ADR-006 PROPOSED; not merged, not on unit A).
+# Camera (docs/apps/CAMERA.md, ADR-006 PROPOSED; not merged).
 #
 # core/pocketcam is the camera layer: the backend seam with the fake backend
-# and the v4l2 placeholder (which answers "not built"), the pixel conversion,
-# the photo store and the still encoder - all pure C, all tested here.
-# pos-camera is the helper, the only program that opens the camera; the app's
-# state machine, layout and helper client in apps/camera are LVGL-free and
-# tested here too, against the real helper on the fake backend. The screen is
-# built by ui/shell (tests/camera_shell_test.sh).
+# and the real V4L2 backend, the pixel conversion, the photo store and the
+# still encoder - all pure C. pos-camera is the helper, the only program that
+# opens the camera; the app's state machine, layout and helper client in
+# apps/camera are LVGL-free and tested here, against the real helper on the
+# fake backend. The V4L2 backend compiles here and runs only on the unit
+# (docs/hardware/CAMERA_GATE.md). The screen is built by ui/shell
+# (tests/camera_shell_test.sh).
 #
 # POCKETCAM_JPEG=1 encodes photos with libjpeg (in the K230 image and its
-# sysroot); without it they are PPM, because this host has no libjpeg
-# headers. The Buildroot package does not set it yet: making `jpeg` a build
-# dependency of pocketos is part of the post-v0.0.12 hardware work.
+# sysroot; the Buildroot package sets it and depends on jpeg). Without it they
+# are PPM, because this host has no libjpeg headers.
 POCKETCAM_JPEG ?= 0
 CAM_DIR := core/pocketcam
-CAM_OBJS := $(CAM_DIR)/pocketcam.o $(CAM_DIR)/pocketcam_fake.o $(CAM_DIR)/pocketcam_convert.o \
-            $(CAM_DIR)/pocketcam_store.o $(CAM_DIR)/pocketcam_codec.o
+CAM_OBJS := $(CAM_DIR)/pocketcam.o $(CAM_DIR)/pocketcam_fake.o $(CAM_DIR)/pocketcam_v4l2.o \
+            $(CAM_DIR)/pocketcam_convert.o $(CAM_DIR)/pocketcam_store.o $(CAM_DIR)/pocketcam_codec.o
 CAM_LIBS :=
 ifeq ($(POCKETCAM_JPEG),1)
 CAM_LIBS := -ljpeg
