@@ -2323,7 +2323,7 @@ cheapest pixel in it.
   nothing of it is drawn and the content area starts at the top edge. An app
   header directly under the top edge then runs corner to corner and takes the
   §21.1 bar insets exactly as the bar does: on the T-Display K230 its side
-  padding becomes 30 px. Defined here; no screen uses it yet (§30.4).
+  padding becomes 30 px. Defined here; the fullscreen apps of §30.8 use it.
 
 ### 30.2 Who decides
 
@@ -2356,7 +2356,7 @@ cheapest pixel in it.
 | App declaring DEFAULT | FULL | COMPACT |
 | App declaring FULL | FULL | FULL |
 | App declaring COMPACT | FULL (stage 1, §30.4) | COMPACT |
-| App declaring NONE | FULL (stage 1, §30.4) | NONE |
+| App declaring NONE | NONE (stage 2, §30.8; FULL in stage 1) | NONE |
 
 ### 30.4 Staged rollout
 
@@ -2381,6 +2381,8 @@ change and its own gate.
 - **Stage 2.** After unit A has validated stage 1 (§30.7): apps opt into NONE
   in landscape, one per change, each first moving whatever it wrote to the
   hint into its own body. Notes, Fleet, Radar, Timber, in that order of need.
+  (As built, §30.8: six apps at once, in both orientations, with the hint
+  carried by the header rather than by each body.)
 - **Stage 3.** COMPACT and NONE in portrait are evaluated on the panel. The
   stage 1 portrait rule is one line in `chrome_resolve()` and one group of
   checks in `tests/chrome_test.c`.
@@ -2428,6 +2430,56 @@ in its full one; coming home from each app restoring the 56 px bar; a
 rotation change through Settings landing on the launcher with the right bar.
 Portrait: any screen, pixel for pixel what v0.0.10 showed.
 
+### 30.8 Stage 2: the fullscreen apps [ACCEPTED]
+
+**ACCEPTED 2026-09-24** on the unit A gate of `a30678e`
+(docs/hardware/FULLSCREEN_APPS_GATE.md, PASS), as the owner asked for when
+the implementation matched this proposal. Proposed the same day on branch
+`feat/fullscreen-apps`, at the owner's request. Six apps are fullscreen: **RIFT, Notes,
+Wave, Fleet, Radar and Timber** declare NONE, and have no status bar in
+either orientation. Every other screen - the launcher, Controls, the lock
+and the other seven apps - keeps exactly the chrome §30.3 gave it.
+
+- **Resolution.** The stage 1 portrait rule is narrowed, not lifted: in
+  portrait an app that declares NONE gets NONE, and DEFAULT and COMPACT are
+  still FULL. It is still one line in `chrome_resolve()`.
+- **The header carries the hint.** Under NONE the shell's app header shows
+  whatever the app writes with `pocketos_shell_set_status_hint()` at its
+  right end, in the bar's caption type - Fleet's turn, Radar's and Timber's
+  run state, Wave's `MIC ON`, a Notes storage error. It is the same call and
+  the same text; an app does not know which of the two shows it. This
+  replaces the per-app move of §30.2 and §30.4 for these six.
+- **The lock.** The lock lies under the bar and shows its wordmark and chip.
+  While it is engaged over a fullscreen app the bar comes back at the height
+  an ordinary app has in that orientation (FULL in portrait, COMPACT in
+  landscape), so the lock looks as it does over any other app; the content
+  area underneath keeps the NONE box. The bar goes again the moment the
+  opening lock starts to show the app through it (the open door beginning
+  to fade), so the app is never seen with a bar over its header.
+  `shell.info` reports the bar as drawn in `chrome.shown_height` beside the
+  policy's `status_bar_height`.
+- **What it buys.** The body frame is 1116 in portrait (1060 under FULL) and
+  452 in landscape (420 under COMPACT, 396 under FULL); above the keyboard,
+  820 and 156.
+
+Per app, the smallest change that uses the height:
+
+| App | Portrait | Landscape |
+| --- | --- | --- |
+| RIFT | flex layout, unchanged: the thread and the lists take the height | the same |
+| Notes | the list and the editor field take the height; the field still ends 20 px above the keyboard | the field above the keyboard is 156 px (124 under COMPACT) |
+| Wave | unchanged; more of the page before any scroll | unchanged; TRANSMIT is still below the fold, as before |
+| Fleet | the tall shape, unchanged | §28 re-derived for the taller body: the cell down the board grows to 40 (34 under FULL), the cell across is held at 51 (`FLEET_CELL_ACROSS_MAX`), so the readout column, its nudges and the log line keep the width §28 measured |
+| Radar | §29 unchanged; the page is 56 px shorter than the body | §29's rule, unchanged: the scope grows with the body |
+| Timber | the viewport takes whatever the body has beyond the 1060 px it was measured in: 728 px (672), the controls on the foot as before | unchanged: the 672 px viewport, and the page scrolls as it did |
+
+Validation on the host: `tests/chrome_test` (the resolver in both
+orientations), `tests/chrome_shell_test.sh` (every app under the chrome it
+declares in both orientations, the hint in the header, open/close/reopen of
+all six over IPC, the lock over fullscreen Notes), and the app tests of the
+six, which build their frames from the resolver. Unit A: PASS on `a30678e`
+(docs/hardware/FULLSCREEN_APPS_GATE.md).
+
 ---
 
 PocketOS Design System v0.1 — **STATUS: APPROVED FOR IMPLEMENTATION**
@@ -2445,6 +2497,7 @@ Amendment K (§27) accepted 2026-09-17.
 Amendment L (§28) accepted 2026-09-18.
 Amendment M (§29) accepted 2026-09-18.
 Amendment N (§30) accepted 2026-09-23 (stage 1; v0.0.11 RC1 unit A gate, docs/hardware/V0.0.11_RELEASE_SMOKE.md).
+Amendment N §30.8 (stage 2, the fullscreen apps) accepted 2026-09-24 (unit A gate, docs/hardware/FULLSCREEN_APPS_GATE.md).
 
 ## 31. Amendment O — The DOORS environment [ACCEPTED]
 

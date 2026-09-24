@@ -37,10 +37,11 @@ enum pocketos_chrome {
 /* Resolve a declaration into what the screen gets; never DEFAULT.
  *   home:      the launcher, which is FULL in every orientation (§30.2).
  *   landscape: this run's orientation.
- * The portrait rule is the staged rollout of §30.4: every screen is FULL in
- * portrait for now, whatever was declared. It is one line in chrome.c and
- * one group of checks in tests/chrome_test.c, so lifting it is one change.
- * In landscape DEFAULT is COMPACT and an explicit policy is honoured. */
+ * The portrait rule is the staged rollout of §30.4: in portrait every screen
+ * is FULL except an app that declares NONE (stage 2, the fullscreen apps);
+ * DEFAULT and COMPACT are FULL there. It is one line in chrome.c and one
+ * group of checks in tests/chrome_test.c. In landscape DEFAULT is COMPACT
+ * and an explicit policy is honoured. */
 enum pocketos_chrome chrome_resolve(enum pocketos_chrome declared, bool landscape, bool home);
 
 /* Pixels the effective policy takes along the top edge: 56, 32 or 0.

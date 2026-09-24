@@ -57,18 +57,19 @@
 #define PANEL_CORNER 30 /* the corner squares of the unit's panel (DS 21.1) */
 /* The status bar the shell gives this app in the display's orientation
  * (ui/shell/chrome.h, DS section 30), so the frame built here is the one
- * shell.c builds: 56 px in portrait, 32 px under an app in landscape. */
+ * shell.c builds: none in either orientation, since the app is
+ * fullscreen (DS section 30.4, stage 2). */
 #define STATUS_H chrome_height(chrome_resolve(app_radar.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
 #define BODY_CHROME_H (STATUS_H + POCKETUI_HEADER_H + POCKETUI_BODY_PAD_TOP + POCKETUI_PAD)
 #define CORNER_REACH 10
 
 /* What the layout promises, written down here rather than read from the app. */
 #define TALL_W (PANEL_W - 2 * POCKETUI_PAD)      /* 528 */
-#define TALL_H (PANEL_H - BODY_CHROME_H)         /* 1060 */
+#define TALL_H (PANEL_H - BODY_CHROME_H)         /* 1116, fullscreen */
 #define WIDE_W (PANEL_H - 2 * POCKETUI_PAD)      /* 1192 */
-#define WIDE_H (PANEL_W - BODY_CHROME_H)         /* 396 */
-#define WIDE_SCOPE (WIDE_H - CORNER_REACH)       /* 386 */
-#define RECT_SCOPE WIDE_H                        /* 396, square corners */
+#define WIDE_H (PANEL_W - BODY_CHROME_H)         /* 452, fullscreen */
+#define WIDE_SCOPE (WIDE_H - CORNER_REACH)       /* 442 */
+#define RECT_SCOPE WIDE_H                        /* 452, square corners */
 
 extern const struct pocketos_app app_radar;
 
@@ -873,7 +874,7 @@ int main(void)
     phase = "scan, wide, square corners";
     check_frame(WIDE_W, WIDE_H, 0);
     check_wide_scan(RECT_SCOPE);
-    test_scope_taps("scope taps, 396 px");
+    test_scope_taps("scope taps, square corners");
     app_stop();
 
     use_display(POS_ROTATION_270, PANEL_CORNER);

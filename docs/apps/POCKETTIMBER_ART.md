@@ -75,6 +75,13 @@ The shell owns the status bar (56) and the app header (72); the body is
 1104 px with 24 px top padding, 20 px bottom padding and 20 px side
 padding, so 1060 px tall and 528 px wide inside the padding.
 
+Since Timber became fullscreen (DS §30.8, 2026-09-24, proposed) there is no
+status bar and the body is 1116 px tall inside the padding. The rows below
+keep their heights and the viewport takes the difference: 728 px rather
+than 672 (`TABLE_BODY_REF` in `timber_screens.c`). The tower stands on the
+viewport's foot, so the extra height is felt above it. A landscape body,
+shorter than 1060, keeps the 672 px viewport and scrolls as before.
+
 | Zone | Height | Content |
 | --- | --- | --- |
 | HUD | 90 | one row: SCORE (BEST in standby), LAYERS, and STABILITY as a caption over a ten-block meter, 196 px wide, right |

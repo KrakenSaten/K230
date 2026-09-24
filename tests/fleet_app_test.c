@@ -10,7 +10,7 @@
  *
  * It exists so that a board is the first HARDWARE test of the tap path and
  * not the first test of it at all - which matters more here than anywhere
- * else, because the wide shape draws a 34 px cell (DS 28.2) where the tall
+ * else, because the wide shape draws a 40 x 51 px cell (DS 28.2, 30.4) where the tall
  * one draws 48.
  *
  * What it covers, with the app hosted the way the shell hosts it - a header
@@ -21,7 +21,7 @@
  *   - all four screens in both shapes: what stands beside what, every action
  *     a finger's size, nothing outside the body or the safe area;
  *   - every cell of the board hit at its centre and at all four of its
- *     corners, at 48 px, 35 px and 34 px; the gaps between cells; the caption
+ *     corners, at 48 px, 41 px and 40 px; the gaps between cells; the caption
  *     gutter; and points just outside the board;
  *   - aim-then-confirm: a tap on a cell never fires, FIRE is the only thing
  *     that does, and only on a square not already fired at;
@@ -59,7 +59,8 @@
 #define PANEL_CORNER 30 /* the corner squares of the unit's panel (DS 21.1) */
 /* The status bar the shell gives this app in the display's orientation
  * (ui/shell/chrome.h, DS section 30), so the frame built here is the one
- * shell.c builds: 56 px in portrait, 32 px under an app in landscape. */
+ * shell.c builds: none in either orientation, since the app is
+ * fullscreen (DS section 30.4, stage 2). */
 #define STATUS_H chrome_height(chrome_resolve(app_fleet.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
 /* Above the body and below it: the status bar, the app header and the body's
  * own top and foot padding (DS 7) - and how far the unit's 30 px corners
@@ -69,16 +70,25 @@
 
 /* What the layout promises, written down here rather than read from the app. */
 #define TALL_W (PANEL_W - 2 * POCKETUI_PAD)      /* 528 */
-#define TALL_H (PANEL_H - BODY_CHROME_H)         /* 1060 */
+#define TALL_H (PANEL_H - BODY_CHROME_H)         /* 1116: fullscreen */
 #define WIDE_W (PANEL_H - 2 * POCKETUI_PAD)      /* 1192 */
-#define WIDE_H (PANEL_W - BODY_CHROME_H)         /* 396 */
+#define WIDE_H (PANEL_W - BODY_CHROME_H)         /* 452: fullscreen, no bar */
 /* A cell across the page is as tall as ten rows in the body allow, and as
  * wide as the two columns beside the board can spare - up to half as wide
- * again as it is tall, which on this panel is what it comes to. */
-#define WIDE_CELL 34                             /* 396 less the 10 px foot */
-#define WIDE_CELL_W 51                           /* 34 x 3 / 2 */
-#define RECT_CELL 35                             /* a panel with square corners */
-#define RECT_CELL_W 52                           /* 35 x 3 / 2 */
+ * again as it is tall, and never wider than the 51 px board the §28 columns
+ * were measured against (FLEET_CELL_ACROSS_MAX). Fleet is fullscreen (DS
+ * section 30.4, stage 2), so the rows are taller than §28's and the width is
+ * where the cap holds it. */
+#define WIDE_CELL 40                             /* 452 less the 10 px foot */
+#define WIDE_CELL_W 51                           /* capped: FLEET_CELL_ACROSS_MAX */
+#define RECT_CELL 41                             /* a panel with square corners */
+#define RECT_CELL_W 51                           /* capped too */
+/* The §28 cells, under the 56 px bar Fleet was first validated under: the
+ * shape rule's arithmetic is still checked at those bodies. */
+#define S28_CELL 34                              /* a 386 px body */
+#define S28_RECT 35                              /* a 396 px body */
+/* What the rule draws across for a cell down: half as wide again, capped. */
+#define ACROSS_OF(cell) ((cell) * 3 / 2 > FLEET_CELL_ACROSS_MAX ? FLEET_CELL_ACROSS_MAX : (cell) * 3 / 2)
 #define OWN_CELL_ANY 20                          /* your own waters, either shape */
 #define SPAN_OF(cell) (FLEET_GRID_GUTTER + FLEET_GRID * (cell) + (FLEET_GRID - 1) * FLEET_GRID_GAP)
 /* The four one-square nudges (fleet_screen_battle.c). */
@@ -547,37 +557,47 @@ static void test_shape_rule(void)
     int32_t floor_w;
 
     phase = "shape rule";
-    check_int("a 386 px body gives a 34 px cell", fleet_cell_for_height(386), WIDE_CELL);
-    check_int("a 396 px body gives a 35 px cell", fleet_cell_for_height(396), RECT_CELL);
+    check_int("a 386 px body gives a 34 px cell", fleet_cell_for_height(386), S28_CELL);
+    check_int("a 396 px body gives a 35 px cell", fleet_cell_for_height(396), S28_RECT);
+    check_int("the fullscreen body, 442 px, gives a 40 px cell",
+              fleet_cell_for_height(WIDE_H - CORNER_REACH), WIDE_CELL);
     check_int("a tall body is capped at the tall cell",
               fleet_cell_for_height(TALL_H), FLEET_CELL_TALL);
     check_int("a body with no room at all gives nothing", fleet_cell_for_height(10), 0);
     check_int("the finest board allowed is the floor",
               fleet_cell_for_height(h_at_floor), FLEET_CELL_MIN);
-    check_int("the labelled span at 34 px", fleet_grid_span_for(WIDE_CELL, 1),
-              SPAN_OF(WIDE_CELL));
+    check_int("the labelled span at 34 px", fleet_grid_span_for(S28_CELL, 1),
+              SPAN_OF(S28_CELL));
     check_int("the unlabelled span has no gutter", fleet_grid_span_for(20, 0),
               FLEET_GRID * 20 + (FLEET_GRID - 1) * FLEET_GRID_GAP);
 
     check("the landscape body is wide",
           fleet_shape_is_wide(WIDE_W, WIDE_H - CORNER_REACH, &cell_w, &cell));
-    check_int("and draws a 34 px cell down the board", cell, WIDE_CELL);
+    check_int("and draws a 40 px cell down the board", cell, WIDE_CELL);
     check_int("and a 51 px cell across it", cell_w, WIDE_CELL_W);
 
     /* The height is the binding constraint and the width is the one with
      * room to spare, so the rule spends the spare width on the cell - up to
      * half as wide again, and never less than it is tall. */
     check_int("a cell is half as wide again where there is room",
-              fleet_cell_across(WIDE_W, WIDE_CELL), WIDE_CELL * 3 / 2);
+              fleet_cell_across(WIDE_W, S28_CELL), S28_CELL * 3 / 2);
+    /* A taller body grows the rows and not the board's width, so the
+     * columns beside it keep what §28 measured (FLEET_CELL_ACROSS_MAX). */
+    check_int("a taller cell is held at the §28 width",
+              fleet_cell_across(WIDE_W, WIDE_CELL), FLEET_CELL_ACROSS_MAX);
     check_int("and at the square-corner height too",
-              fleet_cell_across(WIDE_W, RECT_CELL), RECT_CELL * 3 / 2);
+              fleet_cell_across(WIDE_W, RECT_CELL), FLEET_CELL_ACROSS_MAX);
+    check_int("which is the §28 cell made half as wide again",
+              FLEET_CELL_ACROSS_MAX, S28_CELL * 3 / 2);
     check("a body with no width to spare draws square cells",
           fleet_cell_across(SPAN_OF(WIDE_CELL) + POCKETUI_PAD + 2 * FLEET_COL_MIN +
                             POCKETUI_PAD, WIDE_CELL) == WIDE_CELL);
     check("and one narrower still never goes below square",
           fleet_cell_across(100, WIDE_CELL) == WIDE_CELL);
     check("a much wider body stops at half as wide again",
-          fleet_cell_across(4000, WIDE_CELL) == WIDE_CELL * 3 / 2);
+          fleet_cell_across(4000, S28_CELL) == S28_CELL * 3 / 2);
+    check("or at the cap, for a taller cell",
+          fleet_cell_across(4000, WIDE_CELL) == FLEET_CELL_ACROSS_MAX);
     check("the portrait body is not wide",
           !fleet_shape_is_wide(TALL_W, TALL_H - CORNER_REACH, NULL, NULL));
     check("a square body is not wide", !fleet_shape_is_wide(600, 600, NULL, NULL));
@@ -852,10 +872,10 @@ static void check_wide_battle(int want_cell)
     /* Height is the binding constraint and width the one with room to spare,
      * so a cell is wider than it is tall - which is the only way this shape
      * has of making the target bigger. */
-    check_int("its columns are half as wide again",
-              fleet_grid_cell_across(battle_board()), want_cell * 3 / 2);
+    check_int("its columns are half as wide again, up to the cap",
+              fleet_grid_cell_across(battle_board()), ACROSS_OF(want_cell));
     check_int("so the board is wider than it is tall", lv_area_get_width(&board),
-              SPAN_OF(want_cell * 3 / 2));
+              SPAN_OF(ACROSS_OF(want_cell)));
     check("a cell is larger than one down the page in area",
           fleet_grid_cell_across(battle_board()) * fleet_grid_cell(battle_board()) >
               want_cell * want_cell);
@@ -1432,7 +1452,7 @@ static void test_no_scroll_through_a_match(const char *mode, int32_t corner)
 }
 
 /*
- * Aiming without a precise touch. A row across the page is 34 px, which no
+ * Aiming without a precise touch. A row across the page is 40 px, which no
  * layout can improve on, so the screen offers two ways to reach a square that
  * do not ask the player to hit one: land anywhere and slide, and four
  * one-square nudges that are each a finger's size. Neither of them fires.
@@ -1763,7 +1783,7 @@ int main(void)
                   SPAN_OF(WIDE_CELL));
         check_int("and as wide as Battle's", lv_area_get_width(&b),
                   SPAN_OF(WIDE_CELL_W));
-        check_int("its rows are 34 px", fleet_grid_cell(deploy_board()), WIDE_CELL);
+        check_int("its rows are the wide cell", fleet_grid_cell(deploy_board()), WIDE_CELL);
         check_int("its columns are 51 px", fleet_grid_cell_across(deploy_board()),
                   WIDE_CELL_W);
         check("the roster stands beside the board", r.x1 > b.x2);
@@ -1899,9 +1919,9 @@ int main(void)
     phase = "battle, wide";
     check_singletons();
     check_own_board_is_not_a_target();
-    test_board_taps("battle taps, 34 px");
-    test_drawn_is_hit(battle_board(), 1, "battle drawn is hit, 51 x 34");
-    test_board_edges("battle edges, 34 px");
+    test_board_taps("battle taps, 40 px");
+    test_drawn_is_hit(battle_board(), 1, "battle drawn is hit, 51 x 40");
+    test_board_edges("battle edges, 40 px");
 
     test_aim_without_precision("aiming without a precise touch, wide");
 
@@ -2007,8 +2027,8 @@ int main(void)
     check_wide_battle(RECT_CELL);
     check_battle_never_scrolls("battle, wide, square corners, whole on the screen");
     phase = "battle, wide, square corners";
-    test_board_taps("battle taps, 35 px");
-    test_drawn_is_hit(battle_board(), 1, "battle drawn is hit, 52 x 35");
+    test_board_taps("battle taps, 41 px");
+    test_drawn_is_hit(battle_board(), 1, "battle drawn is hit, 51 x 41");
     app_stop();
 
     use_display(POS_ROTATION_270, PANEL_CORNER);
@@ -2030,12 +2050,13 @@ int main(void)
     }
 
     phase = "bodies with no room";
-    /* 1040 x 568 -> a 1000 x 396 body: just over the width floor. */
-    use_panel_sized(PANEL_W, 1040, POS_ROTATION_270, 0);
+    /* 1100 x 568 -> a 1060 x 452 body: just over the width floor, which
+     * for the 41 px cell is 452 + 20 + 2 x 280 + 20 = 1052. */
+    use_panel_sized(PANEL_W, 1100, POS_ROTATION_270, 0);
     check_int("a body just over the width floor is wide",
               fleet_grid_cell(battle_board()), RECT_CELL);
-    /* 1030 x 568 -> 990 x 396: just under it. */
-    use_panel_sized(PANEL_W, 1030, POS_ROTATION_270, 0);
+    /* 1090 x 568 -> 1050 x 452: just under it. */
+    use_panel_sized(PANEL_W, 1090, POS_ROTATION_270, 0);
     check_int("a body just under the width floor keeps the tall board",
               fleet_grid_cell(battle_board()), FLEET_CELL_TALL);
     {

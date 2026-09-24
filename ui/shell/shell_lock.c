@@ -43,6 +43,7 @@ static struct {
     unsigned engaged_n;
     unsigned opened_n;
     bool hold_at_door;       /* tests: stop the sequence on the open door */
+    bool revealing;          /* opening, and what is below shows through */
 } lk;
 
 void shell_lock_test_hold_at_door(bool hold)
@@ -58,6 +59,11 @@ int32_t shell_lock_open_distance(void)
 bool shell_lock_is_locked(void)
 {
     return lk.state != LOCK_OPEN;
+}
+
+bool shell_lock_is_revealing(void)
+{
+    return lk.state == LOCK_OPENING && lk.revealing;
 }
 
 bool shell_lock_is_opening(void)
@@ -137,6 +143,20 @@ static void release_art(void)
     lk.open_bg = NULL;
 }
 
+/* What is under the lock starts to show: tell the shell once, so whatever
+ * it draws over the lock for the lock's sake can go before the app is seen
+ * with it (a fullscreen app's status bar, shell.c status_bar_fit). */
+static void begin_reveal(void)
+{
+    if (lk.revealing) {
+        return;
+    }
+    lk.revealing = true;
+    if (lk.hooks.revealing) {
+        lk.hooks.revealing();
+    }
+}
+
 static void finish_open(void)
 {
     lv_anim_delete(lk.lock_img, NULL);
@@ -145,6 +165,7 @@ static void finish_open(void)
     lv_obj_add_flag(lk.tagline, LV_OBJ_FLAG_HIDDEN);
     release_art();
     lk.state = LOCK_OPEN;
+    lk.revealing = false;
     lk.opened_n++;
     give_keys_back();
     LOG_INFO("lock: open (%u)", lk.opened_n);
@@ -172,6 +193,7 @@ static void fade_open_door(void)
      * as the open door fades. */
     lv_obj_remove_style(lk.root, pos_style(POS_STYLE_SCREEN), 0);
     lv_obj_add_flag(lk.tagline, LV_OBJ_FLAG_HIDDEN);
+    begin_reveal();
     lv_anim_init(&a);
     lv_anim_set_var(&a, lk.open_img);
     lv_anim_set_exec_cb(&a, anim_image_opa);
@@ -231,6 +253,7 @@ void shell_lock_open(bool animate, const char *why)
     if (!lk.open_bg) {
         /* No open door to show: the closed one fades straight to home. */
         lv_obj_remove_style(lk.root, pos_style(POS_STYLE_SCREEN), 0);
+        begin_reveal();
     } else {
         lv_obj_remove_flag(lk.tagline, LV_OBJ_FLAG_HIDDEN);
     }
@@ -259,6 +282,7 @@ void shell_lock_engage(const char *why)
         return;
     }
     lk.state = LOCK_ENGAGED;
+    lk.revealing = false;
     lk.engaged_n++;
     if (!lk.lock_bg) {
         lk.lock_bg = art_load_background("lock", lk.landscape);

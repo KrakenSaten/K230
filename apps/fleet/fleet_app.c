@@ -169,6 +169,11 @@ int fleet_cell_across(int32_t w, int cell_down)
      * the tall shape draws. */
     int widest = cell_down * 3 / 2;
 
+    /* And never wider than the board the columns beside it were measured
+     * against: extra height is spent on the rows alone. */
+    if (widest > FLEET_CELL_ACROSS_MAX) {
+        widest = FLEET_CELL_ACROSS_MAX;
+    }
     if (cell > widest) {
         cell = widest;
     }
@@ -217,11 +222,12 @@ int fleet_shape_is_wide(int32_t w, int32_t h, int *cell_w_out, int *cell_h_out)
  *   single column of v0.0.10, the boards at 48 px cells, and the frame scrolls
  *   what does not fit - which is what the shell's body did before.
  *
- *   WIDE (landscape: 1192 x 386, once the foot has cleared the rounded
- *   corners). The board is as large as the body allows on both axes and
- *   everything said about it stands beside it in two columns. Ten rows in
- *   386 px give 34 px, which no layout can improve on; the width has room to
- *   spare, so a cell is drawn wider than it is tall. Aim-then-confirm does not
+ *   WIDE (landscape: 1192 x 442 fullscreen, once the foot has cleared the
+ *   rounded corners; 386 under the 56 px bar §28 was drawn for). The board is
+ *   as tall as the body allows and everything said about it stands beside it
+ *   in two columns. Ten rows in 442 px give 40 px, which no layout can improve
+ *   on; the width has room to spare, so a cell is drawn wider than it is tall,
+ *   up to the 51 px the columns were measured against. Aim-then-confirm does not
  *   change: aiming only moves the crosshair, which is harmless and
  *   correctable, and FIRE is still the only thing that commits a shot.
  *
@@ -595,14 +601,11 @@ const struct pocketos_app app_fleet = {
     .create = fleet_create,
     .tick = NULL,
     .destroy = fleet_destroy,
-    /* FULL, declared, while every other app takes the landscape default
-     * (DS §30.4, stage 1). The wide shape of §28 was constructed for the
-     * 386 px body under the 56 px bar: given the 410 px under a 32 px one,
-     * the cell grows to 36 and the board widens to 54 across, which takes
-     * 30 px from the readout column - the four nudges fall to 60 px, under
-     * the 64 px touch minimum, and in Outdoor the log line overflows the
-     * column by 10 px at turn 37 of a match (tests/fleet_app_test.c). That
-     * is the stage 2 change for this app, with the COMMAND hint moved into
-     * its own body; until then Fleet keeps the bar it was validated under. */
-    .chrome = POCKETOS_CHROME_FULL,
+    /* Fullscreen (DS §30.4 stage 2): no status bar in either orientation.
+     * Stage 1 kept Fleet under FULL because a taller body widened the §28
+     * board and squeezed the readout column; fleet_cell_across() now holds
+     * the board at the width §28 was validated at and gives the extra height
+     * to the cells alone (tests/fleet_app_test.c). COMMAND and the turn
+     * status go to the header, where the shell shows the hint under NONE. */
+    .chrome = POCKETOS_CHROME_NONE,
 };

@@ -92,9 +92,11 @@ struct shell {
     lv_obj_t *status_clock;
     lv_obj_t *status_radio;
     lv_obj_t *status_hint;
+    lv_obj_t *header_hint;  /* the same hint in the app header under NONE, or NULL */
     lv_obj_t *content;      /* below the status chrome */
     enum pocketos_chrome chrome; /* the status chrome in force (chrome.h), resolved by the shell */
     int32_t chrome_h;       /* its height: where the content area starts */
+    int32_t bar_shown_h;    /* the bar as drawn now: chrome_h, but for the lock over NONE */
     lv_obj_t *home;         /* launcher */
     lv_obj_t *controls;     /* DOORS Controls, over the launcher (controls.h) */
     lv_obj_t *backdrop;     /* the home photograph, behind the bar and the launcher */
@@ -286,9 +288,14 @@ static void status_bar_create(lv_obj_t *screen)
  * shows the time large already. In an app the bar is exactly what it always
  * was. One function decides which, from what is in front.
  */
+static void status_bar_fit(void);
+
 static void environment_apply(void)
 {
     bool env = !sh.app || shell_lock_is_locked();
+
+    /* The lock over a fullscreen app brings the bar back (status_bar_fit). */
+    status_bar_fit();
 
     lv_obj_remove_style(sh.status_bar, pos_style(POS_STYLE_ENV_BAR), 0);
     lv_obj_remove_style(sh.status_title, pos_style(POS_STYLE_ENV_CAPTION), 0);
@@ -312,6 +319,9 @@ static void environment_apply(void)
 void pocketos_shell_set_status_hint(const char *text)
 {
     lv_label_set_text(sh.status_hint, text ? text : "");
+    if (sh.header_hint) {
+        lv_label_set_text(sh.header_hint, text ? text : "");
+    }
 }
 
 int pocketos_shell_reduced_motion(void)
@@ -686,22 +696,42 @@ static void status_chip_fit(enum pocketos_chrome effective)
     lv_obj_set_style_pad_bottom(sh.status_radio, c.pad_bottom, 0);
 }
 
-static void chrome_apply(enum pocketos_chrome effective, const char *what)
+/* Draw the bar as the chrome in force says. The one exception is the lock
+ * over a fullscreen (NONE) app: the lock lies under the bar and shows its
+ * wordmark and chip, so while it is engaged the bar comes back at the
+ * height an ordinary app has in this orientation - the lock looks exactly
+ * as it does over any other app (DS §31.4). Only the bar: the content area
+ * underneath keeps the NONE box, so the app does not move while locked.
+ * It goes again as soon as the opening lock starts to show the app through
+ * it (shell_lock_is_revealing), not when the fade has ended: the app is
+ * never seen with a bar over its header. */
+static void status_bar_fit(void)
 {
-    sh.chrome = effective;
-    sh.chrome_h = chrome_height(effective);
-    if (effective == POCKETOS_CHROME_NONE) {
+    enum pocketos_chrome shown = sh.chrome;
+
+    if (shown == POCKETOS_CHROME_NONE && shell_lock_is_locked() && !shell_lock_is_revealing()) {
+        shown = chrome_resolve(POCKETOS_CHROME_DEFAULT, sh.landscape, false);
+    }
+    if (shown == POCKETOS_CHROME_NONE) {
         /* Hidden, not deleted: the clock, the chip and the hint keep being
          * written (status_update, pocketos_shell_set_status_hint) and keep
          * their state for the next chrome that shows them. The screen has
          * no layout, so a hidden bar takes no room by itself; the content
-         * box below is what moves the content to the top edge. */
+         * box is what moves the content to the top edge. */
         lv_obj_add_flag(sh.status_bar, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_remove_flag(sh.status_bar, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_height(sh.status_bar, sh.chrome_h);
+        lv_obj_set_height(sh.status_bar, chrome_height(shown));
     }
-    status_chip_fit(effective);
+    sh.bar_shown_h = chrome_height(shown);
+    status_chip_fit(shown);
+}
+
+static void chrome_apply(enum pocketos_chrome effective, const char *what)
+{
+    sh.chrome = effective;
+    sh.chrome_h = chrome_height(effective);
+    status_bar_fit();
     content_box(pocketos_shell_keyboard_visible() ? POS_KB_H : 0);
     LOG_INFO("chrome: %s, status bar %d px, content from y %d, for %s", chrome_name(effective),
              (int)sh.chrome_h, (int)sh.chrome_h, what);
@@ -760,6 +790,7 @@ static void app_close(void)
     }
     sh.app = NULL;
     sh.app_priv = NULL;
+    sh.header_hint = NULL; /* it goes with the header */
     lv_obj_delete(sh.app_root);
     sh.app_root = NULL;
     pocketos_shell_set_status_hint("");
@@ -809,6 +840,11 @@ static void on_lock_engaged(void)
 }
 
 static void on_lock_opened(void)
+{
+    environment_apply();
+}
+
+static void on_lock_revealing(void)
 {
     environment_apply();
 }
@@ -870,6 +906,19 @@ static void app_open(const struct pocketos_app *app)
     lv_obj_center(name);
 
     name = pocketui_label(header, app->name, POS_STYLE_TITLE);
+    if (sh.chrome == POCKETOS_CHROME_NONE) {
+        /* With the bar gone its hint cell goes with it, and what an app
+         * writes there is state the player or the user needs - Fleet's
+         * turn, Radar's and Timber's run state, Wave's MIC ON, a Notes
+         * storage error (DS §30.2). Under NONE the header carries it, at
+         * its right end in the bar's caption type, written by the same
+         * pocketos_shell_set_status_hint(). The app does not know which of
+         * the two shows it. */
+        sh.header_hint = pocketui_label(header, lv_label_get_text(sh.status_hint),
+                                        POS_STYLE_CAPTION);
+        lv_obj_set_flex_grow(sh.header_hint, 1);
+        lv_obj_set_style_text_align(sh.header_hint, LV_TEXT_ALIGN_RIGHT, 0);
+    }
 
     body = lv_obj_create(sh.app_root);
     lv_obj_remove_style_all(body);
@@ -1067,6 +1116,9 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
 
             cJSON_AddStringToObject(chrome, "policy", chrome_name(sh.chrome));
             cJSON_AddNumberToObject(chrome, "status_bar_height", sh.chrome_h);
+            /* What is drawn: the same, but for the lock over a fullscreen
+             * app, which shows the bar an ordinary app has (status_bar_fit). */
+            cJSON_AddNumberToObject(chrome, "shown_height", sh.bar_shown_h);
             {
                 /* The radio chip as drawn: its box, the box its text gets,
                  * and the line that text needs (tests/chrome_shell_test.sh
@@ -1536,7 +1588,8 @@ int main(int argc, char **argv)
     /* The lock: over the apps, the launcher and the keyboard, under the
      * status bar and the alarm alert (shell_lock.h). */
     {
-        static const struct shell_lock_hooks hooks = { on_lock_engaged, on_lock_opened };
+        static const struct shell_lock_hooks hooks = { on_lock_engaged, on_lock_opened,
+                                                        on_lock_revealing };
 
         uint32_t t0 = lv_tick_get();
 

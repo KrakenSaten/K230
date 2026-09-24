@@ -3,17 +3,21 @@
 #
 #   1. The rules in the source: one resolver, one content box, the chrome
 #      resolved before an app is created, apps that declare and never
-#      manipulate, and stage 1 - no app declares a chrome yet.
+#      manipulate, and stage 2 - the six fullscreen apps declare NONE and
+#      no other app declares anything.
 #   2. The pure test (tests/chrome_test, make test) when it has been built.
 #   3. The running shell: FULL at home in both orientations and under every
-#      app in portrait; COMPACT under every app in landscape, and drawn so -
+#      other app in portrait; NONE under the six fullscreen apps in both,
+#      their hint drawn in the header instead; COMPACT under every other app
+#      in landscape, and drawn so -
 #      the 32 px bar with its hairline, the header straight under it, the
 #      wordmark, the chip and the clock in the bar, a hint drawn in it; FULL
 #      again on coming home; open, close and open again over IPC; the radio
-#      poll answering under COMPACT; and NONE through the simulator's test
-#      hook - no bar, the content from the top edge, the header's back slab
-#      moved clear of the rounded corner, the hint written and nothing
-#      faulting.
+#      poll answering under COMPACT; the lock over a fullscreen app showing
+#      the bar an ordinary app has, and hiding it again once open; and NONE
+#      through the simulator's test hook - no bar, the content from the top
+#      edge, the header's back slab moved clear of the rounded corner, the
+#      hint written and nothing faulting.
 #   4. The radio chip (DS §30.1, §32.4): its text drawn whole under COMPACT
 #      from a real radiod poll, and RX, TX, OFF and -- each given a whole
 #      line in a chip inside its bar, at home and in apps, both orientations.
@@ -31,6 +35,9 @@ failed=0
 check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 line() { grep -n "$1" "$2" | head -1 | cut -d: -f1; }
 APPS="radio system fleet radar timber notes clock calendar calculator settings wave rift files"
+# DS §30.4 stage 2: the apps that declare NONE, fullscreen in both orientations.
+FULLSCREEN="rift notes wave fleet radar timber"
+is_fullscreen() { case " $FULLSCREEN " in *" $1 "*) return 0 ;; esac; return 1; }
 
 # ---- 1. the rules in the source ------------------------------------------------
 check "the shell names the DS §7 bar twice: to build it, and to check FULL is it" \
@@ -69,9 +76,10 @@ check "under NONE the header takes the bar's corner insets" \
 hits=$(grep -rnE 'chrome_(apply|resolve|height|content_box)|POCKETUI_STATUS_BAR_H|POCKETOS_CHROME_[A-Z_]*_H' apps --include='*.c' --include='*.h')
 check "no app resolves, reads or touches the chrome" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
-hits=$(grep -rn '\.chrome = ' apps --include='*.c' | grep -v 'apps/fleet/fleet_app.c:.*POCKETOS_CHROME_FULL')
-check "stage 1: no app declares a chrome but Fleet, and Fleet declares FULL (DS §30.4)" \
-    "$([ -z "$hits" ] && grep -q '\.chrome = POCKETOS_CHROME_FULL' apps/fleet/fleet_app.c && echo 1 || echo 0)"
+hits=$(grep -rn '\.chrome = ' apps --include='*.c' | grep -v 'POCKETOS_CHROME_NONE')
+declared=$(grep -rln '\.chrome = POCKETOS_CHROME_NONE' apps --include='*.c' | cut -d/ -f2 | sort | tr '\n' ' ')
+check "stage 2: the six fullscreen apps declare NONE and no app declares anything else ($declared) (DS §30.4)" \
+    "$([ -z "$hits" ] && [ "$declared" = "fleet notes radar rift timber wave " ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
 check "the test hook that forces a chrome is compiled out of the panel's build" \
     "$(sed -n '/POCKETOS_SHELL_TEST_HOOKS/,/#endif/p' ui/shell/shell.c | grep -q 'getenv("POCKETOS_TEST_CHROME")' &&
@@ -150,7 +158,26 @@ print(hair, slab, left, groups)
 PY
 }
 
-# Portrait: FULL at home and under every app, and drawn as it always was -
+# header_hint <png>: 1 when something is drawn at the right end of an app
+# header that starts at the top edge (NONE) - the hint the bar would have held.
+# The title stops well short of the right 40 %, and the header's right inset
+# (30 or 50 px) is left out.
+header_hint() {
+    python3 - "$1" <<'PY'
+import json, sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, "docs/design/timber-art/tools")
+from pngio import read_png
+tok = json.load(open("docs/design/themes.json", encoding="utf-8"))["themes"]["ice"]["modes"]["normal"]
+bg = tuple(int(tok["bg"][i:i + 2], 16) for i in (1, 3, 5))
+W, H, rows = read_png(sys.argv[1])
+near = lambda p, c: all(abs(p[k] - c[k]) <= 3 for k in range(3))
+ink = any(not near(rows[y][x][:3], bg) for y in range(8, 64) for x in range(W * 6 // 10, W - 30))
+print(1 if ink else 0)
+PY
+}
+
+# Portrait: FULL at home and under every other app, and drawn as it always was -
 # the hairline at row 55, the back slab from row 64 at x 20.
 fresh
 shot "$OUT/p-home.png" "$OUT/p-home.log" --rotation portrait --no-lock
@@ -158,18 +185,25 @@ check "portrait, home: FULL, 56 px" \
     "$(logs "$OUT/p-home.log" | grep -q 'chrome: full, status bar 56 px, content from y 56, for home' && echo 1 || echo 0)"
 n=0
 for id in $APPS; do
+    want="chrome: full, status bar 56 px, content from y 56, for $id"
+    is_fullscreen "$id" && want="chrome: none, status bar 0 px, content from y 0, for $id"
     fresh
     shot "$OUT/p-$id.png" "$OUT/p-$id.log" --rotation portrait --open "$id"
-    logs "$OUT/p-$id.log" | grep -q "chrome: full, status bar 56 px, content from y 56, for $id" &&
+    logs "$OUT/p-$id.log" | grep -q "$want" &&
         ! logs "$OUT/p-$id.log" | grep -qE ' ERROR |assert' && n=$((n + 1))
 done
-check "portrait: every one of the thirteen apps opens under FULL, faulting nothing ($n of 13)" \
+check "portrait: the seven other apps open under FULL and the six fullscreen ones under NONE, faulting nothing ($n of 13)" \
     "$([ "$n" = 13 ] && echo 1 || echo 0)"
 set -- $(geometry "$OUT/p-system.png")
 check "portrait System: the bar's hairline is row 55, the back slab starts at row 64, x 20 (got $1 $2 $3)" \
     "$([ "$1" = 55 ] && [ "$2" = 64 ] && [ "$3" = 20 ] && echo 1 || echo 0)"
 check "portrait System: the wordmark, the chip and the clock are in the bar ($4 ink groups)" \
     "$([ "$4" = 3 ] && echo 1 || echo 0)"
+set -- $(geometry "$OUT/p-timber.png")
+check "portrait Timber, fullscreen: no bar, the back slab from row 8 at x 30, clear of the corner (got $1 $2 $3)" \
+    "$([ "$1" = -1 ] && [ "$2" = 8 ] && [ "$3" = 30 ] && echo 1 || echo 0)"
+check "portrait Timber: its STANDBY hint is drawn at the header's right end" \
+    "$(header_hint "$OUT/p-timber.png")"
 
 # Landscape: FULL at home, COMPACT under every app - the hairline at row 31,
 # the back slab from row 40 at x 20, the same three things in the bar, and
@@ -187,17 +221,17 @@ check "landscape home: the bar draws no hairline over the photograph (got $1)" \
     "$([ "$1" = -1 ] && echo 1 || echo 0)"
 n=0
 for id in $APPS; do
-    # Every app takes the landscape default but Fleet, which declares FULL
-    # (DS §30.4, stage 1; the reason is on its struct in fleet_app.c).
+    # Every app takes the landscape default but the six fullscreen ones,
+    # which declare NONE (DS §30.4, stage 2).
     want="chrome: compact, status bar 32 px, content from y 32, for $id"
-    [ "$id" = fleet ] && want="chrome: full, status bar 56 px, content from y 56, for fleet"
+    is_fullscreen "$id" && want="chrome: none, status bar 0 px, content from y 0, for $id"
     fresh
     shot "$OUT/l-$id.png" "$OUT/l-$id.log" --rotation landscape --open "$id"
     logs "$OUT/l-$id.log" | grep -q "$want" &&
         logs "$OUT/l-$id.log" | grep -q 'chrome: full, status bar 56 px, content from y 56, for home' &&
         ! logs "$OUT/l-$id.log" | grep -qE ' ERROR |assert' && n=$((n + 1))
 done
-check "landscape: the twelve DEFAULT apps open under COMPACT and Fleet under its declared FULL, all after a FULL home, faulting nothing ($n of 13)" \
+check "landscape: the seven DEFAULT apps open under COMPACT and the six fullscreen ones under NONE, all after a FULL home, faulting nothing ($n of 13)" \
     "$([ "$n" = 13 ] && echo 1 || echo 0)"
 set -- $(geometry "$OUT/l-system.png")
 check "landscape System: the bar's hairline is row 31, the back slab starts at row 40, x 20 (got $1 $2 $3)" \
@@ -205,13 +239,15 @@ check "landscape System: the bar's hairline is row 31, the back slab starts at r
 check "landscape System: the wordmark, the chip and the clock are in the compact bar ($4 ink groups)" \
     "$([ "$4" = 3 ] && echo 1 || echo 0)"
 set -- $(geometry "$OUT/l-timber.png")
-check "landscape Timber: its STANDBY hint is drawn in the compact bar as well ($4 ink groups)" \
-    "$([ "$4" = 4 ] && echo 1 || echo 0)"
-check "landscape Timber: under the same 32 px bar (got $1 $2 $3)" \
-    "$([ "$1" = 31 ] && [ "$2" = 40 ] && [ "$3" = 20 ] && echo 1 || echo 0)"
+check "landscape Timber, fullscreen: no bar, the back slab from row 8 at x 50, clear of the corner (got $1 $2 $3)" \
+    "$([ "$1" = -1 ] && [ "$2" = 8 ] && [ "$3" = 50 ] && echo 1 || echo 0)"
+check "landscape Timber: its STANDBY hint is drawn at the header's right end" \
+    "$(header_hint "$OUT/l-timber.png")"
 set -- $(geometry "$OUT/l-fleet.png")
-check "landscape Fleet, which declares FULL: drawn under the 56 px bar with its COMMAND hint (got $1 $2 $3, $4 groups)" \
-    "$([ "$1" = 55 ] && [ "$2" = 64 ] && [ "$3" = 20 ] && [ "$4" = 4 ] && echo 1 || echo 0)"
+check "landscape Fleet, fullscreen: no bar, the back slab from row 8 at x 50 (got $1 $2 $3)" \
+    "$([ "$1" = -1 ] && [ "$2" = 8 ] && [ "$3" = 50 ] && echo 1 || echo 0)"
+check "landscape Fleet: its COMMAND hint is drawn at the header's right end" \
+    "$(header_hint "$OUT/l-fleet.png")"
 hits=$(for id in $APPS; do logs "$OUT/l-$id.log" | grep -hE ' WARN |\[Warn\]' | grep -v 'radiod unavailable'; done)
 check "landscape: no warning from any app but the simulator's missing radiod" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -3
@@ -225,19 +261,60 @@ c=$(chrome_of)
 check "over IPC, at home: shell.info reports FULL, 56 ($c)" \
     "$(printf '%s' "$c" | grep -q '"policy":"full","status_bar_height":56' && echo 1 || echo 0)"
 cycles=0
-for id in system notes timber; do
+for id in system $FULLSCREEN $FULLSCREEN; do
+    want='"policy":"compact","status_bar_height":32'
+    is_fullscreen "$id" && want='"policy":"none","status_bar_height":0'
     "$POS" app start "$id" >/dev/null 2>&1; sleep 0.4
     a=$(chrome_of)
     "$POS" app home >/dev/null 2>&1; sleep 0.3
     b=$(chrome_of)
-    printf '%s' "$a" | grep -q '"policy":"compact","status_bar_height":32' &&
+    printf '%s' "$a" | grep -q "$want" &&
         printf '%s' "$b" | grep -q '"policy":"full","status_bar_height":56' && cycles=$((cycles + 1))
 done
-check "three apps opened and closed in turn: COMPACT while open, FULL again at home, every time ($cycles of 3)" \
-    "$([ "$cycles" = 3 ] && echo 1 || echo 0)"
+check "System, then each fullscreen app opened, closed and reopened: COMPACT or NONE while open, FULL again at home, every time ($cycles of 13)" \
+    "$([ "$cycles" = 13 ] && echo 1 || echo 0)"
 check "each opening and each return logged its chrome" \
-    "$([ "$(grep -c 'chrome: compact, status bar 32 px' "$POCKETOS_LOG_DIR/shell.log")" = 3 ] &&
-       [ "$(grep -c 'chrome: full, status bar 56 px, content from y 56, for home' "$POCKETOS_LOG_DIR/shell.log")" = 4 ] && echo 1 || echo 0)"
+    "$([ "$(grep -c 'chrome: compact, status bar 32 px' "$POCKETOS_LOG_DIR/shell.log")" = 1 ] &&
+       [ "$(grep -c 'chrome: none, status bar 0 px' "$POCKETOS_LOG_DIR/shell.log")" = 12 ] &&
+       [ "$(grep -c 'chrome: full, status bar 56 px, content from y 56, for home' "$POCKETOS_LOG_DIR/shell.log")" = 14 ] && echo 1 || echo 0)"
+# The lock over a fullscreen app: the lock lies under the bar, so while it is
+# engaged the bar comes back as an ordinary app would have it here (COMPACT
+# in landscape) and the lock looks the same over either; opened again, the
+# app is fullscreen as it was. Compared with the lock over System, the band
+# the bar sits in is drawn the same (the environment bar has no clock).
+call() { "$POS" call shell "$@" >/dev/null 2>&1; }
+band_same() { # <png a> <png b> <rows>
+    python3 - "$1" "$2" "$3" <<'PY'
+import sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, "docs/design/timber-art/tools")
+from pngio import read_png
+Wa, Ha, a = read_png(sys.argv[1])
+Wb, Hb, b = read_png(sys.argv[2])
+n = int(sys.argv[3])
+same = Wa == Wb and all(all(abs(a[y][x][k] - b[y][x][k]) <= 3 for k in range(3))
+                        for y in range(n) for x in range(Wa))
+print(1 if same else 0)
+PY
+}
+"$POS" app start system >/dev/null 2>&1; sleep 0.4
+call shell.lock; sleep 0.6
+"$POS" shell screenshot "$OUT/l-lock-system.png" >/dev/null 2>&1
+call shell.unlock; sleep 0.6
+"$POS" app start notes >/dev/null 2>&1; sleep 0.4
+call shell.lock; sleep 0.6
+"$POS" shell screenshot "$OUT/l-lock-notes.png" >/dev/null 2>&1
+check "locked over fullscreen Notes: the bar band is drawn as over System" \
+    "$(band_same "$OUT/l-lock-system.png" "$OUT/l-lock-notes.png" 32)"
+check "and the chrome in force is still Notes' NONE, with the compact bar shown over the lock ($(chrome_of))" \
+    "$(chrome_of | grep -q '"policy":"none","status_bar_height":0,"shown_height":32' && echo 1 || echo 0)"
+call shell.unlock; sleep 0.6
+check "unlocked: no bar shown over Notes again ($(chrome_of))" \
+    "$(chrome_of | grep -q '"policy":"none","status_bar_height":0,"shown_height":0' && echo 1 || echo 0)"
+"$POS" shell screenshot "$OUT/l-unlocked-notes.png" >/dev/null 2>&1
+set -- $(geometry "$OUT/l-unlocked-notes.png")
+check "opened again: Notes is fullscreen, no bar, its back slab from row 8 (got $1 $2 $3)" \
+    "$([ "$1" = -1 ] && [ "$2" = 8 ] && [ "$3" = 50 ] && echo 1 || echo 0)"
 "$POS" app start system >/dev/null 2>&1; sleep 0.4
 "$POS" shell screenshot "$OUT/l-reopened.png" >/dev/null 2>&1
 set -- $(geometry "$OUT/l-reopened.png")
@@ -261,7 +338,7 @@ check "the landscape shell logged no fault" \
     "$(grep -qE ' ERROR |assert' "$POCKETOS_LOG_DIR/shell.log" "$POCKETOS_LOG_DIR/run.log" && echo 0 || echo 1)"
 stop_shell
 
-# NONE, which no app declares yet, through the simulator's hook: no bar, the
+# NONE forced on an app that does not declare it, through the simulator's hook: no bar, the
 # content from the top edge, the header's back slab moved to x 50 so it clears
 # the 50 px corner square landscape has at its top (platform.h, DS §21.1), and
 # an app that writes a hint faulting nothing.
@@ -289,7 +366,7 @@ PY
 check "landscape NONE: faulted nothing" "$(logs "$OUT/l-none.log" | grep -qE ' ERROR |assert' && echo 0 || echo 1)"
 fresh
 POCKETOS_TEST_CHROME=none shot "$OUT/l-none-fleet.png" "$OUT/l-none-fleet.log" --rotation landscape --open fleet
-check "landscape, NONE, Fleet: a hint written to a hidden bar faults nothing" \
+check "landscape, NONE, Fleet: a hint written to the hidden bar and the header faults nothing" \
     "$(logs "$OUT/l-none-fleet.log" | grep -q 'chrome: none, status bar 0 px' &&
        ! logs "$OUT/l-none-fleet.log" | grep -qE ' ERROR |assert' && echo 1 || echo 0)"
 fresh
@@ -301,8 +378,12 @@ check "landscape FULL: drawn as the 56 px bar (got $1 $2 $3)" \
     "$([ "$1" = 55 ] && [ "$2" = 64 ] && [ "$3" = 20 ] && echo 1 || echo 0)"
 fresh
 POCKETOS_TEST_CHROME=none shot "$OUT/p-none.png" "$OUT/p-none.log" --rotation portrait --open system
-check "portrait, NONE declared: still FULL - stage 1 holds in the running shell (DS §30.4)" \
-    "$(logs "$OUT/p-none.log" | grep -q 'chrome: full, status bar 56 px, content from y 56, for system' && echo 1 || echo 0)"
+check "portrait, NONE declared: honoured, the content from the top edge (DS §30.4 stage 2)" \
+    "$(logs "$OUT/p-none.log" | grep -q 'chrome: none, status bar 0 px, content from y 0, for system' && echo 1 || echo 0)"
+fresh
+POCKETOS_TEST_CHROME=compact shot "$OUT/p-compact.png" "$OUT/p-compact.log" --rotation portrait --open system
+check "portrait, COMPACT declared: still FULL - stage 1 holds for it in the running shell" \
+    "$(logs "$OUT/p-compact.log" | grep -q 'chrome: full, status bar 56 px, content from y 56, for system' && echo 1 || echo 0)"
 fresh
 POCKETOS_TEST_CHROME=sideways shot "$OUT/l-bad.png" "$OUT/l-bad.log" --rotation landscape --open system
 check "a hook value that is not a chrome is ignored with a warning, and the default applies" \
@@ -379,10 +460,10 @@ for state in rx tx off na; do
         sleep 1.1
         c=$(chip_of)
         [ "$(chip_fits "$c" 56)" = 1 ] && n=$((n + 1)) || bad="$bad $state/$rot/home:$c"
-        for id in system fleet; do
+        for id in system calendar; do
             "$POS" app start "$id" >/dev/null 2>&1; sleep 0.4
             bar=56
-            [ "$rot" = landscape ] && [ "$id" != fleet ] && bar=32
+            [ "$rot" = landscape ] && bar=32
             c=$(chip_of)
             [ "$(chip_fits "$c" $bar)" = 1 ] && n=$((n + 1)) || bad="$bad $state/$rot/$id:$c"
             "$POS" app home >/dev/null 2>&1; sleep 0.3
@@ -390,7 +471,7 @@ for state in rx tx off na; do
         stop_shell
     done
 done
-check "RX, TX, OFF and -- each get a whole line in the chip at home, in System and in Fleet, portrait and landscape ($n of 24)" \
+check "RX, TX, OFF and -- each get a whole line in the chip at home, in System and in Calendar, portrait and landscape ($n of 24)" \
     "$([ "$n" = 24 ] && echo 1 || echo 0)"
 [ -n "$bad" ] && echo "$bad" | tr ' ' '\n' | head -4
 

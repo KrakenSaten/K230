@@ -755,4 +755,8 @@ const struct pocketos_app app_notes = {
     .create = notes_create,
     .tick = NULL,
     .destroy = notes_destroy,
+    /* Fullscreen (DS §30.4 stage 2): no status bar in either orientation,
+     * the body from the header down. Whatever this app writes to the hint
+     * the shell shows in its header instead. */
+    .chrome = POCKETOS_CHROME_NONE,
 };

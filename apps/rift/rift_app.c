@@ -852,4 +852,8 @@ const struct pocketos_app app_rift = {
     .create = rift_create,
     .tick = rift_tick,
     .destroy = rift_destroy,
+    /* Fullscreen (DS §30.4 stage 2): no status bar in either orientation,
+     * the body from the header down. RIFT writes no hint; its own tab row
+     * and status line carry everything it has to say. */
+    .chrome = POCKETOS_CHROME_NONE,
 };
