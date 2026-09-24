@@ -108,6 +108,7 @@ static int below_clicks;
 static int below_keys;
 static int engaged_calls;
 static int opened_calls;
+static int revealing_calls;
 
 static void on_below_click(lv_event_t *e)
 {
@@ -131,6 +132,15 @@ static void on_opened(void)
     opened_calls++;
 }
 
+/* The shell hides a fullscreen app's status bar here (shell.c
+ * status_bar_fit): still locked, but the app is starting to show. */
+static void on_revealing(void)
+{
+    revealing_calls++;
+    check("revealing is told while the lock is still opening",
+          shell_lock_is_opening() && shell_lock_is_revealing());
+}
+
 static lv_obj_t *lock_root(void)
 {
     /* The lock is the last child created on the screen in this test. */
@@ -141,7 +151,7 @@ static lv_obj_t *lock_root(void)
 
 int main(void)
 {
-    static const struct shell_lock_hooks hooks = { on_engaged, on_opened };
+    static const struct shell_lock_hooks hooks = { on_engaged, on_opened, on_revealing };
     struct pos_display_geometry g;
     struct pos_panel panel;
     lv_display_t *disp;
@@ -212,8 +222,12 @@ int main(void)
     /* ---- swipe ---- */
     swipe(284, 1000, 1000 - shell_lock_open_distance() - 40);
     check("a swipe past the open distance starts the door sequence", shell_lock_is_opening() && shell_lock_is_locked());
+    check("the open door covers what is below at first: not yet revealing",
+          !shell_lock_is_revealing() && revealing_calls == 0);
     pump(1500);
     check("and ends open", !shell_lock_is_locked() && opened_calls == 1 && shell_lock_open_count() == 1);
+    check("having told the shell it was revealing exactly once, before it was open",
+          revealing_calls == 1 && !shell_lock_is_revealing());
     check("the lock is hidden", lv_obj_has_flag(lock_root(), LV_OBJ_FLAG_HIDDEN));
     check("every background the lock read was released", art_bytes_held() == held_before);
     pump(50);
@@ -240,6 +254,7 @@ int main(void)
     pump(1500);
     check("engaging during the sequence wins: locked, not opening",
           shell_lock_is_locked() && !shell_lock_is_opening() && shell_lock_open_count() == 2);
+    check("and not revealing", !shell_lock_is_revealing());
     shell_lock_open(false, "direct");
     pump(50);
     check("a direct open is immediate", !shell_lock_is_locked() && shell_lock_open_count() == 3);
@@ -261,9 +276,12 @@ int main(void)
     finger(200, 550, true);
     finger(200, 550, false);
     check("and still covers what is below", below_clicks == 1);
+    revealing_calls = 0;
     swipe(284, 1000, 1000 - shell_lock_open_distance() - 40);
+    check("with no open door, what is below shows at once: revealing from the start",
+          shell_lock_is_revealing() && revealing_calls == 1);
     pump(1500);
-    check("and still opens", !shell_lock_is_locked());
+    check("and still opens", !shell_lock_is_locked() && !shell_lock_is_revealing());
 
     /* ---- many times ---- */
     unsetenv("POCKETOS_ART_DIR");

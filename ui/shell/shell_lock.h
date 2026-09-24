@@ -35,6 +35,10 @@ struct shell_lock_hooks {
      * (after the transition). Either may be NULL. */
     void (*engaged)(void);
     void (*opened)(void);
+    /* Called once per opening, when what is under the lock starts to show
+     * through it: the open door beginning to fade, or at once when there is
+     * no open door to show. The lock is still locked. May be NULL. */
+    void (*revealing)(void);
 };
 
 /* Build the (hidden) lock over screen, for this run's orientation. */
@@ -51,6 +55,8 @@ void shell_lock_open(bool animate, const char *why);
 bool shell_lock_is_locked(void);
 /* The door sequence is running. */
 bool shell_lock_is_opening(void);
+/* Opening, and far enough along that what is under the lock shows through. */
+bool shell_lock_is_revealing(void);
 
 /* The time and date the lock shows (the shell's tick). */
 void shell_lock_set_time(const char *hm, const char *date);

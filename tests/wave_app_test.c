@@ -242,6 +242,26 @@ static int wait_for(const char *text, int partial, int bound_ms)
     return 0;
 }
 
+/* The opposite: until the screen no longer shows text and the hint is
+ * empty. The microphone indicator goes when the helper has gone, and a
+ * helper may print its error some time before it exits - under load, long
+ * enough that a check made the moment the error appears still sees MIC ON. */
+static int wait_mic_off(int bound_ms)
+{
+    int64_t end = real_ms() + bound_ms;
+
+    while (real_ms() < end) {
+        struct timespec d = { 0, 5 * 1000000L };
+
+        pump(10);
+        if (!shows("MICROPHONE ON") && strcmp(hint, "") == 0) {
+            return 1;
+        }
+        nanosleep(&d, NULL);
+    }
+    return 0;
+}
+
 static int small_targets(lv_obj_t *obj)
 {
     uint32_t i;
@@ -467,11 +487,14 @@ int main(void)
     setenv("WAVE_FAKE", "garbage", 1);
     tap("START LISTENING");
     check("a helper's error is shown in words", wait_for("The speaker is not enabled on this device yet", 0, 3000));
-    check("and the microphone indicator is off afterwards", !shows("MICROPHONE ON") && strcmp(hint, "") == 0);
+    /* The error is shown while the helper still runs; the indicator stays
+     * honest until it has exited, and must then go. */
+    check("and the microphone indicator is off once the helper has exited", wait_mic_off(3000));
 
     setenv("POCKETOS_WAVE_HELPER", "/nonexistent/pos-wave", 1);
     tap("START LISTENING");
     check("a missing helper says so", wait_for("Wave helper is not installed", 0, 3000));
+    check("and the failed start is over before the next one", wait_mic_off(3000));
     setenv("POCKETOS_WAVE_HELPER", helper, 1);
 
     /* ---- leaving while the microphone is on -------------------------------- */

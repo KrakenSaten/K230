@@ -742,8 +742,10 @@ static void build_controls(struct timber_app *app, struct timber_table_ui *ui, l
 /* The viewport's height for the body the shell gave the app: 672 px, plus
  * whatever the body has beyond the 1060 px it was measured in. Read once, at
  * creation, from the body's content box - the shell resolves the chrome
- * before it creates the app, so this box is final (DS §30.2), and it is
- * measured here, never inside an LVGL event. */
+ * before it creates the app, so this box is final (DS §30.2). The shell
+ * creates apps from a tap, an IPC call or start-up, never from inside a
+ * layout pass, where lv_obj_update_layout() would do nothing and the body
+ * would read 0 (and the viewport fall back to 672). */
 static int32_t timber_table_height(lv_obj_t *body)
 {
     int32_t spare;

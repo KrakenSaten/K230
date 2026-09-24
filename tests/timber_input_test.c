@@ -415,6 +415,12 @@ static int begin_and_select(struct timber_app *app, lv_obj_t **track, lv_obj_t *
     if (!*track || !*table || !*test) {
         return -1;
     }
+    /* The viewport takes exactly what the fullscreen body has beyond the
+     * other rows, so the body has nothing to scroll: a body that did would
+     * take a vertical drag on the table for itself (timber_screens.c). */
+    lv_obj_update_layout(body);
+    check("the portrait body is filled exactly: nothing to scroll",
+          lv_obj_get_scroll_bottom(body) <= 0 && lv_obj_get_scroll_top(body) <= 0);
     id = choose_block(app, -1);
     check("a loose pullable block exists", id >= 0);
     if (id < 0) {

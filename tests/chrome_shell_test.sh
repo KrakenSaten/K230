@@ -306,9 +306,11 @@ call shell.lock; sleep 0.6
 "$POS" shell screenshot "$OUT/l-lock-notes.png" >/dev/null 2>&1
 check "locked over fullscreen Notes: the bar band is drawn as over System" \
     "$(band_same "$OUT/l-lock-system.png" "$OUT/l-lock-notes.png" 32)"
-check "and the chrome in force is still Notes' NONE ($(chrome_of))" \
-    "$(chrome_of | grep -q '"policy":"none","status_bar_height":0' && echo 1 || echo 0)"
+check "and the chrome in force is still Notes' NONE, with the compact bar shown over the lock ($(chrome_of))" \
+    "$(chrome_of | grep -q '"policy":"none","status_bar_height":0,"shown_height":32' && echo 1 || echo 0)"
 call shell.unlock; sleep 0.6
+check "unlocked: no bar shown over Notes again ($(chrome_of))" \
+    "$(chrome_of | grep -q '"policy":"none","status_bar_height":0,"shown_height":0' && echo 1 || echo 0)"
 "$POS" shell screenshot "$OUT/l-unlocked-notes.png" >/dev/null 2>&1
 set -- $(geometry "$OUT/l-unlocked-notes.png")
 check "opened again: Notes is fullscreen, no bar, its back slab from row 8 (got $1 $2 $3)" \

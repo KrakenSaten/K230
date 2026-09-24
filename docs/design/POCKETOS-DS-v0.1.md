@@ -2451,7 +2451,11 @@ and the other seven apps - keeps exactly the chrome §30.3 gave it.
   While it is engaged over a fullscreen app the bar comes back at the height
   an ordinary app has in that orientation (FULL in portrait, COMPACT in
   landscape), so the lock looks as it does over any other app; the content
-  area underneath keeps the NONE box, and the bar goes again when it opens.
+  area underneath keeps the NONE box. The bar goes again the moment the
+  opening lock starts to show the app through it (the open door beginning
+  to fade), so the app is never seen with a bar over its header.
+  `shell.info` reports the bar as drawn in `chrome.shown_height` beside the
+  policy's `status_bar_height`.
 - **What it buys.** The body frame is 1116 in portrait (1060 under FULL) and
   452 in landscape (420 under COMPACT, 396 under FULL); above the keyboard,
   820 and 156.
