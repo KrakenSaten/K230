@@ -33,13 +33,18 @@ chip-state dependent and dumps both transports' windows when it does.
 ## Open for v0.0.12
 
 What changed since v0.0.11 is Files (DS §33) and the fullscreen apps
-(DS §30.8); both have unit A gates. **v0.0.12 RC1 (`a8b1a9f`) is built and
-gated on unit A as a deploy, not yet flashed** (docs/hardware/V0.0.12_RELEASE_SMOKE.md,
-which lists what that run did not cover). Nothing here is DEVICE VERIFIED unless it
+(DS §30.8); both have unit A gates. **v0.0.12 RC1 (`a8b1a9f`) was flashed on
+unit A and passed its release gate** on 2026-09-24
+(docs/hardware/V0.0.12_RELEASE_SMOKE.md, which lists what it did not cover:
+RF on the flashed card and RF from the peer). Nothing here is DEVICE VERIFIED unless it
 says so. Everything under "Open for v0.0.11" still applies.
 
-- **Files: Enter on the keyboard base was not run on the device** (its keys
-  cannot be injected remotely); host-tested (docs/hardware/FILES_GATE.md).
+- **Keyboard-base hot-plug was done once with the board running** (v0.0.12
+  RC1 gate, at the owner's decision): detach and re-attach were each detected,
+  the display turned, nothing failed. That is software evidence only. Hot-plug
+  is still not an electrically verified operation (below, "Attaching or
+  removing the keyboard base"), and the advice stays: mate it with USB power
+  removed.
 - **Timber and Wave have no landscape layout**: in landscape they are their
   portrait pages in a wide body and scroll (Wave's TRANSMIT is below the fold
   on the send page). Seen on unit A, 2026-09-24.
