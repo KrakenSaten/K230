@@ -1,8 +1,8 @@
 # Camera on the T-Display K230: platform research
 
-Date: 2026-09-24. Branch `feat/camera-app-design` (from master `f14658f`).
-Desk research only: no hardware was touched, nothing was flashed or deployed.
-Unit A was not used.
+Date: 2026-09-24, with the unit A measurements of 2026-09-25 in §10. Branch
+`feat/camera-app-design`. §1-§9 are the desk research done before any
+hardware was touched; §10 answers most of its unknowns on unit A.
 
 Classes used here, as the Camera brief asked, mapped onto AGENTS.md's:
 
@@ -164,3 +164,38 @@ In order; nothing before step 1 needs the hardware, everything from it does.
    owner's decision on ADR-006 and DS §34.
 8. **Licensing:** `vvcam` and `isp_media_server` are open item (b) in
    `docs/LICENSING.md`; a Camera that depends on them inherits that.
+
+## 10. Measured on unit A (2026-09-25)
+
+The real backend (`core/pocketcam/pocketcam_v4l2.c`) was written against these
+answers; the gate is `docs/hardware/CAMERA_GATE.md`. All VERIFIED on unit A
+(v0.0.12 image `a8b1a9f` with the Camera build hand-installed).
+
+| # | Answer |
+| --- | --- |
+| U1 | Frames arrive on `/dev/video1..3` for any process while `isp_media_server` runs as Doors boots it. ~14 black frames after STREAMON, light after 0.5-0.9 s (longer in a dark room) |
+| U2 | Preview on `/dev/video2` (SP1) and a 1920x1080 still on `/dev/video1` (MP) stream **at the same time**; the still's first frame is black, the next is exposed. `/dev/video1` lists no formats (`ENUM_FMT`) yet takes `S_FMT` |
+| U3 | 640x360 and 1920x1080 NV16 both work; ~30 fps (29.7-29.9) |
+| U4 | Mount rotation 90 (clockwise, on the native portrait panel), not mirrored; the shell's landscape is display rotation 270, so the turn there is 180. Owner, printed text, both orientations |
+| U5 | Limited-range BT.601, as the driver reports; colours natural against the room (owner) |
+| U6 | Open 60 ms; first frame ~0.9 s after start; still 190-220 ms; after a stop the node is reopened (see below) |
+| U7 | Conversion 29.8 ms a frame at 528x938 turned, 16.5 ms at 802x452; JPEG encode of a 1080p still 0.37-0.52 s, 0.56-1.16 MB |
+| U8 | A second opener gets EBUSY at `VIDIOC_REQBUFS` |
+| U9 | Keyboard base and camera coexist: 10 keys delivered, 0 dropped with Camera streaming; a sentence typed in Notes while the camera streamed and took 35 stills arrived whole |
+| U13 | Not examined; conversion straight from the buffers costs the U7 figures |
+
+Found on the way:
+
+- **Never restart a stream on an open node.** `STREAMOFF` then `STREAMON` on
+  the same `/dev/video2` descriptor, the backend's first way of resuming the
+  preview after a still, was followed by a lock-up of the whole unit (panel,
+  touch and Wi-Fi; power cycle). The node is now closed and reopened; soaked
+  70 cycles without a hang. Cause LIKELY, not proven.
+- **`v4l2-ctl --list-ctrls` on `/dev/video1` spins** until killed. Nothing in
+  Doors enumerates controls.
+- **An open soon after power-on can fail with EIO** (once, ~2 min after
+  boot); the backend retries four times, 500 ms apart.
+- BusyBox on the image has no `timeout` and no `stat`.
+
+Still open: U10 (which module is fitted where), U11 (power), U12 (a DRM video
+plane), U13.

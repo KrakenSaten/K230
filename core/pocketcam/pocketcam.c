@@ -1,5 +1,6 @@
 /*
- * pocketcam: backend dispatch, frame validation, and the v4l2 placeholder.
+ * pocketcam: backend dispatch and frame validation (the backends are
+ * pocketcam_fake.c and pocketcam_v4l2.c).
  * See pocketcam.h.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).

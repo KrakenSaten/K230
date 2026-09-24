@@ -3,14 +3,14 @@
 A live picture, a shutter, and a look at the photo just taken: keep it, or
 delete it.
 
-Status: **design and preparation only, on branch `feat/camera-app-design`
-(from master `f14658f`, after v0.0.12 RC1). Not merged, not on unit A. The real
-camera backend is not written: on the device the app says "No camera". Host-
-tested end to end on a fake backend (unit tests, the helper and its session,
-the app under a real LVGL pointer in portrait and landscape, the real shell).
-Architecture ADR-006 and layout DS §34 (Amendment R) are PROPOSED.** The
-hardware findings and the work still to do are in
-`docs/hardware/CAMERA_PLATFORM_RESEARCH.md`.
+Status: **working on unit A, on branch `feat/camera-app-design` (rebased on
+v0.0.12), not merged.** The real V4L2 backend is written and gated: live
+preview and JPEG stills on unit A in portrait and landscape, keep and delete,
+the keyboard base alongside (`docs/hardware/CAMERA_GATE.md`, PASS on a
+hand-installed build `e3d3f71`). Host-tested end to end on the fake backend.
+Architecture ADR-006 and layout DS §34 (Amendment R) are PROPOSED. The
+hardware findings are `docs/hardware/CAMERA_PLATFORM_RESEARCH.md` (§10 for the
+unit A measurements).
 
 ## What it does (v1)
 
@@ -69,7 +69,8 @@ screen is open (ADR-006, PROPOSED):
 | `camera_state.c` | apps/camera | the state machine; pure C, no LVGL, no processes |
 | `camera_layout.c` | apps/camera | the two shapes; pure arithmetic |
 | `camera_session.c` | apps/camera | starts `pos-camera`, the shared memory, the line protocol, the watchdog; pure C |
-| `pocketcam.c` | core/pocketcam | the backend seam; the `v4l2` placeholder (answers "not built") |
+| `pocketcam.c` | core/pocketcam | the backend seam |
+| `pocketcam_v4l2.c` | core/pocketcam | the real camera: preview `/dev/video2` 640x360 NV16, stills `/dev/video1` 1920x1080 NV16 while the preview runs, black start-up frames dropped, the preview node closed and reopened rather than restarted |
 | `pocketcam_fake.c` | core/pocketcam | the fake backend (below) |
 | `pocketcam_convert.c` | core/pocketcam | NV12/NV16/RGB565 to RGB565 or RGB888, turned, mirrored, scaled |
 | `pocketcam_store.c` | core/pocketcam | the photo folder: names, atomic writes, limits |
@@ -93,7 +94,9 @@ deadline (camera_session.h): 3 s for its first line, 10 s to open the camera,
 A missed deadline kills it and ends in `CAMERA_ERROR` ("not responding").
 
 **Backends.** `pos-camera` takes `--backend`, else
-`$POCKETOS_CAMERA_BACKEND`, else `v4l2`. The simulator's shell passes `fake`
+`$POCKETOS_CAMERA_BACKEND`, else `v4l2` (settings through `--config` or
+`$POCKETOS_CAMERA_CONFIG`: `preview=`, `still=`, `size=`, `still_size=`,
+`mount=`; the defaults are unit A's). The simulator's shell passes `fake`
 by default (CMake, SDL builds only); the device never does.
 
 ## Storage
@@ -158,7 +161,8 @@ a 72 px slab for the last photo, title and secondary text for the panel.
 Host only; none needs unit A.
 
 - `tests/pocketcam_test.c` (103 checks): frame validation; the fake and every
-  fault; the v4l2 placeholder; conversion in all four turns and both fits,
+  fault; the v4l2 backend on a host with no camera and its refusal of bad
+  settings; conversion in all four turns and both fits,
   checked against the fake's own pattern; the encoder; the store's names,
   atomic write, limits, a full disk, a disk that fills mid-photo, leftovers.
 - `tests/camera_state_test.c` (66): every state, event and tap.

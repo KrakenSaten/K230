@@ -123,8 +123,15 @@ already does, plus descriptor passing in pocketipc for the shared memory.
 - vvcam, `isp_media_server`, `/dev/video1..3` on unit A: VERIFIED
   (docs/hardware/BRINGUP_SESSION_2026-09-07.md §11.1, unit A dmesg).
 - The vendor app's "restart ISP" action: DOCUMENTED (vendor launcher source).
-- Conversion and encoding cost on the C908, ISP open time: ASSUMED significant,
-  unmeasured.
+- Conversion and encoding cost on the C908, ISP open time: VERIFIED on unit A
+  2026-09-25 (CAMERA_PLATFORM_RESEARCH.md §10): open 60 ms and first frame
+  ~0.9 s per visit, conversion 17-30 ms a frame, a JPEG still in under 1 s.
+  Paying the open on every visit is affordable, so nothing here argues for a
+  warm camera yet.
+- A stream restarted on an open node was followed by a lock-up of the whole
+  unit (CAMERA_GATE.md §2): the process boundary did not help there, and
+  could not - the fix is in the backend. The panel stayed responsive in every
+  other failure seen.
 - Helper behaviour - watchdog, crash, death signal, fifty opens and closes, no
   descriptor or child left: VERIFIED on the host (tests/camera_session_test.c,
   tests/camera_app_test.c); not on hardware.
