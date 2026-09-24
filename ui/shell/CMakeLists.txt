@@ -52,6 +52,7 @@ add_executable(pocketos-shell
     home_layout.c
     shell_lock.c
     controls.c
+    controls_model.c
     ../pocketui/pos_glyphs.c
     ../pocketui/pos_input.c
     ../pocketui/pos_keyboard.c

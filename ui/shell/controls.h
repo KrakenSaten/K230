@@ -4,17 +4,22 @@
  * way into the apps that own the rest. It adds no system function of its
  * own and shows only what a real provider answers:
  *
- *   Radio      radiod's state, as the status bar last polled it  -> Radio app
- *   Wi-Fi      netd's wifi.status                                 -> Settings
- *   Rotation   the stored orientation mode; a tap moves to the next
- *   Display    the display mode (Normal, Night, Outdoor); a tap moves on
- *   Brightness the panel's backlight, or "Not available" without one
- *   Settings, Mesh messages, About DOORS                          -> apps
- *   Lock       the lock screen;  Power -> the System app, whose power
- *              actions confirm before they act
+ *   Wi-Fi       netd's wifi.status                                -> Settings
+ *   Bluetooth   sysd's system.status.bluetooth; read-only: no controller on
+ *               unit A and nothing in Doors switches one
+ *   LoRa radio  radiod's state; a tap switches it (radio.set_enabled), and
+ *               off -> on asks about the antenna first
+ *   Battery     sysd's system.status.power; read-only
+ *   Rotation    the stored orientation mode; a tap moves to the next
+ *   Display     the display mode (Normal, Night, Outdoor); a tap moves on
+ *   Brightness  the panel's backlight, or "Not available" without one
+ *   Volume      the system volume (volume.h); the speaker glyph mutes
+ *   Settings, Mesh messages, About DOORS                            -> apps
+ *   Lock        the lock screen;  Power -> the System app, whose power
+ *               actions confirm before they act
  *
- * Bluetooth and sound are in the package's mock-up and not here: nothing
- * on the device provides them yet, and a tile for them could only pretend.
+ * What each says, the antenna question and the layout are decided in
+ * controls_model.c, which is tested on the host; this file draws them.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */

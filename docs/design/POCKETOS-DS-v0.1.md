@@ -2584,6 +2584,23 @@ RIFT ("Mesh messages") and System ("About DOORS"), and Lock / Power (Power
 opens System, whose power actions confirm). Bluetooth and Sound are in the
 mock-up and not here: nothing provides them.
 
+**Proposed (feat/device-controls-diagnostics, not yet accepted):** six tiles in
+three rows - Wi-Fi and Bluetooth, LoRa radio and Battery, Rotation and
+Display - then Brightness and Volume as two slider panels, then the rows and
+Lock / Power. The LoRa radio tile replaces the Radio tile: a tap switches the
+radio (`radio.set_enabled`) instead of opening the Radio app, and off to on
+first asks "Connect an antenna before enabling the radio. / Transmitting
+without an antenna may damage the RF output stage." with Cancel and Enable
+radio (a glass dialog over a glass scrim). Bluetooth (sysd's controller list)
+and Battery (sysd's power supply) are read-only tiles and say "Not
+available" / "External power" on unit A. Volume is the system volume (the
+speaker glyph mutes). They borrow the network and power glyphs until the DS
+draws Bluetooth and battery glyphs. Landscape has no room at the foot for
+three tile rows plus Lock / Power, so there Lock and Power move to the right
+of the header row, the slider panels are 88 px and the rows 56 px. The
+geometry is `ui/shell/controls_model.c`, host-tested for overlap and fit in
+both orientations; it has not been drawn on the panel (DEVICE UNVERIFIED).
+
 ### 31.6 Runtime art
 
 `ui/assets/doors/*.bin`, installed to `/usr/share/doors/ui` and read by
