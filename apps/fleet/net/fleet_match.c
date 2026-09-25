@@ -879,14 +879,6 @@ static void exhausted(struct fleet_match *m, uint8_t kind)
         m->next_probe = m->now + FLEET_PROBE_MS + jitter(m, FLEET_PROBE_MS / 4);
         touch(m);
         break;
-    case FLEET_OB_REVEAL:
-        /* The winner is known; only the proof is missing. Stop asking. */
-        m->phase = FLEET_MP_DONE;
-        if (!m->have_peer_reveal) {
-            m->verify = FLEET_VERIFY_NONE;
-        }
-        mark_dirty(m);
-        break;
     default:
         m->lost = 1;
         m->probes = 0;
@@ -930,6 +922,19 @@ static void service(struct fleet_match *m)
         m->throttled = 0;
         return;
     }
+    if (kind == FLEET_OB_REVEAL && m->reveal_sends >= FLEET_REVEAL_SENDS) {
+        /* The winner is known; only the proof is missing. After this many
+         * requests - however often the peer answered something else, and
+         * however long the airtime governor held them back - it is not
+         * coming: settle, unverified. */
+        m->phase = FLEET_MP_DONE;
+        m->lost = 0;
+        if (!m->have_peer_reveal) {
+            m->verify = FLEET_VERIFY_NONE;
+        }
+        mark_dirty(m);
+        return;
+    }
     if (m->lost) {
         struct fleet_msg msg;
 
@@ -937,6 +942,7 @@ static void service(struct fleet_match *m)
             build_sync(m, &msg, 0);
             if (enqueue(m, m->peer_key, &msg, FLEET_OB_SYNC) == SENT) {
                 m->probes++;
+                m->reveal_sends += kind == FLEET_OB_REVEAL;
                 m->next_probe = m->now + FLEET_PROBE_MS + jitter(m, FLEET_PROBE_MS / 4);
             } else {
                 m->next_probe = gov_ready(m, m->now);
@@ -964,6 +970,7 @@ static void service(struct fleet_match *m)
         m->throttled = 0;
         touch(m);
     }
+    m->reveal_sends += kind == FLEET_OB_REVEAL;
     m->attempts++;
     m->next_retry = m->now + backoff(m, m->attempts);
     if (m->attempts >= 2) {
@@ -1306,11 +1313,16 @@ static void handle_sync(struct fleet_match *m, const struct fleet_msg *in)
     if (is_reply) {
         m->resyncing = 0;
     }
-    if (m->committed) {
+    if (m->committed && m->phase < FLEET_MP_DONE) {
         uint8_t has = (in->flags & FLEET_SYNC_HAVE_COMMIT) != 0;
 
-        if (has != m->peer_has_commit && m->phase < FLEET_MP_DONE) {
-            m->peer_has_commit = has;
+        /* "I do not hold yours" can be old news; once a ply has been played
+         * they certainly hold it, so it is only believed before that. */
+        if (has && !m->peer_has_commit) {
+            m->peer_has_commit = 1;
+            mark_dirty(m);
+        } else if (!has && m->peer_has_commit && m->resolved == 0) {
+            m->peer_has_commit = 0;
             mark_dirty(m);
         }
     }
@@ -1320,45 +1332,40 @@ static void handle_sync(struct fleet_match *m, const struct fleet_msg *in)
         mark_dirty(m);
     }
     if (m->phase == FLEET_MP_DONE && m->end_reason != FLEET_END_NONE) {
-        if (m->end_by_me) {
-            build_end(m, &msg, FLEET_MSG_END, 0, m->end_reason);
-            reply(m, m->peer_key, &msg, 1);
-        }
+        build_end(m, &msg, FLEET_MSG_END, 0, m->end_reason == FLEET_END_FORFEIT && !m->end_by_me
+                                                 ? FLEET_END_FINISHED : m->end_reason);
+        reply(m, m->peer_key, &msg, 1);
         return;
     }
-    /* Compare the logs once both sides are past deployment. */
+    /* Compare the logs once both sides are past deployment. A SYNC may have
+     * been a long time in flight, so a peer that looks behind may simply be
+     * speaking from the past: only the digest of the plies both hold is
+     * evidence, and "behind" never is. */
     if ((m->phase == FLEET_MP_BATTLE || m->phase == FLEET_MP_REVEAL) &&
         peer_phase >= FLEET_SYNC_BATTLE) {
-        if (rp == r) {
-            if (fleet_match_digest(m, r) != in->digest) {
+        if (rp <= r) {
+            if (fleet_match_digest(m, rp) != in->digest) {
                 void_match(m);
                 return;
             }
-        } else if (r == rp + 1) {
-            if (mine(m, r) || fleet_match_digest(m, rp) != in->digest) {
-                void_match(m);
-                return;
+            if (rp == r - 1 && !mine(m, r)) {
+                /* They may be missing our answer to their last shot. */
+                resend_latest(m, 1);
             }
-            resend_latest(m, 1);
-        } else if (rp == r + 1) {
+        } else if (rp == r + 1 && m->pending != FLEET_NO_CELL) {
             /* They answered our pending shot; its answer is on its way. */
-            if (m->pending == FLEET_NO_CELL) {
-                void_match(m);
-                return;
-            }
         } else {
+            /* Ahead of anything this device has ever sent them. */
             void_match(m);
             return;
         }
-    } else if (m->phase >= FLEET_MP_DEPLOY && m->phase <= FLEET_MP_REVEAL &&
-               ((m->phase >= FLEET_MP_BATTLE && r > 0 && peer_phase < FLEET_SYNC_BATTLE &&
-                 peer_phase != FLEET_SYNC_NONE) ||
-                (m->phase < FLEET_MP_BATTLE && rp > 0))) {
+    } else if (m->phase >= FLEET_MP_DEPLOY && m->phase < FLEET_MP_BATTLE && rp > 0) {
         void_match(m);
         return;
     }
     /* Give them what they said they lack. */
-    if (m->committed && !(in->flags & FLEET_SYNC_HAVE_COMMIT) && m->phase < FLEET_MP_REVEAL) {
+    if (m->committed && !(in->flags & FLEET_SYNC_HAVE_COMMIT) && m->phase < FLEET_MP_REVEAL &&
+        m->resolved == 0) {
         build_commit(m, &msg);
         reply(m, m->peer_key, &msg, 1);
     }
@@ -1479,6 +1486,18 @@ void fleet_match_receive(struct fleet_match *m, const uint8_t from[FLEET_KEY_BYT
         return;
     }
     heard(m);
+    if (m->phase == FLEET_MP_DONE && m->end_reason != FLEET_END_NONE &&
+        in.type != FLEET_MSG_END && in.type != FLEET_MSG_END_ACK && in.type != FLEET_MSG_SYNC) {
+        /* It is over; say so to whatever still arrives, or a peer that missed
+         * the END would ask into silence for ever. */
+        struct fleet_msg msg;
+
+        build_end(m, &msg, FLEET_MSG_END, 0, m->end_reason == FLEET_END_FORFEIT && !m->end_by_me
+                                                  ? FLEET_END_FINISHED : m->end_reason);
+        reply(m, m->peer_key, &msg, 1);
+        service(m);
+        return;
+    }
     if (in.type != FLEET_MSG_SYNC && m->resyncing && m->phase >= FLEET_MP_BATTLE &&
         (in.type == FLEET_MSG_SHOT || in.type == FLEET_MSG_RESULT)) {
         /* Ordinary play resumed; it carries what a SYNC would have. */
@@ -1581,15 +1600,17 @@ void fleet_match_tick(struct fleet_match *m, int64_t now)
     }
     m->now = now;
     gov_refill(m, now);
-    /* One probe, by itself, after long silence on the opponent's turn. */
+    /* A probe after each long silence on the opponent's turn, a few times:
+     * one probe, or its answer, can be lost, and a peer that ended the match
+     * while we waited would otherwise never be heard from again. */
     if (m->phase == FLEET_MP_BATTLE && !m->lost && !m->resyncing && m->ob == FLEET_OB_NONE &&
-        !fleet_match_my_turn(m) && !m->silence_probed &&
-        now - m->last_heard >= FLEET_SILENCE_PROBE_MS) {
+        !fleet_match_my_turn(m) && m->silence_probed < FLEET_SILENCE_PROBES &&
+        now - m->last_heard >= (int64_t)FLEET_SILENCE_PROBE_MS * (m->silence_probed + 1)) {
         struct fleet_msg msg;
 
         build_sync(m, &msg, 0);
         if (enqueue(m, m->peer_key, &msg, FLEET_OB_SYNC) == SENT) {
-            m->silence_probed = 1;
+            m->silence_probed++;
         }
     }
     service(m);

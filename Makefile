@@ -554,7 +554,8 @@ tests/fleet_save_test: tests/fleet_save_test.o $(FLEET_OBJS)
 FLEET_NET_DIR := apps/fleet/net
 FLEET_NET_OBJS := $(FLEET_NET_DIR)/fleet_sha256.o $(FLEET_NET_DIR)/fleet_proto.o \
                   $(FLEET_NET_DIR)/fleet_match.o $(FLEET_NET_DIR)/fleet_match_save.o
-FLEET_NET_TESTS := tests/fleet_sha256_test tests/fleet_proto_test tests/fleet_match_test
+FLEET_NET_TESTS := tests/fleet_sha256_test tests/fleet_proto_test tests/fleet_match_test \
+                   tests/fleet_mp_sim_test
 FLEET_TESTS += $(FLEET_NET_TESTS)
 
 $(FLEET_NET_DIR)/%.o: $(FLEET_NET_DIR)/%.c
@@ -569,6 +570,16 @@ tests/fleet_proto_test: tests/fleet_proto_test.o $(FLEET_NET_DIR)/fleet_proto.o
 tests/fleet_match_test: tests/fleet_match_test.o $(FLEET_NET_OBJS) $(FLEET_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+tests/fleet_mp_sim_test: tests/fleet_mp_sim_test.o $(FLEET_NET_OBJS) $(FLEET_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# The simulator at scale: FLEET_SIM_MATCHES matches per fault profile, each
+# checked against the same match on a perfect network. make test runs 300.
+FLEET_SOAK_MATCHES ?= 5000
+.PHONY: fleet-mp-soak
+fleet-mp-soak: tests/fleet_mp_sim_test
+	FLEET_SIM_MATCHES=$(FLEET_SOAK_MATCHES) ./tests/fleet_mp_sim_test
+
 # The multiplayer suites again under the address and undefined-behaviour
 # sanitizers, in their own build tree so the ordinary objects are untouched.
 FLEET_MP_SAN_DIR := out/fleet-mp-san
@@ -581,7 +592,7 @@ fleet-mp-san-test:
 	    CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all" \
 	    LDFLAGS="-fsanitize=address,undefined" $(FLEET_NET_TESTS)
 	cd $(FLEET_MP_SAN_DIR) && ./tests/fleet_sha256_test && ./tests/fleet_proto_test && \
-	    ./tests/fleet_match_test
+	    ./tests/fleet_match_test && FLEET_SIM_MATCHES=40 ./tests/fleet_mp_sim_test
 
 # The app's colour contract, checked against the Design System theme tables.
 tests/fleet_theme_test: tests/fleet_theme_test.o $(THEME_OBJS)
@@ -1185,6 +1196,7 @@ test: all $(TEST_BINS)
 	./tests/fleet_sha256_test
 	./tests/fleet_proto_test
 	./tests/fleet_match_test
+	./tests/fleet_mp_sim_test
 	./tests/radar_rng_test
 	./tests/radar_types_test
 	./tests/radar_rules_test

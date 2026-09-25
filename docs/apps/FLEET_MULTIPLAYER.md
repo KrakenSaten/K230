@@ -170,27 +170,46 @@ estimate (7 s by default, meshcored's `est_timeout_ms` when it gives one)
 plus 0-50 % jitter; then doubling to a 60 s cap; **at most 6 tries**. After
 that the link is **lost**: the match is paused, and while its screen is open
 one SYNC probe goes out every 120 s (±25 %) for up to 15 probes, then only on
-**Check link**. After 5 minutes of silence on the opponent's turn one SYNC
-probe goes out by itself. A transmit the transport refused as busy is retried
-after 1.5 s and does not count as a try.
+**Check link**. On the opponent's turn a SYNC probe goes out after each
+5 minutes of silence, up to 6 times, so a peer that ended the match while
+this side waited is heard from. A transmit the transport refused as busy is
+retried after 1.5 s and does not count as a try.
 
-**Airtime governor**: at most 6 frames in a burst, one more every 10 s, and
-at most 60 s of estimated airtime in any rolling hour. An obligation waits
-for room; a reply to a duplicate is dropped instead (its sender will ask
-again).
+The reveal is asked for at most 21 times (6 tries and 15 probes), however
+often the peer answers something else and however long the governor held the
+requests back; after that the result stands, **not verified**.
+
+A match that ended with END answers END to anything else that still arrives
+for it, so a peer that missed the END is not left asking into silence.
+
+**Airtime governor**: at most 6 frames in a burst, one more every 5 s, and at
+most 90 s of estimated airtime in any rolling hour of the app's run
+(2.5 %). An obligation or a probe waits for room, and the link says
+"throttled"; a reply to a duplicate is dropped instead (its sender will ask
+again). A **first** answer - the RESULT a shooter is waiting for - needs no
+token, only room in the hour: dropping it would make the peer ask again,
+which costs more than it saves. The simulator is what set these numbers: at
+60 s an hour and one token every 10 s the governor stalled ordinary long
+matches on a lossy link.
 
 ## Resync
 
 The two logs can differ by at most one ply, at the tail: the defender
 persists ply k before it answers, the shooter only when the answer arrives.
-So resync never transfers history. SYNC carries `(R, digest(1..R))`:
+So resync never transfers history. SYNC carries `(Rp, digest(1..Rp))`.
+
+A SYNC may have spent a long time in flight, so a peer that looks *behind*
+may only be speaking from the past: "behind" is never evidence of anything.
+Only the digest of the plies both sides hold is.
 
 | Comparison | Action |
 | --- | --- |
-| same R, same digest | in step; the shooter resends its pending SHOT |
-| this side is one ahead, was the defender of that ply, and the peer's prefix digest matches | resend the latest packet (the RESULT, or the SHOT that carries it) |
-| the peer is one ahead | wait for its resend |
+| Rp ≤ R and digest(1..Rp) matches | in step as far as the peer knows. If Rp = R-1 and ply R was theirs, resend the latest packet (the RESULT, or the SHOT that carries it); if this side has a shot pending, the obligation resends it |
+| Rp = R+1 and this side has a shot pending | they answered it; the answer is on its way |
 | anything else | `END(void)`: "records differ", no winner |
+
+"I do not hold your commit" in a SYNC is believed only before the first ply
+has been played; after that the peer certainly holds it and the SYNC is old.
 
 Also void: the local match file lost or unreadable (the own board is private
 and nobody can rebuild it), the meshcored identity changed, a commit that
@@ -231,13 +250,23 @@ held: timers, try counts, the governor, the outbox; each is rebuilt.
 
 ## Airtime
 
-| | frames | channel time |
-| --- | --- | --- |
-| one ply (SHOT + RESULT) | 2 × 22 B | 0.61 s |
-| setup, paths known | INVITE, ACCEPT, START, 2 COMMIT, one answer | about 1.7 s |
-| end (reveals) | 2-3 × 38 B | 0.8-1.2 s |
-| resync | SYNC, reply, one resend | about 0.9 s |
-| a typical match, 50-70 shots a side | 200-280 + setup + end | 64-88 s in all, 32-44 s per device |
+Per frame, zero hops, the MeshCore profile: 22 bytes 304.1 ms, 38 bytes
+386.0 ms. On a clean link a ply costs exactly one SHOT and one RESULT.
+Measured by `tests/fleet_mp_sim_test` over 2000 matches per profile (the
+players are PocketFleet's AI at 1.5-12 s a move; about 104 plies a match):
+
+| Profile | frames per ply | airtime per device per match | worst hour |
+| --- | --- | --- | --- |
+| clean | 2.13 | 34.1 s (max 63.5) | 63.5 s |
+| 10 % loss, collisions | 2.36 | 38.0 s (max 72.2) | 72.2 s |
+| 30 % loss, 10 % duplicates, reordering | 3.27 | 52.3 s (max 100.6) | 90.0 s |
+| 20 % loss, outages 30 s - 10 min | 2.90 | 46.3 s (max 91.3) | 87.5 s |
+| crashes, app closed, service restarts | 2.50 | 40.3 s (max 81.8) | 75.7 s |
+| all of the above, reboots too | 3.58 | 57.4 s (max 118.4) | 89.8 s |
+
+"Frames per ply" includes setup and the reveals. These are simulated
+figures on a modelled channel, not measurements: the real channel is P7's
+to measure (docs/hardware/FLEET_MULTIPLAYER_GATE.md).
 
 ## Tests
 

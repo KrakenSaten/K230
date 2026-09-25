@@ -49,10 +49,15 @@
 #define FLEET_SILENCE_PROBE_MS 300000u
 #define FLEET_DUP_REPLY_MS 2000u
 #define FLEET_TOMB_REPLY_MS 30000u
+/* How many times the fleets are asked for after the game is over (tries plus
+ * probes), however often the peer answers something else. */
+#define FLEET_REVEAL_SENDS (FLEET_RETRY_MAX + FLEET_PROBE_MAX)
+/* Probes, one per silence period, on the opponent's turn. */
+#define FLEET_SILENCE_PROBES 6
 /* airtime governor */
 #define FLEET_GOV_BURST 6
 #define FLEET_GOV_REFILL_MS 5000u
-#define FLEET_GOV_HOUR_MS 60000u
+#define FLEET_GOV_HOUR_MS 90000u
 
 enum fleet_mp_phase {
     FLEET_MP_IDLE = 0,
@@ -206,6 +211,7 @@ struct fleet_match {
     uint32_t retry_base;                    /* the transport's estimate */
     uint8_t lost;
     uint8_t probes;
+    uint8_t reveal_sends;
     int64_t next_probe;
     uint8_t resyncing;
     uint8_t cancel_left;

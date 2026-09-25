@@ -114,8 +114,11 @@ Each default is marked so it can be overturned without touching the rest.
 6. **The match is paused, never forfeited, by silence.** No shot clock and
    no expiry. *(Default.)*
 7. **Airtime governor in the protocol**: at most 6 frames in a burst,
-   refilled one per 10 s, and at most 60 s of estimated Fleet airtime per
-   rolling hour per device (about 1.7 %). *(Default; constants.)*
+   refilled one per 5 s, and at most 90 s of estimated Fleet airtime per
+   rolling hour per device (2.5 %). *(Default; constants.)* The first draft
+   said 60 s and one per 10 s; the simulator showed that stalling ordinary
+   long matches on a lossy link (docs/apps/FLEET_MULTIPLAYER.md, "Airtime").
+   The owner may prefer the stricter figure and accept the stalls.
 8. **Multiplayer requires meshcored enabled on the unit.** Fleet says so
    when it is not; it never starts or enables anything. *(Default.)*
 9. **A failed save in multiplayer** warns and plays on for the session.
