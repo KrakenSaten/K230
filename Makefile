@@ -533,7 +533,7 @@ $(FLEET_DIR)/%.o: $(FLEET_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(FLEET_DIR) -c -o $@ $<
 
 tests/fleet_%_test.o: tests/fleet_%_test.c
-	$(CC) $(ALL_CFLAGS) -I$(FLEET_DIR) -c -o $@ $<
+	$(CC) $(ALL_CFLAGS) -I$(FLEET_DIR) -Iapps/fleet/net -c -o $@ $<
 
 tests/fleet_rng_test: tests/fleet_rng_test.o $(FLEET_DIR)/fleet_rng.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
@@ -546,6 +546,42 @@ tests/fleet_ai_test: tests/fleet_ai_test.o $(FLEET_OBJS)
 
 tests/fleet_save_test: tests/fleet_save_test.o $(FLEET_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# PocketFleet multiplayer (docs/apps/FLEET_MULTIPLAYER.md): the protocol, the
+# match state machine and its save codec. Pure C like the engine - no LVGL,
+# no IPC, no filesystem (tests/fleet_lint.sh) - so thousands of matches run
+# natively over a fake network.
+FLEET_NET_DIR := apps/fleet/net
+FLEET_NET_OBJS := $(FLEET_NET_DIR)/fleet_sha256.o $(FLEET_NET_DIR)/fleet_proto.o \
+                  $(FLEET_NET_DIR)/fleet_match.o $(FLEET_NET_DIR)/fleet_match_save.o
+FLEET_NET_TESTS := tests/fleet_sha256_test tests/fleet_proto_test tests/fleet_match_test
+FLEET_TESTS += $(FLEET_NET_TESTS)
+
+$(FLEET_NET_DIR)/%.o: $(FLEET_NET_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) -I$(FLEET_NET_DIR) -I$(FLEET_DIR) -c -o $@ $<
+
+tests/fleet_sha256_test: tests/fleet_sha256_test.o $(FLEET_NET_DIR)/fleet_sha256.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/fleet_proto_test: tests/fleet_proto_test.o $(FLEET_NET_DIR)/fleet_proto.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/fleet_match_test: tests/fleet_match_test.o $(FLEET_NET_OBJS) $(FLEET_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# The multiplayer suites again under the address and undefined-behaviour
+# sanitizers, in their own build tree so the ordinary objects are untouched.
+FLEET_MP_SAN_DIR := out/fleet-mp-san
+.PHONY: fleet-mp-san-test
+fleet-mp-san-test:
+	rm -rf $(FLEET_MP_SAN_DIR) && mkdir -p $(FLEET_MP_SAN_DIR)
+	git ls-files --cached --others --exclude-standard core apps/fleet tests/fleet_* Makefile VERSION \
+	    | tar -cf - -T - | tar -xf - -C $(FLEET_MP_SAN_DIR)
+	$(MAKE) -C $(FLEET_MP_SAN_DIR) CC="$(CC)" POCKETOS_BUILD_ID=$(POCKETOS_BUILD_ID) \
+	    CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all" \
+	    LDFLAGS="-fsanitize=address,undefined" $(FLEET_NET_TESTS)
+	cd $(FLEET_MP_SAN_DIR) && ./tests/fleet_sha256_test && ./tests/fleet_proto_test && \
+	    ./tests/fleet_match_test
 
 # The app's colour contract, checked against the Design System theme tables.
 tests/fleet_theme_test: tests/fleet_theme_test.o $(THEME_OBJS)
@@ -1146,6 +1182,9 @@ test: all $(TEST_BINS)
 	./tests/fleet_ai_test
 	./tests/fleet_save_test
 	./tests/fleet_theme_test
+	./tests/fleet_sha256_test
+	./tests/fleet_proto_test
+	./tests/fleet_match_test
 	./tests/radar_rng_test
 	./tests/radar_types_test
 	./tests/radar_rules_test

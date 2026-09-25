@@ -34,6 +34,20 @@ check "only fleet_store.c touches the filesystem" \
       "$(ls $ENGINE/*.c | grep -v fleet_store.c)" \
       '\b(fopen|open|creat|unlink|rename|mkdir|remove)[[:space:]]*\('
 
+# 8. The multiplayer protocol (docs/apps/FLEET_MULTIPLAYER.md) is pure: it
+#    draws nothing, talks to no service, opens no file and reads no clock or
+#    random source of its own, so a match replays exactly and the simulator
+#    can run thousands of them.
+NET=apps/fleet/net
+check "the multiplayer protocol is free of LVGL" "$NET/*.c $NET/*.h" \
+      'include[[:space:]]*[<"]lvgl|lv_obj_|lv_style_'
+check "nor talks to a service itself" "$NET/*.c $NET/*.h" \
+      'pocketipc|socket[[:space:]]*\(|connect[[:space:]]*\(|mesh\.|radio\.'
+check "nor touches the filesystem" "$NET/*.c" \
+      '\b(fopen|open|creat|unlink|rename|mkdir|remove|fsync)[[:space:]]*\('
+check "nor reads a clock or a random source of its own" "$NET/*.c" \
+      '\b(time|clock_gettime|gettimeofday|rand|random|getrandom|arc4random)[[:space:]]*\('
+
 want() { # <label> <files> <regex>
     hits=$(grep -nE "$3" $2 2>/dev/null)
     if [ -z "$hits" ]; then

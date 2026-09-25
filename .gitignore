@@ -29,6 +29,9 @@
 /tests/fleet_ai_test
 /tests/fleet_save_test
 /tests/fleet_theme_test
+/tests/fleet_sha256_test
+/tests/fleet_proto_test
+/tests/fleet_match_test
 /tests/radar_rng_test
 /tests/radar_types_test
 /tests/radar_rules_test
