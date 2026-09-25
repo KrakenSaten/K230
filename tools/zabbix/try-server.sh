@@ -91,8 +91,10 @@ echo "== one round against $URL"
 pid=$!
 n=0
 while kill -0 "$pid" 2>/dev/null; do
-    tr '\0' '\n' <"/proc/$pid/cmdline" >"$W/proc.$n" 2>/dev/null
-    tr '\0' '\n' <"/proc/$pid/environ" >>"$W/proc.$n" 2>/dev/null
+    # The helper may exit between the two reads: the redirect then fails,
+    # which is not worth a message.
+    { tr '\0' '\n' <"/proc/$pid/cmdline" >"$W/proc.$n"; } 2>/dev/null
+    { tr '\0' '\n' <"/proc/$pid/environ" >>"$W/proc.$n"; } 2>/dev/null
     n=$((n + 1))
     sleep 0.05
 done
