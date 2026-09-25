@@ -34,6 +34,15 @@
  *              gone for good (stale data)
  *   old        a 6.0 LTS server: the token only in the "auth" member
  *   v74        a 7.4 server: header only, strict about apiinfo.version
+ *   short      demo, but a user.login session lasts ZBX_FAKE_SHORT_SESSION
+ *              authenticated requests ("Session terminated, re-login,
+ *              please."): renewal, over and over
+ *
+ * SESSIONS. user.login (user ZBX_FAKE_USER, any password) issues one
+ * session at a time, "sess..."; requests carrying a session are checked
+ * against it, user.logout ends it. Any other credential is an API token and
+ * is accepted. The counters below let a test prove every login was logged
+ * out and that a refused password was not tried again on its own.
  *
  * Pure C with cJSON; no network, no clock of its own (the caller passes the
  * time). Built into the helper and the tests, never into the shell.
@@ -53,6 +62,8 @@
 /* What the fake accepts as credentials: any non-empty token, and the user
  * "demo" with any password. */
 #define ZBX_FAKE_USER "demo"
+/* Authenticated requests a session lasts in the "short" scenario. */
+#define ZBX_FAKE_SHORT_SESSION 6
 
 /* Something other than an HTTP answer. */
 enum zbx_fake_fault {
@@ -76,6 +87,12 @@ struct zbx_fake {
     int64_t epoch;              /* the server's "now" at the first request */
     unsigned requests;          /* answered so far (faults included) */
     bool realtime;              /* the transport sleeps the delays */
+    char session[48];           /* the open user.login session, or "" */
+    unsigned session_seq;
+    unsigned session_uses;
+    unsigned logins;
+    unsigned logouts;
+    unsigned failed_logins;
 };
 
 /* The scenario names, NULL-terminated. */

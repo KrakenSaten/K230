@@ -126,6 +126,86 @@ conf "url=http://doors-zabbix-test.invalid/zabbix/" "allow_insecure_http=1" "tim
 check "HTTP: a name that does not resolve is a DNS failure" \
     "$([ "$(state_of | tr '\t' /)" = retrying/dns ] && echo 1 || echo 0)"
 
+# ---- a user and password: user.login, a renewed session, user.logout -------------
+# A password with spaces at both ends, UTF-8, '=' and '#': kept byte for byte.
+PASSWORD=' Doors pässord = #7 '
+if command -v curl >/dev/null 2>&1; then
+    start_mock
+    SCHEME=http
+    stat_of() {
+        curl -s "http://127.0.0.1:$PORT/__mock/stats" |
+            awk -v k="$1" '{ for (i = 1; i < NF; i++) if ($i == k) print $(i + 1) }'
+    }
+    wait_open0() { for _ in $(seq 60); do [ "$(stat_of open)" = 0 ] && return 0; sleep 0.1; done; return 1; }
+    conf "url=http://127.0.0.1:$PORT/zabbix/" "allow_insecure_http=1" "timeout_s=3" "auth=password" "user=demo"
+    printf '%s\n' "$PASSWORD" | "$H" set-secret password 2>/dev/null
+    check "set-secret keeps the password byte for byte" \
+        "$([ "$(cat "$T/state/zabbix/secret")" = "password=$PASSWORD" ] && echo 1 || echo 0)"
+    check "zabbix.conf holds no password" "$(grep -qF "$PASSWORD" "$T/etc/zabbix.conf" && echo 0 || echo 1)"
+    out=$("$H" check 2>/dev/null); rc=$?
+    check "password: online with the data" \
+        "$([ $rc = 0 ] && printf '%s\n' "$out" | grep -q $'^pend\t.*\t9$' && echo 1 || echo 0)"
+    check "password check: one login, logged out again (no session left open)" \
+        "$([ "$(stat_of logins)" = 1 ] && [ "$(stat_of logouts)" = 1 ] && [ "$(stat_of open)" = 0 ] &&
+           echo 1 || echo 0)"
+
+    # The session helper as the app runs it: the password is not on its
+    # command line or in its environment, and it logs out after quit.
+    mkfifo "$T/in"
+    "$H" session <"$T/in" >"$T/session.out" 2>/dev/null &
+    SPID=$!
+    exec 9>"$T/in"
+    for _ in $(seq 50); do grep -q $'^state\tonline' "$T/session.out" 2>/dev/null && break; sleep 0.1; done
+    check "password session: online" "$(grep -q $'^state\tonline' "$T/session.out" && echo 1 || echo 0)"
+    check "the password is not on the helper's command line or in its environment" \
+        "$(cat "/proc/$SPID/cmdline" "/proc/$SPID/environ" 2>/dev/null | tr '\0' '\n' | grep -qF "$PASSWORD" &&
+           echo 0 || echo 1)"
+    printf 'quit\n' >&9
+    exec 9>&-
+    wait "$SPID"
+    check "password session: logged out after quit (by the helper's detached child)" \
+        "$(wait_open0 && [ "$(stat_of logouts)" = 2 ] && echo 1 || echo 0)"
+
+    # Sessions the server ends every few requests: logged in again, silently.
+    scenario short
+    before=$(stat_of logins)
+    out=$( { sleep 1; printf 'refresh\n'; sleep 1.5; printf 'quit\n'; } | "$H" session 2>/dev/null)
+    check "short sessions: renewed without going offline" \
+        "$([ "$(stat_of logins)" -ge $((before + 2)) ] && [ "$(printf '%s\n' "$out" | grep -c '^pend')" -ge 2 ] &&
+           ! printf '%s\n' "$out" | grep -qE $'^state\t(retrying|authfail)' && echo 1 || echo 0)"
+    check "short sessions: none left open" "$(wait_open0 && echo 1 || echo 0)"
+    scenario demo
+
+    # A refused password is tried once and not again on its own (account lockout).
+    before=$(stat_of failed_logins)
+    conf "url=http://127.0.0.1:$PORT/zabbix/" "allow_insecure_http=1" "timeout_s=3" "auth=password" "user=nobody"
+    got=$(state_of | tr '\t' /)
+    check "a refused password: authfail/auth, one failed login" \
+        "$([ "$got" = authfail/auth ] && [ "$(stat_of failed_logins)" = $((before + 1)) ] && echo 1 || echo 0)"
+    out=$( { sleep 2; printf 'quit\n'; } | "$H" session 2>/dev/null)
+    check "a refused password in a session: no retry countdown, one failed login" \
+        "$(printf '%s\n' "$out" | grep -qE $'^state\tauthfail\t[0-9]+\t0\t' &&
+           [ "$(stat_of failed_logins)" = $((before + 2)) ] && echo 1 || echo 0)"
+    # tools/zabbix/try-server.sh, the real-server trial (§10.1), against the mock.
+    before=$(stat_of logouts)
+    out=$(printf '%s\n' "$PASSWORD" | TMPDIR="$T" tools/zabbix/try-server.sh "http://127.0.0.1:$PORT/zabbix/" demo \
+          allow_insecure_http=1 2>&1); rc=$?
+    check "try-server.sh: one round online, logged out, its private directory removed" \
+        "$([ $rc = 0 ] && printf '%s\n' "$out" | grep -q 'try-server: ONLINE' &&
+           printf '%s\n' "$out" | grep -q '^problems fetched: 9' && [ "$(stat_of logouts)" = $((before + 1)) ] &&
+           ! ls -d "$T"/doors-zabbix.* >/dev/null 2>&1 && echo 1 || echo 0)"
+    check "try-server.sh never prints the password" "$(printf '%s\n' "$out" | grep -qF "$PASSWORD" && echo 0 || echo 1)"
+    out=$(printf 'wrong\n' | TMPDIR="$T" tools/zabbix/try-server.sh "http://127.0.0.1:$PORT/zabbix/" nobody \
+          allow_insecure_http=1 2>&1); rc=$?
+    check "try-server.sh: a refused login says so, exit 1" \
+        "$([ $rc = 1 ] && printf '%s\n' "$out" | grep -q $'^state\tauthfail' && echo 1 || echo 0)"
+    stop_mock
+    check "the password is in no log" "$(grep -rqsF "$PASSWORD" "$T/log" && echo 0 || echo 1)"
+else
+    skip "user and password: no curl(1) to read the mock's session counts"
+fi
+printf '%s\n' "$TOKEN" | "$H" set-secret token 2>/dev/null
+
 # ---- HTTPS ------------------------------------------------------------------------
 if ! command -v openssl >/dev/null 2>&1; then
     skip "HTTPS: no openssl(1) to make a certificate"

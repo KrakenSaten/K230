@@ -66,6 +66,16 @@ static void test_requests(void)
               str_is(get(p, "password"), "s3cret") && !get(p, "user") && !get(j, "auth"));
     cJSON_Delete(j);
 
+    j = parsed(zbx_req_logout(&c));
+    check("user.logout: empty params array, the token in the header (not the body)",
+          j && str_is(get(j, "method"), "user.logout") && cJSON_IsArray(get(j, "params")) &&
+              cJSON_GetArraySize(get(j, "params")) == 0 && !get(j, "auth") &&
+              get(j, "id")->valuedouble == 7);
+    cJSON_Delete(j);
+    j = parsed(zbx_req_logout(&old));
+    check("user.logout before 6.4: the token in the body", j && str_is(get(j, "auth"), "tok60"));
+    cJSON_Delete(j);
+
     j = parsed(zbx_req_problems(&c, NULL, 500));
     p = get(j, "params");
     check("problem.get: trigger problems, unsuppressed, newest first, limited",

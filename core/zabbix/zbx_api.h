@@ -68,6 +68,8 @@ struct zbx_req_ctx {
 
 char *zbx_req_version(int id);
 char *zbx_req_login(int id, const char *user, const char *password);
+/* user.logout: params [], with the session like any authenticated call. */
+char *zbx_req_logout(const struct zbx_req_ctx *c);
 /* hostid NULL: every host; else only that host's. */
 char *zbx_req_problems(const struct zbx_req_ctx *c, const char *hostid, int limit);
 /* severity -1: all severities; unacknowledged: only those not acknowledged. */

@@ -29,7 +29,8 @@
 
 static const char *const scenarios[] = {
     "demo", "healthy", "empty", "large", "slow", "timeout", "refused", "dns", "tls", "auth",
-    "expired", "apierror", "malformed", "http500", "huge", "flap", "drop", "old", "v74", NULL,
+    "expired", "apierror", "malformed", "http500", "huge", "flap", "drop", "old", "v74", "short",
+    NULL,
 };
 
 const char *const *zbx_fake_scenarios(void)
@@ -707,6 +708,63 @@ static const char *credential(const struct zbx_fake *f, const char *bearer, cons
     return member && *member ? member : NULL;
 }
 
+/* A method that needs credentials. A credential starting "sess" is a
+ * user.login session, checked against the one this server issued; anything
+ * else is an API token, and any token is accepted. */
+static char *authenticated(struct zbx_fake *f, const char *cred, const char *m, const cJSON *id,
+                           const cJSON *params)
+{
+    bool session = cred && strncmp(cred, "sess", 4) == 0;
+
+    if (!cred || is(f, "auth")) {
+        return not_authorized(f, id);
+    }
+    if (session && (!f->session[0] || strcmp(cred, f->session) != 0 ||
+                    (is(f, "short") && f->session_uses >= ZBX_FAKE_SHORT_SESSION))) {
+        /* Not issued here, logged out, or run out - a session that ran out
+         * is ended here, as the server ends it. */
+        if (f->session[0] && strcmp(cred, f->session) == 0) {
+            explicit_bzero(f->session, sizeof(f->session));
+        }
+        return error(id, -32602, "Invalid params.", "Session terminated, re-login, please.");
+    }
+    if (strcmp(m, "user.logout") == 0) {
+        cJSON *r = reply(id);
+
+        if (session) {
+            explicit_bzero(f->session, sizeof(f->session));
+            f->logouts++;
+        }
+        cJSON_AddTrueToObject(r, "result");
+        return print(r);
+    }
+    if (is(f, "expired")) {
+        return error(id, -32500, "Application error.", "API token expired.");
+    }
+    if (session) {
+        f->session_uses++;
+    }
+    if (!cJSON_IsObject(params)) {
+        return error(id, -32602, "Invalid params.", "Invalid parameter \"/\": an array is expected.");
+    }
+    if (strcmp(m, "problem.get") == 0) {
+        return problem_get(f, id, params);
+    }
+    if (strcmp(m, "trigger.get") == 0) {
+        return trigger_get(f, id, params);
+    }
+    if (strcmp(m, "host.get") == 0) {
+        return host_get(f, id, params);
+    }
+    if (strcmp(m, "item.get") == 0) {
+        return item_get(f, id, params);
+    }
+    if (strcmp(m, "hostinterface.get") == 0) {
+        return hostinterface_get(f, id, params);
+    }
+    return error(id, -32601, "Method not found.", "Incorrect API \"x\".");
+}
+
 static char *answer_rpc(struct zbx_fake *f, const char *bearer, const char *body)
 {
     cJSON *req = cJSON_Parse(body ? body : "");
@@ -753,33 +811,29 @@ static char *answer_rpc(struct zbx_fake *f, const char *bearer, const char *body
         if (!u && v < ZBX_API_BEARER_VERSION) {
             u = cJSON_GetObjectItemCaseSensitive(params, "user");
         }
-        if (is(f, "auth") || !cJSON_IsString(u) || strcmp(u->valuestring, ZBX_FAKE_USER) != 0) {
+        if (bearer || auth) {
+            /* The server refuses credentials on user.login itself. */
+            out = error(id, -32602, "Invalid params.",
+                        "The \"user.login\" method must be called without authorization.");
+        } else if (is(f, "auth") || !cJSON_IsString(u) || strcmp(u->valuestring, ZBX_FAKE_USER) != 0) {
+            f->failed_logins++;
             out = error(id, -32500, "Application error.",
                         "Incorrect user name or password or account is temporarily blocked.");
         } else {
             cJSON *r = reply(id);
 
-            cJSON_AddStringToObject(r, "result", SESSION_ID);
+            /* One session at a time, like one user of the viewer: a new
+             * login replaces the old session (which a real server would
+             * keep until its auto-logout - hence user.logout). */
+            f->session_seq++;
+            snprintf(f->session, sizeof(f->session), "sess%08x%s", f->session_seq, SESSION_ID + 12);
+            f->session_uses = 0;
+            f->logins++;
+            cJSON_AddStringToObject(r, "result", f->session);
             out = print(r);
         }
-    } else if (!credential(f, bearer, auth) || is(f, "auth")) {
-        out = not_authorized(f, id);
-    } else if (is(f, "expired")) {
-        out = error(id, -32500, "Application error.", "API token expired.");
-    } else if (!cJSON_IsObject(params)) {
-        out = error(id, -32602, "Invalid params.", "Invalid parameter \"/\": an array is expected.");
-    } else if (strcmp(m, "problem.get") == 0) {
-        out = problem_get(f, id, params);
-    } else if (strcmp(m, "trigger.get") == 0) {
-        out = trigger_get(f, id, params);
-    } else if (strcmp(m, "host.get") == 0) {
-        out = host_get(f, id, params);
-    } else if (strcmp(m, "item.get") == 0) {
-        out = item_get(f, id, params);
-    } else if (strcmp(m, "hostinterface.get") == 0) {
-        out = hostinterface_get(f, id, params);
     } else {
-        out = error(id, -32601, "Method not found.", "Incorrect API \"x\".");
+        out = authenticated(f, credential(f, bearer, auth), m, id, params);
     }
     cJSON_Delete(req);
     return out;

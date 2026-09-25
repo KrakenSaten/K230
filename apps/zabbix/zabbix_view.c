@@ -280,8 +280,15 @@ void zabbix_view_banner(const struct zabbix_model *m, int64_t now_ms, struct zab
     case ZBX_CONN_AUTH_FAILED:
         b->show = true;
         b->tone = ZABBIX_TONE_ERROR;
-        snprintf(b->text, sizeof(b->text), "Access refused: check the %s · %s",
-                 strcmp(m->auth, "password") == 0 ? "user and password" : "API token", data);
+        /* A password is never tried again on its own (zbx_client.h: account
+         * lockout), so the banner says how to try; a token is retried. */
+        if (strcmp(m->auth, "password") == 0) {
+            snprintf(b->text, sizeof(b->text),
+                     "Access refused: check the user and password · REFRESH NOW to try again · %s",
+                     data);
+        } else {
+            snprintf(b->text, sizeof(b->text), "Access refused: check the API token · %s", data);
+        }
         return;
     case ZBX_CONN_ONLINE:
     default:

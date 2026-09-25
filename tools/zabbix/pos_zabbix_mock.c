@@ -11,7 +11,8 @@
  * Listens on 127.0.0.1 unless told otherwise; --port 0 picks a free port and
  * --port-file writes it out for a test. Serves POST .../api_jsonrpc.php with
  * the fake's answers; GET or POST /__mock/scenario/NAME switches the
- * scenario. Faults: a hang keeps the connection open and says nothing, a
+ * scenario, and GET /__mock/stats says how many logins, logouts and failed
+ * logins it has seen. Faults: a hang keeps the connection open and says nothing, a
  * refusal closes it without an answer (curl: "Empty reply"), and DNS and
  * TLS faults have no socket equivalent and answer 502.
  *
@@ -217,6 +218,17 @@ static int serve_one(struct conn *c, struct zbx_fake *f)
 
         fprintf(stderr, "pos-zabbix-mock: scenario %s%s\n", path + 17, ok ? "" : " (unknown)");
         respond(c, ok ? 200 : 404, "text/plain", ok ? "ok\n" : "unknown\n", ok ? 3 : 8, keep);
+        free(body);
+        return keep;
+    }
+    if (strcmp(path, "/__mock/stats") == 0) {
+        /* What a test needs to prove about sessions: every login logged out,
+         * no password tried again on its own. */
+        char stats[160];
+        int n = snprintf(stats, sizeof(stats), "logins %u logouts %u open %d failed_logins %u requests %u\n",
+                         f->logins, f->logouts, f->session[0] ? 1 : 0, f->failed_logins, f->requests);
+
+        respond(c, 200, "text/plain", stats, (size_t)n, keep);
         free(body);
         return keep;
     }

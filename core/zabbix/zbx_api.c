@@ -118,6 +118,19 @@ char *zbx_req_login(int id, const char *user, const char *password)
     return finish(root, NULL);
 }
 
+char *zbx_req_logout(const struct zbx_req_ctx *c)
+{
+    cJSON *params;
+    cJSON *root = envelope("user.logout", c->id, &params);
+
+    /* The documented form is an empty array, as for apiinfo.version. */
+    if (root) {
+        cJSON_DeleteItemFromObject(root, "params");
+        cJSON_AddItemToObject(root, "params", cJSON_CreateArray());
+    }
+    return finish(root, c);
+}
+
 static void problem_filters(cJSON *params)
 {
     /* Trigger problems (source 0, object 0), open ones only (recent false

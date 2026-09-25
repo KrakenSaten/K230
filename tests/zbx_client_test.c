@@ -596,9 +596,100 @@ static void test_password(void)
     h = start("auth", ZBX_AUTH_PASSWORD, "wrong");
     step(h);
     check("password: a refused login is AUTH_FAILED", h->c.state == ZBX_CONN_AUTH_FAILED && h->logins == 1);
-    h->now += 60000;
+    check("password: with no next try announced (retry 0)", h->last_state.retry_s == 0);
+    {
+        int i;
+
+        /* Two hours of the helper waking every minute: Zabbix blocks an
+         * account after 5 failed logins (30 s, by default) and keeps
+         * counting, so a retry loop here would lock the user out of the
+         * frontend over and over. */
+        for (i = 0; i < 120; i++) {
+            h->now += 60000;
+            step(h);
+        }
+    }
+    check("password: never tried again on its own, not in two hours (account lockout)",
+          h->logins == 1 && h->fake.failed_logins == 1 && h->c.state == ZBX_CONN_AUTH_FAILED);
+    cmd(h, ZBX_CMD_REFRESH, NULL);
     step(h);
-    check("password: and not tried again by itself within minutes (account lockout)", h->logins == 1);
+    check("password: REFRESH tries once, at once", h->logins == 2 && h->fake.failed_logins == 2);
+    h->now += 600000;
+    step(h);
+    check("password: and then waits for REFRESH again", h->logins == 2);
+    finish(h);
+
+    h = start("auth", ZBX_AUTH_TOKEN, "wrong");
+    step(h);
+    h->now += 301000;
+    step(h);
+    check("token: a refused token is tried again after five minutes (no account to lock)",
+          h->versions == 2 && h->c.state == ZBX_CONN_AUTH_FAILED);
+    finish(h);
+}
+
+static void test_logout(void)
+{
+    struct harness *h = start("demo", ZBX_AUTH_PASSWORD, "pw");
+    int before;
+
+    step(h);
+    check("logout: a password setup has a session", zbx_client_has_session(&h->c) &&
+                                                       h->fake.logins == 1);
+    before = h->requests;
+    check("logout: user.logout ends it", zbx_client_logout(&h->c, 3000) == 0 &&
+                                             h->fake.logouts == 1 && !h->fake.session[0] &&
+                                             !zbx_client_has_session(&h->c) && h->requests == before + 1);
+    check("logout: with the session in the header, like any call", strncmp(h->last_bearer, "sess", 4) == 0);
+    before = h->requests;
+    check("logout: nothing to end, nothing asked", zbx_client_logout(&h->c, 3000) == 0 &&
+                                                       h->requests == before);
+    finish(h);
+
+    h = start("old", ZBX_AUTH_PASSWORD, "pw");
+    step(h);
+    before = h->body_auth_requests;
+    check("logout on 6.0: the session goes in the auth member",
+          zbx_client_logout(&h->c, 3000) == 0 && h->body_auth_requests == before + 1 &&
+              h->fake.logouts == 1 && h->bearer_requests == 0);
+    finish(h);
+
+    h = start("demo", ZBX_AUTH_TOKEN, "tok");
+    step(h);
+    before = h->requests;
+    check("logout: a token setup has no session and logs nothing out",
+          !zbx_client_has_session(&h->c) && zbx_client_logout(&h->c, 3000) == 0 &&
+              h->requests == before && h->fake.logouts == 0);
+    finish(h);
+}
+
+static void test_session_renewal(void)
+{
+    struct harness *h = start("short", ZBX_AUTH_PASSWORD, "pw");
+    bool never_failed = true;
+    int i;
+
+    /* A session that lasts six requests, for 200 refreshes: renewed again
+     * and again, silently, and never taken for a refused password. */
+    for (i = 0; i < 200; i++) {
+        step(h);
+        if (h->c.state != ZBX_CONN_ONLINE) {
+            never_failed = false;
+        }
+        h->now += 31000;
+    }
+    printf("     renewal: %u logins, %d problem sets, %d requests\n", h->fake.logins, h->sets_problems,
+           h->requests);
+    check("renewal: 200 refreshes on six-request sessions stay online throughout", never_failed &&
+                                                                                    h->bad == 0);
+    check("renewal: the session was renewed many times, one at a time",
+          h->fake.logins > 100 && h->fake.failed_logins == 0 && h->sets_problems == 200);
+    /* The last session may have run out on the final request, and then
+     * there is nothing to log out; one that has not is logged out. */
+    zbx_fake_set_scenario(&h->fake, "demo");
+    step(h);
+    check("renewal: and the last one is logged out at the end", zbx_client_logout(&h->c, 3000) == 0 &&
+                                                                   h->fake.logouts == 1 && !h->fake.session[0]);
     finish(h);
 }
 
@@ -676,6 +767,8 @@ int main(void)
     test_large();
     test_detail();
     test_password();
+    test_logout();
+    test_session_renewal();
     test_unconfigured_and_reset();
     test_soak();
     printf("zbx_client_test: %d checks, %d failure(s)\n", checks, failed);

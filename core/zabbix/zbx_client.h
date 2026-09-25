@@ -13,9 +13,9 @@
  *        +--------------------- RETRYING <-------------------------- ONLINE
  *                         (after the backoff: 5, 10, 20, 40, 80, 120 s)
  *   AUTH refused ------------------------------------------------> AUTH_FAILED
- *        (retried only after ZBX_AUTH_RETRY_S, or at once on `refresh`;
- *         a password is never retried on its own sooner, because Zabbix
- *         blocks an account after a few failed logins)
+ *        (a token is retried after ZBX_AUTH_RETRY_S; a password is never
+ *         retried on its own, because Zabbix blocks an account after a few
+ *         failed logins; either is tried at once on `refresh`)
  *
  * A session that expires (password logins) is logged in again once, at
  * once, before anything is reported as a failure.
@@ -51,6 +51,10 @@
 #define ZBX_MANUAL_REFRESH_S 5
 #define ZBX_CONNECT_TIMEOUT_MS 5000
 #define ZBX_SESSION_MAX 128
+/* next_try_ms when no try is scheduled at all (a refused password). */
+#define ZBX_TRY_NEVER INT64_MAX
+/* user.logout when the helper ends: short, it only tidies the server. */
+#define ZBX_LOGOUT_TIMEOUT_MS 3000
 
 struct zbx_client {
     struct zbx_config cfg;
@@ -71,6 +75,7 @@ struct zbx_client {
     long vnum;
     char session[ZBX_SESSION_MAX]; /* user.login's, for password configurations */
     bool session_fresh;         /* made in this round: an AUTH now is a real refusal */
+    int timeout_override_ms;    /* 0: timeout_s; else this, for the next request only */
     int rpc_id;
 
     int64_t due_problems_ms;
@@ -114,6 +119,16 @@ void zbx_client_command(struct zbx_client *c, const struct zbx_cmd *cmd);
  * requests. Returns the milliseconds until something is next due (for the
  * caller's poll), never less than 0 and never more than 60 000. */
 int zbx_client_step(struct zbx_client *c);
+
+/* Password setups: whether a user.login session is open on the server. */
+bool zbx_client_has_session(const struct zbx_client *c);
+
+/* End the session on the server (user.logout), as the API asks of every
+ * user.login ("to prevent the generation of a large number of open session
+ * records"), within timeout_ms. The session is forgotten whatever the
+ * answer. 0 when there was nothing to end or it ended, -1 otherwise. Writes
+ * no protocol line. */
+int zbx_client_logout(struct zbx_client *c, int timeout_ms);
 
 /* The delay after the n-th failure in a row (n >= 1), in seconds. */
 int zbx_backoff_s(int n);

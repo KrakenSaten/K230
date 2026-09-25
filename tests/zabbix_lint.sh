@@ -35,8 +35,11 @@ hits=$(code $APP $A/zabbix_view.c | grep -nE '\b(fopen|open|openat|unlink|rename
 check "the screen and the view never touch files or start processes" \
     "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
-hits=$(grep -rlE '\bfork\(' $A $C tools/zabbix --include='*.c')
-check "only the session starts a process" "$([ "$hits" = "$A/zabbix_session.c" ] && echo 1 || echo 0)"
+hits=$(grep -rlE '\bfork\(' $A $C tools/zabbix --include='*.c' | sort | tr '\n' ' ')
+check "only the session starts a process, and the helper its logout child ($hits)" \
+    "$([ "$hits" = "$A/zabbix_session.c tools/zabbix/pos_zabbix.c " ] &&
+       [ "$(grep -c '\bfork()' tools/zabbix/pos_zabbix.c)" = 1 ] && echo 1 || echo 0)"
+check "the logout child never execs anything" "$(grep -qE '\bexec[lv]p?e?\(' tools/zabbix/pos_zabbix.c && echo 0 || echo 1)"
 hits=$(code $C/*.c tools/zabbix/*.c $A/*.c | grep -nE '\b(system|popen)\(')
 check "no shell is ever run" "$([ -z "$hits" ] && echo 1 || echo 0)"
 hits=$(grep -lE '#include <curl/' $C/*.c $C/*.h tools/zabbix/*.c $A/*.c 2>/dev/null | tr '\n' ' ')
@@ -46,8 +49,12 @@ check "only zbx_http_curl.c speaks libcurl ($hits)" \
 # ---- read-only ----------------------------------------------------------------
 hits=$(grep -ohE '"[a-z]+\.(get|login|version|create|update|delete|acknowledge|massupdate|massadd|execute|logout)"' \
        $C/zbx_api.c | sort -u | tr '\n' ' ')
-check "the API layer only reads: apiinfo.version, user.login and *.get ($hits)" \
-    "$(printf '%s\n' $hits | grep -vqE '^"(apiinfo\.version|user\.login|[a-z]+\.get)"$' && echo 0 || echo 1)"
+# user.logout ends the viewer's own session (password setups), which the API
+# asks of every user.login; it changes nothing the server monitors.
+check "the API layer only reads: apiinfo.version, user.login/logout and *.get ($hits)" \
+    "$(printf '%s\n' $hits | grep -vqE '^"(apiinfo\.version|user\.login|user\.logout|[a-z]+\.get)"$' && echo 0 || echo 1)"
+check "and it does log out what it logs in (the helper, when it ends)" \
+    "$(grep -q 'zbx_client_logout(' tools/zabbix/pos_zabbix.c && grep -q '"user.logout"' $C/zbx_api.c && echo 1 || echo 0)"
 
 # ---- TLS and the token ----------------------------------------------------------
 check "a redirect is never followed" \

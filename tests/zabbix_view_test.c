@@ -166,7 +166,14 @@ static void test_banner_and_stale(void)
     apply_state(m, ZBX_CONN_AUTH_FAILED, ZBX_ERR_AUTH, 1, 300, "Not authorized.", 50000);
     zabbix_view_banner(m, 50000, &b);
     check("auth failed: says to check the token", b.show && b.tone == ZABBIX_TONE_ERROR &&
-                                                      strstr(b.text, "check the API token"));
+                                                      strstr(b.text, "check the API token") &&
+                                                      !strstr(b.text, "REFRESH NOW"));
+    snprintf(m->auth, sizeof(m->auth), "password");
+    zabbix_view_banner(m, 50000, &b);
+    check("auth failed with a password: says how to try again (never retried on its own)",
+          b.show && b.tone == ZABBIX_TONE_ERROR && strstr(b.text, "check the user and password") &&
+              strstr(b.text, "REFRESH NOW to try again") && !strstr(b.text, "retry in"));
+    snprintf(m->auth, sizeof(m->auth), "token");
 
     zabbix_model_helper_stopped(m, ZABBIX_EXIT_CRASHED, 139, 60000);
     zabbix_view_banner(m, 60500, &b);

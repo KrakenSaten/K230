@@ -318,11 +318,49 @@ static int run_session(const struct opts *o)
         }
     }
     zbx_proto_bye(stdout);
+    fflush(stdout);
+    LOG_INFO("zabbix: session end");
+    if (zbx_client_has_session(&s.client)) {
+        /* A password setup leaves a session on the server; the API asks
+         * that it be ended (user.logout). That is a request, and the app
+         * gives the helper only ZABBIX_DESTROY_GRACE_MS to leave, so it is
+         * done by a child the app is not waiting for: this process leaves
+         * at once, the child logs out within ZBX_LOGOUT_TIMEOUT_MS and
+         * exits. The child owns the transport from here - this process must
+         * not close it, or its TLS close would cut into the child's
+         * connection. A helper killed mid-request never gets here, and its
+         * session ends on the server by itself (the user's auto-logout). */
+        pid_t pid = fork();
+
+        if (pid == 0) {
+            int null = open("/dev/null", O_RDWR);
+
+            /* Let go of the socketpair: the app sees its end of input from
+             * this process's exit, not after the logout. */
+            if (null >= 0) {
+                dup2(null, STDIN_FILENO);
+                dup2(null, STDOUT_FILENO);
+            }
+            zbx_client_logout(&s.client, ZBX_LOGOUT_TIMEOUT_MS);
+            zbx_client_free(&s.client);
+            if (s.tr.close) {
+                s.tr.close(&s.tr);
+            }
+            _exit(0);
+        }
+        if (pid < 0) {
+            zbx_client_logout(&s.client, ZBX_LOGOUT_TIMEOUT_MS);
+            if (s.tr.close) {
+                s.tr.close(&s.tr);
+            }
+        }
+        zbx_client_free(&s.client);
+        return 0;
+    }
     zbx_client_free(&s.client);
     if (s.tr.close) {
         s.tr.close(&s.tr);
     }
-    LOG_INFO("zabbix: session end");
     return 0;
 }
 
@@ -358,6 +396,8 @@ static int run_check(const struct opts *o)
     zbx_client_start(&s.client);
     zbx_client_step(&s.client);
     rc = s.client.state == ZBX_CONN_ONLINE ? 0 : 1;
+    /* A password check leaves no session behind. */
+    zbx_client_logout(&s.client, ZBX_LOGOUT_TIMEOUT_MS);
     zbx_client_free(&s.client);
     if (s.tr.close) {
         s.tr.close(&s.tr);

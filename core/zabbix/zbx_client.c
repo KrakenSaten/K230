@@ -89,7 +89,9 @@ static void report(struct zbx_client *c)
 {
     int retry_s = 0;
 
-    if (c->state == ZBX_CONN_RETRYING || c->state == ZBX_CONN_AUTH_FAILED) {
+    /* NEVER: no try is scheduled (a refused password), and 0 says so. */
+    if ((c->state == ZBX_CONN_RETRYING || c->state == ZBX_CONN_AUTH_FAILED) &&
+        c->next_try_ms != ZBX_TRY_NEVER) {
         int64_t left = c->next_try_ms - now_of(c);
 
         retry_s = left > 0 ? (int)((left + 999) / 1000) : 0;
@@ -185,7 +187,8 @@ static enum zbx_err call(struct zbx_client *c, char *body, int id, bool with_aut
     req.body = body;
     req.bearer = with_auth && c->vnum >= ZBX_API_BEARER_VERSION ? credential(c) : NULL;
     req.connect_timeout_ms = ZBX_CONNECT_TIMEOUT_MS;
-    req.timeout_ms = c->cfg.timeout_s * 1000;
+    req.timeout_ms = c->timeout_override_ms > 0 ? c->timeout_override_ms : c->cfg.timeout_s * 1000;
+    c->timeout_override_ms = 0;
     req.verify = c->cfg.verify;
     req.ca_file = c->cfg.ca_file;
     req.max_bytes = ZBX_RESPONSE_MAX;
@@ -205,6 +208,10 @@ static enum zbx_err call(struct zbx_client *c, char *body, int id, bool with_aut
     if (err != ZBX_ERR_NONE) {
         zbx_copy_text(c->err_text, sizeof(c->err_text), r->text[0] ? r->text : zbx_err_text(err));
         zbx_reply_free(r);
+    } else if (with_auth) {
+        /* The session has served a request: from now on its refusal means
+         * it ran out, not that the login did not count. */
+        c->session_fresh = false;
     }
     return err;
 }
@@ -615,8 +622,20 @@ static void failed(struct zbx_client *c, enum zbx_err err)
     if (err == ZBX_ERR_AUTH) {
         c->connected = false;
         explicit_bzero(c->session, sizeof(c->session));
-        c->next_try_ms = t + (int64_t)ZBX_AUTH_RETRY_S * 1000;
-        LOG_WARN("zabbix: authentication refused");
+        if (c->cfg.auth == ZBX_AUTH_PASSWORD && !c->cfg.fake) {
+            /* A refused password is never tried again on its own. Zabbix
+             * blocks an account after "Login attempts" failures (5 by
+             * default, for 30 s) and keeps counting until a login succeeds,
+             * so a helper retrying a wrong password every few minutes would
+             * lock its user out of the frontend again and again. Only
+             * REFRESH (or opening the app again) tries. */
+            c->next_try_ms = ZBX_TRY_NEVER;
+            LOG_WARN("zabbix: authentication refused; the password is not tried again until "
+                     "REFRESH");
+        } else {
+            c->next_try_ms = t + (int64_t)ZBX_AUTH_RETRY_S * 1000;
+            LOG_WARN("zabbix: authentication refused");
+        }
         c->reported = false;
         set_state(c, ZBX_CONN_AUTH_FAILED);
         return;
@@ -659,6 +678,35 @@ static bool relogin(struct zbx_client *c, enum zbx_err err)
     explicit_bzero(c->session, sizeof(c->session));
     c->connected = false;
     return true;
+}
+
+/* ---- leaving -------------------------------------------------------------------------------- */
+
+bool zbx_client_has_session(const struct zbx_client *c)
+{
+    return c->cfg.auth == ZBX_AUTH_PASSWORD && !c->cfg.fake && c->session[0] != '\0';
+}
+
+int zbx_client_logout(struct zbx_client *c, int timeout_ms)
+{
+    struct zbx_req_ctx x;
+    struct zbx_reply r;
+    enum zbx_err err;
+
+    if (!zbx_client_has_session(c)) {
+        return 0;
+    }
+    x = ctx_for(c);
+    c->timeout_override_ms = timeout_ms;
+    err = call(c, zbx_req_logout(&x), x.id, true, &r, NULL);
+    if (err == ZBX_ERR_NONE) {
+        zbx_reply_free(&r);
+    }
+    explicit_bzero(c->session, sizeof(c->session));
+    c->connected = false;
+    LOG_INFO("zabbix: %s", err == ZBX_ERR_NONE ? "logged out" : "logout failed; the session ends by "
+                                                               "itself on the server");
+    return err == ZBX_ERR_NONE ? 0 : -1;
 }
 
 /* ---- the schedule ------------------------------------------------------------------------ */
@@ -744,9 +792,11 @@ int zbx_client_step(struct zbx_client *c)
     if ((c->state == ZBX_CONN_RETRYING || c->state == ZBX_CONN_AUTH_FAILED) && t < c->next_try_ms) {
         return wake_in(c);
     }
-    c->session_fresh = false;
-    /* Twice at most: once more after a session ran out. */
-    for (tries = 0; tries < 2; tries++) {
+    /* Once, and again after each session that ran out: a relogin is only
+     * made for a session that had served a request (session_fresh), so this
+     * cannot loop on a server that refuses every new session; the bound is
+     * for a server whose sessions end after a request or two. */
+    for (tries = 0; tries < 4; tries++) {
         if (!c->connected) {
             if (c->state != ZBX_CONN_ONLINE) {
                 set_state(c, ZBX_CONN_CONNECTING);
