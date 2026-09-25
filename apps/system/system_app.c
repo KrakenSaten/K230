@@ -14,11 +14,18 @@
  * orientation is the system's (DS section 21.2); nothing here asks what it
  * is, only how much room there is.
  *
+ * DIAGNOSTICS. A page of its own behind a button above the actions: a
+ * summary from sysd, radiod and meshcored, the crash reports and the newest
+ * log lines with All / Warnings / Errors, for diagnosing the device without
+ * SSH. What it says is diag_view.c's; it refreshes one bounded call per tick
+ * (diag_view.h), and holds at most DIAG_LOG_MAX log lines.
+ *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #define _GNU_SOURCE
 #include "app.h"
 #include "pocketui.h"
+#include "diag_view.h"
 #include "shell_ipc.h"
 #include "system_view.h"
 
@@ -71,6 +78,17 @@ struct system_app {
     lv_obj_t *radio_chip;
     lv_obj_t *radio_detail;
     lv_obj_t *toast;
+    /* Diagnostics: the page, when it is the one shown */
+    bool diag;
+    struct diag_view dv;
+    lv_obj_t *diag_value[DIAG_ROW_COUNT];
+    lv_obj_t *diag_state;
+    lv_obj_t *diag_crash_box;
+    lv_obj_t *diag_log_box;
+    lv_obj_t *diag_log_status;
+    lv_obj_t *diag_filter[DIAG_FILTER_COUNT];
+    unsigned diag_built_log;
+    unsigned diag_built_crash;
     unsigned long clock_ms;
     int tick;
     /* what the body was built for, so it is only rebuilt when it must be */
@@ -79,6 +97,7 @@ struct system_app {
     int built_services;
     int built_card;
     enum system_view_phase built_phase;
+    bool built_diag;
 };
 
 static void rebuild(struct system_app *a);
@@ -408,6 +427,262 @@ static void on_confirm(lv_event_t *e)
     rebuild(a);
 }
 
+/* ---- Diagnostics ------------------------------------------------------ */
+
+static void on_diagnostics(lv_event_t *e)
+{
+    struct system_app *a = lv_event_get_user_data(e);
+
+    a->diag = true;
+    diag_view_refresh(&a->dv);
+    rebuild(a);
+}
+
+static void on_diag_back(lv_event_t *e)
+{
+    struct system_app *a = lv_event_get_user_data(e);
+
+    a->diag = false;
+    rebuild(a);
+}
+
+static void diag_repaint(struct system_app *a);
+
+static void on_diag_refresh(lv_event_t *e)
+{
+    struct system_app *a = lv_event_get_user_data(e);
+
+    diag_view_refresh(&a->dv);
+    diag_repaint(a);
+}
+
+static void diag_filter(struct system_app *a, enum diag_filter f)
+{
+    diag_view_set_filter(&a->dv, f);
+    diag_repaint(a);
+}
+
+static void on_diag_all(lv_event_t *e)
+{
+    diag_filter(lv_event_get_user_data(e), DIAG_FILTER_ALL);
+}
+
+static void on_diag_warn(lv_event_t *e)
+{
+    diag_filter(lv_event_get_user_data(e), DIAG_FILTER_WARN);
+}
+
+static void on_diag_error(lv_event_t *e)
+{
+    diag_filter(lv_event_get_user_data(e), DIAG_FILTER_ERROR);
+}
+
+static lv_obj_t *button_row(lv_obj_t *parent)
+{
+    lv_obj_t *buttons = lv_obj_create(parent);
+
+    lv_obj_remove_style_all(buttons);
+    lv_obj_set_width(buttons, LV_PCT(100));
+    lv_obj_set_height(buttons, SYSTEM_ACTION_BTN_H);
+    lv_obj_set_flex_flow(buttons, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(buttons, 8, 0);
+    lv_obj_clear_flag(buttons, LV_OBJ_FLAG_SCROLLABLE);
+    return buttons;
+}
+
+static lv_obj_t *row_button(lv_obj_t *buttons, const char *text, lv_event_cb_t cb, void *user)
+{
+    lv_obj_t *b = pocketui_button(buttons, text, cb, user);
+
+    lv_obj_set_height(b, SYSTEM_ACTION_BTN_H);
+    lv_obj_set_flex_grow(b, 1);
+    return b;
+}
+
+static lv_obj_t *column_box(lv_obj_t *parent)
+{
+    lv_obj_t *box = lv_obj_create(parent);
+
+    lv_obj_remove_style_all(box);
+    lv_obj_set_width(box, LV_PCT(100));
+    lv_obj_set_height(box, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
+    lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+    return box;
+}
+
+/* The page's fixed part; the crash and log lists are filled by diag_repaint,
+ * which replaces them only when a new answer has arrived. */
+static void build_diag(struct system_app *a)
+{
+    lv_obj_t *p;
+    lv_obj_t *buttons;
+    int i;
+    static const lv_event_cb_t filter_cb[DIAG_FILTER_COUNT] = { on_diag_all, on_diag_warn,
+                                                                on_diag_error };
+
+    buttons = button_row(a->body);
+    restrain(row_button(buttons, "Back", on_diag_back, a));
+    row_button(buttons, "Refresh", on_diag_refresh, a);
+    a->diag_state = pocketui_label(a->body, "", POS_STYLE_CAPTION);
+
+    p = panel(a->body);
+    section_caption(p, "DIAGNOSTICS");
+    for (i = 0; i < DIAG_ROW_COUNT; i++) {
+        lv_obj_t *v = pocketui_kv_row(p, a->dv.rows[i].label, a->dv.rows[i].value);
+        lv_obj_t *row = lv_obj_get_parent(v);
+
+        /* These values are read to find out what is wrong, so a long one
+         * (a mesh reason, an uncertain radio) wraps in its column rather
+         * than losing its end to the dots the System screen's rows use.
+         * In the portrait body of the reference panel "Waiting: the radio
+         * is switched off" did not fit (tests/system_app_test.c). The row
+         * grows with it, never below its height. */
+        lv_label_set_long_mode(v, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(v, LV_PCT(60));
+        lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_RIGHT, 0);
+        lv_obj_set_height(row, LV_SIZE_CONTENT);
+        lv_obj_set_style_min_height(row, POCKETUI_ROW_H, 0);
+        lv_obj_set_style_pad_ver(row, 8, 0);
+        a->diag_value[i] = v;
+    }
+
+    p = panel(a->body);
+    section_caption(p, "CRASH REPORTS");
+    a->diag_crash_box = column_box(p);
+
+    p = panel(a->body);
+    section_caption(p, "LOG");
+    buttons = button_row(p);
+    for (i = 0; i < DIAG_FILTER_COUNT; i++) {
+        a->diag_filter[i] = row_button(buttons, diag_view_filter_label((enum diag_filter)i),
+                                       filter_cb[i], a);
+        restrain(a->diag_filter[i]);
+    }
+    a->diag_log_status = pocketui_label(p, "", POS_STYLE_CAPTION);
+    lv_obj_set_style_pad_top(a->diag_log_status, 12, 0);
+    a->diag_log_box = column_box(p);
+    /* Force the first fill. */
+    a->diag_built_log = a->dv.log_generation - 1;
+    a->diag_built_crash = a->dv.crash_generation - 1;
+}
+
+static void set_warn(lv_obj_t *label, int warn)
+{
+    lv_obj_remove_style(label, pos_style(POS_STYLE_STATUS_WARN_TEXT), 0);
+    if (warn) {
+        pos_style_add(label, POS_STYLE_STATUS_WARN_TEXT, 0);
+    }
+}
+
+static void diag_repaint(struct system_app *a)
+{
+    const struct diag_view *d = &a->dv;
+    lv_obj_t *lb;
+    int i;
+
+    if (!a->diag_state) {
+        return;
+    }
+    lv_label_set_text(a->diag_state, diag_view_busy(d) ? "Reading..." : "Up to date");
+    for (i = 0; i < DIAG_ROW_COUNT; i++) {
+        if (a->diag_value[i]) {
+            lv_label_set_text(a->diag_value[i], d->rows[i].value);
+            set_warn(a->diag_value[i], d->rows[i].warn);
+        }
+    }
+    for (i = 0; i < DIAG_FILTER_COUNT; i++) {
+        lv_obj_remove_style(a->diag_filter[i], pos_style(POS_STYLE_SELECTED), 0);
+        if ((int)d->filter == i) {
+            pos_style_add(a->diag_filter[i], POS_STYLE_SELECTED, 0);
+        }
+    }
+    lv_label_set_text(a->diag_log_status, d->log_status);
+    if (a->diag_built_crash != d->crash_generation) {
+        a->diag_built_crash = d->crash_generation;
+        lv_obj_clean(a->diag_crash_box);
+        if (d->crash_count == 0) {
+            pocketui_label(a->diag_crash_box, "None on this card", POS_STYLE_TEXT_MUTED);
+        }
+        for (i = 0; i < d->crash_count; i++) {
+            lb = pocketui_label(a->diag_crash_box, d->crashes[i].line, POS_STYLE_TEXT_PRIMARY);
+            lv_label_set_long_mode(lb, LV_LABEL_LONG_WRAP);
+            lv_obj_set_width(lb, LV_PCT(100));
+            if (d->crashes[i].frame[0]) {
+                lb = pocketui_label(a->diag_crash_box, d->crashes[i].frame, POS_STYLE_CAPTION);
+                lv_label_set_long_mode(lb, LV_LABEL_LONG_WRAP);
+                lv_obj_set_width(lb, LV_PCT(100));
+                lv_obj_set_style_pad_bottom(lb, 8, 0);
+            }
+        }
+    }
+    if (a->diag_built_log != d->log_generation) {
+        a->diag_built_log = d->log_generation;
+        /* The list is replaced whole: at most DIAG_LOG_MAX entries of two
+         * labels each, and never appended to. */
+        lv_obj_clean(a->diag_log_box);
+        for (i = 0; i < d->log_count; i++) {
+            enum pos_style_role role = d->log[i].severity == DIAG_SEV_ERROR ? POS_STYLE_STATUS_ERROR_TEXT
+                                       : d->log[i].severity == DIAG_SEV_WARN ? POS_STYLE_STATUS_WARN_TEXT
+                                                                              : POS_STYLE_CAPTION;
+
+            lb = pocketui_label(a->diag_log_box, d->log[i].head, POS_STYLE_CAPTION);
+            if (role != POS_STYLE_CAPTION) {
+                pos_style_add(lb, role, 0);
+            }
+            lv_obj_set_style_pad_top(lb, 12, 0);
+            lb = pocketui_label(a->diag_log_box, d->log[i].message, POS_STYLE_TEXT_PRIMARY);
+            lv_label_set_long_mode(lb, LV_LABEL_LONG_WRAP);
+            lv_obj_set_width(lb, LV_PCT(100));
+        }
+    }
+}
+
+/* One step of a refresh: one call, bounded by the UI deadline. */
+static void diag_step(struct system_app *a)
+{
+    char err[96] = "";
+    cJSON *r = NULL;
+
+    switch (diag_view_step(&a->dv)) {
+    case DIAG_STEP_STATUS:
+        r = shell_ipc_call_timeout("sysd", "system.status", NULL, SHELL_IPC_UI_TIMEOUT_MS, err,
+                                   sizeof(err));
+        system_view_apply_status(&a->view, r, a->clock_ms);
+        diag_view_apply_system(&a->dv, &a->view, r);
+        break;
+    case DIAG_STEP_RADIO:
+        /* Not asked when the status bar's own poll already says radiod is
+         * not answering: that would be a second 200 ms spent learning it. */
+        r = pocketos_shell_radio_state()
+                ? shell_ipc_call_timeout("radiod", "radio.status", NULL, SHELL_IPC_UI_TIMEOUT_MS,
+                                         err, sizeof(err))
+                : NULL;
+        diag_view_apply_radio(&a->dv, r);
+        break;
+    case DIAG_STEP_MESH:
+        r = shell_ipc_call_timeout("meshcored", "mesh.status", NULL, SHELL_IPC_UI_TIMEOUT_MS, err,
+                                   sizeof(err));
+        diag_view_apply_mesh(&a->dv, r);
+        break;
+    case DIAG_STEP_CRASHES:
+        r = shell_ipc_call_timeout("sysd", "system.crashes", NULL, SHELL_IPC_UI_TIMEOUT_MS, err,
+                                   sizeof(err));
+        diag_view_apply_crashes(&a->dv, r);
+        break;
+    case DIAG_STEP_LOGS:
+        r = shell_ipc_call_timeout("sysd", "system.logs", diag_view_logs_params(&a->dv),
+                                   SHELL_IPC_UI_TIMEOUT_MS, err, sizeof(err));
+        diag_view_apply_logs(&a->dv, r);
+        break;
+    case DIAG_STEP_IDLE:
+    default:
+        return;
+    }
+    cJSON_Delete(r);
+    diag_view_step_done(&a->dv);
+}
+
 /* ---- building the body ------------------------------------------------- */
 
 static void build_confirm(struct system_app *a)
@@ -611,6 +886,11 @@ static void build_live(struct system_app *a)
     pocketui_kv_row(p, "Model", v->model);
     pocketui_kv_row(p, "Kernel", v->kernel);
 
+    /* diagnostics: its own page (diag_view.h) */
+    p = panel(a->column[1]);
+    buttons = button_row(p);
+    restrain(row_button(buttons, "Diagnostics", on_diagnostics, a));
+
     /* actions, last on the screen and never under the thumb on arrival */
     p = panel(a->column[1]);
     buttons = lv_obj_create(p);
@@ -723,6 +1003,12 @@ static void arrange(struct system_app *a)
     if (!a->body) {
         return;
     }
+    if (a->diag) {
+        /* One column in either shape, the body scrolling: log lines are
+         * better read across the whole width than squeezed into a column. */
+        lv_obj_add_flag(a->body, LV_OBJ_FLAG_SCROLLABLE);
+        return;
+    }
     if (a->dialog) {
         arrange_dialog(a);
     } else {
@@ -800,6 +1086,12 @@ static void rebuild(struct system_app *a)
     a->radio_chip = NULL;
     a->radio_detail = NULL;
     a->toast = NULL;
+    memset(a->diag_value, 0, sizeof(a->diag_value));
+    memset(a->diag_filter, 0, sizeof(a->diag_filter));
+    a->diag_state = NULL;
+    a->diag_crash_box = NULL;
+    a->diag_log_box = NULL;
+    a->diag_log_status = NULL;
 
     a->body = lv_obj_create(a->frame);
     lv_obj_remove_style_all(a->body);
@@ -813,7 +1105,9 @@ static void rebuild(struct system_app *a)
     lv_obj_set_scroll_dir(a->body, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(a->body, LV_SCROLLBAR_MODE_AUTO);
 
-    if (v->phase == SYSTEM_VIEW_TERMINAL_REBOOT || v->phase == SYSTEM_VIEW_TERMINAL_POWEROFF) {
+    if (a->diag && v->phase == SYSTEM_VIEW_LIVE) {
+        build_diag(a);
+    } else if (v->phase == SYSTEM_VIEW_TERMINAL_REBOOT || v->phase == SYSTEM_VIEW_TERMINAL_POWEROFF) {
         /* Nothing is being polled any more, so there is no freshness to
          * report and claiming one would be a lie. */
         build_terminal(a);
@@ -830,8 +1124,10 @@ static void rebuild(struct system_app *a)
     a->built_services = v->service_count;
     a->built_card = v->show_card;
     a->built_phase = v->phase;
+    a->built_diag = a->diag;
     arrange(a);
     repaint(a);
+    diag_repaint(a);
 }
 
 static int shape_changed(const struct system_app *a)
@@ -840,7 +1136,7 @@ static int shape_changed(const struct system_app *a)
 
     return a->built_mounts != v->mount_count || a->built_ifaces != v->iface_count ||
            a->built_services != v->service_count || a->built_card != v->show_card ||
-           a->built_phase != v->phase;
+           a->built_phase != v->phase || a->built_diag != a->diag;
 }
 
 /* ---- app lifecycle ----------------------------------------------------- */
@@ -870,6 +1166,7 @@ static void *system_create(lv_obj_t *root)
     }
     a->root = root;
     system_view_init(&a->view);
+    diag_view_init(&a->dv);
 
     /* Identity does not change while the system runs, so it is asked for once
      * and kept. A failure leaves it unknown rather than wrong; the next
@@ -924,6 +1221,13 @@ static void system_tick(void *priv)
     }
     /* The radio state is whatever the status bar's own poll last saw. */
     system_view_set_radio_state(&a->view, pocketos_shell_radio_state());
+    if (a->diag) {
+        /* The page asks for what it shows, one call a tick, and nothing
+         * else is polled meanwhile. */
+        diag_step(a);
+        diag_repaint(a);
+        return;
+    }
     if (++a->tick >= SYSTEM_POLL_TICKS) {
         a->tick = 0;
         poll_status(a);

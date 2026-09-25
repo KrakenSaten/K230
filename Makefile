@@ -52,10 +52,10 @@ POS_OBJS    := tools/pos/pos.o tools/pos/pos_radio.o tools/pos/pos_logs.o tools/
 RADIOD_CORE_OBJS := services/radiod/tx.o services/radiod/lease.o \
                     services/radiod/radio_time.o services/radiod/backend_mock.o \
                     services/radiod/airtime.o
-RADIOD_OBJS := services/radiod/main.o $(RADIOD_CORE_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
+RADIOD_OBJS := services/radiod/main.o services/radiod/rf_state.o $(RADIOD_CORE_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
 # Everything sysd is except the power actions, which exist twice: once as
 # shipped and once with the test hook (see tests/sysd-testhooks below).
-SYSD_BASE_OBJS := services/sysd/main.o services/sysd/sysd_services.o $(SYS_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
+SYSD_BASE_OBJS := services/sysd/main.o services/sysd/sysd_services.o services/sysd/sysd_logs.o $(SYS_OBJS) $(IPC_OBJS) core/pocketipc/server.o $(LOG_OBJS) $(PATHS_OBJS)
 SYSD_OBJS   := $(SYSD_BASE_OBJS) services/sysd/sysd_power.o
 # netd: wifi.* (docs/api/network.md). As with sysd, the one object that touches
 # the machine (netd_sys) exists twice: as shipped, and with the test hooks
@@ -260,6 +260,14 @@ tests/sysd_services_test.o: tests/sysd_services_test.c services/sysd/sysd_servic
 tests/sysd_services_test: tests/sysd_services_test.o services/sysd/sysd_services.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
+# system.logs and system.crashes: the bounded log and crash-report reader,
+# against a temporary log directory.
+tests/sysd_logs_test.o: tests/sysd_logs_test.c services/sysd/sysd_logs.h
+	$(CC) $(ALL_CFLAGS) -Iservices/sysd -c -o $@ $<
+
+tests/sysd_logs_test: tests/sysd_logs_test.o services/sysd/sysd_logs.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
 # A sysd whose power actions can be pointed at a recorder instead of
 # /sbin/reboot, so tests/sysd_test.sh can watch an action run without
 # restarting the build host. Only this object is compiled with the hook; the
@@ -341,6 +349,28 @@ tests/settings_test.o: tests/settings_test.c ui/shell/settings.h
 # tested against a fake sysfs tree. The shell links the same source (CMake).
 ui/shell/brightness.o: ui/shell/brightness.c ui/shell/brightness.h
 	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+# DOORS Controls' decisions (pure C): tile texts, the antenna question and
+# the layout in both orientations. controls.c (LVGL) draws them.
+ui/shell/controls_model.o: ui/shell/controls_model.c ui/shell/controls_model.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/controls_model_test.o: tests/controls_model_test.c ui/shell/controls_model.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/controls_model_test: tests/controls_model_test.o ui/shell/controls_model.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# System volume (pure C): the stored values, mute, the sound-card check and
+# the round trip through the settings store.
+ui/shell/volume.o: ui/shell/volume.c ui/shell/volume.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/volume_test.o: tests/volume_test.c ui/shell/volume.h ui/shell/settings.h
+	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
+
+tests/volume_test: tests/volume_test.o ui/shell/volume.o ui/shell/settings.o $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 tests/brightness_test.o: tests/brightness_test.c ui/shell/brightness.h
 	$(CC) $(ALL_CFLAGS) -Iui/shell -c -o $@ $<
@@ -462,6 +492,17 @@ tests/system_view_test.o: tests/system_view_test.c apps/system/system_view.h
 	$(CC) $(ALL_CFLAGS) -Iapps/system -c -o $@ $<
 
 tests/system_view_test: tests/system_view_test.o apps/system/system_view.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# System > Diagnostics (pure C): the summary, crash reports and the log list,
+# and the staged refresh; the page itself is apps/system/system_app.c.
+apps/system/diag_view.o: apps/system/diag_view.c apps/system/diag_view.h apps/system/system_view.h
+	$(CC) $(ALL_CFLAGS) -Iapps/system -c -o $@ $<
+
+tests/diag_view_test.o: tests/diag_view_test.c apps/system/diag_view.h
+	$(CC) $(ALL_CFLAGS) -Iapps/system -c -o $@ $<
+
+tests/diag_view_test: tests/diag_view_test.o apps/system/diag_view.o apps/system/system_view.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 # Settings presentation (pure C, no LVGL), arranged like System Status: what
@@ -956,9 +997,9 @@ camera-san-test:
 TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant tests/wifi_parse_test \
              tests/wifi_store_test tests/airtime_test tests/radiod_tx_test \
              tests/pocketlog_test tests/pocketipc_test \
-             tests/pocketsys_test tests/sysd_services_test tests/system_view_test tests/settings_view_test \
+             tests/pocketsys_test tests/sysd_services_test tests/sysd_logs_test tests/system_view_test tests/diag_view_test tests/settings_view_test \
              tests/theme_test \
-             tests/settings_test tests/brightness_test tests/display_geometry_test tests/orientation_test \
+             tests/settings_test tests/brightness_test tests/volume_test tests/controls_model_test tests/display_geometry_test tests/orientation_test \
              tests/kbd_presence_test tests/chrome_test tests/home_layout_test tests/art_format_test \
              tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
              $(NOTES_TESTS) $(FILES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) $(CALC_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test \
@@ -973,13 +1014,17 @@ test: all $(TEST_BINS)
 	./tests/pocketipc_test
 	./tests/pocketsys_test
 	./tests/sysd_services_test
+	./tests/sysd_logs_test
 	./tests/wifi_parse_test
 	./tests/wifi_store_test
 	./tests/system_view_test
+	./tests/diag_view_test
 	./tests/settings_view_test
 	./tests/theme_test docs/design/themes.json
 	./tests/settings_test
 	./tests/brightness_test
+	./tests/volume_test
+	./tests/controls_model_test
 	./tests/display_geometry_test
 	./tests/orientation_test
 	./tests/kbd_presence_test
@@ -1042,6 +1087,7 @@ test: all $(TEST_BINS)
 	bash tests/kbd_lint.sh
 	bash tests/radiod_mock_test.sh
 	bash tests/radiod_async_test.sh
+	bash tests/radiod_power_test.sh
 	bash tests/sysd_test.sh
 	bash tests/netd_test.sh
 	bash tests/supervise_test.sh
@@ -1134,7 +1180,7 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 
 clean:
 	$(MAKE) -C tools/meshcore-frame clean
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o $(POCKETOS_BUILD_STAMP)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd_logs_test tests/sysd_logs_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o tests/volume_test tests/volume_test.o ui/shell/volume.o tests/controls_model_test tests/controls_model_test.o ui/shell/controls_model.o apps/system/diag_view.o tests/diag_view_test tests/diag_view_test.o $(POCKETOS_BUILD_STAMP)
 
 # The files `make all` and `make test` produce, one to a line, for
 # tests/build_outputs_test.sh.

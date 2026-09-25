@@ -68,6 +68,9 @@ void pocketos_shell_go_home(void) { }
 int pocketos_shell_reduced_motion(void) { return 0; }
 int64_t pocketos_shell_system_day(void) { return -1; }
 const char *pocketos_shell_radio_state(void) { return NULL; }
+/* The system volume the app reads before a send (ui/shell/volume.h). */
+static int g_volume_effective = 100;
+int pocketos_shell_volume_effective(void) { return g_volume_effective; }
 void pocketos_shell_keyboard_show(enum pocketos_kb_return ret, void (*on_done)(void *user), void *user)
 {
     (void)ret;

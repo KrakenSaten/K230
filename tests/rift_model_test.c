@@ -614,8 +614,31 @@ int main(void)
     check("which is not the same as off", m.radio_connected && !m.radio_online);
     check("the service's own node count is kept", m.have_nodes_reported && m.nodes_reported == 4);
     check("and so is what the contact table had no room for", m.nodes_unretained == 2);
+    text_is("a degraded service with the radio merely unknown is still degraded",
+            rift_model_state_label(&m), "degraded");
+    check("and the radio is not called off", !rift_model_radio_off(&m));
     check("a status with no state is not a status", apply_status(&m, "{\"reason\":\"x\"}") == -1);
     check("and the state it had is untouched", m.state == RIFT_SVC_DEGRADED);
+
+    /* The owner switched the radio off (docs/api/mesh.md): degraded, with
+     * radiod saying off, is labelled as the choice it is. */
+    rift_model_init(&m);
+    check("a radio-off status is taken",
+          apply_status(&m, "{\"state\":\"degraded\",\"reason\":\"the radio is switched off\","
+                           "\"radio\":{\"connected\":true,\"lease_held\":true,\"online\":false,"
+                           "\"radio_state\":\"off\"}}") == 0);
+    check("radio off is recognised", rift_model_radio_off(&m));
+    text_is("and labelled radio off, not degraded", rift_model_state_label(&m), "radio off");
+    check("transmit is not ready while off", !m.radio_online);
+    check("the lease is still held while off", m.radio_lease_held);
+    check("a radio back on is online again",
+          apply_status(&m, "{\"state\":\"online\",\"radio\":{\"connected\":true,"
+                           "\"lease_held\":true,\"online\":true,\"radio_state\":\"rx\"}}") == 0 &&
+              !rift_model_radio_off(&m));
+    text_is("and labelled online", rift_model_state_label(&m), "online");
+    check("an error with radiod off is still an error, not a choice",
+          apply_status(&m, "{\"state\":\"error\",\"radio\":{\"radio_state\":\"off\"}}") == 0);
+    text_is("and says error", rift_model_state_label(&m), "error");
 
     check("every state word the API defines is understood",
           apply_status(&m, "{\"state\":\"waiting_for_lease\"}") == 0 &&

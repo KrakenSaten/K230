@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <net/if.h>
 #include <netinet/in.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -494,16 +495,112 @@ static void add_network(cJSON *o)
     cJSON_AddItemToObject(o, "network", arr);
 }
 
+/* One attribute of a power supply as a long, or -1 when absent or not a
+ * number. */
+static int supply_long(const char *name, const char *attr, long *out)
+{
+    char path[160];
+    char buf[64];
+    char *end;
+    long v;
+
+    snprintf(path, sizeof(path), "/sys/class/power_supply/%s/%s", name, attr);
+    if (read_line(path, buf, sizeof(buf)) != 0 || !buf[0]) {
+        return -1;
+    }
+    v = strtol(buf, &end, 10);
+    if (end == buf || (*end && *end != ' ')) {
+        return -1;
+    }
+    *out = v;
+    return 0;
+}
+
+/* The kernel's POWER_SUPPLY_STATUS words, as this API spells them. Anything
+ * else is not guessed at. */
+static const char *battery_status(const char *name)
+{
+    char path[160];
+    char buf[64];
+
+    snprintf(path, sizeof(path), "/sys/class/power_supply/%s/status", name);
+    if (read_line(path, buf, sizeof(buf)) != 0) {
+        return NULL;
+    }
+    if (strcmp(buf, "Charging") == 0) {
+        return "charging";
+    }
+    if (strcmp(buf, "Discharging") == 0) {
+        return "discharging";
+    }
+    if (strcmp(buf, "Full") == 0) {
+        return "full";
+    }
+    if (strcmp(buf, "Not charging") == 0) {
+        return "not_charging";
+    }
+    if (strcmp(buf, "Unknown") == 0) {
+        return "unknown";
+    }
+    return NULL;
+}
+
+/* The first supply of type Battery, described only by what its driver
+ * reports: the percentage is the driver's `capacity` (a fuel gauge's own
+ * figure), never computed from a voltage here, and a value outside 0..100 is
+ * a driver fault reported as null rather than clamped into a plausible
+ * number. */
+static cJSON *battery_json(const char *name)
+{
+    cJSON *b = cJSON_CreateObject();
+    const char *st = battery_status(name);
+    long v;
+
+    cJSON_AddStringToObject(b, "name", name);
+    /* `present` is optional in the class; a supply without it is there. */
+    cJSON_AddBoolToObject(b, "present", supply_long(name, "present", &v) != 0 || v != 0);
+    if (supply_long(name, "capacity", &v) == 0 && v >= 0 && v <= 100) {
+        cJSON_AddNumberToObject(b, "capacity_percent", (double)v);
+    } else {
+        cJSON_AddNullToObject(b, "capacity_percent");
+    }
+    if (st) {
+        cJSON_AddStringToObject(b, "status", st);
+    } else {
+        cJSON_AddNullToObject(b, "status");
+    }
+    /* voltage_now is in microvolts. */
+    if (supply_long(name, "voltage_now", &v) == 0 && v > 0) {
+        cJSON_AddNumberToObject(b, "voltage_v", (double)(v / 1000) / 1000.0);
+    } else {
+        cJSON_AddNullToObject(b, "voltage_v");
+    }
+    return b;
+}
+
+static bool external_type(const char *type)
+{
+    return strcmp(type, "Mains") == 0 || strncmp(type, "USB", 3) == 0;
+}
+
 /* The power_supply class is empty on the main board (VERIFIED unit A): no
  * gauge means the board runs from its external supply. A supply of type
- * Battery would come from a base board; its state is not interpreted here. */
+ * Battery would come from a base board (BQ27220 gauge, BQ25896 charger,
+ * DOCUMENTED; no kernel driver binds them on unit A). What its driver
+ * reports is passed on as the battery object; nothing is inferred beyond
+ * which source is in use, and that only from an explicit `online` or a
+ * charging state. */
 static void add_power(cJSON *o)
 {
     char *names[16];
     cJSON *p = cJSON_CreateObject();
     cJSON *arr = cJSON_CreateArray();
+    cJSON *battery = NULL;
     int n = list_dir("/sys/class/power_supply", names, 16);
-    int battery = 0;
+    int externals = 0;
+    int online = 0;
+    int offline = 0;
+    const char *source;
     int i;
 
     for (i = 0; i < n; i++) {
@@ -514,9 +611,21 @@ static void add_power(cJSON *o)
         snprintf(path, sizeof(path), "/sys/class/power_supply/%s/type", names[i]);
         cJSON_AddStringToObject(e, "name", names[i]);
         if (read_line(path, type, sizeof(type)) == 0) {
+            long v;
+
             cJSON_AddStringToObject(e, "type", type);
-            if (strcmp(type, "Battery") == 0) {
-                battery = 1;
+            if (strcmp(type, "Battery") == 0 && !battery) {
+                battery = battery_json(names[i]);
+            } else if (external_type(type)) {
+                externals++;
+                if (supply_long(names[i], "online", &v) == 0) {
+                    cJSON_AddBoolToObject(e, "online", v != 0);
+                    if (v != 0) {
+                        online++;
+                    } else {
+                        offline++;
+                    }
+                }
             }
         } else {
             cJSON_AddNullToObject(e, "type");
@@ -526,9 +635,66 @@ static void add_power(cJSON *o)
     if (n > 0) {
         free_names(names, n);
     }
-    cJSON_AddStringToObject(p, "source", battery ? "unknown" : "external");
+    if (!battery) {
+        source = "external";
+    } else if (online > 0) {
+        source = "external";
+    } else if (externals > 0 && offline == externals) {
+        source = "battery";
+    } else {
+        const cJSON *st = cJSON_GetObjectItemCaseSensitive(battery, "status");
+        const char *w = cJSON_IsString(st) ? st->valuestring : "";
+
+        /* Charging or full needs a supply; discharging is running on the
+         * battery. Anything else says nothing about the source. */
+        if (strcmp(w, "charging") == 0 || strcmp(w, "full") == 0) {
+            source = "external";
+        } else if (strcmp(w, "discharging") == 0) {
+            source = "battery";
+        } else {
+            source = "unknown";
+        }
+    }
+    cJSON_AddStringToObject(p, "source", source);
+    if (online > 0) {
+        cJSON_AddBoolToObject(p, "external_online", true);
+    } else if (externals > 0 && offline == externals) {
+        cJSON_AddBoolToObject(p, "external_online", false);
+    } else {
+        cJSON_AddNullToObject(p, "external_online");
+    }
+    if (battery) {
+        cJSON_AddItemToObject(p, "battery", battery);
+    } else {
+        cJSON_AddNullToObject(p, "battery");
+    }
     cJSON_AddItemToObject(p, "supplies", arr);
     cJSON_AddItemToObject(o, "power", p);
+}
+
+/* Bluetooth controllers the kernel has registered (/sys/class/bluetooth,
+ * hci0 and so on; the hciN:conn children are connections, not controllers).
+ * VERIFIED none on unit A: the RTL8189FTV has no Bluetooth and no HCI
+ * device appears. Presence only: whether a controller is powered is an HCI
+ * ioctl, not a sysfs file, and nothing in Doors owns Bluetooth yet. */
+static void add_bluetooth(cJSON *o)
+{
+    char *names[16];
+    cJSON *b = cJSON_CreateObject();
+    cJSON *arr = cJSON_CreateArray();
+    int n = list_dir("/sys/class/bluetooth", names, 16);
+    int i;
+
+    for (i = 0; i < n; i++) {
+        if (strncmp(names[i], "hci", 3) == 0 && !strchr(names[i], ':')) {
+            cJSON_AddItemToArray(arr, cJSON_CreateString(names[i]));
+        }
+    }
+    if (n > 0) {
+        free_names(names, n);
+    }
+    cJSON_AddItemToObject(b, "controllers", arr);
+    cJSON_AddItemToObject(o, "bluetooth", b);
 }
 
 cJSON *pocketsys_status(const struct pocketsys_cpu *cpu)
@@ -547,5 +713,6 @@ cJSON *pocketsys_status(const struct pocketsys_cpu *cpu)
     add_storage(o);
     add_network(o);
     add_power(o);
+    add_bluetooth(o);
     return o;
 }

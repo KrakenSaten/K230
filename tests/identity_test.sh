@@ -184,9 +184,10 @@ for args in "help" "radio help" "wifi bogus" "call" "app bogus" "logs --bogus"; 
 done
 check "doors prints pos's usage text with its own name" "$same_ok"
 check "doors shell usage keeps its continuation line aligned" \
-    "$(yes_if [ "$(out "$DOORS" shell)" = "$(printf '%s\n%s' \
+    "$(yes_if [ "$(out "$DOORS" shell)" = "$(printf '%s\n%s\n%s' \
         'usage: doors shell info | screenshot <path.png> | theme <id> [normal|outdoor|night]' \
-        '                   | brightness [10..100]')" ])"
+        '                   | brightness [10..100]' \
+        '                   | volume [10..100|mute|unmute]')" ])"
 check "doors and pos exit with the same status on a usage error" \
     "$(yes_if [ "$("$DOORS" radio help >/dev/null 2>&1; echo $?)" = "$("$POSL" radio help >/dev/null 2>&1; echo $?)" ])"
 

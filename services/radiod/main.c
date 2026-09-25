@@ -11,7 +11,9 @@
 #include "pocketipc/pocketipc.h"
 #include "pocketipc/server.h"
 #include "pocketlog/pocketlog.h"
+#include "pocketpaths.h"
 #include "radio_backend.h"
+#include "rf_state.h"
 #include "tx.h"
 
 #include <errno.h>
@@ -56,6 +58,14 @@ struct radiod {
     struct radio_caps caps;
     const struct region *region;
     const char *state;
+    /* The owner's choice (radio.set_enabled), kept in rf_path across
+     * restarts. hw_up is whether the backend is initialised and configured
+     * right now: off means shut down (asleep and unpowered on the SX1262),
+     * and nothing may call into the backend then but init(). The two differ
+     * only inside set_enabled and at start. */
+    bool enabled;
+    bool hw_up;
+    char rf_path[POCKETOS_PATH_MAX];
     bool verbose;
     char socket_name[64];
     struct pocketipc_server *server;
@@ -389,6 +399,10 @@ static void set_state(struct radiod *rd, const char *state)
  * Backends without is_receiving() are assumed to receive whenever idle. */
 static void update_rx_state(struct radiod *rd)
 {
+    if (!rd->hw_up) {
+        set_state(rd, "off");
+        return;
+    }
     if (strcmp(rd->state, "tx") == 0) {
         return;
     }
@@ -408,7 +422,7 @@ static void recover_rx(struct radiod *rd)
     char err[128] = "";
     uint64_t now;
 
-    if (strcmp(rd->state, "error") != 0 || !rd->be.ops->resume_rx) {
+    if (!rd->hw_up || strcmp(rd->state, "error") != 0 || !rd->be.ops->resume_rx) {
         return;
     }
     now = mono_ms();
@@ -429,6 +443,9 @@ static void drain_receive(struct radiod *rd)
     struct radio_rx_packet pkt;
     int r;
 
+    if (!rd->hw_up) {
+        return;
+    }
     while ((r = rd->be.ops->receive(&rd->be, &pkt)) != 0) {
         if (r < 0) {
             if (r == -EBADMSG) {
@@ -482,6 +499,42 @@ static void drain_receive(struct radiod *rd)
     update_rx_state(rd);
 }
 
+/* ---- radio on and off -------------------------------------------------- */
+
+/* Bring the transceiver up with the current profile: init, then configure,
+ * which on the SX1262 powers the module, puts the profile on the chip and
+ * enters receive. Only the existing start-up path, so the hardware sees
+ * nothing it has not seen at every start since v0.0.5. On failure the
+ * backend is shut down again and the radio is left off. */
+static int radio_hw_up(struct radiod *rd, char *err, size_t errlen)
+{
+    if (rd->hw_up) {
+        return 0;
+    }
+    if (rd->be.ops->init(&rd->be, err, errlen) < 0) {
+        return -1;
+    }
+    if (rd->be.ops->configure(&rd->be, &rd->be.profile, err, errlen) < 0) {
+        rd->be.ops->shutdown(&rd->be);
+        return -1;
+    }
+    rd->be.profile_uncertain = false;
+    rd->hw_up = true;
+    return 0;
+}
+
+/* The same shutdown every stop has always run: on the SX1262, receive
+ * cleared, the chip put to sleep, its power line driven low, SPI and GPIO
+ * released. */
+static void radio_hw_down(struct radiod *rd)
+{
+    if (!rd->hw_up) {
+        return;
+    }
+    rd->be.ops->shutdown(&rd->be);
+    rd->hw_up = false;
+}
+
 /* ---- methods ---------------------------------------------------------- */
 
 static cJSON *m_info(struct radiod *rd)
@@ -513,6 +566,7 @@ static cJSON *m_status(struct radiod *rd)
     cJSON *o = cJSON_CreateObject();
 
     cJSON_AddStringToObject(o, "state", rd->state);
+    cJSON_AddBoolToObject(o, "enabled", rd->enabled);
     cJSON_AddItemToObject(o, "profile", profile_to_json(&rd->be.profile));
     /* Only present when it is true, so an ordinary status is unchanged. The
      * profile above is then the last one this daemon successfully applied,
@@ -562,6 +616,16 @@ static cJSON *m_configure(struct radiod *rd, const cJSON *params, int *code, cha
     if (rc) {
         *code = rc;
         return NULL;
+    }
+    /* Off, the profile is validated exactly as it would be on and kept for
+     * the moment the radio comes back; nothing reaches the chip. Refusing it
+     * instead would tell the protocol daemon its profile is wrong, which it
+     * treats as final (docs/api/mesh.md), when all that is true is that the
+     * owner switched the radio off. */
+    if (!rd->hw_up) {
+        rd->be.profile = p;
+        rd->be.profile_uncertain = false;
+        return profile_to_json(&p);
     }
     previous = rd->be.profile;
     rc = rd->be.ops->configure(&rd->be, &p, msg, n);
@@ -870,7 +934,7 @@ static cJSON *m_channel(struct radiod *rd, int *code, char *msg, size_t n)
     bool transmitting = radio_tx_active(&rd->tx);
     /* Backends without is_receiving() are taken to receive whenever they are
      * not transmitting, the same reading update_rx_state uses. */
-    bool receiving = !transmitting &&
+    bool receiving = rd->hw_up && !transmitting &&
                      (!rd->be.ops->is_receiving || rd->be.ops->is_receiving(&rd->be));
     cJSON *o;
 
@@ -1003,6 +1067,88 @@ static cJSON *m_inject(struct radiod *rd, const cJSON *params, int *code, char *
     return cJSON_CreateObject();
 }
 
+/* radio.set_enabled {enabled}: the owner's on/off switch. Not a radio
+ * operation and so not behind the lease: the owner switching the radio off
+ * must win over whichever daemon holds it, the way Wi-Fi off wins over a
+ * connection. Idempotent: asking for the state it is already in changes
+ * nothing and answers the status.
+ *
+ * The order is chosen so the radio is never on unless that choice is stored:
+ * on is applied first and stored second, and a store that fails takes it
+ * straight back off; off is applied first, always, and a store that fails is
+ * reported - the radio is off now, and would come back on at the next start. */
+static cJSON *m_set_enabled(struct radiod *rd, const cJSON *params, int *code, char *msg, size_t n)
+{
+    const cJSON *want = params ? cJSON_GetObjectItemCaseSensitive(params, "enabled") : NULL;
+    char err[160] = "";
+
+    if (!cJSON_IsBool(want)) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(msg, n, "enabled (true or false) required");
+        return NULL;
+    }
+    if (cJSON_IsTrue(want)) {
+        if (rd->enabled && rd->hw_up) {
+            return m_status(rd);
+        }
+        if (radio_hw_up(rd, err, sizeof(err)) < 0) {
+            LOG_ERROR("the radio could not be switched on: %s", err);
+            *code = POCKETIPC_ERR_BACKEND;
+            snprintf(msg, n, "the radio could not be switched on: %.80s", err);
+            update_rx_state(rd);
+            return NULL;
+        }
+        if (rf_state_store(rd->rf_path, true, err, sizeof(err)) < 0) {
+            radio_hw_down(rd);
+            update_rx_state(rd);
+            LOG_ERROR("radio on not stored (%s); switched back off", err);
+            *code = POCKETIPC_ERR_BACKEND;
+            snprintf(msg, n, "the choice could not be stored, so the radio stays off: %.80s", err);
+            return NULL;
+        }
+        rd->enabled = true;
+        LOG_INFO("radio switched on by the owner");
+        update_rx_state(rd);
+        return m_status(rd);
+    }
+
+    if (!rd->enabled && !rd->hw_up) {
+        return m_status(rd);
+    }
+    if (radio_tx_active(&rd->tx)) {
+        *code = POCKETIPC_ERR_BUSY;
+        snprintf(msg, n, "tx_id %llu is on the air; the radio goes off when it is done - ask again",
+                 (unsigned long long)radio_tx_active_id(&rd->tx));
+        return NULL;
+    }
+    radio_hw_down(rd);
+    rd->enabled = false;
+    update_rx_state(rd);
+    LOG_INFO("radio switched off by the owner");
+    if (rf_state_store(rd->rf_path, false, err, sizeof(err)) < 0) {
+        LOG_ERROR("radio off not stored: %s", err);
+        *code = POCKETIPC_ERR_BACKEND;
+        snprintf(msg, n, "the radio is off, but the choice could not be stored (%.60s): "
+                         "it will be on again after a restart", err);
+        return NULL;
+    }
+    return m_status(rd);
+}
+
+/* Operations that need the transceiver powered. While the owner has switched
+ * it off these are refused with code 3 rather than queued: nothing may
+ * transmit, and a measurement of a radio that is asleep would be a number
+ * about nothing. radio.channel stays open and says receiving false. */
+static bool method_needs_radio_on(const char *method)
+{
+    return strcmp(method, "radio.send") == 0 ||
+           strcmp(method, "radio.send_async") == 0 ||
+           strcmp(method, "radio.cad") == 0 ||
+           strcmp(method, "radio.rssi") == 0 ||
+           strcmp(method, "mock.inject_rx") == 0 ||
+           strcmp(method, "mock.set") == 0;
+}
+
 /* Operations that use the radio, as opposed to describing it. While a lease
  * is held only its owner may ask for these; while nobody holds one they are
  * open to everybody, which is what every caller written before the lease
@@ -1065,6 +1211,11 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_POLICY, msg));
         return;
     }
+    if (method_needs_radio_on(method) && !rd->hw_up) {
+        snprintf(msg, sizeof(msg), "%s: the radio is switched off (radio.set_enabled)", method);
+        pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_POLICY, msg));
+        return;
+    }
     if (method_conflicts_with_tx(method) && radio_tx_active(&rd->tx)) {
         snprintf(msg, sizeof(msg), "%s cannot run while tx_id %llu is on the air",
                  method, (unsigned long long)radio_tx_active_id(&rd->tx));
@@ -1084,6 +1235,8 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         result = m_send(rd, params, client_id, &code, msg, sizeof(msg));
     } else if (strcmp(method, "radio.send_async") == 0) {
         result = m_send_async(rd, params, client_id, &code, msg, sizeof(msg));
+    } else if (strcmp(method, "radio.set_enabled") == 0) {
+        result = m_set_enabled(rd, params, &code, msg, sizeof(msg));
     } else if (strcmp(method, "radio.acquire") == 0) {
         result = m_acquire(rd, params, client_id, &code, msg, sizeof(msg));
     } else if (strcmp(method, "radio.release") == 0) {
@@ -1165,7 +1318,7 @@ static void on_disconnect(struct pocketipc_server *s, uint64_t client_id, void *
 static int run(struct radiod *rd)
 {
     while (!stop_requested) {
-        int radio_fd = rd->be.ops->poll_fd ? rd->be.ops->poll_fd(&rd->be) : -1;
+        int radio_fd = (rd->hw_up && rd->be.ops->poll_fd) ? rd->be.ops->poll_fd(&rd->be) : -1;
         int radio_ready = 0;
         /* A transmission in flight is polled far more often than clients
          * are, so a packet's completion is reported when it happens rather
@@ -1223,11 +1376,16 @@ static void usage(FILE *out)
 {
     fprintf(out,
             "usage: radiod [--backend mock|sx1262] [--region EU868|NONE]\n"
-            "              [--tx-power-dbm N] [--socket-name NAME] [--verbose]\n"
+            "              [--tx-power-dbm N] [--radio-default on|off]\n"
+            "              [--socket-name NAME] [--verbose]\n"
             "Defaults: backend mock, region EU868, tx power %d dBm (the profile\n"
             "is not persisted: every start returns to these values).\n"
+            "The radio's on/off choice is kept in $POCKETOS_STATE_DIR/%s/%s\n"
+            "(default %s); with none stored the radio starts off on sx1262 and\n"
+            "on with the mock, unless --radio-default says otherwise.\n"
             "Runtime directory: $POCKETOS_RUNTIME_DIR or %s\n",
-            RADIOD_DEFAULT_TX_POWER_DBM, POCKETIPC_DEFAULT_DIR);
+            RADIOD_DEFAULT_TX_POWER_DBM, RF_STATE_DIR, RF_STATE_FILE,
+            POCKETOS_STATE_DIR_DEFAULT, POCKETIPC_DEFAULT_DIR);
 }
 
 int main(int argc, char **argv)
@@ -1236,6 +1394,8 @@ int main(int argc, char **argv)
     const char *backend = "mock";
     const char *region = "EU868";
     int tx_power_dbm = RADIOD_DEFAULT_TX_POWER_DBM;
+    const char *radio_default = NULL;
+    enum rf_state_load stored;
     char err[160] = "";
     int i;
     int rc;
@@ -1258,6 +1418,12 @@ int main(int argc, char **argv)
                 return 2;
             }
             tx_power_dbm = (int)v;
+        } else if (strcmp(argv[i], "--radio-default") == 0 && i + 1 < argc) {
+            radio_default = argv[++i];
+            if (strcmp(radio_default, "on") != 0 && strcmp(radio_default, "off") != 0) {
+                LOG_ERROR("--radio-default needs on or off, got '%s'", radio_default);
+                return 2;
+            }
         } else if (strcmp(argv[i], "--socket-name") == 0 && i + 1 < argc) {
             snprintf(rd.socket_name, sizeof(rd.socket_name), "%s", argv[++i]);
         } else if (strcmp(argv[i], "--verbose") == 0) {
@@ -1301,9 +1467,45 @@ int main(int argc, char **argv)
      * daemon asks again when it reconnects. */
     radio_lease_init(&rd.lease);
 
+    /* The owner's choice, or the default when there is none. Off for the
+     * real transceiver: a fresh card, and a card upgraded from a release
+     * that had no such choice, keep the radio off until someone switches it
+     * on (Controls asks about the antenna first). The mock has no
+     * transmitter, and the simulator and the host suites expect it
+     * receiving, so it defaults on. */
+    rd.enabled = strcmp(rd.be.ops->name, "mock") == 0;
+    if (radio_default) {
+        rd.enabled = strcmp(radio_default, "on") == 0;
+    }
+    if (rf_state_path(pocketos_state_dir(), rd.rf_path, sizeof(rd.rf_path)) < 0) {
+        LOG_ERROR("state directory path too long");
+        return 2;
+    }
+    stored = rf_state_load(rd.rf_path);
+    if (stored == RF_STATE_ON || stored == RF_STATE_OFF) {
+        rd.enabled = stored == RF_STATE_ON;
+        LOG_INFO("radio %s (stored choice, %s)", rd.enabled ? "on" : "off", rd.rf_path);
+    } else {
+        if (stored == RF_STATE_INVALID) {
+            LOG_WARN("%s says neither on nor off; ignored", rd.rf_path);
+        }
+        LOG_INFO("radio %s (no stored choice: the %s default)", rd.enabled ? "on" : "off",
+                 radio_default ? "--radio-default" : rd.be.ops->name);
+    }
+
     if (rd.be.ops->init(&rd.be, err, sizeof(err)) < 0) {
-        LOG_ERROR("backend init failed: %s", err);
-        return 1;
+        /* On, a radio that cannot start is a daemon that cannot do its job,
+         * as it always was. Off, nothing is asked of the radio, so a missing
+         * or busy one is only worth a line: the service stays up, answers
+         * that the radio is off, and tries again when it is switched on. */
+        if (rd.enabled) {
+            LOG_ERROR("backend init failed: %s", err);
+            return 1;
+        }
+        LOG_WARN("backend init failed while the radio is off: %s", err);
+        rd.hw_up = false;
+    } else {
+        rd.hw_up = true;
     }
     rd.be.ops->get_caps(&rd.be, &rd.caps);
 
@@ -1328,16 +1530,30 @@ int main(int argc, char **argv)
 
         if (prc != 0) {
             LOG_ERROR("start-up profile rejected: %s", err);
-            rd.be.ops->shutdown(&rd.be);
+            radio_hw_down(&rd);
             return 2;
         }
     }
-    if (rd.be.ops->configure(&rd.be, &rd.be.profile, err, sizeof(err)) < 0) {
-        LOG_ERROR("initial configure failed: %s", err);
-        rd.be.ops->shutdown(&rd.be);
-        return 1;
+    if (rd.hw_up && rd.be.ops->configure(&rd.be, &rd.be.profile, err, sizeof(err)) < 0) {
+        if (rd.enabled) {
+            LOG_ERROR("initial configure failed: %s", err);
+            radio_hw_down(&rd);
+            return 1;
+        }
+        LOG_WARN("initial configure failed while the radio is off: %s", err);
     }
-    rd.state = "rx";
+    if (rd.enabled) {
+        rd.state = "rx";
+    } else {
+        /* Off: park the transceiver. The configure above has put it in a
+         * known state whatever the last owner left behind (a daemon killed
+         * in receive leaves the SX1262 receiving), and the shutdown that
+         * follows is the one every stop runs: asleep, power line low. No
+         * transmit happens on this path; nothing here can start one. */
+        radio_hw_down(&rd);
+        rd.state = "off";
+        LOG_INFO("radio off: transceiver parked, no transmit until radio.set_enabled");
+    }
 
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
@@ -1346,7 +1562,7 @@ int main(int argc, char **argv)
     rd.server = pocketipc_server_new(rd.socket_name, on_request, &rd);
     if (!rd.server) {
         LOG_ERROR("cannot listen: %s", strerror(errno));
-        rd.be.ops->shutdown(&rd.be);
+        radio_hw_down(&rd);
         return 1;
     }
     pocketipc_server_set_on_disconnect(rd.server, on_disconnect, &rd);
@@ -1357,7 +1573,7 @@ int main(int argc, char **argv)
     LOG_INFO("shutting down (rc=%d)", rc);
 
     pocketipc_server_free(rd.server);
-    rd.be.ops->shutdown(&rd.be);
+    radio_hw_down(&rd);
     pocketlog_close();
     return rc;
 }

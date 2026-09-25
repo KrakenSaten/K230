@@ -784,6 +784,14 @@ int rift_model_apply_channel_event(struct rift_model *m, const cJSON *data);
 
 const char *rift_svc_state_word(enum rift_svc_state s);
 
+/* What the activity panel calls the service's state: the state word, except
+ * that a service degraded only because the owner switched the radio off
+ * (radiod state `off`, docs/api/mesh.md) says "radio off" - a choice, not a
+ * fault. */
+const char *rift_model_state_label(const struct rift_model *m);
+/* Whether the radio is off by the owner's choice, as last reported. */
+int rift_model_radio_off(const struct rift_model *m);
+
 /* The one clock an interval may be measured on here: this board starts at
  * 1970 on every boot and jumps by decades when the network comes up, so
  * ages come from CLOCK_MONOTONIC and never from the wall clock. */

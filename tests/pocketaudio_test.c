@@ -570,6 +570,13 @@ static void test_failures(void)
         lvl.peak_limit = -1;
         rc = pocketaudio_open(&s, POCKETAUDIO_PLAYBACK, &lvl, err, sizeof(err));
         check("a negative peak limit is refused", rc == POCKETAUDIO_E_INVAL);
+        lvl.peak_limit = 0;
+        lvl.volume_percent = 101;
+        rc = pocketaudio_open(&s, POCKETAUDIO_PLAYBACK, &lvl, err, sizeof(err));
+        check("a volume above 100 % is refused", rc == POCKETAUDIO_E_INVAL);
+        lvl.volume_percent = -1;
+        rc = pocketaudio_open(&s, POCKETAUDIO_PLAYBACK, &lvl, err, sizeof(err));
+        check("a negative volume is refused", rc == POCKETAUDIO_E_INVAL);
     }
     {
         struct pocketaudio_options nolock = opts(pocketaudio_board_generic(), 0);
@@ -655,6 +662,77 @@ static void test_write(void)
               fk.last_wire[0] == POCKETAUDIO_PEAK_CEILING &&
                   fk.last_wire[1] == -POCKETAUDIO_PEAK_CEILING);
         pocketaudio_close(s);
+    }
+
+    /* ---- system volume: a real gain on what is played ---- */
+    check("volume: 100 % is unity", pocketaudio_volume_gain_q15(100) == 32768);
+    check("volume: 50 % is -15 dB", pocketaudio_volume_gain_q15(50) == 5827);
+    check("volume: 10 % is -27 dB", pocketaudio_volume_gain_q15(10) == 1464);
+    check("volume: out of range is clamped",
+          pocketaudio_volume_gain_q15(250) == 32768 && pocketaudio_volume_gain_q15(-4) == 1036);
+    {
+        int p;
+        int mono = 1;
+
+        for (p = 1; p <= 100; p++) {
+            mono &= pocketaudio_volume_gain_q15(p) >= pocketaudio_volume_gain_q15(p - 1);
+        }
+        check("volume: every step up is at least as loud", mono);
+    }
+    {
+        static const int levels[] = { 0, 100, 80, 50, 10 };
+        int16_t tone[2] = { 4000, -4000 };
+        int prev = 0;
+        size_t k;
+
+        for (k = 0; k < sizeof(levels) / sizeof(levels[0]); k++) {
+            fake_reset();
+            o = opts(pocketaudio_board_generic(), 0);
+            o.volume_percent = levels[k];
+            if (pocketaudio_open(&s, POCKETAUDIO_PLAYBACK, &o, err, sizeof(err)) != POCKETAUDIO_OK) {
+                check("volume: open", 0);
+                continue;
+            }
+            pocketaudio_write(s, tone, 2);
+            if (levels[k] == 0) {
+                check("volume: 0 (not given) plays exactly as before",
+                      fk.last_wire[0] == 4000 && fk.last_wire[1] == -4000);
+            } else if (levels[k] == 100) {
+                check("volume: 100 % plays exactly as before", fk.last_wire[0] == 4000);
+                prev = fk.last_wire[0];
+            } else {
+                char name[64];
+
+                snprintf(name, sizeof(name), "volume: %d %% is quieter than the step above",
+                         levels[k]);
+                check(name, fk.last_wire[0] > 0 && fk.last_wire[0] < prev &&
+                                fk.last_wire[1] == -fk.last_wire[0]);
+                prev = fk.last_wire[0];
+            }
+            pocketaudio_close(s);
+        }
+        fake_reset();
+        o = opts(pocketaudio_board_generic(), 0);
+        o.volume_percent = 50;
+        if (pocketaudio_open(&s, POCKETAUDIO_PLAYBACK, &o, err, sizeof(err)) == POCKETAUDIO_OK) {
+            pocketaudio_write(s, tone, 2);
+            check("volume: 50 % of 4000 is 4000 x 5827 / 32768", fk.last_wire[0] == 711 &&
+                                                                 fk.last_wire[1] == -711);
+            pocketaudio_close(s);
+        }
+    }
+    {
+        int16_t loud[1] = { 32767 };
+
+        fake_reset();
+        o = opts(pocketaudio_board_generic(), 0);
+        o.volume_percent = 100;
+        if (pocketaudio_open(&s, POCKETAUDIO_PLAYBACK, &o, err, sizeof(err)) == POCKETAUDIO_OK) {
+            pocketaudio_write(s, loud, 1);
+            check("volume: the ceiling still holds at full volume",
+                  fk.last_wire[0] == POCKETAUDIO_PEAK_CEILING);
+            pocketaudio_close(s);
+        }
     }
 }
 

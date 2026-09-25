@@ -20,6 +20,7 @@
 #include "app.h"
 #include "art.h"
 #include "brightness.h"
+#include "volume.h"
 #include "chrome.h"
 #include "controls.h"
 #include "home.h"
@@ -116,6 +117,7 @@ struct shell {
     void (*kb_done_cb)(void *user);
     void *kb_done_user;
     struct brightness brightness; /* the panel's backlight device, probed once */
+    struct volume_state volume;   /* the system volume and mute (volume.h) */
     struct shell_display display; /* this run's orientation and geometry, decided once */
 };
 
@@ -390,6 +392,79 @@ int pocketos_shell_brightness_set(int percent)
     }
     LOG_INFO("brightness %d%%", applied);
     return applied;
+}
+
+/* ---- system volume (volume.h) ------------------------------------------- */
+
+int pocketos_shell_volume_get(void)
+{
+    return sh.volume.percent;
+}
+
+int pocketos_shell_volume_muted(void)
+{
+    return sh.volume.muted;
+}
+
+int pocketos_shell_volume_effective(void)
+{
+    return volume_effective(&sh.volume);
+}
+
+int pocketos_shell_volume_available(void)
+{
+    return volume_output_present("/proc");
+}
+
+int pocketos_shell_volume_set(int percent)
+{
+    char value[12];
+
+    if (percent < VOLUME_MIN_PCT || percent > VOLUME_MAX_PCT || percent % VOLUME_STEP_PCT != 0) {
+        return -1;
+    }
+    sh.volume.percent = percent;
+    snprintf(value, sizeof(value), "%d", percent);
+    if (settings_set(VOLUME_SETTING, value) < 0) {
+        LOG_WARN("volume %d%% set but not persisted to %s: %s", percent, settings_path(),
+                 strerror(errno));
+        return -1;
+    }
+    LOG_INFO("volume %d%%", percent);
+    return 0;
+}
+
+int pocketos_shell_volume_set_muted(int muted)
+{
+    if (muted != 0 && muted != 1) {
+        return -1;
+    }
+    sh.volume.muted = muted;
+    if (settings_set(VOLUME_MUTED_SETTING, muted ? "1" : "0") < 0) {
+        LOG_WARN("volume %s but not persisted to %s: %s", muted ? "muted" : "unmuted",
+                 settings_path(), strerror(errno));
+        return -1;
+    }
+    LOG_INFO("volume %s", muted ? "muted" : "unmuted");
+    return 0;
+}
+
+static void volume_restore(void)
+{
+    int bad = volume_load(&sh.volume, settings_get(VOLUME_SETTING, NULL),
+                          settings_get(VOLUME_MUTED_SETTING, NULL));
+
+    if (bad & 1) {
+        LOG_WARN("volume: stored %s=%s is not %d..%d in steps of %d, using %d%%", VOLUME_SETTING,
+                 settings_get(VOLUME_SETTING, ""), VOLUME_MIN_PCT, VOLUME_MAX_PCT, VOLUME_STEP_PCT,
+                 VOLUME_DEFAULT_PCT);
+    }
+    if (bad & 2) {
+        LOG_WARN("volume: stored %s=%s is not 0 or 1, not muted", VOLUME_MUTED_SETTING,
+                 settings_get(VOLUME_MUTED_SETTING, ""));
+    }
+    LOG_INFO("volume: %d%%%s%s", sh.volume.percent, sh.volume.muted ? ", muted" : "",
+             volume_output_present("/proc") ? "" : " (no sound card)");
 }
 
 /* Called once, after the settings are loaded and before the first frame. A
@@ -1328,6 +1403,39 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         } else {
             cJSON_AddNullToObject(result, "device");
         }
+    } else if (strcmp(method, "shell.volume") == 0) {
+        const cJSON *p = params ? cJSON_GetObjectItemCaseSensitive(params, "percent") : NULL;
+        const cJSON *m = params ? cJSON_GetObjectItemCaseSensitive(params, "muted") : NULL;
+
+        /* Both checked before either is applied: a request is taken whole or
+         * not at all. */
+        if (p && (!cJSON_IsNumber(p) || !(p->valuedouble >= VOLUME_MIN_PCT) ||
+                  !(p->valuedouble <= VOLUME_MAX_PCT) ||
+                  p->valuedouble != (double)(int)p->valuedouble ||
+                  (int)p->valuedouble % VOLUME_STEP_PCT != 0)) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(
+                id, POCKETIPC_ERR_INVALID_PARAMS, "percent must be 10..100 in steps of 10"));
+            return;
+        }
+        if (m && !cJSON_IsBool(m)) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(
+                id, POCKETIPC_ERR_INVALID_PARAMS, "muted must be true or false"));
+            return;
+        }
+        if ((p && pocketos_shell_volume_set((int)p->valuedouble) < 0) ||
+            (m && pocketos_shell_volume_set_muted(cJSON_IsTrue(m) ? 1 : 0) < 0)) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(
+                id, POCKETIPC_ERR_BACKEND, "the volume could not be stored"));
+            return;
+        }
+        result = cJSON_CreateObject();
+        cJSON_AddBoolToObject(result, "available", pocketos_shell_volume_available());
+        cJSON_AddNumberToObject(result, "percent", sh.volume.percent);
+        cJSON_AddBoolToObject(result, "muted", sh.volume.muted);
+        cJSON_AddNumberToObject(result, "effective", volume_effective(&sh.volume));
+        cJSON_AddNumberToObject(result, "min", VOLUME_MIN_PCT);
+        cJSON_AddNumberToObject(result, "max", VOLUME_MAX_PCT);
+        cJSON_AddNumberToObject(result, "step", VOLUME_STEP_PCT);
     } else if (strcmp(method, "shell.subscribe") == 0) {
         pocketipc_client_set_subscribed(c, true);
         result = cJSON_CreateObject();
@@ -1544,6 +1652,7 @@ int main(int argc, char **argv)
     /* Also before the first frame, so a dimmed panel does not flash at the
      * boot level while the launcher draws. */
     brightness_restore();
+    volume_restore();
     screen = lv_screen_active();
     pocketui_style_screen(screen);
     sh.landscape = is_landscape(sh.display.geometry.rotation);

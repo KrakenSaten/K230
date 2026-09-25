@@ -8,8 +8,12 @@
  *       Text (stdin, or --text) to a mono 48 kHz S16 WAV. No audio device.
  *   pos-wave decode [--channel C] IN.wav
  *       Every message in a 48 kHz S16 WAV. No audio device.
- *   pos-wave send [--protocol P] [--volume V] [--text T] [--events] [--allow-unverified]
- *       Text to the speaker.
+ *   pos-wave send [--protocol P] [--volume V] [--volume-percent L] [--text T] [--events]
+ *                 [--allow-unverified]
+ *       Text to the speaker. L is the system volume, 1 to 100 percent of the
+ *       validated level (default 100): a digital gain applied by pocketaudio
+ *       after the modem, so --volume shapes the signal and L sets how loud it
+ *       is played. The Wave app passes the Controls volume here.
  *   pos-wave listen [--seconds N] [--channel C] [--events] [--allow-unverified]
  *       Messages from the microphone, for at most N seconds.
  *   pos-wave record [--seconds N] [--channel C] [--allow-unverified] OUT.wav
@@ -152,7 +156,8 @@ static void usage(void)
             "usage: pos-wave info\n"
             "       pos-wave encode [--protocol P] [--volume V] [--text T] OUT.wav\n"
             "       pos-wave decode [--channel C] IN.wav\n"
-            "       pos-wave send [--protocol P] [--volume V] [--text T] [--events] [--allow-unverified]\n"
+            "       pos-wave send [--protocol P] [--volume V] [--volume-percent L] [--text T] [--events]\n"
+            "                     [--allow-unverified]\n"
             "       pos-wave listen [--seconds N] [--channel C] [--events] [--allow-unverified]\n"
             "       pos-wave record [--seconds N] [--channel C] [--allow-unverified] OUT.wav\n"
             "       pos-wave recover\n");
@@ -161,6 +166,7 @@ static void usage(void)
 struct opts {
     enum wave_profile profile;
     int volume;
+    int volume_percent; /* the system volume for playback, 1..100 */
     int seconds;
     int seconds_given;
     int channel; /* -1: the board's microphone channel */
@@ -190,6 +196,7 @@ static int parse_opts(int argc, char **argv, struct opts *o)
     memset(o, 0, sizeof(*o));
     o->profile = WAVE_DEFAULT_PROFILE;
     o->volume = WAVE_DEFAULT_VOLUME;
+    o->volume_percent = 100;
     o->seconds = WAVE_LISTEN_SECONDS;
     o->channel = -1;
     o->text = NULL;
@@ -211,6 +218,12 @@ static int parse_opts(int argc, char **argv, struct opts *o)
         } else if (strcmp(a, "--volume") == 0 && v) {
             if (parse_int(v, 1, WAVE_MODEM_MAX_VOLUME, &o->volume) != 0) {
                 fail_event(WAVE_ERR_USAGE, "volume must be 1 to 25");
+                return -1;
+            }
+            i++;
+        } else if (strcmp(a, "--volume-percent") == 0 && v) {
+            if (parse_int(v, 1, 100, &o->volume_percent) != 0) {
+                fail_event(WAVE_ERR_USAGE, "volume-percent must be 1 to 100");
                 return -1;
             }
             i++;
@@ -530,6 +543,9 @@ static struct pocketaudio_stream *open_audio(enum pocketaudio_dir dir, const str
     ao.board = b;
     ao.allow_unverified = o->allow_unverified || env_allows(dir);
     ao.peak_limit = POCKETAUDIO_PEAK_CEILING;
+    if (dir == POCKETAUDIO_PLAYBACK) {
+        ao.volume_percent = o->volume_percent;
+    }
     rc = pocketaudio_open(&s, dir, &ao, err, sizeof(err));
     if (rc != POCKETAUDIO_OK) {
         fail_event(audio_code(rc), err);

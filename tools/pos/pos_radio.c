@@ -169,7 +169,9 @@ static int usage(void)
     fprintf(stderr,
             "usage: %s radio <command>\n"
             "  info                     chip, backend, capabilities, region\n"
-            "  status                   state and current profile\n"
+            "  status                   state, on/off and current profile\n"
+            "  on | off                 switch the radio on or off; kept across restarts\n"
+            "                           (no antenna prompt here: connect one first)\n"
             "  stats                    packet and airtime counters\n"
             "  configure key=value ...  e.g. frequency_mhz=868.1 spreading_factor=7\n"
             "  send <hex>               transmit payload given as hex, waiting for it\n"
@@ -212,6 +214,11 @@ int cmd_radio(int argc, char **argv)
         rc = call_and_print(fd, "radio.status", NULL);
     } else if (strcmp(sub, "stats") == 0) {
         rc = call_and_print(fd, "radio.stats", NULL);
+    } else if (strcmp(sub, "on") == 0 || strcmp(sub, "off") == 0) {
+        cJSON *params = cJSON_CreateObject();
+
+        cJSON_AddBoolToObject(params, "enabled", strcmp(sub, "on") == 0);
+        rc = call_and_print(fd, "radio.set_enabled", params);
     } else if (strcmp(sub, "cad") == 0) {
         rc = call_and_print(fd, "radio.cad", NULL);
     } else if (strcmp(sub, "rssi") == 0) {

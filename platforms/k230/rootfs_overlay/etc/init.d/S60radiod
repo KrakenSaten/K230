@@ -23,6 +23,13 @@ LOGFILE=$LOGDIR/radiod.stdio.log
 # every start returns to the values below. If the vendor launcher is switched
 # back on it drives the same SPI device from its own UI; radiod holds
 # /dev/spidev0.0 with flock and will refuse to start rather than share it.
+#
+# Radio on/off is not set here. It is the owner's choice, made in Controls
+# (after the antenna prompt) or with `doors radio on|off`, and radiod keeps it
+# in /var/lib/pocketos/radiod/radio.conf. With nothing stored the sx1262
+# backend starts with the radio off and parked (asleep, GPIO44 low), so a
+# fresh card, and a card upgraded from v0.0.12 or earlier, never transmits
+# until somebody switches it on (docs/api/radio.md, "Radio on and off").
 RADIOD_BACKEND=mock
 RADIOD_REGION=EU868
 # Requested TX power at every start. The radio profile is not persisted, so

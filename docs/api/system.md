@@ -8,7 +8,8 @@ Started on the device by `/etc/init.d/S50sysd` under `pos-supervise`, ahead of
 `sysd` serves the facts an operating system is expected to know about itself:
 identity, uptime, load, memory, temperature, storage, the network interfaces,
 the power supply and the health of the supervised services. It reads `/proc`,
-`/sys`, `/etc` and the PocketOS runtime directory and opens no device node.
+`/sys`, `/etc`, the PocketOS runtime directory and (for `system.logs` and
+`system.crashes`) the log directory, and opens no device node.
 The facts themselves come from `core/pocketsys`, which is unit-tested against
 a fake root so the absence of every optional source is a tested case.
 
@@ -56,7 +57,8 @@ The live view. sysd samples `/proc/stat` once a second for `cpu_percent`.
 | clock_set | bool | wall clock is after 2025-01-01. There is no RTC; the clock starts at 1970 every boot until NTP syncs, so a timestamp before then is not a time | VERIFIED (1970 until Ethernet, bench 2026-09-07) |
 | storage | [{mount, total_bytes, avail_bytes}] | `statvfs` on each of `/`, `/boot`, `/data` that `/proc/mounts` lists; `avail_bytes` is what a writer can use. At most one row per mount point, whatever `/proc/mounts` does: an initramfs leaves `rootfs /` ahead of `/dev/root /`, and a bind or remount adds another line for the same place | VERIFIED layout (574 MB root, `/boot`; no `/data` yet) |
 | network | [{name, operstate, carrier, mac, ipv4}] | `/sys/class/net` without `lo`, sorted; `carrier` is null while the interface is down (the kernel reports EINVAL), `ipv4` null without an address | VERIFIED (eth0 up with DHCP, wlan0/wlan1 down) |
-| power | {source, supplies: [{name, type}]} | `/sys/class/power_supply`. `source` is `external` when no supply of type Battery exists and `unknown` when one does; battery state is not interpreted in v0 | VERIFIED empty on unit A (no gauge on the main board) |
+| power | {source, external_online, battery, supplies: [{name, type, online?}]} | `/sys/class/power_supply`. `source` is `external`, `battery` or `unknown`: `external` with no supply of type Battery, or with a Mains/USB supply `online`; `battery` when every Mains/USB supply says offline, or none is listed and the battery says `discharging`; `unknown` otherwise. `external_online` is true when a Mains/USB supply reports online, false when all listed report offline, null when none reports. `battery` is null without a Battery supply, else {name, present, capacity_percent, status, voltage_v}: `capacity_percent` is the driver's own `capacity` (0-100; anything else is null, never clamped, and never computed from a voltage), `status` one of `charging`, `discharging`, `full`, `not_charging`, `unknown` or null, `voltage_v` from `voltage_now` or null | VERIFIED empty on unit A (no gauge on the main board; the base board's BQ27220/BQ25896 have no kernel driver bound): unit A answers `source` `external`, `battery` null. The battery fields are host-tested only (tests/pocketsys_test.c) |
+| bluetooth | {controllers: [name]} | the `hciN` entries of `/sys/class/bluetooth` (connections, `hciN:M`, are left out). Presence only: whether a controller is powered is an HCI ioctl, and no Doors service owns Bluetooth | VERIFIED none on unit A (no HCI device; RTL8189FTV has no Bluetooth; kernel RFKILL unset) |
 | services | [{name, pid, running, crashloop, last_exit_code, restarts}] | one entry per `<name>.state` file pos-supervise writes in the runtime directory, sorted by name. All six keys are always present; `null` means the supervisor did not know, never a sentinel. `restarts` is the count **within the current 60-second restart window**, not lifetime restarts — see below. `running` requires that the supervisor had a live child at its last update, that `kill(pid, 0)` still finds it, **and** that the process holding that pid is the one the supervisor started — see below. See the source and stability notes | VERIFIED on unit A |
 
 ### services: where it comes from
@@ -191,6 +193,44 @@ Status screen shows this field for the first time and says what it needs. The
 rest of `system.info` and `system.status` follows the normal rule
 (docs/api/pocketipc.md, Versioning).
 
+### system.logs
+
+What the device has logged, for diagnosing it without a shell: the System
+app's Diagnostics page and `doors call sysd system.logs`. Read-only, from the
+log directory (`$POCKETOS_LOG_DIR`, `/var/lib/pocketos/log`) and nothing else.
+
+Params (all optional): `level` (`all`, the default, includes debug; `info`;
+`warn`; `error` - the least severe level returned), `limit` (1 to 100,
+default 50), `source` (one log's name, e.g. `radiod` or `supervise-radiod`;
+name characters only).
+
+Result: `available` (the directory could be read), `entries` (newest first,
+each {ts, source, level, message}), `returned`, `skipped` (lines in neither
+format), `sources` (the logs read), `scanned_bytes`, `older_not_scanned`.
+
+- Sources: every `<name>.log` pocketlog file (`2026-09-04T13:20:01.123Z radiod
+  WARN  text`) and every `supervise-<name>.log` (pos-supervise: an exit is a
+  `warn`, a crash loop an `error`, a stop `info`; its time gets `.000`). The
+  `*.stdio.log` captures are not read.
+- Bounded whatever the card holds: at most 16 logs, the last 32 KiB of each
+  (the rotated `.1` fills the rest of that budget when the current file is
+  shorter), the newest `limit` matches kept while reading, each message cut to
+  240 bytes on a UTF-8 boundary with control characters as spaces and invalid
+  bytes as `?`. `older_not_scanned` says there was more.
+- Ordered by timestamp. There is no RTC: lines written before NTP set the
+  clock carry 1970 times and sort below everything written after (see
+  `clock_set`).
+- Errors: 2 for a bad parameter.
+
+### system.crashes
+
+Params: none. Result: `available`, `total` (every well-formed
+`crash-<process>-<unixtime>-<pid>.txt` in the log directory), `reports` (the
+newest ten, each {file, process, pid, time, signal, signal_name, version,
+build, frames}): read from the first 2 KiB of each report written by
+`pocketlog_install_crash_handler`, `frames` the first three backtrace lines.
+A field the report does not carry is null. Errors: 2 when params are given.
+
 ### system.reboot
 
 Restart the machine. Takes no parameters. Replies, then acts. VERIFIED on
@@ -274,7 +314,7 @@ the methods that change the machine will need a real answer.
 | Code | Meaning |
 | --- | --- |
 | 1 | `POCKETIPC_ERR_UNKNOWN_METHOD`: no such method |
-| 2 | `POCKETIPC_ERR_INVALID_PARAMS`: the request carried no `method`, or one that is not a string, or parameters on `system.reboot` / `system.poweroff`, which take none |
+| 2 | `POCKETIPC_ERR_INVALID_PARAMS`: the request carried no `method`, or one that is not a string, or parameters on `system.reboot` / `system.poweroff` / `system.crashes`, which take none, or a bad `system.logs` parameter |
 | 5 | `POCKETIPC_ERR_BUSY`: a power action is already pending |
 
 `system.info` and `system.status` take no parameters and ignore any that are

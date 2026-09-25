@@ -213,6 +213,21 @@ static void test_send(void)
           n > 0 && evs[0].kind == WAVE_EV_READY &&
               strcmp(evs[0].text, "send,--events,--protocol,audible_normal,--volume,7") == 0);
 
+    wave_session_start_send_at(&s, helper, "audible_fast", 10, 40, "x", 1, err, sizeof(err));
+    n = run_until_exit(&s, evs, 32, 3000);
+    check("send at 40 % system volume: argv carries --volume-percent 40",
+          n > 0 && strcmp(evs[0].text,
+                          "send,--events,--protocol,audible_fast,--volume,10,--volume-percent,40") == 0);
+    wave_session_start_send_at(&s, helper, "audible_fast", 10, 100, "x", 1, err, sizeof(err));
+    n = run_until_exit(&s, evs, 32, 3000);
+    check("send at 100 %: exactly the command a full-volume send always was",
+          n > 0 && strcmp(evs[0].text, "send,--events,--protocol,audible_fast,--volume,10") == 0);
+    check("send: system volume 0 is refused (mute does not start a send)",
+          wave_session_start_send_at(&s, helper, "audible_fast", 10, 0, "x", 1, err, sizeof(err)) == -1 &&
+              !wave_session_active(&s));
+    check("send: system volume 101 is refused",
+          wave_session_start_send_at(&s, helper, "audible_fast", 10, 101, "x", 1, err, sizeof(err)) == -1);
+
     wave_session_start_listen(&s, helper, 30, err, sizeof(err));
     n = run_until_exit(&s, evs, 32, 3000);
     check("listen: argv is listen --events --seconds N",

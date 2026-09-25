@@ -12,8 +12,10 @@
 /services/sysd/sysd
 /tests/pocketsys_test
 /tests/sysd_services_test
+/tests/sysd_logs_test
 /tests/sysd-testhooks
 /tests/system_view_test
+/tests/diag_view_test
 /tests/airtime_test
 /tests/radiod_tx_test
 /tests/pocketlog_test
@@ -66,6 +68,8 @@ BUILD_ID
 /.build-identity
 /tests/kbd_bus_k230_test
 /tests/brightness_test
+/tests/volume_test
+/tests/controls_model_test
 /tests/display_geometry_test
 /tests/orientation_test
 /tests/kbd_presence_test

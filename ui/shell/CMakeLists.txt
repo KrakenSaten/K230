@@ -38,6 +38,7 @@ add_executable(pocketos-shell
     shell_kb_state.c
     settings.c
     brightness.c
+    volume.c
     platform_${POCKETOS_DISPLAY}.c
     ../pocketui/pocketui.c
     ../pocketui/pos_display.c
@@ -51,6 +52,7 @@ add_executable(pocketos-shell
     home_layout.c
     shell_lock.c
     controls.c
+    controls_model.c
     ../pocketui/pos_glyphs.c
     ../pocketui/pos_input.c
     ../pocketui/pos_keyboard.c
@@ -64,6 +66,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/radio/radio_app.c
     ${REPO_DIR}/apps/system/system_app.c
     ${REPO_DIR}/apps/system/system_view.c
+    ${REPO_DIR}/apps/system/diag_view.c
     ${REPO_DIR}/apps/settings/settings_app.c
     ${REPO_DIR}/apps/settings/settings_view.c
     ${REPO_DIR}/apps/fleet/fleet_app.c
@@ -887,6 +890,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         chrome.c
         ${REPO_DIR}/apps/system/system_app.c
         ${REPO_DIR}/apps/system/system_view.c
+        ${REPO_DIR}/apps/system/diag_view.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pos_brand_mark.c
         ../pocketui/pocketui.c

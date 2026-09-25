@@ -34,6 +34,7 @@
 #include "app.h"
 #include "pocketui.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -247,10 +248,19 @@ static void start(struct wave_app *a, enum wave_action what)
 
     if (what == WAVE_DO_SEND) {
         const char *text = message(a);
+        /* The system volume (Controls): muted sends nothing at all rather
+         * than a silent message the other side would wait for. */
+        int level = pocketos_shell_volume_effective();
 
-        rc = wave_session_start_send(&a->session, wave_session_helper_path(),
-                                     wave_view_profile_name(a->view.profile), WAVE_DEFAULT_VOLUME,
-                                     text, strlen(text), err, sizeof(err));
+        if (level <= 0) {
+            snprintf(err, sizeof(err), "Sound is muted. Turn it on in Controls to send.");
+            rc = -1;
+        } else {
+            rc = wave_session_start_send_at(&a->session, wave_session_helper_path(),
+                                            wave_view_profile_name(a->view.profile),
+                                            WAVE_DEFAULT_VOLUME, level, text, strlen(text), err,
+                                            sizeof(err));
+        }
     } else {
         rc = wave_session_start_listen(&a->session, wave_session_helper_path(), WAVE_LISTEN_SECONDS,
                                        err, sizeof(err));

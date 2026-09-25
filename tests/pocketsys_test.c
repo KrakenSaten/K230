@@ -330,6 +330,118 @@ int main(void)
     check("power supply listed with its type",
           str_is(find_named(get(e, "supplies"), "bq27220-0"), "type", "Battery"));
     check("status without a sampler has cpu_percent null", cJSON_IsNull(get(st, "cpu_percent")));
+    check("a battery that reports nothing: capacity and status null",
+          cJSON_IsObject(get(e, "battery")) && cJSON_IsNull(get(get(e, "battery"), "capacity_percent")) &&
+              cJSON_IsNull(get(get(e, "battery"), "status")) &&
+              cJSON_IsNull(get(get(e, "battery"), "voltage_v")));
+    check("a battery without `present` is present", cJSON_IsTrue(get(get(e, "battery"), "present")));
+    check("no external supply listed: external_online null", cJSON_IsNull(get(e, "external_online")));
+    cJSON_Delete(st);
+
+    /* ---- battery: discharging on its own ---- */
+    put("sys/class/power_supply/bq27220-0/capacity", "76\n", 0);
+    put("sys/class/power_supply/bq27220-0/status", "Discharging\n", 0);
+    put("sys/class/power_supply/bq27220-0/voltage_now", "3912000\n", 0);
+    put("sys/class/power_supply/bq27220-0/present", "1\n", 0);
+    st = pocketsys_status(NULL);
+    e = get(st, "power");
+    check("discharging: the gauge's percentage", num_is(get(e, "battery"), "capacity_percent", 76));
+    check("discharging: status", str_is(get(e, "battery"), "status", "discharging"));
+    check("discharging: voltage in volts", num_is(get(e, "battery"), "voltage_v", 3.912));
+    check("discharging with no external supply listed: on battery", str_is(e, "source", "battery"));
+    cJSON_Delete(st);
+
+    /* ---- battery charging from USB ---- */
+    mkdirs("sys/class/power_supply/bq25896-charger");
+    put("sys/class/power_supply/bq25896-charger/type", "USB\n", 0);
+    put("sys/class/power_supply/bq25896-charger/online", "1\n", 0);
+    put("sys/class/power_supply/bq27220-0/status", "Charging\n", 0);
+    st = pocketsys_status(NULL);
+    e = get(st, "power");
+    check("charging: status", str_is(get(e, "battery"), "status", "charging"));
+    check("charging: USB online is external", str_is(e, "source", "external") &&
+                                                   cJSON_IsTrue(get(e, "external_online")));
+    check("the charger is listed online",
+          cJSON_IsTrue(get(find_named(get(e, "supplies"), "bq25896-charger"), "online")));
+    cJSON_Delete(st);
+
+    /* ---- full, not charging, and the charger unplugged ---- */
+    put("sys/class/power_supply/bq27220-0/status", "Full\n", 0);
+    put("sys/class/power_supply/bq27220-0/capacity", "100\n", 0);
+    st = pocketsys_status(NULL);
+    e = get(st, "power");
+    check("full: status and 100 %", str_is(get(e, "battery"), "status", "full") &&
+                                        num_is(get(e, "battery"), "capacity_percent", 100));
+    cJSON_Delete(st);
+    put("sys/class/power_supply/bq27220-0/status", "Not charging\n", 0);
+    put("sys/class/power_supply/bq25896-charger/online", "0\n", 0);
+    st = pocketsys_status(NULL);
+    e = get(st, "power");
+    check("not charging: its own word", str_is(get(e, "battery"), "status", "not_charging"));
+    check("every external supply offline: on battery", str_is(e, "source", "battery") &&
+                                                           cJSON_IsFalse(get(e, "external_online")));
+    cJSON_Delete(st);
+
+    /* ---- values a driver should never give are not passed on ---- */
+    put("sys/class/power_supply/bq27220-0/capacity", "140\n", 0);
+    put("sys/class/power_supply/bq27220-0/status", "Exploding\n", 0);
+    put("sys/class/power_supply/bq27220-0/voltage_now", "-5\n", 0);
+    st = pocketsys_status(NULL);
+    e = get(st, "power");
+    check("a percentage above 100 is null, not clamped",
+          cJSON_IsNull(get(get(e, "battery"), "capacity_percent")));
+    check("an unknown status word is null", cJSON_IsNull(get(get(e, "battery"), "status")));
+    check("a negative voltage is null", cJSON_IsNull(get(get(e, "battery"), "voltage_v")));
+    cJSON_Delete(st);
+    put("sys/class/power_supply/bq27220-0/capacity", "-1\n", 0);
+    put("sys/class/power_supply/bq27220-0/present", "0\n", 0);
+    st = pocketsys_status(NULL);
+    e = get(st, "power");
+    check("a negative percentage is null", cJSON_IsNull(get(get(e, "battery"), "capacity_percent")));
+    check("present 0: not present", cJSON_IsFalse(get(get(e, "battery"), "present")));
+    cJSON_Delete(st);
+
+    /* ---- USB power only, no battery ---- */
+    {
+        char cmd[700];
+
+        snprintf(cmd, sizeof(cmd), "rm -rf '%s/sys/class/power_supply/bq27220-0'", root);
+        if (system(cmd) != 0) {
+            fprintf(stderr, "rm failed\n");
+            return 1;
+        }
+    }
+    put("sys/class/power_supply/bq25896-charger/online", "1\n", 0);
+    st = pocketsys_status(NULL);
+    e = get(st, "power");
+    check("USB only: no battery object", cJSON_IsNull(get(e, "battery")));
+    check("USB only: external", str_is(e, "source", "external") && cJSON_IsTrue(get(e, "external_online")));
+    cJSON_Delete(st);
+    {
+        char cmd[700];
+
+        snprintf(cmd, sizeof(cmd), "rm -rf '%s/sys/class/power_supply/bq25896-charger'", root);
+        if (system(cmd) != 0) {
+            fprintf(stderr, "rm failed\n");
+            return 1;
+        }
+    }
+    st = pocketsys_status(NULL);
+    e = get(st, "power");
+    check("no supply at all (unit A): external, no battery, external_online null",
+          str_is(e, "source", "external") && cJSON_IsNull(get(e, "battery")) &&
+              cJSON_IsNull(get(e, "external_online")));
+    check("bluetooth: no class directory, no controllers",
+          cJSON_GetArraySize(get(get(st, "bluetooth"), "controllers")) == 0);
+    cJSON_Delete(st);
+
+    /* ---- Bluetooth controllers ---- */
+    mkdirs("sys/class/bluetooth/hci0");
+    mkdirs("sys/class/bluetooth/hci0:3");
+    st = pocketsys_status(NULL);
+    e = get(get(st, "bluetooth"), "controllers");
+    check("a controller is listed, its connection is not",
+          cJSON_GetArraySize(e) == 1 && strcmp(cJSON_GetArrayItem(e, 0)->valuestring, "hci0") == 0);
     cJSON_Delete(st);
 
     /* ---- absences are null, never invented ---- */
