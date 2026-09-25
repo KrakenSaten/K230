@@ -14,8 +14,11 @@
  *     not the panel;
  *   - the token is read by the helper from its 0600 file and never enters the
  *     shell's memory at all;
- *   - if the shell dies, or restarts itself to rotate, the helper gets
- *     SIGTERM (PR_SET_PDEATHSIG) and its connection goes with it;
+ *   - if the shell dies, the helper gets SIGTERM (PR_SET_PDEATHSIG) and its
+ *     connection goes with it. A rotation restart is an exec, which that
+ *     signal does not see: the shell closes the app before it (shell.c
+ *     app_close), and the socket is close-on-exec besides, so the helper
+ *     reads end of input and leaves either way;
  *   - the bench tool and the app are one binary and one code path.
  *
  * WATCHDOG. The first line within ZABBIX_HELLO_MS. While the helper says it

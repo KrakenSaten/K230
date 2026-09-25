@@ -93,8 +93,9 @@ documentation, 2026-09-25):
   - curl, OpenSSL and cJSON never enter the shell; the shell links only the
     bounded model and a line protocol.
   - The token never enters the shell.
-  - `PR_SET_PDEATHSIG` ends the connection with the shell, including on a
-    rotation restart.
+  - `PR_SET_PDEATHSIG` ends the connection if the shell dies. On a rotation
+    restart (an exec, which that signal does not see) the shell closes the
+    app first, and the socket is close-on-exec.
   - A watchdog kills a stuck helper, and the screen restarts it with backoff.
   - The bench tool (`pos-zabbix check`) and the app are one code path.
 - Con: a second process while the screen is open, costing about 3 MB of

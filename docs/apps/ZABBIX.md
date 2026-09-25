@@ -197,7 +197,10 @@ source, UNVERIFIED as stable).
 **The helper** lives exactly as long as the screen.
 
 - It leaves on `quit`, on end of input, on SIGTERM, and through
-  `PR_SET_PDEATHSIG` when the shell dies or restarts to rotate.
+  `PR_SET_PDEATHSIG` when the shell dies.
+- A rotation restart is an exec, which that signal does not see. The shell
+  closes the app before it, and the socket is close-on-exec, so the helper
+  reads end of input.
 - It blocks only inside one request, bounded by `timeout_s`.
 - Its socket stays blocking. Commands are read with `MSG_DONTWAIT` per call,
   so a burst of a few hundred lines waits for the app instead of failing.

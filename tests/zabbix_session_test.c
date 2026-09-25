@@ -161,7 +161,9 @@ static void test_ends(void)
     zabbix_session_start(s, &cfg, now_ms(), err, sizeof(err));
     zabbix_model_helper_started(m, now_ms());
     POLL_UNTIL(s, m, m->problems_ms > 0, 5000);
-    kill(s->pid, SIGSEGV);
+    /* A signal nobody in the session sent. SIGKILL rather than SIGSEGV:
+     * under the sanitizers the helper catches SIGSEGV itself and exits. */
+    kill(s->pid, SIGKILL);
     end = now_ms() + 3000;
     while (zabbix_session_active(s) && now_ms() < end) {
         changed |= zabbix_session_poll(s, m, now_ms());
