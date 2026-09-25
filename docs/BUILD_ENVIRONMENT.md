@@ -222,18 +222,19 @@ over eth0, `192.168.10.157`). Over Wi-Fi the host now reports that the unit
 stopped answering and picks the log up again once netd has brought wlan0
 back. If Wi-Fi does not come back after netd's restart (netd started at
 runtime was seen to time out on wpa_supplicant's control socket in the same
-session, docs/hardware/DEVICE_CONTROLS_GATE.md on the unmerged
-feat/device-controls-diagnostics), the host times
+session, docs/hardware/DEVICE_CONTROLS_GATE.md), the host times
 out with status 2 while the unit finishes regardless; read the log over eth0
 or the serial console.
 
-Evidence: `setsid`, `nohup`, `sha256sum -c` and `mkdir -m` are enabled in the
-SDK's BusyBox configuration (`buildroot-overlay/package/busybox/busybox.config`,
-DOCUMENTED). The hand-over is exercised on the build host by
-`tests/deploy_staging_test.sh` (a stand-in unit: dropped polls, the host
-killed mid-deploy, a corrupted archive, a timeout, a second deploy while one
-runs) and `deploy_unit.sh` by `tests/initscript_test.sh`; a deploy over Wi-Fi
-on unit A is not yet VERIFIED.
+Evidence: `setsid`, `nohup` and `sha256sum` are present on unit A (VERIFIED,
+2026-09-25) and enabled in the SDK's BusyBox configuration
+(`buildroot-overlay/package/busybox/busybox.config`). A deploy to the Wi-Fi
+address of unit A finished on the unit while wlan0 was down and exited 0
+(VERIFIED, docs/hardware/DEPLOY_OVER_WIFI_GATE.md). The host's retry path is
+exercised only on the build host, by `tests/deploy_staging_test.sh`, which uses
+a stand-in unit: dropped polls, the host killed mid-deploy, a corrupted
+archive, a timeout, and a second deploy while one runs. `deploy_unit.sh` itself
+is exercised by `tests/initscript_test.sh`.
 
 ## Serial console
 
