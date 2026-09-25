@@ -120,6 +120,11 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/camera/camera_state.c
     ${REPO_DIR}/apps/camera/camera_layout.c
     ${REPO_DIR}/apps/camera/camera_session.c
+    ${REPO_DIR}/apps/zabbix/zabbix_app.c
+    ${REPO_DIR}/apps/zabbix/zabbix_session.c
+    ${REPO_DIR}/apps/zabbix/zabbix_view.c
+    ${REPO_DIR}/core/zabbix/zbx_model.c
+    ${REPO_DIR}/core/zabbix/zbx_proto.c
     ${REPO_DIR}/apps/rift/rift_app.c
     ${REPO_DIR}/apps/rift/rift_model.c
     ${REPO_DIR}/apps/rift/rift_clock.c
@@ -179,6 +184,9 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     # unless POCKETOS_CAMERA_BACKEND says otherwise, and the screen says
     # SIMULATED (docs/apps/CAMERA.md). The device keeps the real default.
     target_compile_definitions(pocketos-shell PRIVATE CAMERA_BACKEND_DEFAULT="fake")
+    # Zabbix likewise talks to its fake server in the simulator, and says
+    # SIMULATED (docs/apps/ZABBIX.md); POCKETOS_ZABBIX_BACKEND=live overrides.
+    target_compile_definitions(pocketos-shell PRIVATE ZABBIX_FAKE_DEFAULT="demo")
 endif()
 
 # PocketTimber art (docs/apps/POCKETTIMBER_ART.md): the sprites Blender
@@ -221,7 +229,8 @@ target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/calculator"
                                                   "${REPO_DIR}/apps/settings"
                                                   "${REPO_DIR}/apps/wave"
-                                                  "${REPO_DIR}/apps/camera")
+                                                  "${REPO_DIR}/apps/camera"
+                                                  "${REPO_DIR}/apps/zabbix")
 
 if(POCKETOS_LVGL_MODE STREQUAL "source")
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -661,6 +670,37 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(camera_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(camera_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # Zabbix in the running app, tapped on the panel, with the real helper on
+    # the fake server behind it (run by tests/zabbix_shell_test.sh, which
+    # hands it make's tools/zabbix/pos-zabbix).
+    add_executable(zabbix_app_test
+        ${REPO_DIR}/tests/zabbix_app_test.c
+        chrome.c
+        ${REPO_DIR}/apps/zabbix/zabbix_app.c
+        ${REPO_DIR}/apps/zabbix/zabbix_session.c
+        ${REPO_DIR}/apps/zabbix/zabbix_view.c
+        ${REPO_DIR}/core/zabbix/zbx_model.c
+        ${REPO_DIR}/core/zabbix/zbx_proto.c
+        ../pocketui/pos_app_icons.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(zabbix_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/zabbix")
+    target_compile_options(zabbix_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(zabbix_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(zabbix_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(zabbix_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(zabbix_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
     # PocketClock in the running app, tapped on the panel and on the real
     # keyboard, against a real store (run by tests/clock_shell_test.sh).

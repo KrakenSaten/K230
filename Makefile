@@ -179,7 +179,7 @@ ifeq ($(ENABLE_MESHCORED),1)
 endif
 
 BINS := tools/pos/pos services/radiod/radiod services/sysd/sysd services/netd/netd tools/hwcheck/pos-spixfer \
-        tools/wave/pos-wave tools/camera/pos-camera
+        tools/wave/pos-wave tools/camera/pos-camera tools/zabbix/pos-zabbix
 ifeq ($(ENABLE_MESHCORED),1)
 BINS += services/meshcored/meshcored
 endif
@@ -988,6 +988,113 @@ camera-san-test:
 	cd $(CAMERA_SAN_DIR) && ./tests/pocketcam_test && ./tests/camera_state_test && \
 	    ./tests/camera_layout_test && ./tests/camera_session_test tests/pos-camera-testhooks
 
+# Zabbix (docs/apps/ZABBIX.md, ADR-007 PROPOSED).
+#
+# core/zabbix is the Zabbix viewer's client layer, all pure C: the bounded
+# model and the app/helper line protocol (the only two parts the shell links),
+# and, for the helper alone, the JSON-RPC requests and their parsing (cJSON),
+# the configuration and its secret, the connection state machine, the
+# deterministic fake server and the libcurl transport. pos-zabbix is the
+# helper, the only program that opens a connection to a Zabbix server; the
+# app's helper client and presentation logic in apps/zabbix are LVGL-free and
+# tested here, against the real helper on the fake backend. The screen is
+# built by ui/shell (tests/zabbix_shell_test.sh).
+#
+# ZABBIX_CURL=1 builds the real transport with libcurl (in the K230 image with
+# OpenSSL, and in its sysroot; the Buildroot package sets it and depends on
+# libcurl). Without it pos-zabbix has only the fake backend and says so,
+# because this host has no libcurl headers. ZABBIX_CURL_CFLAGS and
+# ZABBIX_CURL_LIBS point a host build at headers and a library of its own
+# (tests/zabbix_http_test.sh, docs/apps/ZABBIX.md "Validation").
+ZABBIX_CURL ?= 0
+ZABBIX_CURL_CFLAGS ?=
+ZABBIX_CURL_LIBS ?= -lcurl
+# The mock server speaks TLS when this host has the OpenSSL headers.
+ZABBIX_MOCK_TLS ?= $(shell printf '\043include <openssl/ssl.h>\n' | $(CC) -E - >/dev/null 2>&1 && echo 1 || echo 0)
+ZBX_DIR := core/zabbix
+ZBX_APP_OBJS := $(ZBX_DIR)/zbx_model.o $(ZBX_DIR)/zbx_proto.o
+ZBX_LIBS := -lcjson -lm
+# The transport is one source built two ways, under two object names, so a
+# tree that has been built both ways can never link the wrong one.
+ifeq ($(ZABBIX_CURL),1)
+ZBX_HTTP_OBJ := $(ZBX_DIR)/zbx_http_curl.o
+$(ZBX_HTTP_OBJ): ALL_CFLAGS += -DZBX_HAVE_CURL $(ZABBIX_CURL_CFLAGS)
+ZBX_LIBS += $(ZABBIX_CURL_LIBS)
+else
+ZBX_HTTP_OBJ := $(ZBX_DIR)/zbx_http_none.o
+endif
+ZBX_OBJS := $(ZBX_APP_OBJS) $(ZBX_DIR)/zbx_api.o $(ZBX_DIR)/zbx_fake.o $(ZBX_DIR)/zbx_config.o \
+            $(ZBX_DIR)/zbx_client.o $(ZBX_HTTP_OBJ)
+
+$(ZBX_DIR)/zbx_http_none.o: $(ZBX_DIR)/zbx_http_curl.c
+	$(CC) $(ALL_CFLAGS) -c -o $@ $<
+ZBX_MOCK_OBJS := tools/zabbix/pos_zabbix_mock.o $(ZBX_DIR)/zbx_fake.o $(ZBX_DIR)/zbx_api.o \
+                 $(ZBX_APP_OBJS)
+ZBX_MOCK_LIBS := -lcjson -lm
+ifeq ($(ZABBIX_MOCK_TLS),1)
+tools/zabbix/pos_zabbix_mock.o: ALL_CFLAGS += -DZBX_MOCK_TLS
+ZBX_MOCK_LIBS += -lssl -lcrypto
+endif
+ZABBIX_DIR := apps/zabbix
+ZABBIX_OBJS := $(ZABBIX_DIR)/zabbix_session.o $(ZABBIX_DIR)/zabbix_view.o
+POS_ZABBIX_OBJS := tools/zabbix/pos_zabbix.o $(ZBX_OBJS) $(PATHS_OBJS) $(LOG_OBJS)
+ZABBIX_TESTS := tests/zbx_model_test tests/zbx_proto_test tests/zbx_api_test tests/zbx_config_test \
+                tests/zbx_client_test tests/zabbix_view_test tests/zabbix_session_test \
+                tools/zabbix/pos-zabbix-mock
+
+$(ZABBIX_DIR)/%.o: $(ZABBIX_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) -I$(ZABBIX_DIR) -c -o $@ $<
+
+tools/zabbix/pos-zabbix: $(POS_ZABBIX_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(ZBX_LIBS)
+
+tools/zabbix/pos-zabbix-mock: $(ZBX_MOCK_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(ZBX_MOCK_LIBS)
+
+tests/zbx_%_test.o: tests/zbx_%_test.c
+	$(CC) $(ALL_CFLAGS) -c -o $@ $<
+
+tests/zabbix_%_test.o: tests/zabbix_%_test.c
+	$(CC) $(ALL_CFLAGS) -I$(ZABBIX_DIR) -c -o $@ $<
+
+tests/zbx_model_test: tests/zbx_model_test.o $(ZBX_APP_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/zbx_proto_test: tests/zbx_proto_test.o $(ZBX_APP_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/zbx_api_test: tests/zbx_api_test.o $(ZBX_APP_OBJS) $(ZBX_DIR)/zbx_api.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lcjson -lm
+
+tests/zbx_config_test: tests/zbx_config_test.o $(ZBX_APP_OBJS) $(ZBX_DIR)/zbx_config.o \
+                       $(ZBX_DIR)/zbx_fake.o $(ZBX_DIR)/zbx_api.o $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lcjson -lm
+
+tests/zbx_client_test: tests/zbx_client_test.o $(ZBX_OBJS) $(PATHS_OBJS) $(LOG_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(ZBX_LIBS)
+
+tests/zabbix_view_test: tests/zabbix_view_test.o $(ZABBIX_DIR)/zabbix_view.o $(ZBX_APP_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/zabbix_session_test: tests/zabbix_session_test.o $(ZABBIX_OBJS) $(ZBX_APP_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# The Zabbix suites again under the address and undefined-behaviour
+# sanitizers, in a separate build tree so the ordinary objects are untouched.
+# The helper is built with them too: the session test drives it.
+ZABBIX_SAN_DIR := out/zabbix-san
+zabbix-san-test:
+	rm -rf $(ZABBIX_SAN_DIR) && mkdir -p $(ZABBIX_SAN_DIR)
+	git ls-files --cached --others --exclude-standard core apps/zabbix tools/zabbix tests/zbx_* tests/zabbix_* Makefile VERSION \
+	    | tar -cf - -T - | tar -xf - -C $(ZABBIX_SAN_DIR)
+	$(MAKE) -C $(ZABBIX_SAN_DIR) CC="$(CC)" POCKETOS_BUILD_ID=$(POCKETOS_BUILD_ID) \
+	    ZABBIX_CURL=$(ZABBIX_CURL) ZABBIX_CURL_CFLAGS="$(ZABBIX_CURL_CFLAGS)" ZABBIX_CURL_LIBS="$(ZABBIX_CURL_LIBS)" \
+	    CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all" \
+	    LDFLAGS="-fsanitize=address,undefined" $(ZABBIX_TESTS) tools/zabbix/pos-zabbix
+	cd $(ZABBIX_SAN_DIR) && ./tests/zbx_model_test && ./tests/zbx_proto_test && ./tests/zbx_api_test && \
+	    ./tests/zbx_config_test && ./tests/zbx_client_test && TZ=UTC ./tests/zabbix_view_test && \
+	    ./tests/zabbix_session_test tools/zabbix/pos-zabbix
+
 # Every binary `make test` builds on top of $(BINS). Each of them, and each of
 # $(BINS), has to be git-ignored: apply_to_sdk.sh calls an image's BUILD_ID
 # "<commit>-dirty" when `git status --porcelain` shows anything, so a single
@@ -1003,7 +1110,7 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
              tests/kbd_presence_test tests/chrome_test tests/home_layout_test tests/art_format_test \
              tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
              $(NOTES_TESTS) $(FILES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) $(CALC_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test \
-             $(WAVE_TESTS) $(RIFT_TESTS) $(CAMERA_TESTS)
+             $(WAVE_TESTS) $(RIFT_TESTS) $(CAMERA_TESTS) $(ZABBIX_TESTS)
 
 # Native tests only (they execute binaries).
 test: all $(TEST_BINS)
@@ -1080,6 +1187,14 @@ test: all $(TEST_BINS)
 	./tests/camera_state_test
 	./tests/camera_layout_test
 	./tests/camera_session_test tests/pos-camera-testhooks
+	./tests/zbx_model_test
+	./tests/zbx_proto_test
+	./tests/zbx_api_test
+	./tests/zbx_config_test
+	./tests/zbx_client_test
+	TZ=UTC ./tests/zabbix_view_test
+	./tests/zabbix_session_test tools/zabbix/pos-zabbix
+	bash tests/zabbix_http_test.sh
 	bash tests/wave_tool_test.sh
 	bash tests/audio_recovery_test.sh
 	bash tests/capture_settle_test.sh
@@ -1122,6 +1237,7 @@ test: all $(TEST_BINS)
 	bash tests/system_lint.sh
 	bash tests/rift_lint.sh
 	bash tests/camera_lint.sh
+	bash tests/zabbix_lint.sh
 
 install: all meshcored-shipping-check
 # The command-line tool is installed as doors, and pos is a symlink to it: one
@@ -1135,6 +1251,7 @@ install: all meshcored-shipping-check
 	install -D -m 0755 tools/hwcheck/pos-spixfer $(DESTDIR)$(PREFIX)/bin/pos-spixfer
 	install -D -m 0755 tools/wave/pos-wave $(DESTDIR)$(PREFIX)/bin/pos-wave
 	install -D -m 0755 tools/camera/pos-camera $(DESTDIR)$(PREFIX)/bin/pos-camera
+	install -D -m 0755 tools/zabbix/pos-zabbix $(DESTDIR)$(PREFIX)/bin/pos-zabbix
 	install -D -m 0755 services/radiod/radiod $(DESTDIR)$(PREFIX)/sbin/radiod
 	install -D -m 0755 services/sysd/sysd $(DESTDIR)$(PREFIX)/sbin/sysd
 	install -D -m 0755 services/netd/netd $(DESTDIR)$(PREFIX)/sbin/netd
@@ -1180,7 +1297,7 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 
 clean:
 	$(MAKE) -C tools/meshcore-frame clean
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd_logs_test tests/sysd_logs_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o tests/volume_test tests/volume_test.o ui/shell/volume.o tests/controls_model_test tests/controls_model_test.o ui/shell/controls_model.o apps/system/diag_view.o tests/diag_view_test tests/diag_view_test.o $(POCKETOS_BUILD_STAMP)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd_logs_test tests/sysd_logs_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o tests/volume_test tests/volume_test.o ui/shell/volume.o tests/controls_model_test tests/controls_model_test.o ui/shell/controls_model.o apps/system/diag_view.o tests/diag_view_test tests/diag_view_test.o $(ZBX_OBJS) core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o $(ZABBIX_OBJS) $(ZABBIX_TESTS) $(ZABBIX_TESTS:=.o) tools/zabbix/pos_zabbix.o tools/zabbix/pos_zabbix_mock.o $(POCKETOS_BUILD_STAMP)
 
 # The files `make all` and `make test` produce, one to a line, for
 # tests/build_outputs_test.sh.

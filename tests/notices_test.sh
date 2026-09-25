@@ -204,7 +204,10 @@ for d in $deps; do
     case "$d" in
         # jpeg: libjpeg 9f for pos-camera, in the image and its legal manifest
         # already (docs/legal/licenses/libjpeg-9f), with its own IJG metadata.
-        cjson|libgpiod2|libdrm|libevdev|alsa-lib|jpeg|host-*) ;;
+        # libcurl: libcurl 8.12.1 (with OpenSSL 3.4.1) for pos-zabbix, in the
+        # image already (the curl tool), with its own curl licence metadata;
+        # linked dynamically, nothing of it is compiled into Doors.
+        cjson|libgpiod2|libdrm|libevdev|alsa-lib|jpeg|libcurl|host-*) ;;
         lvgl) [ "$(has_id lvgl)" = 1 ] || unknown="$unknown lvgl" ;;
         *) unknown="$unknown $d" ;;
     esac
