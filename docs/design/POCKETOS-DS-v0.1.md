@@ -3017,9 +3017,12 @@ Every control is inside the box PocketUI's corner rule leaves (§21.3,
 
 ### 35.4 Launcher
 
-Zabbix is registered but has no place in the launcher's table and no Doors
-icon yet. It appears under MORE with the eye symbol. A DS §20 icon and a
-group are an owner decision (docs/apps/ZABBIX.md §12).
+**By default the launcher is unchanged.** Zabbix is built into the shell only
+when it is configured with `-DPOCKETOS_WITH_ZABBIX=ON`, which neither the
+Buildroot package nor any existing suite does. Built in, it has no place in
+the launcher's table and no Doors icon yet, so it appears under MORE with the
+eye symbol. A DS §20 icon and a group are owner decisions
+(docs/apps/ZABBIX.md §12).
 
 ### 35.5 Validation on the host
 

@@ -78,16 +78,24 @@ extern const struct pocketos_app app_wave;
 extern const struct pocketos_app app_rift;
 extern const struct pocketos_app app_files;
 extern const struct pocketos_app app_camera;
+#ifdef POCKETOS_WITH_ZABBIX
 extern const struct pocketos_app app_zabbix;
+#endif
 
 /* The registry. Where each app is shown on the launcher - its group, its
  * place in the group, its colour - is the launcher's table (home_layout.c),
- * not this order; an app added here and nowhere else is shown under MORE. */
+ * not this order; an app added here and nowhere else is shown under MORE.
+ * Zabbix is an experiment, there only in a shell configured with
+ * POCKETOS_WITH_ZABBIX (ui/shell/CMakeLists.txt, docs/apps/ZABBIX.md). */
 static const struct pocketos_app *const apps[] = { &app_radio, &app_system, &app_fleet,
                                             &app_radar, &app_timber, &app_notes,
                                             &app_clock, &app_calendar, &app_calculator,
                                             &app_settings, &app_wave, &app_rift, &app_files,
-                                            &app_camera, &app_zabbix };
+                                            &app_camera,
+#ifdef POCKETOS_WITH_ZABBIX
+                                            &app_zabbix,
+#endif
+                                          };
 #define APP_COUNT (sizeof(apps) / sizeof(apps[0]))
 
 struct shell {

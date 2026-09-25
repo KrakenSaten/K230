@@ -46,7 +46,15 @@ red = sum(1 for r in rows for p in r if p[0] > 180 and p[1] < 110 and p[2] < 110
 print("1" if red > 400 else "0", red)
 PY
 }
-for o in portrait landscape; do
+# The real shell has Zabbix only when it was configured with
+# -DPOCKETOS_WITH_ZABBIX=ON (the experiment is off by default).
+if grep -aq '/usr/bin/pos-zabbix' "$SHELL_BIN"; then
+    ORIENTATIONS="portrait landscape"
+else
+    ORIENTATIONS=""
+    echo "SKIP the real-shell half: $SHELL_BIN was built without -DPOCKETOS_WITH_ZABBIX=ON"
+fi
+for o in $ORIENTATIONS; do
     RUN=$(mktemp -d); LOGD=$(mktemp -d); CFG=$(mktemp -d); STATE=$(mktemp -d)
     SDL_VIDEODRIVER=dummy POCKETOS_RUNTIME_DIR="$RUN" POCKETOS_LOG_DIR="$LOGD" \
     POCKETOS_CONFIG_DIR="$CFG" POCKETOS_STATE_DIR="$STATE" \
@@ -75,8 +83,10 @@ for o in portrait landscape; do
 done
 
 # Registered like any other app.
-check "Zabbix is in the shell's registry" \
-    "$(grep -q '&app_zabbix' ui/shell/shell.c && echo 1 || echo 0)"
+check "Zabbix is in the shell's registry, only when built with POCKETOS_WITH_ZABBIX" \
+    "$(grep -q '&app_zabbix' ui/shell/shell.c &&
+       [ "$(grep -c '#ifdef POCKETOS_WITH_ZABBIX' ui/shell/shell.c)" = 2 ] &&
+       grep -q 'option(POCKETOS_WITH_ZABBIX .* OFF)' ui/shell/CMakeLists.txt && echo 1 || echo 0)"
 check "fullscreen (DS §30.8)" \
     "$(grep -q '.chrome = POCKETOS_CHROME_NONE' apps/zabbix/zabbix_app.c && echo 1 || echo 0)"
 check "the simulator alone defaults to the fake" \

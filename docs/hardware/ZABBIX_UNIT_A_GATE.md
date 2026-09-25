@@ -14,8 +14,9 @@ change of any kind.
 
 The gate is reversible and touches userspace only:
 
-- `/usr/bin/doors-shell` is replaced by the branch's build. The only change
-  is the Zabbix app: registered, with no launcher table entry.
+- `/usr/bin/doors-shell` is replaced by the branch's build, configured with
+  `-DPOCKETOS_WITH_ZABBIX=ON`. The only change is the Zabbix app: registered,
+  with no launcher table entry, so it shows under MORE.
 - `/usr/bin/pos-zabbix` is added: the helper, linked to the image's own
   `libcurl.so.4` (8.12.1).
 - `/usr/bin/pos-zabbix-mock` is added for the gate only, and removed at the
@@ -35,7 +36,7 @@ make ZABBIX_CURL=1 POCKETCAM_JPEG=1 CC=<cross>gcc CXX=<cross>g++ \
 make ZABBIX_MOCK_TLS=0 CC=<cross>gcc CFLAGS="--sysroot=$SYSROOT -O2" LDFLAGS="--sysroot=$SYSROOT" \
      tools/zabbix/pos-zabbix-mock
 cmake -S ui/shell -B build-drm -DCMAKE_TOOLCHAIN_FILE=$SDKOUT/host/share/buildroot/toolchainfile.cmake \
-      -DPOCKETOS_DISPLAY=drm -DPOCKETOS_LVGL_MODE=sysroot && cmake --build build-drm
+      -DPOCKETOS_DISPLAY=drm -DPOCKETOS_LVGL_MODE=sysroot -DPOCKETOS_WITH_ZABBIX=ON && cmake --build build-drm
 ```
 
 The riscv64 mock has no TLS: its OpenSSL headers were not tried. The HTTPS

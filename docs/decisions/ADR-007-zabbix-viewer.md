@@ -145,6 +145,10 @@ documentation, 2026-09-25):
    encryption at rest.
 
 Until the owner decides, all of this lives on the experiment branch only.
+Even there the app is off by default: the shell has it only when configured
+with `-DPOCKETOS_WITH_ZABBIX=ON`. The launcher, the existing suites and the
+image's shell are therefore master's. The helper is built and installed
+either way, so `pos-zabbix check` can test a server from the bench.
 
 ## Consequences
 

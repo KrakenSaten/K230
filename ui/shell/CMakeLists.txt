@@ -120,11 +120,6 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/camera/camera_state.c
     ${REPO_DIR}/apps/camera/camera_layout.c
     ${REPO_DIR}/apps/camera/camera_session.c
-    ${REPO_DIR}/apps/zabbix/zabbix_app.c
-    ${REPO_DIR}/apps/zabbix/zabbix_session.c
-    ${REPO_DIR}/apps/zabbix/zabbix_view.c
-    ${REPO_DIR}/core/zabbix/zbx_model.c
-    ${REPO_DIR}/core/zabbix/zbx_proto.c
     ${REPO_DIR}/apps/rift/rift_app.c
     ${REPO_DIR}/apps/rift/rift_model.c
     ${REPO_DIR}/apps/rift/rift_clock.c
@@ -184,9 +179,28 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     # unless POCKETOS_CAMERA_BACKEND says otherwise, and the screen says
     # SIMULATED (docs/apps/CAMERA.md). The device keeps the real default.
     target_compile_definitions(pocketos-shell PRIVATE CAMERA_BACKEND_DEFAULT="fake")
-    # Zabbix likewise talks to its fake server in the simulator, and says
-    # SIMULATED (docs/apps/ZABBIX.md); POCKETOS_ZABBIX_BACKEND=live overrides.
-    target_compile_definitions(pocketos-shell PRIVATE ZABBIX_FAKE_DEFAULT="demo")
+endif()
+
+# Zabbix, the monitoring viewer (docs/apps/ZABBIX.md, ADR-007 PROPOSED), is
+# an experiment: it is built into the shell only when asked for, so the
+# launcher and every existing suite are unchanged by default. The Zabbix
+# suites build the app on its own (zabbix_app_test below) either way.
+option(POCKETOS_WITH_ZABBIX "Build the experimental Zabbix viewer into the shell" OFF)
+if(POCKETOS_WITH_ZABBIX)
+    target_sources(pocketos-shell PRIVATE
+        ${REPO_DIR}/apps/zabbix/zabbix_app.c
+        ${REPO_DIR}/apps/zabbix/zabbix_session.c
+        ${REPO_DIR}/apps/zabbix/zabbix_view.c
+        ${REPO_DIR}/core/zabbix/zbx_model.c
+        ${REPO_DIR}/core/zabbix/zbx_proto.c)
+    target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/zabbix")
+    target_compile_definitions(pocketos-shell PRIVATE POCKETOS_WITH_ZABBIX=1)
+    if(POCKETOS_DISPLAY STREQUAL "sdl")
+        # Like Camera, the simulator talks to the fake server and says
+        # SIMULATED; POCKETOS_ZABBIX_BACKEND=live overrides.
+        target_compile_definitions(pocketos-shell PRIVATE ZABBIX_FAKE_DEFAULT="demo")
+    endif()
+    message(STATUS "Zabbix viewer: built into the shell (experiment)")
 endif()
 
 # PocketTimber art (docs/apps/POCKETTIMBER_ART.md): the sprites Blender
@@ -229,8 +243,7 @@ target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/calculator"
                                                   "${REPO_DIR}/apps/settings"
                                                   "${REPO_DIR}/apps/wave"
-                                                  "${REPO_DIR}/apps/camera"
-                                                  "${REPO_DIR}/apps/zabbix")
+                                                  "${REPO_DIR}/apps/camera")
 
 if(POCKETOS_LVGL_MODE STREQUAL "source")
     find_package(Python3 REQUIRED COMPONENTS Interpreter)

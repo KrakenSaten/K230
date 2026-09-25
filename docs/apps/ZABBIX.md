@@ -404,8 +404,15 @@ The tones are the colour-only status roles laid over the label's font role,
 so no new style, token or colour is added.
 
 **Screenshots** of every screen, both shapes, are produced by
-`ZABBIX_SHOTS=<dir> zabbix_app_test` (§11). The launcher shows the app under
-MORE with a symbol, because there is no Doors icon for it yet.
+`ZABBIX_SHOTS=<dir> zabbix_app_test` (§11).
+
+**It is off by default.** The app is built into the shell only with
+`-DPOCKETOS_WITH_ZABBIX=ON` (ui/shell/CMakeLists.txt). Without it the
+launcher, every existing suite and the image's shell are exactly master's;
+`pos-zabbix` is still built and installed, so `pos-zabbix check` works on
+the bench. Built in, the app appears on the launcher under MORE with a
+symbol, because there is no Doors icon for it yet. It can also be opened
+with `doors app open zabbix`.
 
 ## 9. The fake server and the mock
 
