@@ -116,7 +116,8 @@ shapes every request from the answer.
 | Method | Used for | Parameters (as sent) | Versions |
 | --- | --- | --- | --- |
 | `apiinfo.version` | the version switch, liveness | `[]`, **never** with credentials (7.4 refuses a Bearer header on it) | all |
-| `user.login` | password setups only | `username`, `password`; the old `user` parameter was removed in 6.4 | 5.4+ |
+| `user.login` | password setups only | `username`, `password`; the old `user` parameter was removed in 6.4; sent without any credential (the server refuses one) | 5.4+ |
+| `user.logout` | password setups: ending the session when the screen closes | `[]`, with the session as the credential | all |
 | `problem.get` | open problems | `output` (eventid, objectid, clock, name, severity, acknowledged, suppressed), `source` 0, `object` 0, `suppressed` false, `sortfield` "eventid", `sortorder` DESC, `limit` 500; `hostids` for one host | 7.0+ validates parameters strictly; this set is valid |
 | `problem.get` + `countOutput` | exact totals past the limit | the same filters, with `severities: [s]` or `acknowledged: false` | all |
 | `trigger.get` | the hosts of problems (problem.get returns none) | `triggerids`, `output` ["triggerid"], `selectHosts` ["hostid","name"] | all |
@@ -134,6 +135,27 @@ shapes every request from the answer.
 - API tokens exist from 5.4. They are preferred, and are the default
   (`auth=token`).
 
+**User and password** (`auth=password`), as the 7.0 documentation and source
+describe it (DOCUMENTED; VERIFIED in the 7.0 source where marked):
+
+- `user.login` returns a session id, which is then sent exactly like a token
+  (Bearer from 6.4, `auth` member before). The documentation says so for 7.0.
+- The documentation asks that a session be ended with `user.logout`, "to
+  prevent the generation of a large number of open session records". The
+  helper logs out when the screen closes and after `pos-zabbix check`.
+- A wrong password and a blocked account give the same text. Zabbix blocks
+  a user after `Login attempts` failures (5 by default) for `Login blocking
+  interval` (30 s by default), and keeps counting failures until a login
+  succeeds. So a refused password is **never retried on its own**; REFRESH
+  NOW or reopening the app tries it once.
+- A session ends on the server after the user's auto-logout time, or
+  when another client logs the user out. The next request then answers
+  "Session terminated, re-login, please." (VERIFIED, 7.0 source) and the
+  helper logs in again, silently.
+- `user.login` is not available to users in a group with multi-factor
+  authentication (DOCUMENTED, 7.0). Such an account needs an API token.
+- The session id is kept in the helper's memory only, never on disk.
+
 **Errors.** They are classified by code and text (the strings are from the
 source, UNVERIFIED as stable).
 
@@ -141,15 +163,18 @@ source, UNVERIFIED as stable).
 | --- | --- | --- |
 | "Not authorized." (7.x) or "Not authorised." (6.0) | AUTH | AUTH_FAILED |
 | "API token expired." | AUTH | AUTH_FAILED |
-| "Session terminated, re-login, please." | AUTH | re-login once, silently, for password setups; otherwise AUTH_FAILED |
-| "Incorrect user name or password..." | AUTH | AUTH_FAILED |
+| "Session terminated, re-login, please." | AUTH | re-login, silently, for password setups (a session that has not yet served a request is not renewed); otherwise AUTH_FAILED |
+| "Incorrect user name or password or account is temporarily blocked." | AUTH | AUTH_FAILED, no automatic retry (account lockout) |
 | `No permissions to call "x.y".`, unknown parameters, anything else | API | retry with backoff |
 
-**Behaviour this rests on that is not verified against a real server:**
+**Behaviour checked in the Zabbix source** (not yet against a running
+server):
 
-- `"suppressed": false` filters out suppressed problems (ASSUMED; the
-  parser drops any that arrive anyway).
-- `hostinterface.get` accepts a `filter` on `available` (ASSUMED).
+- `"suppressed": false` leaves suppressed problems out: in 7.0 through a
+  left join on `event_suppress` with `IS NULL`, in 6.0 through `NOT EXISTS`
+  (VERIFIED in source). The parser also drops any that arrive anyway.
+- `hostinterface.get` applies `filter` to the `interface` table, and
+  `available` is a column of it (VERIFIED in the 7.0 source and schema).
 - `lastvalue` is only filled within the frontend's "Max history display
   period" (24 h by default; DOCUMENTED). Items without a value are left out.
 
@@ -157,6 +182,10 @@ source, UNVERIFIED as stable).
 
 - https://www.zabbix.com/documentation/current/en/manual/api
 - https://www.zabbix.com/documentation/7.0/en/manual/api/reference/problem/get
+- https://www.zabbix.com/documentation/7.0/en/manual/api/reference/user/login
+- https://www.zabbix.com/documentation/7.0/en/manual/api/reference/user/logout
+- https://www.zabbix.com/documentation/7.0/en/manual/web_interface/frontend_sections/users/authentication
+- the Zabbix 7.0 and 6.0 frontend source (the API classes and the database schema)
 - https://www.zabbix.com/documentation/7.0/en/manual/api/reference/host/object
 - https://www.zabbix.com/documentation/6.4/en/manual/api/changes
 - https://www.zabbix.com/documentation/7.2/en/manual/api/changes
@@ -232,15 +261,19 @@ source, UNVERIFIED as stable).
 UNCONFIGURED ─── stays; OVERVIEW shows how to set up, and TRY THE DEMO
 CONNECTING ─ apiinfo.version (+ user.login) ─> ONLINE
 ONLINE ─ any failure but AUTH ─> RETRYING ─ after 5,10,20,40,80,120,120… s ─> CONNECTING
-any ─ AUTH ─> AUTH_FAILED ─ after 300 s, or at once on REFRESH ─> CONNECTING
+any ─ AUTH ─> AUTH_FAILED ─ token: after 300 s; password: never on its own; either: at once on REFRESH ─> CONNECTING
 ```
 
 **Failures:**
 
-- A password session that expires is logged in again once, at once. A
-  session refused straight after a login is a real failure, and a password is
-  never retried on its own sooner than 5 minutes (Zabbix blocks accounts
-  after repeated failed logins).
+- A password session that ends on the server is logged in again at once,
+  silently, as often as the server ends it. A session refused before it has
+  served a single request is a real failure.
+- A refused password is never tried again on its own, because every try
+  counts towards Zabbix's account lockout. The banner says so: `Access
+  refused: check the user and password · REFRESH NOW to try again`.
+- A refused token is tried again after 300 s; a token does not lock the
+  account.
 - DNS, connect, timeout, TLS and HTTP failures drop the connection. The next
   try asks the version again.
 - API errors, malformed answers and oversized answers keep it. The server is
@@ -314,6 +347,18 @@ runs under ASan and LSan (`make zabbix-san-test`).
 - It is written only by `pos-zabbix set-secret token|password`, which reads
   one line from stdin. It never passes through argv, the environment or a
   shell history.
+- A token must be one word of printable ASCII. A password is kept byte for
+  byte, spaces (at its ends too), UTF-8, `=` and `#` included; only a CR or
+  LF is refused, since the file holds one line.
+- `pos-zabbix clear-secret` removes it.
+
+**Handling the password.** Everything said of the token below holds for the
+password and for the session id `user.login` returns. The password goes only
+into the `user.login` body, which is wiped after the request. The session id
+lives in the helper's memory and is ended with `user.logout` (§3).
+tests/zabbix_http_test.sh checks that neither the password nor the token is
+in any log, and that the password is not in the running helper's
+`/proc/PID/cmdline` or `/proc/PID/environ`.
 
 **Handling the token.**
 
@@ -445,6 +490,15 @@ with `doors app open zabbix`.
 | `drop` | 12 answers, then the server is gone for good (stale data) |
 | `old` | a 6.0 LTS server |
 | `v74` | a 7.4 server |
+| `short` | demo, but every `user.login` session ends after 6 requests (renewal) |
+
+**Sessions.** `user.login` succeeds for the user `demo` with any password;
+another user is refused with the real text. `user.login` with a credential
+is refused, as the real server does. A session id is checked against the one
+issued, ended by `user.logout`, and counted: the mock's
+`GET /__mock/stats` answers `logins N logouts N open 0|1 failed_logins N
+requests N`, so a test can see that nothing was left open and that a refused
+password was not tried again on its own.
 
 Where the fake runs:
 
@@ -472,10 +526,74 @@ pos-zabbix check                                            # one round; exit 0 
 
 - **Self-signed server:** add `ca_file=/etc/pocketos/zabbix-ca.pem`.
 - **Password instead of a token:** `auth=password` and `user=viewer` in
-  zabbix.conf, then `echo 'PASSWORD' | pos-zabbix set-secret password`.
+  zabbix.conf, then type the password where it is neither echoed nor kept in
+  the shell history (`printf` is a builtin, so it is no process's argument):
+
+  ```sh
+  IFS= read -rs -p 'Zabbix password: ' P; echo
+  printf '%s\n' "$P" | pos-zabbix set-secret password; unset P
+  ```
+
+  The account must not be in a group with multi-factor authentication
+  (§3); use a token for such an account. A wrong password is not tried
+  again on its own (§5).
 - **The demo, with no server:** `mode=fake` in zabbix.conf, or tap TRY THE
   DEMO.
 - **To remove the secret:** `pos-zabbix clear-secret`.
+
+### 10.1 Trying a real server from the development host
+
+`tools/zabbix/try-server.sh` makes one read-only round against a real
+server from WSL, before anything goes near a unit. The URL and user are
+arguments, and the secret is asked for. Nothing about the server is
+committed.
+
+**What it does:**
+
+- It makes a private 0700 directory for the configuration, the secret and
+  the log, and removes it on exit.
+- It asks for the password (or token) without echo and stores it with
+  `pos-zabbix set-secret`, through a pipe from a shell builtin.
+- It runs `pos-zabbix check`, which logs in, fetches, and logs out.
+- It prints the version, the state, the counts, the ten newest problems and
+  the helper's log.
+
+**Step 1: build once.** This host has the libcurl run-time only, so point
+the build at a copy of the image sysroot's curl headers, as in
+docs/hardware/ZABBIX_EXPERIMENT_VALIDATION.md §2. With `libcurl4-openssl-dev`
+installed, `make ZABBIX_CURL=1 tools/zabbix/pos-zabbix` is enough.
+
+```sh
+make ZABBIX_CURL=1 ZABBIX_CURL_CFLAGS=-I$HOME/work/curl-headers \
+     ZABBIX_CURL_LIBS=-l:libcurl.so.4 tools/zabbix/pos-zabbix
+```
+
+**Step 2: run it** with the frontend URL and the user. The URL is the one
+the browser shows for the frontend, without `index.php`. The helper appends
+`api_jsonrpc.php`.
+
+```sh
+tools/zabbix/try-server.sh https://zabbix.example.com/ viewer
+tools/zabbix/try-server.sh https://zabbix.example.com/ viewer ca_file=/path/ca.pem   # private CA
+tools/zabbix/try-server.sh https://zabbix.example.com/ --token                      # an API token instead
+```
+
+**Reading the result:**
+
+- `try-server: ONLINE` means the version, the login, problem.get,
+  trigger.get, hostinterface.get and host.get all answered, and the session
+  was logged out.
+- The state line names the failure otherwise:
+
+| State | Meaning | Next step |
+| --- | --- | --- |
+| `authfail` / `auth` | wrong user or password, a blocked account, or a group with MFA | Check in the browser before trying again; each try counts towards the lockout (5 by default) |
+| `retrying` / `http` | HTTP 404 means the API is not at that path | Try the URL with `/zabbix/` appended |
+| `retrying` / `tls` | the certificate is not trusted | Add `ca_file=...` |
+| `retrying` / `api` | the user may not call a method | Check the user role's API access |
+
+Run it once per change; never in a loop. Compare the counts with the
+frontend's Problems and Hosts pages.
 
 ## 11. Validation
 
@@ -520,11 +638,14 @@ short, from a clean clone of `a1b697e`:
 
 Against a real server (Zabbix 7.0 LTS preferred, with a read-only token):
 
-1. Run `pos-zabbix check` and compare the counts with the frontend's Problems
-   and Hosts pages.
-2. Confirm the three ASSUMED behaviours in §3: the `suppressed` filter, the
-   `hostinterface.get` filter, and the error strings.
-3. Test a password setup and the session expiry (`autologout`).
+1. Run `tools/zabbix/try-server.sh` (§10.1) and compare the counts with the
+   frontend's Problems and Hosts pages.
+2. Confirm on a running server what §3 verified in the source: the
+   `suppressed` filter, the `hostinterface.get` filter, and the error
+   strings.
+3. For a password setup, check that the helper's log says `logged out`
+   (not `logout failed`), and test renewal against a short auto-logout
+   on the user's profile.
 4. Test a 6.0 server (the `auth` member) and a 7.4 server.
 
 On unit A:

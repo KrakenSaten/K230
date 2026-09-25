@@ -118,9 +118,10 @@ documentation, 2026-09-25):
 ## Decision (proposed)
 
 1. **A native, read-only Zabbix viewer app with the helper of option D.**
-   - The app only reads: `apiinfo.version`, `user.login` (for password
-     setups), `problem.get`, `trigger.get`, `hostinterface.get`, `host.get`
-     and `item.get`.
+   - The app only reads: `apiinfo.version`, `user.login` and `user.logout`
+     (for password setups; they open and end its own session, as the API
+     documentation asks), `problem.get`, `trigger.get`, `hostinterface.get`,
+     `host.get` and `item.get`.
    - Nothing acknowledges, configures or writes (tests/zabbix_lint.sh holds
      this).
    - Supported servers are 6.0 LTS, 6.4, 7.0 LTS, 7.2 and 7.4. The request
@@ -188,6 +189,11 @@ Risks:
 - **Stolen card:** the token is readable by anyone who takes the card out,
   the same as the Wi-Fi passphrases. Give the viewer a token of a read-only
   user with a short expiry.
+- **Account lockout with a password:** Zabbix blocks a user after repeated
+  failed logins (5 by default) and keeps counting until a login succeeds.
+  A refused password is therefore never retried on its own; REFRESH NOW or
+  reopening the app tries it once. A password is also the owner's real
+  credential and a token is not, which is one more reason to prefer a token.
 
 ## Evidence
 
@@ -205,12 +211,23 @@ Risks:
     finishes with no warnings under `-Werror`.
   - pos-zabbix is 116 KB and links `libcurl.so.4`.
   - The DRM shell builds against the sysroot LVGL.
+- **VERIFIED on the host, 2026-09-25:** the user-and-password path over HTTP
+  against the mock.
+  - A password with spaces, UTF-8, `=` and `#` is stored and sent byte for
+    byte.
+  - A session is logged out after `pos-zabbix check` and after the screen
+    closes.
+  - Sessions the server ends every six requests are renewed without going
+    offline, and none is left open.
+  - A refused password is tried once only.
+  - The password is in no log, and not in the helper's cmdline or environ.
 - **DOCUMENTED:** the Zabbix API facts are in docs/apps/ZABBIX.md §3, with
   the official URLs; some error strings are from the source only
   (UNVERIFIED as a stable API).
-- **ASSUMED, not tried against a real server:**
-  - `"suppressed": false` filters out suppressed problems; the parser drops
-    any that come anyway;
-  - `hostinterface.get` filters on `available`.
-- **NOT RUN:** unit A (not reachable on 2026-09-25) and a real Zabbix server
-  (no credentials).
+- **VERIFIED in the Zabbix source, not tried against a running server:**
+  - `"suppressed": false` leaves suppressed problems out, in 6.0 and 7.0;
+    the parser drops any that come anyway;
+  - `hostinterface.get` applies `filter` to the interface table, where
+    `available` is a column.
+- **NOT RUN:** unit A (DEVICE UNVERIFIED) and a real Zabbix server. The
+  procedure for the server is docs/apps/ZABBIX.md §10.1.
