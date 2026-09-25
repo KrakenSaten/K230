@@ -57,6 +57,30 @@ want() { # <label> <files> <regex>
     fi
 }
 
+# 9. Multiplayer's joints (ADR-007). The view model and the link layer draw
+#    nothing; exactly one file talks to a service, and it is the mesh link;
+#    nothing in Fleet names a radio method or radiod's socket; the session
+#    pumps nothing until the player engages; and the virtual opponent exists
+#    only when POCKETFLEET_MP_FAKE asks for it.
+LINK=apps/fleet/link
+check "the multiplayer view model is free of LVGL" \
+      "apps/fleet/ui/fleet_view_mp.c apps/fleet/ui/fleet_view_mp.h" \
+      'include[[:space:]]*[<"]lvgl|lv_obj_|lv_style_'
+check "the link layer is free of LVGL" "$LINK/*.c $LINK/*.h" \
+      'include[[:space:]]*[<"]lvgl|lv_obj_|lv_style_'
+check "only the mesh link talks to a service" \
+      "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v "$LINK/fleet_link_mesh.c")" \
+      'pocketipc_|include[[:space:]]*"pocketipc'
+check "Fleet never names a radio method or radiod" "apps/fleet/*.c apps/fleet/*/*.c" \
+      '"radio\.[a-z_]+"|radiod\.sock|"radiod"'
+want "the session pumps nothing before the player engages" "$LINK/fleet_session.c" \
+     'if \(!s->engaged\) \{'
+want "the virtual opponent only when asked for" "apps/fleet/fleet_mp.c" \
+     'getenv\("POCKETFLEET_MP_FAKE"\)'
+check "and nowhere else" "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v fleet_mp.c | grep -v fleet_link_loop.c)" \
+      'fleet_link_loop_open'
+
+
 UI="apps/fleet/fleet_app.c apps/fleet/ui/fleet_screen_battle.c     apps/fleet/ui/fleet_screen_command.c apps/fleet/ui/fleet_screen_deploy.c     apps/fleet/ui/fleet_screen_result.c"
 
 # 4. The shape comes from the body's size. Nothing in the app may ask which way

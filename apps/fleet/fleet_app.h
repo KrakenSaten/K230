@@ -22,13 +22,27 @@ enum fleet_screen {
     FLEET_SCREEN_DEPLOY,
     FLEET_SCREEN_BATTLE,
     FLEET_SCREEN_RESULT,
+    /* Multiplayer: choosing an opponent, invitations, the match in hand
+     * (docs/apps/FLEET_MULTIPLAYER.md). Last, so the four screens above keep
+     * their places. */
+    FLEET_SCREEN_LOBBY,
     FLEET_SCREEN_COUNT
+};
+
+/* Whom Deploy, Battle and Result are about: the AI (fleet_game), or another
+ * device (the multiplayer session). */
+enum fleet_mode {
+    FLEET_MODE_SOLO = 0,
+    FLEET_MODE_MULTI
 };
 
 struct fleet_command_ui;
 struct fleet_deploy_ui;
 struct fleet_battle_ui;
 struct fleet_result_ui;
+struct fleet_lobby_ui;
+struct fleet_session;
+struct fleet_link;
 
 /* The shape every screen lays out in, chosen from the body alone (DS §28.1).
  * TALL is the portrait stack; WIDE puts the board beside what is said about
@@ -91,6 +105,20 @@ struct fleet_app {
     struct fleet_deploy_ui *deploy;
     struct fleet_battle_ui *battle;
     struct fleet_result_ui *result;
+    struct fleet_lobby_ui *lobby;
+
+    /* ---- multiplayer (fleet_mp.c) ---------------------------------------- */
+    uint8_t mode;                             /* enum fleet_mode */
+    struct fleet_link *link;                  /* NULL when there is none */
+    struct fleet_session *mp;                 /* NULL when there is no link */
+    lv_timer_t *mp_timer;
+    unsigned mp_revision;                     /* what the screens last showed */
+    uint8_t mp_phase;                         /* the phase they were steered by */
+    uint8_t mp_saved;                         /* a saved match is waiting to resume */
+    char mp_saved_peer[32];
+    uint8_t mp_forfeit_armed;                 /* FORFEIT pressed once */
+    int64_t mp_clock_offset;                  /* development aid: time skipped ahead */
+    struct fleet_board mp_fleet;              /* the fleet being placed for a match */
 };
 
 /* Show a screen and refresh it. A screen that has not been built yet is
@@ -165,5 +193,34 @@ void fleet_screen_battle_relayout(struct fleet_app *app, int wide, int cell_w, i
 lv_obj_t *fleet_screen_result_create(struct fleet_app *app, lv_obj_t *parent);
 void fleet_screen_result_refresh(struct fleet_app *app);
 void fleet_screen_result_relayout(struct fleet_app *app, int wide);
+lv_obj_t *fleet_screen_lobby_create(struct fleet_app *app, lv_obj_t *parent);
+void fleet_screen_lobby_refresh(struct fleet_app *app);
+void fleet_screen_lobby_relayout(struct fleet_app *app, int wide);
+
+/* ---- multiplayer (fleet_mp.c) ------------------------------------------------ */
+
+/* Make multiplayer available: pick the link and read any saved match. Opens
+ * no connection and sends nothing. */
+void fleet_mp_create(struct fleet_app *app);
+void fleet_mp_destroy(struct fleet_app *app);
+/* Open the lobby. This is the player choosing multiplayer: from here the
+ * session is engaged and packets move. */
+void fleet_app_multiplayer(struct fleet_app *app);
+/* Continue the match in hand on the screen its phase belongs to. */
+void fleet_app_mp_resume(struct fleet_app *app);
+/* After anything that may have changed the match: steer and refresh. */
+void fleet_app_mp_changed(struct fleet_app *app);
+/* CLOCK_MONOTONIC in ms, as the session sees it. */
+int64_t fleet_app_now(struct fleet_app *app);
+/* The opponent's name as the screens write it. */
+const char *fleet_app_peer(struct fleet_app *app, char *buf, size_t n);
+/* Development aid: with POCKETFLEET_MP_FAKE set, drive a match against the
+ * virtual opponent into the named state on a skipped clock, for screenshots
+ * (POCKETFLEET_SCREEN=lobby|mp_invited|mp_deploy|mp_battle|mp_waiting|mp_lost|
+ * mp_result). Returns 1 when it recognised the name. */
+int fleet_mp_debug(struct fleet_app *app, const char *want);
+/* The board Deploy works on: the AI match's, or the one for a multiplayer
+ * match. */
+struct fleet_board *fleet_app_deploy_board(struct fleet_app *app);
 
 #endif

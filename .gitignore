@@ -33,6 +33,8 @@
 /tests/fleet_proto_test
 /tests/fleet_match_test
 /tests/fleet_mp_sim_test
+/tests/fleet_session_test
+/tests/fleet_view_mp_test
 /tests/radar_rng_test
 /tests/radar_types_test
 /tests/radar_rules_test

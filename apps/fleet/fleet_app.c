@@ -2,8 +2,10 @@
  * PocketFleet: a tactical naval game for PocketOS. Application entry point,
  * screen ownership and navigation. See fleet_app.h.
  *
- * Phase 1 is local single player. The app talks to no service and opens no
- * device; it needs the shell's app API and PocketUI, nothing else.
+ * Single player needs the shell's app API and PocketUI, nothing else.
+ * Multiplayer (fleet_mp.c, docs/apps/FLEET_MULTIPLAYER.md) talks to the mesh
+ * service through one link, and only once the player has chosen it; the app
+ * never opens a device either way.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -11,6 +13,7 @@
 
 #include "app.h"
 #include "engine/fleet_store.h"
+#include "link/fleet_session.h"
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
 #include "ui/fleet_grid.h"
@@ -295,6 +298,7 @@ static void fleet_app_layout(struct fleet_app *app)
     fleet_screen_deploy_relayout(app, wide, cell_w, cell);
     fleet_screen_battle_relayout(app, wide, cell_w, cell);
     fleet_screen_result_relayout(app, wide);
+    fleet_screen_lobby_relayout(app, wide);
 }
 
 /* The frame is the body's content box, so this is the body changing size: the
@@ -341,8 +345,17 @@ void fleet_app_show(struct fleet_app *app, enum fleet_screen screen)
     case FLEET_SCREEN_RESULT:
         fleet_screen_result_refresh(app);
         break;
+    case FLEET_SCREEN_LOBBY:
+        fleet_screen_lobby_refresh(app);
+        pocketos_shell_set_status_hint("MULTIPLAYER");
+        return;
     default:
         break;
+    }
+    if (app->mode == FLEET_MODE_MULTI) {
+        /* fleet_app_mp_changed() keeps the header current as the match moves. */
+        fleet_app_mp_changed(app);
+        return;
     }
     if (fleet_view_status(&app->game, status, sizeof(status)) == 0) {
         pocketos_shell_set_status_hint(status);
@@ -377,6 +390,7 @@ void fleet_app_resume(struct fleet_app *app)
     if (!app || !app->resumable) {
         return;
     }
+    app->mode = FLEET_MODE_SOLO;
     app->resumable = 0;
     app->difficulty = app->game.difficulty;
     switch (app->game.phase) {
@@ -401,6 +415,7 @@ void fleet_app_new_match(struct fleet_app *app)
     if (!app) {
         return;
     }
+    app->mode = FLEET_MODE_SOLO;
     if (app->storage_ok) {
         fleet_store_clear();
     }
@@ -452,6 +467,9 @@ static void debug_open(struct fleet_app *app)
     int i;
 
     if (!want) {
+        return;
+    }
+    if (fleet_mp_debug(app, want)) {
         return;
     }
     if (strcmp(want, "deploy") == 0) {
@@ -557,6 +575,10 @@ static void *fleet_create(lv_obj_t *root)
     app->screen[FLEET_SCREEN_DEPLOY] = fleet_screen_deploy_create(app, app->frame);
     app->screen[FLEET_SCREEN_BATTLE] = fleet_screen_battle_create(app, app->frame);
     app->screen[FLEET_SCREEN_RESULT] = fleet_screen_result_create(app, app->frame);
+    app->screen[FLEET_SCREEN_LOBBY] = fleet_screen_lobby_create(app, app->frame);
+    /* Multiplayer is made available, not started: this reads the saved match
+     * file and nothing else. */
+    fleet_mp_create(app);
     fleet_screen_deploy_enter(app);
     fleet_app_show(app, FLEET_SCREEN_COMMAND);
     debug_open(app);
@@ -573,6 +595,8 @@ static void fleet_destroy(void *priv)
     /* Settle a paced turn and stop every timer before the objects they refer
      * to go away with the shell's root. */
     fleet_screen_battle_leave(app);
+    /* The multiplayer timer refers to the app and the link: both go first. */
+    fleet_mp_destroy(app);
     /* Nothing may lay out against a half-freed app: the shell deletes the
      * body's children after this returns, and a layout pass in between would
      * reach the screens through a struct that is already gone. */
@@ -586,6 +610,7 @@ static void fleet_destroy(void *priv)
     free(app->deploy);
     free(app->battle);
     free(app->result);
+    free(app->lobby);
     free(app);
 }
 

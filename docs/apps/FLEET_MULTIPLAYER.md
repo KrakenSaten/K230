@@ -248,6 +248,54 @@ peer commit and the evidence bits, R and the log, the pending shot, the
 peer's reveal and the verification, how it ended, four tombstones. Not
 held: timers, try counts, the governor, the outbox; each is rebuilt.
 
+## In the app
+
+The session (`apps/fleet/link/fleet_session.c`) joins the match, a link and
+`match.v1`, and keeps three rules: **nothing is pumped until the player
+engages** - opens Multiplayer or presses Resume - so opening Fleet sends
+nothing and does not even read the inbox; unsaved state is saved before a
+packet is taken from the outbox; random bits come from `getrandom()`, never a
+clock. The app drives it from a 100 ms LVGL timer (`apps/fleet/fleet_mp.c`)
+and repaints only when the match's revision changes.
+
+The screens are PocketFleet's own. One is new, the Lobby; Deploy, Battle and
+Result read the match instead of the AI game when the mode is multiplayer.
+The cell language, the layouts in both shapes, aim-then-confirm and the rule
+that a Battle turn never scrolls are unchanged, and tests/fleet_app_test holds
+multiplayer to them exactly as it holds single player.
+
+| UX state | Where | What it says / offers |
+| --- | --- | --- |
+| Multiplayer menu | Command: a MULTIPLAYER panel under OPPONENT | "Play another Doors device over the mesh." MULTIPLAYER; or "An engagement with X is waiting." RESUME MATCH |
+| Mesh unavailable | Lobby, ENGAGEMENT | "The mesh service is not running on this device, and multiplayer needs it." |
+| Create game | Lobby | PLAYERS IN RANGE ("ANNA · DIRECT · HEARD JUST NOW"), MAKE VISIBLE (zero-hop advert), INVITE |
+| Waiting for player | Lobby | "Inviting Anna…", "no answer yet (try 3 of 6)", CANCEL |
+| Incoming invite | Lobby | "Anna invites you to an engagement." ACCEPT / DECLINE |
+| Declined, busy, no answer, withdrawn, crossed | Lobby | one sentence each |
+| Preparing game | Deploy (unchanged), then Battle | "Waiting for Anna to deploy." |
+| Your turn | Battle | the aiming text, FIRE armed |
+| Waiting for acknowledgement | Battle | "Shot at D3 sent. Waiting for the report." FIRE disarmed |
+| Link problem / retrying | Battle | "Link problem: no report on D3 yet. Retrying (3 of 6)." |
+| Airtime held back | Battle | "Holding back to spare the airtime. It will go shortly." |
+| Resyncing | Battle | "Checking the match with Anna…" |
+| Opponent turn | Battle | "Anna is aiming." then "No word for 7 min." |
+| Opponent disconnected | Battle | "Anna is out of reach. The match is paused, not lost." FIRE becomes CHECK LINK |
+| Forfeit | Lobby, match in hand | FORFEIT, then CONFIRM FORFEIT |
+| Game over | Result | "Enemy fleet destroyed" / "Fleet lost" / "No result"; Ended ("ALL SHIPS SUNK", "THEY FORFEITED", "VOID · RECORDS DIFFER"); Their fleet ("Verified", "Not verified", "Reports did not match") |
+
+The wording is `apps/fleet/ui/fleet_view_mp.c`, tested natively.
+Screenshots: `docs/design/shots/fleet-mp-<state>[-landscape].png`.
+
+**Development aid.** `POCKETFLEET_MP_FAKE=<spec>` replaces the mesh link with a
+virtual opponent (`apps/fleet/link/fleet_link_loop.c`): a second match state
+machine, played by PocketFleet's AI, over a channel that can lose, duplicate,
+delay and be cut (`loss=20,dup=5,delay=800,invite=3000,think=2500,level=3,
+decline,silent,cut=60000,seed=7`). With it, one simulator shell plays a whole
+match against the real protocol. With `POCKETFLEET_SCREEN=lobby|mp_invited|
+mp_deploy|mp_battle|mp_waiting|mp_lost|mp_result` the app drives the match
+into that state on a skipped clock, for screenshots. Both are inert unless
+set, and nothing either does reaches a radio.
+
 ## Airtime
 
 Per frame, zero hops, the MeshCore profile: 22 bytes 304.1 ms, 38 bytes
@@ -272,11 +320,13 @@ to measure (docs/hardware/FLEET_MULTIPLAYER_GATE.md).
 
 | Test | Covers |
 | --- | --- |
-| `tests/fleet_sha256_test` | NIST vectors, streaming |
-| `tests/fleet_proto_test` | every type round trip, every length, every bad field, random bytes |
-| `tests/fleet_match_test` | each session, turn, resync, fairness and END rule by name |
-| `tests/fleet_mp_sim_test` | two AI players over a fake network with loss, duplication, reordering, delay, partitions, crashes and reopen; invariants after every event; cheating peers |
-| `tests/fleet_match_save_test` | the save codec, and a crash between save and send |
-| `tests/fleet_link_test` | fleet_link_mesh against a scripted meshcored |
-| `tests/meshcored_runtime_test.cpp` | REQ app datagrams with real crypto, receipts, inbox |
-| `tests/fleet_mp_e2e_test.sh` | two whole meshcored processes over a lossy mock air, two Fleet links, a whole match |
+| `tests/fleet_sha256_test` | the NIST vectors, every split, the padding boundaries |
+| `tests/fleet_proto_test` | every type round trip, every length, every bad field, a million random packets |
+| `tests/fleet_match_test` | each session, turn, resync, fairness, END and save-codec rule by name |
+| `tests/fleet_mp_sim_test` | two AI players over a simulated LoRa channel with loss, duplication, reordering, collisions, outages, crashes, app close/reopen, service restarts and reboots; invariants after every step, the perfect-network oracle, eight cheating peers. `make fleet-mp-soak` for 5000 matches a profile |
+| `tests/fleet_session_test` | the session against the virtual opponent: nothing before engaging, whole matches clean and lossy, reopen and resume, a failed save, another identity's save, decline, silence |
+| `tests/fleet_view_mp_test` | every UX state's words |
+| `tests/fleet_app_test` (section 8) | whole multiplayer matches under a finger in both shapes, a turn across the page never scrolling, reopen and RESUME MATCH, the link lost and CHECK LINK |
+| `tests/fleet_shell_test.sh` (section 10) | every multiplayer state rendered in both shapes in the shell, `match.v1` written whole, no mesh service, a damaged `match.v1` |
+| `tests/fleet_lint.sh` | the layers: net pure, one file talks to a service, no radio method, nothing pumped before engaging, the virtual opponent only when asked for |
+| `make fleet-mp-san-test` | the native suites under ASan and UBSan |
