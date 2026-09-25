@@ -603,6 +603,24 @@ tests/fleet_link_test: tests/fleet_link_test.o $(FLEET_MESH_LINK_OBJS) tests/fak
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 FLEET_TESTS += tests/fleet_link_test
 
+# A player without a screen - the real session, mesh link and match, with
+# PocketFleet's AI for a finger - for the end-to-end test over two real
+# meshcored processes (tests/fleet_mp_e2e_test.sh, make fleet-mp-e2e).
+tests/fleet_mp_player.o: ALL_CFLAGS += -Iapps/fleet/link -I$(FLEET_DIR)
+tests/fleet_mp_player: tests/fleet_mp_player.o $(FLEET_MESH_LINK_OBJS) apps/fleet/link/fleet_session.o \
+                       $(FLEET_NET_OBJS) $(FLEET_OBJS) $(IPC_OBJS) $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+FLEET_TESTS += tests/fleet_mp_player
+
+# P6: whole matches between two real meshcored processes over a mock air, at
+# the real pace and under loss, a crash and a service restart. Needs the
+# MeshCore build: make ENABLE_MESHCORED=1 fleet-mp-e2e. Several minutes, so it
+# is its own target rather than part of make test.
+.PHONY: fleet-mp-e2e
+fleet-mp-e2e: tests/fleet_mp_player
+	$(MAKE) ENABLE_MESHCORED=1 meshcored
+	bash tests/fleet_mp_e2e_test.sh
+
 # The simulator at scale: FLEET_SIM_MATCHES matches per fault profile, each
 # checked against the same match on a perfect network. make test runs 300.
 FLEET_SOAK_MATCHES ?= 5000
