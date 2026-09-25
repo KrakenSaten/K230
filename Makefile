@@ -290,7 +290,10 @@ tests/sysd-testhooks: $(SYSD_BASE_OBJS) tests/sysd_power_hooks.o
 # lone `tools/pos/pos.o: VERSION` that used to cover one of the three.
 # tests/build_deps_test.sh fails if a source names the macros and its object
 # is missing here.
-POCKETOS_ID_OBJS := core/pocketlog/pocketlog.o tools/pos/pos.o tests/pocketlog_test.o
+# pos-zabbix's transport names POCKETOS_VERSION in its User-Agent; it is one
+# source built under two names (ZABBIX_CURL), so both are listed.
+POCKETOS_ID_OBJS := core/pocketlog/pocketlog.o tools/pos/pos.o tests/pocketlog_test.o \
+                    core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o
 $(POCKETOS_ID_OBJS): $(POCKETOS_BUILD_STAMP)
 
 # Compile-only check of the sx1262 backend on a host without libgpiod v2
