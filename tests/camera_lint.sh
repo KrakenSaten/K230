@@ -1,5 +1,5 @@
 #!/bin/bash
-# Camera's boundaries (docs/apps/CAMERA.md, ADR-006 PROPOSED), held statically.
+# Camera's boundaries (docs/apps/CAMERA.md, ADR-006), held statically.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 failed=0

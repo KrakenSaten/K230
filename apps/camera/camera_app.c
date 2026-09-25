@@ -4,7 +4,7 @@
  * This file is the screen. What state the camera is in and what each tap
  * does is camera_state.c; where things go is camera_layout.c; the camera
  * itself is not here at all. It lives in a pos-camera helper process
- * (camera_session.c, ADR-006 PROPOSED), polled from an LVGL timer that only
+ * (camera_session.c, ADR-006), polled from an LVGL timer that only
  * ever makes non-blocking calls. The only waits on the LVGL thread are
  * destroy() and Try again giving a running helper CAMERA_DESTROY_GRACE_MS to
  * close the camera before it is killed.

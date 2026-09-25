@@ -2855,13 +2855,16 @@ a file copied, moved and deleted on the SD card; `/etc` and
 
 Amendment Q (§33) accepted 2026-09-23 (Files unit A gate, docs/hardware/FILES_GATE.md), with the landscape launcher wrap of §33.4.
 
-## 34. Amendment R — Camera [PROPOSED]
+## 34. Amendment R — Camera [ACCEPTED]
 
-**PROPOSED 2026-09-24** on branch `feat/camera-app-design`, validated on the
-host only (§34.5), not run on unit A and not accepted. It adds one app and
+**ACCEPTED 2026-09-25** by the owner, after the unit A gate
+(`docs/hardware/CAMERA_GATE.md`, PASS: both orientations, the picture upright
+and not mirrored, capture, review, keep and delete, the keyboard base
+alongside). **Proposed 2026-09-24** on branch `feat/camera-app-design`,
+validated on the host (§34.5). It adds one app and
 changes no existing screen; outside the app it adds a fourth cell to DEVICE
 on the launcher (§34.4). Nothing in §1-§33 is renumbered. The app is described
-in `docs/apps/CAMERA.md`, its architecture in ADR-006 (PROPOSED).
+in `docs/apps/CAMERA.md`, its architecture in ADR-006 (accepted 2026-09-25).
 
 ### 34.1 Components
 
@@ -2924,3 +2927,5 @@ upright and not mirrored (U4) at a steady rate; a photo taken, kept,
 reviewed, deleted; the file on the card exactly when the screen says so; no
 camera (with the ISP daemon stopped) and back; leaving mid-capture; the
 header without SIMULATED.
+
+Amendment R (§34) accepted 2026-09-25 (Camera unit A gate, docs/hardware/CAMERA_GATE.md).

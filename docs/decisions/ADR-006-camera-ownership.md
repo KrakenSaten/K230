@@ -1,8 +1,9 @@
 # ADR-006: Who owns the camera
 
-Status: Proposed (awaiting the product owner). Branch `feat/camera-app-design`,
-not merged.
-Date: 2026-09-24
+Status: Accepted (product owner, 2026-09-25), after the unit A gate
+(docs/hardware/CAMERA_GATE.md, PASS). Proposed 2026-09-24 on branch
+`feat/camera-app-design`.
+Date: 2026-09-24 (proposed), 2026-09-25 (accepted)
 Deciders: product owner (final), AI engineering partner (author)
 
 ## Context
@@ -79,7 +80,7 @@ Facts that shape it (docs/hardware/CAMERA_PLATFORM_RESEARCH.md):
   visit to the screen (cost unmeasured, see U6); one copy of each preview
   picture between processes.
 
-## Decision (proposed)
+## Decision
 
 **Option C.** The camera still has exactly one owner at a time and the app
 never opens it; the owner lives as long as the screen that needs it.

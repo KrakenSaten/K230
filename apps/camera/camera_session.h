@@ -2,7 +2,7 @@
  * Camera's link to its helper: one pos-camera process for as long as the
  * Camera screen is open, driven without ever blocking the LVGL thread.
  *
- * Why a helper process (docs/decisions/ADR-006-camera-ownership.md, PROPOSED):
+ * Why a helper process (docs/decisions/ADR-006-camera-ownership.md):
  * apps do not touch hardware (ADR-002, ui/shell/app.h), and the K230 camera
  * sits on out-of-tree vendor modules and a closed ISP daemon whose failure
  * modes nobody here has seen yet. With the camera in a child process:

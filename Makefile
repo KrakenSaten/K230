@@ -874,7 +874,7 @@ tests/wave_session_test: tests/wave_session_test.o $(WAVE_DIR)/wave_session.o
 tests/wave_modem_test: tests/wave_modem_test.o $(WAVE_MODEM_OBJS) $(AUDIO_OBJS) $(PATHS_OBJS)
 	$(CXX) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
 
-# Camera (docs/apps/CAMERA.md, ADR-006 PROPOSED; not merged).
+# Camera (docs/apps/CAMERA.md, ADR-006).
 #
 # core/pocketcam is the camera layer: the backend seam with the fake backend
 # and the real V4L2 backend, the pixel conversion, the photo store and the

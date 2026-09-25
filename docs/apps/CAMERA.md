@@ -8,7 +8,8 @@ v0.0.12), not merged.** The real V4L2 backend is written and gated: live
 preview and JPEG stills on unit A in portrait and landscape, keep and delete,
 the keyboard base alongside (`docs/hardware/CAMERA_GATE.md`, PASS on a
 hand-installed build `e3d3f71`). Host-tested end to end on the fake backend.
-Architecture ADR-006 and layout DS §34 (Amendment R) are PROPOSED. The
+Architecture ADR-006 and layout DS §34 (Amendment R) ACCEPTED by the owner
+2026-09-25. The
 hardware findings are `docs/hardware/CAMERA_PLATFORM_RESEARCH.md` (§10 for the
 unit A measurements).
 
@@ -61,7 +62,7 @@ same way and opens it again in the new orientation.
 ## Architecture
 
 The app never opens the camera. A helper process owns it for as long as the
-screen is open (ADR-006, PROPOSED):
+screen is open (ADR-006, accepted 2026-09-25):
 
 | Part | Where | Role |
 | --- | --- | --- |
@@ -151,7 +152,7 @@ Escape cancel. Backspace: leave (the shell's back).
 
 ## Layout
 
-DS §34 (Amendment R, PROPOSED). Fullscreen (NONE chrome): the shell's header
+DS §34 (Amendment R, ACCEPTED 2026-09-25). Fullscreen (NONE chrome): the shell's header
 carries the back slab and the hint. Only existing roles: a slab behind the
 picture, the §7 primary and secondary buttons at 64 px (the shutter 240 x 96),
 a 72 px slab for the last photo, title and secondary text for the panel.
