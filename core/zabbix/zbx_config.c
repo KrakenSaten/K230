@@ -379,7 +379,19 @@ int zbx_config_read_secret(struct zbx_config *c, const char *path, char *err, si
         say(err, errlen, "the secret file cannot be read", NULL);
         return -1;
     }
-    line = trim(buf);
+    /* One line: the first newline ends it (and a CR before it). */
+    line = buf;
+    {
+        char *nl = strchr(line, '\n');
+
+        if (nl) {
+            *nl = '\0';
+        }
+        n = (int)strlen(line);
+        if (n > 0 && line[n - 1] == '\r') {
+            line[n - 1] = '\0';
+        }
+    }
     eq = strchr(line, '=');
     if (!eq) {
         explicit_bzero(buf, sizeof(buf));
@@ -387,6 +399,7 @@ int zbx_config_read_secret(struct zbx_config *c, const char *path, char *err, si
         return -1;
     }
     *eq = '\0';
+    line = trim(line);
     if ((strcmp(line, "token") == 0 && c->auth != ZBX_AUTH_TOKEN) ||
         (strcmp(line, "password") == 0 && c->auth != ZBX_AUTH_PASSWORD) ||
         (strcmp(line, "token") != 0 && strcmp(line, "password") != 0)) {
@@ -394,7 +407,9 @@ int zbx_config_read_secret(struct zbx_config *c, const char *path, char *err, si
         say(err, errlen, "the stored secret does not match auth= in zabbix.conf", NULL);
         return -1;
     }
-    line = trim(eq + 1);
+    /* A password exactly as written (spaces at its ends included); a token
+     * with any stray whitespace around it dropped. */
+    line = c->auth == ZBX_AUTH_PASSWORD ? eq + 1 : trim(eq + 1);
     if (!*line || strlen(line) >= sizeof(c->secret)) {
         explicit_bzero(buf, sizeof(buf));
         say(err, errlen, "the stored secret is empty or too long", NULL);
@@ -495,9 +510,16 @@ int zbx_config_write_secret(const char *path, const char *kind, const char *valu
         say(err, errlen, "the secret is too long", NULL);
         return -1;
     }
+    /* A token is printable ASCII without spaces. A password is whatever the
+     * user chose - spaces, æøå, a space at either end - and is kept byte for
+     * byte; only what cannot sit on one line (NUL, CR, LF) is refused. */
     for (i = 0; i < n; i++) {
-        if ((unsigned char)value[i] <= 0x20 || (unsigned char)value[i] >= 0x7F) {
-            say(err, errlen, "the secret must be one line of printable characters", NULL);
+        unsigned char ch = (unsigned char)value[i];
+
+        if (strcmp(kind, "token") == 0 ? (ch <= 0x20 || ch >= 0x7F) : (ch == '\r' || ch == '\n')) {
+            say(err, errlen, strcmp(kind, "token") == 0
+                                 ? "a token is one word of printable characters"
+                                 : "a password must be on one line", NULL);
             return -1;
         }
     }

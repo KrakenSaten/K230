@@ -200,6 +200,34 @@ static void test_secret(void)
         snprintf(tmp, sizeof(tmp), "%s.new", path);
         check("no temporary file is left behind", access(tmp, F_OK) != 0);
     }
+    /* Passwords are whatever the user chose, kept byte for byte. */
+    {
+        static const char *const pw[] = { " correct horse battery staple ", "bl\xc3\xa5" "b\xc3\xa6r\xc3\xb8",
+                                          "p@ss=word#1", "a" };
+        FILE *cf = fopen(conf, "w");
+        size_t i;
+        bool all = true;
+
+        fprintf(cf, "url=https://z.example.com/\nauth=password\nuser=andre@example.com\n");
+        fclose(cf);
+        for (i = 0; i < sizeof(pw) / sizeof(pw[0]); i++) {
+            if (zbx_config_write_secret(path, "password", pw[i], err, sizeof(err)) != 0 ||
+                zbx_config_load(&c, conf, path, err, sizeof(err)) != 0 || strcmp(c.secret, pw[i]) != 0) {
+                printf("     password %zu: \"%s\" came back as \"%s\" (%s)\n", i, pw[i], c.secret, err);
+                all = false;
+            }
+        }
+        check("a password with spaces (at its ends too), UTF-8, = or # comes back exactly", all);
+        check("the user may be an e-mail address", strcmp(c.user, "andre@example.com") == 0);
+        check("a password with a newline is refused",
+              zbx_config_write_secret(path, "password", "two\nlines", err, sizeof(err)) != 0);
+        check("a password with a CR is refused",
+              zbx_config_write_secret(path, "password", "cr\rhere", err, sizeof(err)) != 0);
+        check("a token is still one word", zbx_config_write_secret(path, "token", "to ken", err, sizeof(err)) != 0);
+        cf = fopen(conf, "w");
+        fprintf(cf, "url=https://z.example.com/\n");
+        fclose(cf);
+    }
     check("removing it", zbx_config_write_secret(path, "token", "", err, sizeof(err)) == 0 &&
                              access(path, F_OK) != 0);
     check("removing it twice is fine", zbx_config_write_secret(path, "token", "", err, sizeof(err)) == 0);
