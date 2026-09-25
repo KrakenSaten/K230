@@ -625,6 +625,20 @@ Wi-Fi (netd):
   timed out and the next one answered (one WARN, no effect). Stale replies are
   drained before each request, but one arriving after the next request is
   sent would be read as that request's answer. Not seen to cause harm.
+- **wpa_supplicant can be busy for seconds right after it starts.** On unit A
+  (build 09be665, 2026-09-25) `/etc/init.d/S55netd restart` at runtime
+  reproducibly left Wi-Fi disconnected: the supplicant answered PING, ATTACH
+  and GET_CAPABILITY, then nothing for seconds, and netd gave up the saved
+  network it was adding and never offered it again. The same netd connects at
+  boot. netd now retries the hand-over and restarts a supplicant only after
+  10 s of silence (tests/netd_test.sh, "busy"). Why it is busy is not
+  established: a blocking scan in the rtl8189fs driver started by the first
+  ENABLE_NETWORK fits (ASSUMED). On unit A (2026-09-25, netd sha256
+  ef8b260c… over 09be665) the trigger is netd stopped for 60 s, then
+  started: the shipped netd stayed disconnected 2 of 2 times; the fixed one
+  retried once, removed the half-made entry and connected in about 4 s 3 of
+  3 times (VERIFIED). Restarts with no pause, with or without a scan just
+  before, connected in 3 s with both (8 of 8 old, 5 of 5 new).
 - **One unreproduced netd_test event (test flake, non-blocking).** On
   2026-09-13 one full `make test` on `8d7af16` had 13 netd_test failures: every
   `wifi.connect` in the malformed-input block that reaches netd's readiness

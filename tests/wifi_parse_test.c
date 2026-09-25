@@ -300,6 +300,36 @@ int main(void)
     check("bars 0", wifi_signal_bars(-95) == 0);
     check("bars edge -55", wifi_signal_bars(-55) == 4 && wifi_signal_bars(-56) == 3);
 
+    /* ---- LIST_NETWORKS -------------------------------------------------------------------- */
+    {
+        int ids[4] = { -9, -9, -9, -9 };
+
+        check("list: ids in order",
+              wifi_parse_network_ids("network id / ssid / bssid / flags\n0\tHome\tany\t[CURRENT]\n"
+                                     "3\t\tany\t[DISABLED]\n12\tCaf\\xc3\\xa9\tany\t\n", ids, 4) == 3 &&
+                  ids[0] == 0 && ids[1] == 3 && ids[2] == 12 && ids[3] == -9);
+        check("list: header only is empty",
+              wifi_parse_network_ids("network id / ssid / bssid / flags\n", ids, 4) == 0);
+        check("list: header without a newline is empty",
+              wifi_parse_network_ids("network id / ssid / bssid / flags", ids, 4) == 0);
+        check("list: FAIL is not a list", wifi_parse_network_ids("FAIL\n", ids, 4) == -1);
+        check("list: a scan list is not a list",
+              wifi_parse_network_ids("bssid / frequency / signal level / flags / ssid\n", ids, 4) == -1);
+        check("list: NULL is not a list", wifi_parse_network_ids(NULL, ids, 4) == -1);
+        ids[0] = -9;
+        check("list: a truncated last line is skipped",
+              wifi_parse_network_ids("network id / ssid / bssid / flags\n5\tA\tany\t\n1", ids, 4) == 1 &&
+                  ids[0] == 5);
+        check("list: junk and negative ids are skipped",
+              wifi_parse_network_ids("network id / ssid / bssid / flags\nx\tA\tany\t\n-1\tB\tany\t\n"
+                                     "\tC\tany\t\n7\tD\tany\t\n", ids, 4) == 1 && ids[0] == 7);
+        check("list: bounded by max",
+              wifi_parse_network_ids("network id / ssid / bssid / flags\n0\ta\t\t\n1\tb\t\t\n2\tc\t\t\n",
+                                     ids, 2) == 2 && ids[0] == 0 && ids[1] == 1);
+        check("list: CRLF lines", wifi_parse_network_ids("network id / ssid / bssid / flags\r\n4\tA\tany\t\r\n",
+                                                         ids, 4) == 1 && ids[0] == 4);
+    }
+
     /* ---- events ------------------------------------------------------------------------- */
     wifi_parse_event("<3>CTRL-EVENT-CONNECTED - Connection to aa:bb:cc:dd:ee:01 completed [id=2 id_str=]", &ev);
     check("event: connected with id", ev.type == WIFI_EV_CONNECTED && ev.network_id == 2);

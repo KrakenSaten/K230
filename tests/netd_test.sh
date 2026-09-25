@@ -14,7 +14,8 @@
 # store (logs, command lines, CLI output, the fake's own record), restrictive
 # permissions, disconnect, rejoining a saved network, DHCP failure and
 # recovery, an open network only when asked, forget, restart with automatic
-# reconnect, a supplicant crash, a foreign supplicant, a damaged store, the
+# reconnect, a supplicant crash, a supplicant busy while it is handed the
+# saved networks, one that stays silent, a foreign supplicant, a damaged store, the
 # interface disappearing, and protocol robustness.
 #
 # A failed run keeps its evidence in out/test-failures/ (or
@@ -422,6 +423,74 @@ sleep 0.5
 check "a crashed supplicant is noticed" "$(grep -q 'wpa_supplicant was killed' "$POCKETOS_LOG_DIR/netd.log" && echo 1 || echo 0)"
 check "and restarted, then reconnects" "$(wait_state connected 12 && echo 1 || echo 0)"
 check "exactly one new supplicant" "$([ "$(grep -c 'started iface' "$FAKE_WPA_RECORD")" = $((before + 1)) ] && echo 1 || echo 0)"
+
+# ---- a supplicant busy while netd hands it the saved networks ---------------------------------------
+# Unit A, build 09be665, 2026-09-25: after `S55netd restart` wpa_supplicant answered PING, ATTACH and
+# GET_CAPABILITY, then nothing for seconds; netd gave up on the saved network whose SET_NETWORK timed
+# out, never offered it again, and stayed disconnected. busy makes the fake stall the same way, once:
+# after the first ADD_NETWORK and one more command (SET_NETWORK ssid), for 2 s.
+wpa_list() { # the networks the fake holds, as LIST_NETWORKS gives them
+    python3 - "$POCKETOS_RUNTIME_DIR/netd/wpa/wlan0" "$TMP/wpa-list.sock" <<'PY'
+import os, socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+if os.path.exists(sys.argv[2]):
+    os.unlink(sys.argv[2])
+s.bind(sys.argv[2])
+s.settimeout(2)
+try:
+    s.connect(sys.argv[1])
+    s.send(b"LIST_NETWORKS")
+    sys.stdout.write(s.recv(16384).decode(errors="replace"))
+finally:
+    os.unlink(sys.argv[2])
+PY
+}
+listed() { # <list> <ssid column> -> how many entries carry it
+    # Through the environment: awk -v would turn the fake's \xNN escapes into bytes.
+    printf '%s\n' "$1" | tail -n +2 | LISTED_SSID="$2" awk -F'\t' '$2 == ENVIRON["LISTED_SSID"]' | wc -l
+}
+ms_now() { echo $(( $(date +%s%N) / 1000000 )); }
+stop_netd
+sleep 0.5
+before=$(grep -c 'started iface' "$FAKE_WPA_RECORD")
+log_before=$(wc -l < "$POCKETOS_LOG_DIR/netd.log")
+echo 'busy ADD_NETWORK 1 2000' >> "$FAKE_WPA_SCENARIO"
+start_netd
+for _ in $(seq 1 50); do grep -q 'busy for 2000 ms' "$FAKE_WPA_RECORD" && break; sleep 0.1; done
+t0=$(ms_now); out=$(st); t1=$(ms_now)
+check "busy: the fake stalled after SET_NETWORK ssid" "$(grep -q 'busy for 2000 ms after SET_NETWORK' "$FAKE_WPA_RECORD" && echo 1 || echo 0)"
+check "busy: netd still answers wifi.status within 2 s" \
+    "$(all "$([ $((t1 - t0)) -lt 2000 ] && echo 1 || echo 0)$(has "$out" '"api_version":[[:space:]]*0')")"
+check "busy: reconnects to a saved network on its own" "$(wait_state connected 12 && echo 1 || echo 0)"
+sed -i '/^busy /d' "$FAKE_WPA_SCENARIO"
+check "busy: netd's commands went unanswered meanwhile" "$(since | grep -q 'no answer from wpa_supplicant' && echo 1 || echo 0)"
+check "busy: the saved networks were handed over again" "$(since | grep -q 'saved networks handed to wpa_supplicant after' && echo 1 || echo 0)"
+check "busy: none was given up" "$(since | grep -q 'could not be added' && echo 0 || echo 1)"
+check "busy: the half-made entry was removed" "$(since | grep -q 'removed network [0-9]*, which wpa_supplicant set up' && echo 1 || echo 0)"
+check "busy: the supplicant was not restarted" \
+    "$(all "$([ "$(grep -c 'started iface' "$FAKE_WPA_RECORD")" = $((before + 1)) ] && echo 1 || echo 0)$(since | grep -q 'stopped answering' && echo 0 || echo 1)")"
+nets=$(wpa_list)
+check "busy: the supplicant holds exactly the three saved networks" \
+    "$([ "$(printf '%s\n' "$nets" | tail -n +2 | grep -c .)" = 3 ] && echo 1 || echo 0)"
+check "busy: each once" \
+    "$([ "$(listed "$nets" Home)$(listed "$nets" Secret)$(listed "$nets" 'Caf\xc3\xa9 \xc3\xb8')" = 111 ] && echo 1 || echo 0)"
+
+# ---- a supplicant that stays silent is still restarted, but not before 10 s --------------------------
+stop_netd
+sleep 0.5
+log_before=$(wc -l < "$POCKETOS_LOG_DIR/netd.log")
+echo 'busy ADD_NETWORK 1 20000' >> "$FAKE_WPA_SCENARIO"
+start_netd
+for _ in $(seq 1 50); do grep -q 'busy for 20000 ms' "$FAKE_WPA_RECORD" && break; sleep 0.1; done
+t0=$(ms_now)
+for _ in $(seq 1 160); do since | grep -q 'stopped answering' && break; sleep 0.1; done
+t1=$(ms_now)
+# The replacement must not stall too; it starts after a 2 s backoff.
+sed -i '/^busy /d' "$FAKE_WPA_SCENARIO"
+check "silent: restarted as unresponsive" "$(since | grep -q 'wpa_supplicant stopped answering; restarting it' && echo 1 || echo 0)"
+check "silent: only after 10 s without an answer (took $((t1 - t0)) ms)" \
+    "$([ $((t1 - t0)) -ge 9500 ] && [ $((t1 - t0)) -lt 14000 ] && echo 1 || echo 0)"
+check "silent: then reconnects" "$(wait_state connected 12 && echo 1 || echo 0)"
 
 # ---- the interface disappears and returns ---------------------------------------------------------------------
 mv "$IFDIR" "$TMP/wlan0.away"

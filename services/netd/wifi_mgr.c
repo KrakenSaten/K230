@@ -22,10 +22,21 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #define CTRL_TIMEOUT_MS 300
 #define STOP_GRACE_MS 3000
+/* How long one step may spend handing saved networks over before it leaves
+ * the rest to the next step (each command is bounded by CTRL_TIMEOUT_MS). */
+#define SYNC_STEP_BUDGET_MS 500
+/* After a sync cut short by no answer: 0.5, 1, 2, then every 4 s. */
+#define SYNC_RETRY_MS 500
+#define SYNC_RETRY_MAX_MS 4000
+
+/* ctrl_ok() and supp_add() results below 0. saved_id[] uses the same values. */
+#define CTRL_NO_ANSWER (-1) /* busy or gone: the command may still be carried out later, or never */
+#define CTRL_REFUSED (-2)   /* it answered, and not with OK */
 
 static const char *const state_names[] = {
     [WIFI_STATE_UNAVAILABLE] = "unavailable",
@@ -117,6 +128,14 @@ static void stopping_step(long now_ms)
 
 /* ---- control interface ----------------------------------------------------- */
 
+static long mono_ms(void)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
 /* The verb and, for SET_NETWORK, the field: everything that may be logged
  * about a command. */
 static void cmd_label(const char *cmd, char *out, size_t n)
@@ -149,21 +168,27 @@ static int ctrl(struct wifi_mgr *m, const char *cmd, char *reply, size_t n)
     if (r < 0) {
         LOG_WARN("wifi: %s: no answer from wpa_supplicant: %s", label, strerror(errno));
         m->ctrl_failures++;
+        /* A busy supplicant still carries the command out when it gets to
+         * it - an ADD_NETWORK whose id never arrived, a late SELECT_NETWORK.
+         * The next sync looks at what it actually holds. */
+        m->sweep_due = 1;
         return -1;
     }
     m->ctrl_failures = 0;
+    m->ctrl_answered_ms = mono_ms();
     LOG_DEBUG("wifi: %s -> %.*s", label, (int)strcspn(reply, "\n"), reply);
     return r;
 }
 
+/* 0, CTRL_NO_ANSWER or CTRL_REFUSED. */
 static int ctrl_ok(struct wifi_mgr *m, const char *cmd)
 {
     char reply[64];
 
     if (ctrl(m, cmd, reply, sizeof(reply)) < 0) {
-        return -1;
+        return CTRL_NO_ANSWER;
     }
-    return strncmp(reply, "OK", 2) == 0 ? 0 : -1;
+    return strncmp(reply, "OK", 2) == 0 ? 0 : CTRL_REFUSED;
 }
 
 static void ctrl_close(struct wifi_mgr *m)
@@ -265,7 +290,8 @@ static const char *key_mgmt_for(enum wifi_security s, int sae_capable)
 }
 
 /* Add one network. select: SELECT_NETWORK (join it now, others paused)
- * instead of ENABLE_NETWORK. Returns the supplicant id or -1. */
+ * instead of ENABLE_NETWORK. Returns the supplicant id, CTRL_NO_ANSWER (try
+ * again later) or CTRL_REFUSED (no point trying again). */
 static int supp_add(struct wifi_mgr *m, const struct wifi_saved *n, int select)
 {
     char reply[64];
@@ -274,30 +300,29 @@ static int supp_add(struct wifi_mgr *m, const struct wifi_saved *n, int select)
     const char *km = key_mgmt_for(n->security, m->sae_capable);
     char *end;
     long id;
+    int rc;
 
     if (!km) {
-        return -1;
+        return CTRL_REFUSED;
     }
     if (ctrl(m, "ADD_NETWORK", reply, sizeof(reply)) < 0) {
-        return -1;
+        return CTRL_NO_ANSWER;
     }
     id = strtol(reply, &end, 10);
     if (end == reply || (*end != '\0' && *end != '\n') || id < 0 || id > 100000) {
         LOG_WARN("wifi: ADD_NETWORK gave no id");
-        return -1;
+        return CTRL_REFUSED;
     }
     wifi_ssid_to_hex(&n->ssid, ssid_hex, sizeof(ssid_hex));
     snprintf(cmd, sizeof(cmd), "SET_NETWORK %ld ssid %s", id, ssid_hex);
-    if (ctrl_ok(m, cmd) < 0) {
+    if ((rc = ctrl_ok(m, cmd)) < 0) {
         goto fail;
     }
     snprintf(cmd, sizeof(cmd), "SET_NETWORK %ld key_mgmt %s", id, km);
-    if (ctrl_ok(m, cmd) < 0) {
+    if ((rc = ctrl_ok(m, cmd)) < 0) {
         goto fail;
     }
     if (strcmp(km, "NONE") != 0) {
-        int rc;
-
         /* The passphrase has already passed wifi_passphrase_valid: printable
          * ASCII only, so it cannot end the command or add a line.
          * wpa_supplicant takes everything between the first and the last
@@ -311,26 +336,31 @@ static int supp_add(struct wifi_mgr *m, const struct wifi_saved *n, int select)
         if (strcmp(km, "SAE") == 0 || strcmp(km, "WPA-PSK SAE") == 0) {
             snprintf(cmd, sizeof(cmd), "SET_NETWORK %ld ieee80211w %d", id,
                      strcmp(km, "SAE") == 0 ? 2 : 1);
-            if (ctrl_ok(m, cmd) < 0) {
+            if ((rc = ctrl_ok(m, cmd)) < 0) {
                 goto fail;
             }
         }
     }
     if (n->hidden) {
         snprintf(cmd, sizeof(cmd), "SET_NETWORK %ld scan_ssid 1", id);
-        if (ctrl_ok(m, cmd) < 0) {
+        if ((rc = ctrl_ok(m, cmd)) < 0) {
             goto fail;
         }
     }
     snprintf(cmd, sizeof(cmd), "%s %ld", select ? "SELECT_NETWORK" : "ENABLE_NETWORK", id);
-    if (ctrl_ok(m, cmd) < 0) {
+    if ((rc = ctrl_ok(m, cmd)) < 0) {
         goto fail;
     }
     return (int)id;
 fail:
-    snprintf(cmd, sizeof(cmd), "REMOVE_NETWORK %ld", id);
-    ctrl_ok(m, cmd);
-    return -1;
+    /* A supplicant that did not answer would only make REMOVE_NETWORK wait
+     * out another timeout; the half-made entry is left to the sweep (ctrl()
+     * has set sweep_due), which removes it once the supplicant answers. */
+    if (rc == CTRL_REFUSED) {
+        snprintf(cmd, sizeof(cmd), "REMOVE_NETWORK %ld", id);
+        ctrl_ok(m, cmd);
+    }
+    return rc;
 }
 
 static void supp_remove(struct wifi_mgr *m, int id)
@@ -367,6 +397,113 @@ static int is_saved_id(const struct wifi_mgr *m, int id)
         }
     }
     return 0;
+}
+
+/* Remove every network the supplicant holds that netd does not track: what
+ * commands that got no answer still did when a busy supplicant got to them.
+ * Called with no join pending, so the saved networks are all netd tracks.
+ * The supplicant reads its one socket in order, so a LIST_NETWORKS answered
+ * in time means everything sent before it has been carried out. Returns 0,
+ * or CTRL_NO_ANSWER. */
+static int supp_sweep(struct wifi_mgr *m)
+{
+    int ids[64];
+    char cmd[40];
+    char *reply = malloc(WPA_CTRL_REPLY_MAX);
+    int count;
+    int i;
+
+    if (!reply) {
+        return CTRL_NO_ANSWER;
+    }
+    if (ctrl(m, "LIST_NETWORKS", reply, WPA_CTRL_REPLY_MAX) < 0) {
+        free(reply);
+        return CTRL_NO_ANSWER;
+    }
+    count = wifi_parse_network_ids(reply, ids, (int)(sizeof(ids) / sizeof(ids[0])));
+    free(reply);
+    if (count < 0) {
+        /* It answered, with something else: nothing to act on. */
+        LOG_WARN("wifi: LIST_NETWORKS gave no list");
+        m->sweep_due = 0;
+        return 0;
+    }
+    for (i = 0; i < count; i++) {
+        if (is_saved_id(m, ids[i])) {
+            continue;
+        }
+        snprintf(cmd, sizeof(cmd), "REMOVE_NETWORK %d", ids[i]);
+        if (ctrl_ok(m, cmd) == CTRL_NO_ANSWER) {
+            return CTRL_NO_ANSWER;
+        }
+        LOG_INFO("wifi: removed network %d, which wpa_supplicant set up after netd stopped waiting",
+                 ids[i]);
+    }
+    /* A full list may have had more; the next sync looks again. */
+    m->sweep_due = count == (int)(sizeof(ids) / sizeof(ids[0]));
+    return 0;
+}
+
+static void sync_later(struct wifi_mgr *m, long now_ms)
+{
+    long wait = (long)SYNC_RETRY_MS << (m->sync_retries < 3 ? m->sync_retries : 3);
+
+    if (wait > SYNC_RETRY_MAX_MS) {
+        wait = SYNC_RETRY_MAX_MS;
+    }
+    m->sync_retries++;
+    m->sync_at_ms = now_ms + wait;
+    LOG_WARN("wifi: wpa_supplicant is busy; saved networks are handed over again in %ld ms", wait);
+}
+
+/* Hand wpa_supplicant the saved networks it does not hold yet: all of them
+ * once its control interface is up, and afterwards whatever a busy
+ * supplicant did not take. A command without an answer ends the pass and a
+ * later step tries again, so a supplicant that is busy for a few seconds
+ * (it was, after a runtime restart on unit A) costs a delay, not the saved
+ * networks. A network it refuses is not offered again until it restarts.
+ * One pass spends about SYNC_STEP_BUDGET_MS at most, plus one command. */
+static void supp_sync(struct wifi_mgr *m, long now_ms)
+{
+    long budget_end = mono_ms() + SYNC_STEP_BUDGET_MS;
+    int i;
+
+    /* A join in progress has paused every other network (SELECT_NETWORK);
+     * ENABLE_NETWORK now would undo that. Its end re-enables them, and the
+     * next pass adds what is missing. */
+    if (m->pending || now_ms < m->sync_at_ms) {
+        return;
+    }
+    if (m->sweep_due && supp_sweep(m) < 0) {
+        sync_later(m, now_ms);
+        return;
+    }
+    for (i = 0; i < m->store.count; i++) {
+        char ssid[WIFI_SSID_TEXT_MAX];
+        int id;
+
+        if (m->saved_id[i] != CTRL_NO_ANSWER) {
+            continue;
+        }
+        if (mono_ms() >= budget_end) {
+            return; /* the next step goes on */
+        }
+        id = supp_add(m, &m->store.net[i], 0);
+        if (id == CTRL_NO_ANSWER) {
+            sync_later(m, now_ms);
+            return;
+        }
+        m->saved_id[i] = id;
+        if (id == CTRL_REFUSED) {
+            wifi_ssid_to_text(&m->store.net[i].ssid, ssid, sizeof(ssid));
+            LOG_WARN("wifi: saved network \"%s\" could not be added", ssid);
+        }
+    }
+    if (m->sync_retries) {
+        LOG_INFO("wifi: saved networks handed to wpa_supplicant after %d retr%s", m->sync_retries,
+                 m->sync_retries == 1 ? "y" : "ies");
+        m->sync_retries = 0;
+    }
 }
 
 /* ---- the DHCP client ------------------------------------------------------------ */
@@ -534,7 +671,7 @@ static void supp_start(struct wifi_mgr *m, long now_ms)
     LOG_INFO("wifi: wpa_supplicant started on %s (pid %d)", m->sys.iface, (int)m->supp_pid);
 }
 
-static int ctrl_connect(struct wifi_mgr *m)
+static int ctrl_connect(struct wifi_mgr *m, long now_ms)
 {
     char reply[256];
     int i;
@@ -563,17 +700,19 @@ static int ctrl_connect(struct wifi_mgr *m)
     }
     LOG_INFO("wifi: control interface ready; WPA3-SAE %s by the driver",
              m->sae_capable ? "supported" : "not supported");
-    for (i = 0; i < m->store.count; i++) {
-        m->saved_id[i] = supp_add(m, &m->store.net[i], 0);
-        if (m->saved_id[i] < 0) {
-            char ssid[WIFI_SSID_TEXT_MAX];
-
-            wifi_ssid_to_text(&m->store.net[i].ssid, ssid, sizeof(ssid));
-            LOG_WARN("wifi: saved network \"%s\" could not be added", ssid);
-        }
-    }
     m->ctrl_ready = 1;
     m->ctrl_failures = 0;
+    m->ctrl_answered_ms = mono_ms();
+    /* The saved networks are handed over by supp_sync(), in this step and,
+     * when the supplicant is busy, later ones. Anything it already holds is
+     * swept first: nothing, from the configuration netd writes, unless this
+     * is a reconnect to a supplicant that kept running. */
+    for (i = 0; i < WIFI_STORE_MAX; i++) {
+        m->saved_id[i] = CTRL_NO_ANSWER;
+    }
+    m->sweep_due = 1;
+    m->sync_at_ms = now_ms;
+    m->sync_retries = 0;
     return 0;
 }
 
@@ -925,7 +1064,7 @@ void wifi_mgr_step(struct wifi_mgr *m, long now_ms)
         return;
     }
     if (!m->ctrl_ready) {
-        if (ctrl_connect(m) == 0) {
+        if (ctrl_connect(m, now_ms) == 0) {
             m->status_due_ms = now_ms;
         } else if (now_ms - m->supp_started_ms > WIFI_SUPPLICANT_START_MS) {
             LOG_WARN("wifi: wpa_supplicant never opened its control interface");
@@ -947,10 +1086,12 @@ void wifi_mgr_step(struct wifi_mgr *m, long now_ms)
     if (!m->ctrl_ready) {
         return;
     }
+    supp_sync(m, now_ms);
     if (now_ms >= m->status_due_ms) {
         poll_status(m, now_ms);
         m->status_due_ms = now_ms + ((m->pending || (m->completed && !m->ipv4[0])) ? 500 : 1000);
-        if (m->ctrl_failures >= 3) {
+        if (m->ctrl_failures >= 3 &&
+            mono_ms() - m->ctrl_answered_ms >= WIFI_SUPPLICANT_UNRESPONSIVE_MS) {
             LOG_WARN("wifi: wpa_supplicant stopped answering; restarting it");
             supp_teardown(m, now_ms, 0);
             supp_failed(m, now_ms, "stopped answering");

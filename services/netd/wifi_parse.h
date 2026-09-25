@@ -130,6 +130,12 @@ int wifi_kv_get(const char *reply, const char *key, char *out, size_t n);
 /* As wifi_kv_get, as a base-10 integer. Returns 0 or -1. */
 int wifi_kv_get_int(const char *reply, const char *key, int *out);
 
+/* LIST_NETWORKS: a "network id / ssid / bssid / flags" header line, then
+ * id \t ssid \t bssid \t flags. Stores up to max ids in out. Returns the
+ * number stored, or -1 when the reply is not such a list. A line whose id is
+ * not a whole number followed by a tab (a truncated last line) is skipped. */
+int wifi_parse_network_ids(const char *reply, int *out, int max);
+
 /* Signal strength in bars, 0..4, from dBm. */
 int wifi_signal_bars(int dbm);
 
