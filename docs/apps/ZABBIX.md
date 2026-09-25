@@ -490,16 +490,23 @@ Host results, 2026-09-25 (WSL2 Ubuntu 22.04, gcc 11.4):
 | `tests/zbx_client_test` | schedule, backoff sequence, auth lockout, flap, stale, the 6.0 and 7.4 rules, large estate, detail, password re-login, 400-round soak | 80 ok |
 | `tests/zabbix_view_test` | banner in every state, stale boundaries, overview counts, rows, STATUS | 52 ok |
 | `tests/zabbix_session_test` | the real helper: start, commands, scenario switch, crash, missing binary, hang, abandon mid-request, a burst past the socket buffer, 20 opens with no leaked descriptor | 29 ok |
-| `tests/zabbix_http_test.sh` | the real libcurl path against the mock: HTTP scenarios, timeout, refused, DNS, and HTTPS untrusted, `ca_file`, wrong name, `verify_tls=0`; token in no log | see §11.1 |
+| `tests/zabbix_http_test.sh` | the real libcurl path against the mock: HTTP scenarios, timeout, refused, DNS, and HTTPS untrusted, `ca_file`, wrong name, `verify_tls=0`; token in no log | 29 ok (with libcurl) |
 | `zabbix_app_test` (CMake) | the screen under a real pointer, portrait and landscape: every tab, row to host and back, scenario switch, offline banner with data kept, auth, unconfigured and demo, missing helper, crash and restart, large estate bounded, long names, 20 opens and closes | 66 ok |
-| `tests/zabbix_shell_test.sh` | the real simulator shell opens Zabbix in both orientations, draws the disaster in the error colour, logs no warning, leaves no helper | see §11.1 |
-| `tests/zabbix_lint.sh` | the boundaries of §4 and §7 | see §11.1 |
+| `tests/zabbix_shell_test.sh` | the real simulator shell opens Zabbix in both orientations, draws the disaster in the error colour, logs no warning, leaves no helper | 19 ok (Zabbix shell); the real-shell half SKIPs on a default shell |
+| `tests/zabbix_lint.sh` | the boundaries of §4 and §7 | 0 failures |
 
 ### 11.1 Full validation
 
-The results of the clean-clone run (`make test`, the shell suites, the
-sanitizers and the riscv64 build) are in
-docs/hardware/ZABBIX_EXPERIMENT_VALIDATION.md.
+The full record is docs/hardware/ZABBIX_EXPERIMENT_VALIDATION.md. In
+short, from a clean clone of `a1b697e`:
+
+- **`make all` and `make test`** (`-Werror`) exit 0, with 123 suites at
+  0 failures.
+- **Sanitizers:** all seven Zabbix suites pass under ASan and UBSan.
+- **Shell suites:** every one of the 25 passes, the existing ones on a
+  default shell.
+- **riscv64:** `make all ZABBIX_CURL=1` (`-Werror`) and both DRM shells
+  build with no first-party warning.
 
 **Not tested:**
 
