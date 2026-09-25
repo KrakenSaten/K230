@@ -250,7 +250,9 @@ fi
 # ---- deploy.sh carries what the image carries ---------------------------
 DEPLOY=platforms/k230/scripts/deploy.sh
 checked=$(sed -n '/^for f in /,/; do$/p' "$DEPLOY" | tr ' \\;' '\n\n\n' | grep -E '^(usr|etc)/')
-sent=$(sed -n '/^tar -C "\${T}"/,/SSH\[@\]/p' "$DEPLOY" | tr ' \\' '\n\n' | grep -E '^(usr|etc)/')
+# The archive's file list: the tar command, up to its first line that does not
+# continue onto the next.
+sent=$(sed -n '/^tar -C "\${T}"/,/[^\\]$/p' "$DEPLOY" | tr ' \\' '\n\n' | grep -E '^(usr|etc)/')
 miss_checked=""
 miss_sent=""
 # A directory in either list carries every file under it (usr/share/doors/ui,

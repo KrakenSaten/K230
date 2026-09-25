@@ -187,6 +187,55 @@ On Windows a tool such as Rufus or balenaEtcher writes the same image.
 `/etc/init.d/S99zz_k230_phone_ui`. Doors uses the same mechanism in
 `platforms/k230/scripts/deploy.sh`.
 
+```sh
+platforms/k230/scripts/deploy.sh <unit address>   # eth0 or Wi-Fi, either works
+```
+
+`deploy.sh` checks the target tree on the build host and then hands the work
+to the unit; the unit-side half is `platforms/k230/scripts/deploy_unit.sh`
+(stop the services, unpack, check what arrived, start them again, with its
+ordering rules: meshcored stops before radiod, and nothing is unpacked over a
+service that did not stop). The hand-over does not depend on the ssh session
+staying up:
+
+1. **Stage.** The archive, `deploy_unit.sh` and a small `run.sh` are copied
+   to `/tmp/doors-deploy` on the unit (root-only; `/tmp` is a 483.7 MB tmpfs,
+   VERIFIED in docs/hardware/POST_BRINGUP_REVIEW_2026-09-07.md) and
+   checked there with `sha256sum -c`. Nothing has been stopped yet; a transfer
+   that fails, or a deploy that is still running on the unit, ends it here.
+2. **Launch.** `run.sh` is started with `setsid nohup`, every descriptor
+   redirected, so it is not tied to the session that started it.
+3. **Poll.** The host reads `/tmp/doors-deploy/log` and `status` every
+   `DEPLOY_POLL_INTERVAL` seconds (2) and prints the log as it grows. A poll
+   that cannot connect is retried; `DEPLOY_TIMEOUT` (300 s) ends the wait.
+
+Exit status: 0 deployed; 1 refused or failed (the message says whether the
+unit was touched); 2 no result in time - the deploy carries on by itself on
+the unit, and `status` there holds its exit code once it has finished.
+
+Why: `deploy_unit.sh` stops netd, which manages wlan0. It used to run inside
+the ssh session, with the archive piped through that same session into
+`tar -C / -xf -`, so a deploy to the unit's Wi-Fi address cut its own
+connection and the unpack waited forever with every service stopped (unit A,
+`192.168.10.171`, build `09be665`, 2026-09-25; recovered by deploying again
+over eth0, `192.168.10.157`). Over Wi-Fi the host now reports that the unit
+stopped answering and picks the log up again once netd has brought wlan0
+back. If Wi-Fi does not come back after netd's restart (netd started at
+runtime was seen to time out on wpa_supplicant's control socket in the same
+session, docs/hardware/DEVICE_CONTROLS_GATE.md), the host times
+out with status 2 while the unit finishes regardless; read the log over eth0
+or the serial console.
+
+Evidence: `setsid`, `nohup` and `sha256sum` are present on unit A (VERIFIED,
+2026-09-25) and enabled in the SDK's BusyBox configuration
+(`buildroot-overlay/package/busybox/busybox.config`). A deploy to the Wi-Fi
+address of unit A finished on the unit while wlan0 was down and exited 0
+(VERIFIED, docs/hardware/DEPLOY_OVER_WIFI_GATE.md). The host's retry path is
+exercised only on the build host, by `tests/deploy_staging_test.sh`, which uses
+a stand-in unit: dropped polls, the host killed mid-deploy, a corrupted
+archive, a timeout, and a second deploy while one runs. `deploy_unit.sh` itself
+is exercised by `tests/initscript_test.sh`.
+
 ## Serial console
 
 CH342K dual USB-UART on the board (DOCUMENTED, schematic): channel 0 is K230

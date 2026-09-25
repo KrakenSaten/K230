@@ -166,20 +166,25 @@ fi
 # test rather than by the code. What matters is behavioural and is checked
 # below: every service is stopped, the stop's result is tested, and a failure
 # ends the deployment before a single file is unpacked over a running binary.
-git archive --format=tar HEAD -- platforms/k230/scripts/deploy.sh | tar -x -C "$TMP"
+git archive --format=tar HEAD -- platforms/k230/scripts/deploy.sh \
+    platforms/k230/scripts/deploy_unit.sh | tar -x -C "$TMP"
 DEPLOY="$TMP/platforms/k230/scripts/deploy.sh"
 check "deploy.sh extracted" $([ -f "$DEPLOY" ] && echo 1 || echo 0)
-# What deploy.sh runs on the board. The stop-then-unpack order lives here, so
-# the order is read off this text rather than off the file as a whole: the
-# service names also appear in the local tar's file list, which proves nothing
-# about what the board does with them.
-PAYLOAD="$TMP/remote-payload"
-awk '/set -e$/,/^echo "Done\."/' "$DEPLOY" | sed '$d' > "$PAYLOAD"
+# What deploy.sh runs on the board: deploy_unit.sh, which it copies there and
+# starts detached from its ssh session (so a deploy over Wi-Fi survives netd's
+# restart). The stop-then-unpack order lives in it, so the order is read off
+# that file rather than off deploy.sh: the service names also appear in the
+# local tar's file list, which proves nothing about what the board does with
+# them.
+PAYLOAD="$TMP/platforms/k230/scripts/deploy_unit.sh"
 check "the remote payload was extracted" \
-      $([ -s "$PAYLOAD" ] && grep -q 'set -e' "$PAYLOAD" && echo 1 || echo 0)
+      $([ -s "$PAYLOAD" ] && grep -q '^set -e' "$PAYLOAD" && echo 1 || echo 0)
+check "deploy.sh sends deploy_unit.sh to the unit and runs it there" \
+      $(grep -q 'cp "${SCRIPT_DIR}/deploy_unit.sh"' "$DEPLOY" &&
+        grep -q 'sh ./deploy_unit.sh ./payload.tar' "$DEPLOY" && echo 1 || echo 0)
 
 # The line the new files land on. Everything that must happen first is above it.
-UNPACK=$(grep -n '^tar -C / -xf -' "$PAYLOAD" | head -1 | cut -d: -f1)
+UNPACK=$(grep -n '^tar -C / -xf "$PAYLOAD"$' "$PAYLOAD" | head -1 | cut -d: -f1)
 check "the payload unpacks the archive" $([ -n "$UNPACK" ] && echo 1 || echo 0)
 STOPS="$TMP/stop-stanza"
 head -n "$(( ${UNPACK:-1} - 1 ))" "$PAYLOAD" > "$STOPS"
@@ -193,7 +198,7 @@ for f in "$OVL"/etc/init.d/S*; do
     # whose running binary is replaced underneath it.
     check "deploy.sh stops $s before unpacking" \
           $(grep -qw -- "$s" "$STOPS" && echo 1 || echo 0)
-    check "deploy.sh starts $s" $(grep -q "^/etc/init.d/$s start" "$DEPLOY" && echo 1 || echo 0)
+    check "deploy.sh starts $s" $(grep -q "^/etc/init.d/$s start" "$PAYLOAD" && echo 1 || echo 0)
 done
 
 # The guarantee itself, in three parts: a stop is attempted, its result is
