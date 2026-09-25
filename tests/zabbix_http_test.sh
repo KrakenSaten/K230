@@ -195,6 +195,18 @@ if command -v curl >/dev/null 2>&1; then
            printf '%s\n' "$out" | grep -q '^problems fetched: 9' && [ "$(stat_of logouts)" = $((before + 1)) ] &&
            ! ls -d "$T"/doors-zabbix.* >/dev/null 2>&1 && echo 1 || echo 0)"
     check "try-server.sh never prints the password" "$(printf '%s\n' "$out" | grep -qF "$PASSWORD" && echo 0 || echo 1)"
+    check "try-server.sh reports its own checks: logout OK, no leak, directory removed, availability" \
+        "$(printf '%s\n' "$out" | grep -q '^user.logout: OK' &&
+           printf '%s\n' "$out" | grep -q '^secret found in: nothing' &&
+           printf '%s\n' "$out" | grep -q '^private directory: removed' &&
+           printf '%s\n' "$out" | grep -q '^availability over 36 hosts: down 2' &&
+           printf '%s\n' "$out" | grep -qE '^helper samples taken while it ran: [1-9]' && echo 1 || echo 0)"
+    # The leak check itself is not vacuous: the password in the configuration
+    # (as a label) is found and fails the run.
+    out=$(printf '%s\n' "$PASSWORD" | TMPDIR="$T" tools/zabbix/try-server.sh "http://127.0.0.1:$PORT/zabbix/" demo \
+          allow_insecure_http=1 "label=x$PASSWORD" 2>&1); rc=$?
+    check "try-server.sh: a secret in zabbix.conf is caught (exit 3)" \
+        "$([ $rc = 3 ] && printf '%s\n' "$out" | grep -q 'zabbix.conf.*<-- LEAK' && echo 1 || echo 0)"
     out=$(printf 'wrong\n' | TMPDIR="$T" tools/zabbix/try-server.sh "http://127.0.0.1:$PORT/zabbix/" nobody \
           allow_insecure_http=1 2>&1); rc=$?
     check "try-server.sh: a refused login says so, exit 1" \

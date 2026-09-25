@@ -12,6 +12,11 @@
 # the shell history, and never in this repository. It lives in a private 0700
 # directory that is removed on exit, and the check logs out after itself.
 #
+# It then checks its own run: the secret is looked for (through a pipe, never
+# as an argument) in the helper's command line and environment while it runs,
+# and in the log, the configuration and the output afterwards; it says
+# whether user.logout succeeded and whether the private directory is gone.
+#
 # One run is one login. A wrong password counts towards Zabbix's lockout
 # (5 failures by default): stop and check it rather than re-running in a loop.
 #
@@ -68,28 +73,80 @@ if [ -t 0 ]; then
 else
     IFS= read -r SECRET # a pipe, for the test against the mock
 fi
+# SECRET is a plain shell variable, never exported; it is kept only for the
+# leak checks below and cleared before the result is printed.
 printf '%s\n' "$SECRET" | "$H" set-secret "$kind" >/dev/null 2>"$W/err"
 rc=$?
-SECRET=
-unset SECRET
 if [ $rc != 0 ]; then
+    SECRET=
     cat "$W/err" >&2
     exit 2
 fi
+# Is the secret in any of these files? The pattern goes to grep through a
+# pipe from a builtin, so it is never on a command line either.
+has_secret() { [ -n "$SECRET" ] && grep -qsF -f <(printf '%s\n' "$SECRET") "$@"; }
 
 echo "== one round against $URL"
-"$H" check >"$W/out" 2>"$W/err"
+"$H" check >"$W/out" 2>"$W/err" &
+pid=$!
+n=0
+while kill -0 "$pid" 2>/dev/null; do
+    tr '\0' '\n' <"/proc/$pid/cmdline" >"$W/proc.$n" 2>/dev/null
+    tr '\0' '\n' <"/proc/$pid/environ" >>"$W/proc.$n" 2>/dev/null
+    n=$((n + 1))
+    sleep 0.05
+done
+wait "$pid"
 rc=$?
+leak=""
+has_secret "$W"/proc.* && leak="$leak helper-cmdline/environ"
+has_secret "$W/log"/* && leak="$leak log"
+has_secret "$W/etc/zabbix.conf" && leak="$leak zabbix.conf"
+has_secret "$W/out" "$W/err" && leak="$leak output"
+SECRET=
+unset SECRET
+
 cat "$W/err" >&2
 grep -E '^(version|state)' "$W/out"
-awk -F'\t' '$1 == "pbegin" { print "open problems:", $4, "(unacknowledged " $7 ")" }
-            $1 == "pend" { print "problems fetched:", $3 } $1 == "hend" { print "hosts fetched:", $3 }' "$W/out"
+awk -F'\t' '
+    $1 == "pbegin" {
+        print "open problems:", $4, ($5 == 1 ? "(exact)" : "(at least)"), "unacknowledged", $7
+        print "by severity (not classified, information, warning, average, high, disaster):",
+              $8, $9, $10, $11, $12, $13, ($6 == 1 ? "(exact)" : "(over those fetched)")
+    }
+    $1 == "pend" { print "problems fetched:", $3 }
+    $1 == "hbegin" {
+        print "monitored hosts:", $4, ($5 == 1 ? "(exact)" : "(at least)")
+        print "availability over", $6, "hosts: down", $7, ($10 == 1 ? "(exact)" : "(over those fetched)"),
+              "unknown", $8, "in maintenance", $9
+    }
+    $1 == "ho" { kept++; if ($3 == 1) up++; else if ($3 == 2) down++; else unk++ }
+    $1 == "hend" { printf "hosts kept: %d (up %d, down %d, unknown %d)\n", $3, up, down, unk }' "$W/out"
 echo "== the ten newest problems (severity 0-5, host, name)"
 awk -F'\t' '$1 == "pb" { print "  " $5 "  " $9 "  " $10 }' "$W/out" | head -10
 echo "== the helper's log (it never holds the secret)"
 cat "$W/log/"*.log 2>/dev/null | sed 's/^/  /'
-if [ $rc = 0 ]; then
+echo "== checks"
+if grep -qs 'zabbix: logged out' "$W/log/"*.log; then
+    echo "user.logout: OK"
+elif grep -qs 'logout failed' "$W/log/"*.log; then
+    echo "user.logout: FAILED (the session ends by itself on the server)"
+else
+    echo "user.logout: not needed (no session: a token, or no login)"
+fi
+echo "helper samples taken while it ran: $n"
+if [ -n "$leak" ]; then
+    echo "secret found in:$leak  <-- LEAK"
+else
+    echo "secret found in: nothing (helper cmdline/environ, log, zabbix.conf, output)"
+fi
+cleanup
+if [ -e "$W" ]; then echo "private directory: STILL PRESENT ($W)"; else echo "private directory: removed"; fi
+if [ $rc = 0 ] && [ -z "$leak" ]; then
     echo "try-server: ONLINE"
+elif [ $rc = 0 ]; then
+    echo "try-server: ONLINE, but the secret leaked"
+    rc=3
 else
     echo "try-server: NOT ONLINE (exit $rc); see the state line above"
 fi
