@@ -11,6 +11,15 @@
  *   reject <ssid hex>                                      the AP refuses association
  *   sae 1                                                  the driver reports SAE
  *   late_scan                                              SCAN_RESULTS is answered late
+ *   busy <CMD> <n> <ms>                                    stalls once, after <CMD> and n more
+ *
+ * busy models a supplicant whose one thread is stuck in a slow driver call
+ * (a scan started by the first ENABLE_NETWORK, after a runtime restart on
+ * unit A): once per process, after it has answered the first <CMD> and then
+ * n more commands, it reads nothing for <ms> ms, then works through what
+ * queued up in order - late replies to addresses that have moved on, and
+ * networks added by an ADD_NETWORK whose answer nobody got. Recorded as
+ * "busy for <ms> ms after <cmd>" and "busy over".
  *
  * late_scan models a supplicant that stalls on SCAN_RESULTS: the answer is
  * held, and sent to whoever asked just before the NEXT command is answered -
@@ -76,6 +85,12 @@ static struct bss bsss[MAX_BSS];
 static int bss_count;
 static int sae;
 static int late_scan;
+/* busy: the scenario's trigger, and how far this process has got with it. */
+static char busy_cmd[32];
+static int busy_after;
+static int busy_ms;
+static int busy_left = -1;
+static int busy_done;
 /* A SCAN_RESULTS answer being held (late_scan), and who asked for it. */
 static char late_text[8192];
 static struct sockaddr_un late_to;
@@ -136,6 +151,7 @@ static void load_scenario(void)
     bss_count = 0;
     sae = 0;
     late_scan = 0;
+    busy_ms = 0;
     if (!file || !(f = fopen(file, "r"))) {
         return;
     }
@@ -164,6 +180,9 @@ static void load_scenario(void)
             sae = 1;
         } else if (strcmp(kind, "late_scan") == 0) {
             late_scan = 1;
+        } else if (strcmp(kind, "busy") == 0 &&
+                   sscanf(line, "%*s %31s %d %d", busy_cmd, &busy_after, &busy_ms) != 3) {
+            busy_ms = 0;
         }
     }
     fclose(f);
@@ -565,6 +584,20 @@ static void handle(char *cmd, const struct sockaddr_un *from, socklen_t fromlen)
         user_disconnected = 0;
         attempt_at = now_ms() + 300;
         reply(from, fromlen, "OK\n");
+    } else if (strcmp(cmd, "LIST_NETWORKS") == 0) {
+        int o = snprintf(out, sizeof(out), "network id / ssid / bssid / flags\n");
+
+        for (i = 0; i < MAX_NET && o < (int)sizeof(out) - 200; i++) {
+            char esc[160];
+
+            if (!nets[i].used) {
+                continue;
+            }
+            ssid_escaped(&nets[i].ssid, esc, sizeof(esc));
+            o += snprintf(out + o, sizeof(out) - (size_t)o, "%d\t%s\tany\t%s\n", i, esc,
+                          cur_id == i ? "[CURRENT]" : nets[i].enabled ? "" : "[DISABLED]");
+        }
+        reply(from, fromlen, out);
     } else if (strcmp(cmd, "STATUS") == 0) {
         if (cur_id >= 0) {
             char esc[160];
@@ -592,6 +625,39 @@ static void handle(char *cmd, const struct sockaddr_un *from, socklen_t fromlen)
     } else {
         reply(from, fromlen, "UNKNOWN COMMAND\n");
     }
+}
+
+/* After each answered command: the busy scenario's countdown, and the stall
+ * itself. Stalling means not reading the socket at all - commands queue up
+ * in the kernel as they would behind a blocked wpa_supplicant - but SIGTERM
+ * still ends it, so netd's restart path can be exercised too. */
+static void busy_step(const char *verb)
+{
+    long until;
+
+    if (busy_ms <= 0 || busy_done) {
+        return;
+    }
+    if (busy_left < 0) {
+        if (strcmp(verb, busy_cmd) != 0) {
+            return;
+        }
+        busy_left = busy_after;
+    } else {
+        busy_left--;
+    }
+    if (busy_left > 0) {
+        return;
+    }
+    busy_done = 1;
+    record("busy for %d ms after %s", busy_ms, verb);
+    until = now_ms() + busy_ms;
+    while (!stop && now_ms() < until) {
+        struct timespec ts = { 0, 20 * 1000000L };
+
+        nanosleep(&ts, NULL);
+    }
+    record("busy over");
 }
 
 int main(int argc, char **argv)
@@ -658,9 +724,13 @@ int main(int argc, char **argv)
             ssize_t n = recvfrom(sock, cmd, sizeof(cmd) - 1, 0, (struct sockaddr *)&from, &fromlen);
 
             if (n > 0) {
+                char verb[32];
+
                 cmd[n] = '\0';
+                snprintf(verb, sizeof(verb), "%.*s", (int)strcspn(cmd, " "), cmd);
                 handle(cmd, &from, fromlen);
                 explicit_bzero(cmd, sizeof(cmd));
+                busy_step(verb);
             }
         }
         now = now_ms();

@@ -34,6 +34,11 @@
 #define WIFI_SCAN_TIMEOUT_MS 15000
 #define WIFI_SUPPLICANT_START_MS 5000
 #define WIFI_SUPPLICANT_MAX_RESTARTS 5
+/* A supplicant is restarted as unresponsive only when it has answered
+ * nothing for this long (and missed at least three commands in a row): one
+ * busy inside a slow driver call - a scan, right after a runtime restart -
+ * goes quiet for seconds and then works through what it was sent. */
+#define WIFI_SUPPLICANT_UNRESPONSIVE_MS 10000
 
 enum wifi_state {
     WIFI_STATE_UNAVAILABLE = 0, /* no wireless interface, or it is taken */
@@ -87,9 +92,15 @@ struct wifi_mgr {
     struct wpa_ctrl req;
     struct wpa_ctrl ev;
     int ctrl_ready;
-    int ctrl_failures;
+    int ctrl_failures;           /* commands in a row that got no answer */
+    long ctrl_answered_ms;       /* when the supplicant last answered anything */
     int sae_capable;
-    int saved_id[WIFI_STORE_MAX]; /* supplicant network id per store slot, -1 */
+    /* supplicant network id per store slot; -1 not handed over yet (the next
+     * sync does), -2 refused by the supplicant (not retried until it restarts) */
+    int saved_id[WIFI_STORE_MAX];
+    long sync_at_ms;             /* the next sync of saved networks, not before */
+    int sync_retries;            /* syncs cut short by a supplicant that did not answer */
+    int sweep_due;               /* it may hold networks netd does not track */
 
     pid_t dhcp_pid;
     long dhcp_retry_at_ms;       /* a client that exited is not restarted before this */

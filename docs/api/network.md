@@ -152,10 +152,14 @@ A frame that is not valid JSON closes the connection; netd stays up.
 - **Reconnect.** With Wi-Fi on, every saved network is handed to
   wpa_supplicant at start and it joins the best one in range by itself, after
   a reboot, a netd restart, a supplicant crash or the interface coming back.
-- **Supplicant health.** A wpa_supplicant that exits or stops answering is
-  restarted with backoff (2, 4, 8, 16, 32 s); after five failures without a
-  minute of running the state is `failed` / `supplicant_failed` until the
-  next `set_enabled`.
+  A supplicant too busy to answer (each command waits 300 ms) is handed the
+  rest again a little later (0.5, 1, 2, then every 4 s), after any entry a
+  timed-out command left behind has been removed; one it refuses outright is
+  not offered again until it restarts.
+- **Supplicant health.** A wpa_supplicant that exits, or answers nothing for
+  10 s, is restarted with backoff (2, 4, 8, 16, 32 s); after five failures
+  without a minute of running the state is `failed` / `supplicant_failed`
+  until the next `set_enabled`.
 - **Foreign supplicant.** If a wpa_supplicant netd did not start names the
   interface (for example the vendor's `ifup wlan0` stanza), netd reports
   `unavailable` / `interface_busy` and does not start a second one. It checks

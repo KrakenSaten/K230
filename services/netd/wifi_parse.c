@@ -601,6 +601,28 @@ int wifi_kv_get_int(const char *reply, const char *key, int *out)
     return parse_int_field(buf, buf + strlen(buf), out);
 }
 
+int wifi_parse_network_ids(const char *reply, int *out, int max)
+{
+    const char *line;
+    int count = 0;
+
+    if (!reply || strncmp(reply, "network id", 10) != 0) {
+        return -1;
+    }
+    line = strchr(reply, '\n');
+    while (line && *++line && count < max) {
+        const char *eol = strchr(line, '\n');
+        const char *tab = strchr(line, '\t');
+        int id;
+
+        if (tab && (!eol || tab < eol) && parse_int_field(line, tab, &id) == 0 && id >= 0) {
+            out[count++] = id;
+        }
+        line = eol;
+    }
+    return count;
+}
+
 int wifi_signal_bars(int dbm)
 {
     if (dbm >= -55) {
