@@ -92,7 +92,9 @@ Each default is marked so it can be overturned without touching the rest.
 
 1. **Transport is option E.** meshcored gains a generic app-datagram surface
    (docs/api/mesh.md, "App datagrams"). The first byte of REQ data is
-   `0xD0 | port`, outside every upstream request type. Fleet is port 1. No
+   `0xD0 | port`, outside every upstream request type, then the payload's
+   length (the decrypted REQ is padded to the AES block and MeshCore keeps no
+   length of its own), then the payload. Fleet is port 1. No
    transport ACK: reliability is end to end in the app. A datagram that
    arrived by flood is answered with a small RESPONSE receipt so the sender
    learns a direct path, as upstream does for CLI data. *(Default.)*
@@ -165,5 +167,6 @@ meshcored addition change.
 | 22-byte frame on air | VERIFIED hardware (ACK only) | MESHCORED_HARDWARE_GATE.md |
 | Airtime figures | VERIFIED (computed) | `services/radiod/airtime.c`, cross-checked against the gate's advert |
 | Upstream REQ types 0x00-0x07 | DOCUMENTED | pinned tree, `simple_*` and `companion_radio` examples |
+| A Doors node ignores a REQ that is not a well-formed app datagram, and answers none | VERIFIED host | `tests/meshcored_runtime_test.cpp` (`test_app_datagrams`), crafted REQs with real crypto |
 | T-Deck ignores an unknown REQ type | ASSUMED | not tested; P7 |
 | Everything built in P1-P6 | VERIFIED host | the suites named in docs/apps/FLEET_MULTIPLAYER.md |

@@ -50,6 +50,10 @@
 static_assert(MCD_PUB_KEY_LEN == PUB_KEY_SIZE, "public key size drifted from MeshCore");
 static_assert(MCD_MAX_PATH == MAX_PATH_SIZE, "path size drifted from MeshCore");
 static_assert(MCD_MAX_TEXT == MAX_TEXT_LEN, "text length drifted from MeshCore");
+/* An app datagram is sendRequest()'s data: the app byte, the length and the
+ * payload, which upstream allows up to MAX_PACKET_PAYLOAD - 16 bytes of. */
+static_assert(2 + MCD_APP_PAYLOAD_MAX <= MAX_PACKET_PAYLOAD - 16, "app payload too large for a REQ");
+static_assert(MCD_APP_MARKER > 0x07, "the app byte collides with an upstream request type");
 static_assert(MCD_MAX_FRAME == MAX_TRANS_UNIT, "frame size drifted from MeshCore");
 static_assert(MCD_NODE_NAME_LEN == sizeof(((ContactInfo*)0)->name),
               "contact name size drifted from MeshCore");
@@ -420,8 +424,10 @@ public:
           _dirty(false), _channels_dirty(false), _msg_count(0), _msg_head(0),
           _chan_count(0), _chan_head(0), _next_msg_id(1),
           _path_refused(0), _unparsed(0), _rx_logged(0), _unretained(0),
-          _contacts_full(0), _chan_unmatched(0)
+          _contacts_full(0), _chan_unmatched(0), _app_count(0), _app_head(0), _next_app_id(1),
+          _rx_flood(false), _app_rx(0), _app_tx(0), _app_receipts(0), _app_refused(0)
     {
+        memset(_app, 0, sizeof(_app));
         memset(_outbox, 0, sizeof(_outbox));
         memset(_messages, 0, sizeof(_messages));
         memset(_chan_messages, 0, sizeof(_chan_messages));
@@ -1102,17 +1108,103 @@ protected:
         emitMessage(m.id);
     }
 
-    /* This node serves no requests. Returning 0 means "no reply", and
-     * `data`/`len` are deliberately not read: for a RESPONSE carried in a
-     * PATH payload they would be the pointer and length the guard above
-     * exists to refuse, and a handler that read them would be the way that
-     * defect became an out-of-bounds read. */
-    uint8_t onContactRequest(const ContactInfo&, uint32_t, const uint8_t*, uint8_t,
-                             uint8_t*) override
+    /* ---- app datagrams (mesh_runtime.h, docs/api/mesh.md) ----
+     *
+     * Upstream hands onContactRequest() the contact but not the packet, and
+     * whether a datagram came by flood is what decides if it is answered. So
+     * the route is noted on the way in and upstream does the rest exactly as
+     * it always has: the MAC, the contact lookup, the decryption. */
+    void onPeerDataRecv(mesh::Packet* packet, uint8_t type, int sender_idx, const uint8_t* secret,
+                        uint8_t* data, size_t len) override
     {
-        return 0;
+        _rx_flood = packet && packet->isRouteFlood();
+        BaseChatMesh::onPeerDataRecv(packet, type, sender_idx, secret, data, len);
+    }
+
+    /* A REQ from a contact. Everything but a Doors app datagram is refused
+     * with "no reply", as before: this node serves no MeshCore requests.
+     *
+     * `data` is the decrypted REQ after its 4-byte tag, `len` its length
+     * padded to the AES block - which is why the datagram carries its own
+     * length, and why that length is checked against what arrived. It is
+     * only ever reached from a REQ (BaseChatMesh::onPeerDataRecv); a RESPONSE
+     * carried in a PATH payload goes to onContactResponse(), which reads
+     * nothing, behind the guard above. */
+    uint8_t onContactRequest(const ContactInfo& contact, uint32_t sender_timestamp,
+                             const uint8_t* data, uint8_t len, uint8_t* reply) override
+    {
+        mcd_app_datagram d;
+        mcd_rx_meta meta;
+        int port;
+
+        if (!data || len < 3 || (data[0] & 0xF0) != MCD_APP_MARKER) {
+            return 0;
+        }
+        port = data[0] & 0x0F;
+        if (port < MCD_APP_PORT_MIN || data[1] == 0 || data[1] > MCD_APP_PAYLOAD_MAX ||
+            data[1] > len - 2) {
+            _app_refused++;
+            return 0;
+        }
+        memset(&d, 0, sizeof(d));
+        d.id = _next_app_id++;
+        d.port = (uint8_t)port;
+        memcpy(d.from, contact.id.pub_key, PUB_KEY_SIZE);
+        d.len = data[1];
+        memcpy(d.payload, data + 2, d.len);
+        d.flood = _rx_flood;
+        d.mono_ms = mcport::monotonicMillis();
+        if (_adapter.currentMeta(meta)) {
+            d.snr_known = meta.snr_known;
+            d.snr_db = meta.snr_db;
+            d.rssi_known = meta.rssi_known;
+            d.rssi_dbm = meta.rssi_dbm;
+        }
+        _app[(_app_head + _app_count) % MCD_APP_INBOX] = d;
+        if (_app_count < MCD_APP_INBOX) {
+            _app_count++;
+        } else {
+            _app_head = (_app_head + 1) % MCD_APP_INBOX;
+        }
+        _app_rx++;
+        stamp(contact.id.pub_key);
+        if (_hooks.on_app) {
+            _hooks.on_app(_hooks.user, &d);
+        }
+        if (!_rx_flood) {
+            return 0;
+        }
+        /* The receipt: the request's tag, as upstream's replies begin, and
+         * the app byte. Upstream sends it back on the path the flood came
+         * by, which is what teaches the sender a direct route. */
+        memcpy(reply, &sender_timestamp, 4);
+        reply[4] = data[0];
+        _app_receipts++;
+        return 5;
     }
     void onContactResponse(const ContactInfo&, const uint8_t*, uint8_t) override { }
+
+public:
+    int appInbox(int port, uint64_t after_id, mcd_app_datagram* out, int max) const
+    {
+        int n = 0;
+        int i;
+
+        for (i = 0; i < _app_count && n < max; i++) {
+            const mcd_app_datagram& d = _app[(_app_head + i) % MCD_APP_INBOX];
+
+            if (d.port == port && d.id > after_id) {
+                out[n++] = d;
+            }
+        }
+        return n;
+    }
+    void noteAppTx() { _app_tx++; }
+    uint64_t appRx() const { return _app_rx; }
+    uint64_t appTx() const { return _app_tx; }
+    uint64_t appReceipts() const { return _app_receipts; }
+
+protected:
 
     /* The same shape the MeshCore firmwares use: a multiple of the airtime
      * plus a fixed allowance. */
@@ -1482,6 +1574,18 @@ private:
     uint64_t _unretained;
     uint64_t _contacts_full;
     uint64_t _chan_unmatched;
+
+    /* App datagrams held for clients that were not listening: a ring, this
+     * run only, and the route the frame being handled came by. */
+    mcd_app_datagram _app[MCD_APP_INBOX];
+    int _app_count;
+    int _app_head;
+    uint64_t _next_app_id;
+    bool _rx_flood;
+    uint64_t _app_rx;
+    uint64_t _app_tx;
+    uint64_t _app_receipts;
+    uint64_t _app_refused;
 
     char _name[MCD_NODE_NAME_LEN];
 };
@@ -2304,6 +2408,53 @@ void mcd_runtime_stats(const struct mcd_runtime* rt, struct mcd_runtime_stats* o
     out->contacts_full = rt->node.contactsFull();
     out->channels = rt->node.channelCount();
     out->channel_frames_unmatched = rt->node.channelFramesUnmatched();
+    out->app_rx = rt->node.appRx();
+    out->app_tx = rt->node.appTx();
+    out->app_receipts = rt->node.appReceipts();
+}
+
+enum mcd_send_result mcd_runtime_send_app(struct mcd_runtime* rt, const uint8_t key[MCD_PUB_KEY_LEN],
+                                          int port, const uint8_t* payload, size_t len,
+                                          uint32_t* est_timeout_ms)
+{
+    uint8_t req[2 + MCD_APP_PAYLOAD_MAX];
+    ContactInfo* c;
+    uint32_t tag = 0;
+    uint32_t est = 0;
+    int rc;
+
+    if (!rt->radio.online()) {
+        return MCD_SEND_NO_RADIO;
+    }
+    if (port < MCD_APP_PORT_MIN || port > MCD_APP_PORT_MAX || !payload || len == 0 ||
+        len > MCD_APP_PAYLOAD_MAX) {
+        return MCD_SEND_TOO_LONG;
+    }
+    c = rt->node.lookupContactByPubKey(key, PUB_KEY_SIZE);
+    if (!c || c->type == ADV_TYPE_NONE) {
+        return MCD_SEND_NO_CONTACT;
+    }
+    req[0] = (uint8_t)(MCD_APP_MARKER | port);
+    req[1] = (uint8_t)len;
+    memcpy(req + 2, payload, len);
+    rc = rt->node.sendRequest(*c, req, (uint8_t)(2 + len), tag, est);
+    if (rc == MSG_SEND_FAILED) {
+        return MCD_SEND_FAILED;
+    }
+    rt->node.noteAppTx();
+    if (est_timeout_ms) {
+        *est_timeout_ms = est;
+    }
+    return rc == MSG_SEND_SENT_DIRECT ? MCD_SEND_ACCEPTED_DIRECT : MCD_SEND_ACCEPTED_FLOOD;
+}
+
+int mcd_runtime_app_inbox(const struct mcd_runtime* rt, int port, uint64_t after_id,
+                          struct mcd_app_datagram* out, int max)
+{
+    if (!rt || !out || max <= 0 || port < MCD_APP_PORT_MIN || port > MCD_APP_PORT_MAX) {
+        return 0;
+    }
+    return rt->node.appInbox(port, after_id, out, max);
 }
 
 bool mcd_runtime_dirty(const struct mcd_runtime* rt)

@@ -224,6 +224,13 @@ static void hook_on_message(void *user, const struct mcd_message *m)
     mcd_broadcast(d, mcd_event_message(m));
 }
 
+static void hook_on_app(void *user, const struct mcd_app_datagram *dg)
+{
+    struct mcd *d = user;
+
+    mcd_broadcast(d, mcd_event_app(dg));
+}
+
 static void hook_on_channel(void *user, const struct mcd_channel *c, const char *reason)
 {
     struct mcd *d = user;
@@ -347,6 +354,30 @@ static int arg_double(const char *s, double *out)
     }
     *out = v;
     return 0;
+}
+
+/* A name for this run: 16 hex characters from the kernel's random source,
+ * or, where that fails, from the clocks and the pid. It only has to differ
+ * from the last run's, and it identifies nothing but the run. */
+static void make_run_id(char *out, size_t n)
+{
+    uint8_t b[8];
+    uint64_t v;
+    int i;
+
+    if (getentropy(b, sizeof(b)) != 0) {
+        struct timespec ts;
+
+        clock_gettime(CLOCK_REALTIME, &ts);
+        v = (uint64_t)ts.tv_sec * 1000000007u ^ (uint64_t)ts.tv_nsec ^
+            ((uint64_t)getpid() << 32) ^ mcd_mono_ms();
+        for (i = 0; i < 8; i++) {
+            b[i] = (uint8_t)(v >> (8 * i));
+        }
+    }
+    if (!mcd_hex_encode(b, sizeof(b), out, n) && n > 0) {
+        out[0] = '\0';
+    }
 }
 
 /* The socket is the second thing only one process may hold. pocketipc
@@ -513,6 +544,7 @@ int main(int argc, char **argv)
     }
 
     d.start_ms = mcd_mono_ms();
+    make_run_id(d.run_id, sizeof(d.run_id));
     d.state = MCD_STARTING;
     snprintf(d.state_reason, sizeof(d.state_reason), "starting");
     d.state_since_ms = d.start_ms;
@@ -528,6 +560,7 @@ int main(int argc, char **argv)
     hooks.on_message = hook_on_message;
     hooks.on_channel = hook_on_channel;
     hooks.on_frame = hook_on_frame;
+    hooks.on_app = hook_on_app;
     hooks.user = &d;
 
     memset(&rcfg, 0, sizeof(rcfg));

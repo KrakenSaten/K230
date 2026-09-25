@@ -79,6 +79,12 @@ want "the virtual opponent only when asked for" "apps/fleet/fleet_mp.c" \
      'getenv\("POCKETFLEET_MP_FAKE"\)'
 check "and nowhere else" "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v fleet_mp.c | grep -v fleet_link_loop.c)" \
       'fleet_link_loop_open'
+# What the mesh link may ask meshcored to transmit: app datagrams, and a
+# zero-hop advert from a button. Never a chat message, and nothing that
+# changes what the service holds.
+check "the mesh link sends no chat message and changes nothing the service holds" \
+      "$LINK/fleet_link_mesh.c" '"mesh\.(send|node_remove|node_reset_path|channel_add|channel_remove)"'
+want "its only advert is zero-hop" "$LINK/fleet_link_mesh.c" 'cJSON_AddBoolToObject\(p, "zero_hop", 1\)'
 
 
 UI="apps/fleet/fleet_app.c apps/fleet/ui/fleet_screen_battle.c     apps/fleet/ui/fleet_screen_command.c apps/fleet/ui/fleet_screen_deploy.c     apps/fleet/ui/fleet_screen_result.c"

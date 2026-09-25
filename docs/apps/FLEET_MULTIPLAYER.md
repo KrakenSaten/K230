@@ -48,14 +48,20 @@ What Fleet hands to `mesh.app_send` (port 1) and gets back from `mesh.app`:
 off  size  field
 0    1     vt: version (bits 7-6, = 01 for v1) | type (bits 5-0)
 1    3     sid, big-endian, non-zero
-4    1     ply (0 where the type has none)
+4    1     ply; in COMMIT and REVEAL, which have no ply, the flags
 5    n     body
 ```
 
-meshcored puts it in a MeshCore REQ as `tag(4) | 0xD1 | packet`. A packet of
-at most 11 bytes is one AES block: a **22-byte frame, 304.1 ms**. Up to 27
-bytes is two blocks: **38 bytes, 386.0 ms** (zero hops; each hop adds a path
-byte and a retransmission).
+COMMIT and REVEAL carry their flags in the ply byte rather than in the body,
+which keeps REVEAL to two AES blocks.
+
+meshcored puts it in a MeshCore REQ as `tag(4) | 0xD1 | length(1) | packet`
+(docs/api/mesh.md, "App datagrams"): `0xD0 | port`, then the length, because
+the decrypted REQ is padded to the AES block and MeshCore records no length
+of its own. A packet of at most **10 bytes** is one AES block: a **22-byte
+frame, 304.1 ms**. Up to **26 bytes** is two blocks: **38 bytes, 386.0 ms**
+(zero hops; each hop adds a path byte and a retransmission). Every Fleet
+packet is one or the other.
 
 Field encodings:
 
@@ -76,11 +82,11 @@ Field encodings:
 | 3 | DECLINE | G→H | reason (0 user, 1 busy, 2 version, 3 rules, 4 busy with you) [+ active sid(3) for 4] | 6 / 9 | – |
 | 4 | START | H→G | – | 5 | – |
 | 5 | CANCEL | H→G | – | 5 | – |
-| 6 | COMMIT | both | flags (bit 0: I hold your commit) ‖ commit(16) | 22 | COMMIT / SYNC |
+| 6 | COMMIT | both | commit(16); flags in the ply byte (bit 0: I hold your commit) | 21 | COMMIT / SYNC |
 | 7 | SHOT | shooter | cell ‖ prev (res of ply k-1, 0 for k = 1) | 7 | RESULT |
 | 8 | RESULT | defender | cell ‖ res | 7 | next SHOT |
 | 9 | SYNC | both | flags (bit 0 reply, bit 1 I hold your commit, bit 2 I hold your reveal, bits 5-3 phase) ‖ pending cell or 0xFF ‖ digest(4); ply = R | 11 | SYNC(reply) |
-| 10 | REVEAL | both | flags (bit 0: I hold your reveal) ‖ layout(5) ‖ salt(16) | 27 | REVEAL |
+| 10 | REVEAL | both | layout(5) ‖ salt(16); flags in the ply byte (bit 0: I hold your reveal) | 26 | REVEAL |
 | 11 | END | either | reason (1 forfeit, 2 void, 3 abandon, 4 cancelled, 5 unknown, 6 violation, 7 finished); ply = R | 6 | END_ACK |
 | 12 | END_ACK | either | reason echoed | 6 | – |
 
@@ -317,12 +323,12 @@ players are PocketFleet's AI at 1.5-12 s a move; about 104 plies a match):
 
 | Profile | frames per ply | airtime per device per match | worst hour |
 | --- | --- | --- | --- |
-| clean | 2.13 | 34.1 s (max 63.5) | 63.5 s |
-| 10 % loss, collisions | 2.36 | 38.0 s (max 72.2) | 72.2 s |
-| 30 % loss, 10 % duplicates, reordering | 3.27 | 52.3 s (max 100.6) | 90.0 s |
-| 20 % loss, outages 30 s - 10 min | 2.90 | 46.3 s (max 91.3) | 87.5 s |
-| crashes, app closed, service restarts | 2.50 | 40.3 s (max 81.8) | 75.7 s |
-| all of the above, reboots too | 3.58 | 57.4 s (max 118.4) | 89.8 s |
+| clean | 2.13 | 34.2 s (max 63.5) | 63.5 s |
+| 10 % loss, collisions | 2.36 | 38.2 s (max 72.9) | 72.9 s |
+| 30 % loss, 10 % duplicates, reordering | 3.27 | 52.7 s (max 103.1) | 90.0 s |
+| 20 % loss, outages 30 s - 10 min | 2.90 | 46.9 s (max 95.0) | 85.8 s |
+| crashes, app closed, service restarts | 2.50 | 40.8 s (max 82.6) | 74.9 s |
+| all of the above, reboots too | 3.58 | 58.6 s (max 123.2) | 90.0 s |
 
 "Frames per ply" includes setup and the reveals. These are simulated
 figures on a modelled channel, not measurements: the real channel is P7's

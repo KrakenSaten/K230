@@ -130,10 +130,15 @@ static void test_round_trips(void)
         }
         lengths &= (size_t)len == want;
         frames &= len <= FLEET_PROTO_MAX;
-        /* The hot path has to stay in one AES block. */
-        if (ex[i].type != FLEET_MSG_COMMIT && ex[i].type != FLEET_MSG_REVEAL) {
+        /* The hot path has to stay in one AES block, and nothing may
+         * need three. */
+        if (ex[i].type == FLEET_MSG_SHOT || ex[i].type == FLEET_MSG_RESULT ||
+            ex[i].type == FLEET_MSG_INVITE || ex[i].type == FLEET_MSG_ACCEPT ||
+            ex[i].type == FLEET_MSG_START || ex[i].type == FLEET_MSG_END ||
+            ex[i].type == FLEET_MSG_END_ACK) {
             frames &= len <= FLEET_PROTO_ONE_BLOCK;
         }
+        frames &= fleet_proto_airtime_ms((size_t)len) <= 387;
         shorter &= fleet_proto_decode(&back, buf, (size_t)len - 1) != 0;
         if (ex[i].type != FLEET_MSG_DECLINE || ex[i].reason == FLEET_DECLINE_BUSY_WITH_YOU) {
             buf[len] = 0;
@@ -147,18 +152,18 @@ static void test_round_trips(void)
     }
     check("every type round trips exactly", round);
     check("every type has its documented length", lengths);
-    check("SHOT, RESULT and SYNC fit one AES block; nothing exceeds 27 bytes", frames);
+    check("SHOT, RESULT and the session messages fit one AES block; nothing needs three", frames);
     check("one byte short is refused", shorter);
     check("one byte long is refused", longer);
     check("another version is refused", version);
     check("a zero sid is refused", zero_sid);
-    check("the lengths: SHOT 7, RESULT 7, SYNC 11, COMMIT 22, REVEAL 27",
+    check("the lengths: SHOT 7, RESULT 7, SYNC 11, COMMIT 21, REVEAL 26",
           fleet_proto_length(FLEET_MSG_SHOT) == 7 && fleet_proto_length(FLEET_MSG_RESULT) == 7 &&
-          fleet_proto_length(FLEET_MSG_SYNC) == 11 && fleet_proto_length(FLEET_MSG_COMMIT) == 22 &&
-          fleet_proto_length(FLEET_MSG_REVEAL) == 27);
+          fleet_proto_length(FLEET_MSG_SYNC) == 11 && fleet_proto_length(FLEET_MSG_COMMIT) == 21 &&
+          fleet_proto_length(FLEET_MSG_REVEAL) == 26);
     check("airtime: one block 305 ms, two blocks 387 ms",
-          fleet_proto_airtime_ms(7) == 305 && fleet_proto_airtime_ms(11) == 305 &&
-          fleet_proto_airtime_ms(22) == 387 && fleet_proto_airtime_ms(27) == 387);
+          fleet_proto_airtime_ms(7) == 305 && fleet_proto_airtime_ms(10) == 305 &&
+          fleet_proto_airtime_ms(11) == 387 && fleet_proto_airtime_ms(26) == 387);
 }
 
 static int refused(struct fleet_msg m)
@@ -243,10 +248,9 @@ static void test_fields(void)
           !decodes_raw(FLEET_MSG_DECLINE, 0, body, 1));
 
     memset(body, 0, sizeof(body));
-    body[0] = 0x80;
-    check("unknown COMMIT flags are refused", !decodes_raw(FLEET_MSG_COMMIT, 0, body, 17));
-    body[0] = 0;
-    check("a COMMIT with a ply is refused", !decodes_raw(FLEET_MSG_COMMIT, 3, body, 17));
+    check("unknown COMMIT flags (in the ply byte) are refused",
+          !decodes_raw(FLEET_MSG_COMMIT, 0x80, body, 16));
+    check("a COMMIT's known flag is accepted", decodes_raw(FLEET_MSG_COMMIT, 1, body, 16));
 
     memset(body, 0, sizeof(body));
     body[0] = (uint8_t)(7 << FLEET_SYNC_PHASE_SHIFT);
@@ -257,10 +261,11 @@ static void test_fields(void)
     check("a SYNC pending cell of 100 is refused", !decodes_raw(FLEET_MSG_SYNC, 0, body, 6));
 
     memset(body, 0, sizeof(body));
-    body[3] = 100;
-    check("a layout cell of 100 is refused", !decodes_raw(FLEET_MSG_REVEAL, 0, body, 22));
-    body[3] = 0x80 | 99;
-    check("a vertical layout byte in range is accepted", decodes_raw(FLEET_MSG_REVEAL, 0, body, 22));
+    body[2] = 100;
+    check("a layout cell of 100 is refused", !decodes_raw(FLEET_MSG_REVEAL, 0, body, 21));
+    body[2] = 0x80 | 99;
+    check("a vertical layout byte in range is accepted", decodes_raw(FLEET_MSG_REVEAL, 0, body, 21));
+    check("unknown REVEAL flags are refused", !decodes_raw(FLEET_MSG_REVEAL, 0x02, body, 21));
 
     for (i = 0; i < 64; i++) {
         uint8_t hdr[5] = { (uint8_t)((1 << 6) | i), 1, 2, 3, 0 };

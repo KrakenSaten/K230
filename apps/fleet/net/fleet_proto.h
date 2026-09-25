@@ -6,6 +6,9 @@
  *
  *   vt(1) | sid(3, big-endian) | ply(1) | body
  *
+ * The ply byte carries the flags in COMMIT and REVEAL, which have no ply:
+ * that keeps REVEAL to two AES blocks in the MeshCore frame.
+ *
  * vt is the version in bits 7-6 and the type in bits 5-0. Every type has
  * exactly one length (DECLINE has two), and decoding refuses anything else:
  * a packet that is one byte short or one byte long is not "nearly" a
@@ -25,10 +28,11 @@
 #define FLEET_PROTO_VERSION 1
 #define FLEET_PROTO_HEADER 5
 /* The longest packet (REVEAL). meshcored takes up to 160. */
-#define FLEET_PROTO_MAX 27
-/* One AES block in the MeshCore frame, after its 4-byte tag and the app
- * byte: a packet this long or shorter is a 22-byte frame. */
-#define FLEET_PROTO_ONE_BLOCK 11
+#define FLEET_PROTO_MAX 26
+/* One AES block in the MeshCore frame, after its 4-byte tag and meshcored's
+ * two (port and length): a packet this long or shorter is a 22-byte frame,
+ * and up to FLEET_PROTO_MAX a 38-byte one. */
+#define FLEET_PROTO_ONE_BLOCK 10
 #define FLEET_PROTO_PLY_MAX 200
 #define FLEET_COMMIT_BYTES 16
 #define FLEET_SALT_BYTES 16
@@ -89,7 +93,7 @@ enum fleet_sync_phase {
 #define FLEET_RULES_CLASSIC 0
 
 /* Flag bits. */
-#define FLEET_FLAG_HAVE_PEER 0x01          /* COMMIT, REVEAL: I hold yours */
+#define FLEET_FLAG_HAVE_PEER 0x01          /* COMMIT, REVEAL (in the ply byte): I hold yours */
 #define FLEET_SYNC_REPLY 0x01
 #define FLEET_SYNC_HAVE_COMMIT 0x02
 #define FLEET_SYNC_HAVE_REVEAL 0x04
@@ -109,7 +113,7 @@ struct fleet_msg {
     uint8_t rules;                        /* INVITE */
     uint8_t reason;                       /* DECLINE, END, END_ACK */
     uint32_t other_sid;                   /* DECLINE busy-with-you */
-    uint8_t flags;                        /* COMMIT, SYNC, REVEAL */
+    uint8_t flags;                        /* COMMIT, SYNC, REVEAL (COMMIT, REVEAL: the ply byte) */
     uint8_t commit[FLEET_COMMIT_BYTES];   /* COMMIT */
     uint8_t cell;                         /* SHOT, RESULT; SYNC pending */
     uint8_t res;                          /* RESULT; SHOT prev */

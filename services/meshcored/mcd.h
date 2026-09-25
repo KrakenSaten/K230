@@ -155,6 +155,10 @@ struct mcd {
     char state_reason[96];
     uint64_t state_since_ms;
     uint64_t start_ms;
+    /* Names this run of the service, for mesh.status. App datagram ids
+     * (mesh.app_inbox) start again from 1 on every run, and a client that
+     * catches up by id resets its cursor when this changes. */
+    char run_id[17];
 
     struct pocketipc_server *server;
     struct mcd_radio_link *link;
@@ -191,5 +195,6 @@ cJSON *mcd_event_message(const struct mcd_message *m);
 cJSON *mcd_event_channel(const struct mcd_channel *c, const char *reason);
 cJSON *mcd_event_activity_rx(const struct mcd_rx_meta *meta, int bytes, const char *outcome);
 cJSON *mcd_event_activity_tx(uint64_t submit_id, int bytes, const char *result, uint64_t mono_ms);
+cJSON *mcd_event_app(const struct mcd_app_datagram *dg);
 
 #endif /* MCD_H */

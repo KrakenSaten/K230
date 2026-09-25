@@ -20,11 +20,11 @@ static const uint8_t body_len[FLEET_MSG_TYPE_COUNT] = {
     [FLEET_MSG_DECLINE] = 1,
     [FLEET_MSG_START] = 0,
     [FLEET_MSG_CANCEL] = 0,
-    [FLEET_MSG_COMMIT] = 1 + FLEET_COMMIT_BYTES,
+    [FLEET_MSG_COMMIT] = FLEET_COMMIT_BYTES,
     [FLEET_MSG_SHOT] = 2,
     [FLEET_MSG_RESULT] = 2,
     [FLEET_MSG_SYNC] = 6,
-    [FLEET_MSG_REVEAL] = 1 + FLEET_LAYOUT_BYTES + FLEET_SALT_BYTES,
+    [FLEET_MSG_REVEAL] = FLEET_LAYOUT_BYTES + FLEET_SALT_BYTES,
     [FLEET_MSG_END] = 1,
     [FLEET_MSG_END_ACK] = 1,
 };
@@ -144,7 +144,7 @@ static int fields_ok(const struct fleet_msg *m, size_t len)
         }
         return len == fleet_proto_length(FLEET_MSG_DECLINE);
     case FLEET_MSG_COMMIT:
-        return m->ply == 0 && (m->flags & ~FLEET_FLAG_HAVE_PEER) == 0;
+        return (m->flags & ~FLEET_FLAG_HAVE_PEER) == 0;
     case FLEET_MSG_SHOT:
         if (m->ply < 1 || m->ply > FLEET_PROTO_PLY_MAX || m->cell >= CELLS) {
             return 0;
@@ -167,7 +167,7 @@ static int fields_ok(const struct fleet_msg *m, size_t len)
         return m->cell < CELLS || m->cell == FLEET_NO_CELL;
     }
     case FLEET_MSG_REVEAL:
-        if (m->ply != 0 || (m->flags & ~FLEET_FLAG_HAVE_PEER) != 0) {
+        if ((m->flags & ~FLEET_FLAG_HAVE_PEER) != 0) {
             return 0;
         }
         for (i = 0; i < FLEET_LAYOUT_BYTES; i++) {
@@ -211,7 +211,7 @@ int fleet_proto_encode(const struct fleet_msg *m, uint8_t *buf, size_t n)
     buf[1] = (uint8_t)(m->sid >> 16);
     buf[2] = (uint8_t)(m->sid >> 8);
     buf[3] = (uint8_t)m->sid;
-    buf[4] = m->ply;
+    buf[4] = (m->type == FLEET_MSG_COMMIT || m->type == FLEET_MSG_REVEAL) ? m->flags : m->ply;
     b = buf + FLEET_PROTO_HEADER;
     switch (m->type) {
     case FLEET_MSG_INVITE:
@@ -226,8 +226,7 @@ int fleet_proto_encode(const struct fleet_msg *m, uint8_t *buf, size_t n)
         }
         break;
     case FLEET_MSG_COMMIT:
-        b[0] = m->flags;
-        memcpy(b + 1, m->commit, FLEET_COMMIT_BYTES);
+        memcpy(b, m->commit, FLEET_COMMIT_BYTES);
         break;
     case FLEET_MSG_SHOT:
     case FLEET_MSG_RESULT:
@@ -243,9 +242,8 @@ int fleet_proto_encode(const struct fleet_msg *m, uint8_t *buf, size_t n)
         b[5] = (uint8_t)m->digest;
         break;
     case FLEET_MSG_REVEAL:
-        b[0] = m->flags;
-        memcpy(b + 1, m->layout, FLEET_LAYOUT_BYTES);
-        memcpy(b + 1 + FLEET_LAYOUT_BYTES, m->salt, FLEET_SALT_BYTES);
+        memcpy(b, m->layout, FLEET_LAYOUT_BYTES);
+        memcpy(b + FLEET_LAYOUT_BYTES, m->salt, FLEET_SALT_BYTES);
         break;
     case FLEET_MSG_END:
     case FLEET_MSG_END_ACK:
@@ -297,8 +295,9 @@ int fleet_proto_decode(struct fleet_msg *m, const uint8_t *buf, size_t n)
         }
         break;
     case FLEET_MSG_COMMIT:
-        d.flags = b[0];
-        memcpy(d.commit, b + 1, FLEET_COMMIT_BYTES);
+        d.flags = d.ply;
+        d.ply = 0;
+        memcpy(d.commit, b, FLEET_COMMIT_BYTES);
         break;
     case FLEET_MSG_SHOT:
     case FLEET_MSG_RESULT:
@@ -311,9 +310,10 @@ int fleet_proto_decode(struct fleet_msg *m, const uint8_t *buf, size_t n)
         d.digest = (uint32_t)b[2] << 24 | (uint32_t)b[3] << 16 | (uint32_t)b[4] << 8 | b[5];
         break;
     case FLEET_MSG_REVEAL:
-        d.flags = b[0];
-        memcpy(d.layout, b + 1, FLEET_LAYOUT_BYTES);
-        memcpy(d.salt, b + 1 + FLEET_LAYOUT_BYTES, FLEET_SALT_BYTES);
+        d.flags = d.ply;
+        d.ply = 0;
+        memcpy(d.layout, b, FLEET_LAYOUT_BYTES);
+        memcpy(d.salt, b + FLEET_LAYOUT_BYTES, FLEET_SALT_BYTES);
         break;
     case FLEET_MSG_END:
     case FLEET_MSG_END_ACK:
@@ -332,7 +332,11 @@ int fleet_proto_decode(struct fleet_msg *m, const uint8_t *buf, size_t n)
 uint32_t fleet_proto_airtime_ms(size_t n)
 {
     /* services/radiod/airtime.c for SF8, 62.5 kHz, CR 4/5, preamble 32, CRC,
-     * explicit header: 22 bytes 304.128 ms, 38 bytes 386.048 ms (rounded up).
-     * The frame is 2 + 4 + 16 * blocks, the plaintext tag(4) + app(1) + n. */
-    return n <= FLEET_PROTO_ONE_BLOCK ? 305 : 387;
+     * explicit header: 22 bytes 304.128 ms, 38 bytes 386.048 ms, 54 bytes
+     * 467.968 ms (rounded up). The frame is 2 + 4 + 16 * blocks at zero hops,
+     * the plaintext MeshCore's tag(4) + meshcored's port and length (2) + n. */
+    if (n <= FLEET_PROTO_ONE_BLOCK) {
+        return 305;
+    }
+    return n <= FLEET_PROTO_ONE_BLOCK + 16 ? 387 : 468;
 }
