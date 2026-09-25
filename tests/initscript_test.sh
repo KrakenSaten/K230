@@ -91,7 +91,8 @@ else
     # Hygiene: scripts meant to be run directly by a developer or operator.
     for f in tools/supervise/pos-supervise tools/hwcheck/hwcheck.sh \
              tools/design/gen_fonts.sh platforms/k230/scripts/apply_to_sdk.sh \
-             platforms/k230/scripts/build_image.sh platforms/k230/scripts/deploy.sh; do
+             platforms/k230/scripts/build_image.sh platforms/k230/scripts/deploy.sh \
+             platforms/k230/scripts/deploy_unit.sh; do
         check "hygiene: $f recorded 100755" \
               $([ "$(mode_of "$f")" = "100755" ] && echo 1 || echo 0)
     done
@@ -1053,10 +1054,11 @@ fi
 
 # ---- deploy.sh stops before it installs (cold review F9) -----------------
 
-# The remote half lives inside the ssh call in deploy.sh, so it is taken from
-# there rather than restated here: a copy would stop testing the real thing
-# the moment deploy.sh changed. The init scripts are replaced by ones that
-# always fail, and tar by a recorder.
+# The remote half is deploy_unit.sh, which deploy.sh copies to the unit and
+# runs there; it is run here with its paths moved into a fake root rather than
+# restated, since a copy would stop testing the real thing the moment the
+# script changed. The init scripts are replaced by ones that always fail, and
+# tar by a recorder.
 {
     d=$ROOT/deploy
     mkdir -p "$d/etc/init.d" "$d/bin"
@@ -1067,19 +1069,25 @@ fi
     done
     printf '#!/bin/sh\necho tar-ran >> "%s/tar.log"\n' "$d" > "$d/bin/tar"
     chmod 0755 "$d/bin/tar"
-    sed -n "/^    | \"\${SSH\[@\]}\"/,/^doors version/p" \
-        "$REPO/platforms/k230/scripts/deploy.sh" \
-        | sed -e "1s/.*'set -e\$/set -e/" \
-              -e "s#/etc/init.d#$d/etc/init.d#g" \
-              -e "s/^doors version.*//" > "$d/remote.sh"
+    : > "$d/payload.tar"
+    sed -e "s#/etc/init.d#$d/etc/init.d#g" \
+        -e "s/^doors version.*//" \
+        "$REPO/platforms/k230/scripts/deploy_unit.sh" > "$d/remote.sh"
     check "the remote half of deploy.sh was extracted" \
           $([ -s "$d/remote.sh" ] && grep -q 'could not be stopped' "$d/remote.sh" \
             && echo 1 || echo 0)
-    out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" 2>&1 </dev/null); rc=$?
+    out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" "$d/payload.tar" 2>&1 </dev/null); rc=$?
     check "deploy stops before it installs, and aborts when a stop fails" \
           $([ "$rc" -ne 0 ] && echo 1 || echo 0)
     check "deploy says nothing was installed" $(contains "$out" "nothing has been installed")
     check "deploy unpacked no files" $([ ! -f "$d/tar.log" ] && echo 1 || echo 0)
+
+    # An archive that is not there: refused before a single service is asked
+    # to stop (the stand-ins would say so if one were).
+    out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" "$d/no-such.tar" 2>&1 </dev/null); rc=$?
+    check "deploy_unit.sh without its archive stops nothing" \
+          $([ "$rc" -ne 0 ] && [ "$(contains "$out" "nothing has been stopped")" = 1 ] &&
+            [ "$(contains "$out" "Stopping")" = 0 ] && echo 1 || echo 0)
 }
 
 # ---- deploy.sh refuses to start an incomplete installation ---------------
@@ -1094,17 +1102,16 @@ fi
 # only this test's own stand-in carries: nothing else on the build host can
 # match it, and nothing else can be signalled.
 FAKE_MCD="mcdgate$$"
-deploy_remote() { # <dir>: writes <dir>/remote.sh
-    sed -n "/^    | \"\${SSH\[@\]}\"/,/^doors version/p" \
-        "$REPO/platforms/k230/scripts/deploy.sh" \
-        | sed -e "1s/.*'set -e\$/set -e/" \
-              -e "s#/var/run#$1/var/run#g" \
-              -e "s#\([[:space:]]\)/run/pocketos#\1$1/run/pocketos#g" \
-              -e "s#/etc/init.d#$1/etc/init.d#g" \
-              -e "s#/usr/sbin/#$1/usr/sbin/#g" \
-              -e "s#/usr/bin/#$1/usr/bin/#g" \
-              -e "s#\*/meshcored|\*\"/meshcored (deleted)\"#*/$FAKE_MCD|*\"/$FAKE_MCD (deleted)\"#" \
-              -e "s/^doors version.*//" > "$1/remote.sh"
+deploy_remote() { # <dir>: writes <dir>/remote.sh, and the archive it is given
+    sed -e "s#/var/run#$1/var/run#g" \
+        -e "s#\([[:space:]]\)/run/pocketos#\1$1/run/pocketos#g" \
+        -e "s#/etc/init.d#$1/etc/init.d#g" \
+        -e "s#/usr/sbin/#$1/usr/sbin/#g" \
+        -e "s#/usr/bin/#$1/usr/bin/#g" \
+        -e "s#\*/meshcored|\*\"/meshcored (deleted)\"#*/$FAKE_MCD|*\"/$FAKE_MCD (deleted)\"#" \
+        -e "s/^doors version.*//" \
+        "$REPO/platforms/k230/scripts/deploy_unit.sh" > "$1/remote.sh"
+    : > "$1/payload.tar"
 }
 deploy_root() { # <dir> <payload dir>: stop/start stubs that record, and a tar that unpacks <payload>
     mkdir -p "$1/etc/init.d" "$1/bin" "$1/run/pocketos" "$1/var/run"
@@ -1134,7 +1141,7 @@ deploy_payload() { # <dir> <deploy dir>: every service whole, as the archive car
     # payload then lacks S65meshcored, so the one the unit ends up with is the
     # stub from before - removed here, which is unit A's state exactly.
     deploy_root "$d" "$p"; rm -f "$d/etc/init.d/S65meshcored"
-    out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" 2>&1 </dev/null); rc=$?
+    out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" "$d/payload.tar" 2>&1 </dev/null); rc=$?
     check "deploy refuses a unit left with meshcored and no S65meshcored" $([ "$rc" -ne 0 ] && echo 1 || echo 0)
     check "and names the missing piece" $(contains "$out" "S65meshcored is missing or not executable after unpacking")
     check "and says services were not started" $(contains "$out" "services were NOT started")
@@ -1143,7 +1150,7 @@ deploy_payload() { # <dir> <deploy dir>: every service whole, as the archive car
     d=$ROOT/deploy-mode; p=$ROOT/payload-mode
     deploy_payload "$p" "$ROOT/deploy-mode"; chmod 0644 "$p/usr/sbin/meshcored"
     mkdir -p "$d"; deploy_remote "$d"; deploy_root "$d" "$p"
-    out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" 2>&1 </dev/null); rc=$?
+    out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" "$d/payload.tar" 2>&1 </dev/null); rc=$?
     check "deploy refuses a meshcored binary that arrived not executable" \
           $([ "$rc" -ne 0 ] && [ "$(contains "$out" "usr/sbin/meshcored is missing or not executable")" = 1 ] && echo 1 || echo 0)
 
@@ -1160,7 +1167,7 @@ deploy_payload() { # <dir> <deploy dir>: every service whole, as the archive car
     printf '#!/bin/sh\n[ "$1" = stop ] && { kill -0 %s 2>/dev/null && echo mcd-alive-at-radiod-stop >> "%s/calls.log"; }\necho "$1 S60radiod" >> "%s/calls.log"\nexit 0\n' \
         "$hand" "$d" "$d" > "$d/etc/init.d/S60radiod"
     chmod 0755 "$d/etc/init.d/S60radiod"
-    out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" 2>&1 </dev/null); rc=$?
+    out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" "$d/payload.tar" 2>&1 </dev/null); rc=$?
     check "deploy stops a meshcored no init script started, before it unpacks" \
           $(contains "$out" "stopping a meshcored no init script started: $hand")
     check "and it is gone" $(wait_gone "$hand" && echo 1 || echo 0)
@@ -1184,7 +1191,7 @@ deploy_payload() { # <dir> <deploy dir>: every service whole, as the archive car
         > "$p/etc/init.d/S65meshcored"
     chmod 0755 "$p/etc/init.d/S65meshcored"
     mkdir -p "$d"; deploy_remote "$d"; deploy_root "$d" "$p"
-    out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" 2>&1 </dev/null); rc=$?
+    out=$(PATH="$d/bin:$PATH" sh "$d/remote.sh" "$d/payload.tar" 2>&1 </dev/null); rc=$?
     check "a meshcored that will not start fails the deploy" \
           $([ "$rc" -ne 0 ] && [ "$(contains "$out" "S65meshcored did not start")" = 1 ] && echo 1 || echo 0)
     check "but the shell is started all the same" \

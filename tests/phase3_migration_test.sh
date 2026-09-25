@@ -1,8 +1,8 @@
 #!/bin/bash
 # The Phase 3 migration and its rollback (ADR-005 Phase 3).
 #
-# Two halves. The first reads deploy.sh's remote payload and rollback_phase3.sh
-# as text and checks the order of what they do: order is the whole safety
+# Two halves. The first reads deploy_unit.sh (what deploy.sh runs on the unit)
+# and rollback_phase3.sh as text and checks the order of what they do: order is the whole safety
 # argument here - a binary removed before its init script, or a shell started
 # before the old one was stopped, is how a unit ends up with two shells or
 # none, and neither is visible in a test that only looks at the end state.
@@ -18,6 +18,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 REPO=$(pwd)
 DEPLOY=platforms/k230/scripts/deploy.sh
+UNIT=platforms/k230/scripts/deploy_unit.sh
 ROLLBACK=platforms/k230/scripts/rollback_phase3.sh
 failed=0
 check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
@@ -30,38 +31,38 @@ before() { # <file> <earlier> <later>
 }
 
 # ---- 1. deploy.sh: the order of the migration ---------------------------
-UNPACK=$(at "$DEPLOY" 'tar -C / -xf -')
+UNPACK=$(at "$UNIT" 'tar -C / -xf "$PAYLOAD"')
 check "deploy.sh still unpacks a payload" "$([ -n "$UNPACK" ] && echo 1 || echo 0)"
 check "both shell services are stopped before anything is unpacked" \
-    "$([ "$(before "$DEPLOY" 'for s in S90doors-shell S90pocketos-shell' 'tar -C / -xf -')" = 1 ] && echo 1 || echo 0)"
+    "$([ "$(before "$UNIT" 'for s in S90doors-shell S90pocketos-shell' 'tar -C / -xf "$PAYLOAD"')" = 1 ] && echo 1 || echo 0)"
 check "a stop that fails ends the deployment" \
-    "$(grep -q 'could not be stopped; nothing has been installed' "$DEPLOY" && echo 1 || echo 0)"
+    "$(grep -q 'could not be stopped; nothing has been installed' "$UNIT" && echo 1 || echo 0)"
 check "no shell of either name may still be running before the unpack" \
-    "$([ "$(before "$DEPLOY" 'a shell is still running' 'tar -C / -xf -')" = 1 ] && echo 1 || echo 0)"
+    "$([ "$(before "$UNIT" 'a shell is still running' 'tar -C / -xf "$PAYLOAD"')" = 1 ] && echo 1 || echo 0)"
 check "that check reads both identities' pid files" \
-    "$(grep -q '/var/run/doors-shell-supervise.pid /run/pocketos/doors-shell.pid' "$DEPLOY" &&
-       grep -q '/var/run/pocketos-shell-supervise.pid /run/pocketos/pocketos-shell.pid' "$DEPLOY" && echo 1 || echo 0)"
+    "$(grep -q '/var/run/doors-shell-supervise.pid /run/pocketos/doors-shell.pid' "$UNIT" &&
+       grep -q '/var/run/pocketos-shell-supervise.pid /run/pocketos/pocketos-shell.pid' "$UNIT" && echo 1 || echo 0)"
 check "and sweeps /proc for a daemon whose supervisor was killed" \
-    "$(grep -q 'readlink "$d/exe"' "$DEPLOY" && echo 1 || echo 0)"
+    "$(grep -q 'readlink "$d/exe"' "$UNIT" && echo 1 || echo 0)"
 # The removals: init script first. A binary removed first leaves an init script
 # that starts nothing; an init script removed first leaves a binary nothing
 # runs, which is the harmless order.
 check "the old init script is removed after the unpack" \
-    "$([ "$(before "$DEPLOY" 'tar -C / -xf -' 'rm -f /etc/init.d/S90pocketos-shell')" = 1 ] && echo 1 || echo 0)"
+    "$([ "$(before "$UNIT" 'tar -C / -xf "$PAYLOAD"' 'rm -f /etc/init.d/S90pocketos-shell')" = 1 ] && echo 1 || echo 0)"
 check "the old init script is removed BEFORE the old binary" \
-    "$([ "$(before "$DEPLOY" 'rm -f /etc/init.d/S90pocketos-shell' 'rm -f /usr/bin/pocketos-shell')" = 1 ] && echo 1 || echo 0)"
+    "$([ "$(before "$UNIT" 'rm -f /etc/init.d/S90pocketos-shell' 'rm -f /usr/bin/pocketos-shell')" = 1 ] && echo 1 || echo 0)"
 check "the old supervisor state is removed too, so no stale service row is left" \
-    "$(grep -q '/run/pocketos/pocketos-shell.state' "$DEPLOY" && echo 1 || echo 0)"
+    "$(grep -q '/run/pocketos/pocketos-shell.state' "$UNIT" && echo 1 || echo 0)"
 check "the new service is started after the removals" \
-    "$([ "$(before "$DEPLOY" 'rm -f /usr/bin/pocketos-shell' '/etc/init.d/S90doors-shell start')" = 1 ] && echo 1 || echo 0)"
+    "$([ "$(before "$UNIT" 'rm -f /usr/bin/pocketos-shell' '/etc/init.d/S90doors-shell start')" = 1 ] && echo 1 || echo 0)"
 check "the deploy counts shells, init scripts and states at the end" \
-    "$(grep -q 'shell processes=' "$DEPLOY" && grep -q 'more than one shell identity' "$DEPLOY" && echo 1 || echo 0)"
+    "$(grep -q 'shell processes=' "$UNIT" && grep -q 'more than one shell identity' "$UNIT" && echo 1 || echo 0)"
 check "and fails when it finds more than one of any of them" \
-    "$([ "$(before "$DEPLOY" 'more than one shell identity' 'doors version')" = 1 ] && echo 1 || echo 0)"
+    "$([ "$(before "$UNIT" 'more than one shell identity' 'doors version')" = 1 ] && echo 1 || echo 0)"
 # Settings are not the deploy's to delete: they are what the new service falls
 # back to, and what a rollback needs.
-check "deploy.sh never removes a settings file" \
-    "$(grep -E 'rm[^#]*etc/default' "$DEPLOY" | grep -q . && echo 0 || echo 1)"
+check "deploy.sh and deploy_unit.sh never remove a settings file" \
+    "$(grep -hE 'rm[^#]*etc/default' "$DEPLOY" "$UNIT" | grep -q . && echo 0 || echo 1)"
 check "deploy.sh ships the new binary and init script" \
     "$(grep -q 'usr/bin/doors-shell' "$DEPLOY" && grep -q 'etc/init.d/S90doors-shell' "$DEPLOY" && echo 1 || echo 0)"
 check "and ships neither of the old ones" \
@@ -124,14 +125,14 @@ pocketos_era() { # a unit as Phase 2 left it
     : > "$ROOT/usr/bin/doors-shell"; chmod 0755 "$ROOT/usr/bin/doors-shell"
 }
 
-# The migration stanza: everything deploy.sh does between the unpack and the
+# The migration stanza: everything deploy_unit.sh does between the unpack and the
 # services being started again.
 MIGRATE="$ROOT/migrate.sh"
-sed -n '/^rm -f \/etc\/init.d\/S90pocketos-shell$/,/^rm -f \/run\/pocketos\/pocketos-shell.pid/p' "$DEPLOY" \
+sed -n '/^rm -f \/etc\/init.d\/S90pocketos-shell$/,/^rm -f \/run\/pocketos\/pocketos-shell.pid/p' "$UNIT" \
     | rewrite_into /dev/stdin > "$MIGRATE"
 # the multi-line state removal ends on the next line; take it too
-sed -n '/^rm -f \/run\/pocketos\/pocketos-shell.pid/,+1p' "$DEPLOY" | tail -1 | rewrite_into /dev/stdin >> "$MIGRATE"
-check "the migration stanza was found in deploy.sh" \
+sed -n '/^rm -f \/run\/pocketos\/pocketos-shell.pid/,+1p' "$UNIT" | tail -1 | rewrite_into /dev/stdin >> "$MIGRATE"
+check "the migration stanza was found in deploy_unit.sh" \
     "$([ -s "$MIGRATE" ] && grep -q 'S90pocketos-shell' "$MIGRATE" && echo 1 || echo 0)"
 
 pocketos_era
