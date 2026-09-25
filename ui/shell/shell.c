@@ -76,6 +76,7 @@ extern const struct pocketos_app app_settings;
 extern const struct pocketos_app app_wave;
 extern const struct pocketos_app app_rift;
 extern const struct pocketos_app app_files;
+extern const struct pocketos_app app_camera;
 
 /* The registry. Where each app is shown on the launcher - its group, its
  * place in the group, its colour - is the launcher's table (home_layout.c),
@@ -83,7 +84,8 @@ extern const struct pocketos_app app_files;
 static const struct pocketos_app *const apps[] = { &app_radio, &app_system, &app_fleet,
                                             &app_radar, &app_timber, &app_notes,
                                             &app_clock, &app_calendar, &app_calculator,
-                                            &app_settings, &app_wave, &app_rift, &app_files };
+                                            &app_settings, &app_wave, &app_rift, &app_files,
+                                            &app_camera };
 #define APP_COUNT (sizeof(apps) / sizeof(apps[0]))
 
 struct shell {

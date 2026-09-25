@@ -2854,3 +2854,78 @@ a file copied, moved and deleted on the SD card; `/etc` and
 `/var/lib/pocketos` shown read-only; a text file opened.
 
 Amendment Q (§33) accepted 2026-09-23 (Files unit A gate, docs/hardware/FILES_GATE.md), with the landscape launcher wrap of §33.4.
+
+## 34. Amendment R — Camera [ACCEPTED]
+
+**ACCEPTED 2026-09-25** by the owner, after the unit A gate
+(`docs/hardware/CAMERA_GATE.md`, PASS: both orientations, the picture upright
+and not mirrored, capture, review, keep and delete, the keyboard base
+alongside). **Proposed 2026-09-24** on branch `feat/camera-app-design`,
+validated on the host (§34.5). It adds one app and
+changes no existing screen; outside the app it adds a fourth cell to DEVICE
+on the launcher (§34.4). Nothing in §1-§33 is renumbered. The app is described
+in `docs/apps/CAMERA.md`, its architecture in ADR-006 (accepted 2026-09-25).
+
+### 34.1 Components
+
+Only existing parts and roles. The picture sits on a `POS_STYLE_SLAB` box
+(the surface fill shows while there is no picture); in its place, a panel of
+`POS_STYLE_TITLE` and centred `POS_STYLE_TEXT_SECONDARY` says what is
+happening. TAKE PHOTO is a primary button, 240 x 96: the one control that
+matters is the largest. DELETE/KEEP, CANCEL/DELETE and TRY AGAIN (CHECK AGAIN
+with no camera) are the §7 secondary and primary buttons at 64 px, with the §9
+disabled treatment. The last photo is a 72 x 72 slab (pressed:
+`POS_STYLE_SLAB_PRESSED`) holding a 64 x 64 thumbnail. One status line under
+the picture in `POS_STYLE_TEXT_SECONDARY`, switched to
+`POS_STYLE_STATUS_WARN_TEXT` for a stall, a capture in progress and a note.
+No new role, token or colour.
+
+Fullscreen (§30.8): the app declares NONE. The shell's header carries the
+back slab and, at its right end, the hint: `SIMULATED` whenever the pictures
+come from the fake backend, so a test pattern is never mistaken for a camera.
+
+### 34.2 Tall (portrait, 528 x 1116)
+
+The picture across the full width, in the photo's own shape (9:16, 528 x
+938): what the preview shows is what is saved. Under it the status line, then
+the shutter centred, the last photo to its left. In review the two buttons
+share the shutter's row, each half the width. When the body is shorter the
+picture gives way and the controls keep their 156 px.
+
+### 34.3 Wide (landscape, 1192 x 452)
+
+The picture at the full height, 16:9 (802 x 452), on the left. A column on
+the right: the status line at the top, the last photo, the shutter in the
+middle; in review the two buttons stacked where the shutter was; TRY AGAIN
+in the upper button's place.
+
+The shape is chosen from the body (§21.2); the picture's shape follows the
+way the unit is held, because the sensor is fixed to it. Every control is
+inside the box PocketUI's corner rule leaves (§21.3, `pocketui_layout_begin`).
+
+### 34.4 Launcher
+
+Camera is the fourteenth app: DEVICE, after Files, in the `tools` hue, with
+the Doors icon-extension camera glyph (mask and portal art generated like
+Wave's and Files'). In landscape DEVICE already sits on its own second line
+(§33.4); it gains a fourth cell there. Portrait is unchanged but for the cell.
+
+### 34.5 Validation on the host
+
+`tests/camera_layout_test.c` (both shapes, corners, touch targets),
+`tests/camera_state_test.c`, `tests/camera_shell_test.sh` with
+`tests/camera_app_test.c` (every state in both orientations, touch targets
+and the corner safe area checked, the real shell with the live test pattern
+on screen), `tests/camera_lint.sh`, and the launcher and shell suites with
+fourteen apps.
+
+### 34.6 Unit A gate (before acceptance)
+
+Only once a real camera backend exists (CAMERA_PLATFORM_RESEARCH.md §9). The
+build's identity first. Both orientations: Camera in DEVICE; the preview
+upright and not mirrored (U4) at a steady rate; a photo taken, kept,
+reviewed, deleted; the file on the card exactly when the screen says so; no
+camera (with the ISP daemon stopped) and back; leaving mid-capture; the
+header without SIMULATED.
+
+Amendment R (§34) accepted 2026-09-25 (Camera unit A gate, docs/hardware/CAMERA_GATE.md).

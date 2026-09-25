@@ -253,6 +253,7 @@ static const struct home_entry entries[] = {
     { "settings", HOME_GROUP_DEVICE, HOME_HUE_SETTINGS },
     { "system", HOME_GROUP_DEVICE, HOME_HUE_APPS },
     { "files", HOME_GROUP_DEVICE, HOME_HUE_FILES },
+    { "camera", HOME_GROUP_DEVICE, HOME_HUE_TOOLS },
 };
 
 const char *home_group_name(enum home_group g)

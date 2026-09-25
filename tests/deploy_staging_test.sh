@@ -38,7 +38,7 @@ make_tree() { # <vendor dir>
     mkdir -p "$t/usr/share/doors" "$t/usr/share/pocketos" "$t/etc"
     mkbootimg_rootfs_doors "$t" abc1234
     rm -rf "$t/etc/default"
-    for f in usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave; do
+    for f in usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-camera; do
         printf '#!/bin/sh\n' > "$t/$f"; chmod 0755 "$t/$f"
     done
     ln -sfn doors "$t/usr/bin/pos"

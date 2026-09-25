@@ -79,7 +79,8 @@ fi
 # out in exactly one place (DS §21.3, §22.2).
 RESPONSIVE="apps/calculator/calc_app.c apps/notes/notes_app.c apps/settings/settings_app.c
             apps/system/system_app.c apps/clock/clock_app.c apps/calendar/cal_app.c
-            apps/fleet/fleet_app.c apps/radar/radar_app.c apps/files/files_app.c"
+            apps/fleet/fleet_app.c apps/radar/radar_app.c apps/files/files_app.c
+            apps/camera/camera_app.c"
 for f in $RESPONSIVE; do
     check "$(basename "$f") opens its layout pass with the shared guard" \
         "$(grep -q 'pocketui_layout_begin(&' "$f" && echo 1 || echo 0)"
@@ -298,13 +299,13 @@ grep -v '^ok' "$OUT/after-theme.checks"; failed=$((failed + $(grep -vc '^ok' "$O
 check "and the landscape launcher is drawn in that theme ($(grep -c '^ok' "$OUT/after-theme.checks") checks)" \
     "$([ "$(grep -c '^ok' "$OUT/after-theme.checks")" = 6 ] && echo 1 || echo 0)"
 opened=0
-for id in radio system fleet radar timber notes clock calendar calculator settings wave files; do
+for id in radio system fleet radar timber notes clock calendar calculator settings wave files camera; do
     "$POS" app start "$id" >/dev/null 2>&1 && sleep 0.4 &&
         "$POS" app list 2>/dev/null | grep -qE "^$id +.* open$" && opened=$((opened + 1))
     [ "$id" = settings ] && "$POS" shell screenshot "$OUT/landscape-settings.png" >/dev/null 2>&1
     "$POS" app home >/dev/null 2>&1; sleep 0.2
 done
-check "in landscape every one of the twelve apps opens and comes home ($opened)" "$([ "$opened" = 12 ] && echo 1 || echo 0)"
+check "in landscape every one of the thirteen apps opens and comes home ($opened)" "$([ "$opened" = 13 ] && echo 1 || echo 0)"
 check "the landscape shell logged no ERROR" "$(grep -qE ' ERROR |assert' "$POCKETOS_LOG_DIR/run.log" && echo 0 || echo 1)"
 stop_shell
 

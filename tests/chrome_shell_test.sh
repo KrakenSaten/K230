@@ -3,11 +3,11 @@
 #
 #   1. The rules in the source: one resolver, one content box, the chrome
 #      resolved before an app is created, apps that declare and never
-#      manipulate, and stage 2 - the six fullscreen apps declare NONE and
+#      manipulate, and stage 2 - the seven fullscreen apps declare NONE and
 #      no other app declares anything.
 #   2. The pure test (tests/chrome_test, make test) when it has been built.
 #   3. The running shell: FULL at home in both orientations and under every
-#      other app in portrait; NONE under the six fullscreen apps in both,
+#      other app in portrait; NONE under the seven fullscreen apps in both,
 #      their hint drawn in the header instead; COMPACT under every other app
 #      in landscape, and drawn so -
 #      the 32 px bar with its hairline, the header straight under it, the
@@ -34,9 +34,9 @@ OUT=$(mktemp -d)
 failed=0
 check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 line() { grep -n "$1" "$2" | head -1 | cut -d: -f1; }
-APPS="radio system fleet radar timber notes clock calendar calculator settings wave rift files"
+APPS="radio system fleet radar timber notes clock calendar calculator settings wave rift files camera"
 # DS §30.4 stage 2: the apps that declare NONE, fullscreen in both orientations.
-FULLSCREEN="rift notes wave fleet radar timber"
+FULLSCREEN="rift notes wave fleet radar timber camera"
 is_fullscreen() { case " $FULLSCREEN " in *" $1 "*) return 0 ;; esac; return 1; }
 
 # ---- 1. the rules in the source ------------------------------------------------
@@ -78,8 +78,8 @@ check "no app resolves, reads or touches the chrome" "$([ -z "$hits" ] && echo 1
 [ -n "$hits" ] && echo "$hits" | head -5
 hits=$(grep -rn '\.chrome = ' apps --include='*.c' | grep -v 'POCKETOS_CHROME_NONE')
 declared=$(grep -rln '\.chrome = POCKETOS_CHROME_NONE' apps --include='*.c' | cut -d/ -f2 | sort | tr '\n' ' ')
-check "stage 2: the six fullscreen apps declare NONE and no app declares anything else ($declared) (DS §30.4)" \
-    "$([ -z "$hits" ] && [ "$declared" = "fleet notes radar rift timber wave " ] && echo 1 || echo 0)"
+check "stage 2: the seven fullscreen apps declare NONE and no app declares anything else ($declared) (DS §30.4, §34)" \
+    "$([ -z "$hits" ] && [ "$declared" = "camera fleet notes radar rift timber wave " ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
 check "the test hook that forces a chrome is compiled out of the panel's build" \
     "$(sed -n '/POCKETOS_SHELL_TEST_HOOKS/,/#endif/p' ui/shell/shell.c | grep -q 'getenv("POCKETOS_TEST_CHROME")' &&
@@ -192,8 +192,8 @@ for id in $APPS; do
     logs "$OUT/p-$id.log" | grep -q "$want" &&
         ! logs "$OUT/p-$id.log" | grep -qE ' ERROR |assert' && n=$((n + 1))
 done
-check "portrait: the seven other apps open under FULL and the six fullscreen ones under NONE, faulting nothing ($n of 13)" \
-    "$([ "$n" = 13 ] && echo 1 || echo 0)"
+check "portrait: the seven other apps open under FULL and the seven fullscreen ones under NONE, faulting nothing ($n of 14)" \
+    "$([ "$n" = 14 ] && echo 1 || echo 0)"
 set -- $(geometry "$OUT/p-system.png")
 check "portrait System: the bar's hairline is row 55, the back slab starts at row 64, x 20 (got $1 $2 $3)" \
     "$([ "$1" = 55 ] && [ "$2" = 64 ] && [ "$3" = 20 ] && echo 1 || echo 0)"
@@ -213,7 +213,7 @@ shot "$OUT/l-home.png" "$OUT/l-home.log" --rotation landscape --no-lock
 check "landscape, home: FULL, 56 px" \
     "$(logs "$OUT/l-home.log" | grep -q 'chrome: full, status bar 56 px, content from y 56, for home' && echo 1 || echo 0)"
 check "landscape, home: the grouped launcher below a 56 px bar" \
-    "$(logs "$OUT/l-home.log" | grep -q 'launcher: 4 group(s), 13 app(s), landscape' && echo 1 || echo 0)"
+    "$(logs "$OUT/l-home.log" | grep -q 'launcher: 4 group(s), 14 app(s), landscape' && echo 1 || echo 0)"
 # On the launcher the bar lies on the home photograph with no fill and no
 # rule (DS §31.1); its height is still FULL's, as the log line above says.
 set -- $(geometry "$OUT/l-home.png")
@@ -221,7 +221,7 @@ check "landscape home: the bar draws no hairline over the photograph (got $1)" \
     "$([ "$1" = -1 ] && echo 1 || echo 0)"
 n=0
 for id in $APPS; do
-    # Every app takes the landscape default but the six fullscreen ones,
+    # Every app takes the landscape default but the seven fullscreen ones,
     # which declare NONE (DS §30.4, stage 2).
     want="chrome: compact, status bar 32 px, content from y 32, for $id"
     is_fullscreen "$id" && want="chrome: none, status bar 0 px, content from y 0, for $id"
@@ -231,8 +231,8 @@ for id in $APPS; do
         logs "$OUT/l-$id.log" | grep -q 'chrome: full, status bar 56 px, content from y 56, for home' &&
         ! logs "$OUT/l-$id.log" | grep -qE ' ERROR |assert' && n=$((n + 1))
 done
-check "landscape: the seven DEFAULT apps open under COMPACT and the six fullscreen ones under NONE, all after a FULL home, faulting nothing ($n of 13)" \
-    "$([ "$n" = 13 ] && echo 1 || echo 0)"
+check "landscape: the seven DEFAULT apps open under COMPACT and the seven fullscreen ones under NONE, all after a FULL home, faulting nothing ($n of 14)" \
+    "$([ "$n" = 14 ] && echo 1 || echo 0)"
 set -- $(geometry "$OUT/l-system.png")
 check "landscape System: the bar's hairline is row 31, the back slab starts at row 40, x 20 (got $1 $2 $3)" \
     "$([ "$1" = 31 ] && [ "$2" = 40 ] && [ "$3" = 20 ] && echo 1 || echo 0)"
@@ -271,12 +271,12 @@ for id in system $FULLSCREEN $FULLSCREEN; do
     printf '%s' "$a" | grep -q "$want" &&
         printf '%s' "$b" | grep -q '"policy":"full","status_bar_height":56' && cycles=$((cycles + 1))
 done
-check "System, then each fullscreen app opened, closed and reopened: COMPACT or NONE while open, FULL again at home, every time ($cycles of 13)" \
-    "$([ "$cycles" = 13 ] && echo 1 || echo 0)"
+check "System, then each fullscreen app opened, closed and reopened: COMPACT or NONE while open, FULL again at home, every time ($cycles of 15)" \
+    "$([ "$cycles" = 15 ] && echo 1 || echo 0)"
 check "each opening and each return logged its chrome" \
     "$([ "$(grep -c 'chrome: compact, status bar 32 px' "$POCKETOS_LOG_DIR/shell.log")" = 1 ] &&
-       [ "$(grep -c 'chrome: none, status bar 0 px' "$POCKETOS_LOG_DIR/shell.log")" = 12 ] &&
-       [ "$(grep -c 'chrome: full, status bar 56 px, content from y 56, for home' "$POCKETOS_LOG_DIR/shell.log")" = 14 ] && echo 1 || echo 0)"
+       [ "$(grep -c 'chrome: none, status bar 0 px' "$POCKETOS_LOG_DIR/shell.log")" = 14 ] &&
+       [ "$(grep -c 'chrome: full, status bar 56 px, content from y 56, for home' "$POCKETOS_LOG_DIR/shell.log")" = 16 ] && echo 1 || echo 0)"
 # The lock over a fullscreen app: the lock lies under the bar, so while it is
 # engaged the bar comes back as an ordinary app would have it here (COMPACT
 # in landscape) and the lock looks the same over either; opened again, the
