@@ -1,11 +1,16 @@
 # Device controls and diagnostics: unit A gate
 
-Branch `feat/device-controls-diagnostics`. Status: **NOT RUN.** Everything on
-this branch is host-built and host-tested only. The session that wrote it ran in
-a cloud container: unit A (192.168.10.157) was not reachable from there, and no
-Buildroot tree, LVGL, RadioLib or ggwave checkout was available. Every
-hardware claim below is therefore **DEVICE UNVERIFIED** until this procedure has
-been run on unit A.
+Branch `feat/device-controls-diagnostics`. Status: **RUN 2026-09-25 on unit A,
+PASS** (results at the foot). Unit A carries build **`09be665`** (Doors 0.0.13,
+this branch rebased on master `d2b2be6`, deployed with `deploy.sh` over the
+flashed v0.0.12 card), rotation **Automatic**, radio **on** (stored), volume
+100 %. Rollback of the userspace and state it replaced (v0.0.12 `a8b1a9f` plus
+the Camera shell `e3d3f71`): `/root/rollback-devctl/RESTORE.sh`.
+
+The branch was written in a cloud container with no unit, no Buildroot tree
+and no LVGL; the section below is that session's plan. The steps were run as
+written except where the results say otherwise; unit A answers on both
+192.168.10.157 (eth0) and 192.168.10.171 (Wi-Fi) since the v0.0.12 flash.
 
 Evidence classes as in AGENTS.md: VERIFIED (observed on unit A), DOCUMENTED
 (repository or vendor source), ASSUMED.
@@ -212,16 +217,53 @@ not growing between the start and the end.
 
 ## Result
 
+Run 2026-09-25 on unit A (antenna on MMCX1, owner-confirmed), build `09be665`.
+Panel observations are DRM-plane captures (kmsgrab) with touch injected into
+the Goodix evdev node; everything else is read over SSH. VERIFIED throughout
+unless a row says otherwise.
+
 | Step | Result | Notes |
 | --- | --- | --- |
-| 1 build and host suites | NOT RUN | |
-| 2-3 survey, deploy | NOT RUN | |
-| 4 default off, no RF | NOT RUN | |
-| 5 restart while off | NOT RUN | |
-| 6 antenna question, enable | NOT RUN | |
-| 7 RF tx/rx | NOT RUN | |
-| 8 disable, reboot persistence | NOT RUN | |
-| 9 volume, mute, persistence | NOT RUN | |
-| 10 Bluetooth, battery | NOT RUN | |
-| 11 diagnostics | NOT RUN | |
-| 12 soak | NOT RUN | |
+| 1 build and host suites | PASS | Clean clone of `09be665` under WSL: `make all` and `make test` -Werror (141 suites, 0 failures), the whole `make test` again under ASan/UBSan (0 reports), `meshcored-test`, `meshcore-*-test`, `camera-san-test`, SDL shell against the real LVGL tree (0 first-party warnings), every LVGL app test and all 23 shell suites; riscv64 `make all` (0 first-party warnings), radiod with `ENABLE_SX1262=1`, DRM/sysroot shell (0 warnings). The first real-LVGL run found two defects, fixed on the branch (below) |
+| 2-3 survey, deploy | PASS | Before: v0.0.12 `a8b1a9f` + Camera shell `e3d3f71`, sx1262 `rx`, no `radiod/radio.conf`, no HCI, empty power_supply. Image built (IMAGE GATE PASS, not flashed); `deploy.sh` from its target tree: 8 binaries hash-match the tree, every service `09be665`. The first attempt ran over Wi-Fi and cut itself off (findings); repeated over eth0 |
+| 4 default off, no RF | PASS | `off`, `enabled:false`, nothing stored; log "radio off (no stored choice: the sx1262 default)" and "transceiver parked". radiod holds no spidev or gpiochip descriptor, `fuser /dev/spidev0.0` finds nobody. With meshcored stopped, `send`, `send_async`, `cad`, `rssi` all code 3 "the radio is switched off"; `info` answers. tx_packets 0. meshcored `degraded` "the radio is switched off", `online:false`, lease held, 0 tx submitted; 120 s: 0 new log lines in radiod.log and meshcored.log, no pid change, 0 restarts. RIFT: RADIO OFF, adverts disabled. `gpioinfo` is not on the image, so GPIO44 was not read directly |
+| 5 restart while off | PASS | `S60radiod restart`: still `off`, nothing stored; meshcored reconnects once (lease, configuring, degraded), 0 restarts, no crash loop |
+| 6 antenna question, enable | PASS | Tap on the tile: the question with its exact text, Cancel and Enable radio. Cancel: off, nothing stored, logged. Leaving Controls with the question open (`shell.controls show=false`, the swipe's path) dismisses it; reopened, no question, still off. The scrim swallows every other tap, including back, as designed. Enable radio: `rx`, `enabled=1` stored, radiod "switched on by the owner", meshcored `degraded -> online` in the same millisecond with 869.618 MHz SF8, RIFT ONLINE / TRANSMIT READY, tile Receiving, RX chip. `doors radio on`/`off` and a boot with `enabled=1` show no question |
+| 7 RF tx/rx | PASS | ADVERT NEAR tapped on the RIFT panel: tx 0 -> 1, 775 ms airtime. Direct message to T-Deck-RIFT `e34a0352`: **acked** (our frame reached the peer, its ACK reached unit A). `#doorsbench` flood sent. rx 2 -> 8 in 3 min, 0 CRC errors; meshcored 3/3 tx accepted |
+| 8 disable, reboot persistence | PASS | Tile while on: off at once, no question, `enabled=0`, spidev and GPIO released, meshcored `online -> degraded`, no tx after. Reboot with nothing stored: off and parked again. Reboot with `enabled=1`: "radio on (stored choice)", meshcored online at boot. Both reboots: Wi-Fi credentials, MeshCore identity and channels, settings and every other state file byte-identical (sha256) |
+| 9 volume, mute, persistence | PASS, audibility NOT VERIFIED | Controls slider dragged to 50 %: `audio_volume=50`; the speaker glyph mutes (`effective` 0, "Muted") and unmutes; `doors shell volume 55`, `0`, `110`, `x` refused, nothing changed. `pos-wave send` with the Wave app's argv (`audible_fast`, `--volume 10`, `--volume-percent 70/40/10`, none at 100) played to completion at every level, 2.0 s each. 60 % survived a shell restart; 30 % muted survived a reboot. The gain itself is host-tested (pocketaudio_test, 151 checks); this unit cannot measure its own speaker (the mic route and the speaker route are exclusive, AUDIO_FEASIBILITY), and the Wave app could not be driven end to end because typing needs the keyboard base's keys. **The owner's ear (or Waver on a phone) is still needed for "quieter at 50 % and 10 %, no clipping at 100 %"** |
+| 10 Bluetooth, battery | PASS | `/sys/class/bluetooth` empty: Controls "Not available" (no toggle), Diagnostics "No controller". power_supply empty: Controls "External power", Diagnostics "No battery, external power". No percentage anywhere. Camera changed neither path |
+| 11 diagnostics | PASS | Real values in every row: 0.0.13 · 09be665, uptime, memory, storage, "No battery, external power", "5 running · restarted: radiod 1x, sysd 1x" (after `kill -9` radiod and `kill -SEGV` sysd; sysd instead of netd, see findings), "Receiving · 869.618 MHz SF8", "Online", "No controller", "1 report" listed as `sysd · SIGSEGV · 09-25 13:12 UTC` with its first frame. Warnings shows the exits and poll failures; Errors showed "No errors logged" (true: no ERROR line on the card) and then the one real ERROR provoked with `radiod --radio-default bogus`. 35 refreshes: shell RSS 14960 kB before and after; `shell.info` answered in 19 ms on average, 40 ms at most, throughout. sysd read 82 KB of 10 sources and says older ones were not scanned (bounded) |
+| 12 soak | PASS | 50 radio off/on cycles (slowest switch-on 150 ms), 5 more through the tile and the question, 30 Controls open/close, 30 volume steps, 10 Diagnostics open/close, 10 lock/unlock, portrait/landscape/portrait/automatic with Controls and Camera (live preview) in each: no restarts, no crash loop, same pids; RSS shell 14960 -> 14488 kB, radiod 3072 -> 2944, meshcored 3584 -> 3456, sysd 1408 -> 1536, netd 1536 -> 1536; 93 new kernel lines, all the camera stack's open/close messages |
+
+### Fixed on the branch during the gate
+
+- `8cfbcc8` `pos shell` usage appended volume to the brightness line, which
+  identity_test pins as v0.0.9 printed it (scripts quote it); volume is now a
+  line of its own.
+- `09be665` Diagnostics values used the dotted 60 % kv row, so the portrait
+  Mesh row read "Waiting: the radio is swit..."; they wrap now. The
+  system_app_test pins still held master's Restart and Power off (the
+  Diagnostics panel moves them down 120 px); they now pin all three, and the
+  page itself is under test in the real LVGL tree (open, one bounded call per
+  service, filters through sysd, 60-line log bounded to 40, same object count
+  over ten refreshes, width, Back).
+
+### Findings not caused by this branch
+
+- `deploy.sh` to the Wi-Fi address stops netd before it unpacks, which drops
+  its own SSH session; the remote tar waited forever with every service
+  stopped. Recovered by running it again over eth0. Deploy over eth0.
+- netd started at runtime (not at boot) timed out on wpa_supplicant's control
+  socket 0.3 s after starting it and left Wi-Fi disconnected; `wpa_cli ping`
+  answered moments later. At boot it connects. netd is untouched here.
+- One kernel WARNING in the vendor RTL8189FS driver (`rtw_lps_state_chk`,
+  its xmit thread leaving power save), 521 s after a boot; no crash, not seen
+  again.
+- System asks `system.info` once when it opens (as on master): opened a few
+  seconds after sysd restarted it kept dashes for Doors, Model and Kernel
+  until reopened.
+- The antenna question is a glass panel over glass: the tiles behind show
+  through its text. Readable on the panel, but a warning could be more solid
+  (DS decision, not changed).
+- "1 newest errors" (singular wording).
