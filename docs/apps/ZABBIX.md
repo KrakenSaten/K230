@@ -603,12 +603,12 @@ Host results, 2026-09-25 (WSL2 Ubuntu 22.04, gcc 11.4):
 | --- | --- | --- |
 | `tests/zbx_model_test` | words, UTF-8 cutting, orders, counts, ages | 52 ok |
 | `tests/zbx_proto_test` | every line both ways; damaged, partial and oversized sets refused | 38 ok |
-| `tests/zbx_api_test` | request shapes per version; envelope; error classes; malformed shapes; values; Date header | 65 ok |
-| `tests/zbx_config_test` | the conf rules, the URL rules, the secret's modes, a symlink, atomic replace | 49 ok |
-| `tests/zbx_client_test` | schedule, backoff sequence, auth lockout, flap, stale, the 6.0 and 7.4 rules, large estate, detail, password re-login, 400-round soak | 80 ok |
-| `tests/zabbix_view_test` | banner in every state, stale boundaries, overview counts, rows, STATUS | 52 ok |
+| `tests/zbx_api_test` | request shapes per version; envelope; error classes; malformed shapes; values; Date header; user.logout per version | 67 ok |
+| `tests/zbx_config_test` | the conf rules, the URL rules, the secret's modes, a symlink, atomic replace, passwords byte for byte | 54 ok |
+| `tests/zbx_client_test` | schedule, backoff sequence, auth lockout, flap, stale, the 6.0 and 7.4 rules, large estate, detail, password re-login, no password retry over 2 h, logout, 200 session renewals, 400-round soak | 93 ok |
+| `tests/zabbix_view_test` | banner in every state, stale boundaries, overview counts, rows, STATUS | 53 ok |
 | `tests/zabbix_session_test` | the real helper: start, commands, scenario switch, crash, missing binary, hang, abandon mid-request, a burst past the socket buffer, 20 opens with no leaked descriptor | 29 ok |
-| `tests/zabbix_http_test.sh` | the real libcurl path against the mock: HTTP scenarios, timeout, refused, DNS, and HTTPS untrusted, `ca_file`, wrong name, `verify_tls=0`; token in no log | 29 ok (with libcurl) |
+| `tests/zabbix_http_test.sh` | the real libcurl path against the mock: HTTP scenarios, timeout, refused, DNS, and HTTPS untrusted, `ca_file`, wrong name, `verify_tls=0`; user and password: login, renewal, logout, one failed login only, try-server.sh; token and password in no log | 44 ok (with libcurl) |
 | `zabbix_app_test` (CMake) | the screen under a real pointer, portrait and landscape: every tab, row to host and back, scenario switch, offline banner with data kept, auth, unconfigured and demo, missing helper, crash and restart, large estate bounded, long names, 20 opens and closes | 66 ok |
 | `tests/zabbix_shell_test.sh` | the real simulator shell opens Zabbix in both orientations, draws the disaster in the error colour, logs no warning, leaves no helper | 19 ok (Zabbix shell); the real-shell half SKIPs on a default shell |
 | `tests/zabbix_lint.sh` | the boundaries of §4 and §7 | 0 failures |
@@ -616,20 +616,22 @@ Host results, 2026-09-25 (WSL2 Ubuntu 22.04, gcc 11.4):
 ### 11.1 Full validation
 
 The full record is docs/hardware/ZABBIX_EXPERIMENT_VALIDATION.md. In
-short, from a clean clone of `a1b697e`:
+short, from a clean clone of `f489d98` (the password fixes; §7 of the
+record):
 
 - **`make all` and `make test`** (`-Werror`) exit 0, with 123 suites at
   0 failures.
+- **HTTP and HTTPS with libcurl:** 44 ok.
 - **Sanitizers:** all seven Zabbix suites pass under ASan and UBSan.
-- **Shell suites:** every one of the 25 passes, the existing ones on a
-  default shell.
+- **Shell suites:** all 22 pass, the existing ones on a default shell;
+  `zabbix_app_test` 66 ok.
 - **riscv64:** `make all ZABBIX_CURL=1` (`-Werror`) and both DRM shells
   build with no first-party warning.
 
 **Not tested:**
 
-- **A real Zabbix server**: no URL or credentials were available.
-- **Unit A**: not reachable on 2026-09-25.
+- **A real Zabbix server**: none was used. The procedure is §10.1.
+- **Unit A** (DEVICE UNVERIFIED): not reachable on 2026-09-25.
 - **The device's libcurl 8.12.1 at run time**: the host tests use Ubuntu's
   7.81.0. The riscv64 helper is built and linked against 8.12.1, but it has
   not been run.

@@ -172,3 +172,74 @@ Nothing was built into an image, and nothing was flashed or deployed.
 
 On the C908 the CPU, RSS, the shell's RSS growth and the time to first
 build 200 host rows are **not measured**. That is step 7 of the unit A gate.
+
+## 7. Re-validation after the password fixes (f489d98)
+
+The user-and-password path was reviewed against the Zabbix 7.0
+documentation and source, and three defects were fixed:
+
+- **fe7053a:** a password is now stored byte for byte.
+- **3660d10:** three fixes in the session handling:
+  - a refused password is no longer retried on its own (account lockout);
+  - the session is logged out with `user.logout`;
+  - a session that ends mid-round is renewed instead of being taken for a
+    refused login.
+
+The same run as §1-§5 was repeated from a clean clone of **f489d98**, with no
+`POCKETOS_LOG_*` in the environment.
+
+- **`make all` and `make test`:** both exit 0, with 123 suite summaries at
+  0 failures.
+- **Zabbix suites:**
+
+  | Suite | Result |
+  | --- | --- |
+  | model | 52 ok |
+  | proto | 38 ok |
+  | api | 67 ok |
+  | config | 54 ok |
+  | client | 93 ok |
+  | view | 53 ok |
+  | session | 29 ok |
+  | lint | 0 failures |
+
+- **`tests/zabbix_http_test.sh` with libcurl:** 44 ok, 0 FAIL, 0 SKIP. The
+  15 new checks cover:
+  - the byte-exact password, with no password in zabbix.conf;
+  - login and logout by `check`;
+  - the session helper online, with the password in neither its cmdline
+    nor its environ;
+  - logout after quit;
+  - short sessions renewed with none left open;
+  - one failed login for a wrong user, with no retry countdown;
+  - `try-server.sh` online, then with a wrong user;
+  - the password in no log.
+
+  On the development copy, the suite passed four times in a row before the
+  `try-server.sh` checks were added, and once after.
+- **`make zabbix-san-test`:** all seven suites at 0 failures, with no
+  sanitizer report.
+- **Shell suites:** all 22, each at 0 FAIL, with the same counts as §4.
+  - `zabbix_shell_test` on the Zabbix shell: 19 ok.
+  - `zabbix_app_test` run on its own: 66 ok.
+- **riscv64:** `make all ZABBIX_CURL=1 POCKETCAM_JPEG=1` (`-Werror`) exits 0.
+  - Both DRM shells build with 0 first-party warnings.
+  - pos-zabbix is 120 688 bytes, with the same four libraries needed.
+  - The mock is 87 368 bytes.
+  - `DOORS_BUILD_ID=f489d98` is in `doors-shell` and `pos-zabbix`.
+- **Gate payload:** WSL `~/work/zbx-payload-f489d98/`, replacing the
+  a1b697e payload for the unit A gate:
+
+```
+7e73609f79c6b3b2d957523dbbec597d4b7cff11322478027bc9e5311babfde3  doors-shell   (POCKETOS_WITH_ZABBIX=ON)
+8d7b47c008c6162a56acb388455db91d3fcc18c6f68cca75075f2700c9d4d98b  pos-zabbix
+1a66ec7c3852b6fee0568da152c6ff98d0a36ad2a079ceb6b97037861ef397f3  pos-zabbix-mock
+```
+
+**Not run:**
+
+- **Unit A:** "No route to host" on 192.168.10.171 (DEVICE UNVERIFIED).
+- **A real Zabbix server:** nothing was sent to one. The procedure is
+  docs/apps/ZABBIX.md §10.1.
+
+Nothing was flashed or deployed.

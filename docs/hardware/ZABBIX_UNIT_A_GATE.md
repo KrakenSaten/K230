@@ -84,6 +84,19 @@ the payload's), and start the shell again. The root filesystem has about
      refused";
    - `timeout` gives a timeout after `timeout_s`;
    - `demo` recovers.
+
+   Then the password path, against the same mock (user `demo`, any
+   password; a made-up one, never a real credential):
+   - Add `auth=password` and `user=demo` to zabbix.conf, and run
+     `printf '%s\n' 'gate pässord 7' | pos-zabbix set-secret password`.
+     `pos-zabbix check` exits 0, and pos-zabbix.log says `logged in`, then
+     `logged out`.
+   - Open the app: live data. Close it (`doors shell home`): the log says
+     `logged out` within 3 s, and `pgrep pos-zabbix` finds nothing after it.
+   - Set `user=nobody` and open the app. The banner says "check the user and
+     password · REFRESH NOW to try again", with no countdown. After 6
+     minutes, the log shows no second login attempt.
+   - Put the token setup back for the rest of the gate.
 5. **The network goes away.** With the mock bound to the unit's LAN address,
    pull Ethernet (or switch Wi-Fi off in Settings). The banner must say the
    server is not reachable, with the retry countdown, and the data must stay.
@@ -108,6 +121,6 @@ the payload's), and start the shell again. The root filesystem has about
 
 - Steps 1-5 and 7-9 pass.
 - No `ERROR` or `assert` in `shell.log` or `pos-zabbix.log`.
-- No token in any log (`grep -r zbx-gate-token /var/lib/pocketos/log` finds nothing
-  of it).
+- No token or password in any log (`grep -rE 'zbx-gate-token|gate pässord'
+  /var/lib/pocketos/log` finds nothing).
 - The unit is left rolled back, with the result recorded.
