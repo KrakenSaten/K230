@@ -341,12 +341,88 @@ static void test_store(void)
     unsetenv("POCKETOS_STATE_DIR");
 }
 
+/* match.v1, the multiplayer match (docs/apps/FLEET_MULTIPLAYER.md): stored
+ * beside save.v1 and independent of it, whole or not at all. */
+static void test_match_store(void)
+{
+    char dir[] = "/tmp/pos_fleet_mp.XXXXXX";
+    char path[512];
+    char tmp[560];
+    char cmd[700];
+    uint8_t blob[300];
+    uint8_t back[FLEET_STORE_MATCH_MAX];
+    struct fleet_game g;
+    struct stat st;
+    FILE *f;
+    size_t i;
+
+    if (!mkdtemp(dir)) {
+        perror("mkdtemp");
+        failed++;
+        return;
+    }
+    setenv("POCKETOS_STATE_DIR", dir, 1);
+    snprintf(path, sizeof(path), "%s/fleet/match.v1", dir);
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    for (i = 0; i < sizeof(blob); i++) {
+        blob[i] = (uint8_t)(i * 7 + 1);
+    }
+    check("match: the path is under the state directory",
+          strcmp(fleet_store_match_path(), path) == 0);
+    check("match: none to begin with", fleet_store_match_load(back, sizeof(back)) == 0);
+    check("match: saving succeeds", fleet_store_match_save(blob, sizeof(blob)) == 0);
+    check("match: whole, and no temporary file left",
+          stat(path, &st) == 0 && st.st_size == (off_t)sizeof(blob) && stat(tmp, &st) != 0);
+    check("match: it reads back byte for byte",
+          fleet_store_match_load(back, sizeof(back)) == (int)sizeof(blob) &&
+          memcmp(back, blob, sizeof(blob)) == 0);
+    blob[0] ^= 0xFF;
+    check("match: a newer one replaces it", fleet_store_match_save(blob, sizeof(blob)) == 0 &&
+          fleet_store_match_load(back, sizeof(back)) == (int)sizeof(blob) && back[0] == blob[0]);
+
+    /* The two saves are independent: the solo slot coming and going leaves
+     * the match alone. */
+    start_match(&g, 99u, FLEET_OFFICER);
+    fleet_store_save(&g);
+    fleet_store_clear();
+    check("match: clearing the solo save leaves the match",
+          fleet_store_match_load(back, sizeof(back)) == (int)sizeof(blob));
+
+    /* A file too long to be a match is refused, not truncated into one. */
+    f = fopen(path, "wb");
+    if (f) {
+        for (i = 0; i < FLEET_STORE_MATCH_MAX + 10; i++) {
+            fputc('x', f);
+        }
+        fclose(f);
+    }
+    check("match: an oversized file is refused", fleet_store_match_load(back, sizeof(back)) == -1);
+
+    /* A write that cannot happen reports failure - even for root, which a
+     * read-only directory would not stop: here the directory is a file. */
+    snprintf(cmd, sizeof(cmd), "rm -rf %s/fleet && touch %s/fleet", dir, dir);
+    if (system(cmd) != 0) {
+        fprintf(stderr, "setup failed\n");
+    }
+    check("match: a write that cannot happen reports failure",
+          fleet_store_match_save(blob, sizeof(blob)) == -1);
+    check("match: and a file that cannot be opened reads as unreadable, not absent",
+          fleet_store_match_load(back, sizeof(back)) == -1);
+
+    snprintf(cmd, sizeof(cmd), "rm -rf %s", dir);
+    if (system(cmd) != 0) {
+        fprintf(stderr, "cleanup failed\n");
+    }
+    unsetenv("POCKETOS_STATE_DIR");
+}
+
 int main(void)
 {
     test_codec();
     test_impossible_saves();
     test_resume_continues_the_match();
     test_store();
+    test_match_store();
     printf("fleet_save_test: %d failure(s)\n", failed);
     return failed ? 1 : 0;
 }

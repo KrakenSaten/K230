@@ -233,9 +233,21 @@ datagram MAC; the guest-first rule; the loser's own display of its loss.
 ## Persistence
 
 `$POCKETOS_STATE_DIR/fleet/match.v1`, written only by `fleet_store.c`,
-separate from `save.v1`. Fixed size, fields little-endian, FNV-1a trailer,
-fully validated on load. Written to a temporary file, flushed, renamed, and
-the directory flushed.
+separate from `save.v1` and independent of it. **655 bytes**, fields
+little-endian, FNV-1a trailer (`apps/fleet/net/fleet_match_save.c`). Written
+to a temporary file, flushed, renamed, and then the directory flushed, so the
+new name survives a power cut too; a failed directory flush is a failed write.
+
+On load it is checked twice. The codec refuses a wrong size, magic, version,
+checksum or field, and a file saved under another node identity.
+`fleet_match_restore()` then refuses a state the protocol could not have
+produced: our commitment must match our layout, every answer in the log must
+be what our own fleet says, their answers must be possible, and a pending shot
+must be ours to have fired. A match that fails either is not resumed; the file
+is left where it is, as `save.v1` is, because it is the only evidence.
+
+A finished match stays in the file, and on the Lobby, until the player puts
+it away (CLOSE, or leaving Result), so a result is never lost to a closed app.
 
 **Nothing is transmitted that is not already on disk.** The state machine
 holds its outbox shut while it has unsaved changes; the app saves, then
@@ -326,6 +338,7 @@ to measure (docs/hardware/FLEET_MULTIPLAYER_GATE.md).
 | `tests/fleet_mp_sim_test` | two AI players over a simulated LoRa channel with loss, duplication, reordering, collisions, outages, crashes, app close/reopen, service restarts and reboots; invariants after every step, the perfect-network oracle, eight cheating peers. `make fleet-mp-soak` for 5000 matches a profile |
 | `tests/fleet_session_test` | the session against the virtual opponent: nothing before engaging, whole matches clean and lossy, reopen and resume, a failed save, another identity's save, decline, silence |
 | `tests/fleet_view_mp_test` | every UX state's words |
+| `tests/fleet_save_test` (match.v1) | the file: whole, byte for byte, independent of save.v1, oversized refused, a write that cannot happen |
 | `tests/fleet_app_test` (section 8) | whole multiplayer matches under a finger in both shapes, a turn across the page never scrolling, reopen and RESUME MATCH, the link lost and CHECK LINK |
 | `tests/fleet_shell_test.sh` (section 10) | every multiplayer state rendered in both shapes in the shell, `match.v1` written whole, no mesh service, a damaged `match.v1` |
 | `tests/fleet_lint.sh` | the layers: net pure, one file talks to a service, no radio method, nothing pumped before engaging, the virtual opponent only when asked for |
