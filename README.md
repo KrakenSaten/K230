@@ -60,6 +60,10 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
+**master is 0.0.13 in development** (not released, no tag): Camera
+(docs/apps/CAMERA.md, unit A gate docs/hardware/CAMERA_GATE.md) is its first
+change since v0.0.12.
+
 **Doors 0.0.12** (tag `v0.0.12`, 2026-09-25) is the current release: Files,
 and fullscreen RIFT, Notes, Wave, Fleet, Radar and Timber. The release notes
 are docs/releases/v0.0.12.md and its unit A gate is

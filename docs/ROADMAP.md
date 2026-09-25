@@ -206,6 +206,11 @@ unit A gate `docs/hardware/FULLSCREEN_APPS_GATE.md`). Release notes:
 `docs/releases/v0.0.12.md`; the RC1 image and its unit A flash gate (PASS):
 `docs/hardware/V0.0.12_RELEASE_SMOKE.md`.
 
+**v0.0.13** (in development on master since 2026-09-25; not released, no
+tag): Camera - live preview and JPEG stills through the K230's V4L2 camera,
+owned by a per-screen helper process (ADR-006 and DS §34, accepted; unit A
+gate `docs/hardware/CAMERA_GATE.md`).
+
 ### Landscape app adaptation (after v0.0.10)
 
 System rotation works (DS §21). When this was written most app screens were
