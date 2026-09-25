@@ -211,9 +211,13 @@ int cmd_shell(int argc, char **argv)
         cJSON_Delete(result);
         return 0;
     }
-    /* The second line lines up under the first, whichever name is printed. */
+    /* The later lines line up under the first, whichever name is printed.
+     * The first two are v0.0.9's, pinned by tests/identity_test.sh because
+     * scripts quote them; volume is a line of its own for that reason. */
     fprintf(stderr, "usage: %s shell info | screenshot <path.png> | theme <id> [normal|outdoor|night]\n"
-                    "%*s| brightness [10..100] | volume [10..100|mute|unmute]\n",
-            pos_cli_name, (int)strlen("usage:  shell ") + (int)strlen(pos_cli_name), "");
+                    "%*s| brightness [10..100]\n"
+                    "%*s| volume [10..100|mute|unmute]\n",
+            pos_cli_name, (int)strlen("usage:  shell ") + (int)strlen(pos_cli_name), "",
+            (int)strlen("usage:  shell ") + (int)strlen(pos_cli_name), "");
     return 2;
 }
