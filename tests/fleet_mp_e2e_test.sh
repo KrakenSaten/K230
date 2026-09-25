@@ -8,7 +8,7 @@
 #
 # The scenarios run side by side, each in its own directory with its own
 # sockets and state. "real" plays at the product's own pacing and takes about
-# five minutes; the rest refill the airtime governor's token bucket and take
+# ten minutes; the rest refill the airtime governor's token bucket and take
 # under one, except "lossy", whose retries take several.
 #
 # No hardware, no radio, and nothing here transmits anything anywhere.

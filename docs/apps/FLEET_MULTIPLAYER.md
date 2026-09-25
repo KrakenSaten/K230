@@ -330,6 +330,22 @@ players are PocketFleet's AI at 1.5-12 s a move; about 104 plies a match):
 | crashes, app closed, service restarts | 2.50 | 40.8 s (max 82.6) | 74.9 s |
 | all of the above, reboots too | 3.58 | 58.6 s (max 123.2) | 90.0 s |
 
+Over the whole stack (P6, `make ENABLE_MESHCORED=1 fleet-mp-e2e`: two real
+meshcored processes, a mock air, `tests/fleet_mp_player` at Officer level), one
+run each, 2026-09-25:
+
+| Scenario | plies | wall time | airtime host / guest | frames host / guest |
+| --- | --- | --- | --- | --- |
+| real pace, clean air | 133 | 550 s | 42.7 s / 42.0 s | 139 / 137 |
+| 15 % lost, 5 % duplicated (governor bucket refilled) | 142 | 276 s | 51.0 s / 48.5 s | 166 / 158 |
+| guest's app killed at ply 30, resumed from its save | 74 | 13 s | 25.1 s / 14.9 s (guest's since restart) | 81 / 48 |
+| guest's meshcored restarted at ply 40 | 132 | 30 s | 42.7 s / 42.1 s | 139 / 137 |
+
+At the product's pace a match of about 130 plies takes about nine minutes:
+after the first six quick shots the governor lets each player fire once per
+5 s. The mock air delivers instantly, so the wall time is the governor's and
+the dispatcher's, not the channel's; the airtime is computed, not measured.
+
 "Frames per ply" includes setup and the reveals. These are simulated
 figures on a modelled channel, not measurements: the real channel is P7's
 to measure (docs/hardware/FLEET_MULTIPLAYER_GATE.md).

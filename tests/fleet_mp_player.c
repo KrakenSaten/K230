@@ -14,7 +14,7 @@
  * match, which is how the test restarts one mid-match.
  *
  * --fast refills the airtime governor's token bucket every turn, so a match
- * runs in about a minute instead of about five; the hourly budget and every
+ * runs in under a minute instead of about ten; the hourly budget and every
  * other rule still hold. The real-pace run leaves it off.
  *
  * --crash-at-ply N leaves with _exit(3) once N plies are resolved: no close,

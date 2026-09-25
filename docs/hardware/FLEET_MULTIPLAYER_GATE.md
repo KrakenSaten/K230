@@ -73,7 +73,7 @@ Scope limits, the same as every bench gate before it:
 | meshcored carries app datagrams: flood, receipt, direct; refuses REQs that are not app datagrams | `tests/meshcored_runtime_test.cpp`, `tests/meshcored_service_test.sh` | VERIFIED host |
 | The mesh link: states, players, exactly-once delivery, run changes | `tests/fleet_link_test` | VERIFIED host |
 | Whole matches between two real `meshcored` processes over a mock air: real pace, 15 % loss, an app crash at ply 30, a `meshcored` restart at ply 40 | `make ENABLE_MESHCORED=1 fleet-mp-e2e` | VERIFIED host |
-| Airtime per device per match, about 34 s on a clean link | the simulator's model, not a measurement | computed |
+| Airtime per device per match: about 34 s in the simulator (about 104 plies), 42 s over two real meshcored processes (133 plies) | computed from frame sizes, not measured on air | computed |
 
 ## The payload
 
@@ -427,7 +427,7 @@ EOF
 | --- | --- | --- |
 | plies | | |
 | `tx_packets` during the match (minus step 4-5) | | |
-| `tx_airtime_ms` during the match; compare with the simulated 34 s clean | | |
+| `tx_airtime_ms` during the match; compare with the computed 34-42 s | | |
 | duty cycle, last hour | | |
 | `app_tx` / `app_rx` / `app_receipts` | | |
 | `tx_failed`, `tx_unknown`, `tx_refused`, `rx_rejected`, `rx_dropped` | | |
@@ -471,7 +471,7 @@ EOF
 ua <<'EOF'
 /tmp/fleet_mp_player --service meshcored --role host --peer <B's mesh name> --save /tmp/e2e-a.v1 --seed 11 > /tmp/e2e-a.log 2>&1 &
 EOF
-# wait for a DONE line in both logs (about five minutes), then:
+# wait for a DONE line in both logs (about ten minutes on the host model), then:
 both <<'EOF'
 grep -E '^(DONE|TIMEOUT)' /tmp/e2e-*.log; killall fleet_mp_player; rm -f /tmp/fleet_mp_player /tmp/e2e-*
 EOF
@@ -516,7 +516,7 @@ EOF
 | The first datagram floods; the receipt teaches a direct route | VERIFIED host | **ON-AIR** (step 6) |
 | Fleet closed, service restarted, out of range, rebooted: the match resumes, nothing fired twice | VERIFIED host | **ON-AIR** (step 8) |
 | Both fleets verified against their commitments on real units | VERIFIED host | **DEVICE** (step 9) |
-| Airtime per device per match | computed (simulated 34 s clean) | **measured** (step 9, 11) |
+| Airtime per device per match | computed (34 s simulated, 42 s end to end on a mock air) | **measured** (step 9, 11) |
 | Shot-to-result latency | not known | **measured** (step 7) |
 | A non-Doors MeshCore node ignores a Doors app datagram | ASSUMED | **ON-AIR** (step 10) |
 | Behaviour at range, through a repeater, on a busy channel | UNRESOLVED | still UNRESOLVED unless a repeater run is added |
