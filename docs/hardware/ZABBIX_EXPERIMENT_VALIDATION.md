@@ -1,5 +1,8 @@
 # Zabbix viewer experiment: validation record
 
+§1-§7 below are the runs made on the original base; §8 is the branch
+rebased on master `4e55832`, with the real server and unit A.
+
 Branch `experiment/zabbix-dashboard`, from master `d2b2be6` (VERSION
 0.0.13, development). Host: WSL2 Ubuntu 22.04, gcc 11.4, Ubuntu's libcurl
 7.81.0 at run time. Cross: the SDK's riscv64 toolchain against the
@@ -243,3 +246,81 @@ The same run as §1-§5 was repeated from a clean clone of **f489d98**, with no
   docs/apps/ZABBIX.md §10.1.
 
 Nothing was flashed or deployed.
+
+## 8. Rebased on master 4e55832; the real server and unit A (7c725ba)
+
+**Rebase.** The branch was rebased from `d2b2be6` onto master `4e55832`,
+which brings the v0.0.13 development work: Camera, device controls,
+Diagnostics, deploy over Wi-Fi and the netd fix. There were two real
+conflicts:
+
+- **Makefile `clean:`** Master's list was kept, with the Zabbix objects
+  added.
+- **platforms/k230/scripts/deploy.sh.** Master now tars the payload into a
+  work file. `usr/bin/pos-zabbix` is in both of master's lists, the file
+  check and the tar, and the script keeps its mode 755.
+
+DS §35 does not collide: master ends at §34. The rebased tip `ae17c38`
+passed the full run below from a clean clone, and was pushed with
+`--force-with-lease`.
+
+**After the rebase:**
+
+- **`try-server.sh`** now reports availability, whether user.logout
+  succeeded, and its own leak checks (4bcedec, ae17c38). The HTTP suite
+  proves the leak check fires.
+- **The device fix (7c725ba).** A finger drag starting on text did not
+  scroll a page; the unit A gate found it in landscape STATUS.
+  `zabbix_app_test` now drags by finger (66 → 69 checks). The check failed
+  before the fix and passes after it.
+
+**Final run, clean clone of `13439a1`.** This is `7c725ba` plus a test-only
+fix. The first final run, of `7c725ba`, failed `zabbix_shell_test`: LVGL
+warned because the new drag test moved the finger off the screen. The drag
+is now clamped to the body. With the pages made unclickable again, the
+landscape check still fails.
+
+- **`make all` and `make test`:** both exit 0, with 127 suite summaries at
+  0 failures.
+- **Zabbix suites:**
+
+  | Suite | Result |
+  | --- | --- |
+  | model | 52 |
+  | proto | 38 |
+  | api | 67 |
+  | config | 54 |
+  | client | 93 |
+  | view | 53 |
+  | session | 29 |
+  | lint | 0 failures |
+
+- **`tests/zabbix_http_test.sh` with libcurl:** 46 ok, 0 FAIL, 0 SKIP.
+- **`make zabbix-san-test`:** the seven suites at 0 failures, with no
+  sanitizer report.
+- **Shell suites:** all 22, each at 0 FAIL, with the same counts as §4.
+  - `zabbix_shell_test` on the Zabbix shell: 19 ok, and LVGL logged no
+    warning.
+  - On the default shell it SKIPs its real-shell half.
+- **riscv64:** from a clean clone of `7c725ba` (the gate payload):
+  - `make all` with `ZABBIX_CURL=1 POCKETCAM_JPEG=1 ENABLE_SX1262=1
+    ENABLE_MESHCORED=1` and `-Werror` exits 0;
+  - the TLS mock builds against the sysroot's OpenSSL 3;
+  - both DRM shells (`POCKETOS_WITH_ZABBIX` OFF and ON) build with 0
+    first-party warnings;
+  - the build id `7c725ba` is stamped in `doors-shell` and `pos-zabbix`.
+
+**The real server.** The owner's production Zabbix 7.4.15 (URL and user
+not recorded here) was used read-only with a user and password.
+
+- From WSL, `try-server.sh` returned ONLINE on the first attempt. The
+  server had 35 open problems (exact, 34 unacknowledged; 29 warning, 5
+  average, 1 high) and 173 monitored hosts (1 down, 3 unknown).
+  `user.logout` succeeded, the secret was found nowhere, and the directory
+  was removed.
+- From unit A, 30 minutes later: 32 open problems and 173 hosts (0 down, 3
+  unknown).
+
+**Unit A.** docs/hardware/ZABBIX_UNIT_A_GATE.md: PASS on `7c725ba`. The
+unit was rolled back to the image's shell (`ee39407`) with rotation
+Automatic, as found.

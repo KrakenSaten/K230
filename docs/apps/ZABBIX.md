@@ -167,8 +167,27 @@ source, UNVERIFIED as stable).
 | "Incorrect user name or password or account is temporarily blocked." | AUTH | AUTH_FAILED, no automatic retry (account lockout) |
 | `No permissions to call "x.y".`, unknown parameters, anything else | API | retry with backoff |
 
-**Behaviour checked in the Zabbix source** (not yet against a running
-server):
+**Against a real server (VERIFIED, 2026-09-25).** A production Zabbix
+**7.4.15** was used read-only with a user and password: from the
+development host (`try-server.sh`), and from unit A through the image's
+libcurl 8.12.1 with its CA store.
+
+- `apiinfo.version` answered without credentials.
+- `user.login` succeeded, and every authenticated call succeeded with the
+  session as a Bearer header.
+- `user.logout` succeeded.
+- problem.get with `suppressed: false`, `countOutput` per severity,
+  trigger.get, hostinterface.get with the `available` filter, and host.get
+  all answered in the shapes the parser expects: 32–35 open problems with
+  exact per-severity totals, and 173 monitored hosts with availability.
+- The counts have not yet been compared with the frontend's own pages
+  (§12).
+- 6.0, 6.4 and 7.0 were not run against a live server. Their request
+  shapes rest on the documentation and source as below, and on the fake's
+  version rules.
+
+**Behaviour checked in the Zabbix source** (the 7.4.15 server above answered
+consistently with it):
 
 - `"suppressed": false` leaves suppressed problems out: in 7.0 through a
   left join on `event_suppress` with `IS NULL`, in 6.0 through `NOT EXISTS`
@@ -537,6 +556,18 @@ pos-zabbix check                                            # one round; exit 0 
   The account must not be in a group with multi-factor authentication
   (§3); use a token for such an account. A wrong password is not tried
   again on its own (§5).
+- **From the development host instead** (as the unit A gate did): read the
+  secret there and send it over SSH's stdin, so it never reaches the unit's
+  shell history or any command line:
+
+  ```sh
+  IFS= read -rs -p 'Zabbix password: ' P; echo
+  printf '%s\n' "$P" | ssh root@UNIT 'pos-zabbix set-secret password'; unset P
+  ```
+
+  The same works for a token. An `echo 'TOKEN' | …` typed on the unit, as in
+  the example above and on the "Not set up" screen, leaves the token in the
+  unit's shell history.
 - **The demo, with no server:** `mode=fake` in zabbix.conf, or tap TRY THE
   DEMO.
 - **To remove the secret:** `pos-zabbix clear-secret`.
@@ -555,8 +586,22 @@ committed.
 - It asks for the password (or token) without echo and stores it with
   `pos-zabbix set-secret`, through a pipe from a shell builtin.
 - It runs `pos-zabbix check`, which logs in, fetches, and logs out.
-- It prints the version, the state, the counts, the ten newest problems and
-  the helper's log.
+- It prints:
+  - the version and the state;
+  - the counts by severity and host availability;
+  - the ten newest problems;
+  - the helper's log.
+- It checks its own run:
+  - whether `user.logout` succeeded;
+  - whether the secret appeared in the helper's command line or environment
+    (sampled while it runs), the log, `zabbix.conf` or the output;
+  - whether the private directory is gone.
+  
+  A found secret fails the run with exit 3.
+
+Run against the owner's production server (Zabbix 7.4.15) on 2026-09-25, it
+returned ONLINE on the first attempt: login and logout OK, nothing found,
+directory removed.
 
 **Step 1: build once.** This host has the libcurl run-time only, so point
 the build at a copy of the image sysroot's curl headers, as in
@@ -608,57 +653,62 @@ Host results, 2026-09-25 (WSL2 Ubuntu 22.04, gcc 11.4):
 | `tests/zbx_client_test` | schedule, backoff sequence, auth lockout, flap, stale, the 6.0 and 7.4 rules, large estate, detail, password re-login, no password retry over 2 h, logout, 200 session renewals, 400-round soak | 93 ok |
 | `tests/zabbix_view_test` | banner in every state, stale boundaries, overview counts, rows, STATUS | 53 ok |
 | `tests/zabbix_session_test` | the real helper: start, commands, scenario switch, crash, missing binary, hang, abandon mid-request, a burst past the socket buffer, 20 opens with no leaked descriptor | 29 ok |
-| `tests/zabbix_http_test.sh` | the real libcurl path against the mock: HTTP scenarios, timeout, refused, DNS, and HTTPS untrusted, `ca_file`, wrong name, `verify_tls=0`; user and password: login, renewal, logout, one failed login only, try-server.sh; token and password in no log | 44 ok (with libcurl) |
-| `zabbix_app_test` (CMake) | the screen under a real pointer, portrait and landscape: every tab, row to host and back, scenario switch, offline banner with data kept, auth, unconfigured and demo, missing helper, crash and restart, large estate bounded, long names, 20 opens and closes | 66 ok |
+| `tests/zabbix_http_test.sh` | the real libcurl path against the mock: HTTP scenarios, timeout, refused, DNS, and HTTPS untrusted, `ca_file`, wrong name, `verify_tls=0`; user and password: login, renewal, logout, one failed login only, try-server.sh; token and password in no log; try-server.sh's own leak check proven to fire | 46 ok (with libcurl) |
+| `zabbix_app_test` (CMake) | the screen under a real pointer, portrait and landscape: every tab, row to host and back, scenario switch, offline banner with data kept, auth, unconfigured and demo, missing helper, crash and restart, large estate bounded, long names, 20 opens and closes; STATUS reached by a finger drag in landscape | 69 ok |
 | `tests/zabbix_shell_test.sh` | the real simulator shell opens Zabbix in both orientations, draws the disaster in the error colour, logs no warning, leaves no helper | 19 ok (Zabbix shell); the real-shell half SKIPs on a default shell |
 | `tests/zabbix_lint.sh` | the boundaries of §4 and §7 | 0 failures |
 
 ### 11.1 Full validation
 
 The full record is docs/hardware/ZABBIX_EXPERIMENT_VALIDATION.md. In
-short, from a clean clone of `f489d98` (the password fixes; §7 of the
-record):
+short, from a clean clone of `13439a1` (rebased on master `4e55832`; §8
+of the record):
 
-- **`make all` and `make test`** (`-Werror`) exit 0, with 123 suites at
-  0 failures.
-- **HTTP and HTTPS with libcurl:** 44 ok.
+- **`make all` and `make test`** (`-Werror`) exit 0, with 127 suites at
+  0 failures (master now has 127).
+- **HTTP and HTTPS with libcurl:** 46 ok.
 - **Sanitizers:** all seven Zabbix suites pass under ASan and UBSan.
 - **Shell suites:** all 22 pass, the existing ones on a default shell;
-  `zabbix_app_test` 66 ok.
-- **riscv64:** `make all ZABBIX_CURL=1` (`-Werror`) and both DRM shells
-  build with no first-party warning.
+  `zabbix_app_test` 69 ok.
+- **riscv64:** `make all` with the package's flags (`ZABBIX_CURL=1`,
+  `-Werror`) and both DRM shells build with no first-party warning.
+
+**On unit A** (docs/hardware/ZABBIX_UNIT_A_GATE.md): PASS on `7c725ba`, with
+the real server and the device's libcurl 8.12.1. The clock-unset step was
+not run.
 
 **Not tested:**
 
-- **A real Zabbix server**: none was used. The procedure is §10.1.
-- **Unit A** (DEVICE UNVERIFIED): not reachable on 2026-09-25.
-- **The device's libcurl 8.12.1 at run time**: the host tests use Ubuntu's
-  7.81.0. The riscv64 helper is built and linked against 8.12.1, but it has
-  not been run.
+- **A live 6.0, 6.4 or 7.0 server**: only 7.4.15 was live; the others rest
+  on the documentation, the source and the fake.
+- **Renewal against a real auto-logout**: the production server's policy
+  was not changed for a test (SERVER UNVERIFIED). Renewal is proven against
+  the mock on the host (200 renewals) and on the unit (8).
+- **The web-UI comparison** of the counts (§12).
+- **The clock unset on the unit** (gate step 6).
 
 ## 12. Open items and next steps
 
-Against a real server (Zabbix 7.0 LTS preferred, with a read-only token):
+Done on 2026-09-25: the real 7.4.15 server from the host and from unit A;
+login, logout and a network cut there; and the unit A gate (PASS).
 
-1. Run `tools/zabbix/try-server.sh` (§10.1) and compare the counts with the
-   frontend's Problems and Hosts pages.
-2. Confirm on a running server what §3 verified in the source: the
-   `suppressed` filter, the `hostinterface.get` filter, and the error
-   strings.
-3. For a password setup, check that the helper's log says `logged out`
-   (not `logout failed`), and test renewal against a short auto-logout
-   on the user's profile.
-4. Test a 6.0 server (the `auth` member) and a 7.4 server.
+Still open:
 
-On unit A:
+1. **Compare the counts with the frontend.** Put the frontend's own
+   numbers next to a `try-server.sh` run made at the same time:
+   - Monitoring → Problems, with "Show suppressed problems" off;
+   - the enabled hosts;
+   - the Host availability widget.
 
-1. Hand-install `doors-shell`, `pos-zabbix` and `pos-zabbix-mock` with a
-   rollback, as for Camera.
-2. Run the demo in both orientations: scrolling, taps, rotation.
-3. Point the helper at the mock on loopback (HTTP and HTTPS) and test
-   pulling Ethernet or Wi-Fi.
-4. Measure CPU and RSS of the shell and the helper on the C908.
-5. Check the behaviour with the clock unset.
+   Where they differ, look first at the frontend's filters (for example
+   whether symptom problems are shown), which the API call does not
+   apply. Then change the app only if it is wrong.
+2. **Renewal against a real auto-logout.** It needs a server where a short
+   auto-logout can be set on a test user. It was not done on the
+   production server (SERVER UNVERIFIED).
+3. **A 6.0 server** (the `auth` member) and a 7.0 server.
+4. **The clock unset on unit A** (gate step 6). It needs a reboot without
+   NTP.
 
 For the product:
 

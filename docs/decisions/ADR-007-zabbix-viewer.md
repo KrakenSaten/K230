@@ -224,10 +224,23 @@ Risks:
 - **DOCUMENTED:** the Zabbix API facts are in docs/apps/ZABBIX.md §3, with
   the official URLs; some error strings are from the source only
   (UNVERIFIED as a stable API).
-- **VERIFIED in the Zabbix source, not tried against a running server:**
+- **VERIFIED in the Zabbix source:**
   - `"suppressed": false` leaves suppressed problems out, in 6.0 and 7.0;
     the parser drops any that come anyway;
   - `hostinterface.get` applies `filter` to the interface table, where
     `available` is a column.
-- **NOT RUN:** unit A (DEVICE UNVERIFIED) and a real Zabbix server. The
-  procedure for the server is docs/apps/ZABBIX.md §10.1.
+- **VERIFIED against a real server, 2026-09-25:** the owner's production
+  Zabbix 7.4.15, read-only, with a user and password, from the host and
+  from unit A.
+  - It answered with version, login, every method of decision 1, and
+    logout.
+  - From the unit it ran through the image's libcurl 8.12.1 and CA store.
+  - A network cut was followed by recovery on the same session.
+- **VERIFIED on unit A, 2026-09-25:** the gate in
+  docs/hardware/ZABBIX_UNIT_A_GATE.md, PASS on `7c725ba`. It found and fixed
+  one defect: a finger drag did not scroll a page in landscape.
+- **Not verified:**
+  - 6.0, 6.4 and 7.0 against a live server (DOCUMENTED and source only);
+  - renewal against a real auto-logout (SERVER UNVERIFIED; mock only);
+  - the counts against the frontend's own pages;
+  - the clock unset on the unit.

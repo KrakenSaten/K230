@@ -3026,12 +3026,17 @@ eye symbol. A DS §20 icon and a group are owner decisions
 
 ### 35.5 Validation on the host
 
-- **App test:** `zabbix_app_test` (66 checks). It covers both shapes, every
+- **App test:** `zabbix_app_test` (69 checks). It covers both shapes, every
   tab, touch targets and the corner safe area, the offline banner with the
   data kept, auth, unconfigured and demo, a crashed helper, a large estate
-  bounded, and long names on one line.
+  bounded, long names on one line, and a page scrolled by a finger drag that
+  starts on text (landscape STATUS).
 - **Shell test:** `tests/zabbix_shell_test.sh`, where the real shell draws
   the disaster in the error colour in both orientations.
 - **Lint:** `tests/zabbix_lint.sh`.
 - **Screenshots:** `ZABBIX_SHOTS=<dir>` on the app test gives every screen
   in both shapes.
+- **Unit A:** docs/hardware/ZABBIX_UNIT_A_GATE.md, PASS on `7c725ba`
+  (2026-09-25), both orientations, with a real Zabbix 7.4.15 server. Every
+  page is clickable, with nothing to click, so that a drag on text scrolls
+  it; the gate found this in landscape STATUS.
