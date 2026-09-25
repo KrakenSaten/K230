@@ -146,6 +146,46 @@ static const char *g_info = INFO_UNITA;
 static const char *g_status = STATUS_UNITA;
 static const char *g_power_error;
 static const char *g_radio = "rx";
+/* Diagnostics: what radiod, meshcored and sysd's two readers answer, and the
+ * level system.logs was last asked for. The log reply is built per call from
+ * g_log_entries so a long log can be made without a fixture of that size. */
+static const char *g_radio_status = "{\"state\":\"off\",\"enabled\":false,\"profile\":"
+                                    "{\"frequency_mhz\":869.618,\"spreading_factor\":8}}";
+static const char *g_mesh_status = "{\"state\":\"degraded\",\"reason\":\"the radio is switched off\","
+                                   "\"radio\":{\"radio_state\":\"off\"}}";
+static const char *g_crashes = "{\"available\":true,\"total\":1,\"reports\":[{\"file\":\"a\",\"process\":\"netd\","
+                               "\"pid\":252,\"time\":1790000000,\"signal\":11,\"signal_name\":\"SIGSEGV\","
+                               "\"frames\":[\"/usr/sbin/netd(+0x10)[0x1]\"]}]}";
+static int g_log_entries = 3;
+static char g_logs_level[16];
+
+static cJSON *logs_reply(void)
+{
+    cJSON *o = cJSON_CreateObject();
+    cJSON *entries = cJSON_AddArrayToObject(o, "entries");
+    int i;
+
+    cJSON_AddBoolToObject(o, "available", 1);
+    cJSON_AddNumberToObject(o, "skipped", 0);
+    for (i = 0; i < g_log_entries; i++) {
+        cJSON *e = cJSON_CreateObject();
+        /* The filter is sysd's: asked for errors it sends only errors. */
+        const char *level = strcmp(g_logs_level, "error") == 0 ? "error"
+                            : strcmp(g_logs_level, "warn") == 0 ? (i % 2 ? "error" : "warn")
+                                                                 : (i % 3 == 0 ? "error" : i % 3 == 1 ? "warn" : "info");
+        char msg[160];
+
+        snprintf(msg, sizeof(msg), "entry %d at level %s, long enough to wrap across the narrowest "
+                                   "column the page is ever given on this panel", i, level);
+        cJSON_AddStringToObject(e, "ts", "2026-09-25T11:20:05.000Z");
+        cJSON_AddStringToObject(e, "source", i % 2 ? "supervise-radiod" : "radiod");
+        cJSON_AddStringToObject(e, "level", level);
+        cJSON_AddStringToObject(e, "message", msg);
+        cJSON_AddItemToArray(entries, e);
+    }
+    cJSON_AddNumberToObject(o, "returned", g_log_entries);
+    return o;
+}
 
 static void calls_reset(void)
 {
@@ -177,13 +217,28 @@ cJSON *shell_ipc_call_timeout(const char *service, const char *method, cJSON *pa
         calls[call_count].timeout_ms = timeout_ms;
         call_count++;
     }
+    if (strcmp(method, "system.logs") == 0) {
+        const cJSON *lv = params ? cJSON_GetObjectItemCaseSensitive(params, "level") : NULL;
+
+        snprintf(g_logs_level, sizeof(g_logs_level), "%s", cJSON_IsString(lv) ? lv->valuestring : "");
+    }
     cJSON_Delete(params);
     if (strcmp(service, "radiod") == 0) {
         if (g_radio && strcmp(method, "radio.info") == 0) {
             reply = "{\"region\":\"EU868\",\"backend\":\"sx1262\"}";
+        } else if (g_radio && strcmp(method, "radio.status") == 0) {
+            reply = g_radio_status;
+        }
+    } else if (strcmp(service, "meshcored") == 0) {
+        if (strcmp(method, "mesh.status") == 0) {
+            reply = g_mesh_status;
         }
     } else if (strcmp(service, "sysd") == 0 && !sysd_down) {
-        if (strcmp(method, "system.info") == 0) {
+        if (strcmp(method, "system.logs") == 0) {
+            return logs_reply();
+        } else if (strcmp(method, "system.crashes") == 0) {
+            reply = g_crashes;
+        } else if (strcmp(method, "system.info") == 0) {
             reply = g_info;
         } else if (strcmp(method, "system.status") == 0) {
             reply = g_status;
@@ -620,6 +675,32 @@ static int count_objects(lv_obj_t *obj)
 
     for (i = 0; obj && i < lv_obj_get_child_count(obj); i++) {
         n += count_objects(lv_obj_get_child(obj, i));
+    }
+    return n;
+}
+
+/* How many visible objects under obj reach outside box's columns. */
+static int x_outside(lv_obj_t *obj, const lv_area_t *box)
+{
+    uint32_t i;
+    int n = 0;
+    lv_area_t a;
+
+    if (!obj || lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) {
+        return 0;
+    }
+    if (obj != app_body) {
+        area_of(obj, &a);
+        if (a.x1 < box->x1 || a.x2 > box->x2) {
+            if (lv_obj_check_type(obj, &lv_label_class)) {
+                printf("     outside %d..%d: \"%s\" at %d..%d\n", (int)box->x1, (int)box->x2,
+                       lv_label_get_text(obj), (int)a.x1, (int)a.x2);
+            }
+            n++;
+        }
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        n += x_outside(lv_obj_get_child(obj, i), box);
     }
     return n;
 }
@@ -1193,10 +1274,15 @@ int main(void)
                 area_of(find_visible(app_body, "Kernel"), &kk);
                 check(what, r.x1 == 41 && r.y1 == 1375 && d.x1 == 69 && d.y1 == 1503 && kk.x1 == 41 && kk.y1 == 1631);
             }
+            /* The Diagnostics panel sits between Kernel's panel and the
+             * actions, so Restart and Power off are one panel (120 px)
+             * lower than master's 1739. */
+            snprintf(what, sizeof(what), "portrait %d px corners: Diagnostics, a panel above the actions", (int)c);
+            check_rect(what, target_of("Diagnostics"), 41, 1739, 526, 1794);
             snprintf(what, sizeof(what), "portrait %d px corners: Restart", (int)c);
-            check_rect(what, target_of("Restart"), 41, 1739, 279, 1794);
+            check_rect(what, target_of("Restart"), 41, 1859, 279, 1914);
             snprintf(what, sizeof(what), "portrait %d px corners: Power off", (int)c);
-            check_rect(what, target_of("Power off"), 288, 1739, 526, 1794);
+            check_rect(what, target_of("Power off"), 288, 1859, 526, 1914);
             tap("Power off");
             snprintf(what, sizeof(what), "portrait %d px corners: the confirmation across the top", (int)c);
             {
@@ -1221,10 +1307,12 @@ int main(void)
             check_rect(what, column_obj(1), 627, 171, 1211, 547 - lift);
             snprintf(what, sizeof(what), "landscape %d px corners: SERVICES at the top of the right column", (int)c);
             check_rect(what, find_visible(app_body, "SERVICES"), 648, 192, 718, 217);
+            snprintf(what, sizeof(what), "landscape %d px corners: Diagnostics, above the actions", (int)c);
+            check_rect(what, target_of("Diagnostics"), 648, 922, 1190, 977);
             snprintf(what, sizeof(what), "landscape %d px corners: Restart, below the fold", (int)c);
-            check_rect(what, target_of("Restart"), 648, 922, 915, 977);
+            check_rect(what, target_of("Restart"), 648, 1042, 915, 1097);
             snprintf(what, sizeof(what), "landscape %d px corners: Power off", (int)c);
-            check_rect(what, target_of("Power off"), 924, 922, 1190, 977);
+            check_rect(what, target_of("Power off"), 924, 1042, 1190, 1097);
             tap("Power off");
             snprintf(what, sizeof(what), "landscape %d px corners: the confirmation in the middle", (int)c);
             {
@@ -1411,6 +1499,122 @@ int main(void)
         use_display(POS_ROTATION_270, PANEL_CORNER);
         check_live_shape("rebuilt in portrait, turned to landscape");
         app_stop();
+    }
+
+    /* ---- 5b. Diagnostics, in the real LVGL tree ------------------------------------------- */
+    /* diag_view_test proves what the page says; this proves the page itself:
+     * it opens from System, asks each service once per refresh with the UI
+     * deadline, fills its rows, crash reports and log, filters through sysd,
+     * stays inside the body's width in both shapes, holds no more objects
+     * after many refreshes of a long log than after one, and Back returns to
+     * the System screen with its actions. */
+    {
+        static const enum pos_rotation rots[] = { POS_ROTATION_0, POS_ROTATION_270 };
+        size_t k;
+
+        for (k = 0; k < 2; k++) {
+            const char *name = k ? "landscape" : "portrait";
+            char what[160];
+            lv_area_t box;
+            int i;
+            int objects;
+            int stable = 1;
+
+            use_display(rots[k], PANEL_CORNER);
+            g_log_entries = 3;
+            app_start();
+            tick();
+            calls_reset();
+            tap("Diagnostics");
+            for (i = 0; i < 6; i++) {
+                tick();
+            }
+            snprintf(what, sizeof(what), "[%s] Diagnostics opens its page", name);
+            check(what, shows("DIAGNOSTICS") && shows("CRASH REPORTS") && shows("LOG") && target_of("Back") &&
+                            target_of("Refresh") && !target_of("Restart"));
+            snprintf(what, sizeof(what), "[%s] a refresh asks each service once, all bounded", name);
+            check(what, called("system.status") == 1 && called("radio.status") == 1 && called("mesh.status") == 1 &&
+                            called("system.crashes") == 1 && called("system.logs") == 1 && every_call_bounded());
+            snprintf(what, sizeof(what), "[%s] the radio row: switched off", name);
+            check(what, shows("Off (switched off)"));
+            snprintf(what, sizeof(what), "[%s] the mesh row: waiting for the radio", name);
+            check(what, shows("Waiting: the radio is switched off"));
+            snprintf(what, sizeof(what), "[%s] the version row: version and build", name);
+            check(what, shows("0.0.10 \xC2\xB7 aaad9f4"));
+            snprintf(what, sizeof(what), "[%s] the refresh has finished", name);
+            check(what, shows("Up to date"));
+            snprintf(what, sizeof(what), "[%s] the crash report and the log are listed", name);
+            check(what, shows("netd \xC2\xB7 SIGSEGV \xC2\xB7 09-21 14:13 UTC") &&
+                            shows("09-25 11:20:05  radiod  ERROR") &&
+                            shows("09-25 11:20:05  supervise-radiod  WARN") && strcmp(g_logs_level, "all") == 0);
+
+            calls_reset();
+            tap("Errors");
+            tick();
+            snprintf(what, sizeof(what), "[%s] Errors re-asks sysd for errors only, and nothing else", name);
+            check(what, call_count == 1 && called("system.logs") == 1 && strcmp(g_logs_level, "error") == 0 &&
+                            !shows("09-25 11:20:05  supervise-radiod  WARN"));
+            tap("Warnings");
+            tick();
+            snprintf(what, sizeof(what), "[%s] Warnings asks for warnings and errors", name);
+            check(what, strcmp(g_logs_level, "warn") == 0 && shows("09-25 11:20:05  radiod  WARN"));
+            tap("All");
+            tick();
+
+            /* A reason longer than any row (within the model's DIAG_TEXT
+             * bound): read whole, wrapped in its row, never cut to dots. */
+            g_mesh_status = "{\"state\":\"error\",\"reason\":\"radiod refused the profile: 869.618 MHz "
+                            "is outside the configured sub-band\"}";
+            tap("Refresh");
+            for (i = 0; i < 6; i++) {
+                tick();
+            }
+            snprintf(what, sizeof(what), "[%s] a long mesh reason is shown whole", name);
+            check(what, shows("error: radiod refused the profile: 869.618 MHz is outside the configured sub-band"));
+            body_box(&box);
+            snprintf(what, sizeof(what), "[%s] and stays inside the body's width", name);
+            check(what, x_outside(app_body, &box) == 0);
+            g_mesh_status = "{\"state\":\"degraded\",\"reason\":\"the radio is switched off\","
+                            "\"radio\":{\"radio_state\":\"off\"}}";
+
+            /* A log longer than the page holds, refreshed again and again. */
+            g_log_entries = 60;
+            tap("Refresh");
+            for (i = 0; i < 6; i++) {
+                tick();
+            }
+            objects = count_objects(app_body);
+            for (i = 0; i < 10; i++) {
+                int j;
+
+                tap("Refresh");
+                for (j = 0; j < 6; j++) {
+                    tick();
+                }
+                if (count_objects(app_body) != objects) {
+                    printf("     refresh %d: %d objects, %d after the first\n", i, count_objects(app_body), objects);
+                    stable = 0;
+                }
+            }
+            snprintf(what, sizeof(what), "[%s] ten refreshes of a 60-line log: the same objects each time", name);
+            check(what, stable);
+            snprintf(what, sizeof(what), "[%s] the page lists at most 40 log entries", name);
+            check(what, shows("entry 39 at level error, long enough to wrap across the narrowest column the page "
+                              "is ever given on this panel") &&
+                            !shows("entry 40 at level warn, long enough to wrap across the narrowest column the page "
+                                   "is ever given on this panel"));
+            body_box(&box);
+            snprintf(what, sizeof(what), "[%s] everything on the page stays inside the body's width", name);
+            check(what, x_outside(app_body, &box) == 0);
+
+            tap("Back");
+            tick();
+            snprintf(what, sizeof(what), "[%s] Back returns to System with its actions", name);
+            check(what, live() && target_of("Restart") && target_of("Power off") && target_of("Diagnostics") &&
+                            !shows("CRASH REPORTS"));
+            app_stop();
+        }
+        g_log_entries = 3;
     }
 
     /* ---- 6. closed and opened again, both ways up -------------------------------------- */

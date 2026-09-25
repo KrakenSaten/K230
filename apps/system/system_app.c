@@ -529,7 +529,22 @@ static void build_diag(struct system_app *a)
     p = panel(a->body);
     section_caption(p, "DIAGNOSTICS");
     for (i = 0; i < DIAG_ROW_COUNT; i++) {
-        a->diag_value[i] = pocketui_kv_row(p, a->dv.rows[i].label, a->dv.rows[i].value);
+        lv_obj_t *v = pocketui_kv_row(p, a->dv.rows[i].label, a->dv.rows[i].value);
+        lv_obj_t *row = lv_obj_get_parent(v);
+
+        /* These values are read to find out what is wrong, so a long one
+         * (a mesh reason, an uncertain radio) wraps in its column rather
+         * than losing its end to the dots the System screen's rows use.
+         * In the portrait body of the reference panel "Waiting: the radio
+         * is switched off" did not fit (tests/system_app_test.c). The row
+         * grows with it, never below its height. */
+        lv_label_set_long_mode(v, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(v, LV_PCT(60));
+        lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_RIGHT, 0);
+        lv_obj_set_height(row, LV_SIZE_CONTENT);
+        lv_obj_set_style_min_height(row, POCKETUI_ROW_H, 0);
+        lv_obj_set_style_pad_ver(row, 8, 0);
+        a->diag_value[i] = v;
     }
 
     p = panel(a->body);
