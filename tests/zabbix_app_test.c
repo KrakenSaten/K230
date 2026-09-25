@@ -256,6 +256,8 @@ static void tap(const char *label)
     tap_obj(l ? clickable_of(l) : NULL);
 }
 
+static void body_area(lv_area_t *a);
+
 /* A finger drag, the way a person scrolls: pressed on this object where it
  * is now (nothing is scrolled into view first), moved up by dy, released.
  * Whatever LVGL finds under the finger decides what scrolls. */
@@ -274,6 +276,16 @@ static void drag_up_from(lv_obj_t *obj, int dy)
     lv_obj_get_coords(obj, &a);
     finger_point.x = a.x1 + lv_area_get_width(&a) / 2;
     finger_point.y = a.y1 + lv_area_get_height(&a) / 2;
+    {
+        /* The finger stays on the body: LVGL warns about a point off the
+         * screen, and a clean log is part of zabbix_shell_test. */
+        lv_area_t b;
+
+        body_area(&b);
+        if (finger_point.y - dy < b.y1 + 1) {
+            dy = finger_point.y - b.y1 - 1;
+        }
+    }
     finger_state = LV_INDEV_STATE_PRESSED;
     pump(40);
     for (i = 1; i <= 20; i++) {
@@ -572,7 +584,7 @@ static void journey(const char *o)
             CHECK("STATUS: in landscape REFRESH NOW starts below the fold", below);
         }
         if (below) {
-            drag_up_from(shown("SERVER"), 300);
+            drag_up_from(shown("CONNECTION"), 300);
         }
         CHECK("STATUS: a finger drag from a status line brings REFRESH NOW into view", in_body(refresh));
     }
