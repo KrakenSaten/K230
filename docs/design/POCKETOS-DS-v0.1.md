@@ -2584,7 +2584,9 @@ RIFT ("Mesh messages") and System ("About DOORS"), and Lock / Power (Power
 opens System, whose power actions confirm). Bluetooth and Sound are in the
 mock-up and not here: nothing provides them.
 
-**Proposed (feat/device-controls-diagnostics, not yet accepted):** six tiles in
+**Accepted 2026-09-25** by the product owner as it is, after the unit A gate
+(docs/hardware/DEVICE_CONTROLS_GATE.md, build `09be665`); it replaces the
+tiles of the paragraph above (feat/device-controls-diagnostics). Six tiles in
 three rows - Wi-Fi and Bluetooth, LoRa radio and Battery, Rotation and
 Display - then Brightness and Volume as two slider panels, then the rows and
 Lock / Power. The LoRa radio tile replaces the Radio tile: a tap switches the
@@ -2599,7 +2601,9 @@ draws Bluetooth and battery glyphs. Landscape has no room at the foot for
 three tile rows plus Lock / Power, so there Lock and Power move to the right
 of the header row, the slider panels are 88 px and the rows 56 px. The
 geometry is `ui/shell/controls_model.c`, host-tested for overlap and fit in
-both orientations; it has not been drawn on the panel (DEVICE UNVERIFIED).
+both orientations, and drawn on unit A's panel in both (VERIFIED 2026-09-25).
+The owner accepted the antenna question as drawn, including the glass panel
+letting the tiles behind show through its text.
 
 ### 31.6 Runtime art
 

@@ -1,7 +1,8 @@
 # Device controls and diagnostics: unit A gate
 
 Branch `feat/device-controls-diagnostics`. Status: **RUN 2026-09-25 on unit A,
-PASS** (results at the foot). Unit A carries build **`09be665`** (Doors 0.0.13,
+PASS**, including the owner's listening check of the volume steps; DS §31.5
+**ACCEPTED** by the owner as it is (results at the foot). Unit A carries build **`09be665`** (Doors 0.0.13,
 this branch rebased on master `d2b2be6`, deployed with `deploy.sh` over the
 flashed v0.0.12 card), rotation **Automatic**, radio **on** (stored), volume
 100 %. Rollback of the userspace and state it replaced (v0.0.12 `a8b1a9f` plus
@@ -16,6 +17,9 @@ Evidence classes as in AGENTS.md: VERIFIED (observed on unit A), DOCUMENTED
 (repository or vendor source), ASSUMED.
 
 ## What the branch changes on the device
+
+The evidence column is as written before the gate; every DEVICE UNVERIFIED
+in it is now VERIFIED by the results at the foot.
 
 | Area | Change | Hardware path | Evidence |
 | --- | --- | --- | --- |
@@ -231,10 +235,24 @@ unless a row says otherwise.
 | 6 antenna question, enable | PASS | Tap on the tile: the question with its exact text, Cancel and Enable radio. Cancel: off, nothing stored, logged. Leaving Controls with the question open (`shell.controls show=false`, the swipe's path) dismisses it; reopened, no question, still off. The scrim swallows every other tap, including back, as designed. Enable radio: `rx`, `enabled=1` stored, radiod "switched on by the owner", meshcored `degraded -> online` in the same millisecond with 869.618 MHz SF8, RIFT ONLINE / TRANSMIT READY, tile Receiving, RX chip. `doors radio on`/`off` and a boot with `enabled=1` show no question |
 | 7 RF tx/rx | PASS | ADVERT NEAR tapped on the RIFT panel: tx 0 -> 1, 775 ms airtime. Direct message to T-Deck-RIFT `e34a0352`: **acked** (our frame reached the peer, its ACK reached unit A). `#doorsbench` flood sent. rx 2 -> 8 in 3 min, 0 CRC errors; meshcored 3/3 tx accepted |
 | 8 disable, reboot persistence | PASS | Tile while on: off at once, no question, `enabled=0`, spidev and GPIO released, meshcored `online -> degraded`, no tx after. Reboot with nothing stored: off and parked again. Reboot with `enabled=1`: "radio on (stored choice)", meshcored online at boot. Both reboots: Wi-Fi credentials, MeshCore identity and channels, settings and every other state file byte-identical (sha256) |
-| 9 volume, mute, persistence | PASS, audibility NOT VERIFIED | Controls slider dragged to 50 %: `audio_volume=50`; the speaker glyph mutes (`effective` 0, "Muted") and unmutes; `doors shell volume 55`, `0`, `110`, `x` refused, nothing changed. `pos-wave send` with the Wave app's argv (`audible_fast`, `--volume 10`, `--volume-percent 70/40/10`, none at 100) played to completion at every level, 2.0 s each. 60 % survived a shell restart; 30 % muted survived a reboot. The gain itself is host-tested (pocketaudio_test, 151 checks); this unit cannot measure its own speaker (the mic route and the speaker route are exclusive, AUDIO_FEASIBILITY), and the Wave app could not be driven end to end because typing needs the keyboard base's keys. **The owner's ear (or Waver on a phone) is still needed for "quieter at 50 % and 10 %, no clipping at 100 %"** |
+| 9 volume, mute, persistence | PASS (owner heard it, see Owner checks) | Controls slider dragged to 50 %: `audio_volume=50`; the speaker glyph mutes (`effective` 0, "Muted") and unmutes; `doors shell volume 55`, `0`, `110`, `x` refused, nothing changed. `pos-wave send` with the Wave app's argv (`audible_fast`, `--volume 10`, `--volume-percent 70/40/10`, none at 100) played to completion at every level, 2.0 s each. 60 % survived a shell restart; 30 % muted survived a reboot. The gain itself is host-tested (pocketaudio_test, 151 checks); this unit cannot measure its own speaker (the mic route and the speaker route are exclusive, AUDIO_FEASIBILITY), and the Wave app could not be driven end to end because typing needs the keyboard base's keys. Audibility: the owner's listening check below |
 | 10 Bluetooth, battery | PASS | `/sys/class/bluetooth` empty: Controls "Not available" (no toggle), Diagnostics "No controller". power_supply empty: Controls "External power", Diagnostics "No battery, external power". No percentage anywhere. Camera changed neither path |
 | 11 diagnostics | PASS | Real values in every row: 0.0.13 · 09be665, uptime, memory, storage, "No battery, external power", "5 running · restarted: radiod 1x, sysd 1x" (after `kill -9` radiod and `kill -SEGV` sysd; sysd instead of netd, see findings), "Receiving · 869.618 MHz SF8", "Online", "No controller", "1 report" listed as `sysd · SIGSEGV · 09-25 13:12 UTC` with its first frame. Warnings shows the exits and poll failures; Errors showed "No errors logged" (true: no ERROR line on the card) and then the one real ERROR provoked with `radiod --radio-default bogus`. 35 refreshes: shell RSS 14960 kB before and after; `shell.info` answered in 19 ms on average, 40 ms at most, throughout. sysd read 82 KB of 10 sources and says older ones were not scanned (bounded) |
 | 12 soak | PASS | 50 radio off/on cycles (slowest switch-on 150 ms), 5 more through the tile and the question, 30 Controls open/close, 30 volume steps, 10 Diagnostics open/close, 10 lock/unlock, portrait/landscape/portrait/automatic with Controls and Camera (live preview) in each: no restarts, no crash loop, same pids; RSS shell 14960 -> 14488 kB, radiod 3072 -> 2944, meshcored 3584 -> 3456, sysd 1408 -> 1536, netd 1536 -> 1536; 93 new kernel lines, all the camera stack's open/close messages |
+
+### Owner checks (2026-09-25, owner at the unit)
+
+- **Volume heard: PASS.** The same Wave transmission (`pos-wave send
+  --protocol audible_fast --volume 10 --text DOORS`, the Wave app's argv, with
+  the system volume passed as the app passes it) played twice each at 100 %,
+  50 % and 10 %, then muted, where the app's rule starts no stream (effective
+  0, no `pos-wave` process). The owner confirmed 50 % clearly quieter than
+  100 %, 10 % clearly quieter than 50 %, mute silent, and no audible clipping
+  or distortion at 100 %. Unit left at 100 %, unmuted.
+- **DS §31.5 Controls: ACCEPTED as it is**, from panel captures of Controls in
+  portrait and landscape and of the antenna question in both. That includes
+  the glass antenna question through which the tiles show (more in portrait,
+  where the Brightness and Volume tracks cross it).
 
 ### Fixed on the branch during the gate
 
@@ -264,6 +282,5 @@ unless a row says otherwise.
   seconds after sysd restarted it kept dashes for Doors, Model and Kernel
   until reopened.
 - The antenna question is a glass panel over glass: the tiles behind show
-  through its text. Readable on the panel, but a warning could be more solid
-  (DS decision, not changed).
+  through its text. Readable on the panel; accepted as it is (DS §31.5).
 - "1 newest errors" (singular wording).

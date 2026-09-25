@@ -33,9 +33,9 @@ chip-state dependent and dumps both transports' windows when it does.
 ## Open on feat/device-controls-diagnostics (not merged)
 
 Radio on/off with SX1262 off by default, the antenna question, system volume
-and mute, Bluetooth and battery status, and System > Diagnostics. Host-built
-and host-tested only; **nothing of it has run on unit A**
-(docs/hardware/DEVICE_CONTROLS_GATE.md, NOT RUN).
+and mute, Bluetooth and battery status, and System > Diagnostics. **Unit A
+gate PASS on build `09be665`** (docs/hardware/DEVICE_CONTROLS_GATE.md),
+including the owner's listening check of the volume steps; DS §31.5 accepted.
 
 - **Unit A's radio goes off on deploy.** v0.0.12 stored no on/off choice, so
   the first start of this radiod finds none and, on the sx1262 backend,
@@ -62,15 +62,12 @@ and host-tested only; **nothing of it has run on unit A**
   the 3.5 mm jack's `PCM Playback Volume` is not driven (nothing plays to the
   jack). A bench `pos-wave send` without `--volume-percent` still plays at
   100 %.
-- **Built without LVGL, RadioLib, ggwave or the vendor MeshCore trees.**
-  `controls.c`, `system_app.c`, `wave_app.c`, `rift_activity.c` and `shell.c`
-  were type-checked against a declaration stub (which found one real bug);
-  `backend_sx1262.cpp` is unchanged; meshcored's `radio_link.c` was
-  syntax-checked, not linked or run. Step 1 of the gate is the first real
-  build of these.
+- **The antenna question is glass over glass:** the tiles behind show through
+  its text (more in portrait, where two slider tracks cross it). Readable on
+  the panel and accepted as it is (DS §31.5).
 - **Controls glyphs for Bluetooth and Battery are borrowed** (network and
   power) until the DS draws their own; the landscape Controls moves Lock and
-  Power into the header row to fit three tile rows (DS §31.5, proposed).
+  Power into the header row to fit three tile rows (DS §31.5, accepted).
 
 ## Open for v0.0.12
 

@@ -38,8 +38,9 @@ decided.
 - Not ultrasound, dual-tone or mono-tone ggwave: those protocols are left out
   until the speaker and microphone have been measured.
 - No volume control in the app. The level is fixed (§ Limits) and the audio
-  layer clamps it. The system volume in Controls (feat/device-controls-
-  diagnostics, DEVICE UNVERIFIED) is applied on top as a digital gain -
+  layer clamps it. The system volume in Controls (heard on unit A
+  2026-09-25: 50 % and 10 % clearly quieter, 100 % clean, mute silent) is
+  applied on top as a digital gain -
   `pos-wave send --volume-percent L`, 100 % being this validated level - and
   while it is muted Wave does not send at all.
 
