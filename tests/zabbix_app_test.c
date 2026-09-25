@@ -256,6 +256,34 @@ static void tap(const char *label)
     tap_obj(l ? clickable_of(l) : NULL);
 }
 
+/* A finger drag, the way a person scrolls: pressed on this object where it
+ * is now (nothing is scrolled into view first), moved up by dy, released.
+ * Whatever LVGL finds under the finger decides what scrolls. */
+static void drag_up_from(lv_obj_t *obj, int dy)
+{
+    lv_area_t a;
+    int i;
+
+    if (!obj) {
+        printf("FAIL drag from a missing object\n");
+        failed++;
+        checks++;
+        return;
+    }
+    lv_obj_update_layout(obj);
+    lv_obj_get_coords(obj, &a);
+    finger_point.x = a.x1 + lv_area_get_width(&a) / 2;
+    finger_point.y = a.y1 + lv_area_get_height(&a) / 2;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(40);
+    for (i = 1; i <= 20; i++) {
+        finger_point.y = a.y1 + lv_area_get_height(&a) / 2 - dy * i / 20;
+        pump(15);
+    }
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(600); /* the throw settles */
+}
+
 static bool wait_for(const char *prefix, int ms)
 {
     int64_t end = mono_ms() + ms;
@@ -445,6 +473,20 @@ static bool target_ok(lv_obj_t *obj, const char *what)
     return true;
 }
 
+/* Wholly inside the body, where it is now: on screen without scrolling. */
+static bool in_body(lv_obj_t *obj)
+{
+    lv_area_t a;
+    lv_area_t b;
+
+    if (!obj) {
+        return false;
+    }
+    body_area(&b);
+    lv_obj_get_coords(obj, &a);
+    return a.y1 >= b.y1 && a.y2 <= b.y2;
+}
+
 /* ---- the journeys ----------------------------------------------------------------------- */
 
 static void journey(const char *o)
@@ -518,6 +560,22 @@ static void journey(const char *o)
               !shown("doors-demo-token"));
     shot("status");
     CHECK("STATUS: REFRESH NOW is a target", target_ok(clickable_of(shown("REFRESH NOW")), "refresh"));
+    {
+        /* Reached by finger. In landscape the buttons are below the fold,
+         * and a drag starting on a status line - nothing clickable there -
+         * must scroll the page (unit A: it did not, when the pages were not
+         * clickable themselves). */
+        lv_obj_t *refresh = clickable_of(shown("REFRESH NOW"));
+        bool below = !in_body(refresh);
+
+        if (strcmp(o, "landscape") == 0) {
+            CHECK("STATUS: in landscape REFRESH NOW starts below the fold", below);
+        }
+        if (below) {
+            drag_up_from(shown("SERVER"), 300);
+        }
+        CHECK("STATUS: a finger drag from a status line brings REFRESH NOW into view", in_body(refresh));
+    }
     tap("SCENARIO: demo");
     CHECK("STATUS: the scenario button switches the fake", wait_for("SCENARIO: healthy", 4000));
     tap("OVERVIEW");

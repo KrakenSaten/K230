@@ -969,7 +969,12 @@ static lv_obj_t *page(lv_obj_t *parent)
     lv_obj_set_style_pad_bottom(p, POCKETUI_PAD, 0);
     lv_obj_add_flag(p, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(p, LV_DIR_VER);
-    lv_obj_clear_flag(p, LV_OBJ_FLAG_CLICKABLE);
+    /* Clickable, with nothing to click: LVGL finds only clickable objects
+     * under a finger, so a drag that starts on text or a card (nothing
+     * clickable) must find the page, or it scrolls nothing - on unit A the
+     * buttons at the foot of STATUS could not be reached in landscape. */
+    lv_obj_add_flag(p, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(p, LV_OBJ_FLAG_CLICK_FOCUSABLE);
     return p;
 }
 
