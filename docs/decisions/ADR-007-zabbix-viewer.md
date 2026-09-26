@@ -1,9 +1,14 @@
 # ADR-007: A Zabbix monitoring viewer, and who talks to the server
 
-Status: Proposed (experiment, branch `experiment/zabbix-dashboard`). Not
-accepted, not merged. It asks the product owner for three decisions,
-listed under "Decision" below.
-Date: 2026-09-25
+Status: Accepted (product owner, 2026-09-26): decisions 1-3 below, with the
+viewer in the shell by default. The acceptance came after two checks:
+
+- the unit A gate (docs/hardware/ZABBIX_UNIT_A_GATE.md, PASS);
+- a read-only check against a real Zabbix 7.4.15 server.
+
+It was proposed 2026-09-25 on branch `experiment/zabbix-dashboard`, and
+merged to master off by default (`ffeccd9`).
+Date: 2026-09-25 (proposed), 2026-09-26 (accepted)
 Deciders: product owner (final), AI engineering partner (author)
 
 ## Context
@@ -115,7 +120,7 @@ documentation, 2026-09-25):
   process assumptions, so it can move into a service unchanged if that is
   ever decided.
 
-## Decision (proposed)
+## Decision
 
 1. **A native, read-only Zabbix viewer app with the helper of option D.**
    - The app only reads: `apiinfo.version`, `user.login` and `user.logout`
@@ -145,10 +150,9 @@ documentation, 2026-09-25):
    As with ADR-003, this is permission protection only: there is no
    encryption at rest.
 
-Until the owner decides, all of this lives on the experiment branch only.
-Even there the app is off by default: the shell has it only when configured
-with `-DPOCKETOS_WITH_ZABBIX=ON`. The launcher, the existing suites and the
-image's shell are therefore master's. The helper is built and installed
+The app is in the shell by default (`POCKETOS_WITH_ZABBIX`, ON; the
+Buildroot package passes no option), in CONNECTIONS on the launcher (DS §35.4).
+`-DPOCKETOS_WITH_ZABBIX=OFF` leaves it out. The helper is built and installed
 either way, so `pos-zabbix check` can test a server from the bench.
 
 ## Consequences
@@ -159,7 +163,7 @@ Needed now (done on the branch):
   transport.
 - tools/zabbix: `pos-zabbix` and the development-only `pos-zabbix-mock`.
 - apps/zabbix: session, view and screen.
-- Tests, the lint, docs/apps/ZABBIX.md, and DS §35 (PROPOSED).
+- Tests, the lint, docs/apps/ZABBIX.md, and DS §35 (ACCEPTED).
 - The package links libcurl (`ZABBIX_CURL=1`).
 
 Useful soon:

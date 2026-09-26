@@ -209,7 +209,10 @@ unit A gate `docs/hardware/FULLSCREEN_APPS_GATE.md`). Release notes:
 **v0.0.13** (in development on master since 2026-09-25; not released, no
 tag): Camera - live preview and JPEG stills through the K230's V4L2 camera,
 owned by a per-screen helper process (ADR-006 and DS §34, accepted; unit A
-gate `docs/hardware/CAMERA_GATE.md`).
+gate `docs/hardware/CAMERA_GATE.md`). Zabbix - a read-only viewer for an
+existing Zabbix server (problems, hosts, availability), in the shell by
+default in CONNECTIONS, its API client in the `pos-zabbix` helper (ADR-007 and
+DS §35, accepted 2026-09-26; unit A gate `docs/hardware/ZABBIX_UNIT_A_GATE.md`).
 
 ### Landscape app adaptation (after v0.0.10)
 

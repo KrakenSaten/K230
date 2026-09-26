@@ -2951,13 +2951,16 @@ header without SIMULATED.
 
 Amendment R (§34) accepted 2026-09-25 (Camera unit A gate, docs/hardware/CAMERA_GATE.md).
 
-## 35. Amendment S — Zabbix [PROPOSED]
+## 35. Amendment S — Zabbix [ACCEPTED]
 
-**PROPOSED 2026-09-25** on branch `experiment/zabbix-dashboard`, as an
-experiment. It is validated on the host only (§35.5); it is not accepted and
-not merged. It adds one app and changes no existing screen. Nothing in
+**ACCEPTED 2026-09-26** by the owner, with the app in the shell by default,
+after the unit A gate (`docs/hardware/ZABBIX_UNIT_A_GATE.md`, PASS on
+`7c725ba`: both orientations, the demo, the real transport, a real Zabbix
+7.4.15 server, a network cut, the soak). **Proposed 2026-09-25** on branch
+`experiment/zabbix-dashboard` and validated on the host (§35.5). It adds one
+app and changes no existing screen. Nothing in
 §1-§34 is renumbered. The app is described in `docs/apps/ZABBIX.md`, its
-architecture in ADR-007 (PROPOSED).
+architecture in ADR-007 (ACCEPTED).
 
 ### 35.1 Components
 
@@ -3017,12 +3020,26 @@ Every control is inside the box PocketUI's corner rule leaves (§21.3,
 
 ### 35.4 Launcher
 
-**By default the launcher is unchanged.** Zabbix is built into the shell only
-when it is configured with `-DPOCKETOS_WITH_ZABBIX=ON`, which neither the
-Buildroot package nor any existing suite does. Built in, it has no place in
-the launcher's table and no Doors icon yet, so it appears under MORE with the
-eye symbol. A DS §20 icon and a group are owner decisions
-(docs/apps/ZABBIX.md §12).
+**Zabbix is in the shell by default** (`POCKETOS_WITH_ZABBIX`, ON; the
+Buildroot package passes no option, and `-DPOCKETOS_WITH_ZABBIX=OFF` leaves
+it out).
+
+**Its place (owner, 2026-09-26): CONNECTIONS, fourth.** It sits after RIFT,
+Radio and Wave, in the tools colour. Under MORE, a fifth group, the portrait
+launcher no longer fit: it scrolled and drew into the bottom corners, which
+§21 and §31 forbid. In CONNECTIONS it takes that group's free fourth cell, so
+the portrait launcher keeps its height. Landscape still wraps to two lines,
+now two panels on each (CONNECTIONS and WORKSPACE, then PLAY and DEVICE).
+
+**Its icon (owner's choice of motif): a screen with a heartbeat trace and a
+stand.** It is drawn first-party in the icon extension's line language, since
+no package has one (`docs/design/doors-app-icons/`), and goes through the
+same pipeline as Camera's:
+
+- the A8 mask in `pos_app_icons.c`;
+- the portal icon `ui/assets/doors/icon-zabbix.bin`.
+
+`tests/app_icons_test.sh` keeps it apart from the owner-supplied artwork.
 
 ### 35.5 Validation on the host
 
