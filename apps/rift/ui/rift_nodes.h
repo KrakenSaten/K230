@@ -4,7 +4,9 @@
  *
  * Portrait is a single column of 36 px rows; the selected row expands in
  * place into a panel with the state, the path and a 56 px action bar
- * (RIFT-DEV-1: a 36 px row selects and never acts). Landscape is the same
+ * (RIFT-DEV-1: a 36 px row selects and never acts). The list is virtual -
+ * a pool of rows over the part that is on screen - so it holds every node
+ * the service does (RIFT_MAX_NODES) at the cost of a screenful. Landscape is the same
  * list beside a context pane holding the same detail - a recomposition,
  * not a second design (docs/design/rift/HANDOFF.md §9).
  *
@@ -27,5 +29,9 @@ int rift_nodes_key(struct rift_app *app, uint32_t key);
  * cancelled, in both the landscape pane and the portrait screen. */
 void rift_nodes_cancel_confirm(struct rift_app *app);
 void rift_nodes_destroy(struct rift_app *app);
+/* How many row objects the list has built. The list is virtual: rows are a
+ * pool placed over the part of it that is on screen, so this is bounded by
+ * the height of the pane and not by the number of nodes. For tests. */
+int rift_nodes_rows_built(const struct rift_app *app);
 
 #endif

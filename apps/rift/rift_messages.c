@@ -155,6 +155,10 @@ static void forget_old_run(struct rift_model *m)
     memset(m->msg, 0, sizeof(m->msg));
     m->read_mark_count = 0;
     memset(m->read_mark, 0, sizeof(m->read_mark));
+    /* The highest id seen is an id in the old space too. The fingerprints
+     * are not: they are about what was said, which a restart does not
+     * change (rift_model.h, dm_recent_fp). */
+    m->dm_high_id = 0;
     /* Nothing has been read from this run yet, which is not the same as
      * this run holding nothing. The next snapshot says which. */
     m->messages_valid = 0;
@@ -214,8 +218,11 @@ static struct rift_message *msg_slot(struct rift_model *m, int64_t id, int *is_n
 }
 
 /* One message object, in the shape of docs/api/mesh.md. Returns 0 when it
- * was taken, -1 when it was not a message this model will hold. */
-int rift_model_apply_message(struct rift_model *m, const cJSON *o)
+ * was taken, -1 when it was not a message this model will hold. On 0, *out
+ * is the message as filed and *fresh says whether its id was new to the
+ * window. */
+int rift_model_file_message(struct rift_model *m, const cJSON *o, struct rift_message **out,
+                            int *fresh)
 {
     const char *peer;
     const char *dir;
@@ -352,7 +359,18 @@ int rift_model_apply_message(struct rift_model *m, const cJSON *o)
         msg->rssi_dbm = d;
     }
     m->msgs_applied++;
+    if (out) {
+        *out = msg;
+    }
+    if (fresh) {
+        *fresh = is_new;
+    }
     return 0;
+}
+
+int rift_model_apply_message(struct rift_model *m, const cJSON *o)
+{
+    return rift_model_file_message(m, o, NULL, NULL);
 }
 
 /* ---- how far a conversation has been read -------------------------------- */
@@ -452,6 +470,19 @@ int rift_model_apply_messages(struct rift_model *m, const cJSON *result)
     }
     m->messages_persistent = bool_of(result, "persistent", 0);
     m->messages_valid = 1;
+    /* A snapshot is history, however recent: nothing in it is an arrival,
+     * and nothing at or below its newest incoming id will be one either
+     * when the same message comes round again as an event. */
+    {
+        int i;
+
+        for (i = 0; i < m->msg_count; i++) {
+            if (m->msg[i].dir == RIFT_MSG_IN && !m->msg[i].is_channel &&
+                m->msg[i].id > m->dm_high_id) {
+                m->dm_high_id = m->msg[i].id;
+            }
+        }
+    }
     if (seeding) {
         seed_read_marks(m);
         m->messages_seeded = 1;
@@ -583,8 +614,38 @@ const char *rift_model_conv_name(const struct rift_model *m, const char *conv_ke
 
 /* ---- conversations -------------------------------------------------------- */
 
+/* Which conversations make the list when there are more than it holds: the
+ * ones whose newest message is newest. The window can hold messages from
+ * more peers than a list has rows (RIFT_MAX_MESSAGES against max), and
+ * filling the list in the order messages are held - oldest first - kept
+ * the conversations nobody had spoken in for longest and left out the ones
+ * that had just spoken. keep[i] is set for every message whose conversation
+ * is in. */
+static void newest_conversations(const struct rift_model *m, int max, char *keep)
+{
+    const char *key[RIFT_MAX_MESSAGES];
+    int distinct = 0;
+    int i;
+    int j;
+
+    /* Newest first, so a key is first met at its newest message, and the
+     * first max keys met are the max newest conversations. */
+    for (i = m->msg_count - 1; i >= 0; i--) {
+        for (j = 0; j < distinct; j++) {
+            if (strcmp(key[j], m->msg[i].conv_key) == 0) {
+                break;
+            }
+        }
+        if (j == distinct) {
+            key[distinct++] = m->msg[i].conv_key;
+        }
+        keep[i] = j < max;
+    }
+}
+
 int rift_model_conversations(const struct rift_model *m, struct rift_conv *out, int max)
 {
+    char keep[RIFT_MAX_MESSAGES];
     int n = 0;
     int i;
     int j;
@@ -592,10 +653,14 @@ int rift_model_conversations(const struct rift_model *m, struct rift_conv *out, 
     if (!m || !out || max <= 0) {
         return 0;
     }
+    newest_conversations(m, max, keep);
     for (i = 0; i < m->msg_count; i++) {
         const struct rift_message *msg = &m->msg[i];
         struct rift_conv *c = NULL;
 
+        if (!keep[i]) {
+            continue;
+        }
         for (j = 0; j < n; j++) {
             if (strcmp(out[j].key, msg->conv_key) == 0) {
                 c = &out[j];
@@ -636,6 +701,10 @@ int rift_model_conversations(const struct rift_model *m, struct rift_conv *out, 
         if (msg->have_mono) {
             c->have_newest_mono = 1;
             c->newest_mono_ms = msg->mono_ms;
+            if (msg->dir == RIFT_MSG_IN) {
+                c->have_last_in_mono = 1;
+                c->last_in_mono_ms = msg->mono_ms;
+            }
         }
     }
     for (i = 0; i < n; i++) {

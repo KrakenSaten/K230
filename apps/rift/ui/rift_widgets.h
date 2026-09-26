@@ -25,7 +25,7 @@
 #define RIFT_PRIMARY_H 64
 #define RIFT_PAD 20
 #define RIFT_PANE_PAD 16
-#define RIFT_STRIP_W 112
+#define RIFT_STRIP_W 104
 #define RIFT_STRIP_W_WIDE 150
 #define RIFT_GLYPH_BOX 12 /* the 8 px glyph plus room for the 2 px self ring */
 #define RIFT_CAPTION_H 18 /* one line of Mono 14, the caption role's type */
@@ -59,6 +59,19 @@ void rift_strip_set_width(lv_obj_t *strip, int32_t width);
 /* A hairline panel with its caption cut into the top rule (handoff §4).
  * Returns the panel; its content goes in as children. caption may be NULL. */
 lv_obj_t *rift_panel(lv_obj_t *parent, const char *caption);
+
+/* The activity pulse: how lately something was heard from (rift_pulse_of),
+ * as three small dots - three filled for NOW, two RECENT, one QUIET, none
+ * STALE, and nothing at all for never heard. Dots in a row and not bars of
+ * rising height, because this is not a signal meter and must not read as
+ * one: it is an age, bucketed, and the age itself is printed beside it
+ * wherever it appears. NOW fills in radio_rx, the token for RX activity;
+ * the rest in text_secondary, the empty dots in text_muted. */
+#define RIFT_PULSE_W 16
+lv_obj_t *rift_pulse_create(lv_obj_t *parent);
+void rift_pulse_set(lv_obj_t *pulse, enum rift_pulse level);
+/* What a pulse is showing; RIFT_PULSE_NONE for anything that is not one. */
+enum rift_pulse rift_pulse_get(lv_obj_t *pulse);
 
 /* A 24 px group label: "HEARD < 12 H · 12". */
 lv_obj_t *rift_group_label(lv_obj_t *parent, const char *text);
@@ -119,7 +132,24 @@ lv_obj_t *rift_cell(lv_obj_t *parent, enum pos_style_role role, int32_t width,
  * rows are rebuilt and re-measured whenever the selection or the orientation
  * moves, and a name is remote text nobody here chose the length of. The cell
  * keeps LV_LABEL_LONG_CLIP and the text is cut here, on a character
- * boundary, measured in the font the cell is actually drawn in. */
+ * boundary, measured in the font the cell is actually drawn in.
+ *
+ * The same text fitted to the same width again is not measured again: the
+ * cell remembers (in its user data, which a cell has no other use for) a
+ * fingerprint of the last text and width it was fitted to. */
 void rift_cell_set_text_fit(lv_obj_t *cell, const char *text);
+/* The same, fitted to room px rather than to the width the cell has now -
+ * for a row that is being filled before its layout has settled, where the
+ * caller knows the width the cell is about to have. room <= 0 falls back to
+ * the cell's own width. */
+void rift_cell_set_text_fit_room(lv_obj_t *cell, const char *text, int32_t room);
+/* Set a label's text only when it differs from what it already says.
+ * Setting a label re-measures it and re-lays out its row even when the text
+ * is the same, and a list repaints every second with most of its rows
+ * unchanged. */
+void rift_label_set(lv_obj_t *label, const char *text);
+
+/* The width text takes in the cell's own font. */
+int32_t rift_cell_text_width(lv_obj_t *cell, const char *text);
 
 #endif

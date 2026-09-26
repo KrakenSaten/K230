@@ -16,19 +16,29 @@
 
 #define COL_GAP 8
 #define MSG_RULE_W 2
-#define MSG_GAP 8
+/* Between one message and the next. */
+#define MSG_GAP 6
+/* Between a body and a caption that shares its line. */
+#define CAPTION_GAP 10
+/* Above the composer. */
+#define COMPOSER_GAP 8
 /* SEND is an action, 56 tall like every other, and as wide as its word
  * needs - not half the row: the field is what a reader works in. */
 #define SEND_W 128
 
 /* One message: the 2 px rule that says whose it is, the body, and ONE
- * caption line under it - age · [claimed sender] · state · evidence.
+ * caption - age · [claimed sender] · state · evidence.
  *
  * It used to be three lines: a line of age and sender over the body, then
  * the state under it. In a direct thread the sender line said "you" or the
  * peer's name, which the rule's side and the thread's header already say;
  * folded into the caption, the same messages take about a quarter less
- * height, and a landscape pane shows a message more. */
+ * height, and a landscape pane shows a message more.
+ *
+ * And the caption shares the body's line when there is room for both - a
+ * mesh message is usually short - and wraps under it when there is not. The
+ * two are items in a wrapping row, each as wide as its words and no wider
+ * than the column, so a one-line message is one line. */
 struct msg_row {
     lv_obj_t *slot;
     lv_obj_t *body_row;
@@ -36,6 +46,9 @@ struct msg_row {
     lv_obj_t *column;
     lv_obj_t *body;
     lv_obj_t *caption;
+    int32_t max_w; /* the widest either may be, as last set */
+    int warn;      /* the caption carries the warn colour */
+    int out;       /* laid out as ours (1, right) or theirs (0, left); -1 not yet */
 };
 
 struct rift_thread {
@@ -68,6 +81,7 @@ struct rift_thread {
     int64_t shape_id[RIFT_THREAD_ROWS];
     int shape_count;
     int shape_valid;
+    char shape_peer[RIFT_KEY_HEX]; /* whose thread the rows are */
     /* The height the messages had at the last refresh, and whether the
      * reader was at the end of them. When the pane changes height - the
      * landscape composer appearing under it, the portrait keyboard coming
@@ -93,6 +107,21 @@ static lv_obj_t *dense_row(lv_obj_t *parent, int32_t height)
     lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(r, LV_OBJ_FLAG_CLICKABLE);
     return r;
+}
+
+/* A label as wide as its words, wrapping at a width set later (max_width,
+ * in pixels: LVGL's label sizes itself against a pixel maximum, not a
+ * percentage of its parent). */
+static lv_obj_t *fit_label(lv_obj_t *parent, enum pos_style_role role)
+{
+    lv_obj_t *l = lv_label_create(parent);
+
+    lv_obj_remove_style_all(l);
+    pos_style_add(l, role, 0);
+    lv_obj_set_width(l, LV_SIZE_CONTENT);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(l, "");
+    return l;
 }
 
 static lv_obj_t *wrap_label(lv_obj_t *parent, enum pos_style_role role)
@@ -198,7 +227,7 @@ static void build_composer(struct rift_thread *t)
     lv_obj_set_flex_align(t->composer, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(t->composer, 12, 0);
-    lv_obj_set_style_pad_top(t->composer, MSG_GAP, 0);
+    lv_obj_set_style_pad_top(t->composer, COMPOSER_GAP, 0);
     lv_obj_remove_flag(t->composer, LV_OBJ_FLAG_SCROLLABLE);
 
     t->field = pocketui_text_field(t->composer, "Message", true);
@@ -250,16 +279,19 @@ static void build_row(struct rift_thread *t)
     lv_obj_set_flex_grow(r->column, 1);
     lv_obj_set_width(r->column, 1);
     lv_obj_set_height(r->column, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(r->column, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_flow(r->column, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(r->column, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_column(r->column, CAPTION_GAP, 0);
     lv_obj_remove_flag(r->column, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(r->column, LV_OBJ_FLAG_CLICKABLE);
-    r->body = wrap_label(r->column, POS_STYLE_TEXT_PRIMARY);
-    r->caption = wrap_label(r->column, POS_STYLE_CAPTION);
+    r->body = fit_label(r->column, POS_STYLE_TEXT_PRIMARY);
+    r->caption = fit_label(r->column, POS_STYLE_CAPTION);
+    r->out = -1; /* neither side yet: the first update sets it */
     t->row_count++;
 }
 
 static void update_row(struct rift_thread *t, struct msg_row *r,
-                       const struct rift_message *msg, int64_t now)
+                       const struct rift_message *msg, int64_t now, int32_t max_w)
 {
     struct rift_app *a = t->app;
     const struct rift_node *n = msg->is_channel ? NULL
@@ -268,36 +300,54 @@ static void update_row(struct rift_thread *t, struct msg_row *r,
     int out = (msg->dir == RIFT_MSG_OUT);
     lv_text_align_t align = out ? LV_TEXT_ALIGN_RIGHT : LV_TEXT_ALIGN_LEFT;
 
+    /* The widest a body or a caption may be is the column: either wraps
+     * there, and together they share a line only when both fit. */
+    if (max_w > 0 && max_w != r->max_w) {
+        lv_obj_set_style_max_width(r->body, max_w, 0);
+        lv_obj_set_style_max_width(r->caption, max_w, 0);
+        r->max_w = max_w;
+    }
+    /* Ours start at the right, theirs at the left, whether the two share a
+     * line or not; and own messages carry the rule on the right, received
+     * ones on the left. Set when the side changes and not on every repaint:
+     * each of these re-lays the row out, and a thread repaints every second. */
+    if (out != r->out) {
+        lv_obj_set_flex_align(r->column, out ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_END, out ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START);
+        lv_obj_set_style_text_align(r->body, align, 0);
+        lv_obj_set_style_text_align(r->caption, align, 0);
+        lv_obj_move_to_index(r->rule, out ? 1 : 0);
+        r->out = out;
+    }
+
     /* The body is what was said: on a channel, without the "<sender>: "
      * MeshCore writes into the payload, because the caption below names the
      * sender - as a claim, with a trailing "?", since nothing signs a group
      * frame and anyone holding the key can send any name. */
-    lv_label_set_text(r->body, rift_msg_body(msg));
-    lv_obj_set_style_text_align(r->body, align, 0);
+    rift_label_set(r->body, rift_msg_body(msg));
     /* An age, not a time of day. The design's mock reads "11:32"; this board
      * has no clock that survives a power cut (docs/hardware/T-DISPLAY-K230.md)
      * and a message's own timestamp is the *sender's* clock (docs/api/mesh.md),
      * so neither is a local wall time this app could honestly print. */
     rift_fmt_msg_meta(msg, now, text, sizeof(text));
-    lv_label_set_text(r->caption, text);
-    lv_obj_set_style_text_align(r->caption, align, 0);
+    rift_label_set(r->caption, text);
     /* Colour never carries a state on its own (handoff §5): the caption
      * already says NO ACK or FAILED in words, and this is the warn colour
      * on top of the word. */
-    if (rift_msg_is_warn(msg)) {
-        pos_style_add(r->caption, POS_STYLE_STATUS_WARN_TEXT, 0);
-    } else {
-        lv_obj_remove_style(r->caption, pos_style(POS_STYLE_STATUS_WARN_TEXT), 0);
+    if (rift_msg_is_warn(msg) != r->warn) {
+        r->warn = rift_msg_is_warn(msg);
+        if (r->warn) {
+            pos_style_add(r->caption, POS_STYLE_STATUS_WARN_TEXT, 0);
+        } else {
+            lv_obj_remove_style(r->caption, pos_style(POS_STYLE_STATUS_WARN_TEXT), 0);
+        }
     }
 
-    /* Own messages carry the rule on the right in accent_primary; received
-     * carry it on the left, in radio_rx when the peer was heard direct and
-     * text_secondary otherwise. */
+    /* The rule's tone: accent_primary for ours; radio_rx for theirs when the
+     * peer was heard direct, text_secondary otherwise. */
     if (out) {
-        lv_obj_move_to_index(r->rule, 1);
         rift_vrule_set(r->rule, RIFT_TONE_ACCENT);
     } else {
-        lv_obj_move_to_index(r->rule, 0);
         /* A channel message was heard from nobody in particular - a group
          * frame carries no sender - so it never gets the radio_rx tone that
          * says "this peer was heard direct". */
@@ -355,6 +405,45 @@ static void paint_note(struct rift_thread *t, const char *peer, int shown)
     } else {
         lv_obj_add_flag(t->note, LV_OBJ_FLAG_HIDDEN);
     }
+}
+
+/* Whether the thread now is the thread as built, moved along: the same ids
+ * with some gone off the front and some added at the end. Returns how many
+ * went off the front, or -1 when it is anything else - a message missing
+ * from the middle, an older one arriving late, a window that got shorter. */
+static int shifted_by(const struct rift_thread *t, const struct rift_message *const *thread,
+                      int shown)
+{
+    int drop;
+    int i;
+
+    if (t->row_count != t->shape_count) {
+        return -1;
+    }
+    if (t->shape_count == 0) {
+        return 0;
+    }
+    if (shown == 0) {
+        return -1;
+    }
+    for (drop = 0; drop < t->shape_count; drop++) {
+        if (t->shape_id[drop] == thread[0]->id) {
+            break;
+        }
+    }
+    if (drop == t->shape_count) {
+        /* Nothing in common: every old row goes, and that is a rebuild. */
+        return -1;
+    }
+    if (t->shape_count - drop > shown) {
+        return -1;
+    }
+    for (i = 0; i < t->shape_count - drop; i++) {
+        if (t->shape_id[drop + i] != thread[i]->id) {
+            return -1;
+        }
+    }
+    return drop;
 }
 
 /* ---- the public entry points ---------------------------------------------- */
@@ -432,9 +521,13 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
     const struct rift_model *m;
     const char *refusal;
     int64_t now;
+    int32_t removed_h = 0;
     int older = 0;
     int shown = 0;
+    int same_peer;
     int changed;
+    int at_end;
+    int rebuilt = 0;
     int i;
 
     if (!t) {
@@ -447,20 +540,53 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
         shown = rift_model_thread(m, peer, thread, RIFT_THREAD_ROWS, &older);
     }
 
-    changed = !t->shape_valid || shown != t->shape_count;
+    /* Where the reader is now, before anything below moves it: at the end,
+     * or back in the history. When the pane has changed height since the
+     * last refresh the offset says nothing about that - the change moved it
+     * - and what the last refresh saw is the answer instead. */
+    {
+        int32_t h0 = lv_obj_get_height(t->scroll);
+
+        at_end = h0 != t->scroll_h ? t->at_end
+                                   : lv_obj_get_scroll_bottom(t->scroll) <= RIFT_CAPTION_H;
+    }
+    same_peer = t->shape_valid && strcmp(peer ? peer : "", t->shape_peer) == 0;
+    changed = !same_peer || shown != t->shape_count;
     for (i = 0; !changed && i < shown; i++) {
         if (thread[i]->id != t->shape_id[i]) {
             changed = 1;
         }
     }
     if (changed) {
-        lv_obj_clean(t->scroll);
-        t->row_count = 0;
-        for (i = 0; i < shown && t->row_count < RIFT_THREAD_ROWS; i++) {
-            build_row(t);
+        int drop = same_peer ? shifted_by(t, thread, shown) : -1;
+
+        if (drop >= 0) {
+            /* The same thread, moved on: the oldest `drop` went off the
+             * front of the window and the rest are appended. Only those are
+             * deleted and built - one of each for a message arriving in a
+             * full window - and the rows in between keep their objects. */
+            for (i = 0; i < drop; i++) {
+                removed_h += lv_obj_get_height(t->row[i].slot);
+                lv_obj_delete(t->row[i].slot);
+            }
+            memmove(&t->row[0], &t->row[drop], sizeof(t->row[0]) * (size_t)(t->row_count - drop));
+            t->row_count -= drop;
+            while (t->row_count < shown && t->row_count < RIFT_THREAD_ROWS) {
+                build_row(t);
+            }
+        } else {
+            /* Another conversation, or this one changed in the middle: built
+             * again from nothing, and read from its end. */
+            lv_obj_clean(t->scroll);
+            t->row_count = 0;
+            for (i = 0; i < shown && t->row_count < RIFT_THREAD_ROWS; i++) {
+                build_row(t);
+            }
+            rebuilt = 1;
         }
         t->shape_valid = 1;
         t->shape_count = shown;
+        snprintf(t->shape_peer, sizeof(t->shape_peer), "%s", peer ? peer : "");
         for (i = 0; i < shown; i++) {
             t->shape_id[i] = thread[i]->id;
         }
@@ -472,18 +598,31 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
      * anything measured against an unsettled pane would depend on which
      * refresh this is. */
     lv_obj_update_layout(t->root);
-    for (i = 0; i < t->row_count && i < shown; i++) {
-        update_row(t, &t->row[i], thread[i], now);
+    {
+        int32_t max_w = lv_obj_get_content_width(t->scroll) - MSG_RULE_W - COL_GAP;
+
+        for (i = 0; i < t->row_count && i < shown; i++) {
+            update_row(t, &t->row[i], thread[i], now, max_w);
+        }
     }
     {
         int32_t h = lv_obj_get_height(t->scroll);
 
-        /* A thread is read at its end: when its messages change, and when
-         * the pane it is in changes height under a reader who was at the
-         * end of it. */
-        if ((changed || (h != t->scroll_h && t->at_end)) && shown > 0) {
+        /* A thread is read at its end: when another one is opened, when a
+         * message arrives while the reader is at the end, and when the pane
+         * changes height under a reader who was at the end of it. A reader
+         * who has scrolled back into the history is left there - a message
+         * arriving no longer pulls them down to it; the rows that went off
+         * the top are taken off the offset, so the lines they were reading
+         * stay where they were. */
+        if ((rebuilt || (changed && at_end) || (h != t->scroll_h && at_end)) && shown > 0) {
             lv_obj_update_layout(t->scroll);
             lv_obj_scroll_to_y(t->scroll, LV_COORD_MAX, LV_ANIM_OFF);
+        } else if (changed && removed_h > 0) {
+            int32_t y = lv_obj_get_scroll_y(t->scroll) - removed_h;
+
+            lv_obj_update_layout(t->scroll);
+            lv_obj_scroll_to_y(t->scroll, y > 0 ? y : 0, LV_ANIM_OFF);
         }
         t->scroll_h = h;
         /* Within a caption's height of the end counts as at the end. */

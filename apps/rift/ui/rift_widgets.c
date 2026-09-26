@@ -337,6 +337,109 @@ void rift_strip_set_width(lv_obj_t *strip, int32_t width)
     }
 }
 
+/* ---- the activity pulse ------------------------------------------------- */
+
+#define PULSE_DOT 4
+#define PULSE_GAP 2
+
+struct pulse_state {
+    enum rift_pulse level;
+};
+
+static void pulse_delete(lv_event_t *e)
+{
+    free(lv_obj_get_user_data(lv_event_get_target_obj(e)));
+}
+
+static void pulse_draw(lv_event_t *e)
+{
+    lv_obj_t *obj = lv_event_get_target_obj(e);
+    const struct pulse_state *s = lv_obj_get_user_data(obj);
+    lv_layer_t *layer = lv_event_get_layer(e);
+    lv_area_t area;
+    int filled;
+    int32_t cy;
+    int32_t x;
+    int i;
+
+    if (!s || !layer || s->level == RIFT_PULSE_NONE) {
+        /* Never heard: nothing is drawn, and the age beside it says "?". An
+         * empty row of dots would read as "stale", which is a different
+         * thing from "unknown". */
+        return;
+    }
+    filled = s->level == RIFT_PULSE_NOW      ? 3
+             : s->level == RIFT_PULSE_RECENT ? 2
+             : s->level == RIFT_PULSE_QUIET  ? 1
+                                             : 0;
+    lv_obj_get_coords(obj, &area);
+    cy = area.y1 + lv_area_get_height(&area) / 2;
+    x = area.x1 + (lv_area_get_width(&area) - (3 * PULSE_DOT + 2 * PULSE_GAP)) / 2 +
+        PULSE_DOT / 2;
+    for (i = 0; i < 3; i++) {
+        if (i < filled) {
+            fill_box(layer, x, cy, PULSE_DOT,
+                     pos_theme_color(s->level == RIFT_PULSE_NOW ? POS_COLOR_RADIO_RX
+                                                                : POS_COLOR_TEXT_SECONDARY));
+        } else {
+            hollow_box(layer, x, cy, PULSE_DOT, pos_theme_color(POS_COLOR_TEXT_MUTED), 1);
+        }
+        x += PULSE_DOT + PULSE_GAP;
+    }
+}
+
+lv_obj_t *rift_pulse_create(lv_obj_t *parent)
+{
+    lv_obj_t *obj = lv_obj_create(parent);
+    struct pulse_state *s = calloc(1, sizeof(*s));
+
+    if (!s) {
+        lv_obj_delete(obj);
+        return NULL;
+    }
+    lv_obj_remove_style_all(obj);
+    lv_obj_set_size(obj, RIFT_PULSE_W, RIFT_GLYPH_BOX);
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_user_data(obj, s);
+    s->level = RIFT_PULSE_NONE;
+    lv_obj_add_event_cb(obj, pulse_draw, LV_EVENT_DRAW_MAIN, NULL);
+    lv_obj_add_event_cb(obj, pulse_delete, LV_EVENT_DELETE, NULL);
+    return obj;
+}
+
+void rift_pulse_set(lv_obj_t *pulse, enum rift_pulse level)
+{
+    struct pulse_state *s = pulse ? lv_obj_get_user_data(pulse) : NULL;
+
+    if (!s || s->level == level) {
+        return;
+    }
+    s->level = level;
+    lv_obj_invalidate(pulse);
+}
+
+enum rift_pulse rift_pulse_get(lv_obj_t *pulse)
+{
+    const struct pulse_state *s;
+    uint32_t i;
+    uint32_t n;
+
+    if (!pulse) {
+        return RIFT_PULSE_NONE;
+    }
+    /* A pulse is the object that draws with pulse_draw; anything else's user
+     * data is not a pulse_state and is not read as one. */
+    n = lv_obj_get_event_count(pulse);
+    for (i = 0; i < n; i++) {
+        if (lv_event_dsc_get_cb(lv_obj_get_event_dsc(pulse, i)) == pulse_draw) {
+            s = lv_obj_get_user_data(pulse);
+            return s ? s->level : RIFT_PULSE_NONE;
+        }
+    }
+    return RIFT_PULSE_NONE;
+}
+
 /* ---- panels, rules and rows --------------------------------------------- */
 
 /* LVGL clips an OVERFLOW_VISIBLE object's children to the object's box
@@ -501,11 +604,53 @@ static int32_t text_width(const char *text, const lv_font_t *font, int32_t lette
     return size.x;
 }
 
+int32_t rift_cell_text_width(lv_obj_t *cell, const char *text)
+{
+    const lv_font_t *font = cell ? lv_obj_get_style_text_font(cell, LV_PART_MAIN) : NULL;
+
+    if (!font || !text || !text[0]) {
+        return 0;
+    }
+    return text_width(text, font, lv_obj_get_style_text_letter_space(cell, LV_PART_MAIN));
+}
+
+void rift_label_set(lv_obj_t *label, const char *text)
+{
+    const char *now;
+
+    if (!label) {
+        return;
+    }
+    now = lv_label_get_text(label);
+    if (!now || strcmp(now, text ? text : "") != 0) {
+        lv_label_set_text(label, text ? text : "");
+    }
+}
+
 void rift_cell_set_text_fit(lv_obj_t *cell, const char *text)
+{
+    rift_cell_set_text_fit_room(cell, text, 0);
+}
+
+/* What a cell was last fitted to: FNV-1a of the text, folded with the width
+ * and the font. Never 0, which is a cell nothing has been fitted into. */
+static uintptr_t fit_print(const char *text, int32_t room, const lv_font_t *font)
+{
+    uint32_t h = 2166136261u;
+
+    for (; *text; text++) {
+        h ^= (uint8_t)*text;
+        h *= 16777619u;
+    }
+    h ^= (uint32_t)room * 2654435761u;
+    h ^= (uint32_t)(uintptr_t)font;
+    return (uintptr_t)(h ? h : 1u);
+}
+
+void rift_cell_set_text_fit_room(lv_obj_t *cell, const char *text, int32_t room)
 {
     const lv_font_t *font;
     int32_t letter_space;
-    int32_t room;
     char buf[RIFT_NAME_MAX + 8];
     size_t keep;
 
@@ -517,9 +662,19 @@ void rift_cell_set_text_fit(lv_obj_t *cell, const char *text)
     }
     font = lv_obj_get_style_text_font(cell, LV_PART_MAIN);
     letter_space = lv_obj_get_style_text_letter_space(cell, LV_PART_MAIN);
-    room = lv_obj_get_width(cell);
+    if (room <= 0) {
+        room = lv_obj_get_width(cell);
+    }
+    {
+        uintptr_t print = fit_print(text, room, font);
+
+        if ((uintptr_t)lv_obj_get_user_data(cell) == print) {
+            return; /* this text, at this width, is what it already shows */
+        }
+        lv_obj_set_user_data(cell, (void *)print);
+    }
     if (!font || room <= 0 || text_width(text, font, letter_space) <= room) {
-        lv_label_set_text(cell, text);
+        rift_label_set(cell, text);
         return;
     }
     /* Back off one character at a time until the text and the ellipsis fit.

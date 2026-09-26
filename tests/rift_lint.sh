@@ -100,8 +100,18 @@ check "no radio or protocol library is included" \
 check "and no MeshCore symbol is called" \
     "$(grep -rnE 'mesh::|Mesh[A-Za-z]*\(' "$SRC" --include='*.c' --include='*.h' \
         >/dev/null 2>&1 && echo 0 || echo 1)"
-check "the app stores nothing of its own" \
-    "$(ls "$SRC"/*store* >/dev/null 2>&1 && echo 0 || echo 1)"
+# RIFT keeps the reader's own choices and nothing else: no message, node,
+# key or read mark is ever written. One store, and the only file I/O in the
+# app is in it.
+stores=$(ls "$SRC"/*store*.[ch] "$SRC"/ui/*store*.[ch] 2>/dev/null | sort | tr '\n' ' ')
+check "the app stores only the reader's preferences (${stores:-nothing})" \
+    "$([ "$stores" = "$SRC/rift_store.c $SRC/rift_store.h " ] && echo 1 || echo 0)"
+fileio=$(grep -rlE '\bfopen\(|\brename\(|\bunlink\(' "$SRC" --include='*.c' | sort | tr '\n' ' ')
+check "and the only file it opens is that one (${fileio:-none})" \
+    "$([ "$fileio" = "$SRC/rift_store.c " ] && echo 1 || echo 0)"
+check "which holds nothing about the mesh" \
+    "$(grep -qE 'struct rift_(model|message|node|conv)|peer_key|self_key|read_mark|cJSON' \
+        "$SRC/rift_store.c" "$SRC/rift_store.h" && echo 0 || echo 1)"
 check "and creates no keyboard: there is one and the shell owns it" \
     "$(grep -rq 'pos_keyboard_create' "$SRC" && echo 0 || echo 1)"
 
@@ -123,15 +133,17 @@ check "and the screens parse no JSON of their own" \
 # above anything here and well below a monolith.
 big=$(find "$SRC" -name '*.c' -exec wc -l {} + | awk '$1 > 900 && $2 != "total" {print $2}')
 check "no source file has become a monolith${big:+ ($big)}" "$([ -z "$big" ] && echo 1 || echo 0)"
-for part in rift_model.c rift_messages.c rift_channels.c rift_actions.c rift_order.c \
-            rift_format.c rift_format_msg.c rift_ipc.c rift_app.c \
-            ui/rift_widgets.c ui/rift_activity.c ui/rift_nodes.c ui/rift_detail.c \
-            ui/rift_comms.c ui/rift_thread.c; do
+for part in rift_model.c rift_messages.c rift_arrivals.c rift_channels.c rift_actions.c \
+            rift_order.c rift_format.c rift_format_msg.c rift_ipc.c rift_notify.c rift_sound.c \
+            rift_store.c rift_dm_sound.c rift_app.c \
+            ui/rift_widgets.c ui/rift_activity.c ui/rift_nodes.c ui/rift_node_row.c \
+            ui/rift_detail.c ui/rift_comms.c ui/rift_thread.c; do
     check "$part is its own file" "$([ -f "$SRC/$part" ] && echo 1 || echo 0)"
 done
 # The model's other translation units are held to the same rule as the first:
 # no LVGL, and the screens do not reach into them.
-for part in rift_messages.c rift_channels.c rift_actions.c rift_order.c; do
+for part in rift_messages.c rift_arrivals.c rift_channels.c rift_actions.c rift_order.c \
+            rift_notify.c rift_sound.c rift_store.c; do
     check "$part knows nothing about LVGL" \
         "$(grep -q 'lvgl' "$SRC/$part" && echo 0 || echo 1)"
 done
@@ -152,6 +164,35 @@ check "and the virtual clock is linked by rift_app_test alone, in place of it" \
     "$([ "$(grep -cE '^[[:space:]]*\$\{REPO_DIR\}/tests/rift_test_clock\.c$' "$CMAKE")" = 1 ] &&
        awk '/add_executable\(rift_app_test/,/\)$/' "$CMAKE" | grep -q 'tests/rift_test_clock.c' &&
        ! awk '/add_executable\(rift_app_test/,/\)$/' "$CMAKE" | grep -q 'apps/rift/rift_clock.c' && echo 1 || echo 0)"
+
+# ---- the DM sound ----------------------------------------------------------------
+# A sound for a new direct message, and for nothing else. Which messages are
+# new is decided once, in the model, on the live event path; the sound goes
+# through one seam, called from one place, and RIFT opens no sound device of
+# its own - apps never touch hardware (ADR-002), and ADR-004's exception is
+# Wave's.
+check "a DM arrival is counted in one place" \
+    "$([ "$(grep -rl 'dm_arrivals++' "$SRC" --include='*.c' | tr '\n' ' ')" = "$SRC/rift_arrivals.c " ] &&
+       echo 1 || echo 0)"
+livecallers=$(grep -rln 'rift_model_apply_live_message(' "$SRC" --include='*.c' | sort | tr '\n' ' ')
+check "reached only from a live event, never a snapshot (${livecallers:-nowhere})" \
+    "$([ "$livecallers" = "$SRC/rift_arrivals.c $SRC/rift_model.c " ] &&
+       ! grep -n 'rift_model_apply_live_message' "$SRC/rift_messages.c" >/dev/null && echo 1 || echo 0)"
+playcallers=$(grep -rln 'rift_sound_play(' "$SRC" --include='*.c' | sort | tr '\n' ' ')
+check "the sound is asked for in one place (${playcallers:-nowhere})" \
+    "$([ "$playcallers" = "$SRC/rift_dm_sound.c $SRC/rift_sound.c " ] && echo 1 || echo 0)"
+check "and only when the policy says so" \
+    "$(grep -B3 'rift_sound_play(' "$SRC/rift_dm_sound.c" | grep -q 'rift_notify_poll(' &&
+       echo 1 || echo 0)"
+check "RIFT opens no sound device of its own" \
+    "$(grep -rnE '#include[[:space:]]*[<\"](alsa/|pocketaudio|sound/)|snd_pcm_|pocketaudio_' \
+        --include='*.c' --include='*.h' "$SRC" >/dev/null 2>&1 && echo 0 || echo 1)"
+check "and starts no helper process to play one" \
+    "$(grep -rnE '\b(fork|execv[pe]?|execl[pe]?|posix_spawn[p]?|popen|system)\(' \
+        --include='*.c' "$SRC" >/dev/null 2>&1 && echo 0 || echo 1)"
+check "and stops its sound when it goes" \
+    "$(sed -n '/^static void rift_destroy/,/^}/p' "$SRC/rift_app.c" |
+       grep -q 'rift_sound_stop' && echo 1 || echo 0)"
 
 # ---- the lifecycle -------------------------------------------------------------
 # A timer that outlives the app reaches a freed block on its next pass, and

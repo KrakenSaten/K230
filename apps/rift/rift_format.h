@@ -60,6 +60,41 @@ void rift_fmt_age(int64_t age_ms, int known, char *out, size_t out_len);
 void rift_fmt_age_split(int64_t age_ms, int known, char *value, size_t value_len, char *unit,
                         size_t unit_len);
 
+/* ---- activity ------------------------------------------------------------
+ *
+ * How lately something was heard from, as one of four words. It is the age
+ * of the newest thing RIFT has actually observed from that subject, bucketed,
+ * and nothing else: no signal, no count, no guess about a link. Signal is
+ * the RSSI and SNR columns' business, and the two are never combined.
+ *
+ *   NOW      heard within the last 5 minutes
+ *   RECENT   within the last hour
+ *   QUIET    within the last 12 hours (RIFT_STALE_MS, the NODES boundary)
+ *   STALE    longer ago than that
+ *   ?        never heard, or an age this app cannot trust (a stamp in the
+ *            future) - unknown, which is not the same as stale
+ *
+ * What "heard" is depends on the subject, and is the observation the API
+ * already reports: a node's last_heard_mono_ms (meshcored stamps it on an
+ * advert, a direct message and peer data from that node); a direct
+ * conversation's peer, the same, or its newest incoming message when the
+ * node has left the cache; a channel's newest incoming message. Nothing
+ * this device sent counts: sending proves nothing about who is listening. */
+enum rift_pulse {
+    RIFT_PULSE_NONE = 0,
+    RIFT_PULSE_STALE,
+    RIFT_PULSE_QUIET,
+    RIFT_PULSE_RECENT,
+    RIFT_PULSE_NOW,
+};
+
+#define RIFT_PULSE_NOW_MS (5 * 60 * 1000LL)
+#define RIFT_PULSE_RECENT_MS (60 * 60 * 1000LL)
+
+enum rift_pulse rift_pulse_of(int64_t age_ms, int known);
+/* "NOW", "RECENT", "QUIET", "STALE", or RIFT_UNKNOWN. */
+const char *rift_pulse_word(enum rift_pulse p);
+
 /* ---- signal ------------------------------------------------------------ */
 
 #define RIFT_SIGNAL_MAX 12
@@ -169,8 +204,13 @@ int rift_strip_build(const struct rift_path *p, struct rift_strip_cell *out, int
 
 /* The inline chain: "K230 › RPT-NORD › 7f › ? › HYTTA". A hop the path
  * does not name is "?", never a plausible hash. resolve may be NULL; it is
- * asked for a name for a hop identifier and may answer NULL. */
-#define RIFT_CHAIN_MAX 512
+ * asked for a name for a hop identifier and may answer NULL.
+ *
+ * A chain too long for out - a path of 63 hops, each named - keeps both
+ * ends and says how many hops it left out of the middle ("… +41 …"),
+ * rather than being cut off before its target. The ladder on the node's
+ * detail lists every hop. */
+#define RIFT_CHAIN_MAX 1024
 typedef const char *(*rift_resolve_fn)(const char *hop_id, void *user);
 void rift_path_chain(const char *self_label, const struct rift_path *p, const char *target_label,
                      rift_resolve_fn resolve, void *user, char *out, size_t out_len);

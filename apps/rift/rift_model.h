@@ -68,12 +68,14 @@
 #define RIFT_NAME_MAX 48
 /* MeshCore's path is at most 64 bytes (MCD_MAX_PATH), so 128 hex + NUL. */
 #define RIFT_PATH_HEX_MAX 129
-/* The cache above meshcored's node table, which holds more than this (256,
+/* The cache above meshcored's node table, and now as large as it (256,
  * MCD_MAX_NODES). mesh.nodes lists most recently heard first and a snapshot
  * fills the cache from the head of that list; a mesh.node event for a node
- * not held evicts the stalest one. Either way the rest are counted, not
- * kept. Held at 64 because the NODES list builds a row per cached node. */
-#define RIFT_MAX_NODES 64
+ * not held evicts the stalest one. Either way anything past the bound is
+ * counted, not kept. It was held at 64 while the NODES list built a row per
+ * cached node; the list now builds rows only for what is on screen
+ * (ui/rift_nodes.c), so the cache can hold the whole table. */
+#define RIFT_MAX_NODES 256
 /* The raw feed is a window, not a log: the newest entries, bounded. */
 #define RIFT_MAX_ACTIVITY 48
 /* mesh.send takes 1 to 160 bytes (docs/api/mesh.md); this holds one of
@@ -88,11 +90,13 @@
  * counted. Everything derived from it - a conversation's unread count, its
  * preview, the delivery tally - is derived from what is still in here and
  * says so rather than implying a complete history. */
-#define RIFT_MAX_MESSAGES 96
-/* Distinct peers a conversation is tracked for. Part of the message
- * history's bounds, which are deliberately unchanged while meshcored's node
- * table grew past this. */
-#define RIFT_MAX_CONVERSATIONS 32
+#define RIFT_MAX_MESSAGES 256
+/* Distinct conversations tracked: the rows COMMS can list and the read
+ * marks kept. Part of the message history's bounds. */
+#define RIFT_MAX_CONVERSATIONS 64
+/* How many recent direct-message arrivals are remembered to recognise a
+ * retransmission (rift_model_apply_live_message). */
+#define RIFT_DM_RECENT 8
 /* Channels the service will hold (mesh.channels, "max"). A service that
  * grows its table past this shows its first RIFT_MAX_CHANNELS here and says
  * so rather than silently listing some of them. */
@@ -342,6 +346,11 @@ struct rift_conv {
     int unacknowledgeable;
     int have_newest_mono;
     int64_t newest_mono_ms;
+    /* The newest message the OTHER side said, on the service's clock: what
+     * the conversation's activity is measured from (rift_pulse_of). A
+     * message this device sent says nothing about whether anyone is there. */
+    int have_last_in_mono;
+    int64_t last_in_mono_ms;
     const struct rift_message *newest; /* for the preview line */
 };
 
@@ -563,6 +572,31 @@ struct rift_model {
     struct rift_read_mark read_mark[RIFT_MAX_CONVERSATIONS];
     int read_mark_count;
 
+    /* ---- new direct messages (the DM notification) -------------------- */
+    /* What rift_model_apply_live_message decided was a direct message that
+     * genuinely just arrived - the one thing the DM sound is for. See
+     * "new direct messages" below for the five conditions. dm_arrivals only
+     * grows; a listener remembers how far it has read it. */
+    unsigned dm_arrivals;
+    /* Live incoming direct messages that were NOT new: a state update or a
+     * repeat of the event for an id already held, an id at or below one
+     * already seen this run, or a retransmission the service filed under a
+     * fresh id. Counted so a test (and a curious reader) can see them go by. */
+    unsigned dm_repeats;
+    char dm_last_key[RIFT_KEY_HEX]; /* who the newest arrival was from */
+    /* The highest incoming direct message id this run has shown, live or
+     * in a snapshot. Emptied with the message window when the run changes,
+     * because ids start again from 1. */
+    int64_t dm_high_id;
+    /* Fingerprints of the last few arrivals: peer, sender's timestamp and
+     * text. A sender that retries a message nobody acknowledged sends the
+     * same three again, which the service may record as a new message with a
+     * new id; this is what keeps that from sounding twice. Kept across a
+     * run change on purpose - the retry does not know the service restarted. */
+    uint32_t dm_recent_fp[RIFT_DM_RECENT];
+    int dm_recent_count;
+    int dm_recent_at;
+
     struct rift_outbox outbox;
 
     /* ---- actions (rift_actions.c) ------------------------------------- */
@@ -651,6 +685,24 @@ int rift_model_order(const struct rift_model *m, int64_t now_ms, const struct ri
  * The rest of the order is the stale group and then the never-heard. */
 int rift_model_fresh_count(const struct rift_model *m, int64_t now_ms);
 
+/* ---- activity (rift_format.h, rift_pulse_of, for the words) ----------
+ *
+ * When a conversation was last heard from, on the service's clock: for a
+ * direct conversation the later of its peer's last_heard_mono_ms (when the
+ * node is held) and the newest incoming message; for a channel the newest
+ * incoming message on it. Returns 1 and sets *ms, or 0 when nothing has ever
+ * been heard from it. c is a row of rift_model_conversations, or one a
+ * screen made for a conversation with nothing in it yet. */
+int rift_model_conv_heard(const struct rift_model *m, const struct rift_conv *c, int64_t *ms);
+
+/* Frames in the activity ring stamped within window_ms before now_ms, by
+ * direction. The ring holds the newest RIFT_MAX_ACTIVITY only, so when it is
+ * full and even its oldest entry is inside the window the true count may be
+ * higher: *at_least is then 1 and a screen says "48+" rather than "48".
+ * Entries with no stamp are not counted. */
+void rift_model_recent_frames(const struct rift_model *m, int64_t now_ms, int64_t window_ms,
+                              int *rx, int *tx, int *at_least);
+
 /* The name for a hop hash, or NULL: the only nodes whose hash can be
  * resolved are the ones in this cache, and an ambiguous hash resolves to
  * nothing rather than to a guess (two nodes can share a first byte). */
@@ -673,6 +725,34 @@ void rift_model_note_service_run(struct rift_model *m, const cJSON *result, int6
  * path keyed on the message id. Returns 0, or -1 for a message this model
  * will not hold (no id, no peer key, no direction, no text). */
 int rift_model_apply_message(struct rift_model *m, const cJSON *message);
+
+/* The filing itself, for the model's own translation units: as
+ * rift_model_apply_message, and on 0 *out is the message as filed and
+ * *fresh whether its id was new to the window. Either may be NULL. */
+int rift_model_file_message(struct rift_model *m, const cJSON *message,
+                            struct rift_message **out, int *fresh);
+
+/* The same, for a message that arrived as a live mesh.message EVENT, which
+ * is the only way a new direct message can announce itself. On top of what
+ * rift_model_apply_message does, it decides whether this is a direct
+ * message that genuinely just arrived, and counts it in dm_arrivals when
+ * all five hold:
+ *
+ *   1. it came as an event - never from a mesh.messages snapshot, which is
+ *      history however recent (a snapshot only raises dm_high_id);
+ *   2. it is incoming, and direct - not this device's own, not a channel's;
+ *   3. its id is new to the window - an id already held is a state change
+ *      or the same event again;
+ *   4. its id is above dm_high_id - anything at or below the highest this
+ *      run has shown is history coming round again (an evicted message, a
+ *      replay);
+ *   5. its peer, sender timestamp and text are not those of one of the last
+ *      RIFT_DM_RECENT arrivals - a retransmission filed under a fresh id.
+ *      Only when the sender's timestamp is known: without it two messages
+ *      that happen to say the same thing are not the same message.
+ *
+ * Returns what rift_model_apply_message returns. */
+int rift_model_apply_live_message(struct rift_model *m, const cJSON *message);
 
 /* A whole mesh.messages result. The messages are merged by id, so a
  * snapshot taken after events have already delivered some of the same

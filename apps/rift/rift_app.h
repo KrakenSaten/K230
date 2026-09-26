@@ -38,6 +38,8 @@
 #include "rift_format.h"
 #include "rift_ipc.h"
 #include "rift_model.h"
+#include "rift_notify.h"
+#include "rift_store.h"
 #include "rift_widgets.h"
 
 #include "lvgl.h"
@@ -137,6 +139,14 @@ struct rift_app {
     struct rift_model model;
     struct rift_ipc ipc;
 
+    /* The reader's own choices (rift_store.h) and the DM sound they govern
+     * (rift_notify.h, rift_sound.h). prefs_saved is 0 after a change that
+     * could not be written: the choice holds until RIFT closes, and the
+     * screen says so. */
+    struct rift_prefs prefs;
+    int prefs_saved;
+    struct rift_notify notify;
+
     lv_timer_t *pump;
     unsigned drawn_revision;
     int64_t last_repaint_ms;
@@ -170,6 +180,15 @@ void rift_app_refresh(struct rift_app *a);
 const struct rift_node *rift_app_selected(const struct rift_app *a);
 /* meshcored's monotonic clock as this app reads it. */
 int64_t rift_app_now(const struct rift_app *a);
+
+/* The DM sound's setting: applied at once, and stored. */
+void rift_app_set_dm_sound(struct rift_app *a, int on);
+/* Whether a sound could be heard now: a backend that can play one, and
+ * Doors not muted. The setting is a separate question. */
+int rift_app_can_sound(const struct rift_app *a);
+/* After every pass at the socket: a sound, if a direct message has just
+ * arrived and the setting, the platform and the policy all say yes. */
+void rift_app_notify_pass(struct rift_app *a, int64_t now);
 
 /* The glyph a node's row and its captions carry. */
 enum rift_glyph rift_app_glyph(const struct rift_node *n, int64_t now_ms);

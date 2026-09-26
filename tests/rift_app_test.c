@@ -27,12 +27,15 @@
 #include "rift_app.h"
 #include "rift_comms.h"
 #include "rift_nodes.h"
+#include "rift_sound.h"
+#include "rift_store.h"
 #include "rift_test_clock.h"
 #include "rift_thread.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #if LV_USE_LODEPNG && LV_USE_SNAPSHOT
 #include "src/libs/lodepng/lodepng.h"
@@ -125,6 +128,46 @@ int pocketos_shell_keyboard_visible(void)
 {
     return 0;
 }
+
+/* The system volume, as the shell would report it: settable, so the DM
+ * sound can be tried muted and not. */
+static int test_volume = 80;
+static int test_muted;
+int pocketos_shell_volume_effective(void)
+{
+    return test_muted ? 0 : test_volume;
+}
+int pocketos_shell_volume_muted(void)
+{
+    return test_muted;
+}
+
+/* The DM sound, heard by a counter: what RIFT asked the platform to play,
+ * at what volume, and how often it asked it to stop. */
+static int fake_plays;
+static int fake_volume;
+static int fake_stops;
+static int fake_available(void)
+{
+    return 1;
+}
+static int fake_play(int volume_percent)
+{
+    fake_plays++;
+    fake_volume = volume_percent;
+    return 0;
+}
+static void fake_stop(void)
+{
+    fake_stops++;
+}
+static const struct rift_sound_backend fake_sound = {
+    .name = "test",
+    .available = fake_available,
+    .play = fake_play,
+    .stop = fake_stop,
+    .why = "a counter",
+};
 
 /* pocketlog's one entry point, so the app can log without the shell. */
 void pocketlog_write(int level, const char *fmt, ...)
@@ -440,8 +483,11 @@ static void give_channel_message(void)
     pump(60);
 }
 
-/* A conversation longer than any pane it is drawn in: twenty-four messages
- * with the fourth node, the last of them "the newest line". */
+/* A conversation longer than any pane it is drawn in: sixty messages with
+ * the fourth node, the last of them "the newest line". It was twenty-four,
+ * until a one-line message became one line tall and twenty-four fitted the
+ * portrait pane with room to spare. */
+#define LONG_THREAD 60
 static void give_long_thread(void)
 {
     char json[512];
@@ -449,13 +495,14 @@ static void give_long_thread(void)
     int64_t now = rift_mono_ms();
     int i;
 
-    for (i = 0; i < 24; i++) {
+    for (i = 0; i < LONG_THREAD; i++) {
         snprintf(json, sizeof(json),
                  "{\"message\":{\"id\":%d,\"direction\":\"%s\",\"peer_public_key\":\"" KEY_D "\","
                  "\"peer_name\":\"S\xC3\xB8rlandet\",\"text\":\"%s %d\",\"state\":\"%s\","
                  "\"mono_ms\":%lld}}",
-                 100 + i, i % 2 ? "out" : "in", i == 23 ? "the newest line" : "line", i,
-                 i % 2 ? "sent_direct" : "received", (long long)(now - 1000LL * (60 - i)));
+                 100 + i, i % 2 ? "out" : "in", i == LONG_THREAD - 1 ? "the newest line" : "line",
+                 i, i % 2 ? "sent_direct" : "received",
+                 (long long)(now - 1000LL * (2 * LONG_THREAD - i)));
         o = cJSON_Parse(json);
         rift_model_apply_event(&app->model, "mesh.message", o);
         cJSON_Delete(o);
@@ -724,9 +771,24 @@ static int within(lv_obj_t *obj, lv_obj_t *view)
 
 /* A mesh of n nodes, every one heard a different number of seconds ago, so
  * the list is taller than any body it is drawn in. */
+/* A key for the i-th synthetic node or peer: 64 hex characters, a first
+ * byte from salt, zeros, and a distinct tail. */
+static const char *key_of(int i, int salt)
+{
+    static char buf[4][RIFT_KEY_HEX];
+    static int at;
+    char *key = buf[at++ % 4];
+
+    snprintf(key, RIFT_KEY_HEX, "%02x", (unsigned)((salt + i) & 0xff));
+    memset(key + 2, '0', 58);
+    snprintf(key + 60, 5, "%04x", (unsigned)(i & 0xfff));
+    return key;
+}
+
 static void give_many_nodes(int n)
 {
-    char *json = malloc(16384);
+    size_t cap = (size_t)n * 256 + 64;
+    char *json = malloc(cap);
     size_t at = 0;
     cJSON *o;
     int64_t now = rift_mono_ms();
@@ -735,21 +797,16 @@ static void give_many_nodes(int n)
     if (!json) {
         return;
     }
-    at += (size_t)snprintf(json + at, 16384 - at, "{\"nodes\":[");
+    at += (size_t)snprintf(json + at, cap - at, "{\"nodes\":[");
     for (i = 0; i < n; i++) {
-        char key[RIFT_KEY_HEX];
-
-        /* 64 hex characters: a distinct first byte, zeros, a distinct tail. */
-        snprintf(key, sizeof(key), "%02x", 0x10 + i);
-        memset(key + 2, '0', 58);
-        snprintf(key + 60, sizeof(key) - 60, "%04x", i);
-        at += (size_t)snprintf(json + at, 16384 - at,
+        at += (size_t)snprintf(json + at, cap - at,
                                "%s{\"public_key\":\"%s\",\"name\":\"MANY-%02d\",\"type\":1,"
                                "\"path_known\":true,\"hops\":1,\"direct\":false,"
                                "\"path_hex\":\"a1\",\"last_heard_mono_ms\":%lld}",
-                               i ? "," : "", key, i, (long long)(now - 1000LL * (i + 1)));
+                               i ? "," : "", key_of(i, 0x10), i,
+                               (long long)(now - 1000LL * (i + 1)));
     }
-    snprintf(json + at, 16384 - at, "]}");
+    snprintf(json + at, cap - at, "]}");
     o = cJSON_Parse(json);
     check("the many-node fixture is valid JSON", o != NULL);
     rift_model_apply_nodes(&app->model, o);
@@ -805,6 +862,7 @@ static int inside_body(lv_obj_t *obj)
  */
 static const char *shots_dir;
 static int shots_taken;
+static const char *g_state_dir;
 
 static void shot(const char *name)
 {
@@ -875,6 +933,474 @@ static lv_obj_t *cmdline(void)
     return kid(frame(), 2);
 }
 
+/* ---- synthetic traffic ------------------------------------------------------ */
+
+/* One live mesh.message event: what the service raises for a message that
+ * has just arrived or been sent, and again on every state change. */
+static void live_dm(int id, const char *dir, const char *key, long stamp, const char *text)
+{
+    char json[768];
+    cJSON *o;
+
+    snprintf(json, sizeof(json),
+             "{\"message\":{\"id\":%d,\"direction\":\"%s\",\"peer_public_key\":\"%s\","
+             "\"text\":\"%s\",\"state\":\"%s\",\"timestamp\":%ld,"
+             "\"mono_ms\":%lld}}",
+             id, dir, key, text, strcmp(dir, "in") == 0 ? "received" : "sent_direct", stamp,
+             (long long)rift_mono_ms());
+    o = cJSON_Parse(json);
+    rift_model_apply_event(&app->model, "mesh.message", o);
+    cJSON_Delete(o);
+}
+
+/* The pulse a NODES row draws for the node of this name: the last cell of
+ * the row line (name -> name box -> line). */
+static enum rift_pulse node_pulse(const char *name)
+{
+    lv_obj_t *label = find_exact(content(), name);
+    lv_obj_t *line = ancestor(label, 2);
+
+    return line ? rift_pulse_get(lv_obj_get_child(line, -1)) : RIFT_PULSE_NONE;
+}
+
+static int file_says(const char *path, const char *want)
+{
+    char buf[256];
+    size_t got;
+    FILE *f = fopen(path, "r");
+
+    if (!f) {
+        return 0;
+    }
+    got = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[got] = '\0';
+    return strstr(buf, want) != NULL;
+}
+
+/* ---- the DM sound, end to end --------------------------------------------- */
+
+static void sound_session(const char *state_dir)
+{
+    char path[512];
+    lv_obj_t *toggle;
+    int plays;
+    int stops;
+
+    app_start();
+    quiet_client();
+    give_nodes();
+    give_service();
+    check("the DM sound is on unless the reader turned it off", app->prefs.dm_sound == 1);
+    plays = fake_plays;
+    give_messages();
+    pump(120);
+    check("the history found on opening makes no sound", fake_plays == plays);
+
+    live_dm(900, "in", KEY_B, 1900, "a new one");
+    pump(120);
+    check("a new direct message makes one sound", fake_plays == plays + 1);
+    check("at the system volume", fake_volume == 80);
+    live_dm(900, "in", KEY_B, 1900, "a new one");
+    pump(120);
+    check("the same event again makes no second one", fake_plays == plays + 1);
+
+    pump(RIFT_NOTIFY_GAP_MS + 200);
+    plays = fake_plays;
+    live_dm(901, "out", KEY_B, 1901, "mine");
+    pump(120);
+    check("the reader's own message makes none", fake_plays == plays);
+    {
+        cJSON *o = cJSON_Parse("{\"message\":{\"id\":902,\"direction\":\"in\",\"kind\":\"channel\","
+                               "\"channel\":0,\"channel_name\":\"SITE\",\"channel_hash\":\"8c\","
+                               "\"sender_name\":\"X\",\"text\":\"X: all\",\"state\":\"received\"}}");
+
+        rift_model_apply_event(&app->model, "mesh.message", o);
+        cJSON_Delete(o);
+        pump(120);
+    }
+    check("nor does a channel message", fake_plays == plays);
+    live_dm(903, "in", KEY_B, 1900, "a new one");
+    pump(120);
+    check("nor the sender's retry of one already heard", fake_plays == plays);
+    {
+        cJSON *o = cJSON_Parse("{\"persistent\":false,\"messages\":[{\"id\":904,"
+                               "\"direction\":\"in\",\"peer_public_key\":\"" KEY_A "\","
+                               "\"text\":\"missed while away\",\"state\":\"received\"}]}");
+
+        rift_model_apply_messages(&app->model, o);
+        cJSON_Delete(o);
+        rift_app_refresh(app);
+        pump(120);
+    }
+    check("nor a reconnect's snapshot, even of a message not seen before",
+          fake_plays == plays && rift_model_unread(&app->model, KEY_A) >= 1);
+    {
+        int i;
+
+        for (i = 0; i < 10; i++) {
+            live_dm(910 + i, "in", i % 2 ? KEY_A : KEY_B, 1910 + i, "burst");
+        }
+        pump(120);
+        for (i = 0; i < 10; i++) {
+            live_dm(920 + i, "in", KEY_A, 1920 + i, "more");
+            pump(200);
+        }
+    }
+    check("twenty in a few seconds are one sound", fake_plays == plays + 1);
+
+    /* The setting, on ACTIVITY, in the Settings app's shape. */
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(60);
+    toggle = action_of(find_exact(content(), "ON"));
+    check("ACTIVITY has the DM sound's switch", toggle != NULL &&
+                                                    find_text(content(), "Sound for a new DM") != NULL);
+    check("a 56 px action", toggle && lv_obj_get_height(toggle) == RIFT_TOUCH_H);
+    check("saying what it does", find_text(content(), "One short sound for a new direct message") !=
+                                     NULL);
+    check("with its caption drawn whole", caption_unclipped("NOTIFY"));
+    shot("portrait-activity-notify");
+    tap(toggle);
+    snprintf(path, sizeof(path), "%s/rift/prefs.v1", state_dir);
+    check("a press turns it off", app->prefs.dm_sound == 0 &&
+                                      find_exact(content(), "OFF") != NULL);
+    check("and says so", find_text(content(), "Off: a new direct message is shown") != NULL);
+    check("stored in the app's own preferences file", file_says(path, "dm_sound=0"));
+    pump(RIFT_NOTIFY_GAP_MS + 200);
+    plays = fake_plays;
+    live_dm(940, "in", KEY_B, 1940, "while off");
+    pump(120);
+    check("off, a new direct message makes no sound", fake_plays == plays);
+    check("and is still unread", rift_model_unread(&app->model, KEY_B) >= 1);
+
+    tap(action_of(find_exact(content(), "OFF")));
+    check("a second press turns it on again", app->prefs.dm_sound == 1 &&
+                                                  file_says(path, "dm_sound=1"));
+    test_muted = 1;
+    rift_app_refresh(app);
+    pump(60);
+    check("muted, the switch says nothing will be heard", find_text(content(), "muted") != NULL);
+    live_dm(941, "in", KEY_B, 1941, "while muted");
+    pump(120);
+    check("and nothing is played", fake_plays == plays);
+    test_muted = 0;
+
+    /* The build as it ships: no platform sound to ask for. */
+    rift_sound_set_backend(NULL);
+    rift_app_refresh(app);
+    pump(60);
+    check("with no system sound the switch says so",
+          find_text(content(), "No system notification sound") != NULL);
+    live_dm(942, "in", KEY_B, 1942, "unheard");
+    pump(120);
+    check("and nothing is asked of a backend that is not there", fake_plays == plays);
+    rift_sound_set_backend(&fake_sound);
+
+    tap(action_of(find_exact(content(), "ON")));
+    check("off again", app->prefs.dm_sound == 0);
+    stops = fake_stops;
+    app_stop();
+    check("closing RIFT stops its sound, and leaves nothing open", fake_stops == stops + 1);
+
+    app_start();
+    quiet_client();
+    check("the setting survives closing and opening", app->prefs.dm_sound == 0 &&
+                                                          find_exact(content(), "OFF") != NULL);
+    app_stop();
+
+    /* A preferences file that cannot be written: the choice holds for the
+     * session, and the screen says it will not outlast it. */
+    setenv("POCKETOS_STATE_DIR", "/proc/rift-app-test-cannot-write", 1);
+    app_start();
+    quiet_client();
+    check("a store that cannot be read is the defaults", app->prefs.dm_sound == 1);
+    tap(action_of(find_exact(content(), "ON")));
+    check("an unwritable store keeps the choice for the session",
+          app->prefs.dm_sound == 0 && find_text(content(), "Not saved") != NULL);
+    app_stop();
+    setenv("POCKETOS_STATE_DIR", state_dir, 1);
+}
+
+/* ---- scale: the whole node table, many contacts, a long history ------------ */
+
+/* What one repaint of the section on screen costs on this host, printed and
+ * not checked: a host is not the board, and a timing check would fail on a
+ * loaded machine rather than on a slow app. It is here so a change that
+ * makes a repaint scale with the mesh is visible in the log. */
+static void report_refresh_cost(const char *what)
+{
+    struct timespec t0;
+    struct timespec t1;
+    int n;
+
+    double refresh_ms;
+
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    for (n = 0; n < 20; n++) {
+        rift_app_refresh(app);
+        lv_obj_update_layout(lv_screen_active());
+    }
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    refresh_ms =
+        ((double)(t1.tv_sec - t0.tv_sec) * 1e3 + (double)(t1.tv_nsec - t0.tv_nsec) / 1e6) / n;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    for (n = 0; n < 20; n++) {
+        lv_obj_invalidate(lv_screen_active());
+        lv_refr_now(disp);
+    }
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    printf("     %s: %.2f ms per refresh and layout, %.2f ms per full redraw (host)\n", what,
+           refresh_ms,
+           ((double)(t1.tv_sec - t0.tv_sec) * 1e3 + (double)(t1.tv_nsec - t0.tv_nsec) / 1e6) / n);
+}
+
+static void scale_session(void)
+{
+    lv_obj_t *list;
+    char sel[RIFT_KEY_HEX];
+    int i;
+
+    app_start();
+    quiet_client();
+    give_service();
+    /* The last session left the sound off, and this one counts sounds. */
+    rift_app_set_dm_sound(app, 1);
+
+    /* 256 nodes: as many as meshcored's table holds. */
+    give_many_nodes(RIFT_MAX_NODES);
+    check("the model holds as many nodes as meshcored does",
+          app->model.node_count == RIFT_MAX_NODES);
+    rift_app_show_section(app, RIFT_SEC_NODES);
+    pump(120);
+    list = ancestor(find_exact(content(), "MANY-00"), 4);
+    check("256 nodes are one list", list != NULL && lv_obj_get_scroll_bottom(list) > 0);
+    check("which builds rows for the screen, not for the mesh",
+          rift_nodes_rows_built(app) > 0 && rift_nodes_rows_built(app) <= 48);
+    report_refresh_cost("NODES, 256 nodes");
+    printf("     %d nodes, %d rows built (portrait)\n", app->model.node_count,
+           rift_nodes_rows_built(app));
+    {
+        int rows = count_visible_of_height(list, RIFT_ROW_H);
+
+        /* A 36 px row, which the name box inside it matches: two per row. */
+        check("and fills the portrait pane with rows", rows / 2 >= 25);
+    }
+    lv_obj_scroll_to_y(list, LV_COORD_MAX, LV_ANIM_OFF);
+    pump(80);
+    check("the last of them is reached by scrolling",
+          find_exact(content(), "MANY-255") != NULL &&
+              within(find_exact(content(), "MANY-255"), list));
+    check("with no more rows built for it", rift_nodes_rows_built(app) <= 48);
+    lv_obj_scroll_to_y(list, 0, LV_ANIM_OFF);
+    pump(60);
+    check("and back at the top the first is there again",
+          find_exact(content(), "MANY-00") != NULL && within(find_exact(content(), "MANY-00"), list));
+
+    /* The selection is a key, not a row: it survives the list re-ordering
+     * under it, and the arrows walk the order as it is now. */
+    snprintf(sel, sizeof(sel), "%s", key_of(200, 0x10));
+    rift_app_select(app, sel);
+    pump(80);
+    check("a node two hundred rows down can be selected",
+          rift_app_selected(app) && strcmp(rift_app_selected(app)->key, sel) == 0);
+    check("and is brought into view, expansion and all",
+          within(ancestor(find_exact(content(), "MANY-200"), 3), list));
+    {
+        char json[256];
+        cJSON *o;
+
+        snprintf(json, sizeof(json),
+                 "{\"reason\":\"advert\",\"node\":{\"public_key\":\"%s\",\"name\":\"MANY-200\","
+                 "\"path_known\":true,\"hops\":1,\"path_hex\":\"a1\",\"last_heard_mono_ms\":%lld}}",
+                 sel, (long long)rift_mono_ms());
+        o = cJSON_Parse(json);
+        rift_model_apply_event(&app->model, "mesh.node", o);
+        cJSON_Delete(o);
+        rift_app_refresh(app);
+        pump(80);
+    }
+    check("heard again, it moves to the top of the order and stays selected",
+          app->have_selected && strcmp(app->selected, sel) == 0);
+    rift_nodes_key(app, LV_KEY_DOWN);
+    pump(60);
+    check("and the down arrow walks the new order, not the old index",
+          strcmp(app->selected, key_of(0, 0x10)) == 0);
+    {
+        char json[160];
+        cJSON *o;
+
+        snprintf(json, sizeof(json), "{\"reason\":\"removed\",\"node\":{\"public_key\":\"%s\"}}",
+                 app->selected);
+        o = cJSON_Parse(json);
+        rift_model_apply_event(&app->model, "mesh.node", o);
+        cJSON_Delete(o);
+        rift_app_refresh(app);
+        pump(60);
+    }
+    check("a selected node that is forgotten leaves no selection behind",
+          rift_app_selected(app) == NULL);
+    check("and the arrows start again from the top", rift_nodes_key(app, LV_KEY_DOWN) == 1 &&
+                                                        rift_app_selected(app) != NULL);
+
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    pump(120);
+    /* MANY-00 was forgotten above; MANY-01 is the top of the list now. */
+    lv_obj_scroll_to_y(ancestor(find_exact(content(), "MANY-200"), 4), 0, LV_ANIM_OFF);
+    pump(60);
+    list = ancestor(find_exact(content(), "MANY-01"), 4);
+    check("turned, the list is still bounded by the screen",
+          app->wide && rift_nodes_rows_built(app) <= 48);
+    printf("     %d rows built after turning\n", rift_nodes_rows_built(app));
+    if (list) {
+        lv_obj_scroll_to_y(list, LV_COORD_MAX, LV_ANIM_OFF);
+        pump(80);
+    }
+    check("and reaches its last node in landscape too",
+          list && find_exact(content(), "MANY-255") && within(find_exact(content(), "MANY-255"), list));
+    check("the strip counts what is active now", find_text(strip(), " NOW") != NULL);
+    check("and the turned list stays inside the body", inside_body(content()));
+    shot("landscape-nodes-256");
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    pump(120);
+
+    /* 64 conversations, from a snapshot: history, so no sound. */
+    {
+        size_t cap = 64 * 400 + 128;
+        char *json = malloc(cap);
+        size_t at = 0;
+        cJSON *o;
+
+        at += (size_t)snprintf(json + at, cap - at, "{\"persistent\":false,\"messages\":[");
+        for (i = 0; i < RIFT_MAX_CONVERSATIONS; i++) {
+            at += (size_t)snprintf(json + at, cap - at,
+                                   "%s{\"id\":%d,\"direction\":\"in\",\"peer_public_key\":\"%s\","
+                                   "\"peer_name\":\"PEER-%02d\",\"text\":\"hello %d\","
+                                   "\"state\":\"received\",\"timestamp\":%d,\"mono_ms\":%lld}",
+                                   i ? "," : "", 1 + i, key_of(i, 0x40), i, i, 1000 + i,
+                                   (long long)(rift_mono_ms() - 1000LL * (RIFT_MAX_CONVERSATIONS - i)));
+        }
+        snprintf(json + at, cap - at, "]}");
+        o = cJSON_Parse(json);
+        check("sixty-four conversations are taken", rift_model_apply_messages(&app->model, o) == 0);
+        cJSON_Delete(o);
+        free(json);
+        o = cJSON_Parse("{\"channels\":[],\"count\":0,\"max\":8}");
+        rift_model_apply_channels(&app->model, o);
+        cJSON_Delete(o);
+    }
+    rift_app_show_section(app, RIFT_SEC_COMMS);
+    pump(120);
+    list = ancestor(find_exact(content(), "PEER-00"), 3);
+    check("every conversation is a row", list && lv_obj_get_child_count(list) ==
+                                                     (uint32_t)RIFT_MAX_CONVERSATIONS);
+    check("with nothing open the list takes the height",
+          list && lv_obj_get_height(list) >= 20 * RIFT_ROW_H);
+    shot("portrait-comms-many");
+    rift_app_open_conversation(app, key_of(10, 0x40));
+    pump(120);
+    check("opening one gives the thread the height back",
+          list && lv_obj_get_height(list) <= 5 * RIFT_ROW_H + 8 &&
+              lv_obj_get_height(thread_pane()) > lv_obj_get_height(content()) / 2);
+    check("with the open conversation in view", within(ancestor(find_exact(content(), "PEER-10"), 2),
+                                                      list));
+    {
+        lv_obj_t *before[RIFT_MAX_CONVERSATIONS];
+        uint32_t n = list ? lv_obj_get_child_count(list) : 0;
+        int kept = 1;
+        uint32_t k;
+
+        for (k = 0; k < n && k < RIFT_MAX_CONVERSATIONS; k++) {
+            before[k] = lv_obj_get_child(list, (int32_t)k);
+        }
+        live_dm(500, "in", key_of(40, 0x40), 5000, "news");
+        rift_app_refresh(app);
+        pump(80);
+        for (k = 0; k < n && k < RIFT_MAX_CONVERSATIONS; k++) {
+            if (lv_obj_get_child(list, (int32_t)k) != before[k]) {
+                kept = 0;
+            }
+        }
+        check("a message that re-orders the list rebuilds no row", kept &&
+                                                                 lv_obj_get_child_count(list) == n);
+        check("and its conversation is the top row now", find_exact(kid(list, 0), "PEER-40") != NULL);
+    }
+
+    /* A long history with one peer: 200 messages, the window at its end. */
+    {
+        size_t cap = 200 * 300 + 128;
+        char *json = malloc(cap);
+        size_t at = 0;
+        cJSON *o;
+
+        at += (size_t)snprintf(json + at, cap - at, "{\"persistent\":false,\"messages\":[");
+        for (i = 0; i < 200; i++) {
+            at += (size_t)snprintf(json + at, cap - at,
+                                   "%s{\"id\":%d,\"direction\":\"%s\",\"peer_public_key\":\"%s\","
+                                   "\"peer_name\":\"LONG\",\"text\":\"history %d\","
+                                   "\"state\":\"%s\",\"timestamp\":%d,\"mono_ms\":%lld}",
+                                   i ? "," : "", 1000 + i, i % 3 ? "in" : "out", key_of(99, 0x50), i,
+                                   i % 3 ? "received" : "acked", 2000 + i,
+                                   (long long)(rift_mono_ms() - 1000LL * (200 - i)));
+        }
+        snprintf(json + at, cap - at, "]}");
+        o = cJSON_Parse(json);
+        rift_model_apply_messages(&app->model, o);
+        cJSON_Delete(o);
+        free(json);
+    }
+    rift_app_open_conversation(app, key_of(99, 0x50));
+    pump(120);
+    {
+        lv_obj_t *newest = find_text(thread_pane(), "history 199");
+        lv_obj_t *scroll = ancestor(newest, 4);
+        lv_obj_t *second;
+
+        check("a long history opens at its end", newest && within(newest, scroll) &&
+                                                     lv_obj_get_scroll_y(scroll) > 0);
+        check("drawing a bounded window of it",
+              scroll && lv_obj_get_child_count(scroll) == (uint32_t)RIFT_THREAD_ROWS);
+        check("and saying how much is earlier", find_text(thread_pane(), "136 EARLIER") != NULL);
+        report_refresh_cost("COMMS, a 200-message thread open");
+        shot("portrait-comms-long");
+        second = scroll ? lv_obj_get_child(scroll, 1) : NULL;
+        live_dm(1200, "in", key_of(99, 0x50), 9000, "history 200");
+        rift_app_refresh(app);
+        pump(80);
+        check("a message arriving moves the window along without rebuilding it",
+              scroll && lv_obj_get_child(scroll, 0) == second &&
+                  lv_obj_get_child_count(scroll) == (uint32_t)RIFT_THREAD_ROWS);
+        check("and is read at the end, where the reader was",
+              find_text(thread_pane(), "history 200") &&
+                  within(find_text(thread_pane(), "history 200"), scroll));
+        lv_obj_scroll_to_y(scroll, 0, LV_ANIM_OFF);
+        pump(60);
+        live_dm(1201, "in", key_of(99, 0x50), 9001, "history 201");
+        rift_app_refresh(app);
+        pump(80);
+        check("a reader scrolled back into the history is not pulled down by one",
+              lv_obj_get_scroll_bottom(scroll) > 0 && lv_obj_get_scroll_y(scroll) < 200);
+    }
+
+    /* A burst: a hundred messages in one pass at the socket. */
+    {
+        unsigned dup = app->model.msgs_duplicate;
+        int plays;
+
+        pump(RIFT_NOTIFY_GAP_MS + 200);
+        plays = fake_plays;
+        for (i = 0; i < 100; i++) {
+            live_dm(2000 + i, "in", key_of(i % 10, 0x40), 20000 + i, "burst");
+        }
+        rift_app_refresh(app);
+        pump(120);
+        check("a hundred arrivals are a hundred messages, none twice",
+              app->model.msgs_duplicate == dup);
+        check("and one sound", fake_plays == plays + 1);
+        check("and the screen is still inside the body", inside_body(content()));
+    }
+    app_stop();
+}
+
 int main(void)
 {
     lv_indev_t *indev;
@@ -890,6 +1416,19 @@ int main(void)
     lv_indev_set_read_cb(indev, read_cb);
     pos_input_init();
     shots_dir = getenv("RIFT_SHOTS_DIR");
+    /* The preferences file goes somewhere of the test's own, and the sound
+     * to a counter. */
+    {
+        static char state_dir[] = "/tmp/rift-app-test-XXXXXX";
+
+        if (!mkdtemp(state_dir)) {
+            printf("FAIL a state directory for the test\n");
+            return 1;
+        }
+        setenv("POCKETOS_STATE_DIR", state_dir, 1);
+        g_state_dir = state_dir;
+    }
+    rift_sound_set_backend(&fake_sound);
     /* The screen is the shell's job, and without it everything below is
      * drawn on LVGL's default white rather than on the theme's own
      * background. $RIFT_THEME and $RIFT_MODE pick which theme the
@@ -1082,6 +1621,13 @@ int main(void)
         check("the list is dense: five 36 px rows and nothing taller", rows >= 5);
     }
     check("nothing has spilled out of the body", inside_body(content()));
+    /* The activity pulse is the age of the last time each was heard,
+     * bucketed, and nothing else. */
+    check("heard 90 s ago is NOW", node_pulse("OSLO-01") == RIFT_PULSE_NOW);
+    check("12 min ago is RECENT", node_pulse("HYTTA") == RIFT_PULSE_RECENT);
+    check("4 h ago is QUIET", node_pulse("NO-3241 FO") == RIFT_PULSE_QUIET);
+    check("never heard draws no pulse at all, not a stale one",
+          node_pulse("never-heard") == RIFT_PULSE_NONE);
     /* The footer used to repeat the group labels' counts on every list. It
      * is there now only for what the rows cannot say themselves. */
     check("an ordinary list has no footer repeating its counts",
@@ -1354,6 +1900,7 @@ int main(void)
           find_text(content(), "joined with its key on the radio service") != NULL);
 
     give_messages();
+    check("the history on opening makes no sound", fake_plays == 0);
     /* The rows say what is there; a note counting them was a line taken
      * from the list. It is shown only when it says something they cannot. */
     check("with conversations the list's note has nothing to add, and is gone",
@@ -2041,6 +2588,11 @@ int main(void)
         check("and leaves nothing of itself behind",
               lv_obj_get_child_count(g_content) == 0u);
     }
+    /* The DM sound, from the history on opening to the switch that turns it
+     * off, and the whole mesh at once: each in an app of its own. */
+    sound_session(g_state_dir);
+    scale_session();
+
     /* A destroyed app's timer must be gone: one more pass into a freed
      * block is the whole point of the round trip. */
     pump(600);

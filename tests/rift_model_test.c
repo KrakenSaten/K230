@@ -519,12 +519,15 @@ int main(void)
 
     /* ---- a snapshot larger than the cache ----------------------------------
      *
-     * meshcored holds 256 and lists them most recently heard first, so the
-     * cache must be the head of that list: exactly the newest 64. Taking every
-     * entry would have each one past the bound evict the stalest held node,
-     * ending with the newest 63 and the single stalest node of all. */
+     * meshcored lists its nodes most recently heard first, so the cache must
+     * be the head of that list: exactly the newest RIFT_MAX_NODES. Taking
+     * every entry would have each one past the bound evict the stalest held
+     * node, ending with the newest but one and the single stalest node of
+     * all. The cache is now as large as meshcored's own table (256), so the
+     * snapshot here is a service that lists more than that - a bigger table
+     * one day, or a buggy service - and the bound still has to hold. */
     {
-        const int total = 256;
+        const int total = RIFT_MAX_NODES + 64;
         size_t cap = (size_t)total * 160 + 64;
         char *json = malloc(cap);
         char key[RIFT_KEY_HEX];
@@ -546,19 +549,21 @@ int main(void)
             if (shift == 0) {
                 rift_model_init(&m);
             }
-            check("a snapshot of 256, newest first, is taken", apply_nodes(&m, json) == 0);
-            check("into a cache of 64", m.node_count == RIFT_MAX_NODES);
+            check("a snapshot longer than the cache, newest first, is taken",
+                  apply_nodes(&m, json) == 0);
+            check("into a cache of RIFT_MAX_NODES", m.node_count == RIFT_MAX_NODES);
             for (i = 0; i < RIFT_MAX_NODES; i++) {
                 snprintf(key, sizeof(key), "%04x%060d", (i + shift) % total, 0);
                 held = held && rift_model_find(&m, key) != NULL;
             }
-            check(shift ? "a later snapshot's newest 64 replace the ones that aged out"
-                        : "holding exactly the newest 64",
+            check(shift ? "a later snapshot's newest replace the ones that aged out"
+                        : "holding exactly the newest RIFT_MAX_NODES",
                   held);
             snprintf(key, sizeof(key), "%04x%060d", (total - 1 + shift) % total, 0);
             check("and not the stalest node the service has", rift_model_find(&m, key) == NULL);
         }
-        check("the rest are counted as dropped", m.nodes_dropped == 2u * (unsigned)(total - 64));
+        check("the rest are counted as dropped",
+              m.nodes_dropped == 2u * (unsigned)(total - RIFT_MAX_NODES));
         free(json);
     }
 
