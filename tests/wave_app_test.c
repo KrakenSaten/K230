@@ -591,6 +591,18 @@ int main(void)
     check("and offers to decode early", shows("DECODE NOW"));
     check("the recording is decoded into the history", wait_for("CAPTURED", 0, 5000));
     check("marked as from a capture", shows_part("CAPTURE") && !shows("MICROPHONE ON"));
+
+    /* STOP during a capture throws the recording away. */
+    setenv("WAVE_FAKE_CAPTURE", "44495343415244", 1); /* DISCARD */
+    setenv("WAVE_FAKE_RECORD_MS", "3000", 1);
+    unlink(logpath);
+    tap("CAPTURE");
+    check("while capturing the SEND button reads STOP", shows("STOP") && !disabled("STOP"));
+    tap("STOP");
+    check("STOP ends the capture", wait_mic_off(3000) && shows("CAPTURE"));
+    check("and throws the recording away: nothing is decoded",
+          !wait_for("DISCARD", 0, 1000) && !log_has(logpath, "decode"));
+    unsetenv("WAVE_FAKE_RECORD_MS");
     unsetenv("WAVE_FAKE_CAPTURE");
 
     /* ---- the history -------------------------------------------------------- */

@@ -31,6 +31,7 @@ fi
 #   WAVE_FAKE_LISTEN_FAIL=<code> a listen fails with this error word, exit 3
 #   WAVE_FAKE_CAPTURE=<hex|noise> what a recording holds (default: nothing)
 #   WAVE_FAKE_SEND_MS=<ms>      how long a send plays (default 100)
+#   WAVE_FAKE_RECORD_MS=<ms>    how long a recording runs (default 200)
 if [ "${WAVE_FAKE:-}" = "auto" ]; then
     cmd=${1:-}
     last=""
@@ -77,7 +78,7 @@ if [ "${WAVE_FAKE:-}" = "auto" ]; then
         echo "ready fake"
         echo "listening"
         echo "level 30"
-        sleep 0.2 &
+        sleep "$(awk "BEGIN{print ${WAVE_FAKE_RECORD_MS:-200}/1000}")" &
         wait $!
         printf "%s" "${WAVE_FAKE_CAPTURE:-}" > "$last"
         exit 0

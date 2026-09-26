@@ -410,7 +410,10 @@ static void on_send(lv_event_t *e)
 {
     struct wave_app *a = lv_event_get_user_data(e);
 
-    if (a->ctl.view.op == WAVE_OP_SEND && a->ctl.view.phase == WAVE_PHASE_RUNNING) {
+    /* The button reads STOP (wave_view_refresh): end the send, or throw the
+     * capture away. */
+    if ((a->ctl.view.op == WAVE_OP_SEND || a->ctl.view.op == WAVE_OP_CAPTURE) &&
+        a->ctl.view.phase == WAVE_PHASE_RUNNING) {
         wave_ctl_stop(&a->ctl, now_ms(), wall_s());
         repaint(a);
         return;

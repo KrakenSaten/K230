@@ -148,7 +148,7 @@ struct wave_view {
     int can_pick_preset;
     int can_edit;
     int send_enabled;
-    const char *send_label;        /* "SEND" or "STOP" */
+    const char *send_label;        /* "SEND", or "STOP" while a send or a capture runs */
     int send_primary;
     const char *listen_label;      /* "LISTEN" or "STOP LISTEN" */
     int listen_enabled;

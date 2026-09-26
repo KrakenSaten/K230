@@ -665,7 +665,9 @@ void wave_view_refresh(struct wave_view *v, const char *message, int64_t now_ms)
     v->counter_tone = bytes > WAVE_MAX_MESSAGE_BYTES || (bytes > 0 && !valid) ? WAVE_TONE_ERROR
                                                                               : WAVE_TONE_MUTED;
 
-    if (sending && v->phase == WAVE_PHASE_RUNNING) {
+    /* The one STOP on the screen: it ends a send, and throws a capture away
+     * (DECODE NOW is the other way out of a capture, keeping it). */
+    if ((sending || capturing) && v->phase == WAVE_PHASE_RUNNING) {
         v->send_label = "STOP";
         v->send_enabled = 1;
         v->send_primary = 0;

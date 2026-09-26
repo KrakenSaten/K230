@@ -517,7 +517,8 @@ static void test_capture(void)
                                                             strcmp(v.chip, "CAPTURING") == 0);
     check("capture: the button finishes it early", strcmp(v.capture_label, "DECODE NOW") == 0 &&
                                                         v.capture_enabled);
-    check("capture: SEND waits", !v.send_enabled);
+    check("capture: the SEND button is STOP, to throw the recording away",
+          strcmp(v.send_label, "STOP") == 0 && v.send_enabled && !v.send_primary);
     wave_view_refresh(&v, "", 4500);
     check("capture: counts its seconds", strcmp(v.status, "Microphone on, recording 3 of 10 s") == 0);
     wave_view_refresh(&v, "", 99000);
