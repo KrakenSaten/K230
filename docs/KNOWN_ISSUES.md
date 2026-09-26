@@ -962,10 +962,11 @@ so that pass stayed the size it was scoped to be.
 ## RIFT, the mesh client
 
 - **RIFT holds all 256 of meshcored's nodes** (`RIFT_MAX_NODES`), in a
-  virtual NODES list that builds rows only for the screen (feat/rift-ui-next,
-  host-tested 2026-09-26). The service side is VERIFIED with 256 nodes on
-  unit A (MESH_NODE_CAPACITY_256_GATE.md); the list at that size has not been
-  on a board, and its repaint cost on the C908 is unmeasured.
+  virtual NODES list that builds rows only for the screen. The service side
+  is VERIFIED with 256 nodes on unit A (MESH_NODE_CAPACITY_256_GATE.md); the
+  list is VERIFIED with a real mesh of 241 nodes on unit A, scrolled end to
+  end in both orientations at up to ~31 % shell CPU
+  (RIFT_UI_NEXT_GATE.md). A full 256 on a board is untested.
 - **The DM sound is silent in this build.** RIFT decides which direct
   messages are new and when one is worth a sound, behind a setting, and asks
   through a backend seam (`rift_sound.h`); the built-in backend has no sound,

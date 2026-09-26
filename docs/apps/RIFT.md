@@ -602,12 +602,15 @@ them, one after the other, are two runs of a service and not one.
 
 ## What needs hardware
 
-For `feat/rift-ui-next` (nothing of it has been on a board): the screens off
-the DRM plane in both orientations - the NODES pulse after the age and not
-read as a signal, a NODES list of a real mesh scrolled end to end, COMMS'
-portrait list sized to its rows, a one-line message on one line, the NOTIFY
-panel's words - and on unit A whether 256 nodes and a 64-row thread repaint
-without dropping frames on the C908. The DM sound cannot be heard until the
+For `feat/rift-ui-next`: the unit A integration gate **passed on
+2026-09-26** on build `d512ba9` (rebased onto master 140843e, with the
+compact status cluster):
+[docs/hardware/RIFT_UI_NEXT_GATE.md](../hardware/RIFT_UI_NEXT_GATE.md).
+Both orientations and rotation both ways, a real mesh of 241 nodes scrolled
+end to end, selection and detail, COMMS threads, the DM sound switch stored
+across a reopen, and one real DM from unit B counted once. Still open: a
+multi-hop path on a board (the bench mesh had none beyond 0 hops), 256
+nodes, and a finger on the glass. The DM sound cannot be heard until the
 platform has a sound for it; when it does, check one sound per arrival, none
 for the history on opening or after a reconnect, one for a burst.
 
