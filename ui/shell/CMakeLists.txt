@@ -181,6 +181,28 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     target_compile_definitions(pocketos-shell PRIVATE CAMERA_BACKEND_DEFAULT="fake")
 endif()
 
+# Zabbix, the monitoring viewer (docs/apps/ZABBIX.md, ADR-007 PROPOSED), is
+# an experiment: it is built into the shell only when asked for, so the
+# launcher and every existing suite are unchanged by default. The Zabbix
+# suites build the app on its own (zabbix_app_test below) either way.
+option(POCKETOS_WITH_ZABBIX "Build the experimental Zabbix viewer into the shell" OFF)
+if(POCKETOS_WITH_ZABBIX)
+    target_sources(pocketos-shell PRIVATE
+        ${REPO_DIR}/apps/zabbix/zabbix_app.c
+        ${REPO_DIR}/apps/zabbix/zabbix_session.c
+        ${REPO_DIR}/apps/zabbix/zabbix_view.c
+        ${REPO_DIR}/core/zabbix/zbx_model.c
+        ${REPO_DIR}/core/zabbix/zbx_proto.c)
+    target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/zabbix")
+    target_compile_definitions(pocketos-shell PRIVATE POCKETOS_WITH_ZABBIX=1)
+    if(POCKETOS_DISPLAY STREQUAL "sdl")
+        # Like Camera, the simulator talks to the fake server and says
+        # SIMULATED; POCKETOS_ZABBIX_BACKEND=live overrides.
+        target_compile_definitions(pocketos-shell PRIVATE ZABBIX_FAKE_DEFAULT="demo")
+    endif()
+    message(STATUS "Zabbix viewer: built into the shell (experiment)")
+endif()
+
 # PocketTimber art (docs/apps/POCKETTIMBER_ART.md): the sprites Blender
 # rendered into docs/design/timber-art/rendered are converted to LVGL image
 # arrays here, at configure time, into the build tree; nothing generated is
@@ -661,6 +683,37 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(camera_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(camera_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # Zabbix in the running app, tapped on the panel, with the real helper on
+    # the fake server behind it (run by tests/zabbix_shell_test.sh, which
+    # hands it make's tools/zabbix/pos-zabbix).
+    add_executable(zabbix_app_test
+        ${REPO_DIR}/tests/zabbix_app_test.c
+        chrome.c
+        ${REPO_DIR}/apps/zabbix/zabbix_app.c
+        ${REPO_DIR}/apps/zabbix/zabbix_session.c
+        ${REPO_DIR}/apps/zabbix/zabbix_view.c
+        ${REPO_DIR}/core/zabbix/zbx_model.c
+        ${REPO_DIR}/core/zabbix/zbx_proto.c
+        ../pocketui/pos_app_icons.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(zabbix_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/zabbix")
+    target_compile_options(zabbix_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(zabbix_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(zabbix_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(zabbix_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(zabbix_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
     # PocketClock in the running app, tapped on the panel and on the real
     # keyboard, against a real store (run by tests/clock_shell_test.sh).

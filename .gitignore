@@ -143,3 +143,12 @@ BUILD_ID
 /tests/camera_layout_test
 /tests/camera_session_test
 /tests/pos-camera-testhooks
+/tools/zabbix/pos-zabbix
+/tools/zabbix/pos-zabbix-mock
+/tests/zbx_model_test
+/tests/zbx_proto_test
+/tests/zbx_api_test
+/tests/zbx_config_test
+/tests/zbx_client_test
+/tests/zabbix_view_test
+/tests/zabbix_session_test

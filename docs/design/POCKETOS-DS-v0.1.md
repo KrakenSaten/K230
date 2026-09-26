@@ -2950,3 +2950,93 @@ camera (with the ISP daemon stopped) and back; leaving mid-capture; the
 header without SIMULATED.
 
 Amendment R (§34) accepted 2026-09-25 (Camera unit A gate, docs/hardware/CAMERA_GATE.md).
+
+## 35. Amendment S — Zabbix [PROPOSED]
+
+**PROPOSED 2026-09-25** on branch `experiment/zabbix-dashboard`, as an
+experiment. It is validated on the host only (§35.5); it is not accepted and
+not merged. It adds one app and changes no existing screen. Nothing in
+§1-§34 is renumbered. The app is described in `docs/apps/ZABBIX.md`, its
+architecture in ADR-007 (PROPOSED).
+
+### 35.1 Components
+
+Only existing parts and roles:
+
+- **Tabs:** OVERVIEW, PROBLEMS, HOSTS and STATUS in RIFT's section-strip
+  form (docs/apps/RIFT.md): `POS_STYLE_CAPTION` labels and the accent 2 px
+  underline. Each tab takes an equal share of the width and is 64 px tall,
+  a full §7 target; a tab only as wide as HOSTS would not be.
+- **Cards:** `pocketui_card` panels. The worst open severity is a
+  `POS_STYLE_HERO_40` word, and the per-severity counts use
+  `POS_STYLE_VALUE` over `POS_STYLE_CAPTION`.
+- **Lists:** rows are at least 64 px and carry the `POS_STYLE_DIVIDER` rule,
+  pressed as `POS_STYLE_SLAB_PRESSED`. Every line is a one-line label cut
+  with dots, so a row never grows.
+- **Banner:** a `POS_STYLE_SLAB` box over every tab, shown only when the
+  data is not simply fresh.
+- **Buttons:** the §7 primary and secondary buttons.
+
+**Severity, availability and connection** are the colour-only status text
+roles (`POS_STYLE_STATUS_ERROR_TEXT`, `_WARN_TEXT`, `_OK_TEXT`) laid over the
+label's own font role. They always go with a word (§2):
+
+- DISASTER and HIGH: error.
+- AVERAGE and WARNING: warning.
+- INFO and N/C: secondary.
+- DOWN: error; UP: OK; UNKNOWN: secondary.
+
+No new role, token or colour is added.
+
+**Fullscreen (§30.8):** the app declares NONE. The header carries BACK and,
+while the data is made up, the hint `SIMULATED`.
+
+### 35.2 Tall (portrait, 528 x 1116)
+
+- **OVERVIEW** is a column of three cards, top to bottom:
+  - the headline;
+  - the severities, three by two;
+  - the counts, the server and the update time.
+
+  The three most severe problems follow as rows.
+- **Lists** take the full height under the strip and their heading line (the
+  count and how fresh it is).
+- **A host's detail** replaces its list, with BACK in its first row.
+
+### 35.3 Wide (landscape, 1192 x 452)
+
+- **OVERVIEW:**
+  - the headline and the severities (six in a line) share the first line of
+    cards;
+  - the counts span the width below;
+  - the page scrolls to the top problems.
+- **Lists** keep the two-line rows at full width.
+
+Every control is inside the box PocketUI's corner rule leaves (§21.3,
+`pocketui_layout_begin`).
+
+### 35.4 Launcher
+
+**By default the launcher is unchanged.** Zabbix is built into the shell only
+when it is configured with `-DPOCKETOS_WITH_ZABBIX=ON`, which neither the
+Buildroot package nor any existing suite does. Built in, it has no place in
+the launcher's table and no Doors icon yet, so it appears under MORE with the
+eye symbol. A DS §20 icon and a group are owner decisions
+(docs/apps/ZABBIX.md §12).
+
+### 35.5 Validation on the host
+
+- **App test:** `zabbix_app_test` (69 checks). It covers both shapes, every
+  tab, touch targets and the corner safe area, the offline banner with the
+  data kept, auth, unconfigured and demo, a crashed helper, a large estate
+  bounded, long names on one line, and a page scrolled by a finger drag that
+  starts on text (landscape STATUS).
+- **Shell test:** `tests/zabbix_shell_test.sh`, where the real shell draws
+  the disaster in the error colour in both orientations.
+- **Lint:** `tests/zabbix_lint.sh`.
+- **Screenshots:** `ZABBIX_SHOTS=<dir>` on the app test gives every screen
+  in both shapes.
+- **Unit A:** docs/hardware/ZABBIX_UNIT_A_GATE.md, PASS on `7c725ba`
+  (2026-09-25), both orientations, with a real Zabbix 7.4.15 server. Every
+  page is clickable, with nothing to click, so that a drag on text scrolls
+  it; the gate found this in landscape STATUS.
