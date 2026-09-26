@@ -638,6 +638,10 @@ turn read from each unit's `match.v1`.
    LOSS, B WIN, both `end_reason` forfeit within 2 s, B's Deploy board
    switched to "THEY FORFEITED" on its own; 0 failed transmits; then CLOSE
    on both, saves idle and 0600, 0 restarts, 0 crash reports. **PASS.**
+   The winner's Result was headlined "Enemy fleet destroyed" and the
+   forfeiter's "Fleet lost", though nothing was sunk; **changed on
+   `fix/fleet-forfeit-headline`** to "Opponent forfeited" / "You forfeited"
+   (the lobby's "The engagement with X is over: ..." line follows).
 2. **`radio.status poll failed: timed out after 200 ms`** in the shell log
    (A 15, B 9) - also on master before the gate (2026-09-25, 2026-09-26 08h),
    more often while the radio transmits. The 200 ms UI deadline doing its job;

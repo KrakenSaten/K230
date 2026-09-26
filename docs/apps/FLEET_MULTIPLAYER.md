@@ -302,7 +302,7 @@ multiplayer to them exactly as it holds single player.
 | Opponent turn | Battle | "Anna is aiming." then "No word for 7 min." |
 | Opponent disconnected | Battle | "Anna is out of reach. The match is paused, not lost." FIRE becomes CHECK LINK |
 | Forfeit | Lobby, match in hand | FORFEIT, then CONFIRM FORFEIT |
-| Game over | Result | "Enemy fleet destroyed" / "Fleet lost" / "No result"; Ended ("ALL SHIPS SUNK", "THEY FORFEITED", "VOID · RECORDS DIFFER"); Their fleet ("Verified", "Not verified", "Reports did not match") |
+| Game over | Result | "Enemy fleet destroyed" / "Fleet lost" / "No result", or "Opponent forfeited" / "You forfeited" when it ended by forfeit (a forfeit sinks nothing); Ended ("ALL SHIPS SUNK", "THEY FORFEITED", "VOID · RECORDS DIFFER"); Their fleet ("Verified", "Not verified", "Reports did not match") |
 
 The wording is `apps/fleet/ui/fleet_view_mp.c`, tested natively.
 Screenshots: `docs/design/shots/fleet-mp-<state>[-landscape].png`.
