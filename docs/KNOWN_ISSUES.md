@@ -84,9 +84,10 @@ says so. Everything under "Open for v0.0.11" still applies.
   is still not an electrically verified operation (below, "Attaching or
   removing the keyboard base"), and the advice stays: mate it with USB power
   removed.
-- **Timber and Wave have no landscape layout**: in landscape they are their
-  portrait pages in a wide body and scroll (Wave's TRANSMIT is below the fold
-  on the send page). Seen on unit A, 2026-09-24.
+- **Timber has no landscape layout**: in landscape it is its portrait page in
+  a wide body and scrolls. Seen on unit A, 2026-09-24. (Wave had the same
+  problem - TRANSMIT below the fold - and has a landscape layout on branch
+  `feat/wave-next`, host-tested only: docs/hardware/WAVE_NEXT_GATE.md.)
 - **Radar in portrait** keeps the §29 scope, which the panel's width limits;
   under the fullscreen body the page ends about 200 px above the foot.
 - **RIFT's landscape ROUTE pane reaches the right edge of the screen** (the
