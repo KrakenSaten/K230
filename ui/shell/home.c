@@ -50,6 +50,13 @@ static struct {
     struct home_info info;
 } home;
 
+static struct home_rect rect_of(const lv_area_t *a)
+{
+    struct home_rect r = { a->x1, a->y1, lv_area_get_width(a), lv_area_get_height(a) };
+
+    return r;
+}
+
 static void place(lv_obj_t *obj, const struct home_rect *r)
 {
     lv_obj_set_pos(obj, r->x, r->y);
@@ -253,19 +260,24 @@ static lv_obj_t *action_button(const struct home_rect *r, const lv_image_dsc_t *
     return b;
 }
 
-static void header_create(const struct home_rect *r, bool landscape)
+/* The time in its band, which keeps clear of the status cluster (DS §36),
+ * and the date in its own row under it, which is lower than the cluster and
+ * so has the whole width. Both centred on the panels' centre line. */
+static void header_create(const struct home_rect *band, const struct home_rect *date_row)
 {
     lv_obj_t *h = plain(home.root);
 
-    place(h, r);
+    place(h, band);
     home.clock = lv_label_create(h);
     pos_style_add(home.clock, POS_STYLE_ENV_CLOCK, 0);
     lv_label_set_text(home.clock, "--:--");
     lv_obj_align(home.clock, LV_ALIGN_TOP_MID, 0, 0);
-    home.date = lv_label_create(h);
+    home.date = lv_label_create(home.root);
     pos_style_add(home.date, POS_STYLE_ENV_TEXT_SECONDARY, 0);
     lv_label_set_text(home.date, "");
-    lv_obj_align(home.date, LV_ALIGN_TOP_MID, 0, landscape ? 70 : 78);
+    lv_label_set_long_mode(home.date, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_set_style_text_align(home.date, LV_TEXT_ALIGN_CENTER, 0);
+    place(home.date, date_row);
 }
 
 /* The one call that changes the label only when the text does: a clock that
@@ -285,7 +297,7 @@ void home_set_time(const char *hm, const char *date)
 }
 
 lv_obj_t *home_create(lv_obj_t *parent, const struct pocketos_app *const *apps, size_t napps,
-                      bool landscape, const struct home_actions *actions)
+                      bool landscape, const lv_area_t *keepout, const struct home_actions *actions)
 {
     const char *ids[HOME_MAX_APPS];
     uint8_t order[HOME_MAX_APPS];
@@ -322,6 +334,9 @@ lv_obj_t *home_create(lv_obj_t *parent, const struct pocketos_app *const *apps, 
     in.inset_left = ins.left;
     in.inset_right = ins.right;
     in.inset_bottom = ins.bottom;
+    if (keepout) {
+        in.keepout = rect_of(keepout);
+    }
     in.ngroups = HOME_GROUP_COUNT;
     memcpy(in.count, count, sizeof(count));
     if (home_layout_compute(&in, &lay) < 0) {
@@ -335,7 +350,7 @@ lv_obj_t *home_create(lv_obj_t *parent, const struct pocketos_app *const *apps, 
         lv_obj_add_flag(home.root, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_scroll_dir(home.root, LV_DIR_VER);
     }
-    header_create(&lay.header, landscape);
+    header_create(&lay.header, &lay.date);
     for (grp = 0; grp < HOME_GROUP_COUNT; grp++) {
         if (count[grp]) {
             panel_create(&lay.panel[grp], home_group_name((enum home_group)grp));
@@ -367,6 +382,16 @@ lv_obj_t *home_create(lv_obj_t *parent, const struct pocketos_app *const *apps, 
 void home_info(struct home_info *out)
 {
     *out = home.info;
+}
+
+bool home_header_area(lv_area_t *time, lv_area_t *date)
+{
+    if (!home.clock || !home.date) {
+        return false;
+    }
+    lv_obj_get_coords(home.clock, time);
+    lv_obj_get_coords(home.date, date);
+    return true;
 }
 
 bool home_cell_area(const char *app_id, lv_area_t *out)

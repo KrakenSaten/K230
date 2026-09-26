@@ -38,10 +38,16 @@
 #define PANEL_W 568
 #define PANEL_H 1232
 #define PANEL_CORNER 30 /* the corner squares of the unit's panel (DS 21.1) */
-/* The status bar the shell gives this app in the display's orientation
- * (ui/shell/chrome.h, DS section 30), so the frame built here is the one
- * shell.c builds: 56 px in portrait, 32 px under an app in landscape. */
+/* Where the shell's content area starts for this app in the display's
+ * orientation (ui/shell/chrome.h, DS sections 30 and 36), so the frame built
+ * here is the one shell.c builds: the top edge, since no chrome reserves a
+ * row there any more. */
 #define STATUS_H chrome_height(chrome_resolve(app_calendar.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
+/* Rows measured under the retired bars - 56 px in portrait (v0.0.10), 32 in
+ * landscape (DS section 30) - moved up with the frame's top: nothing else
+ * about those places changed. */
+#define V010_ROW(y) ((y) - 56 + STATUS_H)
+#define V010_LROW(y) ((y) - 32 + STATUS_H)
 /* Above the body in landscape and below it: the status bar, the header and
  * the body's own top and foot padding (DS 7) - and how far the unit's 30 px
  * corners reach above the body's foot. */
@@ -1146,14 +1152,16 @@ int main(void)
                 app_start();
                 snprintf(what, sizeof(what), "portrait, %s, corners %d: the month row", m ? "Outdoor" : "Normal",
                          (int)corners[c]);
-                check(what, rect_is(nav_row(), 20, 547, 152, 215) && rect_is(nav_of(NAV_PREV), 20, 91, 152, 215) &&
-                                rect_is(nav_of(NAV_NEXT), 476, 547, 152, 215));
+                check(what, rect_is(nav_row(), 20, 547, V010_ROW(152), V010_ROW(215)) &&
+                                rect_is(nav_of(NAV_PREV), 20, 91, V010_ROW(152), V010_ROW(215)) &&
+                                rect_is(nav_of(NAV_NEXT), 476, 547, V010_ROW(152), V010_ROW(215)));
                 snprintf(what, sizeof(what), "portrait, %s, corners %d: the grid", m ? "Outdoor" : "Normal",
                          (int)corners[c]);
-                check(what, rect_is(grid_block(), 20, 547, 236, 747) && rect_is(headings(), 20, 547, 236, 267));
+                check(what, rect_is(grid_block(), 20, 547, V010_ROW(236), V010_ROW(747)) &&
+                                rect_is(headings(), 20, 547, V010_ROW(236), V010_ROW(267)));
                 for (i = 0; i < CAL_CELLS; i++) {
                     int32_t x = 20 + 76 * (i % CAL_COLS);
-                    int32_t y = 276 + 80 * (i / CAL_COLS);
+                    int32_t y = V010_ROW(276) + 80 * (i / CAL_COLS);
 
                     wrong += !rect_is(cell_at(i), x, x + 71, y, y + 71);
                 }
@@ -1162,8 +1170,10 @@ int main(void)
                 check(what, wrong == 0);
                 snprintf(what, sizeof(what), "portrait, %s, corners %d: the panel and Today", m ? "Outdoor" : "Normal",
                          (int)corners[c]);
-                check(what, m ? rect_is(panel_of(), 20, 547, 768, 837) && rect_is(today_button(), 20, 547, 858, 921)
-                              : rect_is(panel_of(), 20, 547, 768, 835) && rect_is(today_button(), 20, 547, 856, 919));
+                check(what, m ? rect_is(panel_of(), 20, 547, V010_ROW(768), V010_ROW(837)) &&
+                                    rect_is(today_button(), 20, 547, V010_ROW(858), V010_ROW(921))
+                              : rect_is(panel_of(), 20, 547, V010_ROW(768), V010_ROW(835)) &&
+                                    rect_is(today_button(), 20, 547, V010_ROW(856), V010_ROW(919)));
                 snprintf(what, sizeof(what), "portrait, %s, corners %d: the frame never scrolls", m ? "Outdoor" : "Normal",
                          (int)corners[c]);
                 check(what, lv_obj_get_scroll_bottom(frame_of()) <= 0 && !lv_obj_has_flag(panel_of(), LV_OBJ_FLAG_SCROLLABLE));
@@ -1188,16 +1198,16 @@ int main(void)
     use_display(POS_ROTATION_270, PANEL_CORNER);
     g_system_day = DAY_2026_09_12;
     app_start();
-    /* From row 128: the 32 px COMPACT bar of DS section 30 above the same
-     * header and padding, so the month is 24 px taller than the 386 the
-     * amendment was written for, and the panel between the arrows and
-     * Today takes the same 24. */
-    check("landscape: the month is 586 x 410, its cells 80 wide and 56 tall",
-          rect_is(grid_block(), 20, 605, 128, 537) && lv_obj_get_height(cell_at(0)) >= WIDE_CELL_MIN_H &&
+    /* From row 96: the header and padding straight from the top edge (DS
+     * section 36; row 128 under the 32 px COMPACT bar of section 30), so the
+     * month is 56 px taller than the 386 the amendment was written for, and
+     * the panel between the arrows and Today takes the same 56. */
+    check("landscape: the month is 586 x 442, its cells 80 wide and at least 56 tall",
+          rect_is(grid_block(), 20, 605, V010_LROW(128), 537) && lv_obj_get_height(cell_at(0)) >= WIDE_CELL_MIN_H &&
               lv_obj_get_width(cell_at(0)) >= 80);
     check("landscape: the arrows, the panel and Today in the second half",
-          rect_is(nav_row(), 626, 1211, 128, 191) && rect_is(panel_of(), 626, 1211, 212, 453) &&
-              rect_is(today_button(), 626, 1211, 474, 537));
+          rect_is(nav_row(), 626, 1211, V010_LROW(128), V010_LROW(191)) &&
+              rect_is(panel_of(), 626, 1211, V010_LROW(212), 453) && rect_is(today_button(), 626, 1211, 474, 537));
     app_stop();
 
     /* ---- 14. the display turned under the open app --------------------- */

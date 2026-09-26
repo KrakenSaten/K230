@@ -1,6 +1,6 @@
 /*
  * PocketOS application API (in-process variant, ADR-002).
- * An app gets a content root below the status bar, is created when opened,
+ * An app gets a content root below the shell's app header, is created when opened,
  * ticked every second while visible, and destroyed when the user leaves.
  * Apps never touch hardware; they talk to services over pocketipc.
  *
@@ -33,18 +33,19 @@ struct pocketos_app {
      * as text, as it always did. Appended, so an app that does not set it is
      * unchanged and the API version stays. */
     const lv_image_dsc_t *icon_mask;
-    /* The status chrome the app needs above its body (DS §30, chrome.h):
-     * DEFAULT, FULL, COMPACT or NONE. A declaration, not a command: the
-     * shell resolves it against the orientation and the rollout stage
-     * before create() runs, and the app is created in the body that
-     * results. It never learns the bar's height and never touches the bar.
-     * Appended and zero, so an app that says nothing is DEFAULT and the
-     * API version stays. */
+    /* The status chrome the app's screen carries (DS §30, §36, chrome.h):
+     * DEFAULT (the status cluster in the top-right corner) or NONE (a
+     * fullscreen app: no status drawn). A declaration, not a command: the
+     * shell resolves it before create() runs, and the app is created in the
+     * body that results. It never learns where the cluster is and never
+     * touches it; the shell's app header keeps clear of it. Appended and
+     * zero, so an app that says nothing is DEFAULT and the API version
+     * stays. */
     enum pocketos_chrome chrome;
 };
 
 /* Shell services available to apps. */
-void pocketos_shell_set_status_hint(const char *text); /* short text in the status bar */
+void pocketos_shell_set_status_hint(const char *text); /* short text at the app header's right end */
 void pocketos_shell_go_home(void);
 /* Platform-wide reduced-motion preference (DS §12): settings key
  * "reduced_motion" = 0|1 in /etc/pocketos/settings.conf, default 0.
@@ -62,7 +63,7 @@ int pocketos_shell_reduced_motion(void);
  * it does not know rather than draw the epoch as a date. */
 int64_t pocketos_shell_system_day(void);
 
-/* The radio state the status bar's own once-a-second poll last saw: "rx",
+/* The radio state the status cluster's own once-a-second poll last saw: "rx",
  * "tx", "idle" and so on, or NULL while radiod is not answering. An app that
  * wants to show the radio reads this instead of polling radiod again - the
  * shell is already asking, and a second timer on the same service would

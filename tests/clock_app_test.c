@@ -45,10 +45,15 @@
 #define PANEL_W 568
 #define PANEL_H 1232
 #define PANEL_CORNER 30 /* the corner squares of the unit's panel (DS 21.1) */
-/* The status bar the shell gives this app in the display's orientation
- * (ui/shell/chrome.h, DS section 30), so the frame built here is the one
- * shell.c builds: 56 px in portrait, 32 px under an app in landscape. */
+/* Where the shell's content area starts for this app in the display's
+ * orientation (ui/shell/chrome.h, DS sections 30 and 36), so the frame built
+ * here is the one shell.c builds: the top edge, since no chrome reserves a
+ * row there any more. */
 #define STATUS_H chrome_height(chrome_resolve(app_clock.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
+/* Rows measured on v0.0.10 under the 56 px status bar, moved up with the
+ * frame's top, which is the top edge since the bar went (DS section 36):
+ * nothing else about those places changed. */
+#define V010_ROW(y) ((y) - 56 + STATUS_H)
 #define PAIRED_BUTTON_H 56 /* DS 7: paired buttons */
 #define COLUMN_W 528       /* the portrait body on the reference panel */
 #define RAIL_W 288         /* two 140 px actions and their 8 px gap (DS 23.1) */
@@ -1734,24 +1739,24 @@ int main(void)
             seed_full_list();
             clock_alarm_remove(clock_runtime_engine(), CLOCK_MAX_ALARMS - 1);
             app_start();
-            check_rect("portrait: the tabs", kid(screen_of(SCREEN_MAIN), 0), 20, 152, 547, 215);
+            check_rect("portrait: the tabs", kid(screen_of(SCREEN_MAIN), 0), 20, V010_ROW(152), 547, V010_ROW(215));
             tap_obj(find_labelled(app_body, "Alarm"));
-            check_rect("portrait: the alarm list", column_of(PANE_ALARM, 0), 20, 236, 547, 685);
-            check_rect("portrait: Add alarm under it", find_labelled(app_body, "Add alarm"), 20, 706, 547, 769);
+            check_rect("portrait: the alarm list", column_of(PANE_ALARM, 0), 20, V010_ROW(236), 547, V010_ROW(685));
+            check_rect("portrait: Add alarm under it", find_labelled(app_body, "Add alarm"), 20, V010_ROW(706), 547, V010_ROW(769));
             tap_obj(find_labelled(app_body, "Add alarm"));
-            check_rect("portrait: the new alarm's time", kid(form_when(), 0), 20, 152, 547, 261);
-            check_rect("portrait: Hour", kid(form_controls(), 0), 20, 282, 547, 345);
-            check_rect("portrait: Minute", kid(form_controls(), 1), 20, 366, 547, 429);
-            check_rect("portrait: Repeat", kid(form_controls(), 2), 20, 450, 547, 513);
-            check_rect("portrait: the label field", form_field(), 20, 534, 547, 597);
-            check_rect("portrait: Cancel and Add", form_actions(), 20, 618, 547, 673);
+            check_rect("portrait: the new alarm's time", kid(form_when(), 0), 20, V010_ROW(152), 547, V010_ROW(261));
+            check_rect("portrait: Hour", kid(form_controls(), 0), 20, V010_ROW(282), 547, V010_ROW(345));
+            check_rect("portrait: Minute", kid(form_controls(), 1), 20, V010_ROW(366), 547, V010_ROW(429));
+            check_rect("portrait: Repeat", kid(form_controls(), 2), 20, V010_ROW(450), 547, V010_ROW(513));
+            check_rect("portrait: the label field", form_field(), 20, V010_ROW(534), 547, V010_ROW(597));
+            check_rect("portrait: Cancel and Add", form_actions(), 20, V010_ROW(618), 547, V010_ROW(673));
             tap_obj(find_labelled(app_body, "Cancel"));
             tap_obj(alarm_row_delete("05:00"));
-            check_rect("portrait: the confirmation", kid(screen_of(SCREEN_CONFIRM), 0), 20, 152, 547, 331);
+            check_rect("portrait: the confirmation", kid(screen_of(SCREEN_CONFIRM), 0), 20, V010_ROW(152), 547, V010_ROW(331));
             tap_obj(find_labelled(app_body, "Cancel"));
             tap_obj(find_labelled(app_body, "Clock"));
             check_rect("portrait: the clock face grows to the foot, less the corners", kid(pane_of(PANE_CLOCK), 0),
-                       20, 236, 547, 1211 - (corners[c] ? 10 : 0));
+                       20, V010_ROW(236), 547, 1211 - (corners[c] ? 10 : 0));
             app_stop();
         }
     }
@@ -1898,7 +1903,7 @@ int main(void)
 
             area_of(kid(column_of(PANE_ALARM, 0), 1), &list);
             check("turned back to portrait, the alarm list starts at its top again",
-                  scroll_y(column_of(PANE_ALARM, 0)) == 0 && list.y1 == 236);
+                  scroll_y(column_of(PANE_ALARM, 0)) == 0 && list.y1 == V010_ROW(236));
             check("and neither its columns nor the form scroll or take a finger",
                   !has_flag(column_of(PANE_ALARM, 0), LV_OBJ_FLAG_SCROLLABLE) &&
                       !has_flag(column_of(PANE_ALARM, 1), LV_OBJ_FLAG_SCROLLABLE) &&

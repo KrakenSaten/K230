@@ -37,10 +37,15 @@
 #define PANEL_W 568
 #define PANEL_H 1232
 #define PANEL_CORNER 30
-/* The status bar the shell gives this app in the display's orientation
- * (ui/shell/chrome.h, DS section 30), so the frame built here is the one
- * shell.c builds: 56 px in portrait, 32 px under an app in landscape. */
+/* Where the shell's content area starts for this app in the display's
+ * orientation (ui/shell/chrome.h, DS sections 30 and 36), so the frame built
+ * here is the one shell.c builds: the top edge, since no chrome reserves a
+ * row there any more. */
 #define STATUS_H chrome_height(chrome_resolve(app_calculator.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
+/* Rows measured under the retired bars - 56 px in portrait (v0.0.9/10), 32
+ * in landscape (DS section 30) - moved up with the frame's top. */
+#define V010_ROW(y) ((y) - 56 + STATUS_H)
+#define V010_LROW(y) ((y) - 32 + STATUS_H)
 
 #define MINUS "\xE2\x88\x92"
 #define TIMES "\xC3\x97"
@@ -950,8 +955,11 @@ int main(void)
      * the corner squares; the keys themselves are unchanged. */
     get_area(display_panel(), &a);
     get_area(keypad(), &b);
-    check("portrait, 30 px corners: the display is 20..547 x 152..509",
-          same_area(&a, 20, 152, 547, 509));
+    /* The keypad keeps its v0.0.9 place against the foot; the display above
+     * it takes the 56 px the status bar gave back (DS section 36), from row
+     * 96 rather than 152. */
+    check("portrait, 30 px corners: the display is 20..547 x 96..509",
+          same_area(&a, 20, V010_ROW(152), 547, 509));
     check("portrait, 30 px corners: the keypad is 20..547 x 530..1201, 10 px above the body's foot",
           same_area(&b, 20, 530, 547, 1201));
     /* A panel's corners are fixed for a run, so another panel is another
@@ -961,8 +969,8 @@ int main(void)
     app_start();
     get_area(display_panel(), &a);
     get_area(keypad(), &b);
-    check("portrait, square corners: the display is the v0.0.9 20..547 x 152..519",
-          same_area(&a, 20, 152, 547, 519));
+    check("portrait, square corners: the display is the v0.0.9 20..547 x 152..519, from row 96",
+          same_area(&a, 20, V010_ROW(152), 547, 519));
     check("portrait, square corners: the keypad is the v0.0.9 20..547 x 540..1211",
           same_area(&b, 20, 540, 547, 1211));
     {
@@ -1006,10 +1014,11 @@ int main(void)
     check_layout("landscape");
     get_area(display_panel(), &a);
     get_area(keypad(), &b);
-    /* From row 128: the 32 px COMPACT bar of DS section 30, not the 56 px
-     * one, above the same 72 px header and 24 px body padding. */
-    check("landscape: the display is 20..605 x 128..537", same_area(&a, 20, 128, 605, 537));
-    check("landscape: the keypad is 626..1211 x 128..537", same_area(&b, 626, 128, 1211, 537));
+    /* From row 96: the same 72 px header and 24 px body padding straight
+     * from the top edge (DS section 36; row 128 under the 32 px COMPACT bar
+     * of section 30). */
+    check("landscape: the display is 20..605 x 96..537", same_area(&a, 20, V010_LROW(128), 605, 537));
+    check("landscape: the keypad is 626..1211 x 96..537", same_area(&b, 626, V010_LROW(128), 1211, 537));
     check_behaviour("landscape");
     check_modes("landscape");
     app_stop();

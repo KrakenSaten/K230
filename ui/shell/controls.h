@@ -26,6 +26,7 @@
 #ifndef DOORS_CONTROLS_H
 #define DOORS_CONTROLS_H
 
+#include "controls_model.h"
 #include "lvgl.h"
 
 #include <stdbool.h>
@@ -36,8 +37,11 @@ struct controls_actions {
     void (*close)(void);
 };
 
-/* Build (hidden) under parent, the shell's content area at launcher size. */
-lv_obj_t *controls_create(lv_obj_t *parent, bool landscape, const struct controls_actions *actions);
+/* Build (hidden) under parent, the shell's content area at launcher size.
+ * keepout is the status cluster's widest box in parent's coordinates (DS
+ * §36), which nothing of Controls is placed over; NULL: none. */
+lv_obj_t *controls_create(lv_obj_t *parent, bool landscape, const struct controls_rect *keepout,
+                          const struct controls_actions *actions);
 void controls_show(void);
 void controls_hide(void);
 bool controls_visible(void);

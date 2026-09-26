@@ -193,6 +193,7 @@ void controls_volume_text(bool available, bool muted, int percent, char *out, in
 
 #define GAP 16
 #define MARGIN 36
+#define TOP_ROW_Y 8
 
 static struct controls_rect rect(int32_t x, int32_t y, int32_t w, int32_t h)
 {
@@ -206,9 +207,24 @@ bool controls_rects_overlap(const struct controls_rect *a, const struct controls
     return a->x < b->x + b->w && b->x < a->x + a->w && a->y < b->y + b->h && b->y < a->y + a->h;
 }
 
-int controls_layout(bool landscape, int32_t width, int32_t height, struct controls_layout *out)
+static int32_t max32(int32_t a, int32_t b)
 {
-    const int32_t m = MARGIN;
+    return a > b ? a : b;
+}
+
+int controls_layout(const struct controls_frame *f, struct controls_layout *out)
+{
+    const bool landscape = f->landscape;
+    const int32_t width = f->width;
+    const int32_t height = f->height;
+    /* The side margin, raised to the top corners where they reach further
+     * (50 px at the top in landscape on the T-Display K230, DS §21.1): the
+     * header row starts at the top edge, and the columns below keep in line
+     * with it. */
+    const int32_t m = max32(MARGIN, max32(f->inset_top_left, f->inset_top_right));
+    /* The header row ends short of the status cluster (DS §36), or of the
+     * right margin where there is none. */
+    int32_t row_end = width - m;
     int32_t col;
     int32_t tw;
     int32_t th;
@@ -219,11 +235,18 @@ int controls_layout(bool landscape, int32_t width, int32_t height, struct contro
 
     memset(out, 0, sizeof(*out));
     out->margin = m;
-    out->back = rect(m, 16, 72, 56);
+    /* The header row's buttons centred on row 36, as the app header's back
+     * slab is (8 + 56 / 2), so they line up with the status cluster beside
+     * them (DS §36.1). */
+    out->back = rect(m, TOP_ROW_Y, 72, 56);
+    if (f->keepout.w > 0 && f->keepout.y < 12 + 92 && f->keepout.x - GAP < row_end) {
+        row_end = f->keepout.x - GAP;
+    }
     if (landscape) {
         /* Three rows of tiles on the left and three panels on the right
          * leave no room at the foot for Lock and Power, so in landscape they
-         * sit at the right of the header row, where the width is. */
+         * sit at the right of the header row, where the width is - left of
+         * the status cluster. */
         int32_t rx;
         int32_t rw;
 
@@ -233,8 +256,8 @@ int controls_layout(bool landscape, int32_t width, int32_t height, struct contro
         panel_h = 88;
         out->list_row_h = 56;
         tw = (col - GAP) / 2;
-        out->power = rect(width - m - 160, 16, 160, 56);
-        out->lock = rect(out->power.x - GAP - 160, 16, 160, 56);
+        out->power = rect(row_end - 160, TOP_ROW_Y, 160, 56);
+        out->lock = rect(out->power.x - GAP - 160, TOP_ROW_Y, 160, 56);
         out->header = rect(m + 92, 12, out->lock.x - GAP - (m + 92), 80);
         rx = m + col + 32;
         rw = width - m - rx;
@@ -251,7 +274,7 @@ int controls_layout(bool landscape, int32_t width, int32_t height, struct contro
         panel_h = 104;
         out->list_row_h = 64;
         tw = (col - GAP) / 2;
-        out->header = rect(m + 92, 12, col - 92, 92);
+        out->header = rect(m + 92, 12, row_end - (m + 92), 92);
         py = y0 + 3 * (th + GAP);
         out->brightness = rect(m, py, col, panel_h);
         out->volume = rect(m, py + panel_h + GAP, col, panel_h);
@@ -284,7 +307,10 @@ int controls_layout(bool landscape, int32_t width, int32_t height, struct contro
 
         for (a = 0; a < sizeof(all) / sizeof(all[0]); a++) {
             if (all[a]->x < 0 || all[a]->y < 0 || all[a]->x + all[a]->w > width ||
-                all[a]->y + all[a]->h > height - 24) {
+                all[a]->y + all[a]->h > height - 24 || all[a]->w <= 0) {
+                rc = -1;
+            }
+            if (f->keepout.w > 0 && controls_rects_overlap(all[a], &f->keepout)) {
                 rc = -1;
             }
             for (b = a + 1; b < sizeof(all) / sizeof(all[0]); b++) {

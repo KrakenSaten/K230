@@ -9,11 +9,21 @@ developer tooling, not for applications.
 - `shell.info`: `api_version`, `apps` (array of `{id, name}`), `current`
   (open app id or `"home"`), `display`: `{width, height, backend}` - the
   logical size this run lays out in, 568x1232 or 1232x568 - and the
-  orientation fields `shell.rotation` returns; `chrome`: `{policy,
-  status_bar_height}` - the status chrome in force for the current screen
-  (DS §30): `"full"` (56), `"compact"` (32) or `"none"` (0). FULL on the
-  launcher and everywhere in portrait; COMPACT under an app in landscape
-  unless the app declared otherwise.
+  orientation fields `shell.rotation` returns; `chrome`: the status chrome
+  in force for the current screen (DS §30, §36) - `policy`: `"cluster"` (the
+  status cluster in the top-right corner: the launcher, Controls and every
+  app that does not declare NONE) or `"none"` (a fullscreen app);
+  `content_y` and `content_h`: the content area, which starts at the top
+  edge under every policy; `cluster`: `{shown, x, y, w, h, clock, reserve_x,
+  reserve_w}` - the cluster as drawn now (shown over a fullscreen app only
+  while the lock is engaged), whether it holds the clock (not on the
+  launcher, Controls or the lock, which show the time large), and the widest
+  box it can take on this screen, which the rows under it keep clear of;
+  `chip`: `{h, content_h, line_h, y, text}` - the radio chip as drawn; and,
+  with an app open, `header`: `{y, h, content_x2, pad_left, pad_right,
+  hint_x2, hint, body_y}` - the shell's app header and where the app's body
+  starts. `launcher.time`, `launcher.date`: `{x, y, w, h}` - where the
+  launcher's time and date labels are.
 - `shell.open` params `{id}`: opens an app. Error 2 for unknown id.
 - `shell.home`: closes the current app and shows the launcher.
 - `shell.screenshot` params `{path}`: renders the current screen to a PNG at

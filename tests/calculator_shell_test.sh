@@ -77,7 +77,7 @@ rm -rf "$RUN" "$LOGD" "$CFG" "$STATE"
 
 # Both orientations in the real shell, drawn: where the = key lands, and that
 # nothing but the screen's background is drawn in the rounded corner squares
-# below the status bar (DS section 21.1; the corners are the simulator's
+# at the foot of the panel (DS section 21.1; the corners are the simulator's
 # default 30 px, the reference panel's).
 #
 # look <png> <theme> <mode> <= key x1 y1 x2 y2>; theme "default" is the
@@ -130,8 +130,10 @@ for o in portrait landscape; do
     else
         check "$o: on the landscape launcher" \
             "$(grep -q 'launcher: 4 group(s), 15 app(s), landscape' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
-        # The keypad is 410 px tall under the 32 px COMPACT bar of DS section
-        # 30 (386 under the 56 px one), so its bottom row is 75 px, not 70.
+        # The keypad reaches the foot: 442 px tall since the bar went (DS
+        # section 36; 410 under the 32 px COMPACT bar of section 30, 386
+        # under the 56 px one). The probe sits inside its bottom row's lower
+        # 75 px, which every one of those heights covers.
         set -- $(look "$LOGD/calc.png" default normal 1072 463 1211 537)
     fi
     check "$o: the = key is drawn where calc_app_test lays it out, bottom right" "${1:-0}"

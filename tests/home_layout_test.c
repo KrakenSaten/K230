@@ -21,12 +21,19 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The reference panel and the launcher's FULL status bar (DS §7, §30). */
+/* The reference panel. The launcher's content area is the whole display:
+ * there is no status bar (DS §36), only the status cluster in the top-right
+ * corner, whose box the header keeps clear of - here as the shell makes it
+ * on the launcher (chrome_cluster_box of the chip alone, about 113 px, 30 px
+ * from the right edge in portrait and 50 in landscape, 14 px down, 44 tall). */
 #define PANEL_W 568
 #define PANEL_H 1232
-#define BAR_H 56
 #define CORNER 30
+#define CORNER_LANDSCAPE_TOP 50
 #define TOUCH_MIN 64
+#define CLUSTER_W 113
+#define CLUSTER_Y 14
+#define CLUSTER_H 44
 
 static int failed;
 static int checks;
@@ -98,9 +105,13 @@ static void input(struct home_layout_in *in, bool landscape, const uint8_t *coun
 {
     memset(in, 0, sizeof(*in));
     in->width = landscape ? PANEL_H : PANEL_W;
-    in->height = (landscape ? PANEL_W : PANEL_H) - BAR_H;
+    in->height = landscape ? PANEL_W : PANEL_H;
     in->landscape = landscape;
     in->inset_bottom = CORNER; /* the content area reaches the bottom corners */
+    in->keepout.x = in->width - (landscape ? CORNER_LANDSCAPE_TOP : CORNER) - CLUSTER_W;
+    in->keepout.y = CLUSTER_Y;
+    in->keepout.w = CLUSTER_W;
+    in->keepout.h = CLUSTER_H;
     in->ngroups = (uint8_t)ng;
     memcpy(in->count, counts, (size_t)ng);
 }
@@ -184,6 +195,39 @@ static void check_layout(const char *name, const struct home_layout_in *in, cons
         }
         check(what, above);
     }
+    /* DS §36: the status cluster lies over the top of the launcher. The
+     * header band (the time and the date) and every panel keep clear of it,
+     * and the band stays centred so the time is on the panels' centre line. */
+    if (in->keepout.w > 0) {
+        int clear = !overlap(&l->header, &in->keepout) && !overlap(&l->date, &in->keepout);
+
+        for (g = 0; g < in->ngroups; g++) {
+            if (in->count[g] && overlap(&l->panel[g], &in->keepout)) {
+                clear = 0;
+            }
+        }
+        snprintf(what, sizeof(what), "%s: the header and the panels keep clear of the status cluster", name);
+        check(what, clear);
+        snprintf(what, sizeof(what), "%s: the header band stays centred (%d..%d of %d)", name,
+                 (int)l->header.x, (int)(l->header.x + l->header.w), (int)in->width);
+        check(what, abs(l->header.x - (in->width - (l->header.x + l->header.w))) <= 1);
+        snprintf(what, sizeof(what), "%s: the band is still wide enough for the time (%d)", name,
+                 (int)l->header.w);
+        check(what, l->header.w >= 220);
+        snprintf(what, sizeof(what), "%s: the date keeps the whole row, under the cluster and above the panels",
+                 name);
+        {
+            int above = 1;
+
+            for (g = 0; g < in->ngroups; g++) {
+                if (in->count[g] && l->date.y + l->date.h > l->panel[g].y) {
+                    above = 0;
+                }
+            }
+            check(what, l->date.w == in->width - 2 * l->date.x && l->date.y >= in->keepout.y + in->keepout.h &&
+                            above);
+        }
+    }
 }
 
 static void test_reference(void)
@@ -198,6 +242,9 @@ static void test_reference(void)
     check_layout("portrait", &in, &l, false);
     check("portrait: four 124 px columns, 20 px labels", l.cell_w == 124 && !l.small_labels);
     check("portrait: the panels share one column", l.panel[0].x == l.panel[3].x && l.panel[0].w == l.panel[3].w);
+    /* The content area is the screen now (DS §36), so these are screen
+     * rows: under the 56 px bar the first panel was drawn at 192. */
+    check("portrait: the first panel starts at row 142, 50 px higher than under the bar", l.panel[0].y == 142);
 
     /* Thirteen apps in one row would squeeze a cell to 81 px, under
      * HOME_CELL_MIN_W, so by the layout's own rule the panels wrap, and the
@@ -222,6 +269,10 @@ static void test_reference(void)
     check("landscape: each line is centred",
           abs(l.panel[0].x - (in.width - (l.panel[1].x + l.panel[1].w))) <= 1 &&
               abs(l.panel[2].x - (in.width - (l.panel[3].x + l.panel[3].w))) <= 1);
+    /* Under the 56 px bar the launcher was 512 px tall and scrolled 120 px to
+     * its footer; with the 56 px back, less the 6 px the header moved down to
+     * sit level with the cluster, it scrolls 70. */
+    check("landscape: scrolls 70 px to its footer (120 under the bar)", l.content_h - in.height == 70);
 }
 
 static void test_growth(void)

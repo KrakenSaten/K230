@@ -562,20 +562,31 @@ static lv_obj_t *slider_panel(lv_obj_t *parent, const struct controls_rect *r, c
     return s;
 }
 
-lv_obj_t *controls_create(lv_obj_t *parent, bool landscape, const struct controls_actions *actions)
+lv_obj_t *controls_create(lv_obj_t *parent, bool landscape, const struct controls_rect *keepout,
+                          const struct controls_actions *actions)
 {
     const struct pos_display_geometry *g = pocketui_display_geometry();
     const struct controls_layout *L = &ct.layout;
-    int32_t w = g->width;
-    int32_t h = lv_obj_get_height(parent) > 0 ? lv_obj_get_height(parent) : g->height - 56;
+    struct pos_insets top = pos_display_bar_insets(g, POS_EDGE_TOP);
+    struct controls_frame f;
     lv_obj_t *o;
     lv_obj_t *back;
 
     memset(&ct, 0, sizeof(ct));
+    memset(&f, 0, sizeof(f));
     ct.landscape = landscape;
     ct.actions = *actions;
-    if (controls_layout(landscape, w, h, &ct.layout) < 0) {
-        LOG_WARN("controls: %dx%d is too small for the layout; panels may overlap", (int)w, (int)h);
+    f.landscape = landscape;
+    f.width = g->width;
+    f.height = lv_obj_get_height(parent) > 0 ? lv_obj_get_height(parent) : g->height;
+    f.inset_top_left = top.left;
+    f.inset_top_right = top.right;
+    if (keepout) {
+        f.keepout = *keepout;
+    }
+    if (controls_layout(&f, &ct.layout) < 0) {
+        LOG_WARN("controls: %dx%d is too small for the layout; panels may overlap", (int)f.width,
+                 (int)f.height);
     }
     ct.root = plain(parent);
     lv_obj_set_size(ct.root, LV_PCT(100), LV_PCT(100));

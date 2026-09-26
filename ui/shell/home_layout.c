@@ -9,10 +9,17 @@
 
 #define MARGIN_PORTRAIT 28
 #define MARGIN_LANDSCAPE 36
-#define HEADER_Y 8
+/* The top of the header band: level with the top of the status cluster (DS
+ * §36, POCKETOS_CHROME_CLUSTER_Y), which now shares the top edge with it. */
+#define HEADER_Y 14
 #define HEADER_H_PORTRAIT 116
 #define HEADER_H_LANDSCAPE 100
+/* The date's line under the time, from the top of the header band. */
+#define DATE_Y_PORTRAIT 78
+#define DATE_Y_LANDSCAPE 70
+#define DATE_H 28
 #define BUTTON_W_LANDSCAPE 240
+#define HEADER_CLEAR 16         /* between the header band and the status cluster */
 /* Under the footer: clear of a 30 px rounded corner with 12 px to spare, and
  * the same on a rectangular panel, so the launcher above it does not move
  * with the corners (a larger bench corner pushes it up, footer_pad()). */
@@ -57,6 +64,24 @@ static int32_t footer_pad(const struct home_layout_in *in)
     return max32(FOOTER_PAD, in->inset_bottom + 12);
 }
 
+/* The header band (the time and the date) at (x, y, w, h), narrowed on both
+ * sides until it is clear of the status cluster (DS §36): the cluster sits in
+ * the top-right corner, and narrowing only the right side would push the
+ * time off the centre line the panels are laid out on. */
+static struct home_rect header_band(const struct home_layout_in *in, int32_t x, int32_t y, int32_t w,
+                                    int32_t h)
+{
+    const struct home_rect *k = &in->keepout;
+    int32_t right = x + w;
+
+    if (k->w > 0 && k->h > 0 && k->y < y + h && y < k->y + k->h && k->x - HEADER_CLEAR < right) {
+        right = k->x - HEADER_CLEAR;
+        x = max32(x, in->width - right);
+        w = max32(right - x, 0);
+    }
+    return rect(x, y, w, h);
+}
+
 static void portrait(const struct home_layout_in *in, struct home_layout *out)
 {
     int32_t m = MARGIN_PORTRAIT;
@@ -80,7 +105,8 @@ static void portrait(const struct home_layout_in *in, struct home_layout *out)
     }
     out->cell_w = cw;
     out->small_labels = cw < 110;
-    out->header = rect(m, HEADER_Y, pw, HEADER_H_PORTRAIT);
+    out->header = header_band(in, m, HEADER_Y, pw, HEADER_H_PORTRAIT);
+    out->date = rect(m, HEADER_Y + DATE_Y_PORTRAIT, pw, DATE_H);
     y = HEADER_Y + HEADER_H_PORTRAIT + 12;
     end = y;
     for (g = 0; g < in->ngroups; g++) {
@@ -117,7 +143,8 @@ static void landscape(const struct home_layout_in *in, struct home_layout *out)
             napps += in->count[g];
         }
     }
-    out->header = rect(m, HEADER_Y, line, HEADER_H_LANDSCAPE);
+    out->header = header_band(in, m, HEADER_Y, line, HEADER_H_LANDSCAPE);
+    out->date = rect(m, HEADER_Y + DATE_Y_LANDSCAPE, line, DATE_H);
     y = HEADER_Y + HEADER_H_LANDSCAPE + 4;
     end = y;
     cw = napps ? (line - (groups - 1) * HOME_PANEL_GAP - groups * 2 * HOME_PANEL_PAD) / napps : 0;

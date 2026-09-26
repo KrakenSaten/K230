@@ -211,7 +211,8 @@ not change between modes except the `type_default` and `hairline` tokens.
 
 | Constant | Value |
 | --- | --- |
-| status bar height | 56 (FULL chrome); 32 (COMPACT); 0 (NONE) — which one a screen gets is §30 |
+| status bar height | none: the full-width bar is retired (§36, proposed); was 56 (FULL chrome), 32 (COMPACT), 0 (NONE) under §30 |
+| status cluster | 44 tall, 14 from the top edge (centred on the 72 px header row), right edge at the header's side margin (§21.1 insets); as wide as its content (§36.1) |
 | app header height | 72 |
 | screen horizontal padding | 20 |
 | body top padding | 24 (first-boot: 40) |
@@ -262,7 +263,10 @@ not change between modes except the `type_default` and `hairline` tokens.
 
 Colours are tokens; geometry from §7; type from §3.
 
-**Status bar** — 56 px on `bg`, bottom `hairline` in `line` (this is the
+**Status bar** — retired by §36 (proposed 2026-09-26): there is no
+full-width bar, no wordmark cell and no hint cell; the radio chip and the
+clock are in the status cluster (§36.1) and the hint is in the app header.
+What follows is the bar as it was. 56 px on `bg`, bottom `hairline` in `line` (this is the
 FULL chrome of §30; the COMPACT chrome is the same bar at 32 px, and NONE is
 its absence — which one a screen gets is decided there, by the shell). Four
 cells left
@@ -2283,6 +2287,11 @@ the app, which is v0.1 behaviour and not changed here.
 
 ## 30. Amendment N — Status chrome policy [ACCEPTED]
 
+> §36 (proposed 2026-09-26) retires the FULL and COMPACT bars described
+> here: the policy stays (a screen shows status unless its app declares
+> NONE, §30.2, §30.8), the bars do not. Until §36 is accepted this section is
+> what v0.1.0 shipped.
+
 **ACCEPTED 2026-09-23** by the owner, on the v0.0.11 RC1 unit A gate
 (`docs/hardware/V0.0.11_RELEASE_SMOKE.md`), which is what §30.7 below asked of the device
 only in part: see that sheet for the items it covered and the ones it did
@@ -3057,3 +3066,137 @@ same pipeline as Camera's:
   (2026-09-25), both orientations, with a real Zabbix 7.4.15 server. Every
   page is clickable, with nothing to click, so that a drag on text scrolls
   it; the gate found this in landscape STATUS.
+
+## 36. Amendment T — Compact status cluster [PROPOSED]
+
+**Proposed 2026-09-26** on branch `feat/compact-status-cluster`, at the
+owner's request, after v0.1.0. It becomes normative on the same terms as
+the rest of this document when the owner accepts it after its unit A gate
+(§36.7); until then the implementation is what is described here and
+nothing else. Nothing in §1–§35 is renumbered; §7, §9 and §30 point here.
+
+**Why.** The full-width status bar of §7, §9 and §30 took a whole row of
+the panel for four small things - a wordmark, a hint, the radio chip and the
+clock: 56 px above every app in portrait and on the launcher in both
+orientations, 32 px above every app in landscape. With the header of §7
+under it, a standard app's body did not start until row 152 (portrait) or
+128 (landscape).
+
+### 36.1 The cluster
+
+- **One capsule in the top-right corner**: the radio chip, then the clock.
+  Its width is its content's - 6 px, the chip, 10 px, the clock, 12 px, plus
+  the hairline - and never the screen's: 175 × 44 px in an app, 115 × 44 on
+  the shell's own screens, where it holds no clock (§31.1: they show the time
+  large). A wider chip state or a hidden clock changes where it starts, never
+  where it ends.
+- **Where.** 14 px from the top edge, so it is centred on the 72 px app
+  header row (§7) like the header's 56 px back slab; its right edge keeps the
+  header's side margin - 20 px, raised to the top edge's §21.1 corner inset
+  (30 px in portrait, 50 px at the top in landscape on the T-Display K230).
+  Inside the display and clear of the corner squares in both orientations,
+  however wide it asks to be.
+- **Look.** In an app it is what the bar was, shrunk to its content: `bg`
+  fill and a `hairline` in `line` all round, radius 6. On the launcher,
+  Controls and the lock it is the environment's glass (§31.1), as the
+  launcher's panels are. The chip is §9's in every state (RX, TX, OFF, NA),
+  32 px tall with its text centred by the line height of the font it is drawn
+  in (§32.4); the clock is §9's caption, with PocketClock's validity rule
+  (`--:--` when the wall clock is not set).
+- **What went.** The wordmark (DOORS appears on System and in the boot
+  splash, §19, not in the chrome) and the hint cell. The hint - what an app
+  writes with `pocketos_shell_set_status_hint()` - is carried by the app
+  header at its right end for every app, as §30.8 already did for the
+  fullscreen apps; a hint longer than the room left wraps onto a second
+  line inside the header.
+- **Behaviour kept.** The same once-a-second poll drives the chip and the
+  clock; the cluster takes no touch (the bar never did) and has no detail
+  view (the bar had none). Wi-Fi, Bluetooth and Ethernet were never in the
+  bar and are not added: they stay in Controls and System, where their
+  providers are (§31.5).
+
+### 36.2 Who decides
+
+§30.2 stands, with the bars replaced by the cluster:
+
+| Screen | Portrait | Landscape |
+| --- | --- | --- |
+| Launcher, Controls, lock | cluster (no clock) | cluster (no clock) |
+| App declaring DEFAULT | cluster | cluster |
+| App declaring NONE (§30.8) | nothing | nothing |
+| Lock over a NONE app | cluster, while the lock shows | the same |
+
+`FULL` and `COMPACT` are gone from `enum pocketos_chrome`; an app declares
+DEFAULT or NONE. The resolver is one line in `chrome_resolve()`.
+
+### 36.3 The viewport
+
+- **No policy reserves a row.** The content area starts at the top edge
+  under every chrome (`chrome_height()` is 0 for all), so there is no bar
+  and no empty padding where one was.
+- **The app header is the top row of every app**: 72 px from row 0, with
+  the top edge's corner insets at both ends (§21.1), and, under the cluster,
+  a right padding that stops its title and hint 16 px short of the widest box
+  the cluster can take (`chrome_row_reserve()`), so nothing in the header
+  runs under the cluster or moves when the chip changes state. The body
+  starts straight under it, at row 72.
+- **The launcher** lays its time out in a band kept clear of the cluster and
+  centred on the panels' centre line, level with the cluster's top (row 14);
+  the date, lower than the cluster, keeps the whole row.
+- **Controls** raises its side margin to the top corners (36 px, 50 in
+  landscape), centres its header row's buttons on row 36 like the app
+  header's back slab, and in landscape puts Lock and Power left of the
+  cluster.
+- Everything is derived in one place (`ui/shell/chrome.[ch]`,
+  `home_layout.c`, `controls_model.c`); no app has an offset of its own.
+
+### 36.4 What it gives back
+
+| Screen | Before | Now | Gained |
+| --- | --- | --- | --- |
+| Standard app body frame, portrait | 1060 (row 152) | 1116 (row 96) | 56 |
+| Standard app body frame, landscape | 420 (row 128) | 452 (row 96) | 32 |
+| The same above the keyboard, portrait / landscape | 764 / 124 | 820 / 156 | 56 / 32 |
+| Launcher, portrait | first panel at row 192 | row 142 | 50 |
+| Launcher, landscape | scrolls 120 px to its footer | scrolls 70 | 50 |
+| Controls | from row 56 | from row 0 | 56 |
+| Fullscreen apps (NONE) | 0 | 0 | unchanged |
+
+The standard apps now get the frame the fullscreen apps have had since
+§30.8. Every app test builds its frame from the resolver, so each app is
+tested in the frame the shell gives it; apps whose layout follows the body
+(Calculator's display, Calendar's month in landscape, Clock's face, System
+and Settings) take the height, and nothing else moves.
+
+### 36.5 Validation on the host
+
+`tests/chrome_test` (the resolver, no reserved row, the content box with
+and without the keyboard, the cluster's box - top-right, content-width,
+inside the display and its corner margin in both orientations - the row
+reserve and the chip), `tests/home_layout_test` and
+`tests/controls_model_test` (nothing under the cluster, nothing in a
+rounded top corner, the launcher's time centred), the app tests,
+`tests/chrome_shell_test.sh` (every app in both orientations measured from
+`shell.info`: the content from the top edge, the header at row 0 and the
+body at row 72, the title and hint clear of the cluster, the cluster inside
+the screen and hidden under NONE; the lock over a fullscreen app; RX, TX,
+OFF and `--` each drawn whole) and `tests/display_geometry_shell_test.sh`
+(no wordmark and no bar in any theme or mode, the cluster drawn whole and
+moved, not cut, by the corners).
+
+### 36.6 Not in this amendment
+
+A Wi-Fi, Bluetooth or Ethernet indicator in the cluster, and any detail
+view on it: the bar had neither, and both would be new status semantics.
+
+### 36.7 Unit A gate (before acceptance)
+
+The build's identity stated first. Portrait and landscape, and a rotation
+each way: the cluster in the top-right corner, clear of the rounded
+corners, with the clock in apps and without it on the launcher, Controls
+and the lock; the chip following the radio (RX, and OFF through Controls);
+the launcher, Controls, System, Settings, Clock and Calendar with their
+content from the top row and nothing under the cluster; RIFT, Wave,
+Camera, Fleet and Zabbix fullscreen as before; lock and unlock over an app
+and over a fullscreen app; touch unchanged; no crash reports and no
+service restarts.

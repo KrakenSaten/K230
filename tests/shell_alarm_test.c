@@ -36,7 +36,9 @@
 
 #define PANEL_W 568
 #define PANEL_H 1232
-#define STATUS_H 56
+/* The content area's top: the top edge, since no chrome reserves a row
+ * there any more (DS §36, ui/shell/chrome.h). */
+#define STATUS_H 0
 
 static int failed;
 static int checks;

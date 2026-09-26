@@ -4,11 +4,11 @@
 #
 #   1. display_touch_test: display and touch rotated together through LVGL's
 #      real evdev driver; and the source rules that keep them one decision.
-#   2. Portrait and landscape, every theme and display mode: the status bar's
-#      wordmark and clock sit inside the safe area, the wordmark is drawn whole
-#      (pixel-identical to a panel with no rounded corners, only moved), the
-#      launcher below the bar is unchanged in portrait, and in landscape it is
-#      the six-by-two grid of the same 150 px tiles, every icon in its tile.
+#   2. Portrait and landscape, every theme and display mode: no status bar and
+#      no wordmark along the top edge (DS §36); the status cluster in the
+#      top-right corner, inside the safe area and drawn whole (pixel-identical
+#      to a panel with no rounded corners, only moved), and the launcher under
+#      it drawn and clear of the bottom corners.
 #   3. The policy in the running shell: stored Portrait and Landscape, Automatic
 #      with a keyboard present, absent and unknown, an invalid stored value,
 #      the bench override, a mode stored over IPC applying at the next start,
@@ -118,7 +118,7 @@ check "the simulator's keyboard hooks are compiled out of the panel's build" \
        sed -n '/POCKETOS_SHELL_TEST_HOOKS/,/#else/p' ui/shell/shell_kbd.c | grep -q POCKETOS_TEST_KEYBOARD_FILE &&
        grep -rq 'POCKETOS_TEST_KEYBOARD' ui/shell/shell_display.c && echo 0 || echo 1)"
 
-# look <png> <theme> <mode> <label> <corner>: status bar and launcher checks.
+# look <png> <theme> <mode> <label> <corner>: status cluster and launcher checks.
 look() {
     python3 - "$@" <<'PY'
 import json, re, sys
@@ -126,6 +126,8 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, "docs/design/timber-art/tools")
 from pngio import read_png
 path, theme, mode, label, corner = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5])
+# The top corners, where the cluster is; the bottom ones are `corner`.
+top = int(sys.argv[6]) if len(sys.argv) > 6 else corner
 tok = json.load(open("docs/design/themes.json", encoding="utf-8"))["themes"][theme]["modes"][mode]
 hexrgb = lambda s: tuple(int(s[i:i + 2], 16) for i in (1, 3, 5))
 acc, surf, bg = hexrgb(tok["accent_primary"]), hexrgb(tok["surface"]), hexrgb(tok["bg"])
@@ -140,42 +142,40 @@ src = open("ui/pocketui/pos_app_icons.c", encoding="utf-8").read()
 masks = {n: [int(v, 16) for v in re.findall(r"0x([0-9a-f]{2})",
                                              re.search(r"pos_app_icon_%s_map\[\][^{]*\{(.*?)\};" % n, src, re.S).group(1))]
          for n in re.findall(r"^const lv_image_dsc_t pos_app_icon_(\w+) = \{", src, re.M)}
-# Status bar: ink anywhere in the bar's content band that is not the bar's own
-# background. The chip is a filled slab and counts as ink too.
+# DS §36: no status bar and no wordmark along the top edge. Over the plain
+# background the top-left of the screen is empty: the launcher's time is
+# centred and starts well right of it.
 barbg = px(2, 3)
-ink = [(x, y) for y in range(6, 50) for x in range(W) if not near(px(x, y), barbg, 12)]
+left = [(x, y) for y in range(0, 64) for x in range(0, 150) if not near(px(x, y), barbg, 12)]
+check("no wordmark and no bar: nothing drawn in the top-left 150 x 64 (%d points)" % len(left), not left)
+# The status cluster: ink in the top-right corner band, the glass capsule
+# with the radio chip in it. The launcher shows its time large, so the
+# cluster holds no clock here (DS §31.1).
+ink = [(x, y) for y in range(0, 70) for x in range(W - 180, W) if not near(px(x, y), barbg, 12)]
 xs = sorted(set(x for x, _ in ink))
-# Groups of ink columns separated by gaps of more than 24 px: wordmark, chip, clock.
-groups = []
-for x in xs:
-    if groups and x - groups[-1][1] <= 24:
-        groups[-1][1] = x
-    else:
-        groups.append([x, x])
-check("status bar ink starts at x %d and ends at x %d, inside %d px of each side" % (xs[0], xs[-1], corner),
-      xs[0] >= corner and xs[-1] <= W - 1 - corner)
-# On the launcher the clock is the header's, large (DS §31.1), not the bar's.
-check("status bar has the wordmark and the radio chip, and no clock (%d ink groups)" % len(groups), len(groups) == 2)
-word = groups[0]
-wy = [y for x, y in ink if word[0] <= x <= word[1]]
-check("the wordmark (x %d..%d, y %d..%d) is clear of the %d px corner" % (word[0], word[1], min(wy), max(wy), corner),
-      word[0] >= corner)
-chip = groups[-1]
-check("the radio chip (x %d..%d) is wholly in the safe area" % (chip[0], chip[1]), chip[1] <= W - 1 - corner)
-# The DOORS launcher below the bar. Its geometry is tests/home_layout_test.c's
+ys = sorted(set(y for _, y in ink))
+check("the status cluster is drawn in the top-right corner (%d points of ink)" % len(ink), len(ink) > 200)
+if ink:
+    check("the cluster (x %d..%d) ends inside the %d px safe margin, not at the edge" % (xs[0], xs[-1], top),
+          xs[-1] <= W - 1 - top and xs[-1] >= W - 1 - top - 4)
+    check("the cluster (y %d..%d) sits in the top row, clear of the %d px corner square" % (ys[0], ys[-1], top),
+          ys[0] >= 10 and ys[-1] <= 62 and xs[-1] < W - top)
+    check("the cluster is as wide as its content, not the screen (%d px)" % (xs[-1] - xs[0] + 1),
+          xs[-1] - xs[0] + 1 < 160)
+# The DOORS launcher under it. Its geometry is tests/home_layout_test.c's
 # and its art tests/doors_shell_test.sh's; here, that it is drawn and keeps
 # out of the bottom corners.
 drawn = sum(1 for y in range(60, H, 8) for x in range(0, W, 8) if not near(px(x, y), bg, 6))
-check("the launcher is drawn below the bar (%d sampled points of ink)" % drawn, drawn > 150)
+check("the launcher is drawn (%d sampled points of ink)" % drawn, drawn > 150)
 cor = [(x, y) for y in range(H - corner, H) for x in list(range(0, corner)) + list(range(W - corner, W))]
 check("nothing is drawn in the bottom corner squares", all(near(px(x, y), bg, 3) for x, y in cor))
 print("\n".join(out))
 PY
 }
 
-# same_but_bar <a.png> <b.png> <dx>: b's status-bar wordmark is a's shifted right
-# by dx, pixel for pixel, and the screens below the bar are identical.
-same_but_bar() {
+# same_but_cluster <a.png> <b.png> <dx>: b's status cluster is a's shifted left
+# by dx, pixel for pixel, and the launcher under it is identical.
+same_but_cluster() {
     python3 - "$@" <<'PY'
 import sys
 sys.dont_write_bytecode = True
@@ -183,42 +183,46 @@ sys.path.insert(0, "docs/design/timber-art/tools")
 from pngio import read_png
 a, b, dx = read_png(sys.argv[1])[2], read_png(sys.argv[2])[2], int(sys.argv[3])
 W = len(a[0])
-word_same = all(a[y][x][:3] == b[y][x + dx][:3] for y in range(6, 50) for x in range(0, 120))
-# Below the bar, less the launcher's header (DS §31.3): its time is the wall
-# clock's, and the two shots compared are seconds apart.
-below_same = a[56 + 8:56 + 8] == b[56 + 8:56 + 8] and a[56 + 124:] == b[56 + 124:] and \
-    all(a[y][:120] == b[y][:120] and a[y][-120:] == b[y][-120:] for y in range(56, 56 + 124))
-print("%d %d" % (word_same, below_same))
+# The cluster's band: the 130 px left of the right margin the rectangular
+# panel keeps (20 px), in the top 64 rows - the cluster and a little air,
+# and not the launcher's time, which is centred and does not move.
+cluster_same = all(a[y][x][:3] == b[y][x - dx][:3] for y in range(0, 64) for x in range(W - 150, W - 20))
+# The launcher, less its header (DS §31.3): its time is the wall clock's,
+# and the two shots compared are seconds apart.
+below_same = a[124:] == b[124:] and all(a[y][:120] == b[y][:120] for y in range(0, 124))
+print("%d %d" % (cluster_same, below_same))
 PY
 }
 
 # ---- 2. both orientations, every theme and mode --------------------------------
 fresh
 for orient in portrait landscape; do
+    # The corners in force: 30 px in portrait; in landscape the top ones are
+    # 50 px (platform.h, DS §21.1), and the bottom ones 30.
+    corner=30; [ "$orient" = landscape ] && corner=50
     for theme in doors ice brass olive slate carbon; do
         for mode in normal outdoor night; do
             png="$OUT/$orient-$theme-$mode.png"
             shot "$png" "$OUT/$orient-$theme-$mode.log" --rotation "$orient" --theme "$theme" --mode "$mode"
-            look "$png" "$theme" "$mode" "$orient" 30 >"$OUT/$orient-$theme-$mode.checks" 2>&1
+            look "$png" "$theme" "$mode" "$orient" 30 $corner >"$OUT/$orient-$theme-$mode.checks" 2>&1
             grep -v '^ok' "$OUT/$orient-$theme-$mode.checks"
             failed=$((failed + $(grep -vc '^ok' "$OUT/$orient-$theme-$mode.checks")))
-            check "$orient $theme/$mode: $(grep -c '^ok' "$OUT/$orient-$theme-$mode.checks") status bar and launcher checks passed" \
-                "$([ "$(grep -c '^ok' "$OUT/$orient-$theme-$mode.checks")" = 6 ] && echo 1 || echo 0)"
+            check "$orient $theme/$mode: $(grep -c '^ok' "$OUT/$orient-$theme-$mode.checks") status cluster and launcher checks passed" \
+                "$([ "$(grep -c '^ok' "$OUT/$orient-$theme-$mode.checks")" = 7 ] && echo 1 || echo 0)"
         done
     done
-    # A rectangular panel: no rounded corners, so the bar keeps its own 20 px.
+    # A rectangular panel: no rounded corners, so the cluster keeps the
+    # header's own 20 px margin (POCKETUI_PAD).
     POCKETOS_SAFE_CORNERS=0,0,0,0 shot "$OUT/$orient-rect.png" "$OUT/$orient-rect.log" --rotation "$orient" \
         --theme ice --mode normal
-    look "$OUT/$orient-rect.png" ice normal "$orient rectangular" 20 >"$OUT/$orient-rect.checks" 2>&1
-    first=$(grep -oE 'ink starts at x [0-9]+' "$OUT/$orient-rect.checks" | grep -oE '[0-9]+$')
-    check "$orient, rectangular panel: the bar's padding stays 20 px (wordmark ink from x $first)" \
-        "$([ "${first:-0}" -ge 20 ] && [ "${first:-99}" -le 22 ] && echo 1 || echo 0)"
-    # The corners in force: 30 px in portrait; in landscape the top ones are
-    # 50 px (platform.h, DS §21.1), so the bar's 20 px padding grows by 30.
-    corner=30; [ "$orient" = landscape ] && corner=50
-    set -- $(same_but_bar "$OUT/$orient-rect.png" "$OUT/$orient-ice-normal.png" $((corner - 20)))
-    check "$orient: with $corner px top corners the wordmark is the same pixels moved $((corner - 20)) px right (drawn whole)" "${1:-0}"
-    check "$orient: and everything below the status bar is identical to the rectangular panel" "${2:-0}"
+    look "$OUT/$orient-rect.png" ice normal "$orient rectangular" 20 20 >"$OUT/$orient-rect.checks" 2>&1
+    last=$(grep -oE 'cluster \(x [0-9]+\.\.[0-9]+\) ends' "$OUT/$orient-rect.checks" | grep -oE '\.\.[0-9]+' | tr -d .)
+    W=568; [ "$orient" = landscape ] && W=1232
+    check "$orient, rectangular panel: the cluster keeps a 20 px margin (ink to x ${last:-none})" \
+        "$([ -n "$last" ] && [ "$last" -le $((W - 21)) ] && [ "$last" -ge $((W - 25)) ] && echo 1 || echo 0)"
+    set -- $(same_but_cluster "$OUT/$orient-rect.png" "$OUT/$orient-ice-normal.png" $((corner - 20)))
+    check "$orient: with $corner px top corners the cluster is the same pixels moved $((corner - 20)) px left (drawn whole)" "${1:-0}"
+    check "$orient: and the launcher under it is identical to the rectangular panel's" "${2:-0}"
 done
 
 # ---- 3. the policy in the running shell -----------------------------------------
@@ -294,10 +298,10 @@ d=$(info)
 check "a theme and mode change keeps the orientation ($d)" \
     "$(printf '%s' "$d" | grep -q '"width":1232,"height":568' && printf '%s' "$d" | grep -q '"rotation":270' && echo 1 || echo 0)"
 "$POS" shell screenshot "$OUT/landscape-after-theme.png" >/dev/null 2>&1
-look "$OUT/landscape-after-theme.png" carbon night "landscape after a live theme change" 30 >"$OUT/after-theme.checks" 2>&1
+look "$OUT/landscape-after-theme.png" carbon night "landscape after a live theme change" 30 50 >"$OUT/after-theme.checks" 2>&1
 grep -v '^ok' "$OUT/after-theme.checks"; failed=$((failed + $(grep -vc '^ok' "$OUT/after-theme.checks")))
 check "and the landscape launcher is drawn in that theme ($(grep -c '^ok' "$OUT/after-theme.checks") checks)" \
-    "$([ "$(grep -c '^ok' "$OUT/after-theme.checks")" = 6 ] && echo 1 || echo 0)"
+    "$([ "$(grep -c '^ok' "$OUT/after-theme.checks")" = 7 ] && echo 1 || echo 0)"
 opened=0
 for id in radio system fleet radar timber notes clock calendar calculator settings wave files camera; do
     "$POS" app start "$id" >/dev/null 2>&1 && sleep 0.4 &&
