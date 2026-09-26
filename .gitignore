@@ -166,3 +166,14 @@ BUILD_ID
 /tests/zbx_client_test
 /tests/zabbix_view_test
 /tests/zabbix_session_test
+# Browser (docs/apps/BROWSER.md)
+/tools/browser/pos-browser
+/tests/web_url_test
+/tests/web_html_test
+/tests/web_proto_test
+/tests/web_history_test
+/tests/web_store_test
+/tests/web_fetch_test
+/tests/web_image_test
+/tests/browser_view_test
+/tests/browser_session_test

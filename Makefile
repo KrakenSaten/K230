@@ -179,7 +179,7 @@ ifeq ($(ENABLE_MESHCORED),1)
 endif
 
 BINS := tools/pos/pos services/radiod/radiod services/sysd/sysd services/netd/netd tools/hwcheck/pos-spixfer \
-        tools/wave/pos-wave tools/camera/pos-camera tools/zabbix/pos-zabbix
+        tools/wave/pos-wave tools/camera/pos-camera tools/zabbix/pos-zabbix tools/browser/pos-browser
 ifeq ($(ENABLE_MESHCORED),1)
 BINS += services/meshcored/meshcored
 endif
@@ -292,8 +292,10 @@ tests/sysd-testhooks: $(SYSD_BASE_OBJS) tests/sysd_power_hooks.o
 # is missing here.
 # pos-zabbix's transport names POCKETOS_VERSION in its User-Agent; it is one
 # source built under two names (ZABBIX_CURL), so both are listed.
+# pos-browser's fetcher does the same (BROWSER_CURL).
 POCKETOS_ID_OBJS := core/pocketlog/pocketlog.o tools/pos/pos.o tests/pocketlog_test.o \
-                    core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o
+                    core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o \
+                    core/web/web_fetch_curl.o core/web/web_fetch_none.o
 $(POCKETOS_ID_OBJS): $(POCKETOS_BUILD_STAMP)
 
 # Compile-only check of the sx1262 backend on a host without libgpiod v2
@@ -1235,6 +1237,124 @@ zabbix-san-test:
 	    ./tests/zbx_config_test && ./tests/zbx_client_test && TZ=UTC ./tests/zabbix_view_test && \
 	    ./tests/zabbix_session_test tools/zabbix/pos-zabbix
 
+# Browser (docs/apps/BROWSER.md, ADR-009 PROPOSED).
+#
+# core/web is the Browser's reader, all pure C: addresses, the bounded page
+# document, the app/helper line protocol, the back/forward list and the
+# remembered state (the parts the shell links), and, for the helper alone,
+# the HTML reader, the fetch rules, the fake network, the libcurl fetcher and
+# the image decoders. pos-browser is the helper, the only program that
+# fetches a page; the app's helper client and presentation logic in
+# apps/browser are LVGL-free and tested here against the real helper on the
+# fake network. The screen is built by ui/shell (tests/browser_shell_test.sh).
+#
+# BROWSER_CURL=1 builds the real fetcher with libcurl, and BROWSER_IMAGES=1
+# the JPEG and PNG decoders with libjpeg and libpng; all three are in the
+# K230 image and its sysroot, and the Buildroot package sets both. Without
+# them pos-browser has the fake network only and says so (features).
+BROWSER_CURL ?= 0
+BROWSER_CURL_CFLAGS ?=
+BROWSER_CURL_LIBS ?= -lcurl
+BROWSER_IMAGES ?= 0
+BROWSER_IMAGE_CFLAGS ?=
+BROWSER_IMAGE_LIBS ?= -ljpeg -lpng
+WEB_DIR := core/web
+WEB_APP_OBJS := $(WEB_DIR)/web_url.o $(WEB_DIR)/web_doc.o $(WEB_DIR)/web_proto.o \
+                $(WEB_DIR)/web_history.o $(WEB_DIR)/web_store.o
+WEB_LIBS := -lm
+# The fetcher and the decoders are each one source built two ways, under two
+# object names, so a tree built both ways can never link the wrong one.
+ifeq ($(BROWSER_CURL),1)
+WEB_FETCH_OBJ := $(WEB_DIR)/web_fetch_curl.o
+$(WEB_FETCH_OBJ): ALL_CFLAGS += -DBROWSER_HAVE_CURL $(BROWSER_CURL_CFLAGS)
+WEB_LIBS += $(BROWSER_CURL_LIBS)
+else
+WEB_FETCH_OBJ := $(WEB_DIR)/web_fetch_none.o
+endif
+ifeq ($(BROWSER_IMAGES),1)
+WEB_IMAGE_OBJ := $(WEB_DIR)/web_image_dec.o
+WEB_LIBS += $(BROWSER_IMAGE_LIBS)
+else
+WEB_IMAGE_OBJ := $(WEB_DIR)/web_image_none.o
+endif
+WEB_HELPER_OBJS := $(WEB_APP_OBJS) $(WEB_DIR)/web_html.o $(WEB_DIR)/web_fetch.o $(WEB_DIR)/web_fake.o \
+                   $(WEB_FETCH_OBJ) $(WEB_IMAGE_OBJ)
+
+$(WEB_DIR)/web_fetch_none.o: $(WEB_DIR)/web_fetch_curl.c
+	$(CC) $(ALL_CFLAGS) -c -o $@ $<
+$(WEB_DIR)/web_image_none.o: $(WEB_DIR)/web_image.c
+	$(CC) $(ALL_CFLAGS) -c -o $@ $<
+$(WEB_DIR)/web_image_dec.o: $(WEB_DIR)/web_image.c
+	$(CC) $(ALL_CFLAGS) -DBROWSER_HAVE_JPEG -DBROWSER_HAVE_PNG $(BROWSER_IMAGE_CFLAGS) -c -o $@ $<
+
+BROWSER_DIR := apps/browser
+BROWSER_OBJS := $(BROWSER_DIR)/browser_session.o $(BROWSER_DIR)/browser_view.o
+POS_BROWSER_OBJS := tools/browser/pos_browser.o $(WEB_HELPER_OBJS) $(PATHS_OBJS) $(LOG_OBJS)
+BROWSER_TESTS := tests/web_url_test tests/web_html_test tests/web_proto_test tests/web_history_test \
+                 tests/web_store_test tests/web_fetch_test tests/web_image_test tests/browser_view_test \
+                 tests/browser_session_test
+
+$(BROWSER_DIR)/%.o: $(BROWSER_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) -I$(BROWSER_DIR) -c -o $@ $<
+
+tools/browser/pos-browser: $(POS_BROWSER_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(WEB_LIBS)
+
+tests/web_%_test.o: tests/web_%_test.c
+	$(CC) $(ALL_CFLAGS) -c -o $@ $<
+
+tests/browser_%_test.o: tests/browser_%_test.c
+	$(CC) $(ALL_CFLAGS) -I$(BROWSER_DIR) -c -o $@ $<
+
+tests/web_url_test: tests/web_url_test.o $(WEB_DIR)/web_url.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/web_html_test: tests/web_html_test.o $(WEB_DIR)/web_url.o $(WEB_DIR)/web_doc.o $(WEB_DIR)/web_html.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/web_proto_test: tests/web_proto_test.o $(WEB_DIR)/web_url.o $(WEB_DIR)/web_doc.o $(WEB_DIR)/web_html.o \
+                      $(WEB_DIR)/web_proto.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/web_history_test: tests/web_history_test.o $(WEB_DIR)/web_history.o $(WEB_DIR)/web_url.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/web_store_test: tests/web_store_test.o $(WEB_DIR)/web_store.o $(WEB_DIR)/web_url.o $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/web_fetch_test: tests/web_fetch_test.o $(WEB_HELPER_OBJS) $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(WEB_LIBS)
+
+tests/web_image_test.o: tests/web_image_test.c
+	$(CC) $(ALL_CFLAGS) $(if $(filter 1,$(BROWSER_IMAGES)),-DBROWSER_HAVE_JPEG -DBROWSER_HAVE_PNG $(BROWSER_IMAGE_CFLAGS)) -c -o $@ $<
+
+tests/web_image_test: tests/web_image_test.o $(WEB_IMAGE_OBJ)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(if $(filter 1,$(BROWSER_IMAGES)),$(BROWSER_IMAGE_LIBS)) -lm
+
+tests/browser_view_test: tests/browser_view_test.o $(BROWSER_DIR)/browser_view.o $(WEB_APP_OBJS) $(WEB_DIR)/web_html.o \
+                         $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/browser_session_test: tests/browser_session_test.o $(BROWSER_OBJS) $(WEB_APP_OBJS) $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# The Browser suites again under the address and undefined-behaviour
+# sanitizers, in a separate build tree so the ordinary objects are untouched.
+# The helper is built with them too: the session test drives it.
+BROWSER_SAN_DIR := out/browser-san
+browser-san-test:
+	rm -rf $(BROWSER_SAN_DIR) && mkdir -p $(BROWSER_SAN_DIR)
+	git ls-files --cached --others --exclude-standard core apps/browser tools/browser tests/web_* tests/browser_* \
+	    Makefile VERSION | tar -cf - -T - | tar -xf - -C $(BROWSER_SAN_DIR)
+	$(MAKE) -C $(BROWSER_SAN_DIR) CC="$(CC)" POCKETOS_BUILD_ID=$(POCKETOS_BUILD_ID) \
+	    BROWSER_CURL=$(BROWSER_CURL) BROWSER_CURL_CFLAGS="$(BROWSER_CURL_CFLAGS)" BROWSER_CURL_LIBS="$(BROWSER_CURL_LIBS)" \
+	    BROWSER_IMAGES=$(BROWSER_IMAGES) \
+	    CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all" \
+	    LDFLAGS="-fsanitize=address,undefined" $(BROWSER_TESTS) tools/browser/pos-browser
+	cd $(BROWSER_SAN_DIR) && ./tests/web_url_test && ./tests/web_html_test && ./tests/web_proto_test && \
+	    ./tests/web_history_test && ./tests/web_store_test && ./tests/web_fetch_test && ./tests/web_image_test && \
+	    ./tests/browser_view_test && ./tests/browser_session_test tools/browser/pos-browser
+
 # Every binary `make test` builds on top of $(BINS). Each of them, and each of
 # $(BINS), has to be git-ignored: apply_to_sdk.sh calls an image's BUILD_ID
 # "<commit>-dirty" when `git status --porcelain` shows anything, so a single
@@ -1250,7 +1370,7 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
              tests/kbd_presence_test tests/chrome_test tests/home_layout_test tests/art_format_test \
              tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
              $(NOTES_TESTS) $(FILES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) $(CALC_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test \
-             $(WAVE_TESTS) $(RIFT_TESTS) $(CAMERA_TESTS) $(ZABBIX_TESTS)
+             $(WAVE_TESTS) $(RIFT_TESTS) $(CAMERA_TESTS) $(ZABBIX_TESTS) $(BROWSER_TESTS)
 
 # Native tests only (they execute binaries).
 test: all $(TEST_BINS)
@@ -1348,6 +1468,16 @@ test: all $(TEST_BINS)
 	TZ=UTC ./tests/zabbix_view_test
 	./tests/zabbix_session_test tools/zabbix/pos-zabbix
 	bash tests/zabbix_http_test.sh
+	./tests/web_url_test
+	./tests/web_html_test
+	./tests/web_proto_test
+	./tests/web_history_test
+	./tests/web_store_test
+	./tests/web_fetch_test
+	./tests/web_image_test
+	./tests/browser_view_test
+	./tests/browser_session_test tools/browser/pos-browser
+	bash tests/browser_http_test.sh
 	bash tests/wave_tool_test.sh
 	bash tests/audio_recovery_test.sh
 	bash tests/capture_settle_test.sh
@@ -1391,6 +1521,7 @@ test: all $(TEST_BINS)
 	bash tests/rift_lint.sh
 	bash tests/camera_lint.sh
 	bash tests/zabbix_lint.sh
+	bash tests/browser_lint.sh
 
 install: all meshcored-shipping-check
 # The command-line tool is installed as doors, and pos is a symlink to it: one
@@ -1405,6 +1536,7 @@ install: all meshcored-shipping-check
 	install -D -m 0755 tools/wave/pos-wave $(DESTDIR)$(PREFIX)/bin/pos-wave
 	install -D -m 0755 tools/camera/pos-camera $(DESTDIR)$(PREFIX)/bin/pos-camera
 	install -D -m 0755 tools/zabbix/pos-zabbix $(DESTDIR)$(PREFIX)/bin/pos-zabbix
+	install -D -m 0755 tools/browser/pos-browser $(DESTDIR)$(PREFIX)/bin/pos-browser
 	install -D -m 0755 services/radiod/radiod $(DESTDIR)$(PREFIX)/sbin/radiod
 	install -D -m 0755 services/sysd/sysd $(DESTDIR)$(PREFIX)/sbin/sysd
 	install -D -m 0755 services/netd/netd $(DESTDIR)$(PREFIX)/sbin/netd
@@ -1450,7 +1582,7 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 
 clean:
 	$(MAKE) -C tools/meshcore-frame clean
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd_logs_test tests/sysd_logs_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_NET_OBJS) $(FLEET_LINK_OBJS) apps/fleet/link/fleet_link_mesh.o $(FLEET_VIEW_MP_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/wave_channel.o tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o tests/volume_test tests/volume_test.o ui/shell/volume.o tests/controls_model_test tests/controls_model_test.o ui/shell/controls_model.o apps/system/diag_view.o tests/diag_view_test tests/diag_view_test.o $(ZBX_OBJS) core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o $(ZABBIX_OBJS) $(ZABBIX_TESTS) $(ZABBIX_TESTS:=.o) tools/zabbix/pos_zabbix.o tools/zabbix/pos_zabbix_mock.o $(POCKETOS_BUILD_STAMP)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd_logs_test tests/sysd_logs_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_NET_OBJS) $(FLEET_LINK_OBJS) apps/fleet/link/fleet_link_mesh.o $(FLEET_VIEW_MP_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/wave_channel.o tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o tests/volume_test tests/volume_test.o ui/shell/volume.o tests/controls_model_test tests/controls_model_test.o ui/shell/controls_model.o apps/system/diag_view.o tests/diag_view_test tests/diag_view_test.o $(ZBX_OBJS) core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o $(ZABBIX_OBJS) $(ZABBIX_TESTS) $(ZABBIX_TESTS:=.o) tools/zabbix/pos_zabbix.o tools/zabbix/pos_zabbix_mock.o $(WEB_HELPER_OBJS) $(WEB_DIR)/web_fetch_curl.o $(WEB_DIR)/web_fetch_none.o $(WEB_DIR)/web_image_dec.o $(WEB_DIR)/web_image_none.o $(BROWSER_OBJS) $(BROWSER_TESTS) $(BROWSER_TESTS:=.o) tools/browser/pos_browser.o $(POCKETOS_BUILD_STAMP)
 
 # The files `make all` and `make test` produce, one to a line, for
 # tests/build_outputs_test.sh.
@@ -1638,7 +1770,7 @@ meshcored-clean:
 	      tests/meshcored_store_hooks.o \
 	      services/meshcored/*.d tests/meshcored_*.d
 
-.PHONY: all test install clean sx1262-objs print-build-outputs \
+.PHONY: all test install clean sx1262-objs print-build-outputs browser-san-test \
         meshcore-frame meshcore-frame-test \
         meshcore-core meshcore-core-test meshcore-core-riscv64 \
         meshcored meshcored-test meshcored-clean meshcored-shipping-check
