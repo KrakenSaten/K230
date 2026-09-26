@@ -3,22 +3,23 @@
  * the shell gives it, and when the touch keyboard comes up. Pure C, decided
  * from numbers alone: tests/wave_layout_test.c.
  *
- * THE SHAPES (sizes on the reference panel, Wave being fullscreen):
+ * THE SHAPES (content boxes on the reference panel, Wave being fullscreen
+ * under the DS §36 frame, measured on unit A):
  *
- *   TALL   portrait, 528 x 1060 (528 x 764 with the touch keyboard up).
+ *   TALL   portrait, 528 x 1106 (528 x 820 with the touch keyboard up).
  *          One column: state and status, the history (which takes whatever
  *          is left and scrolls inside its own card), the preset, LISTEN and
  *          CAPTURE, and the composer row - message field and SEND - at the
  *          foot, next to the thumb and right above the keyboard.
  *
- *   WIDE   landscape, 1192 x 396. Two columns over the composer row: the
+ *   WIDE   landscape, 1192 x 442. Two columns over the composer row: the
  *          state, status and history on the left, a rail of controls on the
  *          right (preset, LISTEN, CAPTURE, byte counter). The composer runs
  *          the full width underneath, with a KEYS button for the touch
  *          keyboard.
  *
- *   STRIP  landscape with the touch keyboard up: the body is about 100 px
- *          tall. Only the composer row (field, SEND, KEYS) is shown, 64 px,
+ *   STRIP  landscape with the touch keyboard up: the body is 156 px tall.
+ *          Only the composer row (field, SEND, HIDE) is shown, 64 px,
  *          because that is all there is room for and all that is needed
  *          while typing.
  *

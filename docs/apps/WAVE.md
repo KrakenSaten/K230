@@ -38,7 +38,8 @@ hardware (docs/hardware/WAVE_NEXT_GATE.md lists what has to be checked).
   decodes the recording (`pos-wave record`, then `pos-wave decode`). For a
   sender that started before the button was pressed, a noisy room, or a board
   too busy for live decoding. While capturing the button reads **DECODE NOW**
-  and ends the recording early; STOP throws it away.
+  and ends the recording early; STOP (the SEND button, while a capture
+  runs) throws it away.
 - **History:** everything sent and heard, newest first, kept across restarts,
   bounded. A tap on an entry copies its text into the message field (to
   answer or resend). **CLEAR** takes two taps (the first arms it for 4 s and
@@ -137,16 +138,16 @@ at the longest (30 s) it is 2.9 MB of RAM on a tmpfs for a few seconds.
 touches the shell's chrome, status area or viewport: it lays out inside the
 body it is given (`POCKETOS_CHROME_NONE`, unchanged).
 
-- **Portrait (TALL, 528 x 1060):** chip and status; MICROPHONE ON when on;
+- **Portrait (TALL, 528 x 1106):** chip and status; MICROPHONE ON when on;
   the history, which takes the rest and scrolls inside itself; the preset
   button with its one-line summary; LISTEN and CAPTURE; CLEAR and the byte
   counter; and the composer row at the foot - message field and **SEND** side
-  by side, right above the keyboard. With the touch keyboard up (528 x 764)
+  by side, right above the keyboard. With the touch keyboard up (528 x 820)
   the history shrinks and everything else stays.
-- **Landscape (WIDE, 1192 x 396):** the history column on the left, a 400 px
+- **Landscape (WIDE, 1192 x 442):** the history column on the left, a 400 px
   rail of controls on the right, the composer row across the full width
   underneath with a **KEYS** button.
-- **Landscape with the touch keyboard up (STRIP, 1192 x 100):** only the
+- **Landscape with the touch keyboard up (STRIP, 1192 x 156):** only the
   composer row - field, SEND, HIDE.
 - The body never scrolls; every control is at least 64 px.
 
@@ -386,7 +387,7 @@ the window. It is a property of the codec, not a ggwave delay.
 | `tests/wave_sim_test.c` + `tests/wave_channel.c` | the host simulator (below): two Waves and a simulated air path over the real modem, the real event parser and the real model | 38 |
 | `tests/wave_tool_test.sh` | pos-wave on files and on ALSA's null device: encode/decode, limits, unsupported and broken WAVs, stereo slot choice, event order, the K230 gates (both validated paths pass the gate and stop at the missing card), missing device, held lock, SIGTERM, a vanished reader, bench recording | 59 |
 | `tests/wave_lint.sh` | boundaries: LVGL only in the screen, no hardware in apps/wave, ALSA only in pocketaudio, no threads or shell-outs, no sleeping in the app or the controller, the app never calls the session's blocking functions, the one bounded wait only in close() from destroy(), files only in wave_store.c, captures only in the runtime directory, the listen toggle never stored, the history bounded, no preset past the privacy bound, text never in argv, PDEATHSIG, logging off, both K230 paths validated with the ceiling, volume cap and default volume unchanged, the test board still unvalidated, the 500 ms discard, nothing shipped setting the override, test registration | 71 |
-| `tests/wave_app_test.c` (LVGL, host) | the screen against the fake helper, portrait and landscape: one screen, typing, counter, SEND and Enter (field cleared, keyboard away), chip and SENDING hint, Sent, LISTEN with MICROPHONE ON and MIC ON, a received message, a send while listening that resumes the listen, STOP LISTEN, CAPTURE and its decode, a tap on an entry into the field, preset cycling, ROBUST's two copies, errors in words, mute, the preset and history across a restart, CLEAR twice, leaving mid-listen (and a helper that ignores SIGTERM); portrait: the field brings the keyboard; landscape: it does not, KEYS does, the strip above the keyboard, HIDE; 64 px targets and no body scroll in every state | 82 |
+| `tests/wave_app_test.c` (LVGL, host) | the screen against the fake helper, portrait and landscape: one screen, typing, counter, SEND and Enter (field cleared, keyboard away), chip and SENDING hint, Sent, LISTEN with MICROPHONE ON and MIC ON, a received message, a send while listening that resumes the listen, STOP LISTEN, CAPTURE and its decode, STOP throwing a capture away, a tap on an entry into the field, preset cycling, ROBUST's two copies, errors in words, mute, the preset and history across a restart, CLEAR twice, leaving mid-listen (and a helper that ignores SIGTERM); portrait: the field brings the keyboard and Enter's own click does not bring it back after a send; landscape: it does not, KEYS does, the strip above the keyboard, HIDE; 64 px targets and no body scroll in every state | 87 |
 | `tests/wave_shell_test.sh` | runs the app test; launcher and CMake wiring (every Wave source); the real shell opens and closes Wave with no lock taken and nothing stored | 21 |
 
 ```sh

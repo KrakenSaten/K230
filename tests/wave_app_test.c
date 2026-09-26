@@ -713,7 +713,7 @@ int main(void)
     check("landscape: KEYS brings the touch keyboard up", kb_shown && kb_show_calls == 1);
     check("landscape with the keyboard up: only the composer row is left",
           !shows("HISTORY") && !shows("LISTEN") && shows("SEND") && shows("HIDE"));
-    check("and it fits the 100 px above the keyboard", body_fits() && small_targets(app_body) == 0);
+    check("and it fits the room above the keyboard", body_fits() && small_targets(app_body) == 0);
     tap("HIDE");
     pump(40);
     check("landscape: HIDE puts it away and gives the screen back", !kb_shown && shows("HISTORY") &&
