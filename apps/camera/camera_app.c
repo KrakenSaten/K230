@@ -20,12 +20,18 @@
  * carries the back button and whatever the hint says (SIMULATED under the
  * fake backend, so a made-up picture is never mistaken for a camera).
  *
+ * THE GALLERY (camera_gallery_screen.c) shares the body: PHOTOS ends the
+ * camera's helper - the camera is closed while photos are browsed - and the
+ * gallery runs the library helper on the same session; CAMERA there ends it
+ * and opens the camera again, exactly as a fresh visit does.
+ *
  * KEYBOARD (not implemented, documented in docs/apps/CAMERA.md): Space or
  * Enter for the shutter, K and D in review.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #include "app.h"
+#include "camera_gallery_screen.h"
 #include "camera_layout.h"
 #include "camera_session.h"
 #include "camera_state.h"
@@ -64,6 +70,8 @@ struct camera_app {
     lv_obj_t *last_img;
     lv_obj_t *btn_a;
     lv_obj_t *btn_b;
+    lv_obj_t *photos;      /* PHOTOS: into the gallery */
+    struct gallery_ui *gallery;
 
     struct pocketui_layout_guard guard;
     struct camera_layout lay;
@@ -277,6 +285,11 @@ static void repaint(struct camera_app *a)
     set_hidden(a->shutter, !s.show_shutter);
     button_style(a->shutter, true, s.shutter_enabled);
     set_hidden(a->last, !s.show_last);
+    /* The gallery can be opened whenever no photo is being taken or looked at:
+     * also with no camera at all. */
+    set_hidden(a->photos, !a->gallery || a->lay.gallery.w == 0 || st == CAMERA_CAPTURING ||
+                              st == CAMERA_REVIEW);
+    button_style(a->photos, false, true);
 
     set_hidden(a->btn_a, !(s.show_review_buttons || s.show_confirm));
     set_hidden(a->btn_b, !(s.show_review_buttons || s.show_confirm || s.show_retry));
@@ -373,12 +386,22 @@ static void do_actions(struct camera_app *a, unsigned acts)
     }
 }
 
+static void leave_gallery(struct camera_app *a);
+
 static void on_poll(lv_timer_t *t)
 {
     struct camera_app *a = lv_timer_get_user_data(t);
     struct camera_event ev;
     int64_t now = now_ms();
-    bool changed = camera_model_tick(&a->model, now);
+    bool changed;
+
+    if (gallery_ui_active(a->gallery)) {
+        if (gallery_ui_poll(a->gallery)) {
+            leave_gallery(a);
+        }
+        return;
+    }
+    changed = camera_model_tick(&a->model, now);
 
     while (camera_session_poll(&a->session, &ev, now)) {
         if (ev.kind == CAMERA_EV_FRAME) {
@@ -434,6 +457,46 @@ static void on_last(lv_event_t *e)
     struct camera_app *a = lv_event_get_user_data(e);
 
     act(a, camera_model_show_last(&a->model));
+}
+
+/* ---- the gallery ------------------------------------------------------------------ */
+
+static void enter_gallery(struct camera_app *a)
+{
+    /* The camera closes before the library helper starts: the two never run
+     * at once, and browsing photos holds no camera. */
+    camera_session_abandon(&a->session, CAMERA_DESTROY_GRACE_MS);
+    show(a, NULL);
+    lv_image_set_src(a->img, NULL);
+    picture_free(&a->preview);
+    picture_free(&a->review);
+    a->model.review_picture = false;
+    set_hidden(a->frame, true);
+    pocketos_shell_set_status_hint("");
+    a->hint_shown = NULL;
+    gallery_ui_enter(a->gallery);
+}
+
+static void leave_gallery(struct camera_app *a)
+{
+    gallery_ui_leave(a->gallery);
+    set_hidden(a->frame, false);
+    /* Laid out again, which gives the picture buffers back, and opened again
+     * like a fresh visit. */
+    pocketui_layout_guard_reset(&a->guard);
+    lv_obj_update_layout(a->frame);
+    layout(a);
+    do_actions(a, camera_model_open(&a->model));
+    repaint(a);
+}
+
+static void on_photos(lv_event_t *e)
+{
+    struct camera_app *a = lv_event_get_user_data(e);
+
+    if (a->model.state != CAMERA_CAPTURING && a->model.state != CAMERA_REVIEW) {
+        enter_gallery(a);
+    }
 }
 
 static void on_btn_a(lv_event_t *e)
@@ -495,6 +558,9 @@ static void layout(struct camera_app *a)
     place(a->last, &a->lay.last);
     place(a->btn_a, &a->lay.btn_a);
     place(a->btn_b, &a->lay.btn_b);
+    if (a->lay.gallery.w > 0) {
+        place(a->photos, &a->lay.gallery);
+    }
     lv_obj_set_width(a->detail, a->lay.picture.w - 2 * POCKETUI_PAD);
     if ((uint32_t)a->lay.picture.w != a->preview.w || (uint32_t)a->lay.picture.h != a->preview.h) {
         uint32_t w = (uint32_t)a->lay.picture.w;
@@ -576,6 +642,8 @@ static void build(struct camera_app *a, lv_obj_t *root)
 
     a->btn_a = button(a->frame, "DELETE", on_btn_a, a);
     a->btn_b = button(a->frame, "KEEP", on_btn_b, a);
+    a->photos = button(a->frame, "PHOTOS", on_photos, a);
+    lv_obj_add_flag(a->photos, LV_OBJ_FLAG_HIDDEN);
 }
 
 /* ---- the app ------------------------------------------------------------------------ */
@@ -590,6 +658,7 @@ static void *camera_create(lv_obj_t *root)
     camera_session_init(&a->session);
     camera_model_init(&a->model);
     build(a, root);
+    a->gallery = gallery_ui_create(root, &a->session);
     pocketos_shell_set_status_hint("");
     a->hint_shown = "";
     a->timer = lv_timer_create(on_poll, CAMERA_POLL_MS, a);
@@ -618,7 +687,9 @@ static void camera_destroy(void *priv)
         lv_timer_delete(a->timer);
     }
     /* The helper first: once it is gone nothing writes the shared memory the
-     * session is about to unmap. Leaving the app ends the camera. */
+     * session is about to unmap. Leaving the app ends the camera, or the
+     * gallery's library helper (which frees the gallery's pictures). */
+    gallery_ui_leave(a->gallery);
     camera_session_abandon(&a->session, CAMERA_DESTROY_GRACE_MS);
     /* No image may point at a buffer being freed. */
     lv_image_set_src(a->img, NULL);
@@ -626,6 +697,7 @@ static void camera_destroy(void *priv)
     picture_free(&a->preview);
     picture_free(&a->review);
     picture_free(&a->thumb);
+    gallery_ui_destroy(a->gallery);
     free(a);
 }
 

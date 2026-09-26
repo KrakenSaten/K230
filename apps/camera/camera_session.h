@@ -28,6 +28,14 @@
  * any other reply (CAMERA_REPLY_MS). A missed deadline kills the helper and
  * ends the session with CAMERA_EXIT_HUNG.
  *
+ * THE LIBRARY. The same client runs `pos-camera library` for the gallery
+ * (cfg.library): the same process boundary, shared memory, slot ownership and
+ * watchdog, and no camera. It lists the photos, draws them into the three
+ * picture slots at the size asked for, exports and deletes; every file the
+ * gallery touches is touched by that helper, never on the LVGL thread. Only
+ * one list, export or delete is outstanding at a time (the gallery's state
+ * machine waits for each answer); up to three pictures may be.
+ *
  * Pure C, no LVGL, clock passed in: tested on a host against the real helper
  * with the fake backend (tests/camera_session_test.c).
  *
@@ -52,6 +60,15 @@
  * synced write, both unmeasured on the C908. */
 #define CAMERA_CAPTURE_MS 20000
 #define CAMERA_REPLY_MS 3000
+/* The library: a picture (a JPEG decode, scaled in the DCT, unmeasured on the
+ * C908), a listing of up to POCKETCAM_LIBRARY_MAX files, a synced copy. */
+#define CAMERA_DECODE_MS 8000
+#define CAMERA_LIST_MS 5000
+#define CAMERA_EXPORT_MS 15000
+#define CAMERA_PICTURE_SLOTS POCKETCAM_PREVIEW_SLOTS
+/* The longest list the helper sends (POCKETCAM_LIBRARY_MAX; the lint keeps
+ * the two equal). */
+#define CAMERA_LIBRARY_MAX 1000
 /* abandon(): from quit to SIGKILL, and after SIGKILL how long to reap. */
 #define CAMERA_KILL_REAP_MS 200
 #define CAMERA_EVENT_QUEUE 32
@@ -59,6 +76,8 @@
 #define CAMERA_NAME_MAX 48
 #define CAMERA_HELPER_PATH_MAX 256
 #define CAMERA_ARG_MAX 256
+#define CAMERA_PATH_TEXT_MAX 160
+#define CAMERA_TAKEN_MAX 20
 
 enum camera_ev_kind {
     CAMERA_EV_READY,     /* name, simulated, value = photos, text = newest photo or "" */
@@ -74,7 +93,40 @@ enum camera_ev_kind {
     CAMERA_EV_DELETED,   /* name, value = photos */
     CAMERA_EV_DELFAIL,   /* text */
     CAMERA_EV_LOST,      /* text */
-    CAMERA_EV_EXITED     /* reason; value = exit code, or 128 + signal */
+    CAMERA_EV_EXITED,    /* reason; value = exit code, or 128 + signal */
+    /* the library */
+    CAMERA_EV_LISTED,    /* value = names waiting (camera_session_take_list), bytes = total */
+    CAMERA_EV_LISTFAIL,  /* text */
+    CAMERA_EV_IMAGE,     /* value = slot, w x h, name, image, text = description */
+    CAMERA_EV_IMGFAIL,   /* value = slot, name, reason = enum camera_imgfail, text */
+    CAMERA_EV_EXPORTED,  /* name, value = 1 when it was already there, path */
+    CAMERA_EV_EXPFAIL    /* name, reason = enum camera_expfail, text */
+};
+
+enum camera_imgfail {
+    CAMERA_IMGFAIL_MISSING,
+    CAMERA_IMGFAIL_CORRUPT,
+    CAMERA_IMGFAIL_UNSUPPORTED,
+    CAMERA_IMGFAIL_TOOLARGE,
+    CAMERA_IMGFAIL_IO
+};
+
+enum camera_expfail {
+    CAMERA_EXPFAIL_EXISTS,
+    CAMERA_EXPFAIL_NOSPACE,
+    CAMERA_EXPFAIL_MISSING,
+    CAMERA_EXPFAIL_IO
+};
+
+/* What the library helper says about a photo it drew. */
+struct camera_image_meta {
+    uint32_t shown_w;     /* the photo upright, at full size */
+    uint32_t shown_h;
+    uint64_t bytes;       /* the file */
+    int64_t mtime;
+    bool damaged;         /* drawn, but the file is damaged or cut short */
+    bool jpeg;            /* else PPM */
+    char taken[CAMERA_TAKEN_MAX]; /* "YYYY:MM:DD HH:MM:SS" from the file, or "" */
 };
 
 enum camera_capfail {
@@ -101,6 +153,8 @@ struct camera_event {
     uint64_t bytes;
     char name[CAMERA_NAME_MAX];
     char text[CAMERA_EVENT_TEXT_MAX];
+    struct camera_image_meta image; /* CAMERA_EV_IMAGE */
+    char path[CAMERA_PATH_TEXT_MAX]; /* CAMERA_EV_EXPORTED */
 };
 
 struct camera_session_config {
@@ -108,6 +162,8 @@ struct camera_session_config {
     const char *backend;  /* NULL: camera_session_backend() */
     const char *fake;     /* the fake backend's script, or NULL */
     const char *dir;      /* the photo folder, or NULL for the helper's default */
+    bool library;         /* `pos-camera library`: the gallery, no camera */
+    const char *export_dir; /* library: where exports go, or NULL for the default */
 };
 
 struct camera_session {
@@ -139,6 +195,16 @@ struct camera_session {
     int review_slot;
     uint32_t review_w;
     uint32_t review_h;
+
+    /* the library */
+    bool library;
+    int64_t decode_by;
+    bool picture_asked[CAMERA_PICTURE_SLOTS];   /* requested, not answered */
+    bool picture_ready[CAMERA_PICTURE_SLOTS];   /* answered, not taken */
+    uint32_t picture_w[CAMERA_PICTURE_SLOTS];
+    uint32_t picture_h[CAMERA_PICTURE_SLOTS];
+    bool list_ready;
+    int list_count;
 
     struct camera_event queue[CAMERA_EVENT_QUEUE];
     int q_head;
@@ -172,6 +238,31 @@ int camera_session_delete(struct camera_session *s, const char *name, int64_t no
 int camera_session_take_frame(struct camera_session *s, uint16_t *dst, uint32_t w, uint32_t h);
 /* The same for the review picture of the last capture. */
 int camera_session_take_review(struct camera_session *s, uint16_t *dst, uint32_t w, uint32_t h);
+
+/* ---- the library (cfg.library) --------------------------------------------- */
+
+/* Ask for the list of photos; answered by LISTED or LISTFAIL. */
+int camera_session_list(struct camera_session *s, int64_t now_ms);
+/* Copy up to max names of the waiting list, newest first, into names and give
+ * its slot back. Returns how many; 0 when no list is waiting. A name that is
+ * not one the helper could have sent ends the list there. */
+int camera_session_take_list(struct camera_session *s, char (*names)[CAMERA_NAME_MAX], int max);
+/* Ask for photo name drawn into a w x h box (cover: filled and cut; else the
+ * whole photo, fitted). Returns the slot it will come back in - IMAGE or
+ * IMGFAIL with that slot - or -1 when all three are in use, the arguments are
+ * bad or there is no helper. */
+int camera_session_request_picture(struct camera_session *s, const char *name, uint32_t w,
+                                   uint32_t h, bool cover, int64_t now_ms);
+/* Copy the picture that came back in slot into dst (at least max_w x max_h
+ * pixels; it arrives tightly packed at *w x *h) and give the slot back.
+ * 1 when copied; 0 when there was none or it did not fit (the slot is given
+ * back either way). dst NULL only gives it back. */
+int camera_session_take_picture(struct camera_session *s, int slot, uint16_t *dst, uint32_t max_w,
+                                uint32_t max_h, uint32_t *w, uint32_t *h);
+/* How many picture slots are free for a request. */
+int camera_session_pictures_free(const struct camera_session *s);
+/* Copy photo name to the Files export folder; EXPORTED or EXPFAIL. */
+int camera_session_export(struct camera_session *s, const char *name, int64_t now_ms);
 
 /* For a destroyed app or a retry: ask the helper to quit, wait up to
  * grace_ms, then SIGKILL and wait up to CAMERA_KILL_REAP_MS. Idle afterwards

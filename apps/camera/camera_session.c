@@ -152,6 +152,120 @@ static void rest(const char *p, char *out, size_t len)
     snprintf(out, len, "%s", p);
 }
 
+/* A photo name as the helper can send one: a word of letters, digits, '_'
+ * and '.', never a path. */
+static bool name_ok(const char *name)
+{
+    size_t i;
+
+    if (!name || !name[0] || name[0] == '.' || strlen(name) >= CAMERA_NAME_MAX) {
+        return false;
+    }
+    for (i = 0; name[i]; i++) {
+        char c = name[i];
+
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+              c == '_' || c == '.')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static int parse_library(const char *line, struct camera_event *ev)
+{
+    const char *a;
+    uint64_t v[8];
+    char w[CAMERA_NAME_MAX];
+    int i;
+
+    if ((a = after(line, "listed")) != NULL) {
+        ev->kind = CAMERA_EV_LISTED;
+        if (!number(&a, POCKETCAM_SLOTS - 1, &v[0]) || v[0] != POCKETCAM_LIST_SLOT ||
+            !number(&a, CAMERA_LIBRARY_MAX, &v[1]) || !number(&a, 100000000, &v[2])) {
+            return 0;
+        }
+        ev->value = (int)v[1];
+        ev->bytes = v[2];
+        return 1;
+    }
+    if ((a = after(line, "listfail")) != NULL) {
+        ev->kind = CAMERA_EV_LISTFAIL;
+        rest(a, ev->text, sizeof(ev->text));
+        return 1;
+    }
+    if ((a = after(line, "image")) != NULL) {
+        char taken[CAMERA_TAKEN_MAX + 4];
+        char kind[8];
+
+        ev->kind = CAMERA_EV_IMAGE;
+        if (!number(&a, CAMERA_PICTURE_SLOTS - 1, &v[0]) ||
+            !number(&a, POCKETCAM_VIEW_MAX_W, &v[1]) || !number(&a, POCKETCAM_VIEW_MAX_H, &v[2]) ||
+            v[1] == 0 || v[2] == 0 || !number(&a, CAMERA_DIM_MAX, &v[3]) ||
+            !number(&a, CAMERA_DIM_MAX, &v[4]) || !number(&a, UINT64_MAX / 2, &v[5]) ||
+            !number(&a, INT64_MAX, &v[6]) || !number(&a, 1, &v[7]) ||
+            !word(&a, kind, sizeof(kind)) || !word(&a, taken, sizeof(taken)) ||
+            !word(&a, ev->name, sizeof(ev->name)) || !name_ok(ev->name)) {
+            return 0;
+        }
+        ev->value = (int)v[0];
+        ev->w = (uint32_t)v[1];
+        ev->h = (uint32_t)v[2];
+        ev->image.shown_w = (uint32_t)v[3];
+        ev->image.shown_h = (uint32_t)v[4];
+        ev->image.bytes = v[5];
+        ev->image.mtime = (int64_t)v[6];
+        ev->image.damaged = v[7] == 1;
+        ev->image.jpeg = strcmp(kind, "jpg") == 0;
+        if (strlen(taken) == CAMERA_TAKEN_MAX - 1 && taken[10] == 'T') {
+            taken[10] = ' ';
+            memcpy(ev->image.taken, taken, CAMERA_TAKEN_MAX);
+        }
+        rest(a, ev->text, sizeof(ev->text));
+        return 1;
+    }
+    if ((a = after(line, "imgfail")) != NULL) {
+        static const char *const words[] = { "missing", "corrupt", "unsupported", "toolarge" };
+
+        ev->kind = CAMERA_EV_IMGFAIL;
+        if (!number(&a, CAMERA_PICTURE_SLOTS - 1, &v[0]) ||
+            !word(&a, ev->name, sizeof(ev->name)) || !word(&a, w, sizeof(w))) {
+            return 0;
+        }
+        ev->value = (int)v[0];
+        ev->reason = CAMERA_IMGFAIL_IO;
+        for (i = 0; i < 4; i++) {
+            if (strcmp(w, words[i]) == 0) {
+                ev->reason = i;
+            }
+        }
+        rest(a, ev->text, sizeof(ev->text));
+        return 1;
+    }
+    if ((a = after(line, "exported")) != NULL) {
+        ev->kind = CAMERA_EV_EXPORTED;
+        if (!word(&a, ev->name, sizeof(ev->name)) || !number(&a, 1, &v[0])) {
+            return 0;
+        }
+        ev->value = (int)v[0];
+        rest(a, ev->path, sizeof(ev->path));
+        return 1;
+    }
+    if ((a = after(line, "expfail")) != NULL) {
+        ev->kind = CAMERA_EV_EXPFAIL;
+        if (!word(&a, ev->name, sizeof(ev->name)) || !word(&a, w, sizeof(w))) {
+            return 0;
+        }
+        ev->reason = strcmp(w, "exists") == 0    ? CAMERA_EXPFAIL_EXISTS
+                     : strcmp(w, "nospace") == 0 ? CAMERA_EXPFAIL_NOSPACE
+                     : strcmp(w, "missing") == 0 ? CAMERA_EXPFAIL_MISSING
+                                                 : CAMERA_EXPFAIL_IO;
+        rest(a, ev->text, sizeof(ev->text));
+        return 1;
+    }
+    return 0;
+}
+
 int camera_session_parse_line(const char *line, struct camera_event *ev)
 {
     const char *a;
@@ -275,7 +389,7 @@ int camera_session_parse_line(const char *line, struct camera_event *ev)
         rest(a, ev->text, sizeof(ev->text));
         return 1;
     }
-    return 0;
+    return parse_library(line, ev);
 }
 
 /* ---- sending ------------------------------------------------------------------ */
@@ -377,17 +491,27 @@ int camera_session_start(struct camera_session *s, const struct camera_session_c
     camera_session_init(s);
     if (strlen(helper) >= CAMERA_HELPER_PATH_MAX || strlen(backend) >= CAMERA_ARG_MAX ||
         (cfg && cfg->fake && strlen(cfg->fake) >= CAMERA_ARG_MAX) ||
-        (cfg && cfg->dir && strlen(cfg->dir) >= CAMERA_ARG_MAX)) {
+        (cfg && cfg->dir && strlen(cfg->dir) >= CAMERA_ARG_MAX) ||
+        (cfg && cfg->export_dir && strlen(cfg->export_dir) >= CAMERA_ARG_MAX)) {
         if (err && errlen) {
             snprintf(err, errlen, "camera helper arguments too long");
         }
         return -1;
     }
     argv[argc++] = (char *)helper;
-    argv[argc++] = "session";
-    argv[argc++] = "--backend";
-    argv[argc++] = (char *)backend;
-    if (cfg && cfg->fake && *cfg->fake) {
+    if (cfg && cfg->library) {
+        /* The gallery: no camera, so no backend and no fake script. */
+        argv[argc++] = "library";
+        if (cfg->export_dir && *cfg->export_dir) {
+            argv[argc++] = "--export";
+            argv[argc++] = (char *)cfg->export_dir;
+        }
+    } else {
+        argv[argc++] = "session";
+        argv[argc++] = "--backend";
+        argv[argc++] = (char *)backend;
+    }
+    if (cfg && !cfg->library && cfg->fake && *cfg->fake) {
         argv[argc++] = "--fake";
         argv[argc++] = (char *)cfg->fake;
     }
@@ -464,6 +588,7 @@ int camera_session_start(struct camera_session *s, const struct camera_session_c
     fcntl(s->fd, F_SETFL, fcntl(s->fd, F_GETFL) | O_NONBLOCK);
     s->pid = pid;
     s->running = true;
+    s->library = cfg && cfg->library;
     s->hello_by = now_ms + CAMERA_HELLO_MS;
     s->open_by = now_ms + CAMERA_OPEN_MS;
     return 0;
@@ -490,6 +615,8 @@ static void kill_helper(struct camera_session *s, enum camera_exit why)
 /* A well-formed event: bookkeeping, then into the queue. */
 static void handle(struct camera_session *s, struct camera_event *ev, int64_t now)
 {
+    int slot;
+
     /* Anything at all from a streaming helper says it is alive. */
     if (s->streaming) {
         s->silence_by = now + CAMERA_SILENCE_MS;
@@ -540,6 +667,39 @@ static void handle(struct camera_session *s, struct camera_event *ev, int64_t no
         s->silence_by = 0;
         s->capture_by = 0;
         break;
+    case CAMERA_EV_LISTED:
+        s->reply_by = 0;
+        s->list_ready = true;
+        s->list_count = ev->value;
+        break;
+    case CAMERA_EV_LISTFAIL:
+    case CAMERA_EV_EXPORTED:
+    case CAMERA_EV_EXPFAIL:
+        s->reply_by = 0;
+        break;
+    case CAMERA_EV_IMAGE:
+    case CAMERA_EV_IMGFAIL:
+        if (!s->picture_asked[ev->value]) {
+            /* Nothing was asked of that slot: give back what came, keep quiet. */
+            if (ev->kind == CAMERA_EV_IMAGE) {
+                release_slot(s, ev->value);
+            }
+            return;
+        }
+        s->picture_asked[ev->value] = false;
+        if (ev->kind == CAMERA_EV_IMAGE) {
+            s->picture_ready[ev->value] = true;
+            s->picture_w[ev->value] = ev->w;
+            s->picture_h[ev->value] = ev->h;
+        }
+        /* The next one in line gets its own window. */
+        s->decode_by = 0;
+        for (slot = 0; slot < CAMERA_PICTURE_SLOTS; slot++) {
+            if (s->picture_asked[slot]) {
+                s->decode_by = now + CAMERA_DECODE_MS;
+            }
+        }
+        break;
     default:
         break;
     }
@@ -572,7 +732,9 @@ static void feed(struct camera_session *s, const char *buf, size_t n, int64_t no
                     handle(s, &ev, now);
                 } else if (strncmp(s->line, "frame", 5) == 0 ||
                            strncmp(s->line, "captured", 8) == 0 ||
-                           strncmp(s->line, "ready", 5) == 0) {
+                           strncmp(s->line, "ready", 5) == 0 ||
+                           strncmp(s->line, "image", 5) == 0 ||
+                           strncmp(s->line, "listed", 6) == 0) {
                     /* A picture event that does not add up could make the
                      * shell read the wrong memory: that is not a helper to
                      * keep talking to. */
@@ -614,6 +776,10 @@ static void finish(struct camera_session *s, int status, int64_t now)
     s->review_slot = -1;
     s->streaming = false;
     s->hello_by = s->open_by = s->silence_by = s->capture_by = s->reply_by = 0;
+    s->decode_by = 0;
+    memset(s->picture_asked, 0, sizeof(s->picture_asked));
+    memset(s->picture_ready, 0, sizeof(s->picture_ready));
+    s->list_ready = false;
     memset(&ev, 0, sizeof(ev));
     ev.kind = CAMERA_EV_EXITED;
     if (WIFEXITED(status)) {
@@ -665,7 +831,7 @@ int camera_session_poll(struct camera_session *s, struct camera_event *ev, int64
         }
         if (passed(s->hello_by, now_ms) || passed(s->open_by, now_ms) ||
             passed(s->silence_by, now_ms) || passed(s->capture_by, now_ms) ||
-            passed(s->reply_by, now_ms)) {
+            passed(s->reply_by, now_ms) || passed(s->decode_by, now_ms)) {
             kill_helper(s, CAMERA_EXIT_HUNG);
         }
         r = waitpid(s->pid, &status, WNOHANG);
@@ -782,6 +948,134 @@ int camera_session_take_frame(struct camera_session *s, uint16_t *dst, uint32_t 
 int camera_session_take_review(struct camera_session *s, uint16_t *dst, uint32_t w, uint32_t h)
 {
     return take(s, &s->review_slot, s->review_w, s->review_h, dst, w, h);
+}
+
+/* ---- the library ----------------------------------------------------------------- */
+
+int camera_session_list(struct camera_session *s, int64_t now_ms)
+{
+    int r;
+
+    if (!s->library) {
+        return -1;
+    }
+    if (s->list_ready) {
+        /* An old list nobody took: the helper needs its slot back. */
+        s->list_ready = false;
+        release_slot(s, POCKETCAM_LIST_SLOT);
+    }
+    r = send_line(s, "list");
+    if (r == 0) {
+        s->reply_by = now_ms + CAMERA_LIST_MS;
+    }
+    return r;
+}
+
+int camera_session_take_list(struct camera_session *s, char (*names)[CAMERA_NAME_MAX], int max)
+{
+    const char *p;
+    const char *end;
+    int n = 0;
+
+    if (!s->list_ready) {
+        return 0;
+    }
+    s->list_ready = false;
+    if (s->shm && names) {
+        p = (const char *)(s->shm + pocketcam_slot_offset(POCKETCAM_LIST_SLOT));
+        end = p + POCKETCAM_SLOT_BYTES;
+        while (n < max && n < s->list_count && p < end) {
+            const char *nl = memchr(p, '\n', (size_t)(end - p));
+            size_t len = nl ? (size_t)(nl - p) : 0;
+
+            if (!nl || len == 0 || len >= CAMERA_NAME_MAX) {
+                break;
+            }
+            memcpy(names[n], p, len);
+            names[n][len] = '\0';
+            if (!name_ok(names[n])) {
+                break;
+            }
+            n++;
+            p = nl + 1;
+        }
+    }
+    release_slot(s, POCKETCAM_LIST_SLOT);
+    return n;
+}
+
+int camera_session_pictures_free(const struct camera_session *s)
+{
+    int i;
+    int n = 0;
+
+    for (i = 0; i < CAMERA_PICTURE_SLOTS; i++) {
+        n += !s->picture_asked[i] && !s->picture_ready[i];
+    }
+    return s->running && s->library ? n : 0;
+}
+
+int camera_session_request_picture(struct camera_session *s, const char *name, uint32_t w,
+                                   uint32_t h, bool cover, int64_t now_ms)
+{
+    int slot;
+
+    if (!s->library || !name_ok(name) || w == 0 || h == 0 || w > POCKETCAM_VIEW_MAX_W ||
+        h > POCKETCAM_VIEW_MAX_H) {
+        return -1;
+    }
+    for (slot = 0; slot < CAMERA_PICTURE_SLOTS; slot++) {
+        if (!s->picture_asked[slot] && !s->picture_ready[slot]) {
+            break;
+        }
+    }
+    if (slot == CAMERA_PICTURE_SLOTS ||
+        send_line(s, "picture %d %u %u %s %s", slot, w, h, cover ? "cover" : "contain", name) != 0) {
+        return -1;
+    }
+    s->picture_asked[slot] = true;
+    if (s->decode_by == 0) {
+        s->decode_by = now_ms + CAMERA_DECODE_MS;
+    }
+    return slot;
+}
+
+int camera_session_take_picture(struct camera_session *s, int slot, uint16_t *dst, uint32_t max_w,
+                                uint32_t max_h, uint32_t *w, uint32_t *h)
+{
+    int copied = 0;
+
+    if (slot < 0 || slot >= CAMERA_PICTURE_SLOTS || !s->picture_ready[slot]) {
+        return 0;
+    }
+    if (s->shm && dst && s->picture_w[slot] <= max_w && s->picture_h[slot] <= max_h) {
+        memcpy(dst, s->shm + pocketcam_slot_offset((uint32_t)slot),
+               (size_t)s->picture_w[slot] * s->picture_h[slot] * 2);
+        if (w) {
+            *w = s->picture_w[slot];
+        }
+        if (h) {
+            *h = s->picture_h[slot];
+        }
+        copied = 1;
+    }
+    s->picture_ready[slot] = false;
+    release_slot(s, slot);
+    return copied;
+}
+
+int camera_session_export(struct camera_session *s, const char *name, int64_t now_ms)
+{
+    int r;
+
+    if (!s->library || !name_ok(name)) {
+        return -1;
+    }
+    r = send_line(s, "export %s", name);
+    if (r == 0) {
+        s->reply_by = now_ms + CAMERA_EXPORT_MS;
+    }
+    return r;
 }
 
 /* ---- leaving ------------------------------------------------------------------- */

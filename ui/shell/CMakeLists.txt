@@ -136,6 +136,8 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/camera/camera_state.c
     ${REPO_DIR}/apps/camera/camera_layout.c
     ${REPO_DIR}/apps/camera/camera_session.c
+    ${REPO_DIR}/apps/camera/camera_gallery.c
+    ${REPO_DIR}/apps/camera/camera_gallery_screen.c
     ${REPO_DIR}/apps/rift/rift_app.c
     ${REPO_DIR}/apps/rift/rift_model.c
     ${REPO_DIR}/apps/rift/rift_clock.c
@@ -686,6 +688,8 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/camera/camera_state.c
         ${REPO_DIR}/apps/camera/camera_layout.c
         ${REPO_DIR}/apps/camera/camera_session.c
+        ${REPO_DIR}/apps/camera/camera_gallery.c
+        ${REPO_DIR}/apps/camera/camera_gallery_screen.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
         ../pocketui/pos_display.c

@@ -48,6 +48,38 @@
  *   lost <text>                         the camera went away; the helper leaves
  *   bye
  *
+ * THE LIBRARY. `pos-camera library` speaks the same transport, the same
+ * shared memory and the same slot ownership for the gallery, and never opens
+ * the camera: the Camera app ends its camera session before it starts one of
+ * these, so browsing photos holds no camera, and vice versa. It answers
+ * `hello <version> library` and `ready library 0 0 0 <photos> <last|->`, then:
+ *
+ * COMMANDS (library):
+ *   list                                the photos, newest first
+ *   picture <slot> <w> <h> <cover|contain> <name>
+ *                                       draw photo name into preview slot
+ *                                       0..2 (which the session owns and names
+ *                                       free), in a w x h box
+ *   export <name>                       copy it into the Files export folder
+ *   delete <name>                       as above
+ *   release <slot>, quit                as above
+ *
+ * EVENTS (library):
+ *   listed <slot> <count> <total>       count names, newest first, one a line,
+ *                                       NUL-terminated, in slot 3; total
+ *                                       photos in the folder
+ *   listfail <text>
+ *   image <slot> <w> <h> <shown_w> <shown_h> <bytes> <mtime> <damaged 0|1>
+ *         <jpg|ppm> <taken|-> <name> [<description>]
+ *                                       the picture, w x h RGB565 in the slot;
+ *                                       the photo's upright size, file size and
+ *                                       time; taken is EXIF's date with a T for
+ *                                       its space, "-" when the file has none
+ *   imgfail <slot> <name> <missing|corrupt|unsupported|toolarge|io|busy> <text>
+ *   exported <name> <already 0|1> <path>
+ *   expfail <name> <exists|nospace|missing|io> <text>
+ *   deleted <name> <photos>, delfail <text>
+ *
  * Unknown lines are ignored by both sides, so either can learn a word the
  * other does not know yet. A line longer than POCKETCAM_LINE_MAX is a
  * protocol error.
@@ -87,6 +119,9 @@
 #define POCKETCAM_STILL_TIMEOUT_MS 5000
 /* This many damaged frames in a row mean the camera is not working. */
 #define POCKETCAM_MALFORMED_LIMIT 10
+/* The library's list travels in this slot (it holds 1000 names many times
+ * over). */
+#define POCKETCAM_LIST_SLOT 3
 
 struct pocketcam_shm_header {
     uint32_t magic;
