@@ -380,6 +380,36 @@ static void test_match_store(void)
     check("match: a newer one replaces it", fleet_store_match_save(blob, sizeof(blob)) == 0 &&
           fleet_store_match_load(back, sizeof(back)) == (int)sizeof(blob) && back[0] == blob[0]);
 
+    /* Private whatever the umask the shell inherited (022 when started at
+     * boot, 0077 from an SSH session - unit A had a 0644 match.v1 after a
+     * reboot, P7 gate), and never widened by what was there before. */
+    {
+        mode_t old = umask(0);
+
+        check("match: 0600 under umask 0", fleet_store_match_save(blob, sizeof(blob)) == 0 &&
+              stat(path, &st) == 0 && (st.st_mode & 07777) == 0600);
+        umask(022);
+        check("match: 0600 under umask 022", fleet_store_match_save(blob, sizeof(blob)) == 0 &&
+              stat(path, &st) == 0 && (st.st_mode & 07777) == 0600);
+        umask(0);
+        f = fopen(tmp, "wb");
+        if (f) {
+            fclose(f);
+        }
+        check("match: (a leftover temporary file at 0666)",
+              chmod(tmp, 0666) == 0 && stat(tmp, &st) == 0 && (st.st_mode & 07777) == 0666);
+        check("match: does not widen the new one, and is gone",
+              fleet_store_match_save(blob, sizeof(blob)) == 0 && stat(path, &st) == 0 &&
+              (st.st_mode & 07777) == 0600 && stat(tmp, &st) != 0);
+        check("match: an existing 0644 file is replaced by a 0600 one",
+              chmod(path, 0644) == 0 && fleet_store_match_save(blob, sizeof(blob)) == 0 &&
+              stat(path, &st) == 0 && (st.st_mode & 07777) == 0600);
+        check("match: and still reads back byte for byte",
+              fleet_store_match_load(back, sizeof(back)) == (int)sizeof(blob) &&
+              memcmp(back, blob, sizeof(blob)) == 0);
+        umask(old);
+    }
+
     /* The two saves are independent: the solo slot coming and going leaves
      * the match alone. */
     start_match(&g, 99u, FLEET_OFFICER);

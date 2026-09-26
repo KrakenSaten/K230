@@ -145,6 +145,7 @@ int fleet_store_match_save(const uint8_t *blob, size_t n)
     char path[sizeof(match_buf)];
     char tmp[sizeof(match_buf) + 8];
     FILE *f;
+    int fd;
     int dir;
     int rc;
 
@@ -154,8 +155,16 @@ int fleet_store_match_save(const uint8_t *blob, size_t n)
     make_dirs(fleet_store_dir());
     snprintf(path, sizeof(path), "%s", fleet_store_match_path());
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    f = fopen(tmp, "wb");
-    if (!f) {
+    /* Private whatever the umask: the match holds our own fleet and its salt,
+     * which the opponent must not learn before the reveal. fchmod also covers
+     * a temporary file left behind with another mode, which O_TRUNC keeps. */
+    fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        return -1;
+    }
+    if (fchmod(fd, 0600) != 0 || !(f = fdopen(fd, "wb"))) {
+        close(fd);
+        unlink(tmp);
         return -1;
     }
     if (fwrite(blob, 1, n, f) != n || fflush(f) != 0 || fsync(fileno(f)) != 0) {
