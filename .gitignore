@@ -179,3 +179,16 @@ BUILD_ID
 /tests/web_image_test
 /tests/browser_view_test
 /tests/browser_session_test
+# Recorder (docs/apps/RECORDER.md)
+/tools/recorder/pos-record
+/tests/rec_wav_test
+/tests/rec_dsp_test
+/tests/rec_names_test
+/tests/rec_file_test
+/tests/rec_engine_test
+/tests/rec_state_test
+/tests/rec_view_test
+/tests/rec_store_test
+/tests/rec_session_test
+/tests/rec_ctl_test
+/tests/pos-record-testhooks

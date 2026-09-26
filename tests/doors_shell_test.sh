@@ -163,12 +163,12 @@ sleep 0.3
 check "shell.home while locked opens the device at home" \
     "$([ "$(field '["lock"]["locked"]')" = false ] && [ "$(field '["current"]')" = '"home"' ] && echo 1 || echo 0)"
 opened=0
-for id in rift radio wave zabbix browser notes calendar clock calculator fleet radar timber settings system files camera; do
+for id in rift radio wave zabbix browser notes calendar clock calculator fleet radar timber settings system files camera recorder; do
     "$POS" app start "$id" >/dev/null 2>&1 && sleep 0.4 &&
         [ "$(field '["current"]')" = "\"$id\"" ] && opened=$((opened + 1))
     "$POS" app home >/dev/null 2>&1; sleep 0.2
 done
-check "every one of the sixteen apps opens and comes home ($opened)" "$([ "$opened" = 16 ] && echo 1 || echo 0)"
+check "every one of the seventeen apps opens and comes home ($opened)" "$([ "$opened" = 17 ] && echo 1 || echo 0)"
 check "and the shell is home again" "$([ "$(field '["current"]')" = '"home"' ] && echo 1 || echo 0)"
 call shell.controls
 sleep 0.3
@@ -202,12 +202,12 @@ PY
     set -- $(grep '^apps' "$OUT/$o-cells.txt")
     # Portrait does not scroll. Landscape does since Files made thirteen (Camera
     # the fourteenth, Zabbix the fifteenth and Browser the sixteenth, in
-    # CONNECTIONS; DS §35.4): one
+    # CONNECTIONS; DS §35.4; Recorder the seventeenth, in DEVICE): one
     # row would squeeze a cell under HOME_CELL_MIN_W, so DEVICE wraps to a
     # second line and the footer is below it (ui/shell/home_layout.h).
     scrolls=false; [ "$o" = landscape ] && scrolls=true
-    check "$o: sixteen apps, sixteen portal icons from the art, none on a fallback, scrolls: $scrolls ($2 $3 $4 $5)" \
-        "$([ "$2" = 16 ] && [ "$3" = 16 ] && [ "$4" = 0 ] && [ "$5" = "$scrolls" ] && echo 1 || echo 0)"
+    check "$o: seventeen apps, seventeen portal icons from the art, none on a fallback, scrolls: $scrolls ($2 $3 $4 $5)" \
+        "$([ "$2" = 17 ] && [ "$3" = 17 ] && [ "$4" = 0 ] && [ "$5" = "$scrolls" ] && echo 1 || echo 0)"
     good=0
     while read -r id x y w h; do
         [ "$id" = apps ] && continue
@@ -219,8 +219,8 @@ PY
         fi
         [ "$w" -ge 64 ] && [ "$h" -ge 64 ] || echo "     $o: $id cell $w x $h is below the touch minimum"
     done < "$OUT/$o-cells.txt"
-    check "$o: every app's own portal icon is drawn in its cell, pixel for pixel ($good of 16)" \
-        "$([ "$good" = 16 ] && echo 1 || echo 0)"
+    check "$o: every app's own portal icon is drawn in its cell, pixel for pixel ($good of 17)" \
+        "$([ "$good" = 17 ] && echo 1 || echo 0)"
 done
 
 # ---- 4. no art installed --------------------------------------------------------
@@ -230,7 +230,7 @@ POCKETOS_ART_DIR="$OUT/noart" start_shell --rotation portrait
 check "with no art the shell starts, locked" "$([ "$(field '["lock"]["locked"]')" = true ] && echo 1 || echo 0)"
 check "and says it has no background" "$([ "$(field '["art"]["background"]')" = false ] && echo 1 || echo 0)"
 check "every app is on the fallback frame" \
-    "$([ "$(field '["launcher"]["icons_fallback"]')" = 16 ] && [ "$(field '["launcher"]["icons_art"]')" = 0 ] && echo 1 || echo 0)"
+    "$([ "$(field '["launcher"]["icons_fallback"]')" = 17 ] && [ "$(field '["launcher"]["icons_art"]')" = 0 ] && echo 1 || echo 0)"
 shot "$OUT/noart-lock.png"
 call shell.unlock
 sleep 0.2
@@ -259,7 +259,7 @@ while read -r id x y; do
     # The frame's opaque pixels, less the few the app's mask covers.
     [ "${2:-0}" -gt 2000 ] && [ $(( ${2:-0} - ${1:-0} )) -lt 400 ] && good=$((good + 1))
 done < "$OUT/fo.txt"
-check "with only the empty frame installed, every app is drawn on it ($good of 16)" "$([ "$good" = 16 ] && echo 1 || echo 0)"
+check "with only the empty frame installed, every app is drawn on it ($good of 17)" "$([ "$good" = 17 ] && echo 1 || echo 0)"
 stop_shell
 
 # ---- 5. restarts ------------------------------------------------------------------

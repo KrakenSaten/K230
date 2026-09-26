@@ -34,8 +34,9 @@ POCKETOS_INSTALL_TARGET = YES
 # exported into the package by apply_to_sdk.sh). Buildroot's own python3 in
 # $(HOST_DIR)/bin, first on the PATH of every package build, is the one it
 # finds, so the image does not depend on the build host's python.
-# alsa-lib: pos-wave, Wave's audio helper (docs/apps/WAVE.md). It was already
-# in the image (alsa-utils), so this adds a build dependency, not a package.
+# alsa-lib: pos-wave, Wave's audio helper (docs/apps/WAVE.md), and pos-record,
+# the Recorder's (docs/apps/RECORDER.md). It was already in the image
+# (alsa-utils), so this adds a build dependency, not a package.
 # jpeg: pos-camera, Camera's helper, writes photos as JPEG with libjpeg
 # (docs/apps/CAMERA.md). Like alsa-lib it was already in the image (the vendor
 # camera tools use it), so this adds a build dependency, not a package.
