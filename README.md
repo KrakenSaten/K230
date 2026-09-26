@@ -60,15 +60,15 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-**master is 0.0.13 in development** (not released, no tag): Camera
-(docs/apps/CAMERA.md, unit A gate docs/hardware/CAMERA_GATE.md) is its first
-change since v0.0.12. Zabbix (docs/apps/ZABBIX.md, unit A gate
-docs/hardware/ZABBIX_UNIT_A_GATE.md), a read-only viewer for an existing
-Zabbix server, is in the shell by default, in the launcher's CONNECTIONS group.
+**Doors 0.1.0** (tag `v0.1.0`, 2026-09-26) is the current release: Camera,
+device controls and Diagnostics (SX1262 off by default), Zabbix (a read-only
+viewer for an existing Zabbix server, in CONNECTIONS) and Fleet multiplayer
+over the mesh. The release notes, with its unit A smoke, are
+docs/releases/v0.1.0.md.
 
-**Doors 0.0.12** (tag `v0.0.12`, 2026-09-25) is the current release: Files,
-and fullscreen RIFT, Notes, Wave, Fleet, Radar and Timber. The release notes
-are docs/releases/v0.0.12.md and its unit A gate is
+**Doors 0.0.12** (tag `v0.0.12`, 2026-09-25): Files, and fullscreen RIFT,
+Notes, Wave, Fleet, Radar and Timber. The release notes are
+docs/releases/v0.0.12.md and its unit A gate is
 docs/hardware/V0.0.12_RELEASE_SMOKE.md.
 
 **Doors 0.0.11** (tag `v0.0.11`, 2026-09-23): release notes

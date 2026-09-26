@@ -206,13 +206,17 @@ unit A gate `docs/hardware/FULLSCREEN_APPS_GATE.md`). Release notes:
 `docs/releases/v0.0.12.md`; the RC1 image and its unit A flash gate (PASS):
 `docs/hardware/V0.0.12_RELEASE_SMOKE.md`.
 
-**v0.0.13** (in development on master since 2026-09-25; not released, no
-tag): Camera - live preview and JPEG stills through the K230's V4L2 camera,
+**v0.1.0** (released 2026-09-26, tag `v0.1.0`, image built at `1368695`;
+developed on master as 0.0.13, never tagged under that number; release notes
+and unit A smoke: `docs/releases/v0.1.0.md`): Camera - live preview and JPEG stills through the K230's V4L2 camera,
 owned by a per-screen helper process (ADR-006 and DS §34, accepted; unit A
 gate `docs/hardware/CAMERA_GATE.md`). Zabbix - a read-only viewer for an
 existing Zabbix server (problems, hosts, availability), in the shell by
 default in CONNECTIONS, its API client in the `pos-zabbix` helper (ADR-007 and
 DS §35, accepted 2026-09-26; unit A gate `docs/hardware/ZABBIX_UNIT_A_GATE.md`).
+Also device controls and Diagnostics (DS §31.5, SX1262 off by default) and
+Fleet multiplayer over the mesh (ADR-008, Proposed; unit A+B gate
+`docs/hardware/FLEET_MULTIPLAYER_GATE.md`).
 
 ### Landscape app adaptation (after v0.0.10)
 
