@@ -6,7 +6,8 @@ sha256 `c6e40113…dde2e`), hand-installed over the flashed dev image `ee39407`
 unit is locked. `/etc/default/doors-shell` is the original file. To go back to
 the image's shell, run `/root/rollback-touch-seed/RESTORE.sh`.
 
-**Status, 2026-09-26: injected gate PASS, finger check outstanding.**
+**Status, 2026-09-26: PASS.** Injected gate PASS, and the owner's
+real-finger check PASS (see "Real finger"). Merged to master.
 
 - **Baseline** on the image's shell `ee39407`: the defect reproduced three
   times on hardware.
@@ -192,21 +193,20 @@ the same row share raw X, and tiles in the same column share raw Y.
 - Right after installation, before any touch, the shell logged
   `touch starts at raw 0,0 (the device's slot 0 position)`. That is correct
   for a node nothing has touched since boot.
+## Real finger
+
+**PASS, 2026-09-26, reported by the owner at the bench** on unit A with
+`ed2026b`. The procedure was a tap on a launcher tile, a shell restart without
+touching the panel, then the same tile tapped again as close to the same spot
+as possible, repeated, and once with a rotation change in place of the restart.
+The tile opened every time. An exact raw repeat with a real finger is rare, so
+this shows that the seeded pointer behaves normally for real fingers; the
+injected cases above are what prove the fix.
 
 ## Still to do
 
-1. **Real finger, owner at the bench.** On unit A as it is now (`ed2026b`):
-   1. Unlock, tap the Calculator tile, then return home.
-   2. Restart the shell over SSH (`/etc/init.d/S90doors-shell restart`) without
-      touching the panel. Unlock with `doors call shell shell.unlock`, or on
-      the panel.
-   3. Tap Calculator again, as close to the same spot as you can.
-
-   Calculator must open every time. Repeat a few times, and once with Settings
-   > Display > Rotation in place of the S90 restart. The chance of an exact
-   repeat is small (see above), so this checks that nothing regressed rather
-   than proving the fix; the injected cases above prove the fix.
-2. **Watch for another freeze.** If one happens, capture the serial console
-   before power-cycling.
-3. **After the decision:** merge, or `/root/rollback-touch-seed/RESTORE.sh` to
-   go back to the image's shell.
+1. **Watch for another freeze** (see "The freezes"). If one happens, capture
+   the serial console before power-cycling.
+2. The unit keeps the hand-installed `ed2026b` shell until the next image
+   carries the fix. `/root/rollback-touch-seed/RESTORE.sh` goes back to the
+   image's shell.
