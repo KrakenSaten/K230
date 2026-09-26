@@ -65,6 +65,8 @@ static void put(const char *name, const char *data, size_t len)
         fclose(f);
     }
 }
+/* A string literal's bytes without its terminator, counted by the compiler. */
+#define PUT_TEXT(name, lit) put((name), (lit), sizeof(lit) - 1)
 
 static int count_entries(const char *dir)
 {
@@ -143,11 +145,11 @@ int main(void)
     check("the preferences file is private (0600)", mode_of(path) == 0600);
     wave_store_dir(dir, sizeof(dir));
     check("in a private directory (0700)", mode_of(dir) == 0700);
-    put(WAVE_PREFS_FILE, "wave-prefs 1\nfuture=1\npreset=quick\n", 35);
+    PUT_TEXT(WAVE_PREFS_FILE, "wave-prefs 1\nfuture=1\npreset=quick\n");
     check("unknown keys are ignored", wave_store_load_prefs(&p) == 0 && strcmp(p.preset, "quick") == 0);
-    put(WAVE_PREFS_FILE, "clock 1\npreset=quick\n", 21);
+    PUT_TEXT(WAVE_PREFS_FILE, "clock 1\npreset=quick\n");
     check("a foreign file is refused", wave_store_load_prefs(&p) == -1 && !p.preset[0]);
-    put(WAVE_PREFS_FILE, "wave-prefs 1\npreset=aaaaaaaaaaaaaaaaaaaaaaaa\n", 45);
+    PUT_TEXT(WAVE_PREFS_FILE, "wave-prefs 1\npreset=aaaaaaaaaaaaaaaaaaaaaaaa\n");
     check("an overlong preset id is ignored", wave_store_load_prefs(&p) == 0 && !p.preset[0]);
 
     /* ---- history ------------------------------------------------------------ */
@@ -186,10 +188,10 @@ int main(void)
                                       wave_history_count(&back) == 0);
     check("clearing an absent file is fine", wave_store_save_history(&h) == 0);
 
-    put(WAVE_HISTORY_FILE, "wave-history 1\n1 5 T ok 1 - standard 41\ngarbage line\n", 53);
+    PUT_TEXT(WAVE_HISTORY_FILE, "wave-history 1\n1 5 T ok 1 - standard 41\ngarbage line\n");
     check("a damaged line costs that line only", wave_store_load_history(&back, &skipped) == 0 &&
                                                      wave_history_count(&back) == 1 && skipped == 1);
-    put(WAVE_HISTORY_FILE, "PK\x03\x04 not ours", 15);
+    PUT_TEXT(WAVE_HISTORY_FILE, "PK\x03\x04 not ours");
     check("a foreign file is refused, empty history", wave_store_load_history(&back, NULL) == -1 &&
                                                           wave_history_count(&back) == 0);
     {
