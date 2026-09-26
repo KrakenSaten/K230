@@ -1,10 +1,14 @@
 # The Fleet multiplayer hardware gate (P7): unit A + unit B
 
-**Status: PLAN - NOT RUN.** Nothing in this document has been executed on
-either unit. It is the procedure for the product owner to run, prepared at the
-end of P0-P6 (ADR-008, docs/apps/FLEET_MULTIPLAYER.md). Every result field
-below is empty on purpose; a claim becomes ON-AIR only when it is filled in
-from the units.
+**Status: RUN 2026-09-26 - minimum P7 gate PASS** (see "Results" at the end).
+**Both units carry the gate build `fb3df02`** (`doors-shell` + `meshcored`
+only) as of the end of the run: unit A on its master `6c3ea77` userspace,
+unit B on the flashed dev image `ee39407`. Both left landscape (Automatic),
+on the home screen, unlocked, rollback in `/root/rollback-fleet-mp/RESTORE.sh`.
+
+The procedure below is the plan as prepared at the end of P0-P6 (ADR-008,
+docs/apps/FLEET_MULTIPLAYER.md). The run followed the owner's minimum P7 scope
+rather than every step; the deviations are listed under "Results".
 
 Two T-Display K230 units, each running `radiod` on its SX1262 and `meshcored`
 over it, each with the new `doors-shell`, play PocketFleet against each other
@@ -523,5 +527,114 @@ EOF
 
 ## Results
 
-Not run. To be filled in from the units, with the date, the commit, both
-units' builds and identities, and every table above.
+**Minimum P7 gate: PASS**, 2026-09-26 09:37-10:17 UTC, run remotely from the
+build host (SSH, injected MT slot-0 touches with `tests/hw/touch_slot0_tap.py`,
+panel captures from the DRM plane); the owner flashed nothing by hand, moved
+unit B's card, confirmed B's antenna and joined B to Wi-Fi. Evidence (logs,
+scripts, 42 captures) is kept outside the repository in
+`C:\K230\out\fleet-p7-gate\`.
+
+### Provenance
+
+| | |
+| --- | --- |
+| commit under test | `fb3df02` = branch `claude/fleet-multiplayer-protocol-95evn7` rebased onto master `6c3ea77` (conflicts: the Makefile `clean:` line only) plus the ADR renumbering (ADR-007 is master's Zabbix ADR; this one is ADR-008) |
+| VERSION | 0.0.13, unchanged |
+| `/usr/bin/doors-shell` | sha256 `189c74bdc87803e50e32a3a2e3618918eaec96f6581e964698cbcf5354efb73d`, 1,305,088 B |
+| `/usr/sbin/meshcored` | sha256 `453426001cf8d6d105d7943a1b58b2c8f68ebf98c9aab6f9f962b473efb29364`, 252,776 B |
+| build | fresh WSL clones, vendor trees at their pins; riscv64 `make ENABLE_SX1262=1 ENABLE_MESHCORED=1 all meshcored` (rc 0, 1 first-party warning, in `core/pocketcam/pocketcam_fake.c`, not Fleet) and the DRM/sysroot shell (rc 0, 0 warnings); both stripped of `.comment`/`.note` |
+| strings | meshcored: `mesh.app_send`, `mesh.app_inbox`, `run_id`, `app_receipts`; shell: `DOORS-FLEET-COMMIT-1`, `mesh.app_send`, `MAKE VISIBLE`, `RESUME MATCH`. The three `fake` strings in the shell are the Camera fake backend and Zabbix (master); `POCKETFLEET_MP_FAKE` is the env-gated aid, unset on both units |
+| libraries | every NEEDED library present on both units |
+
+Host suites on `fb3df02` (focused, not the full `make test`): the 12 Fleet
+suites + `fleet_lint` 0 FAIL, `fleet_shell_test` (with `fleet_app_test`) 71 ok
+0 FAIL, `meshcored-test` 1485 ok (store 161, runtime 400, util 72, txmap 58,
+lint 86, source identity 17 - all 0 failures; `meshcored_harness_test` needs a
+host `radiod` build that the focused run did not make), `fleet-mp-e2e` all four
+scenarios (real, lossy, crash, restart) 0 failures.
+
+### Units
+
+| | Unit A | Unit B |
+| --- | --- | --- |
+| base | master `6c3ea77` userspace on the ee39407 dev card (not reflashed) | 16 GB dev card flashed 2026-09-26 with the v0.0.13 dev image `ee39407` (raw sha256 `b454f0ed…ceac7`), `flash-devcard.ps1` **FLASH PASS** (only MBR 440..443 differ) |
+| first boot | - | factory: 0 crash reports; bench key installed and panel handed to Doors on the console; host key ED25519 `NpGVgYFR…Y4Nk` pinned |
+| per-unit files | unchanged | `/etc/default/radiod` sx1262 / EU868 / 2 dBm; `/etc/default/meshcored` ENABLE=1, `K230-B`, 2 dBm (so meshcored starts at boot as on A); radio switched on with `radio.set_enabled` after the owner confirmed the antenna on MMCX1 |
+| network | Wi-Fi 192.168.10.171 | Wi-Fi 192.168.10.187 (owner joined it on the panel, touch OK); NTP set the clock |
+| identity | `Mstr_k230`, hash `19`, `19f7b327…3715` (unchanged) | new: `K230-B`, hash `ca`, `ca74f762309d29aafdb63addd0a33a203f81e7ede9ce2030a18aad225d2f4eb8` |
+| before (step 1) | 0 restarts, 0 crash reports, 0 dmesg errors, `tx_packets` 0 | the same |
+| rollback | `/root/rollback-fleet-mp`: shell `64eb5ac0…`, meshcored `6f54bcf2…`, state/channels/save.v1 | shell `e723ffab…`, meshcored `f748956b…`, state.v1 |
+| after install | shell + meshcored `build fb3df02`, online, lease held, `app_*` 0, one shell | the same |
+
+Deviations from the plan above: B was flashed (it had no Doors image);
+meshcored runs from its init script under `pos-supervise` on both units, so
+installs and restarts used `/etc/init.d/S65meshcored`, not a hand start; B got
+`/etc/default/{radiod,meshcored}`; steps 10 (T-Deck), 11 (unattended player)
+and the plan's per-step stopwatch tables were out of scope; the match was
+driven by injected touches, each target cell tapped and then FIRE, with the
+turn read from each unit's `match.v1`.
+
+### Link and match
+
+| Check | Result |
+| --- | --- |
+| step 4: Fleet opened, lobby open 60 s | **PASS**: `tx_packets` 0 and every `app_*` 0 on both |
+| repeaters not listed | **PASS**: A holds 185 repeaters and 19 rooms, B 2 repeaters; neither lobby lists any. A lists the two companion nodes it has heard (`Mstr_m5`, `SE-GOT-KEN-F914`, advert type 1), as designed |
+| step 5: MAKE VISIBLE once on each | **PASS**: each lists the other (`HEARD JUST NOW`, -34 dBm, SNR 12.75/13.75); `tx_packets` +1 per press and nothing else |
+| step 6: INVITE on A -> invitation on B | **PASS**, 3.6 s; B answered the flood with a receipt (`app_receipts` 1); A's lobby then shows B `DIRECT`, route `hops 0` both ways |
+| ACCEPT on B -> Deploy on A | **PASS**, 2.3 s; both `match.v1` 655 B |
+| deploy | AUTO + CONFIRM; A (first) showed "Waiting for K230-B to deploy"; the guest B fired first |
+| full match | **PASS**: 46 plies, 23 shots each way; A "Enemy fleet destroyed" (WIN), B "Fleet lost" (LOSS), both "ALL SHIPS SUNK" and "Their fleet: Verified" (`verify` OK in both saves); gunnery mirrors (A 17/23, B 16/23) |
+| turns, duplicates, agreement | **PASS**: both saves hold the same 46-ply log (cells and results); 23 distinct cells per side, no duplicate; hit/miss/sunk agree (B: miss 7, hit 12, sunk 4; A: miss 6, hit 12, sunk 5) |
+| hidden boards | **PASS**: `have_peer_reveal`/`peer_has_reveal` 0/0 on both through the whole battle, 1/1 only at DONE; no unfired hull visible on either target grid in the captures reviewed |
+| FIRE -> result on the shooter's panel | median **1.6 s** both ways (B 1.5-3.1 s over 23 shots, A 1.5-3.7 s over 19; measured by polling the save every 0.5 s over SSH, so an upper bound) |
+
+### Recovery cases, once each
+
+| Case | What was done | Result |
+| --- | --- | --- |
+| A close/reopen | ply 12: Fleet closed on B (home), A fired J5, 35 s later Fleet reopened on B, RESUME MATCH | **PASS**. A showed "Link problem: no report on J5 yet. Retrying (3 of 6)"; B's datagrams waited in meshcored's inbox; J5 resolved 2.4 s after RESUME MATCH (it sank B's battleship), once |
+| B meshcored restart | ply 21: `/etc/init.d/S65meshcored restart` on A during B's turn | **PASS**. `run_id` 289abab0… -> 780d8113…, name kept; B's shot resolved 1.6 s after it fired (4.8 s after the restart) |
+| C reboot after FIRE | ply 24: FIRE then `reboot` (B's answer beat the shutdown; match reloaded and resumed). Repeated at ply 28 with the shot really in flight: FIRE, then `sync; reboot -f` ~0.1 s later | **PASS**. After the hard reset A booted in 11 s with `pending=C3` at ply 27 in its save; B had answered while A was down; after RESUME MATCH the resync delivered the answer in 1.1 s; C3 counted once; no ext4 or mmc errors |
+| D RF interruption | ply 30: B's radio off (`radio.set_enabled false`) for 179 s while A fired D3; then on | **PASS**. A: "Link problem: no report on D3 yet. Retrying (5 of 6)" at 170 s, no forfeit, board intact; B's meshcored degraded then online; D3 resolved 42 s after B's radio returned (the next retry); the "out of reach, paused" notice was not reached within 179 s |
+
+### Coexistence and radio
+
+| Check | Result |
+| --- | --- |
+| no Fleet packet as chat | **PASS**: `mesh.messages` count 0 on both after the match |
+| RIFT/mesh text still works | **PASS**: one direct text A -> B: received on B (-34 dBm), **acked** in 0.87 s |
+| unit B radio, whole gate (B never restarted) | 63 packets, `tx_airtime_ms` 21,044, `tx_failed` 0, `tx_unknown` 0, `tx_refused` 0, `rx_rejected` 0, `rx_dropped` 0, duty cycle last hour 0.58 %; `app_tx` 60, `app_rx` 64, `app_receipts` 1; 4 rx CRC errors (ambient) |
+| unit A radio | counters reset by the two reboots; about 74 packets over the gate (1 advert), last segment 30 packets / 9,615 ms (about 0.32 s per frame, so about 24 s for the match); `tx_failed` 0 in every segment |
+| compared with the model | 21-24 s per device for a 46-ply match with four interruptions, against 34-45 s computed for 104-141 plies |
+
+### Health at the end
+
+| | Unit A | Unit B |
+| --- | --- | --- |
+| services (shell, sysd, netd, radiod, meshcored) | running, 0 restarts, no crashloop | the same |
+| crash reports / kernel | 0 / 0 segfault, oom, oops or I/O error lines | 0 / 0 |
+| stale helpers | none (the two gate tools in /tmp only) | none |
+| meshcored WARN/ERROR | 1, from 2026-09-25 (before the gate) | 0 |
+
+### Findings (none blocks P7)
+
+1. **RESUME MATCH needs two presses.** On Command it opens the multiplayer
+   lobby ("An engagement with ... is under way", RESUME / FORFEIT); the board
+   comes back only after RESUME there. The link is live in the lobby (A's J5
+   was answered from it). The driver lost a ply's taps to the lobby once;
+   a player would see the lobby and press RESUME.
+2. **`radio.status poll failed: timed out after 200 ms`** in the shell log
+   (A 15, B 9) - also on master before the gate (2026-09-25, 2026-09-26 08h),
+   more often while the radio transmits. The 200 ms UI deadline doing its job;
+   not a Fleet regression.
+3. **Save file mode follows the umask.** `fleet_store` writes with `fopen`, so
+   `match.v1` is 0600 when the shell was started from an SSH session (umask
+   0077) and 0644 when started at boot (umask 022). `save.v1` behaves the same
+   (master). Only local processes can read it; recorded, not fixed here.
+4. Unit B's ee39407 image has no `icon-zabbix.bin` (Zabbix's icon is newer
+   than the image), so its launcher draws a fallback; irrelevant to Fleet.
+
+Not covered: steps 10 (non-Doors node ignores an app datagram - still
+ASSUMED) and 11; range, repeaters and a busy channel (UNRESOLVED); the
+"out of reach, paused" notice (the outage ended first).
