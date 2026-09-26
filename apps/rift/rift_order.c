@@ -113,3 +113,69 @@ const char *rift_model_name_for_hash(const struct rift_model *m, const char *has
     return hit->name;
 }
 
+int rift_model_conv_heard(const struct rift_model *m, const struct rift_conv *c, int64_t *ms)
+{
+    int have = 0;
+    int64_t best = 0;
+
+    if (!m || !c) {
+        return 0;
+    }
+    if (c->have_last_in_mono) {
+        have = 1;
+        best = c->last_in_mono_ms;
+    }
+    if (!c->is_channel) {
+        const struct rift_node *n = rift_model_find(m, c->key);
+
+        if (n && n->have_heard && (!have || n->heard_mono_ms > best)) {
+            have = 1;
+            best = n->heard_mono_ms;
+        }
+    }
+    if (have && ms) {
+        *ms = best;
+    }
+    return have;
+}
+
+void rift_model_recent_frames(const struct rift_model *m, int64_t now_ms, int64_t window_ms,
+                              int *rx, int *tx, int *at_least)
+{
+    int nrx = 0;
+    int ntx = 0;
+    int oldest_inside = 0;
+    int i;
+
+    if (m) {
+        for (i = 0; i < m->activity_count; i++) {
+            const struct rift_activity *a = rift_model_activity_at(m, i);
+            int64_t age;
+
+            if (!a || !a->have_mono) {
+                continue;
+            }
+            age = now_ms - a->mono_ms;
+            if (age < 0 || age > window_ms) {
+                continue;
+            }
+            if (a->kind == RIFT_ACT_RX) {
+                nrx++;
+            } else {
+                ntx++;
+            }
+            if (i == m->activity_count - 1) {
+                oldest_inside = 1;
+            }
+        }
+    }
+    if (rx) {
+        *rx = nrx;
+    }
+    if (tx) {
+        *tx = ntx;
+    }
+    if (at_least) {
+        *at_least = m && m->activity_count >= RIFT_MAX_ACTIVITY && oldest_inside;
+    }
+}

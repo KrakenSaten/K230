@@ -25,8 +25,9 @@
 
 /* Message rows built at once. The thread is read from its end, and what
  * does not fit is counted and said ("14 EARLIER") rather than dropped
- * silently. */
-#define RIFT_THREAD_ROWS 32
+ * silently. A message arriving appends one row and, once the window is
+ * full, drops the oldest: the rest are not rebuilt (rift_thread.c). */
+#define RIFT_THREAD_ROWS 64
 
 struct rift_thread;
 

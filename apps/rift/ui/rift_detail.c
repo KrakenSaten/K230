@@ -12,11 +12,14 @@
 #include <string.h>
 
 /* The hop ladder is built when the path changes and updated never: a row
- * per hop, and a path with more hops than this is drawn as far as it goes
- * with the rest named in the count beside it. MeshCore's own path cannot
- * exceed 63 hops (Packet::pathHashCount is six bits). */
-#define LADDER_MAX 16
-#define LADDER_ROW_H 40
+ * per hop. MeshCore's own path cannot exceed 63 hops (Packet::pathHashCount
+ * is six bits), so the ladder holds all of them and this device and the
+ * target besides - it used to stop at 16 rungs and say how many it had left
+ * out, which on a long route was most of it. Rows at the handoff's hop
+ * table height: 36, and 32 in the landscape pane (§4). */
+#define LADDER_MAX (RIFT_MAX_HOPS + 2)
+#define LADDER_ROW_H 36
+#define LADDER_ROW_H_COMPACT 32
 #define KV_COUNT 4
 
 struct kv {
@@ -451,7 +454,7 @@ static void build_ladder(struct rift_detail *d, const struct rift_path *p, const
                                  &info) != 0) {
             continue;
         }
-        r->row = row_of(d->ladder, LADDER_ROW_H, 8);
+        r->row = row_of(d->ladder, d->compact ? LADDER_ROW_H_COMPACT : LADDER_ROW_H, 8);
         r->index = rift_cell(r->row, POS_STYLE_CAPTION, 24, LV_TEXT_ALIGN_RIGHT);
         lv_label_set_text_fmt(r->index, "%d", info.index);
         r->glyph = rift_glyph_create(r->row);

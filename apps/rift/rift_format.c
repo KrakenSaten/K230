@@ -130,6 +130,42 @@ static int age_parts(int64_t age_ms, int known, long *value, const char **unit,
     return 1;
 }
 
+enum rift_pulse rift_pulse_of(int64_t age_ms, int known)
+{
+    /* A negative age is a stamp in the future: meshcored's clock ahead of
+     * this app's, which can only be a fault. Unknown, as rift_fmt_age says. */
+    if (!known || age_ms < 0) {
+        return RIFT_PULSE_NONE;
+    }
+    if (age_ms <= RIFT_PULSE_NOW_MS) {
+        return RIFT_PULSE_NOW;
+    }
+    if (age_ms <= RIFT_PULSE_RECENT_MS) {
+        return RIFT_PULSE_RECENT;
+    }
+    if (age_ms <= RIFT_STALE_MS) {
+        return RIFT_PULSE_QUIET;
+    }
+    return RIFT_PULSE_STALE;
+}
+
+const char *rift_pulse_word(enum rift_pulse p)
+{
+    switch (p) {
+    case RIFT_PULSE_NOW:
+        return "NOW";
+    case RIFT_PULSE_RECENT:
+        return "RECENT";
+    case RIFT_PULSE_QUIET:
+        return "QUIET";
+    case RIFT_PULSE_STALE:
+        return "STALE";
+    case RIFT_PULSE_NONE:
+    default:
+        return RIFT_UNKNOWN;
+    }
+}
+
 void rift_fmt_age(int64_t age_ms, int known, char *out, size_t out_len)
 {
     long value = 0;
@@ -534,10 +570,28 @@ static const char *hop_label(const struct rift_path *p, int i, rift_resolve_fn r
     return name ? name : p->hop[i].id;
 }
 
+/* What the whole chain would take, without writing it. */
+static size_t chain_len(const char *self, const struct rift_path *p, const char *target,
+                        rift_resolve_fn resolve, void *user, int from, int to)
+{
+    size_t n = strlen(self) + strlen(RIFT_ARROW) + strlen(target);
+    int i;
+
+    for (i = from; i < to; i++) {
+        n += strlen(RIFT_ARROW) + strlen(hop_label(p, i, resolve, user));
+    }
+    return n;
+}
+
 void rift_path_chain(const char *self_label, const struct rift_path *p, const char *target_label,
                      rift_resolve_fn resolve, void *user, char *out, size_t out_len)
 {
+    const char *self = self_label ? self_label : RIFT_UNKNOWN;
+    const char *target = target_label ? target_label : RIFT_UNKNOWN;
     size_t at = 0;
+    int hops;
+    int head;
+    int tail;
     int i;
 
     if (!out || out_len == 0) {
@@ -547,20 +601,54 @@ void rift_path_chain(const char *self_label, const struct rift_path *p, const ch
     if (!p) {
         return;
     }
-    at = append(out, out_len, at, self_label ? self_label : RIFT_UNKNOWN);
+    at = append(out, out_len, at, self);
     if (!p->known) {
         at = append(out, out_len, at, RIFT_ARROW);
         at = append(out, out_len, at, RIFT_UNKNOWN);
         at = append(out, out_len, at, RIFT_ARROW);
-        append(out, out_len, at, target_label ? target_label : RIFT_UNKNOWN);
+        append(out, out_len, at, target);
         return;
     }
-    for (i = 0; i < p->hops && i < p->count; i++) {
+    hops = p->hops < p->count ? p->hops : p->count;
+    head = hops;
+    tail = 0;
+    if (chain_len(self, p, target, resolve, user, 0, hops) + 1 > out_len) {
+        /* Too long for the buffer. Both ends are what a reader needs - where
+         * it starts, and the last relay before the target - so hops come off
+         * the middle, one at a time from the head's end, until what is left
+         * and the "… +n …" that stands for the rest fit. */
+        char mark[40];
+
+        tail = hops > 1 ? 1 : 0;
+        for (head = hops - tail; head > 0; head--) {
+            size_t need;
+
+            snprintf(mark, sizeof(mark), RIFT_ARROW RIFT_ELLIPSIS " +%d " RIFT_ELLIPSIS,
+                     hops - head - tail);
+            need = chain_len(self, p, target, resolve, user, 0, head) + strlen(mark) +
+                   chain_len("", p, "", resolve, user, hops - tail, hops) + 1;
+            if (need <= out_len) {
+                break;
+            }
+        }
+    }
+    for (i = 0; i < head; i++) {
+        at = append(out, out_len, at, RIFT_ARROW);
+        at = append(out, out_len, at, hop_label(p, i, resolve, user));
+    }
+    if (head + tail < hops) {
+        char mark[40];
+
+        snprintf(mark, sizeof(mark), RIFT_ARROW RIFT_ELLIPSIS " +%d " RIFT_ELLIPSIS,
+                 hops - head - tail);
+        at = append(out, out_len, at, mark);
+    }
+    for (i = hops - tail; i < hops; i++) {
         at = append(out, out_len, at, RIFT_ARROW);
         at = append(out, out_len, at, hop_label(p, i, resolve, user));
     }
     at = append(out, out_len, at, RIFT_ARROW);
-    append(out, out_len, at, target_label ? target_label : RIFT_UNKNOWN);
+    append(out, out_len, at, target);
 }
 
 int rift_path_ladder_row(const struct rift_path *p, int index, const char *self_label,

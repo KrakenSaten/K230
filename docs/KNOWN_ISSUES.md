@@ -133,8 +133,8 @@ DEVICE VERIFIED unless it says so.
   under "No RTC").
 - **Adverts sent before the clock is set are ignored by peers** (meshcored
   section below).
-- **RIFT holds the 64 most recently heard of meshcored's up to 256 nodes**;
-  the rest are counted, not listed (RIFT section below).
+- **RIFT's DM sound is silent**: Doors has no notification sound for an app
+  to ask for (RIFT section below).
 
 
 ## Hardware and BSP
@@ -961,12 +961,21 @@ so that pass stayed the size it was scoped to be.
 
 ## RIFT, the mesh client
 
-- **RIFT holds the 64 most recently heard of meshcored's up to 256 nodes.**
-  `mesh.nodes` lists newest first and a snapshot fills the cache from the
-  head; a `mesh.node` event for a node not held evicts the stalest one. The
-  rest are counted, not listed (`RIFT_MAX_NODES`, rift_model.h) - the NODES
-  list builds a row per cached node. VERIFIED with 256 nodes on unit A
-  (MESH_NODE_CAPACITY_256_GATE.md); showing more than 64 is open.
+- **RIFT holds all 256 of meshcored's nodes** (`RIFT_MAX_NODES`), in a
+  virtual NODES list that builds rows only for the screen. The service side
+  is VERIFIED with 256 nodes on unit A (MESH_NODE_CAPACITY_256_GATE.md); the
+  list is VERIFIED with a real mesh of 241 nodes on unit A, scrolled end to
+  end in both orientations at up to ~31 % shell CPU
+  (RIFT_UI_NEXT_GATE.md). A full 256 on a board is untested.
+- **The DM sound is silent in this build.** RIFT decides which direct
+  messages are new and when one is worth a sound, behind a setting, and asks
+  through a backend seam (`rift_sound.h`); the built-in backend has no sound,
+  because apps do not open the card (ADR-002) and ADR-004's exception is
+  Wave's. Needs a platform notification sound (docs/apps/RIFT.md, "Shared
+  requirements left for integration"). The setting says so on screen.
+- **A resent direct message is shown once per attempt** (meshcored section
+  above); RIFT's DM sound recognises the retry by sender, timestamp and text
+  and does not sound twice, but the thread shows what the service recorded.
 - **A message's state is meshcored's, and that state does not report
   transmission** (see "A message's state does not say whether it was
   transmitted" under meshcored). An outgoing channel message reads

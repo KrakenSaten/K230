@@ -14,6 +14,7 @@
 #include "rift_comms.h"
 #include "rift_detail.h"
 #include "rift_nodes.h"
+#include "rift_sound.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -356,6 +357,7 @@ static void paint_strip_caption(struct rift_app *a)
     const char *keys = "";
     int64_t now;
     int max_hops = -1;
+    int active = 0;
     int i;
 
     if (!a->cmd_hint) {
@@ -375,14 +377,22 @@ static void paint_strip_caption(struct rift_app *a)
         if (m->nodes[i].path_known && m->nodes[i].hops > max_hops) {
             max_hops = m->nodes[i].hops;
         }
+        /* Heard within the last five minutes: the NOW of the activity
+         * pulse, counted over the whole cache. */
+        if (rift_pulse_of(now - m->nodes[i].heard_mono_ms, m->nodes[i].have_heard) ==
+            RIFT_PULSE_NOW) {
+            active++;
+        }
     }
     if (max_hops < 0) {
         snprintf(hops, sizeof(hops), "%s", RIFT_UNKNOWN);
     } else {
         snprintf(hops, sizeof(hops), "%d", max_hops);
     }
-    lv_label_set_text_fmt(a->cmd_hint, "%s%d KNOWN" RIFT_SEP "%d FRESH" RIFT_SEP "MAX %s HOPS",
-                          keys, m->node_count, rift_model_fresh_count(m, now), hops);
+    lv_label_set_text_fmt(a->cmd_hint,
+                          "%s%d KNOWN" RIFT_SEP "%d NOW" RIFT_SEP "%d FRESH" RIFT_SEP
+                          "MAX %s HOPS",
+                          keys, m->node_count, active, rift_model_fresh_count(m, now), hops);
     lv_obj_remove_flag(a->cmd_hint, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -678,6 +688,7 @@ static void pump(lv_timer_t *t)
     int64_t now = rift_mono_ms();
 
     rift_ipc_poll(&a->ipc, now);
+    rift_app_notify_pass(a, now);
     if (a->refresh_pending || a->ipc.revision != a->drawn_revision ||
         now - a->last_repaint_ms >= RIFT_REPAINT_MS) {
         a->refresh_pending = 0;
@@ -717,6 +728,14 @@ static void *rift_create(lv_obj_t *root)
     a->root = root;
     rift_model_init(&a->model);
     rift_ipc_init(&a->ipc, &a->model, RIFT_SERVICE);
+    /* The reader's choices, or the defaults when there are none (or none
+     * that could be read): opening the app writes nothing. */
+    if (rift_store_load(&a->prefs) < 0) {
+        LOG_WARN("rift: %s could not be read; using the defaults", rift_store_path());
+    }
+    a->prefs_saved = 1;
+    /* Everything the model holds now is history: nothing has arrived yet. */
+    rift_notify_init(&a->notify, &a->model, a->prefs.dm_sound);
 
     /* RIFT draws full-width rules and edge-to-edge dense rows, and the
      * approved vertical budget (56 strip + data + 56 command line) is
@@ -795,6 +814,7 @@ static void rift_tick(void *priv)
      * event arriving. */
     if (a && !a->pump) {
         rift_ipc_poll(&a->ipc, rift_mono_ms());
+        rift_app_notify_pass(a, rift_mono_ms());
         rift_app_refresh(a);
     }
 }
@@ -813,6 +833,8 @@ static void rift_destroy(void *priv)
         lv_timer_delete(a->pump);
         a->pump = NULL;
     }
+    /* Nothing of RIFT's sounds after RIFT has gone. */
+    rift_sound_stop();
     if (a->frame) {
         lv_obj_remove_event_cb_with_user_data(a->frame, on_frame_size, a);
         a->frame = NULL;

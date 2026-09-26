@@ -19,6 +19,12 @@ channel's history and a reply from a left channel is refused. Every gate
 above ran bench-deployed builds; none ran from a flashed v0.0.11 image.
 Known limits are in docs/KNOWN_ISSUES.md ("RIFT, the mesh client").
 
+On `feat/rift-ui-next`, **host-tested only** (2026-09-26, no hardware yet):
+the whole node table (256) in a virtual NODES list, denser COMMS and threads,
+an activity measure on every node and conversation, and a DM sound behind a
+setting - which in this build is silent, because Doors has no notification
+sound for an app to ask for ("The DM sound", below).
+
 RIFT puts a packet on the air in two places, both at a reader's press, and
 the whole of "What it is not" below is about where that is allowed to happen
 and what it is not allowed to claim.
@@ -41,9 +47,12 @@ NET**. RIFT draws the first three.
   **ADVERT** buttons (below). Then the nodes heard most recently, and the raw
   frame feed. A full node table is said here in words, with what to do about
   it.
-- **NODES** — every node the service holds, as 36 px rows: link glyph, name,
-  role, hop strip, hop count, RSSI, SNR (landscape), last heard. Grouped into
-  heard within 12 h, not heard for longer, and never heard. A row selects and
+- **NODES** — every node the service holds (all 256 its table can), as
+  36 px rows: link glyph, name, role, hop strip, hop count, RSSI, SNR
+  (landscape), last heard and the activity pulse (below). Grouped into
+  heard within 12 h, not heard for longer, and never heard. The list is
+  virtual: a pool of rows is placed over whatever part of it is on screen,
+  so 256 nodes cost what a screenful does. A row selects and
   does nothing else; the selection expands in place into the state line, the
   path written out, the signal, and a 56 px action bar: **MESSAGE** and
   **DETAIL ›**. **DETAIL** pushes a screen that opens with its actions —
@@ -51,10 +60,14 @@ NET**. RIFT draws the first three.
   ladder, the path changes RIFT has seen, and the identity. In landscape the
   same detail is the pane beside the list.
 - **COMMS** — the conversations as 36 px rows: link glyph, name, the newest
-  message as a preview, the unread pill, and how that peer is reached.
+  message as a preview, the unread pill, when the other side was last heard
+  from with its activity pulse, and how that peer is reached. In portrait
+  the list is as tall as its rows - up to five while a thread is open, and
+  all but the composer's room while none is - rather than a fixed 268 px.
   Choosing one opens its thread: the messages oldest first, each a body, a
   2 px rule on the side that says which of you said it, and **one** caption
-  line — how long ago, then the service's own word for its state:
+  — on the body's own line when both fit, which for a short message is one
+  line in all — how long ago, then the service's own word for its state:
   `4m · DELIVERED · ACK 41 s`, `1m · RECEIVED · −88 dBm · SNR 6.5`,
   `SENT · FLOOD`, `NO ACK`, `FAILED`. Under it the composer. The unread count
   rides on the COMMS tab, so it is visible from the other sections. A
@@ -125,7 +138,11 @@ caveat.
 
 A list keeps its place: a rebuild — a new node, a re-ordering by last heard, a
 selection — used to put the list back at its top (`lv_obj_clean` does), which
-on a live mesh happened every few seconds under whoever was reading. The
+on a live mesh happened every few seconds under whoever was reading. Neither
+list rebuilds on a re-ordering any more: NODES rebinds its pool of rows,
+COMMS rebinds its rows in place, and a thread appends the new message's row
+and drops the oldest - a reader scrolled back into a thread is left there
+when a message arrives, and only a reader at its end is taken to it. The
 selected row is scrolled into view when the selection moves, so the arrows
 never walk it off the pane. A thread is read at its end again whenever its
 pane changes height — the landscape composer appearing, the portrait
@@ -202,8 +219,9 @@ column.
   or to say the service is not answering, and the section has the room the
   rest of the time. The commands are a later phase, and would bring the line
   back as what the design meant it to be.
-- It stores nothing, opens no device, links no radio or protocol library, and
-  owns no colour.
+- It stores the reader's own choices and nothing else - today one, the DM
+  sound - opens no device, links no radio or protocol library, plays no
+  sound itself, and owns no colour.
 
 ## What it shows, and what it refuses to show
 
@@ -250,6 +268,132 @@ that changed while no event reached RIFT - across a reconnect - is recorded
 from the snapshot that shows it. A reply to RIFT's own `mesh.node` question
 updates the node without being counted as an event about it.
 
+## Activity: how lately it was heard from
+
+Every node row and every conversation row carries its **last heard** age and
+the same age as a three-dot **pulse**. The pulse is that age bucketed, and
+nothing else - no signal, no hop count, no count of frames, no guess about
+a link:
+
+| Pulse | Word | The newest observation is |
+| --- | --- | --- |
+| three dots, in `radio_rx` | `NOW` | 5 minutes old or less |
+| two | `RECENT` | an hour old or less |
+| one | `QUIET` | 12 hours old or less (`RIFT_STALE_MS`, the same boundary NODES groups on) |
+| none filled | `STALE` | older than 12 hours |
+| nothing drawn | `?` | there is none, or its stamp is in the future (a clock fault) |
+
+What counts as an observation is what the API already reports:
+
+- **a node**: `last_heard_mono_ms`, which meshcored stamps on an advert, a
+  direct message and peer data from that node (`mesh_runtime.cpp`, `stamp()`
+  - DOCUMENTED from the service's source);
+- **a direct conversation**: the later of its peer's `last_heard_mono_ms`
+  (while the node is held) and the newest *incoming* message;
+- **a channel**: the newest incoming message on it.
+
+Nothing this device sent counts: sending proves nothing about who is
+listening. Dots in a row and not bars of rising height, placed after the age
+and away from RSSI and SNR, so the pulse does not read as a signal meter.
+The word is written out in a selected node's expansion (`HEARD 11m · RECENT`).
+It is computed when a row is drawn, from stamps already held - there is no
+background work and no history kept for it.
+
+The mesh as a whole gets two counts: the landscape strip says how many nodes
+are `NOW` (`5 KNOWN · 2 NOW · 3 FRESH · MAX 8 HOPS`), and MESH ACTIVITY says
+how many frames the service reported in the last five minutes, by direction
+(`LAST 5 MIN · RX 12 · TX 1`). That count is taken from the 48 frames RIFT
+holds, and says `48+` when all 48 are that recent and there may have been
+more. It is a count of frames and not a measure of the link.
+
+## The DM sound
+
+A short sound when a **direct message genuinely arrives**, behind a setting
+on ACTIVITY (**NOTIFY · Sound for a new DM**, `ON` / `OFF`, on by default).
+Which messages count is decided once, in the model, where the message is
+filed (`rift_model_apply_live_message`, `rift_arrivals.c`). All five must hold:
+
+1. it arrived as a live `mesh.message` **event** - never from a
+   `mesh.messages` snapshot, which is history however recent: the one taken on
+   opening, and the one taken after every reconnect;
+2. it is **incoming and direct** - not this device's own, not a channel's;
+3. its id is **new to the window** - an id already held is a state change or
+   the same event again;
+4. its id is **above every id this run has shown**, live or in a snapshot -
+   anything at or below is history coming round again. The mark goes with the
+   window when the service restarts, because the ids start again from 1;
+5. its peer, sender timestamp and text are **not those of one of the last
+   eight arrivals** - a sender's retry, which meshcored records as a new
+   message with a new id (docs/KNOWN_ISSUES.md). Only when the sender's
+   timestamp is known.
+
+Then the policy (`rift_notify.c`): nothing while the setting is off, nothing
+while Doors is muted (`pocketos_shell_volume_effective()` is 0) or there is
+no sound to play, and at most **one sound in 10 s** however many arrive - a
+burst of twenty is one sound, and nothing is queued to play later. An arrival
+the setting, the volume or the gap kept quiet is dropped, never replayed when
+they change. The sound is played at the system volume and stopped when RIFT
+closes.
+
+**In this build the sound is silent, and the switch says so.** Apps never
+touch the sound card (ADR-002), and the one exception - pocketaudio driven by
+a per-operation `pos-wave` helper - is Wave's and is not to be extended
+(ADR-004). ADR-004 names system sounds as the point at which audio moves to
+a platform owner, and that decision is not RIFT's. So the sound goes through
+a backend seam (`rift_sound.h`, in the shape of PocketClock's
+`clock_alert.h`), whose built-in backend has no sound and says: *No system
+notification sound in this build of Doors: a new direct message is shown, not
+heard.* Everything above is built and host-tested against a fake backend; the
+setting is stored and honoured, so the day a backend is registered the sound
+works and nothing else changes.
+
+The setting lives in `$POCKETOS_STATE_DIR/rift/prefs.v1` (`dm_sound=0|1`,
+settings.conf's `key=value` format), the app-owned-store pattern Fleet, Radar
+and Timber use; the shell's `settings.conf` is the shell's and no app writes
+it. A file that cannot be read leaves the default; one that cannot be written
+keeps the choice for the session and the switch says it is not saved.
+
+### Shared requirements left for integration
+
+Not implemented here, because each is a platform API rather than RIFT's:
+
+- **A notification sound an app can ask for** - for example
+  `pocketos_shell_play_sound(POCKETOS_SOUND_MESSAGE)` in `app.h`: short,
+  non-blocking, at the system volume, silent while muted, with the shell (or
+  an `audiod`, ADR-004 Option A) owning the card. Needs the ADR-004 revisit.
+  RIFT's side is one backend of about twenty lines in `rift_sound.c`'s shape.
+- **Optionally, an app-preference store** (`pocketos_shell_pref_get/set(app,
+  key)` over settings.conf), if the product owner would rather apps did not
+  each keep a file. RIFT would move `dm_sound` over and drop `rift_store.c`.
+- **The viewport after the chrome work lands.** Every RIFT layout is sized
+  from the body it is given (NODES' pool, COMMS' portrait list cap); none
+  assumes the header or status bar height. After the chrome refactor, re-run
+  `tests/rift_shell_test.sh` in both orientations and look at the shots.
+
+## Scale
+
+What RIFT holds, and what it builds for it:
+
+| | Held | Built |
+| --- | --- | --- |
+| Nodes | 256 (`RIFT_MAX_NODES`, all of meshcored's table; was 64) | rows for the screen only: 31 in portrait, 35 at most after turning (`rift_nodes_rows_built`) |
+| Messages | 256 (`RIFT_MAX_MESSAGES`; was 96) | a thread's newest 64 (`RIFT_THREAD_ROWS`; was 32), "136 EARLIER" for the rest |
+| Conversations | 64 (`RIFT_MAX_CONVERSATIONS`; was 32) | a row each, rebound in place |
+| Hops on a detail's ladder | all 63 MeshCore allows (was 16) | a rung each, built when the path changes |
+
+With more peers in the window than the list has rows, the list keeps the
+conversations spoken in most recently. It used to keep the ones held longest
+and leave out whoever had just spoken - a defect this work found. A path chain
+too long to write whole keeps both ends and says how many hops it left out of
+the middle (`… +41 …`) instead of being cut off before its target.
+
+A repaint no longer re-sets text a row already shows or re-fits a name
+already fitted to the same width. On the host (not the board), a steady
+repaint of NODES with 256 nodes went from 6.2 ms to 0.2 ms, and of COMMS
+with a 200-message thread open from 13.5 ms to 1.4 ms; a full-screen redraw
+is about 3 ms either way (`tests/rift_app_test.c` prints both on every run).
+The C908 is slower by a factor nobody has measured.
+
 ## How it talks to meshcored
 
 One connection, asynchronous throughout (`apps/rift/rift_ipc.c`).
@@ -287,7 +431,7 @@ one before it by `mesh.status`'s `uptime_s` read against this app's own
 monotonic clock: a smaller uptime than the last is certain, and a run start
 that has moved forward by more than two seconds catches the short-lived run a
 smaller uptime would miss. Not on every reconnect: a socket can go without
-the process behind it going, and this window of 96 can hold more of one kind
+the process behind it going, and this window of 256 can hold more of one kind
 than either of the service's two rings of 64, so emptying on a reconnect
 would throw away messages the service can no longer supply. Found on unit A
 on 2026-09-21, during part D of the channels gate, as four messages on the
@@ -320,6 +464,11 @@ the air must not be able to disconnect this app from its own service.
 | `rift_messages.c` | the model's second translation unit, over the same struct: the message window, the conversations, how far each has been read, the submission in flight, and which run of the service the ids in all of it came from. No LVGL |
 | `rift_channels.c` | the channel table mesh.channels reports and the mesh.channel events that change it. No LVGL |
 | `rift_actions.c` | an advert, forgetting a node, forgetting a route: asked, then answered or refused. No LVGL |
+| `rift_arrivals.c` | which filed messages are a direct message that has genuinely just arrived: the DM sound's five conditions. No LVGL |
+| `rift_notify.c/.h` | the DM sound's policy: the setting, the platform, one sound per 10 s. No LVGL, no clock of its own |
+| `rift_sound.c/.h` | the seam the sound goes through, and the built-in backend that has none. No LVGL |
+| `rift_store.c/.h` | the reader's preferences file, and nothing about the mesh. No LVGL |
+| `rift_dm_sound.c` | the app's side of the DM sound: the setting, whether anything could be heard, the pass after every socket read |
 | `rift_order.c` | read-only questions over the node cache: list order, how many are fresh, which name a hop gets. No LVGL |
 | `rift_json.h` | the four readers every part parses the API with, so all apply the same rule: absent is not zero |
 | `rift_format.c/.h` | every string the screens print about nodes and paths, and the path arithmetic. No LVGL, no cJSON, no I/O |
@@ -328,7 +477,8 @@ the air must not be able to disconnect this app from its own service.
 | `rift_app.c/.h` | chrome, sections, layout and lifecycle |
 | `ui/rift_widgets.c` | the link glyph, the hop strip, the panel with its caption in the rule, the action bar |
 | `ui/rift_activity.c` | ACTIVITY |
-| `ui/rift_nodes.c` | the node list, the selection and the landscape split |
+| `ui/rift_nodes.c` | the node list - virtual: the layout of every line, and a pool of rows bound to the part on screen - the selection and the landscape split |
+| `ui/rift_node_row.c` | one node row: built once, filled from a node, given the selection's look and, in portrait, its expansion |
 | `ui/rift_detail.c` | the selected node in full: one builder for the landscape pane and the portrait DETAIL screen, so the two cannot drift |
 | `ui/rift_comms.c` | the conversation list, the three panes and the landscape route pane |
 | `ui/rift_thread.c` | the open conversation: the header, the messages and the portrait composer. One builder for both orientations, as `rift_detail.c` is for NODES |
@@ -338,12 +488,13 @@ the air must not be able to disconnect this app from its own service.
 | | |
 | --- | --- |
 | `tests/rift_format_test.c` | 92 checks: ages, signal, hop columns, state words, path compression, the inline chain, the ladder, UTF-8 names |
-| `tests/rift_model_test.c` | 193 checks: the initial snapshot, duplicate and update events, missing telemetry, malformed input, the bounded cache, the service going away and coming back, which run of the service answered, ordering; the path history and event count surviving a snapshot while the service's values are replaced, a reply that is not an event, a removal that is not an update, the traffic counters, the table-full count since the last forget (and a new run counting from nothing), a route change dated when it was seen, and the advert and node-change state machine with NOT DONE kept apart from NO ANSWER |
-| `tests/rift_comms_test.c` | 239 checks: the conversations and their order, duplicate and state-change events, unread and what clears it, the thread window, every state caption, telemetry that was never measured, the bounded message cache, the service restarting under the cache and the reconnect that is not a restart, the send state machine, what `mesh.send` will take, remote text nobody here chose the length of, and the channel body without its sender prefix and the one-line caption |
-| `tests/rift_ipc_test.c` | 201 checks against a real socket and a scripted service in a child process: connect, snapshot, events, refusals, the service disappearing, reconnect, one whole service replaced by another with an id space that starts again, the proof that nothing the app does on its own transmits or adverts, the send lifecycle, adverts asked for and refused, and forgetting a node or its route - answered, refused in the service's words, and unanswered when the service dies |
-| `tests/rift_app_test.c` | 338 checks under a real LVGL pointer device: the chrome, all three sections, the row that only selects, the pushed detail and its FORGET confirmation (cancelled by leaving the section, closing the detail or turning the panel), Enter on a node that has gone, the table-full warning clearing once room is made, a thread's No answer and Not sent, both landscape splits, the composer, the unread pill, the command line present only when it holds something, a long list keeping its place and its selection in view, the newest message in view above the landscape composer, every panel caption drawn whole, every action's word inside its button, the ADVERT buttons, and open/leave/open again three times over. Writes the screenshots |
+| `tests/rift_model_test.c` | 213 checks: the initial snapshot, duplicate and update events, missing telemetry, malformed input, the bounded cache, the service going away and coming back, which run of the service answered, ordering; the path history and event count surviving a snapshot while the service's values are replaced, a reply that is not an event, a removal that is not an update, the traffic counters, the table-full count since the last forget (and a new run counting from nothing), a route change dated when it was seen, and the advert and node-change state machine with NOT DONE kept apart from NO ANSWER |
+| `tests/rift_comms_test.c` | 298 checks: the conversations and their order, duplicate and state-change events, unread and what clears it, the thread window, every state caption, telemetry that was never measured, the bounded message cache, the service restarting under the cache and the reconnect that is not a restart, the send state machine, what `mesh.send` will take, remote text nobody here chose the length of, and the channel body without its sender prefix and the one-line caption |
+| `tests/rift_ipc_test.c` | 205 checks against a real socket and a scripted service in a child process: connect, snapshot, events, refusals, the service disappearing, reconnect, one whole service replaced by another with an id space that starts again, the proof that nothing the app does on its own transmits or adverts, the send lifecycle, adverts asked for and refused, and forgetting a node or its route - answered, refused in the service's words, and unanswered when the service dies |
+| `tests/rift_app_test.c` | 422 checks under a real LVGL pointer device: the chrome, all three sections, the row that only selects, the pushed detail and its FORGET confirmation (cancelled by leaving the section, closing the detail or turning the panel), Enter on a node that has gone, the table-full warning clearing once room is made, a thread's No answer and Not sent, both landscape splits, the composer, the unread pill, the command line present only when it holds something, a long list keeping its place and its selection in view, the newest message in view above the landscape composer, every panel caption drawn whole, every action's word inside its button, the ADVERT buttons, and open/leave/open again three times over. Then the activity pulse on real rows; the DM sound end to end against a fake backend (history silent, one sound per arrival, none for a repeat, the reader's own, a channel, a retry or a snapshot, one for a burst, the switch on ACTIVITY stored and honoured, muted, no backend, stopped on close, kept across opening, not saved when the store cannot be written); and scale - 256 nodes with the rows built bounded by the screen in both orientations, the selection kept by key across a re-ordering and a removal, 64 conversations re-ordered without a row rebuilt, a 200-message thread moved along without a rebuild and a reader in its history left there, a hundred arrivals in one pass. Prints what a repaint costs. Writes the screenshots |
+| `tests/rift_notify_test.c` | 93 checks: which direct messages are arrivals (history on opening, the same event twice, the reader's own, a channel, a reconnect's snapshot, an id below the highest, a sender's retry under a new id, no timestamp, a malformed message, a new run starting its ids again), the sound policy (a burst is one sound, nothing queued, off, muted, the gap from the last sound, a clock stepping back), the sound seam, the preferences file, the activity buckets and what a conversation is heard from, frames in the last five minutes, a 63-hop chain too long to write whole, and a list of more peers than it holds keeping the newest |
 | `tests/rift_shell_test.sh` | the app test, then the real shell opening RIFT in both orientations with a scripted meshcored on a real socket, then with no service at all, then the same fixtures twice for the same pixels |
-| `tests/rift_lint.sh` | the boundaries: what transmits and from where (send and advert), what changes a node and from where, no colour, no device, no store, no monolith, and the gaps this build leaves |
+| `tests/rift_lint.sh` | the boundaries: what transmits and from where (send and advert), what changes a node and from where, no colour, no device, one store holding nothing about the mesh, a DM arrival decided in one place from live events only, the sound asked for in one place and only when the policy says so, no sound device and no helper process, the sound stopped on close, no monolith, and the gaps this build leaves |
 
 `tests/fake-meshcored` is a scripted stand-in for the service, built by the
 root Makefile and never installed. A negative `last_heard_mono_ms` in its
@@ -423,7 +574,7 @@ them, one after the other, are two runs of a service and not one.
    last read id, so the marks go when the message window does — everything a
    restarted service holds arrived while this app was not watching, and is
    unread by the same rule.
-10. **The message window is bounded.** The newest 96 are kept, and a
+10. **The message window is bounded.** The newest 256 are kept, and a
     conversation's unread count, preview and tally are derived from what is
     still held. A thread longer than the pane says how many are earlier
     rather than implying there are none.
@@ -438,8 +589,32 @@ them, one after the other, are two runs of a service and not one.
 13. **No trace, no path discovery, no repeater login.** MeshCore has all
     three, and each transmits and needs a request/response the service does
     not yet match. They are not in the API (docs/api/mesh.md, "Not in v0").
+14. **The DM sound is silent in this build.** There is no platform sound
+    for an app to ask for, and RIFT does not open the card itself (ADR-002,
+    ADR-004). The switch says so. See "The DM sound".
+15. **A sender's retry is still shown as a second message.** meshcored
+    records one per attempt (docs/KNOWN_ISSUES.md) and RIFT shows what the
+    service recorded; only the sound recognises the retry and stays quiet.
+16. **The activity measure has no history.** It is the age of the newest
+    observation and says nothing about how often a node is heard; a rate would
+    need timestamps RIFT does not keep. RSSI and SNR stay in their own columns
+    and are never folded into it.
 
 ## What needs hardware
+
+For `feat/rift-ui-next`: the unit A integration gate **passed on
+2026-09-26** on build `d512ba9` (rebased onto master 140843e, with the
+compact status cluster):
+[docs/hardware/RIFT_UI_NEXT_GATE.md](../hardware/RIFT_UI_NEXT_GATE.md).
+Both orientations and rotation both ways, a real mesh of 241 nodes scrolled
+end to end, selection and detail, COMMS threads, the DM sound switch stored
+across a reopen, and one real DM from unit B counted once. Still open: a
+multi-hop path on a board (the bench mesh had none beyond 0 hops), 256
+nodes, and a finger on the glass. The DM sound cannot be heard until the
+platform has a sound for it; when it does, check one sound per arrival, none
+for the history on opening or after a reconnect, one for a burst.
+
+For the phases on master:
 
 The unit A gate **passed on 2026-09-22**, with one portrait check inconclusive
 and minor follow-ups recorded (the RE-ROUTE and FORGET captions outlive what

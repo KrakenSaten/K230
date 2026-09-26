@@ -200,7 +200,7 @@ At most 256 nodes, **most recently heard first**: the nodes heard since the
 service started, newest `last_heard_mono_ms` first; then the ones not heard
 since it started, newest first by when MeshCore last updated the contact
 (kept in the service's state across a restart); ties in table order. A
-client that keeps fewer nodes than this - RIFT keeps 64 - takes the head of
+client that keeps fewer nodes than this takes the head of
 the list and so keeps the nodes heard last.
 
 A node:

@@ -835,19 +835,23 @@ tests/calc_view_test: tests/calc_view_test.o $(CALC_OBJS)
 # are built by ui/shell (CMake), run by tests/rift_shell_test.sh.
 RIFT_DIR := apps/rift
 RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_messages.o \
+             $(RIFT_DIR)/rift_arrivals.o \
              $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o \
              $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_format.o $(RIFT_DIR)/rift_format_msg.o \
-             $(RIFT_DIR)/rift_ipc.o
+             $(RIFT_DIR)/rift_ipc.o $(RIFT_DIR)/rift_notify.o $(RIFT_DIR)/rift_sound.o \
+             $(RIFT_DIR)/rift_store.o
 # The model is several translation units over one struct: rift_model.c
-# dispatches mesh.message and mesh.channel events into rift_messages.c and
+# dispatches mesh.message and mesh.channel events into rift_messages.c (and
+# rift_arrivals.c, which says which direct messages just arrived) and
 # rift_channels.c, and the service going away settles the requests
 # rift_actions.c holds, so anything linking one links them all.
 RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_messages.o \
+                   $(RIFT_DIR)/rift_arrivals.o \
                    $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o \
                    $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_format.o \
                    $(RIFT_DIR)/rift_format_msg.o
 RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_comms_test \
-              tests/rift_ipc_test tests/fake-meshcored
+              tests/rift_ipc_test tests/rift_notify_test tests/fake-meshcored
 
 $(RIFT_DIR)/%.o: $(RIFT_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(RIFT_DIR) -c -o $@ $<
@@ -865,6 +869,13 @@ tests/rift_model_test: tests/rift_model_test.o $(RIFT_MODEL_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 tests/rift_comms_test: tests/rift_comms_test.o $(RIFT_MODEL_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+
+# The DM sound: which direct messages are arrivals, when one sounds, the
+# preferences file its setting lives in, the seam the sound goes through, and
+# the activity measure the lists draw.
+tests/rift_notify_test: tests/rift_notify_test.o $(RIFT_MODEL_OBJS) $(RIFT_DIR)/rift_notify.o \
+                        $(RIFT_DIR)/rift_sound.o $(RIFT_DIR)/rift_store.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 tests/rift_ipc_test: tests/rift_ipc_test.o tests/fake_meshcored.o $(RIFT_OBJS) $(IPC_OBJS) \
@@ -1289,6 +1300,7 @@ test: all $(TEST_BINS)
 	./tests/rift_format_test
 	./tests/rift_model_test
 	./tests/rift_comms_test
+	./tests/rift_notify_test
 	./tests/rift_ipc_test
 	./tests/pocketcam_test
 	./tests/camera_state_test

@@ -792,7 +792,9 @@ int rift_model_apply_event(struct rift_model *m, const char *name, const cJSON *
     if (strcmp(name, "mesh.message") == 0) {
         const cJSON *msg = cJSON_GetObjectItemCaseSensitive(data, "message");
 
-        if (rift_model_apply_message(m, msg) != 0) {
+        /* The live path: the one place a direct message can be an arrival
+         * rather than history (rift_model_apply_live_message). */
+        if (rift_model_apply_live_message(m, msg) != 0) {
             m->events_malformed++;
             return -1;
         }

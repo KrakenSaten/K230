@@ -1,54 +1,45 @@
 /*
  * NODES. See rift_nodes.h.
  *
+ * The list is virtual. RIFT holds as many nodes as meshcored does (256), and
+ * a row is a dozen LVGL objects, so a row per node would be three thousand
+ * objects rebuilt every time the mesh re-ordered them - which is every
+ * advert. Instead the list is a spacer as tall as all the rows would be, and
+ * a small pool of rows is placed over whatever part of it is on screen:
+ * scrolling rebinds rows from the pool, and a re-ordering only moves them.
+ * What it costs is set by the height of the pane, not by the size of the
+ * mesh (rift_nodes_rows_built).
+ *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #include "rift_nodes.h"
 
 #include "pos_styles.h"
 #include "rift_detail.h"
+#include "rift_node_row.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-/* Column widths. Every column but the name is fixed, so a row cannot reflow
- * as its values change width, and the header and the rows are built from the
- * same list: a role tag of its own would be one item wider than the header
- * and would put every column after it out by the tag's width, so the name
- * and its tag share one box that is the column.
- *
- * The widths are what the widest value in each column measures in Mono 14
- * (RSSI is "−103", HEARD is "HEARD" in the header) with room to spare
- * in Outdoor. */
-#define COL_GAP 8
-#define COL_GLYPH RIFT_GLYPH_BOX
-#define COL_HOPS 40
-#define COL_RSSI 56
-#define COL_SNR 44
-#define COL_HEARD 48
-#define SELECTED_INSET 12
+/* Rows in the pool: enough to cover the tallest pane with a margin on each
+ * side, and never more, however many nodes there are. */
+#define POOL_MAX 48
+/* How far past each edge of the pane rows are bound, so a short scroll
+ * shows rows that are already filled in. */
+#define BIND_MARGIN (2 * RIFT_ROW_H)
 
-struct node_row {
-    lv_obj_t *slot;
-    lv_obj_t *line;
-    lv_obj_t *glyph;
-    lv_obj_t *namebox;
-    lv_obj_t *name;
-    lv_obj_t *tag;
-    lv_obj_t *strip;
-    lv_obj_t *hops;
-    lv_obj_t *rssi;
-    lv_obj_t *snr;
-    lv_obj_t *heard;
-    /* The expansion, portrait and selected only. */
-    lv_obj_t *expand;
-    lv_obj_t *exp_glyph;
-    lv_obj_t *exp_state;
-    lv_obj_t *exp_chain;
-    lv_obj_t *exp_signal;
-    char key[RIFT_KEY_HEX];
-    struct rift_nodes *owner;
+enum item_kind {
+    ITEM_GROUP = 0,
+    ITEM_NODE,
+};
+
+/* One line of the list as it would be laid out if every row existed. */
+struct item {
+    enum item_kind kind;
+    int ref;   /* the group (0..2), or the node's place in the order */
+    int32_t y;
+    int32_t h;
 };
 
 struct rift_nodes {
@@ -56,60 +47,43 @@ struct rift_nodes {
     lv_obj_t *root;
     lv_obj_t *pane_list;
     lv_obj_t *head;
-    lv_obj_t *head_cell[6];
+    lv_obj_t *head_cell[HEAD_CELLS];
     lv_obj_t *list;
+    lv_obj_t *spacer;
+    lv_obj_t *group[3];
     lv_obj_t *note;
     lv_obj_t *pane_ctx;
     struct rift_detail *detail_pane; /* landscape right pane */
     struct rift_detail *detail_full; /* portrait pushed screen */
     lv_obj_t *detail_full_root;
 
-    struct node_row row[RIFT_MAX_NODES];
-    int row_count;
+    struct rift_node_row row[POOL_MAX];
+    int row_count; /* built */
 
-    /* What the built list was chosen from. */
-    char shape_key[RIFT_MAX_NODES][RIFT_KEY_HEX];
-    int shape_count;
-    int shape_fresh;
+    /* The list as it stands: the order of the last refresh, so a key press
+     * can step through it and a scroll can bind rows from it, and the lines
+     * it lays out into. */
+    char order_key[RIFT_MAX_NODES][RIFT_KEY_HEX];
+    char order_heard[RIFT_MAX_NODES]; /* heard at all, for the groups */
+    int order_count;
+    struct item item[RIFT_MAX_NODES + 3];
+    int item_count;
+    int32_t total_h;
+    int sel_item;
+    /* The selected row's height as last measured: a row, or in portrait a
+     * row with its expansion under it. */
+    int32_t sel_h;
     char shape_sel[RIFT_KEY_HEX];
     int shape_wide;
-    int shape_valid;
-
-    /* The order of the last refresh, so a key press can step through it. */
-    char order_key[RIFT_MAX_NODES][RIFT_KEY_HEX];
-    int order_count;
 
     /* The selection moved: bring its row into view on this refresh. A list
      * of thirty nodes is taller than a landscape body, and arrows that moved
      * the selection off the bottom of the pane were moving it out of sight. */
     int reveal;
+    int binding; /* inside bind_window: a scroll it causes is its own */
 };
 
-static int32_t strip_width(const struct rift_app *a)
-{
-    return a->wide ? RIFT_STRIP_W_WIDE : RIFT_STRIP_W;
-}
-
 /* ---- building ----------------------------------------------------------- */
-
-static lv_obj_t *dense_row(lv_obj_t *parent, int32_t height)
-{
-    lv_obj_t *r = lv_obj_create(parent);
-
-    lv_obj_remove_style_all(r);
-    lv_obj_set_width(r, LV_PCT(100));
-    lv_obj_set_height(r, height);
-    lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(r, COL_GAP, 0);
-    lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
-    /* A layout box takes no taps. The row's own line asks for them back,
-     * and it is the only thing in the list that is clickable: a nested box
-     * that kept the default would swallow the tap meant for the row under
-     * it (RIFT-DEV-1 wants the whole row width as the hit area). */
-    lv_obj_remove_flag(r, LV_OBJ_FLAG_CLICKABLE);
-    return r;
-}
 
 /* A column that is only there so the header lines up with the rows. */
 static lv_obj_t *spacer(lv_obj_t *parent, int32_t width)
@@ -128,13 +102,13 @@ static void build_head(struct rift_nodes *v)
     struct rift_app *a = v->app;
     int i = 0;
 
-    v->head = dense_row(v->pane_list, RIFT_HEADER_ROW_H);
+    v->head = rift_node_row_line(v->pane_list, RIFT_HEADER_ROW_H);
     spacer(v->head, COL_GLYPH);
     v->head_cell[i] = rift_cell(v->head, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_flex_grow(v->head_cell[i], 1);
     lv_label_set_text(v->head_cell[i], "NODE");
     i++;
-    v->head_cell[i] = rift_cell(v->head, POS_STYLE_CAPTION, strip_width(a), LV_TEXT_ALIGN_LEFT);
+    v->head_cell[i] = rift_cell(v->head, POS_STYLE_CAPTION, rift_node_strip_width(a), LV_TEXT_ALIGN_LEFT);
     lv_label_set_text(v->head_cell[i], "PATH");
     i++;
     v->head_cell[i] = rift_cell(v->head, POS_STYLE_CAPTION, COL_HOPS, LV_TEXT_ALIGN_RIGHT);
@@ -148,237 +122,249 @@ static void build_head(struct rift_nodes *v)
     i++;
     v->head_cell[i] = rift_cell(v->head, POS_STYLE_CAPTION, COL_HEARD, LV_TEXT_ALIGN_RIGHT);
     lv_label_set_text(v->head_cell[i], "HEARD");
+    i++;
+    /* Under nothing but the age it follows: the pulse is that age, bucketed. */
+    v->head_cell[i] = spacer(v->head, COL_PULSE);
+    lv_obj_set_style_margin_left(v->head_cell[i], PULSE_PULL, 0);
     rift_rule(v->pane_list);
 }
 
-static void on_row(lv_event_t *e)
-{
-    const struct node_row *r = lv_event_get_user_data(e);
+/* ---- the virtual list ------------------------------------------------------ */
 
-    rift_app_select(r->owner->app, r->key);
+static void unbind(struct rift_node_row *r)
+{
+    r->key[0] = '\0';
+    r->item = -1;
+    rift_node_row_drop_expansion(r);
+    lv_obj_add_flag(r->slot, LV_OBJ_FLAG_HIDDEN);
 }
 
-static void on_detail(lv_event_t *e)
+/* Lay the lines out as if every row existed: the group labels, the rows, and
+ * the selected row at the height it was last measured. */
+static void lay_out(struct rift_nodes *v, int fresh)
+{
+    const char *sel = v->app->have_selected ? v->app->selected : NULL;
+    int32_t y = 0;
+    int stale_shown = 0;
+    int unheard_shown = 0;
+    int i;
+
+    v->item_count = 0;
+    v->sel_item = -1;
+    for (i = 0; i < v->order_count; i++) {
+        int heard = v->order_heard[i];
+        int group = -1;
+        struct item *it;
+
+        /* The three groups of rift_model_order, each headed where it
+         * starts: heard within 12 h, heard longer ago, never heard. A row
+         * starts at most one of them. */
+        if (i == 0 && fresh > 0) {
+            group = 0;
+        } else if (!stale_shown && i >= fresh && heard) {
+            group = 1;
+            stale_shown = 1;
+        } else if (!unheard_shown && !heard) {
+            group = 2;
+            unheard_shown = 1;
+        }
+        if (group >= 0) {
+            it = &v->item[v->item_count++];
+            it->kind = ITEM_GROUP;
+            it->ref = group;
+            it->y = y;
+            it->h = RIFT_GROUP_H;
+            y += it->h;
+        }
+        it = &v->item[v->item_count++];
+        it->kind = ITEM_NODE;
+        it->ref = i;
+        it->y = y;
+        it->h = RIFT_ROW_H;
+        if (sel && strcmp(sel, v->order_key[i]) == 0) {
+            v->sel_item = v->item_count - 1;
+            it->h = (v->sel_h > 0 ? v->sel_h : RIFT_ROW_H + 2 * SELECTED_INSET_V) +
+                    2 * SELECTED_AIR;
+        }
+        y += it->h;
+    }
+    v->total_h = y;
+    /* The spacer is what gives the list its height to scroll: one pixel at
+     * the bottom of where every row would be. */
+    lv_obj_set_pos(v->spacer, 0, v->total_h > 0 ? v->total_h - 1 : 0);
+}
+
+static void place(struct rift_nodes *v, struct rift_node_row *r)
+{
+    const struct item *it = &v->item[r->item];
+    int32_t y = it->y + (r->item == v->sel_item ? SELECTED_AIR : 0);
+
+    if (lv_obj_get_y(r->slot) != y || lv_obj_get_x(r->slot) != 0) {
+        lv_obj_set_pos(r->slot, 0, y);
+    }
+    lv_obj_remove_flag(r->slot, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* Bind the pool to the part of the list that is on screen, plus a margin,
+ * plus the selected row wherever it is: it carries the expansion, and its
+ * height is measured. Rows already showing a node that is still wanted keep
+ * it; the rest are rebound. every says whether rows that kept their node are
+ * refreshed too (a repaint) or only the newly bound ones (a scroll). */
+static void bind_window(struct rift_nodes *v, int every)
+{
+    struct rift_app *a = v->app;
+    int64_t now = rift_app_now(a);
+    int32_t top = lv_obj_get_scroll_y(v->list) - BIND_MARGIN;
+    int32_t bottom = lv_obj_get_scroll_y(v->list) + lv_obj_get_height(v->list) + BIND_MARGIN;
+    char want[RIFT_MAX_NODES + 3];
+    int fresh_rows = 0;
+    int i;
+    int j;
+
+    v->binding = 1;
+    memset(want, 0, sizeof(want));
+    for (i = 0; i < v->item_count; i++) {
+        const struct item *it = &v->item[i];
+
+        if (it->kind == ITEM_NODE &&
+            ((it->y + it->h > top && it->y < bottom) || i == v->sel_item)) {
+            want[i] = 1;
+        }
+    }
+    /* Keep what is still wanted, where it is; free the rest. */
+    for (j = 0; j < v->row_count; j++) {
+        struct rift_node_row *r = &v->row[j];
+        int kept = -1;
+
+        if (!r->key[0]) {
+            continue;
+        }
+        for (i = 0; i < v->item_count; i++) {
+            if (want[i] == 1 && strcmp(v->order_key[v->item[i].ref], r->key) == 0) {
+                kept = i;
+                break;
+            }
+        }
+        if (kept < 0) {
+            unbind(r);
+            continue;
+        }
+        want[kept] = 2; /* taken */
+        r->item = kept;
+    }
+    /* Bind what is wanted and not yet showing. */
+    for (i = 0; i < v->item_count; i++) {
+        struct rift_node_row *r = NULL;
+
+        if (want[i] != 1) {
+            continue;
+        }
+        for (j = 0; j < v->row_count; j++) {
+            if (!v->row[j].key[0]) {
+                r = &v->row[j];
+                break;
+            }
+        }
+        if (!r && v->row_count < POOL_MAX) {
+            r = &v->row[v->row_count++];
+            rift_node_row_build(r, a, v->list);
+        }
+        if (!r) {
+            break; /* the pool is spent; the rest is off screen */
+        }
+        snprintf(r->key, sizeof(r->key), "%s", v->order_key[v->item[i].ref]);
+        r->item = i;
+        want[i] = 3; /* newly bound */
+    }
+    /* Placed and styled first, then one layout if anything new needs it,
+     * then filled in: a name is fitted to the width its row has, and a row
+     * just taken from the pool has not been given one yet. */
+    for (j = 0; j < v->row_count; j++) {
+        struct rift_node_row *r = &v->row[j];
+
+        if (!r->key[0]) {
+            continue;
+        }
+        if (!rift_model_find(&a->model, r->key)) {
+            /* Gone from the cache since the order was taken. */
+            unbind(r);
+            continue;
+        }
+        rift_node_row_select(r, r->item == v->sel_item);
+        place(v, r);
+        if (want[r->item] == 3 && lv_obj_get_width(r->namebox) <= 1) {
+            fresh_rows = 1;
+        }
+    }
+    if (fresh_rows) {
+        lv_obj_update_layout(v->list);
+    }
+    for (j = 0; j < v->row_count; j++) {
+        struct rift_node_row *r = &v->row[j];
+        const struct rift_node *n = r->key[0] ? rift_model_find(&a->model, r->key) : NULL;
+
+        if (n && (every || want[r->item] == 3)) {
+            rift_node_row_update(r, n, now);
+        }
+    }
+    /* The three group labels are always there to be placed, and there are
+     * only three: no pool needed. */
+    for (i = 0; i < 3; i++) {
+        lv_obj_add_flag(v->group[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    for (i = 0; i < v->item_count; i++) {
+        if (v->item[i].kind == ITEM_GROUP) {
+            lv_obj_set_pos(v->group[v->item[i].ref], 0, v->item[i].y);
+            lv_obj_remove_flag(v->group[v->item[i].ref], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    v->binding = 0;
+}
+
+static void on_list_scroll(lv_event_t *e)
 {
     struct rift_nodes *v = lv_event_get_user_data(e);
 
-    rift_app_open_detail(v->app, 1);
-}
-
-/* Write to this node. It opens COMMS on a conversation with the peer -
- * which may hold nothing yet, and is not given anything to make it look as
- * though it does. It sends nothing; it only points the composer. */
-static void on_message(lv_event_t *e)
-{
-    const struct node_row *r = lv_event_get_user_data(e);
-
-    rift_app_open_conversation(r->owner->app, r->key);
-}
-
-static void build_expansion(struct rift_nodes *v, struct node_row *r)
-{
-    lv_obj_t *line;
-    lv_obj_t *bar;
-
-    r->expand = lv_obj_create(r->slot);
-    lv_obj_remove_style_all(r->expand);
-    lv_obj_set_width(r->expand, LV_PCT(100));
-    lv_obj_set_height(r->expand, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(r->expand, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(r->expand, 8, 0);
-    lv_obj_set_style_pad_top(r->expand, 8, 0);
-    lv_obj_remove_flag(r->expand, LV_OBJ_FLAG_SCROLLABLE);
-
-    line = dense_row(r->expand, RIFT_ROW_H);
-    r->exp_glyph = rift_glyph_create(line);
-    r->exp_state = rift_cell(line, POS_STYLE_VALUE, 0, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_flex_grow(r->exp_state, 1);
-
-    r->exp_chain = lv_label_create(r->expand);
-    lv_obj_remove_style_all(r->exp_chain);
-    pos_style_add(r->exp_chain, POS_STYLE_CAPTION, 0);
-    lv_obj_set_width(r->exp_chain, LV_PCT(100));
-    lv_label_set_long_mode(r->exp_chain, LV_LABEL_LONG_WRAP);
-    lv_label_set_text(r->exp_chain, "");
-
-    r->exp_signal = lv_label_create(r->expand);
-    lv_obj_remove_style_all(r->exp_signal);
-    pos_style_add(r->exp_signal, POS_STYLE_CAPTION, 0);
-    lv_obj_set_width(r->exp_signal, LV_PCT(100));
-    lv_label_set_long_mode(r->exp_signal, LV_LABEL_LONG_WRAP);
-    lv_label_set_text(r->exp_signal, "");
-
-    /* Two actions. The design's third, PATH, was drawn in the disabled
-     * treatment with nothing behind it; the path is on DETAIL, whole, and a
-     * button that can never be pressed is width taken from the two that can. */
-    bar = dense_row(r->expand, RIFT_TOUCH_H);
-    lv_obj_set_style_pad_column(bar, 12, 0);
-    rift_action(bar, "MESSAGE", 1, 1, on_message, r);
-    rift_action(bar, "DETAIL \xE2\x80\xBA", 0, 1, on_detail, v);
-}
-
-static void build_row(struct rift_nodes *v, const struct rift_node *n, int selected)
-{
-    struct rift_app *a = v->app;
-    struct node_row *r = &v->row[v->row_count];
-
-    memset(r, 0, sizeof(*r));
-    r->owner = v;
-    snprintf(r->key, sizeof(r->key), "%s", n->key);
-
-    r->slot = lv_obj_create(v->list);
-    lv_obj_remove_style_all(r->slot);
-    lv_obj_set_width(r->slot, LV_PCT(100));
-    lv_obj_set_height(r->slot, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(r->slot, LV_FLEX_FLOW_COLUMN);
-    lv_obj_remove_flag(r->slot, LV_OBJ_FLAG_SCROLLABLE);
-    if (selected) {
-        pos_style_add(r->slot, POS_STYLE_SLAB, 0);
-        pos_style_add(r->slot, POS_STYLE_SELECTED, 0);
-        lv_obj_set_style_pad_all(r->slot, SELECTED_INSET, 0);
+    if (v->binding) {
+        return;
     }
-
-    r->line = dense_row(r->slot, RIFT_ROW_H);
-    /* The whole row is the hit area, and a tap on it selects and does
-     * nothing else (RIFT-DEV-1). */
-    lv_obj_add_flag(r->line, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(r->line, on_row, LV_EVENT_CLICKED, r);
-
-    r->glyph = rift_glyph_create(r->line);
-    /* The name and its role tag are one column, so the columns after them
-     * do not move by the width of a tag that some rows have and some do
-     * not. The name takes what the tag leaves and ends in an ellipsis when
-     * it does not fit: a remote name is chosen by whoever is on the air and
-     * can be any length. */
-    r->namebox = dense_row(r->line, RIFT_ROW_H);
-    lv_obj_set_flex_grow(r->namebox, 1);
-    lv_obj_set_width(r->namebox, 1);
-    lv_obj_set_style_pad_column(r->namebox, 6, 0);
-    r->name = rift_cell(r->namebox, POS_STYLE_ROW_TITLE, 0, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_flex_grow(r->name, 1);
-    lv_obj_set_width(r->name, 1);
-    r->tag = rift_cell(r->namebox, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
-    r->strip = rift_strip_create(r->line, strip_width(a));
-    r->hops = rift_cell(r->line, POS_STYLE_CAPTION, COL_HOPS, LV_TEXT_ALIGN_RIGHT);
-    r->rssi = rift_cell(r->line, POS_STYLE_CAPTION, COL_RSSI, LV_TEXT_ALIGN_RIGHT);
-    r->snr = rift_cell(r->line, POS_STYLE_CAPTION, COL_SNR, LV_TEXT_ALIGN_RIGHT);
-    r->heard = rift_cell(r->line, POS_STYLE_CAPTION, COL_HEARD, LV_TEXT_ALIGN_RIGHT);
-    if (selected && !a->wide) {
-        build_expansion(v, r);
-    }
-    v->row_count++;
+    /* Rows for what just came into view, filled in now so a scroll never
+     * shows an empty one; the next repaint settles anything fitted to a
+     * width a layout had not yet finished giving. */
+    bind_window(v, 0);
+    v->app->refresh_pending = 1;
 }
 
-static void rebuild(struct rift_nodes *v, const struct rift_node **order, int count, int fresh)
+/* A list that got shorter under a reader who had scrolled down it: the
+ * spacer moved up, and LVGL leaves the offset where it was, looking at
+ * nothing. Bring it back to the last screenful there is. */
+static void clamp_scroll(struct rift_nodes *v)
 {
-    struct rift_app *a = v->app;
-    const struct rift_node *sel = rift_app_selected(a);
-    int stale_shown = 0;
-    int unheard_shown = 0;
-    int stale_count = 0;
-    int unheard_count = 0;
-    int i;
+    int32_t most = v->total_h - lv_obj_get_height(v->list);
 
-    lv_obj_clean(v->list);
-    v->row_count = 0;
-    for (i = fresh; i < count; i++) {
-        if (order[i]->have_heard) {
-            stale_count++;
-        } else {
-            unheard_count++;
-        }
+    if (most < 0) {
+        most = 0;
     }
-    for (i = 0; i < count && v->row_count < RIFT_MAX_NODES; i++) {
-        const struct rift_node *n = order[i];
-
-        if (i == 0 && fresh > 0) {
-            char text[48];
-
-            snprintf(text, sizeof(text), "HEARD < 12 H" RIFT_SEP "%d", fresh);
-            rift_group_label(v->list, text);
-        }
-        if (!stale_shown && i >= fresh && n->have_heard) {
-            char text[48];
-
-            snprintf(text, sizeof(text), "NOT HEARD > 12 H" RIFT_SEP "%d", stale_count);
-            rift_group_label(v->list, text);
-            stale_shown = 1;
-        }
-        if (!unheard_shown && !n->have_heard) {
-            char text[48];
-
-            snprintf(text, sizeof(text), "NEVER HEARD" RIFT_SEP "%d", unheard_count);
-            rift_group_label(v->list, text);
-            unheard_shown = 1;
-        }
-        build_row(v, n, sel && strcmp(sel->key, n->key) == 0);
+    if (lv_obj_get_scroll_y(v->list) > most) {
+        lv_obj_scroll_to_y(v->list, most, LV_ANIM_OFF);
     }
 }
 
-/* ---- updating ----------------------------------------------------------- */
-
-static void update_row(struct rift_nodes *v, struct node_row *r, const struct rift_node *n,
-                       int64_t now)
+/* Bring the selected row, expansion and all, into view. */
+static void reveal_selected(struct rift_nodes *v)
 {
-    struct rift_app *a = v->app;
-    struct rift_path p;
-    char text[RIFT_CHAIN_MAX];
-    char small[RIFT_SIGNAL_MAX];
-    const char *tag;
-    int stale = rift_node_is_stale(n, now);
+    const struct item *it;
+    int32_t y = lv_obj_get_scroll_y(v->list);
+    int32_t h = lv_obj_get_height(v->list);
 
-    if (rift_path_parse(n, &p) != 0) {
-        memset(&p, 0, sizeof(p));
+    if (v->sel_item < 0) {
+        return;
     }
-    rift_glyph_set(r->glyph, rift_app_glyph(n, now));
-    /* The tag was set, and the pane laid out, before this loop began: the
-     * name and the tag share one column, the tag is the one with a size of
-     * its own, and a name fitted before its tag had taken its width would be
-     * fitted to room it does not have. See rift_nodes_refresh. */
-    (void)tag;
-    rift_fmt_label(n, text, sizeof(text));
-    rift_cell_set_text_fit(r->name, text);
-    rift_strip_set_width(r->strip, strip_width(a));
-    rift_strip_set(r->strip, &p, stale);
-    rift_fmt_hops(n, small, sizeof(small));
-    lv_label_set_text(r->hops, small);
-    rift_fmt_rssi(n->rssi_dbm, n->have_rssi, small, sizeof(small));
-    lv_label_set_text(r->rssi, small);
-    rift_fmt_snr(n->snr_db, n->have_snr, small, sizeof(small));
-    lv_label_set_text(r->snr, small);
-    /* SNR is one of the extra columns landscape has room for (handoff §9);
-     * portrait shows the same node with one column fewer, never with a
-     * value squeezed into a place it does not fit. */
-    if (a->wide) {
-        lv_obj_remove_flag(r->snr, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(r->snr, LV_OBJ_FLAG_HIDDEN);
-    }
-    rift_fmt_age(now - n->heard_mono_ms, n->have_heard, small, sizeof(small));
-    lv_label_set_text(r->heard, small);
-
-    if (r->expand) {
-        const struct rift_model *m = &a->model;
-        const char *self =
-            (m->have_identity && m->self_name[0]) ? m->self_name : "this device";
-        char label[RIFT_LABEL_MAX];
-        char rssi[RIFT_SIGNAL_MAX];
-        char snr[RIFT_SIGNAL_MAX];
-        char advert[RIFT_AGE_MAX];
-
-        rift_glyph_set(r->exp_glyph, rift_app_glyph(n, now));
-        rift_fmt_state(n, text, sizeof(text));
-        lv_label_set_text(r->exp_state, text);
-        rift_fmt_label(n, label, sizeof(label));
-        rift_path_chain(self, &p, label, rift_app_resolve, a, text, sizeof(text));
-        lv_label_set_text(r->exp_chain, text);
-        rift_fmt_rssi(n->rssi_dbm, n->have_rssi, rssi, sizeof(rssi));
-        rift_fmt_snr(n->snr_db, n->have_snr, snr, sizeof(snr));
-        rift_fmt_age(now - n->heard_mono_ms, n->have_heard, advert, sizeof(advert));
-        lv_label_set_text_fmt(r->exp_signal,
-                              "LAST HOP %s" RIFT_SEP "SNR %s" RIFT_SEP "HEARD %s" RIFT_SEP
-                              "%u OBS",
-                              rssi, snr, advert, n->observations);
+    it = &v->item[v->sel_item];
+    if (it->y < y) {
+        lv_obj_scroll_to_y(v->list, it->y, LV_ANIM_OFF);
+    } else if (it->y + it->h > y + h) {
+        lv_obj_scroll_to_y(v->list, it->y + it->h - h, LV_ANIM_OFF);
     }
 }
 
@@ -387,6 +373,7 @@ static void update_row(struct rift_nodes *v, struct node_row *r, const struct ri
 void rift_nodes_shape(struct rift_app *app)
 {
     struct rift_nodes *v = app ? app->nodes : NULL;
+    int i;
 
     if (!v) {
         return;
@@ -410,13 +397,20 @@ void rift_nodes_shape(struct rift_app *app)
     }
     rift_nodes_cancel_confirm(app);
     if (v->head_cell[1]) {
-        lv_obj_set_width(v->head_cell[1], strip_width(app));
+        lv_obj_set_width(v->head_cell[1], rift_node_strip_width(app));
     }
     lv_obj_add_flag(v->head_cell[4], LV_OBJ_FLAG_HIDDEN);
     if (app->wide) {
         lv_obj_remove_flag(v->head_cell[4], LV_OBJ_FLAG_HIDDEN);
     }
-    v->shape_valid = 0; /* the rows are laid out from the shape too */
+    /* A new shape is a new set of widths and, in portrait, an expansion:
+     * every row is rebound from nothing and the selected one re-measured. */
+    for (i = 0; i < v->row_count; i++) {
+        unbind(&v->row[i]);
+    }
+    v->sel_h = 0;
+    v->shape_wide = app->wide;
+    v->reveal = 1;
 }
 
 /* ---- the portrait DETAIL screen ----------------------------------------- */
@@ -451,12 +445,14 @@ static void ensure_detail_full(struct rift_nodes *v, int open)
 lv_obj_t *rift_nodes_create(struct rift_app *app, lv_obj_t *parent)
 {
     struct rift_nodes *v = calloc(1, sizeof(*v));
+    int i;
 
     if (!v) {
         return NULL;
     }
     app->nodes = v;
     v->app = app;
+    v->sel_item = -1;
 
     v->root = lv_obj_create(parent);
     lv_obj_remove_style_all(v->root);
@@ -473,13 +469,20 @@ lv_obj_t *rift_nodes_create(struct rift_app *app, lv_obj_t *parent)
     lv_obj_remove_flag(v->pane_list, LV_OBJ_FLAG_SCROLLABLE);
     build_head(v);
 
+    /* The list lays nothing out itself: every child is placed by
+     * bind_window, over a spacer that is as tall as all the rows. */
     v->list = lv_obj_create(v->pane_list);
     lv_obj_remove_style_all(v->list);
     lv_obj_set_width(v->list, LV_PCT(100));
     lv_obj_set_flex_grow(v->list, 1);
-    lv_obj_set_flex_flow(v->list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_scroll_dir(v->list, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(v->list, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_add_event_cb(v->list, on_list_scroll, LV_EVENT_SCROLL, v);
+    v->spacer = spacer(v->list, 1);
+    for (i = 0; i < 3; i++) {
+        v->group[i] = rift_group_label(v->list, "");
+        lv_obj_add_flag(v->group[i], LV_OBJ_FLAG_HIDDEN);
+    }
 
     v->note = lv_label_create(v->pane_list);
     lv_obj_remove_style_all(v->note);
@@ -523,12 +526,22 @@ void rift_nodes_destroy(struct rift_app *app)
     if (!v) {
         return;
     }
+    /* The list goes with the section container, and a scroll event on the
+     * way down would reach this block after it is freed. */
+    if (v->list) {
+        lv_obj_remove_event_cb_with_user_data(v->list, on_list_scroll, v);
+    }
     rift_detail_destroy(v->detail_pane);
     rift_detail_destroy(v->detail_full);
     /* Every object is a child of the section container and is deleted with
      * it by the shell; the private blocks are this app's to release. */
     free(v);
     app->nodes = NULL;
+}
+
+int rift_nodes_rows_built(const struct rift_app *app)
+{
+    return (app && app->nodes) ? app->nodes->row_count : 0;
 }
 
 /* The list's footer: shown only for what the rows cannot say themselves -
@@ -586,11 +599,11 @@ void rift_nodes_refresh(struct rift_app *app)
     struct rift_nodes *v = app ? app->nodes : NULL;
     const struct rift_node *order[RIFT_MAX_NODES];
     const struct rift_node *sel;
-    int32_t keep_y = -1;
     int64_t now;
     int count;
     int fresh;
-    int changed;
+    int stale_count = 0;
+    int unheard_count = 0;
     int i;
 
     if (!v) {
@@ -611,79 +624,74 @@ void rift_nodes_refresh(struct rift_app *app)
     }
     if (strcmp(sel ? sel->key : "", v->shape_sel) != 0) {
         v->reveal = 1;
-    }
-    changed = !v->shape_valid || count != v->shape_count || fresh != v->shape_fresh ||
-              app->wide != v->shape_wide ||
-              strcmp(sel ? sel->key : "", v->shape_sel) != 0;
-    for (i = 0; !changed && i < count; i++) {
-        if (strcmp(order[i]->key, v->shape_key[i]) != 0) {
-            changed = 1;
-        }
-    }
-    if (changed) {
-        /* Rebuilt in place, and read from where the reader was. lv_obj_clean
-         * scrolls the list back to its top, and a rebuild is what every new
-         * node, every re-ordering by last heard and every selection is - so
-         * on a live mesh a list somebody had scrolled down jumped back to
-         * its first row every few seconds. */
-        keep_y = lv_obj_get_scroll_y(v->list);
-        rebuild(v, order, count, fresh);
-        v->shape_valid = 1;
-        v->shape_count = count;
-        v->shape_fresh = fresh;
-        v->shape_wide = app->wide;
+        v->sel_h = 0; /* a different row, measured afresh */
         snprintf(v->shape_sel, sizeof(v->shape_sel), "%s", sel ? sel->key : "");
-        for (i = 0; i < count; i++) {
-            snprintf(v->shape_key[i], sizeof(v->shape_key[i]), "%s", order[i]->key);
-        }
     }
     v->order_count = count;
     for (i = 0; i < count; i++) {
         snprintf(v->order_key[i], sizeof(v->order_key[i]), "%s", order[i]->key);
-    }
-    /* Everything that sizes a column first, then one layout, then the text
-     * that has to be fitted into what is left.
-     *
-     * rift_cell_set_text_fit measures the width the cell actually has. The
-     * name shares its column with the role tag, and the tag is content-sized,
-     * so a name measured before its tag had taken its width is measured
-     * against room that does not exist - and the name comes out unshortened
-     * and is then clipped instead of ellipsised. Whether that happened used
-     * to depend on how many refreshes had run since the row was built, which
-     * is to say on timing: the same fixtures gave two different screens.
-     * Sizing every tag, laying out once and only then fitting makes one
-     * refresh enough. */
-    for (i = 0; i < v->row_count && i < count; i++) {
-        const char *tag = rift_type_tag(order[i]->type, order[i]->have_type);
-
-        lv_label_set_text(v->row[i].tag, tag ? tag : "");
-    }
-    /* The footer, only when it has something the list does not already say.
-     * The counts are in the group labels (and in landscape the strip), so
-     * an ordinary list gives the footer's line back to its rows. */
-    paint_note(v, count);
-    lv_obj_update_layout(v->pane_list);
-    for (i = 0; i < v->row_count && i < count; i++) {
-        update_row(v, &v->row[i], order[i], now);
-    }
-    if (keep_y > 0) {
-        /* Settled first: the rows' text is what decides how tall the list
-         * is, and the scroll is bounded by that. */
-        lv_obj_update_layout(v->pane_list);
-        lv_obj_scroll_to_y(v->list, keep_y, LV_ANIM_OFF);
-    }
-    if (v->reveal) {
-        v->reveal = 0;
-        for (i = 0; i < v->row_count; i++) {
-            if (sel && strcmp(v->row[i].key, sel->key) == 0) {
-                /* The whole slot, expansion and action bar included, so a
-                 * selection made at the bottom of the pane shows what it
-                 * offers rather than hiding it under the edge. */
-                lv_obj_scroll_to_view(v->row[i].slot, LV_ANIM_OFF);
-                break;
+        v->order_heard[i] = order[i]->have_heard ? 1 : 0;
+        if (i >= fresh) {
+            if (order[i]->have_heard) {
+                stale_count++;
+            } else {
+                unheard_count++;
             }
         }
     }
+    /* The group labels carry the counts (and in landscape the strip does). */
+    {
+        char text[48];
+
+        snprintf(text, sizeof(text), "HEARD < 12 H" RIFT_SEP "%d", fresh);
+        lv_label_set_text(v->group[0], text);
+        snprintf(text, sizeof(text), "NOT HEARD > 12 H" RIFT_SEP "%d", stale_count);
+        lv_label_set_text(v->group[1], text);
+        snprintf(text, sizeof(text), "NEVER HEARD" RIFT_SEP "%d", unheard_count);
+        lv_label_set_text(v->group[2], text);
+    }
+    /* The footer first, only when it has something the list does not already
+     * say: whether it is there decides how tall the list is. */
+    paint_note(v, count);
+    lay_out(v, fresh);
+    /* One layout, so the list's height and every row's name box are settled
+     * before anything is bound or fitted against them. */
+    lv_obj_update_layout(v->pane_list);
+    /* Its own scrolls, not a reader's: bound below, once. */
+    v->binding = 1;
+    clamp_scroll(v);
+    if (v->reveal) {
+        reveal_selected(v);
+    }
+    v->binding = 0;
+    bind_window(v, 1);
+    /* The selected row is the one whose height is its content's: measure it,
+     * and if it is not what the lines were laid out for, lay them out again
+     * so nothing under it is hidden or left a gap. */
+    for (i = 0; i < v->row_count; i++) {
+        struct rift_node_row *r = &v->row[i];
+
+        if (r->key[0] && r->item == v->sel_item && v->sel_item >= 0) {
+            int32_t h;
+
+            lv_obj_update_layout(r->slot);
+            h = lv_obj_get_height(r->slot);
+            if (h > 0 && h != v->sel_h) {
+                v->sel_h = h;
+                lay_out(v, fresh);
+                lv_obj_update_layout(v->list);
+                v->binding = 1;
+                clamp_scroll(v);
+                if (v->reveal) {
+                    reveal_selected(v);
+                }
+                v->binding = 0;
+                bind_window(v, 0);
+            }
+            break;
+        }
+    }
+    v->reveal = 0;
 
     ensure_detail_full(v, app->detail_open && !app->wide);
     if (app->wide) {

@@ -6,6 +6,7 @@
 #include "rift_activity.h"
 
 #include "pos_styles.h"
+#include "rift_sound.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +16,11 @@
  * portrait body without the page becoming a log. */
 #define HEARD_ROWS 6
 #define FEED_ROWS 8
+/* The window the mesh's recent traffic is counted over. */
+#define TRAFFIC_WINDOW_MS (5 * 60 * 1000LL)
+/* The DM sound's ON/OFF, as Settings draws a switch: a 56 px action beside
+ * its title, primary while on. */
+#define SOUND_TOGGLE_W 112
 
 struct heard_row {
     lv_obj_t *row;
@@ -55,6 +61,11 @@ struct rift_activity_view {
     lv_obj_t *advert_mesh;
     lv_obj_t *advert_line;
     int advert_warn;
+
+    lv_obj_t *sound_toggle;
+    lv_obj_t *sound_label;
+    lv_obj_t *sound_note;
+    int sound_drawn; /* the state the toggle was last drawn in; -1 not yet */
 
     lv_obj_t *heard_note;
     struct heard_row heard[HEARD_ROWS];
@@ -170,6 +181,34 @@ static void build_identity(struct rift_activity_view *v, lv_obj_t *parent)
     v->advert_line = wrapping(panel, POS_STYLE_CAPTION);
 }
 
+/* The DM sound's setting: a press turns it over, and that is all it does.
+ * It sends nothing and plays nothing. */
+static void on_sound_toggle(lv_event_t *e)
+{
+    struct rift_activity_view *v = lv_event_get_user_data(e);
+
+    rift_app_set_dm_sound(v->app, !v->app->prefs.dm_sound);
+}
+
+static void build_sound(struct rift_activity_view *v, lv_obj_t *parent)
+{
+    lv_obj_t *panel = rift_panel(parent, "NOTIFY");
+    lv_obj_t *row = dense(panel, 12);
+    lv_obj_t *title;
+
+    lv_obj_set_height(row, RIFT_TOUCH_H);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    title = rift_cell(row, POS_STYLE_ROW_TITLE, 0, LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_flex_grow(title, 1);
+    lv_label_set_text(title, "Sound for a new DM");
+    v->sound_toggle = rift_action(row, "ON", 1, 1, on_sound_toggle, v);
+    lv_obj_set_flex_grow(v->sound_toggle, 0);
+    lv_obj_set_width(v->sound_toggle, SOUND_TOGGLE_W);
+    v->sound_label = lv_obj_get_child(v->sound_toggle, 0);
+    v->sound_note = wrapping(panel, POS_STYLE_CAPTION);
+    v->sound_drawn = -1;
+}
+
 static void build_heard(struct rift_activity_view *v, lv_obj_t *parent)
 {
     lv_obj_t *panel = rift_panel(parent, "RECENTLY HEARD");
@@ -243,6 +282,7 @@ lv_obj_t *rift_activity_create(struct rift_app *app, lv_obj_t *parent)
      * a scroll. Stacked in portrait, the order is the same as ever: service,
      * device, heard, feed. */
     build_service(v, v->col[0]);
+    build_sound(v, v->col[0]);
     build_identity(v, v->col[1]);
     build_heard(v, v->col[1]);
     build_feed(v, v->col[1]);
@@ -448,6 +488,49 @@ static void refresh_advert(struct rift_activity_view *v)
     }
 }
 
+/* The DM sound: the switch, and one line saying what it will actually do on
+ * this device - which, with no platform sound to ask for, is nothing, and a
+ * switch that says ON must not leave that unsaid. */
+static void refresh_sound(struct rift_activity_view *v)
+{
+    const struct rift_app *a = v->app;
+    int on = a->prefs.dm_sound ? 1 : 0;
+    const char *what;
+
+    if (on != v->sound_drawn) {
+        lv_label_set_text(v->sound_label, on ? "ON" : "OFF");
+        lv_obj_remove_style(v->sound_toggle, pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
+        lv_obj_remove_style(v->sound_toggle, pos_style(POS_STYLE_BUTTON_PRIMARY_PRESSED),
+                            LV_STATE_PRESSED);
+        lv_obj_remove_style(v->sound_toggle, pos_style(POS_STYLE_BUTTON_SECONDARY), 0);
+        lv_obj_remove_style(v->sound_toggle, pos_style(POS_STYLE_SLAB_PRESSED), LV_STATE_PRESSED);
+        if (on) {
+            pos_style_add(v->sound_toggle, POS_STYLE_BUTTON_PRIMARY, 0);
+            pos_style_add(v->sound_toggle, POS_STYLE_BUTTON_PRIMARY_PRESSED, LV_STATE_PRESSED);
+        } else {
+            pos_style_add(v->sound_toggle, POS_STYLE_BUTTON_SECONDARY, 0);
+            pos_style_add(v->sound_toggle, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+        }
+        v->sound_drawn = on;
+    }
+    if (!on) {
+        what = "Off: a new direct message is shown, not heard.";
+    } else if (!rift_sound_available()) {
+        what = rift_sound_why();
+    } else if (!rift_app_can_sound(a)) {
+        what = "Doors is muted: nothing is heard until the volume is up.";
+    } else {
+        what = "One short sound for a new direct message, at most one every 10 s. "
+               "Not for channels, history or your own.";
+    }
+    if (!a->prefs_saved) {
+        lv_label_set_text_fmt(v->sound_note, "%s Not saved: this lasts until RIFT closes.",
+                              what);
+    } else {
+        lv_label_set_text(v->sound_note, what);
+    }
+}
+
 static void refresh_identity(struct rift_activity_view *v)
 {
     const struct rift_model *m = &v->app->model;
@@ -551,7 +634,19 @@ static void refresh_feed(struct rift_activity_view *v, int64_t now)
         lv_label_set_text(v->feed_note, "No frame has been seen since RIFT opened.");
         lv_obj_remove_flag(v->feed_note, LV_OBJ_FLAG_HIDDEN);
     } else {
-        lv_label_set_text_fmt(v->feed_note, "%u frame%s since RIFT opened.", m->activity_total,
+        int rx = 0;
+        int tx = 0;
+        int more = 0;
+
+        /* How busy the channel is: frames the service reported in the last
+         * five minutes, from the feed RIFT holds. A count of frames, not a
+         * measure of the link; "48+" when the feed is full and all of it is
+         * that recent, because then there may have been more. */
+        rift_model_recent_frames(m, now, TRAFFIC_WINDOW_MS, &rx, &tx, &more);
+        lv_label_set_text_fmt(v->feed_note,
+                              "LAST 5 MIN" RIFT_SEP "RX %d%s" RIFT_SEP "TX %d%s" RIFT_SEP
+                              "%u frame%s since RIFT opened.",
+                              rx, more ? "+" : "", tx, more ? "+" : "", m->activity_total,
                               m->activity_total == 1 ? "" : "s");
         lv_obj_remove_flag(v->feed_note, LV_OBJ_FLAG_HIDDEN);
     }
@@ -567,6 +662,7 @@ void rift_activity_refresh(struct rift_app *app)
     }
     now = rift_app_now(app);
     refresh_service(v);
+    refresh_sound(v);
     refresh_identity(v);
     refresh_heard(v, now);
     refresh_feed(v, now);
