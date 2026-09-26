@@ -1,6 +1,6 @@
 # Zabbix: a monitoring terminal for an existing Zabbix server
 
-**Status: EXPERIMENT.** This lives on branch `experiment/zabbix-dashboard`, which is not merged. The architecture is in ADR-007 and the screens are DS §35; both are PROPOSED.
+**Status: ACCEPTED** (2026-09-26), and in the shell by default. The architecture is in ADR-007 and the screens are DS §35; both are ACCEPTED.
 
 This is a read-only client. The unit shows what a Zabbix server already knows:
 
@@ -470,12 +470,12 @@ so no new style, token or colour is added.
 **Screenshots** of every screen, both shapes, are produced by
 `ZABBIX_SHOTS=<dir> zabbix_app_test` (§11).
 
-**It is off by default.** The app is built into the shell only with
-`-DPOCKETOS_WITH_ZABBIX=ON` (ui/shell/CMakeLists.txt). Without it the
-launcher, every existing suite and the image's shell are exactly master's;
-`pos-zabbix` is still built and installed, so `pos-zabbix check` works on
-the bench. Built in, the app appears on the launcher under MORE with a
-symbol, because there is no Doors icon for it yet. It can also be opened
+**It is on by default.** `POCKETOS_WITH_ZABBIX` (ui/shell/CMakeLists.txt)
+defaults to ON, and the Buildroot package passes no option, so the image's
+shell has the app; `-DPOCKETOS_WITH_ZABBIX=OFF` leaves it out. `pos-zabbix`
+is built and installed either way, so `pos-zabbix check` works on the bench.
+The app is on the launcher in CONNECTIONS, fourth, with a first-party icon: a
+screen with a heartbeat trace (DS §35.4). It can also be opened
 with `doors app open zabbix`.
 
 ## 9. The fake server and the mock
@@ -712,9 +712,6 @@ Still open:
 
 For the product:
 
-- a Doors icon;
-- DS §35 acceptance;
-- ADR-007 decisions 1-3;
 - whether problems should ever be acknowledged from the unit (it would be
   the first write);
 - whether background alerts (a resident service) are wanted.

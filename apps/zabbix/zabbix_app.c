@@ -1271,13 +1271,15 @@ static void zabbix_destroy(void *priv)
     free(a);
 }
 
+LV_IMAGE_DECLARE(pos_app_icon_zabbix);
+
 const struct pocketos_app app_zabbix = {
     .id = "zabbix",
     .name = "Zabbix",
-    /* No Doors icon yet (docs/apps/ZABBIX.md, open items): the launcher
-     * draws the symbol. */
     .icon = LV_SYMBOL_EYE_OPEN,
-    .icon_mask = NULL,
+    /* A first-party icon in the extension's line language: a screen with a
+     * pulse (docs/design/doors-app-icons/README.md). */
+    .icon_mask = &pos_app_icon_zabbix,
     .create = zabbix_create,
     .tick = NULL,
     .destroy = zabbix_destroy,

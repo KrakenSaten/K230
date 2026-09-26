@@ -181,11 +181,11 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     target_compile_definitions(pocketos-shell PRIVATE CAMERA_BACKEND_DEFAULT="fake")
 endif()
 
-# Zabbix, the monitoring viewer (docs/apps/ZABBIX.md, ADR-007 PROPOSED), is
-# an experiment: it is built into the shell only when asked for, so the
-# launcher and every existing suite are unchanged by default. The Zabbix
+# Zabbix, the monitoring viewer (docs/apps/ZABBIX.md, ADR-007 and DS §35
+# ACCEPTED), is in the shell by default, the Buildroot package included (it
+# passes no option). -DPOCKETOS_WITH_ZABBIX=OFF leaves it out. The Zabbix
 # suites build the app on its own (zabbix_app_test below) either way.
-option(POCKETOS_WITH_ZABBIX "Build the experimental Zabbix viewer into the shell" OFF)
+option(POCKETOS_WITH_ZABBIX "Build the Zabbix viewer into the shell" ON)
 if(POCKETOS_WITH_ZABBIX)
     target_sources(pocketos-shell PRIVATE
         ${REPO_DIR}/apps/zabbix/zabbix_app.c

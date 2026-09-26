@@ -4,8 +4,9 @@
     gen_doors_ui.py [--check] [--only backgrounds|icons|glyphs] [--compare]
 
 Sources (never shipped): docs/design/brand/doors-visual-pack-v1 (the B
-package: backgrounds, portal icon masters, system glyphs) and the Doors icon
-masters in docs/design/brand/doors-threshold and doors-icon-extension.
+package: backgrounds, portal icon masters, system glyphs), the Doors icon
+masters in docs/design/brand/doors-threshold and doors-icon-extension, and
+the first-party app icons in docs/design/doors-app-icons.
 
 Outputs, all committed so a build needs neither this script nor the sources:
 
@@ -54,6 +55,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PACK = "docs/design/brand/doors-visual-pack-v1"
 THRESHOLD = "docs/design/brand/doors-threshold/icons/svg/"
 EXTENSION = "docs/design/brand/doors-icon-extension/svg/"
+FIRST_PARTY = "docs/design/doors-app-icons/svg/"
 OUT = "ui/assets/doors"
 
 ICON_PX = 96
@@ -82,6 +84,7 @@ APP_ICONS = {
     "system": (THRESHOLD + "system.svg", "apps"),
     "files": (B_GLYPH + "files.svg", "files"),
     "camera": (EXTENSION + "camera.svg", "tools"),
+    "zabbix": (FIRST_PARTY + "zabbix.svg", "tools"),
 }
 # The system glyphs the shell uses, from the package's 32 px exports.
 GLYPHS = ["lock", "power", "wifi", "radio", "sun", "display", "info", "settings", "apps",

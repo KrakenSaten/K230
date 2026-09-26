@@ -57,7 +57,7 @@ app_hue = dict(re.findall(r'^\s+"(\w+)": \([^,]+, "(\w+)"\),', gen, re.M))
 table = {i: h.lower() for i, h in re.findall(r'\{ "(\w+)", HOME_GROUP_\w+, HOME_HUE_(\w+) \}',
                                               open("ui/shell/home_layout.c", encoding="utf-8").read())}
 check("the launcher's table and the icon generator give every app the same colour (%d apps)" % len(table),
-      table == app_hue and len(table) == 14)
+      table == app_hue and len(table) == 15)
 palette = re.search(r"PALETTE = \{(.*?)\}", gen, re.S).group(1)
 pal = dict(re.findall(r'"(\w+)": "#([0-9a-f]{6})"', palette))
 styles = open("ui/pocketui/pos_styles.c", encoding="utf-8").read()

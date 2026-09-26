@@ -62,7 +62,9 @@ vendor/                    Read-only reference clones (git-ignored)
 
 **master is 0.0.13 in development** (not released, no tag): Camera
 (docs/apps/CAMERA.md, unit A gate docs/hardware/CAMERA_GATE.md) is its first
-change since v0.0.12.
+change since v0.0.12. Zabbix (docs/apps/ZABBIX.md, unit A gate
+docs/hardware/ZABBIX_UNIT_A_GATE.md), a read-only viewer for an existing
+Zabbix server, is in the shell by default, in the launcher's CONNECTIONS group.
 
 **Doors 0.0.12** (tag `v0.0.12`, 2026-09-25) is the current release: Files,
 and fullscreen RIFT, Notes, Wave, Fleet, Radar and Timber. The release notes
