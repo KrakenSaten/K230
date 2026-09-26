@@ -34,6 +34,20 @@ check "only fleet_store.c touches the filesystem" \
       "$(ls $ENGINE/*.c | grep -v fleet_store.c)" \
       '\b(fopen|open|creat|unlink|rename|mkdir|remove)[[:space:]]*\('
 
+# 8. The multiplayer protocol (docs/apps/FLEET_MULTIPLAYER.md) is pure: it
+#    draws nothing, talks to no service, opens no file and reads no clock or
+#    random source of its own, so a match replays exactly and the simulator
+#    can run thousands of them.
+NET=apps/fleet/net
+check "the multiplayer protocol is free of LVGL" "$NET/*.c $NET/*.h" \
+      'include[[:space:]]*[<"]lvgl|lv_obj_|lv_style_'
+check "nor talks to a service itself" "$NET/*.c $NET/*.h" \
+      'pocketipc|socket[[:space:]]*\(|connect[[:space:]]*\(|mesh\.|radio\.'
+check "nor touches the filesystem" "$NET/*.c" \
+      '\b(fopen|open|creat|unlink|rename|mkdir|remove|fsync)[[:space:]]*\('
+check "nor reads a clock or a random source of its own" "$NET/*.c" \
+      '\b(time|clock_gettime|gettimeofday|rand|random|getrandom|arc4random)[[:space:]]*\('
+
 want() { # <label> <files> <regex>
     hits=$(grep -nE "$3" $2 2>/dev/null)
     if [ -z "$hits" ]; then
@@ -42,6 +56,36 @@ want() { # <label> <files> <regex>
         echo "ok   $1"
     fi
 }
+
+# 9. Multiplayer's joints (ADR-008). The view model and the link layer draw
+#    nothing; exactly one file talks to a service, and it is the mesh link;
+#    nothing in Fleet names a radio method or radiod's socket; the session
+#    pumps nothing until the player engages; and the virtual opponent exists
+#    only when POCKETFLEET_MP_FAKE asks for it.
+LINK=apps/fleet/link
+check "the multiplayer view model is free of LVGL" \
+      "apps/fleet/ui/fleet_view_mp.c apps/fleet/ui/fleet_view_mp.h" \
+      'include[[:space:]]*[<"]lvgl|lv_obj_|lv_style_'
+check "the link layer is free of LVGL" "$LINK/*.c $LINK/*.h" \
+      'include[[:space:]]*[<"]lvgl|lv_obj_|lv_style_'
+check "only the mesh link talks to a service" \
+      "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v "$LINK/fleet_link_mesh.c")" \
+      'pocketipc_|include[[:space:]]*"pocketipc'
+check "Fleet never names a radio method or radiod" "apps/fleet/*.c apps/fleet/*/*.c" \
+      '"radio\.[a-z_]+"|radiod\.sock|"radiod"'
+want "the session pumps nothing before the player engages" "$LINK/fleet_session.c" \
+     'if \(!s->engaged\) \{'
+want "the virtual opponent only when asked for" "apps/fleet/fleet_mp.c" \
+     'getenv\("POCKETFLEET_MP_FAKE"\)'
+check "and nowhere else" "$(ls apps/fleet/*.c apps/fleet/*/*.c | grep -v fleet_mp.c | grep -v fleet_link_loop.c)" \
+      'fleet_link_loop_open'
+# What the mesh link may ask meshcored to transmit: app datagrams, and a
+# zero-hop advert from a button. Never a chat message, and nothing that
+# changes what the service holds.
+check "the mesh link sends no chat message and changes nothing the service holds" \
+      "$LINK/fleet_link_mesh.c" '"mesh\.(send|node_remove|node_reset_path|channel_add|channel_remove)"'
+want "its only advert is zero-hop" "$LINK/fleet_link_mesh.c" 'cJSON_AddBoolToObject\(p, "zero_hop", 1\)'
+
 
 UI="apps/fleet/fleet_app.c apps/fleet/ui/fleet_screen_battle.c     apps/fleet/ui/fleet_screen_command.c apps/fleet/ui/fleet_screen_deploy.c     apps/fleet/ui/fleet_screen_result.c"
 

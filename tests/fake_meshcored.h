@@ -86,6 +86,25 @@ struct fake_meshcored_script {
     /* Take mesh.node_remove and mesh.node_reset_path requests and never
      * answer them, the way a service that dies mid-request would not. */
     int node_ops_silent;
+
+    /* App datagrams (docs/api/mesh.md, "App datagrams"). */
+    /* mesh.status run_id; NULL is "fake-run-1". */
+    const char *run_id;
+    /* The datagrams mesh.app_inbox holds, as a JSON array in the shape the
+     * real service answers; it answers those on the asked port with an id
+     * above after_id. A negative mono_ms is "this long ago". */
+    const char *app_inbox_json;
+    /* Every mesh.app_send, one to a line: "<to>|<port>|<payload_hex>". */
+    const char *app_log;
+    /* Answer mesh.app_send with an error instead of accepting it. */
+    int refuse_app_send;
+    /* What mesh.app_send answers as est_timeout_ms; 0 is 9000. */
+    int app_est_timeout_ms;
+    /* mesh.status says the radio is not online (state "waiting_for_lease"). */
+    int radio_off;
+    /* Hold the events until mesh.app_inbox has been answered, the way
+     * events_after_snapshot holds them for the snapshots. */
+    int events_after_inbox;
 };
 
 /* Run the service until the script says to stop. Returns 0. Never returns

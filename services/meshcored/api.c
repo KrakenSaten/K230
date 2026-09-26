@@ -273,6 +273,39 @@ cJSON *mcd_event_activity_tx(uint64_t submit_id, int bytes, const char *result, 
     return pocketipc_event("mesh.activity", data);
 }
 
+/* An app datagram as a client sees it. The payload is opaque bytes, as hex:
+ * this service never reads it, and it is not text, so it is not sanitised
+ * either - hex cannot carry an escape sequence. */
+static cJSON *app_json(const struct mcd_app_datagram *dg)
+{
+    cJSON *o = cJSON_CreateObject();
+    char hex[MCD_APP_PAYLOAD_MAX * 2 + 1];
+
+    cJSON_AddNumberToObject(o, "id", (double)dg->id);
+    cJSON_AddNumberToObject(o, "port", (double)dg->port);
+    add_key(o, "from", dg->from, MCD_PUB_KEY_LEN);
+    if (mcd_hex_encode(dg->payload, dg->len, hex, sizeof(hex))) {
+        cJSON_AddStringToObject(o, "payload_hex", hex);
+    }
+    cJSON_AddStringToObject(o, "route", dg->flood ? "flood" : "direct");
+    cJSON_AddNumberToObject(o, "mono_ms", (double)dg->mono_ms);
+    if (dg->rssi_known) {
+        cJSON_AddNumberToObject(o, "rssi_dbm", dg->rssi_dbm);
+    }
+    if (dg->snr_known) {
+        cJSON_AddNumberToObject(o, "snr_db", dg->snr_db);
+    }
+    return o;
+}
+
+cJSON *mcd_event_app(const struct mcd_app_datagram *dg)
+{
+    cJSON *data = cJSON_CreateObject();
+
+    cJSON_AddItemToObject(data, "datagram", app_json(dg));
+    return pocketipc_event("mesh.app", data);
+}
+
 /* ---- methods ------------------------------------------------------------ */
 
 static cJSON *m_info(struct mcd *d)
@@ -311,6 +344,7 @@ static cJSON *m_status(struct mcd *d)
     cJSON_AddStringToObject(o, "reason", d->state_reason);
     cJSON_AddNumberToObject(o, "state_since_mono_ms", (double)d->state_since_ms);
     cJSON_AddNumberToObject(o, "uptime_s", (double)((now - d->start_ms) / 1000u));
+    cJSON_AddStringToObject(o, "run_id", d->run_id);
 
     cJSON_AddBoolToObject(radio, "connected", mcd_link_connected(d->link));
     cJSON_AddBoolToObject(radio, "lease_held", mcd_link_lease_held(d->link));
@@ -362,6 +396,9 @@ static cJSON *m_status(struct mcd *d)
      * channels or is failing to open its own. */
     cJSON_AddNumberToObject(counters, "channel_frames_unmatched",
                             (double)st.channel_frames_unmatched);
+    cJSON_AddNumberToObject(counters, "app_rx", (double)st.app_rx);
+    cJSON_AddNumberToObject(counters, "app_tx", (double)st.app_tx);
+    cJSON_AddNumberToObject(counters, "app_receipts", (double)st.app_receipts);
     cJSON_AddItemToObject(o, "counters", counters);
 
     cJSON_AddNumberToObject(o, "nodes", (double)st.contacts);
@@ -922,6 +959,135 @@ static cJSON *m_advert(struct mcd *d, const cJSON *params, int *code, char *err,
     return o;
 }
 
+/* Take an app port from a request: an integer 1..15 and nothing else. */
+static int params_port(const cJSON *params, char *err, size_t errlen)
+{
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(params, "port");
+
+    if (!cJSON_IsNumber(v) || v->valuedouble != (double)(int)v->valuedouble ||
+        v->valueint < MCD_APP_PORT_MIN || v->valueint > MCD_APP_PORT_MAX) {
+        snprintf(err, errlen, "port must be an integer %d to %d", MCD_APP_PORT_MIN,
+                 MCD_APP_PORT_MAX);
+        return -1;
+    }
+    return v->valueint;
+}
+
+/* One app datagram to one node, named by its WHOLE key: an application's
+ * packet goes to the peer it means or nowhere. Unacknowledged here - the
+ * application's own protocol does that, end to end - so the answer says it
+ * was accepted and how long MeshCore expects an answer could take on the
+ * route it went, which is what an application sizes its retries on. */
+static cJSON *m_app_send(struct mcd *d, const cJSON *params, int *code, char *err,
+                         size_t errlen)
+{
+    const cJSON *jto = cJSON_GetObjectItemCaseSensitive(params, "to");
+    const cJSON *jpay = cJSON_GetObjectItemCaseSensitive(params, "payload_hex");
+    uint8_t key[MCD_PUB_KEY_LEN];
+    uint8_t payload[MCD_APP_PAYLOAD_MAX];
+    enum mcd_send_result rc;
+    uint32_t est = 0;
+    int port;
+    int n;
+    cJSON *o;
+
+    if (!cJSON_IsString(jto) || jto->valuestring == NULL ||
+        strlen(jto->valuestring) != MCD_PUB_KEY_LEN * 2 ||
+        mcd_key_prefix_parse(jto->valuestring, key, sizeof(key)) != MCD_PUB_KEY_LEN) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "to must be a whole public key, 64 hex characters");
+        return NULL;
+    }
+    port = params_port(params, err, errlen);
+    if (port < 0) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        return NULL;
+    }
+    n = (cJSON_IsString(jpay) && jpay->valuestring != NULL)
+            ? mcd_hex_decode(jpay->valuestring, payload, sizeof(payload))
+            : -1;
+    if (n <= 0) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "payload_hex must be 1 to %d bytes of hex", MCD_APP_PAYLOAD_MAX);
+        return NULL;
+    }
+    rc = mcd_runtime_send_app(d->rt, key, port, payload, (size_t)n, &est);
+    switch (rc) {
+    case MCD_SEND_ACCEPTED_FLOOD:
+    case MCD_SEND_ACCEPTED_DIRECT:
+        o = cJSON_CreateObject();
+        cJSON_AddBoolToObject(o, "accepted", true);
+        cJSON_AddStringToObject(o, "route",
+                                rc == MCD_SEND_ACCEPTED_DIRECT ? "direct" : "flood");
+        cJSON_AddNumberToObject(o, "est_timeout_ms", (double)est);
+        cJSON_AddNumberToObject(o, "bytes", (double)n);
+        return o;
+    case MCD_SEND_NO_RADIO:
+        *code = POCKETIPC_ERR_BUSY;
+        snprintf(err, errlen, "the radio is not available (service state %s)",
+                 mcd_state_name(d->state));
+        return NULL;
+    case MCD_SEND_NO_CONTACT:
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "no node with that public key is held");
+        return NULL;
+    case MCD_SEND_TOO_LONG:
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "payload_hex must be 1 to %d bytes of hex", MCD_APP_PAYLOAD_MAX);
+        return NULL;
+    case MCD_SEND_FAILED:
+    default:
+        *code = POCKETIPC_ERR_BACKEND;
+        snprintf(err, errlen, "the MeshCore runtime could not build that datagram");
+        return NULL;
+    }
+}
+
+/* The datagrams this run still holds for a port, with an id above after_id
+ * (default 0), oldest first. For a client that was not listening: ids never
+ * repeat within a run, and mesh.status run_id says when a new run began. */
+static cJSON *m_app_inbox(struct mcd *d, const cJSON *params, int *code, char *err,
+                          size_t errlen)
+{
+    const cJSON *jafter = cJSON_GetObjectItemCaseSensitive(params, "after_id");
+    struct mcd_app_datagram *dgs;
+    uint64_t after = 0;
+    cJSON *o;
+    cJSON *arr;
+    int port;
+    int n;
+    int i;
+
+    port = params_port(params, err, errlen);
+    if (port < 0) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        return NULL;
+    }
+    if (jafter != NULL) {
+        if (!cJSON_IsNumber(jafter) || jafter->valuedouble < 0 ||
+            jafter->valuedouble != (double)(uint64_t)jafter->valuedouble) {
+            *code = POCKETIPC_ERR_INVALID_PARAMS;
+            snprintf(err, errlen, "after_id must be a whole number, 0 or more");
+            return NULL;
+        }
+        after = (uint64_t)jafter->valuedouble;
+    }
+    dgs = calloc(MCD_APP_INBOX, sizeof(*dgs));
+    if (!dgs) {
+        return NULL;
+    }
+    n = mcd_runtime_app_inbox(d->rt, port, after, dgs, MCD_APP_INBOX);
+    o = cJSON_CreateObject();
+    arr = cJSON_CreateArray();
+    for (i = 0; i < n; i++) {
+        cJSON_AddItemToArray(arr, app_json(&dgs[i]));
+    }
+    free(dgs);
+    cJSON_AddItemToObject(o, "datagrams", arr);
+    cJSON_AddNumberToObject(o, "count", (double)n);
+    return o;
+}
+
 /* ---- dispatch ----------------------------------------------------------- */
 
 void mcd_handle_request(struct pocketipc_server *s, struct pocketipc_client *c, cJSON *req,
@@ -979,6 +1145,10 @@ void mcd_handle_request(struct pocketipc_server *s, struct pocketipc_client *c, 
         result = m_send(d, params, &code, err, sizeof(err));
     } else if (strcmp(name, "mesh.advert") == 0) {
         result = m_advert(d, params, &code, err, sizeof(err));
+    } else if (strcmp(name, "mesh.app_send") == 0) {
+        result = m_app_send(d, params, &code, err, sizeof(err));
+    } else if (strcmp(name, "mesh.app_inbox") == 0) {
+        result = m_app_inbox(d, params, &code, err, sizeof(err));
     } else if (strcmp(name, "mesh.subscribe") == 0) {
         pocketipc_client_set_subscribed(c, true);
         result = cJSON_CreateObject();

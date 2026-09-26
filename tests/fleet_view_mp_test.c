@@ -1,0 +1,180 @@
+/*
+ * PocketFleet multiplayer view model (apps/fleet/ui/fleet_view_mp.h): every
+ * UX state of docs/apps/FLEET_MULTIPLAYER.md turned into the words a screen
+ * shows, natively. A state that says nothing, or the wrong thing, fails here
+ * rather than on a panel.
+ *
+ * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ */
+#include "fleet_view_mp.h"
+
+#include <stdio.h>
+#include <string.h>
+
+static int failed;
+
+static void check(const char *name, int ok)
+{
+    printf("%s %s\n", ok ? "ok  " : "FAIL", name);
+    failed += !ok;
+}
+
+static void says(const char *name, const char *got, const char *want)
+{
+    int ok = got && strstr(got, want) != NULL;
+
+    printf("%s %s\n", ok ? "ok  " : "FAIL", name);
+    if (!ok) {
+        printf("     got \"%s\", want it to contain \"%s\"\n", got ? got : "(null)", want);
+    }
+    failed += !ok;
+}
+
+static void battle(struct fleet_match *m, int role)
+{
+    uint8_t key[FLEET_KEY_BYTES] = { 9 };
+
+    fleet_match_init(m, key, 1);
+    m->phase = FLEET_MP_BATTLE;
+    m->role = (uint8_t)role;
+    m->sid = 0x123;
+    m->committed = 1;
+    m->have_peer_commit = 1;
+    m->peer_has_commit = 1;
+}
+
+int main(void)
+{
+    struct fleet_match m;
+    char buf[200];
+
+    /* ---- the Battle note -------------------------------------------------- */
+    battle(&m, FLEET_ROLE_GUEST);
+    fleet_view_mp_note(&m, "Anna", 0, buf, sizeof(buf));
+    check("our turn, link well: the note is left to aiming", buf[0] == '\0');
+    m.pending = 23;
+    fleet_view_mp_note(&m, "Anna", 0, buf, sizeof(buf));
+    says("a shot on its way", buf, "Shot at D3 sent");
+    m.ob = FLEET_OB_SHOT;
+    m.attempts = 3;
+    fleet_view_mp_note(&m, "Anna", 0, buf, sizeof(buf));
+    says("a shot being retried says so, with the count", buf, "Retrying (3 of 6)");
+    m.lost = 1;
+    fleet_view_mp_note(&m, "Anna", 0, buf, sizeof(buf));
+    says("out of reach: paused, not lost", buf, "Anna is out of reach. The match is paused");
+    m.lost = 0;
+    m.resyncing = 1;
+    fleet_view_mp_note(&m, "Anna", 0, buf, sizeof(buf));
+    says("resyncing", buf, "Checking the match with Anna");
+    m.resyncing = 0;
+    m.throttled = 1;
+    fleet_view_mp_note(&m, "Anna", 0, buf, sizeof(buf));
+    says("held back by the airtime governor", buf, "spare the airtime");
+    m.throttled = 0;
+    m.pending = FLEET_NO_CELL;
+    m.ob = FLEET_OB_NONE;
+    m.attempts = 0;
+    m.resolved = 1;
+    m.log_cell[1] = 0;
+    m.log_res[1] = fleet_res_make(1, 0, 0);
+    fleet_view_mp_note(&m, "Anna", 1000, buf, sizeof(buf));
+    says("their turn", buf, "Anna is aiming.");
+    m.last_heard = 0;
+    fleet_view_mp_note(&m, "Anna", 7 * 60000, buf, sizeof(buf));
+    says("their turn, long silent", buf, "No word for 7 min");
+    m.phase = FLEET_MP_COMMITTED;
+    fleet_view_mp_note(&m, "Anna", 0, buf, sizeof(buf));
+    says("waiting for them to deploy", buf, "Waiting for Anna to deploy");
+    fleet_view_mp_note(&m, NULL, 0, buf, sizeof(buf));
+    says("with no name known, still a sentence", buf, "Your opponent");
+
+    /* ---- the log line and the header ---------------------------------------- */
+    battle(&m, FLEET_ROLE_GUEST);
+    m.resolved = 2;
+    m.log_cell[1] = 36;                 /* G4, ours (the guest fires odd plies) */
+    m.log_res[1] = fleet_res_make(2, 0, 0);
+    m.log_cell[2] = 11;                 /* B2, theirs */
+    m.log_res[2] = fleet_res_make(1, 0, 0);
+    fleet_view_mp_exchange(&m, "Anna", buf, sizeof(buf));
+    says("the last shot each way", buf, "YOU G4 HIT \xc2\xb7 ANNA B2 MISS");
+    fleet_view_mp_status(&m, "Anna", buf, sizeof(buf));
+    says("the header names the opponent and our next shot", buf, "VS ANNA \xc2\xb7 SHOT 2");
+
+    /* ---- the lobby ---------------------------------------------------------- */
+    battle(&m, FLEET_ROLE_HOST);
+    m.phase = FLEET_MP_INVITING;
+    fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
+    says("inviting", buf, "Inviting Anna");
+    m.attempts = 3;
+    fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
+    says("inviting, no answer yet", buf, "no answer yet (try 3 of 6)");
+    m.phase = FLEET_MP_INVITED;
+    fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
+    says("an invitation for us", buf, "Anna invites you");
+    m.phase = FLEET_MP_ACCEPTING;
+    m.notice = FLEET_NOTICE_CROSSED;
+    fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
+    says("crossed invitations are explained", buf, "You invited each other");
+    m.phase = FLEET_MP_IDLE;
+    m.notice = FLEET_NOTICE_DECLINED;
+    fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
+    says("declined", buf, "declined");
+    m.notice = FLEET_NOTICE_BUSY;
+    fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
+    says("busy", buf, "already in an engagement");
+    m.notice = FLEET_NOTICE_NO_ANSWER;
+    fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
+    says("no answer", buf, "No answer");
+    m.notice = FLEET_NOTICE_CANCELLED;
+    fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
+    says("withdrawn", buf, "withdrawn");
+    m.notice = FLEET_NOTICE_NONE;
+    m.phase = FLEET_MP_BATTLE;
+    fleet_view_mp_lobby(&m, "Anna", buf, sizeof(buf));
+    says("a match under way", buf, "under way");
+
+    /* ---- the result ---------------------------------------------------------- */
+    m.phase = FLEET_MP_DONE;
+    m.outcome = FLEET_OUTCOME_WIN;
+    says("won", fleet_view_mp_outcome(&m), "Enemy fleet destroyed");
+    says("won by sinking everything", fleet_view_mp_ended(&m), "ALL SHIPS SUNK");
+    m.outcome = FLEET_OUTCOME_LOSS;
+    m.end_reason = FLEET_END_FORFEIT;
+    m.end_by_me = 1;
+    says("lost", fleet_view_mp_outcome(&m), "Fleet lost");
+    says("we forfeited", fleet_view_mp_ended(&m), "YOU FORFEITED");
+    m.outcome = FLEET_OUTCOME_VOID;
+    m.end_reason = FLEET_END_VIOLATION;
+    says("void", fleet_view_mp_outcome(&m), "No result");
+    says("void over impossible reports", fleet_view_mp_ended(&m), "BAD REPORTS");
+    m.end_reason = FLEET_END_VOID;
+    says("void over records that differ", fleet_view_mp_ended(&m), "RECORDS DIFFER");
+    m.verify = FLEET_VERIFY_OK;
+    says("verified", fleet_view_mp_verify(&m), "Verified");
+    m.verify = FLEET_VERIFY_MISMATCH;
+    says("caught", fleet_view_mp_verify(&m), "Reports did not match");
+    m.verify = FLEET_VERIFY_NONE;
+    says("never revealed", fleet_view_mp_verify(&m), "Not verified");
+
+    /* ---- a lobby row ----------------------------------------------------------- */
+    {
+        struct fleet_link_peer p;
+
+        memset(&p, 0, sizeof(p));
+        strcpy(p.name, "Anna");
+        p.hops = 2;
+        p.heard_ms = 1000;
+        fleet_view_mp_peer_row(&p, 1000 + 3 * 60000, buf, sizeof(buf));
+        says("a player heard three minutes ago, two hops out", buf,
+             "ANNA \xc2\xb7 2 HOPS \xc2\xb7 HEARD 3 MIN AGO");
+        p.hops = 0;
+        p.heard_ms = 0;
+        fleet_view_mp_peer_row(&p, 5000, buf, sizeof(buf));
+        says("in direct range, not heard this run", buf, "DIRECT \xc2\xb7 NOT HEARD LATELY");
+    }
+
+    check("nothing is written through a NULL", fleet_view_mp_note(NULL, "a", 0, buf, sizeof(buf)) == -1 &&
+          buf[0] == '\0');
+    printf("fleet_view_mp_test: %d failure(s)\n", failed);
+    return failed ? 1 : 0;
+}

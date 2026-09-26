@@ -39,7 +39,10 @@
 
 #include "fleet_grid.h"
 #include "fleet_view.h"
+#include "fleet_view_mp.h"
 #include "fleet_widgets.h"
+
+#include "../link/fleet_session.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -93,7 +96,18 @@ struct fleet_battle_ui {
     lv_timer_t *reply;
     uint8_t awaiting;
     char own_text[40];
+    /* Multiplayer: the plies already shown, so each new one is flashed once,
+     * on the board it landed on. */
+    int mp_resolved;
 };
+
+/* The match in hand, when this is a multiplayer battle; NULL otherwise. */
+static struct fleet_match *mp_match(struct fleet_battle_ui *ui)
+{
+    struct fleet_app *app = ui->app;
+
+    return app->mode == FLEET_MODE_MULTI && app->mp && app->mp->ready ? &app->mp->m : NULL;
+}
 
 /* Long enough to read your own result, short enough not to feel like a
  * delay. Skipped entirely under reduced motion. */
@@ -235,12 +249,32 @@ static void on_reply_due(lv_timer_t *timer)
 static void fire_now(struct fleet_battle_ui *ui)
 {
     struct fleet_game *game = game_of(ui);
+    struct fleet_match *m = mp_match(ui);
     char line[96];
     int row = 0;
     int col = 0;
     int sunk = -1;
     enum fleet_shot_result result;
 
+    if (m) {
+        /* Out of reach, the button asks where the opponent stands instead. */
+        if (fleet_match_link(m) == FLEET_LINK_LOST) {
+            fleet_session_resume(ui->app->mp, fleet_app_now(ui->app));
+            fleet_app_mp_changed(ui->app);
+            return;
+        }
+        if (fleet_grid_get_cursor(ui->target, &row, &col) != 0 ||
+            fleet_session_fire(ui->app->mp, row, col, fleet_app_now(ui->app)) != 0) {
+            return;
+        }
+        /* The answer comes over the air; until then the square shows the
+         * crosshair's ring, and the readout says the shot is on its way. */
+        fleet_grid_flash(ui->target, row, col);
+        fleet_grid_set_cursor(ui->target, -1, -1);
+        ui->exchanged = 1;
+        fleet_app_mp_changed(ui->app);
+        return;
+    }
     if (ui->awaiting || fleet_grid_get_cursor(ui->target, &row, &col) != 0) {
         return;
     }
@@ -493,6 +527,74 @@ void fleet_screen_battle_relayout(struct fleet_app *app, int wide, int cell_w, i
     lv_obj_set_flex_grow(ui->fire, wide ? 1 : 0);
 }
 
+/* A multiplayer battle: the same screen, reading the match. */
+static void refresh_mp(struct fleet_battle_ui *ui, struct fleet_match *m)
+{
+    struct fleet_app *app = ui->app;
+    char name[FLEET_CELL_NAME_MAX];
+    char peer[40];
+    char note[160];
+    int row = 0;
+    int col = 0;
+    int aimed = fleet_grid_get_cursor(ui->target, &row, &col) == 0;
+    int lost = fleet_match_link(m) == FLEET_LINK_LOST;
+    int ready = 0;
+    int k;
+    int i;
+
+    fleet_app_peer(app, peer, sizeof(peer));
+    /* Each ply once, on the board it landed on. */
+    for (k = ui->mp_resolved + 1; k <= m->resolved; k++) {
+        int cell = m->log_cell[k];
+
+        fleet_grid_flash(fleet_match_shooter(k) == m->role ? ui->target : ui->own,
+                         cell / FLEET_GRID, cell % FLEET_GRID);
+    }
+    if (m->resolved != ui->mp_resolved) {
+        ui->exchanged = m->resolved > 0;
+    }
+    ui->mp_resolved = m->resolved;
+
+    fleet_view_mp_note(m, peer, fleet_app_now(app), note, sizeof(note));
+    if (note[0]) {
+        lv_label_set_text(ui->cell_value,
+                          aimed && fleet_cell_name(row, col, name, sizeof(name)) == 0 ? name
+                                                                                     : "\xe2\x80\x94");
+        lv_label_set_text(ui->note, note);
+    } else if (aimed && fleet_cell_name(row, col, name, sizeof(name)) == 0) {
+        lv_label_set_text(ui->cell_value, name);
+        if (m->target.shot[fleet_index(row, col)]) {
+            snprintf(note, sizeof(note), "%s has already been fired at.", name);
+            lv_label_set_text(ui->note, note);
+        } else {
+            lv_label_set_text(ui->note, "Ready to fire.");
+            ready = 1;
+        }
+    } else {
+        lv_label_set_text(ui->cell_value, "\xe2\x80\x94");
+        lv_label_set_text(ui->note, "Tap a square, then fire.");
+    }
+    for (i = 0; i < FLEET_SHIP_COUNT; i++) {
+        lv_obj_remove_style(ui->pip[i], pos_style(POS_STYLE_CHIP_TX), 0);
+        if (fleet_board_ship_sunk(&m->target, (enum fleet_ship)i)) {
+            pos_style_add(ui->pip[i], POS_STYLE_CHIP_TX, 0);
+        }
+    }
+    if (ui->exchanged) {
+        fleet_view_mp_exchange(m, peer, note, sizeof(note));
+    } else {
+        char afloat[40];
+
+        fleet_view_afloat(&m->own, afloat, sizeof(afloat));
+        snprintf(note, sizeof(note), "YOUR FLEET %s", afloat);
+    }
+    lv_label_set_text(ui->log, note);
+    lv_label_set_text(lv_obj_get_child(ui->fire, 0), lost ? "CHECK LINK" : "FIRE");
+    fleet_button_set_enabled(ui->fire, lost || (ready && fleet_match_my_turn(m)));
+    fleet_grid_refresh(ui->target);
+    fleet_grid_refresh(ui->own);
+}
+
 void fleet_screen_battle_refresh(struct fleet_app *app)
 {
     struct fleet_battle_ui *ui;
@@ -509,6 +611,11 @@ void fleet_screen_battle_refresh(struct fleet_app *app)
         return;
     }
     ui = app->battle;
+    if (mp_match(ui)) {
+        refresh_mp(ui, mp_match(ui));
+        return;
+    }
+    lv_label_set_text(lv_obj_get_child(ui->fire, 0), "FIRE");
     game = &app->game;
     aimed = fleet_grid_get_cursor(ui->target, &row, &col) == 0;
     if (ui->awaiting) {
@@ -557,8 +664,15 @@ void fleet_screen_battle_enter(struct fleet_app *app)
     if (!ui) {
         return;
     }
-    fleet_grid_bind(ui->target, &app->game.board[FLEET_SIDE_OPPONENT]);
-    fleet_grid_bind(ui->own, &app->game.board[FLEET_SIDE_PLAYER]);
+    if (mp_match(ui)) {
+        /* Theirs as far as their answers go; ours as it stands. */
+        fleet_grid_bind(ui->target, &mp_match(ui)->target);
+        fleet_grid_bind(ui->own, &mp_match(ui)->own);
+        ui->mp_resolved = mp_match(ui)->resolved;
+    } else {
+        fleet_grid_bind(ui->target, &app->game.board[FLEET_SIDE_OPPONENT]);
+        fleet_grid_bind(ui->own, &app->game.board[FLEET_SIDE_PLAYER]);
+    }
     fleet_grid_set_cursor(ui->target, -1, -1);
     ui->exchanged = 0;
     ui->own_text[0] = '\0';

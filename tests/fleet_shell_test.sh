@@ -131,6 +131,58 @@ for screen in - deploy battle battle_paced result; do
 done
 unset POCKETFLEET_SCREEN
 
+# 10. Multiplayer in the running shell (docs/apps/FLEET_MULTIPLAYER.md), against
+#     the virtual opponent: every state renders in both shapes with no fault,
+#     a live match is stored as one match.v1 of its fixed size and nothing is
+#     left half written, the real link with no mesh service says so and stores
+#     nothing, and a damaged match.v1 blocks nothing. FLEET_SHOTS_DIR, when set,
+#     receives the screenshots under the names docs/design/shots uses.
+MATCH="$POCKETOS_STATE_DIR/fleet/match.v1"
+MATCH_BYTES=655
+rm -f "$SAVE" "$MATCH"
+for screen in lobby mp_invited mp_deploy mp_battle mp_waiting mp_lost mp_result; do
+    case $screen in
+        mp_invited) fake="invite=1000" ;;
+        mp_waiting) fake="delay=1500" ;;
+        *) fake="think=1500" ;;
+    esac
+    for shape in portrait landscape; do
+        name="mp-$screen-$shape"
+        rm -f "$MATCH"
+        POCKETFLEET_MP_FAKE="$fake" POCKETFLEET_SCREEN="$screen" \
+            "$SHELL_BIN" --open fleet ${shape:+--rotation $shape} \
+            --screenshot "$OUT/$name.png" --exit-after-ms 1500 >"$OUT/$name.log" 2>&1
+        check "$screen renders ($shape)" "$([ -s "$OUT/$name.png" ] && echo 1 || echo 0)"
+        hasnt "no fault on $screen ($shape)" 'ERROR\|Assert\|assert' "$(cat "$OUT/$name.log")"
+        if [ -n "${FLEET_SHOTS_DIR:-}" ]; then
+            suffix=""; [ "$shape" = "landscape" ] && suffix="-landscape"
+            cp "$OUT/$name.png" "$FLEET_SHOTS_DIR/fleet-mp-${screen#mp_}$suffix.png"
+        fi
+    done
+done
+rm -f "$MATCH"
+POCKETFLEET_MP_FAKE="think=1500" POCKETFLEET_SCREEN=mp_battle \
+    "$SHELL_BIN" --open fleet --exit-after-ms 1500 >"$OUT/mp-store.log" 2>&1
+check "a match under way is stored" "$([ -f "$MATCH" ] && echo 1 || echo 0)"
+check "as one blob of its fixed size" \
+      "$([ "$(wc -c < "$MATCH" 2>/dev/null)" = "$MATCH_BYTES" ] && echo 1 || echo 0)"
+check "with no temporary file left" "$([ -f "$MATCH.tmp" ] && echo 0 || echo 1)"
+log=$(run - mp-reopen)
+hasnt "a saved match does not stand in for the solo save" 'resumable match' "$log"
+rm -f "$MATCH"
+unset POCKETFLEET_MP_FAKE
+log=$(run lobby mp-noservice)
+check "with no mesh service the lobby still renders" "$([ -s "$OUT/mp-noservice.png" ] && echo 1 || echo 0)"
+check "and nothing is stored" "$([ -f "$MATCH" ] && echo 0 || echo 1)"
+hasnt "no mesh service is not an error" 'ERROR' "$log"
+mkdir -p "$(dirname "$MATCH")"
+printf 'not a match' > "$MATCH"
+log=$(run - mp-damaged)
+check "a damaged match.v1 blocks nothing" "$([ -s "$OUT/mp-damaged.png" ] && echo 1 || echo 0)"
+has "and is reported" 'cannot be read\|no match to resume' "$log"
+rm -f "$MATCH"
+unset POCKETFLEET_SCREEN
+
 rm -rf "$POCKETOS_RUNTIME_DIR" "$POCKETOS_LOG_DIR" "$POCKETOS_CONFIG_DIR" \
        "$POCKETOS_STATE_DIR" "$OUT"
 echo "fleet_shell_test: $failed failure(s)"

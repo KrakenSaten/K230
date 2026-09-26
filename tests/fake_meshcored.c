@@ -34,6 +34,7 @@ struct state {
     int clients_gone;
     int sent;
     int snapshots_answered;
+    int inbox_answered;
     int64_t subscribe_ms;
     int64_t started_ms;
     /* What this service has been asked to forget, so a snapshot after a
@@ -81,7 +82,9 @@ static cJSON *status_json(const struct state *st)
     cJSON *radio = cJSON_CreateObject();
     cJSON *counters = cJSON_CreateObject();
 
-    cJSON_AddStringToObject(o, "state", st->script->state ? st->script->state : "online");
+    cJSON_AddStringToObject(o, "state", st->script->radio_off ? "waiting_for_lease"
+                                        : st->script->state ? st->script->state : "online");
+    cJSON_AddStringToObject(o, "run_id", st->script->run_id ? st->script->run_id : "fake-run-1");
     cJSON_AddStringToObject(o, "reason", st->script->reason ? st->script->reason : "receiving");
     cJSON_AddNumberToObject(o, "state_since_mono_ms", 100);
     /* Grows with this process, the way meshcored's own does - it is
@@ -93,7 +96,7 @@ static cJSON *status_json(const struct state *st)
                                      (now_ms() - st->started_ms) / 1000));
     cJSON_AddBoolToObject(radio, "connected", 1);
     cJSON_AddBoolToObject(radio, "lease_held", 1);
-    cJSON_AddBoolToObject(radio, "online", 1);
+    cJSON_AddBoolToObject(radio, "online", !st->script->radio_off);
     cJSON_AddStringToObject(radio, "radio_state", "rx");
     cJSON_AddItemToObject(o, "radio", radio);
     cJSON_AddNumberToObject(counters, "rx_events", 12);
@@ -437,6 +440,77 @@ static void on_request(struct pocketipc_server *s, struct pocketipc_client *c, c
         pocketipc_server_broadcast(s, pocketipc_event("mesh.node", data));
         pocketipc_server_reply(s, c, pocketipc_response(id, result));
         return;
+    } else if (strcmp(name, "mesh.app_send") == 0) {
+        const cJSON *params = cJSON_GetObjectItemCaseSensitive(req, "params");
+        const cJSON *to = cJSON_GetObjectItemCaseSensitive(params, "to");
+        const cJSON *port = cJSON_GetObjectItemCaseSensitive(params, "port");
+        const cJSON *payload = cJSON_GetObjectItemCaseSensitive(params, "payload_hex");
+
+        /* The same refusals as the real service, so a client is not tested
+         * against something more forgiving than what it will meet. */
+        if (!cJSON_IsString(to) || strlen(to->valuestring) != 64 || !cJSON_IsNumber(port) ||
+            port->valueint < 1 || port->valueint > 15 || !cJSON_IsString(payload) ||
+            strlen(payload->valuestring) == 0 || strlen(payload->valuestring) % 2 != 0 ||
+            strlen(payload->valuestring) > 320) {
+            pocketipc_server_reply(s, c,
+                                   pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                            "bad app datagram"));
+            return;
+        }
+        if (st->script->app_log) {
+            FILE *f = fopen(st->script->app_log, "a");
+
+            if (f) {
+                fprintf(f, "%s|%d|%s\n", to->valuestring, port->valueint, payload->valuestring);
+                fclose(f);
+            }
+        }
+        if (st->script->refuse_app_send) {
+            pocketipc_server_reply(s, c,
+                                   pocketipc_error_response(id, POCKETIPC_ERR_BUSY,
+                                                            "the radio is not available"));
+            return;
+        }
+        result = cJSON_CreateObject();
+        cJSON_AddBoolToObject(result, "accepted", 1);
+        cJSON_AddStringToObject(result, "route", "flood");
+        cJSON_AddNumberToObject(result, "est_timeout_ms",
+                                st->script->app_est_timeout_ms ? st->script->app_est_timeout_ms
+                                                               : 9000);
+        cJSON_AddNumberToObject(result, "bytes", (double)(strlen(payload->valuestring) / 2));
+    } else if (strcmp(name, "mesh.app_inbox") == 0) {
+        const cJSON *params = cJSON_GetObjectItemCaseSensitive(req, "params");
+        const cJSON *port = cJSON_GetObjectItemCaseSensitive(params, "port");
+        const cJSON *after = cJSON_GetObjectItemCaseSensitive(params, "after_id");
+        cJSON *all = st->script->app_inbox_json ? cJSON_Parse(st->script->app_inbox_json) : NULL;
+        cJSON *arr = cJSON_CreateArray();
+        cJSON *item;
+
+        if (!cJSON_IsNumber(port) || port->valueint < 1 || port->valueint > 15) {
+            cJSON_Delete(all);
+            cJSON_Delete(arr);
+            pocketipc_server_reply(s, c,
+                                   pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                            "port must be 1 to 15"));
+            return;
+        }
+        cJSON_ArrayForEach (item, all) {
+            const cJSON *ip = cJSON_GetObjectItemCaseSensitive(item, "port");
+            const cJSON *iid = cJSON_GetObjectItemCaseSensitive(item, "id");
+
+            if (cJSON_IsNumber(ip) && ip->valueint == port->valueint && cJSON_IsNumber(iid) &&
+                iid->valuedouble > (cJSON_IsNumber(after) ? after->valuedouble : 0)) {
+                cJSON *copy = cJSON_Duplicate(item, 1);
+
+                relative_to_now(copy, "mono_ms");
+                cJSON_AddItemToArray(arr, copy);
+            }
+        }
+        cJSON_Delete(all);
+        result = cJSON_CreateObject();
+        cJSON_AddNumberToObject(result, "count", cJSON_GetArraySize(arr));
+        cJSON_AddItemToObject(result, "datagrams", arr);
+        st->inbox_answered = 1;
     } else if (strcmp(name, "mesh.subscribe") == 0) {
         pocketipc_client_set_subscribed(c, true);
         st->subscribed = 1;
@@ -486,8 +560,12 @@ static void raise_event(struct state *st, const char *spec)
     data = cJSON_Parse(bar + 1);
     if (data) {
         cJSON *node = cJSON_GetObjectItemCaseSensitive(data, "node");
+        cJSON *dg = cJSON_GetObjectItemCaseSensitive(data, "datagram");
 
         relative_to_now(data, "mono_ms");
+        if (cJSON_IsObject(dg)) {
+            relative_to_now(dg, "mono_ms");
+        }
         if (cJSON_IsObject(node)) {
             relative_to_now(node, "last_heard_mono_ms");
         }
@@ -515,7 +593,8 @@ int fake_meshcored_run(const struct fake_meshcored_script *script)
          * here, after the last snapshot's reply went out, reaches the client
          * after it too. */
         if (st.subscribed && script->events &&
-            (!script->events_after_snapshot || st.snapshots_answered == ANSWERED_ALL)) {
+            (!script->events_after_snapshot || st.snapshots_answered == ANSWERED_ALL) &&
+            (!script->events_after_inbox || st.inbox_answered)) {
             /* One per pass, so the client gets them as separate frames and
              * a burst is still a burst. */
             if (script->events[st.events_sent]) {

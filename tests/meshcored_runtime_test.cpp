@@ -102,11 +102,14 @@ struct Node {
     bool last_frame_rssi_known;
     bool last_frame_snr_known;
     int tx_submits;
+    int app_events;
+    struct mcd_app_datagram last_app;
 
     Node() : rt(NULL), air(NULL), index(0), node_events(0), node_discovered(0),
              node_path(0), node_removed(0), message_events(0), channel_events(0),
-             channel_added(0), channel_removed(0), frame_events(0), tx_submits(0)
+             channel_added(0), channel_removed(0), frame_events(0), tx_submits(0), app_events(0)
     {
+        memset(&last_app, 0, sizeof(last_app));
         memset(&last_removed, 0, sizeof(last_removed));
         memset(&last_msg, 0, sizeof(last_msg));
         memset(&last_channel, 0, sizeof(last_channel));
@@ -187,6 +190,14 @@ static void hook_on_frame(void* user, const struct mcd_rx_meta* meta, int bytes,
     n->last_frame_rssi_known = meta->rssi_known;
     n->last_frame_snr_known = meta->snr_known;
     (void)bytes;
+}
+
+static void hook_on_app(void* user, const struct mcd_app_datagram* d)
+{
+    Node* n = (Node*)user;
+
+    n->app_events++;
+    n->last_app = *d;
 }
 
 static uint64_t nowMs(void)
@@ -314,6 +325,7 @@ static bool makeNode(Node& n, Air& air, const char* name, const mesh::LocalIdent
     hooks.on_message = hook_on_message;
     hooks.on_channel = hook_on_channel;
     hooks.on_frame = hook_on_frame;
+    hooks.on_app = hook_on_app;
     hooks.user = &n;
 
     memset(&cfg, 0, sizeof(cfg));
@@ -2473,6 +2485,180 @@ static void test_ack_deadlines(Node& a, Node& b, Air& air)
     c.rt = NULL;
 }
 
+/* ---- app datagrams ------------------------------------------------------ */
+
+/* A REQ from `from` to `to`, as MeshCore's sendRequest() builds one: the
+ * inner bytes (tag first) encrypted and MACed to the pair's shared secret.
+ * Zero hops, flood or direct. */
+static int craftReq(uint8_t* frame, const mesh::LocalIdentity& from, const mesh::Identity& to,
+                    bool flood, const uint8_t* inner, int inner_len)
+{
+    uint8_t secret[PUB_KEY_SIZE];
+    uint8_t payload[MAX_PACKET_PAYLOAD];
+    int len = 0;
+
+    from.calcSharedSecret(secret, to);
+    payload[len++] = to.pub_key[0];
+    payload[len++] = from.pub_key[0];
+    len += mesh::Utils::encryptThenMAC(secret, &payload[len], inner, inner_len);
+    return buildFrame(frame,
+                      (uint8_t)((PAYLOAD_TYPE_REQ << PH_TYPE_SHIFT) |
+                                (flood ? ROUTE_TYPE_FLOOD : ROUTE_TYPE_DIRECT)),
+                      payload, len);
+}
+
+/* Hand B a crafted REQ from A and let B handle it. */
+static void deliverReq(Node& b, Air& air, const mesh::LocalIdentity& a_id,
+                       const mesh::LocalIdentity& b_id, bool flood, uint32_t tag,
+                       const uint8_t* data, int data_len)
+{
+    uint8_t inner[MAX_PACKET_PAYLOAD];
+    uint8_t frame[MCD_MAX_FRAME];
+    struct mcd_rx_meta meta;
+    int len;
+
+    memcpy(inner, &tag, 4);
+    memcpy(inner + 4, data, (size_t)data_len);
+    len = craftReq(frame, a_id, b_id, flood, inner, 4 + data_len);
+    defaultMeta(meta);
+    mcd_runtime_deliver_rx(b.rt, frame, len, &meta);
+    for (int i = 0; i < 20 && mcd_runtime_rx_pending(b.rt); i++) {
+        mcd_runtime_tick(b.rt);
+    }
+    pump(air, 3);
+}
+
+static void test_app_datagrams(Node& a, Node& b, Air& air, const mesh::LocalIdentity& a_id,
+                               const mesh::LocalIdentity& b_id)
+{
+    uint8_t a_key[MCD_PUB_KEY_LEN];
+    uint8_t b_key[MCD_PUB_KEY_LEN];
+    char name[MCD_NODE_NAME_LEN];
+    struct mcd_runtime_stats st;
+    struct mcd_app_datagram got[MCD_APP_INBOX];
+    struct mcd_node node;
+    uint8_t payload[MCD_APP_PAYLOAD_MAX + 1];
+    uint32_t est = 0;
+    uint64_t first_id;
+    int n;
+
+    mcd_runtime_identity(a.rt, a_key, name, sizeof(name));
+    mcd_runtime_identity(b.rt, b_key, name, sizeof(name));
+    check("A still holds B", mcd_runtime_node_reset_path(a.rt, b_key, &node));
+
+    /* ---- the first one floods, and the receipt teaches A a route ---- */
+    b.app_events = 0;
+    check("A sends B an app datagram",
+          mcd_runtime_send_app(a.rt, b_key, 1, (const uint8_t*)"\x41\x00\x00\x01\x00", 5, &est) ==
+              MCD_SEND_ACCEPTED_FLOOD);
+    check("with MeshCore's estimate of an answer's time", est > 0);
+    check("B receives it", pumpUntil(air, [&] { return b.app_events >= 1; }));
+    check("on the port it was sent to", b.last_app.port == 1);
+    check("with the payload whole, and its own length rather than the padded one",
+          b.last_app.len == 5 && memcmp(b.last_app.payload, "\x41\x00\x00\x01\x00", 5) == 0);
+    check("from A, by A's whole key", memcmp(b.last_app.from, a_key, MCD_PUB_KEY_LEN) == 0);
+    check("by flood", b.last_app.flood);
+    check("with the signal it came in on", b.last_app.rssi_known && b.last_app.snr_known);
+    first_id = b.last_app.id;
+    check("numbered from 1", first_id >= 1);
+    check("B answers a flood with a receipt, and A learns a direct route to B",
+          pumpUntil(air, [&] {
+              return mcd_runtime_node_by_prefix(a.rt, b_key, 8, &node) == 1 && node.path_known;
+          }));
+    mcd_runtime_stats(b.rt, &st);
+    check("B counted one received and one receipt", st.app_rx == 1 && st.app_receipts == 1);
+    mcd_runtime_stats(a.rt, &st);
+    check("A counted one sent", st.app_tx == 1);
+
+    /* ---- the second goes direct, and is not answered ---- */
+    b.app_events = 0;
+    for (int i = 0; i < MCD_APP_PAYLOAD_MAX; i++) {
+        payload[i] = (uint8_t)(i * 7 + 1);
+    }
+    check("the next one goes direct",
+          mcd_runtime_send_app(a.rt, b_key, 1, payload, MCD_APP_PAYLOAD_MAX, &est) ==
+              MCD_SEND_ACCEPTED_DIRECT);
+    check("B receives it", pumpUntil(air, [&] { return b.app_events >= 1; }));
+    check("all 160 bytes of it", b.last_app.len == MCD_APP_PAYLOAD_MAX &&
+                                     memcmp(b.last_app.payload, payload, MCD_APP_PAYLOAD_MAX) == 0);
+    check("not by flood", !b.last_app.flood);
+    check("with the next id", b.last_app.id == first_id + 1);
+    pump(air, 60);
+    mcd_runtime_stats(b.rt, &st);
+    check("and a direct one gets no receipt", st.app_rx == 2 && st.app_receipts == 1);
+
+    /* ---- what send refuses ---- */
+    {
+        uint8_t nobody[MCD_PUB_KEY_LEN];
+
+        memset(nobody, 0x5a, sizeof(nobody));
+        check("port 0 is refused",
+              mcd_runtime_send_app(a.rt, b_key, 0, payload, 4, &est) == MCD_SEND_TOO_LONG);
+        check("so is port 16",
+              mcd_runtime_send_app(a.rt, b_key, 16, payload, 4, &est) == MCD_SEND_TOO_LONG);
+        check("and an empty payload",
+              mcd_runtime_send_app(a.rt, b_key, 1, payload, 0, &est) == MCD_SEND_TOO_LONG);
+        check("and one byte over 160",
+              mcd_runtime_send_app(a.rt, b_key, 1, payload, MCD_APP_PAYLOAD_MAX + 1, &est) ==
+                  MCD_SEND_TOO_LONG);
+        check("and a node that is not held",
+              mcd_runtime_send_app(a.rt, nobody, 1, payload, 4, &est) == MCD_SEND_NO_CONTACT);
+    }
+
+    /* ---- what receive refuses: MeshCore's own requests, and bytes that do
+     * not describe themselves ---- */
+    {
+        int events = b.app_events;
+        int submits = b.tx_submits;
+        const uint8_t stats_req[9] = { 0x01, 0, 0, 0, 0, 1, 2, 3, 4 };
+        const uint8_t port0[4] = { 0xD0, 2, 1, 2 };
+        const uint8_t overlong[5] = { 0xD1, 50, 1, 2, 3 };
+        const uint8_t zero_len[3] = { 0xD1, 0, 9 };
+
+        deliverReq(b, air, a_id, b_id, true, 0x11111111u, stats_req, sizeof(stats_req));
+        check("an upstream request type is not an app datagram", b.app_events == events);
+        check("and this node still serves no requests: nothing is sent back",
+              b.tx_submits == submits);
+        deliverReq(b, air, a_id, b_id, true, 0x22222222u, port0, sizeof(port0));
+        check("port 0 is not a port", b.app_events == events);
+        deliverReq(b, air, a_id, b_id, true, 0x33333333u, overlong, sizeof(overlong));
+        check("a length longer than what arrived is refused, padding and all",
+              b.app_events == events);
+        deliverReq(b, air, a_id, b_id, true, 0x44444444u, zero_len, sizeof(zero_len));
+        check("and so is a length of 0", b.app_events == events && b.tx_submits == submits);
+    }
+
+    /* ---- the inbox ---- */
+    n = mcd_runtime_app_inbox(b.rt, 1, 0, got, MCD_APP_INBOX);
+    check("the inbox holds both, oldest first",
+          n == 2 && got[0].id == first_id && got[1].id == first_id + 1);
+    n = mcd_runtime_app_inbox(b.rt, 1, first_id, got, MCD_APP_INBOX);
+    check("after_id skips what the client has", n == 1 && got[0].id == first_id + 1);
+    check("and another port's inbox is its own",
+          mcd_runtime_app_inbox(b.rt, 2, 0, got, MCD_APP_INBOX) == 0);
+    check("port 0 has no inbox", mcd_runtime_app_inbox(b.rt, 0, 0, got, MCD_APP_INBOX) == 0);
+    {
+        const uint8_t on2[3] = { 0xD2, 1, 0x77 };
+
+        deliverReq(b, air, a_id, b_id, false, 0x55555555u, on2, sizeof(on2));
+        n = mcd_runtime_app_inbox(b.rt, 2, 0, got, MCD_APP_INBOX);
+        check("a datagram on port 2 is held for port 2",
+              n == 1 && got[0].port == 2 && got[0].len == 1 && got[0].payload[0] == 0x77);
+    }
+    /* Bounded: the oldest go first, and ids keep counting. */
+    for (int i = 0; i < MCD_APP_INBOX + 8; i++) {
+        uint8_t d[4] = { 0xD1, 2, (uint8_t)i, 0xEE };
+
+        deliverReq(b, air, a_id, b_id, false, 0x60000000u + (uint32_t)i, d, sizeof(d));
+    }
+    n = mcd_runtime_app_inbox(b.rt, 1, 0, got, MCD_APP_INBOX);
+    check("the inbox is bounded", n == MCD_APP_INBOX);
+    check("and keeps the newest", n > 0 && got[n - 1].payload[0] == MCD_APP_INBOX + 7 &&
+                                      got[n - 1].id == first_id + 3 + MCD_APP_INBOX + 7);
+    mcd_runtime_stats(b.rt, &st);
+    check("every one was counted", st.app_rx == (uint64_t)(3 + MCD_APP_INBOX + 8));
+}
+
 int main(void)
 {
     char tmpl[] = "/tmp/meshcored-runtime-XXXXXX";
@@ -2517,6 +2703,7 @@ int main(void)
     test_full_contact_table();
     test_nodes_newest_first();
     test_ack_deadlines(a, b, air);
+    test_app_datagrams(a, b, air, a_id, b_id);
 
     mcd_runtime_destroy(a.rt);
     mcd_runtime_destroy(b.rt);

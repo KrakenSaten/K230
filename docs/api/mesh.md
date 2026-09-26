@@ -146,6 +146,7 @@ Result:
 | Field | |
 | --- | --- |
 | `state`, `reason`, `state_since_mono_ms`, `uptime_s` | the service state above |
+| `run_id` | 16 hex characters naming this run of the service; new on every start. App datagram ids (below) start again from 1 with each run |
 | `radio.connected` | is there a connection to radiod |
 | `radio.lease_held`, `radio.lease_owner_id` | the lease, when held |
 | `radio.online` | can the protocol core transmit right now |
@@ -176,6 +177,7 @@ they count what radiod said, not what MeshCore believes.
 | `path_payloads_refused` | see "The PATH guard" in docs/services/MESHCORED.md |
 | `nodes_unretained` | adverts from nodes the 256-slot contact table had no room for |
 | `contacts_full` | how often MeshCore reported the table full |
+| `app_rx` / `app_tx` / `app_receipts` | app datagrams received, sent, and flood receipts answered (see "App datagrams") |
 
 `tx_ok`, `tx_rx_resume_failed`, `tx_failed` and `tx_unknown` are four
 different answers and are never collapsed into two. A daemon asking "must I
@@ -521,10 +523,78 @@ holds a newer advert from this node treats it as a replay and ignores it
 and nothing reports that. A known limitation (docs/KNOWN_ISSUES.md); advert
 after the clock has been set.
 
-**This and `mesh.send` are the only ways meshcored transmits without having
-been sent something first.** There is no periodic advert. What it does send
-unasked is what the protocol owes a sender: an ACK, and a return path, for a
-message addressed to this node.
+**This, `mesh.send` and `mesh.app_send` are the only ways meshcored transmits
+without having been sent something first.** There is no periodic advert. What
+it does send unasked is what the protocol owes a sender: an ACK, and a return
+path, for a message addressed to this node, and the receipt for an app
+datagram that arrived by flood (below).
+
+### App datagrams: mesh.app_send / mesh.app_inbox
+
+Opaque packets between applications on two Doors nodes, for the likes of
+Fleet's multiplayer protocol (docs/apps/FLEET_MULTIPLAYER.md, ADR-008). The
+service does not read them; it carries them.
+
+On the air an app datagram is a MeshCore `PAYLOAD_TYPE_REQ` to the peer, so it
+is addressed, encrypted and MACed exactly as a direct message is. The
+decrypted request data is `0xD0 | port`, the payload's length, and the
+payload. The first byte is outside every request type upstream defines
+(`0x00`-`0x07` in the pinned tree), so a MeshCore node that is not Doors
+answers it as an unknown request - with nothing. The explicit length is there
+because the decrypted REQ is padded to the 16-byte AES block and MeshCore
+records no length of its own.
+
+A payload of up to 10 bytes is one AES block (a 22-byte frame at zero hops,
+304 ms on the MeshCore profile), up to 26 bytes two (38 bytes, 386 ms).
+
+**Unacknowledged at this layer.** Like a channel message, and unlike
+`mesh.send`: an application that needs delivery confirms it end to end in its
+own protocol, which it has to do anyway to survive a restart on either side.
+What this service does do is teach the route. A datagram that arrives **by
+flood** is answered with a five-byte `RESPONSE` riding MeshCore's return path,
+so the sender learns a direct route and the next datagram goes direct; one
+that arrives direct is answered with nothing.
+
+#### mesh.app_send
+
+Params: `to` (a **whole** public key, 64 hex characters: an application's
+packet goes to the peer it means or nowhere), `port` (1 to 15), `payload_hex`
+(1 to 160 bytes). Result: `accepted`, `route` (`"flood"` or `"direct"`),
+`est_timeout_ms` (MeshCore's own estimate of how long an answer could take on
+that route - what an application sizes its retry timer on), `bytes`.
+
+`accepted` means the protocol core queued it; the transmit arrives as
+`mesh.activity`, as for any packet.
+
+Errors: 2 for a key that is not whole, a port outside 1..15, a payload that is
+not 1 to 160 bytes of hex, or a node this service does not hold; 5 when the
+radio is not available; 4 when the runtime could not build it.
+
+#### mesh.app_inbox
+
+Params: `port` (1 to 15), `after_id` (optional, default 0). Result:
+`datagrams` (oldest first), `count`.
+
+The service holds the last 32 datagrams it received, across all ports, for
+this run only. A client that was not listening - an app opened after its
+opponent's packet arrived, say - catches up here by id. Ids start at 1 with
+each run of the service and never repeat within one; when `mesh.status`
+`run_id` changes, a client starts again from `after_id: 0`.
+
+A datagram, here and in the `mesh.app` event:
+
+| Field | |
+| --- | --- |
+| `id` | 1 upwards, per run |
+| `port` | 1 to 15 |
+| `from` | the sender's whole public key: proved, because the contact's key opened it |
+| `payload_hex` | the payload, exactly as sent |
+| `route` | `"flood"` or `"direct"`: how it arrived |
+| `mono_ms` | when it arrived, on this node's monotonic clock |
+| `rssi_dbm`, `snr_db` | **only when known** |
+
+A REQ from a node this service does not hold cannot be decrypted and never
+becomes a datagram: a peer has to have adverted first, as for a message.
 
 ### mesh.subscribe / mesh.unsubscribe
 
@@ -543,6 +613,8 @@ disconnecting.
 - `mesh.message`: `message` (as above). Raised when a message arrives, when
   one is sent, and again when its state changes - an ACK matching, or a
   timeout.
+- `mesh.app`: `datagram` (as above). One per app datagram received, on any
+  port; a client filters on `port`.
 - `mesh.activity`: the raw feed, for a client that wants to show the link
   rather than the conversation.
   - `kind: "rx"`: `payload_type` (`advert`, `text`, `ack`, `path`,
@@ -644,7 +716,7 @@ The pocketipc codes (docs/api/pocketipc.md), used as follows:
 | Code | Here |
 | --- | --- |
 | 1 | unknown method |
-| 2 | invalid params: a key prefix, a text, or a params object this service will not take |
+| 2 | invalid params: a key prefix, a text, a port, a payload, or a params object this service will not take |
 | 4 | the MeshCore runtime could not do it |
 | 5 | the radio is not available, or the protocol core is busy |
 

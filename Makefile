@@ -533,7 +533,7 @@ $(FLEET_DIR)/%.o: $(FLEET_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(FLEET_DIR) -c -o $@ $<
 
 tests/fleet_%_test.o: tests/fleet_%_test.c
-	$(CC) $(ALL_CFLAGS) -I$(FLEET_DIR) -c -o $@ $<
+	$(CC) $(ALL_CFLAGS) -I$(FLEET_DIR) -Iapps/fleet/net -c -o $@ $<
 
 tests/fleet_rng_test: tests/fleet_rng_test.o $(FLEET_DIR)/fleet_rng.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
@@ -546,6 +546,103 @@ tests/fleet_ai_test: tests/fleet_ai_test.o $(FLEET_OBJS)
 
 tests/fleet_save_test: tests/fleet_save_test.o $(FLEET_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# PocketFleet multiplayer (docs/apps/FLEET_MULTIPLAYER.md): the protocol, the
+# match state machine and its save codec. Pure C like the engine - no LVGL,
+# no IPC, no filesystem (tests/fleet_lint.sh) - so thousands of matches run
+# natively over a fake network.
+FLEET_NET_DIR := apps/fleet/net
+FLEET_NET_OBJS := $(FLEET_NET_DIR)/fleet_sha256.o $(FLEET_NET_DIR)/fleet_proto.o \
+                  $(FLEET_NET_DIR)/fleet_match.o $(FLEET_NET_DIR)/fleet_match_save.o
+FLEET_NET_TESTS := tests/fleet_sha256_test tests/fleet_proto_test tests/fleet_match_test \
+                   tests/fleet_mp_sim_test tests/fleet_session_test tests/fleet_view_mp_test
+# The session and the virtual opponent (apps/fleet/link) and the multiplayer
+# view model, also pure C: the shell builds them into the app, and they are
+# tested here natively.
+FLEET_LINK_OBJS := apps/fleet/link/fleet_link.o apps/fleet/link/fleet_link_loop.o \
+                   apps/fleet/link/fleet_session.o
+FLEET_VIEW_MP_OBJS := apps/fleet/ui/fleet_view_mp.o apps/fleet/ui/fleet_view.o
+FLEET_TESTS += $(FLEET_NET_TESTS)
+
+$(FLEET_NET_DIR)/%.o: $(FLEET_NET_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) -I$(FLEET_NET_DIR) -I$(FLEET_DIR) -c -o $@ $<
+
+tests/fleet_sha256_test: tests/fleet_sha256_test.o $(FLEET_NET_DIR)/fleet_sha256.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/fleet_proto_test: tests/fleet_proto_test.o $(FLEET_NET_DIR)/fleet_proto.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/fleet_match_test: tests/fleet_match_test.o $(FLEET_NET_OBJS) $(FLEET_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/fleet_mp_sim_test: tests/fleet_mp_sim_test.o $(FLEET_NET_OBJS) $(FLEET_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+apps/fleet/link/%.o: apps/fleet/link/%.c
+	$(CC) $(ALL_CFLAGS) -c -o $@ $<
+
+apps/fleet/ui/fleet_view_mp.o apps/fleet/ui/fleet_view.o: apps/fleet/ui/%.o: apps/fleet/ui/%.c
+	$(CC) $(ALL_CFLAGS) -c -o $@ $<
+
+tests/fleet_session_test.o tests/fleet_view_mp_test.o: ALL_CFLAGS += -Iapps/fleet/link -Iapps/fleet/ui
+
+tests/fleet_session_test: tests/fleet_session_test.o $(FLEET_LINK_OBJS) $(FLEET_NET_OBJS) $(FLEET_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/fleet_view_mp_test: tests/fleet_view_mp_test.o $(FLEET_VIEW_MP_OBJS) $(FLEET_LINK_OBJS) \
+                          $(FLEET_NET_OBJS) $(FLEET_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# The mesh link: the one part of Fleet that talks to a service, against a real
+# socket and the scripted meshcored RIFT's client is tested against.
+FLEET_MESH_LINK_OBJS := apps/fleet/link/fleet_link_mesh.o apps/fleet/link/fleet_link.o
+tests/fleet_link_test.o: ALL_CFLAGS += -Iapps/fleet/link
+tests/fleet_link_test: tests/fleet_link_test.o $(FLEET_MESH_LINK_OBJS) tests/fake_meshcored.o \
+                       $(IPC_OBJS) core/pocketipc/server.o $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+FLEET_TESTS += tests/fleet_link_test
+
+# A player without a screen - the real session, mesh link and match, with
+# PocketFleet's AI for a finger - for the end-to-end test over two real
+# meshcored processes (tests/fleet_mp_e2e_test.sh, make fleet-mp-e2e).
+tests/fleet_mp_player.o: ALL_CFLAGS += -Iapps/fleet/link -I$(FLEET_DIR)
+tests/fleet_mp_player: tests/fleet_mp_player.o $(FLEET_MESH_LINK_OBJS) apps/fleet/link/fleet_session.o \
+                       $(FLEET_NET_OBJS) $(FLEET_OBJS) $(IPC_OBJS) $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+FLEET_TESTS += tests/fleet_mp_player
+
+# P6: whole matches between two real meshcored processes over a mock air, at
+# the real pace and under loss, a crash and a service restart. Needs the
+# MeshCore build: make ENABLE_MESHCORED=1 fleet-mp-e2e. Several minutes, so it
+# is its own target rather than part of make test.
+.PHONY: fleet-mp-e2e
+fleet-mp-e2e: tests/fleet_mp_player
+	$(MAKE) ENABLE_MESHCORED=1 meshcored
+	bash tests/fleet_mp_e2e_test.sh
+
+# The simulator at scale: FLEET_SIM_MATCHES matches per fault profile, each
+# checked against the same match on a perfect network. make test runs 300.
+FLEET_SOAK_MATCHES ?= 5000
+.PHONY: fleet-mp-soak
+fleet-mp-soak: tests/fleet_mp_sim_test
+	FLEET_SIM_MATCHES=$(FLEET_SOAK_MATCHES) ./tests/fleet_mp_sim_test
+
+# The multiplayer suites again under the address and undefined-behaviour
+# sanitizers, in their own build tree so the ordinary objects are untouched.
+FLEET_MP_SAN_DIR := out/fleet-mp-san
+.PHONY: fleet-mp-san-test
+fleet-mp-san-test:
+	rm -rf $(FLEET_MP_SAN_DIR) && mkdir -p $(FLEET_MP_SAN_DIR)
+	git ls-files --cached --others --exclude-standard core apps/fleet tests/fleet_* \
+	    tests/fake_meshcored.* Makefile VERSION \
+	    | tar -cf - -T - | tar -xf - -C $(FLEET_MP_SAN_DIR)
+	$(MAKE) -C $(FLEET_MP_SAN_DIR) CC="$(CC)" POCKETOS_BUILD_ID=$(POCKETOS_BUILD_ID) \
+	    CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all" \
+	    LDFLAGS="-fsanitize=address,undefined" $(FLEET_NET_TESTS) tests/fleet_link_test
+	cd $(FLEET_MP_SAN_DIR) && ./tests/fleet_sha256_test && ./tests/fleet_proto_test && \
+	    ./tests/fleet_match_test && FLEET_SIM_MATCHES=40 ./tests/fleet_mp_sim_test && \
+	    ./tests/fleet_session_test && ./tests/fleet_view_mp_test && ./tests/fleet_link_test
 
 # The app's colour contract, checked against the Design System theme tables.
 tests/fleet_theme_test: tests/fleet_theme_test.o $(THEME_OBJS)
@@ -1146,6 +1243,13 @@ test: all $(TEST_BINS)
 	./tests/fleet_ai_test
 	./tests/fleet_save_test
 	./tests/fleet_theme_test
+	./tests/fleet_sha256_test
+	./tests/fleet_proto_test
+	./tests/fleet_match_test
+	./tests/fleet_mp_sim_test
+	./tests/fleet_session_test
+	./tests/fleet_view_mp_test
+	./tests/fleet_link_test
 	./tests/radar_rng_test
 	./tests/radar_types_test
 	./tests/radar_rules_test
@@ -1300,7 +1404,7 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 
 clean:
 	$(MAKE) -C tools/meshcore-frame clean
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd_logs_test tests/sysd_logs_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o tests/volume_test tests/volume_test.o ui/shell/volume.o tests/controls_model_test tests/controls_model_test.o ui/shell/controls_model.o apps/system/diag_view.o tests/diag_view_test tests/diag_view_test.o $(ZBX_OBJS) core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o $(ZABBIX_OBJS) $(ZABBIX_TESTS) $(ZABBIX_TESTS:=.o) tools/zabbix/pos_zabbix.o tools/zabbix/pos_zabbix_mock.o $(POCKETOS_BUILD_STAMP)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd_logs_test tests/sysd_logs_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_NET_OBJS) $(FLEET_LINK_OBJS) apps/fleet/link/fleet_link_mesh.o $(FLEET_VIEW_MP_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o tests/volume_test tests/volume_test.o ui/shell/volume.o tests/controls_model_test tests/controls_model_test.o ui/shell/controls_model.o apps/system/diag_view.o tests/diag_view_test tests/diag_view_test.o $(ZBX_OBJS) core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o $(ZABBIX_OBJS) $(ZABBIX_TESTS) $(ZABBIX_TESTS:=.o) tools/zabbix/pos_zabbix.o tools/zabbix/pos_zabbix_mock.o $(POCKETOS_BUILD_STAMP)
 
 # The files `make all` and `make test` produce, one to a line, for
 # tests/build_outputs_test.sh.

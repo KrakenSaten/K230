@@ -6,7 +6,10 @@
 #include "../fleet_app.h"
 
 #include "fleet_view.h"
+#include "fleet_view_mp.h"
 #include "fleet_widgets.h"
+
+#include "../link/fleet_session.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,16 +32,42 @@ struct fleet_result_ui {
     lv_obj_t *foot;
     lv_obj_t *again;
     lv_obj_t *command;
+    /* Multiplayer only, at the end of ENGAGEMENT so the rows above keep their
+     * places: whether the opponent's fleet checked out. In multiplayer the
+     * Rounds row says how the match ended instead - Shots fired already
+     * counts the rounds. */
+    lv_obj_t *verify_row;
+    lv_obj_t *verify;
+    lv_obj_t *rounds_key;
 };
+
+static int multi(struct fleet_app *app)
+{
+    return app->mode == FLEET_MODE_MULTI && app->mp && app->mp->ready;
+}
 
 static void on_again(lv_event_t *e)
 {
-    fleet_app_new_match(lv_event_get_user_data(e));
+    struct fleet_app *app = lv_event_get_user_data(e);
+
+    if (multi(app)) {
+        if (app->mp->m.phase == FLEET_MP_DONE) {
+            fleet_session_dismiss(app->mp, fleet_app_now(app));
+        }
+        fleet_app_multiplayer(app);
+        return;
+    }
+    fleet_app_new_match(app);
 }
 
 static void on_command(lv_event_t *e)
 {
-    fleet_app_show(lv_event_get_user_data(e), FLEET_SCREEN_COMMAND);
+    struct fleet_app *app = lv_event_get_user_data(e);
+
+    if (multi(app) && app->mp->m.phase == FLEET_MP_DONE) {
+        fleet_session_dismiss(app->mp, fleet_app_now(app));
+    }
+    fleet_app_show(app, FLEET_SCREEN_COMMAND);
 }
 
 lv_obj_t *fleet_screen_result_create(struct fleet_app *app, lv_obj_t *parent)
@@ -65,6 +94,9 @@ lv_obj_t *fleet_screen_result_create(struct fleet_app *app, lv_obj_t *parent)
     ui->opponent = pocketui_kv_row(panel, "Opponent", "-");
     ui->rounds = pocketui_kv_row(panel, "Rounds", "-");
     ui->survivors = pocketui_kv_row(panel, "Your fleet", "-");
+    ui->verify = pocketui_kv_row(panel, "Their fleet", "-");
+    ui->verify_row = lv_obj_get_parent(ui->verify);
+    ui->rounds_key = lv_obj_get_child(lv_obj_get_parent(ui->rounds), 0);
 
     panel = fleet_list_panel(ui->panels, "GUNNERY");
     ui->gunnery = panel;
@@ -88,6 +120,10 @@ void fleet_screen_result_relayout(struct fleet_app *app, int wide)
     /* The screen keeps its column: the heading stays over everything. */
     fleet_app_screen_flow(app->screen[FLEET_SCREEN_RESULT], wide, 0);
     fleet_app_box_split(ui->panels, wide);
+    /* Side by side, the two panels start on one line whatever their heights
+     * (multiplayer's ENGAGEMENT has a row more than GUNNERY). */
+    lv_obj_set_flex_align(ui->panels, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START);
     fleet_app_box_split(ui->foot, wide);
     lv_obj_set_flex_grow(ui->panels, wide ? 1 : 0);
     lv_obj_set_height(ui->panels, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
@@ -115,6 +151,31 @@ void fleet_screen_result_refresh(struct fleet_app *app)
     }
     ui = app->result;
     game = &app->game;
+    if (multi(app)) {
+        const struct fleet_match *m = &app->mp->m;
+        char peer[40];
+
+        fleet_app_peer(app, peer, sizeof(peer));
+        lv_label_set_text(ui->heading, fleet_view_mp_outcome(m));
+        lv_label_set_text(ui->opponent, peer);
+        lv_label_set_text(ui->rounds_key, "Ended");
+        lv_label_set_text(ui->rounds, fleet_view_mp_ended(m));
+        fleet_view_afloat(&m->own, text, sizeof(text));
+        lv_label_set_text(ui->survivors, text);
+        lv_label_set_text(ui->verify, fleet_view_mp_verify(m));
+        lv_obj_remove_flag(ui->verify_row, LV_OBJ_FLAG_HIDDEN);
+        snprintf(text, sizeof(text), "%d", fleet_match_shots_by(m, (enum fleet_mp_role)m->role));
+        lv_label_set_text(ui->shots, text);
+        fleet_view_mp_accuracy(m, 1, text, sizeof(text));
+        lv_label_set_text(ui->accuracy, text);
+        fleet_view_mp_accuracy(m, 0, text, sizeof(text));
+        lv_label_set_text(ui->enemy_accuracy, text);
+        lv_label_set_text(lv_obj_get_child(ui->again, 0), "MULTIPLAYER");
+        return;
+    }
+    lv_obj_add_flag(ui->verify_row, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(ui->rounds_key, "Rounds");
+    lv_label_set_text(lv_obj_get_child(ui->again, 0), "NEW ENGAGEMENT");
 
     lv_label_set_text(ui->heading, fleet_view_outcome(game));
     lv_label_set_text(ui->opponent,

@@ -45,4 +45,23 @@ int fleet_store_clear(void);
  * menu to decide whether Resume is offered. */
 int fleet_store_has_save(void);
 
+/* ---- multiplayer: match.v1 (docs/apps/FLEET_MULTIPLAYER.md) ---------------
+ *
+ * The multiplayer match, beside the single-player save and independent of
+ * it. The blob is apps/fleet/net/fleet_match_save.c's; this only stores it.
+ *
+ * Stricter than save.v1, because here a packet may already have left on the
+ * strength of a write: the file is flushed, renamed over the old one, and then
+ * the directory itself is flushed, so the new name survives a power cut too.
+ * A failed directory flush is a failed write. */
+#define FLEET_STORE_MATCH_FILE "match.v1"
+#define FLEET_STORE_MATCH_MAX 1024
+
+const char *fleet_store_match_path(void);
+/* Returns 0 when the blob is durably written, -1 otherwise. */
+int fleet_store_match_save(const uint8_t *blob, size_t n);
+/* Read up to max bytes into buf. Returns the length read, 0 when there is no
+ * file, and -1 when there is one that cannot be read. */
+int fleet_store_match_load(uint8_t *buf, size_t max);
+
 #endif

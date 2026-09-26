@@ -696,6 +696,73 @@ PYEOF
 run_driver "$TMP/t3c.py" "$TMP" "$MSOCK" "$RSOCK" "$GONE1_HEX" "$GONE2_HEX" "$GONE_KEY"
 
 # ---------------------------------------------------------------------------
+# 3d. app datagrams: what mesh.app_send and mesh.app_inbox refuse and take
+# ---------------------------------------------------------------------------
+echo "--- app datagrams"
+
+cat > "$TMP/t3d.py" <<'PYEOF'
+import sys, time, re
+sys.path.insert(0, sys.argv[1])
+from lib import *
+
+msock, rsock, peer_key = sys.argv[2], sys.argv[3], sys.argv[4]
+
+m = Conn(msock)
+r = Conn(rsock)
+
+st = m.result("mesh.status")
+ok("mesh.status names this run", re.fullmatch(r"[0-9a-f]{16}", st.get("run_id", "")) is not None, st.get("run_id"))
+c = st["counters"]
+ok("and counts app datagrams", all(k in c for k in ("app_rx", "app_tx", "app_receipts")), c)
+tx0 = c["app_tx"]
+
+# The peer's whole key and nothing less; a port 1 to 15; 1 to 160 bytes of hex.
+for params, why in (
+        ({"to": peer_key[:8], "port": 1, "payload_hex": "41"}, "a key prefix"),
+        ({"to": "zz" * 32, "port": 1, "payload_hex": "41"}, "a key that is not hex"),
+        ({"port": 1, "payload_hex": "41"}, "no key"),
+        ({"to": peer_key, "port": 0, "payload_hex": "41"}, "port 0"),
+        ({"to": peer_key, "port": 16, "payload_hex": "41"}, "port 16"),
+        ({"to": peer_key, "port": "1", "payload_hex": "41"}, "a port that is a string"),
+        ({"to": peer_key, "port": 1.5, "payload_hex": "41"}, "a port that is not whole"),
+        ({"to": peer_key, "port": 1, "payload_hex": ""}, "an empty payload"),
+        ({"to": peer_key, "port": 1, "payload_hex": "4"}, "an odd number of hex digits"),
+        ({"to": peer_key, "port": 1, "payload_hex": "zz"}, "a payload that is not hex"),
+        ({"to": peer_key, "port": 1, "payload_hex": "41" * 161}, "161 bytes"),
+        ({"to": "00" * 32, "port": 1, "payload_hex": "41"}, "a node nobody holds")):
+    e = m.error("mesh.app_send", params)
+    ok("mesh.app_send refuses " + why, e["code"] == 2, e)
+ok("and none of those was sent", m.result("mesh.status")["counters"]["app_tx"] == tx0)
+
+tx_before = r.result("radio.stats")["tx_packets"]
+res = m.result("mesh.app_send", {"to": peer_key, "port": 1, "payload_hex": "41" * 160})
+ok("160 bytes to a held node are accepted", res["accepted"] is True, res)
+ok("by flood, with no route known yet", res["route"] == "flood", res)
+ok("with MeshCore's estimate for an answer", res["est_timeout_ms"] > 0, res)
+ok("and the size", res["bytes"] == 160, res)
+went = False
+for _ in range(60):
+    if r.result("radio.stats")["tx_packets"] > tx_before:
+        went = True
+        break
+    time.sleep(0.1)
+ok("and it went out through radiod", went)
+ok("counted as sent", m.result("mesh.status")["counters"]["app_tx"] == tx0 + 1)
+
+for params, why in (({"port": 0}, "port 0"), ({}, "no port"),
+                    ({"port": 1, "after_id": -1}, "a negative after_id"),
+                    ({"port": 1, "after_id": 1.5}, "an after_id that is not whole"),
+                    ({"port": 1, "after_id": "0"}, "an after_id that is a string")):
+    e = m.error("mesh.app_inbox", params)
+    ok("mesh.app_inbox refuses " + why, e["code"] == 2, e)
+res = m.result("mesh.app_inbox", {"port": 1})
+ok("an inbox nothing has arrived in is empty", res["count"] == 0 and res["datagrams"] == [], res)
+ok("the service is still online", m.result("mesh.status")["state"] == "online")
+done()
+PYEOF
+run_driver "$TMP/t3d.py" "$TMP" "$MSOCK" "$RSOCK" "$PEER_KEY"
+
+# ---------------------------------------------------------------------------
 # 3b. a node whose name is hostile
 # ---------------------------------------------------------------------------
 echo "--- remote text that should not reach a client raw"

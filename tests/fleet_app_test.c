@@ -43,6 +43,8 @@
 #include "app.h"
 #include "fleet_app.h"
 #include "pocketlog/pocketlog.h"
+#include "link/fleet_link_loop.h"
+#include "link/fleet_session.h"
 #include "pocketui.h"
 #include "ui/fleet_grid.h"
 #include "ui/fleet_widgets.h"
@@ -842,8 +844,9 @@ static void check_battle_never_scrolls(const char *what)
      * needs that is not on this screen: it is in the status bar, which is
      * above the body and cannot be scrolled at all. The app is held to
      * keeping it current, because that is what makes it readable. */
-    check("the status bar carries the difficulty and the turn",
-          strstr(g_hint, "TURN") != NULL || strstr(g_hint, "COMPLETE") != NULL);
+    check("the status bar carries the opponent and the turn",
+          strstr(g_hint, "TURN") != NULL || strstr(g_hint, "COMPLETE") != NULL ||
+          (app->mode == FLEET_MODE_MULTI && strstr(g_hint, "SHOT") != NULL));
 }
 
 /*
@@ -1590,6 +1593,243 @@ static void with_screen(const char *screen)
     }
 }
 
+
+/* ---- 8. multiplayer, against the virtual opponent ----------------------- *
+ *
+ * The same app under the same finger, playing another device through the real
+ * protocol (docs/apps/FLEET_MULTIPLAYER.md) over the fake link. Nothing here
+ * changes the rules the solo game is held to: a multiplayer turn is on the
+ * display whole, across the page, every time.
+ */
+
+/* Time passes for the match: the session's clock and LVGL's together. */
+static void mp_wait(int64_t ms)
+{
+    int64_t t;
+
+    for (t = 0; t < ms; t += 100) {
+        app->mp_clock_offset += 100;
+        pump(100);
+    }
+}
+
+/* Each multiplayer case starts with no match on disk. */
+static void mp_fresh(void)
+{
+    char path[600];
+
+    snprintf(path, sizeof(path), "%s/fleet/match.v1", state_dir);
+    unlink(path);
+}
+
+static lv_obj_t *command_multi_button(void)
+{
+    lv_obj_t *panel = kid(command_col(0), 1);
+
+    return kid(panel, (int)lv_obj_get_child_count(panel) - 1);
+}
+
+static lv_obj_t *lobby_screen(void) { return screen_of(FLEET_SCREEN_LOBBY); }
+static lv_obj_t *lobby_col(int i) { return kid(kid(lobby_screen(), 0), i); }
+static lv_obj_t *lobby_player_row(int i) { return kid(kid(lobby_col(0), 0), KID_PANEL_FIRST + i); }
+static lv_obj_t *lobby_act(void) { return kid(lobby_col(1), 1); }
+
+/* Our side's shot: the first square in reading order not yet fired at. */
+static int mp_our_turn(int check_layout)
+{
+    const struct fleet_match *m = &app->mp->m;
+    lv_area_t cell;
+    int i;
+
+    for (i = 0; i < FLEET_CELLS; i++) {
+        if (!m->target.shot[i]) {
+            break;
+        }
+    }
+    if (i == FLEET_CELLS ||
+        fleet_grid_cell_rect(battle_board(), i / FLEET_GRID, i % FLEET_GRID, &cell) != 0) {
+        return -1;
+    }
+    tap_at((cell.x1 + cell.x2) / 2, (cell.y1 + cell.y2) / 2);
+    if (check_layout) {
+        check_battle_never_scrolls("multiplayer, a turn across the page");
+    }
+    tap_obj(battle_fire());
+    return 0;
+}
+
+static void test_multiplayer(enum pos_rotation rotation)
+{
+    int turns = 0;
+    int fire_only_on_turn = 1;
+    int every_press_sent = 1;
+    int sent_before;
+    int resolved_before;
+    int i;
+
+    phase = rotation == POS_ROTATION_0 ? "multiplayer, tall" : "multiplayer, wide";
+    mp_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=5", 1);
+    use_display(rotation, PANEL_CORNER);
+    app_start();
+    check("multiplayer is available with a link", app->mp != NULL && app->link != NULL);
+    mp_wait(2000);
+    check("opening Fleet engages nothing and sends nothing",
+          !app->mp->engaged && app->mp->sent == 0 && app->mp->received == 0);
+    check("MULTIPLAYER is in view on Command, not below the fold",
+          inside_body(command_multi_button()) && in_safe_area(command_multi_button()));
+    tap_obj(command_multi_button());
+    mp_wait(500);
+    check_one_screen(FLEET_SCREEN_LOBBY);
+    check_str("the header says where we are", g_hint, "MULTIPLAYER");
+    check("the lobby lists the opponent", visible(lobby_player_row(0)));
+    check("nothing is sent by opening the lobby", app->mp->sent == 0);
+    check("INVITE waits for a player to be chosen",
+          !lv_obj_has_flag(lobby_act(), LV_OBJ_FLAG_CLICKABLE));
+    tap_obj(lobby_player_row(0));
+    tap_obj(lobby_act());
+    check("INVITE sent one invitation", app->mp->m.phase == FLEET_MP_INVITING && app->mp->sent == 1);
+    check("every lobby control keeps the touch minimum",
+          lv_obj_get_height(lobby_act()) >= POCKETUI_TOUCH_MIN &&
+          lv_obj_get_height(lobby_player_row(0)) >= 56);
+    check("and the lobby stays inside the body", inside_body(lobby_screen()));
+    for (i = 0; i < 100 && app->current != FLEET_SCREEN_DEPLOY; i++) {
+        mp_wait(100);
+    }
+    check_one_screen(FLEET_SCREEN_DEPLOY);
+    tap_obj(kid(deploy_controls(), DEPLOY_AUTO));
+    tap_obj(deploy_confirm());
+    check_one_screen(FLEET_SCREEN_BATTLE);
+    for (i = 0; i < 20000 && (app->mp->m.phase == FLEET_MP_COMMITTED ||
+                              app->mp->m.phase == FLEET_MP_BATTLE); i++) {
+        if (fleet_match_my_turn(&app->mp->m)) {
+            sent_before = (int)app->mp->sent;
+            resolved_before = app->mp->m.resolved;
+            if (mp_our_turn(rotation != POS_ROTATION_0 && turns % 7 == 0) != 0) {
+                break;
+            }
+            turns++;
+            /* The shot was taken: pending, or already answered. Whether it
+             * has left yet is the airtime governor's business - at this pace
+             * it holds some back, and says so. */
+            (void)sent_before;
+            if (app->mp->m.pending == FLEET_NO_CELL && app->mp->m.resolved == resolved_before) {
+                every_press_sent = 0;
+            }
+        } else if (app->mp->m.pending == FLEET_NO_CELL && app->current == FLEET_SCREEN_BATTLE) {
+            /* The opponent's turn: aiming is allowed, firing is not. */
+            fire_only_on_turn &= !lv_obj_has_flag(battle_fire(), LV_OBJ_FLAG_CLICKABLE) ||
+                                 fleet_match_link(&app->mp->m) == FLEET_LINK_LOST;
+        }
+        mp_wait(100);
+    }
+    for (i = 0; i < 300 && app->mp->m.phase != FLEET_MP_DONE; i++) {
+        mp_wait(100);
+    }
+    printf("     %s: %d turns of ours, %u packets sent\n", phase, turns, app->mp->sent);
+    check("FIRE cannot be pressed on the opponent's turn", fire_only_on_turn);
+    check("and every press on ours took the shot", every_press_sent);
+    check("the match played to its end", app->mp->m.phase == FLEET_MP_DONE);
+    check_one_screen(FLEET_SCREEN_RESULT);
+    check("the Result names the outcome",
+          strcmp(text_of(result_heading()), "Enemy fleet destroyed") == 0 ||
+          strcmp(text_of(result_heading()), "Fleet lost") == 0);
+    check_str("and the opponent's fleet was verified", text_of(result_value(0, 3)), "Verified");
+    check("the Result stays inside the body", inside_body(screen_of(FLEET_SCREEN_RESULT)));
+    tap_obj(kid(result_foot(), 0));
+    check_one_screen(FLEET_SCREEN_LOBBY);
+    check("MULTIPLAYER put the finished match away",
+          app->mp->m.phase == FLEET_MP_IDLE && app->mp->m.tomb[0].kind == FLEET_TOMB_ENDED);
+    app_stop();
+    unsetenv("POCKETFLEET_MP_FAKE");
+}
+
+static void test_multiplayer_reopen(void)
+{
+    int i;
+
+    phase = "multiplayer, closed and reopened";
+    mp_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=6", 1);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    tap_obj(command_multi_button());
+    mp_wait(300);
+    tap_obj(lobby_player_row(0));
+    tap_obj(lobby_act());
+    for (i = 0; i < 100 && app->current != FLEET_SCREEN_DEPLOY; i++) {
+        mp_wait(100);
+    }
+    tap_obj(kid(deploy_controls(), DEPLOY_AUTO));
+    tap_obj(deploy_confirm());
+    for (i = 0; i < 400 && app->mp->m.resolved < 8; i++) {
+        if (fleet_match_my_turn(&app->mp->m)) {
+            mp_our_turn(0);
+        }
+        mp_wait(100);
+    }
+    check("some of the match was played", app->mp->m.resolved >= 8);
+    /* The shell destroys the app; the virtual opponent goes with its link, so
+     * the reopened app plays a fresh one against the saved match - which is
+     * exactly what a stranger's device looks like: the next packet voids it
+     * as unknown. That half is fleet_session_test's; this is the screens'. */
+    app_stop();
+    app_start();
+    mp_wait(1000);
+    check("reopened, nothing is engaged or sent", !app->mp->engaged && app->mp->sent == 0);
+    check("Command offers the match in hand", app->mp_saved &&
+          strcmp(text_of(kid(command_multi_button(), 0)), "RESUME MATCH") == 0);
+    tap_obj(command_multi_button());
+    check("RESUME MATCH goes back to the battle, and asks the peer where it stands",
+          app->current == FLEET_SCREEN_BATTLE && app->mp->engaged && app->mp->sent >= 1);
+    app_stop();
+    unsetenv("POCKETFLEET_MP_FAKE");
+}
+
+static void test_multiplayer_lost(void)
+{
+    int i;
+
+    phase = "multiplayer, out of reach";
+    mp_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=7", 1);
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    app_start();
+    tap_obj(command_multi_button());
+    mp_wait(300);
+    tap_obj(lobby_player_row(0));
+    tap_obj(lobby_act());
+    for (i = 0; i < 100 && app->current != FLEET_SCREEN_DEPLOY; i++) {
+        mp_wait(100);
+    }
+    tap_obj(kid(deploy_controls(), DEPLOY_AUTO));
+    tap_obj(deploy_confirm());
+    for (i = 0; i < 300 && !fleet_match_my_turn(&app->mp->m); i++) {
+        mp_wait(100);
+    }
+    fleet_link_loop_set_cut(app->link, 1);
+    mp_our_turn(0);
+    mp_wait(8 * 60000);
+    printf("     lost: link %d attempts %d pending %d phase %d resolved %d sent %u\n",
+           fleet_match_link(&app->mp->m), app->mp->m.attempts, app->mp->m.pending,
+           app->mp->m.phase, app->mp->m.resolved, app->mp->sent);
+    check("after six tries the link is lost", fleet_match_link(&app->mp->m) == FLEET_LINK_LOST);
+    check_str("and FIRE becomes CHECK LINK", text_of(kid(battle_fire(), 0)), "CHECK LINK");
+    check("which can be pressed", lv_obj_has_flag(battle_fire(), LV_OBJ_FLAG_CLICKABLE));
+    check("the note says the match is paused, not lost",
+          strstr(text_of(battle_note()), "paused") != NULL);
+    check_battle_never_scrolls("multiplayer, lost, across the page");
+    fleet_link_loop_set_cut(app->link, 0);
+    tap_obj(battle_fire());
+    for (i = 0; i < 300 && app->mp->m.pending != FLEET_NO_CELL; i++) {
+        mp_wait(100);
+    }
+    check("CHECK LINK found the peer and the shot was answered",
+          app->mp->m.pending == FLEET_NO_CELL && fleet_match_link(&app->mp->m) != FLEET_LINK_LOST);
+    app_stop();
+    unsetenv("POCKETFLEET_MP_FAKE");
+}
+
 int main(void)
 {
     lv_indev_t *finger;
@@ -2225,6 +2465,19 @@ int main(void)
               app->resumable != 0);
         app_stop();
         unlink(path);
+    }
+
+    /* ---- 8. multiplayer --------------------------------------------------- */
+
+    test_multiplayer(POS_ROTATION_0);
+    test_multiplayer(POS_ROTATION_270);
+    test_multiplayer_reopen();
+    test_multiplayer_lost();
+    {
+        char mp_file[600];
+
+        snprintf(mp_file, sizeof(mp_file), "%s/fleet/match.v1", state_dir);
+        unlink(mp_file);
     }
 
     check_int("the game never went home by itself", g_home_calls, 0);

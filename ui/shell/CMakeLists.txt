@@ -83,6 +83,17 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/fleet/ui/fleet_screen_deploy.c
     ${REPO_DIR}/apps/fleet/ui/fleet_screen_battle.c
     ${REPO_DIR}/apps/fleet/ui/fleet_screen_result.c
+    ${REPO_DIR}/apps/fleet/fleet_mp.c
+    ${REPO_DIR}/apps/fleet/net/fleet_sha256.c
+    ${REPO_DIR}/apps/fleet/net/fleet_proto.c
+    ${REPO_DIR}/apps/fleet/net/fleet_match.c
+    ${REPO_DIR}/apps/fleet/net/fleet_match_save.c
+    ${REPO_DIR}/apps/fleet/link/fleet_link.c
+    ${REPO_DIR}/apps/fleet/link/fleet_link_loop.c
+    ${REPO_DIR}/apps/fleet/link/fleet_link_mesh.c
+    ${REPO_DIR}/apps/fleet/link/fleet_session.c
+    ${REPO_DIR}/apps/fleet/ui/fleet_view_mp.c
+    ${REPO_DIR}/apps/fleet/ui/fleet_screen_lobby.c
     ${REPO_DIR}/apps/radar/radar_app.c
     ${REPO_DIR}/apps/radar/radar_store.c
     ${REPO_DIR}/apps/radar/engine/radar_types.c
@@ -768,8 +779,21 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/fleet/ui/fleet_screen_command.c
         ${REPO_DIR}/apps/fleet/ui/fleet_screen_deploy.c
         ${REPO_DIR}/apps/fleet/ui/fleet_screen_result.c
+        ${REPO_DIR}/apps/fleet/fleet_mp.c
+        ${REPO_DIR}/apps/fleet/net/fleet_sha256.c
+        ${REPO_DIR}/apps/fleet/net/fleet_proto.c
+        ${REPO_DIR}/apps/fleet/net/fleet_match.c
+        ${REPO_DIR}/apps/fleet/net/fleet_match_save.c
+        ${REPO_DIR}/apps/fleet/link/fleet_link.c
+        ${REPO_DIR}/apps/fleet/link/fleet_link_loop.c
+        ${REPO_DIR}/apps/fleet/link/fleet_link_mesh.c
+        ${REPO_DIR}/apps/fleet/link/fleet_session.c
+        ${REPO_DIR}/apps/fleet/ui/fleet_view_mp.c
+        ${REPO_DIR}/apps/fleet/ui/fleet_screen_lobby.c
         ${REPO_DIR}/apps/fleet/ui/fleet_view.c
         ${REPO_DIR}/apps/fleet/ui/fleet_widgets.c
+        ${REPO_DIR}/core/pocketipc/pocketipc.c
+        ${REPO_DIR}/core/pocketpaths.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
         ../pocketui/pos_display.c
@@ -788,7 +812,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_include_directories(fleet_app_test PRIVATE "${LVGL_DIR}")
         target_compile_definitions(fleet_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
-    target_link_libraries(fleet_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+    target_link_libraries(fleet_app_test PRIVATE lvgl ${SDL2_LIBRARIES} cjson m)
 
     # PocketCalendar in the running app, tapped on the panel (run by
     # tests/calendar_shell_test.sh). The shell is not linked, so the test

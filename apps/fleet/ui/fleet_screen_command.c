@@ -8,6 +8,8 @@
 #include "fleet_view.h"
 #include "fleet_widgets.h"
 
+#include "../link/fleet_session.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,6 +34,12 @@ struct fleet_command_ui {
     lv_obj_t *saved;
     lv_obj_t *foot;
     lv_obj_t *deploy;
+    /* Multiplayer: under OPPONENT, because it is the other kind of opponent,
+     * and because across the page that column is short enough to show it
+     * without scrolling. After OPPONENT, so every panel keeps its place. */
+    lv_obj_t *multi;
+    lv_obj_t *multi_state;
+    lv_obj_t *multi_open;
 };
 
 static void on_difficulty(lv_event_t *e)
@@ -59,6 +67,20 @@ static void on_deploy(lv_event_t *e)
 static void on_resume(lv_event_t *e)
 {
     fleet_app_resume(lv_event_get_user_data(e));
+}
+
+static void on_multiplayer(lv_event_t *e)
+{
+    struct fleet_app *app = lv_event_get_user_data(e);
+
+    /* A match in hand is resumed; otherwise the lobby opens. Either way this
+     * press is the player choosing multiplayer, and only now does anything
+     * talk to the mesh service. */
+    if (app->mp_saved || (app->mp && app->mp->ready && fleet_match_active(&app->mp->m))) {
+        fleet_app_mp_resume(app);
+    } else {
+        fleet_app_multiplayer(app);
+    }
 }
 
 /* Hull length drawn as blocks, in the spirit of the segmented meter (DS §9). */
@@ -135,6 +157,13 @@ lv_obj_t *fleet_screen_command_create(struct fleet_app *app, lv_obj_t *parent)
     lv_label_set_long_mode(ui->saved_state, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(ui->saved_state, LV_PCT(100));
     ui->resume = fleet_button_secondary(panel, "RESUME", on_resume, app);
+
+    panel = fleet_panel(ui->left, "MULTIPLAYER");
+    ui->multi = panel;
+    ui->multi_state = pocketui_label(panel, "", POS_STYLE_TEXT_SECONDARY);
+    lv_label_set_long_mode(ui->multi_state, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(ui->multi_state, LV_PCT(100));
+    ui->multi_open = fleet_button_secondary(panel, "MULTIPLAYER", on_multiplayer, app);
 
     ui->deploy = pocketui_button(ui->foot, "DEPLOY FLEET", on_deploy, app);
     return screen;
@@ -249,5 +278,25 @@ void fleet_screen_command_refresh(struct fleet_app *app)
                                                "lasts for the session only.");
         }
         lv_obj_add_flag(ui->resume, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    {
+        char peer[40];
+        const struct fleet_match *m = app->mp && app->mp->ready ? &app->mp->m : NULL;
+        lv_obj_t *label = lv_obj_get_child(ui->multi_open, 0);
+
+        if (!app->mp) {
+            lv_label_set_text(ui->multi_state, "Not available on this device.");
+            lv_obj_add_flag(ui->multi_open, LV_OBJ_FLAG_HIDDEN);
+        } else if (app->mp_saved || (m && fleet_match_active(m))) {
+            lv_label_set_text_fmt(ui->multi_state, "An engagement with %s is waiting.",
+                                  fleet_app_peer(app, peer, sizeof(peer)));
+            lv_label_set_text(label, "RESUME MATCH");
+            lv_obj_remove_flag(ui->multi_open, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_label_set_text(ui->multi_state, "Play another Doors device over the mesh.");
+            lv_label_set_text(label, "MULTIPLAYER");
+            lv_obj_remove_flag(ui->multi_open, LV_OBJ_FLAG_HIDDEN);
+        }
     }
 }

@@ -277,15 +277,36 @@ nothing, and raises `mesh.node` with the reason `path`.
 
 ### What it transmits unasked
 
-Nothing on a timer. There is no periodic advert, and `mesh.advert` and
-`mesh.send` are the only ways a client makes it transmit. `mesh.advert` takes
+Nothing on a timer. There is no periodic advert, and `mesh.advert`,
+`mesh.send` and `mesh.app_send` are the only ways a client makes it transmit. `mesh.advert` takes
 `zero_hop: true` for an advert sent zero-hop - heard in direct range and
 repeated by nobody, at the airtime of one packet - and floods otherwise.
 
 What it does send without being asked is what the protocol owes a sender: an
 **ACK**, and a **return path**, for a message addressed to this node. That is
 correct MeshCore behaviour and it is the reason the init script ships
-disabled — a node that is switched on is a node that will answer.
+disabled — a node that is switched on is a node that will answer. The same
+goes for an app datagram that arrives by flood: it is answered with a
+five-byte receipt on MeshCore's return path, so its sender learns a route.
+
+### App datagrams
+
+`mesh.app_send` and `mesh.app_inbox` (docs/api/mesh.md, "App datagrams")
+carry opaque packets between applications on two Doors nodes as MeshCore
+`PAYLOAD_TYPE_REQ`s whose data starts `0xD0 | port`. Before them this node
+served no requests: `onContactRequest()` returned "no reply" without reading
+its arguments. It now reads them for exactly this shape and still answers
+every other request with nothing. The length the datagram carries is checked
+against the decrypted length before anything is copied, and a REQ can only
+reach that handler from `BaseChatMesh::onPeerDataRecv()` - a RESPONSE carried
+in a PATH payload goes to `onContactResponse()`, which reads nothing, behind
+the PATH guard below. Whether the frame came by flood is noted in an
+`onPeerDataRecv()` override that then calls upstream unchanged; the vendored
+tree is not touched.
+
+Received datagrams are held in a 32-entry ring for this run, for a client
+that was not listening, and numbered from 1 per run; `mesh.status` carries a
+`run_id` so a client knows when the numbering began again.
 
 ### The PATH guard
 
@@ -608,6 +629,9 @@ Stopping it releases the lease and writes the node table.
 | The four transmit outcomes, duplicate and stale completions, a lost completion, a disconnect mid-transmit | **VERIFIED host** | `tests/meshcored_harness_test.sh` drives each one |
 | Malformed and hostile `radio.rx` | **VERIFIED host** | both suites |
 | A corrupt identity file stops the service rather than being replaced | **VERIFIED host** | `tests/meshcored_runtime_test.cpp`, `tests/meshcored_store_test.cpp` |
+| App datagrams: sent flood then direct once the receipt teaches the route, received whole up to 160 bytes, upstream request types and malformed lengths ignored, the inbox bounded and numbered | **VERIFIED host** | `tests/meshcored_runtime_test.cpp` (`test_app_datagrams`), real crypto, crafted REQs for the refusals; plain and under ASan/UBSan |
+| Two whole meshcored processes carry a Fleet match end to end | **VERIFIED host** | `tests/fleet_mp_e2e_test.sh`, over the mock air |
+| App datagrams between two units on the air | **UNRESOLVED** | the P7 gate, docs/hardware/FLEET_MULTIPLAYER_GATE.md |
 | The PATH guard refuses the crafted payload and accepts every well-formed one | **VERIFIED host** | `tests/meshcored_runtime_test.cpp`, plain and under ASan/UBSan |
 | The boundary: no SPI, GPIO, radio library, LVGL, or JSON below the seam | **DOCUMENTED** | `tests/meshcored_lint.sh`, statically |
 | The MeshCore wire format this speaks | **VERIFIED hardware**, by inheritance | the accepted P0 gate, from the same pinned sources; that gate is evidence about the frames, not about this daemon |

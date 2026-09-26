@@ -9,6 +9,7 @@
 #include "fleet_save.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -127,4 +128,82 @@ int fleet_store_has_save(void)
     struct fleet_game probe;
 
     return fleet_store_load(&probe) == 0;
+}
+
+/* ---- multiplayer --------------------------------------------------------- */
+
+static char match_buf[STORE_PATH_MAX + 32];
+
+const char *fleet_store_match_path(void)
+{
+    snprintf(match_buf, sizeof(match_buf), "%s/%s", fleet_store_dir(), FLEET_STORE_MATCH_FILE);
+    return match_buf;
+}
+
+int fleet_store_match_save(const uint8_t *blob, size_t n)
+{
+    char path[sizeof(match_buf)];
+    char tmp[sizeof(match_buf) + 8];
+    FILE *f;
+    int fd;
+    int dir;
+    int rc;
+
+    if (!blob || n == 0) {
+        return -1;
+    }
+    make_dirs(fleet_store_dir());
+    snprintf(path, sizeof(path), "%s", fleet_store_match_path());
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    /* Private whatever the umask: the match holds our own fleet and its salt,
+     * which the opponent must not learn before the reveal. fchmod also covers
+     * a temporary file left behind with another mode, which O_TRUNC keeps. */
+    fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        return -1;
+    }
+    if (fchmod(fd, 0600) != 0 || !(f = fdopen(fd, "wb"))) {
+        close(fd);
+        unlink(tmp);
+        return -1;
+    }
+    if (fwrite(blob, 1, n, f) != n || fflush(f) != 0 || fsync(fileno(f)) != 0) {
+        fclose(f);
+        unlink(tmp);
+        return -1;
+    }
+    fclose(f);
+    if (rename(tmp, path) != 0) {
+        unlink(tmp);
+        return -1;
+    }
+    /* The rename is only durable once the directory entry is. */
+    dir = open(fleet_store_dir(), O_RDONLY | O_DIRECTORY);
+    if (dir < 0) {
+        return -1;
+    }
+    rc = fsync(dir);
+    close(dir);
+    return rc == 0 ? 0 : -1;
+}
+
+int fleet_store_match_load(uint8_t *buf, size_t max)
+{
+    FILE *f;
+    size_t got;
+
+    if (!buf || max == 0) {
+        return -1;
+    }
+    f = fopen(fleet_store_match_path(), "rb");
+    if (!f) {
+        return errno == ENOENT ? 0 : -1;
+    }
+    got = fread(buf, 1, max, f);
+    if (ferror(f) || (got == max && fgetc(f) != EOF)) {
+        fclose(f);
+        return -1;
+    }
+    fclose(f);
+    return (int)got;
 }

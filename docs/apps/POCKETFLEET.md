@@ -1,7 +1,10 @@
 # PocketFleet
 
 A tactical naval game for PocketOS: Battleship on the 568 x 1232 panel,
-local single player. Phase 1 only — no networking of any kind.
+against the AI, or against another Doors device over the mesh. Multiplayer -
+its protocol, its screens and its tests - is docs/apps/FLEET_MULTIPLAYER.md
+(ADR-008, Proposed); this document is the game and the single-player app, and
+everything it says holds for both.
 
 Status: merged. Landscape (DS §28, **ACCEPTED** 2026-09-18) is on branch
 `feature/fleet-landscape`, not yet merged.
@@ -12,6 +15,9 @@ Status: merged. Landscape (DS §28, **ACCEPTED** 2026-09-18) is on branch
 apps/fleet/engine/   rules, RNG, AI, save codec, save file. Pure C, no LVGL.
 apps/fleet/ui/       view model (no LVGL), local widgets, grid, four screens.
 apps/fleet/fleet_app.c   the shell app entry, screen ownership, navigation.
+apps/fleet/net/      multiplayer protocol and match state machine. Pure C.
+apps/fleet/link/     multiplayer session and links (mesh; virtual opponent).
+apps/fleet/fleet_mp.c    multiplayer in the app: the timer, the steering.
 ```
 
 The dependency runs one way: `fleet_app` → `ui/*` → `fleet_view` → `engine/*`.

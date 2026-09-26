@@ -14,6 +14,8 @@
 #include "fleet_grid.h"
 #include "fleet_widgets.h"
 
+#include "../link/fleet_session.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -37,9 +39,11 @@ struct fleet_deploy_ui {
     uint8_t vertical;
 };
 
+/* The AI match's board, or the one being placed for a multiplayer match: the
+ * screen is the same either way. */
 static struct fleet_board *player_board(struct fleet_app *app)
 {
-    return &app->game.board[FLEET_SIDE_PLAYER];
+    return fleet_app_deploy_board(app);
 }
 
 /* Why a placement was refused, in the player's terms. */
@@ -172,6 +176,22 @@ static void on_confirm(lv_event_t *e)
 {
     struct fleet_deploy_ui *ui = lv_event_get_user_data(e);
 
+    if (ui->app->mode == FLEET_MODE_MULTI) {
+        /* Commit to the fleet: from here it cannot move, and the opponent
+         * holds the commitment that proves it did not (ADR-008). */
+        if (!fleet_board_complete(player_board(ui->app))) {
+            message(ui, "Place every ship first");
+            return;
+        }
+        if (!ui->app->mp ||
+            fleet_session_deploy(ui->app->mp, player_board(ui->app), fleet_app_now(ui->app)) != 0) {
+            message(ui, "The fleet could not be committed. Try again.");
+            return;
+        }
+        fleet_screen_battle_enter(ui->app);
+        fleet_app_show(ui->app, FLEET_SCREEN_BATTLE);
+        return;
+    }
     if (fleet_game_start(&ui->app->game) != 0) {
         message(ui, "Place every ship first");
         return;

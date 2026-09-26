@@ -186,6 +186,42 @@ struct mcd_message {
     double rssi_dbm;
 };
 
+/* ---- an app datagram (docs/api/mesh.md, "App datagrams") ----------------
+ *
+ * A packet for an application on another Doors node, carried as a MeshCore
+ * PAYLOAD_TYPE_REQ whose data is `0xD0 | port`, the payload's length, and the
+ * payload. The first byte is outside every request type upstream defines
+ * (0x00-0x07 in the pinned tree), so no MeshCore firmware mistakes one for a
+ * request it serves. The length is there because the decrypted REQ is padded
+ * to the AES block and MeshCore records no length of its own.
+ *
+ * Unacknowledged at this layer, like a channel message: reliability is the
+ * application's, end to end (ADR-008). One arriving by flood is answered with
+ * a small RESPONSE riding MeshCore's own return path, so the sender learns a
+ * direct route; one arriving direct is not answered at all.
+ */
+#define MCD_APP_MARKER 0xD0
+#define MCD_APP_PORT_MIN 1
+#define MCD_APP_PORT_MAX 15
+#define MCD_APP_PAYLOAD_MAX 160
+/* Held for clients that were not listening when they arrived: a bounded
+ * ring, this run only, like the message list. */
+#define MCD_APP_INBOX 32
+
+struct mcd_app_datagram {
+    uint64_t id;                  /* 1 upwards, never reused while the service runs */
+    uint8_t port;
+    uint8_t from[MCD_PUB_KEY_LEN];
+    uint8_t len;
+    uint8_t payload[MCD_APP_PAYLOAD_MAX];
+    bool flood;                   /* it arrived by flood rather than on a known path */
+    uint64_t mono_ms;
+    bool snr_known;
+    double snr_db;
+    bool rssi_known;
+    double rssi_dbm;
+};
+
 /* ---- what the runtime asks of the daemon -------------------------------
  *
  * One outbound call and three notifications. tx_submit is the whole of the
@@ -215,6 +251,9 @@ struct mcd_runtime_hooks {
     void (*on_frame)(void *user, const struct mcd_rx_meta *meta, int bytes,
                      const char *outcome);
     void *user;
+    /* An app datagram arrived. Appended, so a hooks table that does not set
+     * it is unchanged; may be NULL. */
+    void (*on_app)(void *user, const struct mcd_app_datagram *d);
 };
 
 struct mcd_runtime_config {
@@ -400,6 +439,21 @@ int mcd_runtime_expire_acks(struct mcd_runtime *rt, uint64_t now_ms);
 /* How many sent messages are waiting for their ACK now. */
 int mcd_runtime_acks_waiting(const struct mcd_runtime *rt);
 
+/* Send an app datagram to the node whose WHOLE public key is key. On
+ * acceptance *est_timeout_ms is MeshCore's own estimate of how long an answer
+ * to it could take on the route it went (flood or direct). The result is
+ * ACCEPTED_FLOOD or ACCEPTED_DIRECT; NO_RADIO; NO_CONTACT when no such node is
+ * held; TOO_LONG for a payload of 0 or more than MCD_APP_PAYLOAD_MAX bytes or
+ * a port outside 1..15; FAILED when MeshCore could not build it. */
+enum mcd_send_result mcd_runtime_send_app(struct mcd_runtime *rt,
+                                          const uint8_t key[MCD_PUB_KEY_LEN], int port,
+                                          const uint8_t *payload, size_t len,
+                                          uint32_t *est_timeout_ms);
+/* The held datagrams for a port with an id above after_id, oldest first, into
+ * out[0..max). Returns how many. */
+int mcd_runtime_app_inbox(const struct mcd_runtime *rt, int port, uint64_t after_id,
+                          struct mcd_app_datagram *out, int max);
+
 /* Build and flood one self-advert. This and the zero-hop one below are the
  * only ways meshcored ever transmits without having been sent something
  * first: there is no periodic advert, by decision - see
@@ -455,6 +509,10 @@ struct mcd_runtime_stats {
      * every channel anybody else uses lands here, and it is the number that
      * says whether the hash space is crowded. */
     uint64_t channel_frames_unmatched;
+    /* App datagrams: received, sent, and flood receipts answered. */
+    uint64_t app_rx;
+    uint64_t app_tx;
+    uint64_t app_receipts;
 };
 void mcd_runtime_stats(const struct mcd_runtime *rt, struct mcd_runtime_stats *out);
 
