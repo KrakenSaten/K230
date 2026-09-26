@@ -542,11 +542,14 @@ int main(void)
     check("the message is in the history as sent", shows_part("TX ") && shows("DOORS"));
     check("CLEAR is enabled now", !disabled("CLEAR"));
 
+    tap_obj(field, "message field");
+    check("a tap on the field brings the keyboard back", kb_shown);
     type("ENTER");
     pos_input_focus(field);
     pos_input_push_key(LV_KEY_ENTER);
     pump(60);
     check("Enter sends too (the one key stream)", wait_for("ENTER", 0, 3000) && wait_for("Sent", 0, 3000));
+    check("and puts the keyboard away: Enter's own click on the field does not bring it back", !kb_shown);
     unsetenv("WAVE_FAKE_SEND_MS");
 
     /* ---- listening ------------------------------------------------------- */

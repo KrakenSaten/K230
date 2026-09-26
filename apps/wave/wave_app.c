@@ -492,7 +492,14 @@ static void on_row(lv_event_t *e)
 static void on_field_clicked(lv_event_t *e)
 {
     struct wave_app *a = lv_event_get_user_data(e);
+    lv_indev_t *src = lv_indev_active();
 
+    /* A finger only. Enter - the touch keyboard's Done included - reaches
+     * the focused field as a click too, after on_field_ready has sent and
+     * put the keyboard away; that click must not bring it back. */
+    if (!src || lv_indev_get_type(src) != LV_INDEV_TYPE_POINTER) {
+        return;
+    }
     /* Portrait only: in landscape the physical keyboard types here, and KEYS
      * brings the touch keyboard up when there is none (wave_layout.h). */
     if (a->layout.field_tap_shows_keyboard) {
