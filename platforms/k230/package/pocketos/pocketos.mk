@@ -40,7 +40,7 @@ POCKETOS_INSTALL_TARGET = YES
 # (docs/apps/CAMERA.md). Like alsa-lib it was already in the image (the vendor
 # camera tools use it), so this adds a build dependency, not a package.
 # libcurl: pos-zabbix, the Zabbix viewer's helper (docs/apps/ZABBIX.md, ADR-007
-# PROPOSED), reaches the server with libcurl and its OpenSSL backend. Like
+# ACCEPTED; the shell includes the app by default), reaches the server with libcurl and its OpenSSL backend. Like
 # alsa-lib and jpeg it was already in the image (BR2_PACKAGE_LIBCURL, with the
 # curl tool and ca-certificates), so this adds a build dependency, not a
 # package.

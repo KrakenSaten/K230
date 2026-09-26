@@ -78,15 +78,15 @@ extern const struct pocketos_app app_wave;
 extern const struct pocketos_app app_rift;
 extern const struct pocketos_app app_files;
 extern const struct pocketos_app app_camera;
-/* Experiments, in the registry only in a shell configured for them: Zabbix
- * with POCKETOS_WITH_ZABBIX (ui/shell/CMakeLists.txt, docs/apps/ZABBIX.md).
+/* Apps a shell can be configured without: Zabbix, in by default and left out
+ * with -DPOCKETOS_WITH_ZABBIX=OFF (ui/shell/CMakeLists.txt, docs/apps/ZABBIX.md).
  * A macro rather than an #ifdef inside the list below, so the list reads the
  * same as the apps every build has (tests/app_icons_test.sh parses it). */
 #ifdef POCKETOS_WITH_ZABBIX
 extern const struct pocketos_app app_zabbix;
-#define EXPERIMENTAL_APPS , &app_zabbix
+#define OPTIONAL_APPS , &app_zabbix
 #else
-#define EXPERIMENTAL_APPS
+#define OPTIONAL_APPS
 #endif
 
 /* The registry. Where each app is shown on the launcher - its group, its
@@ -96,7 +96,7 @@ static const struct pocketos_app *const apps[] = { &app_radio, &app_system, &app
                                             &app_radar, &app_timber, &app_notes,
                                             &app_clock, &app_calendar, &app_calculator,
                                             &app_settings, &app_wave, &app_rift, &app_files,
-                                            &app_camera EXPERIMENTAL_APPS };
+                                            &app_camera OPTIONAL_APPS };
 #define APP_COUNT (sizeof(apps) / sizeof(apps[0]))
 
 struct shell {

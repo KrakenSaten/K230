@@ -78,9 +78,8 @@ check "no app resolves, reads or touches the chrome" "$([ -z "$hits" ] && echo 1
 [ -n "$hits" ] && echo "$hits" | head -5
 hits=$(grep -rn '\.chrome = ' apps --include='*.c' | grep -v 'POCKETOS_CHROME_NONE')
 declared=$(grep -rln '\.chrome = POCKETOS_CHROME_NONE' apps --include='*.c' | cut -d/ -f2 | sort | tr '\n' ' ')
-# Zabbix (DS §35 PROPOSED) is an experiment built into the shell only on
-# request (POCKETOS_WITH_ZABBIX), but its source declares NONE like the seven.
-check "stage 2: the seven fullscreen apps, and the experimental Zabbix, declare NONE and no app declares anything else ($declared) (DS §30.4, §34, §35)" \
+# Zabbix (DS §35) is in the shell by default and declares NONE like the seven.
+check "stage 2: the seven fullscreen apps, and Zabbix, declare NONE and no app declares anything else ($declared) (DS §30.4, §34, §35)" \
     "$([ -z "$hits" ] && [ "$declared" = "camera fleet notes radar rift timber wave zabbix " ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
 check "the test hook that forces a chrome is compiled out of the panel's build" \
