@@ -461,6 +461,42 @@ int wave_session_start_listen(struct wave_session *s, const char *helper, int se
     return spawn(s, helper, argv, NULL, 0, err, errlen);
 }
 
+/* An absolute path of ours: no newline, no leading dash, not too long. */
+static int valid_path(const char *path)
+{
+    return path && path[0] == '/' && strlen(path) < WAVE_HELPER_PATH_MAX && !strchr(path, '\n');
+}
+
+int wave_session_start_record(struct wave_session *s, const char *helper, int seconds,
+                              const char *path, char *err, size_t errlen)
+{
+    char secs[16];
+    char *argv[] = { (char *)helper, "record", "--events", "--seconds", secs, (char *)path, NULL };
+
+    if (!helper || seconds < 1 || seconds > WAVE_CAPTURE_MAX_SECONDS || !valid_path(path)) {
+        if (err && errlen) {
+            snprintf(err, errlen, "invalid capture request");
+        }
+        return -1;
+    }
+    snprintf(secs, sizeof(secs), "%d", seconds);
+    return spawn(s, helper, argv, NULL, 0, err, errlen);
+}
+
+int wave_session_start_decode(struct wave_session *s, const char *helper, const char *path,
+                              char *err, size_t errlen)
+{
+    char *argv[] = { (char *)helper, "decode", "--events", (char *)path, NULL };
+
+    if (!helper || !valid_path(path)) {
+        if (err && errlen) {
+            snprintf(err, errlen, "invalid decode request");
+        }
+        return -1;
+    }
+    return spawn(s, helper, argv, NULL, 0, err, errlen);
+}
+
 /* ---- running ------------------------------------------------------------ */
 
 static void finish(struct wave_session *s, int status)

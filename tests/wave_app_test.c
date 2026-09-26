@@ -2,14 +2,20 @@
  * Wave in the running app, under a real LVGL pointer device and the real
  * key stream, driving tests/fake_pos_wave.sh in place of its audio helper.
  *
- * The view model and the helper client have their own tests. This one proves
- * the screen: that the mode buttons swap the panels, that typing reaches the
- * message field and Transmit follows it, that Enter transmits, that a listen
- * turns the microphone banner and the status-bar hint on for exactly as long
- * as the helper runs, that a received message lands in the list, that Stop
- * works, that errors are shown in words, that leaving the app ends a running
- * helper - including one that ignores SIGTERM - within its bound, that every
- * control is a 64 px target, and that nothing is stored.
+ * The model, the controller, the layout policy and the helper client have
+ * their own tests. This one proves the screen, in portrait and in landscape:
+ * one screen with no mode switch; typing reaches the field and SEND follows
+ * it; SEND and Enter send and clear the field; LISTEN turns the microphone
+ * banner, the chip and the header hint on for exactly as long as a helper
+ * runs; a send while listening pauses and resumes the listen; CAPTURE records
+ * and decodes; received and sent messages land in the history, which survives
+ * a restart and clears with two taps; a tap on an entry copies it into the
+ * field; the preset cycles and is remembered; errors are shown in words;
+ * leaving the app ends a running helper - including one that ignores SIGTERM
+ * - within its bound; every control is a 64 px target; nothing makes the body
+ * scroll. And the keyboard: in portrait a tap on the field brings it up; in
+ * landscape it never comes up by itself, KEYS brings it, and with it up the
+ * screen is the composer row alone.
  *
  * No audio device is opened at any point: the helper is a shell script.
  * Needs LVGL; built by ui/shell/CMakeLists.txt (host only) and run by
@@ -32,11 +38,20 @@
 #include <time.h>
 #include <unistd.h>
 
-#define PANEL_W 568
+/* A square display that holds both orientations' bodies. */
+#define PANEL_W 1232
 #define PANEL_H 1232
 /* Where the shell's content area starts for Wave (ui/shell/chrome.h): the
  * top edge, as for every app since the full-width bar went (DS §36). */
 #define STATUS_H chrome_height(chrome_resolve(app_wave.chrome, false, false))
+#define PORTRAIT_W 568
+#define PORTRAIT_H 1232
+/* The landscape body is the 1232 x 568 display under the app header, and
+ * the touch keyboard (296) takes its height from the body while it is up;
+ * the test body pads 20 around and 24 on top. */
+#define LANDSCAPE_W 1232
+#define LANDSCAPE_H (568 - STATUS_H - POCKETUI_HEADER_H)
+#define LANDSCAPE_KB_H (LANDSCAPE_H - 296)
 
 extern const struct pocketos_app app_wave;
 
@@ -58,6 +73,9 @@ static void check(const char *what, int ok)
 
 static char hint[32];
 static int hint_writes;
+static int landscape;
+static lv_obj_t *g_content;
+static void body_follows_keyboard(void);
 static int kb_shown;
 static int kb_show_calls;
 
@@ -80,13 +98,38 @@ void pocketos_shell_keyboard_show(enum pocketos_kb_return ret, void (*on_done)(v
     (void)user;
     kb_shown = 1;
     kb_show_calls++;
+    body_follows_keyboard();
 }
-void pocketos_shell_keyboard_hide(void) { kb_shown = 0; }
+void pocketos_shell_keyboard_hide(void)
+{
+    kb_shown = 0;
+    body_follows_keyboard();
+}
 int pocketos_shell_keyboard_visible(void) { return kb_shown; }
+void pocketos_shell_orientation(struct pocketos_orientation *out)
+{
+    memset(out, 0, sizeof(*out));
+    out->landscape = landscape;
+    out->next_landscape = landscape;
+    out->keyboard = landscape ? POCKETOS_KEYBOARD_PRESENT : POCKETOS_KEYBOARD_ABSENT;
+}
+/* As the shell does: the touch keyboard takes its height from the body. */
+static void body_follows_keyboard(void)
+{
+    if (!g_content) {
+        return;
+    }
+    if (landscape) {
+        lv_obj_set_size(g_content, LANDSCAPE_W, kb_shown ? LANDSCAPE_KB_H : LANDSCAPE_H);
+    } else {
+        lv_obj_set_size(g_content, PORTRAIT_W,
+                        PORTRAIT_H - STATUS_H - POCKETUI_HEADER_H - (kb_shown ? 296 : 0));
+    }
+}
 
 /* ---- display, finger, keys, time --------------------------------------- */
 
-static uint8_t draw_buf[PANEL_W * 40 * 2];
+static uint8_t draw_buf[PANEL_W * 40 * 4];
 static lv_indev_state_t finger_state = LV_INDEV_STATE_RELEASED;
 static lv_point_t finger_point;
 
@@ -122,7 +165,6 @@ static int64_t real_ms(void)
     return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
 }
 
-static lv_obj_t *g_content;
 static lv_obj_t *app_body;
 static void *app_priv;
 
@@ -292,6 +334,7 @@ static int small_targets(lv_obj_t *obj)
 
 static void app_start(void)
 {
+    body_follows_keyboard();
     app_body = lv_obj_create(g_content);
     lv_obj_remove_style_all(app_body);
     lv_obj_set_size(app_body, LV_PCT(100), LV_PCT(100));
@@ -372,19 +415,57 @@ static int dir_empty(const char *path)
 
 /* ---- the tests --------------------------------------------------------- */
 
+/* The body never scrolls: whatever is laid out fits the content box. */
+static int body_fits(void)
+{
+    lv_obj_update_layout(app_body);
+    return lv_obj_get_scroll_y(app_body) == 0 && !lv_obj_has_flag(app_body, LV_OBJ_FLAG_HIDDEN) &&
+           ({
+               lv_area_t body;
+               lv_area_t frame;
+               lv_obj_t *f = lv_obj_get_child(app_body, 0);
+
+               lv_obj_get_coords(app_body, &body);
+               lv_obj_get_coords(f, &frame);
+               frame.y2 <= body.y2 && frame.x2 <= body.x2;
+           });
+}
+
+static void set_env_file(const char *name, const char *dir, char *out, size_t n)
+{
+    snprintf(out, n, "%s/%s", dir, name);
+}
+
+static int log_has(const char *path, const char *text)
+{
+    char buf[8192];
+    FILE *f = fopen(path, "r");
+    size_t n = 0;
+
+    if (!f) {
+        return 0;
+    }
+    n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    return strstr(buf, text) != NULL;
+}
+
 int main(void)
 {
     lv_display_t *disp;
     lv_indev_t *finger;
     char state_dir[] = "/tmp/wave-app-state-XXXXXX";
+    char run_dir[] = "/tmp/wave-app-run-XXXXXX";
     char tmp[] = "/tmp/wave-app-XXXXXX";
     char helper[PATH_MAX];
+    char logpath[PATH_MAX];
     const char *fake = getenv("WAVE_FAKE_HELPER");
     char script[PATH_MAX];
     FILE *f;
     lv_obj_t *field;
 
-    if (!fake || !realpath(fake, script) || !mkdtemp(state_dir) || !mkdtemp(tmp)) {
+    if (!fake || !realpath(fake, script) || !mkdtemp(state_dir) || !mkdtemp(run_dir) || !mkdtemp(tmp)) {
         fprintf(stderr, "set WAVE_FAKE_HELPER to tests/fake_pos_wave.sh\n");
         return 2;
     }
@@ -397,9 +478,13 @@ int main(void)
     fclose(f);
     chmod(helper, 0755);
     snprintf(pidfile, sizeof(pidfile), "%s/helper.pid", tmp);
+    set_env_file("helper.log", tmp, logpath, sizeof(logpath));
     setenv("POCKETOS_WAVE_HELPER", helper, 1);
     setenv("WAVE_FAKE_PIDFILE", pidfile, 1);
+    setenv("WAVE_FAKE_LOG", logpath, 1);
+    setenv("WAVE_FAKE", "auto", 1);
     setenv("POCKETOS_STATE_DIR", state_dir, 1);
+    setenv("POCKETOS_RUNTIME_DIR", run_dir, 1);
 
     lv_init();
     disp = lv_display_create(PANEL_W, PANEL_H);
@@ -413,105 +498,173 @@ int main(void)
     pocketui_style_screen(lv_screen_active());
     g_content = lv_obj_create(lv_screen_active());
     lv_obj_remove_style_all(g_content);
-    lv_obj_set_size(g_content, PANEL_W, PANEL_H - STATUS_H - POCKETUI_HEADER_H);
     lv_obj_set_pos(g_content, 0, STATUS_H + POCKETUI_HEADER_H);
 
-    /* ---- opening --------------------------------------------------------- */
+    /* ==== portrait ========================================================== */
     app_start();
-    check("opens in SEND with its message panel", shows("SEND") && shows("MESSAGE") && !shows("RECEIVED"));
-    check("TRANSMIT is there and disabled with nothing typed", shows("TRANSMIT") && disabled("TRANSMIT"));
-    check("the status says ready", shows("Ready to send"));
+    check("one screen: no SEND/RECEIVE mode buttons, everything at once",
+          !shows("RECEIVE") && shows("SEND") && shows("LISTEN") && shows("CAPTURE") && shows("HISTORY"));
+    check("the chip says READY and the status that the microphone is off",
+          shows("READY") && shows("Ready. Microphone off") && !shows("MICROPHONE ON"));
+    check("the preset is named with its speed", shows("STANDARD - FAST") && shows("Fast speed, sent once"));
+    check("SEND is disabled with nothing typed", disabled("SEND"));
     check("the counter starts at 0 of 64", shows("0 / 64 bytes"));
-    check("the three speeds are offered", shows("NORMAL") && shows("FAST") && shows("FASTEST"));
+    check("an empty history says how to start", shows_part("Nothing yet."));
+    check("CLEAR is disabled with nothing to clear", disabled("CLEAR"));
     check("opening writes no status hint", hint_writes == 0);
     check("opening does not throw up the keyboard", kb_show_calls == 0);
+    check("opening starts no helper", !log_has(logpath, "listen") && !log_has(logpath, "send"));
+    check("portrait has no KEYS button", !shows("KEYS"));
     check("every control is at least 64 px (DS 7)", small_targets(app_body) == 0);
+    check("the body does not scroll", body_fits());
     field = find_field(app_body);
     check("the message field is the focused object", field && pos_input_focused() == field);
 
-    /* ---- typing ---------------------------------------------------------- */
     tap_obj(field, "message field");
-    check("tapping the field asks the shell for the keyboard", kb_shown && kb_show_calls == 1);
+    check("portrait: tapping the field asks the shell for the keyboard", kb_shown && kb_show_calls == 1);
+    check("with the keyboard up everything still fits, history included",
+          body_fits() && shows("HISTORY") && small_targets(app_body) == 0);
     type("DOORS");
     check("typed characters reach the field", field && strcmp(lv_textarea_get_text(field), "DOORS") == 0);
     check("the counter follows", shows("5 / 64 bytes"));
-    check("TRANSMIT is enabled", !disabled("TRANSMIT"));
+    check("SEND is enabled", !disabled("SEND"));
     check("the field kept the focus through the taps", pos_input_focused() == field);
 
     /* ---- sending --------------------------------------------------------- */
-    setenv("WAVE_FAKE", "send_ok", 1);
-    tap("TRANSMIT");
-    check("transmitting puts the keyboard away", !kb_shown);
-    check("the button becomes STOP at once", shows("STOP"));
-    check("the status bar says SENDING", strcmp(hint, "SENDING") == 0);
-    check("the mode cannot be switched while sending", disabled("RECEIVE"));
+    setenv("WAVE_FAKE_SEND_MS", "400", 1);
+    tap("SEND");
+    check("sending puts the keyboard away", !kb_shown);
+    check("and empties the field for the next message", strcmp(lv_textarea_get_text(field), "") == 0);
+    check("the chip says SENDING and the header hint too", shows("SENDING") && strcmp(hint, "SENDING") == 0);
+    check("SEND becomes STOP", shows("STOP"));
     check("and then says Sent", wait_for("Sent", 0, 3000));
     check("the hint is cleared when it is done", strcmp(hint, "") == 0);
-    check("TRANSMIT is back", shows("TRANSMIT") && !disabled("TRANSMIT"));
+    check("the message is in the history as sent", shows_part("TX ") && shows("DOORS"));
+    check("CLEAR is enabled now", !disabled("CLEAR"));
 
-    tap("FASTEST");
-    setenv("WAVE_FAKE", "args", 1);
+    tap_obj(field, "message field");
+    check("a tap on the field brings the keyboard back", kb_shown);
+    type("ENTER");
     pos_input_focus(field);
     pos_input_push_key(LV_KEY_ENTER);
     pump(60);
-    /* The "args" helper exits without saying "sent", so a status that says
-     * the send did not finish can only come from a send Enter started. */
-    check("Enter transmits too (the one key stream)", wait_for("Sending did not finish", 0, 3000));
-    wait_for("TRANSMIT", 0, 3000);
+    check("Enter sends too (the one key stream)", wait_for("ENTER", 0, 3000) && wait_for("Sent", 0, 3000));
+    check("and puts the keyboard away: Enter's own click on the field does not bring it back", !kb_shown);
+    unsetenv("WAVE_FAKE_SEND_MS");
 
-    /* ---- receiving ------------------------------------------------------- */
-    tap("RECEIVE");
-    check("RECEIVE swaps the panels", shows("RECEIVED") && !shows("MESSAGE"));
-    check("the microphone is said to be off", shows("Microphone off") && !shows("MICROPHONE ON"));
-    check("with nothing received yet", shows("Nothing received yet"));
-    check("START LISTENING is offered", shows("START LISTENING") && !disabled("START LISTENING"));
-    check("every control in RECEIVE is at least 64 px", small_targets(app_body) == 0);
-
-    setenv("WAVE_FAKE", "listen_ok", 1);
+    /* ---- listening ------------------------------------------------------- */
+    setenv("WAVE_FAKE_RX", "48454c4c4f", 1); /* HELLO */
     unlink(pidfile);
-    tap("START LISTENING");
+    tap("LISTEN");
     check("the MICROPHONE ON banner is up at once", shows("MICROPHONE ON"));
-    check("the status bar says MIC ON", strcmp(hint, "MIC ON") == 0);
-    check("the button stops", shows("STOP LISTENING"));
-    check("a received message lands in the list", wait_for("DOORS", 0, 3000));
-    check("and the empty note is gone", !shows("Nothing received yet"));
-    check("the mode stays locked while listening", disabled("SEND"));
+    check("the header hint says MIC ON", strcmp(hint, "MIC ON") == 0);
+    check("the chip says LISTENING", shows("LISTENING"));
+    check("the toggle reads STOP LISTEN", shows("STOP LISTEN"));
+    check("a received message lands in the history", wait_for("HELLO", 0, 3000) && shows_part("RX "));
+    check("every control while listening is at least 64 px", small_targets(app_body) == 0);
+    check("and the body still does not scroll", body_fits());
+
+    /* ---- talking while listening ------------------------------------------ */
+    type("REPLY");
     tap("SEND");
-    check("tapping SEND while listening changes nothing", shows("STOP LISTENING") && shows("MICROPHONE ON"));
+    {
+        int64_t end = real_ms() + 3000;
+
+        while (real_ms() < end && !log_has(logpath, "text 5245504c59")) {
+            pump(10);
+        }
+        check("a send while listening pauses the microphone and sends", log_has(logpath, "text 5245504c59"));
+    }
+    check("then listening resumes by itself", wait_for("LISTENING", 0, 3000) && shows("MICROPHONE ON"));
+    check("the reply is in the history", shows("REPLY"));
     {
         pid_t pid = wait_helper_pid(3000);
 
-        tap("STOP LISTENING");
-        check("stopping", wait_for("Stopped", 0, 3000));
+        tap("STOP LISTEN");
+        check("STOP LISTEN turns the microphone off", wait_for("Microphone off", 0, 3000));
         check("the banner goes when the helper has gone", !shows("MICROPHONE ON") && strcmp(hint, "") == 0);
         check("and the helper really has gone", gone(pid));
     }
-    check("the message stays on screen after stopping", shows("DOORS"));
+    unsetenv("WAVE_FAKE_RX");
 
-    /* ---- errors ------------------------------------------------------------ */
-    setenv("WAVE_FAKE", "garbage", 1);
-    tap("START LISTENING");
-    check("a helper's error is shown in words", wait_for("The speaker is not enabled on this device yet", 0, 3000));
-    /* The error is shown while the helper still runs; the indicator stays
-     * honest until it has exited, and must then go. */
-    check("and the microphone indicator is off once the helper has exited", wait_mic_off(3000));
+    /* ---- capture ---------------------------------------------------------- */
+    setenv("WAVE_FAKE_CAPTURE", "4341505455524544", 1); /* CAPTURED */
+    tap("CAPTURE");
+    check("CAPTURE turns the microphone on", shows("MICROPHONE ON") && shows("CAPTURING"));
+    check("and offers to decode early", shows("DECODE NOW"));
+    check("the recording is decoded into the history", wait_for("CAPTURED", 0, 5000));
+    check("marked as from a capture", shows_part("CAPTURE") && !shows("MICROPHONE ON"));
 
+    /* STOP during a capture throws the recording away. */
+    setenv("WAVE_FAKE_CAPTURE", "44495343415244", 1); /* DISCARD */
+    setenv("WAVE_FAKE_RECORD_MS", "3000", 1);
+    unlink(logpath);
+    tap("CAPTURE");
+    check("while capturing the SEND button reads STOP", shows("STOP") && !disabled("STOP"));
+    tap("STOP");
+    check("STOP ends the capture", wait_mic_off(3000) && shows("CAPTURE"));
+    check("and throws the recording away: nothing is decoded",
+          !wait_for("DISCARD", 0, 1000) && !log_has(logpath, "decode"));
+    unsetenv("WAVE_FAKE_RECORD_MS");
+    unsetenv("WAVE_FAKE_CAPTURE");
+
+    /* ---- the history -------------------------------------------------------- */
+    tap("HELLO");
+    check("a tap on an entry copies its text into the field", strcmp(lv_textarea_get_text(field), "HELLO") == 0);
+    check("without taking the keyboard up", !kb_shown);
+    lv_textarea_set_text(field, "");
+    pump(20);
+
+    /* ---- presets ------------------------------------------------------------- */
+    tap("STANDARD - FAST");
+    check("the preset button cycles to ROBUST", shows("ROBUST - NORMAL") && shows("Slowest speed, sent twice"));
+    type("TWICE");
+    unlink(logpath);
+    setenv("WAVE_FAKE_SEND_MS", "400", 1);
+    tap("SEND");
+    check("ROBUST plays two copies", wait_for("SENDING 1/2", 0, 3000) || wait_for("SENDING 2/2", 0, 3000));
+    check("and says so when done", wait_for("Sent, 2 copies", 0, 5000));
+    check("on the slowest speed", log_has(logpath, "audible_normal"));
+    unsetenv("WAVE_FAKE_SEND_MS");
+
+    /* ---- errors -------------------------------------------------------------- */
     setenv("POCKETOS_WAVE_HELPER", "/nonexistent/pos-wave", 1);
-    tap("START LISTENING");
+    tap("LISTEN");
     check("a missing helper says so", wait_for("Wave helper is not installed", 0, 3000));
-    check("and the failed start is over before the next one", wait_mic_off(3000));
+    check("the chip says ERROR and the microphone is off", shows("ERROR") && wait_mic_off(3000));
+    check("and nothing is retried", shows("LISTEN") && !shows("STOP LISTEN"));
     setenv("POCKETOS_WAVE_HELPER", helper, 1);
+    g_volume_effective = 0;
+    type("muted");
+    tap("SEND");
+    check("muted: nothing is sent, and it says why", wait_for("Sound is muted", 1, 1000));
+    g_volume_effective = 100;
+    lv_textarea_set_text(field, "");
+
+    /* ---- restart: what is remembered ------------------------------------------ */
+    app_stop();
+    app_start();
+    check("after a restart the preset is still ROBUST", shows("ROBUST - NORMAL"));
+    check("and the history is all there", shows("DOORS") && shows("HELLO") && shows("CAPTURED") &&
+                                              shows("TWICE"));
+    check("but the microphone is off (the toggle is not remembered)", !shows("MICROPHONE ON") &&
+                                                                        shows("LISTEN"));
+    tap("CLEAR");
+    check("CLEAR once asks to confirm", shows("CONFIRM") && shows("DOORS"));
+    tap("CONFIRM");
+    check("CONFIRM clears the history", !shows("DOORS") && shows_part("Nothing yet."));
+    tap("ROBUST - NORMAL");
+    tap("QUICK - FASTEST");
+    check("the preset cycles back round to STANDARD", shows("STANDARD - FAST"));
 
     /* ---- leaving while the microphone is on -------------------------------- */
-    setenv("WAVE_FAKE", "listen_ok", 1);
     unlink(pidfile);
-    tap("START LISTENING");
+    tap("LISTEN");
     {
         pid_t pid = wait_helper_pid(3000);
         int64_t t0 = real_ms();
 
         check("the listen's helper is running before the app is left", pid > 0 && !gone(pid));
-
         app_stop();
         check("leaving the app ends the listen", gone(pid));
         check("within the destroy grace", real_ms() - t0 < 1000);
@@ -520,10 +673,9 @@ int main(void)
 
     /* A helper that ignores SIGTERM is killed, still within the bound. */
     app_start();
-    tap("RECEIVE");
     setenv("WAVE_FAKE", "ignore_term", 1);
     unlink(pidfile);
-    tap("START LISTENING");
+    tap("LISTEN");
     wait_for("MICROPHONE ON", 0, 1000);
     {
         struct timespec d = { 0, 200 * 1000000L };
@@ -537,12 +689,66 @@ int main(void)
         check("a helper that ignores SIGTERM is killed when the app is left", gone(pid));
         check("destroy stayed within grace + reap", real_ms() - t0 < 300 + 200 + 300);
     }
+    setenv("WAVE_FAKE", "auto", 1);
 
-    check("Wave stored nothing", dir_empty(state_dir));
+    /* ==== landscape ========================================================= */
+    landscape = 1;
+    kb_show_calls = 0;
+    app_start();
+    field = find_field(app_body);
+    check("landscape: opening does not bring the keyboard up", kb_show_calls == 0 && !kb_shown);
+    check("landscape: KEYS is offered", shows("KEYS"));
+    check("landscape: history, controls and composer are all there",
+          shows("HISTORY") && shows("LISTEN") && shows("CAPTURE") && shows("SEND"));
+    check("landscape: every control is at least 64 px", small_targets(app_body) == 0);
+    check("landscape: the body does not scroll", body_fits());
+    tap_obj(field, "message field");
+    check("landscape: a tap on the field does NOT bring the touch keyboard up",
+          kb_show_calls == 0 && !kb_shown && pos_input_focused() == field);
+    type("typed on a keyboard");
+    check("landscape: a physical keyboard types into the field",
+          strcmp(lv_textarea_get_text(field), "typed on a keyboard") == 0);
+    tap("KEYS");
+    pump(40);
+    check("landscape: KEYS brings the touch keyboard up", kb_shown && kb_show_calls == 1);
+    check("landscape with the keyboard up: only the composer row is left",
+          !shows("HISTORY") && !shows("LISTEN") && shows("SEND") && shows("HIDE"));
+    check("and it fits the room above the keyboard", body_fits() && small_targets(app_body) == 0);
+    tap("HIDE");
+    pump(40);
+    check("landscape: HIDE puts it away and gives the screen back", !kb_shown && shows("HISTORY") &&
+                                                                       shows("KEYS"));
+    tap("KEYS");
+    pump(40);
+    tap("SEND");
+    check("landscape: sending with the touch keyboard up puts it away", wait_for("Sent", 0, 3000) &&
+                                                                           !kb_shown && shows("HISTORY"));
+    check("landscape: the message is in the history", shows("typed on a keyboard"));
+    app_stop();
+
+    check("nothing was left in the runtime directory (no stray recording)", ({
+              char p[PATH_MAX];
+              snprintf(p, sizeof(p), "%s/wave", run_dir);
+              dir_empty(p);
+          }));
+    {
+        char p[PATH_MAX];
+
+        snprintf(p, sizeof(p), "%s/wave/history", state_dir);
+        unlink(p);
+        snprintf(p, sizeof(p), "%s/wave/wave.conf", state_dir);
+        unlink(p);
+        snprintf(p, sizeof(p), "%s/wave", state_dir);
+        rmdir(p);
+        snprintf(p, sizeof(p), "%s/wave", run_dir);
+        rmdir(p);
+    }
     unlink(helper);
     unlink(pidfile);
+    unlink(logpath);
     rmdir(tmp);
     rmdir(state_dir);
+    rmdir(run_dir);
     printf("wave_app_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

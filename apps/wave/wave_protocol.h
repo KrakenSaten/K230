@@ -23,6 +23,11 @@
  * on by a forgotten screen is bounded even while the app stays open. */
 #define WAVE_LISTEN_SECONDS 120
 
+/* A capture (`pos-wave record`, decoded afterwards with `pos-wave decode`)
+ * is at most this long: the helper's own bound (RECORD_MAX_SECONDS), whose
+ * buffer is 2.9 MB at that length. */
+#define WAVE_CAPTURE_MAX_SECONDS 30
+
 /* The transmit profiles the app offers: ggwave's three audible protocols.
  * Their names are the helper's --protocol words. Ultrasound, dual-tone and
  * mono-tone protocols are left out of the app until the speaker and the

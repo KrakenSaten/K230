@@ -127,6 +127,11 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/wave/wave_view.c
     ${REPO_DIR}/apps/wave/wave_session.c
     ${REPO_DIR}/apps/wave/wave_text.c
+    ${REPO_DIR}/apps/wave/wave_ctl.c
+    ${REPO_DIR}/apps/wave/wave_history.c
+    ${REPO_DIR}/apps/wave/wave_layout.c
+    ${REPO_DIR}/apps/wave/wave_preset.c
+    ${REPO_DIR}/apps/wave/wave_store.c
     ${REPO_DIR}/apps/camera/camera_app.c
     ${REPO_DIR}/apps/camera/camera_state.c
     ${REPO_DIR}/apps/camera/camera_layout.c
@@ -1012,6 +1017,12 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/wave/wave_view.c
         ${REPO_DIR}/apps/wave/wave_session.c
         ${REPO_DIR}/apps/wave/wave_text.c
+        ${REPO_DIR}/apps/wave/wave_ctl.c
+        ${REPO_DIR}/apps/wave/wave_history.c
+        ${REPO_DIR}/apps/wave/wave_layout.c
+        ${REPO_DIR}/apps/wave/wave_preset.c
+        ${REPO_DIR}/apps/wave/wave_store.c
+        ${REPO_DIR}/core/pocketpaths.c
         chrome.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c

@@ -1,13 +1,17 @@
 #!/bin/bash
 # Wave's and pocketaudio's boundaries, checked in the source.
 #
-#   - Only wave_app.c touches LVGL or the shell; the view, the helper client,
-#     the text rule and the modem are pure and tested on the host.
+#   - Only wave_app.c touches LVGL or the shell; the model, the presets, the
+#     history, the store, the controller, the layout policy, the helper
+#     client, the text rule and the modem are pure and tested on the host.
+#   - Only wave_store.c touches files; it keeps no audio outside the runtime
+#     directory and never stores the listen toggle.
 #   - Nothing in apps/wave touches the sound card, the mixer or a GPIO: audio
 #     hardware is core/pocketaudio's alone, and only pos-wave links it.
 #   - No threads anywhere in the audio path (KEYBOARD_DRIVER_DESIGN §3), no
 #     shell-outs, and no sleeping on the LVGL thread: the one bounded wait in
-#     the app is wave_session_abandon(), called from destroy() only.
+#     the app is wave_session_abandon(), inside wave_ctl_close(), called from
+#     destroy() only.
 #   - Messages never reach a log: ggwave's logging is compiled out and set to
 #     none, and pos-wave writes to stderr only for its usage text.
 #   - The K230 audio paths are marked validated only as their hardware tests
@@ -28,7 +32,9 @@ code() { cat "$@" 2>/dev/null | perl -0777 -pe 's{/\*.*?\*/}{}gs; s{//[^\n]*}{}g
 
 PURE="apps/wave/wave_view.c apps/wave/wave_view.h apps/wave/wave_session.c apps/wave/wave_session.h
       apps/wave/wave_text.c apps/wave/wave_text.h apps/wave/wave_modem.cpp apps/wave/wave_modem.h
-      apps/wave/wave_protocol.h"
+      apps/wave/wave_protocol.h apps/wave/wave_preset.c apps/wave/wave_preset.h
+      apps/wave/wave_history.c apps/wave/wave_history.h apps/wave/wave_store.c apps/wave/wave_store.h
+      apps/wave/wave_ctl.c apps/wave/wave_ctl.h apps/wave/wave_layout.c apps/wave/wave_layout.h"
 
 for f in $PURE; do
     check "$f exists" "$([ -f "$f" ] && echo 1 || echo 0)"
@@ -50,9 +56,30 @@ check "no shell-outs in the audio path" \
     "$(code apps/wave/* core/pocketaudio/* tools/wave/* | grep -qE '\b(system|popen)\(' && echo 0 || echo 1)"
 check "wave_app.c does not sleep" \
     "$(code apps/wave/wave_app.c | grep -qE '\b(sleep|usleep|nanosleep|waitpid)\(' && echo 0 || echo 1)"
-check "its one bounded wait is abandon(), in destroy() only" \
-    "$([ "$(code apps/wave/wave_app.c | grep -c 'wave_session_abandon(')" = 1 ] &&
-       sed -n '/^static void wave_destroy/,/^}/p' apps/wave/wave_app.c | grep -q 'wave_session_abandon(' && echo 1 || echo 0)"
+check "wave_ctl.c does not sleep either" \
+    "$(code apps/wave/wave_ctl.c | grep -qE '\b(sleep|usleep|nanosleep|waitpid)\(' && echo 0 || echo 1)"
+check "the app never reaches the session's blocking calls itself" \
+    "$(code apps/wave/wave_app.c | grep -qE 'wave_session_(abandon|start_|stop)' && echo 0 || echo 1)"
+check "its one bounded wait is abandon(), in wave_ctl_close() only" \
+    "$([ "$(code apps/wave/wave_ctl.c | grep -c 'wave_session_abandon(')" = 1 ] &&
+       sed -n '/^void wave_ctl_close/,/^}/p' apps/wave/wave_ctl.c | grep -q 'wave_session_abandon(' && echo 1 || echo 0)"
+check "and wave_ctl_close() is called from destroy() only" \
+    "$([ "$(code apps/wave/wave_app.c | grep -c 'wave_ctl_close(')" = 1 ] &&
+       sed -n '/^static void wave_destroy/,/^}/p' apps/wave/wave_app.c | grep -q 'wave_ctl_close(' && echo 1 || echo 0)"
+check "only wave_store.c touches files (the session opens /dev/null only)" \
+    "$(for f in apps/wave/*.c apps/wave/*.cpp; do
+           [ "$f" = apps/wave/wave_store.c ] && continue
+           code "$f" | grep -qE '\b(fopen|fsync|rename|unlink|mkdir|pocketos_mkdir_p|opendir)\(' && echo "$f"
+       done | grep -q . && echo 0 || echo 1)"
+check "a capture lives in the runtime directory, never the state directory" \
+    "$(sed -n '/^static int capture_dir/,/^}/p' apps/wave/wave_store.c | grep -q 'pocketos_runtime_dir()' &&
+       ! sed -n '/^static int capture_dir/,/^}/p' apps/wave/wave_store.c | grep -q 'pocketos_state_dir' && echo 1 || echo 0)"
+check "the listen toggle is never stored (no microphone at open)" \
+    "$(code apps/wave/wave_store.c apps/wave/wave_store.h | grep -qi 'listen' && echo 0 || echo 1)"
+check "the history is bounded" \
+    "$(grep -qE '^#define WAVE_HISTORY_MAX [0-9]+$' apps/wave/wave_history.h && echo 1 || echo 0)"
+check "no preset listens longer than the privacy bound (checked in the table's validity rule)" \
+    "$(grep -q 'p->listen_seconds <= WAVE_LISTEN_SECONDS' apps/wave/wave_preset.c && echo 1 || echo 0)"
 check "the helper gets its message on stdin, never in argv" \
     "$(sed -n '/^int wave_session_start_send/,/^}/p' apps/wave/wave_session.c | grep -q 'argv\[\] = .*text' && echo 0 || echo 1)"
 check "the helper dies with the shell (PR_SET_PDEATHSIG)" \
@@ -91,8 +118,9 @@ check "the modem's loudest volume stays under it" \
     "$(grep -q '#define WAVE_MODEM_MAX_VOLUME 25' apps/wave/wave_modem.h && echo 1 || echo 0)"
 check "ggwave is pinned" \
     "$(grep -qE '^[0-9a-f]{40}$' platforms/k230/vendor_ggwave_commit.txt && echo 1 || echo 0)"
-for t in pocketaudio_test wave_view_test wave_session_test wave_modem_test; do
-    check "make test runs $t" "$(grep -qE "^	\./tests/$t( |$)" Makefile && echo 1 || echo 0)"
+for t in pocketaudio_test wave_view_test wave_session_test wave_modem_test wave_model_test \
+         wave_store_test wave_layout_test wave_ctl_test wave_sim_test; do
+    check "make test runs $t" "$(grep -qE "^	(TZ=UTC )?\./tests/$t( |$)" Makefile && echo 1 || echo 0)"
 done
 check "a helper killed by a signal gets its state recovered by the session" \
     "$(sed -n '/^static void finish/,/^}/p' apps/wave/wave_session.c | grep -q 'recover_detached(s)' &&
