@@ -73,14 +73,12 @@ static void on_multiplayer(lv_event_t *e)
 {
     struct fleet_app *app = lv_event_get_user_data(e);
 
-    /* A match in hand is resumed; otherwise the lobby opens. Either way this
-     * press is the player choosing multiplayer, and only now does anything
-     * talk to the mesh service. */
-    if (app->mp_saved || (app->mp && app->mp->ready && fleet_match_active(&app->mp->m))) {
-        fleet_app_mp_resume(app);
-    } else {
-        fleet_app_multiplayer(app);
-    }
+    /* The lobby opens either way. With a match in hand it says the match is
+     * under way and offers RESUME and FORFEIT - the only place FORFEIT is -
+     * so this must not jump past it to the board. This press is the player
+     * choosing multiplayer, and only now does anything talk to the mesh
+     * service. */
+    fleet_app_multiplayer(app);
 }
 
 /* Hull length drawn as blocks, in the spirit of the segmented meter (DS §9). */

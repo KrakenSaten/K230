@@ -287,7 +287,7 @@ multiplayer to them exactly as it holds single player.
 
 | UX state | Where | What it says / offers |
 | --- | --- | --- |
-| Multiplayer menu | Command: a MULTIPLAYER panel under OPPONENT | "Play another Doors device over the mesh." MULTIPLAYER; or "An engagement with X is waiting." RESUME MATCH |
+| Multiplayer menu | Command: a MULTIPLAYER panel under OPPONENT | "Play another Doors device over the mesh." MULTIPLAYER; or "An engagement with X is waiting." RESUME MATCH. Either opens the Lobby; with a match in hand it says "An engagement with X is under way." and offers RESUME (back to the board) and FORFEIT |
 | Mesh unavailable | Lobby, ENGAGEMENT | "The mesh service is not running on this device, and multiplayer needs it." |
 | Create game | Lobby | PLAYERS IN RANGE ("ANNA · DIRECT · HEARD JUST NOW"), MAKE VISIBLE (zero-hop advert), INVITE |
 | Waiting for player | Lobby | "Inviting Anna…", "no answer yet (try 3 of 6)", CANCEL |

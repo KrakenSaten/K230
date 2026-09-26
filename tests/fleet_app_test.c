@@ -1633,6 +1633,7 @@ static lv_obj_t *lobby_screen(void) { return screen_of(FLEET_SCREEN_LOBBY); }
 static lv_obj_t *lobby_col(int i) { return kid(kid(lobby_screen(), 0), i); }
 static lv_obj_t *lobby_player_row(int i) { return kid(kid(lobby_col(0), 0), KID_PANEL_FIRST + i); }
 static lv_obj_t *lobby_act(void) { return kid(lobby_col(1), 1); }
+static lv_obj_t *lobby_alt(void) { return kid(lobby_col(1), 2); }
 
 /* Our side's shot: the first square in reading order not yet fired at. */
 static int mp_our_turn(int check_layout)
@@ -1780,8 +1781,67 @@ static void test_multiplayer_reopen(void)
     check("Command offers the match in hand", app->mp_saved &&
           strcmp(text_of(kid(command_multi_button(), 0)), "RESUME MATCH") == 0);
     tap_obj(command_multi_button());
-    check("RESUME MATCH goes back to the battle, and asks the peer where it stands",
-          app->current == FLEET_SCREEN_BATTLE && app->mp->engaged && app->mp->sent >= 1);
+    check("RESUME MATCH opens the lobby, the match under way",
+          app->current == FLEET_SCREEN_LOBBY && app->mp->engaged);
+    check_str("and offers RESUME", text_of(kid(lobby_act(), 0)), "RESUME");
+    check_str("and FORFEIT", text_of(kid(lobby_alt(), 0)), "FORFEIT");
+    tap_obj(lobby_act());
+    check("RESUME goes back to the battle, and asks the peer where it stands",
+          app->current == FLEET_SCREEN_BATTLE && app->mp->sent >= 1);
+    app_stop();
+    unsetenv("POCKETFLEET_MP_FAKE");
+}
+
+/* FORFEIT is only in the lobby (docs/apps/FLEET_MULTIPLAYER.md, "Forfeit:
+ * Lobby, match in hand"), so the lobby has to be reachable, and stay put,
+ * whatever phase the match is in. Unit B, 2026-09-26: RESUME MATCH jumped
+ * straight to Deploy; and when it did open the lobby (the mesh service had
+ * not yet told Fleet its key), the key arriving steered the lobby away to
+ * Deploy, as though the match had just started. */
+static void test_multiplayer_forfeit(void)
+{
+    int i;
+
+    phase = "multiplayer, forfeit from Deploy";
+    mp_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=8", 1);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    tap_obj(command_multi_button());
+    mp_wait(300);
+    tap_obj(lobby_player_row(0));
+    tap_obj(lobby_act());
+    for (i = 0; i < 100 && app->current != FLEET_SCREEN_DEPLOY; i++) {
+        mp_wait(100);
+    }
+    check("the match is in Deploy", app->current == FLEET_SCREEN_DEPLOY &&
+          app->mp->m.phase == FLEET_MP_DEPLOY);
+    /* Back on Command, as after closing and reopening Fleet. */
+    fleet_app_show(app, FLEET_SCREEN_COMMAND);
+    check_str("Command offers the match", text_of(kid(command_multi_button(), 0)), "RESUME MATCH");
+    tap_obj(command_multi_button());
+    check("RESUME MATCH opens the lobby, not Deploy", app->current == FLEET_SCREEN_LOBBY);
+    /* As on the device when the key comes late: the lobby was opened with
+     * no match known yet, and then the match is read. */
+    app->mp_revision = 0;
+    app->mp_phase = FLEET_MP_IDLE;
+    mp_wait(300);
+    check("the match being read does not steer the lobby away to Deploy",
+          app->current == FLEET_SCREEN_LOBBY && app->mp->m.phase == FLEET_MP_DEPLOY);
+    check_str("the lobby offers FORFEIT", text_of(kid(lobby_alt(), 0)), "FORFEIT");
+    tap_obj(lobby_alt());
+    check("one press only arms it", app->mp->m.phase == FLEET_MP_DEPLOY &&
+          strcmp(text_of(kid(lobby_alt(), 0)), "CONFIRM FORFEIT") == 0);
+    tap_obj(lobby_alt());
+    for (i = 0; i < 100 && app->mp->m.end_unacked; i++) {
+        mp_wait(100);
+    }
+    check("the second ends the match: a forfeit, lost",
+          app->mp->m.phase == FLEET_MP_DONE && app->mp->m.outcome == FLEET_OUTCOME_LOSS &&
+          app->mp->m.end_reason == FLEET_END_FORFEIT && app->mp->m.end_by_me);
+    check("and the opponent acknowledged it", !app->mp->m.end_unacked);
+    check("the lobby then offers the result", app->current == FLEET_SCREEN_LOBBY &&
+          strcmp(text_of(kid(lobby_act(), 0)), "RESULT") == 0);
     app_stop();
     unsetenv("POCKETFLEET_MP_FAKE");
 }
@@ -2472,6 +2532,7 @@ int main(void)
     test_multiplayer(POS_ROTATION_0);
     test_multiplayer(POS_ROTATION_270);
     test_multiplayer_reopen();
+    test_multiplayer_forfeit();
     test_multiplayer_lost();
     {
         char mp_file[600];
