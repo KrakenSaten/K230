@@ -7,7 +7,7 @@
  *
  *   fleet_link_mesh.c  the real one: meshcored's mesh.app_* over pocketipc,
  *                      and nothing else - Fleet never reaches radiod or the
- *                      radio (ADR-002, ADR-007);
+ *                      radio (ADR-002, ADR-008);
  *   fleet_link_loop.c  a virtual opponent in the same process, playing the
  *                      real protocol with PocketFleet's AI over a channel that
  *                      can lose, duplicate and delay. A development aid and

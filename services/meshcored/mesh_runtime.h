@@ -196,7 +196,7 @@ struct mcd_message {
  * to the AES block and MeshCore records no length of its own.
  *
  * Unacknowledged at this layer, like a channel message: reliability is the
- * application's, end to end (ADR-007). One arriving by flood is answered with
+ * application's, end to end (ADR-008). One arriving by flood is answered with
  * a small RESPONSE riding MeshCore's own return path, so the sender learns a
  * direct route; one arriving direct is not answered at all.
  */

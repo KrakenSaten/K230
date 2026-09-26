@@ -178,7 +178,7 @@ static void on_confirm(lv_event_t *e)
 
     if (ui->app->mode == FLEET_MODE_MULTI) {
         /* Commit to the fleet: from here it cannot move, and the opponent
-         * holds the commitment that proves it did not (ADR-007). */
+         * holds the commitment that proves it did not (ADR-008). */
         if (!fleet_board_complete(player_board(ui->app))) {
             message(ui, "Place every ship first");
             return;

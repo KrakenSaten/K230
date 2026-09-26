@@ -1,4 +1,4 @@
-# ADR-007: Two-player Fleet over the mesh, and app datagrams in meshcored
+# ADR-008: Two-player Fleet over the mesh, and app datagrams in meshcored
 
 Status: Proposed (2026-09-25), on branch `claude/fleet-multiplayer-protocol-95evn7`.
 Awaiting the product owner. Nothing here is binding until it is Accepted.

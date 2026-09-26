@@ -532,7 +532,7 @@ datagram that arrived by flood (below).
 ### App datagrams: mesh.app_send / mesh.app_inbox
 
 Opaque packets between applications on two Doors nodes, for the likes of
-Fleet's multiplayer protocol (docs/apps/FLEET_MULTIPLAYER.md, ADR-007). The
+Fleet's multiplayer protocol (docs/apps/FLEET_MULTIPLAYER.md, ADR-008). The
 service does not read them; it carries them.
 
 On the air an app datagram is a MeshCore `PAYLOAD_TYPE_REQ` to the peer, so it

@@ -2,7 +2,7 @@
  * SHA-256 (FIPS 180-4) for the multiplayer board commitment.
  *
  * First-party and deliberately small: the shell links no cryptographic hash
- * and this is the only thing that needs one (ADR-007). It is used to bind a
+ * and this is the only thing that needs one (ADR-008). It is used to bind a
  * player to a fleet layout before play, not to protect a secret key, so
  * constant-time behaviour is not a requirement here. tests/fleet_sha256_test
  * holds it to the NIST example vectors.

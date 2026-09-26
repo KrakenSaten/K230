@@ -3,7 +3,7 @@
 A tactical naval game for PocketOS: Battleship on the 568 x 1232 panel,
 against the AI, or against another Doors device over the mesh. Multiplayer -
 its protocol, its screens and its tests - is docs/apps/FLEET_MULTIPLAYER.md
-(ADR-007, Proposed); this document is the game and the single-player app, and
+(ADR-008, Proposed); this document is the game and the single-player app, and
 everything it says holds for both.
 
 Status: merged. Landscape (DS §28, **ACCEPTED** 2026-09-18) is on branch

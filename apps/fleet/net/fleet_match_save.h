@@ -10,7 +10,7 @@
  * answer, and refuses a state the protocol could not have produced.
  *
  * A match that has not started (inviting, invited, accepting) is saved as
- * idle: pre-start state is deliberately not persisted (ADR-007, point 10).
+ * idle: pre-start state is deliberately not persisted (ADR-008, point 10).
  * The tombstones are saved in every phase.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).

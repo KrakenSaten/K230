@@ -2,7 +2,7 @@
 
 **Status: PLAN - NOT RUN.** Nothing in this document has been executed on
 either unit. It is the procedure for the product owner to run, prepared at the
-end of P0-P6 (ADR-007, docs/apps/FLEET_MULTIPLAYER.md). Every result field
+end of P0-P6 (ADR-008, docs/apps/FLEET_MULTIPLAYER.md). Every result field
 below is empty on purpose; a claim becomes ON-AIR only when it is filled in
 from the units.
 
@@ -43,7 +43,7 @@ Scope limits, the same as every bench gate before it:
 2. **Fleet reads the mesh only while Multiplayer is open** (or RESUME MATCH
    was pressed). A packet that arrives while Fleet is closed waits in
    `meshcored`'s inbox - 32 datagrams, this run of the service only - and is
-   read when the player opens Multiplayer. That is by design (ADR-007: opening
+   read when the player opens Multiplayer. That is by design (ADR-008: opening
    Fleet transmits nothing and answers nothing), not a lost packet.
 3. **A `meshcored` restart empties its inbox and starts new ids** (`run_id`
    changes). Fleet recovers by its own retries; expect a pause of up to one
@@ -304,7 +304,7 @@ EOF
 | `app_tx` unchanged (0) | | |
 | the lobby lists whom the unit has heard, or says it has heard nobody | | |
 
-This is ADR-007 decision 5 on hardware. If either unit transmitted, **stop**:
+This is ADR-008 decision 5 on hardware. If either unit transmitted, **stop**:
 that is a defect, and nothing after this step is evidence.
 
 ### 5. Finding each other
@@ -436,7 +436,7 @@ EOF
 
 ### 10. A MeshCore node that is not Doors (optional, needs the T-Deck)
 
-ADR-007 carries one ASSUMED claim: a MeshCore node that is not Doors ignores a
+ADR-008 carries one ASSUMED claim: a MeshCore node that is not Doors ignores a
 Doors app datagram. With the T-Deck (RIFT firmware) in range and known to A
 (advert it from the T-Deck if needed):
 

@@ -57,7 +57,7 @@ want() { # <label> <files> <regex>
     fi
 }
 
-# 9. Multiplayer's joints (ADR-007). The view model and the link layer draw
+# 9. Multiplayer's joints (ADR-008). The view model and the link layer draw
 #    nothing; exactly one file talks to a service, and it is the mesh link;
 #    nothing in Fleet names a radio method or radiod's socket; the session
 #    pumps nothing until the player engages; and the virtual opponent exists

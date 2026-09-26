@@ -1,7 +1,7 @@
 # PocketFleet multiplayer: protocol v1
 
 Two players, one match, turn based, over the MeshCore mesh. The decision and
-its alternatives are docs/decisions/ADR-007-fleet-multiplayer.md (Proposed).
+its alternatives are docs/decisions/ADR-008-fleet-multiplayer.md (Proposed).
 Single-player Fleet is unchanged (docs/apps/POCKETFLEET.md).
 
 Status: host-built and host-tested only. **Nothing here has been on a
