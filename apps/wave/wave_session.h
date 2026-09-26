@@ -42,6 +42,8 @@
 #ifndef POCKETWAVE_SESSION_H
 #define POCKETWAVE_SESSION_H
 
+#include "wave_protocol.h"
+
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/types.h>
@@ -123,6 +125,19 @@ int wave_session_start_send_at(struct wave_session *s, const char *helper, const
 /* Start `helper listen --events --seconds <seconds>`. */
 int wave_session_start_listen(struct wave_session *s, const char *helper, int seconds, char *err,
                               size_t errlen);
+
+/* Start `helper record --events --seconds <seconds> <path>`: the microphone
+ * for at most seconds (1..WAVE_CAPTURE_MAX_SECONDS), written to path as a
+ * WAV once the microphone is closed. A stop ends the recording early and
+ * still writes what was recorded. path is ours (wave_store.c), never typed. */
+int wave_session_start_record(struct wave_session *s, const char *helper, int seconds,
+                              const char *path, char *err, size_t errlen);
+
+/* Start `helper decode --events <path>`: no audio device, just the modem
+ * over the file. It says "received" per message and exits 1 when it found
+ * none. */
+int wave_session_start_decode(struct wave_session *s, const char *helper, const char *path,
+                              char *err, size_t errlen);
 
 /* Read whatever the helper has written, reap it if it has gone, escalate a
  * stop whose grace has run out, and hand back one event. Returns 1 with *ev

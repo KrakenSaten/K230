@@ -251,6 +251,28 @@ static void test_send(void)
                                       sizeof(err)) == -1);
     }
     check("listen: 0 seconds is refused", wave_session_start_listen(&s, helper, 0, err, sizeof(err)) == -1);
+
+    wave_session_start_record(&s, helper, 10, "/run/pocketos/wave/capture.wav", err, sizeof(err));
+    n = run_until_exit(&s, evs, 32, 3000);
+    check("record: argv is record --events --seconds N PATH",
+          n > 0 && strcmp(evs[0].text, "record,--events,--seconds,10,/run/pocketos/wave/capture.wav") == 0);
+    wave_session_start_decode(&s, helper, "/run/pocketos/wave/capture.wav", err, sizeof(err));
+    n = run_until_exit(&s, evs, 32, 3000);
+    check("decode: argv is decode --events PATH",
+          n > 0 && strcmp(evs[0].text, "decode,--events,/run/pocketos/wave/capture.wav") == 0);
+    check("record: 0 seconds is refused",
+          wave_session_start_record(&s, helper, 0, "/tmp/x.wav", err, sizeof(err)) == -1 &&
+              !wave_session_active(&s));
+    check("record: more than the helper's bound is refused",
+          wave_session_start_record(&s, helper, WAVE_CAPTURE_MAX_SECONDS + 1, "/tmp/x.wav", err,
+                                    sizeof(err)) == -1);
+    check("record: a relative path is refused (it could read as an option)",
+          wave_session_start_record(&s, helper, 5, "-x.wav", err, sizeof(err)) == -1 &&
+              wave_session_start_record(&s, helper, 5, "x.wav", err, sizeof(err)) == -1);
+    check("decode: a path with a newline is refused",
+          wave_session_start_decode(&s, helper, "/tmp/a\nb.wav", err, sizeof(err)) == -1);
+    check("decode: no path is refused", wave_session_start_decode(&s, helper, NULL, err, sizeof(err)) == -1 &&
+                                            !wave_session_active(&s));
 }
 
 static void test_listen_stop(void)
