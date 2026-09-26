@@ -122,7 +122,8 @@ struct camera_gallery_layout {
     struct camera_rect p_middle;  /* EXPORT */
     struct camera_rect p_right;   /* DELETE */
     /* the slideshow */
-    struct camera_rect show;
+    struct camera_rect show;        /* the picture, capped at CAMERA_PICTURE_MAX */
+    struct camera_rect show_touch;  /* what a tap stops it on: all but the status line */
     struct camera_rect show_status;
 };
 

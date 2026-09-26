@@ -16,6 +16,7 @@
 #include "pocketcam/pocketcam_image.h"
 #include "pocketcam/pocketcam_store.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdio.h>
@@ -62,6 +63,39 @@ static long file_size(const char *path)
     struct stat st;
 
     return stat(path, &st) == 0 ? (long)st.st_size : -1;
+}
+
+static int first_byte(const char *path)
+{
+    FILE *fp = fopen(path, "rb");
+    int c = -1;
+
+    if (fp) {
+        c = fgetc(fp);
+        fclose(fp);
+    }
+    return c;
+}
+
+/* Export temporaries (.IMG_*.export) in dir. */
+static int export_temps(const char *dir)
+{
+    DIR *d = opendir(dir);
+    struct dirent *e;
+    int n = 0;
+
+    while (d && (e = readdir(d)) != NULL) {
+        size_t len = strlen(e->d_name);
+
+        if (strncmp(e->d_name, ".IMG_", 5) == 0 && len > 7 &&
+            strcmp(e->d_name + len - 7, ".export") == 0) {
+            n++;
+        }
+    }
+    if (d) {
+        closedir(d);
+    }
+    return n;
 }
 
 /* A date the test can name: 2026-09-26 10:15:30 local time. */
@@ -250,6 +284,11 @@ static void test_exif(void)
     check("nor a blank one", !pocketcam_exif_date_valid("    :  :     :  :  "));
     check("nor the 13th month", !pocketcam_exif_date_valid("2026:13:01 00:00:00"));
     check("a real one is", pocketcam_exif_date_valid("2026:09:26 23:59:59"));
+    check("an unset camera clock's 1970 is no date",
+          !pocketcam_exif_date_valid("1970:01:01 00:00:05"));
+    check("nor its 1980", !pocketcam_exif_date_valid("1980:01:01 00:00:00"));
+    check("dates are believed from the year EXIF began",
+          pocketcam_exif_date_valid("1995:01:01 00:00:00"));
 }
 
 static void test_ppm_comments(void)
@@ -606,9 +645,24 @@ static void test_library(void)
               already);
     snprintf(p, sizeof(p), "%s/IMG_0010.jpg", dest);
     write_bytes(p, "someone else's", 14);
-    check("a different file of that name is never replaced",
-          pocketcam_store_export(&s, "IMG_0010.jpg", dest, out, sizeof(out), &already) == -EEXIST &&
-              file_size(p) == 14);
+    check("a different file of that name is never replaced: the copy takes the next free name",
+          pocketcam_store_export(&s, "IMG_0010.jpg", dest, out, sizeof(out), &already) == 0 &&
+              !already && file_size(p) == 14 && strstr(out, "/IMG_0010-2.jpg") != NULL &&
+              file_size(out) == 1);
+    /* A photo number is used again once the newest photo is deleted, so the
+     * same name and the same size can be another photo: only the bytes tell. */
+    snprintf(p, sizeof(p), "%s/IMG_0009.jpg", dest);
+    write_bytes(p, "y", 1);
+    check("the same name and size with other bytes is another photo, and is kept",
+          pocketcam_store_export(&s, "IMG_0009.jpg", dest, out, sizeof(out), &already) == 0 &&
+              !already && strstr(out, "/IMG_0009-2.jpg") != NULL && file_size(p) == 1 &&
+              first_byte(p) == 'y' && first_byte(out) == 'x');
+    check("exported again, it is found under the name it got",
+          pocketcam_store_export(&s, "IMG_0009.jpg", dest, out, sizeof(out), &already) == 0 &&
+              already && strstr(out, "/IMG_0009-2.jpg") != NULL);
+    snprintf(p, sizeof(p), "%s/IMG_0009-3.jpg", dest);
+    check("and no third copy was made", access(p, F_OK) != 0);
+    check("no temporary is left by any of it", export_temps(dest) == 0);
     check("a name that is not a photo is refused",
           pocketcam_store_export(&s, "../../etc/passwd", dest, out, sizeof(out), NULL) == -EINVAL);
     check("a photo that is not there is -ENOENT",
@@ -617,10 +671,22 @@ static void test_library(void)
           pocketcam_store_export(&s, "IMG_0003.ppm", dest, out, sizeof(out), NULL) == -EINVAL);
     pocketcam_store_free_hook = tiny_disk;
     check("a full disk is -ENOSPC",
-          pocketcam_store_export(&s, "IMG_0009.jpg", dest, out, sizeof(out), NULL) == -ENOSPC);
+          pocketcam_store_export(&s, "IMG_20260101_101010_0002.ppm", dest, out, sizeof(out),
+                                 NULL) == -ENOSPC);
     pocketcam_store_free_hook = NULL;
-    snprintf(p, sizeof(p), "%s/.IMG_0009.jpg.export", dest);
-    check("and leaves nothing behind", access(p, F_OK) != 0);
+    snprintf(p, sizeof(p), "%s/IMG_20260101_101010_0002.ppm", dest);
+    check("and leaves nothing behind", access(p, F_OK) != 0 && export_temps(dest) == 0);
+
+    /* What an export killed part way leaves, and what the sweep leaves alone. */
+    snprintf(p, sizeof(p), "%s/.IMG_0009.jpg.4242.export", dest);
+    write_bytes(p, "half", 4);
+    snprintf(p, sizeof(p), "%s/.IMG_0001.ppm.export", dest);
+    write_bytes(p, "half", 4);
+    snprintf(p, sizeof(p), "%s/.IMG_notes", dest);
+    write_bytes(p, "mine", 4);
+    pocketcam_export_sweep(dest);
+    check("a killed export's temporaries are swept", export_temps(dest) == 0);
+    check("and nothing else is", access(p, F_OK) == 0 && file_size(p) == 4);
 
     home = getenv("HOME") ? strdup(getenv("HOME")) : NULL;
     setenv("HOME", "/tmp/someone", 1);

@@ -584,7 +584,13 @@ static void layout(struct camera_app *a)
 
 static void on_frame_size(lv_event_t *e)
 {
-    layout(lv_event_get_user_data(e));
+    struct camera_app *a = lv_event_get_user_data(e);
+
+    /* Not while the gallery has the body: it holds no camera buffers and talks
+     * to the library helper. leave_gallery() lays the camera out again. */
+    if (!gallery_ui_active(a->gallery)) {
+        layout(a);
+    }
 }
 
 /* ---- building ---------------------------------------------------------------------- */

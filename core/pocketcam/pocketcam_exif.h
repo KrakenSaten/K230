@@ -36,6 +36,9 @@
 
 /* "YYYY:MM:DD HH:MM:SS" and its terminator: EXIF's own date format. */
 #define POCKETCAM_EXIF_DATE_LEN 20
+/* The first year a date is believed: EXIF began in 1995, and an earlier one
+ * (1970, 1980) is a camera whose clock was never set. */
+#define POCKETCAM_EXIF_YEAR_MIN 1995
 #define POCKETCAM_EXIF_TEXT_MAX 64
 /* The APP1 payload the writer produces is never larger than this. */
 #define POCKETCAM_EXIF_MAX 512

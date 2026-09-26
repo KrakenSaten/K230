@@ -242,6 +242,28 @@ static void tap_obj(lv_obj_t *obj)
     pump(40);
 }
 
+/* A tap near the bottom-left corner of obj (for the slideshow's box: beside
+ * the picture in it, in a wide body). */
+static void tap_corner(lv_obj_t *obj)
+{
+    lv_area_t a;
+
+    if (!obj) {
+        printf("FAIL tap on a missing object\n");
+        failed++;
+        checks++;
+        return;
+    }
+    lv_obj_update_layout(obj);
+    lv_obj_get_coords(obj, &a);
+    finger_point.x = a.x1 + 6;
+    finger_point.y = a.y2 - 6;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(40);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(40);
+}
+
 static bool wait_until(bool (*cond)(void), int ms)
 {
     int64_t end = mono_ms() + ms;
@@ -572,6 +594,10 @@ static void gallery_journey(const char *shape)
     check_targets(shape);
     tap_obj(gallery_child(G_SHOW_BOX));
     CHECK("a tap stops it", wait_until(in_grid, 2000));
+    tap_obj(button("SLIDESHOW"));
+    CHECK("SLIDESHOW again", wait_until(slide_shown, 4000));
+    tap_corner(gallery_child(G_SHOW_BOX));
+    CHECK("a tap beside the picture stops it too", wait_until(in_grid, 2000));
 
     tap_obj(button("CAMERA"));
     CHECK("CAMERA: the live preview again", wait_until(live, 4000));

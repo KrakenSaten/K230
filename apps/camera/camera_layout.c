@@ -314,6 +314,7 @@ int camera_gallery_layout_compute(struct camera_gallery_layout *l, int32_t w, in
     }
     /* The slideshow: everything but a status line at the foot. */
     l->show_status = rect(x0, y0 + bh - CAMERA_STATUS_H, bw, CAMERA_STATUS_H);
+    l->show_touch = rect(x0, y0, bw, bh - CAMERA_STATUS_H - CAMERA_GAP);
     l->show = capped(x0, y0, bw, bh - CAMERA_STATUS_H - CAMERA_GAP);
     return 0;
 }

@@ -742,6 +742,10 @@ static void test_library(const char *tmpl)
 
     camera_session_delete(&s, names[0], now_ms());
     check("deleted", wait_for(&s, CAMERA_EV_DELETED, 3000, &ev) && ev.value == 3);
+    camera_session_delete(&s, names[0], now_ms());
+    check("a photo already gone is deleted too, so its entry can go",
+          wait_for(&s, CAMERA_EV_DELETED, 3000, &ev) && ev.value == 3 &&
+              strcmp(ev.name, names[0]) == 0);
     camera_session_list(&s, now_ms());
     check("and listed no more", wait_for(&s, CAMERA_EV_LISTED, 3000, &ev) && ev.value == 3 &&
                                     camera_session_take_list(&s, names, 16) == 3 &&
@@ -771,6 +775,45 @@ static void test_library(const char *tmpl)
     }
 }
 
+/* The helper answers one request after another. A delete sent behind three
+ * slow pictures waits longer than its own window (CAMERA_REPLY_MS) in all;
+ * each picture that comes back says the helper is alive, so it is not killed. */
+static void test_library_queue(const char *tmpl)
+{
+    struct camera_session s;
+    struct camera_event ev;
+    char names[16][CAMERA_NAME_MAX];
+    char export_dir[PATH_MAX];
+    int n;
+    int i;
+    int ok = 1;
+    int64_t t0;
+
+    snprintf(export_dir, sizeof(export_dir), "%s/home/Pictures", tmpl);
+    setenv("POCKETCAM_TEST_DECODE_MS", "1300", 1);
+    check("a slow library helper starts", start_library(&s, export_dir) == 0 &&
+                                              wait_for(&s, CAMERA_EV_READY, 3000, &ev));
+    unsetenv("POCKETCAM_TEST_DECODE_MS");
+    camera_session_list(&s, now_ms());
+    n = wait_for(&s, CAMERA_EV_LISTED, 3000, &ev) ? camera_session_take_list(&s, names, 16) : 0;
+    check("with photos in it", n >= 2);
+    t0 = now_ms();
+    for (i = 0; i < CAMERA_PICTURE_SLOTS && n > 0; i++) {
+        ok &= camera_session_request_picture(&s, names[1 + i % (n - 1)], 60, 60, true, now_ms()) >= 0;
+    }
+    check("three slow pictures are asked for", ok);
+    camera_session_delete(&s, names[0], now_ms());
+    check("a delete behind them is answered, the helper not taken for hung",
+          wait_for(&s, CAMERA_EV_DELETED, 3 * 1300 + CAMERA_REPLY_MS + 2000, &ev) &&
+              now_ms() - t0 > CAMERA_REPLY_MS);
+    for (i = 0; i < CAMERA_PICTURE_SLOTS; i++) {
+        camera_session_take_picture(&s, i, NULL, 0, 0, NULL, NULL);
+    }
+    check("and every slot comes back", camera_session_pictures_free(&s) == CAMERA_PICTURE_SLOTS);
+    camera_session_abandon(&s, 300);
+    check("and leaves no child", waitpid(-1, NULL, WNOHANG) < 0 && errno == ECHILD);
+}
+
 int main(int argc, char **argv)
 {
     char tmpl[] = "/tmp/camera-session-XXXXXX";
@@ -796,6 +839,7 @@ int main(int argc, char **argv)
     test_lifetime();
     test_library_parse();
     test_library(tmpl);
+    test_library_queue(tmpl);
     {
         char cmd[PATH_MAX + 16];
 

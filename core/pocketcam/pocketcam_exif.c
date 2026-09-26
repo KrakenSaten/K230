@@ -68,8 +68,11 @@ static bool in_range(const char *s, int from, int n, int lo, int hi)
 
 bool pocketcam_exif_date_valid(const char *s)
 {
+    /* EXIF began in 1995: an earlier year (1970, 1980) is a camera whose clock
+     * was never set, not a date, and is shown as unknown. */
     return s && strlen(s) == POCKETCAM_EXIF_DATE_LEN - 1 && s[4] == ':' && s[7] == ':' &&
-           s[10] == ' ' && s[13] == ':' && s[16] == ':' && in_range(s, 0, 4, 1970, 9999) &&
+           s[10] == ' ' && s[13] == ':' && s[16] == ':' &&
+           in_range(s, 0, 4, POCKETCAM_EXIF_YEAR_MIN, 9999) &&
            in_range(s, 5, 2, 1, 12) && in_range(s, 8, 2, 1, 31) && in_range(s, 11, 2, 0, 23) &&
            in_range(s, 14, 2, 0, 59) && in_range(s, 17, 2, 0, 60);
 }
@@ -181,6 +184,8 @@ size_t pocketcam_exif_build(const struct pocketcam_photo_meta *meta, uint8_t *bu
     if (!buf || len < sizeof(exif_magic) + 8) {
         return 0;
     }
+    /* Zeroed first: the pad byte after an odd-length text is never written. */
+    memset(buf, 0, len);
     snprintf(software, sizeof(software), "Doors %s", POCKETOS_VERSION);
     /* Tags in ascending order, as TIFF requires. */
     if (meta && meta->simulated) {

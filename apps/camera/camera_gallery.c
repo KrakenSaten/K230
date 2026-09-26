@@ -792,13 +792,31 @@ static bool digits(const char *s, int n)
     return true;
 }
 
-/* The date in a photo name made with the clock set: IMG_yyyymmdd_hhmmss_... */
+static int number_at(const char *s, int n)
+{
+    int v = 0;
+    int i;
+
+    for (i = 0; i < n; i++) {
+        v = v * 10 + (s[i] - '0');
+    }
+    return v;
+}
+
+/* The date in a photo name made with the clock set: IMG_yyyymmdd_hhmmss_...
+ * A name that only looks like one (a year before EXIF, a 13th month) has no
+ * date, by the same floor as the helper's EXIF reader. */
 static bool name_date(const char *name, char *out, size_t len)
 {
     const char *d = name + 4;
 
     if (strncmp(name, "IMG_", 4) != 0 || strlen(name) < 20 || !digits(d, 8) || d[8] != '_' ||
         !digits(d + 9, 6) || d[15] != '_') {
+        return false;
+    }
+    if (number_at(d, 4) < CAMERA_DATE_YEAR_MIN || number_at(d + 4, 2) < 1 ||
+        number_at(d + 4, 2) > 12 || number_at(d + 6, 2) < 1 || number_at(d + 6, 2) > 31 ||
+        number_at(d + 9, 2) > 23 || number_at(d + 11, 2) > 59 || number_at(d + 13, 2) > 60) {
         return false;
     }
     snprintf(out, len, "%.4s-%.2s-%.2s %.2s:%.2s:%.2s", d, d + 4, d + 6, d + 9, d + 11, d + 13);

@@ -117,11 +117,16 @@ bool pocketcam_store_valid_name(const char *name);
  * EXPORT copies one photo out of the library into a folder the owner manages
  * in Files (POCKETCAM_EXPORT_SUBDIR under $HOME: /root/Pictures on the unit).
  * The library itself stays Doors' own data: Files shows it read-only. A copy
- * never replaces anything: an export whose name is already there with the same
- * size is reported as done (*already), with another size as -EEXIST. It is
- * written to a temporary name, synced, and linked into place, and it must leave
- * the filesystem POCKETCAM_STORE_RESERVE_BYTES free, like a capture. */
+ * never replaces anything. When the photo's name is taken, the file there is
+ * compared byte for byte: the same photo is reported as done (*already);
+ * anything else - another photo that got the same number, a file of the
+ * owner's - is kept, and the copy goes to the first free IMG_..._nnnn-2.jpg,
+ * -3, ... (up to POCKETCAM_EXPORT_TRIES names, then -EEXIST). It is written to
+ * a temporary name of its own (.<name>.<pid>.export), synced, and linked into
+ * place, and it must leave the filesystem POCKETCAM_STORE_RESERVE_BYTES free,
+ * like a capture. */
 #define POCKETCAM_EXPORT_SUBDIR "Pictures"
+#define POCKETCAM_EXPORT_TRIES 99
 /* A library is listed up to this many photos, the newest; the rest are
  * counted. More than the store will ever take (POCKETCAM_STORE_MAX_FILES), so
  * only files put there by hand can be left out. */
@@ -138,9 +143,13 @@ void pocketcam_export_default_dir(char *out, size_t out_len);
 
 /* Copy photo name into dest_dir (created with its parents). 0 with the new
  * file's path in out, or a negative errno: -EINVAL (not a photo name),
- * -ENOENT (no such photo), -EEXIST, -ENOSPC. */
+ * -ENOENT (no such photo), -EEXIST (every name taken), -ENOSPC. */
 int pocketcam_store_export(const struct pocketcam_store *s, const char *name, const char *dest_dir,
                            char *out, size_t out_len, bool *already);
+
+/* Remove the temporaries (.IMG_*.export) an export killed part way left in
+ * dest_dir. Only one library helper runs at a time; it sweeps when it starts. */
+void pocketcam_export_sweep(const char *dest_dir);
 
 /* ---- test seams ----------------------------------------------------------- *
  * NULL in the shipped helper. pos-camera-testhooks sets them from its

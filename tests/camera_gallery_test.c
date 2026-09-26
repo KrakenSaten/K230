@@ -291,6 +291,13 @@ static void test_photo(void)
     camera_gallery_info(&G, name, sizeof(name), when, sizeof(when), what, sizeof(what));
     check("a dated name gives the date before the file is read",
           strcmp(when, "Taken 2026-09-26 10:15:30") == 0);
+    snprintf(G.names[3], CAMERA_NAME_MAX, "IMG_19700101_000005_0002.jpg");
+    camera_gallery_info(&G, name, sizeof(name), when, sizeof(when), what, sizeof(what));
+    check("a name dated by a clock that was never set gives no date", when[0] == '\0');
+    snprintf(G.names[3], CAMERA_NAME_MAX, "IMG_20261399_101530_0002.jpg");
+    camera_gallery_info(&G, name, sizeof(name), when, sizeof(when), what, sizeof(what));
+    check("nor one with a 13th month", when[0] == '\0');
+    snprintf(G.names[3], CAMERA_NAME_MAX, "IMG_20260926_101530_0002.jpg");
     ask_all(reqs, 8);
     ev = event(CAMERA_EV_IMAGE);
     for (n = 0; n < CAMERA_PICTURE_SLOTS; n++) {

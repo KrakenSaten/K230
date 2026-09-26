@@ -126,7 +126,7 @@ static void gallery(const char *shape, int32_t w, int32_t h, int32_t il, int32_t
     const struct camera_rect *grid[GALLERY_CELLS_MAX + 5];
     const struct camera_rect *photo[] = { &l.photo, &l.info, &l.status, &l.p_newer, &l.p_older,
                                           &l.p_left, &l.p_middle, &l.p_right };
-    const struct camera_rect *show[] = { &l.show, &l.show_status };
+    const struct camera_rect *show[] = { &l.show_touch, &l.show_status };
     const struct camera_rect *buttons[] = { &l.newer, &l.older, &l.left, &l.middle, &l.p_newer,
                                             &l.p_older, &l.p_left, &l.p_middle, &l.p_right };
     char name[140];
@@ -160,6 +160,12 @@ static void gallery(const char *shape, int32_t w, int32_t h, int32_t il, int32_t
     }
     snprintf(name, sizeof(name), "gallery %s: every button at least %d px", shape, TOUCH_MIN);
     check(name, ok);
+    snprintf(name, sizeof(name), "gallery %s: the slideshow's picture is inside what a tap stops it on",
+             shape);
+    check(name, l.show.x >= l.show_touch.x && l.show.y >= l.show_touch.y &&
+                    l.show.x + l.show.w <= l.show_touch.x + l.show_touch.w &&
+                    l.show.y + l.show.h <= l.show_touch.y + l.show_touch.h &&
+                    l.show_touch.w >= l.show.w && l.show_touch.h >= l.show.h);
     snprintf(name, sizeof(name), "gallery %s: every picture box fits a slot", shape);
     check(name, l.photo.w <= CAMERA_PICTURE_MAX && l.photo.h <= CAMERA_PICTURE_MAX &&
                     l.show.w <= CAMERA_PICTURE_MAX && l.show.h <= CAMERA_PICTURE_MAX &&

@@ -621,6 +621,20 @@ static void handle(struct camera_session *s, struct camera_event *ev, int64_t no
     if (s->streaming) {
         s->silence_by = now + CAMERA_SILENCE_MS;
     }
+    /* The library helper answers one request after another. An answer to one
+     * says it is alive and starts the window of what waits behind it, so a
+     * reply queued behind picture decodes is not taken for a hung helper, nor
+     * a picture queued behind an export. */
+    if (ev->kind == CAMERA_EV_IMAGE || ev->kind == CAMERA_EV_IMGFAIL) {
+        if (s->reply_by != 0 && s->reply_by < now + s->reply_window) {
+            s->reply_by = now + s->reply_window;
+        }
+    } else if (s->decode_by != 0 &&
+               (ev->kind == CAMERA_EV_LISTED || ev->kind == CAMERA_EV_LISTFAIL ||
+                ev->kind == CAMERA_EV_EXPORTED || ev->kind == CAMERA_EV_EXPFAIL ||
+                ev->kind == CAMERA_EV_DELETED || ev->kind == CAMERA_EV_DELFAIL)) {
+        s->decode_by = now + CAMERA_DECODE_MS;
+    }
     switch (ev->kind) {
     case CAMERA_EV_READY:
     case CAMERA_EV_NODEVICE:
@@ -879,7 +893,8 @@ int camera_session_preview(struct camera_session *s, bool on, int64_t now_ms)
     }
     r = send_line(s, "stop");
     if (r == 0) {
-        s->reply_by = now_ms + CAMERA_REPLY_MS;
+        s->reply_window = CAMERA_REPLY_MS;
+        s->reply_by = now_ms + s->reply_window;
     }
     return r;
 }
@@ -918,7 +933,8 @@ int camera_session_delete(struct camera_session *s, const char *name, int64_t no
     }
     r = send_line(s, "delete %s", name);
     if (r == 0) {
-        s->reply_by = now_ms + CAMERA_REPLY_MS;
+        s->reply_window = CAMERA_REPLY_MS;
+        s->reply_by = now_ms + s->reply_window;
     }
     return r;
 }
@@ -966,7 +982,8 @@ int camera_session_list(struct camera_session *s, int64_t now_ms)
     }
     r = send_line(s, "list");
     if (r == 0) {
-        s->reply_by = now_ms + CAMERA_LIST_MS;
+        s->reply_window = CAMERA_LIST_MS;
+        s->reply_by = now_ms + s->reply_window;
     }
     return r;
 }
@@ -1036,6 +1053,11 @@ int camera_session_request_picture(struct camera_session *s, const char *name, u
     s->picture_asked[slot] = true;
     if (s->decode_by == 0) {
         s->decode_by = now_ms + CAMERA_DECODE_MS;
+        /* Behind a list, export or delete still being worked on: its window
+         * first (handle() starts this one's when that answer comes). */
+        if (s->reply_by != 0 && s->decode_by < s->reply_by + CAMERA_DECODE_MS) {
+            s->decode_by = s->reply_by + CAMERA_DECODE_MS;
+        }
     }
     return slot;
 }
@@ -1073,7 +1095,8 @@ int camera_session_export(struct camera_session *s, const char *name, int64_t no
     }
     r = send_line(s, "export %s", name);
     if (r == 0) {
-        s->reply_by = now_ms + CAMERA_EXPORT_MS;
+        s->reply_window = CAMERA_EXPORT_MS;
+        s->reply_by = now_ms + s->reply_window;
     }
     return r;
 }

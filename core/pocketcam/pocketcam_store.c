@@ -320,7 +320,9 @@ int pocketcam_store_delete(struct pocketcam_store *s, const char *name)
         return -errno;
     }
     fsync_dir(s->dir);
-    return pocketcam_store_scan(s);
+    /* The photo is gone whatever a count taken now says. */
+    pocketcam_store_scan(s);
+    return 0;
 }
 
 /* ---- the library ------------------------------------------------------------ */
@@ -438,6 +440,83 @@ static int copy_fd(int in, int out)
     }
 }
 
+/* 1 when the file at path is a regular file with exactly the bytes of the open
+ * descriptor in (st: its fstat), 0 when it is anything else, or a negative
+ * errno when either cannot be read. A name and a size prove nothing: a photo
+ * number is used again once the newest photo has been deleted. */
+static int same_content(int in, const struct stat *st, const char *path)
+{
+    char a[16 * 1024];
+    char b[16 * 1024];
+    struct stat there;
+    off_t off = 0;
+    int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    int r = 1;
+
+    if (fd < 0) {
+        return errno == ELOOP ? 0 : -errno;
+    }
+    if (fstat(fd, &there) != 0) {
+        r = -errno;
+    } else if (!S_ISREG(there.st_mode) || there.st_size != st->st_size) {
+        r = 0;
+    }
+    while (r == 1 && off < st->st_size) {
+        size_t want = (uint64_t)(st->st_size - off) < sizeof(a) ? (size_t)(st->st_size - off)
+                                                                : sizeof(a);
+        ssize_t na = pread(in, a, want, off);
+        ssize_t nb = pread(fd, b, want, off);
+
+        if (na < 0 || nb < 0) {
+            if (errno != EINTR) {
+                r = -errno;
+            }
+            continue;
+        }
+        if (na != nb || na == 0 || memcmp(a, b, (size_t)na) != 0) {
+            r = 0; /* different, or one of them changed size meanwhile */
+            break;
+        }
+        off += na;
+    }
+    close(fd);
+    return r;
+}
+
+/* The k-th choice of a path for name in dest_dir: the name itself, then
+ * IMG_..._nnnn-2.jpg, -3 and on. */
+static int export_candidate(const char *dest_dir, const char *name, int k, char *out,
+                            size_t out_len)
+{
+    const char *dot = strrchr(name, '.'); /* a valid name has one */
+    int n = k == 1 ? snprintf(out, out_len, "%s/%s", dest_dir, name)
+                   : snprintf(out, out_len, "%s/%.*s-%d%s", dest_dir, (int)(dot - name), name, k,
+                              dot);
+
+    return n < 0 || (size_t)n >= out_len ? -ENAMETOOLONG : 0;
+}
+
+void pocketcam_export_sweep(const char *dest_dir)
+{
+    DIR *d = dest_dir ? opendir(dest_dir) : NULL;
+    struct dirent *e;
+
+    if (!d) {
+        return;
+    }
+    while ((e = readdir(d)) != NULL) {
+        size_t n = strlen(e->d_name);
+        struct stat st;
+
+        if (n > 12 && strncmp(e->d_name, ".IMG_", 5) == 0 &&
+            strcmp(e->d_name + n - 7, ".export") == 0 &&
+            fstatat(dirfd(d), e->d_name, &st, AT_SYMLINK_NOFOLLOW) == 0 && S_ISREG(st.st_mode)) {
+            unlinkat(dirfd(d), e->d_name, 0);
+        }
+    }
+    closedir(d);
+}
+
 int pocketcam_store_export(const struct pocketcam_store *s, const char *name, const char *dest_dir,
                            char *out, size_t out_len, bool *already)
 {
@@ -450,6 +529,7 @@ int pocketcam_store_export(const struct pocketcam_store *s, const char *name, co
     int64_t avail;
     int in;
     int fd;
+    int k;
     int r;
 
     if (already) {
@@ -458,10 +538,11 @@ int pocketcam_store_export(const struct pocketcam_store *s, const char *name, co
     if (!pocketcam_store_valid_name(name) || !dest_dir || dest_dir[0] != '/') {
         return -EINVAL;
     }
+    /* The temporary carries the helper's pid, so it is its own; one that a
+     * killed helper left is swept when the next library helper starts. */
     if (snprintf(src, sizeof(src), "%s/%s", s->dir, name) >= (int)sizeof(src) ||
-        snprintf(final, sizeof(final), "%s/%s", dest_dir, name) >= (int)sizeof(final) ||
-        snprintf(tmp, sizeof(tmp), "%s/.%s.export", dest_dir, name) >= (int)sizeof(tmp) ||
-        strlen(final) >= out_len) {
+        snprintf(tmp, sizeof(tmp), "%s/.%s.%ld.export", dest_dir, name, (long)getpid()) >=
+            (int)sizeof(tmp)) {
         return -ENAMETOOLONG;
     }
     in = open(src, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
@@ -477,15 +558,37 @@ int pocketcam_store_export(const struct pocketcam_store *s, const char *name, co
         close(in);
         return r;
     }
-    if (lstat(final, &there) == 0) {
-        close(in);
-        if (S_ISREG(there.st_mode) && there.st_size == st.st_size) {
-            snprintf(out, out_len, "%s", final);
-            if (already) {
-                *already = true;
-            }
-            return 0;
+    /* The first free name, unless a name already taken holds exactly this
+     * photo: then it is there, and nothing is written. */
+    for (k = 1; k <= POCKETCAM_EXPORT_TRIES; k++) {
+        r = export_candidate(dest_dir, name, k, final, sizeof(final));
+        if (r == 0 && strlen(final) >= out_len) {
+            r = -ENAMETOOLONG;
         }
+        if (r == 0 && lstat(final, &there) != 0) {
+            if (errno == ENOENT) {
+                break;
+            }
+            r = -errno;
+        }
+        if (r == 0) {
+            r = same_content(in, &st, final);
+            if (r == 1) {
+                close(in);
+                snprintf(out, out_len, "%s", final);
+                if (already) {
+                    *already = true;
+                }
+                return 0;
+            }
+        }
+        if (r < 0) {
+            close(in);
+            return r;
+        }
+    }
+    if (k > POCKETCAM_EXPORT_TRIES) {
+        close(in);
         return -EEXIST;
     }
     avail = free_bytes(dest_dir);
@@ -493,7 +596,6 @@ int pocketcam_store_export(const struct pocketcam_store *s, const char *name, co
         close(in);
         return -ENOSPC;
     }
-    unlink(tmp);
     fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0644);
     if (fd < 0) {
         r = -errno;

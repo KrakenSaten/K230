@@ -69,6 +69,9 @@
 /* The longest list the helper sends (POCKETCAM_LIBRARY_MAX; the lint keeps
  * the two equal). */
 #define CAMERA_LIBRARY_MAX 1000
+/* A date in a photo name is believed from this year (POCKETCAM_EXIF_YEAR_MIN,
+ * which the helper applies to EXIF dates; the lint keeps the two equal). */
+#define CAMERA_DATE_YEAR_MIN 1995
 /* abandon(): from quit to SIGKILL, and after SIGKILL how long to reap. */
 #define CAMERA_KILL_REAP_MS 200
 #define CAMERA_EVENT_QUEUE 32
@@ -185,6 +188,7 @@ struct camera_session {
     int64_t silence_by;
     int64_t capture_by;
     int64_t reply_by;
+    int64_t reply_window; /* what reply_by was set to: a queued reply keeps it (handle()) */
     bool streaming;
 
     /* the newest preview picture not taken yet */

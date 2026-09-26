@@ -600,7 +600,10 @@ static void layout(struct gallery_ui *u)
 
         place(u->info[i], &r);
     }
-    place(u->show_box, &u->lay.show);
+    /* The box takes the whole body but the status line, so a tap beside the
+     * picture stops the slideshow too; the picture (lay.show, what a slot
+     * holds) is centred in it. */
+    place(u->show_box, &u->lay.show_touch);
     /* A new photo or slideshow size is asked for again; its buffer follows
      * the request (gpic_ensure). */
     do_actions(u, camera_gallery_set_sizes(&u->model, u->lay.rows * u->lay.cols, cell,

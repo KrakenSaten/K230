@@ -121,12 +121,13 @@ static const char *clean(const char *s, char *buf, size_t len)
 {
     size_t i;
 
-    snprintf(buf, len, "%s", s ? s : "");
-    for (i = 0; buf[i]; i++) {
-        if ((unsigned char)buf[i] < 0x20 || (unsigned char)buf[i] == 0x7f) {
-            buf[i] = ' ';
-        }
+    /* Copied by hand: cut to len on purpose, which snprintf warns about. */
+    for (i = 0; s && s[i] && i + 1 < len; i++) {
+        unsigned char c = (unsigned char)s[i];
+
+        buf[i] = c < 0x20 || c == 0x7f ? ' ' : (char)c;
     }
+    buf[i] = '\0';
     return buf;
 }
 
@@ -296,6 +297,12 @@ static void capture(struct session *s, int display_rotation)
 
 /* ---- the library ------------------------------------------------------------- */
 
+#ifdef POS_CAMERA_TEST_HOOKS
+/* pos-camera-testhooks only: every picture takes at least this long, like a
+ * big JPEG on the C908 (POCKETCAM_TEST_DECODE_MS). */
+static long test_decode_ms;
+#endif
+
 static void library_list(struct session *s)
 {
     char (*names)[POCKETCAM_STORE_NAME_MAX];
@@ -373,6 +380,11 @@ static void library_picture(struct session *s, const char *slot_w, const char *w
         say("imgfail %ld %s io the photo folder cannot be read", slot, name);
         return;
     }
+#ifdef POS_CAMERA_TEST_HOOKS
+    if (test_decode_ms > 0) {
+        usleep((useconds_t)test_decode_ms * 1000);
+    }
+#endif
     r = pocketcam_image_decode(path, fit, slot_pixels(s, (int)slot), (uint32_t)w, (uint32_t)h,
                                &ow, &oh, &info);
     if (r != 0) {
@@ -381,7 +393,7 @@ static void library_picture(struct session *s, const char *slot_w, const char *w
         return;
     }
     snprintf(taken, sizeof(taken), "%s", info.exif.taken[0] ? info.exif.taken : "-");
-    if (taken[10] == ' ') {
+    if (info.exif.taken[0] && taken[10] == ' ') {
         taken[10] = 'T'; /* one word on the line */
     }
     s->held[slot] = true;
@@ -395,13 +407,14 @@ static void library_export(struct session *s, const char *name)
 {
     char out[PATH_MAX];
     char t[96];
+    char where[POCKETCAM_LINE_MAX]; /* the whole path: the line is cut, not this */
     bool already = false;
     int r = s->store_ok ? pocketcam_store_export(&s->store, name, s->export_dir, out, sizeof(out),
                                                  &already)
                         : -EIO;
 
     if (r == 0) {
-        say("exported %s %d %s", name, already ? 1 : 0, clean(out, t, sizeof(t)));
+        say("exported %s %d %s", name, already ? 1 : 0, clean(out, where, sizeof(where)));
     } else {
         say("expfail %s %s %s", pocketcam_store_valid_name(name) ? name : "-",
             r == -EEXIST ? "exists" : r == -ENOSPC ? "nospace" : r == -ENOENT ? "missing" : "io",
@@ -435,6 +448,13 @@ static void library_command(struct session *s, char *line)
         char t[96];
         int r = s->store_ok ? pocketcam_store_delete(&s->store, a[0]) : -EIO;
 
+        /* A photo already gone (removed by hand, or by a delete whose answer
+         * was lost) is deleted as far as the gallery is concerned; otherwise
+         * its entry could never be removed. */
+        if (r == -ENOENT && pocketcam_store_valid_name(a[0])) {
+            pocketcam_store_scan(&s->store);
+            r = 0;
+        }
         if (r == 0) {
             say("deleted %s %u", a[0], s->store.files);
         } else {
@@ -727,6 +747,8 @@ static int run_library(const char *dir, const char *export_dir)
     } else {
         pocketcam_export_default_dir(s->export_dir, sizeof(s->export_dir));
     }
+    /* What an export killed part way left there (one library helper at a time). */
+    pocketcam_export_sweep(s->export_dir);
     r = pocketcam_store_open(&s->store, dir);
     s->store_ok = r == 0;
     if (!s->store_ok) {
@@ -963,9 +985,13 @@ static void install_test_hooks(void)
 {
     const char *free_env = getenv("POCKETCAM_TEST_FREE_BYTES");
     const char *fail_env = getenv("POCKETCAM_TEST_FAIL_AFTER");
+    const char *decode_env = getenv("POCKETCAM_TEST_DECODE_MS");
 
     if (free_env && *free_env) {
         pocketcam_store_free_hook = test_free_bytes;
+    }
+    if (decode_env && *decode_env) {
+        test_decode_ms = strtol(decode_env, NULL, 10);
     }
     if (fail_env && *fail_env) {
         pocketcam_store_fail_after = strtoll(fail_env, NULL, 10);

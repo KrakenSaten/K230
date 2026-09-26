@@ -112,6 +112,10 @@ lib_app=$(sed -nE 's/^#define CAMERA_LIBRARY_MAX ([0-9]+).*/\1/p' $A/camera_sess
 lib_core=$(sed -nE 's/^#define POCKETCAM_LIBRARY_MAX ([0-9]+)u.*/\1/p' $C/pocketcam_store.h)
 check "the app takes as long a list as the helper sends ($lib_app = $lib_core)" \
     "$([ -n "$lib_app" ] && [ "$lib_app" = "$lib_core" ] && echo 1 || echo 0)"
+year_app=$(sed -nE 's/^#define CAMERA_DATE_YEAR_MIN ([0-9]+).*/\1/p' $A/camera_session.h)
+year_core=$(sed -nE 's/^#define POCKETCAM_EXIF_YEAR_MIN ([0-9]+).*/\1/p' $C/pocketcam_exif.h)
+check "a date in a name is believed from the year an EXIF date is ($year_app = $year_core)" \
+    "$([ -n "$year_app" ] && [ "$year_app" = "$year_core" ] && echo 1 || echo 0)"
 check "the picture fits a shared-memory slot" \
     "$(grep -q '#define CAMERA_PICTURE_MAX 1024' $A/camera_layout.h &&
        grep -q '#define POCKETCAM_VIEW_MAX_W 1024' $C/pocketcam_proto.h && echo 1 || echo 0)"
