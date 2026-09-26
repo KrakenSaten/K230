@@ -624,7 +624,11 @@ turn read from each unit's `match.v1`.
    lobby ("An engagement with ... is under way", RESUME / FORFEIT); the board
    comes back only after RESUME there. The link is live in the lobby (A's J5
    was answered from it). The driver lost a ply's taps to the lobby once;
-   a player would see the lobby and press RESUME.
+   a player would see the lobby and press RESUME. It did so only when the
+   key came late; otherwise RESUME MATCH jumped to the board, which left
+   FORFEIT unreachable (seen 2026-09-26 on a match left in Deploy).
+   **Changed on `fix/fleet-forfeit-reachable`:** RESUME MATCH always opens
+   the lobby, and the key arriving no longer steers it away.
 2. **`radio.status poll failed: timed out after 200 ms`** in the shell log
    (A 15, B 9) - also on master before the gate (2026-09-25, 2026-09-26 08h),
    more often while the radio transmits. The 200 ms UI deadline doing its job;

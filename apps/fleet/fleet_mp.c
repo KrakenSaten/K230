@@ -152,7 +152,13 @@ void fleet_app_mp_changed(struct fleet_app *app)
         return;
     }
     rev = fleet_session_revision(app->mp);
-    if (app->mp->ready) {
+    if (app->mp->ready && app->mp_revision == 0) {
+        /* The match was only just read, when our key became known: nothing
+         * moved by itself, so the player stays where they chose to be - in
+         * the lobby with the match in hand - rather than being steered from
+         * "no match yet" to the match's phase. */
+        app->mp_phase = app->mp->m.phase;
+    } else if (app->mp->ready) {
         steer(app);
     }
     app->mp_revision = rev;
