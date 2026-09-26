@@ -14,7 +14,7 @@ as its alias.
 ```text
 apps/            In-process apps (radio, system, fleet, radar, timber). Talk to services over pocketipc only;
                  app state under /var/lib/pocketos/<app>/ ($POCKETOS_STATE_DIR).
-ui/shell         Shell: status bar, launcher, app host, display/input backend, settings store.
+ui/shell         Shell: status cluster, launcher, app host, display/input backend, settings store.
 ui/pocketui      Design tokens, theme engine and shared role styles on top of LVGL 9.
 services/        Hardware-owning daemons: radiod (mock and sx1262 backends), netd (Wi-Fi: wifi.*);
                  sysd serves system.* (identity, resources, storage, network summary, service health).
@@ -163,7 +163,7 @@ a display.
 
 `system.info` once at create, `system.status` every two seconds, both through
 `shell_ipc_call_timeout` with the UI deadline. The radio row reuses the state
-the status bar already polls (`pocketos_shell_radio_state`) rather than asking
+the status cluster already polls (`pocketos_shell_radio_state`) rather than asking
 radiod a second time. The screen reads nothing from `/proc`, `/sys` or `/run`:
 it is a client like any other.
 
@@ -231,7 +231,7 @@ where the vendor `ifup wlan0` path was confirmed not to compete for wlan0.
 
 ## Shell
 
-One LVGL process. The status bar polls radiod once per second. Apps
+One LVGL process. The status cluster (DS §36) polls radiod once per second. Apps
 implement `struct pocketos_app` (create / tick / destroy) and are built into
 the shell binary for v0.1; the same API is intended for out-of-process apps
 later (ADR-002). The status chrome above an app - the 56 px bar, a 32 px

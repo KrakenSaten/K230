@@ -15,8 +15,9 @@
 
 #include <stdbool.h>
 
-/* Reference panel: 568x1232 portrait. Layout constants in pixels (DS §7). */
-#define POCKETUI_STATUS_BAR_H 56
+/* Reference panel: 568x1232 portrait. Layout constants in pixels (DS §7).
+ * There is no status bar height: the full-width bar is gone and the status
+ * cluster lies over the header row (DS §36, ui/shell/chrome.h). */
 #define POCKETUI_HEADER_H 72
 #define POCKETUI_TOUCH_MIN 64     /* C1: 64 until glove testing says otherwise */
 #define POCKETUI_PAD 20

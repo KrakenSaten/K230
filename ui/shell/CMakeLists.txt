@@ -1000,6 +1000,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/wave/wave_view.c
         ${REPO_DIR}/apps/wave/wave_session.c
         ${REPO_DIR}/apps/wave/wave_text.c
+        chrome.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c
         ../pocketui/pos_display.c

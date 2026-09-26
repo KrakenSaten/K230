@@ -100,19 +100,23 @@ static const struct pocketos_app *const apps[] = { &app_radio, &app_system, &app
 #define APP_COUNT (sizeof(apps) / sizeof(apps[0]))
 
 struct shell {
-    lv_obj_t *status_bar;
-    lv_obj_t *status_title; /* the DOORS wordmark */
+    lv_obj_t *cluster;      /* the status cluster (DS §36): chip and clock, top right */
     lv_obj_t *status_clock;
     lv_obj_t *status_radio;
-    lv_obj_t *status_hint;
-    lv_obj_t *header_hint;  /* the same hint in the app header under NONE, or NULL */
-    lv_obj_t *content;      /* below the status chrome */
+    char status_hint[96];   /* what the app last wrote with pocketos_shell_set_status_hint() */
+    lv_obj_t *header_hint;  /* where the app header shows it, or NULL with no app open */
+    lv_obj_t *content;      /* the content area: the whole display but the keyboard */
     enum pocketos_chrome chrome; /* the status chrome in force (chrome.h), resolved by the shell */
-    int32_t chrome_h;       /* its height: where the content area starts */
-    int32_t bar_shown_h;    /* the bar as drawn now: chrome_h, but for the lock over NONE */
+    bool cluster_shown;     /* the cluster as drawn now: the chrome's, but for the lock over NONE */
+    /* The widest box the cluster can take (chrome_cluster_box of its widest
+     * chip and clock): in an app, and on the shell's own screens, which show
+     * no clock in it. What rows under it keep clear of, so they do not move
+     * when the chip changes state (DS §36.1). */
+    struct chrome_rect cluster_reserve_app;
+    struct chrome_rect cluster_reserve_env;
     lv_obj_t *home;         /* launcher */
     lv_obj_t *controls;     /* DOORS Controls, over the launcher (controls.h) */
-    lv_obj_t *backdrop;     /* the home photograph, behind the bar and the launcher */
+    lv_obj_t *backdrop;     /* the home photograph, behind the cluster and the launcher */
     lv_image_dsc_t *home_bg;
     bool landscape;
     lv_obj_t *app_root;     /* current app container or NULL */
@@ -262,64 +266,128 @@ static void status_update(void)
     }
 }
 
-static void status_bar_create(lv_obj_t *screen)
+/* The status cluster (DS §36.1): one capsule anchored to the top-right
+ * corner, as wide as what it holds - the radio chip, then the clock - and
+ * never the screen. It replaces the full-width bar of §7 and §30 and keeps
+ * its cells but the wordmark and the hint: the chip and the clock with the
+ * same styles, the same poll and the same rules; the hint went to the app
+ * header, where the fullscreen apps already had it (§30.8).
+ *
+ * It lies over the right end of whatever row is at the top - an app's
+ * header, the launcher's header band, Controls' header row - and each of
+ * those keeps clear of its widest box (sh.cluster_reserve_*). It takes no
+ * touch: it has no action, and a finger landing on it reaches whatever is
+ * under it, as it would have with nothing drawn there. */
+static void status_cluster_create(lv_obj_t *screen)
 {
-    lv_obj_t *bar = lv_obj_create(screen);
-    lv_obj_t *title;
+    const struct pos_insets top = pos_display_bar_insets(pocketui_display_geometry(), POS_EDGE_TOP);
+    lv_obj_t *c = lv_obj_create(screen);
 
-    lv_obj_remove_style_all(bar);
-    pos_style_add(bar, POS_STYLE_STATUS_BAR, 0);
-    /* The bar runs corner to corner along the top edge, so its ends are where
-     * the panel's rounded corners are: the wordmark and the clock keep clear
-     * of them through the safe area, not through padding of their own. */
-    pocketui_apply_bar_insets(bar, POS_EDGE_TOP);
-    lv_obj_set_size(bar, LV_PCT(100), POCKETUI_STATUS_BAR_H);
-    lv_obj_align(bar, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_style_all(c);
+    pos_style_add(c, POS_STYLE_STATUS_CLUSTER, 0);
+    lv_obj_remove_flag(c, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(c, LV_SIZE_CONTENT, POCKETOS_CHROME_CLUSTER_H);
+    lv_obj_set_style_pad_ver(c, 0, 0);
+    lv_obj_set_style_pad_left(c, POCKETOS_CHROME_CLUSTER_PAD_L, 0);
+    lv_obj_set_style_pad_right(c, POCKETOS_CHROME_CLUSTER_PAD_R, 0);
+    lv_obj_set_style_pad_column(c, POCKETOS_CHROME_CLUSTER_GAP, 0);
+    lv_obj_set_flex_flow(c, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    /* Anchored by its right edge: a wider chip or a hidden clock changes
+     * where it starts, never where it ends (chrome_cluster_box). */
+    lv_obj_align(c, LV_ALIGN_TOP_RIGHT, -LV_MAX(POCKETOS_CHROME_EDGE_MIN, top.right),
+                 POCKETOS_CHROME_CLUSTER_Y);
 
-    title = pocketui_label(bar, "DOORS", POS_STYLE_CAPTION);
-    sh.status_title = title;
-
-    sh.status_hint = pocketui_label(bar, "", POS_STYLE_CAPTION);
-
-    sh.status_radio = lv_label_create(bar);
+    sh.status_radio = lv_label_create(c);
     pos_style_add(sh.status_radio, POS_STYLE_CHIP, 0);
     /* glyphs come from the symbol font role until the DS icon set exists */
     pos_style_add(sh.status_radio, POS_STYLE_SYMBOL, 0);
     radio_chip_set(POS_STYLE_CHIP_NA, "?");
 
-    sh.status_clock = pocketui_label(bar, "--:--", POS_STYLE_CAPTION);
-    sh.status_bar = bar;
+    sh.status_clock = pocketui_label(c, "--:--", POS_STYLE_CAPTION);
+    sh.cluster = c;
+}
+
+/* The width text takes in label's font and tracking. */
+static int32_t text_width(lv_obj_t *label, const char *text)
+{
+    lv_point_t p;
+
+    lv_text_get_size(&p, text, lv_obj_get_style_text_font(label, LV_PART_MAIN),
+                     lv_obj_get_style_text_letter_space(label, LV_PART_MAIN), 0, LV_COORD_MAX,
+                     LV_TEXT_FLAG_NONE);
+    return p.x;
+}
+
+/* The widest the cluster can be, worked out from its fonts rather than from
+ * whatever it happens to show now: every chip state radio_chip_set() writes,
+ * and the clock at its widest digits (or "--:--"). Rows under the cluster
+ * keep clear of this box, so nothing moves when the radio goes from RX to
+ * TX or the minute turns. */
+static void cluster_reserve_compute(void)
+{
+    static const char *const states[] = { LV_SYMBOL_WIFI " RX", LV_SYMBOL_WIFI " TX",
+                                          LV_SYMBOL_WIFI " OFF", LV_SYMBOL_WIFI " --",
+                                          LV_SYMBOL_WIFI " ?" };
+    const struct pos_display_geometry *g = pocketui_display_geometry();
+    const struct pos_insets top = pos_display_bar_insets(g, POS_EDGE_TOP);
+    int32_t chip = 0;
+    int32_t clock;
+    /* The theme's hairline, which the app capsule is drawn with and which
+     * is never thinner than the environment's 1 px glass edge. */
+    int32_t border = 2 * LV_MAX(pos_theme_current()->hairline_px, 1);
+    char digits[8];
+    char widest = '0';
+    size_t k;
+
+    for (k = 0; k < sizeof(states) / sizeof(states[0]); k++) {
+        chip = LV_MAX(chip, text_width(sh.status_radio, states[k]));
+    }
+    chip += lv_obj_get_style_pad_left(sh.status_radio, LV_PART_MAIN) +
+            lv_obj_get_style_pad_right(sh.status_radio, LV_PART_MAIN);
+    for (k = 0; k < 10; k++) {
+        char a[2] = { (char)('0' + k), '\0' };
+        char b[2] = { widest, '\0' };
+
+        if (text_width(sh.status_clock, a) > text_width(sh.status_clock, b)) {
+            widest = (char)('0' + k);
+        }
+    }
+    snprintf(digits, sizeof(digits), "%c%c:%c%c", widest, widest, widest, widest);
+    clock = LV_MAX(text_width(sh.status_clock, digits), text_width(sh.status_clock, "--:--"));
+    sh.cluster_reserve_app =
+        chrome_cluster_box(g->width, top.right, chrome_cluster_width(chip, clock) + border);
+    sh.cluster_reserve_env = chrome_cluster_box(g->width, top.right, chrome_cluster_width(chip, 0) + border);
 }
 
 /* ---- the DOORS environment (DS §31) ------------------------------------ *
  *
  * On the shell's own screens - the launcher, Controls, the lock - the home
- * photograph lies behind everything and the status bar is drawn straight
- * onto it: no fill, no rule, and no clock, because each of those screens
- * shows the time large already. In an app the bar is exactly what it always
- * was. One function decides which, from what is in front.
+ * photograph lies behind everything and the status cluster is glass on it,
+ * as the launcher's panels are, with no clock, because each of those
+ * screens shows the time large already. In an app the cluster is the
+ * theme's. One function decides which, from what is in front.
  */
-static void status_bar_fit(void);
+static void cluster_fit(void);
 
 static void environment_apply(void)
 {
     bool env = !sh.app || shell_lock_is_locked();
 
-    /* The lock over a fullscreen app brings the bar back (status_bar_fit). */
-    status_bar_fit();
+    /* The lock over a fullscreen app brings the cluster back (cluster_fit). */
+    cluster_fit();
 
-    lv_obj_remove_style(sh.status_bar, pos_style(POS_STYLE_ENV_BAR), 0);
-    lv_obj_remove_style(sh.status_title, pos_style(POS_STYLE_ENV_CAPTION), 0);
+    lv_obj_remove_style(sh.cluster, pos_style(POS_STYLE_ENV_CLUSTER), 0);
     if (env) {
-        /* The wordmark as the package sets it: warm, tracked, sans. */
-        pos_style_add(sh.status_bar, POS_STYLE_ENV_BAR, 0);
-        pos_style_add(sh.status_title, POS_STYLE_ENV_CAPTION, 0);
+        pos_style_add(sh.cluster, POS_STYLE_ENV_CLUSTER, 0);
         lv_obj_add_flag(sh.status_clock, LV_OBJ_FLAG_HIDDEN);
+        /* The chip alone, with the same air on both sides of it
+         * (chrome_cluster_width). */
+        lv_obj_set_style_pad_right(sh.cluster, POCKETOS_CHROME_CLUSTER_PAD_L, 0);
     } else {
         lv_obj_remove_flag(sh.status_clock, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_pad_right(sh.cluster, POCKETOS_CHROME_CLUSTER_PAD_R, 0);
     }
     if (sh.backdrop) {
         if (!sh.app && sh.home_bg) {
@@ -330,11 +398,14 @@ static void environment_apply(void)
     }
 }
 
+/* The hint lives in the app header (DS §36.1, as §30.8 had it under NONE):
+ * kept here as text so a header built later - the next app's, or this one's
+ * after a rotation - starts from what was last written. */
 void pocketos_shell_set_status_hint(const char *text)
 {
-    lv_label_set_text(sh.status_hint, text ? text : "");
+    snprintf(sh.status_hint, sizeof(sh.status_hint), "%s", text ? text : "");
     if (sh.header_hint) {
-        lv_label_set_text(sh.header_hint, text ? text : "");
+        lv_label_set_text(sh.header_hint, sh.status_hint);
     }
 }
 
@@ -758,92 +829,88 @@ int pocketos_shell_keyboard_visible(void)
     return sh.keyboard && pos_keyboard_is_shown(sh.keyboard);
 }
 
-/* ---- status chrome (DS §30, chrome.h) ---------------------------------- *
+/* ---- status chrome (DS §30, §36, chrome.h) ------------------------------ *
  *
- * The shell owns the bar and everything that follows from its height: the
- * content area, the launcher's grid, the keyboard reserve. An app declares
- * a policy and is created under the result; it never learns the number and
- * never touches the bar. Resolved before create() runs, so the body an app
- * is created in is its final one and its first layout pass is its only one.
+ * The shell owns the cluster and everything that follows from it: the
+ * content area, the box the rows under it keep clear of, the keyboard
+ * reserve. An app declares a policy and is created under the result; it
+ * never learns a number and never touches the cluster. Resolved before
+ * create() runs, so the body an app is created in is its final one and its
+ * first layout pass is its only one.
  */
 
-_Static_assert(POCKETUI_STATUS_BAR_H == POCKETOS_CHROME_FULL_H,
-               "FULL chrome is the DS §7 status bar");
+_Static_assert(POCKETUI_PAD == POCKETOS_CHROME_EDGE_MIN,
+               "the cluster keeps the side margin the app header keeps");
 
-/* The radio chip's height and padding under the chrome in force, from the
- * line height of the font it draws in (chrome_chip_box, DS §30.1): its text
- * centred in 36 px under FULL and 26 under COMPACT, and never clipped. */
-static void status_chip_fit(enum pocketos_chrome effective)
+/* The radio chip's height and padding, from the line height of the font it
+ * draws in (chrome_chip_box, DS §36.1): its text centred in 32 px, never
+ * clipped. The same under every chrome, so set once. */
+static void status_chip_fit(void)
 {
     const lv_font_t *font = lv_obj_get_style_text_font(sh.status_radio, LV_PART_MAIN);
-    struct chrome_chip c = chrome_chip_box(effective, lv_font_get_line_height(font));
+    struct chrome_chip c = chrome_chip_box(lv_font_get_line_height(font));
 
     lv_obj_set_style_height(sh.status_radio, c.height, 0);
     lv_obj_set_style_pad_top(sh.status_radio, c.pad_top, 0);
     lv_obj_set_style_pad_bottom(sh.status_radio, c.pad_bottom, 0);
 }
 
-/* Draw the bar as the chrome in force says. The one exception is the lock
- * over a fullscreen (NONE) app: the lock lies under the bar and shows its
- * wordmark and chip, so while it is engaged the bar comes back at the
- * height an ordinary app has in this orientation - the lock looks exactly
- * as it does over any other app (DS §31.4). Only the bar: the content area
- * underneath keeps the NONE box, so the app does not move while locked.
- * It goes again as soon as the opening lock starts to show the app through
- * it (shell_lock_is_revealing), not when the fade has ended: the app is
- * never seen with a bar over its header. */
-static void status_bar_fit(void)
+/* Show the cluster as the chrome in force says. The one exception is the
+ * lock over a fullscreen (NONE) app: the lock lies under the cluster and
+ * shows its chip, so while it is engaged the cluster comes back - the lock
+ * looks exactly as it does over any other app (DS §31.4). Only the cluster:
+ * the content area underneath is the same under every chrome, so the app
+ * does not move while locked. It goes again as soon as the opening lock
+ * starts to show the app through it (shell_lock_is_revealing), not when the
+ * fade has ended: a fullscreen app is never seen with the cluster over it. */
+static void cluster_fit(void)
 {
-    enum pocketos_chrome shown = sh.chrome;
+    bool shown = sh.chrome != POCKETOS_CHROME_NONE ||
+                 (shell_lock_is_locked() && !shell_lock_is_revealing());
 
-    if (shown == POCKETOS_CHROME_NONE && shell_lock_is_locked() && !shell_lock_is_revealing()) {
-        shown = chrome_resolve(POCKETOS_CHROME_DEFAULT, sh.landscape, false);
-    }
-    if (shown == POCKETOS_CHROME_NONE) {
-        /* Hidden, not deleted: the clock, the chip and the hint keep being
-         * written (status_update, pocketos_shell_set_status_hint) and keep
-         * their state for the next chrome that shows them. The screen has
-         * no layout, so a hidden bar takes no room by itself; the content
-         * box is what moves the content to the top edge. */
-        lv_obj_add_flag(sh.status_bar, LV_OBJ_FLAG_HIDDEN);
+    if (shown) {
+        lv_obj_remove_flag(sh.cluster, LV_OBJ_FLAG_HIDDEN);
     } else {
-        lv_obj_remove_flag(sh.status_bar, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_height(sh.status_bar, chrome_height(shown));
+        /* Hidden, not deleted: the clock and the chip keep being written
+         * (status_update) and keep their state for the next screen that
+         * shows them. */
+        lv_obj_add_flag(sh.cluster, LV_OBJ_FLAG_HIDDEN);
     }
-    sh.bar_shown_h = chrome_height(shown);
-    status_chip_fit(shown);
+    sh.cluster_shown = shown;
 }
 
 static void chrome_apply(enum pocketos_chrome effective, const char *what)
 {
+    struct chrome_box b;
+
     sh.chrome = effective;
-    sh.chrome_h = chrome_height(effective);
-    status_bar_fit();
+    /* Measured again here rather than once: a display mode can change the
+     * hairline, and every screen is laid out after its chrome is applied. */
+    cluster_reserve_compute();
+    cluster_fit();
     content_box(pocketos_shell_keyboard_visible() ? POS_KB_H : 0);
-    LOG_INFO("chrome: %s, status bar %d px, content from y %d, for %s", chrome_name(effective),
-             (int)sh.chrome_h, (int)sh.chrome_h, what);
+    b = chrome_content_box(effective, pocketui_display_geometry()->height, 0);
+    LOG_INFO("chrome: %s, content from y %d, cluster %s, for %s", chrome_name(effective), (int)b.y,
+             sh.cluster_shown ? "shown" : "hidden", what);
 }
 
 /* What the app declared - or, in the simulator only, what a test asked for.
- * The hook is how NONE and an explicit FULL are exercised in the running
- * shell before any app opts in (tests/chrome_shell_test.sh); the panel's
- * build has no such environment and compiles it out. */
+ * The hook is how NONE and an explicit CLUSTER are exercised in the running
+ * shell on apps that declare otherwise (tests/chrome_shell_test.sh); the
+ * panel's build has no such environment and compiles it out. */
 static enum pocketos_chrome declared_chrome(const struct pocketos_app *app)
 {
 #if defined(POCKETOS_SHELL_TEST_HOOKS) && POCKETOS_SHELL_TEST_HOOKS
     const char *forced = getenv("POCKETOS_TEST_CHROME");
 
     if (forced && forced[0]) {
-        if (strcmp(forced, "full") == 0) {
-            return POCKETOS_CHROME_FULL;
-        }
-        if (strcmp(forced, "compact") == 0) {
-            return POCKETOS_CHROME_COMPACT;
+        if (strcmp(forced, "cluster") == 0) {
+            return POCKETOS_CHROME_CLUSTER;
         }
         if (strcmp(forced, "none") == 0) {
             return POCKETOS_CHROME_NONE;
         }
-        LOG_WARN("test hook: chrome '%s' is not full, compact or none; ignored", forced);
+        LOG_WARN("test hook: chrome '%s' is not cluster or none; ignored", forced);
     }
 #endif
     return app->chrome;
@@ -970,13 +1037,21 @@ static void app_open(const struct pocketos_app *app)
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_hor(header, POCKETUI_PAD, 0);
     lv_obj_set_style_pad_column(header, 16, 0);
-    if (sh.chrome == POCKETOS_CHROME_NONE) {
-        /* With no bar above it the header runs corner to corner along the
-         * top edge, where the panel's rounded corners are: the back slab and
-         * the title keep clear of them through the safe area, as the bar
-         * does (DS §21.1, §30.1). A COMPACT or FULL bar covers the corner
-         * band itself, so the header under it needs nothing. */
-        pocketui_apply_bar_insets(header, POS_EDGE_TOP);
+    /* The header is the top row of every app (DS §36): it runs corner to
+     * corner along the top edge, where the panel's rounded corners are, so
+     * the back slab and the title keep clear of them through the safe area
+     * (DS §21.1). Under the cluster its right end is the cluster's: the
+     * header stops short of the widest box the cluster can take, so the
+     * title and the hint never run under it and never move when the chip
+     * changes state. */
+    pocketui_apply_bar_insets(header, POS_EDGE_TOP);
+    {
+        int32_t reserve = chrome_row_reserve(sh.chrome, pocketui_display_geometry()->width,
+                                             &sh.cluster_reserve_app);
+
+        if (reserve > lv_obj_get_style_pad_right(header, LV_PART_MAIN)) {
+            lv_obj_set_style_pad_right(header, reserve, 0);
+        }
     }
 
     back = lv_button_create(header);
@@ -993,19 +1068,16 @@ static void app_open(const struct pocketos_app *app)
     lv_obj_center(name);
 
     name = pocketui_label(header, app->name, POS_STYLE_TITLE);
-    if (sh.chrome == POCKETOS_CHROME_NONE) {
-        /* With the bar gone its hint cell goes with it, and what an app
-         * writes there is state the player or the user needs - Fleet's
-         * turn, Radar's and Timber's run state, Wave's MIC ON, a Notes
-         * storage error (DS §30.2). Under NONE the header carries it, at
-         * its right end in the bar's caption type, written by the same
-         * pocketos_shell_set_status_hint(). The app does not know which of
-         * the two shows it. */
-        sh.header_hint = pocketui_label(header, lv_label_get_text(sh.status_hint),
-                                        POS_STYLE_CAPTION);
-        lv_obj_set_flex_grow(sh.header_hint, 1);
-        lv_obj_set_style_text_align(sh.header_hint, LV_TEXT_ALIGN_RIGHT, 0);
-    }
+    /* The hint: what an app writes with pocketos_shell_set_status_hint() is
+     * state the player or the user needs - Fleet's turn, Radar's and
+     * Timber's run state, Wave's MIC ON, a Clock or Notes storage error (DS
+     * §30.2). It had a cell in the full-width bar; with the bar gone the
+     * header carries it for every app, at its right end in the bar's caption
+     * type, as it did for the fullscreen apps (§30.8, §36.1). A hint longer
+     * than the room left wraps onto a second line inside the header. */
+    sh.header_hint = pocketui_label(header, sh.status_hint, POS_STYLE_CAPTION);
+    lv_obj_set_flex_grow(sh.header_hint, 1);
+    lv_obj_set_style_text_align(sh.header_hint, LV_TEXT_ALIGN_RIGHT, 0);
 
     body = lv_obj_create(sh.app_root);
     lv_obj_remove_style_all(body);
@@ -1047,18 +1119,23 @@ static void open_by_id(const char *id)
 }
 
 /* The launcher and Controls, built once for this run's orientation, in the
- * content area at the launcher's chrome (DS §30.2: FULL, in both). */
+ * content area at the launcher's chrome (DS §36.2: the cluster, in both),
+ * each keeping clear of the widest box the cluster takes on them. The
+ * content area starts at the top edge, so its coordinates are the screen's. */
 static void home_build(void)
 {
     static const struct home_actions ha = { open_app_from_home, shell_lock_now, controls_open };
     static const struct controls_actions ca = { open_by_id, shell_lock_now, controls_close };
+    const struct chrome_rect *r = &sh.cluster_reserve_env;
+    lv_area_t home_keepout = { r->x, r->y, r->x + r->w - 1, r->y + r->h - 1 };
+    struct controls_rect controls_keepout = { r->x, r->y, r->w, r->h };
 
-    sh.home = home_create(sh.content, apps, APP_COUNT, sh.landscape, &ha);
+    sh.home = home_create(sh.content, apps, APP_COUNT, sh.landscape, &home_keepout, &ha);
     if (!sh.home) {
         sh.home = lv_obj_create(sh.content); /* never NULL for the rest of the shell */
         lv_obj_remove_style_all(sh.home);
     }
-    sh.controls = controls_create(sh.content, sh.landscape, &ca);
+    sh.controls = controls_create(sh.content, sh.landscape, &controls_keepout, &ca);
 }
 
 /* ---- screenshot ------------------------------------------------------- */
@@ -1198,18 +1275,37 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         rotation_to_json(display);
         cJSON_AddItemToObject(result, "display", display);
         {
-            /* The status chrome in force for the current screen (DS §30). */
+            /* The status chrome in force for the current screen (DS §30,
+             * §36): the policy, where the content area starts (the top
+             * edge: no policy reserves a row), and the cluster as drawn. */
             cJSON *chrome = cJSON_CreateObject();
+            cJSON *cluster = cJSON_CreateObject();
+            const struct chrome_rect *reserve =
+                sh.app && !shell_lock_is_locked() ? &sh.cluster_reserve_app : &sh.cluster_reserve_env;
+            lv_area_t a;
 
+            lv_obj_update_layout(sh.cluster);
+            lv_obj_get_coords(sh.cluster, &a);
             cJSON_AddStringToObject(chrome, "policy", chrome_name(sh.chrome));
-            cJSON_AddNumberToObject(chrome, "status_bar_height", sh.chrome_h);
-            /* What is drawn: the same, but for the lock over a fullscreen
-             * app, which shows the bar an ordinary app has (status_bar_fit). */
-            cJSON_AddNumberToObject(chrome, "shown_height", sh.bar_shown_h);
+            cJSON_AddNumberToObject(chrome, "content_y", lv_obj_get_y(sh.content));
+            cJSON_AddNumberToObject(chrome, "content_h", lv_obj_get_height(sh.content));
+            /* shown: the chrome's, but for the lock over a fullscreen app,
+             * which shows the cluster (cluster_fit). The box is where it is
+             * drawn now; reserve is the widest box it can take on this
+             * screen, which the rows under it keep clear of. */
+            cJSON_AddBoolToObject(cluster, "shown", sh.cluster_shown);
+            cJSON_AddNumberToObject(cluster, "x", a.x1);
+            cJSON_AddNumberToObject(cluster, "y", a.y1);
+            cJSON_AddNumberToObject(cluster, "w", lv_area_get_width(&a));
+            cJSON_AddNumberToObject(cluster, "h", lv_area_get_height(&a));
+            cJSON_AddBoolToObject(cluster, "clock", !lv_obj_has_flag(sh.status_clock, LV_OBJ_FLAG_HIDDEN));
+            cJSON_AddNumberToObject(cluster, "reserve_x", reserve->x);
+            cJSON_AddNumberToObject(cluster, "reserve_w", reserve->w);
+            cJSON_AddItemToObject(chrome, "cluster", cluster);
             {
                 /* The radio chip as drawn: its box, the box its text gets,
                  * and the line that text needs (tests/chrome_shell_test.sh
-                 * holds content_h >= line_h under every chrome). */
+                 * holds content_h >= line_h in every state). */
                 cJSON *chip = cJSON_CreateObject();
                 const lv_font_t *font = lv_obj_get_style_text_font(sh.status_radio, LV_PART_MAIN);
 
@@ -1219,6 +1315,30 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
                 cJSON_AddNumberToObject(chip, "y", lv_obj_get_y(sh.status_radio));
                 cJSON_AddStringToObject(chip, "text", lv_label_get_text(sh.status_radio));
                 cJSON_AddItemToObject(chrome, "chip", chip);
+            }
+            if (sh.app_root) {
+                /* The app's header and the first pixel of its body, so a
+                 * test can hold both clear of the cluster without knowing a
+                 * number of the layout. */
+                lv_obj_t *header = lv_obj_get_child(sh.app_root, 0);
+                lv_obj_t *body = lv_obj_get_child(sh.app_root, 1);
+                cJSON *h = cJSON_CreateObject();
+
+                lv_obj_update_layout(sh.app_root);
+                lv_obj_get_coords(header, &a);
+                cJSON_AddNumberToObject(h, "y", a.y1);
+                cJSON_AddNumberToObject(h, "h", lv_area_get_height(&a));
+                cJSON_AddNumberToObject(h, "content_x2", a.x2 - lv_obj_get_style_pad_right(header, LV_PART_MAIN));
+                cJSON_AddNumberToObject(h, "pad_left", lv_obj_get_style_pad_left(header, LV_PART_MAIN));
+                cJSON_AddNumberToObject(h, "pad_right", lv_obj_get_style_pad_right(header, LV_PART_MAIN));
+                if (sh.header_hint) {
+                    lv_obj_get_coords(sh.header_hint, &a);
+                    cJSON_AddNumberToObject(h, "hint_x2", a.x2);
+                    cJSON_AddStringToObject(h, "hint", lv_label_get_text(sh.header_hint));
+                }
+                lv_obj_get_coords(body, &a);
+                cJSON_AddNumberToObject(h, "body_y", a.y1);
+                cJSON_AddItemToObject(chrome, "header", h);
             }
             cJSON_AddItemToObject(result, "chrome", chrome);
         }
@@ -1263,6 +1383,27 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
                     }
                 }
                 cJSON_AddItemToObject(launcher, "cells", cells);
+            }
+            {
+                /* The time and the date, which keep clear of the cluster. */
+                lv_area_t t;
+                lv_area_t d;
+
+                if (home_header_area(&t, &d)) {
+                    const lv_area_t *both[] = { &t, &d };
+                    const char *const names[] = { "time", "date" };
+                    size_t k;
+
+                    for (k = 0; k < 2; k++) {
+                        cJSON *hd = cJSON_CreateObject();
+
+                        cJSON_AddNumberToObject(hd, "x", both[k]->x1);
+                        cJSON_AddNumberToObject(hd, "y", both[k]->y1);
+                        cJSON_AddNumberToObject(hd, "w", lv_area_get_width(both[k]));
+                        cJSON_AddNumberToObject(hd, "h", lv_area_get_height(both[k]));
+                        cJSON_AddItemToObject(launcher, names[k], hd);
+                    }
+                }
             }
             cJSON_AddItemToObject(result, "launcher", launcher);
             cJSON_AddStringToObject(art, "dir", art_dir());
@@ -1678,15 +1819,17 @@ int main(int argc, char **argv)
     } else {
         lv_obj_add_flag(sh.backdrop, LV_OBJ_FLAG_HIDDEN);
     }
-    status_bar_create(screen);
+    status_cluster_create(screen);
+    status_chip_fit();
 
     sh.content = lv_obj_create(screen);
     lv_obj_remove_style_all(sh.content);
     lv_obj_set_width(sh.content, LV_PCT(100));
     lv_obj_align(sh.content, LV_ALIGN_TOP_MID, 0, 0);
-    /* The launcher's chrome, applied before the launcher is built (DS §30);
-     * an app opened below resolves its own. This sets the content's top and
-     * height, so nothing above sized it. */
+    /* The launcher's chrome, applied before the launcher is built (DS §30,
+     * §36); an app opened below resolves its own. This sets the content's
+     * top and height, and the box the launcher keeps clear of, so nothing
+     * above sized it. */
     chrome_apply(chrome_resolve(POCKETOS_CHROME_DEFAULT, is_landscape(sh.display.geometry.rotation), true),
                  "home");
     {
@@ -1707,7 +1850,9 @@ int main(int argc, char **argv)
     }
 
     /* The lock: over the apps, the launcher and the keyboard, under the
-     * status bar and the alarm alert (shell_lock.h). */
+     * status cluster and the alarm alert (shell_lock.h). The cluster is
+     * brought over all of them here: it lies over the content area's top
+     * row rather than above it. */
     {
         static const struct shell_lock_hooks hooks = { on_lock_engaged, on_lock_opened,
                                                         on_lock_revealing };
@@ -1715,7 +1860,7 @@ int main(int argc, char **argv)
         uint32_t t0 = lv_tick_get();
 
         shell_lock_create(screen, sh.landscape, &hooks);
-        lv_obj_move_foreground(sh.status_bar);
+        lv_obj_move_foreground(sh.cluster);
         LOG_INFO("lock: built in %u ms", (unsigned)lv_tick_elaps(t0));
 #if defined(POCKETOS_SHELL_TEST_HOOKS) && POCKETOS_SHELL_TEST_HOOKS
         {

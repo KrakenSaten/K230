@@ -37,10 +37,17 @@
 #define PANEL_W 568
 #define PANEL_H 1232
 #define PANEL_CORNER 30 /* the corner squares of the unit's panel (DS 21.1) */
-/* The status bar the shell gives this app in the display's orientation
- * (ui/shell/chrome.h, DS section 30), so the frame built here is the one
- * shell.c builds: 56 px in portrait, 32 px under an app in landscape. */
+/* Where the shell's content area starts for this app in the display's
+ * orientation (ui/shell/chrome.h, DS sections 30 and 36), so the frame built
+ * here is the one shell.c builds: the top edge, since no chrome reserves a
+ * row there any more. */
 #define STATUS_H chrome_height(chrome_resolve(app_system.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
+/* Rows measured under the retired bars - 56 px in portrait (v0.0.10), 32 in
+ * landscape (DS section 30) - moved up with the frame's top, which is the
+ * top edge since the bar went (DS section 36): nothing else about those
+ * places changed. */
+#define V010_ROW(y) ((y) - 56 + STATUS_H)
+#define V010_LROW(y) ((y) - 32 + STATUS_H)
 #define PAIRED_BUTTON_H 56 /* DS 7: paired buttons inside a panel */
 #define PANEL_GAP 22       /* DS 7 */
 #define COLUMN_W 528       /* the portrait body on the reference panel */
@@ -1227,7 +1234,8 @@ int main(void)
 
     /* ---- 3. where things are, to the pixel ------------------------------------------------ */
     /* Portrait is the v0.0.10 layout, object for object (the numbers are
-     * master's, aaad9f4, unscrolled): the body's 528 px column from 152 to
+     * master's, aaad9f4, unscrolled, under the 56 px status bar; V010_ROW
+     * moves them up with the frame, DS section 36): the body's 528 px column from 152 to
      * the foot, which the corner squares of the unit's panel bring up by
      * 10 px and square corners do not. Landscape: the freshness line over two
      * columns of 585 px with the 22 px panel gap, and a confirmation of 528 px
@@ -1247,11 +1255,11 @@ int main(void)
             app_start();
             tick();
             snprintf(what, sizeof(what), "portrait %d px corners: the screen scrolls in the body's column", (int)c);
-            check_rect(what, screen_obj(), 20, 152, 547, 1211 - lift);
+            check_rect(what, screen_obj(), 20, V010_ROW(152), 547, 1211 - lift);
             snprintf(what, sizeof(what), "portrait %d px corners: LIVE, as on master", (int)c);
-            check_rect(what, find_visible(app_body, "LIVE"), 512, 152, 547, 172);
+            check_rect(what, find_visible(app_body, "LIVE"), 512, V010_ROW(152), 547, V010_ROW(172));
             snprintf(what, sizeof(what), "portrait %d px corners: CPU in the vitals panel, as on master", (int)c);
-            check_rect(what, find_visible(app_body, "CPU"), 41, 226, 66, 243);
+            check_rect(what, find_visible(app_body, "CPU"), 41, V010_ROW(226), 66, V010_ROW(243));
             snprintf(what, sizeof(what), "portrait %d px corners: STORAGE, NETWORK and SERVICES, as on master", (int)c);
             {
                 lv_area_t s1;
@@ -1261,7 +1269,8 @@ int main(void)
                 area_of(find_visible(app_body, "STORAGE"), &s1);
                 area_of(find_visible(app_body, "NETWORK"), &s2);
                 area_of(find_visible(app_body, "SERVICES"), &s3);
-                check(what, s1.x1 == 41 && s1.y1 == 472 && s2.x1 == 41 && s2.y1 == 706 && s3.x1 == 41 && s3.y1 == 1009);
+                check(what, s1.x1 == 41 && s1.y1 == V010_ROW(472) && s2.x1 == 41 && s2.y1 == V010_ROW(706) && s3.x1 == 41 &&
+                            s3.y1 == V010_ROW(1009));
             }
             snprintf(what, sizeof(what), "portrait %d px corners: Radio, the Doors mark's name and Kernel", (int)c);
             {
@@ -1272,57 +1281,59 @@ int main(void)
                 area_of(find_visible(app_body, "Radio"), &r);
                 area_of(find_visible(app_body, "Doors"), &d);
                 area_of(find_visible(app_body, "Kernel"), &kk);
-                check(what, r.x1 == 41 && r.y1 == 1375 && d.x1 == 69 && d.y1 == 1503 && kk.x1 == 41 && kk.y1 == 1631);
+                check(what, r.x1 == 41 && r.y1 == V010_ROW(1375) && d.x1 == 69 && d.y1 == V010_ROW(1503) && kk.x1 == 41 &&
+                            kk.y1 == V010_ROW(1631));
             }
             /* The Diagnostics panel sits between Kernel's panel and the
              * actions, so Restart and Power off are one panel (120 px)
              * lower than master's 1739. */
             snprintf(what, sizeof(what), "portrait %d px corners: Diagnostics, a panel above the actions", (int)c);
-            check_rect(what, target_of("Diagnostics"), 41, 1739, 526, 1794);
+            check_rect(what, target_of("Diagnostics"), 41, V010_ROW(1739), 526, V010_ROW(1794));
             snprintf(what, sizeof(what), "portrait %d px corners: Restart", (int)c);
-            check_rect(what, target_of("Restart"), 41, 1859, 279, 1914);
+            check_rect(what, target_of("Restart"), 41, V010_ROW(1859), 279, V010_ROW(1914));
             snprintf(what, sizeof(what), "portrait %d px corners: Power off", (int)c);
-            check_rect(what, target_of("Power off"), 288, 1859, 526, 1914);
+            check_rect(what, target_of("Power off"), 288, V010_ROW(1859), 526, V010_ROW(1914));
             tap("Power off");
             snprintf(what, sizeof(what), "portrait %d px corners: the confirmation across the top", (int)c);
             {
                 lv_area_t d;
 
                 area_of(dialog_obj(), &d);
-                check(what, d.x1 == 20 && d.x2 == 547 && d.y1 == 195);
+                check(what, d.x1 == 20 && d.x2 == 547 && d.y1 == V010_ROW(195));
             }
             app_stop();
 
             use_display(POS_ROTATION_270, c);
             app_start();
             tick();
-            /* Everything 24 px higher than in portrait's numbering: the 32 px
-             * COMPACT bar of DS section 30 above the same header and padding,
-             * so the body starts at row 128 and the columns at 171. */
+            /* Numbered as under the 32 px COMPACT bar of DS section 30 (body
+             * from row 128, columns from 171), moved up with the frame's
+             * top: the header and padding now start at the top edge (DS
+             * section 36), so the body starts at row 96. */
             snprintf(what, sizeof(what), "landscape %d px corners: LIVE at the right of the body", (int)c);
-            check_rect(what, find_visible(app_body, "LIVE"), 1176, 128, 1211, 148);
+            check_rect(what, find_visible(app_body, "LIVE"), 1176, V010_LROW(128), 1211, V010_LROW(148));
             snprintf(what, sizeof(what), "landscape %d px corners: the left column", (int)c);
-            check_rect(what, column_obj(0), 20, 171, 604, 547 - lift);
+            check_rect(what, column_obj(0), 20, V010_LROW(171), 604, 547 - lift);
             snprintf(what, sizeof(what), "landscape %d px corners: the right column", (int)c);
-            check_rect(what, column_obj(1), 627, 171, 1211, 547 - lift);
+            check_rect(what, column_obj(1), 627, V010_LROW(171), 1211, 547 - lift);
             snprintf(what, sizeof(what), "landscape %d px corners: SERVICES at the top of the right column", (int)c);
-            check_rect(what, find_visible(app_body, "SERVICES"), 648, 192, 718, 217);
+            check_rect(what, find_visible(app_body, "SERVICES"), 648, V010_LROW(192), 718, V010_LROW(217));
             snprintf(what, sizeof(what), "landscape %d px corners: Diagnostics, above the actions", (int)c);
-            check_rect(what, target_of("Diagnostics"), 648, 922, 1190, 977);
+            check_rect(what, target_of("Diagnostics"), 648, V010_LROW(922), 1190, V010_LROW(977));
             snprintf(what, sizeof(what), "landscape %d px corners: Restart, below the fold", (int)c);
-            check_rect(what, target_of("Restart"), 648, 1042, 915, 1097);
+            check_rect(what, target_of("Restart"), 648, V010_LROW(1042), 915, V010_LROW(1097));
             snprintf(what, sizeof(what), "landscape %d px corners: Power off", (int)c);
-            check_rect(what, target_of("Power off"), 924, 1042, 1190, 1097);
+            check_rect(what, target_of("Power off"), 924, V010_LROW(1042), 1190, V010_LROW(1097));
             tap("Power off");
             snprintf(what, sizeof(what), "landscape %d px corners: the confirmation in the middle", (int)c);
             {
                 lv_area_t d;
 
                 area_of(dialog_obj(), &d);
-                check(what, d.x1 == 352 && d.x2 == 879 && d.y1 == 171);
+                check(what, d.x1 == 352 && d.x2 == 879 && d.y1 == V010_LROW(171));
             }
             snprintf(what, sizeof(what), "landscape %d px corners: LIVE over its right edge", (int)c);
-            check_rect(what, find_visible(app_body, "LIVE"), 844, 128, 879, 148);
+            check_rect(what, find_visible(app_body, "LIVE"), 844, V010_LROW(128), 879, V010_LROW(148));
             app_stop();
         }
     }

@@ -145,7 +145,7 @@ static void release_art(void)
 
 /* What is under the lock starts to show: tell the shell once, so whatever
  * it draws over the lock for the lock's sake can go before the app is seen
- * with it (a fullscreen app's status bar, shell.c status_bar_fit). */
+ * with it (the status cluster over a fullscreen app, shell.c cluster_fit). */
 static void begin_reveal(void)
 {
     if (lk.revealing) {

@@ -111,10 +111,28 @@ struct controls_layout {
     struct controls_rect dialog;   /* the antenna question, centred */
 };
 
-/* The layout for a content area of width x height. Returns 0, or -1 when the
- * area is too small to hold it without overlap (the caller still gets the
- * best effort). */
-int controls_layout(bool landscape, int32_t width, int32_t height, struct controls_layout *out);
+/* What Controls is laid out in. The content area starts at the top edge
+ * (there is no status bar, DS §36), so the header row lies where the panel's
+ * rounded top corners are and where the status cluster sits:
+ *   inset_top_left/right: what the top edge's corners take at each end
+ *                         (pos_display_bar_insets(POS_EDGE_TOP)); the side
+ *                         margin is raised to the larger of the two;
+ *   keepout:              the status cluster's widest box, in content
+ *                         coordinates; nothing is placed over it. w == 0:
+ *                         no cluster. */
+struct controls_frame {
+    bool landscape;
+    int32_t width;
+    int32_t height;
+    int32_t inset_top_left;
+    int32_t inset_top_right;
+    struct controls_rect keepout;
+};
+
+/* The layout for a frame. Returns 0, or -1 when the area is too small to
+ * hold it without overlap - with each other or with the keep-out box (the
+ * caller still gets the best effort). */
+int controls_layout(const struct controls_frame *f, struct controls_layout *out);
 
 /* Whether two rectangles share any pixel. */
 bool controls_rects_overlap(const struct controls_rect *a, const struct controls_rect *b);

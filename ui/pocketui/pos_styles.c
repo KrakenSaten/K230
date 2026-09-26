@@ -114,10 +114,15 @@ static void fill_env_styles(void)
     lv_style_set_image_recolor(s, lv_color_hex(0x000000));
     lv_style_set_image_recolor_opa(s, m == POS_MODE_NIGHT ? 150 : m == POS_MODE_OUTDOOR ? 90 : LV_OPA_TRANSP);
 
-    s = &styles[POS_STYLE_ENV_BAR];
+    /* The status capsule on the photograph (DS §36.1): the launcher's glass,
+     * colour only - its geometry is the app capsule's, which it overrides. */
+    s = &styles[POS_STYLE_ENV_CLUSTER];
     reset(s);
-    lv_style_set_bg_opa(s, LV_OPA_TRANSP);
-    lv_style_set_border_width(s, 0);
+    lv_style_set_bg_color(s, env(ENV_PANEL));
+    lv_style_set_bg_opa(s, panel_opa);
+    lv_style_set_border_color(s, env(ENV_STROKE));
+    lv_style_set_border_opa(s, stroke_opa);
+    lv_style_set_border_width(s, 1);
 
     env_text(&styles[POS_STYLE_ENV_TEXT], m == POS_MODE_OUTDOOR ? 0xffffff : ENV_TEXT, &pos_font_sans_20);
     env_text(&styles[POS_STYLE_ENV_TEXT_SMALL], m == POS_MODE_OUTDOOR ? 0xffffff : ENV_TEXT, &pos_font_sans_16);
@@ -207,14 +212,18 @@ static void fill_styles(void)
     lv_style_set_text_font(s, body);
     lv_style_set_pad_all(s, 0);
 
-    s = &styles[POS_STYLE_STATUS_BAR];
+    /* The status capsule (DS §36.1): what the §7 status bar was - bg fill,
+     * a hairline in line, caption text - shrunk to its content, so the
+     * hairline runs round it instead of under the whole screen. Its
+     * padding is the shell's (chrome.h), not a style's. */
+    s = &styles[POS_STYLE_STATUS_CLUSTER];
     reset(s);
     lv_style_set_bg_color(s, tok(POS_COLOR_BG));
     lv_style_set_bg_opa(s, LV_OPA_COVER);
     lv_style_set_border_color(s, tok(POS_COLOR_LINE));
+    lv_style_set_border_opa(s, LV_OPA_COVER);
     lv_style_set_border_width(s, t->hairline_px);
-    lv_style_set_border_side(s, LV_BORDER_SIDE_BOTTOM);
-    lv_style_set_pad_hor(s, POS_PAD);
+    lv_style_set_radius(s, POS_RADIUS);
     lv_style_set_text_color(s, tok(POS_COLOR_TEXT_SECONDARY));
 
     s = &styles[POS_STYLE_PANEL];

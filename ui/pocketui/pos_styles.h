@@ -17,7 +17,7 @@
 
 enum pos_style_role {
     POS_STYLE_SCREEN = 0,          /* bg fill, text_primary, body font */
-    POS_STYLE_STATUS_BAR,          /* bg fill, bottom hairline in line */
+    POS_STYLE_STATUS_CLUSTER,      /* the status capsule (DS §36): bg fill, hairline border in line, radius 6 */
     POS_STYLE_PANEL,               /* hairline border in line, radius 6, no fill, pad 20 */
     POS_STYLE_SLAB,                /* surface fill, radius 6 (tiles, back button) */
     POS_STYLE_SLAB_PRESSED,        /* surface_raised fill + 2 px focus outline */
@@ -83,7 +83,7 @@ enum pos_style_role {
      * Outdoor brightens the text and thickens the glass - so these are
      * refreshed with every other style. */
     POS_STYLE_ENV_BG,              /* background image: the mode's scrim as image recolour */
-    POS_STYLE_ENV_BAR,             /* status bar over the environment: no fill, no rule */
+    POS_STYLE_ENV_CLUSTER,         /* the status capsule over the environment: glass, as ENV_PANEL */
     POS_STYLE_ENV_TEXT,            /* sans 20, env text */
     POS_STYLE_ENV_TEXT_SMALL,      /* sans 16, env text */
     POS_STYLE_ENV_TEXT_SECONDARY,  /* sans 20, env secondary text */

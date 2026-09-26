@@ -50,7 +50,7 @@ struct home_rect {
 };
 
 struct home_layout_in {
-    int32_t width;          /* the content area, below the status bar */
+    int32_t width;          /* the content area: the whole display but the keyboard (DS §36) */
     int32_t height;
     bool landscape;
     /* What the panel's rounded corners take from the content area's bottom
@@ -58,12 +58,18 @@ struct home_layout_in {
     int32_t inset_left;
     int32_t inset_right;
     int32_t inset_bottom;
+    /* The status cluster's widest box, in content coordinates (DS §36): the
+     * header band narrows, symmetrically so the time stays centred, until
+     * it is clear of it; the date below it is lower than the cluster and
+     * keeps the whole row. w == 0: no cluster. */
+    struct home_rect keepout;
     uint8_t ngroups;
     uint8_t count[HOME_MAX_GROUPS]; /* apps in each group, in order; 0 = group absent */
 };
 
 struct home_layout {
-    struct home_rect header;                 /* clock and date */
+    struct home_rect header;                 /* the time, clear of the status cluster */
+    struct home_rect date;                   /* the date under it, across the whole row */
     struct home_rect panel[HOME_MAX_GROUPS];
     struct home_rect cell[HOME_MAX_APPS];    /* every app, group by group, in content coordinates */
     struct home_rect lock_button;

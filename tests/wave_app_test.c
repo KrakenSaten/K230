@@ -34,7 +34,9 @@
 
 #define PANEL_W 568
 #define PANEL_H 1232
-#define STATUS_H POCKETUI_STATUS_BAR_H
+/* Where the shell's content area starts for Wave (ui/shell/chrome.h): the
+ * top edge, as for every app since the full-width bar went (DS §36). */
+#define STATUS_H chrome_height(chrome_resolve(app_wave.chrome, false, false))
 
 extern const struct pocketos_app app_wave;
 

@@ -63,9 +63,11 @@
 /* The status bar the shell gives Timber in portrait (ui/shell/chrome.h, DS
  * section 30): none, since Timber is fullscreen. */
 #define STATUS_H chrome_height(chrome_resolve(app_timber.chrome, false, false))
-/* The viewport is 672 px in the 1060 px body under the 56 px bar, and takes
- * whatever a taller body has beyond that (timber_screens.c). */
-#define TABLE_H (672 + POCKETUI_STATUS_BAR_H - STATUS_H)
+/* The viewport is 672 px in the 1060 px body under the 56 px bar it was
+ * measured under (DS §7, retired by §36), and takes whatever a taller body
+ * has beyond that (timber_screens.c). */
+#define MEASURED_UNDER_BAR_H 56
+#define TABLE_H (672 + MEASURED_UNDER_BAR_H - STATUS_H)
 
 extern const struct pocketos_app app_timber;
 

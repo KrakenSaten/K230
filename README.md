@@ -18,7 +18,7 @@ THIRD_PARTY_NOTICES.txt    Notices for third-party material in Doors binaries an
 third_party/notices/       Sources of those notices: the component list and verbatim licence texts
 apps/                      In-process apps: radio (radiod client), system, fleet (PocketFleet), radar (PocketRadar), timber (PocketTimber), notes (PocketNotes), clock (PocketClock), calendar (PocketCalendar), calculator (PocketCalculator), settings (Wi-Fi, brightness, appearance), rift (mesh client for meshcored), files (file explorer)
 ui/pocketui/               Theme engine (pos_theme), shared role styles (pos_styles), widgets, fonts/
-ui/shell/                  Shell: status bar, launcher, app host; SDL simulator or DRM target (CMake)
+ui/shell/                  Shell: status cluster, launcher, app host; SDL simulator or DRM target (CMake)
 core/pocketipc/            IPC library and server helper: length-prefixed JSON over Unix sockets
 core/pocketlog/            Structured logging, rotation and crash reports
 core/pocketsys.c           System facts (identity, resources, storage, network) behind system.*

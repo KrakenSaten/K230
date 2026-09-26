@@ -35,10 +35,17 @@
 #define PANEL_W 568
 #define PANEL_H 1232
 #define PANEL_CORNER 30 /* the corner squares of the unit's panel (DS 21.1) */
-/* The status bar the shell gives this app in the display's orientation
- * (ui/shell/chrome.h, DS section 30), so the frame built here is the one
- * shell.c builds: 56 px in portrait, 32 px under an app in landscape. */
+/* Where the shell's content area starts for this app in the display's
+ * orientation (ui/shell/chrome.h, DS sections 30 and 36), so the frame built
+ * here is the one shell.c builds: the top edge, since no chrome reserves a
+ * row there any more. */
 #define STATUS_H chrome_height(chrome_resolve(app_settings.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
+/* Rows measured under the retired bars - 56 px in portrait (v0.0.10), 32 in
+ * landscape (DS section 30) - moved up with the frame's top, which is the
+ * top edge since the bar went (DS section 36): nothing else about those
+ * places changed. */
+#define V010_ROW(y) ((y) - 56 + STATUS_H)
+#define V010_LROW(y) ((y) - 32 + STATUS_H)
 #define PASS "correct horse 9"
 
 extern const struct pocketos_app app_settings;
@@ -1371,45 +1378,45 @@ int main(void)
             app_start();
             tick();
             snprintf(what, sizeof(what), "portrait %d px corners: the screen scrolls in the body's column", (int)c);
-            check_rect(what, screen_obj(), 20, 152, 547, 1211 - lift);
+            check_rect(what, screen_obj(), 20, V010_ROW(152), 547, 1211 - lift);
             snprintf(what, sizeof(what), "portrait %d px corners: Wi-Fi's panel is the column's width at its top",
                      (int)c);
             {
                 lv_area_t a;
 
                 area_of(panel_of("WI-FI"), &a);
-                check(what, a.x1 == 20 && a.x2 == 547 && a.y1 == 152);
+                check(what, a.x1 == 20 && a.x2 == 547 && a.y1 == V010_ROW(152));
             }
             snprintf(what, sizeof(what), "portrait %d px corners: the switch", (int)c);
-            check_rect(what, target_of("ON"), 407, 199, 526, 262);
+            check_rect(what, target_of("ON"), 407, V010_ROW(199), 526, V010_ROW(262));
             tap("New");
             snprintf(what, sizeof(what), "portrait %d px corners: the field above the keyboard", (int)c);
-            check_rect(what, pos_input_focused(), 41, 277, 526, 340);
+            check_rect(what, pos_input_focused(), 41, V010_ROW(277), 526, V010_ROW(340));
             snprintf(what, sizeof(what), "portrait %d px corners: the sheet scrolls in the body above the keyboard",
                      (int)c);
-            check_rect(what, screen_obj(), 20, 152, 547, 1231 - POS_KB_H - 20);
+            check_rect(what, screen_obj(), 20, V010_ROW(152), 547, 1231 - POS_KB_H - 20);
             app_stop();
 
             use_display(POS_ROTATION_270, c);
             app_start();
             tick();
-            /* From row 128, not 152: the 32 px COMPACT bar of DS section 30
-             * above the same header and padding; the keyboard's edge at the
-             * foot does not move. */
+            /* Numbered as under the 32 px COMPACT bar of DS section 30 (from
+             * row 128), moved up with the frame's top (DS section 36: from
+             * row 96); the keyboard's edge at the foot does not move. */
             snprintf(what, sizeof(what), "landscape %d px corners: Wi-Fi's column", (int)c);
-            check_rect(what, scroller_of(panel_of("WI-FI")), 20, 128, 604, 547 - lift);
+            check_rect(what, scroller_of(panel_of("WI-FI")), 20, V010_LROW(128), 604, 547 - lift);
             snprintf(what, sizeof(what), "landscape %d px corners: Display and Appearance's column", (int)c);
-            check_rect(what, scroller_of(panel_of("DISPLAY")), 627, 128, 1211, 547 - lift);
+            check_rect(what, scroller_of(panel_of("DISPLAY")), 627, V010_LROW(128), 1211, 547 - lift);
             snprintf(what, sizeof(what), "landscape %d px corners: the switch", (int)c);
-            check_rect(what, target_of("ON"), 464, 175, 583, 238);
+            check_rect(what, target_of("ON"), 464, V010_LROW(175), 583, V010_LROW(238));
             tap("New");
             pump(60);
             snprintf(what, sizeof(what), "landscape %d px corners: the sheet scrolls in the body above the keyboard",
                      (int)c);
-            check_rect(what, screen_obj(), 20, 128, 1211, 567 - POS_KB_H - 20);
+            check_rect(what, screen_obj(), 20, V010_LROW(128), 1211, 567 - POS_KB_H - 20);
             snprintf(what, sizeof(what), "landscape %d px corners: the field at the top of the sheet's right half",
                      (int)c);
-            check_rect(what, pos_input_focused(), 626, 149, 1190, 212);
+            check_rect(what, pos_input_focused(), 626, V010_LROW(149), 1190, V010_LROW(212));
             app_stop();
         }
     }

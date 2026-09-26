@@ -50,11 +50,38 @@ static int battery_dot(const char *json)
     return dot;
 }
 
+/* The frame the shell gives Controls (DS §36): the whole display, the top
+ * edge's rounded corners (30 px; 50 at the top in landscape, DS §21.1), and
+ * the status cluster's box on the shell's screens (the chip alone, about
+ * 113 px wide, 14 px down, 44 tall, anchored to the top-right corner). */
+#define CLUSTER_W 113
+
+static struct controls_frame frame(bool landscape, int32_t w, int32_t h, bool cluster)
+{
+    struct controls_frame f;
+    int32_t corner = landscape ? 50 : 30;
+
+    memset(&f, 0, sizeof(f));
+    f.landscape = landscape;
+    f.width = w;
+    f.height = h;
+    f.inset_top_left = corner;
+    f.inset_top_right = corner;
+    if (cluster) {
+        f.keepout.x = w - corner - CLUSTER_W;
+        f.keepout.y = 14;
+        f.keepout.w = CLUSTER_W;
+        f.keepout.h = 44;
+    }
+    return f;
+}
+
 static void check_layout(const char *what, bool landscape, int32_t w, int32_t h)
 {
     struct controls_layout l;
     char name[128];
-    int rc = controls_layout(landscape, w, h, &l);
+    struct controls_frame f = frame(landscape, w, h, true);
+    int rc = controls_layout(&f, &l);
     int i;
     int tiles_ok = 1;
 
@@ -77,6 +104,31 @@ static void check_layout(const char *what, bool landscape, int32_t w, int32_t h)
     check(name, l.dialog.x >= 0 && l.dialog.y >= 0 && l.dialog.x + l.dialog.w <= w &&
                     l.dialog.y + l.dialog.h <= h &&
                     l.dialog.x == w - (l.dialog.x + l.dialog.w));
+    /* DS §36: the header row lies at the top edge now, with the status
+     * cluster at its right end and the rounded corners at both. */
+    {
+        const struct controls_rect *top[] = { &l.back, &l.header, &l.lock, &l.power };
+        int32_t corner = f.inset_top_left;
+        struct controls_rect tl = { 0, 0, corner, corner };
+        struct controls_rect tr = { w - corner, 0, corner, corner };
+        size_t k;
+        int clear = 1;
+        int corners = 1;
+
+        for (k = 0; k < sizeof(top) / sizeof(top[0]); k++) {
+            clear &= !controls_rects_overlap(top[k], &f.keepout);
+            corners &= !controls_rects_overlap(top[k], &tl) && !controls_rects_overlap(top[k], &tr);
+        }
+        for (i = 0; i < CONTROLS_TILE_COUNT; i++) {
+            clear &= !controls_rects_overlap(&l.tile[i], &f.keepout);
+        }
+        snprintf(name, sizeof(name), "%s: nothing lies under the status cluster", what);
+        check(name, clear);
+        snprintf(name, sizeof(name), "%s: nothing lies in a rounded top corner", what);
+        check(name, corners);
+        snprintf(name, sizeof(name), "%s: the back button and the tiles share a left edge", what);
+        check(name, l.back.x == l.tile[CONTROLS_TILE_WIFI].x);
+    }
 }
 
 int main(void)
@@ -188,22 +240,31 @@ int main(void)
     controls_volume_text(false, false, 70, out, sizeof(out));
     check("volume: no sound card", strcmp(out, "Not available") == 0);
 
-    /* ---- layout: the panel is 568 x 1232, the content area is what the
-     * chrome leaves (56 px bar in both orientations on the launcher, 32 px
-     * compact in landscape under an app). ---- */
-    check_layout("portrait, full bar", false, 568, 1232 - 56);
-    check_layout("landscape, full bar", true, 1232, 568 - 56);
-    check_layout("landscape, compact bar", true, 1232, 568 - 32);
+    /* ---- layout: the panel is 568 x 1232, and the content area is all of
+     * it - the status bar is gone (DS §36). ---- */
+    check_layout("portrait", false, 568, 1232);
+    check_layout("landscape", true, 1232, 568);
     {
         struct controls_layout l;
+        struct controls_frame f = frame(false, 568, 900, true);
 
-        check("a portrait area too short to hold it is reported",
-              controls_layout(false, 568, 900, &l) == -1);
-        controls_layout(true, 1232, 512, &l);
-        check("landscape puts Lock and Power in the header row",
-              l.lock.y == l.back.y && l.power.x + l.power.w == 1232 - l.margin);
-        controls_layout(false, 568, 1176, &l);
+        check("a portrait area too short to hold it is reported", controls_layout(&f, &l) == -1);
+        f = frame(true, 1232, 568, true);
+        controls_layout(&f, &l);
+        check("landscape puts Lock and Power in the header row, left of the status cluster",
+              l.lock.y == l.back.y && l.power.x + l.power.w == f.keepout.x - 16);
+        f = frame(true, 1232, 568, false);
+        controls_layout(&f, &l);
+        check("with no cluster, Power ends at the right margin", l.power.x + l.power.w == 1232 - l.margin);
+        check("landscape: the margin is the 50 px top corner, not 36", l.margin == 50 && l.back.x == 50);
+        f = frame(false, 568, 1232, true);
+        controls_layout(&f, &l);
         check("portrait keeps Lock and Power at the foot", l.lock.y > l.list.y + l.list.h);
+        check("portrait: the margin stays 36, clear of the 30 px corners", l.margin == 36);
+        check("portrait: the header ends short of the status cluster",
+              l.header.x + l.header.w <= f.keepout.x - 16 && l.header.w >= 240);
+        f.keepout.x = 100; /* a cluster reaching over the whole header row */
+        check("a cluster the header row cannot keep clear of is reported", controls_layout(&f, &l) == -1);
     }
 
     printf("controls_model_test: %d checks, %d failure(s)\n", checks, failed);
