@@ -86,9 +86,9 @@ says so. Everything under "Open for v0.0.11" still applies.
   removed.
 - **Timber has no landscape layout**: in landscape it is its portrait page in
   a wide body and scrolls. Seen on unit A, 2026-09-24. (Wave had the same
-  problem - TRANSMIT below the fold - and has a landscape layout on branch
-  `feat/wave-next`, unit A gate PASS on `f2c22f1` with the physical-keyboard
-  check left to the owner: docs/hardware/WAVE_NEXT_GATE.md.)
+  problem - TRANSMIT below the fold - and has had a landscape layout since
+  `feat/wave-next`, unit A gate PASS on `f2c22f1`:
+  docs/hardware/WAVE_NEXT_GATE.md.)
 - **Radar in portrait** keeps the §29 scope, which the panel's width limits;
   under the fullscreen body the page ends about 200 px above the foot.
 - **RIFT's landscape ROUTE pane reaches the right edge of the screen** (the

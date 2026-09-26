@@ -7,8 +7,8 @@
 shell (`d512ba9` == master `11a5174`):
 `/root/rollback-wave-next/RESTORE.sh`.
 
-Result: **PASS**, with one check left to the owner (the physical keyboard,
-§3). Two Wave defects were found on the unit and fixed on the branch (§5).
+Result: **PASS**, the physical keyboard (§3) checked by the owner. Two
+Wave defects were found on the unit and fixed on the branch (§5).
 Run 2026-09-26 by Claude; evidence in `out/wave-next-gate/` (not committed).
 
 Scope: Wave only (apps/wave, its tests, its docs, and the Wave source lines
@@ -65,7 +65,7 @@ everywhere Wave alone held the audio (thousands of samples).
 | # | Check | Result |
 | --- | --- | --- |
 | 1 | Opens in landscape and portrait; no helper, no keyboard at open | PASS |
-| 2 | Physical keyboard in landscape | **OWNER** - the base is attached and ready (`TCA8418 ready`); typing on it needs hands. Type into the field, Enter sends. |
+| 2 | Physical keyboard in landscape | PASS (owner, on `f2c22f1`, keyboard base attached) |
 | 3 | KEYS: touch keyboard, STRIP (composer row + HIDE); HIDE restores WIDE and keeps the text; DONE sends and gives WIDE back | PASS |
 | 4 | No overlap with the current chrome: Wave stays `chrome: none`, no cluster over it, header and back button clear of the corners, composer 30 px off the foot | PASS |
 | 5 | LISTEN: RX from B, MICROPHONE ON / MIC ON / LISTENING, STOP LISTEN ends the helper | PASS |
