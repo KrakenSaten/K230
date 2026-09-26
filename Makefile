@@ -180,7 +180,7 @@ endif
 
 BINS := tools/pos/pos services/radiod/radiod services/sysd/sysd services/netd/netd tools/hwcheck/pos-spixfer \
         tools/wave/pos-wave tools/camera/pos-camera tools/zabbix/pos-zabbix tools/browser/pos-browser \
-        tools/recorder/pos-record
+        tools/recorder/pos-record tools/drmtest/pos-drmtest
 ifeq ($(ENABLE_MESHCORED),1)
 BINS += services/meshcored/meshcored
 endif
@@ -193,6 +193,19 @@ tools/pos/pos: $(POS_OBJS)
 # pos-hwcheck's SPI transport: one CS-framed SPI_IOC_MESSAGE per command,
 # the transaction radiod's HAL performs (no libraries).
 tools/hwcheck/pos-spixfer: tools/hwcheck/spixfer.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# pos-drmtest: the DRM/KMS diagnostic for display bring-up (HDMI_GATE.md).
+# Kernel DRM ioctls only, no libdrm, so the host builds it too; the logic
+# (clock quantisation, EDID, mode choice, pattern) is tested natively.
+DRMTEST_OBJS := tools/drmtest/drmtest_logic.o
+tools/drmtest/pos-drmtest: tools/drmtest/pos_drmtest.o $(DRMTEST_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/drmtest_test.o: tests/drmtest_test.c
+	$(CC) $(ALL_CFLAGS) -Itools/drmtest -c -o $@ $<
+
+tests/drmtest_test: tests/drmtest_test.o $(DRMTEST_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 services/radiod/radiod: $(RADIOD_OBJS)
@@ -1495,7 +1508,7 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
              tests/kbd_presence_test tests/chrome_test tests/home_layout_test tests/art_format_test \
              tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
              $(NOTES_TESTS) $(FILES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) $(CALC_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test \
-             $(WAVE_TESTS) $(RIFT_TESTS) $(CAMERA_TESTS) $(ZABBIX_TESTS) $(BROWSER_TESTS) $(REC_TESTS)
+             $(WAVE_TESTS) $(RIFT_TESTS) $(CAMERA_TESTS) $(ZABBIX_TESTS) $(BROWSER_TESTS) $(REC_TESTS) tests/drmtest_test
 
 # Native tests only (they execute binaries).
 test: all $(TEST_BINS)
@@ -1637,6 +1650,8 @@ test: all $(TEST_BINS)
 	bash tests/deploy_staging_test.sh
 	bash tests/splash_image_test.sh
 	bash tests/hwcheck_test.sh
+	./tests/drmtest_test
+	bash tests/display_boot_test.sh
 	bash tests/fleet_lint.sh
 	bash tests/radar_lint.sh
 	bash tests/timber_lint.sh
@@ -1668,6 +1683,8 @@ install: all meshcored-shipping-check
 	install -D -m 0755 tools/zabbix/pos-zabbix $(DESTDIR)$(PREFIX)/bin/pos-zabbix
 	install -D -m 0755 tools/browser/pos-browser $(DESTDIR)$(PREFIX)/bin/pos-browser
 	install -D -m 0755 tools/recorder/pos-record $(DESTDIR)$(PREFIX)/bin/pos-record
+	install -D -m 0755 tools/drmtest/pos-drmtest $(DESTDIR)$(PREFIX)/bin/pos-drmtest
+	install -D -m 0755 tools/display/pos-display-boot.sh $(DESTDIR)$(PREFIX)/bin/pos-display-boot
 	install -D -m 0755 services/radiod/radiod $(DESTDIR)$(PREFIX)/sbin/radiod
 	install -D -m 0755 services/sysd/sysd $(DESTDIR)$(PREFIX)/sbin/sysd
 	install -D -m 0755 services/netd/netd $(DESTDIR)$(PREFIX)/sbin/netd
@@ -1713,7 +1730,7 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 
 clean:
 	$(MAKE) -C tools/meshcore-frame clean
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd_logs_test tests/sysd_logs_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_NET_OBJS) $(FLEET_LINK_OBJS) apps/fleet/link/fleet_link_mesh.o $(FLEET_VIEW_MP_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/wave_channel.o tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o tests/volume_test tests/volume_test.o ui/shell/volume.o tests/controls_model_test tests/controls_model_test.o ui/shell/controls_model.o apps/system/diag_view.o tests/diag_view_test tests/diag_view_test.o $(ZBX_OBJS) core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o $(ZABBIX_OBJS) $(ZABBIX_TESTS) $(ZABBIX_TESTS:=.o) tools/zabbix/pos_zabbix.o tools/zabbix/pos_zabbix_mock.o $(WEB_HELPER_OBJS) $(WEB_DIR)/web_fetch_curl.o $(WEB_DIR)/web_fetch_none.o $(WEB_DIR)/web_image_dec.o $(WEB_DIR)/web_image_none.o $(BROWSER_OBJS) $(BROWSER_TESTS) $(BROWSER_TESTS:=.o) tools/browser/pos_browser.o $(POS_RECORD_OBJS) $(REC_APP_OBJS) $(REC_TESTS) $(REC_TESTS:=.o) tests/pos_record_hooks.o $(POCKETOS_BUILD_STAMP)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd_logs_test tests/sysd_logs_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_NET_OBJS) $(FLEET_LINK_OBJS) apps/fleet/link/fleet_link_mesh.o $(FLEET_VIEW_MP_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/wave_channel.o tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o tests/volume_test tests/volume_test.o ui/shell/volume.o tests/controls_model_test tests/controls_model_test.o ui/shell/controls_model.o apps/system/diag_view.o tests/diag_view_test tests/diag_view_test.o $(ZBX_OBJS) core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o $(ZABBIX_OBJS) $(ZABBIX_TESTS) $(ZABBIX_TESTS:=.o) tools/zabbix/pos_zabbix.o tools/zabbix/pos_zabbix_mock.o $(WEB_HELPER_OBJS) $(WEB_DIR)/web_fetch_curl.o $(WEB_DIR)/web_fetch_none.o $(WEB_DIR)/web_image_dec.o $(WEB_DIR)/web_image_none.o $(BROWSER_OBJS) $(BROWSER_TESTS) $(BROWSER_TESTS:=.o) tools/browser/pos_browser.o $(POS_RECORD_OBJS) $(REC_APP_OBJS) $(REC_TESTS) $(REC_TESTS:=.o) tests/pos_record_hooks.o $(POCKETOS_BUILD_STAMP) tests/drmtest_test
 
 # The files `make all` and `make test` produce, one to a line, for
 # tests/build_outputs_test.sh.

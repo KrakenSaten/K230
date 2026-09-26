@@ -43,7 +43,7 @@ DOCUMENTED (vendor schematic/source/docs), ASSUMED (inference).
 | Panel enable / "backlight" | GPIO25 (AMOLED has no backlight; DSI brightness command via panel driver patch 0049) | DOCUMENTED |
 | DRM node | /dev/dri/card0, LVGL uses RGB565/XRGB8888 via DRM dumb buffers, GDMA rotation patch. The PocketOS shell runs on the vendor-patched LVGL with `K230_LVGL_DRM_STAGING=1`; with staging off the same workload costs 4.5x the CPU | VERIFIED (shell on DRM, staging cost) |
 | Touch | Goodix GT9895 (Berlin), I2C addr 0x5D, SDA GPIO37, SCL GPIO36, IRQ GPIO23, RST GPIO24. Runtime: `goodix,nottingham` at i2c-1 0x5d, `event1 = goodix_ts`, range 1060 x 2400, GPIO23/24 held as `ts_irq_gpio`/`ts_reset_gpio`; LVGL's auto-calibration maps it correctly, no override needed | VERIFIED |
-| HDMI | Optional LT9611 bridge on the same I2C/IRQ/RST lines; separate DTB. On unit A a device answers at 0x3b on the touch bus, which matches an LT9611 with its address pin high | DOCUMENTED, ASSUMED (bridge fitted on unit A) |
+| HDMI | LT9611 DSI-to-HDMI bridge (U18) at 0x3b on I2C3 (GPIO36/37), reset GPIO24 and IRQ GPIO23 - all four shared with the touch controller; its 4-lane DSI input shares CLK/D0/D1 with the AMOLED, so HDMI and the panel are exclusive and chosen per boot (`/boot/force_dtb`, `pos-display-boot`). HPD and DDC end at the bridge. A device answers at 0x3b on unit A. Map, driver and limits: HDMI_OUTPUT.md; gate: HDMI_GATE.md (not run) | DOCUMENTED (schematic V1.0 p. 2/4/7), VERIFIED (0x3b answers), UNRESOLVED (picture on a monitor) |
 
 ## Radio and network
 
@@ -133,4 +133,4 @@ B (owner, 2026-09-13).
 4. Confirm Wi-Fi chip via `lsmod` and `/sys/bus/sdio/devices/*/device`. (done: 0x024c:0xf179, rtl8189fs)
 5. Record CH342K COM port numbers on this host. (done: COM9 console, COM10 UART3)
 6. Second unit: everything above, plus the pair test. (open)
-7. Second C908 core, HDMI bridge identity at 0x3b, what MMCX2 feeds. (open)
+7. Second C908 core, HDMI bridge identity at 0x3b (HDMI_GATE.md step 3 reads the LT9611 revision), what MMCX2 feeds. (open)
