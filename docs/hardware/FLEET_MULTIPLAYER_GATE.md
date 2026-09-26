@@ -538,7 +538,7 @@ scripts, 42 captures) is kept outside the repository in
 
 | | |
 | --- | --- |
-| commit under test | `fb3df02` = branch `claude/fleet-multiplayer-protocol-95evn7` rebased onto master `6c3ea77` (conflicts: the Makefile `clean:` line only) plus the ADR renumbering (ADR-007 is master's Zabbix ADR; this one is ADR-008) |
+| commit under test | `fb3df02` = branch `claude/fleet-multiplayer-protocol-95evn7` rebased onto master `6c3ea77` (conflicts: the Makefile `clean:` line only) plus the ADR renumbering (ADR-007 is master's Zabbix ADR; this one is ADR-008). On the branch it is `02c1038`: the same tree, re-authored before the push; the binaries report `build fb3df02` |
 | VERSION | 0.0.13, unchanged |
 | `/usr/bin/doors-shell` | sha256 `189c74bdc87803e50e32a3a2e3618918eaec96f6581e964698cbcf5354efb73d`, 1,305,088 B |
 | `/usr/sbin/meshcored` | sha256 `453426001cf8d6d105d7943a1b58b2c8f68ebf98c9aab6f9f962b473efb29364`, 252,776 B |
