@@ -7,6 +7,7 @@
 #   touch_slot0_tap.py X Y          tap the logical point of the current display
 #   touch_slot0_tap.py raw RX RY    tap raw controller values
 #   touch_slot0_tap.py where RX RY  print the logical point raw RX RY maps to now
+#   touch_slot0_tap.py rawof X Y    print the raw values logical X Y maps from now
 import os, re, struct, sys, time
 
 TOUCH = "/dev/input/event1"
@@ -85,6 +86,9 @@ def main():
     if sys.argv[1] == "where":
         rx, ry = int(sys.argv[2]), int(sys.argv[3])
         print("%d %d" % logical(rx, ry, cal))
+        return
+    if sys.argv[1] == "rawof":
+        print("%d %d" % raw_for(int(sys.argv[2]), int(sys.argv[3]), cal))
         return
     if sys.argv[1] == "raw":
         rx, ry = int(sys.argv[2]), int(sys.argv[3])

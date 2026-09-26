@@ -1,20 +1,26 @@
 # Touch after a shell restart: unit A gate
 
-**Status: INCOMPLETE, 2026-09-26.** The defect is reproduced on unit A with a
-finger injected exactly as the GT9895 reports one. The fixed build
-(`fix/touch-restart-seed` `ed2026b`) was built but **never installed**: unit A
-dropped off the network and went quiet on its serial console partway through
-the baseline, before the fixed build could go on. No finger check has been
-done yet.
+**Unit A carries the fix branch's shell, build `ed2026b`** (`fix/touch-restart-seed`,
+sha256 `c6e40113…dde2e`), hand-installed over the flashed dev image `ee39407`
+(0.0.13). Rotation is Automatic (landscape, keyboard base attached) and the
+unit is locked. `/etc/default/doors-shell` is the original file. To go back to
+the image's shell, run `/root/rollback-touch-seed/RESTORE.sh`.
 
-**Unit A as last seen (05:5x UTC, 2026-09-26):** the flashed dev image
-`ee39407` (0.0.13), shell binary unchanged (sha256 `e723ffab…76a3`), rotation
-Automatic (landscape, keyboard base attached), unlocked, on the launcher. **One
-change is still on the unit:** `/etc/default/doors-shell` has
-`export POCKETOS_INPUT_TRACE=1` appended (the shell logs a `touch trace` line
-for every press and release). The original file is in
-`/root/rollback-touch-seed/doors-shell.default`. To undo:
-`cp /root/rollback-touch-seed/doors-shell.default /etc/default/doors-shell && /etc/init.d/S90doors-shell restart`.
+**Status, 2026-09-26: injected gate PASS, finger check outstanding.**
+
+- **Baseline** on the image's shell `ee39407`: the defect reproduced three
+  times on hardware.
+- **Fixed build** `ed2026b`: every restart case landed on the tile it aimed
+  at. That covers the same point, the same raw X, the same raw Y, a control,
+  and a rotation exec.
+- **Unit A froze twice during the session:**
+  - once at about 05:56 UTC, right after a shell restart;
+  - once a few minutes after the owner's power cycle, idle on the lock screen,
+    with no input injected and only log reads over SSH.
+
+  The cause is UNKNOWN (see "The freezes"). After the second power cycle the
+  unit ran for 15 minutes without trouble, including the whole fixed-build
+  run.
 
 ## The defect
 
@@ -106,46 +112,101 @@ covered:
 
 ## Unit A run, 2026-09-26
 
-Tools: `tests/hw/touch_slot0_tap.py` injects a tap into slot 0 with
-`ABS_MT_*` only, so the input core filters it exactly as it filters a real
-finger. `tests/hw/touch_slots.py` reads the node's current values without
-changing anything. Each case: a finger lifts at the first point, the shell
-restarts, then one tap at the second point. The shell's own `touch trace` line
-shows where LVGL put that press.
+Tools:
 
-Baseline, the image's shell `ee39407` (defect expected):
+- `tests/hw/touch_slot0_tap.py` injects a tap into slot 0 with `ABS_MT_*`
+  only, so the input core filters it exactly as it filters a real finger.
+- `tests/hw/touch_slots.py` reads the node's current values without changing
+  anything.
 
-| Case | Finger | LVGL press | Result |
-|---|---|---|---|
-| Rotation exec (landscape to portrait), same raw point `249,1974` | 133,1012 | **0,0** | defect reproduced |
-| S90 restart, landscape, same point | 218,133 | **1231,0** | defect reproduced |
-| S90 restart: same raw X, same raw Y, different point | — | — | not run: the unit went offline |
+Each case works the same way: a finger lifts at one point, the shell restarts,
+then one tap follows. Restarts are either `S90doors-shell restart` or a
+rotation change, which applies itself by exec.
 
-The unit stopped answering right after the second row: the next SSH call
-timed out during banner exchange, then there was no route to `.157` or `.171`
-for at least 3 minutes, and COM9/COM10 gave no response to a carriage return.
-The last input the unit received was the injected press that landed at
-1231,0. That corner is the status bar's right end. One press there should not
-power the unit off (Power off needs three taps, including the confirmation).
-**Cause UNKNOWN.** It could be power, a link loss, or something the press
-started. The owner needs to look at the unit.
+### Baseline: the image's shell `ee39407`, with the shell's touch trace on
+
+For this part `export POCKETOS_INPUT_TRACE=1` was temporarily added to
+`/etc/default/doors-shell`, so `shell.log` records every press. Presses, from
+`shell.log`:
+
+| Time (UTC) | After | Finger (logical) | LVGL press | |
+|---|---|---|---|---|
+| 05:55:32 | (no restart) | 218,133 | 218,133 | control: lands |
+| 05:55:41 | rotation exec, landscape to portrait, same raw point `249,1974` | 133,1012 | **0,0** | defect |
+| 05:56:08 | rotation exec, portrait back to landscape; the finger repeats raw `249,1974` again | 218,133 | **1231,0** | defect |
+
+That makes three reproductions on hardware, counting the Zabbix gate's
+original finding. The press at 1231,0 was on the right end of the status bar.
+My script attributed it to its next case, "same point after an S90 restart".
+That was wrong: `shell.log` shows the press came before the restart, which
+followed at 05:56:10.
+
+### The freezes
+
+- **First freeze.** At 05:56:10.999 the restarted shell logged
+  `listening on shell.sock`, locked, and logged nothing more. The unit then
+  stopped answering: SSH timed out during banner exchange, then there was no
+  route to `.157` or `.171`, and COM9/COM10 gave no response. The owner found
+  it frozen and power-cycled it.
+- **Second freeze.** The next boot also froze, a few minutes in. Its shell log
+  ends at `lock: engaged (start)` / `listening`. No taps had been injected;
+  the only activity was SSH log reads. The owner power-cycled it again.
+- **What followed.** The trace line was taken out of `/etc/default/doors-shell`
+  as soon as SSH answered. The unit then ran idle for 11 minutes, sampled every
+  30 s: load about 0, 918 MB available, 49–51 °C, no new kernel messages. It
+  then went through the whole fixed-build run below (about ten restarts and
+  rotation execs), still with nothing new in `dmesg`.
+
+The cause is UNKNOWN. The kernel log does not survive a power cycle, so
+nothing records either freeze.
+
+- **Taps are ruled out** for the second freeze: nothing was injected before it.
+- **The fixed build is ruled out**: it was never installed before either freeze.
+- **The trace line was active during both freezes.** It only logs on a touch
+  change, so it wrote nothing while idle; it is not a likely cause.
+
+If the unit freezes again on `ed2026b`, the next step is a serial console
+capture, which would show whether the kernel is alive.
+
+### Fixed build `ed2026b`, no trace
+
+This run uses no configuration change on the unit. The launcher is the
+instrument: tile centres come from `doors shell info` (`launcher.cells`), and
+the app that opens is the answer. Tiles in landscape: Calendar at 564,280,
+Notes at 460,280 and System at 564,480. Landscape swaps the axes, so tiles in
+the same row share raw X, and tiles in the same column share raw Y.
+
+| Case | Slot 0 before the restart | Shell logged | Tap | Result |
+|---|---|---|---|---|
+| Same point (lift on Calendar, S90 restart, Calendar) | 524,1299 | `touch starts at raw 524,1299` | Calendar, no MT event reaches LVGL | **PASS**, Calendar opened |
+| Same raw X (Calendar, then Notes) | 524,1299 | `touch starts at raw 524,1299` | Notes (raw X 524 repeats) | **PASS**, Notes opened |
+| Same raw Y (Calendar, then System) | 524,1299 | `touch starts at raw 524,1299` | System (raw Y 1299 repeats) | **PASS**, System opened |
+| Control (Notes, then System) | 524,1502 | `touch starts at raw 524,1502` | System | **PASS**, System opened |
+| Rotation exec to portrait: lift in landscape at the raw point of portrait's Calendar centre (222,504) | 416,983 | `touch starts at raw 416,983` | raw 416,983 in portrait | **PASS**, Calendar opened |
+
+- The seed equalled the slot 0 read in every case, as the log lines show. My
+  script reported the seed comparison as FAIL four times; that was its own
+  grep expecting a trailing comma (fixed after the run). No case was rerun.
+- The rotation mode went back to Automatic after the run (landscape), and the
+  unit was locked again.
+- Right after installation, before any touch, the shell logged
+  `touch starts at raw 0,0 (the device's slot 0 position)`. That is correct
+  for a node nothing has touched since boot.
 
 ## Still to do
 
-1. Find out why unit A went offline: its screen, power, and the serial
-   console. Remove the trace line (above) if it is not wanted for step 2.
-2. Install `ed2026b` with a rollback (`/root/rollback-touch-seed` already
-   exists and holds the image's `/etc/default/doors-shell`; copy
-   `/usr/bin/doors-shell` there as well before replacing it). Run every case
-   above with the trace on. Expected: every press within a pixel of the
-   finger, and a `touch starts at raw …` line equal to `touch_slots.py`'s slot
-   0 read before the restart.
-3. Real finger, owner at the bench. Tap the Calculator tile and lift. Run
-   `/etc/init.d/S90doors-shell restart` over SSH without touching the panel.
-   Then tap the same tile again, as close to the same spot as you can, several
-   times across restarts. Each time, check that the tile opens and that
-   `touch trace ... down` is at the tile. With the trace on, any
-   first-press-after-restart that lands at x=0, y=0 or a panel edge shows up
-   in `shell.log`, on either build.
-4. Put the trace line back to the original file and state the unit's build at
-   the top of this sheet.
+1. **Real finger, owner at the bench.** On unit A as it is now (`ed2026b`):
+   1. Unlock, tap the Calculator tile, then return home.
+   2. Restart the shell over SSH (`/etc/init.d/S90doors-shell restart`) without
+      touching the panel. Unlock with `doors call shell shell.unlock`, or on
+      the panel.
+   3. Tap Calculator again, as close to the same spot as you can.
+
+   Calculator must open every time. Repeat a few times, and once with Settings
+   > Display > Rotation in place of the S90 restart. The chance of an exact
+   repeat is small (see above), so this checks that nothing regressed rather
+   than proving the fix; the injected cases above prove the fix.
+2. **Watch for another freeze.** If one happens, capture the serial console
+   before power-cycling.
+3. **After the decision:** merge, or `/root/rollback-touch-seed/RESTORE.sh` to
+   go back to the image's shell.
