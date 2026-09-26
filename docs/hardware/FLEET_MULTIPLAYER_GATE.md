@@ -628,7 +628,16 @@ turn read from each unit's `match.v1`.
    key came late; otherwise RESUME MATCH jumped to the board, which left
    FORFEIT unreachable (seen 2026-09-26 on a match left in Deploy).
    **Changed on `fix/fleet-forfeit-reachable`:** RESUME MATCH always opens
-   the lobby, and the key arriving no longer steers it away.
+   the lobby, and the key arriving no longer steers it away. Checked on
+   units A and B with `doors-shell` `660f27c` (sha256 `be9ae647…`), started
+   with umask 022, 2026-09-26 11:23-11:26 UTC: a session (`00e13fee`) left
+   in Deploy on both; Fleet closed and reopened on both; RESUME MATCH opened
+   the lobby ("An engagement with ... is under way", RESUME / FORFEIT) on
+   both and it stayed there 7 s later; RESUME on B went back to Deploy;
+   FORFEIT on A armed (CONFIRM FORFEIT), the second press ended it - A
+   LOSS, B WIN, both `end_reason` forfeit within 2 s, B's Deploy board
+   switched to "THEY FORFEITED" on its own; 0 failed transmits; then CLOSE
+   on both, saves idle and 0600, 0 restarts, 0 crash reports. **PASS.**
 2. **`radio.status poll failed: timed out after 200 ms`** in the shell log
    (A 15, B 9) - also on master before the gate (2026-09-25, 2026-09-26 08h),
    more often while the radio transmits. The 200 ms UI deadline doing its job;
