@@ -1842,6 +1842,11 @@ static void test_multiplayer_forfeit(void)
     check("and the opponent acknowledged it", !app->mp->m.end_unacked);
     check("the lobby then offers the result", app->current == FLEET_SCREEN_LOBBY &&
           strcmp(text_of(kid(lobby_act(), 0)), "RESULT") == 0);
+    tap_obj(lobby_act());
+    check_one_screen(FLEET_SCREEN_RESULT);
+    check_str("the Result says who forfeited, not that a fleet went down",
+              text_of(result_heading()), "You forfeited");
+    check_str("and how it ended", text_of(result_value(0, 1)), "YOU FORFEITED");
     app_stop();
     unsetenv("POCKETFLEET_MP_FAKE");
 }

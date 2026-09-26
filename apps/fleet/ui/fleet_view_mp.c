@@ -239,11 +239,12 @@ const char *fleet_view_mp_outcome(const struct fleet_match *m)
     if (!m || (m->phase != FLEET_MP_DONE && m->phase != FLEET_MP_REVEAL)) {
         return "";
     }
+    /* A forfeit sank nothing: say who gave up, not that a fleet went down. */
     switch (m->outcome) {
     case FLEET_OUTCOME_WIN:
-        return "Enemy fleet destroyed";
+        return m->end_reason == FLEET_END_FORFEIT ? "Opponent forfeited" : "Enemy fleet destroyed";
     case FLEET_OUTCOME_LOSS:
-        return "Fleet lost";
+        return m->end_reason == FLEET_END_FORFEIT ? "You forfeited" : "Fleet lost";
     default:
         return "No result";
     }

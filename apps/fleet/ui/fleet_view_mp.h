@@ -34,7 +34,8 @@ int fleet_view_mp_exchange(const struct fleet_match *m, const char *peer, char *
  * of the last invite. */
 int fleet_view_mp_lobby(const struct fleet_match *m, const char *peer, char *buf, size_t n);
 
-/* Result: the heading ("Enemy fleet destroyed", "Fleet lost", "No result"),
+/* Result: the heading ("Enemy fleet destroyed", "Fleet lost", "No result";
+ * "Opponent forfeited", "You forfeited" when the match ended by forfeit),
  * how it ended as a short caption ("ALL SHIPS SUNK", "THEY FORFEITED",
  * "VOID · RECORDS DIFFER"), and the verification of the opponent's
  * fleet. */

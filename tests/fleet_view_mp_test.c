@@ -139,10 +139,16 @@ int main(void)
     says("won", fleet_view_mp_outcome(&m), "Enemy fleet destroyed");
     says("won by sinking everything", fleet_view_mp_ended(&m), "ALL SHIPS SUNK");
     m.outcome = FLEET_OUTCOME_LOSS;
+    says("lost", fleet_view_mp_outcome(&m), "Fleet lost");
+    /* A forfeit sank nothing, so neither heading may say a fleet went down. */
     m.end_reason = FLEET_END_FORFEIT;
     m.end_by_me = 1;
-    says("lost", fleet_view_mp_outcome(&m), "Fleet lost");
+    says("we forfeited: the heading says so", fleet_view_mp_outcome(&m), "You forfeited");
     says("we forfeited", fleet_view_mp_ended(&m), "YOU FORFEITED");
+    m.outcome = FLEET_OUTCOME_WIN;
+    m.end_by_me = 0;
+    says("they forfeited: the heading says so", fleet_view_mp_outcome(&m), "Opponent forfeited");
+    says("they forfeited", fleet_view_mp_ended(&m), "THEY FORFEITED");
     m.outcome = FLEET_OUTCOME_VOID;
     m.end_reason = FLEET_END_VIOLATION;
     says("void", fleet_view_mp_outcome(&m), "No result");
