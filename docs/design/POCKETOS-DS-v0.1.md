@@ -211,7 +211,7 @@ not change between modes except the `type_default` and `hairline` tokens.
 
 | Constant | Value |
 | --- | --- |
-| status bar height | none: the full-width bar is retired (§36, proposed); was 56 (FULL chrome), 32 (COMPACT), 0 (NONE) under §30 |
+| status bar height | none: the full-width bar is retired (§36, accepted); was 56 (FULL chrome), 32 (COMPACT), 0 (NONE) under §30 |
 | status cluster | 44 tall, 14 from the top edge (centred on the 72 px header row), right edge at the header's side margin (§21.1 insets); as wide as its content (§36.1) |
 | app header height | 72 |
 | screen horizontal padding | 20 |
@@ -263,7 +263,7 @@ not change between modes except the `type_default` and `hairline` tokens.
 
 Colours are tokens; geometry from §7; type from §3.
 
-**Status bar** — retired by §36 (proposed 2026-09-26): there is no
+**Status bar** — retired by §36 (accepted 2026-09-26): there is no
 full-width bar, no wordmark cell and no hint cell; the radio chip and the
 clock are in the status cluster (§36.1) and the hint is in the app header.
 What follows is the bar as it was. 56 px on `bg`, bottom `hairline` in `line` (this is the
@@ -2287,10 +2287,10 @@ the app, which is v0.1 behaviour and not changed here.
 
 ## 30. Amendment N — Status chrome policy [ACCEPTED]
 
-> §36 (proposed 2026-09-26) retires the FULL and COMPACT bars described
+> §36 (accepted 2026-09-26) retires the FULL and COMPACT bars described
 > here: the policy stays (a screen shows status unless its app declares
-> NONE, §30.2, §30.8), the bars do not. Until §36 is accepted this section is
-> what v0.1.0 shipped.
+> NONE, §30.2, §30.8), the bars do not. This section is what v0.1.0
+> shipped.
 
 **ACCEPTED 2026-09-23** by the owner, on the v0.0.11 RC1 unit A gate
 (`docs/hardware/V0.0.11_RELEASE_SMOKE.md`), which is what §30.7 below asked of the device
@@ -3067,8 +3067,11 @@ same pipeline as Camera's:
   page is clickable, with nothing to click, so that a drag on text scrolls
   it; the gate found this in landscape STATUS.
 
-## 36. Amendment T — Compact status cluster [PROPOSED]
+## 36. Amendment T — Compact status cluster [ACCEPTED]
 
+**ACCEPTED 2026-09-26** by the owner, on the unit A chrome/layout smoke of
+`64416ab` (docs/hardware/COMPACT_STATUS_CLUSTER_GATE.md, PASS), and merged to
+master after a conflict-free rebase onto `f345859`.
 **Proposed 2026-09-26** on branch `feat/compact-status-cluster`, at the
 owner's request, after v0.1.0. It becomes normative on the same terms as
 the rest of this document when the owner accepts it after its unit A gate
@@ -3206,3 +3209,5 @@ service restarts.
 rotation each way, every screen measured from `shell.info`, touch injected.
 The owner's look on the panel, and the chip in TX and OFF on hardware, are
 what it leaves for acceptance.
+
+Amendment T (§36) accepted 2026-09-26; unit A chrome/layout smoke PASS on `64416ab`.
