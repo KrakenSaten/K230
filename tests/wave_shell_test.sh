@@ -27,7 +27,8 @@ check "the shell knows about Wave" \
     "$(grep -q 'extern const struct pocketos_app app_wave;' ui/shell/shell.c && echo 1 || echo 0)"
 check "it is on the launcher, after Settings" \
     "$(grep -q '&app_settings, &app_wave' ui/shell/shell.c && echo 1 || echo 0)"
-for src in wave_app.c wave_view.c wave_session.c wave_text.c; do
+for src in wave_app.c wave_view.c wave_session.c wave_text.c wave_ctl.c wave_history.c wave_layout.c \
+           wave_preset.c wave_store.c; do
     check "the shell builds $src" \
         "$(grep -q "apps/wave/$src" ui/shell/CMakeLists.txt && echo 1 || echo 0)"
 done
