@@ -11,6 +11,7 @@ GEN=tools/design/gen_app_icons.py
 ICONS_C=ui/pocketui/pos_app_icons.c
 ART=docs/design/brand/doors-threshold/icons/png-32
 EXT=docs/design/brand/doors-icon-extension/png-32
+FIRST=docs/design/doors-app-icons/png-32
 failed=0
 check() { if [ "$2" -eq 1 ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 
@@ -64,16 +65,30 @@ while read -r sha path; do
 done < "${TMP}/want.sha"
 check "the committed file names each of the thirteen sources and its hash (${named})" \
     "$([ "${named}" = "13" ] && echo 1 || echo 0)"
+# One more icon is first-party (docs/design/doors-app-icons/README.md): drawn
+# in the repository in the extension's line language, for an app no package
+# has an icon for. It is kept apart from the owner's artwork above, pinned by
+# its own hash, and must be exactly what its SVG master renders to.
+ZABBIX_SHA=8de1165ce12ae53ea4cfc4aa190aaa26bea8053adf92f8a3035e260f1294d490
+check "the first-party Zabbix icon is the committed file (sha256)" \
+    "$([ "$(sha256sum "${FIRST}/zabbix.png" | cut -c1-64)" = "${ZABBIX_SHA}" ] && echo 1 || echo 0)"
+python3 tools/design/render_app_icon.py docs/design/doors-app-icons/svg/zabbix.svg "${TMP}/first" >/dev/null 2>&1
+check "it is exactly what render_app_icon.py draws from its SVG, at 24 and 32 px" \
+    "$(cmp -s "${TMP}/first/png-32/zabbix.png" "${FIRST}/zabbix.png" &&
+       cmp -s "${TMP}/first/png-24/zabbix.png" docs/design/doors-app-icons/png-24/zabbix.png && echo 1 || echo 0)"
+check "pos_app_icons.c names it and its hash, as its source" \
+    "$(grep -qx " \*   ${FIRST}/zabbix.png" "${ICONS_C}" && grep -qx " \*     sha256 ${ZABBIX_SHA}" "${ICONS_C}" &&
+       echo 1 || echo 0)"
 
 # ---- each mask is its artwork's alpha ------------------------------------------
 # Decoded with the Timber art reader, not the generator's own, so a decoding
 # fault in one is not hidden by the same fault in the other.
-python3 - "${ICONS_C}" "${ART}" "${EXT}" <<'PY' >"${TMP}/masks.txt" 2>&1
+python3 - "${ICONS_C}" "${ART}" "${EXT}" "${FIRST}" <<'PY' >"${TMP}/masks.txt" 2>&1
 import re, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, "docs/design/timber-art/tools")
 from pngio import read_png
-src, art, ext = sys.argv[1:4]
+src, art, ext, first = sys.argv[1:5]
 text = open(src, encoding="utf-8").read()
 names = re.findall(r"^const lv_image_dsc_t pos_app_icon_(\w+) = \{", text, re.M)
 bad = 0
@@ -82,7 +97,8 @@ for n in names:
     data = [int(v, 16) for v in re.findall(r"0x([0-9a-f]{2})", body)]
     dsc = re.search(r"pos_app_icon_%s = \{(.*?)\};" % n, text, re.S).group(1)
     hdr = dict(re.findall(r"\.header\.(\w+) = (\w+),", dsc))
-    W, H, rows = read_png("%s/%s.png" % (ext if n in ("wave", "files", "camera") else art, n))
+    W, H, rows = read_png("%s/%s.png" % (ext if n in ("wave", "files", "camera") else
+                                         first if n == "zabbix" else art, n))
     alpha = [p[3] for r in rows for p in r]
     ok = (hdr.get("cf"), hdr.get("w"), hdr.get("h"), hdr.get("stride")) == ("LV_COLOR_FORMAT_A8", "32", "32", "32") \
         and (W, H) == (32, 32) and data == alpha
@@ -95,14 +111,16 @@ PY
 rc=$?
 check "every mask is A8, 32 x 32, and equals its PNG's alpha byte for byte" "$([ "${rc}" = "0" ] && echo 1 || echo 0)"
 check "there is one mask per launcher app, named by app id, and no other" \
-    "$(grep -qx 'names calculator calendar camera clock files fleet notes radar radio settings system timber wave' "${TMP}/masks.txt" && echo 1 || echo 0)"
-check "the file holds 13,312 bytes of mask data and nothing else of size" \
-    "$([ "$(grep -o '0x[0-9a-f][0-9a-f]' "${ICONS_C}" | wc -l)" = "13312" ] && echo 1 || echo 0)"
+    "$(grep -qx 'names calculator calendar camera clock files fleet notes radar radio settings system timber wave zabbix' "${TMP}/masks.txt" && echo 1 || echo 0)"
+check "the file holds 14,336 bytes of mask data and nothing else of size" \
+    "$([ "$(grep -o '0x[0-9a-f][0-9a-f]' "${ICONS_C}" | wc -l)" = "14336" ] && echo 1 || echo 0)"
 extra=$(grep -c 'doors-icon-extension' "${ICONS_C}")
 check "of the extension's thirteen icons only Wave, Files and Camera are compiled in (${extra} sources)" \
     "$([ "${extra}" = "3" ] && grep -qx " \*   ${EXT}/wave.png" "${ICONS_C}" &&
        grep -qx " \*   ${EXT}/files.png" "${ICONS_C}" &&
        grep -qx " \*   ${EXT}/camera.png" "${ICONS_C}" && echo 1 || echo 0)"
+first=$(grep -c 'doors-app-icons' "${ICONS_C}")
+check "and one first-party icon, Zabbix's (${first} sources)" "$([ "${first}" = "1" ] && echo 1 || echo 0)"
 
 # ---- refusals ------------------------------------------------------------------
 refused() { # <label> <message fragment> <source>...
@@ -149,6 +167,10 @@ python3 - <<'PY' >"${TMP}/apps.txt" 2>&1
 import glob, re, sys
 shell = open("ui/shell/shell.c", encoding="utf-8").read()
 listed = re.findall(r"&(app_\w+)", re.search(r"apps\[\]\s*=\s*\{(.*?)\};", shell, re.S).group(1))
+# The apps a shell can be configured without (OPTIONAL_APPS) are in the
+# registry by default, so the launcher lists them too.
+optional = re.search(r"^#define OPTIONAL_APPS (.+)$", shell, re.M)
+listed += re.findall(r"&(app_\w+)", optional.group(1)) if optional else []
 descs = {}
 for path in sorted(glob.glob("apps/*/*.c")):
     text = open(path, encoding="utf-8").read()
@@ -164,10 +186,11 @@ for var in listed:
 PY
 listed=$(sed -n '/static const struct pocketos_app \*const apps\[\]/,/};/p' ui/shell/shell.c |
          grep -o '&app_[a-z_]*' | wc -l)
+listed=$((listed + $(grep '^#define OPTIONAL_APPS ' ui/shell/shell.c | grep -o '&app_[a-z_]*' | wc -l)))
 check "every launcher app's descriptor was read (${listed} listed)" \
     "$([ "$(grep -c . "${TMP}/apps.txt")" = "${listed}" ] && ! grep -q Traceback "${TMP}/apps.txt" &&
        echo 1 || echo 0)"
-for id in radio system fleet radar timber notes clock calendar calculator settings wave files camera; do
+for id in radio system fleet radar timber notes clock calendar calculator settings wave files camera zabbix; do
     check "${id} uses its own icon, pos_app_icon_${id}" \
         "$(grep -qE "^${id} LV_SYMBOL_[A-Z_]+ pos_app_icon_${id} " "${TMP}/apps.txt" && echo 1 || echo 0)"
 done
@@ -190,8 +213,8 @@ check "no launcher app is without an icon mask except the one known to have no a
 check "and that one is still without it, so this exception has not gone stale (${nomask:-none})" \
     "$([ "$(echo ${nomask})" = "${NO_MASK_ALLOWED}" ] && echo 1 || echo 0)"
 users=$(grep -rl 'pos_app_icon_' apps ui --include='*.c' --include='*.h' | grep -v "^${ICONS_C}$" | wc -l)
-check "the masks are referenced only by the thirteen app descriptors that have one (found in ${users} files)" \
-    "$([ "${users}" = "13" ] && echo 1 || echo 0)"
+check "the masks are referenced only by the fourteen app descriptors that have one (found in ${users} files)" \
+    "$([ "${users}" = "14" ] && echo 1 || echo 0)"
 check "the brand mark is not used as an app icon (DS §19.1)" \
     "$(grep -rqE 'icon_mask = &pos_brand_mark' apps ui && echo 0 || echo 1)"
 # The DOORS launcher (DS §31) draws each app's portal icon from the runtime

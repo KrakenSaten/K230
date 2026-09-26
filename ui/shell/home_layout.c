@@ -243,6 +243,7 @@ static const struct home_entry entries[] = {
     { "rift", HOME_GROUP_CONNECT, HOME_HUE_MESH },
     { "radio", HOME_GROUP_CONNECT, HOME_HUE_RADIO },
     { "wave", HOME_GROUP_CONNECT, HOME_HUE_NETWORK },
+    { "zabbix", HOME_GROUP_CONNECT, HOME_HUE_TOOLS },
     { "notes", HOME_GROUP_WORK, HOME_HUE_FILES },
     { "calendar", HOME_GROUP_WORK, HOME_HUE_TOOLS },
     { "clock", HOME_GROUP_WORK, HOME_HUE_AI },

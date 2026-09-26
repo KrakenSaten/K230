@@ -4,7 +4,7 @@
     gen_app_icons.py [-o pos_app_icons.c] [SOURCE ...]
 
 A SOURCE is a PNG or a directory of PNGs. Without sources: the launcher's
-thirteen icons, LAUNCHER_ICONS below, into ui/pocketui/pos_app_icons.c. The
+fourteen icons, LAUNCHER_ICONS below, into ui/pocketui/pos_app_icons.c. The
 generated file is committed, like the fonts and the brand mark, so a build
 needs neither this script nor the PNGs; tests/app_icons_test.sh fails if it no
 longer matches its sources.
@@ -37,13 +37,17 @@ from pngstrict import PngError, read_png  # noqa: E402
 PREFIX = "pos_app_icon_"
 THRESHOLD = "docs/design/brand/doors-threshold/icons/png-32/"
 EXTENSION = "docs/design/brand/doors-icon-extension/png-32/"
+# First-party app icons in the extension's line language, for apps no package
+# has one for (docs/design/doors-app-icons/README.md).
+FIRST_PARTY = "docs/design/doors-app-icons/png-32/"
 # One icon per launcher app (ui/shell/shell.c apps[]), from the package that
-# supplied it (docs/design/brand/README.md).
+# supplied it (docs/design/brand/README.md), or first-party where none did.
 LAUNCHER_ICONS = [THRESHOLD + n + ".png" for n in
                   ("radio", "system", "fleet", "radar", "timber", "notes",
                    "clock", "calendar", "calculator", "settings")] + [EXTENSION + "wave.png",
                                                                     EXTENSION + "files.png",
-                                                                    EXTENSION + "camera.png"]
+                                                                    EXTENSION + "camera.png",
+                                                                    FIRST_PARTY + "zabbix.png"]
 
 
 def mask(png, src):

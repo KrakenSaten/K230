@@ -214,7 +214,7 @@ shot "$OUT/l-home.png" "$OUT/l-home.log" --rotation landscape --no-lock
 check "landscape, home: FULL, 56 px" \
     "$(logs "$OUT/l-home.log" | grep -q 'chrome: full, status bar 56 px, content from y 56, for home' && echo 1 || echo 0)"
 check "landscape, home: the grouped launcher below a 56 px bar" \
-    "$(logs "$OUT/l-home.log" | grep -q 'launcher: 4 group(s), 14 app(s), landscape' && echo 1 || echo 0)"
+    "$(logs "$OUT/l-home.log" | grep -q 'launcher: 4 group(s), 15 app(s), landscape' && echo 1 || echo 0)"
 # On the launcher the bar lies on the home photograph with no fill and no
 # rule (DS §31.1); its height is still FULL's, as the log line above says.
 set -- $(geometry "$OUT/l-home.png")
