@@ -60,7 +60,7 @@ BIN=${DISPLAY_TOUCH_TEST:-$(dirname "$SHELL_BIN")/display_touch_test}
 if [ -x "$BIN" ]; then
     log=$("$BIN" 2>&1 | grep -vE 'is greater than|smaller than zero'); rc=$?
     printf '%s\n' "$log" | grep -E '^FAIL|display_touch_test:'
-    check "display and touch turn together through LVGL's evdev driver, and a mismatch is caught" \
+    check "display and touch turn together through LVGL's evdev driver, a mismatch is caught, and a restarted shell's first touch lands" \
         "$(printf '%s\n' "$log" | grep -qE '^display_touch_test: [0-9]+ checks, 0 failure' && echo 1 || echo 0)"
 else
     check "display_touch_test binary present ($BIN)" 0
