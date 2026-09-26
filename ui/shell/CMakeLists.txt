@@ -296,7 +296,7 @@ else()
     # KEYBOARD_DRIVER_DESIGN_2026-09-12.md §4). libgpiod2 is already a
     # dependency of the Buildroot package, for radiod's SX1262 HAL.
     pkg_check_modules(GPIOD REQUIRED libgpiod)
-    target_sources(pocketos-shell PRIVATE kbd_bus_k230.c)
+    target_sources(pocketos-shell PRIVATE kbd_bus_k230.c touch_seed.c)
     target_include_directories(pocketos-shell PRIVATE ${GPIOD_INCLUDE_DIRS})
     target_link_libraries(pocketos-shell PRIVATE ${GPIOD_LIBRARIES})
     target_include_directories(${LVGL_INC_TARGET} PUBLIC ${DRM_INCLUDE_DIRS} ${EVDEV_INCLUDE_DIRS})
@@ -561,6 +561,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_executable(display_touch_test
             ${REPO_DIR}/tests/display_touch_test.c
+            touch_seed.c
             ../pocketui/pos_display.c)
         target_include_directories(display_touch_test PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui")

@@ -26,6 +26,7 @@
  */
 #include "platform.h"
 #include "pocketlog/pocketlog.h"
+#include "touch_seed.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -221,6 +222,35 @@ static void touch_configure(lv_indev_t *indev, const char *what, const struct in
              (int)cfg.cal_x2, (int)cfg.cal_y2, (int)active.width, (int)active.height);
 }
 
+/* LVGL's pointer on the touch node, starting where the device last had a
+ * finger. Without that, a restarted shell (S90 restart, or a rotation's exec)
+ * loses the first touch that repeats the last raw X or Y: the kernel sends no
+ * event for an unchanged value and LVGL starts at 0,0 (touch_seed.h). */
+static lv_indev_t *touch_create(const char *path)
+{
+    struct touch_seed seed;
+    bool seeded;
+    lv_indev_t *indev;
+    int fd = open(path, O_RDONLY | O_NOCTTY | O_CLOEXEC);
+
+    if (fd < 0) {
+        return NULL;
+    }
+    touch_seed_read(fd, &seed);
+    indev = touch_seed_evdev_create(fd, &seed, &seeded);
+    if (indev && seeded) {
+        LOG_INFO("%s: touch starts at raw %d,%d (the device's %s)", path, (int)seed.x, (int)seed.y,
+                 seed.from_slot ? "slot 0 position" : "ABS_X and ABS_Y");
+    } else if (indev) {
+        LOG_WARN("%s: touch starts at raw 0,0; the device's position could not be applied, so a first "
+                 "touch repeating the last raw X or Y lands at 0 on that axis", path);
+    }
+    return indev;
+}
+
+/* Discovery (the node appeared after the shell started) creates LVGL's
+ * pointer itself, unseeded. A node that has only just appeared normally still
+ * holds 0,0, which is where LVGL starts. */
 static void on_evdev_found(lv_indev_t *indev, lv_evdev_type_t type, void *user_data)
 {
     char path[64];
@@ -286,7 +316,7 @@ lv_display_t *pocketos_platform_init(const struct pos_panel *panel, struct pos_d
     active = *geometry;
 
     if (find_touch(touch_dev, touch_path, sizeof(touch_path), &ax, &ay) == 0) {
-        lv_indev_t *indev = lv_evdev_create(LV_INDEV_TYPE_POINTER, touch_path);
+        lv_indev_t *indev = touch_create(touch_path);
 
         if (indev) {
             touch_configure(indev, touch_path, &ax, &ay);
