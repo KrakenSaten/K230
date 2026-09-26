@@ -6,6 +6,14 @@ rotation mode **Automatic** (keyboard base present, so landscape), **locked**,
 radio `rx`. Rollback: `/root/rollback-cluster/RESTORE.sh` puts back the
 v0.1.0 `doors-shell` (1368695, md5 `ab2eb9e2…`).
 
+**Since 2026-09-26 19:03 UTC unit A carries master's shell, build `2161e0a`**
+(the merge of this branch; the same chrome/layout code as `64416ab`),
+deployed the same way - the stripped riscv64 DRM `doors-shell` alone, md5
+`4daad5d5…`. After the restart: Automatic (landscape), locked, radio `rx`,
+the 8 launcher rules of `frame.py` ok, no crash reports, no shell WARN or
+ERROR, and radiod, meshcored, sysd and netd kept their pids. The rollback
+above still restores v0.1.0. The results below were taken on `64416ab`.
+
 **Result: PASS** as a chrome/layout smoke (DS §36.7), with the limits listed
 at the foot. Not a feature gate: no app was exercised beyond opening it.
 
