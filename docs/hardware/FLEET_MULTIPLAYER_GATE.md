@@ -3,7 +3,8 @@
 **Status: RUN 2026-09-26 - minimum P7 gate PASS** (see "Results" at the end).
 **Both units carry the gate build `fb3df02`** (`doors-shell` + `meshcored`
 only) as of the end of the run: unit A on its master `6c3ea77` userspace,
-unit B on the flashed dev image `ee39407`. Both left landscape (Automatic),
+unit B on the flashed dev image `ee39407`. Since the file-mode fix, unit A's
+`doors-shell` is `5ec0009` (see "The match.v1 file mode"). Both left landscape (Automatic),
 on the home screen, unlocked, rollback in `/root/rollback-fleet-mp/RESTORE.sh`.
 
 The procedure below is the plan as prepared at the end of P0-P6 (ADR-008,
@@ -628,13 +629,42 @@ turn read from each unit's `match.v1`.
    (A 15, B 9) - also on master before the gate (2026-09-25, 2026-09-26 08h),
    more often while the radio transmits. The 200 ms UI deadline doing its job;
    not a Fleet regression.
-3. **Save file mode follows the umask.** `fleet_store` writes with `fopen`, so
-   `match.v1` is 0600 when the shell was started from an SSH session (umask
-   0077) and 0644 when started at boot (umask 022). `save.v1` behaves the same
-   (master). Only local processes can read it; recorded, not fixed here.
+3. **Save file mode followed the umask - FIXED for `match.v1`** (see "The
+   match.v1 file mode" below). `fleet_store` wrote with `fopen`, so `match.v1`
+   was 0600 when the shell was started from an SSH session (umask 0077) and
+   0644 when started at boot (umask 022). `save.v1` (single player, master)
+   still follows the umask; left out of scope.
 4. Unit B's ee39407 image has no `icon-zabbix.bin` (Zabbix's icon is newer
    than the image), so its launcher draws a fallback; irrelevant to Fleet.
 
 Not covered: steps 10 (non-Doors node ignores an app datagram - still
 ASSUMED) and 11; range, repeaters and a busy channel (UNRESOLVED); the
 "out of reach, paused" notice (the outage ended first).
+
+### The match.v1 file mode (after the gate, 2026-09-26 10:20-10:35 UTC)
+
+Fix `5ec0009`: `fleet_store_match_save` opens its temporary file with
+`O_CREAT` and mode 0600 and then `fchmod`s it to 0600, so neither the umask
+nor a leftover temporary file with a wider mode can widen `match.v1`. The
+atomic discipline is unchanged (temporary file, fsync, rename, directory
+fsync). Host: `fleet_save_test` 73 ok (new: 0600 under umask 0 and 022, a
+leftover 0666 temporary file, an existing 0644 file replaced, content intact);
+the same test against the old `fleet_store.c` fails 4 checks. The other
+Fleet suites, `fleet_lint` and `fleet_shell_test` 0 FAIL; riscv64 DRM shell
+0 warnings.
+
+Hardware, unit A only: `doors-shell` `5ec0009` (sha256 `6c6149f9…1852`)
+installed alone and started with `umask 022` - the boot condition that had
+produced the 0644 file - confirmed by `/proc/<pid>/status` `Umask: 0022`.
+
+| Step | `/var/lib/pocketos/fleet/match.v1` on unit A |
+| --- | --- |
+| before (the P7 match, saved by the boot-started `fb3df02` shell) | `-rw-r--r--` 0644 |
+| CLOSE on the finished engagement (a save) | `-rw-------` **0600** |
+| a new session, A invites B, B accepts, both in Deploy (sid `00997b47`) | `-rw-------` **0600**, no temporary file left |
+
+**Result: PASS.** Units as left: A runs `doors-shell` `5ec0009` with
+`meshcored` `fb3df02` (the gate's shell kept as
+`/root/rollback-fleet-mp/doors-shell-fb3df02`); B unchanged on the gate build
+`fb3df02`. The test session `00997b47` was left in Deploy on both (no shot
+fired); RESUME MATCH offers it until it is forfeited.

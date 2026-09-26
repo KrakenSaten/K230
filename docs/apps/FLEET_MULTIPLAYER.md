@@ -243,6 +243,9 @@ separate from `save.v1` and independent of it. **655 bytes**, fields
 little-endian, FNV-1a trailer (`apps/fleet/net/fleet_match_save.c`). Written
 to a temporary file, flushed, renamed, and then the directory flushed, so the
 new name survives a power cut too; a failed directory flush is a failed write.
+The file is always mode 0600, whatever the umask of the process that writes
+it (the temporary file is created 0600 and `fchmod`ed): it holds our own fleet
+and its salt, which stay secret until the reveal.
 
 On load it is checked twice. The codec refuses a wrong size, magic, version,
 checksum or field, and a file saved under another node identity.
@@ -360,7 +363,7 @@ to measure (docs/hardware/FLEET_MULTIPLAYER_GATE.md).
 | `tests/fleet_mp_sim_test` | two AI players over a simulated LoRa channel with loss, duplication, reordering, collisions, outages, crashes, app close/reopen, service restarts and reboots; invariants after every step, the perfect-network oracle, eight cheating peers. `make fleet-mp-soak` for 5000 matches a profile |
 | `tests/fleet_session_test` | the session against the virtual opponent: nothing before engaging, whole matches clean and lossy, reopen and resume, a failed save, another identity's save, decline, silence |
 | `tests/fleet_view_mp_test` | every UX state's words |
-| `tests/fleet_save_test` (match.v1) | the file: whole, byte for byte, independent of save.v1, oversized refused, a write that cannot happen |
+| `tests/fleet_save_test` (match.v1) | the file: whole, byte for byte, independent of save.v1, oversized refused, a write that cannot happen, 0600 under any umask |
 | `tests/fleet_app_test` (section 8) | whole multiplayer matches under a finger in both shapes, a turn across the page never scrolling, reopen and RESUME MATCH, the link lost and CHECK LINK |
 | `tests/fleet_shell_test.sh` (section 10) | every multiplayer state rendered in both shapes in the shell, `match.v1` written whole, no mesh service, a damaged `match.v1` |
 | `tests/fleet_lint.sh` | the layers: net pure, one file talks to a service, no radio method, nothing pumped before engaging, the virtual opponent only when asked for |
