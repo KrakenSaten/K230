@@ -271,6 +271,7 @@ static const struct home_entry entries[] = {
     { "radio", HOME_GROUP_CONNECT, HOME_HUE_RADIO },
     { "wave", HOME_GROUP_CONNECT, HOME_HUE_NETWORK },
     { "zabbix", HOME_GROUP_CONNECT, HOME_HUE_TOOLS },
+    { "browser", HOME_GROUP_CONNECT, HOME_HUE_NETWORK },
     { "notes", HOME_GROUP_WORK, HOME_HUE_FILES },
     { "calendar", HOME_GROUP_WORK, HOME_HUE_TOOLS },
     { "clock", HOME_GROUP_WORK, HOME_HUE_AI },
