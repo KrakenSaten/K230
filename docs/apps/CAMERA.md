@@ -4,11 +4,13 @@ A live picture, a shutter, and a look at the photo just taken: keep it, or
 delete it. Then a small gallery of every photo in the library: a grid, one
 photo with what is known about it, a slideshow, delete, and export to Files.
 
-Gallery status: **branch `feat/camera-gallery` (on v0.1.0), not merged, not
-run on hardware.** Host-tested end to end on the fake backend, with and
-without libjpeg; the helper and the pure-C suites also built and run for
-riscv64 under qemu-user. See "The gallery" below and "Hardware tests still
-needed".
+Gallery status: **branch `feat/camera-gallery` (on master `dd3809b`), not
+merged. Unit A gate NOT PASSED: unit A hung (console and network dead) during
+repeated camera-to-gallery cycling; cause not established**
+(`docs/hardware/CAMERA_GALLERY_GATE.md`). Everything the gate reached before
+that passed on unit A with the real GC2093 and libjpeg 9f. Host-tested end to
+end on the fake backend, with and without libjpeg (IJG 9f, the image's own
+version, under ASan/UBSan too); built with the pinned Xuantie toolchain.
 
 Status: **working on unit A, on branch `feat/camera-app-design` (rebased on
 v0.0.12), not merged.** The real V4L2 backend is written and gated: live
@@ -141,8 +143,9 @@ gallery".)
 
 ### What it does
 
-- **Grid.** Thumbnails of the library, newest first, a page at a time (15
-  in portrait - 3 columns of 170 px - and 10 in landscape); NEWER and OLDER
+- **Grid.** Thumbnails of the library, newest first, a page at a time (as
+  many cells of about 160 px as the body holds: 12 in portrait - 3 x 4 of
+  170 px - and 10 in landscape on unit A); NEWER and OLDER
   turn pages; the status line says how many photos and which page. A file that
   cannot be read shows "Cannot show" in its cell. CAMERA goes back to the live
   picture; SLIDESHOW starts from the page's first photo.
@@ -153,14 +156,17 @@ gallery".)
 - **Delete.** DELETE asks "Delete this photo?" with CANCEL and DELETE; only the
   second DELETE removes the file. The next older photo takes its place.
 - **Export.** EXPORT copies the photo into `~/Pictures` (below) and says
-  where: "Saved to Files: /root/Pictures/IMG_....jpg", or "Already in Files"
-  when that exact file is there.
+  where: "Saved to Files: /root/Pictures/IMG_....jpg", or "Already in Files:
+  <path>" when a file there holds exactly this photo, byte for byte. A
+  different file under the photo's name (another photo that got the same
+  number, or one of the owner's) is kept, and the copy is saved as
+  `IMG_..._nnnn-2.jpg` (then -3, ...).
 - **Slideshow.** One photo after another every 4 s (`GALLERY_SLIDE_MS`, fixed),
   over the whole body with a status line under it ("Slideshow | 3 of 12 | tap
   to stop"), wrapping round at the oldest. The next photo is prepared while the
   current one is shown. A photo that cannot be read, or was deleted meanwhile,
-  is skipped; when none can be shown it stops and says so. A tap anywhere
-  stops it.
+  is skipped; when none can be shown it stops and says so. A tap on the
+  picture or beside it stops it (the status line itself does not).
 - **Failures said in words.** "Opening photos", "No photos yet", "Photos
   unavailable" (the helper missing, crashed, not responding, or the folder
   unreadable) with TRY AGAIN and CAMERA.
@@ -182,7 +188,7 @@ as `# doors-...` comment lines (PPM), read back by the gallery
 | --- | --- |
 | name, file size | the file |
 | width x height | the picture's header (upright, after its EXIF orientation) |
-| taken | EXIF `DateTimeOriginal`, written only when the wall clock was valid (PocketClock's floor); else the date in the name; else "Date unknown: the clock was not set" |
+| taken | EXIF `DateTimeOriginal`, written only when the wall clock was valid (PocketClock's floor); else the date in the name; else "Date unknown: the clock was not set". A date before 1995 (EXIF's start: an unset camera clock's 1970 or 1980), in the file or the name, or a name date that is not a real date, counts as unknown |
 | orientation | EXIF `Orientation`, always 1 for Camera's own photos (they are turned upright when encoded); others 1..8 are honoured |
 | software | EXIF `Software` "Doors <version>" |
 | simulated | EXIF `ImageDescription` "Simulated picture" under the fake backend |
@@ -236,7 +242,10 @@ preview and review buffers are freed while the gallery is open.
 and says "damaged"; one whose header cannot be read shows "The file is damaged
 and cannot be shown"; a file deleted meanwhile, "The file is gone". A decode
 that hangs is the watchdog's (8 s), and a helper that crashes ends on the
-failure panel with TRY AGAIN; the shell is never affected.
+failure panel with TRY AGAIN; the shell is never affected. The helper answers
+requests in order, so each answer starts the window of what waits behind it: a
+delete or export queued behind slow decodes is not taken for a hung helper.
+DELETE of a photo that is already gone removes its entry.
 
 ### Storage and Files
 
@@ -249,11 +258,12 @@ failure panel with TRY AGAIN; the shell is never affected.
 - **Export: `$HOME/Pictures`** (`/root/Pictures`), created when first needed.
   This is where photos meant for the owner go: Files opens in `$HOME`, so the
   folder is on its first screen, and it is writable there - copy, move,
-  rename, delete. An export is a copy: written to a temporary name, synced,
-  linked into place so it never replaces a file, given the photo's own
-  modification time (Files sorts it by when it was taken), and refused when it
-  would leave less than 48 MiB free. It is not a second library: the gallery
-  never lists it.
+  rename, delete. An export is a copy: written to a temporary name of its own
+  (`.<name>.<pid>.export`), synced, linked into place so it never replaces a
+  file, given the photo's own modification time (Files sorts it by when it was
+  taken), and refused when it would leave less than 48 MiB free. A temporary
+  that a killed export left is removed when the next library helper starts. It
+  is not a second library: the gallery never lists it.
 - No change to Files was needed.
 
 ## Transfer to another device (designed, not implemented)
@@ -374,7 +384,7 @@ Host only; none needs unit A.
 
 The gallery's own:
 
-- `tests/pocketcam_gallery_test.c` (68 checks; 81 with libjpeg): EXIF written
+- `tests/pocketcam_gallery_test.c` (77 checks; 90 with libjpeg): EXIF written
   and read back, an unset clock writing no date, every truncation of a block,
   a big-endian block with a looping pointer, PPM comments; every refusal of
   the reader (missing, empty, text, 0 x 0, too large, 16-bit, cut header,
@@ -384,46 +394,66 @@ The gallery's own:
   and 8, a 1920 x 1080 photo as a thumbnail and a screen picture, a JPEG cut in
   half and one garbled; the library's order (numbers over dates, no other
   names, folders or links), a capped list, and export (whole, with the
-  photo's time, no-replace, a name that is a path, a missing photo, a full
-  disk leaving nothing behind, the default folder).
-- `tests/camera_gallery_test.c` (88): opening, listing, the empty library,
+  photo's time, no-replace, another file under the name going to -2, the same
+  name and size with other bytes kept, found again under the name it got, a
+  name that is a path, a missing photo, a full disk leaving nothing behind,
+  the sweep of a killed export's temporaries, the default folder); dates
+  before 1995 unknown.
+- `tests/camera_gallery_test.c` (90): opening, listing, the empty library,
   the helper crashing, a missing helper, an unreadable folder; pages, three
   requests at most, answers for a page no longer shown dropped; the photo view,
   its navigation, its three lines with and without dates in the file or the
-  name; delete with its confirmation and its failure, deleting the last
+  name (a 1970 or 13th-month name date is no date); delete with its confirmation and its failure, deleting the last
   photo; export and each failure; the slideshow's interval, order, wrap,
   one request and two pictures at most over twelve photos, skipping damaged
   photos, stopping when none can be shown, one photo, no photos.
-- `tests/camera_layout_test.c` (now 120): the gallery in both shapes, with
-  corners, short and huge bodies; PHOTOS in the camera's layout.
-- `tests/camera_session_test.c` (now 124): the parser's new lines, and the
+- `tests/camera_layout_test.c` (now 126): the gallery in both shapes, with
+  corners, short and huge bodies, the slideshow's picture inside its touch
+  box; PHOTOS in the camera's layout.
+- `tests/camera_session_test.c` (now 131): the parser's new lines, and the
   real library helper: never a camera backend on its command line, the list,
   three pictures at once and a fourth waiting, thumbnails and fitted pictures
   upright with the fake's marker where it belongs, damaged and missing files,
-  sixty pictures in a row with no slot lost, export, delete, an empty library,
-  no child or descriptor left.
-- `tests/camera_app_test.c` (now 181): the gallery tapped in portrait and
+  sixty pictures in a row with no slot lost, export, delete (and again, of a
+  photo already gone), an empty library, no child or descriptor left; a
+  delete queued behind three slow pictures (`POCKETCAM_TEST_DECODE_MS`)
+  answered, not killed as hung.
+- `tests/camera_app_test.c` (now 185): the gallery tapped in portrait and
   landscape - PHOTOS closes the camera and starts the library helper, the
   grid with a damaged file, the photo view and its lines, NEWER/OLDER, EXPORT
   into `$HOME/Pictures`, DELETE with CANCEL, the slideshow skipping the damaged
-  file, CAMERA bringing the live picture back with the camera's helper; no
+  file, a tap on the slideshow and one beside its picture stopping it,
+  CAMERA bringing the live picture back with the camera's helper; no
   camera but photos, a missing library helper and TRY AGAIN, closing
   mid-slideshow, ten camera-gallery trips with one helper at a time.
 
-## Hardware tests still needed (gallery)
+## On unit A (gallery)
 
-Nothing of the gallery has run on unit A. To check there:
+Run 2026-09-27 on unit A with build `f6fe537` (`docs/hardware/CAMERA_GALLERY_GATE.md`).
+**Not passed: the unit hung** (serial console and network dead) during the
+9th-10th of ten Camera -> PHOTOS -> photo -> back cycles, about 27 camera
+opens after the deploy; the cause is not established and the unit needs a
+power cycle. Before that, on the real GC2093 and the image's libjpeg 9f:
 
-- decode time of a real 1080 x 1920 JPEG as a 170 px thumbnail and as a
-  screen picture on the C908 (host: 1-3 ms; qemu: 8 ms, meaning nothing);
-- a page of 15 thumbnails appearing in acceptable time; the slideshow's 4 s
-  holding with the next photo prepared;
-- PHOTOS -> CAMERA -> PHOTOS repeatedly: the ISP reopening cleanly each time
-  (the camera is closed and reopened on every trip, as on a fresh visit);
-- EXPORT onto the card's ext4 root, and the copy appearing in Files under
-  Home > Pictures with the photo's date;
-- the EXIF block read correctly by another viewer (a PC), and the photos'
-  dates with the clock set by NTP and with it unset after a cold boot;
-- memory: the shell's RSS in the gallery and after leaving it;
-- both orientations on the real panel (corners, touch targets);
-- libjpeg 9 (the image's) rather than libjpeg-turbo (tested here).
+- a 1080 x 1920 photo as a thumbnail in about 65 ms, as the screen picture in
+  about 135 ms; a page of 9-10 thumbnails in 0.75-1.1 s; a 4032 x 3024
+  progressive JPEG in about 0.58 s, the helper at 37 MB while it decodes;
+- the slideshow's interval 3934-4058 ms (median 4020) over five minutes and
+  80 photos, unreadable ones skipped, shell RSS flat after the first 10 s;
+- ten PHOTOS <-> CAMERA trips: the sensor released on every PHOTOS (the library
+  helper holds no video node), taken again on every CAMERA, one helper at a
+  time, no zombies, no supervisor restart;
+- EXPORT to `/root/Pictures` byte-identical with the photo's time; "Already in
+  Files"; a same-name, same-size file with other bytes kept and the copy
+  saved as `-2`; the copies in Files under Home > Pictures; the EXIF block
+  read the same by Windows GDI+ and an independent parser;
+- orientations 3, 6 and 8, damaged, truncated, empty, text and over-size
+  files, a file removed behind the gallery's back, delete with CANCEL, the
+  final photo deleted, an all-unreadable slideshow, rotation both ways during
+  a slideshow and a photo view, leaving from the grid, a photo and a running
+  slideshow.
+
+Still needed: the cause of the hang (a serial capture during the same cycle),
+and the gate repeated after it; the owner's own eyes and fingers. The
+unset-clock case is covered by the host suites and by undated names on the
+unit; the device clock was not changed.
