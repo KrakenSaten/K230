@@ -31,13 +31,15 @@ export SDL_VIDEODRIVER=dummy
 # Zabbix opens on its fake server (tests/zabbix_shell_test.sh), so it is as
 # quiet as every other app here: without a helper it warns that it has none.
 export POCKETOS_ZABBIX_HELPER=$(pwd)/tools/zabbix/pos-zabbix POCKETOS_ZABBIX_BACKEND=fake POCKETOS_ZABBIX_FAKE=demo
+# Browser opens on its start page and starts no helper until a page is asked for.
+export POCKETOS_BROWSER_HELPER=$(pwd)/tools/browser/pos-browser POCKETOS_BROWSER_BACKEND=fake
 OUT=$(mktemp -d)
 failed=0
 check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 line() { grep -n "$1" "$2" | head -1 | cut -d: -f1; }
-APPS="radio system fleet radar timber notes clock calendar calculator settings wave rift files camera zabbix"
+APPS="radio system fleet radar timber notes clock calendar calculator settings wave rift files camera zabbix browser"
 # DS §30.8, §34, §35: the apps that declare NONE, fullscreen in both orientations.
-FULLSCREEN="rift notes wave fleet radar timber camera zabbix"
+FULLSCREEN="rift notes wave fleet radar timber camera zabbix browser"
 is_fullscreen() { case " $FULLSCREEN " in *" $1 "*) return 0 ;; esac; return 1; }
 
 # ---- 1. the rules in the source ------------------------------------------------
@@ -95,8 +97,8 @@ check "no app resolves, reads or touches the chrome" "$([ -z "$hits" ] && echo 1
 [ -n "$hits" ] && echo "$hits" | head -5
 hits=$(grep -rn '\.chrome = ' apps --include='*.c' | grep -v 'POCKETOS_CHROME_NONE')
 declared=$(grep -rln '\.chrome = POCKETOS_CHROME_NONE' apps --include='*.c' | cut -d/ -f2 | sort | tr '\n' ' ')
-check "the eight fullscreen apps declare NONE and no app declares anything else ($declared) (DS §30.8, §34, §35)" \
-    "$([ -z "$hits" ] && [ "$declared" = "camera fleet notes radar rift timber wave zabbix " ] && echo 1 || echo 0)"
+check "the nine fullscreen apps declare NONE and no app declares anything else ($declared) (DS §30.8, §34, §35)" \
+    "$([ -z "$hits" ] && [ "$declared" = "browser camera fleet notes radar rift timber wave zabbix " ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
 check "the test hook that forces a chrome is compiled out of the panel's build" \
     "$(sed -n '/POCKETOS_SHELL_TEST_HOOKS/,/#endif/p' ui/shell/shell.c | grep -q 'getenv("POCKETOS_TEST_CHROME")' &&
@@ -226,8 +228,8 @@ for rot in portrait landscape; do
         logs "$OUT/$r-$id.log" | grep -q "$want" &&
             ! logs "$OUT/$r-$id.log" | grep -qE ' ERROR |assert' && n=$((n + 1))
     done
-    check "$rot: the seven other apps open under the cluster and the eight fullscreen ones under NONE, faulting nothing ($n of 15)" \
-        "$([ "$n" = 15 ] && echo 1 || echo 0)"
+    check "$rot: the seven other apps open under the cluster and the nine fullscreen ones under NONE, faulting nothing ($n of 16)" \
+        "$([ "$n" = 16 ] && echo 1 || echo 0)"
     corner=30; [ $rot = landscape ] && corner=50
     for id in system timber; do
         set -- $(pixels "$OUT/$r-$id.png")
@@ -273,9 +275,9 @@ PY
     grep -h '^FAIL' "$OUT"/f-$rot-*.checks
     total=$(cat "$OUT"/f-$rot-*.checks | wc -l)
     bad=$(grep -h '^FAIL' "$OUT"/f-$rot-*.checks | wc -l)
-    check "$rot: home and all fifteen apps measured from shell.info: $((total - bad)) of $total rules hold" \
+    check "$rot: home and all sixteen apps measured from shell.info: $((total - bad)) of $total rules hold" \
         "$([ "$bad" = 0 ] && [ "$total" -ge 100 ] && echo 1 || echo 0)"
-    check "$rot: coming home from each restores the launcher's cluster ($n of 15)" "$([ "$n" = 15 ] && echo 1 || echo 0)"
+    check "$rot: coming home from each restores the launcher's cluster ($n of 16)" "$([ "$n" = 16 ] && echo 1 || echo 0)"
     stop_shell
     check "$rot: the running shell logged no fault" \
         "$(grep -qE ' ERROR |assert' "$POCKETOS_LOG_DIR/shell.log" "$POCKETOS_LOG_DIR/run.log" && echo 0 || echo 1)"
@@ -294,12 +296,12 @@ for id in system $FULLSCREEN $FULLSCREEN; do
     b=$(chrome_of)
     [ "$a" = "$want" ] && [ "$b" = '"policy":"cluster"' ] && cycles=$((cycles + 1))
 done
-check "System, then each fullscreen app opened, closed and reopened: the cluster or NONE while open, the cluster at home, every time ($cycles of 17)" \
-    "$([ "$cycles" = 17 ] && echo 1 || echo 0)"
+check "System, then each fullscreen app opened, closed and reopened: the cluster or NONE while open, the cluster at home, every time ($cycles of 19)" \
+    "$([ "$cycles" = 19 ] && echo 1 || echo 0)"
 check "each opening and each return logged its chrome" \
     "$([ "$(grep -c 'chrome: cluster, content from y 0, cluster shown, for system' "$POCKETOS_LOG_DIR/shell.log")" = 1 ] &&
-       [ "$(grep -c 'chrome: none, content from y 0, cluster hidden' "$POCKETOS_LOG_DIR/shell.log")" = 16 ] &&
-       [ "$(grep -c 'chrome: cluster, content from y 0, cluster shown, for home' "$POCKETOS_LOG_DIR/shell.log")" = 18 ] && echo 1 || echo 0)"
+       [ "$(grep -c 'chrome: none, content from y 0, cluster hidden' "$POCKETOS_LOG_DIR/shell.log")" = 18 ] &&
+       [ "$(grep -c 'chrome: cluster, content from y 0, cluster shown, for home' "$POCKETOS_LOG_DIR/shell.log")" = 20 ] && echo 1 || echo 0)"
 # The lock over a fullscreen app: the lock lies under the cluster, so while
 # it is engaged the cluster comes back and the lock looks the same over
 # either; opened again, the app is fullscreen as it was.

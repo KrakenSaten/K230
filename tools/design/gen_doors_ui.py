@@ -85,6 +85,7 @@ APP_ICONS = {
     "files": (B_GLYPH + "files.svg", "files"),
     "camera": (EXTENSION + "camera.svg", "tools"),
     "zabbix": (FIRST_PARTY + "zabbix.svg", "tools"),
+    "browser": (FIRST_PARTY + "browser.svg", "network"),
 }
 # The system glyphs the shell uses, from the package's 32 px exports.
 GLYPHS = ["lock", "power", "wifi", "radio", "sun", "display", "info", "settings", "apps",
