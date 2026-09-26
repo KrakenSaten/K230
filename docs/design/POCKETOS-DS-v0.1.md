@@ -3200,3 +3200,9 @@ content from the top row and nothing under the cluster; RIFT, Wave,
 Camera, Fleet and Zabbix fullscreen as before; lock and unlock over an app
 and over a fullscreen app; touch unchanged; no crash reports and no
 service restarts.
+
+**Chrome/layout smoke PASS on unit A, build `64416ab`, 2026-09-26**
+(docs/hardware/COMPACT_STATUS_CLUSTER_GATE.md): both orientations and a
+rotation each way, every screen measured from `shell.info`, touch injected.
+The owner's look on the panel, and the chip in TX and OFF on hardware, are
+what it leaves for acceptance.
