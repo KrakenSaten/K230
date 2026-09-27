@@ -257,13 +257,58 @@ What is known:
 - Whether this is the same class of fault, a new one, or unrelated (power,
   Wi-Fi driver) cannot be told without the console output.
 
-Next:
+### Reproduction, 2026-09-27 (after the owner's power cycle)
 
-1. Power-cycle.
-2. Keep a serial capture on COM9 running.
-3. Repeat the camera open/close cycle with the gallery out of the loop
-   (`doors app start camera` / back only, same cadence) and with it.
-4. Compare.
+Setup:
 
-**Merge recommendation:** NOT READY until the hang is explained or shown not
-to depend on this branch.
+- A continuous capture of COM9 on the host (`ser_log.ps1`, DTR/RTS off). The
+  console loglevel is 8, so every kernel message reaches it.
+- A unit-side probe fsync'd a status line every 0.5 s to
+  `/root/hangprobe.log` (`hangprobe.py`).
+- After the power cycle unit A came up healthy on `f6fe537`: services up,
+  supervisor restarts 0, library intact. The shell log's last line before the
+  night's hang was `23:36:48 open app camera` (ext4 may have lost the last
+  few seconds).
+
+**Loop A: the camera alone, no gallery.** Open Camera, 3 s, back, about 8 s,
+40 times (`h3_loop.sh camera 40`):
+
+- All 40 cycles completed. Each open and release showed in the console as the
+  usual vvcam sequence (`vvcam_isp_open`, resets, `vvcam_cma_alloc`, and on
+  close `vvcam_mipi_release`, `vvcam_isp_release`).
+- Shell RSS grew from 14.95 to 15.06 MB, about 3 KB per open. That is the
+  camera path, not the gallery; noted for a separate look.
+
+**Then the unit hung, idle, with no gallery.**
+
+- The console's last output is the 40th release (`vvcam_isp_release:187`,
+  07:56:54).
+- About 3 s later the loop locked the screen.
+- The next step, loop B's first scp (before any tap or camera open), timed
+  out.
+- The console printed nothing: no oops, panic, RCU stall or watchdog line.
+- Afterwards the console answered nothing and the unit was off the network.
+- Loop B (the gallery) never ran.
+
+Conclusion so far:
+
+- The hang reproduces **without the gallery**, after repeated camera
+  open/release cycles alone: about 40 opens this time, about 27 the night
+  before.
+- It is silent even at console loglevel 8. That fits a SoC or bus lockup
+  better than a software fault the kernel could report.
+- The helper's camera path is the same code as master's (on this branch
+  `pos_camera.c` only adds the EXIF metadata to a still).
+- So this is the vendor camera stack's known fragility, in the same class as
+  the lock-up recorded in `CAMERA_GATE.md`, and not a defect of the gallery.
+- Not yet shown: that master's own binaries hang the same way. That needs
+  `RESTORE.sh` and the same loop.
+- The gallery does make camera open/close more frequent, so it makes the
+  hang easier to hit. The same is true of leaving and reopening Camera on
+  master.
+
+**Merge recommendation:** the gallery code is ready on its own evidence.
+Merging is the owner's call, given a pre-existing camera-stack lock-up that
+the gallery makes easier to reach. That lock-up needs its own investigation:
+a vendor ISP/vvcam issue, possibly mitigated by keeping the camera open
+across a gallery visit, which would amend ADR-006's per-visit open.

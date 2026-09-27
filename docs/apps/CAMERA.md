@@ -6,7 +6,9 @@ photo with what is known about it, a slideshow, delete, and export to Files.
 
 Gallery status: **branch `feat/camera-gallery` (on master `dd3809b`), not
 merged. Unit A gate NOT PASSED: unit A hung (console and network dead) during
-repeated camera-to-gallery cycling; cause not established**
+repeated camera-to-gallery cycling, and hung again, silently, after 40
+camera-only open/close cycles with no gallery involved: a camera-stack
+lock-up the gallery makes easier to reach, not a gallery defect**
 (`docs/hardware/CAMERA_GALLERY_GATE.md`). Everything the gate reached before
 that passed on unit A with the real GC2093 and libjpeg 9f. Host-tested end to
 end on the fake backend, with and without libjpeg (IJG 9f, the image's own
@@ -432,8 +434,10 @@ The gallery's own:
 Run 2026-09-27 on unit A with build `f6fe537` (`docs/hardware/CAMERA_GALLERY_GATE.md`).
 **Not passed: the unit hung** (serial console and network dead) during the
 9th-10th of ten Camera -> PHOTOS -> photo -> back cycles, about 27 camera
-opens after the deploy; the cause is not established and the unit needs a
-power cycle. Before that, on the real GC2093 and the image's libjpeg 9f:
+opens after the deploy. After a power cycle, a serial-captured reproduction
+hung it again after 40 camera-only open/close cycles with no gallery,
+silently (no kernel message at loglevel 8). On the real GC2093 and the
+image's libjpeg 9f:
 
 - a 1080 x 1920 photo as a thumbnail in about 65 ms, as the screen picture in
   about 135 ms; a page of 9-10 thumbnails in 0.75-1.1 s; a 4032 x 3024
@@ -453,7 +457,8 @@ power cycle. Before that, on the real GC2093 and the image's libjpeg 9f:
   a slideshow and a photo view, leaving from the grid, a photo and a running
   slideshow.
 
-Still needed: the cause of the hang (a serial capture during the same cycle),
-and the gate repeated after it; the owner's own eyes and fingers. The
+Still needed: the camera-stack lock-up investigated on its own (master's
+binaries under the same loop; the vendor vvcam/ISP release path), and the
+owner's own eyes and fingers. The
 unset-clock case is covered by the host suites and by undated names on the
 unit; the device clock was not changed.
