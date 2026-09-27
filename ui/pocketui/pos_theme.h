@@ -71,6 +71,21 @@ double pos_contrast(uint32_t a, uint32_t b);
 /* Parse "#rrggbb" or "rrggbb"; returns 0 on success. */
 int pos_color_parse(const char *text, uint32_t *out);
 
+/* Identity accents (DS §37): eight hues around the wheel at one lightness -
+ * coral, orange, gold, green, teal, sky, violet, pink - for what is
+ * somebody (a channel, a contact, a room), so the same one keeps the same
+ * colour wherever it is shown. They are the package's, not a theme's: a
+ * contact is the same contact whatever theme the reader chose. Every hue
+ * reads at 4.5:1 or better on every theme's bg, surface and surface_raised
+ * in Normal and Outdoor (tests/theme_test.c). An index past the count
+ * wraps, so a hash may be passed straight in. */
+#define POS_IDENTITY_COUNT 8
+uint32_t pos_identity_rgb(unsigned index);
+/* The same hue as a display mode shows it: Night dims and warms it as it
+ * does the theme's text, Outdoor lifts it toward white as it does the
+ * accents (the rule pos_styles.c applies to the package hues). */
+uint32_t pos_identity_rgb_mode(unsigned index, enum pos_mode mode);
+
 const char *pos_color_token_name(enum pos_color_token token);
 const char *pos_mode_name(enum pos_mode mode);
 /* Returns 0 on success, -1 for an unknown mode string. */

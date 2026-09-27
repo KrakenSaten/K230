@@ -187,6 +187,29 @@ int main(int argc, char **argv)
                          pos_color_token_name((enum pos_color_token)k));
                 check(label, pos_contrast(t.color[k], t.color[POS_COLOR_BG]) >= 4.5);
             }
+            /* The identity accents (DS §37) are drawn beside names on bg, on
+             * surface (a panel) and on surface_raised (a selected row), in
+             * every theme; Night is the exception the theme's own text also
+             * makes, and there they only have to stay apart from bg as far
+             * as text_secondary does. */
+            for (k = 0; k < POS_IDENTITY_COUNT; k++) {
+                uint32_t hue = pos_identity_rgb_mode((unsigned)k, (enum pos_mode)m);
+                double floor = m == POS_MODE_NIGHT
+                                   ? pos_contrast(t.color[POS_COLOR_TEXT_SECONDARY], t.color[POS_COLOR_BG])
+                                   : 4.5;
+
+                snprintf(label, sizeof(label), "%s/%s identity %d on bg", def->id,
+                         pos_mode_name((enum pos_mode)m), k);
+                check(label, pos_contrast(hue, t.color[POS_COLOR_BG]) >= floor);
+                if (m != POS_MODE_NIGHT) {
+                    snprintf(label, sizeof(label), "%s/%s identity %d on surface_raised", def->id,
+                             pos_mode_name((enum pos_mode)m), k);
+                    check(label, pos_contrast(hue, t.color[POS_COLOR_SURFACE_RAISED]) >= 4.5);
+                }
+            }
+            check("every identity hue is its own",
+                  pos_identity_rgb(0) != pos_identity_rgb(1) &&
+                      pos_identity_rgb(POS_IDENTITY_COUNT) == pos_identity_rgb(0));
         }
     }
 

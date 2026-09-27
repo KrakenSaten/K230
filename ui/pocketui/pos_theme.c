@@ -378,3 +378,27 @@ void pos_theme_remove_listener(pos_theme_listener_t cb, void *user)
         }
     }
 }
+
+/* ---- identity accents (DS §37) ----------------------------------------- */
+
+static const uint32_t identity_hues[POS_IDENTITY_COUNT] = {
+    0xf2917f, 0xe8ac6a, 0xd9cb6e, 0x9fd08a, 0x74d1c4, 0x86bff0, 0xb7a8f2, 0xe89dd2,
+};
+
+uint32_t pos_identity_rgb(unsigned index)
+{
+    return identity_hues[index % POS_IDENTITY_COUNT];
+}
+
+uint32_t pos_identity_rgb_mode(unsigned index, enum pos_mode mode)
+{
+    uint32_t rgb = pos_identity_rgb(index);
+
+    if (mode == POS_MODE_NIGHT) {
+        return pos_mix(pos_mix(rgb, 0x000000, 0.50), 0xffb060, 0.15);
+    }
+    if (mode == POS_MODE_OUTDOOR) {
+        return pos_mix(rgb, 0xffffff, 0.15);
+    }
+    return rgb;
+}
