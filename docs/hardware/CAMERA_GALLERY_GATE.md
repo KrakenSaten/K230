@@ -10,8 +10,17 @@ build `f6fe537`: `/usr/bin/doors-shell` (stripped md5 `f44b878e…`) and
   the unit had before the gate. `state-before.tar` and `camera-md5.txt` are
   next to it.
 - **Unit A then hung a third time** (08:07Z), in the master reproduction of
-  §6. It needs a power cycle by hand, after which it boots that pre-gate
-  software.
+  §6. The owner power-cycled it.
+- Checked afterwards:
+  - it runs `f2c22f1` and v0.1.0's `pos-camera` (md5 verified);
+  - radiod (rx), meshcored, netd and sysd are up, and supervisor restarts
+    are 0;
+  - the library holds the 8 original photos, md5-verified;
+  - `/root/Pictures` holds one export;
+  - there are no crash reports and no gate process running;
+  - it is Automatic landscape, home, locked.
+- The probe's log, `/root/hangprobe.log`, is left on the unit as evidence
+  (a few hundred KB).
 
 Result: **every gallery check PASSED.** The unit hung three times (§6), each
 time silently:
