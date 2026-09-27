@@ -41,6 +41,7 @@ the owner's release and public-distribution decision (open item 1).
 | ggwave's Reed-Solomon (src/reed-solomon, Mike Lubinets) | MIT permission text (its own LICENSE; the word "MIT" does not appear) | VERIFIED locally 2026-09-13 | Keep the notice; the package carries it. |
 | ggwave's FFT (src/fft.h, Takuya Ooura's FFT package, fft4g-derived `rdft`) | Author's terms: use, copy, modify and distribute for any purpose including commercial use, without fee; refer to the package when modifying. The file itself carries only the copyright line and the package URL | VERIFIED 2026-09-13 on the author's page https://www.kurims.kyoto-u.ac.jp/~ooura/fft.html ("License" section, verbatim in docs/legal/third-party/ooura-fft.txt) | **Resolved** for use and redistribution. Keep the header (copyright and package reference) intact; ship the notice with pos-wave (see "Audio milestone", item B). |
 | alsa-lib 1.2.13 (Buildroot package, dynamically linked by pos-wave) | LGPL-2.1-or-later | DOCUMENTED (docs/legal/manifest.csv) | Already in the image for alsa-utils; dynamic linking. |
+| libcurl 8.12.1 with OpenSSL 3.4.1, libjpeg 9f, libpng 1.6 (Buildroot packages, dynamically linked by pos-browser; libcurl also by pos-zabbix, libjpeg by pos-camera) | curl (MIT-style), Apache-2.0, IJG, libpng licence | DOCUMENTED (Buildroot licence metadata; docs/apps/BROWSER.md §6) | All already in the image (the curl tool, OpenCV); dynamic linking, nothing compiled into Doors. No new package. |
 | libgpiod 2.2 (Buildroot package, dynamically linked by radiod) | LGPL-2.1-or-later | DOCUMENTED (header SPDX) | Dynamic linking keeps Doors code separate; offer library source. Header copy in vendor/libgpiod is for host compile checks only. |
 | nofrendo (bundled) | GPL-2.0 upstream | DOCUMENTED | Not needed by Doors. |
 | libtmt, qrcodegen (bundled, no LICENSE copies) | MIT upstream | DOCUMENTED | Fetch upstream with LICENSE if ever used. |
@@ -123,7 +124,7 @@ its text comes from; `tools/legal/gen_notices.sh` generates the file.
 | Item | Class |
 | --- | --- |
 | Notices for third-party code compiled into Doors binaries, and for LVGL and its bundled components | **(a) resolved** - shipped and verified |
-| Libraries Doors and LVGL load from Buildroot packages with licence metadata (cJSON, libgpiod2, alsa-lib, libdrm, libevdev, FreeType, FFmpeg) | **(a) covered by `make legal-info`**, provided its output accompanies a distributed image (open item 3) |
+| Libraries Doors and LVGL load from Buildroot packages with licence metadata (cJSON, libgpiod2, alsa-lib, libdrm, libevdev, libcurl, OpenSSL, libjpeg, libpng, FreeType, FFmpeg) | **(a) covered by `make legal-info`**, provided its output accompanies a distributed image (open item 3) |
 | C and C++ runtime libraries from the external Xuantie toolchain (glibc, libstdc++, libgcc) | **(b) blocks distribution**: not in legal-info's manifest (open item 8) |
 | Other vendor SDK packages without licence metadata: libnncase and gsl-lite ("unknown" in the manifest), and the vendor local packages absent from it (`k230_phone_ui`, `vvcam`, `face_detect`, `ai_demo`) | **(b) blocks distribution**: unchanged (open item 5) |
 | Doors' own licence (PocketOS through v0.0.9) | **(c) undecided**; external redistribution not authorised (open item 1) |

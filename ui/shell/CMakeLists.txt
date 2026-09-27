@@ -138,6 +138,14 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/camera/camera_session.c
     ${REPO_DIR}/apps/camera/camera_gallery.c
     ${REPO_DIR}/apps/camera/camera_gallery_screen.c
+    ${REPO_DIR}/apps/browser/browser_app.c
+    ${REPO_DIR}/apps/browser/browser_session.c
+    ${REPO_DIR}/apps/browser/browser_view.c
+    ${REPO_DIR}/core/web/web_url.c
+    ${REPO_DIR}/core/web/web_doc.c
+    ${REPO_DIR}/core/web/web_proto.c
+    ${REPO_DIR}/core/web/web_history.c
+    ${REPO_DIR}/core/web/web_store.c
     ${REPO_DIR}/apps/rift/rift_app.c
     ${REPO_DIR}/apps/rift/rift_model.c
     ${REPO_DIR}/apps/rift/rift_clock.c
@@ -267,7 +275,8 @@ target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/calculator"
                                                   "${REPO_DIR}/apps/settings"
                                                   "${REPO_DIR}/apps/wave"
-                                                  "${REPO_DIR}/apps/camera")
+                                                  "${REPO_DIR}/apps/camera"
+                                                  "${REPO_DIR}/apps/browser")
 
 if(POCKETOS_LVGL_MODE STREQUAL "source")
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
