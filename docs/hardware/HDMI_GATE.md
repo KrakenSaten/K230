@@ -1,9 +1,18 @@
-# HDMI output - unit A gate (procedure, not yet run)
+# HDMI output - unit A gate
 
-**Status: NOT RUN.** Everything in `HDMI_OUTPUT.md` comes from the schematic, the
-pinned sources and the build host. This is what the local session does with
-unit A to turn it into evidence. Each step names a pass criterion; record the
-result beside it, as the other gates in this directory do.
+**Status 2026-09-27: steps 0-1 PASS on unit A. Steps 2-13 NOT RUN: HARDWARE GATE
+BLOCKED, PHYSICAL HDMI CONNECTION REQUIRED** (see "Before step 2" and
+"Result").
+
+**Unit A carries:** image v0.1.0, build 1368695; shell 608f972 (the Recorder
+gate's build, the same device code as master 6077b8d); `pos-drmtest` built from
+`feat/k230-hdmi-out` 2451279 (sha256 `b1c18867…`, byte-identical to the build of this commit's tree); `pos-display-boot` sha256
+`b9d562f5…`. It is in the **LCD tree**, with no `/boot/force_dtb`, rotation mode
+Automatic (landscape on the bench). Rollback: `/root/rollback-hdmi/RESTORE.sh`.
+Before this gate the unit had neither tool and no `force_dtb`.
+
+Each step names a pass criterion. Record the result beside it, as the other
+gates in this directory do.
 
 What is under test: the vendor HDMI device tree that every Doors image already
 carries (`/boot/k230-canmv-rm69a10-hdmi.dtb`, CanMV-K230 v3 tree), selected
@@ -77,6 +86,32 @@ pos-drmtest pattern --seconds 10  # on the AMOLED
 
 Pass: the AMOLED shows black, a white border, red/green/blue blocks and
 `DOORS K230 HDMI TEST` / `568x1232@… DSI-1`; the shell comes back.
+
+## Before step 2 (added 2026-09-27)
+
+Do not make the HDMI boot unattended unless all of the following hold. On
+2026-09-27 the first two did not, and the switch was not made.
+
+1. **A monitor is connected and powered on.** The owner confirms it. As a
+   cross-check from Linux in the LCD tree, read the bridge's HPD register the way
+   the vendor driver does (SDK patch 0025: 0x825e, connected when bit 0 or bit
+   2 is set):
+   `i2cset -y 1 0x3b 0xff 0x80; i2cset -y 1 0x3b 0xee 0x01; i2cset -y 1 0x3b 0xff 0x82; i2cget -y 1 0x3b 0x5e; i2cset -y 1 0x3b 0xff 0x80`.
+   On 2026-09-27 it read **0x78** (bits 0 and 2 clear) three times: no sink
+   seen. Caveat: in the LCD tree no driver has powered up the bridge's HPD
+   logic, so a low reading is not proof of absence. A high reading, together
+   with the owner's word, is enough.
+2. **A remote path that survives the HDMI tree.** Wi-Fi is on `sdhci0`, which
+   the HDMI tree reconfigures (`HDMI_OUTPUT.md` §5). On this bench `eth0` does
+   not pass traffic on its own. Before an unattended HDMI boot, either prove
+   `eth0` alone (take `wlan0` down, ping and SSH to .157 over `eth0` only) or
+   have the owner at the bench.
+3. **The serial console answers**: `ser_cmd.ps1 -Port COM9` (out/rc1-0.0.12-gate)
+   returned unit A's wlan0 MAC and a root prompt on 2026-09-27. VERIFIED. It
+   recovers any HDMI boot that reaches a login prompt. A kernel that hangs
+   before the prompt needs U-Boot's autoboot stopped on the console (Recovery
+   2, never tried) or a power cycle, which is physical.
+4. No other session is using unit A. Checked on 2026-09-27: none was.
 
 ## 2. Switch to HDMI, monitor attached
 
@@ -231,19 +266,28 @@ Pass: model with `RM69A10 OLED`, AMOLED and touch work, radio as before,
 
 ## Result
 
+Run 2026-09-27 on unit A, by the local integration session (no owner at the
+bench). Evidence: `out/hdmi-gate/` on the bench PC (`g*.out`, the decompiled
+DTBs, `caps/amoled-pattern.png`).
+
 | Step | Result | Notes |
 | --- | --- | --- |
-| 0 install | | |
-| 1 baseline, tool on the AMOLED | | |
-| 2 switch, boot | | |
-| 3 kernel log | | |
-| 4 connectors | | |
-| 5 EDID | | |
-| 6 safest mode | | |
-| 7 640x480 | | |
-| 8 720p / 1080p | | |
-| 9 unplugged boot | | |
-| 10 hotplug | | |
-| 11 monitor off / no EDID | | |
-| 12 Doors on HDMI | | |
-| 13 back to the panel | | |
+| 0 install | PASS | Built with the pinned Xuantie 14.1.1 via `make all` (links libc only), copied by scp. `pos-drmtest --help` exits 2, and so does `pos-display-boot` with no argument. Rollback script written first |
+| 1 baseline, tool on the AMOLED | PASS, after two tool fixes | Model `Canaan CanMV-K230 with RM69A10 OLED`; `next boot: lcd`; `i2cdetect -r 1`: **0x3b answers**, 0x5d `UU`; the LT9611 chip id reads `17 02 e2`. `gpioinfo`: GPIO23 `ts_irq_gpio`, GPIO24 `ts_reset_gpio`. `list` with the shell running: cached, `DSI-1 connected, 65x145 mm`, `568x1232@52 49500 kHz -> DSI 49500 kHz +0.00 %`, `EDID: none`. With the shell stopped: DRM master, probed, same. `pattern` first refused the panel (640x480 floor, fixed in aa5aa53), then failed `SETCRTC … No space left on device` (the shell's rotate-270 left on the primary plane, fixed in a61ec37). After the fixes: `safest 568x1232@52 … exact`, `rotation 0x8 … rotate-0`, `mode set … in 10 ms`, `rotation 0x8 restored`, `CRTC switched off`. The scanout read back with kmsgrab shows the border, the R/G/B blocks and the three lines. **The glass itself was not looked at** (no one at the bench). The shell came back each time (3 restarts, build 608f972, no crash reports). `pos-display-boot status`/`lcd`/usage correct; `hdmi` and `lcd` exercised against a scratch copy of `/boot`, and a damaged HDMI tree refused. Real `/boot` md5-identical before and after |
+| 2 switch, boot | NOT RUN | Blocked: "Before step 2" items 1 and 2 |
+| 3 kernel log | NOT RUN | |
+| 4 connectors | NOT RUN | |
+| 5 EDID | NOT RUN | |
+| 6 safest mode | NOT RUN | |
+| 7 640x480 | NOT RUN | |
+| 8 720p / 1080p | NOT RUN | |
+| 9 unplugged boot | NOT RUN | |
+| 10 hotplug | NOT RUN | |
+| 11 monitor off / no EDID | NOT RUN | |
+| 12 Doors on HDMI | NOT RUN | |
+| 13 back to the panel | n/a | The unit never left the panel tree |
+
+**Still required, physically:** connect a powered HDMI monitor to HDMI1 on unit
+A, and either be at the bench or prove an `eth0`-only SSH path. Then start at
+step 2. `pos-display-boot lcd && reboot` over SSH or the COM9 console is the way
+back.

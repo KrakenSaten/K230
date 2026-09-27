@@ -1,8 +1,11 @@
 # HDMI output on the T-Display K230
 
 Recorded 2026-09-26 on branch `feat/k230-hdmi-out` (baseline `origin/master`
-`dd3809b`). This is a desk study plus build-host validation. **Nothing here has
-been run on a K230 yet**; the hardware gate is `HDMI_GATE.md`.
+`dd3809b`). This is a desk study plus build-host validation. The hardware gate
+is `HDMI_GATE.md`. **2026-09-27, unit A, panel (LCD) tree only:** steps 0-1 of
+the gate passed. The bridge answers, both trees on the card match the hashes
+below, and `pos-drmtest` drives the AMOLED. No HDMI boot has been made yet, so
+nothing here has been observed on an HDMI monitor.
 
 Evidence classes as in `T-DISPLAY-K230.md`: VERIFIED (unit A runtime record, or
 reproduced here from the pinned sources), DOCUMENTED (vendor schematic, source,
@@ -23,7 +26,10 @@ The DTBs were rebuilt here from K with `cpp` + `dtc`: `k230-canmv-rm69a10.dtb`
 (60,191 bytes, SHA-256 `3ac313c4…`) and `k230-canmv-rm69a10-hdmi.dtb` (56,410
 bytes, `2a6b49ad…`) are **byte-identical** to the ones every Doors image ships
 (`V0.0.2_BUILD_REPORT.md`). So the trees analysed below are the trees on the
-card. VERIFIED.
+card. VERIFIED, and again on unit A's v0.1.0 card on 2026-09-27: the SHA-256 of
+`/boot/k230-canmv-rm69a10.dtb` and `/boot/k230-canmv-rm69a10-hdmi.dtb` is
+`3ac313c4…` and `2a6b49ad…`. `k230-canmv-v3.dtb` is the same file as the HDMI
+tree.
 
 ## Conclusion
 
@@ -65,7 +71,7 @@ K230 VO (one display pipeline, one CRTC)
 | Signal | K230 | Shared with | Board detail | Evidence |
 | --- | --- | --- | --- | --- |
 | I2C SCL / SDA | GPIO36 / GPIO37, I2C3 (Linux `i2c-1`, `91408000.i2c`) | GT9895 touch (TP_SCL/TP_SDA on J1) | 10 kΩ pull-ups R76/R77 | DOCUMENTED (SCH p. 2, 4, 7); bus VERIFIED on unit A |
-| I2C address | 0x3b | - | ADDR_GPIO0 pulled high through R78 | DOCUMENTED; **a device answers at 0x3b on `i2c-1` on unit A** VERIFIED (hwcheck 2026-09-07) |
+| I2C address | 0x3b | - | ADDR_GPIO0 pulled high through R78 | DOCUMENTED; **a device answers at 0x3b on `i2c-1` on unit A** VERIFIED (hwcheck 2026-09-07, again 2026-09-27). **It is an LT9611**, VERIFIED 2026-09-27: after the driver's own `0x80ee = 0x01`, registers 0x8000-0x8002 read `17 02 e2` |
 | Reset (active low) | GPIO24 (HDMI_RSTN) | GT9895 reset (TP_RST) | R74 10 kΩ pull-up + C182 100 nF | DOCUMENTED; GPIO24 held as `ts_reset_gpio` on unit A VERIFIED |
 | Interrupt | GPIO23 (HDMI_INT) | GT9895 interrupt (TP_INT) | R75 10 kΩ pull-up | DOCUMENTED; GPIO23 held as `ts_irq_gpio` on unit A VERIFIED |
 | Enable / regulator | none | - | - | DOCUMENTED |
@@ -207,6 +213,23 @@ LCD tree it:
 Kept: UART0 console, UART3, USB (Ethernet), SD, SDIO Wi-Fi, audio codec,
 thermal. DOCUMENTED (decompiled DTBs), effects ASSUMED until the gate.
 
+**One of those is kept differently, and it is the remote path.** On unit A,
+`wlan0` sits on `91580000.sdhci0` (SDIO), the root file system on `sdhci1` (SD),
+and `eth0` is the USB r8152 on `91540000.usb`. VERIFIED 2026-09-27. The HDMI tree
+describes `sdhci0` as the CanMV's 8-bit eMMC: `bus-width = <8>` instead of `<4>`,
+plus `rx_delay_line = <0x0d>` and `tx_delay_line = <0xc0>`, which the LCD tree
+does not set. DOCUMENTED (decompiled DTBs). Whether Wi-Fi comes up with those
+settings is not known (ASSUMED risk). Unit A's Ethernet cannot stand in for it
+on this bench: `eth0` has carrier and an address (.157), but a ping bound to
+`eth0` lost 3 of 3, and `wlan0` answers ARP for both addresses. VERIFIED
+2026-09-27. So there is no proven SSH path into an HDMI boot. The serial console
+(COM9 on the bench PC, a root shell with no password) is the path that does not
+depend on the device tree.
+
+The HDMI tree also gives `/memory` 1 GiB where the LCD tree gives 512 MiB.
+Linux reports 990,544 kB under the LCD tree, so U-Boot fixes the size up
+(ASSUMED to be the same for the HDMI tree).
+
 ## 6. What this branch adds
 
 No kernel, device-tree, U-Boot, defconfig or SDK change. ADR-001 decision 5
@@ -221,7 +244,11 @@ proposal for any of those, and none is needed to prove the output:
   the previous CRTC state afterwards; refuses with exit 3 while another process
   is DRM master). Without `--mode` it picks the smallest progressive mode of at
   least 640x480 in either orientation (so the AMOLED's portrait 568x1232
-  qualifies), at or below 148.5 MHz, clock-exact first. `modetest` is in the
+  qualifies), at or below 148.5 MHz, clock-exact first. The shell turns its
+  picture with the primary plane's `rotation` property, and the kernel keeps
+  that value after the shell exits. `pattern` therefore sets `rotate-0` for the
+  test and restores the old value afterwards. Otherwise the legacy SETCRTC fails
+  with ENOSPC (unit A in landscape, 2026-09-27). `modetest` is in the
   image (`BR2_PACKAGE_LIBDRM_INSTALL_TESTS=y`) but knows nothing of the 594 MHz
   quantisation and does not decode EDID; it remains a second opinion.
 - **`pos-display-boot status|lcd|hdmi`** (`tools/display/`): writes or removes
@@ -230,10 +257,10 @@ proposal for any of those, and none is needed to prove the output:
   or when either tree is missing or not a device-tree blob. Writes through a
   temporary file and `sync`. Persistent until changed; recovery in
   `HDMI_GATE.md`.
-- Tests: `tests/drmtest_test.c` (45 checks: clock quantisation, EDID decoding
-  and corruption, mode choice with and without EDID, pattern geometry),
-  `tests/display_boot_test.sh` (27 checks against a fake boot partition, also
-  under BusyBox sh).
+- Tests: `tests/drmtest_test.c` (48 checks: clock quantisation, EDID decoding
+  and corruption, mode choice with and without EDID, the AMOLED's portrait
+  mode, pattern geometry), `tests/display_boot_test.sh` (29 checks against a
+  fake boot partition, also under BusyBox sh).
 - The ioctl half of `pos-drmtest` was run on the build host against a real
   KMS driver: `vkms` in an Ubuntu 6.8.0-142 kernel under QEMU (no K230 DRM
   code involved). `list` probed one connector with 34 modes, `pattern` set
@@ -258,8 +285,10 @@ not modified: on an HDMI boot it already opens whatever connector is there.
 | Staging copy per full frame | 2.8 MB | 3.7 MB | 8.3 MB |
 
 CMA reserves 512 MB (VERIFIED), so buffer memory is not a constraint.
-`pos-drmtest pattern` draws one frame and then sleeps: static output costs no
-CPU beyond scanout DMA. The shell's CPU cost scales with the pixels it
+`pos-drmtest pattern` draws one frame and then sleeps, so static output costs
+no CPU beyond scanout DMA. On the AMOLED it held 896 kB RSS, the CPU line read
+100 % idle during the hold, and the modeset took 10 ms. VERIFIED 2026-09-27,
+panel only. The shell's CPU cost scales with the pixels it
 redraws; a full redraw at 1080p touches about 3x the panel's pixels, so expect
 up to ~3x the shell's panel-mode CPU for full-screen animation (ASSUMED,
 measure in the gate). No software mirroring exists or is proposed.
