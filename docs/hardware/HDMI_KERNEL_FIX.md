@@ -377,3 +377,18 @@ is in the K230 VO (what feeds the DSI):
 
 Unit A was returned to the v0.1.0 kernel and the LCD tree after round 3
 (`HDMI_GATE.md` R3.8).
+
+## 10. Hardware, round 4 (patch 0072, owner at the bench, 2026-09-27)
+
+Kernel `86072a52…` (0070 + 0071 + 0072). `HDMI_GATE.md` "Round 4":
+
+| | 1280x720@60 | 1920x1080@60 |
+| --- | --- | --- |
+| `pos-drmtest pattern` (XRGB8888, now DMA_CTRL 0x4F) | no signal (twice, incl. a 120 s hold) | **clean and stable** for a 150 s hold; red/green/blue blocks in the right order |
+| Doors shell (RGB565, rotation 270 via the GDMA path) | not run | **Doors UI visible**, stable |
+
+So 0072 does what its header says: the 32-bit plane fetches, and the byte
+order bit 6 selects is right for XRGB8888. 1080p60 is a working HDMI mode
+end to end. The 720p defect is unchanged and is the VO's stream, not the
+bridge (round 3, R3.4). Still no explanation; the round-3 candidates stand.
+The panel was checked before and after (R4.1, R4.7): unaffected.

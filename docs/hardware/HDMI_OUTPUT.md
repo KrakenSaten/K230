@@ -5,17 +5,17 @@ Recorded 2026-09-26 on branch `feat/k230-hdmi-out` (baseline `origin/master`
 is `HDMI_GATE.md`. **2026-09-27, unit A with a 2560x1440 monitor:**
 - The HDMI boot works: LT9611 probe, HPD, EDID, 26 modes, Wi-Fi still up.
 - The bridge receives correct DSI timing at 480p, 720p and 1080p.
-- **There is no usable picture.** 480p and 720p give no signal, and 1080p60
-  gives flickering stripes. The gate's first reading ("the vendor LT9611
-  driver is set up for 1080p only") was revised by the desk study that
-  followed: `HDMI_KERNEL_FIX.md` names three kernel-side causes and carries
-  the kernel patches (`platforms/k230/patches/linux/0070`, `0071`, and
-  `0072` for the VO) that ADR-011 (Proposed) covers. Rounds 2 and 3 of the gate ran on that kernel:
-  the bridge side is proven on the monitor (the DSI's own colour bars show
-  at 720p and 1080p, and a 1080p RGB565 `modetest` re-set shows bars); what
-  the K230 VO feeds into the DSI is still wrong for XRGB8888 planes (DMA
-  request bits off, a BSP constant) and at 720p (cause open). Details and
-  the next steps: `HDMI_KERNEL_FIX.md` §9.
+- **On the vendor kernel there is no usable picture.** 480p and 720p give no
+  signal, and 1080p60 gives flickering stripes. The gate's first reading
+  ("the vendor LT9611 driver is set up for 1080p only") was revised by the
+  desk study that followed: `HDMI_KERNEL_FIX.md` names the kernel-side causes
+  and carries the kernel patches (`platforms/k230/patches/linux/0070`,
+  `0071`, and `0072` for the VO) that ADR-011 (Proposed) covers.
+- **On the patched kernel, 1920x1080@60 works end to end** (gate round 4,
+  owner at the bench: `pos-drmtest`'s pattern and the Doors shell, clean and
+  stable on the monitor). The bridge side is proven at 720p too (the DSI's
+  own colour bars), but the VO's 720p stream still gives no signal, cause
+  open. Details: `HDMI_KERNEL_FIX.md` §9-10, `HDMI_GATE.md` rounds 3-4.
 
 Evidence classes as in `T-DISPLAY-K230.md`: VERIFIED (unit A runtime record, or
 reproduced here from the pinned sources), DOCUMENTED (vendor schematic, source,

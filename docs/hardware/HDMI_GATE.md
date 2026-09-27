@@ -9,10 +9,11 @@ which the bridge cannot take. The cause is in the vendor kernel (see
 `HDMI_KERNEL_FIX.md` (ADR-011, Proposed): every kernel-visible check PASSES
 at 720p and 1080p and 2560x1440 is no longer offered. Round 3, the owner at
 the bench: the DSI's own colour bars reach the monitor at 720p and 1080p, so
-the patches are proven on the glass; the K230 VO's output is still wrong
-(720p no signal, 1080p black except a re-set 1080p RGB565, which showed
-bars). Two VO-side causes are named in "Round 3".** Unit A is back on the
-panel with the v0.1.0 kernel.
+the patches are proven on the glass; the K230 VO's output was still wrong.
+Round 4, with VO patch 0072: 1920x1080@60 is clean and stable from
+`pos-drmtest` and from the Doors shell; 1280x720@60 still gives no signal
+(VO side, cause open, "Round 4").** Unit A is back on the panel with the
+v0.1.0 kernel.
 
 **Unit A carries:** image v0.1.0, build 1368695; shell 608f972 (the Recorder
 gate's build, the same device code as master 6077b8d); `pos-drmtest` built from
@@ -406,4 +407,32 @@ also set to request-off) get the DMA request bits back, one constant each,
 DOCUMENTED by the U-Boot code; (b) the 720p and first-set failures need the
 VO register state captured per step (the `voregs_unit.sh` harness exists)
 and a comparison against a pristine-driver (K0) VO sequence, before any code
-is changed. Neither is in patches 0070/0071.
+is changed. Neither is in patches 0070/0071. (a) became patch 0072, round 4.
+
+## Round 4: patch 0072 (2026-09-27, owner at the bench)
+
+**Unit A carried:** the v0.1.0 image and tools, `/boot/Image` = round-4
+kernel `86072a52…` (0070 + 0071 + 0072 on the v0.1.0 kernel tree), v0.1.0
+kernel kept as `/boot/Image.orig`, `KERNEL_R4.sh` / `KERNEL_ORIG.sh` /
+`RESTORE.sh` in `/root/rollback-hdmi/`. Monitor connected (HPD `0x7d`).
+Harness `r4_*.sh`, outputs in `out/hdmi-gate/`.
+
+| Step | Owner saw | Machine-visible | Verdict |
+| --- | --- | --- | --- |
+| R4.1 LCD tree first | (panel, as always) | new build stamp; DSI line identical to v0.1.0's; 568x1232; shell, touch, spidev, radio `rx`; no oops | PASS |
+| R4.2 HDMI boot | not asked | modes 1920x1080 / 1280x720 only; fbdev 1080p60; bridge `1920/1080/1125/400`; shell running | PASS |
+| R4.3 `pos-drmtest pattern --mode 1280x720@60`, 30 s and again 120 s | **no signal** (the 30 s run was read as "black, locked" after the hold had ended and the 1080p console was back; the 120 s run, looked at during the hold: no signal) | OSD4 `INFO 0x03 DMA_CTRL 0x4F`; DSI `auto_voc=0x19 hsfreq=0x96`; bridge `1280/720/750/600`; rc 0 | **FAIL (VO 720p, unchanged)** |
+| R4.4 `pos-drmtest pattern --mode 1920x1080@60`, 30 s | "it was nice, like 1 [clean pattern], but now it is black" - clean while it showed; the hold had ended when looked at again | modeset 3 ms, rc 0 | PASS (clean) |
+| R4.5 Same, 150 s hold, watched for 20 s | **clean and stable**: black frame, white border, red/green/blue blocks in that order, text lines | OSD4 `0x03 / 0x4F`, ADDR_SEL 0x1100, IRQ status bit 28 (again: not discriminating) | **PASS: first picture from a framebuffer through the whole path; block order right, so bit 6 of DMA_CTRL is the right byte order for XRGB8888** |
+| R4.6 Doors shell on HDMI (`S90doors-shell start`; RGB565, rotation 270, 1080x1920 through the GDMA rotation path) | **Doors UI visible**, stable | `display came up 1080x1920 … rotation 270`, running, 0 restarts; OSD4 `INFO 0x02 DMA_CTRL 0x4F STRIDE 0x1E0` | **PASS** |
+| R4.7 Back to the panel, original kernel | panel as before | `6.6.36 #2 … Sep 4`, `536d4770…`, 568x1232, shell, spidev, radio `rx`, no `force_dtb` | PASS |
+
+What round 4 settles: with 0070 + 0071 + 0072 the T-Display K230 shows
+**1920x1080@60 on HDMI**, from a DRM framebuffer (`pos-drmtest`, XRGB8888)
+and from the Doors shell (RGB565, rotated), clean and stable, the whole path
+VO → DSI → LT9611 → monitor. **1280x720@60 still gives no signal** from the
+VO's stream (the DSI's own 720p bars reach the monitor, round 3), and that
+is the one open display defect. The round-3 "black on the first 1080p set"
+was not seen in round 4 (three 1080p sets, all showed; the earlier black
+sets were XRGB8888 with the request bits off, or `modetest` runs whose
+sequence is not reproduced here) - watch for it, not proven gone.
