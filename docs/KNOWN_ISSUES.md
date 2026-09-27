@@ -141,6 +141,15 @@ DEVICE VERIFIED unless it says so.
 
 ## Hardware and BSP
 
+- **HDMI output gives no usable picture on the vendor kernel (VERIFIED on
+  unit A, 2026-09-27, `docs/hardware/HDMI_GATE.md`).** Bridge, hot-plug and
+  EDID work; 480p and 720p give no signal, 1080p60 stripes, and the shell is
+  offered 2560x1440, which the DSI cannot carry. Three kernel-side causes are
+  documented in `docs/hardware/HDMI_KERNEL_FIX.md` (mode filtering, an LT9611
+  timing-register bug that hits 720p, the 4-lane D-PHY brought up as the
+  2-lane panel's); kernel patches 0070/0071 on `feat/k230-hdmi-out` under
+  ADR-011 (Proposed). 480p and the bridge being reprogrammed under a running
+  stream stay open there.
 - **Whole-unit lock-up after repeated camera open/close (VERIFIED on unit A,
   master's binaries, 2026-09-27).** Opening Camera, streaming for about 3 s
   and leaving it, over and over, eventually freezes unit A completely: the
@@ -159,7 +168,7 @@ DEVICE VERIFIED unless it says so.
     `docs/hardware/CAMERA_GATE.md`.
   - Anything that opens and closes the camera often, such as the gallery on
     `feat/camera-gallery`, reaches it sooner.
-  - Evidence and reproduction: `docs/hardware/CAMERA_GALLERY_GATE.md`, §6.
+  - Evidence and reproduction: `docs/hardware/CAMERA_GALLERY_GATE.md`, ï¿½6.
   - Candidate mitigations, owner's call:
     - keep the camera open across a gallery visit (amends ADR-006's per-visit
       open);

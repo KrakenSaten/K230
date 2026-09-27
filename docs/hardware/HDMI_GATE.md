@@ -1,11 +1,15 @@
 # HDMI output - unit A gate
 
-**Status 2026-09-27: HDMI boot and bridge PROVEN; HDMI PICTURE FAILED.**
-Steps 0-5 and 13 PASS. Step 6 (720x480) and step 8 (720p and 1080p) FAIL:
-720x480 and 720p give no signal, and 1080p60 gives black and white flickering
-stripes. Step 12 FAIL: the shell takes the monitor's 2560x1440, which the
-bridge cannot take. The cause is in the vendor kernel (see "Result"), so it
-cannot be fixed without a kernel proposal. Unit A is back on the panel.
+**Status 2026-09-27, round 1: HDMI boot and bridge PROVEN; HDMI PICTURE
+FAILED.** Steps 0-5 and 13 PASS. Step 6 (720x480) and step 8 (720p and 1080p)
+FAIL: 720x480 and 720p give no signal, and 1080p60 gives black and white
+flickering stripes. Step 12 FAIL: the shell takes the monitor's 2560x1440,
+which the bridge cannot take. The cause is in the vendor kernel (see
+"Result"). **Round 2, the same day, on the patched kernel of
+`HDMI_KERNEL_FIX.md` (ADR-011, Proposed): every kernel-visible check PASSES
+at 720p and 1080p and 2560x1440 is no longer offered; the picture itself
+awaits the owner's eyes ("Round 2" below).** Unit A is back on the panel
+with the v0.1.0 kernel.
 
 **Unit A carries:** image v0.1.0, build 1368695; shell 608f972 (the Recorder
 gate's build, the same device code as master 6077b8d); `pos-drmtest` built from
@@ -324,3 +328,33 @@ All three are in the kernel (vendor driver, BSP DSI patches) or need a Doors
 display-stack change. Neither is in this branch's scope (no kernel change
 without an ADR-001 proposal, no UI change). `HDMI_OUTPUT.md` §9 lists the next
 steps.
+
+*Revised the same day by `HDMI_KERNEL_FIX.md`:* the register recipe is not
+1080p-only (it is the RT-Smart recipe, mode-derived); the defects are the
+mode table's use, one timing register, and the 4-lane PHY set-up.
+
+## Round 2: the patched kernel (2026-09-27, unattended)
+
+**Unit A carried:** the v0.1.0 image and tools as above, with `/boot/Image`
+replaced by the round-2 kernel (`7ab9b4bf…`: the same kernel tree plus Doors
+patches 0070 and 0071, `HDMI_KERNEL_FIX.md` §7) and the v0.1.0 kernel kept as
+`/boot/Image.orig`. Rollback scripts `/root/rollback-hdmi/RESTORE.sh` (whole
+gate), `KERNEL_ORIG.sh`, `KERNEL_R2.sh`. Nobody was at the bench; the
+monitor (DUS D27QP) stayed connected and powered from round 1 (HPD `0x7d`).
+Harness: `out/hdmi-gate/r2_*.sh`, outputs `r2_*.out`, serial captures
+`r2-serial-boot-{lcd,hdmi,lcd-final}.log`.
+
+| Step | Pass criterion | Result |
+| --- | --- | --- |
+| R2.1 LCD tree first | The panel path is unaffected by the kernel change | PASS. `uname` shows the new build stamp; DSI log line value-for-value identical to round 1's (`lanes=2 … auto_m=97 auto_n=3 auto_voc=0x17 hsfreq=0x96`); `DSI-1` 568x1232 connected and enabled; shell running, 0 restarts; touch, spidev, radio `rx`; no oops |
+| R2.2 HDMI boot | 2560x1440 gone; first mode 1080p60; bridge counts a full frame | PASS. Modes: 1920x1080 x3, 1280x720 x4, nothing else. fbdev's modeset: DSI `lanes=4 div=4 auto_m=295 auto_n=15 auto_voc=0x9 hsfreq=0xa9`; bridge `1920/1080/1125`, `h_total_sysclk=400`. `fb0` registered. Shell up on 1080x1920 (rotation 270), 0 restarts. SSH at 30 s |
+| R2.3 720p60 pattern | DSI at 445.5 Mbit/s with RT-Smart's PHY values; bridge sees sync+back porch 260 and a full 720p frame | PASS (kernel-visible). `auto_voc=0x19 hsfreq=0x96`, `hsync_porch: 260`, video check `1280/720/750`, `h_total_sysclk=600`; set in 824 ms; held 40 s at 0 % CPU; `rc=0`; restore to 1080p gave `1920/1080/1125/400` again |
+| R2.4 1080p60 pattern | as R2.2 | PASS (kernel-visible). Already the current mode (2 ms, flip only); held 40 s; `rc=0`; no oops in any run |
+| R2.5 Picture on the monitor | The owner sees the pattern | **NOT OBSERVED** (unattended). Round 1's 720p failure was at the HDMI transmitter, which these counters do not see |
+| R2.6 Back to the panel, original kernel | Unit as before the gate | PASS. `pos-display-boot lcd`, `KERNEL_ORIG.sh`, reboot: `6.6.36 #2 … Sep 4`, panel, shell, touch, spidev, radio `rx`, no `force_dtb`. The patched kernel stays at `/root/rollback-hdmi/Image.hdmi-r2` |
+
+For the owner's look: `sh /root/rollback-hdmi/KERNEL_R2.sh && pos-display-boot
+hdmi && reboot`, watch the console for 1080p60 (fbdev, then the shell), then
+`pos-drmtest pattern --mode 1280x720@60 --seconds 30` with the shell stopped;
+afterwards `pos-display-boot lcd && sh /root/rollback-hdmi/KERNEL_ORIG.sh &&
+reboot`.

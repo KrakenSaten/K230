@@ -6,8 +6,11 @@ is `HDMI_GATE.md`. **2026-09-27, unit A with a 2560x1440 monitor:**
 - The HDMI boot works: LT9611 probe, HPD, EDID, 26 modes, Wi-Fi still up.
 - The bridge receives correct DSI timing at 480p, 720p and 1080p.
 - **There is no usable picture.** 480p and 720p give no signal, and 1080p60
-  gives flickering stripes. The vendor LT9611 driver is set up for 1080p only
-  (details in the gate's "Why no picture").
+  gives flickering stripes. The gate's first reading ("the vendor LT9611
+  driver is set up for 1080p only") was revised by the desk study that
+  followed: `HDMI_KERNEL_FIX.md` names three kernel-side causes and carries
+  the two kernel patches (`platforms/k230/patches/linux/0070`, `0071`) that
+  ADR-011 (Proposed) covers. Round 2 of the gate runs on that kernel.
 
 Evidence classes as in `T-DISPLAY-K230.md`: VERIFIED (unit A runtime record, or
 reproduced here from the pinned sources), DOCUMENTED (vendor schematic, source,
@@ -323,19 +326,28 @@ Measured on unit A, 2026-09-27:
   that into 297 MHz, which the bridge cannot receive.
 - The AMOLED is dark during an HDMI boot.
 
-## 9. Next platform step (proposal, not applied)
+## 9. Next platform step: the kernel patches (ADR-011, Proposed)
 
-The gate adds a step before any Doors-owned tree: the picture. The candidates,
-none tried and each a kernel change needing a proposal:
-- (a) mode-dependent PCR and TX set-up in `lontium-lt9611.c`, from upstream
-  Linux or from the LILYGO RT-Smart `connector/src/lt9611.c`, which drives the
-  same bridge;
-- (b) limit `mode_valid` to the modes the driver really sets up, so that
-  neither the shell nor fbdev picks 2560x1440;
-- (c) a DSI D-PHY `hsfreqrange` that follows the lane rate instead of the
-  fixed 0x96.
+The gate adds a step before any Doors-owned tree: the picture. The desk study
+that followed the gate (`HDMI_KERNEL_FIX.md`) settled the three candidates
+listed here on 2026-09-27:
+- (a) mode-dependent PCR and TX set-up: **already the case.** The vendor
+  Linux driver derives PLL post-divider, `pcr_m` and every timing register
+  from the mode, with the same formulas as the RT-Smart `lt9611.c`. What was
+  wrong is one timing register (0x831a, an operator-precedence bug that breaks
+  720p) - patch 0070;
+- (b) `mode_valid` limited to the modes the driver is set up for, so that
+  neither the shell nor fbdev picks 2560x1440: patch 0070 (1080p60/30,
+  720p60/50);
+- (c) the DSI D-PHY for the 4-lane bridge port: BSP patch 0025 had put it on
+  the panel's 2-lane sequence, and the `hsfreqrange` and VCO codes came from a
+  fixed value and a table that disagrees with the D-PHY databook and with
+  RT-Smart. Patch 0071 programs the 4-lane port from the databook tables as
+  they ship in the kernel's Keem Bay driver, which reproduce RT-Smart's values.
 
-Checking (a) against the RT-Smart driver is desk work that needs no hardware.
+The patches are applied by `apply_to_sdk.sh` from `platforms/k230/patches/
+linux/` (ADR-011 for the rule; `BUILD_ENVIRONMENT.md` for the
+`linux-dirclean` note). The 2-lane panel path is unchanged by them.
 
 A Doors-owned HDMI device tree that keeps the T-Display peripherals: the LCD
 tree minus the `canaan,universal` panel and minus the GT9895 node (shared
