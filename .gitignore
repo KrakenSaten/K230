@@ -192,3 +192,6 @@ BUILD_ID
 /tests/rec_session_test
 /tests/rec_ctl_test
 /tests/pos-record-testhooks
+# HDMI diagnostics (docs/hardware/HDMI_OUTPUT.md)
+/tools/drmtest/pos-drmtest
+/tests/drmtest_test

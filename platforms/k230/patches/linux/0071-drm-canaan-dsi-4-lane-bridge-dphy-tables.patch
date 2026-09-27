@@ -1,0 +1,206 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Doors <doors@localhost>
+Date: Sun, 27 Sep 2026 00:00:00 +0000
+Subject: [PATCH] drm/canaan: dsi: program the 4-lane bridge port from the
+ D-PHY tables
+
+Applies on top of the LILYGO BSP stack (after 0064). Doors-owned; see
+docs/decisions/ADR-011-kernel-patches.md and docs/hardware/HDMI_KERNEL_FIX.md
+in the Doors repository.
+
+BSP patch 0025 replaced k230_dsi_config_4lan_phy() with a 2-lane variant for
+the RM69A10 panel, unconditionally, so the LT9611 bridge's 4-lane link was
+brought up by the panel's sequence. The PHY also got hsfreqrange 0x16 (the
+450 Mbit/s code) at every lane rate, and a vco_cntrl table whose x7 codes are
+not in the D-PHY databook table: 0x07 at 891 Mbit/s where RT-Smart programs
+0x09, 0x17 at 445.5 Mbit/s where RT-Smart programs 0x19.
+
+For a 4-lane device (the bridge) this patch:
+- selects vco_cntrl and hsfreqrange from the databook tables as they ship in
+  drivers/gpu/drm/kmb/kmb_dsi.c (vco_table[], mipi_hs_freq_range[]), which
+  reproduce the RT-Smart LT9611 values (M=297 N=16 vco_cntrl 0x09 at
+  891 Mbit/s, 0x19 at 445.5 Mbit/s) and give hsfreqrange 0x29 at 891 and
+  0x16 at 445.5 Mbit/s;
+- brings the PHY up with the driver's original 4-lane sequence
+  (DSI_PHY_RSTZ 0xd then 0xf, as the DesignWare host driver does).
+
+The 2-lane panel path is unchanged: same table, same sequence, same
+hsfreqrange 0x96.
+
+Signed-off-by: Doors <doors@localhost>
+---
+ drivers/gpu/drm/canaan/canaan_dsi.c | 123 +++++++++++++++++++++++++-----
+ 1 file changed, 110 insertions(+), 13 deletions(-)
+
+--- a/drivers/gpu/drm/canaan/canaan_dsi.c
++++ b/drivers/gpu/drm/canaan/canaan_dsi.c
+@@ -318,19 +318,93 @@
+ 	dsi_write(dsi, VID_MODE_CFG, reg);
+ }
+ 
+-static int canaan_dsi_clk_cfg(struct canaan_dsi *dsi, u32 clk)
++/*
++ * The K230 DSI TX PHY is a Synopsys DesignWare MIPI D-PHY of the generation
++ * that is programmed through test codes: hsfreqrange goes to test code 0x44
++ * (bit 7 = override enable, bits [6:0] = range code) and the PLL output
++ * divider and VCO band share the vco_cntrl field (bits [5:4] = 2^P output
++ * divider, bits [3:0] = band). The kernel already carries the databook tables
++ * for this PHY family in the Intel Keem Bay DSI driver
++ * (drivers/gpu/drm/kmb/kmb_dsi.c: vco_table[] and mipi_hs_freq_range[]);
++ * the two tables below are those tables.
++ *
++ * They also reproduce what the K230 RT-Smart SDK programs for the LT9611
++ * bridge (canmv_rt mpi_connector.c, "lt9611" entries): at 1920x1080@60,
++ * 891 Mbit/s per lane, M=297 N=16 vco_cntrl=0x09; at 1280x720@60,
++ * 445.5 Mbit/s, M=297 N=16 vco_cntrl=0x19. The Linux table that was here
++ * gave 0x07 and 0x17 for the same rates (the x7 codes are not in the
++ * databook table), and hsfreqrange was fixed at 0x16 (the 450 Mbit/s code)
++ * for every rate. At 891 Mbit/s the bridge counted 1050 of 1080 active
++ * lines with those settings (unit A, 2026-09-27).
++ *
++ * The 2-lane panel path keeps the original computation on purpose: the
++ * RM69A10 runs on it today and this change is about the 4-lane bridge port.
++ */
++struct canaan_dsi_dphy_vco {
++	u32 below_khz;	/* applies while the PHY DDR clock is below this */
++	u8 vco_cntrl;
++};
++
++static const struct canaan_dsi_dphy_vco canaan_dsi_dphy_vco_table[] = {
++	{ 52000, 0x3f }, { 80000, 0x39 }, { 105000, 0x2f }, { 160000, 0x29 },
++	{ 210000, 0x1f }, { 320000, 0x19 }, { 420000, 0x0f }, { 630000, 0x09 },
++	{ 1100000, 0x03 }, { U32_MAX, 0x01 },
++};
++
++struct canaan_dsi_dphy_hsfreq {
++	u32 up_to_mbps;	/* lane bit rate up to and including this */
++	u8 code;	/* hsfreqrange[6:0] */
++};
++
++static const struct canaan_dsi_dphy_hsfreq canaan_dsi_dphy_hsfreq_table[] = {
++	{ 80, 0x00 }, { 90, 0x10 }, { 100, 0x20 }, { 110, 0x30 },
++	{ 120, 0x01 }, { 130, 0x11 }, { 140, 0x21 }, { 150, 0x31 },
++	{ 160, 0x02 }, { 170, 0x12 }, { 180, 0x22 }, { 190, 0x32 },
++	{ 205, 0x03 }, { 220, 0x13 }, { 235, 0x23 }, { 250, 0x33 },
++	{ 275, 0x04 }, { 300, 0x14 }, { 325, 0x25 }, { 350, 0x35 },
++	{ 400, 0x05 }, { 450, 0x16 }, { 500, 0x26 }, { 550, 0x37 },
++	{ 600, 0x07 }, { 650, 0x18 }, { 700, 0x28 }, { 750, 0x39 },
++	{ 800, 0x09 }, { 850, 0x19 }, { 900, 0x29 }, { 1000, 0x0a },
++	{ 1050, 0x1a }, { 1100, 0x2a }, { 1150, 0x3b }, { 1200, 0x0b },
++	{ 1250, 0x1b }, { 1300, 0x2b }, { 1350, 0x3c }, { 1400, 0x0c },
++	{ 1450, 0x1c }, { 1500, 0x2c }, { 1550, 0x3d }, { 1600, 0x0d },
++	{ 1650, 0x1d }, { 1700, 0x2e }, { 1750, 0x3e }, { 1800, 0x0e },
++	{ 1850, 0x1e }, { 1900, 0x2f }, { 1950, 0x3f }, { 2000, 0x0f },
++	{ 2050, 0x40 }, { 2100, 0x41 }, { 2150, 0x42 }, { 2200, 0x43 },
++	{ 2250, 0x44 }, { 2300, 0x45 }, { 2350, 0x46 }, { 2400, 0x47 },
++	{ 2450, 0x48 }, { 2500, 0x49 },
++};
++
++/* vco_cntrl for a PHY DDR clock (half the lane bit rate), in kHz. */
++static u8 canaan_dsi_dphy_vco_cntrl(u32 ddr_khz)
+ {
+-	struct mipi_dsi_device *device = dsi->device;
+-	u32 val, div, phy_clk_freq, voc_freq, i, m, n = 0, voc;
+-	u64 cmp, tmp, diff, closest = 100000000;
+-	void *dis_clk;
++	int i;
+ 
+-	div = DIV64_U64_ROUND_CLOSEST(594000, clk);
+-	dsi->clk_freq = 594000 / div;
+-	phy_clk_freq = dsi->clk_freq * 3 * 8 / device->lanes / 2;
+-	if (phy_clk_freq > 1250000 || phy_clk_freq < 40000)
+-		return -1;
+-	else if (phy_clk_freq < 55000)
++	for (i = 0; i < ARRAY_SIZE(canaan_dsi_dphy_vco_table) - 1; i++)
++		if (ddr_khz < canaan_dsi_dphy_vco_table[i].below_khz)
++			break;
++
++	return canaan_dsi_dphy_vco_table[i].vco_cntrl;
++}
++
++/* hsfreqrange for a lane bit rate in kbit/s: the first range that covers it. */
++static u8 canaan_dsi_dphy_hsfreqrange(u32 lane_kbps)
++{
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(canaan_dsi_dphy_hsfreq_table) - 1; i++)
++		if (lane_kbps <= canaan_dsi_dphy_hsfreq_table[i].up_to_mbps * 1000)
++			break;
++
++	return canaan_dsi_dphy_hsfreq_table[i].code;
++}
++
++/* The table the 2-lane RM69A10 panel path has always used, unchanged. */
++static u32 canaan_dsi_panel_vco_cntrl(u32 phy_clk_freq)
++{
++	u32 voc;
++
++	if (phy_clk_freq < 55000)
+ 		voc = 0x3f;
+ 	else if (phy_clk_freq < 82500)
+ 		voc = 0x37;
+@@ -351,6 +425,31 @@
+ 	else
+ 		voc = 0x01;
+ 
++	return voc;
++}
++
++static int canaan_dsi_clk_cfg(struct canaan_dsi *dsi, u32 clk)
++{
++	struct mipi_dsi_device *device = dsi->device;
++	u32 val, div, phy_clk_freq, voc_freq, i, m, n = 0, voc;
++	u64 cmp, tmp, diff, closest = 100000000;
++	u8 hsfreq = 0x96;
++	void *dis_clk;
++
++	div = DIV64_U64_ROUND_CLOSEST(594000, clk);
++	dsi->clk_freq = 594000 / div;
++	phy_clk_freq = dsi->clk_freq * 3 * 8 / device->lanes / 2;
++	if (phy_clk_freq > 1250000 || phy_clk_freq < 40000)
++		return -1;
++
++	if (device->lanes == 4) {
++		/* The 4-lane bridge port: databook tables, see above. */
++		voc = canaan_dsi_dphy_vco_cntrl(phy_clk_freq);
++		hsfreq = 0x80 | canaan_dsi_dphy_hsfreqrange(phy_clk_freq * 2);
++	} else {
++		voc = canaan_dsi_panel_vco_cntrl(phy_clk_freq);
++	}
++
+ 	voc_freq = phy_clk_freq * (1 << (voc >> 4));
+ 	cmp = voc_freq;
+ 	cmp = cmp * 1000;
+@@ -385,11 +484,19 @@
+ 	writel(val, dis_clk + 0x78);
+ 	iounmap(dis_clk);
+ 
+-	k230_dsi_config_2lan_phy(dsi, m - 2, n - 1, voc, 0x96);
++	/*
++	 * The 4-lane sequence is the one this driver shipped with (it sets
++	 * phy_forcepll, DSI_PHY_RSTZ = 0xf, as the DesignWare host driver
++	 * does); the 2-lane variant was written for the RM69A10 panel.
++	 */
++	if (device->lanes == 4)
++		k230_dsi_config_4lan_phy(dsi, m - 2, n - 1, voc, hsfreq);
++	else
++		k230_dsi_config_2lan_phy(dsi, m - 2, n - 1, voc, hsfreq);
+ 	dev_info(dsi->dev,
+-		 "DSI clock cfg: req=%u kHz adjusted=%u kHz div=%u lanes=%u bpp=24 phy_target=%u kHz auto_phy_freq=%u kHz auto_m=%u auto_n=%u auto_voc=0x%x hsfreq=0x96\n",
++		 "DSI clock cfg: req=%u kHz adjusted=%u kHz div=%u lanes=%u bpp=24 phy_target=%u kHz auto_phy_freq=%u kHz auto_m=%u auto_n=%u auto_voc=0x%x hsfreq=0x%02x\n",
+ 		 clk, dsi->clk_freq, div, device->lanes, phy_clk_freq,
+-		 dsi->phy_freq, m - 2, n - 1, voc);
++		 dsi->phy_freq, m - 2, n - 1, voc, hsfreq);
+ 
+ 	return 0;
+ }
+@@ -414,9 +521,6 @@
+ 		 adjusted_mode->htotal, adjusted_mode->vdisplay,
+ 		 adjusted_mode->vsync_start, adjusted_mode->vsync_end,
+ 		 adjusted_mode->vtotal);
+-	dev_info(dsi->dev,
+-		 "DSI fixed 2-lane PHY override disabled; using auto-PHY result\n");
+-
+ 	// set dsi lan num
+ 	canaan_dsi_set_lan_num(dsi, device->lanes);
+ 	// set lpdt

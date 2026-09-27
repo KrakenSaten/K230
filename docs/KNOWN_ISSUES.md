@@ -141,6 +141,24 @@ DEVICE VERIFIED unless it says so.
 
 ## Hardware and BSP
 
+- **HDMI output gives no usable picture on the vendor kernel (VERIFIED on
+  unit A, 2026-09-27, `docs/hardware/HDMI_GATE.md`).** Bridge, hot-plug and
+  EDID work; 480p and 720p give no signal, 1080p60 stripes, and the shell is
+  offered 2560x1440, which the DSI cannot carry. Three kernel-side causes are
+  documented in `docs/hardware/HDMI_KERNEL_FIX.md` (mode filtering, an LT9611
+  timing-register bug that hits 720p, the 4-lane D-PHY brought up as the
+  2-lane panel's); kernel patches 0070/0071 on `feat/k230-hdmi-out` under
+  ADR-011 (Accepted 2026-09-27). Round 3 (owner at the bench) proved those patches on
+  the monitor with the DSI's own colour bars at 720p and 1080p. What is left
+  is the K230 VO: XRGB8888 planes had their OSD DMA request bits off (a BSP
+  constant, documented by the vendor U-Boot code; patch 0072 restores them,
+  and with it 1920x1080@60 is clean and stable from `pos-drmtest` and the
+  Doors shell, round 4). The VO's 720p "no signal" was the DSI host's line
+  time, which must be a whole number of lane-byte clocks (round 5); patch
+  0073 pads the timing and round 6 showed 720p and 1080p clean and stable.
+  Still open on the branch: 1080p30 and 720p50 untested on a monitor, 480p
+  not offered, no hot-plug event to userspace, the HDMI tree drops
+  LoRa/touch/uart1. `docs/hardware/HDMI_KERNEL_FIX.md` Â§9-11.
 - **Whole-unit lock-up after repeated camera open/close (VERIFIED on unit A,
   master's binaries, 2026-09-27).** Opening Camera, streaming for about 3 s
   and leaving it, over and over, eventually freezes unit A completely: the
@@ -159,7 +177,7 @@ DEVICE VERIFIED unless it says so.
     `docs/hardware/CAMERA_GATE.md`.
   - Anything that opens and closes the camera often, such as the gallery on
     `feat/camera-gallery`, reaches it sooner.
-  - Evidence and reproduction: `docs/hardware/CAMERA_GALLERY_GATE.md`, §6.
+  - Evidence and reproduction: `docs/hardware/CAMERA_GALLERY_GATE.md`, ï¿½6.
   - Candidate mitigations, owner's call:
     - keep the camera open across a gallery visit (amends ADR-006's per-visit
       open);

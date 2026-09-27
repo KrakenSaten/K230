@@ -87,6 +87,29 @@ hours after the vendor baseline, including two recoverable stops noted in
 KNOWN_ISSUES). radiod links RadioLib and libgpiod2, the shell links the
 vendor LVGL from staging. Nothing has booted on hardware yet.
 
+### Doors kernel patches (ADR-011)
+
+`platforms/k230/patches/linux/00[7-9]n-*.patch` are Doors-owned patches on
+top of the LILYGO BSP kernel stack. `apply_to_sdk.sh` installs them into the
+SDK's `buildroot-overlay/linux/` next to the vendor's 0001-0064 (and removes
+Doors patches that left the repository), the SDK's `sync` copies them into the
+Buildroot tree, and Buildroot applies the whole directory in order **when it
+extracts the kernel**. A kernel that is already extracted is never
+re-patched, so after adding or changing a patch:
+
+```sh
+make -C $POCKETOS_VENDOR_DIR/k230_linux_sdk CONF=k230_pocketos_defconfig linux-dirclean
+make -C $POCKETOS_VENDOR_DIR/k230_linux_sdk CONF=k230_pocketos_defconfig linux   # ~17 min on this host
+```
+
+then `build_image.sh` as usual (or copy `output/k230_pocketos_defconfig/images/Image`
+to a unit's `/boot/Image` for a kernel-only test, with the old one kept as
+`/boot/Image.orig`). The apply manifest records the patches
+(`doors_kernel_patches=`), and `tests/kernel_patches_test.sh` checks the
+files and the apply step. VERIFIED 2026-09-27: `.applied_patches_list` of a
+fresh extract ends with 0070-0073 and the vendor's unnumbered suspend patch,
+and the kernel builds with the pinned toolchain (docs/hardware/HDMI_KERNEL_FIX.md §7).
+
 ### The build is a commit, and a dirty tree is refused
 
 `apply_to_sdk.sh` assembles the package with `git archive HEAD`. Only tracked
