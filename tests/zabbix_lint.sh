@@ -1,5 +1,5 @@
 #!/bin/bash
-# Zabbix's boundaries (docs/apps/ZABBIX.md, ADR-007 PROPOSED), held statically.
+# Zabbix's boundaries (docs/apps/ZABBIX.md, ADR-007 accepted), held statically.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 failed=0

@@ -1145,7 +1145,7 @@ camera-san-test:
 	    ./tests/camera_layout_test && ./tests/camera_gallery_test && \
 	    ./tests/camera_session_test tests/pos-camera-testhooks
 
-# Zabbix (docs/apps/ZABBIX.md, ADR-007 PROPOSED).
+# Zabbix (docs/apps/ZABBIX.md, ADR-007 accepted).
 #
 # core/zabbix is the Zabbix viewer's client layer, all pure C: the bounded
 # model and the app/helper line protocol (the only two parts the shell links),

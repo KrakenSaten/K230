@@ -5,7 +5,7 @@
  *
  * This file is the screen. What the helper said and the words each screen
  * shows are zabbix_view.c; the server is not here at all. It lives in a
- * pos-zabbix helper process (zabbix_session.c, ADR-007 PROPOSED), polled
+ * pos-zabbix helper process (zabbix_session.c, ADR-007 accepted), polled
  * from an LVGL timer that only ever makes non-blocking calls. The only wait
  * on the LVGL thread is destroy() (and a demo switch) giving the helper
  * ZABBIX_DESTROY_GRACE_MS to leave before it is killed.

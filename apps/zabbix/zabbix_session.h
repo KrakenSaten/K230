@@ -3,7 +3,7 @@
  * as the Zabbix screen is open, driven without ever blocking the LVGL
  * thread.
  *
- * Why a helper process (docs/decisions/ADR-007-zabbix-viewer.md, PROPOSED):
+ * Why a helper process (docs/decisions/ADR-007-zabbix-viewer.md, accepted):
  *
  *   - every network wait - DNS, TCP, TLS, a server that answers slowly or
  *     never - happens in another process; the LVGL thread only ever reads a
