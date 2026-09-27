@@ -14,7 +14,9 @@
  *       a test frame (black, white border, red/green/blue blocks, the mode in
  *       text) on one connector for N seconds (default 15), then the previous
  *       CRTC state back. Without --mode the safest mode is chosen
- *       (drmtest_logic.h). Needs DRM master: stop the shell first.
+ *       (drmtest_logic.h). Needs DRM master: stop the shell first. A primary
+ *       plane rotation the shell left behind is set to rotate-0 for the
+ *       pattern and put back afterwards.
  *
  * Exit status: 0 done; 1 error; 2 usage, or no connected connector / no
  * usable mode; 3 another process is DRM master.
@@ -429,8 +431,109 @@ static int pick_crtc(struct card *card, const struct conn *c, uint32_t *crtc_id)
     return -1;
 }
 
+/* The primary plane's "rotation" property, found through the universal-plane
+ * view. The shell turns its picture with that property (DS §21 system
+ * rotation) and the kernel keeps the value after the shell exits: with
+ * rotate-90/270 left on, the legacy SETCRTC checks a WxH framebuffer against
+ * the swapped HxW viewport and refuses it with ENOSPC (drm_crtc_check_viewport;
+ * seen on unit A in landscape, 2026-09-27). */
+struct plane_rot {
+    uint32_t plane_id;
+    uint32_t prop_id;
+    uint64_t value;
+};
+
+#define ROTATE_0 1u /* DRM_MODE_ROTATE_0 */
+
+static int prop_name_is(int fd, uint32_t prop_id, const char *name)
+{
+    struct drm_mode_get_property p;
+
+    memset(&p, 0, sizeof(p));
+    p.prop_id = prop_id;
+    return xioctl(fd, DRM_IOCTL_MODE_GETPROPERTY, &p) == 0 && strcmp(p.name, name) == 0;
+}
+
+static int primary_rotation(struct card *card, uint32_t crtc_id, struct plane_rot *out)
+{
+    struct drm_set_client_cap cap = { DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1 };
+    struct drm_mode_get_plane_res res;
+    uint32_t planes[MAX_OBJS];
+    uint32_t crtc_bit = 0;
+    uint32_t i;
+    uint32_t j;
+
+    for (i = 0; i < card->n_crtcs; i++) {
+        if (card->crtcs[i] == crtc_id) {
+            crtc_bit = 1u << i;
+        }
+    }
+    if (!crtc_bit || xioctl(card->fd, DRM_IOCTL_SET_CLIENT_CAP, &cap) < 0) {
+        return -1;
+    }
+    memset(&res, 0, sizeof(res));
+    if (xioctl(card->fd, DRM_IOCTL_MODE_GETPLANERESOURCES, &res) < 0 || res.count_planes > MAX_OBJS) {
+        return -1;
+    }
+    res.plane_id_ptr = (uintptr_t)planes;
+    if (xioctl(card->fd, DRM_IOCTL_MODE_GETPLANERESOURCES, &res) < 0) {
+        return -1;
+    }
+    for (i = 0; i < res.count_planes; i++) {
+        struct drm_mode_get_plane pl;
+        struct drm_mode_obj_get_properties op;
+        uint32_t props[32];
+        uint64_t values[32];
+        int primary = 0;
+        int rot = -1;
+
+        memset(&pl, 0, sizeof(pl));
+        pl.plane_id = planes[i];
+        if (xioctl(card->fd, DRM_IOCTL_MODE_GETPLANE, &pl) < 0 || !(pl.possible_crtcs & crtc_bit)) {
+            continue;
+        }
+        memset(&op, 0, sizeof(op));
+        op.obj_id = planes[i];
+        op.obj_type = DRM_MODE_OBJECT_PLANE;
+        op.props_ptr = (uintptr_t)props;
+        op.prop_values_ptr = (uintptr_t)values;
+        op.count_props = 32;
+        if (xioctl(card->fd, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, &op) < 0 || op.count_props > 32) {
+            continue;
+        }
+        for (j = 0; j < op.count_props; j++) {
+            if (prop_name_is(card->fd, props[j], "type")) {
+                primary = values[j] == 1; /* the kernel's DRM_PLANE_TYPE_PRIMARY; not in the uapi */
+            } else if (prop_name_is(card->fd, props[j], "rotation")) {
+                rot = (int)j;
+            }
+        }
+        if (primary && rot >= 0) {
+            out->plane_id = planes[i];
+            out->prop_id = props[rot];
+            out->value = values[rot];
+            return 0;
+        }
+    }
+    return -1;
+}
+
+static int set_rotation(struct card *card, const struct plane_rot *r, uint64_t value)
+{
+    struct drm_mode_obj_set_property sp;
+
+    memset(&sp, 0, sizeof(sp));
+    sp.value = value;
+    sp.prop_id = r->prop_id;
+    sp.obj_id = r->plane_id;
+    sp.obj_type = DRM_MODE_OBJECT_PLANE;
+    return xioctl(card->fd, DRM_IOCTL_MODE_OBJ_SETPROPERTY, &sp);
+}
+
 static int cmd_pattern(struct card *card, const char *name, const char *want, int seconds)
 {
+    struct plane_rot rot = { 0, 0, ROTATE_0 };
+    int rot_changed = 0;
     struct conn c;
     struct dt_mode *modes;
     struct drm_mode_modeinfo mode;
@@ -535,6 +638,16 @@ static int cmd_pattern(struct card *card, const char *name, const char *want, in
     memset(&saved, 0, sizeof(saved));
     saved.crtc_id = crtc_id;
     xioctl(card->fd, DRM_IOCTL_MODE_GETCRTC, &saved);
+    if (primary_rotation(card, crtc_id, &rot) == 0 && rot.value != ROTATE_0) {
+        if (set_rotation(card, &rot, ROTATE_0) == 0) {
+            rot_changed = 1;
+            printf("primary plane %u: rotation 0x%llx left by the last user, rotate-0 for the pattern\n",
+                   rot.plane_id, (unsigned long long)rot.value);
+        } else {
+            fprintf(stderr, "pos-drmtest: cannot reset the primary plane's rotation 0x%llx: %s\n",
+                    (unsigned long long)rot.value, strerror(errno));
+        }
+    }
 
     memset(&set, 0, sizeof(set));
     set.crtc_id = crtc_id;
@@ -557,7 +670,12 @@ static int cmd_pattern(struct card *card, const char *name, const char *want, in
     }
     rc = 0;
 
-    /* Back to what was there: the previous framebuffer and mode, or off. */
+    /* Back to what was there: the rotation first (a previous framebuffer was
+     * made for it), then the previous framebuffer and mode, or off. */
+    if (rot_changed && set_rotation(card, &rot, rot.value) == 0) {
+        rot_changed = 0;
+        printf("primary plane rotation 0x%llx restored\n", (unsigned long long)rot.value);
+    }
     if (saved.mode_valid && saved.fb_id) {
         saved.set_connectors_ptr = (uintptr_t)&conn_id;
         saved.count_connectors = 1;
@@ -573,6 +691,10 @@ static int cmd_pattern(struct card *card, const char *name, const char *want, in
     }
 
 out_fb:
+    if (rot_changed && set_rotation(card, &rot, rot.value) < 0) {
+        fprintf(stderr, "pos-drmtest: could not restore the primary plane's rotation 0x%llx: %s\n",
+                (unsigned long long)rot.value, strerror(errno));
+    }
     xioctl(card->fd, DRM_IOCTL_MODE_RMFB, &fb.fb_id);
 out_dumb:
     memset(&destroy, 0, sizeof(destroy));
