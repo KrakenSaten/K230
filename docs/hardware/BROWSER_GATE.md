@@ -15,8 +15,12 @@ or added together:
   build had the same md5. The rebased shell carries master's gallery code, and
   the unit's v0.1.0 helper does not speak that protocol, so the two had to go
   in together.
-- `e8999f6` (the tip before this sheet) differs from `301fadf` only in
-  `tests/web_image_test.c`. Nothing on the unit changes with it.
+- After the gate the branch was rebased again, onto master `d107059`. That
+  commit only adds `pocketcam_exif.o` to the Makefile's build-identity list.
+  In the rebase, `301fadf` became `9eedc62` and `e8999f6` became `5994d5a`.
+  The code on the unit is unchanged: `5994d5a` only touches
+  `tests/web_image_test.c`. The rebased tip passes `make test` in full and
+  the Xuantie build.
 - Nothing else was touched: services, CLI, init scripts, other art and
   settings.
 
@@ -51,7 +55,7 @@ and `caps/*.png`.
 Two integration defects were found and fixed. The cloud branch had only
 seen Ubuntu gcc 13 and a host with the image libraries installed:
 
-1. `301fadf`: **the Xuantie gcc 14 stopped `make all`** in
+1. `301fadf` (now `9eedc62`): **the Xuantie gcc 14 stopped `make all`** in
    `core/web/web_image.c` (`scaler_row`). It vectorizes the RGB565 output
    loop for RVV (`-march=rv64imafdcv…`) with a masked division, then reports
    the masked-off lanes as `-Wmaybe-uninitialized`.
@@ -59,7 +63,7 @@ seen Ubuntu gcc 13 and a host with the image libraries installed:
      not.
    - The fix marks that one loop `#pragma GCC novector`, for gcc ≥ 14 only.
      The output is unchanged; the image suites pass.
-2. `e8999f6`: **`make test` in the default configuration** (`BROWSER_IMAGES=0`)
+2. `e8999f6` (now `5994d5a`): **`make test` in the default configuration** (`BROWSER_IMAGES=0`)
    stopped on `-Werror` in `tests/web_image_test.c`: `mutate_rounds()` is
    unused without a decoder. It and `rnd()` are now under the same guard as
    their callers.
@@ -179,6 +183,7 @@ Frame rate while fling-scrolling and the 800-block page were not measured.
 - An upstream outage of about a minute (07:14-07:16Z) failed curl and
   Browser alike. It was not the unit (ping and example.com fine right after).
   The picture check was repeated after it.
-- `make test`: `build_deps_test` fails on `core/pocketcam/pocketcam_exif.c`,
-  **identically on master `2d24cef`**, from the camera gallery. It is not
-  Browser's and was left alone. Every other step passes.
+- `make test` on `2d24cef` failed `build_deps_test` on
+  `core/pocketcam/pocketcam_exif.c`. That came from the camera gallery, not
+  Browser. Master `d107059` fixed it, and on the tip rebased onto it
+  `make test` passes in full (rc 0).
