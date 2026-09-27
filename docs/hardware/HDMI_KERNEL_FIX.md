@@ -4,7 +4,7 @@ Recorded 2026-09-27 on branch `feat/k230-hdmi-out`, after the unit A gate of
 the same day (`HDMI_GATE.md`: bridge, HPD and EDID proven, no picture at 480p
 and 720p, stripes at 1080p, shell on 2560x1440). This sheet is the desk work
 that the gate's "Why no picture" asked for, and the evidence behind kernel
-patches 0070 and 0071 in `platforms/k230/patches/linux/` (ADR-011, Proposed).
+patches 0070 and 0071 in `platforms/k230/patches/linux/` (ADR-011, Accepted 2026-09-27).
 
 Evidence classes as in `T-DISPLAY-K230.md`: VERIFIED (unit A record, or
 reproduced here from the pinned sources by reading the code that ran),

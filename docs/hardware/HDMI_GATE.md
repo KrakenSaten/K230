@@ -6,7 +6,7 @@ FAIL: 720x480 and 720p give no signal, and 1080p60 gives black and white
 flickering stripes. Step 12 FAIL: the shell takes the monitor's 2560x1440,
 which the bridge cannot take. The cause is in the vendor kernel (see
 "Result"). **Round 2, the same day, on the patched kernel of
-`HDMI_KERNEL_FIX.md` (ADR-011, Proposed): every kernel-visible check PASSES
+`HDMI_KERNEL_FIX.md` (ADR-011, Accepted 2026-09-27): every kernel-visible check PASSES
 at 720p and 1080p and 2560x1440 is no longer offered. Round 3, the owner at
 the bench: the DSI's own colour bars reach the monitor at 720p and 1080p, so
 the patches are proven on the glass; the K230 VO's output was still wrong.

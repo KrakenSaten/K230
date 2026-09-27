@@ -1,8 +1,9 @@
 # ADR-011: Doors-owned kernel patches on top of the LILYGO BSP
 
-Status: Proposed (author, 2026-09-27); awaits the product owner's decision
-after the unit A HDMI gate on the patched kernel (docs/hardware/HDMI_GATE.md,
-round 2).
+Status: Accepted (product owner, 2026-09-27), after the unit A HDMI gate on
+the patched kernel: docs/hardware/HDMI_GATE.md rounds 2-6, ending with
+1280x720@60 and 1920x1080@60 clean and stable on the monitor and the Doors
+shell visible on HDMI, on patches 0070-0073.
 Date: 2026-09-27
 Deciders: product owner (final), AI engineering partner (author)
 

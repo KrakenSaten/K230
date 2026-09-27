@@ -10,7 +10,7 @@ is `HDMI_GATE.md`. **2026-09-27, unit A with a 2560x1440 monitor:**
   ("the vendor LT9611 driver is set up for 1080p only") was revised by the
   desk study that followed: `HDMI_KERNEL_FIX.md` names the kernel-side causes
   and carries the kernel patches (`platforms/k230/patches/linux/0070`,
-  `0071`, and `0072` for the VO) that ADR-011 (Proposed) covers.
+  `0071`, and `0072` for the VO) that ADR-011 (Accepted 2026-09-27) covers.
 - **On the patched kernel (0070-0073) both 1280x720@60 and 1920x1080@60
   work end to end**: gate round 6, owner at the bench, `pos-drmtest`'s
   pattern clean and stable at both, the Doors shell visible at 1080p. 720p
@@ -333,7 +333,7 @@ Measured on unit A, 2026-09-27:
   that into 297 MHz, which the bridge cannot receive.
 - The AMOLED is dark during an HDMI boot.
 
-## 9. Next platform step: the kernel patches (ADR-011, Proposed)
+## 9. Next platform step: the kernel patches (ADR-011, Accepted 2026-09-27)
 
 The gate adds a step before any Doors-owned tree: the picture. The desk study
 that followed the gate (`HDMI_KERNEL_FIX.md`) settled the three candidates

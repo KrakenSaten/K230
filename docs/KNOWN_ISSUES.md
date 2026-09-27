@@ -148,7 +148,7 @@ DEVICE VERIFIED unless it says so.
   documented in `docs/hardware/HDMI_KERNEL_FIX.md` (mode filtering, an LT9611
   timing-register bug that hits 720p, the 4-lane D-PHY brought up as the
   2-lane panel's); kernel patches 0070/0071 on `feat/k230-hdmi-out` under
-  ADR-011 (Proposed). Round 3 (owner at the bench) proved those patches on
+  ADR-011 (Accepted 2026-09-27). Round 3 (owner at the bench) proved those patches on
   the monitor with the DSI's own colour bars at 720p and 1080p. What is left
   is the K230 VO: XRGB8888 planes had their OSD DMA request bits off (a BSP
   constant, documented by the vendor U-Boot code; patch 0072 restores them,
