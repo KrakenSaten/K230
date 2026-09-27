@@ -429,3 +429,11 @@ mode: panel and 1080p unchanged (already multiples); 720p60 → htotal 1652,
 hfp 112, 59.93 Hz at 74.25 MHz; 720p50 (htotal 1980) unchanged; a future
 480p would go 858 → 860 and hsync 62 → 64. A `dev_info` line names the
 padding when it happens.
+
+Round 6 (`HDMI_GATE.md`), kernel `e5c4c7f7…` (0070-0073), owner at the
+bench: the log shows `DSI mode padded for 4 lanes: hsa 40 hbp 220 hfp 112
+htotal 1652 (was 40 220 110 1650)` at 720p and nothing at 1080p or on the
+panel; `VID_HLINE` reads 1239 and the VO total 1652 at 720p, 1650 / 2200 at
+1080p. **1280x720@60 clean with the border at the edges, 1920x1080@60 clean
+and stable, Doors shell visible on HDMI** (VERIFIED). The panel path is
+unchanged (R6.1, R6.6).

@@ -11,14 +11,13 @@ is `HDMI_GATE.md`. **2026-09-27, unit A with a 2560x1440 monitor:**
   desk study that followed: `HDMI_KERNEL_FIX.md` names the kernel-side causes
   and carries the kernel patches (`platforms/k230/patches/linux/0070`,
   `0071`, and `0072` for the VO) that ADR-011 (Proposed) covers.
-- **On the patched kernel, 1920x1080@60 works end to end** (gate round 4,
-  owner at the bench: `pos-drmtest`'s pattern and the Doors shell, clean and
-  stable on the monitor). 720p's "no signal" was traced in round 5 to the
-  DSI host's line time, which must be a whole number of lane-byte clocks
-  (CEA 720p's 1650 pixels x 3 / 4 lanes is not); padding htotal live made
-  the 720p pattern appear. Patch 0073 does that padding in the kernel;
-  its gate is pending. Details: `HDMI_KERNEL_FIX.md` §9-11, `HDMI_GATE.md`
-  rounds 3-5.
+- **On the patched kernel (0070-0073) both 1280x720@60 and 1920x1080@60
+  work end to end**: gate round 6, owner at the bench, `pos-drmtest`'s
+  pattern clean and stable at both, the Doors shell visible at 1080p. 720p
+  needed patch 0073 as well: the DSI host's line time must be a whole
+  number of lane-byte clocks (CEA 720p's 1650 pixels x 3 / 4 lanes is not),
+  so the encoder pads the front porch (720p60 runs at htotal 1652,
+  59.93 Hz). Details: `HDMI_KERNEL_FIX.md` §9-11, `HDMI_GATE.md` rounds 3-6.
 
 Evidence classes as in `T-DISPLAY-K230.md`: VERIFIED (unit A runtime record, or
 reproduced here from the pinned sources), DOCUMENTED (vendor schematic, source,

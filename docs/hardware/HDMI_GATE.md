@@ -11,9 +11,11 @@ at 720p and 1080p and 2560x1440 is no longer offered. Round 3, the owner at
 the bench: the DSI's own colour bars reach the monitor at 720p and 1080p, so
 the patches are proven on the glass; the K230 VO's output was still wrong.
 Round 4, with VO patch 0072: 1920x1080@60 is clean and stable from
-`pos-drmtest` and from the Doors shell; 1280x720@60 still gives no signal
-(VO side, cause open, "Round 4").** Unit A is back on the panel with the
-v0.1.0 kernel.
+`pos-drmtest` and from the Doors shell. Round 5 traced 720p's no-signal to
+the DSI host's fractional line time, and round 6, with patch 0073 padding
+the timing: 1280x720@60 and 1920x1080@60 both clean and stable, Doors UI
+on HDMI. HDMI PICTURE: PASS on 0070-0073.** Unit A is back on the panel with
+the v0.1.0 kernel.
 
 **Unit A carries:** image v0.1.0, build 1368695; shell 608f972 (the Recorder
 gate's build, the same device code as master 6077b8d); `pos-drmtest` built from
@@ -464,6 +466,32 @@ R5.3 (`r2_lcdfinal6.out`).
 The fix is patch 0073 (`HDMI_KERNEL_FIX.md` §11): the DSI encoder's
 `mode_fixup` pads hsync, back porch and htotal up to multiples of the lane
 count, so the VO, the host and the bridge all get the same integral timing.
+
+## Round 6: patch 0073 (2026-09-27, owner at the bench)
+
+**Unit A carried:** the v0.1.0 image and tools, `/boot/Image` = round-6
+kernel `e5c4c7f7…` (0070-0073 on the v0.1.0 kernel tree), v0.1.0 kernel kept
+as `/boot/Image.orig`, `KERNEL_R5.sh` / `KERNEL_ORIG.sh` / `RESTORE.sh` in
+`/root/rollback-hdmi/`. Monitor connected (HPD `0x7d`). Harness `r6_*.sh`.
+
+| Step | Owner saw | Machine-visible | Verdict |
+| --- | --- | --- | --- |
+| R6.1 LCD tree first | (panel) | new build stamp; DSI line identical to v0.1.0's, no `padded` line; 568x1232; shell, touch, spidev, radio `rx`; no oops | PASS |
+| R6.2 HDMI boot | not asked | modes 1920x1080 x3, 1280x720 x4; fbdev 1080p60; shell running | PASS |
+| R6.3 `pos-drmtest pattern --mode 1280x720@60`, 150 s hold | **clean pattern**, border at the edges | `DSI mode padded for 4 lanes: hsa 40 hbp 220 hfp 112 htotal 1652 (was 40 220 110 1650)`; `VID_HLINE` 0x4D7 = 1239, VO `TOTAL_SIZE` 1652x750; bridge `1280/720/750`, `h_total_sysclk=601`; rc 0 | **PASS** |
+| R6.4 `pos-drmtest pattern --mode 1920x1080@60`, 150 s hold, watched 20 s | **clean and stable** | no `padded` line (2200 is a multiple of 4); `VID_HLINE` 1650; rc 0 | **PASS** |
+| R6.5 Doors shell on HDMI (`S90doors-shell start`) | **Doors UI visible, stable** | `display came up 1080x1920 … rotation 270`, running, 0 restarts; OSD4 RGB565 / 0x4F | **PASS** |
+| R6.6 Back to the panel, original kernel | (panel) | `pos-display-boot lcd`, `KERNEL_ORIG.sh`, reboot: `6.6.36 #2 … Sep 4`, `536d4770…`, 568x1232, shell, spidev, radio `rx`, no `force_dtb` | PASS |
+
+**Round 6 verdict: both proven modes are visually clean and stable on the
+patched kernel** (0070 + 0071 + 0072 + 0073): 1280x720@60 and 1920x1080@60
+from a DRM framebuffer, and the Doors shell at 1080p. The remaining
+kernel-side items are not defects of these modes: 1080p30 and 720p50 are in
+the table but untested on a monitor (720p50's 1980-pixel line is already a
+multiple of 4), 480p is not offered, hot-plug events do not reach userspace
+(`HDMI_OUTPUT.md` §8), and the HDMI tree still drops LoRa/touch/uart1
+(§5). Unit A is on the v0.1.0 kernel and the LCD tree; the round-6 kernel
+stays at `/root/rollback-hdmi/Image.hdmi-r5` with `KERNEL_R5.sh`.
 
 What round 4 settles: with 0070 + 0071 + 0072 the T-Display K230 shows
 **1920x1080@60 on HDMI**, from a DRM framebuffer (`pos-drmtest`, XRGB8888)
