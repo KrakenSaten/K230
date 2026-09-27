@@ -1,8 +1,11 @@
 # HDMI output - unit A gate
 
-**Status 2026-09-27: steps 0-1 PASS on unit A. Steps 2-13 NOT RUN: HARDWARE GATE
-BLOCKED, PHYSICAL HDMI CONNECTION REQUIRED** (see "Before step 2" and
-"Result").
+**Status 2026-09-27: HDMI boot and bridge PROVEN; HDMI PICTURE FAILED.**
+Steps 0-5 and 13 PASS. Step 6 (720x480) and step 8 (720p and 1080p) FAIL:
+720x480 and 720p give no signal, and 1080p60 gives black and white flickering
+stripes. Step 12 FAIL: the shell takes the monitor's 2560x1440, which the
+bridge cannot take. The cause is in the vendor kernel (see "Result"), so it
+cannot be fixed without a kernel proposal. Unit A is back on the panel.
 
 **Unit A carries:** image v0.1.0, build 1368695; shell 608f972 (the Recorder
 gate's build, the same device code as master 6077b8d); `pos-drmtest` built from
@@ -90,22 +93,22 @@ Pass: the AMOLED shows black, a white border, red/green/blue blocks and
 ## Before step 2 (added 2026-09-27)
 
 Do not make the HDMI boot unattended unless all of the following hold. On
-2026-09-27 the first two did not, and the switch was not made.
+2026-09-27 the first two did not hold while the unit was unattended, so the
+switch waited until the owner was at the bench with a monitor connected.
 
 1. **A monitor is connected and powered on.** The owner confirms it. As a
    cross-check from Linux in the LCD tree, read the bridge's HPD register the way
    the vendor driver does (SDK patch 0025: 0x825e, connected when bit 0 or bit
    2 is set):
    `i2cset -y 1 0x3b 0xff 0x80; i2cset -y 1 0x3b 0xee 0x01; i2cset -y 1 0x3b 0xff 0x82; i2cget -y 1 0x3b 0x5e; i2cset -y 1 0x3b 0xff 0x80`.
-   On 2026-09-27 it read **0x78** (bits 0 and 2 clear) three times: no sink
-   seen. Caveat: in the LCD tree no driver has powered up the bridge's HPD
-   logic, so a low reading is not proof of absence. A high reading, together
-   with the owner's word, is enough.
+   On 2026-09-27 it read **0x78** (bits 0 and 2 clear) with no monitor, and
+   **0x7d** (bits 0 and 2 set) once the owner had connected one. The kernel
+   driver later read the same 0x7d. VERIFIED: this read tells a sink from no
+   sink even in the LCD tree.
 2. **A remote path that survives the HDMI tree.** Wi-Fi is on `sdhci0`, which
-   the HDMI tree reconfigures (`HDMI_OUTPUT.md` §5). On this bench `eth0` does
-   not pass traffic on its own. Before an unattended HDMI boot, either prove
-   `eth0` alone (take `wlan0` down, ping and SSH to .157 over `eth0` only) or
-   have the owner at the bench.
+   the HDMI tree reconfigures (`HDMI_OUTPUT.md` §5). **It still works**: the HDMI
+   boot on 2026-09-27 joined Wi-Fi and SSH on .171 answered at 29 s of uptime.
+   VERIFIED. `eth0` still passes no traffic on its own on this bench.
 3. **The serial console answers**: `ser_cmd.ps1 -Port COM9` (out/rc1-0.0.12-gate)
    returned unit A's wlan0 MAC and a root prompt on 2026-09-27. VERIFIED. It
    recovers any HDMI boot that reaches a login prompt. A kernel that hangs
@@ -266,28 +269,58 @@ Pass: model with `RM69A10 OLED`, AMOLED and touch work, radio as before,
 
 ## Result
 
-Run 2026-09-27 on unit A, by the local integration session (no owner at the
-bench). Evidence: `out/hdmi-gate/` on the bench PC (`g*.out`, the decompiled
-DTBs, `caps/amoled-pattern.png`).
+Run 2026-09-27 on unit A by the local integration session. Steps 0-1 ran with
+no one at the bench. Steps 2-13 ran with the owner at the bench and a **DUS
+D27QP** (27", 2560x1440, EDID 1.3 plus one CEA extension, range 48-70 Hz,
+31-122 kHz, up to 250 MHz) on HDMI1. The owner confirmed monitor and cable
+are known-good with another source on the same input. Evidence:
+`out/hdmi-gate/` on the bench PC (`g*.out`, `serial-boot*.log`, the decompiled
+DTBs, `caps/amoled-pattern.png`, copies of the vendor `lontium-lt9611.c` and
+`canaan_dsi.c` as built).
 
 | Step | Result | Notes |
 | --- | --- | --- |
 | 0 install | PASS | Built with the pinned Xuantie 14.1.1 via `make all` (links libc only), copied by scp. `pos-drmtest --help` exits 2, and so does `pos-display-boot` with no argument. Rollback script written first |
 | 1 baseline, tool on the AMOLED | PASS, after two tool fixes | Model `Canaan CanMV-K230 with RM69A10 OLED`; `next boot: lcd`; `i2cdetect -r 1`: **0x3b answers**, 0x5d `UU`; the LT9611 chip id reads `17 02 e2`. `gpioinfo`: GPIO23 `ts_irq_gpio`, GPIO24 `ts_reset_gpio`. `list` with the shell running: cached, `DSI-1 connected, 65x145 mm`, `568x1232@52 49500 kHz -> DSI 49500 kHz +0.00 %`, `EDID: none`. With the shell stopped: DRM master, probed, same. `pattern` first refused the panel (640x480 floor, fixed in aa5aa53), then failed `SETCRTC … No space left on device` (the shell's rotate-270 left on the primary plane, fixed in a61ec37). After the fixes: `safest 568x1232@52 … exact`, `rotation 0x8 … rotate-0`, `mode set … in 10 ms`, `rotation 0x8 restored`, `CRTC switched off`. The scanout read back with kmsgrab shows the border, the R/G/B blocks and the three lines. **The glass itself was not looked at** (no one at the bench). The shell came back each time (3 restarts, build 608f972, no crash reports). `pos-display-boot status`/`lcd`/usage correct; `hdmi` and `lcd` exercised against a scratch copy of `/boot`, and a damaged HDMI tree refused. Real `/boot` md5-identical before and after |
-| 2 switch, boot | NOT RUN | Blocked: "Before step 2" items 1 and 2 |
-| 3 kernel log | NOT RUN | |
-| 4 connectors | NOT RUN | |
-| 5 EDID | NOT RUN | |
-| 6 safest mode | NOT RUN | |
-| 7 640x480 | NOT RUN | |
-| 8 720p / 1080p | NOT RUN | |
-| 9 unplugged boot | NOT RUN | |
-| 10 hotplug | NOT RUN | |
-| 11 monitor off / no EDID | NOT RUN | |
-| 12 Doors on HDMI | NOT RUN | |
-| 13 back to the panel | n/a | The unit never left the panel tree |
+| 2 switch, boot | PASS | `pos-display-boot hdmi` rc 0, `force_dtb` = `k230-canmv-rm69a10-hdmi.dtb`. Serial: U-Boot `ext4load … force_dtb`, and Linux reached login. Wi-Fi joined, and SSH answered at 29 s of uptime. The AMOLED stayed **dark** (owner) |
+| 3 kernel log | PASS | Model `Canaan CanMV-K230`; `LT9611 revision: 0x2`, `Attached device lt9611`, `Initialized canaan-drm`, `fb0: canaan-drmdrmfb`; `lt9611_connect_detect 1 reg_val=0x7d`; `card0-HDMI-A-1` connected, 26 modes, first 2560x1440 |
+| 4 connectors | PASS | DRM master, probed: `HDMI-A-1: connected, 600x330 mm, 26 mode(s)`. 2560x1440@60 wants 241.5 MHz, the DSI makes 297 MHz (+22.98 %). 1080p60/50, 720p60/50, 720x576@50, 720x480@60 and 800x600@75 are exact. 1600x900, 1280x1024@60 and 1280x960 are −8.33 % |
+| 5 EDID | PASS | `DUS 0x2700 "D27QP"`, week 51 of 2020, 256 bytes, header and checksum ok; the hex matches `/sys/class/drm/card0-HDMI-A-1/edid` |
+| 6 safest mode | **FAIL** | `safest 720x480@60 … 27000 kHz; exact`, `mode set … in 826 ms`, and the bridge's own check reads `hactive_a=720, vactive=480, v_total=525`: the input is right. Monitor: **no signal, goes to sleep** |
+| 7 640x480 | NOT RUN | Inexact, and nothing below 1080p showed a picture |
+| 8 720p / 1080p | **FAIL** | 1280x720@60: exact 74.25 MHz, set in 838 ms, bridge input `1280/720/750`; monitor **no signal**. 1920x1080@60: exact 148.5 MHz (891 Mbit/s per lane), set in 841 ms, bridge input `1920/1080/1125`; monitor locks but shows **black and white stripes, flickering** |
+| 9 unplugged boot | NOT RUN | Not useful before a picture exists |
+| 10 hotplug | NOT RUN | Same |
+| 11 monitor off / no EDID | NOT RUN | Same |
+| 12 Doors on HDMI | **FAIL** | The shell starts (`display came up 1440x2560`, rotation 270), running, 0 restarts, 27.6 MB RSS (15 MB on the panel), 1-2 % CPU at idle. It takes the preferred 2560x1440, which the DSI runs at 297 MHz (1.78 Gbit/s per lane); the bridge check reads garbage and the monitor shows no signal. radiod crash-loops as expected (no spidev: `crashloop=1`, 6 restarts). MemAvailable 853 MB, CmaFree 409 MB |
+| 13 back to the panel | PASS | `pos-display-boot lcd` rc 0, reboot; model `… with RM69A10 OLED`, `next boot: lcd`, `/boot` md5-identical, `DSI-1` 568x1232, touch bound, `/dev/spidev0.0`, radio `rx`, shell 608f972 with 0 restarts; the owner confirmed the AMOLED and touch work. Wi-Fi came back on the owner's phone hotspot (the other saved network, in range), not the bench network; it returned to TP-TanK-BE3600 once the hotspot was switched off. Nothing to do with HDMI |
 
-**Still required, physically:** connect a powered HDMI monitor to HDMI1 on unit
-A, and either be at the bench or prove an `eth0`-only SSH path. Then start at
-step 2. `pos-display-boot lcd && reboot` over SSH or the COM9 console is the way
-back.
+### Why no picture (read from the kernel that was built)
+
+- **The LT9611 driver is set up for 1080p only.** In `lontium-lt9611.c` (SDK
+  patch 0001) `lt9611_modes[]` holds only 1080p60 and 1080p30; 720p, 480p and
+  640x480 are commented out. Yet `lt9611_find_mode()` returns the 1080p60
+  entry for **any** mode up to 300 MHz, so `mode_valid` offers the whole EDID
+  list. The PCR registers (`lt9611_pcr_setup`: 0x8321/0x8324/0x8325/0x834a…)
+  are fixed constants. Only the TX PLL post-divider and `pcr_m` follow the
+  clock. That fits what the monitor showed: nothing at 27 and 74.25 MHz, a
+  locked but broken picture at 148.5 MHz. DOCUMENTED (source), cause ASSUMED.
+- **1080p is received but not shown cleanly.** The bridge's video check
+  counts the right active and total sizes, so the DSI timing reaches it. The
+  stripes point at the pixel data or at the TMDS side. Candidates:
+  - the DSI D-PHY gets the same `hsfreq=0x96` at every lane rate
+    (`canaan_dsi_clk_cfg`, BSP patches 0041/0042);
+  - the link runs 891 Mbit/s per lane on CLK/D0/D1 nets that also run to the
+    AMOLED connector (a stub);
+  - the fixed PCR set-up.
+  None of these is proven. ASSUMED.
+- **The shell cannot choose a mode the bridge can take.** LVGL takes the
+  connector's first mode, and the kernel offers 2560x1440 because the driver
+  accepts anything up to 300 MHz. Even with a working 1080p, the shell would
+  need a mode choice (or a driver `mode_valid` limited to the modes it can
+  set) before Doors on HDMI can work.
+
+All three are in the kernel (vendor driver, BSP DSI patches) or need a Doors
+display-stack change. Neither is in this branch's scope (no kernel change
+without an ADR-001 proposal, no UI change). `HDMI_OUTPUT.md` §9 lists the next
+steps.

@@ -2,10 +2,12 @@
 
 Recorded 2026-09-26 on branch `feat/k230-hdmi-out` (baseline `origin/master`
 `dd3809b`). This is a desk study plus build-host validation. The hardware gate
-is `HDMI_GATE.md`. **2026-09-27, unit A, panel (LCD) tree only:** steps 0-1 of
-the gate passed. The bridge answers, both trees on the card match the hashes
-below, and `pos-drmtest` drives the AMOLED. No HDMI boot has been made yet, so
-nothing here has been observed on an HDMI monitor.
+is `HDMI_GATE.md`. **2026-09-27, unit A with a 2560x1440 monitor:**
+- The HDMI boot works: LT9611 probe, HPD, EDID, 26 modes, Wi-Fi still up.
+- The bridge receives correct DSI timing at 480p, 720p and 1080p.
+- **There is no usable picture.** 480p and 720p give no signal, and 1080p60
+  gives flickering stripes. The vendor LT9611 driver is set up for 1080p only
+  (details in the gate's "Why no picture").
 
 Evidence classes as in `T-DISPLAY-K230.md`: VERIFIED (unit A runtime record, or
 reproduced here from the pinned sources), DOCUMENTED (vendor schematic, source,
@@ -33,10 +35,13 @@ tree.
 
 ## Conclusion
 
-**PARTIALLY SUPPORTED: HDMI works as an alternative boot-time output, never
-beside the built-in AMOLED.** The bridge, its kernel driver and an HDMI device
-tree all exist and are already in every Doors image; what was missing was a
-safe way to select it and a way to prove it. Mirroring and dual display are
+**PARTIALLY SUPPORTED: HDMI can only be an alternative boot-time output,
+never beside the built-in AMOLED, and today it gives no usable picture.** The
+bridge, its kernel driver and an HDMI device tree all exist and are already in
+every Doors image. Selecting that tree works, and so do the bridge and EDID
+(VERIFIED on unit A, 2026-09-27). The vendor driver's 1080p-only set-up does
+not produce a clean picture on a real monitor. Getting one needs a kernel
+change (§9). Mirroring and dual display are
 ruled out by the hardware (one DSI transmitter, lanes shared with the panel)
 and by the driver (one CRTC, one encoder, panel *or* bridge).
 
@@ -218,8 +223,9 @@ thermal. DOCUMENTED (decompiled DTBs), effects ASSUMED until the gate.
 and `eth0` is the USB r8152 on `91540000.usb`. VERIFIED 2026-09-27. The HDMI tree
 describes `sdhci0` as the CanMV's 8-bit eMMC: `bus-width = <8>` instead of `<4>`,
 plus `rx_delay_line = <0x0d>` and `tx_delay_line = <0xc0>`, which the LCD tree
-does not set. DOCUMENTED (decompiled DTBs). Whether Wi-Fi comes up with those
-settings is not known (ASSUMED risk). Unit A's Ethernet cannot stand in for it
+does not set. DOCUMENTED (decompiled DTBs). Wi-Fi comes up anyway: the HDMI
+boot on unit A joined the bench network, and SSH answered 29 s after boot.
+VERIFIED 2026-09-27. Unit A's Ethernet cannot stand in for it
 on this bench: `eth0` has carrier and an address (.157), but a ping bound to
 `eth0` lost 3 of 3, and `wlan0` answers ARP for both addresses. VERIFIED
 2026-09-27. So there is no proven SSH path into an HDMI boot. The serial console
@@ -307,7 +313,29 @@ measure in the gate). No software mirroring exists or is proposed.
 - The shell's layouts are designed for 568x1232 and 1232x568; at monitor sizes
   they are untested.
 
+Measured on unit A, 2026-09-27:
+- The vendor LT9611 driver accepts every mode up to 300 MHz but is only set up
+  for 1080p (fixed PCR constants; everything else commented out of
+  `lt9611_modes[]`). On a 2560x1440 monitor, 480p and 720p gave no signal and
+  1080p60 gave flickering stripes, although the bridge counted the right input
+  timing each time.
+- The shell and fbdev take the monitor's preferred 2560x1440. The DSI turns
+  that into 297 MHz, which the bridge cannot receive.
+- The AMOLED is dark during an HDMI boot.
+
 ## 9. Next platform step (proposal, not applied)
+
+The gate adds a step before any Doors-owned tree: the picture. The candidates,
+none tried and each a kernel change needing a proposal:
+- (a) mode-dependent PCR and TX set-up in `lontium-lt9611.c`, from upstream
+  Linux or from the LILYGO RT-Smart `connector/src/lt9611.c`, which drives the
+  same bridge;
+- (b) limit `mode_valid` to the modes the driver really sets up, so that
+  neither the shell nor fbdev picks 2560x1440;
+- (c) a DSI D-PHY `hsfreqrange` that follows the lane rate instead of the
+  fixed 0x96.
+
+Checking (a) against the RT-Smart driver is desk work that needs no hardware.
 
 A Doors-owned HDMI device tree that keeps the T-Display peripherals: the LCD
 tree minus the `canaan,universal` panel and minus the GT9895 node (shared
