@@ -306,6 +306,63 @@ how many frames the service reported in the last five minutes, by direction
 holds, and says `48+` when all 48 are that recent and there may have been
 more. It is a count of frames and not a measure of the link.
 
+### Heard on air, by the minute
+
+MESH ACTIVITY also draws the last twenty minutes as a bar each
+(`ui/rift_graph.c`, from `rift_traffic.c`; DS §37.4). A bar is the number
+of frames the service reported hearing in that minute - every `mesh.activity`
+of `kind: "rx"` that carries a `mono_ms`, which is every frame MeshCore
+parsed whether or not it was for this node - stacked by what the frame was:
+
+| Class | `payload_type` | Colour (token) |
+| --- | --- | --- |
+| `MSG` | `text`, `group_text`, `group_data` - somebody said something | `status_ok` |
+| `ADV` | `advert` - somebody said they are here | `radio_rx` |
+| `OTHER` | everything else: `ack`, `path`, `req`, `response`, `trace`, `control`, ... | `text_muted` |
+
+The words are the legend, in the same caption line as `HEARD ON AIR · 20 MIN
+· PEAK 4/MIN`; the swatches beside them only agree with the words. Nothing
+this device sent is in it - a transmit is on the feed with its result, and
+"heard" is the truth of the graph. Bar heights are a fixed ladder (1, 2-3,
+4-7, 8-15, 16+ frames), not a share of the busiest minute, so a bar keeps its
+height when a busier minute comes along, and a quiet mesh's one frame is a
+visible tick rather than nothing; a baseline under every slot says the minute
+was watched. Minutes since the last frame are quiet bars: the ring is read as
+of now, not as of the last frame. It is invalidated only when a bin changes
+and drawn in one pass of at most sixty rectangles. The counts are this
+session's - there is no history before RIFT opened - and a frame the feed
+delivers stamped before the window is dropped rather than drawn where it did
+not happen. The T-Deck's RIFT keeps the same twenty bins; this is the same
+idea in the model with the screen only drawing.
+
+## Who is who: identity accents
+
+RIFT still owns no colour. What it does now (DS §37.3) is ask the theme
+engine for one of eight **identity accents** (`pos_identity_hue`,
+`ui/pocketui/pos_theme.c`) for whatever is *somebody*, keyed on what
+identifies them, so the same one is the same colour wherever it is shown -
+and, because the key is hashed (FNV-1a, `rift_ident_hash`) and not
+allotted, the same colour on every Doors that holds the same key.
+
+| Who | Keyed on | Where it shows |
+| --- | --- | --- |
+| a channel | its on-air hash (`mesh.channels`, `hash`), the name until the hash is known | the 3 px mark at the left of its conversation row |
+| a contact (a chat node) | its public key | the mark on its node row and its conversation row |
+| a room | its public key | the same |
+| a channel sender | the name it claims | the name beside its message, and the 2 px rule beside the body |
+| a repeater or a sensor | - | nothing: infrastructure stays neutral, and a state that needs emphasis has its own word and colour already |
+| a node whose type was never reported | - | nothing on NODES; a conversation with it still gets a mark, because a conversation is with somebody |
+
+The accent is a mark beside the name, never a fill behind it, and never the
+only thing that says who: the name is always printed, and a repeater's row
+is told apart by its `RPT` tag, not by the absence of a colour. Own messages
+keep the `accent_primary` rule, a direct peer heard direct keeps `radio_rx`:
+those say how, and the identity says who. Every hue reads at 4.5:1 or better
+on bg, surface and surface_raised in every theme in Normal and Outdoor, and
+in Night at least as far apart from black as the theme's own secondary text
+(`tests/theme_test.c`). Eight hues over a mesh of hundreds means many share
+one; that is what a hash gives, and the name settles it.
+
 ## The DM sound
 
 A short sound when a **direct message genuinely arrives**, behind a setting
@@ -376,10 +433,26 @@ What RIFT holds, and what it builds for it:
 
 | | Held | Built |
 | --- | --- | --- |
-| Nodes | 256 (`RIFT_MAX_NODES`, all of meshcored's table; was 64) | rows for the screen only: 31 in portrait, 35 at most after turning (`rift_nodes_rows_built`) |
-| Messages | 256 (`RIFT_MAX_MESSAGES`; was 96) | a thread's newest 64 (`RIFT_THREAD_ROWS`; was 32), "136 EARLIER" for the rest |
-| Conversations | 64 (`RIFT_MAX_CONVERSATIONS`; was 32) | a row each, rebound in place |
-| Hops on a detail's ladder | all 63 MeshCore allows (was 16) | a rung each, built when the path changes |
+| Nodes | 1000 (`RIFT_MAX_NODES`; was 256, and 64 before that - more than meshcored's table of 256, see gap 17) | rows for the screen only: 31 in portrait, 35 at most after turning (`rift_nodes_rows_built`), whatever the count |
+| Messages | 512 (`RIFT_MAX_MESSAGES`; was 256) | a thread's newest 64 (`RIFT_THREAD_ROWS`), "136 EARLIER" for the rest |
+| Conversations | 128 (`RIFT_MAX_CONVERSATIONS`; was 64) | a row each, rebound in place |
+| Hops on a detail's ladder | all 63 MeshCore allows | a rung each, built when the path changes |
+| Minutes of traffic | 20 (`RIFT_TRAFFIC_MINUTES`), three counts each | one bar each, one draw pass |
+
+What the thousand costs, measured on the host by `tests/rift_app_test.c`
+(DS §37.5): `struct rift_model` is 1132 KB, of which the nodes are 1000 x
+832 B and the messages 512 x 608 B (it was about 365 KB at 256/256/64), and
+the test process's maximum resident set went from 11.5 MB at 256 nodes to
+11.8 MB at a thousand (the same test, `/usr/bin/time -v`; pages of a cache
+that is not written are not resident, so the arithmetic above is the bound
+and this is what was seen). A repaint of NODES with a thousand nodes is
+0.57 ms per refresh and layout on the host (0.29 ms with 256; the rows
+built are the same 31 or 35), and ordering the thousand is 0.17 ms - a merge
+sort now, where the insertion sort it replaced was quadratic against a cache
+listed oldest first. Whether a held node is still in a snapshot is a binary
+search over the snapshot's sorted keys rather than a walk of it per node.
+The C908 is slower by a factor nobody has measured; nothing here has been
+run on the board.
 
 With more peers in the window than the list has rows, the list keeps the
 conversations spoken in most recently. It used to keep the ones held longest
@@ -469,13 +542,15 @@ the air must not be able to disconnect this app from its own service.
 | `rift_sound.c/.h` | the seam the sound goes through, and the built-in backend that has none. No LVGL |
 | `rift_store.c/.h` | the reader's preferences file, and nothing about the mesh. No LVGL |
 | `rift_dm_sound.c` | the app's side of the DM sound: the setting, whether anything could be heard, the pass after every socket read |
-| `rift_order.c` | read-only questions over the node cache: list order, how many are fresh, which name a hop gets. No LVGL |
+| `rift_order.c` | read-only questions over the node cache: list order (a merge sort, n log n at a thousand nodes), how many are fresh, which name a hop gets. No LVGL |
+| `rift_traffic.c/.h` | what was heard on the air by the minute, for the last twenty: a ring of counts by class (message, advert, other), fed from the activity feed. No LVGL |
 | `rift_json.h` | the four readers every part parses the API with, so all apply the same rule: absent is not zero |
 | `rift_format.c/.h` | every string the screens print about nodes and paths, and the path arithmetic. No LVGL, no cJSON, no I/O |
 | `rift_format_msg.c` | the same for messages and requests: states, the one-line caption, the preview, the channel body, what became of an advert or a node change |
 | `rift_ipc.c/.h` | the meshcored connection, the framing and the reconnect. No LVGL |
 | `rift_app.c/.h` | chrome, sections, layout and lifecycle |
-| `ui/rift_widgets.c` | the link glyph, the hop strip, the panel with its caption in the rule, the action bar |
+| `ui/rift_widgets.c` | the link glyph, the hop strip, the panel with its caption in the rule, the action bar, the vertical rule in a tone or an identity accent |
+| `ui/rift_graph.c/.h` | the traffic graph: a bar per minute from `rift_traffic`, stacked by class on a fixed ladder, and the legend's swatches. One draw callback from the tokens |
 | `ui/rift_activity.c` | ACTIVITY |
 | `ui/rift_nodes.c` | the node list - virtual: the layout of every line, and a pool of rows bound to the part on screen - the selection and the landscape split |
 | `ui/rift_node_row.c` | one node row: built once, filled from a node, given the selection's look and, in portrait, its expansion |
@@ -487,11 +562,11 @@ the air must not be able to disconnect this app from its own service.
 
 | | |
 | --- | --- |
-| `tests/rift_format_test.c` | 92 checks: ages, signal, hop columns, state words, path compression, the inline chain, the ladder, UTF-8 names |
-| `tests/rift_model_test.c` | 213 checks: the initial snapshot, duplicate and update events, missing telemetry, malformed input, the bounded cache, the service going away and coming back, which run of the service answered, ordering; the path history and event count surviving a snapshot while the service's values are replaced, a reply that is not an event, a removal that is not an update, the traffic counters, the table-full count since the last forget (and a new run counting from nothing), a route change dated when it was seen, and the advert and node-change state machine with NOT DONE kept apart from NO ANSWER |
+| `tests/rift_format_test.c` | 101 checks: ages, signal, hop columns, state words, path compression, the inline chain, the ladder, UTF-8 names, and who gets an identity accent and that the hash is FNV-1a |
+| `tests/rift_model_test.c` | 234 checks: the initial snapshot, duplicate and update events, missing telemetry, malformed input, the bounded cache, the service going away and coming back, which run of the service answered, ordering; the path history and event count surviving a snapshot while the service's values are replaced, a reply that is not an event, a removal that is not an update, the traffic counters, the table-full count since the last forget (and a new run counting from nothing), a route change dated when it was seen, and the advert and node-change state machine with NOT DONE kept apart from NO ANSWER |
 | `tests/rift_comms_test.c` | 298 checks: the conversations and their order, duplicate and state-change events, unread and what clears it, the thread window, every state caption, telemetry that was never measured, the bounded message cache, the service restarting under the cache and the reconnect that is not a restart, the send state machine, what `mesh.send` will take, remote text nobody here chose the length of, and the channel body without its sender prefix and the one-line caption |
 | `tests/rift_ipc_test.c` | 205 checks against a real socket and a scripted service in a child process: connect, snapshot, events, refusals, the service disappearing, reconnect, one whole service replaced by another with an id space that starts again, the proof that nothing the app does on its own transmits or adverts, the send lifecycle, adverts asked for and refused, and forgetting a node or its route - answered, refused in the service's words, and unanswered when the service dies |
-| `tests/rift_app_test.c` | 422 checks under a real LVGL pointer device: the chrome, all three sections, the row that only selects, the pushed detail and its FORGET confirmation (cancelled by leaving the section, closing the detail or turning the panel), Enter on a node that has gone, the table-full warning clearing once room is made, a thread's No answer and Not sent, both landscape splits, the composer, the unread pill, the command line present only when it holds something, a long list keeping its place and its selection in view, the newest message in view above the landscape composer, every panel caption drawn whole, every action's word inside its button, the ADVERT buttons, and open/leave/open again three times over. Then the activity pulse on real rows; the DM sound end to end against a fake backend (history silent, one sound per arrival, none for a repeat, the reader's own, a channel, a retry or a snapshot, one for a burst, the switch on ACTIVITY stored and honoured, muted, no backend, stopped on close, kept across opening, not saved when the store cannot be written); and scale - 256 nodes with the rows built bounded by the screen in both orientations, the selection kept by key across a re-ordering and a removal, 64 conversations re-ordered without a row rebuilt, a 200-message thread moved along without a rebuild and a reader in its history left there, a hundred arrivals in one pass. Prints what a repaint costs. Writes the screenshots |
+| `tests/rift_app_test.c` | 436 checks under a real LVGL pointer device: the traffic graph on ACTIVITY (its bins, ladder, caption and legend, a frame heard now in the newest minute), the sender's identity accent in a channel thread and the mark on its row, the landscape thread's header row and its count of whole messages (14, was 11); then the chrome, all three sections, the row that only selects, the pushed detail and its FORGET confirmation (cancelled by leaving the section, closing the detail or turning the panel), Enter on a node that has gone, the table-full warning clearing once room is made, a thread's No answer and Not sent, both landscape splits, the composer, the unread pill, the command line present only when it holds something, a long list keeping its place and its selection in view, the newest message in view above the landscape composer, every panel caption drawn whole, every action's word inside its button, the ADVERT buttons, and open/leave/open again three times over. Then the activity pulse on real rows; the DM sound end to end against a fake backend (history silent, one sound per arrival, none for a repeat, the reader's own, a channel, a retry or a snapshot, one for a burst, the switch on ACTIVITY stored and honoured, muted, no backend, stopped on close, kept across opening, not saved when the store cannot be written); and scale - 256 nodes with the rows built bounded by the screen in both orientations, the selection kept by key across a re-ordering and a removal, 64 conversations re-ordered without a row rebuilt, a 200-message thread moved along without a rebuild and a reader in its history left there, a hundred arrivals in one pass. Prints what a repaint costs. Writes the screenshots |
 | `tests/rift_notify_test.c` | 93 checks: which direct messages are arrivals (history on opening, the same event twice, the reader's own, a channel, a reconnect's snapshot, an id below the highest, a sender's retry under a new id, no timestamp, a malformed message, a new run starting its ids again), the sound policy (a burst is one sound, nothing queued, off, muted, the gap from the last sound, a clock stepping back), the sound seam, the preferences file, the activity buckets and what a conversation is heard from, frames in the last five minutes, a 63-hop chain too long to write whole, and a list of more peers than it holds keeping the newest |
 | `tests/rift_shell_test.sh` | the app test, then the real shell opening RIFT in both orientations with a scripted meshcored on a real socket, then with no service at all, then the same fixtures twice for the same pixels |
 | `tests/rift_lint.sh` | the boundaries: what transmits and from where (send and advert), what changes a node and from where, no colour, no device, one store holding nothing about the mesh, a DM arrival decided in one place from live events only, the sound asked for in one place and only when the policy says so, no sound device and no helper process, the sound stopped on close, no monolith, and the gaps this build leaves |
@@ -595,10 +670,20 @@ them, one after the other, are two runs of a service and not one.
 15. **A sender's retry is still shown as a second message.** meshcored
     records one per attempt (docs/KNOWN_ISSUES.md) and RIFT shows what the
     service recorded; only the sound recognises the retry and stays quiet.
-16. **The activity measure has no history.** It is the age of the newest
-    observation and says nothing about how often a node is heard; a rate would
-    need timestamps RIFT does not keep. RSSI and SNR stay in their own columns
-    and are never folded into it.
+16. **The per-node activity measure has no history.** The pulse is the age
+    of the newest observation and says nothing about how often *a node* is
+    heard. The mesh as a whole now has twenty minutes of history in the
+    traffic graph ("Heard on air, by the minute"), counted from when RIFT
+    opened and not before; a per-node rate would need per-node timestamps
+    RIFT does not keep. RSSI and SNR stay in their own columns and are never
+    folded into either.
+17. **RIFT caches more nodes than the service holds.** The cache is sized
+    for a thousand (`RIFT_MAX_NODES`) and measured at that; meshcored's
+    table is still 256 (`MAX_CONTACTS`, `protocols/meshcore/compat/
+    mc_contacts.h`), so on a unit the list stops where the service does and
+    says so in its footer. Raising the service's table is a change to a
+    persisted store with its own gate (docs/hardware/MESH_NODE_CAPACITY_256_GATE.md)
+    and is not this one.
 
 ## What needs hardware
 

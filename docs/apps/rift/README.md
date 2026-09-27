@@ -31,6 +31,12 @@ tokens — RIFT names no colour of its own (`tests/style_lint.sh`).
 | `landscape-activity.png` | `rift_app_test` | ACTIVITY in two columns, THIS DEVICE and its ADVERT buttons at the head of the right one |
 | `landscape-comms.png` | `rift_app_test` | COMMS in three panes — list, thread, route — with the command line as the composer and the newest message above it |
 | `landscape-comms-channel.png` | `rift_app_test` | the same for a channel: no route to draw, and a tally that counts what was sent and claims no delivery |
+| `landscape-comms-long.png` | `rift_app_test` | a 200-message thread turned: the 28 px header and 2 px between messages of DS §37.2 - 14 whole messages above the composer where there were 11 - and the identity marks on the conversation rows |
+| `portrait-activity-traffic.png` | `rift_app_test` | MESH ACTIVITY scrolled to its graph: the last twenty minutes a bar each, MSG over ADV over OTHER, the legend in words, and the feed under it |
+| `landscape-nodes-256.png` | `rift_app_test` | NODES with every node the cache holds (a thousand now, the name is the file's history), the identity mark on every chat node, and the detail pane beside them |
+| `portrait-comms-many.png` | `rift_app_test` | every conversation the list holds (128) with nothing open: the list takes the height |
+| `portrait-comms-long.png` | `rift_app_test` | the 200-message thread in portrait, unchanged by §37: 27 whole messages, the same as before |
+| `portrait-activity-notify.png` | `rift_app_test` | the NOTIFY panel's switch turned off, and its line saying what that means |
 | `shell-portrait.png` | the real shell | the whole stack: Doors status bar, app header, RIFT, and a scripted meshcored on the other end of a real socket |
 | `shell-landscape.png` | the real shell | the same, turned |
 

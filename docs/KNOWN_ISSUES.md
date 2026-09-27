@@ -1005,12 +1005,16 @@ so that pass stayed the size it was scoped to be.
 
 ## RIFT, the mesh client
 
-- **RIFT holds all 256 of meshcored's nodes** (`RIFT_MAX_NODES`), in a
-  virtual NODES list that builds rows only for the screen. The service side
-  is VERIFIED with 256 nodes on unit A (MESH_NODE_CAPACITY_256_GATE.md); the
-  list is VERIFIED with a real mesh of 241 nodes on unit A, scrolled end to
-  end in both orientations at up to ~31 % shell CPU
-  (RIFT_UI_NEXT_GATE.md). A full 256 on a board is untested.
+- **RIFT caches a thousand nodes; meshcored holds 256.** `RIFT_MAX_NODES`
+  is 1000 (DS §37.5), in a virtual NODES list that builds rows only for the
+  screen, and the thousand is host-tested only (`tests/rift_app_test.c`:
+  0.5 ms a repaint, 1132 KB model, +0.4 MB resident on the host). The
+  service's table is still 256 (`MAX_CONTACTS`), VERIFIED on unit A
+  (MESH_NODE_CAPACITY_256_GATE.md), so on a board the list stops there and
+  the footer says the table is full; the list is VERIFIED with a real mesh
+  of 241 nodes on unit A, scrolled end to end in both orientations at up to
+  ~31 % shell CPU (RIFT_UI_NEXT_GATE.md). A full 256 on a board is untested,
+  and nothing above it can be until the service's table grows.
 - **The DM sound is silent in this build.** RIFT decides which direct
   messages are new and when one is worth a sound, behind a setting, and asks
   through a backend seam (`rift_sound.h`); the built-in backend has no sound,
