@@ -1,8 +1,15 @@
 # ADR-009: A browser without a browser engine
 
-Status: Proposed (2026-09-26, branch `feat/browser-app`), for the product
-owner's decision.
-Date: 2026-09-26
+Status: Accepted (product owner, 2026-09-27): all decisions below, including
+decision 6 as proposed (Browser in CONNECTIONS after Zabbix, with the
+first-party globe icon). The acceptance came after:
+
+- the unit A gate (docs/hardware/BROWSER_GATE.md, PASS on `301fadf`, the
+  physical keyboard checked by the owner);
+- the merge to master (`c7b7a8f`, PR #9).
+
+It was proposed 2026-09-26 on branch `feat/browser-app`.
+Date: 2026-09-26 (proposed), 2026-09-27 (accepted)
 Deciders: product owner (final), AI engineering partner (author)
 
 ## Context
@@ -125,8 +132,8 @@ Option C, with these fixed points:
    in a 0700 directory, atomic). No cookies, passwords, form data or page
    content are ever written.
 6. **Browser is in the shell by default and on the launcher** in CONNECTIONS
-   after Zabbix, with a first-party globe icon (network colour). Its place and
-   icon are for the owner to confirm, as Zabbix's were.
+   after Zabbix, with a first-party globe icon (network colour). The owner
+   confirmed the place and the icon on 2026-09-27.
 
 ## Consequences
 

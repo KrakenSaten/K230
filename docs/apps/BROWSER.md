@@ -1,7 +1,8 @@
 # Browser: simple web pages on the unit
 
-**Status: PROPOSED** (2026-09-26, branch `feat/browser-app`). The engine
-decision is ADR-009 (PROPOSED). Built with the pinned Xuantie/Buildroot
+**Status: ACCEPTED** (proposed 2026-09-26, merged to master `c7b7a8f` and
+accepted by the owner 2026-09-27). The engine decision is ADR-009
+(ACCEPTED 2026-09-27). Built with the pinned Xuantie/Buildroot
 toolchain and run on unit A on 2026-09-27: every check of the focused gate
 passed, the physical keyboard checked by the owner
 (docs/hardware/BROWSER_GATE.md, §11).
@@ -260,7 +261,7 @@ Also: `portrait-demo.png` (the fake network's demo page: links, list, picture, q
 - **Launcher**: CONNECTIONS, after Zabbix, in the network colour, with a
   first-party globe icon (docs/design/doors-app-icons/). Portrait still fits
   without scrolling (CONNECTIONS takes a second row); landscape keeps its two
-  lines. The place and the icon are for the owner to confirm.
+  lines. The owner confirmed the place and the icon on 2026-09-27.
 
 ## 9. What it remembers
 
