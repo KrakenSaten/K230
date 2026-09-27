@@ -3,7 +3,7 @@
 Voice notes, field recordings and quick audio checks, kept as WAV files in
 the owner's `Recordings` folder, with a list to play and delete them.
 
-Status: **v1 on branch `feat/recorder-app`, not merged.** Host-tested
+Status: **v1, merged to master.** Host-tested
 end to end (the real helper over a file-backed sound card, the app under a
 real LVGL pointer in portrait and landscape, the real shell in both
 orientations), built with the pinned Xuantie/Buildroot toolchain, and
@@ -11,7 +11,7 @@ orientations), built with the pinned Xuantie/Buildroot toolchain, and
 voice clip played back intelligibly; results and the K230's measured costs
 (pos-record 1.8 % of the C908 at Voice, 1.0 % at Standard, 2.2 MB RSS) are
 in `docs/hardware/RECORDER_GATE.md`. The audio ownership is ADR-010,
-**Proposed**.
+**Accepted** (2026-09-27).
 
 Screenshots (the real simulator shell with the file-backed sound card):
 `docs/design/shots/recorder-portrait.png`, `recorder-landscape.png`,

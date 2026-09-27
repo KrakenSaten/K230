@@ -1146,7 +1146,7 @@ camera-san-test:
 	    ./tests/camera_layout_test && ./tests/camera_gallery_test && \
 	    ./tests/camera_session_test tests/pos-camera-testhooks
 
-# Recorder (docs/apps/RECORDER.md, ADR-010 PROPOSED).
+# Recorder (docs/apps/RECORDER.md, ADR-010 accepted).
 #
 # pos-record is the Recorder's helper, the only program that opens audio or
 # writes a recording for it. It links core/pocketaudio - the same audio layer

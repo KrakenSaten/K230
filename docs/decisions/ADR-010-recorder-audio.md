@@ -1,7 +1,9 @@
 # ADR-010: Who owns the audio hardware for the Recorder
 
-Status: Proposed (awaiting the product owner). Written on branch
-`feat/recorder-app`.
+Status: Accepted (product owner, 2026-09-27), after the unit A gate
+(docs/hardware/RECORDER_GATE.md, PASS on `608f972`, the owner's voice clip
+played back intelligibly). Written on branch `feat/recorder-app` as
+ADR-009 and renumbered: ADR-009 is Browser's.
 Date: 2026-09-26
 Deciders: product owner (final), AI engineering partner (author)
 
