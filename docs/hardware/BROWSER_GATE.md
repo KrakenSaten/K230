@@ -1,7 +1,7 @@
 # Browser: unit A integration gate
 
 **Unit A carries this branch's build `301fadf`.** It runs Automatic rotation
-(landscape), with Browser open on its start page. These files were replaced
+(landscape), with Browser open. These files were replaced
 or added together:
 
 | File | Change | md5 |
@@ -26,10 +26,13 @@ or added together:
 `/var/lib/pocketos/browser` and any `/run/pocketos/browser.*`. All four were
 absent before the gate.
 
-Result: **PASS**, with one check waiting for the owner: **the physical
-keyboard in landscape (§3)**. No keyboard input device was attached during
-the gate (`/proc/bus/input/devices` lists only the power key and the touch
-panel), and the kernel has no `/dev/uinput` to stand one in.
+Result: **PASS**. The owner checked the physical keyboard in landscape on
+`301fadf`: typing and Enter **PASS** (§3 #3).
+
+The keyboard base is a TCA8418 that the shell polls over I2C
+(`keyboard: TCA8418 ready, polling every 15 ms`). It is not an evdev device,
+so `/proc/bus/input/devices` does not list it. There is also no
+`/dev/uinput`, so it cannot be scripted from SSH.
 
 Run 2026-09-27 06:33-07:18Z by Claude over SSH, with touch injected at the
 evdev layer (`tests/hw/touch_slot0_tap.py`) and the panel read with
@@ -87,7 +90,7 @@ each bad one with the libcurl reason:
 | --- | --- | --- |
 | 1 | Opens in landscape (1232×568) and portrait (568×1232); launcher icon loads (`art: icon-browser 96x96`) | PASS; start page 19-23 ms, no helper until the first page |
 | 2 | URL entry, landscape: KEYS brings the touch keyboard, `example` + `?123` `.` + `com`, DONE goes | PASS |
-| 3 | **Physical keyboard in landscape** | **PENDING (owner)**: no keyboard device attached, no uinput |
+| 3 | **Physical keyboard in landscape** | **PASS (owner, on `301fadf`)**: typing into the address field, Enter goes |
 | 4 | URL entry, portrait: a tap on the field brings the touch keyboard; `neverssl.com`, DONE goes, keyboard goes away | PASS |
 | 5 | `https://example.com` | PASS: SECURE, 3 blocks, 1 link, page made in 0 ms |
 | 6 | HTTPS validation | PASS (§2) |
@@ -171,8 +174,6 @@ Frame rate while fling-scrolling and the 800-block page were not measured.
 
 ## 7. Not covered here
 
-- The physical keyboard (§3 #3). It needs the keyboard base attached and
-  the owner. The unit is left in landscape with Browser open for it.
 - STOP tapped on a running load; HTTPS before NTP ("Clock not set"); netd
   restart during a load; frame rate.
 - An upstream outage of about a minute (07:14-07:16Z) failed curl and

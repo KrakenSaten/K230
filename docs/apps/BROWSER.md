@@ -3,7 +3,7 @@
 **Status: PROPOSED** (2026-09-26, branch `feat/browser-app`). The engine
 decision is ADR-009 (PROPOSED). Built with the pinned Xuantie/Buildroot
 toolchain and run on unit A on 2026-09-27: every check of the focused gate
-passed except the physical keyboard, which waits for the owner
+passed, the physical keyboard checked by the owner
 (docs/hardware/BROWSER_GATE.md, §11).
 
 Browser reads simple web pages: text, headings, lists, links, JPEG and PNG
@@ -353,12 +353,12 @@ its own masked lanes, so the loop is marked `#pragma GCC novector`.
 | Building the demo page / a 301-block page | 1 ms / 39 ms |
 | CPU while idle | simulator shell 0.7 % at the launcher, 0.9 % with Browser open on a page (10 s samples); the helper 0 (it sleeps in `poll`). The app's 40 ms timer makes one non-blocking `recv` and one `waitpid` |
 
-**Unit A gate (2026-09-27, build `301fadf`): PASS**, except the physical
-keyboard, which waits for the owner. The sheet is
+**Unit A gate (2026-09-27, build `301fadf`): PASS.** The sheet is
 docs/hardware/BROWSER_GATE.md. Passed:
 
 - both orientations;
 - the touch keyboard in both;
+- the physical keyboard in landscape, typing and Enter (owner);
 - example.com over HTTPS;
 - certificate checks (expired, wrong host, self-signed, untrusted root all
   refused);
@@ -381,11 +381,10 @@ On the C908:
 
 **Still open:**
 
-1. With the keyboard base attached: typing and Enter in landscape (owner).
-2. STOP tapped on a running load (only closing mid-load was exercised).
-3. HTTPS before NTP (the "Clock not set" page).
-4. netd restarted during a load, and a page opened with no network at all.
-5. Frame rate while fling-scrolling, and an 800-block page on the C908.
+1. STOP tapped on a running load (only closing mid-load was exercised).
+2. HTTPS before NTP (the "Clock not set" page).
+3. netd restarted during a load, and a page opened with no network at all.
+4. Frame rate while fling-scrolling, and an 800-block page on the C908.
 
 ## 12. Known limitations and next steps
 
