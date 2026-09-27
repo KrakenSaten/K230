@@ -292,8 +292,11 @@ tests/sysd-testhooks: $(SYSD_BASE_OBJS) tests/sysd_power_hooks.o
 # is missing here.
 # pos-zabbix's transport names POCKETOS_VERSION in its User-Agent; it is one
 # source built under two names (ZABBIX_CURL), so both are listed.
+# pocketcam_exif writes POCKETOS_VERSION into each photo's EXIF Software tag
+# and PPM comment.
 POCKETOS_ID_OBJS := core/pocketlog/pocketlog.o tools/pos/pos.o tests/pocketlog_test.o \
-                    core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o
+                    core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o \
+                    core/pocketcam/pocketcam_exif.o
 $(POCKETOS_ID_OBJS): $(POCKETOS_BUILD_STAMP)
 
 # Compile-only check of the sx1262 backend on a host without libgpiod v2
