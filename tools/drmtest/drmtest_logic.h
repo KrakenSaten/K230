@@ -42,7 +42,8 @@ struct dt_mode {
 /* Choose a mode to test with. want is NULL or "" for the automatic,
  * conservative choice, or "WxH" / "WxH@R" for an explicit one.
  *
- * Automatic: progressive, at least 640x480, pixel clock at most
+ * Automatic: progressive, at least 640x480 in either orientation (so the
+ * AMOLED's portrait 568x1232 qualifies), pixel clock at most
  * DT_SAFE_MAX_KHZ; among those the modes the DSI reproduces exactly come
  * first, then the smallest picture, then the smallest clock error, then the
  * refresh closest to 60 Hz. Explicit: the named size (and refresh), the

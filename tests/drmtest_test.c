@@ -136,6 +136,9 @@ static void choice_tests(void)
     };
     static const struct dt_mode too_big[] = { M(3840, 2160, 30, 297000), M(2560, 1440, 60, 241500) };
     static const struct dt_mode small[] = { M(320, 240, 60, 6000) };
+    static const struct dt_mode small_portrait[] = { M(240, 320, 60, 6000) };
+    /* The AMOLED's only mode as the kernel reports it on unit A (DSI-1). */
+    static const struct dt_mode amoled[] = { { 568, 1232, 52, 49500, 0, 1 } };
     char why[200];
     int i;
 
@@ -164,6 +167,10 @@ static void choice_tests(void)
 
     check("auto: nothing at or below 1080p60's clock", dt_choose_mode(too_big, 2, NULL, why, sizeof(why)) == -1);
     check("auto: nothing of at least 640x480", dt_choose_mode(small, 1, NULL, why, sizeof(why)) == -1);
+    check("auto: a portrait 240x320 is still too small", dt_choose_mode(small_portrait, 1, NULL, why, sizeof(why)) == -1);
+    i = dt_choose_mode(amoled, 1, NULL, why, sizeof(why));
+    check("auto: the AMOLED's portrait 568x1232 qualifies (unit A)", i == 0);
+    check("auto: the AMOLED's 49.5 MHz is exact", strstr(why, "exact") && !strstr(why, "INEXACT"));
     check("no modes at all", dt_choose_mode(NULL, 0, NULL, why, sizeof(why)) == -1);
 }
 

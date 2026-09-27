@@ -220,7 +220,8 @@ proposal for any of those, and none is needed to prove the output:
   red/green/blue blocks, "DOORS K230 HDMI TEST", mode and real clock; restores
   the previous CRTC state afterwards; refuses with exit 3 while another process
   is DRM master). Without `--mode` it picks the smallest progressive mode of at
-  least 640x480, at or below 148.5 MHz, clock-exact first. `modetest` is in the
+  least 640x480 in either orientation (so the AMOLED's portrait 568x1232
+  qualifies), at or below 148.5 MHz, clock-exact first. `modetest` is in the
   image (`BR2_PACKAGE_LIBDRM_INSTALL_TESTS=y`) but knows nothing of the 594 MHz
   quantisation and does not decode EDID; it remains a second opinion.
 - **`pos-display-boot status|lcd|hdmi`** (`tools/display/`): writes or removes

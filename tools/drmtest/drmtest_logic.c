@@ -130,7 +130,12 @@ int dt_choose_mode(const struct dt_mode *modes, int count, const char *want, cha
                 best = i;
             }
         } else {
-            if (m->interlaced || m->width < 640 || m->height < 480 || m->clock_khz > DT_SAFE_MAX_KHZ) {
+            /* 640x480 in either orientation: the AMOLED's only mode is the
+             * portrait 568x1232 (unit A, 2026-09-27). */
+            int shorter = m->width < m->height ? m->width : m->height;
+            int longer = m->width < m->height ? m->height : m->width;
+
+            if (m->interlaced || shorter < 480 || longer < 640 || m->clock_khz > DT_SAFE_MAX_KHZ) {
                 continue;
             }
             if (best < 0 || rank_auto(m, &modes[best]) < 0) {
@@ -145,7 +150,8 @@ int dt_choose_mode(const struct dt_mode *modes, int count, const char *want, cha
         if (explicit_mode) {
             snprintf(why, why_len, "the connector does not offer %s", want);
         } else {
-            snprintf(why, why_len, "no progressive mode of at least 640x480 at or below %d kHz", DT_SAFE_MAX_KHZ);
+            snprintf(why, why_len, "no progressive mode of at least 640x480 (either orientation) at or below %d kHz",
+                     DT_SAFE_MAX_KHZ);
         }
         return -1;
     }
