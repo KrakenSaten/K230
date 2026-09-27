@@ -36,6 +36,7 @@ static void check(const char *name, int ok)
     }
 }
 
+#if defined(BROWSER_HAVE_JPEG) || defined(BROWSER_HAVE_PNG)
 static uint32_t rng = 99;
 
 static uint32_t rnd(void)
@@ -45,6 +46,7 @@ static uint32_t rnd(void)
     rng ^= rng << 5;
     return rng;
 }
+#endif
 
 #ifdef BROWSER_HAVE_PNG
 static unsigned char *make_png(int w, int h, size_t *len)
@@ -112,6 +114,7 @@ static unsigned char *make_jpeg(int w, int h, size_t *len)
 }
 #endif
 
+#if defined(BROWSER_HAVE_JPEG) || defined(BROWSER_HAVE_PNG)
 static int mutate_rounds(const unsigned char *src, size_t len, int rounds)
 {
     unsigned char *buf = malloc(len);
@@ -142,6 +145,7 @@ static int mutate_rounds(const unsigned char *src, size_t len, int rounds)
     free(buf);
     return bad;
 }
+#endif
 
 int main(void)
 {
