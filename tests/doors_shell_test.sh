@@ -131,8 +131,11 @@ call shell.unlock
 sleep 0.3
 check "shell.unlock opens it at once" "$([ "$(field '["lock"]["locked"]')" = false ] && echo 1 || echo 0)"
 shot "$OUT/p-home.png"
-set -- $(region_is "$OUT/p-home.png" bg-home-portrait 0 1210 568 1232)
-check "the launcher lies on the home photograph ($2 of $3 sampled pixels at its foot)" "${1:-0}"
+# Sampled in the left gutter, beside the panels: with seventeen apps the
+# portrait launcher runs past the foot and scrolls (below), so its foot is
+# no longer bare photograph.
+set -- $(region_is "$OUT/p-home.png" bg-home-portrait 0 150 24 1200)
+check "the launcher lies on the home photograph ($2 of $3 sampled pixels in its left gutter)" "${1:-0}"
 held_open=$(field '["art"]["bytes_held"]')
 check "opening released the lock's photograph ($held_locked -> $held_open bytes held)" \
     "$([ -n "$held_open" ] && [ "$held_open" -lt "$held_locked" ] && echo 1 || echo 0)"
@@ -200,12 +203,15 @@ print("apps", d["launcher"]["apps"], d["launcher"]["icons_art"], d["launcher"]["
       json.dumps(d["launcher"]["scrolls"]))
 PY
     set -- $(grep '^apps' "$OUT/$o-cells.txt")
-    # Portrait does not scroll. Landscape does since Files made thirteen (Camera
-    # the fourteenth, Zabbix the fifteenth and Browser the sixteenth, in
-    # CONNECTIONS; DS §35.4; Recorder the seventeenth, in DEVICE): one
-    # row would squeeze a cell under HOME_CELL_MIN_W, so DEVICE wraps to a
-    # second line and the footer is below it (ui/shell/home_layout.h).
-    scrolls=false; [ "$o" = landscape ] && scrolls=true
+    # Landscape scrolls since Files made thirteen (Camera the fourteenth,
+    # Zabbix the fifteenth and Browser the sixteenth, in CONNECTIONS; DS
+    # §35.4): one row would squeeze a cell under HOME_CELL_MIN_W, so DEVICE
+    # wraps to a second line and the footer is below it. Portrait scrolls
+    # since Recorder made seventeen: CONNECTIONS (Browser) and DEVICE
+    # (Recorder) each take a second row of cells, and the footer goes below
+    # the fold - the layout grows rather than shortening anything
+    # (ui/shell/home_layout.h; accepted by the owner for feat/recorder-app).
+    scrolls=true
     check "$o: seventeen apps, seventeen portal icons from the art, none on a fallback, scrolls: $scrolls ($2 $3 $4 $5)" \
         "$([ "$2" = 17 ] && [ "$3" = 17 ] && [ "$4" = 0 ] && [ "$5" = "$scrolls" ] && echo 1 || echo 0)"
     good=0

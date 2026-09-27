@@ -168,7 +168,16 @@ if ink:
 drawn = sum(1 for y in range(60, H, 8) for x in range(0, W, 8) if not near(px(x, y), bg, 6))
 check("the launcher is drawn (%d sampled points of ink)" % drawn, drawn > 150)
 cor = [(x, y) for y in range(H - corner, H) for x in list(range(0, corner)) + list(range(W - corner, W))]
-check("nothing is drawn in the bottom corner squares", all(near(px(x, y), bg, 3) for x, y in cor))
+if len(sys.argv) > 7 and sys.argv[7] == "scrolls":
+    # Seventeen apps make the portrait launcher taller than the panel: it
+    # scrolls (ui/shell/home_layout.h), and what passes under the bottom
+    # corners is scroll content. That the footer clears them once scrolled
+    # to is tests/home_layout_test.c's rule; here, that the content does run
+    # on past the foot.
+    foot = sum(1 for y in range(H - corner, H) for x in range(corner, W - corner, 4) if not near(px(x, y), bg, 6))
+    check("the launcher scrolls: its content runs on past the foot (%d sampled points)" % foot, foot > 0)
+else:
+    check("nothing is drawn in the bottom corner squares", all(near(px(x, y), bg, 3) for x, y in cor))
 print("\n".join(out))
 PY
 }
@@ -200,11 +209,13 @@ for orient in portrait landscape; do
     # The corners in force: 30 px in portrait; in landscape the top ones are
     # 50 px (platform.h, DS §21.1), and the bottom ones 30.
     corner=30; [ "$orient" = landscape ] && corner=50
+    # Seventeen apps: the portrait launcher scrolls past the foot (look).
+    runs=; [ "$orient" = portrait ] && runs=scrolls
     for theme in doors ice brass olive slate carbon; do
         for mode in normal outdoor night; do
             png="$OUT/$orient-$theme-$mode.png"
             shot "$png" "$OUT/$orient-$theme-$mode.log" --rotation "$orient" --theme "$theme" --mode "$mode"
-            look "$png" "$theme" "$mode" "$orient" 30 $corner >"$OUT/$orient-$theme-$mode.checks" 2>&1
+            look "$png" "$theme" "$mode" "$orient" 30 $corner $runs >"$OUT/$orient-$theme-$mode.checks" 2>&1
             grep -v '^ok' "$OUT/$orient-$theme-$mode.checks"
             failed=$((failed + $(grep -vc '^ok' "$OUT/$orient-$theme-$mode.checks")))
             check "$orient $theme/$mode: $(grep -c '^ok' "$OUT/$orient-$theme-$mode.checks") status cluster and launcher checks passed" \

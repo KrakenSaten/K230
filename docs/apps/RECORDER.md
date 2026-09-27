@@ -240,3 +240,10 @@ leak checking.
    Wave, Camera and Recorder, in `core/`; today each app has its own.
 2. Rename in the app (Files covers it today).
 3. The Unit A gate, including the C908's measured costs.
+4. **Launcher, portrait (for DS review).** With Browser merged, Recorder is
+   the seventeenth app: CONNECTIONS (5) and DEVICE (5) each take a second
+   row of cells, and the portrait launcher no longer fits the panel. It
+   grows and scrolls, as `ui/shell/home_layout.h` says it does - Lock and
+   Controls are below the fold, as landscape's already were. The owner
+   accepted this for the branch (2026-09-27); the shell tests
+   (`doors_shell_test`, `display_geometry_shell_test`) now expect it.
