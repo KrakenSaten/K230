@@ -327,10 +327,45 @@ panel path is unchanged in every logged value; the kernel no longer offers
 modes outside the table; the 4-lane PHY is programmed with the databook
 values, which are RT-Smart's; the bridge receives complete, exactly timed
 frames at 720p and 1080p, including across mode switches, and the 720p
-timing register carries the right value. What it cannot prove: that the
-monitor shows the frames (the earlier 720p failure was at the HDMI
-transmitter, invisible to these counters). That is one look at the monitor
-by the owner, with `sh /root/rollback-hdmi/KERNEL_R2.sh && pos-display-boot
-hdmi && reboot` (the patched kernel stays on the unit at
-`/root/rollback-hdmi/Image.hdmi-r2`), then `pos-display-boot lcd && sh
-/root/rollback-hdmi/KERNEL_ORIG.sh && reboot`.
+timing register carries the right value.
+
+## 9. Hardware, round 3 (the owner looks, 2026-09-27)
+
+Full table in `HDMI_GATE.md` "Round 3". The decisive runs used the DSI
+host's video pattern generator (DesignWare `VID_MODE_CFG` bit 16, `vpg_en`,
+as named in K0 `drivers/gpu/drm/bridge/synopsys/dw-mipi-dsi.c`; switched on
+with `devmem 0x90850038` while a mode was held) and `modetest` in RGB565:
+
+| What fed the DSI | 1280x720@60 | 1920x1080@60 |
+| --- | --- | --- |
+| The DSI's own colour bars (no VO, no framebuffer) | **bars on the monitor** | **bars on the monitor** |
+| VO, XRGB8888 plane (`pos-drmtest`, fbdev) | no signal | locked, black |
+| VO, RGB565 plane (`modetest`) | no signal | black on the first set, **bars** on a re-set |
+
+So patches 0070 and 0071 are proven on the glass: everything from the DSI
+PHY through the bridge to the monitor is right at both rates. What remains
+is in the K230 VO (what feeds the DSI):
+
+- **XRGB8888 planes never fetch (DOCUMENTED cause).** BSP patches 0026/0030
+  added XRGB8888 with OSD `DMA_CTRL = 0x40` and changed ARGB8888 to `0x0`.
+  The vendor U-Boot logo code (`board/canaan/common/logo/display_logo.c`,
+  `kd_vo_osd_set_dma_request()`) writes bits [3:0] of that register as the
+  DMA request enable (`0xf`) and bits [5:4] as the DMA byte map. K0 used
+  `0x4F` for every format; RGB565 still does, and it is the only format that
+  showed a picture. Fix candidate: `0x4F` for XRGB8888 and ARGB8888 (the
+  BSP's "rb swap" was bit 6, which `0x4F` keeps). One constant each.
+- **The VO's 720p stream is refused by the bridge's transmitter, and a
+  1080p RGB565 set works only as a re-set.** Not understood. The VO timing
+  registers read exactly as derived (`TOTAL_SIZE`, `XZONE`, `YZONE`, `DRAW`,
+  `HSYNC` 2..5, `VSYNC` 0..0, the same as RT-Smart's `sync_attr`), the
+  bridge counts the right frame, and the DSI is identical between the
+  failing VO run and the passing generator run. Candidates (ASSUMED): the
+  BSP's deferred config load (patch 0043: `ADDR_SEL_MODE 0x1100`, address
+  and `REG_LOAD_CTL` written from the vblank IRQ) interacting with a mode
+  change; `k230_display_rst()` at every CRTC enable; the VO's per-layer
+  line-buffer setting (`0x701`, meaning undocumented). The register
+  readbacks taken (`out/hdmi-gate/r3_regs_*.txt`) do not discriminate:
+  `ADDR_SEL 0x1100` and `IRQ_STATUS` bit 28 appeared in passing runs too.
+
+Unit A was returned to the v0.1.0 kernel and the LCD tree after round 3
+(`HDMI_GATE.md` R3.8).

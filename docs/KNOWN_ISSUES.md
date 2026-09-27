@@ -148,8 +148,12 @@ DEVICE VERIFIED unless it says so.
   documented in `docs/hardware/HDMI_KERNEL_FIX.md` (mode filtering, an LT9611
   timing-register bug that hits 720p, the 4-lane D-PHY brought up as the
   2-lane panel's); kernel patches 0070/0071 on `feat/k230-hdmi-out` under
-  ADR-011 (Proposed). 480p and the bridge being reprogrammed under a running
-  stream stay open there.
+  ADR-011 (Proposed). Round 3 (owner at the bench) proved those patches on
+  the monitor with the DSI's own colour bars at 720p and 1080p. What is left
+  is the K230 VO: XRGB8888 planes have their OSD DMA request bits off (a BSP
+  constant, documented by the vendor U-Boot code), and the VO's 720p stream
+  gives no signal while a 1080p RGB565 re-set shows bars. 480p is not
+  offered. `docs/hardware/HDMI_KERNEL_FIX.md` §9.
 - **Whole-unit lock-up after repeated camera open/close (VERIFIED on unit A,
   master's binaries, 2026-09-27).** Opening Camera, streaming for about 3 s
   and leaving it, over and over, eventually freezes unit A completely: the

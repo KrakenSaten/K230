@@ -10,7 +10,12 @@ is `HDMI_GATE.md`. **2026-09-27, unit A with a 2560x1440 monitor:**
   driver is set up for 1080p only") was revised by the desk study that
   followed: `HDMI_KERNEL_FIX.md` names three kernel-side causes and carries
   the two kernel patches (`platforms/k230/patches/linux/0070`, `0071`) that
-  ADR-011 (Proposed) covers. Round 2 of the gate runs on that kernel.
+  ADR-011 (Proposed) covers. Rounds 2 and 3 of the gate ran on that kernel:
+  the bridge side is proven on the monitor (the DSI's own colour bars show
+  at 720p and 1080p, and a 1080p RGB565 `modetest` re-set shows bars); what
+  the K230 VO feeds into the DSI is still wrong for XRGB8888 planes (DMA
+  request bits off, a BSP constant) and at 720p (cause open). Details and
+  the next steps: `HDMI_KERNEL_FIX.md` §9.
 
 Evidence classes as in `T-DISPLAY-K230.md`: VERIFIED (unit A runtime record, or
 reproduced here from the pinned sources), DOCUMENTED (vendor schematic, source,

@@ -7,9 +7,12 @@ flickering stripes. Step 12 FAIL: the shell takes the monitor's 2560x1440,
 which the bridge cannot take. The cause is in the vendor kernel (see
 "Result"). **Round 2, the same day, on the patched kernel of
 `HDMI_KERNEL_FIX.md` (ADR-011, Proposed): every kernel-visible check PASSES
-at 720p and 1080p and 2560x1440 is no longer offered; the picture itself
-awaits the owner's eyes ("Round 2" below).** Unit A is back on the panel
-with the v0.1.0 kernel.
+at 720p and 1080p and 2560x1440 is no longer offered. Round 3, the owner at
+the bench: the DSI's own colour bars reach the monitor at 720p and 1080p, so
+the patches are proven on the glass; the K230 VO's output is still wrong
+(720p no signal, 1080p black except a re-set 1080p RGB565, which showed
+bars). Two VO-side causes are named in "Round 3".** Unit A is back on the
+panel with the v0.1.0 kernel.
 
 **Unit A carries:** image v0.1.0, build 1368695; shell 608f972 (the Recorder
 gate's build, the same device code as master 6077b8d); `pos-drmtest` built from
@@ -353,8 +356,54 @@ Harness: `out/hdmi-gate/r2_*.sh`, outputs `r2_*.out`, serial captures
 | R2.5 Picture on the monitor | The owner sees the pattern | **NOT OBSERVED** (unattended). Round 1's 720p failure was at the HDMI transmitter, which these counters do not see |
 | R2.6 Back to the panel, original kernel | Unit as before the gate | PASS. `pos-display-boot lcd`, `KERNEL_ORIG.sh`, reboot: `6.6.36 #2 … Sep 4`, panel, shell, touch, spidev, radio `rx`, no `force_dtb`. The patched kernel stays at `/root/rollback-hdmi/Image.hdmi-r2` |
 
-For the owner's look: `sh /root/rollback-hdmi/KERNEL_R2.sh && pos-display-boot
-hdmi && reboot`, watch the console for 1080p60 (fbdev, then the shell), then
-`pos-drmtest pattern --mode 1280x720@60 --seconds 30` with the shell stopped;
-afterwards `pos-display-boot lcd && sh /root/rollback-hdmi/KERNEL_ORIG.sh &&
-reboot`.
+## Round 3: the owner looks (2026-09-27, patched kernel, owner at the bench)
+
+Same unit state as round 2 (`KERNEL_R2.sh`, `pos-display-boot hdmi`, reboot;
+HPD `0x7d` before the switch). Each row pairs what the owner saw with what the
+kernel and the bridge reported at the same moment. Harness `r3_*.sh`, outputs
+`r3_*.out`, `r3_regs_*.txt` in `out/hdmi-gate/`.
+
+| Step | Owner saw | Machine-visible | Verdict |
+| --- | --- | --- | --- |
+| R3.0 Boot (fbdev 1080p60 XRGB8888, then the shell at 1080x1920 rotation 270) | nothing on the monitor | as R2.2: DSI `auto_voc=0x9 hsfreq=0xa9`, bridge `1920/1080/1125/400`, shell running | see R3.5/R3.7 |
+| R3.1 `pos-drmtest pattern --mode 1280x720@60` (XRGB8888) | **no signal** | DSI `auto_voc=0x19 hsfreq=0x96`, bridge `hsync_porch: 260`, `1280/720/750`, `h_total_sysclk=600`, rc 0 | FAIL, as round 1 |
+| R3.2 `pos-drmtest pattern --mode 1920x1080@60` (XRGB8888) | **locked, black** (monitor synced, picture black; round 1 had stripes here) | modeset 13 ms (mode already current), rc 0, no oops | FAIL, changed symptom |
+| R3.3 DSI host video pattern generator at 1080p (`VID_MODE_CFG` bit 16 set by `devmem` while R3.2-style hold ran; bypasses VO and framebuffer) | **vertical colour bars** | DSI as R3.2 | **PASS: DSI PHY → LT9611 → HDMI proven at 891 Mbit/s** |
+| R3.4 Same generator at 720p | **vertical colour bars** | DSI as R3.1, bridge `1280/720/750/600` | **PASS: proven at 445.5 Mbit/s** |
+| R3.5 `modetest -s 54@52:1920x1080-60@RG16` (SMPTE bars, RGB565, the shell's format), first run right after the pattern's restore | locked, black | OSD4: INFO 0x02, DMA_CTRL 0x4F, stride 0x1E0, ADDR_SEL 0x1100, IRQ status 0x10000000 | FAIL |
+| R3.6 Same, second and third run (each after killing the previous modetest) | **SMPTE colour bars** | ADDR_SEL read 0x100 during the first bars; 0x1100 and status bit 28 in the third run, so those readbacks do not discriminate | **PASS: VO → DSI → bridge → monitor at 1080p RGB565** |
+| R3.6a raw `devmem` write of ADDR_SEL 0x100 while bars showed | bars went **black** | a live raw write to a plane register stalls the layer; not a driver path, recorded only as a caution | n/a |
+| R3.7 `modetest … 1280x720-60@RG16`, twice (second from the already-set 720p state) | **no signal** both times | DSI/bridge as R3.1; ADDR_SEL 0x100 (consumed) on the re-set | FAIL |
+| R3.8 Back to the panel, original kernel | panel and touch as before | `6.6.36 #2 … Sep 4`, `536d4770…`, `DSI-1` 568x1232, shell running, spidev, radio `rx`, no `force_dtb` | PASS |
+
+What round 3 settles:
+
+- **Patches 0070 and 0071 do what they claim.** With the DSI host's own
+  generator the monitor shows bars at both 720p and 1080p (R3.3, R3.4): PHY
+  values, lane configuration, the bridge's PLL/PCR/timing and its HDMI
+  transmitter are all right, and 2560x1440 is gone. The round-1 failures on
+  the bridge side are fixed.
+- **The remaining defect is in front of the DSI, in the K230 VO output**, and
+  it has two parts:
+  1. XRGB8888 planes never fetch. `pos-drmtest` and fbdev use XRGB8888; the
+     BSP's XRGB8888 entry writes OSD DMA_CTRL 0x40, and bits [3:0] of that
+     register are the DMA request enable (the vendor U-Boot logo code writes
+     `0xf` there in `kd_vo_osd_set_dma_request()`, DOCUMENTED). RGB565 with
+     0x4F shows bars (R3.6). This also explains "nothing at boot".
+  2. The VO's 1280x720 output is refused by the bridge's transmitter (no
+     signal) although the bridge counts it correctly, and although the same
+     DSI configuration carries the generator's 720p (R3.4 vs R3.7). And a
+     1080p RGB565 modeset shows bars only on a re-set, not on the first set
+     after a different plane configuration (R3.5 vs R3.6). Both point at the
+     VO/plane programming sequence for a non-panel mode; neither is
+     understood yet (ASSUMED: the BSP's deferred config load, patch 0043, or
+     the display reset at CRTC enable).
+- The shell on HDMI (R3.0) runs RGB565 through the BSP's GDMA rotation path
+  at 1080x1920, which no gate has verified; its black is not attributed.
+
+Next, smallest first: (a) VO patch: XRGB8888 (and ARGB8888, which the BSP
+also set to request-off) get the DMA request bits back, one constant each,
+DOCUMENTED by the U-Boot code; (b) the 720p and first-set failures need the
+VO register state captured per step (the `voregs_unit.sh` harness exists)
+and a comparison against a pristine-driver (K0) VO sequence, before any code
+is changed. Neither is in patches 0070/0071.
