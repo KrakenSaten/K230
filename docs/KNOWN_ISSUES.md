@@ -141,6 +141,30 @@ DEVICE VERIFIED unless it says so.
 
 ## Hardware and BSP
 
+- **Whole-unit lock-up after repeated camera open/close (VERIFIED on unit A,
+  master's binaries, 2026-09-27).** Opening Camera, streaming for about 3 s
+  and leaving it, over and over, eventually freezes unit A completely: the
+  serial console stops answering and the unit drops off the network. Only a
+  power cycle recovers it. It took 21, 27 and 40 opens in three runs.
+  - The console, at loglevel 8, prints nothing at the moment of the freeze:
+    no oops, panic, RCU stall or watchdog line. Its last output is the normal
+    `vvcam_isp_release` of the last close.
+  - The freeze came a few seconds after that release, while the unit was idle
+    or starting the next action, never during streaming.
+  - It happens with master's own `doors-shell` (`f2c22f1`) and v0.1.0's
+    `pos-camera`, with no gallery involved.
+  - Suspected cause (not proven): the vendor vvcam/ISP stack
+    (`isp_media_server` plus the out-of-tree vvcam modules). This is the same
+    class as the earlier STREAMOFF+STREAMON lock-up in
+    `docs/hardware/CAMERA_GATE.md`.
+  - Anything that opens and closes the camera often, such as the gallery on
+    `feat/camera-gallery`, reaches it sooner.
+  - Evidence and reproduction: `docs/hardware/CAMERA_GALLERY_GATE.md`, §6.
+  - Candidate mitigations, owner's call:
+    - keep the camera open across a gallery visit (amends ADR-006's per-visit
+      open);
+    - a minimum interval between a release and the next open;
+    - a vendor fix.
 - RAM size unknown: wiki says 1 GB, Linux DTS declares 512 MB, U-Boot fixes
   the memory node at boot. Verify with `pos-hwcheck` on first boot.
 - LoRa module variant on our units (SX1262 vs LR2021) unverified.

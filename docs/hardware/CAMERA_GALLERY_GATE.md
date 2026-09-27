@@ -1,20 +1,30 @@
 # Camera gallery: unit A integration gate
 
-**Unit A carries build `f6fe537`** (branch `feat/camera-gallery`):
-`/usr/bin/doors-shell` (stripped md5 `f44b878e…`) and `/usr/bin/pos-camera`
-(md5 `b42b6164…`), replaced together. **Unit A is hung** since about
-2026-09-26 23:38Z: its serial console (COM9) answers nothing and it is off
-the network. It needs a power cycle by hand. After the power cycle it boots
-this build (the files are on the root filesystem). Rollback of **both**
-binaries, to the shell `f2c22f1` (== master `dd3809b` code, md5 `05a4d09a…`)
-and the v0.1.0 image's `pos-camera` (md5 `b3220ffc…`):
-`/root/rollback-camera-gallery/RESTORE.sh`. `state-before.tar` and
-`camera-md5.txt` are next to it.
+**Unit A carries master's binaries again, not this branch.** The gate ran on
+build `f6fe537`: `/usr/bin/doors-shell` (stripped md5 `f44b878e…`) and
+`/usr/bin/pos-camera` (md5 `b42b6164…`), replaced together.
 
-Result: **NOT PASSED.** The unit hung during the 9th–10th of ten memory
-cycles (§6). The cause is not established. Everything the gate checked
-before the hang passed. Run 2026-09-26/27 by Claude, with no owner present.
-Evidence is in `out/camera-gallery-gate/` (not committed).
+- On 2026-09-27 at 06:02Z `/root/rollback-camera-gallery/RESTORE.sh` put back
+  both binaries: shell `f2c22f1` (== master `dd3809b` code, md5 `05a4d09a…`)
+  and the v0.1.0 image's `pos-camera` (md5 `b3220ffc…`). This is the software
+  the unit had before the gate. `state-before.tar` and `camera-md5.txt` are
+  next to it.
+- **Unit A then hung a third time** (08:07Z), in the master reproduction of
+  §6. It needs a power cycle by hand, after which it boots that pre-gate
+  software.
+
+Result: **every gallery check PASSED.** The unit hung three times (§6), each
+time silently:
+
+1. In the gallery loop.
+2. After 40 camera-only cycles on this branch.
+3. After 21 camera-only cycles on **master's own binaries**.
+
+The lock-up is pre-existing and not caused by the gallery
+(`docs/KNOWN_ISSUES.md`, Hardware and BSP).
+
+Run 2026-09-26/27 by Claude; the owner did the power cycles. Evidence is in
+`out/camera-gallery-gate/` (not committed).
 
 The photo library was restored before the hang. It holds exactly the 8
 photos it had before the gate, all md5-verified against `camera-md5.txt`.
@@ -279,18 +289,21 @@ Setup:
 - Shell RSS grew from 14.95 to 15.06 MB, about 3 KB per open. That is the
   camera path, not the gallery; noted for a separate look.
 
-**Then the unit hung, idle, with no gallery.**
+**Then the unit hung, before the gallery did anything.**
 
 - The console's last output is the 40th release (`vvcam_isp_release:187`,
-  07:56:54).
-- About 3 s later the loop locked the screen.
-- The next step, loop B's first scp (before any tap or camera open), timed
-  out.
+  05:56:54Z).
+- The loop locked the screen.
+- Loop B started its probe at 05:57:20Z. The probe's last fsync'd line is
+  05:57:21.4Z: no camera helper, `isp_media_server` asleep in
+  `hrtimer_nanosleep`.
+- The freeze fell within the next 0.6 s, at loop B's unlock / its first
+  `doors app start camera`, before any camera open. Nothing new appeared on
+  the console.
 - The console printed nothing: no oops, panic, RCU stall or watchdog line.
 - Afterwards the console answered nothing and the unit was off the network.
-- Loop B (the gallery) never ran.
 
-Conclusion so far:
+Conclusion after these two:
 
 - The hang reproduces **without the gallery**, after repeated camera
   open/release cycles alone: about 40 opens this time, about 27 the night
@@ -301,14 +314,38 @@ Conclusion so far:
   `pos_camera.c` only adds the EXIF metadata to a still).
 - So this is the vendor camera stack's known fragility, in the same class as
   the lock-up recorded in `CAMERA_GATE.md`, and not a defect of the gallery.
-- Not yet shown: that master's own binaries hang the same way. That needs
-  `RESTORE.sh` and the same loop.
 - The gallery does make camera open/close more frequent, so it makes the
   hang easier to hit. The same is true of leaving and reopening Camera on
   master.
 
-**Merge recommendation:** the gallery code is ready on its own evidence.
-Merging is the owner's call, given a pre-existing camera-stack lock-up that
-the gallery makes easier to reach. That lock-up needs its own investigation:
-a vendor ISP/vvcam issue, possibly mitigated by keeping the camera open
-across a gallery visit, which would amend ADR-006's per-visit open.
+### Master's own binaries (after the second power cycle)
+
+- `RESTORE.sh` was run: shell `f2c22f1`, v0.1.0 `pos-camera`, verified by md5
+  and by `doors shell info`.
+- Same camera-only loop, serial captured (`h5-master-camera60.log`,
+  `com9-capture-master.log`).
+- Cycles 1�21 completed. The console's last output is cycle 21's release
+  (`vvcam_isp_release:187`, 08:07:18.9).
+- The unit answered SSH once more at about 08:07:27 and froze within the next
+  second, idle, about 9 s after that release. Again nothing appeared on the
+  console.
+
+**The lock-up is pre-existing on master, without the gallery.** Across the
+three hangs, all silent:
+
+| Hang | Build | Opens before it |
+| --- | --- | --- |
+| Night | branch, gallery loop | about 27 |
+| Second | branch, camera only | 40 |
+| Third | master, camera only | 21 |
+
+Each freeze came a few seconds after a camera release, never during
+streaming. It is recorded in `docs/KNOWN_ISSUES.md` (Hardware and BSP).
+
+**Merge recommendation: READY TO MERGE for the gallery itself.** Every
+gallery check passed on unit A, and the lock-up reproduces on master without
+it. One caveat for the owner: each gallery visit closes and reopens the
+camera, so the gallery reaches this existing lock-up sooner than Camera alone
+does. Merging now, or first mitigating the lock-up (for example keeping the
+camera open across a gallery visit, which would amend ADR-006), is the
+owner's decision.
