@@ -1,7 +1,7 @@
 /*
  * The DOORS launcher's geometry and groups (ui/shell/home_layout.h, DS §31):
  *
- *   - the registry's sixteen apps land in four groups in the table's order,
+ *   - the registry's seventeen apps land in four groups in the table's order,
  *     an app the table does not name goes to MORE (after the named groups,
  *     in registry order), an empty group is not drawn;
  *   - in both orientations of the reference panel every cell is inside its
@@ -9,7 +9,7 @@
  *     cells are at least the DS touch minimum, and the footer lies below the
  *     panels and clear of the rounded corners; portrait does not scroll;
  *   - landscape wraps (and then scrolls) instead of squeezing cells: with
- *     today's sixteen apps DEVICE goes to a second line (twelve fitted one).
+ *     today's seventeen apps DEVICE goes to a second line (twelve fitted one).
  *
  * Pure C: built and run by the root Makefile (make test).
  *
@@ -50,7 +50,7 @@ static void check(const char *what, int ok)
 /* The shell's registry order (ui/shell/shell.c apps[], then OPTIONAL_APPS). */
 static const char *const registry[] = { "radio", "system", "fleet", "radar", "timber", "notes",
                                         "clock", "calendar", "calculator", "settings", "wave", "rift",
-                                        "files", "camera", "browser", "zabbix" };
+                                        "files", "camera", "browser", "recorder", "zabbix" };
 #define NREG ((int)(sizeof(registry) / sizeof(registry[0])))
 
 static int inside(const struct home_rect *a, const struct home_rect *b)
@@ -69,19 +69,19 @@ static void test_groups(void)
     uint8_t count[HOME_GROUP_COUNT];
     static const char *const want[] = { "rift", "radio", "wave", "zabbix", "browser", "notes", "calendar", "clock",
                                         "calculator", "fleet", "radar", "timber", "settings", "system",
-                                        "files", "camera" };
+                                        "files", "camera", "recorder" };
     int n = home_group_order(registry, NREG, order, count);
     int k;
-    int same = n == 16;
+    int same = n == 17;
 
     for (k = 0; same && k < n; k++) {
         same = strcmp(registry[order[k]], want[k]) == 0;
     }
-    check("the sixteen apps are shown in the table's order", same);
+    check("the seventeen apps are shown in the table's order", same);
     check("CONNECTIONS holds RIFT, Radio, Wave, Zabbix, Browser", count[HOME_GROUP_CONNECT] == 5);
     check("WORKSPACE holds Notes, Calendar, Clock, Calculator", count[HOME_GROUP_WORK] == 4);
     check("PLAY holds Fleet, Radar, Timber", count[HOME_GROUP_PLAY] == 3);
-    check("DEVICE holds Settings, System, Files, Camera", count[HOME_GROUP_DEVICE] == 4);
+    check("DEVICE holds Settings, System, Files, Camera, Recorder", count[HOME_GROUP_DEVICE] == 5);
     check("nothing is left for MORE", count[HOME_GROUP_MORE] == 0);
     check("group names are the package's capitals",
           strcmp(home_group_name(HOME_GROUP_CONNECT), "CONNECTIONS") == 0 &&
@@ -254,13 +254,15 @@ static void test_reference(void)
      * (DS §35.4) is the fifteenth, a fourth cell in CONNECTIONS, and with it
      * the panels fall two to a line: CONNECTIONS and WORKSPACE, then PLAY and
      * DEVICE. Browser is the sixteenth, a fifth cell in CONNECTIONS: the
-     * lines stay as they were, CONNECTIONS one cell wider. */
+     * lines stay as they were, CONNECTIONS one cell wider. Recorder
+     * (feat/recorder-app) is the seventeenth, a fifth cell in DEVICE,
+     * which takes a second row inside its panel; the lines stay. */
     input(&in, true, today, 5);
     check("landscape lays out", home_layout_compute(&in, &l) == 0);
     check_layout("landscape", &in, &l, true);
     one_row = l.panel[1].y == l.panel[0].y && l.panel[1].x > l.panel[0].x && l.panel[3].y == l.panel[2].y &&
               l.panel[3].x > l.panel[2].x && l.panel[2].y > l.panel[0].y;
-    check("landscape: sixteen apps wrap - two panels on each of two lines, left to right", one_row && l.wrapped);
+    check("landscape: seventeen apps wrap - two panels on each of two lines, left to right", one_row && l.wrapped);
     check("landscape: PLAY and DEVICE on the second line", l.panel[2].y > l.panel[1].y);
     check("landscape: wrapped cells are the wrap width, 16 px labels",
           l.cell_w == HOME_CELL_WRAP_W && l.small_labels);

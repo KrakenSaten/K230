@@ -146,6 +146,14 @@ add_executable(pocketos-shell
     ${REPO_DIR}/core/web/web_proto.c
     ${REPO_DIR}/core/web/web_history.c
     ${REPO_DIR}/core/web/web_store.c
+    ${REPO_DIR}/apps/recorder/rec_app.c
+    ${REPO_DIR}/apps/recorder/rec_ctl.c
+    ${REPO_DIR}/apps/recorder/rec_view.c
+    ${REPO_DIR}/apps/recorder/rec_state.c
+    ${REPO_DIR}/apps/recorder/rec_session.c
+    ${REPO_DIR}/apps/recorder/rec_store.c
+    ${REPO_DIR}/apps/recorder/rec_names.c
+    ${REPO_DIR}/core/pocketwav/pocketwav.c
     ${REPO_DIR}/apps/rift/rift_app.c
     ${REPO_DIR}/apps/rift/rift_model.c
     ${REPO_DIR}/apps/rift/rift_clock.c
@@ -276,7 +284,8 @@ target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/settings"
                                                   "${REPO_DIR}/apps/wave"
                                                   "${REPO_DIR}/apps/camera"
-                                                  "${REPO_DIR}/apps/browser")
+                                                  "${REPO_DIR}/apps/browser"
+                                                  "${REPO_DIR}/apps/recorder")
 
 if(POCKETOS_LVGL_MODE STREQUAL "source")
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -718,6 +727,41 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(camera_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(camera_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # Recorder in the running app, tapped on the panel, with the real helper
+    # (make's tests/pos-record-testhooks) over the file-backed sound card
+    # behind it (run by tests/recorder_shell_test.sh).
+    add_executable(rec_app_test
+        ${REPO_DIR}/tests/rec_app_test.c
+        chrome.c
+        ${REPO_DIR}/apps/recorder/rec_app.c
+        ${REPO_DIR}/apps/recorder/rec_ctl.c
+        ${REPO_DIR}/apps/recorder/rec_view.c
+        ${REPO_DIR}/apps/recorder/rec_state.c
+        ${REPO_DIR}/apps/recorder/rec_session.c
+        ${REPO_DIR}/apps/recorder/rec_store.c
+        ${REPO_DIR}/apps/recorder/rec_names.c
+        ${REPO_DIR}/core/pocketwav/pocketwav.c
+        ${REPO_DIR}/core/pocketpaths.c
+        ../pocketui/pos_app_icons.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(rec_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/recorder")
+    target_compile_options(rec_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(rec_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(rec_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(rec_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(rec_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
     # Zabbix in the running app, tapped on the panel, with the real helper on
     # the fake server behind it (run by tests/zabbix_shell_test.sh, which

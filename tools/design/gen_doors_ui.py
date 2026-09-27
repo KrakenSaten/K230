@@ -84,6 +84,7 @@ APP_ICONS = {
     "system": (THRESHOLD + "system.svg", "apps"),
     "files": (B_GLYPH + "files.svg", "files"),
     "camera": (EXTENSION + "camera.svg", "tools"),
+    "recorder": (EXTENSION + "recorder.svg", "tools"),
     "zabbix": (FIRST_PARTY + "zabbix.svg", "tools"),
     "browser": (FIRST_PARTY + "browser.svg", "network"),
 }
