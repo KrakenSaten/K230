@@ -8,7 +8,7 @@ end to end (the real helper over a file-backed sound card, the app under a
 real LVGL pointer in portrait and landscape, the real shell in both
 orientations) and cross-built for riscv64. **Not yet run on the K230**: the
 Unit A gate is `docs/hardware/RECORDER_GATE.md`. The audio ownership is
-ADR-009, **Proposed**.
+ADR-010, **Proposed**.
 
 Screenshots (the real simulator shell with the file-backed sound card):
 `docs/design/shots/recorder-portrait.png`, `recorder-landscape.png`,

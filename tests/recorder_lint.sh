@@ -2,7 +2,7 @@
 # The Recorder's boundaries, as source rules (docs/apps/RECORDER.md):
 #
 #   - the app never touches audio: no alsa-lib, no pocketaudio, no device
-#     names; the helper is the only owner (ADR-009);
+#     names; the helper is the only owner (ADR-010);
 #   - it does not reach into Wave: no apps/wave header, no pos-wave;
 #   - no threads, no network, no logging of names or audio anywhere in it;
 #   - the screen blocks on nothing: no sleeps, syncs or writes in rec_app.c,

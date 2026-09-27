@@ -1,4 +1,4 @@
-# ADR-009: Who owns the audio hardware for the Recorder
+# ADR-010: Who owns the audio hardware for the Recorder
 
 Status: Proposed (awaiting the product owner). Written on branch
 `feat/recorder-app`.
