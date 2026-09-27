@@ -1,8 +1,10 @@
 # Browser: simple web pages on the unit
 
 **Status: PROPOSED** (2026-09-26, branch `feat/browser-app`). The engine
-decision is ADR-009 (PROPOSED). Built and tested on the host and cross-built
-for riscv64; **not yet run on hardware** (§11).
+decision is ADR-009 (PROPOSED). Built with the pinned Xuantie/Buildroot
+toolchain and run on unit A on 2026-09-27: every check of the focused gate
+passed except the physical keyboard, which waits for the owner
+(docs/hardware/BROWSER_GATE.md, §11).
 
 Browser reads simple web pages: text, headings, lists, links, JPEG and PNG
 pictures, over HTTP and HTTPS. It follows links, goes back and forward,
@@ -39,7 +41,7 @@ which was checked against the image build; the rest are marked.
 | HTTP/TLS | libcurl 8.12.1 on OpenSSL 3.4.1, Mozilla CA bundle in `/etc/ssl/certs` | CONFIRMED | ZABBIX.md §1 |
 | Pictures | libjpeg 9 and libpng (headers in the sysroot, for OpenCV); zlib | CONFIRMED | CAMERA_PLATFORM_RESEARCH.md; ZABBIX.md §1 |
 | LVGL spans | `lv_spangroup_get_span_by_point` exists at the pinned LVGL commit; `LV_USE_SPAN` is 1 in LVGL's template | VERIFIED (source) | vendor/lvgl @ 59dc7e4 |
-| LVGL spans on the device | the vendor `lv_conf.h` is not the shell's; `LV_USE_SPAN` there is **ASSUMED** on (the template default) | ASSUMED | KNOWN_ISSUES.md ("The target lv_conf.h is the vendor package's") |
+| LVGL spans on the device | the vendor `lv_conf.h` is not the shell's; `LV_USE_SPAN` is 1 in the SDK sysroot's `lvgl/lv_conf.h`, its `liblvgl.so.9` exports `lv_spangroup_*`, and the shell on unit A draws pages with links | VERIFIED | docs/hardware/BROWSER_GATE.md §2 |
 | Image cache | `LV_CACHE_DEF_SIZE 0` on the device | CONFIRMED | DOORS_APP_ICONS_GATE.md |
 | Fonts | IBM Plex bitmaps: ASCII, Latin-1, some punctuation and arrows; no CJK, no emoji, no bold/italic text faces for body text | CONFIRMED | tools/design/gen_fonts.sh |
 | Network | Ethernet (ifupdown) and Wi-Fi (netd); DNS from udhcpc | CONFIRMED | ZABBIX.md §1 |
@@ -328,8 +330,13 @@ program with `-Werror`, and the DRM shell with LVGL at the pinned commit, with
 Ubuntu's riscv64-linux-gnu-gcc 13 against Ubuntu 24.04 riscv64 libraries
 (libcurl 8.5, OpenSSL 3.0, libpng 1.6.43, libjpeg-turbo 8, and libgpiod 2.2.4
 built for the check). All Browser suites pass on riscv64 under qemu-user,
-including the helper lifecycle and the real HTTP/HTTPS suite. This is **not**
-the Xuantie toolchain and the SDK sysroot; the Buildroot build is the gate.
+including the helper lifecycle and the real HTTP/HTTPS suite.
+
+**VERIFIED with the pinned Xuantie gcc 14 and the SDK sysroot (2026-09-27):**
+`make all` as `pocketos.mk` builds it (`BROWSER_CURL=1 BROWSER_IMAGES=1`),
+`-Werror`, 0 first-party warnings, and the DRM shell. That needed one
+fix: gcc 14 vectorizes a loop in `web_image.c` for RVV and then warns about
+its own masked lanes, so the loop is marked `#pragma GCC novector`.
 
 **Measurements (host, x86-64; the C908 will be slower, the gate measures it):**
 
@@ -346,33 +353,39 @@ the Xuantie toolchain and the SDK sysroot; the Buildroot build is the gate.
 | Building the demo page / a 301-block page | 1 ms / 39 ms |
 | CPU while idle | simulator shell 0.7 % at the launcher, 0.9 % with Browser open on a page (10 s samples); the helper 0 (it sleeps in `poll`). The app's 40 ms timer makes one non-blocking `recv` and one `waitpid` |
 
-**Hardware work still required (unit A):**
+**Unit A gate (2026-09-27, build `301fadf`): PASS**, except the physical
+keyboard, which waits for the owner. The sheet is
+docs/hardware/BROWSER_GATE.md. Passed:
 
-1. Build the image with `BROWSER_CURL=1 BROWSER_IMAGES=1` and libpng, and
-   confirm `LV_USE_SPAN` is on in the vendor `lv_conf.h` (the shell does not
-   link otherwise).
-2. Open Browser in portrait and landscape; open example.com over HTTPS on
-   Wi-Fi and on Ethernet; follow a link; BACK, FORWARD, RELOAD, STOP, HOME;
-   bookmark a page and find it on the start page after a restart.
-3. Measure on the C908: start page time, time to first paint and "page made"
-   for a simple, a typical and an 800-block page (the log line
-   `browser: page made`), frame rate while fling-scrolling a long page, and
-   CPU of doors-shell and pos-browser while idle, loading and scrolling
-   (`top -d 1`).
-4. Measure RSS of doors-shell (before, at the start page, with a typical
-   page) and pos-browser (idle, after an HTTPS page, with pictures).
-5. HTTPS with the clock unset (before NTP): the "Clock not set" page; then
-   after NTP, the same page loads.
-6. Pull Wi-Fi during a load, restart netd during a load, and open a page with
-   no network at all: the error pages, and recovery with RELOAD.
-7. Touch: links are tappable with a finger at the default body size, the
-   page scrolls without opening links, the keyboard comes and goes as §8
-   says; with the keyboard base, typing and Enter in landscape.
-8. Thirty open/close cycles and a page left loading when the app is closed:
-   no `pos-browser` process left (`pgrep pos-browser`), no
-   `/run/pocketos/browser.*` directory left, doors-shell RSS flat.
-9. Rotation while Browser is open (the shell restarts itself: the helper must
-   go).
+- both orientations;
+- the touch keyboard in both;
+- example.com over HTTPS;
+- certificate checks (expired, wrong host, self-signed, untrusted root all
+  refused);
+- links, scrolling, BACK/FORWARD/RELOAD/HOME;
+- a bookmark kept across app, rotation and service restarts;
+- Wi-Fi dropped during a load, and recovery with RELOAD;
+- rotation both ways while open;
+- 20 open/close cycles, every fifth closed mid-load: no helper or
+  directory left, shell pid and supervisor count unchanged, shell RSS flat
+  at about 15.2 MB;
+- JPEG and PNG pictures.
+
+On the C908:
+
+- start page 19-23 ms;
+- Wikipedia's 623-block Main Page made in 204-357 ms over 6-9 ticks;
+- doors-shell 15-16 MB RSS, pos-browser 7-8 MB;
+- CPU idle 0-1 % with a page open, peaks of 18 % (shell) and 8 % (helper)
+  while a page is built.
+
+**Still open:**
+
+1. With the keyboard base attached: typing and Enter in landscape (owner).
+2. STOP tapped on a running load (only closing mid-load was exercised).
+3. HTTPS before NTP (the "Clock not set" page).
+4. netd restarted during a load, and a page opened with no network at all.
+5. Frame rate while fling-scrolling, and an 800-block page on the C908.
 
 ## 12. Known limitations and next steps
 
