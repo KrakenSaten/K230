@@ -9,6 +9,7 @@
 #include "rift_json.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 const char *rift_svc_state_word(enum rift_svc_state s)
@@ -392,24 +393,43 @@ static void forget_service_fields(struct rift_node *n)
     n->observations = observations;
 }
 
-/* Whether key is among the first RIFT_MAX_NODES entries of a snapshot - the
- * part of it this cache takes. See rift_model_apply_nodes. */
-static int in_snapshot(const cJSON *arr, const char *key)
+/* The keys of the first RIFT_MAX_NODES entries of a snapshot - the part of
+ * it this cache takes - sorted, so that whether a held node is still in it
+ * is a binary search and not a walk of the snapshot per node: at a
+ * thousand nodes that walk was a million comparisons every twenty seconds.
+ * See rift_model_apply_nodes. */
+struct snapshot_keys {
+    const char *key[RIFT_MAX_NODES];
+    int count;
+};
+
+static int key_cmp(const void *a, const void *b)
+{
+    return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+
+static void snapshot_keys_take(struct snapshot_keys *s, const cJSON *arr)
 {
     const cJSON *item;
-    int at = 0;
 
+    s->count = 0;
     cJSON_ArrayForEach (item, arr) {
         const char *k = str_of(item, "public_key");
 
-        if (at++ >= RIFT_MAX_NODES) {
+        if (s->count >= RIFT_MAX_NODES) {
             break;
         }
-        if (k && strcmp(k, key) == 0) {
-            return 1;
+        if (k) {
+            s->key[s->count++] = k;
         }
     }
-    return 0;
+    qsort(s->key, (size_t)s->count, sizeof(s->key[0]), key_cmp);
+}
+
+static int in_snapshot(const struct snapshot_keys *s, const char *key)
+{
+    return s->count > 0 &&
+           bsearch(&key, s->key, (size_t)s->count, sizeof(s->key[0]), key_cmp) != NULL;
 }
 
 int rift_model_apply_nodes(struct rift_model *m, const cJSON *result)
@@ -438,9 +458,16 @@ int rift_model_apply_nodes(struct rift_model *m, const cJSON *result)
      * as dropped. Taking every entry instead would let each one past the
      * bound evict the stalest node held, and leave the cache holding the
      * newest nodes but one and the single stalest node the service has. */
-    for (i = m->node_count - 1; i >= 0; i--) {
-        if (!in_snapshot(arr, m->nodes[i].key)) {
-            drop_node(m, i);
+    {
+        /* Static, not on the stack: 8 KB of pointers at a thousand nodes,
+         * and this is the one caller, on the one thread. */
+        static struct snapshot_keys held;
+
+        snapshot_keys_take(&held, arr);
+        for (i = m->node_count - 1; i >= 0; i--) {
+            if (!in_snapshot(&held, m->nodes[i].key)) {
+                drop_node(m, i);
+            }
         }
     }
     i = 0;
@@ -692,6 +719,11 @@ static int apply_activity(struct rift_model *m, const cJSON *data)
         a.snr_db = d;
     }
     push_activity(m, &a);
+    /* The minute bins count what was heard, by what it was. A frame with
+     * no time on it cannot be put in a minute; the feed still shows it. */
+    if (a.kind == RIFT_ACT_RX && a.have_mono) {
+        rift_traffic_note(&m->traffic, a.mono_ms, rift_traffic_class_of(a.word));
+    }
     return 0;
 }
 

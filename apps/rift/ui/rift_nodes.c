@@ -103,6 +103,7 @@ static void build_head(struct rift_nodes *v)
     int i = 0;
 
     v->head = rift_node_row_line(v->pane_list, RIFT_HEADER_ROW_H);
+    spacer(v->head, RIFT_IDENT_W); /* under the rows' identity mark */
     spacer(v->head, COL_GLYPH);
     v->head_cell[i] = rift_cell(v->head, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_flex_grow(v->head_cell[i], 1);

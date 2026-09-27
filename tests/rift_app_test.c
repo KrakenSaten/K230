@@ -24,8 +24,10 @@
 #include "app.h"
 #include "pocketui.h"
 #include "pos_input.h"
+#include "rift_activity.h"
 #include "rift_app.h"
 #include "rift_comms.h"
+#include "rift_graph.h"
 #include "rift_nodes.h"
 #include "rift_sound.h"
 #include "rift_store.h"
@@ -35,6 +37,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <time.h>
 
 #if LV_USE_LODEPNG && LV_USE_SNAPSHOT
@@ -600,6 +603,31 @@ static lv_obj_t *find_text(lv_obj_t *obj, const char *text)
     return NULL;
 }
 
+/* How many of a scrolling pane's children are whole on screen: the message
+ * rows a reader can actually read in a thread of this height. */
+static int rows_in_view(lv_obj_t *scroll)
+{
+    lv_area_t view;
+    uint32_t i;
+    int n = 0;
+
+    if (!scroll) {
+        return 0;
+    }
+    lv_obj_update_layout(scroll);
+    lv_obj_get_content_coords(scroll, &view);
+    for (i = 0; i < lv_obj_get_child_count(scroll); i++) {
+        lv_obj_t *row = lv_obj_get_child(scroll, (int32_t)i);
+        lv_area_t a;
+
+        lv_obj_get_coords(row, &a);
+        if (visible(row) && a.y1 >= view.y1 && a.y2 <= view.y2) {
+            n++;
+        }
+    }
+    return n;
+}
+
 static int count_visible_of_height(lv_obj_t *obj, int32_t height)
 {
     uint32_t i;
@@ -1158,6 +1186,9 @@ static void scale_session(void)
 {
     lv_obj_t *list;
     char sel[RIFT_KEY_HEX];
+    char last[16];
+    lv_mem_monitor_t mem_before;
+    lv_mem_monitor_t mem_after;
     int i;
 
     app_start();
@@ -1166,19 +1197,51 @@ static void scale_session(void)
     /* The last session left the sound off, and this one counts sounds. */
     rift_app_set_dm_sound(app, 1);
 
-    /* 256 nodes: as many as meshcored's table holds. */
+    /* As many nodes as the cache holds - a thousand, more than meshcored's
+     * table today - with the heap and the repaint measured against them. */
+    snprintf(last, sizeof(last), "MANY-%02d", RIFT_MAX_NODES - 1);
+    lv_mem_monitor(&mem_before);
     give_many_nodes(RIFT_MAX_NODES);
-    check("the model holds as many nodes as meshcored does",
+    check("the model holds every node the cache is sized for",
           app->model.node_count == RIFT_MAX_NODES);
     rift_app_show_section(app, RIFT_SEC_NODES);
     pump(120);
     list = ancestor(find_exact(content(), "MANY-00"), 4);
-    check("256 nodes are one list", list != NULL && lv_obj_get_scroll_bottom(list) > 0);
+    check("a thousand nodes are one list", list != NULL && lv_obj_get_scroll_bottom(list) > 0);
     check("which builds rows for the screen, not for the mesh",
           rift_nodes_rows_built(app) > 0 && rift_nodes_rows_built(app) <= 48);
-    report_refresh_cost("NODES, 256 nodes");
-    printf("     %d nodes, %d rows built (portrait)\n", app->model.node_count,
-           rift_nodes_rows_built(app));
+    report_refresh_cost("NODES, every node the cache holds");
+    lv_mem_monitor(&mem_after);
+    {
+        struct rusage ru;
+
+        getrusage(RUSAGE_SELF, &ru);
+        /* LVGL's heap monitor reads 0 under the C library allocator, so the
+         * process's own high-water mark is the measure of the whole. */
+        printf("     %d nodes, %d rows built (portrait); model %zu KB (a node %zu B, a message "
+               "%zu B); LVGL heap %zu KB used of %zu; process max RSS %ld KB\n",
+               app->model.node_count, rift_nodes_rows_built(app), sizeof(app->model) / 1024,
+               sizeof(struct rift_node), sizeof(struct rift_message),
+               (mem_after.total_size - mem_after.free_size) / 1024, mem_after.total_size / 1024,
+               ru.ru_maxrss);
+    }
+    {
+        /* The order alone, at this size, is what a repaint must pay at
+         * least: it was quadratic once. */
+        const struct rift_node *order[RIFT_MAX_NODES];
+        struct timespec t0;
+        struct timespec t1;
+        int n;
+
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        for (n = 0; n < 100; n++) {
+            rift_model_order(&app->model, rift_app_now(app), order, RIFT_MAX_NODES);
+        }
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        printf("     ordering %d nodes: %.3f ms (host)\n", RIFT_MAX_NODES,
+               ((double)(t1.tv_sec - t0.tv_sec) * 1e3 + (double)(t1.tv_nsec - t0.tv_nsec) / 1e6) /
+                   n);
+    }
     {
         int rows = count_visible_of_height(list, RIFT_ROW_H);
 
@@ -1188,8 +1251,7 @@ static void scale_session(void)
     lv_obj_scroll_to_y(list, LV_COORD_MAX, LV_ANIM_OFF);
     pump(80);
     check("the last of them is reached by scrolling",
-          find_exact(content(), "MANY-255") != NULL &&
-              within(find_exact(content(), "MANY-255"), list));
+          find_exact(content(), last) != NULL && within(find_exact(content(), last), list));
     check("with no more rows built for it", rift_nodes_rows_built(app) <= 48);
     lv_obj_scroll_to_y(list, 0, LV_ANIM_OFF);
     pump(60);
@@ -1256,16 +1318,17 @@ static void scale_session(void)
         pump(80);
     }
     check("and reaches its last node in landscape too",
-          list && find_exact(content(), "MANY-255") && within(find_exact(content(), "MANY-255"), list));
+          list && find_exact(content(), last) && within(find_exact(content(), last), list));
     check("the strip counts what is active now", find_text(strip(), " NOW") != NULL);
     check("and the turned list stays inside the body", inside_body(content()));
     shot("landscape-nodes-256");
     use_display(POS_ROTATION_0, PANEL_CORNER);
     pump(120);
 
-    /* 64 conversations, from a snapshot: history, so no sound. */
+    /* As many conversations as the list holds, from a snapshot: history,
+     * so no sound. */
     {
-        size_t cap = 64 * 400 + 128;
+        size_t cap = (size_t)RIFT_MAX_CONVERSATIONS * 400 + 128;
         char *json = malloc(cap);
         size_t at = 0;
         cJSON *o;
@@ -1281,7 +1344,7 @@ static void scale_session(void)
         }
         snprintf(json + at, cap - at, "]}");
         o = cJSON_Parse(json);
-        check("sixty-four conversations are taken", rift_model_apply_messages(&app->model, o) == 0);
+        check("every conversation the list holds is taken", rift_model_apply_messages(&app->model, o) == 0);
         cJSON_Delete(o);
         free(json);
         o = cJSON_Parse("{\"channels\":[],\"count\":0,\"max\":8}");
@@ -1379,7 +1442,33 @@ static void scale_session(void)
         pump(80);
         check("a reader scrolled back into the history is not pulled down by one",
               lv_obj_get_scroll_bottom(scroll) > 0 && lv_obj_get_scroll_y(scroll) < 200);
+        lv_obj_scroll_to_y(scroll, LV_COORD_MAX, LV_ANIM_OFF);
+        pump(60);
+        printf("     portrait thread: %d messages whole on screen\n", rows_in_view(scroll));
     }
+    /* The same long thread turned: the landscape thread pane has 354 px
+     * under the strip less its header and the command line, and DS §37.2
+     * spends them on messages. Counted and photographed, so the density of
+     * this shape is a number in the log and not an impression. */
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    pump(120);
+    {
+        lv_obj_t *newest = find_text(thread_pane(), "history 201");
+        lv_obj_t *scroll = ancestor(newest, 4);
+        int rows;
+
+        check("turned, the long thread is read at its end", newest && within(newest, scroll));
+        rows = rows_in_view(scroll);
+        printf("     landscape thread: %d messages whole on screen\n", rows);
+        check("and shows at least a dozen one-line messages above the composer", rows >= 12);
+        /* The thread's root is the thread pane's one child; its header row
+         * is the root's first. */
+        check("its header is a header row, not a data row",
+              lv_obj_get_height(kid(kid(thread_pane(), 0), 0)) == RIFT_HEADER_ROW_H);
+        shot("landscape-comms-long");
+    }
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    pump(120);
 
     /* A burst: a hundred messages in one pass at the socket. */
     {
@@ -1493,6 +1582,89 @@ int main(void)
      * activity can carry are not "it went out". */
     check("and shows a transmit by its result, not as a success",
           find_text(content(), "rx_resume_failed") != NULL);
+    /* The last twenty minutes as a bar each (DS §37.4): the fixture's one
+     * received advert, forty-five seconds ago, is one advert in the newest
+     * or the minute before it, and nothing else - the transmit is not
+     * something this device heard. The words beside it name what the
+     * colours mean. */
+    {
+        lv_obj_t *graph = rift_activity_graph(app);
+        const struct rift_traffic_bins *bins = rift_traffic_graph_bins(graph);
+        unsigned adv = 0;
+        unsigned rest = 0;
+        int i;
+        int c;
+
+        check("ACTIVITY has the traffic graph", graph != NULL && visible(graph) &&
+                                                    lv_obj_get_height(graph) == RIFT_GRAPH_TOTAL_H);
+        check("which is showing bins", bins != NULL && bins->started);
+        for (i = 0; bins && i < RIFT_TRAFFIC_MINUTES; i++) {
+            for (c = 0; c < RIFT_TRAFFIC_CLASSES; c++) {
+                if (c == RIFT_TRAFFIC_ADV) {
+                    adv += bins->count[i][c];
+                } else {
+                    rest += bins->count[i][c];
+                }
+            }
+        }
+        check("one advert heard, in the newest minutes",
+              adv == 1 && rest == 0 &&
+                  (bins->count[RIFT_TRAFFIC_MINUTES - 1][RIFT_TRAFFIC_ADV] +
+                       bins->count[RIFT_TRAFFIC_MINUTES - 2][RIFT_TRAFFIC_ADV] ==
+                   1));
+        check("the caption says what the bars count",
+              find_text(content(), "HEARD ON AIR") != NULL && find_text(content(), "PEAK 1/MIN"));
+        check("and the legend names the classes in words",
+              find_exact(content(), "MSG") && find_exact(content(), "ADV") &&
+                  find_exact(content(), "OTHER"));
+        /* Below the fold in portrait: the section scrolled to its end, as a
+         * finger would (only the section - the test's body scrolls too, and
+         * a recursive scroll would move that and clip every caption), then
+         * it has to be inside the body like everything else. */
+        lv_obj_scroll_to_y(ancestor(graph, 4), LV_COORD_MAX, LV_ANIM_OFF);
+        pump(40);
+        check("the graph is inside the body", inside_body(graph));
+        /* A message heard now lands in the newest minute as a message, and
+         * only a changed bin repaints the graph. */
+        {
+            cJSON *o;
+            char json[160];
+
+            snprintf(json, sizeof(json),
+                     "{\"kind\":\"rx\",\"payload_type\":\"group_text\",\"bytes\":30,\"mono_ms\":%lld}",
+                     (long long)rift_mono_ms());
+            o = cJSON_Parse(json);
+            rift_model_apply_event(&app->model, "mesh.activity", o);
+            cJSON_Delete(o);
+            rift_app_refresh(app);
+            pump(60);
+            bins = rift_traffic_graph_bins(graph);
+            check("a message heard now is a message in the newest minute",
+                  bins && bins->count[RIFT_TRAFFIC_MINUTES - 1][RIFT_TRAFFIC_MSG] == 1);
+            check("the bar for it is drawn from the ladder",
+                  rift_graph_height_of(1) == 4 && rift_graph_height_of(3) == 9 &&
+                      rift_graph_height_of(16) == RIFT_GRAPH_BAND && rift_graph_height_of(0) == 0);
+            /* A few minutes of a working mesh, for the photograph: heard
+             * frames of every class spread over the last quarter hour. */
+            for (i = 0; i < 40; i++) {
+                snprintf(json, sizeof(json),
+                         "{\"kind\":\"rx\",\"payload_type\":\"%s\",\"bytes\":30,\"mono_ms\":%lld}",
+                         i % 5 == 0 ? "advert" : i % 3 == 0 ? "ack" : "text",
+                         (long long)(rift_mono_ms() - 60000LL * ((i * 7) % 15) - 1000 * i));
+                o = cJSON_Parse(json);
+                rift_model_apply_event(&app->model, "mesh.activity", o);
+                cJSON_Delete(o);
+            }
+            rift_app_refresh(app);
+            pump(60);
+            lv_obj_scroll_to_y(ancestor(graph, 4), LV_COORD_MAX, LV_ANIM_OFF);
+            pump(40);
+            shot("portrait-activity-traffic");
+            /* graph > panel > column > split > the section's scrolling root */
+            lv_obj_scroll_to_y(ancestor(graph, 4), 0, LV_ANIM_OFF);
+            pump(40);
+        }
+    }
     check("everything on ACTIVITY is inside the body", inside_body(content()));
     shot("portrait-activity");
 
@@ -2060,6 +2232,23 @@ int main(void)
      * is drawn as a claim rather than the way a peer_name is. */
     check("the sender's name is marked as a claim",
           find_text(content(), "HYTTA?") != NULL);
+    /* And in its identity accent (DS §37.3): the claimed name hashes to a
+     * hue of the palette, the label carries that hue, and the rule beside
+     * the message is the same one. The words are what say who. */
+    {
+        lv_obj_t *who = find_text(content(), "HYTTA?");
+        lv_color_t want = pos_identity_hue(rift_ident_hash("HYTTA"));
+        lv_color_t got = who ? lv_obj_get_style_text_color(who, 0) : lv_color_black();
+
+        check("in the sender's identity accent", who && lv_color_eq(got, want));
+        check("which is not the caption's own colour",
+              !lv_color_eq(want, pos_theme_color(POS_COLOR_TEXT_SECONDARY)));
+        /* The list pane comes before the thread pane, so the first SITE is
+         * the conversation row's name, whose row starts with the mark. */
+        check("and the channel's row carries an identity mark before its glyph",
+              lv_obj_get_width(kid(ancestor(find_exact(content(), "SITE"), 1), 0)) ==
+                  RIFT_IDENT_W);
+    }
     /* The header says what a channel is reached by - the hash that actually
      * goes on the air - and never a hop count. */
     check("the header names the channel and how it travels",

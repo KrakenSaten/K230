@@ -524,23 +524,26 @@ static void test_many_peers(void)
     int oldest_in = 0;
     int newest_in = 0;
 
+    /* More peers than the list holds, one message each, peer i the i-th to
+     * speak. The first key byte counts them, so no more than 0xdf of them. */
+    const int peers = RIFT_MAX_CONVERSATIONS + 36;
+
     rift_model_init(&m);
-    /* A hundred peers, one message each, peer i the i-th to speak. */
-    for (i = 0; i < 100; i++) {
+    for (i = 0; i < peers; i++) {
         snprintf(key, sizeof(key), "%02x%062d", 0x20 + i, 0);
         dm(&m, 1 + i, "in", key, 100 + i, "hi", "received");
     }
     n = rift_model_conversations(&m, conv, RIFT_MAX_CONVERSATIONS);
     check("a list of more peers than it holds is full", n == RIFT_MAX_CONVERSATIONS);
     for (i = 0; i < n; i++) {
-        snprintf(key, sizeof(key), "%02x%062d", 0x20 + 99, 0);
+        snprintf(key, sizeof(key), "%02x%062d", 0x20 + peers - 1, 0);
         newest_in |= strcmp(conv[i].key, key) == 0;
         snprintf(key, sizeof(key), "%02x%062d", 0x20 + 0, 0);
         oldest_in |= strcmp(conv[i].key, key) == 0;
     }
     check("and holds the peer who spoke last", newest_in);
     check("not the one who spoke longest ago", !oldest_in);
-    snprintf(key, sizeof(key), "%02x%062d", 0x20 + 99, 0);
+    snprintf(key, sizeof(key), "%02x%062d", 0x20 + peers - 1, 0);
     check("newest first", strcmp(conv[0].key, key) == 0);
     /* The one who spoke longest ago speaks again, and is back in. */
     snprintf(key, sizeof(key), "%02x%062d", 0x20 + 0, 0);

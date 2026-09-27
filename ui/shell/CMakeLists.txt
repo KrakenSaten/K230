@@ -169,7 +169,9 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/rift_store.c
     ${REPO_DIR}/apps/rift/rift_dm_sound.c
     ${REPO_DIR}/apps/rift/rift_arrivals.c
+    ${REPO_DIR}/apps/rift/rift_traffic.c
     ${REPO_DIR}/apps/rift/ui/rift_widgets.c
+    ${REPO_DIR}/apps/rift/ui/rift_graph.c
     ${REPO_DIR}/apps/rift/ui/rift_activity.c
     ${REPO_DIR}/apps/rift/ui/rift_nodes.c
     ${REPO_DIR}/apps/rift/ui/rift_node_row.c
@@ -1003,7 +1005,9 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/rift_store.c
         ${REPO_DIR}/apps/rift/rift_dm_sound.c
         ${REPO_DIR}/apps/rift/rift_arrivals.c
+        ${REPO_DIR}/apps/rift/rift_traffic.c
         ${REPO_DIR}/apps/rift/ui/rift_widgets.c
+        ${REPO_DIR}/apps/rift/ui/rift_graph.c
         ${REPO_DIR}/apps/rift/ui/rift_activity.c
         ${REPO_DIR}/apps/rift/ui/rift_nodes.c
         ${REPO_DIR}/apps/rift/ui/rift_node_row.c

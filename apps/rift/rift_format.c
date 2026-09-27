@@ -706,3 +706,26 @@ int rift_path_ladder_row(const struct rift_path *p, int index, const char *self_
     return 0;
 }
 
+
+/* ---- identity accents (DS §37) ----------------------------------------- */
+
+int rift_ident_for_type(int type, int have_type)
+{
+    /* MeshCore ADV_TYPE_CHAT (1) and ADV_TYPE_ROOM (3) are somebody a
+     * message can go to; a repeater (2) and a sensor (4) are not. */
+    return have_type && (type == 1 || type == 3);
+}
+
+uint32_t rift_ident_hash(const char *text)
+{
+    uint32_t h = 2166136261u;
+
+    if (!text) {
+        return 0;
+    }
+    while (*text) {
+        h ^= (uint8_t)*text++;
+        h *= 16777619u;
+    }
+    return h;
+}

@@ -328,6 +328,18 @@ int main(void)
     check("and a clock that says it was heard in the future is not evidence of staleness",
           !rift_node_is_stale(&n, 1000));
 
+    /* ---- identity accents: who gets one, and the same one every time ---- */
+    check("a chat node is somebody", rift_ident_for_type(1, 1));
+    check("so is a room", rift_ident_for_type(3, 1));
+    check("a repeater is not", !rift_ident_for_type(2, 1));
+    check("nor a sensor", !rift_ident_for_type(4, 1));
+    check("nor a node whose type nobody reported", !rift_ident_for_type(1, 0));
+    check("the hash is FNV-1a, so any device hashes a key the same way",
+          rift_ident_hash("") == 2166136261u && rift_ident_hash("a") == 0xe40c292cu);
+    check("the same name is the same hash", rift_ident_hash("HYTTA") == rift_ident_hash("HYTTA"));
+    check("and a different one is not", rift_ident_hash("HYTTA") != rift_ident_hash("HYTTB"));
+    check("nothing hashes to nothing", rift_ident_hash(NULL) == 0);
+
     printf("rift_format_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

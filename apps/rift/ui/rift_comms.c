@@ -44,6 +44,7 @@
 struct conv_row {
     lv_obj_t *slot;
     lv_obj_t *line;
+    lv_obj_t *ident; /* the identity mark (DS §37.3) */
     lv_obj_t *glyph;
     lv_obj_t *name;
     lv_obj_t *preview;
@@ -244,6 +245,10 @@ static void build_conv_row(struct rift_comms *v)
     lv_obj_add_flag(r->line, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(r->line, on_conv_row, LV_EVENT_CLICKED, r);
 
+    /* The identity mark first: who this conversation is, in their accent,
+     * before the glyph that says how they are reached. */
+    r->ident = rift_vrule(r->line, RIFT_IDENT_W);
+    rift_vrule_set(r->ident, RIFT_TONE_NONE);
     r->glyph = rift_glyph_create(r->line);
     r->name = rift_cell(r->line, POS_STYLE_ROW_TITLE, 0, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_flex_grow(r->name, 1);
@@ -294,6 +299,23 @@ static void update_conv_row(struct rift_comms *v, struct conv_row *r, const stru
     char text[RIFT_PREVIEW_MAX];
 
     rift_glyph_set(r->glyph, c->is_channel ? RIFT_GLYPH_CHANNEL : rift_app_glyph(n, now));
+    /* The identity mark (DS §37.3). A channel is known by the hash that
+     * goes on the air, so the same channel is the same colour on every
+     * device that holds its key; a peer by their public key. A
+     * conversation is with somebody by definition, so every peer gets one
+     * - whether the table still holds them, and whether it ever said what
+     * they are - except a peer it says is a repeater or a sensor. */
+    if (c->is_channel) {
+        const struct rift_channel *ch = rift_model_key_channel(&a->model, c->key);
+
+        rift_vrule_set_identity(r->ident, rift_ident_hash(ch && ch->have_hash ? ch->hash
+                                                          : c->have_name ? c->name
+                                                                         : c->key));
+    } else if (!n || !n->have_type || rift_ident_for_type(n->type, n->have_type)) {
+        rift_vrule_set_identity(r->ident, rift_ident_hash(c->key));
+    } else {
+        rift_vrule_set(r->ident, RIFT_TONE_NONE);
+    }
     if (c->have_name && c->name[0]) {
         rift_cell_set_text_fit(r->name, c->name);
     } else if (c->is_channel) {

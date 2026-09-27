@@ -861,6 +861,118 @@ int main(void)
     test_unretained_since_forget();
     test_actions();
 
+    /* ---- the order at scale: a merge sort, the same answer as before ---- */
+    {
+        struct rift_model big;
+        const struct rift_node *order[RIFT_MAX_NODES];
+        char json[256];
+        int n;
+        int sorted = 1;
+        int i;
+
+        rift_model_init(&big);
+        /* A thousand nodes fed oldest first - the order that made the
+         * insertion sort quadratic - with a stale one and an unheard one
+         * in the middle of them. */
+        for (i = 0; i < RIFT_MAX_NODES; i++) {
+            char heard[48] = "\"path_known\":false"; /* 501: never heard */
+
+            if (i != 501) {
+                /* 500 was heard long ago; every other one at its own moment,
+                 * so the order is total by time. */
+                snprintf(heard, sizeof(heard), "\"last_heard_mono_ms\":%d",
+                         i == 500 ? 1 : 100000000 + i);
+            }
+            snprintf(json, sizeof(json),
+                     "{\"reason\":\"advert\",\"node\":{\"public_key\":\"%04x%060d\","
+                     "\"name\":\"N%d\",\"type\":1,%s}}",
+                     i, 0, i, heard);
+            apply_event(&big, "mesh.node", json);
+        }
+        check("a thousand nodes are held", big.node_count == RIFT_MAX_NODES);
+        n = rift_model_order(&big, 100000000 + RIFT_MAX_NODES, order, RIFT_MAX_NODES);
+        check("and all of them ordered", n == RIFT_MAX_NODES);
+        for (i = 1; i < n - 2; i++) {
+            if (order[i - 1]->heard_mono_ms < order[i]->heard_mono_ms) {
+                sorted = 0;
+            }
+        }
+        check("newest first throughout", sorted && order[0]->heard_mono_ms == 100000000 + 999);
+        check("the stale one after every fresh one", order[n - 2]->heard_mono_ms == 1);
+        check("and the unheard one last", !order[n - 1]->have_heard);
+    }
+
+    /* ---- the minute bins: what was heard, by the minute -------------------- */
+    {
+        struct rift_traffic t;
+        struct rift_traffic_bins b;
+
+        rift_traffic_init(&t);
+        rift_traffic_read(&t, 1000000, &b);
+        check("before anything is heard the bins say so", !b.started);
+        check("a text is a message", rift_traffic_class_of("text") == RIFT_TRAFFIC_MSG);
+        check("so is a group text", rift_traffic_class_of("group_text") == RIFT_TRAFFIC_MSG);
+        check("an advert is an advert", rift_traffic_class_of("advert") == RIFT_TRAFFIC_ADV);
+        check("an ack is the mesh at work", rift_traffic_class_of("ack") == RIFT_TRAFFIC_OTHER);
+        check("and so is a word this build does not know",
+              rift_traffic_class_of("type13") == RIFT_TRAFFIC_OTHER &&
+                  rift_traffic_class_of(NULL) == RIFT_TRAFFIC_OTHER);
+        /* Minute 100 (6,000,000 ms): two messages and an advert. */
+        rift_traffic_note(&t, 6000000, RIFT_TRAFFIC_MSG);
+        rift_traffic_note(&t, 6000500, RIFT_TRAFFIC_MSG);
+        rift_traffic_note(&t, 6059999, RIFT_TRAFFIC_ADV);
+        rift_traffic_read(&t, 6059999, &b);
+        check("a frame lands in the minute it was heard",
+              b.started && b.count[19][RIFT_TRAFFIC_MSG] == 2 && b.count[19][RIFT_TRAFFIC_ADV] == 1 &&
+                  b.count[19][RIFT_TRAFFIC_OTHER] == 0);
+        check("and the minutes before it are empty", b.count[18][RIFT_TRAFFIC_MSG] == 0);
+        check("the peak is that minute", rift_traffic_peak(&b) == 3);
+        /* Read five minutes later with nothing heard since: the busy minute
+         * has moved back five bars and the newest five are quiet. */
+        rift_traffic_read(&t, 6000000 + 5 * 60000, &b);
+        check("a quiet minute since is a quiet bar",
+              b.count[19][RIFT_TRAFFIC_MSG] == 0 && b.count[14][RIFT_TRAFFIC_MSG] == 2);
+        rift_traffic_note(&t, 6000000 + 3 * 60000, RIFT_TRAFFIC_OTHER);
+        rift_traffic_read(&t, 6000000 + 5 * 60000, &b);
+        check("a frame in between goes to its own minute",
+              b.count[17][RIFT_TRAFFIC_OTHER] == 1 && b.count[14][RIFT_TRAFFIC_MSG] == 2);
+        /* Twenty minutes on, the ring has rolled past everything. */
+        rift_traffic_note(&t, 6000000 + 25 * 60000, RIFT_TRAFFIC_ADV);
+        rift_traffic_read(&t, 6000000 + 25 * 60000, &b);
+        check("a jump past the window clears it",
+              b.count[19][RIFT_TRAFFIC_ADV] == 1 && rift_traffic_peak(&b) == 1);
+        /* A frame from before the window is not drawn as if it were in it. */
+        rift_traffic_note(&t, 6000000, RIFT_TRAFFIC_MSG);
+        rift_traffic_read(&t, 6000000 + 25 * 60000, &b);
+        check("a late frame from outside the window is dropped", rift_traffic_peak(&b) == 1);
+        /* Saturation: the count stops at 65535 rather than wrapping to 0. */
+        {
+            long k;
+
+            for (k = 0; k < 70000; k++) {
+                rift_traffic_note(&t, 6000000 + 25 * 60000, RIFT_TRAFFIC_MSG);
+            }
+            rift_traffic_read(&t, 6000000 + 25 * 60000, &b);
+            check("a count saturates", b.count[19][RIFT_TRAFFIC_MSG] == 65535);
+        }
+        /* And the model feeds it from the activity feed: rx frames with a
+         * time on them, by their payload_type; tx frames are what this
+         * device said, not what it heard. */
+        rift_model_init(&m);
+        apply_event(&m, "mesh.activity",
+                    "{\"kind\":\"rx\",\"payload_type\":\"advert\",\"bytes\":40,\"mono_ms\":7200000}");
+        apply_event(&m, "mesh.activity",
+                    "{\"kind\":\"rx\",\"payload_type\":\"text\",\"bytes\":40,\"mono_ms\":7200100}");
+        apply_event(&m, "mesh.activity",
+                    "{\"kind\":\"tx\",\"result\":\"ok\",\"bytes\":40,\"mono_ms\":7200200}");
+        apply_event(&m, "mesh.activity", "{\"kind\":\"rx\",\"payload_type\":\"ack\",\"bytes\":4}");
+        rift_traffic_read(&m.traffic, 7200300, &b);
+        check("the model counts what it heard by the minute",
+              b.count[19][RIFT_TRAFFIC_ADV] == 1 && b.count[19][RIFT_TRAFFIC_MSG] == 1);
+        check("not what it sent, and not a frame with no time on it",
+              b.count[19][RIFT_TRAFFIC_OTHER] == 0 && m.activity_count == 4);
+    }
+
     printf("rift_model_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

@@ -17,5 +17,8 @@ lv_obj_t *rift_activity_create(struct rift_app *app, lv_obj_t *parent);
 void rift_activity_refresh(struct rift_app *app);
 void rift_activity_shape(struct rift_app *app);
 void rift_activity_destroy(struct rift_app *app);
+/* The traffic graph (ui/rift_graph.h), for tests; NULL before the screen
+ * exists. */
+lv_obj_t *rift_activity_graph(const struct rift_app *app);
 
 #endif

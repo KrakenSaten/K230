@@ -40,25 +40,51 @@ static int before(const struct rift_node *a, const struct rift_node *b, int64_t 
     return strcmp(a->key, b->key) < 0;
 }
 
+/* A merge sort over pointers: n log n however the cache happens to be
+ * ordered, where the insertion sort this replaced was n squared for a
+ * cache the service listed oldest first - half a million comparisons a
+ * second at a thousand nodes, on every repaint. `before` is a total order,
+ * so the result is the same one in the same place either way. */
+static void merge_order(const struct rift_node **a, const struct rift_node **tmp, int lo, int hi,
+                        int64_t now_ms)
+{
+    int mid;
+    int i;
+    int j;
+    int k;
+
+    if (hi - lo < 2) {
+        return;
+    }
+    mid = lo + (hi - lo) / 2;
+    merge_order(a, tmp, lo, mid, now_ms);
+    merge_order(a, tmp, mid, hi, now_ms);
+    for (i = lo, j = mid, k = lo; k < hi; k++) {
+        if (j >= hi || (i < mid && !before(a[j], a[i], now_ms))) {
+            tmp[k] = a[i++];
+        } else {
+            tmp[k] = a[j++];
+        }
+    }
+    memcpy(a + lo, tmp + lo, sizeof(a[0]) * (size_t)(hi - lo));
+}
+
 int rift_model_order(const struct rift_model *m, int64_t now_ms, const struct rift_node **out,
                      int max)
 {
+    /* Static, not on the stack: 8 KB at a thousand nodes, one caller at a
+     * time on the one thread. */
+    static const struct rift_node *tmp[RIFT_MAX_NODES];
     int n = 0;
     int i;
-    int j;
 
     if (!m || !out || max <= 0) {
         return 0;
     }
     for (i = 0; i < m->node_count && n < max; i++) {
-        const struct rift_node *node = &m->nodes[i];
-
-        for (j = n; j > 0 && before(node, out[j - 1], now_ms); j--) {
-            out[j] = out[j - 1];
-        }
-        out[j] = node;
-        n++;
+        out[n++] = &m->nodes[i];
     }
+    merge_order(out, tmp, 0, n, now_ms);
     return n;
 }
 
