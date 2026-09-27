@@ -282,6 +282,7 @@ cleanup_snapshot() { rm -rf "${SNAPSHOT_DIR}"; }
 trap cleanup_snapshot EXIT
 git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" \
     -- "platforms/k230/configs/${CONF}" platforms/k230/package/pocketos \
+       platforms/k230/patches/linux \
     | tar -xp -C "${SNAPSHOT_DIR}"
 for f in "platforms/k230/configs/${CONF}" \
          platforms/k230/package/pocketos/Config.in \
@@ -296,6 +297,26 @@ done
 
 echo "[1/5] Vendor BSP overlay"
 "${VENDOR_DIR}/k230_bsp/scripts/apply.sh" "${SDK_DIR}"
+
+# Doors-owned kernel patches (ADR-011). They sit in the same Buildroot package
+# directory as the vendor stack and apply after it: the vendor numbers its
+# patches up to 0064, Doors uses 0070-0099. Like the vendor's own patches
+# they only take effect on a fresh kernel extract (`make linux-dirclean`
+# first); Buildroot does not re-patch a tree it has already built. Stale
+# Doors patches are removed here, the way the SDK's sync removes patches that
+# left the overlay, so a renamed patch is not applied twice.
+install_kernel_patches() { # <snapshot dir> <sdk dir> -> sets KERNEL_PATCHES
+    local src="$1/platforms/k230/patches/linux" dst="$2/buildroot-overlay/linux" f
+    KERNEL_PATCHES=""
+    rm -f "${dst}"/00[7-9][0-9]-*.patch
+    for f in "${src}"/00[7-9][0-9]-*.patch; do
+        [ -f "${f}" ] || continue
+        install -m 0644 "${f}" "${dst}/$(basename "${f}")"
+        KERNEL_PATCHES="${KERNEL_PATCHES}${KERNEL_PATCHES:+ }$(basename "${f}")"
+    done
+}
+install_kernel_patches "${SNAPSHOT_DIR}" "${SDK_DIR}"
+echo "      Doors kernel patches: ${KERNEL_PATCHES:-none}"
 
 echo "[2/5] Doors defconfig (${CONF})"
 install -m 0644 "${SNAPSHOT_DIR}/platforms/k230/configs/${CONF}" "${SDK_DIR}/buildroot-overlay/configs/${CONF}"
@@ -522,6 +543,7 @@ source_tree_state=${SOURCE_TREE_STATE}
 dirty_override=${DIRTY_OVERRIDE}
 vendor_bsp_commit=${BSP_COMMIT}
 sdk_commit=${SDK_COMMIT}
+doors_kernel_patches=${KERNEL_PATCHES:-none}
 radiolib_commit=${RADIOLIB_COMMIT}
 radiolib_state=${RADIOLIB_STATE}
 ggwave_commit=${GGWAVE_COMMIT}
@@ -553,6 +575,7 @@ echo "  RadioLib        : ${RADIOLIB_COMMIT} (${RADIOLIB_STATE})"
 echo "  ggwave          : ${GGWAVE_COMMIT} (${GGWAVE_STATE})"
 echo "  MeshCore        : ${RIFT_COMMIT} (${RIFT_STATE})"
 echo "  Crypto          : ${CRYPTO_COMMIT} (${CRYPTO_STATE})"
+echo "  Kernel patches  : ${KERNEL_PATCHES:-none}"
 echo "  BUILD_ID        : ${BUILD_ID}"
 echo "  The working tree is never packaged, with or without the override."
 echo "Done. Build with: ${PLATFORM_DIR}/scripts/build_image.sh ${VENDOR_DIR}"

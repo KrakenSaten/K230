@@ -1,0 +1,128 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Doors <doors@localhost>
+Date: Sun, 27 Sep 2026 00:00:00 +0000
+Subject: [PATCH] drm/bridge: lt9611: offer only the modes the K230 port is set
+ up for, fix the 0x831a timing byte
+
+Applies on top of the LILYGO BSP stack (after 0064). Doors-owned; see
+docs/decisions/ADR-011-kernel-patches.md and docs/hardware/HDMI_KERNEL_FIX.md
+in the Doors repository.
+
+1. mode_valid accepted every mode up to 300 MHz (lt9611_find_mode returned
+   the first table entry for anything), so the whole EDID list reached
+   userspace and a 2560x1440 monitor was driven at 297 MHz / 1.78 Gbit/s per
+   lane with no picture. The lookup now matches hdisplay, vdisplay and
+   refresh against the table, refuses interlaced modes, and the table holds
+   the 4-lane one-port modes that both the upstream driver and the K230
+   RT-Smart connector table list: 1080p60, 1080p30, 720p60, 720p50.
+
+2. Register 0x831a (hfront_porch[11:8] << 4 | hsync_porch[11:8]) was
+   computed with `(hfront_porch / 256)<<4 + hsync_porch / 256`, where +
+   binds tighter than <<, so the low nibble was always 0. For 1280x720 the
+   sync plus back porch is 260 pixels and the bridge was told 4. Upstream
+   and RT-Smart both write the two nibbles.
+
+Signed-off-by: Doors <doors@localhost>
+---
+ drivers/gpu/drm/bridge/lontium-lt9611.c | 55 ++++++++++++-----
+ 1 file changed, 42 insertions(+), 13 deletions(-)
+
+--- a/drivers/gpu/drm/bridge/lontium-lt9611.c
++++ b/drivers/gpu/drm/bridge/lontium-lt9611.c
+@@ -111,15 +111,24 @@
+ 	u8 intfs;
+ };
+ 
+-static struct lt9611_mode lt9611_modes[] = {
+-	//{ 3840, 2160, 30, 4, 2 }, /* 3840x2160 24bit 30Hz 4Lane 2ports */
++/*
++ * The modes this driver sets the bridge up for on the K230's single 4-lane
++ * DSI port. The two vendor stacks for this hardware agree on them: the
++ * upstream table this file was derived from (4-lane, one-port entries) and
++ * the K230 RT-Smart connector table (canmv_rt mpi_connector.c, the "lt9611"
++ * LT9611_MIPI_4LAN_1920X1080_60FPS/30FPS and 1280X720_60FPS/50FPS entries).
++ *
++ * Everything else is refused by mode_valid, so that neither fbdev nor a DRM
++ * client can pick a mode the bridge is not set up for. Before this table was
++ * enforced the whole EDID list was offered, and a 2560x1440 monitor was driven
++ * at 297 MHz / 1.78 Gbit/s per lane with no picture (T-Display K230, unit A,
++ * 2026-09-27).
++ */
++static const struct lt9611_mode lt9611_modes[] = {
+ 	{ 1920, 1080, 60, 4, 1 }, /* 1080P 24bit 60Hz 4lane 1port */
+ 	{ 1920, 1080, 30, 4, 1 }, /* 1080P 24bit 30Hz 4lane 1port */
+-	// { 1280, 720, 60, 4, 1 },
+-	// { 1280, 720, 50, 4, 1 },
+-	// { 720, 480, 60, 4, 1 },
+-	// { 720, 576, 50, 2, 1 },
+-	// { 640, 480, 60, 2, 1 },
++	{ 1280, 720, 60, 4, 1 }, /* 720P 24bit 60Hz 4lane 1port */
++	{ 1280, 720, 50, 4, 1 }, /* 720P 24bit 50Hz 4lane 1port */
+ };
+ 
+ static struct lt9611 *bridge_to_lt9611(struct drm_bridge *bridge)
+@@ -232,7 +241,18 @@
+ 
+ 	regmap_write(lt9611->regmap, 0x8319, (u8)(hfront_porch % 256));
+ 
+-	regmap_write(lt9611->regmap, 0x831a, (u8)((hfront_porch / 256)<<4 + hsync_porch / 256));
++	/*
++	 * 0x831a holds hfront_porch[11:8] in the high nibble and
++	 * (hsync_len + hback_porch)[11:8] in the low nibble. The K230 rewrite
++	 * of this driver computed it as
++	 *   (hfront_porch / 256) << 4 + hsync_porch / 256
++	 * where + binds tighter than <<, so the low nibble was always lost:
++	 * for 1280x720 (hsync_porch = 40 + 220 = 260) the bridge was told 4
++	 * pixels of sync plus back porch. Upstream and the RT-Smart driver
++	 * both write the two nibbles.
++	 */
++	regmap_write(lt9611->regmap, 0x831a, (u8)((hsync_porch / 256) |
++						  ((hfront_porch / 256) << 4)));
+ 	regmap_write(lt9611->regmap, 0x831b, (u8)(hsync_porch % 256));
+ }
+ 
+@@ -610,11 +630,23 @@
+ 	return 0;
+ }
+ 
+-static struct lt9611_mode *lt9611_find_mode(const struct drm_display_mode *mode)
++static const struct lt9611_mode *lt9611_find_mode(const struct drm_display_mode *mode)
+ {
+-	if (mode->clock > 300000 || mode->vtotal > 4095 || mode->htotal > 4095)
++	int vrefresh = drm_mode_vrefresh(mode);
++	int i;
++
++	/* The video path is progressive only. */
++	if (mode->flags & DRM_MODE_FLAG_INTERLACE)
+ 		return NULL;
+-	return &lt9611_modes[0];
++
++	for (i = 0; i < ARRAY_SIZE(lt9611_modes); i++) {
++		if (lt9611_modes[i].hdisplay == mode->hdisplay &&
++		    lt9611_modes[i].vdisplay == mode->vdisplay &&
++		    lt9611_modes[i].vrefresh == vrefresh)
++			return &lt9611_modes[i];
++	}
++
++	return NULL;
+ }
+ 
+ /* connector funcs */
+@@ -735,7 +767,7 @@
+ lt9611_connector_mode_valid(struct drm_connector *connector,
+ 			    struct drm_display_mode *mode)
+ {
+-	struct lt9611_mode *lt9611_mode = lt9611_find_mode(mode);
++	const struct lt9611_mode *lt9611_mode = lt9611_find_mode(mode);
+ 
+ 	return lt9611_mode ? MODE_OK : MODE_BAD;
+ }
+@@ -923,7 +955,7 @@
+ 							const struct drm_display_info* info,
+ 						     const struct drm_display_mode *mode)
+ {
+-	struct lt9611_mode *lt9611_mode = lt9611_find_mode(mode);
++	const struct lt9611_mode *lt9611_mode = lt9611_find_mode(mode);
+ 	struct lt9611 *lt9611 = bridge_to_lt9611(bridge);
+ 
+ 	if (!lt9611_mode) {

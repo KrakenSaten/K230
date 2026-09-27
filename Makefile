@@ -1646,6 +1646,7 @@ test: all $(TEST_BINS)
 	bash tests/required_gates_test.sh
 	bash tests/build_provenance_test.sh
 	bash tests/provenance_state_test.sh
+	bash tests/kernel_patches_test.sh
 	bash tests/image_contents_test.sh
 	bash tests/deploy_staging_test.sh
 	bash tests/splash_image_test.sh
