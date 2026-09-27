@@ -1252,7 +1252,7 @@ zabbix-san-test:
 	    ./tests/zbx_config_test && ./tests/zbx_client_test && TZ=UTC ./tests/zabbix_view_test && \
 	    ./tests/zabbix_session_test tools/zabbix/pos-zabbix
 
-# Browser (docs/apps/BROWSER.md, ADR-009 PROPOSED).
+# Browser (docs/apps/BROWSER.md, ADR-009 accepted).
 #
 # core/web is the Browser's reader, all pure C: addresses, the bounded page
 # document, the app/helper line protocol, the back/forward list and the

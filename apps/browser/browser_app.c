@@ -1,6 +1,6 @@
 /*
  * Browser: simple web pages on the unit - read, follow links, go back and
- * forward (docs/apps/BROWSER.md, ADR-009 PROPOSED).
+ * forward (docs/apps/BROWSER.md, ADR-009 accepted).
  *
  * This file is the screen and nothing else. What it shows and allows is
  * browser_view.c; the network, TLS, the HTML reader and the picture

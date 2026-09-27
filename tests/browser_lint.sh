@@ -1,5 +1,5 @@
 #!/bin/bash
-# Browser's boundaries (docs/apps/BROWSER.md, ADR-009 PROPOSED), held statically.
+# Browser's boundaries (docs/apps/BROWSER.md, ADR-009 accepted), held statically.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 failed=0

@@ -45,7 +45,7 @@ POCKETOS_INSTALL_TARGET = YES
 # curl tool and ca-certificates), so this adds a build dependency, not a
 # package.
 # libpng: pos-browser, the Browser's helper (docs/apps/BROWSER.md, ADR-009
-# PROPOSED), decodes a page's PNG pictures with it, and its JPEG ones with the
+# accepted), decodes a page's PNG pictures with it, and its JPEG ones with the
 # jpeg above; it fetches with the libcurl above. libpng was already in the
 # image and its sysroot (with headers, for OpenCV; docs/hardware/
 # CAMERA_PLATFORM_RESEARCH.md), so this adds a build dependency, not a
