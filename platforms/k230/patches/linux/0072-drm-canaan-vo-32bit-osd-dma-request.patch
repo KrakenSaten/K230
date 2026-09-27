@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Doors <doors@localhost>
+Date: Sun, 27 Sep 2026 00:00:00 +0000
+Subject: [PATCH] drm/canaan: vo: XRGB8888 and ARGB8888 planes get their DMA
+ request bits back
+
+Applies on top of the LILYGO BSP stack (after 0064) and Doors 0070/0071.
+Doors-owned; see docs/decisions/ADR-011-kernel-patches.md and
+docs/hardware/HDMI_KERNEL_FIX.md in the Doors repository.
+
+OSD DMA_CTRL bits [3:0] are the DMA request enable and bits [5:4] the DMA
+byte map: the vendor U-Boot logo code (board/canaan/common/logo/
+display_logo.c, kd_vo_osd_set_dma_request() and kd_vo_osd_set_dma_map())
+writes them so. The driver shipped with 0x4F for every format; BSP patch
+0030 set XRGB8888 to 0x40 and ARGB8888 to 0x0, which clears the request
+bits, so those planes never fetch. On the HDMI output at 1920x1080 an
+XRGB8888 plane (pos-drmtest, fbdev) is black while an RGB565 plane (0x4F)
+shows modetest's bars (unit A, 2026-09-27, HDMI_GATE.md round 3).
+
+Both 32-bit formats go back to 0x4F. Bit 6, which the BSP change kept for
+XRGB8888, stays set; whether the byte order it selects is right is what the
+pattern's red/green/blue blocks will show.
+
+Signed-off-by: Doors <doors@localhost>
+---
+ drivers/gpu/drm/canaan/canaan_vo.c | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+--- a/drivers/gpu/drm/canaan/canaan_vo.c
++++ b/drivers/gpu/drm/canaan/canaan_vo.c
+@@ -270,13 +270,23 @@
+ 	u32 scanout_pitch[DRM_FORMAT_MAX_PLANES];
+ 
+ 	switch (fb->format->format) {
++	/*
++	 * OSD DMA_CTRL: bits [3:0] are the DMA request enable and bits [5:4]
++	 * the DMA byte map (the vendor U-Boot logo code, display_logo.c
++	 * kd_vo_osd_set_dma_request() / kd_vo_osd_set_dma_map(), writes them
++	 * that way). The driver shipped with 0x4F for every format; the
++	 * 32-bit entries were later changed to 0x40 and 0x0, which leaves the
++	 * request bits clear, so those planes never fetch: black on the HDMI
++	 * output at 1080p while RGB565 (still 0x4F) showed a picture
++	 * (T-Display K230, unit A, 2026-09-27). Back to 0x4F for both.
++	 */
+ 	case DRM_FORMAT_XRGB8888:
+ 		reg_val = 0x03;
+-		rb_swap = 0x40;
++		rb_swap = 0x4F;
+ 		break;
+ 	case DRM_FORMAT_ARGB8888:
+ 		reg_val = 0x53;
+-		rb_swap = 0x0;
++		rb_swap = 0x4F;
+ 		break;
+ 	case DRM_FORMAT_ARGB4444:
+ 		reg_val = 0x54;

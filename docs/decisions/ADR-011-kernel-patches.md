@@ -81,8 +81,9 @@ Option C, under these rules:
 4. A patch is merged only after a unit A gate on the built kernel, with the
    LCD tree booted first (the panel must be unaffected) and a written
    rollback.
-5. The first patches are the two HDMI patches of 2026-09-27: 0070 (LT9611
-   mode table and 0x831a) and 0071 (4-lane DSI PHY from the D-PHY tables).
+5. The first patches are the HDMI patches of 2026-09-27: 0070 (LT9611
+   mode table and 0x831a), 0071 (4-lane DSI PHY from the D-PHY tables) and
+   0072 (VO: 32-bit OSD planes get their DMA request bits back).
 
 ADR-001 decision 5 is amended to: "Kernel and U-Boot come from the LILYGO
 BSP; Doors adds kernel patches only under ADR-011." U-Boot stays unchanged.

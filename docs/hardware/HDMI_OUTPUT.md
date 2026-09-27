@@ -9,8 +9,8 @@ is `HDMI_GATE.md`. **2026-09-27, unit A with a 2560x1440 monitor:**
   gives flickering stripes. The gate's first reading ("the vendor LT9611
   driver is set up for 1080p only") was revised by the desk study that
   followed: `HDMI_KERNEL_FIX.md` names three kernel-side causes and carries
-  the two kernel patches (`platforms/k230/patches/linux/0070`, `0071`) that
-  ADR-011 (Proposed) covers. Rounds 2 and 3 of the gate ran on that kernel:
+  the kernel patches (`platforms/k230/patches/linux/0070`, `0071`, and
+  `0072` for the VO) that ADR-011 (Proposed) covers. Rounds 2 and 3 of the gate ran on that kernel:
   the bridge side is proven on the monitor (the DSI's own colour bars show
   at 720p and 1080p, and a 1080p RGB565 `modetest` re-set shows bars); what
   the K230 VO feeds into the DSI is still wrong for XRGB8888 planes (DMA
@@ -350,9 +350,18 @@ listed here on 2026-09-27:
   RT-Smart. Patch 0071 programs the 4-lane port from the databook tables as
   they ship in the kernel's Keem Bay driver, which reproduce RT-Smart's values.
 
+- (d) found by round 3 of the gate, in the K230 VO rather than the bridge:
+  the BSP's XRGB8888 and ARGB8888 OSD entries leave the DMA request bits
+  clear, so those planes (fbdev, `pos-drmtest`) never fetch. Patch 0072
+  restores the driver's original `0x4F`, which RGB565 kept and which showed
+  a picture. The VO's 720p stream and the first-set failure at 1080p stay
+  open (`HDMI_KERNEL_FIX.md` §9).
+
 The patches are applied by `apply_to_sdk.sh` from `platforms/k230/patches/
 linux/` (ADR-011 for the rule; `BUILD_ENVIRONMENT.md` for the
-`linux-dirclean` note). The 2-lane panel path is unchanged by them.
+`linux-dirclean` note). The 2-lane panel path is unchanged by 0070 and 0071;
+0072 touches a VO constant shared by both trees but not the format the
+shell scans out on the panel (RGB565).
 
 A Doors-owned HDMI device tree that keeps the T-Display peripherals: the LCD
 tree minus the `canaan,universal` panel and minus the GT9895 node (shared

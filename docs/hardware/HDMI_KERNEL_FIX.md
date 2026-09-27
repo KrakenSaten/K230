@@ -299,6 +299,12 @@ Pinned flow, WSL, Xuantie-900 gcc 14.1.1 (`riscv64-unknown-linux-gnu-gcc
    card's (`3ac313c4…`, `2a6b49ad…`): no device-tree change. Log and Image in
    `out/hdmi-kernel/build/` on the bench PC.
 
+Build 2 (after round 3), the same flow with 0070, 0071 and 0072: fresh
+extract, all three applied ("patching file", no hunk message), `rc=0`;
+`canaan_vo.c` compiles without a warning; `Image` 19,084,288 bytes, sha256
+`86072a52…` (`out/hdmi-kernel/build/Image-r4-86072a52`, log
+`hdmi-kernel-build-r4.log`); DTBs unchanged. Not deployed.
+
 Host tests on the branch: `tests/kernel_patches_test.sh` (22 checks),
 `provenance_state_test.sh`, `build_provenance_test.sh`,
 `display_boot_test.sh` all 0 failures under WSL.
@@ -352,8 +358,10 @@ is in the K230 VO (what feeds the DSI):
   `kd_vo_osd_set_dma_request()`) writes bits [3:0] of that register as the
   DMA request enable (`0xf`) and bits [5:4] as the DMA byte map. K0 used
   `0x4F` for every format; RGB565 still does, and it is the only format that
-  showed a picture. Fix candidate: `0x4F` for XRGB8888 and ARGB8888 (the
-  BSP's "rb swap" was bit 6, which `0x4F` keeps). One constant each.
+  showed a picture. **Patch 0072** puts `0x4F` back for XRGB8888 and
+  ARGB8888 (the BSP's "rb swap" was bit 6, which `0x4F` keeps). One
+  constant each; whether bit 6 gives the right byte order for XRGB8888 is
+  what the pattern's red/green/blue block order will show on the next look.
 - **The VO's 720p stream is refused by the bridge's transmitter, and a
   1080p RGB565 set works only as a re-set.** Not understood. The VO timing
   registers read exactly as derived (`TOTAL_SIZE`, `XZONE`, `YZONE`, `DRAW`,

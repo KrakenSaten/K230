@@ -107,7 +107,7 @@ to a unit's `/boot/Image` for a kernel-only test, with the old one kept as
 `/boot/Image.orig`). The apply manifest records the patches
 (`doors_kernel_patches=`), and `tests/kernel_patches_test.sh` checks the
 files and the apply step. VERIFIED 2026-09-27: `.applied_patches_list` of a
-fresh extract ends with 0070, 0071 and the vendor's unnumbered suspend patch,
+fresh extract ends with 0070, 0071, 0072 and the vendor's unnumbered suspend patch,
 and the kernel builds with the pinned toolchain (docs/hardware/HDMI_KERNEL_FIX.md §7).
 
 ### The build is a commit, and a dirty tree is refused
