@@ -6,9 +6,12 @@ the owner's `Recordings` folder, with a list to play and delete them.
 Status: **v1 on branch `feat/recorder-app`, not merged.** Host-tested
 end to end (the real helper over a file-backed sound card, the app under a
 real LVGL pointer in portrait and landscape, the real shell in both
-orientations) and cross-built for riscv64. **Not yet run on the K230**: the
-Unit A gate is `docs/hardware/RECORDER_GATE.md`. The audio ownership is
-ADR-010, **Proposed**.
+orientations), built with the pinned Xuantie/Buildroot toolchain, and
+**Unit A gate PASS on build `608f972` (2026-09-27)**, including the owner's
+voice clip played back intelligibly; results and the K230's measured costs
+(pos-record 1.8 % of the C908 at Voice, 1.0 % at Standard, 2.2 MB RSS) are
+in `docs/hardware/RECORDER_GATE.md`. The audio ownership is ADR-010,
+**Proposed**.
 
 Screenshots (the real simulator shell with the file-backed sound card):
 `docs/design/shots/recorder-portrait.png`, `recorder-landscape.png`,
@@ -239,7 +242,9 @@ leak checking.
 1. A shared helper-process client (spawn, event queue, bounded stop) for
    Wave, Camera and Recorder, in `core/`; today each app has its own.
 2. Rename in the app (Files covers it today).
-3. The Unit A gate, including the C908's measured costs.
+3. ~~The Unit A gate, including the C908's measured costs.~~ Done
+   (RECORDER_GATE.md). Left from it: the repair message keeps its present
+   tense once the repair is done.
 4. **Launcher, portrait (for DS review).** With Browser merged, Recorder is
    the seventeenth app: CONNECTIONS (5) and DEVICE (5) each take a second
    row of cells, and the portrait launcher no longer fits the panel. It
