@@ -153,6 +153,12 @@ static void scaler_row(struct scaler *s, const unsigned char *rgb)
     if (next != oy && oy < s->out_h) {
         uint16_t *o = s->out + (size_t)oy * (size_t)s->out_w;
 
+        /* The pinned Xuantie gcc 14 vectorizes this loop for RVV with a masked
+         * division whose inactive lanes it then reports as "may be used
+         * uninitialized" (-Werror stops the build). Scalar is plenty here. */
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 14
+#pragma GCC novector
+#endif
         for (x = 0; x < s->out_w; x++) {
             uint32_t n = s->cols[x] * (uint32_t)s->rows;
 
