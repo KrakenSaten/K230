@@ -56,7 +56,8 @@ static void on_jpeg_message(j_common_ptr cinfo)
     (void)cinfo; /* warnings are not for the helper's event stream */
 }
 
-int pocketcam_encode(FILE *fp, const struct pocketcam_frame *f, int rotation, bool mirror)
+int pocketcam_encode_meta(FILE *fp, const struct pocketcam_frame *f, int rotation, bool mirror,
+                          const struct pocketcam_photo_meta *meta)
 {
     struct jpeg_compress_struct cinfo;
     struct jerr err;
@@ -91,6 +92,14 @@ int pocketcam_encode(FILE *fp, const struct pocketcam_frame *f, int rotation, bo
     jpeg_set_defaults(&cinfo);
     jpeg_set_quality(&cinfo, POCKETCAM_JPEG_QUALITY, TRUE);
     jpeg_start_compress(&cinfo, TRUE);
+    if (meta) {
+        uint8_t exif[POCKETCAM_EXIF_MAX];
+        size_t n = pocketcam_exif_build(meta, exif, sizeof(exif));
+
+        if (n > 0) {
+            jpeg_write_marker(&cinfo, JPEG_APP0 + 1, exif, (unsigned int)n);
+        }
+    }
     while (cinfo.next_scanline < cinfo.image_height) {
         JSAMPROW rows[1];
         int e = pocketcam_row_rgb888(f, rotation, mirror, cinfo.next_scanline, row);
@@ -125,8 +134,10 @@ uint64_t pocketcam_codec_estimate(uint32_t w, uint32_t h)
     return (uint64_t)w * h * 3 + 32;
 }
 
-int pocketcam_encode(FILE *fp, const struct pocketcam_frame *f, int rotation, bool mirror)
+int pocketcam_encode_meta(FILE *fp, const struct pocketcam_frame *f, int rotation, bool mirror,
+                          const struct pocketcam_photo_meta *meta)
 {
+    char comments[256];
     uint32_t tw;
     uint32_t th;
     uint32_t y;
@@ -142,7 +153,12 @@ int pocketcam_encode(FILE *fp, const struct pocketcam_frame *f, int rotation, bo
         return -ENOMEM;
     }
     errno = 0;
-    if (fprintf(fp, "P6\n%u %u\n255\n", tw, th) < 0) {
+    if (meta) {
+        pocketcam_exif_ppm_comments(meta, comments, sizeof(comments));
+    } else {
+        comments[0] = '\0';
+    }
+    if (fprintf(fp, "P6\n%s%u %u\n255\n", comments, tw, th) < 0) {
         free(row);
         return stream_error(fp);
     }
@@ -161,3 +177,8 @@ int pocketcam_encode(FILE *fp, const struct pocketcam_frame *f, int rotation, bo
 }
 
 #endif
+
+int pocketcam_encode(FILE *fp, const struct pocketcam_frame *f, int rotation, bool mirror)
+{
+    return pocketcam_encode_meta(fp, f, rotation, mirror, NULL);
+}

@@ -1072,17 +1072,22 @@ tests/wave_modem_test: tests/wave_modem_test.o $(WAVE_MODEM_OBJS) $(AUDIO_OBJS) 
 POCKETCAM_JPEG ?= 0
 CAM_DIR := core/pocketcam
 CAM_OBJS := $(CAM_DIR)/pocketcam.o $(CAM_DIR)/pocketcam_fake.o $(CAM_DIR)/pocketcam_v4l2.o \
-            $(CAM_DIR)/pocketcam_convert.o $(CAM_DIR)/pocketcam_store.o $(CAM_DIR)/pocketcam_codec.o
+            $(CAM_DIR)/pocketcam_convert.o $(CAM_DIR)/pocketcam_store.o $(CAM_DIR)/pocketcam_codec.o \
+            $(CAM_DIR)/pocketcam_exif.o $(CAM_DIR)/pocketcam_image.o
 CAM_LIBS :=
 ifeq ($(POCKETCAM_JPEG),1)
 CAM_LIBS := -ljpeg
 $(CAM_DIR)/pocketcam_codec.o: ALL_CFLAGS += -DPOCKETCAM_HAVE_JPEG
+$(CAM_DIR)/pocketcam_image.o: ALL_CFLAGS += -DPOCKETCAM_HAVE_JPEG
+tests/pocketcam_gallery_test.o: ALL_CFLAGS += -DPOCKETCAM_HAVE_JPEG
 endif
 CAMERA_DIR := apps/camera
-CAMERA_OBJS := $(CAMERA_DIR)/camera_state.o $(CAMERA_DIR)/camera_layout.o $(CAMERA_DIR)/camera_session.o
+CAMERA_OBJS := $(CAMERA_DIR)/camera_state.o $(CAMERA_DIR)/camera_layout.o $(CAMERA_DIR)/camera_session.o \
+               $(CAMERA_DIR)/camera_gallery.o
 POS_CAMERA_OBJS := tools/camera/pos_camera.o $(CAM_OBJS) $(PATHS_OBJS)
-CAMERA_TESTS := tests/pocketcam_test tests/camera_state_test tests/camera_layout_test \
-                tests/camera_session_test tests/pos-camera-testhooks
+CAMERA_TESTS := tests/pocketcam_test tests/pocketcam_gallery_test tests/camera_state_test \
+                tests/camera_layout_test tests/camera_session_test tests/camera_gallery_test \
+                tests/pos-camera-testhooks
 
 $(CAMERA_DIR)/%.o: $(CAMERA_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(CAMERA_DIR) -c -o $@ $<
@@ -1105,6 +1110,9 @@ tests/camera_%_test.o: tests/camera_%_test.c
 tests/pocketcam_test: tests/pocketcam_test.o $(CAM_OBJS) $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(CAM_LIBS)
 
+tests/pocketcam_gallery_test: tests/pocketcam_gallery_test.o $(CAM_OBJS) $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(CAM_LIBS)
+
 tests/camera_state_test: tests/camera_state_test.o $(CAMERA_DIR)/camera_state.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
@@ -1114,19 +1122,23 @@ tests/camera_layout_test: tests/camera_layout_test.o $(CAMERA_DIR)/camera_layout
 tests/camera_session_test: tests/camera_session_test.o $(CAMERA_DIR)/camera_session.o
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
+tests/camera_gallery_test: tests/camera_gallery_test.o $(CAMERA_DIR)/camera_gallery.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
 # The camera suites again under the address and undefined-behaviour
 # sanitizers, in a separate build tree so the ordinary objects are untouched.
 # The helper is built with them too: the session test drives it.
 CAMERA_SAN_DIR := out/camera-san
 camera-san-test:
 	rm -rf $(CAMERA_SAN_DIR) && mkdir -p $(CAMERA_SAN_DIR)
-	git ls-files --cached --others --exclude-standard core apps/camera tools/camera tests/camera_* tests/pocketcam_test.c Makefile VERSION \
+	git ls-files --cached --others --exclude-standard core apps/camera tools/camera tests/camera_* tests/pocketcam_test.c tests/pocketcam_gallery_test.c Makefile VERSION \
 	    | tar -cf - -T - | tar -xf - -C $(CAMERA_SAN_DIR)
 	$(MAKE) -C $(CAMERA_SAN_DIR) CC="$(CC)" POCKETOS_BUILD_ID=$(POCKETOS_BUILD_ID) \
 	    CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all" \
 	    LDFLAGS="-fsanitize=address,undefined" $(CAMERA_TESTS)
-	cd $(CAMERA_SAN_DIR) && ./tests/pocketcam_test && ./tests/camera_state_test && \
-	    ./tests/camera_layout_test && ./tests/camera_session_test tests/pos-camera-testhooks
+	cd $(CAMERA_SAN_DIR) && ./tests/pocketcam_test && ./tests/pocketcam_gallery_test && ./tests/camera_state_test && \
+	    ./tests/camera_layout_test && ./tests/camera_gallery_test && \
+	    ./tests/camera_session_test tests/pos-camera-testhooks
 
 # Zabbix (docs/apps/ZABBIX.md, ADR-007 PROPOSED).
 #
@@ -1337,9 +1349,11 @@ test: all $(TEST_BINS)
 	./tests/rift_notify_test
 	./tests/rift_ipc_test
 	./tests/pocketcam_test
+	./tests/pocketcam_gallery_test
 	./tests/camera_state_test
 	./tests/camera_layout_test
 	./tests/camera_session_test tests/pos-camera-testhooks
+	./tests/camera_gallery_test
 	./tests/zbx_model_test
 	./tests/zbx_proto_test
 	./tests/zbx_api_test

@@ -242,6 +242,28 @@ static void tap_obj(lv_obj_t *obj)
     pump(40);
 }
 
+/* A tap near the bottom-left corner of obj (for the slideshow's box: beside
+ * the picture in it, in a wide body). */
+static void tap_corner(lv_obj_t *obj)
+{
+    lv_area_t a;
+
+    if (!obj) {
+        printf("FAIL tap on a missing object\n");
+        failed++;
+        checks++;
+        return;
+    }
+    lv_obj_update_layout(obj);
+    lv_obj_get_coords(obj, &a);
+    finger_point.x = a.x1 + 6;
+    finger_point.y = a.y2 - 6;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(40);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(40);
+}
+
 static bool wait_until(bool (*cond)(void), int ms)
 {
     int64_t end = mono_ms() + ms;
@@ -311,6 +333,345 @@ static int photos_on_disk(void)
 static bool no_child(void)
 {
     return waitpid(-1, NULL, WNOHANG) < 0 && errno == ECHILD;
+}
+
+/* ---- the gallery ------------------------------------------------------------------------- *
+ * The gallery's frame is the body's second child; in it, in the order
+ * camera_gallery_screen.c builds them: the panel, GALLERY_PAGE_MAX cells, the
+ * photo's box, three lines about it, the slideshow's box, the status line and
+ * the buttons. */
+static void app_start(void);
+static int64_t app_stop(void);
+static void check_targets(const char *what);
+
+#define G_CELLS 24
+#define G_PHOTO_BOX (1 + G_CELLS)
+#define G_SHOW_BOX (G_PHOTO_BOX + 4)
+
+static lv_obj_t *gallery_child(int i)
+{
+    lv_obj_t *g = app_body ? lv_obj_get_child(app_body, 1) : NULL;
+
+    return g && !lv_obj_has_flag(g, LV_OBJ_FLAG_HIDDEN) ? lv_obj_get_child(g, i) : NULL;
+}
+
+static lv_obj_t *cell(int i)
+{
+    lv_obj_t *c = gallery_child(1 + i);
+
+    return c && !lv_obj_has_flag(c, LV_OBJ_FLAG_HIDDEN) ? c : NULL;
+}
+
+static int cells_shown(void)
+{
+    int i;
+    int n = 0;
+
+    for (i = 0; i < G_CELLS; i++) {
+        n += cell(i) != NULL;
+    }
+    return n;
+}
+
+/* A visible box's image, when it shows a picture. */
+static bool box_shows_picture(lv_obj_t *box)
+{
+    lv_obj_t *img = box && !lv_obj_has_flag(box, LV_OBJ_FLAG_HIDDEN) ? lv_obj_get_child(box, 0) : NULL;
+
+    return img && !lv_obj_has_flag(img, LV_OBJ_FLAG_HIDDEN) && lv_image_get_src(img) != NULL;
+}
+
+static lv_obj_t *label_with_in(lv_obj_t *obj, const char *part)
+{
+    uint32_t i;
+
+    if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) {
+        return NULL;
+    }
+    if (lv_obj_check_type(obj, &lv_label_class) && strstr(lv_label_get_text(obj), part)) {
+        return obj;
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        lv_obj_t *f = label_with_in(lv_obj_get_child(obj, i), part);
+
+        if (f) {
+            return f;
+        }
+    }
+    return NULL;
+}
+
+/* A visible label with part anywhere in its text. */
+static bool label_with(const char *part)
+{
+    return app_body && label_with_in(app_body, part) != NULL;
+}
+
+static int want_cell;
+
+static bool cell_has_picture(void)
+{
+    return box_shows_picture(cell(want_cell));
+}
+
+static bool in_grid(void)
+{
+    return button("SLIDESHOW") != NULL;
+}
+
+static bool photo_shown(void)
+{
+    return box_shows_picture(gallery_child(G_PHOTO_BOX)) && button("EXPORT") != NULL;
+}
+
+static bool slide_shown(void)
+{
+    return box_shows_picture(gallery_child(G_SHOW_BOX));
+}
+
+/* Whether a child of this process runs the helper in the given mode. */
+static bool helper_in_mode(const char *mode)
+{
+    DIR *d = opendir("/proc");
+    struct dirent *e;
+    bool found = false;
+
+    while (d && !found && (e = readdir(d)) != NULL) {
+        char path[300];
+        char buf[512];
+        FILE *fp;
+        size_t n;
+        size_t i;
+        int ppid = -1;
+
+        if (e->d_name[0] < '0' || e->d_name[0] > '9') {
+            continue;
+        }
+        snprintf(path, sizeof(path), "/proc/%s/stat", e->d_name);
+        fp = fopen(path, "r");
+        if (!fp) {
+            continue;
+        }
+        if (fscanf(fp, "%*d %*s %*c %d", &ppid) != 1) {
+            ppid = -1;
+        }
+        fclose(fp);
+        if (ppid != (int)getpid()) {
+            continue;
+        }
+        snprintf(path, sizeof(path), "/proc/%s/cmdline", e->d_name);
+        fp = fopen(path, "rb");
+        if (!fp) {
+            continue;
+        }
+        n = fread(buf, 1, sizeof(buf) - 1, fp);
+        fclose(fp);
+        for (i = 0; i < n; i++) {
+            buf[i] = buf[i] ? buf[i] : ' ';
+        }
+        buf[n] = '\0';
+        found = strstr(buf, mode) != NULL;
+    }
+    if (d) {
+        closedir(d);
+    }
+    return found;
+}
+
+static void empty_photos(void)
+{
+    DIR *d = opendir(photos);
+    struct dirent *e;
+
+    while (d && (e = readdir(d)) != NULL) {
+        char p[600];
+
+        if (e->d_name[0] != '.') {
+            snprintf(p, sizeof(p), "%s/%s", photos, e->d_name);
+            unlink(p);
+        }
+    }
+    if (d) {
+        closedir(d);
+    }
+}
+
+static void take_photo(void)
+{
+    wait_until(live, 4000);
+    tap_obj(button("TAKE PHOTO"));
+    wait_until(reviewing, 5000);
+    tap_obj(button("KEEP"));
+    wait_until(live, 3000);
+}
+
+static void gallery_journey(const char *shape)
+{
+    char msg[160];
+    char p[600];
+    FILE *fp;
+
+#define CHECK(text, ok) do { snprintf(msg, sizeof(msg), "%s gallery: %s", shape, text); check(msg, ok); } while (0)
+    empty_photos();
+    app_start();
+    CHECK("the preview comes up", wait_until(live, 4000));
+    CHECK("with PHOTOS beside the shutter", enabled("PHOTOS"));
+    take_photo();
+    take_photo();
+    /* A damaged photo, the newest by its number. */
+    snprintf(p, sizeof(p), "%s/IMG_0900.ppm", photos);
+    fp = fopen(p, "wb");
+    if (fp) {
+        fputs("P6\n64 36\n", fp);
+        fclose(fp);
+    }
+    CHECK("two photos and a damaged file in the folder", photos_on_disk() == 3);
+
+    tap_obj(button("PHOTOS"));
+    CHECK("PHOTOS opens the grid", wait_until(in_grid, 4000));
+    CHECK("the camera is closed while photos are browsed",
+          !helper_in_mode(" session") && helper_in_mode(" library"));
+    CHECK("three cells, newest first", cells_shown() == 3);
+    want_cell = 1;
+    CHECK("thumbnails arrive", wait_until(cell_has_picture, 4000));
+    want_cell = 2;
+    CHECK("for every photo", wait_until(cell_has_picture, 4000));
+    CHECK("the damaged file's cell says it cannot be shown",
+          !box_shows_picture(cell(0)) && shows_text("Cannot show"));
+    CHECK("the status counts them", shows_text("3 photos"));
+    check_targets(shape);
+
+    tap_obj(cell(1));
+    CHECK("a tap on a thumbnail opens the photo", wait_until(photo_shown, 4000));
+    CHECK("with its name", shows_text("IMG_2"));
+    CHECK("when it was taken (the host's clock is set)", shows_text("Taken 20"));
+    CHECK("its size, format, and that it is simulated",
+          (shows_text("72 x 128  |") || shows_text("128 x 72  |")) && label_with("|  simulated") &&
+              label_with("|  PPM") != label_with("|  JPEG"));
+    check_targets(shape);
+    tap_obj(button("OLDER"));
+    CHECK("OLDER shows the next older photo", wait_until(photo_shown, 4000) && shows_text("3 of 3"));
+    tap_obj(button("NEWER"));
+    CHECK("NEWER goes back", wait_until(photo_shown, 4000) && shows_text("2 of 3"));
+
+    tap_obj(button("EXPORT"));
+    CHECK("EXPORT copies it to Files and says where", wait_until_text("Saved to Files:", 4000));
+    {
+        char home_pics[400];
+        DIR *d;
+        struct dirent *e;
+        int n = 0;
+
+        snprintf(home_pics, sizeof(home_pics), "%s/home/Pictures", root);
+        d = opendir(home_pics);
+        while (d && (e = readdir(d)) != NULL) {
+            n += strncmp(e->d_name, "IMG_", 4) == 0;
+        }
+        if (d) {
+            closedir(d);
+        }
+        CHECK("the copy is in ~/Pictures", n >= 1);
+    }
+    CHECK("the library keeps its photo", photos_on_disk() == 3);
+
+    tap_obj(button("DELETE"));
+    CHECK("DELETE asks first", shows_text("Delete this photo?") && button("CANCEL") != NULL);
+    check_targets(shape);
+    tap_obj(button("CANCEL"));
+    CHECK("CANCEL keeps it", photos_on_disk() == 3 && button("EXPORT") != NULL);
+    tap_obj(button("DELETE"));
+    tap_obj(button("DELETE"));
+    CHECK("confirmed: deleted", wait_until_text("Photo deleted", 4000) && photos_on_disk() == 2);
+    CHECK("and the next older photo is shown", wait_until(photo_shown, 4000));
+
+    tap_obj(button("BACK"));
+    CHECK("BACK: the grid, one cell fewer", wait_until(in_grid, 2000) && cells_shown() == 2);
+
+    tap_obj(button("SLIDESHOW"));
+    CHECK("SLIDESHOW shows a photo", wait_until(slide_shown, 4000));
+    CHECK("the damaged file is skipped, the next one shown",
+          wait_until_text("Slideshow  |  2 of 2", 7000));
+    check_targets(shape);
+    tap_obj(gallery_child(G_SHOW_BOX));
+    CHECK("a tap stops it", wait_until(in_grid, 2000));
+    tap_obj(button("SLIDESHOW"));
+    CHECK("SLIDESHOW again", wait_until(slide_shown, 4000));
+    tap_corner(gallery_child(G_SHOW_BOX));
+    CHECK("a tap beside the picture stops it too", wait_until(in_grid, 2000));
+
+    tap_obj(button("CAMERA"));
+    CHECK("CAMERA: the live preview again", wait_until(live, 4000));
+    CHECK("with the camera's helper, not the library's",
+          helper_in_mode(" session") && !helper_in_mode(" library"));
+    CHECK("closing is quick", app_stop() < 600);
+    CHECK("and leaves no helper", no_child());
+#undef CHECK
+}
+
+static void gallery_faults(void)
+{
+    int i;
+    int64_t took;
+    int64_t worst = 0;
+    bool all = true;
+
+    /* No camera: the photos are still there to see. */
+    empty_photos();
+    setenv("POCKETOS_CAMERA_FAKE", "open=nodev", 1);
+    app_start();
+    check("no camera: PHOTOS is still offered", wait_until(no_camera, 3000) && enabled("PHOTOS"));
+    tap_obj(button("PHOTOS"));
+    check("and the gallery says there are none", wait_until_text("No photos yet", 3000));
+    check_targets("empty gallery");
+    tap_obj(button("CAMERA"));
+    check("CAMERA: no camera, as before", wait_until(no_camera, 3000));
+    app_stop();
+    setenv("POCKETOS_CAMERA_FAKE", "size=64x36,still=128x72,period=20", 1);
+
+    /* The helper missing: the gallery says so and can try again. */
+    app_start();
+    wait_until(live, 4000);
+    take_photo();
+    {
+        char *keep = strdup(getenv("POCKETOS_CAMERA_HELPER"));
+
+        setenv("POCKETOS_CAMERA_HELPER", "/nonexistent/pos-camera", 1);
+        tap_obj(button("PHOTOS"));
+        check("a missing helper: the gallery says so",
+              wait_until_text("Photos unavailable", 3000) && button("TRY AGAIN") != NULL);
+        setenv("POCKETOS_CAMERA_HELPER", keep, 1);
+        free(keep);
+        tap_obj(button("TRY AGAIN"));
+        check("once it is there, trying again lists the photos", wait_until(in_grid, 4000));
+    }
+
+    /* Closed in the middle of a slideshow. */
+    tap_obj(button("SLIDESHOW"));
+    wait_until(slide_shown, 4000);
+    took = app_stop();
+    printf("     closed mid-slideshow in %lld ms\n", (long long)took);
+    check("closing in the gallery is bounded", took < 600);
+    check("and leaves no helper", no_child());
+
+    /* Ten trips between the camera and the gallery. */
+    app_start();
+    for (i = 0; i < 10; i++) {
+        int64_t t0;
+
+        all &= wait_until(live, 4000);
+        t0 = mono_ms();
+        tap_obj(button("PHOTOS"));
+        all &= wait_until(in_grid, 4000);
+        tap_obj(button("CAMERA"));
+        took = mono_ms() - t0;
+        worst = took > worst ? took : worst;
+    }
+    all &= wait_until(live, 4000);
+    printf("     slowest camera-gallery-camera trip: %lld ms\n", (long long)worst);
+    check("ten trips between the camera and the gallery", all);
+    check("one helper at a time", !(helper_in_mode(" session") && helper_in_mode(" library")));
+    app_stop();
+    check("and none left", no_child());
 }
 
 /* ---- the app, hosted --------------------------------------------------------------------- */
@@ -498,6 +859,8 @@ static void faults(void)
     bool all = true;
     int64_t worst = 0;
 
+    /* The gallery journeys leave photos behind; these checks count from none. */
+    empty_photos();
     /* No camera: its own screen, and a way to look again. */
     setenv("POCKETOS_CAMERA_FAKE", "open=nodev", 1);
     app_start();
@@ -587,6 +950,12 @@ int main(void)
     snprintf(root, sizeof(root), "/tmp/camera-app-%ld", (long)getpid());
     snprintf(photos, sizeof(photos), "%s/camera", root);
     setenv("POCKETOS_STATE_DIR", root, 1);
+    {
+        char home[200];
+
+        snprintf(home, sizeof(home), "%s/home", root);
+        setenv("HOME", home, 1); /* where EXPORT puts its copies: $HOME/Pictures */
+    }
     setenv("POCKETOS_CAMERA_HELPER", helper, 1);
     setenv("POCKETOS_CAMERA_BACKEND", "fake", 1);
     setenv("POCKETOS_CAMERA_FAKE", "size=64x36,still=128x72,period=20", 1);
@@ -607,10 +976,13 @@ int main(void)
 
     use_display(POS_ROTATION_0);
     journey("portrait");
+    gallery_journey("portrait");
     use_display(POS_ROTATION_90);
     journey("landscape");
+    gallery_journey("landscape");
     use_display(POS_ROTATION_0);
     faults();
+    gallery_faults();
 
     snprintf(cmd, sizeof(cmd), "rm -rf '%s'", root);
     if (system(cmd) != 0) {

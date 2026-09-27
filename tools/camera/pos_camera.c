@@ -8,6 +8,12 @@
  *       lives exactly as long as the Camera screen: it leaves on `quit`, when
  *       the shell closes its end, on SIGTERM, and - through PR_SET_PDEATHSIG,
  *       set by the session before exec - when the shell dies.
+ *   pos-camera library [--dir DIR] [--export DIR]
+ *       The Camera app's gallery helper: the same transport and shared memory
+ *       as a session, and never the camera. It lists the photo folder, draws
+ *       photos into the shared memory at the size the screen asks for
+ *       (pocketcam_image.h), exports and deletes them. Every file the gallery
+ *       reads or writes is read or written here, off the shell's LVGL thread.
  *   pos-camera probe [--backend NAME] [--fake SCRIPT]
  *       Open the camera, say what it is, close it. Exit 0, or 3 when there is
  *       no camera.
@@ -35,6 +41,7 @@
 #include "pocketcam/pocketcam.h"
 #include "pocketcam/pocketcam_codec.h"
 #include "pocketcam/pocketcam_convert.h"
+#include "pocketcam/pocketcam_image.h"
 #include "pocketcam/pocketcam_proto.h"
 #include "pocketcam/pocketcam_store.h"
 
@@ -114,12 +121,13 @@ static const char *clean(const char *s, char *buf, size_t len)
 {
     size_t i;
 
-    snprintf(buf, len, "%s", s ? s : "");
-    for (i = 0; buf[i]; i++) {
-        if ((unsigned char)buf[i] < 0x20 || (unsigned char)buf[i] == 0x7f) {
-            buf[i] = ' ';
-        }
+    /* Copied by hand: cut to len on purpose, which snprintf warns about. */
+    for (i = 0; s && s[i] && i + 1 < len; i++) {
+        unsigned char c = (unsigned char)s[i];
+
+        buf[i] = c < 0x20 || c == 0x7f ? ' ' : (char)c;
     }
+    buf[i] = '\0';
     return buf;
 }
 
@@ -147,6 +155,9 @@ struct session {
     bool in_eof;
     bool quit;
     int exit_code;
+    /* pos-camera library: no camera, the gallery's requests instead. */
+    bool library;
+    char export_dir[PATH_MAX];
 };
 
 static int map_shm(struct session *s)
@@ -204,13 +215,14 @@ struct encode_job {
     const struct pocketcam_frame *f;
     int rotation;
     bool mirror;
+    struct pocketcam_photo_meta meta;
 };
 
 static int write_photo(FILE *fp, void *user)
 {
     struct encode_job *j = user;
 
-    return pocketcam_encode(fp, j->f, j->rotation, j->mirror);
+    return pocketcam_encode_meta(fp, j->f, j->rotation, j->mirror, &j->meta);
 }
 
 static void capture(struct session *s, int display_rotation)
@@ -255,6 +267,9 @@ static void capture(struct session *s, int display_rotation)
     }
     say("saving");
     job.f = &f;
+    /* One reading of the clock for the name and the metadata, so they agree. */
+    job.meta.taken = (int64_t)time(NULL);
+    job.meta.simulated = s->info.simulated;
     job.rotation = pocketcam_view_rotation(s->info.mount_rotation, display_rotation);
     job.mirror = s->info.mount_mirror;
     /* The review picture first: it is what the screen shows next. */
@@ -265,7 +280,7 @@ static void capture(struct session *s, int display_rotation)
         rw = s->view_w;
         rh = s->view_h;
     }
-    pocketcam_store_next_name(&s->store, (int64_t)time(NULL), pocketcam_codec_ext(), name,
+    pocketcam_store_next_name(&s->store, job.meta.taken, pocketcam_codec_ext(), name,
                               sizeof(name));
     r = pocketcam_store_write(&s->store, name, write_photo, &job, &bytes);
     pocketcam_release(&s->cam, &f);
@@ -280,7 +295,194 @@ static void capture(struct session *s, int display_rotation)
     }
 }
 
+/* ---- the library ------------------------------------------------------------- */
+
+#ifdef POS_CAMERA_TEST_HOOKS
+/* pos-camera-testhooks only: every picture takes at least this long, like a
+ * big JPEG on the C908 (POCKETCAM_TEST_DECODE_MS). */
+static long test_decode_ms;
+#endif
+
+static void library_list(struct session *s)
+{
+    char (*names)[POCKETCAM_STORE_NAME_MAX];
+    char *out = (char *)(void *)slot_pixels(s, POCKETCAM_LIST_SLOT);
+    size_t off = 0;
+    uint32_t total = 0;
+    char t[96];
+    int n;
+    int i;
+
+    if (!s->store_ok) {
+        say("listfail %s", clean(s->store_err, t, sizeof(t)));
+        return;
+    }
+    if (s->held[POCKETCAM_LIST_SLOT]) {
+        say("listfail the last list has not been taken");
+        return;
+    }
+    names = calloc(POCKETCAM_LIBRARY_MAX, sizeof(*names));
+    if (!names) {
+        say("listfail out of memory");
+        return;
+    }
+    n = pocketcam_store_list(&s->store, names, POCKETCAM_LIBRARY_MAX, &total);
+    if (n < 0) {
+        say("listfail %s", clean(strerror(-n), t, sizeof(t)));
+        free(names);
+        return;
+    }
+    /* 1000 names of under 48 bytes: far inside the slot. */
+    for (i = 0; i < n; i++) {
+        size_t len = strlen(names[i]);
+
+        memcpy(out + off, names[i], len);
+        off += len;
+        out[off++] = '\n';
+    }
+    out[off] = '\0';
+    free(names);
+    s->held[POCKETCAM_LIST_SLOT] = true;
+    say("listed %d %d %u", POCKETCAM_LIST_SLOT, n, total);
+}
+
+static void library_picture(struct session *s, const char *slot_w, const char *w_w,
+                            const char *h_w, const char *fit_w, const char *name)
+{
+    struct pocketcam_image_info info;
+    char path[PATH_MAX];
+    char t[96];
+    char taken[POCKETCAM_EXIF_DATE_LEN];
+    long slot = strtol(slot_w, NULL, 10);
+    long w = strtol(w_w, NULL, 10);
+    long h = strtol(h_w, NULL, 10);
+    uint32_t ow = 0;
+    uint32_t oh = 0;
+    enum pocketcam_fit fit;
+    int r;
+
+    if (slot < 0 || slot >= POCKETCAM_PREVIEW_SLOTS || w <= 0 || h <= 0 ||
+        w > POCKETCAM_VIEW_MAX_W || h > POCKETCAM_VIEW_MAX_H ||
+        (strcmp(fit_w, "cover") != 0 && strcmp(fit_w, "contain") != 0)) {
+        return; /* not a request this protocol can make */
+    }
+    fit = strcmp(fit_w, "cover") == 0 ? POCKETCAM_FIT_COVER : POCKETCAM_FIT_CONTAIN;
+    if (!pocketcam_store_valid_name(name)) {
+        say("imgfail %ld - corrupt not a photo name", slot);
+        return;
+    }
+    if (s->held[slot]) {
+        say("imgfail %ld %s busy the slot is in use", slot, name);
+        return;
+    }
+    if (!s->store_ok ||
+        snprintf(path, sizeof(path), "%s/%s", s->store.dir, name) >= (int)sizeof(path)) {
+        say("imgfail %ld %s io the photo folder cannot be read", slot, name);
+        return;
+    }
+#ifdef POS_CAMERA_TEST_HOOKS
+    if (test_decode_ms > 0) {
+        usleep((useconds_t)test_decode_ms * 1000);
+    }
+#endif
+    r = pocketcam_image_decode(path, fit, slot_pixels(s, (int)slot), (uint32_t)w, (uint32_t)h,
+                               &ow, &oh, &info);
+    if (r != 0) {
+        say("imgfail %ld %s %s %s", slot, name, pocketcam_image_error_word(r),
+            clean(strerror(-r), t, sizeof(t)));
+        return;
+    }
+    snprintf(taken, sizeof(taken), "%s", info.exif.taken[0] ? info.exif.taken : "-");
+    if (info.exif.taken[0] && taken[10] == ' ') {
+        taken[10] = 'T'; /* one word on the line */
+    }
+    s->held[slot] = true;
+    say("image %ld %u %u %u %u %llu %lld %d %s %s %s %s", slot, ow, oh, info.shown_w,
+        info.shown_h, (unsigned long long)info.bytes, (long long)(info.mtime > 0 ? info.mtime : 0), info.damaged ? 1 : 0,
+        info.kind == POCKETCAM_IMAGE_JPEG ? "jpg" : "ppm", taken, name,
+        clean(info.exif.description, t, sizeof(t)));
+}
+
+static void library_export(struct session *s, const char *name)
+{
+    char out[PATH_MAX];
+    char t[96];
+    char where[POCKETCAM_LINE_MAX]; /* the whole path: the line is cut, not this */
+    bool already = false;
+    int r = s->store_ok ? pocketcam_store_export(&s->store, name, s->export_dir, out, sizeof(out),
+                                                 &already)
+                        : -EIO;
+
+    if (r == 0) {
+        say("exported %s %d %s", name, already ? 1 : 0, clean(out, where, sizeof(where)));
+    } else {
+        say("expfail %s %s %s", pocketcam_store_valid_name(name) ? name : "-",
+            r == -EEXIST ? "exists" : r == -ENOSPC ? "nospace" : r == -ENOENT ? "missing" : "io",
+            clean(strerror(-r), t, sizeof(t)));
+    }
+}
+
+static void library_command(struct session *s, char *line)
+{
+    char *save = NULL;
+    char *verb = strtok_r(line, " ", &save);
+    char *a[5] = { NULL };
+    int i;
+
+    for (i = 0; verb && i < 5; i++) {
+        a[i] = strtok_r(NULL, " ", &save);
+        if (!a[i]) {
+            break;
+        }
+    }
+    if (!verb) {
+        return;
+    }
+    if (strcmp(verb, "list") == 0) {
+        library_list(s);
+    } else if (strcmp(verb, "picture") == 0 && a[4]) {
+        library_picture(s, a[0], a[1], a[2], a[3], a[4]);
+    } else if (strcmp(verb, "export") == 0 && a[0]) {
+        library_export(s, a[0]);
+    } else if (strcmp(verb, "delete") == 0 && a[0]) {
+        char t[96];
+        int r = s->store_ok ? pocketcam_store_delete(&s->store, a[0]) : -EIO;
+
+        /* A photo already gone (removed by hand, or by a delete whose answer
+         * was lost) is deleted as far as the gallery is concerned; otherwise
+         * its entry could never be removed. */
+        if (r == -ENOENT && pocketcam_store_valid_name(a[0])) {
+            pocketcam_store_scan(&s->store);
+            r = 0;
+        }
+        if (r == 0) {
+            say("deleted %s %u", a[0], s->store.files);
+        } else {
+            say("delfail %s", clean(strerror(-r), t, sizeof(t)));
+        }
+    } else if (strcmp(verb, "release") == 0 && a[0]) {
+        long slot = strtol(a[0], NULL, 10);
+
+        if (slot >= 0 && slot < POCKETCAM_SLOTS) {
+            s->held[slot] = false;
+        }
+    } else if (strcmp(verb, "quit") == 0) {
+        s->quit = true;
+    }
+}
+
+static void command_camera(struct session *s, char *line);
+
 static void command(struct session *s, char *line)
+{
+    if (s->library) {
+        library_command(s, line);
+        return;
+    }
+    command_camera(s, line);
+}
+
+static void command_camera(struct session *s, char *line)
 {
     char *save = NULL;
     char *verb = strtok_r(line, " ", &save);
@@ -519,6 +721,52 @@ static int run_session(const char *backend, const char *script, const char *dir)
     return code;
 }
 
+static int run_library(const char *dir, const char *export_dir)
+{
+    struct session *s = calloc(1, sizeof(*s));
+    char dir_buf[PATH_MAX];
+    int r;
+
+    if (!s) {
+        say("error memory out of memory");
+        return EXIT_USAGE;
+    }
+    s->library = true;
+    say("hello %d library", POCKETCAM_PROTO_VERSION);
+    if (map_shm(s) != 0) {
+        say("error shm no usable shared memory on descriptor %d", POCKETCAM_SHM_FD);
+        free(s);
+        return EXIT_USAGE;
+    }
+    if (!dir || !*dir) {
+        pocketcam_store_default_dir(dir_buf, sizeof(dir_buf));
+        dir = dir_buf;
+    }
+    if (export_dir && *export_dir) {
+        snprintf(s->export_dir, sizeof(s->export_dir), "%s", export_dir);
+    } else {
+        pocketcam_export_default_dir(s->export_dir, sizeof(s->export_dir));
+    }
+    /* What an export killed part way left there (one library helper at a time). */
+    pocketcam_export_sweep(s->export_dir);
+    r = pocketcam_store_open(&s->store, dir);
+    s->store_ok = r == 0;
+    if (!s->store_ok) {
+        snprintf(s->store_err, sizeof(s->store_err), "photo folder: %s", strerror(-r));
+    }
+    say("ready library 0 0 0 %u %s", s->store_ok ? s->store.files : 0,
+        s->store_ok && s->store.last[0] ? s->store.last : "-");
+    while (!s->quit && !s->in_eof && !stop_requested && !out_broken) {
+        read_commands(s, 250);
+    }
+    if (s->quit) {
+        say("bye");
+    }
+    munmap(s->shm, POCKETCAM_SHM_BYTES);
+    free(s);
+    return 0;
+}
+
 static int run_probe(const char *backend, const char *script)
 {
     struct pocketcam_backend cam;
@@ -737,9 +985,13 @@ static void install_test_hooks(void)
 {
     const char *free_env = getenv("POCKETCAM_TEST_FREE_BYTES");
     const char *fail_env = getenv("POCKETCAM_TEST_FAIL_AFTER");
+    const char *decode_env = getenv("POCKETCAM_TEST_DECODE_MS");
 
     if (free_env && *free_env) {
         pocketcam_store_free_hook = test_free_bytes;
+    }
+    if (decode_env && *decode_env) {
+        test_decode_ms = strtol(decode_env, NULL, 10);
     }
     if (fail_env && *fail_env) {
         pocketcam_store_fail_after = strtoll(fail_env, NULL, 10);
@@ -751,6 +1003,7 @@ static void usage(void)
 {
     fprintf(stderr,
             "usage: pos-camera session [--backend NAME] [--config CONFIG] [--dir DIR]\n"
+            "       pos-camera library [--dir DIR] [--export DIR]\n"
             "       pos-camera probe [--backend NAME] [--config CONFIG]\n"
             "       pos-camera snap FILE [--backend NAME] [--config CONFIG] [--rotation DEG]\n"
             "       pos-camera bench [--backend NAME] [--config CONFIG] [--rotation DEG]\n"
@@ -767,6 +1020,7 @@ int main(int argc, char **argv)
     const char *backend = NULL;
     const char *script = NULL;
     const char *dir = NULL;
+    const char *export_dir = NULL;
     const char *file = NULL;
     int display_rotation = 0;
     struct sigaction sa;
@@ -784,6 +1038,8 @@ int main(int argc, char **argv)
             script = argv[++i];
         } else if (strcmp(argv[i], "--dir") == 0 && i + 1 < argc) {
             dir = argv[++i];
+        } else if (strcmp(argv[i], "--export") == 0 && i + 1 < argc) {
+            export_dir = argv[++i];
         } else if (strcmp(argv[i], "--rotation") == 0 && i + 1 < argc &&
                    parse_rotation(argv[i + 1], &display_rotation) == 0) {
             i++;
@@ -811,6 +1067,9 @@ int main(int argc, char **argv)
 #endif
     if (strcmp(argv[1], "session") == 0 && !file) {
         return run_session(backend, script, dir);
+    }
+    if (strcmp(argv[1], "library") == 0 && !file) {
+        return run_library(dir, export_dir);
     }
     if (strcmp(argv[1], "probe") == 0 && !file) {
         return run_probe(backend, script);

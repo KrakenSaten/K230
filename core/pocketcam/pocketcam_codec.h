@@ -16,6 +16,7 @@
 #define POCKETOS_POCKETCAM_CODEC_H
 
 #include "pocketcam.h"
+#include "pocketcam_exif.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -35,5 +36,11 @@ uint64_t pocketcam_codec_estimate(uint32_t w, uint32_t h);
 /* Write f, turned clockwise by rotation and mirrored when asked, to fp. 0, or
  * a negative errno (-ENOSPC when the stream ran out of room). */
 int pocketcam_encode(FILE *fp, const struct pocketcam_frame *f, int rotation, bool mirror);
+
+/* The same, with what is known about the photo written into the file
+ * (pocketcam_exif.h): an EXIF block in a JPEG, comment lines in a PPM. The
+ * pixels are exactly pocketcam_encode()'s; meta NULL writes none. */
+int pocketcam_encode_meta(FILE *fp, const struct pocketcam_frame *f, int rotation, bool mirror,
+                          const struct pocketcam_photo_meta *meta);
 
 #endif

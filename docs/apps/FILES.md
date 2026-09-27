@@ -43,6 +43,11 @@ launcher wrap it brings.**
 A folder of more than 200 entries shows the first 200 and says how many there
 are (a folder is read up to 2048 entries).
 
+Camera's EXPORT copies a photo into `~/Pictures` (docs/apps/CAMERA.md, "The
+gallery"), so exported photos are on Files' first screen and fully writable;
+Camera's own library under `/var/lib/pocketos/camera` is shown read-only like
+the rest of Doors' data. Files itself is unchanged.
+
 ## What it is not (v1)
 
 No network shares, archives (ZIP), thumbnails or image preview; no text
