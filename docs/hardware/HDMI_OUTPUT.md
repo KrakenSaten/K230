@@ -13,9 +13,12 @@ is `HDMI_GATE.md`. **2026-09-27, unit A with a 2560x1440 monitor:**
   `0071`, and `0072` for the VO) that ADR-011 (Proposed) covers.
 - **On the patched kernel, 1920x1080@60 works end to end** (gate round 4,
   owner at the bench: `pos-drmtest`'s pattern and the Doors shell, clean and
-  stable on the monitor). The bridge side is proven at 720p too (the DSI's
-  own colour bars), but the VO's 720p stream still gives no signal, cause
-  open. Details: `HDMI_KERNEL_FIX.md` §9-10, `HDMI_GATE.md` rounds 3-4.
+  stable on the monitor). 720p's "no signal" was traced in round 5 to the
+  DSI host's line time, which must be a whole number of lane-byte clocks
+  (CEA 720p's 1650 pixels x 3 / 4 lanes is not); padding htotal live made
+  the 720p pattern appear. Patch 0073 does that padding in the kernel;
+  its gate is pending. Details: `HDMI_KERNEL_FIX.md` §9-11, `HDMI_GATE.md`
+  rounds 3-5.
 
 Evidence classes as in `T-DISPLAY-K230.md`: VERIFIED (unit A runtime record, or
 reproduced here from the pinned sources), DOCUMENTED (vendor schematic, source,

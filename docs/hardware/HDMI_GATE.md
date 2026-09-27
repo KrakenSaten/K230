@@ -427,6 +427,44 @@ Harness `r4_*.sh`, outputs in `out/hdmi-gate/`.
 | R4.6 Doors shell on HDMI (`S90doors-shell start`; RGB565, rotation 270, 1080x1920 through the GDMA rotation path) | **Doors UI visible**, stable | `display came up 1080x1920 … rotation 270`, running, 0 restarts; OSD4 `INFO 0x02 DMA_CTRL 0x4F STRIDE 0x1E0` | **PASS** |
 | R4.7 Back to the panel, original kernel | panel as before | `6.6.36 #2 … Sep 4`, `536d4770…`, 568x1232, shell, spidev, radio `rx`, no `force_dtb` | PASS |
 
+## Round 5: the 720p cause (2026-09-27, register capture, owner at the bench)
+
+Round-4 kernel (`KERNEL_R4.sh`), HDMI tree. Read-only register capture with
+`voregs_unit.sh` (VO block, DSI host block, display clock divider) in three
+states, then one live experiment. Outputs `r5_regs_*.txt`, `r5_*.out`.
+
+| State | DSI `VID_HSA / HBP / HLINE` (lane-byte clocks) | Exact value | VO `TOTAL_SIZE` | Display clock div |
+| --- | --- | --- | --- | --- |
+| Panel 568x1232, v0.1.0 kernel, shell | 60 / 60 / **1122** | 40 x 1.5, 40 x 1.5, 748 x 1.5: all exact | 748 x 1268 | 12 |
+| HDMI 1920x1080@60, shell | 33 / 111 / **1650** | 44, 148, 2200 x 0.75: all exact | 2200 x 1125 | 4 |
+| HDMI 1280x720@60, pattern | 30 / 165 / **1238** | 40, 220 exact; **1650 x 0.75 = 1237.5**, rounded up | 1650 x 750 | 8 |
+
+Live experiments during a 400 s 720p hold (`devmem`, reversible, cleared by
+the reboot afterwards):
+
+| R5.x | Change | Bridge line period (`h_total_sysclk`, 27 MHz) | Owner saw |
+| --- | --- | --- | --- |
+| R5.1 | none | 600 | no signal (round 4) |
+| R5.2 | DSI `VID_HLINE` 1238 → 1237 | 601 (the register is live: the host paces the line from it) | **no signal** |
+| R5.3 | DSI `VID_HLINE` → 1239 and VO htotal 1650 → 1652 (front porch +2), `REG_LOAD_CTL` | - | **pattern visible**: colour blocks and text right; white border slightly off, a vertical stripe not at the edge |
+
+R5.3 is the 720p cause, VERIFIED: the host's line time must be a whole
+number of lane-byte clocks (pixels x 3 / lanes at RGB888), and CEA 720p's
+1650 is not one at 4 lanes; when it is made one, the same VO stream reaches
+the monitor. The border/stripe offset in R5.3 is the experiment's own doing:
+the bridge was still programmed for the 1650-pixel line and the VO's active
+window was not moved, so the two added pixels wrap into the picture. This
+also explains round 1's 480p (858 x 0.75 = 643.5) and why the host's own
+generator (no DPI line to disagree with) showed 720p bars in round 3.
+Canaan's RT-Smart connector table avoids it by construction: every LT9611
+mode there has htotal, hsync and back porch divisible by 4 (720p60 is
+1616x765, DOCUMENTED). Unit A back on the panel and the v0.1.0 kernel after
+R5.3 (`r2_lcdfinal6.out`).
+
+The fix is patch 0073 (`HDMI_KERNEL_FIX.md` §11): the DSI encoder's
+`mode_fixup` pads hsync, back porch and htotal up to multiples of the lane
+count, so the VO, the host and the bridge all get the same integral timing.
+
 What round 4 settles: with 0070 + 0071 + 0072 the T-Display K230 shows
 **1920x1080@60 on HDMI**, from a DRM framebuffer (`pos-drmtest`, XRGB8888)
 and from the Doors shell (RGB565, rotated), clean and stable, the whole path

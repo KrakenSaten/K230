@@ -299,6 +299,8 @@ Pinned flow, WSL, Xuantie-900 gcc 14.1.1 (`riscv64-unknown-linux-gnu-gcc
    card's (`3ac313c4…`, `2a6b49ad…`): no device-tree change. Log and Image in
    `out/hdmi-kernel/build/` on the bench PC.
 
+Build 3 (after round 5), the same flow with 0070-0073: fresh extract, all four applied, `rc=0`, no diagnostic in the patched files; `Image` sha256 `e5c4c7f7…` (`out/hdmi-kernel/build/Image-r5-e5c4c7f7`); DTBs unchanged; not deployed.
+
 Build 2 (after round 3), the same flow with 0070, 0071 and 0072: fresh
 extract, all three applied ("patching file", no hunk message), `rc=0`;
 `canaan_vo.c` compiles without a warning; `Image` 19,084,288 bytes, sha256
@@ -389,6 +391,41 @@ Kernel `86072a52…` (0070 + 0071 + 0072). `HDMI_GATE.md` "Round 4":
 
 So 0072 does what its header says: the 32-bit plane fetches, and the byte
 order bit 6 selects is right for XRGB8888. 1080p60 is a working HDMI mode
-end to end. The 720p defect is unchanged and is the VO's stream, not the
-bridge (round 3, R3.4). Still no explanation; the round-3 candidates stand.
+end to end. The 720p defect was unchanged at this point (see §11).
 The panel was checked before and after (R4.1, R4.7): unaffected.
+
+## 11. The 720p cause: fractional lane-byte line time (round 5, VERIFIED)
+
+The DesignWare host holds the horizontal timing in lane-byte clocks:
+`VID_HSA_TIME`, `VID_HBP_TIME`, `VID_HLINE_TIME` = pixels x (bpp / 8) /
+lanes = pixels x 3 / lanes at RGB888 (`canaan_dsi_get_hcomponent_lbcc()`,
+which rounds a fraction up). The capture (`HDMI_GATE.md` round 5) read back:
+
+| Mode | lanes | hsa / hbp / htotal (px) | x 3 / lanes | Programmed | Result |
+| --- | --- | --- | --- | --- | --- |
+| Panel 568x1232 | 2 | 40 / 40 / 748 | 60 / 60 / 1122 | 60 / 60 / 1122 | picture |
+| 1920x1080@60 | 4 | 44 / 148 / 2200 | 33 / 111 / 1650 | 33 / 111 / 1650 | picture (round 4) |
+| 1280x720@60 (CEA) | 4 | 40 / 220 / 1650 | 30 / 165 / **1237.5** | 30 / 165 / 1238 | no signal |
+| 720x480@60 (CEA, round 1) | 4 | 62 / 60 / 858 | 46.5 / 45 / 643.5 | 47 / 45 / 644 | no signal |
+
+The host paces the line from `VID_HLINE_TIME` (changing it live moved the
+bridge's measured line period), the VO paces its DPI line from the pixel
+clock and htotal; when the two differ the stream drifts and the LT9611's
+transmitter does not lock. The host's own pattern generator has no DPI line
+to disagree with, which is why its 720p bars reached the monitor (round 3).
+Making the count integral live (htotal 1652, line time 1239) made the 720p
+pattern appear (R5.3). Independent evidence: every LT9611 mode in the
+RT-Smart connector table (`mpi_connector.c`) has hsync, back porch and
+htotal divisible by 4; its 720p60 is 1616x765 rather than CEA's 1650x750
+(DOCUMENTED).
+
+**Patch 0073** (`0073-drm-canaan-dsi-pad-htiming-to-lane-bytes.patch`):
+`canaan_dsi_encoder_mode_fixup()` rounds hsync, back porch and htotal up to
+multiples of the lane count (2 or 4, i.e. `roundup(pixels, lanes)`), growing
+only the front porch, and refreshes the mode's `crtc_*` copies. The adjusted
+mode is what the CRTC (VO timing), the host (`lbcc`) and the bridge
+(`mode_set` uses `adj_mode`) all receive, so the three agree. Effect per
+mode: panel and 1080p unchanged (already multiples); 720p60 → htotal 1652,
+hfp 112, 59.93 Hz at 74.25 MHz; 720p50 (htotal 1980) unchanged; a future
+480p would go 858 → 860 and hsync 62 → 64. A `dev_info` line names the
+padding when it happens.

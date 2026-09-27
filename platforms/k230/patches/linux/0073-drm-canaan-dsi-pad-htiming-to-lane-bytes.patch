@@ -1,0 +1,112 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Doors <doors@localhost>
+Date: Sun, 27 Sep 2026 00:00:00 +0000
+Subject: [PATCH] drm/canaan: dsi: pad the horizontal timing to whole lane-byte
+ clocks
+
+Applies on top of the LILYGO BSP stack (after 0064) and Doors 0070-0072.
+Doors-owned; see docs/decisions/ADR-011-kernel-patches.md and
+docs/hardware/HDMI_KERNEL_FIX.md in the Doors repository.
+
+The host paces each line from VID_HLINE_TIME, VID_HSA_TIME and VID_HBP_TIME,
+in lane-byte clocks: pixels * 3 / lanes at RGB888. When that is fractional
+the programmed line and the VO's DPI line have different lengths, they drift
+apart, and the LT9611's transmitter never locks. CEA 1280x720 has htotal
+1650 (1237.5 at 4 lanes): no signal on the HDMI output, while 1920x1080
+(2200 -> 1650) and the RM69A10 panel (748 -> 1122) are exact and work, and
+the host's own pattern generator, which has no DPI to disagree with, showed
+720p bars on the same monitor. With the VO's htotal and the host's line time
+changed live to 1652 / 1239 the 720p pattern appeared (unit A, 2026-09-27,
+HDMI_GATE.md round 5). Every LT9611 mode in the K230 RT-Smart SDK's
+connector table has htotal, hsync and back porch divisible by 4 (its 720p60
+is 1616x765, not the CEA timing).
+
+The encoder's mode_fixup now rounds hsync, back porch and htotal up to a
+multiple of the lane count (2 or 4), growing only the front porch; the
+adjusted mode reaches the VO, the host and the bridge alike. 1080p and the
+panel timing are already multiples and are unchanged; 720p becomes
+1280x720 with htotal 1652 at 74.25 MHz (59.93 Hz).
+
+Signed-off-by: Doors <doors@localhost>
+---
+ drivers/gpu/drm/canaan/canaan_dsi.c | 59 ++++++++++++++++++++++++++++++
+ 1 file changed, 59 insertions(+)
+
+--- a/drivers/gpu/drm/canaan/canaan_dsi.c
++++ b/drivers/gpu/drm/canaan/canaan_dsi.c
+@@ -11,6 +11,7 @@
+ #include <linux/clk.h>
+ #include <linux/component.h>
+ #include <linux/crc-ccitt.h>
++#include <linux/math.h>
+ #include <linux/module.h>
+ #include <linux/of_address.h>
+ #include <linux/phy/phy-mipi-dphy.h>
+@@ -567,15 +568,66 @@
+ 	}
+ }
+ 
++/*
++ * Round a horizontal timing component up to a multiple of the lane count.
++ *
++ * The host paces every line from VID_HLINE_TIME, VID_HSA_TIME and
++ * VID_HBP_TIME, which hold the component in lane-byte clocks: pixels times
++ * (bits per pixel / 8) / lanes, i.e. pixels * 3 / lanes at RGB888. When that
++ * is not an integer the programmed line is longer or shorter than the DPI
++ * line the VO produces, the two drift apart, and the bridge's transmitter
++ * never locks. That is what CEA 1280x720 (htotal 1650, 1650 * 3 / 4 = 1237.5)
++ * did on the LT9611: no signal at 720p while 1080p (2200 * 3 / 4 = 1650) and
++ * the RM69A10 panel (748 * 3 / 2 = 1122) were fine, and while the host's own
++ * pattern generator, which has no DPI to disagree with, showed 720p bars.
++ * With htotal padded to 1652 the same 720p stream reached the monitor
++ * (T-Display K230, unit A, 2026-09-27). Every LT9611 mode in the K230
++ * RT-Smart SDK's connector table has htotal, hsync and back porch divisible
++ * by 4 (720p60 there is 1616x765, not the CEA timing).
++ *
++ * Only the front porch grows, by at most lanes - 1 pixels per component
++ * (2 pixels at 720p: 59.93 Hz instead of 60). The panel's and 1080p's timings
++ * are already multiples and come through unchanged.
++ */
++static u32 canaan_dsi_pad_to_lanes(u32 pixels, u32 lanes)
++{
++	return roundup(pixels, lanes);
++}
++
+ bool canaan_dsi_encoder_mode_fixup(struct drm_encoder *encoder,
+ 				   const struct drm_display_mode *mode,
+ 				   struct drm_display_mode *adjusted_mode)
+ {
+-	u32 div;
++	struct canaan_dsi *dsi = encoder_to_canaan_dsi(encoder);
++	u32 lanes = dsi->device ? dsi->device->lanes : 1;
++	u32 hfp, hsa, hbp, div;
+ 
+ 	div = DIV64_U64_ROUND_CLOSEST(594000, mode->clock);
+ 	adjusted_mode->clock = 594000 / div;
+ 
++	if (lanes != 2 && lanes != 4)
++		return true;
++
++	hfp = mode->hsync_start - mode->hdisplay;
++	hsa = canaan_dsi_pad_to_lanes(mode->hsync_end - mode->hsync_start, lanes);
++	hbp = canaan_dsi_pad_to_lanes(mode->htotal - mode->hsync_end, lanes);
++	hfp = canaan_dsi_pad_to_lanes(mode->hdisplay + hfp + hsa + hbp, lanes) -
++	      mode->hdisplay - hsa - hbp;
++
++	adjusted_mode->hsync_start = mode->hdisplay + hfp;
++	adjusted_mode->hsync_end = adjusted_mode->hsync_start + hsa;
++	adjusted_mode->htotal = adjusted_mode->hsync_end + hbp;
++	/* The helper filled in the crtc_* copies before calling us. */
++	drm_mode_set_crtcinfo(adjusted_mode, 0);
++
++	if (adjusted_mode->htotal != mode->htotal)
++		dev_info(dsi->dev,
++			 "DSI mode padded for %u lanes: hsa %u hbp %u hfp %u htotal %u (was %u %u %u %u)\n",
++			 lanes, hsa, hbp, hfp, adjusted_mode->htotal,
++			 mode->hsync_end - mode->hsync_start,
++			 mode->htotal - mode->hsync_end,
++			 mode->hsync_start - mode->hdisplay, mode->htotal);
++
+ 	return true;
+ }
+ 

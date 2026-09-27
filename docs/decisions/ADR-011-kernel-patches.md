@@ -83,7 +83,8 @@ Option C, under these rules:
    rollback.
 5. The first patches are the HDMI patches of 2026-09-27: 0070 (LT9611
    mode table and 0x831a), 0071 (4-lane DSI PHY from the D-PHY tables) and
-   0072 (VO: 32-bit OSD planes get their DMA request bits back).
+   0072 (VO: 32-bit OSD planes get their DMA request bits back) and 0073
+   (DSI: horizontal timing padded to whole lane-byte clocks).
 
 ADR-001 decision 5 is amended to: "Kernel and U-Boot come from the LILYGO
 BSP; Doors adds kernel patches only under ADR-011." U-Boot stays unchanged.

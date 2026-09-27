@@ -153,8 +153,10 @@ DEVICE VERIFIED unless it says so.
   is the K230 VO: XRGB8888 planes had their OSD DMA request bits off (a BSP
   constant, documented by the vendor U-Boot code; patch 0072 restores them,
   and with it 1920x1080@60 is clean and stable from `pos-drmtest` and the
-  Doors shell, round 4). The VO's 720p stream still gives no signal, cause
-  open. 480p is not offered. `docs/hardware/HDMI_KERNEL_FIX.md` §9-10.
+  Doors shell, round 4). The VO's 720p "no signal" is the DSI host's line
+  time, which must be a whole number of lane-byte clocks (round 5, VERIFIED
+  live); patch 0073 pads the timing, gate pending. 480p is not offered.
+  `docs/hardware/HDMI_KERNEL_FIX.md` §9-11.
 - **Whole-unit lock-up after repeated camera open/close (VERIFIED on unit A,
   master's binaries, 2026-09-27).** Opening Camera, streaming for about 3 s
   and leaving it, over and over, eventually freezes unit A completely: the
