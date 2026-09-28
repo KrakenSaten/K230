@@ -20,7 +20,9 @@
  *   open_delay=MS                  open() takes this long first
  *   size=WxH                       the preview frame (default 640x360)
  *   still=WxH                      the still (default 1920x1080)
- *   format=nv16|nv12               (default nv16, as the vendor app reads)
+ *   format=nv16|nv12|bg3p          (default nv16, as the vendor app reads;
+ *                                  bg3p is the ISP's planar format the Vision helper
+ *                                  asks for)
  *   period=MS                      one frame every MS (default 66)
  *   frames=N                       after N frames nothing more arrives
  *   lost_after=N                   after N frames the camera is gone (-ENODEV)
@@ -161,6 +163,22 @@ void pocketcam_fake_fill(uint8_t *dst, enum pocketcam_format fmt, uint32_t w, ui
     uint8_t uu;
     uint8_t vv;
 
+    if (fmt == POCKETCAM_FMT_BG3P) {
+        size_t plane = (size_t)w * h;
+
+        for (y = 0; y < h; y++) {
+            for (x = 0; x < w; x++) {
+                size_t at = (size_t)y * w + x;
+
+                pocketcam_fake_rgb_at(x, y, seq, w, h, rgb);
+                /* R, G, B planes, as the real ISP delivers BG3P. */
+                dst[at] = rgb[0];
+                dst[plane + at] = rgb[1];
+                dst[2 * plane + at] = rgb[2];
+            }
+        }
+        return;
+    }
     for (y = 0; y < h; y++) {
         for (x = 0; x < w; x++) {
             pocketcam_fake_rgb_at(x, y, seq, w, h, rgb);
@@ -277,6 +295,8 @@ static int parse_script(struct fake *f, const char *config)
                 f->format = POCKETCAM_FMT_NV16;
             } else if (strcmp(val, "nv12") == 0) {
                 f->format = POCKETCAM_FMT_NV12;
+            } else if (strcmp(val, "bg3p") == 0) {
+                f->format = POCKETCAM_FMT_BG3P;
             } else {
                 r = -EINVAL;
             }

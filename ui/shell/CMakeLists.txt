@@ -154,6 +154,11 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/recorder/rec_store.c
     ${REPO_DIR}/apps/recorder/rec_names.c
     ${REPO_DIR}/core/pocketwav/pocketwav.c
+    ${REPO_DIR}/apps/vision/vision_app.c
+    ${REPO_DIR}/apps/vision/vision_model.c
+    ${REPO_DIR}/apps/vision/vision_layout.c
+    ${REPO_DIR}/apps/vision/vision_session.c
+    ${REPO_DIR}/core/pocketvision/vision_labels.c
     ${REPO_DIR}/apps/rift/rift_app.c
     ${REPO_DIR}/apps/rift/rift_model.c
     ${REPO_DIR}/apps/rift/rift_clock.c
@@ -289,7 +294,8 @@ target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/wave"
                                                   "${REPO_DIR}/apps/camera"
                                                   "${REPO_DIR}/apps/browser"
-                                                  "${REPO_DIR}/apps/recorder")
+                                                  "${REPO_DIR}/apps/recorder"
+                                                  "${REPO_DIR}/apps/vision")
 
 if(POCKETOS_LVGL_MODE STREQUAL "source")
     find_package(Python3 REQUIRED COMPONENTS Interpreter)

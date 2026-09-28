@@ -49,7 +49,8 @@ LAUNCHER_ICONS = [THRESHOLD + n + ".png" for n in
                                                                     EXTENSION + "camera.png",
                                                                     EXTENSION + "recorder.png",
                                                                     FIRST_PARTY + "zabbix.png",
-                                                                    FIRST_PARTY + "browser.png"]
+                                                                    FIRST_PARTY + "browser.png",
+                                                                    FIRST_PARTY + "vision.png"]
 
 
 def mask(png, src):

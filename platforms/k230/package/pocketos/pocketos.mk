@@ -51,12 +51,20 @@ POCKETOS_INSTALL_TARGET = YES
 # image and its sysroot (with headers, for OpenCV; docs/hardware/
 # CAMERA_PLATFORM_RESEARCH.md), so this adds a build dependency, not a
 # package.
-POCKETOS_DEPENDENCIES = cjson libgpiod2 lvgl libdrm libevdev alsa-lib jpeg libcurl libpng host-cmake host-python3
+# libnncase, libmmz: pos-vision, the Vision app's helper (docs/apps/VISION.md),
+# runs its detector on the KPU through the nncase 2.11 runtime and the AI2D
+# engine (POCKETVISION_KPU=1), and the runtime's shared pool through libmmz.
+# Both were already in the image and its sysroot (BR2_PACKAGE_AI2D_KPU and
+# BR2_PACKAGE_FACE_DETECT select them), so this adds a build dependency, not
+# a package. The model file is not part of this package (see VISION.md,
+# "The model"): the helper reads /usr/share/doors/vision/yolov8n.kmodel, put
+# there by hand for the prototype.
+POCKETOS_DEPENDENCIES = cjson libgpiod2 lvgl libdrm libevdev alsa-lib jpeg libcurl libpng libnncase libmmz host-cmake host-python3
 
 POCKETOS_SHELL_BUILD_DIR = $(@D)/ui/shell/build-k230
 
 define POCKETOS_BUILD_CMDS
-	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 POCKETCAM_JPEG=1 ZABBIX_CURL=1 BROWSER_CURL=1 BROWSER_IMAGES=1 ENABLE_MESHCORED=1 -C $(@D) all
+	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 POCKETCAM_JPEG=1 ZABBIX_CURL=1 BROWSER_CURL=1 BROWSER_IMAGES=1 POCKETVISION_KPU=1 ENABLE_MESHCORED=1 -C $(@D) all
 	mkdir -p $(POCKETOS_SHELL_BUILD_DIR)
 	cd $(POCKETOS_SHELL_BUILD_DIR) && $(TARGET_MAKE_ENV) $(BR2_CMAKE) $(@D)/ui/shell \
 		-DCMAKE_TOOLCHAIN_FILE=$(HOST_DIR)/share/buildroot/toolchainfile.cmake \
@@ -73,7 +81,7 @@ endef
 # PocketOS-era shell would otherwise still hold it, and the rootfs gate in
 # build_image.sh would refuse the image (correctly, but late).
 define POCKETOS_INSTALL_TARGET_CMDS
-	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 POCKETCAM_JPEG=1 ZABBIX_CURL=1 BROWSER_CURL=1 BROWSER_IMAGES=1 ENABLE_MESHCORED=1 -C $(@D) DESTDIR=$(TARGET_DIR) PREFIX=/usr install
+	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 POCKETCAM_JPEG=1 ZABBIX_CURL=1 BROWSER_CURL=1 BROWSER_IMAGES=1 POCKETVISION_KPU=1 ENABLE_MESHCORED=1 -C $(@D) DESTDIR=$(TARGET_DIR) PREFIX=/usr install
 	$(INSTALL) -D -m 0755 $(POCKETOS_SHELL_BUILD_DIR)/pocketos-shell $(TARGET_DIR)/usr/bin/doors-shell
 	rm -f $(TARGET_DIR)/usr/bin/pocketos-shell
 	rm -f $(TARGET_DIR)/etc/init.d/S90pocketos-shell

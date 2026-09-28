@@ -50,7 +50,7 @@ static void check(const char *what, int ok)
 /* The shell's registry order (ui/shell/shell.c apps[], then OPTIONAL_APPS). */
 static const char *const registry[] = { "radio", "system", "fleet", "radar", "timber", "notes",
                                         "clock", "calendar", "calculator", "settings", "wave", "rift",
-                                        "files", "camera", "browser", "recorder", "zabbix" };
+                                        "files", "camera", "browser", "recorder", "vision", "zabbix" };
 #define NREG ((int)(sizeof(registry) / sizeof(registry[0])))
 
 static int inside(const struct home_rect *a, const struct home_rect *b)
@@ -69,19 +69,19 @@ static void test_groups(void)
     uint8_t count[HOME_GROUP_COUNT];
     static const char *const want[] = { "rift", "radio", "wave", "zabbix", "browser", "notes", "calendar", "clock",
                                         "calculator", "fleet", "radar", "timber", "settings", "system",
-                                        "files", "camera", "recorder" };
+                                        "files", "camera", "recorder", "vision" };
     int n = home_group_order(registry, NREG, order, count);
     int k;
-    int same = n == 17;
+    int same = n == 18;
 
     for (k = 0; same && k < n; k++) {
         same = strcmp(registry[order[k]], want[k]) == 0;
     }
-    check("the seventeen apps are shown in the table's order", same);
+    check("the eighteen apps are shown in the table's order", same);
     check("CONNECTIONS holds RIFT, Radio, Wave, Zabbix, Browser", count[HOME_GROUP_CONNECT] == 5);
     check("WORKSPACE holds Notes, Calendar, Clock, Calculator", count[HOME_GROUP_WORK] == 4);
     check("PLAY holds Fleet, Radar, Timber", count[HOME_GROUP_PLAY] == 3);
-    check("DEVICE holds Settings, System, Files, Camera, Recorder", count[HOME_GROUP_DEVICE] == 5);
+    check("DEVICE holds Settings, System, Files, Camera, Recorder, Vision", count[HOME_GROUP_DEVICE] == 6);
     check("nothing is left for MORE", count[HOME_GROUP_MORE] == 0);
     check("group names are the package's capitals",
           strcmp(home_group_name(HOME_GROUP_CONNECT), "CONNECTIONS") == 0 &&

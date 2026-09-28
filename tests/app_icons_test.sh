@@ -91,6 +91,17 @@ check "it is exactly what render_app_icon.py draws from its SVG, at 24 and 32 px
 check "pos_app_icons.c names it and its hash, as its source" \
     "$(grep -qx " \*   ${FIRST}/browser.png" "${ICONS_C}" && grep -qx " \*     sha256 ${BROWSER_SHA}" "${ICONS_C}" &&
        echo 1 || echo 0)"
+# Vision's is the third (an eye), held the same way.
+VISION_SHA=8f6b1bc052a7a5b201d7fe52775596e3cf874fe4ea5353f739e0888afb9cedb2
+check "the first-party Vision icon is the committed file (sha256)" \
+    "$([ "$(sha256sum "${FIRST}/vision.png" | cut -c1-64)" = "${VISION_SHA}" ] && echo 1 || echo 0)"
+python3 tools/design/render_app_icon.py docs/design/doors-app-icons/svg/vision.svg "${TMP}/first" >/dev/null 2>&1
+check "it is exactly what render_app_icon.py draws from its SVG, at 24 and 32 px" \
+    "$(cmp -s "${TMP}/first/png-32/vision.png" "${FIRST}/vision.png" &&
+       cmp -s "${TMP}/first/png-24/vision.png" docs/design/doors-app-icons/png-24/vision.png && echo 1 || echo 0)"
+check "pos_app_icons.c names it and its hash, as its source" \
+    "$(grep -qx " \*   ${FIRST}/vision.png" "${ICONS_C}" && grep -qx " \*     sha256 ${VISION_SHA}" "${ICONS_C}" &&
+       echo 1 || echo 0)"
 
 # ---- each mask is its artwork's alpha ------------------------------------------
 # Decoded with the Timber art reader, not the generator's own, so a decoding
@@ -110,7 +121,7 @@ for n in names:
     dsc = re.search(r"pos_app_icon_%s = \{(.*?)\};" % n, text, re.S).group(1)
     hdr = dict(re.findall(r"\.header\.(\w+) = (\w+),", dsc))
     W, H, rows = read_png("%s/%s.png" % (ext if n in ("wave", "files", "camera", "recorder") else
-                                         first if n in ("zabbix", "browser") else art, n))
+                                         first if n in ("zabbix", "browser", "vision") else art, n))
     alpha = [p[3] for r in rows for p in r]
     ok = (hdr.get("cf"), hdr.get("w"), hdr.get("h"), hdr.get("stride")) == ("LV_COLOR_FORMAT_A8", "32", "32", "32") \
         and (W, H) == (32, 32) and data == alpha
@@ -123,9 +134,9 @@ PY
 rc=$?
 check "every mask is A8, 32 x 32, and equals its PNG's alpha byte for byte" "$([ "${rc}" = "0" ] && echo 1 || echo 0)"
 check "there is one mask per launcher app, named by app id, and no other" \
-    "$(grep -qx 'names browser calculator calendar camera clock files fleet notes radar radio recorder settings system timber wave zabbix' "${TMP}/masks.txt" && echo 1 || echo 0)"
-check "the file holds 16,384 bytes of mask data and nothing else of size" \
-    "$([ "$(grep -o '0x[0-9a-f][0-9a-f]' "${ICONS_C}" | wc -l)" = "16384" ] && echo 1 || echo 0)"
+    "$(grep -qx 'names browser calculator calendar camera clock files fleet notes radar radio recorder settings system timber vision wave zabbix' "${TMP}/masks.txt" && echo 1 || echo 0)"
+check "the file holds 17,408 bytes of mask data and nothing else of size" \
+    "$([ "$(grep -o '0x[0-9a-f][0-9a-f]' "${ICONS_C}" | wc -l)" = "17408" ] && echo 1 || echo 0)"
 extra=$(grep -c 'doors-icon-extension' "${ICONS_C}")
 check "of the extension's thirteen icons only Wave, Files, Camera and Recorder are compiled in (${extra} sources)" \
     "$([ "${extra}" = "4" ] && grep -qx " \*   ${EXT}/wave.png" "${ICONS_C}" &&
@@ -133,7 +144,7 @@ check "of the extension's thirteen icons only Wave, Files, Camera and Recorder a
        grep -qx " \*   ${EXT}/camera.png" "${ICONS_C}" &&
        grep -qx " \*   ${EXT}/recorder.png" "${ICONS_C}" && echo 1 || echo 0)"
 first=$(grep -c 'doors-app-icons' "${ICONS_C}")
-check "and two first-party icons, Zabbix's and Browser's (${first} sources)" "$([ "${first}" = "2" ] && echo 1 || echo 0)"
+check "and three first-party icons, Zabbix's, Browser's and Vision's (${first} sources)" "$([ "${first}" = "3" ] && echo 1 || echo 0)"
 
 # ---- refusals ------------------------------------------------------------------
 refused() { # <label> <message fragment> <source>...
@@ -226,8 +237,8 @@ check "no launcher app is without an icon mask except the one known to have no a
 check "and that one is still without it, so this exception has not gone stale (${nomask:-none})" \
     "$([ "$(echo ${nomask})" = "${NO_MASK_ALLOWED}" ] && echo 1 || echo 0)"
 users=$(grep -rl 'pos_app_icon_' apps ui --include='*.c' --include='*.h' | grep -v "^${ICONS_C}$" | wc -l)
-check "the masks are referenced only by the sixteen app descriptors that have one (found in ${users} files)" \
-    "$([ "${users}" = "16" ] && echo 1 || echo 0)"
+check "the masks are referenced only by the seventeen app descriptors that have one (found in ${users} files)" \
+    "$([ "${users}" = "17" ] && echo 1 || echo 0)"
 check "the brand mark is not used as an app icon (DS §19.1)" \
     "$(grep -rqE 'icon_mask = &pos_brand_mark' apps ui && echo 0 || echo 1)"
 # The DOORS launcher (DS §31) draws each app's portal icon from the runtime

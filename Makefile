@@ -180,7 +180,7 @@ endif
 
 BINS := tools/pos/pos services/radiod/radiod services/sysd/sysd services/netd/netd tools/hwcheck/pos-spixfer \
         tools/wave/pos-wave tools/camera/pos-camera tools/zabbix/pos-zabbix tools/browser/pos-browser \
-        tools/recorder/pos-record tools/drmtest/pos-drmtest
+        tools/recorder/pos-record tools/drmtest/pos-drmtest tools/vision/pos-vision
 ifeq ($(ENABLE_MESHCORED),1)
 BINS += services/meshcored/meshcored
 endif
@@ -1159,6 +1159,94 @@ camera-san-test:
 	    ./tests/camera_layout_test && ./tests/camera_gallery_test && \
 	    ./tests/camera_session_test tests/pos-camera-testhooks
 
+# Vision (docs/apps/VISION.md): the camera's live picture with what the KPU
+# finds in it, tracked and counted.
+#
+# core/pocketvision is the pipeline after the detector: decode, suppression,
+# tracks, the counting line and the frame-to-picture geometry - pure C, no
+# allocation, tested here. The detector is behind vision_kpu.h:
+# vision_kpu_fake.c on a host (a scripted tensor of the detector's shape),
+# vision_kpu_nncase.cpp on the K230 (POCKETVISION_KPU=1: the nncase runtime
+# and AI2D from the pinned SDK's sysroot, C++, linked into the helper only).
+# pos-vision is the helper, the only program that opens the camera (through
+# core/pocketcam, Camera's own layer, unchanged but for the planar BGR
+# format) or the detector. apps/vision holds the app's state, layout and
+# helper client (pure C, tested here); the screen is built by ui/shell.
+POCKETVISION_KPU ?= 0
+VISION_DIR := core/pocketvision
+VISION_CORE_OBJS := $(VISION_DIR)/vision_decode.o $(VISION_DIR)/vision_nms.o $(VISION_DIR)/vision_track.o \
+                    $(VISION_DIR)/vision_line.o $(VISION_DIR)/vision_geom.o $(VISION_DIR)/vision_labels.o
+ifeq ($(POCKETVISION_KPU),1)
+VISION_KPU_OBJS := $(VISION_DIR)/vision_kpu_nncase.o
+VISION_LINK := $(CXX)
+# The runtime's static libraries as the vendor's own programs link them
+# (package/yolo/CMakeLists.txt, package/ai2d_kpu/Makefile): the three in a
+# group, since they refer to one another; libmmz for the shared pool.
+VISION_LIBS := -Wl,--start-group -lNncase.Runtime.Native -lnncase.rt_modules.k230 -lfunctional_k230 \
+               -Wl,--end-group -lmmz -lpthread -ldl
+else
+VISION_KPU_OBJS := $(VISION_DIR)/vision_kpu_fake.o
+VISION_LINK := $(CC)
+VISION_LIBS :=
+endif
+VISION_APP_DIR := apps/vision
+VISION_APP_OBJS := $(VISION_APP_DIR)/vision_session.o $(VISION_APP_DIR)/vision_model.o \
+                   $(VISION_APP_DIR)/vision_layout.o
+POS_VISION_OBJS := tools/vision/pos_vision.o $(VISION_CORE_OBJS) $(VISION_KPU_OBJS) $(CAM_OBJS) $(PATHS_OBJS)
+VISION_TESTS := tests/vision_decode_test tests/vision_track_test tests/vision_geom_test \
+                tests/vision_model_test tests/vision_session_test
+
+# The one C++ file: -Wno-multichar as the vendor builds against these headers
+# (a four-character constant in the runtime's own header).
+$(VISION_DIR)/vision_kpu_nncase.o: $(VISION_DIR)/vision_kpu_nncase.cpp
+	$(CXX) $(CXXFLAGS) -std=gnu++17 $(COMMON_FLAGS) $(DEPFLAGS) -I$(VISION_DIR) -Wno-multichar -c -o $@ $<
+
+$(VISION_APP_DIR)/%.o: $(VISION_APP_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) -I$(VISION_APP_DIR) -c -o $@ $<
+
+tools/vision/pos-vision: $(POS_VISION_OBJS)
+	$(VISION_LINK) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(CAM_LIBS) $(VISION_LIBS) -lm
+
+tests/vision_%_test.o: tests/vision_%_test.c
+	$(CC) $(ALL_CFLAGS) -I$(VISION_APP_DIR) -c -o $@ $<
+
+tests/vision_decode_test: tests/vision_decode_test.o $(VISION_CORE_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
+tests/vision_track_test: tests/vision_track_test.o $(VISION_CORE_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
+# The geometry against the converter that draws the picture.
+tests/vision_geom_test: tests/vision_geom_test.o $(VISION_CORE_OBJS) $(CAM_OBJS) $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(CAM_LIBS) -lm
+
+tests/vision_model_test: tests/vision_model_test.o $(VISION_APP_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# The helper client against the real helper on the fake camera and the fake
+# detector.
+tests/vision_session_test: tests/vision_session_test.o $(VISION_APP_DIR)/vision_session.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+VISION_TEST_RUN = ./tests/vision_decode_test && ./tests/vision_track_test && ./tests/vision_geom_test && \
+                  ./tests/vision_model_test && ./tests/vision_session_test tools/vision/pos-vision
+
+vision-test: $(VISION_TESTS) tools/vision/pos-vision
+	$(VISION_TEST_RUN)
+	bash tests/vision_lint.sh
+
+# The Vision suites again under the address and undefined-behaviour
+# sanitizers, in a separate tree; the helper is built with them too.
+VISION_SAN_DIR := out/vision-san
+vision-san-test:
+	rm -rf $(VISION_SAN_DIR) && mkdir -p $(VISION_SAN_DIR)
+	git ls-files --cached --others --exclude-standard core apps/vision tools/vision tests/vision_* Makefile VERSION \
+	    | tar -cf - -T - | tar -xf - -C $(VISION_SAN_DIR)
+	$(MAKE) -C $(VISION_SAN_DIR) CC="$(CC)" POCKETOS_BUILD_ID=$(POCKETOS_BUILD_ID) \
+	    CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all" \
+	    LDFLAGS="-fsanitize=address,undefined" $(VISION_TESTS) tools/vision/pos-vision
+	cd $(VISION_SAN_DIR) && ASAN_OPTIONS=detect_leaks=1 $(VISION_TEST_RUN)
+
 # Recorder (docs/apps/RECORDER.md, ADR-010 accepted).
 #
 # pos-record is the Recorder's helper, the only program that opens audio or
@@ -1508,7 +1596,8 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
              tests/kbd_presence_test tests/chrome_test tests/home_layout_test tests/art_format_test \
              tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
              $(NOTES_TESTS) $(FILES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) $(CALC_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test \
-             $(WAVE_TESTS) $(RIFT_TESTS) $(CAMERA_TESTS) $(ZABBIX_TESTS) $(BROWSER_TESTS) $(REC_TESTS) tests/drmtest_test
+             $(WAVE_TESTS) $(RIFT_TESTS) $(CAMERA_TESTS) $(ZABBIX_TESTS) $(BROWSER_TESTS) $(REC_TESTS) tests/drmtest_test \
+             $(VISION_TESTS)
 
 # Native tests only (they execute binaries).
 test: all $(TEST_BINS)
@@ -1600,6 +1689,7 @@ test: all $(TEST_BINS)
 	./tests/camera_layout_test
 	./tests/camera_session_test tests/pos-camera-testhooks
 	./tests/camera_gallery_test
+	$(VISION_TEST_RUN)
 	./tests/zbx_model_test
 	./tests/zbx_proto_test
 	./tests/zbx_api_test
@@ -1668,6 +1758,7 @@ test: all $(TEST_BINS)
 	bash tests/zabbix_lint.sh
 	bash tests/browser_lint.sh
 	bash tests/recorder_lint.sh
+	bash tests/vision_lint.sh
 
 install: all meshcored-shipping-check
 # The command-line tool is installed as doors, and pos is a symlink to it: one
@@ -1684,6 +1775,7 @@ install: all meshcored-shipping-check
 	install -D -m 0755 tools/zabbix/pos-zabbix $(DESTDIR)$(PREFIX)/bin/pos-zabbix
 	install -D -m 0755 tools/browser/pos-browser $(DESTDIR)$(PREFIX)/bin/pos-browser
 	install -D -m 0755 tools/recorder/pos-record $(DESTDIR)$(PREFIX)/bin/pos-record
+	install -D -m 0755 tools/vision/pos-vision $(DESTDIR)$(PREFIX)/bin/pos-vision
 	install -D -m 0755 tools/drmtest/pos-drmtest $(DESTDIR)$(PREFIX)/bin/pos-drmtest
 	install -D -m 0755 tools/display/pos-display-boot.sh $(DESTDIR)$(PREFIX)/bin/pos-display-boot
 	install -D -m 0755 services/radiod/radiod $(DESTDIR)$(PREFIX)/sbin/radiod
@@ -1923,4 +2015,4 @@ meshcored-clean:
         meshcore-frame meshcore-frame-test \
         meshcore-core meshcore-core-test meshcore-core-riscv64 \
         meshcored meshcored-test meshcored-clean meshcored-shipping-check \
-        recorder-test recorder-san-test
+        recorder-test recorder-san-test vision-test vision-san-test

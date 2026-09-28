@@ -87,6 +87,7 @@ APP_ICONS = {
     "recorder": (EXTENSION + "recorder.svg", "tools"),
     "zabbix": (FIRST_PARTY + "zabbix.svg", "tools"),
     "browser": (FIRST_PARTY + "browser.svg", "network"),
+    "vision": (FIRST_PARTY + "vision.svg", "ai"),
 }
 # The system glyphs the shell uses, from the package's 32 px exports.
 GLYPHS = ["lock", "power", "wifi", "radio", "sun", "display", "info", "settings", "apps",
