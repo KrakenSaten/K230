@@ -3253,6 +3253,8 @@ screen all the time that is not messages or the way to them.
   builds no 72 px app header for an app that declares it, in landscape only,
   and the app draws its own top row with its own way back. RIFT declares it;
   no other app does, and portrait keeps the shell's header everywhere.
+  `shell.info` reports the header with `present: false` then (`h` 0, the
+  body at the top edge), and tests/chrome_shell_test.sh holds that.
 - **The strip is the app's top row**: data-row height (36) in landscape, a
   back slab (56 × 32, the shell's glyph, `pocketos_shell_go_home`) at its
   left, the four tabs, the counts caption at its right. The tabs are 36 px

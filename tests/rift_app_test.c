@@ -1228,6 +1228,39 @@ static void report_refresh_cost(const char *what)
            ((double)(t1.tv_sec - t0.tv_sec) * 1e3 + (double)(t1.tv_nsec - t0.tv_nsec) / 1e6) / n);
 }
 
+/* Opened in landscape, as the shell opens it from a turned launcher: the
+ * frame is created in the console shape rather than turned into it. The
+ * running shell hung here on 2026-09-28 while every screenshot run - which
+ * opens the app at boot - passed, so the path has a session of its own. */
+static void landscape_start_session(void)
+{
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    app_start();
+    check("opened in landscape, the app is wide from the first pass", app && app->wide);
+    quiet_client();
+    give_nodes();
+    give_service();
+    pump(200);
+    check("the strip is a data row with the way back in it",
+          lv_obj_get_height(strip()) == RIFT_ROW_H && app->back && visible(app->back));
+    give_messages();
+    rift_app_show_section(app, RIFT_SEC_COMMS);
+    pump(120);
+    rift_app_open_conversation(app, KEY_B);
+    pump(120);
+    check("a conversation opens", find_text(content(), "Fint, ser deg") != NULL);
+    check("with the command line as the composer, a data row",
+          lv_obj_get_height(cmdline()) == RIFT_ROW_H && app->composer &&
+              visible(lv_obj_get_parent(app->composer)));
+    rift_app_show_section(app, RIFT_SEC_NODES);
+    pump(120);
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(120);
+    check("and the app is still inside the body", inside_body(content()));
+    app_stop();
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+}
+
 static void scale_session(void)
 {
     lv_obj_t *list;
@@ -2901,6 +2934,7 @@ int main(void)
     /* The DM sound, from the history on opening to the switch that turns it
      * off, and the whole mesh at once: each in an app of its own. */
     sound_session(g_state_dir);
+    landscape_start_session();
     scale_session();
 
     /* A destroyed app's timer must be gone: one more pass into a freed
