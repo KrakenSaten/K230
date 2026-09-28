@@ -97,8 +97,8 @@ check "no app resolves, reads or touches the chrome" "$([ -z "$hits" ] && echo 1
 [ -n "$hits" ] && echo "$hits" | head -5
 hits=$(grep -rn '\.chrome = ' apps --include='*.c' | grep -v 'POCKETOS_CHROME_NONE')
 declared=$(grep -rln '\.chrome = POCKETOS_CHROME_NONE' apps --include='*.c' | cut -d/ -f2 | sort | tr '\n' ' ')
-check "the ten fullscreen apps declare NONE and no app declares anything else ($declared) (DS §30.8, §34, §35)" \
-    "$([ -z "$hits" ] && [ "$declared" = "browser camera fleet notes radar recorder rift timber wave zabbix " ] && echo 1 || echo 0)"
+check "the eleven fullscreen apps declare NONE and no app declares anything else ($declared) (DS §30.8, §34, §35)" \
+    "$([ -z "$hits" ] && [ "$declared" = "browser camera fleet notes radar recorder rift timber vision wave zabbix " ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
 check "the test hook that forces a chrome is compiled out of the panel's build" \
     "$(sed -n '/POCKETOS_SHELL_TEST_HOOKS/,/#endif/p' ui/shell/shell.c | grep -q 'getenv("POCKETOS_TEST_CHROME")' &&

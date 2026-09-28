@@ -3478,3 +3478,109 @@ ids; a crossing counted in the right direction on ACROSS and on DOWN;
 RESET; the stalled and the no-model states; repeated open and close, and
 Camera afterwards; the frame rate, the KPU time and the helper's CPU and
 memory in the status line, against `top`.
+
+## 39. Amendment W — Launcher folders (app groups) [PROPOSED]
+
+**PROPOSED 2026-09-28** on branch `feat/launcher-app-groups`, validated on
+the host (§39.6), **not yet gated on a unit**. It changes the launcher of
+§31.3: an app may be shown behind a folder's cell instead of its own. One
+folder exists, GAMES. Nothing in §1-§38 is renumbered, and no app outside
+GAMES moves.
+
+### 39.1 What a folder is
+
+A folder is one cell on the launcher standing for several apps. Opening it
+shows the folder's page; its apps are not on the launcher's own page. It
+is the launcher's decision, like the group and the colour (§31.2): a
+column in the launcher's table keyed by app id (`ui/shell/home_layout.c`),
+so no app declares or knows where it is shown. Only GAMES exists: Fleet,
+Radar and Timber, and PG Solitaire, Blackjack and 2048 when that branch
+joins (feat/games-solitaire-blackjack-2048, one row each). UTILITIES,
+RADIO, SYSTEM or MEDIA would each be one more enum value, one more row of
+the folder table, a portal icon, and the column set for its apps - nothing
+in the launcher itself changes.
+
+- The folder's cell sits where its first installed app would have been:
+  GAMES is PLAY's only cell.
+- A folder none of whose apps is installed has no cell. One with a single
+  app is still a folder, so an app is always found in the same place.
+- An app not in this build (Zabbix with `-DPOCKETOS_WITH_ZABBIX=OFF`, a
+  game not merged) is simply not in its folder.
+
+### 39.2 The cell
+
+A launcher cell like an app's (§31.3): the portal icon, here a first-party
+gamepad in the games colour (`docs/design/doors-app-icons/svg/games.svg`,
+drawn by `gen_doors_ui.py` as `icon-games`), and the folder's name,
+"Games". Without the art: the empty portal with `LV_SYMBOL_PLAY`, as an app
+without a mask gets its text icon. The press mark is the app cells'.
+
+### 39.3 The folder's page
+
+The launcher's glass on the home photograph (`ENV_*` roles only, no new
+role, token or colour):
+
+- the top row: the way back, the app header's 72 x 56 slab (§7) in
+  `ENV_PANEL`, with `LV_SYMBOL_LEFT`; the folder's name beside it in
+  `ENV_TITLE`, stopping short of the status cluster (§36);
+- one panel captioned in the package's capitals ("GAMES"), holding the
+  apps' cells in the table's order: four across in portrait, the panel the
+  launcher's width; in landscape as many as fit a row (up to nine), the
+  panel exactly as wide as its cells and centred;
+- a folder with more apps than the screen holds grows past it and the
+  page scrolls, as the launcher does (§31.3). Nothing is shortened.
+
+The page is built when the folder opens and deleted when it closes, with
+the art its cells loaded; one folder is open at most. No object of a
+closed folder exists.
+
+### 39.4 Going in and out
+
+- Opening an app from the folder's page, then coming home (the app
+  header's back slab, `shell.home`) comes back to the folder's page.
+- The folder's back slab, Esc or Backspace go back to the launcher's page,
+  the focus on the folder's cell.
+- A rotation restart (§21.4) comes back in the folder that was open
+  (`DOORS_LAUNCHER_FOLDER`, beside the lock's own mark); a cold start is on
+  the launcher's page.
+- Lock and Controls cover the folder's page as they cover the launcher and
+  leave it as it was.
+
+### 39.5 Keys (§17.4)
+
+At home the launcher is the focused object: the shell gives it the keys
+when home shows and takes them away while an app or Controls covers it.
+The first arrow shows where the focus is - the press mark, drawn on the
+focused cell - without moving it; then Left and Right step through the
+page's cells in order and stop at the ends, Up and Down go to the nearest
+row above or below and the cell nearest in x there (crossing panels as the
+eye does), and stop at the top and bottom rows. The focused cell is
+brought into view; on the first row the page scrolls to its top. Enter (or
+Space) opens the focused app or folder. A tap moves the focus to the cell
+tapped and hides the mark until the next key. Nothing opens, closes or
+moves the LVGL focus inside the event that asked for it: the launcher does
+it on the next timer pass (the lesson of RIFT's COMMS work).
+
+### 39.6 Validation on the host
+
+`tests/home_layout_test.c` (the table's folder column; the launcher's page
+with and without games, one game, a game not installed; the folder's page
+for 0 to 48 apps in both orientations: inside its panel, no overlap, touch
+minimum, clear of the cluster, scrolling exactly when it runs past the
+foot), `tests/home_folder_test.c` (the running launcher under a pointer
+and the key stream: taps, keys and their edges, focus coming back,
+thirty-three games scrolling into view, landscape, fifty open/back rounds
+and twenty rebuilds holding no more objects or art; four mutants of
+`home.c` each caught), `tests/launcher_folder_shell_test.sh`
+(shell.folder, a game opened from the folder coming home to it, Controls
+and the lock over it, forty rounds, the restart in both orientations,
+screenshots), and the launcher, art and chrome suites with sixteen cells.
+
+### 39.7 Gate (before acceptance)
+
+On a unit, the build's identity first. Both orientations: one Games cell
+in PLAY and no game cell on the launcher; Games opens by touch and by the
+keyboard base; every game there; open two games and come home to Games
+each time; back to the launcher with the focus on Games; rotate inside
+Games; repeated open and close without a crash, and the shell's RSS and
+`art.bytes_held` flat.

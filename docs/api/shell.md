@@ -89,11 +89,24 @@ developer tooling, not for applications.
 - `shell.controls` params `{show?}`: shows DOORS Controls over the launcher
   (DS §31.5), or with `show: false` closes it. Result `{controls}`; `show`
   that is not a boolean is error 2.
+- `shell.folder` params `{id}`: opens the launcher folder `id` ("games";
+  DS §39) at home - going home first from an app or Controls - or, with
+  `id: ""`, goes back to the launcher's own page. Result `{folder}`, the
+  open folder's id or null. An id that is not a string is error 2; a folder
+  that does not exist or has no app installed is error 2 and changes
+  nothing. `pos call shell shell.folder id=games`.
 - `shell.info` also carries the DOORS environment: `lock` `{locked, opening,
   engaged, opened}` (counts since start), `launcher` `{groups, apps,
-  icons_art, icons_fallback, cell_width, scrolls, controls, cells}` -
-  `cells` is every app's cell on the screen, `[{id, x, y, w, h}]` - and `art`
-  `{dir, background, files_read, bytes_held}` (ui/shell/art.h).
+  icons_art, icons_fallback, cell_width, scrolls, controls, cells, folders,
+  folder, home_cells, folder_cells, focus, focus_shown, keys}` - `cells` is
+  every app's cell on the page showing (the launcher's, or the open
+  folder's), `[{id, x, y, w, h}]`; `folders` is every folder,
+  `[{id, name, apps, x, y, w, h}]`, with the rectangle while its cell is on
+  the screen; `folder` the open one or null; `home_cells` the launcher's
+  cells and `folder_cells` how many of them are folders; `focus` the id the
+  keys are on, `focus_shown` whether its mark is drawn, `keys` whether the
+  launcher has the keys - and `art` `{dir, background, files_read,
+  bytes_held}` (ui/shell/art.h).
   `pos call shell shell.lock`, `pos call shell shell.unlock animate=true`.
 
 ## Events

@@ -8,6 +8,7 @@
 48741312ef4765dbb1f53b01259fb68aeb341e4ec0294daa1c44390034ad4846  ui/assets/doors/icon-clock.bin  79fca26733ea5cfc03475f6d6419c5ddd2c150d85f1becb8d6f0dd68613301aa  docs/design/brand/doors-threshold/icons/svg/clock.svg
 c3cee7e8d32f0bdb43e51be70aac66f1c1264a2b23ae179543e02dece5ffc688  ui/assets/doors/icon-files.bin  7b09a079c2a37bf6d6eb25971a3f17710cc608e2aa9eb1a8d4d90406d6f0fb8e  docs/design/brand/doors-visual-pack-v1/source/system-icons/svg/files.svg
 550ad2cd486e3a340635df675624a6ff5d2e2560f42f01f7af3a1cbf8405e736  ui/assets/doors/icon-fleet.bin  faf7d496011d9d7573bfe307a3fb7adb2f310961e30ae8eafa1148e2807caaad  docs/design/brand/doors-threshold/icons/svg/fleet.svg
+5783747243bd7b36d77911e503f79a9f4d3399de2dc272f9ca789322db855ecc  ui/assets/doors/icon-games.bin  3b0e5dfa11296f8ed47ab41961a4c35a09a032c3325cf616f58db87da7c8aa91  docs/design/doors-app-icons/svg/games.svg
 3e73791ddf85a0c8beca7423202892044b08cad92a9ff0747b63e067cdef3a69  ui/assets/doors/icon-notes.bin  1f15abe11c3ce599fb99ce2ae05d9546d91d2e70208bae579dcb92d6a13ef040  docs/design/brand/doors-threshold/icons/svg/notes.svg
 0ebe418dd1d8d3079d0dbb1a5718d9aec8fdc2dea05e3e44e494f1d692052689  ui/assets/doors/icon-radar.bin  0940b172d7e527425de9e1a62059b2b58334645126e12a0c151514dbee39a5c4  docs/design/brand/doors-threshold/icons/svg/radar.svg
 82f86211b2fae75d98e8204f52c4bea35cd9d9781c8ada69801c1f3f5bf270a8  ui/assets/doors/icon-radio.bin  6ef7d23172599ad83c1780b9f09f933ad2cb842803b47796c324cca2afebd4b2  docs/design/brand/doors-visual-pack-v1/source/system-icons/svg/radio.svg

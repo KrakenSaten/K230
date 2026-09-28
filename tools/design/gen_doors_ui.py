@@ -88,6 +88,8 @@ APP_ICONS = {
     "zabbix": (FIRST_PARTY + "zabbix.svg", "tools"),
     "browser": (FIRST_PARTY + "browser.svg", "network"),
     "vision": (FIRST_PARTY + "vision.svg", "ai"),
+    # Not an app: the GAMES folder's cell (ui/shell/home_layout.h, folders).
+    "games": (FIRST_PARTY + "games.svg", "games"),
 }
 # The system glyphs the shell uses, from the package's 32 px exports.
 GLYPHS = ["lock", "power", "wifi", "radio", "sun", "display", "info", "settings", "apps",
