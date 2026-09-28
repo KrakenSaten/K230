@@ -88,3 +88,23 @@ So: the mode, its layout in both orientations, every control, the lines,
 reset, the cycles, Camera afterwards, the services and the cost are
 LIVE-READ PASS on unit B; **the counting and speed logic on a real
 target is still to be shown**, on the steps above, by the owner.
+
+### The pixel modes (`85c7383`: pos-vision `59fbf7c852…`, doors-shell `b7a3c43256…`)
+
+Landscape, the same dark room, from DETECT through TRAFFIC into each mode
+by MODE taps (`caps/q1-color.png` .. `q8-back-to-detect.png`):
+
+| Mode | Result |
+| --- | --- |
+| COLOR | PASS (LIVE-READ): `Tap the picture or SAMPLE` at first; SAMPLE took `#010003` from the dark middle and painted 99.9 % of the picture green with the accent mark at the centroid (391, 220); TOL: HIGH the same; status `10.0 fps  5 ms` (the pass) |
+| EDGE | PASS: a black picture of edges, `8.9 fps  13 ms  edges 0.0%  soft`, HARD the same; `pos-vision` **20 % CPU** (the KPU idle), `doors-shell` 4 % |
+| TRACE | PASS: `8.9 fps  6 ms  no dark line  (0 rows)`, LINE: LIGHT the same |
+| Back to DETECT | PASS: boxes and lines back, one helper (6.0 MB RSS), gone after leaving, 0 ERROR lines |
+
+What the pixel passes find on a lit scene (a coloured object, edges, a
+tape on the floor) is not shown here; the passes themselves are held by
+`tests/vision_pixels_test.c` on synthetic pictures.
+
+The unit was left on `85c7383`'s helper and shell in automatic rotation
+(landscape), at home; `/root/rollback-vision-traffic/RESTORE.sh` restores
+the v0.2.1 pair.
