@@ -15,6 +15,20 @@ serial console attached (COM12) was unit B's. The gate ran on unit B, the
 same hardware revision, instead.
 
 **Result: PASS.** No defect was found that needed a code change.
+**ACCEPTED 2026-09-28 by the owner** as the hardware gate for this branch,
+on these terms:
+
+- **Unit B was used instead of unit A**, which was unreachable.
+- **The 1000-node / 256-conversation load came from a non-transmitting
+  stand-in** on meshcored's socket: it refuses `mesh.send` and was never
+  asked for one. The only transmission in the gate was one DM through the
+  real meshcored.
+- **The real meshcored was restored afterwards** and came back online with
+  its own 157 nodes.
+- **Conversation names truncate in the narrow landscape list** (about 8
+  characters; finding 1).
+- **The 256-conversation bound can omit older conversations and channels**
+  when the list is full (finding 2).
 
 ## What was deployed
 
