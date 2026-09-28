@@ -97,6 +97,35 @@ the KPU running alongside makes the vendor fault come sooner, or unit B is
 simply more prone than unit A, is not known: that needs Camera-only cycles
 counted on unit B, which costs power cycles at the bench.
 
+### Fourth and fifth sessions (unit B, 2026-09-28 evening): isolating the lock-up
+
+Every run below is a separate process, one camera open and close each, with
+the console logged; "froze" means the unit stopped answering SSH, ping and
+its console, the last console line a normal `vvcam_isp_release`.
+
+| Test (unit B) | Result |
+| --- | --- |
+| Camera app, open/close cycles (NV16, Vision's own cycle timing) | 40 of 40, no freeze |
+| `pos-vision bench 60` on the fake camera: the KPU, AI2D and model load/unload alone, no ISP | 30 of 30, no freeze |
+| `pos-camera bench --config fmt=bgr`: the ISP streaming BG3P, no KPU | 30 of 30, no freeze (and two libjpeg segfaults in Camera's still encoder right after boot, unrelated to Vision, not seen again) |
+| `pos-vision bench 60` on the real camera: BG3P + KPU in one process, run to completion | 30 of 30, no freeze |
+| `pos-vision bench` stopped by SIGTERM mid-stream (helper as of `99739f5`) | froze on run 5; the helper took ~420 ms to leave after SIGTERM |
+| The same with `543dc0e` (SIGTERM/SIGINT blocked for life, checked between frames; the app's grace 1000 ms) | **froze on run 19**, after 18 clean runs; the helper left on its own 430-480 ms after SIGTERM every time |
+
+So the signal fix in `543dc0e` did **not** remove the freeze: its commit
+message states a cause that this last run disproves (or at best shows was
+not the whole of it). The change is kept because it is sound on its own - a
+stop never interrupts a KPU or AI2D wait, and the app no longer SIGKILLs a
+helper that is still closing the camera - but it is not the fix.
+
+What the counts do and do not show: runs stopped part-way froze the unit 2
+times in 24; runs to completion 0 times in 30; Camera 0 in 40. With numbers
+this small the difference is suggestive, not proven. Every freeze is the
+same silent one as the known camera lock-up (docs/KNOWN_ISSUES.md), in the
+vendor vvcam/ISP stack, with nothing on the console to follow; finding its
+cause needs kernel-side debugging (lockup detectors, sysrq, a JTAG probe)
+or a vendor fix, and every attempt costs a power cycle at the bench.
+
 ## The original plan (unit A)
 
 Every step is on unit A with the shell started normally and
