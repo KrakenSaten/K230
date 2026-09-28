@@ -228,6 +228,11 @@ accents and traffic graph (DS §37, accepted; unit B gate
 (ADR-010), Camera's gallery, Wave's one screen, the compact status cluster
 (DS §36), and HDMI output with the first Doors kernel patches (ADR-011).
 
+**v0.2.1** (released 2026-09-28, tag `v0.2.1`, image built at `9dc66c2`;
+release notes and the unit B fresh-flash smoke: `docs/releases/v0.2.1.md`):
+v0.2.0 with Vision's model in the image (LICENSING item 10: AGPL-3.0,
+internal images only).
+
 ### Landscape app adaptation (after v0.0.10)
 
 System rotation works (DS §21). When this was written most app screens were

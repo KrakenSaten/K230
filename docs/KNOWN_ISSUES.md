@@ -1,6 +1,6 @@
 # Known issues and open questions
 
-Updated 2026-09-28 for v0.2.0 (tag `v0.2.0`). Move items
+Updated 2026-09-28 for v0.2.1 (tag `v0.2.1`). Move items
 to git history when resolved.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
@@ -91,11 +91,17 @@ Unit A was not available.
 
 - **The kmodel is AGPL-3.0 and cleared for internal images only**
   (docs/LICENSING.md item 10): the SDK ships `yolov8n.kmodel` without terms,
-  and it is compiled from Ultralytics weights (AGPL-3.0). v0.2.0 as tagged
-  does not carry it (install it with `tools/vision/install-model.sh`). From
-  fix/v020-vision-model on, the package installs it at
-  `/usr/share/doors/vision/`, with its notice. An image carrying it must not
-  be distributed outside the project until item 10 is decided for that.
+  and it is compiled from Ultralytics weights (AGPL-3.0). v0.2.0 does not
+  carry it (install it with `tools/vision/install-model.sh`); from v0.2.1 the
+  package installs it at `/usr/share/doors/vision/`, with its notice. An
+  image carrying it must not be distributed outside the project until item
+  10 is decided for that.
+- **Weak detection in warm, dim light, and counts above the real
+  crossings** (v0.2.1 fresh-flash smoke on unit B, docs/releases/v0.2.1.md):
+  a person standing in full view was boxed in some frames only, at 35-59 %,
+  track ids climbed to #73 in two minutes, and COUNT reached LEFT 16 /
+  RIGHT 16 for a walk asked as 3-4 crossings each way. Same code and model
+  as the gate that saw 76-83 %; the scene was warmer and dimmer.
 - **The ISP's `BG3P` at 640 x 360 on `/dev/video2` works** (VERIFIED on unit
   B), and its planes are R, G, B despite the name (fixed in `99739f5`).
 - **False detections on dark clutter**: a coat on a chair drew

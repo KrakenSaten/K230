@@ -60,7 +60,13 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-**Doors 0.2.0** (tag `v0.2.0`, 2026-09-28) is the current release: Vision
+**Doors 0.2.1** (tag `v0.2.1`, 2026-09-28) is the current release: v0.2.0
+with Vision's model in the image, so Vision works right after a fresh flash.
+The model is AGPL-3.0 and the image is for internal use only
+(docs/LICENSING.md item 10). The release notes, with its unit B fresh-flash
+smoke, are docs/releases/v0.2.1.md.
+
+**Doors 0.2.0** (tag `v0.2.0`, 2026-09-28): Vision
 (a KPU detection prototype; the model is installed by hand), RIFT's landscape
 COMMS console and traffic graph, Browser, Recorder, Camera's gallery, Wave's
 one screen, the compact status cluster, and HDMI output with the first
