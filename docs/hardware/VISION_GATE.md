@@ -1,6 +1,6 @@
 # Vision - hardware gate
 
-**Run on unit B (K230-B, 192.168.10.187, console COM12) on 2026-09-28, by
+**Run on unit B (K230-B, Wi-Fi .187 then .140 after a power cycle, console COM12) on 2026-09-28, by
 the owner's choice: unit A was off the bench. IN PROGRESS, stopped by a
 whole-unit freeze (below).** Unit B carries the v0.0.13 dev image
 `ee39407` with the Doors userspace of build `7591725` deployed by
@@ -19,17 +19,46 @@ it). Rollback of everything the deploy replaced:
 | 3b | Open Vision (fixed helper) | PASS (LIVE-READ, screenshot `out/vision-gate/caps/v2-landscape-live.png`): live picture, status `20.7 fps KPU 31 ms pre 2 post 10 CPU 36% 5 MB`, the ACROSS line drawn, DOWN 0 / UP 0, and one confirmed track `#2 person 40%` over most of the dark frame (a real person close to the lens or a low-light false positive: not decidable from the picture). `top`: `pos-vision` 49 % CPU, 5.5 MB RSS; `doors-shell` 10 % CPU, 16 MB RSS |
 | - | **Whole-unit freeze** | Vision left open and streaming: within about two minutes of the 08:50:05 camera open the unit stopped answering SSH, ping and its serial console. The console (loglevel 8, logged from 08:43) printed nothing after the open: no release, oops, panic, RCU stall or watchdog line. Still hung at 09:01 (a newline on COM12 got no answer). Needs a power cycle |
 
-Not yet run: boxes on real, lit objects, ids across motion, counting,
-ten open/close cycles, Camera afterwards, leftovers.
+### Second session (unit B after the owner's power cycle, Wi-Fi now 192.168.10.140)
 
-The freeze is new in one respect: the known camera lock-up
-(docs/KNOWN_ISSUES.md) came a few seconds after a camera close, never
-during streaming. Here the camera was streaming, with the KPU running
-every frame. Whether Vision's pipeline causes it, or it is the same vendor
-ISP fault meeting a longer stream, is open. The first thing after the power
-cycle is to separate the two: `pos-vision bench 3000` (about 2.5 minutes of
-streaming and inference, no shell app) with the console logged, then the
-same length of Camera preview alone.
+The unit the owner restarted at about 14:10 UTC was K230-B (its pinned host
+key, Wi-Fi MAC `88:3b:dc:b7:9e:d3`, build `7591725`), not unit A: unit A's
+Wi-Fi MAC `…9e:c7` did not appear on the network in a four-minute sweep
+and its console (COM9) was not attached. The gate went on on unit B.
+
+| # | Step | Result |
+| --- | --- | --- |
+| 4 | Scene | Still dark: a Camera still at 14:17 is black. Every `person` box so far is a full-frame low-light false positive (35-50 %) |
+| 5 | `pos-vision bench 3000`, helper alone, memory probe every second | PASS: 3000 frames in 103.7 s, **28.9 fps** through the pipeline (so the sensor delivers at least that; it is 30 fps), mean AI2D 1.1 ms, **KPU 19.2 ms**, decode + NMS + track 8.1 ms; 0 rows refused; no freeze; temperature 55-57 °C; the helper's RSS 4.9 MB throughout |
+| 6 | Vision app open five minutes (14:19:55-14:25:55), sampled every 5 s | PASS: no freeze; `pos-vision` 38-50 % CPU, **RSS 6.1 MB flat**; `doors-shell` 8-18 % CPU, RSS 16.5 MB; load 1.1-1.9; 56-60 °C; MemFree and CmaFree both drift down ~250 KB a minute while streaming (about 1.5 MB over the five minutes) |
+| 7 | Leave Vision (`doors app home`) | **Whole-unit freeze.** The console's last lines are the camera's normal release (`vvcam_mipi_release`, `vvcam_isp_release:187`, 14:26:39), then nothing: no oops, panic or watchdog, no SSH, no ping. This is the signature of the pre-existing camera lock-up in docs/KNOWN_ISSUES.md, reached here on the fourth camera release of this boot (bench, still, bench, app) rather than after 21-40 as with Camera on unit A |
+
+Measured, in one place:
+
+| What | Value |
+| --- | --- |
+| Camera | 30 fps sensor; ≥ 28.9 fps delivered to the pipeline (bench 3000) |
+| Inference (KPU) | 17-20 ms bench, 31 ms in the app's status line (the shell competes for the CPU) |
+| Preprocess (AI2D) | 1.1 ms |
+| Decode + NMS + track | 7-10 ms |
+| Total | 28.9 fps helper alone; 20.7 fps with the app open |
+| CPU | `pos-vision` 38-50 %, `doors-shell` 8-18 % |
+| RSS | `pos-vision` 4.9-6.1 MB, flat; `doors-shell` 16.5 MB |
+
+Not run: boxes on real lit objects, ids across motion, counting (the scene
+is dark); ten open/close cycles and Camera afterwards (each freeze costs a
+power cycle at the bench).
+
+The two freezes: the first came while Vision was streaming (no release
+line), the second a few seconds after a clean release - the known
+lock-up's own pattern. The helper alone streamed 104 s and the app five
+minutes without a freeze, and memory stayed flat, so nothing points at
+Vision's own code; but two freezes in two short sessions is far sooner than
+Camera's 21-40 opens, and the one difference in the camera path is the
+planar BGR format on the self path (Camera asks for NV16). That is the one
+experiment left that needs no code: `--config fmt=nv16` cannot feed the
+KPU, so the useful comparison is Camera open/close cycles on the same boot
+versus Vision cycles, counted until the freeze, with the console logged.
 
 ## The original plan (unit A)
 
