@@ -630,6 +630,9 @@ static lv_obj_t *line_object(lv_obj_t *parent, enum pos_style_role fill)
 
     lv_obj_remove_style_all(l);
     pos_style_add(l, fill, 0);
+    /* A chip role carries its colour but not its opacity (the chip
+     * geometry does); a bare object needs the fill said. */
+    lv_obj_set_style_bg_opa(l, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(l, 0, 0);
     lv_obj_clear_flag(l, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
