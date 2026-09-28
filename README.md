@@ -60,7 +60,14 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-**Doors 0.1.0** (tag `v0.1.0`, 2026-09-26) is the current release: Camera,
+**Doors 0.2.0** (tag `v0.2.0`, 2026-09-28) is the current release: Vision
+(a KPU detection prototype; the model is installed by hand), RIFT's landscape
+COMMS console and traffic graph, Browser, Recorder, Camera's gallery, Wave's
+one screen, the compact status cluster, and HDMI output with the first
+Doors kernel patches. The release notes, with its unit B smoke, are
+docs/releases/v0.2.0.md.
+
+**Doors 0.1.0** (tag `v0.1.0`, 2026-09-26): Camera,
 device controls and Diagnostics (SX1262 off by default), Zabbix (a read-only
 viewer for an existing Zabbix server, in CONNECTIONS) and Fleet multiplayer
 over the mesh. The release notes, with its unit A smoke, are

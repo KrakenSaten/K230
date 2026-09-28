@@ -218,6 +218,16 @@ Also device controls and Diagnostics (DS §31.5, SX1262 off by default) and
 Fleet multiplayer over the mesh (ADR-008, Proposed; unit A+B gate
 `docs/hardware/FLEET_MULTIPLAYER_GATE.md`).
 
+**v0.2.0** (released 2026-09-28, tag `v0.2.0`, image built at `568836e`;
+release notes and the unit B smoke: `docs/releases/v0.2.0.md`): everything
+merged since `v0.1.0` - Vision, DETECT/TRACK/COUNT on the KPU (DS §38,
+PROPOSED; the model not shipped, LICENSING item 10; unit B gate
+`docs/hardware/VISION_GATE.md`), RIFT's landscape COMMS console, identity
+accents and traffic graph (DS §37, accepted; unit B gate
+`docs/hardware/RIFT_UI_DENSITY_GATE.md`), Browser (ADR-009), Recorder
+(ADR-010), Camera's gallery, Wave's one screen, the compact status cluster
+(DS §36), and HDMI output with the first Doors kernel patches (ADR-011).
+
 ### Landscape app adaptation (after v0.0.10)
 
 System rotation works (DS §21). When this was written most app screens were

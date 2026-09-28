@@ -1,6 +1,6 @@
 # Known issues and open questions
 
-Updated 2026-09-25 for v0.0.12 (released 2026-09-25, tag `v0.0.12`). Move items
+Updated 2026-09-28 for v0.2.0 (tag `v0.2.0`). Move items
 to git history when resolved.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
@@ -69,10 +69,10 @@ including the owner's listening check of the volume steps; DS §31.5 accepted.
   power) until the DS draws their own; the landscape Controls moves Lock and
   Power into the header row to fit three tile rows (DS §31.5, accepted).
 
-## Open on feat/vision-app (not merged)
+## Vision (merged to master 2026-09-28, in v0.2.0)
 
 The Vision prototype (docs/apps/VISION.md): DETECT, TRACK and COUNT on the
-KPU with the vendor's YOLOv8n kmodel. **Hardware gate run on unit B
+KPU with the vendor's YOLOv8n kmodel. DS §38 is still PROPOSED. **Hardware gate run on unit B
 (2026-09-28, docs/hardware/VISION_GATE.md): everything passes but repeated
 open/close, which reaches the camera lock-up; the owner accepted that as the
 known vendor fault and sent the prototype to review with this caveat.**
@@ -1084,6 +1084,18 @@ so that pass stayed the size it was scoped to be.
   refused without dropping the connection, and the last state ("online")
   stays on screen. A dead meshcored is noticed (the socket closes); a
   stopped one (SIGSTOP, a stuck write) is not. (Cold review R14, deferred.)
+- **Conversation names truncate in the landscape COMMS list** at about eight
+  characters (the list is 260 px wide, DS §37.2). Accepted with DS §37
+  (docs/hardware/RIFT_UI_DENSITY_GATE.md, finding 1).
+- **A full conversation list drops the oldest conversations and the
+  channels.** At the 256-conversation bound the oldest conversation is not
+  listed, and channels are added only while the list has room. Accepted with
+  DS §37 (RIFT_UI_DENSITY_GATE.md, finding 2).
+- **Portrait ACTIVITY: the traffic graph's caption runs into its legend**
+  while it reads `HEARD ON AIR · 20 MIN · NOTHING YET` (568 px wide); with a
+  peak (`PEAK 4/MIN`) it fits. Cosmetic. Seen on unit B in the v0.2.0 smoke
+  (build `c687cac`, right after meshcored restarted); landscape is not
+  affected.
 
 ## Deferred from the 2026-09-23 cold review
 
