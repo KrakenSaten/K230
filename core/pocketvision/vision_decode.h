@@ -5,7 +5,10 @@
  * yolov8.cc reads the same layout): one float tensor [1][4 + classes][rows],
  * rows = sum over the strides 8, 16 and 32 of (in_w / s) * (in_h / s), each
  * row a box centre and size in model-input pixels followed by one score per
- * class (already sigmoid'd, 0..1). The picture went in letterboxed: scaled by
+ * class (already sigmoid'd, 0..1 - but the kmodel is quantized, and on unit B
+ * a dark frame gave scores from -0.0091 to 0.0187: every row a hair below
+ * zero. Scores within VISION_SCORE_SLACK of [0, 1] are quantization, clamped;
+ * only what no sigmoid can give is refused). The picture went in letterboxed: scaled by
  * ratio = min(in_w / frame_w, in_h / frame_h) into the top-left corner and
  * padded on the right and bottom, so a coordinate comes back by dividing by
  * the ratio and nothing else.
@@ -25,6 +28,12 @@
 #define POCKETOS_VISION_DECODE_H
 
 #include "pocketvision.h"
+
+/* How far outside [0, 1] a class score may be and still be a quantized
+ * sigmoid. Measured noise on unit B: 0.0091 below zero; this is ten times it,
+ * and still twenty times smaller than the smallest threshold anyone would
+ * use. */
+#define VISION_SCORE_SLACK 0.1f
 
 struct vision_decode_params {
     uint32_t in_w;      /* the model's input */

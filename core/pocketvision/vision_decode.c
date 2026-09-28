@@ -118,10 +118,12 @@ int vision_decode(const float *out, size_t count, const uint32_t dims[3],
                 best_cls = c;
             }
         }
-        if (!ok || best < -0.001f || best > 1.001f) {
+        if (!ok || best < -VISION_SCORE_SLACK || best > 1.0f + VISION_SCORE_SLACK) {
             skipped++;
             continue;
         }
+        /* Quantization noise around 0 and 1, not a bad row. */
+        best = best < 0.0f ? 0.0f : best > 1.0f ? 1.0f : best;
         if ((uint32_t)(best * VISION_CONF_SCALE + 0.5f) < p->conf_min) {
             continue;
         }

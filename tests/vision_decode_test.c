@@ -158,6 +158,39 @@ static void test_malformed(void)
     check("NaN, infinity, an empty box, an absurd box and an impossible score are skipped",
           n == 1 && bad == 5 && d[0].box.x == 100);
 
+    /* A quantized model on a dark frame (unit B, 2026-09-28): every score a
+     * hair below zero, boxes all over the input. Nothing found, and nothing
+     * refused - that is quantization, not a broken tensor. */
+    {
+        size_t i;
+        uint32_t r;
+
+        clear();
+        for (i = (size_t)4 * ROWS; i < count; i++) {
+            tensor[i] = -0.0091f + (float)(i % 7) * 0.001f; /* -0.0091 .. -0.0031 */
+        }
+        for (r = 0; r < ROWS; r++) {
+            tensor[0 * ROWS + r] = 2.5f + (float)(r % 300);
+            tensor[1 * ROWS + r] = 2.5f + (float)(r % 300);
+            tensor[2 * ROWS + r] = 2.5f + (float)(r % 50);
+            tensor[3 * ROWS + r] = 2.5f + (float)(r % 50);
+        }
+        n = vision_decode(tensor, count, dims, &p, d, VISION_MAX_CANDIDATES, &bad);
+        check("scores a hair below zero are quantization: nothing found, nothing refused", n == 0 && bad == 0);
+        /* A score a hair above one is a certain detection, clamped. */
+        put(10, 0, 1.004f, 100, 50, 80, 160);
+        n = vision_decode(tensor, count, dims, &p, d, VISION_MAX_CANDIDATES, &bad);
+        check("a score a hair above one is clamped to a certain detection",
+              n == 1 && bad == 0 && d[0].conf == 1000 && d[0].box.x == 100);
+        /* But no sigmoid gives -0.5. */
+        tensor[(4 + 3) * ROWS + 11] = -0.5f;
+        for (i = 0; i < CLASSES; i++) {
+            tensor[(4 + i) * ROWS + 11] = -0.5f;
+        }
+        n = vision_decode(tensor, count, dims, &p, d, VISION_MAX_CANDIDATES, &bad);
+        check("a row whose best score is -0.5 is still refused", n == 1 && bad == 1);
+    }
+
     /* Everything NaN: nothing found, every row bad, no crash, no huge
      * coordinate anywhere. */
     {

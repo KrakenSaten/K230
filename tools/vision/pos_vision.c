@@ -850,7 +850,28 @@ static int run_bench(const char *backend, const char *config, const char *model,
 
             n = vision_nms(cands, n, VISION_NMS_IOU, dets, VISION_MAX_DETECTIONS);
             vision_tracker_update(&tr, dets, n);
-            printf("frame %u: pre %d ms infer %d ms, %d boxes:", f.seq, pre_ms, infer_ms, n);
+            if (done == 0 || done == frames - 1) {
+                /* What the model really gives back, for the gate: the range
+                 * of the box values and of the class scores. */
+                float bmin = out[0];
+                float bmax = out[0];
+                float smin = out[4 * dims[2]];
+                float smax = smin;
+                size_t k;
+
+                for (k = 0; k < (size_t)4 * dims[2]; k++) {
+                    bmin = out[k] < bmin ? out[k] : bmin;
+                    bmax = out[k] > bmax ? out[k] : bmax;
+                }
+                for (k = (size_t)4 * dims[2]; k < count; k++) {
+                    smin = out[k] < smin ? out[k] : smin;
+                    smax = out[k] > smax ? out[k] : smax;
+                }
+                printf("tensor: box values %.4f .. %.4f, scores %.4f .. %.4f\n", (double)bmin, (double)bmax,
+                       (double)smin, (double)smax);
+            }
+            printf("frame %u: pre %d ms infer %d ms, %d boxes, %u rows refused:", f.seq, pre_ms, infer_ms, n,
+                   bad);
             for (i = 0; i < n && i < 6; i++) {
                 printf(" %s %u%% (%d,%d %dx%d)", vision_label(dets[i].cls), dets[i].conf / 10,
                        dets[i].box.x, dets[i].box.y, dets[i].box.w, dets[i].box.h);
