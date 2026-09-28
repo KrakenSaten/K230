@@ -72,9 +72,11 @@ for name in paper edge black red back back_line slot felt; do
     check "the palette defines $name as RRGGBB" \
         "$(grep -qE "^$name[[:space:]]+[0-9A-Fa-f]{6}([[:space:]]|$)" $APP/art/cards_palette.txt && echo 1 || echo 0)"
 done
+# One CMake step makes both card games' palettes (games_card_palette).
 check "CMake generates the palette into the build tree" \
-    "$(grep -q 'apps/solitaire/art/cards_palette.txt' ui/shell/CMakeLists.txt &&
-       grep -q 'sol_palette.c' ui/shell/CMakeLists.txt && echo 1 || echo 0)"
+    "$(grep -q 'games_card_palette("PG Solitaire" sol solitaire SOL_PALETTE_C)' ui/shell/CMakeLists.txt &&
+       grep -q 'set(src "${REPO_DIR}/apps/${game}/art/cards_palette.txt")' ui/shell/CMakeLists.txt &&
+       grep -q 'set(out "${CMAKE_BINARY_DIR}/${prefix}_palette.c")' ui/shell/CMakeLists.txt && echo 1 || echo 0)"
 check "and no generated palette is committed" "$([ ! -e $APP/ui/sol_palette.c ] && echo 1 || echo 0)"
 check "interface marks use tokens" \
     "$(code $APP/ui/sol_table_widget.c | grep -q 'pos_theme_color(POS_COLOR_FOCUS)' && echo 1 || echo 0)"
@@ -104,9 +106,11 @@ check "blocks are placed from the view's layout, again on every resize" \
 
 check "the app is declared in the shell" \
     "$(grep -q 'extern const struct pocketos_app app_solitaire;' ui/shell/shell.c && echo 1 || echo 0)"
-check "registered once, after Wave" \
-    "$([ "$(grep -c '&app_solitaire' ui/shell/shell.c)" = "1" ] && grep -q '&app_wave, &app_solitaire' ui/shell/shell.c &&
-       echo 1 || echo 0)"
+check "registered once" "$([ "$(grep -c '&app_solitaire\b' ui/shell/shell.c)" = "1" ] && echo 1 || echo 0)"
+# Where it is shown is the launcher's table, not the registry order
+# (ui/shell/home_layout.c): a game, in PLAY, in the games colour.
+check "the launcher shows it in PLAY" \
+    "$(grep -q '{ "solitaire", HOME_GROUP_PLAY, HOME_HUE_GAMES }' ui/shell/home_layout.c && echo 1 || echo 0)"
 for src in sol_app.c engine/sol_rng.c engine/sol_cards.c engine/sol_rules.c ui/sol_view.c ui/sol_card_draw.c \
            ui/sol_table_widget.c ui/sol_felt.c; do
     check "the shell builds $src" "$(grep -q "apps/solitaire/$src" ui/shell/CMakeLists.txt && echo 1 || echo 0)"

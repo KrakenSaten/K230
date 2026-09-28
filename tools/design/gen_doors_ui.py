@@ -88,6 +88,9 @@ APP_ICONS = {
     "zabbix": (FIRST_PARTY + "zabbix.svg", "tools"),
     "browser": (FIRST_PARTY + "browser.svg", "network"),
     "vision": (FIRST_PARTY + "vision.svg", "ai"),
+    "solitaire": (FIRST_PARTY + "solitaire.svg", "games"),
+    "blackjack": (FIRST_PARTY + "blackjack.svg", "games"),
+    "2048": (FIRST_PARTY + "2048.svg", "games"),
 }
 # The system glyphs the shell uses, from the package's 32 px exports.
 GLYPHS = ["lock", "power", "wifi", "radio", "sun", "display", "info", "settings", "apps",

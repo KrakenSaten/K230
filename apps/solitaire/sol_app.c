@@ -264,6 +264,16 @@ static void layout(struct sol_app *a)
     place(a->hud, s.hud);
     place(a->table, s.table);
     place(a->controls, s.controls);
+    /* Under a tall table the caption is one line, cut with an ellipsis (a
+     * dotted label only cuts at a fixed height; left to size itself it
+     * wraps). In a side column it wraps, upwards into the column. */
+    if (s.arrangement == SOL_SIDE_BY_SIDE) {
+        lv_label_set_long_mode(a->caption, LV_LABEL_LONG_WRAP);
+        lv_obj_set_height(a->caption, LV_SIZE_CONTENT);
+    } else {
+        lv_label_set_long_mode(a->caption, LV_LABEL_LONG_DOT);
+        lv_obj_set_height(a->caption, lv_font_get_line_height(lv_obj_get_style_text_font(a->caption, 0)));
+    }
 }
 
 static void on_resize(lv_event_t *e)
@@ -514,13 +524,19 @@ lv_obj_t *sol_app_button(void *priv, int index)
     return a ? (index == 0 ? a->primary : a->secondary) : NULL;
 }
 
+/* The first-party launcher mask (docs/design/doors-app-icons); .icon stays
+ * the text fallback for a shell without the mask. */
+LV_IMAGE_DECLARE(pos_app_icon_solitaire);
+
 const struct pocketos_app app_solitaire = {
     .id = "solitaire",
     .name = "Solitaire",
-    /* A placeholder until the DS section 11 icon set exists: LVGL's symbol
-     * font has no card, and the stacked sheets are the nearest thing. */
     .icon = LV_SYMBOL_COPY,
+    .icon_mask = &pos_app_icon_solitaire,
     .create = solitaire_create,
     .tick = solitaire_tick,
     .destroy = solitaire_destroy,
+    /* Fullscreen, like Fleet, Radar and Timber (DS §36): no status
+     * cluster over the game; the shell's header keeps the way back. */
+    .chrome = POCKETOS_CHROME_NONE,
 };

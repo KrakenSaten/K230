@@ -1,9 +1,12 @@
 # PG Solitaire
 
 A Pocket Games title: Klondike solitaire on PocketTimber's felt.
-Branch `feature/game-solitaire`, from master `a2e10d1`. Not merged. Physically
-tested on unit A at `040955e` (2026-09-13, in the temporary combined build
-`test/pocket-games-triple` `03a0fef`): PASS.
+Integrated for Doors v0.2.x on `feat/games-solitaire-blackjack-2048` (from
+v0.2.1 `c9c2105`, 2026-09-28): imported byte for byte from `feature/game-solitaire` `62f5413`
+(physically tested on unit A at `040955e` on 2026-09-13, in the temporary
+combined build `test/pocket-games-triple` `03a0fef`: PASS), then brought up
+to the current frame - see "Doors integration" below. Not merged; not yet
+on glass in this form.
 
 ## Ruleset
 
@@ -177,24 +180,55 @@ exactly one pile:
 
 ## Orientation
 
-Portrait and landscape support is planned for the next platform milestone;
-nothing here implements it.
+The shell gives a portrait or a landscape body (DS §21) and the app lays out
+from `sol_view_screen(w, h)` on every size change: stacked when tall, table
+left with HUD and controls right when wide. Landscape was first seen (in the
+simulator) for this integration. One defect was found and fixed: the
+caption's block in the 240 px side column was 104 px, so a long caption
+("Q OF SPADES +8 SELECTED - TAP FELT TO CANCEL") wrapped over its top edge
+and lost its first line. The controls block is now the whole column under the
+HUD, bottom-aligned, and the caption wraps there; under a tall table it stays
+one line with an ellipsis (a dotted LVGL label only cuts at a fixed height).
 
-Ready for it: the rules and view model never see a panel size (lint fails on
-`568`, `1232`, `1176`, `1060`). The root places HUD, table and controls from
-`sol_view_screen(w, h)` on every size change - stacked when tall, table left
-with HUD and controls right when wide. The table sizes cards from both its
-width (seven columns) and its height (top row plus ~2.5 cards of tableau), so
-a wide, short table gets height-bound cards, and column fans compress
-(face-down edges first) to keep the longest column inside it. The wide cases
-are covered by `tests/sol_view_test.c`, never seen on glass. Keyboard
-navigation is by logical rows and columns, so it does not change with the
-arrangement.
+Landscape cards are about 85 x 119 px (portrait's are 68 x 95), bound by the table's
+height; long columns compress their fan to stay on the felt, so a column of
+thirteen face-up cards shows about 22 px of each. Keyboard navigation is by
+logical rows and columns and does not change. A landscape arrangement with
+the stock, waste and foundations in a column beside the tableau would give
+the fans more room; that is a view change only, left as future work.
 
-Assumptions to revisit then: the top row keeps stock/waste/foundations above
-the tableau in both arrangements (a side column for them may suit landscape
-better); the 31 px fan and 68 px card width are portrait numbers derived from
-the table size, not constants.
+## Doors integration (2026-09-28)
+
+What changed from the 2026-09-13 branch, and nothing else:
+
+- **Registered** in the shell (`ui/shell/shell.c`) and shown by the launcher
+  in PLAY after Fleet, Radar and Timber, in the games colour
+  (`ui/shell/home_layout.c`).
+- **Fullscreen** (`.chrome = POCKETOS_CHROME_NONE`), like Fleet, Radar and
+  Timber: no status cluster over the game; the shell's header keeps the way
+  back.
+- **Icon**: a first-party launcher mask and portal icon (a column of cards,
+  `docs/design/doors-app-icons/svg/solitaire.svg`), drawn like Zabbix's, Browser's
+  and Vision's. `.icon` stays only as the text fallback. Place and icon are
+  for the owner to confirm.
+- **Landscape** (DS §21): see "Orientation". One defect fixed: a long caption lost its first line in the side column.
+- **Tests**: the app test hosts the app in the current frame (the chrome
+  height from `chrome.h`, not the retired status-bar constant) and gained a
+  landscape section (`tests/games_frame.h`: every object inside the body,
+  every button at least 64 px tall with its label whole); the shell suite runs
+  every review state in both orientations; the lint checks the launcher
+  table instead of the v0.0.9 tile grid.
+- **Build**: `make games-test` runs the three games' host suites and lints on
+  their own; the card palettes come from one CMake step
+  (`games_card_palette`).
+
+Lifecycle, checked for this integration: every LVGL object is under the body
+the shell deletes; the root is the only object added to the focus group and
+goes with it; there is no timer or animation; the table widget's state is freed on its delete event; the app state is one `lv_malloc` freed in `destroy`. The
+save is a few hundred bytes, written with `fsync` from the once-a-second tick
+only when something changed, at the end of a game and on close - the same
+pattern as Notes, Clock and Radar - so the UI thread never waits on more than
+one small file.
 
 ## Known limitations
 
@@ -202,9 +236,9 @@ the table size, not constants.
   Tap accuracy on 31 px strips, card legibility at 68 px, and drawing cost of
   a full table redraw per change remain unmeasured.
 - No undo, auto-complete, draw-3 or scoring.
-- Launcher capacity: 12 apps with this branch, which fits; merging another
-  game branch too needs a launcher decision.
-- Icon `LV_SYMBOL_COPY` until the DS icon set exists.
+- Launcher: 21 apps with the three games, so the portrait launcher scrolls
+  further (PLAY and DEVICE each take a second row). A Games folder is
+  proposed separately on `feat/launcher-app-groups`.
 - Review states: `PGSOLITAIRE_SCREEN=deal|selected|keyboard|confirm|won` (a
   fixed deal). Host renders: `docs/design/shots/pgsolitaire-*.png`.
 

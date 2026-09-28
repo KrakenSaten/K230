@@ -50,7 +50,10 @@ LAUNCHER_ICONS = [THRESHOLD + n + ".png" for n in
                                                                     EXTENSION + "recorder.png",
                                                                     FIRST_PARTY + "zabbix.png",
                                                                     FIRST_PARTY + "browser.png",
-                                                                    FIRST_PARTY + "vision.png"]
+                                                                    FIRST_PARTY + "vision.png",
+                                                                    FIRST_PARTY + "solitaire.png",
+                                                                    FIRST_PARTY + "blackjack.png",
+                                                                    FIRST_PARTY + "2048.png"]
 
 
 def mask(png, src):
@@ -94,7 +97,9 @@ def main():
             else:
                 files.append(s)
         for p in files:
-            if not re.fullmatch(r"[a-z][a-z0-9_]*", p.stem):
+            # Always behind PREFIX in C, so an id may start with a digit
+            # (PG 2048's is "2048").
+            if not re.fullmatch(r"[a-z0-9][a-z0-9_]*", p.stem):
                 raise PngError("%s: the file name is not an app id usable in a C name" % p)
             if any(p.stem == i[0] for i in icons):
                 raise PngError("%s: a second icon for app id %s" % (p, p.stem))

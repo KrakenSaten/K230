@@ -577,13 +577,19 @@ lv_obj_t *g2048_app_button(void *priv, int index)
     return index == 0 ? a->primary : a->secondary;
 }
 
+/* The first-party launcher mask (docs/design/doors-app-icons); .icon stays
+ * the text fallback for a shell without the mask. */
+LV_IMAGE_DECLARE(pos_app_icon_2048);
+
 const struct pocketos_app app_2048 = {
     .id = "2048",
     .name = "2048",
-    /* A placeholder until the DS section 11 icon set exists: LVGL's symbol
-     * font has no grid, and the crossing arrows say "slide". */
     .icon = LV_SYMBOL_SHUFFLE,
+    .icon_mask = &pos_app_icon_2048,
     .create = g2048_create,
     .tick = g2048_tick,
     .destroy = g2048_destroy,
+    /* Fullscreen, like Fleet, Radar and Timber (DS §36): no status
+     * cluster over the game; the shell's header keeps the way back. */
+    .chrome = POCKETOS_CHROME_NONE,
 };

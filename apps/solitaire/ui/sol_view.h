@@ -13,8 +13,9 @@
  * and a tableau with room to fan), so a wide area gets cards bound by its
  * height and a tall one cards bound by its width; tableau fans compress when
  * a column is longer than the table. The chrome around the table is stacked
- * in a tall area and side by side in a wide one. The shell only gives a
- * portrait body today; the wide cases are covered by the view test.
+ * in a tall area and side by side in a wide one. The shell gives a portrait
+ * or a landscape body (DS §21); both are covered by the view test and the
+ * app test.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */

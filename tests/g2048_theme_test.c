@@ -56,7 +56,8 @@ int main(void)
     int m;
     char what[160];
 
-    check("the theme table has the five DS themes", themes == 5);
+    /* The five of DS §8 and Doors, the default since DS §32. */
+    check("the theme table has the six DS themes", themes == 6);
     for (ti = 0; ti < themes; ti++) {
         const struct pos_theme_def *def = pos_theme_at(ti);
 

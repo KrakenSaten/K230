@@ -24,6 +24,7 @@
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #include "app.h"
+#include "chrome.h"
 #include "bj_app.h"
 #include "bj_store.h"
 #include "bj_table_widget.h"
@@ -39,7 +40,9 @@
 
 #define PANEL_W 568
 #define PANEL_H 1232
-#define STATUS_H POCKETUI_STATUS_BAR_H
+/* What the shell keeps above the content area for this app's chrome
+ * (chrome.h, DS §36), in the orientation the display is in now. */
+#define STATUS_H chrome_height(chrome_resolve(app_blackjack.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
 #define MINUS "\xE2\x88\x92"
 #define DOT "\xC2\xB7"
 #define BET_DOWN "BET " MINUS "10"
@@ -333,6 +336,74 @@ static int entries(const char *path)
 }
 
 /* ---- cases ------------------------------------------------------------------------------ */
+
+
+/* ---- landscape (DS §21) --------------------------------------------------------- */
+
+static lv_display_t *g_disp;
+
+static int32_t status_h(void)
+{
+    return STATUS_H;
+}
+
+#include "games_frame.h"
+
+/* The shell turned to landscape: BANK above BET beside the table, the
+ * buttons on two rows in the side column (the accent one alone on the first),
+ * all of them whole, and a round still plays by key and by tap. */
+static void test_landscape(void)
+{
+    lv_area_t body;
+    lv_area_t b0;
+    lv_area_t b1;
+    lv_area_t b2;
+
+    games_use_display(g_disp, g_content, POS_ROTATION_270, status_h);
+    pump(60);
+    app_start();
+    lv_obj_update_layout(app_body);
+    lv_obj_get_coords(app_body, &body);
+    check("landscape: the body is wider than tall", lv_area_get_width(&body) > lv_area_get_height(&body));
+    check("landscape: as it opens the screen fits, every button whole",
+          games_screen_fits(app_body, app_body, "blackjack landscape, open") == 0);
+    lv_obj_get_coords(bj_app_button(app_priv, 0), &b0);
+    lv_obj_get_coords(bj_app_button(app_priv, 1), &b1);
+    lv_obj_get_coords(bj_app_button(app_priv, 2), &b2);
+    check("landscape: the first button has a row of its own", b0.y2 < b1.y1 && b1.y1 == b2.y1 && b1.x2 < b2.x1);
+    check("landscape: and is as wide as the other two together", lv_area_get_width(&b0) >= b2.x2 - b1.x1);
+    if (game()->phase == BJ_PLAYER) {
+        key('s'); /* a resumed hand: finish it */
+    }
+    check("landscape: between rounds NEW ROUND and both bet steppers are whole",
+          (game()->phase == BJ_BETTING || game()->phase == BJ_SETTLED) &&
+              games_screen_fits(app_body, app_body, "blackjack landscape, between rounds") == 0);
+    if (game()->bankroll < 10) {
+        struct bj_game fresh;
+
+        bj_new_session(&fresh, 7);
+        *game() = fresh;
+        key(LV_KEY_LEFT);
+    }
+    tap_obj(bj_app_button(app_priv, 0));
+    check("landscape: tapping the first button deals", game()->phase == BJ_PLAYER || game()->phase == BJ_SETTLED);
+    check("landscape: during a hand the screen fits, every button whole",
+          games_screen_fits(app_body, app_body, "blackjack landscape, hand") == 0);
+    if (game()->phase == BJ_PLAYER) {
+        key('s');
+        check("landscape: s stands and the round settles", game()->phase == BJ_SETTLED);
+    }
+    check("landscape: settled, the screen fits, every button whole",
+          games_screen_fits(app_body, app_body, "blackjack landscape, settled") == 0);
+    games_use_display(g_disp, g_content, POS_ROTATION_0, status_h);
+    pump(60);
+    lv_obj_get_coords(bj_app_button(app_priv, 0), &b0);
+    lv_obj_get_coords(bj_app_button(app_priv, 2), &b2);
+    check("turned back to portrait with the app open, the buttons share one row again", b0.y1 == b2.y1);
+    check("and the screen fits", games_screen_fits(app_body, app_body, "blackjack portrait again") == 0);
+    app_stop();
+    check("landscape: nothing left behind", lv_obj_get_child_count(g_content) == 0u && pos_input_focused() == NULL);
+}
 
 static void test_open(void)
 {
@@ -747,7 +818,7 @@ int main(void)
     setenv("POCKETOS_STATE_DIR", state_dir, 1);
     unsetenv("PGBLACKJACK_SCREEN");
     lv_init();
-    disp = lv_display_create(PANEL_W, PANEL_H);
+    g_disp = disp = lv_display_create(PANEL_W, PANEL_H);
     lv_display_set_buffers(disp, draw_buf, NULL, sizeof(draw_buf), LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(disp, flush_cb);
     finger = lv_indev_create();
@@ -770,6 +841,7 @@ int main(void)
     test_random();
     test_persistence();
     test_review_and_rounds();
+    test_landscape();
 
     check("the app asked the shell for nothing", shell_calls == 0);
     check("and wrote only its own file, no temporary left", entries(state_dir) == 1 && entries(bj_store_dir()) == 1 &&

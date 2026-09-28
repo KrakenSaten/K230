@@ -2,10 +2,12 @@
 
 A Pocket Games title: single-player Blackjack against the dealer, on
 PocketTimber's felt, in the same card family as PG Solitaire.
-Branch `feature/game-blackjack`, from master `a2e10d1`. Not merged, not
-stacked on the Solitaire branch. Physically tested on unit A at `189f7f7`
-(2026-09-13, in the temporary combined build `test/pocket-games-triple`
-`03a0fef`): PASS.
+Integrated for Doors v0.2.x on `feat/games-solitaire-blackjack-2048` (from
+v0.2.1 `c9c2105`, 2026-09-28): imported byte for byte from `feature/game-blackjack` `311df93`
+(physically tested on unit A at `189f7f7` on 2026-09-13, in the temporary
+combined build `test/pocket-games-triple` `03a0fef`: PASS), then brought up
+to the current frame - see "Doors integration" below. Not merged; not yet
+on glass in this form.
 
 This is a game with play chips. There is no money, no purchase, no
 networking and nothing that leaves the device.
@@ -189,19 +191,51 @@ encoding.
 
 ## Orientation
 
-Portrait and landscape support is planned for the next platform milestone;
-nothing here implements it.
+The shell gives a portrait or a landscape body (DS §21) and the app lays out
+from `bj_view_screen(w, h)` on every size change: stacked when tall, table
+left with BANK above BET and the controls right when wide. Landscape was first
+seen (in the simulator) for this integration. One defect was found and fixed:
+three buttons in the 260 px side column were about 59 px wide each, and
+"BET -10" / "BET +10" were cut to "ET -1". In a side column the buttons now
+take two rows - the accent action alone on the first, the other two halves of
+the second - and the controls block is the column under the HUD
+(`bj_screen.buttons_rows`). Portrait is unchanged: one row.
 
-Ready for it: rules and view never see a panel size (lint fails on `568`,
-`1232`, `1176`, `1060`). The root places HUD, table and controls from
-`bj_view_screen(w, h)` on every size change - stacked when tall, table left
-with HUD and controls right when wide. The table sizes cards from both
-dimensions (a quarter of the width, half the height less labels) and hands
-tighten their overlap to fit, so a wide, short table gets height-bound cards
-and still holds the longest hand. Covered by `tests/bj_view_test.c`, never on
-glass. The dealer-above-player arrangement is kept in both; a side-by-side
-dealer/player arrangement may suit landscape better and would be a view change
-only.
+A short, wide table leaves the round's result (+50 and so on) to the caption
+when the gap between the hands is lower than the number, as before.
+
+## Doors integration (2026-09-28)
+
+What changed from the 2026-09-13 branch, and nothing else:
+
+- **Registered** in the shell (`ui/shell/shell.c`) and shown by the launcher
+  in PLAY after Fleet, Radar and Timber, in the games colour
+  (`ui/shell/home_layout.c`).
+- **Fullscreen** (`.chrome = POCKETOS_CHROME_NONE`), like Fleet, Radar and
+  Timber: no status cluster over the game; the shell's header keeps the way
+  back.
+- **Icon**: a first-party launcher mask and portal icon (a card and a chip,
+  `docs/design/doors-app-icons/svg/blackjack.svg`), drawn like Zabbix's, Browser's
+  and Vision's. `.icon` stays only as the text fallback. Place and icon are
+  for the owner to confirm.
+- **Landscape** (DS §21): see "Orientation". One defect fixed: the side column's buttons clipped their labels.
+- **Tests**: the app test hosts the app in the current frame (the chrome
+  height from `chrome.h`, not the retired status-bar constant) and gained a
+  landscape section (`tests/games_frame.h`: every object inside the body,
+  every button at least 64 px tall with its label whole); the shell suite runs
+  every review state in both orientations; the lint checks the launcher
+  table instead of the v0.0.9 tile grid.
+- **Build**: `make games-test` runs the three games' host suites and lints on
+  their own; the card palettes come from one CMake step
+  (`games_card_palette`).
+
+Lifecycle, checked for this integration: every LVGL object is under the body
+the shell deletes; the root is the only object added to the focus group and
+goes with it; there is no timer or animation; the table widget's state is freed on its delete event; the app state is one `lv_malloc` freed in `destroy`. The
+save is a few hundred bytes, written with `fsync` from the once-a-second tick
+only when something changed, at the end of a game and on close - the same
+pattern as Notes, Clock and Radar - so the UI thread never waits on more than
+one small file.
 
 ## Known limitations
 
@@ -215,9 +249,9 @@ only.
 - No statistics. The felt shows a result only where the gap between the
   hands is taller than the number (always in portrait; a short, wide table
   may leave it to the caption).
-- Launcher capacity: 12 apps with this branch, which fits; merging another
-  game branch too needs a launcher decision.
-- Icon `LV_SYMBOL_IMAGE` until the DS icon set exists.
+- Launcher: 21 apps with the three games, so the portrait launcher scrolls
+  further (PLAY and DEVICE each take a second row). A Games folder is
+  proposed separately on `feat/launcher-app-groups`.
 - Review states: `PGBLACKJACK_SCREEN=bet|play|win|blackjack|bust|broke` (fixed
   seeds). Host renders: `docs/design/shots/pgblackjack-*.png`.
 

@@ -77,9 +77,11 @@ for name in paper edge black red back back_line slot felt; do
     check "the palette defines $name as RRGGBB" \
         "$(grep -qE "^$name[[:space:]]+[0-9A-Fa-f]{6}([[:space:]]|$)" $APP/art/cards_palette.txt && echo 1 || echo 0)"
 done
+# One CMake step makes both card games' palettes (games_card_palette).
 check "CMake generates the palette into the build tree" \
-    "$(grep -q 'apps/blackjack/art/cards_palette.txt' ui/shell/CMakeLists.txt &&
-       grep -q 'bj_palette.c' ui/shell/CMakeLists.txt && echo 1 || echo 0)"
+    "$(grep -q 'games_card_palette("PG Blackjack" bj blackjack BJ_PALETTE_C)' ui/shell/CMakeLists.txt &&
+       grep -q 'set(src "${REPO_DIR}/apps/${game}/art/cards_palette.txt")' ui/shell/CMakeLists.txt &&
+       grep -q 'set(out "${CMAKE_BINARY_DIR}/${prefix}_palette.c")' ui/shell/CMakeLists.txt && echo 1 || echo 0)"
 check "and no generated palette is committed" "$([ ! -e $APP/ui/bj_palette.c ] && echo 1 || echo 0)"
 
 hits=$(grep -lE 'timber' $ALL | grep -v 'bj_felt\.[ch]$')
@@ -113,9 +115,11 @@ check "no split, insurance, surrender or side bets" "$([ -z "$hits" ] && echo 1 
 
 check "the app is declared in the shell" \
     "$(grep -q 'extern const struct pocketos_app app_blackjack;' ui/shell/shell.c && echo 1 || echo 0)"
-check "registered once, after Wave" \
-    "$([ "$(grep -c '&app_blackjack' ui/shell/shell.c)" = "1" ] && grep -q '&app_wave, &app_blackjack' ui/shell/shell.c &&
-       echo 1 || echo 0)"
+check "registered once" "$([ "$(grep -c '&app_blackjack\b' ui/shell/shell.c)" = "1" ] && echo 1 || echo 0)"
+# Where it is shown is the launcher's table, not the registry order
+# (ui/shell/home_layout.c): a game, in PLAY, in the games colour.
+check "the launcher shows it in PLAY" \
+    "$(grep -q '{ "blackjack", HOME_GROUP_PLAY, HOME_HUE_GAMES }' ui/shell/home_layout.c && echo 1 || echo 0)"
 for src in bj_app.c engine/bj_rng.c engine/bj_cards.c engine/bj_rules.c ui/bj_view.c ui/bj_card_draw.c \
            ui/bj_table_widget.c ui/bj_felt.c; do
     check "the shell builds $src" "$(grep -q "apps/blackjack/$src" ui/shell/CMakeLists.txt && echo 1 || echo 0)"

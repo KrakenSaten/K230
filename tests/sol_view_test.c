@@ -107,6 +107,8 @@ static void test_layout(void)
     check("a wide body puts the chrome beside the table", s.arrangement == SOL_SIDE_BY_SIDE &&
                                                               s.table.x == 0 && s.hud.x > s.table.w &&
                                                               s.controls.y + s.controls.h == 470);
+    check("the controls take the column under the HUD, so a wrapped caption has room",
+          s.controls.x == s.hud.x && s.controls.w == s.hud.w && s.controls.y == SOL_HUD_H + SOL_GAP);
     sol_view_table(s.table.w, s.table.h, &t);
     check("a short table binds the card size by its height", t.card_h <= (470 - 16 - 14) * 2 / 7 + 1 &&
                                                                  t.card_w < (s.table.w - 16 - 36) / 7);

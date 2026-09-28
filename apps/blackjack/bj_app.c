@@ -74,6 +74,8 @@ struct bj_app {
     lv_obj_t *caption;
     lv_obj_t *buttons;
     lv_obj_t *button[3];
+    int button_rows; /* bj_screen.buttons_rows of the last layout */
+    int32_t half_w;  /* a second-row button's width when there are two rows */
 };
 
 /* ---- persistence --------------------------------------------------------------------- */
@@ -123,6 +125,26 @@ static void style_button(lv_obj_t *btn, int primary, int enabled)
     }
 }
 
+/* One row: the actions share it equally during a hand, and between rounds
+ * the bet steppers are narrow and NEW ROUND is wide. Two rows (a side
+ * column): the first button alone on the first, the others halves of the
+ * second. */
+static void size_buttons(struct bj_app *a)
+{
+    int bet = bj_view_panel(&a->game) == BJ_PANEL_BET;
+    int i;
+
+    for (i = 0; i < 3; i++) {
+        if (a->button_rows == 2) {
+            lv_obj_set_flex_grow(a->button[i], 0);
+            lv_obj_set_width(a->button[i], i == 0 ? LV_PCT(100) : a->half_w);
+        } else {
+            lv_obj_set_width(a->button[i], 1);
+            lv_obj_set_flex_grow(a->button[i], bet && i == 0 ? 2 : 1);
+        }
+    }
+}
+
 static void refresh(struct bj_app *a)
 {
     struct bj_button b[3];
@@ -150,12 +172,10 @@ static void refresh(struct bj_app *a)
         set_text(lv_obj_get_child(a->button[i], 0), b[i].text);
         lv_obj_set_user_data(a->button[i], (void *)(intptr_t)b[i].cmd);
         style_button(a->button[i], i == 0, b[i].enabled);
-        /* Between rounds the bet steppers are narrow and NEW ROUND is wide;
-         * during a hand the three actions share the row equally. */
-        lv_obj_set_flex_grow(a->button[i], bj_view_panel(&a->game) == BJ_PANEL_BET && i == 0 ? 2 : 1);
     }
+    size_buttons(a);
     /* LVGL's flex row counts the gap beside a hidden button. */
-    lv_obj_set_style_pad_column(a->buttons, visible > 1 ? BUTTON_GAP : 0, 0);
+    lv_obj_set_style_pad_column(a->buttons, visible > 1 || a->button_rows == 2 ? BUTTON_GAP : 0, 0);
     lv_obj_invalidate(a->table);
 }
 
@@ -215,6 +235,13 @@ static void layout(struct bj_app *a)
     place(a->hud, s.hud);
     place(a->table, s.table);
     place(a->controls, s.controls);
+    a->button_rows = s.buttons_rows == 2 ? 2 : 1;
+    a->half_w = (s.controls.w - BUTTON_GAP) / 2;
+    lv_obj_set_flex_flow(a->buttons, a->button_rows == 2 ? LV_FLEX_FLOW_ROW_WRAP : LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_row(a->buttons, BUTTON_GAP, 0);
+    lv_obj_set_height(a->buttons, a->button_rows * BUTTON_H + (a->button_rows - 1) * BUTTON_GAP);
+    lv_obj_set_style_pad_column(a->buttons, BUTTON_GAP, 0);
+    size_buttons(a);
     lv_obj_set_flex_flow(a->hud, s.side_by_side ? LV_FLEX_FLOW_COLUMN : LV_FLEX_FLOW_ROW);
     for (i = 0; i < 2; i++) {
         if (s.side_by_side) {
@@ -459,13 +486,19 @@ void bj_app_refresh(void *priv)
     }
 }
 
+/* The first-party launcher mask (docs/design/doors-app-icons); .icon stays
+ * the text fallback for a shell without the mask. */
+LV_IMAGE_DECLARE(pos_app_icon_blackjack);
+
 const struct pocketos_app app_blackjack = {
     .id = "blackjack",
     .name = "Blackjack",
-    /* A placeholder until the DS section 11 icon set exists: LVGL's symbol
-     * font has no card, and a framed rectangle is the nearest shape to one. */
     .icon = LV_SYMBOL_IMAGE,
+    .icon_mask = &pos_app_icon_blackjack,
     .create = blackjack_create,
     .tick = blackjack_tick,
     .destroy = blackjack_destroy,
+    /* Fullscreen, like Fleet, Radar and Timber (DS §36): no status
+     * cluster over the game; the shell's header keeps the way back. */
+    .chrome = POCKETOS_CHROME_NONE,
 };

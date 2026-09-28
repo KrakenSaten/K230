@@ -202,3 +202,15 @@ BUILD_ID
 # HDMI diagnostics (docs/hardware/HDMI_OUTPUT.md)
 /tools/drmtest/pos-drmtest
 /tests/drmtest_test
+# PG 2048, PG Solitaire, PG Blackjack (docs/apps/PG2048.md, PGSOLITAIRE.md,
+# PGBLACKJACK.md)
+/tests/g2048_rules_test
+/tests/g2048_store_test
+/tests/g2048_view_test
+/tests/g2048_theme_test
+/tests/sol_rules_test
+/tests/sol_view_test
+/tests/sol_store_test
+/tests/bj_rules_test
+/tests/bj_view_test
+/tests/bj_store_test

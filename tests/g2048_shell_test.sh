@@ -18,20 +18,22 @@ else
     echo "FAIL g2048_app_test binary missing: $BIN"; failed=$((failed + 1))
 fi
 
-# Twelve apps still take six launcher rows (ui/shell/shell.c home_create).
-check "the launcher grid still has six rows" \
-    "$(sed -n '/^static void home_create/,/^}/p' ui/shell/shell.c |
-       grep -o 'LV_GRID_CONTENT' | wc -l | grep -qx 6 && echo 1 || echo 0)"
-check "and twelve apps, which six rows of two hold" \
-    "$(sed -n '/^static const struct pocketos_app \*apps\[\]/,/};/p' ui/shell/shell.c |
-       grep -o '&app_[a-z0-9]*' | wc -l | grep -qx 12 && echo 1 || echo 0)"
-
+ROT=portrait
 run_shell() { # <state dir> <log dir> [env...]
     local state=$1 logd=$2; shift 2
     env SDL_VIDEODRIVER=dummy POCKETOS_RUNTIME_DIR="$RUN" POCKETOS_LOG_DIR="$logd" \
         POCKETOS_CONFIG_DIR="$CFG" POCKETOS_STATE_DIR="$state" "$@" \
-        "$SHELL_BIN" --open 2048 --exit-after-ms 1500 >"$logd/out" 2>&1
+        "$SHELL_BIN" --no-lock --rotation "$ROT" --open 2048 --exit-after-ms 1500 >"$logd/out" 2>&1
 }
+
+# The DOORS launcher lists it with the other games (ui/shell/home_layout.c,
+# PLAY); there is no fixed tile grid to fit any more (DS §31).
+L0=$(mktemp -d); R0=$(mktemp -d); C0=$(mktemp -d); S0=$(mktemp -d)
+env SDL_VIDEODRIVER=dummy POCKETOS_RUNTIME_DIR="$R0" POCKETOS_LOG_DIR="$L0" POCKETOS_CONFIG_DIR="$C0" \
+    POCKETOS_STATE_DIR="$S0" "$SHELL_BIN" --no-lock --exit-after-ms 800 >"$L0/out" 2>&1
+check "the launcher builds with the game among its apps" \
+    "$(grep -qE 'launcher: [0-9]+ group\(s\), 21 app\(s\)' "$L0/shell.log" 2>/dev/null && echo 1 || echo 0)"
+rm -rf "$L0" "$R0" "$C0" "$S0"
 
 RUN=$(mktemp -d); CFG=$(mktemp -d); STATE=$(mktemp -d); LOGD=$(mktemp -d)
 run_shell "$STATE" "$LOGD"; rc=$?
@@ -45,14 +47,18 @@ check "the shell did not call it unknown" \
 check "opening an untouched game writes nothing" \
     "$([ -z "$(ls -A "$STATE" 2>/dev/null)" ] && echo 1 || echo 0)"
 
-# Every review state renders without a fault and without touching the store.
-for screen in play confirm won over; do
-    L2=$(mktemp -d)
-    run_shell "$STATE" "$L2" PG2048_SCREEN=$screen; rc=$?
-    check "review state $screen renders" "$([ "$rc" = "0" ] &&
-        ! grep -qE ' ERROR |assert' "$L2/out" "$L2/shell.log" 2>/dev/null && echo 1 || echo 0)"
-    rm -rf "$L2"
+# Every review state renders without a fault and without touching the store,
+# in both orientations (DS §21).
+for ROT in portrait landscape; do
+    for screen in play confirm won over; do
+        L2=$(mktemp -d)
+        run_shell "$STATE" "$L2" PG2048_SCREEN=$screen; rc=$?
+        check "$ROT: review state $screen renders" "$([ "$rc" = "0" ] &&
+            ! grep -qE ' ERROR |assert' "$L2/out" "$L2/shell.log" 2>/dev/null && echo 1 || echo 0)"
+        rm -rf "$L2"
+    done
 done
+ROT=portrait
 check "no review state wrote a save" "$([ -z "$(ls -A "$STATE" 2>/dev/null)" ] && echo 1 || echo 0)"
 
 # A damaged save does not stop the app opening.

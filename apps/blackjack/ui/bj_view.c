@@ -48,9 +48,16 @@ void bj_view_screen(int w, int h, struct bj_screen *out)
         /* BANK above BET: a side column is too narrow for two large numbers
          * next to each other. */
         out->hud = rect(side_x, 0, max_i(w - side_x, 0), min_i(2 * BJ_HUD_H + BJ_HUD_GAP, h));
-        out->controls = rect(side_x, max_i(h - BJ_CONTROLS_H, 0), max_i(w - side_x, 0), min_i(BJ_CONTROLS_H, h));
+        /* The rest of the column under the HUD: the column is too narrow for
+         * three buttons in a row, so they take two rows there (the accent one
+         * alone on the first), and a caption that wraps grows upwards into
+         * the column rather than over the HUD. */
+        out->buttons_rows = 2;
+        out->controls = rect(side_x, min_i(out->hud.h + BJ_GAP, h), max_i(w - side_x, 0),
+                             max_i(h - out->hud.h - BJ_GAP, 0));
     } else {
         out->side_by_side = 0;
+        out->buttons_rows = 1;
         out->hud = rect(0, 0, w, min_i(BJ_HUD_H, h));
         out->table = rect(0, min_i(BJ_HUD_H + BJ_GAP, h - 1), w,
                           max_i(h - BJ_HUD_H - BJ_CONTROLS_H - 2 * BJ_GAP, 1));

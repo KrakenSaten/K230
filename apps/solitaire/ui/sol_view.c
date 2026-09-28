@@ -41,7 +41,11 @@ void sol_view_screen(int w, int h, struct sol_screen *out)
         out->arrangement = SOL_SIDE_BY_SIDE;
         out->table = rect(0, 0, table_w, h);
         out->hud = rect(side_x, 0, max_i(w - side_x, 0), min_i(SOL_HUD_H, h));
-        out->controls = rect(side_x, max_i(h - SOL_CONTROLS_H, 0), max_i(w - side_x, 0), min_i(SOL_CONTROLS_H, h));
+        /* The rest of the column under the HUD, bottom-aligned: a caption
+         * too long for the narrow column wraps upwards into it rather than
+         * over the HUD or off the top of a 104 px block. */
+        out->controls = rect(side_x, min_i(SOL_HUD_H + SOL_GAP, h), max_i(w - side_x, 0),
+                             max_i(h - SOL_HUD_H - SOL_GAP, 0));
     } else {
         int table_h = max_i(h - SOL_HUD_H - SOL_CONTROLS_H - 2 * SOL_GAP, 1);
 

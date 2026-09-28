@@ -17,6 +17,7 @@
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #include "app.h"
+#include "chrome.h"
 #include "pocketui.h"
 #include "sol_app.h"
 #include "sol_store.h"
@@ -31,7 +32,9 @@
 
 #define PANEL_W 568
 #define PANEL_H 1232
-#define STATUS_H POCKETUI_STATUS_BAR_H
+/* What the shell keeps above the content area for this app's chrome
+ * (chrome.h, DS §36), in the orientation the display is in now. */
+#define STATUS_H chrome_height(chrome_resolve(app_solitaire.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
 
 extern const struct pocketos_app app_solitaire;
 
@@ -338,6 +341,68 @@ static int same_game(const struct sol_game *a, const struct sol_game *b)
 }
 
 /* ---- cases --------------------------------------------------------------------------- */
+
+
+/* ---- landscape (DS §21) --------------------------------------------------------- */
+
+static lv_display_t *g_disp;
+
+static int32_t status_h(void)
+{
+    return STATUS_H;
+}
+
+#include "games_frame.h"
+
+/* The shell turned to landscape: the table beside the HUD and the controls,
+ * the cards at least as large as portrait's, every button and the caption
+ * inside the body, and taps and keys still play there. */
+static void test_landscape(void)
+{
+    struct sol_table portrait_t;
+    struct sol_table t;
+    lv_area_t body;
+    lv_area_t cap;
+    int stock;
+
+    app_start();
+    sol_table_geometry(sol_app_table(app_priv), &portrait_t);
+    app_stop();
+    games_use_display(g_disp, g_content, POS_ROTATION_270, status_h);
+    pump(60);
+    app_start();
+    lv_obj_update_layout(app_body);
+    lv_obj_get_coords(app_body, &body);
+    check("landscape: the body is wider than tall", lv_area_get_width(&body) > lv_area_get_height(&body));
+    check("landscape: the screen fits the body, every button whole",
+          games_screen_fits(app_body, app_body, "solitaire landscape") == 0);
+    sol_table_geometry(sol_app_table(app_priv), &t);
+    check("landscape: the cards are no smaller than portrait's", t.card_w >= portrait_t.card_w && t.card_w >= 60);
+    stock = game()->pile[SOL_STOCK].n;
+    tap_card(SOL_STOCK, -1);
+    check("landscape: a tap on the stock draws", game()->pile[SOL_STOCK].n != stock || stock == 0);
+    key('d');
+    check("landscape: so does d", game()->pile[SOL_STOCK].n != stock || stock == 0);
+    /* The longest caption there is, with a card selected. */
+    cursor_to(SOL_WASTE, 0);
+    key(LV_KEY_ENTER);
+    lv_obj_update_layout(app_body);
+    lv_obj_get_coords(sol_app_caption(app_priv), &cap);
+    check("landscape: a long caption wraps inside the side column",
+          games_inside(&cap, &body) && cap.x1 > lv_obj_get_x(sol_app_table(app_priv)) + t.w);
+    check("landscape: the selected state fits too", games_screen_fits(app_body, app_body, "solitaire selected") == 0);
+    key(LV_KEY_ESC);
+    games_use_display(g_disp, g_content, POS_ROTATION_0, status_h);
+    pump(60);
+    check("turned back to portrait with the app open, the screen fits again",
+          games_screen_fits(app_body, app_body, "solitaire portrait again") == 0);
+    lv_obj_get_coords(sol_app_caption(app_priv), &cap);
+    check("and the caption is one line again", lv_area_get_height(&cap) <=
+                                                 lv_font_get_line_height(lv_obj_get_style_text_font(
+                                                     sol_app_caption(app_priv), 0)));
+    app_stop();
+    check("landscape: nothing left behind", lv_obj_get_child_count(g_content) == 0u && pos_input_focused() == NULL);
+}
 
 static void test_open(void)
 {
@@ -743,7 +808,7 @@ int main(void)
     setenv("POCKETOS_STATE_DIR", state_dir, 1);
     unsetenv("PGSOLITAIRE_SCREEN");
     lv_init();
-    disp = lv_display_create(PANEL_W, PANEL_H);
+    g_disp = disp = lv_display_create(PANEL_W, PANEL_H);
     lv_display_set_buffers(disp, draw_buf, NULL, sizeof(draw_buf), LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(disp, flush_cb);
     finger = lv_indev_create();
@@ -766,6 +831,7 @@ int main(void)
     test_glass();
     test_persistence();
     test_won_and_rounds();
+    test_landscape();
 
     check("the app asked the shell for nothing", shell_calls == 0);
     {

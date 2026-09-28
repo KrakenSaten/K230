@@ -9,8 +9,8 @@
  * ORIENTATION. The screen blocks stack in a tall area and sit side by side in
  * a wide one; the table sizes its cards from both its width and its height,
  * and a hand's overlap tightens so a long hand still fits across. The shell
- * only gives a portrait body today; the wide cases are covered by the view
- * test.
+ * gives a portrait or a landscape body (DS §21); both are covered by the
+ * view test and the app test.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -50,7 +50,14 @@ struct bj_screen {
     int side_by_side;
     struct bj_rect hud; /* two panels: side by side when stacked, one above the other beside a wide table */
     struct bj_rect table;
+    /* The caption above the buttons, bottom-aligned in this block. Stacked,
+     * the block is BJ_CONTROLS_H at the foot; beside a wide table it is the
+     * column under the HUD. */
     struct bj_rect controls;
+    /* 1: the buttons share one row. 2: the first (the accent action) has a
+     * row of its own and the others share the second - a side column is
+     * too narrow for three labels in a row. */
+    int buttons_rows;
 };
 
 void bj_view_screen(int w, int h, struct bj_screen *out);

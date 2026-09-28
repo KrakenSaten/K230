@@ -19,6 +19,7 @@
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #include "app.h"
+#include "chrome.h"
 #include "g2048_app.h"
 #include "g2048_board.h"
 #include "g2048_store.h"
@@ -33,7 +34,9 @@
 
 #define PANEL_W 568
 #define PANEL_H 1232
-#define STATUS_H POCKETUI_STATUS_BAR_H
+/* What the shell keeps above the content area for this app's chrome
+ * (chrome.h, DS §36), in the orientation the display is in now. */
+#define STATUS_H chrome_height(chrome_resolve(app_2048.chrome, pocketui_display_geometry()->width > pocketui_display_geometry()->height, false))
 
 extern const struct pocketos_app app_2048;
 
@@ -400,6 +403,76 @@ static void check_layout(const char *mode)
 /* ---- cases --------------------------------------------------------------------- */
 
 static char state_dir[] = "/tmp/g2048_app_state.XXXXXX";
+
+
+/* ---- landscape (DS §21) --------------------------------------------------------- */
+
+static lv_display_t *g_disp;
+
+static int32_t status_h(void)
+{
+    return STATUS_H;
+}
+
+#include "games_frame.h"
+
+/* The shell turned to landscape: the app opens in a wide body, its screen
+ * fits it with every button whole, keys and a swipe still play, and turning
+ * back with the app open lays it out for portrait again. */
+static void test_landscape(void)
+{
+    lv_area_t board;
+    lv_area_t body;
+    int32_t bw;
+    int32_t bh;
+    int d;
+
+    games_use_display(g_disp, g_content, POS_ROTATION_270, status_h);
+    pump(60);
+    app_start();
+    lv_obj_update_layout(app_body);
+    lv_obj_get_coords(app_body, &body);
+    check("landscape: the body is wider than tall", lv_area_get_width(&body) > lv_area_get_height(&body));
+    check("landscape: the screen fits the body, every button whole",
+          games_screen_fits(app_body, app_body, "2048 landscape") == 0);
+    lv_obj_get_coords(g2048_app_board(app_priv), &board);
+    bw = lv_area_get_width(&board);
+    bh = lv_area_get_height(&board);
+    check("landscape: the board is square and a tile is a touch target",
+          bw - bh <= 1 && bh - bw <= 1 && bw / G2048_SIDE >= POCKETUI_TOUCH_MIN);
+    check("landscape: the board is beside the HUD, not under it",
+          lv_obj_get_x(g2048_app_board(app_priv)) != lv_obj_get_x(lv_obj_get_child(sink(), 0)));
+    {
+        uint32_t moves = game()->moves;
+
+        play_one();
+        settle();
+        check("landscape: an arrow key plays", game()->moves == moves + 1);
+    }
+    {
+        static const int vec[G2048_DIR_COUNT][2] = { { 0, -160 }, { 0, 160 }, { -160, 0 }, { 160, 0 } };
+        uint32_t moves = game()->moves;
+
+        d = movable_dir(game());
+        if (d >= 0) {
+            drag(centre_of(g2048_app_board(app_priv)), vec[d][0], vec[d][1]);
+            settle();
+        }
+        check("landscape: a swipe plays", d < 0 || game()->moves == moves + 1);
+    }
+    push_key('n'); /* the question: two buttons */
+    check("landscape: the new-game question fits, both buttons whole",
+          games_screen_fits(app_body, app_body, "2048 landscape, question") == 0);
+    push_key('n');
+    games_use_display(g_disp, g_content, POS_ROTATION_0, status_h);
+    pump(60);
+    check("turned back to portrait with the app open, the screen fits again",
+          games_screen_fits(app_body, app_body, "2048 portrait again") == 0);
+    check_layout("portrait again");
+    app_stop();
+    check("landscape: nothing left behind", lv_obj_get_child_count(g_content) == 0u &&
+                                               pos_input_focused() == NULL && lv_anim_count_running() == 0);
+}
 
 static void test_open(void)
 {
@@ -853,7 +926,7 @@ int main(void)
     unsetenv("PG2048_SCREEN");
 
     lv_init();
-    disp = lv_display_create(PANEL_W, PANEL_H);
+    g_disp = disp = lv_display_create(PANEL_W, PANEL_H);
     lv_display_set_buffers(disp, draw_buf, NULL, sizeof(draw_buf), LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(disp, flush_cb);
     finger = lv_indev_create();
@@ -880,6 +953,7 @@ int main(void)
     test_glass();
     test_rounds();
     test_debug_screen();
+    test_landscape();
 
     check("no keyboard was asked for", keyboard_requests == 0);
     check("no other shell service was called", other_shell_calls == 0);

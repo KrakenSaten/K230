@@ -846,6 +846,120 @@ tests/calc_engine_test: tests/calc_engine_test.o $(CALC_OBJS)
 tests/calc_view_test: tests/calc_view_test.o $(CALC_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
 
+# PG 2048 (docs/apps/PG2048.md). The engine is pure C with no LVGL, no I/O,
+# no floating point and no platform entropy; the store beside it is the
+# app's only door to the filesystem; the view model is LVGL-free too, so the
+# key map, swipes, layout and the colour contract over every theme are tested
+# here (tests/g2048_lint.sh). The app and its board widget need a display and
+# are built by ui/shell (CMake).
+G2048_DIR := apps/2048
+G2048_INC := -I$(G2048_DIR) -I$(G2048_DIR)/engine -I$(G2048_DIR)/ui -Iui/pocketui
+G2048_OBJS := $(G2048_DIR)/engine/g2048_rng.o $(G2048_DIR)/engine/g2048_rules.o
+G2048_APP_OBJS := $(G2048_DIR)/g2048_store.o
+G2048_UI_OBJS := $(G2048_DIR)/ui/g2048_view.o
+G2048_TESTS := tests/g2048_rules_test tests/g2048_store_test tests/g2048_view_test tests/g2048_theme_test
+
+$(G2048_DIR)/%.o: $(G2048_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) $(G2048_INC) -c -o $@ $<
+
+tests/g2048_%_test.o: tests/g2048_%_test.c
+	$(CC) $(ALL_CFLAGS) $(G2048_INC) -c -o $@ $<
+
+tests/g2048_rules_test: tests/g2048_rules_test.o $(G2048_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/g2048_store_test: tests/g2048_store_test.o $(G2048_APP_OBJS) $(G2048_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/g2048_view_test: tests/g2048_view_test.o $(G2048_UI_OBJS) $(G2048_OBJS) $(THEME_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
+tests/g2048_theme_test: tests/g2048_theme_test.o $(G2048_UI_OBJS) $(G2048_OBJS) $(THEME_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
+# PG Solitaire (docs/apps/PGSOLITAIRE.md): Klondike, draw one. The cards,
+# the shuffle and the rules are pure C with no LVGL, no I/O, no floating
+# point and no platform entropy; the view model - layout, hit testing and
+# the whole keyboard and touch interaction - is LVGL-free too, so all of it
+# is tested here (tests/sol_lint.sh). The save file beside them is the app's
+# only door to the filesystem and is tested here as well. The app, the card
+# renderer and the table widget need a display and are built by ui/shell
+# (CMake).
+SOL_DIR := apps/solitaire
+SOL_INC := -I$(SOL_DIR) -I$(SOL_DIR)/engine -I$(SOL_DIR)/ui
+SOL_OBJS := $(SOL_DIR)/engine/sol_rng.o $(SOL_DIR)/engine/sol_cards.o $(SOL_DIR)/engine/sol_rules.o
+SOL_UI_OBJS := $(SOL_DIR)/ui/sol_view.o
+SOL_APP_OBJS := $(SOL_DIR)/sol_store.o
+SOL_TESTS := tests/sol_rules_test tests/sol_view_test tests/sol_store_test
+
+$(SOL_DIR)/engine/%.o: $(SOL_DIR)/engine/%.c
+	$(CC) $(ALL_CFLAGS) $(SOL_INC) -c -o $@ $<
+
+$(SOL_DIR)/ui/sol_view.o: $(SOL_DIR)/ui/sol_view.c
+	$(CC) $(ALL_CFLAGS) $(SOL_INC) -c -o $@ $<
+
+$(SOL_DIR)/sol_store.o: $(SOL_DIR)/sol_store.c
+	$(CC) $(ALL_CFLAGS) $(SOL_INC) -c -o $@ $<
+
+tests/sol_%_test.o: tests/sol_%_test.c
+	$(CC) $(ALL_CFLAGS) $(SOL_INC) -c -o $@ $<
+
+tests/sol_rules_test: tests/sol_rules_test.o $(SOL_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/sol_view_test: tests/sol_view_test.o $(SOL_UI_OBJS) $(SOL_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/sol_store_test: tests/sol_store_test.o $(SOL_APP_OBJS) $(SOL_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# PG Blackjack (docs/apps/PGBLACKJACK.md). Cards, the shoe, the rules and the
+# chips are pure C with no LVGL, no I/O, no floating point and no platform
+# entropy; the view model - layout, keys, buttons, labels and captions - is
+# LVGL-free too, so both are tested here (tests/bj_lint.sh). The app, the
+# card renderer and the table widget are built by ui/shell (CMake).
+BJ_DIR := apps/blackjack
+BJ_INC := -I$(BJ_DIR) -I$(BJ_DIR)/engine -I$(BJ_DIR)/ui
+BJ_OBJS := $(BJ_DIR)/engine/bj_rng.o $(BJ_DIR)/engine/bj_cards.o $(BJ_DIR)/engine/bj_rules.o
+BJ_UI_OBJS := $(BJ_DIR)/ui/bj_view.o
+BJ_APP_OBJS := $(BJ_DIR)/bj_store.o
+BJ_TESTS := tests/bj_rules_test tests/bj_view_test tests/bj_store_test
+
+$(BJ_DIR)/engine/%.o: $(BJ_DIR)/engine/%.c
+	$(CC) $(ALL_CFLAGS) $(BJ_INC) -c -o $@ $<
+
+$(BJ_DIR)/ui/bj_view.o: $(BJ_DIR)/ui/bj_view.c
+	$(CC) $(ALL_CFLAGS) $(BJ_INC) -c -o $@ $<
+
+$(BJ_DIR)/bj_store.o: $(BJ_DIR)/bj_store.c
+	$(CC) $(ALL_CFLAGS) $(BJ_INC) -c -o $@ $<
+
+tests/bj_%_test.o: tests/bj_%_test.c
+	$(CC) $(ALL_CFLAGS) $(BJ_INC) -c -o $@ $<
+
+tests/bj_rules_test: tests/bj_rules_test.o $(BJ_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/bj_view_test: tests/bj_view_test.o $(BJ_UI_OBJS) $(BJ_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/bj_store_test: tests/bj_store_test.o $(BJ_APP_OBJS) $(BJ_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+GAMES_TESTS := $(G2048_TESTS) $(SOL_TESTS) $(BJ_TESTS)
+GAMES_OBJS := $(G2048_OBJS) $(G2048_APP_OBJS) $(G2048_UI_OBJS) $(SOL_OBJS) $(SOL_UI_OBJS) $(SOL_APP_OBJS) \
+              $(BJ_OBJS) $(BJ_UI_OBJS) $(BJ_APP_OBJS)
+GAMES_TEST_RUN = ./tests/g2048_rules_test && ./tests/g2048_store_test && ./tests/g2048_view_test && \
+                 ./tests/g2048_theme_test && ./tests/sol_rules_test && ./tests/sol_view_test && \
+                 ./tests/sol_store_test && ./tests/bj_rules_test && ./tests/bj_view_test && ./tests/bj_store_test
+
+# The three Pocket Games titles on their own, for a focused run.
+games-test: $(GAMES_TESTS)
+	$(GAMES_TEST_RUN)
+	bash tests/g2048_lint.sh
+	bash tests/sol_lint.sh
+	bash tests/bj_lint.sh
+
 # RIFT: the three halves of the app that are not LVGL. The model (what is
 # known and how sure it is), the formatting (every string the screens print)
 # and the meshcored client (the connection, the framing and the reconnect)
@@ -1597,7 +1711,7 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
              tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
              $(NOTES_TESTS) $(FILES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) $(CALC_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test \
              $(WAVE_TESTS) $(RIFT_TESTS) $(CAMERA_TESTS) $(ZABBIX_TESTS) $(BROWSER_TESTS) $(REC_TESTS) tests/drmtest_test \
-             $(VISION_TESTS)
+             $(VISION_TESTS) $(GAMES_TESTS)
 
 # Native tests only (they execute binaries).
 test: all $(TEST_BINS)
@@ -1664,6 +1778,7 @@ test: all $(TEST_BINS)
 	./tests/cal_view_test
 	./tests/calc_engine_test
 	./tests/calc_view_test
+	$(GAMES_TEST_RUN)
 	./tests/clock_runtime_test
 	./tests/clock_handoff_test
 	./tests/clock_restart_test
@@ -1759,6 +1874,9 @@ test: all $(TEST_BINS)
 	bash tests/browser_lint.sh
 	bash tests/recorder_lint.sh
 	bash tests/vision_lint.sh
+	bash tests/g2048_lint.sh
+	bash tests/sol_lint.sh
+	bash tests/bj_lint.sh
 
 install: all meshcored-shipping-check
 # The command-line tool is installed as doors, and pos is a symlink to it: one
@@ -1823,7 +1941,7 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 
 clean:
 	$(MAKE) -C tools/meshcore-frame clean
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd_logs_test tests/sysd_logs_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_NET_OBJS) $(FLEET_LINK_OBJS) apps/fleet/link/fleet_link_mesh.o $(FLEET_VIEW_MP_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/wave_channel.o tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o tests/volume_test tests/volume_test.o ui/shell/volume.o tests/controls_model_test tests/controls_model_test.o ui/shell/controls_model.o apps/system/diag_view.o tests/diag_view_test tests/diag_view_test.o $(ZBX_OBJS) core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o $(ZABBIX_OBJS) $(ZABBIX_TESTS) $(ZABBIX_TESTS:=.o) tools/zabbix/pos_zabbix.o tools/zabbix/pos_zabbix_mock.o $(WEB_HELPER_OBJS) $(WEB_DIR)/web_fetch_curl.o $(WEB_DIR)/web_fetch_none.o $(WEB_DIR)/web_image_dec.o $(WEB_DIR)/web_image_none.o $(BROWSER_OBJS) $(BROWSER_TESTS) $(BROWSER_TESTS:=.o) tools/browser/pos_browser.o $(POS_RECORD_OBJS) $(REC_APP_OBJS) $(REC_TESTS) $(REC_TESTS:=.o) tests/pos_record_hooks.o $(POCKETOS_BUILD_STAMP) tests/drmtest_test
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd_logs_test tests/sysd_logs_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_NET_OBJS) $(FLEET_LINK_OBJS) apps/fleet/link/fleet_link_mesh.o $(FLEET_VIEW_MP_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/wave_channel.o tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o tests/volume_test tests/volume_test.o ui/shell/volume.o tests/controls_model_test tests/controls_model_test.o ui/shell/controls_model.o apps/system/diag_view.o tests/diag_view_test tests/diag_view_test.o $(ZBX_OBJS) core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o $(ZABBIX_OBJS) $(ZABBIX_TESTS) $(ZABBIX_TESTS:=.o) tools/zabbix/pos_zabbix.o tools/zabbix/pos_zabbix_mock.o $(WEB_HELPER_OBJS) $(WEB_DIR)/web_fetch_curl.o $(WEB_DIR)/web_fetch_none.o $(WEB_DIR)/web_image_dec.o $(WEB_DIR)/web_image_none.o $(BROWSER_OBJS) $(BROWSER_TESTS) $(BROWSER_TESTS:=.o) tools/browser/pos_browser.o $(POS_RECORD_OBJS) $(REC_APP_OBJS) $(REC_TESTS) $(REC_TESTS:=.o) tests/pos_record_hooks.o $(POCKETOS_BUILD_STAMP) tests/drmtest_test $(GAMES_OBJS) $(GAMES_TESTS) $(GAMES_TESTS:=.o)
 
 # The files `make all` and `make test` produce, one to a line, for
 # tests/build_outputs_test.sh.
@@ -2015,4 +2133,4 @@ meshcored-clean:
         meshcore-frame meshcore-frame-test \
         meshcore-core meshcore-core-test meshcore-core-riscv64 \
         meshcored meshcored-test meshcored-clean meshcored-shipping-check \
-        recorder-test recorder-san-test vision-test vision-san-test
+        recorder-test recorder-san-test vision-test vision-san-test games-test

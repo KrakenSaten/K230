@@ -1,7 +1,7 @@
 /*
  * The DOORS launcher's geometry and groups (ui/shell/home_layout.h, DS §31):
  *
- *   - the registry's seventeen apps land in four groups in the table's order,
+ *   - the registry's twenty-one apps land in four groups in the table's order,
  *     an app the table does not name goes to MORE (after the named groups,
  *     in registry order), an empty group is not drawn;
  *   - in both orientations of the reference panel every cell is inside its
@@ -50,7 +50,8 @@ static void check(const char *what, int ok)
 /* The shell's registry order (ui/shell/shell.c apps[], then OPTIONAL_APPS). */
 static const char *const registry[] = { "radio", "system", "fleet", "radar", "timber", "notes",
                                         "clock", "calendar", "calculator", "settings", "wave", "rift",
-                                        "files", "camera", "browser", "recorder", "vision", "zabbix" };
+                                        "files", "camera", "browser", "recorder", "vision", "solitaire",
+                                        "blackjack", "2048", "zabbix" };
 #define NREG ((int)(sizeof(registry) / sizeof(registry[0])))
 
 static int inside(const struct home_rect *a, const struct home_rect *b)
@@ -68,19 +69,19 @@ static void test_groups(void)
     uint8_t order[HOME_MAX_APPS];
     uint8_t count[HOME_GROUP_COUNT];
     static const char *const want[] = { "rift", "radio", "wave", "zabbix", "browser", "notes", "calendar", "clock",
-                                        "calculator", "fleet", "radar", "timber", "settings", "system",
-                                        "files", "camera", "recorder", "vision" };
+                                        "calculator", "fleet", "radar", "timber", "solitaire", "blackjack",
+                                        "2048", "settings", "system", "files", "camera", "recorder", "vision" };
     int n = home_group_order(registry, NREG, order, count);
     int k;
-    int same = n == 18;
+    int same = n == 21;
 
     for (k = 0; same && k < n; k++) {
         same = strcmp(registry[order[k]], want[k]) == 0;
     }
-    check("the eighteen apps are shown in the table's order", same);
+    check("the twenty-one apps are shown in the table's order", same);
     check("CONNECTIONS holds RIFT, Radio, Wave, Zabbix, Browser", count[HOME_GROUP_CONNECT] == 5);
     check("WORKSPACE holds Notes, Calendar, Clock, Calculator", count[HOME_GROUP_WORK] == 4);
-    check("PLAY holds Fleet, Radar, Timber", count[HOME_GROUP_PLAY] == 3);
+    check("PLAY holds Fleet, Radar, Timber, Solitaire, Blackjack, 2048", count[HOME_GROUP_PLAY] == 6);
     check("DEVICE holds Settings, System, Files, Camera, Recorder, Vision", count[HOME_GROUP_DEVICE] == 6);
     check("nothing is left for MORE", count[HOME_GROUP_MORE] == 0);
     check("group names are the package's capitals",

@@ -166,12 +166,13 @@ sleep 0.3
 check "shell.home while locked opens the device at home" \
     "$([ "$(field '["lock"]["locked"]')" = false ] && [ "$(field '["current"]')" = '"home"' ] && echo 1 || echo 0)"
 opened=0
-for id in rift radio wave zabbix browser notes calendar clock calculator fleet radar timber settings system files camera recorder vision; do
+for id in rift radio wave zabbix browser notes calendar clock calculator fleet radar timber solitaire blackjack 2048 \
+          settings system files camera recorder vision; do
     "$POS" app start "$id" >/dev/null 2>&1 && sleep 0.4 &&
         [ "$(field '["current"]')" = "\"$id\"" ] && opened=$((opened + 1))
     "$POS" app home >/dev/null 2>&1; sleep 0.2
 done
-check "every one of the eighteen apps opens and comes home ($opened)" "$([ "$opened" = 18 ] && echo 1 || echo 0)"
+check "every one of the twenty-one apps opens and comes home ($opened)" "$([ "$opened" = 21 ] && echo 1 || echo 0)"
 check "and the shell is home again" "$([ "$(field '["current"]')" = '"home"' ] && echo 1 || echo 0)"
 call shell.controls
 sleep 0.3
@@ -196,7 +197,12 @@ for o in portrait landscape; do
     python3 - "$OUT/$o-info.json" > "$OUT/$o-cells.txt" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
+fold = d["display"]["height"]
 for c in d["launcher"]["cells"]:
+    # A cell below the fold is not on the screenshot; it is counted apart.
+    if c["y"] + c["h"] > fold:
+        print("below", c["id"], c["y"])
+        continue
     # C's division truncates toward zero; a landscape cell is narrower than the icon.
     print(c["id"], c["x"] + int((c["w"] - 96) / 2), c["y"], c["w"], c["h"])
 print("apps", d["launcher"]["apps"], d["launcher"]["icons_art"], d["launcher"]["icons_fallback"],
@@ -211,12 +217,16 @@ PY
     # (Recorder) each take a second row of cells, and the footer goes below
     # the fold - the layout grows rather than shortening anything
     # (ui/shell/home_layout.h; accepted by the owner for feat/recorder-app).
+    # Solitaire, Blackjack and 2048 make twenty-one, PLAY takes a second row
+    # of cells too, and DEVICE's second row is below the fold in portrait.
     scrolls=true
-    check "$o: eighteen apps, eighteen portal icons from the art, none on a fallback, scrolls: $scrolls ($2 $3 $4 $5)" \
-        "$([ "$2" = 18 ] && [ "$3" = 18 ] && [ "$4" = 0 ] && [ "$5" = "$scrolls" ] && echo 1 || echo 0)"
+    check "$o: twenty-one apps, twenty-one portal icons from the art, none on a fallback, scrolls: $scrolls ($2 $3 $4 $5)" \
+        "$([ "$2" = 21 ] && [ "$3" = 21 ] && [ "$4" = 0 ] && [ "$5" = "$scrolls" ] && echo 1 || echo 0)"
+    below=$(grep -c '^below ' "$OUT/$o-cells.txt")
     good=0
     while read -r id x y w h; do
         [ "$id" = apps ] && continue
+        [ "$id" = below ] && continue
         set -- $(art "$OUT/$o-launcher.png" "icon-$id" "$x" "$y")
         if [ "${1:-0}" = "${2:--1}" ] && [ "${2:-0}" -gt 2000 ]; then
             good=$((good + 1))
@@ -225,8 +235,8 @@ PY
         fi
         [ "$w" -ge 64 ] && [ "$h" -ge 64 ] || echo "     $o: $id cell $w x $h is below the touch minimum"
     done < "$OUT/$o-cells.txt"
-    check "$o: every app's own portal icon is drawn in its cell, pixel for pixel ($good of 18)" \
-        "$([ "$good" = 18 ] && echo 1 || echo 0)"
+    check "$o: every app's own portal icon on screen is drawn in its cell, pixel for pixel ($good + $below below the fold)" \
+        "$([ "$((good + below))" = 21 ] && [ "$good" -ge 12 ] && echo 1 || echo 0)"
 done
 
 # ---- 4. no art installed --------------------------------------------------------
@@ -236,7 +246,7 @@ POCKETOS_ART_DIR="$OUT/noart" start_shell --rotation portrait
 check "with no art the shell starts, locked" "$([ "$(field '["lock"]["locked"]')" = true ] && echo 1 || echo 0)"
 check "and says it has no background" "$([ "$(field '["art"]["background"]')" = false ] && echo 1 || echo 0)"
 check "every app is on the fallback frame" \
-    "$([ "$(field '["launcher"]["icons_fallback"]')" = 18 ] && [ "$(field '["launcher"]["icons_art"]')" = 0 ] && echo 1 || echo 0)"
+    "$([ "$(field '["launcher"]["icons_fallback"]')" = 21 ] && [ "$(field '["launcher"]["icons_art"]')" = 0 ] && echo 1 || echo 0)"
 shot "$OUT/noart-lock.png"
 call shell.unlock
 sleep 0.2
@@ -257,15 +267,21 @@ python3 - "$(info)" > "$OUT/fo.txt" <<'PY'
 import json, sys
 d = json.loads(sys.argv[1])
 for c in d["launcher"]["cells"]:
+    if c["y"] + c["h"] > d["display"]["height"]:
+        print("below", c["id"], c["y"])
+        continue
     print(c["id"], c["x"] + int((c["w"] - 96) / 2), c["y"])
 PY
+below=$(grep -c '^below ' "$OUT/fo.txt")
 good=0
 while read -r id x y; do
+    [ "$id" = below ] && continue
     set -- $(art "$OUT/frameonly.png" icon-frame "$x" "$y")
     # The frame's opaque pixels, less the few the app's mask covers.
     [ "${2:-0}" -gt 2000 ] && [ $(( ${2:-0} - ${1:-0} )) -lt 400 ] && good=$((good + 1))
 done < "$OUT/fo.txt"
-check "with only the empty frame installed, every app is drawn on it ($good of 18)" "$([ "$good" = 18 ] && echo 1 || echo 0)"
+check "with only the empty frame installed, every app on screen is drawn on it ($good + $below below the fold)" \
+    "$([ "$((good + below))" = 21 ] && [ "$good" -ge 12 ] && echo 1 || echo 0)"
 stop_shell
 
 # ---- 5. restarts ------------------------------------------------------------------

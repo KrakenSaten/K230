@@ -83,6 +83,7 @@ static void test_layout(void)
     int i;
 
     bj_view_screen(528, 1060, &s);
+    check("a tall body's buttons share one row", s.buttons_rows == 1);
     check("a tall body stacks HUD, table and controls", !s.side_by_side && s.hud.y == 0 &&
                                                             s.table.y == BJ_HUD_H + BJ_GAP &&
                                                             s.controls.y + s.controls.h == 1060 &&
@@ -106,6 +107,10 @@ static void test_layout(void)
     check("a wide body puts the chrome beside the table", s.side_by_side && s.hud.x > s.table.w);
     check("with BANK above BET, both full height, clear of the controls",
           s.hud.h == 2 * BJ_HUD_H + BJ_HUD_GAP && s.hud.y + s.hud.h < s.controls.y);
+    check("the controls take the column under the HUD, to the foot",
+          s.controls.x == s.hud.x && s.controls.w == s.hud.w && s.controls.y == s.hud.h + BJ_GAP &&
+              s.controls.y + s.controls.h == 470);
+    check("where the buttons take two rows; stacked they take one", s.buttons_rows == 2);
     bj_view_table(s.table.w, s.table.h, &t);
     check("a short table binds the cards by height", t.card_h <= (470 - 32 - 72 - 16) / 2);
     check("and the rows still do not meet", t.cards_y[BJ_ROW_DEALER] + t.card_h <= t.label_y[BJ_ROW_PLAYER]);

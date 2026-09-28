@@ -12,10 +12,9 @@
  * ORIENTATION. Nothing here assumes the 568 x 1232 portrait panel. The layout
  * takes the width and height of the area the app is given and places the
  * HUD, the board and the controls in it: stacked when the area is taller
- * than wide, side by side when it is wider. Today the shell only ever gives
- * a portrait body; the wide arrangement exists so the portrait/landscape
- * milestone changes what the shell hands over, not this game (it is covered
- * by the view test, not yet seen on glass).
+ * than wide, side by side when it is wider. The shell gives a portrait or a
+ * landscape body (DS §21); both are covered by the view test and the app
+ * test.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
