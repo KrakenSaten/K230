@@ -121,6 +121,43 @@ per-class counts, the speed slots - one per track, bounded by
 in, tested in `tests/vision_traffic_test.c`), used by the helper; the app
 only carries the choices and the words (`vision_model.c`).
 
+## Optional modes: COLOR, EDGE, TRACE
+
+MODE cycles on past TRAFFIC. In these three the detector idles (the model
+stays loaded; the KPU is not run) and the helper works on the preview
+picture it has already drawn for the screen - in place, in the shared
+memory slot, at the preview's own rate (at most ten a second) - before
+saying `frame`. The core is `core/pocketvision/vision_pixels.c`: integer
+only, no allocation (three static luma rows and a centroid per row,
+bounded by the widest picture a slot holds), tested on synthetic pictures
+in `tests/vision_pixels_test.c`.
+
+- **COLOR.** SAMPLE takes the colour at the picture's middle; a tap on the
+  picture takes it under the finger (a 5 x 5 mean). Every pixel within
+  the tolerance (TOL: LOW 48, MED 96, HIGH 160 - the sum of the three
+  8-bit channel differences) is painted green (magenta when the target is
+  greenish, so it stays visible); the status says the target, the share
+  of the picture that matched and the matches' centroid, which the screen
+  marks with a small accent square.
+- **EDGE.** Sobel on the luma: the picture becomes its edge magnitude in
+  grey (SOFT) or black and white above a threshold of 40 (HARD); the
+  status says the share of strong edges. No contours: a picture of edges
+  is what the mode is for.
+- **TRACE.** The dominant dark (LINE: DARK) or light line on the picture:
+  per row, the centroid of the dark pixels when there is a plausible run
+  of them (between 2 % and 60 % of the width), a least-squares line
+  through the centroids, the offset of the bottom quarter's centroid from
+  the middle (`line left 12%`), the lean (`leans right 45%`: dx per rows
+  going down) and how many rows carry the line; the centroids are marked
+  in yellow. A line needs an eighth of the rows. Meant for a tape on a
+  floor in front of the unit, as a line follower sees it.
+- **SHAPE is not implemented.** Circle, rectangle and triangle detection
+  needs contours and polygon fitting, which is more than a pass over the
+  picture; it is left for its own change.
+
+The choices (mode, tolerance, soft/hard, dark/light) survive Try again
+like the others; nothing is stored.
+
 ## The model
 
 **YOLOv8n, 320 x 320, quantized, as `yolov8n.kmodel` from the pinned
@@ -227,9 +264,13 @@ picture pixels, so the app draws them with no geometry of its own.
 
 `core/pocketvision/pocketvision_proto.h` is the reference (version 2).
 Commands: `view w h rotation`, `start`, `stop`, `release slot`,
-`mode detect|traffic`, `line x0 y0 x1 y1` (per-mille of the view) or
-`line off`, `speed ax0 ay0 ax1 ay1 bx0 by0 bx1 by1` or `speed off`,
-`distance cm`, `reset`, `quit`. Events: `hello`,
+`mode detect|traffic|color|edge|trace`, `line x0 y0 x1 y1` (per-mille of
+the view) or `line off`, `speed ax0 ay0 ax1 ay1 bx0 by0 bx1 by1` or
+`speed off`, `distance cm`, `color r g b` or `color off`, `sample x y`,
+`tol n`, `edge threshold`, `trace dark|light`, `reset`, `quit`. Events:
+`color r g b matched_pm cx cy`, `edge strong_pm`,
+`trace found offset_pm slope_pm rows` (the pixel modes, with every
+preview), `hello`,
 `ready camera pw ph simulated model in_w in_h classes`, `nodevice`,
 `nomodel`, `error what text`, `frame slot seq w h`,
 `det seq n id:cls:conf:x:y:w:h:dir:kmh10...` (dir 0 none, 1 left, 2
@@ -323,6 +364,14 @@ Host only; none needs unit A. `make vision-test` runs them all,
   beyond it counted once, an expired track and a newcomer beyond the
   line one count, left/right and up/down on both line orientations, two
   lines with independent states, forgetting, a disabled line.
+- `tests/vision_pixels_test.c` (26 checks): RGB565 both ways and the
+  luma; a colour sampled, its matches painted and located under a tight
+  and a wide tolerance, a green target painted magenta, no match, the
+  tolerance's ceiling; a vertical and a horizontal step edge found on
+  their rows and columns alone, grey and thresholded, a flat picture
+  edgeless; a leaning dark line traced with its lean and offset and its
+  centroids marked, a straight light one, a blank, an all-dark picture, a
+  short dash; pictures too small or too wide refused.
 - `tests/vision_traffic_test.c` (39 checks): the class names and the
   groups, filtering, per-class and total counts by direction, reset; a
   speed from A then B and from B then A, the current speed retired with
@@ -350,7 +399,11 @@ Host only; none needs unit A. `make vision-test` runs them all,
   counted once, downward; in TRAFFIC a car through both speed lines and
   the count line on one id with its direction, counted IN as a car and
   measured against the helper's own clock, the chair never tracked,
-  reset, and the chair back in DETECT; stats; reset; stop; two
+  reset, and the chair back in DETECT; the pixel modes on the fake
+  camera's picture: EDGE empties the boxes and says its edges, soft and
+  hard, pictures keep coming, COLOR says nothing without a target and a
+  report once the middle is sampled, TRACE answers, DETECT tracks the box
+  again; stats; reset; stop; two
   malformed tensors said and survived; a detector giving nonsense ended
   with exit 5; a failed run; no camera, a busy camera, a bad detector
   script, a missing helper, a camera that goes away, a hung helper killed

@@ -63,7 +63,7 @@ static void test_model(void)
     e.simulated = true;
     check("ready streams and sends the mode, the lines and the distance",
           vision_model_event(&m, &e, NULL, 1000) ==
-              (VISION_ACT_STREAM | VISION_ACT_MODE | VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_DISTANCE));
+              (VISION_ACT_STREAM | VISION_ACT_MODE | VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_DISTANCE | VISION_ACT_PIXELS));
     check("and is LIVE with the camera's shape", m.state == VISION_LIVE && m.preview_w == 640 && m.classes == 80);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("LIVE before a picture waits for it, SIMULATED in the hint",
@@ -136,7 +136,7 @@ static void test_model(void)
 
         /* TRAFFIC. */
         check("MODE goes to TRAFFIC and sends the mode with the lines and the distance",
-              vision_model_mode_next(&m) == (VISION_ACT_MODE | VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_DISTANCE) &&
+              vision_model_mode_next(&m) == (VISION_ACT_MODE | VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_DISTANCE | VISION_ACT_PIXELS) &&
                   m.mode == VISION_MODE_TRAFFIC && m.count_a == 0);
         vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_DET }, &s, 4300);
         vision_model_text(&m, &t, buf, sizeof(buf));
@@ -213,8 +213,70 @@ static void test_model(void)
         vision_model_text(&m, &t, buf, sizeof(buf));
         check("with none yet, the lines' distance", strstr(t.status, "SPEED --  (15 m between lines)") != NULL);
         check("RESET in TRAFFIC clears the report too", vision_model_reset(&m) == VISION_ACT_RESET && m.traffic.total_ab == 0);
-        check("MODE goes round to DETECT", vision_model_mode_next(&m) == (VISION_ACT_MODE | VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_DISTANCE) &&
-                                                m.mode == VISION_MODE_DETECT);
+        /* The pixel modes. */
+        check("MODE goes on to COLOR, with the pixel settings",
+              vision_model_mode_next(&m) == (VISION_ACT_MODE | VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_DISTANCE | VISION_ACT_PIXELS) &&
+                  m.mode == VISION_MODE_COLOR && vision_model_pixel_mode(&m) && strcmp(vision_model_mode_word(&m), "color") == 0);
+        vision_model_text(&m, &t, buf, sizeof(buf));
+        check("COLOR: MODE, SAMPLE, TOL; the picture takes taps; no lines; no counts",
+              strcmp(t.mode_btn, "COLOR") == 0 && t.picture_tap && !t.lines && !t.traffic && strcmp(t.count_a, "-") == 0 &&
+                  strcmp(t.tol_btn, "TOL: MED") == 0 && vision_model_tol(&m) == 96 && vision_model_status_lines(&m) == 1);
+        {
+            enum vision_button order[VISION_BUTTONS];
+
+            check("in that order", vision_model_buttons(&m, order) == 3 && order[1] == VISION_BTN_SAMPLE && order[2] == VISION_BTN_TOL);
+        }
+        check("it asks for a colour", strstr(t.status, "Tap the picture or SAMPLE") != NULL);
+        check("SAMPLE asks the helper for the middle", vision_model_sample_middle(&m, 400, 600) == VISION_ACT_SAMPLE &&
+                                                           m.sample_x == 200 && m.sample_y == 300);
+        check("a tap asks for that point", vision_model_sample_at(&m, 10, 20) == VISION_ACT_SAMPLE && m.sample_x == 10);
+        check("a point off the picture does not", vision_model_sample_at(&m, -1, 20) == 0);
+        check("TOL cycles and sends", vision_model_tol_next(&m) == VISION_ACT_PIXELS && vision_model_tol(&m) == 160);
+        vision_model_tol_next(&m);
+        check("round to LOW", vision_model_tol(&m) == 48);
+        s.pixels.color.r = 200;
+        s.pixels.color.g = 30;
+        s.pixels.color.b = 30;
+        s.pixels.color.matched_pm = 123;
+        s.pixels.color.cx = 150;
+        s.pixels.color.cy = 80;
+        vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_COLOR }, &s, 6000);
+        vision_model_text(&m, &t, buf, sizeof(buf));
+        check("a colour report is the status and the mark", m.have_target && strstr(t.status, "#C81E1E") &&
+                                                                strstr(t.status, "match 12.3%") && strstr(t.status, "at 150,80") &&
+                                                                t.show_mark && t.mark_x == 150 && t.mark_y == 80);
+        check("MODE to EDGE", vision_model_mode_next(&m) & VISION_ACT_MODE);
+        vision_model_text(&m, &t, buf, sizeof(buf));
+        check("EDGE: MODE, EDGE soft; no taps, no mark", m.mode == VISION_MODE_EDGE && strcmp(t.edge_btn, "EDGE: SOFT") == 0 &&
+                                                            !t.picture_tap && !t.show_mark && vision_model_edge_threshold(&m) == 0 &&
+                                                            strstr(t.status, "Finding edges") != NULL);
+        check("EDGE hard sends the threshold", vision_model_edge_next(&m) == VISION_ACT_PIXELS && m.edge_hard &&
+                                                   vision_model_edge_threshold(&m) == VISION_EDGE_HARD_THRESHOLD);
+        s.pixels.edge_pm = 81;
+        vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_EDGE }, &s, 6100);
+        vision_model_text(&m, &t, buf, sizeof(buf));
+        check("the edge share is the status", strstr(t.status, "edges 8.1%") && strstr(t.status, "hard"));
+        vision_model_mode_next(&m);
+        vision_model_text(&m, &t, buf, sizeof(buf));
+        check("TRACE: MODE, LINE: DARK", m.mode == VISION_MODE_TRACE && strcmp(t.trace_btn, "LINE: DARK") == 0 &&
+                                             strstr(t.status, "Looking for a dark line") != NULL);
+        s.pixels.trace.found = true;
+        s.pixels.trace.offset_pm = -120;
+        s.pixels.trace.slope_pm = 450;
+        s.pixels.trace.rows = 300;
+        vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRACE }, &s, 6200);
+        vision_model_text(&m, &t, buf, sizeof(buf));
+        check("a line is said with its offset and lean", strstr(t.status, "line left 12%") && strstr(t.status, "leans right 45%") &&
+                                                             strstr(t.status, "300 rows"));
+        check("LINE: LIGHT sends and forgets the last answer", vision_model_trace_next(&m) == VISION_ACT_PIXELS && !m.trace_dark &&
+                                                                   !m.trace_valid);
+        s.pixels.trace.found = false;
+        s.pixels.trace.rows = 3;
+        vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRACE }, &s, 6300);
+        vision_model_text(&m, &t, buf, sizeof(buf));
+        check("no line is said too", strstr(t.status, "no light line") != NULL);
+        check("MODE goes round to DETECT", (vision_model_mode_next(&m) & VISION_ACT_MODE) && m.mode == VISION_MODE_DETECT &&
+                                                !vision_model_pixel_mode(&m));
         check("the class names", strcmp(vision_model_traffic_name(3), "moto") == 0 && strcmp(vision_model_traffic_name(6), "?") == 0);
     }
 
@@ -226,10 +288,13 @@ static void test_model(void)
     m.mode = VISION_MODE_TRAFFIC;
     m.speed = VISION_SPEED_WIDE;
     m.distance_idx = 2;
-    check("Try again keeps the line, mode, speed and distance choices and opens again",
+    m.tol_idx = 2;
+    m.edge_hard = true;
+    m.trace_dark = false;
+    check("Try again keeps every choice and opens again",
           (m.line = VISION_LINE_DOWN, vision_model_open(&m) == VISION_ACT_OPEN) && m.state == VISION_INIT &&
               m.line == VISION_LINE_DOWN && m.mode == VISION_MODE_TRAFFIC && m.speed == VISION_SPEED_WIDE &&
-              m.distance_idx == 2);
+              m.distance_idx == 2 && m.tol_idx == 2 && m.edge_hard && !m.trace_dark && !m.have_target);
     check("a tap while not live changes the choice and sends nothing",
           vision_model_speed_next(&m) == 0 && vision_model_distance_next(&m) == 0 && vision_model_line_next(&m) == 0 &&
               vision_model_mode_next(&m) == VISION_ACT_MODE);
@@ -328,6 +393,8 @@ static void test_layout(void)
     shape("landscape DETECT", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, 1);
     shape("portrait TRAFFIC", 528, 1116, 0, 0, 0, 30, 360, 640, false, 5, 3);
     shape("landscape TRAFFIC", 1192, 452, 30, 0, 30, 0, 640, 360, true, 5, 3);
+    shape("portrait EDGE", 528, 1116, 0, 0, 0, 30, 360, 640, false, 2, 1);
+    shape("landscape EDGE", 1192, 452, 30, 0, 30, 0, 640, 360, true, 2, 1);
     check("a body too small is refused", vision_layout_compute(&l, 200, 150, 0, 0, 0, 0, 640, 360, 3, 1) == -1);
     check("a frame with no size is refused", vision_layout_compute(&l, 528, 1116, 0, 0, 0, 0, 0, 360, 3, 1) == -1);
     check("too many buttons or status lines are refused",

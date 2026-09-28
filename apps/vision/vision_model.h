@@ -3,12 +3,14 @@
  * event and tap changes. No processes, no LVGL, no clock but the one passed
  * in (docs/apps/VISION.md).
  *
- * Two modes. DETECT shows everything the model knows, with one counting
+ * Five modes. DETECT shows everything the model knows, with one counting
  * line. TRAFFIC shows traffic only - car, truck, bus, motorcycle, bicycle,
  * person - counted per class and in total across the counting line (IN and
  * OUT), each track's direction on its box, and a speed for every track
  * that crosses the two speed lines, from the ground distance the user
- * sets and the time between the crossings. The helper does the work; this
+ * sets and the time between the crossings. COLOR, EDGE and TRACE look at
+ * the picture's pixels instead of the detector: a sampled colour and its
+ * matches, the edges, the dominant line. The helper does the work; this
  * keeps the choices and the words.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
@@ -31,6 +33,9 @@ enum vision_state {
 enum vision_mode {
     VISION_MODE_DETECT = 0,
     VISION_MODE_TRAFFIC,
+    VISION_MODE_COLOR,
+    VISION_MODE_EDGE,
+    VISION_MODE_TRACE,
     VISION_MODES
 };
 
@@ -54,6 +59,11 @@ enum vision_speed_mode {
 /* The ground distances the user cycles through, in centimetres. */
 #define VISION_DISTANCES 8
 #define VISION_DISTANCE_DEFAULT 3  /* 10 m */
+/* The colour tolerances: LOW, MED, HIGH. */
+#define VISION_TOLS 3
+#define VISION_TOL_DEFAULT 1
+/* EDGE's hard threshold. */
+#define VISION_EDGE_HARD_THRESHOLD 40
 
 /* What a tap or an event asks the screen to do (a bit set). */
 #define VISION_ACT_OPEN      0x01u  /* start the helper */
@@ -64,6 +74,8 @@ enum vision_speed_mode {
 #define VISION_ACT_MODE      0x20u  /* send the mode (the layout changes too) */
 #define VISION_ACT_SPEED     0x40u  /* send the speed lines */
 #define VISION_ACT_DISTANCE  0x80u  /* send the distance */
+#define VISION_ACT_PIXELS    0x100u /* send the pixel modes' settings (colour, tolerance, edge, trace) */
+#define VISION_ACT_SAMPLE    0x200u /* send a colour sample at vision_model_sample_point */
 
 /* The buttons, by role; the order on screen is per mode
  * (vision_model_buttons). */
@@ -73,6 +85,10 @@ enum vision_button {
     VISION_BTN_SPEED,
     VISION_BTN_DISTANCE,
     VISION_BTN_RESET,
+    VISION_BTN_SAMPLE,
+    VISION_BTN_TOL,
+    VISION_BTN_EDGE,
+    VISION_BTN_TRACE,
     VISION_BUTTONS
 };
 
@@ -92,10 +108,20 @@ struct vision_model {
     enum vision_line_mode orient;  /* the last line that was not OFF: the speed lines' way */
     enum vision_speed_mode speed;
     int distance_idx;
+    int tol_idx;
+    bool edge_hard;
+    bool trace_dark;
+    bool have_target;     /* COLOR: a colour has been sampled */
+    int32_t sample_x;     /* a sample asked for, in view pixels; -1 none */
+    int32_t sample_y;
     uint32_t count_a;     /* into side A: DOWN or LEFT... see vision_model_count_names */
     uint32_t count_b;
     struct vision_traffic_report traffic;
     bool traffic_valid;
+    struct vision_pixel_report pixels;
+    bool color_valid;
+    bool edge_valid;
+    bool trace_valid;
     int active_tracks;    /* confirmed tracks on the last det line */
     struct vision_stats stats;
     bool stats_valid;
@@ -108,9 +134,12 @@ struct vision_view_text {
     const char *detail;
     const char *status;   /* the line(s) under the picture */
     const char *hint;     /* the header's right end: SIMULATED, or "" */
-    const char *mode_btn; /* DETECT / TRAFFIC */
+    const char *mode_btn; /* DETECT / TRAFFIC / COLOR / EDGE / TRACE */
     const char *line_btn; /* LINE: OFF / ACROSS / DOWN */
     const char *speed_btn;
+    const char *tol_btn;
+    const char *edge_btn;
+    const char *trace_btn;
     char dist_btn[24];
     char count_a[32];     /* "DOWN 3", "IN (DOWN) 3", or "-" */
     char count_b[32];
@@ -119,6 +148,11 @@ struct vision_view_text {
     bool show_retry;      /* TRY AGAIN (ERROR) or CHECK AGAIN (NO_DEVICE) */
     bool line_enabled;    /* the buttons take taps */
     bool traffic;         /* TRAFFIC mode: SPEED and DIST are shown */
+    bool lines;           /* the counting and speed lines are drawn (DETECT, TRAFFIC) */
+    bool picture_tap;     /* COLOR: a tap on the picture samples a colour */
+    bool show_mark;       /* COLOR: the mark at the matches' centroid */
+    int32_t mark_x;
+    int32_t mark_y;
 };
 
 void vision_model_init(struct vision_model *m);
@@ -135,6 +169,14 @@ unsigned vision_model_line_next(struct vision_model *m);
 unsigned vision_model_speed_next(struct vision_model *m);
 unsigned vision_model_distance_next(struct vision_model *m);
 unsigned vision_model_reset(struct vision_model *m);
+/* COLOR: sample at a view point (the SAMPLE button samples the middle,
+ * vision_model_sample_middle), cycle the tolerance; EDGE: soft / hard;
+ * TRACE: dark / light. */
+unsigned vision_model_sample_at(struct vision_model *m, int32_t x, int32_t y);
+unsigned vision_model_sample_middle(struct vision_model *m, uint32_t view_w, uint32_t view_h);
+unsigned vision_model_tol_next(struct vision_model *m);
+unsigned vision_model_edge_next(struct vision_model *m);
+unsigned vision_model_trace_next(struct vision_model *m);
 
 /* The line's endpoints for its mode, per-mille of the view; false for OFF. */
 bool vision_model_line_pm(const struct vision_model *m, int32_t pm[4]);
@@ -142,6 +184,14 @@ bool vision_model_line_pm(const struct vision_model *m, int32_t pm[4]);
 bool vision_model_speed_pm(const struct vision_model *m, int32_t pm[8]);
 /* The distance chosen, in centimetres. */
 uint32_t vision_model_distance_cm(const struct vision_model *m);
+/* The colour tolerance chosen (the sum of three 8-bit differences). */
+uint32_t vision_model_tol(const struct vision_model *m);
+/* EDGE's threshold to send: 0 for grey, VISION_EDGE_HARD_THRESHOLD for hard. */
+uint32_t vision_model_edge_threshold(const struct vision_model *m);
+/* The helper's word for the mode. */
+const char *vision_model_mode_word(const struct vision_model *m);
+/* Whether the mode looks at pixels (COLOR, EDGE, TRACE). */
+bool vision_model_pixel_mode(const struct vision_model *m);
 /* The names of the two directions counted in this mode ("DOWN"/"UP" or
  * "LEFT"/"RIGHT"), and which count is which. */
 void vision_model_count_names(const struct vision_model *m, const char **a, const char **b);

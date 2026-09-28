@@ -14,7 +14,7 @@ A=apps/vision
 C=core/pocketvision
 H=tools/vision/pos_vision.c
 APP=$A/vision_app.c
-CORE="$C/vision_decode.c $C/vision_nms.c $C/vision_track.c $C/vision_line.c $C/vision_traffic.c $C/vision_geom.c $C/vision_labels.c"
+CORE="$C/vision_decode.c $C/vision_nms.c $C/vision_track.c $C/vision_line.c $C/vision_traffic.c $C/vision_geom.c $C/vision_labels.c $C/vision_pixels.c"
 
 # ---- layering ------------------------------------------------------------------
 hits=$(grep -lE 'lvgl|lv_obj|lv_label|lv_timer|lv_image' $C/*.[ch] $C/*.cpp $H $A/vision_model.[ch] \
@@ -62,9 +62,12 @@ check "a det line with every box fits the protocol line" \
     "$([ $((24 * 52 + 32)) -le 2048 ] && grep -q '#define VISION_LINE_MAX 2048' $C/pocketvision_proto.h && echo 1 || echo 0)"
 check "the tracker's per-frame table is the two bounds, not the scene" \
     "$(grep -q 'static uint32_t iou\[VISION_MAX_TRACKS\]\[VISION_MAX_DETECTIONS\];' $C/vision_track.c && echo 1 || echo 0)"
-check "the screen makes its outline objects and its three lines once, VISION_MAX_SHOWN outlines" \
+check "the screen makes its outline objects, its three lines and the colour mark once, VISION_MAX_SHOWN outlines" \
     "$(grep -q 'lv_obj_t \*outline\[VISION_MAX_SHOWN\];' $APP && [ "$(code $APP | grep -c 'lv_obj_create(a->box)')" = 2 ] &&
-       [ "$(code $APP | grep -c 'line_object(a->box')" = 3 ] && echo 1 || echo 0)"
+       [ "$(code $APP | grep -c 'line_object(a->box')" = 4 ] && echo 1 || echo 0)"
+check "the pixel modes keep their working rows static and bounded by the widest picture" \
+    "$(grep -q 'static uint8_t luma\[3\]\[VISION_PIXELS_MAX_W\];' $C/vision_pixels.c && grep -q '#define VISION_PIXELS_MAX_W 1024' $C/vision_pixels.h &&
+       grep -q '#define POCKETCAM_VIEW_MAX_W 1024' core/pocketcam/pocketcam_proto.h && echo 1 || echo 0)"
 check "the traffic core knows no detector: classes are mapped by name, the app's names are its own" \
     "$(! code $C/vision_traffic.c | grep -qE 'vision_label|coco|yolo|kmodel' && ! grep -qE 'vision_traffic\.[ch]' ui/shell/CMakeLists.txt && echo 1 || echo 0)"
 

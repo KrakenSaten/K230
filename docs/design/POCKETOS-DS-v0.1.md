@@ -3514,3 +3514,29 @@ or colour, nothing outside the app changes (`docs/apps/VISION.md`,
   touch minimum, no overlap, the frame's shape, most of the body).
 - **Gate:** docs/hardware/VISION_TRAFFIC_GATE.md on unit B, then the
   owner's word.
+
+### 38.8 Pixel modes: COLOR, EDGE, TRACE [PROPOSED]
+
+**PROPOSED 2026-09-28** on the same branch, after TRAFFIC. MODE cycles on
+from TRAFFIC through COLOR, EDGE and TRACE and back to DETECT. In these
+the detector idles and the helper works on the preview picture itself
+(`docs/apps/VISION.md`, "Optional modes"); the counting and speed lines
+and the counters are hidden (the counter slabs read `-`).
+
+- **COLOR:** MODE, SAMPLE, TOL (`TOL: LOW / MED / HIGH`). SAMPLE takes the
+  colour at the picture's middle; a tap on the picture takes it there
+  (the picture box is clickable in this mode only). Matches are painted
+  green on the picture (magenta for a greenish target) by the helper; a
+  12 px accent square marks their centroid. Status:
+  `10.0 fps  12 ms  #C81E1E  match 12.3%  at 150,80`, or `Tap the
+  picture or SAMPLE to pick a colour`.
+- **EDGE:** MODE, EDGE (`EDGE: SOFT / HARD`): the picture is its edge
+  magnitude in grey, or black and white. Status: `10.0 fps  14 ms  edges
+  8.1%  soft`.
+- **TRACE:** MODE, LINE (`LINE: DARK / LIGHT`): the dominant dark or
+  light line, its centroids marked in yellow on the picture. Status:
+  `line left 12%  leans right 45%  300 rows`, or `no dark line`.
+- The two-button and three-button layouts are the existing grid with one
+  status line (`tests/vision_model_test.c`, portrait and landscape).
+- Pictures reach the screen at the preview rate (at most 10 a second) as
+  in every mode; the helper's pass costs are in the status's ms.

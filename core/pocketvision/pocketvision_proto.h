@@ -17,10 +17,21 @@
  *   start                         stream, detect, track, count
  *   stop                          stop; answered by `stopped`
  *   release <slot>                the session is done with a slot
- *   mode detect|traffic           what to look for: everything the model
- *                                 knows, or traffic only (car, truck, bus,
+ *   mode detect|traffic|color|edge|trace
+ *                                 what to look for: everything the model
+ *                                 knows; traffic only (car, truck, bus,
  *                                 motorcycle, bicycle, person), counted per
- *                                 class and timed between the speed lines
+ *                                 class and timed between the speed lines;
+ *                                 or one of the pixel modes, in which the
+ *                                 detector idles and the preview picture
+ *                                 is worked on before it is shown
+ *   color <r> <g> <b> | color off the COLOR target (8-bit), or none
+ *   sample <x> <y>                COLOR: take the target from the next
+ *                                 preview at this view point
+ *   tol <n>                       COLOR: the tolerance, 0..765
+ *   edge <threshold>              EDGE: 0 for grey magnitudes, 1..255 for
+ *                                 black and white at the threshold
+ *   trace dark|light              TRACE: the line to look for
  *   line <x0> <y0> <x1> <y1>      the counting line, in per-mille of the
  *                                 view (0..1000 each), or `line off`
  *   speed <ax0> <ay0> <ax1> <ay1> <bx0> <by0> <bx1> <by1>
@@ -62,9 +73,23 @@
  *                                 mean and the refusals, and the counts per
  *                                 traffic class (car, truck, bus,
  *                                 motorcycle, bicycle, person)
+ *   color <r> <g> <b> <matched_pm> <cx> <cy>
+ *                                 COLOR, with every preview: the target,
+ *                                 the share of the picture that matched
+ *                                 (per-mille) and the matches' centroid in
+ *                                 view pixels (-1 -1 with none)
+ *   edge <strong_pm>              EDGE, with every preview: the share of
+ *                                 strong edges
+ *   trace <found> <offset_pm> <slope_pm> <rows>
+ *                                 TRACE, with every preview: whether a
+ *                                 line was found, the bottom band's offset
+ *                                 from the centre (-1000..1000), the lean
+ *                                 (dx per 1000 rows going down), rows with
+ *                                 a plausible run
  *   stats <fps_x10> <infer_ms> <pre_ms> <post_ms> <cpu_pct> <rss_kb> <bad> <dropped>
  *                                 once a second while streaming: frames
- *                                 inferred per second, the last run's
+ *                                 inferred per second (previews worked on,
+ *                                 in a pixel mode), the last run's
  *                                 timings, the helper's own CPU share and
  *                                 resident set, tensors refused as
  *                                 malformed so far, and detections dropped

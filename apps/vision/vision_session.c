@@ -294,6 +294,59 @@ int vision_session_parse_line(struct vision_session *s, const char *line, struct
         }
         return 1;
     }
+    if (strncmp(line, "color ", 6) == 0) {
+        unsigned r;
+        unsigned g;
+        unsigned bl;
+        unsigned pm;
+        int cx;
+        int cy;
+
+        if (sscanf(line, "color %u %u %u %u %d %d", &r, &g, &bl, &pm, &cx, &cy) != 6 || r > 255 || g > 255 ||
+            bl > 255 || pm > 1000 || cx < -1 || cy < -1 || cx >= (int)POCKETCAM_VIEW_MAX_W ||
+            cy >= (int)POCKETCAM_VIEW_MAX_H) {
+            return 0;
+        }
+        ev->kind = VISION_EV_COLOR;
+        if (s) {
+            s->pixels.color.r = (uint8_t)r;
+            s->pixels.color.g = (uint8_t)g;
+            s->pixels.color.b = (uint8_t)bl;
+            s->pixels.color.matched_pm = pm;
+            s->pixels.color.cx = cx;
+            s->pixels.color.cy = cy;
+        }
+        return 1;
+    }
+    if (strncmp(line, "edge ", 5) == 0) {
+        if (sscanf(line, "edge %u", &a) != 1 || a > 1000) {
+            return 0;
+        }
+        ev->kind = VISION_EV_EDGE;
+        if (s) {
+            s->pixels.edge_pm = a;
+        }
+        return 1;
+    }
+    if (strncmp(line, "trace ", 6) == 0) {
+        int found;
+        int off;
+        int slope;
+        unsigned rows;
+
+        if (sscanf(line, "trace %d %d %d %u", &found, &off, &slope, &rows) != 4 || (found != 0 && found != 1) ||
+            off < -1000 || off > 1000 || slope < -100000 || slope > 100000 || rows > 4096) {
+            return 0;
+        }
+        ev->kind = VISION_EV_TRACE;
+        if (s) {
+            s->pixels.trace.found = found == 1;
+            s->pixels.trace.offset_pm = off;
+            s->pixels.trace.slope_pm = slope;
+            s->pixels.trace.rows = rows;
+        }
+        return 1;
+    }
     if (strncmp(line, "stats ", 6) == 0) {
         struct vision_stats st;
         long rss;
@@ -789,6 +842,51 @@ int vision_session_mode(struct vision_session *s, bool traffic)
     return send_line(s, "mode %s", traffic ? "traffic" : "detect");
 }
 
+int vision_session_mode_word(struct vision_session *s, const char *word)
+{
+    if (!word || !word_ok(word, 16)) {
+        return -1;
+    }
+    return send_line(s, "mode %s", word);
+}
+
+int vision_session_color(struct vision_session *s, const uint8_t rgb[3])
+{
+    if (!rgb) {
+        return send_line(s, "color off");
+    }
+    return send_line(s, "color %u %u %u", rgb[0], rgb[1], rgb[2]);
+}
+
+int vision_session_sample(struct vision_session *s, int32_t x, int32_t y)
+{
+    if (x < 0 || y < 0 || x >= (int32_t)POCKETCAM_VIEW_MAX_W || y >= (int32_t)POCKETCAM_VIEW_MAX_H) {
+        return -1;
+    }
+    return send_line(s, "sample %d %d", x, y);
+}
+
+int vision_session_tol(struct vision_session *s, uint32_t tol)
+{
+    if (tol > 765) {
+        return -1;
+    }
+    return send_line(s, "tol %u", tol);
+}
+
+int vision_session_edge(struct vision_session *s, uint32_t threshold)
+{
+    if (threshold > 255) {
+        return -1;
+    }
+    return send_line(s, "edge %u", threshold);
+}
+
+int vision_session_trace(struct vision_session *s, bool dark)
+{
+    return send_line(s, "trace %s", dark ? "dark" : "light");
+}
+
 int vision_session_reset(struct vision_session *s)
 {
     return send_line(s, "reset");
@@ -837,6 +935,11 @@ void vision_session_counts(const struct vision_session *s, uint32_t *ab, uint32_
 const struct vision_traffic_report *vision_session_traffic(const struct vision_session *s)
 {
     return &s->traffic;
+}
+
+const struct vision_pixel_report *vision_session_pixels(const struct vision_session *s)
+{
+    return &s->pixels;
 }
 
 const struct vision_stats *vision_session_stats(const struct vision_session *s)

@@ -70,6 +70,7 @@ struct vision_app {
     lv_obj_t *tag[VISION_MAX_SHOWN];
     lv_obj_t *line;       /* the counting line, drawn as a 2 px object */
     lv_obj_t *sline[2];   /* the speed lines A and B */
+    lv_obj_t *mark;       /* COLOR: a small square at the matches' centroid */
     lv_obj_t *status;
     lv_obj_t *count_a;    /* "DOWN 3" */
     lv_obj_t *count_b;
@@ -300,7 +301,8 @@ static void place_line(struct vision_app *a, lv_obj_t *obj, const int32_t pm[4])
 static void draw_lines(struct vision_app *a)
 {
     int32_t pm[8];
-    bool live = a->model.state == VISION_LIVE && a->model.live && a->preview.w && a->preview.h;
+    bool live = a->model.state == VISION_LIVE && a->model.live && a->preview.w && a->preview.h &&
+                !vision_model_pixel_mode(&a->model);
     bool on = live && vision_model_line_pm(&a->model, pm);
     bool speed;
 
@@ -345,11 +347,29 @@ static void repaint(struct vision_app *a)
     button_text(a->btn[VISION_BTN_LINE], s.line_btn);
     button_text(a->btn[VISION_BTN_SPEED], s.speed_btn);
     button_text(a->btn[VISION_BTN_DISTANCE], s.dist_btn);
+    button_text(a->btn[VISION_BTN_TOL], s.tol_btn);
+    button_text(a->btn[VISION_BTN_EDGE], s.edge_btn);
+    button_text(a->btn[VISION_BTN_TRACE], s.trace_btn);
     button_style(a->btn[VISION_BTN_MODE], false, true);
     button_style(a->btn[VISION_BTN_LINE], false, s.line_enabled);
     button_style(a->btn[VISION_BTN_SPEED], false, s.line_enabled);
     button_style(a->btn[VISION_BTN_DISTANCE], false, s.line_enabled);
     button_style(a->btn[VISION_BTN_RESET], false, s.line_enabled && a->model.line != VISION_LINE_OFF);
+    button_style(a->btn[VISION_BTN_SAMPLE], false, s.line_enabled && a->model.live);
+    button_style(a->btn[VISION_BTN_TOL], false, s.line_enabled);
+    button_style(a->btn[VISION_BTN_EDGE], false, s.line_enabled);
+    button_style(a->btn[VISION_BTN_TRACE], false, s.line_enabled);
+    /* In COLOR a tap on the picture picks the colour there. */
+    if (s.picture_tap) {
+        lv_obj_add_flag(a->box, LV_OBJ_FLAG_CLICKABLE);
+    } else {
+        lv_obj_clear_flag(a->box, LV_OBJ_FLAG_CLICKABLE);
+    }
+    set_hidden(a->mark, !(s.show_mark && s.show_picture));
+    if (s.show_mark) {
+        lv_obj_set_pos(a->mark, s.mark_x - 6, s.mark_y - 6);
+        lv_obj_set_size(a->mark, 12, 12);
+    }
     /* The mode's buttons, in its order, on the layout's places; the rest
      * hidden. TRY AGAIN takes LINE's place. */
     shown_btns = vision_model_buttons(&a->model, order);
@@ -439,7 +459,7 @@ static void do_actions(struct vision_app *a, unsigned acts)
     }
     if (acts & VISION_ACT_MODE) {
         if (vision_session_active(&a->session)) {
-            vision_session_mode(&a->session, a->model.mode == VISION_MODE_TRAFFIC);
+            vision_session_mode_word(&a->session, vision_model_mode_word(&a->model));
         }
         /* The mode's own controls: the layout is chosen again. */
         if (a->model.mode != a->lay_mode) {
@@ -455,6 +475,17 @@ static void do_actions(struct vision_app *a, unsigned acts)
     }
     if (acts & VISION_ACT_DISTANCE) {
         vision_session_distance(&a->session, vision_model_distance_cm(&a->model));
+    }
+    if (acts & VISION_ACT_PIXELS) {
+        if (!a->model.have_target) {
+            vision_session_color(&a->session, NULL);
+        }
+        vision_session_tol(&a->session, vision_model_tol(&a->model));
+        vision_session_edge(&a->session, vision_model_edge_threshold(&a->model));
+        vision_session_trace(&a->session, a->model.trace_dark);
+    }
+    if ((acts & VISION_ACT_SAMPLE) && a->model.sample_x >= 0) {
+        vision_session_sample(&a->session, a->model.sample_x, a->model.sample_y);
     }
     if (acts & VISION_ACT_RESET) {
         vision_session_reset(&a->session);
@@ -549,6 +580,52 @@ static void on_reset(lv_event_t *e)
     struct vision_app *a = lv_event_get_user_data(e);
 
     act(a, vision_model_reset(&a->model));
+}
+
+static void on_sample(lv_event_t *e)
+{
+    struct vision_app *a = lv_event_get_user_data(e);
+
+    act(a, vision_model_sample_middle(&a->model, a->preview.w, a->preview.h));
+}
+
+static void on_tol(lv_event_t *e)
+{
+    struct vision_app *a = lv_event_get_user_data(e);
+
+    act(a, vision_model_tol_next(&a->model));
+}
+
+static void on_edge(lv_event_t *e)
+{
+    struct vision_app *a = lv_event_get_user_data(e);
+
+    act(a, vision_model_edge_next(&a->model));
+}
+
+static void on_trace(lv_event_t *e)
+{
+    struct vision_app *a = lv_event_get_user_data(e);
+
+    act(a, vision_model_trace_next(&a->model));
+}
+
+/* A tap on the picture in COLOR: the colour under the finger. The point
+ * comes from the input device, in screen pixels; the box's own corner
+ * makes it a picture pixel. */
+static void on_picture(lv_event_t *e)
+{
+    struct vision_app *a = lv_event_get_user_data(e);
+    lv_indev_t *indev = lv_indev_active();
+    lv_point_t p;
+    lv_area_t box;
+
+    if (!indev) {
+        return;
+    }
+    lv_indev_get_point(indev, &p);
+    lv_obj_get_coords(a->box, &box);
+    act(a, vision_model_sample_at(&a->model, p.x - box.x1, p.y - box.y1));
 }
 
 static void on_retry(lv_event_t *e)
@@ -663,6 +740,11 @@ static void build(struct vision_app *a, lv_obj_t *root)
     a->line = line_object(a->box, POS_STYLE_BUTTON_PRIMARY);
     a->sline[0] = line_object(a->box, POS_STYLE_CHIP_TX);
     a->sline[1] = line_object(a->box, POS_STYLE_CHIP_TX);
+    a->mark = line_object(a->box, POS_STYLE_BUTTON_PRIMARY);
+    /* The picture takes a tap only in COLOR (repaint sets the flag); the
+     * image itself never does, so the tap reaches the box. */
+    lv_obj_clear_flag(a->img, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(a->box, on_picture, LV_EVENT_CLICKED, a);
     for (i = 0; i < VISION_MAX_SHOWN; i++) {
         a->outline[i] = lv_obj_create(a->box);
         lv_obj_remove_style_all(a->outline[i]);
@@ -708,6 +790,10 @@ static void build(struct vision_app *a, lv_obj_t *root)
     a->btn[VISION_BTN_SPEED] = button(a->frame, "SPEED: OFF", on_speed, a);
     a->btn[VISION_BTN_DISTANCE] = button(a->frame, "DIST: 10 m", on_distance, a);
     a->btn[VISION_BTN_RESET] = button(a->frame, "RESET", on_reset, a);
+    a->btn[VISION_BTN_SAMPLE] = button(a->frame, "SAMPLE", on_sample, a);
+    a->btn[VISION_BTN_TOL] = button(a->frame, "TOL: MED", on_tol, a);
+    a->btn[VISION_BTN_EDGE] = button(a->frame, "EDGE: SOFT", on_edge, a);
+    a->btn[VISION_BTN_TRACE] = button(a->frame, "LINE: DARK", on_trace, a);
     for (i = 0; i < VISION_BUTTONS; i++) {
         lv_obj_add_flag(a->btn[i], LV_OBJ_FLAG_HIDDEN);
     }
@@ -748,6 +834,7 @@ static void vision_destroy(void *priv)
         return;
     }
     lv_obj_remove_event_cb_with_user_data(a->frame, on_frame_size, a);
+    lv_obj_remove_event_cb_with_user_data(a->box, on_picture, a);
     if (a->timer) {
         lv_timer_delete(a->timer);
     }

@@ -149,6 +149,18 @@ static void test_parse(void)
               s.traffic.cur_kmh10 == 432 && s.traffic.max_kmh10 == 510 && s.traffic.mean_kmh10 == 400 &&
               s.traffic.n == 3 && s.traffic.rejected == 1 && s.traffic.cls_ab[0] == 3 && s.traffic.cls_ba[0] == 1 &&
               s.traffic.cls_ab[5] == 1 && s.traffic.cls_ba[5] == 1);
+    check("a color line parses into the report",
+          vision_session_parse_line(&s, "color 200 30 30 123 150 80", &ev) && ev.kind == VISION_EV_COLOR &&
+              s.pixels.color.r == 200 && s.pixels.color.b == 30 && s.pixels.color.matched_pm == 123 &&
+              s.pixels.color.cx == 150 && s.pixels.color.cy == 80);
+    check("a colour channel over 255 does not", !vision_session_parse_line(&s, "color 300 0 0 1 1 1", &ev));
+    check("an edge line parses", vision_session_parse_line(&s, "edge 81", &ev) && ev.kind == VISION_EV_EDGE &&
+                                     s.pixels.edge_pm == 81);
+    check("a share over 1000 does not", !vision_session_parse_line(&s, "edge 1001", &ev));
+    check("a trace line parses", vision_session_parse_line(&s, "trace 1 -120 450 300", &ev) &&
+                                     ev.kind == VISION_EV_TRACE && s.pixels.trace.found && s.pixels.trace.offset_pm == -120 &&
+                                     s.pixels.trace.slope_pm == 450 && s.pixels.trace.rows == 300);
+    check("a trace with an impossible offset does not", !vision_session_parse_line(&s, "trace 1 -2000 0 1", &ev));
     check("a traffic line short of a class does not",
           !vision_session_parse_line(&s, "traffic 4 2 432 432 510 400 3 1 3:1 0:0 0:0 0:0 0:0", &ev));
     check("nor one with junk after", !vision_session_parse_line(&s, "traffic 4 2 432 432 510 400 3 1 3:1 0:0 0:0 0:0 0:0 1:1 x", &ev));
@@ -390,6 +402,69 @@ static void test_traffic(void)
     check("the helper is gone", !vision_session_active(&s));
 }
 
+/* The pixel modes against the real helper: EDGE finds the fake camera's
+ * edges; COLOR samples the picture's middle and paints its matches; TRACE
+ * answers; the boxes go while a pixel mode is on and come back after. */
+static void test_pixels(void)
+{
+    struct vision_session s;
+    struct vision_event ev;
+    struct watch w = { 0, 0, 0, 0, 0, 0, NULL };
+    static uint16_t px[360 * 640];
+    int i;
+    int n = 0;
+
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "box=0:900:100:100:60:120", NULL) == 0);
+    check("ready", wait_for(&s, VISION_EV_READY, 3000, &ev, seen, &w));
+    vision_session_view(&s, 360, 640, 0);
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s; /* frames are taken as they come, so the slots come back */
+    for (i = 0; i < 4; i++) {
+        wait_for(&s, VISION_EV_DET, 1000, &ev, seen, &w);
+    }
+    vision_session_tracks(&s, &n, NULL);
+    check("a box is tracked in DETECT", n == 1);
+    vision_session_mode_word(&s, "edge");
+    for (i = 0; i < 5; i++) {
+        if (wait_for(&s, VISION_EV_DET, 2000, &ev, seen, &w) && s.shown_count == 0) {
+            break;
+        }
+    }
+    check("EDGE empties the boxes", s.shown_count == 0);
+    check("and says its edges", wait_for(&s, VISION_EV_EDGE, 2000, &ev, seen, &w));
+    /* The fake camera.s bars differ little in luma: few strong edges. */
+    check("the fake camera.s picture has few strong edges", s.pixels.edge_pm <= 100);
+    vision_session_edge(&s, 40);
+    check("a hard threshold still answers", wait_for(&s, VISION_EV_EDGE, 2000, &ev, seen, &w));
+    w.frames = 0;
+    check("pictures keep coming in EDGE", wait_for(&s, VISION_EV_FRAME, 2000, &ev, seen, &w) && w.frames >= 1);
+    vision_session_mode_word(&s, "color");
+    vision_session_tol(&s, 96);
+    for (i = 0; i < 3; i++) {
+        wait_for(&s, VISION_EV_FRAME, 1000, &ev, seen, &w);
+    }
+    (void)px;
+    check("without a target COLOR says nothing", !wait_for(&s, VISION_EV_COLOR, 400, &ev, seen, &w));
+    vision_session_sample(&s, 180, 320);
+    check("a sample in the middle brings a colour report", wait_for(&s, VISION_EV_COLOR, 2000, &ev, seen, &w) &&
+                                                               s.pixels.color.matched_pm > 0);
+    printf("     sampled #%02x%02x%02x, %u.%u%% matched\n", s.pixels.color.r, s.pixels.color.g, s.pixels.color.b,
+           s.pixels.color.matched_pm / 10, s.pixels.color.matched_pm % 10);
+    vision_session_mode_word(&s, "trace");
+    vision_session_trace(&s, false);
+    check("TRACE answers", wait_for(&s, VISION_EV_TRACE, 2000, &ev, seen, &w));
+    vision_session_mode_word(&s, "detect");
+    for (i = 0; i < 6; i++) {
+        wait_for(&s, VISION_EV_DET, 1000, &ev, seen, &w);
+    }
+    vision_session_tracks(&s, &n, NULL);
+    check("back in DETECT the box is tracked again", n == 1);
+    check("stats still come", wait_for(&s, VISION_EV_STATS, 2500, &ev, seen, &w));
+    vision_session_abandon(&s, 1000);
+    check("the helper is gone", !vision_session_active(&s));
+}
+
 static void test_malformed(void)
 {
     struct vision_session s;
@@ -531,6 +606,7 @@ int main(int argc, char **argv)
     test_parse();
     test_happy();
     test_traffic();
+    test_pixels();
     test_malformed();
     test_failures();
     test_lifetime();
