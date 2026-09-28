@@ -1,8 +1,8 @@
 # Vision - hardware gate
 
 **Run on unit B (K230-B, Wi-Fi .187 then .140 after a power cycle, console COM12) on 2026-09-28, by
-the owner's choice: unit A was off the bench. IN PROGRESS, stopped by a
-whole-unit freeze (below).** Unit B carries the v0.0.13 dev image
+the owner's choice: unit A was off the bench. Everything but repeated open/close
+PASSES; the camera lock-up froze the unit three times (below).** Unit B carries the v0.0.13 dev image
 `ee39407` with the Doors userspace of build `7591725` deployed by
 `deploy.sh`, and `/usr/bin/pos-vision` hand-installed from `2e2f30b`
 (md5 `78a359a2ece1f4c3133cf8b25b0e41cb`; the build id is not compiled into
@@ -59,6 +59,43 @@ planar BGR format on the self path (Camera asks for NV16). That is the one
 experiment left that needs no code: `--config fmt=nv16` cannot feed the
 KPU, so the useful comparison is Camera open/close cycles on the same boot
 versus Vision cycles, counted until the freeze, with the console logged.
+
+### Third session (unit B after a second power cycle, Wi-Fi 192.168.10.187, lit room, owner walking)
+
+| # | Step | Result |
+| --- | --- | --- |
+| 8 | Preview | PASS (LIVE-READ, `out/vision-gate/caps/s-*.png`, `d-*.png`): the room lit, the live picture upright and not mirrored |
+| 9 | DETECT: boxes, class, confidence | PASS with a caveat: the owner is boxed tightly standing and walking (`#8 person 76%`, `#7 person 83%`, `#126 person 83%`); the coat on the chair draws low-confidence false classes (`baseball-glove 53%`, `backpack 35%`) and often a wide false `person` (36-83 %) over the dark left edge |
+| 10 | Colour | **FAIL, fixed** (`99739f5`): Vision's preview showed the red blanket and the warm wall blue while Camera showed them red and orange: the ISP's BG3P planes are R, G, B, not B, G, R. The KPU input was never affected. After the fix the preview matches Camera (`caps/cycle1.png`) |
+| 11 | COUNT, ACROSS line | Counted DOWN 1, UP 1 while the owner walked sideways: not real crossings - a horizontal line sees the box centre move as the body enters and leaves the frame edge |
+| 12 | COUNT, DOWN line (vertical, LEFT/RIGHT), switched by an injected tap after RESET | PASS: LEFT and RIGHT climbed together 0/0 -> 6/6 over ~75 s of walking back and forth (`caps/sheet-d.png`). Exact per-pass accuracy is the owner's to confirm; the wide false box on the left can add a count when it merges with the real person |
+| 13 | TRACK | PASS (indirect): a crossing counts only when one confirmed id is seen on both sides of the line, so each of the twelve counts is one id carried through several hundred pixels of motion; a new pass through the frame gets a new id, as designed. Captures 4 s apart cannot show a single id frame by frame |
+| 14 | Exit Vision, then Camera | PASS: the helper gone 1.1 s after leaving (host-side, incl. SSH), `/dev/video*` free, no freeze; Camera opened with a live, natural-colour picture (`caps/camera-after.png`), closed cleanly |
+| 15 | Ten open/close cycles | **FAIL at cycle 4 (whole-unit freeze).** Cycles 1-3 clean: helper up, one video descriptor, 5.4-6.1 MB, gone right after leaving, the camera free, the shell 14.9-15.4 MB, no crash, no shell restart. Cycle 4: the console's last lines are that cycle's camera open (16:41:50), then nothing; the unit stopped answering during the stream. The eighth camera open of the boot |
+
+Measured (all sessions):
+
+| What | Value |
+| --- | --- |
+| Camera | 30 fps sensor, ≥ 28.9 fps delivered to the pipeline |
+| Inference (KPU) | 17-20 ms (bench); 18-49 ms in the app's status line, mostly 18-28 |
+| Preprocess (AI2D) | 1.1-2 ms |
+| Decode + NMS + track | 6-10 ms (up to 19-25 on a busy frame) |
+| Total | 28.2-28.9 fps helper alone; 23-28 fps with the app open |
+| CPU | `pos-vision` 38-50 %, `doors-shell` 8-18 % |
+| RSS | `pos-vision` 4.9-6.1 MB, flat over five minutes; `doors-shell` 15-16.5 MB |
+| Crashes, helper leaks | none: no crash file, no shell restart, no helper or video descriptor left after any clean close |
+
+**The blocker: the camera lock-up.** Three freezes on unit B today, one per
+boot, silent on the console at loglevel 8: during a stream (boot 1, about
+the eighth camera open), a few seconds after a clean release (boot 2, the
+fourth release), during a stream (boot 3, the eighth open). Camera alone
+reached the same lock-up after 21-40 opens on unit A (docs/KNOWN_ISSUES.md).
+Nothing in Vision's own code is implicated - the helper ran 104 s and the app
+five minutes without it, memory flat - but whether Vision's BG3P stream or
+the KPU running alongside makes the vendor fault come sooner, or unit B is
+simply more prone than unit A, is not known: that needs Camera-only cycles
+counted on unit B, which costs power cycles at the bench.
 
 ## The original plan (unit A)
 
