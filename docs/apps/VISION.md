@@ -71,17 +71,24 @@ not another:
 - the SDK also carries `yolov5n`, `yolo11n` and `yolo26n`; YOLOv8n is the
   one asked for, and the one whose head the decoder is written for.
 
-**The model file is not in this repository and not in the image package.**
-The helper reads it from `/usr/share/doors/vision/yolov8n.kmodel`
-(`$POCKETOS_VISION_MODEL` or `--model` override); for the prototype it is
-copied there by hand from the vendor tree at deploy time. The reason is
-licensing, not size: the vendor's `package/yolo` sources carry Canaan's
-BSD-style header, but the kmodel is a compiled derivative of Ultralytics'
-YOLOv8n weights, whose own licence is AGPL-3.0, and the SDK says nothing
-about the terms it ships the kmodel under (docs/LICENSING.md, open item
-10). Until the owner decides, the file travels outside the package, and
+**The image carries the model; this repository does not.** The helper
+reads it from `/usr/share/doors/vision/yolov8n.kmodel` (override with
+`$POCKETOS_VISION_MODEL` or `--model`). The `pocketos` package installs it
+there, copying the pinned SDK's own file at build time, so a freshly
+flashed unit runs Vision with nothing added. The install refuses any file
+whose sha256 differs from `tools/vision/yolov8n.kmodel.sha256`
+(`0b4bcdd3…2004a09`). The model is licensed differently from Doors: the
+vendor's `package/yolo` sources carry Canaan's BSD-style header, but the
+kmodel is compiled from Ultralytics' YOLOv8n weights, whose licence is
+AGPL-3.0, and the SDK names no terms for the file. The owner decided on
+2026-09-28 to use it under the AGPL-3.0 **in internal images only**
+(docs/LICENSING.md, item 10, which stays open for distribution outside the
+project). Its notice and the licence text are in THIRD_PARTY_NOTICES.txt.
 Doors' own code (the decoder, tracker, counter, helper and app) contains
-nothing of the model.
+nothing of the model. `tools/vision/install-model.sh <unit ip>` is still
+there for a unit that lacks the file: userspace deployed by hand onto an
+older image, a damaged file, or another model to try
+(`POCKETOS_VISION_MODEL_FILE`).
 
 The COCO class names are compiled in (`core/pocketvision/vision_labels.c`),
 in the order the vendor's `coco_labels.txt` lists them.

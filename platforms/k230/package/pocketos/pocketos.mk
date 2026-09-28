@@ -25,7 +25,7 @@ POCKETOS_SITE_METHOD = local
 # pocketos.hash) and the image installs as
 # /usr/share/doors/THIRD_PARTY_NOTICES.txt, with a link at the old
 # /usr/share/pocketos path.
-POCKETOS_LICENSE = Not yet decided (Doors; no licence granted), MIT (RadioLib, ggwave, Reed-Solomon, MeshCore, Arduino Cryptography Library), Zlib (Ed25519, in MeshCore), Ooura FFT licence (ggwave FFT), OFL-1.1 (IBM Plex font bitmaps)
+POCKETOS_LICENSE = Not yet decided (Doors; no licence granted), MIT (RadioLib, ggwave, Reed-Solomon, MeshCore, Arduino Cryptography Library), Zlib (Ed25519, in MeshCore), Ooura FFT licence (ggwave FFT), OFL-1.1 (IBM Plex font bitmaps), AGPL-3.0 (YOLOv8n model data, Ultralytics; internal images only)
 POCKETOS_LICENSE_FILES = THIRD_PARTY_NOTICES.txt
 POCKETOS_REDISTRIBUTE = NO
 POCKETOS_INSTALL_TARGET = YES
@@ -56,9 +56,7 @@ POCKETOS_INSTALL_TARGET = YES
 # engine (POCKETVISION_KPU=1), and the runtime's shared pool through libmmz.
 # Both were already in the image and its sysroot (BR2_PACKAGE_AI2D_KPU and
 # BR2_PACKAGE_FACE_DETECT select them), so this adds a build dependency, not
-# a package. The model file is not part of this package (see VISION.md,
-# "The model"): the helper reads /usr/share/doors/vision/yolov8n.kmodel, put
-# there by hand for the prototype.
+# a package. The model the helper runs is installed below.
 POCKETOS_DEPENDENCIES = cjson libgpiod2 lvgl libdrm libevdev alsa-lib jpeg libcurl libpng libnncase libmmz host-cmake host-python3
 
 POCKETOS_SHELL_BUILD_DIR = $(@D)/ui/shell/build-k230
@@ -80,11 +78,26 @@ endef
 # deletes from $(TARGET_DIR) on its own, so a tree that once held the
 # PocketOS-era shell would otherwise still hold it, and the rootfs gate in
 # build_image.sh would refuse the image (correctly, but late).
+#
+# The Vision model (docs/apps/VISION.md, "The model") is the pinned SDK's
+# yolov8n.kmodel, installed where pos-vision reads it. It is taken from the
+# SDK's own copy in package/yolo/utils, which Buildroot's package tree carries
+# whether or not the vendor yolo demo is selected (it is not). That way the
+# image holds exactly one copy and the Doors repository holds none. The model
+# is AGPL-3.0 and is in the image for internal use only (docs/LICENSING.md
+# item 10), so the install refuses it without its notice. It also refuses any
+# file other than the one tools/vision/yolov8n.kmodel.sha256 pins.
+POCKETOS_VISION_MODEL_DIR = $(realpath $(TOPDIR))/package/yolo/utils
+
 define POCKETOS_INSTALL_TARGET_CMDS
 	$(TARGET_MAKE_ENV) $(MAKE) $(TARGET_CONFIGURE_OPTS) ENABLE_SX1262=1 POCKETCAM_JPEG=1 ZABBIX_CURL=1 BROWSER_CURL=1 BROWSER_IMAGES=1 POCKETVISION_KPU=1 ENABLE_MESHCORED=1 -C $(@D) DESTDIR=$(TARGET_DIR) PREFIX=/usr install
 	$(INSTALL) -D -m 0755 $(POCKETOS_SHELL_BUILD_DIR)/pocketos-shell $(TARGET_DIR)/usr/bin/doors-shell
 	rm -f $(TARGET_DIR)/usr/bin/pocketos-shell
 	rm -f $(TARGET_DIR)/etc/init.d/S90pocketos-shell
+	grep -q '^yolov8n-kmodel *|' $(@D)/third_party/notices/SOURCES || \
+		{ echo "pocketos: the Vision model has no entry in third_party/notices/SOURCES (docs/LICENSING.md item 10)" >&2; exit 1; }
+	cd $(POCKETOS_VISION_MODEL_DIR) && sha256sum -c $(@D)/tools/vision/yolov8n.kmodel.sha256
+	$(INSTALL) -D -m 0644 $(POCKETOS_VISION_MODEL_DIR)/yolov8n.kmodel $(TARGET_DIR)/usr/share/doors/vision/yolov8n.kmodel
 endef
 
 $(eval $(generic-package))

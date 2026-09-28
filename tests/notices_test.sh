@@ -307,6 +307,30 @@ check "a wrong hash is refused" \
 reset_guard; rm -f "$G/$HASHF"
 check "a missing hash file is refused" "$(guard > /dev/null && echo 0 || echo 1)"
 
+# ---- the Vision model (docs/LICENSING.md item 10) ----------------------------
+# The package installs the SDK's yolov8n.kmodel, AGPL-3.0, for internal images.
+# Its notice is a statement written here followed by the FSF's licence text,
+# which must stay unchanged, and the package must refuse the model without its
+# notice or without the pinned hash.
+MODEL_SHA=tools/vision/yolov8n.kmodel.sha256
+MODEL_TEXT=third_party/notices/texts/yolov8n-kmodel.txt
+pinned=$(cut -c1-64 "$MODEL_SHA" 2>/dev/null)
+check "the Vision model's notice ends with the FSF's AGPL-3.0 text, unchanged" \
+    "$([ "$(sed -n '/^-----BEGIN AGPL-3.0-----$/,$p' "$MODEL_TEXT" | tail -n +2 | sha256sum | cut -d' ' -f1)" = \
+        0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0 ] && echo 1 || echo 0)"
+check "its entry and its text name the model the package pins" \
+    "$([ -n "$pinned" ] && grep -q "^yolov8n-kmodel [|] .*sha256 $pinned" "$SOURCES" &&
+       grep -q "$pinned" "$MODEL_TEXT" && echo 1 || echo 0)"
+check "the package installs the model only with its notice and its pinned hash" \
+    "$(sed -n '/^define POCKETOS_INSTALL_TARGET_CMDS/,/^endef/p' "$MK" | tr '\n' ' ' |
+       grep -q "grep -q '^yolov8n-kmodel \*|' .*SOURCES .*exit 1; } .*sha256sum -c \$(@D)/$MODEL_SHA .*\$(INSTALL) -D -m 0644 .*yolov8n.kmodel \$(TARGET_DIR)/usr/share/doors/vision/yolov8n.kmodel" &&
+       echo 1 || echo 0)"
+VMODEL=vendor/T-Display-K230/k230_linux_sdk/buildroot-overlay/package/yolo/utils/yolov8n.kmodel
+if [ -f "$VMODEL" ]; then
+    check "the pinned hash is the vendor SDK's yolov8n.kmodel" \
+        "$([ "$(sha256sum < "$VMODEL" | cut -d' ' -f1)" = "$pinned" ] && echo 1 || echo 0)"
+fi
+
 # ---- Doors' own licence (PocketOS through v0.0.9): undecided -----------------
 check "no licence file claims a licence for Doors" \
     "$(for f in LICENSE LICENSE.txt LICENSE.md LICENCE COPYING; do [ -e "$f" ] && exit 1; done; echo 1)"

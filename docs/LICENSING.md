@@ -142,7 +142,9 @@ Findings:
 - Copyleft components that require a source offer: Linux kernel, U-Boot,
   BusyBox, the Realtek Wi-Fi drivers (GPL-2.0 kernel modules), alsa-utils,
   bluez, dbus, e2fsprogs, util-linux, xz, wireless_tools, spi-tools, and the
-  GPL-3.0+ userspace tools readline, dosfstools, parted, umtprd. No AGPL.
+  GPL-3.0+ userspace tools readline, dosfstools, parted, umtprd. No AGPL
+  among the Buildroot packages. The Vision model the pocketos package
+  installs is AGPL-3.0 (item 10).
 - LGPL libraries linked by PocketOS code: libgpiod2 (radiod), glib and
   friends indirectly. Dynamic linking; keep relinking possible.
 - `rtl8723ds-bt` is marked PROPRIETARY (Realtek Bluetooth firmware) and
@@ -210,3 +212,18 @@ Findings:
     from `/usr/share/doors/vision/`, put there by hand for the prototype,
     and `libnncase` itself stays as in item 5 (no licence metadata in the
     manifest).
+    **Decided for internal images (owner, 2026-09-28, fix/v020-vision-model).**
+    The model is used under AGPL-3.0, and the package installs it at
+    `/usr/share/doors/vision/yolov8n.kmodel`. The file is still not committed:
+    `pocketos.mk` copies the pinned SDK's own file at build time, refuses any
+    file whose sha256 differs from `tools/vision/yolov8n.kmodel.sha256`, and
+    refuses the model if it has no notice. The notice (`yolov8n-kmodel` in
+    `third_party/notices/SOURCES`) records the provenance, the source
+    (Ultralytics YOLOv8 plus Canaan's conversion guide; the SDK publishes
+    neither the exact weights nor the conversion settings) and the FSF's
+    AGPL-3.0 text, unchanged. Images that carry it are for internal
+    development and testing only. **The item stays open for any distribution
+    outside the project.** Deciding it for that means settling the AGPL's
+    source obligation for a model whose exact weights and conversion are
+    unpublished, and Ultralytics' broader reading of what its licence covers.
+    Doors' own licence (item 1) blocks such distribution anyway.

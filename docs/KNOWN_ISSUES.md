@@ -89,10 +89,13 @@ Unit A was not available.
   2 times in 24. Blocking signals in the helper (`543dc0e`) did not cure it.
   Finding the cause needs kernel-side debugging or the vendor.
 
-- **The kmodel's licence is unstated** (docs/LICENSING.md item 10): the SDK
-  ships `yolov8n.kmodel` without terms, and it is compiled from Ultralytics
-  weights (AGPL-3.0). The file is neither committed nor packaged; the
-  helper reads it from `/usr/share/doors/vision/`, copied there by hand.
+- **The kmodel is AGPL-3.0 and cleared for internal images only**
+  (docs/LICENSING.md item 10): the SDK ships `yolov8n.kmodel` without terms,
+  and it is compiled from Ultralytics weights (AGPL-3.0). v0.2.0 as tagged
+  does not carry it (install it with `tools/vision/install-model.sh`). From
+  fix/v020-vision-model on, the package installs it at
+  `/usr/share/doors/vision/`, with its notice. An image carrying it must not
+  be distributed outside the project until item 10 is decided for that.
 - **The ISP's `BG3P` at 640 x 360 on `/dev/video2` works** (VERIFIED on unit
   B), and its planes are R, G, B despite the name (fixed in `99739f5`).
 - **False detections on dark clutter**: a coat on a chair drew
