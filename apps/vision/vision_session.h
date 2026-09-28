@@ -48,6 +48,7 @@ enum vision_ev_kind {
     VISION_EV_FRAME,     /* a preview picture is waiting: vision_session_take_frame() */
     VISION_EV_DET,       /* the tracks after frame value=seq: vision_session_tracks() */
     VISION_EV_COUNT,     /* counts changed: vision_session_counts() */
+    VISION_EV_TRAFFIC,   /* the traffic report changed: vision_session_traffic() */
     VISION_EV_STATS,     /* vision_session_stats() */
     VISION_EV_MALFORMED, /* value = damaged frames or bad tensors in a row */
     VISION_EV_STALL,     /* value = ms without a frame */
@@ -83,6 +84,22 @@ struct vision_shown {
     int32_t y;
     int32_t w;
     int32_t h;
+    uint8_t dir;          /* VISION_DIR_*: the way it has gone on the picture */
+    uint32_t kmh10;       /* the speed measured on it, x10; 0 for none */
+};
+
+/* What the helper's `traffic` line said. */
+struct vision_traffic_report {
+    uint32_t total_ab;    /* IN */
+    uint32_t total_ba;    /* OUT */
+    uint32_t cur_kmh10;   /* the newest speed while its track lives, or 0 */
+    uint32_t last_kmh10;
+    uint32_t max_kmh10;
+    uint32_t mean_kmh10;
+    uint32_t n;           /* measurements */
+    uint32_t rejected;
+    uint32_t cls_ab[VISION_PROTO_TRAFFIC_CLASSES];
+    uint32_t cls_ba[VISION_PROTO_TRAFFIC_CLASSES];
 };
 
 struct vision_stats {
@@ -135,6 +152,7 @@ struct vision_session {
     uint32_t shown_seq;
     uint32_t count_ab;
     uint32_t count_ba;
+    struct vision_traffic_report traffic;
     struct vision_stats stats;
 
     struct vision_event queue[VISION_EVENT_QUEUE];
@@ -157,6 +175,12 @@ int vision_session_view(struct vision_session *s, uint32_t w, uint32_t h, int di
 int vision_session_stream(struct vision_session *s, bool on, int64_t now_ms);
 /* The counting line in per-mille of the view; a NULL pm turns it off. */
 int vision_session_line(struct vision_session *s, const int32_t pm[4]);
+/* The two speed lines, A then B, per-mille of the view; NULL turns them off. */
+int vision_session_speed_lines(struct vision_session *s, const int32_t pm[8]);
+/* The ground distance between the speed lines. */
+int vision_session_distance(struct vision_session *s, uint32_t cm);
+/* Traffic mode on or off. */
+int vision_session_mode(struct vision_session *s, bool traffic);
 int vision_session_reset(struct vision_session *s);
 
 /* Copy the newest preview picture into dst (w x h RGB565, tightly packed)
@@ -169,6 +193,7 @@ int vision_session_take_frame(struct vision_session *s, uint16_t *dst, uint32_t 
 const struct vision_shown *vision_session_tracks(const struct vision_session *s, int *count,
                                                  uint32_t *seq);
 void vision_session_counts(const struct vision_session *s, uint32_t *ab, uint32_t *ba);
+const struct vision_traffic_report *vision_session_traffic(const struct vision_session *s);
 const struct vision_stats *vision_session_stats(const struct vision_session *s);
 
 /* Ask the helper to quit, wait up to grace_ms, then SIGKILL and reap for

@@ -24,6 +24,8 @@
 #define CAMERA_BACKEND_DEFAULT "v4l2"
 #endif
 #define CHILD_FD_SCAN_MAX 64
+/* A speed a det or traffic line may carry: anything above is not a measurement. */
+#define VISION_KMH10_MAX 100000
 
 void vision_session_init(struct vision_session *s)
 {
@@ -160,11 +162,15 @@ static int parse_det(struct vision_session *s, const char *line)
         int y;
         int w;
         int h;
+        unsigned dir;
+        unsigned kmh10;
         int used = 0;
 
-        if (sscanf(p, " %u:%u:%u:%d:%d:%d:%d%n", &id, &cls, &conf, &x, &y, &w, &h, &used) != 7 ||
+        if (sscanf(p, " %u:%u:%u:%d:%d:%d:%d:%u:%u%n", &id, &cls, &conf, &x, &y, &w, &h, &dir, &kmh10,
+                   &used) != 9 ||
             conf > VISION_CONF_SCALE || w <= 0 || h <= 0 || x < 0 || y < 0 ||
-            x + w > (int)POCKETCAM_VIEW_MAX_W || y + h > (int)POCKETCAM_VIEW_MAX_H) {
+            x + w > (int)POCKETCAM_VIEW_MAX_W || y + h > (int)POCKETCAM_VIEW_MAX_H ||
+            dir > VISION_DIR_DOWN || kmh10 > VISION_KMH10_MAX) {
             return 0;
         }
         shown[i].id = id;
@@ -174,6 +180,8 @@ static int parse_det(struct vision_session *s, const char *line)
         shown[i].y = y;
         shown[i].w = w;
         shown[i].h = h;
+        shown[i].dir = (uint8_t)dir;
+        shown[i].kmh10 = kmh10;
         p += used;
     }
     while (*p == ' ') {
@@ -249,6 +257,40 @@ int vision_session_parse_line(struct vision_session *s, const char *line, struct
         if (s) {
             s->count_ab = a;
             s->count_ba = b;
+        }
+        return 1;
+    }
+    if (strncmp(line, "traffic ", 8) == 0) {
+        struct vision_traffic_report t;
+        int consumed = 0;
+        const char *p;
+        int i;
+
+        memset(&t, 0, sizeof(t));
+        if (sscanf(line, "traffic %u %u %u %u %u %u %u %u%n", &t.total_ab, &t.total_ba, &t.cur_kmh10,
+                   &t.last_kmh10, &t.max_kmh10, &t.mean_kmh10, &t.n, &t.rejected, &consumed) != 8 ||
+            t.cur_kmh10 > VISION_KMH10_MAX || t.last_kmh10 > VISION_KMH10_MAX ||
+            t.max_kmh10 > VISION_KMH10_MAX || t.mean_kmh10 > VISION_KMH10_MAX) {
+            return 0;
+        }
+        p = line + consumed;
+        for (i = 0; i < VISION_PROTO_TRAFFIC_CLASSES; i++) {
+            int used = 0;
+
+            if (sscanf(p, " %u:%u%n", &t.cls_ab[i], &t.cls_ba[i], &used) != 2) {
+                return 0;
+            }
+            p += used;
+        }
+        while (*p == ' ') {
+            p++;
+        }
+        if (*p) {
+            return 0;
+        }
+        ev->kind = VISION_EV_TRAFFIC;
+        if (s) {
+            s->traffic = t;
         }
         return 1;
     }
@@ -718,6 +760,35 @@ int vision_session_line(struct vision_session *s, const int32_t pm[4])
     return send_line(s, "line %d %d %d %d", pm[0], pm[1], pm[2], pm[3]);
 }
 
+int vision_session_speed_lines(struct vision_session *s, const int32_t pm[8])
+{
+    int i;
+
+    if (!pm) {
+        return send_line(s, "speed off");
+    }
+    for (i = 0; i < 8; i++) {
+        if (pm[i] < 0 || pm[i] > 1000) {
+            return -1;
+        }
+    }
+    return send_line(s, "speed %d %d %d %d %d %d %d %d", pm[0], pm[1], pm[2], pm[3], pm[4], pm[5], pm[6],
+                     pm[7]);
+}
+
+int vision_session_distance(struct vision_session *s, uint32_t cm)
+{
+    if (cm == 0 || cm > 1000000u) {
+        return -1;
+    }
+    return send_line(s, "distance %u", cm);
+}
+
+int vision_session_mode(struct vision_session *s, bool traffic)
+{
+    return send_line(s, "mode %s", traffic ? "traffic" : "detect");
+}
+
 int vision_session_reset(struct vision_session *s)
 {
     return send_line(s, "reset");
@@ -761,6 +832,11 @@ void vision_session_counts(const struct vision_session *s, uint32_t *ab, uint32_
     if (ba) {
         *ba = s->count_ba;
     }
+}
+
+const struct vision_traffic_report *vision_session_traffic(const struct vision_session *s)
+{
+    return &s->traffic;
 }
 
 const struct vision_stats *vision_session_stats(const struct vision_session *s)

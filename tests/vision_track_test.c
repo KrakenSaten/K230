@@ -1,10 +1,15 @@
 /*
  * Tracks and the counting line: an object seen frame after frame keeps its
  * id; one that moves is followed by its motion; a missed frame does not
- * lose it and enough missed frames do; ids are never reused; the list is
- * bounded; a track counts once when it crosses the line, in the direction
- * it went, never on a wobble, never while unconfirmed, and again only when
- * it really comes back.
+ * lose it and enough missed frames do; a dropout or a jump the overlap
+ * cannot follow is found again by distance; a class the detector cannot
+ * make up its mind about stays one track; ids are never reused; the list
+ * is bounded; a track counts once when it crosses the line, in the
+ * direction it went, left to right and right to left, up and down, never
+ * on a touch, never on a jitter, never while unconfirmed, never on a
+ * prediction, once through a dropout, and again only when it really comes
+ * back; a track that expired and an object that returns are two ids and
+ * at most one count each.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -47,6 +52,14 @@ static const struct vision_track *find(const struct vision_tracker *tr, uint32_t
     return NULL;
 }
 
+/* One frame with one box, then the count on line l. */
+static int step(struct vision_tracker *tr, const struct vision_line *l, struct vision_counts *c,
+                const struct vision_det *d, int n)
+{
+    vision_tracker_update(tr, d, n);
+    return vision_line_count(l, 0, tr, c, NULL, 0);
+}
+
 static void test_identity(void)
 {
     struct vision_tracker tr;
@@ -81,8 +94,11 @@ static void test_identity(void)
         vision_tracker_update(&tr, d, 1);
     }
     check("a moving object keeps one id over ten frames",
-          tr.count == 1 && tr.t[0].id == 1 && tr.t[0].hits == 10 && tr.t[0].vx == 10);
-    /* A jump larger than the overlap allows is a new object. */
+          tr.count == 1 && tr.t[0].id == 1 && tr.t[0].hits == 10 &&
+              tr.t[0].vx / (1 << VISION_TRACK_V_SHIFT) == 10);
+    check("and remembers where it started", tr.t[0].ox == 120 && tr.t[0].oy == 120);
+    /* A jump larger than the overlap and the reacquire radius allow is a
+     * new object. */
     d[0] = det(0, 500, 300, 40, 40);
     vision_tracker_update(&tr, d, 1);
     check("a jump across the frame is a new track", tr.count == 2 && find(&tr, 2));
@@ -120,6 +136,120 @@ static void test_expiry(void)
     check("but not the ids handed out", tr.t[0].id == 3);
 }
 
+static void test_dropout(void)
+{
+    struct vision_tracker tr;
+    struct vision_det d[1];
+    int i;
+
+    /* A car at 20 px a frame, unseen for five frames, then seen where it
+     * would be: one id. */
+    vision_tracker_init(&tr);
+    for (i = 0; i < 4; i++) {
+        d[0] = det(2, 100 + i * 20, 100, 60, 40);
+        vision_tracker_update(&tr, d, 1);
+    }
+    for (i = 0; i < 5; i++) {
+        vision_tracker_update(&tr, NULL, 0);
+    }
+    check("a coasting track moves with its motion, slowing",
+          tr.count == 1 && tr.t[0].box.x > 160 && tr.t[0].box.x < 260 && tr.t[0].misses == 5);
+    d[0] = det(2, 100 + 9 * 20, 100, 60, 40);
+    vision_tracker_update(&tr, d, 1);
+    check("seen again after a five-frame dropout: the same id", tr.count == 1 && tr.t[0].id == 1 &&
+                                                                    tr.t[0].misses == 0);
+    /* An object that stopped while unseen is found where it was. */
+    vision_tracker_init(&tr);
+    for (i = 0; i < 4; i++) {
+        d[0] = det(0, 100 + i * 10, 100, 40, 80);
+        vision_tracker_update(&tr, d, 1);
+    }
+    for (i = 0; i < 6; i++) {
+        vision_tracker_update(&tr, NULL, 0);
+    }
+    d[0] = det(0, 140, 100, 40, 80);
+    vision_tracker_update(&tr, d, 1);
+    check("one that stopped while unseen is found where it stopped", tr.count == 1 && tr.t[0].id == 1);
+    /* Reacquisition by distance: a box the overlap cannot match (no
+     * overlap at all) but of the same size and within reach of the
+     * prediction. */
+    vision_tracker_init(&tr);
+    d[0] = det(0, 100, 100, 100, 100);
+    vision_tracker_update(&tr, d, 1);
+    vision_tracker_update(&tr, d, 1);
+    vision_tracker_update(&tr, NULL, 0);
+    vision_tracker_update(&tr, NULL, 0);
+    d[0] = det(0, 160, 140, 100, 100); /* 60 px over, 40 down: too little overlap, 72 px away */
+    check("the boxes do not overlap", vision_iou_permille(&tr.t[0].box, &d[0].box) < VISION_TRACK_IOU_MIN);
+    vision_tracker_update(&tr, d, 1);
+    check("a jump within the reacquire radius keeps the id",
+          tr.count == 1 && tr.t[0].id == 1 && tr.reacquired == 1);
+    d[0] = det(0, 160, 140, 30, 30); /* a tenth of the size */
+    vision_tracker_update(&tr, d, 1);
+    check("but a box of another size is a new object", tr.count == 2 && find(&tr, 2));
+    /* An unconfirmed track is not reacquired: a single spurious box does
+     * not grab the next one. */
+    vision_tracker_init(&tr);
+    d[0] = det(0, 100, 100, 100, 100);
+    vision_tracker_update(&tr, d, 1);
+    vision_tracker_update(&tr, NULL, 0);
+    d[0] = det(0, 160, 140, 100, 100);
+    vision_tracker_update(&tr, d, 1);
+    check("an unconfirmed track is not reacquired by distance", tr.count == 2);
+    /* A new object after an expired track: two ids, the first gone. */
+    vision_tracker_init(&tr);
+    d[0] = det(0, 100, 100, 50, 50);
+    vision_tracker_update(&tr, d, 1);
+    vision_tracker_update(&tr, d, 1);
+    for (i = 0; i <= VISION_TRACK_MAX_MISSES; i++) {
+        vision_tracker_update(&tr, NULL, 0);
+    }
+    d[0] = det(0, 100, 100, 50, 50);
+    vision_tracker_update(&tr, d, 1);
+    check("an object after an expired track is id 2 alone", tr.count == 1 && tr.t[0].id == 2 && !find(&tr, 1));
+}
+
+static void test_classes(void)
+{
+    /* COCO's traffic classes: person 0, bicycle 1, car 2, motorcycle 3,
+     * bus 5, truck 7. */
+    static const uint8_t group[8] = { 0, 2, 1, 2, 0, 1, 0, 1 };
+    struct vision_tracker tr;
+    struct vision_det d[1];
+    int i;
+
+    vision_tracker_init(&tr);
+    tr.group = group;
+    tr.group_classes = 8;
+    check("car and truck are one kind of object", vision_tracker_compatible(&tr, 2, 7) &&
+                                                       vision_tracker_compatible(&tr, 7, 5));
+    check("a person is only a person", !vision_tracker_compatible(&tr, 0, 2) && vision_tracker_compatible(&tr, 0, 0));
+    check("a class outside the table matches only itself", !vision_tracker_compatible(&tr, 2, 40));
+    d[0] = det(2, 100, 100, 80, 50);
+    vision_tracker_update(&tr, d, 1);
+    vision_tracker_update(&tr, d, 1);
+    d[0] = det(7, 104, 100, 80, 50);
+    vision_tracker_update(&tr, d, 1);
+    check("a truck box continues the car's track, which stays a car",
+          tr.count == 1 && tr.t[0].id == 1 && tr.t[0].cls == 2 && tr.t[0].cls_other_run == 1);
+    d[0] = det(2, 108, 100, 80, 50);
+    vision_tracker_update(&tr, d, 1);
+    check("a car box again forgets the vote", tr.t[0].cls == 2 && tr.t[0].cls_other_run == 0);
+    for (i = 0; i < VISION_TRACK_CLS_SWITCH; i++) {
+        d[0] = det(7, 112 + i * 4, 100, 80, 50);
+        vision_tracker_update(&tr, d, 1);
+    }
+    check("three trucks in a row and the track is a truck, the same id",
+          tr.count == 1 && tr.t[0].id == 1 && tr.t[0].cls == 7);
+    d[0] = det(0, 124, 100, 80, 50);
+    vision_tracker_update(&tr, d, 1);
+    check("a person on the same box is another track", tr.count == 2 && find(&tr, 2)->cls == 0);
+    tr.group = NULL;
+    d[0] = det(2, 128, 100, 80, 50);
+    vision_tracker_update(&tr, d, 1);
+    check("without a table a car is not a truck", tr.count == 3);
+}
+
 static void test_bounded(void)
 {
     struct vision_tracker tr;
@@ -143,111 +273,252 @@ static void test_bounded(void)
           vision_tracker_update(&tr, d, 1000) == VISION_MAX_TRACKS);
 }
 
-static void test_line(void)
+static void test_sides(void)
 {
-    struct vision_tracker tr;
     struct vision_line l = { 0, 100, 200, 100, true }; /* across, at y = 100 */
-    struct vision_counts c = { 0, 0 };
-    struct vision_det d[2];
-    int i;
+    struct vision_line v = { 100, 0, 100, 200, true }; /* down, at x = 100 */
+    struct vision_line z = { 5, 5, 5, 5, true };
+    struct vision_box small = { 0, 0, 8, 8 };
+    struct vision_box person = { 0, 0, 60, 120 };
 
     check("above the line is side A", vision_line_side(&l, 50, 40, 4) == -1);
     check("below it is side B", vision_line_side(&l, 50, 160, 4) == 1);
     check("on it is neither", vision_line_side(&l, 50, 100, 4) == 0);
     check("nor within the dead band", vision_line_side(&l, 50, 103, 4) == 0 && vision_line_side(&l, 50, 97, 4) == 0);
     check("just outside the band is a side", vision_line_side(&l, 50, 105, 4) == 1);
-    {
-        struct vision_line v = { 100, 0, 100, 200, true }; /* down, at x = 100 */
-        struct vision_line z = { 5, 5, 5, 5, true };
+    check("a vertical line: left is side B, right is side A",
+          vision_line_side(&v, 40, 50, 4) == 1 && vision_line_side(&v, 160, 50, 4) == -1);
+    check("a line with no length has no sides", vision_line_side(&z, 1, 1, 4) == 0);
+    check("the dead band is a quarter of the box's smaller side, at least 4 px",
+          vision_line_dead_px(&small) == VISION_LINE_DEAD_PX && vision_line_dead_px(&person) == 15);
+}
 
-        check("a vertical line: left is side B, right is side A",
-              vision_line_side(&v, 40, 50, 4) == 1 && vision_line_side(&v, 160, 50, 4) == -1);
-        check("a line with no length has no sides", vision_line_side(&z, 1, 1, 4) == 0);
-    }
+static void test_line(void)
+{
+    struct vision_tracker tr;
+    struct vision_line l = { 0, 100, 200, 100, true }; /* across, at y = 100 */
+    struct vision_counts c = { 0, 0 };
+    struct vision_det d[3];
+    struct vision_crossing x[4];
+    int i;
+    int n;
 
-    /* One object walks down through the line. */
+    /* One object walks down through the line: 40 x 40, so a 10 px band. */
     vision_tracker_init(&tr);
     for (i = 0; i < 12; i++) {
         d[0] = det(0, 80, i * 20, 40, 40); /* centre y = i * 20 + 20 */
-        vision_tracker_update(&tr, d, 1);
-        vision_line_count(&l, &tr, &c);
+        step(&tr, &l, &c, d, 1);
     }
     check("one crossing downward counts once as A to B", c.ab == 1 && c.ba == 0);
     /* Back up: counted the other way. */
     for (i = 11; i >= 0; i--) {
         d[0] = det(0, 80, i * 20, 40, 40);
-        vision_tracker_update(&tr, d, 1);
-        vision_line_count(&l, &tr, &c);
+        step(&tr, &l, &c, d, 1);
     }
     check("coming back counts once as B to A", c.ab == 1 && c.ba == 1);
+
+    /* Up to the line and away again: a touch is not a crossing. */
+    vision_tracker_init(&tr);
+    memset(&c, 0, sizeof(c));
+    {
+        static const int ys[] = { 40, 60, 75, 80, 78, 75, 60, 40 }; /* centres: A, A, band, band, band, band, A, A */
+
+        for (i = 0; i < 8; i++) {
+            d[0] = det(0, 80, ys[i], 40, 40);
+            step(&tr, &l, &c, d, 1);
+        }
+    }
+    check("touching the line and turning back counts nothing", c.ab == 0 && c.ba == 0 && tr.t[0].ls[0].side == -1);
 
     /* A wobble on the line: never a count. A 40 x 60 box walking up to the
      * line in steps its overlap can follow, then dithering on it. */
     vision_tracker_init(&tr);
     memset(&c, 0, sizeof(c));
     for (i = 0; i < 3; i++) {
-        d[0] = det(0, 80, 30 + i * 15, 40, 60); /* centres 60, 75, 90: side A */
-        vision_tracker_update(&tr, d, 1);
-        vision_line_count(&l, &tr, &c);
+        d[0] = det(0, 80, 30 + i * 15, 40, 60); /* centres 60, 75, 90: side A, A, band */
+        step(&tr, &l, &c, d, 1);
     }
-    check("walking up to the line counts nothing", c.ab == 0 && c.ba == 0 && tr.t[0].side == -1);
+    check("walking up to the line counts nothing", c.ab == 0 && c.ba == 0 && tr.t[0].ls[0].side == -1);
     for (i = 0; i < 20; i++) {
         d[0] = det(0, 80, 68 + (i % 2) * 4, 40, 60); /* centre 98 or 102: within the band */
-        vision_tracker_update(&tr, d, 1);
-        vision_line_count(&l, &tr, &c);
+        step(&tr, &l, &c, d, 1);
     }
     check("wobbling on the line counts nothing", c.ab == 0 && c.ba == 0 && tr.count == 1);
     d[0] = det(0, 80, 100, 40, 60); /* centre 130: side B */
-    vision_tracker_update(&tr, d, 1);
-    vision_line_count(&l, &tr, &c);
-    check("committing to the other side counts once", c.ab == 1 && c.ba == 0 && tr.t[0].id == 1);
+    step(&tr, &l, &c, d, 1);
+    check("one sighting on the far side is not yet a crossing", c.ab == 0 && tr.t[0].ls[0].pending == 1);
+    d[0] = det(0, 80, 102, 40, 60);
+    n = vision_tracker_update(&tr, d, 1);
+    n = vision_line_count(&l, 0, &tr, &c, x, 4);
+    check("the second sighting settles it: one crossing, reported with its id and direction",
+          n == 1 && c.ab == 1 && c.ba == 0 && x[0].id == 1 && x[0].cls == 0 && x[0].dir == 1 && x[0].index == 0);
+
+    /* A jitter across the line, one frame each side: never a count. */
+    vision_tracker_init(&tr);
+    memset(&c, 0, sizeof(c));
+    for (i = 0; i < 20; i++) {
+        d[0] = det(0, 80, 48 + (i % 2) * 24, 40, 80); /* centres 88 and 112: A, B, A, B... (a 10 px band) */
+        step(&tr, &l, &c, d, 1);
+    }
+    check("jumping across and back every frame counts nothing", c.ab == 0 && c.ba == 0 && tr.count == 1);
+    for (i = 0; i < 3; i++) {
+        d[0] = det(0, 80, 72, 40, 80); /* centre 112: B, and stays */
+        step(&tr, &l, &c, d, 1);
+    }
+    check("staying on the far side then counts once", c.ab == 1 && c.ba == 0);
 
     /* An unconfirmed track (seen once) that crosses is not counted; a track
      * born on the far side is not counted either. */
     vision_tracker_init(&tr);
     memset(&c, 0, sizeof(c));
     d[0] = det(0, 80, 140, 40, 40);
-    vision_tracker_update(&tr, d, 1);
-    vision_line_count(&l, &tr, &c);
+    step(&tr, &l, &c, d, 1);
     d[0] = det(0, 80, 144, 40, 40);
-    vision_tracker_update(&tr, d, 1);
-    vision_line_count(&l, &tr, &c);
+    step(&tr, &l, &c, d, 1);
     check("a track born below the line counts nothing", c.ab == 0 && c.ba == 0);
+
     /* Two objects at once, one each way. */
     vision_tracker_init(&tr);
     memset(&c, 0, sizeof(c));
     for (i = 0; i < 12; i++) {
         d[0] = det(0, 20, i * 20, 40, 40);
         d[1] = det(0, 140, 220 - i * 20, 40, 40);
-        vision_tracker_update(&tr, d, 2);
-        vision_line_count(&l, &tr, &c);
+        step(&tr, &l, &c, d, 2);
     }
     check("two objects crossing opposite ways: one each", c.ab == 1 && c.ba == 1);
+    /* Three at once the same way, at different speeds. */
+    vision_tracker_init(&tr);
+    memset(&c, 0, sizeof(c));
+    for (i = 0; i < 16; i++) {
+        d[0] = det(0, 0, i * 20, 40, 40);
+        d[1] = det(2, 60, i * 15, 40, 40);
+        d[2] = det(0, 140, i * 10, 40, 40);
+        step(&tr, &l, &c, d, 3);
+    }
+    check("three objects down at once: three counts, three ids", c.ab == 3 && c.ba == 0 && tr.count == 3);
+
     /* A coasting (unseen) track never crosses by itself. */
     vision_tracker_init(&tr);
     memset(&c, 0, sizeof(c));
     for (i = 0; i < 3; i++) {
         d[0] = det(0, 80, 20 + i * 20, 40, 40); /* moving down 20 a frame, still above */
-        vision_tracker_update(&tr, d, 1);
-        vision_line_count(&l, &tr, &c);
+        step(&tr, &l, &c, d, 1);
     }
     for (i = 0; i < 6; i++) {
-        vision_tracker_update(&tr, NULL, 0); /* its prediction carries it past the line */
-        vision_line_count(&l, &tr, &c);
+        step(&tr, &l, &c, NULL, 0); /* its prediction carries it past the line */
     }
-    check("a prediction across the line is not a crossing", c.ab == 0 && c.ba == 0);
-    l.enabled = false;
+    check("a prediction across the line is not a crossing", c.ab == 0 && c.ba == 0 && tr.t[0].ls[0].side == -1);
+    /* ... and the object seen again beyond the line is the crossing, once,
+     * on the same id: a dropout on the line loses nothing. */
     d[0] = det(0, 80, 160, 40, 40);
+    step(&tr, &l, &c, d, 1);
+    d[0] = det(0, 80, 170, 40, 40);
+    step(&tr, &l, &c, d, 1);
+    check("seen again past the line after the dropout: one crossing, the same id",
+          c.ab == 1 && tr.count == 1 && tr.t[0].id == 1);
+
+    /* An object that crosses, is lost for good, and a new one that appears
+     * beyond the line: one count, not two. */
+    vision_tracker_init(&tr);
+    memset(&c, 0, sizeof(c));
+    for (i = 0; i < 8; i++) {
+        d[0] = det(0, 80, i * 20, 40, 40);
+        step(&tr, &l, &c, d, 1);
+    }
+    for (i = 0; i <= VISION_TRACK_MAX_MISSES; i++) {
+        step(&tr, &l, &c, NULL, 0);
+    }
+    for (i = 0; i < 4; i++) {
+        d[0] = det(0, 80, 160 + i * 4, 40, 40);
+        step(&tr, &l, &c, d, 1);
+    }
+    check("an expired track and a newcomer beyond the line: one count, two ids",
+          c.ab == 1 && c.ba == 0 && tr.count == 1 && tr.t[0].id == 2);
+
+    /* Forgetting: the line moved, every track learns its side afresh. */
+    vision_line_forget(&tr, 0);
+    check("a forgotten side is unknown", tr.t[0].ls[0].side == 0);
+    d[0] = det(0, 80, 176, 40, 40);
+    step(&tr, &l, &c, d, 1);
+    check("and learnt again without a count", tr.t[0].ls[0].side == 1 && c.ab == 1);
+
+    l.enabled = false;
+    d[0] = det(0, 80, 20, 40, 40);
     vision_tracker_update(&tr, d, 1);
-    check("a disabled line counts nothing", vision_line_count(&l, &tr, &c) == 0 && c.ab == 0);
+    check("a disabled line counts nothing", vision_line_count(&l, 0, &tr, &c, NULL, 0) == 0 && c.ab == 1);
+    l.enabled = true;
+    check("a line index out of range counts nothing", vision_line_count(&l, VISION_LINES, &tr, &c, NULL, 0) == 0);
+}
+
+static void test_directions(void)
+{
+    struct vision_tracker tr;
+    struct vision_line across = { 0, 100, 200, 100, true };
+    struct vision_line down = { 100, 0, 100, 200, true };
+    struct vision_counts c;
+    struct vision_det d[1];
+    int i;
+
+    /* Left to right across a vertical line: side B (left) to side A. */
+    vision_tracker_init(&tr);
+    memset(&c, 0, sizeof(c));
+    for (i = 0; i < 12; i++) {
+        d[0] = det(2, i * 20 - 20, 80, 40, 40);
+        step(&tr, &down, &c, d, 1);
+    }
+    check("left to right is B to A on a line drawn downward", c.ab == 0 && c.ba == 1);
+    /* Right to left. */
+    vision_tracker_init(&tr);
+    memset(&c, 0, sizeof(c));
+    for (i = 11; i >= 0; i--) {
+        d[0] = det(2, i * 20 - 20, 80, 40, 40);
+        step(&tr, &down, &c, d, 1);
+    }
+    check("right to left is A to B", c.ab == 1 && c.ba == 0);
+    /* Up to down across a horizontal line. */
+    vision_tracker_init(&tr);
+    memset(&c, 0, sizeof(c));
+    for (i = 0; i < 12; i++) {
+        d[0] = det(0, 80, i * 20 - 20, 40, 40);
+        step(&tr, &across, &c, d, 1);
+    }
+    check("top to bottom is A to B on a line drawn left to right", c.ab == 1 && c.ba == 0);
+    /* Down to up. */
+    vision_tracker_init(&tr);
+    memset(&c, 0, sizeof(c));
+    for (i = 11; i >= 0; i--) {
+        d[0] = det(0, 80, i * 20 - 20, 40, 40);
+        step(&tr, &across, &c, d, 1);
+    }
+    check("bottom to top is B to A", c.ab == 0 && c.ba == 1);
+    /* The two lines at once, on their own states: a diagonal walk crosses
+     * both, each counted on its own. */
+    vision_tracker_init(&tr);
+    memset(&c, 0, sizeof(c));
+    {
+        struct vision_counts c2 = { 0, 0 };
+
+        for (i = 0; i < 12; i++) {
+            d[0] = det(0, i * 20 - 30, i * 20 - 30, 60, 60);
+            vision_tracker_update(&tr, d, 1);
+            vision_line_count(&across, 0, &tr, &c, NULL, 0);
+            vision_line_count(&down, 1, &tr, &c2, NULL, 0);
+        }
+        check("two lines with their own track states count independently",
+              c.ab == 1 && c.ba == 0 && c2.ab == 0 && c2.ba == 1);
+    }
 }
 
 int main(void)
 {
     test_identity();
     test_expiry();
+    test_dropout();
+    test_classes();
     test_bounded();
+    test_sides();
     test_line();
+    test_directions();
     printf("vision_track_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;
 }

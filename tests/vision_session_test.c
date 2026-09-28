@@ -129,17 +129,29 @@ static void test_parse(void)
                               ev.value == 2 && ev.w == 528 && ev.h == 938);
     check("a frame in the review slot does not", !vision_session_parse_line(&s, "frame 3 17 528 938", &ev));
     check("a det line parses into the session",
-          vision_session_parse_line(&s, "det 40 2 1:0:900:10:20:30:40 0:2:600:100:200:50:60", &ev) &&
+          vision_session_parse_line(&s, "det 40 2 1:0:900:10:20:30:40:4:0 0:2:600:100:200:50:60:0:432", &ev) &&
               ev.kind == VISION_EV_DET && ev.value == 40 && s.shown_count == 2 && s.shown[0].id == 1 &&
-              s.shown[0].cls == 0 && s.shown[0].conf == 900 && s.shown[0].w == 30 && s.shown[1].id == 0 &&
-              s.shown[1].x == 100 && s.shown_seq == 40);
+              s.shown[0].cls == 0 && s.shown[0].conf == 900 && s.shown[0].w == 30 && s.shown[0].dir == 4 &&
+              s.shown[0].kmh10 == 0 && s.shown[1].id == 0 && s.shown[1].x == 100 && s.shown[1].dir == 0 &&
+              s.shown[1].kmh10 == 432 && s.shown_seq == 40);
     check("an empty det line parses", vision_session_parse_line(&s, "det 41 0", &ev) && s.shown_count == 0);
     check("a det line with fewer boxes than it says does not",
-          !vision_session_parse_line(&s, "det 42 2 1:0:900:10:20:30:40", &ev));
-    check("nor one with more", !vision_session_parse_line(&s, "det 42 1 1:0:900:10:20:30:40 2:0:900:1:2:3:4", &ev));
-    check("nor a box outside any view", !vision_session_parse_line(&s, "det 42 1 1:0:900:1000:20:30:40", &ev));
-    check("nor an impossible confidence", !vision_session_parse_line(&s, "det 42 1 1:0:1900:10:20:30:40", &ev));
+          !vision_session_parse_line(&s, "det 42 2 1:0:900:10:20:30:40:0:0", &ev));
+    check("nor one with more", !vision_session_parse_line(&s, "det 42 1 1:0:900:10:20:30:40:0:0 2:0:900:1:2:3:4:0:0", &ev));
+    check("nor a box outside any view", !vision_session_parse_line(&s, "det 42 1 1:0:900:1000:20:30:40:0:0", &ev));
+    check("nor an impossible confidence", !vision_session_parse_line(&s, "det 42 1 1:0:1900:10:20:30:40:0:0", &ev));
+    check("nor a direction that is not one", !vision_session_parse_line(&s, "det 42 1 1:0:900:10:20:30:40:5:0", &ev));
+    check("nor the old seven-field box", !vision_session_parse_line(&s, "det 42 1 1:0:900:10:20:30:40", &ev));
     check("count parses", vision_session_parse_line(&s, "count 3 1", &ev) && s.count_ab == 3 && s.count_ba == 1);
+    check("a traffic line parses into the report",
+          vision_session_parse_line(&s, "traffic 4 2 432 432 510 400 3 1 3:1 0:0 0:0 0:0 0:0 1:1", &ev) &&
+              ev.kind == VISION_EV_TRAFFIC && s.traffic.total_ab == 4 && s.traffic.total_ba == 2 &&
+              s.traffic.cur_kmh10 == 432 && s.traffic.max_kmh10 == 510 && s.traffic.mean_kmh10 == 400 &&
+              s.traffic.n == 3 && s.traffic.rejected == 1 && s.traffic.cls_ab[0] == 3 && s.traffic.cls_ba[0] == 1 &&
+              s.traffic.cls_ab[5] == 1 && s.traffic.cls_ba[5] == 1);
+    check("a traffic line short of a class does not",
+          !vision_session_parse_line(&s, "traffic 4 2 432 432 510 400 3 1 3:1 0:0 0:0 0:0 0:0", &ev));
+    check("nor one with junk after", !vision_session_parse_line(&s, "traffic 4 2 432 432 510 400 3 1 3:1 0:0 0:0 0:0 0:0 1:1 x", &ev));
     check("stats parses", vision_session_parse_line(&s, "stats 95 31 4 2 40 20480 1 0", &ev) &&
                               s.stats.fps_x10 == 95 && s.stats.infer_ms == 31 && s.stats.rss_kb == 20480 &&
                               s.stats.bad == 1);
@@ -268,6 +280,97 @@ static void test_happy(void)
     vision_session_abandon(&s, 1000);
     check("the helper is gone", !vision_session_active(&s));
     check("no descriptor is left behind", open_fds() == fds);
+}
+
+/* TRAFFIC against the real helper: a car driving down the picture (the
+ * sensor's x, after the quarter turn) through the two speed lines and the
+ * counting line; a chair that is not traffic; the speed from the fed
+ * distance and the helper's clock; the report; reset. */
+static void test_traffic(void)
+{
+    struct vision_session s;
+    struct vision_event ev;
+    struct watch w = { 0, 0, 0, 0, 0, 0, NULL };
+    int32_t line[4] = { 0, 500, 1000, 500 };
+    int32_t speed[8] = { 0, 400, 1000, 400, 0, 600, 1000, 600 };
+    int i;
+    int n = 0;
+    const struct vision_shown *t;
+    bool saw_dir = false;
+    bool saw_chair = false;
+    bool saw_speed = false;
+    uint32_t car_id = 0;
+    bool one_id = true;
+
+    vision_session_init(&s);
+    /* The car: 80 x 60 at 16 px a frame along the sensor's x, from the
+     * top of the picture off the bottom. The chair stands still. Frames
+     * every 20 ms: 128 px between the speed lines is 8 frames, 160 ms; at
+     * 5 m that is 31.25 m/s, 112.5 km/h - give or take the fake camera's
+     * coarse frame timing, which only the bounds below allow for. */
+    check("the helper starts",
+          start(&s, "period=20", "box=2:800:0:150:80:60:16:0,box=56:700:400:40:60:60", NULL) == 0);
+    check("ready", wait_for(&s, VISION_EV_READY, 3000, &ev, seen, &w));
+    vision_session_view(&s, 360, 640, 0);
+    vision_session_mode(&s, true);
+    check("traffic mode answers with an empty report",
+          wait_for(&s, VISION_EV_TRAFFIC, 2000, &ev, seen, &w) && s.traffic.total_ab == 0 && s.traffic.n == 0);
+    vision_session_line(&s, line);
+    vision_session_speed_lines(&s, speed);
+    vision_session_distance(&s, 500);
+    vision_session_stream(&s, true, now_ms());
+    for (i = 0; i < 60; i++) {
+        if (!wait_for(&s, VISION_EV_DET, 1000, &ev, seen, &w)) {
+            break;
+        }
+        t = vision_session_tracks(&s, &n, NULL);
+        {
+            int j;
+
+            for (j = 0; j < n; j++) {
+                saw_chair |= t[j].cls == 56;
+                if (t[j].cls == 2 && t[j].id) {
+                    if (car_id == 0) {
+                        car_id = t[j].id;
+                    } else if (t[j].id != car_id) {
+                        one_id = false;
+                    }
+                    saw_dir |= t[j].dir == VISION_DIR_DOWN;
+                    saw_speed |= t[j].kmh10 > 0;
+                }
+            }
+        }
+    }
+    check("the chair is never tracked in traffic mode", !saw_chair);
+    check("the car keeps one id all the way", car_id != 0 && one_id);
+    check("and is said to be going down the picture", saw_dir);
+    check("the counting line counted it IN, as a car",
+          s.traffic.total_ab == 1 && s.traffic.total_ba == 0 && s.traffic.cls_ab[0] == 1 && s.count_ab == 1);
+    check("the speed lines measured it: about 112 km/h from 5 m and the helper's clock",
+          s.traffic.n == 1 && s.traffic.last_kmh10 >= 700 && s.traffic.last_kmh10 <= 1500 &&
+              s.traffic.max_kmh10 == s.traffic.last_kmh10 && s.traffic.mean_kmh10 == s.traffic.last_kmh10);
+    printf("     measured %u.%u km/h\n", s.traffic.last_kmh10 / 10, s.traffic.last_kmh10 % 10);
+    check("the speed was shown on the car's box while it was tracked", saw_speed);
+    check("and retired with the track", s.traffic.cur_kmh10 == 0);
+    vision_session_reset(&s);
+    for (i = 0; i < 4; i++) {
+        if (wait_for(&s, VISION_EV_TRAFFIC, 2000, &ev, seen, &w) && s.traffic.n == 0) {
+            break;
+        }
+    }
+    check("reset zeroes the report", s.traffic.total_ab == 0 && s.traffic.n == 0 && s.traffic.last_kmh10 == 0);
+    vision_session_mode(&s, false);
+    for (i = 0; i < 20; i++) {
+        wait_for(&s, VISION_EV_DET, 1000, &ev, seen, &w);
+    }
+    t = vision_session_tracks(&s, &n, NULL);
+    saw_chair = false;
+    for (i = 0; i < n; i++) {
+        saw_chair |= t[i].cls == 56;
+    }
+    check("back in detect mode the chair is tracked again", saw_chair);
+    vision_session_abandon(&s, 1000);
+    check("the helper is gone", !vision_session_active(&s));
 }
 
 static void test_malformed(void)
@@ -410,6 +513,7 @@ int main(int argc, char **argv)
     signal(SIGPIPE, SIG_IGN);
     test_parse();
     test_happy();
+    test_traffic();
     test_malformed();
     test_failures();
     test_lifetime();

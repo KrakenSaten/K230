@@ -1,7 +1,9 @@
 /*
  * Vision: the camera's live picture with what the KPU sees in it - boxes
  * with a class, a confidence and a persistent id - and one line across the
- * picture that counts what crosses it (docs/apps/VISION.md).
+ * picture that counts what crosses it; in TRAFFIC mode, traffic only,
+ * counted per class, with a direction on every box and a speed for what
+ * crosses the two speed lines (docs/apps/VISION.md).
  *
  * This file is the screen. What state it is in is vision_model.c; where
  * things go is vision_layout.c; the camera and the detector are not here at
@@ -48,7 +50,7 @@
  * camera and the KPU is exactly the kind of exit this helper must not get.
  * Bounded like every wait here; it only runs when the user leaves. */
 #define VISION_DESTROY_GRACE_MS 1000
-#define VISION_LABEL_MAX 40
+#define VISION_LABEL_MAX 48
 
 struct vision_picture {
     lv_image_dsc_t dsc;
@@ -67,17 +69,18 @@ struct vision_app {
     lv_obj_t *outline[VISION_MAX_SHOWN];
     lv_obj_t *tag[VISION_MAX_SHOWN];
     lv_obj_t *line;       /* the counting line, drawn as a 2 px object */
+    lv_obj_t *sline[2];   /* the speed lines A and B */
     lv_obj_t *status;
     lv_obj_t *count_a;    /* "DOWN 3" */
     lv_obj_t *count_b;
-    lv_obj_t *line_btn;
-    lv_obj_t *reset_btn;
+    lv_obj_t *btn[VISION_BUTTONS]; /* by role (enum vision_button) */
     lv_obj_t *retry_btn;
 
     struct pocketui_layout_guard guard;
     struct vision_layout lay;
     uint32_t lay_frame_w; /* the preview the layout was chosen for */
     uint32_t lay_frame_h;
+    enum vision_mode lay_mode;
     bool laid_out;
     lv_timer_t *timer;
 
@@ -86,7 +89,7 @@ struct vision_app {
     struct vision_picture preview;
     bool shown;           /* img shows the preview */
     const char *hint_shown;
-    char status_buf[128];
+    char status_buf[256];
 };
 
 static int64_t now_ms(void)
@@ -221,11 +224,23 @@ static void label_text(lv_obj_t *lb, const char *text)
 
 /* ---- the screen ------------------------------------------------------------------ */
 
+static const char *dir_mark(unsigned dir)
+{
+    switch (dir) {
+    case VISION_DIR_LEFT: return " <";
+    case VISION_DIR_RIGHT: return " >";
+    case VISION_DIR_UP: return " ^";
+    case VISION_DIR_DOWN: return " v";
+    default: return "";
+    }
+}
+
 static void draw_boxes(struct vision_app *a)
 {
     int n = 0;
     uint32_t seq;
     const struct vision_shown *t = vision_session_tracks(&a->session, &n, &seq);
+    bool traffic = a->model.mode == VISION_MODE_TRAFFIC;
     int i;
 
     for (i = 0; i < VISION_MAX_SHOWN; i++) {
@@ -241,7 +256,17 @@ static void draw_boxes(struct vision_app *a)
         {
             char text[VISION_LABEL_MAX];
 
-            if (t[i].id) {
+            if (t[i].id && traffic) {
+                /* "#7 car > 43 km/h": the id, the class, the way it has
+                 * gone, and the speed once the lines have measured it. */
+                if (t[i].kmh10) {
+                    snprintf(text, sizeof(text), "#%u %s%s %u.%u km/h", t[i].id, vision_label(t[i].cls),
+                             dir_mark(t[i].dir), t[i].kmh10 / 10, t[i].kmh10 % 10);
+                } else {
+                    snprintf(text, sizeof(text), "#%u %s%s %u%%", t[i].id, vision_label(t[i].cls),
+                             dir_mark(t[i].dir), t[i].conf / 10);
+                }
+            } else if (t[i].id) {
                 snprintf(text, sizeof(text), "#%u %s %u%%", t[i].id, vision_label(t[i].cls),
                          t[i].conf / 10);
             } else {
@@ -254,36 +279,50 @@ static void draw_boxes(struct vision_app *a)
     }
 }
 
-static void draw_line(struct vision_app *a)
+/* A 2 px line object on the picture, from its per-mille endpoints (a line
+ * is always across or down). */
+static void place_line(struct vision_app *a, lv_obj_t *obj, const int32_t pm[4])
 {
-    int32_t pm[4];
-    bool on = a->model.state == VISION_LIVE && a->model.live && vision_model_line_pm(&a->model, pm) &&
-              a->preview.w && a->preview.h;
-
-    set_hidden(a->line, !on);
-    if (!on) {
-        return;
-    }
     if (pm[1] == pm[3]) {
         /* across */
         int32_t y = (int32_t)(((int64_t)pm[1] * (a->preview.h - 1)) / 1000);
 
-        lv_obj_set_pos(a->line, 0, y - 1);
-        lv_obj_set_size(a->line, (int32_t)a->preview.w, 2);
+        lv_obj_set_pos(obj, 0, y - 1);
+        lv_obj_set_size(obj, (int32_t)a->preview.w, 2);
     } else {
         int32_t x = (int32_t)(((int64_t)pm[0] * (a->preview.w - 1)) / 1000);
 
-        lv_obj_set_pos(a->line, x - 1, 0);
-        lv_obj_set_size(a->line, 2, (int32_t)a->preview.h);
+        lv_obj_set_pos(obj, x - 1, 0);
+        lv_obj_set_size(obj, 2, (int32_t)a->preview.h);
+    }
+}
+
+static void draw_lines(struct vision_app *a)
+{
+    int32_t pm[8];
+    bool live = a->model.state == VISION_LIVE && a->model.live && a->preview.w && a->preview.h;
+    bool on = live && vision_model_line_pm(&a->model, pm);
+    bool speed;
+
+    set_hidden(a->line, !on);
+    if (on) {
+        place_line(a, a->line, pm);
+    }
+    speed = live && a->model.mode == VISION_MODE_TRAFFIC && vision_model_speed_pm(&a->model, pm);
+    set_hidden(a->sline[0], !speed);
+    set_hidden(a->sline[1], !speed);
+    if (speed) {
+        place_line(a, a->sline[0], pm);
+        place_line(a, a->sline[1], pm + 4);
     }
 }
 
 static void repaint(struct vision_app *a)
 {
     struct vision_view_text s;
-    const char *na;
-    const char *nb;
-    char buf[48];
+    enum vision_button order[VISION_BUTTONS];
+    int shown_btns;
+    int i;
 
     vision_model_text(&a->model, &s, a->status_buf, sizeof(a->status_buf));
     show(a, s.show_picture);
@@ -300,26 +339,39 @@ static void repaint(struct vision_app *a)
         lv_obj_remove_style(a->status, pos_style(POS_STYLE_STATUS_WARN_TEXT), 0);
         pos_style_add(a->status, POS_STYLE_TEXT_SECONDARY, 0);
     }
-    vision_model_count_names(&a->model, &na, &nb);
-    if (a->model.line == VISION_LINE_OFF) {
-        label_text(a->count_a, "-");
-        label_text(a->count_b, "-");
-    } else {
-        snprintf(buf, sizeof(buf), "%s %u", na, a->model.count_a);
-        label_text(a->count_a, buf);
-        snprintf(buf, sizeof(buf), "%s %u", nb, a->model.count_b);
-        label_text(a->count_b, buf);
+    label_text(a->count_a, s.count_a);
+    label_text(a->count_b, s.count_b);
+    button_text(a->btn[VISION_BTN_MODE], s.mode_btn);
+    button_text(a->btn[VISION_BTN_LINE], s.line_btn);
+    button_text(a->btn[VISION_BTN_SPEED], s.speed_btn);
+    button_text(a->btn[VISION_BTN_DISTANCE], s.dist_btn);
+    button_style(a->btn[VISION_BTN_MODE], false, true);
+    button_style(a->btn[VISION_BTN_LINE], false, s.line_enabled);
+    button_style(a->btn[VISION_BTN_SPEED], false, s.line_enabled);
+    button_style(a->btn[VISION_BTN_DISTANCE], false, s.line_enabled);
+    button_style(a->btn[VISION_BTN_RESET], false, s.line_enabled && a->model.line != VISION_LINE_OFF);
+    /* The mode's buttons, in its order, on the layout's places; the rest
+     * hidden. TRY AGAIN takes LINE's place. */
+    shown_btns = vision_model_buttons(&a->model, order);
+    for (i = 0; i < VISION_BUTTONS; i++) {
+        set_hidden(a->btn[i], true);
     }
-    button_text(a->line_btn, s.line_btn);
-    button_style(a->line_btn, false, s.line_enabled);
-    button_style(a->reset_btn, false, s.line_enabled && a->model.line != VISION_LINE_OFF);
+    for (i = 0; i < shown_btns && i < a->lay.buttons; i++) {
+        bool hide = s.show_retry && order[i] == VISION_BTN_LINE;
+
+        place(a->btn[order[i]], &a->lay.btn[i]);
+        set_hidden(a->btn[order[i]], hide);
+        if (order[i] == VISION_BTN_LINE) {
+            place(a->retry_btn, &a->lay.btn[i]);
+        }
+    }
     set_hidden(a->retry_btn, !s.show_retry);
     if (s.show_retry) {
         button_text(a->retry_btn, a->model.state == VISION_NO_DEVICE ? "CHECK AGAIN" : "TRY AGAIN");
         button_style(a->retry_btn, true, true);
     }
     draw_boxes(a);
-    draw_line(a);
+    draw_lines(a);
     if (a->hint_shown != s.hint && (!a->hint_shown || strcmp(a->hint_shown, s.hint) != 0)) {
         pocketos_shell_set_status_hint(s.hint);
     }
@@ -363,6 +415,17 @@ static void send_line_setting(struct vision_app *a)
     }
 }
 
+static void send_speed_setting(struct vision_app *a)
+{
+    int32_t pm[8];
+
+    if (a->model.mode == VISION_MODE_TRAFFIC && vision_model_speed_pm(&a->model, pm)) {
+        vision_session_speed_lines(&a->session, pm);
+    } else {
+        vision_session_speed_lines(&a->session, NULL);
+    }
+}
+
 static void do_actions(struct vision_app *a, unsigned acts)
 {
     int64_t now = now_ms();
@@ -374,8 +437,24 @@ static void do_actions(struct vision_app *a, unsigned acts)
         vision_session_view(&a->session, a->preview.w, a->preview.h, display_rotation());
         vision_session_stream(&a->session, true, now);
     }
+    if (acts & VISION_ACT_MODE) {
+        if (vision_session_active(&a->session)) {
+            vision_session_mode(&a->session, a->model.mode == VISION_MODE_TRAFFIC);
+        }
+        /* The mode's own controls: the layout is chosen again. */
+        if (a->model.mode != a->lay_mode) {
+            pocketui_layout_guard_reset(&a->guard);
+            layout(a);
+        }
+    }
     if (acts & VISION_ACT_LINE) {
         send_line_setting(a);
+    }
+    if (acts & VISION_ACT_SPEED) {
+        send_speed_setting(a);
+    }
+    if (acts & VISION_ACT_DISTANCE) {
+        vision_session_distance(&a->session, vision_model_distance_cm(&a->model));
     }
     if (acts & VISION_ACT_RESET) {
         vision_session_reset(&a->session);
@@ -437,11 +516,32 @@ static void act(struct vision_app *a, unsigned acts)
     repaint(a);
 }
 
+static void on_mode(lv_event_t *e)
+{
+    struct vision_app *a = lv_event_get_user_data(e);
+
+    act(a, vision_model_mode_next(&a->model));
+}
+
 static void on_line(lv_event_t *e)
 {
     struct vision_app *a = lv_event_get_user_data(e);
 
     act(a, vision_model_line_next(&a->model));
+}
+
+static void on_speed(lv_event_t *e)
+{
+    struct vision_app *a = lv_event_get_user_data(e);
+
+    act(a, vision_model_speed_next(&a->model));
+}
+
+static void on_distance(lv_event_t *e)
+{
+    struct vision_app *a = lv_event_get_user_data(e);
+
+    act(a, vision_model_distance_next(&a->model));
 }
 
 static void on_reset(lv_event_t *e)
@@ -466,6 +566,7 @@ static void layout(struct vision_app *a)
     const lv_area_t *area;
     uint32_t fw = a->model.preview_w ? a->model.preview_w : 640;
     uint32_t fh = a->model.preview_h ? a->model.preview_h : 360;
+    enum vision_button order[VISION_BUTTONS];
     uint32_t pw;
     uint32_t ph;
 
@@ -475,6 +576,7 @@ static void layout(struct vision_app *a)
     area = &a->guard.area;
     a->lay_frame_w = a->model.preview_w;
     a->lay_frame_h = a->model.preview_h;
+    a->lay_mode = a->model.mode;
     /* The picture as the owner holds the unit: the preview turned upright. */
     if (portrait_now()) {
         pw = fh;
@@ -484,7 +586,8 @@ static void layout(struct vision_app *a)
         ph = fh;
     }
     if (vision_layout_compute(&a->lay, lv_area_get_width(area), lv_area_get_height(area), in.left,
-                              in.top, in.right, in.bottom, pw, ph) != 0) {
+                              in.top, in.right, in.bottom, pw, ph, vision_model_buttons(&a->model, order),
+                              vision_model_status_lines(&a->model)) != 0) {
         LOG_WARN("vision: body %dx%d is too small for the vision screen",
                  (int)lv_area_get_width(area), (int)lv_area_get_height(area));
         return;
@@ -494,9 +597,6 @@ static void layout(struct vision_app *a)
     place(a->status, &a->lay.status);
     place(a->count_a, &a->lay.count_a);
     place(a->count_b, &a->lay.count_b);
-    place(a->line_btn, &a->lay.line_btn);
-    place(a->reset_btn, &a->lay.reset_btn);
-    place(a->retry_btn, &a->lay.line_btn);
     lv_obj_set_width(a->detail, a->lay.picture.w - 2 * POCKETUI_PAD);
     if ((uint32_t)a->lay.picture.w != a->preview.w || (uint32_t)a->lay.picture.h != a->preview.h) {
         uint32_t w = (uint32_t)a->lay.picture.w;
@@ -524,6 +624,18 @@ static void on_frame_size(lv_event_t *e)
 
 /* ---- building ---------------------------------------------------------------------- */
 
+static lv_obj_t *line_object(lv_obj_t *parent, enum pos_style_role fill)
+{
+    lv_obj_t *l = lv_obj_create(parent);
+
+    lv_obj_remove_style_all(l);
+    pos_style_add(l, fill, 0);
+    lv_obj_set_style_radius(l, 0, 0);
+    lv_obj_clear_flag(l, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
+    return l;
+}
+
 static void build(struct vision_app *a, lv_obj_t *root)
 {
     int i;
@@ -541,15 +653,13 @@ static void build(struct vision_app *a, lv_obj_t *root)
     lv_obj_set_pos(a->img, 0, 0);
     lv_obj_add_flag(a->img, LV_OBJ_FLAG_HIDDEN);
 
-    /* The counting line and the boxes, over the picture. The line is a
-     * 2 px object in the accent colour; a box is an outline (the DS focus
-     * ring, 2 px accent) with no fill and a caption on a slab at its top. */
-    a->line = lv_obj_create(a->box);
-    lv_obj_remove_style_all(a->line);
-    pos_style_add(a->line, POS_STYLE_BUTTON_PRIMARY, 0);
-    lv_obj_set_style_radius(a->line, 0, 0);
-    lv_obj_clear_flag(a->line, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(a->line, LV_OBJ_FLAG_HIDDEN);
+    /* The lines and the boxes, over the picture. The counting line is a
+     * 2 px object in the accent colour, the speed lines in the TX chip's;
+     * a box is an outline (the DS focus ring, 2 px accent) with no fill
+     * and a caption on a slab at its top. */
+    a->line = line_object(a->box, POS_STYLE_BUTTON_PRIMARY);
+    a->sline[0] = line_object(a->box, POS_STYLE_CHIP_TX);
+    a->sline[1] = line_object(a->box, POS_STYLE_CHIP_TX);
     for (i = 0; i < VISION_MAX_SHOWN; i++) {
         a->outline[i] = lv_obj_create(a->box);
         lv_obj_remove_style_all(a->outline[i]);
@@ -590,8 +700,14 @@ static void build(struct vision_app *a, lv_obj_t *root)
     lv_obj_set_style_text_align(a->count_b, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_pad_top(a->count_b, 12, 0);
 
-    a->line_btn = button(a->frame, "LINE: ACROSS", on_line, a);
-    a->reset_btn = button(a->frame, "RESET", on_reset, a);
+    a->btn[VISION_BTN_MODE] = button(a->frame, "DETECT", on_mode, a);
+    a->btn[VISION_BTN_LINE] = button(a->frame, "LINE: ACROSS", on_line, a);
+    a->btn[VISION_BTN_SPEED] = button(a->frame, "SPEED: OFF", on_speed, a);
+    a->btn[VISION_BTN_DISTANCE] = button(a->frame, "DIST: 10 m", on_distance, a);
+    a->btn[VISION_BTN_RESET] = button(a->frame, "RESET", on_reset, a);
+    for (i = 0; i < VISION_BUTTONS; i++) {
+        lv_obj_add_flag(a->btn[i], LV_OBJ_FLAG_HIDDEN);
+    }
     a->retry_btn = button(a->frame, "TRY AGAIN", on_retry, a);
     lv_obj_add_flag(a->retry_btn, LV_OBJ_FLAG_HIDDEN);
 }
