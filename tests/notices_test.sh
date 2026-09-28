@@ -211,7 +211,14 @@ for d in $deps; do
         # libpng: libpng 1.6 for pos-browser's PNG pictures, in the image and
         # its sysroot already (for OpenCV), with its own libpng licence
         # metadata; linked dynamically, nothing of it is compiled into Doors.
-        cjson|libgpiod2|libdrm|libevdev|alsa-lib|jpeg|libcurl|libpng|host-*) ;;
+        # libnncase, libmmz: the nncase 2.11 runtime and the shared-memory pool
+        # for pos-vision's detector (docs/apps/VISION.md), in the image and its
+        # sysroot already (ai2d_kpu, face_detect). Unlike the three above they
+        # are linked STATICALLY into pos-vision, and the SDK ships them with no
+        # licence metadata at all: reviewed as docs/LICENSING.md items 5 and 10
+        # (the runtime is Apache-2.0 upstream; the model it runs is the open
+        # question), on a prototype branch that is not released.
+        cjson|libgpiod2|libdrm|libevdev|alsa-lib|jpeg|libcurl|libpng|libnncase|libmmz|host-*) ;;
         lvgl) [ "$(has_id lvgl)" = 1 ] || unknown="$unknown lvgl" ;;
         *) unknown="$unknown $d" ;;
     esac
