@@ -94,6 +94,8 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
             fail(m, VISION_ERROR, "The vision helper is missing");
         } else if (strncmp(ev->text, "model", 5) == 0) {
             fail(m, VISION_ERROR, "The detector stopped making sense");
+        } else if (strncmp(ev->text, "infer", 5) == 0) {
+            fail(m, VISION_ERROR, "The detector failed on a frame");
         } else {
             fail(m, VISION_ERROR, ev->text);
         }

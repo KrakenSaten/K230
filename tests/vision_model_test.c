@@ -135,6 +135,10 @@ static void test_model(void)
     snprintf(e.text, sizeof(e.text), "busy the camera is in use");
     vision_model_event(&m, &e, NULL, 8000);
     check("busy is said in words", strcmp(m.error, "The camera is in use") == 0);
+    vision_model_open(&m);
+    snprintf(e.text, sizeof(e.text), "infer the detector failed");
+    vision_model_event(&m, &e, NULL, 8100);
+    check("a failed run too", strcmp(m.error, "The detector failed on a frame") == 0);
 }
 
 static int inside(const struct vision_rect *r, int32_t x0, int32_t y0, int32_t x1, int32_t y1)
