@@ -121,6 +121,20 @@ enum pos_env_hue {
 
 lv_color_t pos_env_hue(enum pos_env_hue hue);
 
+/* Identity accents (DS §37): eight hues at one lightness, for what is
+ * somebody - a channel, a contact, a room - so the same one keeps the same
+ * colour wherever it is shown. They are accents beside a name, never a
+ * fill behind it, and never the only thing that says who: the name stays.
+ * Every hue reads at 4.5:1 or better on every theme's bg, surface and
+ * surface_raised in Normal and Outdoor (tests/theme_test.c), and follows
+ * the display mode the way the package hues do. An index past the count
+ * (POS_IDENTITY_COUNT, pos_theme.h) wraps, so a hash may be passed
+ * straight in. The values are pos_theme.c's, so the audit needs no LVGL. */
+lv_color_t pos_identity_hue(unsigned index);
+/* A colour-only text style in that hue, to add over a role that brings the
+ * font (a caption, a row title). */
+lv_style_t *pos_style_identity(unsigned index);
+
 /* Initialise all styles from the current theme and hook the theme engine so
  * later selections refresh them. Call once after lv_init(). */
 void pos_styles_init(void);

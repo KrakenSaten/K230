@@ -524,27 +524,32 @@ static void test_many_peers(void)
     int oldest_in = 0;
     int newest_in = 0;
 
+    /* More peers than the list holds, one message each, peer i the i-th to
+     * speak, counted in the key's first two bytes. */
+    const int peers = RIFT_MAX_CONVERSATIONS + 36;
+
     rift_model_init(&m);
-    /* A hundred peers, one message each, peer i the i-th to speak. */
-    for (i = 0; i < 100; i++) {
-        snprintf(key, sizeof(key), "%02x%062d", 0x20 + i, 0);
+    for (i = 0; i < peers; i++) {
+        snprintf(key, sizeof(key), "%04x%060d", 0x20 + i, 0);
         dm(&m, 1 + i, "in", key, 100 + i, "hi", "received");
     }
     n = rift_model_conversations(&m, conv, RIFT_MAX_CONVERSATIONS);
     check("a list of more peers than it holds is full", n == RIFT_MAX_CONVERSATIONS);
     for (i = 0; i < n; i++) {
-        snprintf(key, sizeof(key), "%02x%062d", 0x20 + 99, 0);
+        snprintf(key, sizeof(key), "%04x%060d", 0x20 + peers - 1, 0);
         newest_in |= strcmp(conv[i].key, key) == 0;
-        snprintf(key, sizeof(key), "%02x%062d", 0x20 + 0, 0);
+        snprintf(key, sizeof(key), "%04x%060d", 0x20 + 0, 0);
         oldest_in |= strcmp(conv[i].key, key) == 0;
     }
     check("and holds the peer who spoke last", newest_in);
     check("not the one who spoke longest ago", !oldest_in);
-    snprintf(key, sizeof(key), "%02x%062d", 0x20 + 99, 0);
+    snprintf(key, sizeof(key), "%04x%060d", 0x20 + peers - 1, 0);
     check("newest first", strcmp(conv[0].key, key) == 0);
     /* The one who spoke longest ago speaks again, and is back in. */
-    snprintf(key, sizeof(key), "%02x%062d", 0x20 + 0, 0);
-    dm(&m, 200, "in", key, 300, "again", "received");
+    snprintf(key, sizeof(key), "%04x%060d", 0x20 + 0, 0);
+    /* An id past every one used above: a repeated id is an update, not a
+     * message. */
+    dm(&m, peers + 100, "in", key, 300, "again", "received");
     n = rift_model_conversations(&m, conv, RIFT_MAX_CONVERSATIONS);
     check("a peer who speaks again comes back, at the top", strcmp(conv[0].key, key) == 0);
     check("with every message it has held counted", conv[0].total == 2 && conv[0].unread == 2);

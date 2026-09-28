@@ -101,10 +101,21 @@ enum rift_tone {
     RIFT_TONE_RX,
     RIFT_TONE_SECONDARY,
     RIFT_TONE_MUTED,
+    RIFT_TONE_NONE, /* keeps its place in the row and draws nothing */
 };
+
+/* The identity mark of a list row (DS §37.3): a rule this wide at the row's
+ * left edge, in the identity accent of who the row is - a chat node, a
+ * room, a channel, a conversation - and nothing (RIFT_TONE_NONE) for a
+ * repeater or a sensor, which keeps the columns of every row in line. */
+#define RIFT_IDENT_W 3
 
 lv_obj_t *rift_vrule(lv_obj_t *parent, int32_t width);
 void rift_vrule_set(lv_obj_t *rule, enum rift_tone tone);
+/* The rule in an identity accent (DS §37, pos_identity_hue): the mark of
+ * who a row or a message is. `index` is a hash and is wrapped to the
+ * palette. rift_vrule_set puts a tone back. */
+void rift_vrule_set_identity(lv_obj_t *rule, uint32_t index);
 
 /* A 56 px action in a row of them. A disabled action takes the DS §9
  * treatment and no focus, and says why in its own caption elsewhere. In a

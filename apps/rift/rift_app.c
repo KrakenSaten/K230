@@ -6,6 +6,8 @@
  */
 #include "rift_app.h"
 
+#include "rift_strip.h"
+
 #include "app.h"
 #include "pocketlog/pocketlog.h"
 #include "pos_input.h"
@@ -20,12 +22,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define STRIP_H RIFT_TOUCH_H
 #define CMDLINE_H RIFT_TOUCH_H
-#define TAB_GAP 32
-#define UNDERLINE_H 2
+/* Landscape (DS §37.2): the strip is the app's top row, where the shell's
+ * header was, and holds a back slab; it and the command line are data-row
+ * height there, and the composer's field is a line of type with its
+ * padding. Every pixel they give up is the thread's. */
+#define CMDLINE_H_WIDE RIFT_ROW_H
+#define COMPOSER_H_WIDE 32
 
-static const char *const section_name[RIFT_SEC_COUNT] = { "ACTIVITY", "NODES", "COMMS", "NET" };
 
 /* ---- shared helpers for the screens -------------------------------------- */
 
@@ -72,121 +76,6 @@ const char *rift_app_resolve(const char *hop_id, void *user)
     const struct rift_app *a = user;
 
     return a ? rift_model_name_for_hash(&a->model, hop_id) : NULL;
-}
-
-/* ---- the section strip ---------------------------------------------------- */
-
-static void paint_tabs(struct rift_app *a)
-{
-    int i;
-
-    for (i = 0; i < RIFT_SEC_COUNT; i++) {
-        int active = (i == (int)a->section);
-
-        if (!a->tab[i] || !a->tab_label[i]) {
-            continue;
-        }
-        if (active) {
-            pos_style_add(a->tab_label[i], POS_STYLE_ACCENT_TEXT, 0);
-            lv_obj_remove_flag(a->tab_rule[i], LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_remove_style(a->tab_label[i], pos_style(POS_STYLE_ACCENT_TEXT), 0);
-            lv_obj_add_flag(a->tab_rule[i], LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-    /* The unread count rides on COMMS, which is where the design puts it
-     * (handoff §3, §6): a reader on another section still sees that
-     * something arrived. */
-    if (a->tab_pill[RIFT_SEC_COMMS]) {
-        rift_unread_pill_set(a->tab_pill[RIFT_SEC_COMMS], rift_model_unread_total(&a->model));
-    }
-}
-
-static void on_tab(lv_event_t *e)
-{
-    struct rift_app *a = lv_event_get_user_data(e);
-    lv_obj_t *tab = lv_event_get_target_obj(e);
-    int i;
-
-    for (i = 0; i < RIFT_SEC_COUNT; i++) {
-        if (a->tab[i] == tab) {
-            rift_app_show_section(a, (enum rift_section)i);
-            return;
-        }
-    }
-}
-
-static void build_strip(struct rift_app *a)
-{
-    int i;
-
-    a->strip = lv_obj_create(a->frame);
-    lv_obj_remove_style_all(a->strip);
-    pos_style_add(a->strip, POS_STYLE_DIVIDER, 0);
-    lv_obj_set_width(a->strip, LV_PCT(100));
-    lv_obj_set_height(a->strip, STRIP_H);
-    lv_obj_set_flex_flow(a->strip, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(a->strip, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_hor(a->strip, RIFT_PAD, 0);
-    lv_obj_set_style_pad_column(a->strip, TAB_GAP, 0);
-    lv_obj_remove_flag(a->strip, LV_OBJ_FLAG_SCROLLABLE);
-
-    for (i = 0; i < RIFT_SEC_COUNT; i++) {
-        lv_obj_t *head;
-
-        /* A tab is a 56 px navigation target, not a 36 px row: navigation
-         * never shares the row exception (RIFT-DEV-1). */
-        a->tab[i] = lv_obj_create(a->strip);
-        lv_obj_remove_style_all(a->tab[i]);
-        lv_obj_set_height(a->tab[i], STRIP_H);
-        lv_obj_set_width(a->tab[i], LV_SIZE_CONTENT);
-        lv_obj_set_flex_flow(a->tab[i], LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(a->tab[i], LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
-                              LV_FLEX_ALIGN_CENTER);
-        lv_obj_remove_flag(a->tab[i], LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_add_flag(a->tab[i], LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(a->tab[i], on_tab, LV_EVENT_CLICKED, a);
-
-        /* The name and its unread pill share one row, so the pill sits
-         * beside the word rather than under it and the underline below
-         * still spans both. */
-        head = lv_obj_create(a->tab[i]);
-        lv_obj_remove_style_all(head);
-        lv_obj_set_width(head, LV_SIZE_CONTENT);
-        lv_obj_set_flex_grow(head, 1);
-        lv_obj_set_flex_flow(head, LV_FLEX_FLOW_ROW);
-        lv_obj_set_flex_align(head, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
-                              LV_FLEX_ALIGN_CENTER);
-        lv_obj_set_style_pad_column(head, 6, 0);
-        lv_obj_remove_flag(head, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_remove_flag(head, LV_OBJ_FLAG_CLICKABLE);
-
-        a->tab_label[i] = lv_label_create(head);
-        lv_obj_remove_style_all(a->tab_label[i]);
-        pos_style_add(a->tab_label[i], POS_STYLE_CAPTION, 0);
-        lv_label_set_text(a->tab_label[i], section_name[i]);
-        a->tab_pill[i] = rift_unread_pill(head);
-
-        /* The 2 px underline of handoff §3, in the accent. A fill role
-         * rather than a colour set here (tests/style_lint.sh). */
-        a->tab_rule[i] = lv_obj_create(a->tab[i]);
-        lv_obj_remove_style_all(a->tab_rule[i]);
-        pos_style_add(a->tab_rule[i], POS_STYLE_BUTTON_PRIMARY, 0);
-        lv_obj_set_style_radius(a->tab_rule[i], 0, 0);
-        lv_obj_set_width(a->tab_rule[i], LV_PCT(100));
-        lv_obj_set_height(a->tab_rule[i], UNDERLINE_H);
-        lv_obj_remove_flag(a->tab_rule[i], LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_add_flag(a->tab_rule[i], LV_OBJ_FLAG_HIDDEN);
-    }
-
-    a->cmd_hint = lv_label_create(a->strip);
-    lv_obj_remove_style_all(a->cmd_hint);
-    pos_style_add(a->cmd_hint, POS_STYLE_CAPTION, 0);
-    lv_obj_set_flex_grow(a->cmd_hint, 1);
-    lv_obj_set_style_text_align(a->cmd_hint, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_set_style_pad_bottom(a->cmd_hint, 18, 0);
-    lv_label_set_long_mode(a->cmd_hint, LV_LABEL_LONG_CLIP);
-    lv_label_set_text(a->cmd_hint, "");
 }
 
 /* ---- the command line ----------------------------------------------------- */
@@ -274,7 +163,7 @@ static void build_cmdline(struct rift_app *a)
 }
 
 /* Whether the landscape command line is currently a composer. */
-static int composer_is_live(const struct rift_app *a)
+int rift_app_composer_live(const struct rift_app *a)
 {
     return a->composer && a->wide && a->section == RIFT_SEC_COMMS &&
            rift_comms_open_peer(a) != NULL;
@@ -289,7 +178,7 @@ static int service_down(const struct rift_app *a)
 static void paint_cmdline(struct rift_app *a)
 {
     lv_obj_t *wrap = a->composer ? lv_obj_get_parent(a->composer) : NULL;
-    int live = composer_is_live(a);
+    int live = rift_app_composer_live(a);
     int down = !live && service_down(a);
 
     /* The command line is one of two things, or it is not there: the
@@ -350,52 +239,6 @@ static void paint_cmdline(struct rift_app *a)
  * Doors's, so they come here (handoff §2). Portrait has no room for either
  * beside four section names, and a caption clipped to its tail is worse than
  * none; the touch actions there say what they do. */
-static void paint_strip_caption(struct rift_app *a)
-{
-    const struct rift_model *m = &a->model;
-    char hops[12];
-    const char *keys = "";
-    int64_t now;
-    int max_hops = -1;
-    int active = 0;
-    int i;
-
-    if (!a->cmd_hint) {
-        return;
-    }
-    if (!a->wide) {
-        lv_obj_add_flag(a->cmd_hint, LV_OBJ_FLAG_HIDDEN);
-        return;
-    }
-    if (a->section == RIFT_SEC_NODES) {
-        keys = "\xE2\x86\x91\xE2\x86\x93 SELECT" RIFT_SEP "ENTER MESSAGE" RIFT_SEP;
-    } else if (a->section == RIFT_SEC_COMMS && !composer_is_live(a)) {
-        keys = "\xE2\x86\x91\xE2\x86\x93 CHOOSE" RIFT_SEP;
-    }
-    now = rift_app_now(a);
-    for (i = 0; i < m->node_count; i++) {
-        if (m->nodes[i].path_known && m->nodes[i].hops > max_hops) {
-            max_hops = m->nodes[i].hops;
-        }
-        /* Heard within the last five minutes: the NOW of the activity
-         * pulse, counted over the whole cache. */
-        if (rift_pulse_of(now - m->nodes[i].heard_mono_ms, m->nodes[i].have_heard) ==
-            RIFT_PULSE_NOW) {
-            active++;
-        }
-    }
-    if (max_hops < 0) {
-        snprintf(hops, sizeof(hops), "%s", RIFT_UNKNOWN);
-    } else {
-        snprintf(hops, sizeof(hops), "%d", max_hops);
-    }
-    lv_label_set_text_fmt(a->cmd_hint,
-                          "%s%d KNOWN" RIFT_SEP "%d NOW" RIFT_SEP "%d FRESH" RIFT_SEP
-                          "MAX %s HOPS",
-                          keys, m->node_count, active, rift_model_fresh_count(m, now), hops);
-    lv_obj_remove_flag(a->cmd_hint, LV_OBJ_FLAG_HIDDEN);
-}
-
 /* ---- sections -------------------------------------------------------------- */
 
 static void build_placeholder(struct rift_app *a)
@@ -452,7 +295,7 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section)
         /* Leaving NODES is a Cancel for any confirmation left up there. */
         rift_nodes_cancel_confirm(a);
     }
-    paint_tabs(a);
+    rift_tabs_paint(a);
     switch (section) {
     case RIFT_SEC_ACTIVITY:
         show_only(a, a->activity_root);
@@ -543,8 +386,8 @@ void rift_app_refresh(struct rift_app *a)
         rift_comms_refresh(a);
     }
     /* The unread pill moves with the messages, not with the section. */
-    paint_tabs(a);
-    paint_strip_caption(a);
+    rift_tabs_paint(a);
+    rift_tabs_paint_caption(a);
 }
 
 /* ---- keys ------------------------------------------------------------------ */
@@ -637,6 +480,37 @@ static void on_composer_key(lv_event_t *e)
 
 /* ---- layout ---------------------------------------------------------------- */
 
+/* The chrome for the shape (DS §37.2): in landscape the strip is the app's
+ * top row - data-row height, a back slab at its left, the tabs beside it -
+ * and the command line and its field are as short as a line of type; in
+ * portrait both are the 56 px rows of the handoff, and the shell's header
+ * is above them. */
+static void shape_chrome(struct rift_app *a)
+{
+    int wide = a->wide;
+
+    rift_tabs_shape(a);
+    lv_obj_set_height(a->cmdline, wide ? CMDLINE_H_WIDE : CMDLINE_H);
+    if (a->composer) {
+        /* 64 is the single-line field's own height (pocketui_text_field),
+         * and 16 its padding (DS §17.1); the short one keeps the line of
+         * type and 4 px around it. */
+        lv_obj_set_height(a->composer, wide ? COMPOSER_H_WIDE : 64);
+        lv_obj_set_style_pad_ver(a->composer, wide ? 4 : 16, 0);
+    }
+}
+
+void rift_app_toggle_details(struct rift_app *a)
+{
+    if (!a || !a->wide) {
+        return;
+    }
+    a->details_open = !a->details_open;
+    rift_comms_shape(a);
+    rift_app_refresh(a);
+    a->refresh_pending = 1;
+}
+
 static void layout(struct rift_app *a)
 {
     struct pos_insets in;
@@ -663,7 +537,12 @@ static void layout(struct rift_app *a)
     wide = w > h && w >= RIFT_SPLIT_MIN_W;
     if (wide != a->wide) {
         a->wide = wide;
+        /* A pane left open in one shape does not follow into the other. */
+        a->details_open = 0;
     }
+    /* The chrome's heights from the timer, not from inside this layout
+     * pass (rift_app.h, chrome_pending). */
+    a->chrome_pending = 1;
     rift_activity_shape(a);
     rift_nodes_shape(a);
     rift_comms_shape(a);
@@ -689,6 +568,11 @@ static void pump(lv_timer_t *t)
 
     rift_ipc_poll(&a->ipc, now);
     rift_app_notify_pass(a, now);
+    if (a->chrome_pending) {
+        a->chrome_pending = 0;
+        shape_chrome(a);
+        a->refresh_pending = 1;
+    }
     if (a->refresh_pending || a->ipc.revision != a->drawn_revision ||
         now - a->last_repaint_ms >= RIFT_REPAINT_MS) {
         a->refresh_pending = 0;
@@ -750,7 +634,7 @@ static void *rift_create(lv_obj_t *root)
     lv_obj_set_flex_flow(a->frame, LV_FLEX_FLOW_COLUMN);
     lv_obj_remove_flag(a->frame, LV_OBJ_FLAG_SCROLLABLE);
 
-    build_strip(a);
+    rift_tabs_build(a);
 
     a->content = lv_obj_create(a->frame);
     lv_obj_remove_style_all(a->content);
@@ -878,4 +762,7 @@ const struct pocketos_app app_rift = {
      * the body from the header down. RIFT writes no hint; its own tab row
      * and status line carry everything it has to say. */
     .chrome = POCKETOS_CHROME_NONE,
+    /* Landscape draws its own top row - the section strip, with a back slab
+     * - where the shell's 72 px header was (DS §37.2). */
+    .header = POCKETOS_HEADER_NONE_LANDSCAPE,
 };

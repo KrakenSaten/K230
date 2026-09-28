@@ -16,8 +16,16 @@
 
 #define COL_GAP 8
 #define MSG_RULE_W 2
-/* Between one message and the next. */
+/* Between one message and the next: in portrait, where the thread has the
+ * height of the panel; and in landscape, where it has 354 px under the
+ * strip less the header and the command line, and every four pixels
+ * between messages is a message fewer on screen (DS §37.2). */
 #define MSG_GAP 6
+#define MSG_GAP_WIDE 2
+/* The thread's header row: a 36 px data row in portrait, where a finger
+ * lands on it; the 28 px header-row height of handoff §4 in landscape,
+ * where it is read and never tapped, and the 8 px are the messages'. */
+#define HEAD_H_WIDE RIFT_HEADER_ROW_H
 /* Between a body and a caption that shares its line. */
 #define CAPTION_GAP 10
 /* Above the composer. */
@@ -45,10 +53,15 @@ struct msg_row {
     lv_obj_t *rule;
     lv_obj_t *column;
     lv_obj_t *body;
+    /* Who said it, on a channel: the claimed name in its identity accent
+     * (DS §37.3), its own label so the accent lands on the name alone. */
+    lv_obj_t *sender;
     lv_obj_t *caption;
     int32_t max_w; /* the widest either may be, as last set */
     int warn;      /* the caption carries the warn colour */
     int out;       /* laid out as ours (1, right) or theirs (0, left); -1 not yet */
+    int ident_on;  /* the sender label carries an identity style */
+    uint32_t ident;
 };
 
 struct rift_thread {
@@ -58,6 +71,12 @@ struct rift_thread {
     lv_obj_t *glyph;
     lv_obj_t *who;
     lv_obj_t *state;
+    /* Landscape only (DS §37.2): the route compressed onto the header line,
+     * and the word that opens or closes the details pane beside the thread.
+     * The header is the tap target for it there; in portrait neither is
+     * shown and the header takes no taps. */
+    lv_obj_t *route;
+    lv_obj_t *details;
     lv_obj_t *earlier;
     lv_obj_t *scroll;
     lv_obj_t *note;
@@ -90,6 +109,7 @@ struct rift_thread {
      * who had scrolled back into the history is left where they were. */
     int32_t scroll_h;
     int at_end;
+    int wide; /* the landscape shape: tighter rows, a header-row header */
 };
 
 /* ---- small shared bits --------------------------------------------------- */
@@ -257,7 +277,7 @@ static void build_row(struct rift_thread *t)
     lv_obj_set_width(r->slot, LV_PCT(100));
     lv_obj_set_height(r->slot, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(r->slot, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_bottom(r->slot, MSG_GAP, 0);
+    lv_obj_set_style_pad_bottom(r->slot, t->wide ? MSG_GAP_WIDE : MSG_GAP, 0);
     lv_obj_remove_flag(r->slot, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(r->slot, LV_OBJ_FLAG_CLICKABLE);
 
@@ -285,6 +305,8 @@ static void build_row(struct rift_thread *t)
     lv_obj_remove_flag(r->column, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(r->column, LV_OBJ_FLAG_CLICKABLE);
     r->body = fit_label(r->column, POS_STYLE_TEXT_PRIMARY);
+    r->sender = fit_label(r->column, POS_STYLE_CAPTION);
+    lv_obj_add_flag(r->sender, LV_OBJ_FLAG_HIDDEN);
     r->caption = fit_label(r->column, POS_STYLE_CAPTION);
     r->out = -1; /* neither side yet: the first update sets it */
     t->row_count++;
@@ -304,6 +326,7 @@ static void update_row(struct rift_thread *t, struct msg_row *r,
      * there, and together they share a line only when both fit. */
     if (max_w > 0 && max_w != r->max_w) {
         lv_obj_set_style_max_width(r->body, max_w, 0);
+        lv_obj_set_style_max_width(r->sender, max_w, 0);
         lv_obj_set_style_max_width(r->caption, max_w, 0);
         r->max_w = max_w;
     }
@@ -315,6 +338,7 @@ static void update_row(struct rift_thread *t, struct msg_row *r,
         lv_obj_set_flex_align(r->column, out ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START,
                               LV_FLEX_ALIGN_END, out ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START);
         lv_obj_set_style_text_align(r->body, align, 0);
+        lv_obj_set_style_text_align(r->sender, align, 0);
         lv_obj_set_style_text_align(r->caption, align, 0);
         lv_obj_move_to_index(r->rule, out ? 1 : 0);
         r->out = out;
@@ -329,8 +353,37 @@ static void update_row(struct rift_thread *t, struct msg_row *r,
      * has no clock that survives a power cut (docs/hardware/T-DISPLAY-K230.md)
      * and a message's own timestamp is the *sender's* clock (docs/api/mesh.md),
      * so neither is a local wall time this app could honestly print. */
-    rift_fmt_msg_meta(msg, now, text, sizeof(text));
-    rift_label_set(r->caption, text);
+    {
+        /* Who spoke, on a channel, as its own label in the sender's identity
+         * accent (DS §37.3): the same claimed name is the same colour on
+         * every line and in the conversation list, so a busy channel can be
+         * read by who is talking. The "?" stays: nothing signs a group
+         * frame. The words are what say who; the colour only agrees. */
+        char who[RIFT_NAME_MAX + 2];
+
+        rift_fmt_msg_meta_split(msg, now, who, sizeof(who), text, sizeof(text));
+        rift_label_set(r->caption, text);
+        rift_label_set(r->sender, who);
+        if (who[0]) {
+            uint32_t ident = rift_ident_hash(msg->sender_name);
+            int named = msg->have_sender_name && msg->sender_name[0];
+
+            lv_obj_remove_flag(r->sender, LV_OBJ_FLAG_HIDDEN);
+            if (named && (!r->ident_on || r->ident != ident)) {
+                if (r->ident_on) {
+                    lv_obj_remove_style(r->sender, pos_style_identity(r->ident), 0);
+                }
+                lv_obj_add_style(r->sender, pos_style_identity(ident), 0);
+                r->ident_on = 1;
+                r->ident = ident;
+            } else if (!named && r->ident_on) {
+                lv_obj_remove_style(r->sender, pos_style_identity(r->ident), 0);
+                r->ident_on = 0;
+            }
+        } else {
+            lv_obj_add_flag(r->sender, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
     /* Colour never carries a state on its own (handoff §5): the caption
      * already says NO ACK or FAILED in words, and this is the warn colour
      * on top of the word. */
@@ -347,10 +400,14 @@ static void update_row(struct rift_thread *t, struct msg_row *r,
      * peer was heard direct, text_secondary otherwise. */
     if (out) {
         rift_vrule_set(r->rule, RIFT_TONE_ACCENT);
-    } else {
+    } else if (msg->is_channel && msg->have_sender_name && msg->sender_name[0]) {
         /* A channel message was heard from nobody in particular - a group
          * frame carries no sender - so it never gets the radio_rx tone that
-         * says "this peer was heard direct". */
+         * says "this peer was heard direct". Its rule is the claimed
+         * sender's identity accent instead, the same one the name beside it
+         * carries (DS §37.3). */
+        rift_vrule_set_identity(r->rule, rift_ident_hash(msg->sender_name));
+    } else {
         rift_vrule_set(r->rule,
                        (!msg->is_channel && n && rift_link_of(n) == RIFT_LINK_DIRECT)
                            ? RIFT_TONE_RX
@@ -446,6 +503,17 @@ static int shifted_by(const struct rift_thread *t, const struct rift_message *co
     return drop;
 }
 
+/* A tap on the landscape header: the details pane beside the thread, on or
+ * off. It sends nothing and changes nothing but what is shown. */
+static void on_head(lv_event_t *e)
+{
+    struct rift_thread *t = lv_event_get_user_data(e);
+
+    if (t->app->wide) {
+        rift_app_toggle_details(t->app);
+    }
+}
+
 /* ---- the public entry points ---------------------------------------------- */
 
 struct rift_thread *rift_thread_create(struct rift_app *app, lv_obj_t *parent)
@@ -468,9 +536,17 @@ struct rift_thread *rift_thread_create(struct rift_app *app, lv_obj_t *parent)
     t->glyph = rift_glyph_create(t->head);
     t->who = rift_cell(t->head, POS_STYLE_ROW_TITLE, 0, LV_TEXT_ALIGN_LEFT);
     t->state = rift_cell(t->head, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_flex_grow(t->state, 1);
-    lv_obj_set_width(t->state, 1);
+    /* The route takes what the header has left in landscape; in portrait
+     * the state does, as before. */
+    t->route = rift_cell(t->head, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_flex_grow(t->route, 1);
+    lv_obj_set_width(t->route, 1);
+    lv_obj_add_flag(t->route, LV_OBJ_FLAG_HIDDEN);
     t->earlier = rift_cell(t->head, POS_STYLE_CAPTION, 96, LV_TEXT_ALIGN_RIGHT);
+    t->details = rift_cell(t->head, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_RIGHT);
+    pos_style_add(t->details, POS_STYLE_ACCENT_TEXT, 0);
+    lv_obj_add_flag(t->details, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(t->head, on_head, LV_EVENT_CLICKED, t);
 
     t->scroll = lv_obj_create(t->root);
     lv_obj_remove_style_all(t->scroll);
@@ -510,6 +586,31 @@ void rift_thread_shape(struct rift_thread *t, int wide)
         lv_obj_add_flag(t->composer, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_remove_flag(t->composer, LV_OBJ_FLAG_HIDDEN);
+    }
+    /* The landscape shape is the denser one (DS §37.2): the header at the
+     * header-row height and the messages closer together. The rows built
+     * so far take the new gap here; the ones built later take it as they
+     * are built. */
+    t->wide = wide;
+    lv_obj_set_height(t->head, wide ? HEAD_H_WIDE : RIFT_ROW_H);
+    for (int i = 0; i < t->row_count; i++) {
+        lv_obj_set_style_pad_bottom(t->row[i].slot, wide ? MSG_GAP_WIDE : MSG_GAP, 0);
+    }
+    /* The one-line header of landscape: who, how, the route, how much is
+     * earlier, and the word for the details pane; a tap on it turns that
+     * pane over. Portrait has no pane and the header takes no taps. */
+    if (wide) {
+        lv_obj_set_flex_grow(t->state, 0);
+        lv_obj_set_width(t->state, LV_SIZE_CONTENT);
+        lv_obj_remove_flag(t->route, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(t->details, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(t->head, LV_OBJ_FLAG_CLICKABLE);
+    } else {
+        lv_obj_set_flex_grow(t->state, 1);
+        lv_obj_set_width(t->state, 1);
+        lv_obj_add_flag(t->route, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(t->details, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(t->head, LV_OBJ_FLAG_CLICKABLE);
     }
     t->shape_valid = 0;
 }
@@ -674,6 +775,32 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
         } else {
             lv_label_set_text(t->earlier, "");
         }
+    }
+    if (t->wide) {
+        /* The route on the header line, compressed as the hop strip's chain
+         * is (both ends kept, the middle counted), so the details pane is
+         * not needed to know how a peer is reached; the pane has the
+         * chain whole, the signal and the tally for whoever asks. */
+        char route[RIFT_CHAIN_MAX];
+        int slot = peer ? rift_key_is_channel(peer) : -1;
+        const struct rift_node *n = (peer && slot < 0) ? rift_model_find(m, peer) : NULL;
+
+        route[0] = '\0';
+        if (n && n->path_known && !n->direct) {
+            struct rift_path p;
+            char label[RIFT_LABEL_MAX];
+            const char *self =
+                (m->have_identity && m->self_name[0]) ? m->self_name : "this device";
+
+            if (rift_path_parse(n, &p) == 0) {
+                rift_fmt_label(n, label, sizeof(label));
+                rift_path_chain(self, &p, label, rift_app_resolve, a, route, sizeof(route));
+            }
+        }
+        rift_cell_set_text_fit(t->route, route);
+        lv_label_set_text(t->details, !peer ? ""
+                                      : a->details_open ? "DETAILS \xE2\x80\xB9"
+                                                        : "DETAILS \xE2\x80\xBA");
     }
 
     refusal = rift_thread_refusal(a);

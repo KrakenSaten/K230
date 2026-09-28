@@ -230,13 +230,15 @@ const char *rift_msg_body(const struct rift_message *msg)
     return msg->text + n + 2;
 }
 
-void rift_fmt_msg_meta(const struct rift_message *msg, int64_t now_ms, char *out,
-                       size_t out_len)
+void rift_fmt_msg_meta_split(const struct rift_message *msg, int64_t now_ms, char *who,
+                             size_t who_len, char *out, size_t out_len)
 {
     char age[RIFT_AGE_MAX];
     char caption[RIFT_MSG_CAPTION_MAX];
-    char who[RIFT_NAME_MAX + 2];
 
+    if (who && who_len > 0) {
+        who[0] = '\0';
+    }
     if (!out || out_len == 0) {
         return;
     }
@@ -254,16 +256,36 @@ void rift_fmt_msg_meta(const struct rift_message *msg, int64_t now_ms, char *out
      * anyone holding the key may speak, so an incoming line names the
      * sender it claims to be - marked as a claim, because nothing signs a
      * group frame. */
-    if (msg->is_channel && msg->dir == RIFT_MSG_IN) {
+    if (msg->is_channel && msg->dir == RIFT_MSG_IN && who && who_len > 0) {
         if (msg->have_sender_name && msg->sender_name[0]) {
-            snprintf(who, sizeof(who), "%s?", msg->sender_name);
+            snprintf(who, who_len, "%s?", msg->sender_name);
         } else {
-            snprintf(who, sizeof(who), "UNNAMED");
+            snprintf(who, who_len, "UNNAMED");
         }
-        snprintf(out, out_len, "%s" RIFT_SEP "%s" RIFT_SEP "%s", age, who, caption);
-        return;
     }
     snprintf(out, out_len, "%s" RIFT_SEP "%s", age, caption);
+}
+
+void rift_fmt_msg_meta(const struct rift_message *msg, int64_t now_ms, char *out,
+                       size_t out_len)
+{
+    char who[RIFT_NAME_MAX + 2];
+    char rest[RIFT_MSG_META_MAX];
+
+    if (!out || out_len == 0) {
+        return;
+    }
+    rift_fmt_msg_meta_split(msg, now_ms, who, sizeof(who), rest, sizeof(rest));
+    if (who[0]) {
+        /* One line, with the sender after the age: "4m · HYTTA? · RECEIVED". */
+        const char *sep = strstr(rest, RIFT_SEP);
+
+        if (sep) {
+            snprintf(out, out_len, "%.*s" RIFT_SEP "%s%s", (int)(sep - rest), rest, who, sep);
+            return;
+        }
+    }
+    snprintf(out, out_len, "%s", rest);
 }
 
 void rift_fmt_action(const struct rift_action_state *s, int64_t now_ms, char *out,

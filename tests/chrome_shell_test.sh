@@ -176,7 +176,12 @@ if k["shown"]:
     check("the cluster lies inside its reserve (x %d.. , reserve from %d)" % (k["x"], k["reserve_x"]),
           k["x"] >= k["reserve_x"])
 h = c.get("header")
-if h:
+if h and not h.get("present", True):
+    # An app that draws its own top row in landscape (app.h `header`, DS
+    # §37.2): the shell builds no header, and the body is the top row.
+    check("no app header: the body starts at the top edge (body at %d, header %d px)"
+          % (h["body_y"], h["h"]), h["h"] == 0 and h["body_y"] == 0)
+elif h:
     check("the app header is the top row: y %d, %d px, body straight under it at %d (no bar padding)"
           % (h["y"], h["h"], h["body_y"]), h["y"] == 0 and h["h"] == 72 and h["body_y"] == 72)
     check("the header clears the top corners (padding %d, %d)" % (h["pad_left"], h["pad_right"]),

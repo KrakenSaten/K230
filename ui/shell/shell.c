@@ -122,6 +122,8 @@ struct shell {
     lv_image_dsc_t *home_bg;
     bool landscape;
     lv_obj_t *app_root;     /* current app container or NULL */
+    lv_obj_t *app_header;   /* its header row, or NULL: none open, or the app draws its own (app.h `header`) */
+    lv_obj_t *app_body;     /* the body the app was created in, or NULL */
     const struct pocketos_app *app;
     void *app_priv;
     lv_timer_t *tick;
@@ -947,6 +949,8 @@ static void app_close(void)
     sh.app = NULL;
     sh.app_priv = NULL;
     sh.header_hint = NULL; /* it goes with the header */
+    sh.app_header = NULL;
+    sh.app_body = NULL;
     lv_obj_delete(sh.app_root);
     sh.app_root = NULL;
     pocketos_shell_set_status_hint("");
@@ -1031,6 +1035,16 @@ static void app_open(const struct pocketos_app *app)
     lv_obj_set_size(sh.app_root, LV_PCT(100), LV_PCT(100));
     lv_obj_set_flex_flow(sh.app_root, LV_FLEX_FLOW_COLUMN);
 
+    /* An app that draws its own top row in landscape (app.h `header`, DS
+     * §37.2) gets no header there: the body starts at the top edge, and
+     * the app's own row takes the corner inset through the layout guard
+     * as any content does. Portrait is the shell's header as ever. */
+    if (app->header == POCKETOS_HEADER_NONE_LANDSCAPE &&
+        is_landscape(sh.display.geometry.rotation)) {
+        header = NULL;
+        sh.header_hint = NULL;
+        goto body;
+    }
     header = lv_obj_create(sh.app_root);
     lv_obj_remove_style_all(header);
     lv_obj_set_size(header, LV_PCT(100), POCKETUI_HEADER_H);
@@ -1081,7 +1095,10 @@ static void app_open(const struct pocketos_app *app)
     lv_obj_set_flex_grow(sh.header_hint, 1);
     lv_obj_set_style_text_align(sh.header_hint, LV_TEXT_ALIGN_RIGHT, 0);
 
+body:
+    sh.app_header = header;
     body = lv_obj_create(sh.app_root);
+    sh.app_body = body;
     lv_obj_remove_style_all(body);
     lv_obj_set_width(body, LV_PCT(100));
     lv_obj_set_flex_grow(body, 1);
@@ -1318,21 +1335,33 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
                 cJSON_AddStringToObject(chip, "text", lv_label_get_text(sh.status_radio));
                 cJSON_AddItemToObject(chrome, "chip", chip);
             }
-            if (sh.app_root) {
+            if (sh.app_root && sh.app_body) {
                 /* The app's header and the first pixel of its body, so a
                  * test can hold both clear of the cluster without knowing a
-                 * number of the layout. */
-                lv_obj_t *header = lv_obj_get_child(sh.app_root, 0);
-                lv_obj_t *body = lv_obj_get_child(sh.app_root, 1);
+                 * number of the layout. The header is the one this open
+                 * built, never "the root's first child": an app that draws
+                 * its own top row in landscape (app.h `header`) has none,
+                 * and asking LVGL about a child that is not there halted the
+                 * shell for good (2026-09-28). */
+                lv_obj_t *header = sh.app_header;
+                lv_obj_t *body = sh.app_body;
                 cJSON *h = cJSON_CreateObject();
 
                 lv_obj_update_layout(sh.app_root);
-                lv_obj_get_coords(header, &a);
-                cJSON_AddNumberToObject(h, "y", a.y1);
-                cJSON_AddNumberToObject(h, "h", lv_area_get_height(&a));
-                cJSON_AddNumberToObject(h, "content_x2", a.x2 - lv_obj_get_style_pad_right(header, LV_PART_MAIN));
-                cJSON_AddNumberToObject(h, "pad_left", lv_obj_get_style_pad_left(header, LV_PART_MAIN));
-                cJSON_AddNumberToObject(h, "pad_right", lv_obj_get_style_pad_right(header, LV_PART_MAIN));
+                cJSON_AddBoolToObject(h, "present", header != NULL);
+                if (header) {
+                    lv_obj_get_coords(header, &a);
+                    cJSON_AddNumberToObject(h, "y", a.y1);
+                    cJSON_AddNumberToObject(h, "h", lv_area_get_height(&a));
+                    cJSON_AddNumberToObject(h, "content_x2",
+                                            a.x2 - lv_obj_get_style_pad_right(header, LV_PART_MAIN));
+                    cJSON_AddNumberToObject(h, "pad_left", lv_obj_get_style_pad_left(header, LV_PART_MAIN));
+                    cJSON_AddNumberToObject(h, "pad_right", lv_obj_get_style_pad_right(header, LV_PART_MAIN));
+                } else {
+                    lv_obj_get_coords(body, &a);
+                    cJSON_AddNumberToObject(h, "y", a.y1);
+                    cJSON_AddNumberToObject(h, "h", 0);
+                }
                 if (sh.header_hint) {
                     lv_obj_get_coords(sh.header_hint, &a);
                     cJSON_AddNumberToObject(h, "hint_x2", a.x2);

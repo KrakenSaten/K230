@@ -32,6 +32,8 @@
 
 #include <stdint.h>
 
+#include "rift_traffic.h"
+
 /* A public key is 64 hex characters (docs/api/mesh.md, mesh.identity).
  *
  * The same field width holds a CONVERSATION key, which is either such a
@@ -68,14 +70,17 @@
 #define RIFT_NAME_MAX 48
 /* MeshCore's path is at most 64 bytes (MCD_MAX_PATH), so 128 hex + NUL. */
 #define RIFT_PATH_HEX_MAX 129
-/* The cache above meshcored's node table, and now as large as it (256,
- * MCD_MAX_NODES). mesh.nodes lists most recently heard first and a snapshot
- * fills the cache from the head of that list; a mesh.node event for a node
- * not held evicts the stalest one. Either way anything past the bound is
- * counted, not kept. It was held at 64 while the NODES list built a row per
- * cached node; the list now builds rows only for what is on screen
- * (ui/rift_nodes.c), so the cache can hold the whole table. */
-#define RIFT_MAX_NODES 256
+/* The cache above meshcored's node table. mesh.nodes lists most recently
+ * heard first and a snapshot fills the cache from the head of that list; a
+ * mesh.node event for a node not held evicts the stalest one. Either way
+ * anything past the bound is counted, not kept. It was held at 64 while the
+ * NODES list built a row per cached node; the list builds rows only for
+ * what is on screen (ui/rift_nodes.c), so the cache is sized for the mesh
+ * rather than the screen: 1000, which is more than the service holds today
+ * (256, MCD_MAX_NODES) and what a Norwegian-scale mesh may reach. A node
+ * is about 830 bytes, so this is about 830 KB of the shell's heap, measured
+ * on the host by tests/rift_app_test.c (docs/apps/RIFT.md, Scale). */
+#define RIFT_MAX_NODES 1000
 /* The raw feed is a window, not a log: the newest entries, bounded. */
 #define RIFT_MAX_ACTIVITY 48
 /* mesh.send takes 1 to 160 bytes (docs/api/mesh.md); this holds one of
@@ -89,11 +94,14 @@
  * window on a window: the newest messages, bounded, oldest dropped and
  * counted. Everything derived from it - a conversation's unread count, its
  * preview, the delivery tally - is derived from what is still in here and
- * says so rather than implying a complete history. */
-#define RIFT_MAX_MESSAGES 256
+ * says so rather than implying a complete history. 512 messages of about
+ * 610 bytes: a session's worth on a busy channel, for about 310 KB. */
+#define RIFT_MAX_MESSAGES 512
 /* Distinct conversations tracked: the rows COMMS can list and the read
- * marks kept. Part of the message history's bounds. */
-#define RIFT_MAX_CONVERSATIONS 64
+ * marks kept. Part of the message history's bounds. 256: a read mark each
+ * here (about 100 bytes), and on screen a list that builds rows only for
+ * what is visible (ui/rift_conv_list.c), so the count costs no objects. */
+#define RIFT_MAX_CONVERSATIONS 256
 /* How many recent direct-message arrivals are remembered to recognise a
  * retransmission (rift_model_apply_live_message). */
 #define RIFT_DM_RECENT 8
@@ -525,6 +533,9 @@ struct rift_model {
     int activity_head;                   /* index of the newest */
     int activity_count;
     unsigned activity_total;
+    /* The same feed counted by the minute, for the last twenty
+     * (rift_traffic.h): received frames only, by what they were. */
+    struct rift_traffic traffic;
 
     /* ---- messages --------------------------------------------------- */
     /* Oldest first, which is the order mesh.messages gives and the order a

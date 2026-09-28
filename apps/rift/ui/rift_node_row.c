@@ -139,6 +139,9 @@ void rift_node_row_build(struct rift_node_row *r, struct rift_app *a, lv_obj_t *
     lv_obj_add_flag(r->line, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(r->line, on_row, LV_EVENT_CLICKED, r);
 
+    /* The identity mark (DS §37.3) before the link glyph: who, then how. */
+    r->ident = rift_vrule(r->line, RIFT_IDENT_W);
+    rift_vrule_set(r->ident, RIFT_TONE_NONE);
     r->glyph = rift_glyph_create(r->line);
     /* The name and its role tag are one column, so the columns after them
      * do not move by the width of a tag that some rows have and some do
@@ -219,6 +222,15 @@ void rift_node_row_update(struct rift_node_row *r, const struct rift_node *n, in
         memset(&p, 0, sizeof(p));
     }
     rift_glyph_set(r->glyph, rift_app_glyph(n, now));
+    /* Who this is, for a node that is somebody: a chat node or a room, in
+     * the accent its key hashes to, the same one its conversation carries.
+     * A repeater or a sensor is infrastructure and stays neutral, unless a
+     * state of its own asks for emphasis elsewhere in the row. */
+    if (rift_ident_for_type(n->type, n->have_type)) {
+        rift_vrule_set_identity(r->ident, rift_ident_hash(n->key));
+    } else {
+        rift_vrule_set(r->ident, RIFT_TONE_NONE);
+    }
     /* The tag first, and the name fitted to what it leaves. The room is
      * worked out rather than read after a layout, so a row rebound in the
      * middle of a scroll is fitted to the width it is about to have, not to

@@ -90,6 +90,33 @@ lv_color_t pos_env_hue(enum pos_env_hue hue)
     return env(env_hues[(hue >= 0 && hue < POS_HUE_COUNT) ? hue : POS_HUE_APPS]);
 }
 
+/* ---- identity accents (DS §37) ------------------------------------------ *
+ *
+ * The hues and their mode adjustment are pos_theme.c's, where the contrast
+ * audit can reach them without LVGL; this is the lv_color_t and the styles.
+ */
+static lv_style_t identity_styles[POS_IDENTITY_COUNT];
+
+lv_color_t pos_identity_hue(unsigned index)
+{
+    return lv_color_hex(pos_identity_rgb_mode(index, pos_theme_current_mode()));
+}
+
+lv_style_t *pos_style_identity(unsigned index)
+{
+    return &identity_styles[index % POS_IDENTITY_COUNT];
+}
+
+static void fill_identity_styles(void)
+{
+    int i;
+
+    for (i = 0; i < POS_IDENTITY_COUNT; i++) {
+        reset(&identity_styles[i]);
+        lv_style_set_text_color(&identity_styles[i], pos_identity_hue((unsigned)i));
+    }
+}
+
 static void env_text(lv_style_t *s, uint32_t rgb, const lv_font_t *font)
 {
     reset(s);
@@ -524,6 +551,7 @@ static void fill_styles(void)
     lv_style_set_image_recolor_opa(s, LV_OPA_COVER);
 
     fill_env_styles();
+    fill_identity_styles();
 }
 
 static void on_theme_changed(void *user)
@@ -553,6 +581,9 @@ void pos_styles_init(void)
     }
     for (i = 0; i < POS_STYLE_COUNT; i++) {
         lv_style_init(&styles[i]);
+    }
+    for (i = 0; i < POS_IDENTITY_COUNT; i++) {
+        lv_style_init(&identity_styles[i]);
     }
     theme_event = lv_event_register_id();
     fill_styles();

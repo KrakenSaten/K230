@@ -1,16 +1,13 @@
 /*
  * COMMS: the conversations, the open thread and the composer.
  *
- * What this draws is what meshcored can answer for, and no more. The API is
- * direct messages between two nodes (mesh.messages, mesh.send,
- * mesh.message); it has no group channels at all - MAX_GROUP_CHANNELS is
- * left undefined in protocols/meshcore, so upstream's channel code is not
- * compiled, meshcored's onChannelMessageRecv is an empty override and
- * docs/api/mesh.md lists channels under "Not in v0". The approved design
- * merges channels into this list with a "#" glyph; this build says that
- * they are not in the service rather than drawing an empty channel or a
- * plausible one, because a channel row nobody could send to would be this
- * app inventing a feature the mesh does not have.
+ * What this draws is what meshcored can answer for, and no more: direct
+ * messages between two nodes and the group channels the service holds
+ * (mesh.messages, mesh.channels, mesh.send, mesh.message, mesh.channel),
+ * the channels in the same list with a "#" glyph as the approved design
+ * merges them. Landscape is a console (DS §37.2): a narrow list, the
+ * thread with the rest of the width, a one-line header carrying the route,
+ * and a details pane only while a reader has asked for it.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -37,6 +34,9 @@ void rift_comms_submit(struct rift_app *app, const char *text);
 
 /* The peer whose thread is open, or NULL. */
 const char *rift_comms_open_peer(const struct rift_app *app);
+/* Conversation rows in the pool (rift_conv_list.h), for the test: bounded
+ * by the pane, not by the count. */
+int rift_comms_rows_built(const struct rift_app *app);
 /* What the landscape command line should say it is addressing, for its
  * placeholder and its right-hand hint. Writes "" when nothing is open. */
 void rift_comms_target_label(const struct rift_app *app, char *out, size_t out_len);

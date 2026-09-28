@@ -43,6 +43,7 @@
 struct rift_node_row {
     lv_obj_t *slot;
     lv_obj_t *line;
+    lv_obj_t *ident; /* the identity mark (DS §37.3): chat and room nodes */
     lv_obj_t *glyph;
     lv_obj_t *namebox;
     lv_obj_t *name;

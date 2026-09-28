@@ -769,6 +769,8 @@ void rift_unread_pill_set(lv_obj_t *pill, int count)
 
 struct vrule_state {
     enum rift_tone tone;
+    int has_ident;   /* drawn in an identity accent rather than a tone */
+    uint32_t ident;
 };
 
 static void vrule_delete(lv_event_t *e)
@@ -784,13 +786,18 @@ static void vrule_draw(lv_event_t *e)
     lv_draw_rect_dsc_t dsc;
     lv_area_t area;
 
-    if (!s || !layer) {
+    if (!s || !layer || (s->tone == RIFT_TONE_NONE && !s->has_ident)) {
         return;
     }
     lv_obj_get_coords(obj, &area);
     lv_draw_rect_dsc_init(&dsc);
     dsc.radius = 0;
     dsc.bg_opa = LV_OPA_COVER;
+    if (s->has_ident) {
+        dsc.bg_color = pos_identity_hue(s->ident);
+        lv_draw_rect(layer, &dsc, &area);
+        return;
+    }
     switch (s->tone) {
     case RIFT_TONE_RX:
         dsc.bg_color = pos_theme_color(POS_COLOR_RADIO_RX);
@@ -834,9 +841,22 @@ void rift_vrule_set(lv_obj_t *rule, enum rift_tone tone)
 {
     struct vrule_state *s = rule ? lv_obj_get_user_data(rule) : NULL;
 
-    if (!s || s->tone == tone) {
+    if (!s || (s->tone == tone && !s->has_ident)) {
         return;
     }
     s->tone = tone;
+    s->has_ident = 0;
+    lv_obj_invalidate(rule);
+}
+
+void rift_vrule_set_identity(lv_obj_t *rule, uint32_t index)
+{
+    struct vrule_state *s = rule ? lv_obj_get_user_data(rule) : NULL;
+
+    if (!s || (s->has_ident && s->ident == index)) {
+        return;
+    }
+    s->has_ident = 1;
+    s->ident = index;
     lv_obj_invalidate(rule);
 }

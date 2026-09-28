@@ -3211,3 +3211,198 @@ The owner's look on the panel, and the chip in TX and OFF on hardware, are
 what it leaves for acceptance.
 
 Amendment T (§36) accepted 2026-09-26; unit A chrome/layout smoke PASS on `64416ab`.
+
+## 37. Amendment U — RIFT density, identity accents and the traffic graph [ACCEPTED]
+
+**ACCEPTED 2026-09-28** by the owner, on the unit B hardware gate of
+`7c9e26b` (docs/hardware/RIFT_UI_DENSITY_GATE.md, PASS; unit A was
+unreachable), on the terms recorded there.
+**Proposed 2026-09-27** on branch `feat/rift-ui-density`, at the owner's
+request, after v0.1.0. It becomes normative on the same terms as the rest of
+this document when the owner accepts it after its unit A gate (§37.7); until
+then the implementation is what is described here and nothing else. Nothing
+in §1–§36 is renumbered. RIFT-DEV-1 (docs/design/rift/HANDOFF.md §4) and
+§5 of that handoff - RIFT owns no colour - stand; §37.3 adds a palette to the
+theme engine, not to the app.
+
+**Why.** Landscape COMMS had 354 px under the strip for the thread and spent
+a 36 px data-row header and 6 px between messages on a pane nobody taps in:
+11 one-line messages whole on screen. A busy channel read as one grey column
+with the sender's claimed name in the caption and nothing to tell one voice
+from another across lines or screens. ACTIVITY said how many frames the
+service heard in the last five minutes and nothing about when. And the node
+cache was sized to the service's table of 256 while the list had long since
+stopped building a row per node.
+
+### 37.1 Scope
+
+RIFT only, and one declaration in the shell (§37.2, the app header). The
+status chrome (§30, §36), the 36 px data row, every other RIFT screen's
+layout, and the radio and MeshCore protocol logic are unchanged. Portrait is
+unchanged in what it shows and how many messages fit (27 whole in the
+200-message fixture, before and after); the shell's header, the 56 px strip
+and the 56 px composer stay there.
+
+### 37.2 Landscape COMMS: a console
+
+The owner's brief, on a marked-up screenshot: the thread must dominate; the
+empty top band, the summary strip, the permanent route pane and the 56 px
+composer are dead space. So in landscape COMMS is a radio console - a narrow
+list, the thread, a one-line header, a short composer - and nothing is on
+screen all the time that is not messages or the way to them.
+
+- **No shell header in landscape.** `struct pocketos_app` gains `header`
+  (`POCKETOS_HEADER_NONE_LANDSCAPE`, appended and zero by default): the shell
+  builds no 72 px app header for an app that declares it, in landscape only,
+  and the app draws its own top row with its own way back. RIFT declares it;
+  no other app does, and portrait keeps the shell's header everywhere.
+  `shell.info` reports the header with `present: false` then (`h` 0, the
+  body at the top edge), and tests/chrome_shell_test.sh holds that.
+- **The strip is the app's top row**: data-row height (36) in landscape, a
+  back slab (56 × 32, the shell's glyph, `pocketos_shell_go_home`) at its
+  left, the four tabs, the counts caption at its right. The tabs are 36 px
+  targets there, against RIFT-DEV-1's 56 for navigation: the owner's call,
+  in the brief, for the shape where a keyboard base is attached and the
+  tabs are also Esc and the arrows. Portrait keeps the 56 px strip.
+- **The list is narrow**: 260 px (`LIST_W_WIDE`; was 372), showing the
+  identity mark, the glyph, the name, the unread pill and the age; the
+  preview and the route are the thread's header's. The list is virtual
+  (§37.5).
+- **The thread's header is one line**, 28 px (handoff §4 "row header"):
+  glyph, name, state, the route compressed as the hop strip compresses it
+  (`K230-A › OSLO-01 › … +5 › HYTTA`), `N EARLIER`, and `DETAILS ›`.
+- **The details pane is closed until asked for.** A tap on the thread's
+  header opens the 300 px pane the handoff kept permanently - the route
+  whole, the signal, the delivery tally, the history note - and a second
+  tap closes it; `DETAILS ‹` says which. It closes on a change of shape.
+  Nothing in it is needed to read or write: the header has the route and
+  every message its own state.
+- **The command line is a data row**: 36 px, its field 32 px with 4 px of
+  padding around the line of type (the single-line field's 64 px and DS
+  §17.1's 16 px padding stay in portrait, where a finger types into it).
+- **2 px between messages** (`MSG_GAP_WIDE`), 6 px in portrait. A message
+  stays a body and one caption line - `age · state · evidence` - sharing
+  the body's line when both fit.
+- Measured in `tests/rift_app_test.c` on the 200-message fixture, in the
+  same pane counted the same way before and after (§37.6): the thread's
+  scrolling area was 23.6 % of the display and is 54.3 %; **17 whole
+  one-line messages above the composer where there were 11**;
+  portrait 27 both times. `docs/apps/rift/landscape-comms-long.png` and
+  `landscape-comms.png` are the frames, `landscape-comms-details.png` the
+  pane open.
+- Not taken: the body type stays sans 16 and the tabs stay in a row of
+  their own rather than in the thread's header; each is a further row and a
+  decision the owner has not made.
+
+### 37.3 Identity accents
+
+A small palette in the theme engine for what is *somebody*, so the same one
+keeps the same colour wherever it is shown.
+
+- **Eight hues** (`pos_identity_rgb`, `ui/pocketui/pos_theme.c`; `POS_IDENTITY_COUNT`):
+  coral `#f2917f`, orange `#e8ac6a`, gold `#d9cb6e`, green `#9fd08a`, teal
+  `#74d1c4`, sky `#86bff0`, violet `#b7a8f2`, pink `#e89dd2`. They are the
+  package's, not a theme's: a contact is the same contact whatever theme the
+  reader chose. They follow the display mode as the package hues of §31 do
+  (Night dims and warms, Outdoor lifts toward white).
+- **Contrast**: every hue ≥ 4.5:1 on `bg`, `surface` and `surface_raised` of
+  every theme in Normal and Outdoor; in Night at least as far from black as
+  that theme's `text_secondary` (`tests/theme_test.c`, 6 themes × 3 modes).
+- **Keyed by a hash** (FNV-1a, `rift_ident_hash`) of what identifies them,
+  reduced modulo the palette - never allotted in order, so two Doors holding
+  the same key show the same colour, and a list re-ordering changes nothing.
+- **Who gets one, and where** (docs/apps/RIFT.md, "Who is who"):
+
+  | | keyed on | shown as |
+  | --- | --- | --- |
+  | a channel | its on-air hash (the name until known) | a 3 px mark at the left of its conversation row |
+  | a contact (chat node) | its public key | the mark on its node row and its conversation row |
+  | a room | its public key | the same |
+  | a channel sender | the name it claims | the name beside its message, and the message's 2 px rule |
+  | a repeater, a sensor | — | none: infrastructure stays neutral |
+  | a node of unreported type | — | none on NODES; its conversation still has a mark |
+
+- **Rules**: an accent, never a fill; the name is always printed and the
+  colour never carries a state (handoff §5 - own messages keep the
+  `accent_primary` rule, a direct peer heard direct keeps `radio_rx`, the
+  warn word keeps `status_warn`). The mark is a `rift_vrule` in an identity
+  hue (`rift_vrule_set_identity`), 3 px wide, full row height; a row with
+  none keeps the object and draws nothing, so columns line up. The sender
+  label is a colour-only style (`pos_style_identity`) over the caption role.
+
+### 37.4 The traffic graph
+
+On ACTIVITY, at the head of MESH ACTIVITY, in both orientations
+(`ui/rift_graph.c`, `rift_traffic.c`):
+
+- **Twenty bars, one per minute**, the newest at the right, in a 28 px band
+  over a 1 px baseline that is drawn under every slot (a quiet minute is a
+  watched minute, not a gap). A bar's width is the pane's twentieth less a
+  3 px gap.
+- **A bar counts frames the service reported hearing** in that minute:
+  every `mesh.activity` of `kind: "rx"` with a `mono_ms`, whether or not the
+  frame was for this node. Nothing sent by this device is in it; nothing is
+  inferred; there is no RF quality in it and the words say so: `HEARD ON
+  AIR · 20 MIN · PEAK 4/MIN`.
+- **Stacked by class**, bottom up: `MSG` (`text`, `group_text`,
+  `group_data`) in `status_ok`, `ADV` (`advert`) in `radio_rx`, `OTHER`
+  (everything else) in `text_muted`. The legend is the three words in the
+  caption line, each after a swatch in its colour; the words carry it.
+- **Heights are a fixed ladder** - 1 frame 4 px, 2–3 9, 4–7 15, 8–15 21,
+  16+ 28 - not a share of the busiest minute, so a bar keeps its height when
+  a busier minute arrives. Every class present in a minute gets at least one
+  pixel, taken from the largest.
+- **Cheap**: one draw callback of at most sixty rectangles, invalidated only
+  when a bin changed; the counts are three `uint16_t` per minute in the model
+  (120 bytes), rolled on write and read as of now.
+- The count starts when RIFT opens; there is no history before that, and a
+  frame stamped before the window is dropped rather than drawn where it did
+  not happen.
+
+### 37.5 Capacity
+
+| | was | is | why this and not more |
+| --- | --- | --- | --- |
+| nodes (`RIFT_MAX_NODES`) | 256 | **1000** | 832 B a node, 832 KB; a repaint 0.53 ms and the order 0.16 ms on the host (§37.6). The service holds 256 (KNOWN_ISSUES). |
+| conversations (`RIFT_MAX_CONVERSATIONS`) | 64 | **256** | a read mark each (about 100 B) and a 200 B copy in the list; the list is virtual now (`ui/rift_conv_list.c`, a pool of at most 40 rows over a spacer, like NODES), so 256 costs no objects and no repaint - the same 27 rows are built for 5 or 256 in portrait |
+| messages (`RIFT_MAX_MESSAGES`) | 256 | **512** | 608 B a message, 311 KB; the thread window (`RIFT_THREAD_ROWS` 64) is unchanged |
+
+The list stays virtual (31 rows in portrait, 35 in landscape, whatever the
+count), selection stays a key, a re-ordering rebinds and rebuilds nothing.
+What changed underneath: the order is a merge sort (the insertion sort was
+quadratic against a cache the service lists oldest first - half a million
+comparisons a second at a thousand), and a snapshot's membership test is a
+binary search over its sorted keys rather than a walk of it per held node.
+
+### 37.6 Measured (host, `tests/rift_app_test.c`, 2026-09-27)
+
+| | before (256 / 64 / 256) | after (1000 / 128 / 512) |
+| --- | --- | --- |
+| landscape thread, whole one-line messages | 11 | **17** (14 with the first round's spacing alone) |
+| landscape thread area, share of the display | 23.6 % (520 × 318) | **54.3 %** (932 × 408) |
+| portrait thread, the same | 27, 56.5 % | 27, 56.5 % |
+| NODES repaint, every node held | 0.29 ms | 0.5–0.9 ms (31 rows built both times) |
+| ordering every node | — | 0.16 ms |
+| `struct rift_model` | ~365 KB | 1142 KB |
+| test process max RSS | 11.5 MB | 12.0 MB |
+| conversation rows built for 256 conversations, portrait | one each (would be 256) | 27 |
+| COMMS repaint, 200-message thread open | 2.8 ms | 9.9 ms (the header's route chain and 27 pooled rows rebound each pass) |
+
+The C908 is slower by a factor nobody has measured; nothing in §37 has run
+on a board.
+
+### 37.7 Acceptance
+
+Unit A: landscape COMMS with a real channel open and a dozen messages,
+counted against the same thread on `v0.1.0`; the identity marks on NODES,
+COMMS and a channel thread, and that a repeater has none; the graph with a
+real mesh over twenty minutes, the peak against the feed; a 256-node table;
+both orientations; the owner's eyes. Then the owner's word.
+
+The gate ran on unit B instead of unit A, which was unreachable
+(docs/hardware/RIFT_UI_DENSITY_GATE.md, PASS on `7c9e26b`): the scale load
+came from a non-transmitting stand-in on meshcored's socket, and the real
+meshcored was restored afterwards. On the board the landscape thread holds
+17 whole messages in about 52 % of the display.
+
+Amendment U (§37) ACCEPTED 2026-09-28 on the unit B gate of `7c9e26b`, with two recorded limits: conversation names truncate in the narrow landscape list, and the 256-conversation bound can omit older conversations and channels.

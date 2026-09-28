@@ -135,6 +135,18 @@ const char *rift_type_word(int type, int have_type);
  * "SENS", or NULL for a plain chat node and for an unknown type. */
 const char *rift_type_tag(int type, int have_type);
 
+/* Identity accents (DS §37). What is somebody gets a stable hue: a chat
+ * node, a room, a channel, and a channel sender by the name it claims. A
+ * repeater or a sensor is infrastructure and gets none; nor does a node
+ * whose type was never reported, because a guess at who someone is would
+ * be a colour that changes when the answer comes. The hue is a hash of
+ * what identifies them - the public key, the channel's on-air hash, the
+ * claimed name - reduced by the caller to the palette's size, so the same
+ * one is the same colour on every screen and every reader's device. */
+int rift_ident_for_type(int type, int have_type);
+/* FNV-1a over the bytes, so a key and a name hash the same way anywhere. */
+uint32_t rift_ident_hash(const char *text);
+
 /* A public key as the detail screen shows it: four groups of four hex
  * digits, an ellipsis, and the last four - "3F9A C21E 7D04 … 88B1". A key
  * that is not 64 hex characters is printed as far as it goes rather than
@@ -298,6 +310,12 @@ const char *rift_msg_body(const struct rift_message *msg);
 #define RIFT_MSG_META_MAX (RIFT_AGE_MAX + RIFT_NAME_MAX + RIFT_MSG_CAPTION_MAX + 16)
 void rift_fmt_msg_meta(const struct rift_message *msg, int64_t now_ms, char *out,
                        size_t out_len);
+/* The same, with the claimed sender apart from the rest: who gets "HYTTA?"
+ * (or UNNAMED) for an incoming channel message and "" otherwise; out gets
+ * "age · caption". The thread draws who in the sender's identity accent
+ * (DS §37.3), so it has to be its own label. */
+void rift_fmt_msg_meta_split(const struct rift_message *msg, int64_t now_ms, char *who,
+                             size_t who_len, char *out, size_t out_len);
 
 /* What became of the last advert or node change a reader asked for:
  * "ZERO-HOP ADVERT · ASKED…", "FLOOD ADVERT · ACCEPTED 12s AGO",

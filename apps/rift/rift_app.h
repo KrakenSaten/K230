@@ -81,6 +81,7 @@ struct rift_app {
     lv_obj_t *root;   /* the shell's body */
     lv_obj_t *frame;  /* exactly the body's content box */
     lv_obj_t *strip;  /* the section strip */
+    lv_obj_t *back;   /* the strip's back slab, landscape only (DS §37.2) */
     lv_obj_t *tab[RIFT_SEC_COUNT];
     lv_obj_t *tab_rule[RIFT_SEC_COUNT];
     lv_obj_t *tab_label[RIFT_SEC_COUNT];
@@ -114,6 +115,13 @@ struct rift_app {
      * far. So the layout asks for a refresh, and the timer does it, outside
      * the pass, where a layout can actually be forced. */
     int refresh_pending;
+    /* The shape changed and the chrome - the strip, the command line and
+     * its field - has heights to take for it. Done from the timer, never
+     * from the layout pass that noticed: those are the frame's own flex
+     * children, and resizing them inside the frame's size-changed event
+     * kept LVGL laying the frame out for ever (found on the turn back to
+     * portrait with a thousand nodes, 2026-09-28). */
+    int chrome_pending;
     /* Esc in the composer asks for the list's focus back. Like the refresh,
      * it is done from the timer and not from the key handler: changing the
      * group's focus from inside the event LVGL is dispatching does not
@@ -135,6 +143,11 @@ struct rift_app {
      * other. */
     char conv[RIFT_KEY_HEX];
     int have_conv;
+    /* Landscape COMMS: the details pane (route, signal, tally) beside the
+     * thread is shown only while this is set - a tap on the thread's header
+     * turns it over - so the thread has the width the rest of the time
+     * (DS §37.2). Portrait has no such pane. */
+    int details_open;
 
     struct rift_model model;
     struct rift_ipc ipc;
@@ -171,6 +184,10 @@ void rift_app_select(struct rift_app *a, const char *key);
 void rift_app_open_conversation(struct rift_app *a, const char *key);
 void rift_app_open_detail(struct rift_app *a, int open);
 void rift_app_show_section(struct rift_app *a, enum rift_section section);
+/* Landscape COMMS: show or hide the details pane beside the thread. */
+void rift_app_toggle_details(struct rift_app *a);
+/* Whether the landscape command line is the composer right now. */
+int rift_app_composer_live(const struct rift_app *a);
 /* Everything on screen, from the model as it stands. Cheap enough to call
  * on every repaint: the screens update labels in place and only rebuild
  * when the set of rows itself changed. */

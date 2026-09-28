@@ -6,6 +6,7 @@
 #include "rift_activity.h"
 
 #include "pos_styles.h"
+#include "rift_graph.h"
 #include "rift_sound.h"
 
 #include <stdio.h>
@@ -69,6 +70,10 @@ struct rift_activity_view {
 
     lv_obj_t *heard_note;
     struct heard_row heard[HEARD_ROWS];
+    /* The last twenty minutes, a bar each (rift_graph.h), with its caption
+     * and legend over it, at the head of the feed. */
+    lv_obj_t *graph_caption;
+    lv_obj_t *graph;
     lv_obj_t *feed_note;
     struct feed_row feed[FEED_ROWS];
 
@@ -231,7 +236,29 @@ static void build_heard(struct rift_activity_view *v, lv_obj_t *parent)
 static void build_feed(struct rift_activity_view *v, lv_obj_t *parent)
 {
     lv_obj_t *panel = rift_panel(parent, "MESH ACTIVITY");
+    lv_obj_t *legend;
     int i;
+    int c;
+
+    /* The graph's caption and legend on one 24 px line: what the bars
+     * count on the left, and the three classes named on the right, each
+     * word after a swatch in its colour. The words carry the classes; the
+     * swatches only agree with them (handoff §5). */
+    legend = dense(panel, 6);
+    lv_obj_set_height(legend, RIFT_GROUP_H);
+    v->graph_caption = rift_cell(legend, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_flex_grow(v->graph_caption, 1);
+    lv_obj_set_width(v->graph_caption, 1);
+    for (c = 0; c < RIFT_TRAFFIC_CLASSES; c++) {
+        lv_obj_t *word;
+
+        rift_traffic_swatch_create(legend, (enum rift_traffic_class)c);
+        word = rift_cell(legend, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
+        lv_label_set_text(word, rift_traffic_class_word((enum rift_traffic_class)c));
+        lv_obj_set_style_margin_right(word, c + 1 < RIFT_TRAFFIC_CLASSES ? 6 : 0, 0);
+    }
+    v->graph = rift_traffic_graph_create(panel);
+    lv_obj_set_style_margin_bottom(v->graph, 6, 0);
 
     for (i = 0; i < FEED_ROWS; i++) {
         struct feed_row *r = &v->feed[i];
@@ -596,7 +623,19 @@ static void refresh_heard(struct rift_activity_view *v, int64_t now)
 static void refresh_feed(struct rift_activity_view *v, int64_t now)
 {
     const struct rift_model *m = &v->app->model;
+    struct rift_traffic_bins bins;
     int i;
+
+    /* The last twenty minutes as heard: read as of now, so a quiet minute
+     * since the last frame is a quiet bar and not the last busy one held. */
+    rift_traffic_read(&m->traffic, now, &bins);
+    rift_traffic_graph_set(v->graph, &bins);
+    if (!bins.started) {
+        lv_label_set_text(v->graph_caption, "HEARD ON AIR" RIFT_SEP "20 MIN" RIFT_SEP "NOTHING YET");
+    } else {
+        lv_label_set_text_fmt(v->graph_caption, "HEARD ON AIR" RIFT_SEP "20 MIN" RIFT_SEP
+                                                "PEAK %u/MIN", rift_traffic_peak(&bins));
+    }
 
     for (i = 0; i < FEED_ROWS; i++) {
         const struct rift_activity *act = rift_model_activity_at(m, i);
@@ -666,4 +705,9 @@ void rift_activity_refresh(struct rift_app *app)
     refresh_identity(v);
     refresh_heard(v, now);
     refresh_feed(v, now);
+}
+
+lv_obj_t *rift_activity_graph(const struct rift_app *app)
+{
+    return (app && app->activity) ? app->activity->graph : NULL;
 }

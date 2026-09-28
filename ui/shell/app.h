@@ -42,6 +42,14 @@ struct pocketos_app {
      * zero, so an app that says nothing is DEFAULT and the API version
      * stays. */
     enum pocketos_chrome chrome;
+    /* The app header (the back slab, the title, the hint; DS §7, §36.1).
+     * DEFAULT is the shell's 72 px row above the body in both orientations.
+     * NONE_LANDSCAPE: in landscape the shell builds no header and the app
+     * draws its own top row, with its own way back (DS §37.2 - RIFT's
+     * section strip, which carries a back slab there). Portrait keeps the
+     * shell's header. Appended and zero, so an app that says nothing is
+     * DEFAULT and the API version stays. */
+    enum pocketos_header header;
 };
 
 /* Shell services available to apps. */
