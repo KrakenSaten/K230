@@ -3212,8 +3212,11 @@ what it leaves for acceptance.
 
 Amendment T (§36) accepted 2026-09-26; unit A chrome/layout smoke PASS on `64416ab`.
 
-## 37. Amendment U — RIFT density, identity accents and the traffic graph [PROPOSED]
+## 37. Amendment U — RIFT density, identity accents and the traffic graph [ACCEPTED]
 
+**ACCEPTED 2026-09-28** by the owner, on the unit B hardware gate of
+`7c9e26b` (docs/hardware/RIFT_UI_DENSITY_GATE.md, PASS; unit A was
+unreachable), on the terms recorded there.
 **Proposed 2026-09-27** on branch `feat/rift-ui-density`, at the owner's
 request, after v0.1.0. It becomes normative on the same terms as the rest of
 this document when the owner accepts it after its unit A gate (§37.7); until
@@ -3395,4 +3398,11 @@ counted against the same thread on `v0.1.0`; the identity marks on NODES,
 COMMS and a channel thread, and that a repeater has none; the graph with a
 real mesh over twenty minutes, the peak against the feed; a 256-node table;
 both orientations; the owner's eyes. Then the owner's word.
-Amendment U (§37) PROPOSED 2026-09-27 on `feat/rift-ui-density`; host-measured only, unit A gate pending (§37.7).
+
+The gate ran on unit B instead of unit A, which was unreachable
+(docs/hardware/RIFT_UI_DENSITY_GATE.md, PASS on `7c9e26b`): the scale load
+came from a non-transmitting stand-in on meshcored's socket, and the real
+meshcored was restored afterwards. On the board the landscape thread holds
+17 whole messages in about 52 % of the display.
+
+Amendment U (§37) ACCEPTED 2026-09-28 on the unit B gate of `7c9e26b`, with two recorded limits: conversation names truncate in the narrow landscape list, and the 256-conversation bound can omit older conversations and channels.
