@@ -119,7 +119,7 @@ check "registered once" "$([ "$(grep -c '&app_blackjack\b' ui/shell/shell.c)" = 
 # Where it is shown is the launcher's table, not the registry order
 # (ui/shell/home_layout.c): a game, in PLAY, in the games colour.
 check "the launcher shows it in PLAY" \
-    "$(grep -q '{ "blackjack", HOME_GROUP_PLAY, HOME_HUE_GAMES }' ui/shell/home_layout.c && echo 1 || echo 0)"
+    "$(grep -q '{ "blackjack", HOME_GROUP_PLAY, HOME_HUE_GAMES[ ,}]' ui/shell/home_layout.c && echo 1 || echo 0)"
 for src in bj_app.c engine/bj_rng.c engine/bj_cards.c engine/bj_rules.c ui/bj_view.c ui/bj_card_draw.c \
            ui/bj_table_widget.c ui/bj_felt.c; do
     check "the shell builds $src" "$(grep -q "apps/blackjack/$src" ui/shell/CMakeLists.txt && echo 1 || echo 0)"

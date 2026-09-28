@@ -110,7 +110,7 @@ check "registered once" "$([ "$(grep -c '&app_solitaire\b' ui/shell/shell.c)" = 
 # Where it is shown is the launcher's table, not the registry order
 # (ui/shell/home_layout.c): a game, in PLAY, in the games colour.
 check "the launcher shows it in PLAY" \
-    "$(grep -q '{ "solitaire", HOME_GROUP_PLAY, HOME_HUE_GAMES }' ui/shell/home_layout.c && echo 1 || echo 0)"
+    "$(grep -q '{ "solitaire", HOME_GROUP_PLAY, HOME_HUE_GAMES[ ,}]' ui/shell/home_layout.c && echo 1 || echo 0)"
 for src in sol_app.c engine/sol_rng.c engine/sol_cards.c engine/sol_rules.c ui/sol_view.c ui/sol_card_draw.c \
            ui/sol_table_widget.c ui/sol_felt.c; do
     check "the shell builds $src" "$(grep -q "apps/solitaire/$src" ui/shell/CMakeLists.txt && echo 1 || echo 0)"
