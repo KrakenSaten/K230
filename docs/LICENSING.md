@@ -199,3 +199,14 @@ Findings:
    Makefile's default, and `ENABLE_MESHCORED=1 make install` shipped the binary
    while the test said it could not. There is still no override: this is a
    licensing rule rather than a build preference.
+10. **Before Vision ships in an image (feat/vision-app, docs/apps/VISION.md):**
+    decide the terms of `yolov8n.kmodel`. The pinned SDK ships it in
+    `buildroot-overlay/package/yolo/utils/` with no licence statement; the
+    package's sources carry Canaan's BSD-style header, but the kmodel is a
+    compiled derivative of Ultralytics' YOLOv8n weights, which Ultralytics
+    publishes under AGPL-3.0 (with a commercial licence as the alternative).
+    An image carrying it would be the first AGPL material in Doors. Until
+    decided, the file is neither committed nor packaged: the helper reads it
+    from `/usr/share/doors/vision/`, put there by hand for the prototype,
+    and `libnncase` itself stays as in item 5 (no licence metadata in the
+    manifest).

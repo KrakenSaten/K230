@@ -18,7 +18,9 @@
  *
  * Either can be changed without rebuilding: the config string (the helper's
  * --config, or $POCKETOS_CAMERA_CONFIG) takes preview=, still=, size=WxH,
- * still_size=WxH and mount=R[m].
+ * still_size=WxH, fmt=nv16|nv12|bgr (the preview's pixel format; bgr is the
+ * driver's planar "BG3P", what the Vision helper feeds the AI2D engine) and
+ * mount=R[m].
  *
  * What the driver does that this has to live with (all seen on unit A):
  *
@@ -54,6 +56,11 @@
 #include <time.h>
 #include <unistd.h>
 
+/* The driver's planar BGR ("24-bit BGR planer" in vvcam_video_register.c),
+ * not in the kernel's videodev2.h. */
+#ifndef V4L2_PIX_FMT_BG3P
+#define V4L2_PIX_FMT_BG3P v4l2_fourcc('B', 'G', '3', 'P')
+#endif
 #define V4L2_PREVIEW_NODE "/dev/video2"
 #define V4L2_STILL_NODE "/dev/video1"
 #define V4L2_PREVIEW_W 640
@@ -86,6 +93,7 @@ struct node {
     uint32_t h;
     uint32_t stride;
     uint32_t size;
+    enum pocketcam_format fmt;
     unsigned nbuf;
     void *map[V4L2_BUFS];
     size_t len[V4L2_BUFS];
@@ -101,6 +109,7 @@ struct cam {
     char pv_path[64];
     uint32_t pv_w;
     uint32_t pv_h;
+    enum pocketcam_format pv_fmt; /* what the preview node is asked for */
     char still_path[64];
     uint32_t still_w;
     uint32_t still_h;
@@ -183,16 +192,29 @@ static void node_close(struct node *n)
     node_init(n);
 }
 
-static int node_open(struct node *n, const char *path, uint32_t w, uint32_t h, unsigned want)
+/* The V4L2 name of a pocketcam format this backend can ask for. */
+static uint32_t fourcc_of(enum pocketcam_format f)
+{
+    switch (f) {
+    case POCKETCAM_FMT_NV12: return V4L2_PIX_FMT_NV12;
+    case POCKETCAM_FMT_BGR888P: return V4L2_PIX_FMT_BG3P;
+    default: return V4L2_PIX_FMT_NV16;
+    }
+}
+
+static int node_open(struct node *n, const char *path, uint32_t w, uint32_t h, unsigned want,
+                     enum pocketcam_format pfmt)
 {
     struct v4l2_capability cap;
     struct v4l2_format fmt;
     struct v4l2_requestbuffers req;
     uint32_t caps;
+    uint32_t fourcc = fourcc_of(pfmt);
     unsigned i;
     int r;
 
     node_init(n);
+    n->fmt = pfmt;
     snprintf(n->path, sizeof(n->path), "%s", path);
     n->fd = open(path, O_RDWR | O_NONBLOCK | O_CLOEXEC);
     if (n->fd < 0) {
@@ -212,14 +234,14 @@ static int node_open(struct node *n, const char *path, uint32_t w, uint32_t h, u
     fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     fmt.fmt.pix.width = w;
     fmt.fmt.pix.height = h;
-    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_NV16;
+    fmt.fmt.pix.pixelformat = fourcc;
     fmt.fmt.pix.field = V4L2_FIELD_NONE;
     if (xioctl(n->fd, VIDIOC_S_FMT, &fmt) != 0) {
         r = cam_err(errno);
         goto fail;
     }
     /* The driver may adjust: take only exactly what was asked for. */
-    if (fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_NV16 || fmt.fmt.pix.width != w ||
+    if (fmt.fmt.pix.pixelformat != fourcc || fmt.fmt.pix.width != w ||
         fmt.fmt.pix.height != h) {
         r = -EIO;
         goto fail;
@@ -228,7 +250,7 @@ static int node_open(struct node *n, const char *path, uint32_t w, uint32_t h, u
     n->h = h;
     n->stride = fmt.fmt.pix.bytesperline ? fmt.fmt.pix.bytesperline : w;
     n->size = fmt.fmt.pix.sizeimage;
-    if (pocketcam_frame_bytes(POCKETCAM_FMT_NV16, w, h, n->stride) == 0) {
+    if (pocketcam_frame_bytes(pfmt, w, h, n->stride) == 0) {
         r = -EIO;
         goto fail;
     }
@@ -383,7 +405,7 @@ static int node_next(struct node *n, int timeout_ms, struct pocketcam_frame *f, 
             n->settled = true;
         }
         memset(f, 0, sizeof(*f));
-        f->format = POCKETCAM_FMT_NV16;
+        f->format = n->fmt;
         f->width = n->w;
         f->height = n->h;
         f->stride = n->stride;
@@ -450,6 +472,19 @@ static int parse_config(const char *config, char *pv_path, uint32_t *pw, uint32_
             r = parse_size(val, pw, ph);
         } else if (strcmp(item, "still_size") == 0) {
             r = parse_size(val, &c->still_w, &c->still_h);
+        } else if (strcmp(item, "fmt") == 0) {
+            /* What the preview node is asked for. NV16 is what the vendor
+             * app reads and Camera shows; the Vision helper asks for the
+             * planar BGR the KPU demos read. Stills stay NV16. */
+            if (strcmp(val, "nv16") == 0) {
+                c->pv_fmt = POCKETCAM_FMT_NV16;
+            } else if (strcmp(val, "nv12") == 0) {
+                c->pv_fmt = POCKETCAM_FMT_NV12;
+            } else if (strcmp(val, "bgr") == 0) {
+                c->pv_fmt = POCKETCAM_FMT_BGR888P;
+            } else {
+                r = -EINVAL;
+            }
         } else if (strcmp(item, "mount") == 0) {
             size_t n = strlen(val);
             char *end;
@@ -494,6 +529,7 @@ static int v4l2_open(struct pocketcam_backend *b, const char *config, struct poc
     c->still_w = V4L2_STILL_W;
     c->still_h = V4L2_STILL_H;
     c->mount_rotation = V4L2_MOUNT_ROTATION;
+    c->pv_fmt = POCKETCAM_FMT_NV16;
     r = parse_config(config, pv_path, &pw, &ph, c);
     if (r != 0) {
         return r;
@@ -509,7 +545,7 @@ static int v4l2_open(struct pocketcam_backend *b, const char *config, struct poc
      * worked a minute later. A few bounded retries, well inside the session's
      * CAMERA_OPEN_MS. */
     for (attempt = 0;; attempt++) {
-        r = node_open(&c->pv, pv_path, pw, ph, V4L2_BUFS);
+        r = node_open(&c->pv, pv_path, pw, ph, V4L2_BUFS, c->pv_fmt);
         if (r != -EIO || attempt >= V4L2_OPEN_RETRIES) {
             break;
         }
@@ -545,7 +581,7 @@ static int v4l2_start(struct pocketcam_backend *b)
     int r;
 
     if (c->pv.fd < 0) {
-        r = node_open(&c->pv, c->pv_path, c->pv_w, c->pv_h, V4L2_BUFS);
+        r = node_open(&c->pv, c->pv_path, c->pv_w, c->pv_h, V4L2_BUFS, c->pv_fmt);
         if (r != 0) {
             return r;
         }
@@ -571,7 +607,8 @@ static int v4l2_still(struct pocketcam_backend *b, int timeout_ms, struct pocket
     }
     /* The preview keeps running while the still is taken: the main path then
      * starts from the exposure the preview has already found. */
-    r = node_open(&c->st, c->still_path, c->still_w, c->still_h, V4L2_STILL_BUFS);
+    r = node_open(&c->st, c->still_path, c->still_w, c->still_h, V4L2_STILL_BUFS,
+                  POCKETCAM_FMT_NV16);
     if (r == 0) {
         r = node_start(&c->st);
     }

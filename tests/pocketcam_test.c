@@ -275,6 +275,26 @@ static void test_convert(void)
     check("NV12 gives the same picture",
           pocketcam_to_rgb565(&g, 0, false, POCKETCAM_FIT_COVER, out, W, H, W) == 0 &&
               is_orange(out[1 * W + 1]));
+    {
+        /* Planar BGR (the ISP's BG3P, what the Vision helper reads): three
+         * planes, and the picture exactly the pattern's colours. */
+        static uint8_t bgr[W * H * 3];
+        struct pocketcam_frame p = { POCKETCAM_FMT_BGR888P, W, H, W, bgr, sizeof(bgr), 1, 0, 0 };
+
+        pocketcam_fake_fill(bgr, POCKETCAM_FMT_BGR888P, W, H, 1);
+        check("planar BGR needs three planes",
+              pocketcam_frame_bytes(POCKETCAM_FMT_BGR888P, W, H, W) == W * H * 3 &&
+                  pocketcam_frame_check(&p) == 0);
+        ok = pocketcam_to_rgb565(&p, 0, false, POCKETCAM_FIT_COVER, out, W, H, W) == 0 &&
+             is_orange(out[1 * W + 1]);
+        for (x = 0; x < 8; x++) {
+            pocketcam_fake_rgb_at(x * 8 + 4, H - 4, 1, W, H, rgb);
+            ok &= near(out[(H - 4) * W + x * 8 + 4], rgb);
+        }
+        check("planar BGR gives the same picture, every bar its own colour", ok);
+        p.bytes = W * H * 3 - 1;
+        check("a planar frame one byte short is refused", pocketcam_frame_check(&p) == -EPROTO);
+    }
     /* Contain into a square: black above and below, the picture between. */
     check("contain leaves black bars",
           pocketcam_to_rgb565(&f, 0, false, POCKETCAM_FIT_CONTAIN, out, W, W, W) == 0 &&

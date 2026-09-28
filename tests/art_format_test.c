@@ -140,7 +140,7 @@ static void test_committed(const char *dir)
     closedir(d);
     check("every committed art file is one the shell accepts, at its size", bad == 0);
     check("six backgrounds: lock, open, home in both orientations", bg == 6);
-    check("eighteen icons: seventeen apps and the empty frame", icons == 18);
+    check("nineteen icons: eighteen apps and the empty frame", icons == 19);
     check("nothing else is in the directory as art", files == bg + icons);
 }
 

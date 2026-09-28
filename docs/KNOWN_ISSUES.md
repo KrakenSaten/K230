@@ -69,6 +69,32 @@ including the owner's listening check of the volume steps; DS §31.5 accepted.
   power) until the DS draws their own; the landscape Controls moves Lock and
   Power into the header row to fit three tile rows (DS §31.5, accepted).
 
+## Open on feat/vision-app (not merged)
+
+The Vision prototype (docs/apps/VISION.md): DETECT, TRACK and COUNT on the
+KPU with the vendor's YOLOv8n kmodel. Host-tested and cross-built; **not run
+on unit A yet** (the unit was off the bench). Nothing here is DEVICE
+VERIFIED.
+
+- **The kmodel's licence is unstated** (docs/LICENSING.md item 10): the SDK
+  ships `yolov8n.kmodel` without terms, and it is compiled from Ultralytics
+  weights (AGPL-3.0). The file is neither committed nor packaged; the
+  helper reads it from `/usr/share/doors/vision/`, copied there by hand.
+- **Planar BGR at 640 x 360 on the ISP's self path is ASSUMED.** The vendor
+  asks `/dev/video2` for `BG3P` at 1280 x 720; Camera has it at 640 x 360 in
+  NV16. `pos-vision probe` and `--config` exist to find out on the unit.
+- **One frame copy per inference (691 KB)** into the runtime's shared pool,
+  because a V4L2 MMAP buffer has no physical address the AI2D engine can
+  use. A zero-copy path (dma-buf or an mmz-backed V4L2 buffer) is the
+  obvious next step once the cost is measured.
+- **Repeated open and close reaches the pre-existing camera lock-up** (below,
+  "Hardware and BSP") sooner or later, exactly as Camera does; the gate has
+  to bound its cycle count and log the console.
+- **Inference is synchronous in the helper**: the frame rate through the
+  detector is 1 / (copy + AI2D + KPU + decode + track), and the preview
+  shares that loop. A second thread for the preview is the change to make
+  if the measured rate is too low.
+
 ## Open for v0.0.12
 
 What changed since v0.0.11 is Files (DS §33) and the fullscreen apps

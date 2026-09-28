@@ -36,7 +36,7 @@ case "${TARGET_HOST}" in *@*) ;; *) TARGET_HOST="root@${TARGET_HOST}" ;; esac
 # file missing here would otherwise be discovered after they were down. An
 # init script new to the overlay reaches the target tree only when Buildroot
 # finalises the rootfs (a full build_image.sh), not with pocketos-rebuild.
-for f in usr/bin/doors usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-camera usr/bin/pos-zabbix usr/bin/pos-browser usr/bin/pos-record usr/bin/pos-drmtest usr/bin/pos-display-boot usr/bin/pos-supervise usr/sbin/radiod usr/sbin/sysd usr/sbin/netd usr/sbin/meshcored usr/bin/doors-shell etc/doors-release etc/pocketos-release \
+for f in usr/bin/doors usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-camera usr/bin/pos-zabbix usr/bin/pos-browser usr/bin/pos-record usr/bin/pos-vision usr/bin/pos-drmtest usr/bin/pos-display-boot usr/bin/pos-supervise usr/sbin/radiod usr/sbin/sysd usr/sbin/netd usr/sbin/meshcored usr/bin/doors-shell etc/doors-release etc/pocketos-release \
          usr/share/doors/THIRD_PARTY_NOTICES.txt usr/share/pocketos/THIRD_PARTY_NOTICES.txt usr/share/doors/ui \
          etc/init.d/S50sysd etc/init.d/S55netd etc/init.d/S60radiod etc/init.d/S65meshcored etc/init.d/S90doors-shell; do
     [ -e "${T}/${f}" ] || { echo "missing ${T}/${f}; build the image first (a full build_image.sh for a new init script)" >&2; exit 1; }
@@ -95,7 +95,7 @@ echo "Deploying Doors $(cat "${REPO_DIR}/VERSION") to ${TARGET_HOST}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 tar -C "${T}" --owner=0 --group=0 --numeric-owner -cf "${WORK}/payload.tar" \
-    usr/bin/doors usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-camera usr/bin/pos-zabbix usr/bin/pos-browser usr/bin/pos-record usr/bin/pos-drmtest usr/bin/pos-display-boot usr/bin/pos-supervise usr/sbin/radiod \
+    usr/bin/doors usr/bin/pos usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-camera usr/bin/pos-zabbix usr/bin/pos-browser usr/bin/pos-record usr/bin/pos-vision usr/bin/pos-drmtest usr/bin/pos-display-boot usr/bin/pos-supervise usr/sbin/radiod \
     usr/sbin/sysd usr/sbin/netd usr/sbin/meshcored usr/bin/doors-shell etc/doors-release etc/pocketos-release \
     usr/share/doors/THIRD_PARTY_NOTICES.txt usr/share/pocketos/THIRD_PARTY_NOTICES.txt usr/share/doors/ui \
     etc/init.d/S50sysd \

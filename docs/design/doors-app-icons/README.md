@@ -15,6 +15,7 @@ owner-supplied artwork.
 | File | Icon | App |
 | --- | --- | --- |
 | `svg/zabbix.svg` | a screen with a heartbeat trace and a stand: monitoring. Wave's waveform sits between two signal arcs; this one is framed and has a single sharp spike | Zabbix (DS §35.4, CONNECTIONS; chosen by the owner 2026-09-26) |
+| `svg/vision.svg` | an eye: the almond outline with a round pupil, the plainest sign for seeing (drawn for the Vision prototype, docs/apps/VISION.md; DEVICE after Recorder, in the `ai` hue; place and icon for the owner to confirm) | Vision |
 | `svg/browser.svg` | a globe: a circle with one meridian and the equator, the usual sign for the web (kept as light as the other icons: two more parallels made it the densest mask of all) | Browser (docs/apps/BROWSER.md, CONNECTIONS after Zabbix, in the network colour; confirmed by the owner 2026-09-27) |
 
 **How the files are made:**

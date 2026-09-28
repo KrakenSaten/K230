@@ -62,6 +62,15 @@ static inline void sample(const struct pocketcam_frame *f, uint32_t sx, uint32_t
         *b = (uint8_t)((px & 0x1f) << 3);
         return;
     }
+    if (f->format == POCKETCAM_FMT_BGR888P) {
+        size_t plane = (size_t)f->stride * f->height;
+        size_t at = (size_t)sy * f->stride + sx;
+
+        *b = f->data[at];
+        *g = f->data[plane + at];
+        *r = f->data[2 * plane + at];
+        return;
+    }
     {
         const uint8_t *uv = f->data + (size_t)f->stride * f->height;
         uint32_t cy = f->format == POCKETCAM_FMT_NV12 ? sy / 2 : sy;

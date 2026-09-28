@@ -1,7 +1,7 @@
 /*
- * pocketcam's pixel conversion: a camera frame (NV12, NV16 or RGB565) turned,
- * mirrored and scaled into what the screen shows (RGB565) or what an encoder
- * reads (RGB888 lines).
+ * pocketcam's pixel conversion: a camera frame (NV12, NV16, RGB565 or planar
+ * BGR) turned, mirrored and scaled into what the screen shows (RGB565) or
+ * what an encoder reads (RGB888 lines).
  *
  * Plain C on the CPU, nearest-neighbour, one pass. On the K230 this is the
  * cost that decides the preview frame rate (CAMERA_PLATFORM_RESEARCH.md,

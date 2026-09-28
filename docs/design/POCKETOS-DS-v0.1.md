@@ -3211,3 +3211,75 @@ The owner's look on the panel, and the chip in TX and OFF on hardware, are
 what it leaves for acceptance.
 
 Amendment T (§36) accepted 2026-09-26; unit A chrome/layout smoke PASS on `64416ab`.
+
+## 38. Amendment V — Vision [PROPOSED]
+
+**PROPOSED 2026-09-28** on branch `feat/vision-app`, validated on the host
+(§38.5), **not yet gated on unit A** (the unit was off the bench). It adds
+one app and changes no existing screen; outside the app it adds a sixth
+cell to DEVICE on the launcher (§38.4). Nothing in §1-§37 is renumbered.
+The app is described in `docs/apps/VISION.md`; the camera ownership is
+Camera's own (ADR-006), reused.
+
+### 38.1 Components
+
+Only existing parts and roles. The picture sits on a `POS_STYLE_SLAB` box;
+in its place, a panel of `POS_STYLE_TITLE` and centred
+`POS_STYLE_TEXT_SECONDARY` says what is happening. Over the picture: at
+most 24 box outlines, each the §9 focus ring (`POS_STYLE_SELECTED`, the 2 px
+accent outline) on an empty object, with a `POS_STYLE_CAPTION` tag on a
+slab at its top edge (`#7 person 83%`); and the counting line, a 2 px
+object filled like a primary button (accent). Under the picture one status
+line in `POS_STYLE_TEXT_SECONDARY` (`POS_STYLE_STATUS_WARN_TEXT` for a
+stall or a malformed tensor); two counter slabs in `POS_STYLE_VALUE`
+(`DOWN 3`, `UP 1`); LINE and RESET as §7 secondary buttons at 64 px, TRY
+AGAIN (CHECK AGAIN with no camera or model) primary in LINE's place, the
+§9 disabled treatment while nothing can be counted. No new role, token or
+colour.
+
+Fullscreen (§30.8): the app declares NONE. The shell's header carries the
+back slab and, at its right end, `SIMULATED` whenever the pictures come
+from the fake backend.
+
+### 38.2 Tall (portrait, 528 x 1116)
+
+The picture across the full width in the turned preview's shape (9:16,
+528 x 938 at most; it gives way to the controls' 220 px). Under it the
+status line, then the two counters side by side, then LINE and RESET side
+by side, each half the width.
+
+### 38.3 Wide (landscape, 1192 x 452)
+
+The picture at the full height, 16:9 (802 x 452), on the left. A column
+on the right (at least 240 px): the status on two lines, the two counters
+stacked, LINE, RESET.
+
+The shape is chosen from the body (§21.2); the picture's shape follows the
+way the unit is held. Every control is inside the box PocketUI's corner
+rule leaves (§21.3).
+
+### 38.4 Launcher
+
+Vision is the eighteenth app: DEVICE, after Recorder, in the `ai` hue
+(the first app in it besides Clock), with a first-party icon - an eye,
+drawn in the repository in the extension's line language
+(`docs/design/doors-app-icons/svg/vision.svg`) through Zabbix's and
+Browser's pipeline. DEVICE takes a sixth cell; in portrait that is a second
+row of two, in landscape the second line it already has. Place and icon
+are for the owner to confirm.
+
+### 38.5 Validation on the host
+
+`tests/vision_model_test.c` (both shapes, corners, touch targets, every
+state's words), `tests/vision_session_test.c` (the screen's data path
+against the real helper), `tests/vision_lint.sh`, and the launcher, icon,
+chrome and art suites with eighteen apps.
+
+### 38.6 Unit A gate (before acceptance)
+
+The build's identity first. Both orientations: Vision in DEVICE; the
+picture upright with boxes on real objects that follow them and keep their
+ids; a crossing counted in the right direction on ACROSS and on DOWN;
+RESET; the stalled and the no-model states; repeated open and close, and
+Camera afterwards; the frame rate, the KPU time and the helper's CPU and
+memory in the status line, against `top`.

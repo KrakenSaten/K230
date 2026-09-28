@@ -64,6 +64,11 @@ enum pocketcam_format {
     POCKETCAM_FMT_NV16,
     /* Little-endian RGB565, one plane. */
     POCKETCAM_FMT_RGB565,
+    /* Three 8-bit planes, B then G then R, each `height` lines of `stride`
+     * bytes: the K230 ISP's "BG3P" output, which the vendor's KPU demos read
+     * and the AI2D engine takes as it is. Used by the Vision app's helper
+     * (docs/apps/VISION.md). */
+    POCKETCAM_FMT_BGR888P,
     POCKETCAM_FMT_COUNT
 };
 
@@ -73,7 +78,8 @@ struct pocketcam_frame {
     uint32_t height;
     /* Bytes from one line to the next: the Y plane's for NV12 and NV16 (the
      * chroma plane has the same stride and starts right after the last Y
-     * line), the only plane's for RGB565. */
+     * line), the only plane's for RGB565, each plane's for BGR888P (the
+     * three planes follow one another, `height` lines each). */
     uint32_t stride;
     const uint8_t *data;
     /* How many bytes of data the backend says are valid. A frame is only
