@@ -1,0 +1,22 @@
+# PG Solitaire card world palette.
+#
+# Playing cards are world objects, like PocketTimber's wood and felt: the
+# same in every theme and mode, and not Design System tokens. Timber carries
+# its world colours as rendered pixels (docs/apps/POCKETTIMBER_ART.md 11);
+# cards are drawn as shapes at whatever size the layout gives them, so their
+# colours are kept here, as art, and turned into a C table in the build tree
+# by ui/shell/CMakeLists.txt. Nothing generated is committed, and no colour
+# is written in the game's C sources (tests/style_lint.sh, tests/sol_lint.sh).
+#
+# Everything that is interface - selection, cursor, HUD, captions, buttons -
+# stays in tokens. Deviation pending the owner: docs/apps/PGSOLITAIRE.md.
+#
+# name       RRGGBB   use
+paper        F2EDE3   card face: warm off-white, matte
+edge         C7BDAB   card face hairline, so overlapping cards separate
+black        1F1E22   spades and clubs
+red          A8262E   hearts and diamonds: a deep red, not a signal red
+back         5A3D25   card back field: dark timber
+back_line    C9A670   card back frame: PocketTimber's base wood tone
+slot         5B8A70   empty pile outlines and ghosts on the felt
+felt         1B3A2A   the felt when Timber's art is not built in (its base tone)
