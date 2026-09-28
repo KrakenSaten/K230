@@ -301,13 +301,18 @@ static void test_traffic(void)
     bool saw_speed = false;
     uint32_t car_id = 0;
     bool one_id = true;
+    int64_t at_a = 0;      /* when this test first saw the car's centre past line A (view y 256) */
+    int64_t at_b = 0;      /* ... and past line B (384) */
+    uint32_t expected = 0; /* km/h x10 from 5 m and that time */
 
     vision_session_init(&s);
     /* The car: 80 x 60 at 16 px a frame along the sensor's x, from the
      * top of the picture off the bottom. The chair stands still. Frames
      * every 20 ms: 128 px between the speed lines is 8 frames, 160 ms; at
-     * 5 m that is 31.25 m/s, 112.5 km/h - give or take the fake camera's
-     * coarse frame timing, which only the bounds below allow for. */
+     * 5 m that is 31.25 m/s, 112.5 km/h - when the helper keeps up with
+     * the fake camera, which under a sanitizer it does not. So the
+     * expectation is measured here too: the time this test sees between
+     * the car's centre passing the two lines, over the same 5 m. */
     check("the helper starts",
           start(&s, "period=20", "box=2:800:0:150:80:60:16:0,box=56:700:400:40:60:60", NULL) == 0);
     check("ready", wait_for(&s, VISION_EV_READY, 3000, &ev, seen, &w));
@@ -337,6 +342,12 @@ static void test_traffic(void)
                     }
                     saw_dir |= t[j].dir == VISION_DIR_DOWN;
                     saw_speed |= t[j].kmh10 > 0;
+                    if (!at_a && t[j].y + t[j].h / 2 > 256) {
+                        at_a = now_ms();
+                    }
+                    if (!at_b && t[j].y + t[j].h / 2 > 384) {
+                        at_b = now_ms();
+                    }
                 }
             }
         }
@@ -346,10 +357,16 @@ static void test_traffic(void)
     check("and is said to be going down the picture", saw_dir);
     check("the counting line counted it IN, as a car",
           s.traffic.total_ab == 1 && s.traffic.total_ba == 0 && s.traffic.cls_ab[0] == 1 && s.count_ab == 1);
-    check("the speed lines measured it: about 112 km/h from 5 m and the helper's clock",
-          s.traffic.n == 1 && s.traffic.last_kmh10 >= 700 && s.traffic.last_kmh10 <= 1500 &&
-              s.traffic.max_kmh10 == s.traffic.last_kmh10 && s.traffic.mean_kmh10 == s.traffic.last_kmh10);
-    printf("     measured %u.%u km/h\n", s.traffic.last_kmh10 / 10, s.traffic.last_kmh10 % 10);
+    if (at_a && at_b > at_a) {
+        expected = (uint32_t)((500u * 360u) / (uint64_t)(at_b - at_a));
+    }
+    check("the speed lines measured it, within 40 % of 5 m over the time this test saw between the lines",
+          s.traffic.n == 1 && expected > 0 && s.traffic.last_kmh10 * 10 >= expected * 6 &&
+              s.traffic.last_kmh10 * 10 <= expected * 14 && s.traffic.last_kmh10 >= 200 &&
+              s.traffic.last_kmh10 <= 3000 && s.traffic.max_kmh10 == s.traffic.last_kmh10 &&
+              s.traffic.mean_kmh10 == s.traffic.last_kmh10);
+    printf("     measured %u.%u km/h, this test expected %u.%u\n", s.traffic.last_kmh10 / 10,
+           s.traffic.last_kmh10 % 10, expected / 10, expected % 10);
     check("the speed was shown on the car's box while it was tracked", saw_speed);
     check("and retired with the track", s.traffic.cur_kmh10 == 0);
     vision_session_reset(&s);

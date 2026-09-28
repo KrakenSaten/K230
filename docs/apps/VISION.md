@@ -5,8 +5,14 @@ class and a confidence around every object a YOLOv8n detector finds, a
 persistent id on every object as it moves, and one line across the picture
 that counts what crosses it, each way.
 
-Status: **prototype on branch `feat/vision-app`, not merged, ready for
-review.** Host-tested end to end on the fake camera and a fake detector;
+Status: **merged and released in v0.2.0 / v0.2.1** (the model in the image
+for internal use, docs/LICENSING.md item 10). **TRAFFIC mode on branch
+`feat/vision-traffic`** (2026-09-28, from v0.2.1): the tracker and the
+counting line hardened against weak detections, and a second mode that
+counts traffic per class and measures speed between two lines - see
+"Traffic mode" below, and docs/hardware/VISION_TRAFFIC_GATE.md for its
+hardware gate. The prototype's own history: host-tested end to end on the
+fake camera and a fake detector;
 built for riscv64 with the pinned Xuantie toolchain against the nncase 2.11
 runtime in the pinned SDK's sysroot, and through the pinned Buildroot flow.
 **Hardware gate on unit B, 2026-09-28** (docs/hardware/VISION_GATE.md):
@@ -31,15 +37,25 @@ PROPOSED).
   and the helper's CPU share and resident set.
 - **TRACK.** An object seen frame after frame keeps one id (`#7 person
   83%`). An id appears once the object has been seen twice, survives up to
-  eight missed frames on the object's last motion, and is never reused.
-  At most 32 objects are tracked at once; more are dropped, never queued.
+  fifteen missed frames (about 0.6 s) coasting on the object's smoothed
+  motion, and is never reused. A detection the overlap cannot match is
+  still the same object when it is of the same size and within three
+  quarters of a box-side of where the track expected it (a dropout, or a
+  jump); a spurious single box never grabs one that way. At most 32
+  objects are tracked at once; more are dropped, never queued.
 - **COUNT.** LINE cycles the counting line through ACROSS (horizontal, at
   mid-height: counts DOWN and UP), DOWN (vertical, at mid-width: counts
   LEFT and RIGHT) and OFF. A confirmed track counts once when its centre
-  goes clearly from one side to the other (a 4 px dead band on the line
-  stops a wobble counting), in the direction it went, and counts again
-  only when it really comes back. RESET zeroes the counts and forgets the
-  tracks.
+  has settled clearly on the other side - clearly is a dead band of a
+  quarter of the box's smaller side (at least 4 px), settled is two
+  sightings in a row, so neither a wobble on the line nor a one-frame jump
+  across it counts - in the direction it went, and counts again only when
+  it really comes back. RESET zeroes the counts and forgets the tracks.
+- **TRAFFIC.** MODE switches to a second mode that looks for traffic only
+  - car, truck, bus, motorcycle, bicycle, person - counts it per class and
+  in total (IN and OUT across the counting line), says on every box which
+  way it has gone, and measures a speed for every track that crosses two
+  speed lines a known distance apart. See "Traffic mode".
 - **States said in words.** "Starting" while the camera and the model open;
   "Waiting for the picture"; "Waiting for the camera..." for a stalled
   stream; "Vision stopped" with the reason and TRY AGAIN; "No camera or
@@ -50,8 +66,60 @@ PROPOSED).
 
 No OCR, segmentation, pose, faces, recognition of people, recording,
 network or cloud. No settings: one model, one input size, one confidence
-threshold (0.35, the vendor's default), one line in one of two places.
-Nothing is stored: the counts live as long as the screen is open.
+threshold (0.35, the vendor's default), the lines in a few fixed places,
+the distance from a short list. Nothing is stored: the counts and speeds
+live as long as the screen is open. No speed is ever inferred from how
+fast a box moves on the picture.
+
+## Traffic mode
+
+MODE: TRAFFIC. What changes, all of it in the helper and the app's words:
+
+- **Only traffic is tracked.** After suppression, detections whose class
+  name is not one of `car`, `truck`, `bus`, `motorcycle`, `bicycle`,
+  `person` are dropped before the tracker sees them, so a chair never
+  takes a track slot or a count. The mapping is by the detector's class
+  names (`vision_traffic_map_names`), not by COCO indices: another
+  detector with the same names drops in.
+- **A vehicle keeps its track when the detector changes its mind.** The
+  tracker matches across a class group - car, truck and bus are one group,
+  motorcycle and bicycle another, a person is only a person - and the
+  track changes class only after three sightings of the other class in a
+  row, so the label does not flicker.
+- **Counts per class.** Every crossing of the counting line is counted for
+  its traffic class and in total, in the direction it went: A to B (DOWN
+  on ACROSS, LEFT on DOWN) is IN, the other way OUT. The counters show
+  `IN (DOWN) 4` and `OUT (UP) 2`; the status shows `car 3  truck 1  bus 0
+  moto 0  bike 0  person 2`.
+- **Direction on the box.** Each confirmed box carries the way it has
+  gone since it was first seen (`#7 car > 43%`: `<` `>` `^` `v` on the
+  picture as the owner holds it), once the displacement is clearly more
+  than jitter (half the box's smaller side, at least 16 px).
+- **Speed between two lines.** SPEED cycles OFF, NARROW (two lines at 40 %
+  and 60 % of the picture) and WIDE (25 % and 75 %), parallel to the
+  counting line; DIST cycles the ground distance between them through 1,
+  2, 5, 10, 15, 20, 30 and 50 m. A track that crosses line A and then
+  line B (or B then A) in the same direction gets a speed: the distance
+  over the time between the two crossings, from the helper's monotonic
+  clock, `km/h = distance / seconds x 3.6` (kept as km/h x10, integer).
+  The box then says `#7 car > 43.2 km/h`; the status says the current
+  speed (while that track lives), the last, the highest and the mean.
+- **What is refused, and counted as refused:** the same line crossed
+  again before the other (it turned round), the two crossings in opposite
+  directions, less than 100 ms between them (two boxes that swapped ids),
+  more than 30 s (it stopped, or the id was replaced by a new track's), a
+  track gone before the second line, a result above 300 km/h. A new id
+  starts from nothing: it can never inherit the first crossing of the
+  track it replaced.
+- **Controls:** MODE, LINE, SPEED, DIST, RESET. RESET zeroes the counts
+  and the speeds and forgets the tracks. Changing LINE, SPEED or DIST
+  drops any measurement in progress and (for LINE) the counts.
+
+Where it lives: `core/pocketvision/vision_traffic.c` (the class map, the
+per-class counts, the speed slots - one per track, bounded by
+`VISION_MAX_TRACKS` - and every refusal; pure C, integer, the clock fed
+in, tested in `tests/vision_traffic_test.c`), used by the helper; the app
+only carries the choices and the words (`vision_model.c`).
 
 ## The model
 
@@ -106,9 +174,11 @@ synchronously, in this order:
 | Infer | KPU, through the nncase interpreter | one run; the first output mapped and its 2100 x 84 floats copied out. |
 | Decode | `vision_decode.c` | per row: the best class score, the threshold (0.35), the box centre and size back through the letterbox ratio, clipped to the frame; NaN, infinities, empty and absurd boxes skipped and counted; a tensor of the wrong shape refused before a value is read. At most 256 candidates, the best kept. |
 | Suppress | `vision_nms.c` | class-aware greedy NMS at IoU 0.65 (the vendor's default), at most 32 detections. |
-| Track | `vision_track.c` | greedy IoU matching against each track's prediction (last box + last motion), same class only; new ids for the unmatched; expiry after 8 misses; confirmation after 2 sightings; 32 tracks at most. Frame pixels throughout. |
-| Count | `vision_line.c` | the line, chosen on the picture, unmapped into frame pixels (`vision_geom.c`) and checked against every seen, confirmed track's centre. |
-| Say | `pocketvision_proto.h` | one `det` line per frame with every shown track mapped into picture pixels (`vision_geom.c`, the same turn, mirror and cover-fit the converter draws with); `count` when it changes; `stats` once a second. |
+| Filter | `vision_traffic.c` | in TRAFFIC mode only: detections of a class with no traffic name are dropped here. |
+| Track | `vision_track.c` | greedy IoU matching (0.2) against each track's prediction (last box + smoothed motion), same class or same group; then a distance pass for confirmed tracks the overlap lost (same size, within 3/4 of a box side); new ids for the unmatched; coasting with decaying motion, expiry after 15 misses; confirmation after 2 sightings; 32 tracks at most. Frame pixels throughout. |
+| Count | `vision_line.c` | the lines, chosen on the picture, unmapped into frame pixels (`vision_geom.c`) and checked against every seen track's centre, with the dead band and the two-sighting settle; crossings reported by id. |
+| Traffic | `vision_traffic.c` | the count line's crossings per class; the speed lines' crossings timed per track. |
+| Say | `pocketvision_proto.h` | one `det` line per frame with every shown track mapped into picture pixels (`vision_geom.c`, the same turn, mirror and cover-fit the converter draws with), its direction and speed; `count` and `traffic` when they change; `stats` once a second. |
 | Preview | `core/pocketcam/pocketcam_convert.c` | at most every 100 ms, the frame turned and scaled to RGB565 at the picture's size into shared memory, as Camera does. |
 
 Frames that arrive while a frame is being processed wait in the driver's
@@ -155,12 +225,17 @@ picture pixels, so the app draws them with no geometry of its own.
 
 ### The protocol
 
-`core/pocketvision/pocketvision_proto.h` is the reference. Commands:
-`view w h rotation`, `start`, `stop`, `release slot`, `line x0 y0 x1 y1`
-(per-mille of the view) or `line off`, `reset`, `quit`. Events: `hello`,
+`core/pocketvision/pocketvision_proto.h` is the reference (version 2).
+Commands: `view w h rotation`, `start`, `stop`, `release slot`,
+`mode detect|traffic`, `line x0 y0 x1 y1` (per-mille of the view) or
+`line off`, `speed ax0 ay0 ax1 ay1 bx0 by0 bx1 by1` or `speed off`,
+`distance cm`, `reset`, `quit`. Events: `hello`,
 `ready camera pw ph simulated model in_w in_h classes`, `nodevice`,
 `nomodel`, `error what text`, `frame slot seq w h`,
-`det seq n id:cls:conf:x:y:w:h...`, `count ab ba`,
+`det seq n id:cls:conf:x:y:w:h:dir:kmh10...` (dir 0 none, 1 left, 2
+right, 3 up, 4 down on the picture; kmh10 the speed measured on that
+track or 0), `count ab ba`,
+`traffic ab ba cur last max mean n rejected c0ab:c0ba ... c5ab:c5ba`,
 `stats fps_x10 infer_ms pre_ms post_ms cpu_pct rss_kb bad dropped`,
 `malformed n`, `stall ms`, `stopped`, `lost`, `bye`.
 
@@ -181,8 +256,10 @@ AGAIN. A model of the wrong shape never opens (`nomodel`).
 | Candidates after decode | 256, the best kept |
 | Detections after NMS | 32 |
 | Tracks | 32; extra detections dropped and counted |
+| Line states per track | 3 (the count line, speed lines A and B) |
+| Speed measurements in flight | 32 slots, one per track; a crossing with no slot is refused |
 | Boxes on one `det` line, and outline objects on screen | 24 |
-| Protocol line | 1024 bytes |
+| Protocol line | 2048 bytes (24 boxes of at most 52 characters) |
 | Preview slots | 3 + 1 unused, 2 MiB each (Camera's) |
 | Model input | 4096 px a side (a corrupt tensor cannot make a larger box) |
 
@@ -231,28 +308,49 @@ Host only; none needs unit A. `make vision-test` runs them all,
   NaN, infinities, empty and absurd boxes, impossible scores; a tensor of
   NaN; the candidate bound keeping the best; NMS merging, ordering, class
   separation and bounds; IoU.
-- `tests/vision_track_test.c` (34 checks): one id across frames and across
-  motion, a jump is a new object, another class is a new object, expiry
-  after exactly `VISION_TRACK_MAX_MISSES`, ids never reused, the list
-  bounded with drops counted; the line's sides and dead band; a crossing
-  counted once in its direction, the way back counted the other way, a
-  wobble on the line never counted, an unconfirmed or newborn track never
-  counted, two objects opposite ways, a prediction across the line not a
-  crossing, a disabled line.
+- `tests/vision_track_test.c` (67 checks): one id across frames and across
+  motion, a jump across the frame is a new object, another class is a new
+  object, expiry after exactly `VISION_TRACK_MAX_MISSES`, ids never
+  reused, the list bounded with drops counted; a five-frame dropout and
+  an object that stopped while unseen keep their id; reacquisition by
+  distance and its limits (size, radius, confirmed only); a new object
+  after an expired track; the class groups and the three-sighting vote;
+  the line's sides and the box-scaled dead band; a crossing counted once
+  in its direction, the way back counted the other way, a touch, a wobble
+  and a one-frame jitter never counted, an unconfirmed or newborn track
+  never counted, two objects opposite ways and three the same way, a
+  prediction across the line not a crossing and the object found again
+  beyond it counted once, an expired track and a newcomer beyond the
+  line one count, left/right and up/down on both line orientations, two
+  lines with independent states, forgetting, a disabled line.
+- `tests/vision_traffic_test.c` (39 checks): the class names and the
+  groups, filtering, per-class and total counts by direction, reset; a
+  speed from A then B and from B then A, the current speed retired with
+  its track, last/max/mean; every refusal (the same line twice, opposite
+  directions, too short, stale, gone between the lines, a replaced id, an
+  impossible result, the distance's bounds, a changed distance); 32
+  tracks at once with a slot each and the 33rd refused; the mean's count
+  saturating.
 - `tests/vision_geom_test.c` (24 checks): every mapping held against
   `pocketcam_to_rgb565()` by painting one pixel and finding it, for all
   four turns, mirrored and not, scaled and cut on either axis; boxes
   clamped or reported outside; the way back for the line.
-- `tests/vision_model_test.c` (42 checks): every state's words, the line
-  modes and direction names, stats and counts from the session, every
-  failure's sentence; both layouts on the reference panel with every
-  control inside the safe box, at least the touch minimum, not
-  overlapping, the picture in the frame's shape.
-- `tests/vision_session_test.c` (60 checks) against the real helper on
+- `tests/vision_model_test.c` (88 checks): every state's words, the line
+  modes and direction names, stats and counts from the session, the two
+  modes and their buttons, the speed lines in both orientations, the
+  distances, the traffic report's words, every failure's sentence, the
+  choices kept across Try again; both layouts in both modes on the
+  reference panel with every control inside the safe box, at least the
+  touch minimum, not overlapping, the picture in the frame's shape.
+- `tests/vision_session_test.c` (78 checks) against the real helper on
   the fake camera and the fake detector: every event line parsed and the
-  malformed ones refused; a picture through the shared memory; two objects
-  tracked with ids that persist across thirty frames; the person walking
-  down the picture counted once, downward; stats; reset; stop; two
+  malformed ones refused (the nine-field box, the traffic report); a
+  picture through the shared memory; two objects tracked with ids that
+  persist across thirty frames; the person walking down the picture
+  counted once, downward; in TRAFFIC a car through both speed lines and
+  the count line on one id with its direction, counted IN as a car and
+  measured against the helper's own clock, the chair never tracked,
+  reset, and the chair back in DETECT; stats; reset; stop; two
   malformed tensors said and survived; a detector giving nonsense ended
   with exit 5; a failed run; no camera, a busy camera, a bad detector
   script, a missing helper, a camera that goes away, a hung helper killed
