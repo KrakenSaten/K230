@@ -78,12 +78,22 @@
 /* Frames in a row whose tensor is not a tensor: the model is not working. */
 #define VISION_BAD_LIMIT 10
 
-static volatile sig_atomic_t stop_requested;
+/* SIGTERM and SIGINT are BLOCKED for the helper's whole life and looked for
+ * between frames, never taken by a handler. A signal handled while the
+ * process waits on the KPU or the AI2D engine ends that wait early (EINTR)
+ * with the hardware still working into buffers the helper then frees on its
+ * way out - and on unit B (2026-09-28) a SIGTERM mid-stream was followed by
+ * a silent whole-unit freeze, where the same runs to completion never froze
+ * it. Blocked, a stop waits for the frame in hand to finish (tens of ms),
+ * then the camera and the detector are closed with nothing in flight. */
+static sigset_t stop_signals;
 
-static void on_term(int sig)
+static bool stop_requested(void)
 {
-    (void)sig;
-    stop_requested = 1;
+    sigset_t pending;
+
+    return sigpending(&pending) == 0 &&
+           (sigismember(&pending, SIGTERM) == 1 || sigismember(&pending, SIGINT) == 1);
 }
 
 static int64_t mono_ms(void)
@@ -736,7 +746,7 @@ static int run_session(const char *backend, const char *config, const char *mode
     }
     say("ready %s %u %u %d %s %u %u %u", s->info.name, s->info.preview_w, s->info.preview_h,
         s->info.simulated ? 1 : 0, s->model.model, s->model.in_w, s->model.in_h, s->model.classes);
-    while (!s->quit && !s->in_eof && !stop_requested && !out_broken) {
+    while (!s->quit && !s->in_eof && !stop_requested() && !out_broken) {
         read_commands(s, s->streaming ? 0 : 250);
         if (s->streaming && !s->quit) {
             stream_once(s);
@@ -814,7 +824,7 @@ static int run_bench(const char *backend, const char *config, const char *model,
     vision_tracker_init(&tr);
     r = pocketcam_start(&cam);
     t_start = mono_ms();
-    while (r == 0 && done < frames && !stop_requested) {
+    while (r == 0 && done < frames && !stop_requested()) {
         struct pocketcam_frame f;
         const float *out;
         size_t count;
@@ -920,7 +930,7 @@ int main(int argc, char **argv)
     const char *model;
     int frames = 100;
     int i;
-    struct sigaction sa;
+
 
     if (!cmd) {
         usage();
@@ -950,10 +960,10 @@ int main(int argc, char **argv)
     if (!kpu_script) {
         kpu_script = getenv("POCKETOS_VISION_KPU_SCRIPT");
     }
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = on_term;
-    sigaction(SIGTERM, &sa, NULL);
-    sigaction(SIGINT, &sa, NULL);
+    sigemptyset(&stop_signals);
+    sigaddset(&stop_signals, SIGTERM);
+    sigaddset(&stop_signals, SIGINT);
+    sigprocmask(SIG_BLOCK, &stop_signals, NULL);
     signal(SIGPIPE, SIG_IGN);
     if (strcmp(cmd, "session") == 0) {
         return run_session(backend, config, model, kpu_script);

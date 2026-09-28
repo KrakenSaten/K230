@@ -41,7 +41,13 @@
 #include <string.h>
 
 #define VISION_POLL_MS 33
-#define VISION_DESTROY_GRACE_MS 300
+/* destroy() and Try again: time for the helper to close the camera and the
+ * detector before it is killed. Camera's helper needs well under 300 ms;
+ * Vision's took ~420 ms after SIGTERM on unit B (it unloads the model and
+ * returns the KPU's shared pool), and a SIGKILL half way through closing the
+ * camera and the KPU is exactly the kind of exit this helper must not get.
+ * Bounded like every wait here; it only runs when the user leaves. */
+#define VISION_DESTROY_GRACE_MS 1000
 #define VISION_LABEL_MAX 40
 
 struct vision_picture {

@@ -83,6 +83,14 @@ check "a made-up picture is always labelled SIMULATED" \
 # ---- lifetime ------------------------------------------------------------------
 check "the helper leaves with the shell (PR_SET_PDEATHSIG)" \
     "$(grep -q 'prctl(PR_SET_PDEATHSIG, SIGTERM);' $A/vision_session.c && echo 1 || echo 0)"
+# A signal handled mid-inference ends a KPU/AI2D wait early with the hardware
+# still writing (a whole-unit freeze on unit B, docs/hardware/VISION_GATE.md).
+check "the helper blocks SIGTERM and SIGINT for life and takes no handler for them" \
+    "$(code $H | grep -q 'sigprocmask(SIG_BLOCK, &stop_signals, NULL);' &&
+       ! code $H | grep -qE 'sigaction\(SIG(TERM|INT)|signal\(SIG(TERM|INT)' && echo 1 || echo 0)"
+grace=$(sed -nE 's/^#define VISION_DESTROY_GRACE_MS ([0-9]+).*/\1/p' $APP)
+check "the helper is given at least 1000 ms to close the camera and the KPU ($grace)" \
+    "$([ -n "$grace" ] && [ "$grace" -ge 1000 ] && echo 1 || echo 0)"
 check "the shared memory is sealed before the helper sees it" \
     "$(grep -q 'F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_SEAL' $A/vision_session.c && grep -q 'PROT_READ, MAP_SHARED' $A/vision_session.c && echo 1 || echo 0)"
 check "the helper is polled from a timer, never waited for, except when leaving" \
