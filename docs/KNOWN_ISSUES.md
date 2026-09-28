@@ -72,24 +72,41 @@ including the owner's listening check of the volume steps; DS §31.5 accepted.
 ## Open on feat/vision-app (not merged)
 
 The Vision prototype (docs/apps/VISION.md): DETECT, TRACK and COUNT on the
-KPU with the vendor's YOLOv8n kmodel. Host-tested and cross-built; **not run
-on unit A yet** (the unit was off the bench). Nothing here is DEVICE
-VERIFIED.
+KPU with the vendor's YOLOv8n kmodel. **Hardware gate run on unit B
+(2026-09-28, docs/hardware/VISION_GATE.md): everything passes but repeated
+open/close, which reaches the camera lock-up; the owner accepted that as the
+known vendor fault and sent the prototype to review with this caveat.**
+Unit A was not available.
+
+- **Vision can freeze the whole unit (ACCEPTED by the owner as the known
+  camera lock-up, 2026-09-28).** Silent on the console, a normal
+  `vvcam_isp_release` as the last line, a power cycle to recover - the same
+  signature as Camera's entry under "Hardware and BSP", but reached far
+  sooner: on unit B within about 5-20 stops of a Vision stream, where
+  Camera ran 40 open/close cycles clean on the same unit and boot. In
+  isolation the KPU alone, the BG3P stream alone, and both together run to
+  completion never froze (30 runs each); streams stopped part-way froze it
+  2 times in 24. Blocking signals in the helper (`543dc0e`) did not cure it.
+  Finding the cause needs kernel-side debugging or the vendor.
 
 - **The kmodel's licence is unstated** (docs/LICENSING.md item 10): the SDK
   ships `yolov8n.kmodel` without terms, and it is compiled from Ultralytics
   weights (AGPL-3.0). The file is neither committed nor packaged; the
   helper reads it from `/usr/share/doors/vision/`, copied there by hand.
-- **Planar BGR at 640 x 360 on the ISP's self path is ASSUMED.** The vendor
-  asks `/dev/video2` for `BG3P` at 1280 x 720; Camera has it at 640 x 360 in
-  NV16. `pos-vision probe` and `--config` exist to find out on the unit.
+- **The ISP's `BG3P` at 640 x 360 on `/dev/video2` works** (VERIFIED on unit
+  B), and its planes are R, G, B despite the name (fixed in `99739f5`).
+- **False detections on dark clutter**: a coat on a chair drew
+  `baseball-glove`, `backpack` and a wide `person` box (35-83 %) in a lit
+  room, and a black frame a full-frame `person` (35-50 %). The threshold is
+  the vendor's 0.35; a false `person` merging with a real one can add a
+  count.
+- **The horizontal (ACROSS) line counts a sideways walk** as DOWN or UP
+  when the body enters or leaves at the frame edge; the vertical (DOWN) line
+  is the one for people walking past.
 - **One frame copy per inference (691 KB)** into the runtime's shared pool,
   because a V4L2 MMAP buffer has no physical address the AI2D engine can
   use. A zero-copy path (dma-buf or an mmz-backed V4L2 buffer) is the
   obvious next step once the cost is measured.
-- **Repeated open and close reaches the pre-existing camera lock-up** (below,
-  "Hardware and BSP") sooner or later, exactly as Camera does; the gate has
-  to bound its cycle count and log the console.
 - **Inference is synchronous in the helper**: the frame rate through the
   detector is 1 / (copy + AI2D + KPU + decode + track), and the preview
   shares that loop. A second thread for the preview is the change to make

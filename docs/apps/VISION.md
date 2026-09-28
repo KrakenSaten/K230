@@ -5,14 +5,20 @@ class and a confidence around every object a YOLOv8n detector finds, a
 persistent id on every object as it moves, and one line across the picture
 that counts what crosses it, each way.
 
-Status: **prototype on branch `feat/vision-app`, not merged.** Host-tested
-end to end on the fake camera and a fake detector (every stage, the helper,
-the session); built for riscv64 with the pinned Xuantie toolchain against
-the nncase 2.11 runtime in the pinned SDK's sysroot; **not yet run on unit
-A** (the unit was off the bench when the branch was made - see "On unit A"
-at the end for what the gate has to show). The camera path is Camera's own
-(ADR-006), reused, not redesigned; the launcher place and the icon are for
-the owner to confirm (DS §38, PROPOSED).
+Status: **prototype on branch `feat/vision-app`, not merged, ready for
+review.** Host-tested end to end on the fake camera and a fake detector;
+built for riscv64 with the pinned Xuantie toolchain against the nncase 2.11
+runtime in the pinned SDK's sysroot, and through the pinned Buildroot flow.
+**Hardware gate on unit B, 2026-09-28** (docs/hardware/VISION_GATE.md):
+live preview, model load, KPU inference (17-20 ms, 28-29 fps through the
+helper, 23-28 fps with the app open), boxes on real people, ids carried
+through line crossings, LEFT/RIGHT counting, Camera working afterwards, no
+crashes or leaked helpers - all pass. **Caveat accepted by the owner:**
+stopping Vision can reach the known camera lock-up (a whole-unit freeze, a
+power cycle to recover) far sooner than Camera does (docs/KNOWN_ISSUES.md).
+The camera path is Camera's own (ADR-006), reused, not redesigned; the
+launcher place and the icon are for the owner to confirm (DS §38,
+PROPOSED).
 
 ## What it does
 

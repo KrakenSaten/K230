@@ -2,7 +2,14 @@
 
 **Run on unit B (K230-B, Wi-Fi .187 then .140 after a power cycle, console COM12) on 2026-09-28, by
 the owner's choice: unit A was off the bench. Everything but repeated open/close
-PASSES; the camera lock-up froze the unit three times (below).** Unit B carries the v0.0.13 dev image
+PASSES; the camera lock-up froze the unit five times (below). The owner
+accepted the lock-up as the known vendor fault (2026-09-28, option 1) and sent
+the prototype to review with that caveat: READY TO REVIEW, not merged.**
+Unit B last carried `pos-vision` md5 `d434be09ad76c463883ab8c84a1ca34c` and
+`doors-shell` md5 `6330c83470ad2641648ce5ca7aead5d5`, both hand-installed from
+`543dc0e` over the deployed `7591725` (the deployed shell kept as
+`/root/rollback-vision/doors-shell.7591725`), and was left hung after the last
+freeze. Unit B carries the v0.0.13 dev image
 `ee39407` with the Doors userspace of build `7591725` deployed by
 `deploy.sh`, and `/usr/bin/pos-vision` hand-installed from `2e2f30b`
 (md5 `78a359a2ece1f4c3133cf8b25b0e41cb`; the build id is not compiled into
