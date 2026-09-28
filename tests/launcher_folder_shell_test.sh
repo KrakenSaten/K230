@@ -146,7 +146,10 @@ W, H, rows = read_png(sys.argv[2])
 cells = d["launcher"]["cells"]
 dw, dh = d["display"]["width"], d["display"]["height"]
 inside = all(0 <= c["x"] and c["x"] + c["w"] <= dw and 0 <= c["y"] and c["y"] + c["h"] <= dh for c in cells)
-one_row = len({c["y"] for c in cells}) == 1
+# Four across in portrait, up to nine in landscape (DS §39.3): as many rows
+# as that makes, and no more.
+cols = 4 if dh > dw else 9
+one_row = len({c["y"] for c in cells}) == (len(cells) + cols - 1) // cols
 # Something is drawn in every cell: its portal icon, not the photograph alone.
 def busy(c):
     xs = range(c["x"] + c["w"] // 2 - 30, c["x"] + c["w"] // 2 + 30, 3)
@@ -157,7 +160,8 @@ print(int(W == dw and H == dh), int(inside), int(one_row), int(all(busy(c) for c
 PY
     set -- $(cat "$OUT/$o-check.txt")
     check "$o: the screenshot is the display's size" "${1:-0}"
-    check "$o: every game's cell is on the screen, on one row" "$([ "${2:-0}" = 1 ] && [ "${3:-0}" = 1 ] && echo 1 || echo 0)"
+    check "$o: every game's cell is on the screen, in as few rows as the columns allow" \
+        "$([ "${2:-0}" = 1 ] && [ "${3:-0}" = 1 ] && echo 1 || echo 0)"
     check "$o: and drawn" "${4:-0}"
     call shell.folder id=
     check "$o: back on the launcher's page, the Games cell there" \
