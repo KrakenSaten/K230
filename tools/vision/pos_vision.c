@@ -71,7 +71,7 @@
 #define FRAME_WAIT_MS 50
 /* The preview node, planar BGR: what the KPU demos read (yolo/src/main.cc
  * asks /dev/video2 for BG3P). 640 x 360 is Camera's proven preview size. */
-#define VISION_CAMERA_CONFIG "fmt=bgr"
+#define VISION_CAMERA_CONFIG "fmt=bg3p"
 #define VISION_MODEL_DEFAULT "/usr/share/doors/vision/yolov8n.kmodel"
 #define VISION_CONF_MIN 350   /* the vendor's default conf_thres 0.35 */
 #define VISION_NMS_IOU 650    /* and nms_thres 0.65 */

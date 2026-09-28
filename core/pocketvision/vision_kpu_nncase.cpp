@@ -203,7 +203,7 @@ extern "C" int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_fra
     /* Only the planar BGR the ISP can deliver directly: NCHW, which AI2D
      * takes as it is. Anything else would need a conversion nobody has
      * measured. */
-    if (f->format != POCKETCAM_FMT_BGR888P || f->width > VISION_MAX_COORD ||
+    if (f->format != POCKETCAM_FMT_BG3P || f->width > VISION_MAX_COORD ||
         f->height > VISION_MAX_COORD) {
         return -EPROTO;
     }

@@ -276,14 +276,22 @@ static void test_convert(void)
           pocketcam_to_rgb565(&g, 0, false, POCKETCAM_FIT_COVER, out, W, H, W) == 0 &&
               is_orange(out[1 * W + 1]));
     {
-        /* Planar BGR (the ISP's BG3P, what the Vision helper reads): three
-         * planes, and the picture exactly the pattern's colours. */
+        /* The ISP's BG3P (what the Vision helper reads): three planes, and
+         * the picture exactly the pattern's colours. */
         static uint8_t bgr[W * H * 3];
-        struct pocketcam_frame p = { POCKETCAM_FMT_BGR888P, W, H, W, bgr, sizeof(bgr), 1, 0, 0 };
+        struct pocketcam_frame p = { POCKETCAM_FMT_BG3P, W, H, W, bgr, sizeof(bgr), 1, 0, 0 };
 
-        pocketcam_fake_fill(bgr, POCKETCAM_FMT_BGR888P, W, H, 1);
-        check("planar BGR needs three planes",
-              pocketcam_frame_bytes(POCKETCAM_FMT_BGR888P, W, H, W) == W * H * 3 &&
+        /* The plane order on its own, not through the fake (which could be
+         * wrong the same way): plane 0 full and the rest empty is RED. On
+         * unit B a red blanket came out blue while this was read as B. */
+        memset(bgr, 0, sizeof(bgr));
+        memset(bgr, 255, (size_t)W * H);
+        check("BG3P plane 0 is red, as the K230 ISP delivers it",
+              pocketcam_to_rgb565(&p, 0, false, POCKETCAM_FIT_COVER, out, W, H, W) == 0 &&
+                  out[W * H / 2] == 0xf800);
+        pocketcam_fake_fill(bgr, POCKETCAM_FMT_BG3P, W, H, 1);
+        check("BG3P needs three planes",
+              pocketcam_frame_bytes(POCKETCAM_FMT_BG3P, W, H, W) == W * H * 3 &&
                   pocketcam_frame_check(&p) == 0);
         ok = pocketcam_to_rgb565(&p, 0, false, POCKETCAM_FIT_COVER, out, W, H, W) == 0 &&
              is_orange(out[1 * W + 1]);
@@ -291,7 +299,7 @@ static void test_convert(void)
             pocketcam_fake_rgb_at(x * 8 + 4, H - 4, 1, W, H, rgb);
             ok &= near(out[(H - 4) * W + x * 8 + 4], rgb);
         }
-        check("planar BGR gives the same picture, every bar its own colour", ok);
+        check("BG3P gives the same picture, every bar its own colour", ok);
         p.bytes = W * H * 3 - 1;
         check("a planar frame one byte short is refused", pocketcam_frame_check(&p) == -EPROTO);
     }

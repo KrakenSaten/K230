@@ -87,7 +87,7 @@ synchronously, in this order:
 
 | Step | Where | What |
 | --- | --- | --- |
-| Capture | `core/pocketcam/pocketcam_v4l2.c` (Camera's backend, one new config key) | `/dev/video2`, the ISP's self path, 640 x 360, **planar BGR** (`BG3P`, `fmt=bgr`): the format the vendor's KPU demos read, three 8-bit planes AI2D takes as they are. Camera itself keeps NV16. |
+| Capture | `core/pocketcam/pocketcam_v4l2.c` (Camera's backend, one new config key) | `/dev/video2`, the ISP's self path, 640 x 360, **planar `BG3P`** (`fmt=bg3p`): the format the vendor's KPU demos read, three 8-bit planes AI2D takes as they are - R, G, B in memory despite the driver's name (VERIFIED on unit B). Camera itself keeps NV16. |
 | Into AI2D memory | `vision_kpu_nncase.cpp` | the frame is copied (691 KB) into a tensor from the runtime's shared pool and written back from the cache. A V4L2 buffer cannot be handed to AI2D directly: the runtime needs a physical address it does not have for an MMAP buffer. This is the one copy of a frame in the pipeline (the vendor's demo makes the same one, of a 2.7 MB frame). |
 | Preprocess | AI2D, hardware | resize into the top-left of 320 x 320 keeping the aspect (0.5 x: 320 x 180), pad the rest with 114 - the vendor's `padding_resize_one_side_set`. |
 | Infer | KPU, through the nncase interpreter | one run; the first output mapped and its 2100 x 84 floats copied out. |
@@ -193,7 +193,7 @@ host build only (the device build links nncase and has no fake):
 | `delay=MS` | pretend inference time |
 
 The camera fake is Camera's (`docs/apps/CAMERA.md`), with one new key,
-`format=bgr`.
+`format=bg3p`.
 
 ## Layout
 

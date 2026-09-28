@@ -18,7 +18,7 @@
  *
  * Either can be changed without rebuilding: the config string (the helper's
  * --config, or $POCKETOS_CAMERA_CONFIG) takes preview=, still=, size=WxH,
- * still_size=WxH, fmt=nv16|nv12|bgr (the preview's pixel format; bgr is the
+ * still_size=WxH, fmt=nv16|nv12|bg3p (the preview's pixel format; bgr is the
  * driver's planar "BG3P", what the Vision helper feeds the AI2D engine) and
  * mount=R[m].
  *
@@ -197,7 +197,7 @@ static uint32_t fourcc_of(enum pocketcam_format f)
 {
     switch (f) {
     case POCKETCAM_FMT_NV12: return V4L2_PIX_FMT_NV12;
-    case POCKETCAM_FMT_BGR888P: return V4L2_PIX_FMT_BG3P;
+    case POCKETCAM_FMT_BG3P: return V4L2_PIX_FMT_BG3P;
     default: return V4L2_PIX_FMT_NV16;
     }
 }
@@ -480,8 +480,8 @@ static int parse_config(const char *config, char *pv_path, uint32_t *pw, uint32_
                 c->pv_fmt = POCKETCAM_FMT_NV16;
             } else if (strcmp(val, "nv12") == 0) {
                 c->pv_fmt = POCKETCAM_FMT_NV12;
-            } else if (strcmp(val, "bgr") == 0) {
-                c->pv_fmt = POCKETCAM_FMT_BGR888P;
+            } else if (strcmp(val, "bg3p") == 0) {
+                c->pv_fmt = POCKETCAM_FMT_BG3P;
             } else {
                 r = -EINVAL;
             }

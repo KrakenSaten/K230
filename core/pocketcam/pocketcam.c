@@ -37,7 +37,7 @@ size_t pocketcam_frame_bytes(enum pocketcam_format fmt, uint32_t width, uint32_t
         }
         lines = height;
         break;
-    case POCKETCAM_FMT_BGR888P:
+    case POCKETCAM_FMT_BG3P:
         if (stride < width) {
             return 0;
         }

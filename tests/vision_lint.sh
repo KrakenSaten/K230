@@ -76,7 +76,7 @@ check "the device's default backend is the real one, never the fake" \
 check "and the fake detector is never the device's (the Makefile links nncase into the package build)" \
     "$(grep -q 'POCKETVISION_KPU=1' platforms/k230/package/pocketos/pocketos.mk && echo 1 || echo 0)"
 check "the helper asks the ISP for planar BGR, which the AI2D engine reads as it is" \
-    "$(grep -q '#define VISION_CAMERA_CONFIG "fmt=bgr"' $H && grep -q 'POCKETCAM_FMT_BGR888P' $C/vision_kpu_nncase.cpp && echo 1 || echo 0)"
+    "$(grep -q '#define VISION_CAMERA_CONFIG "fmt=bg3p"' $H && grep -q 'POCKETCAM_FMT_BG3P' $C/vision_kpu_nncase.cpp && echo 1 || echo 0)"
 check "a made-up picture is always labelled SIMULATED" \
     "$(grep -q 'out->hint = m->simulated ? "SIMULATED" : "";' $A/vision_model.c && echo 1 || echo 0)"
 
