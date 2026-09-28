@@ -10,6 +10,7 @@
 #include "rift_comms.h"
 
 #include "pos_styles.h"
+#include "rift_conv_list.h"
 #include "rift_thread.h"
 
 #include <stdio.h>
@@ -23,14 +24,16 @@
 #define COL_ROUTE 72
 #define COL_HEARD 44
 #define PULSE_PULL (5 - COL_GAP) /* the pulse 5 px after its age, as in NODES */
-/* The selected row, as NODES draws it: a slab 2 px taller than a row, inset
- * 8, with 2 px of air for the focus outline LVGL draws outside the box. */
-#define SELECTED_INSET_H 8
-#define SELECTED_INSET_V 2
-#define SELECTED_AIR 2
-/* handoff §9: COMMS is 372 list / 560 thread / 300 route. */
-#define LIST_W_WIDE 372
+/* The landscape split (DS §37.2): a narrow list - glyph, name, pill, age -
+ * and the thread with everything else. The details pane is shown only
+ * while a reader has asked for it, and takes its width from the thread
+ * then. The handoff's 372 / 560 / 300 gave the thread 45 % of the width
+ * all the time; this gives it 79 %, and 55 % with the details open. */
+#define LIST_W_WIDE 260
 #define CTX_W_WIDE 300
+/* The open row's slab is 2 px taller top and bottom than a row, with 2 px
+ * of air each side for the focus outline: 8 px on the list's height. */
+#define SELECTED_EXTRA 8
 /* Portrait stacks them. The list is as tall as its rows, and no taller than
  * this many while a conversation is open - enough to switch between the
  * last few without scrolling, and the rest of the height is the thread's.
@@ -41,32 +44,16 @@
 #define PORTRAIT_OPEN_ROWS 5
 #define THREAD_MIN_H 168
 
-struct conv_row {
-    lv_obj_t *slot;
-    lv_obj_t *line;
-    lv_obj_t *ident; /* the identity mark (DS §37.3) */
-    lv_obj_t *glyph;
-    lv_obj_t *name;
-    lv_obj_t *preview;
-    lv_obj_t *pill;
-    lv_obj_t *pulse;
-    lv_obj_t *heard;
-    lv_obj_t *route;
-    char key[RIFT_KEY_HEX];
-    int selected;
-    struct rift_comms *owner;
-};
-
 struct rift_comms {
     struct rift_app *app;
     lv_obj_t *root;
 
     lv_obj_t *pane_list;
     lv_obj_t *head;
-    lv_obj_t *list;
+    lv_obj_t *head_route; /* the ROUTE column header, portrait only */
+    lv_obj_t *list;       /* the rows' scrolling object (rift_conv_list.h) */
+    struct rift_conv_list *rows;
     lv_obj_t *note;
-    struct conv_row row[RIFT_MAX_CONVERSATIONS];
-    int row_count;
 
     lv_obj_t *pane_thread;
     struct rift_thread *thread;
@@ -149,6 +136,11 @@ const char *rift_comms_open_peer(const struct rift_app *app)
     return app->conv;
 }
 
+int rift_comms_rows_built(const struct rift_app *app)
+{
+    return (app && app->comms) ? rift_conv_list_rows_built(app->comms->rows) : 0;
+}
+
 void rift_comms_target_label(const struct rift_app *app, char *out, size_t out_len)
 {
     const char *peer;
@@ -213,153 +205,6 @@ void rift_comms_submit(struct rift_app *app, const char *text)
 }
 
 /* ---- the conversation list -------------------------------------------------- */
-
-static void on_conv_row(lv_event_t *e)
-{
-    const struct conv_row *r = lv_event_get_user_data(e);
-
-    rift_app_open_conversation(r->owner->app, r->key);
-}
-
-/* A row, built once. Which conversation it shows is set on every refresh
- * (bind_conv_row): a new message re-orders the list, and re-ordering used to
- * delete and rebuild every row in it; now it only rebinds them. */
-static void build_conv_row(struct rift_comms *v)
-{
-    struct conv_row *r = &v->row[v->row_count];
-
-    memset(r, 0, sizeof(*r));
-    r->owner = v;
-
-    r->slot = lv_obj_create(v->list);
-    lv_obj_remove_style_all(r->slot);
-    lv_obj_set_width(r->slot, LV_PCT(100));
-    lv_obj_set_height(r->slot, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(r->slot, LV_FLEX_FLOW_COLUMN);
-    lv_obj_remove_flag(r->slot, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(r->slot, LV_OBJ_FLAG_CLICKABLE);
-
-    r->line = dense_row(r->slot, RIFT_ROW_H);
-    /* A tap opens the conversation and does nothing else: choosing where a
-     * message would go is not sending one (RIFT-DEV-1). */
-    lv_obj_add_flag(r->line, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(r->line, on_conv_row, LV_EVENT_CLICKED, r);
-
-    /* The identity mark first: who this conversation is, in their accent,
-     * before the glyph that says how they are reached. */
-    r->ident = rift_vrule(r->line, RIFT_IDENT_W);
-    rift_vrule_set(r->ident, RIFT_TONE_NONE);
-    r->glyph = rift_glyph_create(r->line);
-    r->name = rift_cell(r->line, POS_STYLE_ROW_TITLE, 0, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_flex_grow(r->name, 1);
-    lv_obj_set_width(r->name, 1);
-    r->preview = rift_cell(r->line, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_flex_grow(r->preview, 2);
-    lv_obj_set_width(r->preview, 1);
-    r->pill = rift_unread_pill(r->line);
-    /* When the other side was last heard from, and the same age bucketed
-     * (rift_model_conv_heard, rift_pulse_of), the pulse close after the age
-     * as NODES draws it. */
-    r->heard = rift_cell(r->line, POS_STYLE_CAPTION, COL_HEARD, LV_TEXT_ALIGN_RIGHT);
-    r->pulse = rift_pulse_create(r->line);
-    lv_obj_set_style_margin_left(r->pulse, PULSE_PULL, 0);
-    r->route = rift_cell(r->line, POS_STYLE_CAPTION, COL_ROUTE, LV_TEXT_ALIGN_RIGHT);
-    v->row_count++;
-}
-
-/* Point a row at a conversation, and give it the selection's look when it
- * is the open one. */
-static void bind_conv_row(struct conv_row *r, const struct rift_conv *c, int selected)
-{
-    copy_key(r->key, sizeof(r->key), c->key);
-    if (selected == r->selected) {
-        return;
-    }
-    if (selected) {
-        pos_style_add(r->slot, POS_STYLE_SLAB, 0);
-        pos_style_add(r->slot, POS_STYLE_SELECTED, 0);
-        lv_obj_set_style_pad_hor(r->slot, SELECTED_INSET_H, 0);
-        lv_obj_set_style_pad_ver(r->slot, SELECTED_INSET_V, 0);
-        lv_obj_set_style_margin_ver(r->slot, SELECTED_AIR, 0);
-    } else {
-        lv_obj_remove_style(r->slot, pos_style(POS_STYLE_SLAB), 0);
-        lv_obj_remove_style(r->slot, pos_style(POS_STYLE_SELECTED), 0);
-        lv_obj_set_style_pad_hor(r->slot, 0, 0);
-        lv_obj_set_style_pad_ver(r->slot, 0, 0);
-        lv_obj_set_style_margin_ver(r->slot, 0, 0);
-    }
-    r->selected = selected;
-}
-
-static void update_conv_row(struct rift_comms *v, struct conv_row *r, const struct rift_conv *c,
-                            int64_t now)
-{
-    struct rift_app *a = v->app;
-    const struct rift_node *n = c->is_channel ? NULL : rift_model_find(&a->model, c->key);
-    char text[RIFT_PREVIEW_MAX];
-
-    rift_glyph_set(r->glyph, c->is_channel ? RIFT_GLYPH_CHANNEL : rift_app_glyph(n, now));
-    /* The identity mark (DS §37.3). A channel is known by the hash that
-     * goes on the air, so the same channel is the same colour on every
-     * device that holds its key; a peer by their public key. A
-     * conversation is with somebody by definition, so every peer gets one
-     * - whether the table still holds them, and whether it ever said what
-     * they are - except a peer it says is a repeater or a sensor. */
-    if (c->is_channel) {
-        const struct rift_channel *ch = rift_model_key_channel(&a->model, c->key);
-
-        rift_vrule_set_identity(r->ident, rift_ident_hash(ch && ch->have_hash ? ch->hash
-                                                          : c->have_name ? c->name
-                                                                         : c->key));
-    } else if (!n || !n->have_type || rift_ident_for_type(n->type, n->have_type)) {
-        rift_vrule_set_identity(r->ident, rift_ident_hash(c->key));
-    } else {
-        rift_vrule_set(r->ident, RIFT_TONE_NONE);
-    }
-    if (c->have_name && c->name[0]) {
-        rift_cell_set_text_fit(r->name, c->name);
-    } else if (c->is_channel) {
-        snprintf(text, sizeof(text), "CHANNEL %d", c->channel_slot);
-        rift_cell_set_text_fit(r->name, text);
-    } else {
-        /* A peer with no name anywhere is named by the hash MeshCore routes
-         * on, never by an empty row. */
-        snprintf(text, sizeof(text), "%.2s", c->key);
-        rift_cell_set_text_fit(r->name, text);
-    }
-    rift_fmt_preview(c->newest, text, sizeof(text));
-    rift_cell_set_text_fit(r->preview, text);
-    {
-        int64_t heard_ms = 0;
-        int heard = rift_model_conv_heard(&a->model, c, &heard_ms);
-
-        rift_pulse_set(r->pulse, rift_pulse_of(now - heard_ms, heard));
-        rift_fmt_age(now - heard_ms, heard, text, sizeof(text));
-        rift_label_set(r->heard, text);
-    }
-    /* The pill and the preview's visibility were set before the layout that
-     * preceded this loop; setting them again here would be setting them
-     * after the widths they decide have already been used. */
-    if (c->is_channel) {
-        /* A channel has no path and cannot have one: a group frame is
-         * flooded to everyone who holds the key, and there is no peer for a
-         * route to lead to. FLOOD is the whole truth about how it travels. */
-        rift_label_set(r->route, "FLOOD");
-    } else if (!n) {
-        /* A conversation with a peer the contact table no longer holds. */
-        rift_label_set(r->route, RIFT_UNKNOWN);
-    } else if (rift_link_of(n) == RIFT_LINK_DIRECT) {
-        rift_label_set(r->route, "DIRECT");
-    } else if (rift_link_of(n) == RIFT_LINK_UNKNOWN) {
-        rift_label_set(r->route, "NO PATH");
-    } else {
-        char hops[RIFT_HOPS_MAX];
-
-        rift_fmt_hops(n, hops, sizeof(hops));
-        snprintf(text, sizeof(text), "%s HOPS", hops);
-        rift_label_set(r->route, text);
-    }
-}
 
 /* ---- the landscape route pane ------------------------------------------------ */
 
@@ -501,11 +346,24 @@ void rift_comms_shape(struct rift_app *app)
         lv_obj_set_width(v->pane_list, LIST_W_WIDE);
         lv_obj_set_height(v->pane_list, LV_PCT(100));
         lv_obj_set_flex_grow(v->pane_list, 0);
+        /* The list takes the pane's height by flex grow, never as a
+         * percentage: a percentage left on it into portrait, where the pane
+         * is sized by its content, is a size LVGL can never settle, and it
+         * lays the frame out for ever (found 2026-09-28). */
         lv_obj_set_flex_grow(v->list, 1);
+        lv_obj_set_height(v->list, RIFT_ROW_H);
         lv_obj_set_height(v->pane_thread, LV_PCT(100));
         lv_obj_set_flex_grow(v->pane_thread, 1);
-        lv_obj_remove_flag(v->pane_ctx, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(v->head_route, LV_OBJ_FLAG_HIDDEN);
+        /* The details pane only while asked for: the thread has the width
+         * the rest of the time (DS §37.2). */
+        if (app->details_open) {
+            lv_obj_remove_flag(v->pane_ctx, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(v->pane_ctx, LV_OBJ_FLAG_HIDDEN);
+        }
     } else {
+        lv_obj_remove_flag(v->head_route, LV_OBJ_FLAG_HIDDEN);
         /* As tall as what is in it; the list inside is sized to its rows on
          * every refresh (size_portrait_list). */
         lv_obj_set_width(v->pane_list, LV_PCT(100));
@@ -517,6 +375,7 @@ void rift_comms_shape(struct rift_app *app)
         lv_obj_add_flag(v->pane_ctx, LV_OBJ_FLAG_HIDDEN);
     }
     rift_thread_shape(v->thread, app->wide);
+    rift_conv_list_shape(v->rows, app->wide);
     v->shape_valid = 0;
 }
 
@@ -526,12 +385,13 @@ void rift_comms_shape(struct rift_app *app)
  * view as it always was. */
 static void size_portrait_list(struct rift_comms *v, int count, int open)
 {
-    int32_t rows_h = (int32_t)count * RIFT_ROW_H;
+    /* What every row laid out takes: a row each, and the open one's slab 8
+     * px more (the list lays them out the same way, rift_conv_list.c). */
+    int32_t rows_h = (int32_t)count * RIFT_ROW_H + (open && count > 0 ? SELECTED_EXTRA : 0);
     int32_t cap;
 
     if (open && count > 0) {
-        rows_h += 2 * (SELECTED_INSET_V + SELECTED_AIR);
-        cap = PORTRAIT_OPEN_ROWS * RIFT_ROW_H + 2 * (SELECTED_INSET_V + SELECTED_AIR);
+        cap = PORTRAIT_OPEN_ROWS * RIFT_ROW_H + SELECTED_EXTRA;
     } else {
         cap = lv_obj_get_height(v->root) - RIFT_HEADER_ROW_H - 1 - THREAD_MIN_H;
         if (cap < RIFT_ROW_H) {
@@ -583,17 +443,13 @@ lv_obj_t *rift_comms_create(struct rift_app *app, lv_obj_t *parent)
     lv_label_set_text(cell, "HEARD");
     cell = rift_cell(head, POS_STYLE_CAPTION, RIFT_PULSE_W, LV_TEXT_ALIGN_RIGHT);
     lv_obj_set_style_margin_left(cell, PULSE_PULL, 0);
-    cell = rift_cell(head, POS_STYLE_CAPTION, COL_ROUTE, LV_TEXT_ALIGN_RIGHT);
-    lv_label_set_text(cell, "ROUTE");
+    v->head_route = rift_cell(head, POS_STYLE_CAPTION, COL_ROUTE, LV_TEXT_ALIGN_RIGHT);
+    lv_label_set_text(v->head_route, "ROUTE");
     rift_rule(v->pane_list);
 
-    v->list = lv_obj_create(v->pane_list);
-    lv_obj_remove_style_all(v->list);
-    lv_obj_set_width(v->list, LV_PCT(100));
-    lv_obj_set_flex_grow(v->list, 1);
-    lv_obj_set_flex_flow(v->list, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_scroll_dir(v->list, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(v->list, LV_SCROLLBAR_MODE_AUTO);
+    /* The rows: virtual, a pool over a spacer (rift_conv_list.h). */
+    v->rows = rift_conv_list_create(app, v->pane_list);
+    v->list = rift_conv_list_obj(v->rows);
 
     v->note = wrap_label(v->pane_list, POS_STYLE_CAPTION);
 
@@ -616,6 +472,7 @@ void rift_comms_destroy(struct rift_app *app)
         return;
     }
     rift_thread_destroy(v->thread);
+    rift_conv_list_destroy(v->rows);
     /* Every object is a child of the section container and is deleted with
      * it by the shell; the private block is this app's to release. */
     free(v);
@@ -625,7 +482,9 @@ void rift_comms_destroy(struct rift_app *app)
 void rift_comms_refresh(struct rift_app *app)
 {
     struct rift_comms *v = app ? app->comms : NULL;
-    struct rift_conv conv[RIFT_MAX_CONVERSATIONS];
+    /* Static, not on the stack: 256 conversations of about 200 bytes, and
+     * this is the one caller, on the one thread. */
+    static struct rift_conv conv[RIFT_MAX_CONVERSATIONS];
     const struct rift_conv *open_conv = NULL;
     const struct rift_model *m;
     const char *peer;
@@ -738,36 +597,8 @@ void rift_comms_refresh(struct rift_app *app)
     }
 
     reveal = !v->shape_valid || strcmp(peer ? peer : "", v->shape_open) != 0;
-    /* One row per conversation, kept: rows are added or taken away only when
-     * the number of conversations changes, and otherwise rebound in place.
-     * A re-ordering - every new message is one - moves no object, so the
-     * list keeps its place and costs a rebind rather than a rebuild. */
-    while (v->row_count < count && v->row_count < RIFT_MAX_CONVERSATIONS) {
-        build_conv_row(v);
-    }
-    while (v->row_count > count) {
-        v->row_count--;
-        lv_obj_delete(v->row[v->row_count].slot);
-        memset(&v->row[v->row_count], 0, sizeof(v->row[v->row_count]));
-    }
-    for (i = 0; i < v->row_count && i < count; i++) {
-        bind_conv_row(&v->row[i], &conv[i], peer && strcmp(conv[i].key, peer) == 0);
-    }
     v->shape_valid = 1;
     copy_key(v->shape_open, sizeof(v->shape_open), peer);
-    /* The unread pill is content-sized and sits in the same row as the name
-     * and the preview, both of which are fitted to what is left. So every
-     * pill is sized first, the pane is laid out once, and only then is any
-     * text fitted - the same two-pass rule as NODES, and for the same
-     * reason: otherwise the result depends on which refresh this is. */
-    for (i = 0; i < v->row_count && i < count; i++) {
-        rift_unread_pill_set(v->row[i].pill, conv[i].unread);
-        if (app->wide) {
-            lv_obj_add_flag(v->row[i].preview, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_remove_flag(v->row[i].preview, LV_OBJ_FLAG_HIDDEN);
-        }
-    }
     /* The list's own note, only for what the rows cannot say themselves. A
      * count of rows is not that - they are on screen - and that a channel
      * is unacknowledged is said under every message sent on one. */
@@ -799,25 +630,10 @@ void rift_comms_refresh(struct rift_app *app)
     if (!app->wide) {
         size_portrait_list(v, count, peer != NULL);
     }
+    /* The pane laid out first, so the list has the height its rows are
+     * bound against; then the rows, from the pool, for what is on screen. */
     lv_obj_update_layout(v->pane_list);
-    /* Fewer rows than before under a reader who had scrolled: LVGL leaves the
-     * offset past the end of what is left, so bring it back. */
-    if (lv_obj_get_scroll_bottom(v->list) < 0) {
-        int32_t y = lv_obj_get_scroll_y(v->list) + lv_obj_get_scroll_bottom(v->list);
-
-        lv_obj_scroll_to_y(v->list, y > 0 ? y : 0, LV_ANIM_OFF);
-    }
-    for (i = 0; i < v->row_count && i < count; i++) {
-        update_conv_row(v, &v->row[i], &conv[i], now);
-    }
-    if (reveal && peer) {
-        for (i = 0; i < v->row_count; i++) {
-            if (strcmp(v->row[i].key, peer) == 0) {
-                lv_obj_scroll_to_view(v->row[i].slot, LV_ANIM_OFF);
-                break;
-            }
-        }
-    }
+    rift_conv_list_refresh(v->rows, conv, count, peer, now, reveal);
 
     rift_thread_refresh(v->thread, peer, open_conv);
     if (app->wide) {

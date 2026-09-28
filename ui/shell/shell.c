@@ -1031,6 +1031,16 @@ static void app_open(const struct pocketos_app *app)
     lv_obj_set_size(sh.app_root, LV_PCT(100), LV_PCT(100));
     lv_obj_set_flex_flow(sh.app_root, LV_FLEX_FLOW_COLUMN);
 
+    /* An app that draws its own top row in landscape (app.h `header`, DS
+     * §37.2) gets no header there: the body starts at the top edge, and
+     * the app's own row takes the corner inset through the layout guard
+     * as any content does. Portrait is the shell's header as ever. */
+    if (app->header == POCKETOS_HEADER_NONE_LANDSCAPE &&
+        is_landscape(sh.display.geometry.rotation)) {
+        header = NULL;
+        sh.header_hint = NULL;
+        goto body;
+    }
     header = lv_obj_create(sh.app_root);
     lv_obj_remove_style_all(header);
     lv_obj_set_size(header, LV_PCT(100), POCKETUI_HEADER_H);
@@ -1081,6 +1091,7 @@ static void app_open(const struct pocketos_app *app)
     lv_obj_set_flex_grow(sh.header_hint, 1);
     lv_obj_set_style_text_align(sh.header_hint, LV_TEXT_ALIGN_RIGHT, 0);
 
+body:
     body = lv_obj_create(sh.app_root);
     lv_obj_remove_style_all(body);
     lv_obj_set_width(body, LV_PCT(100));

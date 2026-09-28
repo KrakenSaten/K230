@@ -135,9 +135,10 @@ big=$(find "$SRC" -name '*.c' -exec wc -l {} + | awk '$1 > 900 && $2 != "total" 
 check "no source file has become a monolith${big:+ ($big)}" "$([ -z "$big" ] && echo 1 || echo 0)"
 for part in rift_model.c rift_messages.c rift_arrivals.c rift_channels.c rift_actions.c \
             rift_order.c rift_format.c rift_format_msg.c rift_ipc.c rift_notify.c rift_sound.c \
-            rift_store.c rift_dm_sound.c rift_app.c rift_traffic.c \
+            rift_store.c rift_dm_sound.c rift_app.c rift_traffic.c rift_strip.c \
             ui/rift_widgets.c ui/rift_graph.c ui/rift_activity.c ui/rift_nodes.c \
-            ui/rift_node_row.c ui/rift_detail.c ui/rift_comms.c ui/rift_thread.c; do
+            ui/rift_node_row.c ui/rift_detail.c ui/rift_comms.c ui/rift_conv_list.c \
+            ui/rift_thread.c; do
     check "$part is its own file" "$([ -f "$SRC/$part" ] && echo 1 || echo 0)"
 done
 # The model's other translation units are held to the same rule as the first:

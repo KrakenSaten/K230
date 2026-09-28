@@ -57,6 +57,14 @@ extern const struct pocketos_app app_rift;
 
 static int failed;
 static int checks;
+static lv_obj_t *app_header; /* the shell's header row as the test builds it */
+static int32_t header_h_for(int landscape);
+
+static lv_obj_t *strip(void);
+static lv_obj_t *kid(lv_obj_t *parent, uint32_t i);
+/* The strip's i-th section tab: the back slab (landscape's way home) is the
+ * strip's first child, and the tabs follow it. */
+#define tab(i) kid(strip(), (uint32_t)(i) + 1)
 
 static void check(const char *what, int ok)
 {
@@ -235,6 +243,12 @@ static void use_display(enum pos_rotation rotation, int32_t corner)
     lv_display_set_resolution(disp, g.width, g.height);
     lv_obj_set_size(g_content, g.width, g.height - STATUS_H);
     lv_obj_set_pos(g_content, 0, STATUS_H);
+    /* Turned with the app open: the shell would rebuild the app in the
+     * new shape's chrome; here the header row it would or would not build
+     * is resized, which is the same body for the app. */
+    if (app_header) {
+        lv_obj_set_height(app_header, header_h_for(g.width > g.height));
+    }
     pump(80);
 }
 
@@ -243,6 +257,15 @@ static void use_display(enum pos_rotation rotation, int32_t corner)
 static lv_obj_t *app_root;
 static lv_obj_t *app_body;
 static struct rift_app *app;
+
+/* The shell's app header as the shell gives it (shell.c, app.h `header`):
+ * 72 px in portrait, and nothing in landscape for an app that draws its own
+ * top row there (DS §37.2), which RIFT does. */
+static int32_t header_h_for(int landscape)
+{
+    return (landscape && app_rift.header == POCKETOS_HEADER_NONE_LANDSCAPE) ? 0
+                                                                           : POCKETUI_HEADER_H;
+}
 
 static void app_start(void)
 {
@@ -254,7 +277,10 @@ static void app_start(void)
     lv_obj_set_flex_flow(app_root, LV_FLEX_FLOW_COLUMN);
     header = lv_obj_create(app_root);
     lv_obj_remove_style_all(header);
-    lv_obj_set_size(header, LV_PCT(100), POCKETUI_HEADER_H);
+    lv_obj_set_size(header, LV_PCT(100),
+                    header_h_for(pocketui_display_geometry()->width >
+                                 pocketui_display_geometry()->height));
+    app_header = header;
 
     app_body = lv_obj_create(app_root);
     lv_obj_remove_style_all(app_body);
@@ -290,6 +316,7 @@ static void app_stop(void)
     lv_obj_delete(app_root);
     app_root = NULL;
     app_body = NULL;
+    app_header = NULL;
     pump(60);
 }
 
@@ -626,6 +653,25 @@ static int rows_in_view(lv_obj_t *scroll)
         }
     }
     return n;
+}
+
+/* The thread's scrolling area as a share of the whole display: how much of
+ * the screen is messages (DS §37.2 is measured by this). */
+static double thread_share(lv_obj_t *scroll)
+{
+    lv_area_t a;
+    int32_t dw = lv_display_get_horizontal_resolution(disp);
+    int32_t dh = lv_display_get_vertical_resolution(disp);
+
+    if (!scroll) {
+        return 0;
+    }
+    lv_obj_update_layout(scroll);
+    lv_obj_get_content_coords(scroll, &a);
+    printf("     thread area: %dx%d of %dx%d = %.1f%%\n", (int)lv_area_get_width(&a),
+           (int)lv_area_get_height(&a), (int)dw, (int)dh,
+           100.0 * lv_area_get_width(&a) * lv_area_get_height(&a) / ((double)dw * dh));
+    return 100.0 * lv_area_get_width(&a) * lv_area_get_height(&a) / ((double)dw * dh);
 }
 
 static int count_visible_of_height(lv_obj_t *obj, int32_t height)
@@ -1353,11 +1399,40 @@ static void scale_session(void)
     }
     rift_app_show_section(app, RIFT_SEC_COMMS);
     pump(120);
-    list = ancestor(find_exact(content(), "PEER-00"), 3);
-    check("every conversation is a row", list && lv_obj_get_child_count(list) ==
-                                                     (uint32_t)RIFT_MAX_CONVERSATIONS);
+    /* Newest first: the last peer spoke last and heads the list; PEER-00
+     * spoke first and is at its foot, a screenful and more down. */
+    {
+        char top_peer[16];
+
+        snprintf(top_peer, sizeof(top_peer), "PEER-%02d", RIFT_MAX_CONVERSATIONS - 1);
+        list = ancestor(find_exact(content(), top_peer), 3);
+        printf("     %d conversations: %d rows built, top row %s\n", RIFT_MAX_CONVERSATIONS,
+               rift_comms_rows_built(app), list ? "found" : "NOT FOUND");
+    }
+    check("every conversation is in the list", list && rift_comms_rows_built(app) > 0 &&
+                                                   lv_obj_get_scroll_bottom(list) > 0);
+    if (!list) {
+        /* Nothing below can be asked of a list that is not there, and an
+         * LVGL call on NULL halts for ever (LV_ASSERT_HANDLER). */
+        check("the conversation list is there to be tested", 0);
+        app_stop();
+        return;
+    }
+    check("which builds rows for the screen, not for the peers",
+          rift_comms_rows_built(app) <= 40 && rift_comms_rows_built(app) < RIFT_MAX_CONVERSATIONS);
+    printf("     %d conversations, %d rows built (portrait)\n", RIFT_MAX_CONVERSATIONS,
+           rift_comms_rows_built(app));
     check("with nothing open the list takes the height",
           list && lv_obj_get_height(list) >= 20 * RIFT_ROW_H);
+    check("and the oldest is not built until it is scrolled to",
+          find_exact(content(), "PEER-00") == NULL);
+    lv_obj_scroll_to_y(list, LV_COORD_MAX, LV_ANIM_OFF);
+    pump(80);
+    check("the oldest conversation is reached by scrolling",
+          find_exact(content(), "PEER-00") && within(find_exact(content(), "PEER-00"), list));
+    check("with no more rows built for it", rift_comms_rows_built(app) <= 40);
+    lv_obj_scroll_to_y(list, 0, LV_ANIM_OFF);
+    pump(60);
     shot("portrait-comms-many");
     rift_app_open_conversation(app, key_of(10, 0x40));
     pump(120);
@@ -1385,7 +1460,15 @@ static void scale_session(void)
         }
         check("a message that re-orders the list rebuilds no row", kept &&
                                                                  lv_obj_get_child_count(list) == n);
-        check("and its conversation is the top row now", find_exact(kid(list, 0), "PEER-40") != NULL);
+        /* The pool's objects keep their order in the tree; which row is at
+         * the top is where it was placed, not which child it is - and the
+         * top is only built once the list is scrolled to it, which it was
+         * not while the open conversation was revealed near the foot. */
+        lv_obj_scroll_to_y(list, 0, LV_ANIM_OFF);
+        pump(80);
+        check("and its conversation is the top row now",
+              find_exact(list, "PEER-40") &&
+                  lv_obj_get_y(ancestor(find_exact(list, "PEER-40"), 2)) <= 2);
     }
 
     /* A long history with one peer: 200 messages, the window at its end. */
@@ -1445,6 +1528,7 @@ static void scale_session(void)
         lv_obj_scroll_to_y(scroll, LV_COORD_MAX, LV_ANIM_OFF);
         pump(60);
         printf("     portrait thread: %d messages whole on screen\n", rows_in_view(scroll));
+        thread_share(scroll);
     }
     /* The same long thread turned: the landscape thread pane has 354 px
      * under the strip less its header and the command line, and DS §37.2
@@ -1460,12 +1544,34 @@ static void scale_session(void)
         check("turned, the long thread is read at its end", newest && within(newest, scroll));
         rows = rows_in_view(scroll);
         printf("     landscape thread: %d messages whole on screen\n", rows);
-        check("and shows at least a dozen one-line messages above the composer", rows >= 12);
-        /* The thread's root is the thread pane's one child; its header row
-         * is the root's first. */
+        /* The console shape (DS §37.2): no shell header, a data-row strip
+         * with the way back in it, a narrow list, a one-line thread header,
+         * the details pane closed, a short command line. The thread has
+         * more than half the display, and shows more than half again the
+         * eleven messages the handoff's layout showed. */
+        check("and shows at least sixteen one-line messages above the composer", rows >= 16);
+        check("the thread is more than half the display", thread_share(scroll) > 50.0);
         check("its header is a header row, not a data row",
               lv_obj_get_height(kid(kid(thread_pane(), 0), 0)) == RIFT_HEADER_ROW_H);
+        check("the strip is a data row in landscape", lv_obj_get_height(strip()) == RIFT_ROW_H);
+        check("with the way back in it", app->back && visible(app->back) &&
+                                             within(app->back, strip()));
+        check("and the command line is one too", lv_obj_get_height(cmdline()) == RIFT_ROW_H);
+        check("the details pane is closed", !app->details_open &&
+                                                find_text(content(), "OF 67 SENT") == NULL);
+        check("and the header says how to open it", find_text(content(), "DETAILS") != NULL);
+        check("nothing has moved off the body", inside_body(content()) && inside_body(strip()) &&
+                                                    inside_body(cmdline()));
         shot("landscape-comms-long");
+        {
+            int home_before = home_calls;
+
+            tap(app->back);
+            check("the back slab goes home", home_calls == home_before + 1);
+            /* A reader's press, not the app's doing: the count the final
+             * check reads is of the app sending the shell home on its own. */
+            home_calls = home_before;
+        }
     }
     use_display(POS_ROTATION_0, PANEL_CORNER);
     pump(120);
@@ -1557,8 +1663,8 @@ int main(void)
           find_text(strip(), "ACTIVITY") && find_text(strip(), "NODES") &&
               find_text(strip(), "COMMS") && find_text(strip(), "NET"));
     check("each of them is a 56 px target",
-          lv_obj_get_height(kid(strip(), 0)) == RIFT_TOUCH_H &&
-              lv_obj_get_height(kid(strip(), 3)) == RIFT_TOUCH_H);
+          lv_obj_get_height(tab(0)) == RIFT_TOUCH_H &&
+              lv_obj_get_height(tab(3)) == RIFT_TOUCH_H);
     check("ACTIVITY is the section it opens on", app->section == RIFT_SEC_ACTIVITY);
     /* With no meshcored the app must say so, and must not draw a mesh. */
     check("with no service the state is drawn as absent",
@@ -1769,7 +1875,7 @@ int main(void)
     }
 
     /* ---- NODES, portrait ---------------------------------------------- */
-    tap(kid(strip(), 1));
+    tap(tab(1));
     check("tapping NODES opens it", app->section == RIFT_SEC_NODES);
     check("the column header is there", find_text(content(), "HOPS") != NULL);
     check("the fresh group is labelled with its count",
@@ -1911,11 +2017,11 @@ int main(void)
         /* DS §17.5: any other way out is Cancel. A confirmation left up
          * behind the reader is a FORGET armed for whoever comes back. */
         tap(forget);
-        tap(kid(strip(), 0));
+        tap(tab(0));
         pump(60);
         check("leaving NODES with FORGET asking closes the detail",
               app->section == RIFT_SEC_ACTIVITY && !app->detail_open);
-        tap(kid(strip(), 1));
+        tap(tab(1));
         rift_app_open_detail(app, 1);
         pump(60);
         check("and coming back finds the actions, not the question",
@@ -2042,7 +2148,7 @@ int main(void)
     pump(60);
 
     /* ---- COMMS, in portrait --------------------------------------------- */
-    tap(kid(strip(), 2));
+    tap(tab(2));
     check("COMMS is reachable", app->section == RIFT_SEC_COMMS);
     check("before the service has answered it says it is waiting",
           find_text(content(), "Waiting for meshcored") != NULL);
@@ -2358,7 +2464,7 @@ int main(void)
      * messages, so a node nobody had written to could not be written to.
      * NODES -> select -> MESSAGE now opens the conversation, and it opens
      * empty: no history is invented for it. */
-    tap(kid(strip(), 1));
+    tap(tab(1));
     pump(60);
     check("NODES again", app->section == RIFT_SEC_NODES);
     rift_app_select(app, KEY_C);
@@ -2414,11 +2520,11 @@ int main(void)
         }
     }
 
-    tap(kid(strip(), 3));
+    tap(tab(3));
     check("NET is reachable", app->section == RIFT_SEC_NET);
     check("and is the one section that says it is not in this build",
           find_text(content(), "not in this build") != NULL);
-    tap(kid(strip(), 1));
+    tap(tab(1));
     check("and NODES comes back", app->section == RIFT_SEC_NODES);
 
     /* ---- the same app, turned ------------------------------------------ */
@@ -2496,11 +2602,11 @@ int main(void)
         check("so nothing is pushed", !app->detail_open);
         check("and nothing is sent", !rift_model_sending(&app->model) &&
                                          !app->model.outbox.failed);
-        tap(kid(strip(), 1));
+        tap(tab(1));
         pump(60);
     }
 
-    tap(kid(strip(), 0));
+    tap(tab(0));
     check("ACTIVITY is laid out in landscape too", app->section == RIFT_SEC_ACTIVITY);
     check("with the same four panels", find_text(content(), "RADIO SERVICE") != NULL &&
                                            find_text(content(), "THIS DEVICE") != NULL &&
@@ -2518,19 +2624,28 @@ int main(void)
     shot("landscape-activity");
 
     /* ---- COMMS, turned --------------------------------------------------- */
-    tap(kid(strip(), 2));
+    tap(tab(2));
     pump(80);
     check("COMMS splits too", app->section == RIFT_SEC_COMMS && app->wide);
     check("the list is on the left", find_text(content(), "HYTTA") != NULL);
     rift_app_open_conversation(app, KEY_B);
     pump(80);
     check("and the thread beside it", find_text(content(), "Fint, ser deg") != NULL);
+    /* The details pane is not there until asked for (DS §37.2): the thread
+     * has its width, and the header line carries the route compressed. */
+    check("the details pane is closed by default",
+          !app->details_open && find_text(content(), "OF 2 SENT") == NULL);
+    check("and the header carries the route", find_text(thread_pane(), "OSLO-01") != NULL);
+    check("and says how to open the pane", find_text(thread_pane(), "DETAILS") != NULL);
+    tap(kid(kid(thread_pane(), 0), 0));
+    check("a tap on the header opens it", app->details_open);
     check("with the route pane's own heading", find_text(content(), "ROUTE") != NULL);
     /* The route pane's, not the conversation list's column header. */
     check("drawn whole", caption_unclipped_in(kid(kid(content(), 2), 2), "ROUTE"));
     check("the delivery tally is this app's arithmetic, and says what it counts",
           find_text(content(), "OF 2 SENT") != NULL);
     check("everything is inside the turned body", inside_body(content()));
+    shot("landscape-comms-details");
 
     /* The same pane, for a channel. There is no chain to draw and no
      * delivery to count, and it says so rather than drawing an empty one. */
@@ -2574,6 +2689,12 @@ int main(void)
         check("the newest message is in view above the composer",
               newest && within(newest, ancestor(newest, 4)));
     }
+    /* Closed again with the same tap, and the thread has its width back. */
+    tap(kid(kid(thread_pane(), 0), 0));
+    check("a second tap on the header closes the details pane",
+          !app->details_open && find_text(content(), "OF 2 SENT") == NULL);
+    check("and the thread pane is most of the width",
+          lv_obj_get_width(thread_pane()) > lv_obj_get_width(content()) * 3 / 4);
     shot("landscape-comms");
     {
         /* The same, isolated from the thread's own re-scroll: in the one
@@ -2660,11 +2781,11 @@ int main(void)
 
     /* Leaving the conversation takes the composer away again: a command line
      * that still offered to send would be addressing nobody. */
-    tap(kid(strip(), 1));
+    tap(tab(1));
     pump(80);
     check("leaving COMMS puts the caption back",
           !visible(lv_obj_get_parent(app->composer)));
-    tap(kid(strip(), 2));
+    tap(tab(2));
     pump(80);
 
     use_display(POS_ROTATION_0, PANEL_CORNER);

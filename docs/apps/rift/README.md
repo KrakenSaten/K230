@@ -29,9 +29,10 @@ tokens — RIFT names no colour of its own (`tests/style_lint.sh`).
 | `portrait-comms-channel-thread.png` | `rift_app_test` | a channel thread: the body without the sender's prefix, the claimed sender marked `?`, and `NO ACK ON CHANNELS` under ours |
 | `landscape-nodes.png` | `rift_app_test` | the landscape split: the list beside the selected node's detail, whose actions are under its title; the key hints in the strip |
 | `landscape-activity.png` | `rift_app_test` | ACTIVITY in two columns, THIS DEVICE and its ADVERT buttons at the head of the right one |
-| `landscape-comms.png` | `rift_app_test` | COMMS in three panes — list, thread, route — with the command line as the composer and the newest message above it |
-| `landscape-comms-channel.png` | `rift_app_test` | the same for a channel: no route to draw, and a tally that counts what was sent and claims no delivery |
-| `landscape-comms-long.png` | `rift_app_test` | a 200-message thread turned: the 28 px header and 2 px between messages of DS §37.2 - 14 whole messages above the composer where there were 11 - and the identity marks on the conversation rows |
+| `landscape-comms.png` | `rift_app_test` | COMMS as a console (DS §37.2): no shell header, the strip a data row with the way back in it, a narrow list, the thread with the width, its one-line header carrying the route, the details pane closed, and the short command line as the composer with the newest message above it |
+| `landscape-comms-details.png` | `rift_app_test` | the same with the details pane opened by a tap on the thread's header: the route whole, the signal, the delivery tally, the history note |
+| `landscape-comms-channel.png` | `rift_app_test` | a channel with the details pane open: no route to draw, and a tally that counts what was sent and claims no delivery |
+| `landscape-comms-long.png` | `rift_app_test` | a 200-message thread turned, the console shape at full stretch: the whole messages above the composer counted in the test log against the 11 the handoff's layout showed, and the identity marks on the conversation rows |
 | `portrait-activity-traffic.png` | `rift_app_test` | MESH ACTIVITY scrolled to its graph: the last twenty minutes a bar each, MSG over ADV over OTHER, the legend in words, and the feed under it |
 | `landscape-nodes-256.png` | `rift_app_test` | NODES with every node the cache holds (a thousand now, the name is the file's history), the identity mark on every chat node, and the detail pane beside them |
 | `portrait-comms-many.png` | `rift_app_test` | every conversation the list holds (128) with nothing open: the list takes the height |

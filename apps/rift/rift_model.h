@@ -98,10 +98,10 @@
  * 610 bytes: a session's worth on a busy channel, for about 310 KB. */
 #define RIFT_MAX_MESSAGES 512
 /* Distinct conversations tracked: the rows COMMS can list and the read
- * marks kept. Part of the message history's bounds. 128 is twice what a
- * conversation list of one row each can usefully show, and each costs a
- * read mark here and a row of nine objects there only when it exists. */
-#define RIFT_MAX_CONVERSATIONS 128
+ * marks kept. Part of the message history's bounds. 256: a read mark each
+ * here (about 100 bytes), and on screen a list that builds rows only for
+ * what is visible (ui/rift_conv_list.c), so the count costs no objects. */
+#define RIFT_MAX_CONVERSATIONS 256
 /* How many recent direct-message arrivals are remembered to recognise a
  * retransmission (rift_model_apply_live_message). */
 #define RIFT_DM_RECENT 8

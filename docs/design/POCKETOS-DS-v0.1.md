@@ -3233,29 +3233,61 @@ stopped building a row per node.
 
 ### 37.1 Scope
 
-RIFT only. The Doors chrome (§30, §36), the shell's 72 px app header, the
-handoff's 56 px section strip and 56 px command line, the 36 px data row,
-every other RIFT screen's layout, and the radio and MeshCore protocol logic
-are unchanged. Portrait is unchanged in what it shows and how many messages
-fit (27 whole in the 200-message fixture, before and after).
+RIFT only, and one declaration in the shell (§37.2, the app header). The
+status chrome (§30, §36), the 36 px data row, every other RIFT screen's
+layout, and the radio and MeshCore protocol logic are unchanged. Portrait is
+unchanged in what it shows and how many messages fit (27 whole in the
+200-message fixture, before and after); the shell's header, the 56 px strip
+and the 56 px composer stay there.
 
-### 37.2 Landscape COMMS density
+### 37.2 Landscape COMMS: a console
 
-- **The thread's header is a header row in landscape**: 28 px (handoff §4
-  "row header / group label"), where it was the 36 px data row it still is
-  in portrait, where a finger lands on it. In landscape it is read, never
-  tapped.
-- **2 px between messages in landscape** (`MSG_GAP_WIDE`), 6 px in portrait
-  as before. A message stays a body and one caption line - `age · state ·
-  evidence` - sharing the body's line when both fit.
-- Measured in `tests/rift_app_test.c` on the 200-message fixture: **14
-  whole one-line messages above the composer where there were 11** (the
-  same count in the same pane, before and after); portrait 27 both times.
-  `docs/apps/rift/landscape-comms-long.png` is the frame.
-- Not taken: the strip and the command line stay 56 px (RIFT-DEV-1: primary
-  navigation and actions stay ≥ 56), the body type stays sans 16, the list
-  and route panes keep their widths (handoff §9). Each was a further row or
-  two; each is a decision the owner has not made.
+The owner's brief, on a marked-up screenshot: the thread must dominate; the
+empty top band, the summary strip, the permanent route pane and the 56 px
+composer are dead space. So in landscape COMMS is a radio console - a narrow
+list, the thread, a one-line header, a short composer - and nothing is on
+screen all the time that is not messages or the way to them.
+
+- **No shell header in landscape.** `struct pocketos_app` gains `header`
+  (`POCKETOS_HEADER_NONE_LANDSCAPE`, appended and zero by default): the shell
+  builds no 72 px app header for an app that declares it, in landscape only,
+  and the app draws its own top row with its own way back. RIFT declares it;
+  no other app does, and portrait keeps the shell's header everywhere.
+- **The strip is the app's top row**: data-row height (36) in landscape, a
+  back slab (56 × 32, the shell's glyph, `pocketos_shell_go_home`) at its
+  left, the four tabs, the counts caption at its right. The tabs are 36 px
+  targets there, against RIFT-DEV-1's 56 for navigation: the owner's call,
+  in the brief, for the shape where a keyboard base is attached and the
+  tabs are also Esc and the arrows. Portrait keeps the 56 px strip.
+- **The list is narrow**: 260 px (`LIST_W_WIDE`; was 372), showing the
+  identity mark, the glyph, the name, the unread pill and the age; the
+  preview and the route are the thread's header's. The list is virtual
+  (§37.5).
+- **The thread's header is one line**, 28 px (handoff §4 "row header"):
+  glyph, name, state, the route compressed as the hop strip compresses it
+  (`K230-A › OSLO-01 › … +5 › HYTTA`), `N EARLIER`, and `DETAILS ›`.
+- **The details pane is closed until asked for.** A tap on the thread's
+  header opens the 300 px pane the handoff kept permanently - the route
+  whole, the signal, the delivery tally, the history note - and a second
+  tap closes it; `DETAILS ‹` says which. It closes on a change of shape.
+  Nothing in it is needed to read or write: the header has the route and
+  every message its own state.
+- **The command line is a data row**: 36 px, its field 32 px with 4 px of
+  padding around the line of type (the single-line field's 64 px and DS
+  §17.1's 16 px padding stay in portrait, where a finger types into it).
+- **2 px between messages** (`MSG_GAP_WIDE`), 6 px in portrait. A message
+  stays a body and one caption line - `age · state · evidence` - sharing
+  the body's line when both fit.
+- Measured in `tests/rift_app_test.c` on the 200-message fixture, in the
+  same pane counted the same way before and after (§37.6): the thread's
+  scrolling area was 23.6 % of the display and is 54.3 %; **17 whole
+  one-line messages above the composer where there were 11**;
+  portrait 27 both times. `docs/apps/rift/landscape-comms-long.png` and
+  `landscape-comms.png` are the frames, `landscape-comms-details.png` the
+  pane open.
+- Not taken: the body type stays sans 16 and the tabs stay in a row of
+  their own rather than in the thread's header; each is a further row and a
+  decision the owner has not made.
 
 ### 37.3 Identity accents
 
@@ -3327,7 +3359,7 @@ On ACTIVITY, at the head of MESH ACTIVITY, in both orientations
 | | was | is | why this and not more |
 | --- | --- | --- | --- |
 | nodes (`RIFT_MAX_NODES`) | 256 | **1000** | 832 B a node, 832 KB; a repaint 0.53 ms and the order 0.16 ms on the host (§37.6). The service holds 256 (KNOWN_ISSUES). |
-| conversations (`RIFT_MAX_CONVERSATIONS`) | 64 | **128** | a read mark each, a row of nine objects each only when it exists; the COMMS list is not virtual, and 128 rows is where a repaint of it starts to be the cost |
+| conversations (`RIFT_MAX_CONVERSATIONS`) | 64 | **256** | a read mark each (about 100 B) and a 200 B copy in the list; the list is virtual now (`ui/rift_conv_list.c`, a pool of at most 40 rows over a spacer, like NODES), so 256 costs no objects and no repaint - the same 27 rows are built for 5 or 256 in portrait |
 | messages (`RIFT_MAX_MESSAGES`) | 256 | **512** | 608 B a message, 311 KB; the thread window (`RIFT_THREAD_ROWS` 64) is unchanged |
 
 The list stays virtual (31 rows in portrait, 35 in landscape, whatever the
@@ -3341,13 +3373,15 @@ binary search over its sorted keys rather than a walk of it per held node.
 
 | | before (256 / 64 / 256) | after (1000 / 128 / 512) |
 | --- | --- | --- |
-| landscape thread, whole one-line messages | 11 | 14 |
-| portrait thread, the same | 27 | 27 |
-| NODES repaint, every node held | 0.29 ms | 0.53 ms (31 rows built both times) |
+| landscape thread, whole one-line messages | 11 | **17** (14 with the first round's spacing alone) |
+| landscape thread area, share of the display | 23.6 % (520 × 318) | **54.3 %** (932 × 408) |
+| portrait thread, the same | 27, 56.5 % | 27, 56.5 % |
+| NODES repaint, every node held | 0.29 ms | 0.5–0.9 ms (31 rows built both times) |
 | ordering every node | — | 0.16 ms |
-| `struct rift_model` | ~365 KB | 1132 KB |
-| test process max RSS | 11.5 MB | 11.8 MB |
-| COMMS repaint, 200-message thread open | 2.8 ms | 6.1 ms (128 conversation rows rebound, was 64) |
+| `struct rift_model` | ~365 KB | 1142 KB |
+| test process max RSS | 11.5 MB | 12.0 MB |
+| conversation rows built for 256 conversations, portrait | one each (would be 256) | 27 |
+| COMMS repaint, 200-message thread open | 2.8 ms | 9.9 ms (the header's route chain and 27 pooled rows rebound each pass) |
 
 The C908 is slower by a factor nobody has measured; nothing in §37 has run
 on a board.

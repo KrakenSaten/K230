@@ -170,6 +170,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/rift_dm_sound.c
     ${REPO_DIR}/apps/rift/rift_arrivals.c
     ${REPO_DIR}/apps/rift/rift_traffic.c
+    ${REPO_DIR}/apps/rift/rift_strip.c
     ${REPO_DIR}/apps/rift/ui/rift_widgets.c
     ${REPO_DIR}/apps/rift/ui/rift_graph.c
     ${REPO_DIR}/apps/rift/ui/rift_activity.c
@@ -177,6 +178,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/ui/rift_node_row.c
     ${REPO_DIR}/apps/rift/ui/rift_detail.c
     ${REPO_DIR}/apps/rift/ui/rift_comms.c
+    ${REPO_DIR}/apps/rift/ui/rift_conv_list.c
     ${REPO_DIR}/apps/rift/ui/rift_thread.c
     ${REPO_DIR}/apps/timber/timber_app.c
     ${REPO_DIR}/apps/timber/timber_store.c
@@ -1006,6 +1008,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/rift_dm_sound.c
         ${REPO_DIR}/apps/rift/rift_arrivals.c
         ${REPO_DIR}/apps/rift/rift_traffic.c
+        ${REPO_DIR}/apps/rift/rift_strip.c
         ${REPO_DIR}/apps/rift/ui/rift_widgets.c
         ${REPO_DIR}/apps/rift/ui/rift_graph.c
         ${REPO_DIR}/apps/rift/ui/rift_activity.c
@@ -1013,6 +1016,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/ui/rift_node_row.c
         ${REPO_DIR}/apps/rift/ui/rift_detail.c
         ${REPO_DIR}/apps/rift/ui/rift_comms.c
+        ${REPO_DIR}/apps/rift/ui/rift_conv_list.c
         ${REPO_DIR}/apps/rift/ui/rift_thread.c
         ${REPO_DIR}/core/pocketipc/pocketipc.c
         ${REPO_DIR}/core/pocketpaths.c

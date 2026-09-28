@@ -33,6 +33,13 @@ enum pocketos_chrome {
     POCKETOS_CHROME_NONE,
 };
 
+/* The app header row (app.h `header`): the shell's in both orientations,
+ * or the app's own in landscape (DS §37.2). */
+enum pocketos_header {
+    POCKETOS_HEADER_DEFAULT = 0,
+    POCKETOS_HEADER_NONE_LANDSCAPE,
+};
+
 /* Resolve a declaration into what the screen gets; never DEFAULT.
  *   home:      the shell's own screens (launcher, Controls), which always
  *              show the cluster (DS §36.2).

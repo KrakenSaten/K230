@@ -71,6 +71,12 @@ struct rift_thread {
     lv_obj_t *glyph;
     lv_obj_t *who;
     lv_obj_t *state;
+    /* Landscape only (DS §37.2): the route compressed onto the header line,
+     * and the word that opens or closes the details pane beside the thread.
+     * The header is the tap target for it there; in portrait neither is
+     * shown and the header takes no taps. */
+    lv_obj_t *route;
+    lv_obj_t *details;
     lv_obj_t *earlier;
     lv_obj_t *scroll;
     lv_obj_t *note;
@@ -497,6 +503,17 @@ static int shifted_by(const struct rift_thread *t, const struct rift_message *co
     return drop;
 }
 
+/* A tap on the landscape header: the details pane beside the thread, on or
+ * off. It sends nothing and changes nothing but what is shown. */
+static void on_head(lv_event_t *e)
+{
+    struct rift_thread *t = lv_event_get_user_data(e);
+
+    if (t->app->wide) {
+        rift_app_toggle_details(t->app);
+    }
+}
+
 /* ---- the public entry points ---------------------------------------------- */
 
 struct rift_thread *rift_thread_create(struct rift_app *app, lv_obj_t *parent)
@@ -519,9 +536,17 @@ struct rift_thread *rift_thread_create(struct rift_app *app, lv_obj_t *parent)
     t->glyph = rift_glyph_create(t->head);
     t->who = rift_cell(t->head, POS_STYLE_ROW_TITLE, 0, LV_TEXT_ALIGN_LEFT);
     t->state = rift_cell(t->head, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_flex_grow(t->state, 1);
-    lv_obj_set_width(t->state, 1);
+    /* The route takes what the header has left in landscape; in portrait
+     * the state does, as before. */
+    t->route = rift_cell(t->head, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_flex_grow(t->route, 1);
+    lv_obj_set_width(t->route, 1);
+    lv_obj_add_flag(t->route, LV_OBJ_FLAG_HIDDEN);
     t->earlier = rift_cell(t->head, POS_STYLE_CAPTION, 96, LV_TEXT_ALIGN_RIGHT);
+    t->details = rift_cell(t->head, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_RIGHT);
+    pos_style_add(t->details, POS_STYLE_ACCENT_TEXT, 0);
+    lv_obj_add_flag(t->details, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(t->head, on_head, LV_EVENT_CLICKED, t);
 
     t->scroll = lv_obj_create(t->root);
     lv_obj_remove_style_all(t->scroll);
@@ -570,6 +595,22 @@ void rift_thread_shape(struct rift_thread *t, int wide)
     lv_obj_set_height(t->head, wide ? HEAD_H_WIDE : RIFT_ROW_H);
     for (int i = 0; i < t->row_count; i++) {
         lv_obj_set_style_pad_bottom(t->row[i].slot, wide ? MSG_GAP_WIDE : MSG_GAP, 0);
+    }
+    /* The one-line header of landscape: who, how, the route, how much is
+     * earlier, and the word for the details pane; a tap on it turns that
+     * pane over. Portrait has no pane and the header takes no taps. */
+    if (wide) {
+        lv_obj_set_flex_grow(t->state, 0);
+        lv_obj_set_width(t->state, LV_SIZE_CONTENT);
+        lv_obj_remove_flag(t->route, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(t->details, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(t->head, LV_OBJ_FLAG_CLICKABLE);
+    } else {
+        lv_obj_set_flex_grow(t->state, 1);
+        lv_obj_set_width(t->state, 1);
+        lv_obj_add_flag(t->route, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(t->details, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(t->head, LV_OBJ_FLAG_CLICKABLE);
     }
     t->shape_valid = 0;
 }
@@ -734,6 +775,32 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
         } else {
             lv_label_set_text(t->earlier, "");
         }
+    }
+    if (t->wide) {
+        /* The route on the header line, compressed as the hop strip's chain
+         * is (both ends kept, the middle counted), so the details pane is
+         * not needed to know how a peer is reached; the pane has the
+         * chain whole, the signal and the tally for whoever asks. */
+        char route[RIFT_CHAIN_MAX];
+        int slot = peer ? rift_key_is_channel(peer) : -1;
+        const struct rift_node *n = (peer && slot < 0) ? rift_model_find(m, peer) : NULL;
+
+        route[0] = '\0';
+        if (n && n->path_known && !n->direct) {
+            struct rift_path p;
+            char label[RIFT_LABEL_MAX];
+            const char *self =
+                (m->have_identity && m->self_name[0]) ? m->self_name : "this device";
+
+            if (rift_path_parse(n, &p) == 0) {
+                rift_fmt_label(n, label, sizeof(label));
+                rift_path_chain(self, &p, label, rift_app_resolve, a, route, sizeof(route));
+            }
+        }
+        rift_cell_set_text_fit(t->route, route);
+        lv_label_set_text(t->details, !peer ? ""
+                                      : a->details_open ? "DETAILS \xE2\x80\xB9"
+                                                        : "DETAILS \xE2\x80\xBA");
     }
 
     refusal = rift_thread_refusal(a);
