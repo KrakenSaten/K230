@@ -68,7 +68,8 @@ PROPOSED).
 
 No OCR, segmentation, pose, faces, recognition of people, recording,
 network or cloud. No settings: one model, one input size, one confidence
-threshold (0.35, the vendor's default), the lines in a few fixed places,
+threshold (0.35, the vendor's default; in TRAFFIC 0.25 for motor
+vehicles, see below), the lines in a few fixed places,
 the distance from a short list. Nothing is stored: the counts and speeds
 live as long as the screen is open. No speed is ever inferred from how
 fast a box moves on the picture.
@@ -77,12 +78,26 @@ fast a box moves on the picture.
 
 MODE: TRAFFIC. What changes, all of it in the helper and the app's words:
 
-- **Only traffic is tracked.** After suppression, detections whose class
+- **Only traffic is tracked.** Before suppression, detections whose class
   name is not one of `car`, `truck`, `bus`, `motorcycle`, `bicycle`,
-  `person` are dropped before the tracker sees them, so a chair never
-  takes a track slot or a count. The mapping is by the detector's class
+  `person` are dropped, so a chair never takes a track slot or a count
+  (suppression is per class, so dropping them first changes nothing
+  else). The mapping is by the detector's class
   names (`vision_traffic_map_names`), not by COCO indices: another
   detector with the same names drops in.
+- **Distant motor vehicles pass at 0.25.** A car on a road 35 m away is a
+  few pixels of the model's input (the letterbox halves the frame: a
+  24 x 10 px car is 12 x 5 model px) and scores under 0.35. In TRAFFIC a
+  car, truck, bus or motorcycle between 0.25 (the detector's own default,
+  Ultralytics' predict conf) and 0.35 is kept - but only added after the
+  0.35 detections have been through suppression, and only where it
+  overlaps, contains or lies inside none of them (`vision_nms_add_weak`).
+  So a weak box never replaces, suppresses or swallows a stronger one: a
+  low "car" band across the road cannot take a real car's place, which the
+  nested-box rule alone would let it do. People and bicycles keep 0.35;
+  DETECT is unchanged. `pos-vision bench` shows every vehicle candidate
+  from 0.10 with its size in frame and model pixels and which threshold
+  (DETECT's, TRAFFIC's) takes it, and ends with the tally.
 - **A vehicle keeps its track when the detector changes its mind.** The
   tracker matches across a class group - car, truck and bus are one group,
   motorcycle and bicycle another, a person is only a person - and the
@@ -211,10 +226,10 @@ synchronously, in this order:
 | Into AI2D memory | `vision_kpu_nncase.cpp` | the frame is copied (691 KB) into a tensor from the runtime's shared pool and written back from the cache. A V4L2 buffer cannot be handed to AI2D directly: the runtime needs a physical address it does not have for an MMAP buffer. This is the one copy of a frame in the pipeline (the vendor's demo makes the same one, of a 2.7 MB frame). |
 | Preprocess | AI2D, hardware | resize into the top-left of 320 x 320 keeping the aspect (0.5 x: 320 x 180), pad the rest with 114 - the vendor's `padding_resize_one_side_set`. |
 | Infer | KPU, through the nncase interpreter | one run; the first output mapped and its 2100 x 84 floats copied out. |
-| Decode | `vision_decode.c` | per row: the best class score, the threshold (0.35), the box centre and size back through the letterbox ratio, clipped to the frame; NaN, infinities, empty and absurd boxes skipped and counted; a tensor of the wrong shape refused before a value is read. At most 256 candidates, the best kept. |
+| Decode | `vision_decode.c` | per row: the best class score, the threshold (0.35; 0.25 in TRAFFIC, where only motor vehicles may pass below 0.35), the box centre and size back through the letterbox ratio, clipped to the frame; NaN, infinities, empty and absurd boxes skipped and counted; a tensor of the wrong shape refused before a value is read. At most 256 candidates, the best kept. |
 | Suppress | `vision_nms.c` | class-aware greedy NMS at IoU 0.65 (the vendor's default), at most 32 detections. |
 | Nested | `vision_nms.c` | a box at least 85 % inside a larger box of its class is the same object seen twice (a partial box beside the whole one) and is dropped; unit B counted a walker twice without this. |
-| Filter | `vision_traffic.c` | in TRAFFIC mode only: detections of a class with no traffic name are dropped here. |
+| Filter | `vision_traffic.c`, `vision_nms.c` | in TRAFFIC mode only, before suppression: detections of a class with no traffic name are dropped; those at 0.35 or better are suppressed and nested as above; motor vehicles between 0.25 and 0.35 are suppressed among themselves and then added only where they touch none of those (`vision_nms_add_weak`). |
 | Track | `vision_track.c` | greedy IoU matching (0.2) against each track's prediction (last box + smoothed motion), same class or same group, and an area within 2x of the track's (3x after a dropout: a box that suddenly spans half the picture is another object, or a merge); then a distance pass for confirmed tracks the overlap lost (same size, within 3/4 of a box side); new ids for the unmatched; coasting with decaying motion, expiry after 15 misses; confirmation after 2 sightings; 32 tracks at most. Frame pixels throughout. |
 | Count | `vision_line.c` | the lines, chosen on the picture, unmapped into frame pixels (`vision_geom.c`) and checked against every seen track's centre, with the dead band and the two-sighting settle; crossings reported by id. |
 | Traffic | `vision_traffic.c` | the count line's crossings per class; the speed lines' crossings timed per track. |

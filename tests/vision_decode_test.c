@@ -293,6 +293,37 @@ static void test_nms(void)
     check("nothing in, nothing out", vision_nms_nested(c, 0, 850) == 0);
 }
 
+/* TRAFFIC's weak vehicles (vision_nms_add_weak): a distant car below the
+ * general threshold is added, but never at the cost of a stronger box. */
+static void test_add_weak(void)
+{
+    struct vision_det d[8];
+    struct vision_det w[8];
+    int n;
+
+    memset(d, 0, sizeof(d));
+    memset(w, 0, sizeof(w));
+    d[0] = (struct vision_det) { { 100, 200, 60, 30 }, 2, 700 };  /* a near car */
+    d[1] = (struct vision_det) { { 300, 100, 40, 80 }, 0, 600 };  /* a person */
+    w[0] = (struct vision_det) { { 500, 150, 24, 10 }, 2, 300 };  /* a far car, alone */
+    w[1] = (struct vision_det) { { 102, 201, 60, 30 }, 2, 280 };  /* the near car again */
+    w[2] = (struct vision_det) { { 0, 150, 640, 120 }, 2, 270 };  /* a band over the near car */
+    w[3] = (struct vision_det) { { 110, 205, 20, 12 }, 2, 260 };  /* a part of the near car */
+    w[4] = (struct vision_det) { { 300, 100, 40, 80 }, 2, 260 };  /* a car where the person is */
+    n = vision_nms_add_weak(d, 2, w, 5, 650, 850, 8);
+    check("a far car nothing else saw is added after the strong boxes",
+          n == 4 && d[2].box.x == 500 && d[2].conf == 300);
+    check("the strong boxes are untouched, in their order",
+          d[0].box.x == 100 && d[0].conf == 700 && d[1].cls == 0 && d[1].conf == 600);
+    check("a weak box overlapping, containing or inside a strong one of its class is left out",
+          n == 4 && d[3].box.x == 300 && d[3].cls == 2);
+    check("but a weak car where a person is still counts (another class)", n == 4 && d[3].conf == 260);
+    n = vision_nms_add_weak(d, 2, w, 5, 650, 850, 3);
+    check("the total is bounded", n == 3 && d[2].box.x == 500);
+    check("no weak boxes, nothing changes", vision_nms_add_weak(d, 2, w, 0, 650, 850, 8) == 2);
+    check("full already, nothing is added", vision_nms_add_weak(d, 2, w, 5, 650, 850, 2) == 2);
+}
+
 int main(void)
 {
     ROWS = vision_decode_rows(IN, IN);
@@ -305,6 +336,7 @@ int main(void)
     test_malformed();
     test_bounded();
     test_nms();
+    test_add_weak();
     free(tensor);
     printf("vision_decode_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;

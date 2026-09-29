@@ -402,6 +402,85 @@ static void test_traffic(void)
     check("the helper is gone", !vision_session_active(&s));
 }
 
+/* What a stretch of det events showed, by the box's area in view pixels
+ * (the view is the frame turned, one to one): a far car (24 x 10), the
+ * near car (80 x 60), a band over the road (640 x 120), and people. */
+struct far_seen {
+    bool far_car;
+    bool near_car;
+    bool band;
+    bool person;
+};
+
+static struct far_seen far_look(struct vision_session *s, struct watch *w)
+{
+    struct far_seen f = { false, false, false, false };
+    struct vision_event ev;
+    int i;
+
+    for (i = 0; i < 20; i++) {
+        const struct vision_shown *t;
+        int n = 0;
+        int j;
+
+        if (!wait_for(s, VISION_EV_DET, 1000, &ev, seen, w)) {
+            break;
+        }
+        t = vision_session_tracks(s, &n, NULL);
+        for (j = 0; j < n; j++) {
+            int32_t area = t[j].w * t[j].h;
+
+            if (t[j].cls == 0) {
+                f.person = true;
+            } else if (t[j].cls == 2 && area > 20000) {
+                f.band = true;
+            } else if (t[j].cls == 2 && area < 1000 && t[j].id) {
+                f.far_car = true;
+            } else if (t[j].cls == 2 && t[j].id) {
+                f.near_car = true;
+            }
+        }
+    }
+    return f;
+}
+
+/* TRAFFIC's lower floor for motor vehicles, against the real helper: a far
+ * car at 0.30 is no detection in DETECT and a tracked one in TRAFFIC; a
+ * person at 0.30 is one in neither; and a weak box over a strong car - a
+ * band of road the detector half believes is a car - never swallows it. */
+static void test_far_car(void)
+{
+    struct vision_session s;
+    struct vision_event ev;
+    struct watch w = { 0, 0, 0, 0, 0, 0, NULL };
+    struct far_seen f;
+
+    vision_session_init(&s);
+    check("the helper starts",
+          start(&s, "period=20",
+                "box=2:300:500:150:24:10,box=0:300:300:100:40:80,box=2:800:100:200:80:60,box=2:270:0:180:640:120",
+                NULL) == 0);
+    check("ready", wait_for(&s, VISION_EV_READY, 3000, &ev, seen, &w));
+    vision_session_view(&s, 360, 640, 0);
+    vision_session_stream(&s, true, now_ms());
+    f = far_look(&s, &w);
+    check("DETECT: the near car, and nothing under 0.35", f.near_car && !f.far_car && !f.person && !f.band);
+    /* A mode change says the new counts before any det of the new mode,
+     * so every det after that COUNT event is the new mode's. */
+    vision_session_mode(&s, true);
+    check("TRAFFIC answers", wait_for(&s, VISION_EV_COUNT, 2000, &ev, seen, &w));
+    f = far_look(&s, &w);
+    check("TRAFFIC: the far car at 0.30 is tracked", f.far_car);
+    check("and the near car still is, not swallowed by the weak band over it", f.near_car && !f.band);
+    check("a person at 0.30 is still no detection", !f.person);
+    vision_session_mode(&s, false);
+    check("DETECT answers", wait_for(&s, VISION_EV_COUNT, 2000, &ev, seen, &w));
+    f = far_look(&s, &w);
+    check("back in DETECT the far car is gone again", !f.far_car && f.near_car);
+    vision_session_abandon(&s, 1000);
+    check("the helper is gone", !vision_session_active(&s));
+}
+
 /* The pixel modes against the real helper: EDGE finds the fake camera's
  * edges; COLOR samples the picture's middle and paints its matches; TRACE
  * answers; the boxes go while a pixel mode is on and come back after. */
@@ -606,6 +685,7 @@ int main(int argc, char **argv)
     test_parse();
     test_happy();
     test_traffic();
+    test_far_car();
     test_pixels();
     test_malformed();
     test_failures();

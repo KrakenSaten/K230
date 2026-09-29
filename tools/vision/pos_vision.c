@@ -15,7 +15,9 @@
  *       Exit 0, 3 without a camera, 5 without a model.
  *   pos-vision bench [N] [--backend NAME] [--config CFG] [--model FILE]
  *       Stream N frames (default 100) through the detector and print the
- *       timings and what was found, for the unit A gate.
+ *       timings and what was found, for the unit A gate; and every vehicle
+ *       candidate from VISION_BENCH_VEHICLE_FLOOR up, with its size in the
+ *       model's pixels and which threshold (DETECT's, TRAFFIC's) takes it.
  *
  * The camera is Camera's own layer (core/pocketcam): the same backends, the
  * same V4L2 node, the same close on the way out. Nothing opens the sensor
@@ -77,6 +79,11 @@
 #define VISION_MODEL_DEFAULT "/usr/share/doors/vision/yolov8n.kmodel"
 #define VISION_CONF_MIN 350   /* the vendor's default conf_thres 0.35 */
 #define VISION_NMS_IOU 650    /* and nms_thres 0.65 */
+_Static_assert(VISION_TRAFFIC_VEHICLE_CONF_MIN <= VISION_CONF_MIN,
+               "TRAFFIC decodes at the vehicle floor and sorts the rest by VISION_CONF_MIN");
+/* bench: how far below the thresholds vehicle candidates are shown, so a
+ * field run says whether a missed car was near a threshold or nowhere. */
+#define VISION_BENCH_VEHICLE_FLOOR 100
 /* A box this much (per-mille of itself) inside a larger one of its class is
  * a duplicate (vision_nms.h). */
 #define VISION_NESTED_PM 850
@@ -189,6 +196,9 @@ struct session {
     /* the pipeline */
     struct vision_det cands[VISION_MAX_CANDIDATES];
     struct vision_det dets[VISION_MAX_DETECTIONS];
+    /* TRAFFIC's weak vehicles (traffic_suppress) */
+    struct vision_det weak[VISION_MAX_CANDIDATES];
+    struct vision_det weak_dets[VISION_MAX_DETECTIONS];
     struct vision_tracker tracker;
     /* The count line and the two speed lines, in frame pixels, and as
      * asked for (per-mille of the view; [i][0] < 0: none). */
@@ -576,6 +586,39 @@ static void say_tracks(struct session *s, uint32_t seq)
     say("%s", line);
 }
 
+/* TRAFFIC's suppression of the decoder's candidates into s->dets. Only
+ * traffic is kept: anything else the model saw is left out here, so a
+ * chair never takes a track slot or a count. A detection at VISION_CONF_MIN
+ * or better goes through the same suppression as in DETECT. A motor
+ * vehicle between VISION_TRAFFIC_VEHICLE_CONF_MIN and that - a distant car,
+ * a few model pixels tall - is added afterwards, and only where it touches
+ * none of those, so it can never replace or swallow one. */
+static int traffic_suppress(struct session *s, int n)
+{
+    int strong = 0;
+    int weak = 0;
+    int i;
+
+    for (i = 0; i < n; i++) {
+        const struct vision_det d = s->cands[i];
+
+        if (!vision_traffic_wanted(&s->tf, d.cls)) {
+            continue;
+        }
+        if (d.conf >= VISION_CONF_MIN) {
+            s->cands[strong++] = d;
+        } else if (vision_traffic_vehicle(&s->tf, d.cls)) {
+            s->weak[weak++] = d;
+        }
+    }
+    n = vision_nms(s->cands, strong, VISION_NMS_IOU, s->dets, VISION_MAX_DETECTIONS);
+    n = vision_nms_nested(s->dets, n, VISION_NESTED_PM);
+    weak = vision_nms(s->weak, weak, VISION_NMS_IOU, s->weak_dets, VISION_MAX_DETECTIONS);
+    weak = vision_nms_nested(s->weak_dets, weak, VISION_NESTED_PM);
+    return vision_nms_add_weak(s->dets, n, s->weak_dets, weak, VISION_NMS_IOU, VISION_NESTED_PM,
+                               VISION_MAX_DETECTIONS);
+}
+
 static void detect(struct session *s, const struct pocketcam_frame *f, int64_t now)
 {
     const float *out;
@@ -593,7 +636,7 @@ static void detect(struct session *s, const struct pocketcam_frame *f, int64_t n
         .classes = s->model.classes,
         .frame_w = f->width,
         .frame_h = f->height,
-        .conf_min = VISION_CONF_MIN,
+        .conf_min = s->traffic ? VISION_TRAFFIC_VEHICLE_CONF_MIN : VISION_CONF_MIN,
     };
 
     r = vision_kpu_infer(s->kpu, f, &out, &count, dims, &pre_ms, &infer_ms);
@@ -624,20 +667,11 @@ static void detect(struct session *s, const struct pocketcam_frame *f, int64_t n
         return;
     }
     s->bad_run = 0;
-    n = vision_nms(s->cands, n, VISION_NMS_IOU, s->dets, VISION_MAX_DETECTIONS);
-    n = vision_nms_nested(s->dets, n, VISION_NESTED_PM);
     if (s->traffic) {
-        /* Only traffic is tracked: anything else the model saw is left
-         * out here, so a chair never takes a track slot or a count. */
-        int kept = 0;
-        int i;
-
-        for (i = 0; i < n; i++) {
-            if (vision_traffic_wanted(&s->tf, s->dets[i].cls)) {
-                s->dets[kept++] = s->dets[i];
-            }
-        }
-        n = kept;
+        n = traffic_suppress(s, n);
+    } else {
+        n = vision_nms(s->cands, n, VISION_NMS_IOU, s->dets, VISION_MAX_DETECTIONS);
+        n = vision_nms_nested(s->dets, n, VISION_NESTED_PM);
     }
     vision_tracker_update(&s->tracker, s->dets, n);
     {
@@ -1153,29 +1187,53 @@ static int run_bench(const char *backend, const char *config, const char *model,
     struct vision_kpu *kpu = NULL;
     struct vision_kpu_info mi;
     struct vision_det *cands = calloc(VISION_MAX_CANDIDATES, sizeof(*cands));
+    struct vision_det *vcands = calloc(VISION_MAX_CANDIDATES, sizeof(*vcands));
     struct vision_det dets[VISION_MAX_DETECTIONS];
+    struct vision_det vdets[VISION_MAX_DETECTIONS];
     struct vision_tracker tr;
+    struct vision_traffic tf;
     int64_t pre_sum = 0;
     int64_t infer_sum = 0;
     int64_t post_sum = 0;
     int64_t t_start;
+    /* Vehicle sightings by what would take them, and the smallest and
+     * largest one TRAFFIC takes, in the model's own pixels. */
+    uint32_t veh_detect = 0;
+    uint32_t veh_traffic = 0;
+    uint32_t veh_below = 0;
+    int32_t veh_min_h = -1;
+    int32_t veh_max_h = -1;
+    uint32_t ratio_pm;
     int done = 0;
     int r;
 
-    if (!cands) {
+    if (!cands || !vcands) {
+        free(cands);
+        free(vcands);
         return EXIT_USAGE;
     }
     if (open_camera(&cam, &info, backend, config, false) != 0) {
         free(cands);
+        free(vcands);
         return EXIT_NOCAMERA;
     }
     if (open_model(&kpu, &mi, model, kpu_script, false) != 0) {
         pocketcam_close(&cam);
         free(cands);
+        free(vcands);
         return EXIT_NOMODEL;
     }
+    /* The letterbox: frame pixels to the model's. */
+    ratio_pm = mi.in_w * 1000u / info.preview_w < mi.in_h * 1000u / info.preview_h
+                   ? mi.in_w * 1000u / info.preview_w
+                   : mi.in_h * 1000u / info.preview_h;
     printf("camera %s %ux%u, model %s %ux%u classes %u rows %u, %d frames\n", info.name,
            info.preview_w, info.preview_h, mi.model, mi.in_w, mi.in_h, mi.classes, mi.rows, frames);
+    printf("vehicles: shown from %u%%; DETECT takes %u%%, TRAFFIC %u%%; model px = frame px x %u.%03u\n",
+           VISION_BENCH_VEHICLE_FLOOR / 10, VISION_CONF_MIN / 10, VISION_TRAFFIC_VEHICLE_CONF_MIN / 10,
+           ratio_pm / 1000, ratio_pm % 1000);
+    vision_traffic_init(&tf);
+    vision_traffic_map_names(&tf, mi.classes, vision_label);
     vision_tracker_init(&tr);
     r = pocketcam_start(&cam);
     t_start = mono_ms();
@@ -1191,7 +1249,7 @@ static int run_bench(const char *backend, const char *config, const char *model,
         uint32_t bad;
         struct vision_decode_params p = {
             .in_w = mi.in_w, .in_h = mi.in_h, .classes = mi.classes,
-            .frame_w = info.preview_w, .frame_h = info.preview_h, .conf_min = VISION_CONF_MIN,
+            .frame_w = info.preview_w, .frame_h = info.preview_h, .conf_min = VISION_BENCH_VEHICLE_FLOOR,
         };
 
         r = pocketcam_next(&cam, 1000, &f);
@@ -1211,8 +1269,25 @@ static int run_bench(const char *backend, const char *config, const char *model,
         t0 = mono_ms();
         n = vision_decode(out, count, dims, &p, cands, VISION_MAX_CANDIDATES, &bad);
         if (n >= 0) {
+            int strong = 0;
+            int nv = 0;
             int i;
 
+            /* What DETECT sees (the boxes line, as always), and apart from
+             * it every vehicle candidate down to the bench's floor. */
+            for (i = 0; i < n; i++) {
+                const struct vision_det d = cands[i];
+
+                if (vision_traffic_vehicle(&tf, d.cls)) {
+                    vcands[nv++] = d;
+                }
+                if (d.conf >= VISION_CONF_MIN) {
+                    cands[strong++] = d;
+                }
+            }
+            n = strong;
+            nv = vision_nms(vcands, nv, VISION_NMS_IOU, vdets, VISION_MAX_DETECTIONS);
+            nv = vision_nms_nested(vdets, nv, VISION_NESTED_PM);
             n = vision_nms(cands, n, VISION_NMS_IOU, dets, VISION_MAX_DETECTIONS);
             n = vision_nms_nested(dets, n, VISION_NESTED_PM);
             vision_tracker_update(&tr, dets, n);
@@ -1243,6 +1318,33 @@ static int run_bench(const char *backend, const char *config, const char *model,
                        dets[i].box.x, dets[i].box.y, dets[i].box.w, dets[i].box.h);
             }
             printf("; %d tracks\n", tr.count);
+            if (nv > 0) {
+                printf("  vehicles:");
+                for (i = 0; i < nv; i++) {
+                    const struct vision_det *d = &vdets[i];
+                    int32_t mh = (int32_t)((int64_t)d->box.h * ratio_pm / 1000);
+
+                    if (d->conf >= VISION_CONF_MIN) {
+                        veh_detect++;
+                    } else if (d->conf >= VISION_TRAFFIC_VEHICLE_CONF_MIN) {
+                        veh_traffic++;
+                    } else {
+                        veh_below++;
+                    }
+                    if (d->conf >= VISION_TRAFFIC_VEHICLE_CONF_MIN) {
+                        veh_min_h = veh_min_h < 0 || mh < veh_min_h ? mh : veh_min_h;
+                        veh_max_h = mh > veh_max_h ? mh : veh_max_h;
+                    }
+                    if (i < 6) {
+                        printf(" %s %u%% %dx%d (model %dx%d) %s", vision_label(d->cls), d->conf / 10, d->box.w,
+                               d->box.h, (int32_t)((int64_t)d->box.w * ratio_pm / 1000), mh,
+                               d->conf >= VISION_CONF_MIN                   ? "DETECT"
+                               : d->conf >= VISION_TRAFFIC_VEHICLE_CONF_MIN ? "TRAFFIC"
+                                                                            : "below");
+                    }
+                }
+                printf("\n");
+            }
         } else {
             printf("frame %u: malformed output (%d)\n", f.seq, n);
         }
@@ -1258,10 +1360,17 @@ static int run_bench(const char *backend, const char *config, const char *model,
         printf("%d frames in %lld ms: %.1f fps; mean pre %.1f ms, infer %.1f ms, post %.1f ms\n",
                done, (long long)wall, wall > 0 ? done * 1000.0 / (double)wall : 0.0,
                (double)pre_sum / done, (double)infer_sum / done, (double)post_sum / done);
+        printf("vehicle sightings: %u at DETECT's threshold, %u more at TRAFFIC's, %u below both",
+               veh_detect, veh_traffic, veh_below);
+        if (veh_min_h >= 0) {
+            printf("; TRAFFIC's are %d..%d model px tall", veh_min_h, veh_max_h);
+        }
+        printf("\n");
     }
     pocketcam_close(&cam);
     vision_kpu_close(kpu);
     free(cands);
+    free(vcands);
     return r == 0 ? 0 : EXIT_LOST;
 }
 

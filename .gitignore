@@ -196,6 +196,8 @@ BUILD_ID
 /tools/vision/pos-vision
 /tests/vision_decode_test
 /tests/vision_track_test
+/tests/vision_traffic_test
+/tests/vision_pixels_test
 /tests/vision_geom_test
 /tests/vision_model_test
 /tests/vision_session_test

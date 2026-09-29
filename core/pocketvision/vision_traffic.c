@@ -106,6 +106,19 @@ int vision_traffic_class(const struct vision_traffic *tf, uint32_t cls)
     return cls < VISION_MAX_CLASSES ? tf->map[cls] : -1;
 }
 
+bool vision_traffic_vehicle(const struct vision_traffic *tf, uint32_t cls)
+{
+    switch (vision_traffic_class(tf, cls)) {
+    case VISION_TRAFFIC_CAR:
+    case VISION_TRAFFIC_TRUCK:
+    case VISION_TRAFFIC_BUS:
+    case VISION_TRAFFIC_MOTORCYCLE:
+        return true;
+    default:
+        return false;
+    }
+}
+
 void vision_traffic_reset(struct vision_traffic *tf)
 {
     memset(tf->count_ab, 0, sizeof(tf->count_ab));

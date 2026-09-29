@@ -24,4 +24,16 @@ int vision_nms(struct vision_det *cands, int n, uint32_t iou_max, struct vision_
  * place, keeping the order; returns how many remain. */
 int vision_nms_nested(struct vision_det *dets, int n, uint32_t inside_pm);
 
+/* Add weaker detections to suppressed ones without touching any of them.
+ * `weak` (already through vision_nms and vision_nms_nested among
+ * themselves) is appended to `dets[0..n)` in its order, at most `max` in
+ * all, except a weak box that overlaps a box already in `dets` of its class
+ * by more than iou_max, or of which, or inside which, one of those lies by
+ * inside_pm of the smaller one's area. So a weak box can only add an object
+ * nothing else saw: it never replaces, suppresses or swallows a stronger
+ * one, which vision_nms_nested would let a larger weak box do. Returns the
+ * new count. */
+int vision_nms_add_weak(struct vision_det *dets, int n, const struct vision_det *weak, int nw,
+                        uint32_t iou_max, uint32_t inside_pm, int max);
+
 #endif

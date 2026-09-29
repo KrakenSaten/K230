@@ -54,6 +54,14 @@ enum vision_traffic_class {
 #define VISION_LINE_SPEED_A 1
 #define VISION_LINE_SPEED_B 2
 
+/* The confidence (per-mille) a motor vehicle needs in TRAFFIC, below the
+ * general threshold: a car on a road 35 m away is a few pixels of the
+ * model's input (the 640 x 360 frame is letterboxed to half size) and
+ * scores under 0.35. 0.25 is the detector's own default (Ultralytics'
+ * predict conf). Such a detection only adds an object nothing stronger saw
+ * (vision_nms_add_weak); people and bicycles keep the general threshold. */
+#define VISION_TRAFFIC_VEHICLE_CONF_MIN 250
+
 #define VISION_SPEED_MIN_MS 100
 #define VISION_SPEED_MAX_MS 30000
 #define VISION_SPEED_DISTANCE_MIN_CM 50
@@ -107,6 +115,9 @@ void vision_traffic_map_names(struct vision_traffic *tf, uint32_t classes,
 bool vision_traffic_wanted(const struct vision_traffic *tf, uint32_t cls);
 /* The traffic class of a detector class, or -1. */
 int vision_traffic_class(const struct vision_traffic *tf, uint32_t cls);
+/* Whether a detector class is a motor vehicle (car, truck, bus,
+ * motorcycle): what may pass at VISION_TRAFFIC_VEHICLE_CONF_MIN. */
+bool vision_traffic_vehicle(const struct vision_traffic *tf, uint32_t cls);
 
 /* Counts and speeds to zero; the slots forgotten. The map and the
  * distance stay. */

@@ -90,6 +90,11 @@ static void test_classes(void)
     check("motor vehicles are one group to the tracker, two-wheelers another, people neither",
           tf.group[2] == 1 && tf.group[7] == 1 && tf.group[5] == 1 && tf.group[1] == 2 && tf.group[3] == 2 &&
               tf.group[0] == 0 && tf.group[56] == 0);
+    check("the motor vehicles may pass at TRAFFIC's lower floor; bicycles, people and the rest may not",
+          vision_traffic_vehicle(&tf, 2) && vision_traffic_vehicle(&tf, 7) && vision_traffic_vehicle(&tf, 5) &&
+              vision_traffic_vehicle(&tf, 3) && !vision_traffic_vehicle(&tf, 1) && !vision_traffic_vehicle(&tf, 0) &&
+              !vision_traffic_vehicle(&tf, 56) && !vision_traffic_vehicle(&tf, 1000));
+    check("and that floor is below the general one", VISION_TRAFFIC_VEHICLE_CONF_MIN == 250);
     check("a class out of range cannot be mapped", vision_traffic_map(&tf, VISION_MAX_CLASSES, 0) == -1 &&
                                                        vision_traffic_map(&tf, 2, VISION_TRAFFIC_CLASSES) == -1);
     check("a class can be unmapped", vision_traffic_map(&tf, 2, -1) == 0 && !vision_traffic_wanted(&tf, 2));
