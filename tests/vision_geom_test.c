@@ -205,11 +205,83 @@ static void test_unmap(void)
     }
 }
 
+/* The upright picture for the detector: every pixel lands where the preview
+ * draws it (vision_map_point on a view of the turned size), in all three
+ * planes, for all four turns; a box turned and turned back is the box. */
+static void test_turn(void)
+{
+    enum { W = 7, H = 5, S = 9 }; /* a stride wider than the frame */
+    static const int rot[4] = { 0, 90, 180, 270 };
+    uint8_t src[3 * S * H];
+    uint8_t dst[3 * W * H];
+    int k;
+    int pix_ok = 1;
+    int box_ok = 1;
+    uint32_t tw;
+    uint32_t th;
+
+    for (k = 0; k < (int)sizeof(src); k++) {
+        src[k] = (uint8_t)(k * 7 + 3);
+    }
+    for (k = 0; k < 4; k++) {
+        struct vision_view v;
+        int32_t sx;
+        int32_t sy;
+        int p;
+
+        vision_turned_size(W, H, rot[k], &tw, &th);
+        v = (struct vision_view) { W, H, rot[k], false, tw, th };
+        pix_ok &= vision_turn_planes(src, W, H, S, 3, rot[k], dst) == 0;
+        for (sy = 0; sy < H; sy++) {
+            for (sx = 0; sx < W; sx++) {
+                int32_t vx;
+                int32_t vy;
+
+                pix_ok &= vision_map_point(&v, sx, sy, &vx, &vy) == 0;
+                for (p = 0; p < 3; p++) {
+                    pix_ok &= dst[p * W * H + vy * (int32_t)tw + vx] == src[p * S * H + sy * S + sx];
+                }
+            }
+        }
+        {
+            struct vision_box in = { 1, 2, 4, 3 };
+            struct vision_box t;
+            struct vision_box back;
+            int32_t ax;
+            int32_t ay;
+            int32_t bx;
+            int32_t by;
+
+            box_ok &= vision_box_turn(W, H, rot[k], &in, &t) == 0 && vision_box_unturn(W, H, rot[k], &t, &back) == 0 &&
+                      back.x == in.x && back.y == in.y && back.w == in.w && back.h == in.h;
+            /* and the turned box is where the preview draws the box's corners */
+            vision_map_point(&v, in.x, in.y, &ax, &ay);
+            vision_map_point(&v, in.x + in.w - 1, in.y + in.h - 1, &bx, &by);
+            box_ok &= t.x == (ax < bx ? ax : bx) && t.y == (ay < by ? ay : by) &&
+                      t.w == abs(bx - ax) + 1 && t.h == abs(by - ay) + 1;
+        }
+    }
+    check("every pixel of the turned planes is where the preview draws it (0, 90, 180, 270)", pix_ok);
+    check("a box turned is where the preview draws it, and turned back is itself", box_ok);
+    vision_turned_size(640, 360, 90, &tw, &th);
+    check("a quarter turn swaps the size", tw == 360 && th == 640);
+    {
+        struct vision_box b = { 0, 0, 10, 10 };
+        struct vision_box o;
+
+        check("a turn that is not one of the four is refused",
+              vision_box_turn(640, 360, 45, &b, &o) == -EINVAL && vision_turn_planes(src, W, H, S, 3, 45, dst) == -EINVAL);
+        b.w = 0;
+        check("so is an empty box", vision_box_unturn(640, 360, 90, &b, &o) == -EINVAL);
+    }
+}
+
 int main(void)
 {
     test_points();
     test_boxes();
     test_unmap();
+    test_turn();
     printf("vision_geom_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;
 }

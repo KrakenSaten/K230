@@ -292,6 +292,13 @@ extern "C" int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_fra
     return 0;
 }
 
+extern "C" int vision_kpu_turn(struct vision_kpu *k, int rotation)
+{
+    /* The picture arrives turned already; the engine and the model take it
+     * as any other picture of its size. */
+    return k && (rotation == 0 || rotation == 90 || rotation == 180 || rotation == 270) ? 0 : -EINVAL;
+}
+
 extern "C" void vision_kpu_close(struct vision_kpu *k)
 {
     if (!k) {

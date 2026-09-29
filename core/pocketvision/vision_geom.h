@@ -42,4 +42,29 @@ int vision_map_box(const struct vision_view *v, const struct vision_box *in, str
  * or a point outside the picture. */
 int vision_unmap_point(const struct vision_view *v, int32_t vx, int32_t vy, int32_t *sx, int32_t *sy);
 
+/* THE UPRIGHT PICTURE. The camera is mounted turned (unit A: 90 degrees),
+ * so the sensor frame shows the scene sideways or upside down; the preview
+ * turns it clockwise by vision_view.rotation and the screen shows it
+ * upright. The detector must be given the same upright picture - YOLOv8n
+ * on unit A's window scene found 0 of 7 parked cars upside down and 7 of 7
+ * at 59-73 % upright - and its boxes brought back into frame pixels, where
+ * tracks, lines and counts live. These are that turn and its inverse, with
+ * exactly the preview's arithmetic (vision_map_point). The turned picture is
+ * frame_h x frame_w for a quarter turn. */
+
+/* The size of the w x h frame turned by rotation (0, 90, 180, 270). */
+void vision_turned_size(uint32_t frame_w, uint32_t frame_h, int rotation, uint32_t *tw, uint32_t *th);
+/* A frame box on the turned picture, and a turned-picture box back in the
+ * frame. 0, or -EINVAL for an empty box, a rotation not one of the four or
+ * a frame that makes no sense. */
+int vision_box_turn(uint32_t frame_w, uint32_t frame_h, int rotation, const struct vision_box *in,
+                    struct vision_box *out);
+int vision_box_unturn(uint32_t frame_w, uint32_t frame_h, int rotation, const struct vision_box *in,
+                      struct vision_box *out);
+/* Turn a picture of `planes` 8-bit planes (each `stride` x h bytes, one
+ * after another: the ISP's planar BGR) into dst, its planes packed, turned
+ * width x turned height each. 0, or -EINVAL. */
+int vision_turn_planes(const uint8_t *src, uint32_t w, uint32_t h, uint32_t stride, uint32_t planes,
+                       int rotation, uint8_t *dst);
+
 #endif

@@ -208,7 +208,8 @@ synchronously, in this order:
 | Step | Where | What |
 | --- | --- | --- |
 | Capture | `core/pocketcam/pocketcam_v4l2.c` (Camera's backend, one new config key) | `/dev/video2`, the ISP's self path, 640 x 360, **planar `BG3P`** (`fmt=bg3p`): the format the vendor's KPU demos read, three 8-bit planes AI2D takes as they are - R, G, B in memory despite the driver's name (VERIFIED on unit B). Camera itself keeps NV16. |
-| Into AI2D memory | `vision_kpu_nncase.cpp` | the frame is copied (691 KB) into a tensor from the runtime's shared pool and written back from the cache. A V4L2 buffer cannot be handed to AI2D directly: the runtime needs a physical address it does not have for an MMAP buffer. This is the one copy of a frame in the pipeline (the vendor's demo makes the same one, of a 2.7 MB frame). |
+| Upright | `vision_geom.c` (`vision_turn_planes`, `vision_box_unturn`), `pos_vision.c` | the camera is mounted turned (90 degrees), so the sensor frame shows the scene sideways (portrait) or upside down (landscape, screen up). The frame is turned clockwise by the preview's own turn (`pocketcam_view_rotation` of the mount and the display's rotation from `view`) into a buffer, so the detector sees the scene upright as the screen shows it, and the decoded boxes are turned back into frame pixels before suppression, so tracks, lines, counts and `det` boxes are unchanged. Measured on unit A's window scene (2026-09-29): the same frame found 0 of 7 parked cars as taken (upside down) and 7 of 7 at 59-73 % upright; the turn costs 2.4 ms in landscape and 4.6 ms in portrait, inference and frame rate unchanged. |
+| Into AI2D memory | `vision_kpu_nncase.cpp` | the (upright) frame is copied (691 KB) into a tensor from the runtime's shared pool and written back from the cache. A V4L2 buffer cannot be handed to AI2D directly: the runtime needs a physical address it does not have for an MMAP buffer. With the turn this is the second copy of a frame in the pipeline (the vendor's demo makes one, of a 2.7 MB frame). |
 | Preprocess | AI2D, hardware | resize into the top-left of 320 x 320 keeping the aspect (0.5 x: 320 x 180), pad the rest with 114 - the vendor's `padding_resize_one_side_set`. |
 | Infer | KPU, through the nncase interpreter | one run; the first output mapped and its 2100 x 84 floats copied out. |
 | Decode | `vision_decode.c` | per row: the best class score, the threshold (0.35), the box centre and size back through the letterbox ratio, clipped to the frame; NaN, infinities, empty and absurd boxes skipped and counted; a tensor of the wrong shape refused before a value is read. At most 256 candidates, the best kept. |
@@ -257,6 +258,16 @@ U8). Vision is the "second user" ADR-006 names as a trigger to revisit
 | `vision_kpu_fake.c` | core/pocketvision | the host stand-in: a tensor of the detector's shape from a script of boxes |
 | `pocketvision_proto.h` | core/pocketvision | the helper protocol (Camera's transport and shared memory, Vision's lines) |
 | `pos_vision.c` | tools/vision | `pos-vision session`, `probe` and `bench` |
+
+`pos-vision bench` also lists every vehicle candidate from 0.10 with its
+size in frame and model pixels and whether the threshold takes it, and
+ends with a tally. `--turn R` turns the frame upright as the session does
+(bench has no screen to take the rotation from: landscape with the screen
+up is 180, portrait 90); `--save FILE.ppm` writes frame 60 - once the auto
+exposure has settled - with that frame's vehicle boxes drawn in (green at
+the threshold, red below), `--save-every N` one more every N frames;
+`--image FILE.ppm` feeds a saved picture to the detector instead of the
+camera, so one scene can be compared as taken and changed.
 
 Pictures travel as Camera's do: a sealed memfd of four 1024 x 1024 RGB565
 slots, the helper writing a slot it owns, the app copying the newest one

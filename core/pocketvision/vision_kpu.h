@@ -58,6 +58,14 @@ int vision_kpu_open(struct vision_kpu **k, const char *path, const char *config,
 int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f, const float **out,
                      size_t *count, uint32_t dims[3], int *pre_ms, int *infer_ms);
 
+/* The frames of the next runs are the sensor frame turned clockwise by
+ * `rotation` (0, 90, 180, 270): the helper gives the detector the scene
+ * upright (vision_geom.h). The KPU needs nothing for it - a picture is a
+ * picture - but the fake detector's script is in sensor-frame pixels and is
+ * turned the same way, so it keeps describing the same scene. 0, or
+ * -EINVAL. */
+int vision_kpu_turn(struct vision_kpu *k, int rotation);
+
 void vision_kpu_close(struct vision_kpu *k);
 
 /* The name of the backend this build carries. */

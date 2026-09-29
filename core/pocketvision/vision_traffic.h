@@ -107,6 +107,9 @@ void vision_traffic_map_names(struct vision_traffic *tf, uint32_t classes,
 bool vision_traffic_wanted(const struct vision_traffic *tf, uint32_t cls);
 /* The traffic class of a detector class, or -1. */
 int vision_traffic_class(const struct vision_traffic *tf, uint32_t cls);
+/* Whether a detector class is a motor vehicle (car, truck, bus,
+ * motorcycle): what `pos-vision bench` lists as vehicles. */
+bool vision_traffic_vehicle(const struct vision_traffic *tf, uint32_t cls);
 
 /* Counts and speeds to zero; the slots forgotten. The map and the
  * distance stay. */
