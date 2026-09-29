@@ -3646,3 +3646,136 @@ keyboard base; every game there; open two games and come home to Games
 each time; back to the launcher with the focus on Games; rotate inside
 Games; repeated open and close without a crash, and the shell's RSS and
 `art.bytes_held` flat.
+
+## 40. Amendment X — MP3 [PROPOSED]
+
+**PROPOSED 2026-09-29** on branch `feat/audio-player`, validated on the
+host (§40.5). It adds one app and changes no existing screen; outside the
+app it adds a cell to DEVICE on the launcher (§40.4). Nothing in §1-§39 is
+renumbered. The app is described in `docs/apps/MP3.md`; its audio follows
+Recorder's ownership (ADR-010), reused.
+
+### 40.1 Components
+
+Only existing parts and roles. A deck and a list, as Recorder's:
+
+- **Deck.** A `POS_STYLE_CHIP` (`READY`, `OPENING`, `PLAYING` - the
+  CHIP_ACTIVE fill - `PAUSED`, `STOPPED`) with the place in the folder at
+  the right in `POS_STYLE_CAPTION` (`3 / 9`). The title in
+  `POS_STYLE_TITLE` and under it the artist in `POS_STYLE_TEXT_SECONDARY`,
+  one line each, cut with dots: the file's own tags, else the file name and
+  its folder. The progress: a 16 px `POS_STYLE_SLAB` bar filled like the
+  active chip, inside a 64 px touch target the width of the deck; a tap or a
+  drag previews the place under the finger (the elapsed time follows it)
+  and lifting seeks there. Elapsed and length in `POS_STYLE_VALUE` at its
+  ends (`--:--` when the length is not known). PREV, PLAY/PAUSE (§7
+  primary) and NEXT in one row; STOP, `VOL -`, the level in
+  `POS_STYLE_VALUE` (`70 %`, `MUTED`, `NO AUDIO`) and `VOL +` in the next;
+  all 64 px, the §9 disabled treatment when a control can do nothing. One
+  status line in `POS_STYLE_TEXT_MUTED`, the warn and error text roles for
+  a muted sound or a file that cannot be played.
+- **List.** UP (§7 secondary, 64 px) and the place and folder in
+  `POS_STYLE_CAPTION` (`LIBRARY` at the places); under it the one part that
+  scrolls (§17.1): rows on `POS_STYLE_SLAB`, at least 64 px, the name in
+  `POS_STYLE_TEXT_PRIMARY` and a `POS_STYLE_CAPTION` line - a place's
+  folder, `Folder`, or a file's size (`NOW` before it on the current track,
+  whose row also carries the §9 focus ring, `POS_STYLE_SELECTED`).
+
+No new role, token or colour. Fullscreen (§30.8): the app declares NONE;
+the shell's header carries the back slab and, at its right end, `PLAYING`
+while music plays.
+
+### 40.2 Tall (portrait, 528 x 1116)
+
+The deck across the full width at its content height (about 430 px),
+then UP and the caption, then the list to the foot.
+
+### 40.3 Wide (landscape, 1192 x 452)
+
+The deck, 560 px wide, at the left with 8 px between its rows (12 px in
+portrait) so that it fits the height; UP, the caption and the list in the
+rest. The shape is chosen from the body (§21.2), never from the
+orientation itself; every control is inside the box PocketUI's corner rule
+leaves (§21.3).
+
+### 40.4 Launcher
+
+MP3 is the twenty-third app: DEVICE, after Vision, in the `apps` hue, with
+a first-party icon - two beamed eighth notes, drawn in the repository in
+the extension's line language (`docs/design/doors-app-icons/svg/mp3.svg`)
+through the Zabbix, Browser and Vision pipeline. DEVICE takes a seventh
+cell. Place and icon are for the owner to confirm.
+
+### 40.5 Validation on the host
+
+`tests/mp3_app_test.c` (both shapes, idle and playing, corners, touch
+targets, overlap, the screen fitting its body; the places, a folder and
+UP; play, pause, next, previous, stop, a tap and a drag on the progress,
+the volume steps, a folder to its end, rotating while playing, twenty
+opens and closes and the heap), `tests/mp3_shell_test.sh` (the real shell
+in both orientations), `tests/mp3_ctl_test.c` (every state's words),
+`tests/mp3_lint.sh`, and the launcher, icon, chrome and art suites with
+twenty-two apps.
+
+### 40.6 Gate (before acceptance)
+
+On a unit, the build's identity first: MP3 in DEVICE; a local MP3 heard;
+pause and resume; next and previous; the volume steps heard; the screen
+responsive while playing; leaving the app while playing silences it;
+reopening; another app afterwards; no shell or service restart
+(`docs/hardware/MP3_GATE.md`).
+
+## 41. Amendment Y — Video [PROPOSED]
+
+**PROPOSED 2026-09-29** on branch `feat/video-player`, validated on the
+host and gated on unit B in landscape (docs/hardware/VIDEO_GATE.md). A new
+app; nothing in §1-§40 changes or is renumbered. Behaviour and architecture:
+docs/apps/VIDEO.md; ownership: ADR-012 (PROPOSED).
+
+### 41.1 Place and chrome
+
+DEVICE, after Vision and MP3, in the tools colour; its icon is first-party, a
+screen with a play triangle in the extension's line language
+(`docs/design/doors-app-icons/svg/video.svg`; for the owner to confirm).
+Chrome NONE (§30.8) and header NONE_LANDSCAPE (§37.2): in landscape the
+app has no shell header, so the list draws its own back slab and
+fullscreen is the whole panel; portrait keeps the shell's header. The app
+zeroes the body's padding and puts the 20 px back itself, as RIFT does.
+
+### 41.2 The list
+
+A title row (landscape: back slab, "Video - N videos"; portrait: "N
+videos") with RESCAN at its right, then one 64 px slab row per file: the
+name (dotted when long) and its size. An empty folder says "No videos yet"
+and where to copy MP4 files.
+
+### 41.3 The player
+
+The picture's frame is a slab; the picture is fitted and centred in it,
+never enlarged, and the slab shows around it. Until the first picture, and
+on an error, a title and a line of detail stand in the frame.
+
+- Landscape: the frame at the left, full height less the bar; a 208 px
+  column at the right with BACK, PLAY/PAUSE, STOP, FULLSCREEN (64 px each)
+  and under them the file name and the status (Playing, Paused, Stopped,
+  Ended, the sound's word when there is one: No sound, Muted, Sound busy).
+- Portrait: the frame across the width, under it the name and status, the
+  bar, the times, and one row of four buttons: BACK, STOP, PLAY/PAUSE,
+  FULL.
+- The bar: a 10 px track (slab), the played part and a 26 px round knob in
+  the primary accent, a 40 px touch rect; elapsed at its left, the length
+  at its right (`m:ss`, `h:mm:ss` from an hour; `--:--` when unknown).
+  Pressing or dragging shows the target; release seeks.
+- PLAY/PAUSE is the primary button; the others are secondary. PLAY and STOP
+  are disabled while opening and in an error.
+- A tap on the picture plays or pauses.
+
+### 41.4 Fullscreen
+
+FULLSCREEN (landscape) or FULL (portrait) gives the frame the whole body;
+no control is shown; a tap on the picture comes back. The controls do not
+hide by themselves in v0.1.
+
+### 41.5 Keys
+
+None in v0.1 (Space for play and pause is the first candidate).

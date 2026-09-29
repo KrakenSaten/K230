@@ -279,6 +279,7 @@ static const struct home_entry entries[] = {
     { "calendar", HOME_GROUP_WORK, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
     { "clock", HOME_GROUP_WORK, HOME_HUE_AI, HOME_FOLDER_NONE },
     { "calculator", HOME_GROUP_WORK, HOME_HUE_APPS, HOME_FOLDER_NONE },
+    { "deskbuddy", HOME_GROUP_WORK, HOME_HUE_AI, HOME_FOLDER_NONE },
     { "fleet", HOME_GROUP_PLAY, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
     { "radar", HOME_GROUP_PLAY, HOME_HUE_RADIO, HOME_FOLDER_GAMES },
     { "timber", HOME_GROUP_PLAY, HOME_HUE_FILES, HOME_FOLDER_GAMES },
@@ -291,6 +292,8 @@ static const struct home_entry entries[] = {
     { "camera", HOME_GROUP_DEVICE, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
     { "recorder", HOME_GROUP_DEVICE, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
     { "vision", HOME_GROUP_DEVICE, HOME_HUE_AI, HOME_FOLDER_NONE },
+    { "mp3", HOME_GROUP_DEVICE, HOME_HUE_APPS, HOME_FOLDER_NONE },
+    { "video", HOME_GROUP_DEVICE, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
 /* A test seam: tests/home_folder_test.c builds this file with more rows
  * (tests/home_folder_entries.h), to fill a folder past one screen. No shell
  * build defines it. */

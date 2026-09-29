@@ -159,6 +159,17 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/vision/vision_layout.c
     ${REPO_DIR}/apps/vision/vision_session.c
     ${REPO_DIR}/core/pocketvision/vision_labels.c
+    ${REPO_DIR}/apps/mp3/mp3_app.c
+    ${REPO_DIR}/apps/mp3/mp3_ctl.c
+    ${REPO_DIR}/apps/mp3/mp3_view.c
+    ${REPO_DIR}/apps/mp3/mp3_player.c
+    ${REPO_DIR}/apps/mp3/mp3_session.c
+    ${REPO_DIR}/apps/mp3/mp3_library.c
+    ${REPO_DIR}/apps/video/video_app.c
+    ${REPO_DIR}/apps/video/video_state.c
+    ${REPO_DIR}/apps/video/video_layout.c
+    ${REPO_DIR}/apps/video/video_session.c
+    ${REPO_DIR}/apps/video/video_files.c
     ${REPO_DIR}/apps/rift/rift_app.c
     ${REPO_DIR}/apps/rift/rift_model.c
     ${REPO_DIR}/apps/rift/rift_clock.c
@@ -200,6 +211,14 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/timber/ui/timber_table.c
     ${REPO_DIR}/apps/timber/ui/timber_screens.c
     ${REPO_DIR}/apps/timber/ui/timber_art.c
+    ${REPO_DIR}/apps/deskbuddy/deskbuddy_app.c
+    ${REPO_DIR}/apps/deskbuddy/db_brain.c
+    ${REPO_DIR}/apps/deskbuddy/db_face.c
+    ${REPO_DIR}/apps/deskbuddy/db_guard.c
+    ${REPO_DIR}/apps/deskbuddy/db_prefs.c
+    ${REPO_DIR}/apps/deskbuddy/db_store.c
+    ${REPO_DIR}/apps/deskbuddy/db_vision.c
+    ${REPO_DIR}/apps/deskbuddy/db_vision_mock.c
     ${REPO_DIR}/apps/2048/g2048_app.c
     ${REPO_DIR}/apps/2048/g2048_store.c
     ${REPO_DIR}/apps/2048/engine/g2048_rng.c
@@ -252,6 +271,9 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     # unless POCKETOS_CAMERA_BACKEND says otherwise, and the screen says
     # SIMULATED (docs/apps/CAMERA.md). The device keeps the real default.
     target_compile_definitions(pocketos-shell PRIVATE CAMERA_BACKEND_DEFAULT="fake")
+    # Nor a video decoder: Video's helper plays the fake backend's scripted
+    # "videos" and the header says SIMULATED (docs/apps/VIDEO.md).
+    target_compile_definitions(pocketos-shell PRIVATE VIDEO_BACKEND_DEFAULT="fake")
 endif()
 
 # Zabbix, the monitoring viewer (docs/apps/ZABBIX.md, ADR-007 and DS §35
@@ -320,6 +342,8 @@ target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/browser"
                                                   "${REPO_DIR}/apps/recorder"
                                                   "${REPO_DIR}/apps/vision"
+                                                  "${REPO_DIR}/apps/mp3"
+                                                  "${REPO_DIR}/apps/video"
                                                   "${REPO_DIR}/apps/2048"
                                                   "${REPO_DIR}/apps/2048/engine"
                                                   "${REPO_DIR}/apps/2048/ui"
@@ -328,7 +352,8 @@ target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/solitaire/ui"
                                                   "${REPO_DIR}/apps/blackjack"
                                                   "${REPO_DIR}/apps/blackjack/engine"
-                                                  "${REPO_DIR}/apps/blackjack/ui")
+                                                  "${REPO_DIR}/apps/blackjack/ui"
+                                                  "${REPO_DIR}/apps/deskbuddy")
 
 # The card world palettes of PG Solitaire and PG Blackjack
 # (docs/apps/PGSOLITAIRE.md and PGBLACKJACK.md, "Look"). Cards are world
@@ -879,6 +904,72 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     endif()
     target_link_libraries(rec_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
+    # MP3 in the running app, tapped on the panel, with the real helper
+    # (make's tests/pos-mp3-testhooks, which decodes WAV) over the file-backed
+    # sound card behind it (run by tests/mp3_shell_test.sh).
+    add_executable(mp3_app_test
+        ${REPO_DIR}/tests/mp3_app_test.c
+        chrome.c
+        ${REPO_DIR}/apps/mp3/mp3_app.c
+        ${REPO_DIR}/apps/mp3/mp3_ctl.c
+        ${REPO_DIR}/apps/mp3/mp3_view.c
+        ${REPO_DIR}/apps/mp3/mp3_player.c
+        ${REPO_DIR}/apps/mp3/mp3_session.c
+        ${REPO_DIR}/apps/mp3/mp3_library.c
+        ${REPO_DIR}/core/pocketpaths.c
+        ${REPO_DIR}/core/pocketwav/pocketwav.c
+        ../pocketui/pos_app_icons.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(mp3_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/mp3")
+    target_compile_options(mp3_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(mp3_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(mp3_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(mp3_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(mp3_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m pthread)
+
+    # Video in the running app, tapped on the panel, with the real helper
+    # (make's tests/pos-video-testhooks, fake backend) behind it (run by
+    # tests/video_shell_test.sh).
+    add_executable(video_app_test
+        ${REPO_DIR}/tests/video_app_test.c
+        chrome.c
+        ${REPO_DIR}/apps/video/video_app.c
+        ${REPO_DIR}/apps/video/video_state.c
+        ${REPO_DIR}/apps/video/video_layout.c
+        ${REPO_DIR}/apps/video/video_session.c
+        ${REPO_DIR}/apps/video/video_files.c
+        ${REPO_DIR}/core/pocketpaths.c
+        ../pocketui/pos_app_icons.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(video_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/video")
+    target_compile_options(video_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(video_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE VIDEO_BACKEND_DEFAULT="fake")
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(video_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(video_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(video_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
     # Zabbix in the running app, tapped on the panel, with the real helper on
     # the fake server behind it (run by tests/zabbix_shell_test.sh, which
     # hands it make's tools/zabbix/pos-zabbix).
@@ -1283,7 +1374,24 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     target_include_directories(bj_app_test PRIVATE
         "${REPO_DIR}/apps/blackjack" "${REPO_DIR}/apps/blackjack/engine"
         "${REPO_DIR}/apps/blackjack/ui" "${REPO_DIR}/apps/timber/ui")
-    foreach(game_test g2048_app_test sol_app_test bj_app_test)
+    # DeskBuddy in the running app (run by tests/deskbuddy_shell_test.sh):
+    # vision events into the real screen, taps on the real buttons, the
+    # preferences and the guard log against a real store in a temporary
+    # directory, and the timer and objects gone after every close.
+    add_executable(deskbuddy_app_test
+        ${REPO_DIR}/tests/deskbuddy_app_test.c
+        ${REPO_DIR}/apps/deskbuddy/deskbuddy_app.c
+        ${REPO_DIR}/apps/deskbuddy/db_brain.c
+        ${REPO_DIR}/apps/deskbuddy/db_face.c
+        ${REPO_DIR}/apps/deskbuddy/db_guard.c
+        ${REPO_DIR}/apps/deskbuddy/db_prefs.c
+        ${REPO_DIR}/apps/deskbuddy/db_store.c
+        ${REPO_DIR}/apps/deskbuddy/db_vision.c
+        ${REPO_DIR}/apps/deskbuddy/db_vision_mock.c
+        ${REPO_DIR}/core/pocketpaths.c
+        ${GAMES_APP_TEST_UI})
+    target_include_directories(deskbuddy_app_test PRIVATE "${REPO_DIR}/apps/deskbuddy")
+    foreach(game_test g2048_app_test sol_app_test bj_app_test deskbuddy_app_test)
         target_include_directories(${game_test} PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui" "${REPO_DIR}/core")
         target_compile_options(${game_test} PRIVATE -Wall -Wextra)

@@ -218,7 +218,15 @@ for d in $deps; do
         # licence metadata at all: reviewed as docs/LICENSING.md items 5 and 10
         # (the runtime is Apache-2.0 upstream; the model it runs is the open
         # question), on a prototype branch that is not released.
-        cjson|libgpiod2|libdrm|libevdev|alsa-lib|jpeg|libcurl|libpng|libnncase|libmmz|host-*) ;;
+        # ffmpeg: FFmpeg 4.4.4 (libavformat, libavcodec, libswresample,
+        # libavutil) for pos-mp3's decoder (docs/apps/MP3.md), in the image
+        # and its sysroot already (OpenCV selects it), built without GPL or
+        # nonfree parts, so LGPL-2.1-or-later with its own licence metadata
+        # (docs/legal/manifest.csv, docs/legal/licenses/ffmpeg-4.4.4); linked
+        # dynamically, nothing of it is compiled into Doors. pos-video
+        # (docs/apps/VIDEO.md) links the same vendor build (--disable-gpl),
+        # with libswscale as well.
+        cjson|libgpiod2|libdrm|libevdev|alsa-lib|jpeg|libcurl|libpng|libnncase|libmmz|ffmpeg|host-*) ;;
         lvgl) [ "$(has_id lvgl)" = 1 ] || unknown="$unknown lvgl" ;;
         *) unknown="$unknown $d" ;;
     esac

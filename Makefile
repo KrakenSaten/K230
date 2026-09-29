@@ -180,7 +180,7 @@ endif
 
 BINS := tools/pos/pos services/radiod/radiod services/sysd/sysd services/netd/netd tools/hwcheck/pos-spixfer \
         tools/wave/pos-wave tools/camera/pos-camera tools/zabbix/pos-zabbix tools/browser/pos-browser \
-        tools/recorder/pos-record tools/drmtest/pos-drmtest tools/vision/pos-vision
+        tools/recorder/pos-record tools/drmtest/pos-drmtest tools/vision/pos-vision tools/mp3/pos-mp3 tools/video/pos-video
 ifeq ($(ENABLE_MESHCORED),1)
 BINS += services/meshcored/meshcored
 endif
@@ -960,6 +960,37 @@ games-test: $(GAMES_TESTS)
 	bash tests/sol_lint.sh
 	bash tests/bj_lint.sh
 
+# DeskBuddy (docs/apps/DESKBUDDY.md). The state machine, the face geometry,
+# the vision boundary and its scripted provider, the guard log and the
+# preferences are pure C with no LVGL, so they are unit-tested here; only
+# db_store.c touches files. The screen needs LVGL and is built by ui/shell
+# (tests/deskbuddy_shell_test.sh). tests/deskbuddy_lint.sh holds the
+# boundary: nothing in DeskBuddy includes the Vision app or the camera.
+DB_DIR := apps/deskbuddy
+DB_CORE_OBJS := $(DB_DIR)/db_brain.o $(DB_DIR)/db_face.o $(DB_DIR)/db_guard.o $(DB_DIR)/db_prefs.o \
+                $(DB_DIR)/db_vision.o $(DB_DIR)/db_vision_mock.o
+DB_STORE_OBJS := $(DB_DIR)/db_store.o $(PATHS_OBJS)
+DESKBUDDY_TESTS := tests/db_brain_test tests/db_vision_test tests/db_guard_test
+
+tests/db_%_test.o: tests/db_%_test.c
+	$(CC) $(ALL_CFLAGS) -I$(DB_DIR) -c -o $@ $<
+
+tests/db_brain_test: tests/db_brain_test.o $(DB_CORE_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/db_vision_test: tests/db_vision_test.o $(DB_CORE_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/db_guard_test: tests/db_guard_test.o $(DB_CORE_OBJS) $(DB_STORE_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+DESKBUDDY_TEST_RUN = ./tests/db_brain_test && ./tests/db_vision_test && ./tests/db_guard_test
+
+# DeskBuddy on its own, for a focused run.
+deskbuddy-test: $(DESKBUDDY_TESTS)
+	$(DESKBUDDY_TEST_RUN)
+	bash tests/deskbuddy_lint.sh
+
 # RIFT: the three halves of the app that are not LVGL. The model (what is
 # known and how sure it is), the formatting (every string the screens print)
 # and the meshcored client (the connection, the framing and the reconnect)
@@ -1480,6 +1511,209 @@ recorder-san-test:
 	    LDFLAGS="-fsanitize=address,undefined" $(REC_TESTS)
 	cd $(RECORDER_SAN_DIR) && ASAN_OPTIONS=detect_leaks=1 $(REC_TEST_RUN)
 
+# MP3 (docs/apps/MP3.md). pos-mp3 is the MP3 app's helper, the only program
+# that decodes a track or opens audio for it, on the unchanged
+# core/pocketaudio - the shape of ADR-010. Its decoder is FFmpeg on the image
+# (MP3_FFMPEG=1: libavformat, libavcodec, libswresample and libavutil, which
+# the image and its sysroot already carry - Buildroot selects FFmpeg for
+# OpenCV; the Buildroot package sets it and depends on ffmpeg). Anywhere else
+# it is a WAV-only decoder, because this host has no FFmpeg headers, so the
+# real helper still runs end to end on a host over the file-backed sound
+# card. apps/mp3 holds the app's helper client, player, controller, library
+# and view model, all LVGL-free and tested here; the screen is built by
+# ui/shell (tests/mp3_shell_test.sh).
+MP3_FFMPEG ?= 0
+MP3_FFMPEG_CFLAGS ?=
+MP3_FFMPEG_LIBS ?= -lavformat -lavcodec -lswresample -lavutil
+MP3_DIR := apps/mp3
+MP3_TOOL_DIR := tools/mp3
+MP3_DEC_WAV_OBJS := $(MP3_TOOL_DIR)/mp3_decoder_wav.o $(MP3_TOOL_DIR)/mp3_dec_text.o $(WAV_OBJS)
+ifeq ($(MP3_FFMPEG),1)
+MP3_DEC_OBJS := $(MP3_TOOL_DIR)/mp3_decoder_ffmpeg.o $(MP3_TOOL_DIR)/mp3_dec_text.o
+MP3_DEC_LIBS := $(MP3_FFMPEG_LIBS)
+else
+MP3_DEC_OBJS := $(MP3_DEC_WAV_OBJS)
+MP3_DEC_LIBS :=
+endif
+POS_MP3_OBJS := $(MP3_TOOL_DIR)/pos_mp3.o $(MP3_DEC_OBJS) $(AUDIO_OBJS) $(AUDIO_ALSA_OBJS) $(PATHS_OBJS)
+MP3_APP_OBJS := $(MP3_DIR)/mp3_session.o $(MP3_DIR)/mp3_player.o $(MP3_DIR)/mp3_library.o \
+                $(MP3_DIR)/mp3_ctl.o $(MP3_DIR)/mp3_view.o $(PATHS_OBJS)
+MP3_TESTS := tests/mp3_decoder_test tests/mp3_library_test tests/mp3_session_test tests/mp3_ctl_test \
+             tests/pos-mp3-testhooks
+
+$(MP3_DIR)/%.o: $(MP3_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) -I$(MP3_DIR) -c -o $@ $<
+
+$(MP3_TOOL_DIR)/%.o: $(MP3_TOOL_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) -I$(MP3_DIR) -I$(MP3_TOOL_DIR) \
+	    $(if $(filter 1,$(MP3_FFMPEG)),-DMP3_HAVE_FFMPEG $(MP3_FFMPEG_CFLAGS)) -c -o $@ $<
+
+tools/mp3/pos-mp3: $(POS_MP3_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lasound $(MP3_DEC_LIBS) -lm
+
+# A pos-mp3 whose sound card is files (POS_MP3_FAKE_AUDIO, the same
+# tests/fake_audio_backend.c pos-wave's and pos-record's tests use), whose
+# decoder fails on request (POS_MP3_FAIL_AT_MS, POS_MP3_FAIL_KIND) and opens
+# files slowly on request (POS_MP3_OPEN_DELAY_MS). Always the WAV decoder.
+# Only this object carries the hooks; tests/mp3_lint.sh checks that
+# tools/mp3/pos-mp3 does not.
+tests/pos_mp3_hooks.o: tools/mp3/pos_mp3.c
+	$(CC) $(ALL_CFLAGS) -I$(MP3_DIR) -I$(MP3_TOOL_DIR) -Itests -DPOS_MP3_TEST_HOOKS=1 -c -o $@ $<
+
+tests/pos-mp3-testhooks: tests/pos_mp3_hooks.o tests/fake_audio_backend.o $(MP3_DEC_WAV_OBJS) \
+                         $(AUDIO_OBJS) $(AUDIO_ALSA_OBJS) $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lasound -lm
+
+tests/mp3_%_test.o: tests/mp3_%_test.c
+	$(CC) $(ALL_CFLAGS) -I$(MP3_DIR) -I$(MP3_TOOL_DIR) -c -o $@ $<
+
+tests/mp3_decoder_test: tests/mp3_decoder_test.o $(MP3_DEC_WAV_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
+tests/mp3_library_test: tests/mp3_library_test.o $(MP3_DIR)/mp3_library.o $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -pthread
+
+tests/mp3_session_test: tests/mp3_session_test.o $(MP3_DIR)/mp3_session.o $(WAV_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
+tests/mp3_ctl_test: tests/mp3_ctl_test.o $(MP3_APP_OBJS) $(WAV_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -pthread -lm
+
+MP3_TEST_RUN = ./tests/mp3_decoder_test && ./tests/mp3_library_test && \
+               ./tests/mp3_session_test tests/fake_pos_mp3.sh tests/pos-mp3-testhooks && \
+               ./tests/mp3_ctl_test tests/pos-mp3-testhooks tests/fake_pos_mp3.sh
+
+mp3-test: $(MP3_TESTS) tools/mp3/pos-mp3
+	$(MP3_TEST_RUN)
+	bash tests/mp3_lint.sh
+
+# The MP3 suites again under the address and undefined-behaviour sanitizers
+# (leak checking included), in a separate tree so the ordinary objects are
+# untouched. The helper is built with them too: the session and controller
+# tests drive it.
+MP3_SAN_DIR := out/mp3-san
+mp3-san-test:
+	rm -rf $(MP3_SAN_DIR) && mkdir -p $(MP3_SAN_DIR)
+	git ls-files --cached --others --exclude-standard core apps/mp3 tools/mp3 tests/mp3_* \
+	    tests/fake_pos_mp3.sh tests/fake_audio_backend.* Makefile VERSION \
+	    | tar -cf - -T - | tar -xf - -C $(MP3_SAN_DIR)
+	$(MAKE) -C $(MP3_SAN_DIR) CC="$(CC)" POCKETOS_BUILD_ID=$(POCKETOS_BUILD_ID) \
+	    CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all" \
+	    LDFLAGS="-fsanitize=address,undefined" $(MP3_TESTS)
+	cd $(MP3_SAN_DIR) && ASAN_OPTIONS=detect_leaks=1 $(MP3_TEST_RUN)
+
+# Video (docs/apps/VIDEO.md, ADR-012 proposed).
+#
+# pos-video is the Video app's helper, the only program that opens a video
+# file, the hardware video decoder or - for a video's sound - the sound card
+# for it. tools/video holds the player engine (the clock, pacing, the picture
+# slots, and a sound thread on the unchanged core/pocketaudio) and its two
+# decoding backends: the fake one (a scripted text "video", every host) and
+# FFmpeg (POCKETVIDEO_FFMPEG=1: libavformat, libavcodec, libswscale and
+# libswresample as the image already ships them, with the K230's hardware
+# H.264 decoder; in its sysroot, so the Buildroot package sets it). This host
+# has no FFmpeg headers, so a host build has only the fake backend and says
+# so. apps/video holds the app's state machine, layout, folder list and
+# helper client (pure C, tested here, against the real helper on the fake
+# backend); the screen is built by ui/shell. The shell links no FFmpeg, no
+# pocketaudio and no alsa-lib.
+POCKETVIDEO_FFMPEG ?= 0
+VIDEO_DIR := apps/video
+VIDEO_TOOL_DIR := tools/video
+ifeq ($(POCKETVIDEO_FFMPEG),1)
+VIDEO_FFMPEG_OBJS := $(VIDEO_TOOL_DIR)/video_backend_ffmpeg.o
+VIDEO_FFMPEG_CFLAGS := -DPOCKETVIDEO_HAVE_FFMPEG=1
+VIDEO_FFMPEG_LIBS := -lavformat -lavcodec -lswscale -lswresample -lavutil
+else
+VIDEO_FFMPEG_OBJS :=
+VIDEO_FFMPEG_CFLAGS :=
+VIDEO_FFMPEG_LIBS :=
+endif
+VIDEO_PLAYER_OBJS := $(VIDEO_TOOL_DIR)/video_player.o $(VIDEO_TOOL_DIR)/video_backend_fake.o \
+                     $(VIDEO_FFMPEG_OBJS)
+POS_VIDEO_OBJS := $(VIDEO_TOOL_DIR)/pos_video.o $(VIDEO_PLAYER_OBJS) $(AUDIO_OBJS) $(AUDIO_ALSA_OBJS) \
+                  $(PATHS_OBJS)
+VIDEO_APP_OBJS := $(VIDEO_DIR)/video_state.o $(VIDEO_DIR)/video_session.o $(VIDEO_DIR)/video_files.o \
+                  $(VIDEO_DIR)/video_layout.o
+VIDEO_TESTS := tests/video_files_test tests/video_layout_test tests/video_state_test \
+               tests/video_player_test tests/video_session_test tests/pos-video-testhooks
+
+$(VIDEO_DIR)/%.o: $(VIDEO_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) -I$(VIDEO_DIR) -c -o $@ $<
+
+$(VIDEO_TOOL_DIR)/%.o: $(VIDEO_TOOL_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) $(VIDEO_FFMPEG_CFLAGS) -I$(VIDEO_DIR) -I$(VIDEO_TOOL_DIR) -c -o $@ $<
+
+tools/video/pos-video: $(POS_VIDEO_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(VIDEO_FFMPEG_LIBS) -lasound -lpthread -lm
+
+# A pos-video whose sound card is files that pace like a device
+# (POS_VIDEO_FAKE_AUDIO, tests/fake_audio_backend.c) or absent
+# (POS_VIDEO_NO_AUDIO). Only this object carries the hooks; the shipped
+# tools/video/pos-video does not, which tests/video_lint.sh checks.
+tests/pos_video_hooks.o: tools/video/pos_video.c
+	$(CC) $(ALL_CFLAGS) $(VIDEO_FFMPEG_CFLAGS) -I$(VIDEO_DIR) -I$(VIDEO_TOOL_DIR) -Itests \
+	    -DPOS_VIDEO_TEST_HOOKS=1 -c -o $@ $<
+
+tests/pos-video-testhooks: tests/pos_video_hooks.o tests/fake_audio_backend.o \
+                           $(filter-out $(VIDEO_TOOL_DIR)/pos_video.o,$(POS_VIDEO_OBJS))
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(VIDEO_FFMPEG_LIBS) -lasound -lpthread -lm
+
+tests/video_%_test.o: tests/video_%_test.c
+	$(CC) $(ALL_CFLAGS) -I$(VIDEO_DIR) -I$(VIDEO_TOOL_DIR) -Itests -c -o $@ $<
+
+tests/video_files_test: tests/video_files_test.o $(VIDEO_DIR)/video_files.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/video_layout_test: tests/video_layout_test.o $(VIDEO_DIR)/video_layout.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+tests/video_state_test: tests/video_state_test.o $(VIDEO_DIR)/video_state.o $(VIDEO_DIR)/video_files.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# The engine against the fake backend and the file-backed sound card, in
+# process, on its own clock.
+tests/video_player_test: tests/video_player_test.o $(VIDEO_PLAYER_OBJS) tests/fake_audio_backend.o \
+                         $(AUDIO_OBJS) $(PATHS_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(VIDEO_FFMPEG_LIBS) -lpthread -lm
+
+# The helper client against the real helper (fake backend, fake sound card).
+tests/video_session_test: tests/video_session_test.o $(VIDEO_DIR)/video_session.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+VIDEO_TEST_RUN = ./tests/video_files_test && ./tests/video_layout_test && ./tests/video_state_test && \
+                 ./tests/video_player_test && ./tests/video_session_test tests/pos-video-testhooks
+
+video-test: $(VIDEO_TESTS) tools/video/pos-video
+	$(VIDEO_TEST_RUN)
+	bash tests/video_lint.sh
+
+# The video suites again under the address and undefined-behaviour
+# sanitizers (leak checking included), in a separate tree so the ordinary
+# objects are untouched; the helper is built with them too, since the
+# session test drives it. The thread sanitizer run is video-tsan-test.
+VIDEO_SAN_DIR := out/video-san
+video-san-test:
+	rm -rf $(VIDEO_SAN_DIR) && mkdir -p $(VIDEO_SAN_DIR)
+	git ls-files --cached --others --exclude-standard core apps/video tools/video tests/video_* \
+	    tests/fake_audio_backend.* tests/pos-video* Makefile VERSION \
+	    | grep -v 'tests/pos-video-testhooks$$' | tar -cf - -T - | tar -xf - -C $(VIDEO_SAN_DIR)
+	$(MAKE) -C $(VIDEO_SAN_DIR) CC="$(CC)" POCKETOS_BUILD_ID=$(POCKETOS_BUILD_ID) \
+	    CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all" \
+	    LDFLAGS="-fsanitize=address,undefined" $(VIDEO_TESTS)
+	cd $(VIDEO_SAN_DIR) && ASAN_OPTIONS=detect_leaks=1 $(VIDEO_TEST_RUN)
+
+# The engine's two threads (the main loop and the sound thread) under the
+# thread sanitizer.
+VIDEO_TSAN_DIR := out/video-tsan
+video-tsan-test:
+	rm -rf $(VIDEO_TSAN_DIR) && mkdir -p $(VIDEO_TSAN_DIR)
+	git ls-files --cached --others --exclude-standard core apps/video tools/video tests/video_* \
+	    tests/fake_audio_backend.* Makefile VERSION | tar -cf - -T - | tar -xf - -C $(VIDEO_TSAN_DIR)
+	$(MAKE) -C $(VIDEO_TSAN_DIR) CC="$(CC)" POCKETOS_BUILD_ID=$(POCKETOS_BUILD_ID) \
+	    CFLAGS="-O1 -g -fsanitize=thread" LDFLAGS="-fsanitize=thread" tests/video_player_test
+	cd $(VIDEO_TSAN_DIR) && ./tests/video_player_test
+
 # Zabbix (docs/apps/ZABBIX.md, ADR-007 accepted).
 #
 # core/zabbix is the Zabbix viewer's client layer, all pure C: the bounded
@@ -1721,7 +1955,7 @@ TEST_BINS := tests/sysd-testhooks tests/netd-testhooks tests/fake_wpa_supplicant
              tests/paths_test $(FLEET_TESTS) $(RADAR_TESTS) $(TIMBER_TESTS) \
              $(NOTES_TESTS) $(FILES_TESTS) $(CLOCK_TESTS) $(CAL_TESTS) $(CALC_TESTS) tests/kbd_tca8418_test tests/kbd_bus_k230_test \
              $(WAVE_TESTS) $(RIFT_TESTS) $(CAMERA_TESTS) $(ZABBIX_TESTS) $(BROWSER_TESTS) $(REC_TESTS) tests/drmtest_test \
-             $(VISION_TESTS) $(GAMES_TESTS)
+             $(VISION_TESTS) $(GAMES_TESTS) $(DESKBUDDY_TESTS) $(MP3_TESTS) $(VIDEO_TESTS)
 
 # Native tests only (they execute binaries).
 test: all $(TEST_BINS)
@@ -1789,6 +2023,7 @@ test: all $(TEST_BINS)
 	./tests/calc_engine_test
 	./tests/calc_view_test
 	$(GAMES_TEST_RUN)
+	$(DESKBUDDY_TEST_RUN)
 	./tests/clock_runtime_test
 	./tests/clock_handoff_test
 	./tests/clock_restart_test
@@ -1835,6 +2070,8 @@ test: all $(TEST_BINS)
 	bash tests/browser_http_test.sh
 	$(REC_TEST_RUN)
 	bash tests/rec_tool_test.sh
+	$(MP3_TEST_RUN)
+	$(VIDEO_TEST_RUN)
 	bash tests/wave_tool_test.sh
 	bash tests/audio_recovery_test.sh
 	bash tests/capture_settle_test.sh
@@ -1883,10 +2120,13 @@ test: all $(TEST_BINS)
 	bash tests/zabbix_lint.sh
 	bash tests/browser_lint.sh
 	bash tests/recorder_lint.sh
+	bash tests/mp3_lint.sh
 	bash tests/vision_lint.sh
+	bash tests/video_lint.sh
 	bash tests/g2048_lint.sh
 	bash tests/sol_lint.sh
 	bash tests/bj_lint.sh
+	bash tests/deskbuddy_lint.sh
 
 install: all meshcored-shipping-check
 # The command-line tool is installed as doors, and pos is a symlink to it: one
@@ -1903,7 +2143,9 @@ install: all meshcored-shipping-check
 	install -D -m 0755 tools/zabbix/pos-zabbix $(DESTDIR)$(PREFIX)/bin/pos-zabbix
 	install -D -m 0755 tools/browser/pos-browser $(DESTDIR)$(PREFIX)/bin/pos-browser
 	install -D -m 0755 tools/recorder/pos-record $(DESTDIR)$(PREFIX)/bin/pos-record
+	install -D -m 0755 tools/mp3/pos-mp3 $(DESTDIR)$(PREFIX)/bin/pos-mp3
 	install -D -m 0755 tools/vision/pos-vision $(DESTDIR)$(PREFIX)/bin/pos-vision
+	install -D -m 0755 tools/video/pos-video $(DESTDIR)$(PREFIX)/bin/pos-video
 	install -D -m 0755 tools/drmtest/pos-drmtest $(DESTDIR)$(PREFIX)/bin/pos-drmtest
 	install -D -m 0755 tools/display/pos-display-boot.sh $(DESTDIR)$(PREFIX)/bin/pos-display-boot
 	install -D -m 0755 services/radiod/radiod $(DESTDIR)$(PREFIX)/sbin/radiod
@@ -1951,7 +2193,7 @@ DEPFILES := $(shell find apps core services tools ui tests $(RADIOLIB_DIR) -name
 
 clean:
 	$(MAKE) -C tools/meshcore-frame clean
-	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd_logs_test tests/sysd_logs_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_NET_OBJS) $(FLEET_LINK_OBJS) apps/fleet/link/fleet_link_mesh.o $(FLEET_VIEW_MP_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/wave_channel.o tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o tests/volume_test tests/volume_test.o ui/shell/volume.o tests/controls_model_test tests/controls_model_test.o ui/shell/controls_model.o apps/system/diag_view.o tests/diag_view_test tests/diag_view_test.o $(ZBX_OBJS) core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o $(ZABBIX_OBJS) $(ZABBIX_TESTS) $(ZABBIX_TESTS:=.o) tools/zabbix/pos_zabbix.o tools/zabbix/pos_zabbix_mock.o $(WEB_HELPER_OBJS) $(WEB_DIR)/web_fetch_curl.o $(WEB_DIR)/web_fetch_none.o $(WEB_DIR)/web_image_dec.o $(WEB_DIR)/web_image_none.o $(BROWSER_OBJS) $(BROWSER_TESTS) $(BROWSER_TESTS:=.o) tools/browser/pos_browser.o $(POS_RECORD_OBJS) $(REC_APP_OBJS) $(REC_TESTS) $(REC_TESTS:=.o) tests/pos_record_hooks.o $(POCKETOS_BUILD_STAMP) tests/drmtest_test $(GAMES_OBJS) $(GAMES_TESTS) $(GAMES_TESTS:=.o)
+	rm -f $(DEPFILES) $(BINS) $(POS_OBJS) $(RADIOD_OBJS) $(SYSD_OBJS) $(NETD_OBJS) tests/netd_sys_hooks.o tests/netd-testhooks tests/fake_wpa_supplicant tests/fake_wpa_supplicant.o tests/wifi_parse_test tests/wifi_parse_test.o tests/wifi_store_test tests/wifi_store_test.otests/pocketsys_test tests/pocketsys_test.o tests/pocketsys_hooks.o tests/sysd_services_test tests/sysd_services_test.o tests/sysd_logs_test tests/sysd_logs_test.o tests/sysd-testhooks tests/sysd_power_hooks.o tests/system_view_test tests/system_view_test.o apps/system/system_view.o tests/settings_view_test tests/settings_view_test.o apps/settings/settings_view.o$(SX1262_OBJS) $(THEME_OBJS) $(FLEET_OBJS) $(FLEET_NET_OBJS) $(FLEET_LINK_OBJS) apps/fleet/link/fleet_link_mesh.o $(FLEET_VIEW_MP_OBJS) $(FLEET_TESTS) $(FLEET_TESTS:=.o) $(RADAR_OBJS) $(RADAR_APP_OBJS) $(RADAR_TESTS) $(RADAR_TESTS:=.o) tests/airtime_test tests/airtime_test.o tests/pocketlog_test tests/pocketlog_test.o tests/pocketipc_test tests/pocketipc_test.o tests/theme_test tests/theme_test.o tests/settings_test tests/settings_test.o ui/shell/settings.o tests/brightness_test tests/brightness_test.o ui/shell/brightness.o tests/display_geometry_test tests/display_geometry_test.o ui/pocketui/pos_display.o tests/orientation_test tests/orientation_test.o ui/shell/orientation.o ui/shell/kbd_presence.o tests/kbd_presence_test tests/kbd_presence_test.o tests/paths_test tests/paths_test.o $(PATHS_OBJS) tools/hwcheck/spixfer.o $(TIMBER_OBJS) $(TIMBER_TESTS) $(TIMBER_TESTS:=.o) $(NOTES_OBJS) $(NOTES_TESTS) $(NOTES_TESTS:=.o) $(FILES_OBJS) $(FILES_TESTS) $(FILES_TESTS:=.o) $(TIMBER_UI_OBJS) $(CLOCK_OBJS) $(CLOCK_TESTS) $(CLOCK_TESTS:=.o) $(CAL_OBJS) $(CAL_TESTS) $(CAL_TESTS:=.o) $(CALC_OBJS) $(CALC_TESTS) $(CALC_TESTS:=.o) $(POS_WAVE_OBJS) $(WAVE_OBJS) $(WAVE_TESTS) $(WAVE_TESTS:=.o) tests/wave_channel.o tests/pos_wave_hooks.o tests/fake_audio_backend.o $(RIFT_OBJS) $(RIFT_TESTS) $(RIFT_TESTS:=.o) tests/fake_meshcored.o tests/fake_meshcored_main.o $(CAM_OBJS) $(CAMERA_OBJS) $(CAMERA_TESTS) $(CAMERA_TESTS:=.o) tests/pos_camera_hooks.o tools/camera/pos_camera.o tests/volume_test tests/volume_test.o ui/shell/volume.o tests/controls_model_test tests/controls_model_test.o ui/shell/controls_model.o apps/system/diag_view.o tests/diag_view_test tests/diag_view_test.o $(ZBX_OBJS) core/zabbix/zbx_http_curl.o core/zabbix/zbx_http_none.o $(ZABBIX_OBJS) $(ZABBIX_TESTS) $(ZABBIX_TESTS:=.o) tools/zabbix/pos_zabbix.o tools/zabbix/pos_zabbix_mock.o $(WEB_HELPER_OBJS) $(WEB_DIR)/web_fetch_curl.o $(WEB_DIR)/web_fetch_none.o $(WEB_DIR)/web_image_dec.o $(WEB_DIR)/web_image_none.o $(BROWSER_OBJS) $(BROWSER_TESTS) $(BROWSER_TESTS:=.o) tools/browser/pos_browser.o $(POS_RECORD_OBJS) $(REC_APP_OBJS) $(REC_TESTS) $(REC_TESTS:=.o) tests/pos_record_hooks.o $(POS_MP3_OBJS) $(MP3_DEC_WAV_OBJS) $(MP3_TOOL_DIR)/mp3_decoder_ffmpeg.o $(MP3_APP_OBJS) $(MP3_TESTS) $(MP3_TESTS:=.o) tests/pos_mp3_hooks.o $(POS_VIDEO_OBJS) $(VIDEO_TOOL_DIR)/video_backend_ffmpeg.o $(VIDEO_APP_OBJS) $(VIDEO_TESTS) $(VIDEO_TESTS:=.o) tests/pos_video_hooks.o $(POCKETOS_BUILD_STAMP) tests/drmtest_test $(GAMES_OBJS) $(GAMES_TESTS) $(GAMES_TESTS:=.o) $(DB_CORE_OBJS) $(DB_DIR)/db_store.o $(DESKBUDDY_TESTS) $(DESKBUDDY_TESTS:=.o)
 
 # The files `make all` and `make test` produce, one to a line, for
 # tests/build_outputs_test.sh.
@@ -2143,4 +2385,4 @@ meshcored-clean:
         meshcore-frame meshcore-frame-test \
         meshcore-core meshcore-core-test meshcore-core-riscv64 \
         meshcored meshcored-test meshcored-clean meshcored-shipping-check \
-        recorder-test recorder-san-test vision-test vision-san-test games-test
+        recorder-test recorder-san-test vision-test vision-san-test games-test deskbuddy-test mp3-test mp3-san-test

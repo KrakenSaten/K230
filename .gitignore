@@ -192,6 +192,13 @@ BUILD_ID
 /tests/rec_session_test
 /tests/rec_ctl_test
 /tests/pos-record-testhooks
+# MP3 (docs/apps/MP3.md)
+/tools/mp3/pos-mp3
+/tests/mp3_decoder_test
+/tests/mp3_library_test
+/tests/mp3_session_test
+/tests/mp3_ctl_test
+/tests/pos-mp3-testhooks
 # Vision (docs/apps/VISION.md)
 /tools/vision/pos-vision
 /tests/vision_decode_test
@@ -201,6 +208,14 @@ BUILD_ID
 /tests/vision_geom_test
 /tests/vision_model_test
 /tests/vision_session_test
+# Video (docs/apps/VIDEO.md)
+/tools/video/pos-video
+/tests/video_files_test
+/tests/video_layout_test
+/tests/video_state_test
+/tests/video_player_test
+/tests/video_session_test
+/tests/pos-video-testhooks
 # HDMI diagnostics (docs/hardware/HDMI_OUTPUT.md)
 /tools/drmtest/pos-drmtest
 /tests/drmtest_test
@@ -216,3 +231,7 @@ BUILD_ID
 /tests/bj_rules_test
 /tests/bj_view_test
 /tests/bj_store_test
+# DeskBuddy (docs/apps/DESKBUDDY.md)
+/tests/db_brain_test
+/tests/db_vision_test
+/tests/db_guard_test
