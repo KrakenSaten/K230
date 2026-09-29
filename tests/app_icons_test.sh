@@ -103,6 +103,18 @@ check "pos_app_icons.c names it and its hash, as its source" \
     "$(grep -qx " \*   ${FIRST}/vision.png" "${ICONS_C}" && grep -qx " \*     sha256 ${VISION_SHA}" "${ICONS_C}" &&
        echo 1 || echo 0)"
 
+# MP3's is the seventh (two beamed notes), held the same way.
+MP3_SHA=be10f8d7c17b889a3511fd9fc9f3d708ebe06d26a3a27330c4fcdfcb40c2ddeb
+check "the first-party MP3 icon is the committed file (sha256)" \
+    "$([ "$(sha256sum "${FIRST}/mp3.png" | cut -c1-64)" = "${MP3_SHA}" ] && echo 1 || echo 0)"
+python3 tools/design/render_app_icon.py docs/design/doors-app-icons/svg/mp3.svg "${TMP}/first" >/dev/null 2>&1
+check "it is exactly what render_app_icon.py draws from its SVG, at 24 and 32 px" \
+    "$(cmp -s "${TMP}/first/png-32/mp3.png" "${FIRST}/mp3.png" &&
+       cmp -s "${TMP}/first/png-24/mp3.png" docs/design/doors-app-icons/png-24/mp3.png && echo 1 || echo 0)"
+check "pos_app_icons.c names it and its hash, as its source" \
+    "$(grep -qx " \*   ${FIRST}/mp3.png" "${ICONS_C}" && grep -qx " \*     sha256 ${MP3_SHA}" "${ICONS_C}" &&
+       echo 1 || echo 0)"
+
 # The three Pocket Games titles' are the fourth to sixth (a column of cards,
 # a card and a chip, four tiles), held the same way, one by one.
 for game in "solitaire 701a7ee3c5359c6ebfd79f8fb6d7e933ec6d9245bf61e116b5826d9913ef6cc3" \
@@ -138,7 +150,7 @@ for n in names:
     dsc = re.search(r"pos_app_icon_%s = \{(.*?)\};" % n, text, re.S).group(1)
     hdr = dict(re.findall(r"\.header\.(\w+) = (\w+),", dsc))
     W, H, rows = read_png("%s/%s.png" % (ext if n in ("wave", "files", "camera", "recorder") else
-                                         first if n in ("zabbix", "browser", "vision", "solitaire", "blackjack", "2048") else art,
+                                         first if n in ("zabbix", "browser", "vision", "mp3", "solitaire", "blackjack", "2048") else art,
                                          n))
     alpha = [p[3] for r in rows for p in r]
     ok = (hdr.get("cf"), hdr.get("w"), hdr.get("h"), hdr.get("stride")) == ("LV_COLOR_FORMAT_A8", "32", "32", "32") \
@@ -152,9 +164,9 @@ PY
 rc=$?
 check "every mask is A8, 32 x 32, and equals its PNG's alpha byte for byte" "$([ "${rc}" = "0" ] && echo 1 || echo 0)"
 check "there is one mask per launcher app, named by app id, and no other" \
-    "$(grep -qx 'names 2048 blackjack browser calculator calendar camera clock files fleet notes radar radio recorder settings solitaire system timber vision wave zabbix' "${TMP}/masks.txt" && echo 1 || echo 0)"
-check "the file holds 20,480 bytes of mask data and nothing else of size" \
-    "$([ "$(grep -o '0x[0-9a-f][0-9a-f]' "${ICONS_C}" | wc -l)" = "20480" ] && echo 1 || echo 0)"
+    "$(grep -qx 'names 2048 blackjack browser calculator calendar camera clock files fleet mp3 notes radar radio recorder settings solitaire system timber vision wave zabbix' "${TMP}/masks.txt" && echo 1 || echo 0)"
+check "the file holds 21,504 bytes of mask data and nothing else of size" \
+    "$([ "$(grep -o '0x[0-9a-f][0-9a-f]' "${ICONS_C}" | wc -l)" = "21504" ] && echo 1 || echo 0)"
 extra=$(grep -c 'doors-icon-extension' "${ICONS_C}")
 check "of the extension's thirteen icons only Wave, Files, Camera and Recorder are compiled in (${extra} sources)" \
     "$([ "${extra}" = "4" ] && grep -qx " \*   ${EXT}/wave.png" "${ICONS_C}" &&
@@ -162,8 +174,8 @@ check "of the extension's thirteen icons only Wave, Files, Camera and Recorder a
        grep -qx " \*   ${EXT}/camera.png" "${ICONS_C}" &&
        grep -qx " \*   ${EXT}/recorder.png" "${ICONS_C}" && echo 1 || echo 0)"
 first=$(grep -c 'doors-app-icons' "${ICONS_C}")
-check "and six first-party icons, Zabbix's, Browser's, Vision's and the three card and tile games' (${first} sources)" \
-    "$([ "${first}" = "6" ] && echo 1 || echo 0)"
+check "and seven first-party icons, Zabbix's, Browser's, Vision's, MP3's and the three card and tile games' (${first} sources)" \
+    "$([ "${first}" = "7" ] && echo 1 || echo 0)"
 
 # ---- refusals ------------------------------------------------------------------
 refused() { # <label> <message fragment> <source>...
@@ -234,7 +246,7 @@ check "every launcher app's descriptor was read (${listed} listed)" \
     "$([ "$(grep -c . "${TMP}/apps.txt")" = "${listed}" ] && ! grep -q Traceback "${TMP}/apps.txt" &&
        echo 1 || echo 0)"
 for id in radio system fleet radar timber notes clock calendar calculator settings wave files camera recorder zabbix browser \
-          vision solitaire blackjack 2048; do
+          vision solitaire blackjack 2048 mp3; do
     check "${id} uses its own icon, pos_app_icon_${id}" \
         "$(grep -qE "^${id} LV_SYMBOL_[A-Z_]+ pos_app_icon_${id} " "${TMP}/apps.txt" && echo 1 || echo 0)"
 done
@@ -257,8 +269,8 @@ check "no launcher app is without an icon mask except the one known to have no a
 check "and that one is still without it, so this exception has not gone stale (${nomask:-none})" \
     "$([ "$(echo ${nomask})" = "${NO_MASK_ALLOWED}" ] && echo 1 || echo 0)"
 users=$(grep -rl 'pos_app_icon_' apps ui --include='*.c' --include='*.h' | grep -v "^${ICONS_C}$" | wc -l)
-check "the masks are referenced only by the twenty app descriptors that have one (found in ${users} files)" \
-    "$([ "${users}" = "20" ] && echo 1 || echo 0)"
+check "the masks are referenced only by the twenty-one app descriptors that have one (found in ${users} files)" \
+    "$([ "${users}" = "21" ] && echo 1 || echo 0)"
 check "the brand mark is not used as an app icon (DS §19.1)" \
     "$(grep -rqE 'icon_mask = &pos_brand_mark' apps ui && echo 0 || echo 1)"
 # The DOORS launcher (DS §31) draws each app's portal icon from the runtime
