@@ -6,7 +6,8 @@
 #      boundaries, focus coming back, empty / one / missing / thirty-three
 #      games, landscape, fifty open/back rounds and twenty rebuilds without
 #      a leak;
-#   2. over shell.*: one Games cell and no game cell on the launcher, the
+#   2. over shell.*: one Games cell and no game cell on the launcher, one
+#      Utilities cell holding its seven tools, the
 #      folder opened and closed by shell.folder, a game opened from it comes
 #      home to the folder, the keys are the launcher's at home and not while
 #      an app is open, forty open/close rounds hold no more art, a folder
@@ -66,12 +67,19 @@ check "the launcher has one Games cell" \
     "$([ "$(field '["launcher"]["folders"][0]["id"]')" = '"games"' ] &&
        [ "$(field '["launcher"]["folders"][0]["apps"]')" = 6 ] &&
        [ "$(field '["launcher"]["folders"][0]["w"]')" -ge 64 ] && echo 1 || echo 0)"
-check "nineteen cells for twenty-four apps, one of them the folder" \
-    "$([ "$(field '["launcher"]["apps"]')" = 24 ] && [ "$(field '["launcher"]["home_cells"]')" = 19 ] &&
-       [ "$(field '["launcher"]["folder_cells"]')" = 1 ] && echo 1 || echo 0)"
+check "thirteen cells for twenty-four apps, two of them folders, after three favorites" \
+    "$([ "$(field '["launcher"]["apps"]')" = 24 ] && [ "$(field '["launcher"]["home_cells"]')" = 13 ] &&
+       [ "$(field '["launcher"]["folder_cells"]')" = 2 ] && [ "$(field '["launcher"]["favorite_cells"]')" = 3 ] &&
+       echo 1 || echo 0)"
 root_cells=$(cells)
 check "and no game cell on the launcher's page" \
     "$(case " $root_cells " in *" fleet "*|*" radar "*|*" timber "*) echo 0 ;; *) echo 1 ;; esac)"
+check "the launcher's page shows the distinctive apps: $root_cells" \
+    "$([ "$root_cells" = "browser deskbuddy mp3 radio rift settings system video vision wave zabbix" ] && echo 1 || echo 0)"
+check "the Utilities cell is the second folder, holding seven" \
+    "$([ "$(field '["launcher"]["folders"][1]["id"]')" = '"utilities"' ] &&
+       [ "$(field '["launcher"]["folders"][1]["apps"]')" = 7 ] &&
+       [ "$(field '["launcher"]["folders"][1]["w"]')" -ge 64 ] && echo 1 || echo 0)"
 check "nothing is open, and the keys are the launcher's" \
     "$([ "$(field '["launcher"]["folder"]')" = null ] && [ "$(field '["launcher"]["keys"]')" = true ] && echo 1 || echo 0)"
 held_root=$(field '["art"]["bytes_held"]')
@@ -113,6 +121,21 @@ check "a folder that is not there is refused" \
     "$(call_out shell.folder id=tools | grep -qi 'no such folder' && [ "$(field '["launcher"]["folder"]')" = null ] &&
        echo 1 || echo 0)"
 check "and an id that is not a string" "$(call_out shell.folder id=3 | grep -qi 'folder id' && echo 1 || echo 0)"
+reply=$(call_out shell.folder id=utilities)
+check "shell.folder opens Utilities" "$(printf '%s' "$reply" | grep -q '"folder":[[:space:]]*"utilities"' && echo 1 || echo 0)"
+check "whose page holds Clock, Calendar, Calculator, Notes, Files, Recorder and Camera" \
+    "$([ "$(cells)" = "calculator calendar camera clock files notes recorder" ] && echo 1 || echo 0)"
+check "and not Zabbix, Vision, RIFT, DeskBuddy, MP3 or Video" \
+    "$(case " $(cells) " in *" zabbix "*|*" vision "*|*" rift "*|*" deskbuddy "*|*" mp3 "*|*" video "*) echo 0 ;; *) echo 1 ;; esac)"
+"$POS" app start calculator >/dev/null 2>&1; sleep 0.4
+"$POS" app home >/dev/null 2>&1; sleep 0.3
+check "a tool opened from it comes home to it" "$([ "$(field '["launcher"]["folder"]')" = '"utilities"' ] && echo 1 || echo 0)"
+call shell.folder id=games
+check "opening Games from Utilities swaps the folder" \
+    "$([ "$(field '["launcher"]["folder"]')" = '"games"' ] && [ "$(cells)" = "2048 blackjack fleet radar solitaire timber" ] &&
+       echo 1 || echo 0)"
+call shell.folder id=
+check "and back, holding the art it held before" "$([ "$(field '["art"]["bytes_held"]')" = "$held_root" ] && echo 1 || echo 0)"
 call shell.folder id=games
 call shell.lock
 call shell.unlock

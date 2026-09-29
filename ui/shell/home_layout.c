@@ -268,17 +268,20 @@ int home_layout_compute(const struct home_layout_in *in, struct home_layout *out
  * tests/doors_ui_assets_test.sh holds the two tables together). The last
  * column is the folder an app is shown in (home_layout.h): the games are in
  * GAMES. PG Solitaire, Blackjack and 2048 (feat/games-solitaire-blackjack-
- * 2048) join it with a row each in PLAY and HOME_FOLDER_GAMES. */
+ * 2048) join it with a row each in PLAY and HOME_FOLDER_GAMES. The everyday
+ * tools are in UTILITIES, in this order: Clock, Calendar, Calculator and
+ * Notes from WORKSPACE, then Files, Recorder and Camera from DEVICE; the
+ * folder's cell is WORKSPACE's first, before DeskBuddy. */
 static const struct home_entry entries[] = {
     { "rift", HOME_GROUP_CONNECT, HOME_HUE_MESH, HOME_FOLDER_NONE },
     { "radio", HOME_GROUP_CONNECT, HOME_HUE_RADIO, HOME_FOLDER_NONE },
     { "wave", HOME_GROUP_CONNECT, HOME_HUE_NETWORK, HOME_FOLDER_NONE },
     { "zabbix", HOME_GROUP_CONNECT, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
     { "browser", HOME_GROUP_CONNECT, HOME_HUE_NETWORK, HOME_FOLDER_NONE },
-    { "notes", HOME_GROUP_WORK, HOME_HUE_FILES, HOME_FOLDER_NONE },
-    { "calendar", HOME_GROUP_WORK, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
-    { "clock", HOME_GROUP_WORK, HOME_HUE_AI, HOME_FOLDER_NONE },
-    { "calculator", HOME_GROUP_WORK, HOME_HUE_APPS, HOME_FOLDER_NONE },
+    { "clock", HOME_GROUP_WORK, HOME_HUE_AI, HOME_FOLDER_UTILITIES },
+    { "calendar", HOME_GROUP_WORK, HOME_HUE_TOOLS, HOME_FOLDER_UTILITIES },
+    { "calculator", HOME_GROUP_WORK, HOME_HUE_APPS, HOME_FOLDER_UTILITIES },
+    { "notes", HOME_GROUP_WORK, HOME_HUE_FILES, HOME_FOLDER_UTILITIES },
     { "deskbuddy", HOME_GROUP_WORK, HOME_HUE_AI, HOME_FOLDER_NONE },
     { "fleet", HOME_GROUP_PLAY, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
     { "radar", HOME_GROUP_PLAY, HOME_HUE_RADIO, HOME_FOLDER_GAMES },
@@ -288,9 +291,9 @@ static const struct home_entry entries[] = {
     { "2048", HOME_GROUP_PLAY, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
     { "settings", HOME_GROUP_DEVICE, HOME_HUE_SETTINGS, HOME_FOLDER_NONE },
     { "system", HOME_GROUP_DEVICE, HOME_HUE_APPS, HOME_FOLDER_NONE },
-    { "files", HOME_GROUP_DEVICE, HOME_HUE_FILES, HOME_FOLDER_NONE },
-    { "camera", HOME_GROUP_DEVICE, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
-    { "recorder", HOME_GROUP_DEVICE, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
+    { "files", HOME_GROUP_DEVICE, HOME_HUE_FILES, HOME_FOLDER_UTILITIES },
+    { "recorder", HOME_GROUP_DEVICE, HOME_HUE_TOOLS, HOME_FOLDER_UTILITIES },
+    { "camera", HOME_GROUP_DEVICE, HOME_HUE_TOOLS, HOME_FOLDER_UTILITIES },
     { "vision", HOME_GROUP_DEVICE, HOME_HUE_AI, HOME_FOLDER_NONE },
     { "mp3", HOME_GROUP_DEVICE, HOME_HUE_APPS, HOME_FOLDER_NONE },
     { "video", HOME_GROUP_DEVICE, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
@@ -361,6 +364,7 @@ int home_group_order(const char *const *ids, int n, uint8_t order[HOME_MAX_APPS]
 static const struct home_folder_def folders[HOME_FOLDER_COUNT] = {
     [HOME_FOLDER_NONE] = { NULL, NULL, HOME_HUE_APPS },
     [HOME_FOLDER_GAMES] = { "games", "Games", HOME_HUE_GAMES },
+    [HOME_FOLDER_UTILITIES] = { "utilities", "Utilities", HOME_HUE_TOOLS },
 };
 
 const struct home_folder_def *home_folder_get(enum home_folder f)
@@ -438,6 +442,107 @@ int home_folder_order(const char *const *ids, int n, enum home_folder f, uint8_t
         }
     }
     return placed;
+}
+
+/* ---- favorites -------------------------------------------------------------- */
+
+const char *home_favorite_key(int slot)
+{
+    static const char *const keys[HOME_FAVORITES] = { "launcher_favorite_1", "launcher_favorite_2",
+                                                      "launcher_favorite_3" };
+
+    return (slot >= 0 && slot < HOME_FAVORITES) ? keys[slot] : NULL;
+}
+
+bool home_favorite_id_ok(const char *id)
+{
+    size_t k;
+
+    if (!id || !id[0] || strlen(id) >= HOME_FAVORITE_ID_MAX) {
+        return false;
+    }
+    for (k = 0; id[k]; k++) {
+        char c = id[k];
+
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int home_favorite_resolve(const char *const *ids, int n, const char *id)
+{
+    int i;
+
+    if (!home_favorite_id_ok(id)) {
+        return -1;
+    }
+    for (i = 0; i < n; i++) {
+        if (ids[i] && strcmp(ids[i], id) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static bool held_elsewhere(const char *const stored[HOME_FAVORITES], int slot, const char *id)
+{
+    int s;
+
+    for (s = 0; s < HOME_FAVORITES; s++) {
+        if (s != slot && stored[s] && strcmp(stored[s], id) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int home_favorite_check(const char *const *ids, int n, const char *const stored[HOME_FAVORITES], int slot,
+                        const char *id)
+{
+    if (slot < 0 || slot >= HOME_FAVORITES || home_favorite_resolve(ids, n, id) < 0) {
+        return -1;
+    }
+    return held_elsewhere(stored, slot, id) ? -2 : 0;
+}
+
+int home_favorite_candidates(const char *const *ids, int n, const char *const stored[HOME_FAVORITES], int slot,
+                             uint8_t order[HOME_MAX_APPS])
+{
+    uint8_t all[HOME_MAX_APPS];
+    uint8_t per_group[HOME_GROUP_COUNT];
+    int total = home_group_order(ids, n, all, per_group);
+    int placed = 0;
+    int k;
+    int j;
+
+    for (k = 0; k < total; k++) {
+        const char *id = ids[all[k]];
+        bool seen = false;
+
+        if (!home_favorite_id_ok(id) || held_elsewhere(stored, slot, id)) {
+            continue;
+        }
+        for (j = 0; j < placed && !seen; j++) {
+            seen = strcmp(ids[order[j]], id) == 0;
+        }
+        if (!seen) {
+            order[placed++] = all[k];
+        }
+    }
+    return placed;
+}
+
+void home_layout_groups(struct home_layout_in *in, const uint8_t count[HOME_GROUP_COUNT])
+{
+    int g;
+
+    in->ngroups = HOME_GROUP_COUNT + 1;
+    in->count[0] = HOME_FAVORITES;
+    for (g = 0; g < HOME_GROUP_COUNT; g++) {
+        in->count[g + 1] = count[g];
+    }
 }
 
 /* ---- a folder's page --------------------------------------------------------- */

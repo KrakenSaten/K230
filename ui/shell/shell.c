@@ -1155,13 +1155,75 @@ static void open_by_id(const char *id)
     LOG_WARN("no app %s to open", id);
 }
 
+/* The launcher's favorites (home.h) live in settings.conf, one key per slot
+ * holding the app's id (home_favorite_key: launcher_favorite_1..3), like
+ * the brightness and the rotation: they survive a shell restart and a
+ * reboot, and a rotation restart builds the launcher with the same ones. */
+static const char *favorite_get(int slot)
+{
+    const char *key = home_favorite_key(slot);
+
+    return key ? settings_get(key, NULL) : NULL;
+}
+
+static int favorite_set(int slot, const char *id)
+{
+    const char *key = home_favorite_key(slot);
+
+    if (!key) {
+        return -1;
+    }
+    if (settings_set(key, id) < 0) {
+        LOG_WARN("favorite %d set but not persisted to %s: %s", slot + 1, settings_path(), strerror(errno));
+        return -1;
+    }
+    return 0;
+}
+
+/* shell.info's and shell.favorite's view of the slots, counted from 1: the
+ * installed app each holds (id, null when empty or not installed), what is
+ * stored, and where its cell is while the launcher's page shows. */
+static cJSON *favorites_json(void)
+{
+    cJSON *arr = cJSON_CreateArray();
+    int k;
+
+    for (k = 0; k < HOME_FAVORITES; k++) {
+        cJSON *o = cJSON_CreateObject();
+        const char *fid = home_favorite_id(k);
+        const char *stored = home_favorite_stored(k);
+        lv_area_t a;
+
+        cJSON_AddNumberToObject(o, "slot", k + 1);
+        if (fid) {
+            cJSON_AddStringToObject(o, "id", fid);
+        } else {
+            cJSON_AddNullToObject(o, "id");
+        }
+        if (stored) {
+            cJSON_AddStringToObject(o, "stored", stored);
+        } else {
+            cJSON_AddNullToObject(o, "stored");
+        }
+        if (home_favorite_area(k, &a)) {
+            cJSON_AddNumberToObject(o, "x", a.x1);
+            cJSON_AddNumberToObject(o, "y", a.y1);
+            cJSON_AddNumberToObject(o, "w", lv_area_get_width(&a));
+            cJSON_AddNumberToObject(o, "h", lv_area_get_height(&a));
+        }
+        cJSON_AddItemToArray(arr, o);
+    }
+    return arr;
+}
+
 /* The launcher and Controls, built once for this run's orientation, in the
  * content area at the launcher's chrome (DS §36.2: the cluster, in both),
  * each keeping clear of the widest box the cluster takes on them. The
  * content area starts at the top edge, so its coordinates are the screen's. */
 static void home_build(void)
 {
-    static const struct home_actions ha = { open_app_from_home, shell_lock_now, controls_open };
+    static const struct home_actions ha = { open_app_from_home, shell_lock_now, controls_open, favorite_get,
+                                            favorite_set };
     static const struct controls_actions ca = { open_by_id, shell_lock_now, controls_close };
     const struct chrome_rect *r = &sh.cluster_reserve_env;
     lv_area_t home_keepout = { r->x, r->y, r->x + r->w - 1, r->y + r->h - 1 };
@@ -1466,6 +1528,14 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
                 }
                 cJSON_AddNumberToObject(launcher, "home_cells", hi.cells);
                 cJSON_AddNumberToObject(launcher, "folder_cells", hi.folders);
+                cJSON_AddNumberToObject(launcher, "favorite_cells", hi.favorites);
+                cJSON_AddNumberToObject(launcher, "favorites_set", hi.favorites_set);
+                cJSON_AddItemToObject(launcher, "favorites", favorites_json());
+                if (home_favorite_picking() >= 0) {
+                    cJSON_AddNumberToObject(launcher, "picker", home_favorite_picking() + 1);
+                } else {
+                    cJSON_AddNullToObject(launcher, "picker");
+                }
                 if (focus) {
                     cJSON_AddStringToObject(launcher, "focus", focus);
                 } else {
@@ -1554,6 +1624,52 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
             cJSON_AddStringToObject(result, "folder", home_folder_current());
         } else {
             cJSON_AddNullToObject(result, "folder");
+        }
+    } else if (strcmp(method, "shell.favorite") == 0) {
+        /* A launcher favorite (home.h), slots counted from 1:
+         * {"slot": 2, "id": "rift"} gives slot 2 RIFT, {"slot": 2, "id": ""}
+         * clears it, {"slot": 2, "pick": true} opens its picker at home. For
+         * the bench and the tests; a person long-presses the slot. */
+        const cJSON *sl = params ? cJSON_GetObjectItemCaseSensitive(params, "slot") : NULL;
+        const cJSON *fid = params ? cJSON_GetObjectItemCaseSensitive(params, "id") : NULL;
+        const cJSON *pick = params ? cJSON_GetObjectItemCaseSensitive(params, "pick") : NULL;
+        int slot = cJSON_IsNumber(sl) ? sl->valueint - 1 : -1;
+
+        if (!cJSON_IsNumber(sl) || slot < 0 || slot >= HOME_FAVORITES || (double)(slot + 1) != sl->valuedouble) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                  "slot must be 1, 2 or 3"));
+            return;
+        }
+        if (cJSON_IsTrue(pick)) {
+            shell_lock_open(false, "shell.favorite");
+            if (sh.app || controls_visible()) {
+                pocketos_shell_go_home();
+            }
+            if (!home_favorite_pick(slot)) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                      "nothing to offer for this slot"));
+                return;
+            }
+        } else if (cJSON_IsString(fid)) {
+            int r = home_favorite_set(slot, fid->valuestring);
+
+            if (r < 0) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                      r == -2 ? "another favorite holds that app"
+                                                                              : "no such app installed"));
+                return;
+            }
+        } else {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                  "id must be an app id or \"\", or pick true"));
+            return;
+        }
+        result = cJSON_CreateObject();
+        cJSON_AddItemToObject(result, "favorites", favorites_json());
+        if (home_favorite_picking() >= 0) {
+            cJSON_AddNumberToObject(result, "picker", home_favorite_picking() + 1);
+        } else {
+            cJSON_AddNullToObject(result, "picker");
         }
     } else if (strcmp(method, "shell.lock") == 0) {
         shell_lock_engage("shell.lock");

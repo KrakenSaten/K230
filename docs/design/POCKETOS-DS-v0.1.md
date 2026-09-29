@@ -3779,3 +3779,117 @@ hide by themselves in v0.1.
 ### 41.5 Keys
 
 None in v0.1 (Space for play and pause is the first candidate).
+
+## 42. Amendment Z — Launcher favorites and Utilities [PROPOSED]
+
+**PROPOSED 2026-09-29** on branch `feat/launcher-favorites-utilities`,
+validated on the host (§42.6), gated on unit B only as §42.7 records. It
+changes the launcher of §31.3 and §39 in two ways and adds no role, token
+or colour: the first three places are the owner's favorites, and a second
+folder, UTILITIES, holds seven everyday tools. GAMES (§39) is unchanged.
+
+### 42.1 The launcher's page
+
+In order: the header (§31.3), a FAVORITES panel with three cells, then the
+groups as before. With today's twenty-four apps:
+
+| Panel | Cells |
+| --- | --- |
+| FAVORITES | three slots |
+| CONNECTIONS | RIFT, Radio, Wave, Zabbix, Browser |
+| WORKSPACE | Utilities (folder), DeskBuddy |
+| PLAY | Games (folder) |
+| DEVICE | Settings, System, Vision, MP3, Video |
+
+Sixteen cells in all, three of them favorites and two of them folders. The
+same order in both orientations: in portrait the favorites are the first
+row and the page scrolls (DEVICE is below the fold); in landscape the
+panels wrap as before (§31.3) and FAVORITES leads the first line, with
+CONNECTIONS and WORKSPACE, then PLAY and DEVICE; it scrolls 70 px to its
+footer, as it did.
+
+### 42.2 UTILITIES
+
+A folder like GAMES (§39.1-39.5): one more enum value, one more row of the
+folder table, a portal icon (a first-party toolbox,
+`docs/design/doors-app-icons/svg/utilities.svg`, drawn as `icon-utilities`
+in the tools colour; `LV_SYMBOL_SETTINGS` on the empty portal without the
+art) and the folder column set for its apps. It holds, in this order,
+Clock, Calendar, Calculator and Notes (WORKSPACE) and Files, Recorder and
+Camera (DEVICE); its cell is WORKSPACE's first, where Clock was. The table
+rows of those seven were reordered to give that order; no other app moved.
+Zabbix, Vision, RIFT, DeskBuddy, MP3 and Video stay on the launcher's page.
+
+### 42.3 Favorites
+
+- A slot is a launcher cell like an app's. An empty one is the empty
+  portal and a plus, and the label "Add", all at 60 % opacity. A set one
+  is the app's own cell (its portal icon, its name, its press mark).
+- A favorite is a second way to an app, not a move: the app keeps its own
+  cell, or its folder's. An app is a favorite once.
+- Tap a set slot: the app opens. Tap an empty slot, or long-press any
+  slot: the picker.
+- The picker is a page like a folder's (§39.3): the back slab, "Favorite
+  N", one panel captioned "CHOOSE AN APP" holding - when the slot holds
+  something - a Clear cell (the empty portal with `LV_SYMBOL_CLOSE`,
+  "Clear", dimmed) and then every installed app the other slots do not
+  hold, each once, apps in folders included, in launcher order. Choosing
+  one sets the slot (Clear empties it) and comes back to the launcher's
+  page with the focus on the slot; the back slab, Esc or Backspace leave
+  the slot as it was.
+- Kept in settings.conf (`launcher_favorite_1` .. `_3`, the app's id; an
+  empty slot has no key), read when the launcher is built: a shell restart,
+  a rotation restart and a reboot keep them, and both orientations show the
+  same three.
+- Fails safe: a stored id of an app this build does not have is an empty
+  slot that opens only the picker (the value is kept until the slot is set
+  or cleared; the picker offers Clear for it); a stored value that is no
+  app id is an empty slot. Both are logged. A settings file that cannot be
+  written leaves the change on the screen until the shell stops, with a
+  warning.
+
+### 42.4 The long press
+
+LVGL's own: `LV_EVENT_LONG_PRESSED` on the slot's cell after 400 ms
+(`LV_INDEV_DEF_LONG_PRESS_TIME`), which LVGL never sends once the finger
+has started to scroll the page. The picker opens on the next timer pass
+(§39.5: nothing opens inside the event that asked for it), and the finger
+is ignored until it lifts (`lv_indev_wait_release`): LVGL sends CLICKED
+after a long press, and without that the release would open the slot's app
+or land on the picker now under the finger. No timer of the launcher's own,
+nothing global; only the favorites' cells listen for it.
+
+### 42.5 Keys (§17.4, §39.5)
+
+The first row is the favorites, so the keys reach them as any cell: Up from
+CONNECTIONS, Left from RIFT. Enter on a set slot opens its app; on an empty
+slot, the picker. E (the keys' long press, since Enter acts on key-down)
+opens the picker of the focused slot, and does nothing on any other cell.
+In the picker the keys start on what the slot holds (Enter changes
+nothing), Clear is the first cell, Esc or Backspace go back.
+
+### 42.6 Validation on the host
+
+`tests/home_layout_test.c` (the folder column with UTILITIES; its contents
+and order; what stays on the page; GAMES unchanged; the favorites' settings
+keys, the ids a slot takes, an app a favorite once, the picker's list; the
+favorites' panel as the first row in both orientations),
+`tests/home_folder_test.c` (the running launcher under a pointer and the
+keys: taps and long presses on empty and set slots, assign, change,
+duplicate refused, clear, the long press's release choosing and opening
+nothing even held for 1.5 s, a scroll not a long press, Enter and E,
+landscape, kept through rebuilds, missing and malformed ids, an unwritable
+store, launchers torn down mid long press, thirty picker rounds with the
+art falling back), `tests/launcher_favorites_shell_test.sh` (shell.favorite,
+settings.conf, restarts in both orientations and by rotation, fail-safe
+values, forty rounds), `tests/launcher_folder_shell_test.sh` (Utilities
+over shell.folder) and the launcher, art and asset suites with thirteen
+app and folder cells and twenty-seven icons.
+
+### 42.7 Gate (before acceptance)
+
+On a unit, the build's identity first. The favorites' row with three empty
+slots; a long press sets one, a tap opens it, a long press changes and
+clears it; a shell restart keeps it; Utilities opens with its seven tools;
+Zabbix outside it; Games unchanged; both orientations usable; repeated use
+without a restart of the shell, and its RSS and `art.bytes_held` flat.
