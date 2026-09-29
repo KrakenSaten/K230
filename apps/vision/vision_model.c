@@ -117,6 +117,10 @@ static void mode_changed(struct vision_model *m)
 {
     clear_counts(m);
     clear_pixels(m);
+    memset(&m->text, 0, sizeof(m->text));
+    m->text_valid = false;
+    m->hold = false;
+    m->readfail[0] = '\0';
     m->active_tracks = 0;
     m->shown_objects = 0;
     m->shown_classes = 0;
@@ -215,6 +219,17 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
             m->recent = *vision_session_recent(s);
             m->recent_valid = true;
         }
+        break;
+    case VISION_EV_TEXT:
+        /* A held result stays: the owner is reading it. */
+        if (s && m->mode == VISION_MODE_READ && !m->hold) {
+            m->text = *vision_session_text(s);
+            m->text_valid = true;
+            m->readfail[0] = '\0';
+        }
+        break;
+    case VISION_EV_READFAIL:
+        snprintf(m->readfail, sizeof(m->readfail), "%s", ev->text[0] ? ev->text : "the text models failed");
         break;
     case VISION_EV_COLOR:
         if (s) {
@@ -377,6 +392,40 @@ unsigned vision_model_trails_next(struct vision_model *m)
     }
     /* The screen's alone: nothing to tell the helper. */
     return VISION_ACT_SAVE;
+}
+
+unsigned vision_model_hold_next(struct vision_model *m)
+{
+    if (m->mode != VISION_MODE_READ) {
+        return 0;
+    }
+    m->hold = !m->hold;
+    return 0;
+}
+
+void vision_model_text_ascii(const char *utf8, char *out, size_t len)
+{
+    size_t o = 0;
+    const unsigned char *p = (const unsigned char *)utf8;
+
+    if (!out || len == 0) {
+        return;
+    }
+    while (p && *p && o + 1 < len) {
+        if (*p < 0x80) {
+            out[o++] = *p >= 0x20 && *p < 0x7f ? (char)*p : '?';
+            p++;
+            continue;
+        }
+        /* One character of several bytes: a lead byte and its
+         * continuations. */
+        out[o++] = '?';
+        p++;
+        while ((*p & 0xc0) == 0x80) {
+            p++;
+        }
+    }
+    out[o] = '\0';
 }
 
 unsigned vision_model_set_range(struct vision_model *m, enum vision_range r)
@@ -729,6 +778,9 @@ int vision_model_buttons(const struct vision_model *m, enum vision_button out[VI
     case VISION_MODE_TRACE:
         out[1] = VISION_BTN_TRACE;
         return 2;
+    case VISION_MODE_READ:
+        out[1] = VISION_BTN_HOLD;
+        return 2;
     default:
         return 1;
     }
@@ -736,7 +788,39 @@ int vision_model_buttons(const struct vision_model *m, enum vision_button out[VI
 
 int vision_model_status_lines(const struct vision_model *m)
 {
-    return m->mode == VISION_MODE_TRAFFIC ? 3 : 1;
+    return m->mode == VISION_MODE_TRAFFIC || m->mode == VISION_MODE_READ ? 3 : 1;
+}
+
+/* READ's words: what was read, line after line, or why nothing is. */
+static void read_status(const struct vision_model *m, char *buf, size_t len)
+{
+    size_t off = 0;
+    int i;
+
+    buf[0] = '\0';
+    if (m->readfail[0]) {
+        snprintf(buf, len, "Cannot read: %s", m->readfail);
+        return;
+    }
+    if (!m->text_valid) {
+        snprintf(buf, len, "%s", m->live ? "Reading..." : "Starting the stream");
+        return;
+    }
+    if (m->text.n == 0) {
+        snprintf(buf, len, "No text found. Point at printed text, a sign or a label.");
+        return;
+    }
+    for (i = 0; i < m->text.n && off + 4 < len; i++) {
+        char a[VISION_TEXT_BYTES];
+        int n;
+
+        vision_model_text_ascii(m->text.line[i].text, a, sizeof(a));
+        n = snprintf(buf + off, len - off, "%s%s", i ? "  |  " : "", a);
+        if (n < 0) {
+            break;
+        }
+        off += (size_t)n < len - off ? (size_t)n : len - off - 1;
+    }
 }
 
 const char *vision_model_traffic_name(int i)
@@ -890,6 +974,20 @@ static void counters(const struct vision_model *m, struct vision_view_text *out)
             snprintf(out->count_b, sizeof(out->count_b), "OUT (%s) %u", nb, m->traffic.total_ba);
         }
         break;
+    case VISION_MODE_READ:
+        if (m->text_valid) {
+            uint32_t sum = 0;
+            int i;
+
+            for (i = 0; i < m->text.n; i++) {
+                sum += m->text.line[i].conf;
+            }
+            snprintf(out->count_a, sizeof(out->count_a), "LINES %d", m->text.n);
+            if (m->text.n > 0) {
+                snprintf(out->count_b, sizeof(out->count_b), "SURE %u%%", (sum / (uint32_t)m->text.n) / 10);
+            }
+        }
+        break;
     default:
         break;
     }
@@ -909,6 +1007,9 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
     out->trails = (m->mode == VISION_MODE_TRACK && m->set.track.trails) ||
                   (m->mode == VISION_MODE_TRAFFIC && m->set.traffic.trails);
     out->trails_btn = m->set.track.trails ? "TRAILS: ON" : "TRAILS: OFF";
+    out->read = m->mode == VISION_MODE_READ;
+    out->hold = out->read && m->hold;
+    out->hold_btn = out->hold ? "HELD" : "HOLD";
     out->picture_tap = m->mode == VISION_MODE_COLOR && m->state == VISION_LIVE && m->sheet == VISION_SHEET_NONE;
     out->mode_btn = vision_mode_name(m->mode);
     out->line_btn = line == VISION_LINE_OFF ? "LINE: OFF" : line == VISION_LINE_ACROSS ? "LINE: ACROSS" : "LINE: DOWN";
@@ -947,6 +1048,10 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
         } else if (vision_model_pixel_mode(m)) {
             pixel_status(m, status_buf, status_len);
             out->status = status_buf;
+        } else if (out->read) {
+            read_status(m, status_buf, status_len);
+            out->status = status_buf;
+            out->status_warn = m->readfail[0] != '\0';
         } else if (m->stats_valid) {
             snprintf(status_buf, status_len, "%u.%u fps  KPU %d ms  pre %d  post %d  CPU %d%%  %ld MB",
                      m->stats.fps_x10 / 10, m->stats.fps_x10 % 10, m->stats.infer_ms,

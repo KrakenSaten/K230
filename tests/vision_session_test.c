@@ -148,6 +148,26 @@ static void test_parse(void)
     check("nor a field short, or one too many", !vision_session_parse_line(&s, "recent 300 0 0 0 0 0 0 0 0 0 0 0", &ev) &&
                                                    !vision_session_parse_line(&s, "recent 300 0 0 0 0 0 0 0 0 0 0 0 0 9", &ev));
     check("nor a saturation that is not 0 or 1", !vision_session_parse_line(&s, "recent 300 0 0 0 0 0 0 0 0 0 0 0 2", &ev));
+    check("a text line parses, its text decoded (UTF-8 and escapes)",
+          vision_session_parse_line(&s, "text 7 2 10:20:100:30:990:EXIT%2012 5:60:80:20:950:%E5%85%B6%3A%25", &ev) &&
+              ev.kind == VISION_EV_TEXT && s.text.n == 2 && s.text.seq == 7 && s.text.line[0].x == 10 &&
+              s.text.line[0].conf == 990 && strcmp(s.text.line[0].text, "EXIT 12") == 0 &&
+              strcmp(s.text.line[1].text, "\xe5\x85\xb6:%") == 0);
+    check("an empty read parses", vision_session_parse_line(&s, "text 8 0", &ev) && s.text.n == 0);
+    check("not a broken escape", !vision_session_parse_line(&s, "text 9 1 10:20:100:30:990:A%2", &ev) &&
+                                     !vision_session_parse_line(&s, "text 9 1 10:20:100:30:990:A%ZZ", &ev));
+    check("nor an escaped control byte", !vision_session_parse_line(&s, "text 9 1 10:20:100:30:990:A%0AB", &ev));
+    check("nor a line too long for the screen's copy",
+          !vision_session_parse_line(&s, "text 9 1 1:2:3:4:5:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", &ev));
+    check("nor fewer lines than it says, or more", !vision_session_parse_line(&s, "text 9 2 1:2:3:4:5:A", &ev) &&
+                                                      !vision_session_parse_line(&s, "text 9 1 1:2:3:4:5:A 1:2:3:4:5:B", &ev));
+    check("nor a box outside any view, or a confidence over 1000",
+          !vision_session_parse_line(&s, "text 9 1 1000:2:300:4:5:A", &ev) &&
+              !vision_session_parse_line(&s, "text 9 1 1:2:3:4:5000:A", &ev));
+    check("nor nine lines", !vision_session_parse_line(&s, "text 9 9", &ev));
+    check("a read that cannot be done is said with why", vision_session_parse_line(&s, "readfail the text models are missing", &ev) &&
+                                                             ev.kind == VISION_EV_READFAIL &&
+                                                             strcmp(ev.text, "the text models are missing") == 0);
     check("frame parses", vision_session_parse_line(&s, "frame 2 17 528 938", &ev) && ev.kind == VISION_EV_FRAME &&
                               ev.value == 2 && ev.w == 528 && ev.h == 938);
     check("a frame in the review slot does not", !vision_session_parse_line(&s, "frame 3 17 528 938", &ev));
@@ -525,6 +545,198 @@ static void test_range(void)
     vision_session_abandon(&s, 1000);
 }
 
+/* READ against the real helper: the fake text models (vision_kpu_fake.c)
+ * behind files that exist or not, a dictionary of '!' to '~' and the blank
+ * last; the lines read, in view pixels; rapid reads; one that does not fit
+ * its dictionary. */
+static void test_read(void)
+{
+    struct vision_session s;
+    struct vision_event ev;
+    struct watch w = { 0, 0, 0, 0, 0, 0, NULL };
+    char dir[] = "/tmp/vision-read-XXXXXX";
+    char det[128];
+    char rec[128];
+    char dict[128];
+    FILE *f;
+    int c;
+    int i;
+    int reads = 0;
+
+    if (!mkdtemp(dir)) {
+        check("a scratch directory", 0);
+        return;
+    }
+    snprintf(det, sizeof(det), "%s/text_det.kmodel", dir);
+    snprintf(rec, sizeof(rec), "%s/text_rec.kmodel", dir);
+    snprintf(dict, sizeof(dict), "%s/text_dict.txt", dir);
+    setenv("POCKETOS_VISION_TEXT_DET", det, 1);
+    setenv("POCKETOS_VISION_TEXT_REC", rec, 1);
+    setenv("POCKETOS_VISION_TEXT_DICT", dict, 1);
+
+    /* No models on the unit: no READ. */
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "text=100:40:120:40:EXIT12", NULL) == 0);
+    check("without the text models READ is not offered", wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w) &&
+                                                             !(ev.value & (1 << VISION_MODE_READ)));
+    vision_session_abandon(&s, 1000);
+
+    f = fopen(det, "w");
+    if (f) {
+        fclose(f);
+    }
+    f = fopen(rec, "w");
+    if (f) {
+        fclose(f);
+    }
+    f = fopen(dict, "w");
+    if (f) {
+        for (c = '!'; c <= '~'; c++) {
+            fprintf(f, "%c\r\n", c);
+        }
+        fprintf(f, "BLANK\r\n");
+        fclose(f);
+    }
+    vision_session_init(&s);
+    /* Two lines on the sensor; the fake camera turns them upright with the
+     * picture. */
+    check("the helper starts with the models there",
+          start(&s, "period=20", "text=100:40:40:120:EXIT12,text=300:120:30:140:SN-4711", NULL) == 0);
+    check("READ is offered", wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w) && (ev.value & (1 << VISION_MODE_READ)));
+    vision_session_view(&s, 360, 640, 0);
+    vision_session_mode_word(&s, "read");
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s;
+    check("a read arrives", wait_for(&s, VISION_EV_TEXT, 3000, &ev, seen, &w));
+    check("two lines, read as written, sure",
+          s.text.n == 2 && ((strcmp(s.text.line[0].text, "EXIT12") == 0 && strcmp(s.text.line[1].text, "SN-4711") == 0) ||
+                            (strcmp(s.text.line[1].text, "EXIT12") == 0 && strcmp(s.text.line[0].text, "SN-4711") == 0)) &&
+              s.text.line[0].conf == 1000);
+    printf("     read \"%s\" and \"%s\"\n", s.text.line[0].text, s.text.n > 1 ? s.text.line[1].text : "");
+    {
+        int ok = s.text.n > 0;
+
+        for (i = 0; i < s.text.n; i++) {
+            ok &= s.text.line[i].x >= 0 && s.text.line[i].y >= 0 && s.text.line[i].x + s.text.line[i].w <= 360 &&
+                  s.text.line[i].y + s.text.line[i].h <= 640;
+        }
+        check("inside the view", ok);
+    }
+    for (i = 0; i < 30; i++) {
+        if (wait_for(&s, VISION_EV_TEXT, 1500, &ev, seen, &w)) {
+            reads++;
+        }
+        if (reads >= 4) {
+            break;
+        }
+    }
+    check("reads keep coming, and so do pictures between them", reads >= 4 && w.frames >= 4);
+    check("no boxes of the detector while reading", s.shown_count == 0);
+    vision_session_mode_word(&s, "detect");
+    check("back to DETECT", wait_for(&s, VISION_EV_DET, 2000, &ev, seen, &w));
+    vision_session_abandon(&s, 1000);
+    check("the helper is gone", !vision_session_active(&s));
+
+    /* A dictionary that does not fit the recogniser's classes. */
+    f = fopen(dict, "w");
+    if (f) {
+        fputs("a\nb\nc\n", f);
+        fclose(f);
+    }
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "text=100:40:120:40:EXIT12", NULL) == 0);
+    wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w);
+    vision_session_view(&s, 360, 640, 0);
+    vision_session_mode_word(&s, "read");
+    check("a dictionary that does not fit is said, not read wrong",
+          wait_for(&s, VISION_EV_READFAIL, 3000, &ev, seen, &w) && strstr(ev.text, "do not fit") != NULL);
+    vision_session_stream(&s, true, now_ms());
+    check("and the helper goes on (pictures)", wait_for(&s, VISION_EV_FRAME, 3000, &ev, seen, &w));
+    vision_session_abandon(&s, 1000);
+    unsetenv("POCKETOS_VISION_TEXT_DET");
+    unsetenv("POCKETOS_VISION_TEXT_REC");
+    unsetenv("POCKETOS_VISION_TEXT_DICT");
+    unlink(det);
+    unlink(rec);
+    unlink(dict);
+    rmdir(dir);
+}
+
+/* REPLAY: the helper plays saved pictures instead of the camera. */
+static void test_replay(void)
+{
+    struct vision_session s;
+    struct vision_session_config cfg = { 0 };
+    struct vision_event ev;
+    struct watch w = { 0, 0, 0, 0, 0, 0, NULL };
+    char dir[] = "/tmp/vision-replay-XXXXXX";
+    char a[96];
+    char b[96];
+    char list[200];
+    char err[96];
+    FILE *f;
+    int i;
+
+    if (!mkdtemp(dir)) {
+        check("a scratch directory", 0);
+        return;
+    }
+    snprintf(a, sizeof(a), "%s/a.ppm", dir);
+    snprintf(b, sizeof(b), "%s/b.ppm", dir);
+    for (i = 0; i < 2; i++) {
+        f = fopen(i ? b : a, "wb");
+        if (f) {
+            int k;
+
+            fprintf(f, "P6\n320 180\n255\n");
+            for (k = 0; k < 320 * 180; k++) {
+                fputc(i ? 200 : 20, f);
+                fputc(100, f);
+                fputc(50, f);
+            }
+            fclose(f);
+        }
+    }
+    snprintf(list, sizeof(list), "%s,%s", a, b);
+    vision_session_init(&s);
+    cfg.helper = helper;
+    cfg.backend = "image";
+    cfg.config = list;
+    cfg.kpu = "box=2:800:10:10:60:40";
+    check("the helper starts on a replay", vision_session_start(&s, &cfg, now_ms(), err, sizeof(err)) == 0);
+    check("ready: the replay, its pictures' size, SIMULATED", wait_for(&s, VISION_EV_READY, 3000, &ev, seen, &w) &&
+                                                                  strcmp(ev.text, "replay") == 0 && ev.w == 320 &&
+                                                                  ev.h == 180 && ev.simulated);
+    vision_session_view(&s, 320, 180, 90);
+    vision_session_stream(&s, true, now_ms());
+    w.s = NULL;
+    check("pictures arrive", wait_for(&s, VISION_EV_FRAME, 3000, &ev, seen, &w) && ev.w == 320 && ev.h == 180);
+    {
+        static uint16_t px[320 * 180];
+
+        vision_session_take_frame(&s, px, 320, 180);
+        /* RGB565 of (20, 100, 50) or (200, 100, 50): shown as it is,
+         * whatever the display's rotation - never turned. */
+        check("as they are, not turned", px[0] == px[319] && ((px[0] >> 11) == 2 || (px[0] >> 11) == 25));
+    }
+    for (i = 0; i < 4; i++) {
+        wait_for(&s, VISION_EV_DET, 2000, &ev, seen, &w);
+    }
+    check("the detector runs on them", s.shown_count == 1 && s.shown[0].cls == 2);
+    vision_session_abandon(&s, 1000);
+    check("the helper is gone", !vision_session_active(&s));
+
+    vision_session_init(&s);
+    snprintf(list, sizeof(list), "%s/none.ppm", dir);
+    check("a replay of nothing starts", vision_session_start(&s, &cfg, now_ms(), err, sizeof(err)) == 0);
+    check("and says there is no camera", wait_for(&s, VISION_EV_NODEVICE, 3000, &ev, seen, &w) &&
+                                             strstr(ev.text, "replay") != NULL);
+    vision_session_abandon(&s, 1000);
+    unlink(a);
+    unlink(b);
+    rmdir(dir);
+}
+
 /* The pixel modes against the real helper: EDGE finds the fake camera's
  * edges; COLOR samples the picture's middle and paints its matches; TRACE
  * answers; the boxes go while a pixel mode is on and come back after. */
@@ -736,6 +948,8 @@ int main(int argc, char **argv)
     test_happy();
     test_traffic();
     test_range();
+    test_read();
+    test_replay();
     test_pixels();
     test_malformed();
     test_failures();

@@ -631,9 +631,9 @@ int vision_net_run(struct vision_net *n, const struct vision_box *win, bool stre
     if (n->kind == FAKE_TEXT_DET) {
         for (i = 0; i < n->ntext; i++) {
             struct vision_box b = on_frame(n, &n->text[i].box);
-            /* The middle of the line: a quarter of its height off top and
-             * bottom, as much off each end. */
-            int32_t m = b.h / 4;
+            /* The middle of the line: a quarter of its smaller side off
+             * each edge. */
+            int32_t m = (b.w < b.h ? b.w : b.h) / 4;
             int32_t x0 = (int32_t)((float)(b.x + m - w.x) * rx);
             int32_t x1 = (int32_t)((float)(b.x + b.w - m - w.x) * rx);
             int32_t y0 = (int32_t)((float)(b.y + m - w.y) * ry);

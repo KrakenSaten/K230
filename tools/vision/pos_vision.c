@@ -378,6 +378,17 @@ struct session {
     struct vision_net_info tri;
     struct vision_dict *dict;
     int64_t last_read_ms;
+    /* REPLAY (backend "image"): saved pictures instead of the camera, for a
+     * bench with nothing in front of it (replay_open). */
+    bool replay;
+    char *replay_list;
+    int replay_count;
+    int replay_idx;
+    uint8_t *replay_buf;
+    struct pocketcam_frame replay_frame;
+    int64_t replay_due_ms;
+    int replay_period_ms;
+    uint32_t replay_seq;
     /* The pixel modes (vision_pixels.h): the detector idles, the preview
      * is the work. */
     enum helper_mode mode;
@@ -458,7 +469,8 @@ static struct vision_view view_of(const struct session *s)
     struct vision_view v = {
         .frame_w = s->info.preview_w,
         .frame_h = s->info.preview_h,
-        .rotation = pocketcam_view_rotation(s->info.mount_rotation, s->display_rotation),
+        /* A replayed picture is upright already and shown as it is. */
+        .rotation = s->replay ? 0 : pocketcam_view_rotation(s->info.mount_rotation, s->display_rotation),
         .mirror = s->info.mount_mirror,
         .view_w = s->view_w,
         .view_h = s->view_h,
@@ -1304,7 +1316,7 @@ static void command(struct session *s, char *line)
         place_lines(s);
     } else if (strcmp(w, "start") == 0) {
         if (!s->streaming) {
-            int r = pocketcam_start(&s->cam);
+            int r = s->replay ? 0 : pocketcam_start(&s->cam);
 
             if (r != 0) {
                 lose(s, r);
@@ -1319,7 +1331,9 @@ static void command(struct session *s, char *line)
         }
     } else if (strcmp(w, "stop") == 0) {
         if (s->streaming) {
-            pocketcam_stop(&s->cam);
+            if (!s->replay) {
+                pocketcam_stop(&s->cam);
+            }
             s->streaming = false;
         }
         say("stopped");
@@ -1537,11 +1551,122 @@ static int free_preview_slot(const struct session *s)
     return -1;
 }
 
+/* ---- REPLAY ---------------------------------------------------------------------
+ *
+ * `--backend image` with `--config A.ppm,B.ppm,...` (or the same through
+ * $POCKETOS_CAMERA_BACKEND and $POCKETOS_VISION_CAMERA_CONFIG): the session
+ * plays saved pictures (binary PPM, as bench --save writes and --image
+ * reads) in turn, one every $POCKETOS_VISION_REPLAY_MS (default 100), round
+ * and round, instead of the camera - for a bench whose camera sees nothing
+ * useful (a dark room, no traffic), so the screen, the detector and the
+ * other models run on a real scene. The picture is upright as it is, the
+ * camera is never opened, and the screen says SIMULATED. */
+#define VISION_REPLAY_DEFAULT_MS 100
+
+static int load_image(const char *path, struct pocketcam_frame *f, uint8_t **buf);
+
+static int replay_name(const struct session *s, int idx, char *out, size_t len)
+{
+    const char *p = s->replay_list;
+    int i;
+    size_t n;
+
+    for (i = 0; i < idx && p; i++) {
+        p = strchr(p, ',');
+        p = p ? p + 1 : NULL;
+    }
+    if (!p) {
+        return -1;
+    }
+    n = strcspn(p, ",");
+    if (n == 0 || n >= len) {
+        return -1;
+    }
+    memcpy(out, p, n);
+    out[n] = '\0';
+    return 0;
+}
+
+static int replay_load(struct session *s, int idx)
+{
+    char name[256];
+    uint8_t *buf = NULL;
+    struct pocketcam_frame f;
+
+    if (replay_name(s, idx, name, sizeof(name)) != 0 || load_image(name, &f, &buf) != 0) {
+        return -1;
+    }
+    if (s->replay_frame.width && (f.width != s->replay_frame.width || f.height != s->replay_frame.height)) {
+        free(buf);
+        return -1; /* every picture of a replay is the first's size */
+    }
+    free(s->replay_buf);
+    s->replay_buf = buf;
+    s->replay_frame = f;
+    s->replay_idx = idx;
+    return 0;
+}
+
+static int replay_open(struct session *s, const char *list)
+{
+    const char *env = getenv("POCKETOS_VISION_REPLAY_MS");
+    const char *p;
+    char t[96];
+
+    s->replay = true;
+    s->replay_list = list ? strdup(list) : NULL;
+    s->replay_count = 0;
+    for (p = s->replay_list; p && *p; p = strchr(p, ',') ? strchr(p, ',') + 1 : NULL) {
+        s->replay_count++;
+    }
+    s->replay_period_ms = env && atoi(env) > 0 ? atoi(env) : VISION_REPLAY_DEFAULT_MS;
+    if (s->replay_count == 0 || replay_load(s, 0) != 0) {
+        say("nodevice %s", clean("replay: no picture to play (--config A.ppm,B.ppm)", t, sizeof(t)));
+        return -ENODEV;
+    }
+    memset(&s->info, 0, sizeof(s->info));
+    snprintf(s->info.name, sizeof(s->info.name), "replay");
+    s->info.preview_w = s->replay_frame.width;
+    s->info.preview_h = s->replay_frame.height;
+    s->info.simulated = true;
+    return 0;
+}
+
+static void replay_close(struct session *s)
+{
+    free(s->replay_buf);
+    free(s->replay_list);
+    s->replay_buf = NULL;
+    s->replay_list = NULL;
+}
+
+/* The next picture when it is due; -ETIMEDOUT before. */
+static int replay_next(struct session *s, struct pocketcam_frame *f)
+{
+    int64_t now = mono_ms();
+
+    if (now < s->replay_due_ms) {
+        int64_t wait = s->replay_due_ms - now;
+
+        poll(NULL, 0, (int)(wait < FRAME_WAIT_MS ? wait : FRAME_WAIT_MS));
+        if (mono_ms() < s->replay_due_ms) {
+            return -ETIMEDOUT;
+        }
+    }
+    s->replay_due_ms = mono_ms() + s->replay_period_ms;
+    if (s->replay_count > 1 && replay_load(s, (s->replay_idx + 1) % s->replay_count) != 0) {
+        return -EPROTO;
+    }
+    *f = s->replay_frame;
+    f->seq = ++s->replay_seq;
+    return 0;
+}
+
 static void stream_once(struct session *s)
 {
     struct pocketcam_frame f;
     int64_t now;
-    int r = pocketcam_next(&s->cam, FRAME_WAIT_MS, &f);
+    int r = s->replay ? replay_next(s, &f) : pocketcam_next(&s->cam, FRAME_WAIT_MS, &f);
 
     now = mono_ms();
     if (r == -ETIMEDOUT) {
@@ -1582,9 +1707,8 @@ static void stream_once(struct session *s)
         int slot = free_preview_slot(s);
 
         if (slot >= 0 &&
-            pocketcam_to_rgb565(&f, pocketcam_view_rotation(s->info.mount_rotation, s->display_rotation),
-                                s->info.mount_mirror, POCKETCAM_FIT_COVER, slot_pixels(s, slot),
-                                s->view_w, s->view_h, s->view_w) == 0) {
+            pocketcam_to_rgb565(&f, view_of(s).rotation, s->info.mount_mirror, POCKETCAM_FIT_COVER,
+                                slot_pixels(s, slot), s->view_w, s->view_h, s->view_w) == 0) {
             if (pixel_mode(s)) {
                 process_pixels(s, slot_pixels(s, slot));
             }
@@ -1593,7 +1717,9 @@ static void stream_once(struct session *s)
             say("frame %d %u %u %u", slot, f.seq, s->view_w, s->view_h);
         }
     }
-    pocketcam_release(&s->cam, &f);
+    if (!s->replay) {
+        pocketcam_release(&s->cam, &f);
+    }
     if (now - s->last_stats_ms >= VISION_STATS_INTERVAL_MS) {
         say_stats(s, now);
         if (s->traffic) {
@@ -1714,13 +1840,19 @@ static int run_session(const char *backend, const char *config, const char *mode
         free(s);
         return EXIT_USAGE;
     }
-    if (open_camera(&s->cam, &s->info, backend, config, true) != 0) {
+    if (strcmp(backend, "image") == 0 ? replay_open(s, config) != 0
+                                      : open_camera(&s->cam, &s->info, backend, config, true) != 0) {
+        replay_close(s);
         munmap(s->shm, POCKETCAM_SHM_BYTES);
         free(s);
         return EXIT_NOCAMERA;
     }
     if (open_model(&s->kpu, &s->model, model, kpu_script, true) != 0) {
-        pocketcam_close(&s->cam);
+        if (s->replay) {
+            replay_close(s);
+        } else {
+            pocketcam_close(&s->cam);
+        }
         munmap(s->shm, POCKETCAM_SHM_BYTES);
         free(s);
         return EXIT_NOMODEL;
@@ -1744,7 +1876,11 @@ static int run_session(const char *backend, const char *config, const char *mode
     /* The camera first, then the nets and the detector: the sensor is what
      * another screen may be waiting for; the detector returns the runtime's
      * shared pool, so it goes last. */
-    pocketcam_close(&s->cam);
+    if (s->replay) {
+        replay_close(s);
+    } else {
+        pocketcam_close(&s->cam);
+    }
     text_close(s);
     vision_kpu_close(s->kpu);
     if (s->quit && s->exit_code == 0) {

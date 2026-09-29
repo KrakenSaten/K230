@@ -708,6 +708,66 @@ static void test_layout(void)
                                               vision_layout_sheet(&sl, 800, 450, 6, (int[]) { 1, 1, 1, 1, 1, 1 }) == -1);
 }
 
+static void test_read(void)
+{
+    struct vision_model m;
+    struct vision_view_text t;
+    struct vision_session s;
+    struct vision_event e = ev(VISION_EV_CAPS);
+    enum vision_button order[VISION_BUTTONS];
+    char buf[256];
+    char a[32];
+
+    vision_model_init(&m);
+    vision_model_open(&m);
+    go_live(&m);
+    e.value = (1 << VISION_MODE_DETECT) | (1 << VISION_MODE_READ);
+    vision_model_event(&m, &e, NULL, 1200);
+    check("READ is chosen from TEXT when offered", (vision_model_set_mode(&m, VISION_MODE_READ) & VISION_ACT_MODE) &&
+                                                        m.mode == VISION_MODE_READ &&
+                                                        strcmp(vision_model_mode_word(&m), "read") == 0);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("READ: MODE and HOLD; three status lines; text boxes, no ids, no lines",
+          vision_model_buttons(&m, order) == 2 && order[1] == VISION_BTN_HOLD && vision_model_status_lines(&m) == 3 &&
+              t.read && !t.ids && !t.lines && strcmp(t.hold_btn, "HOLD") == 0 && strstr(t.status, "Reading") != NULL);
+    vision_session_init(&s);
+    s.text.n = 2;
+    s.text.line[0].conf = 990;
+    snprintf(s.text.line[0].text, sizeof(s.text.line[0].text), "EXIT12");
+    s.text.line[1].conf = 950;
+    snprintf(s.text.line[1].text, sizeof(s.text.line[1].text), "\xe5\x85\xb6" "AB");
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TEXT }, &s, 1300);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("what was read is the status, line after line, other scripts as ?", strstr(t.status, "EXIT12  |  ?AB") != NULL);
+    check("the counters: the lines and how sure", strcmp(t.count_a, "LINES 2") == 0 && strcmp(t.count_b, "SURE 97%") == 0);
+    check("HOLD holds, and is the primary button", vision_model_hold_next(&m) == 0 && m.hold &&
+                                                       (vision_model_text(&m, &t, buf, sizeof(buf)), t.hold) &&
+                                                       strcmp(t.hold_btn, "HELD") == 0);
+    snprintf(s.text.line[0].text, sizeof(s.text.line[0].text), "OTHER");
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TEXT }, &s, 1400);
+    check("a new read does not replace a held one", strcmp(m.text.line[0].text, "EXIT12") == 0);
+    vision_model_hold_next(&m);
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TEXT }, &s, 1500);
+    check("let go, it follows the picture again", !m.hold && strcmp(m.text.line[0].text, "OTHER") == 0);
+    s.text.n = 0;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TEXT }, &s, 1600);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("nothing read says where to point", strstr(t.status, "No text found") != NULL && strcmp(t.count_a, "LINES 0") == 0);
+    e = ev(VISION_EV_READFAIL);
+    snprintf(e.text, sizeof(e.text), "the text models and the dictionary do not fit together");
+    vision_model_event(&m, &e, NULL, 1700);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("a read that cannot be done is a warning with why", t.status_warn && strstr(t.status, "Cannot read") &&
+                                                                  strstr(t.status, "do not fit"));
+    vision_model_set_mode(&m, VISION_MODE_DETECT);
+    check("leaving READ forgets its read and its trouble; HOLD then does nothing",
+          vision_model_hold_next(&m) == 0 && !m.hold && !m.text_valid && m.readfail[0] == '\0');
+    vision_model_text_ascii("a\x01" "b\xc3\xa6" "c\xe2\x82\xac" "d\xf0\x9f\x98\x80", a, sizeof(a));
+    check("the ASCII view: controls and every multi-byte character as one ?", strcmp(a, "a?b?c?d?") == 0);
+    vision_model_text_ascii("ABCDEFGH", a, 5);
+    check("and cut to the room", strcmp(a, "ABCD") == 0);
+}
+
 static struct vision_shown shown(uint32_t id, int32_t x, int32_t y)
 {
     struct vision_shown s;
@@ -778,6 +838,7 @@ int main(void)
     test_picker();
     test_track_and_traffic();
     test_tools();
+    test_read();
     test_trails();
     test_layout();
     printf("vision_model_test: %d checks, %d failure(s)\n", checks, failed);

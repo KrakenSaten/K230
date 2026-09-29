@@ -68,6 +68,7 @@ enum vision_button {
     VISION_BTN_TOL,
     VISION_BTN_EDGE,
     VISION_BTN_TRACE,
+    VISION_BTN_HOLD,
     VISION_BUTTONS
 };
 
@@ -125,6 +126,10 @@ struct vision_model {
     bool traffic_valid;
     struct vision_recent_report recent;
     bool recent_valid;
+    struct vision_text_report text;   /* READ: the last read (kept while held) */
+    bool text_valid;
+    bool hold;                        /* READ: the result stays as it is */
+    char readfail[VISION_EVENT_TEXT_MAX]; /* READ cannot read: why; "" when it can */
     struct vision_pixel_report pixels;
     bool color_valid;
     bool edge_valid;
@@ -146,6 +151,9 @@ struct vision_view_text {
     const char *mode_btn; /* the mode's name */
     const char *line_btn; /* LINE: OFF / ACROSS / DOWN */
     const char *trails_btn; /* TRAILS: ON / OFF */
+    const char *hold_btn;   /* HOLD / HELD */
+    bool read;              /* READ: the boxes are the text lines */
+    bool hold;              /* READ held: HOLD is the primary button */
     const char *tol_btn;
     const char *edge_btn;
     const char *trace_btn;
@@ -195,6 +203,11 @@ unsigned vision_model_sheet_tap(struct vision_model *m, int code);
 unsigned vision_model_line_next(struct vision_model *m);
 /* TRACK: trails on or off. */
 unsigned vision_model_trails_next(struct vision_model *m);
+/* READ: hold the result, or let it follow the picture again. */
+unsigned vision_model_hold_next(struct vision_model *m);
+/* A line of read text as the screen can show it: printable ASCII, every
+ * other character (the fonts have Latin only) a '?'. */
+void vision_model_text_ascii(const char *utf8, char *out, size_t len);
 /* TRAFFIC's detection range. */
 unsigned vision_model_set_range(struct vision_model *m, enum vision_range r);
 /* The helper's word for TRAFFIC's range, and its name on the screen. */

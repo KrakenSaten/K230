@@ -261,6 +261,34 @@ static const char *dir_mark(unsigned dir)
     }
 }
 
+/* READ: a box on every line read, its text as the tag (the model's copy:
+ * it stays while HOLD is on). */
+static void draw_text_boxes(struct vision_app *a)
+{
+    const struct vision_text_report *r = &a->model.text;
+    int i;
+
+    for (i = 0; i < VISION_MAX_SHOWN; i++) {
+        bool on = a->model.text_valid && i < r->n && i < VISION_TEXT_LINES && a->model.state == VISION_LIVE &&
+                  a->model.live;
+
+        set_hidden(a->outline[i], !on);
+        set_hidden(a->tag[i], !on);
+        if (!on) {
+            continue;
+        }
+        lv_obj_set_pos(a->outline[i], r->line[i].x, r->line[i].y);
+        lv_obj_set_size(a->outline[i], r->line[i].w, r->line[i].h);
+        {
+            char text[VISION_LABEL_MAX];
+
+            vision_model_text_ascii(r->line[i].text, text, sizeof(text));
+            label_text(a->tag[i], text);
+        }
+        lv_obj_set_pos(a->tag[i], r->line[i].x, r->line[i].y > 22 ? r->line[i].y - 22 : r->line[i].y);
+    }
+}
+
 static void draw_boxes(struct vision_app *a, const struct vision_view_text *s)
 {
     int n = 0;
@@ -269,6 +297,10 @@ static void draw_boxes(struct vision_app *a, const struct vision_view_text *s)
     bool traffic = s->traffic;
     int i;
 
+    if (s->read) {
+        draw_text_boxes(a);
+        return;
+    }
     for (i = 0; i < VISION_MAX_SHOWN; i++) {
         bool on = i < n && a->model.state == VISION_LIVE && a->model.live;
 
@@ -469,6 +501,7 @@ static void repaint(struct vision_app *a)
     button_text(a->btn[VISION_BTN_MODE], s.mode_btn);
     button_text(a->btn[VISION_BTN_LINE], s.line_btn);
     button_text(a->btn[VISION_BTN_TRAILS], s.trails_btn);
+    button_text(a->btn[VISION_BTN_HOLD], s.hold_btn);
     button_text(a->btn[VISION_BTN_SETUP], a->model.sheet == VISION_SHEET_SETUP ? "DONE" : "SETUP");
     button_text(a->btn[VISION_BTN_TOL], s.tol_btn);
     button_text(a->btn[VISION_BTN_EDGE], s.edge_btn);
@@ -477,6 +510,7 @@ static void repaint(struct vision_app *a)
     button_style(a->btn[VISION_BTN_MODE], a->model.sheet == VISION_SHEET_MODES, true);
     button_style(a->btn[VISION_BTN_LINE], false, s.line_enabled);
     button_style(a->btn[VISION_BTN_TRAILS], false, s.line_enabled);
+    button_style(a->btn[VISION_BTN_HOLD], s.hold, s.line_enabled);
     button_style(a->btn[VISION_BTN_SETUP], a->model.sheet == VISION_SHEET_SETUP, s.line_enabled);
     button_style(a->btn[VISION_BTN_RESET], false,
                  s.line_enabled && (vision_model_line(&a->model) != VISION_LINE_OFF || s.traffic));
@@ -690,6 +724,13 @@ static void on_trails(lv_event_t *e)
     struct vision_app *a = lv_event_get_user_data(e);
 
     act(a, vision_model_trails_next(&a->model));
+}
+
+static void on_hold(lv_event_t *e)
+{
+    struct vision_app *a = lv_event_get_user_data(e);
+
+    act(a, vision_model_hold_next(&a->model));
 }
 
 static void on_setup(lv_event_t *e)
@@ -964,6 +1005,7 @@ static void build(struct vision_app *a, lv_obj_t *root)
     a->btn[VISION_BTN_MODE] = button(a->frame, "DETECT", on_mode, a);
     a->btn[VISION_BTN_LINE] = button(a->frame, "LINE: ACROSS", on_line, a);
     a->btn[VISION_BTN_TRAILS] = button(a->frame, "TRAILS: ON", on_trails, a);
+    a->btn[VISION_BTN_HOLD] = button(a->frame, "HOLD", on_hold, a);
     a->btn[VISION_BTN_SETUP] = button(a->frame, "SETUP", on_setup, a);
     a->btn[VISION_BTN_RESET] = button(a->frame, "RESET", on_reset, a);
     a->btn[VISION_BTN_SAMPLE] = button(a->frame, "SAMPLE", on_sample, a);
