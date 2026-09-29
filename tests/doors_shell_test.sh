@@ -167,7 +167,7 @@ check "shell.home while locked opens the device at home" \
     "$([ "$(field '["lock"]["locked"]')" = false ] && [ "$(field '["current"]')" = '"home"' ] && echo 1 || echo 0)"
 opened=0
 for id in rift radio wave zabbix browser notes calendar clock calculator deskbuddy fleet radar timber solitaire \
-          blackjack 2048 settings system files camera recorder vision mp3; do
+          blackjack 2048 settings system files camera recorder vision mp3 video; do
     "$POS" app start "$id" >/dev/null 2>&1 && sleep 0.4 &&
         [ "$(field '["current"]')" = "\"$id\"" ] && opened=$((opened + 1))
     "$POS" app home >/dev/null 2>&1; sleep 0.2
@@ -221,6 +221,7 @@ PY
     # of cells too, and DEVICE's second row is below the fold in portrait.
     # DeskBuddy makes twenty-two, a fifth cell in WORKSPACE.
     # MP3 (feat/audio-player) makes twenty-two: DEVICE's seventh cell.
+    # Video (feat/video-player) makes twenty-two, a seventh cell in DEVICE.
     scrolls=true
     check "$o: twenty-two apps, their portal icons from the art, none on a fallback, scrolls: $scrolls ($2 $3 $4 $5)" \
         "$([ "$2" = 22 ] && [ "$3" = 17 ] && [ "$4" = 0 ] && [ "$5" = "$scrolls" ] && echo 1 || echo 0)"

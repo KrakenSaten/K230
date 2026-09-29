@@ -223,7 +223,9 @@ for d in $deps; do
         # and its sysroot already (OpenCV selects it), built without GPL or
         # nonfree parts, so LGPL-2.1-or-later with its own licence metadata
         # (docs/legal/manifest.csv, docs/legal/licenses/ffmpeg-4.4.4); linked
-        # dynamically, nothing of it is compiled into Doors.
+        # dynamically, nothing of it is compiled into Doors. pos-video
+        # (docs/apps/VIDEO.md) links the same vendor build (--disable-gpl),
+        # with libswscale as well.
         cjson|libgpiod2|libdrm|libevdev|alsa-lib|jpeg|libcurl|libpng|libnncase|libmmz|ffmpeg|host-*) ;;
         lvgl) [ "$(has_id lvgl)" = 1 ] || unknown="$unknown lvgl" ;;
         *) unknown="$unknown $d" ;;

@@ -1,4 +1,3 @@
-| `svg/deskbuddy.svg` | a small screen with two eyes: a device that looks back (drawn for DeskBuddy, docs/apps/DESKBUDDY.md; WORKSPACE after Calculator, in the `ai` hue; place and icon for the owner to confirm) | DeskBuddy |
 # First-party Doors app icons
 
 These are launcher icons for apps that none of the supplied packages has an
@@ -22,7 +21,9 @@ owner-supplied artwork.
 | `svg/solitaire.svg` | a column of cards: the top edges of two cards above a whole one with a diamond pip, as a Klondike column fans | PG Solitaire (docs/apps/PGSOLITAIRE.md; PLAY after Timber, in the games colour; place and icon for the owner to confirm) |
 | `svg/blackjack.svg` | a card with a diamond pip and a chip beside it: cards against the house (play chips only) | PG Blackjack (docs/apps/PGBLACKJACK.md; PLAY after Solitaire, games colour; for the owner to confirm) |
 | `svg/2048.svg` | four tiles in a 2 x 2 grid, with gaps wide enough to stay apart at 32 px | PG 2048 (docs/apps/PG2048.md; PLAY after Blackjack, games colour; for the owner to confirm) |
+| `svg/deskbuddy.svg` | a small screen with two eyes: a device that looks back (drawn for DeskBuddy, docs/apps/DESKBUDDY.md; WORKSPACE after Calculator, in the `ai` hue; place and icon for the owner to confirm) | DeskBuddy |
 | `svg/mp3.svg` | two beamed eighth notes: the plainest sign for music (drawn for the MP3 app, docs/apps/MP3.md; DEVICE after Vision, in the `apps` hue; place and icon for the owner to confirm) | MP3 |
+| `svg/video.svg` | a screen with a play triangle: the plain sign for playing a video (a frame without Zabbix's stand and trace) | Video (docs/apps/VIDEO.md, DS §41; DEVICE after Vision and MP3, tools colour; for the owner to confirm) |
 
 **How the files are made:**
 

@@ -3724,3 +3724,58 @@ pause and resume; next and previous; the volume steps heard; the screen
 responsive while playing; leaving the app while playing silences it;
 reopening; another app afterwards; no shell or service restart
 (`docs/hardware/MP3_GATE.md`).
+
+## 41. Amendment Y — Video [PROPOSED]
+
+**PROPOSED 2026-09-29** on branch `feat/video-player`, validated on the
+host and gated on unit B in landscape (docs/hardware/VIDEO_GATE.md). A new
+app; nothing in §1-§40 changes or is renumbered. Behaviour and architecture:
+docs/apps/VIDEO.md; ownership: ADR-012 (PROPOSED).
+
+### 41.1 Place and chrome
+
+DEVICE, after Vision and MP3, in the tools colour; its icon is first-party, a
+screen with a play triangle in the extension's line language
+(`docs/design/doors-app-icons/svg/video.svg`; for the owner to confirm).
+Chrome NONE (§30.8) and header NONE_LANDSCAPE (§37.2): in landscape the
+app has no shell header, so the list draws its own back slab and
+fullscreen is the whole panel; portrait keeps the shell's header. The app
+zeroes the body's padding and puts the 20 px back itself, as RIFT does.
+
+### 41.2 The list
+
+A title row (landscape: back slab, "Video - N videos"; portrait: "N
+videos") with RESCAN at its right, then one 64 px slab row per file: the
+name (dotted when long) and its size. An empty folder says "No videos yet"
+and where to copy MP4 files.
+
+### 41.3 The player
+
+The picture's frame is a slab; the picture is fitted and centred in it,
+never enlarged, and the slab shows around it. Until the first picture, and
+on an error, a title and a line of detail stand in the frame.
+
+- Landscape: the frame at the left, full height less the bar; a 208 px
+  column at the right with BACK, PLAY/PAUSE, STOP, FULLSCREEN (64 px each)
+  and under them the file name and the status (Playing, Paused, Stopped,
+  Ended, the sound's word when there is one: No sound, Muted, Sound busy).
+- Portrait: the frame across the width, under it the name and status, the
+  bar, the times, and one row of four buttons: BACK, STOP, PLAY/PAUSE,
+  FULL.
+- The bar: a 10 px track (slab), the played part and a 26 px round knob in
+  the primary accent, a 40 px touch rect; elapsed at its left, the length
+  at its right (`m:ss`, `h:mm:ss` from an hour; `--:--` when unknown).
+  Pressing or dragging shows the target; release seeks.
+- PLAY/PAUSE is the primary button; the others are secondary. PLAY and STOP
+  are disabled while opening and in an error.
+- A tap on the picture plays or pauses.
+
+### 41.4 Fullscreen
+
+FULLSCREEN (landscape) or FULL (portrait) gives the frame the whole body;
+no control is shown; a tap on the picture comes back. The controls do not
+hide by themselves in v0.1.
+
+### 41.5 Keys
+
+None in v0.1 (Space for play and pause is the first candidate).

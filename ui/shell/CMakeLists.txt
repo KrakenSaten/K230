@@ -165,6 +165,11 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/mp3/mp3_player.c
     ${REPO_DIR}/apps/mp3/mp3_session.c
     ${REPO_DIR}/apps/mp3/mp3_library.c
+    ${REPO_DIR}/apps/video/video_app.c
+    ${REPO_DIR}/apps/video/video_state.c
+    ${REPO_DIR}/apps/video/video_layout.c
+    ${REPO_DIR}/apps/video/video_session.c
+    ${REPO_DIR}/apps/video/video_files.c
     ${REPO_DIR}/apps/rift/rift_app.c
     ${REPO_DIR}/apps/rift/rift_model.c
     ${REPO_DIR}/apps/rift/rift_clock.c
@@ -266,6 +271,9 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     # unless POCKETOS_CAMERA_BACKEND says otherwise, and the screen says
     # SIMULATED (docs/apps/CAMERA.md). The device keeps the real default.
     target_compile_definitions(pocketos-shell PRIVATE CAMERA_BACKEND_DEFAULT="fake")
+    # Nor a video decoder: Video's helper plays the fake backend's scripted
+    # "videos" and the header says SIMULATED (docs/apps/VIDEO.md).
+    target_compile_definitions(pocketos-shell PRIVATE VIDEO_BACKEND_DEFAULT="fake")
 endif()
 
 # Zabbix, the monitoring viewer (docs/apps/ZABBIX.md, ADR-007 and DS §35
@@ -335,6 +343,7 @@ target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/recorder"
                                                   "${REPO_DIR}/apps/vision"
                                                   "${REPO_DIR}/apps/mp3"
+                                                  "${REPO_DIR}/apps/video"
                                                   "${REPO_DIR}/apps/2048"
                                                   "${REPO_DIR}/apps/2048/engine"
                                                   "${REPO_DIR}/apps/2048/ui"
@@ -928,6 +937,38 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(mp3_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(mp3_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m pthread)
+
+    # Video in the running app, tapped on the panel, with the real helper
+    # (make's tests/pos-video-testhooks, fake backend) behind it (run by
+    # tests/video_shell_test.sh).
+    add_executable(video_app_test
+        ${REPO_DIR}/tests/video_app_test.c
+        chrome.c
+        ${REPO_DIR}/apps/video/video_app.c
+        ${REPO_DIR}/apps/video/video_state.c
+        ${REPO_DIR}/apps/video/video_layout.c
+        ${REPO_DIR}/apps/video/video_session.c
+        ${REPO_DIR}/apps/video/video_files.c
+        ${REPO_DIR}/core/pocketpaths.c
+        ../pocketui/pos_app_icons.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(video_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/video")
+    target_compile_options(video_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(video_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE VIDEO_BACKEND_DEFAULT="fake")
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(video_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(video_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(video_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
     # Zabbix in the running app, tapped on the panel, with the real helper on
     # the fake server behind it (run by tests/zabbix_shell_test.sh, which

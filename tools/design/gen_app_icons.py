@@ -52,6 +52,7 @@ LAUNCHER_ICONS = [THRESHOLD + n + ".png" for n in
                                                                     FIRST_PARTY + "browser.png",
                                                                     FIRST_PARTY + "vision.png",
                                                                     FIRST_PARTY + "mp3.png",
+                                                                    FIRST_PARTY + "video.png",
                                                                     FIRST_PARTY + "solitaire.png",
                                                                     FIRST_PARTY + "blackjack.png",
                                                                     FIRST_PARTY + "2048.png",

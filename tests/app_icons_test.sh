@@ -115,6 +115,18 @@ check "pos_app_icons.c names it and its hash, as its source" \
     "$(grep -qx " \*   ${FIRST}/mp3.png" "${ICONS_C}" && grep -qx " \*     sha256 ${MP3_SHA}" "${ICONS_C}" &&
        echo 1 || echo 0)"
 
+# Video's is the seventh (a screen with a play triangle), held the same way.
+VIDEO_SHA=e9733db65e7a1113f3462f0e10aa432991b48602dc11bc26c5fdc93bf58fa847
+check "the first-party Video icon is the committed file (sha256)" \
+    "$([ "$(sha256sum "${FIRST}/video.png" | cut -c1-64)" = "${VIDEO_SHA}" ] && echo 1 || echo 0)"
+python3 tools/design/render_app_icon.py docs/design/doors-app-icons/svg/video.svg "${TMP}/first" >/dev/null 2>&1
+check "it is exactly what render_app_icon.py draws from its SVG, at 24 and 32 px" \
+    "$(cmp -s "${TMP}/first/png-32/video.png" "${FIRST}/video.png" &&
+       cmp -s "${TMP}/first/png-24/video.png" docs/design/doors-app-icons/png-24/video.png && echo 1 || echo 0)"
+check "pos_app_icons.c names it and its hash, as its source" \
+    "$(grep -qx " \*   ${FIRST}/video.png" "${ICONS_C}" && grep -qx " \*     sha256 ${VIDEO_SHA}" "${ICONS_C}" &&
+       echo 1 || echo 0)"
+
 # The three Pocket Games titles' are the fourth to sixth (a column of cards,
 # a card and a chip, four tiles), and DeskBuddy's the seventh (a small screen
 # with two eyes), held the same way, one by one.
@@ -152,7 +164,7 @@ for n in names:
     dsc = re.search(r"pos_app_icon_%s = \{(.*?)\};" % n, text, re.S).group(1)
     hdr = dict(re.findall(r"\.header\.(\w+) = (\w+),", dsc))
     W, H, rows = read_png("%s/%s.png" % (ext if n in ("wave", "files", "camera", "recorder") else
-                                         first if n in ("zabbix", "browser", "vision", "mp3", "solitaire", "blackjack", "2048", "deskbuddy") else art,
+                                         first if n in ("zabbix", "browser", "vision", "mp3", "video", "solitaire", "blackjack", "2048", "deskbuddy") else art,
                                          n))
     alpha = [p[3] for r in rows for p in r]
     ok = (hdr.get("cf"), hdr.get("w"), hdr.get("h"), hdr.get("stride")) == ("LV_COLOR_FORMAT_A8", "32", "32", "32") \
@@ -166,7 +178,7 @@ PY
 rc=$?
 check "every mask is A8, 32 x 32, and equals its PNG's alpha byte for byte" "$([ "${rc}" = "0" ] && echo 1 || echo 0)"
 check "there is one mask per launcher app, named by app id, and no other" \
-    "$(grep -qx 'names 2048 blackjack browser calculator calendar camera clock deskbuddy files fleet mp3 notes radar radio recorder settings solitaire system timber vision wave zabbix' "${TMP}/masks.txt" && echo 1 || echo 0)"
+    "$(grep -qx 'names 2048 blackjack browser calculator calendar camera clock deskbuddy files fleet mp3 notes radar radio recorder settings solitaire system timber video vision wave zabbix' "${TMP}/masks.txt" && echo 1 || echo 0)"
 check "the file holds 21,504 bytes of mask data and nothing else of size" \
     "$([ "$(grep -o '0x[0-9a-f][0-9a-f]' "${ICONS_C}" | wc -l)" = "21504" ] && echo 1 || echo 0)"
 extra=$(grep -c 'doors-icon-extension' "${ICONS_C}")
@@ -176,7 +188,7 @@ check "of the extension's thirteen icons only Wave, Files, Camera and Recorder a
        grep -qx " \*   ${EXT}/camera.png" "${ICONS_C}" &&
        grep -qx " \*   ${EXT}/recorder.png" "${ICONS_C}" && echo 1 || echo 0)"
 first=$(grep -c 'doors-app-icons' "${ICONS_C}")
-check "and seven first-party icons, Zabbix's, Browser's, Vision's, MP3's, the three card and tile games' and DeskBuddy's (${first} sources)" \
+check "and seven first-party icons, Zabbix's, Browser's, Vision's, MP3's, Video's, the three card and tile games' and DeskBuddy's (${first} sources)" \
     "$([ "${first}" = "7" ] && echo 1 || echo 0)"
 
 # ---- refusals ------------------------------------------------------------------
@@ -248,7 +260,7 @@ check "every launcher app's descriptor was read (${listed} listed)" \
     "$([ "$(grep -c . "${TMP}/apps.txt")" = "${listed}" ] && ! grep -q Traceback "${TMP}/apps.txt" &&
        echo 1 || echo 0)"
 for id in radio system fleet radar timber notes clock calendar calculator settings wave files camera recorder zabbix browser \
-          vision solitaire blackjack 2048 deskbuddy mp3; do
+          vision video solitaire blackjack 2048 deskbuddy mp3; do
     check "${id} uses its own icon, pos_app_icon_${id}" \
         "$(grep -qE "^${id} LV_SYMBOL_[A-Z_]+ pos_app_icon_${id} " "${TMP}/apps.txt" && echo 1 || echo 0)"
 done

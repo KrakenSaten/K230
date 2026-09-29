@@ -208,6 +208,14 @@ BUILD_ID
 /tests/vision_geom_test
 /tests/vision_model_test
 /tests/vision_session_test
+# Video (docs/apps/VIDEO.md)
+/tools/video/pos-video
+/tests/video_files_test
+/tests/video_layout_test
+/tests/video_state_test
+/tests/video_player_test
+/tests/video_session_test
+/tests/pos-video-testhooks
 # HDMI diagnostics (docs/hardware/HDMI_OUTPUT.md)
 /tools/drmtest/pos-drmtest
 /tests/drmtest_test
