@@ -126,7 +126,7 @@ closed for those runs. Evidence class LIVE-READ throughout.
 | 3 | band capped (frame/16) | 10 | 4 / 4 | 8 of 10; lost: one pass with a single clear sighting 41 px past the line before the person left the frame (**defect 2: one decisive sighting must count**), one where the detector merged the owner with an orange coat on a chair into one 538-637 px "person" box born on the far side (the detector, not the tracker) |
 | 5 | + one far sighting settles | 10 | **3 / 7** | right-to-left passes lost to the coat merge (3 of 5); two double counts where a partial box and the whole box both crossed (**defect 3: nested duplicates**) |
 | 6 (coat removed) | + nested boxes dropped | 10 | **9 / 6** | every pass counted, but three passes counted three times within 200 ms: the detector's box flipped for a frame or two to a box pinned at the picture's left edge (x = 0, 580-660 px wide, 2.4 times the area) and back, moving the centre 270 px; the flip box was matched into the walker's track (**defect 4: a match must be of the track's size**) |
-| 7 | + size gate (2x frame to frame, 3x coasting) | 4 round trips = 8 | **4 / 3** | **no double count**: every counted pass counted exactly once, the merge boxes live as their own short tracks that never cross. One pass lost: as the walker crossed, its id teleported onto a static box at the left edge - **defect 5, a tracker bug**: a track expiring in the coasting loop shifted the following tracks down but not the prediction table, so the next coasting track took the expired one's box |
+| 7 | + size gate (2x frame to frame, 3x coasting) | 4 round trips = 8 (expected 4 / 4) | **4 / 3** | one missed crossing, **zero duplicate counts** (the owner's reading): every counted pass counted exactly once, the merge boxes live as their own short tracks that never cross. The missed one: as the walker crossed, its id teleported onto a static box at the left edge - **defect 5, a tracker bug**: a track expiring in the coasting loop shifted the following tracks down but not the prediction table, so the next coasting track took the expired one's box |
 
 Defects 1-5 are fixed on the branch after `eddf4d5` (commits below), each
 with a test reproducing the logged sequence; defect 5's test fails on the
@@ -145,6 +145,11 @@ lost to the bug then fixed.
 | 7-9 | two-line speed | **NOT TESTED** on the target (the owner ended the session) |
 | 10 | performance during tracking | `stats` in the logs: 30.0 fps through the helper (the screen closed), KPU 17-18 ms, AI2D 1 ms, post 6-9 ms, helper 46-47 % CPU, 5.4 MB RSS; with the screen open (run 1 captures): 25-28 fps, KPU 22-30 ms |
 | - | exit Vision, Camera, services | PASS: Camera live afterwards, sysd/netd/radiod/meshcored/doors-shell up, only `isp_media_server` on `/dev/video2`, no helper left, 0 ERROR lines |
+
+The owner's decision (2026-09-29): no further indoor, person-specific
+tracker changes from these runs; the build with the five fixes stays
+installed on unit B (rollback kept, not restored); the next validation is
+outdoors on real vehicles.
 
 Detector behaviour seen, outside Doors' code: two boxes for one person
 (a partial beside the whole), a box merging the person with a coat or
