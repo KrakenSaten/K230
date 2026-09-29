@@ -20,11 +20,9 @@
  *   fail_at=N              frame N's run fails (-EIO)
  *   delay=MS               every run takes this long (pretend inference)
  *
- * With a crop (vision_kpu_crop) the pretend model sees only that part of the
- * frame: a box whose centre is outside it is not reported, the rest are
- * written in the crop's own letterboxed pixels. The boxes are always in
- * sensor-frame pixels; when the frames come turned (vision_kpu_turn) they
- * are turned the same way first, so the scene stays the same one.
+ * The boxes are in sensor-frame pixels. When the frames come turned
+ * (vision_kpu_turn: the helper turns them upright) the boxes are turned the
+ * same way first, so the script keeps describing the same scene.
  *
  * The boxes are written into the letterboxed model-input space exactly as
  * the decoder expects to undo it, one box per row, the rest of the rows
@@ -74,7 +72,6 @@ struct vision_kpu {
     uint32_t frames;
     float *out;
     size_t out_count;
-    struct vision_box crop;     /* w == 0: the whole frame */
     int turn;                   /* the frames come turned by this (vision_kpu_turn) */
 };
 
@@ -238,19 +235,8 @@ int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f, cons
     uint32_t row = 0;
     int i;
     uint32_t d;
-    /* The part of the frame the pretend model looks at: the crop, or all
-     * of it. */
-    int32_t rx = k->crop.w > 0 ? k->crop.x : 0;
-    int32_t ry = k->crop.w > 0 ? k->crop.y : 0;
-    int32_t rw;
-    int32_t rh;
 
     if (pocketcam_frame_check(f) != 0) {
-        return -EPROTO;
-    }
-    rw = k->crop.w > 0 ? k->crop.w : (int32_t)f->width;
-    rh = k->crop.w > 0 ? k->crop.h : (int32_t)f->height;
-    if ((int64_t)rx + rw > (int64_t)f->width || (int64_t)ry + rh > (int64_t)f->height) {
         return -EPROTO;
     }
     k->frames++;
@@ -286,42 +272,36 @@ int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f, cons
     if (k->until && k->frames > k->until) {
         return 0;
     }
-    ratio_w = (float)k->in_w / (float)rw;
-    ratio_h = (float)k->in_h / (float)rh;
+    ratio_w = (float)k->in_w / (float)f->width;
+    ratio_h = (float)k->in_h / (float)f->height;
     ratio = ratio_w < ratio_h ? ratio_w : ratio_h;
-    /* A box is seen when its centre is in that part, in the part's own
-     * pixels - what a real detector given the crop would report. */
     for (i = 0; i < k->nbox; i++) {
         const struct fake_box *b = &k->box[i];
         int32_t step = (int32_t)(k->frames - 1);
-        /* The script is in sensor-frame pixels; the frame came turned. */
+        /* The script is in sensor-frame pixels; the frame may come turned
+         * (a turn is its own size swap, so the sensor frame's size is the
+         * turned size of this one). */
         struct vision_box sb = { b->x + b->dx * step, b->y + b->dy * step, b->w, b->h };
         struct vision_box tb = sb;
         uint32_t sw;
         uint32_t sh;
+        float x;
+        float y;
 
-        vision_turned_size(f->width, f->height, k->turn, &sw, &sh); /* a turn is its own size swap */
+        vision_turned_size(f->width, f->height, k->turn, &sw, &sh);
         if (k->turn != 0 && vision_box_turn(sw, sh, k->turn, &sb, &tb) != 0) {
             continue;
         }
-        float x = (float)(tb.x - rx);
-        float y = (float)(tb.y - ry);
-        float bw = (float)tb.w;
-        float bh = (float)tb.h;
-        float mx = x + 0.5f * bw;
-        float my = y + 0.5f * bh;
-
-        if (mx < 0.0f || my < 0.0f || mx >= (float)rw || my >= (float)rh) {
-            continue;
-        }
+        x = (float)tb.x;
+        y = (float)tb.y;
         for (d = 0; d <= k->dup && row < k->rows; d++, row++) {
-            float cx = (x + (float)d + 0.5f * bw) * ratio;
-            float cy = (y + 0.5f * bh) * ratio;
+            float cx = (x + (float)d + 0.5f * (float)tb.w) * ratio;
+            float cy = (y + 0.5f * (float)tb.h) * ratio;
 
             k->out[0 * k->rows + row] = cx;
             k->out[1 * k->rows + row] = cy;
-            k->out[2 * k->rows + row] = bw * ratio;
-            k->out[3 * k->rows + row] = bh * ratio;
+            k->out[2 * k->rows + row] = (float)tb.w * ratio;
+            k->out[3 * k->rows + row] = (float)tb.h * ratio;
             if (b->cls < k->classes) {
                 /* A duplicate scores a little less, so the original wins. */
                 k->out[(4 + b->cls) * k->rows + row] =
@@ -338,22 +318,6 @@ int vision_kpu_turn(struct vision_kpu *k, int rotation)
         return -EINVAL;
     }
     k->turn = rotation;
-    return 0;
-}
-
-int vision_kpu_crop(struct vision_kpu *k, const struct vision_box *crop)
-{
-    if (!k) {
-        return -EINVAL;
-    }
-    if (!crop) {
-        memset(&k->crop, 0, sizeof(k->crop));
-        return 0;
-    }
-    if (crop->x < 0 || crop->y < 0 || crop->w < VISION_CROP_MIN || crop->h < VISION_CROP_MIN) {
-        return -EINVAL;
-    }
-    k->crop = *crop;
     return 0;
 }
 

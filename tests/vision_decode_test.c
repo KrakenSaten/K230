@@ -55,7 +55,7 @@ static void put(uint32_t r, int cls, float conf, float x, float y, float w, floa
 
 static struct vision_decode_params params(void)
 {
-    struct vision_decode_params p = { IN, IN, CLASSES, FW, FH, 350, 0, 0 };
+    struct vision_decode_params p = { IN, IN, CLASSES, FW, FH, 350 };
 
     return p;
 }
@@ -104,52 +104,6 @@ static void test_decode(void)
     check("boxes over the edges are clipped to the frame",
           n == 2 && d[0].box.x == 0 && d[0].box.y == 0 && d[0].box.w == 60 && d[0].box.h == 80 &&
               d[1].box.x == 600 && d[1].box.w == 40 && d[1].box.y == 300 && d[1].box.h == 60);
-}
-
-/* A crop (TRAFFIC's region of interest) letterboxed alone: the decoder
- * undoes the crop's own ratio, clips to the crop, and moves the boxes back
- * into frame pixels by its origin. */
-static void test_crop(void)
-{
-    struct vision_decode_params p = params();
-    struct vision_det d[VISION_MAX_CANDIDATES];
-    uint32_t dims[3] = { 1, 4 + CLASSES, ROWS };
-    uint32_t bad = 0;
-    /* A 200 x 100 road band at (300, 150): ratio min(320/200, 320/100) = 1.6,
-     * where the whole frame's is 0.5 - a far car 3.2 times taller. */
-    const float ratio = 1.6f;
-    int n;
-
-    p.frame_w = 200;
-    p.frame_h = 100;
-    p.off_x = 300;
-    p.off_y = 150;
-    clear();
-    /* A 40 x 16 car at frame (340, 170): (40, 20) in the crop. */
-    tensor[0 * ROWS + 11] = (40.0f + 20.0f) * ratio;
-    tensor[1 * ROWS + 11] = (20.0f + 8.0f) * ratio;
-    tensor[2 * ROWS + 11] = 40.0f * ratio;
-    tensor[3 * ROWS + 11] = 16.0f * ratio;
-    tensor[(4 + 2) * ROWS + 11] = 0.5f;
-    /* One reaching past the crop's right edge: clipped there, not at the frame's. */
-    tensor[0 * ROWS + 12] = (180.0f + 20.0f) * ratio;
-    tensor[1 * ROWS + 12] = (50.0f + 8.0f) * ratio;
-    tensor[2 * ROWS + 12] = 40.0f * ratio;
-    tensor[3 * ROWS + 12] = 16.0f * ratio;
-    tensor[(4 + 2) * ROWS + 12] = 0.5f;
-    n = vision_decode(tensor, (size_t)(4 + CLASSES) * ROWS, dims, &p, d, VISION_MAX_CANDIDATES, &bad);
-    check("a car in the crop comes back in frame pixels",
-          n == 2 && d[0].box.x == 340 && d[0].box.y == 170 && d[0].box.w == 40 && d[0].box.h == 16);
-    check("and one past the crop's edge is clipped at the crop's edge, in frame pixels",
-          n == 2 && d[1].box.x == 480 && d[1].box.w == 20 && d[1].box.y == 200 && d[1].box.h == 16);
-    p.off_x = -2;
-    check("a crop above or left of the frame is refused",
-          vision_decode(tensor, (size_t)(4 + CLASSES) * ROWS, dims, &p, d, VISION_MAX_CANDIDATES, &bad) ==
-              -EINVAL);
-    p.off_x = VISION_MAX_COORD - 100;
-    check("and so is one reaching past the largest coordinate",
-          vision_decode(tensor, (size_t)(4 + CLASSES) * ROWS, dims, &p, d, VISION_MAX_CANDIDATES, &bad) ==
-              -EINVAL);
 }
 
 static void test_malformed(void)
@@ -339,37 +293,6 @@ static void test_nms(void)
     check("nothing in, nothing out", vision_nms_nested(c, 0, 850) == 0);
 }
 
-/* TRAFFIC's weak vehicles (vision_nms_add_weak): a distant car below the
- * general threshold is added, but never at the cost of a stronger box. */
-static void test_add_weak(void)
-{
-    struct vision_det d[8];
-    struct vision_det w[8];
-    int n;
-
-    memset(d, 0, sizeof(d));
-    memset(w, 0, sizeof(w));
-    d[0] = (struct vision_det) { { 100, 200, 60, 30 }, 2, 700 };  /* a near car */
-    d[1] = (struct vision_det) { { 300, 100, 40, 80 }, 0, 600 };  /* a person */
-    w[0] = (struct vision_det) { { 500, 150, 24, 10 }, 2, 300 };  /* a far car, alone */
-    w[1] = (struct vision_det) { { 102, 201, 60, 30 }, 2, 280 };  /* the near car again */
-    w[2] = (struct vision_det) { { 0, 150, 640, 120 }, 2, 270 };  /* a band over the near car */
-    w[3] = (struct vision_det) { { 110, 205, 20, 12 }, 2, 260 };  /* a part of the near car */
-    w[4] = (struct vision_det) { { 300, 100, 40, 80 }, 2, 260 };  /* a car where the person is */
-    n = vision_nms_add_weak(d, 2, w, 5, 650, 850, 8);
-    check("a far car nothing else saw is added after the strong boxes",
-          n == 4 && d[2].box.x == 500 && d[2].conf == 300);
-    check("the strong boxes are untouched, in their order",
-          d[0].box.x == 100 && d[0].conf == 700 && d[1].cls == 0 && d[1].conf == 600);
-    check("a weak box overlapping, containing or inside a strong one of its class is left out",
-          n == 4 && d[3].box.x == 300 && d[3].cls == 2);
-    check("but a weak car where a person is still counts (another class)", n == 4 && d[3].conf == 260);
-    n = vision_nms_add_weak(d, 2, w, 5, 650, 850, 3);
-    check("the total is bounded", n == 3 && d[2].box.x == 500);
-    check("no weak boxes, nothing changes", vision_nms_add_weak(d, 2, w, 0, 650, 850, 8) == 2);
-    check("full already, nothing is added", vision_nms_add_weak(d, 2, w, 5, 650, 850, 2) == 2);
-}
-
 int main(void)
 {
     ROWS = vision_decode_rows(IN, IN);
@@ -379,11 +302,9 @@ int main(void)
     }
     test_rows();
     test_decode();
-    test_crop();
     test_malformed();
     test_bounded();
     test_nms();
-    test_add_weak();
     free(tensor);
     printf("vision_decode_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;

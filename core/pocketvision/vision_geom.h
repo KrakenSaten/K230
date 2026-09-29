@@ -67,15 +67,4 @@ int vision_box_unturn(uint32_t frame_w, uint32_t frame_h, int rotation, const st
 int vision_turn_planes(const uint8_t *src, uint32_t w, uint32_t h, uint32_t stride, uint32_t planes,
                        int rotation, uint8_t *dst);
 
-/* The smallest side of a crop the detector is given, in frame pixels: a
- * road region smaller than this is not worth a model run of its own. */
-#define VISION_CROP_MIN 32
-
-/* A part of the frame for the detector (TRAFFIC's region of interest):
- * `in`, in frame pixels, clipped to the frame, its origin rounded down and
- * its size down to even numbers (whole pixel pairs for the AI2D engine).
- * 0 with *out set, or -EINVAL when what is left is smaller than
- * VISION_CROP_MIN on a side or the frame makes no sense. */
-int vision_crop_fit(uint32_t frame_w, uint32_t frame_h, const struct vision_box *in, struct vision_box *out);
-
 #endif

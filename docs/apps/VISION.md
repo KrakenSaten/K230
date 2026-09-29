@@ -68,8 +68,7 @@ PROPOSED).
 
 No OCR, segmentation, pose, faces, recognition of people, recording,
 network or cloud. No settings: one model, one input size, one confidence
-threshold (0.35, the vendor's default; in TRAFFIC 0.25 for motor
-vehicles, see below), the lines in a few fixed places,
+threshold (0.35, the vendor's default), the lines in a few fixed places,
 the distance from a short list. Nothing is stored: the counts and speeds
 live as long as the screen is open. No speed is ever inferred from how
 fast a box moves on the picture.
@@ -78,43 +77,12 @@ fast a box moves on the picture.
 
 MODE: TRAFFIC. What changes, all of it in the helper and the app's words:
 
-- **Only traffic is tracked.** Before suppression, detections whose class
+- **Only traffic is tracked.** After suppression, detections whose class
   name is not one of `car`, `truck`, `bus`, `motorcycle`, `bicycle`,
-  `person` are dropped, so a chair never takes a track slot or a count
-  (suppression is per class, so dropping them first changes nothing
-  else). The mapping is by the detector's class
+  `person` are dropped before the tracker sees them, so a chair never
+  takes a track slot or a count. The mapping is by the detector's class
   names (`vision_traffic_map_names`), not by COCO indices: another
   detector with the same names drops in.
-- **Distant motor vehicles pass at 0.25.** A car on a road 35 m away is a
-  few pixels of the model's input (the letterbox halves the frame: a
-  24 x 10 px car is 12 x 5 model px) and scores under 0.35. In TRAFFIC a
-  car, truck, bus or motorcycle between 0.25 (the detector's own default,
-  Ultralytics' predict conf) and 0.35 is kept - but only added after the
-  0.35 detections have been through suppression, and only where it
-  overlaps, contains or lies inside none of them (`vision_nms_add_weak`).
-  So a weak box never replaces, suppresses or swallows a stronger one: a
-  low "car" band across the road cannot take a real car's place, which the
-  nested-box rule alone would let it do. People and bicycles keep 0.35;
-  DETECT is unchanged. `pos-vision bench` shows every vehicle candidate
-  from 0.10 with its size in frame and model pixels and which threshold
-  (DETECT's, TRAFFIC's) takes it, and ends with the tally.
-- **Region of interest (prototype, off by default).** `roi x0 y0 x1 y1`
-  (two opposite corners, per-mille of the view) gives the detector only
-  that part of the frame in TRAFFIC: the AI2D engine crops it and
-  letterboxes it into the 320 x 320 input in one pass, so a road band
-  gets far more of the model's pixels (a 160 x 60 band: 2x, where the
-  whole frame gets 0.5x). The decoder moves the boxes back by the
-  region's origin (`vision_decode_params.off_x/off_y`), so tracks, lines,
-  counts and the `det` boxes stay in the whole picture; nothing outside
-  the region is detected. The region is fitted by `vision_crop_fit`
-  (clipped, even, at least 32 px a side) and answered with `roi x y w h`
-  in frame pixels. DETECT ignores it. There is no way to draw it on the
-  screen yet: the protocol, `vlog.py` and `pos-vision bench --roi X,Y,W,H`
-  (frame pixels; `--ab` alternates whole frame and region on the same
-  traffic; `--save FILE.ppm` writes frame 60 - once the auto exposure has
-  settled - with the region and that frame's vehicle boxes drawn in, green
-  at DETECT's threshold, cyan at TRAFFIC's, red below; `--save-every N`
-  adds one every N frames) are how it is set and measured.
 - **A vehicle keeps its track when the detector changes its mind.** The
   tracker matches across a class group - car, truck and bus are one group,
   motorcycle and bicycle another, a person is only a person - and the
@@ -240,14 +208,14 @@ synchronously, in this order:
 | Step | Where | What |
 | --- | --- | --- |
 | Capture | `core/pocketcam/pocketcam_v4l2.c` (Camera's backend, one new config key) | `/dev/video2`, the ISP's self path, 640 x 360, **planar `BG3P`** (`fmt=bg3p`): the format the vendor's KPU demos read, three 8-bit planes AI2D takes as they are - R, G, B in memory despite the driver's name (VERIFIED on unit B). Camera itself keeps NV16. |
-| Upright | `vision_geom.c` (`vision_turn_planes`, `vision_box_unturn`), `pos_vision.c` | the camera is mounted turned (90 degrees), so the sensor frame shows the scene sideways (portrait) or upside down (landscape, screen up). The frame is turned clockwise by the preview's own turn (`pocketcam_view_rotation` of the mount and the display's rotation from `view`) into a buffer, so the detector sees the scene upright as the screen shows it, and the decoded boxes are turned back into frame pixels before suppression, so tracks, lines, counts and `det` boxes are unchanged. Measured on unit A's window scene: the same frame found 0 of 7 parked cars as taken (upside down) and 7 of 7 at 59-73 % upright, inference unchanged. A Traffic region of interest is turned with the frame. |
+| Upright | `vision_geom.c` (`vision_turn_planes`, `vision_box_unturn`), `pos_vision.c` | the camera is mounted turned (90 degrees), so the sensor frame shows the scene sideways (portrait) or upside down (landscape, screen up). The frame is turned clockwise by the preview's own turn (`pocketcam_view_rotation` of the mount and the display's rotation from `view`) into a buffer, so the detector sees the scene upright as the screen shows it, and the decoded boxes are turned back into frame pixels before suppression, so tracks, lines, counts and `det` boxes are unchanged. Measured on unit A's window scene (2026-09-29): the same frame found 0 of 7 parked cars as taken (upside down) and 7 of 7 at 59-73 % upright; the turn costs 2.4 ms in landscape and 4.6 ms in portrait, inference and frame rate unchanged. |
 | Into AI2D memory | `vision_kpu_nncase.cpp` | the (upright) frame is copied (691 KB) into a tensor from the runtime's shared pool and written back from the cache. A V4L2 buffer cannot be handed to AI2D directly: the runtime needs a physical address it does not have for an MMAP buffer. With the turn this is the second copy of a frame in the pipeline (the vendor's demo makes one, of a 2.7 MB frame). |
 | Preprocess | AI2D, hardware | resize into the top-left of 320 x 320 keeping the aspect (0.5 x: 320 x 180), pad the rest with 114 - the vendor's `padding_resize_one_side_set`. |
 | Infer | KPU, through the nncase interpreter | one run; the first output mapped and its 2100 x 84 floats copied out. |
-| Decode | `vision_decode.c` | per row: the best class score, the threshold (0.35; 0.25 in TRAFFIC, where only motor vehicles may pass below 0.35), the box centre and size back through the letterbox ratio, clipped to the frame; NaN, infinities, empty and absurd boxes skipped and counted; a tensor of the wrong shape refused before a value is read. At most 256 candidates, the best kept. |
+| Decode | `vision_decode.c` | per row: the best class score, the threshold (0.35), the box centre and size back through the letterbox ratio, clipped to the frame; NaN, infinities, empty and absurd boxes skipped and counted; a tensor of the wrong shape refused before a value is read. At most 256 candidates, the best kept. |
 | Suppress | `vision_nms.c` | class-aware greedy NMS at IoU 0.65 (the vendor's default), at most 32 detections. |
 | Nested | `vision_nms.c` | a box at least 85 % inside a larger box of its class is the same object seen twice (a partial box beside the whole one) and is dropped; unit B counted a walker twice without this. |
-| Filter | `vision_traffic.c`, `vision_nms.c` | in TRAFFIC mode only, before suppression: detections of a class with no traffic name are dropped; those at 0.35 or better are suppressed and nested as above; motor vehicles between 0.25 and 0.35 are suppressed among themselves and then added only where they touch none of those (`vision_nms_add_weak`). |
+| Filter | `vision_traffic.c` | in TRAFFIC mode only: detections of a class with no traffic name are dropped here. |
 | Track | `vision_track.c` | greedy IoU matching (0.2) against each track's prediction (last box + smoothed motion), same class or same group, and an area within 2x of the track's (3x after a dropout: a box that suddenly spans half the picture is another object, or a merge); then a distance pass for confirmed tracks the overlap lost (same size, within 3/4 of a box side); new ids for the unmatched; coasting with decaying motion, expiry after 15 misses; confirmation after 2 sightings; 32 tracks at most. Frame pixels throughout. |
 | Count | `vision_line.c` | the lines, chosen on the picture, unmapped into frame pixels (`vision_geom.c`) and checked against every seen track's centre, with the dead band and the two-sighting settle; crossings reported by id. |
 | Traffic | `vision_traffic.c` | the count line's crossings per class; the speed lines' crossings timed per track. |
@@ -290,6 +258,16 @@ U8). Vision is the "second user" ADR-006 names as a trigger to revisit
 | `vision_kpu_fake.c` | core/pocketvision | the host stand-in: a tensor of the detector's shape from a script of boxes |
 | `pocketvision_proto.h` | core/pocketvision | the helper protocol (Camera's transport and shared memory, Vision's lines) |
 | `pos_vision.c` | tools/vision | `pos-vision session`, `probe` and `bench` |
+
+`pos-vision bench` also lists every vehicle candidate from 0.10 with its
+size in frame and model pixels and whether the threshold takes it, and
+ends with a tally. `--turn R` turns the frame upright as the session does
+(bench has no screen to take the rotation from: landscape with the screen
+up is 180, portrait 90); `--save FILE.ppm` writes frame 60 - once the auto
+exposure has settled - with that frame's vehicle boxes drawn in (green at
+the threshold, red below), `--save-every N` one more every N frames;
+`--image FILE.ppm` feeds a saved picture to the detector instead of the
+camera, so one scene can be compared as taken and changed.
 
 Pictures travel as Camera's do: a sealed memfd of four 1024 x 1024 RGB565
 slots, the helper writing a slot it owns, the app copying the newest one

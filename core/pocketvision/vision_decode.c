@@ -73,9 +73,7 @@ int vision_decode(const float *out, size_t count, const uint32_t dims[3],
     }
     if (!out || !dims || !p || !dets || max <= 0 || p->classes == 0 ||
         p->classes > VISION_MAX_CLASSES || p->frame_w == 0 || p->frame_h == 0 ||
-        p->frame_w > VISION_MAX_COORD || p->frame_h > VISION_MAX_COORD || p->off_x < 0 ||
-        p->off_y < 0 || (int64_t)p->off_x + p->frame_w > VISION_MAX_COORD ||
-        (int64_t)p->off_y + p->frame_h > VISION_MAX_COORD) {
+        p->frame_w > VISION_MAX_COORD || p->frame_h > VISION_MAX_COORD) {
         return -EINVAL;
     }
     rows = vision_decode_rows(p->in_w, p->in_h);
@@ -162,8 +160,8 @@ int vision_decode(const float *out, size_t count, const uint32_t dims[3],
             skipped++;
             continue;
         }
-        d.box.x = (int32_t)x + p->off_x;
-        d.box.y = (int32_t)y + p->off_y;
+        d.box.x = (int32_t)x;
+        d.box.y = (int32_t)y;
         d.box.w = (int32_t)(w + 0.5f);
         d.box.h = (int32_t)(h + 0.5f);
         if (d.box.w < 1) {

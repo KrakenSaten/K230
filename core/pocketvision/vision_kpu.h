@@ -26,7 +26,6 @@
 #define POCKETOS_VISION_KPU_H
 
 #include "pocketcam/pocketcam.h"
-#include "pocketvision.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -59,23 +58,12 @@ int vision_kpu_open(struct vision_kpu **k, const char *path, const char *config,
 int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f, const float **out,
                      size_t *count, uint32_t dims[3], int *pre_ms, int *infer_ms);
 
-/* Look at part of the frame from the next run on: `crop` in frame pixels,
- * as vision_crop_fit (vision_geom.h) makes it, or NULL for the whole frame.
- * The part is letterboxed into the model's input exactly as the whole frame
- * is (scaled with its aspect kept into the top-left, the rest padded), so a
- * narrow road region gets more of the model's pixels; on the KPU the AI2D
- * engine crops and scales in one pass. Decode it with the crop's size as the
- * frame and its origin as the offset (vision_decode_params). A run with a
- * crop that does not fit its frame is refused (-EPROTO). 0, or -EINVAL for a
- * crop smaller than VISION_CROP_MIN on a side. */
-int vision_kpu_crop(struct vision_kpu *k, const struct vision_box *crop);
-
 /* The frames of the next runs are the sensor frame turned clockwise by
  * `rotation` (0, 90, 180, 270): the helper gives the detector the scene
- * upright (vision_geom.h), and a crop is then in the turned picture's
- * pixels. The KPU needs nothing for it - a picture is a picture - but the
- * fake detector's script is in sensor-frame pixels and is turned the same
- * way, so it keeps describing the same scene. 0, or -EINVAL. */
+ * upright (vision_geom.h). The KPU needs nothing for it - a picture is a
+ * picture - but the fake detector's script is in sensor-frame pixels and is
+ * turned the same way, so it keeps describing the same scene. 0, or
+ * -EINVAL. */
 int vision_kpu_turn(struct vision_kpu *k, int rotation);
 
 void vision_kpu_close(struct vision_kpu *k);

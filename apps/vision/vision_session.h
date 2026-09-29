@@ -200,10 +200,6 @@ int vision_session_stream(struct vision_session *s, bool on, int64_t now_ms);
 int vision_session_line(struct vision_session *s, const int32_t pm[4]);
 /* The two speed lines, A then B, per-mille of the view; NULL turns them off. */
 int vision_session_speed_lines(struct vision_session *s, const int32_t pm[8]);
-/* TRAFFIC's region of interest, two opposite corners in per-mille of the
- * view; NULL turns it off (the whole frame). The helper answers with the
- * region it gives the detector, in frame pixels (`roi`). */
-int vision_session_roi(struct vision_session *s, const int32_t pm[4]);
 /* The ground distance between the speed lines. */
 int vision_session_distance(struct vision_session *s, uint32_t cm);
 /* Traffic mode on or off. */
