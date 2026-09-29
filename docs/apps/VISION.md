@@ -156,6 +156,48 @@ each track has been (8 points, one every 6 px it moves, let go 8 det lines
 after its track; `apps/vision/vision_trails.c`, fed from the det lines the
 screen already gets). TRACK has its own TRAILS button.
 
+### Tracking (Tracking 2.0)
+
+Three changes to the tracker (`core/pocketvision/vision_track.c`), each
+from a defect seen on a real sequence, and nothing more:
+
+1. **No second track for one object.** A box left over after matching that
+   is the same object as a track matched in this frame (IoU at least 0.5,
+   or either 85 % inside the other, compatible class) is not made a track:
+   the detector's partial box beside its whole one, or two boxes of one
+   person just under suppression's 0.65. Counted in `dup_births`. Two
+   people side by side below that overlap still get a track each.
+2. **Found where it was last seen.** A third matching pass compares a
+   still-unfound track with where it was last *seen* rather than predicted:
+   an object that stopped or turned while hidden is found where it was
+   instead of being lost to a prediction that drifted on. Its size gate is
+   the track's own (2x from the last frame, 3x only once it has coasted), so
+   the walker's box that flipped to one pinned at the picture's edge
+   (2.4x, unit B 2026-09-29) still does not take the walker's id.
+3. **A reach that grows while hidden.** The distance pass's radius grows by
+   5 % of the box's larger side per frame unseen, from 75 % up to 150 % at
+   most.
+
+**Evidence** (unit B's KPU, `pos-vision bench --images ... --tracks`, the
+vendor SDK's 278-frame street sequence of cyclists and cars, every second
+frame: 139 frames at ~12 frames a second of the scene; analysed with the
+gate's `trackstats.py`: confirmed ids, re-identifications - an id ending
+and a new one of the same class group born nearby within 12 frames - and
+same-frame duplicates, two confirmed tracks of one group at IoU > 0.5):
+
+| Tracker | Range | Confirmed ids | Duplicate frames | Re-identifications | Short tracks | Median life |
+| --- | --- | --- | --- | --- | --- | --- |
+| before | NORMAL | 29 | 40 | 8 | 6 | 25 frames |
+| after | NORMAL | 24 | 15 | 7 | 4 | 30 frames |
+| before | FAR | 30 | 41 | 8 | 10 | 30 frames |
+| after | FAR | 26 | 21 | 6 | 6 | 45 frames |
+
+The duplicates left are, on inspection, two distant cars whose boxes
+converge (both tracks 30 sightings old) and a car leaving at the picture's
+edge; no ground truth exists for the sequence, so these figures compare
+the tracker with itself, not with truth. `tests/vision_track_test.c` holds
+each rule (a mutant of each is caught) and every earlier one.
+
 ### Speed
 
 Unchanged in substance, now in SETUP: the speed is the distance between

@@ -1424,6 +1424,7 @@ struct bench_opts {
     const char *images;          /* PPMs, comma-separated, fed in turn as a sequence (repeated to N frames) */
     int turn;                    /* the frame turned by this for the detector (upright_input) */
     enum vision_range range;     /* the pipeline preset (vision_range.h) */
+    bool tracks;                 /* every frame's tracks, one line each, for a tracking replay */
 };
 
 /* A binary PPM (P6, 8-bit) as a planar R, G, B frame - the layout the ISP's
@@ -1789,6 +1790,19 @@ static int run_bench(const char *backend, const char *config, const char *model,
                        dets[i].box.x, dets[i].box.y, dets[i].box.w, dets[i].box.h);
             }
             printf("; %d tracks, %d confirmed\n", tr.count, live);
+            if (o->tracks) {
+                /* One line per frame: every track, confirmed or not, with
+                 * its box, sightings and misses - what a replay analysis
+                 * reads to see ids survive, split or double. */
+                printf("  tracks %u:", f.seq);
+                for (i = 0; i < tr.count; i++) {
+                    const struct vision_track *k = &tr.t[i];
+
+                    printf(" %u:%s:%d,%d,%d,%d:%u:%u:%c", k->id, vision_label(k->cls), k->box.x, k->box.y, k->box.w,
+                           k->box.h, k->hits, k->misses, k->confirmed ? 'C' : 'n');
+                }
+                printf("\n");
+            }
             if (nv > 0) {
                 /* Every vehicle: a far car is the least confident and would
                  * be cut off by near ones if only some were listed. */
@@ -1871,7 +1885,7 @@ static void usage(void)
             "       pos-vision bench [N] [--backend NAME] [--config CFG] [--model FILE]\n"
             "                        [--turn 0|90|180|270] [--save FILE.ppm [--save-every N]]\n"
             "                        [--image FILE.ppm | --images A.ppm,B.ppm,...]\n"
-            "                        [--range near|normal|far]\n");
+            "                        [--range near|normal|far] [--tracks]\n");
 }
 
 int main(int argc, char **argv)
@@ -1885,7 +1899,7 @@ int main(int argc, char **argv)
     const char *backend;
     const char *config;
     const char *model;
-    struct bench_opts bo = { 100, NULL, 0, NULL, NULL, 0, VISION_RANGE_NORMAL };
+    struct bench_opts bo = { 100, NULL, 0, NULL, NULL, 0, VISION_RANGE_NORMAL, false };
     bool bench = cmd && strcmp(cmd, "bench") == 0;
     int i;
 
@@ -1914,6 +1928,8 @@ int main(int argc, char **argv)
             bo.image = argv[++i];
         } else if (bench && strcmp(argv[i], "--images") == 0 && i + 1 < argc) {
             bo.images = argv[++i];
+        } else if (bench && strcmp(argv[i], "--tracks") == 0) {
+            bo.tracks = true;
         } else if (bench && strcmp(argv[i], "--range") == 0 && i + 1 < argc) {
             int rg = vision_range_parse(argv[++i]);
 

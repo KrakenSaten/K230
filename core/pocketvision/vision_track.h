@@ -3,7 +3,7 @@
  * (pocketvision.h).
  *
  * A tracker holds at most VISION_MAX_TRACKS tracks. Each frame's detections
- * are matched to tracks in two passes, one detection per track:
+ * are matched to tracks in three passes, one detection per track:
  *
  *   1. by overlap with where the track is expected to be (its last box
  *      moved by its smoothed motion), best overlaps first, down to
@@ -11,7 +11,22 @@
  *   2. for a confirmed track still unmatched, by distance: a detection of
  *      a similar size whose centre lies within `reacquire_pm` of the
  *      predicted box's larger side is the object found again after a
- *      dropout or a jump the overlap could not follow. Nearest first.
+ *      dropout or a jump the overlap could not follow. Nearest first. The
+ *      radius grows by VISION_TRACK_REACQUIRE_STEP_PM for every frame the
+ *      track has gone unseen, up to VISION_TRACK_REACQUIRE_MAX_PM: the
+ *      longer an object is hidden, the less its prediction is worth;
+ *   3. for a track still unmatched that has been coasting, by overlap with
+ *      where it was last SEEN rather than predicted: an object that stood
+ *      still or turned while hidden is found where it was, not lost to a
+ *      prediction that drifted on (unit B's KPU replay of a street, 2026-09-29:
+ *      a car behind cyclists came back beside its coasting track as a new id).
+ *
+ * A new track is not started from a box that is the same object as a track
+ * matched in this frame - IoU at least VISION_TRACK_DUP_IOU, or either
+ * VISION_TRACK_DUP_INSIDE inside the other, of a compatible class: the
+ * detector's partial box beside its whole one, or two boxes of one person
+ * just under suppression's overlap (the same replay: 43 frames of duplicate
+ * confirmed tracks). Such boxes are counted in `dup_births`.
  *
  * A match must also be of a size the track could have: within
  * VISION_TRACK_SIZE_RATIO of its area from one frame to the next,
@@ -53,6 +68,10 @@
 #define VISION_TRACK_SIZE_RATIO 2       /* a match's area against the track's, frame to frame */
 #define VISION_TRACK_SIZE_RATIO_COASTING 3 /* ... and after a dropout, or by distance */
 #define VISION_TRACK_CLS_SWITCH 3       /* sightings of another class before the track takes it */
+#define VISION_TRACK_REACQUIRE_STEP_PM 50 /* pass 2's radius grows this much per frame unseen... */
+#define VISION_TRACK_REACQUIRE_MAX_PM 1500 /* ... up to twice its start */
+#define VISION_TRACK_DUP_IOU 500        /* a new box this much over a track matched this frame is that object again */
+#define VISION_TRACK_DUP_INSIDE 850     /* ... as is one this much inside it, or holding it */
 #define VISION_TRACK_V_SHIFT 4          /* motion is kept x16 */
 #define VISION_LINES 3                  /* line states per track: the count line, speed lines A and B */
 
@@ -65,6 +84,7 @@ struct vision_line_state {
 struct vision_track {
     uint32_t id;
     struct vision_box box;    /* where it is (or is predicted to be) */
+    struct vision_box seen_box; /* where it was last actually seen */
     uint16_t cls;
     uint16_t conf;            /* the last detection's */
     uint16_t hits;            /* frames seen, saturating */
@@ -93,6 +113,8 @@ struct vision_tracker {
     uint32_t group_classes;   /* the table's length */
     uint32_t dropped;         /* detections with no room, for the record */
     uint32_t reacquired;      /* pass 2 matches, for the record */
+    uint32_t revived;         /* pass 3 matches, for the record */
+    uint32_t dup_births;      /* boxes not made tracks: a second box of a tracked object */
 };
 
 void vision_tracker_init(struct vision_tracker *tr);
