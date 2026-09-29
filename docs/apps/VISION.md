@@ -111,8 +111,10 @@ MODE: TRAFFIC. What changes, all of it in the helper and the app's words:
   in frame pixels. DETECT ignores it. There is no way to draw it on the
   screen yet: the protocol, `vlog.py` and `pos-vision bench --roi X,Y,W,H`
   (frame pixels; `--ab` alternates whole frame and region on the same
-  traffic, `--save` writes a frame with the region drawn in) are how it is
-  set and measured.
+  traffic; `--save FILE.ppm` writes frame 60 - once the auto exposure has
+  settled - with the region and that frame's vehicle boxes drawn in, green
+  at DETECT's threshold, cyan at TRAFFIC's, red below; `--save-every N`
+  adds one every N frames) are how it is set and measured.
 - **A vehicle keeps its track when the detector changes its mind.** The
   tracker matches across a class group - car, truck and bus are one group,
   motorcycle and bicycle another, a person is only a person - and the

@@ -21,8 +21,10 @@
  *       --roi X,Y,W,H (frame pixels) looks at that part of the frame only,
  *       as TRAFFIC's region of interest does; with --ab every other frame
  *       is the whole frame instead, so both ways see the same traffic and
- *       are tallied apart. --save writes the first frame as a PPM with the
- *       ROI drawn in, to choose the region on.
+ *       are tallied apart. --save writes frame VISION_BENCH_SAVE_AT (once
+ *       the auto exposure has settled) as a PPM with the ROI and that
+ *       frame's vehicle boxes drawn in, to choose the region on and see what
+ *       was found; --save-every N also every N frames after it, numbered.
  *
  * The camera is Camera's own layer (core/pocketcam): the same backends, the
  * same V4L2 node, the same close on the way out. Nothing opens the sensor
@@ -1269,7 +1271,13 @@ struct bench_opts {
     struct vision_box roi_box;   /* frame pixels, as asked for */
     bool ab;
     const char *save;
+    int save_every;              /* also every this many frames after the first save; 0: once */
 };
+
+/* The first frame bench saves: the ISP's auto exposure starts over with
+ * every camera open and has settled well before this (a first frame saved
+ * at a bright window, unit A 2026-09-29, was nearly white). */
+#define VISION_BENCH_SAVE_AT 60
 
 /* What bench saw one way of looking (the whole frame, or the ROI). */
 struct bench_tally {
@@ -1291,11 +1299,21 @@ struct bench_tally {
     uint16_t conf_max;
 };
 
+/* Whether (x, y) is on the outline of b, t pixels thick. */
+static bool on_outline(int32_t x, int32_t y, const struct vision_box *b, int32_t t)
+{
+    return b->w > 0 && x >= b->x && x < b->x + b->w && y >= b->y && y < b->y + b->h &&
+           (x < b->x + t || x >= b->x + b->w - t || y < b->y + t || y >= b->y + b->h - t);
+}
+
 /* The frame as a binary PPM (the ISP's planar BGR holds R, G and B planes in
- * that order, VERIFIED on unit B), the ROI's outline drawn in yellow: the
- * picture a road region is chosen on, in the frame pixels --roi takes.
- * 0, or -1 with the reason on stderr. */
-static int save_frame(const char *path, const struct pocketcam_frame *f, const struct vision_box *roi)
+ * that order, VERIFIED on unit B), with the ROI's outline in yellow and the
+ * vehicle boxes of this frame by confidence - green at DETECT's threshold,
+ * cyan at TRAFFIC's, red below both: the picture a road region is chosen on,
+ * in the frame pixels --roi takes, and what was found on it. 0, or -1 with
+ * the reason on stderr. */
+static int save_frame(const char *path, const struct pocketcam_frame *f, const struct vision_box *roi,
+                      const struct vision_det *veh, int nveh)
 {
     size_t plane = (size_t)f->stride * f->height;
     uint8_t *row = malloc((size_t)f->width * 3);
@@ -1318,15 +1336,27 @@ static int save_frame(const char *path, const struct pocketcam_frame *f, const s
     for (y = 0; y < f->height; y++) {
         for (x = 0; x < f->width; x++) {
             size_t at = (size_t)y * f->stride + x;
-            bool edge = roi && roi->w > 0 &&
-                        (int32_t)x >= roi->x && (int32_t)x < roi->x + roi->w && (int32_t)y >= roi->y &&
-                        (int32_t)y < roi->y + roi->h &&
-                        ((int32_t)x < roi->x + 2 || (int32_t)x >= roi->x + roi->w - 2 || (int32_t)y < roi->y + 2 ||
-                         (int32_t)y >= roi->y + roi->h - 2);
+            uint8_t *px = &row[3 * x];
+            int k;
 
-            row[3 * x + 0] = edge ? 255 : f->data[at];
-            row[3 * x + 1] = edge ? 255 : f->data[plane + at];
-            row[3 * x + 2] = edge ? 0 : f->data[2 * plane + at];
+            px[0] = f->data[at];
+            px[1] = f->data[plane + at];
+            px[2] = f->data[2 * plane + at];
+            if (roi && on_outline((int32_t)x, (int32_t)y, roi, 2)) {
+                px[0] = 255;
+                px[1] = 255;
+                px[2] = 0;
+            }
+            for (k = 0; k < nveh; k++) {
+                if (on_outline((int32_t)x, (int32_t)y, &veh[k].box, 1)) {
+                    bool detect = veh[k].conf >= VISION_CONF_MIN;
+                    bool traffic = veh[k].conf >= VISION_TRAFFIC_VEHICLE_CONF_MIN;
+
+                    px[0] = detect || traffic ? 0 : 255;
+                    px[1] = detect || traffic ? 255 : 0;
+                    px[2] = !detect && traffic ? 255 : 0;
+                }
+            }
         }
         fwrite(row, 1, (size_t)f->width * 3, fp);
     }
@@ -1375,6 +1405,7 @@ static int run_bench(const char *backend, const char *config, const char *model,
     struct vision_box roi = { 0, 0, 0, 0 };
     uint32_t ratio_pm[2];
     const char *tag[2] = { "", "" };
+    int save_at = o->frames > VISION_BENCH_SAVE_AT ? VISION_BENCH_SAVE_AT : o->frames - 1;
     int64_t t_start;
     int done = 0;
     int r;
@@ -1463,9 +1494,6 @@ static int run_bench(const char *backend, const char *config, const char *model,
         if (r != 0) {
             break;
         }
-        if (done == 0 && o->save) {
-            save_frame(o->save, &f, o->roi ? &roi : NULL);
-        }
         r = vision_kpu_crop(kpu, pass ? &roi : NULL);
         if (r == 0) {
             r = vision_kpu_infer(kpu, &f, &out, &count, dims, &pre_ms, &infer_ms);
@@ -1501,6 +1529,25 @@ static int run_bench(const char *backend, const char *config, const char *model,
             n = vision_nms(cands, n, VISION_NMS_IOU, dets, VISION_MAX_DETECTIONS);
             n = vision_nms_nested(dets, n, VISION_NESTED_PM);
             vision_tracker_update(&tr[pass], dets, n);
+            if (o->save && (done == save_at || (o->save_every > 0 && done > save_at &&
+                                                (done - save_at) % o->save_every == 0))) {
+                char path[512];
+
+                if (o->save_every > 0) {
+                    size_t len = strlen(o->save);
+
+                    if (len > 4 && strcmp(o->save + len - 4, ".ppm") == 0) {
+                        len -= 4;
+                    }
+                    snprintf(path, sizeof(path), "%.*s-%05d.ppm", (int)len, o->save, done);
+                } else {
+                    snprintf(path, sizeof(path), "%s", o->save);
+                }
+                /* The region is drawn whichever way this frame was looked
+                 * at; the boxes are this frame's. */
+                save_frame(path, &f, o->roi ? &roi : NULL, vdets, nv);
+                printf("  (saved at frame %d, %s)\n", done, pass ? "roi" : "full");
+            }
             if (done == 0 || done == o->frames - 1) {
                 /* What the model really gives back, for the gate: the range
                  * of the box values and of the class scores. */
@@ -1597,7 +1644,7 @@ static void usage(void)
             "usage: pos-vision session|probe [--backend NAME] [--fake SCRIPT] [--config CFG]\n"
             "                                [--model FILE] [--kpu SCRIPT]\n"
             "       pos-vision bench [N] [--backend NAME] [--config CFG] [--model FILE]\n"
-            "                        [--roi X,Y,W,H [--ab]] [--save FILE.ppm]\n");
+            "                        [--roi X,Y,W,H [--ab]] [--save FILE.ppm [--save-every N]]\n");
 }
 
 int main(int argc, char **argv)
@@ -1611,7 +1658,7 @@ int main(int argc, char **argv)
     const char *backend;
     const char *config;
     const char *model;
-    struct bench_opts bo = { 100, false, { 0, 0, 0, 0 }, false, NULL };
+    struct bench_opts bo = { 100, false, { 0, 0, 0, 0 }, false, NULL, 0 };
     bool bench = cmd && strcmp(cmd, "bench") == 0;
     int i;
 
@@ -1646,6 +1693,8 @@ int main(int argc, char **argv)
             bo.ab = true;
         } else if (bench && strcmp(argv[i], "--save") == 0 && i + 1 < argc) {
             bo.save = argv[++i];
+        } else if (bench && strcmp(argv[i], "--save-every") == 0 && i + 1 < argc && atoi(argv[i + 1]) > 0) {
+            bo.save_every = atoi(argv[++i]);
         } else {
             usage();
             return EXIT_USAGE;
@@ -1669,7 +1718,7 @@ int main(int argc, char **argv)
         return run_probe(backend, config, model, kpu_script);
     }
     if (bench) {
-        if (bo.ab && !bo.roi) {
+        if ((bo.ab && !bo.roi) || (bo.save_every > 0 && !bo.save)) {
             usage();
             return EXIT_USAGE;
         }
