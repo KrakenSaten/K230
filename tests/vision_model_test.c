@@ -1,9 +1,10 @@
 /*
  * Vision's state machine and layout on their own: every state's words,
- * what each event does, the two modes, the line modes and their
+ * what each event does, the modes and their groups, the picker and a mode's
+ * setup, the settings each mode keeps apart, the line modes and their
  * directions, the speed lines and the distance, the traffic report's words,
- * and both shapes on the reference panel in both modes with every control
- * a usable, safe, non-overlapping target.
+ * the helper's caps, and both shapes on the reference panel in every mode
+ * with every control a usable, safe, non-overlapping target - the sheet too.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -38,20 +39,51 @@ static struct vision_event ev(enum vision_ev_kind kind)
     return e;
 }
 
-static void test_model(void)
+static void go_live(struct vision_model *m)
+{
+    struct vision_event e = ev(VISION_EV_READY);
+
+    snprintf(e.text, sizeof(e.text), "fake");
+    snprintf(e.name, sizeof(e.name), "yolov8n.kmodel");
+    e.w = 640;
+    e.h = 360;
+    e.value = 80;
+    e.simulated = true;
+    vision_model_event(m, &e, NULL, 1000);
+    vision_model_event(m, &(struct vision_event) { .kind = VISION_EV_FRAME }, NULL, 1100);
+}
+
+/* The code of the cell whose text is `text` on the sheet, or -1. */
+static int code_of(const struct vision_model *m, const char *text, bool *selected)
+{
+    struct vision_sheet_view v;
+    int r;
+    int c;
+
+    vision_model_sheet(m, &v);
+    for (r = 0; r < v.rows; r++) {
+        for (c = 0; c < v.row[r].cells; c++) {
+            if (strcmp(v.row[r].cell[c].text, text) == 0) {
+                if (selected) {
+                    *selected = v.row[r].cell[c].selected;
+                }
+                return v.row[r].cell[c].code;
+            }
+        }
+    }
+    return -1;
+}
+
+static void test_states(void)
 {
     struct vision_model m;
     struct vision_view_text t;
     struct vision_event e;
     char buf[256];
-    int32_t pm[8];
-    const char *a;
-    const char *b;
 
     vision_model_init(&m);
     check("opening starts the helper", vision_model_open(&m) == VISION_ACT_OPEN);
-    check("and starts in DETECT with no speed lines and 10 m", m.mode == VISION_MODE_DETECT &&
-                                                                   m.speed == VISION_SPEED_OFF && vision_model_distance_cm(&m) == 1000);
+    check("and starts in DETECT", m.mode == VISION_MODE_DETECT && m.set.mode == VISION_MODE_DETECT);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("INIT says it is starting", strcmp(t.title, "Starting") == 0 && !t.show_picture && !t.line_enabled);
     e = ev(VISION_EV_READY);
@@ -78,37 +110,6 @@ static void test_model(void)
     check("which the status says, as a warning", strcmp(t.status, "Waiting for the camera...") == 0 && t.status_warn);
     vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_FRAME }, NULL, 3300);
     check("a frame clears it", !m.stalled);
-
-    check("the default line is ACROSS", m.line == VISION_LINE_ACROSS && vision_model_line_pm(&m, pm) &&
-                                        pm[0] == 0 && pm[1] == 500 && pm[2] == 1000 && pm[3] == 500);
-    vision_model_count_names(&m, &a, &b);
-    check("counting DOWN and UP", strcmp(a, "DOWN") == 0 && strcmp(b, "UP") == 0);
-    check("LINE cycles to DOWN and sends it, with the speed lines that follow it",
-          vision_model_line_next(&m) == (VISION_ACT_LINE | VISION_ACT_SPEED) && m.line == VISION_LINE_DOWN);
-    vision_model_count_names(&m, &a, &b);
-    check("counting LEFT and RIGHT", strcmp(a, "LEFT") == 0 && strcmp(b, "RIGHT") == 0 &&
-                                     vision_model_line_pm(&m, pm) && pm[0] == 500 && pm[2] == 500);
-    vision_model_line_next(&m);
-    check("then OFF", m.line == VISION_LINE_OFF && !vision_model_line_pm(&m, pm));
-    vision_model_text(&m, &t, buf, sizeof(buf));
-    check("the button says so, and the counters show nothing",
-          strcmp(t.line_btn, "LINE: OFF") == 0 && strcmp(t.count_a, "-") == 0);
-    vision_model_line_next(&m);
-    check("and round to ACROSS", m.line == VISION_LINE_ACROSS);
-    m.count_a = 5;
-    check("RESET clears the counts and sends it", vision_model_reset(&m) == VISION_ACT_RESET && m.count_a == 0);
-    vision_model_text(&m, &t, buf, sizeof(buf));
-    check("DETECT shows three buttons and one status line", !t.traffic && strcmp(t.mode_btn, "DETECT") == 0 &&
-                                                                 vision_model_status_lines(&m) == 1);
-    {
-        enum vision_button order[VISION_BUTTONS];
-
-        check("MODE, LINE, RESET", vision_model_buttons(&m, order) == 3 && order[0] == VISION_BTN_MODE &&
-                                       order[1] == VISION_BTN_LINE && order[2] == VISION_BTN_RESET);
-    }
-
-    e = ev(VISION_EV_STATS);
-    check("stats without a session change nothing", vision_model_event(&m, &e, NULL, 4000) == 0 && !m.stats_valid);
     {
         struct vision_session s;
 
@@ -117,167 +118,12 @@ static void test_model(void)
         s.stats.infer_ms = 31;
         s.stats.cpu_pct = 40;
         s.stats.rss_kb = 20480;
-        vision_model_event(&m, &e, &s, 4000);
+        check("stats without a session change nothing",
+              vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_STATS }, NULL, 4000) == 0 && !m.stats_valid);
+        vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_STATS }, &s, 4000);
         vision_model_text(&m, &t, buf, sizeof(buf));
         check("stats become the status line", strstr(t.status, "12.3 fps") && strstr(t.status, "KPU 31 ms") &&
-                                              strstr(t.status, "CPU 40%") && strstr(t.status, "20 MB"));
-        s.count_ab = 3;
-        s.count_ba = 1;
-        vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_COUNT }, &s, 4100);
-        vision_model_text(&m, &t, buf, sizeof(buf));
-        check("counts come from the session", m.count_a == 3 && m.count_b == 1 && strcmp(t.count_a, "DOWN 3") == 0 &&
-                                                  strcmp(t.count_b, "UP 1") == 0);
-        s.shown_count = 3;
-        s.shown[0].id = 4;
-        s.shown[1].id = 0;
-        s.shown[2].id = 9;
-        vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_DET }, &s, 4200);
-        check("a det line says how many confirmed tracks there are", m.active_tracks == 2);
-
-        /* TRAFFIC. */
-        check("MODE goes to TRAFFIC and sends the mode with the lines and the distance",
-              vision_model_mode_next(&m) == (VISION_ACT_MODE | VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_DISTANCE | VISION_ACT_PIXELS) &&
-                  m.mode == VISION_MODE_TRAFFIC && m.count_a == 0);
-        vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_DET }, &s, 4300);
-        vision_model_text(&m, &t, buf, sizeof(buf));
-        check("TRAFFIC shows five buttons and three status lines",
-              t.traffic && strcmp(t.mode_btn, "TRAFFIC") == 0 && vision_model_status_lines(&m) == 3);
-        {
-            enum vision_button order[VISION_BUTTONS];
-
-            check("MODE, LINE, SPEED, DIST, RESET", vision_model_buttons(&m, order) == 5 && order[2] == VISION_BTN_SPEED &&
-                                                        order[3] == VISION_BTN_DISTANCE && order[4] == VISION_BTN_RESET);
-        }
-        check("the counters are IN and OUT, with the direction", strcmp(t.count_a, "IN (DOWN) 0") == 0 &&
-                                                                     strcmp(t.count_b, "OUT (UP) 0") == 0);
-        check("the status: fps, KPU, tracks, total; the classes; the speed off",
-              strstr(t.status, "12.3 fps") && strstr(t.status, "KPU 31 ms") && strstr(t.status, "2 tracks") &&
-                  strstr(t.status, "0 total") && strstr(t.status, "car 0  truck 0  bus 0  moto 0  bike 0  person 0") &&
-                  strstr(t.status, "SPEED off") && strstr(t.status, "(10 m)") && !strstr(t.status, "CPU"));
-        check("SPEED: OFF, no speed lines", strcmp(t.speed_btn, "SPEED: OFF") == 0 && !vision_model_speed_pm(&m, pm));
-        check("SPEED cycles to NARROW and sends it", vision_model_speed_next(&m) == VISION_ACT_SPEED &&
-                                                         m.speed == VISION_SPEED_NARROW);
-        check("two horizontal lines at 40 % and 60 %, left to right like the counting line",
-              vision_model_speed_pm(&m, pm) && pm[0] == 0 && pm[1] == 400 && pm[2] == 1000 && pm[3] == 400 &&
-                  pm[4] == 0 && pm[5] == 600 && pm[6] == 1000 && pm[7] == 600);
-        vision_model_speed_next(&m);
-        check("WIDE: 25 % and 75 %", m.speed == VISION_SPEED_WIDE && vision_model_speed_pm(&m, pm) && pm[1] == 250 && pm[5] == 750);
-        vision_model_line_next(&m);
-        check("with the counting line DOWN the speed lines stand up, top to bottom",
-              m.line == VISION_LINE_DOWN && vision_model_speed_pm(&m, pm) && pm[0] == 250 && pm[1] == 0 &&
-                  pm[2] == 250 && pm[3] == 1000 && pm[4] == 750 && pm[7] == 1000);
-        vision_model_line_next(&m);
-        check("and keep standing while the counting line is OFF", m.line == VISION_LINE_OFF && vision_model_speed_pm(&m, pm) &&
-                                                                       pm[0] == 250 && pm[3] == 1000);
-        vision_model_line_next(&m);
-        vision_model_speed_next(&m);
-        check("SPEED round to OFF", m.speed == VISION_SPEED_OFF);
-        check("DIST cycles and sends it", vision_model_distance_next(&m) == VISION_ACT_DISTANCE && vision_model_distance_cm(&m) == 1500);
-        {
-            int i;
-            int ok = 1;
-
-            for (i = 0; i < VISION_DISTANCES; i++) {
-                ok &= vision_model_distance_cm(&m) >= 100 && vision_model_distance_cm(&m) <= 5000;
-                vision_model_distance_next(&m);
-            }
-            check("every distance is between 1 m and 50 m, and it comes round", ok && vision_model_distance_cm(&m) == 1500);
-        }
-        vision_model_text(&m, &t, buf, sizeof(buf));
-        check("the button says the distance", strcmp(t.dist_btn, "DIST: 15 m") == 0);
-        /* The report. */
-        s.traffic.total_ab = 4;
-        s.traffic.total_ba = 2;
-        s.traffic.cur_kmh10 = 432;
-        s.traffic.last_kmh10 = 432;
-        s.traffic.max_kmh10 = 510;
-        s.traffic.mean_kmh10 = 400;
-        s.traffic.n = 3;
-        s.traffic.cls_ab[0] = 3;
-        s.traffic.cls_ba[0] = 1;
-        s.traffic.cls_ab[5] = 1;
-        s.traffic.cls_ba[5] = 1;
-        vision_model_speed_next(&m);
-        vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRAFFIC }, &s, 5000);
-        vision_model_text(&m, &t, buf, sizeof(buf));
-        check("the report becomes the counters and the status",
-              m.traffic_valid && strcmp(t.count_a, "IN (DOWN) 4") == 0 && strcmp(t.count_b, "OUT (UP) 2") == 0 &&
-                  strstr(t.status, "6 total") && strstr(t.status, "car 4") && strstr(t.status, "person 2") &&
-                  strstr(t.status, "SPEED 43.2 km/h  last 43.2  max 51.0  (15 m)"));
-        s.traffic.cur_kmh10 = 0;
-        vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRAFFIC }, &s, 5100);
-        vision_model_text(&m, &t, buf, sizeof(buf));
-        check("with no current speed the last one is shown", strstr(t.status, "SPEED --  last 43.2 km/h  max 51.0") != NULL);
-        s.traffic.n = 0;
-        vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRAFFIC }, &s, 5200);
-        vision_model_text(&m, &t, buf, sizeof(buf));
-        check("with none yet, the lines' distance", strstr(t.status, "SPEED --  (15 m between lines)") != NULL);
-        check("RESET in TRAFFIC clears the report too", vision_model_reset(&m) == VISION_ACT_RESET && m.traffic.total_ab == 0);
-        /* The pixel modes. */
-        check("MODE goes on to COLOR, with the pixel settings",
-              vision_model_mode_next(&m) == (VISION_ACT_MODE | VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_DISTANCE | VISION_ACT_PIXELS) &&
-                  m.mode == VISION_MODE_COLOR && vision_model_pixel_mode(&m) && strcmp(vision_model_mode_word(&m), "color") == 0);
-        vision_model_text(&m, &t, buf, sizeof(buf));
-        check("COLOR: MODE, SAMPLE, TOL; the picture takes taps; no lines; no counts",
-              strcmp(t.mode_btn, "COLOR") == 0 && t.picture_tap && !t.lines && !t.traffic && strcmp(t.count_a, "-") == 0 &&
-                  strcmp(t.tol_btn, "TOL: MED") == 0 && vision_model_tol(&m) == 96 && vision_model_status_lines(&m) == 1);
-        {
-            enum vision_button order[VISION_BUTTONS];
-
-            check("in that order", vision_model_buttons(&m, order) == 3 && order[1] == VISION_BTN_SAMPLE && order[2] == VISION_BTN_TOL);
-        }
-        check("it asks for a colour", strstr(t.status, "Tap the picture or SAMPLE") != NULL);
-        check("SAMPLE asks the helper for the middle", vision_model_sample_middle(&m, 400, 600) == VISION_ACT_SAMPLE &&
-                                                           m.sample_x == 200 && m.sample_y == 300);
-        check("a tap asks for that point", vision_model_sample_at(&m, 10, 20) == VISION_ACT_SAMPLE && m.sample_x == 10);
-        check("a point off the picture does not", vision_model_sample_at(&m, -1, 20) == 0);
-        check("TOL cycles and sends", vision_model_tol_next(&m) == VISION_ACT_PIXELS && vision_model_tol(&m) == 160);
-        vision_model_tol_next(&m);
-        check("round to LOW", vision_model_tol(&m) == 48);
-        s.pixels.color.r = 200;
-        s.pixels.color.g = 30;
-        s.pixels.color.b = 30;
-        s.pixels.color.matched_pm = 123;
-        s.pixels.color.cx = 150;
-        s.pixels.color.cy = 80;
-        vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_COLOR }, &s, 6000);
-        vision_model_text(&m, &t, buf, sizeof(buf));
-        check("a colour report is the status and the mark", m.have_target && strstr(t.status, "#C81E1E") &&
-                                                                strstr(t.status, "match 12.3%") && strstr(t.status, "at 150,80") &&
-                                                                t.show_mark && t.mark_x == 150 && t.mark_y == 80);
-        check("MODE to EDGE", vision_model_mode_next(&m) & VISION_ACT_MODE);
-        vision_model_text(&m, &t, buf, sizeof(buf));
-        check("EDGE: MODE, EDGE soft; no taps, no mark", m.mode == VISION_MODE_EDGE && strcmp(t.edge_btn, "EDGE: SOFT") == 0 &&
-                                                            !t.picture_tap && !t.show_mark && vision_model_edge_threshold(&m) == 0 &&
-                                                            strstr(t.status, "Finding edges") != NULL);
-        check("EDGE hard sends the threshold", vision_model_edge_next(&m) == VISION_ACT_PIXELS && m.edge_hard &&
-                                                   vision_model_edge_threshold(&m) == VISION_EDGE_HARD_THRESHOLD);
-        s.pixels.edge_pm = 81;
-        vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_EDGE }, &s, 6100);
-        vision_model_text(&m, &t, buf, sizeof(buf));
-        check("the edge share is the status", strstr(t.status, "edges 8.1%") && strstr(t.status, "hard"));
-        vision_model_mode_next(&m);
-        vision_model_text(&m, &t, buf, sizeof(buf));
-        check("TRACE: MODE, LINE: DARK", m.mode == VISION_MODE_TRACE && strcmp(t.trace_btn, "LINE: DARK") == 0 &&
-                                             strstr(t.status, "Looking for a dark line") != NULL);
-        s.pixels.trace.found = true;
-        s.pixels.trace.offset_pm = -120;
-        s.pixels.trace.slope_pm = 450;
-        s.pixels.trace.rows = 300;
-        vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRACE }, &s, 6200);
-        vision_model_text(&m, &t, buf, sizeof(buf));
-        check("a line is said with its offset and lean", strstr(t.status, "line left 12%") && strstr(t.status, "leans right 45%") &&
-                                                             strstr(t.status, "300 rows"));
-        check("LINE: LIGHT sends and forgets the last answer", vision_model_trace_next(&m) == VISION_ACT_PIXELS && !m.trace_dark &&
-                                                                   !m.trace_valid);
-        s.pixels.trace.found = false;
-        s.pixels.trace.rows = 3;
-        vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRACE }, &s, 6300);
-        vision_model_text(&m, &t, buf, sizeof(buf));
-        check("no line is said too", strstr(t.status, "no light line") != NULL);
-        check("MODE goes round to DETECT", (vision_model_mode_next(&m) & VISION_ACT_MODE) && m.mode == VISION_MODE_DETECT &&
-                                                !vision_model_pixel_mode(&m));
-        check("the class names", strcmp(vision_model_traffic_name(3), "moto") == 0 && strcmp(vision_model_traffic_name(6), "?") == 0);
+                                                  strstr(t.status, "CPU 40%") && strstr(t.status, "20 MB"));
     }
 
     e = ev(VISION_EV_LOST);
@@ -285,21 +131,9 @@ static void test_model(void)
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("a lost camera is an error with a way back",
           m.state == VISION_ERROR && t.show_retry && strcmp(t.detail, "The camera went away") == 0);
-    m.mode = VISION_MODE_TRAFFIC;
-    m.speed = VISION_SPEED_WIDE;
-    m.distance_idx = 2;
-    m.tol_idx = 2;
-    m.edge_hard = true;
-    m.trace_dark = false;
-    check("Try again keeps every choice and opens again",
-          (m.line = VISION_LINE_DOWN, vision_model_open(&m) == VISION_ACT_OPEN) && m.state == VISION_INIT &&
-              m.line == VISION_LINE_DOWN && m.mode == VISION_MODE_TRAFFIC && m.speed == VISION_SPEED_WIDE &&
-              m.distance_idx == 2 && m.tol_idx == 2 && m.edge_hard && !m.trace_dark && !m.have_target);
-    check("a tap while not live changes the choice and sends nothing",
-          vision_model_speed_next(&m) == 0 && vision_model_distance_next(&m) == 0 && vision_model_line_next(&m) == 0 &&
-              vision_model_mode_next(&m) == VISION_ACT_MODE);
     e = ev(VISION_EV_NOMODEL);
     snprintf(e.text, sizeof(e.text), "model file not found");
+    vision_model_open(&m);
     vision_model_event(&m, &e, NULL, 6000);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("no model is NO_DEVICE with the reason", m.state == VISION_NO_DEVICE && strstr(t.detail, "not found") != NULL);
@@ -319,6 +153,366 @@ static void test_model(void)
     check("a failed run too", strcmp(m.error, "The detector failed on a frame") == 0);
 }
 
+static void test_picker(void)
+{
+    struct vision_model m;
+    struct vision_sheet_view v;
+    struct vision_view_text t;
+    char buf[256];
+    bool sel = false;
+    unsigned acts;
+    int r;
+
+    vision_model_init(&m);
+    vision_model_open(&m);
+    go_live(&m);
+    vision_model_sheet(&m, &v);
+    check("no sheet until asked", v.kind == VISION_SHEET_NONE && v.rows == 0);
+    check("MODE opens the picker and sends nothing", vision_model_mode_button(&m) == 0 && m.sheet == VISION_SHEET_MODES);
+    vision_model_sheet(&m, &v);
+    check("before caps: GENERAL, ROAD and TOOLS - the detector's modes and the pixel modes",
+          v.kind == VISION_SHEET_MODES && v.rows == 3 && strcmp(v.row[0].caption, "GENERAL") == 0 &&
+              strcmp(v.row[1].caption, "ROAD") == 0 && strcmp(v.row[2].caption, "TOOLS") == 0);
+    check("GENERAL: DETECT (in force) and TRACK", v.row[0].cells == 2 && strcmp(v.row[0].cell[0].text, "DETECT") == 0 &&
+                                                      v.row[0].cell[0].selected && strcmp(v.row[0].cell[1].text, "TRACK") == 0 &&
+                                                      !v.row[0].cell[1].selected);
+    check("TOOLS: COLOR, EDGE, LINE TRACE", v.row[2].cells == 3 && strcmp(v.row[2].cell[2].text, "LINE TRACE") == 0);
+    check("no FACE, RECOGNIZE or READ without a helper that says it can", code_of(&m, "FACE", NULL) < 0 &&
+                                                                              code_of(&m, "RECOGNIZE", NULL) < 0 &&
+                                                                              code_of(&m, "READ", NULL) < 0);
+    check("MODE again closes it", vision_model_mode_button(&m) == 0 && m.sheet == VISION_SHEET_NONE);
+
+    /* The helper's caps decide what is offered. */
+    {
+        struct vision_event e = ev(VISION_EV_CAPS);
+
+        e.value = (1 << VISION_MODE_DETECT) | (1 << VISION_MODE_TRACK) | (1 << VISION_MODE_TRAFFIC) |
+                  (1 << VISION_MODE_FACE) | (1 << VISION_MODE_READ) | (1 << VISION_MODE_COLOR);
+        check("caps that keep the mode in force ask for nothing", vision_model_event(&m, &e, NULL, 2000) == 0);
+        vision_model_mode_button(&m);
+        vision_model_sheet(&m, &v);
+        check("with FACE and READ offered: five groups, PEOPLE with FACE alone, TEXT with READ",
+              v.rows == 5 && strcmp(v.row[2].caption, "PEOPLE") == 0 && v.row[2].cells == 1 &&
+                  strcmp(v.row[2].cell[0].text, "FACE") == 0 && strcmp(v.row[3].caption, "TEXT") == 0 &&
+                  strcmp(v.row[3].cell[0].text, "READ") == 0);
+        check("TOOLS only lists what is offered", v.row[4].cells == 1 && strcmp(v.row[4].cell[0].text, "COLOR") == 0);
+        check("EDGE cannot be chosen when not offered", vision_model_set_mode(&m, VISION_MODE_EDGE) == 0 &&
+                                                            m.mode == VISION_MODE_DETECT);
+    }
+    for (r = 0; r < VISION_SHEET_ROWS; r++) {
+        check("every picker row has at most three choices", v.row[r].cells <= VISION_SHEET_CELLS);
+    }
+    check("the picker is still open", m.sheet == VISION_SHEET_MODES);
+    acts = vision_model_sheet_tap(&m, code_of(&m, "TRACK", NULL));
+    check("TRACK from the picker: the mode, its line, stored; the picker closes",
+          m.mode == VISION_MODE_TRACK && m.set.mode == VISION_MODE_TRACK && m.sheet == VISION_SHEET_NONE &&
+              (acts & VISION_ACT_MODE) && (acts & VISION_ACT_LINE) && (acts & VISION_ACT_SAVE));
+    vision_model_mode_button(&m);
+    code_of(&m, "TRACK", &sel);
+    check("the picker marks TRACK in force", sel);
+    check("choosing the mode in force changes nothing and closes",
+          vision_model_sheet_tap(&m, code_of(&m, "TRACK", NULL)) == 0 && m.sheet == VISION_SHEET_NONE);
+    check("a picker code with no picker open does nothing", vision_model_sheet_tap(&m, 105) == 0 &&
+                                                                m.mode == VISION_MODE_TRACK);
+    vision_model_mode_button(&m);
+    check("a code nobody made does nothing", vision_model_sheet_tap(&m, 9999) == 0 && m.mode == VISION_MODE_TRACK);
+    vision_model_sheet_close(&m);
+
+    /* A stored mode the helper cannot run falls back to DETECT and keeps
+     * the wish. */
+    {
+        struct vision_settings s;
+        struct vision_event e = ev(VISION_EV_CAPS);
+
+        vision_settings_defaults(&s);
+        s.mode = VISION_MODE_READ;
+        vision_model_init(&m);
+        vision_model_load(&m, &s);
+        vision_model_open(&m);
+        go_live(&m);
+        e.value = (1 << VISION_MODE_DETECT) | (1 << VISION_MODE_TRACK);
+        acts = vision_model_event(&m, &e, NULL, 2000);
+        check("a stored READ on a helper without text runs DETECT and says so to the helper",
+              m.mode == VISION_MODE_DETECT && m.set.mode == VISION_MODE_READ && (acts & VISION_ACT_MODE) &&
+                  !(acts & VISION_ACT_SAVE));
+        e.value |= 1 << VISION_MODE_READ;
+        acts = vision_model_event(&m, &e, NULL, 2100);
+        check("and READ comes back when the helper offers it", m.mode == VISION_MODE_READ && (acts & VISION_ACT_MODE));
+        e.value = -1;
+        vision_model_event(&m, &e, NULL, 2200);
+        check("caps with bits beyond the modes are cut to the modes", m.avail == (1u << VISION_MODES) - 1u);
+    }
+
+    /* Each mode's controls and words. */
+    vision_model_init(&m);
+    vision_model_open(&m);
+    go_live(&m);
+    {
+        enum vision_button order[VISION_BUTTONS];
+        struct vision_session s;
+        int32_t pm[4];
+
+        vision_model_text(&m, &t, buf, sizeof(buf));
+        check("DETECT: MODE alone, no lines, no ids, one status line",
+              vision_model_buttons(&m, order) == 1 && order[0] == VISION_BTN_MODE && !t.lines && !t.ids &&
+                  vision_model_status_lines(&m) == 1 && strcmp(t.mode_btn, "DETECT") == 0);
+        check("DETECT sends no counting line", !vision_model_line_pm(&m, pm));
+        vision_session_init(&s);
+        s.shown_count = 3;
+        s.shown[0].cls = 2;
+        s.shown[1].cls = 0;
+        s.shown[2].cls = 2;
+        s.shown[1].id = 7;
+        vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_DET }, &s, 1200);
+        vision_model_text(&m, &t, buf, sizeof(buf));
+        check("DETECT's counters: the objects and their classes", strcmp(t.count_a, "OBJECTS 3") == 0 &&
+                                                                     strcmp(t.count_b, "CLASSES 2") == 0 &&
+                                                                     m.active_tracks == 1);
+        vision_model_set_mode(&m, VISION_MODE_TRACK);
+        vision_model_text(&m, &t, buf, sizeof(buf));
+        check("TRACK: MODE, LINE, RESET; ids and the line", vision_model_buttons(&m, order) == 3 &&
+                                                                order[1] == VISION_BTN_LINE && order[2] == VISION_BTN_RESET &&
+                                                                t.lines && t.ids && strcmp(t.count_a, "DOWN 0") == 0);
+        vision_model_set_mode(&m, VISION_MODE_TRAFFIC);
+        vision_model_text(&m, &t, buf, sizeof(buf));
+        check("TRAFFIC: MODE, SETUP, RESET; three status lines", vision_model_buttons(&m, order) == 3 &&
+                                                                     order[1] == VISION_BTN_SETUP &&
+                                                                     order[2] == VISION_BTN_RESET &&
+                                                                     vision_model_status_lines(&m) == 3 && t.traffic);
+        vision_model_set_mode(&m, VISION_MODE_COLOR);
+        check("COLOR: MODE, SAMPLE, TOL", vision_model_buttons(&m, order) == 3 && order[1] == VISION_BTN_SAMPLE &&
+                                              order[2] == VISION_BTN_TOL);
+        vision_model_set_mode(&m, VISION_MODE_EDGE);
+        check("EDGE: MODE, EDGE", vision_model_buttons(&m, order) == 2 && order[1] == VISION_BTN_EDGE);
+        vision_model_set_mode(&m, VISION_MODE_TRACE);
+        check("TRACE: MODE, TRACE", vision_model_buttons(&m, order) == 2 && order[1] == VISION_BTN_TRACE);
+        check("SETUP does nothing outside TRAFFIC", vision_model_setup_button(&m) == 0 && m.sheet == VISION_SHEET_NONE);
+    }
+}
+
+static void test_track_and_traffic(void)
+{
+    struct vision_model m;
+    struct vision_view_text t;
+    struct vision_session s;
+    struct vision_sheet_view v;
+    char buf[256];
+    int32_t pm[8];
+    const char *a;
+    const char *b;
+    unsigned acts;
+    bool sel = false;
+
+    vision_model_init(&m);
+    vision_model_open(&m);
+    go_live(&m);
+    vision_model_set_mode(&m, VISION_MODE_TRACK);
+    check("TRACK's line is ACROSS", vision_model_line(&m) == VISION_LINE_ACROSS && vision_model_line_pm(&m, pm) &&
+                                        pm[0] == 0 && pm[1] == 500 && pm[2] == 1000 && pm[3] == 500);
+    vision_model_count_names(&m, &a, &b);
+    check("counting DOWN and UP", strcmp(a, "DOWN") == 0 && strcmp(b, "UP") == 0);
+    acts = vision_model_line_next(&m);
+    check("LINE cycles to DOWN, sends it and stores it", acts == (VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_SAVE) &&
+                                                             m.set.track.line == VISION_LINE_DOWN);
+    vision_model_count_names(&m, &a, &b);
+    check("counting LEFT and RIGHT", strcmp(a, "LEFT") == 0 && strcmp(b, "RIGHT") == 0 &&
+                                         vision_model_line_pm(&m, pm) && pm[0] == 500 && pm[2] == 500);
+    vision_model_line_next(&m);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("then OFF: the button says so, the counters count tracks", m.set.track.line == VISION_LINE_OFF &&
+                                                                        strcmp(t.line_btn, "LINE: OFF") == 0 &&
+                                                                        strcmp(t.count_a, "TRACKS 0") == 0);
+    vision_model_line_next(&m);
+    vision_session_init(&s);
+    s.count_ab = 3;
+    s.count_ba = 1;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_COUNT }, &s, 4100);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("counts come from the session", strcmp(t.count_a, "DOWN 3") == 0 && strcmp(t.count_b, "UP 1") == 0);
+    check("RESET clears the counts and sends it, storing nothing", vision_model_reset(&m) == VISION_ACT_RESET && m.count_a == 0);
+    check("TRACK has no speed lines", !vision_model_speed_pm(&m, pm));
+
+    /* TRAFFIC keeps its own line. */
+    vision_model_line_next(&m); /* TRACK: DOWN */
+    vision_model_set_mode(&m, VISION_MODE_TRAFFIC);
+    check("TRAFFIC's line is its own: still ACROSS while TRACK's is DOWN",
+          vision_model_line(&m) == VISION_LINE_ACROSS && m.set.track.line == VISION_LINE_DOWN);
+    check("SETUP opens TRAFFIC's setup", vision_model_setup_button(&m) == 0 && m.sheet == VISION_SHEET_SETUP);
+    vision_model_sheet(&m, &v);
+    check("the setup: COUNT LINE, SPEED LINES, DISTANCE",
+          v.kind == VISION_SHEET_SETUP && v.rows == 3 && strcmp(v.row[0].caption, "COUNT LINE") == 0 &&
+              strcmp(v.row[1].caption, "SPEED LINES") == 0 && strcmp(v.row[2].caption, "DISTANCE") == 0);
+    check("the choices in force are marked", v.row[0].cell[1].selected && !v.row[0].cell[0].selected &&
+                                                 v.row[1].cell[0].selected && strcmp(v.row[2].cell[1].text, "10 m") == 0 &&
+                                                 !v.row[2].cell[1].enabled);
+    acts = vision_model_sheet_tap(&m, v.row[0].cell[2].code);
+    check("COUNT LINE DOWN: sent and stored, TRACK's untouched, the sheet stays open",
+          vision_model_line(&m) == VISION_LINE_DOWN && m.set.track.line == VISION_LINE_DOWN &&
+              acts == (VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_SAVE) && m.sheet == VISION_SHEET_SETUP);
+    acts = vision_model_sheet_tap(&m, v.row[1].cell[1].code);
+    check("SPEED LINES NARROW: sent and stored", m.set.traffic.speed == VISION_SPEED_NARROW &&
+                                                     acts == (VISION_ACT_SPEED | VISION_ACT_SAVE));
+    check("two vertical lines at 40 % and 60 %, top to bottom like the counting line",
+          vision_model_speed_pm(&m, pm) && pm[0] == 400 && pm[1] == 0 && pm[2] == 400 && pm[3] == 1000 && pm[4] == 600 &&
+              pm[7] == 1000);
+    vision_model_sheet_tap(&m, v.row[0].cell[0].code);
+    check("the count line OFF keeps the speed lines standing", vision_model_line(&m) == VISION_LINE_OFF &&
+                                                                   vision_model_speed_pm(&m, pm) && pm[0] == 400 && pm[3] == 1000);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("and the counters show nothing", strcmp(t.count_a, "-") == 0 && strcmp(t.count_b, "-") == 0);
+    vision_model_sheet_tap(&m, v.row[0].cell[1].code);
+    vision_model_sheet_tap(&m, v.row[1].cell[2].code);
+    check("ACROSS and WIDE: horizontal at 25 % and 75 %", vision_model_speed_pm(&m, pm) && pm[0] == 0 && pm[1] == 250 &&
+                                                              pm[2] == 1000 && pm[5] == 750);
+    acts = vision_model_sheet_tap(&m, v.row[2].cell[2].code);
+    check("DISTANCE > sends and stores 15 m", vision_model_distance_cm(&m) == 1500 &&
+                                                  acts == (VISION_ACT_DISTANCE | VISION_ACT_SAVE));
+    vision_model_sheet_tap(&m, v.row[2].cell[0].code);
+    vision_model_sheet_tap(&m, v.row[2].cell[0].code);
+    check("< twice: 5 m", vision_model_distance_cm(&m) == 500);
+    check("the distance itself is no button", vision_model_sheet_tap(&m, v.row[2].cell[1].code) == 0);
+    {
+        int i;
+        int ok = 1;
+
+        for (i = 0; i < VISION_DISTANCES; i++) {
+            ok &= vision_model_distance_cm(&m) >= 100 && vision_model_distance_cm(&m) <= 5000;
+            vision_model_distance_prev(&m);
+        }
+        check("every distance is between 1 m and 50 m, and < comes round", ok && vision_model_distance_cm(&m) == 500);
+    }
+    vision_model_sheet(&m, &v);
+    code_of(&m, "WIDE", &sel);
+    check("the sheet shows the new choices", sel && strcmp(v.row[2].cell[1].text, "5 m") == 0);
+    check("SETUP again closes it", vision_model_setup_button(&m) == 0 && m.sheet == VISION_SHEET_NONE);
+    check("a setup code with the setup closed does nothing", vision_model_sheet_tap(&m, 211) == 0 &&
+                                                                 m.set.traffic.speed == VISION_SPEED_WIDE);
+
+    /* The report. */
+    s.traffic.total_ab = 4;
+    s.traffic.total_ba = 2;
+    s.traffic.cur_kmh10 = 432;
+    s.traffic.last_kmh10 = 432;
+    s.traffic.max_kmh10 = 510;
+    s.traffic.mean_kmh10 = 400;
+    s.traffic.n = 3;
+    s.traffic.cls_ab[0] = 3;
+    s.traffic.cls_ba[0] = 1;
+    s.traffic.cls_ab[5] = 1;
+    s.traffic.cls_ba[5] = 1;
+    s.stats.fps_x10 = 123;
+    s.stats.infer_ms = 31;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_STATS }, &s, 4900);
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRAFFIC }, &s, 5000);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("the report becomes the counters and the status",
+          m.traffic_valid && strcmp(t.count_a, "IN (DOWN) 4") == 0 && strcmp(t.count_b, "OUT (UP) 2") == 0 &&
+              strstr(t.status, "12.3 fps") && strstr(t.status, "6 total") && strstr(t.status, "car 4") &&
+              strstr(t.status, "person 2") && strstr(t.status, "SPEED 43.2 km/h  last 43.2  max 51.0  (5 m)"));
+    s.traffic.cur_kmh10 = 0;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRAFFIC }, &s, 5100);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("with no current speed the last one is shown", strstr(t.status, "SPEED --  last 43.2 km/h  max 51.0") != NULL);
+    s.traffic.n = 0;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRAFFIC }, &s, 5200);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("with none yet, the lines' distance", strstr(t.status, "SPEED --  (5 m between lines)") != NULL);
+    check("RESET in TRAFFIC clears the report too", vision_model_reset(&m) == VISION_ACT_RESET && m.traffic.total_ab == 0);
+
+    /* An error closes the sheet; Try again keeps every choice. */
+    vision_model_setup_button(&m);
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_LOST }, NULL, 6000);
+    vision_model_sheet(&m, &v);
+    check("an error closes the sheet", m.sheet == VISION_SHEET_NONE && v.kind == VISION_SHEET_NONE);
+    {
+        struct vision_settings before = m.set;
+
+        check("Try again keeps every setting and opens again", vision_model_open(&m) == VISION_ACT_OPEN &&
+                                                                   m.state == VISION_INIT &&
+                                                                   memcmp(&before, &m.set, sizeof(before)) == 0 &&
+                                                                   m.mode == VISION_MODE_TRAFFIC);
+    }
+    check("a tap while not live changes the choice, stores it and sends nothing",
+          vision_model_speed_next(&m) == VISION_ACT_SAVE && vision_model_distance_next(&m) == VISION_ACT_SAVE &&
+              vision_model_line_next(&m) == VISION_ACT_SAVE);
+}
+
+static void test_tools(void)
+{
+    struct vision_model m;
+    struct vision_view_text t;
+    struct vision_session s;
+    char buf[256];
+
+    vision_model_init(&m);
+    vision_model_open(&m);
+    go_live(&m);
+    vision_session_init(&s);
+    check("COLOR from DETECT sends the mode and the pixel settings",
+          vision_model_set_mode(&m, VISION_MODE_COLOR) ==
+                  (VISION_ACT_MODE | VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_DISTANCE | VISION_ACT_PIXELS | VISION_ACT_SAVE) &&
+              vision_model_pixel_mode(&m) && strcmp(vision_model_mode_word(&m), "color") == 0);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("COLOR: the picture takes taps; no lines; no counts",
+          strcmp(t.mode_btn, "COLOR") == 0 && t.picture_tap && !t.lines && !t.traffic && strcmp(t.count_a, "-") == 0 &&
+              strcmp(t.tol_btn, "TOL: MED") == 0 && vision_model_tol(&m) == 96 && vision_model_status_lines(&m) == 1);
+    check("it asks for a colour", strstr(t.status, "Tap the picture or SAMPLE") != NULL);
+    vision_model_mode_button(&m);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("with the picker open a tap on the picture picks nothing", !t.picture_tap);
+    vision_model_sheet_close(&m);
+    check("SAMPLE asks the helper for the middle", vision_model_sample_middle(&m, 400, 600) == VISION_ACT_SAMPLE &&
+                                                       m.sample_x == 200 && m.sample_y == 300);
+    check("a tap asks for that point", vision_model_sample_at(&m, 10, 20) == VISION_ACT_SAMPLE && m.sample_x == 10);
+    check("a point off the picture does not", vision_model_sample_at(&m, -1, 20) == 0);
+    check("TOL cycles, sends and stores", vision_model_tol_next(&m) == (VISION_ACT_PIXELS | VISION_ACT_SAVE) &&
+                                              vision_model_tol(&m) == 160);
+    vision_model_tol_next(&m);
+    check("round to LOW", vision_model_tol(&m) == 48);
+    s.pixels.color.r = 200;
+    s.pixels.color.g = 30;
+    s.pixels.color.b = 30;
+    s.pixels.color.matched_pm = 123;
+    s.pixels.color.cx = 150;
+    s.pixels.color.cy = 80;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_COLOR }, &s, 6000);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("a colour report is the status and the mark", m.have_target && strstr(t.status, "#C81E1E") &&
+                                                            strstr(t.status, "match 12.3%") && strstr(t.status, "at 150,80") &&
+                                                            t.show_mark && t.mark_x == 150 && t.mark_y == 80);
+    vision_model_set_mode(&m, VISION_MODE_EDGE);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("EDGE: soft; no taps, no mark", strcmp(t.edge_btn, "EDGE: SOFT") == 0 && !t.picture_tap && !t.show_mark &&
+                                              vision_model_edge_threshold(&m) == 0 && strstr(t.status, "Finding edges") != NULL);
+    check("EDGE hard sends the threshold and stores it", vision_model_edge_next(&m) == (VISION_ACT_PIXELS | VISION_ACT_SAVE) &&
+                                                             m.set.edge.hard &&
+                                                             vision_model_edge_threshold(&m) == VISION_EDGE_HARD_THRESHOLD);
+    s.pixels.edge_pm = 81;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_EDGE }, &s, 6100);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("the edge share is the status", strstr(t.status, "edges 8.1%") && strstr(t.status, "hard"));
+    vision_model_set_mode(&m, VISION_MODE_TRACE);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("TRACE: LINE: DARK", strcmp(t.trace_btn, "LINE: DARK") == 0 && strcmp(t.mode_btn, "LINE TRACE") == 0 &&
+                                   strstr(t.status, "Looking for a dark line") != NULL);
+    s.pixels.trace.found = true;
+    s.pixels.trace.offset_pm = -120;
+    s.pixels.trace.slope_pm = 450;
+    s.pixels.trace.rows = 300;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRACE }, &s, 6200);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("a line is said with its offset and lean", strstr(t.status, "line left 12%") && strstr(t.status, "leans right 45%") &&
+                                                         strstr(t.status, "300 rows"));
+    check("LINE: LIGHT sends, stores, and forgets the last answer",
+          vision_model_trace_next(&m) == (VISION_ACT_PIXELS | VISION_ACT_SAVE) && !m.set.trace.dark && !m.trace_valid);
+    s.pixels.trace.found = false;
+    s.pixels.trace.rows = 3;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRACE }, &s, 6300);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("no line is said too", strstr(t.status, "no light line") != NULL);
+    check("the class names", strcmp(vision_model_traffic_name(3), "moto") == 0 && strcmp(vision_model_traffic_name(6), "?") == 0);
+}
+
 static int inside(const struct vision_rect *r, int32_t x0, int32_t y0, int32_t x1, int32_t y1)
 {
     return r->x >= x0 && r->y >= y0 && r->x + r->w <= x1 && r->y + r->h <= y1;
@@ -327,6 +521,43 @@ static int inside(const struct vision_rect *r, int32_t x0, int32_t y0, int32_t x
 static int overlap(const struct vision_rect *a, const struct vision_rect *b)
 {
     return a->x < b->x + b->w && b->x < a->x + a->w && a->y < b->y + b->h && b->y < a->y + a->h;
+}
+
+/* The sheet on the picture of a shape: every row, inside the panel,
+ * usable, apart. */
+static void sheet_on(const char *what, const struct vision_rect *pic, int rows, const int cells[])
+{
+    struct vision_sheet_layout sl;
+    const struct vision_rect *all[1 + VISION_SHEET_ROWS_MAX * (1 + VISION_SHEET_CELLS_MAX)];
+    int n = 0;
+    int ok = 1;
+    int r;
+    int c;
+    int i;
+    int j;
+    char name[160];
+
+    snprintf(name, sizeof(name), "%s: a sheet of %d rows fits the picture", what, rows);
+    check(name, vision_layout_sheet(&sl, pic->w, pic->h, rows, cells) == 0);
+    all[n++] = &sl.title;
+    for (r = 0; r < rows; r++) {
+        all[n++] = &sl.caption[r];
+        for (c = 0; c < cells[r]; c++) {
+            all[n++] = &sl.cell[r][c];
+            ok &= sl.cell[r][c].h >= TOUCH_MIN && sl.cell[r][c].w >= 100;
+        }
+    }
+    snprintf(name, sizeof(name), "%s: the sheet's choices are usable targets", what);
+    check(name, ok);
+    ok = 1;
+    for (i = 0; i < n; i++) {
+        ok &= inside(all[i], 0, 0, pic->w, pic->h);
+        for (j = i + 1; j < n; j++) {
+            ok &= !overlap(all[i], all[j]);
+        }
+    }
+    snprintf(name, sizeof(name), "%s: the sheet stays on the picture and nothing overlaps", what);
+    check(name, ok);
 }
 
 static void shape(const char *what, int32_t w, int32_t h, int32_t il, int32_t it, int32_t ir,
@@ -380,19 +611,33 @@ static void shape(const char *what, int32_t w, int32_t h, int32_t il, int32_t it
                     l.picture.h <= VISION_PICTURE_MAX);
     snprintf(name, sizeof(name), "%s: the picture takes most of the body", what);
     check(name, (int64_t)l.picture.w * l.picture.h * 2 > (int64_t)w * h);
+    {
+        /* The largest sheets there are: the full picker, and five rows of
+         * three. */
+        const int picker[5] = { 2, 1, 2, 1, 3 };
+        const int full[5] = { 3, 3, 3, 3, 3 };
+
+        sheet_on(what, &l.picture, 5, picker);
+        sheet_on(what, &l.picture, 5, full);
+    }
 }
 
 static void test_layout(void)
 {
     struct vision_layout l;
+    struct vision_sheet_layout sl;
+    const int one[1] = { 1 };
+    const int bad[2] = { 1, 4 };
 
     /* The reference panel's bodies under the NONE chrome (as Camera: 528 x
      * 1116 portrait, 1192 x 452 landscape), with the corner clearance, in
-     * both modes. */
-    shape("portrait DETECT", 528, 1116, 0, 0, 0, 30, 360, 640, false, 3, 1);
-    shape("landscape DETECT", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, 1);
-    shape("portrait TRAFFIC", 528, 1116, 0, 0, 0, 30, 360, 640, false, 5, 3);
-    shape("landscape TRAFFIC", 1192, 452, 30, 0, 30, 0, 640, 360, true, 5, 3);
+     * every mode's button count. */
+    shape("portrait DETECT", 528, 1116, 0, 0, 0, 30, 360, 640, false, 1, 1);
+    shape("landscape DETECT", 1192, 452, 30, 0, 30, 0, 640, 360, true, 1, 1);
+    shape("portrait TRACK", 528, 1116, 0, 0, 0, 30, 360, 640, false, 3, 1);
+    shape("landscape TRACK", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, 1);
+    shape("portrait TRAFFIC", 528, 1116, 0, 0, 0, 30, 360, 640, false, 3, 3);
+    shape("landscape TRAFFIC", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, 3);
     shape("portrait EDGE", 528, 1116, 0, 0, 0, 30, 360, 640, false, 2, 1);
     shape("landscape EDGE", 1192, 452, 30, 0, 30, 0, 640, 360, true, 2, 1);
     check("a body too small is refused", vision_layout_compute(&l, 200, 150, 0, 0, 0, 0, 640, 360, 3, 1) == -1);
@@ -401,11 +646,24 @@ static void test_layout(void)
           vision_layout_compute(&l, 528, 1116, 0, 0, 0, 0, 360, 640, 6, 1) == -1 &&
               vision_layout_compute(&l, 528, 1116, 0, 0, 0, 0, 360, 640, 3, 5) == -1 &&
               vision_layout_compute(&l, 528, 1116, 0, 0, 0, 0, 360, 640, 0, 1) == -1);
+    vision_layout_compute(&l, 1192, 452, 30, 0, 30, 0, 640, 360, 3, 3);
+    check("on the landscape picture captions stand beside the choices",
+          vision_layout_sheet(&sl, l.picture.w, l.picture.h, 1, one) == 0 && sl.side_by_side);
+    vision_layout_compute(&l, 528, 1116, 0, 0, 0, 30, 360, 640, 3, 3);
+    check("on the portrait picture above them", vision_layout_sheet(&sl, l.picture.w, l.picture.h, 1, one) == 0 &&
+                                                   !sl.side_by_side && sl.cell[0][0].y > sl.caption[0].y);
+    check("a sheet that cannot fit is refused", vision_layout_sheet(&sl, 400, 200, 5, (int[]) { 1, 1, 1, 1, 1 }) == -1);
+    check("a row of four is refused", vision_layout_sheet(&sl, 800, 450, 2, bad) == -1);
+    check("no rows, or six, are refused", vision_layout_sheet(&sl, 800, 450, 0, one) == -1 &&
+                                              vision_layout_sheet(&sl, 800, 450, 6, (int[]) { 1, 1, 1, 1, 1, 1 }) == -1);
 }
 
 int main(void)
 {
-    test_model();
+    test_states();
+    test_picker();
+    test_track_and_traffic();
+    test_tools();
     test_layout();
     printf("vision_model_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;

@@ -35,6 +35,7 @@
 #include "vision_layout.h"
 #include "vision_model.h"
 #include "vision_session.h"
+#include "vision_store.h"
 
 #include "src/misc/cache/instance/lv_image_cache.h" /* lv_image_cache_drop: not in lvgl.h */
 
@@ -59,6 +60,18 @@ struct vision_picture {
     uint32_t h;
 };
 
+_Static_assert(VISION_SHEET_ROWS == VISION_SHEET_ROWS_MAX && VISION_SHEET_CELLS == VISION_SHEET_CELLS_MAX,
+               "the model's sheet and the layout's are the same size");
+
+struct vision_app;
+
+/* Which sheet cell a button is, for its tap. */
+struct vision_cell_ref {
+    struct vision_app *a;
+    int row;
+    int cell;
+};
+
 struct vision_app {
     lv_obj_t *frame;
     lv_obj_t *box;        /* the picture's place: a slab */
@@ -76,6 +89,13 @@ struct vision_app {
     lv_obj_t *count_b;
     lv_obj_t *btn[VISION_BUTTONS]; /* by role (enum vision_button) */
     lv_obj_t *retry_btn;
+    /* The sheet over the picture: made once, filled from the model. */
+    lv_obj_t *sheet;
+    lv_obj_t *sheet_title;
+    lv_obj_t *sheet_caption[VISION_SHEET_ROWS];
+    lv_obj_t *sheet_cell[VISION_SHEET_ROWS][VISION_SHEET_CELLS];
+    struct vision_cell_ref sheet_ref[VISION_SHEET_ROWS][VISION_SHEET_CELLS];
+    int sheet_code[VISION_SHEET_ROWS][VISION_SHEET_CELLS];
 
     struct pocketui_layout_guard guard;
     struct vision_layout lay;
@@ -236,12 +256,12 @@ static const char *dir_mark(unsigned dir)
     }
 }
 
-static void draw_boxes(struct vision_app *a)
+static void draw_boxes(struct vision_app *a, const struct vision_view_text *s)
 {
     int n = 0;
     uint32_t seq;
     const struct vision_shown *t = vision_session_tracks(&a->session, &n, &seq);
-    bool traffic = a->model.mode == VISION_MODE_TRAFFIC;
+    bool traffic = s->traffic;
     int i;
 
     for (i = 0; i < VISION_MAX_SHOWN; i++) {
@@ -267,10 +287,11 @@ static void draw_boxes(struct vision_app *a)
                     snprintf(text, sizeof(text), "#%u %s%s %u%%", t[i].id, vision_label(t[i].cls),
                              dir_mark(t[i].dir), t[i].conf / 10);
                 }
-            } else if (t[i].id) {
+            } else if (t[i].id && s->ids) {
                 snprintf(text, sizeof(text), "#%u %s %u%%", t[i].id, vision_label(t[i].cls),
                          t[i].conf / 10);
             } else {
+                /* DETECT: what it is and how sure, no identity. */
                 snprintf(text, sizeof(text), "%s %u%%", vision_label(t[i].cls), t[i].conf / 10);
             }
             label_text(a->tag[i], text);
@@ -319,6 +340,64 @@ static void draw_lines(struct vision_app *a)
     }
 }
 
+/* The sheet: hidden, or laid out on the picture and filled from the model.
+ * A sheet that does not fit the picture stays hidden (and is logged once
+ * per shape: it never happens on the reference panel,
+ * tests/vision_model_test.c). */
+static void draw_sheet(struct vision_app *a)
+{
+    struct vision_sheet_view v;
+    struct vision_sheet_layout sl;
+    int cells[VISION_SHEET_ROWS];
+    int r;
+    int c;
+
+    vision_model_sheet(&a->model, &v);
+    for (r = 0; r < v.rows; r++) {
+        cells[r] = v.row[r].cells;
+    }
+    if (v.kind == VISION_SHEET_NONE || v.rows == 0 ||
+        vision_layout_sheet(&sl, a->lay.picture.w, a->lay.picture.h, v.rows, cells) != 0) {
+        set_hidden(a->sheet, true);
+        return;
+    }
+    lv_obj_set_pos(a->sheet, 0, 0);
+    lv_obj_set_size(a->sheet, a->lay.picture.w, a->lay.picture.h);
+    place(a->sheet_title, &sl.title);
+    label_text(a->sheet_title, v.title);
+    for (r = 0; r < VISION_SHEET_ROWS; r++) {
+        bool row_on = r < v.rows;
+
+        set_hidden(a->sheet_caption[r], !row_on);
+        if (row_on) {
+            place(a->sheet_caption[r], &sl.caption[r]);
+            label_text(a->sheet_caption[r], v.row[r].caption);
+        }
+        for (c = 0; c < VISION_SHEET_CELLS; c++) {
+            lv_obj_t *b = a->sheet_cell[r][c];
+            bool on = row_on && c < v.row[r].cells;
+
+            set_hidden(b, !on);
+            if (!on) {
+                a->sheet_code[r][c] = -1;
+                continue;
+            }
+            place(b, &sl.cell[r][c]);
+            button_text(b, v.row[r].cell[c].text);
+            button_style(b, v.row[r].cell[c].selected, v.row[r].cell[c].enabled || v.row[r].cell[c].selected);
+            /* A value on show (the distance) looks chosen but is no button.
+             * Said every time: button_style skips a role it already has. */
+            if (v.row[r].cell[c].enabled) {
+                lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+            } else {
+                lv_obj_remove_flag(b, LV_OBJ_FLAG_CLICKABLE);
+            }
+            a->sheet_code[r][c] = v.row[r].cell[c].code;
+        }
+    }
+    set_hidden(a->sheet, false);
+}
+
 static void repaint(struct vision_app *a)
 {
     struct vision_view_text s;
@@ -345,16 +424,16 @@ static void repaint(struct vision_app *a)
     label_text(a->count_b, s.count_b);
     button_text(a->btn[VISION_BTN_MODE], s.mode_btn);
     button_text(a->btn[VISION_BTN_LINE], s.line_btn);
-    button_text(a->btn[VISION_BTN_SPEED], s.speed_btn);
-    button_text(a->btn[VISION_BTN_DISTANCE], s.dist_btn);
+    button_text(a->btn[VISION_BTN_SETUP], a->model.sheet == VISION_SHEET_SETUP ? "DONE" : "SETUP");
     button_text(a->btn[VISION_BTN_TOL], s.tol_btn);
     button_text(a->btn[VISION_BTN_EDGE], s.edge_btn);
     button_text(a->btn[VISION_BTN_TRACE], s.trace_btn);
-    button_style(a->btn[VISION_BTN_MODE], false, true);
+    /* The button whose sheet is open is the primary one: it closes it. */
+    button_style(a->btn[VISION_BTN_MODE], a->model.sheet == VISION_SHEET_MODES, true);
     button_style(a->btn[VISION_BTN_LINE], false, s.line_enabled);
-    button_style(a->btn[VISION_BTN_SPEED], false, s.line_enabled);
-    button_style(a->btn[VISION_BTN_DISTANCE], false, s.line_enabled);
-    button_style(a->btn[VISION_BTN_RESET], false, s.line_enabled && a->model.line != VISION_LINE_OFF);
+    button_style(a->btn[VISION_BTN_SETUP], a->model.sheet == VISION_SHEET_SETUP, s.line_enabled);
+    button_style(a->btn[VISION_BTN_RESET], false,
+                 s.line_enabled && (vision_model_line(&a->model) != VISION_LINE_OFF || s.traffic));
     button_style(a->btn[VISION_BTN_SAMPLE], false, s.line_enabled && a->model.live);
     button_style(a->btn[VISION_BTN_TOL], false, s.line_enabled);
     button_style(a->btn[VISION_BTN_EDGE], false, s.line_enabled);
@@ -371,27 +450,25 @@ static void repaint(struct vision_app *a)
         lv_obj_set_size(a->mark, 12, 12);
     }
     /* The mode's buttons, in its order, on the layout's places; the rest
-     * hidden. TRY AGAIN takes LINE's place. */
+     * hidden. When Vision has stopped, TRY AGAIN is the one button, in
+     * the first place. */
     shown_btns = vision_model_buttons(&a->model, order);
     for (i = 0; i < VISION_BUTTONS; i++) {
         set_hidden(a->btn[i], true);
     }
     for (i = 0; i < shown_btns && i < a->lay.buttons; i++) {
-        bool hide = s.show_retry && order[i] == VISION_BTN_LINE;
-
         place(a->btn[order[i]], &a->lay.btn[i]);
-        set_hidden(a->btn[order[i]], hide);
-        if (order[i] == VISION_BTN_LINE) {
-            place(a->retry_btn, &a->lay.btn[i]);
-        }
+        set_hidden(a->btn[order[i]], s.show_retry);
     }
+    place(a->retry_btn, &a->lay.btn[0]);
     set_hidden(a->retry_btn, !s.show_retry);
     if (s.show_retry) {
         button_text(a->retry_btn, a->model.state == VISION_NO_DEVICE ? "CHECK AGAIN" : "TRY AGAIN");
         button_style(a->retry_btn, true, true);
     }
-    draw_boxes(a);
+    draw_boxes(a, &s);
     draw_lines(a);
+    draw_sheet(a);
     if (a->hint_shown != s.hint && (!a->hint_shown || strcmp(a->hint_shown, s.hint) != 0)) {
         pocketos_shell_set_status_hint(s.hint);
     }
@@ -482,13 +559,17 @@ static void do_actions(struct vision_app *a, unsigned acts)
         }
         vision_session_tol(&a->session, vision_model_tol(&a->model));
         vision_session_edge(&a->session, vision_model_edge_threshold(&a->model));
-        vision_session_trace(&a->session, a->model.trace_dark);
+        vision_session_trace(&a->session, a->model.set.trace.dark);
     }
     if ((acts & VISION_ACT_SAMPLE) && a->model.sample_x >= 0) {
         vision_session_sample(&a->session, a->model.sample_x, a->model.sample_y);
     }
     if (acts & VISION_ACT_RESET) {
         vision_session_reset(&a->session);
+    }
+    if ((acts & VISION_ACT_SAVE) && vision_store_save(&a->model.set) != 0) {
+        /* Vision carries on with the choice; it is only not kept. */
+        LOG_WARN("vision: could not store the settings in %s", vision_store_dir());
     }
     if (acts & VISION_ACT_CLOSE) {
         vision_session_abandon(&a->session, VISION_DESTROY_GRACE_MS);
@@ -551,7 +632,25 @@ static void on_mode(lv_event_t *e)
 {
     struct vision_app *a = lv_event_get_user_data(e);
 
-    act(a, vision_model_mode_next(&a->model));
+    act(a, vision_model_mode_button(&a->model));
+}
+
+static void on_setup(lv_event_t *e)
+{
+    struct vision_app *a = lv_event_get_user_data(e);
+
+    act(a, vision_model_setup_button(&a->model));
+}
+
+static void on_sheet_cell(lv_event_t *e)
+{
+    struct vision_cell_ref *ref = lv_event_get_user_data(e);
+    struct vision_app *a = ref->a;
+    int code = a->sheet_code[ref->row][ref->cell];
+
+    if (code >= 0) {
+        act(a, vision_model_sheet_tap(&a->model, code));
+    }
 }
 
 static void on_line(lv_event_t *e)
@@ -559,20 +658,6 @@ static void on_line(lv_event_t *e)
     struct vision_app *a = lv_event_get_user_data(e);
 
     act(a, vision_model_line_next(&a->model));
-}
-
-static void on_speed(lv_event_t *e)
-{
-    struct vision_app *a = lv_event_get_user_data(e);
-
-    act(a, vision_model_speed_next(&a->model));
-}
-
-static void on_distance(lv_event_t *e)
-{
-    struct vision_app *a = lv_event_get_user_data(e);
-
-    act(a, vision_model_distance_next(&a->model));
 }
 
 static void on_reset(lv_event_t *e)
@@ -719,6 +804,7 @@ static lv_obj_t *line_object(lv_obj_t *parent, enum pos_style_role fill)
 static void build(struct vision_app *a, lv_obj_t *root)
 {
     int i;
+    int r;
 
     a->frame = lv_obj_create(root);
     lv_obj_remove_style_all(a->frame);
@@ -785,10 +871,33 @@ static void build(struct vision_app *a, lv_obj_t *root)
     lv_obj_set_style_text_align(a->count_b, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_pad_top(a->count_b, 12, 0);
 
+    /* The sheet, over everything on the picture: a slab that takes the taps
+     * it covers, a title, and rows of a caption and choices. */
+    a->sheet = lv_obj_create(a->box);
+    lv_obj_remove_style_all(a->sheet);
+    pos_style_add(a->sheet, POS_STYLE_SLAB, 0);
+    lv_obj_set_style_bg_opa(a->sheet, LV_OPA_COVER, 0);
+    /* Square: the picture it covers is. */
+    lv_obj_set_style_radius(a->sheet, 0, 0);
+    lv_obj_clear_flag(a->sheet, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(a->sheet, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
+    a->sheet_title = pocketui_label(a->sheet, "", POS_STYLE_TITLE);
+    for (r = 0; r < VISION_SHEET_ROWS; r++) {
+        a->sheet_caption[r] = pocketui_label(a->sheet, "", POS_STYLE_CAPTION);
+        lv_label_set_long_mode(a->sheet_caption[r], LV_LABEL_LONG_CLIP);
+        for (i = 0; i < VISION_SHEET_CELLS; i++) {
+            a->sheet_ref[r][i].a = a;
+            a->sheet_ref[r][i].row = r;
+            a->sheet_ref[r][i].cell = i;
+            a->sheet_code[r][i] = -1;
+            a->sheet_cell[r][i] = button(a->sheet, "", on_sheet_cell, &a->sheet_ref[r][i]);
+            lv_obj_add_flag(a->sheet_cell[r][i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
     a->btn[VISION_BTN_MODE] = button(a->frame, "DETECT", on_mode, a);
     a->btn[VISION_BTN_LINE] = button(a->frame, "LINE: ACROSS", on_line, a);
-    a->btn[VISION_BTN_SPEED] = button(a->frame, "SPEED: OFF", on_speed, a);
-    a->btn[VISION_BTN_DISTANCE] = button(a->frame, "DIST: 10 m", on_distance, a);
+    a->btn[VISION_BTN_SETUP] = button(a->frame, "SETUP", on_setup, a);
     a->btn[VISION_BTN_RESET] = button(a->frame, "RESET", on_reset, a);
     a->btn[VISION_BTN_SAMPLE] = button(a->frame, "SAMPLE", on_sample, a);
     a->btn[VISION_BTN_TOL] = button(a->frame, "TOL: MED", on_tol, a);
@@ -812,6 +921,28 @@ static void *vision_create(lv_obj_t *root)
     }
     vision_session_init(&a->session);
     vision_model_init(&a->model);
+    {
+        /* The owner's choices from the last time; the defaults when there
+         * are none, or the file is damaged. */
+        struct vision_settings set;
+
+        if (vision_store_load(&set) < 0) {
+            LOG_WARN("vision: the stored settings could not be read; using the defaults");
+        }
+        vision_model_load(&a->model, &set);
+        LOG_INFO("vision: opening in %s", vision_mode_name(a->model.set.mode));
+    }
+    {
+        /* For screenshots and the shell suite: open with a sheet showing,
+         * as a tap on MODE or SETUP would (tests/vision_shell_test.sh). */
+        const char *sheet = getenv("POCKETOS_VISION_SHEET");
+
+        if (sheet && strcmp(sheet, "modes") == 0) {
+            vision_model_mode_button(&a->model);
+        } else if (sheet && strcmp(sheet, "setup") == 0) {
+            vision_model_setup_button(&a->model);
+        }
+    }
     build(a, root);
     pocketos_shell_set_status_hint("");
     a->hint_shown = "";

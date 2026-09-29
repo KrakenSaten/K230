@@ -42,6 +42,7 @@
 
 enum vision_ev_kind {
     VISION_EV_READY,     /* text = camera name, name = model, w x h = preview, value = classes */
+    VISION_EV_CAPS,      /* value = a bit per enum vision_mode (vision_settings.h) the helper can run */
     VISION_EV_NODEVICE,  /* text */
     VISION_EV_NOMODEL,   /* text */
     VISION_EV_ERROR,     /* text = "<what> <text>" */

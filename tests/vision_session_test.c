@@ -13,6 +13,7 @@
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #include "vision_session.h"
+#include "vision_settings.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -125,6 +126,16 @@ static void test_parse(void)
                               ev.kind == VISION_EV_READY && ev.w == 640 && ev.simulated && ev.value == 80 &&
                               strcmp(ev.name, "yolov8n.kmodel") == 0);
     check("ready with a missing field does not", !vision_session_parse_line(&s, "ready fake 640 360 1", &ev));
+    check("caps parse into a bit per mode", vision_session_parse_line(&s, "caps detect track traffic color", &ev) &&
+                                                ev.kind == VISION_EV_CAPS &&
+                                                ev.value == ((1 << VISION_MODE_DETECT) | (1 << VISION_MODE_TRACK) |
+                                                             (1 << VISION_MODE_TRAFFIC) | (1 << VISION_MODE_COLOR)));
+    check("a mode word this build does not know is skipped, a word too long for any too",
+          vision_session_parse_line(&s, "caps detect hologram readreadreadreadreadread  face", &ev) &&
+              ev.value == ((1 << VISION_MODE_DETECT) | (1 << VISION_MODE_FACE)));
+    check("caps with nothing offered is an empty set", vision_session_parse_line(&s, "caps", &ev) &&
+                                                           ev.kind == VISION_EV_CAPS && ev.value == 0);
+    check("capsule is not caps", !vision_session_parse_line(&s, "capsule detect", &ev));
     check("frame parses", vision_session_parse_line(&s, "frame 2 17 528 938", &ev) && ev.kind == VISION_EV_FRAME &&
                               ev.value == 2 && ev.w == 528 && ev.h == 938);
     check("a frame in the review slot does not", !vision_session_parse_line(&s, "frame 3 17 528 938", &ev));
@@ -328,6 +339,10 @@ static void test_traffic(void)
     check("the helper starts",
           start(&s, "period=20", "box=2:800:0:150:80:60:16:0,box=56:700:400:40:60:60", NULL) == 0);
     check("ready", wait_for(&s, VISION_EV_READY, 3000, &ev, seen, &w));
+    check("then the modes it can run: the detector's and the pixel modes, no model-less ones",
+          wait_for(&s, VISION_EV_CAPS, 1000, &ev, seen, &w) &&
+              ev.value == ((1 << VISION_MODE_DETECT) | (1 << VISION_MODE_TRACK) | (1 << VISION_MODE_TRAFFIC) |
+                           (1 << VISION_MODE_COLOR) | (1 << VISION_MODE_EDGE) | (1 << VISION_MODE_TRACE)));
     vision_session_view(&s, 360, 640, 0);
     vision_session_mode(&s, true);
     check("traffic mode answers with an empty report",
@@ -447,8 +462,14 @@ static void test_pixels(void)
     (void)px;
     check("without a target COLOR says nothing", !wait_for(&s, VISION_EV_COLOR, 400, &ev, seen, &w));
     vision_session_sample(&s, 180, 320);
-    check("a sample in the middle brings a colour report", wait_for(&s, VISION_EV_COLOR, 2000, &ev, seen, &w) &&
-                                                               s.pixels.color.matched_pm > 0);
+    check("a sample in the middle brings a colour report", wait_for(&s, VISION_EV_COLOR, 2000, &ev, seen, &w));
+    /* The fake camera's bars move: a 5 x 5 sample that straddles two of
+     * them is a mean no pixel has, and matches nothing on that frame. The
+     * target stays, and the bars bring it back within a few frames. */
+    for (i = 0; i < 20 && s.pixels.color.matched_pm == 0; i++) {
+        wait_for(&s, VISION_EV_COLOR, 1000, &ev, seen, &w);
+    }
+    check("and its colour is found on the picture", s.pixels.color.matched_pm > 0);
     printf("     sampled #%02x%02x%02x, %u.%u%% matched\n", s.pixels.color.r, s.pixels.color.g, s.pixels.color.b,
            s.pixels.color.matched_pm / 10, s.pixels.color.matched_pm % 10);
     vision_session_mode_word(&s, "trace");

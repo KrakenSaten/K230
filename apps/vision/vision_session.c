@@ -5,6 +5,7 @@
  */
 #define _GNU_SOURCE
 #include "vision_session.h"
+#include "vision_settings.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -227,6 +228,38 @@ int vision_session_parse_line(struct vision_session *s, const char *line, struct
         ev->h = b;
         ev->simulated = sim == 1;
         ev->value = (int)c;
+        return 1;
+    }
+    if (strncmp(line, "caps", 4) == 0 && (line[4] == ' ' || line[4] == '\0')) {
+        /* The modes this helper can run, by their words; a word this build
+         * does not know is a mode of a newer helper, and is skipped. */
+        const char *p = line + 4;
+        uint32_t mask = 0;
+
+        while (*p) {
+            char word[16];
+            size_t n;
+            int m;
+
+            while (*p == ' ') {
+                p++;
+            }
+            n = strcspn(p, " ");
+            if (n == 0) {
+                break;
+            }
+            if (n < sizeof(word)) {
+                memcpy(word, p, n);
+                word[n] = '\0';
+                m = vision_mode_parse(word);
+                if (m >= 0) {
+                    mask |= 1u << m;
+                }
+            }
+            p += n;
+        }
+        ev->kind = VISION_EV_CAPS;
+        ev->value = (int)mask;
         return 1;
     }
     if (strncmp(line, "frame ", 6) == 0) {

@@ -106,6 +106,7 @@
 
 enum helper_mode {
     MODE_DETECT = 0,
+    MODE_TRACK,      /* DETECT's pipeline; the screen shows ids and a line */
     MODE_TRAFFIC,
     MODE_COLOR,
     MODE_EDGE,
@@ -892,6 +893,8 @@ static void command(struct session *s, char *line)
             set_mode(s, MODE_TRAFFIC);
         } else if (a && strcmp(a, "detect") == 0) {
             set_mode(s, MODE_DETECT);
+        } else if (a && strcmp(a, "track") == 0) {
+            set_mode(s, MODE_TRACK);
         } else if (a && strcmp(a, "color") == 0) {
             set_mode(s, MODE_COLOR);
         } else if (a && strcmp(a, "edge") == 0) {
@@ -1188,6 +1191,8 @@ static int run_session(const char *backend, const char *config, const char *mode
     vision_traffic_map_names(&s->tf, s->model.classes, vision_label);
     say("ready %s %u %u %d %s %u %u %u", s->info.name, s->info.preview_w, s->info.preview_h,
         s->info.simulated ? 1 : 0, s->model.model, s->model.in_w, s->model.in_h, s->model.classes);
+    /* What this helper can run: the detector's modes and the pixel modes. */
+    say("caps detect track traffic color edge trace");
     while (!s->quit && !s->in_eof && !stop_requested() && !out_broken) {
         read_commands(s, s->streaming ? 0 : 250);
         if (s->streaming && !s->quit) {

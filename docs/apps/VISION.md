@@ -26,6 +26,60 @@ The camera path is Camera's own (ADR-006), reused, not redesigned; the
 launcher place and the icon are for the owner to confirm (DS §38,
 PROPOSED).
 
+**Branch `feat/vision-next` (2026-09-29, from master 8063533):** the modes
+in groups behind a picker, per-mode settings kept between opens - see
+"Modes and settings" - and the work that follows on it.
+
+## Modes and settings
+
+MODE opens a picker over the picture (DS §38.9) with the modes in groups:
+
+| Group | Modes |
+| --- | --- |
+| GENERAL | DETECT (every object the detector knows, boxed), TRACK (the same with ids and a counting line) |
+| ROAD | TRAFFIC |
+| PEOPLE | FACE, RECOGNIZE |
+| TEXT | READ |
+| TOOLS | COLOR, EDGE, LINE TRACE |
+
+A mode appears only when the helper can run it: right after `ready` it
+says so in a `caps` line (the modes by their protocol words). A mode whose
+model is not on the unit is never offered, and a group with nothing to
+offer is not shown. A stored mode the helper cannot run falls back to
+DETECT for this open and stays the stored wish, so it comes back with the
+model.
+
+DETECT and TRACK run the same pipeline in the helper (`mode detect` and
+`mode track`); DETECT shows class and confidence, TRACK adds the ids, the
+counting line and its counters. TRAFFIC's choices - its count line, its
+speed lines and the distance between them - are its own, in TRAFFIC's
+SETUP sheet; TRACK's line is a separate setting.
+
+**Stored settings.** `$POCKETOS_STATE_DIR/vision/settings.v1` (default
+`/var/lib/pocketos/vision/`), settings.conf's `key=value` format, written
+by `apps/vision/vision_store.c` (the only file of the app that touches the
+filesystem) whenever a choice changes, atomically (temporary file, fsync,
+rename), 0600 in a 0700 directory. Merely opening Vision writes nothing.
+
+| Key | Values |
+| --- | --- |
+| `mode` | `detect` `track` `traffic` `face` `recognize` `read` `color` `edge` `trace` |
+| `track.line` | `off` `across` `down` |
+| `traffic.line` | `off` `across` `down` |
+| `traffic.orient` | `across` `down` - the way the speed lines lie |
+| `traffic.speed` | `off` `narrow` `wide` |
+| `traffic.distance_cm` | 100 200 500 1000 1500 2000 3000 5000 |
+| `color.tol` | `low` `med` `high` |
+| `edge.hard`, `trace.dark` | `0` `1` |
+
+A value this build could not have written leaves that setting at its
+default (the rest still read); an unknown key is ignored; a file larger
+than any this build writes is not read at all. `apps/vision/vision_settings.c`
+is the format (pure C, `tests/vision_settings_test.c`).
+
+For screenshots, `POCKETOS_VISION_SHEET=modes|setup` opens the screen with
+the picker or the setup showing (`tests/vision_shell_test.sh`).
+
 ## What it does
 
 - **DETECT.** Opening the app starts the camera and loads the model. The
@@ -66,12 +120,11 @@ PROPOSED).
 
 ## What it is not
 
-No OCR, segmentation, pose, faces, recognition of people, recording,
-network or cloud. No settings: one model, one input size, one confidence
-threshold (0.35, the vendor's default), the lines in a few fixed places,
-the distance from a short list. Nothing is stored: the counts and speeds
-live as long as the screen is open. No speed is ever inferred from how
-fast a box moves on the picture.
+No segmentation, pose, recording, network or cloud. The lines are in a few
+fixed places and the distance from a short list. The choices are stored
+(above); the counts and speeds are not: they live as long as the screen
+is open. No speed is ever inferred from how fast a box moves on the
+picture.
 
 ## Traffic mode
 
@@ -278,14 +331,14 @@ picture pixels, so the app draws them with no geometry of its own.
 
 `core/pocketvision/pocketvision_proto.h` is the reference (version 2).
 Commands: `view w h rotation`, `start`, `stop`, `release slot`,
-`mode detect|traffic|color|edge|trace`, `line x0 y0 x1 y1` (per-mille of
+`mode detect|track|traffic|color|edge|trace`, `line x0 y0 x1 y1` (per-mille of
 the view) or `line off`, `speed ax0 ay0 ax1 ay1 bx0 by0 bx1 by1` or
 `speed off`, `distance cm`, `color r g b` or `color off`, `sample x y`,
 `tol n`, `edge threshold`, `trace dark|light`, `reset`, `quit`. Events:
 `color r g b matched_pm cx cy`, `edge strong_pm`,
 `trace found offset_pm slope_pm rows` (the pixel modes, with every
 preview), `hello`,
-`ready camera pw ph simulated model in_w in_h classes`, `nodevice`,
+`ready camera pw ph simulated model in_w in_h classes`, `caps mode...`, `nodevice`,
 `nomodel`, `error what text`, `frame slot seq w h`,
 `det seq n id:cls:conf:x:y:w:h:dir:kmh10...` (dir 0 none, 1 left, 2
 right, 3 up, 4 down on the picture; kmh10 the speed measured on that
@@ -423,6 +476,21 @@ Host only; none needs unit A. `make vision-test` runs them all,
   script, a missing helper, a camera that goes away, a hung helper killed
   by the watchdog, a crashing one; thirty opens and closes with no
   descriptor or child left behind.
+- `tests/vision_settings_test.c`: the defaults; every key written and
+  read back; TRACK's and TRAFFIC's lines apart; every refusal (an unknown
+  mode, a distance off the list or with junk after it, bools that are not
+  0/1, an orientation of off, an overlong line) leaving its default with
+  the rest read; fields out of range put back; the store on a scratch
+  state directory (0600 file, 0700 directory, no temporary left, a damaged
+  value, an oversized file).
+- `tests/vision_model_test.c` also holds the picker (groups, what caps
+  offer, choosing, a stored mode the helper cannot run), TRAFFIC's setup
+  (every cell, the distance both ways, the sheet closing on an error), the
+  settings each tap stores, and the sheet on both reference pictures.
+- `tests/vision_shell_test.sh` (needs `SHELL_BIN`): the real shell opening
+  Vision in both orientations on the fake camera and detector, the picker
+  and the setup covering the picture, a stored mode obeyed, a damaged one
+  falling back, and nothing written by merely opening.
 - `tests/pocketcam_test.c` gains the planar BGR format (three checks).
 - `tests/vision_lint.sh` holds the boundaries: no LVGL below the screen,
   no camera or detector in the app, nncase in one file behind a C

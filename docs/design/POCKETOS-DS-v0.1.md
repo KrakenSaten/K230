@@ -3541,6 +3541,49 @@ and the counters are hidden (the counter slabs read `-`).
 - Pictures reach the screen at the preview rate (at most 10 a second) as
   in every mode; the helper's pass costs are in the status's ms.
 
+### 38.9 Mode groups, the sheet, stored settings [PROPOSED]
+
+**PROPOSED 2026-09-29** on branch `feat/vision-next`. MODE no longer
+cycles: it opens the **mode picker**, and TRAFFIC's own choices move from
+the button row into its **setup**. Both are one new arrangement of
+existing parts, **the sheet**; no new role, token or colour.
+
+- **The sheet** is a panel exactly over the picture: a `POS_STYLE_SLAB`
+  object, opaque, square-cornered, that takes the taps it covers. Inside,
+  16 px in: a `POS_STYLE_TITLE` line (`MODE`, `TRAFFIC SETUP`), then up to
+  five rows, each a `POS_STYLE_CAPTION` caption and up to three §7 buttons
+  at 64 px. The choice in force is the primary button; the others
+  secondary; a value on show that is not a choice (the distance) is a
+  primary button that takes no tap. On a picture 640 px wide or more (the
+  landscape picture) the caption stands in a 200 px column left of its
+  row; narrower (portrait) it stands above it. Three places per row
+  whatever the row holds, so every row's choices line up in columns.
+- **The picker** has a row per group that has something to offer:
+  GENERAL (DETECT, TRACK), ROAD (TRAFFIC), PEOPLE (FACE, RECOGNIZE), TEXT
+  (READ), TOOLS (COLOR, EDGE, LINE TRACE). A mode is listed only when the
+  helper says it can run it (its `caps` line): a mode whose model is not on
+  the unit never appears, and a group with nothing left is not shown.
+  Choosing closes the picker; MODE, primary while the picker is open,
+  closes it too.
+- **Buttons per mode.** DETECT: MODE (one, the full width or the column).
+  TRACK: MODE, LINE, RESET. TRAFFIC: MODE, SETUP (`DONE`, primary, while
+  the setup is open), RESET. COLOR: MODE, SAMPLE, TOL. EDGE: MODE, EDGE.
+  LINE TRACE: MODE, LINE. When Vision has stopped, TRY AGAIN (CHECK AGAIN)
+  is the one button, in the first place.
+- **TRAFFIC's setup:** COUNT LINE (`OFF / ACROSS / DOWN`), SPEED LINES
+  (`OFF / NARROW / WIDE`), DISTANCE (`<`, the distance, `>`).
+- **Counters.** DETECT: `OBJECTS 3`, `CLASSES 2`. TRACK: `DOWN 3`, `UP 1`
+  (`TRACKS 4` with the line off). TRAFFIC as §38.7. DETECT's box tags carry
+  no id (`car 80%`); TRACK's and TRAFFIC's do.
+- **Stored.** The mode and each mode's choices are kept between opens
+  (`$POCKETOS_STATE_DIR/vision/settings.v1`, docs/apps/VISION.md), per
+  mode: TRACK's line and TRAFFIC's line are two settings.
+- **Validation:** `tests/vision_model_test.c` (the sheet in both shapes
+  for the largest picker and five rows of three: inside the picture, touch
+  minimum, no overlap), `tests/vision_settings_test.c`,
+  `tests/vision_shell_test.sh` (the real shell, both orientations: the
+  picture, the picker and the setup covering it, a stored mode obeyed).
+
 ## 39. Amendment W — Launcher folders (app groups) [PROPOSED]
 
 **PROPOSED 2026-09-28** on branch `feat/launcher-app-groups`, validated on

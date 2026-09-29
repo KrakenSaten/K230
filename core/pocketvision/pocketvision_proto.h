@@ -17,9 +17,11 @@
  *   start                         stream, detect, track, count
  *   stop                          stop; answered by `stopped`
  *   release <slot>                the session is done with a slot
- *   mode detect|traffic|color|edge|trace
+ *   mode detect|track|traffic|color|edge|trace
  *                                 what to look for: everything the model
- *                                 knows; traffic only (car, truck, bus,
+ *                                 knows (detect and track run the same
+ *                                 pipeline; track is the screen's ids and
+ *                                 line); traffic only (car, truck, bus,
  *                                 motorcycle, bicycle, person), counted per
  *                                 class and timed between the speed lines;
  *                                 or one of the pixel modes, in which the
@@ -50,6 +52,10 @@
  *   ready <name> <pw> <ph> <simulated 0|1> <model> <in_w> <in_h> <classes>
  *                                 the camera (its preview size) and the
  *                                 model are open
+ *   caps <mode>...                right after ready: the modes this helper
+ *                                 can run, by their `mode` words (a mode
+ *                                 whose model is not on the unit is not
+ *                                 listed, and the screen never offers it)
  *   nodevice <text>               there is no camera; the helper leaves
  *   nomodel <text>                the model could not be opened; the
  *                                 helper leaves
