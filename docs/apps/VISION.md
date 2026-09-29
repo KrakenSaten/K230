@@ -206,6 +206,69 @@ the two timestamps and the configured distance make a speed, never how
 fast a box moves on the picture. The distance must be measured on the
 ground by the owner; the screen shows it with every speed.
 
+## READ (text, feat/vision-next)
+
+READ finds lines of printed text in the picture and reads them, on the
+unit, with nothing sent anywhere. Each line gets a box and its words on
+the picture; the words of every line, in reading order, stand under or
+beside the picture; LINES and SURE (the mean confidence) are the counters.
+HOLD keeps the last read on the screen while the camera moves on (READ
+again goes back to live reading).
+
+**Pipeline** (helper, `read_text()` in `tools/vision/pos_vision.c`): at
+most one read every 600 ms, the preview going on between reads. The
+upright picture goes to a DB-style text detector (a probability map), the
+map is grouped into regions (`core/pocketvision/vision_text.c`: a grid of
+at most 256 cells a side, 4-connected, threshold 0.3, box score 0.5, each
+box grown by the DB unclip rule, reading order), and each of the six
+surest regions, grown by a margin of a third of its height at each end
+(less cut off the first and last characters), is cropped by AI2D straight
+into a CTC recogniser; greedy CTC decoding with the dictionary's last
+class as the blank. The line's text is sent percent-encoded; the app
+shows characters outside ASCII as `?` because the UI font carries no
+others. No word breaks: the recogniser's dictionary has no space, and a
+gap heuristic was tried and dropped as unreliable.
+
+**Models: not in the image and not in this repository.** READ is offered
+only when all three files exist:
+
+| File (default path, override) | Tried with | Shape (VERIFIED on unit B) | Size, time |
+| --- | --- | --- | --- |
+| `/usr/share/doors/vision/text_det.kmodel` (`POCKETOS_VISION_TEXT_DET`) | the canmv SDK's `ai_poc/kmodel/ocr_det.kmodel`, sha256 `b8a71660…7b79fc` | u8 `[1,3,512,512]` -> f32 `[1,512,512,2]` | 2,958,504 B, 84-109 ms |
+| `/usr/share/doors/vision/text_rec.kmodel` (`POCKETOS_VISION_TEXT_REC`) | `ai_poc/kmodel/ocr_rec_int16.kmodel`, sha256 `7a307f86…aa8648c` | u8 `[1,3,32,512]` -> f32 `[128,1,6549]` | 13,008,216 B, ~67 ms a line |
+| `/usr/share/doors/vision/text_dict.txt` (`POCKETOS_VISION_TEXT_DICT`) | `ai_poc/utils/dict_ocr.txt`, sha256 `8288453b…a74c8fb` | 6549 entries, one a line; the blank is the class after the last | 32,521 B |
+
+The pairing matters: the SDK's other recogniser, `ocr_rec.kmodel`
+(`[1,152,6625]`), does not match this dictionary and reads garbage. The
+architecture is ASSUMED to be PaddleOCR's (DB detector, CRNN/SVTR-style
+recogniser with CTC; Apache-2.0 upstream), from the shapes and the
+dictionary; the SDK states neither the source weights nor the conversion
+settings, and carries **no licence statement** for these files. They are
+therefore not embedded or packaged (docs/LICENSING.md item 11); for the
+gate they were linked into place on unit B from `/tmp`.
+
+**Measured on unit B** (2026-09-29, KPU): a five-line read of a printed
+sign picture 480-540 ms end to end (detector ~100 ms, ~67 ms per line);
+through the app, helper 20-33 % CPU (one core of two), shell unchanged,
+CMA back to its idle level after close (the text nets release the KPU
+memory pool when the last net closes - an earlier build leaked it, fixed
+before this gate). Results: `EXIT12`, `SERIALNO4711-AB`, `DOORS`, `K230`,
+`Parking08-18` from the sign picture (SURE 98 %); the vendor's Chinese test
+photo read exactly (shown as `?`); the live camera in a dark room reads
+nothing and says so. Missing models: READ is not in the picker. A model
+that fails to load: `readfail`, and the screen says "Cannot read:" with the reason.
+
+### Replay (recorded pictures)
+
+For checking a mode on the real display and KPU with a known scene, the
+helper can play PPM pictures (P6, 8-bit) instead of the camera:
+`POCKETOS_CAMERA_BACKEND=image` and `POCKETOS_VISION_CAMERA_CONFIG=` a
+comma-separated list of files, each shown for `POCKETOS_VISION_REPLAY_MS`
+(default 100). The picture is shown as it is (never turned), labelled
+SIMULATED, and every mode runs on it. A list that does not load is
+`nodevice`. The shell passes its environment through, so on a unit the
+two lines go in `/etc/default/doors-shell` for as long as the check runs.
+
 ## What it does
 
 - **DETECT.** Opening the app starts the camera and loads the model. The
