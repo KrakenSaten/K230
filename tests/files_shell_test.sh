@@ -74,7 +74,7 @@ done
 check "Files is in the shell's registry" \
     "$(grep -q '&app_files' ui/shell/shell.c && echo 1 || echo 0)"
 check "on the launcher, under DEVICE, in the files colour" \
-    "$(grep -q '{ "files", HOME_GROUP_DEVICE, HOME_HUE_FILES }' ui/shell/home_layout.c && echo 1 || echo 0)"
+    "$(grep -q '{ "files", HOME_GROUP_DEVICE, HOME_HUE_FILES[ ,}]' ui/shell/home_layout.c && echo 1 || echo 0)"
 check "with its portal icon and its mask" \
     "$([ -f ui/assets/doors/icon-files.bin ] && grep -q 'pos_app_icon_files = {' ui/pocketui/pos_app_icons.c &&
        echo 1 || echo 0)"

@@ -61,7 +61,7 @@ check "the shell links the WAV reader, and no audio layer or alsa-lib" \
 check "the shell knows Recorder, after Camera and Browser" \
     "$(grep -q '&app_camera, &app_browser, &app_recorder' ui/shell/shell.c && echo 1 || echo 0)"
 check "the launcher places it in DEVICE" \
-    "$(grep -q '{ "recorder", HOME_GROUP_DEVICE, HOME_HUE_TOOLS }' ui/shell/home_layout.c && echo 1 || echo 0)"
+    "$(grep -q '{ "recorder", HOME_GROUP_DEVICE, HOME_HUE_TOOLS[ ,}]' ui/shell/home_layout.c && echo 1 || echo 0)"
 check "pos-record is installed" \
     "$(grep -q 'install -D -m 0755 tools/recorder/pos-record' Makefile && echo 1 || echo 0)"
 check "the core audio layer is unchanged by the Recorder (no recorder words in it)" \

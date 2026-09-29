@@ -71,7 +71,7 @@ check "and builds every part of it" \
 # Where RIFT is on the launcher is the launcher's table (DS §31.2): first in
 # CONNECTIONS, in the package's mesh colour.
 check "RIFT is on the launcher, first in CONNECTIONS" \
-    "$(grep -q '{ "rift", HOME_GROUP_CONNECT, HOME_HUE_MESH },' ui/shell/home_layout.c &&
+    "$(grep -q '{ "rift", HOME_GROUP_CONNECT, HOME_HUE_MESH[ ,}]' ui/shell/home_layout.c &&
        [ "$(grep -o '{ "[a-z]*", HOME_GROUP_CONNECT' ui/shell/home_layout.c | head -1)" = '{ "rift", HOME_GROUP_CONNECT' ] &&
        echo 1 || echo 0)"
 
