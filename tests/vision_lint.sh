@@ -131,7 +131,7 @@ check "Camera's own screen is untouched by Vision (no vision words in apps/camer
 check "the shell knows Vision, after Recorder" \
     "$(grep -q '&app_camera, &app_browser, &app_recorder, &app_vision' ui/shell/shell.c && echo 1 || echo 0)"
 check "the launcher places it in DEVICE, in the ai hue" \
-    "$(grep -q '{ "vision", HOME_GROUP_DEVICE, HOME_HUE_AI }' ui/shell/home_layout.c && echo 1 || echo 0)"
+    "$(grep -q '{ "vision", HOME_GROUP_DEVICE, HOME_HUE_AI[ ,}]' ui/shell/home_layout.c && echo 1 || echo 0)"
 check "pos-vision is installed" "$(grep -q 'install -D -m 0755 tools/vision/pos-vision' Makefile && echo 1 || echo 0)"
 for src in vision_app.c vision_model.c vision_layout.c vision_session.c; do
     check "the shell builds $src" "$(grep -q "apps/vision/$src" ui/shell/CMakeLists.txt && echo 1 || echo 0)"

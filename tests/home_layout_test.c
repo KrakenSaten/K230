@@ -366,14 +366,17 @@ static void test_folders(void)
             in_folders++;
         }
     }
-    check("the table puts the three games in GAMES, and nothing else in a folder",
-          in_folders == 3 && home_entry_find("fleet")->folder == HOME_FOLDER_GAMES &&
+    check("the table puts the six games in GAMES, and nothing else in a folder",
+          in_folders == 6 && home_entry_find("fleet")->folder == HOME_FOLDER_GAMES &&
               home_entry_find("radar")->folder == HOME_FOLDER_GAMES &&
-              home_entry_find("timber")->folder == HOME_FOLDER_GAMES);
+              home_entry_find("timber")->folder == HOME_FOLDER_GAMES &&
+              home_entry_find("solitaire")->folder == HOME_FOLDER_GAMES &&
+              home_entry_find("blackjack")->folder == HOME_FOLDER_GAMES &&
+              home_entry_find("2048")->folder == HOME_FOLDER_GAMES);
 
-    /* Today's registry: one Games cell instead of three game cells. */
+    /* Today's registry: one Games cell instead of six game cells. */
     n = home_root_order(registry, NREG, items, count);
-    check("the launcher's page has sixteen places for eighteen apps", n == 16);
+    check("the launcher's page has sixteen places for twenty-one apps", n == 16);
     check("PLAY holds one place, the Games folder", count[HOME_GROUP_PLAY] == 1 &&
                                                          folder_place(items, n, HOME_FOLDER_GAMES) >= 0);
     check("the other groups are as they were",
@@ -381,15 +384,17 @@ static void test_folders(void)
               count[HOME_GROUP_MORE] == 0);
     check("no game is on the launcher's page",
           !items_hold(items, n, registry, "fleet") && !items_hold(items, n, registry, "radar") &&
-              !items_hold(items, n, registry, "timber"));
+              !items_hold(items, n, registry, "timber") && !items_hold(items, n, registry, "solitaire") &&
+              !items_hold(items, n, registry, "blackjack") && !items_hold(items, n, registry, "2048"));
     check("the folder is where Fleet was: after WORKSPACE's four, before DEVICE",
           folder_place(items, n, HOME_FOLDER_GAMES) == 9);
     check("every other app still is", items_hold(items, n, registry, "notes") && items_hold(items, n, registry, "vision") &&
                                           items_hold(items, n, registry, "rift"));
     n = home_folder_order(registry, NREG, HOME_FOLDER_GAMES, order);
-    check("Games holds Fleet, Radar and Timber, in the table's order",
-          n == 3 && strcmp(registry[order[0]], "fleet") == 0 && strcmp(registry[order[1]], "radar") == 0 &&
-              strcmp(registry[order[2]], "timber") == 0);
+    check("Games holds Fleet, Radar, Timber, Solitaire, Blackjack and 2048, in the table's order",
+          n == 6 && strcmp(registry[order[0]], "fleet") == 0 && strcmp(registry[order[1]], "radar") == 0 &&
+              strcmp(registry[order[2]], "timber") == 0 && strcmp(registry[order[3]], "solitaire") == 0 &&
+              strcmp(registry[order[4]], "blackjack") == 0 && strcmp(registry[order[5]], "2048") == 0);
     check("NONE and an unknown folder hold nothing",
           home_folder_order(registry, NREG, HOME_FOLDER_NONE, order) == 0 &&
               home_folder_order(registry, NREG, HOME_FOLDER_COUNT, order) == 0);
