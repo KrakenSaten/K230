@@ -262,6 +262,11 @@ mkdir -p "$GUARD/repo/platforms/k230/configs" "$GUARD/repo/platforms/k230/packag
 cp "platforms/k230/configs/$CONF" "$GUARD/repo/platforms/k230/configs/"
 cp platforms/k230/package/pocketos/Config.in platforms/k230/package/pocketos/pocketos.mk \
    platforms/k230/package/pocketos/pocketos.hash "$GUARD/repo/platforms/k230/package/pocketos/"
+# The kernel patches (ADR-011) come out of the same snapshot, and git archive
+# fails on a pathspec that matches nothing - so without them the run dies
+# before "[1/5]" and every "gets past the guard" case below fails.
+mkdir -p "$GUARD/repo/platforms/k230/patches"
+cp -R platforms/k230/patches/linux "$GUARD/repo/platforms/k230/patches/"
 # RadioLib is pinned now, so the scratch repo needs a checkout and a pin that
 # names it - the same two things a real build needs.
 mkdir -p "$GUARD/repo/vendor/RadioLib"
