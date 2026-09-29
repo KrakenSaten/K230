@@ -1782,7 +1782,9 @@ static int run_bench(const char *backend, const char *config, const char *model,
                         seen = true;
                     }
                     t->conf_max = d->conf > t->conf_max ? d->conf : t->conf_max;
-                    if (i < 6) {
+                    /* Every one: a far car is the least confident and was
+                     * cut off by the parked ones when only six were listed. */
+                    {
                         printf(" %s %u%% (%d,%d %dx%d, model %dx%d) %s", vision_label(d->cls), d->conf / 10,
                                d->box.x, d->box.y, d->box.w, d->box.h, mw, mh,
                                d->conf >= VISION_CONF_MIN                   ? "DETECT"
