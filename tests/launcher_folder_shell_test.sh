@@ -66,8 +66,8 @@ check "the launcher has one Games cell" \
     "$([ "$(field '["launcher"]["folders"][0]["id"]')" = '"games"' ] &&
        [ "$(field '["launcher"]["folders"][0]["apps"]')" = 6 ] &&
        [ "$(field '["launcher"]["folders"][0]["w"]')" -ge 64 ] && echo 1 || echo 0)"
-check "seventeen cells for twenty-two apps, one of them the folder" \
-    "$([ "$(field '["launcher"]["apps"]')" = 22 ] && [ "$(field '["launcher"]["home_cells"]')" = 17 ] &&
+check "nineteen cells for twenty-four apps, one of them the folder" \
+    "$([ "$(field '["launcher"]["apps"]')" = 24 ] && [ "$(field '["launcher"]["home_cells"]')" = 19 ] &&
        [ "$(field '["launcher"]["folder_cells"]')" = 1 ] && echo 1 || echo 0)"
 root_cells=$(cells)
 check "and no game cell on the launcher's page" \

@@ -60,7 +60,7 @@ table = {i: h.lower() for i, h in re.findall(r'\{ "(\w+)", HOME_GROUP_\w+, HOME_
                                               layout_c)}
 folders = {i: h.lower() for i, h in re.findall(r'\] = \{ "(\w+)", "[^"]*", HOME_HUE_(\w+) \}', layout_c)}
 check("the launcher's table and the icon generator give every app the same colour (%d apps)" % len(table),
-      {k: v for k, v in app_hue.items() if k not in folders} == table and len(table) == 22)
+      {k: v for k, v in app_hue.items() if k not in folders} == table and len(table) == 24)
 check("and every folder's cell (%s)" % " ".join(sorted(folders)),
       folders == {k: v for k, v in app_hue.items() if k in folders} and folders == {"games": "games"})
 palette = re.search(r"PALETTE = \{(.*?)\}", gen, re.S).group(1)

@@ -3700,7 +3700,7 @@ leaves (§21.3).
 
 ### 40.4 Launcher
 
-MP3 is the twenty-second app: DEVICE, after Vision, in the `apps` hue, with
+MP3 is the twenty-third app: DEVICE, after Vision, in the `apps` hue, with
 a first-party icon - two beamed eighth notes, drawn in the repository in
 the extension's line language (`docs/design/doors-app-icons/svg/mp3.svg`)
 through the Zabbix, Browser and Vision pipeline. DEVICE takes a seventh

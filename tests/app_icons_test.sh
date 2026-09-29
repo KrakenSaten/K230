@@ -103,7 +103,7 @@ check "pos_app_icons.c names it and its hash, as its source" \
     "$(grep -qx " \*   ${FIRST}/vision.png" "${ICONS_C}" && grep -qx " \*     sha256 ${VISION_SHA}" "${ICONS_C}" &&
        echo 1 || echo 0)"
 
-# MP3's is the seventh (two beamed notes), held the same way.
+# MP3's is the eighth (two beamed notes), held the same way.
 MP3_SHA=be10f8d7c17b889a3511fd9fc9f3d708ebe06d26a3a27330c4fcdfcb40c2ddeb
 check "the first-party MP3 icon is the committed file (sha256)" \
     "$([ "$(sha256sum "${FIRST}/mp3.png" | cut -c1-64)" = "${MP3_SHA}" ] && echo 1 || echo 0)"
@@ -115,7 +115,7 @@ check "pos_app_icons.c names it and its hash, as its source" \
     "$(grep -qx " \*   ${FIRST}/mp3.png" "${ICONS_C}" && grep -qx " \*     sha256 ${MP3_SHA}" "${ICONS_C}" &&
        echo 1 || echo 0)"
 
-# Video's is the seventh (a screen with a play triangle), held the same way.
+# Video's is the ninth (a screen with a play triangle), held the same way.
 VIDEO_SHA=e9733db65e7a1113f3462f0e10aa432991b48602dc11bc26c5fdc93bf58fa847
 check "the first-party Video icon is the committed file (sha256)" \
     "$([ "$(sha256sum "${FIRST}/video.png" | cut -c1-64)" = "${VIDEO_SHA}" ] && echo 1 || echo 0)"
@@ -179,8 +179,8 @@ rc=$?
 check "every mask is A8, 32 x 32, and equals its PNG's alpha byte for byte" "$([ "${rc}" = "0" ] && echo 1 || echo 0)"
 check "there is one mask per launcher app, named by app id, and no other" \
     "$(grep -qx 'names 2048 blackjack browser calculator calendar camera clock deskbuddy files fleet mp3 notes radar radio recorder settings solitaire system timber video vision wave zabbix' "${TMP}/masks.txt" && echo 1 || echo 0)"
-check "the file holds 21,504 bytes of mask data and nothing else of size" \
-    "$([ "$(grep -o '0x[0-9a-f][0-9a-f]' "${ICONS_C}" | wc -l)" = "21504" ] && echo 1 || echo 0)"
+check "the file holds 23,552 bytes of mask data and nothing else of size" \
+    "$([ "$(grep -o '0x[0-9a-f][0-9a-f]' "${ICONS_C}" | wc -l)" = "23552" ] && echo 1 || echo 0)"
 extra=$(grep -c 'doors-icon-extension' "${ICONS_C}")
 check "of the extension's thirteen icons only Wave, Files, Camera and Recorder are compiled in (${extra} sources)" \
     "$([ "${extra}" = "4" ] && grep -qx " \*   ${EXT}/wave.png" "${ICONS_C}" &&
@@ -188,8 +188,8 @@ check "of the extension's thirteen icons only Wave, Files, Camera and Recorder a
        grep -qx " \*   ${EXT}/camera.png" "${ICONS_C}" &&
        grep -qx " \*   ${EXT}/recorder.png" "${ICONS_C}" && echo 1 || echo 0)"
 first=$(grep -c 'doors-app-icons' "${ICONS_C}")
-check "and seven first-party icons, Zabbix's, Browser's, Vision's, MP3's, Video's, the three card and tile games' and DeskBuddy's (${first} sources)" \
-    "$([ "${first}" = "7" ] && echo 1 || echo 0)"
+check "and nine first-party icons, Zabbix's, Browser's, Vision's, MP3's, Video's, the three card and tile games' and DeskBuddy's (${first} sources)" \
+    "$([ "${first}" = "9" ] && echo 1 || echo 0)"
 
 # ---- refusals ------------------------------------------------------------------
 refused() { # <label> <message fragment> <source>...
@@ -283,8 +283,8 @@ check "no launcher app is without an icon mask except the one known to have no a
 check "and that one is still without it, so this exception has not gone stale (${nomask:-none})" \
     "$([ "$(echo ${nomask})" = "${NO_MASK_ALLOWED}" ] && echo 1 || echo 0)"
 users=$(grep -rl 'pos_app_icon_' apps ui --include='*.c' --include='*.h' | grep -v "^${ICONS_C}$" | wc -l)
-check "the masks are referenced only by the twenty-one app descriptors that have one (found in ${users} files)" \
-    "$([ "${users}" = "21" ] && echo 1 || echo 0)"
+check "the masks are referenced only by the twenty-three app descriptors that have one (found in ${users} files)" \
+    "$([ "${users}" = "23" ] && echo 1 || echo 0)"
 check "the brand mark is not used as an app icon (DS §19.1)" \
     "$(grep -rqE 'icon_mask = &pos_brand_mark' apps ui && echo 0 || echo 1)"
 # The DOORS launcher (DS §31) draws each app's portal icon from the runtime

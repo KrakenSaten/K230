@@ -98,7 +98,7 @@ check "no app resolves, reads or touches the chrome" "$([ -z "$hits" ] && echo 1
 [ -n "$hits" ] && echo "$hits" | head -5
 hits=$(grep -rn '\.chrome = ' apps --include='*.c' | grep -v 'POCKETOS_CHROME_NONE')
 declared=$(grep -rln '\.chrome = POCKETOS_CHROME_NONE' apps --include='*.c' | cut -d/ -f2 | sort | tr '\n' ' ')
-check "the fifteen fullscreen apps declare NONE and no app declares anything else ($declared) (DS §30.8, §34, §35)" \
+check "the seventeen fullscreen apps declare NONE and no app declares anything else ($declared) (DS §30.8, §34, §35)" \
     "$([ -z "$hits" ] &&
        [ "$declared" = "2048 blackjack browser camera deskbuddy fleet mp3 notes radar recorder rift solitaire timber video vision wave zabbix " ] &&
        echo 1 || echo 0)"
@@ -236,8 +236,8 @@ for rot in portrait landscape; do
         logs "$OUT/$r-$id.log" | grep -q "$want" &&
             ! logs "$OUT/$r-$id.log" | grep -qE ' ERROR |assert' && n=$((n + 1))
     done
-    check "$rot: the seven other apps open under the cluster and the fourteen fullscreen ones under NONE, faulting nothing ($n of 21)" \
-        "$([ "$n" = 21 ] && echo 1 || echo 0)"
+    check "$rot: the seven other apps open under the cluster and the fifteen fullscreen ones under NONE, faulting nothing ($n of 22)" \
+        "$([ "$n" = 22 ] && echo 1 || echo 0)"
     corner=30; [ $rot = landscape ] && corner=50
     for id in system timber; do
         set -- $(pixels "$OUT/$r-$id.png")
@@ -285,7 +285,7 @@ PY
     bad=$(grep -h '^FAIL' "$OUT"/f-$rot-*.checks | wc -l)
     check "$rot: home and all twenty apps measured from shell.info: $((total - bad)) of $total rules hold" \
         "$([ "$bad" = 0 ] && [ "$total" -ge 100 ] && echo 1 || echo 0)"
-    check "$rot: coming home from each restores the launcher's cluster ($n of 21)" "$([ "$n" = 21 ] && echo 1 || echo 0)"
+    check "$rot: coming home from each restores the launcher's cluster ($n of 22)" "$([ "$n" = 22 ] && echo 1 || echo 0)"
     stop_shell
     check "$rot: the running shell logged no fault" \
         "$(grep -qE ' ERROR |assert' "$POCKETOS_LOG_DIR/shell.log" "$POCKETOS_LOG_DIR/run.log" && echo 0 || echo 1)"
@@ -304,12 +304,12 @@ for id in system $FULLSCREEN $FULLSCREEN; do
     b=$(chrome_of)
     [ "$a" = "$want" ] && [ "$b" = '"policy":"cluster"' ] && cycles=$((cycles + 1))
 done
-check "System, then each fullscreen app opened, closed and reopened: the cluster or NONE while open, the cluster at home, every time ($cycles of 29)" \
-    "$([ "$cycles" = 29 ] && echo 1 || echo 0)"
+check "System, then each fullscreen app opened, closed and reopened: the cluster or NONE while open, the cluster at home, every time ($cycles of 31)" \
+    "$([ "$cycles" = 31 ] && echo 1 || echo 0)"
 check "each opening and each return logged its chrome" \
     "$([ "$(grep -c 'chrome: cluster, content from y 0, cluster shown, for system' "$POCKETOS_LOG_DIR/shell.log")" = 1 ] &&
-       [ "$(grep -c 'chrome: none, content from y 0, cluster hidden' "$POCKETOS_LOG_DIR/shell.log")" = 28 ] &&
-       [ "$(grep -c 'chrome: cluster, content from y 0, cluster shown, for home' "$POCKETOS_LOG_DIR/shell.log")" = 30 ] && echo 1 || echo 0)"
+       [ "$(grep -c 'chrome: none, content from y 0, cluster hidden' "$POCKETOS_LOG_DIR/shell.log")" = 30 ] &&
+       [ "$(grep -c 'chrome: cluster, content from y 0, cluster shown, for home' "$POCKETOS_LOG_DIR/shell.log")" = 32 ] && echo 1 || echo 0)"
 # The lock over a fullscreen app: the lock lies under the cluster, so while
 # it is engaged the cluster comes back and the lock looks the same over
 # either; opened again, the app is fullscreen as it was.
