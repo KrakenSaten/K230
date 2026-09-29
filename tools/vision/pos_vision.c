@@ -28,6 +28,10 @@
  *       --image FILE.ppm feeds that picture to the detector as every frame
  *       instead of the camera, so one saved scene can be compared as it
  *       was taken and changed (turned, cropped) on the same model.
+ *       --turn R gives the detector the frame turned clockwise by R, as the
+ *       session does with the preview's turn (bench has no screen to take
+ *       it from: unit A held landscape with the screen the right way up is
+ *       180, portrait 90). --roi and the boxes stay in frame pixels.
  *
  * The camera is Camera's own layer (core/pocketcam): the same backends, the
  * same V4L2 node, the same close on the way out. Nothing opens the sensor
@@ -209,6 +213,9 @@ struct session {
     /* TRAFFIC's weak vehicles (traffic_suppress) */
     struct vision_det weak[VISION_MAX_CANDIDATES];
     struct vision_det weak_dets[VISION_MAX_DETECTIONS];
+    /* The frame turned upright for the detector (upright_input). */
+    uint8_t *upright;
+    size_t upright_size;
     struct vision_tracker tracker;
     /* The count line and the two speed lines, in frame pixels, and as
      * asked for (per-mille of the view; [i][0] < 0: none). */
@@ -675,6 +682,55 @@ static int traffic_suppress(struct session *s, int n)
                                VISION_MAX_DETECTIONS);
 }
 
+/* The picture the detector is given: the sensor frame turned by `rotation`
+ * - the preview's own turn, so the detector sees the scene upright as the
+ * screen shows it (vision_geom.h) - and the region of interest, if any,
+ * turned with it and fitted again. A planar BGR frame is turned into buf
+ * (three planes of the frame's width x height, the caller's); any other
+ * format is only ever the fake camera's, which only the fake detector
+ * reads, and keeps its pixels with the turned size. 0, or -1. */
+static int upright_input(const struct pocketcam_frame *f, int rotation, uint8_t *buf,
+                         const struct vision_box *roi, struct pocketcam_frame *in, struct vision_box *troi)
+{
+    uint32_t tw;
+    uint32_t th;
+
+    *in = *f;
+    memset(troi, 0, sizeof(*troi));
+    vision_turned_size(f->width, f->height, rotation, &tw, &th);
+    if (rotation != 0) {
+        if (f->format == POCKETCAM_FMT_BG3P) {
+            if (!buf || vision_turn_planes(f->data, f->width, f->height, f->stride, 3, rotation, buf) != 0) {
+                return -1;
+            }
+            in->data = buf;
+            in->bytes = (size_t)3 * tw * th;
+        }
+        in->width = tw;
+        in->height = th;
+        in->stride = tw;
+    }
+    if (roi && roi->w > 0 && (int64_t)roi->x + roi->w <= (int64_t)f->width &&
+        (int64_t)roi->y + roi->h <= (int64_t)f->height) {
+        struct vision_box t;
+
+        if (vision_box_turn(f->width, f->height, rotation, roi, &t) != 0 || vision_crop_fit(tw, th, &t, troi) != 0) {
+            memset(troi, 0, sizeof(*troi));
+        }
+    }
+    return 0;
+}
+
+/* The detector's boxes, found on the turned picture, back in frame pixels. */
+static void unturn_dets(struct vision_det *d, int n, const struct pocketcam_frame *f, int rotation)
+{
+    int i;
+
+    for (i = 0; rotation != 0 && i < n; i++) {
+        vision_box_unturn(f->width, f->height, rotation, &d[i].box, &d[i].box);
+    }
+}
+
 static void detect(struct session *s, const struct pocketcam_frame *f, int64_t now)
 {
     const float *out;
@@ -686,23 +742,37 @@ static void detect(struct session *s, const struct pocketcam_frame *f, int64_t n
     int r;
     int n;
     uint32_t bad = 0;
+    /* The detector sees the scene upright, as the screen shows it. */
+    int rotation = view_of(s).rotation;
+    size_t need = (size_t)3 * f->width * f->height;
+    struct pocketcam_frame in;
+    struct vision_box troi;
+    int64_t turn_t0 = mono_ms();
+
+    if (rotation != 0 && s->upright_size < need) {
+        uint8_t *b = realloc(s->upright, need);
+
+        if (b) {
+            s->upright = b;
+            s->upright_size = need;
+        }
+    }
+    r = upright_input(f, rotation, s->upright_size >= need ? s->upright : NULL, s->traffic ? &s->roi : NULL,
+                      &in, &troi);
     struct vision_decode_params p = {
         .in_w = s->model.in_w,
         .in_h = s->model.in_h,
         .classes = s->model.classes,
-        .frame_w = f->width,
-        .frame_h = f->height,
+        .frame_w = in.width,
+        .frame_h = in.height,
         .conf_min = s->traffic ? VISION_TRAFFIC_VEHICLE_CONF_MIN : VISION_CONF_MIN,
     };
     /* TRAFFIC with a region of interest: the detector is given that part
-     * of the frame, scaled up into the model's input, and the boxes come
-     * back in frame pixels through the offset. A region that no longer
-     * fits the frame (a size change) is not used. */
-    const struct vision_box *crop =
-        s->traffic && s->roi.w > 0 && (int64_t)s->roi.x + s->roi.w <= (int64_t)f->width &&
-                (int64_t)s->roi.y + s->roi.h <= (int64_t)f->height
-            ? &s->roi
-            : NULL;
+     * of the (turned) frame, scaled up into the model's input, and the boxes
+     * come back through the offset and the turn into frame pixels. A region
+     * that no longer fits the frame (a size change) is not used. */
+    const struct vision_box *crop = troi.w > 0 ? &troi : NULL;
+    int turn_ms = (int)(mono_ms() - turn_t0);
 
     if (crop) {
         p.frame_w = (uint32_t)crop->w;
@@ -710,10 +780,17 @@ static void detect(struct session *s, const struct pocketcam_frame *f, int64_t n
         p.off_x = crop->x;
         p.off_y = crop->y;
     }
-    r = vision_kpu_crop(s->kpu, crop);
     if (r == 0) {
-        r = vision_kpu_infer(s->kpu, f, &out, &count, dims, &pre_ms, &infer_ms);
+        r = vision_kpu_turn(s->kpu, rotation);
     }
+    if (r == 0) {
+        r = vision_kpu_crop(s->kpu, crop);
+    }
+    if (r == 0) {
+        r = vision_kpu_infer(s->kpu, &in, &out, &count, dims, &pre_ms, &infer_ms);
+    }
+    /* Turning the picture is part of preparing it. */
+    pre_ms += turn_ms;
     if (r != 0) {
         char t[96];
 
@@ -741,6 +818,7 @@ static void detect(struct session *s, const struct pocketcam_frame *f, int64_t n
         return;
     }
     s->bad_run = 0;
+    unturn_dets(s->cands, n, f, rotation);
     if (s->traffic) {
         n = traffic_suppress(s, n);
     } else {
@@ -1238,6 +1316,7 @@ static int run_session(const char *backend, const char *config, const char *mode
     }
     munmap(s->shm, POCKETCAM_SHM_BYTES);
     code = s->exit_code;
+    free(s->upright);
     free(s);
     return code;
 }
@@ -1276,6 +1355,7 @@ struct bench_opts {
     const char *save;
     int save_every;              /* also every this many frames after the first save; 0: once */
     const char *image;           /* a PPM fed to the detector as every frame, instead of the camera */
+    int turn;                    /* the frame turned by this for the detector (upright_input) */
 };
 
 /* A binary PPM (P6, 8-bit) as a planar R, G, B frame - the layout the ISP's
@@ -1462,6 +1542,7 @@ static int run_bench(const char *backend, const char *config, const char *model,
     int save_at = o->frames > VISION_BENCH_SAVE_AT ? VISION_BENCH_SAVE_AT : o->frames - 1;
     struct pocketcam_frame image;
     uint8_t *image_buf = NULL;
+    uint8_t *turn_buf = NULL;
     int64_t t_start;
     int done = 0;
     int r;
@@ -1531,6 +1612,10 @@ static int run_bench(const char *backend, const char *config, const char *model,
     vision_traffic_map_names(&tf, mi.classes, vision_label);
     vision_tracker_init(&tr[0]);
     vision_tracker_init(&tr[1]);
+    if (o->turn != 0) {
+        turn_buf = malloc((size_t)3 * info.preview_w * info.preview_h);
+        printf("upright: the frame is turned %d degrees for the detector\n", o->turn);
+    }
     r = o->image ? 0 : pocketcam_start(&cam);
     t_start = mono_ms();
     while (r == 0 && done < o->frames && !stop_requested()) {
@@ -1547,12 +1632,12 @@ static int run_bench(const char *backend, const char *config, const char *model,
         struct bench_tally *t = &tally[pass];
         struct vision_decode_params p = {
             .in_w = mi.in_w, .in_h = mi.in_h, .classes = mi.classes,
-            .frame_w = pass ? (uint32_t)roi.w : info.preview_w,
-            .frame_h = pass ? (uint32_t)roi.h : info.preview_h,
             .conf_min = VISION_BENCH_VEHICLE_FLOOR,
-            .off_x = pass ? roi.x : 0,
-            .off_y = pass ? roi.y : 0,
         };
+        struct pocketcam_frame in;
+        struct vision_box troi;
+        int64_t turn_t0;
+        int turn_ms;
 
         if (o->image) {
             f = image;
@@ -1568,9 +1653,24 @@ static int run_bench(const char *backend, const char *config, const char *model,
         if (r != 0) {
             break;
         }
-        r = vision_kpu_crop(kpu, pass ? &roi : NULL);
+        /* The detector's picture: upright (--turn) and, on an ROI pass, the
+         * region turned with it - as the session gives it. */
+        turn_t0 = mono_ms();
+        r = upright_input(&f, o->turn, turn_buf, pass ? &roi : NULL, &in, &troi);
+        turn_ms = (int)(mono_ms() - turn_t0);
+        p.frame_w = troi.w > 0 ? (uint32_t)troi.w : in.width;
+        p.frame_h = troi.w > 0 ? (uint32_t)troi.h : in.height;
+        p.off_x = troi.w > 0 ? troi.x : 0;
+        p.off_y = troi.w > 0 ? troi.y : 0;
         if (r == 0) {
-            r = vision_kpu_infer(kpu, &f, &out, &count, dims, &pre_ms, &infer_ms);
+            r = vision_kpu_turn(kpu, o->turn);
+        }
+        if (r == 0) {
+            r = vision_kpu_crop(kpu, troi.w > 0 ? &troi : NULL);
+        }
+        if (r == 0) {
+            r = vision_kpu_infer(kpu, &in, &out, &count, dims, &pre_ms, &infer_ms);
+            pre_ms += turn_ms;
         }
         if (r != 0) {
             if (!o->image) {
@@ -1585,6 +1685,9 @@ static int run_bench(const char *backend, const char *config, const char *model,
             int strong = 0;
             int nv = 0;
             int i;
+
+            /* Found on the turned picture; tallied and drawn in frame pixels. */
+            unturn_dets(cands, n, &f, o->turn);
             bool seen = false;
 
             /* What DETECT sees (the boxes line, as always), and apart from
@@ -1655,7 +1758,14 @@ static int run_bench(const char *backend, const char *config, const char *model,
                 printf("  vehicles:");
                 for (i = 0; i < nv; i++) {
                     const struct vision_det *d = &vdets[i];
-                    int32_t mh = (int32_t)((int64_t)d->box.h * ratio_pm[pass] / 1000);
+                    /* Its size as the model saw it: on the upright picture. */
+                    struct vision_box ub = d->box;
+                    int32_t mh;
+                    int32_t mw;
+
+                    vision_box_turn(f.width, f.height, o->turn, &d->box, &ub);
+                    mh = (int32_t)((int64_t)ub.h * ratio_pm[pass] / 1000);
+                    mw = (int32_t)((int64_t)ub.w * ratio_pm[pass] / 1000);
 
                     if (d->conf >= VISION_CONF_MIN) {
                         t->veh_detect++;
@@ -1674,8 +1784,7 @@ static int run_bench(const char *backend, const char *config, const char *model,
                     t->conf_max = d->conf > t->conf_max ? d->conf : t->conf_max;
                     if (i < 6) {
                         printf(" %s %u%% (%d,%d %dx%d, model %dx%d) %s", vision_label(d->cls), d->conf / 10,
-                               d->box.x, d->box.y, d->box.w, d->box.h,
-                               (int32_t)((int64_t)d->box.w * ratio_pm[pass] / 1000), mh,
+                               d->box.x, d->box.y, d->box.w, d->box.h, mw, mh,
                                d->conf >= VISION_CONF_MIN                   ? "DETECT"
                                : d->conf >= VISION_TRAFFIC_VEHICLE_CONF_MIN ? "TRAFFIC"
                                                                             : "below");
@@ -1714,6 +1823,7 @@ static int run_bench(const char *backend, const char *config, const char *model,
     }
     vision_kpu_close(kpu);
     free(image_buf);
+    free(turn_buf);
     free(cands);
     free(vcands);
     return r == 0 ? 0 : EXIT_LOST;
@@ -1726,7 +1836,7 @@ static void usage(void)
             "                                [--model FILE] [--kpu SCRIPT]\n"
             "       pos-vision bench [N] [--backend NAME] [--config CFG] [--model FILE]\n"
             "                        [--roi X,Y,W,H [--ab]] [--save FILE.ppm [--save-every N]]\n"
-            "                        [--image FILE.ppm]\n");
+            "                        [--image FILE.ppm] [--turn 0|90|180|270]\n");
 }
 
 int main(int argc, char **argv)
@@ -1740,7 +1850,7 @@ int main(int argc, char **argv)
     const char *backend;
     const char *config;
     const char *model;
-    struct bench_opts bo = { 100, false, { 0, 0, 0, 0 }, false, NULL, 0, NULL };
+    struct bench_opts bo = { 100, false, { 0, 0, 0, 0 }, false, NULL, 0, NULL, 0 };
     bool bench = cmd && strcmp(cmd, "bench") == 0;
     int i;
 
@@ -1779,6 +1889,12 @@ int main(int argc, char **argv)
             bo.save_every = atoi(argv[++i]);
         } else if (bench && strcmp(argv[i], "--image") == 0 && i + 1 < argc) {
             bo.image = argv[++i];
+        } else if (bench && strcmp(argv[i], "--turn") == 0 && i + 1 < argc) {
+            bo.turn = atoi(argv[++i]);
+            if (bo.turn != 0 && bo.turn != 90 && bo.turn != 180 && bo.turn != 270) {
+                usage();
+                return EXIT_USAGE;
+            }
         } else {
             usage();
             return EXIT_USAGE;

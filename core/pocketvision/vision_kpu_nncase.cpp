@@ -247,6 +247,13 @@ static int input_for(struct vision_kpu *k, uint32_t fw, uint32_t fh)
     return 0;
 }
 
+extern "C" int vision_kpu_turn(struct vision_kpu *k, int rotation)
+{
+    /* The picture arrives turned already; the engine and the model take it
+     * as any other picture of its size. */
+    return k && (rotation == 0 || rotation == 90 || rotation == 180 || rotation == 270) ? 0 : -EINVAL;
+}
+
 extern "C" int vision_kpu_crop(struct vision_kpu *k, const struct vision_box *crop)
 {
     if (!k) {

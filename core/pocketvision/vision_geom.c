@@ -39,14 +39,11 @@ static void crop(const struct vision_view *v, uint32_t *tw, uint32_t *th, uint32
     }
 }
 
-/* The turned position of frame pixel (sx, sy): the inverse of
- * pocketcam_convert.c's source_of(). */
-static void turned_of(const struct vision_view *v, int64_t sx, int64_t sy, int64_t *tx, int64_t *ty)
+/* The position of frame pixel (sx, sy) in a w x h frame turned clockwise by
+ * rotation: the inverse of pocketcam_convert.c's source_of(). */
+static void turn_point(int64_t w, int64_t h, int rotation, int64_t sx, int64_t sy, int64_t *tx, int64_t *ty)
 {
-    int64_t w = v->frame_w;
-    int64_t h = v->frame_h;
-
-    switch (v->rotation) {
+    switch (rotation) {
     case 90:
         *tx = h - 1 - sy;
         *ty = sx;
@@ -64,6 +61,141 @@ static void turned_of(const struct vision_view *v, int64_t sx, int64_t sy, int64
         *ty = sy;
         break;
     }
+}
+
+/* The turned position of frame pixel (sx, sy) on the preview. */
+static void turned_of(const struct vision_view *v, int64_t sx, int64_t sy, int64_t *tx, int64_t *ty)
+{
+    turn_point(v->frame_w, v->frame_h, v->rotation, sx, sy, tx, ty);
+}
+
+/* The frame pixel a turned pixel (tx, ty) came from: turn_point undone. */
+static void unturn_point(int64_t w, int64_t h, int rotation, int64_t tx, int64_t ty, int64_t *sx, int64_t *sy)
+{
+    switch (rotation) {
+    case 90:
+        *sx = ty;
+        *sy = h - 1 - tx;
+        break;
+    case 180:
+        *sx = w - 1 - tx;
+        *sy = h - 1 - ty;
+        break;
+    case 270:
+        *sx = w - 1 - ty;
+        *sy = tx;
+        break;
+    default:
+        *sx = tx;
+        *sy = ty;
+        break;
+    }
+}
+
+static bool turn_ok(uint32_t w, uint32_t h, int rotation)
+{
+    return w > 0 && h > 0 && w <= VISION_MAX_COORD && h <= VISION_MAX_COORD &&
+           (rotation == 0 || rotation == 90 || rotation == 180 || rotation == 270);
+}
+
+void vision_turned_size(uint32_t frame_w, uint32_t frame_h, int rotation, uint32_t *tw, uint32_t *th)
+{
+    bool quarter = rotation == 90 || rotation == 270;
+
+    *tw = quarter ? frame_h : frame_w;
+    *th = quarter ? frame_w : frame_h;
+}
+
+/* A box through a point mapping: its two corner pixels mapped, and the box
+ * around them. */
+static void box_through(uint32_t w, uint32_t h, int rotation, bool back, const struct vision_box *in,
+                        struct vision_box *out)
+{
+    int64_t ax;
+    int64_t ay;
+    int64_t bx;
+    int64_t by;
+    int64_t x2 = (int64_t)in->x + in->w - 1;
+    int64_t y2 = (int64_t)in->y + in->h - 1;
+
+    if (back) {
+        unturn_point(w, h, rotation, in->x, in->y, &ax, &ay);
+        unturn_point(w, h, rotation, x2, y2, &bx, &by);
+    } else {
+        turn_point(w, h, rotation, in->x, in->y, &ax, &ay);
+        turn_point(w, h, rotation, x2, y2, &bx, &by);
+    }
+    out->x = (int32_t)(ax < bx ? ax : bx);
+    out->y = (int32_t)(ay < by ? ay : by);
+    out->w = (int32_t)((ax < bx ? bx - ax : ax - bx) + 1);
+    out->h = (int32_t)((ay < by ? by - ay : ay - by) + 1);
+}
+
+int vision_box_turn(uint32_t frame_w, uint32_t frame_h, int rotation, const struct vision_box *in,
+                    struct vision_box *out)
+{
+    if (!in || !out || !turn_ok(frame_w, frame_h, rotation) || in->w <= 0 || in->h <= 0) {
+        return -EINVAL;
+    }
+    box_through(frame_w, frame_h, rotation, false, in, out);
+    return 0;
+}
+
+int vision_box_unturn(uint32_t frame_w, uint32_t frame_h, int rotation, const struct vision_box *in,
+                      struct vision_box *out)
+{
+    if (!in || !out || !turn_ok(frame_w, frame_h, rotation) || in->w <= 0 || in->h <= 0) {
+        return -EINVAL;
+    }
+    box_through(frame_w, frame_h, rotation, true, in, out);
+    return 0;
+}
+
+int vision_turn_planes(const uint8_t *src, uint32_t w, uint32_t h, uint32_t stride, uint32_t planes,
+                       int rotation, uint8_t *dst)
+{
+    uint32_t tw;
+    uint32_t th;
+    uint32_t p;
+    uint32_t x;
+    uint32_t y;
+
+    if (!src || !dst || !turn_ok(w, h, rotation) || stride < w || planes == 0) {
+        return -EINVAL;
+    }
+    vision_turned_size(w, h, rotation, &tw, &th);
+    for (p = 0; p < planes; p++) {
+        const uint8_t *s = src + (size_t)p * stride * h;
+        uint8_t *d = dst + (size_t)p * tw * th;
+
+        for (y = 0; y < h; y++) {
+            const uint8_t *row = s + (size_t)y * stride;
+
+            switch (rotation) {
+            case 90: /* (x, y) to (h - 1 - y, x) */
+                for (x = 0; x < w; x++) {
+                    d[(size_t)x * tw + (h - 1 - y)] = row[x];
+                }
+                break;
+            case 180: /* to (w - 1 - x, h - 1 - y) */
+                for (x = 0; x < w; x++) {
+                    d[(size_t)(h - 1 - y) * tw + (w - 1 - x)] = row[x];
+                }
+                break;
+            case 270: /* to (y, w - 1 - x) */
+                for (x = 0; x < w; x++) {
+                    d[(size_t)(w - 1 - x) * tw + y] = row[x];
+                }
+                break;
+            default:
+                for (x = 0; x < w; x++) {
+                    d[(size_t)y * tw + x] = row[x];
+                }
+                break;
+            }
+        }
+    }
+    return 0;
 }
 
 int vision_map_point(const struct vision_view *v, int32_t sx, int32_t sy, int32_t *vx, int32_t *vy)

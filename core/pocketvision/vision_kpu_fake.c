@@ -22,7 +22,9 @@
  *
  * With a crop (vision_kpu_crop) the pretend model sees only that part of the
  * frame: a box whose centre is outside it is not reported, the rest are
- * written in the crop's own letterboxed pixels.
+ * written in the crop's own letterboxed pixels. The boxes are always in
+ * sensor-frame pixels; when the frames come turned (vision_kpu_turn) they
+ * are turned the same way first, so the scene stays the same one.
  *
  * The boxes are written into the letterboxed model-input space exactly as
  * the decoder expects to undo it, one box per row, the rest of the rows
@@ -73,6 +75,7 @@ struct vision_kpu {
     float *out;
     size_t out_count;
     struct vision_box crop;     /* w == 0: the whole frame */
+    int turn;                   /* the frames come turned by this (vision_kpu_turn) */
 };
 
 static int parse_u32(const char *s, uint32_t *v)
@@ -291,22 +294,34 @@ int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f, cons
     for (i = 0; i < k->nbox; i++) {
         const struct fake_box *b = &k->box[i];
         int32_t step = (int32_t)(k->frames - 1);
-        float x = (float)(b->x + b->dx * step - rx);
-        float y = (float)(b->y + b->dy * step - ry);
-        float mx = x + 0.5f * (float)b->w;
-        float my = y + 0.5f * (float)b->h;
+        /* The script is in sensor-frame pixels; the frame came turned. */
+        struct vision_box sb = { b->x + b->dx * step, b->y + b->dy * step, b->w, b->h };
+        struct vision_box tb = sb;
+        uint32_t sw;
+        uint32_t sh;
+
+        vision_turned_size(f->width, f->height, k->turn, &sw, &sh); /* a turn is its own size swap */
+        if (k->turn != 0 && vision_box_turn(sw, sh, k->turn, &sb, &tb) != 0) {
+            continue;
+        }
+        float x = (float)(tb.x - rx);
+        float y = (float)(tb.y - ry);
+        float bw = (float)tb.w;
+        float bh = (float)tb.h;
+        float mx = x + 0.5f * bw;
+        float my = y + 0.5f * bh;
 
         if (mx < 0.0f || my < 0.0f || mx >= (float)rw || my >= (float)rh) {
             continue;
         }
         for (d = 0; d <= k->dup && row < k->rows; d++, row++) {
-            float cx = (x + (float)d + 0.5f * (float)b->w) * ratio;
-            float cy = (y + 0.5f * (float)b->h) * ratio;
+            float cx = (x + (float)d + 0.5f * bw) * ratio;
+            float cy = (y + 0.5f * bh) * ratio;
 
             k->out[0 * k->rows + row] = cx;
             k->out[1 * k->rows + row] = cy;
-            k->out[2 * k->rows + row] = (float)b->w * ratio;
-            k->out[3 * k->rows + row] = (float)b->h * ratio;
+            k->out[2 * k->rows + row] = bw * ratio;
+            k->out[3 * k->rows + row] = bh * ratio;
             if (b->cls < k->classes) {
                 /* A duplicate scores a little less, so the original wins. */
                 k->out[(4 + b->cls) * k->rows + row] =
@@ -314,6 +329,15 @@ int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f, cons
             }
         }
     }
+    return 0;
+}
+
+int vision_kpu_turn(struct vision_kpu *k, int rotation)
+{
+    if (!k || (rotation != 0 && rotation != 90 && rotation != 180 && rotation != 270)) {
+        return -EINVAL;
+    }
+    k->turn = rotation;
     return 0;
 }
 

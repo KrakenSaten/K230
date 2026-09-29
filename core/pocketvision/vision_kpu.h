@@ -70,6 +70,14 @@ int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f, cons
  * crop smaller than VISION_CROP_MIN on a side. */
 int vision_kpu_crop(struct vision_kpu *k, const struct vision_box *crop);
 
+/* The frames of the next runs are the sensor frame turned clockwise by
+ * `rotation` (0, 90, 180, 270): the helper gives the detector the scene
+ * upright (vision_geom.h), and a crop is then in the turned picture's
+ * pixels. The KPU needs nothing for it - a picture is a picture - but the
+ * fake detector's script is in sensor-frame pixels and is turned the same
+ * way, so it keeps describing the same scene. 0, or -EINVAL. */
+int vision_kpu_turn(struct vision_kpu *k, int rotation);
+
 void vision_kpu_close(struct vision_kpu *k);
 
 /* The name of the backend this build carries. */
