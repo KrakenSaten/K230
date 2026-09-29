@@ -6,8 +6,9 @@ nothing is fetched, nothing leaves the device, and there is no media
 library - one folder at a time.
 
 Status: **v0.1 on branch `feat/audio-player`, not merged.** The design
-amendment is DS §40 (PROPOSED). The hardware gate is
-`docs/hardware/MP3_GATE.md`.
+amendment is DS §40 (PROPOSED). Hardware gate on unit B
+(`docs/hardware/MP3_GATE.md`): **PASS on dd2e343** except audibility, which
+is the owner's to hear.
 
 ## What it does
 
@@ -59,10 +60,11 @@ speaker through the one audio lock that Wave and Recorder already share.
 Listed as audio (by extension): `mp3`, `wav`, `flac`, `ogg`, `oga`,
 `opus`, `m4a`, `aac`. What really plays is FFmpeg's decision on the device:
 
-- **MP3** - the v0.1 target, verified on the unit (see the gate).
-- **WAV, FLAC, Ogg Vorbis, Opus, AAC/M4A** - their decoders and demuxers
-  are in the image's FFmpeg (DOCUMENTED by its configuration); checked on
-  the unit only as far as `docs/hardware/MP3_GATE.md` says.
+- **MP3** - the v0.1 target: decoded and played on unit B (VERIFIED,
+  2026-09-29; heard: owner).
+- **WAV, FLAC, Ogg Vorbis, Opus, AAC/M4A** - each decoded and played on
+  unit B from a 12 s file made by the unit's own `ffmpeg` (VERIFIED,
+  2026-09-29; heard: owner).
 - Anything else is refused with "not an audio file" or "no decoder for
   this audio" before the device is touched.
 
@@ -149,6 +151,12 @@ file reached by the previous track's end is skipped with the same words
 - Title and artist: 128 bytes of valid UTF-8, control characters dropped.
 - No recursive scan anywhere.
 
+### Resource cost (unit B, 2026-09-29, a 44.1 kHz stereo MP3)
+
+`pos-mp3` 3.5 % CPU and 9.5 MB RSS while playing; the shell 1.9 % CPU; the
+shell's IPC round trip 22 ms mean both idle and playing; probing a file
+about 35 ms; closing while playing 0.3 s from tap to device closed.
+
 ## Protocol
 
 `apps/mp3/mp3_protocol.h` is the whole contract. In short: `pos-mp3 play
@@ -196,8 +204,9 @@ checking):
    queue.
 2. **Tags in the list.** Titles and artists are read by the helper for the
    track that plays; the list shows file names.
-3. **Other formats on the unit.** FLAC, Ogg, Opus and AAC decode in the
-   image's FFmpeg but are listed here as DOCUMENTED until a gate plays them.
+3. **Audibility.** The gate proved the device path (the helper owns the
+   PCM, the substream runs, the position advances in real time); the owner
+   has still to hear it, and the volume steps.
 4. **Repeat, shuffle, album art, background playback** - out of v0.1 scope.
    Background playback would need ADR-010's revisit (an `audiod`).
 5. **A shared helper-process client** for Wave, Recorder, Camera and MP3
