@@ -49,7 +49,9 @@
 #include "pocketvision/vision_labels.h"
 #include "pocketvision/vision_line.h"
 #include "pocketvision/vision_nms.h"
+#include "pocketvision/vision_pixels.h"
 #include "pocketvision/vision_track.h"
+#include "pocketvision/vision_traffic.h"
 
 #include <errno.h>
 #include <poll.h>
@@ -75,8 +77,20 @@
 #define VISION_MODEL_DEFAULT "/usr/share/doors/vision/yolov8n.kmodel"
 #define VISION_CONF_MIN 350   /* the vendor's default conf_thres 0.35 */
 #define VISION_NMS_IOU 650    /* and nms_thres 0.65 */
+/* A box this much (per-mille of itself) inside a larger one of its class is
+ * a duplicate (vision_nms.h). */
+#define VISION_NESTED_PM 850
 /* Frames in a row whose tensor is not a tensor: the model is not working. */
 #define VISION_BAD_LIMIT 10
+#define VISION_COLOR_TOL_DEFAULT 96
+
+enum helper_mode {
+    MODE_DETECT = 0,
+    MODE_TRAFFIC,
+    MODE_COLOR,
+    MODE_EDGE,
+    MODE_TRACE
+};
 
 /* SIGTERM and SIGINT are BLOCKED for the helper's whole life and looked for
  * between frames, never taken by a handler. A signal handled while the
@@ -176,9 +190,23 @@ struct session {
     struct vision_det cands[VISION_MAX_CANDIDATES];
     struct vision_det dets[VISION_MAX_DETECTIONS];
     struct vision_tracker tracker;
-    struct vision_line line;      /* in view pixels */
-    int32_t line_pm[4];           /* as asked for, per-mille; -1: none */
+    /* The count line and the two speed lines, in frame pixels, and as
+     * asked for (per-mille of the view; [i][0] < 0: none). */
+    struct vision_line line[VISION_LINES];
+    int32_t line_pm[VISION_LINES][4];
     struct vision_counts counts;
+    bool traffic;
+    struct vision_traffic tf;
+    /* The pixel modes (vision_pixels.h): the detector idles, the preview
+     * is the work. */
+    enum helper_mode mode;
+    struct vision_rgb target;
+    bool have_target;
+    uint32_t tol;
+    int32_t sample_x;             /* a sample asked for: -1 none */
+    int32_t sample_y;
+    uint32_t edge_thr;
+    bool trace_dark;
     /* measurements */
     uint32_t inferred;            /* frames through the detector since the last stats */
     int last_pre_ms;
@@ -258,13 +286,15 @@ static struct vision_view view_of(const struct session *s)
     return v;
 }
 
-/* The line is chosen on the picture (per-mille of the view) and counted
+/* A line is chosen on the picture (per-mille of the view) and counted
  * among the tracks, which live in frame pixels: its two ends go back
  * through the picture's geometry. A mirrored picture swaps the ends, so
  * "left of the line's direction" on the screen stays what it was. */
-static void place_line(struct session *s)
+static void place_line(struct session *s, int idx)
 {
     struct vision_view v = view_of(s);
+    struct vision_line *l = &s->line[idx];
+    const int32_t *pm = s->line_pm[idx];
     int32_t vx0;
     int32_t vy0;
     int32_t vx1;
@@ -272,17 +302,17 @@ static void place_line(struct session *s)
     int32_t a[2];
     int32_t b[2];
 
-    if (s->line_pm[0] < 0 || s->view_w == 0 || s->view_h == 0) {
-        s->line.enabled = false;
+    if (pm[0] < 0 || s->view_w == 0 || s->view_h == 0) {
+        l->enabled = false;
         return;
     }
-    vx0 = (int32_t)(((int64_t)s->line_pm[0] * (s->view_w - 1)) / 1000);
-    vy0 = (int32_t)(((int64_t)s->line_pm[1] * (s->view_h - 1)) / 1000);
-    vx1 = (int32_t)(((int64_t)s->line_pm[2] * (s->view_w - 1)) / 1000);
-    vy1 = (int32_t)(((int64_t)s->line_pm[3] * (s->view_h - 1)) / 1000);
+    vx0 = (int32_t)(((int64_t)pm[0] * (s->view_w - 1)) / 1000);
+    vy0 = (int32_t)(((int64_t)pm[1] * (s->view_h - 1)) / 1000);
+    vx1 = (int32_t)(((int64_t)pm[2] * (s->view_w - 1)) / 1000);
+    vy1 = (int32_t)(((int64_t)pm[3] * (s->view_h - 1)) / 1000);
     if (vision_unmap_point(&v, vx0, vy0, &a[0], &a[1]) != 0 ||
         vision_unmap_point(&v, vx1, vy1, &b[0], &b[1]) != 0) {
-        s->line.enabled = false;
+        l->enabled = false;
         return;
     }
     if (v.mirror) {
@@ -294,16 +324,172 @@ static void place_line(struct session *s)
         b[0] = t0;
         b[1] = t1;
     }
-    s->line.x0 = a[0];
-    s->line.y0 = a[1];
-    s->line.x1 = b[0];
-    s->line.y1 = b[1];
-    s->line.enabled = true;
+    l->x0 = a[0];
+    l->y0 = a[1];
+    l->x1 = b[0];
+    l->y1 = b[1];
+    /* The dead band's cap, from the frame: a box that spans most of it
+     * still has to be able to cross. */
+    l->dead_max = (int32_t)((s->info.preview_w < s->info.preview_h ? s->info.preview_w : s->info.preview_h) /
+                            VISION_LINE_DEAD_DIV);
+    l->enabled = true;
+}
+
+static void place_lines(struct session *s)
+{
+    int i;
+
+    for (i = 0; i < VISION_LINES; i++) {
+        place_line(s, i);
+    }
 }
 
 static void say_counts(struct session *s)
 {
     say("count %u %u", s->counts.ab, s->counts.ba);
+}
+
+static void say_traffic(struct session *s)
+{
+    char line[VISION_LINE_MAX];
+    size_t off;
+    int n;
+    int i;
+
+    n = snprintf(line, sizeof(line), "traffic %u %u %u %u %u %u %u %u", s->tf.total_ab, s->tf.total_ba,
+                 s->tf.cur_kmh10, s->tf.last_kmh10, s->tf.max_kmh10, vision_traffic_mean_kmh10(&s->tf),
+                 s->tf.n, s->tf.rejected);
+    if (n < 0) {
+        return;
+    }
+    off = (size_t)n;
+    for (i = 0; i < VISION_TRAFFIC_CLASSES && off < sizeof(line); i++) {
+        n = snprintf(line + off, sizeof(line) - off, " %u:%u", s->tf.count_ab[i], s->tf.count_ba[i]);
+        if (n < 0) {
+            return;
+        }
+        off += (size_t)n;
+    }
+    say("%s", line);
+    s->tf.changed = false;
+}
+
+static bool pixel_mode(const struct session *s)
+{
+    return s->mode == MODE_COLOR || s->mode == MODE_EDGE || s->mode == MODE_TRACE;
+}
+
+/* The mode. In TRAFFIC the tracker matches across a class group and the
+ * detections are filtered to traffic; in a pixel mode the detector idles
+ * and the boxes go. */
+static void set_mode(struct session *s, enum helper_mode mode)
+{
+    bool traffic = mode == MODE_TRAFFIC;
+
+    if (s->mode == mode) {
+        return;
+    }
+    s->mode = mode;
+    s->traffic = traffic;
+    if (traffic) {
+        s->tracker.group = s->tf.group;
+        s->tracker.group_classes = s->tf.classes;
+    } else {
+        s->tracker.group = NULL;
+        s->tracker.group_classes = 0;
+    }
+    /* A new way of looking starts a new count. */
+    vision_tracker_clear(&s->tracker);
+    memset(&s->counts, 0, sizeof(s->counts));
+    vision_traffic_reset(&s->tf);
+    say_counts(s);
+    if (traffic) {
+        say_traffic(s);
+    }
+    if (pixel_mode(s)) {
+        say("det 0 0");
+    }
+}
+
+/* A pixel mode's pass over the preview just drawn into a slot, and its
+ * word. */
+static void process_pixels(struct session *s, uint16_t *px)
+{
+    int64_t t0 = mono_ms();
+
+    if (s->mode == MODE_COLOR) {
+        struct vision_color_result r;
+
+        if (s->sample_x >= 0 &&
+            vision_pixels_sample(px, s->view_w, s->view_h, s->view_w, s->sample_x, s->sample_y, &s->target) == 0) {
+            s->have_target = true;
+        }
+        s->sample_x = -1;
+        if (s->have_target &&
+            vision_pixels_color(px, s->view_w, s->view_h, s->view_w, s->target, s->tol, &r) == 0) {
+            say("color %u %u %u %u %d %d", s->target.r, s->target.g, s->target.b,
+                r.total ? (unsigned)(((uint64_t)r.matched * 1000) / r.total) : 0u, r.cx, r.cy);
+        }
+    } else if (s->mode == MODE_EDGE) {
+        struct vision_edge_result r;
+
+        if (vision_pixels_edge(px, s->view_w, s->view_h, s->view_w, s->edge_thr, &r) == 0) {
+            say("edge %u", r.total ? (unsigned)(((uint64_t)r.strong * 1000) / r.total) : 0u);
+        }
+    } else if (s->mode == MODE_TRACE) {
+        struct vision_trace_result r;
+
+        if (vision_pixels_trace(px, s->view_w, s->view_h, s->view_w, s->trace_dark, &r) == 0) {
+            say("trace %d %d %d %u", r.found ? 1 : 0, r.offset_pm, r.slope_pm, r.rows);
+        }
+    }
+    s->last_post_ms = (int)(mono_ms() - t0);
+    s->last_infer_ms = 0;
+    s->last_pre_ms = 0;
+    s->inferred++;
+}
+
+/* The way a track has gone on the picture: its displacement since it was
+ * first seen, mapped into view pixels, when it is clearly more than
+ * jitter (half the box's smaller side, at least 16 px). */
+static int direction_of(const struct vision_view *v, const struct vision_track *t,
+                        const struct vision_box *shown)
+{
+    int32_t cx;
+    int32_t cy;
+    int32_t ax;
+    int32_t ay;
+    int32_t bx;
+    int32_t by;
+    int32_t dx;
+    int32_t dy;
+    int32_t thr = shown->w < shown->h ? shown->w / 2 : shown->h / 2;
+
+    if (thr < 16) {
+        thr = 16;
+    }
+    vision_box_centre(&t->box, &cx, &cy);
+    if (vision_map_point(v, t->ox, t->oy, &ax, &ay) != 0 || vision_map_point(v, cx, cy, &bx, &by) != 0) {
+        return VISION_DIR_NONE;
+    }
+    dx = bx - ax;
+    dy = by - ay;
+    if ((dx < 0 ? -dx : dx) >= (dy < 0 ? -dy : dy)) {
+        if (dx >= thr) {
+            return VISION_DIR_RIGHT;
+        }
+        if (-dx >= thr) {
+            return VISION_DIR_LEFT;
+        }
+        return VISION_DIR_NONE;
+    }
+    if (dy >= thr) {
+        return VISION_DIR_DOWN;
+    }
+    if (-dy >= thr) {
+        return VISION_DIR_UP;
+    }
+    return VISION_DIR_NONE;
 }
 
 static void say_stats(struct session *s, int64_t now)
@@ -376,8 +562,10 @@ static void say_tracks(struct session *s, uint32_t seq)
         if (vision_map_box(&v, &t->box, &b) != 1) {
             continue;
         }
-        n = snprintf(items + off, sizeof(items) - off, " %u:%u:%u:%d:%d:%d:%d",
-                     t->confirmed ? t->id : 0u, t->cls, t->conf, b.x, b.y, b.w, b.h);
+        n = snprintf(items + off, sizeof(items) - off, " %u:%u:%u:%d:%d:%d:%d:%d:%u",
+                     t->confirmed ? t->id : 0u, t->cls, t->conf, b.x, b.y, b.w, b.h,
+                     t->confirmed ? direction_of(&v, t, &b) : VISION_DIR_NONE,
+                     s->traffic && t->confirmed ? vision_traffic_track_speed(&s->tf, t->id) : 0u);
         if (n < 0 || off + (size_t)n >= sizeof(items) - 1) {
             break;
         }
@@ -437,16 +625,75 @@ static void detect(struct session *s, const struct pocketcam_frame *f, int64_t n
     }
     s->bad_run = 0;
     n = vision_nms(s->cands, n, VISION_NMS_IOU, s->dets, VISION_MAX_DETECTIONS);
+    n = vision_nms_nested(s->dets, n, VISION_NESTED_PM);
+    if (s->traffic) {
+        /* Only traffic is tracked: anything else the model saw is left
+         * out here, so a chair never takes a track slot or a count. */
+        int kept = 0;
+        int i;
+
+        for (i = 0; i < n; i++) {
+            if (vision_traffic_wanted(&s->tf, s->dets[i].cls)) {
+                s->dets[kept++] = s->dets[i];
+            }
+        }
+        n = kept;
+    }
     vision_tracker_update(&s->tracker, s->dets, n);
-    if (s->line.enabled && vision_line_count(&s->line, &s->tracker, &s->counts) > 0) {
-        say_counts(s);
+    {
+        struct vision_crossing x[VISION_MAX_TRACKS];
+        int nx;
+
+        nx = vision_line_count(&s->line[VISION_LINE_COUNT], VISION_LINE_COUNT, &s->tracker, &s->counts, x,
+                               VISION_MAX_TRACKS);
+        if (nx > 0) {
+            say_counts(s);
+            if (s->traffic) {
+                vision_traffic_counted(&s->tf, x, nx > VISION_MAX_TRACKS ? VISION_MAX_TRACKS : nx);
+            }
+        }
+        if (s->traffic) {
+            struct vision_counts unused = { 0, 0 };
+
+            nx = vision_line_count(&s->line[VISION_LINE_SPEED_A], VISION_LINE_SPEED_A, &s->tracker, &unused,
+                                   x, VISION_MAX_TRACKS);
+            vision_traffic_crossed(&s->tf, 1, x, nx > VISION_MAX_TRACKS ? VISION_MAX_TRACKS : nx, now);
+            nx = vision_line_count(&s->line[VISION_LINE_SPEED_B], VISION_LINE_SPEED_B, &s->tracker, &unused,
+                                   x, VISION_MAX_TRACKS);
+            vision_traffic_crossed(&s->tf, 2, x, nx > VISION_MAX_TRACKS ? VISION_MAX_TRACKS : nx, now);
+            vision_traffic_settle(&s->tf, &s->tracker, now);
+            if (s->tf.changed) {
+                say_traffic(s);
+            }
+        }
     }
     s->last_pre_ms = pre_ms;
     s->last_infer_ms = infer_ms;
     s->last_post_ms = (int)(mono_ms() - t0);
     s->inferred++;
     say_tracks(s, f->seq);
-    (void)now;
+}
+
+/* `n` per-mille words, or the one word `off` (every value -1). 0, or -1
+ * for anything else. */
+static int parse_pm(char **save, int *v, int n)
+{
+    int i;
+
+    for (i = 0; i < n; i++) {
+        char *a = strtok_r(NULL, " ", save);
+
+        if (i == 0 && a && strcmp(a, "off") == 0) {
+            for (i = 0; i < n; i++) {
+                v[i] = -1;
+            }
+            return 0;
+        }
+        if (!a || sscanf(a, "%d", &v[i]) != 1 || v[i] < 0 || v[i] > 1000) {
+            return -1;
+        }
+    }
+    return 0;
 }
 
 static void command(struct session *s, char *line)
@@ -473,7 +720,7 @@ static void command(struct session *s, char *line)
         s->view_w = vw;
         s->view_h = vh;
         s->display_rotation = rot;
-        place_line(s);
+        place_lines(s);
     } else if (strcmp(w, "start") == 0) {
         if (!s->streaming) {
             int r = pocketcam_start(&s->cam);
@@ -503,39 +750,129 @@ static void command(struct session *s, char *line)
             s->held[slot] = false;
         }
     } else if (strcmp(w, "line") == 0) {
+        int v[4];
+
+        if (parse_pm(&save, v, 4) != 0) {
+            return;
+        }
+        memcpy(s->line_pm[VISION_LINE_COUNT], v, sizeof(v));
+        place_line(s, VISION_LINE_COUNT);
+        /* A new line starts a new count; the tracks learn their side afresh. */
+        vision_line_forget(&s->tracker, VISION_LINE_COUNT);
+        memset(&s->counts, 0, sizeof(s->counts));
+        say_counts(s);
+        if (s->traffic) {
+            memset(s->tf.count_ab, 0, sizeof(s->tf.count_ab));
+            memset(s->tf.count_ba, 0, sizeof(s->tf.count_ba));
+            s->tf.total_ab = 0;
+            s->tf.total_ba = 0;
+            say_traffic(s);
+        }
+    } else if (strcmp(w, "speed") == 0) {
+        int v[8];
+
+        if (parse_pm(&save, v, 8) != 0) {
+            return;
+        }
+        memcpy(s->line_pm[VISION_LINE_SPEED_A], v, 4 * sizeof(v[0]));
+        memcpy(s->line_pm[VISION_LINE_SPEED_B], v + 4, 4 * sizeof(v[0]));
+        place_line(s, VISION_LINE_SPEED_A);
+        place_line(s, VISION_LINE_SPEED_B);
+        vision_line_forget(&s->tracker, VISION_LINE_SPEED_A);
+        vision_line_forget(&s->tracker, VISION_LINE_SPEED_B);
+        /* Lines that moved: a crossing timed against the old ones is
+         * worth nothing. */
+        memset(s->tf.slot, 0, sizeof(s->tf.slot));
+        s->tf.cur_kmh10 = 0;
+        s->tf.cur_id = 0;
+        if (s->traffic) {
+            say_traffic(s);
+        }
+    } else if (strcmp(w, "distance") == 0) {
+        char *a = strtok_r(NULL, " ", &save);
+        unsigned cm;
+
+        if (!a || sscanf(a, "%u", &cm) != 1 || vision_traffic_set_distance(&s->tf, cm) != 0) {
+            return;
+        }
+        if (s->traffic) {
+            say_traffic(s);
+        }
+    } else if (strcmp(w, "mode") == 0) {
+        char *a = strtok_r(NULL, " ", &save);
+
+        if (a && strcmp(a, "traffic") == 0) {
+            set_mode(s, MODE_TRAFFIC);
+        } else if (a && strcmp(a, "detect") == 0) {
+            set_mode(s, MODE_DETECT);
+        } else if (a && strcmp(a, "color") == 0) {
+            set_mode(s, MODE_COLOR);
+        } else if (a && strcmp(a, "edge") == 0) {
+            set_mode(s, MODE_EDGE);
+        } else if (a && strcmp(a, "trace") == 0) {
+            set_mode(s, MODE_TRACE);
+        }
+    } else if (strcmp(w, "color") == 0) {
         char *a = strtok_r(NULL, " ", &save);
         char *b = strtok_r(NULL, " ", &save);
         char *c = strtok_r(NULL, " ", &save);
-        char *d = strtok_r(NULL, " ", &save);
-        int v[4];
-        int i;
+        unsigned v[3];
 
         if (a && strcmp(a, "off") == 0) {
-            s->line_pm[0] = -1;
-            place_line(s);
+            s->have_target = false;
+            s->sample_x = -1;
             return;
         }
-        if (!a || !b || !c || !d || sscanf(a, "%d", &v[0]) != 1 || sscanf(b, "%d", &v[1]) != 1 ||
-            sscanf(c, "%d", &v[2]) != 1 || sscanf(d, "%d", &v[3]) != 1) {
+        if (!a || !b || !c || sscanf(a, "%u", &v[0]) != 1 || sscanf(b, "%u", &v[1]) != 1 ||
+            sscanf(c, "%u", &v[2]) != 1 || v[0] > 255 || v[1] > 255 || v[2] > 255) {
             return;
         }
-        for (i = 0; i < 4; i++) {
-            if (v[i] < 0 || v[i] > 1000) {
-                return;
-            }
-            s->line_pm[i] = v[i];
+        s->target.r = (uint8_t)v[0];
+        s->target.g = (uint8_t)v[1];
+        s->target.b = (uint8_t)v[2];
+        s->have_target = true;
+    } else if (strcmp(w, "sample") == 0) {
+        char *a = strtok_r(NULL, " ", &save);
+        char *b = strtok_r(NULL, " ", &save);
+        int x;
+        int y;
+
+        if (!a || !b || sscanf(a, "%d", &x) != 1 || sscanf(b, "%d", &y) != 1 || x < 0 || y < 0 ||
+            x >= (int)POCKETCAM_VIEW_MAX_W || y >= (int)POCKETCAM_VIEW_MAX_H) {
+            return;
         }
-        place_line(s);
-        /* A new line starts a new count; the tracks learn their side afresh. */
-        for (i = 0; i < s->tracker.count; i++) {
-            s->tracker.t[i].side = 0;
+        s->sample_x = x;
+        s->sample_y = y;
+    } else if (strcmp(w, "tol") == 0) {
+        char *a = strtok_r(NULL, " ", &save);
+        unsigned tol;
+
+        if (a && sscanf(a, "%u", &tol) == 1 && tol <= VISION_COLOR_TOL_MAX) {
+            s->tol = tol;
         }
-        memset(&s->counts, 0, sizeof(s->counts));
-        say_counts(s);
+    } else if (strcmp(w, "edge") == 0) {
+        char *a = strtok_r(NULL, " ", &save);
+        unsigned thr;
+
+        if (a && sscanf(a, "%u", &thr) == 1 && thr <= 255) {
+            s->edge_thr = thr;
+        }
+    } else if (strcmp(w, "trace") == 0) {
+        char *a = strtok_r(NULL, " ", &save);
+
+        if (a && strcmp(a, "dark") == 0) {
+            s->trace_dark = true;
+        } else if (a && strcmp(a, "light") == 0) {
+            s->trace_dark = false;
+        }
     } else if (strcmp(w, "reset") == 0) {
         memset(&s->counts, 0, sizeof(s->counts));
         vision_tracker_clear(&s->tracker);
+        vision_traffic_reset(&s->tf);
         say_counts(s);
+        if (s->traffic) {
+            say_traffic(s);
+        }
     } else if (strcmp(w, "quit") == 0) {
         s->quit = true;
     }
@@ -620,8 +957,12 @@ static void stream_once(struct session *s)
     s->malformed_run = 0;
     s->last_frame_ms = now;
     /* The detector first, on the frame as it came; the picture after, so
-     * the boxes said for this frame are drawn on this frame. */
-    detect(s, &f, now);
+     * the boxes said for this frame are drawn on this frame. In a pixel
+     * mode the detector idles: the picture is the work, at the preview's
+     * own rate. */
+    if (!pixel_mode(s)) {
+        detect(s, &f, now);
+    }
     if (!s->quit && s->view_w && now - s->last_sent_ms >= POCKETCAM_PREVIEW_MIN_INTERVAL_MS) {
         int slot = free_preview_slot(s);
 
@@ -629,6 +970,9 @@ static void stream_once(struct session *s)
             pocketcam_to_rgb565(&f, pocketcam_view_rotation(s->info.mount_rotation, s->display_rotation),
                                 s->info.mount_mirror, POCKETCAM_FIT_COVER, slot_pixels(s, slot),
                                 s->view_w, s->view_h, s->view_w) == 0) {
+            if (pixel_mode(s)) {
+                process_pixels(s, slot_pixels(s, slot));
+            }
             s->held[slot] = true;
             s->last_sent_ms = now;
             say("frame %d %u %u %u", slot, f.seq, s->view_w, s->view_h);
@@ -720,13 +1064,21 @@ static int run_session(const char *backend, const char *config, const char *mode
 {
     struct session *s = calloc(1, sizeof(*s));
     int code;
+    int i;
 
     if (!s) {
         say("error memory out of memory");
         return EXIT_USAGE;
     }
-    s->line_pm[0] = -1;
+    for (i = 0; i < VISION_LINES; i++) {
+        s->line_pm[i][0] = -1;
+    }
+    s->sample_x = -1;
+    s->sample_y = -1;
+    s->tol = VISION_COLOR_TOL_DEFAULT;
+    s->trace_dark = true;
     vision_tracker_init(&s->tracker);
+    vision_traffic_init(&s->tf);
     say("hello %d %s %s", VISION_PROTO_VERSION, backend, vision_kpu_backend());
     if (map_shm(s) != 0) {
         say("error shm no usable shared memory on descriptor %d", POCKETCAM_SHM_FD);
@@ -744,6 +1096,9 @@ static int run_session(const char *backend, const char *config, const char *mode
         free(s);
         return EXIT_NOMODEL;
     }
+    /* The model's classes onto the traffic classes, by name: the traffic
+     * logic never learns which detector this is. */
+    vision_traffic_map_names(&s->tf, s->model.classes, vision_label);
     say("ready %s %u %u %d %s %u %u %u", s->info.name, s->info.preview_w, s->info.preview_h,
         s->info.simulated ? 1 : 0, s->model.model, s->model.in_w, s->model.in_h, s->model.classes);
     while (!s->quit && !s->in_eof && !stop_requested() && !out_broken) {
@@ -859,6 +1214,7 @@ static int run_bench(const char *backend, const char *config, const char *model,
             int i;
 
             n = vision_nms(cands, n, VISION_NMS_IOU, dets, VISION_MAX_DETECTIONS);
+            n = vision_nms_nested(dets, n, VISION_NESTED_PM);
             vision_tracker_update(&tr, dets, n);
             if (done == 0 || done == frames - 1) {
                 /* What the model really gives back, for the gate: the range

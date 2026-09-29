@@ -17,9 +17,30 @@
  *   start                         stream, detect, track, count
  *   stop                          stop; answered by `stopped`
  *   release <slot>                the session is done with a slot
+ *   mode detect|traffic|color|edge|trace
+ *                                 what to look for: everything the model
+ *                                 knows; traffic only (car, truck, bus,
+ *                                 motorcycle, bicycle, person), counted per
+ *                                 class and timed between the speed lines;
+ *                                 or one of the pixel modes, in which the
+ *                                 detector idles and the preview picture
+ *                                 is worked on before it is shown
+ *   color <r> <g> <b> | color off the COLOR target (8-bit), or none
+ *   sample <x> <y>                COLOR: take the target from the next
+ *                                 preview at this view point
+ *   tol <n>                       COLOR: the tolerance, 0..765
+ *   edge <threshold>              EDGE: 0 for grey magnitudes, 1..255 for
+ *                                 black and white at the threshold
+ *   trace dark|light              TRACE: the line to look for
  *   line <x0> <y0> <x1> <y1>      the counting line, in per-mille of the
  *                                 view (0..1000 each), or `line off`
- *   reset                         counts to zero, tracks forgotten
+ *   speed <ax0> <ay0> <ax1> <ay1> <bx0> <by0> <bx1> <by1>
+ *                                 the two speed lines, A then B, per-mille
+ *                                 of the view, or `speed off`
+ *   distance <cm>                 the ground distance between the speed
+ *                                 lines
+ *   reset                         counts and speeds to zero, tracks
+ *                                 forgotten
  *   quit                          close the camera and leave; `bye`
  *
  * EVENTS (helper to session):
@@ -34,16 +55,41 @@
  *                                 helper leaves
  *   error <what> <text>           it cannot go on; the helper leaves
  *   frame <slot> <seq> <w> <h>    a preview picture is in slot
- *   det <seq> <n> [<id>:<cls>:<conf>:<x>:<y>:<w>:<h>]...
+ *   det <seq> <n> [<id>:<cls>:<conf>:<x>:<y>:<w>:<h>:<dir>:<kmh10>]...
  *                                 what is tracked after frame seq: id 0 for
  *                                 a track not yet confirmed; conf per-mille;
- *                                 the box in view pixels; n of them, at most
- *                                 VISION_MAX_SHOWN
+ *                                 the box in view pixels; dir the way it
+ *                                 has gone on the picture (0 unknown, 1
+ *                                 left, 2 right, 3 up, 4 down); kmh10 the
+ *                                 speed measured on it, x10, 0 for none; n
+ *                                 of them, at most VISION_MAX_SHOWN
  *   count <ab> <ba>               the line's crossing counts, when they
  *                                 change and on reset
+ *   traffic <ab> <ba> <cur> <last> <max> <mean> <n> <rejected> <c0ab>:<c0ba> ... <c5ab>:<c5ba>
+ *                                 in traffic mode, when it changes: the
+ *                                 count line's totals (ab is IN), the
+ *                                 current, last, highest and mean speed in
+ *                                 km/h x10 with the measurements in the
+ *                                 mean and the refusals, and the counts per
+ *                                 traffic class (car, truck, bus,
+ *                                 motorcycle, bicycle, person)
+ *   color <r> <g> <b> <matched_pm> <cx> <cy>
+ *                                 COLOR, with every preview: the target,
+ *                                 the share of the picture that matched
+ *                                 (per-mille) and the matches' centroid in
+ *                                 view pixels (-1 -1 with none)
+ *   edge <strong_pm>              EDGE, with every preview: the share of
+ *                                 strong edges
+ *   trace <found> <offset_pm> <slope_pm> <rows>
+ *                                 TRACE, with every preview: whether a
+ *                                 line was found, the bottom band's offset
+ *                                 from the centre (-1000..1000), the lean
+ *                                 (dx per 1000 rows going down), rows with
+ *                                 a plausible run
  *   stats <fps_x10> <infer_ms> <pre_ms> <post_ms> <cpu_pct> <rss_kb> <bad> <dropped>
  *                                 once a second while streaming: frames
- *                                 inferred per second, the last run's
+ *                                 inferred per second (previews worked on,
+ *                                 in a pixel mode), the last run's
  *                                 timings, the helper's own CPU share and
  *                                 resident set, tensors refused as
  *                                 malformed so far, and detections dropped
@@ -66,11 +112,22 @@
 
 #include "pocketcam/pocketcam_proto.h"
 
-#define VISION_PROTO_VERSION 1
-#define VISION_LINE_MAX 1024
-/* Boxes on one det line: 24 of at most 40 characters fit VISION_LINE_MAX
+#define VISION_PROTO_VERSION 2
+#define VISION_LINE_MAX 2048
+/* Boxes on one det line: 24 of at most 52 characters fit VISION_LINE_MAX
  * with the head to spare. */
 #define VISION_MAX_SHOWN 24
 #define VISION_STATS_INTERVAL_MS 1000
+
+/* The traffic classes a `traffic` line counts, in order: car, truck, bus,
+ * motorcycle, bicycle, person (vision_traffic.h agrees). */
+#define VISION_PROTO_TRAFFIC_CLASSES 6
+
+/* The direction a track has gone on the picture (det lines). */
+#define VISION_DIR_NONE 0
+#define VISION_DIR_LEFT 1
+#define VISION_DIR_RIGHT 2
+#define VISION_DIR_UP 3
+#define VISION_DIR_DOWN 4
 
 #endif

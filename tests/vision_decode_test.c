@@ -273,6 +273,24 @@ static void test_nms(void)
         check("iou of a box with itself is 1000", vision_iou_permille(&a, &a) == 1000);
         check("an empty box overlaps nothing", vision_iou_permille(&a, &e) == 0);
     }
+    /* Nested duplicates: a partial box inside the full one is the same
+     * object; a box of another class, a box half outside, and two boxes
+     * of one size are not. */
+    c[0] = (struct vision_det) { { 100, 50, 500, 350 }, 0, 800 }; /* the person, whole */
+    c[1] = (struct vision_det) { { 300, 60, 150, 330 }, 0, 600 }; /* the partial box, inside */
+    c[2] = (struct vision_det) { { 300, 60, 150, 330 }, 2, 600 }; /* a car in the same place */
+    c[3] = (struct vision_det) { { 500, 60, 200, 330 }, 0, 600 }; /* half outside */
+    check("the partial box inside the whole one goes, the rest stays",
+          vision_nms_nested(c, 4, 850) == 3 && c[0].box.w == 500 && c[1].cls == 2 && c[2].box.x == 500);
+    c[0] = (struct vision_det) { { 100, 100, 100, 100 }, 0, 800 };
+    c[1] = (struct vision_det) { { 100, 100, 100, 100 }, 0, 700 };
+    check("two boxes of one size are left to the IoU test", vision_nms_nested(c, 2, 850) == 2);
+    c[0] = (struct vision_det) { { 100, 100, 100, 100 }, 0, 800 };
+    c[1] = (struct vision_det) { { 150, 100, 100, 100 }, 0, 700 };
+    c[2] = (struct vision_det) { { 0, 0, 640, 360 }, 0, 400 }; /* one box over everything */
+    check("a box over the whole frame swallows the smaller ones of its class",
+          vision_nms_nested(c, 3, 850) == 1 && c[0].box.w == 640);
+    check("nothing in, nothing out", vision_nms_nested(c, 0, 850) == 0);
 }
 
 int main(void)

@@ -48,6 +48,10 @@ enum vision_ev_kind {
     VISION_EV_FRAME,     /* a preview picture is waiting: vision_session_take_frame() */
     VISION_EV_DET,       /* the tracks after frame value=seq: vision_session_tracks() */
     VISION_EV_COUNT,     /* counts changed: vision_session_counts() */
+    VISION_EV_TRAFFIC,   /* the traffic report changed: vision_session_traffic() */
+    VISION_EV_COLOR,     /* a COLOR pass: vision_session_pixels()->color */
+    VISION_EV_EDGE,      /* an EDGE pass: ->edge_pm */
+    VISION_EV_TRACE,     /* a TRACE pass: ->trace */
     VISION_EV_STATS,     /* vision_session_stats() */
     VISION_EV_MALFORMED, /* value = damaged frames or bad tensors in a row */
     VISION_EV_STALL,     /* value = ms without a frame */
@@ -83,6 +87,41 @@ struct vision_shown {
     int32_t y;
     int32_t w;
     int32_t h;
+    uint8_t dir;          /* VISION_DIR_*: the way it has gone on the picture */
+    uint32_t kmh10;       /* the speed measured on it, x10; 0 for none */
+};
+
+/* What the helper's `traffic` line said. */
+struct vision_traffic_report {
+    uint32_t total_ab;    /* IN */
+    uint32_t total_ba;    /* OUT */
+    uint32_t cur_kmh10;   /* the newest speed while its track lives, or 0 */
+    uint32_t last_kmh10;
+    uint32_t max_kmh10;
+    uint32_t mean_kmh10;
+    uint32_t n;           /* measurements */
+    uint32_t rejected;
+    uint32_t cls_ab[VISION_PROTO_TRAFFIC_CLASSES];
+    uint32_t cls_ba[VISION_PROTO_TRAFFIC_CLASSES];
+};
+
+/* What the pixel modes' lines said (color, edge, trace). */
+struct vision_pixel_report {
+    struct {
+        uint8_t r;
+        uint8_t g;
+        uint8_t b;
+        uint32_t matched_pm;  /* of the picture */
+        int32_t cx;           /* the matches' centroid in view pixels, -1 none */
+        int32_t cy;
+    } color;
+    uint32_t edge_pm;         /* strong edges, per-mille of the picture */
+    struct {
+        bool found;
+        int32_t offset_pm;
+        int32_t slope_pm;
+        uint32_t rows;
+    } trace;
 };
 
 struct vision_stats {
@@ -135,6 +174,8 @@ struct vision_session {
     uint32_t shown_seq;
     uint32_t count_ab;
     uint32_t count_ba;
+    struct vision_traffic_report traffic;
+    struct vision_pixel_report pixels;
     struct vision_stats stats;
 
     struct vision_event queue[VISION_EVENT_QUEUE];
@@ -157,6 +198,21 @@ int vision_session_view(struct vision_session *s, uint32_t w, uint32_t h, int di
 int vision_session_stream(struct vision_session *s, bool on, int64_t now_ms);
 /* The counting line in per-mille of the view; a NULL pm turns it off. */
 int vision_session_line(struct vision_session *s, const int32_t pm[4]);
+/* The two speed lines, A then B, per-mille of the view; NULL turns them off. */
+int vision_session_speed_lines(struct vision_session *s, const int32_t pm[8]);
+/* The ground distance between the speed lines. */
+int vision_session_distance(struct vision_session *s, uint32_t cm);
+/* Traffic mode on or off. */
+int vision_session_mode(struct vision_session *s, bool traffic);
+/* The mode by its protocol word: detect, traffic, color, edge, trace. */
+int vision_session_mode_word(struct vision_session *s, const char *word);
+/* COLOR: the target colour (NULL: none), a sample at a view point, the
+ * tolerance; EDGE: the threshold (0 grey); TRACE: a dark or a light line. */
+int vision_session_color(struct vision_session *s, const uint8_t rgb[3]);
+int vision_session_sample(struct vision_session *s, int32_t x, int32_t y);
+int vision_session_tol(struct vision_session *s, uint32_t tol);
+int vision_session_edge(struct vision_session *s, uint32_t threshold);
+int vision_session_trace(struct vision_session *s, bool dark);
 int vision_session_reset(struct vision_session *s);
 
 /* Copy the newest preview picture into dst (w x h RGB565, tightly packed)
@@ -169,6 +225,8 @@ int vision_session_take_frame(struct vision_session *s, uint16_t *dst, uint32_t 
 const struct vision_shown *vision_session_tracks(const struct vision_session *s, int *count,
                                                  uint32_t *seq);
 void vision_session_counts(const struct vision_session *s, uint32_t *ab, uint32_t *ba);
+const struct vision_traffic_report *vision_session_traffic(const struct vision_session *s);
+const struct vision_pixel_report *vision_session_pixels(const struct vision_session *s);
 const struct vision_stats *vision_session_stats(const struct vision_session *s);
 
 /* Ask the helper to quit, wait up to grace_ms, then SIGKILL and reap for

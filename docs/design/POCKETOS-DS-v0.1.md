@@ -3478,3 +3478,65 @@ ids; a crossing counted in the right direction on ACROSS and on DOWN;
 RESET; the stalled and the no-model states; repeated open and close, and
 Camera afterwards; the frame rate, the KPU time and the helper's CPU and
 memory in the status line, against `top`.
+
+### 38.7 Traffic mode [PROPOSED]
+
+**PROPOSED 2026-09-28** on branch `feat/vision-traffic` (from v0.2.1).
+The same screen gains a second mode and its controls; no new role, token
+or colour, nothing outside the app changes (`docs/apps/VISION.md`,
+"Traffic mode").
+
+- **Buttons.** A MODE button, first, that reads the current mode (`DETECT`
+  or `TRAFFIC`) and cycles it. DETECT keeps LINE and RESET after it (three
+  buttons); TRAFFIC has LINE, SPEED (`SPEED: OFF / NARROW / WIDE`), DIST
+  (`DIST: 10 m`) and RESET (five). All §7 secondary buttons at 64 px, TRY
+  AGAIN in LINE's place as before. Tall: rows of three across the width
+  (165 px each on the reference panel); wide: rows of two in the 374 px
+  column. The layout is computed for the mode's button count and status
+  lines, so a mode change is a layout change.
+- **Status.** One line in DETECT as before. Three in TRAFFIC (four in the
+  wide column), `POS_STYLE_TEXT_SECONDARY`, centred: `24.1 fps  KPU 20 ms
+  3 tracks  12 total`; `car 5  truck 1  bus 0  moto 0  bike 2  person 4`;
+  `SPEED 43.2 km/h  last 40.1  max 51.0  (10 m)` (or `SPEED --` with the
+  last and the highest, or `SPEED off  (10 m)`).
+- **Counters.** In TRAFFIC the two `POS_STYLE_VALUE` slabs read
+  `IN (DOWN) 4` and `OUT (UP) 2` (`LEFT`/`RIGHT` on the DOWN line). In
+  the wide column they now sit side by side (179 px each) in both modes,
+  which gives the column the room the three button rows need.
+- **Over the picture.** The two speed lines are 2 px objects filled like
+  the TX chip (`POS_STYLE_CHIP_TX`), parallel to the counting line at 40 %
+  and 60 % or 25 % and 75 %; the counting line stays accent. A box tag in
+  TRAFFIC reads `#7 car > 43%` - an ASCII `<` `>` `^` `v` for the way it
+  has gone - and `#7 car > 43.2 km/h` once measured.
+- **Picture share on the reference panel.** Portrait TRAFFIC: 436 x 776
+  of 528 x 1116 (57 %); landscape: 802 x 452 as before. Both shapes in
+  both modes are held by `tests/vision_model_test.c` (inside the safe box,
+  touch minimum, no overlap, the frame's shape, most of the body).
+- **Gate:** docs/hardware/VISION_TRAFFIC_GATE.md on unit B, then the
+  owner's word.
+
+### 38.8 Pixel modes: COLOR, EDGE, TRACE [PROPOSED]
+
+**PROPOSED 2026-09-28** on the same branch, after TRAFFIC. MODE cycles on
+from TRAFFIC through COLOR, EDGE and TRACE and back to DETECT. In these
+the detector idles and the helper works on the preview picture itself
+(`docs/apps/VISION.md`, "Optional modes"); the counting and speed lines
+and the counters are hidden (the counter slabs read `-`).
+
+- **COLOR:** MODE, SAMPLE, TOL (`TOL: LOW / MED / HIGH`). SAMPLE takes the
+  colour at the picture's middle; a tap on the picture takes it there
+  (the picture box is clickable in this mode only). Matches are painted
+  green on the picture (magenta for a greenish target) by the helper; a
+  12 px accent square marks their centroid. Status:
+  `10.0 fps  12 ms  #C81E1E  match 12.3%  at 150,80`, or `Tap the
+  picture or SAMPLE to pick a colour`.
+- **EDGE:** MODE, EDGE (`EDGE: SOFT / HARD`): the picture is its edge
+  magnitude in grey, or black and white. Status: `10.0 fps  14 ms  edges
+  8.1%  soft`.
+- **TRACE:** MODE, LINE (`LINE: DARK / LIGHT`): the dominant dark or
+  light line, its centroids marked in yellow on the picture. Status:
+  `line left 12%  leans right 45%  300 rows`, or `no dark line`.
+- The two-button and three-button layouts are the existing grid with one
+  status line (`tests/vision_model_test.c`, portrait and landscape).
+- Pictures reach the screen at the preview rate (at most 10 a second) as
+  in every mode; the helper's pass costs are in the status's ms.

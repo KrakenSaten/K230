@@ -15,4 +15,13 @@
  * iou_max (per-mille). Returns how many were kept. */
 int vision_nms(struct vision_det *cands, int n, uint32_t iou_max, struct vision_det *out, int max);
 
+/* After suppression: a box of which at least inside_pm (per-mille of its
+ * own area) lies inside a larger box of the same class is the same object
+ * seen twice - a detector's partial box beside its full one (unit B,
+ * 2026-09-29: a person walking past gave two person boxes, both crossed
+ * the line, and was counted twice) - and is dropped; the larger one stays.
+ * Their overlap is too small for the IoU test to catch. Compacts `dets` in
+ * place, keeping the order; returns how many remain. */
+int vision_nms_nested(struct vision_det *dets, int n, uint32_t inside_pm);
+
 #endif
