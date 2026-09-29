@@ -179,6 +179,8 @@ static int parse_script(struct vision_kpu *k, const char *config)
             k->delay_ms = (int)d;
         } else if (strcmp(item, "minpx") == 0) {
             r = parse_u32(val, &k->minpx);
+        } else if (strcmp(item, "text") == 0 || strcmp(item, "face") == 0) {
+            /* The fake nets' (below); the detector does not see them. */
         } else {
             r = -EINVAL;
         }
@@ -395,4 +397,312 @@ void vision_kpu_close(struct vision_kpu *k)
 const char *vision_kpu_backend(void)
 {
     return "fake";
+}
+
+/* ---- nets ---------------------------------------------------------------------
+ *
+ * The models of vision_kpu.h's nets, emulated from the same script:
+ *
+ *   text=X:Y:W:H:WORD      a line of printed text in FRAME pixels; WORD is
+ *                          printable ASCII without ',' or ':'; '_' is a
+ *                          space (up to FAKE_TEXTS of them)
+ *
+ * text_det / ocr_det: [1,512,512,2], the first channel 0.9 over the middle
+ * of every line (a DB map marks a line shrunk, the reader grows it back),
+ * letterboxed from the window as the real model is.
+ * text_rec / ocr_rec: [128,1,95], the line whose middle the window holds,
+ * one character every four steps (a space leaves eight), the classes '!'
+ * to '~' in order and the blank last - what tests/vision_session_test.c's
+ * dictionary says. */
+
+#define FAKE_TEXTS 8
+#define FAKE_TEXT_LEN 32
+#define FAKE_REC_STEPS 128
+#define FAKE_REC_CLASSES 95   /* '!' .. '~', then the blank */
+
+enum fake_kind {
+    FAKE_TEXT_DET = 1,
+    FAKE_TEXT_REC,
+};
+
+struct fake_text {
+    struct vision_box box;
+    char word[FAKE_TEXT_LEN];
+};
+
+struct vision_net {
+    enum fake_kind kind;
+    struct vision_net_info info;
+    struct fake_text text[FAKE_TEXTS];
+    int ntext;
+    uint32_t fw;
+    uint32_t fh;
+    bool have_frame;
+    int turn;
+    float *out;
+    bool have_out;
+};
+
+static int net_script(struct vision_net *n, const char *script)
+{
+    char *copy;
+    char *save = NULL;
+    char *item;
+    int r = 0;
+
+    if (!script || !*script) {
+        return 0;
+    }
+    copy = strdup(script);
+    if (!copy) {
+        return -ENOMEM;
+    }
+    for (item = strtok_r(copy, ",", &save); item && r == 0; item = strtok_r(NULL, ",", &save)) {
+        char *val = strchr(item, '=');
+
+        if (!val) {
+            continue;
+        }
+        *val++ = '\0';
+        if (strcmp(item, "text") == 0) {
+            struct fake_text *t;
+            int used = 0;
+            size_t i;
+
+            if (n->ntext >= FAKE_TEXTS) {
+                r = -EINVAL;
+                break;
+            }
+            t = &n->text[n->ntext];
+            if (sscanf(val, "%d:%d:%d:%d:%n", &t->box.x, &t->box.y, &t->box.w, &t->box.h, &used) != 4 || used == 0 ||
+                t->box.w <= 0 || t->box.h <= 0 || strlen(val + used) == 0 || strlen(val + used) >= FAKE_TEXT_LEN) {
+                r = -EINVAL;
+                break;
+            }
+            snprintf(t->word, sizeof(t->word), "%s", val + used);
+            for (i = 0; t->word[i]; i++) {
+                if (t->word[i] < '!' || t->word[i] > '~' || t->word[i] == ':') {
+                    r = -EINVAL;
+                }
+            }
+            n->ntext++;
+        }
+    }
+    free(copy);
+    return r;
+}
+
+int vision_net_open(struct vision_net **np, const char *path, const char *script, struct vision_net_info *info,
+                    char *err, size_t errlen)
+{
+    struct vision_net *n;
+    const char *base;
+    FILE *fp;
+
+    if (!np || !path || !info) {
+        return -EINVAL;
+    }
+    fp = fopen(path, "rb");
+    if (!fp) {
+        snprintf(err, errlen, "model file not found");
+        return -ENOENT;
+    }
+    fclose(fp);
+    n = calloc(1, sizeof(*n));
+    if (!n) {
+        return -ENOMEM;
+    }
+    base = strrchr(path, '/');
+    base = base ? base + 1 : path;
+    if (strstr(base, "text_det") || strstr(base, "ocr_det")) {
+        n->kind = FAKE_TEXT_DET;
+        n->info.in_w = 512;
+        n->info.in_h = 512;
+        n->info.outputs = 1;
+        n->info.rank[0] = 4;
+        n->info.dims[0][0] = 1;
+        n->info.dims[0][1] = 512;
+        n->info.dims[0][2] = 512;
+        n->info.dims[0][3] = 2;
+        n->info.count[0] = (size_t)512 * 512 * 2;
+    } else if (strstr(base, "text_rec") || strstr(base, "ocr_rec")) {
+        n->kind = FAKE_TEXT_REC;
+        n->info.in_w = 512;
+        n->info.in_h = 32;
+        n->info.outputs = 1;
+        n->info.rank[0] = 3;
+        n->info.dims[0][0] = FAKE_REC_STEPS;
+        n->info.dims[0][1] = 1;
+        n->info.dims[0][2] = FAKE_REC_CLASSES;
+        n->info.count[0] = (size_t)FAKE_REC_STEPS * FAKE_REC_CLASSES;
+    } else {
+        snprintf(err, errlen, "fake nets: no emulation of %s", base);
+        free(n);
+        return -EPROTO;
+    }
+    if (net_script(n, script) != 0) {
+        snprintf(err, errlen, "fake nets: bad script");
+        free(n);
+        return -EINVAL;
+    }
+    n->out = calloc(n->info.count[0], sizeof(float));
+    if (!n->out) {
+        free(n);
+        return -ENOMEM;
+    }
+    *info = n->info;
+    *np = n;
+    return 0;
+}
+
+int vision_net_frame(struct vision_net *n, const struct pocketcam_frame *f)
+{
+    if (!n || pocketcam_frame_check(f) != 0) {
+        return -EPROTO;
+    }
+    n->fw = f->width;
+    n->fh = f->height;
+    n->have_frame = true;
+    return 0;
+}
+
+int vision_net_turn(struct vision_net *n, int rotation)
+{
+    if (!n || (rotation != 0 && rotation != 90 && rotation != 180 && rotation != 270)) {
+        return -EINVAL;
+    }
+    n->turn = rotation;
+    return 0;
+}
+
+/* A scripted box (sensor pixels) on the frame as it comes (turned). */
+static struct vision_box on_frame(const struct vision_net *n, const struct vision_box *b)
+{
+    struct vision_box t = *b;
+    uint32_t sw;
+    uint32_t sh;
+
+    vision_turned_size(n->fw, n->fh, n->turn, &sw, &sh);
+    if (n->turn != 0) {
+        vision_box_turn(sw, sh, n->turn, b, &t);
+    }
+    return t;
+}
+
+int vision_net_run(struct vision_net *n, const struct vision_box *win, bool stretch, uint8_t pad, int *pre_ms,
+                   int *infer_ms)
+{
+    struct vision_box w;
+    float rx;
+    float ry;
+    int i;
+
+    (void)pad;
+    if (!n) {
+        return -EINVAL;
+    }
+    if (!n->have_frame) {
+        return -EPROTO;
+    }
+    if (win) {
+        w = *win;
+    } else {
+        w.x = 0;
+        w.y = 0;
+        w.w = (int32_t)n->fw;
+        w.h = (int32_t)n->fh;
+    }
+    if (w.x < 0 || w.y < 0 || w.w <= 0 || w.h <= 0 || (uint32_t)(w.x + w.w) > n->fw ||
+        (uint32_t)(w.y + w.h) > n->fh) {
+        return -EINVAL;
+    }
+    if (pre_ms) {
+        *pre_ms = 0;
+    }
+    if (infer_ms) {
+        *infer_ms = 0;
+    }
+    rx = (float)n->info.in_w / (float)w.w;
+    ry = (float)n->info.in_h / (float)w.h;
+    if (!stretch) {
+        rx = ry = rx < ry ? rx : ry;
+    }
+    memset(n->out, 0, n->info.count[0] * sizeof(float));
+    if (n->kind == FAKE_TEXT_DET) {
+        for (i = 0; i < n->ntext; i++) {
+            struct vision_box b = on_frame(n, &n->text[i].box);
+            /* The middle of the line: a quarter of its height off top and
+             * bottom, as much off each end. */
+            int32_t m = b.h / 4;
+            int32_t x0 = (int32_t)((float)(b.x + m - w.x) * rx);
+            int32_t x1 = (int32_t)((float)(b.x + b.w - m - w.x) * rx);
+            int32_t y0 = (int32_t)((float)(b.y + m - w.y) * ry);
+            int32_t y1 = (int32_t)((float)(b.y + b.h - m - w.y) * ry);
+            int32_t x;
+            int32_t y;
+
+            for (y = y0 < 0 ? 0 : y0; y < y1 && y < 512; y++) {
+                for (x = x0 < 0 ? 0 : x0; x < x1 && x < 512; x++) {
+                    n->out[((size_t)y * 512 + (size_t)x) * 2] = 0.9f;
+                }
+            }
+        }
+    } else {
+        const struct fake_text *t = NULL;
+        int step;
+        size_t c;
+
+        for (i = 0; i < n->ntext && !t; i++) {
+            struct vision_box b = on_frame(n, &n->text[i].box);
+            int32_t cx = b.x + b.w / 2;
+            int32_t cy = b.y + b.h / 2;
+
+            if (cx >= w.x && cx < w.x + w.w && cy >= w.y && cy < w.y + w.h) {
+                t = &n->text[i];
+            }
+        }
+        for (step = 0; step < FAKE_REC_STEPS; step++) {
+            n->out[(size_t)step * FAKE_REC_CLASSES + FAKE_REC_CLASSES - 1] = 1.0f; /* the blank */
+        }
+        step = 2;
+        for (c = 0; t && t->word[c] && step < FAKE_REC_STEPS; c++) {
+            if (t->word[c] == '_') {
+                step += 8;
+                continue;
+            }
+            n->out[(size_t)step * FAKE_REC_CLASSES + FAKE_REC_CLASSES - 1] = 0.0f;
+            n->out[(size_t)step * FAKE_REC_CLASSES + (size_t)(t->word[c] - '!')] = 1.0f;
+            step += 4;
+        }
+    }
+    n->have_out = true;
+    return 0;
+}
+
+const float *vision_net_output(const struct vision_net *n, int i, size_t *count)
+{
+    if (!n || !n->have_out || i != 0) {
+        return NULL;
+    }
+    if (count) {
+        *count = n->info.count[0];
+    }
+    return n->out;
+}
+
+void vision_net_close(struct vision_net *n)
+{
+    if (n) {
+        free(n->out);
+        free(n);
+    }
+}
+
+int vision_kpu_describe(const char *path, char *out, size_t len)
+{
+    (void)path;
+    if (out && len) {
+        snprintf(out, len, "fake detector: no model runtime in this build\n");
+    }
+    return -ENOTSUP;
 }

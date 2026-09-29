@@ -64,6 +64,7 @@
 #include "pocketvision/vision_nms.h"
 #include "pocketvision/vision_pixels.h"
 #include "pocketvision/vision_range.h"
+#include "pocketvision/vision_text.h"
 #include "pocketvision/vision_track.h"
 #include "pocketvision/vision_traffic.h"
 #include "pocketvision/vision_window.h"
@@ -112,8 +113,20 @@ enum helper_mode {
     MODE_TRAFFIC,
     MODE_COLOR,
     MODE_EDGE,
-    MODE_TRACE
+    MODE_TRACE,
+    MODE_READ        /* the text models instead of the detector */
 };
+
+/* READ's models and dictionary (docs/apps/VISION.md "Read"): not in the
+ * image - installed by hand on a bench unit - so READ is offered only when
+ * all three are there. */
+#define VISION_TEXT_DET_DEFAULT "/usr/share/doors/vision/text_det.kmodel"
+#define VISION_TEXT_REC_DEFAULT "/usr/share/doors/vision/text_rec.kmodel"
+#define VISION_TEXT_DICT_DEFAULT "/usr/share/doors/vision/text_dict.txt"
+#define VISION_READ_INTERVAL_MS 600   /* a read at most this often: the preview goes on between */
+#define VISION_READ_LINES 6           /* lines recognised per read, the surest regions first */
+#define VISION_READ_SHOWN 8           /* text boxes said on a line */
+#define VISION_READ_TEXT 48           /* bytes of text kept per line */
 
 /* SIGTERM and SIGINT are BLOCKED for the helper's whole life and looked for
  * between frames, never taken by a handler. A signal handled while the
@@ -189,6 +202,129 @@ static const char *clean(const char *s, char *buf, size_t len)
     return buf;
 }
 
+/* ---- text: the dictionary ----------------------------------------------------- */
+
+#define VISION_DICT_MAX 8192
+#define VISION_DICT_BYTES (256 * 1024)
+
+/* The recogniser's dictionary: one entry per line (UTF-8, CR stripped). */
+struct vision_dict {
+    char *buf;
+    uint32_t off[VISION_DICT_MAX];
+    uint32_t n;
+};
+
+static int dict_load(struct vision_dict *d, const char *path)
+{
+    FILE *fp = fopen(path, "rb");
+    size_t got;
+    size_t i;
+    size_t start = 0;
+
+    memset(d, 0, sizeof(*d));
+    if (!fp) {
+        return -ENOENT;
+    }
+    d->buf = malloc(VISION_DICT_BYTES + 1);
+    if (!d->buf) {
+        fclose(fp);
+        return -ENOMEM;
+    }
+    got = fread(d->buf, 1, VISION_DICT_BYTES, fp);
+    if (!feof(fp) && got == VISION_DICT_BYTES) {
+        /* Larger than any dictionary this knows. */
+        fclose(fp);
+        free(d->buf);
+        d->buf = NULL;
+        return -EPROTO;
+    }
+    fclose(fp);
+    d->buf[got] = '\0';
+    for (i = 0; i <= got && d->n < VISION_DICT_MAX; i++) {
+        if (i == got || d->buf[i] == '\n') {
+            size_t end = i;
+
+            if (end > start && d->buf[end - 1] == '\r') {
+                end--;
+            }
+            d->buf[end] = '\0';
+            if (i < got || end > start) {
+                d->off[d->n++] = (uint32_t)start;
+            }
+            start = i + 1;
+        }
+    }
+    return 0;
+}
+
+static const char *dict_word(const struct vision_dict *d, uint32_t i)
+{
+    return d->buf && i < d->n ? d->buf + d->off[i] : "?";
+}
+
+static void dict_free(struct vision_dict *d)
+{
+    free(d->buf);
+    memset(d, 0, sizeof(*d));
+}
+
+/* A text box grown for the recogniser: 15 % in height (a line's ascenders
+ * and descenders, the vendor's margin) and a third of the line's height at each
+* end - with the vendor's 2.5 % in width, unit B lost the K of "K230", the
+ * first letter of a region standing at its very edge. Kept inside the
+ * frame. */
+static struct vision_box text_margin(const struct vision_box *b, uint32_t fw, uint32_t fh)
+{
+    struct vision_box g = *b;
+    int32_t dx = b->h / 3;
+    int32_t dy = (b->h * 15) / 200;
+
+    g.x -= dx;
+    g.y -= dy;
+    g.w += 2 * dx;
+    g.h += 2 * dy;
+    if (g.x < 0) {
+        g.w += g.x;
+        g.x = 0;
+    }
+    if (g.y < 0) {
+        g.h += g.y;
+        g.y = 0;
+    }
+    if ((uint32_t)(g.x + g.w) > fw) {
+        g.w = (int32_t)fw - g.x;
+    }
+    if ((uint32_t)(g.y + g.h) > fh) {
+        g.h = (int32_t)fh - g.y;
+    }
+    return g;
+}
+
+/* One recognised line into text: the dictionary's entries in order (the
+ * blank is the model's last class, the vendor's convention, VERIFIED on
+ * unit B with the vendor's recogniser and dictionary), cut to len. The
+ * vendor's dictionary has no space, so words run together ("EXIT12"); the
+ * steps do not show the gaps reliably enough to put them back (a space is
+ * ~1.3 characters' pitch at this size, unevenly set digits as much). */
+static void line_text(const struct vision_dict *d, const uint32_t *cls, int n, char *out, size_t len)
+{
+    size_t off = 0;
+    int i;
+
+    out[0] = '\0';
+    for (i = 0; i < n && off + 1 < len; i++) {
+        const char *w = dict_word(d, cls[i]);
+        size_t wl = strlen(w);
+
+        if (off + wl >= len) {
+            break;
+        }
+        memcpy(out + off, w, wl);
+        off += wl;
+    }
+    out[off] = '\0';
+}
+
 /* ---- the session -------------------------------------------------------------- */
 
 struct session {
@@ -229,6 +365,19 @@ struct session {
     struct vision_window win;
     bool recent_dirty;
     bool last_zoom;               /* the last frame had a zoom pass */
+    /* READ: the text models, opened the first time READ is asked for. */
+    const char *text_det_path;
+    const char *text_rec_path;
+    const char *text_dict_path;
+    const char *net_script;       /* the fake nets' script (host builds) */
+    bool text_offered;
+    bool text_tried;
+    struct vision_net *tdet;
+    struct vision_net *trec;
+    struct vision_net_info tdi;
+    struct vision_net_info tri;
+    struct vision_dict *dict;
+    int64_t last_read_ms;
     /* The pixel modes (vision_pixels.h): the detector idles, the preview
      * is the work. */
     enum helper_mode mode;
@@ -465,7 +614,7 @@ static void set_mode(struct session *s, enum helper_mode mode)
         say_traffic(s);
         say_recent(s, mono_ms());
     }
-    if (pixel_mode(s)) {
+    if (pixel_mode(s) || mode == MODE_READ) {
         say("det 0 0");
     }
 }
@@ -913,6 +1062,199 @@ static void detect(struct session *s, const struct pocketcam_frame *f, int64_t n
     say_tracks(s, f->seq);
 }
 
+/* ---- READ ---------------------------------------------------------------------- */
+
+static void text_close(struct session *s)
+{
+    vision_net_close(s->trec);
+    vision_net_close(s->tdet);
+    s->trec = NULL;
+    s->tdet = NULL;
+    if (s->dict) {
+        dict_free(s->dict);
+        free(s->dict);
+        s->dict = NULL;
+    }
+}
+
+/* The text models, the first time READ is asked for: 0, or -1 having said
+ * why (`readfail`); READ then reads nothing and the screen says so. */
+static int text_open(struct session *s)
+{
+    char err[96] = "";
+    char t[96];
+
+    if (s->tdet && s->trec && s->dict) {
+        return 0;
+    }
+    if (s->text_tried) {
+        return -1;
+    }
+    s->text_tried = true;
+    s->dict = calloc(1, sizeof(*s->dict));
+    if (!s->dict || dict_load(s->dict, s->text_dict_path) != 0 || s->dict->n < 2) {
+        snprintf(err, sizeof(err), "the text dictionary could not be read");
+    } else if (vision_net_open(&s->tdet, s->text_det_path, s->net_script, &s->tdi, err, sizeof(err)) != 0 ||
+               vision_net_open(&s->trec, s->text_rec_path, s->net_script, &s->tri, err, sizeof(err)) != 0) {
+        /* err says which. */
+    } else if (s->tdi.outputs < 1 || s->tdi.rank[0] != 4 || s->tri.outputs < 1 || s->tri.rank[0] < 2 ||
+               s->tri.dims[0][s->tri.rank[0] - 1] != s->dict->n) {
+        snprintf(err, sizeof(err), "the text models and the dictionary do not fit together");
+    } else {
+        return 0;
+    }
+    say("readfail %s", clean(err, t, sizeof(t)));
+    text_close(s);
+    return -1;
+}
+
+/* Percent-encode text for the protocol: a byte that is not a printable
+ * ASCII word character - space, ':', '%', control, or any byte of a
+ * multi-byte character - becomes %XX. */
+static void pct(const char *in, char *out, size_t len)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    size_t o = 0;
+
+    for (; *in && o + 4 < len; in++) {
+        unsigned char c = (unsigned char)*in;
+
+        if (c <= ' ' || c == ':' || c == '%' || c >= 0x7f) {
+            out[o++] = '%';
+            out[o++] = hex[c >> 4];
+            out[o++] = hex[c & 15];
+        } else {
+            out[o++] = (char)c;
+        }
+    }
+    out[o] = '\0';
+}
+
+/* One read: the text regions of the upright picture, the surest lines read,
+ * each said in view pixels with its confidence and text:
+ * `text seq n x:y:w:h:conf:TEXT ...`. */
+static void read_text(struct session *s, const struct pocketcam_frame *f, int64_t now)
+{
+    struct vision_text_box tb[VISION_TEXT_MAX];
+    struct vision_view v = view_of(s);
+    struct pocketcam_frame in;
+    char line[VISION_LINE_MAX];
+    size_t off;
+    size_t count;
+    const float *map;
+    float ratio;
+    int pre = 0;
+    int inf = 0;
+    int pre_sum = 0;
+    int inf_sum = 0;
+    int64_t t0 = mono_ms();
+    int n;
+    int i;
+    int said = 0;
+    size_t need = (size_t)3 * f->width * f->height;
+    uint32_t classes;
+    uint32_t steps;
+
+    s->last_read_ms = now;
+    if (text_open(s) != 0) {
+        return;
+    }
+    if (v.rotation != 0 && s->upright_size < need) {
+        uint8_t *b = realloc(s->upright, need);
+
+        if (b) {
+            s->upright = b;
+            s->upright_size = need;
+        }
+    }
+    if (upright_input(f, v.rotation, s->upright_size >= need ? s->upright : NULL, &in) != 0 ||
+        vision_net_turn(s->tdet, v.rotation) != 0 || vision_net_turn(s->trec, v.rotation) != 0 ||
+        vision_net_frame(s->tdet, &in) != 0 || vision_net_run(s->tdet, NULL, false, 0, &pre, &inf) != 0) {
+        say("readfail the text detector failed on a frame");
+        return;
+    }
+    pre_sum += pre;
+    inf_sum += inf;
+    map = vision_net_output(s->tdet, 0, &count);
+    n = vision_text_regions(map, s->tdi.dims[0][2], s->tdi.dims[0][1], s->tdi.dims[0][3], VISION_TEXT_THRESHOLD,
+                            VISION_TEXT_BOX_MIN, tb, VISION_READ_LINES);
+    ratio = (float)s->tdi.in_w / (float)in.width < (float)s->tdi.in_h / (float)in.height
+                ? (float)s->tdi.in_w / (float)in.width
+                : (float)s->tdi.in_h / (float)in.height;
+    classes = s->tri.dims[0][s->tri.rank[0] - 1];
+    steps = (uint32_t)(s->tri.count[0] / classes);
+    if (n > 0 && vision_net_frame(s->trec, &in) != 0) {
+        n = 0;
+    }
+    off = (size_t)snprintf(line, sizeof(line), "text %u", f->seq);
+    {
+        char items[VISION_LINE_MAX];
+        size_t io = 0;
+
+        items[0] = '\0';
+        for (i = 0; i < n && said < VISION_READ_SHOWN; i++) {
+            struct vision_box b = {
+                (int32_t)((float)tb[i].box.x / ratio), (int32_t)((float)tb[i].box.y / ratio),
+                (int32_t)((float)tb[i].box.w / ratio), (int32_t)((float)tb[i].box.h / ratio),
+            };
+            struct vision_box g;
+            struct vision_box fb;
+            struct vision_box vb;
+            uint32_t cls[VISION_TEXT_CHARS];
+            uint16_t pos[VISION_TEXT_CHARS];
+            uint16_t conf = 0;
+            char text[VISION_READ_TEXT];
+            char enc[VISION_READ_TEXT * 3 + 1];
+            const float *sc;
+            int m;
+            int w;
+
+            if ((uint32_t)(b.x + b.w) > in.width) {
+                b.w = (int32_t)in.width - b.x;
+            }
+            if ((uint32_t)(b.y + b.h) > in.height) {
+                b.h = (int32_t)in.height - b.y;
+            }
+            g = text_margin(&b, in.width, in.height);
+            if (g.w <= 0 || g.h <= 0 || vision_net_run(s->trec, &g, false, 0, &pre, &inf) != 0) {
+                continue;
+            }
+            pre_sum += pre;
+            inf_sum += inf;
+            sc = vision_net_output(s->trec, 0, &count);
+            m = vision_text_ctc_pos(sc, steps, classes, classes - 1, cls, pos, VISION_TEXT_CHARS, &conf);
+            if (m <= 0) {
+                continue;
+            }
+            line_text(s->dict, cls, m, text, sizeof(text));
+            pct(text, enc, sizeof(enc));
+            /* The box: upright picture -> frame -> view. */
+            fb = b;
+            if (v.rotation != 0) {
+                vision_box_unturn(f->width, f->height, v.rotation, &b, &fb);
+            }
+            if (vision_map_box(&v, &fb, &vb) != 1) {
+                continue;
+            }
+            w = snprintf(items + io, sizeof(items) - io, " %d:%d:%d:%d:%u:%s", vb.x, vb.y, vb.w, vb.h, conf, enc);
+            if (w < 0 || io + (size_t)w + off + 16 >= sizeof(line)) {
+                break;
+            }
+            io += (size_t)w;
+            said++;
+        }
+        snprintf(line + off, sizeof(line) - off, " %d%s", said, items);
+    }
+    say("%s", line);
+    s->last_pre_ms = pre_sum;
+    s->last_infer_ms = inf_sum;
+    s->last_post_ms = (int)(mono_ms() - t0) - pre_sum - inf_sum;
+    if (s->last_post_ms < 0) {
+        s->last_post_ms = 0;
+    }
+    s->inferred++;
+}
+
 /* `n` per-mille words, or the one word `off` (every value -1). 0, or -1
  * for anything else. */
 static int parse_pm(char **save, int *v, int n)
@@ -1052,6 +1394,11 @@ static void command(struct session *s, char *line)
             set_mode(s, MODE_EDGE);
         } else if (a && strcmp(a, "trace") == 0) {
             set_mode(s, MODE_TRACE);
+        } else if (a && strcmp(a, "read") == 0 && s->text_offered) {
+            set_mode(s, MODE_READ);
+            /* The models load now, not on the first frame: a failure is
+             * said at once. */
+            text_open(s);
         }
     } else if (strcmp(w, "color") == 0) {
         char *a = strtok_r(NULL, " ", &save);
@@ -1222,7 +1569,13 @@ static void stream_once(struct session *s)
      * the boxes said for this frame are drawn on this frame. In a pixel
      * mode the detector idles: the picture is the work, at the preview's
      * own rate. */
-    if (!pixel_mode(s)) {
+    if (s->mode == MODE_READ) {
+        /* A read is slow (the detector and a run per line): at most every
+         * VISION_READ_INTERVAL_MS, the preview going on between. */
+        if (now - s->last_read_ms >= VISION_READ_INTERVAL_MS) {
+            read_text(s, &f, now);
+        }
+    } else if (!pixel_mode(s)) {
         detect(s, &f, now);
     }
     if (!s->quit && s->view_w && now - s->last_sent_ms >= POCKETCAM_PREVIEW_MIN_INTERVAL_MS) {
@@ -1348,6 +1701,13 @@ static int run_session(const char *backend, const char *config, const char *mode
     s->range = VISION_RANGE_NORMAL;
     vision_window_init(&s->win);
     tracker_params(s);
+    s->text_det_path = getenv("POCKETOS_VISION_TEXT_DET");
+    s->text_rec_path = getenv("POCKETOS_VISION_TEXT_REC");
+    s->text_dict_path = getenv("POCKETOS_VISION_TEXT_DICT");
+    s->text_det_path = s->text_det_path && *s->text_det_path ? s->text_det_path : VISION_TEXT_DET_DEFAULT;
+    s->text_rec_path = s->text_rec_path && *s->text_rec_path ? s->text_rec_path : VISION_TEXT_REC_DEFAULT;
+    s->text_dict_path = s->text_dict_path && *s->text_dict_path ? s->text_dict_path : VISION_TEXT_DICT_DEFAULT;
+    s->net_script = kpu_script;
     say("hello %d %s %s", VISION_PROTO_VERSION, backend, vision_kpu_backend());
     if (map_shm(s) != 0) {
         say("error shm no usable shared memory on descriptor %d", POCKETCAM_SHM_FD);
@@ -1370,17 +1730,22 @@ static int run_session(const char *backend, const char *config, const char *mode
     vision_traffic_map_names(&s->tf, s->model.classes, vision_label);
     say("ready %s %u %u %d %s %u %u %u", s->info.name, s->info.preview_w, s->info.preview_h,
         s->info.simulated ? 1 : 0, s->model.model, s->model.in_w, s->model.in_h, s->model.classes);
-    /* What this helper can run: the detector's modes and the pixel modes. */
-    say("caps detect track traffic color edge trace");
+    /* What this helper can run: the detector's modes and the pixel modes,
+     * and READ when its models are on the unit. */
+    s->text_offered = access(s->text_det_path, R_OK) == 0 && access(s->text_rec_path, R_OK) == 0 &&
+                      access(s->text_dict_path, R_OK) == 0;
+    say("caps detect track traffic color edge trace%s", s->text_offered ? " read" : "");
     while (!s->quit && !s->in_eof && !stop_requested() && !out_broken) {
         read_commands(s, s->streaming ? 0 : 250);
         if (s->streaming && !s->quit) {
             stream_once(s);
         }
     }
-    /* The camera first, then the detector: the sensor is what another
-     * screen may be waiting for. */
+    /* The camera first, then the nets and the detector: the sensor is what
+     * another screen may be waiting for; the detector returns the runtime's
+     * shared pool, so it goes last. */
     pocketcam_close(&s->cam);
+    text_close(s);
     vision_kpu_close(s->kpu);
     if (s->quit && s->exit_code == 0) {
         say("bye");
@@ -1877,6 +2242,123 @@ static int run_bench(const char *backend, const char *config, const char *model,
 }
 
 
+/* pos-vision text: the text models on a saved picture, as READ runs them,
+ * every region read with its confidence and the step each character came
+ * at (what the word breaks are made from). On unit B the vendor's pair read
+ * under the blank-last convention (the characters from class 0, the blank
+ * the last class) and gave nonsense under PaddleOCR's blank-first one. */
+static int run_text_bench(const char *image, const char *det_path, const char *rec_path, const char *dict_path,
+                          int frames)
+{
+    struct pocketcam_frame f;
+    uint8_t *buf = NULL;
+    struct vision_net *det = NULL;
+    struct vision_net *rec = NULL;
+    struct vision_net_info di;
+    struct vision_net_info ri;
+    struct vision_dict dict;
+    char err[96] = "";
+    int k;
+    int rc = 0;
+
+    if (load_image(image, &f, &buf) != 0) {
+        return EXIT_USAGE;
+    }
+    if (dict_load(&dict, dict_path) != 0) {
+        fprintf(stderr, "pos-vision: %s: no dictionary\n", dict_path);
+        free(buf);
+        return EXIT_NOMODEL;
+    }
+    if (vision_net_open(&det, det_path, NULL, &di, err, sizeof(err)) != 0 ||
+        vision_net_open(&rec, rec_path, NULL, &ri, err, sizeof(err)) != 0) {
+        fprintf(stderr, "pos-vision: text models: %s\n", err);
+        vision_net_close(det);
+        dict_free(&dict);
+        free(buf);
+        return EXIT_NOMODEL;
+    }
+    printf("picture %ux%u; detector %ux%u -> [%u,%u,%u,%u]; recogniser %ux%u -> [%u,%u,%u]; dictionary %u entries\n",
+           f.width, f.height, di.in_w, di.in_h, di.dims[0][0], di.dims[0][1], di.dims[0][2], di.dims[0][3], ri.in_w,
+           ri.in_h, ri.dims[0][0], ri.dims[0][1], ri.dims[0][2], dict.n);
+    for (k = 0; k < frames && rc == 0; k++) {
+        struct vision_text_box tb[VISION_TEXT_MAX];
+        int64_t t0 = mono_ms();
+        int pre = 0;
+        int inf = 0;
+        size_t count;
+        const float *map;
+        float ratio;
+        int n;
+        int i;
+        int64_t rec_ms = 0;
+
+        if (vision_net_frame(det, &f) != 0 || vision_net_run(det, NULL, false, 0, &pre, &inf) != 0) {
+            rc = EXIT_LOST;
+            break;
+        }
+        map = vision_net_output(det, 0, &count);
+        n = vision_text_regions(map, di.dims[0][2], di.dims[0][1], di.dims[0][3] ? di.dims[0][3] : 1,
+                                VISION_TEXT_THRESHOLD, VISION_TEXT_BOX_MIN, tb, VISION_TEXT_MAX);
+        ratio = (float)di.in_w / (float)f.width < (float)di.in_h / (float)f.height ? (float)di.in_w / (float)f.width
+                                                                                    : (float)di.in_h / (float)f.height;
+        printf("frame %d: detector pre %d ms run %d ms, %d regions\n", k + 1, pre, inf, n);
+        if (vision_net_frame(rec, &f) != 0) {
+            rc = EXIT_LOST;
+            break;
+        }
+        for (i = 0; i < n; i++) {
+            struct vision_box b = {
+                (int32_t)((float)tb[i].box.x / ratio), (int32_t)((float)tb[i].box.y / ratio),
+                (int32_t)((float)tb[i].box.w / ratio), (int32_t)((float)tb[i].box.h / ratio),
+            };
+            struct vision_box g;
+            uint32_t cls[VISION_TEXT_CHARS];
+            const float *sc;
+            /* The classes are the last dimension, whatever the layout
+             * ([1, T, C] or [T, 1, C]); the steps are the rest. */
+            uint32_t classes = ri.dims[0][ri.rank[0] > 0 ? ri.rank[0] - 1 : 0];
+            uint32_t steps = classes ? (uint32_t)(ri.count[0] / classes) : 0;
+            uint16_t conf = 0;
+            int64_t r0 = mono_ms();
+            int m;
+            int j;
+
+            if ((uint32_t)(b.x + b.w) > f.width) {
+                b.w = (int32_t)f.width - b.x;
+            }
+            if ((uint32_t)(b.y + b.h) > f.height) {
+                b.h = (int32_t)f.height - b.y;
+            }
+            g = text_margin(&b, f.width, f.height);
+            if (g.w <= 0 || g.h <= 0 || vision_net_run(rec, &g, false, 0, NULL, NULL) != 0) {
+                continue;
+            }
+            sc = vision_net_output(rec, 0, &count);
+            rec_ms += mono_ms() - r0;
+            {
+                uint16_t pos[VISION_TEXT_CHARS];
+                char text[VISION_READ_TEXT * 2];
+
+                m = vision_text_ctc_pos(sc, steps, classes, classes - 1, cls, pos, VISION_TEXT_CHARS, &conf);
+                line_text(&dict, cls, m > 0 ? m : 0, text, sizeof(text));
+                printf("  region %d (%d,%d %dx%d) score %u%%: %3u%% \"%s\"  steps", i, g.x, g.y, g.w, g.h,
+                       tb[i].score / 10, conf / 10, text);
+                for (j = 0; j < m; j++) {
+                    printf(" %u", pos[j]);
+                }
+                printf("\n");
+            }
+        }
+        printf("  frame %d: %lld ms in all, recogniser %lld ms\n", k + 1, (long long)(mono_ms() - t0),
+               (long long)rec_ms);
+    }
+    vision_net_close(rec);
+    vision_net_close(det);
+    dict_free(&dict);
+    free(buf);
+    return rc;
+}
+
 static void usage(void)
 {
     fprintf(stderr,
@@ -1885,7 +2367,8 @@ static void usage(void)
             "       pos-vision bench [N] [--backend NAME] [--config CFG] [--model FILE]\n"
             "                        [--turn 0|90|180|270] [--save FILE.ppm [--save-every N]]\n"
             "                        [--image FILE.ppm | --images A.ppm,B.ppm,...]\n"
-            "                        [--range near|normal|far] [--tracks]\n");
+            "                        [--range near|normal|far] [--tracks]\n"
+            "       pos-vision describe MODEL.kmodel\n");
 }
 
 int main(int argc, char **argv)
@@ -1906,6 +2389,32 @@ int main(int argc, char **argv)
     if (!cmd) {
         usage();
         return EXIT_USAGE;
+    }
+    if (strcmp(cmd, "text") == 0) {
+        /* pos-vision text IMAGE.ppm DET REC DICT [FRAMES] */
+        if (argc < 6 || argc > 7) {
+            usage();
+            return EXIT_USAGE;
+        }
+        return run_text_bench(argv[2], argv[3], argv[4], argv[5], argc == 7 ? atoi(argv[6]) : 1);
+    }
+    if (strcmp(cmd, "describe") == 0) {
+        /* A model's inputs and outputs, for bringing one up on the bench. */
+        char buf[4096];
+        int r;
+
+        if (argc != 3) {
+            usage();
+            return EXIT_USAGE;
+        }
+        r = vision_kpu_describe(argv[2], buf, sizeof(buf));
+        fputs(buf, stdout);
+        if (r != 0) {
+            fprintf(stderr, "pos-vision: %s: %s\n", argv[2], r == -ENOENT ? "no such file" :
+                    r == -ENOTSUP ? "no model runtime in this build" : "not a model this runtime loads");
+            return EXIT_NOMODEL;
+        }
+        return 0;
     }
     for (i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--backend") == 0 && i + 1 < argc) {

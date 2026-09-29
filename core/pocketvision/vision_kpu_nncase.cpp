@@ -70,6 +70,9 @@ struct vision_kpu {
     std::vector<float> out;
 };
 
+/* Objects of ours alive in the runtime (release_pool). */
+static int live;
+
 static int64_t mono_ms()
 {
     struct timespec t;
@@ -150,6 +153,7 @@ extern "C" int vision_kpu_open(struct vision_kpu **kp, const char *path, const c
     info->classes = k->classes;
     info->rows = k->rows;
     *kp = k.release();
+    live++;
     return 0;
 }
 
@@ -417,19 +421,385 @@ extern "C" int vision_kpu_turn(struct vision_kpu *k, int rotation)
     return k && (rotation == 0 || rotation == 90 || rotation == 180 || rotation == 270) ? 0 : -EINVAL;
 }
 
+/* Objects of ours alive in the runtime: the detector and every net. The
+ * runtime's shared pool (CMA, through libmmz) is given back when the last
+ * one closes, as the vendor's programs do on exit - and it must be: the
+ * driver does NOT reclaim it when the process ends. Unit B, 2026-09-29: the
+ * text bench, whose nets never called this, leaked ~50 MB of CMA a run
+ * until 428 of 512 MB were gone and every run faulted; only a reboot gave
+ * it back. `live` is declared at the top. */
+static void release_pool(void)
+{
+    if (live > 0 && --live == 0) {
+        shrink_memory_pool();
+        kd_mpi_mmz_deinit();
+    }
+}
+
 extern "C" void vision_kpu_close(struct vision_kpu *k)
 {
     if (!k) {
         return;
     }
     delete k;
-    /* The runtime's shared pool is returned once nothing of ours holds it,
-     * as the vendor's programs do on exit. */
-    shrink_memory_pool();
-    kd_mpi_mmz_deinit();
+    release_pool();
 }
 
 extern "C" const char *vision_kpu_backend(void)
 {
     return "nncase";
+}
+
+/* ---- nets ------------------------------------------------------------------- */
+
+struct vision_net {
+    interpreter interp;
+    runtime_tensor model_in;
+    runtime_tensor ai2d_in;
+    std::unique_ptr<ai2d_builder> builder;
+    uint32_t in_w = 0;
+    uint32_t in_h = 0;
+    uint32_t fw = 0;               /* the frame in ai2d_in */
+    uint32_t fh = 0;
+    bool have_frame = false;
+    /* What the schedule was built for. */
+    struct vision_box bwin = { 0, 0, 0, 0 };
+    bool bstretch = false;
+    uint8_t bpad = 0;
+    int outputs = 0;
+    std::vector<float> out[VISION_NET_OUTPUTS];
+    bool have_out = false;
+};
+
+extern "C" int vision_net_open(struct vision_net **np, const char *path, const char *script,
+                               struct vision_net_info *info, char *err, size_t errlen)
+{
+    (void)script;
+    if (!np || !path || !info) {
+        return -EINVAL;
+    }
+    std::ifstream ifs(path, std::ios::binary);
+    if (!ifs) {
+        reason(err, errlen, "model file not found");
+        return -ENOENT;
+    }
+    std::unique_ptr<vision_net> n(new (std::nothrow) vision_net);
+    if (!n) {
+        return -ENOMEM;
+    }
+    if (!n->interp.load_model(ifs).is_ok()) {
+        reason(err, errlen, "not a kmodel this runtime can load");
+        return -EPROTO;
+    }
+    auto in_shape = n->interp.input_shape(0);
+    if (n->interp.inputs_size() != 1 || in_shape.size() != 4 || in_shape[0] != 1 || in_shape[1] != 3 ||
+        n->interp.input_desc(0).datatype != dt_uint8 || n->interp.outputs_size() < 1 ||
+        n->interp.outputs_size() > VISION_NET_OUTPUTS) {
+        reason(err, errlen, "the model does not take one 8-bit RGB picture");
+        return -EPROTO;
+    }
+    memset(info, 0, sizeof(*info));
+    n->in_h = (uint32_t)in_shape[2];
+    n->in_w = (uint32_t)in_shape[3];
+    info->in_w = n->in_w;
+    info->in_h = n->in_h;
+    n->outputs = (int)n->interp.outputs_size();
+    info->outputs = n->outputs;
+    for (int i = 0; i < n->outputs; i++) {
+        auto s = n->interp.output_shape((size_t)i);
+        size_t count = 1;
+
+        if (n->interp.output_desc((size_t)i).datatype != dt_float32 || s.size() > VISION_NET_RANK) {
+            reason(err, errlen, "an output is not a float tensor of rank 4 or less");
+            return -EPROTO;
+        }
+        info->rank[i] = (uint32_t)s.size();
+        for (size_t k = 0; k < s.size(); k++) {
+            info->dims[i][k] = (uint32_t)s[k];
+            count *= (size_t)s[k];
+        }
+        info->count[i] = count;
+        n->out[i].resize(count);
+    }
+    auto t = hrt::create(dt_uint8, in_shape, hrt::pool_shared);
+    if (!t.is_ok()) {
+        reason(err, errlen, "no shared memory for the model input");
+        return -ENOMEM;
+    }
+    n->model_in = t.unwrap();
+    if (!n->interp.input_tensor(0, n->model_in).is_ok()) {
+        reason(err, errlen, "the model refused its input tensor");
+        return -EIO;
+    }
+    *np = n.release();
+    live++;
+    return 0;
+}
+
+extern "C" int vision_net_frame(struct vision_net *n, const struct pocketcam_frame *f)
+{
+    if (!n || pocketcam_frame_check(f) != 0 || f->format != POCKETCAM_FMT_BG3P || f->width > VISION_MAX_COORD ||
+        f->height > VISION_MAX_COORD) {
+        return -EPROTO;
+    }
+    if (n->fw != f->width || n->fh != f->height) {
+        dims_t shape { 1, 3, f->height, f->width };
+        auto t = hrt::create(dt_uint8, shape, hrt::pool_shared);
+
+        n->builder.reset();
+        n->have_frame = false;
+        if (!t.is_ok()) {
+            return -ENOMEM;
+        }
+        n->ai2d_in = t.unwrap();
+        n->fw = f->width;
+        n->fh = f->height;
+    }
+    {
+        auto m = hrt::map(n->ai2d_in, map_access_::map_write);
+        if (!m.is_ok()) {
+            return -EIO;
+        }
+        auto mapped = std::move(m.unwrap());
+        uint8_t *dst = reinterpret_cast<uint8_t *>(mapped.buffer().data());
+        size_t plane_out = (size_t)f->width * f->height;
+        size_t plane_in = (size_t)f->stride * f->height;
+
+        if (mapped.buffer().size() < 3 * plane_out) {
+            return -EIO;
+        }
+        for (int p = 0; p < 3; p++) {
+            if (f->stride == f->width) {
+                memcpy(dst + p * plane_out, f->data + p * plane_in, plane_out);
+            } else {
+                for (uint32_t y = 0; y < f->height; y++) {
+                    memcpy(dst + p * plane_out + (size_t)y * f->width, f->data + p * plane_in + (size_t)y * f->stride,
+                           f->width);
+                }
+            }
+        }
+        if (!mapped.unmap().is_ok()) {
+            return -EIO;
+        }
+    }
+    if (!hrt::sync(n->ai2d_in, sync_op_t::sync_write_back, true).is_ok()) {
+        return -EIO;
+    }
+    n->have_frame = true;
+    return 0;
+}
+
+/* The schedule for a window of the frame into the model: cropped, then
+ * letterboxed (top-left, padded right and bottom) or stretched. */
+static int net_build(struct vision_net *n, const struct vision_box *w, bool stretch, uint8_t pad)
+{
+    int bottom = 0;
+    int right = 0;
+
+    if (!stretch) {
+        float ratio_w = (float)n->in_w / (float)w->w;
+        float ratio_h = (float)n->in_h / (float)w->h;
+        float ratio = ratio_w < ratio_h ? ratio_w : ratio_h;
+
+        bottom = (int)n->in_h - (int)(ratio * (float)w->h);
+        right = (int)n->in_w - (int)(ratio * (float)w->w);
+        bottom = bottom < 0 ? 0 : bottom;
+        right = right < 0 ? 0 : right;
+    }
+    dims_t in_shape { 1, 3, n->fh, n->fw };
+    dims_t out_shape { 1, 3, n->in_h, n->in_w };
+    ai2d_datatype_t dtype { ai2d_format::NCHW_FMT, ai2d_format::NCHW_FMT, dt_uint8, dt_uint8 };
+    bool whole = w->x == 0 && w->y == 0 && (uint32_t)w->w == n->fw && (uint32_t)w->h == n->fh;
+    ai2d_crop_param_t crop { !whole, w->x, w->y, w->w, w->h };
+    ai2d_shift_param_t shift { false, 0 };
+    ai2d_pad_param_t padp { bottom > 0 || right > 0, { { 0, 0 }, { 0, 0 }, { 0, bottom }, { 0, right } },
+                            ai2d_pad_mode::constant, { pad, pad, pad } };
+    ai2d_resize_param_t resize { true, ai2d_interp_method::tf_bilinear, ai2d_interp_mode::half_pixel };
+    ai2d_affine_param_t affine { false, ai2d_interp_method::cv2_bilinear, 0, 0, 127, 1,
+                                 { 0.5, 0.1, 0.0, 0.1, 0.5, 0.0 } };
+
+    n->builder.reset(new (std::nothrow) ai2d_builder(in_shape, out_shape, dtype, crop, shift, padp, resize, affine));
+    if (!n->builder) {
+        return -ENOMEM;
+    }
+    if (!n->builder->build_schedule().is_ok()) {
+        n->builder.reset();
+        return -EIO;
+    }
+    n->bwin = *w;
+    n->bstretch = stretch;
+    n->bpad = pad;
+    return 0;
+}
+
+extern "C" int vision_net_run(struct vision_net *n, const struct vision_box *win, bool stretch, uint8_t pad,
+                              int *pre_ms, int *infer_ms)
+{
+    struct vision_box w;
+    int64_t t0;
+    int64_t t1;
+    int64_t t2;
+
+    if (!n) {
+        return -EINVAL;
+    }
+    if (!n->have_frame) {
+        return -EPROTO;
+    }
+    if (win) {
+        w = *win;
+    } else {
+        w.x = 0;
+        w.y = 0;
+        w.w = (int32_t)n->fw;
+        w.h = (int32_t)n->fh;
+    }
+    if (w.x < 0 || w.y < 0 || w.w <= 0 || w.h <= 0 || (uint32_t)(w.x + w.w) > n->fw ||
+        (uint32_t)(w.y + w.h) > n->fh) {
+        return -EINVAL;
+    }
+    t0 = mono_ms();
+    if (!n->builder || n->bwin.x != w.x || n->bwin.y != w.y || n->bwin.w != w.w || n->bwin.h != w.h ||
+        n->bstretch != stretch || n->bpad != pad) {
+        int r = net_build(n, &w, stretch, pad);
+
+        if (r != 0) {
+            return r;
+        }
+    }
+    if (!n->builder->invoke(n->ai2d_in, n->model_in).is_ok()) {
+        return -EIO;
+    }
+    t1 = mono_ms();
+    if (!n->interp.run().is_ok()) {
+        return -EIO;
+    }
+    t2 = mono_ms();
+    for (int i = 0; i < n->outputs; i++) {
+        auto ot = n->interp.output_tensor((size_t)i);
+        if (!ot.is_ok()) {
+            return -EIO;
+        }
+        auto host = ot.unwrap().impl()->to_host();
+        if (!host.is_ok()) {
+            return -EIO;
+        }
+        auto hb = host.unwrap()->buffer().as_host();
+        if (!hb.is_ok()) {
+            return -EIO;
+        }
+        auto m = hb.unwrap().map(map_access_::map_read);
+        if (!m.is_ok()) {
+            return -EIO;
+        }
+        auto mapped = std::move(m.unwrap());
+        size_t bytes = n->out[i].size() * sizeof(float);
+
+        if (mapped.buffer().size() < bytes) {
+            return -EPROTO;
+        }
+        memcpy(n->out[i].data(), mapped.buffer().data(), bytes);
+    }
+    n->have_out = true;
+    if (pre_ms) {
+        *pre_ms = (int)(t1 - t0);
+    }
+    if (infer_ms) {
+        *infer_ms = (int)(t2 - t1);
+    }
+    return 0;
+}
+
+extern "C" const float *vision_net_output(const struct vision_net *n, int i, size_t *count)
+{
+    if (!n || !n->have_out || i < 0 || i >= n->outputs) {
+        return NULL;
+    }
+    if (count) {
+        *count = n->out[i].size();
+    }
+    return n->out[i].data();
+}
+
+extern "C" int vision_net_turn(struct vision_net *n, int rotation)
+{
+    return n && (rotation == 0 || rotation == 90 || rotation == 180 || rotation == 270) ? 0 : -EINVAL;
+}
+
+extern "C" void vision_net_close(struct vision_net *n)
+{
+    if (!n) {
+        return;
+    }
+    delete n;
+    release_pool();
+}
+
+static const char *type_name(typecode_t t)
+{
+    if (t == dt_uint8) {
+        return "u8";
+    }
+    if (t == dt_int8) {
+        return "i8";
+    }
+    if (t == dt_int16) {
+        return "i16";
+    }
+    if (t == dt_float32) {
+        return "f32";
+    }
+    if (t == dt_float16) {
+        return "f16";
+    }
+    return "?";
+}
+
+static size_t say_shape(char *out, size_t len, size_t off, const char *what, size_t i, const dims_t &d,
+                        typecode_t t)
+{
+    int n;
+
+    if (off >= len) {
+        return off;
+    }
+    n = snprintf(out + off, len - off, "%s %zu %s [", what, i, type_name(t));
+    off += n > 0 ? (size_t)n : 0;
+    for (size_t k = 0; k < d.size() && off < len; k++) {
+        n = snprintf(out + off, len - off, "%s%zu", k ? "," : "", (size_t)d[k]);
+        off += n > 0 ? (size_t)n : 0;
+    }
+    if (off < len) {
+        n = snprintf(out + off, len - off, "]\n");
+        off += n > 0 ? (size_t)n : 0;
+    }
+    return off;
+}
+
+extern "C" int vision_kpu_describe(const char *path, char *out, size_t len)
+{
+    std::ifstream ifs(path, std::ios::binary);
+    size_t off = 0;
+
+    if (!out || len == 0) {
+        return -EINVAL;
+    }
+    out[0] = '\0';
+    if (!ifs) {
+        return -ENOENT;
+    }
+    std::unique_ptr<interpreter> in(new (std::nothrow) interpreter);
+    if (!in) {
+        return -ENOMEM;
+    }
+    if (!in->load_model(ifs).is_ok()) {
+        return -EPROTO;
+    }
+    for (size_t i = 0; i < in->inputs_size(); i++) {
+        off = say_shape(out, len, off, "input", i, in->input_shape(i), in->input_desc(i).datatype);
+    }
+    for (size_t i = 0; i < in->outputs_size(); i++) {
+        off = say_shape(out, len, off, "output", i, in->output_shape(i), in->output_desc(i).datatype);
+    }
+    return 0;
 }
