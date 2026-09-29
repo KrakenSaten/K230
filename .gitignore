@@ -192,6 +192,13 @@ BUILD_ID
 /tests/rec_session_test
 /tests/rec_ctl_test
 /tests/pos-record-testhooks
+# MP3 (docs/apps/MP3.md)
+/tools/mp3/pos-mp3
+/tests/mp3_decoder_test
+/tests/mp3_library_test
+/tests/mp3_session_test
+/tests/mp3_ctl_test
+/tests/pos-mp3-testhooks
 # Vision (docs/apps/VISION.md)
 /tools/vision/pos-vision
 /tests/vision_decode_test

@@ -655,11 +655,12 @@ static void churn(void)
      * that sixty more opens and closes give it back. LVGL allocates from the
      * C heap here (LV_STDLIB_CLIB), as on the unit. Every open starts one
      * short-lived scan thread, and glibc's per-thread bookkeeping moves the
-     * main heap by a few KB in steps that then stay flat (measured over 200
-     * opens while writing this); a leak of anything the app allocates - a
-     * row, the 55 KB folder list, the 51 KB queue - is at least 100 bytes
-     * every open. So the bound is an average under 64 bytes per open. Leaks
-     * as such are LeakSanitizer's job (make mp3-san-test). */
+     * heap by 1.9 to 3.6 KB over sixty opens (four runs, 2026-09-29), in
+     * steps that then stay flat; a leak of anything the app allocates per
+     * open - three list rows are over 1 KB, the folder list 55 KB, the queue
+     * 51 KB - is far more. So the bound is 256 bytes per open on average.
+     * Leaks as such are LeakSanitizer's job: make mp3-san-test, and this
+     * test built with -fsanitize=address (docs/apps/MP3.md, Tests). */
     for (k = 0; k < 20; k++) {
         app_start();
         wait_text("Music/album", 3000);
@@ -680,8 +681,8 @@ static void churn(void)
     pump(200);
     m2 = mallinfo2();
     printf("note heap after sixty more opens and closes: %+ld bytes\n", (long)m2.uordblks - (long)m0.uordblks);
-    check("and they leak nothing (under 64 bytes per open on average)",
-          (long)m2.uordblks - (long)m0.uordblks < 61 * 64);
+    check("and they leak nothing (under 256 bytes per open on average)",
+          (long)m2.uordblks - (long)m0.uordblks < 61 * 256);
 }
 
 static void write_wav(const char *path, unsigned ms)
