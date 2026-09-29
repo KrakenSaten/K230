@@ -41,3 +41,51 @@ int vision_nms(struct vision_det *cands, int n, uint32_t iou_max, struct vision_
     }
     return kept;
 }
+
+static int64_t area(const struct vision_box *b)
+{
+    return (int64_t)b->w * b->h;
+}
+
+/* The area of a inside b. */
+static int64_t inside(const struct vision_box *a, const struct vision_box *b)
+{
+    int64_t x1 = a->x > b->x ? a->x : b->x;
+    int64_t y1 = a->y > b->y ? a->y : b->y;
+    int64_t x2 = (int64_t)a->x + a->w < (int64_t)b->x + b->w ? (int64_t)a->x + a->w : (int64_t)b->x + b->w;
+    int64_t y2 = (int64_t)a->y + a->h < (int64_t)b->y + b->h ? (int64_t)a->y + a->h : (int64_t)b->y + b->h;
+
+    if (x2 <= x1 || y2 <= y1) {
+        return 0;
+    }
+    return (x2 - x1) * (y2 - y1);
+}
+
+int vision_nms_nested(struct vision_det *dets, int n, uint32_t inside_pm)
+{
+    int i;
+    int j;
+    int kept = 0;
+
+    if (!dets || n <= 0) {
+        return 0;
+    }
+    for (i = 0; i < n; i++) {
+        bool drop = false;
+        int64_t a = area(&dets[i].box);
+
+        for (j = 0; j < n && a > 0; j++) {
+            if (j == i || dets[j].cls != dets[i].cls || area(&dets[j].box) <= a) {
+                continue;
+            }
+            if (inside(&dets[i].box, &dets[j].box) * 1000 >= a * (int64_t)inside_pm) {
+                drop = true;
+                break;
+            }
+        }
+        if (!drop) {
+            dets[kept++] = dets[i];
+        }
+    }
+    return kept;
+}

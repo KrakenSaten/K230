@@ -27,11 +27,14 @@ int vision_line_side(const struct vision_line *l, int32_t px, int32_t py, int32_
     return cross > 0 ? 1 : -1;
 }
 
-int32_t vision_line_dead_px(const struct vision_box *b)
+int32_t vision_line_dead_px(const struct vision_line *l, const struct vision_box *b)
 {
     int32_t side = b->w < b->h ? b->w : b->h;
     int32_t dead = (int32_t)(((int64_t)side * VISION_LINE_DEAD_PM) / 1000);
 
+    if (l->dead_max > 0 && dead > l->dead_max) {
+        dead = l->dead_max;
+    }
     return dead < VISION_LINE_DEAD_PX ? VISION_LINE_DEAD_PX : dead;
 }
 
@@ -61,7 +64,9 @@ int vision_line_count(const struct vision_line *l, int idx, struct vision_tracke
         struct vision_line_state *ls = &t->ls[idx];
         int32_t cx;
         int32_t cy;
+        int32_t dead;
         int side;
+        bool far;
 
         /* Only a real sighting moves a centre; a coasting track keeps its
          * side, so a prediction never crosses a line by itself. */
@@ -69,7 +74,13 @@ int vision_line_count(const struct vision_line *l, int idx, struct vision_tracke
             continue;
         }
         vision_box_centre(&t->box, &cx, &cy);
-        side = vision_line_side(l, cx, cy, vision_line_dead_px(&t->box));
+        dead = vision_line_dead_px(l, &t->box);
+        side = vision_line_side(l, cx, cy, dead);
+        /* Well beyond the band - VISION_LINE_FAR_PM of it - one sighting
+         * settles: the object that walks out of the frame right after
+         * crossing (unit B, 2026-09-29: one clear sighting 41 px past the
+         * line, then gone) is a crossing all the same. */
+        far = side != 0 && vision_line_side(l, cx, cy, (int32_t)(((int64_t)dead * VISION_LINE_FAR_PM) / 1000)) == side;
         if (side == 0) {
             /* On the line: whatever was pending has to start over. */
             ls->pending = 0;
@@ -93,7 +104,7 @@ int vision_line_count(const struct vision_line *l, int idx, struct vision_tracke
             ls->pending = (int8_t)side;
             ls->run = 1;
         }
-        if (ls->run < VISION_LINE_SETTLE) {
+        if (ls->run < VISION_LINE_SETTLE && !far) {
             continue;
         }
         /* Settled on the other side: one crossing, in the direction it

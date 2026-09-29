@@ -47,7 +47,9 @@ PROPOSED).
   mid-height: counts DOWN and UP), DOWN (vertical, at mid-width: counts
   LEFT and RIGHT) and OFF. A confirmed track counts once when its centre
   has settled clearly on the other side - clearly is a dead band of a
-  quarter of the box's smaller side (at least 4 px), settled is two
+  quarter of the box's smaller side (at least 4 px, at most a sixteenth
+  of the frame's smaller side, so a person filling the picture can still
+  cross), settled is two
   sightings in a row, so neither a wobble on the line nor a one-frame jump
   across it counts - in the direction it went, and counts again only when
   it really comes back. RESET zeroes the counts and forgets the tracks.
@@ -211,8 +213,9 @@ synchronously, in this order:
 | Infer | KPU, through the nncase interpreter | one run; the first output mapped and its 2100 x 84 floats copied out. |
 | Decode | `vision_decode.c` | per row: the best class score, the threshold (0.35), the box centre and size back through the letterbox ratio, clipped to the frame; NaN, infinities, empty and absurd boxes skipped and counted; a tensor of the wrong shape refused before a value is read. At most 256 candidates, the best kept. |
 | Suppress | `vision_nms.c` | class-aware greedy NMS at IoU 0.65 (the vendor's default), at most 32 detections. |
+| Nested | `vision_nms.c` | a box at least 85 % inside a larger box of its class is the same object seen twice (a partial box beside the whole one) and is dropped; unit B counted a walker twice without this. |
 | Filter | `vision_traffic.c` | in TRAFFIC mode only: detections of a class with no traffic name are dropped here. |
-| Track | `vision_track.c` | greedy IoU matching (0.2) against each track's prediction (last box + smoothed motion), same class or same group; then a distance pass for confirmed tracks the overlap lost (same size, within 3/4 of a box side); new ids for the unmatched; coasting with decaying motion, expiry after 15 misses; confirmation after 2 sightings; 32 tracks at most. Frame pixels throughout. |
+| Track | `vision_track.c` | greedy IoU matching (0.2) against each track's prediction (last box + smoothed motion), same class or same group, and an area within 2x of the track's (3x after a dropout: a box that suddenly spans half the picture is another object, or a merge); then a distance pass for confirmed tracks the overlap lost (same size, within 3/4 of a box side); new ids for the unmatched; coasting with decaying motion, expiry after 15 misses; confirmation after 2 sightings; 32 tracks at most. Frame pixels throughout. |
 | Count | `vision_line.c` | the lines, chosen on the picture, unmapped into frame pixels (`vision_geom.c`) and checked against every seen track's centre, with the dead band and the two-sighting settle; crossings reported by id. |
 | Traffic | `vision_traffic.c` | the count line's crossings per class; the speed lines' crossings timed per track. |
 | Say | `pocketvision_proto.h` | one `det` line per frame with every shown track mapped into picture pixels (`vision_geom.c`, the same turn, mirror and cover-fit the converter draws with), its direction and speed; `count` and `traffic` when they change; `stats` once a second. |

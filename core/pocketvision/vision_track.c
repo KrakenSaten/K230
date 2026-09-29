@@ -105,8 +105,8 @@ static int32_t larger_side(const struct vision_box *b)
 }
 
 /* Whether a detection is of a size a track could have: areas within a
- * factor of three of each other. */
-static bool similar_size(const struct vision_box *a, const struct vision_box *b)
+ * factor of `ratio` of each other. */
+static bool similar_size(const struct vision_box *a, const struct vision_box *b, int ratio)
 {
     int64_t aa = (int64_t)a->w * a->h;
     int64_t bb = (int64_t)b->w * b->h;
@@ -114,7 +114,19 @@ static bool similar_size(const struct vision_box *a, const struct vision_box *b)
     if (aa <= 0 || bb <= 0) {
         return false;
     }
-    return aa * 3 >= bb && bb * 3 >= aa;
+    return aa * ratio >= bb && bb * ratio >= aa;
+}
+
+/* The size a matching detection may have, against the track's last box:
+ * twice or half its area from one frame to the next, three times while
+ * it has been coasting. A box that jumps further is another object - on
+ * unit B (2026-09-29) the detector's box of a walker flipped for a frame
+ * or two to one pinned at the picture's edge, 2.4 times the area, which
+ * carried the walker's id across the line and back; the walker's own box
+ * then became a new id and crossed again. */
+static int size_ratio(const struct vision_track *t)
+{
+    return t->misses == 0 ? VISION_TRACK_SIZE_RATIO : VISION_TRACK_SIZE_RATIO_COASTING;
 }
 
 int vision_tracker_update(struct vision_tracker *tr, const struct vision_det *dets, int n)
@@ -141,7 +153,8 @@ int vision_tracker_update(struct vision_tracker *tr, const struct vision_det *de
         }
         predicted(&tr->t[i], &pred[i]);
         for (j = 0; j < n; j++) {
-            iou[i][j] = vision_tracker_compatible(tr, tr->t[i].cls, dets[j].cls)
+            iou[i][j] = vision_tracker_compatible(tr, tr->t[i].cls, dets[j].cls) &&
+                                similar_size(&pred[i], &dets[j].box, size_ratio(&tr->t[i]))
                             ? vision_iou_permille(&pred[i], &dets[j].box)
                             : 0;
         }
@@ -197,7 +210,7 @@ int vision_tracker_update(struct vision_tracker *tr, const struct vision_det *de
                 int64_t d2;
 
                 if (det_used[j] || !vision_tracker_compatible(tr, t->cls, dets[j].cls) ||
-                    !similar_size(&pred[i], &dets[j].box)) {
+                    !similar_size(&pred[i], &dets[j].box, size_ratio(t))) {
                     continue;
                 }
                 vision_box_centre(&dets[j].box, &dcx, &dcy);
@@ -234,7 +247,11 @@ int vision_tracker_update(struct vision_tracker *tr, const struct vision_det *de
             remove_at(tr, i);
             continue;
         }
-        t->box = pred[i];
+        /* From the track itself, not pred[i]: a removal above shifted the
+         * tracks down but not the table, and the track now at i would take
+         * the expired one's prediction (unit B, 2026-09-29: a walker's id
+         * teleported onto a box at the picture's edge as it crossed). */
+        predicted(t, &t->box);
         /* A coasting track slows: an object that stopped while unseen is
          * found near where it was, one that kept going is found by the
          * second pass. */

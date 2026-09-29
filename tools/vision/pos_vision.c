@@ -77,6 +77,9 @@
 #define VISION_MODEL_DEFAULT "/usr/share/doors/vision/yolov8n.kmodel"
 #define VISION_CONF_MIN 350   /* the vendor's default conf_thres 0.35 */
 #define VISION_NMS_IOU 650    /* and nms_thres 0.65 */
+/* A box this much (per-mille of itself) inside a larger one of its class is
+ * a duplicate (vision_nms.h). */
+#define VISION_NESTED_PM 850
 /* Frames in a row whose tensor is not a tensor: the model is not working. */
 #define VISION_BAD_LIMIT 10
 #define VISION_COLOR_TOL_DEFAULT 96
@@ -325,6 +328,10 @@ static void place_line(struct session *s, int idx)
     l->y0 = a[1];
     l->x1 = b[0];
     l->y1 = b[1];
+    /* The dead band's cap, from the frame: a box that spans most of it
+     * still has to be able to cross. */
+    l->dead_max = (int32_t)((s->info.preview_w < s->info.preview_h ? s->info.preview_w : s->info.preview_h) /
+                            VISION_LINE_DEAD_DIV);
     l->enabled = true;
 }
 
@@ -618,6 +625,7 @@ static void detect(struct session *s, const struct pocketcam_frame *f, int64_t n
     }
     s->bad_run = 0;
     n = vision_nms(s->cands, n, VISION_NMS_IOU, s->dets, VISION_MAX_DETECTIONS);
+    n = vision_nms_nested(s->dets, n, VISION_NESTED_PM);
     if (s->traffic) {
         /* Only traffic is tracked: anything else the model saw is left
          * out here, so a chair never takes a track slot or a count. */
@@ -1206,6 +1214,7 @@ static int run_bench(const char *backend, const char *config, const char *model,
             int i;
 
             n = vision_nms(cands, n, VISION_NMS_IOU, dets, VISION_MAX_DETECTIONS);
+            n = vision_nms_nested(dets, n, VISION_NESTED_PM);
             vision_tracker_update(&tr, dets, n);
             if (done == 0 || done == frames - 1) {
                 /* What the model really gives back, for the gate: the range

@@ -13,6 +13,12 @@
  *      predicted box's larger side is the object found again after a
  *      dropout or a jump the overlap could not follow. Nearest first.
  *
+ * A match must also be of a size the track could have: within
+ * VISION_TRACK_SIZE_RATIO of its area from one frame to the next,
+ * VISION_TRACK_SIZE_RATIO_COASTING after a dropout. A box that suddenly
+ * spans half the picture is another object (or the detector merging two),
+ * not the track grown.
+ *
  * A detection matches a track of the same class, or of another class in
  * the same group (`group`, a table the caller sets: car, truck and bus are
  * one object to a detector that cannot make up its mind). The track keeps
@@ -44,6 +50,8 @@
 #define VISION_TRACK_MAX_MISSES 15      /* frames a track survives unseen (~0.6 s at 25 fps) */
 #define VISION_TRACK_MIN_HITS 2         /* sightings before a track is confirmed */
 #define VISION_TRACK_REACQUIRE_PM 750   /* pass 2: the centre within 3/4 of the larger side */
+#define VISION_TRACK_SIZE_RATIO 2       /* a match's area against the track's, frame to frame */
+#define VISION_TRACK_SIZE_RATIO_COASTING 3 /* ... and after a dropout, or by distance */
 #define VISION_TRACK_CLS_SWITCH 3       /* sightings of another class before the track takes it */
 #define VISION_TRACK_V_SHIFT 4          /* motion is kept x16 */
 #define VISION_LINES 3                  /* line states per track: the count line, speed lines A and B */

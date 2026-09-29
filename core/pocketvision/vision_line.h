@@ -11,10 +11,19 @@
  *
  * "Clearly" is a dead band either side of the line, sized to the object:
  * VISION_LINE_DEAD_PM of the box's smaller side, at least
- * VISION_LINE_DEAD_PX, so a centre wobbling on the line itself counts
- * nothing until it has committed. "Settled" is VISION_LINE_SETTLE clear
+ * VISION_LINE_DEAD_PX and at most the line's `dead_max` (the caller sets
+ * it from the frame, VISION_LINE_DEAD_DIV of its smaller side; 0 for no
+ * cap), so a centre wobbling on the line itself counts nothing until it
+ * has committed, and a box that spans most of the frame - a person close
+ * to the lens, whose centre can only ever move a little - still can.
+ * (Unit B, 2026-09-29: a 687 px wide box on an 802 px picture crossed
+ * cleanly and was never counted with the box-scaled band alone.)
+ * "Settled" is VISION_LINE_SETTLE clear
  * sightings on the new side in a row: one frame's jump across and back is
- * a jitter, not a crossing and a return.
+ * a jitter, not a crossing and a return. One sighting alone settles when
+ * it is VISION_LINE_FAR_PM of the band beyond it: an object seen once,
+ * decisively across, and then lost (it walked out of the frame) has
+ * crossed.
  *
  * A track is never counted twice for one crossing, and counts again only
  * when it has really gone back: its remembered side changes only when the
@@ -33,7 +42,9 @@
 
 #define VISION_LINE_DEAD_PX 4
 #define VISION_LINE_DEAD_PM 250  /* of the box's smaller side, either side of the line */
+#define VISION_LINE_DEAD_DIV 16  /* the cap: the frame's smaller side over this */
 #define VISION_LINE_SETTLE 2     /* clear sightings on the other side before it counts */
+#define VISION_LINE_FAR_PM 1500  /* ... unless one sighting is this far beyond the band (of it) */
 
 struct vision_line {
     int32_t x0;
@@ -41,6 +52,7 @@ struct vision_line {
     int32_t x1;
     int32_t y1;
     bool enabled;
+    int32_t dead_max;  /* the dead band's cap in pixels; 0: none */
 };
 
 struct vision_counts {
@@ -63,8 +75,8 @@ struct vision_crossing {
  * top to bottom (y1 > y0, x1 == x0) that is to its left. */
 int vision_line_side(const struct vision_line *l, int32_t px, int32_t py, int32_t dead_px);
 
-/* The dead band for a box of this size. */
-int32_t vision_line_dead_px(const struct vision_box *b);
+/* The dead band for a box of this size on this line. */
+int32_t vision_line_dead_px(const struct vision_line *l, const struct vision_box *b);
 
 /* Look at every track after a tracker update and count what crossed line
  * `idx` (0 .. VISION_LINES - 1: the track state to use). Returns how many

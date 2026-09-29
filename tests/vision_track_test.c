@@ -209,6 +209,82 @@ static void test_dropout(void)
     check("an object after an expired track is id 2 alone", tr.count == 1 && tr.t[0].id == 2 && !find(&tr, 1));
 }
 
+/* Unit B, 2026-09-29: a walker's box (230 x 436) flipped for a frame to a box
+ * pinned at the picture's edge (550 x 436, over the same ground) and back.
+ * The flip box is another object, not the walker grown. */
+static void test_size_gate(void)
+{
+    struct vision_tracker tr;
+    struct vision_det d[2];
+    int i;
+
+    vision_tracker_init(&tr);
+    for (i = 0; i < 4; i++) {
+        d[0] = det(0, 340 - i * 20, 10, 230, 436);
+        vision_tracker_update(&tr, d, 1);
+    }
+    check("the walker is one confirmed track", tr.count == 1 && tr.t[0].id == 1 && tr.t[0].confirmed);
+    d[0] = det(0, 3, 10, 550, 436); /* the flip: 2.4 times the area, covering the walker's place */
+    vision_tracker_update(&tr, d, 1);
+    check("a box of 2.4 times the area is a new track; the walker coasts", tr.count == 2 && find(&tr, 1) &&
+                                                                              find(&tr, 1)->misses == 1 && find(&tr, 2));
+    d[0] = det(0, 240, 10, 230, 436); /* the walker's own box again */
+    d[1] = det(0, 0, 10, 501, 433);   /* the merge, still there */
+    vision_tracker_update(&tr, d, 2);
+    check("the walker's own box comes back to the walker's id", tr.count == 2 && find(&tr, 1)->misses == 0 &&
+                                                                    find(&tr, 1)->box.w == 230 && find(&tr, 2)->box.w == 501);
+    /* A gradual change is followed: 30 % more area each frame. */
+    vision_tracker_init(&tr);
+    d[0] = det(0, 300, 100, 100, 100);
+    vision_tracker_update(&tr, d, 1);
+    for (i = 1; i <= 6; i++) {
+        int s = 100 + i * 15;
+
+        d[0] = det(0, 350 - s / 2, 150 - s / 2, s, s);
+        vision_tracker_update(&tr, d, 1);
+    }
+    check("an object growing 30 % a frame keeps its id", tr.count == 1 && tr.t[0].id == 1 && tr.t[0].box.w == 190);
+    /* After a dropout the allowance is three times. */
+    for (i = 0; i < 5; i++) {
+        vision_tracker_update(&tr, NULL, 0);
+    }
+    d[0] = det(0, 200, 0, 300, 300); /* 2.5 x the area, where it was */
+    vision_tracker_update(&tr, d, 1);
+    check("2.5 times the area after a dropout is still the same object", tr.count == 1 && tr.t[0].id == 1);
+}
+
+/* Unit B, 2026-09-29: a track expiring in the same update as another
+ * one's first miss handed its box to that other track. */
+static void test_expiry_neighbour(void)
+{
+    struct vision_tracker tr;
+    struct vision_det d[2];
+    int i;
+    const struct vision_track *walker;
+
+    vision_tracker_init(&tr);
+    /* Track 1 stands at the picture's edge for two frames, then is gone
+     * for good; track 2 is a walker seen throughout, 20 px a frame. */
+    for (i = 0; i < 2; i++) {
+        d[0] = det(0, 14, 6, 88, 443);
+        d[1] = det(0, 300 + i * 20, 9, 200, 436);
+        vision_tracker_update(&tr, d, 2);
+    }
+    for (i = 0; i < VISION_TRACK_MAX_MISSES; i++) {
+        d[0] = det(0, 340 + i * 20, 9, 200, 436);
+        vision_tracker_update(&tr, d, 1);
+    }
+    check("the standing track is on its last miss, the walker seen",
+          tr.count == 2 && find(&tr, 1)->misses == VISION_TRACK_MAX_MISSES && find(&tr, 2)->misses == 0);
+    /* The frame where the standing track expires and the walker is missed
+     * once: the walker must coast from its own place. */
+    vision_tracker_update(&tr, NULL, 0);
+    walker = find(&tr, 2);
+    check("the standing track expired, the walker remains", tr.count == 1 && walker && walker->misses == 1);
+    check("and coasts on from its own box, not the expired one's",
+          walker->box.x > 620 && walker->box.x < 720 && walker->box.w == 200);
+}
+
 static void test_classes(void)
 {
     /* COCO's traffic classes: person 0, bicycle 1, car 2, motorcycle 3,
@@ -275,11 +351,13 @@ static void test_bounded(void)
 
 static void test_sides(void)
 {
-    struct vision_line l = { 0, 100, 200, 100, true }; /* across, at y = 100 */
-    struct vision_line v = { 100, 0, 100, 200, true }; /* down, at x = 100 */
-    struct vision_line z = { 5, 5, 5, 5, true };
+    struct vision_line l = { 0, 100, 200, 100, true, 0 }; /* across, at y = 100 */
+    struct vision_line v = { 100, 0, 100, 200, true, 0 }; /* down, at x = 100 */
+    struct vision_line z = { 5, 5, 5, 5, true, 0 };
+    struct vision_line capped = { 0, 100, 200, 100, true, 22 }; /* a 360 px frame's cap */
     struct vision_box small = { 0, 0, 8, 8 };
     struct vision_box person = { 0, 0, 60, 120 };
+    struct vision_box huge = { 0, 0, 550, 349 }; /* a person close to the lens, on a 640 x 360 frame */
 
     check("above the line is side A", vision_line_side(&l, 50, 40, 4) == -1);
     check("below it is side B", vision_line_side(&l, 50, 160, 4) == 1);
@@ -290,13 +368,60 @@ static void test_sides(void)
           vision_line_side(&v, 40, 50, 4) == 1 && vision_line_side(&v, 160, 50, 4) == -1);
     check("a line with no length has no sides", vision_line_side(&z, 1, 1, 4) == 0);
     check("the dead band is a quarter of the box's smaller side, at least 4 px",
-          vision_line_dead_px(&small) == VISION_LINE_DEAD_PX && vision_line_dead_px(&person) == 15);
+          vision_line_dead_px(&l, &small) == VISION_LINE_DEAD_PX && vision_line_dead_px(&l, &person) == 15);
+    check("uncapped, a box that fills the frame gets a band nothing could cross", vision_line_dead_px(&l, &huge) == 87);
+    check("the cap holds it to the frame's sixteenth; a small box is untouched",
+          vision_line_dead_px(&capped, &huge) == 22 && vision_line_dead_px(&capped, &person) == 15);
+}
+
+/* Unit B, 2026-09-29: the owner walked left to right past the lens; the
+ * detector's box grew to 550 of 640 frame pixels and its centre ended 38 px
+ * past the line, where it sat. With the box-scaled band alone that was
+ * never a crossing. */
+static void test_huge_box(void)
+{
+    struct vision_tracker tr;
+    struct vision_line down = { 320, 0, 320, 360, true, 0 };
+    struct vision_counts c = { 0, 0 };
+    struct vision_det d[1];
+    int i;
+    /* Centres 84 .. 358 as logged (view px scaled to the frame), the box
+     * widening as it goes; 30 frames, then still. */
+    static const int cx[] = { 84, 134, 142, 143, 153, 182, 182, 192, 212, 243, 262, 292, 302, 313, 313, 322,
+                              333, 342, 350, 354, 358, 353, 355, 356, 356, 356, 356, 356, 356, 356 };
+    static const int w[] = { 168, 267, 280, 287, 250, 210, 200, 210, 260, 320, 370, 410, 450, 470, 480, 470,
+                             519, 520, 520, 520, 520, 550, 550, 550, 550, 550, 550, 550, 550, 550 };
+
+    vision_tracker_init(&tr);
+    for (i = 0; i < 30; i++) {
+        d[0] = det(0, cx[i] - w[i] / 2, 5, w[i], 349);
+        vision_tracker_update(&tr, d, 1);
+        vision_line_count(&down, 0, &tr, &c, NULL, 0);
+    }
+    check("without the cap the pass is lost (the finding)", c.ab == 0 && c.ba == 0 && tr.count == 1);
+    down.dead_max = 360 / VISION_LINE_DEAD_DIV;
+    vision_tracker_init(&tr);
+    memset(&c, 0, sizeof(c));
+    for (i = 0; i < 30; i++) {
+        d[0] = det(0, cx[i] - w[i] / 2, 5, w[i], 349);
+        vision_tracker_update(&tr, d, 1);
+        vision_line_count(&down, 0, &tr, &c, NULL, 0);
+    }
+    check("with the frame cap it counts once, to the right (B to A), on one id",
+          c.ab == 0 && c.ba == 1 && tr.count == 1 && tr.t[0].id == 1);
+    /* And a jitter of a capped box still counts nothing: the band is 22 px. */
+    for (i = 0; i < 20; i++) {
+        d[0] = det(0, 320 + (i % 2 ? 15 : -15) - 275, 5, 550, 349);
+        vision_tracker_update(&tr, d, 1);
+        vision_line_count(&down, 0, &tr, &c, NULL, 0);
+    }
+    check("a 15 px jitter of the huge box stays inside the capped band", c.ab == 0 && c.ba == 1);
 }
 
 static void test_line(void)
 {
     struct vision_tracker tr;
-    struct vision_line l = { 0, 100, 200, 100, true }; /* across, at y = 100 */
+    struct vision_line l = { 0, 100, 200, 100, true, 0 }; /* across, at y = 100 */
     struct vision_counts c = { 0, 0 };
     struct vision_det d[3];
     struct vision_crossing x[4];
@@ -344,14 +469,30 @@ static void test_line(void)
         step(&tr, &l, &c, d, 1);
     }
     check("wobbling on the line counts nothing", c.ab == 0 && c.ba == 0 && tr.count == 1);
-    d[0] = det(0, 80, 100, 40, 60); /* centre 130: side B */
+    d[0] = det(0, 80, 82, 40, 60); /* centre 112: side B, 12 px past a 10 px band - not far */
     step(&tr, &l, &c, d, 1);
     check("one sighting on the far side is not yet a crossing", c.ab == 0 && tr.t[0].ls[0].pending == 1);
-    d[0] = det(0, 80, 102, 40, 60);
+    d[0] = det(0, 80, 84, 40, 60); /* centre 114 */
     n = vision_tracker_update(&tr, d, 1);
     n = vision_line_count(&l, 0, &tr, &c, x, 4);
     check("the second sighting settles it: one crossing, reported with its id and direction",
           n == 1 && c.ab == 1 && c.ba == 0 && x[0].id == 1 && x[0].cls == 0 && x[0].dir == 1 && x[0].index == 0);
+
+    /* One sighting far beyond the band settles at once: the object that
+     * leaves the frame right after crossing. */
+    vision_tracker_init(&tr);
+    memset(&c, 0, sizeof(c));
+    for (i = 0; i < 3; i++) {
+        d[0] = det(0, 80, 30 + i * 15, 40, 60); /* centres 60, 75, 90: A */
+        step(&tr, &l, &c, d, 1);
+    }
+    d[0] = det(0, 80, 100, 40, 60); /* centre 130: 30 px past, twice the far mark */
+    step(&tr, &l, &c, d, 1);
+    check("a single sighting far past the line counts at once", c.ab == 1 && c.ba == 0);
+    for (i = 0; i < 6; i++) {
+        step(&tr, &l, &c, NULL, 0); /* then gone */
+    }
+    check("and the loss that follows adds nothing", c.ab == 1 && c.ba == 0);
 
     /* A jitter across the line, one frame each side: never a count. */
     vision_tracker_init(&tr);
@@ -453,8 +594,8 @@ static void test_line(void)
 static void test_directions(void)
 {
     struct vision_tracker tr;
-    struct vision_line across = { 0, 100, 200, 100, true };
-    struct vision_line down = { 100, 0, 100, 200, true };
+    struct vision_line across = { 0, 100, 200, 100, true, 0 };
+    struct vision_line down = { 100, 0, 100, 200, true, 0 };
     struct vision_counts c;
     struct vision_det d[1];
     int i;
@@ -514,9 +655,12 @@ int main(void)
     test_identity();
     test_expiry();
     test_dropout();
+    test_size_gate();
+    test_expiry_neighbour();
     test_classes();
     test_bounded();
     test_sides();
+    test_huge_box();
     test_line();
     test_directions();
     printf("vision_track_test: %d checks, %d failure(s)\n", checks, failed);

@@ -108,3 +108,46 @@ tape on the floor) is not shown here; the passes themselves are held by
 The unit was left on `85c7383`'s helper and shell in automatic rotation
 (landscape), at home; `/root/rollback-vision-traffic/RESTORE.sh` restores
 the v0.2.1 pair.
+
+## Real-target gate on unit B, 2026-09-29 (the owner walking, lit room)
+
+Landscape, TRAFFIC, LINE: DOWN (the vertical line at the middle of a
+doorway; the counters read `IN (LEFT)` / `OUT (RIGHT)`), the owner walking
+round trips between the curtain side (left of the picture) and the door
+side (right). Every run below was read frame by frame: `vlog.py` in
+`out/vision-traffic-gate/` drives `pos-vision session` the way the shell
+does and logs every `det`, `count` and `traffic` line with the helper's
+timestamps (`vlog-cross*.log`, `analyze.py`); the Vision screen was
+closed for those runs. Evidence class LIVE-READ throughout.
+
+| Run | Helper | Passes | Counted | What the log showed |
+| --- | --- | --- | --- | --- |
+| screen, `85c7383` | `59fbf7c8…` | 5 round trips = 10 | **1 / 2** (LEFT / RIGHT) | one id per pass, no dropouts (e.g. 25 sightings left, 7 on the line, 25 right) and still no count: the person's box widened to 687 of 802 px near the lens, so the box-scaled dead band (a quarter of the smaller side, 109 px) was wider than the centre ever moved past the line. **Defect 1: the band needs a cap from the frame** |
+| 3 | band capped (frame/16) | 10 | 4 / 4 | 8 of 10; lost: one pass with a single clear sighting 41 px past the line before the person left the frame (**defect 2: one decisive sighting must count**), one where the detector merged the owner with an orange coat on a chair into one 538-637 px "person" box born on the far side (the detector, not the tracker) |
+| 5 | + one far sighting settles | 10 | **3 / 7** | right-to-left passes lost to the coat merge (3 of 5); two double counts where a partial box and the whole box both crossed (**defect 3: nested duplicates**) |
+| 6 (coat removed) | + nested boxes dropped | 10 | **9 / 6** | every pass counted, but three passes counted three times within 200 ms: the detector's box flipped for a frame or two to a box pinned at the picture's left edge (x = 0, 580-660 px wide, 2.4 times the area) and back, moving the centre 270 px; the flip box was matched into the walker's track (**defect 4: a match must be of the track's size**) |
+| 7 | + size gate (2x frame to frame, 3x coasting) | 4 round trips = 8 | **4 / 3** | **no double count**: every counted pass counted exactly once, the merge boxes live as their own short tracks that never cross. One pass lost: as the walker crossed, its id teleported onto a static box at the left edge - **defect 5, a tracker bug**: a track expiring in the coasting loop shifted the following tracks down but not the prediction table, so the next coasting track took the expired one's box |
+
+Defects 1-5 are fixed on the branch after `eddf4d5` (commits below), each
+with a test reproducing the logged sequence; defect 5's test fails on the
+old line (mutation-checked). **The build with all five fixes
+(`65f6bf5a…`) is installed on unit B but was not run against the owner:
+the owner ended the session after run 7.** So on hardware the best
+observed result is run 7: 7 of 8 passes, 0 double counts, the eighth
+lost to the bug then fixed.
+
+| # | Step | Result |
+| --- | --- | --- |
+| 3 | one stable id through movement | PASS (LIVE-READ): `#15 person > 69%` held over a 9 s burst standing and turning (`caps/g2-track-*.png`); in the logs every pass is one id with no gap over 120 ms (e.g. run 7 id 1: 91 sightings, 2651-5650 ms) |
+| 4 | 5 left-to-right, 5 right-to-left | **NOT PASSED as specified.** Best run 7: 8 passes, 7 counted, 0 double counts, with the fix for the lost pass installed afterwards and unverified on the target |
+| 5 | pause on the line, no count | PASS in the logs where it occurred (run 3 id 1: 7 sightings in the band, no count; run 6 sway rows) - not a separate scripted step |
+| 6 | short disappearance, same id | PASS in passing: no pass had a detection gap over 120 ms; the 15-frame coasting was exercised by the flip frames (the walker's own box came back to its id in run 7, ids 1, 3, 11, 13, 15, 19) |
+| 7-9 | two-line speed | **NOT TESTED** on the target (the owner ended the session) |
+| 10 | performance during tracking | `stats` in the logs: 30.0 fps through the helper (the screen closed), KPU 17-18 ms, AI2D 1 ms, post 6-9 ms, helper 46-47 % CPU, 5.4 MB RSS; with the screen open (run 1 captures): 25-28 fps, KPU 22-30 ms |
+| - | exit Vision, Camera, services | PASS: Camera live afterwards, sysd/netd/radiod/meshcored/doors-shell up, only `isp_media_server` on `/dev/video2`, no helper left, 0 ERROR lines |
+
+Detector behaviour seen, outside Doors' code: two boxes for one person
+(a partial beside the whole), a box merging the person with a coat or
+with whatever sits at the picture's left edge (pinned at x = 0), and
+widths flipping by 2-3x between frames. The tracker and the counter now
+tolerate these as far as the logs show; they do not cure them.
