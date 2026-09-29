@@ -198,3 +198,32 @@ int vision_map_box(const struct vision_view *v, const struct vision_box *in, str
     out->h = y2 - y1 + 1;
     return 1;
 }
+
+int vision_crop_fit(uint32_t frame_w, uint32_t frame_h, const struct vision_box *in, struct vision_box *out)
+{
+    int64_t x1;
+    int64_t y1;
+    int64_t x2;
+    int64_t y2;
+
+    if (!in || !out || frame_w == 0 || frame_h == 0 || frame_w > VISION_MAX_COORD ||
+        frame_h > VISION_MAX_COORD || in->w <= 0 || in->h <= 0) {
+        return -EINVAL;
+    }
+    x1 = in->x < 0 ? 0 : in->x;
+    y1 = in->y < 0 ? 0 : in->y;
+    x2 = (int64_t)in->x + in->w;
+    y2 = (int64_t)in->y + in->h;
+    x2 = x2 > (int64_t)frame_w ? (int64_t)frame_w : x2;
+    y2 = y2 > (int64_t)frame_h ? (int64_t)frame_h : y2;
+    x1 &= ~(int64_t)1;
+    y1 &= ~(int64_t)1;
+    if (x2 - x1 < VISION_CROP_MIN || y2 - y1 < VISION_CROP_MIN) {
+        return -EINVAL;
+    }
+    out->x = (int32_t)x1;
+    out->y = (int32_t)y1;
+    out->w = (int32_t)((x2 - x1) & ~(int64_t)1);
+    out->h = (int32_t)((y2 - y1) & ~(int64_t)1);
+    return 0;
+}

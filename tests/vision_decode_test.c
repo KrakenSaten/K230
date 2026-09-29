@@ -55,7 +55,7 @@ static void put(uint32_t r, int cls, float conf, float x, float y, float w, floa
 
 static struct vision_decode_params params(void)
 {
-    struct vision_decode_params p = { IN, IN, CLASSES, FW, FH, 350 };
+    struct vision_decode_params p = { IN, IN, CLASSES, FW, FH, 350, 0, 0 };
 
     return p;
 }
@@ -104,6 +104,52 @@ static void test_decode(void)
     check("boxes over the edges are clipped to the frame",
           n == 2 && d[0].box.x == 0 && d[0].box.y == 0 && d[0].box.w == 60 && d[0].box.h == 80 &&
               d[1].box.x == 600 && d[1].box.w == 40 && d[1].box.y == 300 && d[1].box.h == 60);
+}
+
+/* A crop (TRAFFIC's region of interest) letterboxed alone: the decoder
+ * undoes the crop's own ratio, clips to the crop, and moves the boxes back
+ * into frame pixels by its origin. */
+static void test_crop(void)
+{
+    struct vision_decode_params p = params();
+    struct vision_det d[VISION_MAX_CANDIDATES];
+    uint32_t dims[3] = { 1, 4 + CLASSES, ROWS };
+    uint32_t bad = 0;
+    /* A 200 x 100 road band at (300, 150): ratio min(320/200, 320/100) = 1.6,
+     * where the whole frame's is 0.5 - a far car 3.2 times taller. */
+    const float ratio = 1.6f;
+    int n;
+
+    p.frame_w = 200;
+    p.frame_h = 100;
+    p.off_x = 300;
+    p.off_y = 150;
+    clear();
+    /* A 40 x 16 car at frame (340, 170): (40, 20) in the crop. */
+    tensor[0 * ROWS + 11] = (40.0f + 20.0f) * ratio;
+    tensor[1 * ROWS + 11] = (20.0f + 8.0f) * ratio;
+    tensor[2 * ROWS + 11] = 40.0f * ratio;
+    tensor[3 * ROWS + 11] = 16.0f * ratio;
+    tensor[(4 + 2) * ROWS + 11] = 0.5f;
+    /* One reaching past the crop's right edge: clipped there, not at the frame's. */
+    tensor[0 * ROWS + 12] = (180.0f + 20.0f) * ratio;
+    tensor[1 * ROWS + 12] = (50.0f + 8.0f) * ratio;
+    tensor[2 * ROWS + 12] = 40.0f * ratio;
+    tensor[3 * ROWS + 12] = 16.0f * ratio;
+    tensor[(4 + 2) * ROWS + 12] = 0.5f;
+    n = vision_decode(tensor, (size_t)(4 + CLASSES) * ROWS, dims, &p, d, VISION_MAX_CANDIDATES, &bad);
+    check("a car in the crop comes back in frame pixels",
+          n == 2 && d[0].box.x == 340 && d[0].box.y == 170 && d[0].box.w == 40 && d[0].box.h == 16);
+    check("and one past the crop's edge is clipped at the crop's edge, in frame pixels",
+          n == 2 && d[1].box.x == 480 && d[1].box.w == 20 && d[1].box.y == 200 && d[1].box.h == 16);
+    p.off_x = -2;
+    check("a crop above or left of the frame is refused",
+          vision_decode(tensor, (size_t)(4 + CLASSES) * ROWS, dims, &p, d, VISION_MAX_CANDIDATES, &bad) ==
+              -EINVAL);
+    p.off_x = VISION_MAX_COORD - 100;
+    check("and so is one reaching past the largest coordinate",
+          vision_decode(tensor, (size_t)(4 + CLASSES) * ROWS, dims, &p, d, VISION_MAX_CANDIDATES, &bad) ==
+              -EINVAL);
 }
 
 static void test_malformed(void)
@@ -333,6 +379,7 @@ int main(void)
     }
     test_rows();
     test_decode();
+    test_crop();
     test_malformed();
     test_bounded();
     test_nms();

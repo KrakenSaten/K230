@@ -20,6 +20,10 @@
  *   fail_at=N              frame N's run fails (-EIO)
  *   delay=MS               every run takes this long (pretend inference)
  *
+ * With a crop (vision_kpu_crop) the pretend model sees only that part of the
+ * frame: a box whose centre is outside it is not reported, the rest are
+ * written in the crop's own letterboxed pixels.
+ *
  * The boxes are written into the letterboxed model-input space exactly as
  * the decoder expects to undo it, one box per row, the rest of the rows
  * zero. Frames count from 1.
@@ -29,6 +33,7 @@
 #define _GNU_SOURCE
 #include "vision_kpu.h"
 #include "vision_decode.h"
+#include "vision_geom.h"
 
 #include <errno.h>
 #include <math.h>
@@ -67,6 +72,7 @@ struct vision_kpu {
     uint32_t frames;
     float *out;
     size_t out_count;
+    struct vision_box crop;     /* w == 0: the whole frame */
 };
 
 static int parse_u32(const char *s, uint32_t *v)
@@ -229,8 +235,19 @@ int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f, cons
     uint32_t row = 0;
     int i;
     uint32_t d;
+    /* The part of the frame the pretend model looks at: the crop, or all
+     * of it. */
+    int32_t rx = k->crop.w > 0 ? k->crop.x : 0;
+    int32_t ry = k->crop.w > 0 ? k->crop.y : 0;
+    int32_t rw;
+    int32_t rh;
 
     if (pocketcam_frame_check(f) != 0) {
+        return -EPROTO;
+    }
+    rw = k->crop.w > 0 ? k->crop.w : (int32_t)f->width;
+    rh = k->crop.w > 0 ? k->crop.h : (int32_t)f->height;
+    if ((int64_t)rx + rw > (int64_t)f->width || (int64_t)ry + rh > (int64_t)f->height) {
         return -EPROTO;
     }
     k->frames++;
@@ -266,15 +283,22 @@ int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f, cons
     if (k->until && k->frames > k->until) {
         return 0;
     }
-    ratio_w = (float)k->in_w / (float)f->width;
-    ratio_h = (float)k->in_h / (float)f->height;
+    ratio_w = (float)k->in_w / (float)rw;
+    ratio_h = (float)k->in_h / (float)rh;
     ratio = ratio_w < ratio_h ? ratio_w : ratio_h;
+    /* A box is seen when its centre is in that part, in the part's own
+     * pixels - what a real detector given the crop would report. */
     for (i = 0; i < k->nbox; i++) {
         const struct fake_box *b = &k->box[i];
         int32_t step = (int32_t)(k->frames - 1);
-        float x = (float)(b->x + b->dx * step);
-        float y = (float)(b->y + b->dy * step);
+        float x = (float)(b->x + b->dx * step - rx);
+        float y = (float)(b->y + b->dy * step - ry);
+        float mx = x + 0.5f * (float)b->w;
+        float my = y + 0.5f * (float)b->h;
 
+        if (mx < 0.0f || my < 0.0f || mx >= (float)rw || my >= (float)rh) {
+            continue;
+        }
         for (d = 0; d <= k->dup && row < k->rows; d++, row++) {
             float cx = (x + (float)d + 0.5f * (float)b->w) * ratio;
             float cy = (y + 0.5f * (float)b->h) * ratio;
@@ -290,6 +314,22 @@ int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f, cons
             }
         }
     }
+    return 0;
+}
+
+int vision_kpu_crop(struct vision_kpu *k, const struct vision_box *crop)
+{
+    if (!k) {
+        return -EINVAL;
+    }
+    if (!crop) {
+        memset(&k->crop, 0, sizeof(k->crop));
+        return 0;
+    }
+    if (crop->x < 0 || crop->y < 0 || crop->w < VISION_CROP_MIN || crop->h < VISION_CROP_MIN) {
+        return -EINVAL;
+    }
+    k->crop = *crop;
     return 0;
 }
 

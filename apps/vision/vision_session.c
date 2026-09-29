@@ -829,6 +829,21 @@ int vision_session_speed_lines(struct vision_session *s, const int32_t pm[8])
                      pm[7]);
 }
 
+int vision_session_roi(struct vision_session *s, const int32_t pm[4])
+{
+    int i;
+
+    if (!pm) {
+        return send_line(s, "roi off");
+    }
+    for (i = 0; i < 4; i++) {
+        if (pm[i] < 0 || pm[i] > 1000) {
+            return -1;
+        }
+    }
+    return send_line(s, "roi %d %d %d %d", pm[0], pm[1], pm[2], pm[3]);
+}
+
 int vision_session_distance(struct vision_session *s, uint32_t cm)
 {
     if (cm == 0 || cm > 1000000u) {

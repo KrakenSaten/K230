@@ -481,6 +481,101 @@ static void test_far_car(void)
     check("the helper is gone", !vision_session_active(&s));
 }
 
+/* What `n` det events in a row showed of a car (cls 2) and a truck (cls
+ * 7), after `skip` more have gone by (tracks of what the detector stopped
+ * seeing coast for up to VISION_TRACK_MAX_MISSES frames): the last box of
+ * each, w == 0 when never seen. */
+static void roi_look(struct vision_session *s, struct watch *w, int skip, int n, struct vision_shown *car,
+                     struct vision_shown *truck)
+{
+    struct vision_event ev;
+    int i;
+
+    memset(car, 0, sizeof(*car));
+    memset(truck, 0, sizeof(*truck));
+    for (i = 0; i < skip + n; i++) {
+        const struct vision_shown *t;
+        int m = 0;
+        int j;
+
+        if (!wait_for(s, VISION_EV_DET, 1000, &ev, seen, w)) {
+            break;
+        }
+        if (i < skip) {
+            continue;
+        }
+        t = vision_session_tracks(s, &m, NULL);
+        for (j = 0; j < m; j++) {
+            if (t[j].id && t[j].cls == 2) {
+                *car = t[j];
+            } else if (t[j].id && t[j].cls == 7) {
+                *truck = t[j];
+            }
+        }
+    }
+}
+
+static bool near_box(const struct vision_shown *a, const struct vision_shown *b)
+{
+    return a->w > 0 && b->w > 0 && abs(a->x - b->x) <= 3 && abs(a->y - b->y) <= 3 && abs(a->w - b->w) <= 3 &&
+           abs(a->h - b->h) <= 3;
+}
+
+/* TRAFFIC's region of interest against the real helper: with a region
+ * around the car, the detector is given only that part of the frame - the
+ * truck elsewhere is no longer seen - and the car's box comes back where the
+ * whole frame put it, so tracks and lines stay in the whole picture; off
+ * again, or in DETECT, the whole frame is looked at. */
+static void test_roi(void)
+{
+    struct vision_session s;
+    struct vision_event ev;
+    struct watch w = { 0, 0, 0, 0, 0, 0, NULL };
+    struct vision_shown car0;
+    struct vision_shown truck0;
+    struct vision_shown car;
+    struct vision_shown truck;
+    int32_t pm[4];
+
+    vision_session_init(&s);
+    check("the helper starts",
+          start(&s, "period=20", "box=2:800:60:40:80:40,box=7:800:480:260:100:60", NULL) == 0);
+    check("ready", wait_for(&s, VISION_EV_READY, 3000, &ev, seen, &w));
+    vision_session_view(&s, 360, 640, 0);
+    vision_session_mode(&s, true);
+    check("TRAFFIC answers", wait_for(&s, VISION_EV_COUNT, 2000, &ev, seen, &w));
+    vision_session_stream(&s, true, now_ms());
+    roi_look(&s, &w, 5, 10, &car0, &truck0);
+    check("the whole frame: the car and the truck are both tracked", car0.w > 0 && truck0.w > 0);
+    /* A region around the car on the picture, a little larger than its box. */
+    pm[0] = (car0.x - 20) * 1000 / 360;
+    pm[1] = (car0.y - 20) * 1000 / 640;
+    pm[2] = (car0.x + car0.w + 20) * 1000 / 360;
+    pm[3] = (car0.y + car0.h + 20) * 1000 / 640;
+    for (int i = 0; i < 4; i++) {
+        pm[i] = pm[i] < 0 ? 0 : pm[i] > 1000 ? 1000 : pm[i];
+    }
+    check("a region is sent", vision_session_roi(&s, pm) == 0);
+    roi_look(&s, &w, 25, 10, &car, &truck);
+    check("with the region only the car is seen", car.w > 0 && truck.w == 0);
+    check("and its box is where the whole frame put it (within 3 px)", near_box(&car, &car0));
+    printf("     car whole frame %d,%d %dx%d, with the region %d,%d %dx%d\n", car0.x, car0.y, car0.w, car0.h,
+           car.x, car.y, car.w, car.h);
+    vision_session_mode(&s, false);
+    check("DETECT answers", wait_for(&s, VISION_EV_COUNT, 2000, &ev, seen, &w));
+    roi_look(&s, &w, 2, 10, &car, &truck);
+    check("DETECT ignores the region: the truck is back", car.w > 0 && truck.w > 0);
+    vision_session_mode(&s, true);
+    check("TRAFFIC answers again", wait_for(&s, VISION_EV_COUNT, 2000, &ev, seen, &w));
+    check("the region is turned off", vision_session_roi(&s, NULL) == 0);
+    roi_look(&s, &w, 5, 10, &car, &truck);
+    check("off, TRAFFIC sees the whole frame again", car.w > 0 && truck.w > 0 && near_box(&car, &car0));
+    check("a region outside 0..1000 is refused before it is sent",
+          vision_session_roi(&s, (const int32_t[4]) { 0, 0, 1001, 10 }) == -1);
+    vision_session_abandon(&s, 1000);
+    check("the helper is gone", !vision_session_active(&s));
+}
+
 /* The pixel modes against the real helper: EDGE finds the fake camera's
  * edges; COLOR samples the picture's middle and paints its matches; TRACE
  * answers; the boxes go while a pixel mode is on and come back after. */
@@ -686,6 +781,7 @@ int main(int argc, char **argv)
     test_happy();
     test_traffic();
     test_far_car();
+    test_roi();
     test_pixels();
     test_malformed();
     test_failures();

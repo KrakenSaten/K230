@@ -13,7 +13,10 @@
  *      the cache;
  *   2. AI2D: resize into the top-left of the model's input with the frame's
  *      aspect kept, the rest padded with 114 (the vendor's
- *      padding_resize_one_side_set), NCHW in, NCHW out;
+ *      padding_resize_one_side_set), NCHW in, NCHW out - or, with a crop
+ *      (TRAFFIC's region of interest), the same for that part of the frame,
+ *      AI2D's crop step feeding its resize as in the vendor's
+ *      center_crop_resize_set;
  *   3. run the model; map its first output and copy the floats out, so the
  *      caller reads plain memory while the runtime keeps its own buffers.
  *
@@ -26,6 +29,7 @@
 extern "C" {
 #include "vision_kpu.h"
 #include "vision_decode.h"
+#include "vision_geom.h"
 #include "mmz.h"
 }
 
@@ -47,14 +51,26 @@ using namespace nncase::runtime;
 using namespace nncase::runtime::k230;
 using namespace nncase::F::k230;
 
+/* An AI2D schedule for one frame size and one crop (w == 0: none). Two are
+ * kept, the whole frame and the crop, so switching between them - or
+ * alternating, as `pos-vision bench --ab` does - rebuilds nothing. */
+struct schedule {
+    std::unique_ptr<ai2d_builder> builder;
+    uint32_t fw = 0;
+    uint32_t fh = 0;
+    struct vision_box crop = { 0, 0, 0, 0 };
+    uint64_t used = 0;
+};
+
 struct vision_kpu {
     interpreter interp;
     runtime_tensor model_in;
     runtime_tensor ai2d_in;
-    std::unique_ptr<ai2d_builder> builder;
-    bool built = false;
-    uint32_t fw = 0;
-    uint32_t fh = 0;
+    uint32_t ai2d_w = 0;
+    uint32_t ai2d_h = 0;
+    struct schedule sched[2];
+    uint64_t runs = 0;
+    struct vision_box crop = { 0, 0, 0, 0 };
     uint32_t in_w = 0;
     uint32_t in_h = 0;
     uint32_t classes = 0;
@@ -145,47 +161,105 @@ extern "C" int vision_kpu_open(struct vision_kpu **kp, const char *path, const c
     return 0;
 }
 
-/* The AI2D schedule for a frame of this size: built once, rebuilt only when
- * the frame's size changes. */
-static int build(struct vision_kpu *k, uint32_t fw, uint32_t fh)
+static bool same_crop(const struct vision_box *a, const struct vision_box *b)
 {
-    float ratio_w = (float)k->in_w / (float)fw;
-    float ratio_h = (float)k->in_h / (float)fh;
-    float ratio = ratio_w < ratio_h ? ratio_w : ratio_h;
-    int new_w = (int)(ratio * (float)fw);
-    int new_h = (int)(ratio * (float)fh);
-    int bottom = (int)k->in_h - new_h;
-    int right = (int)k->in_w - new_w;
-    dims_t in_shape { 1, 3, fh, fw };
-    dims_t out_shape { 1, 3, k->in_h, k->in_w };
-    ai2d_datatype_t dtype { ai2d_format::NCHW_FMT, ai2d_format::NCHW_FMT, dt_uint8, dt_uint8 };
-    ai2d_crop_param_t crop { false, 0, 0, 0, 0 };
-    ai2d_shift_param_t shift { false, 0 };
-    ai2d_pad_param_t pad { true, { { 0, 0 }, { 0, 0 }, { 0, bottom }, { 0, right } },
-                           ai2d_pad_mode::constant, { 114, 114, 114 } };
-    ai2d_resize_param_t resize { true, ai2d_interp_method::tf_bilinear, ai2d_interp_mode::half_pixel };
-    ai2d_affine_param_t affine { false, ai2d_interp_method::cv2_bilinear, 0, 0, 127, 1,
-                                 { 0.5, 0.1, 0.0, 0.1, 0.5, 0.0 } };
+    return a->x == b->x && a->y == b->y && a->w == b->w && a->h == b->h;
+}
 
-    k->builder.reset();
-    k->built = false;
+/* The AI2D schedule for a frame of this size and the current crop: found
+ * among the two kept, or built into the one used longest ago. The part of
+ * the frame (the crop, or all of it) is scaled with its aspect kept into
+ * the top-left of the model's input and the rest padded, so the decoder
+ * undoes it with the part's size and origin alone. */
+static struct schedule *schedule_for(struct vision_kpu *k, uint32_t fw, uint32_t fh, int *err)
+{
+    struct schedule *s = &k->sched[0];
+    int i;
+
+    for (i = 0; i < 2; i++) {
+        struct schedule *c = &k->sched[i];
+
+        if (c->builder && c->fw == fw && c->fh == fh && same_crop(&c->crop, &k->crop)) {
+            c->used = ++k->runs;
+            return c;
+        }
+        if (c->used < s->used) {
+            s = c;
+        }
+    }
+    {
+        bool cropped = k->crop.w > 0;
+        uint32_t rw = cropped ? (uint32_t)k->crop.w : fw;
+        uint32_t rh = cropped ? (uint32_t)k->crop.h : fh;
+        float ratio_w = (float)k->in_w / (float)rw;
+        float ratio_h = (float)k->in_h / (float)rh;
+        float ratio = ratio_w < ratio_h ? ratio_w : ratio_h;
+        int new_w = (int)(ratio * (float)rw);
+        int new_h = (int)(ratio * (float)rh);
+        int bottom = (int)k->in_h - new_h;
+        int right = (int)k->in_w - new_w;
+        dims_t in_shape { 1, 3, fh, fw };
+        dims_t out_shape { 1, 3, k->in_h, k->in_w };
+        ai2d_datatype_t dtype { ai2d_format::NCHW_FMT, ai2d_format::NCHW_FMT, dt_uint8, dt_uint8 };
+        ai2d_crop_param_t crop { cropped, cropped ? k->crop.x : 0, cropped ? k->crop.y : 0,
+                                 (int32_t)(cropped ? rw : 0), (int32_t)(cropped ? rh : 0) };
+        ai2d_shift_param_t shift { false, 0 };
+        ai2d_pad_param_t pad { true, { { 0, 0 }, { 0, 0 }, { 0, bottom }, { 0, right } },
+                               ai2d_pad_mode::constant, { 114, 114, 114 } };
+        ai2d_resize_param_t resize { true, ai2d_interp_method::tf_bilinear, ai2d_interp_mode::half_pixel };
+        ai2d_affine_param_t affine { false, ai2d_interp_method::cv2_bilinear, 0, 0, 127, 1,
+                                     { 0.5, 0.1, 0.0, 0.1, 0.5, 0.0 } };
+
+        s->builder.reset();
+        s->builder.reset(new (std::nothrow) ai2d_builder(in_shape, out_shape, dtype, crop, shift, pad,
+                                                         resize, affine));
+        if (!s->builder) {
+            *err = -ENOMEM;
+            return nullptr;
+        }
+        if (!s->builder->build_schedule().is_ok()) {
+            s->builder.reset();
+            *err = -EIO;
+            return nullptr;
+        }
+    }
+    s->fw = fw;
+    s->fh = fh;
+    s->crop = k->crop;
+    s->used = ++k->runs;
+    return s;
+}
+
+/* The tensor AI2D reads the frame from, for a frame of this size. */
+static int input_for(struct vision_kpu *k, uint32_t fw, uint32_t fh)
+{
+    if (k->ai2d_w == fw && k->ai2d_h == fh) {
+        return 0;
+    }
+    dims_t in_shape { 1, 3, fh, fw };
     auto t = hrt::create(dt_uint8, in_shape, hrt::pool_shared);
     if (!t.is_ok()) {
         return -ENOMEM;
     }
     k->ai2d_in = t.unwrap();
-    k->builder.reset(new (std::nothrow) ai2d_builder(in_shape, out_shape, dtype, crop, shift, pad,
-                                                     resize, affine));
-    if (!k->builder) {
-        return -ENOMEM;
+    k->ai2d_w = fw;
+    k->ai2d_h = fh;
+    return 0;
+}
+
+extern "C" int vision_kpu_crop(struct vision_kpu *k, const struct vision_box *crop)
+{
+    if (!k) {
+        return -EINVAL;
     }
-    if (!k->builder->build_schedule().is_ok()) {
-        k->builder.reset();
-        return -EIO;
+    if (!crop) {
+        k->crop = { 0, 0, 0, 0 };
+        return 0;
     }
-    k->fw = fw;
-    k->fh = fh;
-    k->built = true;
+    if (crop->x < 0 || crop->y < 0 || crop->w < VISION_CROP_MIN || crop->h < VISION_CROP_MIN) {
+        return -EINVAL;
+    }
+    k->crop = *crop;
     return 0;
 }
 
@@ -207,11 +281,21 @@ extern "C" int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_fra
         f->height > VISION_MAX_COORD) {
         return -EPROTO;
     }
+    if (k->crop.w > 0 && ((int64_t)k->crop.x + k->crop.w > (int64_t)f->width ||
+                          (int64_t)k->crop.y + k->crop.h > (int64_t)f->height)) {
+        return -EPROTO;
+    }
     t0 = mono_ms();
-    if (!k->built || k->fw != f->width || k->fh != f->height) {
-        int r = build(k, f->width, f->height);
+    struct schedule *sch;
+    {
+        int r = input_for(k, f->width, f->height);
 
         if (r != 0) {
+            return r;
+        }
+        r = 0;
+        sch = schedule_for(k, f->width, f->height, &r);
+        if (!sch) {
             return r;
         }
     }
@@ -245,7 +329,7 @@ extern "C" int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_fra
     if (!hrt::sync(k->ai2d_in, sync_op_t::sync_write_back, true).is_ok()) {
         return -EIO;
     }
-    if (!k->builder->invoke(k->ai2d_in, k->model_in).is_ok()) {
+    if (!sch->builder->invoke(k->ai2d_in, k->model_in).is_ok()) {
         return -EIO;
     }
     t1 = mono_ms();

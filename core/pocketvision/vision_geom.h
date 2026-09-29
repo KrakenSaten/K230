@@ -42,4 +42,15 @@ int vision_map_box(const struct vision_view *v, const struct vision_box *in, str
  * or a point outside the picture. */
 int vision_unmap_point(const struct vision_view *v, int32_t vx, int32_t vy, int32_t *sx, int32_t *sy);
 
+/* The smallest side of a crop the detector is given, in frame pixels: a
+ * road region smaller than this is not worth a model run of its own. */
+#define VISION_CROP_MIN 32
+
+/* A part of the frame for the detector (TRAFFIC's region of interest):
+ * `in`, in frame pixels, clipped to the frame, its origin rounded down and
+ * its size down to even numbers (whole pixel pairs for the AI2D engine).
+ * 0 with *out set, or -EINVAL when what is left is smaller than
+ * VISION_CROP_MIN on a side or the frame makes no sense. */
+int vision_crop_fit(uint32_t frame_w, uint32_t frame_h, const struct vision_box *in, struct vision_box *out);
+
 #endif

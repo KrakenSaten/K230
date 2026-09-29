@@ -39,9 +39,14 @@ struct vision_decode_params {
     uint32_t in_w;      /* the model's input */
     uint32_t in_h;
     uint32_t classes;
-    uint32_t frame_w;   /* the frame that was letterboxed in */
+    uint32_t frame_w;   /* the frame that was letterboxed in - or the crop of it */
     uint32_t frame_h;
     uint16_t conf_min;  /* per-mille; a row below it is not a candidate */
+    /* With a crop (vision_kpu_crop): where it sits in the frame. Boxes are
+     * clipped to the crop, then moved by this into frame pixels. 0 for the
+     * whole frame. */
+    int32_t off_x;
+    int32_t off_y;
 };
 
 /* The rows a YOLOv8 head has for this input, or 0 when the input is not a

@@ -39,6 +39,14 @@
  *                                 of the view, or `speed off`
  *   distance <cm>                 the ground distance between the speed
  *                                 lines
+ *   roi <x0> <y0> <x1> <y1>       TRAFFIC's region of interest, two
+ *                                 opposite corners in per-mille of the
+ *                                 view, or `roi off` (the default: the
+ *                                 whole frame). In TRAFFIC the detector is
+ *                                 given only that part of the frame,
+ *                                 scaled up into its input; boxes, tracks
+ *                                 and lines stay in the whole picture.
+ *                                 Answered by `roi`
  *   reset                         counts and speeds to zero, tracks
  *                                 forgotten
  *   quit                          close the camera and leave; `bye`
@@ -94,6 +102,11 @@
  *                                 resident set, tensors refused as
  *                                 malformed so far, and detections dropped
  *                                 for lack of a track slot
+ *   roi <x> <y> <w> <h> | roi off the region the detector is given in
+ *                                 TRAFFIC, in frame pixels (clipped and
+ *                                 fitted), after `roi` and after a `view`
+ *                                 while one is set; `roi off` for none or
+ *                                 for one too small to use
  *   malformed <n>                 the driver delivered a damaged frame (n in
  *                                 a row); or the model output was not a
  *                                 tensor of the declared shape (see `bad`)

@@ -98,6 +98,21 @@ MODE: TRAFFIC. What changes, all of it in the helper and the app's words:
   DETECT is unchanged. `pos-vision bench` shows every vehicle candidate
   from 0.10 with its size in frame and model pixels and which threshold
   (DETECT's, TRAFFIC's) takes it, and ends with the tally.
+- **Region of interest (prototype, off by default).** `roi x0 y0 x1 y1`
+  (two opposite corners, per-mille of the view) gives the detector only
+  that part of the frame in TRAFFIC: the AI2D engine crops it and
+  letterboxes it into the 320 x 320 input in one pass, so a road band
+  gets far more of the model's pixels (a 160 x 60 band: 2x, where the
+  whole frame gets 0.5x). The decoder moves the boxes back by the
+  region's origin (`vision_decode_params.off_x/off_y`), so tracks, lines,
+  counts and the `det` boxes stay in the whole picture; nothing outside
+  the region is detected. The region is fitted by `vision_crop_fit`
+  (clipped, even, at least 32 px a side) and answered with `roi x y w h`
+  in frame pixels. DETECT ignores it. There is no way to draw it on the
+  screen yet: the protocol, `vlog.py` and `pos-vision bench --roi X,Y,W,H`
+  (frame pixels; `--ab` alternates whole frame and region on the same
+  traffic, `--save` writes a frame with the region drawn in) are how it is
+  set and measured.
 - **A vehicle keeps its track when the detector changes its mind.** The
   tracker matches across a class group - car, truck and bus are one group,
   motorcycle and bicycle another, a person is only a person - and the

@@ -205,11 +205,33 @@ static void test_unmap(void)
     }
 }
 
+/* TRAFFIC's region of interest fitted for the detector: clipped to the
+ * frame, even, and refused when too small to be worth a run. */
+static void test_crop_fit(void)
+{
+    struct vision_box in = { 101, 51, 301, 121 };
+    struct vision_box out = { 0, 0, 0, 0 };
+
+    check("a region inside the frame keeps its place, rounded to even",
+          vision_crop_fit(640, 360, &in, &out) == 0 && out.x == 100 && out.y == 50 && out.w == 302 &&
+              out.h == 122);
+    in = (struct vision_box) { -20, 300, 700, 100 };
+    check("one over the edges is clipped to the frame",
+          vision_crop_fit(640, 360, &in, &out) == 0 && out.x == 0 && out.y == 300 && out.w == 640 && out.h == 60);
+    in = (struct vision_box) { 0, 0, 31, 100 };
+    check("one narrower than VISION_CROP_MIN is refused", vision_crop_fit(640, 360, &in, &out) == -EINVAL);
+    in = (struct vision_box) { 0, 340, 100, 100 };
+    check("and one that the frame's edge leaves too short", vision_crop_fit(640, 360, &in, &out) == -EINVAL);
+    in = (struct vision_box) { 0, 0, 100, 100 };
+    check("no frame, no crop", vision_crop_fit(0, 360, &in, &out) == -EINVAL);
+}
+
 int main(void)
 {
     test_points();
     test_boxes();
     test_unmap();
+    test_crop_fit();
     printf("vision_geom_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;
 }
