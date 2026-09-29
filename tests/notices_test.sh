@@ -218,7 +218,11 @@ for d in $deps; do
         # licence metadata at all: reviewed as docs/LICENSING.md items 5 and 10
         # (the runtime is Apache-2.0 upstream; the model it runs is the open
         # question), on a prototype branch that is not released.
-        cjson|libgpiod2|libdrm|libevdev|alsa-lib|jpeg|libcurl|libpng|libnncase|libmmz|host-*) ;;
+        # ffmpeg: FFmpeg 4.4.4 (the vendor's patched build, --disable-gpl, so
+        # LGPL-2.1+) for pos-video (docs/apps/VIDEO.md), in the image and its
+        # legal manifest already (for OpenCV), with its own licence metadata;
+        # linked dynamically, nothing of it is compiled into Doors.
+        cjson|libgpiod2|libdrm|libevdev|alsa-lib|jpeg|libcurl|libpng|libnncase|libmmz|ffmpeg|host-*) ;;
         lvgl) [ "$(has_id lvgl)" = 1 ] || unknown="$unknown lvgl" ;;
         *) unknown="$unknown $d" ;;
     esac

@@ -32,7 +32,7 @@ L0=$(mktemp -d); R0=$(mktemp -d); C0=$(mktemp -d); S0=$(mktemp -d)
 env SDL_VIDEODRIVER=dummy POCKETOS_RUNTIME_DIR="$R0" POCKETOS_LOG_DIR="$L0" POCKETOS_CONFIG_DIR="$C0" \
     POCKETOS_STATE_DIR="$S0" "$SHELL_BIN" --no-lock --exit-after-ms 800 >"$L0/out" 2>&1
 check "the launcher builds with the game among its apps" \
-    "$(grep -qE 'launcher: [0-9]+ group\(s\), 21 app\(s\)' "$L0/shell.log" 2>/dev/null && echo 1 || echo 0)"
+    "$(grep -qE 'launcher: [0-9]+ group\(s\), 22 app\(s\)' "$L0/shell.log" 2>/dev/null && echo 1 || echo 0)"
 rm -rf "$L0" "$R0" "$C0" "$S0"
 
 RUN=$(mktemp -d); CFG=$(mktemp -d); STATE=$(mktemp -d); LOGD=$(mktemp -d)

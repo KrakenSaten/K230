@@ -101,7 +101,7 @@ make_tree() { # <vendor dir>
     mkbootimg_rootfs_doors "$t" abc1234
     rm -rf "$t/etc/default"
     for f in usr/bin/pos-hwcheck usr/bin/pos-spixfer usr/bin/pos-wave usr/bin/pos-camera usr/bin/pos-zabbix \
-             usr/bin/pos-browser usr/bin/pos-record usr/bin/pos-vision usr/bin/pos-drmtest usr/bin/pos-display-boot; do
+             usr/bin/pos-browser usr/bin/pos-record usr/bin/pos-vision usr/bin/pos-video usr/bin/pos-drmtest usr/bin/pos-display-boot; do
         printf '#!/bin/sh\n' > "$t/$f"; chmod 0755 "$t/$f"
     done
     ln -sfn doors "$t/usr/bin/pos"

@@ -1,7 +1,7 @@
 /*
  * The DOORS launcher's geometry and groups (ui/shell/home_layout.h, DS §31):
  *
- *   - the registry's twenty-one apps land in four groups in the table's order,
+ *   - the registry's twenty-two apps land in four groups in the table's order,
  *     an app the table does not name goes to MORE (after the named groups,
  *     in registry order), an empty group is not drawn;
  *   - in both orientations of the reference panel every cell is inside its
@@ -55,8 +55,8 @@ static void check(const char *what, int ok)
 /* The shell's registry order (ui/shell/shell.c apps[], then OPTIONAL_APPS). */
 static const char *const registry[] = { "radio", "system", "fleet", "radar", "timber", "notes",
                                         "clock", "calendar", "calculator", "settings", "wave", "rift",
-                                        "files", "camera", "browser", "recorder", "vision", "solitaire",
-                                        "blackjack", "2048", "zabbix" };
+                                        "files", "camera", "browser", "recorder", "vision", "video",
+                                        "solitaire", "blackjack", "2048", "zabbix" };
 #define NREG ((int)(sizeof(registry) / sizeof(registry[0])))
 
 static int inside(const struct home_rect *a, const struct home_rect *b)
@@ -75,19 +75,20 @@ static void test_groups(void)
     uint8_t count[HOME_GROUP_COUNT];
     static const char *const want[] = { "rift", "radio", "wave", "zabbix", "browser", "notes", "calendar", "clock",
                                         "calculator", "fleet", "radar", "timber", "solitaire", "blackjack",
-                                        "2048", "settings", "system", "files", "camera", "recorder", "vision" };
+                                        "2048", "settings", "system", "files", "camera", "recorder", "vision",
+                                        "video" };
     int n = home_group_order(registry, NREG, order, count);
     int k;
-    int same = n == 21;
+    int same = n == 22;
 
     for (k = 0; same && k < n; k++) {
         same = strcmp(registry[order[k]], want[k]) == 0;
     }
-    check("the twenty-one apps are shown in the table's order", same);
+    check("the twenty-two apps are shown in the table's order", same);
     check("CONNECTIONS holds RIFT, Radio, Wave, Zabbix, Browser", count[HOME_GROUP_CONNECT] == 5);
     check("WORKSPACE holds Notes, Calendar, Clock, Calculator", count[HOME_GROUP_WORK] == 4);
     check("PLAY holds Fleet, Radar, Timber, Solitaire, Blackjack, 2048", count[HOME_GROUP_PLAY] == 6);
-    check("DEVICE holds Settings, System, Files, Camera, Recorder, Vision", count[HOME_GROUP_DEVICE] == 6);
+    check("DEVICE holds Settings, System, Files, Camera, Recorder, Vision, Video", count[HOME_GROUP_DEVICE] == 7);
     check("nothing is left for MORE", count[HOME_GROUP_MORE] == 0);
     check("group names are the package's capitals",
           strcmp(home_group_name(HOME_GROUP_CONNECT), "CONNECTIONS") == 0 &&
@@ -376,11 +377,11 @@ static void test_folders(void)
 
     /* Today's registry: one Games cell instead of six game cells. */
     n = home_root_order(registry, NREG, items, count);
-    check("the launcher's page has sixteen places for twenty-one apps", n == 16);
+    check("the launcher's page has seventeen places for twenty-two apps", n == 17);
     check("PLAY holds one place, the Games folder", count[HOME_GROUP_PLAY] == 1 &&
                                                          folder_place(items, n, HOME_FOLDER_GAMES) >= 0);
     check("the other groups are as they were",
-          count[HOME_GROUP_CONNECT] == 5 && count[HOME_GROUP_WORK] == 4 && count[HOME_GROUP_DEVICE] == 6 &&
+          count[HOME_GROUP_CONNECT] == 5 && count[HOME_GROUP_WORK] == 4 && count[HOME_GROUP_DEVICE] == 7 &&
               count[HOME_GROUP_MORE] == 0);
     check("no game is on the launcher's page",
           !items_hold(items, n, registry, "fleet") && !items_hold(items, n, registry, "radar") &&
