@@ -313,7 +313,19 @@ static void draw_boxes(struct vision_app *a, const struct vision_view_text *s)
         lv_obj_set_size(a->outline[i], t[i].w, t[i].h);
         {
             char text[VISION_LABEL_MAX];
+            char who[24];
             const char *what = s->faces ? "face" : vision_label(t[i].cls);
+
+            if (s->recog && t[i].id) {
+                /* RECOGNIZE: "#3 OWNER 91%" - the score, not the detector's
+                 * confidence, is the figure worth showing. */
+                vision_model_who_label(&a->model, t[i].id, who, sizeof(who));
+                snprintf(text, sizeof(text), "#%u %s", t[i].id, who);
+                label_text(a->tag[i], text);
+                set_hidden(a->tag[i], false);
+                lv_obj_set_pos(a->tag[i], t[i].x, t[i].y > 22 ? t[i].y - 22 : t[i].y);
+                continue;
+            }
 
             if (traffic && !s->ids && !(s->speeds && t[i].kmh10)) {
                 /* LABELS off: the box says nothing. */
@@ -507,6 +519,10 @@ static void repaint(struct vision_app *a)
     button_text(a->btn[VISION_BTN_TOL], s.tol_btn);
     button_text(a->btn[VISION_BTN_EDGE], s.edge_btn);
     button_text(a->btn[VISION_BTN_TRACE], s.trace_btn);
+    button_text(a->btn[VISION_BTN_ENROL], s.enrol_btn);
+    button_text(a->btn[VISION_BTN_FORGET], s.forget_btn);
+    button_style(a->btn[VISION_BTN_ENROL], a->model.enrolling, s.line_enabled);
+    button_style(a->btn[VISION_BTN_FORGET], a->model.forget_armed, s.line_enabled && s.forget_enabled);
     /* The button whose sheet is open is the primary one: it closes it. */
     button_style(a->btn[VISION_BTN_MODE], a->model.sheet == VISION_SHEET_MODES, true);
     button_style(a->btn[VISION_BTN_LINE], false, s.line_enabled);
@@ -652,6 +668,12 @@ static void do_actions(struct vision_app *a, unsigned acts)
     if (acts & VISION_ACT_RESET) {
         vision_session_reset(&a->session);
     }
+    if (acts & VISION_ACT_ENROL) {
+        vision_session_enrol(&a->session, a->model.enrolling);
+    }
+    if (acts & VISION_ACT_FORGET) {
+        vision_session_forget(&a->session);
+    }
     if ((acts & VISION_ACT_SAVE) && vision_store_save(&a->model.set) != 0) {
         /* Vision carries on with the choice; it is only not kept. */
         LOG_WARN("vision: could not store the settings in %s", vision_store_dir());
@@ -732,6 +754,20 @@ static void on_hold(lv_event_t *e)
     struct vision_app *a = lv_event_get_user_data(e);
 
     act(a, vision_model_hold_next(&a->model));
+}
+
+static void on_enrol(lv_event_t *e)
+{
+    struct vision_app *a = lv_event_get_user_data(e);
+
+    act(a, vision_model_enrol_button(&a->model));
+}
+
+static void on_forget(lv_event_t *e)
+{
+    struct vision_app *a = lv_event_get_user_data(e);
+
+    act(a, vision_model_forget_button(&a->model));
 }
 
 static void on_setup(lv_event_t *e)
@@ -1013,6 +1049,8 @@ static void build(struct vision_app *a, lv_obj_t *root)
     a->btn[VISION_BTN_TOL] = button(a->frame, "TOL: MED", on_tol, a);
     a->btn[VISION_BTN_EDGE] = button(a->frame, "EDGE: SOFT", on_edge, a);
     a->btn[VISION_BTN_TRACE] = button(a->frame, "LINE: DARK", on_trace, a);
+    a->btn[VISION_BTN_ENROL] = button(a->frame, "ENROL", on_enrol, a);
+    a->btn[VISION_BTN_FORGET] = button(a->frame, "FORGET", on_forget, a);
     for (i = 0; i < VISION_BUTTONS; i++) {
         lv_obj_add_flag(a->btn[i], LV_OBJ_FLAG_HIDDEN);
     }

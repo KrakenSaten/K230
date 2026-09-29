@@ -54,6 +54,11 @@ enum vision_ev_kind {
     VISION_EV_TEXT,      /* READ read the picture: vision_session_text() */
     VISION_EV_READFAIL,  /* READ cannot read: text says why */
     VISION_EV_FACEFAIL,  /* FACE cannot look: text says why */
+    VISION_EV_WHO,       /* RECOGNIZE scored the faces: vision_session_who() */
+    VISION_EV_OWNER,     /* value = 1 when an owner is enrolled, w = its views */
+    VISION_EV_ENROL,     /* enrolment: w views of h taken */
+    VISION_EV_ENROLFAIL, /* enrolment gave up: text says why */
+    VISION_EV_RECOGFAIL, /* RECOGNIZE cannot compare faces: text says why */
     VISION_EV_COLOR,     /* a COLOR pass: vision_session_pixels()->color */
     VISION_EV_EDGE,      /* an EDGE pass: ->edge_pm */
     VISION_EV_TRACE,     /* a TRACE pass: ->trace */
@@ -142,6 +147,21 @@ struct vision_text_report {
     struct vision_text_line line[VISION_TEXT_LINES];
 };
 
+/* What RECOGNIZE's `who` line said: each scored track's id, its score
+ * against the owner (per-mille, the vendor's 500 + 500 x cosine) and
+ * whether that is the owner. */
+#define VISION_WHO_MAX 16
+struct vision_who_report {
+    uint32_t seq;
+    int faces;            /* faces found on that frame */
+    int n;
+    struct {
+        uint32_t id;
+        uint16_t score;
+        bool owner;
+    } t[VISION_WHO_MAX];
+};
+
 /* What the pixel modes' lines said (color, edge, trace). */
 struct vision_pixel_report {
     struct {
@@ -214,6 +234,7 @@ struct vision_session {
     struct vision_traffic_report traffic;
     struct vision_recent_report recent;
     struct vision_text_report text;
+    struct vision_who_report who;
     struct vision_pixel_report pixels;
     struct vision_stats stats;
 
@@ -247,6 +268,10 @@ int vision_session_range(struct vision_session *s, const char *word);
 int vision_session_mode(struct vision_session *s, bool traffic);
 /* The mode by its protocol word: detect, traffic, color, edge, trace. */
 int vision_session_mode_word(struct vision_session *s, const char *word);
+/* RECOGNIZE: enrol the one face in view as the owner (off: give up), or
+ * forget the owner. */
+int vision_session_enrol(struct vision_session *s, bool on);
+int vision_session_forget(struct vision_session *s);
 /* COLOR: the target colour (NULL: none), a sample at a view point, the
  * tolerance; EDGE: the threshold (0 grey); TRACE: a dark or a light line. */
 int vision_session_color(struct vision_session *s, const uint8_t rgb[3]);
@@ -269,6 +294,7 @@ void vision_session_counts(const struct vision_session *s, uint32_t *ab, uint32_
 const struct vision_traffic_report *vision_session_traffic(const struct vision_session *s);
 const struct vision_recent_report *vision_session_recent(const struct vision_session *s);
 const struct vision_text_report *vision_session_text(const struct vision_session *s);
+const struct vision_who_report *vision_session_who(const struct vision_session *s);
 const struct vision_pixel_report *vision_session_pixels(const struct vision_session *s);
 const struct vision_stats *vision_session_stats(const struct vision_session *s);
 

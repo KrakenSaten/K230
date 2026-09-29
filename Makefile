@@ -1322,7 +1322,8 @@ VISION_DIR := core/pocketvision
 VISION_CORE_OBJS := $(VISION_DIR)/vision_decode.o $(VISION_DIR)/vision_nms.o $(VISION_DIR)/vision_track.o \
                     $(VISION_DIR)/vision_line.o $(VISION_DIR)/vision_traffic.o $(VISION_DIR)/vision_geom.o \
                     $(VISION_DIR)/vision_labels.o $(VISION_DIR)/vision_pixels.o $(VISION_DIR)/vision_range.o \
-                    $(VISION_DIR)/vision_window.o $(VISION_DIR)/vision_text.o $(VISION_DIR)/vision_face.o
+                    $(VISION_DIR)/vision_window.o $(VISION_DIR)/vision_text.o $(VISION_DIR)/vision_face.o \
+                    $(VISION_DIR)/vision_embed.o
 ifeq ($(POCKETVISION_KPU),1)
 VISION_KPU_OBJS := $(VISION_DIR)/vision_kpu_nncase.o
 VISION_LINK := $(CXX)
@@ -1342,7 +1343,8 @@ VISION_APP_OBJS := $(VISION_APP_DIR)/vision_session.o $(VISION_APP_DIR)/vision_m
 POS_VISION_OBJS := tools/vision/pos_vision.o $(VISION_CORE_OBJS) $(VISION_KPU_OBJS) $(CAM_OBJS) $(PATHS_OBJS)
 VISION_TESTS := tests/vision_decode_test tests/vision_track_test tests/vision_traffic_test tests/vision_pixels_test \
                 tests/vision_geom_test tests/vision_model_test tests/vision_session_test tests/vision_settings_test \
-                tests/vision_range_test tests/vision_window_test tests/vision_text_test tests/vision_face_test
+                tests/vision_range_test tests/vision_window_test tests/vision_text_test tests/vision_face_test \
+                tests/vision_embed_test
 
 # The one C++ file: -Wno-multichar as the vendor builds against these headers
 # (a four-character constant in the runtime's own header).
@@ -1383,6 +1385,10 @@ tests/vision_text_test: tests/vision_text_test.o $(VISION_CORE_OBJS)
 tests/vision_face_test: tests/vision_face_test.o $(VISION_CORE_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
 
+# The face alignment, the comparison and the owner's text form.
+tests/vision_embed_test: tests/vision_embed_test.o $(VISION_CORE_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
 # The pixel modes on synthetic pictures.
 tests/vision_pixels_test: tests/vision_pixels_test.o $(VISION_CORE_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
@@ -1409,7 +1415,8 @@ tests/vision_settings_test: tests/vision_settings_test.o $(VISION_APP_DIR)/visio
 VISION_TEST_RUN = ./tests/vision_decode_test && ./tests/vision_track_test && ./tests/vision_traffic_test && \
                   ./tests/vision_pixels_test && ./tests/vision_geom_test && ./tests/vision_model_test && \
                   ./tests/vision_settings_test && ./tests/vision_range_test && ./tests/vision_window_test && \
-                  ./tests/vision_text_test && ./tests/vision_face_test && ./tests/vision_session_test tools/vision/pos-vision
+                  ./tests/vision_text_test && ./tests/vision_face_test && ./tests/vision_embed_test && \
+                  ./tests/vision_session_test tools/vision/pos-vision
 
 vision-test: $(VISION_TESTS) tools/vision/pos-vision
 	$(VISION_TEST_RUN)

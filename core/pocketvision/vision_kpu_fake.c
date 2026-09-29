@@ -424,18 +424,26 @@ const char *vision_kpu_backend(void)
  * the nearest to the face's, its cell the face's middle - which says the
  * face as the model would (95 %), with five points where eyes, nose and
  * mouth corners sit on a face. Letterboxed from the window, padded right
- * and below as the real run is. */
+ * and below as the real run is.
+ *
+ * face_embed / face_recognition: [1,512] for a 112 x 112 aligned face
+ * (vision_net_run_affine): the face whose middle the alignment brings to
+ * the template's middle says whose it is - a common part and one of its
+ * own, so one person's views score 1000 and two people's about 540; with
+ * no face there, nobody's. */
 
 #define FAKE_TEXTS 8
 #define FAKE_TEXT_LEN 32
 #define FAKE_REC_STEPS 128
 #define FAKE_REC_CLASSES 95   /* '!' .. '~', then the blank */
 #define FAKE_FACES 8
+#define FAKE_EMBED 512
 
 enum fake_kind {
     FAKE_TEXT_DET = 1,
     FAKE_TEXT_REC,
     FAKE_FACE_DET,
+    FAKE_FACE_EMBED,
 };
 
 struct fake_text {
@@ -652,6 +660,15 @@ int vision_net_open(struct vision_net **np, const char *path, const char *script
             n->info.dims[i][3] = 320 / steps[i % 3];
             n->info.count[i] = (size_t)ch[i / 3] * (320 / steps[i % 3]) * (320 / steps[i % 3]);
         }
+    } else if (strstr(base, "face_embed") || strstr(base, "face_recognition")) {
+        n->kind = FAKE_FACE_EMBED;
+        n->info.in_w = 112;
+        n->info.in_h = 112;
+        n->info.outputs = 1;
+        n->info.rank[0] = 2;
+        n->info.dims[0][0] = 1;
+        n->info.dims[0][1] = FAKE_EMBED;
+        n->info.count[0] = FAKE_EMBED;
     } else {
         snprintf(err, errlen, "fake nets: no emulation of %s", base);
         free(n);
@@ -775,6 +792,8 @@ int vision_net_run(struct vision_net *n, const struct vision_box *win, bool stre
             }
             face_put(n, &in);
         }
+    } else if (n->kind == FAKE_FACE_EMBED) {
+        /* Only an aligned face (vision_net_run_affine) says whose it is. */
     } else if (n->kind == FAKE_TEXT_DET) {
         for (i = 0; i < n->ntext; i++) {
             struct vision_box b = on_frame(n, &n->text[i].box);
@@ -822,6 +841,57 @@ int vision_net_run(struct vision_net *n, const struct vision_box *win, bool stre
             step += 4;
         }
     }
+    n->have_out = true;
+    return 0;
+}
+
+int vision_net_run_affine(struct vision_net *n, const float m[6], int *pre_ms, int *infer_ms)
+{
+    int best = -1;
+    float best_d = 30.0f;   /* template pixels: further than this is no face */
+    int i;
+
+    if (!n || !m) {
+        return -EINVAL;
+    }
+    if (!n->have_frame) {
+        return -EPROTO;
+    }
+    for (i = 0; i < 6; i++) {
+        if (!isfinite(m[i])) {
+            return -EINVAL;
+        }
+    }
+    if (pre_ms) {
+        *pre_ms = 0;
+    }
+    if (infer_ms) {
+        *infer_ms = 0;
+    }
+    for (i = 0; i < n->info.outputs; i++) {
+        memset(n->o[i], 0, n->info.count[i] * sizeof(float));
+    }
+    if (n->kind != FAKE_FACE_EMBED) {
+        n->have_out = true;
+        return 0;
+    }
+    for (i = 0; i < n->nface; i++) {
+        struct vision_box b = on_frame(n, &n->face[i].box);
+        /* The middle of the face's points (vision_face's fake puts them at
+         * x 0.5, y 0.6 of the box on average). */
+        float cx = (float)b.x + 0.5f * (float)b.w;
+        float cy = (float)b.y + 0.6f * (float)b.h;
+        float tx = m[0] * cx + m[1] * cy + m[2];
+        float ty = m[3] * cx + m[4] * cy + m[5];
+        float d = hypotf(tx - 56.0f, ty - 71.9f);
+
+        if (d < best_d) {
+            best_d = d;
+            best = i;
+        }
+    }
+    n->o[0][0] = 0.3f;
+    n->o[0][best >= 0 ? 8 * n->face[best].who + 1 : FAKE_EMBED - 1] = 1.0f;
     n->have_out = true;
     return 0;
 }

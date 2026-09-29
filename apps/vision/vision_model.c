@@ -10,6 +10,7 @@
 #include <string.h>
 
 #define VISION_STALL_AFTER_MS 2000
+#define VISION_OWNER_VIEWS 5   /* the views an enrolment takes (the helper's VISION_OWNER_SAMPLES) */
 
 /* Sheet cell codes (vision_model_sheet_tap). */
 #define CODE_MODE 100      /* + enum vision_mode */
@@ -125,6 +126,14 @@ static void mode_changed(struct vision_model *m)
     m->facefail[0] = '\0';
     m->faces_seen = 0;
     m->face_top_id = 0;
+    memset(&m->who, 0, sizeof(m->who));
+    m->who_valid = false;
+    m->enrolling = false;
+    m->enrol_k = 0;
+    m->enrolfail[0] = '\0';
+    m->recogfail[0] = '\0';
+    m->forget_armed = false;
+    m->forget_armed_ms = 0;
     m->active_tracks = 0;
     m->shown_objects = 0;
     m->shown_classes = 0;
@@ -252,6 +261,38 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
     case VISION_EV_FACEFAIL:
         snprintf(m->facefail, sizeof(m->facefail), "%s", ev->text[0] ? ev->text : "the face model failed");
         break;
+    case VISION_EV_RECOGFAIL:
+        snprintf(m->recogfail, sizeof(m->recogfail), "%s", ev->text[0] ? ev->text : "the face models failed");
+        m->enrolling = false;
+        break;
+    case VISION_EV_WHO:
+        if (s && m->mode == VISION_MODE_RECOGNIZE) {
+            m->who = *vision_session_who(s);
+            m->who_valid = true;
+        }
+        break;
+    case VISION_EV_OWNER:
+        m->owner_known = true;
+        m->have_owner = ev->value == 1;
+        m->owner_views = ev->w;
+        /* An owner said while enrolling is the enrolment's end. */
+        m->enrolling = false;
+        if (!m->have_owner) {
+            memset(&m->who, 0, sizeof(m->who));
+        }
+        break;
+    case VISION_EV_ENROL:
+        if (m->mode == VISION_MODE_RECOGNIZE) {
+            m->enrolling = ev->w < ev->h;
+            m->enrol_k = ev->w;
+            m->enrol_n = ev->h;
+            m->enrolfail[0] = '\0';
+        }
+        break;
+    case VISION_EV_ENROLFAIL:
+        m->enrolling = false;
+        snprintf(m->enrolfail, sizeof(m->enrolfail), "%s", ev->text[0] ? ev->text : "enrolment failed");
+        break;
     case VISION_EV_COLOR:
         if (s) {
             m->pixels.color = vision_session_pixels(s)->color;
@@ -323,6 +364,14 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
 
 bool vision_model_tick(struct vision_model *m, int64_t now_ms)
 {
+    /* An armed FORGET: from its first tick, for VISION_FORGET_ARM_MS. */
+    if (m->forget_armed && m->forget_armed_ms == 0) {
+        m->forget_armed_ms = now_ms;
+    } else if (m->forget_armed && now_ms - m->forget_armed_ms >= VISION_FORGET_ARM_MS) {
+        m->forget_armed = false;
+        m->forget_armed_ms = 0;
+        return true;
+    }
     if (m->state == VISION_LIVE && m->live && !m->stalled &&
         now_ms - m->last_frame_ms >= VISION_STALL_AFTER_MS) {
         m->stalled = true;
@@ -413,6 +462,57 @@ unsigned vision_model_trails_next(struct vision_model *m)
     }
     /* The screen's alone: nothing to tell the helper. */
     return VISION_ACT_SAVE;
+}
+
+unsigned vision_model_enrol_button(struct vision_model *m)
+{
+    if (m->mode != VISION_MODE_RECOGNIZE || m->state != VISION_LIVE) {
+        return 0;
+    }
+    m->forget_armed = false;
+    m->forget_armed_ms = 0;
+    m->enrolfail[0] = '\0';
+    m->enrolling = !m->enrolling;
+    m->enrol_k = 0;
+    return VISION_ACT_ENROL;
+}
+
+unsigned vision_model_forget_button(struct vision_model *m)
+{
+    if (m->mode != VISION_MODE_RECOGNIZE || m->state != VISION_LIVE || !m->have_owner) {
+        return 0;
+    }
+    if (!m->forget_armed) {
+        m->forget_armed = true;
+        m->forget_armed_ms = 0;
+        return 0;
+    }
+    m->forget_armed = false;
+    m->forget_armed_ms = 0;
+    m->have_owner = false;
+    m->owner_views = 0;
+    m->enrolling = false;
+    memset(&m->who, 0, sizeof(m->who));
+    return VISION_ACT_FORGET;
+}
+
+void vision_model_who_label(const struct vision_model *m, uint32_t id, char *out, size_t len)
+{
+    int i;
+
+    if (!out || len == 0) {
+        return;
+    }
+    snprintf(out, len, "face");
+    if (!m->who_valid || !m->have_owner || id == 0) {
+        return;
+    }
+    for (i = 0; i < m->who.n; i++) {
+        if (m->who.t[i].id == id) {
+            snprintf(out, len, "%s %u%%", m->who.t[i].owner ? "OWNER" : "unknown", m->who.t[i].score / 10u);
+            return;
+        }
+    }
 }
 
 unsigned vision_model_hold_next(struct vision_model *m)
@@ -805,6 +905,10 @@ int vision_model_buttons(const struct vision_model *m, enum vision_button out[VI
     case VISION_MODE_FACE:
         out[1] = VISION_BTN_RESET;
         return 2;
+    case VISION_MODE_RECOGNIZE:
+        out[1] = VISION_BTN_ENROL;
+        out[2] = VISION_BTN_FORGET;
+        return 3;
     default:
         return 1;
     }
@@ -812,7 +916,33 @@ int vision_model_buttons(const struct vision_model *m, enum vision_button out[VI
 
 int vision_model_status_lines(const struct vision_model *m)
 {
+    if (m->mode == VISION_MODE_RECOGNIZE) {
+        return 2;
+    }
     return m->mode == VISION_MODE_TRAFFIC || m->mode == VISION_MODE_READ ? 3 : 1;
+}
+
+/* RECOGNIZE's words: what it can do, what enrolment asks for, or why it
+ * cannot. */
+static void recog_status(const struct vision_model *m, char *buf, size_t len, bool *warn)
+{
+    *warn = false;
+    if (m->recogfail[0] || m->facefail[0]) {
+        snprintf(buf, len, "Cannot recognise: %s", m->recogfail[0] ? m->recogfail : m->facefail);
+        *warn = true;
+    } else if (m->enrolling) {
+        snprintf(buf, len, "Enrolling: view %u of %u. Only your face in view, looking at the camera.", m->enrol_k,
+                 m->enrol_n ? m->enrol_n : VISION_OWNER_VIEWS);
+    } else if (m->enrolfail[0]) {
+        snprintf(buf, len, "Could not enrol: %s", m->enrolfail);
+        *warn = true;
+    } else if (m->forget_armed) {
+        snprintf(buf, len, "Tap SURE? to forget the owner. It is removed from this unit.");
+    } else if (!m->have_owner) {
+        snprintf(buf, len, "No owner yet. ENROL with only your face in view. Faces stay on this unit.");
+    } else {
+        snprintf(buf, len, "Owner enrolled (%u views). Compared on this unit only.", m->owner_views);
+    }
 }
 
 /* READ's words: what was read, line after line, or why nothing is. */
@@ -1016,6 +1146,24 @@ static void counters(const struct vision_model *m, struct vision_view_text *out)
         snprintf(out->count_a, sizeof(out->count_a), "FACES %d", m->shown_objects);
         snprintf(out->count_b, sizeof(out->count_b), "SEEN %u", m->faces_seen);
         break;
+    case VISION_MODE_RECOGNIZE: {
+        bool owner_here = false;
+        int i;
+
+        for (i = 0; m->who_valid && i < m->who.n; i++) {
+            owner_here |= m->who.t[i].owner;
+        }
+        snprintf(out->count_a, sizeof(out->count_a), "FACES %d", m->shown_objects);
+        if (m->enrolling) {
+            snprintf(out->count_b, sizeof(out->count_b), "VIEW %u/%u", m->enrol_k,
+                     m->enrol_n ? m->enrol_n : VISION_OWNER_VIEWS);
+        } else if (!m->have_owner) {
+            snprintf(out->count_b, sizeof(out->count_b), "NO OWNER");
+        } else {
+            snprintf(out->count_b, sizeof(out->count_b), "OWNER: %s", owner_here ? "HERE" : "-");
+        }
+        break;
+    }
     default:
         break;
     }
@@ -1030,9 +1178,13 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
     out->hint = m->simulated ? "SIMULATED" : "";
     out->traffic = m->mode == VISION_MODE_TRAFFIC;
     out->lines = m->mode == VISION_MODE_TRACK || m->mode == VISION_MODE_TRAFFIC;
-    out->ids = m->mode == VISION_MODE_TRACK || m->mode == VISION_MODE_FACE ||
+    out->ids = m->mode == VISION_MODE_TRACK || m->mode == VISION_MODE_FACE || m->mode == VISION_MODE_RECOGNIZE ||
                (m->mode == VISION_MODE_TRAFFIC && m->set.traffic.labels);
-    out->faces = m->mode == VISION_MODE_FACE;
+    out->faces = m->mode == VISION_MODE_FACE || m->mode == VISION_MODE_RECOGNIZE;
+    out->recog = m->mode == VISION_MODE_RECOGNIZE;
+    out->enrol_btn = m->enrolling ? "STOP" : "ENROL";
+    out->forget_btn = m->forget_armed ? "SURE?" : "FORGET";
+    out->forget_enabled = m->have_owner;
     out->speeds = m->mode == VISION_MODE_TRAFFIC && m->set.traffic.speeds;
     out->trails = (m->mode == VISION_MODE_TRACK && m->set.track.trails) ||
                   (m->mode == VISION_MODE_TRAFFIC && m->set.traffic.trails);
@@ -1082,6 +1234,10 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
             read_status(m, status_buf, status_len);
             out->status = status_buf;
             out->status_warn = m->readfail[0] != '\0';
+        } else if (out->recog && (m->recogfail[0] || m->facefail[0] || m->enrolling || m->enrolfail[0] ||
+                                  m->owner_known)) {
+            recog_status(m, status_buf, status_len, &out->status_warn);
+            out->status = status_buf;
         } else if (out->faces && m->facefail[0]) {
             snprintf(status_buf, status_len, "Cannot find faces: %s", m->facefail);
             out->status = status_buf;

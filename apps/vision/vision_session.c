@@ -430,6 +430,79 @@ int vision_session_parse_line(struct vision_session *s, const char *line, struct
         snprintf(ev->text, sizeof(ev->text), "%s", rest(line, 1));
         return 1;
     }
+    if (strncmp(line, "recogfail", 9) == 0) {
+        ev->kind = VISION_EV_RECOGFAIL;
+        snprintf(ev->text, sizeof(ev->text), "%s", rest(line, 1));
+        return 1;
+    }
+    if (strncmp(line, "enrolfail", 9) == 0) {
+        ev->kind = VISION_EV_ENROLFAIL;
+        snprintf(ev->text, sizeof(ev->text), "%s", rest(line, 1));
+        return 1;
+    }
+    if (strncmp(line, "enrol ", 6) == 0) {
+        unsigned k;
+        unsigned n;
+        char tail;
+
+        if (sscanf(line, "enrol %u %u%c", &k, &n, &tail) != 2 || n == 0 || n > 100 || k > n) {
+            return 0;
+        }
+        ev->kind = VISION_EV_ENROL;
+        ev->w = k;
+        ev->h = n;
+        return 1;
+    }
+    if (strncmp(line, "owner ", 6) == 0) {
+        int have;
+        unsigned views;
+        char tail;
+
+        if (sscanf(line, "owner %d %u%c", &have, &views, &tail) != 2 || (have != 0 && have != 1) || views > 1000) {
+            return 0;
+        }
+        ev->kind = VISION_EV_OWNER;
+        ev->value = have;
+        ev->w = views;
+        return 1;
+    }
+    if (strncmp(line, "who ", 4) == 0) {
+        struct vision_who_report t;
+        const char *p;
+        int used = 0;
+        int i;
+
+        memset(&t, 0, sizeof(t));
+        if (sscanf(line, "who %u %d %d%n", &t.seq, &t.faces, &t.n, &used) != 3 || used == 0 || t.faces < 0 ||
+            t.faces > 1000 || t.n < 0 || t.n > VISION_WHO_MAX) {
+            return 0;
+        }
+        p = line + used;
+        for (i = 0; i < t.n; i++) {
+            unsigned id;
+            unsigned score;
+            int flag;
+            int k = 0;
+
+            if (sscanf(p, " %u:%u:%d%n", &id, &score, &flag, &k) != 3 || k == 0 || id == 0 || score > 1000 ||
+                (flag != 0 && flag != 1)) {
+                return 0;
+            }
+            t.t[i].id = id;
+            t.t[i].score = (uint16_t)score;
+            t.t[i].owner = flag == 1;
+            p += k;
+        }
+        if (*p) {
+            return 0;
+        }
+        ev->kind = VISION_EV_WHO;
+        ev->value = (int)t.seq;
+        if (s) {
+            s->who = t;
+        }
+        return 1;
+    }
     if (strncmp(line, "readfail", 8) == 0) {
         ev->kind = VISION_EV_READFAIL;
         snprintf(ev->text, sizeof(ev->text), "%s", rest(line, 1));
@@ -1019,6 +1092,16 @@ int vision_session_mode_word(struct vision_session *s, const char *word)
     return send_line(s, "mode %s", word);
 }
 
+int vision_session_enrol(struct vision_session *s, bool on)
+{
+    return on ? send_line(s, "enrol") : send_line(s, "enrol off");
+}
+
+int vision_session_forget(struct vision_session *s)
+{
+    return send_line(s, "forget");
+}
+
 int vision_session_color(struct vision_session *s, const uint8_t rgb[3])
 {
     if (!rgb) {
@@ -1114,6 +1197,11 @@ const struct vision_recent_report *vision_session_recent(const struct vision_ses
 const struct vision_text_report *vision_session_text(const struct vision_session *s)
 {
     return &s->text;
+}
+
+const struct vision_who_report *vision_session_who(const struct vision_session *s)
+{
+    return &s->who;
 }
 
 const struct vision_pixel_report *vision_session_pixels(const struct vision_session *s)

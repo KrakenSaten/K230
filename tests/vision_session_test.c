@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -737,6 +738,197 @@ static void test_replay(void)
     rmdir(dir);
 }
 
+/* RECOGNIZE against the real helper and the fake face models: offered only
+ * with both models; enrolment of the one face in view, kept in the state
+ * directory (0600 in 0700); that face then the OWNER on the next open,
+ * another face unknown, both at once told apart; enrolment refusing two
+ * faces; FORGET removing the owner from the unit; a profile of another
+ * model not used. */
+static int wait_who(struct vision_session *s, int n, struct watch *w)
+{
+    struct vision_event ev;
+    int i;
+
+    for (i = 0; i < 40; i++) {
+        if (wait_for(s, VISION_EV_WHO, 1500, &ev, seen, w) && s->who.n == n) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void test_recognize(void)
+{
+    struct vision_session s;
+    struct vision_event ev;
+    struct watch w = { 0, 0, 0, 0, 0, 0, NULL };
+    char dir[] = "/tmp/vision-recog-XXXXXX";
+    char det[128];
+    char emb[128];
+    char state[128];
+    char owner[160];
+    struct stat st;
+    FILE *f;
+    int i;
+    int k;
+    int ok;
+
+    if (!mkdtemp(dir)) {
+        check("a scratch directory", 0);
+        return;
+    }
+    snprintf(det, sizeof(det), "%s/face_det.kmodel", dir);
+    snprintf(emb, sizeof(emb), "%s/face_embed.kmodel", dir);
+    snprintf(state, sizeof(state), "%s/state", dir);
+    snprintf(owner, sizeof(owner), "%s/vision/owner.v1", state);
+    setenv("POCKETOS_VISION_FACE_DET", det, 1);
+    setenv("POCKETOS_VISION_FACE_EMBED", emb, 1);
+    setenv("POCKETOS_STATE_DIR", state, 1);
+    f = fopen(det, "w");
+    if (f) {
+        fclose(f);
+    }
+
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "face=200:100:80:100:1", NULL) == 0);
+    check("with the face detector alone RECOGNIZE is not offered, FACE is",
+          wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w) && (ev.value & (1 << VISION_MODE_FACE)) &&
+              !(ev.value & (1 << VISION_MODE_RECOGNIZE)));
+    vision_session_abandon(&s, 1000);
+
+    f = fopen(emb, "w");
+    if (f) {
+        fputs("fake", f);
+        fclose(f);
+    }
+    vision_session_init(&s);
+    check("the helper starts with both models", start(&s, "period=20", "face=200:100:80:100:1", NULL) == 0);
+    check("RECOGNIZE is offered", wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w) &&
+                                      (ev.value & (1 << VISION_MODE_RECOGNIZE)));
+    vision_session_view(&s, 640, 360, 90);
+    vision_session_mode_word(&s, "recognize");
+    check("no owner yet", wait_for(&s, VISION_EV_OWNER, 3000, &ev, seen, &w) && ev.value == 0);
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s;
+    check("faces are found, none scored without an owner", wait_who(&s, 0, &w) && s.who.faces == 1);
+    vision_session_enrol(&s, true);
+    ok = wait_for(&s, VISION_EV_ENROL, 3000, &ev, seen, &w) && ev.w == 0 && ev.h == 5;
+    for (i = 0, k = 0; i < 40 && k < 5; i++) {
+        if (wait_for(&s, VISION_EV_ENROL, 1500, &ev, seen, &w)) {
+            ok &= (int)ev.w == k + 1;
+            k = (int)ev.w;
+        }
+    }
+    check("enrolment takes five views, one at a time", ok && k == 5);
+    check("and the owner is kept", wait_for(&s, VISION_EV_OWNER, 3000, &ev, seen, &w) && ev.value == 1 && ev.w == 5);
+    check("on the unit, private: 0600 in a 0700 directory",
+          stat(owner, &st) == 0 && (st.st_mode & 0777) == 0600 &&
+              (snprintf(owner, sizeof(owner), "%s/vision", state), stat(owner, &st) == 0) &&
+              (st.st_mode & 0777) == 0700);
+    snprintf(owner, sizeof(owner), "%s/vision/owner.v1", state);
+    ok = wait_who(&s, 1, &w);
+    check("the enrolled face is the owner, sure", ok && s.who.t[0].owner && s.who.t[0].score >= 990);
+    vision_session_abandon(&s, 1000);
+
+    /* The next open: another person where the owner was. */
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "face=200:100:80:100:2", NULL) == 0);
+    wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w);
+    vision_session_view(&s, 640, 360, 90);
+    vision_session_mode_word(&s, "recognize");
+    check("the owner is still known", wait_for(&s, VISION_EV_OWNER, 3000, &ev, seen, &w) && ev.value == 1 && ev.w == 5);
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s;
+    ok = wait_who(&s, 1, &w);
+    printf("     someone else scores %u\n", s.who.t[0].score);
+    check("someone else is unknown", ok && !s.who.t[0].owner && s.who.t[0].score < 750);
+    vision_session_abandon(&s, 1000);
+
+    /* A group of six, more than a round looks at: every face is scored in
+     * turn, not the largest three again and again. */
+    vision_session_init(&s);
+    check("the helper starts",
+          start(&s, "period=20",
+                "face=10:100:60:80:2,face=110:100:64:84:3,face=210:100:68:88:4,face=310:100:72:92:5,"
+                "face=410:100:76:96:6,face=510:100:80:100:7",
+                NULL) == 0);
+    wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w);
+    vision_session_view(&s, 640, 360, 90);
+    vision_session_mode_word(&s, "recognize");
+    wait_for(&s, VISION_EV_OWNER, 3000, &ev, seen, &w);
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s;
+    ok = wait_who(&s, 6, &w);
+    for (i = 0; ok && i < 6; i++) {
+        ok &= !s.who.t[i].owner;
+    }
+    check("a group of six: all six scored, none the owner", ok && s.who.faces == 6);
+    vision_session_abandon(&s, 1000);
+
+    /* Both at once; then an enrolment with two faces in view. */
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "face=100:100:80:100:1,face=420:120:80:100:2", NULL) == 0);
+    wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w);
+    vision_session_view(&s, 640, 360, 90);
+    vision_session_mode_word(&s, "recognize");
+    wait_for(&s, VISION_EV_OWNER, 3000, &ev, seen, &w);
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s;
+    ok = wait_who(&s, 2, &w);
+    check("two faces: the owner and someone else, told apart",
+          ok && s.who.t[0].owner != s.who.t[1].owner && s.who.faces == 2);
+    {
+        /* The owner is the one on the left (x 100 on the sensor). */
+        int own = s.who.t[0].owner ? 0 : 1;
+        int n = 0;
+        const struct vision_shown *t = vision_session_tracks(&s, &n, NULL);
+        int left = -1;
+
+        for (i = 0; i < n; i++) {
+            if (t[i].id == s.who.t[own].id) {
+                left = t[i].x < 300;
+            }
+        }
+        check("the owner's label is on the owner's face", left == 1);
+    }
+    vision_session_enrol(&s, true);
+    wait_for(&s, VISION_EV_ENROL, 3000, &ev, seen, &w);
+    ok = !wait_for(&s, VISION_EV_ENROL, 1500, &ev, seen, &w);
+    check("an enrolment takes no view while two faces are in view", ok);
+    vision_session_enrol(&s, false);
+    vision_session_forget(&s);
+    check("FORGET: no owner", wait_for(&s, VISION_EV_OWNER, 3000, &ev, seen, &w) && ev.value == 0);
+    check("and nothing of it left on the unit", stat(owner, &st) != 0 && errno == ENOENT);
+    ok = wait_who(&s, 0, &w);
+    check("faces are no longer scored", ok && s.who.faces == 2);
+    vision_session_abandon(&s, 1000);
+
+    /* A profile of another model is not used. */
+    f = fopen(owner, "w");
+    if (f) {
+        fprintf(f, "doors-vision-owner 1\nmodel other.kmodel 4\ndim 4\nsamples 1\nv 1 0 0 0\n");
+        fclose(f);
+    }
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "face=200:100:80:100:1", NULL) == 0);
+    wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w);
+    vision_session_view(&s, 640, 360, 90);
+    vision_session_mode_word(&s, "recognize");
+    check("an owner made with another model is no owner", wait_for(&s, VISION_EV_OWNER, 3000, &ev, seen, &w) &&
+                                                              ev.value == 0);
+    vision_session_abandon(&s, 1000);
+    unsetenv("POCKETOS_VISION_FACE_DET");
+    unsetenv("POCKETOS_VISION_FACE_EMBED");
+    unsetenv("POCKETOS_STATE_DIR");
+    unlink(owner);
+    snprintf(owner, sizeof(owner), "%s/vision", state);
+    rmdir(owner);
+    rmdir(state);
+    unlink(det);
+    unlink(emb);
+    rmdir(dir);
+}
+
 /* FACE: the face model's outputs decoded, tracked and said as boxes with
  * ids; offered only when the model is there; a model that is not a face
  * detector said, not run. */
@@ -1083,6 +1275,7 @@ int main(int argc, char **argv)
     test_read();
     test_replay();
     test_face();
+    test_recognize();
     test_pixels();
     test_malformed();
     test_failures();

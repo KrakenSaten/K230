@@ -55,8 +55,10 @@
 #define _GNU_SOURCE
 #include "pocketcam/pocketcam.h"
 #include "pocketcam/pocketcam_convert.h"
+#include "pocketpaths.h"
 #include "pocketvision/pocketvision_proto.h"
 #include "pocketvision/vision_decode.h"
+#include "pocketvision/vision_embed.h"
 #include "pocketvision/vision_face.h"
 #include "pocketvision/vision_geom.h"
 #include "pocketvision/vision_kpu.h"
@@ -71,6 +73,7 @@
 #include "pocketvision/vision_window.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -116,7 +119,8 @@ enum helper_mode {
     MODE_EDGE,
     MODE_TRACE,
     MODE_READ,       /* the text models instead of the detector */
-    MODE_FACE        /* the face detector instead of the detector */
+    MODE_FACE,       /* the face detector instead of the detector */
+    MODE_RECOGNIZE   /* FACE, and each face compared with the owner's */
 };
 
 /* READ's models and dictionary (docs/apps/VISION.md "Read"): not in the
@@ -134,6 +138,14 @@ enum helper_mode {
  * mean (104, 117, 123). */
 #define VISION_FACE_DET_DEFAULT "/usr/share/doors/vision/face_det.kmodel"
 #define VISION_FACE_PAD 117
+/* RECOGNIZE's embedding model (docs/apps/VISION.md "RECOGNIZE"), and the
+ * owner it compares faces with: a file of the Vision state directory. */
+#define VISION_FACE_EMBED_DEFAULT "/usr/share/doors/vision/face_embed.kmodel"
+#define VISION_OWNER_FILE "owner.v1"
+#define VISION_RECOG_INTERVAL_MS 250  /* a recognition round at most this often */
+#define VISION_RECOG_FACES 3          /* faces embedded per round, the largest */
+#define VISION_RECOG_MIN_SIDE 32.0f   /* a face smaller than this (picture pixels) is not compared */
+#define VISION_ENROL_TIMEOUT_MS 20000 /* enrolment gives up after this */
 
 /* SIGTERM and SIGINT are BLOCKED for the helper's whole life and looked for
  * between frames, never taken by a handler. A signal handled while the
@@ -390,6 +402,27 @@ struct session {
     bool face_tried;
     struct vision_net *fdet;
     struct vision_net_info fdi;
+    /* RECOGNIZE: the embedding model, the owner, an enrolment under way,
+     * and the last score of each track. */
+    const char *face_embed_path;
+    bool recog_offered;
+    bool embed_tried;
+    struct vision_net *femb;
+    struct vision_net_info fei;
+    char embed_name[VISION_OWNER_MODEL_MAX];
+    uint64_t embed_bytes;
+    uint32_t embed_dim;
+    struct vision_owner owner;
+    bool have_owner;
+    struct vision_owner enrol;
+    bool enrolling;
+    int64_t enrol_since_ms;
+    int64_t last_recog_ms;
+    struct {
+        uint32_t id;
+        uint16_t score;
+        int64_t at;
+    } who[VISION_MAX_TRACKS];
     int64_t last_read_ms;
     /* REPLAY (backend "image"): saved pictures instead of the camera, for a
      * bench with nothing in front of it (replay_open). */
@@ -639,9 +672,11 @@ static void set_mode(struct session *s, enum helper_mode mode)
         say_traffic(s);
         say_recent(s, mono_ms());
     }
-    if (pixel_mode(s) || mode == MODE_READ || mode == MODE_FACE) {
+    if (pixel_mode(s) || mode == MODE_READ || mode == MODE_FACE || mode == MODE_RECOGNIZE) {
         say("det 0 0");
     }
+    memset(s->who, 0, sizeof(s->who));
+    s->enrolling = false;
 }
 
 /* A pixel mode's pass over the preview just drawn into a slot, and its
@@ -1315,6 +1350,340 @@ static int face_open(struct session *s)
     return -1;
 }
 
+/* ---- RECOGNIZE ------------------------------------------------------------------ */
+
+static void embed_close(struct session *s)
+{
+    vision_net_close(s->femb);
+    s->femb = NULL;
+}
+
+/* The embedding model, the first time RECOGNIZE is asked for: 0, or -1
+ * having said why (`recogfail`). */
+static int embed_open(struct session *s)
+{
+    char err[96] = "";
+    char t[96];
+    struct stat st;
+
+    if (s->femb) {
+        return 0;
+    }
+    if (s->embed_tried) {
+        return -1;
+    }
+    s->embed_tried = true;
+    if (stat(s->face_embed_path, &st) != 0) {
+        snprintf(err, sizeof(err), "the face embedding model is not there");
+    } else if (vision_net_open(&s->femb, s->face_embed_path, s->net_script, &s->fei, err, sizeof(err)) != 0) {
+        /* err says why. */
+    } else if (s->fei.outputs != 1 || s->fei.in_w != VISION_EMBED_SIZE || s->fei.in_h != VISION_EMBED_SIZE ||
+               s->fei.count[0] < 64 || s->fei.count[0] > VISION_EMBED_MAX) {
+        snprintf(err, sizeof(err), "the face embedding model does not take a 112 x 112 face");
+    } else {
+        const char *base = strrchr(s->face_embed_path, '/');
+
+        snprintf(s->embed_name, sizeof(s->embed_name), "%s", base ? base + 1 : s->face_embed_path);
+        s->embed_bytes = (uint64_t)st.st_size;
+        s->embed_dim = (uint32_t)s->fei.count[0];
+        return 0;
+    }
+    say("recogfail %s", clean(err, t, sizeof(t)));
+    embed_close(s);
+    return -1;
+}
+
+static void owner_path(char *out, size_t len)
+{
+    snprintf(out, len, "%s/vision/%s", pocketos_state_dir(), VISION_OWNER_FILE);
+}
+
+/* The owner kept on the unit, if there is one for this model. */
+static void owner_load(struct session *s)
+{
+    char path[POCKETOS_PATH_MAX + 32];
+    static char text[VISION_OWNER_TEXT_MAX];
+    size_t got;
+    FILE *fp;
+
+    s->have_owner = false;
+    owner_path(path, sizeof(path));
+    fp = fopen(path, "r");
+    if (!fp) {
+        return;
+    }
+    got = fread(text, 1, sizeof(text) - 1, fp);
+    fclose(fp);
+    text[got] = '\0';
+    if (vision_owner_parse(text, &s->owner) == 0 &&
+        vision_owner_fits(&s->owner, s->embed_name, s->embed_bytes, s->embed_dim)) {
+        s->have_owner = true;
+    }
+}
+
+/* Written as the settings are: a temporary file, fsync, rename; 0600 in a
+ * 0700 directory. 0, or -1. */
+static int owner_save(const struct vision_owner *o)
+{
+    char dir[POCKETOS_PATH_MAX + 16];
+    char path[POCKETOS_PATH_MAX + 32];
+    char tmp[POCKETOS_PATH_MAX + 40];
+    static char text[VISION_OWNER_TEXT_MAX];
+    int n = vision_owner_format(o, text, sizeof(text));
+    int fd;
+
+    snprintf(dir, sizeof(dir), "%s/vision", pocketos_state_dir());
+    if (n < 0 || pocketos_mkdir_p(dir, 0700) != 0) {
+        return -1;
+    }
+    owner_path(path, sizeof(path));
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        return -1;
+    }
+    if (write(fd, text, (size_t)n) != (ssize_t)n || fsync(fd) != 0) {
+        close(fd);
+        unlink(tmp);
+        return -1;
+    }
+    if (close(fd) != 0 || rename(tmp, path) != 0) {
+        unlink(tmp);
+        return -1;
+    }
+    return 0;
+}
+
+static void say_owner(struct session *s)
+{
+    say("owner %d %u", s->have_owner ? 1 : 0, s->have_owner ? s->owner.samples : 0u);
+}
+
+/* The track a face (frame pixels) went to this frame: the seen track it
+ * overlaps most. 0 for none. */
+static uint32_t track_of(const struct session *s, const struct vision_box *b)
+{
+    uint32_t best = 0;
+    uint32_t best_iou = 300;
+    int k;
+
+    for (k = 0; k < s->tracker.count; k++) {
+        const struct vision_track *t = &s->tracker.t[k];
+        uint32_t iou;
+
+        if (!t->seen || !t->confirmed) {
+            continue;
+        }
+        iou = vision_iou_permille(&t->box, b);
+        if (iou > best_iou) {
+            best_iou = iou;
+            best = t->id;
+        }
+    }
+    return best;
+}
+
+/* What RECOGNIZE knows of each track: its score against the owner, and
+ * when it was scored. The table follows the tracker; a track that is gone
+ * is forgotten. */
+static void who_set(struct session *s, uint32_t id, uint16_t score, int64_t now)
+{
+    int free_at = -1;
+    int k;
+
+    for (k = 0; k < VISION_MAX_TRACKS; k++) {
+        if (s->who[k].id == id) {
+            s->who[k].score = score;
+            s->who[k].at = now;
+            return;
+        }
+        if (s->who[k].id == 0 && free_at < 0) {
+            free_at = k;
+        }
+    }
+    if (free_at >= 0) {
+        s->who[free_at].id = id;
+        s->who[free_at].score = score;
+        s->who[free_at].at = now;
+    }
+}
+
+/* When track id was last scored; 0 for never. */
+static int64_t who_at(const struct session *s, uint32_t id)
+{
+    int k;
+
+    for (k = 0; k < VISION_MAX_TRACKS; k++) {
+        if (s->who[k].id == id) {
+            return s->who[k].at;
+        }
+    }
+    return 0;
+}
+
+static void say_who(struct session *s, uint32_t seq, int faces)
+{
+    char line[VISION_LINE_MAX];
+    size_t off;
+    int said = 0;
+    int k;
+
+    /* Forget the tracks the tracker no longer holds. */
+    for (k = 0; k < VISION_MAX_TRACKS; k++) {
+        int j;
+        bool held = false;
+
+        if (s->who[k].id == 0) {
+            continue;
+        }
+        for (j = 0; j < s->tracker.count && !held; j++) {
+            held = s->tracker.t[j].id == s->who[k].id;
+        }
+        if (!held) {
+            s->who[k].id = 0;
+        }
+    }
+    off = (size_t)snprintf(line, sizeof(line), "who %u %d", seq, faces);
+    {
+        char items[VISION_LINE_MAX - 32];
+        size_t io = 0;
+
+        items[0] = '\0';
+        for (k = 0; k < VISION_MAX_TRACKS && said < VISION_MAX_SHOWN; k++) {
+            int w;
+
+            if (s->who[k].id == 0) {
+                continue;
+            }
+            w = snprintf(items + io, sizeof(items) - io, " %u:%u:%d", s->who[k].id, s->who[k].score,
+                         s->have_owner && s->who[k].score >= VISION_OWNER_MATCH_PM ? 1 : 0);
+            if (w < 0 || io + (size_t)w >= sizeof(items)) {
+                break;
+            }
+            io += (size_t)w;
+            said++;
+        }
+        snprintf(line + off, sizeof(line) - off, " %d%s", said, items);
+    }
+    say("%s", line);
+}
+
+/* A recognition round: the largest faces aligned and embedded; while
+ * enrolling, the one face in view becomes a view of the owner; otherwise
+ * each face is scored against the owner and its track labelled. Faces and
+ * points are the face model's (input pixels, over ratio the upright
+ * picture's). */
+static void recognise(struct session *s, const struct pocketcam_frame *f, const struct pocketcam_frame *in,
+                      const struct vision_face *faces, int n, float ratio, int64_t now)
+{
+    int order[VISION_FACE_MAX];
+    int done = 0;
+    int i;
+    int j;
+
+    if (now - s->last_recog_ms < VISION_RECOG_INTERVAL_MS) {
+        return;
+    }
+    s->last_recog_ms = now;
+    if (s->enrolling && now - s->enrol_since_ms > VISION_ENROL_TIMEOUT_MS) {
+        s->enrolling = false;
+        say("enrolfail no single face held still long enough");
+    }
+    if (embed_open(s) != 0) {
+        return;
+    }
+    if (s->enrolling && n != 1) {
+        /* One face, the owner's, and nobody else's. */
+        say_who(s, f->seq, n);
+        return;
+    }
+    /* A round looks at VISION_RECOG_FACES faces: those never scored first,
+     * then those scored longest ago, the larger first among equals - so
+     * every face in a crowd is looked at in turn, not the largest three
+     * over and over. While enrolling there is one face. */
+    {
+        int64_t age[VISION_FACE_MAX];
+
+        for (i = 0; i < n; i++) {
+            uint32_t id = s->enrolling ? 0 : track_of(s, &s->dets[i].box);
+
+            order[i] = i;
+            age[i] = id ? now - who_at(s, id) : 0;
+            if (id && who_at(s, id) == 0) {
+                age[i] = INT64_MAX;
+            }
+        }
+        for (i = 1; i < n; i++) {
+            int k = order[i];
+
+            for (j = i; j > 0; j--) {
+                int p = order[j - 1];
+                bool before = age[k] > age[p] ||
+                              (age[k] == age[p] && faces[k].box.w * faces[k].box.h > faces[p].box.w * faces[p].box.h);
+
+                if (!before) {
+                    break;
+                }
+                order[j] = p;
+            }
+            order[j] = k;
+        }
+    }
+    if (n > 0 && (vision_net_turn(s->femb, view_of(s).rotation) != 0 || vision_net_frame(s->femb, in) != 0)) {
+        say("recogfail the face embedding model failed on a frame");
+        embed_close(s);
+        return;
+    }
+    for (i = 0; i < n && done < VISION_RECOG_FACES; i++) {
+        const struct vision_face *fc = &faces[order[i]];
+        float pts[5][2];
+        float m[6];
+        float emb[VISION_EMBED_MAX];
+        const float *raw;
+        size_t count = 0;
+
+        if ((float)(fc->box.w < fc->box.h ? fc->box.w : fc->box.h) / ratio < VISION_RECOG_MIN_SIDE) {
+            continue;
+        }
+        for (j = 0; j < 5; j++) {
+            pts[j][0] = (float)fc->pt[j][0] / ratio;
+            pts[j][1] = (float)fc->pt[j][1] / ratio;
+        }
+        if (vision_embed_align(pts, m) != 0 || vision_net_run_affine(s->femb, m, NULL, NULL) != 0) {
+            continue;
+        }
+        raw = vision_net_output(s->femb, 0, &count);
+        if (!raw || count != s->embed_dim || vision_embed_unit(raw, count, emb) != 0) {
+            continue;
+        }
+        done++;
+        if (s->enrolling) {
+            if (vision_owner_add(&s->enrol, emb) == 0) {
+                say("enrol %u %d", s->enrol.samples, VISION_OWNER_SAMPLES);
+            }
+            if (s->enrol.samples >= VISION_OWNER_SAMPLES) {
+                s->enrolling = false;
+                if (vision_owner_finish(&s->enrol) != 0 || owner_save(&s->enrol) != 0) {
+                    say("enrolfail the owner could not be kept on the unit");
+                } else {
+                    s->owner = s->enrol;
+                    s->have_owner = true;
+                    say_owner(s);
+                }
+            }
+            continue;
+        }
+        if (s->have_owner) {
+            uint32_t id = track_of(s, &s->dets[order[i]].box);
+
+            if (id) {
+                who_set(s, id, vision_embed_score(emb, s->owner.v, s->embed_dim), now);
+            }
+        }
+    }
+    say_who(s, f->seq, n);
+}
+
 /* One frame through the face detector: faces on the upright picture, back
  * to frame pixels, into the tracker (for ids), said as a `det` line with
  * class 0 - the screen knows FACE's boxes are faces. */
@@ -1387,6 +1756,9 @@ static void detect_faces(struct session *s, const struct pocketcam_frame *f, int
     }
     unturn_dets(s->dets, n, f, v.rotation);
     vision_tracker_update(&s->tracker, s->dets, n);
+    if (s->mode == MODE_RECOGNIZE) {
+        recognise(s, f, &in, faces, n, ratio, now);
+    }
     s->last_pre_ms = pre;
     s->last_infer_ms = inf;
     s->last_post_ms = (int)(mono_ms() - t0) - pre - inf;
@@ -1546,7 +1918,39 @@ static void command(struct session *s, char *line)
         } else if (a && strcmp(a, "face") == 0 && s->face_offered) {
             set_mode(s, MODE_FACE);
             face_open(s);
+        } else if (a && strcmp(a, "recognize") == 0 && s->recog_offered) {
+            set_mode(s, MODE_RECOGNIZE);
+            if (face_open(s) == 0 && embed_open(s) == 0) {
+                owner_load(s);
+            }
+            say_owner(s);
         }
+    } else if (strcmp(w, "enrol") == 0) {
+        /* `enrol`: the next VISION_OWNER_SAMPLES views of the one face in
+         * view become the owner; `enrol off` gives up. */
+        char *a = strtok_r(NULL, " ", &save);
+
+        if (a && strcmp(a, "off") == 0) {
+            s->enrolling = false;
+        } else if (s->mode != MODE_RECOGNIZE || !s->femb) {
+            say("enrolfail RECOGNIZE is not running");
+        } else if (vision_owner_begin(&s->enrol, s->embed_name, s->embed_bytes, s->embed_dim) != 0) {
+            say("enrolfail the face embedding model cannot make an owner");
+        } else {
+            s->enrolling = true;
+            s->enrol_since_ms = mono_ms();
+            say("enrol 0 %d", VISION_OWNER_SAMPLES);
+        }
+    } else if (strcmp(w, "forget") == 0) {
+        /* The owner goes, from the unit too. */
+        char path[POCKETOS_PATH_MAX + 32];
+
+        owner_path(path, sizeof(path));
+        unlink(path);
+        s->have_owner = false;
+        s->enrolling = false;
+        memset(s->who, 0, sizeof(s->who));
+        say_owner(s);
     } else if (strcmp(w, "color") == 0) {
         char *a = strtok_r(NULL, " ", &save);
         char *b = strtok_r(NULL, " ", &save);
@@ -1833,7 +2237,7 @@ static void stream_once(struct session *s)
         if (now - s->last_read_ms >= VISION_READ_INTERVAL_MS) {
             read_text(s, &f, now);
         }
-    } else if (s->mode == MODE_FACE) {
+    } else if (s->mode == MODE_FACE || s->mode == MODE_RECOGNIZE) {
         detect_faces(s, &f, now);
     } else if (!pixel_mode(s)) {
         detect(s, &f, now);
@@ -1970,6 +2374,8 @@ static int run_session(const char *backend, const char *config, const char *mode
     s->text_dict_path = s->text_dict_path && *s->text_dict_path ? s->text_dict_path : VISION_TEXT_DICT_DEFAULT;
     s->face_det_path = getenv("POCKETOS_VISION_FACE_DET");
     s->face_det_path = s->face_det_path && *s->face_det_path ? s->face_det_path : VISION_FACE_DET_DEFAULT;
+    s->face_embed_path = getenv("POCKETOS_VISION_FACE_EMBED");
+    s->face_embed_path = s->face_embed_path && *s->face_embed_path ? s->face_embed_path : VISION_FACE_EMBED_DEFAULT;
     s->net_script = kpu_script;
     say("hello %d %s %s", VISION_PROTO_VERSION, backend, vision_kpu_backend());
     if (map_shm(s) != 0) {
@@ -2004,8 +2410,9 @@ static int run_session(const char *backend, const char *config, const char *mode
     s->text_offered = access(s->text_det_path, R_OK) == 0 && access(s->text_rec_path, R_OK) == 0 &&
                       access(s->text_dict_path, R_OK) == 0;
     s->face_offered = access(s->face_det_path, R_OK) == 0;
-    say("caps detect track traffic color edge trace%s%s", s->text_offered ? " read" : "",
-        s->face_offered ? " face" : "");
+    s->recog_offered = s->face_offered && access(s->face_embed_path, R_OK) == 0;
+    say("caps detect track traffic color edge trace%s%s%s", s->text_offered ? " read" : "",
+        s->face_offered ? " face" : "", s->recog_offered ? " recognize" : "");
     while (!s->quit && !s->in_eof && !stop_requested() && !out_broken) {
         read_commands(s, s->streaming ? 0 : 250);
         if (s->streaming && !s->quit) {
@@ -2022,6 +2429,7 @@ static int run_session(const char *backend, const char *config, const char *mode
     }
     text_close(s);
     face_close(s);
+    embed_close(s);
     vision_kpu_close(s->kpu);
     if (s->quit && s->exit_code == 0) {
         say("bye");
@@ -2703,6 +3111,118 @@ static int run_face_bench(const char *image, const char *path, int frames)
     return rc;
 }
 
+/* RECOGNIZE's models on pictures: every face found, aligned and embedded,
+ * and the score of every pair (the vendor's, per cent: 50 + 50 x cosine;
+ * RECOGNIZE calls 75 and over the same person). For judging a model on
+ * known faces before trusting it. */
+#define EMBED_BENCH_FACES 24
+static int run_embed_bench(const char *det_path, const char *emb_path, int nimg, char **images)
+{
+    static float emb[EMBED_BENCH_FACES][VISION_EMBED_MAX];
+    int from[EMBED_BENCH_FACES][2];
+    struct vision_net *det = NULL;
+    struct vision_net *enet = NULL;
+    struct vision_net_info di;
+    struct vision_net_info ei;
+    char err[96] = "";
+    int total = 0;
+    int k;
+    int rc = 0;
+
+    if (vision_net_open(&det, det_path, NULL, &di, err, sizeof(err)) != 0 ||
+        vision_net_open(&enet, emb_path, NULL, &ei, err, sizeof(err)) != 0) {
+        fprintf(stderr, "pos-vision: face models: %s\n", err);
+        vision_net_close(det);
+        return EXIT_NOMODEL;
+    }
+    if (vision_face_check(di.outputs, di.rank, (const uint32_t (*)[4])di.dims, di.in_w, di.in_h) != 0 ||
+        ei.outputs != 1 || ei.in_w != VISION_EMBED_SIZE || ei.in_h != VISION_EMBED_SIZE ||
+        ei.count[0] > VISION_EMBED_MAX) {
+        fprintf(stderr, "pos-vision: not a face detector and a 112 x 112 face embedding model\n");
+        vision_net_close(enet);
+        vision_net_close(det);
+        return EXIT_NOMODEL;
+    }
+    printf("embedding %ux%u -> %zu values\n", ei.in_w, ei.in_h, ei.count[0]);
+    for (k = 0; k < nimg && rc == 0; k++) {
+        struct pocketcam_frame f;
+        uint8_t *buf = NULL;
+        struct vision_face faces[VISION_FACE_MAX];
+        const float *out[VISION_FACE_OUTPUTS];
+        size_t count[VISION_FACE_OUTPUTS];
+        float ratio;
+        int n;
+        int i;
+        int j;
+
+        if (load_image(images[k], &f, &buf) != 0) {
+            rc = EXIT_USAGE;
+            break;
+        }
+        if (vision_net_frame(det, &f) != 0 || vision_net_run(det, NULL, false, VISION_FACE_PAD, NULL, NULL) != 0 ||
+            vision_net_frame(enet, &f) != 0) {
+            free(buf);
+            rc = EXIT_LOST;
+            break;
+        }
+        for (i = 0; i < VISION_FACE_OUTPUTS; i++) {
+            out[i] = vision_net_output(det, i, &count[i]);
+        }
+        n = vision_face_decode(out, count, di.in_w, di.in_h, VISION_FACE_CONF_PM, VISION_FACE_NMS_PM, faces,
+                               VISION_FACE_MAX, NULL);
+        ratio = (float)di.in_w / (float)f.width < (float)di.in_h / (float)f.height ? (float)di.in_w / (float)f.width
+                                                                                    : (float)di.in_h / (float)f.height;
+        printf("picture %d %s: %d faces\n", k, images[k], n);
+        for (i = 0; i < n && total < EMBED_BENCH_FACES; i++) {
+            float pts[5][2];
+            float m[6];
+            const float *raw;
+            size_t c = 0;
+            int pre = 0;
+            int inf = 0;
+
+            for (j = 0; j < 5; j++) {
+                pts[j][0] = (float)faces[i].pt[j][0] / ratio;
+                pts[j][1] = (float)faces[i].pt[j][1] / ratio;
+            }
+            if (vision_embed_align(pts, m) != 0 || vision_net_run_affine(enet, m, &pre, &inf) != 0) {
+                printf("  face %d.%d: no alignment\n", k, i);
+                continue;
+            }
+            raw = vision_net_output(enet, 0, &c);
+            if (!raw || vision_embed_unit(raw, c, emb[total]) != 0) {
+                printf("  face %d.%d: no embedding\n", k, i);
+                continue;
+            }
+            printf("  face %d.%d = #%d: %d,%d %dx%d %u%%, align %d ms embed %d ms\n", k, i, total,
+                   (int)((float)faces[i].box.x / ratio), (int)((float)faces[i].box.y / ratio),
+                   (int)((float)faces[i].box.w / ratio), (int)((float)faces[i].box.h / ratio), faces[i].conf / 10,
+                   pre, inf);
+            from[total][0] = k;
+            from[total][1] = i;
+            total++;
+        }
+        free(buf);
+    }
+    printf("scores (per cent; 75 and over: the same person)\n    ");
+    for (k = 0; k < total; k++) {
+        printf(" %3d", k);
+    }
+    printf("\n");
+    for (k = 0; k < total; k++) {
+        int j;
+
+        printf("%3d:", k);
+        for (j = 0; j < total; j++) {
+            printf(" %3u", (unsigned)((vision_embed_score(emb[k], emb[j], ei.count[0]) + 5) / 10));
+        }
+        printf("   (%d.%d)\n", from[k][0], from[k][1]);
+    }
+    vision_net_close(enet);
+    vision_net_close(det);
+    return rc;
+}
+
 static void usage(void)
 {
     fprintf(stderr,
@@ -2714,7 +3234,8 @@ static void usage(void)
             "                        [--range near|normal|far] [--tracks]\n"
             "       pos-vision describe MODEL.kmodel\n"
             "       pos-vision text IMAGE.ppm DET REC DICT [N]\n"
-            "       pos-vision face IMAGE.ppm MODEL [N]\n");
+            "       pos-vision face IMAGE.ppm MODEL [N]\n"
+            "       pos-vision embed FACE_DET FACE_EMBED IMAGE.ppm...\n");
 }
 
 int main(int argc, char **argv)
@@ -2751,6 +3272,14 @@ int main(int argc, char **argv)
             return EXIT_USAGE;
         }
         return run_face_bench(argv[2], argv[3], argc == 5 ? atoi(argv[4]) : 1);
+    }
+    if (strcmp(cmd, "embed") == 0) {
+        /* pos-vision embed DET EMBED IMAGE.ppm... */
+        if (argc < 5) {
+            usage();
+            return EXIT_USAGE;
+        }
+        return run_embed_bench(argv[2], argv[3], argc - 4, argv + 4);
     }
     if (strcmp(cmd, "describe") == 0) {
         /* A model's inputs and outputs, for bringing one up on the bench. */

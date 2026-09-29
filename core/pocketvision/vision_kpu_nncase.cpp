@@ -35,6 +35,7 @@ extern "C" {
 #include <nncase/runtime/util.h>
 
 #include <cerrno>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -589,6 +590,8 @@ extern "C" int vision_net_frame(struct vision_net *n, const struct pocketcam_fra
     return 0;
 }
 
+static int net_infer(struct vision_net *n, int64_t t0, int64_t t1, int *pre_ms, int *infer_ms);
+
 /* The schedule for a window of the frame into the model: cropped, then
  * letterboxed (top-left, padded right and bottom) or stretched. */
 static int net_build(struct vision_net *n, const struct vision_box *w, bool stretch, uint8_t pad)
@@ -638,7 +641,6 @@ extern "C" int vision_net_run(struct vision_net *n, const struct vision_box *win
     struct vision_box w;
     int64_t t0;
     int64_t t1;
-    int64_t t2;
 
     if (!n) {
         return -EINVAL;
@@ -671,6 +673,59 @@ extern "C" int vision_net_run(struct vision_net *n, const struct vision_box *win
         return -EIO;
     }
     t1 = mono_ms();
+    return net_infer(n, t0, t1, pre_ms, infer_ms);
+}
+
+extern "C" int vision_net_run_affine(struct vision_net *n, const float m[6], int *pre_ms, int *infer_ms)
+{
+    int64_t t0;
+    int64_t t1;
+
+    if (!n || !m) {
+        return -EINVAL;
+    }
+    if (!n->have_frame) {
+        return -EPROTO;
+    }
+    for (int i = 0; i < 6; i++) {
+        if (!std::isfinite(m[i])) {
+            return -EINVAL;
+        }
+    }
+    t0 = mono_ms();
+    {
+        /* As the vendor's face verification aligns a face (ai_demo
+         * common/utils.cc Utils::affine): the affine alone, bilinear, the
+         * matrix taking the frame to the model's input. Built per run: the
+         * matrix is the face's. */
+        dims_t in_shape { 1, 3, n->fh, n->fw };
+        dims_t out_shape { 1, 3, n->in_h, n->in_w };
+        ai2d_datatype_t dtype { ai2d_format::NCHW_FMT, ai2d_format::NCHW_FMT, dt_uint8, dt_uint8 };
+        ai2d_crop_param_t crop { false, 0, 0, 0, 0 };
+        ai2d_shift_param_t shift { false, 0 };
+        ai2d_pad_param_t padp { false, { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 } }, ai2d_pad_mode::constant, { 0, 0, 0 } };
+        ai2d_resize_param_t resize { false, ai2d_interp_method::tf_bilinear, ai2d_interp_mode::half_pixel };
+        ai2d_affine_param_t affine { true, ai2d_interp_method::cv2_bilinear, 0, 0, 127, 1,
+                                     { m[0], m[1], m[2], m[3], m[4], m[5] } };
+        std::unique_ptr<ai2d_builder> b(
+            new (std::nothrow) ai2d_builder(in_shape, out_shape, dtype, crop, shift, padp, resize, affine));
+
+        if (!b) {
+            return -ENOMEM;
+        }
+        if (!b->build_schedule().is_ok() || !b->invoke(n->ai2d_in, n->model_in).is_ok()) {
+            return -EIO;
+        }
+    }
+    t1 = mono_ms();
+    return net_infer(n, t0, t1, pre_ms, infer_ms);
+}
+
+/* The model on its input as it stands, and its outputs copied out. */
+static int net_infer(struct vision_net *n, int64_t t0, int64_t t1, int *pre_ms, int *infer_ms)
+{
+    int64_t t2;
+
     if (!n->interp.run().is_ok()) {
         return -EIO;
     }

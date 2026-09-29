@@ -317,6 +317,75 @@ the picture holds about twenty). A portrait: one face,
 99 %. The live camera in a dark room: FACES 0. Not yet measured: live
 faces in front of the unit (the gate ran at night in a dark room).
 
+## RECOGNIZE (owner recognition, feat/vision-next)
+
+RECOGNIZE is FACE plus one question per face: is this the owner? ENROL
+takes five views of the one face in view (it waits while there are two)
+and keeps them, averaged, as the owner; after that each face's box says
+"OWNER 91%" or "unknown 48%" (the figure is the similarity, not the
+detector's confidence), OWNER: HERE / - says whether the owner is in view,
+and FORGET - tapped twice within four seconds, the first tap turning it
+into SURE? - removes the owner from the unit. Everything happens in the
+helper, on the unit: no picture, face or number leaves it, and the LVGL
+thread only draws the words the helper sends.
+
+**Pipeline** (helper, `recognise()` in `tools/vision/pos_vision.c`): the
+FACE pipeline every frame; at most every 250 ms a recognition round
+embeds up to three faces - those never scored first, then those scored
+longest ago, larger first among equals, so every face of a group is
+looked at in turn - skipping faces under 32 picture pixels (too small to
+say anything). Each face's five points are aligned onto the 112 x 112
+template (`core/pocketvision/vision_embed.c`: the least-squares similarity
+to the vendor demo's ArcFace reference points, tested against known
+transforms) and warped by the AI2D engine's affine
+(`vision_net_run_affine`); the 512 values come back made unit length and
+are compared with the owner by the vendor's score, 50 + 50 x cosine, the
+owner from 75 up (the vendor demo's threshold). A score belongs to its
+track; the table follows the tracker.
+
+**The owner on the unit:** `$POCKETOS_STATE_DIR/vision/owner.v1` (default
+`/var/lib/pocketos/vision/`), 0600 in a 0700 directory, written atomically
+by the helper: the model's file name and size, the vector's length, the
+number of views and the averaged unit vector (512 numbers, about 6 KB).
+It is a biometric template of the owner's face; it stays on the unit and
+FORGET deletes it. A profile made with another model (other name or size)
+is not used. Protocol: `mode recognize`, `enrol`, `enrol off`, `forget`;
+the helper says `owner HAVE VIEWS`, `enrol K N`, `enrolfail WHY`,
+`recogfail WHY` and `who SEQ FACES N ID:SCORE:OWNER...`.
+
+**Model: not in the image and not in this repository.** RECOGNIZE is
+offered only when FACE's detector and
+`/usr/share/doors/vision/face_embed.kmodel` (override
+`POCKETOS_VISION_FACE_EMBED`) are both there. Tried with the canmv SDK's
+`ai_poc/kmodel/face_recognition.kmodel` (46,333,280 bytes, sha256
+`2409a30f…78218472`; u8 `[1,3,112,112]` -> f32 `[1,512]`, VERIFIED on
+unit B), the model the vendor's `ai_demo/face_verification` pairs with the
+same face detector, whose pre- and post-processing this follows. The SDK
+states neither its source weights nor its licence (docs/LICENSING.md item
+11); it was linked from `/tmp` for the gate. The SDK's other face model,
+`door_lock/mbface.kmodel`, has no code in the SDK saying how it is fed,
+and was not used.
+
+**Judged on pictures before use** (unit B, `pos-vision embed`, KPU): the
+vendor's own verification pair - an ID-card photo and a selfie of the same
+man, years and glasses apart - 82; a portrait and its mirror image 96 and
+98; three different women 46-56; 16 different people of a crowd photo, 120
+pairs, 46-68, none over 75. So on this (small) set the threshold separates
+the same person from others with a margin of 7 on each side; it is not a
+benchmark, and no live face was tried.
+
+**Through the app on unit B** (recorded pictures, backend `image`,
+2026-09-30): ENROL by touch on the selfie (five views, a round every 250 ms; the
+file 0600 in 0700), the selfie then "OWNER 100%" (the same picture), the
+ID photo "OWNER 81%", a different woman "unknown 53%", the crowd 12 faces
+"unknown" 46-56 % and four under 32 px left as "face"; FORGET by two taps
+removed the file. Embedding 37-39 ms a face; with the 46 MB model loaded
+the helper takes about 40 MB more CMA and memory while RECOGNIZE is open,
+all of it back after close; helper 6-7 % CPU on a replay at 10 frames a
+second. Not measured: enrolment and recognition of a live face through the
+camera (the gate ran at night with nobody at the unit), and how the score
+behaves with light, distance and angle.
+
 ## What it does
 
 - **DETECT.** Opening the app starts the camera and loads the model. The

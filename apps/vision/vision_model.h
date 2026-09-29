@@ -55,6 +55,8 @@ enum vision_state {
 #define VISION_ACT_SAMPLE    0x200u /* send a colour sample at vision_model_sample_point */
 #define VISION_ACT_SAVE      0x400u /* the settings changed: store them */
 #define VISION_ACT_RANGE     0x800u /* send TRAFFIC's detection range */
+#define VISION_ACT_ENROL     0x1000u /* send enrol, or enrol off (vision_model.enrolling) */
+#define VISION_ACT_FORGET    0x2000u /* send forget */
 
 /* The buttons, by role; the order on screen is per mode
  * (vision_model_buttons). */
@@ -69,6 +71,8 @@ enum vision_button {
     VISION_BTN_EDGE,
     VISION_BTN_TRACE,
     VISION_BTN_HOLD,
+    VISION_BTN_ENROL,
+    VISION_BTN_FORGET,
     VISION_BUTTONS
 };
 
@@ -133,6 +137,19 @@ struct vision_model {
     char facefail[VISION_EVENT_TEXT_MAX]; /* FACE cannot look: why; "" when it can */
     uint32_t faces_seen;  /* FACE: faces that got an id since the mode began or RESET */
     uint32_t face_top_id; /* the highest id counted; the helper's ids only grow */
+    /* RECOGNIZE */
+    struct vision_who_report who;     /* the last scores */
+    bool who_valid;
+    bool owner_known;                 /* the helper has said whether there is an owner */
+    bool have_owner;
+    uint32_t owner_views;
+    bool enrolling;
+    uint32_t enrol_k;
+    uint32_t enrol_n;
+    char enrolfail[VISION_EVENT_TEXT_MAX];
+    char recogfail[VISION_EVENT_TEXT_MAX];
+    bool forget_armed;                /* FORGET asked once: the next tap forgets */
+    int64_t forget_armed_ms;
     struct vision_pixel_report pixels;
     bool color_valid;
     bool edge_valid;
@@ -157,6 +174,10 @@ struct vision_view_text {
     const char *hold_btn;   /* HOLD / HELD */
     bool read;              /* READ: the boxes are the text lines */
     bool faces;             /* FACE: every box is a face */
+    bool recog;             /* RECOGNIZE: the boxes say owner or unknown */
+    const char *enrol_btn;  /* ENROL / STOP */
+    const char *forget_btn; /* FORGET / SURE? */
+    bool forget_enabled;    /* there is an owner to forget */
     bool hold;              /* READ held: HOLD is the primary button */
     const char *tol_btn;
     const char *edge_btn;
@@ -209,6 +230,15 @@ unsigned vision_model_line_next(struct vision_model *m);
 unsigned vision_model_trails_next(struct vision_model *m);
 /* READ: hold the result, or let it follow the picture again. */
 unsigned vision_model_hold_next(struct vision_model *m);
+/* RECOGNIZE: ENROL starts an enrolment of the one face in view, or stops
+ * one under way. FORGET asks first: the first tap arms it (SURE?), a
+ * second within VISION_FORGET_ARM_MS forgets the owner. */
+#define VISION_FORGET_ARM_MS 4000
+unsigned vision_model_enrol_button(struct vision_model *m);
+unsigned vision_model_forget_button(struct vision_model *m);
+/* RECOGNIZE: what the box of track `id` says - "OWNER 91%", "unknown
+ * 43%", or "face" before it is compared. */
+void vision_model_who_label(const struct vision_model *m, uint32_t id, char *out, size_t len);
 /* A line of read text as the screen can show it: printable ASCII, every
  * other character (the fonts have Latin only) a '?'. */
 void vision_model_text_ascii(const char *utf8, char *out, size_t len);

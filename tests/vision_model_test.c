@@ -770,6 +770,103 @@ static void test_read(void)
 
 static struct vision_shown shown(uint32_t id, int32_t x, int32_t y);
 
+static void test_recognize(void)
+{
+    struct vision_model m;
+    struct vision_view_text t;
+    struct vision_session s;
+    struct vision_event e = ev(VISION_EV_CAPS);
+    enum vision_button order[VISION_BUTTONS];
+    char buf[256];
+    char label[32];
+
+    vision_model_init(&m);
+    vision_model_open(&m);
+    go_live(&m);
+    e.value = (1 << VISION_MODE_DETECT) | (1 << VISION_MODE_FACE) | (1 << VISION_MODE_RECOGNIZE);
+    vision_model_event(&m, &e, NULL, 1200);
+    check("RECOGNIZE is chosen from PEOPLE when offered",
+          (vision_model_set_mode(&m, VISION_MODE_RECOGNIZE) & VISION_ACT_MODE) && m.mode == VISION_MODE_RECOGNIZE &&
+              strcmp(vision_model_mode_word(&m), "recognize") == 0);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("RECOGNIZE: MODE, ENROL and FORGET; two status lines; faces with ids",
+          vision_model_buttons(&m, order) == 3 && order[1] == VISION_BTN_ENROL && order[2] == VISION_BTN_FORGET &&
+              vision_model_status_lines(&m) == 2 && t.recog && t.faces && t.ids && !t.lines);
+    e = ev(VISION_EV_OWNER);
+    e.value = 0;
+    vision_model_event(&m, &e, NULL, 1250);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("no owner: the status says how to enrol, FORGET has nothing to forget",
+          strstr(t.status, "No owner yet") && strcmp(t.count_b, "NO OWNER") == 0 && !t.forget_enabled &&
+              vision_model_forget_button(&m) == 0);
+    check("ENROL asks the helper to enrol", vision_model_enrol_button(&m) == VISION_ACT_ENROL && m.enrolling);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("and becomes STOP", strcmp(t.enrol_btn, "STOP") == 0);
+    e = ev(VISION_EV_ENROL);
+    e.w = 2;
+    e.h = 5;
+    vision_model_event(&m, &e, NULL, 1300);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("the views taken", strstr(t.status, "view 2 of 5") && strcmp(t.count_b, "VIEW 2/5") == 0);
+    e = ev(VISION_EV_OWNER);
+    e.value = 1;
+    e.w = 5;
+    vision_model_event(&m, &e, NULL, 1400);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("the owner said: enrolment over, the owner kept", !m.enrolling && strstr(t.status, "Owner enrolled (5") &&
+                                                               strcmp(t.enrol_btn, "ENROL") == 0 && t.forget_enabled);
+    vision_session_init(&s);
+    s.shown[0] = shown(3, 10, 10);
+    s.shown[1] = shown(4, 60, 10);
+    s.shown_count = 2;
+    s.who.faces = 2;
+    s.who.n = 2;
+    s.who.t[0].id = 3;
+    s.who.t[0].score = 912;
+    s.who.t[0].owner = true;
+    s.who.t[1].id = 4;
+    s.who.t[1].score = 534;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_DET }, &s, 1500);
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_WHO }, &s, 1500);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("the owner here", strcmp(t.count_a, "FACES 2") == 0 && strcmp(t.count_b, "OWNER: HERE") == 0);
+    vision_model_who_label(&m, 3, label, sizeof(label));
+    check("the owner's box says OWNER and the score", strcmp(label, "OWNER 91%") == 0);
+    vision_model_who_label(&m, 4, label, sizeof(label));
+    check("the other's says unknown", strcmp(label, "unknown 53%") == 0);
+    vision_model_who_label(&m, 9, label, sizeof(label));
+    check("one not yet compared says face", strcmp(label, "face") == 0);
+    s.who.n = 1;
+    s.who.t[0] = s.who.t[1];
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_WHO }, &s, 1600);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("the owner gone: OWNER -", strcmp(t.count_b, "OWNER: -") == 0);
+
+    check("FORGET asks first", vision_model_forget_button(&m) == 0 && m.forget_armed && m.have_owner &&
+                                   (vision_model_text(&m, &t, buf, sizeof(buf)), strcmp(t.forget_btn, "SURE?") == 0) &&
+                                   strstr(t.status, "forget the owner") != NULL);
+    vision_model_tick(&m, 2000);
+    vision_model_tick(&m, 2000 + VISION_FORGET_ARM_MS);
+    check("and lets go after a while", !m.forget_armed);
+    vision_model_forget_button(&m);
+    check("SURE? forgets", vision_model_forget_button(&m) == VISION_ACT_FORGET && !m.have_owner && !m.forget_armed);
+    vision_model_who_label(&m, 3, label, sizeof(label));
+    check("and no box says OWNER any more", strcmp(label, "face") == 0);
+    e = ev(VISION_EV_ENROLFAIL);
+    snprintf(e.text, sizeof(e.text), "no single face held still long enough");
+    vision_model_event(&m, &e, NULL, 1700);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("a failed enrolment is a warning with why", t.status_warn && strstr(t.status, "Could not enrol"));
+    e = ev(VISION_EV_RECOGFAIL);
+    snprintf(e.text, sizeof(e.text), "the face embedding model is not there");
+    vision_model_event(&m, &e, NULL, 1800);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("models that cannot run are a warning with why", t.status_warn && strstr(t.status, "Cannot recognise"));
+    vision_model_set_mode(&m, VISION_MODE_FACE);
+    check("leaving RECOGNIZE forgets its scores and trouble; ENROL then does nothing",
+          !m.who_valid && m.recogfail[0] == '\0' && vision_model_enrol_button(&m) == 0);
+}
+
 static void test_face(void)
 {
     struct vision_model m;
@@ -904,6 +1001,7 @@ int main(void)
     test_tools();
     test_read();
     test_face();
+    test_recognize();
     test_trails();
     test_layout();
     printf("vision_model_test: %d checks, %d failure(s)\n", checks, failed);

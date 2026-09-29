@@ -97,7 +97,8 @@ int vision_kpu_describe(const char *path, char *out, size_t len);
  * outputs are copied out and stay valid until the next run.
  *
  * The fake backend emulates the model its file name says (`ocr_det`,
- * `ocr_rec`, `face_det`, `face_embed` in the base name) from the fake
+ * `ocr_rec`, `face_det`, `face_embed` or `face_recognition` in the base
+ * name) from the fake
  * detector's script (vision_kpu_fake.c), so the pipelines above it run on a
  * host; it opens only when the file exists, as the real one does. */
 #define VISION_NET_OUTPUTS 9
@@ -124,6 +125,11 @@ int vision_net_frame(struct vision_net *n, const struct pocketcam_frame *f);
  * for a window not inside it, -EIO. */
 int vision_net_run(struct vision_net *n, const struct vision_box *win, bool stretch, uint8_t pad, int *pre_ms,
                    int *infer_ms);
+/* Run on the frame warped by the affine m (frame pixels to the model's
+ * input pixels: in = m x (x, y, 1)) - a face aligned onto the template a
+ * face model takes (vision_embed.h). 0, -EPROTO with no frame, -EINVAL for
+ * a matrix that is not finite, -EIO. */
+int vision_net_run_affine(struct vision_net *n, const float m[6], int *pre_ms, int *infer_ms);
 /* Output i of the last run; NULL when there is none. */
 const float *vision_net_output(const struct vision_net *n, int i, size_t *count);
 /* As vision_kpu_turn: the frames come turned by rotation (only the fake
