@@ -443,6 +443,13 @@ static int ff_seek(void *ctx, int64_t ms, char *text, size_t textlen)
 
     r = av_seek_frame(f->fmt, -1, ts, AVSEEK_FLAG_BACKWARD);
     if (r < 0) {
+        /* No key picture at or before the target: the start of a file whose
+         * first picture is stamped a little after 0 (an MP4 edit list; the
+         * unit B test clip starts at 1/15360 s, and STOP and PLAY after the
+         * end both seek to 0). The next key picture is the right one. */
+        r = av_seek_frame(f->fmt, -1, ts, 0);
+    }
+    if (r < 0) {
         text_err(text, textlen, "seek", r);
         return -1;
     }
