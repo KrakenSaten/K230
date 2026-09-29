@@ -200,6 +200,14 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/timber/ui/timber_table.c
     ${REPO_DIR}/apps/timber/ui/timber_screens.c
     ${REPO_DIR}/apps/timber/ui/timber_art.c
+    ${REPO_DIR}/apps/deskbuddy/deskbuddy_app.c
+    ${REPO_DIR}/apps/deskbuddy/db_brain.c
+    ${REPO_DIR}/apps/deskbuddy/db_face.c
+    ${REPO_DIR}/apps/deskbuddy/db_guard.c
+    ${REPO_DIR}/apps/deskbuddy/db_prefs.c
+    ${REPO_DIR}/apps/deskbuddy/db_store.c
+    ${REPO_DIR}/apps/deskbuddy/db_vision.c
+    ${REPO_DIR}/apps/deskbuddy/db_vision_mock.c
     ${REPO_DIR}/apps/2048/g2048_app.c
     ${REPO_DIR}/apps/2048/g2048_store.c
     ${REPO_DIR}/apps/2048/engine/g2048_rng.c
@@ -328,7 +336,8 @@ target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/solitaire/ui"
                                                   "${REPO_DIR}/apps/blackjack"
                                                   "${REPO_DIR}/apps/blackjack/engine"
-                                                  "${REPO_DIR}/apps/blackjack/ui")
+                                                  "${REPO_DIR}/apps/blackjack/ui"
+                                                  "${REPO_DIR}/apps/deskbuddy")
 
 # The card world palettes of PG Solitaire and PG Blackjack
 # (docs/apps/PGSOLITAIRE.md and PGBLACKJACK.md, "Look"). Cards are world
@@ -1283,7 +1292,24 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     target_include_directories(bj_app_test PRIVATE
         "${REPO_DIR}/apps/blackjack" "${REPO_DIR}/apps/blackjack/engine"
         "${REPO_DIR}/apps/blackjack/ui" "${REPO_DIR}/apps/timber/ui")
-    foreach(game_test g2048_app_test sol_app_test bj_app_test)
+    # DeskBuddy in the running app (run by tests/deskbuddy_shell_test.sh):
+    # vision events into the real screen, taps on the real buttons, the
+    # preferences and the guard log against a real store in a temporary
+    # directory, and the timer and objects gone after every close.
+    add_executable(deskbuddy_app_test
+        ${REPO_DIR}/tests/deskbuddy_app_test.c
+        ${REPO_DIR}/apps/deskbuddy/deskbuddy_app.c
+        ${REPO_DIR}/apps/deskbuddy/db_brain.c
+        ${REPO_DIR}/apps/deskbuddy/db_face.c
+        ${REPO_DIR}/apps/deskbuddy/db_guard.c
+        ${REPO_DIR}/apps/deskbuddy/db_prefs.c
+        ${REPO_DIR}/apps/deskbuddy/db_store.c
+        ${REPO_DIR}/apps/deskbuddy/db_vision.c
+        ${REPO_DIR}/apps/deskbuddy/db_vision_mock.c
+        ${REPO_DIR}/core/pocketpaths.c
+        ${GAMES_APP_TEST_UI})
+    target_include_directories(deskbuddy_app_test PRIVATE "${REPO_DIR}/apps/deskbuddy")
+    foreach(game_test g2048_app_test sol_app_test bj_app_test deskbuddy_app_test)
         target_include_directories(${game_test} PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui" "${REPO_DIR}/core")
         target_compile_options(${game_test} PRIVATE -Wall -Wextra)

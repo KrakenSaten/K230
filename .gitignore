@@ -216,3 +216,7 @@ BUILD_ID
 /tests/bj_rules_test
 /tests/bj_view_test
 /tests/bj_store_test
+# DeskBuddy (docs/apps/DESKBUDDY.md)
+/tests/db_brain_test
+/tests/db_vision_test
+/tests/db_guard_test

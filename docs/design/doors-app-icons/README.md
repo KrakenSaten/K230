@@ -1,3 +1,4 @@
+| `svg/deskbuddy.svg` | a small screen with two eyes: a device that looks back (drawn for DeskBuddy, docs/apps/DESKBUDDY.md; WORKSPACE after Calculator, in the `ai` hue; place and icon for the owner to confirm) | DeskBuddy |
 # First-party Doors app icons
 
 These are launcher icons for apps that none of the supplied packages has an

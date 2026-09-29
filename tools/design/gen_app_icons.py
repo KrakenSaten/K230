@@ -53,7 +53,8 @@ LAUNCHER_ICONS = [THRESHOLD + n + ".png" for n in
                                                                     FIRST_PARTY + "vision.png",
                                                                     FIRST_PARTY + "solitaire.png",
                                                                     FIRST_PARTY + "blackjack.png",
-                                                                    FIRST_PARTY + "2048.png"]
+                                                                    FIRST_PARTY + "2048.png",
+                                                                    FIRST_PARTY + "deskbuddy.png"]
 
 
 def mask(png, src):
