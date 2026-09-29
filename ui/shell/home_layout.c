@@ -279,6 +279,7 @@ static const struct home_entry entries[] = {
     { "calendar", HOME_GROUP_WORK, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
     { "clock", HOME_GROUP_WORK, HOME_HUE_AI, HOME_FOLDER_NONE },
     { "calculator", HOME_GROUP_WORK, HOME_HUE_APPS, HOME_FOLDER_NONE },
+    { "deskbuddy", HOME_GROUP_WORK, HOME_HUE_AI, HOME_FOLDER_NONE },
     { "fleet", HOME_GROUP_PLAY, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
     { "radar", HOME_GROUP_PLAY, HOME_HUE_RADIO, HOME_FOLDER_GAMES },
     { "timber", HOME_GROUP_PLAY, HOME_HUE_FILES, HOME_FOLDER_GAMES },
