@@ -14,7 +14,7 @@ A=apps/vision
 C=core/pocketvision
 H=tools/vision/pos_vision.c
 APP=$A/vision_app.c
-CORE="$C/vision_decode.c $C/vision_nms.c $C/vision_track.c $C/vision_line.c $C/vision_traffic.c $C/vision_geom.c $C/vision_labels.c $C/vision_pixels.c $C/vision_range.c $C/vision_window.c $C/vision_text.c"
+CORE="$C/vision_decode.c $C/vision_nms.c $C/vision_track.c $C/vision_line.c $C/vision_traffic.c $C/vision_geom.c $C/vision_labels.c $C/vision_pixels.c $C/vision_range.c $C/vision_window.c $C/vision_text.c $C/vision_face.c"
 
 # ---- layering ------------------------------------------------------------------
 hits=$(grep -lE 'lvgl|lv_obj|lv_label|lv_timer|lv_image' $C/*.[ch] $C/*.cpp $H $A/vision_model.[ch] \
@@ -39,7 +39,7 @@ check "and only through the C interface (no nncase type in vision_kpu.h)" \
 hits=$(code $CORE | grep -nE '#include <(stdio|unistd|fcntl|sys/|time|pthread)\.h>|\b(malloc|calloc|realloc|free|fopen|open|read|write|clock_gettime|time)\(')
 check "the pipeline core allocates nothing, reads no clock and does no I/O" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
-hits=$(code $CORE | grep -nE '\bfloat\b|\bdouble\b' | grep -vE 'vision_decode.c|vision_text.c')
+hits=$(code $CORE | grep -nE '\bfloat\b|\bdouble\b' | grep -vE 'vision_decode.c|vision_text.c|vision_face.c')
 check "only the decoder and the text reader read floats (the tensors); the rest is integer" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -3
 hits=$(code $APP $A/vision_model.c $A/vision_layout.c $A/vision_settings.c |

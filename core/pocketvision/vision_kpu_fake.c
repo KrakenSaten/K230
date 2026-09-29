@@ -413,16 +413,29 @@ const char *vision_kpu_backend(void)
  * text_rec / ocr_rec: [128,1,95], the line whose middle the window holds,
  * one character every four steps (a space leaves eight), the classes '!'
  * to '~' in order and the blank last - what tests/vision_session_test.c's
- * dictionary says. */
+ * dictionary says.
+ *
+ *   face=X:Y:W:H[:WHO]     a face in FRAME pixels; WHO (1-9, default 1) is
+ *                          whose it is, for the embedding net (up to
+ *                          FAKE_FACES of them)
+ *
+ * face_det: RetinaFace's nine outputs for 320 x 320 (vision_face.h), every
+ * anchor background but the one each face falls on - its stride and size
+ * the nearest to the face's, its cell the face's middle - which says the
+ * face as the model would (95 %), with five points where eyes, nose and
+ * mouth corners sit on a face. Letterboxed from the window, padded right
+ * and below as the real run is. */
 
 #define FAKE_TEXTS 8
 #define FAKE_TEXT_LEN 32
 #define FAKE_REC_STEPS 128
 #define FAKE_REC_CLASSES 95   /* '!' .. '~', then the blank */
+#define FAKE_FACES 8
 
 enum fake_kind {
     FAKE_TEXT_DET = 1,
     FAKE_TEXT_REC,
+    FAKE_FACE_DET,
 };
 
 struct fake_text {
@@ -430,16 +443,24 @@ struct fake_text {
     char word[FAKE_TEXT_LEN];
 };
 
+struct fake_face {
+    struct vision_box box;
+    int who;
+};
+
 struct vision_net {
     enum fake_kind kind;
     struct vision_net_info info;
     struct fake_text text[FAKE_TEXTS];
     int ntext;
+    struct fake_face face[FAKE_FACES];
+    int nface;
     uint32_t fw;
     uint32_t fh;
     bool have_frame;
     int turn;
-    float *out;
+    float *o[VISION_NET_OUTPUTS];
+    float *out;                   /* o[0] */
     bool have_out;
 };
 
@@ -486,10 +507,89 @@ static int net_script(struct vision_net *n, const char *script)
                 }
             }
             n->ntext++;
+        } else if (strcmp(item, "face") == 0) {
+            struct fake_face *f;
+            int k;
+
+            if (n->nface >= FAKE_FACES) {
+                r = -EINVAL;
+                break;
+            }
+            f = &n->face[n->nface];
+            f->who = 1;
+            k = sscanf(val, "%d:%d:%d:%d:%d", &f->box.x, &f->box.y, &f->box.w, &f->box.h, &f->who);
+            if (k < 4 || f->box.w <= 0 || f->box.h <= 0 || f->who < 1 || f->who > 9) {
+                r = -EINVAL;
+                break;
+            }
+            n->nface++;
         }
     }
     free(copy);
     return r;
+}
+
+/* A face into RetinaFace's outputs, `b` in the model input's pixels. */
+static void face_put(struct vision_net *n, const struct vision_box *b)
+{
+    static const uint32_t steps[3] = { 8, 16, 32 };
+    static const float sizes[6] = { 16, 32, 64, 128, 256, 512 };
+    /* where the five points sit, as fractions of the box */
+    static const float px[5] = { 0.30f, 0.70f, 0.50f, 0.35f, 0.65f };
+    static const float py[5] = { 0.40f, 0.40f, 0.60f, 0.80f, 0.80f };
+    float side = (float)(b->w > b->h ? b->w : b->h);
+    float best = 1e9f;
+    int pick = 0;
+    int i;
+    int s;
+    uint32_t k;
+    uint32_t fw;
+    uint32_t fh;
+    uint32_t size;
+    uint32_t col;
+    uint32_t row;
+    uint32_t cell;
+    float acx;
+    float acy;
+    float aw;
+    float ah;
+    float cx = (float)b->x + (float)b->w / 2.0f;
+    float cy = (float)b->y + (float)b->h / 2.0f;
+
+    for (i = 0; i < 6; i++) {
+        float d = fabsf(logf(side / sizes[i]));
+
+        if (d < best) {
+            best = d;
+            pick = i;
+        }
+    }
+    s = pick / 2;
+    k = (uint32_t)(pick % 2);
+    fw = n->info.in_w / steps[s];
+    fh = n->info.in_h / steps[s];
+    size = fw * fh;
+    col = (uint32_t)(cx / (float)steps[s]);
+    row = (uint32_t)(cy / (float)steps[s]);
+    col = col >= fw ? fw - 1 : col;
+    row = row >= fh ? fh - 1 : row;
+    cell = row * fw + col;
+    acx = ((float)col + 0.5f) * (float)steps[s];
+    acy = ((float)row + 0.5f) * (float)steps[s];
+    aw = sizes[pick];
+    ah = sizes[pick];
+    n->o[3 + s][(k * 2 + 0) * size + cell] = 0.0f;
+    n->o[3 + s][(k * 2 + 1) * size + cell] = 3.0f;
+    n->o[s][(k * 4 + 0) * size + cell] = (cx - acx) / (0.1f * aw);
+    n->o[s][(k * 4 + 1) * size + cell] = (cy - acy) / (0.1f * ah);
+    n->o[s][(k * 4 + 2) * size + cell] = logf((float)b->w / aw) / 0.2f;
+    n->o[s][(k * 4 + 3) * size + cell] = logf((float)b->h / ah) / 0.2f;
+    for (i = 0; i < 5; i++) {
+        n->o[6 + s][(k * 10 + (uint32_t)i * 2) * size + cell] =
+            ((float)b->x + px[i] * (float)b->w - acx) / (0.1f * aw);
+        n->o[6 + s][(k * 10 + (uint32_t)i * 2 + 1) * size + cell] =
+            ((float)b->y + py[i] * (float)b->h - acy) / (0.1f * ah);
+    }
 }
 
 int vision_net_open(struct vision_net **np, const char *path, const char *script, struct vision_net_info *info,
@@ -535,6 +635,23 @@ int vision_net_open(struct vision_net **np, const char *path, const char *script
         n->info.dims[0][1] = 1;
         n->info.dims[0][2] = FAKE_REC_CLASSES;
         n->info.count[0] = (size_t)FAKE_REC_STEPS * FAKE_REC_CLASSES;
+    } else if (strstr(base, "face_det")) {
+        static const uint32_t steps[3] = { 8, 16, 32 };
+        static const uint32_t ch[3] = { 8, 4, 20 };
+        int i;
+
+        n->kind = FAKE_FACE_DET;
+        n->info.in_w = 320;
+        n->info.in_h = 320;
+        n->info.outputs = 9;
+        for (i = 0; i < 9; i++) {
+            n->info.rank[i] = 4;
+            n->info.dims[i][0] = 1;
+            n->info.dims[i][1] = ch[i / 3];
+            n->info.dims[i][2] = 320 / steps[i % 3];
+            n->info.dims[i][3] = 320 / steps[i % 3];
+            n->info.count[i] = (size_t)ch[i / 3] * (320 / steps[i % 3]) * (320 / steps[i % 3]);
+        }
     } else {
         snprintf(err, errlen, "fake nets: no emulation of %s", base);
         free(n);
@@ -545,11 +662,14 @@ int vision_net_open(struct vision_net **np, const char *path, const char *script
         free(n);
         return -EINVAL;
     }
-    n->out = calloc(n->info.count[0], sizeof(float));
-    if (!n->out) {
-        free(n);
-        return -ENOMEM;
+    for (int i = 0; i < n->info.outputs; i++) {
+        n->o[i] = calloc(n->info.count[i], sizeof(float));
+        if (!n->o[i]) {
+            vision_net_close(n);
+            return -ENOMEM;
+        }
     }
+    n->out = n->o[0];
     *info = n->info;
     *np = n;
     return 0;
@@ -627,8 +747,35 @@ int vision_net_run(struct vision_net *n, const struct vision_box *win, bool stre
     if (!stretch) {
         rx = ry = rx < ry ? rx : ry;
     }
-    memset(n->out, 0, n->info.count[0] * sizeof(float));
-    if (n->kind == FAKE_TEXT_DET) {
+    for (i = 0; i < n->info.outputs; i++) {
+        memset(n->o[i], 0, n->info.count[i] * sizeof(float));
+    }
+    if (n->kind == FAKE_FACE_DET) {
+        /* Every anchor background, sure; then the faces. */
+        for (i = 3; i < 6; i++) {
+            size_t size = n->info.count[i] / 4;
+            size_t j;
+
+            for (j = 0; j < size; j++) {
+                n->o[i][j] = 4.0f;
+                n->o[i][2 * size + j] = 4.0f;
+            }
+        }
+        for (i = 0; i < n->nface; i++) {
+            struct vision_box b = on_frame(n, &n->face[i].box);
+            struct vision_box in = {
+                (int32_t)((float)(b.x - w.x) * rx), (int32_t)((float)(b.y - w.y) * ry),
+                (int32_t)((float)b.w * rx), (int32_t)((float)b.h * ry),
+            };
+
+            /* A face whose middle is outside the window is not in it. */
+            if (b.x + b.w / 2 < w.x || b.x + b.w / 2 >= w.x + w.w || b.y + b.h / 2 < w.y ||
+                b.y + b.h / 2 >= w.y + w.h || in.w <= 0 || in.h <= 0) {
+                continue;
+            }
+            face_put(n, &in);
+        }
+    } else if (n->kind == FAKE_TEXT_DET) {
         for (i = 0; i < n->ntext; i++) {
             struct vision_box b = on_frame(n, &n->text[i].box);
             /* The middle of the line: a quarter of its smaller side off
@@ -681,19 +828,21 @@ int vision_net_run(struct vision_net *n, const struct vision_box *win, bool stre
 
 const float *vision_net_output(const struct vision_net *n, int i, size_t *count)
 {
-    if (!n || !n->have_out || i != 0) {
+    if (!n || !n->have_out || i < 0 || i >= n->info.outputs) {
         return NULL;
     }
     if (count) {
-        *count = n->info.count[0];
+        *count = n->info.count[i];
     }
-    return n->out;
+    return n->o[i];
 }
 
 void vision_net_close(struct vision_net *n)
 {
     if (n) {
-        free(n->out);
+        for (int i = 0; i < VISION_NET_OUTPUTS; i++) {
+            free(n->o[i]);
+        }
         free(n);
     }
 }

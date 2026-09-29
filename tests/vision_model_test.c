@@ -768,6 +768,70 @@ static void test_read(void)
     check("and cut to the room", strcmp(a, "ABCD") == 0);
 }
 
+static struct vision_shown shown(uint32_t id, int32_t x, int32_t y);
+
+static void test_face(void)
+{
+    struct vision_model m;
+    struct vision_view_text t;
+    struct vision_session s;
+    struct vision_event e = ev(VISION_EV_CAPS);
+    enum vision_button order[VISION_BUTTONS];
+    char buf[256];
+
+    vision_model_init(&m);
+    vision_model_open(&m);
+    go_live(&m);
+    e.value = (1 << VISION_MODE_DETECT) | (1 << VISION_MODE_READ);
+    vision_model_event(&m, &e, NULL, 1200);
+    check("without the face model FACE cannot be chosen",
+          vision_model_set_mode(&m, VISION_MODE_FACE) == 0 || m.mode != VISION_MODE_FACE);
+    e.value |= 1 << VISION_MODE_FACE;
+    vision_model_event(&m, &e, NULL, 1250);
+    check("FACE is chosen from PEOPLE when offered", (vision_model_set_mode(&m, VISION_MODE_FACE) & VISION_ACT_MODE) &&
+                                                         m.mode == VISION_MODE_FACE &&
+                                                         strcmp(vision_model_mode_word(&m), "face") == 0);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("FACE: MODE and RESET; one status line; boxes are faces with ids; no lines, no trails",
+          vision_model_buttons(&m, order) == 2 && order[1] == VISION_BTN_RESET && vision_model_status_lines(&m) == 1 &&
+              t.faces && t.ids && !t.lines && !t.trails && !t.read);
+    check("the counters start at nothing", strcmp(t.count_a, "FACES 0") == 0 && strcmp(t.count_b, "SEEN 0") == 0);
+    vision_session_init(&s);
+    s.shown[0] = shown(0, 10, 10);   /* not confirmed yet: no id */
+    s.shown_count = 1;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_DET }, &s, 1300);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("a face not yet confirmed is shown, not yet seen", strcmp(t.count_a, "FACES 1") == 0 &&
+                                                                 strcmp(t.count_b, "SEEN 0") == 0);
+    s.shown[0] = shown(3, 10, 10);
+    s.shown[1] = shown(4, 60, 10);
+    s.shown_count = 2;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_DET }, &s, 1400);
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_DET }, &s, 1500);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("two faces with ids: seen once each, however many frames", strcmp(t.count_a, "FACES 2") == 0 &&
+                                                                         strcmp(t.count_b, "SEEN 2") == 0);
+    s.shown[0] = shown(5, 10, 10);
+    s.shown_count = 1;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_DET }, &s, 1600);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("a new id is a new face", strcmp(t.count_a, "FACES 1") == 0 && strcmp(t.count_b, "SEEN 3") == 0);
+    vision_model_reset(&m);
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_DET }, &s, 1700);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("RESET: seen from now on; the face still there is not new", strcmp(t.count_b, "SEEN 0") == 0);
+    e = ev(VISION_EV_FACEFAIL);
+    snprintf(e.text, sizeof(e.text), "model file not found");
+    vision_model_event(&m, &e, NULL, 1800);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("a face model that cannot run is a warning with why", t.status_warn && strstr(t.status, "Cannot find faces") &&
+                                                                    strstr(t.status, "not found"));
+    vision_model_set_mode(&m, VISION_MODE_DETECT);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("leaving FACE forgets its trouble and its count; boxes are objects again",
+          m.facefail[0] == '\0' && m.faces_seen == 0 && !t.faces);
+}
+
 static struct vision_shown shown(uint32_t id, int32_t x, int32_t y)
 {
     struct vision_shown s;
@@ -839,6 +903,7 @@ int main(void)
     test_track_and_traffic();
     test_tools();
     test_read();
+    test_face();
     test_trails();
     test_layout();
     printf("vision_model_test: %d checks, %d failure(s)\n", checks, failed);

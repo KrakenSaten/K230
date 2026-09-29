@@ -425,6 +425,11 @@ int vision_session_parse_line(struct vision_session *s, const char *line, struct
         ev->kind = VISION_EV_TEXT;
         return 1;
     }
+    if (strncmp(line, "facefail", 8) == 0) {
+        ev->kind = VISION_EV_FACEFAIL;
+        snprintf(ev->text, sizeof(ev->text), "%s", rest(line, 1));
+        return 1;
+    }
     if (strncmp(line, "readfail", 8) == 0) {
         ev->kind = VISION_EV_READFAIL;
         snprintf(ev->text, sizeof(ev->text), "%s", rest(line, 1));

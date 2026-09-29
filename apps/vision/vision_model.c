@@ -80,6 +80,7 @@ static void clear_counts(struct vision_model *m)
 {
     m->count_a = 0;
     m->count_b = 0;
+    m->faces_seen = 0;
     memset(&m->traffic, 0, sizeof(m->traffic));
     memset(&m->recent, 0, sizeof(m->recent));
     m->recent_valid = false;
@@ -121,6 +122,9 @@ static void mode_changed(struct vision_model *m)
     m->text_valid = false;
     m->hold = false;
     m->readfail[0] = '\0';
+    m->facefail[0] = '\0';
+    m->faces_seen = 0;
+    m->face_top_id = 0;
     m->active_tracks = 0;
     m->shown_objects = 0;
     m->shown_classes = 0;
@@ -158,6 +162,8 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
             m->preview_h = ev->h;
             m->classes = (uint32_t)ev->value;
             m->last_frame_ms = now_ms;
+            /* A new helper numbers its tracks from the start. */
+            m->face_top_id = 0;
             /* Everything the helper has to know, whatever it defaults to. */
             acts |= VISION_ACT_STREAM | VISION_ACT_MODE | VISION_ACT_LINE | VISION_ACT_SPEED |
                     VISION_ACT_DISTANCE | VISION_ACT_PIXELS | VISION_ACT_RANGE;
@@ -201,6 +207,18 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
             m->active_tracks = active;
             m->shown_objects = n;
             m->shown_classes = classes;
+            if (m->mode == VISION_MODE_FACE) {
+                /* A face counts once, when it first gets an id. */
+                uint32_t top = m->face_top_id;
+
+                for (i = 0; i < n; i++) {
+                    if (t[i].id > m->face_top_id) {
+                        m->faces_seen++;
+                        top = t[i].id > top ? t[i].id : top;
+                    }
+                }
+                m->face_top_id = top;
+            }
         }
         break;
     case VISION_EV_COUNT:
@@ -230,6 +248,9 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
         break;
     case VISION_EV_READFAIL:
         snprintf(m->readfail, sizeof(m->readfail), "%s", ev->text[0] ? ev->text : "the text models failed");
+        break;
+    case VISION_EV_FACEFAIL:
+        snprintf(m->facefail, sizeof(m->facefail), "%s", ev->text[0] ? ev->text : "the face model failed");
         break;
     case VISION_EV_COLOR:
         if (s) {
@@ -781,6 +802,9 @@ int vision_model_buttons(const struct vision_model *m, enum vision_button out[VI
     case VISION_MODE_READ:
         out[1] = VISION_BTN_HOLD;
         return 2;
+    case VISION_MODE_FACE:
+        out[1] = VISION_BTN_RESET;
+        return 2;
     default:
         return 1;
     }
@@ -988,6 +1012,10 @@ static void counters(const struct vision_model *m, struct vision_view_text *out)
             }
         }
         break;
+    case VISION_MODE_FACE:
+        snprintf(out->count_a, sizeof(out->count_a), "FACES %d", m->shown_objects);
+        snprintf(out->count_b, sizeof(out->count_b), "SEEN %u", m->faces_seen);
+        break;
     default:
         break;
     }
@@ -1002,7 +1030,9 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
     out->hint = m->simulated ? "SIMULATED" : "";
     out->traffic = m->mode == VISION_MODE_TRAFFIC;
     out->lines = m->mode == VISION_MODE_TRACK || m->mode == VISION_MODE_TRAFFIC;
-    out->ids = m->mode == VISION_MODE_TRACK || (m->mode == VISION_MODE_TRAFFIC && m->set.traffic.labels);
+    out->ids = m->mode == VISION_MODE_TRACK || m->mode == VISION_MODE_FACE ||
+               (m->mode == VISION_MODE_TRAFFIC && m->set.traffic.labels);
+    out->faces = m->mode == VISION_MODE_FACE;
     out->speeds = m->mode == VISION_MODE_TRAFFIC && m->set.traffic.speeds;
     out->trails = (m->mode == VISION_MODE_TRACK && m->set.track.trails) ||
                   (m->mode == VISION_MODE_TRAFFIC && m->set.traffic.trails);
@@ -1052,6 +1082,10 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
             read_status(m, status_buf, status_len);
             out->status = status_buf;
             out->status_warn = m->readfail[0] != '\0';
+        } else if (out->faces && m->facefail[0]) {
+            snprintf(status_buf, status_len, "Cannot find faces: %s", m->facefail);
+            out->status = status_buf;
+            out->status_warn = true;
         } else if (m->stats_valid) {
             snprintf(status_buf, status_len, "%u.%u fps  KPU %d ms  pre %d  post %d  CPU %d%%  %ld MB",
                      m->stats.fps_x10 / 10, m->stats.fps_x10 % 10, m->stats.infer_ms,

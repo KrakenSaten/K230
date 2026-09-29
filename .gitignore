@@ -212,6 +212,7 @@ BUILD_ID
 /tests/vision_range_test
 /tests/vision_window_test
 /tests/vision_text_test
+/tests/vision_face_test
 # Video (docs/apps/VIDEO.md)
 /tools/video/pos-video
 /tests/video_files_test

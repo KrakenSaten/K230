@@ -269,6 +269,54 @@ SIMULATED, and every mode runs on it. A list that does not load is
 `nodevice`. The shell passes its environment through, so on a unit the
 two lines go in `/etc/default/doors-shell` for as long as the check runs.
 
+## FACE (feat/vision-next)
+
+FACE boxes every face in the picture with an id and a confidence
+("#3 face 97%"); FACES counts the faces on screen, SEEN the faces that got
+an id since FACE began or since RESET (a face counts once, when the
+tracker confirms it). It finds faces; it does not say whose they are
+(RECOGNIZE would).
+
+**Pipeline** (helper, `detect_faces()` in `tools/vision/pos_vision.c`,
+every frame, instead of the object detector): the upright picture is
+letterboxed into the model's 320 x 320 input, padded right and below (the
+vendor's `padding_resize_one_side`; one pad value, 117, where the vendor
+pads 104/117/123 per channel), and the nine outputs are decoded by
+`core/pocketvision/vision_face.c`: RetinaFace's anchors (strides 8/16/32,
+sizes 16/32, 64/128, 256/512, computed, checked against the vendor's own
+table), variances 0.1/0.2, the face score the softmax of two logits,
+threshold 0.6 and overlap 0.2 as the vendor demo runs it, at most 128
+candidates and 16 faces, five points per face (kept for RECOGNIZE's
+alignment). The faces go through the same tracker as TRACK (ids, the same
+parameters as NORMAL) and to the app on the ordinary `det` line with
+class 0; the app labels FACE's boxes "face". A model that does not load
+or has the wrong outputs: `facefail`, and the screen says "Cannot find
+faces:" with the reason. Nothing runs on the LVGL thread.
+
+**Model: in the image, not packaged by Doors.** The vendor's `ai_demo`
+package installs `/root/app/face_detect/face_detection_320.kmodel`
+(584,576 bytes, md5 `3dc05ac1…04bb`; the demo's README: RetinaFace on a
+0.25 MobileNet). FACE reads `/usr/share/doors/vision/face_det.kmodel`
+(override `POCKETOS_VISION_FACE_DET`) and is offered only when it is
+there; for the gate it was a link to the vendor's file. The SDK states no
+licence for the kmodel (docs/LICENSING.md item 11).
+
+| | Shape (VERIFIED on unit B) |
+| --- | --- |
+| input | u8 `[1,3,320,320]` |
+| outputs 0-2 | f32 `[1,8,40,40]` `[1,8,20,20]` `[1,8,10,10]` (boxes) |
+| outputs 3-5 | f32 `[1,4,40,40]` `[1,4,20,20]` `[1,4,10,10]` (scores) |
+| outputs 6-8 | f32 `[1,20,40,40]` `[1,20,20,20]` `[1,20,10,10]` (points) |
+
+**Measured on unit B** (2026-09-29): KPU 3-16 ms a frame (the first runs
+slower), decode under 1 ms; live camera 29.9 fps (the camera's rate),
+helper 15-22 % CPU, 6 MB; shell unchanged; CMA back to its level after
+close. A crowd photo (vendor test picture, cover-cropped to 640 x 360):
+16 faces, 73-99 %, the bound reached (the decoder keeps the surest 16;
+the picture holds about twenty). A portrait: one face,
+99 %. The live camera in a dark room: FACES 0. Not yet measured: live
+faces in front of the unit (the gate ran at night in a dark room).
+
 ## What it does
 
 - **DETECT.** Opening the app starts the camera and loads the model. The

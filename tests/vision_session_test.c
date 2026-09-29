@@ -737,6 +737,138 @@ static void test_replay(void)
     rmdir(dir);
 }
 
+/* FACE: the face model's outputs decoded, tracked and said as boxes with
+ * ids; offered only when the model is there; a model that is not a face
+ * detector said, not run. */
+static void test_face(void)
+{
+    struct vision_session s;
+    struct vision_event ev;
+    struct watch w = { 0, 0, 0, 0, 0, 0, NULL };
+    char dir[] = "/tmp/vision-face-XXXXXX";
+    char det[128];
+    char other[128];
+    FILE *f;
+    int i;
+    int ok = 0;
+
+    if (!mkdtemp(dir)) {
+        check("a scratch directory", 0);
+        return;
+    }
+    snprintf(det, sizeof(det), "%s/face_det.kmodel", dir);
+    snprintf(other, sizeof(other), "%s/other.kmodel", dir);
+    setenv("POCKETOS_VISION_FACE_DET", det, 1);
+
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "face=200:100:60:80", NULL) == 0);
+    check("without the face model FACE is not offered", wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w) &&
+                                                            !(ev.value & (1 << VISION_MODE_FACE)));
+    vision_session_abandon(&s, 1000);
+
+    f = fopen(det, "w");
+    if (f) {
+        fclose(f);
+    }
+    vision_session_init(&s);
+    /* Two faces on the sensor, and a car the object detector would see
+     * exactly where the first face is: FACE must not show the car, and
+     * DETECT's car and FACE's face must land on the same place. */
+    check("the helper starts with the face model there",
+          start(&s, "period=20", "face=200:100:60:80,face=420:140:80:100,box=2:900:200:100:60:80", NULL) == 0);
+    check("FACE is offered", wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w) && (ev.value & (1 << VISION_MODE_FACE)));
+    /* The fake camera is mounted at 90: a display at 90 sees the sensor as
+     * it is, pixel for pixel. */
+    vision_session_view(&s, 640, 360, 90);
+    vision_session_mode_word(&s, "face");
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s;
+    for (i = 0; i < 40 && !ok; i++) {
+        if (wait_for(&s, VISION_EV_DET, 1500, &ev, seen, &w) && s.shown_count == 2 && s.shown[0].id &&
+            s.shown[1].id) {
+            ok = 1;
+        }
+    }
+    check("two faces, each with an id", ok);
+    {
+        int a = s.shown[0].x < s.shown[1].x ? 0 : 1;
+        int b = 1 - a;
+
+        printf("     faces %d,%d %dx%d %u and %d,%d %dx%d %u\n", s.shown[a].x, s.shown[a].y, s.shown[a].w,
+               s.shown[a].h, s.shown[a].conf, s.shown[b].x, s.shown[b].y, s.shown[b].w, s.shown[b].h, s.shown[b].conf);
+        check("where they are on the sensor (a view of the same size), within a few pixels",
+              ok && abs(s.shown[a].x - 200) <= 4 && abs(s.shown[a].y - 100) <= 4 && abs(s.shown[a].w - 60) <= 6 &&
+                  abs(s.shown[a].h - 80) <= 6 && abs(s.shown[b].x - 420) <= 4 && abs(s.shown[b].w - 80) <= 6);
+        check("as sure as the model says (95 %)", ok && s.shown[a].conf >= 940 && s.shown[a].conf <= 960);
+    }
+    {
+        uint32_t ids[2] = { s.shown[0].id, s.shown[1].id };
+        int same = 1;
+
+        for (i = 0; i < 5; i++) {
+            wait_for(&s, VISION_EV_DET, 1500, &ev, seen, &w);
+            same &= s.shown_count == 2 && ((s.shown[0].id == ids[0] && s.shown[1].id == ids[1]) ||
+                                           (s.shown[0].id == ids[1] && s.shown[1].id == ids[0]));
+        }
+        check("the ids hold from frame to frame", ok && same);
+    }
+    /* Upright on a portrait display: the picture is turned for the model
+     * and the faces turned back. */
+    {
+        struct vision_shown face[2];
+        int near = 0;
+
+        vision_session_view(&s, 360, 640, 0);
+        for (i = 0; i < 6; i++) {
+            wait_for(&s, VISION_EV_DET, 1500, &ev, seen, &w);
+        }
+        ok = s.shown_count == 2;
+        face[0] = s.shown[0];
+        face[1] = s.shown[1];
+        vision_session_mode_word(&s, "detect");
+        near = 0;
+        for (i = 0; i < 20 && !near; i++) {
+            if (wait_for(&s, VISION_EV_DET, 1500, &ev, seen, &w) && s.shown_count == 1 && s.shown[0].cls == 2) {
+                int k;
+
+                for (k = 0; k < 2; k++) {
+                    near |= abs(face[k].x - s.shown[0].x) <= 6 && abs(face[k].y - s.shown[0].y) <= 6 &&
+                            abs(face[k].w - s.shown[0].w) <= 8 && abs(face[k].h - s.shown[0].h) <= 8;
+                }
+                printf("     portrait: car %d,%d %dx%d; faces %d,%d %dx%d and %d,%d %dx%d\n", s.shown[0].x,
+                       s.shown[0].y, s.shown[0].w, s.shown[0].h, face[0].x, face[0].y, face[0].w, face[0].h,
+                       face[1].x, face[1].y, face[1].w, face[1].h);
+                break;
+            }
+        }
+        check("portrait: two faces still", ok);
+        check("back to DETECT: the car, not the faces - where the face on it was", near);
+    }
+    vision_session_abandon(&s, 1000);
+    check("the helper is gone", !vision_session_active(&s));
+
+    /* A file that is there but no face detector. */
+    f = fopen(other, "w");
+    if (f) {
+        fclose(f);
+    }
+    setenv("POCKETOS_VISION_FACE_DET", other, 1);
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "face=200:100:60:80", NULL) == 0);
+    wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w);
+    vision_session_view(&s, 640, 360, 0);
+    vision_session_mode_word(&s, "face");
+    check("a model that is not a face detector is said", wait_for(&s, VISION_EV_FACEFAIL, 3000, &ev, seen, &w) &&
+                                                             ev.text[0] != '\0');
+    vision_session_stream(&s, true, now_ms());
+    check("and the helper goes on (pictures)", wait_for(&s, VISION_EV_FRAME, 3000, &ev, seen, &w));
+    vision_session_abandon(&s, 1000);
+    unsetenv("POCKETOS_VISION_FACE_DET");
+    unlink(det);
+    unlink(other);
+    rmdir(dir);
+}
+
 /* The pixel modes against the real helper: EDGE finds the fake camera's
  * edges; COLOR samples the picture's middle and paints its matches; TRACE
  * answers; the boxes go while a pixel mode is on and come back after. */
@@ -950,6 +1082,7 @@ int main(int argc, char **argv)
     test_range();
     test_read();
     test_replay();
+    test_face();
     test_pixels();
     test_malformed();
     test_failures();

@@ -313,6 +313,7 @@ static void draw_boxes(struct vision_app *a, const struct vision_view_text *s)
         lv_obj_set_size(a->outline[i], t[i].w, t[i].h);
         {
             char text[VISION_LABEL_MAX];
+            const char *what = s->faces ? "face" : vision_label(t[i].cls);
 
             if (traffic && !s->ids && !(s->speeds && t[i].kmh10)) {
                 /* LABELS off: the box says nothing. */
@@ -323,18 +324,18 @@ static void draw_boxes(struct vision_app *a, const struct vision_view_text *s)
                 /* "#7 car > 43 km/h": the id, the class, the way it has
                  * gone, and the speed once the lines have measured it. */
                 if (t[i].kmh10 && s->speeds) {
-                    snprintf(text, sizeof(text), "#%u %s%s %u.%u km/h", t[i].id, vision_label(t[i].cls),
+                    snprintf(text, sizeof(text), "#%u %s%s %u.%u km/h", t[i].id, what,
                              dir_mark(t[i].dir), t[i].kmh10 / 10, t[i].kmh10 % 10);
                 } else {
-                    snprintf(text, sizeof(text), "#%u %s%s %u%%", t[i].id, vision_label(t[i].cls),
+                    snprintf(text, sizeof(text), "#%u %s%s %u%%", t[i].id, what,
                              dir_mark(t[i].dir), t[i].conf / 10);
                 }
             } else if (t[i].id && s->ids) {
-                snprintf(text, sizeof(text), "#%u %s %u%%", t[i].id, vision_label(t[i].cls),
+                snprintf(text, sizeof(text), "#%u %s %u%%", t[i].id, what,
                          t[i].conf / 10);
             } else {
                 /* DETECT: what it is and how sure, no identity. */
-                snprintf(text, sizeof(text), "%s %u%%", vision_label(t[i].cls), t[i].conf / 10);
+                snprintf(text, sizeof(text), "%s %u%%", what, t[i].conf / 10);
             }
             label_text(a->tag[i], text);
             set_hidden(a->tag[i], text[0] == '\0');
@@ -513,7 +514,7 @@ static void repaint(struct vision_app *a)
     button_style(a->btn[VISION_BTN_HOLD], s.hold, s.line_enabled);
     button_style(a->btn[VISION_BTN_SETUP], a->model.sheet == VISION_SHEET_SETUP, s.line_enabled);
     button_style(a->btn[VISION_BTN_RESET], false,
-                 s.line_enabled && (vision_model_line(&a->model) != VISION_LINE_OFF || s.traffic));
+                 s.line_enabled && (vision_model_line(&a->model) != VISION_LINE_OFF || s.traffic || s.faces));
     button_style(a->btn[VISION_BTN_SAMPLE], false, s.line_enabled && a->model.live);
     button_style(a->btn[VISION_BTN_TOL], false, s.line_enabled);
     button_style(a->btn[VISION_BTN_EDGE], false, s.line_enabled);

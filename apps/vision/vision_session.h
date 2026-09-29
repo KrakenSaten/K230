@@ -53,6 +53,7 @@ enum vision_ev_kind {
     VISION_EV_RECENT,    /* the recent statistics: vision_session_recent() */
     VISION_EV_TEXT,      /* READ read the picture: vision_session_text() */
     VISION_EV_READFAIL,  /* READ cannot read: text says why */
+    VISION_EV_FACEFAIL,  /* FACE cannot look: text says why */
     VISION_EV_COLOR,     /* a COLOR pass: vision_session_pixels()->color */
     VISION_EV_EDGE,      /* an EDGE pass: ->edge_pm */
     VISION_EV_TRACE,     /* a TRACE pass: ->trace */

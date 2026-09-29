@@ -130,6 +130,9 @@ struct vision_model {
     bool text_valid;
     bool hold;                        /* READ: the result stays as it is */
     char readfail[VISION_EVENT_TEXT_MAX]; /* READ cannot read: why; "" when it can */
+    char facefail[VISION_EVENT_TEXT_MAX]; /* FACE cannot look: why; "" when it can */
+    uint32_t faces_seen;  /* FACE: faces that got an id since the mode began or RESET */
+    uint32_t face_top_id; /* the highest id counted; the helper's ids only grow */
     struct vision_pixel_report pixels;
     bool color_valid;
     bool edge_valid;
@@ -153,6 +156,7 @@ struct vision_view_text {
     const char *trails_btn; /* TRAILS: ON / OFF */
     const char *hold_btn;   /* HOLD / HELD */
     bool read;              /* READ: the boxes are the text lines */
+    bool faces;             /* FACE: every box is a face */
     bool hold;              /* READ held: HOLD is the primary button */
     const char *tol_btn;
     const char *edge_btn;

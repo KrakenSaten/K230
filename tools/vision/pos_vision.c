@@ -57,6 +57,7 @@
 #include "pocketcam/pocketcam_convert.h"
 #include "pocketvision/pocketvision_proto.h"
 #include "pocketvision/vision_decode.h"
+#include "pocketvision/vision_face.h"
 #include "pocketvision/vision_geom.h"
 #include "pocketvision/vision_kpu.h"
 #include "pocketvision/vision_labels.h"
@@ -114,7 +115,8 @@ enum helper_mode {
     MODE_COLOR,
     MODE_EDGE,
     MODE_TRACE,
-    MODE_READ        /* the text models instead of the detector */
+    MODE_READ,       /* the text models instead of the detector */
+    MODE_FACE        /* the face detector instead of the detector */
 };
 
 /* READ's models and dictionary (docs/apps/VISION.md "Read"): not in the
@@ -127,6 +129,11 @@ enum helper_mode {
 #define VISION_READ_LINES 6           /* lines recognised per read, the surest regions first */
 #define VISION_READ_SHOWN 8           /* text boxes said on a line */
 #define VISION_READ_TEXT 48           /* bytes of text kept per line */
+/* FACE's model (docs/apps/VISION.md "FACE"): not in the image either, offered
+ * only when it is there. Padded with the middle of the vendor's per-channel
+ * mean (104, 117, 123). */
+#define VISION_FACE_DET_DEFAULT "/usr/share/doors/vision/face_det.kmodel"
+#define VISION_FACE_PAD 117
 
 /* SIGTERM and SIGINT are BLOCKED for the helper's whole life and looked for
  * between frames, never taken by a handler. A signal handled while the
@@ -377,6 +384,12 @@ struct session {
     struct vision_net_info tdi;
     struct vision_net_info tri;
     struct vision_dict *dict;
+    /* FACE: the face detector, opened the first time FACE is asked for. */
+    const char *face_det_path;
+    bool face_offered;
+    bool face_tried;
+    struct vision_net *fdet;
+    struct vision_net_info fdi;
     int64_t last_read_ms;
     /* REPLAY (backend "image"): saved pictures instead of the camera, for a
      * bench with nothing in front of it (replay_open). */
@@ -626,7 +639,7 @@ static void set_mode(struct session *s, enum helper_mode mode)
         say_traffic(s);
         say_recent(s, mono_ms());
     }
-    if (pixel_mode(s) || mode == MODE_READ) {
+    if (pixel_mode(s) || mode == MODE_READ || mode == MODE_FACE) {
         say("det 0 0");
     }
 }
@@ -1267,6 +1280,123 @@ static void read_text(struct session *s, const struct pocketcam_frame *f, int64_
     s->inferred++;
 }
 
+/* ---- FACE ---------------------------------------------------------------------- */
+
+static void face_close(struct session *s)
+{
+    vision_net_close(s->fdet);
+    s->fdet = NULL;
+}
+
+/* The face model, the first time FACE is asked for: 0, or -1 having said
+ * why (`facefail`); FACE then finds nothing and the screen says so. */
+static int face_open(struct session *s)
+{
+    char err[96] = "";
+    char t[96];
+
+    if (s->fdet) {
+        return 0;
+    }
+    if (s->face_tried) {
+        return -1;
+    }
+    s->face_tried = true;
+    if (vision_net_open(&s->fdet, s->face_det_path, s->net_script, &s->fdi, err, sizeof(err)) != 0) {
+        /* err says why. */
+    } else if (vision_face_check(s->fdi.outputs, s->fdi.rank, (const uint32_t (*)[4])s->fdi.dims, s->fdi.in_w,
+                                 s->fdi.in_h) != 0) {
+        snprintf(err, sizeof(err), "the face model's outputs are not a face detector's");
+    } else {
+        return 0;
+    }
+    say("facefail %s", clean(err, t, sizeof(t)));
+    face_close(s);
+    return -1;
+}
+
+/* One frame through the face detector: faces on the upright picture, back
+ * to frame pixels, into the tracker (for ids), said as a `det` line with
+ * class 0 - the screen knows FACE's boxes are faces. */
+static void detect_faces(struct session *s, const struct pocketcam_frame *f, int64_t now)
+{
+    struct vision_face faces[VISION_FACE_MAX];
+    const float *out[VISION_FACE_OUTPUTS];
+    size_t count[VISION_FACE_OUTPUTS];
+    struct pocketcam_frame in;
+    struct vision_view v = view_of(s);
+    int64_t t0 = mono_ms();
+    size_t need = (size_t)3 * f->width * f->height;
+    uint32_t bad = 0;
+    float ratio;
+    int pre = 0;
+    int inf = 0;
+    int n;
+    int i;
+
+    (void)now;
+    if (face_open(s) != 0) {
+        return;
+    }
+    if (v.rotation != 0 && s->upright_size < need) {
+        uint8_t *b = realloc(s->upright, need);
+
+        if (b) {
+            s->upright = b;
+            s->upright_size = need;
+        }
+    }
+    if (upright_input(f, v.rotation, s->upright_size >= need ? s->upright : NULL, &in) != 0 ||
+        vision_net_turn(s->fdet, v.rotation) != 0 || vision_net_frame(s->fdet, &in) != 0 ||
+        vision_net_run(s->fdet, NULL, false, VISION_FACE_PAD, &pre, &inf) != 0) {
+        say("facefail the face detector failed on a frame");
+        face_close(s);
+        return;
+    }
+    for (i = 0; i < VISION_FACE_OUTPUTS; i++) {
+        out[i] = vision_net_output(s->fdet, i, &count[i]);
+    }
+    n = vision_face_decode(out, count, s->fdi.in_w, s->fdi.in_h, VISION_FACE_CONF_PM, VISION_FACE_NMS_PM, faces,
+                           VISION_FACE_MAX, &bad);
+    if (n < 0) {
+        n = 0;
+        bad++;
+    }
+    s->bad_total += bad;
+    /* Letterboxed, padded right and below: the input's pixels over the
+     * ratio are the upright picture's. */
+    ratio = (float)s->fdi.in_w / (float)in.width < (float)s->fdi.in_h / (float)in.height
+                ? (float)s->fdi.in_w / (float)in.width
+                : (float)s->fdi.in_h / (float)in.height;
+    n = n < VISION_MAX_DETECTIONS ? n : VISION_MAX_DETECTIONS;
+    for (i = 0; i < n; i++) {
+        struct vision_box b = {
+            (int32_t)((float)faces[i].box.x / ratio), (int32_t)((float)faces[i].box.y / ratio),
+            (int32_t)((float)faces[i].box.w / ratio), (int32_t)((float)faces[i].box.h / ratio),
+        };
+
+        if ((uint32_t)(b.x + b.w) > in.width) {
+            b.w = (int32_t)in.width - b.x;
+        }
+        if ((uint32_t)(b.y + b.h) > in.height) {
+            b.h = (int32_t)in.height - b.y;
+        }
+        s->dets[i].box = b;
+        s->dets[i].cls = 0;
+        s->dets[i].conf = faces[i].conf;
+    }
+    unturn_dets(s->dets, n, f, v.rotation);
+    vision_tracker_update(&s->tracker, s->dets, n);
+    s->last_pre_ms = pre;
+    s->last_infer_ms = inf;
+    s->last_post_ms = (int)(mono_ms() - t0) - pre - inf;
+    if (s->last_post_ms < 0) {
+        s->last_post_ms = 0;
+    }
+    s->inferred++;
+    say_tracks(s, f->seq);
+}
+
 /* `n` per-mille words, or the one word `off` (every value -1). 0, or -1
  * for anything else. */
 static int parse_pm(char **save, int *v, int n)
@@ -1413,6 +1543,9 @@ static void command(struct session *s, char *line)
             /* The models load now, not on the first frame: a failure is
              * said at once. */
             text_open(s);
+        } else if (a && strcmp(a, "face") == 0 && s->face_offered) {
+            set_mode(s, MODE_FACE);
+            face_open(s);
         }
     } else if (strcmp(w, "color") == 0) {
         char *a = strtok_r(NULL, " ", &save);
@@ -1700,6 +1833,8 @@ static void stream_once(struct session *s)
         if (now - s->last_read_ms >= VISION_READ_INTERVAL_MS) {
             read_text(s, &f, now);
         }
+    } else if (s->mode == MODE_FACE) {
+        detect_faces(s, &f, now);
     } else if (!pixel_mode(s)) {
         detect(s, &f, now);
     }
@@ -1833,6 +1968,8 @@ static int run_session(const char *backend, const char *config, const char *mode
     s->text_det_path = s->text_det_path && *s->text_det_path ? s->text_det_path : VISION_TEXT_DET_DEFAULT;
     s->text_rec_path = s->text_rec_path && *s->text_rec_path ? s->text_rec_path : VISION_TEXT_REC_DEFAULT;
     s->text_dict_path = s->text_dict_path && *s->text_dict_path ? s->text_dict_path : VISION_TEXT_DICT_DEFAULT;
+    s->face_det_path = getenv("POCKETOS_VISION_FACE_DET");
+    s->face_det_path = s->face_det_path && *s->face_det_path ? s->face_det_path : VISION_FACE_DET_DEFAULT;
     s->net_script = kpu_script;
     say("hello %d %s %s", VISION_PROTO_VERSION, backend, vision_kpu_backend());
     if (map_shm(s) != 0) {
@@ -1866,7 +2003,9 @@ static int run_session(const char *backend, const char *config, const char *mode
      * and READ when its models are on the unit. */
     s->text_offered = access(s->text_det_path, R_OK) == 0 && access(s->text_rec_path, R_OK) == 0 &&
                       access(s->text_dict_path, R_OK) == 0;
-    say("caps detect track traffic color edge trace%s", s->text_offered ? " read" : "");
+    s->face_offered = access(s->face_det_path, R_OK) == 0;
+    say("caps detect track traffic color edge trace%s%s", s->text_offered ? " read" : "",
+        s->face_offered ? " face" : "");
     while (!s->quit && !s->in_eof && !stop_requested() && !out_broken) {
         read_commands(s, s->streaming ? 0 : 250);
         if (s->streaming && !s->quit) {
@@ -1882,6 +2021,7 @@ static int run_session(const char *backend, const char *config, const char *mode
         pocketcam_close(&s->cam);
     }
     text_close(s);
+    face_close(s);
     vision_kpu_close(s->kpu);
     if (s->quit && s->exit_code == 0) {
         say("bye");
@@ -2495,6 +2635,74 @@ static int run_text_bench(const char *image, const char *det_path, const char *r
     return rc;
 }
 
+/* FACE's model on a picture: the faces, their points and the times. */
+static int run_face_bench(const char *image, const char *path, int frames)
+{
+    struct pocketcam_frame f;
+    uint8_t *buf = NULL;
+    struct vision_net *det = NULL;
+    struct vision_net_info di;
+    char err[96] = "";
+    int k;
+    int rc = 0;
+
+    if (load_image(image, &f, &buf) != 0) {
+        return EXIT_USAGE;
+    }
+    if (vision_net_open(&det, path, NULL, &di, err, sizeof(err)) != 0) {
+        fprintf(stderr, "pos-vision: face model: %s\n", err);
+        free(buf);
+        return EXIT_NOMODEL;
+    }
+    if (vision_face_check(di.outputs, di.rank, (const uint32_t (*)[4])di.dims, di.in_w, di.in_h) != 0) {
+        fprintf(stderr, "pos-vision: %s: not a face detector's outputs\n", path);
+        vision_net_close(det);
+        free(buf);
+        return EXIT_NOMODEL;
+    }
+    printf("picture %ux%u; face detector %ux%u, %d outputs\n", f.width, f.height, di.in_w, di.in_h, di.outputs);
+    for (k = 0; k < frames && rc == 0; k++) {
+        struct vision_face faces[VISION_FACE_MAX];
+        const float *out[VISION_FACE_OUTPUTS];
+        size_t count[VISION_FACE_OUTPUTS];
+        int64_t t0 = mono_ms();
+        int64_t t1;
+        uint32_t bad = 0;
+        int pre = 0;
+        int inf = 0;
+        float ratio;
+        int n;
+        int i;
+
+        if (vision_net_frame(det, &f) != 0 || vision_net_run(det, NULL, false, VISION_FACE_PAD, &pre, &inf) != 0) {
+            rc = EXIT_LOST;
+            break;
+        }
+        for (i = 0; i < VISION_FACE_OUTPUTS; i++) {
+            out[i] = vision_net_output(det, i, &count[i]);
+        }
+        t1 = mono_ms();
+        n = vision_face_decode(out, count, di.in_w, di.in_h, VISION_FACE_CONF_PM, VISION_FACE_NMS_PM, faces,
+                               VISION_FACE_MAX, &bad);
+        ratio = (float)di.in_w / (float)f.width < (float)di.in_h / (float)f.height ? (float)di.in_w / (float)f.width
+                                                                                    : (float)di.in_h / (float)f.height;
+        printf("frame %d: pre %d ms run %d ms decode %lld ms, %d faces, %u skipped\n", k + 1, pre, inf,
+               (long long)(mono_ms() - t1), n, bad);
+        for (i = 0; i < n; i++) {
+            printf("  face %d: %d,%d %dx%d %u%%  eyes %d,%d %d,%d  nose %d,%d\n", i,
+                   (int)((float)faces[i].box.x / ratio), (int)((float)faces[i].box.y / ratio),
+                   (int)((float)faces[i].box.w / ratio), (int)((float)faces[i].box.h / ratio), faces[i].conf / 10,
+                   (int)((float)faces[i].pt[0][0] / ratio), (int)((float)faces[i].pt[0][1] / ratio),
+                   (int)((float)faces[i].pt[1][0] / ratio), (int)((float)faces[i].pt[1][1] / ratio),
+                   (int)((float)faces[i].pt[2][0] / ratio), (int)((float)faces[i].pt[2][1] / ratio));
+        }
+        printf("  frame %d: %lld ms in all\n", k + 1, (long long)(mono_ms() - t0));
+    }
+    vision_net_close(det);
+    free(buf);
+    return rc;
+}
+
 static void usage(void)
 {
     fprintf(stderr,
@@ -2504,7 +2712,9 @@ static void usage(void)
             "                        [--turn 0|90|180|270] [--save FILE.ppm [--save-every N]]\n"
             "                        [--image FILE.ppm | --images A.ppm,B.ppm,...]\n"
             "                        [--range near|normal|far] [--tracks]\n"
-            "       pos-vision describe MODEL.kmodel\n");
+            "       pos-vision describe MODEL.kmodel\n"
+            "       pos-vision text IMAGE.ppm DET REC DICT [N]\n"
+            "       pos-vision face IMAGE.ppm MODEL [N]\n");
 }
 
 int main(int argc, char **argv)
@@ -2533,6 +2743,14 @@ int main(int argc, char **argv)
             return EXIT_USAGE;
         }
         return run_text_bench(argv[2], argv[3], argv[4], argv[5], argc == 7 ? atoi(argv[6]) : 1);
+    }
+    if (strcmp(cmd, "face") == 0) {
+        /* pos-vision face IMAGE.ppm MODEL [FRAMES] */
+        if (argc < 4 || argc > 5) {
+            usage();
+            return EXIT_USAGE;
+        }
+        return run_face_bench(argv[2], argv[3], argc == 5 ? atoi(argv[4]) : 1);
     }
     if (strcmp(cmd, "describe") == 0) {
         /* A model's inputs and outputs, for bringing one up on the bench. */
