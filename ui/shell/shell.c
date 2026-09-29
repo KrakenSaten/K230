@@ -24,6 +24,7 @@
 #include "chrome.h"
 #include "controls.h"
 #include "home.h"
+#include "home_layout.h"
 #include "shell_lock.h"
 #include "clock_runtime.h"
 #include "clock_time.h"
@@ -616,6 +617,9 @@ static void brightness_restore(void)
  * build before the value meant anything - is not a continuation the shell can
  * vouch for, and starts as a cold start does. */
 #define RESUME_ENV "DOORS_SHELL_RESUMED"
+/* And the launcher folder that was open, if one was (home.h): the restart
+ * is the same session turning round, so it comes back to the same page. */
+#define RESUME_FOLDER_ENV "DOORS_LAUNCHER_FOLDER"
 #define RESUME_LOCKED "locked"
 #define RESUME_OPEN "open"
 /* settings.conf: lock_screen=0 starts the shell open (a bench unit, a kiosk). */
@@ -970,6 +974,7 @@ void pocketos_shell_go_home(void)
                  "home");
     controls_hide();
     lv_obj_clear_flag(sh.home, LV_OBJ_FLAG_HIDDEN);
+    home_keys_attach();
     environment_apply();
 }
 
@@ -986,6 +991,7 @@ static void controls_open(void)
         pocketos_shell_go_home();
     }
     lv_obj_add_flag(sh.home, LV_OBJ_FLAG_HIDDEN);
+    home_keys_detach();
     controls_show();
 }
 
@@ -993,6 +999,7 @@ static void controls_close(void)
 {
     controls_hide();
     lv_obj_clear_flag(sh.home, LV_OBJ_FLAG_HIDDEN);
+    home_keys_attach();
 }
 
 static void open_by_id(const char *id);
@@ -1029,6 +1036,8 @@ static void app_open(const struct pocketos_app *app)
 
     app_close();
     lv_obj_add_flag(sh.home, LV_OBJ_FLAG_HIDDEN);
+    /* The launcher is under the app now; its keys are the app's. */
+    home_keys_detach();
     controls_hide();
     /* Before anything of the app exists, so the body it is created in is
      * its final one and its first layout pass is its only one (DS §30.2). */
@@ -1421,6 +1430,48 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
                 cJSON_AddItemToObject(launcher, "cells", cells);
             }
             {
+                /* The folders (app groups): each one's cell on the
+                 * launcher's page while it shows, and its size; which one
+                 * is open; and where the keys are. */
+                cJSON *folders = cJSON_CreateArray();
+                bool shown = false;
+                const char *focus = home_focus_id(&shown);
+                int f;
+
+                for (f = HOME_FOLDER_NONE + 1; f < HOME_FOLDER_COUNT; f++) {
+                    const struct home_folder_def *def = home_folder_get((enum home_folder)f);
+                    cJSON *o = cJSON_CreateObject();
+                    lv_area_t a;
+
+                    cJSON_AddStringToObject(o, "id", def->id);
+                    cJSON_AddStringToObject(o, "name", def->name);
+                    cJSON_AddNumberToObject(o, "apps", home_folder_size(def->id));
+                    if (home_folder_area(def->id, &a)) {
+                        cJSON_AddNumberToObject(o, "x", a.x1);
+                        cJSON_AddNumberToObject(o, "y", a.y1);
+                        cJSON_AddNumberToObject(o, "w", lv_area_get_width(&a));
+                        cJSON_AddNumberToObject(o, "h", lv_area_get_height(&a));
+                    }
+                    cJSON_AddItemToArray(folders, o);
+                }
+                cJSON_AddItemToObject(launcher, "folders", folders);
+                if (home_folder_current()) {
+                    cJSON_AddStringToObject(launcher, "folder", home_folder_current());
+                } else {
+                    cJSON_AddNullToObject(launcher, "folder");
+                }
+                cJSON_AddNumberToObject(launcher, "home_cells", hi.cells);
+                cJSON_AddNumberToObject(launcher, "folder_cells", hi.folders);
+                if (focus) {
+                    cJSON_AddStringToObject(launcher, "focus", focus);
+                } else {
+                    cJSON_AddNullToObject(launcher, "focus");
+                }
+                cJSON_AddBoolToObject(launcher, "focus_shown", shown);
+                cJSON_AddBoolToObject(launcher, "keys",
+                                      lv_obj_get_group(sh.home) != NULL && pos_input_focused() == sh.home);
+            }
+            {
                 /* The time and the date, which keep clear of the cluster. */
                 lv_area_t t;
                 lv_area_t d;
@@ -1469,6 +1520,37 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         pocketos_shell_go_home();
         result = cJSON_CreateObject();
         cJSON_AddStringToObject(result, "current", "home");
+    } else if (strcmp(method, "shell.folder") == 0) {
+        /* A launcher folder (home.h): {"id": "games"} opens it at home,
+         * {"id": ""} goes back to the launcher's own page. For the bench and
+         * the tests; a person taps the folder's cell. */
+        const cJSON *fid = params ? cJSON_GetObjectItemCaseSensitive(params, "id") : NULL;
+
+        if (!cJSON_IsString(fid)) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                  "id must be a folder id or \"\""));
+            return;
+        }
+        if (fid->valuestring[0]) {
+            if (home_folder_size(fid->valuestring) <= 0) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                      "no such folder, or nothing in it"));
+                return;
+            }
+            shell_lock_open(false, "shell.folder");
+            if (sh.app || controls_visible()) {
+                pocketos_shell_go_home();
+            }
+            home_folder_open(fid->valuestring);
+        } else {
+            home_folder_close();
+        }
+        result = cJSON_CreateObject();
+        if (home_folder_current()) {
+            cJSON_AddStringToObject(result, "folder", home_folder_current());
+        } else {
+            cJSON_AddNullToObject(result, "folder");
+        }
     } else if (strcmp(method, "shell.lock") == 0) {
         shell_lock_engage("shell.lock");
         result = cJSON_CreateObject();
@@ -1698,6 +1780,11 @@ static void restart_in_place(bool locked)
         close(fd);
     }
     setenv(RESUME_ENV, locked ? RESUME_LOCKED : RESUME_OPEN, 1);
+    if (home_folder_current()) {
+        setenv(RESUME_FOLDER_ENV, home_folder_current(), 1);
+    } else {
+        unsetenv(RESUME_FOLDER_ENV);
+    }
     execv(exe, shell_argv);
     pocketlog_init("shell");
     LOG_ERROR("display: cannot re-execute %s (%s); exiting so the supervisor starts the shell again", exe,
@@ -1717,6 +1804,7 @@ int main(int argc, char **argv)
     bool resumed_locked = false;
     bool restart_locked = false;
     const char *resume;
+    char resume_folder[32] = "";
     long exit_after_ms = -1;
     int loaded;
     lv_display_t *disp;
@@ -1769,6 +1857,16 @@ int main(int argc, char **argv)
         LOG_WARN("lock: resume mark '%.16s' not understood; starting as a cold start", resume);
     }
     unsetenv(RESUME_ENV);
+    /* The folder the launcher had open, taken the same way and only from a
+     * continuation: a cold start opens on the launcher's own page. */
+    {
+        const char *rf = getenv(RESUME_FOLDER_ENV);
+
+        if (rf && resumed) {
+            snprintf(resume_folder, sizeof(resume_folder), "%s", rf);
+        }
+        unsetenv(RESUME_FOLDER_ENV);
+    }
     /* The settings come first: the orientation is decided from them before
      * the display exists, because the display is rotated when it is opened.
      * The keyboard is probed in the same breath and for the same reason -
@@ -1874,6 +1972,8 @@ int main(int argc, char **argv)
         home_build();
         LOG_INFO("launcher: built with Controls in %u ms", (unsigned)lv_tick_elaps(t0));
     }
+    /* Home is what shows until something covers it: the keys are its. */
+    home_keys_attach();
 
     /* One keyboard for the whole shell, built hidden and never rebuilt. It
      * sits on the screen rather than inside an app, so leaving an app cannot
@@ -1952,6 +2052,12 @@ int main(int argc, char **argv)
     }
     if (start_controls && !sh.app) {
         controls_open();
+    }
+    /* Back in the folder that was open when the shell turned round. */
+    if (resume_folder[0] && !sh.app && !controls_visible()) {
+        if (home_folder_open(resume_folder)) {
+            LOG_INFO("launcher: folder %s open again after the restart", resume_folder);
+        }
     }
     /* A continuation decides before the arguments do: the restart keeps the
      * argv, so a shell started with --no-lock or --open and locked since is

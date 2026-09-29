@@ -9,7 +9,12 @@
  *     cells are at least the DS touch minimum, and the footer lies below the
  *     panels and clear of the rounded corners; portrait does not scroll;
  *   - landscape wraps (and then scrolls) instead of squeezing cells: with
- *     today's seventeen apps DEVICE goes to a second line (twelve fitted one).
+ *     today's seventeen apps DEVICE goes to a second line (twelve fitted one);
+ *   - folders (app groups): the games are behind one Games cell where Fleet
+ *     was, an empty folder has no cell, one game is still a folder, an app
+ *     that is not installed is not in it; a folder's page holds 0 to 48 apps
+ *     in both orientations inside its panel, clear of the cluster, and
+ *     scrolls exactly when it runs past the foot.
  *
  * Pure C: built and run by the root Makefile (make test).
  *
@@ -309,11 +314,227 @@ static void test_growth(void)
     }
 }
 
+/* ---- folders (app groups) ------------------------------------------------ */
+
+static int items_hold(const struct home_item *items, int n, const char *const *ids, const char *id)
+{
+    int k;
+
+    for (k = 0; k < n; k++) {
+        if (items[k].folder == HOME_FOLDER_NONE && strcmp(ids[items[k].index], id) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int folder_place(const struct home_item *items, int n, enum home_folder f)
+{
+    int k;
+
+    for (k = 0; k < n; k++) {
+        if (items[k].folder == f) {
+            return k;
+        }
+    }
+    return -1;
+}
+
+static void test_folders(void)
+{
+    struct home_item items[HOME_MAX_APPS];
+    uint8_t order[HOME_MAX_APPS];
+    uint8_t count[HOME_GROUP_COUNT];
+    const struct home_folder_def *games = home_folder_get(HOME_FOLDER_GAMES);
+    int n;
+    int k;
+    int in_folders = 0;
+
+    check("GAMES is a folder with an id and a name", games && strcmp(games->id, "games") == 0 &&
+                                                        strcmp(games->name, "Games") == 0 &&
+                                                        games->hue == HOME_HUE_GAMES);
+    check("it is found by its id, and nothing else is",
+          home_folder_find("games") == HOME_FOLDER_GAMES && home_folder_find("fleet") == HOME_FOLDER_NONE &&
+              home_folder_find(NULL) == HOME_FOLDER_NONE && home_folder_find("") == HOME_FOLDER_NONE);
+    check("NONE and out-of-range have no definition",
+          !home_folder_get(HOME_FOLDER_NONE) && !home_folder_get(HOME_FOLDER_COUNT) &&
+              !home_folder_get((enum home_folder)-1));
+    for (k = 0; k < NREG; k++) {
+        const struct home_entry *en = home_entry_find(registry[k]);
+
+        if (en && en->folder != HOME_FOLDER_NONE) {
+            in_folders++;
+        }
+    }
+    check("the table puts the three games in GAMES, and nothing else in a folder",
+          in_folders == 3 && home_entry_find("fleet")->folder == HOME_FOLDER_GAMES &&
+              home_entry_find("radar")->folder == HOME_FOLDER_GAMES &&
+              home_entry_find("timber")->folder == HOME_FOLDER_GAMES);
+
+    /* Today's registry: one Games cell instead of three game cells. */
+    n = home_root_order(registry, NREG, items, count);
+    check("the launcher's page has sixteen places for eighteen apps", n == 16);
+    check("PLAY holds one place, the Games folder", count[HOME_GROUP_PLAY] == 1 &&
+                                                         folder_place(items, n, HOME_FOLDER_GAMES) >= 0);
+    check("the other groups are as they were",
+          count[HOME_GROUP_CONNECT] == 5 && count[HOME_GROUP_WORK] == 4 && count[HOME_GROUP_DEVICE] == 6 &&
+              count[HOME_GROUP_MORE] == 0);
+    check("no game is on the launcher's page",
+          !items_hold(items, n, registry, "fleet") && !items_hold(items, n, registry, "radar") &&
+              !items_hold(items, n, registry, "timber"));
+    check("the folder is where Fleet was: after WORKSPACE's four, before DEVICE",
+          folder_place(items, n, HOME_FOLDER_GAMES) == 9);
+    check("every other app still is", items_hold(items, n, registry, "notes") && items_hold(items, n, registry, "vision") &&
+                                          items_hold(items, n, registry, "rift"));
+    n = home_folder_order(registry, NREG, HOME_FOLDER_GAMES, order);
+    check("Games holds Fleet, Radar and Timber, in the table's order",
+          n == 3 && strcmp(registry[order[0]], "fleet") == 0 && strcmp(registry[order[1]], "radar") == 0 &&
+              strcmp(registry[order[2]], "timber") == 0);
+    check("NONE and an unknown folder hold nothing",
+          home_folder_order(registry, NREG, HOME_FOLDER_NONE, order) == 0 &&
+              home_folder_order(registry, NREG, HOME_FOLDER_COUNT, order) == 0);
+
+    {
+        /* An empty folder: no game installed. */
+        static const char *const ids[] = { "notes", "radio", "settings" };
+
+        n = home_root_order(ids, 3, items, count);
+        check("with no game installed there is no Games cell", n == 3 && folder_place(items, n, HOME_FOLDER_GAMES) < 0 &&
+                                                                    count[HOME_GROUP_PLAY] == 0);
+        check("and the folder is empty", home_folder_order(ids, 3, HOME_FOLDER_GAMES, order) == 0);
+    }
+    {
+        /* One game: still a folder, so the game is always found in the same place. */
+        static const char *const ids[] = { "notes", "timber", "radio" };
+
+        n = home_root_order(ids, 3, items, count);
+        check("one game is still behind the Games cell", n == 3 && folder_place(items, n, HOME_FOLDER_GAMES) >= 0 &&
+                                                              !items_hold(items, n, ids, "timber"));
+        check("which holds it", home_folder_order(ids, 3, HOME_FOLDER_GAMES, order) == 1 &&
+                                    strcmp(ids[order[0]], "timber") == 0);
+    }
+    {
+        /* An app that is not installed (a shell built without it) is not in
+         * the folder, and one the table does not know is not either. */
+        static const char *const ids[] = { "radar", "zeta", "fleet", "clock" };
+
+        n = home_root_order(ids, 4, items, count);
+        check("an unknown app still goes to MORE, not to a folder",
+              count[HOME_GROUP_MORE] == 1 && items_hold(items, n, ids, "zeta"));
+        check("Games holds the two installed games, in the table's order",
+              home_folder_order(ids, 4, HOME_FOLDER_GAMES, order) == 2 && strcmp(ids[order[0]], "fleet") == 0 &&
+                  strcmp(ids[order[1]], "radar") == 0);
+    }
+}
+
+static void folder_input(struct home_folder_layout_in *in, bool landscape, int n)
+{
+    memset(in, 0, sizeof(*in));
+    in->width = landscape ? PANEL_H : PANEL_W;
+    in->height = landscape ? PANEL_W : PANEL_H;
+    in->landscape = landscape;
+    in->inset_bottom = CORNER;
+    in->keepout.x = in->width - (landscape ? CORNER_LANDSCAPE_TOP : CORNER) - CLUSTER_W;
+    in->keepout.y = CLUSTER_Y;
+    in->keepout.w = CLUSTER_W;
+    in->keepout.h = CLUSTER_H;
+    in->n = n;
+}
+
+static void check_folder_layout(const char *name, const struct home_folder_layout_in *in,
+                                const struct home_folder_layout *l)
+{
+    char what[160];
+    struct home_rect area = { 0, 0, in->width, l->content_h };
+    int ok_inside = 1;
+    int ok_overlap = 1;
+    int ok_touch = 1;
+    int j;
+    int k;
+
+    for (k = 0; k < in->n; k++) {
+        if (!inside(&l->cell[k], &l->panel)) {
+            ok_inside = 0;
+        }
+        if (l->cell[k].w < TOUCH_MIN || l->cell[k].h < TOUCH_MIN) {
+            ok_touch = 0;
+        }
+        for (j = 0; j < k; j++) {
+            if (overlap(&l->cell[k], &l->cell[j])) {
+                ok_overlap = 0;
+            }
+        }
+    }
+    snprintf(what, sizeof(what), "%s: every cell is inside the panel", name);
+    check(what, ok_inside && l->napps == in->n);
+    snprintf(what, sizeof(what), "%s: no two cells overlap", name);
+    check(what, ok_overlap);
+    snprintf(what, sizeof(what), "%s: every cell is at least the touch minimum", name);
+    check(what, ok_touch);
+    snprintf(what, sizeof(what), "%s: the panel is inside the page, the back slab and the title above it", name);
+    check(what, inside(&l->panel, &area) && inside(&l->back, &area) &&
+                    l->back.y + l->back.h <= l->panel.y && l->title.y + l->title.h <= l->panel.y);
+    snprintf(what, sizeof(what), "%s: the way back is the app header's slab, at the left", name);
+    check(what, l->back.w == HOME_BACK_W && l->back.h == HOME_BACK_H && l->back.x < l->title.x &&
+                    !overlap(&l->back, &l->title));
+    snprintf(what, sizeof(what), "%s: the title keeps clear of the status cluster", name);
+    check(what, !overlap(&l->title, &in->keepout) && !overlap(&l->back, &in->keepout) && l->title.w >= 200);
+    snprintf(what, sizeof(what), "%s: the page scrolls exactly when the panel runs past the foot", name);
+    check(what, (l->content_h > in->height) == (l->panel.y + l->panel.h + 42 > in->height));
+}
+
+static void test_folder_layout(void)
+{
+    static const int sizes[] = { 0, 1, 3, 6, 9, 13, 40, HOME_MAX_APPS };
+    struct home_folder_layout_in in;
+    static struct home_folder_layout l;
+    char name[64];
+    size_t s;
+    int o;
+
+    for (o = 0; o < 2; o++) {
+        for (s = 0; s < sizeof(sizes) / sizeof(sizes[0]); s++) {
+            folder_input(&in, o == 1, sizes[s]);
+            snprintf(name, sizeof(name), "%s folder, %d app(s)", o ? "landscape" : "portrait", sizes[s]);
+            check(name, home_folder_layout_compute(&in, &l) == 0);
+            check_folder_layout(name, &in, &l);
+        }
+    }
+    folder_input(&in, false, 6);
+    home_folder_layout_compute(&in, &l);
+    check("portrait: six games in four columns of 124 px, two rows, the panel the launcher's width",
+          l.cols == 4 && l.cell_w == 124 && l.panel.h == 2 * HOME_CELL_H + HOME_PANEL_PAD + HOME_PANEL_HEAD +
+                                                            HOME_PANEL_PAD + HOME_PANEL_BOTTOM &&
+              l.panel.x == 28 && l.panel.w == PANEL_W - 56 && l.content_h == PANEL_H);
+    folder_input(&in, true, 6);
+    home_folder_layout_compute(&in, &l);
+    check("landscape: six games on one row, the panel as wide as they are and centred",
+          l.cols == 6 && l.cell[5].y == l.cell[0].y && l.panel.w == 6 * 124 + 2 * HOME_PANEL_PAD &&
+              abs(l.panel.x - (PANEL_H - l.panel.x - l.panel.w)) <= 1 && l.content_h == PANEL_W);
+    folder_input(&in, true, 40);
+    home_folder_layout_compute(&in, &l);
+    check("landscape: forty apps wrap at nine and the page scrolls", l.cols == 9 && l.content_h > PANEL_W &&
+                                                                         l.cell[9].y > l.cell[0].y);
+    folder_input(&in, false, 40);
+    home_folder_layout_compute(&in, &l);
+    check("portrait: forty apps take ten rows and the page scrolls", l.cell[39].y > l.cell[35].y &&
+                                                                         l.content_h > PANEL_H);
+    folder_input(&in, false, 0);
+    home_folder_layout_compute(&in, &l);
+    check("an empty folder is a panel one row tall", l.panel.h == HOME_CELL_H + HOME_PANEL_HEAD +
+                                                                       HOME_PANEL_PAD + HOME_PANEL_BOTTOM);
+    folder_input(&in, false, HOME_MAX_APPS + 1);
+    check("more apps than a folder holds is refused", home_folder_layout_compute(&in, &l) < 0);
+    check("NULL is refused", home_folder_layout_compute(NULL, &l) < 0);
+}
+
 int main(void)
 {
     test_groups();
     test_reference();
     test_growth();
+    test_folders();
+    test_folder_layout();
     printf("home_layout_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

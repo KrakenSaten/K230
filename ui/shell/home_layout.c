@@ -265,29 +265,38 @@ int home_layout_compute(const struct home_layout_in *in, struct home_layout *out
 
 /* Launcher order within a group is this table's order. Colours are the
  * package's (tools/design/gen_doors_ui.py draws each icon in the same one;
- * tests/doors_ui_assets_test.sh holds the two tables together). */
+ * tests/doors_ui_assets_test.sh holds the two tables together). The last
+ * column is the folder an app is shown in (home_layout.h): the games are in
+ * GAMES. PG Solitaire, Blackjack and 2048 (feat/games-solitaire-blackjack-
+ * 2048) join it with a row each in PLAY and HOME_FOLDER_GAMES. */
 static const struct home_entry entries[] = {
-    { "rift", HOME_GROUP_CONNECT, HOME_HUE_MESH },
-    { "radio", HOME_GROUP_CONNECT, HOME_HUE_RADIO },
-    { "wave", HOME_GROUP_CONNECT, HOME_HUE_NETWORK },
-    { "zabbix", HOME_GROUP_CONNECT, HOME_HUE_TOOLS },
-    { "browser", HOME_GROUP_CONNECT, HOME_HUE_NETWORK },
-    { "notes", HOME_GROUP_WORK, HOME_HUE_FILES },
-    { "calendar", HOME_GROUP_WORK, HOME_HUE_TOOLS },
-    { "clock", HOME_GROUP_WORK, HOME_HUE_AI },
-    { "calculator", HOME_GROUP_WORK, HOME_HUE_APPS },
-    { "fleet", HOME_GROUP_PLAY, HOME_HUE_GAMES },
-    { "radar", HOME_GROUP_PLAY, HOME_HUE_RADIO },
-    { "timber", HOME_GROUP_PLAY, HOME_HUE_FILES },
-    { "solitaire", HOME_GROUP_PLAY, HOME_HUE_GAMES },
-    { "blackjack", HOME_GROUP_PLAY, HOME_HUE_GAMES },
-    { "2048", HOME_GROUP_PLAY, HOME_HUE_GAMES },
-    { "settings", HOME_GROUP_DEVICE, HOME_HUE_SETTINGS },
-    { "system", HOME_GROUP_DEVICE, HOME_HUE_APPS },
-    { "files", HOME_GROUP_DEVICE, HOME_HUE_FILES },
-    { "camera", HOME_GROUP_DEVICE, HOME_HUE_TOOLS },
-    { "recorder", HOME_GROUP_DEVICE, HOME_HUE_TOOLS },
-    { "vision", HOME_GROUP_DEVICE, HOME_HUE_AI },
+    { "rift", HOME_GROUP_CONNECT, HOME_HUE_MESH, HOME_FOLDER_NONE },
+    { "radio", HOME_GROUP_CONNECT, HOME_HUE_RADIO, HOME_FOLDER_NONE },
+    { "wave", HOME_GROUP_CONNECT, HOME_HUE_NETWORK, HOME_FOLDER_NONE },
+    { "zabbix", HOME_GROUP_CONNECT, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
+    { "browser", HOME_GROUP_CONNECT, HOME_HUE_NETWORK, HOME_FOLDER_NONE },
+    { "notes", HOME_GROUP_WORK, HOME_HUE_FILES, HOME_FOLDER_NONE },
+    { "calendar", HOME_GROUP_WORK, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
+    { "clock", HOME_GROUP_WORK, HOME_HUE_AI, HOME_FOLDER_NONE },
+    { "calculator", HOME_GROUP_WORK, HOME_HUE_APPS, HOME_FOLDER_NONE },
+    { "fleet", HOME_GROUP_PLAY, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
+    { "radar", HOME_GROUP_PLAY, HOME_HUE_RADIO, HOME_FOLDER_GAMES },
+    { "timber", HOME_GROUP_PLAY, HOME_HUE_FILES, HOME_FOLDER_GAMES },
+    { "solitaire", HOME_GROUP_PLAY, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
+    { "blackjack", HOME_GROUP_PLAY, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
+    { "2048", HOME_GROUP_PLAY, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
+    { "settings", HOME_GROUP_DEVICE, HOME_HUE_SETTINGS, HOME_FOLDER_NONE },
+    { "system", HOME_GROUP_DEVICE, HOME_HUE_APPS, HOME_FOLDER_NONE },
+    { "files", HOME_GROUP_DEVICE, HOME_HUE_FILES, HOME_FOLDER_NONE },
+    { "camera", HOME_GROUP_DEVICE, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
+    { "recorder", HOME_GROUP_DEVICE, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
+    { "vision", HOME_GROUP_DEVICE, HOME_HUE_AI, HOME_FOLDER_NONE },
+/* A test seam: tests/home_folder_test.c builds this file with more rows
+ * (tests/home_folder_entries.h), to fill a folder past one screen. No shell
+ * build defines it. */
+#ifdef HOME_LAYOUT_TEST_ENTRIES_FILE
+#include HOME_LAYOUT_TEST_ENTRIES_FILE
+#endif
 };
 
 const char *home_group_name(enum home_group g)
@@ -340,4 +349,164 @@ int home_group_order(const char *const *ids, int n, uint8_t order[HOME_MAX_APPS]
         }
     }
     return placed;
+}
+
+/* ---- the folders ----------------------------------------------------------- */
+
+/* One row per folder, in enum home_folder order; the art for a folder's cell
+ * is icon-<id> (tools/design/gen_doors_ui.py, in the same colour). */
+static const struct home_folder_def folders[HOME_FOLDER_COUNT] = {
+    [HOME_FOLDER_NONE] = { NULL, NULL, HOME_HUE_APPS },
+    [HOME_FOLDER_GAMES] = { "games", "Games", HOME_HUE_GAMES },
+};
+
+const struct home_folder_def *home_folder_get(enum home_folder f)
+{
+    return (f > HOME_FOLDER_NONE && f < HOME_FOLDER_COUNT) ? &folders[f] : NULL;
+}
+
+enum home_folder home_folder_find(const char *id)
+{
+    int f;
+
+    for (f = HOME_FOLDER_NONE + 1; id && f < HOME_FOLDER_COUNT; f++) {
+        if (strcmp(folders[f].id, id) == 0) {
+            return (enum home_folder)f;
+        }
+    }
+    return HOME_FOLDER_NONE;
+}
+
+int home_root_order(const char *const *ids, int n, struct home_item items[HOME_MAX_APPS],
+                    uint8_t count[HOME_GROUP_COUNT])
+{
+    uint8_t order[HOME_MAX_APPS];
+    uint8_t per_group[HOME_GROUP_COUNT];
+    bool placed_folder[HOME_FOLDER_COUNT] = { false };
+    int total = home_group_order(ids, n, order, per_group);
+    int placed = 0;
+    int g;
+    int k = 0;
+
+    memset(count, 0, HOME_GROUP_COUNT);
+    /* home_group_order lists the apps group by group; walk it in step. */
+    for (g = 0; g < HOME_GROUP_COUNT; g++) {
+        int end = k + per_group[g];
+
+        for (; k < end && k < total; k++) {
+            const struct home_entry *en = home_entry_find(ids[order[k]]);
+            enum home_folder f = en ? en->folder : HOME_FOLDER_NONE;
+
+            if (f > HOME_FOLDER_NONE && f < HOME_FOLDER_COUNT) {
+                if (placed_folder[f]) {
+                    continue;
+                }
+                placed_folder[f] = true;
+                items[placed].folder = (uint8_t)f;
+                items[placed].index = 0;
+            } else {
+                items[placed].folder = HOME_FOLDER_NONE;
+                items[placed].index = order[k];
+            }
+            placed++;
+            count[g]++;
+        }
+    }
+    return placed;
+}
+
+int home_folder_order(const char *const *ids, int n, enum home_folder f, uint8_t order[HOME_MAX_APPS])
+{
+    uint8_t all[HOME_MAX_APPS];
+    uint8_t per_group[HOME_GROUP_COUNT];
+    int total;
+    int placed = 0;
+    int k;
+
+    if (f <= HOME_FOLDER_NONE || f >= HOME_FOLDER_COUNT) {
+        return 0;
+    }
+    total = home_group_order(ids, n, all, per_group);
+    for (k = 0; k < total; k++) {
+        const struct home_entry *en = home_entry_find(ids[all[k]]);
+
+        if (en && en->folder == f) {
+            order[placed++] = all[k];
+        }
+    }
+    return placed;
+}
+
+/* ---- a folder's page --------------------------------------------------------- */
+
+#define FOLDER_BACK_Y 8          /* the back slab's row, as the app header's */
+#define FOLDER_PANEL_GAP 20      /* between the header row and the panel */
+#define FOLDER_TITLE_GAP 16      /* between the back slab and the title */
+#define FOLDER_MAX_COLUMNS 9
+
+int home_folder_layout_compute(const struct home_folder_layout_in *in, struct home_folder_layout *out)
+{
+    int32_t m;
+    int32_t line;
+    int32_t cw;
+    int32_t pw;
+    int32_t px;
+    int32_t py;
+    int32_t title_right;
+    int rows;
+    int cols;
+    int i;
+
+    if (!in || !out || in->n < 0 || in->n > HOME_MAX_APPS || in->width < HOME_CELL_MIN_W + 2 * 48 ||
+        in->height < HOME_CELL_H) {
+        return -1;
+    }
+    memset(out, 0, sizeof(*out));
+    m = in->landscape ? MARGIN_LANDSCAPE : MARGIN_PORTRAIT;
+    line = in->width - 2 * m;
+    out->back = rect(m, FOLDER_BACK_Y, HOME_BACK_W, HOME_BACK_H);
+    /* The title runs from the slab to the status cluster, never under it. */
+    title_right = in->width - m;
+    if (in->keepout.w > 0 && in->keepout.y < FOLDER_BACK_Y + HOME_BACK_H &&
+        in->keepout.y + in->keepout.h > FOLDER_BACK_Y && in->keepout.x - HEADER_CLEAR < title_right) {
+        title_right = in->keepout.x - HEADER_CLEAR;
+    }
+    out->title = rect(m + HOME_BACK_W + FOLDER_TITLE_GAP, FOLDER_BACK_Y,
+                      max32(title_right - (m + HOME_BACK_W + FOLDER_TITLE_GAP), 0), HOME_BACK_H);
+
+    if (in->landscape) {
+        /* A row of as many as fit, the panel exactly as wide as its cells. */
+        cols = (int)((line - 2 * HOME_PANEL_PAD) / HOME_CELL_W_PORTRAIT);
+        cols = cols > FOLDER_MAX_COLUMNS ? FOLDER_MAX_COLUMNS : cols;
+        cols = in->n < cols ? (in->n > 0 ? in->n : 1) : cols;
+        cw = HOME_CELL_W_PORTRAIT;
+        pw = cols * cw + 2 * HOME_PANEL_PAD;
+        px = (in->width - pw) / 2;
+    } else {
+        /* The launcher's portrait columns, the panel the whole width. */
+        int32_t inner = line - 2 * HOME_PANEL_PAD;
+
+        cols = HOME_PORTRAIT_COLUMNS;
+        while (cols > 1 && inner / cols < HOME_CELL_MIN_W) {
+            cols--;
+        }
+        cw = inner / cols;
+        cw = cw > HOME_CELL_W_PORTRAIT ? HOME_CELL_W_PORTRAIT : cw;
+        pw = line;
+        px = m;
+    }
+    rows = in->n > 0 ? (in->n + cols - 1) / cols : 1;
+    py = FOLDER_BACK_Y + HOME_BACK_H + FOLDER_PANEL_GAP;
+    out->panel = rect(px, py, pw, panel_height(rows));
+    for (i = 0; i < in->n; i++) {
+        out->cell[i] = rect(px + HOME_PANEL_PAD + (i % cols) * cw,
+                            py + HOME_PANEL_HEAD + HOME_PANEL_PAD + (i / cols) * (HOME_CELL_H + HOME_PANEL_PAD), cw,
+                            HOME_CELL_H);
+    }
+    out->napps = (uint16_t)in->n;
+    out->cols = cols;
+    out->cell_w = cw;
+    out->small_labels = cw < 110;
+    out->content_h = max32(in->height, out->panel.y + out->panel.h + max32(FOOTER_PAD, in->inset_bottom + 12));
+    return 0;
 }

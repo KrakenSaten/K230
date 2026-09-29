@@ -88,6 +88,8 @@ APP_ICONS = {
     "zabbix": (FIRST_PARTY + "zabbix.svg", "tools"),
     "browser": (FIRST_PARTY + "browser.svg", "network"),
     "vision": (FIRST_PARTY + "vision.svg", "ai"),
+    # Not an app: the GAMES folder's cell (ui/shell/home_layout.h, folders).
+    "games": (FIRST_PARTY + "games.svg", "games"),
     "solitaire": (FIRST_PARTY + "solitaire.svg", "games"),
     "blackjack": (FIRST_PARTY + "blackjack.svg", "games"),
     "2048": (FIRST_PARTY + "2048.svg", "games"),

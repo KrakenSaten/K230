@@ -19,6 +19,10 @@
  * With today's thirteen apps portrait does not scroll; landscape wraps DEVICE
  * onto a second line and scrolls to its footer (twelve fitted one row).
  *
+ * A folder (an app group, "the folders" below) is one cell on this page
+ * that stands for several apps; opening it shows a page of its own, laid
+ * out by home_folder_layout_compute().
+ *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #ifndef DOORS_HOME_LAYOUT_H
@@ -115,10 +119,38 @@ enum home_hue {
     HOME_HUE_APPS,
 };
 
+/* ---- the folders (app groups) ------------------------------------------- *
+ *
+ * A folder gathers apps the launcher would otherwise show one by one: its
+ * page shows a single cell for all of them, where the first of them would
+ * have been (for GAMES, in PLAY), and opening that cell shows a page with
+ * the apps. Which folder an
+ * app is in is the same table's decision as its group and its colour
+ * (`folder` below), so a folder is one column of metadata, not a list of
+ * exceptions, and an app still neither declares nor knows where it is shown.
+ *
+ * Only GAMES exists. Another folder (UTILITIES, RADIO, SYSTEM, MEDIA ...) is
+ * one more enum value, one more row in the folder table (home_layout.c), a
+ * portal icon for its cell (tools/design/gen_doors_ui.py) and its apps'
+ * `folder` set - nothing in the launcher itself changes.
+ */
+enum home_folder {
+    HOME_FOLDER_NONE = 0, /* shown on the launcher's own page */
+    HOME_FOLDER_GAMES,
+    HOME_FOLDER_COUNT
+};
+
+struct home_folder_def {
+    const char *id;        /* stable: its art is icon-<id>, and shell.folder and shell.info name it */
+    const char *name;      /* the cell's label and the folder page's title */
+    enum home_hue hue;     /* the colour of its cell's focus mark and its portal icon */
+};
+
 struct home_entry {
     const char *id;
     enum home_group group;
     enum home_hue hue;
+    enum home_folder folder;
 };
 
 const char *home_group_name(enum home_group g);
@@ -126,8 +158,71 @@ const char *home_group_name(enum home_group g);
 const struct home_entry *home_entry_find(const char *id);
 /* Sort n app ids into launcher order: order[k] is the index into ids of the
  * k-th app shown, count[g] how many each group holds. Returns how many were
- * placed (n, or HOME_MAX_APPS if there were more). */
+ * placed (n, or HOME_MAX_APPS if there were more). Folders are not applied:
+ * this is every app, as the table orders them. */
 int home_group_order(const char *const *ids, int n, uint8_t order[HOME_MAX_APPS],
                      uint8_t count[HOME_GROUP_COUNT]);
+
+/* A folder's definition, or NULL for HOME_FOLDER_NONE and anything out of
+ * range. */
+const struct home_folder_def *home_folder_get(enum home_folder f);
+/* The folder with this id, or HOME_FOLDER_NONE. */
+enum home_folder home_folder_find(const char *id);
+
+/* One place on the launcher's own page: an app, or a folder standing for its
+ * apps. */
+struct home_item {
+    uint8_t folder; /* HOME_FOLDER_NONE: an app, ids[index]; else this folder */
+    uint8_t index;
+};
+
+/* The launcher's own page, in order: home_group_order's, except that every
+ * app in a folder is left out and the folder takes one place instead, where
+ * its first installed app would have been. A folder with no installed app
+ * is not there at all; one with a single app is still a folder, so an app
+ * is always found in the same place. count[g] is the places in each group.
+ * Returns how many places. */
+int home_root_order(const char *const *ids, int n, struct home_item items[HOME_MAX_APPS],
+                    uint8_t count[HOME_GROUP_COUNT]);
+/* The installed apps of folder f, in the table's order: order[k] is an index
+ * into ids. Returns how many (0 for an empty or unknown folder). */
+int home_folder_order(const char *const *ids, int n, enum home_folder f, uint8_t order[HOME_MAX_APPS]);
+
+/* ---- a folder's page ------------------------------------------------------- *
+ *
+ * A way back and the folder's name at the top, clear of the status cluster,
+ * then one glass panel holding the apps' cells, like a group's on the
+ * launcher: four across in portrait; in landscape as many as fit a row,
+ * the panel as wide as its cells and centred. A folder with more apps than
+ * fit the screen grows past it and the page scrolls, as the launcher does.
+ */
+#define HOME_BACK_W 72          /* the back slab, as the app header's (DS §7) */
+#define HOME_BACK_H 56
+
+struct home_folder_layout_in {
+    int32_t width;
+    int32_t height;
+    bool landscape;
+    int32_t inset_bottom;
+    struct home_rect keepout; /* the status cluster, as home_layout_in's */
+    int n;                    /* apps in the folder */
+};
+
+struct home_folder_layout {
+    struct home_rect back;
+    struct home_rect title;
+    struct home_rect panel;
+    struct home_rect cell[HOME_MAX_APPS];
+    int cols;
+    int32_t cell_w;
+    bool small_labels;
+    int32_t content_h; /* > height: the page scrolls */
+    uint16_t napps;
+};
+
+/* 0, or -1 when the input cannot be laid out (too many apps, or an area too
+ * small for one cell). An empty folder lays out as a panel one row tall,
+ * for a line that says so. */
+int home_folder_layout_compute(const struct home_folder_layout_in *in, struct home_folder_layout *out);
 
 #endif

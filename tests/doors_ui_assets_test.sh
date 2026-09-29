@@ -54,10 +54,15 @@ check("every background comes from the approved package's device exports",
 # 3. colours: launcher table vs generator, env palette vs package
 gen = open("tools/design/gen_doors_ui.py", encoding="utf-8").read()
 app_hue = dict(re.findall(r'^\s+"(\w+)": \([^,]+, "(\w+)"\),', gen, re.M))
-table = {i: h.lower() for i, h in re.findall(r'\{ "(\w+)", HOME_GROUP_\w+, HOME_HUE_(\w+) \}',
-                                              open("ui/shell/home_layout.c", encoding="utf-8").read())}
+layout_c = open("ui/shell/home_layout.c", encoding="utf-8").read()
+# The apps, and the folders (app groups): a folder's cell has a portal icon too.
+table = {i: h.lower() for i, h in re.findall(r'\{ "(\w+)", HOME_GROUP_\w+, HOME_HUE_(\w+), HOME_FOLDER_\w+ \}',
+                                              layout_c)}
+folders = {i: h.lower() for i, h in re.findall(r'\] = \{ "(\w+)", "[^"]*", HOME_HUE_(\w+) \}', layout_c)}
 check("the launcher's table and the icon generator give every app the same colour (%d apps)" % len(table),
-      table == app_hue and len(table) == 21)
+      {k: v for k, v in app_hue.items() if k not in folders} == table and len(table) == 21)
+check("and every folder's cell (%s)" % " ".join(sorted(folders)),
+      folders == {k: v for k, v in app_hue.items() if k in folders} and folders == {"games": "games"})
 palette = re.search(r"PALETTE = \{(.*?)\}", gen, re.S).group(1)
 pal = dict(re.findall(r'"(\w+)": "#([0-9a-f]{6})"', palette))
 styles = open("ui/pocketui/pos_styles.c", encoding="utf-8").read()

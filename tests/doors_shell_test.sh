@@ -221,7 +221,7 @@ PY
     # of cells too, and DEVICE's second row is below the fold in portrait.
     scrolls=true
     check "$o: twenty-one apps, twenty-one portal icons from the art, none on a fallback, scrolls: $scrolls ($2 $3 $4 $5)" \
-        "$([ "$2" = 21 ] && [ "$3" = 21 ] && [ "$4" = 0 ] && [ "$5" = "$scrolls" ] && echo 1 || echo 0)"
+        "$([ "$2" = 21 ] && [ "$3" = 16 ] && [ "$4" = 0 ] && [ "$5" = "$scrolls" ] && echo 1 || echo 0)"
     below=$(grep -c '^below ' "$OUT/$o-cells.txt")
     good=0
     while read -r id x y w h; do
@@ -236,7 +236,7 @@ PY
         [ "$w" -ge 64 ] && [ "$h" -ge 64 ] || echo "     $o: $id cell $w x $h is below the touch minimum"
     done < "$OUT/$o-cells.txt"
     check "$o: every app's own portal icon on screen is drawn in its cell, pixel for pixel ($good + $below below the fold)" \
-        "$([ "$((good + below))" = 21 ] && [ "$good" -ge 12 ] && echo 1 || echo 0)"
+        "$([ "$((good + below))" = 15 ] && [ "$good" -ge 12 ] && echo 1 || echo 0)"
 done
 
 # ---- 4. no art installed --------------------------------------------------------
@@ -246,7 +246,7 @@ POCKETOS_ART_DIR="$OUT/noart" start_shell --rotation portrait
 check "with no art the shell starts, locked" "$([ "$(field '["lock"]["locked"]')" = true ] && echo 1 || echo 0)"
 check "and says it has no background" "$([ "$(field '["art"]["background"]')" = false ] && echo 1 || echo 0)"
 check "every app is on the fallback frame" \
-    "$([ "$(field '["launcher"]["icons_fallback"]')" = 21 ] && [ "$(field '["launcher"]["icons_art"]')" = 0 ] && echo 1 || echo 0)"
+    "$([ "$(field '["launcher"]["icons_fallback"]')" = 16 ] && [ "$(field '["launcher"]["icons_art"]')" = 0 ] && echo 1 || echo 0)"
 shot "$OUT/noart-lock.png"
 call shell.unlock
 sleep 0.2
@@ -281,7 +281,7 @@ while read -r id x y; do
     [ "${2:-0}" -gt 2000 ] && [ $(( ${2:-0} - ${1:-0} )) -lt 400 ] && good=$((good + 1))
 done < "$OUT/fo.txt"
 check "with only the empty frame installed, every app on screen is drawn on it ($good + $below below the fold)" \
-    "$([ "$((good + below))" = 21 ] && [ "$good" -ge 12 ] && echo 1 || echo 0)"
+    "$([ "$((good + below))" = 15 ] && [ "$good" -ge 12 ] && echo 1 || echo 0)"
 stop_shell
 
 # ---- 5. restarts ------------------------------------------------------------------

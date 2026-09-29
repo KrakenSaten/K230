@@ -677,6 +677,41 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     endif()
     target_link_libraries(shell_lock_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
+    # The launcher's folders (app groups) under a real pointer and the real
+    # key stream (run by tests/launcher_folder_shell_test.sh). The table is
+    # built with thirty more games through its test seam, so a folder can
+    # run past one screen; the shell never defines it.
+    add_executable(home_folder_test
+        ${REPO_DIR}/tests/home_folder_test.c
+        home.c
+        home_layout.c
+        art.c
+        art_format.c
+        ../pocketui/pos_glyphs.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${REPO_DIR}/core/pocketlog/pocketlog.c
+        ${REPO_DIR}/core/pocketpaths.c
+        ${POCKETUI_FONTS})
+    target_include_directories(home_folder_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/tests")
+    target_compile_options(home_folder_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(home_folder_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE
+        POCKETOS_VERSION="${POCKETOS_VERSION}" POCKETOS_BUILD_ID="${POCKETOS_BUILD_ID}"
+        POCKETOS_ART_DIR_DEFAULT="${POCKETOS_ART_SRC_DIR}"
+        HOME_LAYOUT_TEST_ENTRIES_FILE="home_folder_entries.h")
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(home_folder_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(home_folder_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(home_folder_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
     # The shared responsive-layout guard every responsive app opens its layout
     # pass with (run by tests/display_geometry_shell_test.sh). DS 21.3, 22.2.
     add_executable(pocketui_layout_test
