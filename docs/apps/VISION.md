@@ -26,9 +26,15 @@ The camera path is Camera's own (ADR-006), reused, not redesigned; the
 launcher place and the icon are for the owner to confirm (DS §38,
 PROPOSED).
 
-**Branch `feat/vision-next` (2026-09-29, from master 8063533):** the modes
-in groups behind a picker, per-mode settings kept between opens - see
-"Modes and settings" - and the work that follows on it.
+**Branch `feat/vision-next` (2026-09-29/30, from master 8063533):** the
+modes in groups behind a picker, per-mode settings kept between opens
+("Modes and settings"); Traffic 2.0 with the detection range and recent
+statistics; Tracking 2.0; READ (text); FACE; RECOGNIZE (the owner's face,
+on the unit only); a replay source for recorded pictures; and DeskBuddy's
+provider on this helper (docs/apps/DESKBUDDY.md). READ, FACE and
+RECOGNIZE need models that are neither in this repository nor packaged
+(docs/LICENSING.md item 11); without them those modes are simply not
+offered. LOOK (object identification) is not done: see "LOOK" below.
 
 ## Modes and settings
 
@@ -385,6 +391,23 @@ all of it back after close; helper 6-7 % CPU on a replay at 10 frames a
 second. Not measured: enrolment and recognition of a live face through the
 camera (the gate ran at night with nobody at the unit), and how the score
 behaves with light, distance and angle.
+
+## LOOK (object identification): not done
+
+Asked for last, and only on top of stable earlier work. It was not built,
+for want of a model rather than of time: the pinned SDKs carry no
+general-purpose classifier (nothing ImageNet-like) with a known source.
+What they have is narrow - `flower_rec` (102 flowers), `veg_cls` (6
+vegetables), and `recognition.kmodel` / `embedding.kmodel`, the feature
+extractors of the canmv "self-learning" demo, which learns objects it is
+shown and matches them later (a centre crop to 224 x 224, 512 values,
+cosine against stored views, threshold 0.5). DETECT already names the 80
+COCO classes. A "teach it an object, then it knows it" mode could be built
+on RECOGNIZE's parts (the nets, unit vectors, a stored profile) with
+`recognition.kmodel`, but it is a different feature from "what is this?",
+it needs a decision on how taught objects are named on a unit without a
+keyboard, and the model's licence is as open as the others' (item 11); it
+is left for the owner to ask for.
 
 ## What it does
 

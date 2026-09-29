@@ -3582,6 +3582,16 @@ existing parts, **the sheet**; no new role, token or colour.
 - **Counters.** DETECT: `OBJECTS 3`, `CLASSES 2`. TRACK: `DOWN 3`, `UP 1`
   (`TRACKS 4` with the line off). TRAFFIC as §38.7. DETECT's box tags carry
   no id (`car 80%`); TRACK's and TRAFFIC's do.
+- **READ, FACE, RECOGNIZE** (added 2026-09-30, same branch, same parts).
+  READ: MODE, HOLD (`HELD`, primary, while held); its boxes carry the words
+  read, its status up to three lines of text (`?` for what the fonts cannot
+  draw); counters `LINES 3`, `SURE 97%`. FACE: MODE, RESET; tags `#3 face
+  95%`; counters `FACES 2`, `SEEN 5`. RECOGNIZE: MODE, ENROL (`STOP`,
+  primary, while enrolling), FORGET (`SURE?`, primary, for four seconds
+  after a first tap; disabled with no owner); tags `#3 OWNER 91%` / `#4
+  unknown 48%` / `#5 face` (not yet compared); counters `FACES 2` and
+  `OWNER: HERE` / `OWNER: -` / `NO OWNER` / `VIEW 2/5`; a two-line status
+  that says what enrolment wants and that faces stay on the unit.
 - **Stored.** The mode and each mode's choices are kept between opens
   (`$POCKETOS_STATE_DIR/vision/settings.v1`, docs/apps/VISION.md), per
   mode: TRACK's line and TRAFFIC's line are two settings.
