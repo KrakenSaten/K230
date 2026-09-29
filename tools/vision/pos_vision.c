@@ -63,8 +63,10 @@
 #include "pocketvision/vision_line.h"
 #include "pocketvision/vision_nms.h"
 #include "pocketvision/vision_pixels.h"
+#include "pocketvision/vision_range.h"
 #include "pocketvision/vision_track.h"
 #include "pocketvision/vision_traffic.h"
+#include "pocketvision/vision_window.h"
 
 #include <errno.h>
 #include <poll.h>
@@ -221,6 +223,12 @@ struct session {
     struct vision_counts counts;
     bool traffic;
     struct vision_traffic tf;
+    /* TRAFFIC's detection range (vision_range.h) and its recent statistics
+     * (vision_window.h). */
+    enum vision_range range;
+    struct vision_window win;
+    bool recent_dirty;
+    bool last_zoom;               /* the last frame had a zoom pass */
     /* The pixel modes (vision_pixels.h): the detector idles, the preview
      * is the work. */
     enum helper_mode mode;
@@ -398,6 +406,30 @@ static void say_traffic(struct session *s)
     s->tf.changed = false;
 }
 
+/* TRAFFIC's recent statistics: `recent window_s crossed ab ba c0..c5 speeds
+ * mean_kmh10 saturated`, after an event and as events age out. */
+static void say_recent(struct session *s, int64_t now)
+{
+    struct vision_window_summary w;
+
+    vision_window_summary(&s->win, now, &w);
+    say("recent %u %u %u %u %u %u %u %u %u %u %u %u %d", w.window_s, w.crossed, w.ab, w.ba, w.cls[0], w.cls[1],
+        w.cls[2], w.cls[3], w.cls[4], w.cls[5], w.speeds, w.mean_kmh10, w.saturated ? 1 : 0);
+    s->recent_dirty = false;
+}
+
+/* The tracker as the mode and TRAFFIC's range want it: a FAR track is
+ * confirmed later and kept longer (vision_range.h); every other mode tracks
+ * as NORMAL. */
+static void tracker_params(struct session *s)
+{
+    struct vision_range_params rp;
+
+    vision_range_params(s->traffic ? s->range : VISION_RANGE_NORMAL, &rp);
+    s->tracker.min_hits = rp.min_hits;
+    s->tracker.max_misses = rp.max_misses;
+}
+
 static bool pixel_mode(const struct session *s)
 {
     return s->mode == MODE_COLOR || s->mode == MODE_EDGE || s->mode == MODE_TRACE;
@@ -424,11 +456,14 @@ static void set_mode(struct session *s, enum helper_mode mode)
     }
     /* A new way of looking starts a new count. */
     vision_tracker_clear(&s->tracker);
+    tracker_params(s);
     memset(&s->counts, 0, sizeof(s->counts));
     vision_traffic_reset(&s->tf);
+    vision_window_init(&s->win);
     say_counts(s);
     if (traffic) {
         say_traffic(s);
+        say_recent(s, mono_ms());
     }
     if (pixel_mode(s)) {
         say("det 0 0");
@@ -640,63 +675,151 @@ static void unturn_dets(struct vision_det *d, int n, const struct pocketcam_fram
     }
 }
 
-static void detect(struct session *s, const struct pocketcam_frame *f, int64_t now)
+/* ---- the detector's pipeline, shared by the session and bench ---------------- */
+
+struct pipe_out {
+    int n;              /* detections in dets, frame pixels */
+    int ncands;         /* the full pass's candidates in cands, frame pixels, from the floor */
+    bool zoomed;        /* a zoom pass ran on this frame */
+    int zoom_boxes;     /* what it found, before the merge */
+    int pre_ms;         /* turning, copying and AI2D, both passes */
+    int infer_ms;       /* the KPU, both passes */
+    uint32_t bad;       /* rows refused */
+};
+
+/* A window's tensor decoded into candidates in picture pixels (the window's
+ * offset added back). Returns how many, or -EPROTO. */
+static int decode_window(const float *out, size_t count, const uint32_t dims[3], const struct vision_kpu_info *mi,
+                         const struct vision_box *win, uint16_t conf_min, struct vision_det *cands, uint32_t *bad)
 {
+    struct vision_decode_params p = {
+        .in_w = mi->in_w, .in_h = mi->in_h, .classes = mi->classes,
+        .frame_w = (uint32_t)win->w, .frame_h = (uint32_t)win->h, .conf_min = conf_min,
+    };
+    int n = vision_decode(out, count, dims, &p, cands, VISION_MAX_CANDIDATES, bad);
+    int i;
+
+    for (i = 0; i < n; i++) {
+        cands[i].box.x += win->x;
+        cands[i].box.y += win->y;
+    }
+    return n;
+}
+
+/* One frame through the detector: turned upright (the preview's turn), the
+ * full picture run, and with a range that asks for it the zoom window run
+ * as well (vision_range.h) and merged in; suppression; the boxes back in
+ * frame pixels; the range's own filter. `floor` is how low the full pass's
+ * candidates are kept in `cands` (bench lists them); what reaches `dets` is
+ * the range's confidence and up. 0; -EPROTO when a tensor is not one
+ * (o->bad says how badly); another negative errno when a run failed. */
+static int pipeline(struct vision_kpu *kpu, const struct vision_kpu_info *mi, uint8_t **upright,
+                    size_t *upright_size, const struct pocketcam_frame *f, int rotation,
+                    const struct vision_range_params *rp, uint16_t floor, const uint8_t *group,
+                    uint32_t group_classes, struct vision_det *cands, struct vision_det *dets, struct pipe_out *o)
+{
+    static struct vision_det work[VISION_MAX_CANDIDATES];
+    static struct vision_det zdets[VISION_MAX_DETECTIONS];
     const float *out;
     size_t count;
     uint32_t dims[3];
-    int pre_ms = 0;
-    int infer_ms = 0;
-    int64_t t0;
-    int r;
-    int n;
-    uint32_t bad = 0;
-    /* The detector sees the scene upright, as the screen shows it. */
-    int rotation = view_of(s).rotation;
     size_t need = (size_t)3 * f->width * f->height;
     struct pocketcam_frame in;
-    int64_t turn_t0 = mono_ms();
+    struct vision_box win;
+    int64_t t0 = mono_ms();
+    int kpu_pre = 0;
+    int infer = 0;
+    int r;
+    int n;
+    int nw;
+    int i;
 
-    if (rotation != 0 && s->upright_size < need) {
-        uint8_t *b = realloc(s->upright, need);
+    memset(o, 0, sizeof(*o));
+    if (rotation != 0 && *upright_size < need) {
+        uint8_t *b = realloc(*upright, need);
 
         if (b) {
-            s->upright = b;
-            s->upright_size = need;
+            *upright = b;
+            *upright_size = need;
         }
     }
-    r = upright_input(f, rotation, s->upright_size >= need ? s->upright : NULL, &in);
-    struct vision_decode_params p = {
-        .in_w = s->model.in_w,
-        .in_h = s->model.in_h,
-        .classes = s->model.classes,
-        .frame_w = in.width,
-        .frame_h = in.height,
-        .conf_min = VISION_CONF_MIN,
-    };
+    r = upright_input(f, rotation, *upright_size >= need ? *upright : NULL, &in);
     /* Turning the picture is part of preparing it. */
-    int turn_ms = (int)(mono_ms() - turn_t0);
-
+    o->pre_ms = (int)(mono_ms() - t0);
     if (r == 0) {
-        r = vision_kpu_turn(s->kpu, rotation);
+        r = vision_kpu_turn(kpu, rotation);
     }
     if (r == 0) {
-        r = vision_kpu_infer(s->kpu, &in, &out, &count, dims, &pre_ms, &infer_ms);
+        r = vision_kpu_infer(kpu, &in, &out, &count, dims, &kpu_pre, &infer);
     }
-    pre_ms += turn_ms;
+    o->pre_ms += kpu_pre;
+    o->infer_ms = infer;
     if (r != 0) {
-        char t[96];
-
-        say("error infer %s", clean(r == -EPROTO ? "the frame is not what the model takes"
-                                                  : "the detector failed",
-                                    t, sizeof(t)));
-        s->exit_code = EXIT_USAGE;
-        s->quit = true;
-        return;
+        return r == -EPROTO ? -EINVAL : r;
     }
-    t0 = mono_ms();
-    n = vision_decode(out, count, dims, &p, s->cands, VISION_MAX_CANDIDATES, &bad);
-    if (n < 0 || (bad > 0 && bad * 2 > s->model.rows)) {
+    {
+        struct vision_decode_params p = {
+            .in_w = mi->in_w, .in_h = mi->in_h, .classes = mi->classes,
+            .frame_w = in.width, .frame_h = in.height, .conf_min = floor,
+        };
+
+        n = vision_decode(out, count, dims, &p, cands, VISION_MAX_CANDIDATES, &o->bad);
+    }
+    if (n < 0 || (o->bad > 0 && o->bad * 2 > mi->rows)) {
+        return -EPROTO;
+    }
+    /* What the range takes, suppressed. */
+    nw = 0;
+    for (i = 0; i < n; i++) {
+        if (cands[i].conf >= rp->conf_min) {
+            work[nw++] = cands[i];
+        }
+    }
+    o->n = vision_nms(work, nw, VISION_NMS_IOU, dets, VISION_MAX_DETECTIONS);
+    /* FAR: the centre again at the model's own resolution. */
+    if (rp->zoom && vision_range_zoom_window(in.width, in.height, mi->in_w, mi->in_h, &win) == 0) {
+        uint32_t zbad = 0;
+
+        r = vision_kpu_infer_window(kpu, &win, &out, &count, dims, &kpu_pre, &infer);
+        if (r != 0) {
+            return r == -EPROTO ? -EINVAL : r;
+        }
+        o->pre_ms += kpu_pre;
+        o->infer_ms += infer;
+        nw = decode_window(out, count, dims, mi, &win, rp->conf_min, work, &zbad);
+        o->bad += zbad;
+        if (nw < 0 || (zbad > 0 && zbad * 2 > mi->rows)) {
+            return -EPROTO;
+        }
+        nw = vision_nms(work, nw, VISION_NMS_IOU, zdets, VISION_MAX_DETECTIONS);
+        o->zoomed = true;
+        o->zoom_boxes = nw;
+        o->n = vision_range_merge(dets, o->n, VISION_MAX_DETECTIONS, zdets, nw, &win, in.width, in.height, group,
+                                  group_classes);
+    }
+    /* Found on the turned picture; tracked and drawn in frame pixels. */
+    unturn_dets(dets, o->n, f, rotation);
+    unturn_dets(cands, n, f, rotation);
+    o->ncands = n;
+    o->n = vision_nms_nested(dets, o->n, VISION_NESTED_PM);
+    o->n = vision_range_filter(dets, o->n, rp, f->width, f->height);
+    return 0;
+}
+
+static void detect(struct session *s, const struct pocketcam_frame *f, int64_t now)
+{
+    struct pipe_out o;
+    struct vision_range_params rp;
+    int64_t t0 = mono_ms();
+    int r;
+    int n;
+
+    /* The range is TRAFFIC's; everything else looks as NORMAL does. */
+    vision_range_params(s->traffic ? s->range : VISION_RANGE_NORMAL, &rp);
+    /* The detector sees the scene upright, as the screen shows it. */
+    r = pipeline(s->kpu, &s->model, &s->upright, &s->upright_size, f, view_of(s).rotation, &rp, VISION_CONF_MIN,
+                 s->tracker.group, s->tracker.group_classes, s->cands, s->dets, &o);
+    if (r == -EPROTO) {
         /* Not a detector's tensor: the shape lies, or the numbers are not
          * numbers. Counted, said, and the frame otherwise ignored; too many
          * in a row and the detector is declared broken. */
@@ -710,10 +833,18 @@ static void detect(struct session *s, const struct pocketcam_frame *f, int64_t n
         }
         return;
     }
+    if (r != 0) {
+        char t[96];
+
+        say("error infer %s", clean(r == -EINVAL ? "the frame is not what the model takes"
+                                                  : "the detector failed",
+                                    t, sizeof(t)));
+        s->exit_code = EXIT_USAGE;
+        s->quit = true;
+        return;
+    }
     s->bad_run = 0;
-    unturn_dets(s->cands, n, f, rotation);
-    n = vision_nms(s->cands, n, VISION_NMS_IOU, s->dets, VISION_MAX_DETECTIONS);
-    n = vision_nms_nested(s->dets, n, VISION_NESTED_PM);
+    n = o.n;
     if (s->traffic) {
         /* Only traffic is tracked: anything else the model saw is left
          * out here, so a chair never takes a track slot or a count. */
@@ -737,27 +868,47 @@ static void detect(struct session *s, const struct pocketcam_frame *f, int64_t n
         if (nx > 0) {
             say_counts(s);
             if (s->traffic) {
-                vision_traffic_counted(&s->tf, x, nx > VISION_MAX_TRACKS ? VISION_MAX_TRACKS : nx);
+                nx = nx > VISION_MAX_TRACKS ? VISION_MAX_TRACKS : nx;
+                vision_traffic_counted(&s->tf, x, nx);
+                vision_window_crossed(&s->win, &s->tf, x, nx, now);
+                s->recent_dirty = true;
             }
         }
         if (s->traffic) {
             struct vision_counts unused = { 0, 0 };
+            uint32_t kmh10[VISION_MAX_TRACKS];
+            int line;
 
-            nx = vision_line_count(&s->line[VISION_LINE_SPEED_A], VISION_LINE_SPEED_A, &s->tracker, &unused,
-                                   x, VISION_MAX_TRACKS);
-            vision_traffic_crossed(&s->tf, 1, x, nx > VISION_MAX_TRACKS ? VISION_MAX_TRACKS : nx, now);
-            nx = vision_line_count(&s->line[VISION_LINE_SPEED_B], VISION_LINE_SPEED_B, &s->tracker, &unused,
-                                   x, VISION_MAX_TRACKS);
-            vision_traffic_crossed(&s->tf, 2, x, nx > VISION_MAX_TRACKS ? VISION_MAX_TRACKS : nx, now);
+            for (line = 1; line <= 2; line++) {
+                int m;
+                int k;
+
+                nx = vision_line_count(&s->line[line == 1 ? VISION_LINE_SPEED_A : VISION_LINE_SPEED_B],
+                                       line == 1 ? VISION_LINE_SPEED_A : VISION_LINE_SPEED_B, &s->tracker, &unused,
+                                       x, VISION_MAX_TRACKS);
+                m = vision_traffic_crossed_speeds(&s->tf, line, x, nx > VISION_MAX_TRACKS ? VISION_MAX_TRACKS : nx,
+                                                  now, kmh10, VISION_MAX_TRACKS);
+                for (k = 0; k < m && k < VISION_MAX_TRACKS; k++) {
+                    vision_window_speed(&s->win, kmh10[k], now);
+                    s->recent_dirty = true;
+                }
+            }
             vision_traffic_settle(&s->tf, &s->tracker, now);
             if (s->tf.changed) {
                 say_traffic(s);
             }
+            if (s->recent_dirty) {
+                say_recent(s, now);
+            }
         }
     }
-    s->last_pre_ms = pre_ms;
-    s->last_infer_ms = infer_ms;
-    s->last_post_ms = (int)(mono_ms() - t0);
+    s->last_pre_ms = o.pre_ms;
+    s->last_infer_ms = o.infer_ms;
+    s->last_post_ms = (int)(mono_ms() - t0) - o.pre_ms - o.infer_ms;
+    if (s->last_post_ms < 0) {
+        s->last_post_ms = 0;
+    }
+    s->last_zoom = o.zoomed;
     s->inferred++;
     say_tracks(s, f->seq);
 }
@@ -955,13 +1106,34 @@ static void command(struct session *s, char *line)
         } else if (a && strcmp(a, "light") == 0) {
             s->trace_dark = false;
         }
+    } else if (strcmp(w, "range") == 0) {
+        char *a = strtok_r(NULL, " ", &save);
+        int r = vision_range_parse(a);
+
+        if (r < 0 || (enum vision_range)r == s->range) {
+            return;
+        }
+        s->range = (enum vision_range)r;
+        /* Another way of detecting: the tracks start again (a track keeps
+         * the side of the line it was on, so nothing already counted counts
+         * again) and so does any speed in progress. The counts stay. */
+        vision_tracker_clear(&s->tracker);
+        tracker_params(s);
+        memset(s->tf.slot, 0, sizeof(s->tf.slot));
+        s->tf.cur_kmh10 = 0;
+        s->tf.cur_id = 0;
+        if (s->traffic) {
+            say_traffic(s);
+        }
     } else if (strcmp(w, "reset") == 0) {
         memset(&s->counts, 0, sizeof(s->counts));
         vision_tracker_clear(&s->tracker);
         vision_traffic_reset(&s->tf);
+        vision_window_init(&s->win);
         say_counts(s);
         if (s->traffic) {
             say_traffic(s);
+            say_recent(s, mono_ms());
         }
     } else if (strcmp(w, "quit") == 0) {
         s->quit = true;
@@ -1071,6 +1243,10 @@ static void stream_once(struct session *s)
     pocketcam_release(&s->cam, &f);
     if (now - s->last_stats_ms >= VISION_STATS_INTERVAL_MS) {
         say_stats(s, now);
+        if (s->traffic) {
+            /* The window moves on whether or not anything crosses. */
+            say_recent(s, now);
+        }
     }
 }
 
@@ -1169,6 +1345,9 @@ static int run_session(const char *backend, const char *config, const char *mode
     s->trace_dark = true;
     vision_tracker_init(&s->tracker);
     vision_traffic_init(&s->tf);
+    s->range = VISION_RANGE_NORMAL;
+    vision_window_init(&s->win);
+    tracker_params(s);
     say("hello %d %s %s", VISION_PROTO_VERSION, backend, vision_kpu_backend());
     if (map_shm(s) != 0) {
         say("error shm no usable shared memory on descriptor %d", POCKETCAM_SHM_FD);
@@ -1242,7 +1421,9 @@ struct bench_opts {
     const char *save;
     int save_every;              /* also every this many frames after the first save; 0: once */
     const char *image;           /* a PPM fed to the detector as every frame, instead of the camera */
+    const char *images;          /* PPMs, comma-separated, fed in turn as a sequence (repeated to N frames) */
     int turn;                    /* the frame turned by this for the detector (upright_input) */
+    enum vision_range range;     /* the pipeline preset (vision_range.h) */
 };
 
 /* A binary PPM (P6, 8-bit) as a planar R, G, B frame - the layout the ISP's
@@ -1295,6 +1476,31 @@ static int load_image(const char *path, struct pocketcam_frame *f, uint8_t **buf
     return 0;
 }
 
+/* The idx-th name of a comma-separated list (wrapping round), into out. 0, or
+ * -1 for an empty list. */
+static int nth_name(const char *list, int idx, char *out, size_t len)
+{
+    int count = 1;
+    const char *p;
+    int i;
+
+    for (p = list; *p; p++) {
+        count += *p == ',';
+    }
+    idx %= count;
+    p = list;
+    for (i = 0; i < idx; i++) {
+        p = strchr(p, ',') + 1;
+    }
+    i = (int)strcspn(p, ",");
+    if (i == 0 || (size_t)i >= len) {
+        return -1;
+    }
+    memcpy(out, p, (size_t)i);
+    out[i] = '\0';
+    return 0;
+}
+
 /* Whether (x, y) is on the outline of b, t pixels thick. */
 static bool on_outline(int32_t x, int32_t y, const struct vision_box *b, int32_t t)
 {
@@ -1303,10 +1509,11 @@ static bool on_outline(int32_t x, int32_t y, const struct vision_box *b, int32_t
 }
 
 /* The frame as a binary PPM (the ISP's planar BGR holds R, G and B planes in
- * that order, VERIFIED on unit B), with this frame's vehicle boxes drawn in:
- * green at the threshold, red below it. 0, or -1 with the reason on
- * stderr. */
-static int save_frame(const char *path, const struct pocketcam_frame *f, const struct vision_det *veh, int nveh)
+ * that order, VERIFIED on unit B), with this frame's boxes drawn in: the
+ * range's detections in green, and the full picture's vehicle candidates
+ * below the threshold in red. 0, or -1 with the reason on stderr. */
+static int save_frame(const char *path, const struct pocketcam_frame *f, const struct vision_det *veh, int nveh,
+                      const struct vision_det *dets, int ndets)
 {
     size_t plane = (size_t)f->stride * f->height;
     uint8_t *row = malloc((size_t)f->width * 3);
@@ -1336,11 +1543,16 @@ static int save_frame(const char *path, const struct pocketcam_frame *f, const s
             px[1] = f->data[plane + at];
             px[2] = f->data[2 * plane + at];
             for (k = 0; k < nveh; k++) {
-                if (on_outline((int32_t)x, (int32_t)y, &veh[k].box, 1)) {
-                    bool detect = veh[k].conf >= VISION_CONF_MIN;
-
-                    px[0] = detect ? 0 : 255;
-                    px[1] = detect ? 255 : 0;
+                if (veh[k].conf < VISION_CONF_MIN && on_outline((int32_t)x, (int32_t)y, &veh[k].box, 1)) {
+                    px[0] = 255;
+                    px[1] = 0;
+                    px[2] = 0;
+                }
+            }
+            for (k = 0; k < ndets; k++) {
+                if (on_outline((int32_t)x, (int32_t)y, &dets[k].box, 1)) {
+                    px[0] = 0;
+                    px[1] = 255;
                     px[2] = 0;
                 }
             }
@@ -1355,11 +1567,14 @@ static int save_frame(const char *path, const struct pocketcam_frame *f, const s
     return 0;
 }
 
-/* Frames through the whole pipeline, timings printed, nothing drawn: the
- * measurement the gate reads. */
+/* Frames through the session's own pipeline at a range, timings printed,
+ * nothing drawn: the measurement the gate reads. With --image or --images a
+ * saved picture (or a sequence of them) stands in for the camera, so one
+ * scene can be compared at every range on the same model. */
 static int run_bench(const char *backend, const char *config, const char *model,
                      const char *kpu_script, const struct bench_opts *o)
 {
+    static uint8_t ids_seen[65536 / 8];
     struct pocketcam_backend cam;
     struct pocketcam_info info;
     struct vision_kpu *kpu = NULL;
@@ -1370,16 +1585,20 @@ static int run_bench(const char *backend, const char *config, const char *model,
     struct vision_det vdets[VISION_MAX_DETECTIONS];
     struct vision_tracker tr;
     struct vision_traffic tf;
+    struct vision_range_params rp;
+    struct pipe_out po;
     struct pocketcam_frame image;
     uint8_t *image_buf = NULL;
     uint8_t *turn_buf = NULL;
+    size_t turn_size = 0;
+    bool from_file = o->image || o->images;
     int64_t pre_sum = 0;
     int64_t infer_sum = 0;
     int64_t post_sum = 0;
     int64_t t_start;
-    /* Vehicle sightings at and below the threshold, and of those it takes:
-     * in how many frames, their height in the model's own pixels, and the
-     * best confidence seen. */
+    /* Vehicle candidates of the full picture at and below the threshold, and
+     * of those it takes: in how many frames, their height in the model's own
+     * pixels, and the best confidence seen. */
     uint32_t veh_detect = 0;
     uint32_t veh_below = 0;
     uint32_t veh_frames = 0;
@@ -1387,24 +1606,35 @@ static int run_bench(const char *backend, const char *config, const char *model,
     int32_t h_max = -1;
     int64_t h_sum = 0;
     uint16_t conf_max = 0;
+    /* What the range's pipeline gave: vehicles, the zoom pass's own boxes,
+     * and the tracks it made. */
+    uint32_t range_veh = 0;
+    uint32_t range_other = 0;
+    uint32_t zoom_boxes = 0;
+    uint32_t confirmed_ids = 0;
+    int max_live = 0;
     uint32_t ratio_pm;
     int save_at = o->frames > VISION_BENCH_SAVE_AT ? VISION_BENCH_SAVE_AT : o->frames - 1;
     int done = 0;
     int r;
 
+    memset(ids_seen, 0, sizeof(ids_seen));
     if (!cands || !vcands) {
         free(cands);
         free(vcands);
         return EXIT_USAGE;
     }
-    if (o->image) {
-        if (load_image(o->image, &image, &image_buf) != 0) {
+    if (from_file) {
+        char first[512];
+
+        if ((o->images && nth_name(o->images, 0, first, sizeof(first)) != 0) ||
+            load_image(o->image ? o->image : first, &image, &image_buf) != 0) {
             free(cands);
             free(vcands);
             return EXIT_USAGE;
         }
         memset(&info, 0, sizeof(info));
-        snprintf(info.name, sizeof(info.name), "image");
+        snprintf(info.name, sizeof(info.name), o->images ? "images" : "image");
         info.preview_w = image.width;
         info.preview_h = image.height;
     } else if (open_camera(&cam, &info, backend, config, false) != 0) {
@@ -1413,7 +1643,7 @@ static int run_bench(const char *backend, const char *config, const char *model,
         return EXIT_NOCAMERA;
     }
     if (open_model(&kpu, &mi, model, kpu_script, false) != 0) {
-        if (!o->image) {
+        if (!from_file) {
             pocketcam_close(&cam);
         }
         free(image_buf);
@@ -1421,6 +1651,7 @@ static int run_bench(const char *backend, const char *config, const char *model,
         free(vcands);
         return EXIT_NOMODEL;
     }
+    vision_range_params(o->range, &rp);
     /* The letterbox: frame pixels to the model's (the same for the turned
      * picture, the smaller ratio of the two sides either way). */
     ratio_pm = mi.in_w * 1000u / info.preview_w < mi.in_h * 1000u / info.preview_h
@@ -1428,31 +1659,44 @@ static int run_bench(const char *backend, const char *config, const char *model,
                    : mi.in_h * 1000u / info.preview_h;
     printf("camera %s %ux%u, model %s %ux%u classes %u rows %u, %d frames\n", info.name,
            info.preview_w, info.preview_h, mi.model, mi.in_w, mi.in_h, mi.classes, mi.rows, o->frames);
-    printf("vehicles: shown from %u%%, the threshold %u%%; model px = frame px x %u.%03u\n",
-           VISION_BENCH_VEHICLE_FLOOR / 10, VISION_CONF_MIN / 10, ratio_pm / 1000, ratio_pm % 1000);
+    printf("range %s: threshold %u%%, smallest box %u per mille of the side, zoom %s, confirm %u, kept %u\n",
+           vision_range_word(o->range), rp.conf_min / 10, rp.min_side_pm, rp.zoom ? "yes" : "no", rp.min_hits,
+           rp.max_misses);
+    printf("vehicles: full-picture candidates shown from %u%%; model px = frame px x %u.%03u\n",
+           VISION_BENCH_VEHICLE_FLOOR / 10, ratio_pm / 1000, ratio_pm % 1000);
     vision_traffic_init(&tf);
     vision_traffic_map_names(&tf, mi.classes, vision_label);
     vision_tracker_init(&tr);
+    /* Tracked as TRAFFIC tracks at this range: vehicles across their group,
+     * confirmed and kept as the range says. */
+    tr.group = tf.group;
+    tr.group_classes = tf.classes;
+    tr.min_hits = rp.min_hits;
+    tr.max_misses = rp.max_misses;
     if (o->turn != 0) {
-        turn_buf = malloc((size_t)3 * info.preview_w * info.preview_h);
         printf("upright: the frame is turned %d degrees for the detector\n", o->turn);
     }
-    r = o->image ? 0 : pocketcam_start(&cam);
+    r = from_file ? 0 : pocketcam_start(&cam);
     t_start = mono_ms();
     while (r == 0 && done < o->frames && !stop_requested()) {
         struct pocketcam_frame f;
-        struct pocketcam_frame in;
-        const float *out;
-        size_t count;
-        uint32_t dims[3];
         int pre_ms;
         int infer_ms;
         int64_t t0;
-        int64_t turn_t0;
         int n;
         uint32_t bad;
 
-        if (o->image) {
+        if (o->images && done > 0) {
+            char name[512];
+
+            free(image_buf);
+            image_buf = NULL;
+            if (nth_name(o->images, done, name, sizeof(name)) != 0 || load_image(name, &image, &image_buf) != 0) {
+                r = -EIO;
+                break;
+            }
+        }
+        if (from_file) {
             f = image;
             f.seq = (uint32_t)done + 1;
             r = 0;
@@ -1466,60 +1710,62 @@ static int run_bench(const char *backend, const char *config, const char *model,
         if (r != 0) {
             break;
         }
-        /* The detector's picture: upright (--turn), as the session gives it. */
-        turn_t0 = mono_ms();
-        r = upright_input(&f, o->turn, turn_buf, &in);
-        pre_ms = (int)(mono_ms() - turn_t0);
-        if (r == 0) {
-            r = vision_kpu_turn(kpu, o->turn);
-        }
-        if (r == 0) {
-            int kpu_pre = 0;
-
-            r = vision_kpu_infer(kpu, &in, &out, &count, dims, &kpu_pre, &infer_ms);
-            pre_ms += kpu_pre;
-        }
-        if (r != 0) {
-            if (!o->image) {
+        /* The detector's picture: upright (--turn), as the session gives it,
+         * through the session's own pipeline at the chosen range. */
+        t0 = mono_ms();
+        r = pipeline(kpu, &mi, &turn_buf, &turn_size, &f, o->turn, &rp, VISION_BENCH_VEHICLE_FLOOR, tf.group,
+                     tf.classes, cands, dets, &po);
+        pre_ms = po.pre_ms;
+        infer_ms = po.infer_ms;
+        bad = po.bad;
+        if (r != 0 && r != -EPROTO) {
+            if (!from_file) {
                 pocketcam_release(&cam, &f);
             }
             fprintf(stderr, "pos-vision: infer failed (%d)\n", r);
             break;
         }
-        t0 = mono_ms();
-        {
-            struct vision_decode_params p = {
-                .in_w = mi.in_w, .in_h = mi.in_h, .classes = mi.classes,
-                .frame_w = in.width, .frame_h = in.height, .conf_min = VISION_BENCH_VEHICLE_FLOOR,
-            };
-
-            n = vision_decode(out, count, dims, &p, cands, VISION_MAX_CANDIDATES, &bad);
-        }
-        if (n >= 0) {
-            int strong = 0;
+        r = 0;
+        n = po.ncands;
+        if (po.bad * 2 <= mi.rows) {
             int nv = 0;
             int i;
+            int live = 0;
             bool seen = false;
 
-            /* Found on the turned picture; tallied and drawn in frame pixels. */
-            unturn_dets(cands, n, &f, o->turn);
-            /* What the threshold takes (the boxes line, as always), and apart
-             * from it every vehicle candidate down to the bench's floor. */
+            /* Apart from what the range takes (the boxes line, as always),
+             * every vehicle candidate of the full picture down to the
+             * bench's floor. */
             for (i = 0; i < n; i++) {
-                const struct vision_det d = cands[i];
-
-                if (vision_traffic_vehicle(&tf, d.cls)) {
-                    vcands[nv++] = d;
-                }
-                if (d.conf >= VISION_CONF_MIN) {
-                    cands[strong++] = d;
+                if (vision_traffic_vehicle(&tf, cands[i].cls)) {
+                    vcands[nv++] = cands[i];
                 }
             }
             nv = vision_nms(vcands, nv, VISION_NMS_IOU, vdets, VISION_MAX_DETECTIONS);
             nv = vision_nms_nested(vdets, nv, VISION_NESTED_PM);
-            n = vision_nms(cands, strong, VISION_NMS_IOU, dets, VISION_MAX_DETECTIONS);
-            n = vision_nms_nested(dets, n, VISION_NESTED_PM);
+            n = po.n;
+            for (i = 0; i < n; i++) {
+                if (vision_traffic_vehicle(&tf, dets[i].cls)) {
+                    range_veh++;
+                } else {
+                    range_other++;
+                }
+            }
+            zoom_boxes += (uint32_t)po.zoom_boxes;
             vision_tracker_update(&tr, dets, n);
+            for (i = 0; i < tr.count; i++) {
+                uint32_t id = tr.t[i].id;
+
+                if (!tr.t[i].confirmed) {
+                    continue;
+                }
+                live++;
+                if (id < 65536 && !(ids_seen[id / 8] & (1u << (id % 8)))) {
+                    ids_seen[id / 8] |= (uint8_t)(1u << (id % 8));
+                    confirmed_ids++;
+                }
+            }
+            max_live = live > max_live ? live : max_live;
             if (o->save && (done == save_at || (o->save_every > 0 && done > save_at &&
                                                 (done - save_at) % o->save_every == 0))) {
                 char path[512];
@@ -1534,35 +1780,15 @@ static int run_bench(const char *backend, const char *config, const char *model,
                 } else {
                     snprintf(path, sizeof(path), "%s", o->save);
                 }
-                save_frame(path, &f, vdets, nv);
+                save_frame(path, &f, vdets, nv, dets, n);
             }
-            if (done == 0 || done == o->frames - 1) {
-                /* What the model really gives back, for the gate: the range
-                 * of the box values and of the class scores. */
-                float bmin = out[0];
-                float bmax = out[0];
-                float smin = out[4 * dims[2]];
-                float smax = smin;
-                size_t k;
-
-                for (k = 0; k < (size_t)4 * dims[2]; k++) {
-                    bmin = out[k] < bmin ? out[k] : bmin;
-                    bmax = out[k] > bmax ? out[k] : bmax;
-                }
-                for (k = (size_t)4 * dims[2]; k < count; k++) {
-                    smin = out[k] < smin ? out[k] : smin;
-                    smax = out[k] > smax ? out[k] : smax;
-                }
-                printf("tensor: box values %.4f .. %.4f, scores %.4f .. %.4f\n", (double)bmin, (double)bmax,
-                       (double)smin, (double)smax);
-            }
-            printf("frame %u: pre %d ms infer %d ms, %d boxes, %u rows refused:", f.seq, pre_ms, infer_ms, n,
-                   bad);
-            for (i = 0; i < n && i < 6; i++) {
+            printf("frame %u: pre %d ms infer %d ms, %d boxes%s, %u rows refused:", f.seq, pre_ms, infer_ms, n,
+                   po.zoomed ? " (zoom pass)" : "", bad);
+            for (i = 0; i < n && i < 8; i++) {
                 printf(" %s %u%% (%d,%d %dx%d)", vision_label(dets[i].cls), dets[i].conf / 10,
                        dets[i].box.x, dets[i].box.y, dets[i].box.w, dets[i].box.h);
             }
-            printf("; %d tracks\n", tr.count);
+            printf("; %d tracks, %d confirmed\n", tr.count, live);
             if (nv > 0) {
                 /* Every vehicle: a far car is the least confident and would
                  * be cut off by near ones if only some were listed. */
@@ -1595,14 +1821,14 @@ static int run_bench(const char *backend, const char *config, const char *model,
             }
             veh_frames += seen ? 1 : 0;
         } else {
-            printf("frame %u: malformed output (%d)\n", f.seq, n);
+            printf("frame %u: malformed output (%u rows refused)\n", f.seq, bad);
         }
-        if (!o->image) {
+        if (!from_file) {
             pocketcam_release(&cam, &f);
         }
         pre_sum += pre_ms;
         infer_sum += infer_ms;
-        post_sum += mono_ms() - t0;
+        post_sum += (mono_ms() - t0) - pre_ms - infer_ms;
         done++;
     }
     if (done > 0) {
@@ -1611,7 +1837,7 @@ static int run_bench(const char *backend, const char *config, const char *model,
         printf("%d frames in %lld ms: %.1f fps; mean pre %.1f ms, infer %.1f ms, post %.1f ms\n",
                done, (long long)wall, wall > 0 ? done * 1000.0 / (double)wall : 0.0,
                (double)pre_sum / done, (double)infer_sum / done, (double)post_sum / done);
-        printf("vehicle sightings: %u at the threshold, %u below it", veh_detect, veh_below);
+        printf("full-picture vehicle candidates: %u at the threshold, %u below it", veh_detect, veh_below);
         if (veh_detect > 0) {
             printf("; those are %d..%d model px tall (mean %.1f), in %u of %d frames", h_min, h_max,
                    (double)h_sum / veh_detect, veh_frames, done);
@@ -1620,8 +1846,12 @@ static int run_bench(const char *backend, const char *config, const char *model,
             printf(", best %u%%", conf_max / 10);
         }
         printf("\n");
+        printf("range %s: %u vehicle detections (%.2f a frame), %u others; zoom pass boxes %u; "
+               "%u confirmed track ids, at most %d at once\n",
+               vision_range_word(o->range), range_veh, (double)range_veh / done, range_other, zoom_boxes,
+               confirmed_ids, max_live);
     }
-    if (!o->image) {
+    if (!from_file) {
         pocketcam_close(&cam);
     }
     vision_kpu_close(kpu);
@@ -1640,7 +1870,8 @@ static void usage(void)
             "                                [--model FILE] [--kpu SCRIPT]\n"
             "       pos-vision bench [N] [--backend NAME] [--config CFG] [--model FILE]\n"
             "                        [--turn 0|90|180|270] [--save FILE.ppm [--save-every N]]\n"
-            "                        [--image FILE.ppm]\n");
+            "                        [--image FILE.ppm | --images A.ppm,B.ppm,...]\n"
+            "                        [--range near|normal|far]\n");
 }
 
 int main(int argc, char **argv)
@@ -1654,7 +1885,7 @@ int main(int argc, char **argv)
     const char *backend;
     const char *config;
     const char *model;
-    struct bench_opts bo = { 100, NULL, 0, NULL, 0 };
+    struct bench_opts bo = { 100, NULL, 0, NULL, NULL, 0, VISION_RANGE_NORMAL };
     bool bench = cmd && strcmp(cmd, "bench") == 0;
     int i;
 
@@ -1681,6 +1912,16 @@ int main(int argc, char **argv)
             bo.save_every = atoi(argv[++i]);
         } else if (bench && strcmp(argv[i], "--image") == 0 && i + 1 < argc) {
             bo.image = argv[++i];
+        } else if (bench && strcmp(argv[i], "--images") == 0 && i + 1 < argc) {
+            bo.images = argv[++i];
+        } else if (bench && strcmp(argv[i], "--range") == 0 && i + 1 < argc) {
+            int rg = vision_range_parse(argv[++i]);
+
+            if (rg < 0) {
+                usage();
+                return EXIT_USAGE;
+            }
+            bo.range = (enum vision_range)rg;
         } else if (bench && strcmp(argv[i], "--turn") == 0 && i + 1 < argc) {
             bo.turn = atoi(argv[++i]);
             if (bo.turn != 0 && bo.turn != 90 && bo.turn != 180 && bo.turn != 270) {

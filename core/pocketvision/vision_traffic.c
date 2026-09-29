@@ -203,6 +203,12 @@ static void reject(struct vision_traffic *tf, struct vision_speed_slot *s)
 int vision_traffic_crossed(struct vision_traffic *tf, int line, const struct vision_crossing *x,
                            int n, int64_t now_ms)
 {
+    return vision_traffic_crossed_speeds(tf, line, x, n, now_ms, NULL, 0);
+}
+
+int vision_traffic_crossed_speeds(struct vision_traffic *tf, int line, const struct vision_crossing *x, int n,
+                                  int64_t now_ms, uint32_t *speeds, int max)
+{
     int i;
     int measured = 0;
 
@@ -261,6 +267,9 @@ int vision_traffic_crossed(struct vision_traffic *tf, int line, const struct vis
         }
         tf->measured++;
         tf->changed = true;
+        if (speeds && measured < max) {
+            speeds[measured] = (uint32_t)kmh10;
+        }
         measured++;
     }
     return measured;

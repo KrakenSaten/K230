@@ -41,6 +41,9 @@
  *                                 of the view, or `speed off`
  *   distance <cm>                 the ground distance between the speed
  *                                 lines
+ *   range near|normal|far         TRAFFIC's detection range, a pipeline
+ *                                 preset (vision_range.h); other modes
+ *                                 always detect as normal
  *   reset                         counts and speeds to zero, tracks
  *                                 forgotten
  *   quit                          close the camera and leave; `bye`
@@ -79,6 +82,13 @@
  *                                 mean and the refusals, and the counts per
  *                                 traffic class (car, truck, bus,
  *                                 motorcycle, bicycle, person)
+ *   recent <window_s> <crossed> <ab> <ba> <c0> .. <c5> <speeds> <mean_kmh10> <saturated>
+ *                                 in traffic mode, after an event and once
+ *                                 a second: the last window's crossings
+ *                                 each way and per traffic class, the
+ *                                 speeds measured and their mean, and 1
+ *                                 when more happened than the window
+ *                                 holds (vision_window.h)
  *   color <r> <g> <b> <matched_pm> <cx> <cy>
  *                                 COLOR, with every preview: the target,
  *                                 the share of the picture that matched

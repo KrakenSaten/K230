@@ -26,6 +26,7 @@
 #define POCKETOS_VISION_KPU_H
 
 #include "pocketcam/pocketcam.h"
+#include "pocketvision.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -57,6 +58,17 @@ int vision_kpu_open(struct vision_kpu **k, const char *path, const char *config,
  * failed. */
 int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f, const float **out,
                      size_t *count, uint32_t dims[3], int *pre_ms, int *infer_ms);
+
+/* A second look at the frame of the last vision_kpu_infer: the window `win`
+ * of it (in that frame's pixels) letterboxed into the model the same way and
+ * run - a zoom, for objects too small in the full picture
+ * (vision_range.h). The output is laid out as vision_kpu_infer's and its
+ * boxes are in the window's own pixels. The frame is not copied again: the
+ * engine reads the one already in its memory. The results are
+ * vision_kpu_infer's, and -EINVAL for a window not inside the frame, -EPROTO
+ * with no frame run yet. */
+int vision_kpu_infer_window(struct vision_kpu *k, const struct vision_box *win, const float **out,
+                            size_t *count, uint32_t dims[3], int *pre_ms, int *infer_ms);
 
 /* The frames of the next runs are the sensor frame turned clockwise by
  * `rotation` (0, 90, 180, 270): the helper gives the detector the scene

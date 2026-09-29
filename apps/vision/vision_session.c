@@ -327,6 +327,26 @@ int vision_session_parse_line(struct vision_session *s, const char *line, struct
         }
         return 1;
     }
+    if (strncmp(line, "recent ", 7) == 0) {
+        struct vision_recent_report t;
+        int sat;
+        int used = 0;
+
+        memset(&t, 0, sizeof(t));
+        if (sscanf(line, "recent %u %u %u %u %u %u %u %u %u %u %u %u %d%n", &t.window_s, &t.crossed, &t.ab, &t.ba,
+                   &t.cls[0], &t.cls[1], &t.cls[2], &t.cls[3], &t.cls[4], &t.cls[5], &t.speeds, &t.mean_kmh10, &sat,
+                   &used) != 13 ||
+            line[used] != '\0' || (sat != 0 && sat != 1) || t.window_s == 0 || t.ab + t.ba != t.crossed ||
+            t.mean_kmh10 > VISION_KMH10_MAX || (t.speeds == 0 && t.mean_kmh10 != 0)) {
+            return 0;
+        }
+        t.saturated = sat == 1;
+        ev->kind = VISION_EV_RECENT;
+        if (s) {
+            s->recent = t;
+        }
+        return 1;
+    }
     if (strncmp(line, "color ", 6) == 0) {
         unsigned r;
         unsigned g;
@@ -870,6 +890,14 @@ int vision_session_distance(struct vision_session *s, uint32_t cm)
     return send_line(s, "distance %u", cm);
 }
 
+int vision_session_range(struct vision_session *s, const char *word)
+{
+    if (!word || (strcmp(word, "near") != 0 && strcmp(word, "normal") != 0 && strcmp(word, "far") != 0)) {
+        return -1;
+    }
+    return send_line(s, "range %s", word);
+}
+
 int vision_session_mode(struct vision_session *s, bool traffic)
 {
     return send_line(s, "mode %s", traffic ? "traffic" : "detect");
@@ -968,6 +996,11 @@ void vision_session_counts(const struct vision_session *s, uint32_t *ab, uint32_
 const struct vision_traffic_report *vision_session_traffic(const struct vision_session *s)
 {
     return &s->traffic;
+}
+
+const struct vision_recent_report *vision_session_recent(const struct vision_session *s)
+{
+    return &s->recent;
 }
 
 const struct vision_pixel_report *vision_session_pixels(const struct vision_session *s)

@@ -80,6 +80,90 @@ is the format (pure C, `tests/vision_settings_test.c`).
 For screenshots, `POCKETOS_VISION_SHEET=modes|setup` opens the screen with
 the picker or the setup showing (`tests/vision_shell_test.sh`).
 
+## Traffic 2.0 (feat/vision-next)
+
+TRAFFIC's SETUP sheet has five rows: DETECTION RANGE (NEAR, NORMAL, FAR),
+COUNT LINE, SPEED LINES, DISTANCE (between the speed lines) and SHOW
+(LABELS, SPEEDS, TRAILS, each on or off). Every choice is stored
+(`traffic.range`, `traffic.labels`, `traffic.speeds`, `traffic.trails`).
+
+### Detection range
+
+A pipeline preset, never a distance in metres: nothing is calibrated for
+how far an object is (`core/pocketvision/vision_range.c`).
+
+| Range | Confidence | Smallest box | Zoom pass | Confirm after | Kept unseen |
+| --- | --- | --- | --- | --- | --- |
+| NEAR | 0.35 | 1/8 of the picture's smaller side (45 px of 360) | no | 2 | 10 frames |
+| NORMAL (default) | 0.35 | - | no | 2 | 15 frames |
+| FAR | 0.35 | - | the centre, at the model's own resolution | 3 | 20 frames |
+
+- **What limits the distance** is pixels: the 640 x 360 picture goes into the
+  320 x 320 model at half size. FAR runs the model a second time on a window
+  at the picture's centre of the model's own size (320 x 320: twice the
+  pixels per object), with the AI2D engine cropping the frame already in its
+  memory (`vision_kpu_infer_window`), and merges what it finds: a box cut by
+  the window's edge is dropped (the full pass sees that object whole); a box
+  that is the same object as a full-pass box (IoU 0.5, or 85 % inside, same
+  class or class group) keeps the surer of the two; the rest are added.
+- **FAR does not lower the threshold.** A lower threshold finds more of
+  everything, the false boxes included. It confirms a track one sighting
+  later instead, and keeps a far object (few pixels, flickering) longer.
+- **NEAR** drops what is small. Its threshold was 0.45 at first; on the
+  road picture below unit B's KPU scored the nearest white car at 0.44 and
+  NEAR lost it, so NEAR keeps NORMAL's threshold and filters by size only.
+- **The evidence** (unit B, 2026-09-29 night, the KPU through
+  `pos-vision bench --image`, 20 frames each; the scenes are the vendor
+  SDK's own test pictures, cover-fitted to the camera's 640 x 360 and
+  never committed; the unit's own camera faced a dark room):
+
+  | Picture | NEAR | NORMAL | FAR | Notes |
+  | --- | --- | --- | --- | --- |
+  | road (highway, cars to the horizon) | 1 | 4 | 5 | FAR found a 15 x 12 px car NORMAL scored 0.11, and raised two 25 x 15 px cars from 0.44 / 0.40 to 0.76 / 0.69 |
+  | traffic (city street) | 2 | 10 | 12 | 3 traffic lights in every range but NEAR |
+  | bus, car, person, empty street | same | same | same | the zoom pass's boxes all merged: no extra box, no false positive |
+
+  FAR costs one more KPU run: inference 34.6 ms a frame instead of 17.6
+  (decode 7-8 ms more), so about half the frame rate through the detector.
+  The horizon's smallest cars (under ~10 px) stay invisible in any range:
+  YOLOv8n at 320 does not see them.
+- In TRACK and the other modes the pipeline is NORMAL's; the range is
+  TRAFFIC's setting. Changing it drops the tracks (a track keeps the side
+  of the line it was on, so nothing counted counts again) and any speed in
+  progress; the counts stay.
+
+### Recent statistics
+
+The helper keeps the last five minutes of crossings (by direction and
+traffic class) and speed measurements in a ring of 512 events
+(`core/pocketvision/vision_window.c`): nothing grows with time or traffic.
+It says them in a `recent` line after each event and once a second. When
+more than 512 events happen inside five minutes, the oldest go and the
+line says so; the screen then says `(latest only)` rather than a number
+that is not the five minutes. The status in TRAFFIC:
+
+    NORMAL  24.1 fps  KPU 18 ms  3 tracks
+    5 min: 12  IN 7  OUT 5  avg 43.2 km/h (6)
+    car 8  truck 1  bus 0  moto 1  bike 2  person 0
+
+The two counters stay the totals since RESET (`IN (DOWN) 42`).
+
+### Display
+
+LABELS puts the id, class and direction on each box (`#7 car > 43%`),
+SPEEDS the measured speed (`43.2 km/h`), TRAILS a dotted trail of where
+each track has been (8 points, one every 6 px it moves, let go 8 det lines
+after its track; `apps/vision/vision_trails.c`, fed from the det lines the
+screen already gets). TRACK has its own TRAILS button.
+
+### Speed
+
+Unchanged in substance, now in SETUP: the speed is the distance between
+the two speed lines over the time between a track's two crossings; only
+the two timestamps and the configured distance make a speed, never how
+fast a box moves on the picture. The distance must be measured on the
+ground by the owner; the screen shows it with every speed.
+
 ## What it does
 
 - **DETECT.** Opening the app starts the camera and loads the model. The
@@ -333,7 +417,7 @@ picture pixels, so the app draws them with no geometry of its own.
 Commands: `view w h rotation`, `start`, `stop`, `release slot`,
 `mode detect|track|traffic|color|edge|trace`, `line x0 y0 x1 y1` (per-mille of
 the view) or `line off`, `speed ax0 ay0 ax1 ay1 bx0 by0 bx1 by1` or
-`speed off`, `distance cm`, `color r g b` or `color off`, `sample x y`,
+`speed off`, `distance cm`, `range near|normal|far`, `color r g b` or `color off`, `sample x y`,
 `tol n`, `edge threshold`, `trace dark|light`, `reset`, `quit`. Events:
 `color r g b matched_pm cx cy`, `edge strong_pm`,
 `trace found offset_pm slope_pm rows` (the pixel modes, with every
@@ -344,6 +428,7 @@ preview), `hello`,
 right, 3 up, 4 down on the picture; kmh10 the speed measured on that
 track or 0), `count ab ba`,
 `traffic ab ba cur last max mean n rejected c0ab:c0ba ... c5ab:c5ba`,
+`recent window_s crossed ab ba c0 .. c5 speeds mean_kmh10 saturated`,
 `stats fps_x10 infer_ms pre_ms post_ms cpu_pct rss_kb bad dropped`,
 `malformed n`, `stall ms`, `stopped`, `lost`, `bye`.
 

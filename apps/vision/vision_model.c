@@ -5,6 +5,7 @@
  */
 #include "vision_model.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -17,8 +18,14 @@
 #define CODE_DIST_PREV 220
 #define CODE_DIST_SHOW 221
 #define CODE_DIST_NEXT 222
+#define CODE_LABELS 230
+#define CODE_SPEEDS 231
+#define CODE_TRAILS 232
+#define CODE_RANGE 240     /* + enum vision_range */
 
 static const char *const tol_names[VISION_TOLS] = { "TOL: LOW", "TOL: MED", "TOL: HIGH" };
+static const char *const range_names[VISION_RANGES] = { "NEAR", "NORMAL", "FAR" };
+static const char *const range_words[VISION_RANGES] = { "near", "normal", "far" };
 static const char *const traffic_names[VISION_PROTO_TRAFFIC_CLASSES] = {
     "car", "truck", "bus", "moto", "bike", "person",
 };
@@ -74,6 +81,8 @@ static void clear_counts(struct vision_model *m)
     m->count_a = 0;
     m->count_b = 0;
     memset(&m->traffic, 0, sizeof(m->traffic));
+    memset(&m->recent, 0, sizeof(m->recent));
+    m->recent_valid = false;
 }
 
 static void clear_pixels(struct vision_model *m)
@@ -125,7 +134,7 @@ static unsigned when_live(const struct vision_model *m, unsigned acts)
 static unsigned mode_acts(const struct vision_model *m)
 {
     return VISION_ACT_MODE |
-           when_live(m, VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_DISTANCE | VISION_ACT_PIXELS);
+           when_live(m, VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_DISTANCE | VISION_ACT_PIXELS | VISION_ACT_RANGE);
 }
 
 unsigned vision_model_event(struct vision_model *m, const struct vision_event *ev,
@@ -147,7 +156,7 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
             m->last_frame_ms = now_ms;
             /* Everything the helper has to know, whatever it defaults to. */
             acts |= VISION_ACT_STREAM | VISION_ACT_MODE | VISION_ACT_LINE | VISION_ACT_SPEED |
-                    VISION_ACT_DISTANCE | VISION_ACT_PIXELS;
+                    VISION_ACT_DISTANCE | VISION_ACT_PIXELS | VISION_ACT_RANGE;
         }
         break;
     case VISION_EV_CAPS:
@@ -199,6 +208,12 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
         if (s) {
             m->traffic = *vision_session_traffic(s);
             m->traffic_valid = true;
+        }
+        break;
+    case VISION_EV_RECENT:
+        if (s) {
+            m->recent = *vision_session_recent(s);
+            m->recent_valid = true;
         }
         break;
     case VISION_EV_COLOR:
@@ -351,6 +366,41 @@ unsigned vision_model_line_next(struct vision_model *m)
     return set_line(m, (enum vision_line_mode)((vision_model_line(m) + 1) % VISION_LINE_MODES));
 }
 
+unsigned vision_model_trails_next(struct vision_model *m)
+{
+    if (m->mode == VISION_MODE_TRACK) {
+        m->set.track.trails = !m->set.track.trails;
+    } else if (m->mode == VISION_MODE_TRAFFIC) {
+        m->set.traffic.trails = !m->set.traffic.trails;
+    } else {
+        return 0;
+    }
+    /* The screen's alone: nothing to tell the helper. */
+    return VISION_ACT_SAVE;
+}
+
+unsigned vision_model_set_range(struct vision_model *m, enum vision_range r)
+{
+    if ((int)r < 0 || r >= VISION_RANGES || r == m->set.traffic.range) {
+        return 0;
+    }
+    m->set.traffic.range = r;
+    m->traffic.cur_kmh10 = 0;
+    return when_live(m, VISION_ACT_RANGE) | VISION_ACT_SAVE;
+}
+
+const char *vision_model_range_word(const struct vision_model *m)
+{
+    enum vision_range r = m->set.traffic.range;
+
+    return range_words[(int)r >= 0 && r < VISION_RANGES ? r : VISION_RANGE_NORMAL];
+}
+
+const char *vision_model_range_name(enum vision_range r)
+{
+    return range_names[(int)r >= 0 && r < VISION_RANGES ? r : VISION_RANGE_NORMAL];
+}
+
 static unsigned set_speed(struct vision_model *m, enum vision_speed_mode speed)
 {
     m->set.traffic.speed = speed;
@@ -481,6 +531,10 @@ static void sheet_traffic(const struct vision_model *m, struct vision_sheet_view
     int i;
 
     v->title = "TRAFFIC SETUP";
+    r = row(v, "DETECTION RANGE");
+    for (i = 0; i < VISION_RANGES; i++) {
+        cell(r, range_names[i], m->set.traffic.range == (enum vision_range)i, true, CODE_RANGE + i);
+    }
     r = row(v, "COUNT LINE");
     for (i = 0; i < VISION_LINE_MODES; i++) {
         cell(r, line_names[i], m->set.traffic.line == (enum vision_line_mode)i, true, CODE_LINE + i);
@@ -494,6 +548,11 @@ static void sheet_traffic(const struct vision_model *m, struct vision_sheet_view
     cell(r, "<", false, true, CODE_DIST_PREV);
     cell(r, dist, true, false, CODE_DIST_SHOW);
     cell(r, ">", false, true, CODE_DIST_NEXT);
+    /* Toggles: the choice is on when it is the primary button. */
+    r = row(v, "SHOW");
+    cell(r, "LABELS", m->set.traffic.labels, true, CODE_LABELS);
+    cell(r, "SPEEDS", m->set.traffic.speeds, true, CODE_SPEEDS);
+    cell(r, "TRAILS", m->set.traffic.trails, true, CODE_TRAILS);
 }
 
 void vision_model_sheet(const struct vision_model *m, struct vision_sheet_view *out)
@@ -529,6 +588,20 @@ unsigned vision_model_sheet_tap(struct vision_model *m, int code)
     }
     if (code == CODE_DIST_NEXT) {
         return vision_model_distance_next(m);
+    }
+    if (code >= CODE_RANGE && code < CODE_RANGE + VISION_RANGES) {
+        return vision_model_set_range(m, (enum vision_range)(code - CODE_RANGE));
+    }
+    if (code == CODE_LABELS) {
+        m->set.traffic.labels = !m->set.traffic.labels;
+        return VISION_ACT_SAVE;
+    }
+    if (code == CODE_SPEEDS) {
+        m->set.traffic.speeds = !m->set.traffic.speeds;
+        return VISION_ACT_SAVE;
+    }
+    if (code == CODE_TRAILS) {
+        return vision_model_trails_next(m);
     }
     return 0;
 }
@@ -639,8 +712,9 @@ int vision_model_buttons(const struct vision_model *m, enum vision_button out[VI
     switch (m->mode) {
     case VISION_MODE_TRACK:
         out[1] = VISION_BTN_LINE;
-        out[2] = VISION_BTN_RESET;
-        return 3;
+        out[2] = VISION_BTN_TRAILS;
+        out[3] = VISION_BTN_RESET;
+        return 4;
     case VISION_MODE_TRAFFIC:
         out[1] = VISION_BTN_SETUP;
         out[2] = VISION_BTN_RESET;
@@ -677,55 +751,65 @@ static void kmh(char *buf, size_t len, uint32_t kmh10)
     snprintf(buf, len, "%u.%u", kmh10 / 10, kmh10 % 10);
 }
 
+/* Append to buf at *off, never past len. */
+static void add(char *buf, size_t len, size_t *off, const char *fmt, ...) __attribute__((format(printf, 4, 5)));
+static void add(char *buf, size_t len, size_t *off, const char *fmt, ...)
+{
+    va_list ap;
+    int n;
+
+    if (*off >= len) {
+        return;
+    }
+    va_start(ap, fmt);
+    n = vsnprintf(buf + *off, len - *off, fmt, ap);
+    va_end(ap);
+    if (n > 0) {
+        *off += (size_t)n < len - *off ? (size_t)n : len - *off - 1;
+    }
+}
+
+/* TRAFFIC's three lines: the range, the rate and the tracks; the last five
+ * minutes' crossings by direction, and their mean speed when the speed lines
+ * are on; the same minutes by class. The counters under it are the totals
+ * since RESET. */
 static void traffic_status(const struct vision_model *m, char *buf, size_t len)
 {
+    const struct vision_recent_report *r = &m->recent;
     size_t off = 0;
-    int n;
     int i;
-    char cur[16];
-    char last[16];
-    char max[16];
-    uint32_t total = m->traffic.total_ab + m->traffic.total_ba;
 
+    buf[0] = '\0';
+    add(buf, len, &off, "%s  ", range_names[m->set.traffic.range < VISION_RANGES ? m->set.traffic.range : 1]);
     if (m->stats_valid) {
-        n = snprintf(buf, len, "%u.%u fps  KPU %d ms  %d tracks  %u total\n", m->stats.fps_x10 / 10,
-                     m->stats.fps_x10 % 10, m->stats.infer_ms, m->active_tracks, total);
+        add(buf, len, &off, "%u.%u fps  KPU %d ms  ", m->stats.fps_x10 / 10, m->stats.fps_x10 % 10,
+            m->stats.infer_ms);
     } else {
-        n = snprintf(buf, len, "%s  %d tracks  %u total\n", m->live ? "Detecting" : "Starting the stream",
-                     m->active_tracks, total);
+        add(buf, len, &off, "%s  ", m->live ? "Detecting" : "Starting the stream");
     }
-    if (n < 0) {
-        return;
-    }
-    off = (size_t)n < len ? (size_t)n : len;
-    for (i = 0; i < VISION_PROTO_TRAFFIC_CLASSES && off < len; i++) {
-        n = snprintf(buf + off, len - off, "%s%s %u", i ? "  " : "", traffic_names[i],
-                     m->traffic.cls_ab[i] + m->traffic.cls_ba[i]);
-        if (n < 0) {
-            return;
+    add(buf, len, &off, "%d tracks\n", m->active_tracks);
+    if (!m->recent_valid) {
+        add(buf, len, &off, "5 min: -\n");
+    } else {
+        add(buf, len, &off, "%u min: %u  IN %u  OUT %u", r->window_s / 60, r->crossed, r->ab, r->ba);
+        if (r->saturated) {
+            /* More crossed than the window keeps: it says so. */
+            add(buf, len, &off, " (latest only)");
         }
-        off += (size_t)n < len - off ? (size_t)n : len - off;
+        if (m->set.traffic.speed != VISION_SPEED_OFF) {
+            if (r->speeds > 0) {
+                char mean[16];
+
+                kmh(mean, sizeof(mean), r->mean_kmh10);
+                add(buf, len, &off, "  avg %s km/h (%u)", mean, r->speeds);
+            } else {
+                add(buf, len, &off, "  no speed yet (%u m)", vision_model_distance_cm(m) / 100);
+            }
+        }
+        add(buf, len, &off, "\n");
     }
-    if (off >= len) {
-        return;
-    }
-    if (m->set.traffic.speed == VISION_SPEED_OFF) {
-        snprintf(buf + off, len - off, "\nSPEED off  (%u m)", vision_model_distance_cm(m) / 100);
-        return;
-    }
-    if (m->traffic.n == 0) {
-        snprintf(buf + off, len - off, "\nSPEED --  (%u m between lines)", vision_model_distance_cm(m) / 100);
-        return;
-    }
-    kmh(cur, sizeof(cur), m->traffic.cur_kmh10);
-    kmh(last, sizeof(last), m->traffic.last_kmh10);
-    kmh(max, sizeof(max), m->traffic.max_kmh10);
-    if (m->traffic.cur_kmh10) {
-        snprintf(buf + off, len - off, "\nSPEED %s km/h  last %s  max %s  (%u m)", cur, last, max,
-                 vision_model_distance_cm(m) / 100);
-    } else {
-        snprintf(buf + off, len - off, "\nSPEED --  last %s km/h  max %s  (%u m)", last, max,
-                 vision_model_distance_cm(m) / 100);
+    for (i = 0; i < VISION_PROTO_TRAFFIC_CLASSES; i++) {
+        add(buf, len, &off, "%s%s %u", i ? "  " : "", traffic_names[i], m->recent_valid ? r->cls[i] : 0u);
     }
 }
 
@@ -820,7 +904,11 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
     out->hint = m->simulated ? "SIMULATED" : "";
     out->traffic = m->mode == VISION_MODE_TRAFFIC;
     out->lines = m->mode == VISION_MODE_TRACK || m->mode == VISION_MODE_TRAFFIC;
-    out->ids = m->mode == VISION_MODE_TRACK || m->mode == VISION_MODE_TRAFFIC;
+    out->ids = m->mode == VISION_MODE_TRACK || (m->mode == VISION_MODE_TRAFFIC && m->set.traffic.labels);
+    out->speeds = m->mode == VISION_MODE_TRAFFIC && m->set.traffic.speeds;
+    out->trails = (m->mode == VISION_MODE_TRACK && m->set.track.trails) ||
+                  (m->mode == VISION_MODE_TRAFFIC && m->set.traffic.trails);
+    out->trails_btn = m->set.track.trails ? "TRAILS: ON" : "TRAILS: OFF";
     out->picture_tap = m->mode == VISION_MODE_COLOR && m->state == VISION_LIVE && m->sheet == VISION_SHEET_NONE;
     out->mode_btn = vision_mode_name(m->mode);
     out->line_btn = line == VISION_LINE_OFF ? "LINE: OFF" : line == VISION_LINE_ACROSS ? "LINE: ACROSS" : "LINE: DOWN";

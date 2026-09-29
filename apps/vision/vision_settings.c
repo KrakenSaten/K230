@@ -26,12 +26,20 @@ static const enum vision_group mode_groups[VISION_MODES] = {
 static const char *const group_names[VISION_GROUPS] = { "GENERAL", "ROAD", "PEOPLE", "TEXT", "TOOLS" };
 static const char *const line_words[VISION_LINE_MODES] = { "off", "across", "down" };
 static const char *const speed_words[VISION_SPEED_MODES] = { "off", "narrow", "wide" };
+/* The ranges' words: the helper's own (vision_range.c), kept here so the shell
+ * links none of the pipeline. */
+static const char *const range_words[VISION_RANGES] = { "near", "normal", "far" };
 
 void vision_settings_defaults(struct vision_settings *s)
 {
     memset(s, 0, sizeof(*s));
     s->mode = VISION_MODE_DETECT;
     s->track.line = VISION_LINE_ACROSS;
+    s->track.trails = true;
+    s->traffic.range = VISION_RANGE_NORMAL;
+    s->traffic.labels = true;
+    s->traffic.speeds = true;
+    s->traffic.trails = true;
     s->traffic.line = VISION_LINE_ACROSS;
     s->traffic.orient = VISION_LINE_ACROSS;
     s->traffic.speed = VISION_SPEED_OFF;
@@ -53,6 +61,10 @@ int vision_settings_sanitize(struct vision_settings *s)
     }
     if ((int)s->track.line < 0 || s->track.line >= VISION_LINE_MODES) {
         s->track.line = d.track.line;
+        fixed++;
+    }
+    if ((int)s->traffic.range < 0 || s->traffic.range >= VISION_RANGES) {
+        s->traffic.range = d.traffic.range;
         fixed++;
     }
     if ((int)s->traffic.line < 0 || s->traffic.line >= VISION_LINE_MODES) {
@@ -199,6 +211,26 @@ static int parse_line(struct vision_settings *s, char *line)
         }
         return bad;
     }
+    if (strcmp(key, "track.trails") == 0) {
+        return parse_bool(value, &s->track.trails);
+    }
+    if (strcmp(key, "traffic.range") == 0) {
+        v = word_of(value, range_words, VISION_RANGES);
+        if (v < 0) {
+            return 1;
+        }
+        s->traffic.range = (enum vision_range)v;
+        return 0;
+    }
+    if (strcmp(key, "traffic.labels") == 0) {
+        return parse_bool(value, &s->traffic.labels);
+    }
+    if (strcmp(key, "traffic.speeds") == 0) {
+        return parse_bool(value, &s->traffic.speeds);
+    }
+    if (strcmp(key, "traffic.trails") == 0) {
+        return parse_bool(value, &s->traffic.trails);
+    }
     if (strcmp(key, "traffic.line") == 0) {
         bad = parse_word(value, line_words, VISION_LINE_MODES, &v);
         if (!bad) {
@@ -296,6 +328,11 @@ int vision_settings_format(const struct vision_settings *s, char *out, size_t ou
                  "# Vision settings. Written by Vision; see docs/apps/VISION.md.\n"
                  "mode=%s\n"
                  "track.line=%s\n"
+                 "track.trails=%d\n"
+                 "traffic.range=%s\n"
+                 "traffic.labels=%d\n"
+                 "traffic.speeds=%d\n"
+                 "traffic.trails=%d\n"
                  "traffic.line=%s\n"
                  "traffic.orient=%s\n"
                  "traffic.speed=%s\n"
@@ -303,9 +340,11 @@ int vision_settings_format(const struct vision_settings *s, char *out, size_t ou
                  "color.tol=%s\n"
                  "edge.hard=%d\n"
                  "trace.dark=%d\n",
-                 vision_mode_word(c.mode), line_words[c.track.line], line_words[c.traffic.line],
-                 line_words[c.traffic.orient], speed_words[c.traffic.speed], vision_distance_cm(c.traffic.distance_idx),
-                 tol_words[c.color.tol_idx], c.edge.hard ? 1 : 0, c.trace.dark ? 1 : 0);
+                 vision_mode_word(c.mode), line_words[c.track.line], c.track.trails ? 1 : 0,
+                 range_words[c.traffic.range], c.traffic.labels ? 1 : 0, c.traffic.speeds ? 1 : 0,
+                 c.traffic.trails ? 1 : 0, line_words[c.traffic.line], line_words[c.traffic.orient],
+                 speed_words[c.traffic.speed], vision_distance_cm(c.traffic.distance_idx), tol_words[c.color.tol_idx],
+                 c.edge.hard ? 1 : 0, c.trace.dark ? 1 : 0);
     if (n < 0 || (size_t)n >= out_len) {
         return -1;
     }

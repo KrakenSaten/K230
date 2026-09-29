@@ -50,6 +50,7 @@ enum vision_ev_kind {
     VISION_EV_DET,       /* the tracks after frame value=seq: vision_session_tracks() */
     VISION_EV_COUNT,     /* counts changed: vision_session_counts() */
     VISION_EV_TRAFFIC,   /* the traffic report changed: vision_session_traffic() */
+    VISION_EV_RECENT,    /* the recent statistics: vision_session_recent() */
     VISION_EV_COLOR,     /* a COLOR pass: vision_session_pixels()->color */
     VISION_EV_EDGE,      /* an EDGE pass: ->edge_pm */
     VISION_EV_TRACE,     /* a TRACE pass: ->trace */
@@ -104,6 +105,19 @@ struct vision_traffic_report {
     uint32_t rejected;
     uint32_t cls_ab[VISION_PROTO_TRAFFIC_CLASSES];
     uint32_t cls_ba[VISION_PROTO_TRAFFIC_CLASSES];
+};
+
+/* What the helper's `recent` line said: TRAFFIC over the last window
+ * (core/pocketvision/vision_window.h). */
+struct vision_recent_report {
+    uint32_t window_s;
+    uint32_t crossed;
+    uint32_t ab;          /* IN */
+    uint32_t ba;          /* OUT */
+    uint32_t cls[VISION_PROTO_TRAFFIC_CLASSES];
+    uint32_t speeds;      /* measurements in the window */
+    uint32_t mean_kmh10;
+    bool saturated;       /* more happened than the window holds: it covers less */
 };
 
 /* What the pixel modes' lines said (color, edge, trace). */
@@ -176,6 +190,7 @@ struct vision_session {
     uint32_t count_ab;
     uint32_t count_ba;
     struct vision_traffic_report traffic;
+    struct vision_recent_report recent;
     struct vision_pixel_report pixels;
     struct vision_stats stats;
 
@@ -203,6 +218,8 @@ int vision_session_line(struct vision_session *s, const int32_t pm[4]);
 int vision_session_speed_lines(struct vision_session *s, const int32_t pm[8]);
 /* The ground distance between the speed lines. */
 int vision_session_distance(struct vision_session *s, uint32_t cm);
+/* TRAFFIC's detection range by its word: near, normal, far. */
+int vision_session_range(struct vision_session *s, const char *word);
 /* Traffic mode on or off. */
 int vision_session_mode(struct vision_session *s, bool traffic);
 /* The mode by its protocol word: detect, traffic, color, edge, trace. */
@@ -227,6 +244,7 @@ const struct vision_shown *vision_session_tracks(const struct vision_session *s,
                                                  uint32_t *seq);
 void vision_session_counts(const struct vision_session *s, uint32_t *ab, uint32_t *ba);
 const struct vision_traffic_report *vision_session_traffic(const struct vision_session *s);
+const struct vision_recent_report *vision_session_recent(const struct vision_session *s);
 const struct vision_pixel_report *vision_session_pixels(const struct vision_session *s);
 const struct vision_stats *vision_session_stats(const struct vision_session *s);
 

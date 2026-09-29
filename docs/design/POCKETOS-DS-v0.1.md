@@ -3566,12 +3566,19 @@ existing parts, **the sheet**; no new role, token or colour.
   Choosing closes the picker; MODE, primary while the picker is open,
   closes it too.
 - **Buttons per mode.** DETECT: MODE (one, the full width or the column).
-  TRACK: MODE, LINE, RESET. TRAFFIC: MODE, SETUP (`DONE`, primary, while
-  the setup is open), RESET. COLOR: MODE, SAMPLE, TOL. EDGE: MODE, EDGE.
-  LINE TRACE: MODE, LINE. When Vision has stopped, TRY AGAIN (CHECK AGAIN)
-  is the one button, in the first place.
-- **TRAFFIC's setup:** COUNT LINE (`OFF / ACROSS / DOWN`), SPEED LINES
-  (`OFF / NARROW / WIDE`), DISTANCE (`<`, the distance, `>`).
+  TRACK: MODE, LINE, TRAILS (`TRAILS: ON / OFF`), RESET. TRAFFIC: MODE,
+  SETUP (`DONE`, primary, while the setup is open), RESET. COLOR: MODE,
+  SAMPLE, TOL. EDGE: MODE, EDGE. LINE TRACE: MODE, LINE. When Vision has
+  stopped, TRY AGAIN (CHECK AGAIN) is the one button, in the first place.
+- **TRAFFIC's setup:** DETECTION RANGE (`NEAR / NORMAL / FAR`), COUNT LINE
+  (`OFF / ACROSS / DOWN`), SPEED LINES (`OFF / NARROW / WIDE`), DISTANCE
+  (`<`, the distance, `>`), SHOW (`LABELS`, `SPEEDS`, `TRAILS`: toggles,
+  primary when on). Five rows: the sheet's most.
+- **Trails** are dots, 4 px squares filled like the counting line (the
+  accent) at 60 % opacity, up to 8 per track behind its box: no role or
+  colour of their own. TRAFFIC's status's three lines become the range and
+  the rate, the last five minutes each way with their mean speed, and the
+  same minutes by class (docs/apps/VISION.md, "Recent statistics").
 - **Counters.** DETECT: `OBJECTS 3`, `CLASSES 2`. TRACK: `DOWN 3`, `UP 1`
   (`TRACKS 4` with the line off). TRAFFIC as §38.7. DETECT's box tags carry
   no id (`car 80%`); TRACK's and TRAFFIC's do.

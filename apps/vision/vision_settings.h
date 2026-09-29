@@ -12,6 +12,11 @@
  *
  *   mode=detect|track|traffic|face|recognize|read|color|edge|trace
  *   track.line=off|across|down
+ *   track.trails=0|1
+ *   traffic.range=near|normal|far      the detection range (vision_range.h)
+ *   traffic.labels=0|1                 id and class on the boxes
+ *   traffic.speeds=0|1                 a measured speed on its box
+ *   traffic.trails=0|1                 where each vehicle has been
  *   traffic.line=off|across|down
  *   traffic.orient=across|down         the way the speed lines lie (the last
  *                                      line that was not off)
@@ -30,6 +35,8 @@
  */
 #ifndef VISION_SETTINGS_H
 #define VISION_SETTINGS_H
+
+#include "pocketvision/vision_range.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -86,12 +93,17 @@ struct vision_settings {
     enum vision_mode mode;           /* the mode last shown */
     struct {
         enum vision_line_mode line;
+        bool trails;
     } track;
     struct {
+        enum vision_range range;
         enum vision_line_mode line;
         enum vision_line_mode orient; /* the last line that was not OFF: the speed lines' way */
         enum vision_speed_mode speed;
         int distance_idx;
+        bool labels;                  /* id and class on the boxes */
+        bool speeds;                  /* a measured speed on its box */
+        bool trails;
     } traffic;
     struct {
         int tol_idx;

@@ -36,6 +36,7 @@
 #include "vision_model.h"
 #include "vision_session.h"
 #include "vision_store.h"
+#include "vision_trails.h"
 
 #include "src/misc/cache/instance/lv_image_cache.h" /* lv_image_cache_drop: not in lvgl.h */
 
@@ -81,6 +82,10 @@ struct vision_app {
     lv_obj_t *detail;
     lv_obj_t *outline[VISION_MAX_SHOWN];
     lv_obj_t *tag[VISION_MAX_SHOWN];
+    /* Trails: VISION_TRAIL_POINTS dots per trail, made once and moved. */
+    lv_obj_t *dot[VISION_TRAIL_TRACKS][VISION_TRAIL_POINTS];
+    struct vision_trails trails;
+    uint32_t trails_seq;  /* the det line the trails were last fed */
     lv_obj_t *line;       /* the counting line, drawn as a 2 px object */
     lv_obj_t *sline[2];   /* the speed lines A and B */
     lv_obj_t *mark;       /* COLOR: a small square at the matches' centroid */
@@ -277,10 +282,15 @@ static void draw_boxes(struct vision_app *a, const struct vision_view_text *s)
         {
             char text[VISION_LABEL_MAX];
 
-            if (t[i].id && traffic) {
+            if (traffic && !s->ids && !(s->speeds && t[i].kmh10)) {
+                /* LABELS off: the box says nothing. */
+                text[0] = '\0';
+            } else if (traffic && !s->ids) {
+                snprintf(text, sizeof(text), "%u.%u km/h", t[i].kmh10 / 10, t[i].kmh10 % 10);
+            } else if (t[i].id && traffic) {
                 /* "#7 car > 43 km/h": the id, the class, the way it has
                  * gone, and the speed once the lines have measured it. */
-                if (t[i].kmh10) {
+                if (t[i].kmh10 && s->speeds) {
                     snprintf(text, sizeof(text), "#%u %s%s %u.%u km/h", t[i].id, vision_label(t[i].cls),
                              dir_mark(t[i].dir), t[i].kmh10 / 10, t[i].kmh10 % 10);
                 } else {
@@ -295,9 +305,43 @@ static void draw_boxes(struct vision_app *a, const struct vision_view_text *s)
                 snprintf(text, sizeof(text), "%s %u%%", vision_label(t[i].cls), t[i].conf / 10);
             }
             label_text(a->tag[i], text);
+            set_hidden(a->tag[i], text[0] == '\0');
         }
         /* The tag sits on the box's top edge, inside the picture. */
         lv_obj_set_pos(a->tag[i], t[i].x, t[i].y > 22 ? t[i].y - 22 : t[i].y);
+    }
+}
+
+/* The trails: fed once per det line, drawn as dots behind the boxes. */
+static void draw_trails(struct vision_app *a, const struct vision_view_text *s)
+{
+    int n = 0;
+    uint32_t seq = 0;
+    const struct vision_shown *t = vision_session_tracks(&a->session, &n, &seq);
+    bool on = s->trails && a->model.state == VISION_LIVE && a->model.live;
+    int i;
+    int k;
+
+    if (!on) {
+        vision_trails_clear(&a->trails);
+    } else if (seq != a->trails_seq) {
+        vision_trails_update(&a->trails, t, n);
+    }
+    a->trails_seq = seq;
+    for (i = 0; i < VISION_TRAIL_TRACKS; i++) {
+        int32_t xs[VISION_TRAIL_POINTS];
+        int32_t ys[VISION_TRAIL_POINTS];
+        int np = on ? vision_trails_points(&a->trails, i, xs, ys, VISION_TRAIL_POINTS) : 0;
+
+        for (k = 0; k < VISION_TRAIL_POINTS; k++) {
+            /* The newest point is under the box: a trail is where it was. */
+            bool show = np >= 2 && k < np - 1;
+
+            set_hidden(a->dot[i][k], !show);
+            if (show) {
+                lv_obj_set_pos(a->dot[i][k], xs[k] - 2, ys[k] - 2);
+            }
+        }
     }
 }
 
@@ -424,6 +468,7 @@ static void repaint(struct vision_app *a)
     label_text(a->count_b, s.count_b);
     button_text(a->btn[VISION_BTN_MODE], s.mode_btn);
     button_text(a->btn[VISION_BTN_LINE], s.line_btn);
+    button_text(a->btn[VISION_BTN_TRAILS], s.trails_btn);
     button_text(a->btn[VISION_BTN_SETUP], a->model.sheet == VISION_SHEET_SETUP ? "DONE" : "SETUP");
     button_text(a->btn[VISION_BTN_TOL], s.tol_btn);
     button_text(a->btn[VISION_BTN_EDGE], s.edge_btn);
@@ -431,6 +476,7 @@ static void repaint(struct vision_app *a)
     /* The button whose sheet is open is the primary one: it closes it. */
     button_style(a->btn[VISION_BTN_MODE], a->model.sheet == VISION_SHEET_MODES, true);
     button_style(a->btn[VISION_BTN_LINE], false, s.line_enabled);
+    button_style(a->btn[VISION_BTN_TRAILS], false, s.line_enabled);
     button_style(a->btn[VISION_BTN_SETUP], a->model.sheet == VISION_SHEET_SETUP, s.line_enabled);
     button_style(a->btn[VISION_BTN_RESET], false,
                  s.line_enabled && (vision_model_line(&a->model) != VISION_LINE_OFF || s.traffic));
@@ -466,6 +512,7 @@ static void repaint(struct vision_app *a)
         button_text(a->retry_btn, a->model.state == VISION_NO_DEVICE ? "CHECK AGAIN" : "TRY AGAIN");
         button_style(a->retry_btn, true, true);
     }
+    draw_trails(a, &s);
     draw_boxes(a, &s);
     draw_lines(a);
     draw_sheet(a);
@@ -553,6 +600,9 @@ static void do_actions(struct vision_app *a, unsigned acts)
     if (acts & VISION_ACT_DISTANCE) {
         vision_session_distance(&a->session, vision_model_distance_cm(&a->model));
     }
+    if (acts & VISION_ACT_RANGE) {
+        vision_session_range(&a->session, vision_model_range_word(&a->model));
+    }
     if (acts & VISION_ACT_PIXELS) {
         if (!a->model.have_target) {
             vision_session_color(&a->session, NULL);
@@ -633,6 +683,13 @@ static void on_mode(lv_event_t *e)
     struct vision_app *a = lv_event_get_user_data(e);
 
     act(a, vision_model_mode_button(&a->model));
+}
+
+static void on_trails(lv_event_t *e)
+{
+    struct vision_app *a = lv_event_get_user_data(e);
+
+    act(a, vision_model_trails_next(&a->model));
 }
 
 static void on_setup(lv_event_t *e)
@@ -831,6 +888,15 @@ static void build(struct vision_app *a, lv_obj_t *root)
      * image itself never does, so the tap reaches the box. */
     lv_obj_clear_flag(a->img, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(a->box, on_picture, LV_EVENT_CLICKED, a);
+    /* The trails' dots, behind the boxes: 4 px squares in the counting
+     * line's accent, half seen. */
+    for (i = 0; i < VISION_TRAIL_TRACKS; i++) {
+        for (r = 0; r < VISION_TRAIL_POINTS; r++) {
+            a->dot[i][r] = line_object(a->box, POS_STYLE_BUTTON_PRIMARY);
+            lv_obj_set_size(a->dot[i][r], 4, 4);
+            lv_obj_set_style_bg_opa(a->dot[i][r], LV_OPA_60, 0);
+        }
+    }
     for (i = 0; i < VISION_MAX_SHOWN; i++) {
         a->outline[i] = lv_obj_create(a->box);
         lv_obj_remove_style_all(a->outline[i]);
@@ -897,6 +963,7 @@ static void build(struct vision_app *a, lv_obj_t *root)
 
     a->btn[VISION_BTN_MODE] = button(a->frame, "DETECT", on_mode, a);
     a->btn[VISION_BTN_LINE] = button(a->frame, "LINE: ACROSS", on_line, a);
+    a->btn[VISION_BTN_TRAILS] = button(a->frame, "TRAILS: ON", on_trails, a);
     a->btn[VISION_BTN_SETUP] = button(a->frame, "SETUP", on_setup, a);
     a->btn[VISION_BTN_RESET] = button(a->frame, "RESET", on_reset, a);
     a->btn[VISION_BTN_SAMPLE] = button(a->frame, "SAMPLE", on_sample, a);

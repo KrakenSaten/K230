@@ -55,6 +55,14 @@ struct vision_kpu {
     bool built = false;
     uint32_t fw = 0;
     uint32_t fh = 0;
+    bool have_frame = false;        /* ai2d_in holds the last frame run */
+    /* The zoom window's schedule (vision_kpu_infer_window): the same frame,
+     * cropped by AI2D itself; rebuilt when the window or the frame's size
+     * changes. */
+    std::unique_ptr<ai2d_builder> wbuilder;
+    struct vision_box wbox = { 0, 0, 0, 0 };
+    uint32_t wfw = 0;
+    uint32_t wfh = 0;
     uint32_t in_w = 0;
     uint32_t in_h = 0;
     uint32_t classes = 0;
@@ -186,6 +194,76 @@ static int build(struct vision_kpu *k, uint32_t fw, uint32_t fh)
     k->fw = fw;
     k->fh = fh;
     k->built = true;
+    k->have_frame = false;
+    k->wbuilder.reset();
+    return 0;
+}
+
+/* The window's schedule: AI2D crops the window out of the frame in its
+ * memory, then letterboxes it into the model exactly as build() does the
+ * whole frame (the runtime's crop parameter, DOCUMENTED in
+ * nncase/runtime/k230/gnne_tile_utils.h: ai2d_crop_param_t). */
+static int build_window(struct vision_kpu *k, const struct vision_box *w)
+{
+    float ratio_w = (float)k->in_w / (float)w->w;
+    float ratio_h = (float)k->in_h / (float)w->h;
+    float ratio = ratio_w < ratio_h ? ratio_w : ratio_h;
+    int new_w = (int)(ratio * (float)w->w);
+    int new_h = (int)(ratio * (float)w->h);
+    int bottom = (int)k->in_h - new_h;
+    int right = (int)k->in_w - new_w;
+    dims_t in_shape { 1, 3, k->fh, k->fw };
+    dims_t out_shape { 1, 3, k->in_h, k->in_w };
+    ai2d_datatype_t dtype { ai2d_format::NCHW_FMT, ai2d_format::NCHW_FMT, dt_uint8, dt_uint8 };
+    ai2d_crop_param_t crop { true, w->x, w->y, w->w, w->h };
+    ai2d_shift_param_t shift { false, 0 };
+    ai2d_pad_param_t pad { true, { { 0, 0 }, { 0, 0 }, { 0, bottom }, { 0, right } },
+                           ai2d_pad_mode::constant, { 114, 114, 114 } };
+    ai2d_resize_param_t resize { true, ai2d_interp_method::tf_bilinear, ai2d_interp_mode::half_pixel };
+    ai2d_affine_param_t affine { false, ai2d_interp_method::cv2_bilinear, 0, 0, 127, 1,
+                                 { 0.5, 0.1, 0.0, 0.1, 0.5, 0.0 } };
+
+    k->wbuilder.reset(new (std::nothrow) ai2d_builder(in_shape, out_shape, dtype, crop, shift, pad, resize,
+                                                      affine));
+    if (!k->wbuilder) {
+        return -ENOMEM;
+    }
+    if (!k->wbuilder->build_schedule().is_ok()) {
+        k->wbuilder.reset();
+        return -EIO;
+    }
+    k->wbox = *w;
+    k->wfw = k->fw;
+    k->wfh = k->fh;
+    return 0;
+}
+
+/* The model's first output, copied out into k->out. */
+static int copy_output(struct vision_kpu *k)
+{
+    auto ot = k->interp.output_tensor(0);
+    if (!ot.is_ok()) {
+        return -EIO;
+    }
+    auto host = ot.unwrap().impl()->to_host();
+    if (!host.is_ok()) {
+        return -EIO;
+    }
+    auto hb = host.unwrap()->buffer().as_host();
+    if (!hb.is_ok()) {
+        return -EIO;
+    }
+    auto m = hb.unwrap().map(map_access_::map_read);
+    if (!m.is_ok()) {
+        return -EIO;
+    }
+    auto mapped = std::move(m.unwrap());
+    size_t bytes = k->out.size() * sizeof(float);
+
+    if (mapped.buffer().size() < bytes) {
+        return -EPROTO;
+    }
+    memcpy(k->out.data(), mapped.buffer().data(), bytes);
     return 0;
 }
 
@@ -245,6 +323,7 @@ extern "C" int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_fra
     if (!hrt::sync(k->ai2d_in, sync_op_t::sync_write_back, true).is_ok()) {
         return -EIO;
     }
+    k->have_frame = true;
     if (!k->builder->invoke(k->ai2d_in, k->model_in).is_ok()) {
         return -EIO;
     }
@@ -254,29 +333,68 @@ extern "C" int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_fra
     }
     t2 = mono_ms();
     {
-        auto ot = k->interp.output_tensor(0);
-        if (!ot.is_ok()) {
-            return -EIO;
-        }
-        auto host = ot.unwrap().impl()->to_host();
-        if (!host.is_ok()) {
-            return -EIO;
-        }
-        auto hb = host.unwrap()->buffer().as_host();
-        if (!hb.is_ok()) {
-            return -EIO;
-        }
-        auto m = hb.unwrap().map(map_access_::map_read);
-        if (!m.is_ok()) {
-            return -EIO;
-        }
-        auto mapped = std::move(m.unwrap());
-        size_t bytes = k->out.size() * sizeof(float);
+        int r = copy_output(k);
 
-        if (mapped.buffer().size() < bytes) {
-            return -EPROTO;
+        if (r != 0) {
+            return r;
         }
-        memcpy(k->out.data(), mapped.buffer().data(), bytes);
+    }
+    *out = k->out.data();
+    *count = k->out.size();
+    dims[0] = 1;
+    dims[1] = 4 + k->classes;
+    dims[2] = k->rows;
+    if (pre_ms) {
+        *pre_ms = (int)(t1 - t0);
+    }
+    if (infer_ms) {
+        *infer_ms = (int)(t2 - t1);
+    }
+    return 0;
+}
+
+extern "C" int vision_kpu_infer_window(struct vision_kpu *k, const struct vision_box *win, const float **out,
+                                       size_t *count, uint32_t dims[3], int *pre_ms, int *infer_ms)
+{
+    int64_t t0;
+    int64_t t1;
+    int64_t t2;
+
+    if (!k || !win || !out || !count || !dims) {
+        return -EINVAL;
+    }
+    if (!k->built || !k->have_frame) {
+        return -EPROTO;
+    }
+    if (win->x < 0 || win->y < 0 || win->w <= 0 || win->h <= 0 || (uint32_t)(win->x + win->w) > k->fw ||
+        (uint32_t)(win->y + win->h) > k->fh) {
+        return -EINVAL;
+    }
+    t0 = mono_ms();
+    if (!k->wbuilder || k->wfw != k->fw || k->wfh != k->fh || k->wbox.x != win->x || k->wbox.y != win->y ||
+        k->wbox.w != win->w || k->wbox.h != win->h) {
+        int r = build_window(k, win);
+
+        if (r != 0) {
+            return r;
+        }
+    }
+    /* The frame is in ai2d_in already, written back from the cache by the
+     * full run. */
+    if (!k->wbuilder->invoke(k->ai2d_in, k->model_in).is_ok()) {
+        return -EIO;
+    }
+    t1 = mono_ms();
+    if (!k->interp.run().is_ok()) {
+        return -EIO;
+    }
+    t2 = mono_ms();
+    {
+        int r = copy_output(k);
+
+        if (r != 0) {
+            return r;
+        }
     }
     *out = k->out.data();
     *count = k->out.size();

@@ -54,12 +54,14 @@ enum vision_state {
 #define VISION_ACT_PIXELS    0x100u /* send the pixel modes' settings (colour, tolerance, edge, trace) */
 #define VISION_ACT_SAMPLE    0x200u /* send a colour sample at vision_model_sample_point */
 #define VISION_ACT_SAVE      0x400u /* the settings changed: store them */
+#define VISION_ACT_RANGE     0x800u /* send TRAFFIC's detection range */
 
 /* The buttons, by role; the order on screen is per mode
  * (vision_model_buttons). */
 enum vision_button {
     VISION_BTN_MODE = 0,
     VISION_BTN_LINE,
+    VISION_BTN_TRAILS,
     VISION_BTN_SETUP,
     VISION_BTN_RESET,
     VISION_BTN_SAMPLE,
@@ -121,6 +123,8 @@ struct vision_model {
     uint32_t count_b;
     struct vision_traffic_report traffic;
     bool traffic_valid;
+    struct vision_recent_report recent;
+    bool recent_valid;
     struct vision_pixel_report pixels;
     bool color_valid;
     bool edge_valid;
@@ -141,6 +145,7 @@ struct vision_view_text {
     const char *hint;     /* the header's right end: SIMULATED, or "" */
     const char *mode_btn; /* the mode's name */
     const char *line_btn; /* LINE: OFF / ACROSS / DOWN */
+    const char *trails_btn; /* TRAILS: ON / OFF */
     const char *tol_btn;
     const char *edge_btn;
     const char *trace_btn;
@@ -152,7 +157,9 @@ struct vision_view_text {
     bool line_enabled;    /* the buttons take taps */
     bool traffic;         /* TRAFFIC mode */
     bool lines;           /* the counting (and speed) lines are drawn: TRACK, TRAFFIC */
-    bool ids;             /* boxes carry their track ids */
+    bool ids;             /* boxes carry their track ids and class */
+    bool speeds;          /* boxes carry a measured speed */
+    bool trails;          /* where each track has been is drawn */
     bool picture_tap;     /* COLOR: a tap on the picture samples a colour */
     bool show_mark;       /* COLOR: the mark at the matches' centroid */
     int32_t mark_x;
@@ -186,6 +193,13 @@ void vision_model_sheet(const struct vision_model *m, struct vision_sheet_view *
 unsigned vision_model_sheet_tap(struct vision_model *m, int code);
 
 unsigned vision_model_line_next(struct vision_model *m);
+/* TRACK: trails on or off. */
+unsigned vision_model_trails_next(struct vision_model *m);
+/* TRAFFIC's detection range. */
+unsigned vision_model_set_range(struct vision_model *m, enum vision_range r);
+/* The helper's word for TRAFFIC's range, and its name on the screen. */
+const char *vision_model_range_word(const struct vision_model *m);
+const char *vision_model_range_name(enum vision_range r);
 unsigned vision_model_speed_next(struct vision_model *m);
 unsigned vision_model_distance_next(struct vision_model *m);
 unsigned vision_model_distance_prev(struct vision_model *m);

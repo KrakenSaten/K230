@@ -41,6 +41,9 @@ static void test_defaults(void)
     check("TRAFFIC starts with no speed lines and 10 m", s.traffic.speed == VISION_SPEED_OFF &&
                                                             vision_distance_cm(s.traffic.distance_idx) == 1000);
     check("the tools start at MED, soft, dark", vision_tol_value(s.color.tol_idx) == 96 && !s.edge.hard && s.trace.dark);
+    check("TRAFFIC starts at NORMAL range with labels, speeds and trails shown; TRACK with trails",
+          s.traffic.range == VISION_RANGE_NORMAL && s.traffic.labels && s.traffic.speeds && s.traffic.trails &&
+              s.track.trails);
     check("defaults need no sanitising", vision_settings_sanitize(&s) == 0);
 }
 
@@ -89,6 +92,11 @@ static void test_round_trip(void)
     a.color.tol_idx = 2;
     a.edge.hard = true;
     a.trace.dark = false;
+    a.traffic.range = VISION_RANGE_FAR;
+    a.traffic.labels = false;
+    a.traffic.speeds = false;
+    a.traffic.trails = false;
+    a.track.trails = false;
     n = vision_settings_format(&a, text, sizeof(text));
     check("the settings format", n > 0 && (size_t)n < sizeof(text) && strstr(text, "mode=traffic\n") &&
                                      strstr(text, "traffic.distance_cm=3000\n") && strstr(text, "track.line=off\n"));
@@ -127,6 +135,12 @@ static void test_refusals(void)
                                                          s.traffic.orient == VISION_LINE_ACROSS);
     check("a tolerance word it does not know", vision_settings_parse(&s, "color.tol=max\n") == 1 &&
                                                    s.color.tol_idx == VISION_TOL_DEFAULT);
+    check("a range it does not know, and one in capitals", vision_settings_parse(&s, "traffic.range=medium\ntraffic.range=FAR\n") == 2 &&
+                                                               s.traffic.range == VISION_RANGE_NORMAL);
+    check("the range words read", vision_settings_parse(&s, "traffic.range=near\n") == 0 && s.traffic.range == VISION_RANGE_NEAR &&
+                                      vision_settings_parse(&s, "traffic.range=normal\n") == 0);
+    check("a display toggle that is not 0 or 1", vision_settings_parse(&s, "traffic.trails=on\ntrack.trails=2\n") == 2 &&
+                                                     s.traffic.trails && s.track.trails);
     check("unknown keys, comments and blank lines are not errors",
           vision_settings_parse(&s, "# hello\n\nfuture.key=1\n  mode = track  \r\n") == 0 && s.mode == VISION_MODE_TRACK);
     memset(longline, 'x', sizeof(longline) - 1);
@@ -138,7 +152,9 @@ static void test_refusals(void)
     s.traffic.distance_idx = -1;
     s.color.tol_idx = 9;
     s.track.line = (enum vision_line_mode)-2;
-    check("fields out of range are put back", vision_settings_sanitize(&s) == 5 && s.mode == VISION_MODE_DETECT &&
+    s.traffic.range = (enum vision_range)3;
+    check("fields out of range are put back", vision_settings_sanitize(&s) == 6 && s.mode == VISION_MODE_DETECT &&
+                                                  s.traffic.range == VISION_RANGE_NORMAL &&
                                                   s.traffic.speed == VISION_SPEED_OFF &&
                                                   s.traffic.distance_idx == VISION_DISTANCE_DEFAULT &&
                                                   s.color.tol_idx == VISION_TOL_DEFAULT && s.track.line == VISION_LINE_ACROSS);

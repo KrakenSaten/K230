@@ -136,6 +136,18 @@ static void test_parse(void)
     check("caps with nothing offered is an empty set", vision_session_parse_line(&s, "caps", &ev) &&
                                                            ev.kind == VISION_EV_CAPS && ev.value == 0);
     check("capsule is not caps", !vision_session_parse_line(&s, "capsule detect", &ev));
+    check("a recent line parses into the report",
+          vision_session_parse_line(&s, "recent 300 5 3 2 4 0 0 0 0 1 3 432 0", &ev) && ev.kind == VISION_EV_RECENT &&
+              s.recent.window_s == 300 && s.recent.crossed == 5 && s.recent.ab == 3 && s.recent.ba == 2 &&
+              s.recent.cls[0] == 4 && s.recent.cls[5] == 1 && s.recent.speeds == 3 && s.recent.mean_kmh10 == 432 &&
+              !s.recent.saturated);
+    check("a saturated one", vision_session_parse_line(&s, "recent 300 1 1 0 1 0 0 0 0 0 0 0 1", &ev) &&
+                                 s.recent.saturated);
+    check("not one whose directions do not add up", !vision_session_parse_line(&s, "recent 300 5 3 1 4 0 0 0 0 1 0 0 0", &ev));
+    check("nor a mean with no speeds", !vision_session_parse_line(&s, "recent 300 0 0 0 0 0 0 0 0 0 0 432 0", &ev));
+    check("nor a field short, or one too many", !vision_session_parse_line(&s, "recent 300 0 0 0 0 0 0 0 0 0 0 0", &ev) &&
+                                                   !vision_session_parse_line(&s, "recent 300 0 0 0 0 0 0 0 0 0 0 0 0 9", &ev));
+    check("nor a saturation that is not 0 or 1", !vision_session_parse_line(&s, "recent 300 0 0 0 0 0 0 0 0 0 0 0 2", &ev));
     check("frame parses", vision_session_parse_line(&s, "frame 2 17 528 938", &ev) && ev.kind == VISION_EV_FRAME &&
                               ev.value == 2 && ev.w == 528 && ev.h == 938);
     check("a frame in the review slot does not", !vision_session_parse_line(&s, "frame 3 17 528 938", &ev));
@@ -396,6 +408,12 @@ static void test_traffic(void)
            s.traffic.last_kmh10 % 10, expected / 10, expected % 10);
     check("the speed was shown on the car's box while it was tracked", saw_speed);
     check("and retired with the track", s.traffic.cur_kmh10 == 0);
+    for (i = 0; i < 3 && !(s.recent.crossed == 1 && s.recent.speeds == 1); i++) {
+        wait_for(&s, VISION_EV_RECENT, 1500, &ev, seen, &w);
+    }
+    check("the last five minutes hold the car: one crossing IN, a car, its speed",
+          s.recent.window_s == 300 && s.recent.crossed == 1 && s.recent.ab == 1 && s.recent.cls[0] == 1 &&
+              s.recent.speeds == 1 && s.recent.mean_kmh10 == s.traffic.last_kmh10 && !s.recent.saturated);
     vision_session_reset(&s);
     for (i = 0; i < 4; i++) {
         if (wait_for(&s, VISION_EV_TRAFFIC, 2000, &ev, seen, &w) && s.traffic.n == 0) {
@@ -403,6 +421,10 @@ static void test_traffic(void)
         }
     }
     check("reset zeroes the report", s.traffic.total_ab == 0 && s.traffic.n == 0 && s.traffic.last_kmh10 == 0);
+    for (i = 0; i < 3 && s.recent.crossed != 0; i++) {
+        wait_for(&s, VISION_EV_RECENT, 1500, &ev, seen, &w);
+    }
+    check("and the recent window", s.recent.crossed == 0 && s.recent.speeds == 0);
     vision_session_mode(&s, false);
     for (i = 0; i < 20; i++) {
         wait_for(&s, VISION_EV_DET, 1000, &ev, seen, &w);
@@ -415,6 +437,92 @@ static void test_traffic(void)
     check("back in detect mode the chair is tracked again", saw_chair);
     vision_session_abandon(&s, 1000);
     check("the helper is gone", !vision_session_active(&s));
+}
+
+/* Let the det lines already on their way when a command went out pass. */
+static void settle(struct vision_session *s, struct watch *w)
+{
+    struct vision_event ev;
+    int i;
+
+    for (i = 0; i < 3; i++) {
+        wait_for(s, VISION_EV_DET, 1000, &ev, seen, w);
+    }
+}
+
+/* How many confirmed tracks of class cls the next det lines show at most. */
+static int confirmed_of(struct vision_session *s, struct watch *w, uint16_t cls, int lines)
+{
+    struct vision_event ev;
+    int best = 0;
+    int i;
+
+    for (i = 0; i < lines; i++) {
+        const struct vision_shown *t;
+        int n = 0;
+        int j;
+        int c = 0;
+
+        if (!wait_for(s, VISION_EV_DET, 1000, &ev, seen, w)) {
+            break;
+        }
+        t = vision_session_tracks(s, &n, NULL);
+        for (j = 0; j < n; j++) {
+            c += t[j].cls == cls && t[j].id != 0;
+        }
+        best = c > best ? c : best;
+    }
+    return best;
+}
+
+/* The detection range against the real helper: a car too small for the
+ * whole picture (the fake detector sees nothing under 12 of the model's
+ * pixels) but large enough through FAR's zoom window; a large one every
+ * range keeps but NEAR's size floor. */
+static void test_range(void)
+{
+    struct vision_session s;
+    struct vision_event ev;
+    struct watch w = { 0, 0, 0, 0, 0, 0, NULL };
+
+    vision_session_init(&s);
+    /* Sensor 640 x 360, turned a quarter for the detector: a 360 x 640
+     * picture at half size in the 320 x 320 model. The far car, 16 x 14,
+     * is 7 x 8 model pixels there and 14 x 16 through the 320 x 320 window
+     * at the picture's centre, where it stands. The chair is large and is
+     * not traffic. */
+    check("the helper starts", start(&s, "period=20", "minpx=12,box=2:800:300:170:16:14", NULL) == 0);
+    check("ready", wait_for(&s, VISION_EV_READY, 3000, &ev, seen, &w));
+    vision_session_view(&s, 360, 640, 0);
+    vision_session_mode(&s, true);
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s;
+    check("NORMAL: the far car is too small to be seen", confirmed_of(&s, &w, 2, 12) == 0);
+    vision_session_range(&s, "far");
+    settle(&s, &w);
+    check("FAR: the zoom window finds it and a track confirms", confirmed_of(&s, &w, 2, 12) == 1);
+    vision_session_range(&s, "near");
+    settle(&s, &w);
+    check("NEAR: gone again - under NEAR's smallest box", confirmed_of(&s, &w, 2, 12) == 0);
+    check("an unknown range is not sent", vision_session_range(&s, "medium") == -1 && vision_session_range(&s, NULL) == -1);
+    vision_session_abandon(&s, 1000);
+    check("the helper is gone", !vision_session_active(&s));
+
+    vision_session_init(&s);
+    check("again with a car of every range's size", start(&s, "period=20", "minpx=12,box=2:800:200:100:120:90", NULL) == 0);
+    check("ready", wait_for(&s, VISION_EV_READY, 3000, &ev, seen, &w));
+    vision_session_view(&s, 360, 640, 0);
+    vision_session_mode(&s, true);
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s;
+    check("NORMAL keeps it", confirmed_of(&s, &w, 2, 8) == 1);
+    vision_session_range(&s, "near");
+    settle(&s, &w);
+    check("NEAR keeps it", confirmed_of(&s, &w, 2, 8) == 1);
+    vision_session_range(&s, "far");
+    settle(&s, &w);
+    check("FAR keeps it once, not twice (the two passes merged)", confirmed_of(&s, &w, 2, 12) == 1);
+    vision_session_abandon(&s, 1000);
 }
 
 /* The pixel modes against the real helper: EDGE finds the fake camera's
@@ -627,6 +735,7 @@ int main(int argc, char **argv)
     test_parse();
     test_happy();
     test_traffic();
+    test_range();
     test_pixels();
     test_malformed();
     test_failures();

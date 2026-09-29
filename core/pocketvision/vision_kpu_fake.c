@@ -19,6 +19,14 @@
  *   shape_at=N             frame N's tensor claims the wrong shape
  *   fail_at=N              frame N's run fails (-EIO)
  *   delay=MS               every run takes this long (pretend inference)
+ *   minpx=N                a box whose smaller side is under N of the
+ *                          MODEL's pixels is not found: what makes a far
+ *                          object too small for the full picture and big
+ *                          enough in a zoom window (vision_range.h)
+ *
+ * A window run (vision_kpu_infer_window) looks at the same frame again -
+ * the frame count does not move - through the window: boxes are clipped to
+ * it and written in its own pixels, letterboxed from its size.
  *
  * The boxes are in sensor-frame pixels. When the frames come turned
  * (vision_kpu_turn: the helper turns them upright) the boxes are turned the
@@ -69,10 +77,13 @@ struct vision_kpu {
     uint32_t shape_at;
     uint32_t fail_at;
     int delay_ms;
+    uint32_t minpx;
     uint32_t frames;
     float *out;
     size_t out_count;
     int turn;                   /* the frames come turned by this (vision_kpu_turn) */
+    uint32_t last_w;            /* the last frame run, for a window run; 0 none */
+    uint32_t last_h;
 };
 
 static int parse_u32(const char *s, uint32_t *v)
@@ -166,6 +177,8 @@ static int parse_script(struct vision_kpu *k, const char *config)
 
             r = parse_u32(val, &d);
             k->delay_ms = (int)d;
+        } else if (strcmp(item, "minpx") == 0) {
+            r = parse_u32(val, &k->minpx);
         } else {
             r = -EINVAL;
         }
@@ -226,8 +239,11 @@ static void sleep_ms(int ms)
     }
 }
 
-int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f, const float **out,
-                     size_t *count, uint32_t dims[3], int *pre_ms, int *infer_ms)
+/* The tensor for the picture `win` of the last frame (fw x fh, turned): the
+ * script's boxes clipped to the window, in its pixels, letterboxed from its
+ * size. The frame count is the caller's. */
+static int emit(struct vision_kpu *k, uint32_t fw, uint32_t fh, const struct vision_box *win, const float **out,
+                size_t *count, uint32_t dims[3], int *pre_ms, int *infer_ms)
 {
     float ratio_w;
     float ratio_h;
@@ -236,10 +252,6 @@ int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f, cons
     int i;
     uint32_t d;
 
-    if (pocketcam_frame_check(f) != 0) {
-        return -EPROTO;
-    }
-    k->frames++;
     if (pre_ms) {
         *pre_ms = 0;
     }
@@ -272,8 +284,8 @@ int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f, cons
     if (k->until && k->frames > k->until) {
         return 0;
     }
-    ratio_w = (float)k->in_w / (float)f->width;
-    ratio_h = (float)k->in_h / (float)f->height;
+    ratio_w = (float)k->in_w / (float)win->w;
+    ratio_h = (float)k->in_h / (float)win->h;
     ratio = ratio_w < ratio_h ? ratio_w : ratio_h;
     for (i = 0; i < k->nbox; i++) {
         const struct fake_box *b = &k->box[i];
@@ -285,23 +297,40 @@ int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f, cons
         struct vision_box tb = sb;
         uint32_t sw;
         uint32_t sh;
-        float x;
-        float y;
+        int32_t x0;
+        int32_t y0;
+        int32_t x1;
+        int32_t y1;
+        float side;
 
-        vision_turned_size(f->width, f->height, k->turn, &sw, &sh);
+        vision_turned_size(fw, fh, k->turn, &sw, &sh);
         if (k->turn != 0 && vision_box_turn(sw, sh, k->turn, &sb, &tb) != 0) {
             continue;
         }
-        x = (float)tb.x;
-        y = (float)tb.y;
+        /* Into the window's pixels, clipped to it. */
+        x0 = tb.x - win->x;
+        y0 = tb.y - win->y;
+        x1 = x0 + tb.w;
+        y1 = y0 + tb.h;
+        x0 = x0 < 0 ? 0 : x0;
+        y0 = y0 < 0 ? 0 : y0;
+        x1 = x1 > win->w ? win->w : x1;
+        y1 = y1 > win->h ? win->h : y1;
+        if (x1 <= x0 || y1 <= y0) {
+            continue;
+        }
+        side = (float)((x1 - x0) < (y1 - y0) ? (x1 - x0) : (y1 - y0)) * ratio;
+        if (k->minpx && side < (float)k->minpx) {
+            continue; /* too few of the model's pixels to be seen */
+        }
         for (d = 0; d <= k->dup && row < k->rows; d++, row++) {
-            float cx = (x + (float)d + 0.5f * (float)tb.w) * ratio;
-            float cy = (y + 0.5f * (float)tb.h) * ratio;
+            float cx = ((float)x0 + (float)d + 0.5f * (float)(x1 - x0)) * ratio;
+            float cy = ((float)y0 + 0.5f * (float)(y1 - y0)) * ratio;
 
             k->out[0 * k->rows + row] = cx;
             k->out[1 * k->rows + row] = cy;
-            k->out[2 * k->rows + row] = (float)tb.w * ratio;
-            k->out[3 * k->rows + row] = (float)tb.h * ratio;
+            k->out[2 * k->rows + row] = (float)(x1 - x0) * ratio;
+            k->out[3 * k->rows + row] = (float)(y1 - y0) * ratio;
             if (b->cls < k->classes) {
                 /* A duplicate scores a little less, so the original wins. */
                 k->out[(4 + b->cls) * k->rows + row] =
@@ -310,6 +339,40 @@ int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f, cons
         }
     }
     return 0;
+}
+
+int vision_kpu_infer(struct vision_kpu *k, const struct pocketcam_frame *f, const float **out,
+                     size_t *count, uint32_t dims[3], int *pre_ms, int *infer_ms)
+{
+    struct vision_box whole;
+
+    if (pocketcam_frame_check(f) != 0) {
+        return -EPROTO;
+    }
+    k->frames++;
+    k->last_w = f->width;
+    k->last_h = f->height;
+    whole.x = 0;
+    whole.y = 0;
+    whole.w = (int32_t)f->width;
+    whole.h = (int32_t)f->height;
+    return emit(k, f->width, f->height, &whole, out, count, dims, pre_ms, infer_ms);
+}
+
+int vision_kpu_infer_window(struct vision_kpu *k, const struct vision_box *win, const float **out,
+                            size_t *count, uint32_t dims[3], int *pre_ms, int *infer_ms)
+{
+    if (!k || !win || !out || !count || !dims) {
+        return -EINVAL;
+    }
+    if (k->last_w == 0) {
+        return -EPROTO;
+    }
+    if (win->x < 0 || win->y < 0 || win->w <= 0 || win->h <= 0 || (uint32_t)(win->x + win->w) > k->last_w ||
+        (uint32_t)(win->y + win->h) > k->last_h) {
+        return -EINVAL;
+    }
+    return emit(k, k->last_w, k->last_h, win, out, count, dims, pre_ms, infer_ms);
 }
 
 int vision_kpu_turn(struct vision_kpu *k, int rotation)

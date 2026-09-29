@@ -10,6 +10,7 @@
  */
 #include "vision_layout.h"
 #include "vision_model.h"
+#include "vision_trails.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -95,7 +96,8 @@ static void test_states(void)
     e.simulated = true;
     check("ready streams and sends the mode, the lines and the distance",
           vision_model_event(&m, &e, NULL, 1000) ==
-              (VISION_ACT_STREAM | VISION_ACT_MODE | VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_DISTANCE | VISION_ACT_PIXELS));
+              (VISION_ACT_STREAM | VISION_ACT_MODE | VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_DISTANCE | VISION_ACT_PIXELS |
+               VISION_ACT_RANGE));
     check("and is LIVE with the camera's shape", m.state == VISION_LIVE && m.preview_w == 640 && m.classes == 80);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("LIVE before a picture waits for it, SIMULATED in the hint",
@@ -270,9 +272,14 @@ static void test_picker(void)
                                                                      m.active_tracks == 1);
         vision_model_set_mode(&m, VISION_MODE_TRACK);
         vision_model_text(&m, &t, buf, sizeof(buf));
-        check("TRACK: MODE, LINE, RESET; ids and the line", vision_model_buttons(&m, order) == 3 &&
-                                                                order[1] == VISION_BTN_LINE && order[2] == VISION_BTN_RESET &&
-                                                                t.lines && t.ids && strcmp(t.count_a, "DOWN 0") == 0);
+        check("TRACK: MODE, LINE, TRAILS, RESET; ids, trails and the line",
+              vision_model_buttons(&m, order) == 4 && order[1] == VISION_BTN_LINE && order[2] == VISION_BTN_TRAILS &&
+                  order[3] == VISION_BTN_RESET && t.lines && t.ids && t.trails && !t.speeds &&
+                  strcmp(t.trails_btn, "TRAILS: ON") == 0 && strcmp(t.count_a, "DOWN 0") == 0);
+        check("TRAILS off: stored, nothing sent", vision_model_trails_next(&m) == VISION_ACT_SAVE && !m.set.track.trails &&
+                                                      (vision_model_text(&m, &t, buf, sizeof(buf)), !t.trails) &&
+                                                      strcmp(t.trails_btn, "TRAILS: OFF") == 0);
+        vision_model_trails_next(&m);
         vision_model_set_mode(&m, VISION_MODE_TRAFFIC);
         vision_model_text(&m, &t, buf, sizeof(buf));
         check("TRAFFIC: MODE, SETUP, RESET; three status lines", vision_model_buttons(&m, order) == 3 &&
@@ -339,38 +346,62 @@ static void test_track_and_traffic(void)
           vision_model_line(&m) == VISION_LINE_ACROSS && m.set.track.line == VISION_LINE_DOWN);
     check("SETUP opens TRAFFIC's setup", vision_model_setup_button(&m) == 0 && m.sheet == VISION_SHEET_SETUP);
     vision_model_sheet(&m, &v);
-    check("the setup: COUNT LINE, SPEED LINES, DISTANCE",
-          v.kind == VISION_SHEET_SETUP && v.rows == 3 && strcmp(v.row[0].caption, "COUNT LINE") == 0 &&
-              strcmp(v.row[1].caption, "SPEED LINES") == 0 && strcmp(v.row[2].caption, "DISTANCE") == 0);
-    check("the choices in force are marked", v.row[0].cell[1].selected && !v.row[0].cell[0].selected &&
-                                                 v.row[1].cell[0].selected && strcmp(v.row[2].cell[1].text, "10 m") == 0 &&
-                                                 !v.row[2].cell[1].enabled);
+    check("the setup: DETECTION RANGE, COUNT LINE, SPEED LINES, DISTANCE, SHOW",
+          v.kind == VISION_SHEET_SETUP && v.rows == 5 && strcmp(v.row[0].caption, "DETECTION RANGE") == 0 &&
+              strcmp(v.row[1].caption, "COUNT LINE") == 0 && strcmp(v.row[2].caption, "SPEED LINES") == 0 &&
+              strcmp(v.row[3].caption, "DISTANCE") == 0 && strcmp(v.row[4].caption, "SHOW") == 0);
+    check("the range is NEAR NORMAL FAR, NORMAL in force", strcmp(v.row[0].cell[0].text, "NEAR") == 0 &&
+                                                               strcmp(v.row[0].cell[2].text, "FAR") == 0 &&
+                                                               v.row[0].cell[1].selected && !v.row[0].cell[2].selected);
+    check("the choices in force are marked", v.row[1].cell[1].selected && !v.row[1].cell[0].selected &&
+                                                 v.row[2].cell[0].selected && strcmp(v.row[3].cell[1].text, "10 m") == 0 &&
+                                                 !v.row[3].cell[1].enabled);
+    check("SHOW: labels, speeds and trails, all on", strcmp(v.row[4].cell[0].text, "LABELS") == 0 &&
+                                                         v.row[4].cell[0].selected && v.row[4].cell[1].selected &&
+                                                         v.row[4].cell[2].selected);
     acts = vision_model_sheet_tap(&m, v.row[0].cell[2].code);
+    check("FAR: sent and stored", m.set.traffic.range == VISION_RANGE_FAR && acts == (VISION_ACT_RANGE | VISION_ACT_SAVE) &&
+                                      strcmp(vision_model_range_word(&m), "far") == 0);
+    check("FAR again: nothing", vision_model_sheet_tap(&m, v.row[0].cell[2].code) == 0);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("the status leads with the range", strncmp(t.status, "FAR  ", 5) == 0);
+    acts = vision_model_sheet_tap(&m, v.row[1].cell[2].code);
     check("COUNT LINE DOWN: sent and stored, TRACK's untouched, the sheet stays open",
           vision_model_line(&m) == VISION_LINE_DOWN && m.set.track.line == VISION_LINE_DOWN &&
               acts == (VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_SAVE) && m.sheet == VISION_SHEET_SETUP);
-    acts = vision_model_sheet_tap(&m, v.row[1].cell[1].code);
+    acts = vision_model_sheet_tap(&m, v.row[2].cell[1].code);
     check("SPEED LINES NARROW: sent and stored", m.set.traffic.speed == VISION_SPEED_NARROW &&
                                                      acts == (VISION_ACT_SPEED | VISION_ACT_SAVE));
     check("two vertical lines at 40 % and 60 %, top to bottom like the counting line",
           vision_model_speed_pm(&m, pm) && pm[0] == 400 && pm[1] == 0 && pm[2] == 400 && pm[3] == 1000 && pm[4] == 600 &&
               pm[7] == 1000);
-    vision_model_sheet_tap(&m, v.row[0].cell[0].code);
+    vision_model_sheet_tap(&m, v.row[1].cell[0].code);
     check("the count line OFF keeps the speed lines standing", vision_model_line(&m) == VISION_LINE_OFF &&
                                                                    vision_model_speed_pm(&m, pm) && pm[0] == 400 && pm[3] == 1000);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("and the counters show nothing", strcmp(t.count_a, "-") == 0 && strcmp(t.count_b, "-") == 0);
-    vision_model_sheet_tap(&m, v.row[0].cell[1].code);
-    vision_model_sheet_tap(&m, v.row[1].cell[2].code);
+    vision_model_sheet_tap(&m, v.row[1].cell[1].code);
+    vision_model_sheet_tap(&m, v.row[2].cell[2].code);
     check("ACROSS and WIDE: horizontal at 25 % and 75 %", vision_model_speed_pm(&m, pm) && pm[0] == 0 && pm[1] == 250 &&
                                                               pm[2] == 1000 && pm[5] == 750);
-    acts = vision_model_sheet_tap(&m, v.row[2].cell[2].code);
+    acts = vision_model_sheet_tap(&m, v.row[3].cell[2].code);
     check("DISTANCE > sends and stores 15 m", vision_model_distance_cm(&m) == 1500 &&
                                                   acts == (VISION_ACT_DISTANCE | VISION_ACT_SAVE));
-    vision_model_sheet_tap(&m, v.row[2].cell[0].code);
-    vision_model_sheet_tap(&m, v.row[2].cell[0].code);
+    vision_model_sheet_tap(&m, v.row[3].cell[0].code);
+    vision_model_sheet_tap(&m, v.row[3].cell[0].code);
     check("< twice: 5 m", vision_model_distance_cm(&m) == 500);
-    check("the distance itself is no button", vision_model_sheet_tap(&m, v.row[2].cell[1].code) == 0);
+    check("the distance itself is no button", vision_model_sheet_tap(&m, v.row[3].cell[1].code) == 0);
+    check("LABELS off: stored only (the screen's own)", vision_model_sheet_tap(&m, v.row[4].cell[0].code) == VISION_ACT_SAVE &&
+                                                            !m.set.traffic.labels &&
+                                                            (vision_model_text(&m, &t, buf, sizeof(buf)), !t.ids) && t.speeds);
+    check("SPEEDS off", vision_model_sheet_tap(&m, v.row[4].cell[1].code) == VISION_ACT_SAVE && !m.set.traffic.speeds &&
+                            (vision_model_text(&m, &t, buf, sizeof(buf)), !t.speeds));
+    check("TRAILS off: TRAFFIC's own, TRACK's stays", vision_model_sheet_tap(&m, v.row[4].cell[2].code) == VISION_ACT_SAVE &&
+                                                          !m.set.traffic.trails && m.set.track.trails &&
+                                                          (vision_model_text(&m, &t, buf, sizeof(buf)), !t.trails));
+    vision_model_sheet_tap(&m, v.row[4].cell[0].code);
+    vision_model_sheet_tap(&m, v.row[4].cell[1].code);
+    vision_model_sheet_tap(&m, v.row[4].cell[2].code);
     {
         int i;
         int ok = 1;
@@ -383,7 +414,7 @@ static void test_track_and_traffic(void)
     }
     vision_model_sheet(&m, &v);
     code_of(&m, "WIDE", &sel);
-    check("the sheet shows the new choices", sel && strcmp(v.row[2].cell[1].text, "5 m") == 0);
+    check("the sheet shows the new choices", sel && strcmp(v.row[3].cell[1].text, "5 m") == 0);
     check("SETUP again closes it", vision_model_setup_button(&m) == 0 && m.sheet == VISION_SHEET_NONE);
     check("a setup code with the setup closed does nothing", vision_model_sheet_tap(&m, 211) == 0 &&
                                                                  m.set.traffic.speed == VISION_SPEED_WIDE);
@@ -405,19 +436,37 @@ static void test_track_and_traffic(void)
     vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_STATS }, &s, 4900);
     vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRAFFIC }, &s, 5000);
     vision_model_text(&m, &t, buf, sizeof(buf));
-    check("the report becomes the counters and the status",
-          m.traffic_valid && strcmp(t.count_a, "IN (DOWN) 4") == 0 && strcmp(t.count_b, "OUT (UP) 2") == 0 &&
-              strstr(t.status, "12.3 fps") && strstr(t.status, "6 total") && strstr(t.status, "car 4") &&
-              strstr(t.status, "person 2") && strstr(t.status, "SPEED 43.2 km/h  last 43.2  max 51.0  (5 m)"));
-    s.traffic.cur_kmh10 = 0;
-    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRAFFIC }, &s, 5100);
+    check("the totals since RESET are the counters", m.traffic_valid && strcmp(t.count_a, "IN (DOWN) 4") == 0 &&
+                                                         strcmp(t.count_b, "OUT (UP) 2") == 0);
+    check("before the first recent line the status says so, with the rate",
+          strstr(t.status, "FAR  12.3 fps  KPU 31 ms") && strstr(t.status, "5 min: -") &&
+              strstr(t.status, "car 0  truck 0  bus 0  moto 0  bike 0  person 0"));
+    s.recent.window_s = 300;
+    s.recent.crossed = 5;
+    s.recent.ab = 3;
+    s.recent.ba = 2;
+    s.recent.cls[0] = 4;
+    s.recent.cls[5] = 1;
+    s.recent.speeds = 3;
+    s.recent.mean_kmh10 = 432;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_RECENT }, &s, 5100);
     vision_model_text(&m, &t, buf, sizeof(buf));
-    check("with no current speed the last one is shown", strstr(t.status, "SPEED --  last 43.2 km/h  max 51.0") != NULL);
-    s.traffic.n = 0;
-    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_TRAFFIC }, &s, 5200);
+    check("the last five minutes: crossings each way, their mean speed and how many, by class",
+          m.recent_valid && strstr(t.status, "5 min: 5  IN 3  OUT 2  avg 43.2 km/h (3)") &&
+              strstr(t.status, "car 4  truck 0  bus 0  moto 0  bike 0  person 1"));
+    s.recent.speeds = 0;
+    s.recent.mean_kmh10 = 0;
+    s.recent.saturated = true;
+    vision_model_event(&m, &(struct vision_event) { .kind = VISION_EV_RECENT }, &s, 5200);
     vision_model_text(&m, &t, buf, sizeof(buf));
-    check("with none yet, the lines' distance", strstr(t.status, "SPEED --  (5 m between lines)") != NULL);
-    check("RESET in TRAFFIC clears the report too", vision_model_reset(&m) == VISION_ACT_RESET && m.traffic.total_ab == 0);
+    check("no speed yet, with the distance; a window that overflowed says it holds the latest only",
+          strstr(t.status, "5 min: 5  IN 3  OUT 2 (latest only)  no speed yet (5 m)") != NULL);
+    vision_model_sheet_tap(&m, (vision_model_setup_button(&m), v.row[2].cell[0].code));
+    vision_model_setup_button(&m);
+    vision_model_text(&m, &t, buf, sizeof(buf));
+    check("speed lines off: no speed words at all", strstr(t.status, "speed") == NULL && strstr(t.status, "km/h") == NULL);
+    check("RESET in TRAFFIC clears the report and the window", vision_model_reset(&m) == VISION_ACT_RESET &&
+                                                                   m.traffic.total_ab == 0 && !m.recent_valid);
 
     /* An error closes the sheet; Try again keeps every choice. */
     vision_model_setup_button(&m);
@@ -450,7 +499,8 @@ static void test_tools(void)
     vision_session_init(&s);
     check("COLOR from DETECT sends the mode and the pixel settings",
           vision_model_set_mode(&m, VISION_MODE_COLOR) ==
-                  (VISION_ACT_MODE | VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_DISTANCE | VISION_ACT_PIXELS | VISION_ACT_SAVE) &&
+                  (VISION_ACT_MODE | VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_DISTANCE | VISION_ACT_PIXELS |
+                   VISION_ACT_RANGE | VISION_ACT_SAVE) &&
               vision_model_pixel_mode(&m) && strcmp(vision_model_mode_word(&m), "color") == 0);
     vision_model_text(&m, &t, buf, sizeof(buf));
     check("COLOR: the picture takes taps; no lines; no counts",
@@ -634,8 +684,8 @@ static void test_layout(void)
      * every mode's button count. */
     shape("portrait DETECT", 528, 1116, 0, 0, 0, 30, 360, 640, false, 1, 1);
     shape("landscape DETECT", 1192, 452, 30, 0, 30, 0, 640, 360, true, 1, 1);
-    shape("portrait TRACK", 528, 1116, 0, 0, 0, 30, 360, 640, false, 3, 1);
-    shape("landscape TRACK", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, 1);
+    shape("portrait TRACK", 528, 1116, 0, 0, 0, 30, 360, 640, false, 4, 1);
+    shape("landscape TRACK", 1192, 452, 30, 0, 30, 0, 640, 360, true, 4, 1);
     shape("portrait TRAFFIC", 528, 1116, 0, 0, 0, 30, 360, 640, false, 3, 3);
     shape("landscape TRAFFIC", 1192, 452, 30, 0, 30, 0, 640, 360, true, 3, 3);
     shape("portrait EDGE", 528, 1116, 0, 0, 0, 30, 360, 640, false, 2, 1);
@@ -658,12 +708,77 @@ static void test_layout(void)
                                               vision_layout_sheet(&sl, 800, 450, 6, (int[]) { 1, 1, 1, 1, 1, 1 }) == -1);
 }
 
+static struct vision_shown shown(uint32_t id, int32_t x, int32_t y)
+{
+    struct vision_shown s;
+
+    memset(&s, 0, sizeof(s));
+    s.id = id;
+    s.x = x;
+    s.y = y;
+    s.w = 20;
+    s.h = 10;
+    return s;
+}
+
+static void test_trails(void)
+{
+    static struct vision_trails tr;
+    struct vision_shown s[VISION_MAX_SHOWN + 1];
+    int32_t xs[VISION_TRAIL_POINTS];
+    int32_t ys[VISION_TRAIL_POINTS];
+    int i;
+    int n;
+
+    vision_trails_clear(&tr);
+    s[0] = shown(7, 0, 0);
+    s[1] = shown(0, 50, 50);
+    vision_trails_update(&tr, s, 2);
+    check("a confirmed box starts a trail at its centre; an unconfirmed one none",
+          vision_trails_points(&tr, 0, xs, ys, VISION_TRAIL_POINTS) == 1 && xs[0] == 10 && ys[0] == 5 &&
+              vision_trails_points(&tr, 1, xs, ys, VISION_TRAIL_POINTS) == 0);
+    s[0] = shown(7, 3, 0);
+    vision_trails_update(&tr, s, 1);
+    check("a move under the step adds nothing: a parked car leaves no smear",
+          vision_trails_points(&tr, 0, xs, ys, VISION_TRAIL_POINTS) == 1);
+    for (i = 1; i <= 20; i++) {
+        s[0] = shown(7, 10 * i, 0);
+        vision_trails_update(&tr, s, 1);
+    }
+    n = vision_trails_points(&tr, 0, xs, ys, VISION_TRAIL_POINTS);
+    check("the trail keeps its newest points, oldest first", n == VISION_TRAIL_POINTS && xs[0] == 10 * 13 + 10 &&
+                                                                 xs[n - 1] == 10 * 20 + 10);
+    check("fewer asked for, fewer given", vision_trails_points(&tr, 0, xs, ys, 3) == 3);
+    for (i = 0; i < VISION_TRAIL_KEEP - 1; i++) {
+        vision_trails_update(&tr, s, 0);
+    }
+    check("a track missing from a few det lines keeps its trail", vision_trails_points(&tr, 0, xs, ys, VISION_TRAIL_POINTS) > 0);
+    vision_trails_update(&tr, s, 0);
+    check("then it is let go", vision_trails_points(&tr, 0, xs, ys, VISION_TRAIL_POINTS) == 0);
+    s[0] = shown(8, 500, 500);
+    vision_trails_update(&tr, s, 1);
+    n = vision_trails_points(&tr, 0, xs, ys, VISION_TRAIL_POINTS);
+    check("a new id never inherits an old trail", n == 1 && xs[0] == 510);
+    for (i = 0; i <= VISION_MAX_SHOWN; i++) {
+        s[i] = shown(100 + (uint32_t)i, i * 30, 0);
+    }
+    vision_trails_update(&tr, s, VISION_MAX_SHOWN + 1);
+    n = 0;
+    for (i = 0; i < VISION_TRAIL_TRACKS; i++) {
+        n += vision_trails_points(&tr, i, xs, ys, VISION_TRAIL_POINTS) > 0;
+    }
+    check("more tracks than slots: every slot used, none overwritten, the rest wait", n == VISION_TRAIL_TRACKS);
+    check("slots out of range are empty", vision_trails_points(&tr, -1, xs, ys, 8) == 0 &&
+                                              vision_trails_points(&tr, VISION_TRAIL_TRACKS, xs, ys, 8) == 0);
+}
+
 int main(void)
 {
     test_states();
     test_picker();
     test_track_and_traffic();
     test_tools();
+    test_trails();
     test_layout();
     printf("vision_model_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;
