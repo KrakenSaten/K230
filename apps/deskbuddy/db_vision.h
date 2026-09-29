@@ -97,4 +97,13 @@ struct db_vision_provider {
 /* The provider for a build or a board with no vision: it says so once. */
 extern const struct db_vision_provider_ops db_vision_none_ops;
 
+/* The provider on the Vision pipeline (apps/deskbuddy_vision, the bridge;
+ * DeskBuddy itself includes nothing of Vision). Its ctx is a
+ * db_vision_pipeline_cfg: the display's rotation, so the camera's picture
+ * is looked at upright. */
+struct db_vision_pipeline_cfg {
+    int display_rotation;   /* 0, 90, 180, 270 */
+};
+extern const struct db_vision_provider_ops db_vision_pipeline_ops;
+
 #endif

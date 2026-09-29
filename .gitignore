@@ -241,3 +241,4 @@ BUILD_ID
 /tests/db_brain_test
 /tests/db_vision_test
 /tests/db_guard_test
+/tests/db_pipeline_test

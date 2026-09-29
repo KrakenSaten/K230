@@ -81,7 +81,26 @@ check "make test runs the DeskBuddy suites and this lint" \
 check "the timer is deleted in destroy" \
     "$(awk '/^static void deskbuddy_destroy/,/^}/' $APP/deskbuddy_app.c | grep -q 'lv_timer_delete' && echo 1 || echo 0)"
 check "the developer keys and the script exist only behind \$DESKBUDDY_SIM" \
-    "$(grep -c 'getenv("DESKBUDDY_' $APP/deskbuddy_app.c | grep -qx 2 && grep -q 'a->sim && key' $APP/deskbuddy_app.c && echo 1 || echo 0)"
+    "$(grep 'getenv("DESKBUDDY_' $APP/deskbuddy_app.c | grep -vc 'DESKBUDDY_VISION' | grep -qx 2 && grep -q 'a->sim && key' $APP/deskbuddy_app.c && echo 1 || echo 0)"
+
+# ---- 7. the bridge to Vision ----------------------------------------------------------
+# apps/deskbuddy_vision is the one place DeskBuddy's boundary and Vision's
+# helper client meet: the camera and the models stay in Vision's helper.
+BRIDGE=apps/deskbuddy_vision
+check "the bridge includes DeskBuddy's boundary and Vision's helper client" \
+    "$(code $BRIDGE/*.c $BRIDGE/*.h | grep -q '#include "db_vision' && code $BRIDGE/*.c | grep -q '#include "vision_session.h"' && echo 1 || echo 0)"
+hits=$(code $BRIDGE/*.c $BRIDGE/*.h | grep -nE '#include[[:space:]]*[<"]([^">]*/)?(pocketcam|pocketvision|vision_kpu|vision_app|vision_model|lvgl|lv_|pocketui)')
+check "and nothing else of Vision, the camera, the models or the screen" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -3
+hits=$(code $BRIDGE/*.c | grep -nE "$IO")
+check "the bridge touches no file (the owner stays in Vision's helper)" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -3
+check "the shell builds the bridge" \
+    "$(n=0; for f in $BRIDGE/*.c; do grep -q "\${REPO_DIR}/$f" ui/shell/CMakeLists.txt || n=1; done; [ $n = 0 ] && echo 1 || echo 0)"
+check "DeskBuddy picks it unless simulated or \$DESKBUDDY_VISION is none" \
+    "$(awk '/^static void start_provider/,/^}/' $APP/deskbuddy_app.c | grep -q 'db_vision_pipeline_ops' && awk '/^static void start_provider/,/^}/' $APP/deskbuddy_app.c | grep -q '"none"' && echo 1 || echo 0)"
+check "stop() is called in destroy" \
+    "$(awk '/^static void deskbuddy_destroy/,/^}/' $APP/deskbuddy_app.c | grep -q 'provider.ops->stop' && echo 1 || echo 0)"
 
 echo "deskbuddy_lint: $failed failure(s)"
 exit $((failed > 0))
