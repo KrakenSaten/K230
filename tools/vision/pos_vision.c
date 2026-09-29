@@ -25,6 +25,9 @@
  *       the auto exposure has settled) as a PPM with the ROI and that
  *       frame's vehicle boxes drawn in, to choose the region on and see what
  *       was found; --save-every N also every N frames after it, numbered.
+ *       --image FILE.ppm feeds that picture to the detector as every frame
+ *       instead of the camera, so one saved scene can be compared as it
+ *       was taken and changed (turned, cropped) on the same model.
  *
  * The camera is Camera's own layer (core/pocketcam): the same backends, the
  * same V4L2 node, the same close on the way out. Nothing opens the sensor
@@ -1272,7 +1275,58 @@ struct bench_opts {
     bool ab;
     const char *save;
     int save_every;              /* also every this many frames after the first save; 0: once */
+    const char *image;           /* a PPM fed to the detector as every frame, instead of the camera */
 };
+
+/* A binary PPM (P6, 8-bit) as a planar R, G, B frame - the layout the ISP's
+ * BG3P preview has - so a saved picture can be fed to the detector as it
+ * is, or turned or changed beforehand, and the result compared. 0 with
+ * *buf allocated (the caller frees it), or -1 with the reason on stderr. */
+static int load_image(const char *path, struct pocketcam_frame *f, uint8_t **buf)
+{
+    FILE *fp = fopen(path, "rb");
+    unsigned w;
+    unsigned h;
+    unsigned maxv;
+    size_t plane;
+    uint8_t *rgb;
+    size_t i;
+
+    if (!fp || fscanf(fp, "P6 %u %u %u", &w, &h, &maxv) != 3 || maxv != 255 || fgetc(fp) == EOF || w == 0 ||
+        h == 0 || w > VISION_MAX_COORD || h > VISION_MAX_COORD) {
+        fprintf(stderr, "pos-vision: %s is not an 8-bit binary PPM\n", path);
+        if (fp) {
+            fclose(fp);
+        }
+        return -1;
+    }
+    plane = (size_t)w * h;
+    rgb = malloc(3 * plane);
+    *buf = malloc(3 * plane);
+    if (!rgb || !*buf || fread(rgb, 1, 3 * plane, fp) != 3 * plane) {
+        fprintf(stderr, "pos-vision: %s is short\n", path);
+        free(rgb);
+        free(*buf);
+        *buf = NULL;
+        fclose(fp);
+        return -1;
+    }
+    fclose(fp);
+    for (i = 0; i < plane; i++) {
+        (*buf)[i] = rgb[3 * i];
+        (*buf)[plane + i] = rgb[3 * i + 1];
+        (*buf)[2 * plane + i] = rgb[3 * i + 2];
+    }
+    free(rgb);
+    memset(f, 0, sizeof(*f));
+    f->format = POCKETCAM_FMT_BG3P;
+    f->width = w;
+    f->height = h;
+    f->stride = w;
+    f->data = *buf;
+    f->bytes = 3 * plane;
+    return 0;
+}
 
 /* The first frame bench saves: the ISP's auto exposure starts over with
  * every camera open and has settled well before this (a first frame saved
@@ -1406,6 +1460,8 @@ static int run_bench(const char *backend, const char *config, const char *model,
     uint32_t ratio_pm[2];
     const char *tag[2] = { "", "" };
     int save_at = o->frames > VISION_BENCH_SAVE_AT ? VISION_BENCH_SAVE_AT : o->frames - 1;
+    struct pocketcam_frame image;
+    uint8_t *image_buf = NULL;
     int64_t t_start;
     int done = 0;
     int r;
@@ -1418,24 +1474,36 @@ static int run_bench(const char *backend, const char *config, const char *model,
         free(vcands);
         return EXIT_USAGE;
     }
-    if (open_camera(&cam, &info, backend, config, false) != 0) {
+    if (o->image) {
+        if (load_image(o->image, &image, &image_buf) != 0) {
+            free(cands);
+            free(vcands);
+            return EXIT_USAGE;
+        }
+        memset(&info, 0, sizeof(info));
+        snprintf(info.name, sizeof(info.name), "image");
+        info.preview_w = image.width;
+        info.preview_h = image.height;
+    } else if (open_camera(&cam, &info, backend, config, false) != 0) {
         free(cands);
         free(vcands);
         return EXIT_NOCAMERA;
     }
-    if (o->roi && vision_crop_fit(info.preview_w, info.preview_h, &o->roi_box, &roi) != 0) {
-        fprintf(stderr, "pos-vision: --roi leaves less than %dx%d of the %ux%u frame\n", VISION_CROP_MIN,
-                VISION_CROP_MIN, info.preview_w, info.preview_h);
-        pocketcam_close(&cam);
+    if ((o->roi && vision_crop_fit(info.preview_w, info.preview_h, &o->roi_box, &roi) != 0) ||
+        open_model(&kpu, &mi, model, kpu_script, false) != 0) {
+        bool no_model = !o->roi || roi.w > 0;
+
+        if (!no_model) {
+            fprintf(stderr, "pos-vision: --roi leaves less than %dx%d of the %ux%u frame\n", VISION_CROP_MIN,
+                    VISION_CROP_MIN, info.preview_w, info.preview_h);
+        }
+        if (!o->image) {
+            pocketcam_close(&cam);
+        }
+        free(image_buf);
         free(cands);
         free(vcands);
-        return EXIT_USAGE;
-    }
-    if (open_model(&kpu, &mi, model, kpu_script, false) != 0) {
-        pocketcam_close(&cam);
-        free(cands);
-        free(vcands);
-        return EXIT_NOMODEL;
+        return no_model ? EXIT_NOMODEL : EXIT_USAGE;
     }
     /* The letterbox, per way of looking: frame pixels to the model's. */
     ratio_pm[0] = mi.in_w * 1000u / info.preview_w < mi.in_h * 1000u / info.preview_h
@@ -1463,7 +1531,7 @@ static int run_bench(const char *backend, const char *config, const char *model,
     vision_traffic_map_names(&tf, mi.classes, vision_label);
     vision_tracker_init(&tr[0]);
     vision_tracker_init(&tr[1]);
-    r = pocketcam_start(&cam);
+    r = o->image ? 0 : pocketcam_start(&cam);
     t_start = mono_ms();
     while (r == 0 && done < o->frames && !stop_requested()) {
         struct pocketcam_frame f;
@@ -1486,7 +1554,13 @@ static int run_bench(const char *backend, const char *config, const char *model,
             .off_y = pass ? roi.y : 0,
         };
 
-        r = pocketcam_next(&cam, 1000, &f);
+        if (o->image) {
+            f = image;
+            f.seq = (uint32_t)done + 1;
+            r = 0;
+        } else {
+            r = pocketcam_next(&cam, 1000, &f);
+        }
         if (r == -ETIMEDOUT) {
             r = 0;
             continue;
@@ -1499,7 +1573,9 @@ static int run_bench(const char *backend, const char *config, const char *model,
             r = vision_kpu_infer(kpu, &f, &out, &count, dims, &pre_ms, &infer_ms);
         }
         if (r != 0) {
-            pocketcam_release(&cam, &f);
+            if (!o->image) {
+                pocketcam_release(&cam, &f);
+            }
             fprintf(stderr, "pos-vision: infer failed (%d)%s\n", r, pass ? " with the ROI" : "");
             break;
         }
@@ -1613,7 +1689,9 @@ static int run_bench(const char *backend, const char *config, const char *model,
         } else {
             printf("%sframe %u: malformed output (%d)\n", tag[pass], f.seq, n);
         }
-        pocketcam_release(&cam, &f);
+        if (!o->image) {
+            pocketcam_release(&cam, &f);
+        }
         t->frames++;
         t->pre_sum += pre_ms;
         t->infer_sum += infer_ms;
@@ -1631,8 +1709,11 @@ static int run_bench(const char *backend, const char *config, const char *model,
         bench_summary(tag[0], &tally[0]);
         bench_summary(tag[1], &tally[1]);
     }
-    pocketcam_close(&cam);
+    if (!o->image) {
+        pocketcam_close(&cam);
+    }
     vision_kpu_close(kpu);
+    free(image_buf);
     free(cands);
     free(vcands);
     return r == 0 ? 0 : EXIT_LOST;
@@ -1644,7 +1725,8 @@ static void usage(void)
             "usage: pos-vision session|probe [--backend NAME] [--fake SCRIPT] [--config CFG]\n"
             "                                [--model FILE] [--kpu SCRIPT]\n"
             "       pos-vision bench [N] [--backend NAME] [--config CFG] [--model FILE]\n"
-            "                        [--roi X,Y,W,H [--ab]] [--save FILE.ppm [--save-every N]]\n");
+            "                        [--roi X,Y,W,H [--ab]] [--save FILE.ppm [--save-every N]]\n"
+            "                        [--image FILE.ppm]\n");
 }
 
 int main(int argc, char **argv)
@@ -1658,7 +1740,7 @@ int main(int argc, char **argv)
     const char *backend;
     const char *config;
     const char *model;
-    struct bench_opts bo = { 100, false, { 0, 0, 0, 0 }, false, NULL, 0 };
+    struct bench_opts bo = { 100, false, { 0, 0, 0, 0 }, false, NULL, 0, NULL };
     bool bench = cmd && strcmp(cmd, "bench") == 0;
     int i;
 
@@ -1695,6 +1777,8 @@ int main(int argc, char **argv)
             bo.save = argv[++i];
         } else if (bench && strcmp(argv[i], "--save-every") == 0 && i + 1 < argc && atoi(argv[i + 1]) > 0) {
             bo.save_every = atoi(argv[++i]);
+        } else if (bench && strcmp(argv[i], "--image") == 0 && i + 1 < argc) {
+            bo.image = argv[++i];
         } else {
             usage();
             return EXIT_USAGE;
