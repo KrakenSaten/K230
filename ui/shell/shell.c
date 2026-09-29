@@ -86,6 +86,7 @@ extern const struct pocketos_app app_solitaire;
 extern const struct pocketos_app app_blackjack;
 extern const struct pocketos_app app_2048;
 extern const struct pocketos_app app_deskbuddy;
+extern const struct pocketos_app app_mp3;
 /* Apps a shell can be configured without: Zabbix, in by default and left out
  * with -DPOCKETOS_WITH_ZABBIX=OFF (ui/shell/CMakeLists.txt, docs/apps/ZABBIX.md).
  * A macro rather than an #ifdef inside the list below, so the list reads the
@@ -106,7 +107,7 @@ static const struct pocketos_app *const apps[] = { &app_radio, &app_system, &app
                                             &app_settings, &app_wave, &app_rift, &app_files,
                                             &app_camera, &app_browser, &app_recorder, &app_vision,
                                             &app_solitaire, &app_blackjack, &app_2048,
-                                            &app_deskbuddy OPTIONAL_APPS };
+                                            &app_deskbuddy, &app_mp3 OPTIONAL_APPS };
 #define APP_COUNT (sizeof(apps) / sizeof(apps[0]))
 
 struct shell {

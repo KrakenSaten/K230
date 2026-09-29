@@ -22,6 +22,7 @@ owner-supplied artwork.
 | `svg/solitaire.svg` | a column of cards: the top edges of two cards above a whole one with a diamond pip, as a Klondike column fans | PG Solitaire (docs/apps/PGSOLITAIRE.md; PLAY after Timber, in the games colour; place and icon for the owner to confirm) |
 | `svg/blackjack.svg` | a card with a diamond pip and a chip beside it: cards against the house (play chips only) | PG Blackjack (docs/apps/PGBLACKJACK.md; PLAY after Solitaire, games colour; for the owner to confirm) |
 | `svg/2048.svg` | four tiles in a 2 x 2 grid, with gaps wide enough to stay apart at 32 px | PG 2048 (docs/apps/PG2048.md; PLAY after Blackjack, games colour; for the owner to confirm) |
+| `svg/mp3.svg` | two beamed eighth notes: the plainest sign for music (drawn for the MP3 app, docs/apps/MP3.md; DEVICE after Vision, in the `apps` hue; place and icon for the owner to confirm) | MP3 |
 
 **How the files are made:**
 

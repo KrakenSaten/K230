@@ -38,9 +38,9 @@ failed=0
 check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 line() { grep -n "$1" "$2" | head -1 | cut -d: -f1; }
 APPS="radio system fleet radar timber notes clock calendar calculator settings wave rift files camera recorder zabbix browser
-      solitaire blackjack 2048 deskbuddy"
+      solitaire blackjack 2048 deskbuddy mp3"
 # DS §30.8, §34, §35: the apps that declare NONE, fullscreen in both orientations.
-FULLSCREEN="rift notes wave fleet radar timber camera recorder zabbix browser solitaire blackjack 2048 deskbuddy"
+FULLSCREEN="rift notes wave fleet radar timber camera recorder zabbix browser solitaire blackjack 2048 deskbuddy mp3"
 is_fullscreen() { case " $FULLSCREEN " in *" $1 "*) return 0 ;; esac; return 1; }
 
 # ---- 1. the rules in the source ------------------------------------------------
@@ -100,7 +100,7 @@ hits=$(grep -rn '\.chrome = ' apps --include='*.c' | grep -v 'POCKETOS_CHROME_NO
 declared=$(grep -rln '\.chrome = POCKETOS_CHROME_NONE' apps --include='*.c' | cut -d/ -f2 | sort | tr '\n' ' ')
 check "the fifteen fullscreen apps declare NONE and no app declares anything else ($declared) (DS §30.8, §34, §35)" \
     "$([ -z "$hits" ] &&
-       [ "$declared" = "2048 blackjack browser camera deskbuddy fleet notes radar recorder rift solitaire timber vision wave zabbix " ] &&
+       [ "$declared" = "2048 blackjack browser camera deskbuddy fleet mp3 notes radar recorder rift solitaire timber vision wave zabbix " ] &&
        echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
 check "the test hook that forces a chrome is compiled out of the panel's build" \

@@ -3646,3 +3646,81 @@ keyboard base; every game there; open two games and come home to Games
 each time; back to the launcher with the focus on Games; rotate inside
 Games; repeated open and close without a crash, and the shell's RSS and
 `art.bytes_held` flat.
+
+## 40. Amendment X — MP3 [PROPOSED]
+
+**PROPOSED 2026-09-29** on branch `feat/audio-player`, validated on the
+host (§40.5). It adds one app and changes no existing screen; outside the
+app it adds a cell to DEVICE on the launcher (§40.4). Nothing in §1-§39 is
+renumbered. The app is described in `docs/apps/MP3.md`; its audio follows
+Recorder's ownership (ADR-010), reused.
+
+### 40.1 Components
+
+Only existing parts and roles. A deck and a list, as Recorder's:
+
+- **Deck.** A `POS_STYLE_CHIP` (`READY`, `OPENING`, `PLAYING` - the
+  CHIP_ACTIVE fill - `PAUSED`, `STOPPED`) with the place in the folder at
+  the right in `POS_STYLE_CAPTION` (`3 / 9`). The title in
+  `POS_STYLE_TITLE` and under it the artist in `POS_STYLE_TEXT_SECONDARY`,
+  one line each, cut with dots: the file's own tags, else the file name and
+  its folder. The progress: a 16 px `POS_STYLE_SLAB` bar filled like the
+  active chip, inside a 64 px touch target the width of the deck; a tap or a
+  drag previews the place under the finger (the elapsed time follows it)
+  and lifting seeks there. Elapsed and length in `POS_STYLE_VALUE` at its
+  ends (`--:--` when the length is not known). PREV, PLAY/PAUSE (§7
+  primary) and NEXT in one row; STOP, `VOL -`, the level in
+  `POS_STYLE_VALUE` (`70 %`, `MUTED`, `NO AUDIO`) and `VOL +` in the next;
+  all 64 px, the §9 disabled treatment when a control can do nothing. One
+  status line in `POS_STYLE_TEXT_MUTED`, the warn and error text roles for
+  a muted sound or a file that cannot be played.
+- **List.** UP (§7 secondary, 64 px) and the place and folder in
+  `POS_STYLE_CAPTION` (`LIBRARY` at the places); under it the one part that
+  scrolls (§17.1): rows on `POS_STYLE_SLAB`, at least 64 px, the name in
+  `POS_STYLE_TEXT_PRIMARY` and a `POS_STYLE_CAPTION` line - a place's
+  folder, `Folder`, or a file's size (`NOW` before it on the current track,
+  whose row also carries the §9 focus ring, `POS_STYLE_SELECTED`).
+
+No new role, token or colour. Fullscreen (§30.8): the app declares NONE;
+the shell's header carries the back slab and, at its right end, `PLAYING`
+while music plays.
+
+### 40.2 Tall (portrait, 528 x 1116)
+
+The deck across the full width at its content height (about 430 px),
+then UP and the caption, then the list to the foot.
+
+### 40.3 Wide (landscape, 1192 x 452)
+
+The deck, 560 px wide, at the left with 8 px between its rows (12 px in
+portrait) so that it fits the height; UP, the caption and the list in the
+rest. The shape is chosen from the body (§21.2), never from the
+orientation itself; every control is inside the box PocketUI's corner rule
+leaves (§21.3).
+
+### 40.4 Launcher
+
+MP3 is the twenty-second app: DEVICE, after Vision, in the `apps` hue, with
+a first-party icon - two beamed eighth notes, drawn in the repository in
+the extension's line language (`docs/design/doors-app-icons/svg/mp3.svg`)
+through the Zabbix, Browser and Vision pipeline. DEVICE takes a seventh
+cell. Place and icon are for the owner to confirm.
+
+### 40.5 Validation on the host
+
+`tests/mp3_app_test.c` (both shapes, idle and playing, corners, touch
+targets, overlap, the screen fitting its body; the places, a folder and
+UP; play, pause, next, previous, stop, a tap and a drag on the progress,
+the volume steps, a folder to its end, rotating while playing, twenty
+opens and closes and the heap), `tests/mp3_shell_test.sh` (the real shell
+in both orientations), `tests/mp3_ctl_test.c` (every state's words),
+`tests/mp3_lint.sh`, and the launcher, icon, chrome and art suites with
+twenty-two apps.
+
+### 40.6 Gate (before acceptance)
+
+On a unit, the build's identity first: MP3 in DEVICE; a local MP3 heard;
+pause and resume; next and previous; the volume steps heard; the screen
+responsive while playing; leaving the app while playing silences it;
+reopening; another app afterwards; no shell or service restart
+(`docs/hardware/MP3_GATE.md`).
