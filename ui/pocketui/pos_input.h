@@ -94,4 +94,36 @@ bool pos_input_group_redirected(void);
  * whether the queue is draining. */
 unsigned pos_input_queued(void);
 
+/* ---- modifiers and the raw key target ---------------------------------- *
+ *
+ * A source that knows which modifiers were held when a key was pressed (the
+ * physical keyboard) says so with the key. Nothing an ordinary field
+ * receives changes: the modifiers are dropped on delivery, so Ctrl+C still
+ * types a 'c' into a note, exactly as before.
+ *
+ * One object may instead ask for keys raw: a terminal, which has to send
+ * Tab, Esc and Ctrl+C to the program it hosts rather than let them move
+ * focus, cancel or type a letter. While that object is the focused object of
+ * the group the device delivers to, every key reaches it as LV_EVENT_KEY
+ * carrying a flagged value - NEXT, PREV, ENTER and ESC included, which LVGL
+ * would otherwise act on itself - and pos_input_raw_decode() gives back the
+ * key and the modifiers. The moment it is not focused (an alert took the
+ * keys, DS §18.8, or it left the group) delivery is ordinary again, so the
+ * raw target can never take a key meant for anything else. */
+#define POS_INPUT_MOD_SHIFT 0x1u
+#define POS_INPUT_MOD_CTRL 0x2u
+#define POS_INPUT_MOD_ALT 0x4u
+
+bool pos_input_push_key_mods(pos_key_t key, unsigned mods);
+
+/* Name the raw target (NULL: none). Cleared by itself when the object is
+ * deleted. */
+void pos_input_set_raw_target(lv_obj_t *obj);
+lv_obj_t *pos_input_raw_target(void);
+
+/* In the raw target's LV_EVENT_KEY handler: the key and the modifiers, from
+ * the value lv_event_get_param() points at. False when the value is not a
+ * raw one (an ordinary delivery). */
+bool pos_input_raw_decode(uint32_t delivered, pos_key_t *key, unsigned *mods);
+
 #endif

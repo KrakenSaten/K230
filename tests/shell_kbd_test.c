@@ -189,6 +189,29 @@ static int wait_for_count(const unsigned *counter, unsigned before, int max_50ms
 #define SHIFT_RELEASE 0x07
 #define F1_PRESS 0xB2 /* code 50, reserved rather than mapped */
 #define CTRL_PRESS 0x97 /* code 23 (CTRL) pressed; its release never arrives */
+#define CTRL_RELEASE 0x17
+#define C_PRESS 0x90 /* code 16 */
+#define C_RELEASE 0x10
+#define UP_PRESS 0x96  /* code 22 */
+#define TAB_PRESS 0x86 /* code 6 */
+
+/* What a raw key target (the Terminal) received. */
+static pos_key_t raw_keys[8];
+static unsigned raw_mods[8];
+static int raw_count;
+
+static void on_raw_key(lv_event_t *e)
+{
+    const uint32_t *v = lv_event_get_param(e);
+    pos_key_t key;
+    unsigned mods;
+
+    if (v && raw_count < 8 && pos_input_raw_decode(*v, &key, &mods)) {
+        raw_keys[raw_count] = key;
+        raw_mods[raw_count] = mods;
+        raw_count++;
+    }
+}
 
 int main(void)
 {
@@ -339,6 +362,50 @@ int main(void)
     check_str("and Ctrl is not stuck either",
               lv_textarea_get_text(field), "w_wwww");
 
+    /* ---- 5c. the modifiers go with the key to a raw target --------------
+     *
+     * The Terminal (pos_input.h, raw key target) needs Ctrl+C as a chord,
+     * Tab as a key and Shift+Up as Shift and Up. The driver sends the
+     * modifiers it holds with each key; an ordinary field never sees them. */
+    {
+        lv_obj_t *raw = lv_obj_create(screen);
+
+        pos_input_add_obj(raw);
+        pos_input_focus(raw);
+        pos_input_set_raw_target(raw);
+        lv_obj_add_event_cb(raw, on_raw_key, LV_EVENT_KEY, NULL);
+        settle();
+
+        feed(CTRL_PRESS);
+        feed(C_PRESS);
+        feed(C_RELEASE);
+        feed(CTRL_RELEASE);
+        settle();
+        check("Ctrl+C reaches a raw target as c with Ctrl",
+              raw_count == 1 && raw_keys[0] == 'c' && raw_mods[0] == POS_INPUT_MOD_CTRL);
+        feed(SHIFT_PRESS);
+        feed(UP_PRESS);
+        feed(SHIFT_RELEASE);
+        feed(TAB_PRESS);
+        settle();
+        check("Shift+Up as Up with Shift, then Tab as a key with nothing held",
+              raw_count == 3 && raw_keys[1] == LV_KEY_UP && raw_mods[1] == POS_INPUT_MOD_SHIFT &&
+              raw_keys[2] == LV_KEY_NEXT && raw_mods[2] == 0);
+        check("and Tab did not move the focus", pos_input_focused() == raw);
+
+        pos_input_set_raw_target(NULL);
+        lv_obj_delete(raw);
+        pos_input_focus(field);
+        settle();
+        feed(CTRL_PRESS);
+        feed(W_PRESS);
+        feed(W_RELEASE);
+        feed(CTRL_RELEASE);
+        settle();
+        check_str("a field still gets the letter for a Ctrl chord",
+                  lv_textarea_get_text(field), "w_wwwww");
+    }
+
     /* ---- 6. destroy stops the keyboard --------------------------------- */
 
     shell_kbd_destroy();
@@ -346,7 +413,7 @@ int main(void)
     feed(W_RELEASE);
     settle();
     check_str("nothing arrives once the keyboard is destroyed",
-              lv_textarea_get_text(field), "w_wwww");
+              lv_textarea_get_text(field), "w_wwwww");
 
     printf("shell_kbd_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
