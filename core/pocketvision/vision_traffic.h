@@ -124,6 +124,10 @@ void vision_traffic_counted(struct vision_traffic *tf, const struct vision_cross
  * how many speeds were measured. */
 int vision_traffic_crossed(struct vision_traffic *tf, int line, const struct vision_crossing *x,
                            int n, int64_t now_ms);
+/* The same, with each speed measured written to speeds (up to max; may be
+ * NULL), for a caller that keeps them (vision_window.h). */
+int vision_traffic_crossed_speeds(struct vision_traffic *tf, int line, const struct vision_crossing *x, int n,
+                                  int64_t now_ms, uint32_t *speeds, int max);
 /* After every frame: slots of tracks that are gone are freed, a first
  * crossing older than VISION_SPEED_MAX_MS is dropped, and the current
  * speed is retired when its track is gone. */

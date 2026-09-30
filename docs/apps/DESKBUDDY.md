@@ -9,6 +9,8 @@ blinks. Cute, observant, a little mischievous - not a chatbot.
 2026-09-29). Not merged. Host-tested only; never run on a K230. No vision:
 real person and owner recognition is deferred to the Vision work in progress
 elsewhere, and DeskBuddy runs blind or on simulated vision until then.**
+**Branch `feat/vision-next` (2026-09-30) adds the real provider on Vision's
+helper and a first run on unit B: "The Vision provider" at the end.**
 
 Launcher: WORKSPACE after Calculator, in the `ai` hue, a first-party icon (a
 small screen with two eyes). Place and icon are for the owner to confirm.
@@ -219,8 +221,9 @@ SHELL_BIN=~/work/.../pocketos-shell bash tests/deskbuddy_shell_test.sh
 
 ## Deferred
 
-- **Real vision**: a provider on the Vision pipeline (below), face detection,
-  the embedding model, enrolment UI and "forget me".
+- ~~**Real vision**: a provider on the Vision pipeline (below), face
+  detection, the embedding model, enrolment UI and "forget me".~~ Done on
+  `feat/vision-next`: "The Vision provider" below.
 - Optional guard snapshots (opt-in, local, bounded, deleted with the log).
 - A shell-level background service, so the guard watches with the app
   closed or the screen locked (needs the lifecycle ADR-002 defers).
@@ -228,26 +231,51 @@ SHELL_BIN=~/work/.../pocketos-shell bash tests/deskbuddy_shell_test.sh
   and icon; hardware gate on a unit (touch feel, night dimness, CPU).
 - Authentication for DISARM; notification of visitors elsewhere in Doors.
 
-## Next step when Vision is ready
+## The Vision provider (feat/vision-next)
 
-Write one provider, e.g. `apps/deskbuddy/db_vision_pipeline.c`, implementing
-`db_vision_provider_ops`, and select it in `start_provider()` in
-`apps/deskbuddy/deskbuddy_app.c` (today: `$DESKBUDDY_SIM` -> mock, else
-`db_vision_none_ops`). Nothing else in DeskBuddy changes.
+The plan that stood here is built, as `db_vision_pipeline_ops` in
+`apps/deskbuddy_vision/db_vision_pipeline.c`: a directory of its own, the one
+place DeskBuddy's boundary (`db_vision.h`) and Vision's helper client
+(`apps/vision/vision_session.h`) meet, so DeskBuddy still includes nothing of
+Vision and Vision knows nothing of DeskBuddy (`tests/deskbuddy_lint.sh`,
+section 7). `start_provider()` picks it unless `$DESKBUDDY_SIM` is set (the
+mock) or `$DESKBUDDY_VISION` is `none` (blind, as v0.1 was).
 
-- `start()` launches or connects to the vision helper (the ADR-006 shape
-  Camera and Vision use: a helper process, sealed memfd, watchdog,
-  PDEATHSIG), non-blocking; on failure push `DB_VISION_UNAVAILABLE` and
-  return -1.
-- `poll()` reads whatever the helper has written, never waits, and pushes
-  **changes** only: `PERSON_DETECTED` when a person track appears,
-  `NO_PERSON` when the last one expires, then `OWNER_RECOGNIZED` or
-  `UNKNOWN_PERSON` with `confidence_pm` = similarity once the second stage
-  (db_identity.h) has decided; `UNAVAILABLE` when the helper dies, stalls or
-  loses the camera. Return the next time it wants to be polled (~100 ms
-  while running).
-- `stop()` ends the helper; it must be idempotent.
-- Recognition (embedding + comparison with `owner.v1`) runs in the helper,
-  never on the LVGL thread; only the conclusion crosses the boundary.
-- The camera is single-owner: the provider must fail cleanly to
-  `UNAVAILABLE` while Camera or Vision holds it.
+- `start()` starts Vision's helper (`pos-vision`, ADR-006) with no picture
+  on screen - a 64 x 64 preview it takes and drops - non-blocking; a helper
+  that cannot start is `UNAVAILABLE`, once.
+- The helper runs the best mode the unit offers: RECOGNIZE (faces, and
+  whether one is the owner), else FACE, else DETECT (the object detector's
+  people). A face model that fails on the way drops to the next one down
+  instead of going blind.
+- `poll()` never waits; a small judge (`db_judge_*`, pure, tested) turns
+  the helper's lines into **changes**: a conclusion is said once it has held
+  for two reports, "nobody" after 1.5 s without anybody, the owner over a
+  stranger when both are there, and no identity without an enrolled owner.
+  `OWNER_RECOGNIZED` and `UNKNOWN_PERSON` carry the similarity (per-mille)
+  as `confidence_pm`. The helper gone, the camera lost or taken, or no
+  model at all: `UNAVAILABLE`, once. Polled every 100 ms while running.
+- `stop()` ends the helper within Vision's own grace (1 s) and is safe
+  twice; nothing calls back into the screen.
+
+**The owner is Vision's.** Enrolment and FORGET are in Vision's RECOGNIZE
+(docs/apps/VISION.md); the helper keeps the one owner at
+`$POCKETOS_STATE_DIR/vision/owner.v1` (0600 in 0700) - not
+`deskbuddy/owner.v1` as planned above - and DeskBuddy only ever receives
+the conclusion. The privacy terms above hold: the profile never leaves the
+helper and the unit, no enrolment image is kept, one FORGET deletes it.
+`db_identity.h` stays declarations only: the helper is the recognizer.
+
+**Tests:** `tests/db_pipeline_test.c` (the judge, and the provider end to end
+against the real helper on the fake camera and fake face models: owner,
+stranger, people without face models, nobody, a killed helper, no helper,
+stop twice, no helper left behind; also under ASan/UBSan).
+
+**Unit B, 2026-09-30** (recorded pictures through the real shell, KPU): the
+owner enrolled in Vision from the vendor's selfie, then DeskBuddy on the ID
+photo of the same man said HELLO, on a stranger HM. WHO'S THIS?, and on the
+live camera in a dark room nothing (vision available, nobody there - not
+NO VISION YET); after closing no helper was left and Camera opened. The
+helper took 5-18 % CPU (live camera, RECOGNIZE); DeskBuddy's shell RSS was
+unchanged. Not tested: a live person at the desk, and Guard mode's log with
+real vision.

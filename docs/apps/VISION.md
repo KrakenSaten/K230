@@ -26,6 +26,389 @@ The camera path is Camera's own (ADR-006), reused, not redesigned; the
 launcher place and the icon are for the owner to confirm (DS §38,
 PROPOSED).
 
+**Branch `feat/vision-next` (2026-09-29/30, from master 8063533):** the
+modes in groups behind a picker, per-mode settings kept between opens
+("Modes and settings"); Traffic 2.0 with the detection range and recent
+statistics; Tracking 2.0; READ (text); FACE; RECOGNIZE (the owner's face,
+on the unit only); a replay source for recorded pictures; and DeskBuddy's
+provider on this helper (docs/apps/DESKBUDDY.md). READ, FACE and
+RECOGNIZE need models that are neither in this repository nor packaged
+(docs/LICENSING.md item 11); without them those modes are simply not
+offered. LOOK (object identification) is not done: see "LOOK" below.
+
+## Modes and settings
+
+MODE opens a picker over the picture (DS §38.9) with the modes in groups:
+
+| Group | Modes |
+| --- | --- |
+| GENERAL | DETECT (every object the detector knows, boxed), TRACK (the same with ids and a counting line) |
+| ROAD | TRAFFIC |
+| PEOPLE | FACE, RECOGNIZE |
+| TEXT | READ |
+| TOOLS | COLOR, EDGE, LINE TRACE |
+
+A mode appears only when the helper can run it: right after `ready` it
+says so in a `caps` line (the modes by their protocol words). A mode whose
+model is not on the unit is never offered, and a group with nothing to
+offer is not shown. A stored mode the helper cannot run falls back to
+DETECT for this open and stays the stored wish, so it comes back with the
+model.
+
+DETECT and TRACK run the same pipeline in the helper (`mode detect` and
+`mode track`); DETECT shows class and confidence, TRACK adds the ids, the
+counting line and its counters. TRAFFIC's choices - its count line, its
+speed lines and the distance between them - are its own, in TRAFFIC's
+SETUP sheet; TRACK's line is a separate setting.
+
+**Stored settings.** `$POCKETOS_STATE_DIR/vision/settings.v1` (default
+`/var/lib/pocketos/vision/`), settings.conf's `key=value` format, written
+by `apps/vision/vision_store.c` (the only file of the app that touches the
+filesystem) whenever a choice changes, atomically (temporary file, fsync,
+rename), 0600 in a 0700 directory. Merely opening Vision writes nothing.
+
+| Key | Values |
+| --- | --- |
+| `mode` | `detect` `track` `traffic` `face` `recognize` `read` `color` `edge` `trace` |
+| `track.line` | `off` `across` `down` |
+| `traffic.line` | `off` `across` `down` |
+| `traffic.orient` | `across` `down` - the way the speed lines lie |
+| `traffic.speed` | `off` `narrow` `wide` |
+| `traffic.distance_cm` | 100 200 500 1000 1500 2000 3000 5000 |
+| `color.tol` | `low` `med` `high` |
+| `edge.hard`, `trace.dark` | `0` `1` |
+
+A value this build could not have written leaves that setting at its
+default (the rest still read); an unknown key is ignored; a file larger
+than any this build writes is not read at all. `apps/vision/vision_settings.c`
+is the format (pure C, `tests/vision_settings_test.c`).
+
+For screenshots, `POCKETOS_VISION_SHEET=modes|setup` opens the screen with
+the picker or the setup showing (`tests/vision_shell_test.sh`).
+
+## Traffic 2.0 (feat/vision-next)
+
+TRAFFIC's SETUP sheet has five rows: DETECTION RANGE (NEAR, NORMAL, FAR),
+COUNT LINE, SPEED LINES, DISTANCE (between the speed lines) and SHOW
+(LABELS, SPEEDS, TRAILS, each on or off). Every choice is stored
+(`traffic.range`, `traffic.labels`, `traffic.speeds`, `traffic.trails`).
+
+### Detection range
+
+A pipeline preset, never a distance in metres: nothing is calibrated for
+how far an object is (`core/pocketvision/vision_range.c`).
+
+| Range | Confidence | Smallest box | Zoom pass | Confirm after | Kept unseen |
+| --- | --- | --- | --- | --- | --- |
+| NEAR | 0.35 | 1/8 of the picture's smaller side (45 px of 360) | no | 2 | 10 frames |
+| NORMAL (default) | 0.35 | - | no | 2 | 15 frames |
+| FAR | 0.35 | - | the centre, at the model's own resolution | 3 | 20 frames |
+
+- **What limits the distance** is pixels: the 640 x 360 picture goes into the
+  320 x 320 model at half size. FAR runs the model a second time on a window
+  at the picture's centre of the model's own size (320 x 320: twice the
+  pixels per object), with the AI2D engine cropping the frame already in its
+  memory (`vision_kpu_infer_window`), and merges what it finds: a box cut by
+  the window's edge is dropped (the full pass sees that object whole); a box
+  that is the same object as a full-pass box (IoU 0.5, or 85 % inside, same
+  class or class group) keeps the surer of the two; the rest are added.
+- **FAR does not lower the threshold.** A lower threshold finds more of
+  everything, the false boxes included. It confirms a track one sighting
+  later instead, and keeps a far object (few pixels, flickering) longer.
+- **NEAR** drops what is small. Its threshold was 0.45 at first; on the
+  road picture below unit B's KPU scored the nearest white car at 0.44 and
+  NEAR lost it, so NEAR keeps NORMAL's threshold and filters by size only.
+- **The evidence** (unit B, 2026-09-29 night, the KPU through
+  `pos-vision bench --image`, 20 frames each; the scenes are the vendor
+  SDK's own test pictures, cover-fitted to the camera's 640 x 360 and
+  never committed; the unit's own camera faced a dark room):
+
+  | Picture | NEAR | NORMAL | FAR | Notes |
+  | --- | --- | --- | --- | --- |
+  | road (highway, cars to the horizon) | 1 | 4 | 5 | FAR found a 15 x 12 px car NORMAL scored 0.11, and raised two 25 x 15 px cars from 0.44 / 0.40 to 0.76 / 0.69 |
+  | traffic (city street) | 2 | 10 | 12 | 3 traffic lights in every range but NEAR |
+  | bus, car, person, empty street | same | same | same | the zoom pass's boxes all merged: no extra box, no false positive |
+
+  FAR costs one more KPU run: inference 34.6 ms a frame instead of 17.6
+  (decode 7-8 ms more), so about half the frame rate through the detector.
+  The horizon's smallest cars (under ~10 px) stay invisible in any range:
+  YOLOv8n at 320 does not see them.
+- In TRACK and the other modes the pipeline is NORMAL's; the range is
+  TRAFFIC's setting. Changing it drops the tracks (a track keeps the side
+  of the line it was on, so nothing counted counts again) and any speed in
+  progress; the counts stay.
+
+### Recent statistics
+
+The helper keeps the last five minutes of crossings (by direction and
+traffic class) and speed measurements in a ring of 512 events
+(`core/pocketvision/vision_window.c`): nothing grows with time or traffic.
+It says them in a `recent` line after each event and once a second. When
+more than 512 events happen inside five minutes, the oldest go and the
+line says so; the screen then says `(latest only)` rather than a number
+that is not the five minutes. The status in TRAFFIC:
+
+    NORMAL  24.1 fps  KPU 18 ms  3 tracks
+    5 min: 12  IN 7  OUT 5  avg 43.2 km/h (6)
+    car 8  truck 1  bus 0  moto 1  bike 2  person 0
+
+The two counters stay the totals since RESET (`IN (DOWN) 42`).
+
+### Display
+
+LABELS puts the id, class and direction on each box (`#7 car > 43%`),
+SPEEDS the measured speed (`43.2 km/h`), TRAILS a dotted trail of where
+each track has been (8 points, one every 6 px it moves, let go 8 det lines
+after its track; `apps/vision/vision_trails.c`, fed from the det lines the
+screen already gets). TRACK has its own TRAILS button.
+
+### Tracking (Tracking 2.0)
+
+Three changes to the tracker (`core/pocketvision/vision_track.c`), each
+from a defect seen on a real sequence, and nothing more:
+
+1. **No second track for one object.** A box left over after matching that
+   is the same object as a track matched in this frame (IoU at least 0.5,
+   or either 85 % inside the other, compatible class) is not made a track:
+   the detector's partial box beside its whole one, or two boxes of one
+   person just under suppression's 0.65. Counted in `dup_births`. Two
+   people side by side below that overlap still get a track each.
+2. **Found where it was last seen.** A third matching pass compares a
+   still-unfound track with where it was last *seen* rather than predicted:
+   an object that stopped or turned while hidden is found where it was
+   instead of being lost to a prediction that drifted on. Its size gate is
+   the track's own (2x from the last frame, 3x only once it has coasted), so
+   the walker's box that flipped to one pinned at the picture's edge
+   (2.4x, unit B 2026-09-29) still does not take the walker's id.
+3. **A reach that grows while hidden.** The distance pass's radius grows by
+   5 % of the box's larger side per frame unseen, from 75 % up to 150 % at
+   most.
+
+**Evidence** (unit B's KPU, `pos-vision bench --images ... --tracks`, the
+vendor SDK's 278-frame street sequence of cyclists and cars, every second
+frame: 139 frames at ~12 frames a second of the scene; analysed with the
+gate's `trackstats.py`: confirmed ids, re-identifications - an id ending
+and a new one of the same class group born nearby within 12 frames - and
+same-frame duplicates, two confirmed tracks of one group at IoU > 0.5):
+
+| Tracker | Range | Confirmed ids | Duplicate frames | Re-identifications | Short tracks | Median life |
+| --- | --- | --- | --- | --- | --- | --- |
+| before | NORMAL | 29 | 40 | 8 | 6 | 25 frames |
+| after | NORMAL | 24 | 15 | 7 | 4 | 30 frames |
+| before | FAR | 30 | 41 | 8 | 10 | 30 frames |
+| after | FAR | 26 | 21 | 6 | 6 | 45 frames |
+
+The duplicates left are, on inspection, two distant cars whose boxes
+converge (both tracks 30 sightings old) and a car leaving at the picture's
+edge; no ground truth exists for the sequence, so these figures compare
+the tracker with itself, not with truth. `tests/vision_track_test.c` holds
+each rule (a mutant of each is caught) and every earlier one.
+
+### Speed
+
+Unchanged in substance, now in SETUP: the speed is the distance between
+the two speed lines over the time between a track's two crossings; only
+the two timestamps and the configured distance make a speed, never how
+fast a box moves on the picture. The distance must be measured on the
+ground by the owner; the screen shows it with every speed.
+
+## READ (text, feat/vision-next)
+
+READ finds lines of printed text in the picture and reads them, on the
+unit, with nothing sent anywhere. Each line gets a box and its words on
+the picture; the words of every line, in reading order, stand under or
+beside the picture; LINES and SURE (the mean confidence) are the counters.
+HOLD keeps the last read on the screen while the camera moves on (READ
+again goes back to live reading).
+
+**Pipeline** (helper, `read_text()` in `tools/vision/pos_vision.c`): at
+most one read every 600 ms, the preview going on between reads. The
+upright picture goes to a DB-style text detector (a probability map), the
+map is grouped into regions (`core/pocketvision/vision_text.c`: a grid of
+at most 256 cells a side, 4-connected, threshold 0.3, box score 0.5, each
+box grown by the DB unclip rule, reading order), and each of the six
+surest regions, grown by a margin of a third of its height at each end
+(less cut off the first and last characters), is cropped by AI2D straight
+into a CTC recogniser; greedy CTC decoding with the dictionary's last
+class as the blank. The line's text is sent percent-encoded; the app
+shows characters outside ASCII as `?` because the UI font carries no
+others. No word breaks: the recogniser's dictionary has no space, and a
+gap heuristic was tried and dropped as unreliable.
+
+**Models: not in the image and not in this repository.** READ is offered
+only when all three files exist:
+
+| File (default path, override) | Tried with | Shape (VERIFIED on unit B) | Size, time |
+| --- | --- | --- | --- |
+| `/usr/share/doors/vision/text_det.kmodel` (`POCKETOS_VISION_TEXT_DET`) | the canmv SDK's `ai_poc/kmodel/ocr_det.kmodel`, sha256 `b8a71660…7b79fc` | u8 `[1,3,512,512]` -> f32 `[1,512,512,2]` | 2,958,504 B, 84-109 ms |
+| `/usr/share/doors/vision/text_rec.kmodel` (`POCKETOS_VISION_TEXT_REC`) | `ai_poc/kmodel/ocr_rec_int16.kmodel`, sha256 `7a307f86…aa8648c` | u8 `[1,3,32,512]` -> f32 `[128,1,6549]` | 13,008,216 B, ~67 ms a line |
+| `/usr/share/doors/vision/text_dict.txt` (`POCKETOS_VISION_TEXT_DICT`) | `ai_poc/utils/dict_ocr.txt`, sha256 `8288453b…a74c8fb` | 6549 entries, one a line; the blank is the class after the last | 32,521 B |
+
+The pairing matters: the SDK's other recogniser, `ocr_rec.kmodel`
+(`[1,152,6625]`), does not match this dictionary and reads garbage. The
+architecture is ASSUMED to be PaddleOCR's (DB detector, CRNN/SVTR-style
+recogniser with CTC; Apache-2.0 upstream), from the shapes and the
+dictionary; the SDK states neither the source weights nor the conversion
+settings, and carries **no licence statement** for these files. They are
+therefore not embedded or packaged (docs/LICENSING.md item 11); for the
+gate they were linked into place on unit B from `/tmp`.
+
+**Measured on unit B** (2026-09-29, KPU): a five-line read of a printed
+sign picture 480-540 ms end to end (detector ~100 ms, ~67 ms per line);
+through the app, helper 20-33 % CPU (one core of two), shell unchanged,
+CMA back to its idle level after close (the text nets release the KPU
+memory pool when the last net closes - an earlier build leaked it, fixed
+before this gate). Results: `EXIT12`, `SERIALNO4711-AB`, `DOORS`, `K230`,
+`Parking08-18` from the sign picture (SURE 98 %); the vendor's Chinese test
+photo read exactly (shown as `?`); the live camera in a dark room reads
+nothing and says so. Missing models: READ is not in the picker. A model
+that fails to load: `readfail`, and the screen says "Cannot read:" with the reason.
+
+### Replay (recorded pictures)
+
+For checking a mode on the real display and KPU with a known scene, the
+helper can play PPM pictures (P6, 8-bit) instead of the camera:
+`POCKETOS_CAMERA_BACKEND=image` and `POCKETOS_VISION_CAMERA_CONFIG=` a
+comma-separated list of files, each shown for `POCKETOS_VISION_REPLAY_MS`
+(default 100). The picture is shown as it is (never turned), labelled
+SIMULATED, and every mode runs on it. A list that does not load is
+`nodevice`. The shell passes its environment through, so on a unit the
+two lines go in `/etc/default/doors-shell` for as long as the check runs.
+
+## FACE (feat/vision-next)
+
+FACE boxes every face in the picture with an id and a confidence
+("#3 face 97%"); FACES counts the faces on screen, SEEN the faces that got
+an id since FACE began or since RESET (a face counts once, when the
+tracker confirms it). It finds faces; it does not say whose they are
+(RECOGNIZE would).
+
+**Pipeline** (helper, `detect_faces()` in `tools/vision/pos_vision.c`,
+every frame, instead of the object detector): the upright picture is
+letterboxed into the model's 320 x 320 input, padded right and below (the
+vendor's `padding_resize_one_side`; one pad value, 117, where the vendor
+pads 104/117/123 per channel), and the nine outputs are decoded by
+`core/pocketvision/vision_face.c`: RetinaFace's anchors (strides 8/16/32,
+sizes 16/32, 64/128, 256/512, computed, checked against the vendor's own
+table), variances 0.1/0.2, the face score the softmax of two logits,
+threshold 0.6 and overlap 0.2 as the vendor demo runs it, at most 128
+candidates and 16 faces, five points per face (kept for RECOGNIZE's
+alignment). The faces go through the same tracker as TRACK (ids, the same
+parameters as NORMAL) and to the app on the ordinary `det` line with
+class 0; the app labels FACE's boxes "face". A model that does not load
+or has the wrong outputs: `facefail`, and the screen says "Cannot find
+faces:" with the reason. Nothing runs on the LVGL thread.
+
+**Model: in the image, not packaged by Doors.** The vendor's `ai_demo`
+package installs `/root/app/face_detect/face_detection_320.kmodel`
+(584,576 bytes, md5 `3dc05ac1…04bb`; the demo's README: RetinaFace on a
+0.25 MobileNet). FACE reads `/usr/share/doors/vision/face_det.kmodel`
+(override `POCKETOS_VISION_FACE_DET`) and is offered only when it is
+there; for the gate it was a link to the vendor's file. The SDK states no
+licence for the kmodel (docs/LICENSING.md item 11).
+
+| | Shape (VERIFIED on unit B) |
+| --- | --- |
+| input | u8 `[1,3,320,320]` |
+| outputs 0-2 | f32 `[1,8,40,40]` `[1,8,20,20]` `[1,8,10,10]` (boxes) |
+| outputs 3-5 | f32 `[1,4,40,40]` `[1,4,20,20]` `[1,4,10,10]` (scores) |
+| outputs 6-8 | f32 `[1,20,40,40]` `[1,20,20,20]` `[1,20,10,10]` (points) |
+
+**Measured on unit B** (2026-09-29): KPU 3-16 ms a frame (the first runs
+slower), decode under 1 ms; live camera 29.9 fps (the camera's rate),
+helper 15-22 % CPU, 6 MB; shell unchanged; CMA back to its level after
+close. A crowd photo (vendor test picture, cover-cropped to 640 x 360):
+16 faces, 73-99 %, the bound reached (the decoder keeps the surest 16;
+the picture holds about twenty). A portrait: one face,
+99 %. The live camera in a dark room: FACES 0. Not yet measured: live
+faces in front of the unit (the gate ran at night in a dark room).
+
+## RECOGNIZE (owner recognition, feat/vision-next)
+
+RECOGNIZE is FACE plus one question per face: is this the owner? ENROL
+takes five views of the one face in view (it waits while there are two)
+and keeps them, averaged, as the owner; after that each face's box says
+"OWNER 91%" or "unknown 48%" (the figure is the similarity, not the
+detector's confidence), OWNER: HERE / - says whether the owner is in view,
+and FORGET - tapped twice within four seconds, the first tap turning it
+into SURE? - removes the owner from the unit. Everything happens in the
+helper, on the unit: no picture, face or number leaves it, and the LVGL
+thread only draws the words the helper sends.
+
+**Pipeline** (helper, `recognise()` in `tools/vision/pos_vision.c`): the
+FACE pipeline every frame; at most every 250 ms a recognition round
+embeds up to three faces - those never scored first, then those scored
+longest ago, larger first among equals, so every face of a group is
+looked at in turn - skipping faces under 32 picture pixels (too small to
+say anything). Each face's five points are aligned onto the 112 x 112
+template (`core/pocketvision/vision_embed.c`: the least-squares similarity
+to the vendor demo's ArcFace reference points, tested against known
+transforms) and warped by the AI2D engine's affine
+(`vision_net_run_affine`); the 512 values come back made unit length and
+are compared with the owner by the vendor's score, 50 + 50 x cosine, the
+owner from 75 up (the vendor demo's threshold). A score belongs to its
+track; the table follows the tracker.
+
+**The owner on the unit:** `$POCKETOS_STATE_DIR/vision/owner.v1` (default
+`/var/lib/pocketos/vision/`), 0600 in a 0700 directory, written atomically
+by the helper: the model's file name and size, the vector's length, the
+number of views and the averaged unit vector (512 numbers, about 6 KB).
+It is a biometric template of the owner's face; it stays on the unit and
+FORGET deletes it. A profile made with another model (other name or size)
+is not used. Protocol: `mode recognize`, `enrol`, `enrol off`, `forget`;
+the helper says `owner HAVE VIEWS`, `enrol K N`, `enrolfail WHY`,
+`recogfail WHY` and `who SEQ FACES N ID:SCORE:OWNER...`.
+
+**Model: not in the image and not in this repository.** RECOGNIZE is
+offered only when FACE's detector and
+`/usr/share/doors/vision/face_embed.kmodel` (override
+`POCKETOS_VISION_FACE_EMBED`) are both there. Tried with the canmv SDK's
+`ai_poc/kmodel/face_recognition.kmodel` (46,333,280 bytes, sha256
+`2409a30f…78218472`; u8 `[1,3,112,112]` -> f32 `[1,512]`, VERIFIED on
+unit B), the model the vendor's `ai_demo/face_verification` pairs with the
+same face detector, whose pre- and post-processing this follows. The SDK
+states neither its source weights nor its licence (docs/LICENSING.md item
+11); it was linked from `/tmp` for the gate. The SDK's other face model,
+`door_lock/mbface.kmodel`, has no code in the SDK saying how it is fed,
+and was not used.
+
+**Judged on pictures before use** (unit B, `pos-vision embed`, KPU): the
+vendor's own verification pair - an ID-card photo and a selfie of the same
+man, years and glasses apart - 82; a portrait and its mirror image 96 and
+98; three different women 46-56; 16 different people of a crowd photo, 120
+pairs, 46-68, none over 75. So on this (small) set the threshold separates
+the same person from others with a margin of 7 on each side; it is not a
+benchmark, and no live face was tried.
+
+**Through the app on unit B** (recorded pictures, backend `image`,
+2026-09-30): ENROL by touch on the selfie (five views, a round every 250 ms; the
+file 0600 in 0700), the selfie then "OWNER 100%" (the same picture), the
+ID photo "OWNER 81%", a different woman "unknown 53%", the crowd 12 faces
+"unknown" 46-56 % and four under 32 px left as "face"; FORGET by two taps
+removed the file. Embedding 37-39 ms a face; with the 46 MB model loaded
+the helper takes about 40 MB more CMA and memory while RECOGNIZE is open,
+all of it back after close; helper 6-7 % CPU on a replay at 10 frames a
+second. Not measured: enrolment and recognition of a live face through the
+camera (the gate ran at night with nobody at the unit), and how the score
+behaves with light, distance and angle.
+
+## LOOK (object identification): not done
+
+Asked for last, and only on top of stable earlier work. It was not built,
+for want of a model rather than of time: the pinned SDKs carry no
+general-purpose classifier (nothing ImageNet-like) with a known source.
+What they have is narrow - `flower_rec` (102 flowers), `veg_cls` (6
+vegetables), and `recognition.kmodel` / `embedding.kmodel`, the feature
+extractors of the canmv "self-learning" demo, which learns objects it is
+shown and matches them later (a centre crop to 224 x 224, 512 values,
+cosine against stored views, threshold 0.5). DETECT already names the 80
+COCO classes. A "teach it an object, then it knows it" mode could be built
+on RECOGNIZE's parts (the nets, unit vectors, a stored profile) with
+`recognition.kmodel`, but it is a different feature from "what is this?",
+it needs a decision on how taught objects are named on a unit without a
+keyboard, and the model's licence is as open as the others' (item 11); it
+is left for the owner to ask for.
+
 ## What it does
 
 - **DETECT.** Opening the app starts the camera and loads the model. The
@@ -66,12 +449,11 @@ PROPOSED).
 
 ## What it is not
 
-No OCR, segmentation, pose, faces, recognition of people, recording,
-network or cloud. No settings: one model, one input size, one confidence
-threshold (0.35, the vendor's default), the lines in a few fixed places,
-the distance from a short list. Nothing is stored: the counts and speeds
-live as long as the screen is open. No speed is ever inferred from how
-fast a box moves on the picture.
+No segmentation, pose, recording, network or cloud. The lines are in a few
+fixed places and the distance from a short list. The choices are stored
+(above); the counts and speeds are not: they live as long as the screen
+is open. No speed is ever inferred from how fast a box moves on the
+picture.
 
 ## Traffic mode
 
@@ -278,19 +660,20 @@ picture pixels, so the app draws them with no geometry of its own.
 
 `core/pocketvision/pocketvision_proto.h` is the reference (version 2).
 Commands: `view w h rotation`, `start`, `stop`, `release slot`,
-`mode detect|traffic|color|edge|trace`, `line x0 y0 x1 y1` (per-mille of
+`mode detect|track|traffic|color|edge|trace`, `line x0 y0 x1 y1` (per-mille of
 the view) or `line off`, `speed ax0 ay0 ax1 ay1 bx0 by0 bx1 by1` or
-`speed off`, `distance cm`, `color r g b` or `color off`, `sample x y`,
+`speed off`, `distance cm`, `range near|normal|far`, `color r g b` or `color off`, `sample x y`,
 `tol n`, `edge threshold`, `trace dark|light`, `reset`, `quit`. Events:
 `color r g b matched_pm cx cy`, `edge strong_pm`,
 `trace found offset_pm slope_pm rows` (the pixel modes, with every
 preview), `hello`,
-`ready camera pw ph simulated model in_w in_h classes`, `nodevice`,
+`ready camera pw ph simulated model in_w in_h classes`, `caps mode...`, `nodevice`,
 `nomodel`, `error what text`, `frame slot seq w h`,
 `det seq n id:cls:conf:x:y:w:h:dir:kmh10...` (dir 0 none, 1 left, 2
 right, 3 up, 4 down on the picture; kmh10 the speed measured on that
 track or 0), `count ab ba`,
 `traffic ab ba cur last max mean n rejected c0ab:c0ba ... c5ab:c5ba`,
+`recent window_s crossed ab ba c0 .. c5 speeds mean_kmh10 saturated`,
 `stats fps_x10 infer_ms pre_ms post_ms cpu_pct rss_kb bad dropped`,
 `malformed n`, `stall ms`, `stopped`, `lost`, `bye`.
 
@@ -423,6 +806,21 @@ Host only; none needs unit A. `make vision-test` runs them all,
   script, a missing helper, a camera that goes away, a hung helper killed
   by the watchdog, a crashing one; thirty opens and closes with no
   descriptor or child left behind.
+- `tests/vision_settings_test.c`: the defaults; every key written and
+  read back; TRACK's and TRAFFIC's lines apart; every refusal (an unknown
+  mode, a distance off the list or with junk after it, bools that are not
+  0/1, an orientation of off, an overlong line) leaving its default with
+  the rest read; fields out of range put back; the store on a scratch
+  state directory (0600 file, 0700 directory, no temporary left, a damaged
+  value, an oversized file).
+- `tests/vision_model_test.c` also holds the picker (groups, what caps
+  offer, choosing, a stored mode the helper cannot run), TRAFFIC's setup
+  (every cell, the distance both ways, the sheet closing on an error), the
+  settings each tap stores, and the sheet on both reference pictures.
+- `tests/vision_shell_test.sh` (needs `SHELL_BIN`): the real shell opening
+  Vision in both orientations on the fake camera and detector, the picker
+  and the setup covering the picture, a stored mode obeyed, a damaged one
+  falling back, and nothing written by merely opening.
 - `tests/pocketcam_test.c` gains the planar BGR format (three checks).
 - `tests/vision_lint.sh` holds the boundaries: no LVGL below the screen,
   no camera or detector in the app, nncase in one file behind a C

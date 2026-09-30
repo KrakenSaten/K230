@@ -76,6 +76,7 @@ struct deskbuddy_app {
     struct db_guard_log log;
     struct db_vision_queue queue;
     struct db_vision_provider provider;
+    struct db_vision_pipeline_cfg pipeline_cfg;
     struct db_vision_mock mock;
     int64_t provider_next;       /* -1: nothing scheduled */
     bool sim;                    /* $DESKBUDDY_SIM: scripted vision, dev keys, nothing saved */
@@ -810,14 +811,21 @@ static void build(struct deskbuddy_app *a, lv_obj_t *body)
     pos_input_focus(a->root);
 }
 
-/* The provider: the script in $DESKBUDDY_SIM, or none. "keys" gives the
- * developer keys with nothing scripted. */
+/* The provider: the script in $DESKBUDDY_SIM ("keys" gives the developer
+ * keys with nothing scripted); otherwise the Vision pipeline - the camera
+ * and the KPU in Vision's helper - unless $DESKBUDDY_VISION is "none". */
 static void start_provider(struct deskbuddy_app *a, int64_t now)
 {
     const char *sim = getenv("DESKBUDDY_SIM");
+    const char *vision = getenv("DESKBUDDY_VISION");
 
     a->provider.ops = &db_vision_none_ops;
     a->provider.ctx = NULL;
+    if (!(sim && *sim) && !(vision && strcmp(vision, "none") == 0)) {
+        a->pipeline_cfg.display_rotation = pos_rotation_degrees(pocketui_display_geometry()->rotation);
+        a->provider.ops = &db_vision_pipeline_ops;
+        a->provider.ctx = &a->pipeline_cfg;
+    }
     if (sim && *sim) {
         a->sim = true;
         if (strcmp(sim, "keys") == 0 || db_vision_mock_load(&a->mock, sim) > 0) {

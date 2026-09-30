@@ -5,6 +5,7 @@
  */
 #define _GNU_SOURCE
 #include "vision_session.h"
+#include "vision_settings.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -141,6 +142,97 @@ static const char *rest(const char *line, int words)
     return p;
 }
 
+static int hexval(char c)
+{
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    return -1;
+}
+
+/* A percent-encoded word (up to a space or the end) into out; the input
+ * moved past it. 0, or -1 for a broken escape, a control byte, or text too
+ * long for out. */
+static int unpct(const char **pp, char *out, size_t len)
+{
+    const char *p = *pp;
+    size_t o = 0;
+
+    while (*p && *p != ' ') {
+        int c;
+
+        if (*p == '%') {
+            int h = hexval(p[1]);
+            int l = h >= 0 ? hexval(p[2]) : -1;
+
+            if (h < 0 || l < 0) {
+                return -1;
+            }
+            c = h * 16 + l;
+            p += 3;
+        } else {
+            c = (unsigned char)*p++;
+        }
+        if (c < 0x20 || c == 0x7f || o + 1 >= len) {
+            return -1;
+        }
+        out[o++] = (char)c;
+    }
+    out[o] = '\0';
+    *pp = p;
+    return 0;
+}
+
+static int parse_text(struct vision_session *s, const char *line)
+{
+    struct vision_text_report t;
+    unsigned seq;
+    int n;
+    int used = 0;
+    const char *p;
+    int i;
+
+    memset(&t, 0, sizeof(t));
+    if (sscanf(line, "text %u %d%n", &seq, &n, &used) != 2 || n < 0 || n > VISION_TEXT_LINES) {
+        return 0;
+    }
+    p = line + used;
+    for (i = 0; i < n; i++) {
+        struct vision_text_line *l = &t.line[i];
+        unsigned conf;
+        int u = 0;
+
+        if (sscanf(p, " %d:%d:%d:%d:%u:%n", &l->x, &l->y, &l->w, &l->h, &conf, &u) != 5 || u == 0 ||
+            conf > VISION_CONF_SCALE || l->w <= 0 || l->h <= 0 || l->x < 0 || l->y < 0 ||
+            l->x + l->w > (int)POCKETCAM_VIEW_MAX_W || l->y + l->h > (int)POCKETCAM_VIEW_MAX_H) {
+            return 0;
+        }
+        l->conf = (uint16_t)conf;
+        p += u;
+        if (unpct(&p, l->text, sizeof(l->text)) != 0) {
+            return 0;
+        }
+    }
+    while (*p == ' ') {
+        p++;
+    }
+    if (*p) {
+        return 0;
+    }
+    t.seq = seq;
+    t.n = n;
+    if (s) {
+        s->text = t;
+    }
+    return 1;
+}
+
 static int parse_det(struct vision_session *s, const char *line)
 {
     unsigned seq;
@@ -229,6 +321,38 @@ int vision_session_parse_line(struct vision_session *s, const char *line, struct
         ev->value = (int)c;
         return 1;
     }
+    if (strncmp(line, "caps", 4) == 0 && (line[4] == ' ' || line[4] == '\0')) {
+        /* The modes this helper can run, by their words; a word this build
+         * does not know is a mode of a newer helper, and is skipped. */
+        const char *p = line + 4;
+        uint32_t mask = 0;
+
+        while (*p) {
+            char word[16];
+            size_t n;
+            int m;
+
+            while (*p == ' ') {
+                p++;
+            }
+            n = strcspn(p, " ");
+            if (n == 0) {
+                break;
+            }
+            if (n < sizeof(word)) {
+                memcpy(word, p, n);
+                word[n] = '\0';
+                m = vision_mode_parse(word);
+                if (m >= 0) {
+                    mask |= 1u << m;
+                }
+            }
+            p += n;
+        }
+        ev->kind = VISION_EV_CAPS;
+        ev->value = (int)mask;
+        return 1;
+    }
     if (strncmp(line, "frame ", 6) == 0) {
         if (sscanf(line, "frame %u %u %u %u", &a, &b, &c, &d) != 4 || a >= POCKETCAM_PREVIEW_SLOTS ||
             c == 0 || d == 0 || c > POCKETCAM_VIEW_MAX_W || d > POCKETCAM_VIEW_MAX_H) {
@@ -291,6 +415,116 @@ int vision_session_parse_line(struct vision_session *s, const char *line, struct
         ev->kind = VISION_EV_TRAFFIC;
         if (s) {
             s->traffic = t;
+        }
+        return 1;
+    }
+    if (strncmp(line, "text ", 5) == 0) {
+        if (!parse_text(s, line)) {
+            return 0;
+        }
+        ev->kind = VISION_EV_TEXT;
+        return 1;
+    }
+    if (strncmp(line, "facefail", 8) == 0) {
+        ev->kind = VISION_EV_FACEFAIL;
+        snprintf(ev->text, sizeof(ev->text), "%s", rest(line, 1));
+        return 1;
+    }
+    if (strncmp(line, "recogfail", 9) == 0) {
+        ev->kind = VISION_EV_RECOGFAIL;
+        snprintf(ev->text, sizeof(ev->text), "%s", rest(line, 1));
+        return 1;
+    }
+    if (strncmp(line, "enrolfail", 9) == 0) {
+        ev->kind = VISION_EV_ENROLFAIL;
+        snprintf(ev->text, sizeof(ev->text), "%s", rest(line, 1));
+        return 1;
+    }
+    if (strncmp(line, "enrol ", 6) == 0) {
+        unsigned k;
+        unsigned n;
+        char tail;
+
+        if (sscanf(line, "enrol %u %u%c", &k, &n, &tail) != 2 || n == 0 || n > 100 || k > n) {
+            return 0;
+        }
+        ev->kind = VISION_EV_ENROL;
+        ev->w = k;
+        ev->h = n;
+        return 1;
+    }
+    if (strncmp(line, "owner ", 6) == 0) {
+        int have;
+        unsigned views;
+        char tail;
+
+        if (sscanf(line, "owner %d %u%c", &have, &views, &tail) != 2 || (have != 0 && have != 1) || views > 1000) {
+            return 0;
+        }
+        ev->kind = VISION_EV_OWNER;
+        ev->value = have;
+        ev->w = views;
+        return 1;
+    }
+    if (strncmp(line, "who ", 4) == 0) {
+        struct vision_who_report t;
+        const char *p;
+        int used = 0;
+        int i;
+
+        memset(&t, 0, sizeof(t));
+        if (sscanf(line, "who %u %d %d%n", &t.seq, &t.faces, &t.n, &used) != 3 || used == 0 || t.faces < 0 ||
+            t.faces > 1000 || t.n < 0 || t.n > VISION_WHO_MAX) {
+            return 0;
+        }
+        p = line + used;
+        for (i = 0; i < t.n; i++) {
+            unsigned id;
+            unsigned score;
+            int flag;
+            int k = 0;
+
+            if (sscanf(p, " %u:%u:%d%n", &id, &score, &flag, &k) != 3 || k == 0 || id == 0 || score > 1000 ||
+                (flag != 0 && flag != 1)) {
+                return 0;
+            }
+            t.t[i].id = id;
+            t.t[i].score = (uint16_t)score;
+            t.t[i].owner = flag == 1;
+            p += k;
+        }
+        if (*p) {
+            return 0;
+        }
+        ev->kind = VISION_EV_WHO;
+        ev->value = (int)t.seq;
+        if (s) {
+            s->who = t;
+        }
+        return 1;
+    }
+    if (strncmp(line, "readfail", 8) == 0) {
+        ev->kind = VISION_EV_READFAIL;
+        snprintf(ev->text, sizeof(ev->text), "%s", rest(line, 1));
+        return 1;
+    }
+    if (strncmp(line, "recent ", 7) == 0) {
+        struct vision_recent_report t;
+        int sat;
+        int used = 0;
+
+        memset(&t, 0, sizeof(t));
+        if (sscanf(line, "recent %u %u %u %u %u %u %u %u %u %u %u %u %d%n", &t.window_s, &t.crossed, &t.ab, &t.ba,
+                   &t.cls[0], &t.cls[1], &t.cls[2], &t.cls[3], &t.cls[4], &t.cls[5], &t.speeds, &t.mean_kmh10, &sat,
+                   &used) != 13 ||
+            line[used] != '\0' || (sat != 0 && sat != 1) || t.window_s == 0 || t.ab + t.ba != t.crossed ||
+            t.mean_kmh10 > VISION_KMH10_MAX || (t.speeds == 0 && t.mean_kmh10 != 0)) {
+            return 0;
+        }
+        t.saturated = sat == 1;
+        ev->kind = VISION_EV_RECENT;
+        if (s) {
+            s->recent = t;
         }
         return 1;
     }
@@ -837,6 +1071,14 @@ int vision_session_distance(struct vision_session *s, uint32_t cm)
     return send_line(s, "distance %u", cm);
 }
 
+int vision_session_range(struct vision_session *s, const char *word)
+{
+    if (!word || (strcmp(word, "near") != 0 && strcmp(word, "normal") != 0 && strcmp(word, "far") != 0)) {
+        return -1;
+    }
+    return send_line(s, "range %s", word);
+}
+
 int vision_session_mode(struct vision_session *s, bool traffic)
 {
     return send_line(s, "mode %s", traffic ? "traffic" : "detect");
@@ -848,6 +1090,16 @@ int vision_session_mode_word(struct vision_session *s, const char *word)
         return -1;
     }
     return send_line(s, "mode %s", word);
+}
+
+int vision_session_enrol(struct vision_session *s, bool on)
+{
+    return on ? send_line(s, "enrol") : send_line(s, "enrol off");
+}
+
+int vision_session_forget(struct vision_session *s)
+{
+    return send_line(s, "forget");
 }
 
 int vision_session_color(struct vision_session *s, const uint8_t rgb[3])
@@ -935,6 +1187,21 @@ void vision_session_counts(const struct vision_session *s, uint32_t *ab, uint32_
 const struct vision_traffic_report *vision_session_traffic(const struct vision_session *s)
 {
     return &s->traffic;
+}
+
+const struct vision_recent_report *vision_session_recent(const struct vision_session *s)
+{
+    return &s->recent;
+}
+
+const struct vision_text_report *vision_session_text(const struct vision_session *s)
+{
+    return &s->text;
+}
+
+const struct vision_who_report *vision_session_who(const struct vision_session *s)
+{
+    return &s->who;
 }
 
 const struct vision_pixel_report *vision_session_pixels(const struct vision_session *s)

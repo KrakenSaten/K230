@@ -229,3 +229,13 @@ Findings:
     source obligation for a model whose exact weights and conversion are
     unpublished, and Ultralytics' broader reading of what its licence covers.
     Doors' own licence (item 1) blocks such distribution anyway.
+11. **Vision's optional models (feat/vision-next, docs/apps/VISION.md):**
+    READ's text detector, recogniser and dictionary and RECOGNIZE's face
+    embedding model (`face_recognition.kmodel`) come from the canmv SDK's
+    `src/rtsmart/libs/kmodel/` trees, and FACE's detector is the vendor
+    `ai_demo` package's `face_detection_320.kmodel` the image already
+    carries; none has a licence statement, and the SDK publishes neither
+    their source weights nor their conversion. They are
+    **neither committed nor packaged**: the helper reads them from
+    `/usr/share/doors/vision/` when they are there and offers the mode only
+    then. Packaging any of them needs the terms settled first, as for item 10.

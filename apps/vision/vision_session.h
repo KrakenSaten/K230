@@ -42,6 +42,7 @@
 
 enum vision_ev_kind {
     VISION_EV_READY,     /* text = camera name, name = model, w x h = preview, value = classes */
+    VISION_EV_CAPS,      /* value = a bit per enum vision_mode (vision_settings.h) the helper can run */
     VISION_EV_NODEVICE,  /* text */
     VISION_EV_NOMODEL,   /* text */
     VISION_EV_ERROR,     /* text = "<what> <text>" */
@@ -49,6 +50,15 @@ enum vision_ev_kind {
     VISION_EV_DET,       /* the tracks after frame value=seq: vision_session_tracks() */
     VISION_EV_COUNT,     /* counts changed: vision_session_counts() */
     VISION_EV_TRAFFIC,   /* the traffic report changed: vision_session_traffic() */
+    VISION_EV_RECENT,    /* the recent statistics: vision_session_recent() */
+    VISION_EV_TEXT,      /* READ read the picture: vision_session_text() */
+    VISION_EV_READFAIL,  /* READ cannot read: text says why */
+    VISION_EV_FACEFAIL,  /* FACE cannot look: text says why */
+    VISION_EV_WHO,       /* RECOGNIZE scored the faces: vision_session_who() */
+    VISION_EV_OWNER,     /* value = 1 when an owner is enrolled, w = its views */
+    VISION_EV_ENROL,     /* enrolment: w views of h taken */
+    VISION_EV_ENROLFAIL, /* enrolment gave up: text says why */
+    VISION_EV_RECOGFAIL, /* RECOGNIZE cannot compare faces: text says why */
     VISION_EV_COLOR,     /* a COLOR pass: vision_session_pixels()->color */
     VISION_EV_EDGE,      /* an EDGE pass: ->edge_pm */
     VISION_EV_TRACE,     /* a TRACE pass: ->trace */
@@ -103,6 +113,53 @@ struct vision_traffic_report {
     uint32_t rejected;
     uint32_t cls_ab[VISION_PROTO_TRAFFIC_CLASSES];
     uint32_t cls_ba[VISION_PROTO_TRAFFIC_CLASSES];
+};
+
+/* What the helper's `recent` line said: TRAFFIC over the last window
+ * (core/pocketvision/vision_window.h). */
+struct vision_recent_report {
+    uint32_t window_s;
+    uint32_t crossed;
+    uint32_t ab;          /* IN */
+    uint32_t ba;          /* OUT */
+    uint32_t cls[VISION_PROTO_TRAFFIC_CLASSES];
+    uint32_t speeds;      /* measurements in the window */
+    uint32_t mean_kmh10;
+    bool saturated;       /* more happened than the window holds: it covers less */
+};
+
+/* What the helper's `text` line said: the lines READ found and read. */
+#define VISION_TEXT_LINES 8
+#define VISION_TEXT_BYTES 48
+
+struct vision_text_line {
+    int32_t x;            /* in view pixels */
+    int32_t y;
+    int32_t w;
+    int32_t h;
+    uint16_t conf;        /* per-mille */
+    char text[VISION_TEXT_BYTES]; /* UTF-8, decoded */
+};
+
+struct vision_text_report {
+    uint32_t seq;
+    int n;
+    struct vision_text_line line[VISION_TEXT_LINES];
+};
+
+/* What RECOGNIZE's `who` line said: each scored track's id, its score
+ * against the owner (per-mille, the vendor's 500 + 500 x cosine) and
+ * whether that is the owner. */
+#define VISION_WHO_MAX 16
+struct vision_who_report {
+    uint32_t seq;
+    int faces;            /* faces found on that frame */
+    int n;
+    struct {
+        uint32_t id;
+        uint16_t score;
+        bool owner;
+    } t[VISION_WHO_MAX];
 };
 
 /* What the pixel modes' lines said (color, edge, trace). */
@@ -175,6 +232,9 @@ struct vision_session {
     uint32_t count_ab;
     uint32_t count_ba;
     struct vision_traffic_report traffic;
+    struct vision_recent_report recent;
+    struct vision_text_report text;
+    struct vision_who_report who;
     struct vision_pixel_report pixels;
     struct vision_stats stats;
 
@@ -202,10 +262,16 @@ int vision_session_line(struct vision_session *s, const int32_t pm[4]);
 int vision_session_speed_lines(struct vision_session *s, const int32_t pm[8]);
 /* The ground distance between the speed lines. */
 int vision_session_distance(struct vision_session *s, uint32_t cm);
+/* TRAFFIC's detection range by its word: near, normal, far. */
+int vision_session_range(struct vision_session *s, const char *word);
 /* Traffic mode on or off. */
 int vision_session_mode(struct vision_session *s, bool traffic);
 /* The mode by its protocol word: detect, traffic, color, edge, trace. */
 int vision_session_mode_word(struct vision_session *s, const char *word);
+/* RECOGNIZE: enrol the one face in view as the owner (off: give up), or
+ * forget the owner. */
+int vision_session_enrol(struct vision_session *s, bool on);
+int vision_session_forget(struct vision_session *s);
 /* COLOR: the target colour (NULL: none), a sample at a view point, the
  * tolerance; EDGE: the threshold (0 grey); TRACE: a dark or a light line. */
 int vision_session_color(struct vision_session *s, const uint8_t rgb[3]);
@@ -226,6 +292,9 @@ const struct vision_shown *vision_session_tracks(const struct vision_session *s,
                                                  uint32_t *seq);
 void vision_session_counts(const struct vision_session *s, uint32_t *ab, uint32_t *ba);
 const struct vision_traffic_report *vision_session_traffic(const struct vision_session *s);
+const struct vision_recent_report *vision_session_recent(const struct vision_session *s);
+const struct vision_text_report *vision_session_text(const struct vision_session *s);
+const struct vision_who_report *vision_session_who(const struct vision_session *s);
 const struct vision_pixel_report *vision_session_pixels(const struct vision_session *s);
 const struct vision_stats *vision_session_stats(const struct vision_session *s);
 

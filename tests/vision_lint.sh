@@ -14,19 +14,19 @@ A=apps/vision
 C=core/pocketvision
 H=tools/vision/pos_vision.c
 APP=$A/vision_app.c
-CORE="$C/vision_decode.c $C/vision_nms.c $C/vision_track.c $C/vision_line.c $C/vision_traffic.c $C/vision_geom.c $C/vision_labels.c $C/vision_pixels.c"
+CORE="$C/vision_decode.c $C/vision_nms.c $C/vision_track.c $C/vision_line.c $C/vision_traffic.c $C/vision_geom.c $C/vision_labels.c $C/vision_pixels.c $C/vision_range.c $C/vision_window.c $C/vision_text.c $C/vision_face.c $C/vision_embed.c"
 
 # ---- layering ------------------------------------------------------------------
 hits=$(grep -lE 'lvgl|lv_obj|lv_label|lv_timer|lv_image' $C/*.[ch] $C/*.cpp $H $A/vision_model.[ch] \
-       $A/vision_layout.[ch] $A/vision_session.[ch] 2>/dev/null)
-check "the pipeline, the helper, the model, the layout and the session are free of LVGL" \
+       $A/vision_layout.[ch] $A/vision_session.[ch] $A/vision_settings.[ch] $A/vision_store.[ch] $A/vision_trails.[ch] 2>/dev/null)
+check "the pipeline, the helper, the model, the layout, the session, the settings and the store are free of LVGL" \
     "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits"
 hits=$(code $A/*.c $A/*.h | grep -nE '/dev/video|videodev2|VIDIOC|ioctl\(|pocketcam_(open|start|next|still)\b|pocketcam\.h|vision_kpu|nncase|kmodel_')
 check "the app never names a video device, V4L2, a backend call or the detector" \
     "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
-hits=$(grep -nE 'pocketcam\.c|pocketcam_fake|pocketcam_convert|pocketcam_v4l2|vision_kpu|vision_decode|vision_nms|vision_track|vision_line|vision_geom|nncase|Nncase|functional_k230|mmz' ui/shell/CMakeLists.txt)
+hits=$(grep -nE 'pocketcam\.c|pocketcam_fake|pocketcam_convert|pocketcam_v4l2|vision_kpu|vision_decode|vision_nms|vision_track|vision_line|vision_geom|vision_range\.c|vision_window|nncase|Nncase|functional_k230|mmz' ui/shell/CMakeLists.txt)
 check "the shell links no camera backend, converter, detector or pipeline stage" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -3
 hits=$(for f in $(find apps core tools ui services -name '*.c' -o -name '*.cpp' -o -name '*.h' 2>/dev/null); do
@@ -36,17 +36,28 @@ check "nncase is spoken in vision_kpu_nncase.cpp and nowhere else" "$([ -z "$hit
 [ -n "$hits" ] && echo "$hits"
 check "and only through the C interface (no nncase type in vision_kpu.h)" \
     "$(code $C/vision_kpu.h | grep -qE 'nncase|runtime_tensor|interpreter' && echo 0 || echo 1)"
-hits=$(code $CORE | grep -nE '#include <(stdio|unistd|fcntl|sys/|time|pthread)\.h>|\b(malloc|calloc|realloc|free|fopen|open|read|write|clock_gettime|time)\(')
+# vision_embed.c formats the owner's text form with snprintf (stdio.h), and
+# may use nothing else of it.
+hits=$(code $CORE | grep -nE '#include <(stdio|unistd|fcntl|sys/|time|pthread)\.h>|\b(malloc|calloc|realloc|free|fopen|open|read|write|clock_gettime|time)\(|\b(f?printf|puts|fputs|fgets|fread|fwrite|getc|putc|perror)\(' |
+       grep -vE "^[0-9]+:$C/vision_embed.c:#include <stdio.h>")
 check "the pipeline core allocates nothing, reads no clock and does no I/O" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
-hits=$(code $CORE | grep -nE '\bfloat\b|\bdouble\b' | grep -v vision_decode.c)
-check "only the decoder reads floats (the tensor); the rest is integer" "$([ -z "$hits" ] && echo 1 || echo 0)"
+hits=$(code $CORE | grep -nE '\bfloat\b|\bdouble\b' | grep -vE 'vision_decode.c|vision_text.c|vision_face.c|vision_embed.c')
+check "only the decoder and the text reader read floats (the tensors); the rest is integer" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -3
-hits=$(code $APP $A/vision_model.c $A/vision_layout.c |
+hits=$(code $APP $A/vision_model.c $A/vision_layout.c $A/vision_settings.c |
        grep -nE '\b(fopen|open|openat|unlink|rename|mkdir|opendir|fork|exec[lv]p?e?|usleep|sleep|nanosleep|waitpid|fsync)\(')
-check "the screen, the model and the layout never touch files, start processes or wait" \
+check "the screen, the model, the layout and the settings never touch files, start processes or wait" \
     "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -5
+hits=$(grep -lE '\b(fopen|open|rename|unlink|fsync|pocketos_mkdir_p)\(' $A/*.c | grep -vE "$A/vision_(store|session)\.c")
+check "in the app only vision_store.c touches files (and the session its socket and shared memory)" \
+    "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits"
+check "the settings are private: a 0700 directory, 0600 files, written whole or not at all" \
+    "$(grep -q 'pocketos_mkdir_p(vision_store_dir(), 0700)' $A/vision_store.c &&
+       grep -q 'O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600' $A/vision_store.c &&
+       grep -q 'rename(tmp, path)' $A/vision_store.c && echo 1 || echo 0)"
 hits=$(grep -rlE '\bfork\(' $A $C tools/vision --include='*.c' --include='*.cpp')
 check "only the session starts a process" "$([ "$hits" = "$A/vision_session.c" ] && echo 1 || echo 0)"
 hits=$(code $C/*.c $C/*.cpp $H | grep -nE '\b(system|popen)\(')
@@ -63,8 +74,8 @@ check "a det line with every box fits the protocol line" \
 check "the tracker's per-frame table is the two bounds, not the scene" \
     "$(grep -q 'static uint32_t iou\[VISION_MAX_TRACKS\]\[VISION_MAX_DETECTIONS\];' $C/vision_track.c && echo 1 || echo 0)"
 check "the screen makes its outline objects, its three lines and the colour mark once, VISION_MAX_SHOWN outlines" \
-    "$(grep -q 'lv_obj_t \*outline\[VISION_MAX_SHOWN\];' $APP && [ "$(code $APP | grep -c 'lv_obj_create(a->box)')" = 2 ] &&
-       [ "$(code $APP | grep -c 'line_object(a->box')" = 4 ] && echo 1 || echo 0)"
+    "$(grep -q 'lv_obj_t \*outline\[VISION_MAX_SHOWN\];' $APP && [ "$(code $APP | grep -c 'lv_obj_create(a->box)')" = 3 ] &&
+       [ "$(code $APP | grep -c 'line_object(a->box')" = 5 ] && echo 1 || echo 0)"
 check "the pixel modes keep their working rows static and bounded by the widest picture" \
     "$(grep -q 'static uint8_t luma\[3\]\[VISION_PIXELS_MAX_W\];' $C/vision_pixels.c && grep -q '#define VISION_PIXELS_MAX_W 1024' $C/vision_pixels.h &&
        grep -q '#define POCKETCAM_VIEW_MAX_W 1024' core/pocketcam/pocketcam_proto.h && echo 1 || echo 0)"
@@ -123,8 +134,8 @@ check "the picture fits a shared-memory slot" \
     "$(grep -q '#define VISION_PICTURE_MAX 1024' $A/vision_layout.h && grep -q '#define POCKETCAM_VIEW_MAX_W 1024' core/pocketcam/pocketcam_proto.h && echo 1 || echo 0)"
 
 # ---- scope of the prototype ----------------------------------------------------------
-hits=$(code $A/*.[ch] $C/*.[ch] $C/*.cpp $H | grep -niE '\b(ocr|segment|pose|keypoint|face|AF_INET|curl|http|upload|cloud)\b')
-check "no OCR, segmentation, pose, faces, network or cloud" "$([ -z "$hits" ] && echo 1 || echo 0)"
+hits=$(code $A/*.[ch] $C/*.[ch] $C/*.cpp $H | grep -niE '\b(segment|pose|keypoint|AF_INET|socket\(AF_INET|curl|http|upload|cloud)\b')
+check "no segmentation, pose, network or cloud: everything Vision sees stays on the unit" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && echo "$hits" | head -3
 check "Camera's own screen is untouched by Vision (no vision words in apps/camera)" \
     "$(grep -qiE 'vision' apps/camera/*.c apps/camera/*.h tools/camera/*.c && echo 0 || echo 1)"
@@ -133,7 +144,7 @@ check "the shell knows Vision, after Recorder" \
 check "the launcher places it in DEVICE, in the ai hue" \
     "$(grep -q '{ "vision", HOME_GROUP_DEVICE, HOME_HUE_AI[ ,}]' ui/shell/home_layout.c && echo 1 || echo 0)"
 check "pos-vision is installed" "$(grep -q 'install -D -m 0755 tools/vision/pos-vision' Makefile && echo 1 || echo 0)"
-for src in vision_app.c vision_model.c vision_layout.c vision_session.c; do
+for src in vision_app.c vision_model.c vision_layout.c vision_session.c vision_settings.c vision_store.c vision_trails.c; do
     check "the shell builds $src" "$(grep -q "apps/vision/$src" ui/shell/CMakeLists.txt && echo 1 || echo 0)"
 done
 

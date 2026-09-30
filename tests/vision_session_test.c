@@ -13,6 +13,7 @@
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #include "vision_session.h"
+#include "vision_settings.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -21,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -125,6 +127,48 @@ static void test_parse(void)
                               ev.kind == VISION_EV_READY && ev.w == 640 && ev.simulated && ev.value == 80 &&
                               strcmp(ev.name, "yolov8n.kmodel") == 0);
     check("ready with a missing field does not", !vision_session_parse_line(&s, "ready fake 640 360 1", &ev));
+    check("caps parse into a bit per mode", vision_session_parse_line(&s, "caps detect track traffic color", &ev) &&
+                                                ev.kind == VISION_EV_CAPS &&
+                                                ev.value == ((1 << VISION_MODE_DETECT) | (1 << VISION_MODE_TRACK) |
+                                                             (1 << VISION_MODE_TRAFFIC) | (1 << VISION_MODE_COLOR)));
+    check("a mode word this build does not know is skipped, a word too long for any too",
+          vision_session_parse_line(&s, "caps detect hologram readreadreadreadreadread  face", &ev) &&
+              ev.value == ((1 << VISION_MODE_DETECT) | (1 << VISION_MODE_FACE)));
+    check("caps with nothing offered is an empty set", vision_session_parse_line(&s, "caps", &ev) &&
+                                                           ev.kind == VISION_EV_CAPS && ev.value == 0);
+    check("capsule is not caps", !vision_session_parse_line(&s, "capsule detect", &ev));
+    check("a recent line parses into the report",
+          vision_session_parse_line(&s, "recent 300 5 3 2 4 0 0 0 0 1 3 432 0", &ev) && ev.kind == VISION_EV_RECENT &&
+              s.recent.window_s == 300 && s.recent.crossed == 5 && s.recent.ab == 3 && s.recent.ba == 2 &&
+              s.recent.cls[0] == 4 && s.recent.cls[5] == 1 && s.recent.speeds == 3 && s.recent.mean_kmh10 == 432 &&
+              !s.recent.saturated);
+    check("a saturated one", vision_session_parse_line(&s, "recent 300 1 1 0 1 0 0 0 0 0 0 0 1", &ev) &&
+                                 s.recent.saturated);
+    check("not one whose directions do not add up", !vision_session_parse_line(&s, "recent 300 5 3 1 4 0 0 0 0 1 0 0 0", &ev));
+    check("nor a mean with no speeds", !vision_session_parse_line(&s, "recent 300 0 0 0 0 0 0 0 0 0 0 432 0", &ev));
+    check("nor a field short, or one too many", !vision_session_parse_line(&s, "recent 300 0 0 0 0 0 0 0 0 0 0 0", &ev) &&
+                                                   !vision_session_parse_line(&s, "recent 300 0 0 0 0 0 0 0 0 0 0 0 0 9", &ev));
+    check("nor a saturation that is not 0 or 1", !vision_session_parse_line(&s, "recent 300 0 0 0 0 0 0 0 0 0 0 0 2", &ev));
+    check("a text line parses, its text decoded (UTF-8 and escapes)",
+          vision_session_parse_line(&s, "text 7 2 10:20:100:30:990:EXIT%2012 5:60:80:20:950:%E5%85%B6%3A%25", &ev) &&
+              ev.kind == VISION_EV_TEXT && s.text.n == 2 && s.text.seq == 7 && s.text.line[0].x == 10 &&
+              s.text.line[0].conf == 990 && strcmp(s.text.line[0].text, "EXIT 12") == 0 &&
+              strcmp(s.text.line[1].text, "\xe5\x85\xb6:%") == 0);
+    check("an empty read parses", vision_session_parse_line(&s, "text 8 0", &ev) && s.text.n == 0);
+    check("not a broken escape", !vision_session_parse_line(&s, "text 9 1 10:20:100:30:990:A%2", &ev) &&
+                                     !vision_session_parse_line(&s, "text 9 1 10:20:100:30:990:A%ZZ", &ev));
+    check("nor an escaped control byte", !vision_session_parse_line(&s, "text 9 1 10:20:100:30:990:A%0AB", &ev));
+    check("nor a line too long for the screen's copy",
+          !vision_session_parse_line(&s, "text 9 1 1:2:3:4:5:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", &ev));
+    check("nor fewer lines than it says, or more", !vision_session_parse_line(&s, "text 9 2 1:2:3:4:5:A", &ev) &&
+                                                      !vision_session_parse_line(&s, "text 9 1 1:2:3:4:5:A 1:2:3:4:5:B", &ev));
+    check("nor a box outside any view, or a confidence over 1000",
+          !vision_session_parse_line(&s, "text 9 1 1000:2:300:4:5:A", &ev) &&
+              !vision_session_parse_line(&s, "text 9 1 1:2:3:4:5000:A", &ev));
+    check("nor nine lines", !vision_session_parse_line(&s, "text 9 9", &ev));
+    check("a read that cannot be done is said with why", vision_session_parse_line(&s, "readfail the text models are missing", &ev) &&
+                                                             ev.kind == VISION_EV_READFAIL &&
+                                                             strcmp(ev.text, "the text models are missing") == 0);
     check("frame parses", vision_session_parse_line(&s, "frame 2 17 528 938", &ev) && ev.kind == VISION_EV_FRAME &&
                               ev.value == 2 && ev.w == 528 && ev.h == 938);
     check("a frame in the review slot does not", !vision_session_parse_line(&s, "frame 3 17 528 938", &ev));
@@ -328,6 +372,10 @@ static void test_traffic(void)
     check("the helper starts",
           start(&s, "period=20", "box=2:800:0:150:80:60:16:0,box=56:700:400:40:60:60", NULL) == 0);
     check("ready", wait_for(&s, VISION_EV_READY, 3000, &ev, seen, &w));
+    check("then the modes it can run: the detector's and the pixel modes, no model-less ones",
+          wait_for(&s, VISION_EV_CAPS, 1000, &ev, seen, &w) &&
+              ev.value == ((1 << VISION_MODE_DETECT) | (1 << VISION_MODE_TRACK) | (1 << VISION_MODE_TRAFFIC) |
+                           (1 << VISION_MODE_COLOR) | (1 << VISION_MODE_EDGE) | (1 << VISION_MODE_TRACE)));
     vision_session_view(&s, 360, 640, 0);
     vision_session_mode(&s, true);
     check("traffic mode answers with an empty report",
@@ -381,6 +429,12 @@ static void test_traffic(void)
            s.traffic.last_kmh10 % 10, expected / 10, expected % 10);
     check("the speed was shown on the car's box while it was tracked", saw_speed);
     check("and retired with the track", s.traffic.cur_kmh10 == 0);
+    for (i = 0; i < 3 && !(s.recent.crossed == 1 && s.recent.speeds == 1); i++) {
+        wait_for(&s, VISION_EV_RECENT, 1500, &ev, seen, &w);
+    }
+    check("the last five minutes hold the car: one crossing IN, a car, its speed",
+          s.recent.window_s == 300 && s.recent.crossed == 1 && s.recent.ab == 1 && s.recent.cls[0] == 1 &&
+              s.recent.speeds == 1 && s.recent.mean_kmh10 == s.traffic.last_kmh10 && !s.recent.saturated);
     vision_session_reset(&s);
     for (i = 0; i < 4; i++) {
         if (wait_for(&s, VISION_EV_TRAFFIC, 2000, &ev, seen, &w) && s.traffic.n == 0) {
@@ -388,6 +442,10 @@ static void test_traffic(void)
         }
     }
     check("reset zeroes the report", s.traffic.total_ab == 0 && s.traffic.n == 0 && s.traffic.last_kmh10 == 0);
+    for (i = 0; i < 3 && s.recent.crossed != 0; i++) {
+        wait_for(&s, VISION_EV_RECENT, 1500, &ev, seen, &w);
+    }
+    check("and the recent window", s.recent.crossed == 0 && s.recent.speeds == 0);
     vision_session_mode(&s, false);
     for (i = 0; i < 20; i++) {
         wait_for(&s, VISION_EV_DET, 1000, &ev, seen, &w);
@@ -400,6 +458,607 @@ static void test_traffic(void)
     check("back in detect mode the chair is tracked again", saw_chair);
     vision_session_abandon(&s, 1000);
     check("the helper is gone", !vision_session_active(&s));
+}
+
+/* Let the det lines already on their way when a command went out pass. */
+static void settle(struct vision_session *s, struct watch *w)
+{
+    struct vision_event ev;
+    int i;
+
+    for (i = 0; i < 3; i++) {
+        wait_for(s, VISION_EV_DET, 1000, &ev, seen, w);
+    }
+}
+
+/* How many confirmed tracks of class cls the next det lines show at most. */
+static int confirmed_of(struct vision_session *s, struct watch *w, uint16_t cls, int lines)
+{
+    struct vision_event ev;
+    int best = 0;
+    int i;
+
+    for (i = 0; i < lines; i++) {
+        const struct vision_shown *t;
+        int n = 0;
+        int j;
+        int c = 0;
+
+        if (!wait_for(s, VISION_EV_DET, 1000, &ev, seen, w)) {
+            break;
+        }
+        t = vision_session_tracks(s, &n, NULL);
+        for (j = 0; j < n; j++) {
+            c += t[j].cls == cls && t[j].id != 0;
+        }
+        best = c > best ? c : best;
+    }
+    return best;
+}
+
+/* The detection range against the real helper: a car too small for the
+ * whole picture (the fake detector sees nothing under 12 of the model's
+ * pixels) but large enough through FAR's zoom window; a large one every
+ * range keeps but NEAR's size floor. */
+static void test_range(void)
+{
+    struct vision_session s;
+    struct vision_event ev;
+    struct watch w = { 0, 0, 0, 0, 0, 0, NULL };
+
+    vision_session_init(&s);
+    /* Sensor 640 x 360, turned a quarter for the detector: a 360 x 640
+     * picture at half size in the 320 x 320 model. The far car, 16 x 14,
+     * is 7 x 8 model pixels there and 14 x 16 through the 320 x 320 window
+     * at the picture's centre, where it stands. The chair is large and is
+     * not traffic. */
+    check("the helper starts", start(&s, "period=20", "minpx=12,box=2:800:300:170:16:14", NULL) == 0);
+    check("ready", wait_for(&s, VISION_EV_READY, 3000, &ev, seen, &w));
+    vision_session_view(&s, 360, 640, 0);
+    vision_session_mode(&s, true);
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s;
+    check("NORMAL: the far car is too small to be seen", confirmed_of(&s, &w, 2, 12) == 0);
+    vision_session_range(&s, "far");
+    settle(&s, &w);
+    check("FAR: the zoom window finds it and a track confirms", confirmed_of(&s, &w, 2, 12) == 1);
+    vision_session_range(&s, "near");
+    settle(&s, &w);
+    check("NEAR: gone again - under NEAR's smallest box", confirmed_of(&s, &w, 2, 12) == 0);
+    check("an unknown range is not sent", vision_session_range(&s, "medium") == -1 && vision_session_range(&s, NULL) == -1);
+    vision_session_abandon(&s, 1000);
+    check("the helper is gone", !vision_session_active(&s));
+
+    vision_session_init(&s);
+    check("again with a car of every range's size", start(&s, "period=20", "minpx=12,box=2:800:200:100:120:90", NULL) == 0);
+    check("ready", wait_for(&s, VISION_EV_READY, 3000, &ev, seen, &w));
+    vision_session_view(&s, 360, 640, 0);
+    vision_session_mode(&s, true);
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s;
+    check("NORMAL keeps it", confirmed_of(&s, &w, 2, 8) == 1);
+    vision_session_range(&s, "near");
+    settle(&s, &w);
+    check("NEAR keeps it", confirmed_of(&s, &w, 2, 8) == 1);
+    vision_session_range(&s, "far");
+    settle(&s, &w);
+    check("FAR keeps it once, not twice (the two passes merged)", confirmed_of(&s, &w, 2, 12) == 1);
+    vision_session_abandon(&s, 1000);
+}
+
+/* READ against the real helper: the fake text models (vision_kpu_fake.c)
+ * behind files that exist or not, a dictionary of '!' to '~' and the blank
+ * last; the lines read, in view pixels; rapid reads; one that does not fit
+ * its dictionary. */
+static void test_read(void)
+{
+    struct vision_session s;
+    struct vision_event ev;
+    struct watch w = { 0, 0, 0, 0, 0, 0, NULL };
+    char dir[] = "/tmp/vision-read-XXXXXX";
+    char det[128];
+    char rec[128];
+    char dict[128];
+    FILE *f;
+    int c;
+    int i;
+    int reads = 0;
+
+    if (!mkdtemp(dir)) {
+        check("a scratch directory", 0);
+        return;
+    }
+    snprintf(det, sizeof(det), "%s/text_det.kmodel", dir);
+    snprintf(rec, sizeof(rec), "%s/text_rec.kmodel", dir);
+    snprintf(dict, sizeof(dict), "%s/text_dict.txt", dir);
+    setenv("POCKETOS_VISION_TEXT_DET", det, 1);
+    setenv("POCKETOS_VISION_TEXT_REC", rec, 1);
+    setenv("POCKETOS_VISION_TEXT_DICT", dict, 1);
+
+    /* No models on the unit: no READ. */
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "text=100:40:120:40:EXIT12", NULL) == 0);
+    check("without the text models READ is not offered", wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w) &&
+                                                             !(ev.value & (1 << VISION_MODE_READ)));
+    vision_session_abandon(&s, 1000);
+
+    f = fopen(det, "w");
+    if (f) {
+        fclose(f);
+    }
+    f = fopen(rec, "w");
+    if (f) {
+        fclose(f);
+    }
+    f = fopen(dict, "w");
+    if (f) {
+        for (c = '!'; c <= '~'; c++) {
+            fprintf(f, "%c\r\n", c);
+        }
+        fprintf(f, "BLANK\r\n");
+        fclose(f);
+    }
+    vision_session_init(&s);
+    /* Two lines on the sensor; the fake camera turns them upright with the
+     * picture. */
+    check("the helper starts with the models there",
+          start(&s, "period=20", "text=100:40:40:120:EXIT12,text=300:120:30:140:SN-4711", NULL) == 0);
+    check("READ is offered", wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w) && (ev.value & (1 << VISION_MODE_READ)));
+    vision_session_view(&s, 360, 640, 0);
+    vision_session_mode_word(&s, "read");
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s;
+    check("a read arrives", wait_for(&s, VISION_EV_TEXT, 3000, &ev, seen, &w));
+    check("two lines, read as written, sure",
+          s.text.n == 2 && ((strcmp(s.text.line[0].text, "EXIT12") == 0 && strcmp(s.text.line[1].text, "SN-4711") == 0) ||
+                            (strcmp(s.text.line[1].text, "EXIT12") == 0 && strcmp(s.text.line[0].text, "SN-4711") == 0)) &&
+              s.text.line[0].conf == 1000);
+    printf("     read \"%s\" and \"%s\"\n", s.text.line[0].text, s.text.n > 1 ? s.text.line[1].text : "");
+    {
+        int ok = s.text.n > 0;
+
+        for (i = 0; i < s.text.n; i++) {
+            ok &= s.text.line[i].x >= 0 && s.text.line[i].y >= 0 && s.text.line[i].x + s.text.line[i].w <= 360 &&
+                  s.text.line[i].y + s.text.line[i].h <= 640;
+        }
+        check("inside the view", ok);
+    }
+    for (i = 0; i < 30; i++) {
+        if (wait_for(&s, VISION_EV_TEXT, 1500, &ev, seen, &w)) {
+            reads++;
+        }
+        if (reads >= 4) {
+            break;
+        }
+    }
+    check("reads keep coming, and so do pictures between them", reads >= 4 && w.frames >= 4);
+    check("no boxes of the detector while reading", s.shown_count == 0);
+    vision_session_mode_word(&s, "detect");
+    check("back to DETECT", wait_for(&s, VISION_EV_DET, 2000, &ev, seen, &w));
+    vision_session_abandon(&s, 1000);
+    check("the helper is gone", !vision_session_active(&s));
+
+    /* A dictionary that does not fit the recogniser's classes. */
+    f = fopen(dict, "w");
+    if (f) {
+        fputs("a\nb\nc\n", f);
+        fclose(f);
+    }
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "text=100:40:120:40:EXIT12", NULL) == 0);
+    wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w);
+    vision_session_view(&s, 360, 640, 0);
+    vision_session_mode_word(&s, "read");
+    check("a dictionary that does not fit is said, not read wrong",
+          wait_for(&s, VISION_EV_READFAIL, 3000, &ev, seen, &w) && strstr(ev.text, "do not fit") != NULL);
+    vision_session_stream(&s, true, now_ms());
+    check("and the helper goes on (pictures)", wait_for(&s, VISION_EV_FRAME, 3000, &ev, seen, &w));
+    vision_session_abandon(&s, 1000);
+    unsetenv("POCKETOS_VISION_TEXT_DET");
+    unsetenv("POCKETOS_VISION_TEXT_REC");
+    unsetenv("POCKETOS_VISION_TEXT_DICT");
+    unlink(det);
+    unlink(rec);
+    unlink(dict);
+    rmdir(dir);
+}
+
+/* REPLAY: the helper plays saved pictures instead of the camera. */
+static void test_replay(void)
+{
+    struct vision_session s;
+    struct vision_session_config cfg = { 0 };
+    struct vision_event ev;
+    struct watch w = { 0, 0, 0, 0, 0, 0, NULL };
+    char dir[] = "/tmp/vision-replay-XXXXXX";
+    char a[96];
+    char b[96];
+    char list[200];
+    char err[96];
+    FILE *f;
+    int i;
+
+    if (!mkdtemp(dir)) {
+        check("a scratch directory", 0);
+        return;
+    }
+    snprintf(a, sizeof(a), "%s/a.ppm", dir);
+    snprintf(b, sizeof(b), "%s/b.ppm", dir);
+    for (i = 0; i < 2; i++) {
+        f = fopen(i ? b : a, "wb");
+        if (f) {
+            int k;
+
+            fprintf(f, "P6\n320 180\n255\n");
+            for (k = 0; k < 320 * 180; k++) {
+                fputc(i ? 200 : 20, f);
+                fputc(100, f);
+                fputc(50, f);
+            }
+            fclose(f);
+        }
+    }
+    snprintf(list, sizeof(list), "%s,%s", a, b);
+    vision_session_init(&s);
+    cfg.helper = helper;
+    cfg.backend = "image";
+    cfg.config = list;
+    cfg.kpu = "box=2:800:10:10:60:40";
+    check("the helper starts on a replay", vision_session_start(&s, &cfg, now_ms(), err, sizeof(err)) == 0);
+    check("ready: the replay, its pictures' size, SIMULATED", wait_for(&s, VISION_EV_READY, 3000, &ev, seen, &w) &&
+                                                                  strcmp(ev.text, "replay") == 0 && ev.w == 320 &&
+                                                                  ev.h == 180 && ev.simulated);
+    vision_session_view(&s, 320, 180, 90);
+    vision_session_stream(&s, true, now_ms());
+    w.s = NULL;
+    check("pictures arrive", wait_for(&s, VISION_EV_FRAME, 3000, &ev, seen, &w) && ev.w == 320 && ev.h == 180);
+    {
+        static uint16_t px[320 * 180];
+
+        vision_session_take_frame(&s, px, 320, 180);
+        /* RGB565 of (20, 100, 50) or (200, 100, 50): shown as it is,
+         * whatever the display's rotation - never turned. */
+        check("as they are, not turned", px[0] == px[319] && ((px[0] >> 11) == 2 || (px[0] >> 11) == 25));
+    }
+    for (i = 0; i < 4; i++) {
+        wait_for(&s, VISION_EV_DET, 2000, &ev, seen, &w);
+    }
+    check("the detector runs on them", s.shown_count == 1 && s.shown[0].cls == 2);
+    vision_session_abandon(&s, 1000);
+    check("the helper is gone", !vision_session_active(&s));
+
+    vision_session_init(&s);
+    snprintf(list, sizeof(list), "%s/none.ppm", dir);
+    check("a replay of nothing starts", vision_session_start(&s, &cfg, now_ms(), err, sizeof(err)) == 0);
+    check("and says there is no camera", wait_for(&s, VISION_EV_NODEVICE, 3000, &ev, seen, &w) &&
+                                             strstr(ev.text, "replay") != NULL);
+    vision_session_abandon(&s, 1000);
+    unlink(a);
+    unlink(b);
+    rmdir(dir);
+}
+
+/* RECOGNIZE against the real helper and the fake face models: offered only
+ * with both models; enrolment of the one face in view, kept in the state
+ * directory (0600 in 0700); that face then the OWNER on the next open,
+ * another face unknown, both at once told apart; enrolment refusing two
+ * faces; FORGET removing the owner from the unit; a profile of another
+ * model not used. */
+static int wait_who(struct vision_session *s, int n, struct watch *w)
+{
+    struct vision_event ev;
+    int i;
+
+    for (i = 0; i < 40; i++) {
+        if (wait_for(s, VISION_EV_WHO, 1500, &ev, seen, w) && s->who.n == n) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void test_recognize(void)
+{
+    struct vision_session s;
+    struct vision_event ev;
+    struct watch w = { 0, 0, 0, 0, 0, 0, NULL };
+    char dir[] = "/tmp/vision-recog-XXXXXX";
+    char det[128];
+    char emb[128];
+    char state[128];
+    char owner[160];
+    struct stat st;
+    FILE *f;
+    int i;
+    int k;
+    int ok;
+
+    if (!mkdtemp(dir)) {
+        check("a scratch directory", 0);
+        return;
+    }
+    snprintf(det, sizeof(det), "%s/face_det.kmodel", dir);
+    snprintf(emb, sizeof(emb), "%s/face_embed.kmodel", dir);
+    snprintf(state, sizeof(state), "%s/state", dir);
+    snprintf(owner, sizeof(owner), "%s/vision/owner.v1", state);
+    setenv("POCKETOS_VISION_FACE_DET", det, 1);
+    setenv("POCKETOS_VISION_FACE_EMBED", emb, 1);
+    setenv("POCKETOS_STATE_DIR", state, 1);
+    f = fopen(det, "w");
+    if (f) {
+        fclose(f);
+    }
+
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "face=200:100:80:100:1", NULL) == 0);
+    check("with the face detector alone RECOGNIZE is not offered, FACE is",
+          wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w) && (ev.value & (1 << VISION_MODE_FACE)) &&
+              !(ev.value & (1 << VISION_MODE_RECOGNIZE)));
+    vision_session_abandon(&s, 1000);
+
+    f = fopen(emb, "w");
+    if (f) {
+        fputs("fake", f);
+        fclose(f);
+    }
+    vision_session_init(&s);
+    check("the helper starts with both models", start(&s, "period=20", "face=200:100:80:100:1", NULL) == 0);
+    check("RECOGNIZE is offered", wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w) &&
+                                      (ev.value & (1 << VISION_MODE_RECOGNIZE)));
+    vision_session_view(&s, 640, 360, 90);
+    vision_session_mode_word(&s, "recognize");
+    check("no owner yet", wait_for(&s, VISION_EV_OWNER, 3000, &ev, seen, &w) && ev.value == 0);
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s;
+    check("faces are found, none scored without an owner", wait_who(&s, 0, &w) && s.who.faces == 1);
+    vision_session_enrol(&s, true);
+    ok = wait_for(&s, VISION_EV_ENROL, 3000, &ev, seen, &w) && ev.w == 0 && ev.h == 5;
+    for (i = 0, k = 0; i < 40 && k < 5; i++) {
+        if (wait_for(&s, VISION_EV_ENROL, 1500, &ev, seen, &w)) {
+            ok &= (int)ev.w == k + 1;
+            k = (int)ev.w;
+        }
+    }
+    check("enrolment takes five views, one at a time", ok && k == 5);
+    check("and the owner is kept", wait_for(&s, VISION_EV_OWNER, 3000, &ev, seen, &w) && ev.value == 1 && ev.w == 5);
+    check("on the unit, private: 0600 in a 0700 directory",
+          stat(owner, &st) == 0 && (st.st_mode & 0777) == 0600 &&
+              (snprintf(owner, sizeof(owner), "%s/vision", state), stat(owner, &st) == 0) &&
+              (st.st_mode & 0777) == 0700);
+    snprintf(owner, sizeof(owner), "%s/vision/owner.v1", state);
+    ok = wait_who(&s, 1, &w);
+    check("the enrolled face is the owner, sure", ok && s.who.t[0].owner && s.who.t[0].score >= 990);
+    vision_session_abandon(&s, 1000);
+
+    /* The next open: another person where the owner was. */
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "face=200:100:80:100:2", NULL) == 0);
+    wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w);
+    vision_session_view(&s, 640, 360, 90);
+    vision_session_mode_word(&s, "recognize");
+    check("the owner is still known", wait_for(&s, VISION_EV_OWNER, 3000, &ev, seen, &w) && ev.value == 1 && ev.w == 5);
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s;
+    ok = wait_who(&s, 1, &w);
+    printf("     someone else scores %u\n", s.who.t[0].score);
+    check("someone else is unknown", ok && !s.who.t[0].owner && s.who.t[0].score < 750);
+    vision_session_abandon(&s, 1000);
+
+    /* A group of six, more than a round looks at: every face is scored in
+     * turn, not the largest three again and again. */
+    vision_session_init(&s);
+    check("the helper starts",
+          start(&s, "period=20",
+                "face=10:100:60:80:2,face=110:100:64:84:3,face=210:100:68:88:4,face=310:100:72:92:5,"
+                "face=410:100:76:96:6,face=510:100:80:100:7",
+                NULL) == 0);
+    wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w);
+    vision_session_view(&s, 640, 360, 90);
+    vision_session_mode_word(&s, "recognize");
+    wait_for(&s, VISION_EV_OWNER, 3000, &ev, seen, &w);
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s;
+    ok = wait_who(&s, 6, &w);
+    for (i = 0; ok && i < 6; i++) {
+        ok &= !s.who.t[i].owner;
+    }
+    check("a group of six: all six scored, none the owner", ok && s.who.faces == 6);
+    vision_session_abandon(&s, 1000);
+
+    /* Both at once; then an enrolment with two faces in view. */
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "face=100:100:80:100:1,face=420:120:80:100:2", NULL) == 0);
+    wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w);
+    vision_session_view(&s, 640, 360, 90);
+    vision_session_mode_word(&s, "recognize");
+    wait_for(&s, VISION_EV_OWNER, 3000, &ev, seen, &w);
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s;
+    ok = wait_who(&s, 2, &w);
+    check("two faces: the owner and someone else, told apart",
+          ok && s.who.t[0].owner != s.who.t[1].owner && s.who.faces == 2);
+    {
+        /* The owner is the one on the left (x 100 on the sensor). */
+        int own = s.who.t[0].owner ? 0 : 1;
+        int n = 0;
+        const struct vision_shown *t = vision_session_tracks(&s, &n, NULL);
+        int left = -1;
+
+        for (i = 0; i < n; i++) {
+            if (t[i].id == s.who.t[own].id) {
+                left = t[i].x < 300;
+            }
+        }
+        check("the owner's label is on the owner's face", left == 1);
+    }
+    vision_session_enrol(&s, true);
+    wait_for(&s, VISION_EV_ENROL, 3000, &ev, seen, &w);
+    ok = !wait_for(&s, VISION_EV_ENROL, 1500, &ev, seen, &w);
+    check("an enrolment takes no view while two faces are in view", ok);
+    vision_session_enrol(&s, false);
+    vision_session_forget(&s);
+    check("FORGET: no owner", wait_for(&s, VISION_EV_OWNER, 3000, &ev, seen, &w) && ev.value == 0);
+    check("and nothing of it left on the unit", stat(owner, &st) != 0 && errno == ENOENT);
+    ok = wait_who(&s, 0, &w);
+    check("faces are no longer scored", ok && s.who.faces == 2);
+    vision_session_abandon(&s, 1000);
+
+    /* A profile of another model is not used. */
+    f = fopen(owner, "w");
+    if (f) {
+        fprintf(f, "doors-vision-owner 1\nmodel other.kmodel 4\ndim 4\nsamples 1\nv 1 0 0 0\n");
+        fclose(f);
+    }
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "face=200:100:80:100:1", NULL) == 0);
+    wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w);
+    vision_session_view(&s, 640, 360, 90);
+    vision_session_mode_word(&s, "recognize");
+    check("an owner made with another model is no owner", wait_for(&s, VISION_EV_OWNER, 3000, &ev, seen, &w) &&
+                                                              ev.value == 0);
+    vision_session_abandon(&s, 1000);
+    unsetenv("POCKETOS_VISION_FACE_DET");
+    unsetenv("POCKETOS_VISION_FACE_EMBED");
+    unsetenv("POCKETOS_STATE_DIR");
+    unlink(owner);
+    snprintf(owner, sizeof(owner), "%s/vision", state);
+    rmdir(owner);
+    rmdir(state);
+    unlink(det);
+    unlink(emb);
+    rmdir(dir);
+}
+
+/* FACE: the face model's outputs decoded, tracked and said as boxes with
+ * ids; offered only when the model is there; a model that is not a face
+ * detector said, not run. */
+static void test_face(void)
+{
+    struct vision_session s;
+    struct vision_event ev;
+    struct watch w = { 0, 0, 0, 0, 0, 0, NULL };
+    char dir[] = "/tmp/vision-face-XXXXXX";
+    char det[128];
+    char other[128];
+    FILE *f;
+    int i;
+    int ok = 0;
+
+    if (!mkdtemp(dir)) {
+        check("a scratch directory", 0);
+        return;
+    }
+    snprintf(det, sizeof(det), "%s/face_det.kmodel", dir);
+    snprintf(other, sizeof(other), "%s/other.kmodel", dir);
+    setenv("POCKETOS_VISION_FACE_DET", det, 1);
+
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "face=200:100:60:80", NULL) == 0);
+    check("without the face model FACE is not offered", wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w) &&
+                                                            !(ev.value & (1 << VISION_MODE_FACE)));
+    vision_session_abandon(&s, 1000);
+
+    f = fopen(det, "w");
+    if (f) {
+        fclose(f);
+    }
+    vision_session_init(&s);
+    /* Two faces on the sensor, and a car the object detector would see
+     * exactly where the first face is: FACE must not show the car, and
+     * DETECT's car and FACE's face must land on the same place. */
+    check("the helper starts with the face model there",
+          start(&s, "period=20", "face=200:100:60:80,face=420:140:80:100,box=2:900:200:100:60:80", NULL) == 0);
+    check("FACE is offered", wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w) && (ev.value & (1 << VISION_MODE_FACE)));
+    /* The fake camera is mounted at 90: a display at 90 sees the sensor as
+     * it is, pixel for pixel. */
+    vision_session_view(&s, 640, 360, 90);
+    vision_session_mode_word(&s, "face");
+    vision_session_stream(&s, true, now_ms());
+    w.s = &s;
+    for (i = 0; i < 40 && !ok; i++) {
+        if (wait_for(&s, VISION_EV_DET, 1500, &ev, seen, &w) && s.shown_count == 2 && s.shown[0].id &&
+            s.shown[1].id) {
+            ok = 1;
+        }
+    }
+    check("two faces, each with an id", ok);
+    {
+        int a = s.shown[0].x < s.shown[1].x ? 0 : 1;
+        int b = 1 - a;
+
+        printf("     faces %d,%d %dx%d %u and %d,%d %dx%d %u\n", s.shown[a].x, s.shown[a].y, s.shown[a].w,
+               s.shown[a].h, s.shown[a].conf, s.shown[b].x, s.shown[b].y, s.shown[b].w, s.shown[b].h, s.shown[b].conf);
+        check("where they are on the sensor (a view of the same size), within a few pixels",
+              ok && abs(s.shown[a].x - 200) <= 4 && abs(s.shown[a].y - 100) <= 4 && abs(s.shown[a].w - 60) <= 6 &&
+                  abs(s.shown[a].h - 80) <= 6 && abs(s.shown[b].x - 420) <= 4 && abs(s.shown[b].w - 80) <= 6);
+        check("as sure as the model says (95 %)", ok && s.shown[a].conf >= 940 && s.shown[a].conf <= 960);
+    }
+    {
+        uint32_t ids[2] = { s.shown[0].id, s.shown[1].id };
+        int same = 1;
+
+        for (i = 0; i < 5; i++) {
+            wait_for(&s, VISION_EV_DET, 1500, &ev, seen, &w);
+            same &= s.shown_count == 2 && ((s.shown[0].id == ids[0] && s.shown[1].id == ids[1]) ||
+                                           (s.shown[0].id == ids[1] && s.shown[1].id == ids[0]));
+        }
+        check("the ids hold from frame to frame", ok && same);
+    }
+    /* Upright on a portrait display: the picture is turned for the model
+     * and the faces turned back. */
+    {
+        struct vision_shown face[2];
+        int near = 0;
+
+        vision_session_view(&s, 360, 640, 0);
+        for (i = 0; i < 6; i++) {
+            wait_for(&s, VISION_EV_DET, 1500, &ev, seen, &w);
+        }
+        ok = s.shown_count == 2;
+        face[0] = s.shown[0];
+        face[1] = s.shown[1];
+        vision_session_mode_word(&s, "detect");
+        near = 0;
+        for (i = 0; i < 20 && !near; i++) {
+            if (wait_for(&s, VISION_EV_DET, 1500, &ev, seen, &w) && s.shown_count == 1 && s.shown[0].cls == 2) {
+                int k;
+
+                for (k = 0; k < 2; k++) {
+                    near |= abs(face[k].x - s.shown[0].x) <= 6 && abs(face[k].y - s.shown[0].y) <= 6 &&
+                            abs(face[k].w - s.shown[0].w) <= 8 && abs(face[k].h - s.shown[0].h) <= 8;
+                }
+                printf("     portrait: car %d,%d %dx%d; faces %d,%d %dx%d and %d,%d %dx%d\n", s.shown[0].x,
+                       s.shown[0].y, s.shown[0].w, s.shown[0].h, face[0].x, face[0].y, face[0].w, face[0].h,
+                       face[1].x, face[1].y, face[1].w, face[1].h);
+                break;
+            }
+        }
+        check("portrait: two faces still", ok);
+        check("back to DETECT: the car, not the faces - where the face on it was", near);
+    }
+    vision_session_abandon(&s, 1000);
+    check("the helper is gone", !vision_session_active(&s));
+
+    /* A file that is there but no face detector. */
+    f = fopen(other, "w");
+    if (f) {
+        fclose(f);
+    }
+    setenv("POCKETOS_VISION_FACE_DET", other, 1);
+    vision_session_init(&s);
+    check("the helper starts", start(&s, "period=20", "face=200:100:60:80", NULL) == 0);
+    wait_for(&s, VISION_EV_CAPS, 3000, &ev, seen, &w);
+    vision_session_view(&s, 640, 360, 0);
+    vision_session_mode_word(&s, "face");
+    check("a model that is not a face detector is said", wait_for(&s, VISION_EV_FACEFAIL, 3000, &ev, seen, &w) &&
+                                                             ev.text[0] != '\0');
+    vision_session_stream(&s, true, now_ms());
+    check("and the helper goes on (pictures)", wait_for(&s, VISION_EV_FRAME, 3000, &ev, seen, &w));
+    vision_session_abandon(&s, 1000);
+    unsetenv("POCKETOS_VISION_FACE_DET");
+    unlink(det);
+    unlink(other);
+    rmdir(dir);
 }
 
 /* The pixel modes against the real helper: EDGE finds the fake camera's
@@ -447,8 +1106,14 @@ static void test_pixels(void)
     (void)px;
     check("without a target COLOR says nothing", !wait_for(&s, VISION_EV_COLOR, 400, &ev, seen, &w));
     vision_session_sample(&s, 180, 320);
-    check("a sample in the middle brings a colour report", wait_for(&s, VISION_EV_COLOR, 2000, &ev, seen, &w) &&
-                                                               s.pixels.color.matched_pm > 0);
+    check("a sample in the middle brings a colour report", wait_for(&s, VISION_EV_COLOR, 2000, &ev, seen, &w));
+    /* The fake camera's bars move: a 5 x 5 sample that straddles two of
+     * them is a mean no pixel has, and matches nothing on that frame. The
+     * target stays, and the bars bring it back within a few frames. */
+    for (i = 0; i < 20 && s.pixels.color.matched_pm == 0; i++) {
+        wait_for(&s, VISION_EV_COLOR, 1000, &ev, seen, &w);
+    }
+    check("and its colour is found on the picture", s.pixels.color.matched_pm > 0);
     printf("     sampled #%02x%02x%02x, %u.%u%% matched\n", s.pixels.color.r, s.pixels.color.g, s.pixels.color.b,
            s.pixels.color.matched_pm / 10, s.pixels.color.matched_pm % 10);
     vision_session_mode_word(&s, "trace");
@@ -606,6 +1271,11 @@ int main(int argc, char **argv)
     test_parse();
     test_happy();
     test_traffic();
+    test_range();
+    test_read();
+    test_replay();
+    test_face();
+    test_recognize();
     test_pixels();
     test_malformed();
     test_failures();

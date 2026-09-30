@@ -74,6 +74,7 @@ static void take(struct vision_tracker *tr, struct vision_track *t, const struct
     /* A track that was coasting keeps the motion it had: the new box is
      * the truth about where it is, not about how fast it went. */
     t->box = d->box;
+    t->seen_box = d->box;
     t->conf = d->conf;
     if (d->cls != t->cls) {
         if (t->cls_other == d->cls && t->cls_other_run < 0xff) {
@@ -102,6 +103,21 @@ static void take(struct vision_tracker *tr, struct vision_track *t, const struct
 static int32_t larger_side(const struct vision_box *b)
 {
     return b->w > b->h ? b->w : b->h;
+}
+
+/* The share (per-mille) of a's area that lies inside b. */
+static uint32_t inside_pm(const struct vision_box *a, const struct vision_box *b)
+{
+    int64_t x0 = a->x > b->x ? a->x : b->x;
+    int64_t y0 = a->y > b->y ? a->y : b->y;
+    int64_t x1 = a->x + a->w < b->x + b->w ? a->x + a->w : b->x + b->w;
+    int64_t y1 = a->y + a->h < b->y + b->h ? a->y + a->h : b->y + b->h;
+    int64_t area = (int64_t)a->w * a->h;
+
+    if (x1 <= x0 || y1 <= y0 || area <= 0) {
+        return 0;
+    }
+    return (uint32_t)(((x1 - x0) * (y1 - y0) * 1000) / area);
 }
 
 /* Whether a detection is of a size a track could have: areas within a
@@ -200,7 +216,15 @@ int vision_tracker_update(struct vision_tracker *tr, const struct vision_det *de
             if (t->seen || !t->confirmed) {
                 continue;
             }
-            radius = ((int64_t)larger_side(&pred[i]) * tr->reacquire_pm) / 1000;
+            {
+                /* The longer it has been hidden, the wider it is looked for. */
+                uint32_t pm = tr->reacquire_pm + (uint32_t)t->misses * VISION_TRACK_REACQUIRE_STEP_PM;
+
+                if (pm > VISION_TRACK_REACQUIRE_MAX_PM) {
+                    pm = VISION_TRACK_REACQUIRE_MAX_PM;
+                }
+                radius = ((int64_t)larger_side(&pred[i]) * pm) / 1000;
+            }
             vision_box_centre(&pred[i], &pcx, &pcy);
             for (j = 0; j < n; j++) {
                 int32_t dcx;
@@ -233,6 +257,67 @@ int vision_tracker_update(struct vision_tracker *tr, const struct vision_det *de
         take(tr, &tr->t[bi], &dets[bj]);
         det_used[bj] = true;
         tr->reacquired++;
+    }
+    /* Pass 3, greedy: a track still unfound, against where it was last
+     * seen rather than where it was predicted to be. */
+    for (;;) {
+        uint32_t best = 0;
+        int bi = -1;
+        int bj = -1;
+
+        for (i = 0; i < tr->count; i++) {
+            const struct vision_track *t = &tr->t[i];
+
+            if (t->seen) {
+                continue;
+            }
+            for (j = 0; j < n; j++) {
+                uint32_t u;
+
+                /* The size gate is the track's own: twice or half from the
+                 * last frame, three times only once it has been coasting -
+                 * a box that suddenly spans the picture's edge is still not
+                 * this object. */
+                if (det_used[j] || !vision_tracker_compatible(tr, t->cls, dets[j].cls) ||
+                    !similar_size(&t->seen_box, &dets[j].box, size_ratio(t))) {
+                    continue;
+                }
+                u = vision_iou_permille(&t->seen_box, &dets[j].box);
+                if (u > best) {
+                    best = u;
+                    bi = i;
+                    bj = j;
+                }
+            }
+        }
+        if (bi < 0 || best < tr->iou_min) {
+            break;
+        }
+        take(tr, &tr->t[bi], &dets[bj]);
+        det_used[bj] = true;
+        tr->revived++;
+    }
+    /* A box left over that is an object already matched this frame - the
+     * detector's partial box beside its whole one, or its second box of one
+     * person - is not a new object. */
+    for (j = 0; j < n; j++) {
+        if (det_used[j]) {
+            continue;
+        }
+        for (i = 0; i < tr->count; i++) {
+            const struct vision_track *t = &tr->t[i];
+
+            if (!t->seen || !vision_tracker_compatible(tr, t->cls, dets[j].cls)) {
+                continue;
+            }
+            if (vision_iou_permille(&t->box, &dets[j].box) >= VISION_TRACK_DUP_IOU ||
+                inside_pm(&dets[j].box, &t->box) >= VISION_TRACK_DUP_INSIDE ||
+                inside_pm(&t->box, &dets[j].box) >= VISION_TRACK_DUP_INSIDE) {
+                det_used[j] = true;
+                tr->dup_births++;
+                break;
+            }
+        }
     }
     /* The unseen: coast, then expire. */
     for (i = 0; i < tr->count;) {
@@ -277,6 +362,7 @@ int vision_tracker_update(struct vision_tracker *tr, const struct vision_det *de
             tr->next_id = 1;
         }
         t->box = dets[j].box;
+        t->seen_box = dets[j].box;
         t->cls = dets[j].cls;
         t->conf = dets[j].conf;
         t->hits = 1;

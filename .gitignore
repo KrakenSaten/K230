@@ -208,6 +208,12 @@ BUILD_ID
 /tests/vision_geom_test
 /tests/vision_model_test
 /tests/vision_session_test
+/tests/vision_settings_test
+/tests/vision_range_test
+/tests/vision_window_test
+/tests/vision_text_test
+/tests/vision_face_test
+/tests/vision_embed_test
 # Video (docs/apps/VIDEO.md)
 /tools/video/pos-video
 /tests/video_files_test
@@ -235,3 +241,4 @@ BUILD_ID
 /tests/db_brain_test
 /tests/db_vision_test
 /tests/db_guard_test
+/tests/db_pipeline_test

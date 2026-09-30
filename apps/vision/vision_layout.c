@@ -55,6 +55,63 @@ static int32_t grid(struct vision_layout *l, int32_t x, int32_t y, int32_t w, in
     return rows * VISION_BTN_H + (rows - 1) * VISION_GAP;
 }
 
+int vision_layout_sheet(struct vision_sheet_layout *l, int32_t panel_w, int32_t panel_h, int rows,
+                        const int cells[])
+{
+    int32_t iw = panel_w - 2 * VISION_SHEET_PAD;
+    int32_t ih = panel_h - 2 * VISION_SHEET_PAD;
+    int32_t row_h;
+    int32_t need;
+    int32_t y;
+    int r;
+
+    memset(l, 0, sizeof(*l));
+    if (rows < 1 || rows > VISION_SHEET_ROWS_MAX || !cells || iw < 200 || ih < 100) {
+        return -1;
+    }
+    for (r = 0; r < rows; r++) {
+        if (cells[r] < 1 || cells[r] > VISION_SHEET_CELLS_MAX) {
+            return -1;
+        }
+    }
+    l->side_by_side = panel_w >= VISION_SHEET_SIDE_BY_SIDE_MIN_W;
+    row_h = l->side_by_side ? VISION_BTN_H : VISION_SHEET_CAPTION_H + 4 + VISION_BTN_H;
+    need = VISION_SHEET_TITLE_H + VISION_SHEET_ROW_GAP + rows * row_h + (rows - 1) * VISION_SHEET_ROW_GAP;
+    if (need > ih) {
+        return -1;
+    }
+    l->title = rect(VISION_SHEET_PAD, VISION_SHEET_PAD, iw, VISION_SHEET_TITLE_H);
+    y = VISION_SHEET_PAD + VISION_SHEET_TITLE_H + VISION_SHEET_ROW_GAP;
+    for (r = 0; r < rows; r++) {
+        int32_t cx;
+        int32_t cw;
+        int32_t cy;
+        int c;
+
+        if (l->side_by_side) {
+            l->caption[r] = rect(VISION_SHEET_PAD, y + (VISION_BTN_H - VISION_SHEET_CAPTION_H) / 2,
+                                 VISION_SHEET_CAPTION_W, VISION_SHEET_CAPTION_H);
+            cx = VISION_SHEET_PAD + VISION_SHEET_CAPTION_W + VISION_GAP;
+            cy = y;
+        } else {
+            l->caption[r] = rect(VISION_SHEET_PAD, y, iw, VISION_SHEET_CAPTION_H);
+            cx = VISION_SHEET_PAD;
+            cy = y + VISION_SHEET_CAPTION_H + 4;
+        }
+        /* Three places per row whatever the row holds, so the choices of
+         * every row line up in columns. */
+        cw = (VISION_SHEET_PAD + iw - cx - (VISION_SHEET_CELLS_MAX - 1) * VISION_GAP) / VISION_SHEET_CELLS_MAX;
+        if (cw < 100) {
+            return -1;
+        }
+        for (c = 0; c < cells[r]; c++) {
+            l->cell[r][c] = rect(cx + c * (cw + VISION_GAP), cy, cw, VISION_BTN_H);
+        }
+        y += row_h + VISION_SHEET_ROW_GAP;
+    }
+    return 0;
+}
+
 int vision_layout_compute(struct vision_layout *l, int32_t w, int32_t h, int32_t inset_left,
                           int32_t inset_top, int32_t inset_right, int32_t inset_bottom,
                           uint32_t frame_w, uint32_t frame_h, int buttons, int status_lines)

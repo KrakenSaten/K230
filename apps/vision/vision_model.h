@@ -3,15 +3,23 @@
  * event and tap changes. No processes, no LVGL, no clock but the one passed
  * in (docs/apps/VISION.md).
  *
- * Five modes. DETECT shows everything the model knows, with one counting
- * line. TRAFFIC shows traffic only - car, truck, bus, motorcycle, bicycle,
- * person - counted per class and in total across the counting line (IN and
- * OUT), each track's direction on its box, and a speed for every track
- * that crosses the two speed lines, from the ground distance the user
- * sets and the time between the crossings. COLOR, EDGE and TRACE look at
- * the picture's pixels instead of the detector: a sampled colour and its
- * matches, the edges, the dominant line. The helper does the work; this
- * keeps the choices and the words.
+ * THE MODES come in groups (vision_settings.h): GENERAL (DETECT, TRACK),
+ * ROAD (TRAFFIC), PEOPLE (FACE, RECOGNIZE), TEXT (READ) and TOOLS (COLOR,
+ * EDGE, LINE TRACE). DETECT boxes every object the detector knows; TRACK
+ * adds ids and a counting line; TRAFFIC looks for traffic only, counts it
+ * per class and times it between two speed lines; the TOOLS look at the
+ * picture's pixels instead of the detector. A mode is offered only when the
+ * helper says it can run it (its `caps` line): a mode whose model is not on
+ * the unit never appears, and a group with nothing to offer is not shown.
+ *
+ * THE SHEET is a panel over the picture with up to VISION_SHEET_ROWS rows of
+ * up to VISION_SHEET_CELLS choices each. MODE opens it as the mode picker
+ * (a row per group); SETUP opens it as a mode's own settings (Traffic's
+ * line, speed lines and distance). The model says what the cells are and
+ * takes a tap by the cell's code; the screen only draws them.
+ *
+ * The choices live in a struct vision_settings, per mode; a tap that
+ * changes one asks the screen to store them (VISION_ACT_SAVE).
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -19,6 +27,7 @@
 #define VISION_MODEL_H
 
 #include "vision_session.h"
+#include "vision_settings.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -30,38 +39,6 @@ enum vision_state {
     VISION_NO_DEVICE,  /* no camera, or no model */
 };
 
-enum vision_mode {
-    VISION_MODE_DETECT = 0,
-    VISION_MODE_TRAFFIC,
-    VISION_MODE_COLOR,
-    VISION_MODE_EDGE,
-    VISION_MODE_TRACE,
-    VISION_MODES
-};
-
-/* The counting line's place: a choice the user cycles through. */
-enum vision_line_mode {
-    VISION_LINE_OFF = 0,
-    VISION_LINE_ACROSS,   /* horizontal, mid-height: counts DOWN and UP */
-    VISION_LINE_DOWN,     /* vertical, mid-width: counts LEFT and RIGHT */
-    VISION_LINE_MODES
-};
-
-/* The speed lines: none, or a pair either side of the middle, parallel to
- * the counting line, closer or further apart. */
-enum vision_speed_mode {
-    VISION_SPEED_OFF = 0,
-    VISION_SPEED_NARROW,  /* at 40 % and 60 % */
-    VISION_SPEED_WIDE,    /* at 25 % and 75 % */
-    VISION_SPEED_MODES
-};
-
-/* The ground distances the user cycles through, in centimetres. */
-#define VISION_DISTANCES 8
-#define VISION_DISTANCE_DEFAULT 3  /* 10 m */
-/* The colour tolerances: LOW, MED, HIGH. */
-#define VISION_TOLS 3
-#define VISION_TOL_DEFAULT 1
 /* EDGE's hard threshold. */
 #define VISION_EDGE_HARD_THRESHOLD 40
 
@@ -76,20 +53,57 @@ enum vision_speed_mode {
 #define VISION_ACT_DISTANCE  0x80u  /* send the distance */
 #define VISION_ACT_PIXELS    0x100u /* send the pixel modes' settings (colour, tolerance, edge, trace) */
 #define VISION_ACT_SAMPLE    0x200u /* send a colour sample at vision_model_sample_point */
+#define VISION_ACT_SAVE      0x400u /* the settings changed: store them */
+#define VISION_ACT_RANGE     0x800u /* send TRAFFIC's detection range */
+#define VISION_ACT_ENROL     0x1000u /* send enrol, or enrol off (vision_model.enrolling) */
+#define VISION_ACT_FORGET    0x2000u /* send forget */
 
 /* The buttons, by role; the order on screen is per mode
  * (vision_model_buttons). */
 enum vision_button {
     VISION_BTN_MODE = 0,
     VISION_BTN_LINE,
-    VISION_BTN_SPEED,
-    VISION_BTN_DISTANCE,
+    VISION_BTN_TRAILS,
+    VISION_BTN_SETUP,
     VISION_BTN_RESET,
     VISION_BTN_SAMPLE,
     VISION_BTN_TOL,
     VISION_BTN_EDGE,
     VISION_BTN_TRACE,
+    VISION_BTN_HOLD,
+    VISION_BTN_ENROL,
+    VISION_BTN_FORGET,
     VISION_BUTTONS
+};
+
+enum vision_sheet {
+    VISION_SHEET_NONE = 0,
+    VISION_SHEET_MODES,   /* the mode picker */
+    VISION_SHEET_SETUP,   /* the mode's own settings */
+};
+
+#define VISION_SHEET_ROWS 5
+#define VISION_SHEET_CELLS 3
+#define VISION_SHEET_TEXT 24
+
+struct vision_sheet_cell {
+    char text[VISION_SHEET_TEXT];
+    bool selected;        /* the choice in force: drawn as the primary button */
+    bool enabled;
+    int code;             /* what vision_model_sheet_tap is given for it */
+};
+
+struct vision_sheet_row {
+    const char *caption;
+    int cells;
+    struct vision_sheet_cell cell[VISION_SHEET_CELLS];
+};
+
+struct vision_sheet_view {
+    enum vision_sheet kind;
+    const char *title;
+    int rows;
+    struct vision_sheet_row row[VISION_SHEET_ROWS];
 };
 
 struct vision_model {
@@ -103,14 +117,10 @@ struct vision_model {
     uint32_t preview_h;
     uint32_t classes;
     char error[VISION_EVENT_TEXT_MAX];
-    enum vision_mode mode;
-    enum vision_line_mode line;
-    enum vision_line_mode orient;  /* the last line that was not OFF: the speed lines' way */
-    enum vision_speed_mode speed;
-    int distance_idx;
-    int tol_idx;
-    bool edge_hard;
-    bool trace_dark;
+    struct vision_settings set;
+    enum vision_mode mode;  /* the mode in force: set.mode when it is offered, else DETECT */
+    uint32_t avail;         /* bit per mode the helper can run */
+    enum vision_sheet sheet;
     bool have_target;     /* COLOR: a colour has been sampled */
     int32_t sample_x;     /* a sample asked for, in view pixels; -1 none */
     int32_t sample_y;
@@ -118,11 +128,35 @@ struct vision_model {
     uint32_t count_b;
     struct vision_traffic_report traffic;
     bool traffic_valid;
+    struct vision_recent_report recent;
+    bool recent_valid;
+    struct vision_text_report text;   /* READ: the last read (kept while held) */
+    bool text_valid;
+    bool hold;                        /* READ: the result stays as it is */
+    char readfail[VISION_EVENT_TEXT_MAX]; /* READ cannot read: why; "" when it can */
+    char facefail[VISION_EVENT_TEXT_MAX]; /* FACE cannot look: why; "" when it can */
+    uint32_t faces_seen;  /* FACE: faces that got an id since the mode began or RESET */
+    uint32_t face_top_id; /* the highest id counted; the helper's ids only grow */
+    /* RECOGNIZE */
+    struct vision_who_report who;     /* the last scores */
+    bool who_valid;
+    bool owner_known;                 /* the helper has said whether there is an owner */
+    bool have_owner;
+    uint32_t owner_views;
+    bool enrolling;
+    uint32_t enrol_k;
+    uint32_t enrol_n;
+    char enrolfail[VISION_EVENT_TEXT_MAX];
+    char recogfail[VISION_EVENT_TEXT_MAX];
+    bool forget_armed;                /* FORGET asked once: the next tap forgets */
+    int64_t forget_armed_ms;
     struct vision_pixel_report pixels;
     bool color_valid;
     bool edge_valid;
     bool trace_valid;
     int active_tracks;    /* confirmed tracks on the last det line */
+    int shown_objects;    /* boxes on the last det line */
+    int shown_classes;    /* distinct classes among them */
     struct vision_stats stats;
     bool stats_valid;
     int64_t last_frame_ms;
@@ -134,21 +168,31 @@ struct vision_view_text {
     const char *detail;
     const char *status;   /* the line(s) under the picture */
     const char *hint;     /* the header's right end: SIMULATED, or "" */
-    const char *mode_btn; /* DETECT / TRAFFIC / COLOR / EDGE / TRACE */
+    const char *mode_btn; /* the mode's name */
     const char *line_btn; /* LINE: OFF / ACROSS / DOWN */
-    const char *speed_btn;
+    const char *trails_btn; /* TRAILS: ON / OFF */
+    const char *hold_btn;   /* HOLD / HELD */
+    bool read;              /* READ: the boxes are the text lines */
+    bool faces;             /* FACE: every box is a face */
+    bool recog;             /* RECOGNIZE: the boxes say owner or unknown */
+    const char *enrol_btn;  /* ENROL / STOP */
+    const char *forget_btn; /* FORGET / SURE? */
+    bool forget_enabled;    /* there is an owner to forget */
+    bool hold;              /* READ held: HOLD is the primary button */
     const char *tol_btn;
     const char *edge_btn;
     const char *trace_btn;
-    char dist_btn[24];
-    char count_a[32];     /* "DOWN 3", "IN (DOWN) 3", or "-" */
+    char count_a[32];     /* "DOWN 3", "IN (DOWN) 3", "OBJECTS 3", or "-" */
     char count_b[32];
     bool status_warn;
     bool show_picture;
     bool show_retry;      /* TRY AGAIN (ERROR) or CHECK AGAIN (NO_DEVICE) */
     bool line_enabled;    /* the buttons take taps */
-    bool traffic;         /* TRAFFIC mode: SPEED and DIST are shown */
-    bool lines;           /* the counting and speed lines are drawn (DETECT, TRAFFIC) */
+    bool traffic;         /* TRAFFIC mode */
+    bool lines;           /* the counting (and speed) lines are drawn: TRACK, TRAFFIC */
+    bool ids;             /* boxes carry their track ids and class */
+    bool speeds;          /* boxes carry a measured speed */
+    bool trails;          /* where each track has been is drawn */
     bool picture_tap;     /* COLOR: a tap on the picture samples a colour */
     bool show_mark;       /* COLOR: the mark at the matches' centroid */
     int32_t mark_x;
@@ -156,6 +200,8 @@ struct vision_view_text {
 };
 
 void vision_model_init(struct vision_model *m);
+/* The stored settings, before the screen opens. */
+void vision_model_load(struct vision_model *m, const struct vision_settings *s);
 
 /* Opening the screen, or Try again: what to do. */
 unsigned vision_model_open(struct vision_model *m);
@@ -164,10 +210,46 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
 /* The once-a-tick check: a stalled preview. Returns true when the text
  * changed. */
 bool vision_model_tick(struct vision_model *m, int64_t now_ms);
-unsigned vision_model_mode_next(struct vision_model *m);
+
+/* Whether the helper can run this mode. */
+bool vision_model_offered(const struct vision_model *m, enum vision_mode mode);
+/* Switch to a mode (the picker's taps). A mode not offered is refused (0). */
+unsigned vision_model_set_mode(struct vision_model *m, enum vision_mode mode);
+/* MODE: the picker opens, or closes when it is open. SETUP: the mode's
+ * settings, the same. */
+unsigned vision_model_mode_button(struct vision_model *m);
+unsigned vision_model_setup_button(struct vision_model *m);
+unsigned vision_model_sheet_close(struct vision_model *m);
+/* The sheet's rows as the screen draws them; kind NONE when closed. */
+void vision_model_sheet(const struct vision_model *m, struct vision_sheet_view *out);
+/* A tap on a sheet cell, by its code. */
+unsigned vision_model_sheet_tap(struct vision_model *m, int code);
+
 unsigned vision_model_line_next(struct vision_model *m);
+/* TRACK: trails on or off. */
+unsigned vision_model_trails_next(struct vision_model *m);
+/* READ: hold the result, or let it follow the picture again. */
+unsigned vision_model_hold_next(struct vision_model *m);
+/* RECOGNIZE: ENROL starts an enrolment of the one face in view, or stops
+ * one under way. FORGET asks first: the first tap arms it (SURE?), a
+ * second within VISION_FORGET_ARM_MS forgets the owner. */
+#define VISION_FORGET_ARM_MS 4000
+unsigned vision_model_enrol_button(struct vision_model *m);
+unsigned vision_model_forget_button(struct vision_model *m);
+/* RECOGNIZE: what the box of track `id` says - "OWNER 91%", "unknown
+ * 43%", or "face" before it is compared. */
+void vision_model_who_label(const struct vision_model *m, uint32_t id, char *out, size_t len);
+/* A line of read text as the screen can show it: printable ASCII, every
+ * other character (the fonts have Latin only) a '?'. */
+void vision_model_text_ascii(const char *utf8, char *out, size_t len);
+/* TRAFFIC's detection range. */
+unsigned vision_model_set_range(struct vision_model *m, enum vision_range r);
+/* The helper's word for TRAFFIC's range, and its name on the screen. */
+const char *vision_model_range_word(const struct vision_model *m);
+const char *vision_model_range_name(enum vision_range r);
 unsigned vision_model_speed_next(struct vision_model *m);
 unsigned vision_model_distance_next(struct vision_model *m);
+unsigned vision_model_distance_prev(struct vision_model *m);
 unsigned vision_model_reset(struct vision_model *m);
 /* COLOR: sample at a view point (the SAMPLE button samples the middle,
  * vision_model_sample_middle), cycle the tolerance; EDGE: soft / hard;
@@ -178,9 +260,12 @@ unsigned vision_model_tol_next(struct vision_model *m);
 unsigned vision_model_edge_next(struct vision_model *m);
 unsigned vision_model_trace_next(struct vision_model *m);
 
+/* The counting line in force: TRACK's or TRAFFIC's own, OFF elsewhere. */
+enum vision_line_mode vision_model_line(const struct vision_model *m);
 /* The line's endpoints for its mode, per-mille of the view; false for OFF. */
 bool vision_model_line_pm(const struct vision_model *m, int32_t pm[4]);
-/* The speed lines' endpoints, A then B, per-mille; false for OFF. */
+/* The speed lines' endpoints, A then B, per-mille; false for OFF or outside
+ * TRAFFIC. */
 bool vision_model_speed_pm(const struct vision_model *m, int32_t pm[8]);
 /* The distance chosen, in centimetres. */
 uint32_t vision_model_distance_cm(const struct vision_model *m);
@@ -188,7 +273,7 @@ uint32_t vision_model_distance_cm(const struct vision_model *m);
 uint32_t vision_model_tol(const struct vision_model *m);
 /* EDGE's threshold to send: 0 for grey, VISION_EDGE_HARD_THRESHOLD for hard. */
 uint32_t vision_model_edge_threshold(const struct vision_model *m);
-/* The helper's word for the mode. */
+/* The helper's word for the mode in force. */
 const char *vision_model_mode_word(const struct vision_model *m);
 /* Whether the mode looks at pixels (COLOR, EDGE, TRACE). */
 bool vision_model_pixel_mode(const struct vision_model *m);

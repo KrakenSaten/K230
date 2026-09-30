@@ -970,10 +970,24 @@ DB_DIR := apps/deskbuddy
 DB_CORE_OBJS := $(DB_DIR)/db_brain.o $(DB_DIR)/db_face.o $(DB_DIR)/db_guard.o $(DB_DIR)/db_prefs.o \
                 $(DB_DIR)/db_vision.o $(DB_DIR)/db_vision_mock.o
 DB_STORE_OBJS := $(DB_DIR)/db_store.o $(PATHS_OBJS)
-DESKBUDDY_TESTS := tests/db_brain_test tests/db_vision_test tests/db_guard_test
+DESKBUDDY_TESTS := tests/db_brain_test tests/db_vision_test tests/db_guard_test tests/db_pipeline_test
+# The bridge to Vision (apps/deskbuddy_vision): the one place DeskBuddy's
+# boundary and Vision's helper client meet.
+DBV_DIR := apps/deskbuddy_vision
 
 tests/db_%_test.o: tests/db_%_test.c
 	$(CC) $(ALL_CFLAGS) -I$(DB_DIR) -c -o $@ $<
+
+$(DBV_DIR)/%.o: $(DBV_DIR)/%.c
+	$(CC) $(ALL_CFLAGS) -I$(DB_DIR) -Iapps/vision -c -o $@ $<
+
+tests/db_pipeline_test.o: tests/db_pipeline_test.c
+	$(CC) $(ALL_CFLAGS) -I$(DB_DIR) -I$(DBV_DIR) -Iapps/vision -c -o $@ $<
+
+# The provider against the real helper on the fake camera and fake models.
+tests/db_pipeline_test: tests/db_pipeline_test.o $(DBV_DIR)/db_vision_pipeline.o $(DB_DIR)/db_vision.o \
+                        apps/vision/vision_session.o apps/vision/vision_settings.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 tests/db_brain_test: tests/db_brain_test.o $(DB_CORE_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
@@ -984,10 +998,11 @@ tests/db_vision_test: tests/db_vision_test.o $(DB_CORE_OBJS)
 tests/db_guard_test: tests/db_guard_test.o $(DB_CORE_OBJS) $(DB_STORE_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
-DESKBUDDY_TEST_RUN = ./tests/db_brain_test && ./tests/db_vision_test && ./tests/db_guard_test
+DESKBUDDY_TEST_RUN = ./tests/db_brain_test && ./tests/db_vision_test && ./tests/db_guard_test && \
+                     ./tests/db_pipeline_test tools/vision/pos-vision
 
 # DeskBuddy on its own, for a focused run.
-deskbuddy-test: $(DESKBUDDY_TESTS)
+deskbuddy-test: $(DESKBUDDY_TESTS) tools/vision/pos-vision
 	$(DESKBUDDY_TEST_RUN)
 	bash tests/deskbuddy_lint.sh
 
@@ -1321,7 +1336,9 @@ POCKETVISION_KPU ?= 0
 VISION_DIR := core/pocketvision
 VISION_CORE_OBJS := $(VISION_DIR)/vision_decode.o $(VISION_DIR)/vision_nms.o $(VISION_DIR)/vision_track.o \
                     $(VISION_DIR)/vision_line.o $(VISION_DIR)/vision_traffic.o $(VISION_DIR)/vision_geom.o \
-                    $(VISION_DIR)/vision_labels.o $(VISION_DIR)/vision_pixels.o
+                    $(VISION_DIR)/vision_labels.o $(VISION_DIR)/vision_pixels.o $(VISION_DIR)/vision_range.o \
+                    $(VISION_DIR)/vision_window.o $(VISION_DIR)/vision_text.o $(VISION_DIR)/vision_face.o \
+                    $(VISION_DIR)/vision_embed.o
 ifeq ($(POCKETVISION_KPU),1)
 VISION_KPU_OBJS := $(VISION_DIR)/vision_kpu_nncase.o
 VISION_LINK := $(CXX)
@@ -1337,10 +1354,12 @@ VISION_LIBS :=
 endif
 VISION_APP_DIR := apps/vision
 VISION_APP_OBJS := $(VISION_APP_DIR)/vision_session.o $(VISION_APP_DIR)/vision_model.o \
-                   $(VISION_APP_DIR)/vision_layout.o
+                   $(VISION_APP_DIR)/vision_layout.o $(VISION_APP_DIR)/vision_settings.o $(VISION_APP_DIR)/vision_trails.o
 POS_VISION_OBJS := tools/vision/pos_vision.o $(VISION_CORE_OBJS) $(VISION_KPU_OBJS) $(CAM_OBJS) $(PATHS_OBJS)
 VISION_TESTS := tests/vision_decode_test tests/vision_track_test tests/vision_traffic_test tests/vision_pixels_test \
-                tests/vision_geom_test tests/vision_model_test tests/vision_session_test
+                tests/vision_geom_test tests/vision_model_test tests/vision_session_test tests/vision_settings_test \
+                tests/vision_range_test tests/vision_window_test tests/vision_text_test tests/vision_face_test \
+                tests/vision_embed_test
 
 # The one C++ file: -Wno-multichar as the vendor builds against these headers
 # (a four-character constant in the runtime's own header).
@@ -1366,6 +1385,25 @@ tests/vision_track_test: tests/vision_track_test.o $(VISION_CORE_OBJS)
 tests/vision_traffic_test: tests/vision_traffic_test.o $(VISION_CORE_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
 
+# The detection range's presets, zoom window and merge; the recent window.
+tests/vision_range_test: tests/vision_range_test.o $(VISION_CORE_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
+tests/vision_window_test: tests/vision_window_test.o $(VISION_CORE_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
+# The text regions and the line reader on synthetic maps and scores.
+tests/vision_text_test: tests/vision_text_test.o $(VISION_CORE_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
+# The face decoder on outputs made as the model says a face.
+tests/vision_face_test: tests/vision_face_test.o $(VISION_CORE_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
+# The face alignment, the comparison and the owner's text form.
+tests/vision_embed_test: tests/vision_embed_test.o $(VISION_CORE_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
+
 # The pixel modes on synthetic pictures.
 tests/vision_pixels_test: tests/vision_pixels_test.o $(VISION_CORE_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) -lm
@@ -1379,11 +1417,20 @@ tests/vision_model_test: tests/vision_model_test.o $(VISION_APP_OBJS)
 
 # The helper client against the real helper on the fake camera and the fake
 # detector.
-tests/vision_session_test: tests/vision_session_test.o $(VISION_APP_DIR)/vision_session.o
+tests/vision_session_test: tests/vision_session_test.o $(VISION_APP_DIR)/vision_session.o \
+                           $(VISION_APP_DIR)/vision_settings.o
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# The settings: the file format, refusals, and the store on a scratch state
+# directory.
+tests/vision_settings_test: tests/vision_settings_test.o $(VISION_APP_DIR)/vision_settings.o \
+                            $(VISION_APP_DIR)/vision_store.o $(PATHS_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 VISION_TEST_RUN = ./tests/vision_decode_test && ./tests/vision_track_test && ./tests/vision_traffic_test && \
                   ./tests/vision_pixels_test && ./tests/vision_geom_test && ./tests/vision_model_test && \
+                  ./tests/vision_settings_test && ./tests/vision_range_test && ./tests/vision_window_test && \
+                  ./tests/vision_text_test && ./tests/vision_face_test && ./tests/vision_embed_test && \
                   ./tests/vision_session_test tools/vision/pos-vision
 
 vision-test: $(VISION_TESTS) tools/vision/pos-vision

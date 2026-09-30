@@ -650,6 +650,103 @@ static void test_directions(void)
     }
 }
 
+/* Tracking 2.0, each rule from unit B's KPU replay of a real street
+ * (docs/apps/VISION.md, "Tracking"): a second box of a tracked object never
+ * becomes a second track; two people close together still get one each; a
+ * track is found again where it was last seen when its prediction drifted
+ * on; and the longer it was hidden, the wider it is looked for. */
+static void test_tracking2(void)
+{
+    struct vision_tracker tr;
+    struct vision_det d[2];
+    uint32_t id;
+    int i;
+
+    /* A partial box beside the whole one. */
+    vision_tracker_init(&tr);
+    for (i = 0; i < 3; i++) {
+        d[0] = det(2, 100 + 2 * i, 100, 80, 40);
+        vision_tracker_update(&tr, d, 1);
+    }
+    id = tr.t[0].id;
+    d[0] = det(2, 106, 100, 80, 40);
+    d[1] = det(2, 108, 100, 40, 40);
+    vision_tracker_update(&tr, d, 2);
+    check("a partial box inside a tracked car is no second track", tr.count == 1 && tr.t[0].id == id &&
+                                                                       tr.dup_births == 1);
+    d[1] = det(2, 106, 102, 80, 38);
+    d[0] = det(2, 108, 100, 80, 40);
+    vision_tracker_update(&tr, d, 2);
+    check("nor a second box of it just under suppression's overlap", tr.count == 1 && tr.dup_births == 2);
+    d[1] = det(0, 108, 100, 40, 40);
+    vision_tracker_update(&tr, d, 2);
+    check("a person on the car is another object, and gets a track", tr.count == 2 && tr.dup_births == 2);
+
+    /* Two people side by side, overlapping under the duplicate's bound. */
+    vision_tracker_init(&tr);
+    d[0] = det(0, 100, 100, 50, 100);
+    d[1] = det(0, 118, 100, 50, 100); /* IoU 0.47, 64 % inside */
+    vision_tracker_update(&tr, d, 2);
+    d[0] = det(0, 101, 100, 50, 100);
+    d[1] = det(0, 119, 100, 50, 100);
+    vision_tracker_update(&tr, d, 2);
+    check("two people close together are two confirmed tracks", tr.count == 2 && tr.t[0].confirmed &&
+                                                                    tr.t[1].confirmed && tr.dup_births == 0);
+
+    /* Found where it was last seen: it stopped while hidden, and its
+     * prediction drifted on (78 px after five frames at 20 px a frame,
+     * beyond pass 2's reach). */
+    vision_tracker_init(&tr);
+    for (i = 0; i < 4; i++) {
+        d[0] = det(2, 100 + 20 * i, 200, 40, 40);
+        vision_tracker_update(&tr, d, 1);
+    }
+    id = tr.t[0].id;
+    for (i = 0; i < 5; i++) {
+        vision_tracker_update(&tr, d, 0);
+    }
+    d[0] = det(2, 160, 200, 40, 40);
+    vision_tracker_update(&tr, d, 1);
+    check("a car that stopped while hidden is found where it was last seen, same id",
+          tr.count == 1 && tr.t[0].id == id && tr.t[0].seen && tr.revived == 1);
+
+    /* Found by a radius that grew: it kept going while hidden eight frames,
+     * further than its slowing prediction (34 px off, pass 2's first reach
+     * is 30). */
+    vision_tracker_init(&tr);
+    for (i = 0; i < 6; i++) {
+        d[0] = det(2, 100 + 10 * i, 200, 40, 40);
+        vision_tracker_update(&tr, d, 1);
+    }
+    id = tr.t[0].id;
+    for (i = 0; i < 8; i++) {
+        vision_tracker_update(&tr, d, 0);
+    }
+    d[0] = det(2, 150 + 90, 200, 40, 40);
+    vision_tracker_update(&tr, d, 1);
+    check("a car hidden eight frames is found by a wider reach, same id", tr.count == 1 && tr.t[0].id == id &&
+                                                                              tr.t[0].seen && tr.reacquired == 1);
+    /* But not without bound: a track kept long (FAR keeps them longer)
+     * reaches twice its start at most. Hidden 30 frames its prediction has
+     * slowed to x 212 (the motion decays in integer steps); a car 78 px
+     * beyond is further than 60 px (the cap) and nearer than an uncapped
+     * 90. */
+    vision_tracker_init(&tr);
+    tr.max_misses = 40;
+    for (i = 0; i < 6; i++) {
+        d[0] = det(2, 100 + 10 * i, 200, 40, 40);
+        vision_tracker_update(&tr, d, 1);
+    }
+    for (i = 0; i < 30; i++) {
+        vision_tracker_update(&tr, d, 0);
+    }
+    d[0] = det(2, 290, 200, 40, 40);
+    vision_tracker_update(&tr, d, 1);
+    check("the reach is bounded: twice its start at most, a car beyond it is another", tr.count == 2 &&
+                                                                                          tr.t[1].id != tr.t[0].id &&
+                                                                                          tr.reacquired == 0);
+}
+
 int main(void)
 {
     test_identity();
@@ -663,6 +760,7 @@ int main(void)
     test_huge_box();
     test_line();
     test_directions();
+    test_tracking2();
     printf("vision_track_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;
 }

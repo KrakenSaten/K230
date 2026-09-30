@@ -5,32 +5,54 @@
  */
 #include "vision_model.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
 #define VISION_STALL_AFTER_MS 2000
+#define VISION_OWNER_VIEWS 5   /* the views an enrolment takes (the helper's VISION_OWNER_SAMPLES) */
 
-static const uint32_t distances_cm[VISION_DISTANCES] = { 100, 200, 500, 1000, 1500, 2000, 3000, 5000 };
-static const uint32_t tols[VISION_TOLS] = { 48, 96, 160 };
+/* Sheet cell codes (vision_model_sheet_tap). */
+#define CODE_MODE 100      /* + enum vision_mode */
+#define CODE_LINE 200      /* + enum vision_line_mode */
+#define CODE_SPEED 210     /* + enum vision_speed_mode */
+#define CODE_DIST_PREV 220
+#define CODE_DIST_SHOW 221
+#define CODE_DIST_NEXT 222
+#define CODE_LABELS 230
+#define CODE_SPEEDS 231
+#define CODE_TRAILS 232
+#define CODE_RANGE 240     /* + enum vision_range */
+
 static const char *const tol_names[VISION_TOLS] = { "TOL: LOW", "TOL: MED", "TOL: HIGH" };
+static const char *const range_names[VISION_RANGES] = { "NEAR", "NORMAL", "FAR" };
+static const char *const range_words[VISION_RANGES] = { "near", "normal", "far" };
 static const char *const traffic_names[VISION_PROTO_TRAFFIC_CLASSES] = {
     "car", "truck", "bus", "moto", "bike", "person",
 };
-static const char *const mode_names[VISION_MODES] = { "DETECT", "TRAFFIC", "COLOR", "EDGE", "TRACE" };
-static const char *const mode_words[VISION_MODES] = { "detect", "traffic", "color", "edge", "trace" };
+static const char *const line_names[VISION_LINE_MODES] = { "OFF", "ACROSS", "DOWN" };
+static const char *const speed_names[VISION_SPEED_MODES] = { "OFF", "NARROW", "WIDE" };
+
+/* What a helper with a detector runs, when it has not said otherwise. */
+#define AVAIL_DETECTOR ((1u << VISION_MODE_DETECT) | (1u << VISION_MODE_TRACK) | (1u << VISION_MODE_TRAFFIC) | \
+                        (1u << VISION_MODE_COLOR) | (1u << VISION_MODE_EDGE) | (1u << VISION_MODE_TRACE))
 
 void vision_model_init(struct vision_model *m)
 {
     memset(m, 0, sizeof(*m));
     m->state = VISION_INIT;
-    m->line = VISION_LINE_ACROSS;
-    m->orient = VISION_LINE_ACROSS;
-    m->speed = VISION_SPEED_OFF;
-    m->distance_idx = VISION_DISTANCE_DEFAULT;
-    m->tol_idx = VISION_TOL_DEFAULT;
-    m->trace_dark = true;
+    vision_settings_defaults(&m->set);
+    m->mode = m->set.mode;
+    m->avail = AVAIL_DETECTOR;
     m->sample_x = -1;
     m->sample_y = -1;
+}
+
+void vision_model_load(struct vision_model *m, const struct vision_settings *s)
+{
+    m->set = *s;
+    vision_settings_sanitize(&m->set);
+    m->mode = m->set.mode;
 }
 
 unsigned vision_model_open(struct vision_model *m)
@@ -38,14 +60,11 @@ unsigned vision_model_open(struct vision_model *m)
     struct vision_model keep = *m;
 
     vision_model_init(m);
-    m->mode = keep.mode;
-    m->line = keep.line;
-    m->orient = keep.orient;
-    m->speed = keep.speed;
-    m->distance_idx = keep.distance_idx;
-    m->tol_idx = keep.tol_idx;
-    m->edge_hard = keep.edge_hard;
-    m->trace_dark = keep.trace_dark;
+    m->set = keep.set;
+    m->mode = keep.set.mode;
+    /* A sheet the owner opened stays open while Vision starts (an error
+     * closes it). */
+    m->sheet = keep.sheet;
     return VISION_ACT_OPEN;
 }
 
@@ -54,6 +73,7 @@ static void fail(struct vision_model *m, enum vision_state st, const char *text)
     m->state = st;
     m->live = false;
     m->stalled = false;
+    m->sheet = VISION_SHEET_NONE;
     snprintf(m->error, sizeof(m->error), "%s", text ? text : "");
 }
 
@@ -61,7 +81,10 @@ static void clear_counts(struct vision_model *m)
 {
     m->count_a = 0;
     m->count_b = 0;
+    m->faces_seen = 0;
     memset(&m->traffic, 0, sizeof(m->traffic));
+    memset(&m->recent, 0, sizeof(m->recent));
+    m->recent_valid = false;
 }
 
 static void clear_pixels(struct vision_model *m)
@@ -75,6 +98,60 @@ static void clear_pixels(struct vision_model *m)
 bool vision_model_pixel_mode(const struct vision_model *m)
 {
     return m->mode == VISION_MODE_COLOR || m->mode == VISION_MODE_EDGE || m->mode == VISION_MODE_TRACE;
+}
+
+bool vision_model_offered(const struct vision_model *m, enum vision_mode mode)
+{
+    return (int)mode >= 0 && mode < VISION_MODES && (m->avail & (1u << mode)) != 0;
+}
+
+/* The mode in force follows the setting when the helper offers it, and
+ * falls back to DETECT when it does not (a unit without the text model):
+ * the setting itself stays, so the owner's choice comes back with the
+ * model. */
+static void resolve_mode(struct vision_model *m)
+{
+    m->mode = vision_model_offered(m, m->set.mode) ? m->set.mode : VISION_MODE_DETECT;
+}
+
+/* Everything a new mode leaves behind. */
+static void mode_changed(struct vision_model *m)
+{
+    clear_counts(m);
+    clear_pixels(m);
+    memset(&m->text, 0, sizeof(m->text));
+    m->text_valid = false;
+    m->hold = false;
+    m->readfail[0] = '\0';
+    m->facefail[0] = '\0';
+    m->faces_seen = 0;
+    m->face_top_id = 0;
+    memset(&m->who, 0, sizeof(m->who));
+    m->who_valid = false;
+    m->enrolling = false;
+    m->enrol_k = 0;
+    m->enrolfail[0] = '\0';
+    m->recogfail[0] = '\0';
+    m->forget_armed = false;
+    m->forget_armed_ms = 0;
+    m->active_tracks = 0;
+    m->shown_objects = 0;
+    m->shown_classes = 0;
+    m->have_target = false;
+    m->sample_x = -1;
+    m->sample_y = -1;
+}
+
+static unsigned when_live(const struct vision_model *m, unsigned acts)
+{
+    return m->state == VISION_LIVE ? acts : 0;
+}
+
+/* The mode and everything that goes with it, for the helper. */
+static unsigned mode_acts(const struct vision_model *m)
+{
+    return VISION_ACT_MODE |
+           when_live(m, VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_DISTANCE | VISION_ACT_PIXELS | VISION_ACT_RANGE);
 }
 
 unsigned vision_model_event(struct vision_model *m, const struct vision_event *ev,
@@ -94,9 +171,23 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
             m->preview_h = ev->h;
             m->classes = (uint32_t)ev->value;
             m->last_frame_ms = now_ms;
+            /* A new helper numbers its tracks from the start. */
+            m->face_top_id = 0;
             /* Everything the helper has to know, whatever it defaults to. */
             acts |= VISION_ACT_STREAM | VISION_ACT_MODE | VISION_ACT_LINE | VISION_ACT_SPEED |
-                    VISION_ACT_DISTANCE | VISION_ACT_PIXELS;
+                    VISION_ACT_DISTANCE | VISION_ACT_PIXELS | VISION_ACT_RANGE;
+        }
+        break;
+    case VISION_EV_CAPS:
+        if (m->state == VISION_INIT || m->state == VISION_LIVE) {
+            enum vision_mode was = m->mode;
+
+            m->avail = (uint32_t)ev->value & ((1u << VISION_MODES) - 1u);
+            resolve_mode(m);
+            if (m->mode != was) {
+                mode_changed(m);
+                acts |= mode_acts(m);
+            }
         }
         break;
     case VISION_EV_FRAME:
@@ -111,13 +202,32 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
         if (s) {
             int n = 0;
             int i;
+            int j;
             int active = 0;
+            int classes = 0;
             const struct vision_shown *t = vision_session_tracks(s, &n, NULL);
 
             for (i = 0; i < n; i++) {
                 active += t[i].id != 0;
+                for (j = 0; j < i && t[j].cls != t[i].cls; j++) {
+                }
+                classes += j == i;
             }
             m->active_tracks = active;
+            m->shown_objects = n;
+            m->shown_classes = classes;
+            if (m->mode == VISION_MODE_FACE) {
+                /* A face counts once, when it first gets an id. */
+                uint32_t top = m->face_top_id;
+
+                for (i = 0; i < n; i++) {
+                    if (t[i].id > m->face_top_id) {
+                        m->faces_seen++;
+                        top = t[i].id > top ? t[i].id : top;
+                    }
+                }
+                m->face_top_id = top;
+            }
         }
         break;
     case VISION_EV_COUNT:
@@ -130,6 +240,58 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
             m->traffic = *vision_session_traffic(s);
             m->traffic_valid = true;
         }
+        break;
+    case VISION_EV_RECENT:
+        if (s) {
+            m->recent = *vision_session_recent(s);
+            m->recent_valid = true;
+        }
+        break;
+    case VISION_EV_TEXT:
+        /* A held result stays: the owner is reading it. */
+        if (s && m->mode == VISION_MODE_READ && !m->hold) {
+            m->text = *vision_session_text(s);
+            m->text_valid = true;
+            m->readfail[0] = '\0';
+        }
+        break;
+    case VISION_EV_READFAIL:
+        snprintf(m->readfail, sizeof(m->readfail), "%s", ev->text[0] ? ev->text : "the text models failed");
+        break;
+    case VISION_EV_FACEFAIL:
+        snprintf(m->facefail, sizeof(m->facefail), "%s", ev->text[0] ? ev->text : "the face model failed");
+        break;
+    case VISION_EV_RECOGFAIL:
+        snprintf(m->recogfail, sizeof(m->recogfail), "%s", ev->text[0] ? ev->text : "the face models failed");
+        m->enrolling = false;
+        break;
+    case VISION_EV_WHO:
+        if (s && m->mode == VISION_MODE_RECOGNIZE) {
+            m->who = *vision_session_who(s);
+            m->who_valid = true;
+        }
+        break;
+    case VISION_EV_OWNER:
+        m->owner_known = true;
+        m->have_owner = ev->value == 1;
+        m->owner_views = ev->w;
+        /* An owner said while enrolling is the enrolment's end. */
+        m->enrolling = false;
+        if (!m->have_owner) {
+            memset(&m->who, 0, sizeof(m->who));
+        }
+        break;
+    case VISION_EV_ENROL:
+        if (m->mode == VISION_MODE_RECOGNIZE) {
+            m->enrolling = ev->w < ev->h;
+            m->enrol_k = ev->w;
+            m->enrol_n = ev->h;
+            m->enrolfail[0] = '\0';
+        }
+        break;
+    case VISION_EV_ENROLFAIL:
+        m->enrolling = false;
+        snprintf(m->enrolfail, sizeof(m->enrolfail), "%s", ev->text[0] ? ev->text : "enrolment failed");
         break;
     case VISION_EV_COLOR:
         if (s) {
@@ -202,6 +364,14 @@ unsigned vision_model_event(struct vision_model *m, const struct vision_event *e
 
 bool vision_model_tick(struct vision_model *m, int64_t now_ms)
 {
+    /* An armed FORGET: from its first tick, for VISION_FORGET_ARM_MS. */
+    if (m->forget_armed && m->forget_armed_ms == 0) {
+        m->forget_armed_ms = now_ms;
+    } else if (m->forget_armed && now_ms - m->forget_armed_ms >= VISION_FORGET_ARM_MS) {
+        m->forget_armed = false;
+        m->forget_armed_ms = 0;
+        return true;
+    }
     if (m->state == VISION_LIVE && m->live && !m->stalled &&
         now_ms - m->last_frame_ms >= VISION_STALL_AFTER_MS) {
         m->stalled = true;
@@ -210,48 +380,224 @@ bool vision_model_tick(struct vision_model *m, int64_t now_ms)
     return false;
 }
 
-static unsigned when_live(const struct vision_model *m, unsigned acts)
+unsigned vision_model_set_mode(struct vision_model *m, enum vision_mode mode)
 {
-    return m->state == VISION_LIVE ? acts : 0;
+    if (!vision_model_offered(m, mode)) {
+        return 0;
+    }
+    m->sheet = VISION_SHEET_NONE;
+    if (mode == m->mode && mode == m->set.mode) {
+        return 0;
+    }
+    m->set.mode = mode;
+    m->mode = mode;
+    /* A new way of looking is a new count, on the helper too. */
+    mode_changed(m);
+    return mode_acts(m) | VISION_ACT_SAVE;
 }
 
-unsigned vision_model_mode_next(struct vision_model *m)
+unsigned vision_model_mode_button(struct vision_model *m)
 {
-    m->mode = (enum vision_mode)((m->mode + 1) % VISION_MODES);
-    /* A new way of looking is a new count, on the helper too. */
+    m->sheet = m->sheet == VISION_SHEET_MODES ? VISION_SHEET_NONE : VISION_SHEET_MODES;
+    return 0;
+}
+
+unsigned vision_model_setup_button(struct vision_model *m)
+{
+    if (m->mode != VISION_MODE_TRAFFIC) {
+        return 0;
+    }
+    m->sheet = m->sheet == VISION_SHEET_SETUP ? VISION_SHEET_NONE : VISION_SHEET_SETUP;
+    return 0;
+}
+
+unsigned vision_model_sheet_close(struct vision_model *m)
+{
+    m->sheet = VISION_SHEET_NONE;
+    return 0;
+}
+
+enum vision_line_mode vision_model_line(const struct vision_model *m)
+{
+    switch (m->mode) {
+    case VISION_MODE_TRACK:
+        return m->set.track.line;
+    case VISION_MODE_TRAFFIC:
+        return m->set.traffic.line;
+    default:
+        return VISION_LINE_OFF;
+    }
+}
+
+static unsigned set_line(struct vision_model *m, enum vision_line_mode line)
+{
+    if (m->mode == VISION_MODE_TRACK) {
+        m->set.track.line = line;
+    } else if (m->mode == VISION_MODE_TRAFFIC) {
+        m->set.traffic.line = line;
+        if (line != VISION_LINE_OFF) {
+            m->set.traffic.orient = line;
+        }
+    } else {
+        return 0;
+    }
     clear_counts(m);
-    clear_pixels(m);
-    m->active_tracks = 0;
-    m->have_target = false;
-    m->sample_x = -1;
-    m->sample_y = -1;
-    return VISION_ACT_MODE |
-           when_live(m, VISION_ACT_LINE | VISION_ACT_SPEED | VISION_ACT_DISTANCE | VISION_ACT_PIXELS);
+    /* The speed lines lie the way the counting line does. */
+    return when_live(m, VISION_ACT_LINE | VISION_ACT_SPEED) | VISION_ACT_SAVE;
 }
 
 unsigned vision_model_line_next(struct vision_model *m)
 {
-    m->line = (enum vision_line_mode)((m->line + 1) % VISION_LINE_MODES);
-    if (m->line != VISION_LINE_OFF) {
-        m->orient = m->line;
+    return set_line(m, (enum vision_line_mode)((vision_model_line(m) + 1) % VISION_LINE_MODES));
+}
+
+unsigned vision_model_trails_next(struct vision_model *m)
+{
+    if (m->mode == VISION_MODE_TRACK) {
+        m->set.track.trails = !m->set.track.trails;
+    } else if (m->mode == VISION_MODE_TRAFFIC) {
+        m->set.traffic.trails = !m->set.traffic.trails;
+    } else {
+        return 0;
     }
-    clear_counts(m);
-    /* The speed lines lie the way the counting line does. */
-    return when_live(m, VISION_ACT_LINE | VISION_ACT_SPEED);
+    /* The screen's alone: nothing to tell the helper. */
+    return VISION_ACT_SAVE;
+}
+
+unsigned vision_model_enrol_button(struct vision_model *m)
+{
+    if (m->mode != VISION_MODE_RECOGNIZE || m->state != VISION_LIVE) {
+        return 0;
+    }
+    m->forget_armed = false;
+    m->forget_armed_ms = 0;
+    m->enrolfail[0] = '\0';
+    m->enrolling = !m->enrolling;
+    m->enrol_k = 0;
+    return VISION_ACT_ENROL;
+}
+
+unsigned vision_model_forget_button(struct vision_model *m)
+{
+    if (m->mode != VISION_MODE_RECOGNIZE || m->state != VISION_LIVE || !m->have_owner) {
+        return 0;
+    }
+    if (!m->forget_armed) {
+        m->forget_armed = true;
+        m->forget_armed_ms = 0;
+        return 0;
+    }
+    m->forget_armed = false;
+    m->forget_armed_ms = 0;
+    m->have_owner = false;
+    m->owner_views = 0;
+    m->enrolling = false;
+    memset(&m->who, 0, sizeof(m->who));
+    return VISION_ACT_FORGET;
+}
+
+void vision_model_who_label(const struct vision_model *m, uint32_t id, char *out, size_t len)
+{
+    int i;
+
+    if (!out || len == 0) {
+        return;
+    }
+    snprintf(out, len, "face");
+    if (!m->who_valid || !m->have_owner || id == 0) {
+        return;
+    }
+    for (i = 0; i < m->who.n; i++) {
+        if (m->who.t[i].id == id) {
+            snprintf(out, len, "%s %u%%", m->who.t[i].owner ? "OWNER" : "unknown", m->who.t[i].score / 10u);
+            return;
+        }
+    }
+}
+
+unsigned vision_model_hold_next(struct vision_model *m)
+{
+    if (m->mode != VISION_MODE_READ) {
+        return 0;
+    }
+    m->hold = !m->hold;
+    return 0;
+}
+
+void vision_model_text_ascii(const char *utf8, char *out, size_t len)
+{
+    size_t o = 0;
+    const unsigned char *p = (const unsigned char *)utf8;
+
+    if (!out || len == 0) {
+        return;
+    }
+    while (p && *p && o + 1 < len) {
+        if (*p < 0x80) {
+            out[o++] = *p >= 0x20 && *p < 0x7f ? (char)*p : '?';
+            p++;
+            continue;
+        }
+        /* One character of several bytes: a lead byte and its
+         * continuations. */
+        out[o++] = '?';
+        p++;
+        while ((*p & 0xc0) == 0x80) {
+            p++;
+        }
+    }
+    out[o] = '\0';
+}
+
+unsigned vision_model_set_range(struct vision_model *m, enum vision_range r)
+{
+    if ((int)r < 0 || r >= VISION_RANGES || r == m->set.traffic.range) {
+        return 0;
+    }
+    m->set.traffic.range = r;
+    m->traffic.cur_kmh10 = 0;
+    return when_live(m, VISION_ACT_RANGE) | VISION_ACT_SAVE;
+}
+
+const char *vision_model_range_word(const struct vision_model *m)
+{
+    enum vision_range r = m->set.traffic.range;
+
+    return range_words[(int)r >= 0 && r < VISION_RANGES ? r : VISION_RANGE_NORMAL];
+}
+
+const char *vision_model_range_name(enum vision_range r)
+{
+    return range_names[(int)r >= 0 && r < VISION_RANGES ? r : VISION_RANGE_NORMAL];
+}
+
+static unsigned set_speed(struct vision_model *m, enum vision_speed_mode speed)
+{
+    m->set.traffic.speed = speed;
+    m->traffic.cur_kmh10 = 0;
+    return when_live(m, VISION_ACT_SPEED) | VISION_ACT_SAVE;
 }
 
 unsigned vision_model_speed_next(struct vision_model *m)
 {
-    m->speed = (enum vision_speed_mode)((m->speed + 1) % VISION_SPEED_MODES);
+    return set_speed(m, (enum vision_speed_mode)((m->set.traffic.speed + 1) % VISION_SPEED_MODES));
+}
+
+static unsigned set_distance(struct vision_model *m, int idx)
+{
+    m->set.traffic.distance_idx = (idx + VISION_DISTANCES) % VISION_DISTANCES;
     m->traffic.cur_kmh10 = 0;
-    return when_live(m, VISION_ACT_SPEED);
+    return when_live(m, VISION_ACT_DISTANCE) | VISION_ACT_SAVE;
 }
 
 unsigned vision_model_distance_next(struct vision_model *m)
 {
-    m->distance_idx = (m->distance_idx + 1) % VISION_DISTANCES;
-    m->traffic.cur_kmh10 = 0;
-    return when_live(m, VISION_ACT_DISTANCE);
+    return set_distance(m, m->set.traffic.distance_idx + 1);
+}
+
+unsigned vision_model_distance_prev(struct vision_model *m)
+{
+    return set_distance(m, m->set.traffic.distance_idx - 1);
 }
 
 unsigned vision_model_reset(struct vision_model *m)
@@ -277,26 +623,164 @@ unsigned vision_model_sample_middle(struct vision_model *m, uint32_t view_w, uin
 
 unsigned vision_model_tol_next(struct vision_model *m)
 {
-    m->tol_idx = (m->tol_idx + 1) % VISION_TOLS;
-    return when_live(m, VISION_ACT_PIXELS);
+    m->set.color.tol_idx = (m->set.color.tol_idx + 1) % VISION_TOLS;
+    return when_live(m, VISION_ACT_PIXELS) | VISION_ACT_SAVE;
 }
 
 unsigned vision_model_edge_next(struct vision_model *m)
 {
-    m->edge_hard = !m->edge_hard;
-    return when_live(m, VISION_ACT_PIXELS);
+    m->set.edge.hard = !m->set.edge.hard;
+    return when_live(m, VISION_ACT_PIXELS) | VISION_ACT_SAVE;
 }
 
 unsigned vision_model_trace_next(struct vision_model *m)
 {
-    m->trace_dark = !m->trace_dark;
+    m->set.trace.dark = !m->set.trace.dark;
     m->trace_valid = false;
-    return when_live(m, VISION_ACT_PIXELS);
+    return when_live(m, VISION_ACT_PIXELS) | VISION_ACT_SAVE;
 }
+
+/* ---- the sheet -------------------------------------------------------------------- */
+
+static void cell(struct vision_sheet_row *r, const char *text, bool selected, bool enabled, int code)
+{
+    struct vision_sheet_cell *c;
+
+    if (r->cells >= VISION_SHEET_CELLS) {
+        return;
+    }
+    c = &r->cell[r->cells++];
+    snprintf(c->text, sizeof(c->text), "%s", text);
+    c->selected = selected;
+    c->enabled = enabled;
+    c->code = code;
+}
+
+static struct vision_sheet_row *row(struct vision_sheet_view *v, const char *caption)
+{
+    struct vision_sheet_row *r;
+
+    if (v->rows >= VISION_SHEET_ROWS) {
+        return NULL;
+    }
+    r = &v->row[v->rows++];
+    memset(r, 0, sizeof(*r));
+    r->caption = caption;
+    return r;
+}
+
+static void sheet_modes(const struct vision_model *m, struct vision_sheet_view *v)
+{
+    int g;
+
+    v->title = "MODE";
+    for (g = 0; g < VISION_GROUPS; g++) {
+        struct vision_sheet_row *r = NULL;
+        int i;
+
+        for (i = 0; i < VISION_MODES; i++) {
+            if (vision_mode_group((enum vision_mode)i) != (enum vision_group)g ||
+                !vision_model_offered(m, (enum vision_mode)i)) {
+                continue;
+            }
+            if (!r) {
+                r = row(v, vision_group_name((enum vision_group)g));
+                if (!r) {
+                    return;
+                }
+            }
+            cell(r, vision_mode_name((enum vision_mode)i), m->mode == (enum vision_mode)i, true, CODE_MODE + i);
+        }
+    }
+}
+
+static void sheet_traffic(const struct vision_model *m, struct vision_sheet_view *v)
+{
+    struct vision_sheet_row *r;
+    char dist[VISION_SHEET_TEXT];
+    int i;
+
+    v->title = "TRAFFIC SETUP";
+    r = row(v, "DETECTION RANGE");
+    for (i = 0; i < VISION_RANGES; i++) {
+        cell(r, range_names[i], m->set.traffic.range == (enum vision_range)i, true, CODE_RANGE + i);
+    }
+    r = row(v, "COUNT LINE");
+    for (i = 0; i < VISION_LINE_MODES; i++) {
+        cell(r, line_names[i], m->set.traffic.line == (enum vision_line_mode)i, true, CODE_LINE + i);
+    }
+    r = row(v, "SPEED LINES");
+    for (i = 0; i < VISION_SPEED_MODES; i++) {
+        cell(r, speed_names[i], m->set.traffic.speed == (enum vision_speed_mode)i, true, CODE_SPEED + i);
+    }
+    r = row(v, "DISTANCE");
+    snprintf(dist, sizeof(dist), "%u m", vision_model_distance_cm(m) / 100);
+    cell(r, "<", false, true, CODE_DIST_PREV);
+    cell(r, dist, true, false, CODE_DIST_SHOW);
+    cell(r, ">", false, true, CODE_DIST_NEXT);
+    /* Toggles: the choice is on when it is the primary button. */
+    r = row(v, "SHOW");
+    cell(r, "LABELS", m->set.traffic.labels, true, CODE_LABELS);
+    cell(r, "SPEEDS", m->set.traffic.speeds, true, CODE_SPEEDS);
+    cell(r, "TRAILS", m->set.traffic.trails, true, CODE_TRAILS);
+}
+
+void vision_model_sheet(const struct vision_model *m, struct vision_sheet_view *out)
+{
+    memset(out, 0, sizeof(*out));
+    out->kind = m->state == VISION_LIVE || m->state == VISION_INIT ? m->sheet : VISION_SHEET_NONE;
+    out->title = "";
+    if (out->kind == VISION_SHEET_MODES) {
+        sheet_modes(m, out);
+    } else if (out->kind == VISION_SHEET_SETUP && m->mode == VISION_MODE_TRAFFIC) {
+        sheet_traffic(m, out);
+    } else {
+        out->kind = VISION_SHEET_NONE;
+    }
+}
+
+unsigned vision_model_sheet_tap(struct vision_model *m, int code)
+{
+    if (code >= CODE_MODE && code < CODE_MODE + VISION_MODES && m->sheet == VISION_SHEET_MODES) {
+        return vision_model_set_mode(m, (enum vision_mode)(code - CODE_MODE));
+    }
+    if (m->sheet != VISION_SHEET_SETUP || m->mode != VISION_MODE_TRAFFIC) {
+        return 0;
+    }
+    if (code >= CODE_LINE && code < CODE_LINE + VISION_LINE_MODES) {
+        return set_line(m, (enum vision_line_mode)(code - CODE_LINE));
+    }
+    if (code >= CODE_SPEED && code < CODE_SPEED + VISION_SPEED_MODES) {
+        return set_speed(m, (enum vision_speed_mode)(code - CODE_SPEED));
+    }
+    if (code == CODE_DIST_PREV) {
+        return vision_model_distance_prev(m);
+    }
+    if (code == CODE_DIST_NEXT) {
+        return vision_model_distance_next(m);
+    }
+    if (code >= CODE_RANGE && code < CODE_RANGE + VISION_RANGES) {
+        return vision_model_set_range(m, (enum vision_range)(code - CODE_RANGE));
+    }
+    if (code == CODE_LABELS) {
+        m->set.traffic.labels = !m->set.traffic.labels;
+        return VISION_ACT_SAVE;
+    }
+    if (code == CODE_SPEEDS) {
+        m->set.traffic.speeds = !m->set.traffic.speeds;
+        return VISION_ACT_SAVE;
+    }
+    if (code == CODE_TRAILS) {
+        return vision_model_trails_next(m);
+    }
+    return 0;
+}
+
+/* ---- what the helper is sent ----------------------------------------------------------- */
 
 bool vision_model_line_pm(const struct vision_model *m, int32_t pm[4])
 {
-    switch (m->line) {
+    switch (vision_model_line(m)) {
     case VISION_LINE_ACROSS:
         /* Left to right at mid-height: side B (positive) is below, so
          * ab = DOWN, ba = UP. */
@@ -323,7 +807,10 @@ bool vision_model_speed_pm(const struct vision_model *m, int32_t pm[8])
     int32_t a;
     int32_t b;
 
-    switch (m->speed) {
+    if (m->mode != VISION_MODE_TRAFFIC) {
+        return false;
+    }
+    switch (m->set.traffic.speed) {
     case VISION_SPEED_NARROW:
         a = 400;
         b = 600;
@@ -335,7 +822,7 @@ bool vision_model_speed_pm(const struct vision_model *m, int32_t pm[8])
     default:
         return false;
     }
-    if (m->orient == VISION_LINE_DOWN) {
+    if (m->set.traffic.orient == VISION_LINE_DOWN) {
         /* Two vertical lines, each top to bottom like the counting line. */
         pm[0] = a;
         pm[1] = 0;
@@ -360,37 +847,27 @@ bool vision_model_speed_pm(const struct vision_model *m, int32_t pm[8])
 
 uint32_t vision_model_distance_cm(const struct vision_model *m)
 {
-    int i = m->distance_idx;
-
-    if (i < 0 || i >= VISION_DISTANCES) {
-        i = VISION_DISTANCE_DEFAULT;
-    }
-    return distances_cm[i];
+    return vision_distance_cm(m->set.traffic.distance_idx);
 }
 
 uint32_t vision_model_tol(const struct vision_model *m)
 {
-    int i = m->tol_idx;
-
-    if (i < 0 || i >= VISION_TOLS) {
-        i = VISION_TOL_DEFAULT;
-    }
-    return tols[i];
+    return vision_tol_value(m->set.color.tol_idx);
 }
 
 uint32_t vision_model_edge_threshold(const struct vision_model *m)
 {
-    return m->edge_hard ? VISION_EDGE_HARD_THRESHOLD : 0;
+    return m->set.edge.hard ? VISION_EDGE_HARD_THRESHOLD : 0;
 }
 
 const char *vision_model_mode_word(const struct vision_model *m)
 {
-    return m->mode >= 0 && m->mode < VISION_MODES ? mode_words[m->mode] : "detect";
+    return vision_mode_word(m->mode);
 }
 
 void vision_model_count_names(const struct vision_model *m, const char **a, const char **b)
 {
-    if (m->line == VISION_LINE_DOWN) {
+    if (vision_model_line(m) == VISION_LINE_DOWN) {
         *a = "LEFT";
         *b = "RIGHT";
     } else {
@@ -403,12 +880,15 @@ int vision_model_buttons(const struct vision_model *m, enum vision_button out[VI
 {
     out[0] = VISION_BTN_MODE;
     switch (m->mode) {
-    case VISION_MODE_TRAFFIC:
+    case VISION_MODE_TRACK:
         out[1] = VISION_BTN_LINE;
-        out[2] = VISION_BTN_SPEED;
-        out[3] = VISION_BTN_DISTANCE;
-        out[4] = VISION_BTN_RESET;
-        return 5;
+        out[2] = VISION_BTN_TRAILS;
+        out[3] = VISION_BTN_RESET;
+        return 4;
+    case VISION_MODE_TRAFFIC:
+        out[1] = VISION_BTN_SETUP;
+        out[2] = VISION_BTN_RESET;
+        return 3;
     case VISION_MODE_COLOR:
         out[1] = VISION_BTN_SAMPLE;
         out[2] = VISION_BTN_TOL;
@@ -419,16 +899,82 @@ int vision_model_buttons(const struct vision_model *m, enum vision_button out[VI
     case VISION_MODE_TRACE:
         out[1] = VISION_BTN_TRACE;
         return 2;
-    default:
-        out[1] = VISION_BTN_LINE;
-        out[2] = VISION_BTN_RESET;
+    case VISION_MODE_READ:
+        out[1] = VISION_BTN_HOLD;
+        return 2;
+    case VISION_MODE_FACE:
+        out[1] = VISION_BTN_RESET;
+        return 2;
+    case VISION_MODE_RECOGNIZE:
+        out[1] = VISION_BTN_ENROL;
+        out[2] = VISION_BTN_FORGET;
         return 3;
+    default:
+        return 1;
     }
 }
 
 int vision_model_status_lines(const struct vision_model *m)
 {
-    return m->mode == VISION_MODE_TRAFFIC ? 3 : 1;
+    if (m->mode == VISION_MODE_RECOGNIZE) {
+        return 2;
+    }
+    return m->mode == VISION_MODE_TRAFFIC || m->mode == VISION_MODE_READ ? 3 : 1;
+}
+
+/* RECOGNIZE's words: what it can do, what enrolment asks for, or why it
+ * cannot. */
+static void recog_status(const struct vision_model *m, char *buf, size_t len, bool *warn)
+{
+    *warn = false;
+    if (m->recogfail[0] || m->facefail[0]) {
+        snprintf(buf, len, "Cannot recognise: %s", m->recogfail[0] ? m->recogfail : m->facefail);
+        *warn = true;
+    } else if (m->enrolling) {
+        snprintf(buf, len, "Enrolling: view %u of %u. Only your face in view, looking at the camera.", m->enrol_k,
+                 m->enrol_n ? m->enrol_n : VISION_OWNER_VIEWS);
+    } else if (m->enrolfail[0]) {
+        snprintf(buf, len, "Could not enrol: %s", m->enrolfail);
+        *warn = true;
+    } else if (m->forget_armed) {
+        snprintf(buf, len, "Tap SURE? to forget the owner. It is removed from this unit.");
+    } else if (!m->have_owner) {
+        snprintf(buf, len, "No owner yet. ENROL with only your face in view. Faces stay on this unit.");
+    } else {
+        snprintf(buf, len, "Owner enrolled (%u views). Compared on this unit only.", m->owner_views);
+    }
+}
+
+/* READ's words: what was read, line after line, or why nothing is. */
+static void read_status(const struct vision_model *m, char *buf, size_t len)
+{
+    size_t off = 0;
+    int i;
+
+    buf[0] = '\0';
+    if (m->readfail[0]) {
+        snprintf(buf, len, "Cannot read: %s", m->readfail);
+        return;
+    }
+    if (!m->text_valid) {
+        snprintf(buf, len, "%s", m->live ? "Reading..." : "Starting the stream");
+        return;
+    }
+    if (m->text.n == 0) {
+        snprintf(buf, len, "No text found. Point at printed text, a sign or a label.");
+        return;
+    }
+    for (i = 0; i < m->text.n && off + 4 < len; i++) {
+        char a[VISION_TEXT_BYTES];
+        int n;
+
+        vision_model_text_ascii(m->text.line[i].text, a, sizeof(a));
+        n = snprintf(buf + off, len - off, "%s%s", i ? "  |  " : "", a);
+        if (n < 0) {
+            break;
+        }
+        off += (size_t)n < len - off ? (size_t)n : len - off - 1;
+    }
 }
 
 const char *vision_model_traffic_name(int i)
@@ -436,60 +982,72 @@ const char *vision_model_traffic_name(int i)
     return i >= 0 && i < VISION_PROTO_TRAFFIC_CLASSES ? traffic_names[i] : "?";
 }
 
+/* ---- the words ---------------------------------------------------------------------- */
+
 static void kmh(char *buf, size_t len, uint32_t kmh10)
 {
     snprintf(buf, len, "%u.%u", kmh10 / 10, kmh10 % 10);
 }
 
+/* Append to buf at *off, never past len. */
+static void add(char *buf, size_t len, size_t *off, const char *fmt, ...) __attribute__((format(printf, 4, 5)));
+static void add(char *buf, size_t len, size_t *off, const char *fmt, ...)
+{
+    va_list ap;
+    int n;
+
+    if (*off >= len) {
+        return;
+    }
+    va_start(ap, fmt);
+    n = vsnprintf(buf + *off, len - *off, fmt, ap);
+    va_end(ap);
+    if (n > 0) {
+        *off += (size_t)n < len - *off ? (size_t)n : len - *off - 1;
+    }
+}
+
+/* TRAFFIC's three lines: the range, the rate and the tracks; the last five
+ * minutes' crossings by direction, and their mean speed when the speed lines
+ * are on; the same minutes by class. The counters under it are the totals
+ * since RESET. */
 static void traffic_status(const struct vision_model *m, char *buf, size_t len)
 {
+    const struct vision_recent_report *r = &m->recent;
     size_t off = 0;
-    int n;
     int i;
-    char cur[16];
-    char last[16];
-    char max[16];
-    uint32_t total = m->traffic.total_ab + m->traffic.total_ba;
 
+    buf[0] = '\0';
+    add(buf, len, &off, "%s  ", range_names[m->set.traffic.range < VISION_RANGES ? m->set.traffic.range : 1]);
     if (m->stats_valid) {
-        n = snprintf(buf, len, "%u.%u fps  KPU %d ms  %d tracks  %u total\n", m->stats.fps_x10 / 10,
-                     m->stats.fps_x10 % 10, m->stats.infer_ms, m->active_tracks, total);
+        add(buf, len, &off, "%u.%u fps  KPU %d ms  ", m->stats.fps_x10 / 10, m->stats.fps_x10 % 10,
+            m->stats.infer_ms);
     } else {
-        n = snprintf(buf, len, "%s  %d tracks  %u total\n", m->live ? "Detecting" : "Starting the stream",
-                     m->active_tracks, total);
+        add(buf, len, &off, "%s  ", m->live ? "Detecting" : "Starting the stream");
     }
-    if (n < 0) {
-        return;
-    }
-    off = (size_t)n < len ? (size_t)n : len;
-    for (i = 0; i < VISION_PROTO_TRAFFIC_CLASSES && off < len; i++) {
-        n = snprintf(buf + off, len - off, "%s%s %u", i ? "  " : "", traffic_names[i],
-                     m->traffic.cls_ab[i] + m->traffic.cls_ba[i]);
-        if (n < 0) {
-            return;
+    add(buf, len, &off, "%d tracks\n", m->active_tracks);
+    if (!m->recent_valid) {
+        add(buf, len, &off, "5 min: -\n");
+    } else {
+        add(buf, len, &off, "%u min: %u  IN %u  OUT %u", r->window_s / 60, r->crossed, r->ab, r->ba);
+        if (r->saturated) {
+            /* More crossed than the window keeps: it says so. */
+            add(buf, len, &off, " (latest only)");
         }
-        off += (size_t)n < len - off ? (size_t)n : len - off;
+        if (m->set.traffic.speed != VISION_SPEED_OFF) {
+            if (r->speeds > 0) {
+                char mean[16];
+
+                kmh(mean, sizeof(mean), r->mean_kmh10);
+                add(buf, len, &off, "  avg %s km/h (%u)", mean, r->speeds);
+            } else {
+                add(buf, len, &off, "  no speed yet (%u m)", vision_model_distance_cm(m) / 100);
+            }
+        }
+        add(buf, len, &off, "\n");
     }
-    if (off >= len) {
-        return;
-    }
-    if (m->speed == VISION_SPEED_OFF) {
-        snprintf(buf + off, len - off, "\nSPEED off  (%u m)", vision_model_distance_cm(m) / 100);
-        return;
-    }
-    if (m->traffic.n == 0) {
-        snprintf(buf + off, len - off, "\nSPEED --  (%u m between lines)", vision_model_distance_cm(m) / 100);
-        return;
-    }
-    kmh(cur, sizeof(cur), m->traffic.cur_kmh10);
-    kmh(last, sizeof(last), m->traffic.last_kmh10);
-    kmh(max, sizeof(max), m->traffic.max_kmh10);
-    if (m->traffic.cur_kmh10) {
-        snprintf(buf + off, len - off, "\nSPEED %s km/h  last %s  max %s  (%u m)", cur, last, max,
-                 vision_model_distance_cm(m) / 100);
-    } else {
-        snprintf(buf + off, len - off, "\nSPEED --  last %s km/h  max %s  (%u m)", last, max,
-                 vision_model_distance_cm(m) / 100);
+    for (i = 0; i < VISION_PROTO_TRAFFIC_CLASSES; i++) {
+        add(buf, len, &off, "%s%s %u", i ? "  " : "", traffic_names[i], m->recent_valid ? r->cls[i] : 0u);
     }
 }
 
@@ -520,16 +1078,17 @@ static void pixel_status(const struct vision_model *m, char *buf, size_t len)
     case VISION_MODE_EDGE:
         if (m->edge_valid) {
             snprintf(buf, len, "%sedges %u.%u%%  %s", fps, m->pixels.edge_pm / 10, m->pixels.edge_pm % 10,
-                     m->edge_hard ? "hard" : "soft");
+                     m->set.edge.hard ? "hard" : "soft");
         } else {
             snprintf(buf, len, "%sFinding edges", fps);
         }
         break;
     default:
         if (!m->trace_valid) {
-            snprintf(buf, len, "%sLooking for a %s line", fps, m->trace_dark ? "dark" : "light");
+            snprintf(buf, len, "%sLooking for a %s line", fps, m->set.trace.dark ? "dark" : "light");
         } else if (!m->pixels.trace.found) {
-            snprintf(buf, len, "%sno %s line  (%u rows)", fps, m->trace_dark ? "dark" : "light", m->pixels.trace.rows);
+            snprintf(buf, len, "%sno %s line  (%u rows)", fps, m->set.trace.dark ? "dark" : "light",
+                     m->pixels.trace.rows);
         } else {
             int32_t o = m->pixels.trace.offset_pm;
             int32_t sl = m->pixels.trace.slope_pm;
@@ -542,37 +1101,105 @@ static void pixel_status(const struct vision_model *m, char *buf, size_t len)
     }
 }
 
-void vision_model_text(const struct vision_model *m, struct vision_view_text *out, char *status_buf,
-                       size_t status_len)
+static void counters(const struct vision_model *m, struct vision_view_text *out)
 {
     const char *na;
     const char *nb;
 
+    vision_model_count_names(m, &na, &nb);
+    snprintf(out->count_a, sizeof(out->count_a), "-");
+    snprintf(out->count_b, sizeof(out->count_b), "-");
+    switch (m->mode) {
+    case VISION_MODE_DETECT:
+        snprintf(out->count_a, sizeof(out->count_a), "OBJECTS %d", m->shown_objects);
+        snprintf(out->count_b, sizeof(out->count_b), "CLASSES %d", m->shown_classes);
+        break;
+    case VISION_MODE_TRACK:
+        if (vision_model_line(m) != VISION_LINE_OFF) {
+            snprintf(out->count_a, sizeof(out->count_a), "%s %u", na, m->count_a);
+            snprintf(out->count_b, sizeof(out->count_b), "%s %u", nb, m->count_b);
+        } else {
+            snprintf(out->count_a, sizeof(out->count_a), "TRACKS %d", m->active_tracks);
+        }
+        break;
+    case VISION_MODE_TRAFFIC:
+        if (vision_model_line(m) != VISION_LINE_OFF) {
+            snprintf(out->count_a, sizeof(out->count_a), "IN (%s) %u", na, m->traffic.total_ab);
+            snprintf(out->count_b, sizeof(out->count_b), "OUT (%s) %u", nb, m->traffic.total_ba);
+        }
+        break;
+    case VISION_MODE_READ:
+        if (m->text_valid) {
+            uint32_t sum = 0;
+            int i;
+
+            for (i = 0; i < m->text.n; i++) {
+                sum += m->text.line[i].conf;
+            }
+            snprintf(out->count_a, sizeof(out->count_a), "LINES %d", m->text.n);
+            if (m->text.n > 0) {
+                snprintf(out->count_b, sizeof(out->count_b), "SURE %u%%", (sum / (uint32_t)m->text.n) / 10);
+            }
+        }
+        break;
+    case VISION_MODE_FACE:
+        snprintf(out->count_a, sizeof(out->count_a), "FACES %d", m->shown_objects);
+        snprintf(out->count_b, sizeof(out->count_b), "SEEN %u", m->faces_seen);
+        break;
+    case VISION_MODE_RECOGNIZE: {
+        bool owner_here = false;
+        int i;
+
+        for (i = 0; m->who_valid && i < m->who.n; i++) {
+            owner_here |= m->who.t[i].owner;
+        }
+        snprintf(out->count_a, sizeof(out->count_a), "FACES %d", m->shown_objects);
+        if (m->enrolling) {
+            snprintf(out->count_b, sizeof(out->count_b), "VIEW %u/%u", m->enrol_k,
+                     m->enrol_n ? m->enrol_n : VISION_OWNER_VIEWS);
+        } else if (!m->have_owner) {
+            snprintf(out->count_b, sizeof(out->count_b), "NO OWNER");
+        } else {
+            snprintf(out->count_b, sizeof(out->count_b), "OWNER: %s", owner_here ? "HERE" : "-");
+        }
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+void vision_model_text(const struct vision_model *m, struct vision_view_text *out, char *status_buf,
+                       size_t status_len)
+{
+    enum vision_line_mode line = vision_model_line(m);
+
     memset(out, 0, sizeof(*out));
     out->hint = m->simulated ? "SIMULATED" : "";
     out->traffic = m->mode == VISION_MODE_TRAFFIC;
-    out->lines = m->mode == VISION_MODE_DETECT || m->mode == VISION_MODE_TRAFFIC;
-    out->picture_tap = m->mode == VISION_MODE_COLOR && m->state == VISION_LIVE;
-    out->mode_btn = mode_names[m->mode < VISION_MODES ? m->mode : 0];
-    out->line_btn = m->line == VISION_LINE_OFF ? "LINE: OFF"
-                    : m->line == VISION_LINE_ACROSS ? "LINE: ACROSS" : "LINE: DOWN";
-    out->speed_btn = m->speed == VISION_SPEED_OFF ? "SPEED: OFF"
-                     : m->speed == VISION_SPEED_NARROW ? "SPEED: NARROW" : "SPEED: WIDE";
-    out->tol_btn = tol_names[m->tol_idx >= 0 && m->tol_idx < VISION_TOLS ? m->tol_idx : VISION_TOL_DEFAULT];
-    out->edge_btn = m->edge_hard ? "EDGE: HARD" : "EDGE: SOFT";
-    out->trace_btn = m->trace_dark ? "LINE: DARK" : "LINE: LIGHT";
-    snprintf(out->dist_btn, sizeof(out->dist_btn), "DIST: %u m", vision_model_distance_cm(m) / 100);
-    vision_model_count_names(m, &na, &nb);
-    if (m->line == VISION_LINE_OFF || !out->lines) {
-        snprintf(out->count_a, sizeof(out->count_a), "-");
-        snprintf(out->count_b, sizeof(out->count_b), "-");
-    } else if (out->traffic) {
-        snprintf(out->count_a, sizeof(out->count_a), "IN (%s) %u", na, m->traffic.total_ab);
-        snprintf(out->count_b, sizeof(out->count_b), "OUT (%s) %u", nb, m->traffic.total_ba);
-    } else {
-        snprintf(out->count_a, sizeof(out->count_a), "%s %u", na, m->count_a);
-        snprintf(out->count_b, sizeof(out->count_b), "%s %u", nb, m->count_b);
-    }
+    out->lines = m->mode == VISION_MODE_TRACK || m->mode == VISION_MODE_TRAFFIC;
+    out->ids = m->mode == VISION_MODE_TRACK || m->mode == VISION_MODE_FACE || m->mode == VISION_MODE_RECOGNIZE ||
+               (m->mode == VISION_MODE_TRAFFIC && m->set.traffic.labels);
+    out->faces = m->mode == VISION_MODE_FACE || m->mode == VISION_MODE_RECOGNIZE;
+    out->recog = m->mode == VISION_MODE_RECOGNIZE;
+    out->enrol_btn = m->enrolling ? "STOP" : "ENROL";
+    out->forget_btn = m->forget_armed ? "SURE?" : "FORGET";
+    out->forget_enabled = m->have_owner;
+    out->speeds = m->mode == VISION_MODE_TRAFFIC && m->set.traffic.speeds;
+    out->trails = (m->mode == VISION_MODE_TRACK && m->set.track.trails) ||
+                  (m->mode == VISION_MODE_TRAFFIC && m->set.traffic.trails);
+    out->trails_btn = m->set.track.trails ? "TRAILS: ON" : "TRAILS: OFF";
+    out->read = m->mode == VISION_MODE_READ;
+    out->hold = out->read && m->hold;
+    out->hold_btn = out->hold ? "HELD" : "HOLD";
+    out->picture_tap = m->mode == VISION_MODE_COLOR && m->state == VISION_LIVE && m->sheet == VISION_SHEET_NONE;
+    out->mode_btn = vision_mode_name(m->mode);
+    out->line_btn = line == VISION_LINE_OFF ? "LINE: OFF" : line == VISION_LINE_ACROSS ? "LINE: ACROSS" : "LINE: DOWN";
+    out->tol_btn = tol_names[m->set.color.tol_idx >= 0 && m->set.color.tol_idx < VISION_TOLS ? m->set.color.tol_idx
+                                                                                             : VISION_TOL_DEFAULT];
+    out->edge_btn = m->set.edge.hard ? "EDGE: HARD" : "EDGE: SOFT";
+    out->trace_btn = m->set.trace.dark ? "LINE: DARK" : "LINE: LIGHT";
+    counters(m, out);
     if (m->mode == VISION_MODE_COLOR && m->color_valid && m->pixels.color.matched_pm > 0 &&
         m->pixels.color.cx >= 0 && m->pixels.color.cy >= 0) {
         out->show_mark = true;
@@ -603,6 +1230,18 @@ void vision_model_text(const struct vision_model *m, struct vision_view_text *ou
         } else if (vision_model_pixel_mode(m)) {
             pixel_status(m, status_buf, status_len);
             out->status = status_buf;
+        } else if (out->read) {
+            read_status(m, status_buf, status_len);
+            out->status = status_buf;
+            out->status_warn = m->readfail[0] != '\0';
+        } else if (out->recog && (m->recogfail[0] || m->facefail[0] || m->enrolling || m->enrolfail[0] ||
+                                  m->owner_known)) {
+            recog_status(m, status_buf, status_len, &out->status_warn);
+            out->status = status_buf;
+        } else if (out->faces && m->facefail[0]) {
+            snprintf(status_buf, status_len, "Cannot find faces: %s", m->facefail);
+            out->status = status_buf;
+            out->status_warn = true;
         } else if (m->stats_valid) {
             snprintf(status_buf, status_len, "%u.%u fps  KPU %d ms  pre %d  post %d  CPU %d%%  %ld MB",
                      m->stats.fps_x10 / 10, m->stats.fps_x10 % 10, m->stats.infer_ms,

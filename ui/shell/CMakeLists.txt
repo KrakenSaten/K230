@@ -158,6 +158,9 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/vision/vision_model.c
     ${REPO_DIR}/apps/vision/vision_layout.c
     ${REPO_DIR}/apps/vision/vision_session.c
+    ${REPO_DIR}/apps/vision/vision_settings.c
+    ${REPO_DIR}/apps/vision/vision_store.c
+    ${REPO_DIR}/apps/vision/vision_trails.c
     ${REPO_DIR}/core/pocketvision/vision_labels.c
     ${REPO_DIR}/apps/mp3/mp3_app.c
     ${REPO_DIR}/apps/mp3/mp3_ctl.c
@@ -219,6 +222,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/deskbuddy/db_store.c
     ${REPO_DIR}/apps/deskbuddy/db_vision.c
     ${REPO_DIR}/apps/deskbuddy/db_vision_mock.c
+    ${REPO_DIR}/apps/deskbuddy_vision/db_vision_pipeline.c
     ${REPO_DIR}/apps/2048/g2048_app.c
     ${REPO_DIR}/apps/2048/g2048_store.c
     ${REPO_DIR}/apps/2048/engine/g2048_rng.c
@@ -353,7 +357,8 @@ target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/blackjack"
                                                   "${REPO_DIR}/apps/blackjack/engine"
                                                   "${REPO_DIR}/apps/blackjack/ui"
-                                                  "${REPO_DIR}/apps/deskbuddy")
+                                                  "${REPO_DIR}/apps/deskbuddy"
+                                                  "${REPO_DIR}/apps/deskbuddy_vision")
 
 # The card world palettes of PG Solitaire and PG Blackjack
 # (docs/apps/PGSOLITAIRE.md and PGBLACKJACK.md, "Look"). Cards are world
@@ -1388,9 +1393,13 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/deskbuddy/db_store.c
         ${REPO_DIR}/apps/deskbuddy/db_vision.c
         ${REPO_DIR}/apps/deskbuddy/db_vision_mock.c
+        ${REPO_DIR}/apps/deskbuddy_vision/db_vision_pipeline.c
+        ${REPO_DIR}/apps/vision/vision_session.c
+        ${REPO_DIR}/apps/vision/vision_settings.c
         ${REPO_DIR}/core/pocketpaths.c
         ${GAMES_APP_TEST_UI})
-    target_include_directories(deskbuddy_app_test PRIVATE "${REPO_DIR}/apps/deskbuddy")
+    target_include_directories(deskbuddy_app_test PRIVATE "${REPO_DIR}/apps/deskbuddy"
+                               "${REPO_DIR}/apps/deskbuddy_vision" "${REPO_DIR}/apps/vision")
     foreach(game_test g2048_app_test sol_app_test bj_app_test deskbuddy_app_test)
         target_include_directories(${game_test} PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui" "${REPO_DIR}/core")
