@@ -322,15 +322,23 @@ void fleet_screen_deploy_refresh(struct fleet_app *app)
 }
 
 /* Called when the screen is entered: a new match means an empty board and a
- * fresh auto-deploy stream derived from the match seed. */
+ * fresh auto-deploy stream. The solo game derives it from the match seed, so
+ * a stored match and the debug screenshots come back the same. Multiplayer
+ * never does: that seed stays put from match to match, every match ends with
+ * the fleet shown to the opponent, and AUTO would hand them the next one. */
 void fleet_screen_deploy_enter(struct fleet_app *app)
 {
     struct fleet_deploy_ui *ui = app ? app->deploy : NULL;
+    uint32_t seed;
 
     if (!ui) {
         return;
     }
-    fleet_rng_seed(&ui->rng, app->game.seed ^ 0x5A5A5A5Au);
+    seed = app->game.seed ^ 0x5A5A5A5Au;
+    if (app->mode == FLEET_MODE_MULTI && fleet_app_entropy(&seed, sizeof(seed)) != 0) {
+        seed ^= (uint32_t)fleet_app_now(app);
+    }
+    fleet_rng_seed(&ui->rng, seed);
     ui->selected = 0;
     ui->vertical = 0;
     message(ui, "");

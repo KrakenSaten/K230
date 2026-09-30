@@ -237,6 +237,9 @@ int fleet_app_mp_status(struct fleet_app *app, char *buf, size_t n);
 void fleet_app_mp_changed(struct fleet_app *app);
 /* CLOCK_MONOTONIC in ms, as the session sees it. */
 int64_t fleet_app_now(struct fleet_app *app);
+/* Fresh bytes from the OS, for what an opponent must not be able to predict.
+ * Returns 0, or -1 when there were none to be had. */
+int fleet_app_entropy(void *buf, size_t n);
 /* The opponent's name as the screens write it. */
 const char *fleet_app_peer(struct fleet_app *app, char *buf, size_t n);
 /* Development aid: with POCKETFLEET_MP_FAKE set, drive a match against the

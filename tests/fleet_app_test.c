@@ -1864,6 +1864,75 @@ static void test_multiplayer_forfeit(void)
     unsetenv("POCKETFLEET_MP_FAKE");
 }
 
+/* From the lobby to Deploy against the virtual opponent, and AUTO pressed:
+ * the fleet it placed. */
+static struct fleet_board mp_auto_fleet(void)
+{
+    int i;
+
+    tap_obj(lobby_player_row(0));
+    tap_obj(lobby_act());
+    for (i = 0; i < 100 && app->current != FLEET_SCREEN_DEPLOY; i++) {
+        mp_wait(100);
+    }
+    check("the match is in Deploy", app->current == FLEET_SCREEN_DEPLOY);
+    tap_obj(kid(deploy_controls(), DEPLOY_AUTO));
+    check("AUTO placed the whole fleet", fleet_board_complete(&app->mp_fleet));
+    return app->mp_fleet;
+}
+
+/* Every match ends with both fleets shown, so AUTO must not place the same
+ * one again next match. Unit A, 2026-09-30: two matches in one run, one
+ * layout - the stream was seeded from the solo game's seed, which does not
+ * change between them. The solo game keeps that seed, for its screenshots. */
+static void test_multiplayer_auto_varies(void)
+{
+    struct fleet_board first;
+    struct fleet_board second;
+    struct fleet_board want;
+    struct fleet_rng rng;
+    int i;
+
+    phase = "multiplayer, AUTO per match";
+    mp_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=9", 1);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    tap_obj(command_deploy());
+    tap_obj(kid(deploy_controls(), DEPLOY_AUTO));
+    fleet_board_clear(&want);
+    fleet_rng_seed(&rng, app->game.seed ^ 0x5A5A5A5Au);
+    fleet_board_autoplace(&want, &rng);
+    check("the solo AUTO still follows the match seed",
+          memcmp(app->game.board[FLEET_SIDE_PLAYER].ship_at, want.ship_at,
+                 sizeof(want.ship_at)) == 0);
+    fleet_app_show(app, FLEET_SCREEN_COMMAND);
+
+    tap_obj(command_multi_button());
+    mp_wait(300);
+    first = mp_auto_fleet();
+    /* Out of the first match the short way: forfeit it from the lobby. */
+    fleet_app_show(app, FLEET_SCREEN_COMMAND);
+    tap_obj(command_multi_button());
+    tap_obj(lobby_alt());
+    tap_obj(lobby_alt());
+    for (i = 0; i < 100 && app->mp->m.end_unacked; i++) {
+        mp_wait(100);
+    }
+    tap_obj(lobby_act());
+    check_one_screen(FLEET_SCREEN_RESULT);
+    tap_obj(kid(result_foot(), 0));
+    check("the first match is put away", app->current == FLEET_SCREEN_LOBBY &&
+          app->mp->m.phase == FLEET_MP_IDLE);
+    /* The opponent puts its end of the match away after 30 s. */
+    mp_wait(31000);
+    second = mp_auto_fleet();
+    check("a second match does not get the first match's AUTO fleet",
+          memcmp(first.ship_at, second.ship_at, sizeof(first.ship_at)) != 0);
+    app_stop();
+    unsetenv("POCKETFLEET_MP_FAKE");
+}
+
 static void test_multiplayer_lost(void)
 {
     int i;
@@ -2778,6 +2847,7 @@ int main(void)
     test_multiplayer(POS_ROTATION_270);
     test_multiplayer_reopen();
     test_multiplayer_forfeit();
+    test_multiplayer_auto_varies();
     test_multiplayer_lost();
     test_multiplayer_chat(POS_ROTATION_0);
     test_multiplayer_chat(POS_ROTATION_270);

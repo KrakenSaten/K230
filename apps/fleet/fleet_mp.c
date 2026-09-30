@@ -54,12 +54,11 @@ static int mp_save(void *user, const uint8_t *blob, size_t n)
     return 0;
 }
 
-static int mp_entropy(void *user, void *buf, size_t n)
+int fleet_app_entropy(void *buf, size_t n)
 {
     uint8_t *p = buf;
     size_t got = 0;
 
-    (void)user;
     while (got < n) {
         ssize_t r = getrandom(p + got, n - got, 0);
 
@@ -69,6 +68,12 @@ static int mp_entropy(void *user, void *buf, size_t n)
         got += (size_t)r;
     }
     return 0;
+}
+
+static int mp_entropy(void *user, void *buf, size_t n)
+{
+    (void)user;
+    return fleet_app_entropy(buf, n);
 }
 
 const char *fleet_app_peer(struct fleet_app *app, char *buf, size_t n)
