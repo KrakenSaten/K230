@@ -89,23 +89,42 @@ developer tooling, not for applications.
 - `shell.controls` params `{show?}`: shows DOORS Controls over the launcher
   (DS §31.5), or with `show: false` closes it. Result `{controls}`; `show`
   that is not a boolean is error 2.
-- `shell.folder` params `{id}`: opens the launcher folder `id` ("games";
-  DS §39) at home - going home first from an app or Controls - or, with
-  `id: ""`, goes back to the launcher's own page. Result `{folder}`, the
-  open folder's id or null. An id that is not a string is error 2; a folder
+- `shell.folder` params `{id}`: opens the launcher folder `id` ("games",
+  "utilities"; DS §39, §42) at home - going home first from an app or
+  Controls - or, with `id: ""`, goes back to the launcher's own page (from
+  a folder, or from the favorite picker). Result `{folder}`, the open
+  folder's id or null. An id that is not a string is error 2; a folder
   that does not exist or has no app installed is error 2 and changes
   nothing. `pos call shell shell.folder id=games`.
+- `shell.favorite` params `{slot, id}` or `{slot, pick: true}`: the
+  launcher's favorites (DS §42), slots 1 to 3. `id` an installed app's id
+  gives the slot that app, `id: ""` clears it; either is kept in
+  settings.conf as `launcher_favorite_<slot>` (cleared: the key is
+  removed) and closes an open picker. `pick: true` opens the slot's picker
+  at home, going home first from an app or Controls. Result `{favorites,
+  picker}` as in `shell.info`. A slot that is not 1, 2 or 3, an id that is
+  not a string, an app that is not installed, an app another slot holds
+  (an app is a favorite once) and a picker with nothing to offer are error
+  2 and change nothing. For the bench and the tests; a person long-presses
+  the slot. `pos call shell shell.favorite slot=1 id=rift`.
 - `shell.info` also carries the DOORS environment: `lock` `{locked, opening,
   engaged, opened}` (counts since start), `launcher` `{groups, apps,
   icons_art, icons_fallback, cell_width, scrolls, controls, cells, folders,
-  folder, home_cells, folder_cells, focus, focus_shown, keys}` - `cells` is
-  every app's cell on the page showing (the launcher's, or the open
-  folder's), `[{id, x, y, w, h}]`; `folders` is every folder,
-  `[{id, name, apps, x, y, w, h}]`, with the rectangle while its cell is on
-  the screen; `folder` the open one or null; `home_cells` the launcher's
-  cells and `folder_cells` how many of them are folders; `focus` the id the
-  keys are on, `focus_shown` whether its mark is drawn, `keys` whether the
-  launcher has the keys - and `art` `{dir, background, files_read,
+  folder, home_cells, folder_cells, favorite_cells, favorites_set,
+  favorites, picker, focus, focus_shown, keys}` - `cells` is every app's
+  own cell on the page showing (the launcher's, the open folder's, or the
+  picker's), `[{id, x, y, w, h}]`, never a favorite's; `folders` is every
+  folder, `[{id, name, apps, x, y, w, h}]`, with the rectangle while its
+  cell is on the screen; `folder` the open one or null; `home_cells` the
+  launcher's app and folder cells and `folder_cells` how many of them are
+  folders; `favorite_cells` the favorite slots before them (3),
+  `favorites_set` how many hold an installed app, `favorites`
+  `[{slot, id, stored, x, y, w, h}]` (`id` the installed app or null,
+  `stored` what settings.conf holds or null, the rectangle while the
+  launcher's page shows); `picker` the slot whose picker is open, or null;
+  `focus` the id the keys are on ("favorite-N" on a slot, "clear" on the
+  picker's Clear), `focus_shown` whether its mark is drawn, `keys` whether
+  the launcher has the keys - and `art` `{dir, background, files_read,
   bytes_held}` (ui/shell/art.h).
   `pos call shell shell.lock`, `pos call shell shell.unlock animate=true`.
 

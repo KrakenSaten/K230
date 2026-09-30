@@ -92,6 +92,8 @@ APP_ICONS = {
     "video": (FIRST_PARTY + "video.svg", "tools"),
     # Not an app: the GAMES folder's cell (ui/shell/home_layout.h, folders).
     "games": (FIRST_PARTY + "games.svg", "games"),
+    # Nor this: the UTILITIES folder's cell, a toolbox.
+    "utilities": (FIRST_PARTY + "utilities.svg", "tools"),
     "solitaire": (FIRST_PARTY + "solitaire.svg", "games"),
     "blackjack": (FIRST_PARTY + "blackjack.svg", "games"),
     "2048": (FIRST_PARTY + "2048.svg", "games"),

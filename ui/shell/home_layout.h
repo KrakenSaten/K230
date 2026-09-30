@@ -129,14 +129,17 @@ enum home_hue {
  * (`folder` below), so a folder is one column of metadata, not a list of
  * exceptions, and an app still neither declares nor knows where it is shown.
  *
- * Only GAMES exists. Another folder (UTILITIES, RADIO, SYSTEM, MEDIA ...) is
- * one more enum value, one more row in the folder table (home_layout.c), a
- * portal icon for its cell (tools/design/gen_doors_ui.py) and its apps'
- * `folder` set - nothing in the launcher itself changes.
+ * GAMES and UTILITIES exist (UTILITIES's cell sits in WORKSPACE, where
+ * Clock would have been, and also holds the DEVICE group's Files, Recorder
+ * and Camera). Another folder (RADIO, SYSTEM, MEDIA ...) is one more enum
+ * value, one more row in the folder table (home_layout.c), a portal icon
+ * for its cell (tools/design/gen_doors_ui.py) and its apps' `folder` set -
+ * nothing in the launcher itself changes.
  */
 enum home_folder {
     HOME_FOLDER_NONE = 0, /* shown on the launcher's own page */
     HOME_FOLDER_GAMES,
+    HOME_FOLDER_UTILITIES,
     HOME_FOLDER_COUNT
 };
 
@@ -187,6 +190,45 @@ int home_root_order(const char *const *ids, int n, struct home_item items[HOME_M
 /* The installed apps of folder f, in the table's order: order[k] is an index
  * into ids. Returns how many (0 for an empty or unknown folder). */
 int home_folder_order(const char *const *ids, int n, enum home_folder f, uint8_t order[HOME_MAX_APPS]);
+
+/* ---- favorites ------------------------------------------------------------- *
+ *
+ * The first HOME_FAVORITES places on the launcher's own page are the
+ * owner's favorites: each empty, or holding one installed app's id. They
+ * are a panel of their own above the groups (FAVORITES), the same in both
+ * orientations. A favorite is a second way to an app, not a move: the app
+ * keeps its own cell, or its folder's.
+ *
+ * Slots are 0-based here; people, the settings file and shell.* count them
+ * from 1. What a slot holds is stored as the app's id under
+ * home_favorite_key(slot) in settings.conf (settings.h) by the shell; a
+ * stored id that names no installed app (a build without it, a hand-edited
+ * file) is shown as an empty slot and opens nothing, and is kept until the
+ * slot is given another app or cleared.
+ */
+#define HOME_FAVORITES 3
+#define HOME_FAVORITE_ID_MAX 32 /* an app id, with its terminator */
+
+/* "launcher_favorite_1" .. "launcher_favorite_3", or NULL for a slot out of range. */
+const char *home_favorite_key(int slot);
+/* Whether id could be an app's id: 1..31 characters of [a-z0-9_-]. */
+bool home_favorite_id_ok(const char *id);
+/* The index into ids of the installed app id names, or -1 (none, or not an id). */
+int home_favorite_resolve(const char *const *ids, int n, const char *id);
+/* Whether slot may be given id: 0; -1 when the slot is out of range or id is
+ * not an installed app; -2 when another slot holds it already (an app is a
+ * favorite once). stored[] is what each slot holds (NULL or "" = empty). */
+int home_favorite_check(const char *const *ids, int n, const char *const stored[HOME_FAVORITES], int slot,
+                        const char *id);
+/* The apps the picker offers for slot, in launcher order (every group, apps
+ * in folders included, each once): order[k] is an index into ids. Left out:
+ * NULL ids (not launchable), and apps another slot holds. Returns how many. */
+int home_favorite_candidates(const char *const *ids, int n, const char *const stored[HOME_FAVORITES], int slot,
+                             uint8_t order[HOME_MAX_APPS]);
+/* The launcher page's groups for home_layout_compute: the favorites' panel
+ * first (HOME_FAVORITES cells, so they are cells 0 .. HOME_FAVORITES-1 and
+ * panel 0), then count[g] for each group g as panel g + 1. */
+void home_layout_groups(struct home_layout_in *in, const uint8_t count[HOME_GROUP_COUNT]);
 
 /* ---- a folder's page ------------------------------------------------------- *
  *

@@ -36,6 +36,13 @@ struct home_actions {
     void (*open)(const struct pocketos_app *app);
     void (*lock)(void);
     void (*controls)(void);
+    /* Where the favorites live (home_layout.h, favorites): what slot
+     * (0-based) holds, or NULL/"" for empty, read once per home_create; and
+     * keeping a change, id NULL for empty, 0 or -1 when it could not be
+     * kept (the launcher shows the change anyway). Either may be NULL: the
+     * favorites then last as long as the launcher. */
+    const char *(*favorite_get)(int slot);
+    int (*favorite_set)(int slot, const char *id);
 };
 
 /* Build under parent (the shell's content area, already at its launcher
@@ -58,6 +65,43 @@ void home_set_time(const char *hm, const char *date);
 void home_keys_attach(void);
 void home_keys_detach(void);
 
+/* ---- favorites ------------------------------------------------------------- *
+ *
+ * The first three cells of the launcher's page (home_layout.h, favorites).
+ * An empty slot shows a dimmed empty portal with a plus; a tap on it, or a
+ * long press, opens the picker. A tap on a slot holding an installed app
+ * opens the app; a long press opens the picker. The picker is a page like a
+ * folder's: a way back, "Favorite N", and a panel with - when the slot holds
+ * something - a Clear cell first, then every installed app the other slots
+ * do not hold, each once. Choosing one sets the slot (and keeps it through
+ * favorite_set) and comes back to the launcher's page, the focus on the
+ * slot. The way back, Esc or Backspace leave the slot as it was.
+ *
+ * The long press is LVGL's own (LV_EVENT_LONG_PRESSED, 400 ms, never sent
+ * once the finger has started to scroll the page), and the finger is then
+ * ignored until it lifts (lv_indev_wait_release), so the release neither
+ * opens the app nor lands on the picker. Keys: Enter on an empty slot opens
+ * the picker, and E on any slot does (the keys' long press).
+ *
+ * Slots are 0-based. */
+
+/* Give slot the installed app id, or clear it (id NULL or ""). 0; -1 when
+ * the slot is out of range or id is not an installed app; -2 when another
+ * slot holds id. Closes the picker if it is open. Not from inside an LVGL
+ * event. */
+int home_favorite_set(int slot, const char *id);
+/* The installed app slot holds, or NULL (empty, or its app is not here). */
+const char *home_favorite_id(int slot);
+/* What slot holds as stored, installed or not, or NULL when empty. */
+const char *home_favorite_stored(int slot);
+/* Open the picker for slot at once (not from inside an LVGL event). False
+ * when there is nothing to offer or no launcher. */
+bool home_favorite_pick(int slot);
+/* The slot the picker is open for, or -1. */
+int home_favorite_picking(void);
+/* The slot's cell on the screen while the launcher's page shows. */
+bool home_favorite_area(int slot, lv_area_t *out);
+
 /* ---- folders --------------------------------------------------------------- */
 
 /* Open the folder with this id at once (not from inside an LVGL event: the
@@ -65,8 +109,9 @@ void home_keys_detach(void);
  * there is no such folder or none of its apps is installed. Opening the
  * folder that is open does nothing and is true. */
 bool home_folder_open(const char *id);
-/* Back to the launcher's own page, the focus on the folder's cell. Nothing
- * when no folder is open. */
+/* Back to the launcher's own page, the focus on the folder's cell (or the
+ * favorite's, from the picker, which this closes too). Nothing when
+ * neither is open. */
 void home_folder_close(void);
 /* The open folder's id, or NULL. */
 const char *home_folder_current(void);
@@ -77,6 +122,8 @@ struct home_info {
     int apps;            /* installed apps, in folders or not */
     int cells;           /* cells on the launcher's own page: apps and folders */
     int folders;         /* folder cells on it */
+    int favorites;       /* favorite slots on it, before those cells (HOME_FAVORITES) */
+    int favorites_set;   /* of them, holding an installed app now */
     int icons_art;       /* cells drawn with their portal icon file */
     int icons_fallback;  /* cells drawn on the empty frame or as text */
     bool scrolls;
@@ -95,8 +142,9 @@ bool home_folder_area(const char *folder_id, lv_area_t *out);
 bool home_folder_back_area(lv_area_t *out);
 /* A folder's size: its installed apps, or -1 for an unknown id. */
 int home_folder_size(const char *folder_id);
-/* What the keys would act on: the focused cell's app or folder id, or NULL;
- * and whether a key has been used, so the mark is drawn. */
+/* What the keys would act on: the focused cell's app or folder id,
+ * "favorite-N" for a favorite's slot (N from 1), "clear" for the picker's
+ * Clear, or NULL; and whether a key has been used, so the mark is drawn. */
 const char *home_focus_id(bool *shown);
 
 /* The screen rectangles the header's time and date labels take now, for

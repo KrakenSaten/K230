@@ -62,7 +62,7 @@ folders = {i: h.lower() for i, h in re.findall(r'\] = \{ "(\w+)", "[^"]*", HOME_
 check("the launcher's table and the icon generator give every app the same colour (%d apps)" % len(table),
       {k: v for k, v in app_hue.items() if k not in folders} == table and len(table) == 24)
 check("and every folder's cell (%s)" % " ".join(sorted(folders)),
-      folders == {k: v for k, v in app_hue.items() if k in folders} and folders == {"games": "games"})
+      folders == {k: v for k, v in app_hue.items() if k in folders} and folders == {"games": "games", "utilities": "tools"})
 palette = re.search(r"PALETTE = \{(.*?)\}", gen, re.S).group(1)
 pal = dict(re.findall(r'"(\w+)": "#([0-9a-f]{6})"', palette))
 styles = open("ui/pocketui/pos_styles.c", encoding="utf-8").read()
