@@ -28,6 +28,11 @@ void camera_gallery_init(struct camera_gallery *g)
     g->slide_back_index = -1;
 }
 
+void camera_gallery_set_standalone(struct camera_gallery *g, bool standalone)
+{
+    g->standalone = standalone;
+}
+
 static void panel(struct camera_gallery *g, const char *title, const char *detail)
 {
     snprintf(g->title, sizeof(g->title), "%s", title);
@@ -133,6 +138,7 @@ static void fail(struct camera_gallery *g, const char *title, const char *detail
 
 static void restart(struct camera_gallery *g)
 {
+    bool standalone = g->standalone;
     int per_page = g->per_page;
     uint32_t thumb = g->thumb;
     uint32_t pw = g->photo_w;
@@ -141,6 +147,7 @@ static void restart(struct camera_gallery *g)
     uint32_t sh = g->show_h;
 
     camera_gallery_init(g);
+    g->standalone = standalone;
     g->per_page = per_page;
     g->thumb = thumb;
     g->photo_w = pw;
@@ -437,7 +444,7 @@ unsigned camera_gallery_left(struct camera_gallery *g)
     case GALLERY_OPENING:
     case GALLERY_GRID:
     case GALLERY_FAILED:
-        return GALLERY_DO_CAMERA;
+        return g->standalone ? GALLERY_DO_NOTHING : GALLERY_DO_CAMERA;
     case GALLERY_PHOTO:
         if (g->confirm_delete) {
             if (!g->deleting) {
@@ -873,20 +880,20 @@ void camera_gallery_screen(const struct camera_gallery *g, struct gallery_screen
     switch (g->view) {
     case GALLERY_OPENING:
         out->show_panel = true;
-        out->left = "CAMERA";
-        out->left_enabled = true;
+        out->left = g->standalone ? NULL : "CAMERA";
+        out->left_enabled = !g->standalone;
         break;
     case GALLERY_FAILED:
         out->show_panel = true;
-        out->left = "CAMERA";
-        out->left_enabled = true;
+        out->left = g->standalone ? NULL : "CAMERA";
+        out->left_enabled = !g->standalone;
         out->middle = "TRY AGAIN";
         out->middle_enabled = true;
         out->middle_primary = true;
         break;
     case GALLERY_GRID:
-        out->left = "CAMERA";
-        out->left_enabled = true;
+        out->left = g->standalone ? NULL : "CAMERA";
+        out->left_enabled = !g->standalone;
         if (g->count == 0) {
             out->show_panel = true;
             break;

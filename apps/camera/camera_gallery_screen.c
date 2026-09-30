@@ -59,6 +59,7 @@ struct gallery_ui {
     bool laid_out;
     bool active;
     bool want_camera;
+    bool standalone;       /* the Photo app's: no CAMERA */
     uint32_t list_total;   /* photos in the folder, from the last LISTED */
     struct camera_session *session;
     struct camera_gallery model;
@@ -688,6 +689,14 @@ struct gallery_ui *gallery_ui_create(lv_obj_t *root, struct camera_session *sess
     return u;
 }
 
+void gallery_ui_set_standalone(struct gallery_ui *u, bool standalone)
+{
+    if (u) {
+        u->standalone = standalone;
+        camera_gallery_set_standalone(&u->model, standalone);
+    }
+}
+
 void gallery_ui_enter(struct gallery_ui *u)
 {
     if (!u || u->active) {
@@ -695,6 +704,7 @@ void gallery_ui_enter(struct gallery_ui *u)
     }
     u->active = true;
     u->want_camera = false;
+    camera_gallery_set_standalone(&u->model, u->standalone);
     set_hidden(u->frame, false);
     /* Laid out afresh: the buffers were freed when the gallery was last left. */
     pocketui_layout_guard_reset(&u->guard);

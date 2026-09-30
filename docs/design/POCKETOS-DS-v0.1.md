@@ -3995,3 +3995,30 @@ the keyboard base is not attached.
 The header's hint says SCROLLBACK while the view is not live and ENDED
 after the shell ended; the screen itself says how it ended, in reverse
 video, and that Enter starts a new shell.
+
+## 44. Amendment AB — Photo [PROPOSED]
+
+**PROPOSED 2026-09-30** on branch `feat/photo-app`. A new app; nothing in
+§1-§43 changes or is renumbered. Behaviour and architecture:
+docs/apps/PHOTO.md; gate: docs/hardware/PHOTO_GATE.md. (Another branch in
+flight may also claim §44; renumber on merge.)
+
+### 44.1 Place and chrome
+
+A launcher app of its own, not in a folder: DEVICE, after Video, in the
+files colour (a library of files, as Notes and Timber). Its icon is the icon
+extension's Gallery, a framed picture with a sun and hills
+(`docs/design/brand/doors-icon-extension/svg/gallery.svg`), supplied with
+the package and deferred until an app used it; the generator names its mask
+`pos_app_icon_photo` (for the owner to confirm the place and the colour).
+Chrome NONE and header DEFAULT, as Camera (§30.8, §34): no status cluster,
+the shell's header with its back slab; the pictures take the height.
+
+### 44.2 The screen
+
+Exactly Camera's gallery (§34, docs/apps/CAMERA.md "The gallery"): the same
+grid, photo view, three lines, buttons, slideshow and panels, from the same
+code. Standalone, the gallery has no CAMERA button: on the grid the left
+place of the button row is empty, on the empty library and the failure
+screen there is no left button at all, and the shell's back slab is the only
+way out. Nothing else differs.

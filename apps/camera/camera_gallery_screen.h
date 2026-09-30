@@ -1,6 +1,7 @@
 /*
  * Camera's gallery screen: the LVGL side of camera_gallery.h, living in the
- * Camera app's body beside the camera's own screen.
+ * Camera app's body beside the camera's own screen, and in the Photo app's
+ * body on its own (apps/photo/photo_app.c: standalone, no camera at all).
  *
  * The Camera app owns one helper session at a time (camera_session.h). Going
  * to the gallery ends the camera's helper - the camera is closed while photos
@@ -28,6 +29,10 @@ struct gallery_ui;
 
 /* Build the gallery's objects under root, hidden. The session is the app's. */
 struct gallery_ui *gallery_ui_create(lv_obj_t *root, struct camera_session *session);
+/* The Photo app's gallery: no CAMERA action (camera_gallery_set_standalone),
+ * so gallery_ui_poll() never asks for the camera. Before gallery_ui_enter();
+ * kept across leave and enter. */
+void gallery_ui_set_standalone(struct gallery_ui *u, bool standalone);
 /* Show it and start the library helper (the camera's helper must be gone). */
 void gallery_ui_enter(struct gallery_ui *u);
 /* The app's timer, while the gallery is shown. Never blocks. True once the

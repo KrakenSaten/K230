@@ -133,7 +133,7 @@ existing UI, typography and launcher are unchanged.
 | `svg/wave.svg` | SVG, 1 path, 1.5 stroke in `currentColor`, square caps, miter joins, no fill | 24 × 24 | — | reference (master) |
 | `png-24/wave.png` | PNG, RGBA, white | 24 × 24 | 8 opaque, 116 partial | not used: soft at this size |
 | `png-32/wave.png` | PNG, RGBA, white | 32 × 32 | 57 opaque, 139 partial; ink x 1–30, y 8–23 | **used**: Wave's launcher icon |
-| `svg/{messages,contacts,files,map,compass,authenticator,bluetooth,wifi-scanner,recorder,camera,gallery,terminal}.svg` | SVG, paths, circles and rectangles in one group, same stroke rules | 24 × 24 | — | **deferred**: no such app exists |
+| `svg/{messages,contacts,files,map,compass,authenticator,bluetooth,wifi-scanner,recorder,camera,gallery,terminal}.svg` | SVG, paths, circles and rectangles in one group, same stroke rules | 24 × 24 | — | **deferred**: no such app exists (since then used: `files` by Files, `camera` by Camera, `recorder` by Recorder, `gallery` by Photo - DS §44, its mask named `pos_app_icon_photo` by `gen_app_icons.py` APP_IDS) |
 | `png-24/<same twelve>.png` | PNG, RGBA, white | 24 × 24 | 0–26 opaque, 116–218 partial | **deferred** |
 | `png-32/<same twelve>.png` | PNG, RGBA, white | 32 × 32 | 57–225 opaque, 92–259 partial | **deferred** |
 | `Doors-Icon-Extension.png` / `.svg` | PNG RGB 1120 × 980 / SVG | overview: Wave at 24 and 32 px, the twelve, Wave beside Radio and Radar, the five theme accents; lettering outlined | reference |
@@ -181,7 +181,7 @@ would need an id such as `wifi_scanner` and the file mapped to it explicitly.
 | Status bar | none | unchanged: `mockups/doors-status-bar-568x56` shows the `DOORS` caption Phase 1 already ships |
 | Launcher, brand | none | no logo on the launcher, see Launcher |
 | Launcher, app icons | `doors-threshold/icons/png-32/` (ten), `doors-icon-extension/png-32/wave.png` and `files.png` | `ui/pocketui/pos_app_icons.c`, see App icons |
-| Future apps | `doors-icon-extension/` (twelve icons; `files` is now used by Files, DS §33) | deferred: no such apps |
+| Future apps | `doors-icon-extension/` (twelve icons; `files` is now used by Files, DS §33; `gallery` by Photo, DS §44) | deferred: no such apps |
 | Settings, Appearance | `brand/doors-mark-16` | not in scope: not requested, mockup only |
 
 ## Boot splash

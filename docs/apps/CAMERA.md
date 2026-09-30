@@ -143,6 +143,12 @@ gallery".)
 
 ## The gallery
 
+The same gallery, from the same code, is also an app of its own: **Photo**
+(docs/apps/PHOTO.md, DS §44), which shows it standalone - without CAMERA,
+and without ever opening the camera. Photo owns viewing the library from
+now on; PHOTOS here stays as a shortcut into the same gallery until the shell
+can open one app from another.
+
 ### What it does
 
 - **Grid.** Thumbnails of the library, newest first, a page at a time (as
