@@ -878,7 +878,6 @@ const struct pocketos_app app_terminal = {
     .create = terminal_create,
     .tick = NULL,
     .destroy = terminal_destroy,
-    /* The shell's header and status cluster, as every tool has: the grid
-     * takes the whole body under them. */
-    .chrome = POCKETOS_CHROME_DEFAULT,
+    /* No chrome or header declared: the shell's header and status cluster,
+     * as every tool has, and the grid takes the whole body under them. */
 };
