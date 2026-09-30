@@ -286,6 +286,109 @@ static void test_decline_and_silence(void)
     link->ops->close(link->ctx);
 }
 
+/* ---- chat through the session -------------------------------------------- */
+
+static int theirs_saying(const struct fleet_chat *c, const char *text)
+{
+    int n = 0;
+    int i;
+
+    for (i = 0; i < c->count; i++) {
+        n += !c->line[i].mine && strcmp(c->line[i].text, text) == 0;
+    }
+    return n;
+}
+
+static void test_chat_session(void)
+{
+    struct store st = { .rng = 7 };
+    struct fleet_session s;
+    struct fleet_session again;
+    struct fleet_link *link = open_loop("chat,think=1000");
+    const struct fleet_match *peer = fleet_link_loop_peer(link);
+    uint8_t key[FLEET_KEY_BYTES];
+    unsigned saves;
+    int64_t now = 0;
+    int i;
+
+    fleet_session_init(&s, link, store_save, entropy, &st);
+    fleet_session_engage(&s, now);
+    peer_key(link, key);
+    fleet_session_invite(&s, key, "SIM OPPONENT", now);
+    for (i = 0; i < 600 && s.m.phase != FLEET_MP_BATTLE; i++) {
+        now = run(&s, now, 100, 1);
+    }
+    check("chat session: in battle", s.m.phase == FLEET_MP_BATTLE);
+    now = run(&s, now, 30000, 0);           /* the governor's burst refills */
+    saves = st.saves;
+    check("chat session: a line goes through the session",
+          fleet_session_chat_send(&s, "Hello sim", now) == 0);
+    check("chat session: and needs no save to go", st.saves == saves && s.sent > 0);
+    now = run(&s, now, 5000, 0);
+    check("chat session: the opponent has it, from us, once", theirs_saying(&peer->chat, "Hello sim") == 1);
+    check("chat session: and confirmed it", s.m.chat.line[0].state == FLEET_CHAT_DELIVERED);
+    check("chat session: its answer is shown, as theirs, once",
+          theirs_saying(&s.m.chat, "Copy that.") == 1 && s.m.chat.unread == 1);
+    fleet_link_loop_say(link, "Nice shot");
+    now = run(&s, now, 3000, 0);
+    check("chat session: the opponent speaking first is heard too",
+          theirs_saying(&s.m.chat, "Nice shot") == 1);
+
+    /* The opponent goes out of reach while we are typing, and after. */
+    fleet_link_loop_set_cut(link, 1);
+    fleet_session_chat_send(&s, "Are you there?", now);
+    now = run(&s, now, 120000, 0);
+    check("chat session: a line to an opponent out of reach is given up, not sent for ever",
+          fleet_chat_last(&s.m.chat)->state == FLEET_CHAT_FAILED &&
+          fleet_chat_pending(&s.m.chat) == 0);
+    fleet_link_loop_set_cut(link, 0);
+    fleet_session_chat_send(&s, "Back again", now);
+    now = run(&s, now, 5000, 0);
+    check("chat session: once back, the next line gets through",
+          theirs_saying(&peer->chat, "Back again") == 1 &&
+          theirs_saying(&peer->chat, "Are you there?") == 0);
+
+    /* Leave with a line still waiting, and come back. */
+    fleet_link_loop_set_cut(link, 1);
+    fleet_session_chat_send(&s, "Left behind", now);
+    now = run(&s, now, 1000, 0);
+    check("chat session: a line is waiting as the app closes", fleet_chat_pending(&s.m.chat) == 1);
+    for (i = 0; i < 20; i++) {
+        /* Closed and opened again, over and over: the session is rebuilt
+         * from the saved match each time, and nothing said survives it. */
+        fleet_session_init(&again, link, store_save, entropy, &st);
+        fleet_session_set_saved(&again, st.blob, sizeof(st.blob), 0);
+        now = run(&again, now, 500, 0);
+        fleet_session_resume(&again, now);
+        if (again.m.chat.count != 0 || again.m.phase != FLEET_MP_BATTLE) {
+            break;
+        }
+        now = run(&again, now, 500, 0);
+    }
+    check("chat session: reopened twenty times, the match is back and its chat is not",
+          i == 20 && again.m.chat.count == 0);
+    fleet_link_loop_set_cut(link, 0);
+    now = run(&again, now, 60000, 1);
+    check("chat session: the line left behind is never sent by the next run",
+          theirs_saying(&peer->chat, "Left behind") == 0);
+
+    /* Played out, put away, and a new match: a new chat. */
+    now = run(&again, now, 3 * 3600000LL, 1);
+    check("chat session: the match finished", again.m.phase == FLEET_MP_DONE);
+    fleet_session_dismiss(&again, now);
+    check("chat session: put away, no line is left", again.m.chat.count == 0);
+    for (i = 0; i < 400 && peer->phase != FLEET_MP_IDLE; i++) {
+        now = run(&again, now, 100, 0);
+    }
+    fleet_session_invite(&again, key, "SIM OPPONENT", now);
+    for (i = 0; i < 600 && again.m.phase != FLEET_MP_BATTLE; i++) {
+        now = run(&again, now, 100, 1);
+    }
+    check("chat session: a new match starts with an empty chat on both sides",
+          again.m.phase == FLEET_MP_BATTLE && again.m.chat.count == 0 && peer->chat.count == 0);
+    link->ops->close(link->ctx);
+}
+
 int main(void)
 {
     test_not_engaged();
@@ -295,6 +398,7 @@ int main(void)
     test_save_failure();
     test_other_identity();
     test_decline_and_silence();
+    test_chat_session();
     printf("fleet_session_test: %d failure(s)\n", failed);
     return failed ? 1 : 0;
 }

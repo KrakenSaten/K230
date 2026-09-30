@@ -85,11 +85,35 @@ struct fleet_board *fleet_app_deploy_board(struct fleet_app *app)
     return app->mode == FLEET_MODE_MULTI ? &app->mp_fleet : &app->game.board[FLEET_SIDE_PLAYER];
 }
 
-static void refresh_current(struct fleet_app *app)
+int fleet_app_mp_status(struct fleet_app *app, char *buf, size_t n)
 {
-    char status[64];
+    enum fleet_link_state link = FLEET_LINK_CONNECTING;
     char peer[40];
 
+    if (!app || !app->mp) {
+        return -1;
+    }
+    if (app->link && app->link->ops->state) {
+        link = app->link->ops->state(app->link->ctx);
+    }
+    return fleet_view_mp_status(app->mp->ready ? &app->mp->m : NULL, link,
+                                fleet_app_peer(app, peer, sizeof(peer)), buf, n);
+}
+
+/* The header says where the match stands. Read afresh every time from the
+ * match and the link, so it cannot drift from them. */
+static void refresh_status(struct fleet_app *app)
+{
+    char status[64];
+
+    if (app->mode == FLEET_MODE_MULTI && app->current != FLEET_SCREEN_COMMAND &&
+        app->mp && app->mp->engaged && fleet_app_mp_status(app, status, sizeof(status)) == 0) {
+        pocketos_shell_set_status_hint(status);
+    }
+}
+
+static void refresh_current(struct fleet_app *app)
+{
     switch (app->current) {
     case FLEET_SCREEN_COMMAND:
         fleet_screen_command_refresh(app);
@@ -106,14 +130,13 @@ static void refresh_current(struct fleet_app *app)
     case FLEET_SCREEN_LOBBY:
         fleet_screen_lobby_refresh(app);
         break;
+    case FLEET_SCREEN_CHAT:
+        fleet_screen_chat_refresh(app);
+        break;
     default:
         break;
     }
-    if (app->mode == FLEET_MODE_MULTI && app->mp && app->mp->ready &&
-        fleet_view_mp_status(&app->mp->m, fleet_app_peer(app, peer, sizeof(peer)), status,
-                             sizeof(status)) == 0) {
-        pocketos_shell_set_status_hint(status);
-    }
+    refresh_status(app);
 }
 
 /* Put the player on the screen the match's phase belongs to, when the phase
@@ -172,14 +195,22 @@ static void on_mp_tick(lv_timer_t *t)
     fleet_session_poll(app->mp, fleet_app_now(app));
     if (fleet_session_revision(app->mp) != app->mp_revision) {
         fleet_app_mp_changed(app);
-    } else if (app->current == FLEET_SCREEN_LOBBY || app->current == FLEET_SCREEN_BATTLE) {
+    } else {
         /* The link's own state and the peers it hears change without the
          * match changing; a second's staleness is fine for those. */
         static unsigned ticks;
 
         if (++ticks % 10 == 0) {
-            refresh_current(app);
+            if (app->current == FLEET_SCREEN_LOBBY || app->current == FLEET_SCREEN_BATTLE ||
+                app->current == FLEET_SCREEN_CHAT) {
+                refresh_current(app);
+            } else {
+                refresh_status(app);
+            }
         }
+    }
+    if (app->current == FLEET_SCREEN_CHAT) {
+        fleet_screen_chat_tick(app);
     }
 }
 
@@ -313,6 +344,49 @@ void fleet_app_mp_resume(struct fleet_app *app)
     }
 }
 
+void fleet_app_chat(struct fleet_app *app)
+{
+    if (!app || app->mode != FLEET_MODE_MULTI || !app->mp || !app->mp->ready) {
+        return;
+    }
+    fleet_screen_chat_enter(app);
+    fleet_app_show(app, FLEET_SCREEN_CHAT);
+}
+
+void fleet_app_chat_back(struct fleet_app *app)
+{
+    const struct fleet_match *m;
+
+    if (!app || !app->mp || !app->mp->ready) {
+        if (app) {
+            fleet_app_show(app, FLEET_SCREEN_LOBBY);
+        }
+        return;
+    }
+    m = &app->mp->m;
+    app->mp_phase = m->phase;
+    switch (m->phase) {
+    case FLEET_MP_DEPLOY:
+        if (!m->committed) {
+            fleet_app_show(app, FLEET_SCREEN_DEPLOY);
+            break;
+        }
+        /* fall through */
+    case FLEET_MP_COMMITTED:
+    case FLEET_MP_BATTLE:
+        fleet_screen_battle_resume(app);
+        fleet_app_show(app, FLEET_SCREEN_BATTLE);
+        break;
+    case FLEET_MP_REVEAL:
+    case FLEET_MP_DONE:
+        fleet_app_show(app, FLEET_SCREEN_RESULT);
+        break;
+    default:
+        fleet_app_show(app, FLEET_SCREEN_LOBBY);
+        break;
+    }
+}
+
 /* ---- development aid ------------------------------------------------------ */
 
 static void skip(struct fleet_app *app, int64_t ms)
@@ -434,6 +508,19 @@ int fleet_mp_debug(struct fleet_app *app, const char *want)
     }
     if (strcmp(want, "mp_battle") == 0) {
         fleet_screen_battle_aim(app, 4, 6);
+    }
+    if (strcmp(want, "mp_chat") == 0) {
+        /* A few lines each way, each given the time the governor wants. */
+        fleet_session_chat_send(app->mp, "Good luck, captain.", fleet_app_now(app));
+        skip(app, 20000);
+        fleet_link_loop_say(app->link, "You too. Fire away!");
+        skip(app, 20000);
+        fleet_session_chat_send(app->mp, "Sk\xc3\xa5l! F\xc3\xb8rste treff var mitt.",
+                                fleet_app_now(app));
+        skip(app, 20000);
+        fleet_link_loop_say(app->link, "Not for long.");
+        skip(app, 20000);
+        fleet_app_chat(app);
     }
     fleet_app_mp_changed(app);
     return 1;

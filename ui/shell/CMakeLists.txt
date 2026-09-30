@@ -86,6 +86,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/fleet/fleet_mp.c
     ${REPO_DIR}/apps/fleet/net/fleet_sha256.c
     ${REPO_DIR}/apps/fleet/net/fleet_proto.c
+    ${REPO_DIR}/apps/fleet/net/fleet_chat.c
     ${REPO_DIR}/apps/fleet/net/fleet_match.c
     ${REPO_DIR}/apps/fleet/net/fleet_match_save.c
     ${REPO_DIR}/apps/fleet/link/fleet_link.c
@@ -94,6 +95,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/fleet/link/fleet_session.c
     ${REPO_DIR}/apps/fleet/ui/fleet_view_mp.c
     ${REPO_DIR}/apps/fleet/ui/fleet_screen_lobby.c
+    ${REPO_DIR}/apps/fleet/ui/fleet_screen_chat.c
     ${REPO_DIR}/apps/radar/radar_app.c
     ${REPO_DIR}/apps/radar/radar_store.c
     ${REPO_DIR}/apps/radar/engine/radar_types.c
@@ -1062,6 +1064,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/fleet/fleet_mp.c
         ${REPO_DIR}/apps/fleet/net/fleet_sha256.c
         ${REPO_DIR}/apps/fleet/net/fleet_proto.c
+        ${REPO_DIR}/apps/fleet/net/fleet_chat.c
         ${REPO_DIR}/apps/fleet/net/fleet_match.c
         ${REPO_DIR}/apps/fleet/net/fleet_match_save.c
         ${REPO_DIR}/apps/fleet/link/fleet_link.c
@@ -1070,6 +1073,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/fleet/link/fleet_session.c
         ${REPO_DIR}/apps/fleet/ui/fleet_view_mp.c
         ${REPO_DIR}/apps/fleet/ui/fleet_screen_lobby.c
+        ${REPO_DIR}/apps/fleet/ui/fleet_screen_chat.c
         ${REPO_DIR}/apps/fleet/ui/fleet_view.c
         ${REPO_DIR}/apps/fleet/ui/fleet_widgets.c
         ${REPO_DIR}/core/pocketipc/pocketipc.c

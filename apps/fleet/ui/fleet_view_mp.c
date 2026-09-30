@@ -40,31 +40,159 @@ static void upper_into(char *dst, size_t n, const char *src)
     }
 }
 
-int fleet_view_mp_status(const struct fleet_match *m, const char *peer, char *buf, size_t n)
-{
-    char name[FLEET_MATCH_NAME_MAX];
+/* The header has room for a short name: cut a long one at a whole character
+ * and say so. */
+#define STATUS_NAME_MAX 16
 
-    if (!m || !buf || n == 0) {
+static void short_name(char *dst, size_t n, const char *src)
+{
+    char up[FLEET_MATCH_NAME_MAX];
+    size_t len;
+
+    upper_into(up, sizeof(up), src);
+    len = strlen(up);
+    if (len <= STATUS_NAME_MAX) {
+        snprintf(dst, n, "%s", up);
+        return;
+    }
+    len = STATUS_NAME_MAX;
+    while (len > 0 && ((unsigned char)up[len] & 0xC0) == 0x80) {
+        len--;      /* not in the middle of a character */
+    }
+    snprintf(dst, n, "%.*s" ELLIPSIS, (int)len, up);
+}
+
+enum fleet_mp_status fleet_view_mp_state(const struct fleet_match *m, enum fleet_link_state link)
+{
+    int reachable = link == FLEET_LINK_UP || link == FLEET_LINK_CONNECTING;
+
+    if (!m) {
+        return reachable ? FLEET_STATUS_CONNECTING : FLEET_STATUS_OFFLINE;
+    }
+    if (m->phase == FLEET_MP_REVEAL || m->phase == FLEET_MP_DONE) {
+        return FLEET_STATUS_GAME_OVER;
+    }
+    if (m->phase == FLEET_MP_IDLE || m->phase == FLEET_MP_INVITED) {
+        return FLEET_STATUS_IDLE;
+    }
+    if (!reachable) {
+        return FLEET_STATUS_OFFLINE;
+    }
+    if (link == FLEET_LINK_CONNECTING || m->phase == FLEET_MP_INVITING ||
+        m->phase == FLEET_MP_ACCEPTING) {
+        return FLEET_STATUS_CONNECTING;
+    }
+    switch (fleet_match_link(m)) {
+    case FLEET_LINK_LOST:
+        return FLEET_STATUS_DISCONNECTED;
+    case FLEET_LINK_RESYNCING:
+        return FLEET_STATUS_SYNCING;
+    case FLEET_LINK_RETRYING:
+        return FLEET_STATUS_RECONNECTING;
+    default:
+        break;
+    }
+    if (m->phase == FLEET_MP_DEPLOY && !m->committed) {
+        return FLEET_STATUS_DEPLOYING;
+    }
+    return fleet_match_my_turn(m) ? FLEET_STATUS_YOUR_TURN : FLEET_STATUS_WAITING;
+}
+
+int fleet_view_mp_status(const struct fleet_match *m, enum fleet_link_state link,
+                         const char *peer, char *buf, size_t n)
+{
+    char name[FLEET_MATCH_NAME_MAX + 4];
+
+    if (!buf || n == 0) {
         return fail(buf, n);
     }
-    upper_into(name, sizeof(name), who(peer));
-    switch (m->phase) {
-    case FLEET_MP_DEPLOY:
-    case FLEET_MP_COMMITTED:
-        snprintf(buf, n, "VS %s " DOT " DEPLOY", name);
+    switch (fleet_view_mp_state(m, link)) {
+    case FLEET_STATUS_CONNECTING:
+        snprintf(buf, n, "CONNECTING");
         break;
-    case FLEET_MP_BATTLE:
-        snprintf(buf, n, "VS %s " DOT " SHOT %d", name,
+    case FLEET_STATUS_OFFLINE:
+        snprintf(buf, n, "MESH OFFLINE");
+        break;
+    case FLEET_STATUS_DEPLOYING:
+        snprintf(buf, n, "DEPLOY YOUR FLEET");
+        break;
+    case FLEET_STATUS_SYNCING:
+        snprintf(buf, n, "SYNCING");
+        break;
+    case FLEET_STATUS_RECONNECTING:
+        snprintf(buf, n, "RECONNECTING");
+        break;
+    case FLEET_STATUS_DISCONNECTED:
+        snprintf(buf, n, "OPPONENT DISCONNECTED");
+        break;
+    case FLEET_STATUS_YOUR_TURN:
+        snprintf(buf, n, "YOUR TURN " DOT " SHOT %d",
                  fleet_match_shots_by(m, (enum fleet_mp_role)m->role) + 1);
         break;
-    case FLEET_MP_REVEAL:
-    case FLEET_MP_DONE:
-        snprintf(buf, n, "VS %s " DOT " COMPLETE", name);
+    case FLEET_STATUS_WAITING:
+        short_name(name, sizeof(name), who(peer));
+        snprintf(buf, n, "WAITING FOR %s", name);
+        break;
+    case FLEET_STATUS_GAME_OVER:
+        snprintf(buf, n, "GAME OVER");
         break;
     default:
         snprintf(buf, n, "MULTIPLAYER");
         break;
     }
+    return 0;
+}
+
+int fleet_view_mp_chat_line(const struct fleet_chat_line *l, const char *peer, char *buf,
+                            size_t n)
+{
+    char name[FLEET_MATCH_NAME_MAX + 4];
+    const char *how = "";
+
+    if (!l || !buf || n == 0) {
+        return fail(buf, n);
+    }
+    if (l->mine) {
+        snprintf(name, sizeof(name), "YOU");
+        switch (l->state) {
+        case FLEET_CHAT_QUEUED:
+            how = " " DOT " WAITING";
+            break;
+        case FLEET_CHAT_SENDING:
+            how = " " DOT " SENDING";
+            break;
+        case FLEET_CHAT_FAILED:
+            how = " " DOT " NOT DELIVERED";
+            break;
+        default:
+            break;
+        }
+    } else {
+        short_name(name, sizeof(name), peer && peer[0] ? peer : "THEM");
+    }
+    snprintf(buf, n, "%s " DOT " %s%s", name, l->text, how);
+    return 0;
+}
+
+int fleet_view_mp_chat_tile(const struct fleet_match *m, const char *peer, char *title,
+                            size_t tn, char *preview, size_t pn)
+{
+    const struct fleet_chat_line *last;
+
+    if (!m || !title || tn == 0 || !preview || pn == 0) {
+        fail(preview, pn);
+        return fail(title, tn);
+    }
+    if (m->chat.unread) {
+        snprintf(title, tn, "CHAT " DOT " %u NEW", (unsigned)m->chat.unread);
+    } else {
+        snprintf(title, tn, "CHAT");
+    }
+    last = fleet_chat_last(&m->chat);
+    if (last) {
+        return fleet_view_mp_chat_line(last, peer, preview, pn);
+    }
+    snprintf(preview, pn, "Say something to %s.", who(peer));
     return 0;
 }
 

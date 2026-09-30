@@ -12,6 +12,9 @@ Scenarios:
   crash    the guest's app dies at ply 30 and is started again on its save
   restart  the guest's meshcored is restarted at ply 40: a new run, an empty
            inbox, the node table read back from disk
+  chat     "fast", with both players talking all through the battle: every
+           line a 34-35 byte datagram, three AES blocks, the longest Fleet
+           sends
 
 The stand-in radiod is a smaller copy of tests/meshcored_harness_test.sh's:
 the same radio.* shapes and the same order of radio.state, reply and
@@ -365,6 +368,8 @@ class Player(object):
             args += ["--peer", peer]
         if fast:
             args.append("--fast")
+        if SCENARIO == "chat":
+            args.append("--chat")
         if crash_at:
             args += ["--crash-at-ply", str(crash_at)]
         env = dict(os.environ)
@@ -492,6 +497,20 @@ def main():
                dh["plies"] == dg["plies"] and dh["digest"] == dg["digest"],
                (dh["plies"], dh["digest"], dg["plies"], dg["digest"]))
             ok("and neither saw a violation", dh["violations"] == "0" and dg["violations"] == "0")
+            if SCENARIO == "chat":
+                ok("both players were heard, many times",
+                   int(dh["chat_shown"]) >= 10 and int(dg["chat_shown"]) >= 10,
+                   (dh["chat_shown"], dg["chat_shown"]))
+                ok("every line held is the opponent's, whole, once and in order",
+                   dh["chat_ok"] == "1" and dg["chat_ok"] == "1" and
+                   dh["chat_order"] == "1" and dg["chat_order"] == "1",
+                   (dh["chat_ok"], dg["chat_ok"], dh["chat_order"], dg["chat_order"]))
+                ok("on a clean air no line was given up",
+                   dh["chat_failed"] == "0" and dg["chat_failed"] == "0",
+                   (dh["chat_failed"], dg["chat_failed"]))
+                print("     [chat] lines said/on air/shown: host %s/%s/%s, guest %s/%s/%s"
+                      % (dh["chat_said"], dh["chat_tx"], dg["chat_shown"],
+                         dg["chat_said"], dg["chat_tx"], dh["chat_shown"]), flush=True)
             print("     [%s] %s plies in %.0f s; airtime host %.1f s, guest %.1f s; "
                   "frames host %s, guest %s; air carried %d, lost %d, duplicated %d"
                   % (SCENARIO, dh["plies"], elapsed, int(dh["tx_airtime_ms"]) / 1000.0,

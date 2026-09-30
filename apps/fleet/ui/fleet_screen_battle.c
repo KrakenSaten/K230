@@ -63,6 +63,14 @@
 /* Explicit, because LV_SIZE_CONTENT on a flex row inside a space-between row
  * measured short and clipped the leading bars. */
 #define PIP_BAR_W (FLEET_HULL_CELLS * PIP_UNIT + (FLEET_SHIP_COUNT - 1) * PIP_GAP)
+/* Multiplayer's chat button, beside FIRE on FIRE's own row, so it costs the
+ * turn no height in either shape: FIRE keeps the rest of the row. Its
+ * preview is one line down the page, where the row is 64 px, and two
+ * across it, where FIRE's row has the height to spare. */
+#define CHAT_TILE_W_TALL 200
+#define CHAT_TILE_W_WIDE 240
+#define CHAT_TILE_PAD 12
+#define FIRE_ROW_GAP 12
 
 struct fleet_battle_ui {
     struct fleet_app *app;
@@ -70,7 +78,11 @@ struct fleet_battle_ui {
     lv_obj_t *own;
     lv_obj_t *cell_value;
     lv_obj_t *pip[FLEET_SHIP_COUNT];
+    lv_obj_t *fire_row;             /* FIRE, and in multiplayer the chat beside it */
     lv_obj_t *fire;
+    lv_obj_t *chat;                 /* multiplayer only: opens the chat */
+    lv_obj_t *chat_title;
+    lv_obj_t *chat_preview;
     lv_obj_t *step;                 /* the four one-square nudges */
     lv_obj_t *note;
     lv_obj_t *log;
@@ -331,6 +343,42 @@ void fleet_screen_battle_fire(struct fleet_app *app)
     }
 }
 
+static void on_chat(lv_event_t *e)
+{
+    struct fleet_battle_ui *ui = lv_event_get_user_data(e);
+
+    fleet_app_chat(ui->app);
+}
+
+static void lines_high(lv_obj_t *label, int lines)
+{
+    const lv_font_t *font = lv_obj_get_style_text_font(label, LV_PART_MAIN);
+
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(label, LV_PCT(100));
+    /* LONG_DOT keeps the box and shortens the text to it, so the label never
+     * holds more than it shows - nothing in it can be scrolled. */
+    lv_obj_set_height(label, font ? lv_font_get_line_height(font) * lines : LV_SIZE_CONTENT);
+}
+
+/* The chat button: CHAT (and how many lines are new) over the newest line. */
+static lv_obj_t *chat_tile(lv_obj_t *parent, struct fleet_battle_ui *ui)
+{
+    lv_obj_t *btn = fleet_button_secondary(parent, "CHAT", on_chat, ui);
+
+    ui->chat_title = lv_obj_get_child(btn, 0);
+    lv_obj_set_flex_flow(btn, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(btn, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_hor(btn, CHAT_TILE_PAD, 0);
+    lv_obj_set_style_pad_row(btn, 2, 0);
+    lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+    lines_high(ui->chat_title, 1);
+    ui->chat_preview = pocketui_label(btn, "", POS_STYLE_CAPTION);
+    lines_high(ui->chat_preview, 1);
+    lv_obj_add_flag(btn, LV_OBJ_FLAG_HIDDEN);
+    return btn;
+}
+
 /* One bar per enemy ship, as long as its hull: filled once it has been sunk,
  * which is the only thing the player is told about the enemy fleet. */
 static lv_obj_t *fleet_pips(lv_obj_t *parent, lv_obj_t **out)
@@ -396,7 +444,11 @@ lv_obj_t *fleet_screen_battle_create(struct fleet_app *app, lv_obj_t *parent)
      * v0.0.10 shipped, to the pixel. */
     ui->step = fleet_steps(ui->target_panel, ui);
 
-    ui->fire = pocketui_button(ui->act, "FIRE", on_fire, ui);
+    ui->fire_row = fleet_hbox(ui->act, POCKETUI_TOUCH_MIN, FIRE_ROW_GAP);
+    lv_obj_set_flex_align(ui->fire_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START);
+    ui->fire = pocketui_button(ui->fire_row, "FIRE", on_fire, ui);
+    ui->chat = chat_tile(ui->fire_row, ui);
 
     ui->waters_panel = fleet_panel(ui->waters, "YOUR WATERS");
     lv_obj_set_flex_align(ui->waters_panel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
@@ -466,7 +518,7 @@ void fleet_screen_battle_relayout(struct fleet_app *app, int wide, int cell_w, i
     /* FIRE is at the foot of the readout column down the page, where it has
      * always been, and across the whole region over here. The log goes with
      * the readout across the page and stays under your own board down it. */
-    reparent(ui->fire, wide ? ui->side : ui->act);
+    reparent(ui->fire_row, wide ? ui->side : ui->act);
     reparent(ui->log, wide ? ui->target_panel : ui->waters_panel);
     /* Re-parenting appends, so put the nudges back under the reading matter:
      * what is aimed at, what firing would do, what the last exchange did, and
@@ -521,10 +573,20 @@ void fleet_screen_battle_relayout(struct fleet_app *app, int wide, int cell_w, i
      * having to be set: the columns come to 260 px whatever the type size,
      * because your own board is a fixed number of pixels, and the shortest
      * body the wide shape is taken for is 362, so FIRE is never under 71.
-     * Down the page it is the 64 px button it has always been. */
-    lv_obj_set_width(ui->fire, LV_PCT(100));
-    lv_obj_set_height(ui->fire, POCKETUI_TOUCH_MIN);
-    lv_obj_set_flex_grow(ui->fire, wide ? 1 : 0);
+     * Down the page it is the 64 px button it has always been.
+     *
+     * FIRE's row is what grows; FIRE fills it, less the chat button beside it
+     * in multiplayer. With the chat button hidden, FIRE is the whole row and
+     * the screen is exactly what it was before chat existed. */
+    lv_obj_set_width(ui->fire_row, LV_PCT(100));
+    lv_obj_set_height(ui->fire_row, POCKETUI_TOUCH_MIN);
+    lv_obj_set_flex_grow(ui->fire_row, wide ? 1 : 0);
+    lv_obj_set_width(ui->fire, LV_SIZE_CONTENT);
+    lv_obj_set_flex_grow(ui->fire, 1);
+    lv_obj_set_height(ui->fire, LV_PCT(100));
+    lv_obj_set_width(ui->chat, wide ? CHAT_TILE_W_WIDE : CHAT_TILE_W_TALL);
+    lv_obj_set_height(ui->chat, LV_PCT(100));
+    lines_high(ui->chat_preview, wide ? 2 : 1);
 }
 
 /* A multiplayer battle: the same screen, reading the match. */
@@ -591,6 +653,15 @@ static void refresh_mp(struct fleet_battle_ui *ui, struct fleet_match *m)
     lv_label_set_text(ui->log, note);
     lv_label_set_text(lv_obj_get_child(ui->fire, 0), lost ? "CHECK LINK" : "FIRE");
     fleet_button_set_enabled(ui->fire, lost || (ready && fleet_match_my_turn(m)));
+    {
+        char title[32];
+        char preview[FLEET_CHAT_TEXT_MAX + 64];
+
+        fleet_view_mp_chat_tile(m, peer, title, sizeof(title), preview, sizeof(preview));
+        lv_label_set_text(ui->chat_title, title);
+        lv_label_set_text(ui->chat_preview, preview);
+        lv_obj_remove_flag(ui->chat, LV_OBJ_FLAG_HIDDEN);
+    }
     fleet_grid_refresh(ui->target);
     fleet_grid_refresh(ui->own);
 }
@@ -616,6 +687,7 @@ void fleet_screen_battle_refresh(struct fleet_app *app)
         return;
     }
     lv_label_set_text(lv_obj_get_child(ui->fire, 0), "FIRE");
+    lv_obj_add_flag(ui->chat, LV_OBJ_FLAG_HIDDEN);
     game = &app->game;
     aimed = fleet_grid_get_cursor(ui->target, &row, &col) == 0;
     if (ui->awaiting) {
@@ -678,6 +750,16 @@ void fleet_screen_battle_enter(struct fleet_app *app)
     ui->own_text[0] = '\0';
     lv_label_set_text(ui->log, "");
     if (!app->reduced_motion) {
+        fleet_grid_set_motion(ui->target, 1);
+        fleet_grid_set_motion(ui->own, 1);
+    }
+}
+
+void fleet_screen_battle_resume(struct fleet_app *app)
+{
+    struct fleet_battle_ui *ui = app ? app->battle : NULL;
+
+    if (ui && !app->reduced_motion) {
         fleet_grid_set_motion(ui->target, 1);
         fleet_grid_set_motion(ui->own, 1);
     }

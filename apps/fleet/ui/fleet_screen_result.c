@@ -32,6 +32,9 @@ struct fleet_result_ui {
     lv_obj_t *foot;
     lv_obj_t *again;
     lv_obj_t *command;
+    /* Multiplayer only, last in the foot: the chat outlasts the match until
+     * it is put away, for the word after the last shot. */
+    lv_obj_t *chat;
     /* Multiplayer only, at the end of ENGAGEMENT so the rows above keep their
      * places: whether the opponent's fleet checked out. In multiplayer the
      * Rounds row says how the match ended instead - Shots fired already
@@ -68,6 +71,11 @@ static void on_command(lv_event_t *e)
         fleet_session_dismiss(app->mp, fleet_app_now(app));
     }
     fleet_app_show(app, FLEET_SCREEN_COMMAND);
+}
+
+static void on_chat(lv_event_t *e)
+{
+    fleet_app_chat(lv_event_get_user_data(e));
 }
 
 lv_obj_t *fleet_screen_result_create(struct fleet_app *app, lv_obj_t *parent)
@@ -107,6 +115,8 @@ lv_obj_t *fleet_screen_result_create(struct fleet_app *app, lv_obj_t *parent)
     ui->foot = fleet_app_box(screen);
     ui->again = pocketui_button(ui->foot, "NEW ENGAGEMENT", on_again, app);
     ui->command = fleet_button_secondary(ui->foot, "COMMAND", on_command, app);
+    ui->chat = fleet_button_secondary(ui->foot, "CHAT", on_chat, app);
+    lv_obj_add_flag(ui->chat, LV_OBJ_FLAG_HIDDEN);
     return screen;
 }
 
@@ -138,6 +148,9 @@ void fleet_screen_result_relayout(struct fleet_app *app, int wide)
     lv_obj_set_flex_grow(ui->command, wide ? 1 : 0);
     lv_obj_set_width(ui->again, wide ? LV_PCT(50) : LV_PCT(100));
     lv_obj_set_width(ui->command, wide ? LV_PCT(50) : LV_PCT(100));
+    /* Across the page the row's buttons share it equally, two or three. */
+    lv_obj_set_flex_grow(ui->chat, wide ? 1 : 0);
+    lv_obj_set_width(ui->chat, wide ? LV_PCT(33) : LV_PCT(100));
 }
 
 void fleet_screen_result_refresh(struct fleet_app *app)
@@ -171,8 +184,19 @@ void fleet_screen_result_refresh(struct fleet_app *app)
         fleet_view_mp_accuracy(m, 0, text, sizeof(text));
         lv_label_set_text(ui->enemy_accuracy, text);
         lv_label_set_text(lv_obj_get_child(ui->again, 0), "MULTIPLAYER");
+        if (fleet_match_chat_open(m) || m->chat.count) {
+            char title[32];
+            char preview[FLEET_CHAT_TEXT_MAX + 64];
+
+            fleet_view_mp_chat_tile(m, peer, title, sizeof(title), preview, sizeof(preview));
+            lv_label_set_text(lv_obj_get_child(ui->chat, 0), title);
+            lv_obj_remove_flag(ui->chat, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(ui->chat, LV_OBJ_FLAG_HIDDEN);
+        }
         return;
     }
+    lv_obj_add_flag(ui->chat, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui->verify_row, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(ui->rounds_key, "Rounds");
     lv_label_set_text(lv_obj_get_child(ui->again, 0), "NEW ENGAGEMENT");

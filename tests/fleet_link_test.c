@@ -151,8 +151,9 @@ static const char INBOX[] =
     "\"route\":\"flood\",\"mono_ms\":-2000},"
     "{\"id\":3,\"port\":1,\"from\":\"" ANNA "\",\"payload_hex\":\"4200000100\","
     "\"route\":\"flood\",\"mono_ms\":-1200000},"
+    /* 43 bytes: one more than the longest Fleet packet, a whole chat line. */
     "{\"id\":4,\"port\":1,\"from\":\"" ANNA "\",\"payload_hex\":"
-    "\"4300000100000000000000000000000000000000000000000000000000\","
+    "\"43000001000000000000000000000000000000000000000000000000000000000000000000000000000000\","
     "\"route\":\"direct\",\"mono_ms\":-1000},"
     "{\"id\":6,\"port\":1,\"from\":\"" ANNA "\",\"payload_hex\":\"zz\","
     "\"route\":\"direct\",\"mono_ms\":-1000},"
@@ -285,8 +286,12 @@ int main(void)
         check("as exactly those bytes, to that key, on Fleet's port",
               file_has(apps, BOB "|1|470000020501"));
         check("nothing longer than a Fleet packet is handed on",
-              l->ops->send(l->ctx, bob, (const uint8_t *)"0123456789012345678901234567890", 31) ==
-                  FLEET_LINK_FAILED);
+              l->ops->send(l->ctx, bob, (const uint8_t *)"0123456789012345678901234567890123456789abc",
+                           FLEET_PROTO_MAX + 1) == FLEET_LINK_FAILED);
+        check("but a whole chat line, the longest Fleet packet, is",
+              l->ops->send(l->ctx, bob, (const uint8_t *)"0123456789012345678901234567890123456789ab",
+                           FLEET_PROTO_MAX) == FLEET_LINK_SENT);
+        spin(l, 150, NULL);
         check("an advert is zero-hop", l->ops->advertise(l->ctx) == 0);
         spin(l, 150, NULL);
         check("and the service was asked for exactly that", file_has(adverts, "zero_hop") &&

@@ -206,6 +206,11 @@ int fleet_session_resume(struct fleet_session *s, int64_t now)
     ACT(fleet_match_resume(&s->m, now));
 }
 
+int fleet_session_chat_send(struct fleet_session *s, const char *text, int64_t now)
+{
+    ACT(fleet_match_chat_send(&s->m, text, now));
+}
+
 void fleet_session_dismiss(struct fleet_session *s, int64_t now)
 {
     s->now = now;

@@ -15,6 +15,11 @@
  * packet, it is somebody else's bytes. Every enum, cell and flag is checked
  * here, so the state machine only ever sees values it can act on.
  *
+ * The one exception is CHAT, whose body is the line's text: 1 to
+ * FLEET_CHAT_TEXT_MAX bytes of UTF-8 with no control character, checked
+ * here like any other field. CHAT and CHAT_ACK carry the line's id in the
+ * ply byte.
+ *
  * Pure C, no I/O.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
@@ -27,11 +32,17 @@
 
 #define FLEET_PROTO_VERSION 1
 #define FLEET_PROTO_HEADER 5
-/* The longest packet (REVEAL). meshcored takes up to 160. */
-#define FLEET_PROTO_MAX 26
+/* The longest packet of the game itself (REVEAL): two AES blocks. */
+#define FLEET_PROTO_GAME_MAX 26
+/* The longest chat line, in bytes: what fills a third AES block after the
+ * header. A CHAT of this length is a 42-byte packet, a 54-byte frame. */
+#define FLEET_CHAT_TEXT_MAX 37
+/* The longest packet of all (a whole CHAT). meshcored takes up to 160. */
+#define FLEET_PROTO_MAX (FLEET_PROTO_HEADER + FLEET_CHAT_TEXT_MAX)
 /* One AES block in the MeshCore frame, after its 4-byte tag and meshcored's
  * two (port and length): a packet this long or shorter is a 22-byte frame,
- * and up to FLEET_PROTO_MAX a 38-byte one. */
+ * up to FLEET_PROTO_GAME_MAX a 38-byte one, and up to FLEET_PROTO_MAX a
+ * 54-byte one. */
 #define FLEET_PROTO_ONE_BLOCK 10
 #define FLEET_PROTO_PLY_MAX 200
 #define FLEET_COMMIT_BYTES 16
@@ -54,6 +65,11 @@ enum fleet_msg_type {
     FLEET_MSG_REVEAL = 10,
     FLEET_MSG_END = 11,
     FLEET_MSG_END_ACK = 12,
+    /* In-match chat. A peer on a build without chat refuses both as an
+     * unknown type and answers nothing, which only ever costs the sender its
+     * line: the match itself never depends on them. */
+    FLEET_MSG_CHAT = 13,
+    FLEET_MSG_CHAT_ACK = 14,
     FLEET_MSG_TYPE_COUNT
 };
 
@@ -120,6 +136,9 @@ struct fleet_msg {
     uint32_t digest;                      /* SYNC */
     uint8_t layout[FLEET_LAYOUT_BYTES];   /* REVEAL */
     uint8_t salt[FLEET_SALT_BYTES];       /* REVEAL */
+    uint8_t text_len;                     /* CHAT: 1..FLEET_CHAT_TEXT_MAX */
+    uint8_t text[FLEET_CHAT_TEXT_MAX];    /* CHAT: UTF-8, not terminated */
+    uint16_t check;                       /* CHAT_ACK: the line's check */
 };
 
 /* Encode. Returns the length written, or -1 when the message is not one this
@@ -128,7 +147,7 @@ int fleet_proto_encode(const struct fleet_msg *m, uint8_t *buf, size_t n);
 /* Decode. Returns 0, or -1 and leaves *m zeroed for anything malformed. */
 int fleet_proto_decode(struct fleet_msg *m, const uint8_t *buf, size_t n);
 /* The exact length of a packet of this type (DECLINE: without the extra
- * sid), or 0 for an unknown type. */
+ * sid; CHAT: the shortest, one byte of text), or 0 for an unknown type. */
 size_t fleet_proto_length(enum fleet_msg_type type);
 const char *fleet_proto_type_name(enum fleet_msg_type type);
 
@@ -143,8 +162,16 @@ int fleet_res_destroyed(uint8_t res);
 /* 1 when res is a valid answer (outcome 1..3 and consistent fields). */
 int fleet_res_valid(uint8_t res);
 
+/* 1 when n bytes are a line CHAT may carry: 1 to FLEET_CHAT_TEXT_MAX bytes of
+ * well-formed UTF-8 (no overlong form, no surrogate, nothing past U+10FFFF)
+ * holding no control character, C0, DEL or C1. */
+int fleet_chat_text_ok(const uint8_t *text, size_t n);
+/* What CHAT_ACK echoes: 16 bits of FNV-1a over the id and the text, so a
+ * receipt names the line it confirms and not only its number. */
+uint16_t fleet_chat_check(uint8_t id, const uint8_t *text, size_t n);
+
 /* Airtime of the MeshCore frame a packet of n bytes becomes, at zero hops, on
- * the MeshCore profile: 304 ms for one block, 386 ms for two. */
+ * the MeshCore profile: 304 ms for one block, 386 ms for two, 468 for three. */
 uint32_t fleet_proto_airtime_ms(size_t n);
 
 #endif

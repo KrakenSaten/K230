@@ -140,7 +140,7 @@ unset POCKETFLEET_SCREEN
 MATCH="$POCKETOS_STATE_DIR/fleet/match.v1"
 MATCH_BYTES=655
 rm -f "$SAVE" "$MATCH"
-for screen in lobby mp_invited mp_deploy mp_battle mp_waiting mp_lost mp_result; do
+for screen in lobby mp_invited mp_deploy mp_battle mp_waiting mp_lost mp_result mp_chat; do
     case $screen in
         mp_invited) fake="invite=1000" ;;
         mp_waiting) fake="delay=1500" ;;
