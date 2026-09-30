@@ -204,6 +204,20 @@ void term_screen_free(struct term_screen *s)
     s->cells = NULL;
 }
 
+/* A row with nothing on it: spaces on the default background. */
+static bool row_blank(const struct term_screen *s, int r)
+{
+    const struct term_cell *line = row(s, r);
+    int i;
+
+    for (i = 0; i < s->cols; i++) {
+        if (line[i].ch != ' ' || line[i].bg != PEN_DEFAULT || (line[i].fg & TERM_ATTR_REVERSE)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void term_screen_resize(struct term_screen *s, int cols, int rows)
 {
     int i;
@@ -240,15 +254,26 @@ void term_screen_resize(struct term_screen *s, int cols, int rows)
         }
     } else if (rows < s->rows) {
         int shrink = s->rows - rows;
-        int below = s->rows - 1 - s->cy;
-        int drop = below < shrink ? below : shrink;
+        int up;
 
-        s->count -= drop;
-        s->rows -= drop;
-        shrink -= drop;
-        s->rows -= shrink; /* the top rows are the scrollback now */
-        s->cy -= shrink;
-        /* which may take it past its bound: the oldest lines go */
+        /* First the blank rows at the foot, below the cursor: nothing is
+         * lost by dropping them. */
+        while (shrink > 0 && s->rows - 1 > s->cy && row_blank(s, s->rows - 1)) {
+            s->count--;
+            s->rows--;
+            shrink--;
+        }
+        /* Then the top rows move into the scrollback, as many as the cursor
+         * allows: text below the cursor stays on the screen. */
+        up = shrink < s->cy ? shrink : s->cy;
+        s->rows -= up;
+        s->cy -= up;
+        shrink -= up;
+        /* Only when the cursor's row and what is below it do not fit any
+         * more does the foot go: the cursor has to stay on the grid. */
+        s->count -= shrink;
+        s->rows -= shrink;
+        /* The scrollback may now be past its bound: the oldest lines go. */
         if (s->count - s->rows > TERM_SCROLLBACK) {
             int excess = s->count - s->rows - TERM_SCROLLBACK;
 

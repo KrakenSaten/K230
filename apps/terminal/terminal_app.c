@@ -396,7 +396,6 @@ static void layout(struct terminal_app *a)
     int cols;
     int rows;
 
-    a->layout_pending = false;
     if (pocketui_layout_begin(&a->guard, a->frame, &in)) {
         lv_obj_set_style_pad_left(a->frame, in.left, 0);
         lv_obj_set_style_pad_top(a->frame, in.top, 0);
@@ -408,8 +407,11 @@ static void layout(struct terminal_app *a)
     cols = (int)((lv_area_get_width(&c) - 2 * GRID_PAD) / a->cell_w);
     rows = (int)((lv_area_get_height(&c) - 2 * GRID_PAD) / a->cell_h);
     if (cols < TERM_MIN_COLS || rows < TERM_MIN_ROWS) {
-        return; /* not laid out yet */
+        /* Not laid out yet: stay pending, so the next tick measures again
+         * whether or not a size change is ever reported. */
+        return;
     }
+    a->layout_pending = false;
     if (a->session_ok && (cols != a->session.screen.cols || rows != a->session.screen.rows)) {
         term_session_resize(&a->session, cols, rows);
         a->view_back = 0;
@@ -847,6 +849,11 @@ static void terminal_destroy(void *priv)
 const struct term_session *terminal_app_session(void *priv)
 {
     return priv ? &((struct terminal_app *)priv)->session : NULL;
+}
+
+bool terminal_app_layout_pending(void *priv)
+{
+    return priv ? ((struct terminal_app *)priv)->layout_pending : false;
 }
 
 int terminal_app_view_back(void *priv)

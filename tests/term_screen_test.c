@@ -584,6 +584,34 @@ static void test_resize(void)
     check("growing takes lines back from the scrollback", s.rows == 12 && s.cy == 11);
     check_row(&s, 0, 0, "l18", "so the screen fills from above");
 
+    /* Text below the cursor (a full-screen program's status line, or text
+     * a program wrote further down and moved back up from): kept on the
+     * screen, the room taken from the blank foot and the top instead. */
+    fresh(&s, 20, 10);
+    feed(&s, "r0\r\nr1\r\nr2\r\nr3\r\nr4\r\nr5\033[8;1Hbelow\033[6;3H");
+    check("before: the cursor on row 5, text on row 7, rows 8 and 9 blank", s.cy == 5 && s.cx == 2);
+    term_screen_resize(&s, 20, 6);
+    check_row(&s, 0, 5, "below", "shrinking keeps the text below the cursor on the screen");
+    check_row(&s, 0, 3, "r5", "the cursor's line moves up with it");
+    check("and so does the cursor", s.cy == 3 && s.cx == 2);
+    check_row(&s, 2, 0, "r0", "the top rows went into the scrollback");
+    check("only as many as were needed after the blank foot", term_screen_scrollback(&s) == 2);
+
+    fresh(&s, 20, 10);
+    feed(&s, "\033[10;1H\033[44m\033[K\033[m\033[5;1Hcur");
+    term_screen_resize(&s, 20, 9);
+    check("a row with a coloured background is not blank: it is kept",
+          s.rows == 9 && term_screen_view_row(&s, 0, 8)[0].bg == 4 && term_screen_scrollback(&s) == 1);
+
+    /* When the cursor's row and what is below it do not fit, the cursor
+     * stays on the grid and keeps its line; the foot goes. */
+    fresh(&s, 20, 10);
+    feed(&s, "\033[1;1Hcur\033[2;1Hb1\033[9;1Hb8\033[1;4H");
+    term_screen_resize(&s, 20, 4);
+    check("the cursor stays on the grid", s.cy == 0 && s.rows == 4);
+    check_row(&s, 0, 0, "cur", "on its own line");
+    check_row(&s, 0, 1, "b1", "with the text right below it");
+
     fresh(&s, 20, 10);
     feed(&s, "top\r\nsecond");
     term_screen_resize(&s, 20, 4);

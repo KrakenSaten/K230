@@ -147,8 +147,10 @@ void term_screen_free(struct term_screen *s);
 void term_screen_reset(struct term_screen *s);
 
 /* A new size, clamped. Growing takes lines back from the scrollback;
- * shrinking drops blank lines below the cursor first and then moves the top
- * rows into the scrollback. No reflow. */
+ * shrinking drops blank lines below the cursor first, then moves the top
+ * rows into the scrollback, and only when the cursor's row and the text
+ * below it still do not fit drops rows from the foot (the cursor stays on
+ * the grid). No reflow. */
 void term_screen_resize(struct term_screen *s, int cols, int rows);
 
 /* Program output, any split: a sequence or a UTF-8 character may span any

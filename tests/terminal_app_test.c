@@ -488,6 +488,52 @@ static void churn(void)
     check("no child left", no_child());
 }
 
+/* Created in a body that has no size yet: the layout stays owed until the
+ * grid can be measured, and is done by a tick even when no size change is
+ * ever reported to the app. */
+static void unsized_start(void)
+{
+    const struct term_session *s;
+    lv_obj_t *frame;
+    int32_t w;
+    int32_t h;
+
+    lv_obj_update_layout(g_content); /* the size use_display() set, not the last one drawn */
+    w = lv_obj_get_width(g_content);
+    h = lv_obj_get_height(g_content);
+    lv_obj_set_height(g_content, POCKETUI_HEADER_H);
+    pump(20);
+    app_start();
+    s = sess();
+    check("unsized: the app starts a shell at a stand-in size", s && s->phase == TERM_SESSION_RUNNING &&
+                                                                 s->screen.cols == 80 && s->screen.rows == 24);
+    check("unsized: the layout is owed", terminal_app_layout_pending(app_priv));
+    terminal_app_tick_now(app_priv);
+    check("unsized: a tick that cannot measure keeps it owed", terminal_app_layout_pending(app_priv));
+
+    /* The frame's size-change callback is the only other way a layout is
+     * asked for; without it, only the owed layout can size the grid. */
+    frame = lv_obj_get_parent(terminal_app_grid(app_priv));
+    lv_obj_remove_event_cb_with_user_data(frame, NULL, app_priv);
+    lv_obj_set_size(g_content, w, h);
+    lv_obj_update_layout(g_content);
+    terminal_app_tick_now(app_priv);
+    {
+        lv_area_t b;
+        lv_area_t g;
+
+        lv_obj_get_coords(app_body, &b);
+        lv_obj_get_coords(terminal_app_grid(app_priv), &g);
+        printf("note unsized, then sized: body %dx%d, grid %dx%d: %d cols x %d rows\n",
+               (int)lv_area_get_width(&b), (int)lv_area_get_height(&b), (int)lv_area_get_width(&g),
+               (int)lv_area_get_height(&g), s->screen.cols, s->screen.rows);
+    }
+    check("unsized: once there is room, the next tick lays it out and sizes the shell",
+          !terminal_app_layout_pending(app_priv) && s->screen.cols > 55 && s->screen.rows > 45);
+    app_stop();
+    check("unsized: no child left", no_child());
+}
+
 /* The modifiers belong to the raw target only: an ordinary field still
  * gets the letter, and Tab still moves focus. */
 static void ordinary_field(void)
@@ -541,6 +587,8 @@ int main(void)
     use_display(POS_ROTATION_90, 0);
     journey("landscape", true);
     churn();
+    use_display(POS_ROTATION_0, 0);
+    unsized_start();
     ordinary_field();
     check("no child at the end", no_child());
     rmdir(home);

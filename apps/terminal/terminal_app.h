@@ -19,6 +19,8 @@
 
 const struct term_session *terminal_app_session(void *priv);
 int terminal_app_view_back(void *priv);
+/* Whether the next tick will measure the grid again (a layout still owed). */
+bool terminal_app_layout_pending(void *priv);
 /* The object that draws the grid and takes the keys. */
 lv_obj_t *terminal_app_grid(void *priv);
 /* One timer tick, now, for tests that step time themselves. */
