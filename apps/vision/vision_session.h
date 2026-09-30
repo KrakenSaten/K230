@@ -33,6 +33,18 @@
 #define VISION_OPEN_MS 15000
 #define VISION_SILENCE_MS 4000
 #define VISION_REPLY_MS 3000
+/* A model the helper opens while it runs (READ, FACE, RECOGNIZE: up to a
+ * 46 MB kmodel read and checked by the runtime), announced by `loading`:
+ * no line comes while it loads, so the silence and reply deadlines, and a
+ * leave's grace, stretch to this from that line. A load that takes longer
+ * is a helper stuck, and is killed like any other. */
+#define VISION_LOAD_MS 15000
+/* What a leave waits by default for the helper to close the camera, finish
+ * the frame or recognition round in hand, give the KPU and its CMA pool
+ * back and say `bye`. A killed helper can leave the pool allocated until a
+ * reboot (vision_kpu_nncase.cpp), so this is generous: the wait ends as
+ * soon as the helper has gone. */
+#define VISION_LEAVE_GRACE_MS 3000
 #define VISION_KILL_REAP_MS 200
 #define VISION_EVENT_QUEUE 32
 #define VISION_EVENT_TEXT_MAX 96
@@ -218,6 +230,9 @@ struct vision_session {
     int64_t open_by;
     int64_t silence_by;
     int64_t reply_by;
+    bool loading;         /* `loading` said, nothing since: a model is being opened */
+    int64_t load_by;      /* ... and by when it has to be done */
+    bool bye;             /* `bye` said: the helper has closed everything */
     bool streaming;
 
     int frame_slot;       /* -1: none */
@@ -255,6 +270,10 @@ int vision_session_start(struct vision_session *s, const struct vision_session_c
 int vision_session_poll(struct vision_session *s, struct vision_event *ev, int64_t now_ms);
 
 int vision_session_view(struct vision_session *s, uint32_t w, uint32_t h, int display_rotation);
+/* The same, with the whole frame letterboxed into w x h (`view ... contain`)
+ * instead of cut to fill it: every track is in view, wherever it is in the
+ * frame. For a caller that looks at the tracks, not at the picture. */
+int vision_session_view_whole(struct vision_session *s, uint32_t w, uint32_t h, int display_rotation);
 int vision_session_stream(struct vision_session *s, bool on, int64_t now_ms);
 /* The counting line in per-mille of the view; a NULL pm turns it off. */
 int vision_session_line(struct vision_session *s, const int32_t pm[4]);
@@ -298,9 +317,20 @@ const struct vision_who_report *vision_session_who(const struct vision_session *
 const struct vision_pixel_report *vision_session_pixels(const struct vision_session *s);
 const struct vision_stats *vision_session_stats(const struct vision_session *s);
 
-/* Ask the helper to quit, wait up to grace_ms, then SIGKILL and reap for
- * VISION_KILL_REAP_MS. Idle afterwards whatever happened. */
-void vision_session_abandon(struct vision_session *s, int grace_ms);
+/* How a helper left in vision_session_abandon(). */
+enum vision_leave {
+    VISION_LEFT_IDLE,     /* none was running */
+    VISION_LEFT_BYE,      /* it said `bye`: camera, nets and KPU pool closed */
+    VISION_LEFT_EXITED,   /* it exited without `bye` (it had already failed, or crashed) */
+    VISION_LEFT_KILLED    /* it did not leave in time and was SIGKILLed */
+};
+
+/* Ask the helper to quit (`quit` and SIGTERM, which it takes between
+ * frames), wait up to grace_ms for it to leave - longer while it is opening
+ * a model: until that load's deadline and grace_ms after it - reading what
+ * it says meanwhile, then SIGKILL and reap for VISION_KILL_REAP_MS. Idle
+ * afterwards whatever happened. */
+enum vision_leave vision_session_abandon(struct vision_session *s, int grace_ms);
 
 bool vision_session_active(const struct vision_session *s);
 

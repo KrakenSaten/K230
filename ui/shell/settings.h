@@ -35,14 +35,19 @@
 #define SETTINGS_VALUE_MAX 128
 
 /* Load the file. Returns 0 when read, 1 when absent (empty store), -1 when
- * present but unreadable (empty store, caller logs). */
+ * present but not read whole: it could not be opened or read (EACCES, EIO,
+ * ...) or holds more than SETTINGS_MAX_KEYS keys. After -1 the table holds
+ * what was read, if anything, and settings_set() refuses to write (returns
+ * -1, table unchanged) so the file is never replaced by a partial table; a
+ * later settings_init() that reads it whole lifts that. The caller logs. */
 int settings_init(void);
 const char *settings_path(void);
 /* Value for key, or fallback (may be NULL) when unset. The pointer stays
  * valid until the key is set again. */
 const char *settings_get(const char *key, const char *fallback);
-/* Set and persist. Returns 0, or -1 when the file could not be written (the
- * in-memory value is still updated). value NULL removes the key. */
+/* Set and persist. Returns 0, or -1 when the file could not be written or
+ * was not read whole (the in-memory table is then unchanged). value NULL
+ * removes the key. */
 int settings_set(const char *key, const char *value);
 int settings_count(void);
 

@@ -632,7 +632,7 @@ U8). Vision is the "second user" ADR-006 names as a trigger to revisit
 | `vision_app.c` | apps/vision | the screen (LVGL): the picture, 24 outline objects made once and moved, the line, the counters, LINE / RESET / TRY AGAIN; polls the session every 33 ms |
 | `vision_model.c` | apps/vision | the state machine and every word on the screen; pure C |
 | `vision_layout.c` | apps/vision | the two shapes; pure arithmetic |
-| `vision_session.c` | apps/vision | starts `pos-vision`, the shared memory, the line protocol, the watchdog (hello 3 s, open 15 s, silence 4 s, reply 3 s); pure C |
+| `vision_session.c` | apps/vision | starts `pos-vision`, the shared memory, the line protocol, the watchdog (hello 3 s, open 15 s, silence 4 s, reply 3 s, 15 s from a `loading`), the leave (3 s grace, longer while a model loads); pure C |
 | `pocketvision.h` | core/pocketvision | the types and every bound |
 | `vision_decode.c`, `vision_nms.c`, `vision_track.c`, `vision_line.c`, `vision_geom.c`, `vision_labels.c` | core/pocketvision | the pipeline after the detector: plain C, no allocation, no clock, no I/O, integer but for the tensor's floats |
 | `vision_kpu.h` | core/pocketvision | the detector's C interface |
@@ -659,7 +659,7 @@ picture pixels, so the app draws them with no geometry of its own.
 ### The protocol
 
 `core/pocketvision/pocketvision_proto.h` is the reference (version 2).
-Commands: `view w h rotation`, `start`, `stop`, `release slot`,
+Commands: `view w h rotation [contain]`, `start`, `stop`, `release slot`,
 `mode detect|track|traffic|color|edge|trace`, `line x0 y0 x1 y1` (per-mille of
 the view) or `line off`, `speed ax0 ay0 ax1 ay1 bx0 by0 bx1 by1` or
 `speed off`, `distance cm`, `range near|normal|far`, `color r g b` or `color off`, `sample x y`,
@@ -675,7 +675,27 @@ track or 0), `count ab ba`,
 `traffic ab ba cur last max mean n rejected c0ab:c0ba ... c5ab:c5ba`,
 `recent window_s crossed ab ba c0 .. c5 speeds mean_kmh10 saturated`,
 `stats fps_x10 infer_ms pre_ms post_ms cpu_pct rss_kb bad dropped`,
-`malformed n`, `stall ms`, `stopped`, `lost`, `bye`.
+`malformed n`, `stall ms`, `stopped`, `lost`, `loading what`, `bye`.
+
+`loading` comes before each model the helper opens while it runs (READ's
+two nets, FACE's, RECOGNIZE's embedding - seconds for a large kmodel,
+with nothing said meanwhile): the session moves its silence and reply
+deadlines to `VISION_LOAD_MS` (15 s) from it, so a slow load is not taken
+for a hung helper. `bye` comes last, after the camera, the nets and the
+detector are closed and the KPU's CMA pool is given back. A leave
+(`vision_session_abandon`: `quit` and SIGTERM, which the helper takes
+between frames) waits `VISION_LEAVE_GRACE_MS` (3 s) for the helper to go,
+and while a model is loading until that load's deadline and the grace
+after it; only then is it SIGKILLed - a helper killed mid-load or
+mid-close can leave the pool allocated until a reboot. The wait ends as
+soon as the helper has gone, so an ordinary close costs what the helper
+takes (reported as `bye`, `exited` or `killed`).
+
+A `view` that moves the count or speed lines among the tracks - a turn of
+the display, another picture size - makes every track learn its side of
+the moved lines afresh and drops the speeds being timed: a car parked on
+one side of the line and shown on the other after a turn is not a
+crossing. The counts so far stay.
 
 ### Malformed model output
 
@@ -804,8 +824,12 @@ Host only; none needs unit A. `make vision-test` runs them all,
   malformed tensors said and survived; a detector giving nonsense ended
   with exit 5; a failed run; no camera, a busy camera, a bad detector
   script, a missing helper, a camera that goes away, a hung helper killed
-  by the watchdog, a crashing one; thirty opens and closes with no
-  descriptor or child left behind.
+  by the watchdog, a crashing one; a display turned half way round while
+  a parked car is tracked counting nothing; thirty opens and closes with no
+  descriptor or child left behind, each ending with `bye`; a face model
+  slower to open than the silence watchdog waited for, a close in the
+  middle of that load waiting for it and ending with `bye`, and a load that
+  never ends killed at its deadline, by the watchdog and by a close.
 - `tests/vision_settings_test.c`: the defaults; every key written and
   read back; TRACK's and TRAFFIC's lines apart; every refusal (an unknown
   mode, a distance off the list or with junk after it, bools that are not

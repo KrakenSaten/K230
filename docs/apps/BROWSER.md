@@ -279,9 +279,15 @@ bookmark<TAB>https://en.m.wikipedia.org/<TAB>Wikipedia
   and when the app closes.
 - The first run has two neutral bookmarks, example.com and the Wikipedia
   mobile site; neither is a search engine, both can be removed.
-- A file with another version, junk, a disallowed address, a NUL byte, over
-  64 KB, or a symbolic link is not used: the defaults are, the log says why,
-  and the next save replaces it.
+- A line that is not a known entry or holds a disallowed address is skipped;
+  the other bookmarks and recent pages are kept, and the log names the first
+  bad line.
+- A file with another version, junk, a NUL byte, over 64 KB, or a symbolic
+  link is not used: the defaults are, the log says why, and before the next
+  save the file is renamed to `state.bad` (one kept), never written over.
+- A file that is there but cannot be read (no permission, an I/O error) gives
+  the defaults for that run and is not written at all: changes made in that
+  run are not saved.
 
 ## 10. The fake network, the bench tool and the tests
 

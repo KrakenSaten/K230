@@ -12,8 +12,16 @@
  * VISION_MAX_SHOWN boxes.
  *
  * COMMANDS (session to helper):
- *   view <w> <h> <rotation>       the preview's size and the display's
- *                                 rotation; boxes come in these pixels
+ *   view <w> <h> <rotation> [contain]
+ *                                 the preview's size and the display's
+ *                                 rotation; boxes come in these pixels.
+ *                                 The picture is cut to fill w x h; with
+ *                                 `contain` the whole frame is letterboxed
+ *                                 into it instead, so every track is in
+ *                                 view. A view that moves the count or
+ *                                 speed lines among the tracks makes them
+ *                                 learn their side afresh and drops the
+ *                                 speeds in flight; the counts stay
  *   start                         stream, detect, track, count
  *   stop                          stop; answered by `stopped`
  *   release <slot>                the session is done with a slot
@@ -47,6 +55,7 @@
  *   reset                         counts and speeds to zero, tracks
  *                                 forgotten
  *   quit                          close the camera and leave; `bye`
+ *                                 (SIGTERM, taken between frames, too)
  *
  * EVENTS (helper to session):
  *   hello <version> <backend> <kpu>
@@ -116,7 +125,16 @@
  *   stall <ms>                    streaming, but no frame for ms
  *   stopped
  *   lost <text>                   the camera went away; the helper leaves
- *   bye
+ *   loading <what>                a model is about to be opened (READ,
+ *                                 FACE, RECOGNIZE, when their mode is
+ *                                 first asked for): nothing more is said
+ *                                 until it is open, which can take
+ *                                 seconds; the session holds its deadlines
+ *                                 for it (VISION_LOAD_MS)
+ *   bye                           the camera, the nets and the detector
+ *                                 are closed and the KPU's pool given
+ *                                 back: the helper is about to exit, and
+ *                                 there is nothing left to kill
  *
  * Unknown lines are ignored by both sides. A line longer than
  * VISION_LINE_MAX is a protocol error.

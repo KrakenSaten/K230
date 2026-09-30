@@ -1061,7 +1061,11 @@ static void *browser_create(lv_obj_t *root)
     }
     browser_view_init(a->v, NULL, why, sizeof(why));
     if (why[0]) {
-        LOG_WARN("browser: remembered state not used (%s): starting afresh", why);
+        LOG_WARN("browser: remembered state %s (%s)",
+                 a->v->store_unreadable ? "cannot be read: nothing is saved over it this time"
+                 : a->v->store_aside    ? "not used: kept as state.bad at the next save"
+                                        : "partly used: bad lines skipped",
+                 why);
     }
     browser_session_init(a->s);
     build(a, root);

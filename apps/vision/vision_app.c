@@ -51,7 +51,9 @@
  * returns the KPU's shared pool), and a SIGKILL half way through closing the
  * camera and the KPU is exactly the kind of exit this helper must not get.
  * Bounded like every wait here; it only runs when the user leaves. */
-#define VISION_DESTROY_GRACE_MS 1000
+/* The helper's own time to close the camera and give the KPU back
+ * (vision_session.h); longer while it is still opening a model. */
+#define VISION_DESTROY_GRACE_MS VISION_LEAVE_GRACE_MS
 #define VISION_LABEL_MAX 48
 
 struct vision_picture {

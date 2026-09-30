@@ -122,8 +122,19 @@ void browser_view_init(struct browser_view *v, const char *store_path, char *why
     if (store_path) {
         web_copy(v->store_path, sizeof(v->store_path), store_path);
     }
-    if (web_store_load(&v->store, v->store_path[0] ? v->store_path : NULL, why, whylen) == WEB_STORE_CORRUPT) {
-        v->store_dirty = true; /* replaced at the next save */
+    /* Nothing the person kept is written over because it was not read: a
+     * bad line is skipped and the rest kept, a file that is not a store is
+     * set aside before the next save, and one that cannot be read at all is
+     * left alone for this run. */
+    switch (web_store_load(&v->store, v->store_path[0] ? v->store_path : NULL, why, whylen)) {
+    case WEB_STORE_CORRUPT:
+        v->store_aside = true;
+        break;
+    case WEB_STORE_UNREADABLE:
+        v->store_unreadable = true;
+        break;
+    default:
+        break;
     }
     v->max_width = 528;
     v->images_wanted = true;
@@ -142,10 +153,18 @@ void browser_view_free(struct browser_view *v)
 
 int browser_view_save(struct browser_view *v)
 {
-    if (!v->store_dirty) {
+    const char *path = v->store_path[0] ? v->store_path : NULL;
+
+    if (!v->store_dirty || v->store_unreadable) {
         return 0;
     }
-    if (web_store_save(&v->store, v->store_path[0] ? v->store_path : NULL) != 0) {
+    if (v->store_aside) {
+        if (web_store_set_aside(path) != 0) {
+            return -1;
+        }
+        v->store_aside = false;
+    }
+    if (web_store_save(&v->store, path) != 0) {
         return -1;
     }
     v->store_dirty = false;

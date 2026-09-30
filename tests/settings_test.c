@@ -121,6 +121,62 @@ int main(void)
     }
     chmod(file, 0644);
 
+    /* A file that is there but not read whole is never written over: every
+     * setting in it would be lost to a table holding none or some of them. */
+    settings_init();
+    check("seed: two settings on disk", settings_set("theme", "brass") == 0 &&
+                                          settings_set("display_mode", "night") == 0);
+    if (geteuid() != 0) {
+        chmod(file, 0);
+        check("unreadable: init reports -1", settings_init() == -1);
+        check("unreadable: set refused", settings_set("theme", "carbon") < 0);
+        check("unreadable: remove refused", settings_set("display_mode", NULL) < 0);
+        check("unreadable: nothing in memory changed", settings_get("theme", NULL) == NULL);
+        chmod(file, 0644);
+        check("unreadable: file content survived", file_has(file, "theme=brass") &&
+                                                     file_has(file, "display_mode=night"));
+        check("unreadable: no temp file", stat(tmp, &st) != 0);
+    } else {
+        printf("skip unreadable-file set checks (running as root)\n");
+    }
+    /* A read error part-way (EISDIR: opening a directory for reading works,
+     * reading it fails) - ferror(), not fopen(), is what sees this one, and
+     * it does so as root too. */
+    {
+        char moved[640];
+
+        snprintf(moved, sizeof(moved), "%s.real", file);
+        check("read error: file moved aside", rename(file, moved) == 0 && mkdir(file, 0755) == 0);
+        check("read error: init reports -1", settings_init() == -1);
+        check("read error: set refused", settings_set("theme", "carbon") < 0);
+        check("read error: nothing written", stat(tmp, &st) != 0);
+        check("read error: file restored", rmdir(file) == 0 && rename(moved, file) == 0);
+        check("read error: content survived", file_has(file, "theme=brass") && file_has(file, "display_mode=night"));
+    }
+    check("readable again: init 0 and set works", settings_init() == 0 && settings_set("theme", "olive") == 0 &&
+                                                   file_has(file, "theme=olive") &&
+                                                   file_has(file, "display_mode=night"));
+    /* More keys than the table holds: the ones past the limit were not read,
+     * so writing would drop them. */
+    f = fopen(file, "w");
+    {
+        int i;
+
+        for (i = 0; i < SETTINGS_MAX_KEYS + 3; i++) {
+            fprintf(f, "k%d=%d\n", i, i);
+        }
+    }
+    fclose(f);
+    check("too many keys: init reports -1", settings_init() == -1);
+    check("too many keys: first keys readable", strcmp(settings_get("k0", "?"), "0") == 0);
+    check("too many keys: set refused", settings_set("k0", "x") < 0);
+    {
+        char last[32];
+
+        snprintf(last, sizeof(last), "k%d=", SETTINGS_MAX_KEYS + 2);
+        check("too many keys: the last key survived", file_has(file, last));
+    }
+
     snprintf(cmd, sizeof(cmd), "rm -rf %s", dir);
     if (system(cmd) != 0) {
         fprintf(stderr, "cleanup failed\n");

@@ -6,7 +6,10 @@
  * reset, a malformed tensor said and survived, a detector that keeps
  * giving nonsense ending the session, no camera, a busy camera, a missing
  * model, a hung helper (the watchdog), one that crashes, and thirty opens
- * and closes with no descriptor or child left behind.
+ * and closes with no descriptor or child left behind - each one ending
+ * with `bye`. A model that is slow to open is waited for, not killed, and
+ * so is a close in the middle of it; one that never opens is killed all
+ * the same. A turn of the display while tracks are held counts nothing.
  *
  * Usage: vision_session_test <path to pos-vision>
  *
@@ -1235,6 +1238,228 @@ static void test_failures(void)
     vision_session_abandon(&s, 100);
 }
 
+/* What a leave test watches: frames taken so they keep coming, faces in
+ * view, and whether the helper went. */
+struct leave_watch {
+    struct vision_session *s;
+    int faces;
+    int exited;
+    int reason;
+};
+
+static void leave_seen(const struct vision_event *ev, void *user)
+{
+    struct leave_watch *w = user;
+
+    if (ev->kind == VISION_EV_FRAME) {
+        vision_session_take_frame(w->s, taken, 640, 360);
+    } else if (ev->kind == VISION_EV_DET) {
+        w->faces += w->s->shown_count > 0;
+    } else if (ev->kind == VISION_EV_EXITED) {
+        w->exited++;
+        w->reason = ev->reason;
+    }
+}
+
+/* Pump the session until it has seen `loading` (the helper is opening a
+ * model), at most ms. */
+static int until_loading(struct vision_session *s, struct leave_watch *w, int ms)
+{
+    int64_t end = now_ms() + ms;
+
+    while (now_ms() < end && !s->loading) {
+        struct vision_event ev;
+
+        while (vision_session_poll(s, &ev, now_ms())) {
+            leave_seen(&ev, w);
+        }
+        nap(5);
+    }
+    return s->loading;
+}
+
+/* A FACE session on the fake face model, whose every net open takes
+ * open_ms: Vision's own order, the stream first and the mode after it. */
+static int start_face(struct vision_session *s, struct leave_watch *w, int open_ms)
+{
+    char kpu[96];
+    struct vision_event ev;
+
+    snprintf(kpu, sizeof(kpu), "face=200:100:60:80,net_open_ms=%d", open_ms);
+    vision_session_init(s);
+    memset(w, 0, sizeof(*w));
+    w->s = s;
+    if (start(s, "period=20", kpu, NULL) != 0 || !wait_for(s, VISION_EV_CAPS, 3000, &ev, leave_seen, w) ||
+        !(ev.value & (1 << VISION_MODE_FACE))) {
+        return 0;
+    }
+    vision_session_view(s, 640, 360, 90);
+    vision_session_stream(s, true, now_ms());
+    vision_session_mode_word(s, "face");
+    return 1;
+}
+
+static void test_leave(void)
+{
+    struct vision_session s;
+    struct vision_event ev;
+    struct leave_watch w;
+    char dir[] = "/tmp/vision-leave-XXXXXX";
+    char det[128];
+    FILE *f;
+    int64_t t0;
+    int64_t took;
+    enum vision_leave left;
+
+    if (!mkdtemp(dir)) {
+        check("a scratch directory", 0);
+        return;
+    }
+    snprintf(det, sizeof(det), "%s/face_det.kmodel", dir);
+    f = fopen(det, "w");
+    if (f) {
+        fclose(f);
+    }
+    setenv("POCKETOS_VISION_FACE_DET", det, 1);
+
+    /* An ordinary close: the helper closes the camera, the nets and the
+     * detector, says bye, and exits - no kill. */
+    check("a face session starts", start_face(&s, &w, 0));
+    check("and finds the face", wait_for(&s, VISION_EV_DET, 3000, &ev, leave_seen, &w) &&
+                                    (w.faces > 0 || wait_for(&s, VISION_EV_DET, 3000, &ev, leave_seen, &w)));
+    check("an ordinary close ends with bye, not a kill",
+          vision_session_abandon(&s, VISION_LEAVE_GRACE_MS) == VISION_LEFT_BYE);
+
+    /* A model slower to open than the silence watchdog allows a quiet
+     * helper: it says loading, the watchdog waits for the load, and FACE
+     * runs once it is open. */
+    check("a slow model: the session starts", start_face(&s, &w, VISION_SILENCE_MS + 1500));
+    check("the helper says it is loading", until_loading(&s, &w, 3000));
+    t0 = now_ms();
+    while (now_ms() - t0 < VISION_SILENCE_MS + 1500 + 3000 && w.faces == 0 && !w.exited) {
+        wait_for(&s, VISION_EV_DET, 200, &ev, leave_seen, &w);
+    }
+    took = now_ms() - t0;
+    check("a load longer than the silence watchdog is not killed", w.exited == 0 && vision_session_active(&s));
+    check("and the face is found once the model is open", w.faces > 0 && took >= VISION_SILENCE_MS);
+    printf("     first face %lld ms after loading\n", (long long)took);
+    check("and it still leaves with bye", vision_session_abandon(&s, VISION_LEAVE_GRACE_MS) == VISION_LEFT_BYE);
+
+    /* Closed in the middle of that load, with a grace far shorter than
+     * the load: the leave waits for the load, then the close, and the
+     * helper is never killed with the model half open. */
+    check("a close mid-load: the session starts", start_face(&s, &w, 2500));
+    check("and is loading", until_loading(&s, &w, 3000));
+    t0 = now_ms();
+    left = vision_session_abandon(&s, 300);
+    took = now_ms() - t0;
+    check("a close during a slow load waits for it and ends with bye", left == VISION_LEFT_BYE);
+    check("having waited for the load, within its deadline", took >= 1500 && took < VISION_LOAD_MS);
+    printf("     the close took %lld ms\n", (long long)took);
+    check("no helper left", waitpid(-1, NULL, WNOHANG) == -1 && errno == ECHILD);
+
+    /* A load that never ends is a helper stuck: the watchdog kills it at
+     * the load's deadline, not before and not never. */
+    check("a load that never ends: the session starts", start_face(&s, &w, 3600000));
+    check("and is loading", until_loading(&s, &w, 3000));
+    t0 = now_ms();
+    wait_for(&s, VISION_EV_EXITED, VISION_LOAD_MS + 3000, &ev, leave_seen, &w);
+    took = now_ms() - t0;
+    check("is killed as hung at the load's deadline",
+          w.exited == 1 && w.reason == VISION_EXIT_HUNG && took >= VISION_LOAD_MS - 500 && took <= VISION_LOAD_MS + 2000);
+    vision_session_abandon(&s, 100);
+
+    /* And a close while it is stuck so still ends, with a kill. */
+    check("stuck again: the session starts", start_face(&s, &w, 3600000));
+    check("and is loading", until_loading(&s, &w, 3000));
+    t0 = now_ms();
+    left = vision_session_abandon(&s, 300);
+    took = now_ms() - t0;
+    check("a close while a load never ends kills it in the end",
+          left == VISION_LEFT_KILLED && took <= VISION_LOAD_MS + 300 + 1000);
+    check("and reaps it", waitpid(-1, NULL, WNOHANG) == -1 && errno == ECHILD);
+
+    unsetenv("POCKETOS_VISION_FACE_DET");
+    unlink(det);
+    rmdir(dir);
+}
+
+/* A turn of the display (or another picture size) moves the count and
+ * speed lines among the tracks, which stay where they are in the frame. A
+ * car parked above the count line is below it after a half turn: that is
+ * not a crossing, and no speed may be timed across the old and the new
+ * lines. What was counted before the turn stays. */
+static void test_view_change(void)
+{
+    struct vision_session s;
+    struct vision_event ev;
+    struct watch w = { 0, 0, 0, 0, 0, 0, NULL };
+    int32_t line[4] = { 0, 300, 1000, 300 };
+    int32_t speed[8] = { 0, 100, 1000, 100, 0, 400, 1000, 400 };
+    uint32_t n_before;
+    uint32_t rejected_before;
+    int parked = 0;
+    int i;
+
+    vision_session_init(&s);
+    /* Mount 90, display 0: the sensor's x runs down the 360 x 640 picture.
+     * One car drives down across the lines and off the picture; the other
+     * is parked in another column at picture y ~130, above the count line
+     * (192) and between the speed lines (64, 256). */
+    check("view change: the helper starts",
+          start(&s, "period=20", "box=2:800:0:200:80:60:16:0,box=2:800:100:20:60:60", NULL) == 0);
+    check("ready", wait_for(&s, VISION_EV_READY, 3000, &ev, seen, &w));
+    w.s = &s;
+    vision_session_view(&s, 360, 640, 0);
+    vision_session_mode(&s, true);
+    vision_session_line(&s, line);
+    vision_session_speed_lines(&s, speed);
+    vision_session_distance(&s, 500);
+    vision_session_stream(&s, true, now_ms());
+    for (i = 0; i < 80; i++) {
+        const struct vision_shown *t;
+        int n = 0;
+        int j;
+
+        if (!wait_for(&s, VISION_EV_DET, 1000, &ev, seen, &w)) {
+            break;
+        }
+        t = vision_session_tracks(&s, &n, NULL);
+        parked = 0;
+        for (j = 0; j < n; j++) {
+            parked += t[j].id != 0 && t[j].y + t[j].h / 2 < 192;
+        }
+    }
+    check("before the turn: the driving car counted IN once and timed, the parked one held above the line",
+          s.count_ab == 1 && s.count_ba == 0 && s.traffic.total_ab == 1 && s.traffic.n == 1 && parked == 1);
+    n_before = s.traffic.n;
+    rejected_before = s.traffic.rejected;
+    /* The display turns half way round: the same picture size. */
+    vision_session_view(&s, 360, 640, 180);
+    parked = 0;
+    for (i = 0; i < 40; i++) {
+        const struct vision_shown *t;
+        int n = 0;
+        int j;
+
+        if (!wait_for(&s, VISION_EV_DET, 1000, &ev, seen, &w)) {
+            break;
+        }
+        t = vision_session_tracks(&s, &n, NULL);
+        parked = 0;
+        for (j = 0; j < n; j++) {
+            parked += t[j].id != 0 && t[j].y + t[j].h / 2 > 192;
+        }
+    }
+    check("after the turn the parked car is shown below the count line, still tracked", parked == 1);
+    check("and nothing crossed: no phantom count", s.count_ab == 1 && s.count_ba == 0 && s.traffic.total_ab == 1 &&
+                                                         s.traffic.total_ba == 0);
+    check("no speed timed across the old and new lines", s.traffic.n == n_before &&
+                                                             s.traffic.rejected == rejected_before &&
+                                                             s.traffic.cur_kmh10 == 0);
+    vision_session_abandon(&s, VISION_LEAVE_GRACE_MS);
+}
+
 static void test_lifetime(void)
 {
     struct vision_session s;
@@ -1250,10 +1475,10 @@ static void test_lifetime(void)
         vision_session_view(&s, 360, 640, 0);
         vision_session_stream(&s, true, now_ms());
         ok &= wait_for(&s, VISION_EV_DET, 3000, &ev, NULL, NULL);
-        vision_session_abandon(&s, 500);
+        ok &= vision_session_abandon(&s, VISION_LEAVE_GRACE_MS) == VISION_LEFT_BYE;
         ok &= !vision_session_active(&s);
     }
-    check("thirty opens and closes", ok);
+    check("thirty opens and closes, each ending with bye", ok);
     check("leave no descriptor behind", open_fds() == fds);
     check("and no child", waitpid(-1, NULL, WNOHANG) == -1 && errno == ECHILD);
 }
@@ -1279,7 +1504,9 @@ int main(int argc, char **argv)
     test_pixels();
     test_malformed();
     test_failures();
+    test_view_change();
     test_lifetime();
+    test_leave();
     printf("vision_session_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;
 }

@@ -117,6 +117,8 @@ struct browser_view {
     struct web_store store;
     char store_path[512];           /* "" : web_store_path() */
     bool store_dirty;
+    bool store_aside;               /* the file was not understood: kept as <file>.bad at the next save */
+    bool store_unreadable;          /* the file could not be read: never written over this run */
     struct web_history hist;
 
     enum browser_state state;
@@ -193,7 +195,10 @@ void browser_view_resend(const struct browser_view *v, struct browser_cmd *cmd);
 /* Whether the helper may be (re)started for the next page. */
 bool browser_view_may_start_helper(const struct browser_view *v, int64_t now);
 
-/* Save the remembered state if it changed. 0, or -1 (logged by the caller). */
+/* Save the remembered state if it changed. 0, or -1 (logged by the caller).
+ * A file that could not be read at init is never written over: the changes
+ * stay in memory (store_dirty stays set) and 0 is returned. A file that was
+ * not understood is renamed to <file>.bad before the first save. */
 int browser_view_save(struct browser_view *v);
 
 /* The words for an exit reason and for a failure. */

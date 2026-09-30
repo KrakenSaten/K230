@@ -292,6 +292,45 @@ static void test_provider(void)
     check("and nobody once the person has gone", run_until(DB_VISION_NO_PERSON, 8000));
     db_vision_pipeline_ops.stop(NULL);
 
+    /* Wherever the person sits in the camera's frame, DeskBuddy sees them:
+     * at the left edge, in the middle, at the right edge of the 640 x 360
+     * sensor, with the camera mounted turned (90, the picture tall) and not
+     * (0, wide). A square view cut to fill would leave both sides of the
+     * frame out; "nobody" must never be said while somebody is there. */
+    {
+        static const struct {
+            const char *where;
+            int x;
+        } at[] = { { "at the left edge", 4 }, { "in the middle", 280 }, { "at the right edge", 556 } };
+        static const int mounts[] = { 90, 0 };
+        size_t m;
+        size_t k;
+
+        for (m = 0; m < sizeof(mounts) / sizeof(mounts[0]); m++) {
+            for (k = 0; k < sizeof(at) / sizeof(at[0]); k++) {
+                char cam[64];
+                char kpu[64];
+                char name[128];
+                int found;
+
+                reset_counts();
+                snprintf(cam, sizeof(cam), "period=20,mount=%d", mounts[m]);
+                snprintf(kpu, sizeof(kpu), "box=0:900:%d:80:80:200", at[k].x);
+                setenv("POCKETOS_CAMERA_FAKE", cam, 1);
+                setenv("POCKETOS_VISION_KPU_SCRIPT", kpu, 1);
+                db_vision_pipeline_ops.start(&cfg, now_ms(), &queue);
+                found = run_until(DB_VISION_PERSON_DETECTED, 5000);
+                /* Well past DB_JUDGE_ABSENT_MS with the person still there. */
+                run_until(DB_VISION_KIND_COUNT, DB_JUDGE_ABSENT_MS + 1000);
+                snprintf(name, sizeof(name), "mount %d: a person %s is seen, and nobody is never said", mounts[m],
+                         at[k].where);
+                check(name, found && kinds[DB_VISION_NO_PERSON] == 0 && kinds[DB_VISION_UNAVAILABLE] == 0);
+                db_vision_pipeline_ops.stop(NULL);
+            }
+        }
+        setenv("POCKETOS_CAMERA_FAKE", "period=20", 1);
+    }
+
     /* The helper dies under it. */
     reset_counts();
     setenv("POCKETOS_VISION_KPU_SCRIPT", "box=0:900:200:60:120:260", 1);

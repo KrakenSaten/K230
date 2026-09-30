@@ -825,6 +825,31 @@ static void kill_helper(struct vision_session *s, enum vision_exit why)
     }
 }
 
+/* A deadline from now, but never before a model being opened is due. */
+static int64_t due(const struct vision_session *s, int64_t now, int ms)
+{
+    int64_t d = now + ms;
+
+    return s->loading && s->load_by > d ? s->load_by : d;
+}
+
+/* `loading`: nothing more comes until the model is open, so every deadline
+ * that is running is moved to the load's. */
+static void loading(struct vision_session *s, int64_t now)
+{
+    s->loading = true;
+    s->load_by = now + VISION_LOAD_MS;
+    if (s->silence_by && s->silence_by < s->load_by) {
+        s->silence_by = s->load_by;
+    }
+    if (s->reply_by && s->reply_by < s->load_by) {
+        s->reply_by = s->load_by;
+    }
+    if (s->open_by && s->open_by < s->load_by) {
+        s->open_by = s->load_by;
+    }
+}
+
 static void handle(struct vision_session *s, struct vision_event *ev, int64_t now)
 {
     if (s->streaming) {
@@ -880,7 +905,16 @@ static void feed(struct vision_session *s, const char *buf, size_t n, int64_t no
                 struct vision_event ev;
 
                 s->line[s->line_len] = '\0';
-                if (strncmp(s->line, "hello", 5) == 0) {
+                /* Any line but `loading` is a helper no longer loading. */
+                if (strncmp(s->line, "loading", 7) == 0 && (s->line[7] == ' ' || s->line[7] == '\0')) {
+                    loading(s, now);
+                    s->line_len = 0;
+                    continue;
+                }
+                s->loading = false;
+                if (strcmp(s->line, "bye") == 0) {
+                    s->bye = true;
+                } else if (strncmp(s->line, "hello", 5) == 0) {
                     unsigned version = 0;
 
                     s->hello_by = 0;
@@ -993,7 +1027,7 @@ int vision_session_poll(struct vision_session *s, struct vision_event *ev, int64
 
 /* ---- commands ------------------------------------------------------------------ */
 
-int vision_session_view(struct vision_session *s, uint32_t w, uint32_t h, int display_rotation)
+static int view(struct vision_session *s, uint32_t w, uint32_t h, int display_rotation, bool whole)
 {
     if (w == 0 || h == 0 || w > POCKETCAM_VIEW_MAX_W || h > POCKETCAM_VIEW_MAX_H) {
         return -1;
@@ -1004,7 +1038,17 @@ int vision_session_view(struct vision_session *s, uint32_t w, uint32_t h, int di
     }
     /* Boxes said for the old view are of no use on the new one. */
     s->shown_count = 0;
-    return send_line(s, "view %u %u %d", w, h, display_rotation);
+    return send_line(s, "view %u %u %d%s", w, h, display_rotation, whole ? " contain" : "");
+}
+
+int vision_session_view(struct vision_session *s, uint32_t w, uint32_t h, int display_rotation)
+{
+    return view(s, w, h, display_rotation, false);
+}
+
+int vision_session_view_whole(struct vision_session *s, uint32_t w, uint32_t h, int display_rotation)
+{
+    return view(s, w, h, display_rotation, true);
 }
 
 int vision_session_stream(struct vision_session *s, bool on, int64_t now_ms)
@@ -1015,7 +1059,7 @@ int vision_session_stream(struct vision_session *s, bool on, int64_t now_ms)
         r = send_line(s, "start");
         if (r == 0) {
             s->streaming = true;
-            s->silence_by = now_ms + VISION_SILENCE_MS;
+            s->silence_by = due(s, now_ms, VISION_SILENCE_MS);
         }
         return r;
     }
@@ -1027,7 +1071,7 @@ int vision_session_stream(struct vision_session *s, bool on, int64_t now_ms)
     }
     r = send_line(s, "stop");
     if (r == 0) {
-        s->reply_by = now_ms + VISION_REPLY_MS;
+        s->reply_by = due(s, now_ms, VISION_REPLY_MS);
     }
     return r;
 }
@@ -1224,20 +1268,49 @@ static int64_t mono_ms(void)
     return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
 }
 
-static bool reap_within(struct vision_session *s, int ms)
+/* What the helper says while it is waited for: `loading` and `bye` are
+ * what matter here; the socket is kept empty so a helper saying its last
+ * lines never blocks on a full one. */
+static void drain(struct vision_session *s, int64_t now)
+{
+    char buf[1024];
+    ssize_t n;
+
+    while (s->fd >= 0 && !s->eof) {
+        n = recv(s->fd, buf, sizeof(buf), MSG_DONTWAIT);
+        if (n > 0) {
+            feed(s, buf, (size_t)n, now);
+        } else if (n == 0 || (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK)) {
+            s->eof = true;
+        } else if (errno != EINTR) {
+            break;
+        }
+    }
+}
+
+/* Wait up to ms for the helper to leave; while it says it is opening a
+ * model, until that load's deadline and ms after it, but never past cap. */
+static bool reap_within(struct vision_session *s, int ms, int64_t cap)
 {
     int64_t end = mono_ms() + ms;
 
     for (;;) {
         int status;
-        pid_t r = waitpid(s->pid, &status, WNOHANG);
+        int64_t now = mono_ms();
+        pid_t r;
 
+        drain(s, now);
+        r = waitpid(s->pid, &status, WNOHANG);
         if (r == s->pid || (r < 0 && errno == ECHILD)) {
+            drain(s, now);
             s->pid = -1;
             s->running = false;
             return true;
         }
-        if (mono_ms() >= end) {
+        if (s->loading && s->load_by + ms > end) {
+            end = s->load_by + ms < cap ? s->load_by + ms : cap;
+        }
+        if (now >= end) {
             return false;
         }
         {
@@ -1248,16 +1321,31 @@ static bool reap_within(struct vision_session *s, int ms)
     }
 }
 
-void vision_session_abandon(struct vision_session *s, int grace_ms)
+enum vision_leave vision_session_abandon(struct vision_session *s, int grace_ms)
 {
+    enum vision_leave left = VISION_LEFT_IDLE;
+
     if (s->running && s->pid > 0) {
+        int grace = grace_ms < 0 ? 0 : grace_ms;
+        /* However many models it says it is opening, the wait has an end. */
+        int64_t cap = mono_ms() + grace + 2 * (int64_t)VISION_LOAD_MS;
+
+        bool gone;
+
         send_line(s, "quit");
         if (!s->killed) {
             kill(s->pid, SIGTERM);
         }
-        if (!reap_within(s, grace_ms < 0 ? 0 : grace_ms)) {
-            kill(s->pid, SIGKILL);
-            reap_within(s, VISION_KILL_REAP_MS);
+        /* For a helper the watchdog killed already, the wait for it to die. */
+        gone = reap_within(s, grace, cap);
+        if (gone && !s->killed) {
+            left = s->bye ? VISION_LEFT_BYE : VISION_LEFT_EXITED;
+        } else {
+            if (!gone) {
+                kill(s->pid, SIGKILL);
+                reap_within(s, VISION_KILL_REAP_MS, mono_ms() + VISION_KILL_REAP_MS);
+            }
+            left = VISION_LEFT_KILLED;
         }
     }
     if (s->fd >= 0) {
@@ -1265,4 +1353,5 @@ void vision_session_abandon(struct vision_session *s, int grace_ms)
     }
     drop_shm(s);
     vision_session_init(s);
+    return left;
 }

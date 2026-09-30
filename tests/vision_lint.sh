@@ -105,9 +105,19 @@ check "the helper leaves with the shell (PR_SET_PDEATHSIG)" \
 check "the helper blocks SIGTERM and SIGINT for life and takes no handler for them" \
     "$(code $H | grep -q 'sigprocmask(SIG_BLOCK, &stop_signals, NULL);' &&
        ! code $H | grep -qE 'sigaction\(SIG(TERM|INT)|signal\(SIG(TERM|INT)' && echo 1 || echo 0)"
-grace=$(sed -nE 's/^#define VISION_DESTROY_GRACE_MS ([0-9]+).*/\1/p' $APP)
+grace=$(sed -nE 's/^#define VISION_LEAVE_GRACE_MS ([0-9]+).*/\1/p' $A/vision_session.h)
 check "the helper is given at least 1000 ms to close the camera and the KPU ($grace)" \
-    "$([ -n "$grace" ] && [ "$grace" -ge 1000 ] && echo 1 || echo 0)"
+    "$([ -n "$grace" ] && [ "$grace" -ge 1000 ] && grep -qE '^#define VISION_DESTROY_GRACE_MS VISION_LEAVE_GRACE_MS' $APP &&
+       echo 1 || echo 0)"
+# A kill in the middle of closing (or of opening a model) can leave the KPU's
+# CMA pool allocated until a reboot: nobody leaves the helper less time.
+hits=$(code $A/*.c apps/deskbuddy_vision/*.c | grep -nE 'vision_session_abandon\([^,]*, *[0-9]')
+check "no caller abandons the helper with a literal grace" "$([ -z "$hits" ] && echo 1 || echo 0)"
+[ -n "$hits" ] && echo "$hits" | head -3
+check "the helper says loading before a model it opens mid-session, and bye after the KPU" \
+    "$(code $H | grep -q 'say(\"loading %s\", what);' &&
+       awk '/^static int run_session\(/,/^}/' $H | grep -A12 'vision_kpu_close(s->kpu);' | grep -q 'say(\"bye\")' &&
+       echo 1 || echo 0)"
 check "the shared memory is sealed before the helper sees it" \
     "$(grep -q 'F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_SEAL' $A/vision_session.c && grep -q 'PROT_READ, MAP_SHARED' $A/vision_session.c && echo 1 || echo 0)"
 check "the helper is polled from a timer, never waited for, except when leaving" \
