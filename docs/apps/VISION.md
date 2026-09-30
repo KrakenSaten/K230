@@ -677,6 +677,12 @@ track or 0), `count ab ba`,
 `stats fps_x10 infer_ms pre_ms post_ms cpu_pct rss_kb bad dropped`,
 `malformed n`, `stall ms`, `stopped`, `lost`, `bye`.
 
+A `view` that moves the count or speed lines among the tracks - a turn of
+the display, another picture size - makes every track learn its side of
+the moved lines afresh and drops the speeds being timed: a car parked on
+one side of the line and shown on the other after a turn is not a
+crossing. The counts so far stay.
+
 ### Malformed model output
 
 A tensor that is not `[1, 4 + classes, rows]` for the model's declared
@@ -804,7 +810,8 @@ Host only; none needs unit A. `make vision-test` runs them all,
   malformed tensors said and survived; a detector giving nonsense ended
   with exit 5; a failed run; no camera, a busy camera, a bad detector
   script, a missing helper, a camera that goes away, a hung helper killed
-  by the watchdog, a crashing one; thirty opens and closes with no
+  by the watchdog, a crashing one; a display turned half way round while
+  a parked car is tracked counting nothing; thirty opens and closes with no
   descriptor or child left behind.
 - `tests/vision_settings_test.c`: the defaults; every key written and
   read back; TRACK's and TRAFFIC's lines apart; every refusal (an unknown

@@ -13,7 +13,11 @@
  *
  * COMMANDS (session to helper):
  *   view <w> <h> <rotation>       the preview's size and the display's
- *                                 rotation; boxes come in these pixels
+ *                                 rotation; boxes come in these pixels. A
+ *                                 view that moves the count or speed lines
+ *                                 among the tracks makes them learn their
+ *                                 side afresh and drops the speeds in
+ *                                 flight; the counts stay
  *   start                         stream, detect, track, count
  *   stop                          stop; answered by `stopped`
  *   release <slot>                the session is done with a slot

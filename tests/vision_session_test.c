@@ -6,7 +6,8 @@
  * reset, a malformed tensor said and survived, a detector that keeps
  * giving nonsense ending the session, no camera, a busy camera, a missing
  * model, a hung helper (the watchdog), one that crashes, and thirty opens
- * and closes with no descriptor or child left behind.
+ * and closes with no descriptor or child left behind. A turn of the display
+ * while tracks are held counts nothing.
  *
  * Usage: vision_session_test <path to pos-vision>
  *
@@ -1235,6 +1236,82 @@ static void test_failures(void)
     vision_session_abandon(&s, 100);
 }
 
+/* A turn of the display (or another picture size) moves the count and
+ * speed lines among the tracks, which stay where they are in the frame. A
+ * car parked above the count line is below it after a half turn: that is
+ * not a crossing, and no speed may be timed across the old and the new
+ * lines. What was counted before the turn stays. */
+static void test_view_change(void)
+{
+    struct vision_session s;
+    struct vision_event ev;
+    struct watch w = { 0, 0, 0, 0, 0, 0, NULL };
+    int32_t line[4] = { 0, 300, 1000, 300 };
+    int32_t speed[8] = { 0, 100, 1000, 100, 0, 400, 1000, 400 };
+    uint32_t n_before;
+    uint32_t rejected_before;
+    int parked = 0;
+    int i;
+
+    vision_session_init(&s);
+    /* Mount 90, display 0: the sensor's x runs down the 360 x 640 picture.
+     * One car drives down across the lines and off the picture; the other
+     * is parked in another column at picture y ~130, above the count line
+     * (192) and between the speed lines (64, 256). */
+    check("view change: the helper starts",
+          start(&s, "period=20", "box=2:800:0:200:80:60:16:0,box=2:800:100:20:60:60", NULL) == 0);
+    check("ready", wait_for(&s, VISION_EV_READY, 3000, &ev, seen, &w));
+    w.s = &s;
+    vision_session_view(&s, 360, 640, 0);
+    vision_session_mode(&s, true);
+    vision_session_line(&s, line);
+    vision_session_speed_lines(&s, speed);
+    vision_session_distance(&s, 500);
+    vision_session_stream(&s, true, now_ms());
+    for (i = 0; i < 80; i++) {
+        const struct vision_shown *t;
+        int n = 0;
+        int j;
+
+        if (!wait_for(&s, VISION_EV_DET, 1000, &ev, seen, &w)) {
+            break;
+        }
+        t = vision_session_tracks(&s, &n, NULL);
+        parked = 0;
+        for (j = 0; j < n; j++) {
+            parked += t[j].id != 0 && t[j].y + t[j].h / 2 < 192;
+        }
+    }
+    check("before the turn: the driving car counted IN once and timed, the parked one held above the line",
+          s.count_ab == 1 && s.count_ba == 0 && s.traffic.total_ab == 1 && s.traffic.n == 1 && parked == 1);
+    n_before = s.traffic.n;
+    rejected_before = s.traffic.rejected;
+    /* The display turns half way round: the same picture size. */
+    vision_session_view(&s, 360, 640, 180);
+    parked = 0;
+    for (i = 0; i < 40; i++) {
+        const struct vision_shown *t;
+        int n = 0;
+        int j;
+
+        if (!wait_for(&s, VISION_EV_DET, 1000, &ev, seen, &w)) {
+            break;
+        }
+        t = vision_session_tracks(&s, &n, NULL);
+        parked = 0;
+        for (j = 0; j < n; j++) {
+            parked += t[j].id != 0 && t[j].y + t[j].h / 2 > 192;
+        }
+    }
+    check("after the turn the parked car is shown below the count line, still tracked", parked == 1);
+    check("and nothing crossed: no phantom count", s.count_ab == 1 && s.count_ba == 0 && s.traffic.total_ab == 1 &&
+                                                         s.traffic.total_ba == 0);
+    check("no speed timed across the old and new lines", s.traffic.n == n_before &&
+                                                             s.traffic.rejected == rejected_before &&
+                                                             s.traffic.cur_kmh10 == 0);
+    vision_session_abandon(&s, 1000);
+}
+
 static void test_lifetime(void)
 {
     struct vision_session s;
@@ -1279,6 +1356,7 @@ int main(int argc, char **argv)
     test_pixels();
     test_malformed();
     test_failures();
+    test_view_change();
     test_lifetime();
     printf("vision_session_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;

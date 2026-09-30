@@ -1803,19 +1803,49 @@ static void command(struct session *s, char *line)
         char *a = strtok_r(NULL, " ", &save);
         char *b = strtok_r(NULL, " ", &save);
         char *c = strtok_r(NULL, " ", &save);
+        struct vision_line was[VISION_LINES];
+        bool speed_moved = false;
         unsigned vw;
         unsigned vh;
         int rot;
+        int i;
 
         if (!a || !b || !c || sscanf(a, "%u", &vw) != 1 || sscanf(b, "%u", &vh) != 1 ||
             parse_rotation(c, &rot) != 0 || vw == 0 || vh == 0 || vw > POCKETCAM_VIEW_MAX_W ||
             vh > POCKETCAM_VIEW_MAX_H) {
             return;
         }
+        memcpy(was, s->line, sizeof(was));
         s->view_w = vw;
         s->view_h = vh;
         s->display_rotation = rot;
         place_lines(s);
+        /* A turn or another picture size puts the lines somewhere else
+         * among the tracks, which stay where they are in the frame: a side
+         * remembered against the old line would count a crossing nobody
+         * made, and a speed timed from the old line A is worth nothing. So
+         * every line that moved is learnt afresh and the speeds in flight
+         * go; the counts so far stay (the line command resets those). */
+        for (i = 0; i < VISION_LINES; i++) {
+            const struct vision_line *o = &was[i];
+            const struct vision_line *n = &s->line[i];
+
+            if (o->enabled == n->enabled && (!n->enabled || (o->x0 == n->x0 && o->y0 == n->y0 &&
+                                                              o->x1 == n->x1 && o->y1 == n->y1 &&
+                                                              o->dead_max == n->dead_max))) {
+                continue;
+            }
+            vision_line_forget(&s->tracker, i);
+            speed_moved |= i != VISION_LINE_COUNT;
+        }
+        if (speed_moved) {
+            memset(s->tf.slot, 0, sizeof(s->tf.slot));
+            s->tf.cur_kmh10 = 0;
+            s->tf.cur_id = 0;
+            if (s->traffic) {
+                say_traffic(s);
+            }
+        }
     } else if (strcmp(w, "start") == 0) {
         if (!s->streaming) {
             int r = s->replay ? 0 : pocketcam_start(&s->cam);
