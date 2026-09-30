@@ -160,6 +160,7 @@ struct shell {
     struct hw_activity activity;  /* microphone and camera in use (hw_activity.h) */
     lv_timer_t *activity_timer;
     unsigned indicators;          /* KBD_LED_MIC | KBD_LED_CAMERA at the last look */
+    bool camera_seen;             /* the camera's answer at its last look */
     pid_t shot_pid;               /* the F7 capture being written, or 0 */
     uint32_t shot_started;
     char shot_path[POCKETOS_PATH_MAX];
@@ -1784,11 +1785,16 @@ static void on_hw_action(enum hw_action a, void *user)
 
 /* ---- the privacy LEDs (kbd_leds.h, hw_activity.h) ---------------------- *
  *
- * Twice a second: is a capture stream open, is a camera node held. Recomputed
- * from the kernel every time, so an app that closed, a helper that died and a
- * crash that took both with it all put their LED out on the next look.
+ * Twice a second: is a capture stream open; once a second: is a camera node
+ * held. Recomputed from the kernel every time, so an app that closed, a
+ * helper that died and a crash that took both with it all put their LED out
+ * on the next look. The camera costs a walk of every process's descriptors
+ * while nothing holds it - about 1 % of a core at 500 ms on unit B,
+ * 2026-09-30 - so it is looked at half as often; the microphone is a few
+ * small files.
  */
 #define ACTIVITY_MS 500
+#define CAMERA_EVERY 2 /* activity ticks per camera look */
 
 static const char *proc_root(void)
 {
@@ -1804,9 +1810,13 @@ static const char *proc_root(void)
 
 static void on_activity(lv_timer_t *t)
 {
-    unsigned now = (hw_activity_mic(&sh.activity) ? KBD_LED_MIC : 0u) |
-                   (hw_activity_camera(&sh.activity) ? KBD_LED_CAMERA : 0u);
+    static unsigned ticks;
+    unsigned now;
 
+    if (ticks++ % CAMERA_EVERY == 0) {
+        sh.camera_seen = hw_activity_camera(&sh.activity) != 0;
+    }
+    now = (hw_activity_mic(&sh.activity) ? KBD_LED_MIC : 0u) | (sh.camera_seen ? KBD_LED_CAMERA : 0u);
     (void)t;
     if (now != sh.indicators) {
         if ((now ^ sh.indicators) & KBD_LED_MIC) {

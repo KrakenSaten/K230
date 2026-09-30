@@ -182,14 +182,14 @@ sleep 0.8
 check "closed: released" "$(is "$(hw microphone)" false)"
 mkdir -p "$PROC/4242/fd"
 ln -s /dev/video2 "$PROC/4242/fd/5"
-sleep 0.8
+sleep 1.5
 check "a process holding video2: camera in use" "$(is "$(hw camera)" true)"
 rm -rf "$PROC/4242"
-sleep 0.8
+sleep 1.5
 check "the process gone (a crashed helper): released" "$(is "$(hw camera)" false)"
 mkdir -p "$PROC/4343/fd"
 ln -s /dev/video0 "$PROC/4343/fd/5"
-sleep 0.8
+sleep 1.5
 check "the VPU (video0) is not the camera" "$(is "$(hw camera)" false)"
 
 # ---- refusals -------------------------------------------------------------------------
