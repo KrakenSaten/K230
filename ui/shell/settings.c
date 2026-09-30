@@ -22,6 +22,10 @@ struct entry {
 static struct entry entries[SETTINGS_MAX_KEYS];
 static int count;
 static char path[512];
+/* The file exists but was not read whole: writing the table back would
+ * replace every setting that was not read, so nothing is written until a
+ * later settings_init() reads it cleanly. */
+static int unread;
 
 static int key_valid(const char *key)
 {
@@ -60,18 +64,19 @@ static void trim(char *s)
     }
 }
 
-static void store(const char *key, const char *value)
+static int store(const char *key, const char *value)
 {
     struct entry *e = find(key);
 
     if (!e) {
         if (count >= SETTINGS_MAX_KEYS) {
-            return;
+            return -1;
         }
         e = &entries[count++];
         snprintf(e->key, sizeof(e->key), "%s", key);
     }
     snprintf(e->value, sizeof(e->value), "%s", value);
+    return 0;
 }
 
 int settings_init(void)
@@ -81,10 +86,15 @@ int settings_init(void)
     char line[SETTINGS_KEY_MAX + SETTINGS_VALUE_MAX + 16];
 
     count = 0;
+    unread = 0;
     snprintf(path, sizeof(path), "%s/%s", dir, SETTINGS_FILE);
     f = fopen(path, "r");
     if (!f) {
-        return errno == ENOENT ? 1 : -1;
+        if (errno == ENOENT) {
+            return 1;
+        }
+        unread = 1;
+        return -1;
     }
     while (fgets(line, sizeof(line), f)) {
         char *eq;
@@ -111,10 +121,15 @@ int settings_init(void)
         if (!key_valid(key)) {
             continue;
         }
-        store(key, value);
+        if (store(key, value) != 0) {
+            unread = 1; /* more keys than the table holds */
+        }
+    }
+    if (ferror(f)) {
+        unread = 1;
     }
     fclose(f);
-    return 0;
+    return unread ? -1 : 0;
 }
 
 const char *settings_path(void)
@@ -183,6 +198,9 @@ int settings_set(const char *key, const char *value)
         return -1;
     }
     if (value != NULL && (strlen(value) >= SETTINGS_VALUE_MAX || strchr(value, '\n'))) {
+        return -1;
+    }
+    if (unread) {
         return -1;
     }
     memcpy(saved, entries, sizeof(saved));

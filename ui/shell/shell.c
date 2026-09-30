@@ -2042,7 +2042,8 @@ int main(int argc, char **argv)
         char why[128];
 
         if (loaded < 0) {
-            LOG_WARN("settings file %s unreadable, using defaults", settings_path());
+            LOG_WARN("settings file %s unreadable, using defaults; it is not written until it can be read",
+                     settings_path());
         }
         if ((theme || mode) && pos_theme_apply(theme, mode, why, sizeof(why)) < 0) {
             LOG_WARN("stored theme rejected, using fallback: %s", why);
