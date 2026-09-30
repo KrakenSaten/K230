@@ -179,7 +179,7 @@ static int parse_script(struct vision_kpu *k, const char *config)
             k->delay_ms = (int)d;
         } else if (strcmp(item, "minpx") == 0) {
             r = parse_u32(val, &k->minpx);
-        } else if (strcmp(item, "text") == 0 || strcmp(item, "face") == 0) {
+        } else if (strcmp(item, "text") == 0 || strcmp(item, "face") == 0 || strcmp(item, "net_open_ms") == 0) {
             /* The fake nets' (below); the detector does not see them. */
         } else {
             r = -EINVAL;
@@ -418,6 +418,8 @@ const char *vision_kpu_backend(void)
  *   face=X:Y:W:H[:WHO]     a face in FRAME pixels; WHO (1-9, default 1) is
  *                          whose it is, for the embedding net (up to
  *                          FAKE_FACES of them)
+ *   net_open_ms=MS         opening each net takes this long (a large
+ *                          kmodel read and checked by the runtime)
  *
  * face_det: RetinaFace's nine outputs for 320 x 320 (vision_face.h), every
  * anchor background but the one each face falls on - its stride and size
@@ -458,6 +460,7 @@ struct fake_face {
 
 struct vision_net {
     enum fake_kind kind;
+    uint32_t open_ms;             /* net_open_ms: how long opening it takes */
     struct vision_net_info info;
     struct fake_text text[FAKE_TEXTS];
     int ntext;
@@ -531,6 +534,8 @@ static int net_script(struct vision_net *n, const char *script)
                 break;
             }
             n->nface++;
+        } else if (strcmp(item, "net_open_ms") == 0) {
+            r = parse_u32(val, &n->open_ms);
         }
     }
     free(copy);
@@ -679,6 +684,8 @@ int vision_net_open(struct vision_net **np, const char *path, const char *script
         free(n);
         return -EINVAL;
     }
+    /* A large model read and checked by the runtime, pretended. */
+    sleep_ms((int)n->open_ms);
     for (int i = 0; i < n->info.outputs; i++) {
         n->o[i] = calloc(n->info.count[i], sizeof(float));
         if (!n->o[i]) {

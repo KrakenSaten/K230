@@ -9,7 +9,9 @@
  *       core/pocketvision/pocketvision_proto.h. It lives exactly as long as
  *       the Vision screen: it leaves on `quit`, when the shell closes its
  *       end, on SIGTERM, and - through PR_SET_PDEATHSIG, set by the session
- *       before exec - when the shell dies.
+ *       before exec - when the shell dies; `bye` once the camera, the nets
+ *       and the KPU are closed. A model opened later (READ, FACE,
+ *       RECOGNIZE) is announced with `loading` first.
  *   pos-vision probe [--backend NAME] [--fake SCRIPT] [--config CFG] [--model FILE]
  *       Open the camera and the model, say what they are, close both.
  *       Exit 0, 3 without a camera, 5 without a model.
@@ -1124,6 +1126,21 @@ static void detect(struct session *s, const struct pocketcam_frame *f, int64_t n
     say_tracks(s, f->seq);
 }
 
+/* ---- the models opened while the session runs ------------------------------------ */
+
+/* READ's, FACE's and RECOGNIZE's nets are opened when the mode is first
+ * asked for, synchronously: seconds for a large kmodel, with nothing said
+ * meanwhile. `loading` first tells the session so, and it holds its
+ * deadlines (and a leave's grace) for the load instead of killing the
+ * helper in the middle of it - a kill there can leave the runtime's CMA
+ * pool allocated until a reboot (vision_kpu_nncase.cpp). */
+static int load_net(struct session *s, const char *what, struct vision_net **n, const char *path,
+                    struct vision_net_info *info, char *err, size_t errlen)
+{
+    say("loading %s", what);
+    return vision_net_open(n, path, s->net_script, info, err, errlen);
+}
+
 /* ---- READ ---------------------------------------------------------------------- */
 
 static void text_close(struct session *s)
@@ -1156,8 +1173,8 @@ static int text_open(struct session *s)
     s->dict = calloc(1, sizeof(*s->dict));
     if (!s->dict || dict_load(s->dict, s->text_dict_path) != 0 || s->dict->n < 2) {
         snprintf(err, sizeof(err), "the text dictionary could not be read");
-    } else if (vision_net_open(&s->tdet, s->text_det_path, s->net_script, &s->tdi, err, sizeof(err)) != 0 ||
-               vision_net_open(&s->trec, s->text_rec_path, s->net_script, &s->tri, err, sizeof(err)) != 0) {
+    } else if (load_net(s, "text_det", &s->tdet, s->text_det_path, &s->tdi, err, sizeof(err)) != 0 ||
+               load_net(s, "text_rec", &s->trec, s->text_rec_path, &s->tri, err, sizeof(err)) != 0) {
         /* err says which. */
     } else if (s->tdi.outputs < 1 || s->tdi.rank[0] != 4 || s->tri.outputs < 1 || s->tri.rank[0] < 2 ||
                s->tri.dims[0][s->tri.rank[0] - 1] != s->dict->n) {
@@ -1339,7 +1356,7 @@ static int face_open(struct session *s)
         return -1;
     }
     s->face_tried = true;
-    if (vision_net_open(&s->fdet, s->face_det_path, s->net_script, &s->fdi, err, sizeof(err)) != 0) {
+    if (load_net(s, "face_det", &s->fdet, s->face_det_path, &s->fdi, err, sizeof(err)) != 0) {
         /* err says why. */
     } else if (vision_face_check(s->fdi.outputs, s->fdi.rank, (const uint32_t (*)[4])s->fdi.dims, s->fdi.in_w,
                                  s->fdi.in_h) != 0) {
@@ -1377,7 +1394,7 @@ static int embed_open(struct session *s)
     s->embed_tried = true;
     if (stat(s->face_embed_path, &st) != 0) {
         snprintf(err, sizeof(err), "the face embedding model is not there");
-    } else if (vision_net_open(&s->femb, s->face_embed_path, s->net_script, &s->fei, err, sizeof(err)) != 0) {
+    } else if (load_net(s, "face_embed", &s->femb, s->face_embed_path, &s->fei, err, sizeof(err)) != 0) {
         /* err says why. */
     } else if (s->fei.outputs != 1 || s->fei.in_w != VISION_EMBED_SIZE || s->fei.in_h != VISION_EMBED_SIZE ||
                s->fei.count[0] < 64 || s->fei.count[0] > VISION_EMBED_MAX) {
@@ -2466,7 +2483,11 @@ static int run_session(const char *backend, const char *config, const char *mode
     face_close(s);
     embed_close(s);
     vision_kpu_close(s->kpu);
-    if (s->quit && s->exit_code == 0) {
+    /* Only now, with the camera closed and the KPU pool given back: `bye`
+     * is the session's word that a kill is no longer needed. Said on every
+     * orderly end (quit, SIGTERM, the shell's end closed), not after a
+     * failure, which has said its own word already. */
+    if (s->exit_code == 0) {
         say("bye");
     }
     munmap(s->shm, POCKETCAM_SHM_BYTES);

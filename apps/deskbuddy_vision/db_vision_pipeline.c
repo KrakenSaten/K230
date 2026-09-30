@@ -93,7 +93,9 @@ bool db_judge_tick(struct db_judge *j, int64_t now_ms, struct db_vision_event *o
 /* ---- the provider --------------------------------------------------------------- */
 
 #define PIPELINE_POLL_MS 100
-#define PIPELINE_GRACE_MS 1000
+/* As Vision's own close: long enough for the helper to give the KPU back
+ * (vision_session.h), and longer while it is still opening a model. */
+#define PIPELINE_GRACE_MS VISION_LEAVE_GRACE_MS
 /* The picture nobody looks at: as small as the helper takes, so its
  * preview costs next to nothing - and the WHOLE frame in it, letterboxed
  * (vision_session_view_whole): a cut to fill the square would leave the
@@ -258,11 +260,13 @@ static int64_t pipeline_poll(void *ctx, int64_t now_ms, struct db_vision_queue *
         case VISION_EV_LOST:
         case VISION_EV_EXITED:
             /* The camera is taken, a model is missing or broken, or the
-             * helper is gone: DeskBuddy cannot see. */
+             * helper is gone: DeskBuddy cannot see. A helper that said so
+             * is on its way out, closing the camera and the KPU: it is
+             * given the time for that, not killed in the middle of it. */
             unavailable(p, now_ms, q);
             if (ev.kind == VISION_EV_EXITED || ev.kind == VISION_EV_LOST || ev.kind == VISION_EV_NODEVICE ||
                 ev.kind == VISION_EV_NOMODEL) {
-                vision_session_abandon(&p->s, 0);
+                vision_session_abandon(&p->s, PIPELINE_GRACE_MS);
                 p->running = false;
                 return -1;
             }

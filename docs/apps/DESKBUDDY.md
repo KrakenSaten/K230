@@ -258,8 +258,10 @@ mock) or `$DESKBUDDY_VISION` is `none` (blind, as v0.1 was).
   `OWNER_RECOGNIZED` and `UNKNOWN_PERSON` carry the similarity (per-mille)
   as `confidence_pm`. The helper gone, the camera lost or taken, or no
   model at all: `UNAVAILABLE`, once. Polled every 100 ms while running.
-- `stop()` ends the helper within Vision's own grace (1 s) and is safe
-  twice; nothing calls back into the screen.
+- `stop()` ends the helper within Vision's own grace
+  (`VISION_LEAVE_GRACE_MS`, 3 s, longer while it is still opening a model)
+  and is safe twice; a helper that said it cannot go on gets the same time
+  to close; nothing calls back into the screen.
 
 **The owner is Vision's.** Enrolment and FORGET are in Vision's RECOGNIZE
 (docs/apps/VISION.md); the helper keeps the one owner at
