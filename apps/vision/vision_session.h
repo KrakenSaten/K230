@@ -255,6 +255,10 @@ int vision_session_start(struct vision_session *s, const struct vision_session_c
 int vision_session_poll(struct vision_session *s, struct vision_event *ev, int64_t now_ms);
 
 int vision_session_view(struct vision_session *s, uint32_t w, uint32_t h, int display_rotation);
+/* The same, with the whole frame letterboxed into w x h (`view ... contain`)
+ * instead of cut to fill it: every track is in view, wherever it is in the
+ * frame. For a caller that looks at the tracks, not at the picture. */
+int vision_session_view_whole(struct vision_session *s, uint32_t w, uint32_t h, int display_rotation);
 int vision_session_stream(struct vision_session *s, bool on, int64_t now_ms);
 /* The counting line in per-mille of the view; a NULL pm turns it off. */
 int vision_session_line(struct vision_session *s, const int32_t pm[4]);

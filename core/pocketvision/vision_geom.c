@@ -15,27 +15,54 @@ static bool valid(const struct vision_view *v)
            (v->rotation == 0 || v->rotation == 90 || v->rotation == 180 || v->rotation == 270);
 }
 
-/* The turned picture's size and the part of it the cover fit shows, exactly
- * as pocketcam_to_rgb565() chooses them. */
-static void crop(const struct vision_view *v, uint32_t *tw, uint32_t *th, uint32_t *cx,
-                 uint32_t *cy, uint32_t *cw, uint32_t *ch)
+/* The part of the turned picture that is shown (c*) and where on the view
+ * it is drawn (o*), exactly as pocketcam_to_rgb565() chooses them: cover
+ * shows a centred part of the picture over the whole view, contain the
+ * whole picture in a centred part of the view. */
+struct fit {
+    uint32_t cx;
+    uint32_t cy;
+    uint32_t cw;
+    uint32_t ch;
+    uint32_t ox;
+    uint32_t oy;
+    uint32_t ow;
+    uint32_t oh;
+};
+
+static void fit_of(const struct vision_view *v, struct fit *f)
 {
     bool quarter = v->rotation == 90 || v->rotation == 270;
+    uint32_t tw = quarter ? v->frame_h : v->frame_w;
+    uint32_t th = quarter ? v->frame_w : v->frame_h;
+    bool wider = (uint64_t)tw * v->view_h > (uint64_t)v->view_w * th;
 
-    *tw = quarter ? v->frame_h : v->frame_w;
-    *th = quarter ? v->frame_w : v->frame_h;
-    *cx = 0;
-    *cy = 0;
-    *cw = *tw;
-    *ch = *th;
-    if ((uint64_t)*tw * v->view_h > (uint64_t)v->view_w * *th) {
-        *cw = (uint32_t)(((uint64_t)*th * v->view_w) / v->view_h);
-        *cw = *cw ? *cw : 1;
-        *cx = (*tw - *cw) / 2;
+    f->cx = 0;
+    f->cy = 0;
+    f->cw = tw;
+    f->ch = th;
+    f->ox = 0;
+    f->oy = 0;
+    f->ow = v->view_w;
+    f->oh = v->view_h;
+    if (v->contain) {
+        if (wider) {
+            f->oh = (uint32_t)(((uint64_t)th * v->view_w) / tw);
+            f->oh = f->oh ? f->oh : 1;
+            f->oy = (v->view_h - f->oh) / 2;
+        } else {
+            f->ow = (uint32_t)(((uint64_t)tw * v->view_h) / th);
+            f->ow = f->ow ? f->ow : 1;
+            f->ox = (v->view_w - f->ow) / 2;
+        }
+    } else if (wider) {
+        f->cw = (uint32_t)(((uint64_t)th * v->view_w) / v->view_h);
+        f->cw = f->cw ? f->cw : 1;
+        f->cx = (tw - f->cw) / 2;
     } else {
-        *ch = (uint32_t)(((uint64_t)*tw * v->view_h) / v->view_w);
-        *ch = *ch ? *ch : 1;
-        *cy = (*th - *ch) / 2;
+        f->ch = (uint32_t)(((uint64_t)tw * v->view_h) / v->view_w);
+        f->ch = f->ch ? f->ch : 1;
+        f->cy = (th - f->ch) / 2;
     }
 }
 
@@ -200,12 +227,7 @@ int vision_turn_planes(const uint8_t *src, uint32_t w, uint32_t h, uint32_t stri
 
 int vision_map_point(const struct vision_view *v, int32_t sx, int32_t sy, int32_t *vx, int32_t *vy)
 {
-    uint32_t tw;
-    uint32_t th;
-    uint32_t cx;
-    uint32_t cy;
-    uint32_t cw;
-    uint32_t ch;
+    struct fit f;
     int64_t tx;
     int64_t ty;
     int64_t x;
@@ -214,43 +236,43 @@ int vision_map_point(const struct vision_view *v, int32_t sx, int32_t sy, int32_
     if (!valid(v) || !vx || !vy) {
         return -EINVAL;
     }
-    crop(v, &tw, &th, &cx, &cy, &cw, &ch);
+    fit_of(v, &f);
     turned_of(v, sx, sy, &tx, &ty);
-    /* The converter takes destination column x from turned column
+    /* The converter takes destination column ox + x from turned column
      * cx + x * cw / ow; so turned column t is shown at (t - cx) * ow / cw,
-     * rounded to the nearest destination pixel. */
-    x = ((tx - cx) * (int64_t)v->view_w + (int64_t)cw / 2) / (int64_t)cw;
-    y = ((ty - cy) * (int64_t)v->view_h + (int64_t)ch / 2) / (int64_t)ch;
+     * rounded to the nearest destination pixel, from ox. */
+    x = ((tx - f.cx) * (int64_t)f.ow + (int64_t)f.cw / 2) / (int64_t)f.cw;
+    y = ((ty - f.cy) * (int64_t)f.oh + (int64_t)f.ch / 2) / (int64_t)f.ch;
     if (v->mirror) {
-        x = (int64_t)v->view_w - 1 - x;
+        x = (int64_t)f.ow - 1 - x;
     }
-    *vx = (int32_t)x;
-    *vy = (int32_t)y;
+    *vx = (int32_t)(x + f.ox);
+    *vy = (int32_t)(y + f.oy);
     return 0;
 }
 
 int vision_unmap_point(const struct vision_view *v, int32_t vx, int32_t vy, int32_t *sx, int32_t *sy)
 {
-    uint32_t tw;
-    uint32_t th;
-    uint32_t cx;
-    uint32_t cy;
-    uint32_t cw;
-    uint32_t ch;
+    struct fit f;
     uint64_t dx;
     uint64_t tx;
     uint64_t ty;
 
-    if (!valid(v) || !sx || !sy || vx < 0 || vy < 0 || vx >= (int32_t)v->view_w ||
-        vy >= (int32_t)v->view_h) {
+    if (!valid(v) || !sx || !sy) {
         return -EINVAL;
     }
-    crop(v, &tw, &th, &cx, &cy, &cw, &ch);
+    fit_of(v, &f);
+    if (vx < (int32_t)f.ox || vy < (int32_t)f.oy || vx >= (int32_t)(f.ox + f.ow) ||
+        vy >= (int32_t)(f.oy + f.oh)) {
+        return -EINVAL;
+    }
+    vx -= (int32_t)f.ox;
+    vy -= (int32_t)f.oy;
     /* pocketcam_to_rgb565(): col_t[x] = cx + x * cw / ow, mirrored first;
      * row_t[y] = cy + y * ch / oh; then source_of(). */
-    dx = v->mirror ? (uint64_t)(v->view_w - 1 - (uint32_t)vx) : (uint64_t)vx;
-    tx = cx + (dx * cw) / v->view_w;
-    ty = cy + ((uint64_t)vy * ch) / v->view_h;
+    dx = v->mirror ? (uint64_t)(f.ow - 1 - (uint32_t)vx) : (uint64_t)vx;
+    tx = f.cx + (dx * f.cw) / f.ow;
+    ty = f.cy + ((uint64_t)vy * f.ch) / f.oh;
     switch (v->rotation) {
     case 90:
         *sx = (int32_t)ty;

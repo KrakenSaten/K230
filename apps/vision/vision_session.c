@@ -993,7 +993,7 @@ int vision_session_poll(struct vision_session *s, struct vision_event *ev, int64
 
 /* ---- commands ------------------------------------------------------------------ */
 
-int vision_session_view(struct vision_session *s, uint32_t w, uint32_t h, int display_rotation)
+static int view(struct vision_session *s, uint32_t w, uint32_t h, int display_rotation, bool whole)
 {
     if (w == 0 || h == 0 || w > POCKETCAM_VIEW_MAX_W || h > POCKETCAM_VIEW_MAX_H) {
         return -1;
@@ -1004,7 +1004,17 @@ int vision_session_view(struct vision_session *s, uint32_t w, uint32_t h, int di
     }
     /* Boxes said for the old view are of no use on the new one. */
     s->shown_count = 0;
-    return send_line(s, "view %u %u %d", w, h, display_rotation);
+    return send_line(s, "view %u %u %d%s", w, h, display_rotation, whole ? " contain" : "");
+}
+
+int vision_session_view(struct vision_session *s, uint32_t w, uint32_t h, int display_rotation)
+{
+    return view(s, w, h, display_rotation, false);
+}
+
+int vision_session_view_whole(struct vision_session *s, uint32_t w, uint32_t h, int display_rotation)
+{
+    return view(s, w, h, display_rotation, true);
 }
 
 int vision_session_stream(struct vision_session *s, bool on, int64_t now_ms)

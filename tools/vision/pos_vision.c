@@ -356,6 +356,7 @@ struct session {
     uint32_t view_w;
     uint32_t view_h;
     int display_rotation;
+    bool view_contain;       /* `view ... contain`: the whole frame, letterboxed */
     bool streaming;
     int64_t last_sent_ms;
     int64_t last_frame_ms;
@@ -520,6 +521,7 @@ static struct vision_view view_of(const struct session *s)
         .mirror = s->info.mount_mirror,
         .view_w = s->view_w,
         .view_h = s->view_h,
+        .contain = s->view_contain,
     };
 
     return v;
@@ -1803,6 +1805,7 @@ static void command(struct session *s, char *line)
         char *a = strtok_r(NULL, " ", &save);
         char *b = strtok_r(NULL, " ", &save);
         char *c = strtok_r(NULL, " ", &save);
+        char *d = strtok_r(NULL, " ", &save);
         struct vision_line was[VISION_LINES];
         bool speed_moved = false;
         unsigned vw;
@@ -1812,13 +1815,14 @@ static void command(struct session *s, char *line)
 
         if (!a || !b || !c || sscanf(a, "%u", &vw) != 1 || sscanf(b, "%u", &vh) != 1 ||
             parse_rotation(c, &rot) != 0 || vw == 0 || vh == 0 || vw > POCKETCAM_VIEW_MAX_W ||
-            vh > POCKETCAM_VIEW_MAX_H) {
+            vh > POCKETCAM_VIEW_MAX_H || (d && strcmp(d, "contain") != 0)) {
             return;
         }
         memcpy(was, s->line, sizeof(was));
         s->view_w = vw;
         s->view_h = vh;
         s->display_rotation = rot;
+        s->view_contain = d != NULL;
         place_lines(s);
         /* A turn or another picture size puts the lines somewhere else
          * among the tracks, which stay where they are in the frame: a side
@@ -2276,7 +2280,8 @@ static void stream_once(struct session *s)
         int slot = free_preview_slot(s);
 
         if (slot >= 0 &&
-            pocketcam_to_rgb565(&f, view_of(s).rotation, s->info.mount_mirror, POCKETCAM_FIT_COVER,
+            pocketcam_to_rgb565(&f, view_of(s).rotation, s->info.mount_mirror,
+                                s->view_contain ? POCKETCAM_FIT_CONTAIN : POCKETCAM_FIT_COVER,
                                 slot_pixels(s, slot), s->view_w, s->view_h, s->view_w) == 0) {
             if (pixel_mode(s)) {
                 process_pixels(s, slot_pixels(s, slot));

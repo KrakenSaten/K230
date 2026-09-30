@@ -659,7 +659,7 @@ picture pixels, so the app draws them with no geometry of its own.
 ### The protocol
 
 `core/pocketvision/pocketvision_proto.h` is the reference (version 2).
-Commands: `view w h rotation`, `start`, `stop`, `release slot`,
+Commands: `view w h rotation [contain]`, `start`, `stop`, `release slot`,
 `mode detect|track|traffic|color|edge|trace`, `line x0 y0 x1 y1` (per-mille of
 the view) or `line off`, `speed ax0 ay0 ax1 ay1 bx0 by0 bx1 by1` or
 `speed off`, `distance cm`, `range near|normal|far`, `color r g b` or `color off`, `sample x y`,

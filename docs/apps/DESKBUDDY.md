@@ -243,7 +243,10 @@ mock) or `$DESKBUDDY_VISION` is `none` (blind, as v0.1 was).
 
 - `start()` starts Vision's helper (`pos-vision`, ADR-006) with no picture
   on screen - a 64 x 64 preview it takes and drops - non-blocking; a helper
-  that cannot start is `UNAVAILABLE`, once.
+  that cannot start is `UNAVAILABLE`, once. The preview is the whole
+  camera frame letterboxed (`view ... contain`), not cut to the square: a
+  person at the edge of the 640 x 360 frame is in the tracks like one in
+  the middle.
 - The helper runs the best mode the unit offers: RECOGNIZE (faces, and
   whether one is the owner), else FACE, else DETECT (the object detector's
   people). A face model that fails on the way drops to the next one down

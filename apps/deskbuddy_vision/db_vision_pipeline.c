@@ -95,7 +95,10 @@ bool db_judge_tick(struct db_judge *j, int64_t now_ms, struct db_vision_event *o
 #define PIPELINE_POLL_MS 100
 #define PIPELINE_GRACE_MS 1000
 /* The picture nobody looks at: as small as the helper takes, so its
- * preview costs next to nothing. */
+ * preview costs next to nothing - and the WHOLE frame in it, letterboxed
+ * (vision_session_view_whole): a cut to fill the square would leave the
+ * sides of a 640 x 360 frame out, and a person sitting there would never be
+ * in the tracks at all. */
 #define PIPELINE_VIEW_W 64
 #define PIPELINE_VIEW_H 64
 
@@ -172,7 +175,7 @@ static void choose_mode(struct pipeline *p, uint32_t caps, int64_t now)
     }
     db_judge_init(&p->judge, p->mode >= PIPE_FACE);
     vision_session_mode_word(&p->s, word);
-    vision_session_view(&p->s, PIPELINE_VIEW_W, PIPELINE_VIEW_H, p->rotation);
+    vision_session_view_whole(&p->s, PIPELINE_VIEW_W, PIPELINE_VIEW_H, p->rotation);
     vision_session_stream(&p->s, true, now);
 }
 

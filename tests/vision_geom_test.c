@@ -34,7 +34,7 @@ enum { FW = 64, FH = 36 };
 /* Where the converter puts frame pixel (sx, sy) in a vw x vh picture, or
  * -1 when it is cut off. Nearest-neighbour: the pixel may be drawn several
  * times or not at all; the first hit (top-left) is what is compared. */
-static int drawn_at(uint32_t sx, uint32_t sy, int rotation, bool mirror, uint32_t vw, uint32_t vh,
+static int drawn_at(uint32_t sx, uint32_t sy, int rotation, bool mirror, bool contain, uint32_t vw, uint32_t vh,
                     int32_t *ox, int32_t *oy)
 {
     static uint8_t rgb[FW * FH * 2];
@@ -46,7 +46,8 @@ static int drawn_at(uint32_t sx, uint32_t sy, int rotation, bool mirror, uint32_
     memset(rgb, 0, sizeof(rgb));
     rgb[(sy * FW + sx) * 2] = 0xff;
     rgb[(sy * FW + sx) * 2 + 1] = 0xff;
-    if (pocketcam_to_rgb565(&f, rotation, mirror, POCKETCAM_FIT_COVER, out, vw, vh, vw) != 0) {
+    if (pocketcam_to_rgb565(&f, rotation, mirror, contain ? POCKETCAM_FIT_CONTAIN : POCKETCAM_FIT_COVER, out, vw,
+                            vh, vw) != 0) {
         return -2;
     }
     for (y = 0; y < vh; y++) {
@@ -61,26 +62,34 @@ static int drawn_at(uint32_t sx, uint32_t sy, int rotation, bool mirror, uint32_
     return -1;
 }
 
-static void agree(const char *what, int rotation, bool mirror, uint32_t vw, uint32_t vh)
+static void agree_fit(const char *what, int rotation, bool mirror, bool contain, uint32_t vw, uint32_t vh)
 {
-    struct vision_view v = { FW, FH, rotation, mirror, vw, vh };
+    struct vision_view v = { FW, FH, rotation, mirror, vw, vh, contain };
     uint32_t sx;
     uint32_t sy;
     int ok = 1;
     int seen = 0;
     int cut = 0;
     int slack_ok = 1;
+    int inside = 1;
     char name[160];
 
     for (sy = 0; sy < FH; sy += 5) {
         for (sx = 0; sx < FW; sx += 7) {
-            int32_t dx;
-            int32_t dy;
+            int32_t dx = 0;
+            int32_t dy = 0;
             int32_t mx;
             int32_t my;
-            int r = drawn_at(sx, sy, rotation, mirror, vw, vh, &dx, &dy);
+            int r = drawn_at(sx, sy, rotation, mirror, contain, vw, vh, &dx, &dy);
 
             ok &= vision_map_point(&v, (int32_t)sx, (int32_t)sy, &mx, &my) == 0;
+            /* Contain shows the whole frame: every point is on the picture
+             * (a picture smaller than the frame skips some pixels, it cuts
+             * none off). */
+            inside &= mx >= 0 && my >= 0 && mx < (int32_t)vw && my < (int32_t)vh;
+            if (r == -1 && contain) {
+                continue;
+            }
             if (r == 0) {
                 seen++;
                 /* Nearest-neighbour picks one source pixel per destination
@@ -104,7 +113,12 @@ static void agree(const char *what, int rotation, bool mirror, uint32_t vw, uint
     }
     snprintf(name, sizeof(name), "%s: %d drawn pixels land where the map says (%d cut off)", what,
              seen, cut);
-    check(name, ok && slack_ok && seen > 0);
+    check(name, ok && slack_ok && seen > 0 && (!contain || inside));
+}
+
+static void agree(const char *what, int rotation, bool mirror, uint32_t vw, uint32_t vh)
+{
+    agree_fit(what, rotation, mirror, false, vw, vh);
 }
 
 static void test_points(void)
@@ -126,11 +140,17 @@ static void test_points(void)
     agree("0, square picture (sides cut)", 0, false, 36, 36);
     agree("0, very wide picture (top and bottom cut)", 0, false, 128, 32);
     agree("90, square from a tall turned frame (top and bottom cut)", 90, false, 36, 36);
+    /* Contain: the whole frame, letterboxed - DeskBuddy's square view. */
+    agree_fit("contain, 0, square picture (bars above and below)", 0, false, true, 64, 64);
+    agree_fit("contain, 0, very wide picture (bars left and right)", 0, false, true, 128, 32);
+    agree_fit("contain, 90, square (bars left and right)", 90, false, true, 64, 64);
+    agree_fit("contain, 270, mirrored, square", 270, true, true, 64, 64);
+    agree_fit("contain, 180, the frame's own shape", 180, false, true, FW, FH);
 }
 
 static void test_boxes(void)
 {
-    struct vision_view v = { 640, 360, 90, false, 528, 938 };
+    struct vision_view v = { 640, 360, 90, false, 528, 938, false };
     struct vision_box in;
     struct vision_box out;
     int32_t x;
@@ -148,9 +168,23 @@ static void test_boxes(void)
           vision_map_box(&v, &in, &out) == 1 && out.x >= 0 && out.y >= 0 && out.x + out.w <= 528 &&
               out.y + out.h <= 938 && out.w > out.h);
     /* A box entirely in the part the cover fit cuts off. */
-    v = (struct vision_view) { 640, 360, 0, false, 360, 360 };
+    v = (struct vision_view) { 640, 360, 0, false, 360, 360, false };
     in = (struct vision_box) { 0, 0, 50, 50 };
     check("a box in the cut-off margin is outside", vision_map_box(&v, &in, &out) == 0);
+    /* The same box, the same square, the whole frame letterboxed in: seen,
+     * at the picture's left edge; and the one at the right edge too. */
+    v.contain = true;
+    check("contain: the box at the frame's left edge is in the picture",
+          vision_map_box(&v, &in, &out) == 1 && out.x == 0 && out.y == 79 && out.w > 20);
+    in = (struct vision_box) { 590, 300, 50, 60 };
+    check("contain: and the one at its bottom-right corner",
+          vision_map_box(&v, &in, &out) == 1 && out.x + out.w == 360 && out.y + out.h == 281);
+    v.rotation = 90;
+    in = (struct vision_box) { 0, 0, 50, 50 };
+    check("contain, turned: the frame's first column is still in the picture", vision_map_box(&v, &in, &out) == 1);
+    v.rotation = 0;
+    v.contain = false;
+    in = (struct vision_box) { 0, 0, 50, 50 };
     in = (struct vision_box) { 100, 0, 200, 50 };
     check("one over the edge is clamped to it", vision_map_box(&v, &in, &out) == 1 && out.x == 0 && out.w < 200);
     in = (struct vision_box) { 100, 0, 0, 50 };
@@ -158,7 +192,7 @@ static void test_boxes(void)
     v.rotation = 45;
     check("a view with an impossible rotation is refused",
           vision_map_point(&v, 1, 1, &x, &y) == -EINVAL);
-    v = (struct vision_view) { 0, 360, 0, false, 360, 360 };
+    v = (struct vision_view) { 0, 360, 0, false, 360, 360, false };
     check("a view with no frame is refused", vision_map_point(&v, 1, 1, &x, &y) == -EINVAL);
 }
 
@@ -167,10 +201,12 @@ static void test_boxes(void)
 static void test_unmap(void)
 {
     static const struct vision_view views[] = {
-        { 640, 360, 90, false, 360, 640 },  /* unit A portrait */
-        { 640, 360, 180, false, 802, 452 }, /* unit A landscape */
-        { 640, 360, 0, true, 128, 32 },     /* mirrored, cut top and bottom */
-        { 640, 360, 270, true, 36, 36 },
+        { 640, 360, 90, false, 360, 640, false },  /* unit A portrait */
+        { 640, 360, 180, false, 802, 452, false }, /* unit A landscape */
+        { 640, 360, 0, true, 128, 32, false },     /* mirrored, cut top and bottom */
+        { 640, 360, 270, true, 36, 36, false },
+        { 640, 360, 0, false, 64, 64, true },      /* contain: bars above and below */
+        { 640, 360, 90, true, 64, 64, true },      /* contain, turned, mirrored: bars at the sides */
     };
     size_t k;
     int ok = 1;
@@ -187,6 +223,9 @@ static void test_unmap(void)
                 int32_t bx;
                 int32_t by;
 
+                if (v->contain && vision_unmap_point(v, vx, vy, &sx, &sy) != 0) {
+                    continue; /* a bar around the frame: checked below */
+                }
                 ok &= vision_unmap_point(v, vx, vy, &sx, &sy) == 0 && sx >= 0 && sy >= 0 &&
                       sx < (int32_t)v->frame_w && sy < (int32_t)v->frame_h;
                 ok &= vision_map_point(v, sx, sy, &bx, &by) == 0 && abs(bx - vx) <= 2 && abs(by - vy) <= 2;
@@ -195,7 +234,17 @@ static void test_unmap(void)
     }
     check("every picture point unmaps into the frame and maps back onto itself", ok);
     {
-        struct vision_view v = { 640, 360, 90, false, 360, 640 };
+        /* 640 x 360 into 64 x 64: the frame is 64 x 36, rows 14 to 49. */
+        struct vision_view v = { 640, 360, 0, false, 64, 64, true };
+
+        check("contain: a point on the bar above the frame unmaps to nothing",
+              vision_unmap_point(&v, 10, 5, &sx, &sy) == -EINVAL && vision_unmap_point(&v, 10, 60, &sx, &sy) == -EINVAL);
+        check("contain: the frame's first row is on the picture's row 14",
+              vision_unmap_point(&v, 0, 14, &sx, &sy) == 0 && sx == 0 && sy == 0 &&
+                  vision_unmap_point(&v, 0, 13, &sx, &sy) == -EINVAL);
+    }
+    {
+        struct vision_view v = { 640, 360, 90, false, 360, 640, false };
 
         check("the picture's top-left is the frame's bottom-left corner",
               vision_unmap_point(&v, 0, 0, &sx, &sy) == 0 && sx == 0 && sy == 359);
@@ -230,7 +279,7 @@ static void test_turn(void)
         int p;
 
         vision_turned_size(W, H, rot[k], &tw, &th);
-        v = (struct vision_view) { W, H, rot[k], false, tw, th };
+        v = (struct vision_view) { W, H, rot[k], false, tw, th, false };
         pix_ok &= vision_turn_planes(src, W, H, S, 3, rot[k], dst) == 0;
         for (sy = 0; sy < H; sy++) {
             for (sx = 0; sx < W; sx++) {
