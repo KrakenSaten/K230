@@ -67,15 +67,15 @@ check "the launcher has one Games cell" \
     "$([ "$(field '["launcher"]["folders"][0]["id"]')" = '"games"' ] &&
        [ "$(field '["launcher"]["folders"][0]["apps"]')" = 6 ] &&
        [ "$(field '["launcher"]["folders"][0]["w"]')" -ge 64 ] && echo 1 || echo 0)"
-check "fourteen cells for twenty-five apps, two of them folders, after three favorites" \
-    "$([ "$(field '["launcher"]["apps"]')" = 25 ] && [ "$(field '["launcher"]["home_cells"]')" = 14 ] &&
+check "fifteen cells for twenty-six apps, two of them folders, after three favorites" \
+    "$([ "$(field '["launcher"]["apps"]')" = 26 ] && [ "$(field '["launcher"]["home_cells"]')" = 15 ] &&
        [ "$(field '["launcher"]["folder_cells"]')" = 2 ] && [ "$(field '["launcher"]["favorite_cells"]')" = 3 ] &&
        echo 1 || echo 0)"
 root_cells=$(cells)
 check "and no game cell on the launcher's page" \
     "$(case " $root_cells " in *" fleet "*|*" radar "*|*" timber "*) echo 0 ;; *) echo 1 ;; esac)"
 check "the launcher's page shows the distinctive apps: $root_cells" \
-    "$([ "$root_cells" = "browser deskbuddy mp3 radio rift settings system terminal video vision wave zabbix" ] && echo 1 || echo 0)"
+    "$([ "$root_cells" = "browser deskbuddy mp3 photo radio rift settings system terminal video vision wave zabbix" ] && echo 1 || echo 0)"
 check "the Utilities cell is the second folder, holding seven" \
     "$([ "$(field '["launcher"]["folders"][1]["id"]')" = '"utilities"' ] &&
        [ "$(field '["launcher"]["folders"][1]["apps"]')" = 7 ] &&
