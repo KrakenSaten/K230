@@ -745,6 +745,27 @@ static void rift_destroy(void *priv)
     free(a);
 }
 
+/* The keyboard base's Back (app.h `back`): the ways out RIFT already has on
+ * screen and on Esc - a node's detail back to the list ("‹ NODES"), any
+ * section back to Activity - and at Activity the shell's own back slab. */
+static int rift_back(void *priv)
+{
+    struct rift_app *a = priv;
+
+    if (!a) {
+        return 0;
+    }
+    if (a->section == RIFT_SEC_NODES && a->detail_open) {
+        rift_app_open_detail(a, 0);
+        return 1;
+    }
+    if (a->section != RIFT_SEC_ACTIVITY) {
+        rift_app_show_section(a, RIFT_SEC_ACTIVITY);
+        return 1;
+    }
+    return 0;
+}
+
 const struct pocketos_app app_rift = {
     .id = "rift",
     .name = "RIFT",
@@ -765,4 +786,5 @@ const struct pocketos_app app_rift = {
     /* Landscape draws its own top row - the section strip, with a back slab
      * - where the shell's 72 px header was (DS §37.2). */
     .header = POCKETOS_HEADER_NONE_LANDSCAPE,
+    .back = rift_back,
 };

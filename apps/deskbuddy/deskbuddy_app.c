@@ -1031,6 +1031,19 @@ unsigned deskbuddy_app_steps(void *priv)
  * the text fallback for a shell without the mask. */
 LV_IMAGE_DECLARE(pos_app_icon_deskbuddy);
 
+/* The keyboard base's Back (app.h `back`): the settings panel closes, as
+ * Esc closes it; the face is the top level. */
+static int deskbuddy_back(void *priv)
+{
+    struct deskbuddy_app *a = priv;
+
+    if (!a || !a->panel || lv_obj_has_flag(a->panel, LV_OBJ_FLAG_HIDDEN)) {
+        return 0;
+    }
+    show_settings(a, false);
+    return 1;
+}
+
 const struct pocketos_app app_deskbuddy = {
     .id = "deskbuddy",
     .name = "DeskBuddy",
@@ -1042,4 +1055,5 @@ const struct pocketos_app app_deskbuddy = {
     /* Fullscreen, like the games (DS §36): no status cluster over the face
      * or the night clock; the shell's header keeps the way back. */
     .chrome = POCKETOS_CHROME_NONE,
+    .back = deskbuddy_back,
 };

@@ -59,6 +59,10 @@ add_executable(pocketos-shell
     ../pocketui/pos_keymap.c
     kbd_tca8418.c
     shell_kbd.c
+    kbd_leds.c
+    kbd_light.c
+    hw_actions.c
+    hw_activity.c
     ../pocketui/pos_theme.c
     ../pocketui/pos_styles.c
     ../pocketui/pos_brand_mark.c
@@ -1517,6 +1521,8 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         kbd_tca8418.c
         kbd_presence.c
         kbd_bus_absent.c
+        kbd_leds.c
+        hw_actions.c
         ../pocketui/pocketui.c
         ../pocketui/pos_display.c
         ../pocketui/pos_input.c

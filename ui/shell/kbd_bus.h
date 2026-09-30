@@ -39,6 +39,14 @@ struct kbd_bus {
     int (*irq_level)(void *ctx);
 
     void *ctx;
+
+    /* The same register access to another device on this bus, by its 7-bit
+     * address: the XL9555 expander at 0x20 that drives the keyboard's
+     * indicator LEDs (kbd_leds.h). Inside a claim, like read_reg. NULL on a
+     * bus that reaches only the controller; the LEDs are then absent.
+     * Appended, so a bus that says nothing about them still initialises. */
+    int (*read_reg_at)(void *ctx, uint8_t addr, uint8_t reg, uint8_t *value);
+    int (*write_reg_at)(void *ctx, uint8_t addr, uint8_t reg, uint8_t value);
 };
 
 #endif

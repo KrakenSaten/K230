@@ -1256,6 +1256,20 @@ static void system_destroy(void *priv)
 
 LV_IMAGE_DECLARE(pos_app_icon_system);
 
+/* The keyboard base's Back (app.h `back`): Diagnostics closes as its own
+ * Back button closes it. */
+static int system_back(void *priv)
+{
+    struct system_app *a = priv;
+
+    if (!a || !a->diag) {
+        return 0;
+    }
+    a->diag = false;
+    rebuild(a);
+    return 1;
+}
+
 const struct pocketos_app app_system = {
     .id = "system",
     .name = "System",
@@ -1264,4 +1278,5 @@ const struct pocketos_app app_system = {
     .create = system_create,
     .tick = system_tick,
     .destroy = system_destroy,
+    .back = system_back,
 };

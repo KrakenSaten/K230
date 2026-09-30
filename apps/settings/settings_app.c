@@ -1105,6 +1105,20 @@ static void settings_destroy(void *priv)
 
 LV_IMAGE_DECLARE(pos_app_icon_settings);
 
+/* The keyboard base's Back (app.h `back`): an open sheet (join, forget,
+ * disconnect) closes as its CANCEL or BACK button closes it, passphrase
+ * wiped; the main page is the top level. */
+static int settings_back(void *priv)
+{
+    struct settings_app *a = priv;
+
+    if (!a || a->phase == PHASE_MAIN) {
+        return 0;
+    }
+    close_sheet(a);
+    return 1;
+}
+
 const struct pocketos_app app_settings = {
     .id = "settings",
     .name = "Settings",
@@ -1116,4 +1130,5 @@ const struct pocketos_app app_settings = {
     .create = settings_create,
     .tick = settings_tick,
     .destroy = settings_destroy,
+    .back = settings_back,
 };

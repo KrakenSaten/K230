@@ -1273,6 +1273,19 @@ static void zabbix_destroy(void *priv)
 
 LV_IMAGE_DECLARE(pos_app_icon_zabbix);
 
+/* The keyboard base's Back (app.h `back`): a host's detail closes as its
+ * "‹ BACK" button closes it; the tabs themselves are one level. */
+static int zabbix_back(void *priv)
+{
+    struct zabbix_app *a = priv;
+
+    if (!a || !a->detail_open) {
+        return 0;
+    }
+    select_tab(a, a->cur);
+    return 1;
+}
+
 const struct pocketos_app app_zabbix = {
     .id = "zabbix",
     .name = "Zabbix",
@@ -1286,4 +1299,5 @@ const struct pocketos_app app_zabbix = {
     /* Fullscreen (DS section 30.8): the lists take the height. The hint
      * shows in the header. */
     .chrome = POCKETOS_CHROME_NONE,
+    .back = zabbix_back,
 };

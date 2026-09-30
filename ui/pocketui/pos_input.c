@@ -176,6 +176,11 @@ static void read_cb(lv_indev_t *dev, lv_indev_data_t *data)
         data->continue_reading = head != tail;
         return;
     }
+    /* A raw-only key (the function row) that would reach anything but the
+     * raw target is dropped here, at delivery, where the focus is known. */
+    while (head != tail && pos_key_function(queue[tail % POS_INPUT_QUEUE]) && !raw_delivery(dev)) {
+        tail++;
+    }
     if (head == tail) {
         data->state = LV_INDEV_STATE_RELEASED;
         return;
@@ -295,6 +300,11 @@ void pos_input_set_raw_target(lv_obj_t *obj)
 lv_obj_t *pos_input_raw_target(void)
 {
     return raw_target;
+}
+
+bool pos_input_raw_focused(void)
+{
+    return indev && raw_delivery(indev);
 }
 
 bool pos_input_raw_decode(uint32_t delivered, pos_key_t *key, unsigned *mods)
