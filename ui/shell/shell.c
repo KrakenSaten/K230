@@ -1573,10 +1573,11 @@ static int shot_path(char *out, size_t len)
         snprintf(stamp, sizeof(stamp), "%ld", (long)now);
     }
     for (n = 0; n < 100; n++) {
-        if (n == 0) {
-            snprintf(out, len, "%s/screenshot-%s.png", dir, stamp);
-        } else {
-            snprintf(out, len, "%s/screenshot-%s-%d.png", dir, stamp, n);
+        int w = n == 0 ? snprintf(out, len, "%s/screenshot-%s.png", dir, stamp)
+                       : snprintf(out, len, "%s/screenshot-%s-%d.png", dir, stamp, n);
+
+        if (w < 0 || (size_t)w >= len) {
+            return -1; /* a state directory too long to name a file in */
         }
         if (access(out, F_OK) != 0) {
             return 0;
