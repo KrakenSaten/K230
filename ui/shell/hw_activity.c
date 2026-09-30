@@ -167,8 +167,35 @@ static bool is_camera_node(const struct hw_activity *a, const char *target)
     return false;
 }
 
-/* Whether this pid has a camera node open. Its fd directory is unreadable
- * for a process that just exited, which is simply "no". */
+/* The vendor's ISP daemon, isp_media_server, opens every capture node at
+ * boot and holds them for as long as the board runs (VERIFIED on unit B,
+ * 2026-09-30: pid 148 holding /dev/video1..3 with no app open). It is the
+ * ISP's broker, not a consumer: counting it would light the camera LED for
+ * good. Its comm is cut to the kernel's 15 characters. */
+static bool resident(const struct hw_activity *a, const char *pid)
+{
+    char path[256];
+    char comm[32] = "";
+    FILE *f;
+
+    if (snprintf(path, sizeof(path), "%s/%s/comm", a->proc_root, pid) >= (int)sizeof(path)) {
+        return false;
+    }
+    f = fopen(path, "r");
+    if (!f) {
+        return false;
+    }
+    if (!fgets(comm, sizeof(comm), f)) {
+        comm[0] = '\0';
+    }
+    fclose(f);
+    comm[strcspn(comm, "\n")] = '\0';
+    return strcmp(comm, HW_ACTIVITY_ISP_DAEMON) == 0;
+}
+
+/* Whether this pid has a camera node open, the ISP's own daemon aside. Its
+ * fd directory is unreadable for a process that just exited, which is
+ * simply "no". */
 static bool holds_camera(const struct hw_activity *a, const char *pid)
 {
     char dir[256];
@@ -201,7 +228,7 @@ static bool holds_camera(const struct hw_activity *a, const char *pid)
         found = is_camera_node(a, target);
     }
     closedir(d);
-    return found;
+    return found && !resident(a, pid);
 }
 
 int hw_activity_camera(struct hw_activity *a)

@@ -101,11 +101,16 @@ int main(void)
     fd_link("812", "7", "/dev/dri/card0");
     fd_link("900", "5", "/dev/video0"); /* the VPU: not the camera */
     fd_link("901", "3", "/dev/video4"); /* the 2-D engine: not the camera */
+    /* The vendor's ISP daemon holds all three capture nodes from boot on
+     * (unit B, 2026-09-30); it is the broker, not a camera user. */
+    fd_link("148", "5", "/dev/video1");
+    fd_link("148", "6", "/dev/video2");
+    put("proc/148/comm", "isp_media_serve\n");
     sh("mkdir -p %s/proc/self%s", NULL); /* not a pid */
 
     check("two camera nodes found (vvcam, not mvx or the 2-D engine)",
           hw_activity_init(&a, proc, sys) == 2);
-    check("the VPU and the 2-D engine held: no camera", hw_activity_camera(&a) == 0);
+    check("the VPU, the 2-D engine and the ISP daemon held: no camera", hw_activity_camera(&a) == 0);
     check("capture closed: no microphone", hw_activity_mic(&a) == 0);
 
     /* Wave or Recorder opens the capture stream. */

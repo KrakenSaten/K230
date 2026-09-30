@@ -17,7 +17,9 @@
  *               nodes, /dev/video1..3 on the K230 - the VPU and the 2-D
  *               engine are video devices too, and are not the camera),
  *               found by <proc>/<pid>/fd links (pos-camera, pos-vision -
- *               and so Camera, Vision and DeskBuddy's vision provider)
+ *               and so Camera, Vision and DeskBuddy's vision provider).
+ *               The vendor's isp_media_server holds every node for as long
+ *               as the board runs and is not counted
  *
  * No app has to report anything, and nothing can leave an LED on after the
  * holder is gone: the answer is recomputed from scratch on every call.
@@ -33,6 +35,9 @@
 #include <stdbool.h>
 
 #define HW_ACTIVITY_MAX_CAMERA_NODES 8
+/* The vendor ISP daemon's comm (15 characters, as the kernel keeps it): it
+ * holds every capture node from boot on and is not a camera user. */
+#define HW_ACTIVITY_ISP_DAEMON "isp_media_serve"
 
 struct hw_activity {
     char proc_root[128];
