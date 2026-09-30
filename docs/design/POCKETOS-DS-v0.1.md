@@ -3953,3 +3953,45 @@ slots; a long press sets one, a tap opens it, a long press changes and
 clears it; a shell restart keeps it; Utilities opens with its seven tools;
 Zabbix outside it; Games unchanged; both orientations usable; repeated use
 without a restart of the shell, and its RSS and `art.bytes_held` flat.
+
+## 43. Amendment AA — Terminal [PROPOSED]
+
+**PROPOSED 2026-09-30** on branch `feat/terminal`. A new app; nothing in
+§1-§42 changes or is renumbered. Behaviour and architecture:
+docs/apps/TERMINAL.md; gate: docs/hardware/TERMINAL_GATE.md.
+
+### 43.1 Place and chrome
+
+A launcher app of its own, not in a folder (not in UTILITIES): DEVICE,
+after System, in the tools colour. Its icon is first-party, a screen with a
+prompt `>_` in the extension's line language
+(`docs/design/doors-app-icons/svg/terminal.svg`; for the owner to confirm).
+Chrome DEFAULT and header DEFAULT: the shell's header with its back slab and
+the status cluster, as every tool has. The terminal is the body.
+
+### 43.2 The grid
+
+One custom-drawn object filling the body inside the corner clearance
+(§21), 4 px in from its edge: cells of the monospace face of the caption
+role (§4) without its letter spacing, 8 x 18 px. The default colours are
+`bg` and `text_primary`; a program's eight colours are the identity accents
+(§37: red 0, green 3, yellow 2, blue 5, magenta 7, cyan 4), black
+`text_muted`, white `text_secondary`, bright forms and bold lighter by 30 %,
+backgrounds half way to `bg`. The cursor is a block in `accent_primary`
+with its character in `text_on_accent`; it does not blink. No colour of its
+own (`tests/style_lint.sh`).
+
+### 43.3 Keys and touch
+
+The grid holds the focus and takes every key raw (pos_input's raw key
+target): Tab, Esc and Ctrl chords go to the shell, not to focus, cancel or
+the letter. Shift+Up and Shift+Down scroll half a screen; any other key goes
+to the shell and returns the view to the live screen. A drag scrolls line by
+line; a tap asks for the touch keyboard (Return inserts a line break) when
+the keyboard base is not attached.
+
+### 43.4 Hints
+
+The header's hint says SCROLLBACK while the view is not live and ENDED
+after the shell ended; the screen itself says how it ended, in reverse
+video, and that Enter starts a new shell.

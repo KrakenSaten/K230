@@ -98,6 +98,7 @@ APP_ICONS = {
     "blackjack": (FIRST_PARTY + "blackjack.svg", "games"),
     "2048": (FIRST_PARTY + "2048.svg", "games"),
     "deskbuddy": (FIRST_PARTY + "deskbuddy.svg", "ai"),
+    "terminal": (FIRST_PARTY + "terminal.svg", "tools"),
 }
 # The system glyphs the shell uses, from the package's 32 px exports.
 GLYPHS = ["lock", "power", "wifi", "radio", "sun", "display", "info", "settings", "apps",
