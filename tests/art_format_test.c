@@ -140,7 +140,9 @@ static void test_committed(const char *dir)
     closedir(d);
     check("every committed art file is one the shell accepts, at its size", bad == 0);
     check("six backgrounds: lock, open, home in both orientations", bg == 6);
-    check("twenty-seven icons: twenty-four apps, the Games and Utilities folders and the empty frame", icons == 27);
+    /* Terminal made twenty-five apps (its icon came without this count, so
+     * master read 28 here), Photo twenty-six. */
+    check("twenty-nine icons: twenty-six apps, the Games and Utilities folders and the empty frame", icons == 29);
     check("nothing else is in the directory as art", files == bg + icons);
 }
 
