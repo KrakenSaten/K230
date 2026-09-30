@@ -94,7 +94,29 @@ static int examples(struct fleet_msg *out)
     out[n] = base(FLEET_MSG_END_ACK);
     out[n].reason = FLEET_END_FINISHED;
     n++;
+    /* A line that ends in a two-byte letter, so one byte short is a broken
+     * character rather than a shorter line. */
+    out[n] = base(FLEET_MSG_CHAT);
+    out[n].ply = 200;
+    memcpy(out[n].text, "Godt skudd\xc3\xb8", 12);
+    out[n].text_len = 12;
+    n++;
+    out[n] = base(FLEET_MSG_CHAT_ACK);
+    out[n].ply = 7;
+    out[n].check = 0xBEEF;
+    n++;
     return n;
+}
+
+/* The length an example encodes to: its type's, plus DECLINE's long form, or
+ * a CHAT's text. */
+static size_t example_length(const struct fleet_msg *m)
+{
+    if (m->type == FLEET_MSG_CHAT) {
+        return FLEET_PROTO_HEADER + m->text_len;
+    }
+    return fleet_proto_length((enum fleet_msg_type)m->type) +
+           (m->type == FLEET_MSG_DECLINE && m->reason == FLEET_DECLINE_BUSY_WITH_YOU ? 3 : 0);
 }
 
 static void test_round_trips(void)
@@ -114,8 +136,7 @@ static void test_round_trips(void)
         uint8_t buf[64];
         struct fleet_msg back;
         int len = fleet_proto_encode(&ex[i], buf, sizeof(buf));
-        size_t want = fleet_proto_length((enum fleet_msg_type)ex[i].type) +
-                      (ex[i].type == FLEET_MSG_DECLINE && ex[i].reason == FLEET_DECLINE_BUSY_WITH_YOU ? 3 : 0);
+        size_t want = example_length(&ex[i]);
 
         uint8_t again[64];
 
@@ -130,15 +151,18 @@ static void test_round_trips(void)
         }
         lengths &= (size_t)len == want;
         frames &= len <= FLEET_PROTO_MAX;
-        /* The hot path has to stay in one AES block, and nothing may
-         * need three. */
+        /* The hot path has to stay in one AES block, and nothing of the
+         * game's may need three: only a line of chat can. */
         if (ex[i].type == FLEET_MSG_SHOT || ex[i].type == FLEET_MSG_RESULT ||
             ex[i].type == FLEET_MSG_INVITE || ex[i].type == FLEET_MSG_ACCEPT ||
             ex[i].type == FLEET_MSG_START || ex[i].type == FLEET_MSG_END ||
-            ex[i].type == FLEET_MSG_END_ACK) {
+            ex[i].type == FLEET_MSG_END_ACK || ex[i].type == FLEET_MSG_CHAT_ACK) {
             frames &= len <= FLEET_PROTO_ONE_BLOCK;
         }
-        frames &= fleet_proto_airtime_ms((size_t)len) <= 387;
+        if (ex[i].type != FLEET_MSG_CHAT) {
+            frames &= len <= FLEET_PROTO_GAME_MAX;
+            frames &= fleet_proto_airtime_ms((size_t)len) <= 387;
+        }
         shorter &= fleet_proto_decode(&back, buf, (size_t)len - 1) != 0;
         if (ex[i].type != FLEET_MSG_DECLINE || ex[i].reason == FLEET_DECLINE_BUSY_WITH_YOU) {
             buf[len] = 0;
@@ -152,7 +176,8 @@ static void test_round_trips(void)
     }
     check("every type round trips exactly", round);
     check("every type has its documented length", lengths);
-    check("SHOT, RESULT and the session messages fit one AES block; nothing needs three", frames);
+    check("SHOT, RESULT, the session messages and a chat receipt fit one AES block; "
+          "nothing of the game's needs three", frames);
     check("one byte short is refused", shorter);
     check("one byte long is refused", longer);
     check("another version is refused", version);
@@ -330,10 +355,86 @@ static void test_random(void)
     check("and some did decode, so the checks were reached", accepted > 0);
 }
 
+/* A CHAT with this text, straight onto the wire, however bad the text is. */
+static int chat_decodes(const char *text, size_t n)
+{
+    return decodes_raw(FLEET_MSG_CHAT, 9, (const uint8_t *)text, n);
+}
+
+static struct fleet_msg chat_of(const char *text, size_t n)
+{
+    struct fleet_msg m = base(FLEET_MSG_CHAT);
+
+    m.ply = 9;
+    m.text_len = (uint8_t)n;
+    memcpy(m.text, text, n > FLEET_CHAT_TEXT_MAX ? FLEET_CHAT_TEXT_MAX : n);
+    return m;
+}
+
+static void test_chat(void)
+{
+    char longest[FLEET_CHAT_TEXT_MAX + 2];
+    uint8_t buf[64];
+    struct fleet_msg m;
+    struct fleet_msg back;
+    int len;
+
+    memset(longest, 'x', sizeof(longest));
+    m = chat_of(longest, FLEET_CHAT_TEXT_MAX);
+    len = fleet_proto_encode(&m, buf, sizeof(buf));
+    check("a line of 37 bytes is the longest packet: 42 bytes", len == 42 && len == FLEET_PROTO_MAX);
+    check("which is three AES blocks, 468 ms", fleet_proto_airtime_ms((size_t)len) == 468);
+    check("and comes back whole", fleet_proto_decode(&back, buf, (size_t)len) == 0 &&
+          back.text_len == FLEET_CHAT_TEXT_MAX && memcmp(back.text, longest, 37) == 0 &&
+          back.ply == 9);
+    check("a line of 38 bytes cannot be encoded", !chat_decodes(longest, 38));
+    m.text_len = FLEET_CHAT_TEXT_MAX + 1;
+    check("nor sent", fleet_proto_encode(&m, buf, sizeof(buf)) < 0);
+    m = chat_of("", 0);
+    check("an empty line is refused both ways",
+          fleet_proto_encode(&m, buf, sizeof(buf)) < 0 && !chat_decodes("", 0));
+    m = chat_of("gg", 2);
+    len = fleet_proto_encode(&m, buf, sizeof(buf));
+    check("a short line is one AES block", len == 7 && fleet_proto_airtime_ms((size_t)len) == 305);
+
+    check("Norwegian letters are text", chat_decodes("bl\xc3\xa5 \xc3\xa6\xc3\xb8", 9));
+    check("so is a four-byte character", chat_decodes("\xf0\x9f\x9a\xa2 ahoy", 9));
+    check("a newline is refused", !chat_decodes("a\nb", 3));
+    check("a tab is refused", !chat_decodes("a\tb", 3));
+    check("an escape is refused", !chat_decodes("\x1b[2J", 4));
+    check("DEL is refused", !chat_decodes("a\x7f", 2));
+    check("a C1 control is refused", !chat_decodes("a\xc2\x85", 3));
+    check("a NUL is refused", !chat_decodes("a\0b", 3));
+    check("a stray continuation byte is refused", !chat_decodes("a\x80", 2));
+    check("an overlong slash is refused", !chat_decodes("\xc0\xaf", 2));
+    check("an overlong three-byte form is refused", !chat_decodes("\xe0\x80\xaf", 3));
+    check("a surrogate is refused", !chat_decodes("\xed\xa0\x80", 3));
+    check("past U+10FFFF is refused", !chat_decodes("\xf4\x90\x80\x80", 4));
+    check("a character cut short is refused", !chat_decodes("ok\xe2\x82", 4));
+    check("a lead byte that can never start one is refused", !chat_decodes("\xff", 1));
+
+    memset(buf, 0, sizeof(buf));
+    buf[0] = 0xBE;
+    buf[1] = 0xEF;
+    check("a receipt is exactly seven bytes", decodes_raw(FLEET_MSG_CHAT_ACK, 3, buf, 2) &&
+          !decodes_raw(FLEET_MSG_CHAT_ACK, 3, buf, 1) && !decodes_raw(FLEET_MSG_CHAT_ACK, 3, buf, 3));
+    check("the check names the line: another id is another check",
+          fleet_chat_check(1, (const uint8_t *)"hi", 2) != fleet_chat_check(2, (const uint8_t *)"hi", 2));
+    check("and other words are another check",
+          fleet_chat_check(1, (const uint8_t *)"hi", 2) != fleet_chat_check(1, (const uint8_t *)"ho", 2));
+    {
+        uint8_t hdr[FLEET_PROTO_HEADER + 1] = { (uint8_t)((1 << 6) | FLEET_MSG_TYPE_COUNT), 1, 2, 3, 0, 'a' };
+
+        check("a type newer than this build is refused, not guessed at",
+              fleet_proto_decode(&back, hdr, sizeof(hdr)) != 0);
+    }
+}
+
 int main(void)
 {
     test_round_trips();
     test_fields();
+    test_chat();
     test_random();
     printf("fleet_proto_test: %d failure(s)\n", failed);
     return failed ? 1 : 0;

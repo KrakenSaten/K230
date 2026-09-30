@@ -74,6 +74,10 @@ int fleet_session_fire(struct fleet_session *s, int row, int col, int64_t now);
 int fleet_session_forfeit(struct fleet_session *s, int64_t now);
 int fleet_session_resume(struct fleet_session *s, int64_t now);
 void fleet_session_dismiss(struct fleet_session *s, int64_t now);
+/* A line of chat to the opponent (fleet_match_chat_send). It is not saved, so
+ * it needs no save before it goes; it still leaves only through the match's
+ * outbox, behind anything the game has to send. */
+int fleet_session_chat_send(struct fleet_session *s, const char *text, int64_t now);
 
 /* The name to show for the opponent: the match's, the mesh's, or its key. */
 const char *fleet_session_peer_name(struct fleet_session *s, char *buf, size_t n);

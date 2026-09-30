@@ -1044,6 +1044,499 @@ static void test_layout_commit(void)
     check("commit: the owner changes it", memcmp(c1, c2, FLEET_COMMIT_BYTES) != 0);
 }
 
+/* ---- chat ---------------------------------------------------------------------- */
+
+static int count_type(struct wire *w, int type)
+{
+    int n = 0;
+    int i;
+
+    for (i = 0; i < w->qn; i++) {
+        n += (w->q[i].b[0] & 0x3F) == type;
+    }
+    return n;
+}
+
+/* A CHAT as node `from` would send it, handed straight to `to`. */
+static void say_raw(struct wire *w, int from, int to, uint32_t sid, uint8_t id, const char *text)
+{
+    struct fleet_msg msg;
+    uint8_t buf[FLEET_PROTO_MAX];
+    int n;
+
+    memset(&msg, 0, sizeof(msg));
+    msg.type = FLEET_MSG_CHAT;
+    msg.sid = sid;
+    msg.ply = id;
+    msg.text_len = (uint8_t)strlen(text);
+    memcpy(msg.text, text, msg.text_len);
+    n = fleet_proto_encode(&msg, buf, sizeof(buf));
+    if (n > 0) {
+        fleet_match_receive(&w->n[to].m, w->n[from].key, buf, (size_t)n, w->now);
+    }
+    pump(w);
+}
+
+static int lines_mine_waiting(const struct fleet_match *m)
+{
+    return fleet_chat_pending(&m->chat);
+}
+
+/* to_battle() sets a match up in no time at all, which leaves the governor's
+ * burst at the tokens chat never takes. People take half a minute to get
+ * there, and the burst refills meanwhile. */
+static void to_battle_settled(struct wire *w)
+{
+    to_battle(w);
+    advance(w, 30000);
+    deliver_all(w);
+}
+
+static void test_chat_line(void)
+{
+    struct wire w;
+    const struct fleet_chat_line *l;
+    int rc;
+
+    wire_init(&w, 40);
+    check("chat: nothing can be said without a match",
+          fleet_match_chat_send(A(&w), "Anyone there?", w.now) == -1 && A(&w)->chat.count == 0);
+    to_battle_settled(&w);
+    rc = fleet_match_chat_send(A(&w), "Hello there", w.now);
+    check("chat: a line is taken once the match is live", rc == 0);
+    check("chat: and it is not saved - nothing waits on the disk for it", !fleet_match_dirty(A(&w)));
+    pump(&w);
+    check("chat: it goes on the air at once when the game owes nothing",
+          count_type(&w, FLEET_MSG_CHAT) == 1 && A(&w)->chat.line[0].mine &&
+          A(&w)->chat.line[0].state == FLEET_CHAT_SENDING);
+    deliver_at(&w, find(&w, FLEET_MSG_CHAT));
+    l = fleet_chat_last(&B(&w)->chat);
+    check("chat: the opponent has it as theirs, word for word",
+          l && !l->mine && strcmp(l->text, "Hello there") == 0 && B(&w)->chat.unread == 1);
+    check("chat: and answers with a receipt", count_type(&w, FLEET_MSG_CHAT_ACK) == 1);
+    deliver_all(&w);
+    check("chat: the receipt marks ours delivered", A(&w)->chat.line[0].state == FLEET_CHAT_DELIVERED);
+    check("chat: nothing of the match moved", A(&w)->resolved == 0 && B(&w)->resolved == 0 &&
+          fleet_match_my_turn(B(&w)) && A(&w)->phase == FLEET_MP_BATTLE);
+    fleet_match_chat_seen(B(&w));
+    check("chat: seen, nothing is new", B(&w)->chat.unread == 0);
+    /* A third node, speaking into this session, is not the opponent. */
+    say_raw(&w, 2, 1, A(&w)->sid, 99, "I am A, honest");
+    check("chat: a line from anyone but the opponent is not shown", B(&w)->chat.count == 1 &&
+          B(&w)->stats.rx_foreign > 0 && count_type(&w, FLEET_MSG_CHAT_ACK) == 0);
+}
+
+static void test_chat_duplicates(void)
+{
+    struct wire w;
+    struct pkt copy;
+    int i;
+
+    wire_init(&w, 41);
+    to_battle_settled(&w);
+    fleet_match_chat_send(A(&w), "Once only", w.now);
+    pump(&w);
+    i = find(&w, FLEET_MSG_CHAT);
+    copy = w.q[i];
+    w.q[w.qn++] = copy;
+    deliver_all(&w);
+    check("chat duplicate: a line that arrives twice is shown once",
+          B(&w)->chat.count == 1 && B(&w)->stats.chat_dup == 1 && B(&w)->chat.unread == 1);
+    check("chat duplicate: the copy within 2 s is not answered again", w.sent[1][FLEET_MSG_CHAT_ACK] == 1);
+    w.now += FLEET_DUP_REPLY_MS + 100;
+    w.q[w.qn++] = copy;
+    deliver_all(&w);
+    check("chat duplicate: a later copy is answered again, still shown once",
+          w.sent[1][FLEET_MSG_CHAT_ACK] == 2 && B(&w)->chat.count == 1);
+
+    /* The receipt lost: the retry is a copy to the receiver. */
+    fleet_match_chat_send(A(&w), "Receipt lost", w.now);
+    pump(&w);
+    deliver_at(&w, find(&w, FLEET_MSG_CHAT));
+    i = find(&w, FLEET_MSG_CHAT_ACK);
+    check("chat receipt lost: it was sent", i >= 0);
+    if (i >= 0) {
+        remove_at(&w, i);
+    }
+    advance(&w, 20000);
+    check("chat receipt lost: ours is sent again", w.sent[0][FLEET_MSG_CHAT] == 3);
+    deliver_all(&w);
+    check("chat receipt lost: the retry confirms it and is not shown twice",
+          A(&w)->chat.line[1].state == FLEET_CHAT_DELIVERED && B(&w)->chat.count == 2);
+}
+
+static void test_chat_lost(void)
+{
+    struct wire w;
+    int i;
+
+    wire_init(&w, 42);
+    to_battle_settled(&w);
+    fleet_match_chat_send(A(&w), "Into the void", w.now);
+    pump(&w);
+    for (i = 0; i < 200; i++) {
+        drop_all(&w);
+        advance(&w, 1000);
+    }
+    check("chat lost: tried three times, then given up",
+          w.sent[0][FLEET_MSG_CHAT] == FLEET_CHAT_TRIES &&
+          A(&w)->chat.line[0].state == FLEET_CHAT_FAILED && A(&w)->stats.chat_failed == 1);
+    check("chat lost: the other side never saw it", B(&w)->chat.count == 0);
+    check("chat lost: a line going unanswered is not a link problem",
+          fleet_match_link(A(&w)) == FLEET_LINK_OK && !A(&w)->lost);
+    fleet_match_chat_send(A(&w), "Second try", w.now);
+    pump(&w);
+    check("chat lost: the next line still goes", count_type(&w, FLEET_MSG_CHAT) == 1);
+    deliver_all(&w);
+    check("chat lost: and arrives", B(&w)->chat.count == 1 &&
+          strcmp(B(&w)->chat.line[0].text, "Second try") == 0);
+}
+
+static void test_chat_reordered(void)
+{
+    struct wire w;
+    struct pkt late;
+    int i;
+
+    wire_init(&w, 43);
+    to_battle_settled(&w);
+    fleet_match_chat_send(A(&w), "First", w.now);
+    fleet_match_chat_send(A(&w), "Second", w.now);
+    pump(&w);
+    check("chat order: one line on the air at a time", count_type(&w, FLEET_MSG_CHAT) == 1 &&
+          A(&w)->chat.line[1].state == FLEET_CHAT_QUEUED);
+    i = find(&w, FLEET_MSG_CHAT);
+    late = w.q[i];
+    remove_at(&w, i);           /* held up somewhere on the mesh */
+    advance(&w, 20000);         /* the retry of the first */
+    deliver_all(&w);            /* ... its receipt, then the second, its receipt */
+    advance(&w, 100);
+    deliver_all(&w);
+    check("chat order: both arrive, in order", B(&w)->chat.count == 2 &&
+          strcmp(B(&w)->chat.line[0].text, "First") == 0 &&
+          strcmp(B(&w)->chat.line[1].text, "Second") == 0);
+    w.q[w.qn++] = late;
+    deliver_all(&w);
+    check("chat order: the first, arriving late after the second, is not shown again",
+          B(&w)->chat.count == 2 && strcmp(fleet_chat_last(&B(&w)->chat)->text, "Second") == 0);
+    check("chat order: both of ours are delivered",
+          A(&w)->chat.line[0].state == FLEET_CHAT_DELIVERED &&
+          A(&w)->chat.line[1].state == FLEET_CHAT_DELIVERED);
+}
+
+static void test_chat_bounded(void)
+{
+    struct wire w;
+    char text[16];
+    int i;
+    int rc;
+
+    wire_init(&w, 44);
+    to_battle_settled(&w);
+    for (i = 0; i < 40; i++) {
+        snprintf(text, sizeof(text), "line %d", i);
+        say_raw(&w, 0, 1, A(&w)->sid, (uint8_t)i, text);
+    }
+    check("chat bounded: the history keeps the newest sixteen",
+          B(&w)->chat.count == FLEET_CHAT_HISTORY &&
+          strcmp(B(&w)->chat.line[0].text, "line 24") == 0 &&
+          strcmp(B(&w)->chat.line[FLEET_CHAT_HISTORY - 1].text, "line 39") == 0);
+    drop_all(&w);
+    for (i = 0; i < FLEET_CHAT_OUTGOING; i++) {
+        snprintf(text, sizeof(text), "mine %d", i);
+        fleet_match_chat_send(A(&w), text, w.now);
+    }
+    rc = fleet_match_chat_send(A(&w), "one too many", w.now);
+    check("chat bounded: a fifth line waiting is refused, not queued", rc == -2 &&
+          lines_mine_waiting(A(&w)) == FLEET_CHAT_OUTGOING);
+    drop_all(&w);
+    for (i = 0; i < 30; i++) {
+        snprintf(text, sizeof(text), "theirs %d", i);
+        say_raw(&w, 1, 0, A(&w)->sid, (uint8_t)(100 + i), text);
+        drop_all(&w);
+    }
+    check("chat bounded: a flood of theirs never pushes out ours still waiting",
+          A(&w)->chat.count == FLEET_CHAT_HISTORY && lines_mine_waiting(A(&w)) == FLEET_CHAT_OUTGOING);
+    check("chat bounded: the outbox never holds more than it can",
+          A(&w)->out_len <= FLEET_MATCH_OUTBOX);
+}
+
+static void test_chat_limits(void)
+{
+    struct wire w;
+    char longest[FLEET_CHAT_TEXT_MAX + 2];
+
+    wire_init(&w, 45);
+    to_battle_settled(&w);
+    memset(longest, 'x', sizeof(longest));
+    longest[FLEET_CHAT_TEXT_MAX] = '\0';
+    check("chat limits: 37 bytes is a line", fleet_match_chat_send(A(&w), longest, w.now) == 0);
+    longest[FLEET_CHAT_TEXT_MAX] = 'x';
+    longest[FLEET_CHAT_TEXT_MAX + 1] = '\0';
+    check("chat limits: 38 is refused", fleet_match_chat_send(A(&w), longest, w.now) == -1);
+    check("chat limits: an empty line is refused", fleet_match_chat_send(A(&w), "", w.now) == -1);
+    check("chat limits: so is one of spaces", fleet_match_chat_send(A(&w), "   \t ", w.now) == -1);
+    check("chat limits: a newline is refused", fleet_match_chat_send(A(&w), "a\nb", w.now) == -1);
+    check("chat limits: broken UTF-8 is refused", fleet_match_chat_send(A(&w), "a\xff", w.now) == -1);
+    check("chat limits: spaces round a line are dropped",
+          fleet_match_chat_send(A(&w), "  hi  ", w.now) == 0 &&
+          strcmp(fleet_chat_last(&A(&w)->chat)->text, "hi") == 0);
+    check("chat limits: a line of 37 with spaces round it fits",
+          fleet_match_chat_send(A(&w), " xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ", w.now) == 0);
+    check("chat limits: Norwegian is text",
+          fleet_match_chat_send(A(&w), "Bl\xc3\xa5" "b\xc3\xa6" "rsyltet\xc3\xb8" "y", w.now) == 0);
+}
+
+static void test_chat_malformed(void)
+{
+    struct wire w;
+    uint8_t buf[16] = { (uint8_t)((1 << 6) | FLEET_MSG_CHAT), 0, 0, 0, 5, 'a', '\n', 'b' };
+    unsigned bad;
+
+    wire_init(&w, 46);
+    to_battle_settled(&w);
+    buf[1] = (uint8_t)(A(&w)->sid >> 16);
+    buf[2] = (uint8_t)(A(&w)->sid >> 8);
+    buf[3] = (uint8_t)A(&w)->sid;
+    bad = B(&w)->stats.rx_bad;
+    fleet_match_receive(B(&w), w.n[0].key, buf, 8, w.now);
+    pump(&w);
+    check("chat malformed: a line with a control character is refused, unanswered",
+          B(&w)->chat.count == 0 && B(&w)->stats.rx_bad == bad + 1 && w.qn == 0);
+    buf[0] = (uint8_t)((1 << 6) | 40);          /* a type from a later build */
+    fleet_match_receive(B(&w), w.n[0].key, buf, 8, w.now);
+    pump(&w);
+    check("chat malformed: a type this build does not know is dropped, unanswered",
+          B(&w)->stats.rx_bad == bad + 2 && w.qn == 0 && B(&w)->phase == FLEET_MP_BATTLE);
+    buf[0] = (uint8_t)((1 << 6) | FLEET_MSG_CHAT_ACK);
+    fleet_match_receive(A(&w), w.n[1].key, buf, 7, w.now);
+    pump(&w);
+    check("chat malformed: a receipt for a line never sent changes nothing",
+          A(&w)->chat.count == 0 && w.qn == 0);
+}
+
+static void test_chat_stale_session(void)
+{
+    struct wire w;
+    struct pkt old_line;
+    uint32_t old_sid;
+    int i;
+
+    wire_init(&w, 47);
+    to_battle_settled(&w);
+    old_sid = A(&w)->sid;
+    fleet_match_chat_send(A(&w), "old news", w.now);
+    pump(&w);
+    old_line = w.q[find(&w, FLEET_MSG_CHAT)];
+    deliver_all(&w);
+    check("chat stale: said in the old match", B(&w)->chat.count == 1);
+    fleet_match_forfeit(A(&w), w.now);
+    pump(&w);
+    deliver_all(&w);
+    fleet_match_dismiss(A(&w));
+    fleet_match_dismiss(B(&w));
+    check("chat stale: putting a match away forgets its chat",
+          A(&w)->chat.count == 0 && B(&w)->chat.count == 0 && B(&w)->chat.unread == 0);
+    to_battle_settled(&w);
+    check("chat stale: a new match, a new session", A(&w)->sid != old_sid &&
+          B(&w)->phase == FLEET_MP_BATTLE && B(&w)->chat.count == 0);
+    w.q[w.qn++] = old_line;
+    i = w.qn - 1;
+    deliver_at(&w, i);
+    check("chat stale: a line of the old session is not shown in the new one",
+          B(&w)->chat.count == 0 && B(&w)->phase == FLEET_MP_BATTLE);
+    check("chat stale: it is answered as the old session's, with its END",
+          find(&w, FLEET_MSG_END) >= 0 && count_type(&w, FLEET_MSG_CHAT_ACK) == 0);
+    drop_all(&w);
+    {
+        uint8_t ack[7] = { (uint8_t)((1 << 6) | FLEET_MSG_CHAT_ACK), (uint8_t)(old_sid >> 16),
+                           (uint8_t)(old_sid >> 8), (uint8_t)old_sid, 1, 0, 0 };
+
+        fleet_match_receive(A(&w), w.n[1].key, ack, sizeof(ack), w.now);
+        pump(&w);
+        check("chat stale: an old session's receipt is dropped without a word", w.qn == 0 &&
+              A(&w)->phase == FLEET_MP_BATTLE);
+    }
+}
+
+static void test_chat_second_to_the_game(void)
+{
+    struct wire w;
+    int i;
+
+    wire_init(&w, 48);
+    to_battle_settled(&w);
+    /* The guest fires and says something in the same breath. */
+    fleet_match_fire(B(&w), 5, 5, w.now);
+    fleet_match_chat_send(B(&w), "Take that", w.now);
+    pump(&w);
+    check("chat priority: the shot goes, the line waits for its answer",
+          count_type(&w, FLEET_MSG_SHOT) == 1 && count_type(&w, FLEET_MSG_CHAT) == 0);
+    deliver_at(&w, find(&w, FLEET_MSG_SHOT));
+    check("chat priority: the answer comes first", count_type(&w, FLEET_MSG_RESULT) == 1 &&
+          count_type(&w, FLEET_MSG_CHAT) == 0);
+    deliver_at(&w, find(&w, FLEET_MSG_RESULT));
+    check("chat priority: then the line", B(&w)->resolved == 1 && count_type(&w, FLEET_MSG_CHAT) == 1);
+    deliver_all(&w);
+
+    /* Chat never takes the last tokens of the burst. */
+    B(&w)->tokens = FLEET_CHAT_TOKEN_RESERVE;
+    B(&w)->refill_at = w.now + 600000;
+    fleet_match_chat_send(B(&w), "held back", w.now);
+    pump(&w);
+    check("chat priority: at the reserve, a line waits", count_type(&w, FLEET_MSG_CHAT) == 0 &&
+          B(&w)->stats.chat_held == 1);
+    fleet_match_fire(A(&w), 0, 0, w.now);   /* ply 2 is the host's */
+    pump(&w);
+    deliver_all(&w);
+    check("chat priority: the game still moves on what chat left it",
+          A(&w)->resolved == 2 && B(&w)->resolved == 2 && count_type(&w, FLEET_MSG_CHAT) == 0);
+    fleet_match_fire(B(&w), 6, 6, w.now);
+    pump(&w);
+    check("chat priority: and our own shot takes a reserved token",
+          count_type(&w, FLEET_MSG_SHOT) == 1);
+    deliver_all(&w);
+
+    /* Nor Fleet's last 40 s of the hour. */
+    B(&w)->tokens = FLEET_GOV_BURST;
+    B(&w)->minute_of[(w.now / 60000) % 60] = w.now / 60000;
+    B(&w)->minute_ms[(w.now / 60000) % 60] = FLEET_CHAT_HOUR_MS;
+    advance(&w, 100);
+    check("chat priority: past 50 s in the hour, a line waits", count_type(&w, FLEET_MSG_CHAT) == 0);
+    fleet_match_fire(A(&w), 0, 1, w.now);
+    pump(&w);
+    deliver_all(&w);
+    check("chat priority: while the game's answer still goes", A(&w)->resolved == 4);
+    for (i = 0; i < 70; i++) {
+        advance(&w, 60000);
+        deliver_all(&w);
+    }
+    check("chat priority: and the line goes once the hour has room",
+          B(&w)->chat.line[B(&w)->chat.count - 1].state == FLEET_CHAT_DELIVERED);
+}
+
+static void test_chat_ending(void)
+{
+    struct wire w;
+    int i;
+
+    wire_init(&w, 49);
+    to_battle_settled(&w);
+    fleet_match_chat_send(B(&w), "one", w.now);
+    fleet_match_chat_send(B(&w), "two", w.now);
+    pump(&w);
+    drop_all(&w);
+    fleet_match_forfeit(A(&w), w.now);
+    pump(&w);
+    deliver_at(&w, find(&w, FLEET_MSG_END));
+    check("chat ending: the match ended by forfeit", B(&w)->phase == FLEET_MP_DONE &&
+          B(&w)->end_reason == FLEET_END_FORFEIT);
+    check("chat ending: lines still waiting are given up, not sent into the ending",
+          B(&w)->chat.line[0].state == FLEET_CHAT_FAILED &&
+          B(&w)->chat.line[1].state == FLEET_CHAT_FAILED && count_type(&w, FLEET_MSG_CHAT) == 0);
+    check("chat ending: and nothing more can be said", fleet_match_chat_send(B(&w), "three", w.now) == -1);
+    {
+        unsigned before = w.sent[1][FLEET_MSG_CHAT];
+
+        for (i = 0; i < 100; i++) {
+            advance(&w, 1000);
+            deliver_all(&w);
+        }
+        check("chat ending: nothing of it goes afterwards", w.sent[1][FLEET_MSG_CHAT] == before);
+    }
+
+    /* A match played to its end keeps the chat for the word after it. */
+    wire_init(&w, 50);
+    to_battle_settled(&w);
+    play(&w, 3600000, 0);
+    check("chat after the end: the match is over", A(&w)->phase == FLEET_MP_DONE &&
+          B(&w)->phase == FLEET_MP_DONE && A(&w)->end_reason == FLEET_END_NONE);
+    check("chat after the end: good game", fleet_match_chat_send(A(&w), "gg", w.now) == 0);
+    pump(&w);
+    deliver_all(&w);
+    check("chat after the end: arrives and is confirmed",
+          B(&w)->chat.count == 1 && strcmp(B(&w)->chat.line[0].text, "gg") == 0 &&
+          A(&w)->chat.line[0].state == FLEET_CHAT_DELIVERED);
+}
+
+/* A whole match with both players talking all the way through it. */
+static void test_chat_under_load(void)
+{
+    struct wire quiet;
+    struct wire w;
+    int64_t start;
+    int64_t quiet_ms = 0;
+    int64_t busy_ms = 0;
+    int pass;
+
+    for (pass = 0; pass < 2; pass++) {
+        struct wire *p = pass ? &w : &quiet;
+        int64_t end;
+        int64_t ready[2] = { 0, 0 };
+        int seen[2] = { -1, -1 };
+        int64_t next_say = 0;
+        int said = 0;
+
+        wire_init(p, 51);
+        to_battle(p);
+        start = p->now;
+        end = p->now + 3600000;
+        while (p->now < end && !(A(p)->phase == FLEET_MP_DONE && B(p)->phase == FLEET_MP_DONE)) {
+            int i;
+
+            deliver_all(p);
+            for (i = 0; i < 2; i++) {
+                int turn = fleet_match_my_turn(&p->n[i].m) ? p->n[i].m.resolved : -1;
+
+                if (turn != seen[i]) {
+                    seen[i] = turn;
+                    ready[i] = p->now + THINK_MS;
+                }
+                if (turn < 0 || p->now >= ready[i]) {
+                    mp_play(&p->n[i], p->now, 0);
+                }
+            }
+            if (pass && p->now >= next_say) {
+                /* Each side, every two seconds, as long as it has room. */
+                char text[64];
+
+                /* 30-odd bytes: a three-block frame, the dearest there is. */
+                snprintf(text, sizeof(text), "Line %d, long enough to fill it!", said++);
+                fleet_match_chat_send(A(p), text, p->now);
+                fleet_match_chat_send(B(p), text, p->now);
+                next_say = p->now + 2000;
+            }
+            pump(p);
+            deliver_all(p);
+            advance(p, 100);
+        }
+        if (pass) {
+            busy_ms = p->now - start;
+        } else {
+            quiet_ms = p->now - start;
+        }
+    }
+    printf("     under load: %u plies in %lld s against %u in %lld s quiet; chat %u+%u lines "
+           "shown, %u+%u frames, %u+%u held; airtime A %u ms, B %u ms\n",
+           A(&w)->resolved, (long long)(busy_ms / 1000), A(&quiet)->resolved,
+           (long long)(quiet_ms / 1000), A(&w)->stats.chat_rx, B(&w)->stats.chat_rx,
+           A(&w)->stats.chat_tx, B(&w)->stats.chat_tx, A(&w)->stats.chat_held,
+           B(&w)->stats.chat_held, w.airtime[0], w.airtime[1]);
+    check("chat load: the match is played to its end", A(&w)->phase == FLEET_MP_DONE &&
+          B(&w)->phase == FLEET_MP_DONE && A(&w)->verify == FLEET_VERIFY_OK &&
+          B(&w)->verify == FLEET_VERIFY_OK);
+    check("chat load: the same match, shot for shot", A(&w)->resolved == A(&quiet)->resolved &&
+          memcmp(A(&w)->log_cell, A(&quiet)->log_cell, sizeof(A(&w)->log_cell)) == 0);
+    check("chat load: every ply still one SHOT and one RESULT - no retry of the game's",
+          w.sent[0][FLEET_MSG_SHOT] + w.sent[1][FLEET_MSG_SHOT] == A(&w)->resolved &&
+          w.sent[0][FLEET_MSG_RESULT] + w.sent[1][FLEET_MSG_RESULT] == A(&w)->resolved);
+    check("chat load: a lot was said", A(&w)->stats.chat_rx > 20 && B(&w)->stats.chat_rx > 20);
+    check("chat load: and the match took no more than a quarter longer",
+          busy_ms * 4 <= quiet_ms * 5);
+    check("chat load: within Fleet's hour", w.airtime[0] <= FLEET_GOV_HOUR_MS * (busy_ms / 3600000 + 1) &&
+          w.airtime[1] <= FLEET_GOV_HOUR_MS * (busy_ms / 3600000 + 1));
+}
+
 int main(void)
 {
     test_invite_accept();
@@ -1080,6 +1573,17 @@ int main(void)
     test_governor();
     test_save_codec();
     test_layout_commit();
+    test_chat_line();
+    test_chat_duplicates();
+    test_chat_lost();
+    test_chat_reordered();
+    test_chat_bounded();
+    test_chat_limits();
+    test_chat_malformed();
+    test_chat_stale_session();
+    test_chat_second_to_the_game();
+    test_chat_ending();
+    test_chat_under_load();
     printf("fleet_match_test: %d failure(s)\n", failed);
     return failed ? 1 : 0;
 }

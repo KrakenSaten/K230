@@ -26,6 +26,8 @@ enum fleet_screen {
      * (docs/apps/FLEET_MULTIPLAYER.md). Last, so the four screens above keep
      * their places. */
     FLEET_SCREEN_LOBBY,
+    /* Multiplayer: the chat with the opponent, from Battle or Result. */
+    FLEET_SCREEN_CHAT,
     FLEET_SCREEN_COUNT
 };
 
@@ -41,6 +43,7 @@ struct fleet_deploy_ui;
 struct fleet_battle_ui;
 struct fleet_result_ui;
 struct fleet_lobby_ui;
+struct fleet_chat_ui;
 struct fleet_session;
 struct fleet_link;
 
@@ -106,6 +109,7 @@ struct fleet_app {
     struct fleet_battle_ui *battle;
     struct fleet_result_ui *result;
     struct fleet_lobby_ui *lobby;
+    struct fleet_chat_ui *chat;
 
     /* ---- multiplayer (fleet_mp.c) ---------------------------------------- */
     uint8_t mode;                             /* enum fleet_mode */
@@ -187,6 +191,9 @@ void fleet_screen_battle_nudge(struct fleet_app *app, int drow, int dcol);
 /* Stop the grids animating and settle any turn still being paced out, so the
  * match is never left half played. */
 void fleet_screen_battle_leave(struct fleet_app *app);
+/* Back from the chat to the match in progress: the grids animate again, and
+ * the crosshair and the log line are as they were left. */
+void fleet_screen_battle_resume(struct fleet_app *app);
 /* Commit the aimed shot, exactly as the FIRE button does. */
 void fleet_screen_battle_fire(struct fleet_app *app);
 void fleet_screen_battle_relayout(struct fleet_app *app, int wide, int cell_w, int cell_h);
@@ -196,6 +203,17 @@ void fleet_screen_result_relayout(struct fleet_app *app, int wide);
 lv_obj_t *fleet_screen_lobby_create(struct fleet_app *app, lv_obj_t *parent);
 void fleet_screen_lobby_refresh(struct fleet_app *app);
 void fleet_screen_lobby_relayout(struct fleet_app *app, int wide);
+lv_obj_t *fleet_screen_chat_create(struct fleet_app *app, lv_obj_t *parent);
+void fleet_screen_chat_refresh(struct fleet_app *app);
+void fleet_screen_chat_relayout(struct fleet_app *app, int wide);
+/* The chat is being opened: the caret goes to the field and the list to its
+ * newest line, once the event that opened it is over. */
+void fleet_screen_chat_enter(struct fleet_app *app);
+/* The chat is being left: the touch keyboard goes with it. */
+void fleet_screen_chat_leave(struct fleet_app *app);
+/* Once per tick of the multiplayer timer while chat is shown: what must not
+ * be done from inside an LVGL event (focus, scrolling to the newest line). */
+void fleet_screen_chat_tick(struct fleet_app *app);
 
 /* ---- multiplayer (fleet_mp.c) ------------------------------------------------ */
 
@@ -208,6 +226,13 @@ void fleet_mp_destroy(struct fleet_app *app);
 void fleet_app_multiplayer(struct fleet_app *app);
 /* Continue the match in hand on the screen its phase belongs to. */
 void fleet_app_mp_resume(struct fleet_app *app);
+/* Open the chat with the opponent, and leave it for the screen the match's
+ * phase belongs to now (which is not always the one it was opened from: the
+ * match may have ended meanwhile). */
+void fleet_app_chat(struct fleet_app *app);
+void fleet_app_chat_back(struct fleet_app *app);
+/* The status the header shows, in words (fleet_view_mp_status). */
+int fleet_app_mp_status(struct fleet_app *app, char *buf, size_t n);
 /* After anything that may have changed the match: steer and refresh. */
 void fleet_app_mp_changed(struct fleet_app *app);
 /* CLOCK_MONOTONIC in ms, as the session sees it. */
@@ -217,7 +242,7 @@ const char *fleet_app_peer(struct fleet_app *app, char *buf, size_t n);
 /* Development aid: with POCKETFLEET_MP_FAKE set, drive a match against the
  * virtual opponent into the named state on a skipped clock, for screenshots
  * (POCKETFLEET_SCREEN=lobby|mp_invited|mp_deploy|mp_battle|mp_waiting|mp_lost|
- * mp_result). Returns 1 when it recognised the name. */
+ * mp_result|mp_chat). Returns 1 when it recognised the name. */
 int fleet_mp_debug(struct fleet_app *app, const char *want);
 /* The board Deploy works on: the AI match's, or the one for a multiplayer
  * match. */

@@ -412,7 +412,7 @@ static void gov_refill(struct fleet_match *m, int64_t now)
     }
 }
 
-static uint32_t gov_hour(const struct fleet_match *m, int64_t now)
+static uint32_t hour_sum(const struct fleet_match *m, const uint32_t *per_minute, int64_t now)
 {
     int64_t minute = now / 60000;
     uint32_t total = 0;
@@ -420,10 +420,22 @@ static uint32_t gov_hour(const struct fleet_match *m, int64_t now)
 
     for (i = 0; i < 60; i++) {
         if (m->minute_of[i] > minute - 60 && m->minute_of[i] <= minute) {
-            total += m->minute_ms[i];
+            total += per_minute[i];
         }
     }
     return total;
+}
+
+/* Fleet's airtime in the rolling hour, chat included. */
+static uint32_t gov_hour(const struct fleet_match *m, int64_t now)
+{
+    return hour_sum(m, m->minute_ms, now);
+}
+
+/* The part of it that was chat. */
+static uint32_t gov_chat_hour(const struct fleet_match *m, int64_t now)
+{
+    return hour_sum(m, m->chat_minute_ms, now);
 }
 
 /* A fresh reply - the answer the peer is waiting for right now - needs only
@@ -438,22 +450,37 @@ static int gov_allow(struct fleet_match *m, uint32_t air, int64_t now, int fresh
     return fresh || m->tokens > 0;
 }
 
-static void gov_charge(struct fleet_match *m, uint32_t air, int64_t now)
+/* The airtime into the rolling hour, and nothing from the burst. */
+static void gov_charge_hour(struct fleet_match *m, uint32_t air, int64_t now, int chat)
 {
     int64_t minute = now / 60000;
     int slot = (int)(minute % 60);
 
+    if (m->minute_of[slot] != minute) {
+        m->minute_of[slot] = minute;
+        m->minute_ms[slot] = 0;
+        m->chat_minute_ms[slot] = 0;
+    }
+    m->minute_ms[slot] += air;
+    if (chat) {
+        m->chat_minute_ms[slot] += air;
+    }
+}
+
+static void gov_take_token(struct fleet_match *m, int64_t now)
+{
     if (m->tokens == FLEET_GOV_BURST) {
         m->refill_at = now + FLEET_GOV_REFILL_MS;
     }
     if (m->tokens > 0) {
         m->tokens--;
     }
-    if (m->minute_of[slot] != minute) {
-        m->minute_of[slot] = minute;
-        m->minute_ms[slot] = 0;
-    }
-    m->minute_ms[slot] += air;
+}
+
+static void gov_charge(struct fleet_match *m, uint32_t air, int64_t now)
+{
+    gov_take_token(m, now);
+    gov_charge_hour(m, air, now, 0);
 }
 
 /* When the governor will next let a frame go. */
@@ -470,10 +497,34 @@ static int64_t gov_ready(struct fleet_match *m, int64_t now)
 enum { SENT = 0, DEFERRED = 1, DROPPED = -1 };
 enum { AS_OBLIGATION, AS_FRESH, AS_DUP };
 
+/* Into the outbox, already paid for. A full outbox loses its oldest packet,
+ * which only the game's own traffic can make happen: chat never queues
+ * behind anything (chat_enqueue). */
+static void outbox_put(struct fleet_match *m, const uint8_t *to, const uint8_t *buf, int n,
+                       uint8_t ob, uint32_t air)
+{
+    struct fleet_match_out *o;
+
+    if (m->out_len == FLEET_MATCH_OUTBOX) {
+        m->out_head = (uint8_t)((m->out_head + 1) % FLEET_MATCH_OUTBOX);
+        m->out_len--;
+    }
+    o = &m->out[(m->out_head + m->out_len) % FLEET_MATCH_OUTBOX];
+    memcpy(o->to, to, FLEET_KEY_BYTES);
+    o->len = (uint8_t)n;
+    memcpy(o->bytes, buf, (size_t)n);
+    o->obligation = ob;
+    m->out_len++;
+    m->stats.tx++;
+    m->stats.tx_airtime_ms += air;
+    if (ob) {
+        m->stats.tx_obligation++;
+    }
+}
+
 static int enqueue_as(struct fleet_match *m, const uint8_t *to, const struct fleet_msg *msg,
                       uint8_t ob, int as)
 {
-    struct fleet_match_out *o;
     uint8_t buf[FLEET_PROTO_MAX];
     uint32_t air;
     int n = fleet_proto_encode(msg, buf, sizeof(buf));
@@ -491,21 +542,48 @@ static int enqueue_as(struct fleet_match *m, const uint8_t *to, const struct fle
         return DROPPED;
     }
     gov_charge(m, air, m->now);
-    if (m->out_len == FLEET_MATCH_OUTBOX) {
-        m->out_head = (uint8_t)((m->out_head + 1) % FLEET_MATCH_OUTBOX);
-        m->out_len--;
+    outbox_put(m, to, buf, n, ob, air);
+    return SENT;
+}
+
+/* A chat frame on the game's terms: only into an empty outbox, and never
+ * past Fleet's hour.
+ *
+ * A line also needs a token above FLEET_CHAT_TOKEN_RESERVE, Fleet's hour
+ * under FLEET_CHAT_HOUR_MS and chat's own share of it under
+ * FLEET_CHAT_SHARE_MS: that is what keeps chat second to the game.
+ *
+ * A receipt is held to the whole hour alone, as the game's own first answers
+ * are, and never spends one of the reserved tokens. The line it confirms is
+ * already on the other screen; withholding the receipt would only make its
+ * sender try again and then call it not delivered, which costs more and says
+ * the wrong thing. There is at most one receipt per line, and the lines are
+ * held to the rules above by the side that says them. */
+static int chat_enqueue(struct fleet_match *m, const struct fleet_msg *msg)
+{
+    uint8_t buf[FLEET_PROTO_MAX];
+    uint32_t air;
+    int receipt = msg->type == FLEET_MSG_CHAT_ACK;
+    int n = fleet_proto_encode(msg, buf, sizeof(buf));
+
+    if (n < 0) {
+        return DROPPED;
     }
-    o = &m->out[(m->out_head + m->out_len) % FLEET_MATCH_OUTBOX];
-    memcpy(o->to, to, FLEET_KEY_BYTES);
-    o->len = (uint8_t)n;
-    memcpy(o->bytes, buf, (size_t)n);
-    o->obligation = ob;
-    m->out_len++;
-    m->stats.tx++;
-    m->stats.tx_airtime_ms += air;
-    if (ob) {
-        m->stats.tx_obligation++;
+    air = fleet_proto_airtime_ms((size_t)n);
+    gov_refill(m, m->now);
+    if (m->out_len > 0 || gov_hour(m, m->now) + air > FLEET_GOV_HOUR_MS) {
+        return DEFERRED;
     }
+    if (!receipt && (m->tokens <= FLEET_CHAT_TOKEN_RESERVE ||
+                     gov_hour(m, m->now) + air > FLEET_CHAT_HOUR_MS ||
+                     gov_chat_hour(m, m->now) + air > FLEET_CHAT_SHARE_MS)) {
+        return DEFERRED;
+    }
+    if (m->tokens > FLEET_CHAT_TOKEN_RESERVE) {
+        gov_take_token(m, m->now);
+    }
+    gov_charge_hour(m, air, m->now, 1);
+    outbox_put(m, m->peer_key, buf, n, 0, air);
     return SENT;
 }
 
@@ -704,6 +782,9 @@ static void clear_session(struct fleet_match *m)
     m->attempts = 0;
     m->ob = FLEET_OB_NONE;
     m->silence_probed = 0;
+    /* Nothing said in one match is shown in the next. Our ids run on, so
+     * the next session never starts on the numbers this one just used. */
+    fleet_chat_reset(&m->chat, m->chat.next_id);
     memcpy(m->self_key, self, sizeof(self));
     memcpy(m->tomb, tomb, sizeof(tomb));
     m->dirty = 1;
@@ -903,7 +984,7 @@ static uint32_t backoff(struct fleet_match *m, int attempts)
     return d + jitter(m, d / 2);
 }
 
-static void service(struct fleet_match *m)
+static void service_game(struct fleet_match *m)
 {
     uint8_t kind;
     uint8_t ply;
@@ -974,6 +1055,147 @@ static void service(struct fleet_match *m)
     m->attempts++;
     m->next_retry = m->now + backoff(m, m->attempts);
     if (m->attempts >= 2) {
+        touch(m);
+    }
+}
+
+/* ---- chat -------------------------------------------------------------------- */
+
+int fleet_match_chat_open(const struct fleet_match *m)
+{
+    return m && ((m->phase >= FLEET_MP_DEPLOY && m->phase <= FLEET_MP_REVEAL) ||
+                 (m->phase == FLEET_MP_DONE && m->end_reason == FLEET_END_NONE));
+}
+
+/* Our next line, when the game can spare the air for it. The game owes
+ * nothing and is owed nothing: no obligation in force (a shot waiting for its
+ * answer included, so a line is never on the air when the answer comes), no
+ * resync, the peer not out of reach, and nothing of the game's in the outbox.
+ * Waiting costs the line nothing - a try is only counted once it went. */
+static void chat_service(struct fleet_match *m)
+{
+    struct fleet_chat *c = &m->chat;
+    struct fleet_chat_line *l;
+    struct fleet_msg msg;
+    int n;
+
+    if (!fleet_match_chat_open(m)) {
+        n = fleet_chat_fail_pending(c);
+        if (n > 0) {
+            m->stats.chat_failed += (unsigned)n;
+            touch(m);
+        }
+        return;
+    }
+    l = fleet_chat_outgoing(c);
+    if (l && l->state == FLEET_CHAT_SENDING) {
+        if (m->now < c->next_try) {
+            return;
+        }
+        if (c->tries >= FLEET_CHAT_TRIES) {
+            l->state = FLEET_CHAT_FAILED;
+            c->tries = 0;
+            m->stats.chat_failed++;
+            touch(m);
+            l = fleet_chat_outgoing(c);
+        }
+    }
+    if (!l || m->ob != FLEET_OB_NONE || m->lost || m->resyncing || m->throttled ||
+        m->out_len > 0) {
+        return;
+    }
+    msg_init(m, &msg, FLEET_MSG_CHAT, 0);
+    msg.ply = l->id;
+    msg.text_len = l->len;
+    memcpy(msg.text, l->text, l->len);
+    if (chat_enqueue(m, &msg) != SENT) {
+        if (!c->held) {
+            c->held = 1;
+            m->stats.chat_held++;
+        }
+        return;
+    }
+    c->held = 0;
+    if (l->state == FLEET_CHAT_QUEUED) {
+        l->state = FLEET_CHAT_SENDING;
+        c->tries = 0;
+    }
+    c->tries++;
+    c->next_try = m->now + backoff(m, c->tries);
+    m->stats.chat_tx++;
+    touch(m);
+}
+
+/* Everything due: the game's obligation first, then, with what it leaves,
+ * a line of chat. */
+static void service(struct fleet_match *m)
+{
+    service_game(m);
+    chat_service(m);
+}
+
+static void handle_chat(struct fleet_match *m, const struct fleet_msg *in)
+{
+    struct fleet_msg msg;
+    int r;
+
+    if (!fleet_match_chat_open(m)) {
+        m->stats.rx_stale++;
+        return;
+    }
+    r = fleet_chat_add_theirs(&m->chat, in->ply, in->text, in->text_len);
+    if (r < 0) {
+        m->stats.rx_bad++;
+        return;
+    }
+    if (r == 1) {
+        m->stats.chat_rx++;
+        touch(m);
+    } else {
+        /* Our receipt was lost, or the line came twice. It is answered
+         * again, at most once per FLEET_DUP_REPLY_MS, and not shown again. */
+        m->stats.chat_dup++;
+        if (m->last_reply[FLEET_MSG_CHAT_ACK] &&
+            m->now - m->last_reply[FLEET_MSG_CHAT_ACK] < FLEET_DUP_REPLY_MS) {
+            return;
+        }
+    }
+    msg_init(m, &msg, FLEET_MSG_CHAT_ACK, 0);
+    msg.ply = in->ply;
+    msg.check = fleet_chat_check(in->ply, in->text, in->text_len);
+    if (chat_enqueue(m, &msg) == SENT) {
+        m->last_reply[FLEET_MSG_CHAT_ACK] = m->now ? m->now : 1;
+    }
+}
+
+static void handle_chat_ack(struct fleet_match *m, const struct fleet_msg *in)
+{
+    if (fleet_chat_acked(&m->chat, in->ply, in->check)) {
+        touch(m);
+    }
+}
+
+int fleet_match_chat_send(struct fleet_match *m, const char *text, int64_t now)
+{
+    int rc;
+
+    if (!m || !fleet_match_chat_open(m)) {
+        return -1;
+    }
+    m->now = now;
+    rc = fleet_chat_add_mine(&m->chat, text);
+    if (rc != 0) {
+        return rc;
+    }
+    touch(m);
+    service(m);
+    return 0;
+}
+
+void fleet_match_chat_seen(struct fleet_match *m)
+{
+    if (m && m->chat.unread) {
+        fleet_chat_seen(&m->chat);
         touch(m);
     }
 }
@@ -1086,8 +1308,11 @@ static void handle_stranger(struct fleet_match *m, const uint8_t *from, const st
     int t = tomb_find(m, in->sid, from);
 
     m->stats.rx_stale++;
+    /* A receipt for a line of a session gone asks nothing, like END_ACK. A
+     * line of one is answered as any packet of it is: the peer learns the
+     * session is over, and nothing it said is shown in another. */
     if (in->type == FLEET_MSG_END_ACK || in->type == FLEET_MSG_DECLINE ||
-        in->type == FLEET_MSG_CANCEL) {
+        in->type == FLEET_MSG_CANCEL || in->type == FLEET_MSG_CHAT_ACK) {
         return;
     }
     if (t >= 0) {
@@ -1585,6 +1810,12 @@ void fleet_match_receive(struct fleet_match *m, const uint8_t from[FLEET_KEY_BYT
             mark_dirty(m);
         }
         break;
+    case FLEET_MSG_CHAT:
+        handle_chat(m, &in);
+        break;
+    case FLEET_MSG_CHAT_ACK:
+        handle_chat_ack(m, &in);
+        break;
     default:
         break;
     }
@@ -1688,6 +1919,9 @@ void fleet_match_init(struct fleet_match *m, const uint8_t self_key[FLEET_KEY_BY
     m->pending = FLEET_NO_CELL;
     m->tokens = FLEET_GOV_BURST;
     fleet_rng_seed(&m->rng, seed);
+    /* From the seed rather than the generator, so the jitter a match draws
+     * is the same with or without chat. */
+    fleet_chat_reset(&m->chat, (uint8_t)(seed ^ seed >> 8 ^ seed >> 16 ^ seed >> 24));
     fleet_board_clear(&m->own);
     fleet_board_clear(&m->target);
     fleet_board_clear(&m->peer_board);

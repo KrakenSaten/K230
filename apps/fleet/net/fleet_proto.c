@@ -27,6 +27,8 @@ static const uint8_t body_len[FLEET_MSG_TYPE_COUNT] = {
     [FLEET_MSG_REVEAL] = FLEET_LAYOUT_BYTES + FLEET_SALT_BYTES,
     [FLEET_MSG_END] = 1,
     [FLEET_MSG_END_ACK] = 1,
+    [FLEET_MSG_CHAT] = 1,           /* the shortest; its text sets its length */
+    [FLEET_MSG_CHAT_ACK] = 2,
 };
 
 size_t fleet_proto_length(enum fleet_msg_type type)
@@ -41,7 +43,7 @@ const char *fleet_proto_type_name(enum fleet_msg_type type)
 {
     static const char *names[FLEET_MSG_TYPE_COUNT] = {
         "NONE", "INVITE", "ACCEPT", "DECLINE", "START", "CANCEL", "COMMIT",
-        "SHOT", "RESULT", "SYNC", "REVEAL", "END", "END_ACK",
+        "SHOT", "RESULT", "SYNC", "REVEAL", "END", "END_ACK", "CHAT", "CHAT_ACK",
     };
 
     if ((unsigned)type >= FLEET_MSG_TYPE_COUNT) {
@@ -118,6 +120,68 @@ static int layout_byte_ok(uint8_t b)
     return (b & 0x7F) < CELLS;
 }
 
+int fleet_chat_text_ok(const uint8_t *s, size_t n)
+{
+    size_t i = 0;
+
+    if (!s || n < 1 || n > FLEET_CHAT_TEXT_MAX) {
+        return 0;
+    }
+    while (i < n) {
+        uint8_t c = s[i];
+        uint32_t cp;
+        size_t more;
+        size_t k;
+
+        if (c < 0x80) {
+            if (c < 0x20 || c == 0x7F) {
+                return 0;
+            }
+            i++;
+            continue;
+        }
+        if (c >= 0xC2 && c <= 0xDF) {
+            more = 1;
+            cp = c & 0x1F;
+        } else if (c >= 0xE0 && c <= 0xEF) {
+            more = 2;
+            cp = c & 0x0F;
+        } else if (c >= 0xF0 && c <= 0xF4) {
+            more = 3;
+            cp = c & 0x07;
+        } else {
+            return 0;       /* a continuation byte, an overlong lead, or past U+10FFFF */
+        }
+        if (i + more >= n) {
+            return 0;       /* cut short */
+        }
+        for (k = 1; k <= more; k++) {
+            if ((s[i + k] & 0xC0) != 0x80) {
+                return 0;
+            }
+            cp = cp << 6 | (s[i + k] & 0x3F);
+        }
+        if ((more == 2 && cp < 0x800) || (more == 3 && (cp < 0x10000 || cp > 0x10FFFF)) ||
+            (cp >= 0xD800 && cp <= 0xDFFF) || (cp >= 0x80 && cp <= 0x9F)) {
+            return 0;       /* overlong, out of range, a surrogate, or a C1 control */
+        }
+        i += more + 1;
+    }
+    return 1;
+}
+
+uint16_t fleet_chat_check(uint8_t id, const uint8_t *text, size_t n)
+{
+    uint32_t h = 2166136261u;
+    size_t i;
+
+    h = (h ^ id) * 16777619u;
+    for (i = 0; text && i < n; i++) {
+        h = (h ^ text[i]) * 16777619u;
+    }
+    return (uint16_t)(h ^ (h >> 16));
+}
+
 /* The checks shared by encode and decode: what a well-formed message of its
  * type may hold. */
 static int fields_ok(const struct fleet_msg *m, size_t len)
@@ -180,6 +244,12 @@ static int fields_ok(const struct fleet_msg *m, size_t len)
     case FLEET_MSG_END_ACK:
         return m->ply <= FLEET_PROTO_PLY_MAX && m->reason >= FLEET_END_FORFEIT &&
                m->reason < FLEET_END_REASON_COUNT;
+    case FLEET_MSG_CHAT:
+        /* Any id; the text is the whole body. */
+        return len == FLEET_PROTO_HEADER + (size_t)m->text_len &&
+               fleet_chat_text_ok(m->text, m->text_len);
+    case FLEET_MSG_CHAT_ACK:
+        return 1;
     default:
         return 0;
     }
@@ -191,6 +261,9 @@ static size_t length_for(const struct fleet_msg *m)
 
     if (m->type == FLEET_MSG_DECLINE && m->reason == FLEET_DECLINE_BUSY_WITH_YOU) {
         len += 3;
+    }
+    if (m->type == FLEET_MSG_CHAT) {
+        len = FLEET_PROTO_HEADER + (size_t)m->text_len;
     }
     return len;
 }
@@ -249,6 +322,13 @@ int fleet_proto_encode(const struct fleet_msg *m, uint8_t *buf, size_t n)
     case FLEET_MSG_END_ACK:
         b[0] = m->reason;
         break;
+    case FLEET_MSG_CHAT:
+        memcpy(b, m->text, m->text_len);
+        break;
+    case FLEET_MSG_CHAT_ACK:
+        b[0] = (uint8_t)(m->check >> 8);
+        b[1] = (uint8_t)m->check;
+        break;
     default:
         break;
     }
@@ -279,6 +359,10 @@ int fleet_proto_decode(struct fleet_msg *m, const uint8_t *buf, size_t n)
     b = buf + FLEET_PROTO_HEADER;
     if (d.type == FLEET_MSG_DECLINE) {
         if (n != want && n != want + 3) {
+            return -1;
+        }
+    } else if (d.type == FLEET_MSG_CHAT) {
+        if (n < want || n > FLEET_PROTO_MAX) {
             return -1;
         }
     } else if (n != want) {
@@ -318,6 +402,13 @@ int fleet_proto_decode(struct fleet_msg *m, const uint8_t *buf, size_t n)
     case FLEET_MSG_END:
     case FLEET_MSG_END_ACK:
         d.reason = b[0];
+        break;
+    case FLEET_MSG_CHAT:
+        d.text_len = (uint8_t)(n - FLEET_PROTO_HEADER);
+        memcpy(d.text, b, d.text_len);
+        break;
+    case FLEET_MSG_CHAT_ACK:
+        d.check = (uint16_t)(b[0] << 8 | b[1]);
         break;
     default:
         break;

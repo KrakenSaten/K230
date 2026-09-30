@@ -16,8 +16,44 @@
 #include "../link/fleet_link.h"
 #include "../net/fleet_match.h"
 
-/* "VS ANNA · SHOT 14", for the header. */
-int fleet_view_mp_status(const struct fleet_match *m, const char *peer, char *buf, size_t n);
+/* Where the match stands, as the player needs to hear it first. Read off the
+ * match and the link and nothing else, so it can never disagree with them:
+ * there is no status of its own to fall out of step. In order of precedence:
+ * the match is over; the mesh service is gone; our key is not known yet (m
+ * NULL) or the session is being set up; the opponent is out of reach; the
+ * records are being compared; a packet is being retried; deploying; whose
+ * turn it is. */
+enum fleet_mp_status {
+    FLEET_STATUS_IDLE = 0,          /* no match in hand: "MULTIPLAYER" */
+    FLEET_STATUS_CONNECTING,        /* the service, or the opponent, being reached */
+    FLEET_STATUS_OFFLINE,           /* the mesh service or its radio is not there */
+    FLEET_STATUS_DEPLOYING,         /* our fleet is still to be placed */
+    FLEET_STATUS_SYNCING,           /* comparing records with the opponent */
+    FLEET_STATUS_RECONNECTING,      /* a packet of the game is being retried */
+    FLEET_STATUS_DISCONNECTED,      /* out of reach: paused, not lost */
+    FLEET_STATUS_YOUR_TURN,
+    FLEET_STATUS_WAITING,           /* for the opponent: to deploy, to answer, to fire */
+    FLEET_STATUS_GAME_OVER,
+};
+
+enum fleet_mp_status fleet_view_mp_state(const struct fleet_match *m, enum fleet_link_state link);
+
+/* The status in words, for the header: "YOUR TURN · SHOT 14", "WAITING FOR
+ * ANNA", "OPPONENT DISCONNECTED", "GAME OVER". m NULL: our key is not known
+ * yet. */
+int fleet_view_mp_status(const struct fleet_match *m, enum fleet_link_state link,
+                         const char *peer, char *buf, size_t n);
+
+/* ---- chat ----------------------------------------------------------------- */
+
+/* One line as the history shows it: "ANNA · Nice shot", "YOU · Hello",
+ * with how ours is doing after it - " · SENDING", " · NOT DELIVERED". */
+int fleet_view_mp_chat_line(const struct fleet_chat_line *l, const char *peer, char *buf,
+                            size_t n);
+/* The chat button beside FIRE: its title ("CHAT", "CHAT · 2 NEW") and the
+ * newest line, or what to do when there is none. */
+int fleet_view_mp_chat_tile(const struct fleet_match *m, const char *peer, char *title,
+                            size_t tn, char *preview, size_t pn);
 
 /* What Battle says when the player is not aiming: waiting for the opponent to
  * deploy, a shot on its way, the opponent aiming, a link problem, a resync,

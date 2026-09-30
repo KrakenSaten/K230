@@ -572,6 +572,7 @@ tests/fleet_save_test: tests/fleet_save_test.o $(FLEET_OBJS)
 # natively over a fake network.
 FLEET_NET_DIR := apps/fleet/net
 FLEET_NET_OBJS := $(FLEET_NET_DIR)/fleet_sha256.o $(FLEET_NET_DIR)/fleet_proto.o \
+                  $(FLEET_NET_DIR)/fleet_chat.o \
                   $(FLEET_NET_DIR)/fleet_match.o $(FLEET_NET_DIR)/fleet_match_save.o
 FLEET_NET_TESTS := tests/fleet_sha256_test tests/fleet_proto_test tests/fleet_match_test \
                    tests/fleet_mp_sim_test tests/fleet_session_test tests/fleet_view_mp_test

@@ -360,15 +360,18 @@ static lv_obj_t *battle_cols(void) { return kid(battle_side(), 0); }
 static lv_obj_t *battle_act(void) { return kid(battle_cols(), 0); }
 static lv_obj_t *battle_waters(void) { return kid(battle_cols(), 1); }
 static lv_obj_t *battle_target_panel(void) { return kid(battle_act(), 0); }
-/* FIRE is the last thing in the readout column down the page and the last
- * thing in the whole region across it; the test looks where the layout says
- * it should be rather than being told. */
-static lv_obj_t *battle_fire(void)
+/* FIRE's row is the last thing in the readout column down the page and the
+ * last thing in the whole region across it; the test looks where the layout
+ * says it should be rather than being told. FIRE leads the row, and in
+ * multiplayer the chat button follows it. */
+static lv_obj_t *battle_fire_row(void)
 {
     lv_obj_t *o = kid(battle_act(), 1);
 
     return o ? o : kid(battle_side(), 1);
 }
+static lv_obj_t *battle_fire(void) { return kid(battle_fire_row(), 0); }
+static lv_obj_t *battle_chat(void) { return kid(battle_fire_row(), 1); }
 static lv_obj_t *battle_waters_panel(void) { return kid(battle_waters(), 0); }
 static lv_obj_t *battle_own(void) { return kid(battle_waters_panel(), KID_PANEL_FIRST); }
 static lv_obj_t *battle_cell_value(void)
@@ -844,9 +847,19 @@ static void check_battle_never_scrolls(const char *what)
      * needs that is not on this screen: it is in the status bar, which is
      * above the body and cannot be scrolled at all. The app is held to
      * keeping it current, because that is what makes it readable. */
-    check("the status bar carries the opponent and the turn",
-          strstr(g_hint, "TURN") != NULL || strstr(g_hint, "COMPLETE") != NULL ||
-          (app->mode == FLEET_MODE_MULTI && strstr(g_hint, "SHOT") != NULL));
+    if (app->mode == FLEET_MODE_MULTI) {
+        /* Multiplayer: exactly the status the match and the link give now -
+         * not a second opinion kept by the screen. */
+        char want[64];
+
+        fleet_app_mp_status(app, want, sizeof(want));
+        check_str("the header carries the match's status as it stands", g_hint, want);
+        check("the chat button is in view", inside_viewport(battle_chat()));
+    } else {
+        check("the status bar carries the turn",
+              strstr(g_hint, "TURN") != NULL || strstr(g_hint, "COMPLETE") != NULL);
+        check("single player has no chat button", !visible(battle_chat()));
+    }
 }
 
 /*
@@ -983,7 +996,7 @@ static void check_wide_battle(int want_cell)
     check("the last exchange is read beside the board, with the readout",
           lv_obj_get_parent(battle_log()) == battle_target_panel());
     check("and FIRE has left the readout column for the whole region",
-          lv_obj_get_parent(battle_fire()) == battle_side());
+          lv_obj_get_parent(battle_fire_row()) == battle_side());
 
     /* Down the page the frame is what scrolls the stack; across it there is
      * nothing to scroll, and the frame says so rather than being a scroller
@@ -1034,7 +1047,7 @@ static void check_tall_battle(void)
     check_int("and the 64 px it has always been", lv_area_get_height(&fire),
               POCKETUI_TOUCH_MIN);
     check("FIRE is back at the foot of the readout column",
-          lv_obj_get_parent(battle_fire()) == battle_act());
+          lv_obj_get_parent(battle_fire_row()) == battle_act());
     check("and the log back under your own board",
           lv_obj_get_parent(battle_log()) == battle_waters_panel());
     check("the TARGET caption is drawn, not cut", caption_would_be_drawn(battle_target_panel()));
@@ -1895,6 +1908,233 @@ static void test_multiplayer_lost(void)
     unsetenv("POCKETFLEET_MP_FAKE");
 }
 
+/* ---- 9. multiplayer chat and status --------------------------------------- */
+
+static lv_obj_t *chat_screen(void) { return screen_of(FLEET_SCREEN_CHAT); }
+static lv_obj_t *chat_panel(void) { return kid(chat_screen(), 0); }
+static lv_obj_t *chat_status(void) { return kid(chat_panel(), KID_PANEL_FIRST); }
+static lv_obj_t *chat_list(void) { return kid(chat_panel(), KID_PANEL_FIRST + 1); }
+static lv_obj_t *chat_composer(void) { return kid(chat_screen(), 1); }
+static lv_obj_t *chat_field(void) { return kid(kid(chat_composer(), 0), 0); }
+static lv_obj_t *chat_send_button(void) { return kid(chat_composer(), 1); }
+static lv_obj_t *chat_board(void) { return kid(chat_screen(), 2); }
+static lv_obj_t *result_chat(void) { return kid(result_foot(), 2); }
+
+/* The last line shown in the chat, or "". */
+static const char *chat_last_shown(void)
+{
+    const char *last = "";
+    int i;
+
+    for (i = 0; i < FLEET_CHAT_HISTORY; i++) {
+        lv_obj_t *l = kid(chat_list(), i);
+
+        if (l && visible(l)) {
+            last = text_of(l);
+        }
+    }
+    return last;
+}
+
+/* Keys reach the field on the keypad's own read timer, not as they are
+ * pushed: pump until the stream has delivered every one of them. */
+static void drain_keys(void)
+{
+    int i;
+
+    for (i = 0; i < 200 && pos_input_queued() > 0; i++) {
+        pump(10);
+    }
+    pump(50);
+}
+
+static void type_key(pos_key_t key)
+{
+    pos_input_push_key(key);
+    drain_keys();
+}
+
+static void type_keys(const char *s)
+{
+    while (*s) {
+        type_key((pos_key_t)(unsigned char)*s++);
+    }
+}
+
+static int starts_with(const char *s, const char *prefix)
+{
+    return strncmp(s, prefix, strlen(prefix)) == 0;
+}
+
+static void test_multiplayer_chat(enum pos_rotation rotation)
+{
+    int wide = rotation != POS_ROTATION_0;
+    int keyboard_before;
+    int i;
+
+    phase = wide ? "chat and status, wide" : "chat and status, tall";
+    mp_fresh();
+    setenv("POCKETFLEET_MP_FAKE", "think=300,delay=100,seed=9,chat", 1);
+    use_display(rotation, PANEL_CORNER);
+    app_start();
+    keyboard_before = g_keyboard_calls;
+    tap_obj(command_multi_button());
+    mp_wait(500);
+    tap_obj(lobby_player_row(0));
+    tap_obj(lobby_act());
+    mp_wait(100);
+    check_str("inviting: the header says the opponent is being reached", g_hint, "CONNECTING");
+    for (i = 0; i < 100 && app->current != FLEET_SCREEN_DEPLOY; i++) {
+        mp_wait(100);
+    }
+    check_str("deploying: the header says so", g_hint, "DEPLOY YOUR FLEET");
+    tap_obj(kid(deploy_controls(), DEPLOY_AUTO));
+    tap_obj(deploy_confirm());
+    check_one_screen(FLEET_SCREEN_BATTLE);
+    check("the chat button is on the Battle screen in multiplayer", visible(battle_chat()));
+
+    /* Whose turn it is, turn by turn. We invited, so the guest fires first. */
+    for (i = 0; i < 300 && !fleet_match_my_turn(&app->mp->m); i++) {
+        mp_wait(100);
+        if (i == 0) {
+            check_str("our fleet placed, theirs not yet: waiting for them", g_hint,
+                      "WAITING FOR SIM OPPONENT");
+        }
+    }
+    check("the opponent's shot made it our turn", starts_with(g_hint, "YOUR TURN"));
+    check_str("with the shot we are on", g_hint, "YOUR TURN \xc2\xb7 SHOT 1");
+    mp_our_turn(0);
+    check_str("our shot fired: waiting at once, not a tick later", g_hint,
+              "WAITING FOR SIM OPPONENT");
+    for (i = 0; i < 300 && !fleet_match_my_turn(&app->mp->m); i++) {
+        mp_wait(100);
+    }
+    check_str("their answer and their shot: our turn again", g_hint, "YOUR TURN \xc2\xb7 SHOT 2");
+
+    /* The chat button sits beside FIRE and costs the turn nothing. */
+    {
+        lv_area_t f;
+        lv_area_t c;
+
+        box_of(battle_fire(), &f);
+        box_of(battle_chat(), &c);
+        check("the chat button shares FIRE's row", c.y1 == f.y1 && c.y2 == f.y2 && c.x1 > f.x2);
+        check("FIRE keeps the larger part of it", lv_area_get_width(&f) > lv_area_get_width(&c));
+        check("and both are a finger's size",
+              lv_area_get_height(&f) >= POCKETUI_TOUCH_MIN && lv_area_get_height(&c) >= POCKETUI_TOUCH_MIN);
+        check("the chat button is in view", inside_body(battle_chat()));
+    }
+    if (wide) {
+        mp_our_turn(1);     /* the whole never-scroll check, with the button there */
+        phase = "chat and status, wide";
+    } else {
+        mp_our_turn(0);
+    }
+
+    /* Into the chat: the match goes on, and the header still says so. */
+    tap_obj(battle_chat());
+    mp_wait(200);
+    check_one_screen(FLEET_SCREEN_CHAT);
+    check("the chat is inside the body", inside_body(chat_screen()));
+    check("and nothing but its list can scroll", lv_obj_get_scroll_bottom(frame_of()) == 0 &&
+          lv_obj_get_scroll_bottom(chat_screen()) == 0);
+    check_str("the status line says what the header says", text_of(chat_status()), g_hint);
+    check("the field has the keys, without a finger on it", pos_input_focused() == chat_field());
+    check("SEND waits for something to send", !lv_obj_has_flag(chat_send_button(), LV_OBJ_FLAG_CLICKABLE));
+    type_keys("Hello there");
+    check("SEND is armed once there are words", lv_obj_has_flag(chat_send_button(), LV_OBJ_FLAG_CLICKABLE));
+    type_key(LV_KEY_ENTER);
+    pump(50);
+    check_str("Enter sends: the line is ours, on its way or there",
+              app->mp->m.chat.count ? app->mp->m.chat.line[0].text : "", "Hello there");
+    check_str("and the field is free for the next", lv_textarea_get_text(chat_field()), "");
+    check("while it waits for the game to spare the air, it says so",
+          strstr(chat_last_shown(), "Hello there") != NULL);
+    /* The virtual opponent plays far faster than a person, and the game
+     * spends the governor first: the line goes once the burst has room. */
+    for (i = 0; i < 900 && !strstr(chat_last_shown(), "Copy that."); i++) {
+        mp_wait(100);
+    }
+    check_str("the answer is shown, with who said it", chat_last_shown(),
+              "SIM OPPONENT \xc2\xb7 Copy that.");
+    check("and on the screen it is never counted as new", app->mp->m.chat.unread == 0);
+    check("our line was delivered", app->mp->m.chat.line[0].state == FLEET_CHAT_DELIVERED);
+    {
+        /* Twenty two-byte letters: 20 characters, 40 bytes. */
+        for (i = 0; i < 20; i++) {
+            type_key(0xE6);
+        }
+        check_int("twenty letters in the field, forty bytes",
+                  (long)strlen(lv_textarea_get_text(chat_field())), 40);
+        check("over the byte budget, SEND is not armed",
+              !lv_obj_has_flag(chat_send_button(), LV_OBJ_FLAG_CLICKABLE));
+        type_key(LV_KEY_ENTER);
+        check("and Enter does not send it", app->mp->m.chat.count == 2);
+        for (i = 0; i < 25; i++) {
+            type_key(LV_KEY_BACKSPACE);
+        }
+        check_str("and it can be taken back", lv_textarea_get_text(chat_field()), "");
+    }
+    check_int("typing on keys never called up the touch keyboard", g_keyboard_calls, keyboard_before);
+    if (!wide) {
+        tap_obj(chat_field());
+        check("down the page, a finger on the field calls up the touch keyboard",
+              g_keyboard_calls == keyboard_before + 1);
+    }
+
+    /* Back to the board; something said meanwhile is on the button. */
+    tap_obj(chat_board());
+    check_one_screen(FLEET_SCREEN_BATTLE);
+    fleet_link_loop_say(app->link, "Your move, captain");
+    /* It goes when the opponent's governor has room for it. */
+    for (i = 0; i < 300 && app->mp->m.chat.unread == 0; i++) {
+        mp_wait(100);
+    }
+    check_str("a line said while on the board is counted on the button",
+              text_of(kid(battle_chat(), 0)), "CHAT \xc2\xb7 1 NEW");
+    /* The button shows as much of it as fits, cut with dots. */
+    check("and shown on it, who said it first",
+          starts_with(text_of(kid(battle_chat(), 1)), "SIM OPPONENT \xc2\xb7 "));
+    check_str("the newest line is the one said", fleet_chat_last(&app->mp->m.chat)->text,
+              "Your move, captain");
+
+    if (wide) {
+        /* Played out: the chat outlasts the match, from Result. */
+        for (i = 0; i < 20000 && (app->mp->m.phase == FLEET_MP_COMMITTED ||
+                                  app->mp->m.phase == FLEET_MP_BATTLE); i++) {
+            if (fleet_match_my_turn(&app->mp->m) && app->current == FLEET_SCREEN_BATTLE) {
+                mp_our_turn(0);
+            }
+            mp_wait(100);
+        }
+        for (i = 0; i < 300 && app->mp->m.phase != FLEET_MP_DONE; i++) {
+            mp_wait(100);
+        }
+        check_one_screen(FLEET_SCREEN_RESULT);
+        check_str("game over: the header says so", g_hint, "GAME OVER");
+        check("Result offers the chat", visible(result_chat()));
+        tap_obj(result_chat());
+        mp_wait(200);
+        check_one_screen(FLEET_SCREEN_CHAT);
+        type_keys("gg");
+        type_key(LV_KEY_ENTER);
+        mp_wait(200);
+        check("a word after the match is still taken",
+              app->mp->m.chat.count > 0 &&
+              strcmp(fleet_chat_last(&app->mp->m.chat)->text, "gg") == 0 &&
+              fleet_chat_last(&app->mp->m.chat)->state != FLEET_CHAT_FAILED);
+        check("and shown as ours", starts_with(chat_last_shown(), "YOU \xc2\xb7 gg"));
+        tap_obj(chat_board());
+        check("BOARD goes back to the Result, where the match now is",
+              app->current == FLEET_SCREEN_RESULT);
+        tap_obj(kid(result_foot(), 0));
+        check("putting the match away forgets its chat", app->mp->m.phase == FLEET_MP_IDLE &&
+              app->mp->m.chat.count == 0);
+    }
+    app_stop();
+    unsetenv("POCKETFLEET_MP_FAKE");
+}
+
 int main(void)
 {
     lv_indev_t *finger;
@@ -2539,6 +2779,8 @@ int main(void)
     test_multiplayer_reopen();
     test_multiplayer_forfeit();
     test_multiplayer_lost();
+    test_multiplayer_chat(POS_ROTATION_0);
+    test_multiplayer_chat(POS_ROTATION_270);
     {
         char mp_file[600];
 
@@ -2547,7 +2789,8 @@ int main(void)
     }
 
     check_int("the game never went home by itself", g_home_calls, 0);
-    check_int("and never asked for the keyboard", g_keyboard_calls, 0);
+    /* Once only: the finger on the chat field down the page, in section 9. */
+    check_int("and asked for the keyboard only when a finger asked for it", g_keyboard_calls, 1);
 
     printf("fleet_app_test: %d checks, %d failure(s)\n", checks, failed);
     return failed != 0;

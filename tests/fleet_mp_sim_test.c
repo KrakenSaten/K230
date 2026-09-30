@@ -32,6 +32,15 @@
  *       faults change when things happen, never what happens;
  *   I8  every answer in it is what the defender's real fleet says.
  *
+ * In the talking profiles both players also chat all the way through, a line
+ * every 3 to 18 s whenever they have room, and every 5 s of the match:
+ *   C1  no line is shown twice in a node's history;
+ *   C2  every line of theirs was said by the opponent in this session - a
+ *       line of an earlier one is never shown in a later one;
+ * and I5-I8 are unchanged: talking changes what the airtime is spent on,
+ * never what happens in the match, and the reference it is compared with
+ * is the same match played in silence on a perfect network.
+ *
  * Then cheating peers, each of which must be caught (or made harmless):
  * lying about one hit, answering from a different fleet than the one
  * committed, refusing to reveal, revealing with the wrong salt, reporting an
@@ -70,6 +79,7 @@ struct profile {
     int closes;
     int restarts;
     int reboots;
+    int chat;               /* both players talk throughout */
 };
 
 enum cheat {
@@ -116,6 +126,10 @@ struct simnode {
     unsigned frames;
     unsigned airtime;
     int hold_send;
+    /* talking */
+    struct fleet_rng crng;
+    int64_t say_at;
+    unsigned said;
 };
 
 struct sim {
@@ -502,6 +516,15 @@ static void players(struct sim *x)
         if (!s->open) {
             continue;
         }
+        if (x->p->chat && fleet_match_chat_open(m) && x->now >= s->say_at) {
+            char text[64];
+
+            /* The session, the speaker and a serial: what C1 and C2 read. */
+            snprintf(text, sizeof(text), "%06x %d %u, over.", (unsigned)m->sid, i, ++s->said);
+            fleet_match_chat_send(m, text, x->now);
+            pump(x, i);
+            s->say_at = x->now + 3000 + (int64_t)fleet_rng_below(&s->crng, 15000);
+        }
         key = m->phase * 1000 + m->resolved + (fleet_match_my_turn(m) ? 500 : 0);
         if (key != s->seen) {
             s->seen = key;
@@ -565,6 +588,26 @@ static void invariants(struct sim *x)
             fail(x, "an honest match was voided or called a violation");
         }
     }
+    if (x->p->chat && x->now % 5000 == 0) {
+        for (i = 0; i < 2; i++) {
+            const struct fleet_chat *c = &x->s[i].n.m.chat;
+            char want[8];
+            int j;
+
+            snprintf(want, sizeof(want), "%06x", (unsigned)x->s[i].n.m.sid);
+            for (k = 0; k < c->count; k++) {
+                if (!c->line[k].mine &&
+                    (strncmp(c->line[k].text, want, 6) != 0 || c->line[k].text[7] - '0' != other(i))) {
+                    fail(x, "C2: a line not said by the opponent in this session");
+                }
+                for (j = k + 1; j < c->count; j++) {
+                    if (strcmp(c->line[j].text, c->line[k].text) == 0) {
+                        fail(x, "C1: a line shown twice");
+                    }
+                }
+            }
+        }
+    }
     if (a->sid == b->sid && in_game(a) && in_game(b)) {
         int d = (int)a->resolved - (int)b->resolved;
 
@@ -624,6 +667,8 @@ struct result {
     unsigned rx_foreign;
     unsigned max_hour_air;
     unsigned faults;
+    unsigned chat_shown;        /* lines of the other side shown, both nodes */
+    unsigned chat_said;
     char why[160];
 };
 
@@ -644,6 +689,7 @@ static void sim_init(struct sim *x, const struct profile *p, uint32_t seed, enum
         x->s[i].seen = -1;
         x->s[i].run_start = 0;
         fleet_rng_seed(&x->s[i].trng, seed * 31u + (uint32_t)i);
+        fleet_rng_seed(&x->s[i].crng, seed * 53u + (uint32_t)i);
         {
             int j;
 
@@ -771,18 +817,22 @@ static void run(struct sim *x, struct result *out, int64_t cap_ms)
     memcpy(out->log_res, a->log_res, sizeof(out->log_res));
     out->max_hour_air = x->max_hour_air;
     out->faults = x->stat_faults;
+    out->chat_shown = a->stats.chat_rx + b->stats.chat_rx;
+    out->chat_said = x->s[0].said + x->s[1].said;
     memcpy(out->why, x->why, sizeof(out->why));
 }
 
-static const struct profile CLEAN = { "clean", 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+static const struct profile CLEAN = { "clean", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
 static const struct profile PROFILES[] = {
-    { "clean", 0, 0, 0, 0, 0, 0, 0, 0, 0 },
-    { "10% loss, collisions", 10, 0, 0, 1, 0, 0, 0, 0, 0 },
-    { "30% loss, 10% duplicates, reordering", 30, 10, 6000, 1, 0, 0, 0, 0, 0 },
-    { "20% loss, outages of 30 s to 10 min", 20, 5, 2000, 1, 8, 0, 0, 0, 0 },
-    { "crashes, app closed and reopened, service restarts", 10, 5, 2000, 1, 0, 40, 60, 40, 0 },
-    { "everything at once, reboots too", 25, 10, 6000, 1, 12, 30, 40, 30, 15 },
+    { "clean", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+    { "10% loss, collisions", 10, 0, 0, 1, 0, 0, 0, 0, 0, 0 },
+    { "30% loss, 10% duplicates, reordering", 30, 10, 6000, 1, 0, 0, 0, 0, 0, 0 },
+    { "20% loss, outages of 30 s to 10 min", 20, 5, 2000, 1, 8, 0, 0, 0, 0, 0 },
+    { "crashes, app closed and reopened, service restarts", 10, 5, 2000, 1, 0, 40, 60, 40, 0, 0 },
+    { "everything at once, reboots too", 25, 10, 6000, 1, 12, 30, 40, 30, 15, 0 },
+    { "talking throughout, 10% loss, collisions", 10, 0, 0, 1, 0, 0, 0, 0, 0, 1 },
+    { "talking throughout, everything at once", 25, 10, 6000, 1, 12, 30, 40, 30, 15, 1 },
 };
 
 static void honest_profile(const struct profile *p, int matches, uint32_t seed0)
@@ -800,6 +850,9 @@ static void honest_profile(const struct profile *p, int matches, uint32_t seed0)
     int winners = 1;
     int64_t longest = 0;
     unsigned faults = 0;
+    unsigned long chat_shown = 0;
+    unsigned long chat_said = 0;
+    int64_t total_ms = 0;
     char first_why[200] = "";
     int i;
 
@@ -846,16 +899,23 @@ static void honest_profile(const struct profile *p, int matches, uint32_t seed0)
         if (r.max_hour_air > max_hour) max_hour = r.max_hour_air;
         attempts += r.attempts;
         faults += r.faults;
+        chat_shown += r.chat_shown;
+        chat_said += r.chat_said;
         if (r.duration > longest) longest = r.duration;
+        total_ms += r.duration;
     }
     printf("---- %s: %d matches\n", p->name, matches);
     printf("     finished %d, both verified %d, faults injected %u\n", finished, verified, faults);
     if (finished) {
         printf("     %.1f plies/match, %.2f frames/ply, airtime %.1f s/device/match (max %.1f s), "
-               "worst hour %.1f s, invites/match %.2f, longest %.0f min\n",
+               "worst hour %.1f s, invites/match %.2f, mean %.0f min, longest %.0f min\n",
                (double)plies / finished, (double)frames / (double)(plies ? plies : 1),
                airtime / 2000.0 / finished, max_air / 1000.0, max_hour / 1000.0,
-               (double)attempts / finished, longest / 60000.0);
+               (double)attempts / finished, total_ms / 60000.0 / finished, longest / 60000.0);
+    }
+    if (finished && p->chat) {
+        printf("     chat: %.1f lines shown/match of %.1f tried (the rest waited for room, or were "
+               "given up)\n", (double)chat_shown / finished, (double)chat_said / finished);
     }
     if (first_why[0]) {
         printf("     first problem: %s\n", first_why);
@@ -871,6 +931,10 @@ static void honest_profile(const struct profile *p, int matches, uint32_t seed0)
         check(label, oracle);
         snprintf(label, sizeof(label), "%s: every answer was true to the defender's fleet (I8)", p->name);
         check(label, truth);
+        if (p->chat) {
+            snprintf(label, sizeof(label), "%s: and the players were heard (C1, C2 held)", p->name);
+            check(label, chat_shown > (unsigned long)finished * 10);
+        }
     }
 }
 

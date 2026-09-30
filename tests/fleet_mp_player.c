@@ -5,7 +5,7 @@
  * with PocketFleet's AI where the player's finger would be.
  *
  *   fleet_mp_player --service NAME --role host|guest --peer NAME --save FILE
- *                   [--seed N] [--timeout S] [--fast] [--crash-at-ply N]
+ *                   [--seed N] [--timeout S] [--fast] [--crash-at-ply N] [--chat]
  *
  * The host invites the node the mesh knows as --peer; the guest accepts the
  * first invitation. Each deploys a random fleet and fires the AI's shot on its
@@ -19,6 +19,12 @@
  *
  * --crash-at-ply N leaves with _exit(3) once N plies are resolved: no close,
  * no unsubscribe, as a crash would.
+ *
+ * --chat talks through the battle: a line of 34-35 bytes - a three-block
+ * datagram, the longest Fleet sends - every 2 s whenever one is not already
+ * waiting, "<role> line <n>, Fleet over the mesh". DONE then also says how
+ * many were said, shown, copied and given up, and whether every line of the
+ * opponent's still held is theirs, whole, once and in order.
  *
  * Output, one line each: "READY <key>", "PLY <n>", and at the end
  * "DONE role=.. outcome=.. end=.. verify=.. plies=.. digest=.. ...". After DONE
@@ -137,8 +143,47 @@ static const char *outcome_name(int o)
 static void usage(void)
 {
     fprintf(stderr, "usage: fleet_mp_player --service NAME --role host|guest --peer NAME "
-                    "--save FILE [--seed N] [--timeout S] [--fast] [--crash-at-ply N]\n");
+                    "--save FILE [--seed N] [--timeout S] [--fast] [--crash-at-ply N] "
+                    "[--chat]\n");
     exit(1);
+}
+
+/* The opponent's lines still held: each theirs, whole, once, and in the
+ * order said. Returns 1 when all are. */
+static int chat_lines_ok(const struct fleet_chat *c, const char *peer_role, int *in_order)
+{
+    char want[16];
+    unsigned last = 0;
+    int ok = 1;
+    int i;
+    int j;
+
+    snprintf(want, sizeof(want), "%s line ", peer_role);
+    *in_order = 1;
+    for (i = 0; i < c->count; i++) {
+        const struct fleet_chat_line *l = &c->line[i];
+        unsigned n;
+
+        if (l->mine) {
+            continue;
+        }
+        if (strncmp(l->text, want, strlen(want)) != 0 ||
+            sscanf(l->text + strlen(want), "%u", &n) != 1 ||
+            !strstr(l->text, ", Fleet over the mesh")) {
+            ok = 0;
+            continue;
+        }
+        for (j = i + 1; j < c->count; j++) {
+            if (!c->line[j].mine && strcmp(c->line[j].text, l->text) == 0) {
+                ok = 0;
+            }
+        }
+        if (n <= last) {
+            *in_order = 0;
+        }
+        last = n;
+    }
+    return ok;
 }
 
 int main(int argc, char **argv)
@@ -150,6 +195,9 @@ int main(int argc, char **argv)
     int timeout_s = 900;
     int fast = 0;
     int crash_at = 0;
+    int talk = 0;
+    unsigned said = 0;
+    int64_t next_say = 0;
     struct player pl;
     struct fleet_session s;
     struct fleet_link *link;
@@ -180,6 +228,8 @@ int main(int argc, char **argv)
             crash_at = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--fast")) {
             fast = 1;
+        } else if (!strcmp(argv[i], "--chat")) {
+            talk = 1;
         } else {
             usage();
         }
@@ -294,17 +344,31 @@ int main(int argc, char **argv)
             }
             break;
         case FLEET_MP_BATTLE:
+            if (talk && now >= next_say && fleet_chat_pending(&m->chat) == 0) {
+                char text[64];
+
+                snprintf(text, sizeof(text), "%s line %u, Fleet over the mesh", role, ++said);
+                fleet_session_chat_send(&s, text, now);
+                next_say = now + 2000;
+            }
             if (fleet_match_my_turn(m) && choose(m, seed, &row, &col) == 0) {
                 fleet_session_fire(&s, row, col, now);
             }
             break;
-        case FLEET_MP_DONE:
+        case FLEET_MP_DONE: {
+            int in_order = 1;
+            int lines_ok = chat_lines_ok(&m->chat, strcmp(role, "host") ? "host" : "guest",
+                                         &in_order);
+
             printf("DONE role=%s outcome=%s end=%d verify=%d plies=%d digest=%08x sent=%u rx=%u "
-                   "tx_airtime_ms=%u gov_waits=%u resyncs=%u dup_replies=%u violations=%u saves=%u\n",
+                   "tx_airtime_ms=%u gov_waits=%u resyncs=%u dup_replies=%u violations=%u saves=%u "
+                   "chat_said=%u chat_tx=%u chat_shown=%u chat_dup=%u chat_failed=%u chat_ok=%d "
+                   "chat_order=%d\n",
                    role, outcome_name(m->outcome), m->end_reason, m->verify, m->resolved,
                    fleet_match_digest(m, m->resolved), m->stats.tx, m->stats.rx,
                    m->stats.tx_airtime_ms, m->stats.gov_waits, m->stats.resyncs,
-                   m->stats.dup_replies, m->stats.violations, pl.saves);
+                   m->stats.dup_replies, m->stats.violations, pl.saves, said, m->stats.chat_tx,
+                   m->stats.chat_rx, m->stats.chat_dup, m->stats.chat_failed, lines_ok, in_order);
             /* Stay, so a peer still waiting for our last answer gets it,
              * until the test stops us (or the timeout does). */
             while (!stopping && mono_ms() - start <= (int64_t)timeout_s * 1000) {
@@ -313,6 +377,7 @@ int main(int argc, char **argv)
             }
             link->ops->close(link->ctx);
             return 0;
+        }
         default:
             break;
         }

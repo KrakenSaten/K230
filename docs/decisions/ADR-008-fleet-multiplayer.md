@@ -144,6 +144,16 @@ from the next without reading `uptime_s`.
 Future: background invites (a daemon or a shell-level listener, not decided
 here); rematches; other rules variants (the INVITE carries a rules byte).
 
+Added since (2026-09-30, branch `feat/fleet-chat-status`): **in-match chat**,
+two message types in Fleet's own protocol (13 CHAT, 14 CHAT_ACK) on the same
+port, session and peer check - no new service surface, no change to
+meshcored, `match.v1` or any existing message. A line is up to 37 bytes, the
+first Fleet packet to need a third AES block (42 bytes, 468 ms at zero hops);
+it goes only when the game owes and is owed nothing, and is held to stricter
+airtime terms than the game (docs/apps/FLEET_MULTIPLAYER.md, "Chat"). A peer
+without it ignores both types, and only its chat is lost. The header's status
+is now read from the match and the link (`fleet_view_mp_state`).
+
 Risks:
 
 - The MeshCore datagram MAC is 2 bytes. A forged packet passes it once in

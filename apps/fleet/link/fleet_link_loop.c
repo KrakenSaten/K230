@@ -14,6 +14,7 @@
 
 #define QUEUE 64
 #define PEER_NAME "SIM OPPONENT"
+#define PEER_REPLY "Copy that."
 
 struct packet {
     int64_t at;
@@ -43,6 +44,8 @@ struct loop {
     int64_t done_since;
     int64_t opened;
     int cut;
+    unsigned answered;      /* lines of ours the opponent has answered */
+    int64_t answer_at;
 };
 
 void fleet_link_loop_defaults(struct fleet_link_loop_cfg *cfg)
@@ -90,6 +93,8 @@ int fleet_link_loop_parse(const char *spec, struct fleet_link_loop_cfg *cfg)
             cfg->silent = 1;
         } else if (word(&p, "cut=")) {
             cfg->cut_after_ms = atoi(p);
+        } else if (word(&p, "chat")) {
+            cfg->chat = 1;
         }
         p = strchr(p, ',');
         if (p) {
@@ -205,6 +210,16 @@ static void peer_play(struct loop *l)
     int row;
     int col;
 
+    /* A line of ours is answered once, a moment later. */
+    if (l->cfg.chat && m->stats.chat_rx > l->answered) {
+        if (!l->answer_at) {
+            l->answer_at = l->now + l->cfg.think_ms;
+        } else if (l->now >= l->answer_at) {
+            fleet_match_chat_send(m, PEER_REPLY, l->now);
+            l->answered = m->stats.chat_rx;
+            l->answer_at = 0;
+        }
+    }
     if (key != l->seen) {
         l->seen = key;
         l->move_at = l->now + l->cfg.think_ms +
@@ -378,6 +393,19 @@ struct fleet_link *fleet_link_loop_open(const struct fleet_link_loop_cfg *cfg)
 const struct fleet_match *fleet_link_loop_peer(const struct fleet_link *link)
 {
     return link ? &((const struct loop *)link->ctx)->peer : NULL;
+}
+
+int fleet_link_loop_say(struct fleet_link *link, const char *text)
+{
+    struct loop *l = link ? link->ctx : NULL;
+    int rc;
+
+    if (!l) {
+        return -1;
+    }
+    rc = fleet_match_chat_send(&l->peer, text, l->now);
+    peer_flush(l);
+    return rc;
 }
 
 void fleet_link_loop_set_cut(struct fleet_link *link, int cut)

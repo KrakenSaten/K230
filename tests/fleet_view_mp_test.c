@@ -97,8 +97,109 @@ int main(void)
     m.log_res[2] = fleet_res_make(1, 0, 0);
     fleet_view_mp_exchange(&m, "Anna", buf, sizeof(buf));
     says("the last shot each way", buf, "YOU G4 HIT \xc2\xb7 ANNA B2 MISS");
-    fleet_view_mp_status(&m, "Anna", buf, sizeof(buf));
-    says("the header names the opponent and our next shot", buf, "VS ANNA \xc2\xb7 SHOT 2");
+
+    /* ---- the status in the header -------------------------------------------- */
+    fleet_view_mp_status(&m, FLEET_LINK_UP, "Anna", buf, sizeof(buf));
+    says("our turn, with our next shot", buf, "YOUR TURN \xc2\xb7 SHOT 2");
+    m.pending = 40;
+    fleet_view_mp_status(&m, FLEET_LINK_UP, "Anna", buf, sizeof(buf));
+    says("our shot fired: waiting for the report", buf, "WAITING FOR ANNA");
+    m.pending = FLEET_NO_CELL;
+    m.resolved = 3;                     /* ply 4 is the host's */
+    m.log_cell[3] = 12;
+    m.log_res[3] = fleet_res_make(1, 0, 0);
+    fleet_view_mp_status(&m, FLEET_LINK_UP, "Anna", buf, sizeof(buf));
+    says("their turn", buf, "WAITING FOR ANNA");
+    check("and the state says so, not only the words",
+          fleet_view_mp_state(&m, FLEET_LINK_UP) == FLEET_STATUS_WAITING);
+    m.throttled = 1;
+    check("held back by the governor is still their turn, not a link problem",
+          fleet_view_mp_state(&m, FLEET_LINK_UP) == FLEET_STATUS_WAITING);
+    m.throttled = 0;
+    m.ob = FLEET_OB_SHOT;
+    m.attempts = 2;
+    fleet_view_mp_status(&m, FLEET_LINK_UP, "Anna", buf, sizeof(buf));
+    says("a packet of the game being retried", buf, "RECONNECTING");
+    m.lost = 1;
+    fleet_view_mp_status(&m, FLEET_LINK_UP, "Anna", buf, sizeof(buf));
+    says("out of reach", buf, "OPPONENT DISCONNECTED");
+    m.resyncing = 1;
+    fleet_view_mp_status(&m, FLEET_LINK_UP, "Anna", buf, sizeof(buf));
+    says("comparing records after Check link or a reopen", buf, "SYNCING");
+    fleet_view_mp_status(&m, FLEET_LINK_NO_SERVICE, "Anna", buf, sizeof(buf));
+    says("the mesh service gone beats everything the match says", buf, "MESH OFFLINE");
+    fleet_view_mp_status(&m, FLEET_LINK_RADIO_OFF, "Anna", buf, sizeof(buf));
+    says("and so does its radio", buf, "MESH OFFLINE");
+    fleet_view_mp_status(&m, FLEET_LINK_CONNECTING, "Anna", buf, sizeof(buf));
+    says("the service being looked for", buf, "CONNECTING");
+    m.phase = FLEET_MP_REVEAL;
+    fleet_view_mp_status(&m, FLEET_LINK_NO_SERVICE, "Anna", buf, sizeof(buf));
+    says("but a match that is over is over, whatever the link", buf, "GAME OVER");
+    m.phase = FLEET_MP_DONE;
+    fleet_view_mp_status(&m, FLEET_LINK_UP, "Anna", buf, sizeof(buf));
+    says("done", buf, "GAME OVER");
+    fleet_view_mp_status(NULL, FLEET_LINK_UP, "Anna", buf, sizeof(buf));
+    says("our key not known yet: connecting", buf, "CONNECTING");
+    fleet_view_mp_status(NULL, FLEET_LINK_NO_SERVICE, "Anna", buf, sizeof(buf));
+    says("and without the service, offline", buf, "MESH OFFLINE");
+    battle(&m, FLEET_ROLE_HOST);
+    m.phase = FLEET_MP_INVITING;
+    fleet_view_mp_status(&m, FLEET_LINK_UP, "Anna", buf, sizeof(buf));
+    says("an invitation out: connecting", buf, "CONNECTING");
+    m.phase = FLEET_MP_ACCEPTING;
+    fleet_view_mp_status(&m, FLEET_LINK_UP, "Anna", buf, sizeof(buf));
+    says("an invitation accepted, START not in yet: connecting", buf, "CONNECTING");
+    m.phase = FLEET_MP_IDLE;
+    fleet_view_mp_status(&m, FLEET_LINK_UP, "Anna", buf, sizeof(buf));
+    says("no match: the lobby's own name", buf, "MULTIPLAYER");
+    battle(&m, FLEET_ROLE_HOST);
+    m.phase = FLEET_MP_DEPLOY;
+    m.committed = 0;
+    fleet_view_mp_status(&m, FLEET_LINK_UP, "Anna", buf, sizeof(buf));
+    says("deploying", buf, "DEPLOY YOUR FLEET");
+    m.phase = FLEET_MP_COMMITTED;
+    m.committed = 1;
+    fleet_view_mp_status(&m, FLEET_LINK_UP, "Anna", buf, sizeof(buf));
+    says("deployed, they have not", buf, "WAITING FOR ANNA");
+    fleet_view_mp_status(&m, FLEET_LINK_UP, "Annabelle Fitzgerald-Hansen", buf, sizeof(buf));
+    says("a long name is cut to fit the header", buf, "WAITING FOR ANNABELLE FITZGE\xe2\x80\xa6");
+    /* Fifteen letters and then a two-byte one: sixteen bytes would split it. */
+    fleet_view_mp_status(&m, FLEET_LINK_UP, "abcdefghijklmno\xc3\xb8pqr", buf, sizeof(buf));
+    check("a name is never cut in the middle of a character",
+          strcmp(buf, "WAITING FOR ABCDEFGHIJKLMNO\xe2\x80\xa6") == 0);
+
+    /* ---- chat ------------------------------------------------------------------ */
+    battle(&m, FLEET_ROLE_GUEST);
+    {
+        char title[32];
+        char preview[120];
+
+        fleet_view_mp_chat_tile(&m, "Anna", title, sizeof(title), preview, sizeof(preview));
+        says("no lines yet: the button says CHAT", title, "CHAT");
+        says("and what it is for", preview, "Say something to Anna.");
+        fleet_chat_add_theirs(&m.chat, 7, (const uint8_t *)"Nice shot", 9);
+        fleet_chat_add_theirs(&m.chat, 8, (const uint8_t *)"Your move", 9);
+        fleet_view_mp_chat_tile(&m, "Anna", title, sizeof(title), preview, sizeof(preview));
+        says("two new lines are counted", title, "CHAT \xc2\xb7 2 NEW");
+        says("the newest is shown, with who said it", preview, "ANNA \xc2\xb7 Your move");
+        fleet_chat_seen(&m.chat);
+        fleet_view_mp_chat_tile(&m, "Anna", title, sizeof(title), preview, sizeof(preview));
+        check("once seen, nothing is new", strcmp(title, "CHAT") == 0);
+        fleet_chat_add_mine(&m.chat, "Thanks");
+        fleet_view_mp_chat_line(&m.chat.line[2], "Anna", buf, sizeof(buf));
+        says("ours, not yet sent", buf, "YOU \xc2\xb7 Thanks \xc2\xb7 WAITING");
+        m.chat.line[2].state = FLEET_CHAT_SENDING;
+        fleet_view_mp_chat_line(&m.chat.line[2], "Anna", buf, sizeof(buf));
+        says("ours, on the air", buf, "YOU \xc2\xb7 Thanks \xc2\xb7 SENDING");
+        m.chat.line[2].state = FLEET_CHAT_FAILED;
+        fleet_view_mp_chat_line(&m.chat.line[2], "Anna", buf, sizeof(buf));
+        says("ours, given up", buf, "YOU \xc2\xb7 Thanks \xc2\xb7 NOT DELIVERED");
+        m.chat.line[2].state = FLEET_CHAT_DELIVERED;
+        fleet_view_mp_chat_line(&m.chat.line[2], "Anna", buf, sizeof(buf));
+        check("ours, delivered: the line alone", strcmp(buf, "YOU \xc2\xb7 Thanks") == 0);
+        fleet_view_mp_chat_line(&m.chat.line[0], NULL, buf, sizeof(buf));
+        says("theirs, with no name known", buf, "THEM \xc2\xb7 Nice shot");
+    }
 
     /* ---- the lobby ---------------------------------------------------------- */
     battle(&m, FLEET_ROLE_HOST);

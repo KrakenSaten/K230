@@ -26,6 +26,7 @@
 #ifndef POCKETFLEET_MATCH_H
 #define POCKETFLEET_MATCH_H
 
+#include "fleet_chat.h"
 #include "fleet_proto.h"
 
 #include "../engine/fleet_rng.h"
@@ -58,6 +59,18 @@
 #define FLEET_GOV_BURST 6
 #define FLEET_GOV_REFILL_MS 5000u
 #define FLEET_GOV_HOUR_MS 90000u
+/* Chat ("Chat" in the protocol doc) goes second to the game, always: a line
+ * waits while anything of the game's is due, held back or unanswered, and it
+ * spends the same governor on stricter terms - never the last two tokens of
+ * the burst, only while Fleet's airtime in the rolling hour is under 50 s,
+ * and never once chat has used 20 s of that hour. So chat stops first when
+ * the game is busy. A line is tried three times and then shown as not
+ * delivered. Receipts, one per line at most, are held to the whole hour only
+ * (fleet_match.c, chat_enqueue). */
+#define FLEET_CHAT_TRIES 3
+#define FLEET_CHAT_TOKEN_RESERVE 2
+#define FLEET_CHAT_HOUR_MS 50000u
+#define FLEET_CHAT_SHARE_MS 20000u
 
 enum fleet_mp_phase {
     FLEET_MP_IDLE = 0,
@@ -162,6 +175,11 @@ struct fleet_match_stats {
     unsigned busy;             /* the transport refused a frame */
     unsigned violations;
     unsigned resyncs;
+    unsigned chat_tx;          /* CHAT frames, retries included */
+    unsigned chat_rx;          /* new lines of theirs */
+    unsigned chat_dup;         /* copies of theirs, not shown again */
+    unsigned chat_failed;      /* lines of ours given up */
+    unsigned chat_held;        /* a line waited for the game or the governor */
 };
 
 struct fleet_match {
@@ -228,7 +246,10 @@ struct fleet_match {
     uint8_t throttled;                      /* an obligation is waiting for airtime */
     int64_t refill_at;
     uint32_t minute_ms[60];
+    uint32_t chat_minute_ms[60];            /* the chat within minute_ms */
     int64_t minute_of[60];
+    /* chat: never saved; a new session starts with none */
+    struct fleet_chat chat;
     /* outbox */
     struct fleet_match_out out[FLEET_MATCH_OUTBOX];
     uint8_t out_head;
@@ -274,6 +295,19 @@ int fleet_match_resume(struct fleet_match *m, int64_t now);
 /* Put a finished match away: it becomes a tombstone and the match is idle. */
 void fleet_match_dismiss(struct fleet_match *m);
 void fleet_match_set_peer_name(struct fleet_match *m, const char *name);
+
+/* ---- chat ------------------------------------------------------------------ */
+
+/* Whether lines can be exchanged now: from Deploy until the match is put
+ * away, unless it ended by forfeit, void or abandon - then the peer answers
+ * anything but the ending with END, and a line would only cost airtime. */
+int fleet_match_chat_open(const struct fleet_match *m);
+/* Say something to the opponent. Returns 0 when the line is queued; -1 when
+ * chat is not open or the line is empty, too long or not text; -2 when
+ * FLEET_CHAT_OUTGOING lines are still waiting. */
+int fleet_match_chat_send(struct fleet_match *m, const char *text, int64_t now);
+/* The player has read every line. */
+void fleet_match_chat_seen(struct fleet_match *m);
 
 /* ---- from the transport -------------------------------------------------- */
 

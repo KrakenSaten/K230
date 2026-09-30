@@ -299,6 +299,7 @@ static void fleet_app_layout(struct fleet_app *app)
     fleet_screen_battle_relayout(app, wide, cell_w, cell);
     fleet_screen_result_relayout(app, wide);
     fleet_screen_lobby_relayout(app, wide);
+    fleet_screen_chat_relayout(app, wide);
 }
 
 /* The frame is the body's content box, so this is the body changing size: the
@@ -319,6 +320,9 @@ void fleet_app_show(struct fleet_app *app, enum fleet_screen screen)
     }
     if (app->current == FLEET_SCREEN_BATTLE && screen != FLEET_SCREEN_BATTLE) {
         fleet_screen_battle_leave(app);
+    }
+    if (app->current == FLEET_SCREEN_CHAT && screen != FLEET_SCREEN_CHAT) {
+        fleet_screen_chat_leave(app);
     }
     for (i = 0; i < FLEET_SCREEN_COUNT; i++) {
         if (app->screen[i]) {
@@ -349,6 +353,9 @@ void fleet_app_show(struct fleet_app *app, enum fleet_screen screen)
         fleet_screen_lobby_refresh(app);
         pocketos_shell_set_status_hint("MULTIPLAYER");
         return;
+    case FLEET_SCREEN_CHAT:
+        fleet_screen_chat_refresh(app);
+        break;
     default:
         break;
     }
@@ -576,6 +583,7 @@ static void *fleet_create(lv_obj_t *root)
     app->screen[FLEET_SCREEN_BATTLE] = fleet_screen_battle_create(app, app->frame);
     app->screen[FLEET_SCREEN_RESULT] = fleet_screen_result_create(app, app->frame);
     app->screen[FLEET_SCREEN_LOBBY] = fleet_screen_lobby_create(app, app->frame);
+    app->screen[FLEET_SCREEN_CHAT] = fleet_screen_chat_create(app, app->frame);
     /* Multiplayer is made available, not started: this reads the saved match
      * file and nothing else. */
     fleet_mp_create(app);
@@ -595,6 +603,10 @@ static void fleet_destroy(void *priv)
     /* Settle a paced turn and stop every timer before the objects they refer
      * to go away with the shell's root. */
     fleet_screen_battle_leave(app);
+    if (app->current == FLEET_SCREEN_CHAT) {
+        /* The keyboard is the shell's; it must not outlive the field. */
+        fleet_screen_chat_leave(app);
+    }
     /* The multiplayer timer refers to the app and the link: both go first. */
     fleet_mp_destroy(app);
     /* Nothing may lay out against a half-freed app: the shell deletes the
@@ -611,6 +623,7 @@ static void fleet_destroy(void *priv)
     free(app->battle);
     free(app->result);
     free(app->lobby);
+    free(app->chat);
     free(app);
 }
 
