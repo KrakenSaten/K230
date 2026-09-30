@@ -60,8 +60,9 @@ meshcored puts it in a MeshCore REQ as `tag(4) | 0xD1 | length(1) | packet`
 the decrypted REQ is padded to the AES block and MeshCore records no length
 of its own. A packet of at most **10 bytes** is one AES block: a **22-byte
 frame, 304.1 ms**. Up to **26 bytes** is two blocks: **38 bytes, 386.0 ms**
-(zero hops; each hop adds a path byte and a retransmission). Every Fleet
-packet is one or the other.
+(zero hops; each hop adds a path byte and a retransmission). Every packet
+of the game is one or the other. Only a line of chat can need a third
+block: up to **42 bytes**, a **54-byte frame, 468.0 ms** ("Chat").
 
 Field encodings:
 
@@ -89,6 +90,8 @@ Field encodings:
 | 10 | REVEAL | both | layout(5) ‖ salt(16); flags in the ply byte (bit 0: I hold your reveal) | 26 | REVEAL |
 | 11 | END | either | reason (1 forfeit, 2 void, 3 abandon, 4 cancelled, 5 unknown, 6 violation, 7 finished); ply = R | 6 | END_ACK |
 | 12 | END_ACK | either | reason echoed | 6 | – |
+| 13 | CHAT | either | the line: 1 to 37 bytes of UTF-8, no control character; the line's id in the ply byte | 6 to 42 | CHAT_ACK |
+| 14 | CHAT_ACK | either | check(2): 16 bits of FNV-1a over id ‖ text; the id in the ply byte | 7 | – |
 
 There is no TURN_ACK and no GAME_OVER: RESULT acknowledges SHOT, the next
 SHOT carries and acknowledges the RESULT before it (`prev`), REVEAL
@@ -100,7 +103,9 @@ SYNC phase codes: 0 none, 1 before start, 2 deploying, 3 committed,
 
 A packet is **dropped** unless its length is exactly right for its type, its
 version is 1, its sid is non-zero, every enum and cell is in range, and its
-sender is the session's peer (INVITE excepted).
+sender is the session's peer (INVITE excepted). CHAT is the one type whose
+length is its text's; its text is checked like any field (well-formed UTF-8,
+no overlong form or surrogate, no C0, DEL or C1 control).
 
 ## Session
 
@@ -236,6 +241,67 @@ which end the match `END(violation)`; a refusal to reveal ("not verified").
 Trusted in v1: that a key belongs to whoever adverted it; MeshCore's 2-byte
 datagram MAC; the guest-first rule; the loser's own display of its loss.
 
+## Chat
+
+Short lines between the two players of the match in hand, and nothing else:
+no chat outside a match, no history kept after it, nothing saved. It rides
+the same session as the game - same port, same sid, same peer check - so a
+line from anyone but the opponent, or from another session, is never shown.
+The code is `apps/fleet/net/fleet_chat.c` (the bookkeeping) and
+`fleet_match.c` ("chat": when a line may go).
+
+**Open** from Deploy until the match is put away, except after an END for a
+forfeit, void or abandon: then the peer answers anything but the ending with
+END, and a line would only cost airtime. Lines still waiting when chat closes
+are given up.
+
+**A line** is 1 to **37 bytes** - what fills a third AES block after the
+header - of UTF-8 with no control character, spaces at either end dropped. The
+fonts cover Latin-1, so Norwegian letters are text; a character the fonts do
+not have still travels and shows as a box. The field counts characters and
+the screen says when an accented line runs over the bytes.
+
+**Ids and receipts.** Each line carries an 8-bit id, counting on from where
+the last session left it (and, in a new run of the app, from a number drawn
+from the match's seed), and each is confirmed by a CHAT_ACK naming its id and
+its 16-bit check. A receipt that names a line only by number could confirm the
+wrong one after a restart; with the check it cannot.
+
+**Once, and once only.** The receiver remembers the id and check of the
+peer's last 16 lines. A copy - a retry after a lost receipt, a duplicate on
+the mesh, a line that arrives late behind a newer one - is answered again (at
+most once per 2 s) and never shown again. A new run of the peer's app may
+reuse an id, but not with the same words, so a new line is never taken for a
+copy unless it says exactly what the copy said.
+
+**One on the air at a time.** Ours go in order, each waiting for the one
+before it to be confirmed or given up: tried three times, on the same backoff
+as the game's packets (7 s, doubling), then shown as NOT DELIVERED. A line
+never makes the link "lost": only the game's own obligations do. While the
+opponent is out of reach, resynchronising or the governor is holding the game
+back, a waiting line costs no try.
+
+**Second to the game.** A line goes only when the game owes nothing and is
+owed nothing - no obligation in force (so never while a shot waits for its
+answer, which could arrive while a line was on the air), no resync, no packet
+of the game's in the outbox - and it never pushes a packet of the game's out
+of the outbox. Against the airtime governor a line is held to stricter terms
+than anything of the game's: never the last **2 tokens** of the burst; only
+while Fleet's airtime in the rolling hour is under **50 s**; and never once
+chat has used **20 s** of that hour. A receipt is held to the whole 90 s
+only, as the game's first answers are: the line it confirms is already on the
+other screen, and withholding it would make the sender try again and then
+call the line not delivered. There is at most one receipt per line.
+
+**Bounded.** 16 lines kept (theirs and ours; the oldest settled line goes
+first, never one still owed a receipt), 4 of ours waiting at most (a fifth is
+refused and the screen says why), 16 remembered for copies, one line on the
+air. Nothing grows with the length of a match.
+
+**Old builds.** A peer without chat refuses both types as unknown and
+answers nothing: the sender's lines end NOT DELIVERED, and the match is
+untouched. A type newer than this build is refused the same way.
+
 ## Persistence
 
 `$POCKETOS_STATE_DIR/fleet/match.v1`, written only by `fleet_store.c`,
@@ -267,7 +333,9 @@ peer takes it as a duplicate.
 Held: role, phase, sid, both keys, peer name, own layout, salt and commit,
 peer commit and the evidence bits, R and the log, the pending shot, the
 peer's reveal and the verification, how it ended, four tombstones. Not
-held: timers, try counts, the governor, the outbox; each is rebuilt.
+held: timers, try counts, the governor, the outbox; each is rebuilt. Nor the
+chat: a reopened app shows none, and a line that was waiting as it closed
+is never sent. `match.v1` is unchanged by chat, still 655 bytes.
 
 ## In the app
 
@@ -303,6 +371,18 @@ multiplayer to them exactly as it holds single player.
 | Opponent disconnected | Battle | "Anna is out of reach. The match is paused, not lost." FIRE becomes CHECK LINK |
 | Forfeit | Lobby, match in hand | FORFEIT, then CONFIRM FORFEIT |
 | Game over | Result | "Enemy fleet destroyed" / "Fleet lost" / "No result", or "Opponent forfeited" / "You forfeited" when it ended by forfeit (a forfeit sinks nothing); Ended ("ALL SHIPS SUNK", "THEY FORFEITED", "VOID · RECORDS DIFFER"); Their fleet ("Verified", "Not verified", "Reports did not match") |
+| Status | the header, every multiplayer screen | one of: CONNECTING, MESH OFFLINE, DEPLOY YOUR FLEET, SYNCING, RECONNECTING, OPPONENT DISCONNECTED, YOUR TURN · SHOT 12, WAITING FOR ANNA, GAME OVER - read afresh from the match and the link each time (`fleet_view_mp_state`), so it cannot disagree with them. MULTIPLAYER in the lobby with no match |
+| Chat | Battle: CHAT beside FIRE, on FIRE's row; Result: CHAT in the foot | the button says "CHAT" or "CHAT · 2 NEW" over the newest line ("ANNA · Nice shot"); it opens the chat |
+| Chat screen | its own screen, BOARD back | the status first, then the lines (oldest at the top, the list scrolling inside its panel), then the field, SEND and, in a body wider than tall, KEYS. Ours read "YOU · Hello", with " · WAITING", " · SENDING" or " · NOT DELIVERED" while it matters. Enter sends. A finger on the field brings the touch keyboard up down the page; across it, KEYS does, and the physical keyboard types without it. BOARD goes to the screen the match's phase belongs to now |
+
+The status is the header's hint, where Fleet has always put the turn: Fleet
+is fullscreen (DS §30.4), the header is on every screen in both shapes, and a
+Battle turn has no height to spare for a line of its own. The chat button
+costs Battle nothing either: it shares FIRE's row, so the never-scroll rule
+and the tall layout are unchanged, and in single player it is hidden and FIRE
+is the whole row as before. The chat field joins the focus group only while
+the chat is on the screen, so keys typed on Battle go nowhere, as they always
+did.
 
 The wording is `apps/fleet/ui/fleet_view_mp.c`, tested natively.
 Screenshots: `docs/design/shots/fleet-mp-<state>[-landscape].png`.
@@ -311,9 +391,10 @@ Screenshots: `docs/design/shots/fleet-mp-<state>[-landscape].png`.
 virtual opponent (`apps/fleet/link/fleet_link_loop.c`): a second match state
 machine, played by PocketFleet's AI, over a channel that can lose, duplicate,
 delay and be cut (`loss=20,dup=5,delay=800,invite=3000,think=2500,level=3,
-decline,silent,cut=60000,seed=7`). With it, one simulator shell plays a whole
+decline,silent,cut=60000,chat,seed=7`; `chat` has it answer every line
+"Copy that."). With it, one simulator shell plays a whole
 match against the real protocol. With `POCKETFLEET_SCREEN=lobby|mp_invited|
-mp_deploy|mp_battle|mp_waiting|mp_lost|mp_result` the app drives the match
+mp_deploy|mp_battle|mp_waiting|mp_lost|mp_result|mp_chat` the app drives the match
 into that state on a skipped clock, for screenshots. Both are inert unless
 set, and nothing either does reaches a radio.
 
@@ -353,21 +434,55 @@ the dispatcher's, not the channel's; the airtime is computed, not measured.
 figures on a modelled channel, not measurements: the real channel is P7's
 to measure (docs/hardware/FLEET_MULTIPLAYER_GATE.md).
 
+**With chat** (2026-09-30). A line costs its sender one frame of 305 ms (up
+to 5 bytes), 387 ms (up to 21) or 468 ms (up to 37), and its receiver one
+305 ms receipt. `tests/fleet_mp_sim_test`, 300 matches a profile, both
+players talking all through - a line every 3 to 18 s whenever they have
+room, far more than people do - against the same faults in silence:
+
+| Profile | lines shown / match | airtime / device / match | worst hour | mean match |
+| --- | --- | --- | --- | --- |
+| 10 % loss, collisions, silent | – | 38.6 s | 70.5 s | 16 min |
+| the same, talking | 40.5 | 59.2 s | 90.0 s | 18 min |
+| all faults at once, silent | – | 59.2 s | 80.6 s | 54 min |
+| the same, talking | 24.7 | 105.9 s | 90.6 s | 58 min |
+
+(The talking profiles run other seeds than the silent ones, so compare the
+means, not single matches. 90.6 s is a minute that straddles an app restart,
+which the governor cannot see across; I5 allows for it.)
+
+Every match still finished, verified, and was shot for shot the match the
+same seeds play in silence on a perfect network: chat changes when things
+happen, never what happens. On a clean link it costs the game nothing. On a
+lossy one, constant talk makes a match 7 to 12 % longer on average (16 to
+18 min, 54 to 58), because a match that already fills Fleet's 90 s hour then
+shares it: lines are capped at 20 s of the hour and stop once it passes
+50 s, but their receipts are not, so chat can hold roughly 30 s of an hour
+at the very most. That is the price of one airtime budget for both, and the
+limits (`FLEET_CHAT_*` in `fleet_match.h`) are the knobs if the owner wants
+it smaller. In `tests/fleet_match_test`,
+on a clean link, both sides saying a 30-odd byte line every 2 s: the same 106
+plies in the same 646 s as in silence, still exactly one SHOT and one RESULT
+per ply, 24 and 23 lines shown, each costing exactly one frame. Over the
+whole stack (P6 "chat", two real meshcored processes, real MeshCore
+encryption, three-block datagrams): 10 lines each way, every one delivered
+at the first try, once and in order, in a 110-ply match of 21 s.
+
 ## Tests
 
 | Test | Covers |
 | --- | --- |
 | `tests/fleet_sha256_test` | the NIST vectors, every split, the padding boundaries |
-| `tests/fleet_proto_test` | every type round trip, every length, every bad field, a million random packets |
-| `tests/fleet_match_test` | each session, turn, resync, fairness, END and save-codec rule by name |
-| `tests/fleet_mp_sim_test` | two AI players over a simulated LoRa channel with loss, duplication, reordering, collisions, outages, crashes, app close/reopen, service restarts and reboots; invariants after every step, the perfect-network oracle, eight cheating peers. `make fleet-mp-soak` for 5000 matches a profile |
-| `tests/fleet_session_test` | the session against the virtual opponent: nothing before engaging, whole matches clean and lossy, reopen and resume, a failed save, another identity's save, decline, silence |
-| `tests/fleet_view_mp_test` | every UX state's words |
+| `tests/fleet_proto_test` | every type round trip, every length, every bad field, a million random packets; CHAT at 37 bytes and not 38, empty, every kind of bad UTF-8 and control character, the receipt's exact length, a type newer than the build |
+| `tests/fleet_match_test` | each session, turn, resync, fairness, END and save-codec rule by name; chat: sent, received from the opponent only, a copy shown once, a lost receipt, a line given up after three tries without the link called lost, reordered, the history and the waiting lines bounded under a flood, the limits, malformed and unknown types, a line of an old session never shown in a new one, a shot always before a line, the token and hour reserves, lines given up when a forfeit ends the match, a word after a finished match, and a whole match with both sides talking played shot for shot as in silence |
+| `tests/fleet_mp_sim_test` | two AI players over a simulated LoRa channel with loss, duplication, reordering, collisions, outages, crashes, app close/reopen, service restarts and reboots; invariants after every step, the perfect-network oracle, eight cheating peers; and two profiles with both players talking throughout (no line shown twice, none from another session, the oracle unchanged). `make fleet-mp-soak` for 5000 matches a profile |
+| `tests/fleet_session_test` | the session against the virtual opponent: nothing before engaging, whole matches clean and lossy, reopen and resume, a failed save, another identity's save, decline, silence; chat through the session with no save, the opponent out of reach while typing and after, the app closed with a line waiting and reopened twenty times, a new match with an empty chat on both sides |
+| `tests/fleet_view_mp_test` | every UX state's words; the status for each state and in its order of precedence, a long or accented name cut whole; the chat button and every line's wording |
 | `tests/fleet_save_test` (match.v1) | the file: whole, byte for byte, independent of save.v1, oversized refused, a write that cannot happen, 0600 under any umask |
-| `tests/fleet_app_test` (section 8) | whole multiplayer matches under a finger in both shapes, a turn across the page never scrolling, reopen and RESUME MATCH, the link lost and CHECK LINK |
+| `tests/fleet_app_test` (sections 8, 9) | whole multiplayer matches under a finger in both shapes, a turn across the page never scrolling, reopen and RESUME MATCH, the link lost and CHECK LINK; the header always exactly the derived status, turn by turn; the chat button beside FIRE in multiplayer and absent in single player; the chat typed on keys and sent with Enter, the answer shown, an over-long accented line refused, the touch keyboard only for a finger down the page, a line said while on the board counted on the button, chat from Result after the match and gone once the match is put away |
 | `tests/fleet_shell_test.sh` (section 10) | every multiplayer state rendered in both shapes in the shell, `match.v1` written whole, no mesh service, a damaged `match.v1` |
 | `tests/fleet_lint.sh` | the layers: net pure, one file talks to a service, no radio method, nothing pumped before engaging, the virtual opponent only when asked for |
 | `tests/fleet_link_test` | the mesh link against a real socket and a scripted meshcored: nothing asked before the first poll, the four link states, players listed (no repeaters, no forgotten nodes), each datagram taken once from the inbox and from events, the cursor reset on a new service run, stale and malformed datagrams refused, exactly the bytes handed over sent on port 1, a zero-hop advert, a radio that is off |
 | `tests/meshcored_runtime_test.cpp`, `tests/meshcored_service_test.sh` (3d) | meshcored's half: app datagrams between two runtimes with real crypto, flood then direct once the receipt teaches the route, crafted REQs that are not app datagrams ignored, the inbox bounded; every refusal of `mesh.app_send` / `mesh.app_inbox` against the real process |
-| `make ENABLE_MESHCORED=1 fleet-mp-e2e` | **P6.** Whole matches between two Fleet players (`tests/fleet_mp_player`: the real session, mesh link and match, the AI for a finger) through two real meshcored processes over stand-in radiods and a mock air: at the product's own pace; with 15 % of frames lost and 5 % duplicated; with the guest's app killed at ply 30 and resumed from its save; and with the guest's meshcored restarted at ply 40. Each must end with one win and one loss, both fleets verified, identical records, no violation, datagrams both ways, a receipt, and no chat message |
+| `make ENABLE_MESHCORED=1 fleet-mp-e2e` | **P6.** Whole matches between two Fleet players (`tests/fleet_mp_player`: the real session, mesh link and match, the AI for a finger) through two real meshcored processes over stand-in radiods and a mock air: at the product's own pace; with 15 % of frames lost and 5 % duplicated; with the guest's app killed at ply 30 and resumed from its save; and with the guest's meshcored restarted at ply 40; and ("chat") with both players talking in three-block lines all through a fast match. Each must end with one win and one loss, both fleets verified, identical records, no violation, datagrams both ways, a receipt, and no message in `mesh.messages` (Fleet's chat is app datagrams, never RIFT's text); "chat" also every line held the opponent's, once, in order, none given up |
 | `make fleet-mp-san-test` | the native suites under ASan and UBSan, `fleet_link_test` included |
