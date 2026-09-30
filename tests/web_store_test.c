@@ -1,9 +1,10 @@
 /*
  * What the Browser remembers (core/web/web_store.h): defaults, a save read
  * back unchanged, the file's and directory's permissions, the bounds, and
- * every kind of bad file - wrong version, junk, a planted file:// address,
- * a symbolic link, one too large, NUL bytes - giving the defaults and never
- * a crash.
+ * every kind of bad file - wrong version, junk, a symbolic link, one too
+ * large, NUL bytes - giving the defaults and never a crash; a bad line (a
+ * planted file:// address, an unknown key) costing only that line; and a
+ * file that cannot be read reported as such, never as a store to replace.
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
@@ -75,6 +76,31 @@ static void corrupt(const char *name, const char *text)
                     s.nbookmark == 2);
 }
 
+/* One bad line is skipped; the store around it is kept, and the bad
+ * address never comes back. */
+static void partial(const char *name, const char *text)
+{
+    char path[512];
+    char why[128];
+    char full[1024];
+    struct web_store s;
+    enum web_store_load r;
+    int i;
+    int planted = 0;
+
+    snprintf(full, sizeof(full), "doors-browser-state 1\nbookmark\thttps://kept.example/\tKept\n%s"
+                                 "recent\thttps://seen.example/\tSeen\n", text);
+    snprintf(path, sizeof(path), "%s/partial", dir);
+    write_file(path, full, strlen(full));
+    r = web_store_load(&s, path, why, sizeof(why));
+    for (i = 0; i < s.nbookmark; i++) {
+        planted |= strncmp(s.bookmark[i].url, "https:", 6) != 0;
+    }
+    planted |= strncmp(s.home, "file:", 5) == 0;
+    check(name, r == WEB_STORE_PARTIAL && why[0] && strstr(why, "line 3") != NULL && s.nbookmark == 1 &&
+                    strcmp(s.bookmark[0].url, "https://kept.example/") == 0 && s.nrecent == 1 && !planted);
+}
+
 int main(void)
 {
     char path[512];
@@ -140,10 +166,67 @@ int main(void)
     corrupt("another version", "doors-browser-state 2\nhome\thttps://x.example/\n");
     corrupt("another format", "PK\x03\x04 zip data");
     corrupt("an empty file", "");
-    corrupt("a planted javascript: bookmark", "doors-browser-state 1\nbookmark\tjavascript:alert(1)\tx\n");
-    corrupt("a planted file:// home", "doors-browser-state 1\nhome\tfile:///etc/shadow\n");
-    corrupt("an unknown key", "doors-browser-state 1\nexec\thttps://x.example/\n");
-    corrupt("a key without a value", "doors-browser-state 1\nhome\n");
+    partial("a planted javascript: bookmark is skipped, the rest kept", "bookmark\tjavascript:alert(1)\tx\n");
+    partial("a planted file:// home is skipped, the rest kept", "home\tfile:///etc/shadow\n");
+    partial("an unknown key is skipped, the rest kept", "exec\thttps://x.example/\n");
+    partial("a key without a value is skipped, the rest kept", "home\n");
+    {
+        /* The finding's case: one damaged line among the person's bookmarks.
+         * They load, and saving what was loaded keeps every one of them. */
+        char text[2048];
+        size_t n = (size_t)snprintf(text, sizeof(text), "doors-browser-state 1\nhome\thttps://h.example/\n");
+
+        for (i = 0; i < 6; i++) {
+            n += (size_t)snprintf(text + n, sizeof(text) - n, "bookmark\thttps://b%d.example/\tB%d\n", i, i);
+            if (i == 2) {
+                n += (size_t)snprintf(text + n, sizeof(text) - n, "bookmark https://broken.example/ no tabs\n");
+            }
+        }
+        snprintf(path, sizeof(path), "%s/mine", dir);
+        write_file(path, text, n);
+        check("one malformed line among six bookmarks: PARTIAL, all six kept",
+              web_store_load(&s, path, why, sizeof(why)) == WEB_STORE_PARTIAL && s.nbookmark == 6 &&
+                  strcmp(s.bookmark[5].url, "https://b5.example/") == 0 && strcmp(s.home, "https://h.example/") == 0 &&
+                  strstr(why, "line 6") != NULL);
+        check("saved and read back: still all six, the bad line gone",
+              web_store_save(&s, path) == 0 && web_store_load(&t, path, why, sizeof(why)) == WEB_STORE_LOADED &&
+                  same(&s, &t) && t.nbookmark == 6);
+    }
+    /* ---- files that are there but cannot be read ------------------------------------------ */
+    if (geteuid() != 0) {
+        const char *mine = "doors-browser-state 1\nbookmark\thttps://mine.example/\tMine\n";
+
+        snprintf(path, sizeof(path), "%s/locked", dir);
+        write_file(path, mine, strlen(mine));
+        chmod(path, 0);
+        check("no permission: UNREADABLE, defaults, a reason",
+              web_store_load(&s, path, why, sizeof(why)) == WEB_STORE_UNREADABLE && s.nbookmark == 2 &&
+                  strstr(why, "cannot be read") != NULL);
+        chmod(path, 0600);
+    } else {
+        printf("skip the permission check (running as root)\n");
+    }
+    /* A regular file whose read() fails with EIO: /proc/self/mem at offset 0. */
+    check("a read error part-way: UNREADABLE, none of it used",
+          web_store_load(&s, "/proc/self/mem", why, sizeof(why)) == WEB_STORE_UNREADABLE && s.nbookmark == 2 &&
+              strcmp(s.home, "about:home") == 0 && strstr(why, "cannot be read") != NULL);
+    {
+        char bad[600];
+        char back[64];
+        FILE *f;
+
+        snprintf(path, sizeof(path), "%s/aside", dir);
+        write_file(path, "junk\n", 5);
+        snprintf(bad, sizeof(bad), "%s.bad", path);
+        check("set aside: the file becomes <file>.bad", web_store_set_aside(path) == 0 && access(path, F_OK) != 0 &&
+                                                           access(bad, F_OK) == 0);
+        f = fopen(bad, "r");
+        check("set aside: its bytes are unchanged", f && fgets(back, sizeof(back), f) && strcmp(back, "junk\n") == 0);
+        if (f) {
+            fclose(f);
+        }
+        check("set aside with nothing there is fine", web_store_set_aside(path) == 0);
+    }
     {
         char text[256] = "doors-browser-state 1\nhome\thttps://x.example/\0junk\n";
 

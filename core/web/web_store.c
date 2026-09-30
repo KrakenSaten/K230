@@ -73,6 +73,26 @@ static void say(char *why, size_t whylen, const char *fmt, int line)
     }
 }
 
+/* The file is there and may hold the person's bookmarks, but it could not
+ * be read: the defaults are used and the file must be left alone. */
+static enum web_store_load unreadable(struct web_store *s, char *why, size_t whylen, int err)
+{
+    web_store_defaults(s);
+    if (why && whylen) {
+        snprintf(why, whylen, "cannot be read (%s)", strerror(err));
+    }
+    return WEB_STORE_UNREADABLE;
+}
+
+/* The first bad line is the one named; the others are skipped quietly. */
+static void skip(char *why, size_t whylen, bool *skipped, const char *fmt, int line)
+{
+    if (!*skipped) {
+        say(why, whylen, fmt, line);
+    }
+    *skipped = true;
+}
+
 enum web_store_load web_store_load(struct web_store *s, const char *path, char *why, size_t whylen)
 {
     char pbuf[POCKETOS_PATH_MAX];
@@ -83,8 +103,10 @@ enum web_store_load web_store_load(struct web_store *s, const char *path, char *
     struct stat st;
     ssize_t got;
     size_t have = 0;
+    bool skipped = false;
     int fd;
     int ln = 0;
+    int err;
 
     web_store_defaults(s);
     if (why && whylen) {
@@ -98,10 +120,18 @@ enum web_store_load web_store_load(struct web_store *s, const char *path, char *
         if (errno == ENOENT) {
             return WEB_STORE_MISSING;
         }
-        say(why, whylen, "cannot be read", 0);
-        return WEB_STORE_CORRUPT;
+        if (errno == ELOOP) {
+            say(why, whylen, "a symbolic link, not the store", 0);
+            return WEB_STORE_CORRUPT;
+        }
+        return unreadable(s, why, whylen, errno);
     }
-    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size > (off_t)WEB_STORE_FILE_MAX) {
+    if (fstat(fd, &st) != 0) {
+        err = errno;
+        close(fd);
+        return unreadable(s, why, whylen, err);
+    }
+    if (!S_ISREG(st.st_mode) || st.st_size > (off_t)WEB_STORE_FILE_MAX) {
         close(fd);
         say(why, whylen, "not a regular file of at most 64 KB", 0);
         return WEB_STORE_CORRUPT;
@@ -109,8 +139,7 @@ enum web_store_load web_store_load(struct web_store *s, const char *path, char *
     buf = malloc(WEB_STORE_FILE_MAX + 1);
     if (!buf) {
         close(fd);
-        say(why, whylen, "out of memory", 0);
-        return WEB_STORE_CORRUPT;
+        return unreadable(s, why, whylen, ENOMEM);
     }
     while (have < WEB_STORE_FILE_MAX &&
            (got = read(fd, buf + have, WEB_STORE_FILE_MAX - have)) != 0) {
@@ -118,7 +147,11 @@ enum web_store_load web_store_load(struct web_store *s, const char *path, char *
             if (errno == EINTR) {
                 continue;
             }
-            break;
+            /* Half a file is not the file: nothing of it is used. */
+            err = errno;
+            close(fd);
+            free(buf);
+            return unreadable(s, why, whylen, err);
         }
         have += (size_t)got;
     }
@@ -146,12 +179,11 @@ enum web_store_load web_store_load(struct web_store *s, const char *path, char *
             }
             continue;
         }
+        /* One bad line costs that line, not the person's other bookmarks. */
         f1 = strchr(line, '\t');
         if (!f1) {
-            free(buf);
-            say(why, whylen, "line %d has no value", ln);
-            web_store_defaults(s);
-            return WEB_STORE_CORRUPT;
+            skip(why, whylen, &skipped, "line %d has no value", ln);
+            continue;
         }
         *f1++ = '\0';
         f2 = strchr(f1, '\t');
@@ -159,9 +191,8 @@ enum web_store_load web_store_load(struct web_store *s, const char *path, char *
             *f2++ = '\0';
         }
         if (!url_ok(f1)) {
-            free(buf);
-            say(why, whylen, "line %d holds an address that is not allowed", ln);
-            return WEB_STORE_CORRUPT;
+            skip(why, whylen, &skipped, "line %d holds an address that is not allowed", ln);
+            continue;
         }
         if (strcmp(line, "home") == 0 && !f2) {
             set(t.home, sizeof(t.home), f1);
@@ -176,9 +207,7 @@ enum web_store_load web_store_load(struct web_store *s, const char *path, char *
             set(t.bookmark[t.nbookmark].title, WEB_TITLE_MAX, f2 ? f2 : "");
             t.nbookmark++;
         } else if (strcmp(line, "recent") != 0 && strcmp(line, "bookmark") != 0) {
-            free(buf);
-            say(why, whylen, "line %d is not a known entry", ln);
-            return WEB_STORE_CORRUPT;
+            skip(why, whylen, &skipped, "line %d is not a known entry", ln);
         }
         /* Past a list's limit the rest of that list is dropped. */
     }
@@ -191,7 +220,22 @@ enum web_store_load web_store_load(struct web_store *s, const char *path, char *
         set(t.home, sizeof(t.home), "about:home");
     }
     *s = t;
-    return WEB_STORE_LOADED;
+    return skipped ? WEB_STORE_PARTIAL : WEB_STORE_LOADED;
+}
+
+int web_store_set_aside(const char *path)
+{
+    char pbuf[POCKETOS_PATH_MAX];
+    char bad[POCKETOS_PATH_MAX + 8];
+
+    if (!path) {
+        path = web_store_path(pbuf, sizeof(pbuf));
+    }
+    snprintf(bad, sizeof(bad), "%s.bad", path);
+    if (rename(path, bad) != 0 && errno != ENOENT) {
+        return -1;
+    }
+    return 0;
 }
 
 static int write_all(int fd, const char *s, size_t n)

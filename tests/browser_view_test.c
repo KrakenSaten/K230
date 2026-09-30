@@ -91,6 +91,36 @@ static uint16_t *pixels(int w, int h)
     return calloc((size_t)w * (size_t)h, sizeof(uint16_t));
 }
 
+static const char *read_all(const char *path)
+{
+    static char buf[4096];
+    FILE *f = fopen(path, "r");
+    size_t n = 0;
+
+    buf[0] = '\0';
+    if (f) {
+        n = fread(buf, 1, sizeof(buf) - 1, f);
+        fclose(f);
+    }
+    buf[n] = '\0';
+    return buf;
+}
+
+static int file_is(const char *path, const char *text)
+{
+    return strcmp(read_all(path), text) == 0;
+}
+
+static void write_text(const char *path, const char *text)
+{
+    FILE *f = fopen(path, "w");
+
+    if (f) {
+        fputs(text, f);
+        fclose(f);
+    }
+}
+
 int main(void)
 {
     char dir[] = "/tmp/browser_view_test.XXXXXX";
@@ -328,9 +358,58 @@ int main(void)
         fclose(f);
     }
     browser_view_init(w, path, why, sizeof(why));
-    check("a corrupt state file: defaults, a reason, and replaced at the next save",
-          w->store.nrecent == 0 && why[0] && w->store_dirty && browser_view_save(w) == 0);
+    check("a state file that is not a store: defaults and a reason, nothing to save yet",
+          w->store.nrecent == 0 && why[0] && w->store_aside && !w->store_dirty && browser_view_save(w) == 0 &&
+              file_is(path, "garbage\n"));
+    browser_view_clear_recent(w);
+    {
+        char bad[300];
+
+        snprintf(bad, sizeof(bad), "%s.bad", path);
+        check("its first save keeps it as state.bad, then writes a fresh store",
+              browser_view_save(w) == 0 && file_is(bad, "garbage\n") && !w->store_aside &&
+                  strncmp(read_all(path), "doors-browser-state 1\n", 22) == 0);
+        unlink(bad);
+    }
     browser_view_free(w);
+
+    /* One bad line among the person's bookmarks: the view keeps the others,
+     * and a later change saves them all. */
+    {
+        const char *mine = "doors-browser-state 1\n"
+                           "bookmark\thttps://one.example/\tOne\n"
+                           "bookmark\tjavascript:alert(1)\tBad\n"
+                           "bookmark\thttps://two.example/\tTwo\n";
+
+        write_text(path, mine);
+        browser_view_init(w, path, why, sizeof(why));
+        check("a bad line: the other bookmarks are there, the reason names the line",
+              w->store.nbookmark == 2 && web_store_is_bookmark(&w->store, "https://two.example/") &&
+                  strstr(why, "line 3") != NULL && !w->store_dirty && !w->store_aside && !w->store_unreadable);
+        browser_view_clear_recent(w);
+        check("and the next save keeps both",
+              browser_view_save(w) == 0 && strstr(read_all(path), "https://one.example/") != NULL &&
+                  strstr(read_all(path), "https://two.example/") != NULL);
+        browser_view_free(w);
+    }
+
+    /* A store that cannot be read is never written over, whatever changes. */
+    if (geteuid() != 0) {
+        const char *mine = "doors-browser-state 1\nbookmark\thttps://mine.example/\tMine\n";
+
+        write_text(path, mine);
+        chmod(path, 0);
+        browser_view_init(w, path, why, sizeof(why));
+        browser_view_clear_recent(w);
+        check("an unreadable store: flagged, the change stays unsaved, save says 0",
+              w->store_unreadable && strstr(why, "cannot be read") != NULL && browser_view_save(w) == 0 &&
+                  w->store_dirty);
+        chmod(path, 0600);
+        check("and the file is exactly as it was", file_is(path, mine));
+        browser_view_free(w);
+    } else {
+        printf("skip the unreadable-store check (running as root)\n");
+    }
 
     browser_view_free(v);
     web_rx_free(&rx);

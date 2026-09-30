@@ -17,11 +17,16 @@
  * over the old one, and never through a symbolic link.
  *
  * READING. A missing file gives the defaults (about:home, two neutral
- * bookmarks). A file with another first line, one that is too large, or a
- * line that is not one of the above is not trusted: the defaults are used,
- * the reason is given, and the next save replaces the file. Every address is
- * checked with web_url_parse, so a planted file:// or javascript: address
- * cannot come back as a bookmark.
+ * bookmarks). A line that is not one of the above, or holds an address that
+ * is not allowed, is skipped and the rest of the file is kept (PARTIAL, the
+ * first such line is given). A file that is not a store as a whole - another
+ * first line, empty, too large, a NUL byte, not a regular file - is not
+ * trusted: the defaults are used and the reason is given (CORRUPT); the
+ * caller keeps that file aside (web_store_set_aside) before it saves. A file
+ * that is there but cannot be read - no permission, an I/O error - gives the
+ * defaults too (UNREADABLE), and must not be written over: the person's
+ * bookmarks may be in it. Every address is checked with web_url_parse, so a
+ * planted file:// or javascript: address cannot come back as a bookmark.
  *
  * Pure C: tests/web_store_test.c.
  *
@@ -58,7 +63,9 @@ struct web_store {
 enum web_store_load {
     WEB_STORE_LOADED = 0,
     WEB_STORE_MISSING,          /* defaults */
-    WEB_STORE_CORRUPT           /* defaults; why says what was wrong */
+    WEB_STORE_CORRUPT,          /* defaults; why says what was wrong; set the file aside before saving */
+    WEB_STORE_PARTIAL,          /* loaded, some lines skipped; why names the first */
+    WEB_STORE_UNREADABLE        /* defaults; why says why; never save over this file */
 };
 
 void web_store_defaults(struct web_store *s);
@@ -67,6 +74,10 @@ void web_store_defaults(struct web_store *s);
 enum web_store_load web_store_load(struct web_store *s, const char *path, char *why, size_t whylen);
 /* 0, or -1 with errno. */
 int web_store_save(const struct web_store *s, const char *path);
+/* Rename the file at path (NULL: web_store_path()) to "<path>.bad", replacing
+ * an older one, so a store that was not understood is kept, not written
+ * over. 0 when renamed or there was nothing there, else -1 with errno. */
+int web_store_set_aside(const char *path);
 
 /* $POCKETOS_STATE_DIR/browser/state into buf. */
 const char *web_store_path(char *buf, size_t len);
