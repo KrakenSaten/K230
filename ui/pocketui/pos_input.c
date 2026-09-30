@@ -100,10 +100,42 @@ static lv_group_t *source_group; /* private: holds sink, never app objects */
 static lv_obj_t *source_sink;    /* receives adopted sources' keys */
 
 static pos_key_t queue[POS_INPUT_QUEUE];
+static uint8_t queue_mods[POS_INPUT_QUEUE];
 static unsigned head; /* monotonic; index is head % POS_INPUT_QUEUE */
 static unsigned tail;
 static bool release_pending;
 static pos_key_t last_key;
+
+/* ---- the raw key target ------------------------------------------------ *
+ *
+ * A raw delivery is the key's code point (21 bits; every LV_KEY_* is one of
+ * them) with the modifiers above it and the top bit set. No LV_KEY_*
+ * constant and no packed UTF-8 character has the top bit, so LVGL treats it
+ * as an ordinary key and sends it to the focused object as it is. */
+#define RAW_FLAG 0x80000000u
+#define RAW_MODS_SHIFT 24
+#define RAW_KEY_MASK 0x1FFFFFu
+#define RAW_MODS_MASK 0x7u
+
+static lv_obj_t *raw_target;
+
+static void raw_target_deleted(lv_event_t *e)
+{
+    (void)e;
+    raw_target = NULL;
+}
+
+/* Whether the key about to be delivered goes to the raw target. */
+static bool raw_delivery(lv_indev_t *dev)
+{
+    lv_group_t *g;
+
+    if (!raw_target) {
+        return false;
+    }
+    g = lv_indev_get_group(dev);
+    return g && lv_group_get_focused(g) == raw_target;
+}
 
 /* ---- one-deep group redirection state (DS §18.8) ---------------------- *
  *
@@ -134,7 +166,8 @@ unsigned pos_input_queued(void)
  * read period per character. */
 static void read_cb(lv_indev_t *dev, lv_indev_data_t *data)
 {
-    (void)dev;
+    pos_key_t key;
+    unsigned mods;
 
     if (release_pending) {
         release_pending = false;
@@ -147,8 +180,16 @@ static void read_cb(lv_indev_t *dev, lv_indev_data_t *data)
         data->state = LV_INDEV_STATE_RELEASED;
         return;
     }
-    last_key = encode(queue[tail % POS_INPUT_QUEUE]);
+    key = queue[tail % POS_INPUT_QUEUE];
+    mods = queue_mods[tail % POS_INPUT_QUEUE];
     tail++;
+    /* Decided per key, as it is delivered: the focus may have changed since
+     * it was queued. Anyone else gets the ordinary value, modifiers dropped. */
+    if (raw_delivery(dev) && key <= RAW_KEY_MASK) {
+        last_key = RAW_FLAG | ((mods & RAW_MODS_MASK) << RAW_MODS_SHIFT) | key;
+    } else {
+        last_key = encode(key);
+    }
     data->key = last_key;
     data->state = LV_INDEV_STATE_PRESSED;
     release_pending = true;
@@ -215,9 +256,10 @@ void pos_input_deinit(void)
     redirected = false;
     saved_group = NULL;
     saved_focus = NULL;
+    pos_input_set_raw_target(NULL);
 }
 
-bool pos_input_push_key(pos_key_t key)
+bool pos_input_push_key_mods(pos_key_t key, unsigned mods)
 {
     if (!group) {
         return false;
@@ -226,7 +268,46 @@ bool pos_input_push_key(pos_key_t key)
         return false; /* drop the newest; what was typed first still arrives */
     }
     queue[head % POS_INPUT_QUEUE] = key;
+    queue_mods[head % POS_INPUT_QUEUE] = (uint8_t)(mods & RAW_MODS_MASK);
     head++;
+    return true;
+}
+
+bool pos_input_push_key(pos_key_t key)
+{
+    return pos_input_push_key_mods(key, 0);
+}
+
+void pos_input_set_raw_target(lv_obj_t *obj)
+{
+    if (raw_target == obj) {
+        return;
+    }
+    if (raw_target) {
+        lv_obj_remove_event_cb(raw_target, raw_target_deleted);
+    }
+    raw_target = obj;
+    if (obj) {
+        lv_obj_add_event_cb(obj, raw_target_deleted, LV_EVENT_DELETE, NULL);
+    }
+}
+
+lv_obj_t *pos_input_raw_target(void)
+{
+    return raw_target;
+}
+
+bool pos_input_raw_decode(uint32_t delivered, pos_key_t *key, unsigned *mods)
+{
+    if (!(delivered & RAW_FLAG)) {
+        return false;
+    }
+    if (key) {
+        *key = delivered & RAW_KEY_MASK;
+    }
+    if (mods) {
+        *mods = (delivered >> RAW_MODS_SHIFT) & RAW_MODS_MASK;
+    }
     return true;
 }
 

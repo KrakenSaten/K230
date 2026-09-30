@@ -77,7 +77,14 @@ static void on_event(void *user, uint8_t raw)
     (void)user;
     key = pos_keymap_event(&kbd.map, raw, &effect);
     if (effect == POS_KEYMAP_KEY && key != 0) {
-        if (pos_input_push_key(key)) {
+        /* The modifiers held at this press go with the key. Only a raw key
+         * target (the Terminal, pos_input.h) ever sees them; every field
+         * gets the key exactly as it always did. */
+        unsigned mods = (kbd.map.shift ? POS_INPUT_MOD_SHIFT : 0u) |
+                        (kbd.map.ctrl ? POS_INPUT_MOD_CTRL : 0u) |
+                        (kbd.map.alt ? POS_INPUT_MOD_ALT : 0u);
+
+        if (pos_input_push_key_mods(key, mods)) {
             kbd.delivered++;
         } else {
             kbd.dropped++; /* the queue is full; the oldest keys survive */

@@ -38,7 +38,7 @@ failed=0
 check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 line() { grep -n "$1" "$2" | head -1 | cut -d: -f1; }
 APPS="radio system fleet radar timber notes clock calendar calculator settings wave rift files camera recorder zabbix browser
-      solitaire blackjack 2048 deskbuddy mp3"
+      solitaire blackjack 2048 deskbuddy mp3 terminal"
 # DS §30.8, §34, §35: the apps that declare NONE, fullscreen in both orientations.
 FULLSCREEN="rift notes wave fleet radar timber camera recorder zabbix browser solitaire blackjack 2048 deskbuddy mp3"
 is_fullscreen() { case " $FULLSCREEN " in *" $1 "*) return 0 ;; esac; return 1; }
@@ -236,8 +236,8 @@ for rot in portrait landscape; do
         logs "$OUT/$r-$id.log" | grep -q "$want" &&
             ! logs "$OUT/$r-$id.log" | grep -qE ' ERROR |assert' && n=$((n + 1))
     done
-    check "$rot: the seven other apps open under the cluster and the fifteen fullscreen ones under NONE, faulting nothing ($n of 22)" \
-        "$([ "$n" = 22 ] && echo 1 || echo 0)"
+    check "$rot: the eight other apps open under the cluster and the fifteen fullscreen ones under NONE, faulting nothing ($n of 23)" \
+        "$([ "$n" = 23 ] && echo 1 || echo 0)"
     corner=30; [ $rot = landscape ] && corner=50
     for id in system timber; do
         set -- $(pixels "$OUT/$r-$id.png")
@@ -285,7 +285,7 @@ PY
     bad=$(grep -h '^FAIL' "$OUT"/f-$rot-*.checks | wc -l)
     check "$rot: home and all twenty apps measured from shell.info: $((total - bad)) of $total rules hold" \
         "$([ "$bad" = 0 ] && [ "$total" -ge 100 ] && echo 1 || echo 0)"
-    check "$rot: coming home from each restores the launcher's cluster ($n of 22)" "$([ "$n" = 22 ] && echo 1 || echo 0)"
+    check "$rot: coming home from each restores the launcher's cluster ($n of 23)" "$([ "$n" = 23 ] && echo 1 || echo 0)"
     stop_shell
     check "$rot: the running shell logged no fault" \
         "$(grep -qE ' ERROR |assert' "$POCKETOS_LOG_DIR/shell.log" "$POCKETOS_LOG_DIR/run.log" && echo 0 || echo 1)"

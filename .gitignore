@@ -199,6 +199,10 @@ BUILD_ID
 /tests/mp3_session_test
 /tests/mp3_ctl_test
 /tests/pos-mp3-testhooks
+# Terminal (docs/apps/TERMINAL.md)
+/tests/term_screen_test
+/tests/term_keys_test
+/tests/term_session_test
 # Vision (docs/apps/VISION.md)
 /tools/vision/pos-vision
 /tests/vision_decode_test

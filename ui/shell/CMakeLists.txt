@@ -225,6 +225,11 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/deskbuddy/db_vision.c
     ${REPO_DIR}/apps/deskbuddy/db_vision_mock.c
     ${REPO_DIR}/apps/deskbuddy_vision/db_vision_pipeline.c
+    ${REPO_DIR}/apps/terminal/terminal_app.c
+    ${REPO_DIR}/apps/terminal/term_session.c
+    ${REPO_DIR}/apps/terminal/term_screen.c
+    ${REPO_DIR}/apps/terminal/term_keys.c
+    ${REPO_DIR}/apps/terminal/term_pty.c
     ${REPO_DIR}/apps/2048/g2048_app.c
     ${REPO_DIR}/apps/2048/g2048_store.c
     ${REPO_DIR}/apps/2048/engine/g2048_rng.c
@@ -360,7 +365,8 @@ target_include_directories(pocketos-shell PRIVATE "${REPO_DIR}/apps/timber/ui"
                                                   "${REPO_DIR}/apps/blackjack/engine"
                                                   "${REPO_DIR}/apps/blackjack/ui"
                                                   "${REPO_DIR}/apps/deskbuddy"
-                                                  "${REPO_DIR}/apps/deskbuddy_vision")
+                                                  "${REPO_DIR}/apps/deskbuddy_vision"
+                                                  "${REPO_DIR}/apps/terminal")
 
 # The card world palettes of PG Solitaire and PG Blackjack
 # (docs/apps/PGSOLITAIRE.md and PGBLACKJACK.md, "Look"). Cards are world
@@ -1415,6 +1421,38 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         endif()
         target_link_libraries(${game_test} PRIVATE lvgl ${SDL2_LIBRARIES} m)
     endforeach()
+
+    # The Terminal in the running app (run by tests/terminal_shell_test.sh):
+    # keys pushed into the real input stream reach a real /bin/sh on a real
+    # PTY, the grid is laid out and drawn in both orientations, and the
+    # timer, the shell, its PTY and its descriptors are gone after every close.
+    add_executable(terminal_app_test
+        ${REPO_DIR}/tests/terminal_app_test.c
+        chrome.c
+        ${REPO_DIR}/apps/terminal/terminal_app.c
+        ${REPO_DIR}/apps/terminal/term_session.c
+        ${REPO_DIR}/apps/terminal/term_screen.c
+        ${REPO_DIR}/apps/terminal/term_keys.c
+        ${REPO_DIR}/apps/terminal/term_pty.c
+        ../pocketui/pos_app_icons.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(terminal_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/terminal")
+    target_compile_options(terminal_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(terminal_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(terminal_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(terminal_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(terminal_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
     # The system alert's keyboard isolation and focus ownership (run by
     # tests/alert_shell_test.sh). DS v0.1 section 18.5, 18.6 and 18.8: while
