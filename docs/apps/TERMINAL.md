@@ -22,8 +22,8 @@ amendment DS §43 (PROPOSED). Hardware gate: `docs/hardware/TERMINAL_GATE.md`.
   (Ctrl+C, Ctrl+D, Ctrl+L, Ctrl+Z, ...). Without the keyboard base, a tap on
   the grid brings up the shell's touch keyboard.
 - **Shows.** A grid of 8 x 18 px cells in the Design System's monospace
-  face, filling the app's body inside the corner clearance: about 60 x 56 in
-  portrait and 147 x 14 in landscape on the panel. Colours from programs
+  face, filling the app's body inside the corner clearance: 65 x 61 in
+  portrait and 148 x 24 in landscape on the panel (unit B, `stty size`). Colours from programs
   (`ls`, prompts) are drawn in the theme's tokens and identity accents.
 - **Scrolls back.** 1000 lines above the screen. Shift+Up and Shift+Down
   move half a screen, a drag moves line by line; the header says
@@ -76,7 +76,8 @@ one more non-blocking descriptor. Four LVGL-free parts, one screen:
 5. **Close.** Leaving the app does the same at once: the master is closed
    (the kernel hangs up the terminal), SIGHUP and SIGCONT to the session,
    up to 300 ms for it to go, SIGKILL for what stays, up to 500 ms to reap
-   the shell. Measured on the host, a close during a flood takes 4-10 ms.
+   the shell. A close during a flood takes 1-13 ms on the host and 17 ms
+   on unit B.
    A shell stuck in the kernel beyond that is remembered and reaped on the
    next open or close, so it is never forgotten.
 6. **If the Doors shell dies** instead, the kernel closes the master: the
@@ -96,11 +97,16 @@ that scrolls as a whole is redrawn at most every 60 ms; a line being typed
 redraws its row only. Keys are written the moment they arrive, independent
 of output, so Ctrl+C stops a flood at once.
 
-### Memory
+### Memory and CPU
 
 The screen and its scrollback are one allocation made when the app opens:
 160 x 1100 cells of 4 bytes, 704,000 bytes. Nothing is allocated for
 output after that (the host test feeds 10 MB and checks the heap).
+
+On unit B (docs/hardware/TERMINAL_GATE.md): doors-shell uses 1 % of the CPU
+at the launcher and 1 % with the Terminal idle at the prompt; under `yes`
+flooding the screen it takes 35 % while `yes` is held to 25 %; RSS goes from
+14.9 to 15.5 MB after the first flood and stays there.
 
 ## The VT subset (term_screen.c)
 
