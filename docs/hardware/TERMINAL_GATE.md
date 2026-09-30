@@ -1,11 +1,23 @@
 # Terminal 0.1 hardware gate (unit B)
 
-**Unit B now carries feat/terminal `c7e1910`, the production build** (no key
-hook): `doors shell info` build `c7e1910`, `/usr/bin/doors-shell` md5
-`f5d6b626…`, `/usr/share/doors/ui/icon-terminal.bin` md5 `1e95eee3…`, rotation
-mode `automatic` (keyboard base attached: landscape). Rollback:
-`/root/rollback-terminal/RESTORE.sh` (back to shell 51c46f9, no Terminal
-icon, the unit's own `/etc/default/doors-shell` and `settings.conf`).
+**Unit B now carries master `bae3695` in full** (updated 2026-09-30 17:12 UTC):
+every Doors binary, service, init script and the UI assets from a clean
+build of `bae3695`, pushed with `platforms/k230/scripts/deploy.sh` (no
+flash, no key hook). `doors shell info` build `bae3695`, `/etc/doors-release`
+`BUILD_ID=bae3695`, `/usr/bin/doors-shell` md5 `5a1f8e43…`; `pos-mp3` and
+`pos-video` installed for the first time; rotation mode `automatic`
+(keyboard base attached: landscape). This includes the Terminal's two
+post-review fixes (`0ba691b`), which ran here only as an open-and-close smoke
+check (a login shell, nothing left after close, 25 apps on the launcher,
+radio `rx`, meshcored online), not through the gate below. Rollback:
+`/root/rollback-master-bae3695/RESTORE.sh` (back to what the unit carried
+before: doors-shell `3235f38` from the Fleet chat gate and the v0.2.1
+helpers and services; removes `pos-mp3` and `pos-video`). Deploy and
+verification logs: `C:\K230\out\unitB-bae3695-prep`.
+
+**The gate below ran on feat/terminal `c7e1910`**, the unit then carrying
+that production build (`/usr/bin/doors-shell` md5 `f5d6b626…`, rollback
+`/root/rollback-terminal/RESTORE.sh`). Its results are about that build.
 
 Run 2026-09-30, 11:36-11:50 UTC, by Claude over SSH. Hot deployment, no
 flash. Image v0.2.1 (9dc66c2), kernel 6.6.36, BusyBox 1.37.0 ash as root's
@@ -56,7 +68,7 @@ the gate typed the next command while `ps` was printing, the tty echoed it
 into the output, and ash redrew over it - what any terminal shows for
 type-ahead.
 
-## Left for the owner (unit B, keyboard base attached)
+## Left for the owner (unit B on `bae3695`, keyboard base attached)
 
 1. Open Terminal from the launcher (DEVICE, after System).
 2. Type `ls` and Enter; `sleep 30`, then Ctrl+C; Up arrow; `ls /et` and Tab.
