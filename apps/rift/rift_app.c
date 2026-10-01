@@ -15,6 +15,8 @@
 #include "rift_activity.h"
 #include "rift_comms.h"
 #include "rift_detail.h"
+#include "rift_device.h"
+#include "rift_manage.h"
 #include "rift_netview.h"
 #include "rift_nodes.h"
 #include "rift_sound.h"
@@ -272,6 +274,12 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section)
         /* Leaving NODES is a Cancel for any confirmation left up there. */
         rift_nodes_cancel_confirm(a);
     }
+    if (section != RIFT_SEC_ACTIVITY) {
+        /* And leaving ACTIVITY for what is open there - a form, a LEAVE or
+         * path hash confirmation, a key shown for sharing. */
+        rift_manage_cancel(a);
+        rift_device_cancel(a);
+    }
     rift_tabs_paint(a);
     switch (section) {
     case RIFT_SEC_ACTIVITY:
@@ -518,6 +526,11 @@ static void layout(struct rift_app *a)
         a->wide = wide;
         /* A pane left open in one shape does not follow into the other. */
         a->details_open = 0;
+        /* Nor does a form or a confirmation on ACTIVITY: turning the panel is
+         * Cancel, as it is for FORGET. Only on a turn - the touch keyboard
+         * coming up also lays the frame out, under somebody typing. */
+        rift_manage_cancel(a);
+        rift_device_cancel(a);
     }
     /* The chrome's heights from the timer, not from inside this layout
      * pass (rift_app.h, chrome_pending). */

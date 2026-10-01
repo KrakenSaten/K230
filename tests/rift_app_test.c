@@ -27,8 +27,10 @@
 #include "rift_activity.h"
 #include "rift_app.h"
 #include "rift_comms.h"
+#include "rift_device.h"
 #include "rift_find.h"
 #include "rift_graph.h"
+#include "rift_manage.h"
 #include "rift_net.h"
 #include "rift_netview.h"
 #include "rift_nodes.h"
@@ -40,7 +42,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <time.h>
 
 #if LV_USE_LODEPNG && LV_USE_SNAPSHOT
@@ -1940,6 +1946,414 @@ static void find_session(void)
     app_stop();
 }
 
+/* ---- managing the node, with no service: what is checked before asking -- */
+
+/* A field's text, set the way typing would leave it. */
+static void field_set(lv_obj_t *field, const char *text)
+{
+    check("the field is there", field != NULL);
+    if (field) {
+        lv_textarea_set_text(field, text);
+    }
+    pump(40);
+}
+
+static void manage_session(void)
+{
+    lv_obj_t *add;
+    lv_obj_t *join;
+
+    app_start();
+    quiet_client();
+    give_service();
+    give_channels();
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(120);
+
+    check("ACTIVITY lists the channels the service holds",
+          find_exact(content(), "SITE") != NULL && find_exact(content(), "OPS") != NULL);
+    check("with their slot, hash and key size",
+          find_text(content(), "SLOT 2 \xC2\xB7 HASH 4d \xC2\xB7 128-BIT") != NULL);
+    check("and what every channel is: an unscoped flood",
+          find_text(content(), "2 OF 8 SLOTS \xC2\xB7 UNSCOPED FLOOD") != NULL);
+    check("each row can be left", count_exact(content(), "LEAVE") == 2);
+    shot("portrait-activity-channels");
+
+    /* LEAVE asks first; Cancel changes nothing. */
+    tap(action_of(find_exact(content(), "LEAVE")));
+    pump(150);
+    check("LEAVE asks first, naming the channel", find_text(content(), "Leave SITE?") != NULL);
+    check("and says what it costs", find_text(content(), "Nothing on the air gives it back") != NULL);
+    check("nothing is asked yet", app->model.manage_op.kind == RIFT_ACTION_NONE);
+    shot("portrait-activity-leave-confirm");
+    tap(action_of(find_exact(content(), "CANCEL")));
+    pump(150);
+    check("Cancel puts it away and asks nothing",
+          find_text(content(), "Leave SITE?") == NULL &&
+              app->model.manage_op.kind == RIFT_ACTION_NONE);
+
+    tap(action_of(find_exact(content(), "LEAVE")));
+    pump(150);
+    rift_app_show_section(app, RIFT_SEC_NODES);
+    pump(60);
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(150);
+    check("leaving ACTIVITY is Cancel for a LEAVE left up",
+          find_text(content(), "Leave SITE?") == NULL);
+
+    tap(action_of(find_exact(content(), "LEAVE")));
+    pump(150);
+    {
+        /* The confirmation's LEAVE is the one after its CANCEL; the rows'
+         * own LEAVEs are disabled while it is up. */
+        lv_obj_t *confirm_cancel = action_of(find_exact(content(), "CANCEL"));
+        lv_obj_t *bar = confirm_cancel ? lv_obj_get_parent(confirm_cancel) : NULL;
+
+        tap(kid(bar, 1));
+    }
+    pump(150);
+    check("the confirmation's LEAVE asks to leave slot 0, by name",
+          app->model.manage_op.kind == RIFT_ACTION_CHANNEL_REMOVE &&
+              app->model.manage_op.value == 0 && strcmp(app->model.manage_op.label, "SITE") == 0);
+    check("and with no service says nothing was changed",
+          app->model.manage_op.failed &&
+              strstr(app->model.manage_op.error, "nothing was changed") != NULL);
+    check("the channel is still listed: only the service's answer removes it",
+          find_exact(content(), "SITE") != NULL);
+
+    /* ADD CHANNEL: a form in place, checked before anything is asked. */
+    add = action_of(find_exact(content(), "ADD CHANNEL"));
+    tap(add);
+    pump(150);
+    check("ADD CHANNEL opens a form in place, a hashtag by default",
+          rift_manage_name_field(app) && visible(rift_manage_name_field(app)) &&
+              find_text(content(), "A public topic") != NULL);
+    check("with no key field for a hashtag", !visible(rift_manage_key_field(app)));
+    join = action_of(find_exact(content(), "JOIN"));
+    tap(join);
+    pump(150);
+    check("an empty name is said, not sent",
+          find_text(content(), "needs a name after the #") != NULL &&
+              app->model.manage_op.kind == RIFT_ACTION_CHANNEL_REMOVE);
+    field_set(rift_manage_name_field(app), "abcdefghijabcdefghijabcdefghijk");
+    tap(join);
+    pump(150);
+    check("a hashtag name that only fits without its # is refused, not cut",
+          find_text(content(), "at most 31 bytes") != NULL);
+    field_set(rift_manage_name_field(app), "  oslo ");
+    tap(join);
+    pump(150);
+    check("a hashtag is asked for under its canonical name",
+          app->model.manage_op.kind == RIFT_ACTION_CHANNEL_ADD &&
+              strcmp(app->model.manage_op.label, "#oslo") == 0);
+    check("and with no service the form says nothing was changed, and stays",
+          find_text(content(), "nothing was changed") != NULL &&
+              visible(rift_manage_name_field(app)));
+
+    tap(action_of(find_exact(content(), "KEY")));
+    pump(150);
+    check("KEY shows the key field", visible(rift_manage_key_field(app)) &&
+                                         find_text(content(), "somebody shared") != NULL);
+    field_set(rift_manage_name_field(app), "Felles");
+    field_set(rift_manage_key_field(app), "not a key!");
+    tap(join);
+    pump(150);
+    check("a key that is not base64 is said, before anything is asked",
+          find_text(content(), "not a base64 key") != NULL &&
+              strcmp(app->model.manage_op.label, "#oslo") == 0);
+    field_set(rift_manage_key_field(app), "AAECAwQFBgcICQoL");
+    tap(join);
+    pump(150);
+    check("and one of the wrong length", find_text(content(), "16 or 32 bytes") != NULL);
+    field_set(rift_manage_name_field(app), "SITE");
+    field_set(rift_manage_key_field(app), "izOH6cXN6mrJ5e26oRXNcg==");
+    tap(join);
+    pump(150);
+    check("a name already joined is said", find_text(content(), "called SITE is joined") != NULL);
+    tap(action_of(find_exact(content(), "PRIVATE")));
+    pump(150);
+    check("PRIVATE needs no key: it makes one", !visible(rift_manage_key_field(app)) &&
+                                                   find_text(content(), "new random key") != NULL);
+    shot("portrait-activity-add-channel");
+    rift_app_show_section(app, RIFT_SEC_NODES);
+    pump(60);
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(150);
+    check("leaving ACTIVITY closes the form and empties its fields",
+          !visible(rift_manage_name_field(app)) &&
+              lv_textarea_get_text(rift_manage_key_field(app))[0] == '\0' &&
+              lv_textarea_get_text(rift_manage_name_field(app))[0] == '\0');
+
+    /* THIS DEVICE: the name, and the path hash size. */
+    check("THIS DEVICE has RENAME", find_exact(content(), "RENAME") != NULL);
+    check("and the path hash choices, disabled until the service says the size",
+          find_exact(content(), "2 B") != NULL &&
+              lv_obj_has_state(action_of(find_exact(content(), "2 B")), LV_STATE_DISABLED));
+    tap(action_of(find_exact(content(), "RENAME")));
+    pump(150);
+    check("RENAME opens the name in place, filled with the current one",
+          rift_device_rename_field(app) && visible(rift_device_rename_field(app)) &&
+              strcmp(lv_textarea_get_text(rift_device_rename_field(app)), "K230-A") == 0);
+    field_set(rift_device_rename_field(app), "   ");
+    tap(action_of(find_exact(content(), "SAVE")));
+    pump(150);
+    check("a name of spaces is said, not sent",
+          find_text(content(), "not only spaces") != NULL &&
+              app->model.manage_op.kind != RIFT_ACTION_RENAME);
+    field_set(rift_device_rename_field(app), "Ny K230");
+    tap(action_of(find_exact(content(), "SAVE")));
+    pump(150);
+    check("a good name is asked for", app->model.manage_op.kind == RIFT_ACTION_RENAME &&
+                                          strcmp(app->model.manage_op.label, "Ny K230") == 0);
+    {
+        cJSON *o = cJSON_Parse("{\"public_key\":\"5f0000000000000000000000000000000000000000000000"
+                               "00000000000000ff\",\"name\":\"K230-A\",\"name_source\":\"config\"}");
+
+        rift_model_apply_identity(&app->model, o);
+        cJSON_Delete(o);
+    }
+    rift_app_refresh(app);
+    pump(150);
+    check("a name set by the configuration cannot be renamed here, and says where it is set",
+          lv_obj_has_state(action_of(find_exact(content(), "RENAME")), LV_STATE_DISABLED) &&
+              find_text(content(), "MESHCORED_NAME") != NULL);
+    {
+        cJSON *o = cJSON_Parse("{\"bytes\":1,\"allowed\":[1,2,3]}");
+
+        rift_model_apply_path_hash(&app->model, o);
+        cJSON_Delete(o);
+        rift_model_action_clear(&app->model, RIFT_ACTION_RENAME);
+    }
+    rift_app_refresh(app);
+    pump(150);
+    check("with the size known, the choices are there and 1 B is the chosen one",
+          !lv_obj_has_state(action_of(find_exact(content(), "2 B")), LV_STATE_DISABLED) &&
+              find_text(content(), "1 BYTE PER RELAY") != NULL);
+    tap(action_of(find_exact(content(), "3 B")));
+    pump(150);
+    check("a move off 1 byte asks first, and says what it costs",
+          find_text(content(), "Use 3-byte path hashes?") != NULL &&
+              find_text(content(), "drop such floods") != NULL &&
+              app->model.manage_op.kind != RIFT_ACTION_PATH_HASH);
+    shot("portrait-activity-path-hash-confirm");
+    tap(action_of(find_exact(content(), "CANCEL")));
+    pump(150);
+    check("Cancel asks nothing", find_text(content(), "Use 3-byte") == NULL &&
+                                     app->model.manage_op.kind != RIFT_ACTION_PATH_HASH);
+    tap(action_of(find_exact(content(), "2 B")));
+    pump(150);
+    tap(action_of(find_exact(content(), "USE IT")));
+    pump(150);
+    check("the confirmation asks for that size",
+          app->model.manage_op.kind == RIFT_ACTION_PATH_HASH && app->model.manage_op.value == 2);
+
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    pump(160);
+    check("turned, the panels are still there, every word inside its button",
+          find_exact(content(), "ADD CHANNEL") != NULL && labels_overflowing(content()) == 0);
+    shot("landscape-activity-manage");
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_stop();
+}
+
+/* ---- managing the node, end to end against the scripted service ---------- */
+
+/* Does this block of memory hold these bytes anywhere? */
+static int mem_holds(const void *block, size_t len, const char *what)
+{
+    size_t n = strlen(what);
+    const unsigned char *b = block;
+    size_t i;
+
+    for (i = 0; n && i + n <= len; i++) {
+        if (memcmp(b + i, what, n) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int live_until(int (*cond)(void), int ms)
+{
+    int t;
+
+    for (t = 0; t < ms; t += 20) {
+        if (cond()) {
+            return 1;
+        }
+        pump(20);
+        usleep(20000);
+    }
+    return cond();
+}
+
+static int live_ready(void)
+{
+    return app && app->model.channels_valid && app->model.have_path_hash &&
+           app->model.have_identity;
+}
+
+static int live_settled(void)
+{
+    return app && !app->model.manage_op.active;
+}
+
+static int live_two_channels(void)
+{
+    return app && app->model.channel_count == 2;
+}
+
+static int live_one_channel(void)
+{
+    return app && app->model.channel_count == 1;
+}
+
+static pid_t live_spawn(const char *bin, const char *manage_log)
+{
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        setenv("FAKE_MESHCORED_STATE", "online", 1);
+        setenv("FAKE_MESHCORED_REASON", "receiving", 1);
+        setenv("FAKE_MESHCORED_NODES", "[]", 1);
+        setenv("FAKE_MESHCORED_CHANNELS",
+               "[{\"channel\":0,\"name\":\"SITE\",\"channel_hash\":\"8c\",\"key_bits\":128,"
+               "\"text_limit\":147,\"ack_expected\":false}]",
+               1);
+        setenv("FAKE_MESHCORED_MANAGE", manage_log, 1);
+        setenv("FAKE_MESHCORED_LIFE_MS", "120000", 1);
+        execl(bin, bin, (char *)NULL);
+        _exit(127);
+    }
+    return pid;
+}
+
+static void manage_live_session(void)
+{
+    const char *bin = getenv("RIFT_FAKE_MESHCORED");
+    const char *run = getenv("POCKETOS_RUNTIME_DIR");
+    char sock[512];
+    char manage_log[512];
+    char line[512];
+    char shared[64] = "";
+    struct stat st;
+    int lines = 0;
+    int waited;
+    pid_t pid;
+    FILE *f;
+
+    if (!bin || !run || access(bin, X_OK) != 0) {
+        printf("     (the live management session needs RIFT_FAKE_MESHCORED and "
+               "POCKETOS_RUNTIME_DIR; not run)\n");
+        return;
+    }
+    snprintf(sock, sizeof(sock), "%s/meshcored.sock", run);
+    snprintf(manage_log, sizeof(manage_log), "%s/rift-manage-log", g_state_dir);
+    unlink(manage_log);
+    pid = live_spawn(bin, manage_log);
+    for (waited = 0; waited < 5000 && stat(sock, &st) != 0; waited += 20) {
+        usleep(20000);
+    }
+    check("the scripted service is up", pid > 0 && stat(sock, &st) == 0);
+
+    app_start();
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    check("RIFT reads the service: identity, channels and the path hash size",
+          live_until(live_ready, 8000));
+
+    /* A private channel: a key made here, joined, shown once. */
+    tap(action_of(find_exact(content(), "ADD CHANNEL")));
+    pump(150);
+    tap(action_of(find_exact(content(), "PRIVATE")));
+    pump(150);
+    field_set(rift_manage_name_field(app), "Hytta");
+    tap(action_of(find_exact(content(), "JOIN")));
+    check("the join is answered", live_until(live_settled, 8000) &&
+                                      app->model.manage_op.done &&
+                                      app->model.manage_op.kind == RIFT_ACTION_CHANNEL_ADD);
+    check("and the channel is listed", live_until(live_two_channels, 8000) &&
+                                           find_exact(content(), "Hytta") != NULL);
+    pump(150);
+    check("the key made here is shown once, to be shared",
+          find_text(content(), "KEY TO SHARE") != NULL &&
+              find_text(content(), "Give this key") != NULL);
+    {
+        lv_obj_t *share_key = find_text(content(), "==");
+
+        if (share_key) {
+            snprintf(shared, sizeof(shared), "%s", lv_label_get_text(share_key));
+        }
+    }
+    check("as 16 bytes of base64", strlen(shared) == 24);
+    check("and is held nowhere in the model",
+          shared[0] && !mem_holds(&app->model, sizeof(app->model), shared));
+    tap(action_of(find_exact(content(), "DONE")));
+    pump(150);
+    check("DONE puts it away for good", find_text(content(), "KEY TO SHARE") == NULL &&
+                                            (!shared[0] || find_text(content(), shared) == NULL));
+
+    /* Leave it again, through the confirmation. */
+    {
+        lv_obj_t *row_name = find_exact(content(), "Hytta");
+        lv_obj_t *row = ancestor(row_name, 2);
+        lv_obj_t *confirm_cancel;
+
+        tap(kid(row, 1));
+        pump(150);
+        check("its LEAVE asks first", find_text(content(), "Leave Hytta?") != NULL);
+        confirm_cancel = action_of(find_exact(content(), "CANCEL"));
+        tap(kid(confirm_cancel ? lv_obj_get_parent(confirm_cancel) : NULL, 1));
+    }
+    check("the leave is answered", live_until(live_settled, 8000) && app->model.manage_op.done &&
+                                       app->model.manage_op.kind == RIFT_ACTION_CHANNEL_REMOVE);
+    check("and only that channel is gone", live_until(live_one_channel, 8000) &&
+                                               find_exact(content(), "SITE") != NULL);
+    pump(150);
+    check("which the panel says", find_text(content(), "Hytta LEFT") != NULL);
+
+    /* Rename. */
+    tap(action_of(find_exact(content(), "RENAME")));
+    pump(150);
+    field_set(rift_device_rename_field(app), "K230-\xC3\x98st");
+    tap(action_of(find_exact(content(), "SAVE")));
+    check("the rename is answered", live_until(live_settled, 8000) && app->model.manage_op.done);
+    pump(150);
+    check("THIS DEVICE shows the new name, and when peers will see it",
+          find_exact(content(), "K230-\xC3\x98st") != NULL &&
+              find_text(content(), "AFTER YOUR NEXT ADVERT") != NULL);
+
+    /* Path hash size, through its confirmation. */
+    tap(action_of(find_exact(content(), "2 B")));
+    pump(150);
+    tap(action_of(find_exact(content(), "USE IT")));
+    check("the size is answered", live_until(live_settled, 8000) && app->model.manage_op.done &&
+                                      app->model.path_hash_bytes == 2);
+    pump(150);
+    check("and said", find_text(content(), "2 BYTES PER RELAY") != NULL);
+    tap(action_of(find_exact(content(), "1 B")));
+    check("back to 1 byte needs no confirmation", live_until(live_settled, 8000) &&
+                                                     app->model.path_hash_bytes == 1);
+    app_stop();
+    kill(pid, SIGTERM);
+    waitpid(pid, NULL, 0);
+
+    f = fopen(manage_log, "r");
+    while (f && fgets(line, sizeof(line), f)) {
+        lines++;
+        if (lines == 1) {
+            check("the join carried the key that was shown, and the name typed",
+                  shared[0] && strstr(line, shared) != NULL &&
+                      strstr(line, "\"name\":\"Hytta\"") != NULL);
+        }
+    }
+    if (f) {
+        fclose(f);
+    }
+    check("five changes, each asked for once by a press: join, leave, rename, 2 B, 1 B",
+          lines == 5);
+    unlink(manage_log);
+}
+
 /* NET's rings container: the section's fourth child (the PATH panel, the
  * legend and the note come first). */
 static lv_obj_t *net_rings(void)
@@ -3386,6 +3800,8 @@ int main(void)
     sender_session();
     find_session();
     net_session();
+    manage_session();
+    manage_live_session();
 
     /* A destroyed app's timer must be gone: one more pass into a freed
      * block is the whole point of the round trip. */

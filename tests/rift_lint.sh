@@ -250,23 +250,45 @@ check "and searching writes no node" \
 check "there is no command parser in this phase" \
     "$(grep -rqE 'strcmp\(.*"/msg"|"/nodes"|"/advert"' "$SRC" && echo 0 || echo 1)"
 
-# ---- channels are the service's, and this app only shows them -----------------
-# The approved design merges channels into the COMMS list with a "#" glyph,
-# and now there is something to merge. What must stay true is that every
-# channel on screen is one the service reported: this app holds no key,
-# derives no channel from a name, and cannot join one. A channel row that did
-# not come from mesh.channels would be this app inventing a place to write
-# that nothing would carry.
+# ---- channels are the service's; this app joins and leaves them on request --
+# The approved design merges channels into the COMMS list with a "#" glyph.
+# Since feat/rift-management the owner asked for channels to be managed here
+# too, and the rules are the ones every other change to the service follows:
+# named once, reached only from the panel a reader pressed, leaving only from
+# its confirmation. And a key is never kept: it is made or checked in
+# rift_keys.c, typed into the CHANNELS form, written into one request and
+# wiped - the service's channels.v1 is its only home. No key in the model, the
+# store, the client's own state or any other screen.
 check "channels are compiled into the protocol core" \
     "$(grep -q 'MAX_GROUP_CHANNELS' protocols/meshcore/compat/mc_channels.h && echo 1 || echo 0)"
-check "the app holds no channel key" \
-    "$(grep -rqiE 'psk|pre_shared|secret\[|channel_key\[|base64' "$SRC" && echo 0 || echo 1)"
-# The quoted method string, which is what a call looks like - rift_ipc.h
-# names both methods in prose to say why they are not used, and a check that
-# could not tell the two apart would fail on the explanation.
-check "and cannot join or leave one: that takes a key" \
-    "$(grep -rq --include='*.c' '"mesh\.channel_add"\|"mesh\.channel_remove"' "$SRC" &&
+keyfiles=$(grep -rliE 'psk|pre_shared|secret\[|channel_key\[|base64' "$SRC" --include='*.c' \
+            --include='*.h' | sort | tr '\n' ' ')
+check "key material is handled in the key module and the CHANNELS form only (${keyfiles:-nowhere})" \
+    "$([ "$keyfiles" = "$SRC/rift_keys.c $SRC/rift_keys.h $SRC/ui/rift_manage.c " ] && echo 1 || echo 0)"
+check "and the model holds no key" \
+    "$(grep -qiE '\bkey_b64|shared_key|psk' "$SRC/rift_model.h" "$SRC/rift_store.h" &&
        echo 0 || echo 1)"
+chanhits=$(grep -rlnE '"mesh\.channel_(add|remove)"' "$SRC" | sort | tr '\n' ' ')
+check "joining and leaving are named only in the meshcored client (${chanhits:-nowhere})" \
+    "$([ "$chanhits" = "$SRC/rift_ipc.c " ] && echo 1 || echo 0)"
+chancallers=$(grep -rlnE 'rift_ipc_channel_(add|remove)\(' "$SRC" --include='*.c' | sort | tr '\n' ' ')
+check "and are called only from the CHANNELS panel (${chancallers:-nowhere})" \
+    "$([ "$chancallers" = "$SRC/rift_ipc_manage.c $SRC/ui/rift_manage.c " ] && echo 1 || echo 0)"
+check "a channel is left only from the confirmation, never from the first press" \
+    "$([ "$(grep -c 'rift_ipc_channel_remove(' "$SRC/ui/rift_manage.c")" = "1" ] &&
+       grep -B 14 'rift_ipc_channel_remove(' "$SRC/ui/rift_manage.c" |
+       grep -q 'static void on_leave_confirm(lv_event_t' && echo 1 || echo 0)"
+devcallers=$(grep -rlnE 'rift_ipc_set_(name|path_hash)\(' "$SRC" --include='*.c' | sort | tr '\n' ' ')
+check "a rename and the path hash size are asked only from THIS DEVICE (${devcallers:-nowhere})" \
+    "$([ "$devcallers" = "$SRC/rift_ipc_manage.c $SRC/ui/rift_device.c " ] && echo 1 || echo 0)"
+check "and a size other than 1 only from its confirmation" \
+    "$(grep -B 12 'rift_ipc_set_path_hash(&a->ipc, v->bytes_pending)' "$SRC/ui/rift_device.c" |
+       grep -q 'static void on_bytes_confirm(lv_event_t' &&
+       [ "$(grep -c 'rift_ipc_set_path_hash(' "$SRC/ui/rift_device.c")" = "2" ] &&
+       grep -q 'rift_ipc_set_path_hash(&a->ipc, 1)' "$SRC/ui/rift_device.c" && echo 1 || echo 0)"
+check "a random key comes from the kernel's source, never a weaker one" \
+    "$(grep -q 'getrandom(' "$SRC/rift_keys.c" && ! grep -rqE '\brand\(|srand\(|random\(\)' "$SRC" &&
+       echo 1 || echo 0)"
 check "the channel list comes from the service" \
     "$(grep -q 'mesh.channels' "$SRC/rift_ipc.c" && echo 1 || echo 0)"
 check "and a channel row is drawn only from it" \

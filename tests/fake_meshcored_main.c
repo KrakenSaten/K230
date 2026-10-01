@@ -38,6 +38,12 @@ int main(void)
     script.nodes_json = getenv("FAKE_MESHCORED_NODES");
     script.method_log = getenv("FAKE_MESHCORED_METHODS");
     script.refuse_nodes = getenv("FAKE_MESHCORED_REFUSE") != NULL;
+    /* The channels it starts with, where it logs a request that manages the
+     * node, and whether its name is pinned (tests/rift_app_test.c drives
+     * RIFT's management panels against this). */
+    script.channels_json = getenv("FAKE_MESHCORED_CHANNELS");
+    script.manage_log = getenv("FAKE_MESHCORED_MANAGE");
+    script.name_pinned = getenv("FAKE_MESHCORED_NAME_PINNED") != NULL;
     script.life_ms = life ? atoi(life) : 10000;
     if (path) {
         FILE *f = fopen(path, "r");

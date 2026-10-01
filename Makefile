@@ -1067,10 +1067,11 @@ deskbuddy-test: $(DESKBUDDY_TESTS) tools/vision/pos-vision
 RIFT_DIR := apps/rift
 RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_messages.o \
              $(RIFT_DIR)/rift_arrivals.o \
-             $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o \
+             $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o $(RIFT_DIR)/rift_identity.o $(RIFT_DIR)/rift_keys.o \
              $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_net.o \
              $(RIFT_DIR)/rift_format.o $(RIFT_DIR)/rift_format_msg.o \
-             $(RIFT_DIR)/rift_ipc.o $(RIFT_DIR)/rift_notify.o $(RIFT_DIR)/rift_sound.o \
+             $(RIFT_DIR)/rift_ipc.o $(RIFT_DIR)/rift_ipc_manage.o \
+             $(RIFT_DIR)/rift_notify.o $(RIFT_DIR)/rift_sound.o \
              $(RIFT_DIR)/rift_store.o $(RIFT_DIR)/rift_traffic.o
 # The model is several translation units over one struct: rift_model.c
 # dispatches mesh.message and mesh.channel events into rift_messages.c (and
@@ -1079,7 +1080,7 @@ RIFT_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_
 # rift_actions.c holds, so anything linking one links them all.
 RIFT_MODEL_OBJS := $(RIFT_DIR)/rift_model.o $(RIFT_DIR)/rift_clock.o $(RIFT_DIR)/rift_messages.o \
                    $(RIFT_DIR)/rift_arrivals.o \
-                   $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o \
+                   $(RIFT_DIR)/rift_channels.o $(RIFT_DIR)/rift_actions.o $(RIFT_DIR)/rift_identity.o $(RIFT_DIR)/rift_keys.o \
                    $(RIFT_DIR)/rift_order.o $(RIFT_DIR)/rift_net.o $(RIFT_DIR)/rift_format.o \
                    $(RIFT_DIR)/rift_format_msg.o $(RIFT_DIR)/rift_traffic.o
 RIFT_TESTS := tests/rift_format_test tests/rift_model_test tests/rift_comms_test \

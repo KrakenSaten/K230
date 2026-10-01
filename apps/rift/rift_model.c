@@ -141,6 +141,17 @@ void rift_model_service_lost(struct rift_model *m, const char *reason)
                        "meshcored went away before it answered; it may or may not have been "
                        "done");
     }
+    if (m->manage_op.active) {
+        m->manage_op.active = 0;
+        m->manage_op.failed = 1;
+        m->manage_op.unknown = 1;
+        rift_utf8_copy(m->manage_op.error, sizeof(m->manage_op.error),
+                       "meshcored went away before it answered; it may or may not have been "
+                       "done");
+    }
+    /* The path hash size is the service's to say again on the next connection:
+     * it may have been changed by another client while nobody was looking. */
+    m->have_path_hash = 0;
     /* The counters were the service's, and there is no service: shown on,
      * they would be a live-looking count of a process that is not there. */
     m->have_traffic = 0;
@@ -512,33 +523,6 @@ int rift_model_apply_nodes(struct rift_model *m, const cJSON *result)
     return 0;
 }
 
-int rift_model_apply_identity(struct rift_model *m, const cJSON *result)
-{
-    const char *key;
-    const char *hash;
-    const char *name;
-
-    if (!m || !cJSON_IsObject(result)) {
-        return -1;
-    }
-    key = str_of(result, "public_key");
-    if (!hex_only(key, 64)) {
-        return -1;
-    }
-    snprintf(m->self_key, sizeof(m->self_key), "%s", key);
-    hash = str_of(result, "node_hash");
-    if (hex_only(hash, 2)) {
-        snprintf(m->self_hash, sizeof(m->self_hash), "%s", hash);
-    } else {
-        m->self_hash[0] = key[0];
-        m->self_hash[1] = key[1];
-        m->self_hash[2] = '\0';
-    }
-    name = str_of(result, "name");
-    rift_utf8_copy(m->self_name, sizeof(m->self_name), name ? name : "");
-    m->have_identity = 1;
-    return 0;
-}
 
 int rift_model_apply_info(struct rift_model *m, const cJSON *result)
 {

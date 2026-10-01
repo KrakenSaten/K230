@@ -41,6 +41,16 @@ static const char *method_of(enum rift_req what)
         return "mesh.node_remove";
     case RIFT_REQ_NODE_RESET_PATH:
         return "mesh.node_reset_path";
+    case RIFT_REQ_CHANNEL_ADD:
+        return "mesh.channel_add";
+    case RIFT_REQ_CHANNEL_REMOVE:
+        return "mesh.channel_remove";
+    case RIFT_REQ_SET_NAME:
+        return "mesh.set_name";
+    case RIFT_REQ_PATH_HASH:
+        return "mesh.path_hash";
+    case RIFT_REQ_SET_PATH_HASH:
+        return "mesh.set_path_hash";
     case RIFT_REQ_NONE:
     default:
         return NULL;
@@ -171,6 +181,11 @@ static int request(struct rift_ipc *c, enum rift_req what, cJSON *params, int64_
     }
     c->requests_out++;
     return 0;
+}
+
+int rift_ipc_write(struct rift_ipc *c, enum rift_req what, cJSON *params, int64_t now_ms)
+{
+    return c ? request(c, what, params, now_ms) : (cJSON_Delete(params), -1);
 }
 
 int rift_ipc_request_node(struct rift_ipc *c, const char *key)
@@ -478,6 +493,11 @@ static void connect_now(struct rift_ipc *c, int64_t now_ms)
     if (rift_ipc_request_messages(c) != 0) {
         return;
     }
+    /* Last, and a service too old to know it answers "unknown method",
+     * which the model takes as "no such setting here". */
+    if (request(c, RIFT_REQ_PATH_HASH, NULL, now_ms) != 0) {
+        return;
+    }
     c->revision++;
 }
 
@@ -535,6 +555,15 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
             rift_model_action_failed(c->model, c->model->advert.kind, why, rift_mono_ms());
         } else if (what == RIFT_REQ_NODE_REMOVE || what == RIFT_REQ_NODE_RESET_PATH) {
             rift_model_action_failed(c->model, c->model->node_op.kind, why, rift_mono_ms());
+        } else if (what == RIFT_REQ_CHANNEL_ADD || what == RIFT_REQ_CHANNEL_REMOVE ||
+                   what == RIFT_REQ_SET_NAME || what == RIFT_REQ_SET_PATH_HASH) {
+            rift_model_action_failed(c->model, c->model->manage_op.kind, why, rift_mono_ms());
+        }
+        /* A service with no path hash setting says so once, on connecting;
+         * the screen then says the setting is not in this service. */
+        if (what == RIFT_REQ_PATH_HASH) {
+            c->model->path_hash_unsupported = 1;
+            c->model->have_path_hash = 0;
         }
         /* A refused mesh.channels is still an answer, and for a screen it is
          * the same answer as an empty list: this service is not going to
@@ -618,6 +647,29 @@ static int dispatch(struct rift_ipc *c, cJSON *msg)
         break;
     case RIFT_REQ_CHANNELS:
         rift_model_apply_channels(c->model, result);
+        break;
+    case RIFT_REQ_CHANNEL_ADD:
+    case RIFT_REQ_CHANNEL_REMOVE:
+        /* The mesh.channel event says the same to every subscriber; the list
+         * is asked for again too, so a client between subscriptions is not
+         * left showing the table as it was. */
+        rift_model_action_done(c->model, c->model->manage_op.kind, rift_mono_ms());
+        (void)rift_ipc_request_channels(c);
+        break;
+    case RIFT_REQ_SET_NAME:
+        /* The identity afterwards. Each channel's text limit depends on the
+         * name, which travels inside every channel payload, so the channel
+         * list is read again as well. */
+        rift_model_apply_identity(c->model, result);
+        rift_model_action_done(c->model, RIFT_ACTION_RENAME, rift_mono_ms());
+        (void)rift_ipc_request_channels(c);
+        break;
+    case RIFT_REQ_PATH_HASH:
+        rift_model_apply_path_hash(c->model, result);
+        break;
+    case RIFT_REQ_SET_PATH_HASH:
+        rift_model_apply_path_hash(c->model, result);
+        rift_model_action_done(c->model, RIFT_ACTION_PATH_HASH, rift_mono_ms());
         break;
     case RIFT_REQ_MESSAGES:
         rift_model_apply_messages(c->model, result);

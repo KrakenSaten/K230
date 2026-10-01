@@ -403,6 +403,13 @@ enum rift_action {
     RIFT_ACTION_ADVERT_MESH,  /* mesh.advert, flooded */
     RIFT_ACTION_FORGET,       /* mesh.node_remove */
     RIFT_ACTION_RESET_PATH,   /* mesh.node_reset_path */
+    /* Managing this node (ui/rift_manage.c), one at a time in m->manage_op.
+     * None transmits: a channel is a key held here, a name reaches peers at
+     * the next advert, and a path hash size applies to the next flood. */
+    RIFT_ACTION_CHANNEL_ADD,     /* mesh.channel_add */
+    RIFT_ACTION_CHANNEL_REMOVE,  /* mesh.channel_remove */
+    RIFT_ACTION_RENAME,          /* mesh.set_name */
+    RIFT_ACTION_PATH_HASH,       /* mesh.set_path_hash */
 };
 
 struct rift_action_state {
@@ -413,6 +420,7 @@ struct rift_action_state {
     int unknown; /* of failed: nobody knows - the service went before answering */
     char key[RIFT_KEY_HEX];     /* the node, for FORGET and RESET_PATH */
     char label[RIFT_NAME_MAX];  /* what the node was called when asked */
+    int value;                  /* the slot, or the path hash size, asked about */
     int have_mono;
     int64_t mono_ms;            /* written, and then answered */
     char error[RIFT_TEXT_MAX];
@@ -516,6 +524,19 @@ struct rift_model {
     char self_key[RIFT_KEY_HEX];
     char self_hash[RIFT_HASH_HEX];
     char self_name[RIFT_NAME_MAX];
+    /* Where the name came from (mesh.identity name_source): RIFT_NAME_SOURCE_*.
+     * CONFIG is the operator's --name, which the service will not rename. */
+    int self_name_source;
+    int self_name_max; /* bytes; 0 when the service did not say */
+
+    /* The path hash size this node's floods ask for (mesh.path_hash): bytes
+     * of each relay's hash a repeater writes, 1 to 3. have_path_hash is 0
+     * until it is read; path_hash_unsupported is set when the service
+     * answered that it has no such method (a build older than it). */
+    int have_path_hash;
+    int path_hash_bytes;
+    unsigned path_hash_allowed; /* bit n set: n bytes is allowed */
+    int path_hash_unsupported;
 
     /* ---- what is shown, and how sure it is ------------------------- */
     /* A snapshot has been read since the last connection was made. Until
@@ -625,7 +646,15 @@ struct rift_model {
      * change is what NODES reports. Each holds one request at a time. */
     struct rift_action_state advert;
     struct rift_action_state node_op;
+    /* The third: managing this node - a channel joined or left, a rename, a
+     * path hash size. ACTIVITY reports it. */
+    struct rift_action_state manage_op;
 };
+
+#define RIFT_NAME_SOURCE_UNKNOWN 0
+#define RIFT_NAME_SOURCE_CONFIG 1
+#define RIFT_NAME_SOURCE_STORED 2
+#define RIFT_NAME_SOURCE_DERIVED 3
 
 /* An empty model: no service, no identity, no nodes, nothing known. */
 void rift_model_init(struct rift_model *m);
@@ -648,6 +677,8 @@ int rift_model_apply_info(struct rift_model *m, const cJSON *result);
  * tested without waiting for a real clock. */
 int rift_model_apply_status(struct rift_model *m, const cJSON *result, int64_t now_ms);
 int rift_model_apply_identity(struct rift_model *m, const cJSON *result);
+/* A mesh.path_hash (or mesh.set_path_hash) result: bytes and allowed. */
+int rift_model_apply_path_hash(struct rift_model *m, const cJSON *result);
 /* A whole mesh.nodes result: the cache becomes exactly this list, in the
  * order the service gave, and the snapshot becomes valid. */
 int rift_model_apply_nodes(struct rift_model *m, const cJSON *result);

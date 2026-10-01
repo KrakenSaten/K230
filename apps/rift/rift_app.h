@@ -77,6 +77,8 @@ struct rift_activity_view;
 struct rift_comms;
 struct rift_find;
 struct rift_net_view;
+struct rift_manage;
+struct rift_device;
 
 struct rift_app {
     lv_obj_t *root;   /* the shell's body */
@@ -175,6 +177,8 @@ struct rift_app {
     struct rift_comms *comms;
     struct rift_find *find;
     struct rift_net_view *net;
+    struct rift_manage *manage;
+    struct rift_device *device;
     lv_obj_t *activity_root;
     lv_obj_t *nodes_root;
     lv_obj_t *comms_root;

@@ -314,6 +314,18 @@ void rift_fmt_action(const struct rift_action_state *s, int64_t now_ms, char *ou
     case RIFT_ACTION_RESET_PATH:
         what = "RE-ROUTE";
         break;
+    case RIFT_ACTION_CHANNEL_ADD:
+        what = "JOIN";
+        break;
+    case RIFT_ACTION_CHANNEL_REMOVE:
+        what = "LEAVE";
+        break;
+    case RIFT_ACTION_RENAME:
+        what = "RENAME";
+        break;
+    case RIFT_ACTION_PATH_HASH:
+        what = "PATH HASH";
+        break;
     case RIFT_ACTION_NONE:
     default:
         return;
@@ -342,6 +354,23 @@ void rift_fmt_action(const struct rift_action_state *s, int64_t now_ms, char *ou
     case RIFT_ACTION_FORGET:
         snprintf(out, out_len, "%s FORGOTTEN %s AGO" RIFT_SEP "BACK WHEN IT ADVERTS",
                  s->label[0] ? s->label : "NODE", age);
+        break;
+    case RIFT_ACTION_CHANNEL_ADD:
+        /* Joined: the service holds the key now, and nothing went on the air. */
+        snprintf(out, out_len, "%s JOINED %s AGO", s->label[0] ? s->label : "CHANNEL", age);
+        break;
+    case RIFT_ACTION_CHANNEL_REMOVE:
+        snprintf(out, out_len, "%s LEFT %s AGO" RIFT_SEP "KEY FORGOTTEN",
+                 s->label[0] ? s->label : "CHANNEL", age);
+        break;
+    case RIFT_ACTION_RENAME:
+        /* Peers learn a name from an advert; nothing was sent to tell them. */
+        snprintf(out, out_len, "RENAMED %s AGO" RIFT_SEP "PEERS SEE IT AFTER YOUR NEXT ADVERT",
+                 age);
+        break;
+    case RIFT_ACTION_PATH_HASH:
+        snprintf(out, out_len, "PATH HASH %d BYTE%s %s AGO" RIFT_SEP "FROM THE NEXT FLOOD",
+                 s->value, s->value == 1 ? "" : "S", age);
         break;
     case RIFT_ACTION_RESET_PATH:
     default:

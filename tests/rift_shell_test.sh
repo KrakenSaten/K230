@@ -47,12 +47,14 @@ if [ -x "$BIN" ]; then
     if [ -n "${SHOTS_DIR:-}" ]; then
         mkdir -p "$SHOTS_DIR"
         log=$(POCKETOS_RUNTIME_DIR="$EMPTY" RIFT_SHOTS_DIR="$SHOTS_DIR" \
+              RIFT_FAKE_MESHCORED="$(realpath "$FAKE" 2>/dev/null)" \
               RIFT_THEME="${RIFT_THEME:-carbon}" RIFT_MODE="${RIFT_MODE:-normal}" \
               "$BIN" 2>&1); rc=$?
         check "the screens were written to $SHOTS_DIR" \
             "$([ "$(ls "$SHOTS_DIR"/*.png 2>/dev/null | wc -l)" -ge 7 ] && echo 1 || echo 0)"
     else
-        log=$(POCKETOS_RUNTIME_DIR="$EMPTY" "$BIN" 2>&1); rc=$?
+        log=$(POCKETOS_RUNTIME_DIR="$EMPTY" RIFT_FAKE_MESHCORED="$(realpath "$FAKE" 2>/dev/null)" \
+              "$BIN" 2>&1); rc=$?
     fi
     printf '%s\n' "$log" | grep -E '^FAIL|rift_app_test:'
     check "RIFT end to end, tapped on the panel, in both orientations" \
@@ -110,6 +112,11 @@ if [ -x "$FAKE" ]; then
             check "and never asked it to transmit ($rotation)" \
                 "$(grep -qE '^mesh\.(send|advert)$' "$OUT/methods-$rotation.txt" &&
                    echo 0 || echo 1)"
+            # Nor to change what it holds: joining, leaving, renaming and the
+            # path hash size are a reader's presses on ACTIVITY, never opening.
+            check "nor to change the node on its own ($rotation)" \
+                "$(grep -qE '^mesh\.(channel_add|channel_remove|set_name|set_path_hash)$' \
+                    "$OUT/methods-$rotation.txt" && echo 0 || echo 1)"
         else
             check "meshcored recorded what it was asked for ($rotation)" 0
         fi
