@@ -241,6 +241,17 @@ int64_t pocketos_shell_system_day(void) { return -1; }
 void pocketos_shell_set_status_hint(const char *text) { (void)text; }
 void pocketos_shell_go_home(void) { }
 int pocketos_shell_reduced_motion(void) { return 0; }
+
+/* What Settings asked the shell to open in its place (DS §47: System). */
+static char g_opened[32];
+static int g_open_count;
+
+int pocketos_shell_open_app(const char *id)
+{
+    g_open_count++;
+    snprintf(g_opened, sizeof(g_opened), "%s", id ? id : "");
+    return id && strcmp(id, "system") == 0 ? 0 : -1;
+}
 const char *pocketos_shell_radio_state(void) { return NULL; }
 
 /* The keyboard as the shell has it: one sheet at the foot of the screen, and
@@ -1032,6 +1043,27 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     snprintf(what, sizeof(what), "[%s] main, scrolled", name);
     check_screen(what);
     tick();
+
+    /* System (DS §47): its panel last, under Appearance in the same column,
+     * reached by a finger, and its one row asks the shell for System. */
+    area_of(panel_of("APPEARANCE"), &ap);
+    area_of(panel_of("SYSTEM"), &a);
+    snprintf(what, sizeof(what), "[%s] main: System's panel is below Appearance, in line with it", name);
+    check(what, a.y1 == ap.y2 + 1 + 22 && a.x1 == ap.x1 && a.x2 == ap.x2);
+    snprintf(what, sizeof(what), "[%s] main: a finger scrolls to the System row", name);
+    check(what, scroll_to(target_of("System"), wide ? -250 : -500));
+    area_of(target_of("System"), &a);
+    snprintf(what, sizeof(what), "[%s] main: the System row is a whole touch target with its words inside it",
+             name);
+    check(what, lv_area_get_height(&a) >= POCKETUI_TOUCH_MIN && labels_fit(target_of("System")) == 0 &&
+                    in_view(find_visible(app_body, "About this device, status, diagnostics, restart and power")));
+    g_open_count = 0;
+    g_opened[0] = '\0';
+    tap("System");
+    snprintf(what, sizeof(what), "[%s] main: tapping System asks the shell for the System page, once", name);
+    check(what, g_open_count == 1 && strcmp(g_opened, "system") == 0);
+    snprintf(what, sizeof(what), "[%s] main: and Settings changed nothing else on the way", name);
+    check(what, !kb_shown && shows("WI-FI"));
 
     /* ---- the passphrase sheet above the keyboard */
     open_sheet("New");

@@ -88,9 +88,9 @@ check "the app is declared in the shell" \
     "$(grep -q 'extern const struct pocketos_app app_2048;' ui/shell/shell.c && echo 1 || echo 0)"
 check "registered once" "$([ "$(grep -c '&app_2048\b' ui/shell/shell.c)" = "1" ] && echo 1 || echo 0)"
 # Where it is shown is the launcher's table, not the registry order
-# (ui/shell/home_layout.c): a game, in PLAY, in the games colour.
-check "the launcher shows it in PLAY" \
-    "$(grep -q '{ "2048", HOME_GROUP_PLAY, HOME_HUE_GAMES[ ,}]' ui/shell/home_layout.c && echo 1 || echo 0)"
+# (ui/shell/home_layout.c): a game, in the Games folder, in the games colour (DS §47).
+check "the launcher shows it in the Games folder" \
+    "$(grep -q '{ "2048", HOME_GROUP_FOLDERS, HOME_HUE_GAMES, HOME_FOLDER_GAMES }' ui/shell/home_layout.c && echo 1 || echo 0)"
 for src in g2048_app.c g2048_store.c engine/g2048_rng.c engine/g2048_rules.c ui/g2048_view.c ui/g2048_board.c; do
     check "the shell builds $src" "$(grep -q "apps/2048/$src" ui/shell/CMakeLists.txt && echo 1 || echo 0)"
 done

@@ -7,14 +7,15 @@
 #      games, landscape, fifty open/back rounds and twenty rebuilds without
 #      a leak;
 #   2. over shell.*: one Games cell and no game cell on the launcher, one
-#      Utilities cell holding its seven tools, the
-#      folder opened and closed by shell.folder, a game opened from it comes
+#      Utilities cell holding its seven tools, one Apps cell holding its
+#      eight apps (DS §47), the
+#      folder opened and closed by shell.folder, an app opened from it comes
 #      home to the folder, the keys are the launcher's at home and not while
 #      an app is open, forty open/close rounds hold no more art, a folder
 #      that is not there is refused;
 #   3. a rotation restart comes back in the open folder (and only a
 #      restart: a cold start with the mark is on the launcher's page), in
-#      both orientations, with the screenshots drawn.
+#      both orientations, for Games and for Apps, with the screenshots drawn.
 #
 # Requires SHELL_BIN (the CMake-built pocketos-shell) and pos (make all).
 # SHOTS_DIR=<dir> keeps the screenshots.
@@ -67,15 +68,20 @@ check "the launcher has one Games cell" \
     "$([ "$(field '["launcher"]["folders"][0]["id"]')" = '"games"' ] &&
        [ "$(field '["launcher"]["folders"][0]["apps"]')" = 6 ] &&
        [ "$(field '["launcher"]["folders"][0]["w"]')" -ge 64 ] && echo 1 || echo 0)"
-check "fifteen cells for twenty-six apps, two of them folders, after three favorites" \
-    "$([ "$(field '["launcher"]["apps"]')" = 26 ] && [ "$(field '["launcher"]["home_cells"]')" = 15 ] &&
-       [ "$(field '["launcher"]["folder_cells"]')" = 2 ] && [ "$(field '["launcher"]["favorite_cells"]')" = 3 ] &&
+check "seven cells for twenty-six apps, three of them folders, after three favorites (DS §47)" \
+    "$([ "$(field '["launcher"]["apps"]')" = 26 ] && [ "$(field '["launcher"]["home_cells"]')" = 7 ] &&
+       [ "$(field '["launcher"]["folder_cells"]')" = 3 ] && [ "$(field '["launcher"]["favorite_cells"]')" = 3 ] &&
        echo 1 || echo 0)"
 root_cells=$(cells)
 check "and no game cell on the launcher's page" \
     "$(case " $root_cells " in *" fleet "*|*" radar "*|*" timber "*) echo 0 ;; *) echo 1 ;; esac)"
-check "the launcher's page shows the distinctive apps: $root_cells" \
-    "$([ "$root_cells" = "browser deskbuddy mp3 photo radio rift settings system terminal video vision wave zabbix" ] && echo 1 || echo 0)"
+check "the launcher's page shows Terminal, RIFT, Browser and Settings, and no other app: $root_cells" \
+    "$([ "$root_cells" = "browser rift settings terminal" ] && echo 1 || echo 0)"
+check "the Apps cell is the third folder, holding eight" \
+    "$([ "$(field '["launcher"]["folders"][2]["id"]')" = '"apps"' ] &&
+       [ "$(field '["launcher"]["folders"][2]["name"]')" = '"Apps"' ] &&
+       [ "$(field '["launcher"]["folders"][2]["apps"]')" = 8 ] &&
+       [ "$(field '["launcher"]["folders"][2]["w"]')" -ge 64 ] && echo 1 || echo 0)"
 check "the Utilities cell is the second folder, holding seven" \
     "$([ "$(field '["launcher"]["folders"][1]["id"]')" = '"utilities"' ] &&
        [ "$(field '["launcher"]["folders"][1]["apps"]')" = 7 ] &&
@@ -130,8 +136,15 @@ check "and not Zabbix, Vision, RIFT, DeskBuddy, MP3 or Video" \
 "$POS" app start calculator >/dev/null 2>&1; sleep 0.4
 "$POS" app home >/dev/null 2>&1; sleep 0.3
 check "a tool opened from it comes home to it" "$([ "$(field '["launcher"]["folder"]')" = '"utilities"' ] && echo 1 || echo 0)"
+reply=$(call_out shell.folder id=apps)
+check "shell.folder opens Apps" "$(printf '%s' "$reply" | grep -q '"folder":[[:space:]]*"apps"' && echo 1 || echo 0)"
+check "whose page holds DeskBuddy, MP3, Photo, Radio, Video, Vision, Wave and Zabbix" \
+    "$([ "$(cells)" = "deskbuddy mp3 photo radio video vision wave zabbix" ] && echo 1 || echo 0)"
+"$POS" app start vision >/dev/null 2>&1; sleep 0.4
+"$POS" app home >/dev/null 2>&1; sleep 0.3
+check "an app opened from it comes home to it" "$([ "$(field '["launcher"]["folder"]')" = '"apps"' ] && echo 1 || echo 0)"
 call shell.folder id=games
-check "opening Games from Utilities swaps the folder" \
+check "opening Games from Apps swaps the folder" \
     "$([ "$(field '["launcher"]["folder"]')" = '"games"' ] && [ "$(cells)" = "2048 blackjack fleet radar solitaire timber" ] &&
        echo 1 || echo 0)"
 call shell.folder id=
@@ -191,6 +204,14 @@ PY
         "$([ "$(field '["launcher"]["folder"]')" = null ] && [ "$(field '["launcher"]["folders"][0]["w"]')" -ge 64 ] &&
            echo 1 || echo 0)"
     check "$o: no fault logged" "$(no_fault && echo 1 || echo 0)"
+    stop_shell
+    fresh
+    DOORS_SHELL_RESUMED=open DOORS_LAUNCHER_FOLDER=apps start_shell --rotation "$o"
+    check "$o: a restart with Apps open comes back in it" \
+        "$([ "$(field '["launcher"]["folder"]')" = '"apps"' ] &&
+           [ "$(cells)" = "deskbuddy mp3 photo radio video vision wave zabbix" ] && echo 1 || echo 0)"
+    shot "$OUT/$o-apps.png"
+    check "$o: no fault logged there either" "$(no_fault && echo 1 || echo 0)"
     stop_shell
 done
 fresh

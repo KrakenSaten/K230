@@ -11,8 +11,8 @@ T=apps/terminal
 
 check "Terminal is in the shell's registry" \
     "$(grep -q '&app_terminal' ui/shell/shell.c && echo 1 || echo 0)"
-check "a top-level launcher app, in no folder (not in UTILITIES)" \
-    "$(grep -qE '\{ "terminal", HOME_GROUP_DEVICE, HOME_HUE_[A-Z]+, HOME_FOLDER_NONE \}' ui/shell/home_layout.c &&
+check "a top-level launcher app, in ESSENTIALS and no folder (DS §47)" \
+    "$(grep -qE '\{ "terminal", HOME_GROUP_ESSENTIALS, HOME_HUE_[A-Z]+, HOME_FOLDER_NONE \}' ui/shell/home_layout.c &&
        echo 1 || echo 0)"
 check "its icon mask is compiled in" \
     "$(grep -q 'const lv_image_dsc_t pos_app_icon_terminal' ui/pocketui/pos_app_icons.c && echo 1 || echo 0)"

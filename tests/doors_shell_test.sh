@@ -131,9 +131,8 @@ call shell.unlock
 sleep 0.3
 check "shell.unlock opens it at once" "$([ "$(field '["lock"]["locked"]')" = false ] && echo 1 || echo 0)"
 shot "$OUT/p-home.png"
-# Sampled in the left gutter, beside the panels: with seventeen apps the
-# portrait launcher runs past the foot and scrolls (below), so its foot is
-# no longer bare photograph.
+# Sampled in the left gutter, beside the panels, where nothing of the
+# launcher is drawn in any layout it has had.
 set -- $(region_is "$OUT/p-home.png" bg-home-portrait 0 150 24 1200)
 check "the launcher lies on the home photograph ($2 of $3 sampled pixels in its left gutter)" "${1:-0}"
 held_open=$(field '["art"]["bytes_held"]')
@@ -206,29 +205,19 @@ for c in d["launcher"]["cells"]:
     # C's division truncates toward zero; a landscape cell is narrower than the icon.
     print(c["id"], c["x"] + int((c["w"] - 96) / 2), c["y"], c["w"], c["h"])
 print("apps", d["launcher"]["apps"], d["launcher"]["icons_art"], d["launcher"]["icons_fallback"],
-      json.dumps(d["launcher"]["scrolls"]))
+      json.dumps(d["launcher"]["scrolls"]), len(d["apps"]), d["launcher"]["home_cells"],
+      d["launcher"]["home_cells"] - d["launcher"]["folder_cells"])
 PY
     set -- $(grep '^apps' "$OUT/$o-cells.txt")
-    # Landscape scrolls since Files made thirteen (Camera the fourteenth,
-    # Zabbix the fifteenth and Browser the sixteenth, in CONNECTIONS; DS
-    # §35.4): one row would squeeze a cell under HOME_CELL_MIN_W, so DEVICE
-    # wraps to a second line and the footer is below it. Portrait scrolls
-    # since Recorder made seventeen: CONNECTIONS (Browser) and DEVICE
-    # (Recorder) each take a second row of cells, and the footer goes below
-    # the fold - the layout grows rather than shortening anything
-    # (ui/shell/home_layout.h; accepted by the owner for feat/recorder-app).
-    # Solitaire, Blackjack and 2048 make twenty-one, PLAY takes a second row
-    # of cells too, and DEVICE's second row is below the fold in portrait.
-    # DeskBuddy makes twenty-two, a fifth cell in WORKSPACE; MP3 and Video
-    # make twenty-four, DEVICE's seventh and eighth cells. Utilities takes
-    # seven of them into one folder cell and the three favorites take the
-    # first row (DS §42). The Terminal makes twenty-five, a cell of its own
-    # in DEVICE after System (DS §43), and Photo twenty-six, one more in
-    # DEVICE after Video (DS §45): fifteen cells with icons, thirteen of them
-    # apps; in portrait DEVICE is below the fold.
-    scrolls=true
-    check "$o: twenty-six apps, fifteen portal icons from the art (the games and the tools in their folders), none on a fallback, scrolls: $scrolls ($2 $3 $4 $5)" \
-        "$([ "$2" = 26 ] && [ "$3" = 15 ] && [ "$4" = 0 ] && [ "$5" = "$scrolls" ] && echo 1 || echo 0)"
+    # DS §47: the favorites, Terminal, RIFT, Browser and Settings, and the
+    # Apps, Utilities and Games folders - every other app is in a folder and
+    # System is Settings' page - so neither orientation scrolls any more
+    # (DS §31.3 keeps the right to: the layout grows rather than shortening
+    # anything). The counts are the shell's own: every registered app is the
+    # launcher's, and every place on its page is drawn from its art.
+    check "$o: every registered app is the launcher's, every place on its page has its portal icon from the art, none on a fallback, no scroll ($2 of $6 apps, $3 icons for $7 places, $4 fallback, scrolls $5)" \
+        "$([ "$2" = "$6" ] && [ "$2" -gt 0 ] && [ "$3" = "$7" ] && [ "$4" = 0 ] && [ "$5" = false ] && echo 1 || echo 0)"
+    app_cells=$8
     below=$(grep -c '^below ' "$OUT/$o-cells.txt")
     good=0
     while read -r id x y w h; do
@@ -242,8 +231,8 @@ PY
         fi
         [ "$w" -ge 64 ] && [ "$h" -ge 64 ] || echo "     $o: $id cell $w x $h is below the touch minimum"
     done < "$OUT/$o-cells.txt"
-    check "$o: every app's own portal icon on screen is drawn in its cell, pixel for pixel ($good + $below below the fold)" \
-        "$([ "$((good + below))" = 13 ] && [ "$good" -ge 6 ] && echo 1 || echo 0)"
+    check "$o: every app's own portal icon is drawn in its cell, pixel for pixel, none below the fold ($good of $app_cells)" \
+        "$([ "$good" = "$app_cells" ] && [ "$below" = 0 ] && [ "$good" -ge 4 ] && echo 1 || echo 0)"
 done
 
 # ---- 4. no art installed --------------------------------------------------------
@@ -252,8 +241,9 @@ mkdir -p "$OUT/noart"
 POCKETOS_ART_DIR="$OUT/noart" start_shell --rotation portrait
 check "with no art the shell starts, locked" "$([ "$(field '["lock"]["locked"]')" = true ] && echo 1 || echo 0)"
 check "and says it has no background" "$([ "$(field '["art"]["background"]')" = false ] && echo 1 || echo 0)"
-check "every app is on the fallback frame" \
-    "$([ "$(field '["launcher"]["icons_fallback"]')" = 15 ] && [ "$(field '["launcher"]["icons_art"]')" = 0 ] && echo 1 || echo 0)"
+check "every place is on the fallback frame" \
+    "$([ "$(field '["launcher"]["icons_fallback"]')" = "$(field '["launcher"]["home_cells"]')" ] &&
+       [ "$(field '["launcher"]["icons_art"]')" = 0 ] && echo 1 || echo 0)"
 shot "$OUT/noart-lock.png"
 call shell.unlock
 sleep 0.2
@@ -287,8 +277,8 @@ while read -r id x y; do
     # The frame's opaque pixels, less the few the app's mask covers.
     [ "${2:-0}" -gt 2000 ] && [ $(( ${2:-0} - ${1:-0} )) -lt 400 ] && good=$((good + 1))
 done < "$OUT/fo.txt"
-check "with only the empty frame installed, every app on screen is drawn on it ($good + $below below the fold)" \
-    "$([ "$((good + below))" = 13 ] && [ "$good" -ge 6 ] && echo 1 || echo 0)"
+check "with only the empty frame installed, every app's cell is drawn on it ($good, $below below the fold)" \
+    "$([ "$good" = "$(wc -l < "$OUT/fo.txt")" ] && [ "$below" = 0 ] && [ "$good" -ge 4 ] && echo 1 || echo 0)"
 stop_shell
 
 # ---- 5. restarts ------------------------------------------------------------------

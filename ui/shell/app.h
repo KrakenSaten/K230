@@ -56,7 +56,8 @@ struct pocketos_app {
      * offers a way out of on screen, exactly as that on-screen control
      * does. Returns 1 when it went back, 0 when the app is at its own top
      * level - the shell then does what the header's back slab does and goes
-     * home. May be NULL: Back is then the back slab. Never called from
+     * home (or, for an app that is a page of another - System of Settings,
+     * DS §47 - back to that app). May be NULL: Back is then the back slab. Never called from
      * inside an LVGL event. Appended and zero, so the API version stays. */
     int (*back)(void *priv);
 };
@@ -64,6 +65,12 @@ struct pocketos_app {
 /* Shell services available to apps. */
 void pocketos_shell_set_status_hint(const char *text); /* short text at the app header's right end */
 void pocketos_shell_go_home(void);
+/* Open another app of the shell's registry in place of this one, as the
+ * launcher would: on the next timer pass, never inside the event that asked
+ * (the asking app is destroyed by it). For a sub-page that is an app of its
+ * own - Settings' System (DS §47) - whose way back the shell knows. Returns
+ * 0 when id is an app of this build, -1 otherwise (nothing happens). */
+int pocketos_shell_open_app(const char *id);
 /* Platform-wide reduced-motion preference (DS §12): settings key
  * "reduced_motion" = 0|1 in /etc/pocketos/settings.conf, default 0.
  * When 1, every animation must apply its end state immediately. */

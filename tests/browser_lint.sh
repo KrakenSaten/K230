@@ -95,8 +95,8 @@ check "and depends on libcurl, jpeg and libpng (all already in the image)" \
        grep -E '^POCKETOS_DEPENDENCIES' platforms/k230/package/pocketos/pocketos.mk | grep -qw 'jpeg' &&
        grep -E '^POCKETOS_DEPENDENCIES' platforms/k230/package/pocketos/pocketos.mk | grep -qw 'libpng' && echo 1 || echo 0)"
 check "pos-browser is installed" "$(grep -q 'tools/browser/pos-browser $(DESTDIR)$(PREFIX)/bin/pos-browser' Makefile && echo 1 || echo 0)"
-check "Browser is on the launcher, in CONNECTIONS" \
-    "$(grep -q '{ "browser", HOME_GROUP_CONNECT, HOME_HUE_NETWORK[ ,}]' ui/shell/home_layout.c && echo 1 || echo 0)"
+check "Browser is on the launcher's page, in ESSENTIALS (DS §47)" \
+    "$(grep -q '{ "browser", HOME_GROUP_ESSENTIALS, HOME_HUE_NETWORK, HOME_FOLDER_NONE }' ui/shell/home_layout.c && echo 1 || echo 0)"
 
 echo "browser_lint: $failed failure(s)"
 exit $((failed > 0))

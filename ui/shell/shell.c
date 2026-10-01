@@ -122,6 +122,20 @@ static const struct pocketos_app *const apps[] = { &app_radio, &app_system, &app
                                             &app_deskbuddy, &app_terminal, &app_photo OPTIONAL_APPS };
 #define APP_COUNT (sizeof(apps) / sizeof(apps[0]))
 
+/* Apps that are a page of another app (DS §47): System is Settings' System
+ * page. The page stays an app of the registry - shell.open, Controls'
+ * "About DOORS" and Power, a favorite that holds it all open it as before -
+ * but it has no place on the launcher (home_layout.c, HOME_GROUP_NONE), and
+ * its way out is its parent: the header's back slab and Back go to Settings,
+ * and Back there goes home. One level, from this table; no stack. Settings
+ * opens it with pocketos_shell_open_app(). */
+static const struct app_page {
+    const char *id;
+    const char *parent;
+} app_pages[] = {
+    { "system", "settings" },
+};
+
 struct shell {
     lv_obj_t *cluster;      /* the status cluster (DS §36): chip and clock, top right */
     lv_obj_t *status_clock;
@@ -999,8 +1013,12 @@ static void app_close(void)
     announce_current();
 }
 
+static void open_requested(void *user);
+
 void pocketos_shell_go_home(void)
 {
+    /* Home is where this ends, whatever an app asked to open next. */
+    lv_async_call_cancel(open_requested, NULL);
     app_close();
     /* The launcher's own chrome, whatever the app that just closed had. */
     chrome_apply(chrome_resolve(POCKETOS_CHROME_DEFAULT, is_landscape(sh.display.geometry.rotation), true),
@@ -1054,9 +1072,75 @@ static void on_lock_revealing(void)
     environment_apply();
 }
 
+static const struct pocketos_app *find_app(const char *id);
+
+/* The app this one is a page of (app_pages), or NULL: it goes home. */
+static const struct pocketos_app *page_parent(const struct pocketos_app *app)
+{
+    size_t k;
+
+    for (k = 0; app && k < sizeof(app_pages) / sizeof(app_pages[0]); k++) {
+        if (strcmp(app_pages[k].id, app->id) == 0) {
+            return find_app(app_pages[k].parent);
+        }
+    }
+    return NULL;
+}
+
+/* An app asked to be replaced (pocketos_shell_open_app), or a page's back
+ * slab was tapped: opened on the next timer pass, outside the event, since
+ * opening deletes the screen the event came from and builds and measures a
+ * new one. One request at a time; the last one wins, and going home or
+ * opening anything else drops it. */
+static char open_request[32];
+
+static void open_requested(void *user)
+{
+    const struct pocketos_app *app = find_app(open_request);
+
+    (void)user;
+    open_request[0] = '\0';
+    if (app) {
+        app_open(app);
+    }
+}
+
+int pocketos_shell_open_app(const char *id)
+{
+    const struct pocketos_app *app = find_app(id);
+
+    if (!app) {
+        LOG_WARN("open: no app %s in this build", id ? id : "(null)");
+        return -1;
+    }
+    lv_snprintf(open_request, sizeof(open_request), "%s", app->id);
+    lv_async_call_cancel(open_requested, NULL);
+    lv_async_call(open_requested, NULL);
+    return 0;
+}
+
+/* Out of the open app the way its back slab goes: to the app it is a page
+ * of, or home. Not from inside an LVGL event (on_back defers the first). */
+static void app_leave(void)
+{
+    const struct pocketos_app *parent = page_parent(sh.app);
+
+    if (parent) {
+        app_open(parent);
+        return;
+    }
+    pocketos_shell_go_home();
+}
+
 static void on_back(lv_event_t *e)
 {
+    const struct pocketos_app *parent = page_parent(sh.app);
+
     (void)e;
+    if (parent) {
+        pocketos_shell_open_app(parent->id);
+        return;
+    }
     pocketos_shell_go_home();
 }
 
@@ -1083,6 +1167,9 @@ static void app_open(const struct pocketos_app *app)
     lv_obj_t *name;
     lv_obj_t *body;
 
+    /* Whatever opens now is what was asked for last. */
+    lv_async_call_cancel(open_requested, NULL);
+    open_request[0] = '\0';
     app_close();
     lv_obj_add_flag(sh.home, LV_OBJ_FLAG_HIDDEN);
     /* The launcher is under the app now; its keys are the app's. */
@@ -1626,7 +1713,8 @@ static void host_home(void *ctx)
 
 /* Back, as the screen already offers it. An app that has its own way out of
  * a sub-page takes it (app.h `back`); otherwise it is the header's back slab,
- * which goes home. At home it closes Controls, a folder or the picker - the
+ * which goes home - or, from a page of another app (System), to that app
+ * (app_pages). At home it closes Controls, a folder or the picker - the
  * launcher's own Esc (home.c) - and at the launcher's page it does nothing.
  * There is no navigation stack here to get out of step with the screen. */
 static enum hw_result host_back(void *ctx)
@@ -1636,7 +1724,7 @@ static enum hw_result host_back(void *ctx)
         if (sh.app->back && sh.app->back(sh.app_priv)) {
             return HW_RESULT_DONE;
         }
-        pocketos_shell_go_home();
+        app_leave();
         return HW_RESULT_DONE;
     }
     if (controls_visible()) {
@@ -2091,6 +2179,101 @@ static cJSON *hardware_json(void)
     return o;
 }
 
+#if defined(POCKETOS_SHELL_TEST_HOOKS) && POCKETOS_SHELL_TEST_HOOKS
+/* shell.tap (simulator only): a finger on the screen, through a pointer of
+ * its own that LVGL reads like any touch panel - pressed at (x, y) for
+ * hold_ms, then lifted - so a suite can tap what a person taps (a back slab,
+ * a Settings row, a launcher cell) and press it long. The panel's build has
+ * no such pointer. */
+static struct {
+    lv_indev_t *indev;
+    int32_t x;
+    int32_t y;
+    uint32_t start;
+    uint32_t hold_ms;
+    bool armed;
+} test_tap;
+
+static void test_tap_read(lv_indev_t *indev, lv_indev_data_t *data)
+{
+    (void)indev;
+    data->point.x = test_tap.x;
+    data->point.y = test_tap.y;
+    if (test_tap.armed && lv_tick_elaps(test_tap.start) < test_tap.hold_ms) {
+        data->state = LV_INDEV_STATE_PRESSED;
+    } else {
+        data->state = LV_INDEV_STATE_RELEASED;
+        test_tap.armed = false;
+    }
+}
+
+/* The first label shown under obj whose text is exactly text, in tree order,
+ * hidden subtrees left out. */
+static lv_obj_t *test_tap_find(lv_obj_t *obj, const char *text)
+{
+    uint32_t i;
+
+    if (!obj || lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) {
+        return NULL;
+    }
+    if (lv_obj_check_type(obj, &lv_label_class) && strcmp(lv_label_get_text(obj), text) == 0) {
+        return obj;
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        lv_obj_t *hit = test_tap_find(lv_obj_get_child(obj, i), text);
+
+        if (hit) {
+            return hit;
+        }
+    }
+    return NULL;
+}
+
+/* Where a finger would tap the label reading text: the middle of the
+ * clickable object holding it, scrolled into view first as a person would
+ * scroll to it. -1 when no such label is shown, or nothing holding it takes
+ * a tap. */
+static int test_tap_point(const char *text, int32_t *x, int32_t *y)
+{
+    lv_obj_t *o = test_tap_find(lv_layer_top(), text);
+    lv_area_t a;
+
+    if (!o) {
+        o = test_tap_find(lv_screen_active(), text);
+    }
+    while (o && !lv_obj_has_flag(o, LV_OBJ_FLAG_CLICKABLE)) {
+        o = lv_obj_get_parent(o);
+    }
+    if (!o) {
+        return -1;
+    }
+    lv_obj_scroll_to_view_recursive(o, LV_ANIM_OFF);
+    lv_obj_update_layout(lv_screen_active());
+    lv_obj_get_coords(o, &a);
+    *x = a.x1 + lv_area_get_width(&a) / 2;
+    *y = a.y1 + lv_area_get_height(&a) / 2;
+    return 0;
+}
+
+static int test_tap_start(int32_t x, int32_t y, uint32_t hold_ms)
+{
+    if (test_tap.armed) {
+        return -1;
+    }
+    if (!test_tap.indev) {
+        test_tap.indev = lv_indev_create();
+        lv_indev_set_type(test_tap.indev, LV_INDEV_TYPE_POINTER);
+        lv_indev_set_read_cb(test_tap.indev, test_tap_read);
+    }
+    test_tap.x = x;
+    test_tap.y = y;
+    test_tap.hold_ms = hold_ms;
+    test_tap.start = lv_tick_get();
+    test_tap.armed = true;
+    return 0;
+}
+#endif
+
 static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client *c,
                              cJSON *req, void *user)
 {
@@ -2115,6 +2298,11 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
 
             cJSON_AddStringToObject(a, "id", apps[k]->id);
             cJSON_AddStringToObject(a, "name", apps[k]->name);
+            /* A page of another app (DS §47): no launcher cell, and its way
+             * back is to that app. */
+            if (page_parent(apps[k])) {
+                cJSON_AddStringToObject(a, "page_of", page_parent(apps[k])->id);
+            }
             cJSON_AddItemToArray(list, a);
         }
         cJSON_AddItemToObject(result, "apps", list);
@@ -2661,6 +2849,33 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         cJSON_AddNumberToObject(result, "min", VOLUME_MIN_PCT);
         cJSON_AddNumberToObject(result, "max", VOLUME_MAX_PCT);
         cJSON_AddNumberToObject(result, "step", VOLUME_STEP_PCT);
+#if defined(POCKETOS_SHELL_TEST_HOOKS) && POCKETOS_SHELL_TEST_HOOKS
+    } else if (strcmp(method, "shell.tap") == 0) {
+        /* x and y, or the text of a label shown (the clickable object
+         * holding it is tapped, scrolled into view first). */
+        const cJSON *x = params ? cJSON_GetObjectItemCaseSensitive(params, "x") : NULL;
+        const cJSON *y = params ? cJSON_GetObjectItemCaseSensitive(params, "y") : NULL;
+        const cJSON *text = params ? cJSON_GetObjectItemCaseSensitive(params, "text") : NULL;
+        const cJSON *hold = params ? cJSON_GetObjectItemCaseSensitive(params, "hold_ms") : NULL;
+        int hold_ms = cJSON_IsNumber(hold) ? hold->valueint : 80;
+        int32_t tx = cJSON_IsNumber(x) ? x->valueint : -1;
+        int32_t ty = cJSON_IsNumber(y) ? y->valueint : -1;
+
+        if (cJSON_IsString(text) && test_tap_point(text->valuestring, &tx, &ty) < 0) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                  "no such text on the screen to tap"));
+            return;
+        }
+        if (tx < 0 || ty < 0 || hold_ms < 1 || hold_ms > 5000 || test_tap_start(tx, ty, (uint32_t)hold_ms) < 0) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                  "x and y or text, hold_ms 1..5000, one tap at a time"));
+            return;
+        }
+        result = cJSON_CreateObject();
+        cJSON_AddBoolToObject(result, "tapped", true);
+        cJSON_AddNumberToObject(result, "x", tx);
+        cJSON_AddNumberToObject(result, "y", ty);
+#endif
     } else if (strcmp(method, "shell.subscribe") == 0) {
         pocketipc_client_set_subscribed(c, true);
         result = cJSON_CreateObject();

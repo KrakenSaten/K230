@@ -266,40 +266,43 @@ int home_layout_compute(const struct home_layout_in *in, struct home_layout *out
 /* Launcher order within a group is this table's order. Colours are the
  * package's (tools/design/gen_doors_ui.py draws each icon in the same one;
  * tests/doors_ui_assets_test.sh holds the two tables together). The last
- * column is the folder an app is shown in (home_layout.h): the games are in
- * GAMES. PG Solitaire, Blackjack and 2048 (feat/games-solitaire-blackjack-
- * 2048) join it with a row each in PLAY and HOME_FOLDER_GAMES. The everyday
- * tools are in UTILITIES, in this order: Clock, Calendar, Calculator and
- * Notes from WORKSPACE, then Files, Recorder and Camera from DEVICE; the
- * folder's cell is WORKSPACE's first, before DeskBuddy. Photo, the library
- * of Camera's photos, is a cell of its own in DEVICE after Video (DS §45). */
+ * column is the folder an app is shown in (home_layout.h). DS §47:
+ * ESSENTIALS holds Terminal, RIFT, Browser and Settings, one tap from home;
+ * every other app is in FOLDERS, inside a folder, and the folders' cells
+ * come in the order of their first rows here - Apps, Utilities, Games.
+ * APPS is alphabetical by name; UTILITIES keeps the order it had (DS §42.2:
+ * Clock, Calendar, Calculator, Notes, Files, Recorder, Camera) and GAMES the
+ * order it had (§39). Radio, which no group named after the change, is in
+ * APPS. System is a page of Settings (shell.c app_pages): HOME_GROUP_NONE,
+ * no place on the launcher; its row keeps its colour for a favorite that
+ * still holds it. */
 static const struct home_entry entries[] = {
-    { "rift", HOME_GROUP_CONNECT, HOME_HUE_MESH, HOME_FOLDER_NONE },
-    { "radio", HOME_GROUP_CONNECT, HOME_HUE_RADIO, HOME_FOLDER_NONE },
-    { "wave", HOME_GROUP_CONNECT, HOME_HUE_NETWORK, HOME_FOLDER_NONE },
-    { "zabbix", HOME_GROUP_CONNECT, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
-    { "browser", HOME_GROUP_CONNECT, HOME_HUE_NETWORK, HOME_FOLDER_NONE },
-    { "clock", HOME_GROUP_WORK, HOME_HUE_AI, HOME_FOLDER_UTILITIES },
-    { "calendar", HOME_GROUP_WORK, HOME_HUE_TOOLS, HOME_FOLDER_UTILITIES },
-    { "calculator", HOME_GROUP_WORK, HOME_HUE_APPS, HOME_FOLDER_UTILITIES },
-    { "notes", HOME_GROUP_WORK, HOME_HUE_FILES, HOME_FOLDER_UTILITIES },
-    { "deskbuddy", HOME_GROUP_WORK, HOME_HUE_AI, HOME_FOLDER_NONE },
-    { "fleet", HOME_GROUP_PLAY, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
-    { "radar", HOME_GROUP_PLAY, HOME_HUE_RADIO, HOME_FOLDER_GAMES },
-    { "timber", HOME_GROUP_PLAY, HOME_HUE_FILES, HOME_FOLDER_GAMES },
-    { "solitaire", HOME_GROUP_PLAY, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
-    { "blackjack", HOME_GROUP_PLAY, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
-    { "2048", HOME_GROUP_PLAY, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
-    { "settings", HOME_GROUP_DEVICE, HOME_HUE_SETTINGS, HOME_FOLDER_NONE },
-    { "system", HOME_GROUP_DEVICE, HOME_HUE_APPS, HOME_FOLDER_NONE },
-    { "terminal", HOME_GROUP_DEVICE, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
-    { "files", HOME_GROUP_DEVICE, HOME_HUE_FILES, HOME_FOLDER_UTILITIES },
-    { "recorder", HOME_GROUP_DEVICE, HOME_HUE_TOOLS, HOME_FOLDER_UTILITIES },
-    { "camera", HOME_GROUP_DEVICE, HOME_HUE_TOOLS, HOME_FOLDER_UTILITIES },
-    { "vision", HOME_GROUP_DEVICE, HOME_HUE_AI, HOME_FOLDER_NONE },
-    { "mp3", HOME_GROUP_DEVICE, HOME_HUE_APPS, HOME_FOLDER_NONE },
-    { "video", HOME_GROUP_DEVICE, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
-    { "photo", HOME_GROUP_DEVICE, HOME_HUE_FILES, HOME_FOLDER_NONE },
+    { "terminal", HOME_GROUP_ESSENTIALS, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
+    { "rift", HOME_GROUP_ESSENTIALS, HOME_HUE_MESH, HOME_FOLDER_NONE },
+    { "browser", HOME_GROUP_ESSENTIALS, HOME_HUE_NETWORK, HOME_FOLDER_NONE },
+    { "settings", HOME_GROUP_ESSENTIALS, HOME_HUE_SETTINGS, HOME_FOLDER_NONE },
+    { "deskbuddy", HOME_GROUP_FOLDERS, HOME_HUE_AI, HOME_FOLDER_APPS },
+    { "mp3", HOME_GROUP_FOLDERS, HOME_HUE_APPS, HOME_FOLDER_APPS },
+    { "photo", HOME_GROUP_FOLDERS, HOME_HUE_FILES, HOME_FOLDER_APPS },
+    { "radio", HOME_GROUP_FOLDERS, HOME_HUE_RADIO, HOME_FOLDER_APPS },
+    { "video", HOME_GROUP_FOLDERS, HOME_HUE_TOOLS, HOME_FOLDER_APPS },
+    { "vision", HOME_GROUP_FOLDERS, HOME_HUE_AI, HOME_FOLDER_APPS },
+    { "wave", HOME_GROUP_FOLDERS, HOME_HUE_NETWORK, HOME_FOLDER_APPS },
+    { "zabbix", HOME_GROUP_FOLDERS, HOME_HUE_TOOLS, HOME_FOLDER_APPS },
+    { "clock", HOME_GROUP_FOLDERS, HOME_HUE_AI, HOME_FOLDER_UTILITIES },
+    { "calendar", HOME_GROUP_FOLDERS, HOME_HUE_TOOLS, HOME_FOLDER_UTILITIES },
+    { "calculator", HOME_GROUP_FOLDERS, HOME_HUE_APPS, HOME_FOLDER_UTILITIES },
+    { "notes", HOME_GROUP_FOLDERS, HOME_HUE_FILES, HOME_FOLDER_UTILITIES },
+    { "files", HOME_GROUP_FOLDERS, HOME_HUE_FILES, HOME_FOLDER_UTILITIES },
+    { "recorder", HOME_GROUP_FOLDERS, HOME_HUE_TOOLS, HOME_FOLDER_UTILITIES },
+    { "camera", HOME_GROUP_FOLDERS, HOME_HUE_TOOLS, HOME_FOLDER_UTILITIES },
+    { "fleet", HOME_GROUP_FOLDERS, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
+    { "radar", HOME_GROUP_FOLDERS, HOME_HUE_RADIO, HOME_FOLDER_GAMES },
+    { "timber", HOME_GROUP_FOLDERS, HOME_HUE_FILES, HOME_FOLDER_GAMES },
+    { "solitaire", HOME_GROUP_FOLDERS, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
+    { "blackjack", HOME_GROUP_FOLDERS, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
+    { "2048", HOME_GROUP_FOLDERS, HOME_HUE_GAMES, HOME_FOLDER_GAMES },
+    { "system", HOME_GROUP_NONE, HOME_HUE_APPS, HOME_FOLDER_NONE },
 /* A test seam: tests/home_folder_test.c builds this file with more rows
  * (tests/home_folder_entries.h), to fill a folder past one screen. No shell
  * build defines it. */
@@ -310,8 +313,7 @@ static const struct home_entry entries[] = {
 
 const char *home_group_name(enum home_group g)
 {
-    static const char *const names[HOME_GROUP_COUNT] = { "CONNECTIONS", "WORKSPACE", "PLAY", "DEVICE",
-                                                         "MORE" };
+    static const char *const names[HOME_GROUP_COUNT] = { "ESSENTIALS", "FOLDERS", "MORE" };
 
     return (g >= 0 && g < HOME_GROUP_COUNT) ? names[g] : "MORE";
 }
@@ -368,6 +370,7 @@ static const struct home_folder_def folders[HOME_FOLDER_COUNT] = {
     [HOME_FOLDER_NONE] = { NULL, NULL, HOME_HUE_APPS },
     [HOME_FOLDER_GAMES] = { "games", "Games", HOME_HUE_GAMES },
     [HOME_FOLDER_UTILITIES] = { "utilities", "Utilities", HOME_HUE_TOOLS },
+    [HOME_FOLDER_APPS] = { "apps", "Apps", HOME_HUE_APPS },
 };
 
 const struct home_folder_def *home_folder_get(enum home_folder f)

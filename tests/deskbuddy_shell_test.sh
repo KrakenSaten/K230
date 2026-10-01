@@ -27,7 +27,7 @@ run_shell() { # <state dir> <log dir> [env...]
 }
 clean() { ! grep -qE ' ERROR |assert|AddressSanitizer|runtime error' "$1/out" "$1/shell.log" 2>/dev/null; }
 
-# The DOORS launcher lists it in WORKSPACE (ui/shell/home_layout.c).
+# The DOORS launcher lists it in the Apps folder (ui/shell/home_layout.c, DS §47).
 L0=$(mktemp -d); R0=$(mktemp -d); C0=$(mktemp -d); S0=$(mktemp -d)
 env SDL_VIDEODRIVER=dummy POCKETOS_RUNTIME_DIR="$R0" POCKETOS_LOG_DIR="$L0" POCKETOS_CONFIG_DIR="$C0" \
     POCKETOS_STATE_DIR="$S0" "$SHELL_BIN" --no-lock --exit-after-ms 800 >"$L0/out" 2>&1

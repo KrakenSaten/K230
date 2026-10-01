@@ -68,11 +68,11 @@ check "the shell knows about RIFT" \
 check "and builds every part of it" \
     "$(grep -q 'apps/rift/rift_app.c' ui/shell/CMakeLists.txt &&
        grep -q 'apps/rift/ui/rift_nodes.c' ui/shell/CMakeLists.txt && echo 1 || echo 0)"
-# Where RIFT is on the launcher is the launcher's table (DS §31.2): first in
-# CONNECTIONS, in the package's mesh colour.
-check "RIFT is on the launcher, first in CONNECTIONS" \
-    "$(grep -q '{ "rift", HOME_GROUP_CONNECT, HOME_HUE_MESH[ ,}]' ui/shell/home_layout.c &&
-       [ "$(grep -o '{ "[a-z]*", HOME_GROUP_CONNECT' ui/shell/home_layout.c | head -1)" = '{ "rift", HOME_GROUP_CONNECT' ] &&
+# Where RIFT is on the launcher is the launcher's table (DS §31.2, §47): in
+# ESSENTIALS after Terminal, in the package's mesh colour.
+check "RIFT is on the launcher, in ESSENTIALS after Terminal" \
+    "$(grep -q '{ "rift", HOME_GROUP_ESSENTIALS, HOME_HUE_MESH, HOME_FOLDER_NONE }' ui/shell/home_layout.c &&
+       [ "$(grep -o '{ "[a-z]*", HOME_GROUP_ESSENTIALS' ui/shell/home_layout.c | sed -n 2p)" = '{ "rift", HOME_GROUP_ESSENTIALS' ] &&
        echo 1 || echo 0)"
 
 # ---- 2. the real shell, with a scripted meshcored -------------------------------

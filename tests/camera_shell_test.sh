@@ -77,8 +77,8 @@ done
 # Registered like any other app.
 check "Camera is in the shell's registry" \
     "$(grep -q '&app_camera' ui/shell/shell.c && echo 1 || echo 0)"
-check "on the launcher, under DEVICE, in the tools colour" \
-    "$(grep -q '{ "camera", HOME_GROUP_DEVICE, HOME_HUE_TOOLS[ ,}]' ui/shell/home_layout.c && echo 1 || echo 0)"
+check "on the launcher, in the Utilities folder, in the tools colour" \
+    "$(grep -q '{ "camera", HOME_GROUP_FOLDERS, HOME_HUE_TOOLS, HOME_FOLDER_UTILITIES }' ui/shell/home_layout.c && echo 1 || echo 0)"
 check "with its portal icon and its mask" \
     "$([ -f ui/assets/doors/icon-camera.bin ] && grep -q 'pos_app_icon_camera = {' ui/pocketui/pos_app_icons.c &&
        echo 1 || echo 0)"

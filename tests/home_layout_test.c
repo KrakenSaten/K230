@@ -1,27 +1,34 @@
 /*
- * The DOORS launcher's geometry and groups (ui/shell/home_layout.h, DS §31):
+ * The DOORS launcher's geometry and groups (ui/shell/home_layout.h, DS §31,
+ * §39, §42, §47):
  *
- *   - the registry's twenty-four apps land in four groups in the table's order,
- *     an app the table does not name goes to MORE (after the named groups,
- *     in registry order), an empty group is not drawn;
+ *   - the registry's twenty-six apps land in two groups in the table's
+ *     order: ESSENTIALS (Terminal, RIFT, Browser, Settings) and FOLDERS
+ *     (every other app, each in a folder); System is a page of Settings and
+ *     is placed nowhere; an app the table does not name goes to MORE (after
+ *     the named groups, in registry order), an empty group is not drawn;
+ *   - the launcher's page is three favorites, the four essentials and the
+ *     three folders' cells - Apps, Utilities, Games - and nothing else;
+ *     Apps holds DeskBuddy, MP3, Photo, Radio, Video, Vision, Wave and
+ *     Zabbix (alphabetical), Utilities its seven tools in their order, Games
+ *     its six games in theirs; no app is in two places, and every app but
+ *     System is in exactly one;
  *   - in both orientations of the reference panel every cell is inside its
  *     panel and inside the content area, no two cells or panels overlap,
  *     cells are at least the DS touch minimum, and the footer lies below the
- *     panels and clear of the rounded corners; portrait does not scroll;
- *   - landscape wraps (and then scrolls) instead of squeezing cells: with
- *     today's seventeen apps DEVICE goes to a second line (twelve fitted one);
- *   - folders (app groups): the games are behind one Games cell where Fleet
- *     was, an empty folder has no cell, one game is still a folder, an app
- *     that is not installed is not in it; a folder's page holds 0 to 48 apps
- *     in both orientations inside its panel, clear of the cluster, and
- *     scrolls exactly when it runs past the foot; Clock, Calendar,
- *     Calculator, Notes, Files, Recorder and Camera are behind one Utilities
- *     cell where Clock was, and Zabbix, Vision, RIFT, DeskBuddy, MP3 and
- *     Video stay on the launcher's page;
+ *     panels and clear of the rounded corners; today's launcher scrolls in
+ *     neither orientation and landscape keeps one row;
+ *   - landscape wraps (and then scrolls) instead of squeezing cells, for a
+ *     launcher with more groups and apps than today's;
+ *   - folders: an empty folder has no cell, one app is still a folder, an
+ *     app that is not installed is not in it; a folder's page holds 0 to 48
+ *     apps in both orientations inside its panel, clear of the cluster, and
+ *     scrolls exactly when it runs past the foot;
  *   - favorites: the settings keys, which ids a slot takes, an app a
  *     favorite once, the picker's list (every installed app once, in
- *     launcher order, less the other slots'), and the favorites' panel as
- *     the first row in both orientations.
+ *     launcher order, less the other slots' and less System), a favorite
+ *     already holding a grouped app or System still resolving, and the
+ *     favorites' panel as the first row in both orientations.
  *
  * Pure C: built and run by the root Makefile (make test).
  *
@@ -59,18 +66,32 @@ static void check(const char *what, int ok)
     }
 }
 
-/* The shell's registry order (ui/shell/shell.c apps[], then OPTIONAL_APPS). */
+/* The shell's registry order (ui/shell/shell.c apps[], then OPTIONAL_APPS).
+ * tests/launcher_groups_shell_test.sh holds the running shell to the same
+ * structure, from its own shell.info. */
 static const char *const registry[] = { "radio", "system", "fleet", "radar", "timber", "notes",
                                         "clock", "calendar", "calculator", "settings", "wave", "rift",
                                         "files", "camera", "browser", "recorder", "vision", "video",
-                                        "solitaire", "blackjack", "2048", "mp3", "deskbuddy", "zabbix" };
+                                        "solitaire", "blackjack", "2048", "mp3", "deskbuddy", "terminal",
+                                        "photo", "zabbix" };
 #define NREG ((int)(sizeof(registry) / sizeof(registry[0])))
 
-/* Every app, as the table orders them (groups, then the table's rows). */
-static const char *const launcher_order[] = { "rift", "radio", "wave", "zabbix", "browser", "clock", "calendar",
-                                              "calculator", "notes", "deskbuddy", "fleet", "radar", "timber",
-                                              "solitaire", "blackjack", "2048", "settings", "system", "files",
-                                              "recorder", "camera", "vision", "mp3", "video" };
+/* Every app the launcher places, as the table orders them (groups, then the
+ * table's rows); System, a page of Settings, is not among them. */
+static const char *const launcher_order[] = { "terminal", "rift", "browser", "settings",
+                                              "deskbuddy", "mp3", "photo", "radio", "video", "vision", "wave",
+                                              "zabbix", "clock", "calendar", "calculator", "notes", "files",
+                                              "recorder", "camera", "fleet", "radar", "timber", "solitaire",
+                                              "blackjack", "2048" };
+#define NPLACED ((int)(sizeof(launcher_order) / sizeof(launcher_order[0])))
+
+/* DS §47. */
+static const char *const essentials[] = { "terminal", "rift", "browser", "settings" };
+static const char *const apps_folder[] = { "deskbuddy", "mp3", "photo", "radio", "video", "vision", "wave", "zabbix" };
+static const char *const utilities_folder[] = { "clock", "calendar", "calculator", "notes", "files", "recorder",
+                                                "camera" };
+static const char *const games_folder[] = { "fleet", "radar", "timber", "solitaire", "blackjack", "2048" };
+#define LEN(a) ((int)(sizeof(a) / sizeof((a)[0])))
 
 static int inside(const struct home_rect *a, const struct home_rect *b)
 {
@@ -88,32 +109,56 @@ static void test_groups(void)
     uint8_t count[HOME_GROUP_COUNT];
     int n = home_group_order(registry, NREG, order, count);
     int k;
-    int same = n == 24;
+    int same = n == NPLACED && NPLACED == NREG - 1;
 
     for (k = 0; same && k < n; k++) {
         same = strcmp(registry[order[k]], launcher_order[k]) == 0;
     }
-    check("the twenty-four apps are shown in the table's order", same);
-    check("CONNECTIONS holds RIFT, Radio, Wave, Zabbix, Browser", count[HOME_GROUP_CONNECT] == 5);
-    check("WORKSPACE holds Clock, Calendar, Calculator, Notes, DeskBuddy", count[HOME_GROUP_WORK] == 5);
-    check("PLAY holds Fleet, Radar, Timber, Solitaire, Blackjack, 2048", count[HOME_GROUP_PLAY] == 6);
-    check("DEVICE holds Settings, System, Files, Recorder, Camera, Vision, MP3, Video", count[HOME_GROUP_DEVICE] == 8);
+    check("every app but System is placed, once, in the table's order", same);
+    for (k = 0; k < n; k++) {
+        check("System is placed nowhere", strcmp(registry[order[k]], "system") != 0);
+    }
+    check("ESSENTIALS holds Terminal, RIFT, Browser and Settings", count[HOME_GROUP_ESSENTIALS] == 4);
+    check("FOLDERS holds the other twenty-one", count[HOME_GROUP_FOLDERS] == 21);
     check("nothing is left for MORE", count[HOME_GROUP_MORE] == 0);
     check("group names are the package's capitals",
-          strcmp(home_group_name(HOME_GROUP_CONNECT), "CONNECTIONS") == 0 &&
+          strcmp(home_group_name(HOME_GROUP_ESSENTIALS), "ESSENTIALS") == 0 &&
+              strcmp(home_group_name(HOME_GROUP_FOLDERS), "FOLDERS") == 0 &&
               strcmp(home_group_name(HOME_GROUP_MORE), "MORE") == 0);
     check("every table entry has a hue in range", home_entry_find("rift") && home_entry_find("rift")->hue == HOME_HUE_MESH &&
                                                   home_entry_find("system")->hue <= HOME_HUE_APPS);
+    check("System is in the table, in no group and no folder (a page of Settings)",
+          home_entry_find("system") && home_entry_find("system")->group == HOME_GROUP_NONE &&
+              home_entry_find("system")->folder == HOME_FOLDER_NONE);
+    for (k = 0; k < LEN(essentials); k++) {
+        const struct home_entry *en = home_entry_find(essentials[k]);
+
+        check("an essential is in ESSENTIALS and in no folder",
+              en && en->group == HOME_GROUP_ESSENTIALS && en->folder == HOME_FOLDER_NONE);
+    }
 
     {
         /* An app the table does not know, and one group missing entirely. */
-        static const char *const ids[] = { "zeta", "notes", "alpha", "radio", "clock" };
+        static const char *const ids[] = { "zeta", "notes", "alpha", "rift", "clock" };
         n = home_group_order(ids, 5, order, count);
         check("an unknown app is not lost", n == 5);
         check("unknown apps go to MORE, after the named groups, in registry order",
               count[HOME_GROUP_MORE] == 2 && strcmp(ids[order[3]], "zeta") == 0 && strcmp(ids[order[4]], "alpha") == 0);
-        check("a group nothing is installed in is empty", count[HOME_GROUP_PLAY] == 0 && count[HOME_GROUP_DEVICE] == 0);
         check("home_entry_find says no for an unknown id", home_entry_find("zeta") == NULL && home_entry_find(NULL) == NULL);
+    }
+    {
+        static const char *const ids[] = { "notes", "clock" };
+
+        n = home_group_order(ids, 2, order, count);
+        check("a group nothing is installed in is empty", n == 2 && count[HOME_GROUP_ESSENTIALS] == 0);
+    }
+    {
+        /* A page of another app is not lost to MORE either. */
+        static const char *const ids[] = { "system", "settings" };
+
+        n = home_group_order(ids, 2, order, count);
+        check("System alone is placed nowhere, not under MORE",
+              n == 1 && strcmp(ids[order[0]], "settings") == 0 && count[HOME_GROUP_MORE] == 0);
     }
 }
 
@@ -248,50 +293,62 @@ static void check_layout(const char *name, const struct home_layout_in *in, cons
 
 static void test_reference(void)
 {
-    static const uint8_t today[] = { 5, 4, 3, 4, 0 };
+    /* Today's page (DS §47): the favorites, ESSENTIALS's four, FOLDERS's
+     * three folder cells, MORE empty. */
+    static const uint8_t today[] = { HOME_FAVORITES, 4, 3, 0 };
+    /* A launcher of five groups and seventeen places, as it once was: kept
+     * for the wrap rule, which today's page no longer needs. */
+    static const uint8_t five[] = { 5, 4, 3, 4, 0 };
     struct home_layout_in in;
     struct home_layout l;
     int one_row;
 
-    input(&in, false, today, 5);
+    input(&in, false, today, 4);
     check("portrait lays out", home_layout_compute(&in, &l) == 0);
     check_layout("portrait", &in, &l, false);
     check("portrait: four 124 px columns, 20 px labels", l.cell_w == 124 && !l.small_labels);
-    check("portrait: the panels share one column", l.panel[0].x == l.panel[3].x && l.panel[0].w == l.panel[3].w);
-    /* The content area is the screen now (DS §36), so these are screen
-     * rows: under the 56 px bar the first panel was drawn at 192. */
-    check("portrait: the first panel starts at row 142, 50 px higher than under the bar", l.panel[0].y == 142);
+    check("portrait: three panels in one column, one row each",
+          l.panel[0].x == l.panel[2].x && l.panel[0].w == l.panel[2].w && l.panel[1].y > l.panel[0].y &&
+              l.panel[2].y > l.panel[1].y && l.panel[0].h == l.panel[1].h && l.panel[1].h == l.panel[2].h);
+    check("portrait: the first panel starts at row 142", l.panel[0].y == 142);
 
-    /* Thirteen apps in one row would squeeze a cell to 81 px, under
-     * HOME_CELL_MIN_W, so by the layout's own rule the panels wrap, and the
-     * launcher scrolls to its footer (home_layout.h). Twelve fitted one row;
-     * Files was the thirteenth and Camera (feat/camera-app-design) the
-     * fourteenth - three panels on the first line, DEVICE on a second. Zabbix
-     * (DS §35.4) is the fifteenth, a fourth cell in CONNECTIONS, and with it
-     * the panels fall two to a line: CONNECTIONS and WORKSPACE, then PLAY and
-     * DEVICE. Browser is the sixteenth, a fifth cell in CONNECTIONS: the
-     * lines stay as they were, CONNECTIONS one cell wider. Recorder
-     * (feat/recorder-app) is the seventeenth, a fifth cell in DEVICE,
-     * which takes a second row inside its panel; the lines stay. */
-    input(&in, true, today, 5);
+    input(&in, true, today, 4);
     check("landscape lays out", home_layout_compute(&in, &l) == 0);
-    check_layout("landscape", &in, &l, true);
+    check_layout("landscape", &in, &l, false);
+    check("landscape: ten places in one row, nothing wrapped",
+          !l.wrapped && l.panel[1].y == l.panel[0].y && l.panel[2].y == l.panel[0].y &&
+              l.panel[1].x > l.panel[0].x && l.panel[2].x > l.panel[1].x);
+    check("landscape: 108 px cells, 16 px labels", l.cell_w == 108 && l.small_labels);
+    check("landscape: a panel is exactly as wide as its places",
+          l.panel[0].w == 3 * l.cell_w + 2 * HOME_PANEL_PAD && l.panel[1].w == 4 * l.cell_w + 2 * HOME_PANEL_PAD &&
+              l.panel[2].w == 3 * l.cell_w + 2 * HOME_PANEL_PAD);
+    check("landscape: the row is centred", abs(l.panel[0].x - (in.width - (l.panel[2].x + l.panel[2].w))) <= 1);
+    /* With the keyboard base the landscape content area is 452 px tall (DS
+     * §36, §40.3): the row and the footer still fit without a scroll. */
+    in.height = 452;
+    check("landscape above the keyboard lays out", home_layout_compute(&in, &l) == 0);
+    check_layout("landscape above the keyboard", &in, &l, false);
+
+    /* Five groups, seventeen places: in one row they would squeeze a cell
+     * under HOME_CELL_MIN_W, so by the layout's own rule the panels wrap two
+     * to a line and the launcher scrolls to its footer (home_layout.h). */
+    input(&in, false, five, 5);
+    check("five groups in portrait lay out", home_layout_compute(&in, &l) == 0);
+    input(&in, true, five, 5);
+    check("five groups in landscape lay out", home_layout_compute(&in, &l) == 0);
+    check_layout("landscape, five groups", &in, &l, true);
     one_row = l.panel[1].y == l.panel[0].y && l.panel[1].x > l.panel[0].x && l.panel[3].y == l.panel[2].y &&
               l.panel[3].x > l.panel[2].x && l.panel[2].y > l.panel[0].y;
-    check("landscape: seventeen apps wrap - two panels on each of two lines, left to right", one_row && l.wrapped);
-    check("landscape: PLAY and DEVICE on the second line", l.panel[2].y > l.panel[1].y);
+    check("landscape: seventeen places wrap - two panels on each of two lines, left to right", one_row && l.wrapped);
     check("landscape: wrapped cells are the wrap width, 16 px labels",
           l.cell_w == HOME_CELL_WRAP_W && l.small_labels);
-    check("landscape: a panel is exactly as wide as its apps",
+    check("landscape: a wrapped panel is exactly as wide as its apps",
           l.panel[0].w == 5 * l.cell_w + 2 * HOME_PANEL_PAD && l.panel[1].w == 4 * l.cell_w + 2 * HOME_PANEL_PAD &&
               l.panel[2].w == 3 * l.cell_w + 2 * HOME_PANEL_PAD && l.panel[3].w == 4 * l.cell_w + 2 * HOME_PANEL_PAD);
     check("landscape: each line is centred",
           abs(l.panel[0].x - (in.width - (l.panel[1].x + l.panel[1].w))) <= 1 &&
               abs(l.panel[2].x - (in.width - (l.panel[3].x + l.panel[3].w))) <= 1);
-    /* Under the 56 px bar the launcher was 512 px tall and scrolled 120 px to
-     * its footer; with the 56 px back, less the 6 px the header moved down to
-     * sit level with the cluster, it scrolls 70. */
-    check("landscape: scrolls 70 px to its footer (120 under the bar)", l.content_h - in.height == 70);
+    check("landscape: scrolls 70 px to its footer", l.content_h - in.height == 70);
 }
 
 static void test_growth(void)
@@ -350,114 +407,134 @@ static int folder_place(const struct home_item *items, int n, enum home_folder f
     return -1;
 }
 
+/* Whether folder f holds exactly want[0..nwant-1], in that order. */
+static int folder_is(enum home_folder f, const char *const *want, int nwant)
+{
+    uint8_t order[HOME_MAX_APPS];
+    int n = home_folder_order(registry, NREG, f, order);
+    int k;
+
+    if (n != nwant) {
+        printf("     folder %d holds %d app(s), not %d\n", (int)f, n, nwant);
+        return 0;
+    }
+    for (k = 0; k < n; k++) {
+        if (strcmp(registry[order[k]], want[k]) != 0) {
+            printf("     folder %d: %s where %s was expected\n", (int)f, registry[order[k]], want[k]);
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static void test_folders(void)
 {
     struct home_item items[HOME_MAX_APPS];
     uint8_t order[HOME_MAX_APPS];
     uint8_t count[HOME_GROUP_COUNT];
     const struct home_folder_def *games = home_folder_get(HOME_FOLDER_GAMES);
+    const struct home_folder_def *u = home_folder_get(HOME_FOLDER_UTILITIES);
+    const struct home_folder_def *a = home_folder_get(HOME_FOLDER_APPS);
+    int seen[NREG];
     int n;
     int k;
-    int in_folders = 0;
+    int f;
+    int ok;
 
     check("GAMES is a folder with an id and a name", games && strcmp(games->id, "games") == 0 &&
                                                         strcmp(games->name, "Games") == 0 &&
                                                         games->hue == HOME_HUE_GAMES);
-    check("it is found by its id, and nothing else is",
-          home_folder_find("games") == HOME_FOLDER_GAMES && home_folder_find("fleet") == HOME_FOLDER_NONE &&
-              home_folder_find(NULL) == HOME_FOLDER_NONE && home_folder_find("") == HOME_FOLDER_NONE);
+    check("UTILITIES is a folder with an id, a name and the tools colour",
+          u && strcmp(u->id, "utilities") == 0 && strcmp(u->name, "Utilities") == 0 && u->hue == HOME_HUE_TOOLS);
+    check("APPS is a folder with an id, a name and the apps colour",
+          a && strcmp(a->id, "apps") == 0 && strcmp(a->name, "Apps") == 0 && a->hue == HOME_HUE_APPS);
+    check("each is found by its id, and nothing else is",
+          home_folder_find("games") == HOME_FOLDER_GAMES && home_folder_find("utilities") == HOME_FOLDER_UTILITIES &&
+              home_folder_find("apps") == HOME_FOLDER_APPS && home_folder_find("fleet") == HOME_FOLDER_NONE &&
+              home_folder_find("system") == HOME_FOLDER_NONE && home_folder_find(NULL) == HOME_FOLDER_NONE &&
+              home_folder_find("") == HOME_FOLDER_NONE);
     check("NONE and out-of-range have no definition",
           !home_folder_get(HOME_FOLDER_NONE) && !home_folder_get(HOME_FOLDER_COUNT) &&
               !home_folder_get((enum home_folder)-1));
-    for (k = 0; k < NREG; k++) {
-        const struct home_entry *en = home_entry_find(registry[k]);
+    check("no folder id is an app id", home_favorite_resolve(registry, NREG, "apps") < 0 &&
+                                           home_favorite_resolve(registry, NREG, "utilities") < 0 &&
+                                           home_favorite_resolve(registry, NREG, "games") < 0);
 
-        if (en && en->folder != HOME_FOLDER_NONE) {
-            in_folders++;
-        }
-    }
-    check("the table puts the six games in GAMES and seven tools in UTILITIES, and nothing else in a folder",
-          in_folders == 13 && home_entry_find("fleet")->folder == HOME_FOLDER_GAMES &&
-              home_entry_find("radar")->folder == HOME_FOLDER_GAMES &&
-              home_entry_find("timber")->folder == HOME_FOLDER_GAMES &&
-              home_entry_find("solitaire")->folder == HOME_FOLDER_GAMES &&
-              home_entry_find("blackjack")->folder == HOME_FOLDER_GAMES &&
-              home_entry_find("2048")->folder == HOME_FOLDER_GAMES);
-
-    /* Today's registry: one Games cell instead of six game cells, one
-     * Utilities cell instead of seven. */
+    /* The launcher's page (DS §47): Terminal, RIFT, Browser, Settings, then
+     * the Apps, Utilities and Games cells - seven places for twenty-six apps. */
     n = home_root_order(registry, NREG, items, count);
-    check("the launcher's page has thirteen places for twenty-four apps", n == 13);
-    check("PLAY holds one place, the Games folder", count[HOME_GROUP_PLAY] == 1 &&
-                                                         folder_place(items, n, HOME_FOLDER_GAMES) >= 0);
-    check("CONNECTIONS is as it was, WORKSPACE is Utilities and DeskBuddy, DEVICE keeps five",
-          count[HOME_GROUP_CONNECT] == 5 && count[HOME_GROUP_WORK] == 2 && count[HOME_GROUP_DEVICE] == 5 &&
-              count[HOME_GROUP_MORE] == 0);
-    check("no game is on the launcher's page",
-          !items_hold(items, n, registry, "fleet") && !items_hold(items, n, registry, "radar") &&
-              !items_hold(items, n, registry, "timber") && !items_hold(items, n, registry, "solitaire") &&
-              !items_hold(items, n, registry, "blackjack") && !items_hold(items, n, registry, "2048"));
-    check("the Games folder is where Fleet was: after WORKSPACE's two, before DEVICE",
-          folder_place(items, n, HOME_FOLDER_GAMES) == 7);
-    check("every other app still is",
-          items_hold(items, n, registry, "deskbuddy") && items_hold(items, n, registry, "vision") &&
-              items_hold(items, n, registry, "rift") && items_hold(items, n, registry, "zabbix") &&
-              items_hold(items, n, registry, "mp3") && items_hold(items, n, registry, "video") &&
-              items_hold(items, n, registry, "settings") && items_hold(items, n, registry, "system"));
-    {
-        const struct home_folder_def *u = home_folder_get(HOME_FOLDER_UTILITIES);
-        static const char *const tools[] = { "clock", "calendar", "calculator", "notes", "files", "recorder",
-                                             "camera" };
-        static const char *const outside[] = { "zabbix", "vision", "rift", "radio", "deskbuddy", "mp3", "video",
-                                               "settings", "system", "browser", "wave" };
-        int ok = 1;
-
-        check("UTILITIES is a folder with an id, a name and the tools colour",
-              u && strcmp(u->id, "utilities") == 0 && strcmp(u->name, "Utilities") == 0 &&
-                  u->hue == HOME_HUE_TOOLS && home_folder_find("utilities") == HOME_FOLDER_UTILITIES);
-        check("the Utilities folder is WORKSPACE's first place, where Clock was, before DeskBuddy",
-              folder_place(items, n, HOME_FOLDER_UTILITIES) == 5 && items[6].folder == HOME_FOLDER_NONE &&
-                  strcmp(registry[items[6].index], "deskbuddy") == 0);
-        n = home_folder_order(registry, NREG, HOME_FOLDER_UTILITIES, order);
-        for (k = 0; k < 7 && n == 7; k++) {
-            ok = ok && strcmp(registry[order[k]], tools[k]) == 0;
-        }
-        check("Utilities holds Clock, Calendar, Calculator, Notes, Files, Recorder and Camera, in that order",
-              n == 7 && ok);
-        n = home_root_order(registry, NREG, items, count);
-        ok = 1;
-        for (k = 0; k < (int)(sizeof(tools) / sizeof(tools[0])); k++) {
-            ok = ok && !items_hold(items, n, registry, tools[k]);
-        }
-        check("and none of them is on the launcher's page", ok);
-        ok = 1;
-        for (k = 0; k < (int)(sizeof(outside) / sizeof(outside[0])); k++) {
-            ok = ok && home_entry_find(outside[k])->folder == HOME_FOLDER_NONE &&
-                 items_hold(items, n, registry, outside[k]);
-        }
-        check("Zabbix, Vision, RIFT, DeskBuddy, MP3, Video and the rest stay on the launcher's page", ok);
-        check("Games is unchanged: six games in the table's order",
-              home_folder_order(registry, NREG, HOME_FOLDER_GAMES, order) == 6 &&
-                  strcmp(registry[order[0]], "fleet") == 0 && strcmp(registry[order[5]], "2048") == 0);
-        check("folder ids are distinct", home_folder_find("games") != home_folder_find("utilities"));
+    check("the launcher's page has seven places", n == 7);
+    ok = n == 7;
+    for (k = 0; ok && k < LEN(essentials); k++) {
+        ok = items[k].folder == HOME_FOLDER_NONE && strcmp(registry[items[k].index], essentials[k]) == 0;
     }
-    n = home_folder_order(registry, NREG, HOME_FOLDER_GAMES, order);
-    check("Games holds Fleet, Radar, Timber, Solitaire, Blackjack and 2048, in the table's order",
-          n == 6 && strcmp(registry[order[0]], "fleet") == 0 && strcmp(registry[order[1]], "radar") == 0 &&
-              strcmp(registry[order[2]], "timber") == 0 && strcmp(registry[order[3]], "solitaire") == 0 &&
-              strcmp(registry[order[4]], "blackjack") == 0 && strcmp(registry[order[5]], "2048") == 0);
+    check("Terminal, RIFT, Browser and Settings, in that order, are its first four", ok);
+    check("then the Apps, Utilities and Games cells, in that order",
+          n == 7 && items[4].folder == HOME_FOLDER_APPS && items[5].folder == HOME_FOLDER_UTILITIES &&
+              items[6].folder == HOME_FOLDER_GAMES);
+    check("ESSENTIALS holds four places, FOLDERS three, MORE none",
+          count[HOME_GROUP_ESSENTIALS] == 4 && count[HOME_GROUP_FOLDERS] == 3 && count[HOME_GROUP_MORE] == 0);
+    {
+        static const char *const off_page[] = { "system", "photo", "vision", "deskbuddy", "wave", "mp3", "video",
+                                                "zabbix", "radio", "camera", "clock", "calendar", "calculator",
+                                                "notes", "files", "recorder", "fleet", "radar", "timber",
+                                                "solitaire", "blackjack", "2048" };
+
+        ok = 1;
+        for (k = 0; k < LEN(off_page); k++) {
+            if (items_hold(items, n, registry, off_page[k])) {
+                printf("     %s is on the launcher's page\n", off_page[k]);
+                ok = 0;
+            }
+        }
+        check("System, every app of Apps and Utilities and every game are off the launcher's page", ok);
+    }
+
+    check("Apps holds DeskBuddy, MP3, Photo, Radio, Video, Vision, Wave and Zabbix, in that order",
+          folder_is(HOME_FOLDER_APPS, apps_folder, LEN(apps_folder)));
+    check("Utilities holds Clock, Calendar, Calculator, Notes, Files, Recorder and Camera, in that order",
+          folder_is(HOME_FOLDER_UTILITIES, utilities_folder, LEN(utilities_folder)));
+    check("Games holds Fleet, Radar, Timber, Solitaire, Blackjack and 2048, in that order",
+          folder_is(HOME_FOLDER_GAMES, games_folder, LEN(games_folder)));
     check("NONE and an unknown folder hold nothing",
           home_folder_order(registry, NREG, HOME_FOLDER_NONE, order) == 0 &&
               home_folder_order(registry, NREG, HOME_FOLDER_COUNT, order) == 0);
+
+    /* Every app in one place: its own cell or one folder - System in none. */
+    memset(seen, 0, sizeof(seen));
+    for (k = 0; k < n; k++) {
+        if (items[k].folder == HOME_FOLDER_NONE) {
+            seen[items[k].index]++;
+        }
+    }
+    for (f = HOME_FOLDER_NONE + 1; f < HOME_FOLDER_COUNT; f++) {
+        int m = home_folder_order(registry, NREG, (enum home_folder)f, order);
+
+        for (k = 0; k < m; k++) {
+            seen[order[k]]++;
+        }
+    }
+    ok = 1;
+    for (k = 0; k < NREG; k++) {
+        int want = strcmp(registry[k], "system") == 0 ? 0 : 1;
+
+        if (seen[k] != want) {
+            printf("     %s is in %d place(s)\n", registry[k], seen[k]);
+            ok = 0;
+        }
+    }
+    check("no app is in two places, and every app but System is in exactly one", ok);
 
     {
         /* An empty folder: no game installed. */
         static const char *const ids[] = { "notes", "radio", "settings" };
 
         n = home_root_order(ids, 3, items, count);
-        check("with no game installed there is no Games cell", n == 3 && folder_place(items, n, HOME_FOLDER_GAMES) < 0 &&
-                                                                    count[HOME_GROUP_PLAY] == 0);
+        check("with no game installed there is no Games cell", n == 3 && folder_place(items, n, HOME_FOLDER_GAMES) < 0);
         check("and the folder is empty", home_folder_order(ids, 3, HOME_FOLDER_GAMES, order) == 0);
+        check("Settings, Apps and Utilities are the places",
+              items_hold(items, n, ids, "settings") && folder_place(items, n, HOME_FOLDER_APPS) == 1 &&
+                  folder_place(items, n, HOME_FOLDER_UTILITIES) == 2);
     }
     {
         /* One game: still a folder, so the game is always found in the same place. */
@@ -468,6 +545,19 @@ static void test_folders(void)
                                                               !items_hold(items, n, ids, "timber"));
         check("which holds it", home_folder_order(ids, 3, HOME_FOLDER_GAMES, order) == 1 &&
                                     strcmp(ids[order[0]], "timber") == 0);
+    }
+    {
+        /* A shell built without Zabbix (-DPOCKETOS_WITH_ZABBIX=OFF): Apps is
+         * one app shorter and still in its place. */
+        static const char *const ids[] = { "radio", "system", "settings", "photo", "vision", "terminal" };
+
+        n = home_root_order(ids, 6, items, count);
+        check("without Zabbix the Apps cell is still after the essentials",
+              n == 3 && folder_place(items, n, HOME_FOLDER_APPS) == 2 && items_hold(items, n, ids, "terminal") &&
+                  items_hold(items, n, ids, "settings") && !items_hold(items, n, ids, "system"));
+        check("and holds what is installed, in its order",
+              home_folder_order(ids, 6, HOME_FOLDER_APPS, order) == 3 && strcmp(ids[order[0]], "photo") == 0 &&
+                  strcmp(ids[order[1]], "radio") == 0 && strcmp(ids[order[2]], "vision") == 0);
     }
     {
         /* An app that is not installed (a shell built without it) is not in
@@ -612,10 +702,33 @@ static void test_favorites(void)
           home_favorite_resolve(registry, NREG, "ghost") < 0 && home_favorite_resolve(registry, NREG, NULL) < 0 &&
               home_favorite_resolve(registry, NREG, "") < 0 && home_favorite_resolve(registry, 0, "rift") < 0);
 
+    /* Favorites stored before DS §47 are app ids, not places, so they still
+     * resolve when their app has moved into a folder - and System, which has
+     * no place on the launcher any more, still resolves and opens. */
+    {
+        static const char *const moved[] = { "photo", "vision", "deskbuddy", "wave", "mp3", "video", "zabbix",
+                                              "radio", "camera", "clock", "notes", "fleet", "2048", "system",
+                                              "terminal", "settings" };
+        int ok = 1;
+
+        for (k = 0; k < LEN(moved); k++) {
+            int i = home_favorite_resolve(registry, NREG, moved[k]);
+
+            if (i < 0 || strcmp(registry[i], moved[k]) != 0 || home_favorite_check(registry, NREG, none, 1, moved[k]) != 0) {
+                printf("     a favorite holding %s no longer resolves\n", moved[k]);
+                ok = 0;
+            }
+        }
+        check("a favorite holding an app now in a folder, or System, still resolves to it", ok);
+    }
+
     /* Assign, change, duplicates. */
     check("an empty slot may be given any installed app", home_favorite_check(registry, NREG, none, 0, "rift") == 0 &&
                                                               home_favorite_check(registry, NREG, none, 2, "2048") == 0);
-    check("and an app inside a folder", home_favorite_check(registry, NREG, none, 1, "calculator") == 0);
+    check("and an app inside any folder",
+          home_favorite_check(registry, NREG, none, 1, "calculator") == 0 &&
+              home_favorite_check(registry, NREG, none, 1, "photo") == 0 &&
+              home_favorite_check(registry, NREG, none, 1, "solitaire") == 0);
     check("a slot may be given what it holds, or changed",
           home_favorite_check(registry, NREG, some, 0, "rift") == 0 &&
               home_favorite_check(registry, NREG, some, 0, "vision") == 0);
@@ -627,27 +740,45 @@ static void test_favorites(void)
               home_favorite_check(registry, NREG, none, 3, "rift") == -1 &&
               home_favorite_check(registry, NREG, none, -1, "rift") == -1 &&
               home_favorite_check(registry, NREG, none, 0, NULL) == -1);
+    check("nor a folder", home_favorite_check(registry, NREG, none, 0, "apps") == -1 &&
+                              home_favorite_check(registry, NREG, none, 0, "games") == -1);
 
     /* The picker's list. */
     n = home_favorite_candidates(registry, NREG, none, 0, order);
-    same = n == 24;
+    same = n == NPLACED;
     for (k = 0; same && k < n; k++) {
         same = strcmp(registry[order[k]], launcher_order[k]) == 0;
     }
-    check("with nothing set the picker offers every app, once, in launcher order, folders' apps too", same);
+    check("with nothing set the picker offers every app but System, once, in launcher order, folders' apps too",
+          same);
     n = home_favorite_candidates(registry, NREG, some, 1, order);
-    same = n == 22;
+    same = n == NPLACED - 2;
     for (k = 0; k < n; k++) {
-        same = same && strcmp(registry[order[k]], "rift") != 0 && strcmp(registry[order[k]], "calculator") != 0;
+        same = same && strcmp(registry[order[k]], "rift") != 0 && strcmp(registry[order[k]], "calculator") != 0 &&
+               strcmp(registry[order[k]], "system") != 0;
     }
     check("it leaves out what the other slots hold", same);
     n = home_favorite_candidates(registry, NREG, some, 0, order);
-    same = n == 23;
+    same = n == NPLACED - 1;
     for (k = 0; k < n; k++) {
         same = same && strcmp(registry[order[k]], "calculator") != 0;
     }
     check("but offers the slot's own app (choosing it changes nothing)",
-          same && home_favorite_resolve(registry, NREG, "rift") >= 0 && strcmp(registry[order[0]], "rift") == 0);
+          same && home_favorite_resolve(registry, NREG, "rift") >= 0 && strcmp(registry[order[1]], "rift") == 0);
+    {
+        /* A slot holding System, kept from before DS §47: the picker for it
+         * offers everything else, and the slot keeps System until changed. */
+        const char *with_system[HOME_FAVORITES] = { "system", NULL, NULL };
+
+        n = home_favorite_candidates(registry, NREG, with_system, 1, order);
+        same = n == NPLACED;
+        for (k = 0; k < n; k++) {
+            same = same && strcmp(registry[order[k]], "system") != 0;
+        }
+        check("a slot holding System is not disturbed: the picker never offers System", same);
+        check("and another slot may not take it while one holds it",
+              home_favorite_check(registry, NREG, with_system, 1, "system") == -2);
+    }
     {
         /* Not launchable (NULL), twice in the registry, unknown to the table,
          * not an id. */
@@ -686,20 +817,21 @@ static void test_favorites(void)
 
             input(&in, land, count, 0);
             home_layout_groups(&in, count);
-            snprintf(what, sizeof(what), "%s: the favorites' panel and the five groups", name);
+            snprintf(what, sizeof(what), "%s: the favorites' panel and the groups", name);
             check(what, in.ngroups == HOME_GROUP_COUNT + 1 && in.count[0] == HOME_FAVORITES &&
-                            in.count[1] == count[HOME_GROUP_CONNECT] && in.count[HOME_GROUP_COUNT] == count[HOME_GROUP_MORE]);
+                            in.count[1] == count[HOME_GROUP_ESSENTIALS] && in.count[2] == count[HOME_GROUP_FOLDERS] &&
+                            in.count[HOME_GROUP_COUNT] == count[HOME_GROUP_MORE]);
             snprintf(what, sizeof(what), "%s: lays out", name);
             check(what, home_layout_compute(&in, &l) == 0);
-            check_layout(name, &in, &l, true);
-            snprintf(what, sizeof(what), "%s: 16 cells, three favorites and thirteen places", name);
-            check(what, l.napps == HOME_FAVORITES + n && n == 13);
+            check_layout(name, &in, &l, false);
+            snprintf(what, sizeof(what), "%s: 10 cells, three favorites and seven places", name);
+            check(what, l.napps == HOME_FAVORITES + n && n == 7);
             for (k = 0; k < HOME_FAVORITES; k++) {
                 first = first && inside(&l.cell[k], &l.panel[0]) && l.cell[k].y == l.cell[0].y &&
                         (k == 0 || l.cell[k].x > l.cell[k - 1].x);
             }
-            /* Every other cell is on a later row, or - landscape, where
-             * CONNECTIONS and WORKSPACE share the first line - further right. */
+            /* Every other cell is on a later row, or - landscape, where all
+             * three panels share one line - further right. */
             for (k = HOME_FAVORITES; k < l.napps; k++) {
                 first = first && (l.cell[k].y > l.cell[0].y ||
                                   (land && l.cell[k].y == l.cell[0].y && l.cell[k].x > l.cell[HOME_FAVORITES - 1].x));
@@ -714,8 +846,11 @@ static void test_favorites(void)
             check(what, land ? l.panel[0].x < l.panel[1].x : l.panel[0].x == l.panel[1].x);
             snprintf(what, sizeof(what), "%s: a favorite is a cell like any other", name);
             check(what, l.cell[0].w == l.cell[HOME_FAVORITES].w && l.cell[0].h == HOME_CELL_H);
+            snprintf(what, sizeof(what), "%s: one row per panel, nothing wrapped", name);
+            check(what, !l.wrapped && (land ? l.cell[l.napps - 1].y == l.cell[0].y
+                                            : l.cell[HOME_FAVORITES + 3].y == l.cell[HOME_FAVORITES].y));
         }
-        check("landscape with favorites still scrolls 70 px to its footer", l.content_h - in.height == 70);
+        check("landscape with favorites does not scroll", l.content_h == in.height);
     }
 }
 

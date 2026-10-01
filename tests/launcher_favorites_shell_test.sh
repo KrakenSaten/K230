@@ -80,8 +80,8 @@ check "three favorite slots, all empty" \
     "$([ "$(field '["launcher"]["favorite_cells"]')" = 3 ] && [ "$(favs)" = "- - -" ] &&
        [ "$(field '["launcher"]["favorites_set"]')" = 0 ] && echo 1 || echo 0)"
 check "the first row of the launcher, above every app" "$(first_row)"
-check "fifteen cells after them, two of them folders" \
-    "$([ "$(field '["launcher"]["home_cells"]')" = 15 ] && [ "$(field '["launcher"]["folder_cells"]')" = 2 ] &&
+check "seven cells after them, three of them folders (DS §47)" \
+    "$([ "$(field '["launcher"]["home_cells"]')" = 7 ] && [ "$(field '["launcher"]["folder_cells"]')" = 3 ] &&
        echo 1 || echo 0)"
 check "no picker up, nothing in settings.conf" \
     "$([ "$(field '["launcher"]["picker"]')" = null ] && ! conf | grep -q launcher_favorite && echo 1 || echo 0)"
@@ -122,9 +122,9 @@ check "the picker for slot 3 opens at home" \
     "$(printf '%s' "$reply" | grep -q '"picker":[[:space:]]*3' && [ "$(field '["launcher"]["picker"]')" = 3 ] &&
        [ "$(field '["launcher"]["folder"]')" = null ] && echo 1 || echo 0)"
 picked=$(cells)
-check "offering the twenty-four apps slots 1 and 2 do not hold" \
-    "$([ "$(echo "$picked" | wc -w)" = 24 ] &&
-       case " $picked " in *" vision "*|*" zabbix "*) false ;; *) true ;; esac &&
+check "offering the twenty-three apps slots 1 and 2 do not hold, never System (Settings' page, DS §47)" \
+    "$([ "$(echo "$picked" | wc -w)" = 23 ] &&
+       case " $picked " in *" vision "*|*" zabbix "*|*" system "*) false ;; *) true ;; esac &&
        case " $picked " in *" calculator "*) true ;; *) false ;; esac && echo 1 || echo 0)"
 shot "$OUT/p-picker.png"
 call shell.folder id=
@@ -156,7 +156,7 @@ start_shell --rotation landscape --no-lock
 check "landscape: the same three" "$([ "$(favs)" = "vision zabbix clock" ] && echo 1 || echo 0)"
 check "landscape: the first three places, at the head of the first line" "$(first_row)"
 check "landscape: the rest as in portrait" \
-    "$([ "$(field '["launcher"]["home_cells"]')" = 15 ] && [ "$(field '["launcher"]["folder_cells"]')" = 2 ] &&
+    "$([ "$(field '["launcher"]["home_cells"]')" = 7 ] && [ "$(field '["launcher"]["folder_cells"]')" = 3 ] &&
        echo 1 || echo 0)"
 shot "$OUT/l-set.png"
 check "no fault logged" "$(no_fault && echo 1 || echo 0)"

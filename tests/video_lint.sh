@@ -91,8 +91,8 @@ check "the package depends on the image's FFmpeg" \
 check "the shell knows Video, after Vision" \
     "$(grep -q '&app_vision,' ui/shell/shell.c && grep -qE '^ *&app_video, &app_solitaire' ui/shell/shell.c &&
        [ "$(grep -c '&app_video\b' ui/shell/shell.c)" = 1 ] && echo 1 || echo 0)"
-check "the launcher places it in DEVICE" \
-    "$(grep -q '{ "video", HOME_GROUP_DEVICE, HOME_HUE_TOOLS[ ,}]' ui/shell/home_layout.c && echo 1 || echo 0)"
+check "the launcher places it in the Apps folder (DS §47)" \
+    "$(grep -q '{ "video", HOME_GROUP_FOLDERS, HOME_HUE_TOOLS, HOME_FOLDER_APPS }' ui/shell/home_layout.c && echo 1 || echo 0)"
 check "pos-video is installed" \
     "$(grep -q 'install -D -m 0755 tools/video/pos-video' Makefile && echo 1 || echo 0)"
 check "the deploy script carries pos-video" \
