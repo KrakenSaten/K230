@@ -1,9 +1,48 @@
 # Text size and readability - hardware gate (DS §46)
 
-**Not run.** Everything on branch `feat/text-size-accessibility` was checked
-in the simulator only (DS §46.8); no unit was touched while it was built.
-This sheet is what only the panel and a finger can answer. State the unit
-and the build at the top when it is run (see the other gate sheets).
+**Unit:** B. **Build:** `doors-shell` 89297c0 and `pos-camera` 89297c0,
+hot-deployed 2026-10-01 over userspace 749f4f1 (no flash). **Unit A:** not
+touched.
+
+**Result: manual visual PASS** (owner, 2026-10-01). The branch was built and
+checked in the simulator first (DS §46.8); this sheet is what only the panel
+and a finger can answer.
+
+## Result
+
+The owner reviewed the steps below by eye on unit B and found no visual
+blocker:
+
+- Small looks correct (T1).
+- Medium looks good and is easier to read (T2, T3).
+- Large looks good (T4-T15).
+- The icon and readability changes look good (T1, T16).
+- Fleet's compact exception (its type held at Small below the header,
+  DS §46.4) is accepted (T12).
+- Photo works on unit B (T8).
+
+The result is the owner's visual verdict over the sheet as a whole; the
+steps were not recorded one by one, and no further hardware tests were run
+after it (T17-T20's switch, memory, reboot and audit measurements were not
+logged as separate results).
+
+Known limitations carried by the PASS (DS §46.8): at Large in landscape
+Photo and the Camera gallery may end a line in "...", RIFT shows shorter
+node names and its graph caption, and the launcher shortens DeskBuddy;
+key/value rows end their value in "..." sooner at Medium and Large; in
+landscape at Large the Settings Text size row sits at the column fold and is
+reached with the column's existing scroll.
+
+## Unit B as left
+
+| Item | State |
+| --- | --- |
+| `/usr/bin/doors-shell` | 89297c0 (md5 `6f5115e4...`); was 0cc4b66 (md5 `4cef0289...`) |
+| `/usr/bin/pos-camera` | 89297c0 (md5 `ebd4179f...`), for Photo; was 749f4f1 (md5 `3dd5db34...`) |
+| Portal icons | the branch's 29 (`icon-*.bin` with `MANIFEST.txt`, new `icon-photo.bin`); were 28 |
+| Everything else | userspace 749f4f1 as found; per-unit config preserved |
+| `text_size` | the owner's own choice, left as the owner set it |
+| Rollback | `/root/rollback-textsize/RESTORE.sh` puts back `doors-shell` 0cc4b66, `pos-camera` 749f4f1, the 28 icons and `settings.conf` as found, with MD5s |
 
 ## Deploy
 
