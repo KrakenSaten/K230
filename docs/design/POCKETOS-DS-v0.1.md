@@ -81,7 +81,9 @@ button labels). Both are bitmap in LVGL; enable exactly the sizes below in
 | mini | Mono | 10 | 400 | theme-row miniature labels only (§10.5) |
 
 Outdoor mode raises `type_default` 16 → 20 (§6); layouts MUST tolerate the
-20 px body without truncating row labels. Timestamps and status-bar text stay
+20 px body without truncating row labels. This table is the **Small** text size; Medium
+and Large (§46) give each role its own larger size, and the table above is
+what Small keeps exactly. Timestamps and status-bar text stay
 at 14 (caption) in all modes. Body line-height 1.5, titles 1.2.
 
 ## 4. Semantic colour tokens [NORMATIVE]
@@ -98,7 +100,7 @@ base tokens; the engine derives the rest.
 | `line` | panel borders, status-bar cell rules, slider tracks, idle spectrum bars, storage track | theme |
 | `text_primary` | titles, values, body | theme |
 | `text_secondary` | labels, captions, hints, timestamps, unit suffixes | theme |
-| `text_muted` | non-essential hints ("TAP TO PREVIEW"), NA chip | mix(text_secondary, bg, 0.35) |
+| `text_muted` | non-essential hints ("TAP TO PREVIEW"), NA chip | mix(text_secondary, bg, 0.20) (0.35 until §46.7) |
 | `text_on_accent` | text/glyphs on any filled accent, RX, TX or `text_primary` slab | = bg |
 | `accent_primary` | active/selected: segment, meter on-blocks, active spectrum bars, primary button fill, back chevron, link-style header action, progress dots | theme |
 | `accent_secondary` | second series in charts, secondary chips; not used on the five reference screens except as a swatch | theme |
@@ -144,7 +146,7 @@ screen. Order below is display order. Derived tokens per theme are in
 | status_error | #e5534b | #e8564f | #e76f51 | #f0625f | #f24d4d |
 | radio_rx | #8ccfff | #63c1ad | #9fd4e8 | #6ee7d8 | #9ec5ff |
 | radio_tx | #ff9f5a | #d6b26a | #f4a261 | #b7a6ff | #ff7a1a |
-| text_muted (derived) | #5e6670 | #6c6555 | #5f6c60 | #636376 | #666666 |
+| text_muted (derived, §46.7) | #727c87 | #827a67 | #748274 | #78788e | #7c7c7c |
 | disabled_fg (derived) | #4a5159 | #565044 | #4b554c | #4e4e5f | #505050 |
 
 Rationale [REFERENCE]: ice — cool neutral, ice-blue active, ember TX.
@@ -461,8 +463,10 @@ test time from `themes.json`:
   text_secondary 11.6, all others ≥ 6.8; the sixth theme, `doors`, is §32).
 - Night: intentionally below AA for dark adaptation; `text_primary` ≥ 5,
   `text_secondary` ≥ 3, status/radio ≥ 2.8 (lowest: `status_error` 2.8–3.1,
-  always paired with an outline and an "ERROR" label). `text_muted` ≈ 1.9
-  is permitted only for non-essential hints.
+  always paired with an outline and an "ERROR" label). `text_muted` ≈ 2.4
+  (≈ 1.9 before §46.7) is permitted only for non-essential hints.
+- `text_muted` ≥ 4.5 on `bg` in Normal in every theme (§46.7): it is read,
+  even when what it says is not essential.
 - Status differentiation: ok is green, warn is amber/orange/yellow, error is
   red, RX and TX are two distinct hues neither of which is green or red, in
   every theme and mode.
@@ -4068,3 +4072,191 @@ code. Standalone, the gallery has no CAMERA button: on the grid the left
 place of the button row is empty, on the empty library and the failure
 screen there is no left button at all, and the shell's back slab is the only
 way out. Nothing else differs.
+
+## 46. Amendment AD — Text size and readability [PROPOSED]
+
+**PROPOSED 2026-10-01** on branch `feat/text-size-accessibility`. A
+system-wide text size, and three readability changes that hold at every
+size. §3's table stays exactly as it is - it is now the Small column - and
+§4's `text_muted` derivation changes (§46.7); nothing is renumbered. Gate:
+docs/hardware/TEXT_SIZE_GATE.md (not run).
+
+### 46.1 The setting
+
+**Text size: Small, Medium, Large.** Small is the default and is the Design
+System as it was (§46.3). Medium makes reading text about a fifth larger,
+Large about two fifths. It is one choice for the whole device: no app has a
+size of its own, and there is no slider.
+
+- Settings → Appearance, under Display mode: three buttons, SMALL, MEDIUM,
+  LARGE, each label drawn in the button type of its own size, so the
+  difference is seen before it is chosen; the current one is accented, as
+  the display mode is (`pos_style_text_size_sample`).
+- Stored as `text_size=small|medium|large` in settings.conf, through the
+  shell (`pocketos_shell_set_text_size`, `shell.text_size`), so it survives
+  a restart and a reboot. A stored value that is not one of the three
+  starts the shell at Small, says so once in the log, and is left in the
+  file until somebody chooses (the §8 rule, for type).
+- It applies **live** (§46.6).
+
+### 46.2 Semantic type roles
+
+Every text style draws in one of these roles (`enum pos_type_role`,
+`ui/pocketui/pos_theme.[ch]`); which role a style is, is pos_styles.c's
+business, and no app names a size. Same faces as §3, no new family: the
+Medium and Large sizes are the same IBM Plex Sans, Sans SemiBold, Mono and
+Mono Medium, generated by `tools/design/gen_fonts.sh` like the others.
+
+| Role | Face | Small | Medium | Large | Styles |
+| --- | --- | --- | --- | --- | --- |
+| body | Sans | 16 | 19 | 22 | `SCREEN`, `TEXT_PRIMARY/SECONDARY/MUTED`, `FIELD`, `FIELD_PLACEHOLDER` |
+| label | Sans | 20 | 24 | 28 | `ROW_TITLE` |
+| title | Sans SemiBold | 24 | 28 | 32 | `TITLE` |
+| meta | Mono | 14 | 17 | 19 | `CAPTION`, `CHIP`; the status cluster's clock |
+| button | Mono Medium | 16 | 19 | 22 | `BUTTON_LABEL` |
+| value | Mono | 20 | 24 | 28 | `VALUE` |
+| display-40, -48 | Sans SemiBold | 40, 48 | = | = | `HERO_40`, `HERO_48` |
+| env-label | Sans | 20 | 22 | 24 | `ENV_TEXT`, `ENV_TEXT_SECONDARY` (launcher names, Controls, the date) |
+| env-small | Sans | 16 | 19 | 22 | `ENV_TEXT_SMALL` (narrow launcher cells, Controls' values) |
+| env-caption | Sans | 16 | 19 | 22 | `ENV_CAPTION` (group names) |
+| env-title | Sans SemiBold | 40 | = | = | `ENV_TITLE` |
+
+- Outdoor's 20 px body (§6) is a floor, not a size: body is never under 20
+  in Outdoor, so Small Outdoor is exactly what Outdoor always was, and Large
+  Outdoor is Large's 22.
+- What does not scale: display numerals and the environment's clock digits
+  (already large; larger would only push what is under them off the
+  screen), the symbol glyphs (they are icons, §11), letter spacing, the
+  36 px chip (its caption is re-centred in it at every size), and the
+  layout constants of §7 - row heights and touch targets are what they
+  were, and grow only where a row's text needs it (§46.5).
+- No weight is added. Hierarchy is size and the semibold the titles
+  already had; body, values and captions keep their weights.
+- The launcher's names (env-label) grow less than reading text: a portrait
+  cell is a fixed 124 px.
+
+### 46.3 Small is the compatibility mode
+
+At Small every shared style draws in exactly the font it did before this
+amendment (checked font by font in `tests/text_size_ui_test.c`), and every
+screen is laid out exactly as on master: the launcher, its two folders, the
+favorites' picker, Controls and every app's first screen, in both
+orientations - 62 screens - are pixel-identical to master's (b1691e3) with
+everything of this amendment but §46.7 (the games at their fixed debug
+seeds, Video and MP3 on one state path, as they differ run to run on master
+too). Where Small differs from master it is §46.7's, and those are the same
+at every size.
+
+### 46.4 What keeps its size
+
+The setting is for the system's own words. Some text is not the system's
+to resize, or is better at one size:
+
+- **Terminal**: the grid is the caption face at Small at every text size
+  (`apps/terminal/terminal_app.c`). Its columns and rows are what the shell
+  inside was told, and a grid that changed with an unrelated setting would
+  reflow a running program. Terminal's own chrome follows. A terminal font
+  size is a separate setting for later.
+- **Text on a live picture**: Vision's detection tags stay at Small
+  (`pos_style_fixed_size`), so a larger size never covers what the picture
+  shows. Camera and Photo draw no text over the picture.
+- **A web page and a file's contents**: Browser's page text (and its
+  picture notes) and Files' text viewer keep the size Small draws them at.
+  A page is the page's; Browser has no page zoom yet, and when it has one it
+  will be the app's own. Their bars, lists, buttons and messages follow.
+- **Notes** is not in that list: the note's text is the user's own writing
+  in a text field, the body role, and follows the size like every field -
+  otherwise Notes would be the one place where what is typed does not get
+  larger.
+- **Launcher names** are one line; a name wider than its cell ends in "…"
+  (the launcher's rule before this amendment). In landscape at Large
+  "DeskBuddy" is the one that does.
+
+`pos_style_fixed_size(role)` is the one way to say "this keeps Small's
+size": a font-only style added over the role.
+
+### 46.5 Layout at the larger sizes
+
+In order: let it grow, use the scrolling there is, wrap, make the row
+taller, take away spacing that is not needed, and shorten with "…" only
+where the screen already did. Never shrink the text back down. What the
+sizes found, and the shared fixes (`ui/pocketui/pocketui.h`):
+
+- A label in LVGL's dots mode with an automatic height does not shorten: it
+  wraps, and a second line runs out of its row. `pocketui_label_fit(label,
+  lines)` caps it at N lines of its own font, so it shortens on the last
+  one; where the text fits it is as tall as it was. Used for RIFT's command
+  line, System's values, Zabbix's list heading, Clock's alarm rows, Notes'
+  list and Settings' Wi-Fi list (each as many whole lines as its row
+  leaves); the launcher's names are one line. Files' status takes two
+  lines: a message is a name and then the reason, and the reason must not
+  be the part cut.
+- A value given a fixed share of a row next to a key that grows ran into
+  it. `pocketui_label_rest_of_row()` gives the value what the key leaves;
+  System's network and service rows instead let the value take a line of
+  its own when it does not fit, and the row grows from its 64 px.
+- Widths measured once at Small are measured from the font now
+  (`pocketui_text_width`, `pocketui_role_line_height`): MP3's volume, Fleet's
+  chat button, RIFT's and Fleet's panel captions (their height and their
+  rise onto the rule), Zabbix's six-severities row (it goes three by two
+  when "DISASTER" does not fit), Fleet's difficulty bar (two by two when
+  "COMMANDER" does not fit a quarter of the column), Timber's tower view
+  (it gives up what the rows above and below it took).
+
+### 46.6 Live change, and the audit
+
+A size change refills the shared styles at once - every label redraws in
+its new font. On the shell's next pass, outside the event that asked, the
+shell lays out again what it placed from font metrics: the status cluster's
+reserve, the app header's room, the launcher (the page it showed, the
+folder it had open) and Controls. An app open when the size changes over
+IPC is opened again at the new size. Settings, where the size is chosen on
+the glass, is not reopened: its panels are flex and lay themselves out
+again, and what it shows is exactly what a Settings opened at that size
+shows (`tests/text_size_shell_test.sh`, pixel for pixel).
+
+`pocketui_audit()` measures a screen as LVGL laid it out and reports text
+cut off, text shortened with "…", controls clipped where nothing scrolls to
+them, things drawn over each other, and things with no size. The shell
+runs it on request (`shell.audit`; `--audit` in the simulator).
+`tests/text_size_layout_shell_test.sh` runs it on every registered app in
+both orientations at every size, and holds Medium and Large to having
+nothing clipped, overlapping or sizeless that Small did not have.
+
+### 46.7 Readability at every size
+
+Independent of the text size, and so visible at Small:
+
+- **`text_muted`** is `mix(text_secondary, bg, 0.20)`, was 0.35. Muted text
+  is still read - "This display has no brightness control", an empty list's
+  note - and at 0.35 it was 3.4-3.9 : 1 on `bg`, under the 4.5 : 1 body text
+  needs. Now 4.6-5.4 : 1 in Normal in every theme, still well below
+  `text_secondary` (6.7-7.8), so it still reads as quieter. Night stays
+  dim (about 2.4, was 1.9). `themes.json` and §5's table carry the values;
+  `tests/theme_test.c` holds the floor.
+- **Portal icons**: the app glyph is drawn 1.35 times as heavy (about 2 px
+  at 96 px, was 1.5) and the app's colour stripe down the portal's left at
+  60 % (was 40 %), so each portal reads as its app at a glance on the dark
+  glass. Same package geometry, glyphs and colours; regenerated by
+  `tools/design/gen_doors_ui.py` (`GLYPH_WEIGHT`, `ACCENT_OPA`).
+- **The launcher's press and focus mark** is 3 px (was 2) and its underline
+  2 px (was 1).
+
+There is no high-contrast mode. One could be added the way the display
+modes are: a rule in `pos_theme_resolve()` over the same tokens, selected
+beside the theme and the text size, with nothing in an app to change.
+
+### 46.8 Evidence and limits
+
+What only the panel can show is listed in docs/hardware/TEXT_SIZE_GATE.md.
+Known limits at Medium and Large:
+
+- Fleet, landscape: the MULTIPLAYER button is below the OPPONENT column's
+  fold and is reached by scrolling that column (§28's column scroll).
+- Photo, landscape at Large: a photo's 28-character file name loses its
+  extension to "…" in the 344 px side column; the line under it has the
+  date and time.
+- RIFT keeps its density (§37): its own fitting shortens names and
+  details with "…" sooner at the larger sizes.
+- The key/value rows of `pocketui_kv_row` shorten a value with "…" past 60 %
+  of the row, as at Small; a long value (Radio's error text) is cut sooner.
