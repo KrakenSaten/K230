@@ -4,6 +4,9 @@
 # ENABLE_SX1262=1 compiles the real radio backend (C++, RadioLib, libgpiod v2).
 # RADIOLIB_DIR points at RadioLib's src/ (vendor/RadioLib/src by default, or
 # third_party/RadioLib/src when synced into the Buildroot package).
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 PREFIX  ?= /usr
 DESTDIR ?=
 CC      ?= cc
@@ -2271,6 +2274,7 @@ test: all $(TEST_BINS)
 	bash tests/phase3_migration_test.sh
 	bash tests/package_sync_test.sh
 	bash tests/notices_test.sh
+	bash tests/license_audit_test.sh
 	bash tests/boot_splash_test.sh
 	bash tests/brand_mark_test.sh
 	bash tests/app_icons_test.sh
@@ -2354,6 +2358,11 @@ endif
 	install -D -m 0644 THIRD_PARTY_NOTICES.txt $(DESTDIR)$(PREFIX)/share/doors/THIRD_PARTY_NOTICES.txt
 	install -d -m 0755 $(DESTDIR)$(PREFIX)/share/pocketos
 	ln -sfn ../doors/THIRD_PARTY_NOTICES.txt $(DESTDIR)$(PREFIX)/share/pocketos/THIRD_PARTY_NOTICES.txt
+# Doors' own licence, Apache-2.0 (ADR-013), and its NOTICE file go beside them:
+# Apache-2.0 section 4 asks a redistribution to carry both. Only under the new
+# directory: nothing ever read them under share/pocketos.
+	install -D -m 0644 LICENSE $(DESTDIR)$(PREFIX)/share/doors/LICENSE
+	install -D -m 0644 NOTICE $(DESTDIR)$(PREFIX)/share/doors/NOTICE
 # The DOORS shell's runtime art (ui/shell/art.h): backgrounds and launcher
 # icons, read by the shell from files so only the screen in front is in
 # memory. The design sources stay in docs/ and never reach the image.

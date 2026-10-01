@@ -368,7 +368,12 @@ DEVICE VERIFIED unless it says so.
 
 - Xinyuan-LilyGO/T-Display-K230 (BSP scripts and launcher) has no licence.
   Treated as documentation only. Ask LILYGO.
-- PocketOS first-party licence undecided.
+- ~~PocketOS first-party licence undecided.~~ Doors is Apache-2.0 since
+  2026-10-01 (ADR-013). Publishing the source or an image is still blocked
+  by material that is not Doors' own or whose ownership is not stated -
+  owner-supplied artwork, design-tool exports, two LILYGO copies, and for
+  the image the model, vendor packages, launcher and firmware
+  (docs/licensing/APACHE_2_READINESS.md §14).
 
 ## Build environment
 
@@ -895,10 +900,9 @@ Wave and ggwave:
   LVGL now ship in the image as /usr/share/doors/THIRD_PARTY_NOTICES.txt,
   linked from the old /usr/share/pocketos path (docs/LICENSING.md,
   "Third-party notices"). **Still blocking distribution, not merging:**
-  Doors' own licence (PocketOS through v0.0.9) is undecided and external
-  redistribution is not authorised; the toolchain's C/C++ runtime licences
-  and some vendor packages are not in legal-info (LICENSING.md open items 1,
-  5, 8).
+  the toolchain's C/C++ runtime licences and some vendor packages are not in
+  legal-info (LICENSING.md open items 5, 8). Doors' own licence (item 1) is
+  decided: Apache-2.0 (ADR-013).
 - Messages over 64 bytes from other ggwave programs are heard but not shown
   (reported as "could not decode").
 - The launcher grid now has six rows and is full: a twelfth app needs a

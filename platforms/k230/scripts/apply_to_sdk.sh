@@ -33,6 +33,9 @@
 # archived, because it is an ignored checkout rather than part of our history,
 # so its uncommitted changes WOULD be compiled in - which is why a dirty
 # RadioLib is refused outright below rather than merely reported.
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -406,7 +409,7 @@ echo "[5/5] Doors package (pocketos)"
 # notices do not name. Checked from the snapshot, like everything packaged.
 NOTICES_DIR="$(mktemp -d)"
 git -C "${REPO_DIR}" archive --format=tar "${SNAPSHOT_COMMIT}" -- \
-    THIRD_PARTY_NOTICES.txt third_party/notices tools/legal docs/legal/fonts docs/legal/third-party \
+    LICENSE NOTICE THIRD_PARTY_NOTICES.txt third_party/notices tools/legal docs/legal/fonts docs/legal/third-party \
     platforms/k230/vendor_radiolib_commit.txt platforms/k230/vendor_ggwave_commit.txt \
     protocols/meshcore/vendor_rift_commit.txt protocols/meshcore/vendor_crypto_commit.txt \
     platforms/k230/package/pocketos/pocketos.hash \

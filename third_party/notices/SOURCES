@@ -23,6 +23,7 @@ ooura-fft | FFT routines (Takuya Ooura), bundled in ggwave | as in ggwave v0.4.3
 meshcore | MeshCore (Scott Powell / rippleradios.com), from the RIFT tree | commit 3ca7e3f003bd270587b1d92e33ce999542dcb5b4 | MIT | compiled into /usr/sbin/meshcored | meshcore:license.txt
 ed25519 | Ed25519 (Orson Peters), bundled in MeshCore | as in MeshCore 3ca7e3f | Zlib | compiled into /usr/sbin/meshcored | meshcore:lib/ed25519/license.txt
 arduinolibs-crypto | Arduino Cryptography Library (Rhys Weatherley, Southern Storm Software) | commit 37a76b8f7516568e1c575b6dc9268da1ccaac6b6 | MIT | compiled into /usr/sbin/meshcored | arduinolibs:libraries/LICENSE.txt
+canaan-k230-sdk | K230 Linux SDK code (Canaan Bright Sight): libmmz, and the AI2D preprocessing set-up adapted from the SDK's yolo and ai_demo samples | SDK commit 22d02c6b6783a57a3aca7eb3160e313e772cb710 | BSD-2-Clause | compiled into /usr/bin/pos-vision | repo:docs/legal/third-party/canaan-k230-linux-sdk-LICENSE.txt
 ibm-plex | IBM Plex Sans and IBM Plex Mono | converted to bitmap fonts named pos_font_* | OFL-1.1, Reserved Font Name "Plex" | compiled into /usr/bin/doors-shell | repo:docs/legal/fonts/IBMPlex-OFL-1.1.txt
 lvgl | LVGL | commit 59dc7e436ae97a25e32656739ea6a943f9f11b6a (liblvgl 9.5.0) | MIT | /usr/lib/liblvgl*.so (vendor SDK package), loaded by /usr/bin/doors-shell | lvgl:LICENCE.txt
 lv-port-linux | lv_port_linux | commit b492d738b00cb7733c2ea442e2a2d5070f74d663 | MIT | /usr/lib/liblvgl_linux.so (vendor LVGL package) | lv_port_linux:LICENSE

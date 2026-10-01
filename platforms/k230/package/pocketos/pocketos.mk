@@ -18,15 +18,16 @@
 POCKETOS_VERSION = $(shell cat $(realpath $(TOPDIR))/package/pocketos/src/VERSION 2>/dev/null || echo unknown)
 POCKETOS_SITE = $(realpath $(TOPDIR))/package/pocketos/src
 POCKETOS_SITE_METHOD = local
-# No licence is chosen yet for Doors' own code (PocketOS through v0.0.9): none
-# is granted and the package is not redistributable (docs/LICENSING.md). What
-# it contains from others is listed, and reproduced in full, in
-# THIRD_PARTY_NOTICES.txt, which legal-info collects (checked against
-# pocketos.hash) and the image installs as
-# /usr/share/doors/THIRD_PARTY_NOTICES.txt, with a link at the old
-# /usr/share/pocketos path.
-POCKETOS_LICENSE = Not yet decided (Doors; no licence granted), MIT (RadioLib, ggwave, Reed-Solomon, MeshCore, Arduino Cryptography Library), Zlib (Ed25519, in MeshCore), Ooura FFT licence (ggwave FFT), OFL-1.1 (IBM Plex font bitmaps), AGPL-3.0 (YOLOv8n model data, Ultralytics; internal images only)
-POCKETOS_LICENSE_FILES = THIRD_PARTY_NOTICES.txt
+# Doors' own code (PocketOS through v0.0.9) is Apache-2.0 (ADR-013): LICENSE
+# and NOTICE. What the package contains from others is listed, and reproduced
+# in full, in THIRD_PARTY_NOTICES.txt. legal-info collects all three (checked
+# against pocketos.hash) and the image installs them in /usr/share/doors, with
+# a link to the notices at the old /usr/share/pocketos path.
+# REDISTRIBUTE stays NO, so legal-info does not export this package's source,
+# until docs/licensing/APACHE_2_READINESS.md clears the source repository for
+# publication: the owner has chosen the licence, not yet published anything.
+POCKETOS_LICENSE = Apache-2.0 (Doors), MIT (RadioLib, ggwave, Reed-Solomon, MeshCore, Arduino Cryptography Library), Zlib (Ed25519, in MeshCore), BSD-2-Clause (Canaan K230 SDK code in pos-vision), Ooura FFT licence (ggwave FFT), OFL-1.1 (IBM Plex font bitmaps), AGPL-3.0 (YOLOv8n model data, Ultralytics; internal images only)
+POCKETOS_LICENSE_FILES = LICENSE NOTICE THIRD_PARTY_NOTICES.txt
 POCKETOS_REDISTRIBUTE = NO
 POCKETOS_INSTALL_TARGET = YES
 # host-python3: the shell's CMake converts the PocketTimber sprites to LVGL
