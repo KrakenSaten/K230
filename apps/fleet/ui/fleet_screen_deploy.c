@@ -284,7 +284,7 @@ void fleet_screen_deploy_relayout(struct fleet_app *app, int wide, int cell_w, i
     lv_obj_set_height(ui->message, wide ? LV_PCT(100) : LV_SIZE_CONTENT);
 }
 
-void fleet_screen_deploy_refresh(struct fleet_app *app)
+static void deploy_refresh(struct fleet_app *app)
 {
     struct fleet_deploy_ui *ui;
     const struct fleet_board *board;
@@ -343,4 +343,12 @@ void fleet_screen_deploy_enter(struct fleet_app *app)
     ui->vertical = 0;
     message(ui, "");
     fleet_grid_bind(ui->grid, player_board(app));
+}
+
+/* Every refresh ends with the type held at Small (fleet_app_hold_type): a
+ * refresh may put back a role that carries a font. */
+void fleet_screen_deploy_refresh(struct fleet_app *app)
+{
+    deploy_refresh(app);
+    fleet_app_hold_type(app);
 }

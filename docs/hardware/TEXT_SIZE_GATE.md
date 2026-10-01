@@ -33,7 +33,7 @@ it from SSH; `doors call shell shell.audit` measures the screen on show
 | T9 | Vision at Large: DETECT and COUNT | Overlay labels stay compact (they do not follow the size); boxes and trails not covered; the strip and controls on screen |
 | T10 | DeskBuddy at Large | Companion text readable; the panel fits |
 | T11 | RIFT at Large: ACTIVITY, NODES, COMMS with a thread open | Panel captions sit on their rules and are whole; rows readable; the composer reachable with the keyboard up |
-| T12 | Fleet at Large, landscape: COMMAND (the difficulty bar goes two by two), a match with YOUR TURN / WAITING, chat | The board keeps its size; the status words whole |
+| T12 | Fleet at Medium and Large, both orientations: Command, Deploy, the Lobby, a multiplayer match (YOUR TURN / WAITING / CONNECTING in the header), chat, the Result | Fleet looks exactly as at Small below the header (its type is held, DS §46.4); MULTIPLAYER and every other control in view with nothing to scroll; the header's status and the chat history larger and readable |
 | T13 | Browser, Files, Notes at Large | The app's own chrome follows the size; page text, file contents and note text are the app's (§46.4) |
 | T14 | Terminal at Large | The chrome and keys row follow the size; the terminal grid keeps its columns and rows (§46.4, not bound) |
 | T15 | Touch at Large: the launcher cells, Settings' rows and buttons, the keyboard | No harder to hit than at Small; nothing needs a second tap |

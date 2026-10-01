@@ -272,6 +272,67 @@ static void fill_fixed_styles(void)
     }
 }
 
+/* ---- holding a screen at Small (DS §46.4) ------------------------------ *
+ *
+ * For an app whose screens are laid out to fit exactly - a game board and
+ * its controls on one screen - and which keeps the type Small draws at every
+ * text size. The role an object draws in is recovered from the font it
+ * resolves to now (every role at the current size has a font of its own
+ * size, and the roles that share one share their Small size too), and a
+ * font-only style holding that role's Small font is put in front of it.
+ */
+static lv_style_t held_styles[POS_TYPE_COUNT];
+
+static void fill_held_styles(void)
+{
+    int r;
+
+    for (r = 0; r < POS_TYPE_COUNT; r++) {
+        reset(&held_styles[r]);
+        lv_style_set_text_font(&held_styles[r], pos_type_font(pos_type_resolve(
+                                                     (enum pos_type_role)r, POS_TEXT_SIZE_SMALL,
+                                                     pos_theme_current_mode())));
+    }
+}
+
+static void hold_part(lv_obj_t *obj, lv_part_t part)
+{
+    const lv_font_t *f = lv_obj_get_style_text_font(obj, part);
+    int r;
+
+    for (r = 0; r < POS_TYPE_COUNT; r++) {
+        if (pos_type_font(pos_type_current((enum pos_type_role)r)) == f) {
+            break;
+        }
+    }
+    if (r == POS_TYPE_COUNT) {
+        return; /* not a type role's font: a symbol font, a clock */
+    }
+    if (pos_type_font(pos_type_resolve((enum pos_type_role)r, POS_TEXT_SIZE_SMALL, pos_theme_current_mode())) ==
+        f) {
+        return; /* already Small's: at Small, nothing to do at all */
+    }
+    lv_obj_add_style(obj, &held_styles[r], part);
+}
+
+void pos_style_hold_small(lv_obj_t *root, lv_obj_t *except)
+{
+    uint32_t i;
+    uint32_t n;
+
+    if (!root || root == except) {
+        return;
+    }
+    hold_part(root, LV_PART_MAIN);
+    if (lv_obj_check_type(root, &lv_textarea_class)) {
+        hold_part(root, LV_PART_TEXTAREA_PLACEHOLDER);
+    }
+    n = lv_obj_get_child_count(root);
+    for (i = 0; i < n; i++) {
+        pos_style_hold_small(lv_obj_get_child(root, (int32_t)i), except);
+    }
+}
+
 /* ---- the text-size samples (DS §46) ------------------------------------- */
 
 static lv_style_t size_samples[POS_TEXT_SIZE_COUNT];
@@ -735,6 +796,7 @@ static void fill_styles(void)
     fill_identity_styles();
     fill_size_samples();
     fill_fixed_styles();
+    fill_held_styles();
 }
 
 static void on_theme_changed(void *user)
@@ -773,6 +835,9 @@ void pos_styles_init(void)
     }
     for (i = 0; i < POS_STYLE_COUNT; i++) {
         lv_style_init(&fixed_styles[i]);
+    }
+    for (i = 0; i < POS_TYPE_COUNT; i++) {
+        lv_style_init(&held_styles[i]);
     }
     theme_event = lv_event_register_id();
 #if defined(POCKETUI_TEST_HOOKS) && POCKETUI_TEST_HOOKS

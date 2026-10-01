@@ -204,6 +204,9 @@ lv_obj_t *fleet_screen_lobby_create(struct fleet_app *app, lv_obj_t *parent);
 void fleet_screen_lobby_refresh(struct fleet_app *app);
 void fleet_screen_lobby_relayout(struct fleet_app *app, int wide);
 lv_obj_t *fleet_screen_chat_create(struct fleet_app *app, lv_obj_t *parent);
+/* The chat's history list: the one part of Fleet whose text follows the text
+ * size (fleet_app_hold_type). */
+lv_obj_t *fleet_screen_chat_lines(struct fleet_app *app);
 void fleet_screen_chat_refresh(struct fleet_app *app);
 void fleet_screen_chat_relayout(struct fleet_app *app, int wide);
 /* The chat is being opened: the caret goes to the field and the list to its
@@ -250,5 +253,15 @@ int fleet_mp_debug(struct fleet_app *app, const char *want);
 /* The board Deploy works on: the AI match's, or the one for a multiplayer
  * match. */
 struct fleet_board *fleet_app_deploy_board(struct fleet_app *app);
+
+/* Fleet keeps the type Small draws at every text size (DS §46.4): its
+ * screens are laid out to fit one screen - the board, its panels and the
+ * controls that play it - and larger text pushed MULTIPLAYER below the fold.
+ * Everything in the app is held at Small but the chat's history, a list
+ * that scrolls by nature, which follows the size. The shell's header, with
+ * the turn and the opponent's state in it, is the shell's and follows the
+ * size too. Called when the app is built, on every screen change and after
+ * every refresh; at Small it changes nothing. */
+void fleet_app_hold_type(struct fleet_app *app);
 
 #endif

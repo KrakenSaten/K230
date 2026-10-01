@@ -261,7 +261,7 @@ void fleet_screen_command_relayout(struct fleet_app *app, int wide)
     }
 }
 
-void fleet_screen_command_refresh(struct fleet_app *app)
+static void command_refresh(struct fleet_app *app)
 {
     struct fleet_command_ui *ui;
 
@@ -313,4 +313,12 @@ void fleet_screen_command_refresh(struct fleet_app *app)
             lv_obj_remove_flag(ui->multi_open, LV_OBJ_FLAG_HIDDEN);
         }
     }
+}
+
+/* Every refresh ends with the type held at Small (fleet_app_hold_type): a
+ * refresh may put back a role that carries a font. */
+void fleet_screen_command_refresh(struct fleet_app *app)
+{
+    command_refresh(app);
+    fleet_app_hold_type(app);
 }

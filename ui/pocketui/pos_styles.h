@@ -153,6 +153,13 @@ lv_style_t *pos_style_text_size_sample(enum pos_text_size size);
  * a live picture, a web page's text, a file's contents. A role with no font
  * gives an empty style. */
 lv_style_t *pos_style_fixed_size(enum pos_style_role role);
+/* Hold everything under root (root too) at the type Small draws it in,
+ * whatever the text size: for screens laid out to fit exactly, which must
+ * not grow past their one screen (DS §46.4: Fleet). except and what is under
+ * it follow the text size as usual (NULL: nothing does). Cheap and safe to
+ * repeat - call it again after anything re-adds a role style, or adds
+ * objects; at Small it changes nothing. */
+void pos_style_hold_small(lv_obj_t *root, lv_obj_t *except);
 
 /* Initialise all styles from the current theme and hook the theme engine so
  * later selections refresh them. Call once after lv_init(). */

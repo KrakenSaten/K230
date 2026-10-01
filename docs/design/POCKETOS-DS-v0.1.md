@@ -4168,12 +4168,28 @@ to resize, or is better at one size:
   in a text field, the body role, and follows the size like every field -
   otherwise Notes would be the one place where what is typed does not get
   larger.
+- **Fleet** (§28) keeps Small's type on all its screens - Command,
+  Deploy, the Lobby, the battle, the Result, the chat - so each stays the
+  one screen it is at Small: the board keeps its size and every control
+  that plays the game, MULTIPLAYER included, is in view with nothing to
+  scroll. At Medium the left column across the page ran MULTIPLAYER below
+  its fold, so the game's own type does not follow the setting (a game
+  board and its controls are laid out to fit exactly). What follows the
+  size: the app header - the shell's, with the turn, WAITING, CONNECTING
+  and the like in it - and the chat's history, a list that scrolls by
+  nature. `fleet_app_hold_type()` holds the rest after each screen is
+  built and after every refresh (`pos_style_hold_small()`, which recovers
+  each object's role from its font and puts that role's Small font in
+  front of it). At Medium and Large Fleet's body is pixel-identical to
+  Small's; `tests/fleet_app_test.c` runs at all three sizes and checks each
+  screen's controls are in view with nothing scrolled.
 - **Launcher names** are one line; a name wider than its cell ends in "…"
   (the launcher's rule before this amendment). In landscape at Large
   "DeskBuddy" is the one that does.
 
-`pos_style_fixed_size(role)` is the one way to say "this keeps Small's
-size": a font-only style added over the role.
+`pos_style_fixed_size(role)` is the way to say "this keeps Small's size"
+for one object: a font-only style added over the role;
+`pos_style_hold_small()` says it for a whole screen.
 
 ### 46.5 Layout at the larger sizes
 
@@ -4196,12 +4212,12 @@ sizes found, and the shared fixes (`ui/pocketui/pocketui.h`):
   System's network and service rows instead let the value take a line of
   its own when it does not fit, and the row grows from its 64 px.
 - Widths measured once at Small are measured from the font now
-  (`pocketui_text_width`, `pocketui_role_line_height`): MP3's volume, Fleet's
-  chat button, RIFT's and Fleet's panel captions (their height and their
-  rise onto the rule), Zabbix's six-severities row (it goes three by two
-  when "DISASTER" does not fit), Fleet's difficulty bar (two by two when
-  "COMMANDER" does not fit a quarter of the column), Timber's tower view
-  (it gives up what the rows above and below it took).
+  (`pocketui_text_width`, `pocketui_role_line_height`): MP3's volume,
+  RIFT's panel captions (their height and their rise onto the rule),
+  Zabbix's six-severities row (it goes three by two when "DISASTER" does
+  not fit), Timber's tower view (it gives up what the rows above and below
+  it took). Fleet's chat button and difficulty bar measure the same way,
+  though with Fleet's type held at Small (§46.4) they keep Small's shape.
 
 ### 46.6 Live change, and the audit
 
@@ -4251,8 +4267,6 @@ beside the theme and the text size, with nothing in an app to change.
 What only the panel can show is listed in docs/hardware/TEXT_SIZE_GATE.md.
 Known limits at Medium and Large:
 
-- Fleet, landscape: the MULTIPLAYER button is below the OPPONENT column's
-  fold and is reached by scrolling that column (§28's column scroll).
 - Photo and Camera's gallery, landscape at Large: the three lines about a
   photo are one line each in the 344 px side column, so a 28-character
   file name loses its extension to "…", and an undated photo's "Date

@@ -352,7 +352,11 @@ static void on_chat(lv_event_t *e)
 
 static void lines_high(lv_obj_t *label, int lines)
 {
-    const lv_font_t *font = lv_obj_get_style_text_font(label, LV_PART_MAIN);
+    const lv_font_t *font;
+
+    /* Measured in the font it will draw in: Fleet's, held at Small. */
+    pos_style_hold_small(label, NULL);
+    font = lv_obj_get_style_text_font(label, LV_PART_MAIN);
 
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
     lv_obj_set_width(label, LV_PCT(100));
@@ -672,7 +676,7 @@ static void refresh_mp(struct fleet_battle_ui *ui, struct fleet_match *m)
     fleet_grid_refresh(ui->own);
 }
 
-void fleet_screen_battle_refresh(struct fleet_app *app)
+static void battle_refresh(struct fleet_app *app)
 {
     struct fleet_battle_ui *ui;
     struct fleet_game *game;
@@ -789,4 +793,12 @@ void fleet_screen_battle_leave(struct fleet_app *app)
     /* Nothing animates on a screen nobody is looking at. */
     fleet_grid_set_motion(ui->target, 0);
     fleet_grid_set_motion(ui->own, 0);
+}
+
+/* Every refresh ends with the type held at Small (fleet_app_hold_type): a
+ * refresh may put back a role that carries a font. */
+void fleet_screen_battle_refresh(struct fleet_app *app)
+{
+    battle_refresh(app);
+    fleet_app_hold_type(app);
 }

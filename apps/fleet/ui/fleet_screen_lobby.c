@@ -315,7 +315,7 @@ static void refresh_players(struct fleet_lobby_ui *ui, int can_choose)
     }
 }
 
-void fleet_screen_lobby_refresh(struct fleet_app *app)
+static void lobby_refresh(struct fleet_app *app)
 {
     struct fleet_lobby_ui *ui = app ? app->lobby : NULL;
     struct fleet_session *s;
@@ -398,4 +398,12 @@ void fleet_screen_lobby_refresh(struct fleet_app *app)
         fleet_button_set_enabled(ui->act, ui->act_kind != ACT_INVITE ||
                                               (ui->selected >= 0 && ui->selected < ui->count));
     }
+}
+
+/* Every refresh ends with the type held at Small (fleet_app_hold_type): a
+ * refresh may put back a role that carries a font. */
+void fleet_screen_lobby_refresh(struct fleet_app *app)
+{
+    lobby_refresh(app);
+    fleet_app_hold_type(app);
 }

@@ -17,11 +17,10 @@
 
 /* How far a panel's caption rises above the panel's top border, so a layout
  * that puts a panel at the very top of a clipping box can leave room for it.
- * Half a caption line, which is what centres the caption on the border: 9 px
- * at Small (mono 14), more at the larger text sizes (DS §46), so it is
- * measured rather than a number. */
-int32_t fleet_caption_rise(void);
-#define FLEET_CAPTION_RISE fleet_caption_rise()
+ * Half a mono-14 line, which is what centres the caption on the border.
+ * Fleet's type is Small's at every text size (fleet_app_hold_type), so this
+ * is too. */
+#define FLEET_CAPTION_RISE 9
 
 /* Panel with the Design System caption set into its top border (DS §2).
  * title may be NULL for an untitled panel; it is shown as given, so pass

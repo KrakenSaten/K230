@@ -15,11 +15,6 @@
 #define SEGMENT_GAP 4
 #define PAIRED_H 56
 
-int32_t fleet_caption_rise(void)
-{
-    return LV_MAX(9, pocketui_role_line_height(POS_STYLE_CAPTION) / 2);
-}
-
 /* OVERFLOW_VISIBLE only lets children draw into the panel's extended draw
  * area, so the panel has to ask for one before the caption can sit on the
  * border rather than under it. */
@@ -175,6 +170,8 @@ void fleet_segments_fit(lv_obj_t *bar, int32_t bar_w)
     if (!count || bar_w <= 0) {
         return;
     }
+    /* Measured in the type it draws in: Fleet's, held at Small. */
+    pos_style_hold_small(bar, NULL);
     for (i = 0; i < count; i++) {
         lv_obj_t *seg = lv_obj_get_child(bar, (int32_t)i);
         lv_obj_t *label = lv_obj_get_child(seg, 0);

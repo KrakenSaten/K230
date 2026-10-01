@@ -169,6 +169,36 @@ static void test_styles(lv_obj_t *screen)
         }
     }
     check("the screen heard each change once", theme_events == 2);
+    {
+        /* pos_style_hold_small: a subtree keeps Small's type at Large, but
+         * for the part it is told to leave alone (DS §46.4, Fleet). */
+        lv_obj_t *box = lv_obj_create(screen);
+        lv_obj_t *held = lv_label_create(box);
+        lv_obj_t *kept = lv_obj_create(box);
+        lv_obj_t *free_label = lv_label_create(kept);
+        lv_obj_t *title = lv_label_create(box);
+
+        pos_style_add(held, POS_STYLE_TEXT_PRIMARY, 0);
+        pos_style_add(free_label, POS_STYLE_TEXT_PRIMARY, 0);
+        pos_style_add(title, POS_STYLE_TITLE, 0);
+        pos_style_hold_small(box, kept);
+        check("held at Large, body text draws in Small's 16 px face",
+              lv_obj_get_style_text_font(held, LV_PART_MAIN) == &pos_font_sans_16);
+        check("and a title in Small's 24 px semibold",
+              lv_obj_get_style_text_font(title, LV_PART_MAIN) == &pos_font_sans_24_semibold);
+        check("what it was told to leave follows the size",
+              lv_obj_get_style_text_font(free_label, LV_PART_MAIN) == font_of(POS_STYLE_TEXT_PRIMARY) &&
+                  font_of(POS_STYLE_TEXT_PRIMARY) != &pos_font_sans_16);
+        /* A role put back afterwards (a refresh) wins until the hold runs again. */
+        pos_style_add(held, POS_STYLE_TEXT_PRIMARY, 0);
+        check("a role put back on top draws large again",
+              lv_obj_get_style_text_font(held, LV_PART_MAIN) != &pos_font_sans_16);
+        pos_style_hold_small(box, kept);
+        pos_style_hold_small(box, kept);
+        check("and the hold, run again (twice), takes it back to Small",
+              lv_obj_get_style_text_font(held, LV_PART_MAIN) == &pos_font_sans_16);
+        lv_obj_delete(box);
+    }
     check("at Large, text over a live picture is still the Small caption face",
           lv_style_get_prop(pos_style_fixed_size(POS_STYLE_CAPTION), LV_STYLE_TEXT_FONT, &fixed) ==
                   LV_STYLE_RES_FOUND && fixed.ptr == &pos_font_mono_14);
