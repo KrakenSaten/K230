@@ -448,7 +448,98 @@ static cJSON *m_identity(struct mcd *d)
     /* Our own name, and still sanitised: it can come from state.v1, which is
      * a file on disk that this service does not get to assume is well formed. */
     add_remote_text(o, "name", name);
+    /* Where it came from, so a client can tell whether mesh.set_name can
+     * change it: "config" (the command line, which wins at every start),
+     * "stored" (state.v1), "derived" (from the key, on a first start). */
+    switch (mcd_runtime_name_source(d->rt)) {
+    case MCD_NAME_CONFIG:
+        cJSON_AddStringToObject(o, "name_source", "config");
+        break;
+    case MCD_NAME_STORED:
+        cJSON_AddStringToObject(o, "name_source", "stored");
+        break;
+    case MCD_NAME_DERIVED:
+    default:
+        cJSON_AddStringToObject(o, "name_source", "derived");
+        break;
+    }
+    cJSON_AddNumberToObject(o, "name_max", MCD_NODE_NAME_LEN - 1);
     /* The private half is never reported, by any method, at any verbosity. */
+    return o;
+}
+
+/* Rename this node. Nothing is transmitted: peers learn the name from this
+ * node's next advert. The answer is the identity afterwards, and whether
+ * state.v1 was written. */
+static cJSON *m_set_name(struct mcd *d, const cJSON *params, int *code, char *err,
+                         size_t errlen)
+{
+    const cJSON *jname = cJSON_GetObjectItemCaseSensitive(params, "name");
+    bool persisted = false;
+    cJSON *o;
+
+    if (!cJSON_IsString(jname) || jname->valuestring == NULL) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "name must be a string");
+        return NULL;
+    }
+    switch (mcd_runtime_set_name(d->rt, jname->valuestring, &persisted)) {
+    case MCD_RENAME_OK:
+        break;
+    case MCD_RENAME_PINNED:
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen,
+                 "the name is set by meshcored's configuration (--name, MESHCORED_NAME in "
+                 "/etc/default/meshcored) and would come back at the next start; change it "
+                 "there");
+        return NULL;
+    case MCD_RENAME_BAD_NAME:
+    default:
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen,
+                 "name must be 1 to %d bytes of UTF-8 on one line, with no control "
+                 "characters and not only spaces",
+                 MCD_NODE_NAME_LEN - 1);
+        return NULL;
+    }
+    o = m_identity(d);
+    cJSON_AddBoolToObject(o, "persisted", persisted);
+    return o;
+}
+
+/* The path hash size this node's floods ask for (mesh_runtime.h). */
+static cJSON *path_hash_json(struct mcd *d)
+{
+    cJSON *o = cJSON_CreateObject();
+    cJSON *allowed = cJSON_CreateArray();
+    int b;
+
+    cJSON_AddNumberToObject(o, "bytes", mcd_runtime_path_hash_bytes(d->rt));
+    for (b = MCD_PATH_HASH_MIN; b <= MCD_PATH_HASH_MAX; b++) {
+        cJSON_AddItemToArray(allowed, cJSON_CreateNumber(b));
+    }
+    cJSON_AddItemToObject(o, "allowed", allowed);
+    cJSON_AddNumberToObject(o, "default", 1);
+    return o;
+}
+
+static cJSON *m_set_path_hash(struct mcd *d, const cJSON *params, int *code, char *err,
+                              size_t errlen)
+{
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(params, "bytes");
+    bool persisted = false;
+    cJSON *o;
+
+    /* A whole number in range and nothing else: a string "2" read as 2, or
+     * 2.5 rounded, would change what goes on the air on a caller's guess. */
+    if (!cJSON_IsNumber(v) || v->valuedouble != (double)(int)v->valuedouble ||
+        !mcd_runtime_set_path_hash_bytes(d->rt, (int)v->valuedouble, &persisted)) {
+        *code = POCKETIPC_ERR_INVALID_PARAMS;
+        snprintf(err, errlen, "bytes must be %d, 2 or %d", MCD_PATH_HASH_MIN, MCD_PATH_HASH_MAX);
+        return NULL;
+    }
+    o = path_hash_json(d);
+    cJSON_AddBoolToObject(o, "persisted", persisted);
     return o;
 }
 
@@ -1130,6 +1221,12 @@ void mcd_handle_request(struct pocketipc_server *s, struct pocketipc_client *c, 
         result = m_status(d);
     } else if (strcmp(name, "mesh.identity") == 0) {
         result = m_identity(d);
+    } else if (strcmp(name, "mesh.set_name") == 0) {
+        result = m_set_name(d, params, &code, err, sizeof(err));
+    } else if (strcmp(name, "mesh.path_hash") == 0) {
+        result = path_hash_json(d);
+    } else if (strcmp(name, "mesh.set_path_hash") == 0) {
+        result = m_set_path_hash(d, params, &code, err, sizeof(err));
     } else if (strcmp(name, "mesh.nodes") == 0) {
         result = m_nodes(d);
     } else if (strcmp(name, "mesh.node") == 0) {

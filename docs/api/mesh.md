@@ -188,9 +188,67 @@ airtime.
 ### mesh.identity
 
 Result: `public_key` (64 hex characters), `node_hash` (the first byte, which
-is what MeshCore routes on), `name`.
+is what MeshCore routes on), `name`, `name_source` and `name_max`.
+
+`name_source` says where the name in use came from: `config` - the command
+line (`--name`, which `S65meshcored` passes from `MESHCORED_NAME` in
+`/etc/default/meshcored`) and which replaces the stored name at every start;
+`stored` - `state.v1`; `derived` - made from the key on a first start.
+`name_max` is the most bytes a name can be (31, MeshCore's `node_name`).
 
 The private key is not reported by this method or any other, at any verbosity.
+
+### mesh.set_name
+
+Params: `name` - 1 to `name_max` bytes of well-formed UTF-8, on one line (no
+newline or tab), no control characters, not only spaces. Result: the identity
+afterwards (as `mesh.identity`) and `persisted` (boolean).
+
+Renames this node: the name its adverts carry, and the `"<name>: "` it writes
+in front of every channel message - so each channel's `text_limit` changes
+with it, and a client re-reads `mesh.channels`. **Nothing is transmitted.**
+Peers learn the new name from this node's next advert (`mesh.advert`); until
+then they show the old one. `state.v1` is written before the answer is sent,
+and `persisted` says whether it was (false while the stored table is not being
+written, see "A node state this service will not read").
+
+Errors: 2 for a name that breaks the rule above, and 2 while `name_source` is
+`config`: a name given on the command line comes back at the next start, so
+a rename here would be undone silently. Change `MESHCORED_NAME` instead.
+
+### mesh.path_hash
+
+No params. Result: `bytes` (1, 2 or 3), `allowed` (`[1, 2, 3]`), `default`
+(1).
+
+How many bytes of each relay's public key a flood this node starts asks the
+repeaters to write into its path: MeshCore's **path hash size**. It is
+upstream's (`Packet::setPathHashSizeAndCount`, the size in the top two bits of
+the path length byte; the companion firmware sets it with
+`CMD_SET_PATH_HASH_MODE`, mode 0..2 = 1..3 bytes, mode 3 reserved), applied
+here exactly as the companion firmware applies it with no flood scope: every
+flood this node starts - a message or a returned path to a node, a channel
+message, an advert - goes with this size. A zero-hop advert carries no path
+and is not affected; nor is a direct message, which follows the learned route
+in whatever size it was learned.
+
+`1` is the default and what every MeshCore node has always sent and read.
+`2` and `3` tell more relays apart in a large mesh (a 1-byte hash names one
+relay in 256), and **need repeaters whose firmware reads the size bits**:
+one that does not drops such floods, so a message or advert may not get
+through a mesh where 1 byte would have. That is the operator's trade to make;
+this service does not decide it. Kept in `settings.v1` in the state directory
+(`path_hash_bytes=N`, one line, mode 0600); a file it cannot read leaves the
+default and is logged.
+
+### mesh.set_path_hash
+
+Params: `bytes` - a whole number, 1 to 3. Result: as `mesh.path_hash`, and
+`persisted` (whether `settings.v1` was written; the size applies either way).
+Nothing is transmitted; the next flood uses it.
+
+Errors: 2 for anything but 1, 2 or 3 - a string `"2"`, or `2.5`, is refused
+rather than read as a size somebody may not have meant.
 
 ### mesh.nodes
 
@@ -750,8 +808,11 @@ node.
 
 ## Not in v0
 
-Contact import and export, a message store that survives a restart, renaming
-the node over IPC, `/trace`, repeater behaviour (`allowPacketForward()` stays
+Contact import and export, a message store that survives a restart, `/trace`,
+flood scopes (regions: no transport codes are written, so every flood is
+unscoped, and there is no per-channel scope),
+node discovery (MeshCore's `CTL_TYPE_NODE_DISCOVER_REQ`, which transmits and
+whose replies this service does not match), repeater behaviour (`allowPacketForward()` stays
 false, so this node hears everything and forwards nothing), a periodic advert,
 group **data** frames (`PAYLOAD_TYPE_GRP_DATA` is parsed by the protocol core
 and this service does nothing with it - only `GRP_TXT` becomes a message), and

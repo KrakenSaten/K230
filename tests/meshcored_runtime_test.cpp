@@ -777,6 +777,204 @@ static void test_advert_hops(Node& a, Node& b, Air& air)
               node.advert_hops == 0 && node.advert_mono_ms > 0);
 }
 
+/* Start a node again on its own state directory, as the daemon would after a
+ * restart, with no --name: whatever is stored is what it comes back with. */
+static bool restartNode(Node& a, Air& air)
+{
+    char err[256] = "";
+    struct mcd_runtime_hooks hooks;
+    struct mcd_runtime_config cfg;
+
+    mcd_runtime_destroy(a.rt);
+    a.rt = NULL;
+    memset(&hooks, 0, sizeof(hooks));
+    hooks.tx_submit = hook_tx_submit;
+    hooks.on_node = hook_on_node;
+    hooks.on_message = hook_on_message;
+    hooks.on_channel = hook_on_channel;
+    hooks.on_frame = hook_on_frame;
+    hooks.on_app = hook_on_app;
+    hooks.user = &a;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.state_dir = a.dir;
+    cfg.node_name = NULL;
+    a.rt = mcd_runtime_create(&cfg, &hooks, err, sizeof(err));
+    if (!a.rt) {
+        fprintf(stderr, "restart: %s\n", err);
+        return false;
+    }
+    air.nodes[a.index] = &a;
+    /* As the daemon does once radiod has applied the profile again. */
+    mcd_runtime_set_radio_online(a.rt, true);
+    return true;
+}
+
+/* Take the next frame a node submits off the air, undelivered. */
+static int captureNext(Node& n, Air& air, uint8_t* frame)
+{
+    int len = 0;
+
+    for (int i = 0; i < 60 && air.qn == 0; i++) {
+        mcd_runtime_tick(n.rt);
+        usleep(10000);
+    }
+    if (air.qn > 0) {
+        len = air.queue[0].len;
+        memcpy(frame, air.queue[0].bytes, (size_t)len);
+        mcd_runtime_tx_done(n.rt, air.queue[0].submit_id, MCD_TX_OK);
+        air.qn = 0;
+    }
+    return len;
+}
+
+static void readFile(const char* dir, const char* name, char* out, size_t out_len)
+{
+    char path[512];
+    FILE* f;
+    size_t n = 0;
+
+    snprintf(path, sizeof(path), "%s/%s", dir, name);
+    out[0] = '\0';
+    f = fopen(path, "r");
+    if (f) {
+        n = fread(out, 1, out_len - 1, f);
+        fclose(f);
+    }
+    out[n] = '\0';
+}
+
+/* ---- renaming this node, and the path hash size -------------------------- */
+static void test_rename_and_path_hash(Node& a, Node& b, Air& air)
+{
+    uint8_t key[MCD_PUB_KEY_LEN];
+    uint8_t a_key[MCD_PUB_KEY_LEN];
+    char name[MCD_NODE_NAME_LEN];
+    char was[MCD_NODE_NAME_LEN];
+    char longest[MCD_NODE_NAME_LEN];
+    char too_long[MCD_NODE_NAME_LEN + 8];
+    char file[256];
+    uint8_t frame[MCD_MAX_FRAME];
+    struct mcd_node node;
+    bool persisted = false;
+    bool pin_persisted = true;
+    int len;
+
+    mcd_runtime_identity(a.rt, a_key, was, sizeof(was));
+    check("a node started without --name runs on its stored name",
+          mcd_runtime_name_source(a.rt) == MCD_NAME_STORED);
+    check("an empty name is refused", mcd_runtime_set_name(a.rt, "", &persisted) ==
+                                          MCD_RENAME_BAD_NAME);
+    check("so is a name on two lines",
+          mcd_runtime_set_name(a.rt, "two\nlines", &persisted) == MCD_RENAME_BAD_NAME);
+    check("and a tab", mcd_runtime_set_name(a.rt, "a\tb", &persisted) == MCD_RENAME_BAD_NAME);
+    check("and a name of spaces", mcd_runtime_set_name(a.rt, "   ", &persisted) ==
+                                      MCD_RENAME_BAD_NAME);
+    check("and bytes that are not UTF-8",
+          mcd_runtime_set_name(a.rt, "bad\xff", &persisted) == MCD_RENAME_BAD_NAME);
+    check("and an escape sequence",
+          mcd_runtime_set_name(a.rt, "x\x1b[31m", &persisted) == MCD_RENAME_BAD_NAME);
+    memset(too_long, 'n', MCD_NODE_NAME_LEN);
+    too_long[MCD_NODE_NAME_LEN] = '\0';
+    check("and a name longer than MeshCore keeps",
+          mcd_runtime_set_name(a.rt, too_long, &persisted) == MCD_RENAME_BAD_NAME);
+    mcd_runtime_identity(a.rt, key, name, sizeof(name));
+    check("a refused rename changes nothing", strcmp(name, was) == 0);
+    memset(longest, 'n', MCD_NODE_NAME_LEN - 1);
+    longest[MCD_NODE_NAME_LEN - 1] = '\0';
+    check("the longest name MeshCore keeps is taken",
+          mcd_runtime_set_name(a.rt, longest, &persisted) == MCD_RENAME_OK);
+
+    persisted = false;
+    check("a rename is taken", mcd_runtime_set_name(a.rt, "K230-\xC3\x98st", &persisted) ==
+                                   MCD_RENAME_OK);
+    check("and written to state.v1 straight away", persisted);
+    mcd_runtime_identity(a.rt, key, name, sizeof(name));
+    check("the identity carries the new name, and nothing else changed",
+          strcmp(name, "K230-\xC3\x98st") == 0 && memcmp(key, a_key, MCD_PUB_KEY_LEN) == 0);
+    check("the name is still the stored one", mcd_runtime_name_source(a.rt) == MCD_NAME_STORED);
+    check("the node restarts", restartNode(a, air));
+    if (!a.rt) {
+        return;
+    }
+    mcd_runtime_identity(a.rt, key, name, sizeof(name));
+    check("and comes back with the new name and the same key",
+          strcmp(name, "K230-\xC3\x98st") == 0 && memcmp(key, a_key, MCD_PUB_KEY_LEN) == 0);
+
+    /* A peer learns it at this node's next advert, and only then: nothing
+     * was transmitted by the rename itself. */
+    check("renaming put nothing on the air", air.qn == 0);
+    waitForANewSecond(air);
+    b.node_discovered = 0;
+    check("A adverts under its new name", mcd_runtime_send_advert(a.rt));
+    check("B hears it", pumpUntil(air, [&] { return b.node_discovered >= 1; }));
+    check("and B now calls A by it",
+          mcd_runtime_node_by_prefix(b.rt, a_key, 8, &node) == 1 &&
+              strcmp(node.name, "K230-\xC3\x98st") == 0);
+
+    /* B was started with --name: its name is the operator's. */
+    mcd_runtime_identity(b.rt, key, was, sizeof(was));
+    check("a name given on the command line says so",
+          mcd_runtime_name_source(b.rt) == MCD_NAME_CONFIG);
+    check("and is not renamed over IPC, since the next start would undo it",
+          mcd_runtime_set_name(b.rt, "Other", &pin_persisted) == MCD_RENAME_PINNED &&
+              !pin_persisted);
+    mcd_runtime_identity(b.rt, key, name, sizeof(name));
+    check("so B keeps its name", strcmp(name, was) == 0);
+
+    /* ---- the path hash size ---- */
+    check("the path hash size starts at 1 byte, as MeshCore always has",
+          mcd_runtime_path_hash_bytes(a.rt) == 1);
+    check("0 bytes is refused", !mcd_runtime_set_path_hash_bytes(a.rt, 0, &persisted));
+    check("so is 4: upstream reserves the mode", !mcd_runtime_set_path_hash_bytes(a.rt, 4, &persisted));
+    check("and nothing changed", mcd_runtime_path_hash_bytes(a.rt) == 1);
+    persisted = false;
+    check("2 bytes is taken", mcd_runtime_set_path_hash_bytes(a.rt, 2, &persisted) && persisted);
+    readFile(a.dir, "settings.v1", file, sizeof(file));
+    check("and written to settings.v1 as a line an operator can read",
+          strcmp(file, "path_hash_bytes=2\n") == 0);
+
+    air.deliver = false;
+    air.qn = 0;
+    waitForANewSecond(air);
+    check("A builds an advert", mcd_runtime_send_advert(a.rt));
+    len = captureNext(a, air, frame);
+    air.deliver = true;
+    check("the flood asks for 2-byte hashes: size bits 01, no hops yet",
+          len > 2 && (frame[1] >> 6) == 1 && (frame[1] & 63) == 0);
+    if (len > 2) {
+        struct mcd_rx_meta meta;
+
+        b.node_discovered = 0;
+        defaultMeta(meta);
+        mcd_runtime_deliver_rx(b.rt, frame, len, &meta);
+        check("and a meshcored hears it all the same",
+              pumpUntil(air, [&] { return b.node_discovered >= 1; }));
+    }
+    check("the size survives a restart", restartNode(a, air) && mcd_runtime_path_hash_bytes(a.rt) == 2);
+    if (!a.rt) {
+        return;
+    }
+    check("3 bytes is taken", mcd_runtime_set_path_hash_bytes(a.rt, 3, &persisted) && persisted);
+    air.deliver = false;
+    air.qn = 0;
+    waitForANewSecond(air);
+    check("A builds another advert", mcd_runtime_send_advert(a.rt));
+    len = captureNext(a, air, frame);
+    air.deliver = true;
+    check("which asks for 3-byte hashes", len > 2 && (frame[1] >> 6) == 2);
+    check("and back to 1 byte", mcd_runtime_set_path_hash_bytes(a.rt, 1, &persisted) && persisted);
+    air.deliver = false;
+    air.qn = 0;
+    waitForANewSecond(air);
+    check("A builds a third advert", mcd_runtime_send_advert(a.rt));
+    len = captureNext(a, air, frame);
+    air.deliver = true;
+    check("which is the plain 1-byte flood again", len > 2 && frame[1] == 0);
+    /* A zero-hop advert carries no path at all, whatever the size. */
+    check("the old name is put back for the tests after this",
+          mcd_runtime_set_name(a.rt, "K230-A", &persisted) == MCD_RENAME_OK);
+}
+
 /* ---- the PATH guard ----------------------------------------------------- */
 
 static int craftPath(uint8_t* frame, const mesh::LocalIdentity& from,
@@ -2761,6 +2959,7 @@ int main(void)
     test_advert_hops(a, b, air);
     test_path_guard(a, b, air, a_id, b_id);
     test_restart(a, air);
+    test_rename_and_path_hash(a, b, air);
     test_channels(a, b, air);
     test_channel_empty_slot_guard(a, air);
     test_channel_restart(a, air);

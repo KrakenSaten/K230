@@ -328,6 +328,35 @@ ok("a send with no radio is refused as busy", e["code"] == 5, e)
 e = m.error("mesh.advert")
 ok("and so is an advert", e["code"] == 5, e)
 
+# The node's own name and path hash size: neither needs the radio, and
+# neither transmits.
+ok("a first start's name is made from the key, and says so",
+   ident.get("name_source") == "derived" and ident.get("name_max") == 31, ident)
+ph = m.result("mesh.path_hash")
+ok("the path hash size starts at 1 byte, of 1, 2 or 3",
+   ph["bytes"] == 1 and ph["allowed"] == [1, 2, 3] and ph["default"] == 1, ph)
+e = m.error("mesh.set_path_hash", {"bytes": "2"})
+ok("a size given as a string is refused, not read", e["code"] == 2, e)
+e = m.error("mesh.set_path_hash", {"bytes": 4})
+ok("and 4 bytes: upstream reserves that mode", e["code"] == 2, e)
+r = m.result("mesh.set_path_hash", {"bytes": 2})
+ok("2 bytes is taken and written", r["bytes"] == 2 and r["persisted"] is True, r)
+with open(sys.argv[1] + "/state/meshcored/settings.v1") as f:
+    ok("as a line an operator can read", f.read() == "path_hash_bytes=2\n")
+ok("and mesh.path_hash agrees", m.result("mesh.path_hash")["bytes"] == 2)
+ok("back to 1", m.result("mesh.set_path_hash", {"bytes": 1})["bytes"] == 1)
+was = ident["name"]
+e = m.error("mesh.set_name", {"name": "two\nlines"})
+ok("a name on two lines is refused", e["code"] == 2, e)
+e = m.error("mesh.set_name", {"name": "   "})
+ok("and one of spaces", e["code"] == 2, e)
+r = m.result("mesh.set_name", {"name": "SVC-TEST"})
+ok("a rename answers with the identity, written",
+   r["name"] == "SVC-TEST" and r["persisted"] is True and r["name_source"] == "stored", r)
+ok("and mesh.identity agrees", m.result("mesh.identity")["name"] == "SVC-TEST")
+ok("the key is the same one", m.result("mesh.identity")["public_key"] == ident["public_key"])
+ok("the old name is put back", m.result("mesh.set_name", {"name": was})["name"] == was)
+
 ok("no client is required for any of this", True)
 done()
 PYEOF
