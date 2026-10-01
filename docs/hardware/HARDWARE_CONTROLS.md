@@ -68,7 +68,7 @@ Positions 4, 30, 31, 69 and 70 carry no name in either table. The driver
 now logs a press at any of them (`keyboard: press at unnamed matrix code N`,
 the first 20), so a control wired there would identify itself.
 
-## 3. Buttons that are not on the matrix, and the "top two-way button"
+## 3. Buttons that are not on the matrix; the top two-way control: UNIDENTIFIED / NOT IMPLEMENTED
 
 | Control | Source | Level | Doors today | Class |
 | --- | --- | --- | --- | --- |
@@ -80,28 +80,35 @@ the first 20), so a control wired there would identify itself.
 gpio-keys, no ADC keys, no XL9555 input used as a button, and the vendor
 launcher handles exactly two buttons outside the matrix - BOOT0 (screen
 on/off) and the power key (hold to power off) (DOCUMENTED, vendor
-`ui_hardware.c` BOOT0 poll, `main.c` power-key reader). Which physical
-control the owner means by "the top two-way button" could not be settled
-without a press, and none of the candidates could be pressed remotely.
+`ui_hardware.c` BOOT0 poll, `main.c` power-key reader).
 
-It was therefore **not bound** to anything. Back and Vision exist as full
-actions (`shell.action back|vision`, gated on the device, §9) and binding a
-source to them is one table entry once the source is known. The power key
-was deliberately left alone: it is the power control, and the task forbids
-remapping it on a guess.
+**The top two-way control is UNIDENTIFIED and NOT IMPLEMENTED.** The owner
+pressed each side of it on both units on 2026-10-01 and got **no response
+on either side** (owner, physical test). Its signal source is unknown: no
+source this work could find reports it. Nothing in Doors is bound to it -
+no Back, no Vision, nothing - and no binding is to be guessed. Identifying
+it is new hardware reverse engineering and belongs to its own piece of
+work, not to this branch.
 
-**The one press still needed** (owner, either unit, §10):
-`sh /tmp/gate-tools/hw_buttons_watch.sh 60 --boot0` prints every event from
-the power key, BOOT0 and the matrix (including unnamed positions) with its
-source while you press each side of the control once.
+What stays, and why it is not a claim about that control:
+
+- `HW_ACTION_BACK` and `HW_ACTION_VISION` remain as semantic actions. They
+  are reachable only through `shell.action back|vision` (the bench and the
+  tests) and are exercised there (§8, §9). **No physical control carries
+  either of them.**
+- `tests/hw/hw_buttons_watch.sh`, the bench watcher (power key, BOOT0 with
+  its pad restored, the keyboard matrix including unnamed positions), stays
+  as a tool. It is what the owner's test used.
+- The power key is not read and not remapped; the kernel's own 5 s
+  hold-to-power-off is untouched.
 
 ## 4. Indicator LEDs
 
 | LED | Where | Drive | Doors meaning | Class |
 | --- | --- | --- | --- | --- |
-| 1 | XL9555 at 0x20, port 0 pin P03 | active low | Caps Lock | DOCUMENTED (vendor: LED index 0, lit on Caps) |
-| 2 | P04 | active low | microphone in use | DOCUMENTED (vendor: index 1, its pinyin mode) |
-| 3 | P05 | active low | camera in use | DOCUMENTED (vendor: index 2, LED test page only) |
+| 1 | XL9555 at 0x20, port 0 pin P03 | active low | Caps Lock | pin DOCUMENTED (vendor index 0); behaviour VERIFIED (owner, 2026-10-01) |
+| 2 | P04 | active low | microphone in use | pin DOCUMENTED (vendor index 1); behaviour VERIFIED (owner, 2026-10-01) |
+| 3 | P05 | active low | camera in use | pin DOCUMENTED (vendor index 2); behaviour VERIFIED (owner, 2026-10-01) |
 
 The vendor's LED test page drives each index alone, so the three are
 independent (DOCUMENTED). The XL9555 is on the same two bit-banged lines as
@@ -109,8 +116,9 @@ the TCA8418; the vendor probed it as present on unit A (`XL:yes 0x20`,
 KEYBOARD_BRINGUP §3, VERIFIED 2026-09-11). Doors reaches it through the same
 bus object in the same process and thread - one bus owner still (design
 §0.2). Only bits 3-5 of OUTPUT0/CONFIG0 are ever written; everything else on
-the expander is read and written back as found. Which LED sits where on the
-base is from the vendor's index order and is for the owner to see (§10).
+the expander is read and written back as found. The register writes were
+VERIFIED by read-back on both units (§9); the LEDs themselves were checked
+by the owner on 2026-10-01: OK (§10).
 
 How each is derived:
 
@@ -146,8 +154,9 @@ sequence (`ui/shell/kbd_light.c`), the mux write in the one file that maps
 the iomux block (`kbd_bus_k230_light_mux()`, restored on a clean exit).
 Levels 0 (off) to 100 in steps of 10, bounded, never wrapping, kept as
 `keyboard_backlight` in settings.conf and applied at start; with nothing
-stored the light is left as booted (dark). Whether the keys actually light,
-and how bright each step looks, is for the owner's eyes (§10).
+stored the light is left as booted (dark). The PWM writes are VERIFIED on
+both units (§9); the light itself was checked by the owner on 2026-10-01:
+OK (§10).
 
 ## 6. The vendor launcher's own mapping (reference)
 
@@ -201,7 +210,9 @@ shell.action {action} ───────────────────�
   sub-page (`app.h` `back`: Settings' sheets, System's Diagnostics, Zabbix's
   host detail, RIFT's node detail and sections, DeskBuddy's panel); at home
   it closes Controls, a folder or the picker; on the launcher's own page it
-  does nothing. No second navigation stack.
+  does nothing. No second navigation stack. **No key of the base carries
+  Back** (nor Vision): the control they were meant for is unidentified
+  (§3), so both are reachable through `shell.action` only.
 - **The lock and alerts.** While the lock screen or an alert (DS §18.8) is
   up, actions that would open or leave an app are refused; volume,
   brightness, keyboard light and F7 still work.
@@ -254,7 +265,7 @@ driver's own key path - `shell.action`, the touch injector and `arecord`.
 
 | Part | Unit A | Unit B | What it covers |
 | --- | --- | --- | --- |
-| nav | 48 PASS, 0 FAIL | 48 PASS, 0 FAIL | every F-key, mic and LILYGO action; one instance (F8 x2 + LILYGO = one Terminal, mic in Wave = noop); Back in Wave, RIFT, Terminal, a folder, Controls, at the launcher (noop); Terminal -> Back -> Terminal; letters are no actions; the lock refuses F8 and Back; volume 90 -> 100 -> noop, 11 x F5 stops at 10; brightness steps and both bounds (10 floor, 100), restored; keyboard light up to 100 (duty 0), down to off (duty 20000), noop at off, io52 = PWM4 `0x1191`, pwm4 20000 ns inversed enabled, persisted; F7 PNG written, no ffmpeg left; Fn+F5 in the Terminal is no action and the volume does not move; bare F5 in the Terminal is the shortcut |
+| nav | 48 PASS, 0 FAIL | 48 PASS, 0 FAIL | every F-key, mic and LILYGO action (injected controller bytes); Back via `shell.action`; one instance (F8 x2 + LILYGO = one Terminal, mic in Wave = noop); Back in Wave, RIFT, Terminal, a folder, Controls, at the launcher (noop); Terminal -> Back -> Terminal; letters are no actions; the lock refuses F8 and Back; volume 90 -> 100 -> noop, 11 x F5 stops at 10; brightness steps and both bounds (10 floor, 100), restored; keyboard light up to 100 (duty 0), down to off (duty 20000), noop at off, io52 = PWM4 `0x1191`, pwm4 20000 ns inversed enabled, persisted; F7 PNG written, no ffmpeg left; Fn+F5 in the Terminal is no action and the volume does not move; bare F5 in the Terminal is the shortcut |
 | leds | 12 PASS | 12 PASS | the XL9555 answers; its registers read back: P03-P05 outputs, all dark at rest (`0xFF`); Caps on -> P03 low (`0xF7`), off -> dark; `arecord` running -> microphone in use and P04 alone low (`0xEF`); done -> dark; a capture killed with -9 -> released |
 | soak | 7 PASS (FDs 13 -> 13, RSS 15696 -> 15696 kB) | 7 PASS (FDs 12 -> 12, RSS +128 kB) | 20 cycles of Terminal/Home/Wave/Back/Settings/Home/light up/down: no FD growth, no leftover children, no restart, no crash |
 | camera | 13 PASS | 13 PASS | Camera -> P05 lit, Back -> released and dark; Vision via its action, again = noop, exactly one pos-vision; Vision -> Terminal releases the camera, no pos-vision left; Terminal -> Back; DeskBuddy lights the camera (its vision provider) and Back releases it, all LEDs dark |
@@ -298,38 +309,27 @@ screenshots left on the card; `settings.conf` differs from the pre-gate copy
 only by `keyboard_backlight=0` (and, on unit B, `display_brightness=100`,
 the level it booted at).
 
-## 10. What only the owner can do
+## 10. The owner's physical test, 2026-10-01
 
-Each of these needs a finger on a key or an eye on the base; the software
-path behind each is already verified above by injecting the key's exact
-controller byte.
+Run by the product owner with real presses and real eyes on the base, after
+the gate in §9 had driven the same paths by injected controller bytes.
 
-1. **The function row, mic and LILYGO keys, for real** (either unit, shell
-   unlocked): press F8 (Terminal opens), F8 again (nothing new), F1 (home),
-   the orange mic key (Wave), the LILYGO key (Terminal), F2 (Settings), F9
-   (RIFT), F5/F6 (the flash shows VOLUME n%), F10/F11 (BRIGHTNESS n%), F7
-   (SCREENSHOT SAVED). `grep ' action ' /var/lib/pocketos/log/shell.log`
-   lists what each press did.
-2. **Which LED is which**: press Caps (LED 1 should light), open Recorder
-   and press RECORD (LED 2), open Camera (LED 3). Say which physical LED lit
-   for each, and whether any other light moved - the mapping is the
-   vendor's index order, not a sighting.
-3. **The keyboard light**: F4 a few times from off - do the keys light, and
-   does each step look brighter? F3 back down to off. Is 10 % visible at
-   all? (The PWM writes are VERIFIED; the light itself is not.)
-4. **The "top two-way button"**: run
-   `sh /tmp/gate-tools/hw_buttons_watch.sh 60 --boot0` on a unit and press
-   each side of the control once. Every line names its source (power key,
-   BOOT0, or a keyboard matrix code). Say which line each side produced; the
-   binding to Back and Vision is then one table entry. Do **not** hold the
-   power key: the kernel powers off after 5 s.
-5. **Fn+F-keys in the Terminal**: in the Terminal, run `cat -v`, press
-   Fn+F5 - it should print `^[[15~`; F5 alone should change the volume.
+| Control | Result |
+| --- | --- |
+| F1-F11 | OK |
+| Orange microphone key (Wave) | OK |
+| LILYGO key (Terminal) | OK |
+| Keyboard light (F3/F4) | OK |
+| Indicator LEDs (Caps, microphone, camera) | OK |
+| Fn+F-key in the Terminal | OK |
+| Top two-way control | **NO RESPONSE on either side, on either unit** - UNIDENTIFIED / NOT IMPLEMENTED (§3) |
 
 ## 11. Known limitations
 
-- The top two-way button is unbound (§3).
-- The LED positions and the keyboard light's brightness are unobserved.
+- **The top two-way control is UNIDENTIFIED / NOT IMPLEMENTED** (§3): it
+  gave no response on either side, and nothing is bound to it. Back and
+  Vision have no physical key; they are reachable through `shell.action`
+  only.
 - The camera LED follows node holders; a future consumer that reaches the
   ISP only through `isp_media_server` (not by opening a node) would not
   light it. No such consumer exists in Doors.

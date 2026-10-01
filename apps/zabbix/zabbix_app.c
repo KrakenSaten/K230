@@ -1273,7 +1273,7 @@ static void zabbix_destroy(void *priv)
 
 LV_IMAGE_DECLARE(pos_app_icon_zabbix);
 
-/* The keyboard base's Back (app.h `back`): a host's detail closes as its
+/* The Back action (app.h `back`, hw_actions.h): a host's detail closes as its
  * "‹ BACK" button closes it; the tabs themselves are one level. */
 static int zabbix_back(void *priv)
 {

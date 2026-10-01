@@ -4022,7 +4022,10 @@ offers its own way out of a sub-page on screen (Settings' sheets, System's
 Diagnostics, Zabbix's host detail, RIFT's node detail and sections,
 DeskBuddy's panel) takes that way first. At the launcher it closes Controls,
 a folder or the favorites' picker, as Esc does (§39, §42), and on the
-launcher's own page it does nothing.
+launcher's own page it does nothing. No key of the base carries Back yet:
+the top control it was meant for is unidentified
+(docs/hardware/HARDWARE_CONTROLS.md §3), so Back is reachable through
+`shell.action` only.
 
 ### 44.3 The confirmation flash
 

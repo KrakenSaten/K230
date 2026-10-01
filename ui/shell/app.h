@@ -50,8 +50,8 @@ struct pocketos_app {
      * shell's header. Appended and zero, so an app that says nothing is
      * DEFAULT and the API version stays. */
     enum pocketos_header header;
-    /* One level back inside the app, for the keyboard base's Back
-     * (hw_actions.h): close the sub-page, panel or editor the app itself
+    /* One level back inside the app, for the Back action (hw_actions.h,
+     * shell.action back; no physical key carries it yet): close the sub-page, panel or editor the app itself
      * offers a way out of on screen, exactly as that on-screen control
      * does. Returns 1 when it went back, 0 when the app is at its own top
      * level - the shell then does what the header's back slab does and goes

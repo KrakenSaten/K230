@@ -745,7 +745,7 @@ static void rift_destroy(void *priv)
     free(a);
 }
 
-/* The keyboard base's Back (app.h `back`): the ways out RIFT already has on
+/* The Back action (app.h `back`, hw_actions.h): the ways out RIFT already has on
  * screen and on Esc - a node's detail back to the list ("‹ NODES"), any
  * section back to Activity - and at Activity the shell's own back slab. */
 static int rift_back(void *priv)

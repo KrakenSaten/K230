@@ -1256,7 +1256,7 @@ static void system_destroy(void *priv)
 
 LV_IMAGE_DECLARE(pos_app_icon_system);
 
-/* The keyboard base's Back (app.h `back`): Diagnostics closes as its own
+/* The Back action (app.h `back`, hw_actions.h): Diagnostics closes as its own
  * Back button closes it. */
 static int system_back(void *priv)
 {

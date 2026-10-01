@@ -1031,7 +1031,7 @@ unsigned deskbuddy_app_steps(void *priv)
  * the text fallback for a shell without the mask. */
 LV_IMAGE_DECLARE(pos_app_icon_deskbuddy);
 
-/* The keyboard base's Back (app.h `back`): the settings panel closes, as
+/* The Back action (app.h `back`, hw_actions.h): the settings panel closes, as
  * Esc closes it; the face is the top level. */
 static int deskbuddy_back(void *priv)
 {
