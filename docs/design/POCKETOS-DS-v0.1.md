@@ -4073,13 +4073,16 @@ place of the button row is empty, on the empty library and the failure
 screen there is no left button at all, and the shell's back slab is the only
 way out. Nothing else differs.
 
-## 46. Amendment AD — Text size and readability [PROPOSED]
+## 46. Amendment AD — Text size and readability [ACCEPTED]
 
-**PROPOSED 2026-10-01** on branch `feat/text-size-accessibility`. A
+**ACCEPTED 2026-10-01** by the owner, on the unit B manual visual gate of
+`doors-shell` and `pos-camera` 89297c0 (`docs/hardware/TEXT_SIZE_GATE.md`),
+together with Fleet's compact exception (§46.4) and the limits of §46.8.
+Steps T17-T20 were not logged as separate results.
+**Proposed 2026-10-01** on branch `feat/text-size-accessibility`. A
 system-wide text size, and three readability changes that hold at every
 size. §3's table stays exactly as it is - it is now the Small column - and
-§4's `text_muted` derivation changes (§46.7); nothing is renumbered. Gate:
-docs/hardware/TEXT_SIZE_GATE.md (not run).
+§4's `text_muted` derivation changes (§46.7); nothing is renumbered.
 
 ### 46.1 The setting
 
