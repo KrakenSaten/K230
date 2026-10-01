@@ -4283,7 +4283,7 @@ Known limits at Medium and Large:
 ## 47. Amendment AE — Launcher app groups, System in Settings [PROPOSED]
 
 **PROPOSED 2026-10-01** on branch `feat/launcher-app-groups`, validated on
-the host (§47.6), **not yet gated on a unit** (§47.7). It changes the
+the host (§47.6) and **gated on unit B on 2026-10-01: PASS** (§47.7). It changes the
 launcher's page of §31.3, §39 and §42 and where System is entered; it adds
 no role, token, colour, folder mechanism or navigation stack. Nothing in
 §1-§46 is renumbered.
@@ -4406,5 +4406,7 @@ the suites a finger.
 
 ### 47.7 Gate (before acceptance)
 
-On a unit, the build's identity first:
-docs/hardware/LAUNCHER_APP_GROUPS_GATE.md.
+Run on unit B on `11ab0d9`, 2026-10-01: all seventeen steps PASS
+(docs/hardware/LAUNCHER_APP_GROUPS_GATE.md), both orientations, Small,
+Medium and Large, by injected touch and the base's key path. Left for the
+owner's eyes: the Apps icon's look and the feel of the new page.
