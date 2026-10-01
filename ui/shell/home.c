@@ -439,6 +439,11 @@ static void cell_create(lv_obj_t *parent, struct cell *c, const struct home_rect
     }
     lv_label_set_long_mode(c->label, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_width(c->label, r->w);
+    /* One line, so a name wider than its cell ends in "..." on that line
+     * instead of wrapping below the cell, which clips it mid-word (the text
+     * sizes make that possible, DS §46.4). The line the font draws: at Small
+     * exactly the height the label had. */
+    lv_obj_set_height(c->label, lv_font_get_line_height(lv_obj_get_style_text_font(c->label, LV_PART_MAIN)));
     lv_obj_set_style_text_align(c->label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_pos(c->label, 0, HOME_ICON + (small ? 6 : 2));
 }

@@ -11,6 +11,7 @@
 
 #include "chrome.h"
 #include "lvgl.h"
+#include "pos_theme.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -129,6 +130,22 @@ int pocketos_shell_volume_set_muted(int muted);
  * pos_theme_current_mode(). Returns 0, or -1 when the request was not a
  * valid theme or mode and the DS §8 fallback was applied instead. */
 int pocketos_shell_set_appearance(const char *theme_id, const char *mode_name);
+
+/* ---- text size (DS §46) ------------------------------------------------- *
+ *
+ * The system-wide text size: Small (the default and the Design System's own
+ * scale), Medium or Large, kept in settings.conf as text_size. _set applies
+ * it live and stores it - the same path as shell.text_size over IPC, so the
+ * stored value and the shell.text_size event follow. Every shared style
+ * takes its new font at once; the shell then lays its own screens out again
+ * (the launcher, Controls, the app header) on its next pass, outside the
+ * caller's event. The calling app is not re-created: it lays itself out
+ * again if it needs to (Settings does). An app open when the size changes
+ * over IPC is re-created, as if it had been opened again. Returns 0, or -1
+ * when the size is not one of the three (nothing changes) or could not be
+ * stored (the running size changes, the next start will not have it). */
+enum pos_text_size pocketos_shell_text_size(void);
+int pocketos_shell_set_text_size(enum pos_text_size size);
 
 /* ---- display orientation (DS §21) --------------------------------------- *
  *

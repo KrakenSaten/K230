@@ -106,6 +106,31 @@ lv_obj_t *pocketui_button(lv_obj_t *parent, const char *text, lv_event_cb_t on_c
 /* Plain label with a role style (text, caption, value, status colours). */
 lv_obj_t *pocketui_label(lv_obj_t *parent, const char *text, enum pos_style_role role);
 
+/* ---- Text metrics (DS §46) ---------------------------------------------- *
+ *
+ * For a layout that sizes something to its text - a column as wide as its
+ * widest value, a row as tall as one line - so it follows the text size
+ * instead of a number measured at Small. Measured, never cached: the answer
+ * changes when the text size or the display mode does. */
+
+/* The width text takes on one line in label's font and letter spacing. */
+int32_t pocketui_text_width(lv_obj_t *label, const char *text);
+/* One line of a role's font, and text's one-line width in it, without an
+ * object: for constants that used to be one line of a fixed size. */
+int32_t pocketui_role_line_height(enum pos_style_role role);
+int32_t pocketui_role_text_width(enum pos_style_role role, const char *text);
+/* Cut label with "..." at the end of its lines-th line. LVGL's dots mode
+ * alone does not: a dotted label of automatic height wraps instead, which at
+ * a larger text size runs it out of its row. This caps the height at lines
+ * lines of the label's font (as styled when called); a text that fits in
+ * fewer is as tall as it always was. */
+void pocketui_label_fit(lv_obj_t *label, int lines);
+/* A value at the end of a row (a key on the left, this on the right): it
+ * takes the row's remaining width, right-aligned, on one line with dots,
+ * so a longer key at a larger text size shortens the value instead of
+ * running into it. Where both fit, the text is drawn where it was. */
+void pocketui_label_rest_of_row(lv_obj_t *label);
+
 /* ---- Text field (DS §17.1) --------------------------------------------- */
 
 /* The text-entry primitive. Single-line is POCKETUI_ROW_H tall and never

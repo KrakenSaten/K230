@@ -64,6 +64,28 @@ developer tooling, not for applications.
   not an error: the shell falls back to `ice` + `normal` (DS §8) and the
   result carries `fallback: true` with a `reason`. Result: `{theme, mode,
   fallback, reason}`. `shell.info` also reports `theme` and `mode`.
+- `shell.text_size` params `{size?}`: reads, or with `size` sets, the
+  system-wide text size (DS §46): `small` (the default), `medium` or
+  `large`. Applied live: every shared style takes its font at once, and on
+  the shell's next pass the launcher, Controls and the app header are laid
+  out again; an app open at the time is opened again at the new size (the
+  Settings app's own control changes it without reopening Settings). Stored
+  as `text_size` in settings.conf, so a restart or a reboot keeps it.
+  Result: `{size, pending}` - `pending` while the shell's re-layout has not
+  run yet. Anything but the three names is error 2 and changes nothing;
+  error 4 when it was applied but could not be stored. A stored value that
+  is not one of the three starts the shell at `small` with a warning and is
+  left in the file. Event `shell.text_size` `{size}` on every set.
+  `shell.info` also reports `text_size`. `pos call shell shell.text_size
+  size=large`.
+- `shell.audit`: measures what is on the screen now (`pocketui_audit.h`):
+  text cut off or shortened with "...", controls clipped where nothing
+  scrolls to them, meaningful objects over each other, objects with no size.
+  Result: `{current, text_size, landscape, objects, labels, count: {clipped,
+  truncated, overlap, zero}, issues: [{kind, path, text, x, y, w, h, other,
+  other_path?, other_text?}]}` (at most 200 issues listed; `count` has them
+  all). Read-only; for the text-size gate on the device. `pos call shell
+  shell.audit`.
 
 - `shell.brightness` params `{percent?}`: reads, or with `percent` sets, the
   panel brightness (docs/hardware/DISPLAY_BRIGHTNESS.md). Result: `{supported,

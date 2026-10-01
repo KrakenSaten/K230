@@ -87,6 +87,7 @@ struct settings_app {
     lv_obj_t *bright_note;
     lv_obj_t *theme_chip[SETTINGS_THEMES_MAX];
     lv_obj_t *mode_btn[POS_MODE_COUNT];
+    lv_obj_t *size_btn[POS_TEXT_SIZE_COUNT];
     lv_obj_t *rot_btn[SV_ROTATION_MODES];
     lv_obj_t *rot_note;
     struct sv_rotation rot;
@@ -607,6 +608,20 @@ static void on_mode(lv_event_t *e)
     repaint(a);
 }
 
+/* Text size (DS §46): the shell applies it live and stores it. The fonts of
+ * everything here change at once through the shared styles and the panels
+ * are flex, so they lay themselves out again; only the marks are repainted. */
+static void on_text_size(lv_event_t *e)
+{
+    struct settings_app *a = lv_event_get_user_data(e);
+    intptr_t i = (intptr_t)lv_obj_get_user_data(lv_event_get_current_target(e));
+
+    if (i >= 0 && i < POS_TEXT_SIZE_COUNT) {
+        pocketos_shell_set_text_size((enum pos_text_size)i);
+    }
+    repaint(a);
+}
+
 static void build_appearance(struct settings_app *a, lv_obj_t *body)
 {
     static const char *const mode_labels[POS_MODE_COUNT] = { "NORMAL", "OUTDOOR", "NIGHT" };
@@ -639,6 +654,18 @@ static void build_appearance(struct settings_app *a, lv_obj_t *body)
         lv_obj_set_flex_grow(a->mode_btn[i], 1);
         lv_obj_set_user_data(a->mode_btn[i], (void *)(intptr_t)i);
     }
+    /* Each choice in its own size, so the difference is seen before it is
+     * chosen; the current one accented like the display mode's. */
+    pocketui_label(p, "Text size", POS_STYLE_TEXT_SECONDARY);
+    r = hrow(p, SETTINGS_BTN_H);
+    for (i = 0; i < POS_TEXT_SIZE_COUNT; i++) {
+        static const char *const size_labels[POS_TEXT_SIZE_COUNT] = { "SMALL", "MEDIUM", "LARGE" };
+
+        a->size_btn[i] = button(r, size_labels[i], on_text_size, a, 0);
+        lv_obj_set_flex_grow(a->size_btn[i], 1);
+        lv_obj_set_user_data(a->size_btn[i], (void *)(intptr_t)i);
+        lv_obj_add_style(lv_obj_get_child(a->size_btn[i], 0), pos_style_text_size_sample((enum pos_text_size)i), 0);
+    }
 }
 
 static void repaint_appearance(struct settings_app *a)
@@ -658,6 +685,15 @@ static void repaint_appearance(struct settings_app *a)
         lv_obj_remove_style(a->mode_btn[i], pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
         lv_obj_remove_style(a->mode_btn[i], pos_style(POS_STYLE_BUTTON_SECONDARY), 0);
         pos_style_add(a->mode_btn[i], i == (int)mode ? POS_STYLE_BUTTON_PRIMARY : POS_STYLE_BUTTON_SECONDARY, 0);
+    }
+    for (i = 0; i < POS_TEXT_SIZE_COUNT; i++) {
+        if (!a->size_btn[i]) {
+            continue;
+        }
+        lv_obj_remove_style(a->size_btn[i], pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
+        lv_obj_remove_style(a->size_btn[i], pos_style(POS_STYLE_BUTTON_SECONDARY), 0);
+        pos_style_add(a->size_btn[i],
+                      i == (int)pocketos_shell_text_size() ? POS_STYLE_BUTTON_PRIMARY : POS_STYLE_BUTTON_SECONDARY, 0);
     }
 }
 
@@ -697,6 +733,12 @@ static void build_list(struct settings_app *a)
         lb = pocketui_label(left, n->ssid, POS_STYLE_ROW_TITLE);
         lv_label_set_long_mode(lb, LV_LABEL_LONG_DOT);
         lv_obj_set_width(lb, LV_PCT(100));
+        /* No taller than the row leaves above its caption, so the dots come
+         * on the last line that fits: a dotted label of automatic height
+         * wraps instead, and at a larger text size a long SSID ran out of
+         * the row (DS §46.5). What fitted before fits as it did. */
+        pocketui_label_fit(lb, (int)((POCKETUI_ROW_H + 8 - pocketui_role_line_height(POS_STYLE_CAPTION)) /
+                                     pocketui_role_line_height(POS_STYLE_ROW_TITLE)));
         /* "not supported" is in the words; a muted role would also change
          * the font, and colour must not carry it alone (DS §2). */
         pocketui_label(left, n->detail, POS_STYLE_CAPTION);

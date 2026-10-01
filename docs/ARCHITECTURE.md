@@ -244,6 +244,10 @@ from that one resolved height. An app never reads or sets it. Display backends: 
 (K230, untested; links the vendor-patched LVGL from the Buildroot package).
 `--screenshot` renders any screen headlessly to PNG in the simulator only:
 the target LVGL build has no snapshot support (docs/KNOWN_ISSUES.md).
+`--text-size small|medium|large` runs the shell at a text size for that run
+only (DS §46), and `--audit F.json` writes the layout audit
+(`ui/pocketui/pocketui_audit.h`, also `shell.audit`) of the screen the run
+ended on.
 
 ## Build
 

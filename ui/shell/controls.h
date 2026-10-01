@@ -42,6 +42,9 @@ struct controls_actions {
  * §36), which nothing of Controls is placed over; NULL: none. */
 lv_obj_t *controls_create(lv_obj_t *parent, bool landscape, const struct controls_rect *keepout,
                           const struct controls_actions *actions);
+/* Delete what controls_create built, so it can be built again (the shell
+ * does when the text size changes, DS §46). Hidden or not; safe to repeat. */
+void controls_destroy(void);
 void controls_show(void);
 void controls_hide(void);
 bool controls_visible(void);

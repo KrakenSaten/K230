@@ -135,6 +135,25 @@ lv_color_t pos_identity_hue(unsigned index);
  * font (a caption, a row title). */
 lv_style_t *pos_style_identity(unsigned index);
 
+/* ---- type (DS §3, §46) ---------------------------------------------------- *
+ *
+ * The font a semantic type role (pos_theme.h) draws in: exact when the
+ * face carries that size, else the largest of the face below it. Every
+ * role at every text size and display mode is exact (tests/text_size_test.c);
+ * the fallback only keeps a future table edit from drawing nothing. */
+const lv_font_t *pos_type_font(struct pos_type_spec spec);
+bool pos_type_font_exact(struct pos_type_spec spec);
+/* A font-only style showing what button labels look like at one text size,
+ * whatever the current one is: Settings draws each of its text-size choices
+ * in its own size. Add it over the button label's role. */
+lv_style_t *pos_style_text_size_sample(enum pos_text_size size);
+/* A font-only style: role's font as Small draws it (in the current display
+ * mode), whatever the text size. Added over role on what keeps its size
+ * when the rest of the screen follows the setting (DS §46.4): text lying on
+ * a live picture, a web page's text, a file's contents. A role with no font
+ * gives an empty style. */
+lv_style_t *pos_style_fixed_size(enum pos_style_role role);
+
 /* Initialise all styles from the current theme and hook the theme engine so
  * later selections refresh them. Call once after lv_init(). */
 void pos_styles_init(void);

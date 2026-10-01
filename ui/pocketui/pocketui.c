@@ -222,6 +222,78 @@ lv_obj_t *pocketui_label(lv_obj_t *parent, const char *text, enum pos_style_role
     return lb;
 }
 
+/* ---- Text metrics (DS §46) ---------------------------------------------- */
+
+int32_t pocketui_text_width(lv_obj_t *label, const char *text)
+{
+    lv_point_t p;
+    const lv_font_t *font = label ? lv_obj_get_style_text_font(label, LV_PART_MAIN) : NULL;
+
+    if (!font || !text || !text[0]) {
+        return 0;
+    }
+    lv_text_get_size(&p, text, font, lv_obj_get_style_text_letter_space(label, LV_PART_MAIN), 0, LV_COORD_MAX,
+                     LV_TEXT_FLAG_NONE);
+    return p.x;
+}
+
+static const lv_font_t *role_font(enum pos_style_role role, int32_t *letter_space)
+{
+    lv_style_value_t v;
+
+    *letter_space = 0;
+    if (lv_style_get_prop(pos_style(role), LV_STYLE_TEXT_LETTER_SPACE, &v) == LV_STYLE_RES_FOUND) {
+        *letter_space = v.num;
+    }
+    if (lv_style_get_prop(pos_style(role), LV_STYLE_TEXT_FONT, &v) == LV_STYLE_RES_FOUND) {
+        return v.ptr;
+    }
+    return lv_obj_get_style_text_font(lv_screen_active(), LV_PART_MAIN);
+}
+
+int32_t pocketui_role_line_height(enum pos_style_role role)
+{
+    int32_t ls;
+    const lv_font_t *font = role_font(role, &ls);
+
+    return font ? lv_font_get_line_height(font) : 0;
+}
+
+int32_t pocketui_role_text_width(enum pos_style_role role, const char *text)
+{
+    lv_point_t p;
+    int32_t ls;
+    const lv_font_t *font = role_font(role, &ls);
+
+    if (!font || !text || !text[0]) {
+        return 0;
+    }
+    lv_text_get_size(&p, text, font, ls, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    return p.x;
+}
+
+void pocketui_label_fit(lv_obj_t *label, int lines)
+{
+    const lv_font_t *font = label ? lv_obj_get_style_text_font(label, LV_PART_MAIN) : NULL;
+
+    if (!label || !font || lines < 1) {
+        return;
+    }
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_max_height(label, lines * lv_font_get_line_height(font), 0);
+}
+
+void pocketui_label_rest_of_row(lv_obj_t *label)
+{
+    if (!label) {
+        return;
+    }
+    lv_obj_set_width(label, 0);
+    lv_obj_set_flex_grow(label, 1);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_RIGHT, 0);
+    pocketui_label_fit(label, 1);
+}
+
 /* ---- Text field (DS §17.1) --------------------------------------------- */
 
 #define POCKETUI_CARET_BLINK_MS 500 /* DS §17.1: 500 ms on, 500 ms off */
