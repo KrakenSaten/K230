@@ -746,13 +746,30 @@ static void build_controls(struct timber_app *app, struct timber_table_ui *ui, l
  * creates apps from a tap, an IPC call or start-up, never from inside a
  * layout pass, where lv_obj_update_layout() would do nothing and the body
  * would read 0 (and the viewport fall back to 672). */
-static int32_t timber_table_height(lv_obj_t *body)
+static int32_t timber_table_height(lv_obj_t *body, lv_obj_t *screen)
 {
     int32_t spare;
+    int32_t others;
+    bool hidden;
 
     lv_obj_update_layout(body);
     spare = lv_obj_get_content_height(body) - TABLE_BODY_REF;
-    return TABLE_HEIGHT + (spare > 0 ? spare : 0);
+    if (spare <= 0) {
+        return TABLE_HEIGHT;
+    }
+    /* The other rows are built by now; at a larger text size (DS §46) they
+     * are taller than the 388 px they were measured at, and the viewport
+     * gives up what they took, so the body still has nothing to scroll.
+     * Measured with the screen shown for a moment: a hidden container is
+     * not laid out. Never more than the 672 + spare it always had. */
+    hidden = lv_obj_has_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_update_layout(body);
+    others = lv_obj_get_height(screen) + lv_obj_get_style_pad_row(screen, LV_PART_MAIN);
+    if (hidden) {
+        lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    }
+    return LV_MIN(TABLE_HEIGHT + spare, lv_obj_get_content_height(body) - others);
 }
 
 lv_obj_t *timber_screen_table_create(struct timber_app *app, lv_obj_t *parent)
@@ -776,13 +793,16 @@ lv_obj_t *timber_screen_table_create(struct timber_app *app, lv_obj_t *parent)
     ui->seen_class = -2;
 
     build_hud(ui, screen);
-    table_h = timber_table_height(parent);
-    timber_view_init(&app->view, TABLE_WIDTH, table_h, !app->reduced_motion);
-    ui->table = timber_table_create(screen, TABLE_WIDTH, table_h);
-    timber_table_bind(ui->table, &app->run, &app->view);
-    timber_table_set_tap(ui->table, table_tap_cb, app);
     build_piece_card(ui, screen);
     build_controls(app, ui, screen);
+    /* The table last, so its height can be what the other rows leave; then
+     * into its place under the HUD. */
+    table_h = timber_table_height(parent, screen);
+    timber_view_init(&app->view, TABLE_WIDTH, table_h, !app->reduced_motion);
+    ui->table = timber_table_create(screen, TABLE_WIDTH, table_h);
+    lv_obj_move_to_index(ui->table, 1);
+    timber_table_bind(ui->table, &app->run, &app->view);
+    timber_table_set_tap(ui->table, table_tap_cb, app);
     return screen;
 }
 

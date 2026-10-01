@@ -102,7 +102,7 @@ static void build_head(struct rift_nodes *v)
     struct rift_app *a = v->app;
     int i = 0;
 
-    v->head = rift_node_row_line(v->pane_list, RIFT_HEADER_ROW_H);
+    v->head = rift_node_row_line(v->pane_list, rift_header_row_h());
     spacer(v->head, RIFT_IDENT_W); /* under the rows' identity mark */
     spacer(v->head, COL_GLYPH);
     v->head_cell[i] = rift_cell(v->head, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
@@ -174,7 +174,7 @@ static void lay_out(struct rift_nodes *v, int fresh)
             it->kind = ITEM_GROUP;
             it->ref = group;
             it->y = y;
-            it->h = RIFT_GROUP_H;
+            it->h = rift_group_h();
             y += it->h;
         }
         it = &v->item[v->item_count++];

@@ -985,6 +985,8 @@ static void build(struct vision_app *a, lv_obj_t *root)
         lv_obj_add_flag(a->outline[i], LV_OBJ_FLAG_HIDDEN);
         a->tag[i] = pocketui_label(a->box, "", POS_STYLE_CAPTION);
         pos_style_add(a->tag[i], POS_STYLE_SLAB, 0);
+        /* Compact at every text size: a tag lies on the picture (DS §46.4). */
+        lv_obj_add_style(a->tag[i], pos_style_fixed_size(POS_STYLE_CAPTION), 0);
         lv_obj_set_style_pad_hor(a->tag[i], 4, 0);
         lv_obj_set_style_pad_ver(a->tag[i], 2, 0);
         lv_obj_add_flag(a->tag[i], LV_OBJ_FLAG_HIDDEN);

@@ -393,7 +393,7 @@ static void size_portrait_list(struct rift_comms *v, int count, int open)
     if (open && count > 0) {
         cap = PORTRAIT_OPEN_ROWS * RIFT_ROW_H + SELECTED_EXTRA;
     } else {
-        cap = lv_obj_get_height(v->root) - RIFT_HEADER_ROW_H - 1 - THREAD_MIN_H;
+        cap = lv_obj_get_height(v->root) - rift_header_row_h() - 1 - THREAD_MIN_H;
         if (cap < RIFT_ROW_H) {
             cap = RIFT_ROW_H;
         }
@@ -434,7 +434,7 @@ lv_obj_t *rift_comms_create(struct rift_app *app, lv_obj_t *parent)
     lv_obj_set_style_pad_hor(v->pane_list, RIFT_PAD, 0);
     lv_obj_remove_flag(v->pane_list, LV_OBJ_FLAG_SCROLLABLE);
 
-    head = dense_row(v->pane_list, RIFT_HEADER_ROW_H);
+    head = dense_row(v->pane_list, rift_header_row_h());
     v->head = head;
     cell = rift_cell(head, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_flex_grow(cell, 1);

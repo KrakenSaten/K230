@@ -584,7 +584,13 @@ void fleet_screen_battle_relayout(struct fleet_app *app, int wide, int cell_w, i
     lv_obj_set_width(ui->fire, LV_SIZE_CONTENT);
     lv_obj_set_flex_grow(ui->fire, 1);
     lv_obj_set_height(ui->fire, LV_PCT(100));
-    lv_obj_set_width(ui->chat, wide ? CHAT_TILE_W_WIDE : CHAT_TILE_W_TALL);
+    /* Never narrower than the tile always was, and wide enough for its
+     * title with two digits of news: at a larger text size (DS §46) 200 px
+     * cut "CHAT · 1 NEW" to "CHAT · 1...". Measured from the font, which
+     * needs no layout - this runs inside one. */
+    lv_obj_set_width(ui->chat, LV_MAX(wide ? CHAT_TILE_W_WIDE : CHAT_TILE_W_TALL,
+                                      pocketui_text_width(ui->chat_title, "CHAT \xc2\xb7 99 NEW") +
+                                          2 * CHAT_TILE_PAD));
     lv_obj_set_height(ui->chat, LV_PCT(100));
     lines_high(ui->chat_preview, wide ? 2 : 1);
 }

@@ -158,6 +158,18 @@ static lv_obj_t *row(lv_obj_t *parent, int height)
     return r;
 }
 
+/* A row whose last item may need a line of its own: the items wrap rather
+ * than share out a fixed width, and the row grows from its 64 px. One line
+ * stays one line, centred as it was. A larger text size (DS §46.5) made an
+ * address or a service's reason too wide for the share it had, and it was
+ * cut where it matters most - at the end. */
+static void row_may_wrap(lv_obj_t *r)
+{
+    lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_height(r, LV_SIZE_CONTENT);
+    lv_obj_set_style_min_height(r, POCKETUI_ROW_H, 0);
+}
+
 /* One vitals cell: caption above, value below, half the panel wide. Two per
  * row, three rows, so the six numbers fit in the height of four list rows. */
 static lv_obj_t *vitals_cell(lv_obj_t *parent, const char *label)
@@ -173,8 +185,9 @@ static lv_obj_t *vitals_cell(lv_obj_t *parent, const char *label)
     lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
     pocketui_label(cell, label, POS_STYLE_CAPTION);
     value = pocketui_label(cell, SYSTEM_VIEW_UNKNOWN, POS_STYLE_VALUE);
-    lv_label_set_long_mode(value, LV_LABEL_LONG_DOT);
     lv_obj_set_width(value, LV_PCT(96));
+    /* One line under its caption, at any text size (DS §46.5). */
+    pocketui_label_fit(value, 1);
     return value;
 }
 
@@ -809,8 +822,9 @@ static void build_live(struct system_app *a)
         lv_obj_clear_flag(top, LV_OBJ_FLAG_SCROLLABLE);
         pocketui_label(top, v->mounts[i].mount, POS_STYLE_TEXT_SECONDARY);
         a->mount_detail[i] = pocketui_label(top, v->mounts[i].detail, POS_STYLE_VALUE);
-        lv_label_set_long_mode(a->mount_detail[i], LV_LABEL_LONG_DOT);
-        lv_obj_set_style_max_width(a->mount_detail[i], LV_PCT(70), 0);
+        /* What the mount's name leaves, not a fixed 70 %: at a larger text
+         * size the two ran into each other (DS §46.5). */
+        pocketui_label_rest_of_row(a->mount_detail[i]);
 
         track = lv_obj_create(cell);
         lv_obj_remove_style_all(track);
@@ -835,11 +849,12 @@ static void build_live(struct system_app *a)
     }
     for (i = 0; i < v->iface_count && i < SYSTEM_VIEW_MAX_IFACES; i++) {
         r = row(p, POCKETUI_ROW_H);
+        row_may_wrap(r);
         pocketui_label(r, v->ifaces[i].name, POS_STYLE_TEXT_SECONDARY);
         a->iface_chip[i] = chip(r, v->ifaces[i].state, POS_STYLE_CHIP_OFF);
         a->iface_addr[i] = pocketui_label(r, v->ifaces[i].addr, POS_STYLE_VALUE);
         lv_label_set_long_mode(a->iface_addr[i], LV_LABEL_LONG_DOT);
-        lv_obj_set_style_max_width(a->iface_addr[i], LV_PCT(45), 0);
+        lv_obj_set_style_max_width(a->iface_addr[i], LV_PCT(100), 0);
     }
     if (v->ifaces_hidden > 0) {
         /* Never silently disagree with `pos system status`, which shows them. */
@@ -856,6 +871,7 @@ static void build_live(struct system_app *a)
     }
     for (i = 0; i < v->service_count && i < SYSTEM_VIEW_MAX_SERVICES; i++) {
         r = row(p, POCKETUI_ROW_H);
+        row_may_wrap(r);
         lb = pocketui_label(r, v->services[i].name, POS_STYLE_TEXT_SECONDARY);
         lv_label_set_long_mode(lb, LV_LABEL_LONG_DOT);
         lv_obj_set_style_max_width(lb, LV_PCT(30), 0);
@@ -864,8 +880,10 @@ static void build_live(struct system_app *a)
         a->svc_detail[i] = pocketui_label(r, v->services[i].detail, POS_STYLE_CAPTION);
         lv_label_set_long_mode(a->svc_detail[i], LV_LABEL_LONG_DOT);
         /* Wider than the name: a crash-looped service's detail is the only
-         * thing on this row anybody needs, and it must not lose its tail. */
-        lv_obj_set_style_max_width(a->svc_detail[i], LV_PCT(50), 0);
+         * thing on this row anybody needs, and it must not lose its tail.
+         * As wide as it is while the row has room; past that, a line of its
+         * own (row_may_wrap), never a fixed share cut with dots. */
+        lv_obj_set_style_max_width(a->svc_detail[i], LV_PCT(100), 0);
     }
 
     /* radio: one row, from what the status bar already knows */

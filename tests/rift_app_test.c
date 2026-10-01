@@ -1585,7 +1585,7 @@ static void scale_session(void)
         check("and shows at least sixteen one-line messages above the composer", rows >= 16);
         check("the thread is more than half the display", thread_share(scroll) > 50.0);
         check("its header is a header row, not a data row",
-              lv_obj_get_height(kid(kid(thread_pane(), 0), 0)) == RIFT_HEADER_ROW_H);
+              lv_obj_get_height(kid(kid(thread_pane(), 0), 0)) == rift_header_row_h());
         check("the strip is a data row in landscape", lv_obj_get_height(strip()) == RIFT_ROW_H);
         check("with the way back in it", app->back && visible(app->back) &&
                                              within(app->back, strip()));

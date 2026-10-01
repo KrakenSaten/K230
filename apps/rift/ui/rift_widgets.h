@@ -35,6 +35,17 @@
  * whose top edge a captioned panel sits on leaves this much room. */
 #define RIFT_CAPTION_OVERHANG (RIFT_CAPTION_H / 2 + 3)
 
+/* The same heights at the text size in force (DS §46). A caption line is
+ * whatever the caption role's font draws, so a panel's caption, a group
+ * label and a header row grow with it, and the room left for a caption's
+ * rise grows too. Never below the constants above, which they equal at
+ * Small. Measured on every call: the text size can change while RIFT is
+ * open, and the next build of a view takes the new one. */
+int32_t rift_caption_h(void);
+int32_t rift_caption_overhang(void);
+int32_t rift_group_h(void);
+int32_t rift_header_row_h(void);
+
 /* The link glyph of handoff §6: colour never carries it alone, so every
  * caller prints the state word beside one of these. */
 enum rift_glyph {

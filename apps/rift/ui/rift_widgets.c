@@ -446,9 +446,33 @@ enum rift_pulse rift_pulse_get(lv_obj_t *pulse)
  * GROWN BY ITS EXTENDED DRAW SIZE, not to nothing (lv_obj_redraw in
  * lv_refr.c), and a panel's is 0. So the flag alone left the caption cut
  * exactly where it was; the panel also has to say it draws that far out. */
+int32_t rift_caption_h(void)
+{
+    return LV_MAX(RIFT_CAPTION_H, pocketui_role_line_height(POS_STYLE_CAPTION));
+}
+
+int32_t rift_caption_overhang(void)
+{
+    return rift_caption_h() / 2 + 3;
+}
+
+int32_t rift_group_h(void)
+{
+    return LV_MAX(RIFT_GROUP_H, rift_caption_h() + (RIFT_GROUP_H - RIFT_CAPTION_H));
+}
+
+int32_t rift_header_row_h(void)
+{
+    /* A caption line with its air, and the thread's header holds a name in
+     * the row-title role: 28 px at Small either way. */
+    int32_t h = LV_MAX(RIFT_HEADER_ROW_H, rift_caption_h() + (RIFT_HEADER_ROW_H - RIFT_CAPTION_H));
+
+    return LV_MAX(h, pocketui_role_line_height(POS_STYLE_ROW_TITLE) + 2);
+}
+
 static void on_panel_ext_draw(lv_event_t *e)
 {
-    lv_event_set_ext_draw_size(e, RIFT_CAPTION_OVERHANG);
+    lv_event_set_ext_draw_size(e, rift_caption_overhang());
 }
 
 lv_obj_t *rift_panel(lv_obj_t *parent, const char *caption)
@@ -487,7 +511,7 @@ lv_obj_t *rift_panel(lv_obj_t *parent, const char *caption)
         pos_style_add(label, POS_STYLE_SCREEN, 0);
         pos_style_add(label, POS_STYLE_CAPTION, 0);
         lv_obj_set_style_pad_hor(label, 6, 0);
-        lv_obj_set_height(label, RIFT_CAPTION_H);
+        lv_obj_set_height(label, rift_caption_h());
         lv_label_set_text(label, caption);
         /* Out of the flex flow and placed by hand: 16 px in from the panel's
          * left edge (handoff §4) and centred on the top rule, which its own
@@ -498,7 +522,7 @@ lv_obj_t *rift_panel(lv_obj_t *parent, const char *caption)
          * line box and the middle of the ink in it: without it the rule
          * comes out along the top of the capitals rather than through the
          * middle of them. */
-        lv_obj_set_pos(label, 16 - POCKETUI_PAD, -POCKETUI_PAD - RIFT_CAPTION_H / 2 - 3);
+        lv_obj_set_pos(label, 16 - POCKETUI_PAD, -POCKETUI_PAD - rift_caption_h() / 2 - 3);
     }
     return panel;
 }
@@ -510,7 +534,7 @@ lv_obj_t *rift_group_label(lv_obj_t *parent, const char *text)
     lv_obj_remove_style_all(label);
     pos_style_add(label, POS_STYLE_CAPTION, 0);
     lv_obj_set_width(label, LV_PCT(100));
-    lv_obj_set_height(label, RIFT_GROUP_H);
+    lv_obj_set_height(label, rift_group_h());
     lv_obj_set_style_pad_top(label, 6, 0);
     lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
     lv_label_set_text(label, text ? text : "");

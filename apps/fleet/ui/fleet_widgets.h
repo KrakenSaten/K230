@@ -17,8 +17,11 @@
 
 /* How far a panel's caption rises above the panel's top border, so a layout
  * that puts a panel at the very top of a clipping box can leave room for it.
- * Half a mono-14 line, which is what centres the caption on the border. */
-#define FLEET_CAPTION_RISE 9
+ * Half a caption line, which is what centres the caption on the border: 9 px
+ * at Small (mono 14), more at the larger text sizes (DS §46), so it is
+ * measured rather than a number. */
+int32_t fleet_caption_rise(void);
+#define FLEET_CAPTION_RISE fleet_caption_rise()
 
 /* Panel with the Design System caption set into its top border (DS §2).
  * title may be NULL for an untitled panel; it is shown as given, so pass
@@ -41,6 +44,12 @@ void fleet_button_set_enabled(lv_obj_t *button, int enabled);
  * caller attaches its own handler to each segment (lv_obj_get_child(bar, i))
  * so it can pass whatever user data it needs. */
 lv_obj_t *fleet_segments(lv_obj_t *parent, const char *const *labels, int count);
+/* Fit the segments to the room the bar has (bar_w, px): in one row while the
+ * widest word fits every segment, else two to a row, each row as tall as one
+ * segment. The bar's height follows. A word may run a segment's width by 2 px
+ * before it counts as not fitting - the slack the layout audit allows, and
+ * what Small's "COMMANDER" has always used (DS §46). */
+void fleet_segments_fit(lv_obj_t *bar, int32_t bar_w);
 void fleet_segments_select(lv_obj_t *bar, int index);
 
 /* A row inside a list panel: height px tall, flex row, divider below unless
