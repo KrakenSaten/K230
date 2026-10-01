@@ -7,9 +7,12 @@ NEWER and OLDER; DELETE after a confirmation; EXPORT to Files; a slideshow.
 Status: **Photo 0.1, branch `feat/photo-app` (from master `749f4f1`), not
 merged.** Host-tested end to end against the real library helper, in portrait
 and landscape, under ASan/UBSan for the pure-C parts; cross-built for the K230
-with the pinned Xuantie toolchain. **Not run on a K230** (the gate is
-`docs/hardware/PHOTO_GATE.md`). Layout and place: DS §44 (Amendment AB),
-PROPOSED.
+with the pinned Xuantie toolchain. **Unit B gate PASS on `0f3c411`,
+2026-10-01** (`docs/hardware/PHOTO_GATE.md`: real Camera JPEGs in both
+orientations, no camera ever opened by Photo, delete and a refused delete,
+slideshow 4.0 s, rotation, 43 opens flat); unit B was restored afterwards.
+Left for the owner's eyes: the icon and picture quality on a lit scene.
+Layout and place: DS §44 (Amendment AB), PROPOSED.
 
 ## Camera takes, Photo shows
 
