@@ -4306,9 +4306,9 @@ of §31.3), centred - no wrap. MORE (§31.2) stays for an app the table does
 not name and is not drawn while empty.
 
 The two group captions are new words for the two panels the requested
-structure makes, chosen to say what each holds; they are one string table
-(`home_group_name`) and the owner may rename them. CONNECTIONS, WORKSPACE,
-PLAY and DEVICE are retired.
+structure makes, chosen to say what each holds (one string table,
+`home_group_name`); **the owner kept them on 2026-10-01**. CONNECTIONS,
+WORKSPACE, PLAY and DEVICE are retired.
 
 ### 47.2 The folders
 
@@ -4320,8 +4320,9 @@ launcher changed:
   the Apps colour (§31.2 reuses the package's category glyphs and hues),
   drawn by `gen_doors_ui.py` as `icon-apps`; `LV_SYMBOL_LIST` on the empty
   portal without the art. Radio was not named in the brief; it is the one
-  app that would otherwise have had no place, and it joins Apps (for the
-  owner to confirm). A build without Zabbix has seven apps in Apps.
+  app that would otherwise have had no place, and it joins Apps (**the owner
+  confirmed this on 2026-10-01**). A build without Zabbix has seven apps in
+  Apps.
 - **Utilities** (§42.2): unchanged - Clock, Calendar, Calculator, Notes,
   Files, Recorder, Camera, in that order.
 - **Games** (§39): unchanged - Fleet, Radar, Timber, Solitaire, Blackjack,
