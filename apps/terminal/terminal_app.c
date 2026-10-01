@@ -606,7 +606,12 @@ static enum term_key_kind kind_of(pos_key_t key)
     case LV_KEY_HOME: return TERM_KEY_HOME;
     case LV_KEY_END: return TERM_KEY_END;
     case LV_KEY_DEL: return TERM_KEY_DELETE;
-    default: return key >= 0x20 ? TERM_KEY_CHAR : TERM_KEY_NONE;
+    default:
+        if (pos_key_function(key)) {
+            /* Fn with a function key (shell_kbd.c): the raw F-key. */
+            return (enum term_key_kind)(TERM_KEY_F1 + pos_key_function(key) - 1);
+        }
+        return key >= 0x20 ? TERM_KEY_CHAR : TERM_KEY_NONE;
     }
 }
 

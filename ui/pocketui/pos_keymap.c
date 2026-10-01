@@ -122,10 +122,10 @@ void pos_keymap_reset(struct pos_keymap *k)
     }
 }
 
-/* The function row, Fn, the LILYGO key and the mic are real keys with no
- * settled meaning in PocketOS. They are reported as reserved rather than
- * guessed at: the vendor binds them to its own launcher's hotkeys, which is
- * not a contract PocketOS has. */
+/* The function row, the LILYGO key and the mic are real keys that type
+ * nothing. They are reported as reserved and the shell gives each its action
+ * (ui/shell/hw_actions.h): a key map deals in characters, and an action is
+ * not one. */
 static bool is_reserved(uint8_t code)
 {
     switch (code) {

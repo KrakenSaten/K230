@@ -40,6 +40,8 @@
 #define PIN_SDA 47
 #define PIN_IRQ 42
 #define PIN_RST 43
+/* The keyboard light's PWM output (vendor pin map: GPIO52 / PWM4). */
+#define PIN_KBD_LIGHT 52
 #define GPIO_CHIP "/dev/gpiochip1"
 #define LINES_PER_CHIP 32u
 #define OFF_SCL (PIN_SCL - LINES_PER_CHIP)
@@ -57,6 +59,10 @@
 #define IOMUX_BITBANG 0x000001D1UL
 /* GPIO input with a pull-up, for the controller's INT line. */
 #define IOMUX_IRQ_INPUT 0x00000344UL
+/* io52 as PWM4, the vendor launcher's own word for the keyboard light
+ * (k230_phone_ui ui_hardware.c, DOCUMENTED). The card boots it as a GPIO
+ * that U-Boot drives low (0x18F read on units A and B, 2026-09-30). */
+#define IOMUX_PWM4 0x00001191UL
 
 #define TCA8418_ADDR 0x34u
 
@@ -74,6 +80,8 @@ struct k230_bus {
     uint32_t saved_sda;
     uint32_t saved_irq;
     bool mux_saved;
+    uint32_t saved_light; /* io52 before the keyboard light took it */
+    bool light_muxed;
     struct gpiod_chip *chip;
     struct gpiod_line_request *i2c; /* SCL and SDA in one request */
     struct gpiod_line_request *irq;
@@ -263,9 +271,8 @@ static int i2c_read_byte(struct k230_bus *b, bool ack, uint8_t *out)
     return 0;
 }
 
-static int k230_read_reg(void *ctx, uint8_t reg, uint8_t *value)
+static int read_at(struct k230_bus *b, uint8_t addr, uint8_t reg, uint8_t *value)
 {
-    struct k230_bus *b = ctx;
     int rc = -1;
 
     if (!b->claimed) {
@@ -273,14 +280,14 @@ static int k230_read_reg(void *ctx, uint8_t reg, uint8_t *value)
     }
     b->io_error = false;
     i2c_start(b);
-    if (i2c_write_byte(b, (uint8_t)(TCA8418_ADDR << 1)) != 0) {
+    if (i2c_write_byte(b, (uint8_t)(addr << 1)) != 0) {
         goto out;
     }
     if (i2c_write_byte(b, reg) != 0) {
         goto out;
     }
     i2c_start(b); /* repeated start */
-    if (i2c_write_byte(b, (uint8_t)((TCA8418_ADDR << 1) | 1u)) != 0) {
+    if (i2c_write_byte(b, (uint8_t)((addr << 1) | 1u)) != 0) {
         goto out;
     }
     if (i2c_read_byte(b, false, value) != 0) {
@@ -293,9 +300,8 @@ out:
     return b->io_error ? -1 : rc;
 }
 
-static int k230_write_reg(void *ctx, uint8_t reg, uint8_t value)
+static int write_at(struct k230_bus *b, uint8_t addr, uint8_t reg, uint8_t value)
 {
-    struct k230_bus *b = ctx;
     int rc = -1;
 
     if (!b->claimed) {
@@ -303,7 +309,7 @@ static int k230_write_reg(void *ctx, uint8_t reg, uint8_t value)
     }
     b->io_error = false;
     i2c_start(b);
-    if (i2c_write_byte(b, (uint8_t)(TCA8418_ADDR << 1)) != 0) {
+    if (i2c_write_byte(b, (uint8_t)(addr << 1)) != 0) {
         goto out;
     }
     if (i2c_write_byte(b, reg) != 0) {
@@ -316,6 +322,29 @@ static int k230_write_reg(void *ctx, uint8_t reg, uint8_t value)
 out:
     i2c_stop(b); /* the bus is released whatever happened */
     return b->io_error ? -1 : rc;
+}
+
+static int k230_read_reg(void *ctx, uint8_t reg, uint8_t *value)
+{
+    return read_at(ctx, TCA8418_ADDR, reg, value);
+}
+
+static int k230_write_reg(void *ctx, uint8_t reg, uint8_t value)
+{
+    return write_at(ctx, TCA8418_ADDR, reg, value);
+}
+
+/* Another device on the same two lines (kbd_bus.h): the XL9555 expander.
+ * Same process, same thread, same claim - the bus still has one owner
+ * (design §0.2). */
+static int k230_read_reg_at(void *ctx, uint8_t addr, uint8_t reg, uint8_t *value)
+{
+    return read_at(ctx, addr, reg, value);
+}
+
+static int k230_write_reg_at(void *ctx, uint8_t addr, uint8_t reg, uint8_t value)
+{
+    return write_at(ctx, addr, reg, value);
 }
 
 /* ---- claim, release, reset, INT ---------------------------------------- */
@@ -541,11 +570,30 @@ static void teardown(struct k230_bus *b)
             mux_write(b, PIN_SDA, b->saved_sda);
             mux_write(b, PIN_IRQ, b->saved_irq);
         }
+        if (b->light_muxed) {
+            mux_write(b, PIN_KBD_LIGHT, b->saved_light);
+        }
         munmap((void *)b->iomux, IOMUX_SIZE);
         b->iomux = NULL;
     }
     b->mux_saved = false;
+    b->light_muxed = false;
     b->claimed = false;
+}
+
+int kbd_bus_k230_light_mux(const struct kbd_bus *bus)
+{
+    struct k230_bus *b = bus ? bus->ctx : NULL;
+
+    if (!b || !b->iomux) {
+        return -1;
+    }
+    if (!b->light_muxed) {
+        b->saved_light = mux_read(b, PIN_KBD_LIGHT);
+        b->light_muxed = true;
+    }
+    mux_write(b, PIN_KBD_LIGHT, IOMUX_PWM4);
+    return 0;
 }
 
 int kbd_bus_k230_create(struct kbd_bus *bus, char *why, size_t why_len)
@@ -611,6 +659,8 @@ int kbd_bus_k230_create(struct kbd_bus *bus, char *why, size_t why_len)
     bus->reset_pulse = k230_reset_pulse;
     bus->irq_level = k230_irq_level;
     bus->ctx = b;
+    bus->read_reg_at = k230_read_reg_at;
+    bus->write_reg_at = k230_write_reg_at;
     return 0;
 }
 

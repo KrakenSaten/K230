@@ -10,6 +10,7 @@
 #include "shell_kbd.h"
 
 #include "kbd_bus_k230.h"
+#include "kbd_leds.h"
 #include "kbd_presence.h"
 #include "kbd_tca8418.h"
 #include "pocketlog/pocketlog.h"
@@ -54,7 +55,22 @@ static struct {
     unsigned delivered;
     unsigned dropped;
     unsigned reserved;
+    unsigned actions;
+    unsigned unnamed; /* presses of matrix positions no table names */
+    /* Actions pressed during a drain, run once the bus is released. A
+     * handful is all a person can press in one 15 ms poll. */
+    enum hw_action pending[8];
+    unsigned npending;
+    void (*on_action)(enum hw_action action, void *user);
+    void *action_user;
+    struct kbd_leds leds;
+    unsigned indicators; /* KBD_LED_MIC | KBD_LED_CAMERA, from the shell */
+    unsigned led_tries;  /* expander retries left for this keyboard */
 } kbd;
+
+/* How often the watch retries an expander that did not answer, per keyboard
+ * brought up: a base without one costs five probes and then nothing. */
+#define LED_TRIES 5
 
 static uint64_t now_us(void)
 {
@@ -89,12 +105,79 @@ static void on_event(void *user, uint8_t raw)
         } else {
             kbd.dropped++; /* the queue is full; the oldest keys survive */
         }
+    } else if (effect == POS_KEYMAP_NONE && (raw & POS_KEYMAP_EVENT_PRESSED) &&
+               !pos_keymap_name((uint8_t)(raw & POS_KEYMAP_EVENT_CODE))) {
+        /* A position neither the vendor's table nor ours names (4, 30, 31,
+         * 69, 70 on the 7 x 10 matrix). Nothing is known to be wired there;
+         * a press says otherwise, so it is logged - a few times, not per
+         * press forever - for whoever maps the next control
+         * (docs/hardware/HARDWARE_CONTROLS.md). */
+        if (kbd.unnamed++ < 20) {
+            LOG_INFO("keyboard: press at unnamed matrix code %u (raw 0x%02x)",
+                     (unsigned)(raw & POS_KEYMAP_EVENT_CODE), (unsigned)raw);
+        }
     } else if (effect == POS_KEYMAP_RESERVED) {
-        /* The function row, Fn, the LILYGO key and the mic have no settled
-         * meaning in PocketOS yet, so they are counted and dropped rather
-         * than guessed at. */
+        uint8_t code = (uint8_t)(raw & POS_KEYMAP_EVENT_CODE);
+        int f = hw_action_fkey(code);
+        enum hw_action a;
+
         kbd.reserved++;
+        if (f && kbd.map.fn && pos_input_raw_focused()) {
+            /* Fn with a function key while the Terminal has the keys: the
+             * key itself, for the program in it (shell_kbd.h). */
+            unsigned mods = (kbd.map.shift ? POS_INPUT_MOD_SHIFT : 0u) |
+                            (kbd.map.ctrl ? POS_INPUT_MOD_CTRL : 0u) |
+                            (kbd.map.alt ? POS_INPUT_MOD_ALT : 0u);
+
+            if (pos_input_push_key_mods(POS_KEY_F(f), mods)) {
+                kbd.delivered++;
+            } else {
+                kbd.dropped++;
+            }
+            return;
+        }
+        a = hw_action_for_key(code);
+        if (a != HW_ACTION_NONE && kbd.npending < sizeof(kbd.pending) / sizeof(kbd.pending[0])) {
+            kbd.pending[kbd.npending++] = a;
+        }
     }
+}
+
+/* What the LEDs should show: Caps from the key map, the rest from the
+ * shell. Written only when it differs from what they show. */
+static void leds_sync(void)
+{
+    unsigned want = (kbd.map.caps ? KBD_LED_CAPS : 0u) | kbd.indicators;
+
+    if (kbd.leds.ready && kbd_leds_set(&kbd.leds, want) != 0) {
+        LOG_WARN("keyboard: indicator LEDs stopped answering");
+    }
+}
+
+static void leds_bring_up(void)
+{
+    kbd.led_tries = LED_TRIES;
+    if (kbd_leds_init(&kbd.leds, &kbd.bus)) {
+        LOG_INFO("keyboard: indicator LEDs ready (XL9555 0x%02x)", KBD_LEDS_XL9555_ADDR);
+        leds_sync();
+    }
+}
+
+/* After a drain, with the bus released: the actions pressed in it, then the
+ * LEDs, whose Caps may have just changed. */
+static void flush(void)
+{
+    unsigned k;
+    unsigned n = kbd.npending;
+
+    kbd.npending = 0;
+    for (k = 0; k < n; k++) {
+        kbd.actions++;
+        if (kbd.on_action) {
+            kbd.on_action(kbd.pending[k], kbd.action_user);
+        }
+    }
+    leds_sync();
 }
 
 /* The controller dropped events, which may have included the release of a
@@ -116,6 +199,7 @@ static void on_poll(lv_timer_t *timer)
      * is on_event's business and whether the controller is usable is asked
      * below, of the driver rather than of this return value. */
     (void)kbd_tca8418_poll(&kbd.chip, now_us(), on_event, on_overflow, NULL);
+    flush();
 
     if (kbd_tca8418_take_overflow(&kbd.chip)) {
         LOG_WARN("keyboard: controller overflow, modifier state dropped");
@@ -153,6 +237,9 @@ static void on_poll(lv_timer_t *timer)
     } else if (!kbd.ready && ready) {
         pos_keymap_reset(&kbd.map);
         LOG_INFO("keyboard: the controller is answering again");
+        /* Whatever took the controller away may have taken the expander
+         * with it, and the Caps state just went: write all three again. */
+        leds_bring_up();
     }
     kbd.ready = ready;
 }
@@ -248,6 +335,7 @@ static int bring_up(void)
      * from the truth rather than from a default. */
     kbd.ready = kbd_tca8418_ready(&kbd.chip);
     pos_keymap_reset(&kbd.map);
+    leds_bring_up();
     return 1;
 }
 
@@ -264,6 +352,7 @@ static int start_polling(void)
     kbd.delivered = 0;
     kbd.dropped = 0;
     kbd.reserved = 0;
+    kbd.actions = 0;
     /* The period follows the mode, so it is reported rather than assumed:
      * a log saying 15 ms while the driver polls at 20 would be worse than
      * saying nothing. */
@@ -288,6 +377,16 @@ static void on_watch(lv_timer_t *timer)
         /* Failing: retry on this cadence rather than at the end of the 30 s
          * backoff, so a keyboard that comes back is seen in a second. */
         kbd_tca8418_retry_now(&kbd.chip);
+    } else if (kbd.present && !kbd.leds.ready && kbd.led_tries > 0) {
+        /* The keys answer and the LEDs did not: a few more tries. */
+        kbd.led_tries--;
+        if (kbd_leds_init(&kbd.leds, &kbd.bus)) {
+            LOG_INFO("keyboard: indicator LEDs ready (XL9555 0x%02x)", KBD_LEDS_XL9555_ADDR);
+            leds_sync();
+        } else if (kbd.led_tries == 0) {
+            LOG_INFO("keyboard: no indicator LEDs (XL9555 0x%02x did not answer)",
+                     KBD_LEDS_XL9555_ADDR);
+        }
     }
     kbd_presence_observe(observed());
 }
@@ -371,9 +470,15 @@ void shell_kbd_destroy(void)
         kbd.watch = NULL;
     }
     if (kbd.present) {
-        LOG_INFO("keyboard: %u key(s) delivered, %u dropped, %u reserved",
-                 kbd.delivered, kbd.dropped, kbd.reserved);
+        LOG_INFO("keyboard: %u key(s) delivered, %u dropped, %u reserved, %u action(s)",
+                 kbd.delivered, kbd.dropped, kbd.reserved, kbd.actions);
     }
+    /* The privacy LEDs must not outlive the shell that knows what they mean;
+     * a shell that is killed leaves them as they were, and the next one's
+     * bring-up writes all three from scratch. */
+    kbd_leds_off(&kbd.leds);
+    kbd.indicators = 0;
+    kbd.npending = 0;
     /* This is what puts the pin mux back, so it runs whether or not a
      * keyboard was ever found - but only when the lines were actually taken:
      * the bus is now kept across a failed probe, and destroying one that was
@@ -386,4 +491,52 @@ void shell_kbd_destroy(void)
     kbd.present = false;
     kbd.ready = false;
     kbd.gated = false;
+}
+
+void shell_kbd_on_action(void (*fn)(enum hw_action action, void *user), void *user)
+{
+    kbd.on_action = fn;
+    kbd.action_user = user;
+}
+
+void shell_kbd_set_indicators(unsigned mask)
+{
+    kbd.indicators = mask & (KBD_LED_MIC | KBD_LED_CAMERA);
+    leds_sync();
+}
+
+size_t shell_kbd_inject(const uint8_t *raw, size_t n)
+{
+    size_t k;
+
+    if (!raw) {
+        return 0;
+    }
+    for (k = 0; k < n; k++) {
+        on_event(NULL, raw[k]);
+    }
+    flush();
+    return n;
+}
+
+int shell_kbd_light_mux(void)
+{
+    return kbd.bus_ok ? kbd_bus_k230_light_mux(&kbd.bus) : -1;
+}
+
+void shell_kbd_status(struct shell_kbd_status *out)
+{
+    if (!out) {
+        return;
+    }
+    out->present = kbd.present;
+    out->caps = kbd.map.caps != 0;
+    out->leds = kbd.leds.ready;
+    out->leds_shown = kbd_leds_shown(&kbd.leds);
+    out->delivered = kbd.delivered;
+    out->dropped = kbd.dropped;
+    out->reserved = kbd.reserved;
+    out->actions = kbd.actions;
+    out->led_failures = kbd.leds.failures;
+    out->port_read = kbd_leds_read_port(&kbd.leds, &out->output0, &out->config0);
 }

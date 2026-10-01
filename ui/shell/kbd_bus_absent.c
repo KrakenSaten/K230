@@ -32,3 +32,9 @@ void kbd_bus_k230_destroy(struct kbd_bus *bus)
 {
     (void)bus;
 }
+
+int kbd_bus_k230_light_mux(const struct kbd_bus *bus)
+{
+    (void)bus;
+    return -1;
+}

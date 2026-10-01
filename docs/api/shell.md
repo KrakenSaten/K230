@@ -26,8 +26,38 @@ developer tooling, not for applications.
   launcher's time and date labels are.
 - `shell.open` params `{id}`: opens an app. Error 2 for unknown id.
 - `shell.home`: closes the current app and shows the launcher.
+- `shell.action` params `{action}`: runs one hardware action by name,
+  exactly as the keyboard base's key that carries it does
+  (ui/shell/hw_actions.h, docs/hardware/HARDWARE_CONTROLS.md): `home`,
+  `back`, `settings`, `terminal`, `wave`, `vision`, `rift`, `screenshot`,
+  `volume_up`, `volume_down`, `brightness_up`, `brightness_down`,
+  `keyboard_light_up`, `keyboard_light_down`. Result `{action, result,
+  value?, current}`: `result` is `done`, `noop` (already there - an app is
+  never opened twice - or at a level's bound, which never wraps),
+  `refused` (the lock or an alert is up and the action would navigate) or
+  `unavailable` (no such app in this build, no such control on this board, a
+  screenshot still being written); `value` is the level after a level
+  action. Any other name is error 2. `pos call shell shell.action
+  action=back`.
+- `shell.key` params `{raw: [bytes]}` or `{code}`: feeds raw keyboard-base
+  controller events (bit 7 press, bits 0-6 the matrix code; `code` is a
+  press and its release) through the physical key's own path - the key map,
+  the modifiers, the stream into the focused field, and the actions. For the
+  bench and the tests: the way to exercise a key nobody can press remotely.
+  1 to 32 bytes 1..255, or a code 1..127; anything else is error 2. Result
+  `{taken, current}`. `pos call shell shell.key code=64` (F8).
+- `shell.info` also carries `hardware`: `{keyboard: {present, caps,
+  delivered, reserved, actions}, leds: {available, caps, mic, camera,
+  failures}, microphone, camera, keyboard_light, screenshot: {busy, saved,
+  last}}` - the keyboard base as the driver sees it, the indicator LEDs as
+  last written, whether a capture stream and a camera node are open now
+  (what the LEDs show), the keyboard light's level (-1 without one), and
+  F7's captures.
 - `shell.screenshot` params `{path}`: renders the current screen to a PNG at
-  `path` (on the device filesystem). Error 4 if it cannot be written.
+  `path` (on the device filesystem). Error 4 if it cannot be written. Needs
+  LV_USE_SNAPSHOT, which the device's LVGL does not have (KNOWN_ISSUES); F7
+  (`shell.action action=screenshot`) captures on the device instead, from
+  the DRM plane, into `<state>/screenshots/screenshot-<time>.png`.
 - `shell.theme` params `{theme?, mode?}`: selects a Design System theme id
   (`ice`, `brass`, `olive`, `slate`, `carbon`) and/or display mode
   (`normal`, `outdoor`, `night`) live, no restart. An unknown id or mode is

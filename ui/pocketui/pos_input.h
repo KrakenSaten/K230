@@ -126,4 +126,26 @@ lv_obj_t *pos_input_raw_target(void);
  * raw one (an ordinary delivery). */
 bool pos_input_raw_decode(uint32_t delivered, pos_key_t *key, unsigned *mods);
 
+/* True while the raw target is the focused object of the group the device
+ * delivers to - the moment a raw key would reach it. */
+bool pos_input_raw_focused(void);
+
+/* ---- raw-only keys: the function row ----------------------------------- *
+ *
+ * A function key has no LVGL constant and no character, and a field must
+ * never receive one. Doors keeps the bare function row for its own shortcuts
+ * (ui/shell/hw_actions.h); with Fn held, the keyboard pushes F1..F12 as the
+ * codes below instead, and only a raw target (the Terminal) may receive
+ * them. Anything else they would reach is skipped at delivery, so a focus
+ * change between push and delivery cannot type one into a note. They sit in
+ * Unicode's Supplementary Private Use Area-A, inside the raw key mask. */
+#define POS_KEY_F_BASE 0xF0000u
+#define POS_KEY_F(n) (POS_KEY_F_BASE + (pos_key_t)(n))
+
+/* 1..12 for POS_KEY_F(1..12), else 0. */
+static inline int pos_key_function(pos_key_t key)
+{
+    return key > POS_KEY_F_BASE && key <= POS_KEY_F_BASE + 12u ? (int)(key - POS_KEY_F_BASE) : 0;
+}
+
 #endif

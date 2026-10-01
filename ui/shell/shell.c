@@ -39,13 +39,21 @@
 #include "shell_ipc.h"
 #include "shell_kb_state.h"
 #include "shell_kbd.h"
+#include "hw_actions.h"
+#include "hw_activity.h"
+#include "kbd_leds.h"
+#include "kbd_light.h"
+#include "pocketpaths.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #ifndef POCKETOS_DISPLAY_NAME
@@ -148,6 +156,18 @@ struct shell {
     struct brightness brightness; /* the panel's backlight device, probed once */
     struct volume_state volume;   /* the system volume and mute (volume.h) */
     struct shell_display display; /* this run's orientation and geometry, decided once */
+    struct kbd_light kbd_light;   /* the keyboard base's light (kbd_light.h) */
+    struct hw_activity activity;  /* microphone and camera in use (hw_activity.h) */
+    lv_timer_t *activity_timer;
+    unsigned indicators;          /* KBD_LED_MIC | KBD_LED_CAMERA at the last look */
+    bool camera_seen;             /* the camera's answer at its last look */
+    pid_t shot_pid;               /* the F7 capture being written, or 0 */
+    uint32_t shot_started;
+    char shot_path[POCKETOS_PATH_MAX];
+    unsigned shots;
+    lv_obj_t *osd;                /* the confirmation flash (osd_show) */
+    lv_obj_t *osd_label;
+    lv_timer_t *osd_timer;
 };
 
 static struct shell sh;
@@ -1339,6 +1359,514 @@ static const struct pocketos_app *find_app(const char *id)
     return NULL;
 }
 
+/* ---- the keyboard base's own keys (hw_actions.h) ------------------------ *
+ *
+ * The function row, the microphone key, the LILYGO key and the bench's
+ * shell.action all come here as one semantic action, and every one of them
+ * is carried out by a path the shell already has: app_open() through the
+ * registry, the back slab's pocketos_shell_go_home(), the setters Settings
+ * and Controls use for brightness and volume. hw_actions.c holds the rules -
+ * bounds, one instance per app, nothing while locked - and is tested on its
+ * own; this is only the host it runs against.
+ */
+
+static const char *host_current_app(void *ctx)
+{
+    (void)ctx;
+    return sh.app ? sh.app->id : NULL;
+}
+
+static int host_open_app(void *ctx, const char *id)
+{
+    const struct pocketos_app *app = find_app(id);
+
+    (void)ctx;
+    if (!app) {
+        LOG_WARN("action: no app %s in this build", id);
+        return -1;
+    }
+    app_open(app);
+    return 0;
+}
+
+/* The launcher's own page, whatever was over it: an app, Controls, a folder
+ * or the favorites' picker. */
+static void host_home(void *ctx)
+{
+    (void)ctx;
+    if (sh.app || controls_visible()) {
+        pocketos_shell_go_home();
+    }
+    home_folder_close();
+}
+
+/* Back, as the screen already offers it. An app that has its own way out of
+ * a sub-page takes it (app.h `back`); otherwise it is the header's back slab,
+ * which goes home. At home it closes Controls, a folder or the picker - the
+ * launcher's own Esc (home.c) - and at the launcher's page it does nothing.
+ * There is no navigation stack here to get out of step with the screen. */
+static enum hw_result host_back(void *ctx)
+{
+    (void)ctx;
+    if (sh.app) {
+        if (sh.app->back && sh.app->back(sh.app_priv)) {
+            return HW_RESULT_DONE;
+        }
+        pocketos_shell_go_home();
+        return HW_RESULT_DONE;
+    }
+    if (controls_visible()) {
+        controls_close();
+        return HW_RESULT_DONE;
+    }
+    if (home_folder_current() || home_favorite_picking() >= 0) {
+        home_folder_close();
+        return HW_RESULT_DONE;
+    }
+    return HW_RESULT_NOOP;
+}
+
+/* An alert takes every key while it is up (DS §18.8), and the lock keeps a
+ * pocket from opening apps: neither is walked past by a shortcut. */
+static bool host_locked(void *ctx)
+{
+    (void)ctx;
+    return shell_lock_is_locked() || shell_alarm_visible();
+}
+
+static int host_volume_get(void *ctx)
+{
+    (void)ctx;
+    return sh.volume.percent;
+}
+
+static int host_volume_set(void *ctx, int pct)
+{
+    (void)ctx;
+    return pocketos_shell_volume_set(pct) == 0 ? pct : -1;
+}
+
+static int host_brightness_get(void *ctx)
+{
+    (void)ctx;
+    return sh.brightness.supported ? pocketos_shell_brightness_get() : -1;
+}
+
+static int host_brightness_set(void *ctx, int pct)
+{
+    (void)ctx;
+    return pocketos_shell_brightness_set(pct);
+}
+
+/* ---- the keyboard light (kbd_light.h) ---------------------------------- */
+
+static int kbd_light_level(void)
+{
+    if (!sh.kbd_light.supported) {
+        return -1;
+    }
+    /* Nothing applied yet: U-Boot boots GPIO52 low, which is dark. */
+    return sh.kbd_light.percent < 0 ? 0 : sh.kbd_light.percent;
+}
+
+static int kbd_light_apply(int pct, bool persist)
+{
+    char value[12];
+    int applied;
+
+    if (!sh.kbd_light.supported) {
+        return -1;
+    }
+    if (shell_kbd_light_mux() < 0) {
+#if !(defined(POCKETOS_SHELL_TEST_HOOKS) && POCKETOS_SHELL_TEST_HOOKS)
+        /* Without the pin mux the PWM drives nothing; saying it worked would
+         * put a level in the store that no LED ever showed. */
+        LOG_WARN("keyboard light: no pin mux (keyboard bus unavailable)");
+        return -1;
+#endif
+    }
+    applied = kbd_light_set(&sh.kbd_light, pct);
+    if (applied < 0) {
+        LOG_WARN("keyboard light %d%% not applied: %s", pct, strerror(errno));
+        return -1;
+    }
+    if (persist) {
+        snprintf(value, sizeof(value), "%d", applied);
+        if (settings_set(HW_KBD_LIGHT_SETTING, value) < 0) {
+            LOG_WARN("keyboard light %d%% applied but not persisted to %s: %s", applied, settings_path(),
+                     strerror(errno));
+        }
+    }
+    LOG_INFO("keyboard light %d%%", applied);
+    return applied;
+}
+
+static int host_kbd_light_get(void *ctx)
+{
+    (void)ctx;
+    return kbd_light_level();
+}
+
+static int host_kbd_light_set(void *ctx, int pct)
+{
+    (void)ctx;
+    return kbd_light_apply(pct, true);
+}
+
+/* After the keyboard's bus exists (shell_kbd_probe), which owns the pin
+ * mux. A stored level is applied; with nothing stored the light is left as
+ * the board booted it. */
+static void kbd_light_restore(void)
+{
+    const char *stored;
+    int pct;
+
+    if (kbd_light_probe(&sh.kbd_light, sysfs_root()) != 0) {
+        LOG_INFO("keyboard light: no PWM, control unavailable");
+        return;
+    }
+    stored = settings_get(HW_KBD_LIGHT_SETTING, NULL);
+    if (!stored) {
+        LOG_INFO("keyboard light: %s, nothing stored, left as booted", sh.kbd_light.dir);
+        return;
+    }
+    if (kbd_light_parse(stored, &pct) < 0) {
+        LOG_WARN("keyboard light: stored %s=%s is not 0..100 in steps of %d, left as booted",
+                 HW_KBD_LIGHT_SETTING, stored, HW_KBD_LIGHT_STEP_PCT);
+        return;
+    }
+    if (kbd_light_apply(pct, false) >= 0) {
+        LOG_INFO("keyboard light: restored to %d%%", pct);
+    }
+}
+
+/* ---- F7: a screenshot ---------------------------------------------------- *
+ *
+ * The existing capture (screenshot_save) needs LV_USE_SNAPSHOT, which the
+ * vendor's LVGL on the card does not have (KNOWN_ISSUES). There, the frame
+ * is taken off the DRM plane by the image's own ffmpeg, already rotated to
+ * what the screen shows - the same capture every hardware gate has used
+ * (kmsgrab, rgb565le). It runs as a child and is reaped from the tick, so
+ * the UI never waits for it; one at a time.
+ */
+#define SHOT_TIMEOUT_MS 10000
+
+static const char *shots_dir(char *buf, size_t len)
+{
+    snprintf(buf, len, "%s/screenshots", pocketos_state_dir());
+    return buf;
+}
+
+static int shot_path(char *out, size_t len)
+{
+    char dir[POCKETOS_PATH_MAX];
+    char stamp[32];
+    time_t now = time(NULL);
+    struct tm tm;
+    int n;
+
+    shots_dir(dir, sizeof(dir));
+    if (pocketos_mkdir_p(dir, 0755) != 0) {
+        LOG_WARN("screenshot: cannot create %s: %s", dir, strerror(errno));
+        return -1;
+    }
+    if (!localtime_r(&now, &tm) || strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &tm) == 0) {
+        snprintf(stamp, sizeof(stamp), "%ld", (long)now);
+    }
+    for (n = 0; n < 100; n++) {
+        int w = n == 0 ? snprintf(out, len, "%s/screenshot-%s.png", dir, stamp)
+                       : snprintf(out, len, "%s/screenshot-%s-%d.png", dir, stamp, n);
+
+        if (w < 0 || (size_t)w >= len) {
+            return -1; /* a state directory too long to name a file in */
+        }
+        if (access(out, F_OK) != 0) {
+            return 0;
+        }
+    }
+    return -1;
+}
+
+static void osd_show(const char *text);
+
+static int host_screenshot(void *ctx)
+{
+    (void)ctx;
+    if (sh.shot_pid > 0) {
+        LOG_INFO("screenshot: one is still being written");
+        return -1;
+    }
+    if (shot_path(sh.shot_path, sizeof(sh.shot_path)) < 0) {
+        return -1;
+    }
+#if LV_USE_LODEPNG && LV_USE_SNAPSHOT
+    lv_refr_now(NULL);
+    if (screenshot_save(sh.shot_path) < 0) {
+        return -1;
+    }
+    sh.shots++;
+    osd_show("SCREENSHOT SAVED");
+    return 0;
+#else
+    {
+        pid_t pid = fork();
+
+        if (pid < 0) {
+            LOG_WARN("screenshot: fork: %s", strerror(errno));
+            return -1;
+        }
+        if (pid == 0) {
+            int fd;
+
+            /* Nothing of the shell's goes with it: the DRM master above all,
+             * which kmsgrab opens for itself. */
+            for (fd = 3; fd < 1024; fd++) {
+                close(fd);
+            }
+            fd = open("/dev/null", O_RDWR);
+            if (fd >= 0) {
+                dup2(fd, 0);
+                dup2(fd, 1);
+                dup2(fd, 2);
+            }
+            execlp("ffmpeg", "ffmpeg", "-y", "-loglevel", "error", "-f", "kmsgrab", "-i", "-", "-frames:v", "1",
+                   "-vf", "hwdownload,format=rgb565le", sh.shot_path, (char *)NULL);
+            _exit(127);
+        }
+        sh.shot_pid = pid;
+        sh.shot_started = lv_tick_get();
+        LOG_INFO("screenshot: capturing to %s", sh.shot_path);
+        return 0;
+    }
+#endif
+}
+
+/* From the tick: whether the capture child is done. */
+static void shot_reap(void)
+{
+    int status;
+    pid_t r;
+
+    if (sh.shot_pid <= 0) {
+        return;
+    }
+    r = waitpid(sh.shot_pid, &status, WNOHANG);
+    if (r == 0) {
+        if (lv_tick_elaps(sh.shot_started) > SHOT_TIMEOUT_MS) {
+            LOG_WARN("screenshot: capture took over %d ms, stopped", SHOT_TIMEOUT_MS);
+            kill(sh.shot_pid, SIGKILL);
+            (void)waitpid(sh.shot_pid, &status, 0);
+            unlink(sh.shot_path);
+            sh.shot_pid = 0;
+        }
+        return;
+    }
+    sh.shot_pid = 0;
+    if (r > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0 && access(sh.shot_path, F_OK) == 0) {
+        LOG_INFO("screenshot written to %s", sh.shot_path);
+        osd_show("SCREENSHOT SAVED");
+        sh.shots++;
+    } else {
+        LOG_WARN("screenshot: capture failed (%s %d)", r > 0 && WIFEXITED(status) ? "exit" : "status",
+                 r > 0 && WIFEXITED(status) ? WEXITSTATUS(status) : status);
+        unlink(sh.shot_path);
+        osd_show("SCREENSHOT FAILED");
+    }
+}
+
+/* ---- the confirmation flash ------------------------------------------------ *
+ *
+ * A level changed by a key the owner cannot see the effect of - the volume,
+ * the keyboard light at full daylight - needs a word on the screen. One
+ * label on the top layer, above apps and the lock, gone after a moment;
+ * taps go through it.
+ */
+#define OSD_MS 1200
+
+static void osd_hide(lv_timer_t *t)
+{
+    (void)t;
+    if (sh.osd) {
+        lv_obj_add_flag(sh.osd, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (sh.osd_timer) {
+        lv_timer_pause(sh.osd_timer);
+    }
+}
+
+static void osd_show(const char *text)
+{
+    if (!sh.osd) {
+        lv_obj_t *label;
+
+        sh.osd = lv_obj_create(lv_layer_top());
+        lv_obj_remove_style_all(sh.osd);
+        pos_style_add(sh.osd, POS_STYLE_SLAB, 0);
+        lv_obj_set_size(sh.osd, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        lv_obj_set_style_pad_hor(sh.osd, 24, 0);
+        lv_obj_set_style_pad_ver(sh.osd, 14, 0);
+        lv_obj_remove_flag(sh.osd, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(sh.osd, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_align(sh.osd, LV_ALIGN_TOP_MID, 0, POCKETUI_HEADER_H + 8);
+        label = lv_label_create(sh.osd);
+        pos_style_add(label, POS_STYLE_BUTTON_LABEL, 0);
+        pos_style_add(label, POS_STYLE_TEXT_PRIMARY, 0);
+        sh.osd_label = label;
+        sh.osd_timer = lv_timer_create(osd_hide, OSD_MS, NULL);
+    }
+    lv_label_set_text(sh.osd_label, text);
+    lv_obj_remove_flag(sh.osd, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(sh.osd);
+    lv_timer_reset(sh.osd_timer);
+    lv_timer_resume(sh.osd_timer);
+}
+
+static const struct hw_action_host hw_host = {
+    .ctx = NULL,
+    .current_app = host_current_app,
+    .open_app = host_open_app,
+    .home = host_home,
+    .back = host_back,
+    .locked = host_locked,
+    .volume_get = host_volume_get,
+    .volume_set = host_volume_set,
+    .brightness_get = host_brightness_get,
+    .brightness_set = host_brightness_set,
+    .kbd_light_get = host_kbd_light_get,
+    .kbd_light_set = host_kbd_light_set,
+    .screenshot = host_screenshot,
+};
+
+/* One action, from wherever it came. The levels confirm on screen, at the
+ * bound too, so a key that did nothing still says why. */
+static enum hw_result hw_dispatch(enum hw_action a, const char *source, int *value)
+{
+    char text[48];
+    int v = -1;
+    enum hw_result r = hw_action_run(&hw_host, a, &v);
+    const char *what = NULL;
+
+    LOG_INFO("action %s from %s: %s", hw_action_name(a), source, hw_result_name(r));
+    switch (a) {
+    case HW_ACTION_VOLUME_DOWN:
+    case HW_ACTION_VOLUME_UP:
+        what = "VOLUME";
+        break;
+    case HW_ACTION_BRIGHTNESS_DOWN:
+    case HW_ACTION_BRIGHTNESS_UP:
+        what = "BRIGHTNESS";
+        break;
+    case HW_ACTION_KBD_LIGHT_DOWN:
+    case HW_ACTION_KBD_LIGHT_UP:
+        what = "KEYBOARD LIGHT";
+        break;
+    default:
+        break;
+    }
+    if (what && (r == HW_RESULT_DONE || r == HW_RESULT_NOOP) && v >= 0) {
+        if (a == HW_ACTION_KBD_LIGHT_DOWN && v == 0) {
+            snprintf(text, sizeof(text), "%s OFF", what);
+        } else {
+            snprintf(text, sizeof(text), "%s %d%%", what, v);
+        }
+        osd_show(text);
+    }
+    if (value) {
+        *value = v;
+    }
+    return r;
+}
+
+static void on_hw_action(enum hw_action a, void *user)
+{
+    (void)user;
+    (void)hw_dispatch(a, "keyboard", NULL);
+}
+
+/* ---- the privacy LEDs (kbd_leds.h, hw_activity.h) ---------------------- *
+ *
+ * Twice a second: is a capture stream open; once a second: is a camera node
+ * held. Recomputed from the kernel every time, so an app that closed, a
+ * helper that died and a crash that took both with it all put their LED out
+ * on the next look. The camera costs a walk of every process's descriptors
+ * while nothing holds it - about 1 % of a core at 500 ms on unit B,
+ * 2026-09-30 - so it is looked at half as often; the microphone is a few
+ * small files.
+ */
+#define ACTIVITY_MS 500
+#define CAMERA_EVERY 2 /* activity ticks per camera look */
+
+static const char *proc_root(void)
+{
+#if defined(POCKETOS_SHELL_TEST_HOOKS) && POCKETOS_SHELL_TEST_HOOKS
+    const char *root = getenv("POCKETOS_TEST_PROC_ROOT");
+
+    if (root && root[0]) {
+        return root;
+    }
+#endif
+    return "/proc";
+}
+
+static void on_activity(lv_timer_t *t)
+{
+    static unsigned ticks;
+    unsigned now;
+
+    if (ticks++ % CAMERA_EVERY == 0) {
+        sh.camera_seen = hw_activity_camera(&sh.activity) != 0;
+    }
+    now = (hw_activity_mic(&sh.activity) ? KBD_LED_MIC : 0u) | (sh.camera_seen ? KBD_LED_CAMERA : 0u);
+    (void)t;
+    if (now != sh.indicators) {
+        if ((now ^ sh.indicators) & KBD_LED_MIC) {
+            LOG_INFO("microphone %s", now & KBD_LED_MIC ? "in use" : "released");
+        }
+        if ((now ^ sh.indicators) & KBD_LED_CAMERA) {
+            LOG_INFO("camera %s", now & KBD_LED_CAMERA ? "in use" : "released");
+        }
+        sh.indicators = now;
+    }
+    shell_kbd_set_indicators(now);
+}
+
+static cJSON *hardware_json(void)
+{
+    struct shell_kbd_status ks;
+    cJSON *o = cJSON_CreateObject();
+    cJSON *kb = cJSON_CreateObject();
+    cJSON *leds = cJSON_CreateObject();
+    cJSON *shot = cJSON_CreateObject();
+
+    shell_kbd_status(&ks);
+    cJSON_AddBoolToObject(kb, "present", ks.present);
+    cJSON_AddBoolToObject(kb, "caps", ks.caps);
+    cJSON_AddNumberToObject(kb, "delivered", ks.delivered);
+    cJSON_AddNumberToObject(kb, "reserved", ks.reserved);
+    cJSON_AddNumberToObject(kb, "actions", ks.actions);
+    cJSON_AddItemToObject(o, "keyboard", kb);
+    cJSON_AddBoolToObject(leds, "available", ks.leds);
+    cJSON_AddBoolToObject(leds, "caps", (ks.leds_shown & KBD_LED_CAPS) != 0);
+    cJSON_AddBoolToObject(leds, "mic", (ks.leds_shown & KBD_LED_MIC) != 0);
+    cJSON_AddBoolToObject(leds, "camera", (ks.leds_shown & KBD_LED_CAMERA) != 0);
+    cJSON_AddNumberToObject(leds, "failures", ks.led_failures);
+    if (ks.port_read == 0) {
+        /* The expander's own registers, read back now: what the pins do,
+         * not what the shell believes it wrote. */
+        cJSON_AddNumberToObject(leds, "output0", ks.output0);
+        cJSON_AddNumberToObject(leds, "config0", ks.config0);
+    }
+    cJSON_AddItemToObject(o, "leds", leds);
+    cJSON_AddBoolToObject(o, "microphone", (sh.indicators & KBD_LED_MIC) != 0);
+    cJSON_AddBoolToObject(o, "camera", (sh.indicators & KBD_LED_CAMERA) != 0);
+    cJSON_AddNumberToObject(o, "keyboard_light", kbd_light_level());
+    cJSON_AddBoolToObject(shot, "busy", sh.shot_pid > 0);
+    cJSON_AddNumberToObject(shot, "saved", sh.shots);
+    cJSON_AddStringToObject(shot, "last", sh.shot_path);
+    cJSON_AddItemToObject(o, "screenshot", shot);
+    return o;
+}
+
 static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client *c,
                              cJSON *req, void *user)
 {
@@ -1368,6 +1896,7 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         cJSON_AddItemToObject(result, "apps", list);
         cJSON_AddStringToObject(result, "current", sh.app ? sh.app->id : "home");
         cJSON_AddStringToObject(result, "theme", pos_theme_current_def()->id);
+        cJSON_AddItemToObject(result, "hardware", hardware_json());
         cJSON_AddStringToObject(result, "mode", pos_mode_name(pos_theme_current_mode()));
         cJSON_AddNumberToObject(display, "width", sh.display.geometry.width);
         cJSON_AddNumberToObject(display, "height", sh.display.geometry.height);
@@ -1590,6 +2119,66 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         app_open(app);
         result = cJSON_CreateObject();
         cJSON_AddStringToObject(result, "current", app->id);
+    } else if (strcmp(method, "shell.action") == 0) {
+        /* A hardware action by name (hw_actions.h): exactly what the key
+         * that carries it does, lock and all. For the bench and the tests. */
+        const cJSON *an = params ? cJSON_GetObjectItemCaseSensitive(params, "action") : NULL;
+        enum hw_action a;
+        enum hw_result r;
+        int v;
+
+        if (!cJSON_IsString(an) || hw_action_parse(an->valuestring, &a) != 0) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                  "action must be one of home, back, settings, "
+                                                                  "terminal, wave, vision, rift, screenshot, "
+                                                                  "volume_up|down, brightness_up|down, "
+                                                                  "keyboard_light_up|down"));
+            return;
+        }
+        r = hw_dispatch(a, "shell.action", &v);
+        result = cJSON_CreateObject();
+        cJSON_AddStringToObject(result, "action", hw_action_name(a));
+        cJSON_AddStringToObject(result, "result", hw_result_name(r));
+        if (v >= 0) {
+            cJSON_AddNumberToObject(result, "value", v);
+        }
+        cJSON_AddStringToObject(result, "current", sh.app ? sh.app->id : "home");
+    } else if (strcmp(method, "shell.key") == 0) {
+        /* Raw keyboard-base events, {"raw": [0xB2, 0x32]}: bit 7 press, the
+         * matrix code below. They take the physical key's own path
+         * (shell_kbd_inject) - the key map, the modifiers, the stream, the
+         * actions - which is how a key nobody can press remotely is tested
+         * on the device. {"code": 50} is a press and its release. */
+        const cJSON *raw = params ? cJSON_GetObjectItemCaseSensitive(params, "raw") : NULL;
+        const cJSON *code = params ? cJSON_GetObjectItemCaseSensitive(params, "code") : NULL;
+        uint8_t bytes[32];
+        size_t n = 0;
+        const cJSON *b;
+
+        if (cJSON_IsArray(raw) && cJSON_GetArraySize(raw) > 0 &&
+            (size_t)cJSON_GetArraySize(raw) <= sizeof(bytes)) {
+            cJSON_ArrayForEach(b, raw)
+            {
+                if (!cJSON_IsNumber(b) || b->valuedouble < 1 || b->valuedouble > 255 ||
+                    b->valuedouble != (double)b->valueint) {
+                    n = 0;
+                    break;
+                }
+                bytes[n++] = (uint8_t)b->valueint;
+            }
+        } else if (cJSON_IsNumber(code) && code->valuedouble >= 1 && code->valuedouble <= 127 &&
+                   code->valuedouble == (double)code->valueint) {
+            bytes[n++] = (uint8_t)(0x80 | code->valueint);
+            bytes[n++] = (uint8_t)code->valueint;
+        }
+        if (n == 0) {
+            pocketipc_server_reply(s, c, pocketipc_error_response(id, POCKETIPC_ERR_INVALID_PARAMS,
+                                                                  "raw must be 1..32 bytes 1..255, or code 1..127"));
+            return;
+        }
+        result = cJSON_CreateObject();
+        cJSON_AddNumberToObject(result, "taken", (double)shell_kbd_inject(bytes, n));
+        cJSON_AddStringToObject(result, "current", sh.app ? sh.app->id : "home");
     } else if (strcmp(method, "shell.home") == 0) {
         shell_lock_open(false, "shell.home");
         pocketos_shell_go_home();
@@ -1855,6 +2444,7 @@ static void on_tick(lv_timer_t *timer)
     clock_runtime_step();
     status_update();
     controls_tick();
+    shot_reap();
     if (sh.app && sh.app->tick) {
         sh.app->tick(sh.app_priv);
     }
@@ -2060,6 +2650,7 @@ int main(int argc, char **argv)
      * boot level while the launcher draws. */
     brightness_restore();
     volume_restore();
+    kbd_light_restore();
     screen = lv_screen_active();
     pocketui_style_screen(screen);
     sh.landscape = is_landscape(sh.display.geometry.rotation);
@@ -2204,6 +2795,14 @@ int main(int argc, char **argv)
     status_update();
     sh.screenshot_pending = sh.screenshot_path != NULL;
     sh.tick = lv_timer_create(on_tick, 1000, NULL);
+    /* The keyboard base's own keys, and the LEDs that say what the
+     * microphone and the camera are doing. */
+    shell_kbd_on_action(on_hw_action, NULL);
+    if (hw_activity_init(&sh.activity, proc_root(), sysfs_root()) == 0) {
+        LOG_INFO("camera: no capture node found; the camera LED stays off");
+    }
+    on_activity(NULL);
+    sh.activity_timer = lv_timer_create(on_activity, ACTIVITY_MS, NULL);
     lv_timer_set_period(sh.tick, sh.screenshot_pending ? 300 : 1000);
 
     /* After the display backend, so this wins over the handlers SDL installs

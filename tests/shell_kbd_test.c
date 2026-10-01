@@ -13,7 +13,9 @@
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
+#include "hw_actions.h"
 #include "kbd_bus.h"
+#include "kbd_leds.h"
 #include "pocketui.h"
 #include "pos_input.h"
 #include "shell_kbd.h"
@@ -143,12 +145,48 @@ static int fake_irq(void *ctx)
     return chip.i < chip.n ? 0 : 1; /* asserted while the FIFO has events */
 }
 
+/* The XL9555 behind the indicator LEDs, on the same fake bus. */
+static uint8_t xl[8] = { 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0xFF, 0xFF };
+
+static int fake_read_at(void *ctx, uint8_t addr, uint8_t reg, uint8_t *value)
+{
+    (void)ctx;
+    if (!chip.claimed || addr != 0x20 || reg > 7) {
+        return -1;
+    }
+    *value = xl[reg];
+    return 0;
+}
+
+static int fake_write_at(void *ctx, uint8_t addr, uint8_t reg, uint8_t value)
+{
+    (void)ctx;
+    if (!chip.claimed || addr != 0x20 || reg > 7) {
+        return -1;
+    }
+    xl[reg] = value;
+    return 0;
+}
+
+/* Lit: an output driven low (active low). */
+static int led_lit(uint8_t pin)
+{
+    return !(xl[6] & pin) && !(xl[2] & pin);
+}
+
 static const struct kbd_bus fake_bus = {
-    fake_claim, fake_release, fake_read, fake_write, fake_reset, fake_irq, NULL
+    fake_claim, fake_release, fake_read, fake_write, fake_reset, fake_irq, NULL,
+    fake_read_at, fake_write_at
 };
 
 static void feed(uint8_t raw)
 {
+    /* A drained FIFO starts again at the front, as the real one does; the
+     * array would otherwise fill up over a long test and drop events. */
+    if (chip.i == chip.n) {
+        chip.n = 0;
+        chip.i = 0;
+    }
     if (chip.n < FIFO_MAX) {
         chip.fifo[chip.n++] = raw;
     }
@@ -194,6 +232,34 @@ static int wait_for_count(const unsigned *counter, unsigned before, int max_50ms
 #define C_RELEASE 0x10
 #define UP_PRESS 0x96  /* code 22 */
 #define TAB_PRESS 0x86 /* code 6 */
+
+#define FN_PRESS 0x89     /* code 9 */
+#define FN_RELEASE 0x09
+#define F1_RELEASE 0x32
+#define F2_PRESS 0xBC     /* code 60 */
+#define F5_PRESS 0xC3     /* code 67 */
+#define F5_RELEASE 0x43
+#define F8_PRESS 0xC0     /* code 64 */
+#define F8_RELEASE 0x40
+#define MIC_PRESS 0x8B    /* code 11 */
+#define MIC_RELEASE 0x0B
+#define LILYGO_PRESS 0x88 /* code 8 */
+#define LILYGO_RELEASE 0x08
+#define CAPS_PRESS 0x8A   /* code 10 */
+#define CAPS_RELEASE 0x0A
+
+/* The actions the driver handed on. */
+static enum hw_action acted[16];
+static int acted_n;
+
+static void on_action(enum hw_action a, void *user)
+{
+    (void)user;
+    if (acted_n < 16) {
+        acted[acted_n] = a;
+    }
+    acted_n++;
+}
 
 /* What a raw key target (the Terminal) received. */
 static pos_key_t raw_keys[8];
@@ -406,14 +472,150 @@ int main(void)
                   lv_textarea_get_text(field), "w_wwwww");
     }
 
+    /* ---- 5d. the keys that type nothing: actions ------------------------ *
+     *
+     * The function row, the microphone key and the LILYGO key become the
+     * semantic actions of hw_actions.h, handed on after the drain, on the
+     * press only. Nothing of them reaches a field. */
+    shell_kbd_on_action(on_action, NULL);
+    feed(F1_PRESS);
+    settle();
+    check("F1 hands on Home", acted_n == 1 && acted[0] == HW_ACTION_HOME);
+    feed(F1_RELEASE);
+    settle();
+    check("its release hands on nothing", acted_n == 1);
+    feed(F8_PRESS);
+    feed(F8_RELEASE);
+    feed(MIC_PRESS);
+    feed(MIC_RELEASE);
+    feed(LILYGO_PRESS);
+    feed(LILYGO_RELEASE);
+    settle();
+    check("F8, mic and LILYGO in one drain: Terminal, Wave, Terminal, in order",
+          acted_n == 4 && acted[1] == HW_ACTION_TERMINAL && acted[2] == HW_ACTION_WAVE &&
+              acted[3] == HW_ACTION_TERMINAL);
+    feed(F8_PRESS); /* held: the controller does not repeat */
+    settle();
+    settle();
+    check("a held key is one action", acted_n == 5);
+    feed(F8_RELEASE);
+    settle();
+    check_str("none of them typed anything", lv_textarea_get_text(field), "w_wwwww");
+
+    /* Ordinary typing still types, and hands on no action. */
+    feed(W_PRESS);
+    feed(W_RELEASE);
+    settle();
+    check_str("W still types", lv_textarea_get_text(field), "w_wwwwww");
+    check("and is no action", acted_n == 5);
+
+    /* Fn with a function key over a field (no raw target): the shortcut,
+     * and no character. */
+    feed(FN_PRESS);
+    feed(F5_PRESS);
+    feed(F5_RELEASE);
+    feed(FN_RELEASE);
+    settle();
+    check("Fn+F5 over a field: the volume shortcut", acted_n == 6 && acted[5] == HW_ACTION_VOLUME_DOWN);
+    check_str("and nothing typed", lv_textarea_get_text(field), "w_wwwwww");
+
+    /* A raw-only key can never be typed into a field, whoever pushes it. */
+    pos_input_push_key(POS_KEY_F(3));
+    settle();
+    check_str("a raw F-key pushed at a field is dropped", lv_textarea_get_text(field), "w_wwwwww");
+
+    /* With the Terminal (a raw target) focused, Fn+F5 is the key itself. */
+    {
+        lv_obj_t *raw = lv_obj_create(screen);
+
+        raw_count = 0;
+        pos_input_add_obj(raw);
+        pos_input_focus(raw);
+        pos_input_set_raw_target(raw);
+        lv_obj_add_event_cb(raw, on_raw_key, LV_EVENT_KEY, NULL);
+        settle();
+        feed(FN_PRESS);
+        feed(F5_PRESS);
+        feed(F5_RELEASE);
+        feed(FN_RELEASE);
+        settle();
+        check("Fn+F5 at the Terminal: F5 delivered raw", raw_count == 1 && raw_keys[0] == POS_KEY_F(5));
+        check("and no action", acted_n == 6);
+        feed(F5_PRESS);
+        feed(F5_RELEASE);
+        settle();
+        check("bare F5 at the Terminal: still the shortcut",
+              acted_n == 7 && acted[6] == HW_ACTION_VOLUME_DOWN && raw_count == 1);
+        feed(CTRL_PRESS);
+        feed(C_PRESS);
+        feed(C_RELEASE);
+        feed(CTRL_RELEASE);
+        settle();
+        check("Ctrl+C still reaches the Terminal as a chord",
+              raw_count == 2 && raw_keys[1] == 'c' && raw_mods[1] == POS_INPUT_MOD_CTRL);
+        pos_input_set_raw_target(NULL);
+        lv_obj_delete(raw);
+        pos_input_focus(field);
+        settle();
+    }
+
+    /* The bench's path: raw bytes through the same map. */
+    {
+        const uint8_t f2[2] = { F2_PRESS, 0x3C };
+        const uint8_t w[2] = { W_PRESS, W_RELEASE };
+
+        check("inject takes both bytes", shell_kbd_inject(f2, 2) == 2);
+        check("an injected F2 hands on Settings", acted_n == 8 && acted[7] == HW_ACTION_SETTINGS);
+        shell_kbd_inject(w, 2);
+        settle();
+        check_str("an injected W types", lv_textarea_get_text(field), "w_wwwwwww");
+    }
+
+    /* ---- 5e. the indicator LEDs ------------------------------------------ */
+    check("the LEDs came up with the keyboard", xl[6] == (0xFF & ~KBD_LEDS_PINS));
+    check("all dark at the start",
+          !led_lit(KBD_LEDS_PIN_CAPS) && !led_lit(KBD_LEDS_PIN_MIC) && !led_lit(KBD_LEDS_PIN_CAMERA));
+    feed(CAPS_PRESS);
+    feed(CAPS_RELEASE);
+    settle();
+    check("Caps on: its LED lit", led_lit(KBD_LEDS_PIN_CAPS));
+    feed(W_PRESS);
+    feed(W_RELEASE);
+    settle();
+    check_str("and W types a capital", lv_textarea_get_text(field), "w_wwwwwwwW");
+    feed(CAPS_PRESS);
+    feed(CAPS_RELEASE);
+    settle();
+    check("Caps off: dark", !led_lit(KBD_LEDS_PIN_CAPS));
+    shell_kbd_set_indicators(KBD_LED_MIC);
+    check("microphone in use: its LED alone",
+          led_lit(KBD_LEDS_PIN_MIC) && !led_lit(KBD_LEDS_PIN_CAMERA) && !led_lit(KBD_LEDS_PIN_CAPS));
+    shell_kbd_set_indicators(KBD_LED_MIC | KBD_LED_CAMERA);
+    check("camera too", led_lit(KBD_LEDS_PIN_MIC) && led_lit(KBD_LEDS_PIN_CAMERA));
+    shell_kbd_set_indicators(KBD_LED_CAPS | KBD_LED_CAMERA);
+    check("the shell cannot set Caps; the microphone released",
+          !led_lit(KBD_LEDS_PIN_CAPS) && !led_lit(KBD_LEDS_PIN_MIC) && led_lit(KBD_LEDS_PIN_CAMERA));
+    feed(CAPS_PRESS);
+    settle();
+    check("Caps on again", led_lit(KBD_LEDS_PIN_CAPS));
+    chip.reg[0x02] = 0x08; /* an overflow drops the modifier state, Caps too */
+    feed(W_PRESS);
+    settle();
+    check("an overflow that drops Caps puts its LED out", !led_lit(KBD_LEDS_PIN_CAPS));
+    feed(W_RELEASE);
+    settle();
+
     /* ---- 6. destroy stops the keyboard --------------------------------- */
 
     shell_kbd_destroy();
+    check("destroy leaves every LED dark",
+          !led_lit(KBD_LEDS_PIN_CAPS) && !led_lit(KBD_LEDS_PIN_MIC) && !led_lit(KBD_LEDS_PIN_CAMERA));
+
     feed(W_PRESS);
     feed(W_RELEASE);
     settle();
     check_str("nothing arrives once the keyboard is destroyed",
-              lv_textarea_get_text(field), "w_wwwww");
+              lv_textarea_get_text(field), "w_wwwwwwwWw");
 
     printf("shell_kbd_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
