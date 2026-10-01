@@ -1,7 +1,8 @@
-# RIFT management - hardware gate (NOT RUN)
+# RIFT management - hardware gate (NOT RUN; unit B smoke only)
 
-Branch `feat/rift-management`. Prepared 2026-10-01; **nothing here has been run
-on a unit**. Host evidence is in the branch's commits and in
+Branch `feat/rift-management`. Prepared 2026-10-01. **The full gate below has
+not been run.** A no-RF smoke on unit B is recorded at the end ("Unit B smoke,
+2026-10-01"). Host evidence is in the branch's commits and in
 `docs/apps/RIFT.md` ("Managing the node", "Emoji and other text").
 
 State the unit's build at the top of the sheet when it is run (the shell's
@@ -72,3 +73,37 @@ power. Nothing else here puts a packet on the air.
 `/root/rollback-rift-management/RESTORE.sh`, then `rm
 /var/lib/pocketos/meshcored/settings.v1` if step 8 left anything but 1 byte
 (or set it back from RIFT first).
+
+## Unit B smoke, 2026-10-01
+
+Not the gate: a hot-deploy smoke of the read-only and no-RF paths, run while
+the branch was being written. Unit B (`K230-B`), landscape.
+
+**Build on the unit during the smoke:** doors-shell from `2f4a11f` (riscv64
+DRM build, sha256 `e1fcd404…`), meshcored from `5bc1ea3` (sha256
+`f52e3f30…`). Earlier passes ran shells from `5bc1ea3` and `eff83c6`.
+**Build on the unit afterwards:** restored by `RESTORE.sh` to doors-shell
+`11ab0d9` and meshcored `749f4f1`, as found; `/root/rollback-rift-management/`
+is kept on the unit.
+
+| Check | Result |
+| --- | --- |
+| RIFT opens on ACTIVITY, read from the top | PASS on `2f4a11f` (on `5bc1ea3` it opened scrolled to the CHANNELS form: fixed in `eff83c6` and `2f4a11f`) |
+| THIS DEVICE: RENAME | disabled with the MESHCORED_NAME caption (unit B's name is pinned) - PASS |
+| THIS DEVICE: path hash | `1 B` shown as chosen, from `mesh.path_hash` - PASS (not changed) |
+| NODES search | `rep` -> 38 of 256, `mstr` -> 2 of 256, Esc restores 256 - PASS |
+| ZERO-HOP | empty result, says so: no node had an advert heard in the window - PASS for the empty state only |
+| NET | real rings: SELF, DIRECT `Mstr_k230` `Mstr_m5`, 254 NO PATH - PASS |
+| COMMS empty note | says channels are joined on ACTIVITY - PASS on `eff83c6`+ |
+| Back -> ACTIVITY, Home, reopen | PASS, no crash, 0 ERROR lines in `shell.log` |
+| RF | `tx_submitted` 0 throughout: nothing transmitted |
+
+Not exercised on hardware: ADD / LEAVE a channel, a successful rename, path
+hash 2 or 3 bytes on air, ZERO-HOP with real advert data, the emoji step, the
+COMMS sender order with live traffic. Those are steps 1, 3 (with data), 5-9
+above.
+
+![ACTIVITY on unit B](shots/rift-mgmt-unitB-activity.png)
+![NODES search "mstr"](shots/rift-mgmt-unitB-nodes-search.png)
+![ZERO-HOP, empty](shots/rift-mgmt-unitB-zero-hop-empty.png)
+![NET](shots/rift-mgmt-unitB-net.png)

@@ -1063,7 +1063,7 @@ so that pass stayed the size it was scoped to be.
   yet been read by another MeshCore client on air, and no 2- or 3-byte path
   hash flood from meshcored has crossed a real repeater: older repeater
   firmware drops floods whose path it cannot read, which RIFT's confirmation
-  says. Gate sheet: `docs/hardware/RIFT_MANAGEMENT_GATE.md` (not run).
+  says. Gate sheet: `docs/hardware/RIFT_MANAGEMENT_GATE.md` (not run; a no-RF unit B smoke passed).
 - **No flood scopes, so a channel's scope cannot be set.** meshcored writes
   no transport codes (upstream's per-channel scope is a TODO; the T-Deck
   RIFT's is its own extension). Every channel floods unscoped, and the
