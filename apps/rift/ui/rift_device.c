@@ -243,6 +243,7 @@ void rift_device_refresh(struct rift_app *app)
                           : "The name goes out in this node's adverts and in front of every "
                             "channel message.");
     rift_form_show(v->rename_form, v->rename_open && !pinned);
+    rift_form_field_live(v->rename_field, v->rename_open && !pinned);
     rift_label_set(v->rename_status, v->rename_error);
     rift_form_show(v->rename_status, v->rename_error[0] != '\0');
 

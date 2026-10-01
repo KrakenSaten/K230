@@ -447,6 +447,8 @@ static void refresh_form(struct rift_manage *v, int ready)
 
     rift_form_show(v->form, v->form_open);
     if (!v->form_open) {
+        rift_form_field_live(v->name_field, 0);
+        rift_form_field_live(v->key_field, 0);
         return;
     }
     if (v->kind != v->kind_drawn) {
@@ -459,6 +461,8 @@ static void refresh_form(struct rift_manage *v, int ready)
     if (v->key_field) {
         rift_form_show(lv_obj_get_parent(v->key_field), v->kind == RIFT_CHANNEL_KEY);
     }
+    rift_form_field_live(v->name_field, 1);
+    rift_form_field_live(v->key_field, v->kind == RIFT_CHANNEL_KEY);
     if (v->form_error[0]) {
         rift_label_set(v->form_status, v->form_error);
     } else if (v->add_pending) {

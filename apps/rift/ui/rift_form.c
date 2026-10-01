@@ -7,6 +7,7 @@
 
 #include "app.h"
 #include "pocketui.h"
+#include "pos_input.h"
 #include "pos_styles.h"
 
 lv_obj_t *rift_form_row(lv_obj_t *parent, int32_t height)
@@ -128,8 +129,25 @@ lv_obj_t *rift_form_field(struct rift_app *app, lv_obj_t *parent, const char *pl
         lv_textarea_set_max_length(f, max_chars);
         lv_obj_add_event_cb(f, on_field_clicked, LV_EVENT_CLICKED, app);
         lv_obj_add_event_cb(f, on_field_ready, LV_EVENT_READY, app);
+        /* Out of the focus group until its form opens (rift_form_field_live). */
+        rift_form_field_live(f, 0);
     }
     return f;
+}
+
+void rift_form_field_live(lv_obj_t *field, int live)
+{
+    int in_group;
+
+    if (!field) {
+        return;
+    }
+    in_group = lv_obj_get_group(field) != NULL;
+    if (live && !in_group) {
+        pos_input_add_obj(field);
+    } else if (!live && in_group) {
+        lv_group_remove_obj(field);
+    }
 }
 
 int rift_form_service_ready(const struct rift_app *app)

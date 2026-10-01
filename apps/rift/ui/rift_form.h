@@ -31,6 +31,12 @@ void rift_form_typed(lv_obj_t *field, char *out, size_t out_len);
  * finger in portrait and put away on Done. */
 lv_obj_t *rift_form_field(struct rift_app *app, lv_obj_t *parent, const char *placeholder,
                           uint32_t max_chars);
+/* Whether a field is in the Doors focus group. A field is made out of it,
+ * and is put in only while the form that holds it is open: a field in a
+ * closed form is one TAB would walk into, and one LVGL focuses - and scrolls
+ * ACTIVITY to - when it is the first object the group gets. Changed only on
+ * a change, because re-adding moves the focus (lvgl-layout gotcha 4). */
+void rift_form_field_live(lv_obj_t *field, int live);
 /* Whether the service can be asked anything now. Whether its radio can send
  * does not matter: nothing asked from these panels is a packet. */
 int rift_form_service_ready(const struct rift_app *app);

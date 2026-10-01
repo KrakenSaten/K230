@@ -615,9 +615,9 @@ void rift_comms_refresh(struct rift_app *app)
             lv_label_set_text(v->note, "Waiting for meshcored.");
         } else {
             lv_label_set_text(v->note,
-                              "No conversations and no channels. A channel is joined with its "
-                              "key on the radio service, not here; a conversation is started "
-                              "from a node's MESSAGE.");
+                              "No conversations and no channels. A channel is joined on "
+                              "ACTIVITY, under CHANNELS; a conversation is started from a "
+                              "node's MESSAGE.");
         }
         note_shown(v->note, 1);
     } else if (m->stale) {

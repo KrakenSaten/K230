@@ -1970,6 +1970,15 @@ static void manage_session(void)
     rift_app_show_section(app, RIFT_SEC_ACTIVITY);
     pump(120);
 
+    /* Found on unit B: ACTIVITY opened scrolled down. A field in a closed
+     * form was the first object the focus group got, LVGL focused it, and
+     * focusing scrolls. Closed forms keep their fields out of the group. */
+    check("closed forms keep their fields out of the focus group",
+          lv_obj_get_group(rift_manage_name_field(app)) == NULL &&
+              lv_obj_get_group(rift_manage_key_field(app)) == NULL &&
+              lv_obj_get_group(rift_device_rename_field(app)) == NULL);
+    check("so the keys go to the app's key sink, and ACTIVITY is read from its top",
+          pos_input_focused() == app->keysink && lv_obj_get_scroll_y(app->activity_root) == 0);
     check("ACTIVITY lists the channels the service holds",
           find_exact(content(), "SITE") != NULL && find_exact(content(), "OPS") != NULL);
     check("with their slot, hash and key size",
@@ -2029,6 +2038,9 @@ static void manage_session(void)
           rift_manage_name_field(app) && visible(rift_manage_name_field(app)) &&
               find_text(content(), "A public topic") != NULL);
     check("with no key field for a hashtag", !visible(rift_manage_key_field(app)));
+    check("its name field joins the focus group while the form is open, the key's does not",
+          lv_obj_get_group(rift_manage_name_field(app)) != NULL &&
+              lv_obj_get_group(rift_manage_key_field(app)) == NULL);
     join = action_of(find_exact(content(), "JOIN"));
     tap(join);
     pump(150);
@@ -3066,7 +3078,7 @@ int main(void)
      * of the two it is rather than leaving a reader who knows the design to
      * wonder where the channels went. */
     check("and says where a channel is joined",
-          find_text(content(), "joined with its key on the radio service") != NULL);
+          find_text(content(), "joined on ACTIVITY, under CHANNELS") != NULL);
 
     give_messages();
     check("the history on opening makes no sound", fake_plays == 0);
