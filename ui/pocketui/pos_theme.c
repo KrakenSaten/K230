@@ -150,7 +150,7 @@ static void derive(struct pos_theme_tokens *t)
 {
     uint32_t *c = t->color;
 
-    c[POS_COLOR_TEXT_MUTED] = pos_mix(c[POS_COLOR_TEXT_SECONDARY], c[POS_COLOR_BG], 0.35);
+    c[POS_COLOR_TEXT_MUTED] = pos_mix(c[POS_COLOR_TEXT_SECONDARY], c[POS_COLOR_BG], 0.20); /* DS §46.7: 4.5:1 */
     c[POS_COLOR_TEXT_ON_ACCENT] = c[POS_COLOR_BG];
     c[POS_COLOR_NET_CONNECTED] = c[POS_COLOR_STATUS_OK];
     c[POS_COLOR_FOCUS] = c[POS_COLOR_ACCENT_PRIMARY];
@@ -353,6 +353,33 @@ uint32_t pos_theme_rgb(enum pos_color_token token)
     return (token >= 0 && token < POS_COLOR_COUNT) ? cur_tokens.color[token] : 0xff00ff;
 }
 
+static enum pos_text_size cur_text_size = POS_TEXT_SIZE_DEFAULT;
+
+int pos_theme_select_text_size(enum pos_text_size size)
+{
+    int rc = 0;
+
+    if (size < 0 || size >= POS_TEXT_SIZE_COUNT) {
+        size = POS_TEXT_SIZE_SMALL;
+        rc = -1;
+    }
+    if (size != cur_text_size) {
+        cur_text_size = size;
+        notify();
+    }
+    return rc;
+}
+
+enum pos_text_size pos_theme_current_text_size(void)
+{
+    return cur_text_size;
+}
+
+struct pos_type_spec pos_type_current(enum pos_type_role role)
+{
+    return pos_type_resolve(role, cur_text_size, pos_theme_current_mode());
+}
+
 int pos_theme_add_listener(pos_theme_listener_t cb, void *user)
 {
     int i;
@@ -377,6 +404,84 @@ void pos_theme_remove_listener(pos_theme_listener_t cb, void *user)
             listeners[i].user = NULL;
         }
     }
+}
+
+/* ---- text size and type roles (DS §46) --------------------------------- */
+
+static const char *const text_size_names[POS_TEXT_SIZE_COUNT] = { "small", "medium", "large" };
+
+const char *pos_text_size_name(enum pos_text_size size)
+{
+    return (size >= 0 && size < POS_TEXT_SIZE_COUNT) ? text_size_names[size] : "?";
+}
+
+int pos_text_size_parse(const char *text, enum pos_text_size *out)
+{
+    int i;
+
+    if (!text) {
+        return -1;
+    }
+    for (i = 0; i < POS_TEXT_SIZE_COUNT; i++) {
+        if (strcmp(text, text_size_names[i]) == 0) {
+            *out = (enum pos_text_size)i;
+            return 0;
+        }
+    }
+    return -1;
+}
+
+/* The type scale. The Small column is §3's, unchanged; Medium is about 1.2
+ * times it and Large about 1.4, rounded to the sizes ui/pocketui/fonts
+ * carries. Roles that are already display-sized keep one size: a 48 px
+ * numeral is not what anybody needs larger, and growing it would only push
+ * what is under it off the screen. The launcher's cell names grow less than
+ * reading text because a cell is a fixed 124 px wide in portrait; DS §46
+ * explains each choice. */
+static const struct {
+    const char *name;
+    enum pos_type_face face;
+    int px[POS_TEXT_SIZE_COUNT];
+} type_scale[POS_TYPE_COUNT] = {
+    [POS_TYPE_BODY] = { "body", POS_FACE_SANS, { 16, 19, 22 } },
+    [POS_TYPE_LABEL] = { "label", POS_FACE_SANS, { 20, 24, 28 } },
+    [POS_TYPE_TITLE] = { "title", POS_FACE_SANS_SEMIBOLD, { 24, 28, 32 } },
+    [POS_TYPE_META] = { "meta", POS_FACE_MONO, { 14, 17, 19 } },
+    [POS_TYPE_BUTTON] = { "button", POS_FACE_MONO_MEDIUM, { 16, 19, 22 } },
+    [POS_TYPE_VALUE] = { "value", POS_FACE_MONO, { 20, 24, 28 } },
+    [POS_TYPE_DISPLAY_40] = { "display-40", POS_FACE_SANS_SEMIBOLD, { 40, 40, 40 } },
+    [POS_TYPE_DISPLAY_48] = { "display-48", POS_FACE_SANS_SEMIBOLD, { 48, 48, 48 } },
+    [POS_TYPE_ENV_LABEL] = { "env-label", POS_FACE_SANS, { 20, 22, 24 } },
+    [POS_TYPE_ENV_SMALL] = { "env-small", POS_FACE_SANS, { 16, 19, 22 } },
+    [POS_TYPE_ENV_CAPTION] = { "env-caption", POS_FACE_SANS, { 16, 19, 22 } },
+    [POS_TYPE_ENV_TITLE] = { "env-title", POS_FACE_SANS_SEMIBOLD, { 40, 40, 40 } },
+};
+
+const char *pos_type_role_name(enum pos_type_role role)
+{
+    return (role >= 0 && role < POS_TYPE_COUNT) ? type_scale[role].name : "?";
+}
+
+struct pos_type_spec pos_type_resolve(enum pos_type_role role, enum pos_text_size size,
+                                      enum pos_mode mode)
+{
+    struct pos_type_spec s;
+
+    if (role < 0 || role >= POS_TYPE_COUNT) {
+        role = POS_TYPE_BODY;
+    }
+    if (size < 0 || size >= POS_TEXT_SIZE_COUNT) {
+        size = POS_TEXT_SIZE_SMALL;
+        mode = POS_MODE_NORMAL;
+    }
+    s.face = type_scale[role].face;
+    s.px = type_scale[role].px[size];
+    /* §6: Outdoor's type_default is a floor under body text, whatever the
+     * text size, so Small in Outdoor is exactly what Outdoor always was. */
+    if (role == POS_TYPE_BODY && mode == POS_MODE_OUTDOOR && s.px < 20) {
+        s.px = 20;
+    }
+    return s;
 }
 
 /* ---- identity accents (DS §37) ----------------------------------------- */

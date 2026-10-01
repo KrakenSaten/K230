@@ -939,9 +939,26 @@ static void layout(struct zabbix_app *a)
      * (wide), three by two otherwise: a 74 px cell cut it to "DISAS...". */
     {
         int s;
+        bool six = a->wide;
 
         for (s = 0; s < ZBX_SEV_COUNT; s++) {
-            lv_obj_set_width(a->ov_sev_cell[s], a->wide ? LV_PCT(15) : LV_PCT(31));
+            lv_obj_set_width(a->ov_sev_cell[s], six ? LV_PCT(15) : LV_PCT(31));
+        }
+        /* Whether the words fit six in a line is measured, not assumed from
+         * the shape: at a larger text size (DS §46) they may not, and three
+         * by two is the shape that has room for them. Outside a layout pass
+         * (the timer runs this), so laying out to measure is allowed. */
+        if (six) {
+            lv_obj_update_layout(a->frame);
+            for (s = 0; s < ZBX_SEV_COUNT && six; s++) {
+                /* The word itself: a label in the dots mode has already
+                 * shortened its own text to fit. */
+                six = pocketui_text_width(a->ov_sev_word[s], zbx_severity_word(ZBX_SEV_COUNT - 1 - s)) <=
+                      lv_obj_get_content_width(a->ov_sev_word[s]);
+            }
+            for (s = 0; s < ZBX_SEV_COUNT && !six; s++) {
+                lv_obj_set_width(a->ov_sev_cell[s], LV_PCT(31));
+            }
         }
     }
     lv_obj_invalidate(a->frame);
@@ -1025,6 +1042,11 @@ static lv_obj_t *list_title(lv_obj_t *parent, const char *text, lv_obj_t **age)
     lv_obj_set_style_pad_hor(l, ROW_PAD, 0);
     lv_obj_set_style_pad_bottom(l, 6, 0);
     t = grow(one_line(l, text, POS_STYLE_CAPTION));
+    /* Two lines before the dots: at a larger text size "100 of 1 200 open ·
+     * most severe first" lost its point to them on one (DS §46.5). One line
+     * where one line holds it, as it always was. */
+    lv_obj_set_height(t, LV_SIZE_CONTENT);
+    pocketui_label_fit(t, 2);
     *age = one_line(l, "", POS_STYLE_CAPTION);
     lv_obj_set_width(*age, LV_SIZE_CONTENT);
     lv_label_set_long_mode(*age, LV_LABEL_LONG_CLIP);

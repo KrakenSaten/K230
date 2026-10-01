@@ -362,6 +362,18 @@ static void build_alarm_list(struct clock_app *a)
              * is cut with an ellipsis rather than drawn over them. */
             lv_label_set_long_mode(caption, LV_LABEL_LONG_DOT);
             lv_obj_set_width(caption, LV_PCT(100));
+            /* As many whole lines as the row leaves under the time, and the
+             * dots on the last: a dotted label of automatic height wraps
+             * instead, and at a larger text size its second line ran out of
+             * the 64 px row (DS §46.5). Two lines at Small, as it could
+             * always have; one at Large. */
+            {
+                int32_t room = POCKETUI_ROW_H -
+                               lv_font_get_line_height(lv_obj_get_style_text_font(time_lb, LV_PART_MAIN));
+                int32_t line = lv_font_get_line_height(lv_obj_get_style_text_font(caption, LV_PART_MAIN));
+
+                pocketui_label_fit(caption, line > 0 && room / line > 1 ? (int)(room / line) : 1);
+            }
         }
 
         /* On and Off in words, never a colour alone (DS §2). */

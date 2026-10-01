@@ -8,18 +8,107 @@
  */
 #include "pos_styles.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 LV_FONT_DECLARE(pos_font_sans_16)
+LV_FONT_DECLARE(pos_font_sans_19)
 LV_FONT_DECLARE(pos_font_sans_20)
+LV_FONT_DECLARE(pos_font_sans_22)
+LV_FONT_DECLARE(pos_font_sans_24)
+LV_FONT_DECLARE(pos_font_sans_28)
 LV_FONT_DECLARE(pos_font_sans_24_semibold)
+LV_FONT_DECLARE(pos_font_sans_28_semibold)
+LV_FONT_DECLARE(pos_font_sans_32_semibold)
 LV_FONT_DECLARE(pos_font_sans_40_semibold)
 LV_FONT_DECLARE(pos_font_sans_48_semibold)
 LV_FONT_DECLARE(pos_font_mono_14)
-LV_FONT_DECLARE(pos_font_mono_16_medium)
+LV_FONT_DECLARE(pos_font_mono_17)
+LV_FONT_DECLARE(pos_font_mono_19)
 LV_FONT_DECLARE(pos_font_mono_20)
+LV_FONT_DECLARE(pos_font_mono_24)
+LV_FONT_DECLARE(pos_font_mono_28)
+LV_FONT_DECLARE(pos_font_mono_16_medium)
+LV_FONT_DECLARE(pos_font_mono_19_medium)
+LV_FONT_DECLARE(pos_font_mono_22_medium)
 LV_FONT_DECLARE(pos_font_clock_64)
 LV_FONT_DECLARE(pos_font_clock_96)
+
+/* ---- type roles to fonts (DS §3, §46) ------------------------------------ *
+ *
+ * pos_theme.c says which face and size a semantic role takes at the current
+ * text size; this is the one table that turns that into a bitmap font. The
+ * fonts are const data in the binary, so the sizes not in use cost flash and
+ * nothing else: no font is loaded or copied at run time.
+ */
+static const struct {
+    enum pos_type_face face;
+    int px;
+    const lv_font_t *font;
+} type_fonts[] = {
+    { POS_FACE_SANS, 16, &pos_font_sans_16 },
+    { POS_FACE_SANS, 19, &pos_font_sans_19 },
+    { POS_FACE_SANS, 20, &pos_font_sans_20 },
+    { POS_FACE_SANS, 22, &pos_font_sans_22 },
+    { POS_FACE_SANS, 24, &pos_font_sans_24 },
+    { POS_FACE_SANS, 28, &pos_font_sans_28 },
+    { POS_FACE_SANS_SEMIBOLD, 24, &pos_font_sans_24_semibold },
+    { POS_FACE_SANS_SEMIBOLD, 28, &pos_font_sans_28_semibold },
+    { POS_FACE_SANS_SEMIBOLD, 32, &pos_font_sans_32_semibold },
+    { POS_FACE_SANS_SEMIBOLD, 40, &pos_font_sans_40_semibold },
+    { POS_FACE_SANS_SEMIBOLD, 48, &pos_font_sans_48_semibold },
+    { POS_FACE_MONO, 14, &pos_font_mono_14 },
+    { POS_FACE_MONO, 17, &pos_font_mono_17 },
+    { POS_FACE_MONO, 19, &pos_font_mono_19 },
+    { POS_FACE_MONO, 20, &pos_font_mono_20 },
+    { POS_FACE_MONO, 24, &pos_font_mono_24 },
+    { POS_FACE_MONO, 28, &pos_font_mono_28 },
+    { POS_FACE_MONO_MEDIUM, 16, &pos_font_mono_16_medium },
+    { POS_FACE_MONO_MEDIUM, 19, &pos_font_mono_19_medium },
+    { POS_FACE_MONO_MEDIUM, 22, &pos_font_mono_22_medium },
+};
+
+#define TYPE_FONT_COUNT ((int)(sizeof(type_fonts) / sizeof(type_fonts[0])))
+
+const lv_font_t *pos_type_font(struct pos_type_spec spec)
+{
+    const lv_font_t *best = NULL;
+    int best_px = 0;
+    int i;
+
+    /* Exact, or else the largest of the face that is not larger (tests/
+     * text_size_test.c proves every role at every size is exact). */
+    for (i = 0; i < TYPE_FONT_COUNT; i++) {
+        if (type_fonts[i].face != spec.face) {
+            continue;
+        }
+        if (type_fonts[i].px == spec.px) {
+            return type_fonts[i].font;
+        }
+        if (type_fonts[i].px < spec.px && type_fonts[i].px > best_px) {
+            best = type_fonts[i].font;
+            best_px = type_fonts[i].px;
+        }
+    }
+    return best ? best : &pos_font_sans_16;
+}
+
+bool pos_type_font_exact(struct pos_type_spec spec)
+{
+    int i;
+
+    for (i = 0; i < TYPE_FONT_COUNT; i++) {
+        if (type_fonts[i].face == spec.face && type_fonts[i].px == spec.px) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static const lv_font_t *role_font(enum pos_type_role role)
+{
+    return pos_type_font(pos_type_current(role));
+}
 
 #define POS_RADIUS 6
 #define POS_PAD 20
@@ -117,6 +206,154 @@ static void fill_identity_styles(void)
     }
 }
 
+/* ---- fixed sizes (DS §46.4) --------------------------------------------- */
+
+/* The type role each style role draws in; -1 for a style with no font. The
+ * same pairs fill_styles() and fill_env_styles() use. */
+static int style_type(enum pos_style_role role)
+{
+    switch (role) {
+    case POS_STYLE_SCREEN:
+    case POS_STYLE_TEXT_PRIMARY:
+    case POS_STYLE_TEXT_SECONDARY:
+    case POS_STYLE_TEXT_MUTED:
+    case POS_STYLE_FIELD:
+    case POS_STYLE_FIELD_PLACEHOLDER:
+        return POS_TYPE_BODY;
+    case POS_STYLE_CAPTION:
+    case POS_STYLE_CHIP:
+        return POS_TYPE_META;
+    case POS_STYLE_VALUE:
+        return POS_TYPE_VALUE;
+    case POS_STYLE_TITLE:
+        return POS_TYPE_TITLE;
+    case POS_STYLE_ROW_TITLE:
+        return POS_TYPE_LABEL;
+    case POS_STYLE_BUTTON_LABEL:
+        return POS_TYPE_BUTTON;
+    case POS_STYLE_HERO_40:
+        return POS_TYPE_DISPLAY_40;
+    case POS_STYLE_HERO_48:
+        return POS_TYPE_DISPLAY_48;
+    case POS_STYLE_ENV_TEXT:
+    case POS_STYLE_ENV_TEXT_SECONDARY:
+        return POS_TYPE_ENV_LABEL;
+    case POS_STYLE_ENV_TEXT_SMALL:
+        return POS_TYPE_ENV_SMALL;
+    case POS_STYLE_ENV_CAPTION:
+        return POS_TYPE_ENV_CAPTION;
+    case POS_STYLE_ENV_TITLE:
+        return POS_TYPE_ENV_TITLE;
+    default:
+        return -1;
+    }
+}
+
+static lv_style_t fixed_styles[POS_STYLE_COUNT];
+
+lv_style_t *pos_style_fixed_size(enum pos_style_role role)
+{
+    return &fixed_styles[(role >= 0 && role < POS_STYLE_COUNT) ? role : POS_STYLE_SCREEN];
+}
+
+static void fill_fixed_styles(void)
+{
+    int i;
+
+    for (i = 0; i < POS_STYLE_COUNT; i++) {
+        int t = style_type((enum pos_style_role)i);
+
+        reset(&fixed_styles[i]);
+        if (t >= 0) {
+            lv_style_set_text_font(&fixed_styles[i], pos_type_font(pos_type_resolve(
+                                                         (enum pos_type_role)t, POS_TEXT_SIZE_SMALL,
+                                                         pos_theme_current_mode())));
+        }
+    }
+}
+
+/* ---- holding a screen at Small (DS §46.4) ------------------------------ *
+ *
+ * For an app whose screens are laid out to fit exactly - a game board and
+ * its controls on one screen - and which keeps the type Small draws at every
+ * text size. The role an object draws in is recovered from the font it
+ * resolves to now (every role at the current size has a font of its own
+ * size, and the roles that share one share their Small size too), and a
+ * font-only style holding that role's Small font is put in front of it.
+ */
+static lv_style_t held_styles[POS_TYPE_COUNT];
+
+static void fill_held_styles(void)
+{
+    int r;
+
+    for (r = 0; r < POS_TYPE_COUNT; r++) {
+        reset(&held_styles[r]);
+        lv_style_set_text_font(&held_styles[r], pos_type_font(pos_type_resolve(
+                                                     (enum pos_type_role)r, POS_TEXT_SIZE_SMALL,
+                                                     pos_theme_current_mode())));
+    }
+}
+
+static void hold_part(lv_obj_t *obj, lv_part_t part)
+{
+    const lv_font_t *f = lv_obj_get_style_text_font(obj, part);
+    int r;
+
+    for (r = 0; r < POS_TYPE_COUNT; r++) {
+        if (pos_type_font(pos_type_current((enum pos_type_role)r)) == f) {
+            break;
+        }
+    }
+    if (r == POS_TYPE_COUNT) {
+        return; /* not a type role's font: a symbol font, a clock */
+    }
+    if (pos_type_font(pos_type_resolve((enum pos_type_role)r, POS_TEXT_SIZE_SMALL, pos_theme_current_mode())) ==
+        f) {
+        return; /* already Small's: at Small, nothing to do at all */
+    }
+    lv_obj_add_style(obj, &held_styles[r], part);
+}
+
+void pos_style_hold_small(lv_obj_t *root, lv_obj_t *except)
+{
+    uint32_t i;
+    uint32_t n;
+
+    if (!root || root == except) {
+        return;
+    }
+    hold_part(root, LV_PART_MAIN);
+    if (lv_obj_check_type(root, &lv_textarea_class)) {
+        hold_part(root, LV_PART_TEXTAREA_PLACEHOLDER);
+    }
+    n = lv_obj_get_child_count(root);
+    for (i = 0; i < n; i++) {
+        pos_style_hold_small(lv_obj_get_child(root, (int32_t)i), except);
+    }
+}
+
+/* ---- the text-size samples (DS §46) ------------------------------------- */
+
+static lv_style_t size_samples[POS_TEXT_SIZE_COUNT];
+
+lv_style_t *pos_style_text_size_sample(enum pos_text_size size)
+{
+    return &size_samples[(size >= 0 && size < POS_TEXT_SIZE_COUNT) ? size : POS_TEXT_SIZE_SMALL];
+}
+
+static void fill_size_samples(void)
+{
+    int i;
+
+    for (i = 0; i < POS_TEXT_SIZE_COUNT; i++) {
+        reset(&size_samples[i]);
+        lv_style_set_text_font(&size_samples[i], pos_type_font(pos_type_resolve(
+                                                     POS_TYPE_BUTTON, (enum pos_text_size)i,
+                                                     pos_theme_current_mode())));
+    }
+}
+
 static void env_text(lv_style_t *s, uint32_t rgb, const lv_font_t *font)
 {
     reset(s);
@@ -151,16 +388,19 @@ static void fill_env_styles(void)
     lv_style_set_border_opa(s, stroke_opa);
     lv_style_set_border_width(s, 1);
 
-    env_text(&styles[POS_STYLE_ENV_TEXT], m == POS_MODE_OUTDOOR ? 0xffffff : ENV_TEXT, &pos_font_sans_20);
-    env_text(&styles[POS_STYLE_ENV_TEXT_SMALL], m == POS_MODE_OUTDOOR ? 0xffffff : ENV_TEXT, &pos_font_sans_16);
-    env_text(&styles[POS_STYLE_ENV_TEXT_SECONDARY], ENV_TEXT_2, &pos_font_sans_20);
-    env_text(&styles[POS_STYLE_ENV_CAPTION], ENV_TEXT, &pos_font_sans_16);
+    env_text(&styles[POS_STYLE_ENV_TEXT], m == POS_MODE_OUTDOOR ? 0xffffff : ENV_TEXT,
+             role_font(POS_TYPE_ENV_LABEL));
+    env_text(&styles[POS_STYLE_ENV_TEXT_SMALL], m == POS_MODE_OUTDOOR ? 0xffffff : ENV_TEXT,
+             role_font(POS_TYPE_ENV_SMALL));
+    env_text(&styles[POS_STYLE_ENV_TEXT_SECONDARY], ENV_TEXT_2, role_font(POS_TYPE_ENV_LABEL));
+    env_text(&styles[POS_STYLE_ENV_CAPTION], ENV_TEXT, role_font(POS_TYPE_ENV_CAPTION));
     lv_style_set_text_letter_space(&styles[POS_STYLE_ENV_CAPTION], 2);
+    /* The clock digits are display type, the same at every text size. */
     env_text(&styles[POS_STYLE_ENV_CLOCK], m == POS_MODE_OUTDOOR ? 0xffffff : ENV_TEXT, &pos_font_clock_64);
     env_text(&styles[POS_STYLE_ENV_CLOCK_LARGE], m == POS_MODE_OUTDOOR ? 0xffffff : ENV_TEXT,
              &pos_font_clock_96);
     env_text(&styles[POS_STYLE_ENV_TITLE], m == POS_MODE_OUTDOOR ? 0xffffff : ENV_TEXT,
-             &pos_font_sans_40_semibold);
+             role_font(POS_TYPE_ENV_TITLE));
 
     s = &styles[POS_STYLE_ENV_PANEL];
     reset(s);
@@ -228,7 +468,9 @@ static void fill_env_styles(void)
 static void fill_styles(void)
 {
     const struct pos_theme_tokens *t = pos_theme_current();
-    const lv_font_t *body = t->type_default_px >= 20 ? &pos_font_sans_20 : &pos_font_sans_16;
+    /* Body text: Outdoor's 20 px floor (§6) is part of the role (pos_theme.c). */
+    const lv_font_t *body = role_font(POS_TYPE_BODY);
+    const lv_font_t *meta = role_font(POS_TYPE_META);
     lv_style_t *s;
 
     s = &styles[POS_STYLE_SCREEN];
@@ -297,27 +539,27 @@ static void fill_styles(void)
     s = &styles[POS_STYLE_CAPTION];
     reset(s);
     lv_style_set_text_color(s, tok(POS_COLOR_TEXT_SECONDARY));
-    lv_style_set_text_font(s, &pos_font_mono_14);
+    lv_style_set_text_font(s, meta);
     lv_style_set_text_letter_space(s, 1);
 
     s = &styles[POS_STYLE_VALUE];
     reset(s);
     lv_style_set_text_color(s, tok(POS_COLOR_TEXT_PRIMARY));
-    lv_style_set_text_font(s, &pos_font_mono_20);
+    lv_style_set_text_font(s, role_font(POS_TYPE_VALUE));
 
     s = &styles[POS_STYLE_TITLE];
     reset(s);
     lv_style_set_text_color(s, tok(POS_COLOR_TEXT_PRIMARY));
-    lv_style_set_text_font(s, &pos_font_sans_24_semibold);
+    lv_style_set_text_font(s, role_font(POS_TYPE_TITLE));
 
     s = &styles[POS_STYLE_ROW_TITLE];
     reset(s);
     lv_style_set_text_color(s, tok(POS_COLOR_TEXT_PRIMARY));
-    lv_style_set_text_font(s, &pos_font_sans_20);
+    lv_style_set_text_font(s, role_font(POS_TYPE_LABEL));
 
     s = &styles[POS_STYLE_BUTTON_LABEL];
     reset(s);
-    lv_style_set_text_font(s, &pos_font_mono_16_medium);
+    lv_style_set_text_font(s, role_font(POS_TYPE_BUTTON));
     lv_style_set_text_letter_space(s, 2);
 
     s = &styles[POS_STYLE_BUTTON_PRIMARY];
@@ -363,13 +605,13 @@ static void fill_styles(void)
     s = &styles[POS_STYLE_HERO_40];
     reset(s);
     lv_style_set_text_color(s, tok(POS_COLOR_TEXT_PRIMARY));
-    lv_style_set_text_font(s, &pos_font_sans_40_semibold);
+    lv_style_set_text_font(s, role_font(POS_TYPE_DISPLAY_40));
     lv_style_set_text_letter_space(s, 0); /* -1 % of 40 px rounds to 0 */
 
     s = &styles[POS_STYLE_HERO_48];
     reset(s);
     lv_style_set_text_color(s, tok(POS_COLOR_TEXT_PRIMARY));
-    lv_style_set_text_font(s, &pos_font_sans_48_semibold);
+    lv_style_set_text_font(s, role_font(POS_TYPE_DISPLAY_48));
     lv_style_set_text_letter_space(s, -1); /* -2 % of 48 px */
 
     s = &styles[POS_STYLE_CHIP];
@@ -380,14 +622,14 @@ static void fill_styles(void)
         /* A label draws from the top of its content box, so the caption is
          * centred by the padding its own line leaves (DS §7). A chip drawn
          * in another font sets its own (the shell's radio chip, chrome.h). */
-        int32_t spare = POS_CHIP_HEIGHT - lv_font_get_line_height(&pos_font_mono_14);
+        int32_t spare = POS_CHIP_HEIGHT - lv_font_get_line_height(meta);
 
         lv_style_set_pad_top(s, spare > 0 ? spare / 2 : 0);
         lv_style_set_pad_bottom(s, spare > 0 ? spare - spare / 2 : 0);
     }
     lv_style_set_radius(s, POS_RADIUS);
     lv_style_set_border_width(s, 0);
-    lv_style_set_text_font(s, &pos_font_mono_14);
+    lv_style_set_text_font(s, meta);
     lv_style_set_text_letter_space(s, 1);
     lv_style_set_bg_opa(s, LV_OPA_COVER);
 
@@ -552,6 +794,9 @@ static void fill_styles(void)
 
     fill_env_styles();
     fill_identity_styles();
+    fill_size_samples();
+    fill_fixed_styles();
+    fill_held_styles();
 }
 
 static void on_theme_changed(void *user)
@@ -585,7 +830,28 @@ void pos_styles_init(void)
     for (i = 0; i < POS_IDENTITY_COUNT; i++) {
         lv_style_init(&identity_styles[i]);
     }
+    for (i = 0; i < POS_TEXT_SIZE_COUNT; i++) {
+        lv_style_init(&size_samples[i]);
+    }
+    for (i = 0; i < POS_STYLE_COUNT; i++) {
+        lv_style_init(&fixed_styles[i]);
+    }
+    for (i = 0; i < POS_TYPE_COUNT; i++) {
+        lv_style_init(&held_styles[i]);
+    }
     theme_event = lv_event_register_id();
+#if defined(POCKETUI_TEST_HOOKS) && POCKETUI_TEST_HOOKS
+    {
+        /* Host tests only (ui/shell/CMakeLists.txt): run a test written at
+         * Small at another text size, unchanged (DS §46.6). */
+        const char *ts = getenv("POCKETUI_TEST_TEXT_SIZE");
+        enum pos_text_size size;
+
+        if (ts && pos_text_size_parse(ts, &size) == 0) {
+            pos_theme_select_text_size(size);
+        }
+    }
+#endif
     fill_styles();
     initialised = 1;
     pos_theme_add_listener(on_theme_changed, NULL);

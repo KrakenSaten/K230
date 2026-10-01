@@ -153,7 +153,7 @@ void fleet_screen_result_relayout(struct fleet_app *app, int wide)
     lv_obj_set_width(ui->chat, wide ? LV_PCT(33) : LV_PCT(100));
 }
 
-void fleet_screen_result_refresh(struct fleet_app *app)
+static void result_refresh(struct fleet_app *app)
 {
     struct fleet_result_ui *ui;
     const struct fleet_game *game;
@@ -214,4 +214,12 @@ void fleet_screen_result_refresh(struct fleet_app *app)
     lv_label_set_text(ui->accuracy, text);
     fleet_view_accuracy(&game->stats[FLEET_SIDE_OPPONENT], text, sizeof(text));
     lv_label_set_text(ui->enemy_accuracy, text);
+}
+
+/* Every refresh ends with the type held at Small (fleet_app_hold_type): a
+ * refresh may put back a role that carries a font. */
+void fleet_screen_result_refresh(struct fleet_app *app)
+{
+    result_refresh(app);
+    fleet_app_hold_type(app);
 }

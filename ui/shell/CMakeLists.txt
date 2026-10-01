@@ -41,6 +41,7 @@ add_executable(pocketos-shell
     volume.c
     platform_${POCKETOS_DISPLAY}.c
     ../pocketui/pocketui.c
+    ../pocketui/pocketui_audit.c
     ../pocketui/pos_display.c
     shell_display.c
     chrome.c
@@ -509,6 +510,22 @@ endif()
 install(TARGETS pocketos-shell RUNTIME DESTINATION bin)
 
 if(POCKETOS_DISPLAY STREQUAL "sdl")
+    # Every host test below may be run at another text size: pos_styles_init()
+    # reads POCKETUI_TEST_TEXT_SIZE=small|medium|large when this is defined
+    # (DS §46.6). Only the simulator's tests; the shell and the panel's build
+    # never read it.
+    add_compile_definitions(POCKETUI_TEST_HOOKS=1)
+    # The fonts are compiled once for all of them rather than once per test:
+    # with the text-size faces there are two dozen large tables, and every
+    # test target below draws in them.
+    add_library(pocketui_fonts OBJECT ${POCKETUI_FONTS})
+    target_compile_definitions(pocketui_fonts PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(pocketui_fonts PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(pocketui_fonts PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(pocketui_fonts PRIVATE lvgl)
+    set(POCKETUI_FONT_OBJS $<TARGET_OBJECTS:pocketui_fonts>)
     # PocketRadar in the running app, a finger on the scope (run by
     # tests/radar_shell_test.sh). The shell is not linked; the test defines the
     # app.h entry points the game uses and pocketlog's one entry point itself,
@@ -532,7 +549,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(radar_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/radar")
@@ -560,7 +577,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(radar_scope_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/radar/ui")
@@ -603,7 +620,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(timber_input_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/timber" "${REPO_DIR}/apps/timber/ui")
@@ -630,7 +647,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(pos_input_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core")
@@ -653,7 +670,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(pos_keyboard_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core")
@@ -677,7 +694,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(pocketui_tile_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core")
@@ -706,7 +723,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_styles.c
         ${REPO_DIR}/core/pocketlog/pocketlog.c
         ${REPO_DIR}/core/pocketpaths.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(shell_lock_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core")
@@ -740,7 +757,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_styles.c
         ${REPO_DIR}/core/pocketlog/pocketlog.c
         ${REPO_DIR}/core/pocketpaths.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(home_folder_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/tests")
@@ -766,7 +783,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(pocketui_layout_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core")
@@ -777,6 +794,25 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(pocketui_layout_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(pocketui_layout_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # Text size (DS §46): the shared styles at every size, live, and the
+    # layout audit the sizes are checked with (run by
+    # tests/text_size_shell_test.sh).
+    add_executable(text_size_ui_test
+        ${REPO_DIR}/tests/text_size_ui_test.c
+        ../pocketui/pocketui_audit.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONT_OBJS})
+    target_include_directories(text_size_ui_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui")
+    target_compile_options(text_size_ui_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(text_size_ui_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(text_size_ui_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(text_size_ui_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(text_size_ui_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
     # Display and touch rotated together through LVGL's real evdev driver (run
     # by tests/display_geometry_shell_test.sh). Linux only: it needs the evdev
@@ -813,7 +849,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(notes_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/notes")
@@ -843,7 +879,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(files_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/files")
@@ -875,7 +911,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(camera_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/camera")
@@ -906,7 +942,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(photo_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/camera")
@@ -941,7 +977,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(rec_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/recorder")
@@ -975,7 +1011,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(mp3_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/mp3")
@@ -1007,7 +1043,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(video_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/video")
@@ -1038,7 +1074,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(zabbix_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/zabbix")
@@ -1071,7 +1107,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(clock_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/clock")
@@ -1128,7 +1164,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(fleet_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/fleet")
@@ -1160,7 +1196,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(cal_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/calendar")
@@ -1191,7 +1227,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(calc_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/calculator")
@@ -1220,7 +1256,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(settings_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/settings")
@@ -1282,7 +1318,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(rift_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/rift" "${REPO_DIR}/apps/rift/ui")
@@ -1314,7 +1350,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(system_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/system")
@@ -1351,7 +1387,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(wave_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/wave")
@@ -1379,7 +1415,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     add_executable(g2048_app_test
         ${REPO_DIR}/tests/g2048_app_test.c
         ${REPO_DIR}/apps/2048/g2048_app.c
@@ -1478,7 +1514,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_keymap.c
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(terminal_app_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/terminal")
@@ -1512,7 +1548,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_theme.c
         ../pocketui/pos_styles.c
         ${REPO_DIR}/core/pocketpaths.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(shell_alarm_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core" "${REPO_DIR}/apps/clock")
@@ -1564,7 +1600,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ../pocketui/pos_styles.c
         ${REPO_DIR}/core/pocketlog/pocketlog.c
         ${REPO_DIR}/core/pocketpaths.c
-        ${POCKETUI_FONTS})
+        ${POCKETUI_FONT_OBJS})
     target_include_directories(shell_kbd_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
         "${REPO_DIR}/core")

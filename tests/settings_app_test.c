@@ -182,6 +182,21 @@ int pocketos_shell_set_appearance(const char *theme_id, const char *mode_name)
     return pos_theme_apply(theme_id, mode_name, why, sizeof(why)) < 0 ? -1 : 0;
 }
 
+/* The shell's text size, as the shell applies it: the theme engine's
+ * selection, which refills the shared styles (DS §46). */
+static int g_text_size_sets;
+
+enum pos_text_size pocketos_shell_text_size(void)
+{
+    return pos_theme_current_text_size();
+}
+
+int pocketos_shell_set_text_size(enum pos_text_size size)
+{
+    g_text_size_sets++;
+    return pos_theme_select_text_size(size);
+}
+
 /* The shell's orientation, over a variable: stored mode, this run, the next. */
 static struct pocketos_orientation g_orient = {
     .mode = POCKETOS_ROTATION_AUTOMATIC,

@@ -600,7 +600,9 @@ static void build_deck(struct mp3_app *a)
     a->down_btn = button(r, "VOL -", on_vol_down, a, 0);
     lv_obj_set_width(a->down_btn, MP3_VOL_BTN_W);
     a->volume = pocketui_label(r, "", POS_STYLE_VALUE);
-    lv_obj_set_width(a->volume, 104);
+    /* As wide as its widest word, never narrower than it always was: at a
+     * larger text size "NO AUDIO" would otherwise wrap out of the row. */
+    lv_obj_set_width(a->volume, LV_MAX(104, pocketui_text_width(a->volume, "NO AUDIO")));
     lv_obj_set_style_text_align(a->volume, LV_TEXT_ALIGN_CENTER, 0);
     a->up_vol_btn = button(r, "VOL +", on_vol_up, a, 0);
     lv_obj_set_width(a->up_vol_btn, MP3_VOL_BTN_W);

@@ -976,7 +976,14 @@ static void build_browser(struct files_app *a)
     lv_obj_add_flag(a->list, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(a->list, LV_DIR_VER);
 
-    a->status = caption(a->main, POS_STYLE_CAPTION);
+    /* What just happened, on up to two lines before the dots: a message is
+     * a name and then the reason, and the reason is the part that must not
+     * be cut - at a larger text size one line held only the name (DS §46.5).
+     * A message one line holds is one line, as it always was. */
+    a->status = pocketui_label(a->main, "", POS_STYLE_CAPTION);
+    lv_obj_set_width(a->status, LV_PCT(100));
+    lv_label_set_long_mode(a->status, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_max_height(a->status, 2 * pocketui_role_line_height(POS_STYLE_CAPTION), 0);
 
     a->side = box(s, LV_FLEX_FLOW_COLUMN);
     a->details = pocketui_card(a->side);
@@ -1032,6 +1039,10 @@ static void build_viewer(struct files_app *a)
     lv_obj_add_flag(a->v_card, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(a->v_card, LV_DIR_VER);
     a->v_text = pocketui_label(a->v_card, "", POS_STYLE_TEXT_PRIMARY);
+    /* A file's contents are the file's: they keep the size Small draws them
+     * at, while Files' own lists, names and buttons follow the text size
+     * (DS §46.4). */
+    lv_obj_add_style(a->v_text, pos_style_fixed_size(POS_STYLE_TEXT_PRIMARY), 0);
     lv_label_set_long_mode(a->v_text, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(a->v_text, LV_PCT(100));
 

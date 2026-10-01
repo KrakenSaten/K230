@@ -119,7 +119,7 @@ static lv_obj_t *column(lv_obj_t *parent)
      * whatever is over it: a column clips its children to its own box, so
      * the room has to be the column's (rift_panel). Taken from the padding
      * above, so the panels sit where they did. */
-    lv_obj_set_style_pad_top(c, RIFT_CAPTION_OVERHANG, 0);
+    lv_obj_set_style_pad_top(c, rift_caption_overhang(), 0);
     lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
     return c;
 }
@@ -245,7 +245,7 @@ static void build_feed(struct rift_activity_view *v, lv_obj_t *parent)
      * word after a swatch in its colour. The words carry the classes; the
      * swatches only agree with them (handoff §5). */
     legend = dense(panel, 6);
-    lv_obj_set_height(legend, RIFT_GROUP_H);
+    lv_obj_set_height(legend, rift_group_h());
     v->graph_caption = rift_cell(legend, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_flex_grow(v->graph_caption, 1);
     lv_obj_set_width(v->graph_caption, 1);
@@ -287,7 +287,7 @@ lv_obj_t *rift_activity_create(struct rift_app *app, lv_obj_t *parent)
     lv_obj_set_size(v->root, LV_PCT(100), LV_PCT(100));
     lv_obj_set_flex_flow(v->root, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(v->root, RIFT_PAD, 0);
-    lv_obj_set_style_pad_top(v->root, RIFT_PAD - RIFT_CAPTION_OVERHANG, 0);
+    lv_obj_set_style_pad_top(v->root, RIFT_PAD - rift_caption_overhang(), 0);
     lv_obj_set_scroll_dir(v->root, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(v->root, LV_SCROLLBAR_MODE_AUTO);
 
@@ -298,7 +298,7 @@ lv_obj_t *rift_activity_create(struct rift_app *app, lv_obj_t *parent)
     lv_obj_set_flex_flow(v->split, LV_FLEX_FLOW_COLUMN);
     /* 20 between the stacked columns, of which the second column's own
      * caption room (above) is part. */
-    lv_obj_set_style_pad_row(v->split, 20 - RIFT_CAPTION_OVERHANG, 0);
+    lv_obj_set_style_pad_row(v->split, 20 - rift_caption_overhang(), 0);
     lv_obj_set_style_pad_column(v->split, 20, 0);
     lv_obj_remove_flag(v->split, LV_OBJ_FLAG_SCROLLABLE);
 

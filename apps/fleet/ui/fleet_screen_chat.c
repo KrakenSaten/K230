@@ -323,7 +323,7 @@ void fleet_screen_chat_relayout(struct fleet_app *app, int wide)
     ui->scroll_pending = 1;
 }
 
-void fleet_screen_chat_refresh(struct fleet_app *app)
+static void chat_refresh(struct fleet_app *app)
 {
     struct fleet_chat_ui *ui = app ? app->chat : NULL;
     struct fleet_match *m;
@@ -432,4 +432,17 @@ void fleet_screen_chat_enter(struct fleet_app *app)
         app->chat->focus_pending = 1;
         app->chat->scroll_pending = 1;
     }
+}
+
+/* Every refresh ends with the type held at Small (fleet_app_hold_type): a
+ * refresh may put back a role that carries a font. */
+void fleet_screen_chat_refresh(struct fleet_app *app)
+{
+    chat_refresh(app);
+    fleet_app_hold_type(app);
+}
+
+lv_obj_t *fleet_screen_chat_lines(struct fleet_app *app)
+{
+    return app && app->chat ? app->chat->list : NULL;
 }

@@ -138,17 +138,15 @@ static lv_color_t bg_color(uint8_t c)
 
 /* ---- the font ------------------------------------------------------------ */
 
-/* The caption role's font: the Design System's monospace face. Its letter
- * spacing is not taken - a grid needs every cell the glyph's own width. */
+/* The caption role's font at Small: the Design System's monospace face. Its
+ * letter spacing is not taken - a grid needs every cell the glyph's own
+ * width. Not the caption role at the text size in force: the grid's columns
+ * and rows are what the shell inside was told (TIOCSWINSZ), so the terminal
+ * text keeps one size and only Terminal's own chrome follows the setting
+ * (DS §46.4). */
 static const lv_font_t *mono_font(void)
 {
-    lv_style_value_t v;
-
-    if (lv_style_get_prop(pos_style(POS_STYLE_CAPTION), LV_STYLE_TEXT_FONT, &v) == LV_STYLE_RES_FOUND &&
-        v.ptr) {
-        return v.ptr;
-    }
-    return LV_FONT_DEFAULT;
+    return pos_type_font(pos_type_resolve(POS_TYPE_META, POS_TEXT_SIZE_SMALL, pos_theme_current_mode()));
 }
 
 /* A character the font cannot draw would be drawn as nothing and move every

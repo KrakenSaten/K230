@@ -310,6 +310,13 @@ static void on_frame_size(lv_event_t *e)
     fleet_app_layout(lv_event_get_user_data(e));
 }
 
+void fleet_app_hold_type(struct fleet_app *app)
+{
+    if (app && app->frame) {
+        pos_style_hold_small(app->frame, fleet_screen_chat_lines(app));
+    }
+}
+
 void fleet_app_show(struct fleet_app *app, enum fleet_screen screen)
 {
     char status[48];
@@ -578,16 +585,26 @@ static void *fleet_create(lv_obj_t *root)
     app->shape = FLEET_SHAPE_TALL;
     app->cell = FLEET_CELL_TALL;
 
+    /* The type is held after each screen, not once at the end: building the
+     * chat's field lays the frame out (a field joining the focus group is
+     * scrolled into view), and that first pass measures what it lays out. */
     app->screen[FLEET_SCREEN_COMMAND] = fleet_screen_command_create(app, app->frame);
+    fleet_app_hold_type(app);
     app->screen[FLEET_SCREEN_DEPLOY] = fleet_screen_deploy_create(app, app->frame);
+    fleet_app_hold_type(app);
     app->screen[FLEET_SCREEN_BATTLE] = fleet_screen_battle_create(app, app->frame);
+    fleet_app_hold_type(app);
     app->screen[FLEET_SCREEN_RESULT] = fleet_screen_result_create(app, app->frame);
+    fleet_app_hold_type(app);
     app->screen[FLEET_SCREEN_LOBBY] = fleet_screen_lobby_create(app, app->frame);
+    fleet_app_hold_type(app);
     app->screen[FLEET_SCREEN_CHAT] = fleet_screen_chat_create(app, app->frame);
     /* Multiplayer is made available, not started: this reads the saved match
      * file and nothing else. */
     fleet_mp_create(app);
     fleet_screen_deploy_enter(app);
+    /* Before the first layout pass, which measures what it lays out. */
+    fleet_app_hold_type(app);
     fleet_app_show(app, FLEET_SCREEN_COMMAND);
     debug_open(app);
     return app;

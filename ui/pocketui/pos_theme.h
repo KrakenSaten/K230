@@ -117,6 +117,81 @@ const struct pos_theme_def *pos_theme_current_def(void);
 enum pos_mode pos_theme_current_mode(void);
 uint32_t pos_theme_rgb(enum pos_color_token token);
 
+/* ---- text size (DS §46) ------------------------------------------------ *
+ *
+ * One system-wide preference for how large text is drawn: Small, Medium or
+ * Large. Small is the Design System's own type scale (§3) and the default;
+ * Medium and Large raise the reading text by about a fifth and by about two
+ * fifths. It is a property of the type roles, not a zoom: each semantic role
+ * below has its own size at each step, so a heading stays a heading, and
+ * display numerals and the environment's clock do not grow at all.
+ *
+ * The selection lives here beside the theme and the display mode and
+ * notifies the same listeners, so the shared styles (pos_styles.c) refill
+ * their fonts exactly as they refill their colours. Pure C: what size a role
+ * takes is a table, testable without LVGL. */
+enum pos_text_size {
+    POS_TEXT_SIZE_SMALL = 0,
+    POS_TEXT_SIZE_MEDIUM,
+    POS_TEXT_SIZE_LARGE,
+    POS_TEXT_SIZE_COUNT
+};
+
+#define POS_TEXT_SIZE_DEFAULT POS_TEXT_SIZE_SMALL
+
+/* "small", "medium", "large"; "?" for anything else. */
+const char *pos_text_size_name(enum pos_text_size size);
+/* Returns 0 on success, -1 for anything but the three names (NULL too). */
+int pos_text_size_parse(const char *text, enum pos_text_size *out);
+
+/* The semantic type roles. Every text style in pos_styles.h draws in one of
+ * these; which one is the style's business, not the caller's. */
+enum pos_type_role {
+    POS_TYPE_BODY = 0,    /* body text, descriptions, field text (Sans) */
+    POS_TYPE_LABEL,       /* row titles, list names, labels that name a thing (Sans) */
+    POS_TYPE_TITLE,       /* the app header's title, sheet and dialog titles (Sans semibold) */
+    POS_TYPE_META,        /* captions, timestamps, chips, the status cluster's clock (Mono) */
+    POS_TYPE_BUTTON,      /* button labels (Mono medium) */
+    POS_TYPE_VALUE,       /* key/value values, readouts (Mono) */
+    POS_TYPE_DISPLAY_40,  /* hero-40: already large, the same at every size (Sans semibold) */
+    POS_TYPE_DISPLAY_48,  /* hero-48: likewise */
+    /* The DOORS environment (DS §31): the shell's own screens over the art. */
+    POS_TYPE_ENV_LABEL,   /* launcher cell names, Controls rows, the date (Sans) */
+    POS_TYPE_ENV_SMALL,   /* narrow launcher cells and small environment text (Sans) */
+    POS_TYPE_ENV_CAPTION, /* group names over the panels (Sans) */
+    POS_TYPE_ENV_TITLE,   /* the environment's 40 px titles: the same at every size */
+    POS_TYPE_COUNT
+};
+
+enum pos_type_face {
+    POS_FACE_SANS = 0,
+    POS_FACE_SANS_SEMIBOLD,
+    POS_FACE_MONO,
+    POS_FACE_MONO_MEDIUM,
+    POS_FACE_COUNT
+};
+
+struct pos_type_spec {
+    enum pos_type_face face;
+    int px;
+};
+
+/* The face and pixel size a role draws in at a text size and display mode.
+ * Small gives exactly the §3 scale. Outdoor keeps its rule (§6) as a floor:
+ * body text is never under type_default (20 px) there. Out-of-range input
+ * is clamped to the role's Small size in Normal. */
+struct pos_type_spec pos_type_resolve(enum pos_type_role role, enum pos_text_size size,
+                                      enum pos_mode mode);
+const char *pos_type_role_name(enum pos_type_role role);
+
+/* Select the text size. Listeners are notified when it changed, exactly as
+ * for a theme or mode change. Returns 0, or -1 for a value out of range, in
+ * which case Small is applied (the §8 fallback rule, for type). */
+int pos_theme_select_text_size(enum pos_text_size size);
+enum pos_text_size pos_theme_current_text_size(void);
+/* A role at the current text size and display mode. */
+struct pos_type_spec pos_type_current(enum pos_type_role role);
+
 typedef void (*pos_theme_listener_t)(void *user);
 /* Returns 0, or -1 when the listener table is full. */
 int pos_theme_add_listener(pos_theme_listener_t cb, void *user);

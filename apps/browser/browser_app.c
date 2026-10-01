@@ -483,6 +483,8 @@ static lv_obj_t *make_block(struct browser_app *a, size_t bi)
         }
         a->img_box[im] = o;
         a->img_note[im] = wrapping(o, "", POS_STYLE_CAPTION);
+        /* The page's own words keep one size (DS §46.4). */
+        lv_obj_add_style(a->img_note[im], pos_style_fixed_size(POS_STYLE_CAPTION), 0);
         image_note_text(a, im);
         show_image(a, im);
         return o;
@@ -511,6 +513,10 @@ static lv_obj_t *make_block(struct browser_app *a, size_t bi)
         }
         text[total] = '\0';
         o = pocketui_label(parent, "", role);
+        /* A page is the page's: its text keeps the size Small draws it at,
+         * whatever the system's text size; Browser's own bar, start page and
+         * messages follow it (DS §46.4). Browser has no page zoom yet. */
+        lv_obj_add_style(o, pos_style_fixed_size(role), 0);
         lv_label_set_long_mode(o, LV_LABEL_LONG_WRAP);
         lv_obj_set_width(o, LV_PCT(100));
         lv_label_set_text(o, text);
@@ -520,6 +526,7 @@ static lv_obj_t *make_block(struct browser_app *a, size_t bi)
         lv_obj_set_width(o, LV_PCT(100));
         lv_obj_set_height(o, LV_SIZE_CONTENT);
         pos_style_add(o, role, 0);
+        lv_obj_add_style(o, pos_style_fixed_size(role), 0);
         for (r = b->run_first; r < b->run_first + b->run_count; r++) {
             const struct web_run *run = &d->runs[r];
             lv_span_t *sp = lv_spangroup_add_span(o);
@@ -538,7 +545,15 @@ static lv_obj_t *make_block(struct browser_app *a, size_t bi)
                                                              POS_STYLE_ACCENT_TEXT : POS_STYLE_TEXT_MUTED));
                 lv_style_set_text_decor(lv_span_get_style(sp), LV_TEXT_DECOR_UNDERLINE);
             } else if (run->flags & WEB_RUN_CODE) {
+                lv_style_value_t f;
+
                 lv_spangroup_set_span_style(o, sp, pos_style(POS_STYLE_VALUE));
+                /* A span keeps a copy of the role; its font is the page's
+                 * fixed one, as the block's is. */
+                if (lv_style_get_prop(pos_style_fixed_size(POS_STYLE_VALUE), LV_STYLE_TEXT_FONT, &f) ==
+                    LV_STYLE_RES_FOUND) {
+                    lv_style_set_text_font(lv_span_get_style(sp), f.ptr);
+                }
             }
         }
         lv_spangroup_refresh(o);

@@ -36,6 +36,20 @@ gen pos_font_mono_16_medium   IBMPlexMono-Medium.ttf   16
 gen pos_font_mono_20          IBMPlexMono-Regular.ttf  20
 gen pos_font_mono_24          IBMPlexMono-Regular.ttf  24
 gen pos_font_mono_32          IBMPlexMono-Regular.ttf  32
+# Text size Medium and Large (DS §46): the same four faces at the sizes the
+# semantic type roles take there (ui/pocketui/pos_type.c). Small uses only
+# the sizes above.
+gen pos_font_sans_19          IBMPlexSans-Regular.ttf  19
+gen pos_font_sans_22          IBMPlexSans-Regular.ttf  22
+gen pos_font_sans_24          IBMPlexSans-Regular.ttf  24
+gen pos_font_sans_28          IBMPlexSans-Regular.ttf  28
+gen pos_font_sans_28_semibold IBMPlexSans-SemiBold.ttf 28
+gen pos_font_sans_32_semibold IBMPlexSans-SemiBold.ttf 32
+gen pos_font_mono_17          IBMPlexMono-Regular.ttf  17
+gen pos_font_mono_19          IBMPlexMono-Regular.ttf  19
+gen pos_font_mono_28          IBMPlexMono-Regular.ttf  28
+gen pos_font_mono_19_medium   IBMPlexMono-Medium.ttf   19
+gen pos_font_mono_22_medium   IBMPlexMono-Medium.ttf   22
 echo "done: $(ls "$OUT"/*.c | wc -l) fonts in $OUT"
 # The DOORS clock (lock screen and launcher header): digits, colon, minus and
 # space only, so two display sizes cost a few kilobytes rather than a full

@@ -344,6 +344,18 @@ static void journey(const char *name, bool landscape)
         CHECK("portrait: over 55 columns", s->screen.cols > 55);
         CHECK("portrait: over 45 rows", s->screen.rows > 45);
     }
+    {
+        /* DS §46.4: the grid is the caption face at Small at every text size
+         * (POCKETUI_TEST_TEXT_SIZE runs this whole test at another one), so
+         * its columns are the grid's width in Small's cells - not fewer. */
+        const lv_font_t *f = pos_type_font(pos_type_resolve(POS_TYPE_META, POS_TEXT_SIZE_SMALL,
+                                                            pos_theme_current_mode()));
+        int32_t cw = lv_font_get_glyph_width(f, 'M', 0);
+        int32_t gw = lv_area_get_width(&ga);
+
+        CHECK("the grid's cells are Small's whatever the text size (DS 46.4)",
+              cw > 0 && s->screen.cols * cw <= gw && gw < (s->screen.cols + 1) * cw + 2 * POCKETUI_PAD);
+    }
     CHECK("a prompt appears", wait_for("TPROMPT>", false, 5000));
 
     type("echo out-$((6*7))\r");

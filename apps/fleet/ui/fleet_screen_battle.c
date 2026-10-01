@@ -352,7 +352,11 @@ static void on_chat(lv_event_t *e)
 
 static void lines_high(lv_obj_t *label, int lines)
 {
-    const lv_font_t *font = lv_obj_get_style_text_font(label, LV_PART_MAIN);
+    const lv_font_t *font;
+
+    /* Measured in the font it will draw in: Fleet's, held at Small. */
+    pos_style_hold_small(label, NULL);
+    font = lv_obj_get_style_text_font(label, LV_PART_MAIN);
 
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
     lv_obj_set_width(label, LV_PCT(100));
@@ -584,7 +588,13 @@ void fleet_screen_battle_relayout(struct fleet_app *app, int wide, int cell_w, i
     lv_obj_set_width(ui->fire, LV_SIZE_CONTENT);
     lv_obj_set_flex_grow(ui->fire, 1);
     lv_obj_set_height(ui->fire, LV_PCT(100));
-    lv_obj_set_width(ui->chat, wide ? CHAT_TILE_W_WIDE : CHAT_TILE_W_TALL);
+    /* Never narrower than the tile always was, and wide enough for its
+     * title with two digits of news: at a larger text size (DS §46) 200 px
+     * cut "CHAT · 1 NEW" to "CHAT · 1...". Measured from the font, which
+     * needs no layout - this runs inside one. */
+    lv_obj_set_width(ui->chat, LV_MAX(wide ? CHAT_TILE_W_WIDE : CHAT_TILE_W_TALL,
+                                      pocketui_text_width(ui->chat_title, "CHAT \xc2\xb7 99 NEW") +
+                                          2 * CHAT_TILE_PAD));
     lv_obj_set_height(ui->chat, LV_PCT(100));
     lines_high(ui->chat_preview, wide ? 2 : 1);
 }
@@ -666,7 +676,7 @@ static void refresh_mp(struct fleet_battle_ui *ui, struct fleet_match *m)
     fleet_grid_refresh(ui->own);
 }
 
-void fleet_screen_battle_refresh(struct fleet_app *app)
+static void battle_refresh(struct fleet_app *app)
 {
     struct fleet_battle_ui *ui;
     struct fleet_game *game;
@@ -783,4 +793,12 @@ void fleet_screen_battle_leave(struct fleet_app *app)
     /* Nothing animates on a screen nobody is looking at. */
     fleet_grid_set_motion(ui->target, 0);
     fleet_grid_set_motion(ui->own, 0);
+}
+
+/* Every refresh ends with the type held at Small (fleet_app_hold_type): a
+ * refresh may put back a role that carries a font. */
+void fleet_screen_battle_refresh(struct fleet_app *app)
+{
+    battle_refresh(app);
+    fleet_app_hold_type(app);
 }

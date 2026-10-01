@@ -127,8 +127,11 @@ static void build_cmdline(struct rift_app *a)
     lv_obj_remove_style_all(a->cmd_status);
     pos_style_add(a->cmd_status, POS_STYLE_CAPTION, 0);
     lv_obj_set_flex_grow(a->cmd_status, 1);
-    lv_label_set_long_mode(a->cmd_status, LV_LABEL_LONG_CLIP);
     lv_label_set_text(a->cmd_status, "");
+    /* One line, and "..." where it does not fit rather than a silent cut:
+     * at a larger text size (DS §46.5) the reason in brackets no longer
+     * fits the line. Where it fits, as it always was. */
+    pocketui_label_fit(a->cmd_status, 1);
 
     /* The one key sink, outside the command line so the line can go away
      * without taking the keys with it. It stays in the layout at 1 px and is

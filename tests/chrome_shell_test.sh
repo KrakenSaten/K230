@@ -85,11 +85,16 @@ check "the keyboard reserve goes through the same box" \
 check "NONE hides the cluster and deletes nothing of it" \
     "$(grep -q 'lv_obj_add_flag(sh.cluster, LV_OBJ_FLAG_HIDDEN)' ui/shell/shell.c &&
        ! grep -q 'lv_obj_delete(sh.cluster\|lv_obj_delete(sh.status' ui/shell/shell.c && echo 1 || echo 0)"
+# The header's padding is header_fit()'s since DS §46 (a text-size change
+# lays the header out again through it); app_open() calls it.
 check "every app header takes the top edge's corner insets, whatever the chrome" \
-    "$(sed -n '/^static void app_open/,/^}/p' ui/shell/shell.c | grep -B1 -A1 'pocketui_apply_bar_insets(header, POS_EDGE_TOP)' |
-       grep -q 'if (sh.chrome' && echo 0 || echo 1)"
+    "$(sed -n '/^static void app_open/,/^}/p' ui/shell/shell.c | grep -q 'header_fit(header)' &&
+       sed -n '/^static void header_fit/,/^}/p' ui/shell/shell.c | grep -q 'pocketui_apply_bar_insets(header, POS_EDGE_TOP)' &&
+       ! sed -n '/^static void header_fit/,/^}/p' ui/shell/shell.c | grep -B1 -A1 'pocketui_apply_bar_insets(header' |
+       grep -q 'if (sh.chrome' && echo 1 || echo 0)"
 check "and stops short of the cluster by the one reserve (chrome_row_reserve)" \
-    "$(sed -n '/^static void app_open/,/^}/p' ui/shell/shell.c | grep -q 'chrome_row_reserve(sh.chrome' && echo 1 || echo 0)"
+    "$(sed -n '/^static void header_fit/,/^}/p' ui/shell/shell.c | grep -q 'chrome_row_reserve(sh.chrome' &&
+       echo 1 || echo 0)"
 check "every app header carries the hint" \
     "$(sed -n '/^static void app_open/,/^}/p' ui/shell/shell.c | grep -q 'sh.header_hint = pocketui_label(header, sh.status_hint' &&
        ! sed -n '/^static void app_open/,/^}/p' ui/shell/shell.c | grep -q 'if (sh.chrome == POCKETOS_CHROME_NONE)' && echo 1 || echo 0)"

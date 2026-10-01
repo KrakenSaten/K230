@@ -26,7 +26,7 @@ _Static_assert((int)HOME_HUE_RADIO == (int)POS_HUE_RADIO && (int)HOME_HUE_MESH =
  * x 9..119 of 128, at 0.75): where the press mark sits. */
 #define FRAME_TOP 7
 #define MARK_ARM 16
-#define MARK_W 2
+#define MARK_W 3 /* 2 until DS §46.7: the press and focus mark read at arm's length */
 #define UNDERLINE_W 96
 /* An app with no portal icon: its own 32 px mask centred in the empty
  * frame's inner panel. */
@@ -316,7 +316,7 @@ static void on_cell_draw_post(lv_event_t *e)
     /* the rule under the name */
     ly = a.y2 - 1;
     r = (lv_area_t){ a.x1 + (lv_area_get_width(&a) - UNDERLINE_W) / 2, ly,
-                     a.x1 + (lv_area_get_width(&a) + UNDERLINE_W) / 2 - 1, ly };
+                     a.x1 + (lv_area_get_width(&a) + UNDERLINE_W) / 2 - 1, ly + 1 }; /* 2 px, DS §46.7 */
     lv_draw_rect(layer, &d, &r);
 }
 
@@ -439,6 +439,11 @@ static void cell_create(lv_obj_t *parent, struct cell *c, const struct home_rect
     }
     lv_label_set_long_mode(c->label, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_width(c->label, r->w);
+    /* One line, so a name wider than its cell ends in "..." on that line
+     * instead of wrapping below the cell, which clips it mid-word (the text
+     * sizes make that possible, DS §46.4). The line the font draws: at Small
+     * exactly the height the label had. */
+    lv_obj_set_height(c->label, lv_font_get_line_height(lv_obj_get_style_text_font(c->label, LV_PART_MAIN)));
     lv_obj_set_style_text_align(c->label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_pos(c->label, 0, HOME_ICON + (small ? 6 : 2));
 }

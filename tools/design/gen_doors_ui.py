@@ -59,6 +59,13 @@ FIRST_PARTY = "docs/design/doors-app-icons/svg/"
 OUT = "ui/assets/doors"
 
 ICON_PX = 96
+# Readability (DS §46.7): the package's glyph line is 1.5 px at 96 px, thin
+# against the dark window it sits in on a small, dense panel. The launcher
+# draws it 1.35 times as heavy, and the app's colour stripe down the portal's
+# left side at 0.6 rather than the package's 0.4, so each portal reads as its
+# app at a glance. Geometry, colours and the icon set are the package's.
+GLYPH_WEIGHT = 1.35
+ACCENT_OPA = 0.6
 LV_MAGIC, CF_RGB565, CF_RGB565A8, CF_A8 = 0x19, 0x12, 0x14, 0x0E
 
 # The package's colours (b_ui_layout.json) and one per launcher app. The
@@ -210,10 +217,10 @@ def portal(px, colour_hex, glyph=None):
     c.stroke(P(sr.parse_path("M22 9 L32 20 M106 9 L96 20 M22 119 L32 110 M106 119 L96 110")), 1 * k,
              sr.solid(sr.parse_color("#a2a59c")), 0.42)
     c.fill(P(sr.parse_path("M32 20 L38 25 V105 L32 110")), sr.solid(sr.parse_color("#343b3d")))
-    c.stroke(P(sr.parse_path("M37 25 V104")), 1 * k, sr.solid(col), 0.4)
+    c.stroke(P(sr.parse_path("M37 25 V104")), 1 * k, sr.solid(col), ACCENT_OPA)
     if glyph:
         sp, w = glyph
-        c.stroke(P(sp), w * k, sr.solid(col))
+        c.stroke(P(sp), w * GLYPH_WEIGHT * k, sr.solid(col))
     return c.rgba()
 
 

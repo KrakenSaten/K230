@@ -403,6 +403,11 @@ static void build_list(struct notes_app *a)
             title = pocketui_label(row, entries[i].title, POS_STYLE_ROW_TITLE);
             lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
             lv_obj_set_flex_grow(title, 1);
+            /* No taller than the row: the dots then come at the last line
+             * that fits. A dotted label of automatic height wraps instead,
+             * and at a larger text size two lines ran out of the row (DS
+             * §46.5); what fitted before fits as it did. */
+            pocketui_label_fit(title, (int)(POCKETUI_ROW_H / pocketui_role_line_height(POS_STYLE_ROW_TITLE)));
             if (!entries[i].readable) {
                 pos_style_add(title, POS_STYLE_STATUS_WARN_TEXT, 0);
             }

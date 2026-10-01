@@ -40,11 +40,17 @@ run() { # <screen|-> <png>
 
 # 0. The app under a finger, in both orientations. A missing test binary is a
 #    failure, not a skip.
+#    At every text size (DS §46.4): Fleet keeps its type, so its screens stay
+#    the one screen they are at Small - every control in view with nothing
+#    scrolled - and the whole test holds at Medium and Large as it does at
+#    Small.
 if [ -x "$FLEET_APP_TEST" ]; then
-    log=$("$FLEET_APP_TEST" 2>&1); rc=$?
-    printf '%s
-' "$log" | grep -E '^FAIL|fleet_app_test:'
-    check "the app, the layout and the tap path" "$([ "$rc" = "0" ] && echo 1 || echo 0)"
+    for size in small medium large; do
+        log=$(POCKETUI_TEST_TEXT_SIZE=$size "$FLEET_APP_TEST" 2>&1); rc=$?
+        printf '%s
+' "$log" | grep -E '^FAIL|^     .* is in view|fleet_app_test:' | sed "s/^/[$size] /"
+        check "the app, the layout and the tap path, text size $size" "$([ "$rc" = "0" ] && echo 1 || echo 0)"
+    done
 else
     echo "FAIL fleet_app_test binary missing: $FLEET_APP_TEST"; failed=$((failed + 1))
 fi

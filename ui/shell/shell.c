@@ -32,6 +32,7 @@
 #include "pocketipc/server.h"
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
+#include "pocketui_audit.h"
 #include "pos_keyboard.h"
 #include "settings.h"
 #include "shell_alarm.h"
@@ -169,6 +170,12 @@ struct shell {
     lv_obj_t *osd;                /* the confirmation flash (osd_show) */
     lv_obj_t *osd_label;
     lv_timer_t *osd_timer;
+    /* A text-size change waiting for the shell's next pass (text_size_relayout):
+     * the styles change at once, the shell's own screens are laid out again
+     * outside the event that asked. recreate: the open app did not ask, so it
+     * is opened again in the new size. */
+    bool text_size_pending;
+    bool text_size_recreate;
 };
 
 static struct shell sh;
@@ -1053,6 +1060,22 @@ static void on_back(lv_event_t *e)
     pocketos_shell_go_home();
 }
 
+/* The app header's horizontal padding: the side margin, raised to the top
+ * edge's corner insets, and at the right end to the widest box the cluster
+ * can take (chrome_row_reserve). From the cluster's fonts, so it is worked
+ * out again when the text size changes them (text_size_relayout). */
+static void header_fit(lv_obj_t *header)
+{
+    int32_t reserve;
+
+    lv_obj_set_style_pad_hor(header, POCKETUI_PAD, 0);
+    pocketui_apply_bar_insets(header, POS_EDGE_TOP);
+    reserve = chrome_row_reserve(sh.chrome, pocketui_display_geometry()->width, &sh.cluster_reserve_app);
+    if (reserve > lv_obj_get_style_pad_right(header, LV_PART_MAIN)) {
+        lv_obj_set_style_pad_right(header, reserve, 0);
+    }
+}
+
 static void app_open(const struct pocketos_app *app)
 {
     lv_obj_t *header;
@@ -1091,7 +1114,6 @@ static void app_open(const struct pocketos_app *app)
     lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(header, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_hor(header, POCKETUI_PAD, 0);
     lv_obj_set_style_pad_column(header, 16, 0);
     /* The header is the top row of every app (DS §36): it runs corner to
      * corner along the top edge, where the panel's rounded corners are, so
@@ -1100,15 +1122,7 @@ static void app_open(const struct pocketos_app *app)
      * header stops short of the widest box the cluster can take, so the
      * title and the hint never run under it and never move when the chip
      * changes state. */
-    pocketui_apply_bar_insets(header, POS_EDGE_TOP);
-    {
-        int32_t reserve = chrome_row_reserve(sh.chrome, pocketui_display_geometry()->width,
-                                             &sh.cluster_reserve_app);
-
-        if (reserve > lv_obj_get_style_pad_right(header, LV_PART_MAIN)) {
-            lv_obj_set_style_pad_right(header, reserve, 0);
-        }
-    }
+    header_fit(header);
 
     back = lv_button_create(header);
     lv_obj_remove_style_all(back);
@@ -1259,6 +1273,84 @@ static void home_build(void)
     sh.controls = controls_create(sh.content, sh.landscape, &controls_keepout, &ca);
 }
 
+/* ---- layout audit (pocketui_audit.h, DS §46.6) ------------------------- */
+
+static void audit_add(const struct pocketui_audit_issue *is, void *user)
+{
+    cJSON *arr = user;
+    cJSON *o;
+
+    if (cJSON_GetArraySize(arr) >= 200) {
+        return; /* the stats still count them */
+    }
+    o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "kind", pocketui_audit_kind_name(is->kind));
+    cJSON_AddStringToObject(o, "path", is->path);
+    cJSON_AddStringToObject(o, "text", is->text);
+    cJSON_AddNumberToObject(o, "x", is->area.x1);
+    cJSON_AddNumberToObject(o, "y", is->area.y1);
+    cJSON_AddNumberToObject(o, "w", lv_area_get_width(&is->area));
+    cJSON_AddNumberToObject(o, "h", lv_area_get_height(&is->area));
+    if (is->kind == POCKETUI_AUDIT_OVERLAP) {
+        cJSON_AddStringToObject(o, "other_path", is->other_path);
+        cJSON_AddStringToObject(o, "other_text", is->other_text);
+    }
+    if (is->kind != POCKETUI_AUDIT_ZERO) {
+        cJSON *r = cJSON_CreateObject();
+
+        cJSON_AddNumberToObject(r, "x", is->other.x1);
+        cJSON_AddNumberToObject(r, "y", is->other.y1);
+        cJSON_AddNumberToObject(r, "w", lv_area_get_width(&is->other));
+        cJSON_AddNumberToObject(r, "h", lv_area_get_height(&is->other));
+        cJSON_AddItemToObject(o, "other", r);
+    }
+    cJSON_AddItemToArray(arr, o);
+}
+
+/* What is on the screen now, measured: shell.audit and --audit. */
+static cJSON *audit_json(void)
+{
+    struct pocketui_audit_stats st;
+    cJSON *result = cJSON_CreateObject();
+    cJSON *issues = cJSON_CreateArray();
+    cJSON *count = cJSON_CreateObject();
+    int k;
+
+    lv_obj_update_layout(lv_screen_active());
+    pocketui_audit(lv_screen_active(), audit_add, issues, &st);
+    cJSON_AddStringToObject(result, "current", sh.app ? sh.app->id : controls_visible() ? "controls" : "home");
+    cJSON_AddStringToObject(result, "text_size", pos_text_size_name(pos_theme_current_text_size()));
+    cJSON_AddBoolToObject(result, "landscape", sh.landscape);
+    cJSON_AddNumberToObject(result, "objects", st.objects);
+    cJSON_AddNumberToObject(result, "labels", st.labels);
+    for (k = 0; k < POCKETUI_AUDIT_KIND_COUNT; k++) {
+        cJSON_AddNumberToObject(count, pocketui_audit_kind_name((enum pocketui_audit_kind)k), st.issues[k]);
+    }
+    cJSON_AddItemToObject(result, "count", count);
+    cJSON_AddItemToObject(result, "issues", issues);
+    return result;
+}
+
+static void audit_write(const char *path)
+{
+    cJSON *j = audit_json();
+    char *text = cJSON_Print(j);
+    FILE *f = fopen(path, "w");
+
+    if (f && text) {
+        fputs(text, f);
+        fputc('\n', f);
+        LOG_INFO("layout audit written to %s", path);
+    } else {
+        LOG_ERROR("layout audit: cannot write %s", path);
+    }
+    if (f) {
+        fclose(f);
+    }
+    cJSON_free(text);
+    cJSON_Delete(j);
+}
+
 /* ---- screenshot ------------------------------------------------------- */
 
 static int screenshot_save(const char *path)
@@ -1344,6 +1436,137 @@ int pocketos_shell_set_appearance(const char *theme_id, const char *mode_name)
     char why[128];
 
     return shell_set_theme(theme_id, mode_name, why, sizeof(why)) < 0 ? -1 : 0;
+}
+
+/* ---- text size (DS §46) -------------------------------------------------- *
+ *
+ * The styles take the new fonts the moment the size is selected (the theme
+ * engine's listener, pos_styles.c), so every label redraws in it at once.
+ * What the shell placed from font metrics is then placed again, on the
+ * shell's next pass rather than inside the event that asked - the cluster's
+ * reserve and the app header's room, the launcher and Controls, which are
+ * built from fixed geometry and measured labels. The launcher keeps the page
+ * it showed (a folder, the favorites' picker is closed), and Controls stays
+ * up if it was.
+ */
+static void text_size_relayout(void *user)
+{
+    bool home_hidden;
+    bool controls_shown;
+    bool recreate = sh.text_size_recreate;
+    char folder[32];
+
+    (void)user;
+    if (!sh.text_size_pending) {
+        return;
+    }
+    sh.text_size_pending = false;
+    sh.text_size_recreate = false;
+
+    status_chip_fit();
+    chrome_apply(sh.chrome, "text size");
+    if (sh.app_header) {
+        header_fit(sh.app_header);
+    }
+
+    home_hidden = lv_obj_has_flag(sh.home, LV_OBJ_FLAG_HIDDEN);
+    controls_shown = controls_visible();
+    snprintf(folder, sizeof(folder), "%s", home_folder_current() ? home_folder_current() : "");
+    home_keys_detach();
+    home_destroy();
+    controls_destroy();
+    sh.home = NULL;
+    sh.controls = NULL;
+    home_build();
+    {
+        /* The new launcher's clock from the reading the tick last took, not
+         * "--:--" until the next one. */
+        char hm[16];
+        char date[48];
+
+        clock_format_wall(&clock_runtime_now()->wall, hm, sizeof(hm));
+        clock_format_date(&clock_runtime_now()->wall, date, sizeof(date));
+        home_set_time(hm, date);
+    }
+    /* Behind whatever covers it, as the old one was: the app's root and the
+     * lock were created before this, so the new launcher would otherwise be
+     * the newest child and drawn over them. */
+    lv_obj_move_to_index(sh.home, 0);
+    lv_obj_move_to_index(sh.controls, 1);
+    if (folder[0]) {
+        home_folder_open(folder);
+    }
+    if (home_hidden) {
+        lv_obj_add_flag(sh.home, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (controls_shown) {
+        controls_show();
+    }
+    if (!sh.app && !controls_shown && !home_hidden) {
+        home_keys_attach();
+    }
+    if (sh.app && recreate) {
+        app_open(sh.app);
+    }
+    LOG_INFO("text size: %s, shell laid out again%s", pos_text_size_name(pos_theme_current_text_size()),
+             sh.app && recreate ? ", app opened again" : "");
+}
+
+/* Select, store and announce; recreate says whether the open app is opened
+ * again once the shell has laid itself out (an app that asked lays itself
+ * out). Returns 0, -1 for a size out of range (nothing changes) or one that
+ * could not be stored (the running size changes all the same). */
+static int shell_set_text_size(enum pos_text_size size, bool recreate)
+{
+    int rc = 0;
+    cJSON *data;
+
+    if (size < 0 || size >= POS_TEXT_SIZE_COUNT) {
+        return -1;
+    }
+    if (size != pos_theme_current_text_size()) {
+        pos_theme_select_text_size(size);
+        if (!sh.text_size_pending) {
+            lv_async_call(text_size_relayout, NULL);
+        }
+        sh.text_size_pending = true;
+        sh.text_size_recreate = sh.text_size_recreate || recreate;
+    }
+    if (settings_set("text_size", pos_text_size_name(size)) < 0) {
+        LOG_WARN("cannot persist text size to %s: %s", settings_path(), strerror(errno));
+        rc = -1;
+    }
+    LOG_INFO("text size %s", pos_text_size_name(size));
+    if (sh.server) {
+        data = cJSON_CreateObject();
+        cJSON_AddStringToObject(data, "size", pos_text_size_name(size));
+        pocketipc_server_broadcast(sh.server, pocketipc_event("shell.text_size", data));
+    }
+    return rc;
+}
+
+enum pos_text_size pocketos_shell_text_size(void)
+{
+    return pos_theme_current_text_size();
+}
+
+int pocketos_shell_set_text_size(enum pos_text_size size)
+{
+    return shell_set_text_size(size, false);
+}
+
+/* What settings.conf holds, read once at start: anything but the three names
+ * - a hand edit, a future value - is Small, said once in the log, and left in
+ * the file until somebody chooses a size (the theme's DS §8 rule). */
+static enum pos_text_size stored_text_size(const char *value)
+{
+    enum pos_text_size size = POS_TEXT_SIZE_DEFAULT;
+
+    if (value && pos_text_size_parse(value, &size) < 0) {
+        LOG_WARN("stored text size '%s' is not small, medium or large; using small", value);
+        size = POS_TEXT_SIZE_DEFAULT;
+    }
+    return size;
 }
 
 /* ---- shell.* service (docs/api/shell.md) ------------------------------ */
@@ -1899,6 +2122,7 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         cJSON_AddStringToObject(result, "theme", pos_theme_current_def()->id);
         cJSON_AddItemToObject(result, "hardware", hardware_json());
         cJSON_AddStringToObject(result, "mode", pos_mode_name(pos_theme_current_mode()));
+        cJSON_AddStringToObject(result, "text_size", pos_text_size_name(pos_theme_current_text_size()));
         cJSON_AddNumberToObject(display, "width", sh.display.geometry.width);
         cJSON_AddNumberToObject(display, "height", sh.display.geometry.height);
         cJSON_AddStringToObject(display, "backend", sh.backend_name);
@@ -2324,6 +2548,27 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         cJSON_AddStringToObject(result, "mode", pos_mode_name(pos_theme_current_mode()));
         cJSON_AddBoolToObject(result, "fallback", fallback);
         cJSON_AddStringToObject(result, "reason", why);
+    } else if (strcmp(method, "shell.audit") == 0) {
+        result = audit_json();
+    } else if (strcmp(method, "shell.text_size") == 0) {
+        const cJSON *sz = params ? cJSON_GetObjectItemCaseSensitive(params, "size") : NULL;
+        enum pos_text_size size;
+
+        if (sz) {
+            if (!cJSON_IsString(sz) || pos_text_size_parse(sz->valuestring, &size) < 0) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                    id, POCKETIPC_ERR_INVALID_PARAMS, "size must be small, medium or large"));
+                return;
+            }
+            if (shell_set_text_size(size, true) < 0) {
+                pocketipc_server_reply(s, c, pocketipc_error_response(
+                    id, POCKETIPC_ERR_BACKEND, "text size applied but could not be stored"));
+                return;
+            }
+        }
+        result = cJSON_CreateObject();
+        cJSON_AddStringToObject(result, "size", pos_text_size_name(pos_theme_current_text_size()));
+        cJSON_AddBoolToObject(result, "pending", sh.text_size_pending);
     } else if (strcmp(method, "shell.rotation") == 0) {
         const cJSON *md = params ? cJSON_GetObjectItemCaseSensitive(params, "mode") : NULL;
         enum orientation_mode mode;
@@ -2509,6 +2754,7 @@ int main(int argc, char **argv)
     const char *open_id = NULL;
     const char *theme_arg = NULL;
     const char *mode_arg = NULL;
+    const char *text_size_arg = NULL;
     const char *rotation_arg = NULL;
     bool no_lock = false;
     bool start_controls = false;
@@ -2518,6 +2764,7 @@ int main(int argc, char **argv)
     const char *resume;
     char resume_folder[32] = "";
     long exit_after_ms = -1;
+    const char *audit_path = NULL;
     int loaded;
     lv_display_t *disp;
     lv_obj_t *screen;
@@ -2535,6 +2782,10 @@ int main(int argc, char **argv)
             theme_arg = argv[++i];
         } else if (strcmp(argv[i], "--mode") == 0 && i + 1 < argc) {
             mode_arg = argv[++i];
+        } else if (strcmp(argv[i], "--text-size") == 0 && i + 1 < argc) {
+            text_size_arg = argv[++i];
+        } else if (strcmp(argv[i], "--audit") == 0 && i + 1 < argc) {
+            audit_path = argv[++i];
         } else if (strcmp(argv[i], "--rotation") == 0 && i + 1 < argc) {
             rotation_arg = argv[++i];
         } else if (strcmp(argv[i], "--no-lock") == 0) {
@@ -2544,7 +2795,7 @@ int main(int argc, char **argv)
             no_lock = true;
         } else {
             fprintf(stderr, "usage: pocketos-shell [--open APP] [--screenshot F.png] [--exit-after-ms N]"
-                            " [--theme ID] [--mode normal|outdoor|night]"
+                            " [--theme ID] [--mode normal|outdoor|night] [--text-size small|medium|large] [--audit F.json]"
                             " [--rotation automatic|portrait|landscape] [--no-lock] [--controls]\n");
             return 2;
         }
@@ -2640,8 +2891,13 @@ int main(int argc, char **argv)
         if ((theme || mode) && pos_theme_apply(theme, mode, why, sizeof(why)) < 0) {
             LOG_WARN("stored theme rejected, using fallback: %s", why);
         }
-        LOG_INFO("appearance: theme %s mode %s (settings %s)", pos_theme_current_def()->id,
-                 pos_mode_name(pos_theme_current_mode()),
+        /* The text size after the theme, so its listener refills the styles
+         * once more before anything is built; --text-size is for a run only
+         * and is not stored. */
+        pos_theme_select_text_size(stored_text_size(text_size_arg ? text_size_arg
+                                                                  : settings_get("text_size", NULL)));
+        LOG_INFO("appearance: theme %s mode %s text size %s (settings %s)", pos_theme_current_def()->id,
+                 pos_mode_name(pos_theme_current_mode()), pos_text_size_name(pos_theme_current_text_size()),
                  loaded == 0 ? "loaded" : loaded == 1 ? "absent" : "unreadable");
     }
     /* After the settings are loaded and before anything is built: a caret
@@ -2824,6 +3080,10 @@ int main(int argc, char **argv)
             break;
         }
         if (exit_after_ms >= 0 && (long)(lv_tick_get() - started) >= exit_after_ms) {
+            /* --audit: what the run settled on, measured just before it ends. */
+            if (audit_path) {
+                audit_write(audit_path);
+            }
             break;
         }
         if (sh.server) {

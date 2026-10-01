@@ -20,6 +20,7 @@
 /tests/radiod_tx_test
 /tests/pocketlog_test
 /tests/theme_test
+/tests/text_size_test
 /tests/settings_test
 /.claude/
 /tests/pocketipc_test

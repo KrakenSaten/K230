@@ -533,6 +533,38 @@ static int in_safe_area(lv_obj_t *obj)
     return pos_display_rect_is_safe(pocketui_display_geometry(), a.x1, a.y1, a.x2, a.y2);
 }
 
+/* Seen whole, now, without anything having to scroll: shown, and inside
+ * every box between it and the body, none of which is scrolled. A column
+ * that clips a control it would have to be scrolled to show fails this
+ * where inside_body() would not. DS §46.4: at every text size Fleet's
+ * controls are on its one screen. */
+static void check_in_view(const char *what, lv_obj_t *obj)
+{
+    char msg[200];
+    lv_area_t a;
+    lv_obj_t *o;
+    int ok = obj != NULL && visible(obj);
+
+    box_of(obj, &a);
+    for (o = obj ? lv_obj_get_parent(obj) : NULL; ok && o; o = lv_obj_get_parent(o)) {
+        lv_area_t p;
+
+        box_of(o, &p);
+        if (a.x1 < p.x1 || a.y1 < p.y1 || a.x2 > p.x2 || a.y2 > p.y2 || lv_obj_get_scroll_x(o) != 0 ||
+            lv_obj_get_scroll_y(o) != 0) {
+            printf("     %s: %d..%d x %d..%d, but a box it is in is %d..%d x %d..%d, scrolled %d,%d\n", what,
+                   (int)a.x1, (int)a.x2, (int)a.y1, (int)a.y2, (int)p.x1, (int)p.x2, (int)p.y1, (int)p.y2,
+                   (int)lv_obj_get_scroll_x(o), (int)lv_obj_get_scroll_y(o));
+            ok = 0;
+        }
+        if (o == app_body) {
+            break;
+        }
+    }
+    snprintf(msg, sizeof(msg), "%s is in view with nothing scrolled", what);
+    check(msg, ok && in_safe_area(obj));
+}
+
 /* ---- the board, as the grid draws it ----------------------------------- */
 
 /* fleet_grid.c's cell_area(), restated here so the test does not ask the code
@@ -1692,9 +1724,18 @@ static void test_multiplayer(enum pos_rotation rotation)
           !app->mp->engaged && app->mp->sent == 0 && app->mp->received == 0);
     check("MULTIPLAYER is in view on Command, not below the fold",
           inside_body(command_multi_button()) && in_safe_area(command_multi_button()));
+    if (rotation != POS_ROTATION_0) {
+        /* Across the page Command is one screen: the choice, the fleet,
+         * the terms and the ways on, nothing below a fold. */
+        check_in_view("Command: MULTIPLAYER", command_multi_button());
+        check_in_view("Command: the opponent's difficulty", command_segments());
+        check_in_view("Command: DEPLOY FLEET", command_deploy());
+    }
     tap_obj(command_multi_button());
     mp_wait(500);
     check_one_screen(FLEET_SCREEN_LOBBY);
+    check_in_view("Lobby: the opponent's row", lobby_player_row(0));
+    check_in_view("Lobby: INVITE", lobby_act());
     check_str("the header says where we are", g_hint, "MULTIPLAYER");
     check("the lobby lists the opponent", visible(lobby_player_row(0)));
     check("nothing is sent by opening the lobby", app->mp->sent == 0);
@@ -1711,9 +1752,14 @@ static void test_multiplayer(enum pos_rotation rotation)
         mp_wait(100);
     }
     check_one_screen(FLEET_SCREEN_DEPLOY);
+    check_in_view("Deploy: the board", deploy_board());
+    check_in_view("Deploy: AUTO", kid(deploy_controls(), DEPLOY_AUTO));
     tap_obj(kid(deploy_controls(), DEPLOY_AUTO));
+    check_in_view("Deploy: CONFIRM", deploy_confirm());
     tap_obj(deploy_confirm());
     check_one_screen(FLEET_SCREEN_BATTLE);
+    check_in_view("Battle: the target board", battle_board());
+    check_in_view("Battle: FIRE", battle_fire());
     for (i = 0; i < 20000 && (app->mp->m.phase == FLEET_MP_COMMITTED ||
                               app->mp->m.phase == FLEET_MP_BATTLE); i++) {
         if (fleet_match_my_turn(&app->mp->m)) {
@@ -1750,6 +1796,8 @@ static void test_multiplayer(enum pos_rotation rotation)
           strcmp(text_of(result_heading()), "Fleet lost") == 0);
     check_str("and the opponent's fleet was verified", text_of(result_value(0, 3)), "Verified");
     check("the Result stays inside the body", inside_body(screen_of(FLEET_SCREEN_RESULT)));
+    check_in_view("Result: the outcome", result_heading());
+    check_in_view("Result: the way back to the lobby", kid(result_foot(), 0));
     tap_obj(kid(result_foot(), 0));
     check_one_screen(FLEET_SCREEN_LOBBY);
     check("MULTIPLAYER put the finished match away",
@@ -2092,6 +2140,8 @@ static void test_multiplayer_chat(enum pos_rotation rotation)
         check("and both are a finger's size",
               lv_area_get_height(&f) >= POCKETUI_TOUCH_MIN && lv_area_get_height(&c) >= POCKETUI_TOUCH_MIN);
         check("the chat button is in view", inside_body(battle_chat()));
+        check_in_view("Battle: the chat button", battle_chat());
+        check_in_view("Battle: FIRE beside it", battle_fire());
     }
     if (wide) {
         mp_our_turn(1);     /* the whole never-scroll check, with the button there */
@@ -2108,6 +2158,10 @@ static void test_multiplayer_chat(enum pos_rotation rotation)
     check("and nothing but its list can scroll", lv_obj_get_scroll_bottom(frame_of()) == 0 &&
           lv_obj_get_scroll_bottom(chat_screen()) == 0);
     check_str("the status line says what the header says", text_of(chat_status()), g_hint);
+    check_in_view("Chat: the status line", chat_status());
+    check_in_view("Chat: the field", lv_obj_get_parent(chat_field()));
+    check_in_view("Chat: SEND", chat_send_button());
+    check_in_view("Chat: back to the board", chat_board());
     check("the field has the keys, without a finger on it", pos_input_focused() == chat_field());
     check("SEND waits for something to send", !lv_obj_has_flag(chat_send_button(), LV_OBJ_FLAG_CLICKABLE));
     type_keys("Hello there");

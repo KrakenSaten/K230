@@ -693,6 +693,16 @@ void controls_hide(void)
     }
 }
 
+void controls_destroy(void)
+{
+    if (!ct.root) {
+        return;
+    }
+    controls_radio_dismiss(&ct.radio_flow);
+    lv_obj_delete(ct.root);
+    memset(&ct, 0, sizeof(ct));
+}
+
 bool controls_visible(void)
 {
     return ct.root && !lv_obj_has_flag(ct.root, LV_OBJ_FLAG_HIDDEN);

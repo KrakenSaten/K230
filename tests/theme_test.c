@@ -182,6 +182,14 @@ int main(int argc, char **argv)
             check(label, pos_contrast(t.color[POS_COLOR_TEXT_PRIMARY], t.color[POS_COLOR_BG]) >= 7.0);
             snprintf(label, sizeof(label), "%s/%s text_secondary >= 4.5", def->id, pos_mode_name((enum pos_mode)m));
             check(label, pos_contrast(t.color[POS_COLOR_TEXT_SECONDARY], t.color[POS_COLOR_BG]) >= 4.5);
+            /* §46.7: muted text is read too, so it clears the body-text
+             * floor - and stays quieter than secondary text, or it would not
+             * be muted. */
+            snprintf(label, sizeof(label), "%s/%s text_muted >= 4.5 and below text_secondary", def->id,
+                     pos_mode_name((enum pos_mode)m));
+            check(label, pos_contrast(t.color[POS_COLOR_TEXT_MUTED], t.color[POS_COLOR_BG]) >= 4.5 &&
+                             pos_contrast(t.color[POS_COLOR_TEXT_MUTED], t.color[POS_COLOR_BG]) <
+                                 pos_contrast(t.color[POS_COLOR_TEXT_SECONDARY], t.color[POS_COLOR_BG]));
             for (k = POS_COLOR_ACCENT_PRIMARY; k <= POS_COLOR_RADIO_TX; k++) {
                 snprintf(label, sizeof(label), "%s/%s %s >= 4.5", def->id, pos_mode_name((enum pos_mode)m),
                          pos_color_token_name((enum pos_color_token)k));

@@ -25,7 +25,7 @@
 /* The thread's header row: a 36 px data row in portrait, where a finger
  * lands on it; the 28 px header-row height of handoff §4 in landscape,
  * where it is read and never tapped, and the 8 px are the messages'. */
-#define HEAD_H_WIDE RIFT_HEADER_ROW_H
+#define HEAD_H_WIDE rift_header_row_h()
 /* Between a body and a caption that shares its line. */
 #define CAPTION_GAP 10
 /* Above the composer. */
@@ -649,7 +649,7 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
         int32_t h0 = lv_obj_get_height(t->scroll);
 
         at_end = h0 != t->scroll_h ? t->at_end
-                                   : lv_obj_get_scroll_bottom(t->scroll) <= RIFT_CAPTION_H;
+                                   : lv_obj_get_scroll_bottom(t->scroll) <= rift_caption_h();
     }
     same_peer = t->shape_valid && strcmp(peer ? peer : "", t->shape_peer) == 0;
     changed = !same_peer || shown != t->shape_count;
@@ -727,7 +727,7 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
         }
         t->scroll_h = h;
         /* Within a caption's height of the end counts as at the end. */
-        t->at_end = lv_obj_get_scroll_bottom(t->scroll) <= RIFT_CAPTION_H;
+        t->at_end = lv_obj_get_scroll_bottom(t->scroll) <= rift_caption_h();
     }
 
     /* The header: who, and how this peer is reached. The route is the

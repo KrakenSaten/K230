@@ -159,6 +159,38 @@ lv_obj_t *fleet_segments(lv_obj_t *parent, const char *const *labels, int count)
     return bar;
 }
 
+void fleet_segments_fit(lv_obj_t *bar, int32_t bar_w)
+{
+    uint32_t count = bar ? lv_obj_get_child_count(bar) : 0;
+    int32_t widest = 0;
+    int32_t seg_w;
+    bool one_row;
+    uint32_t i;
+
+    if (!count || bar_w <= 0) {
+        return;
+    }
+    /* Measured in the type it draws in: Fleet's, held at Small. */
+    pos_style_hold_small(bar, NULL);
+    for (i = 0; i < count; i++) {
+        lv_obj_t *seg = lv_obj_get_child(bar, (int32_t)i);
+        lv_obj_t *label = lv_obj_get_child(seg, 0);
+
+        /* The caption role is on the segment; the label inherits it. */
+        widest = LV_MAX(widest, pocketui_text_width(label, lv_label_get_text(label)));
+    }
+    seg_w = (bar_w - (int32_t)(count - 1) * SEGMENT_GAP) / (int32_t)count;
+    one_row = widest <= seg_w + 2;
+    lv_obj_set_flex_flow(bar, one_row ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_style_pad_row(bar, SEGMENT_GAP, 0);
+    for (i = 0; i < count; i++) {
+        /* Two to a row: each at least just under half, so the third wraps,
+         * and the two then share the row's width. */
+        lv_obj_set_style_min_width(lv_obj_get_child(bar, (int32_t)i), one_row ? 0 : LV_PCT(45), 0);
+    }
+    lv_obj_set_height(bar, one_row ? SEGMENT_H : (int32_t)((count + 1) / 2) * (SEGMENT_H + SEGMENT_GAP) - SEGMENT_GAP);
+}
+
 void fleet_segments_select(lv_obj_t *bar, int index)
 {
     uint32_t count;

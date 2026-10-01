@@ -227,6 +227,22 @@ void fleet_screen_command_relayout(struct fleet_app *app, int wide)
     col[0] = ui->left;
     col[1] = ui->mid;
     col[2] = ui->right;
+    {
+        /* The room the difficulty bar has: a column, less the panel's
+         * padding and hairline. Worked out from the box and the styles, not
+         * measured - this runs inside LVGL's layout pass (on_frame_size),
+         * before anything below the frame has a size. At a larger text size
+         * "COMMANDER" may not fit a quarter of a landscape column; the bar
+         * then goes two by two (fleet_segments_fit, DS §46). */
+        lv_obj_t *panel = lv_obj_get_parent(ui->segments);
+        int32_t w = lv_area_get_width(&app->layout_guard.area) - lv_obj_get_style_pad_left(app->frame, 0) -
+                    lv_obj_get_style_pad_right(app->frame, 0);
+        int32_t c = wide ? (w - 2 * lv_obj_get_style_pad_column(ui->cols, 0)) / 3 : w;
+
+        fleet_segments_fit(ui->segments, c - lv_obj_get_style_pad_left(panel, 0) -
+                                             lv_obj_get_style_pad_right(panel, 0) -
+                                             2 * lv_obj_get_style_border_width(panel, 0));
+    }
     for (i = 0; i < 3; i++) {
         lv_obj_set_style_pad_top(col[i], wide ? FLEET_CAPTION_RISE : 0, 0);
         if (wide) {
@@ -245,7 +261,7 @@ void fleet_screen_command_relayout(struct fleet_app *app, int wide)
     }
 }
 
-void fleet_screen_command_refresh(struct fleet_app *app)
+static void command_refresh(struct fleet_app *app)
 {
     struct fleet_command_ui *ui;
 
@@ -297,4 +313,12 @@ void fleet_screen_command_refresh(struct fleet_app *app)
             lv_obj_remove_flag(ui->multi_open, LV_OBJ_FLAG_HIDDEN);
         }
     }
+}
+
+/* Every refresh ends with the type held at Small (fleet_app_hold_type): a
+ * refresh may put back a role that carries a font. */
+void fleet_screen_command_refresh(struct fleet_app *app)
+{
+    command_refresh(app);
+    fleet_app_hold_type(app);
 }

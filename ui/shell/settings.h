@@ -10,7 +10,8 @@
  * Standard keys: theme (DS theme id), display_mode (normal|outdoor|night),
  * reduced_motion (0|1, default 0; DS §12, see pocketos_shell_reduced_motion()),
  * display_brightness (10..100 percent; brightness.h, unset = as booted),
- * audio_volume (10..100 step 10, default 100) and audio_muted (0|1; volume.h).
+ * audio_volume (10..100 step 10, default 100), audio_muted (0|1; volume.h)
+ * and text_size (small|medium|large, default small; DS §46, shell.c).
  *
  * SECURITY: this store is for non-secret preferences (theme, display mode
  * and the like). It is a world-readable plain-text file with no integrity
