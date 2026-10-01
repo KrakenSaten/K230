@@ -262,6 +262,8 @@ Also: `portrait-demo.png` (the fake network's demo page: links, list, picture, q
   first-party globe icon (docs/design/doors-app-icons/). Portrait still fits
   without scrolling (CONNECTIONS takes a second row); landscape keeps its two
   lines. The owner confirmed the place and the icon on 2026-09-27.
+  Since DS §47 Browser is in ESSENTIALS on the launcher's page, with
+  Terminal, RIFT and Settings.
 
 ## 9. What it remembers
 

@@ -228,6 +228,7 @@ detached `pos-wave recover` at once (pocketaudio.h, "Recovery";
 tests/audio_recovery_test.sh kills real helpers to prove it).
 
 Launcher: the eleventh tile, after Settings; the grid gained a sixth row.
+Since DS §47 Wave is in the Apps folder.
 Icon: `LV_SYMBOL_VOLUME_MAX`, a placeholder until the DS §11 icon set exists.
 
 ## Left for later

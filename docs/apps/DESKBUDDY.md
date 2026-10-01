@@ -12,7 +12,7 @@ elsewhere, and DeskBuddy runs blind or on simulated vision until then.**
 **Branch `feat/vision-next` (2026-09-30) adds the real provider on Vision's
 helper and a first run on unit B: "The Vision provider" at the end.**
 
-Launcher: WORKSPACE after Calculator, in the `ai` hue, a first-party icon (a
+Launcher: the Apps folder, first (DS §47; it was in WORKSPACE after Calculator), in the `ai` hue, a first-party icon (a
 small screen with two eyes). Place and icon are for the owner to confirm.
 Fullscreen (`POCKETOS_CHROME_NONE`, DS §36): no status cluster over the face
 or the night clock. No DS amendment has been written for it yet.

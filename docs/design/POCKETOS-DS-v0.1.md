@@ -4279,3 +4279,131 @@ Known limits at Medium and Large:
   details with "…" sooner at the larger sizes.
 - The key/value rows of `pocketui_kv_row` shorten a value with "…" past 60 %
   of the row, as at Small; a long value (Radio's error text) is cut sooner.
+
+## 47. Amendment AE — Launcher app groups, System in Settings [PROPOSED]
+
+**PROPOSED 2026-10-01** on branch `feat/launcher-app-groups`, validated on
+the host (§47.6), **not yet gated on a unit** (§47.7). It changes the
+launcher's page of §31.3, §39 and §42 and where System is entered; it adds
+no role, token, colour, folder mechanism or navigation stack. Nothing in
+§1-§46 is renumbered.
+
+### 47.1 The launcher's page
+
+The page had grown to fifteen places in four groups and scrolled in both
+orientations. It is now, in both orientations:
+
+| Panel | Cells |
+| --- | --- |
+| FAVORITES | three slots (§42.3, unchanged) |
+| ESSENTIALS | Terminal, RIFT, Browser, Settings |
+| FOLDERS | Apps, Utilities, Games (folder cells) |
+
+Ten cells; neither orientation scrolls. Portrait: three panels of one row
+each, 124 px cells and 20 px labels as before. Landscape: the three panels
+side by side on one line, 108 px cells (16 px labels, the narrow-cell rule
+of §31.3), centred - no wrap. MORE (§31.2) stays for an app the table does
+not name and is not drawn while empty.
+
+The two group captions are new words for the two panels the requested
+structure makes, chosen to say what each holds; they are one string table
+(`home_group_name`) and the owner may rename them. CONNECTIONS, WORKSPACE,
+PLAY and DEVICE are retired.
+
+### 47.2 The folders
+
+The existing folder mechanism (§39), one more folder - nothing else in the
+launcher changed:
+
+- **Apps** (new): DeskBuddy, MP3, Photo, Radio, Video, Vision, Wave, Zabbix -
+  alphabetical by name. Its cell is the package's own Apps category glyph in
+  the Apps colour (§31.2 reuses the package's category glyphs and hues),
+  drawn by `gen_doors_ui.py` as `icon-apps`; `LV_SYMBOL_LIST` on the empty
+  portal without the art. Radio was not named in the brief; it is the one
+  app that would otherwise have had no place, and it joins Apps (for the
+  owner to confirm). A build without Zabbix has seven apps in Apps.
+- **Utilities** (§42.2): unchanged - Clock, Calendar, Calculator, Notes,
+  Files, Recorder, Camera, in that order.
+- **Games** (§39): unchanged - Fleet, Radar, Timber, Solitaire, Blackjack,
+  2048, in that order.
+
+Every app is in exactly one place - its own cell or one folder - except
+System (§47.3). The folder cells come in the order of their first apps in
+the table: Apps, Utilities, Games. Opening, going back, the keys, a rotation
+restart in an open folder (`DOORS_LAUNCHER_FOLDER=apps`) and Lock and
+Controls over a folder are §39.4-§39.5's.
+
+### 47.3 System is Settings' page
+
+System has no launcher cell. Settings' last panel, SYSTEM (under
+Appearance, in the same column), holds one row: "System" over "About this
+device, status, diagnostics, restart and power", with a chevron; a tap opens
+System.
+
+System stays an app of the shell's registry, unchanged, and the shell
+presents it as Settings' page through one table (`app_pages` in
+`ui/shell/shell.c`: `system` is a page of `settings`):
+
+- no cell, no folder, not offered by the favorites' picker
+  (`HOME_GROUP_NONE` in the launcher's table);
+- its header is System's own (title "System"), and its way out is Settings:
+  the header's back slab and Back (§44.2) open Settings; Back first closes
+  Diagnostics, as before; Back in Settings goes home, as before; Home goes to
+  the launcher's own page from anywhere;
+- every other way in is kept and leads to the same place: Controls' "About
+  DOORS" row and Power (§31.5), a favorite that already holds System,
+  `shell.open`, `--open system`. Back from System is Settings whichever way
+  it was opened;
+- one level, from the table; no stack is kept. Settings opens System with
+  `pocketos_shell_open_app()` (app.h), which the shell runs on its next timer
+  pass, never inside the tap's event; the back slab of a page defers the
+  same way. Settings is built afresh when it comes back, at the top of its
+  page (it keeps nothing; §24).
+
+Why an app and not a panel inside Settings' own screen: System's screen,
+its Diagnostics page, its power confirmations and its polling stay exactly
+as accepted (§25), every existing way in keeps working, and the header names
+the page the reader is on.
+
+### 47.4 Favorites
+
+Unchanged in form and in storage (§42.3): a slot holds an app id in
+settings.conf, never a place. A favorite that holds an app now in a folder
+shows that app and opens it directly; coming home from it is the launcher's
+page, not the folder. A favorite that holds System is still shown and opens
+System, whose way back is Settings; the picker does not offer System for a
+new choice. Folder ids (`apps`, `utilities`, `games`) are no app and are
+refused.
+
+### 47.5 Keys (§17.4, §39.5, §42.5)
+
+Unchanged rules; the rows are now the favorites, ESSENTIALS and FOLDERS. In
+portrait, Up from a folder cell is the essential above it (Games -> Browser),
+and the top row is the favorite nearest in x. In landscape everything is one
+row: Left and Right walk it, Up and Down stay.
+
+### 47.6 Validation on the host
+
+`tests/home_layout_test.c` (the table: what is placed and where, System
+nowhere, each folder exactly and in order, no app in two places, favorites
+by id, the picker without System; the page's geometry in both orientations,
+also above the keyboard), `tests/home_folder_test.c` (the running launcher
+under a pointer and the keys: the ten cells, Apps, Utilities and Games by
+finger and keys, a build without Zabbix, without any app of a folder,
+landscape on one row, favorites kept from before opening their apps
+directly), `tests/settings_app_test.c` (the SYSTEM row in every
+orientation, mode and corner set: reached by a finger, a whole touch target,
+asks the shell for System once), `tests/launcher_groups_shell_test.sh`
+(the running shell, both orientations, Small, Medium and Large: the
+structure from `shell.info`, every folder, the picker, the layout audit on
+each; Settings -> System -> back by real taps and by Back; Diagnostics;
+Home; Controls' About DOORS; the Settings, Terminal and RIFT actions;
+favorites holding Photo, System and Clock; thirty rounds),
+`tests/launcher_folder_shell_test.sh`, `tests/launcher_favorites_shell_test.sh`
+and the launcher, art and asset suites. `shell.tap` (simulator only) gives
+the suites a finger.
+
+### 47.7 Gate (before acceptance)
+
+On a unit, the build's identity first:
+docs/hardware/LAUNCHER_APP_GROUPS_GATE.md.

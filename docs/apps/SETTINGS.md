@@ -9,8 +9,10 @@ gate PASS 2026-09-17, remote validation and the product owner's physical check
 Settings is the launcher app for the OS-level controls that exist and work:
 **Wi-Fi** (through netd, `docs/api/network.md`), **display brightness**
 (through the shell, `docs/hardware/DISPLAY_BRIGHTNESS.md`) and **appearance**
-(theme and display mode, the shell's `shell.theme` path). It has no store of
-its own and owns no hardware; it is a client, like System Status.
+(theme and display mode, the shell's `shell.theme` path), and it is where
+**System** lives (DS §47): System Status is Settings' page, entered from the
+SYSTEM panel's one row. It has no store of its own and owns no hardware; it
+is a client, like System Status.
 
 ## What it is not
 
@@ -170,7 +172,36 @@ Normal and Outdoor, rounded and square corners.
 ## Launcher
 
 Id `settings`, name "Settings", icon `LV_SYMBOL_EDIT` (the gear is System's
-and the list glyph Timber's). Tenth tile, fifth row.
+and the list glyph Timber's). On the launcher's page in ESSENTIALS, after
+Terminal, RIFT and Browser (DS §47).
+
+## System, Settings' page (DS §47)
+
+The last panel, under Appearance in the same column (the right one in the
+wide shape), is SYSTEM: one row, "System" over "About this device, status,
+diagnostics, restart and power", with a chevron. A tap asks the shell to open
+System in Settings' place (`pocketos_shell_open_app("system")`, run on the
+shell's next timer pass, never inside the tap's own event). System is still
+its own app - `apps/system/`, unchanged - but the shell's `app_pages` table
+makes it Settings' page:
+
+- it has no launcher cell (`HOME_GROUP_NONE` in `ui/shell/home_layout.c`) and
+  the favorites' picker does not offer it; a favorite that already holds it
+  still shows it and opens it;
+- its way out is Settings: the header's back slab and Back
+  (`shell.action back`, the keyboard base's Back when one carries it) come
+  back to Settings, after Back has closed Diagnostics as before; Back in
+  Settings goes home; Home goes to the launcher's page from anywhere;
+- every other way in still opens it - Controls' "About DOORS" row and Power,
+  `shell.open`, `--open system` - and every one of them comes back to
+  Settings.
+
+One level, from a table; there is no navigation stack. Settings is built
+again when it comes back (it keeps nothing, so it shows what the shell and
+netd hold), at the top of its page. `tests/settings_app_test.c` taps the row
+in both orientations and modes; `tests/launcher_groups_shell_test.sh` drives
+the whole path in the running shell by taps and by Back, at Small, Medium and
+Large.
 
 ## Physical validation (unit A, 2026-09-13)
 

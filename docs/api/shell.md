@@ -6,7 +6,9 @@ developer tooling, not for applications.
 
 ## Methods
 
-- `shell.info`: `api_version`, `apps` (array of `{id, name}`), `current`
+- `shell.info`: `api_version`, `apps` (array of `{id, name, page_of?}`;
+  `page_of` names the app this one is a page of - System, of Settings, DS
+  §47 - which has no launcher cell and whose way back is that app), `current`
   (open app id or `"home"`), `display`: `{width, height, backend}` - the
   logical size this run lays out in, 568x1232 or 1232x568 - and the
   orientation fields `shell.rotation` returns; `chrome`: the status chrome
@@ -37,8 +39,9 @@ developer tooling, not for applications.
   `refused` (the lock or an alert is up and the action would navigate) or
   `unavailable` (no such app in this build, no such control on this board, a
   screenshot still being written); `value` is the level after a level
-  action. Any other name is error 2. `pos call shell shell.action
-  action=back`.
+  action. Any other name is error 2. `back` from a page of another app
+  (`page_of`, System) opens that app (Settings), as the header's back slab
+  does (DS §47). `pos call shell shell.action action=back`.
 - `shell.key` params `{raw: [bytes]}` or `{code}`: feeds raw keyboard-base
   controller events (bit 7 press, bits 0-6 the matrix code; `code` is a
   press and its release) through the physical key's own path - the key map,
@@ -141,8 +144,8 @@ developer tooling, not for applications.
 - `shell.controls` params `{show?}`: shows DOORS Controls over the launcher
   (DS §31.5), or with `show: false` closes it. Result `{controls}`; `show`
   that is not a boolean is error 2.
-- `shell.folder` params `{id}`: opens the launcher folder `id` ("games",
-  "utilities"; DS §39, §42) at home - going home first from an app or
+- `shell.folder` params `{id}`: opens the launcher folder `id` ("apps",
+  "utilities", "games"; DS §39, §42, §47) at home - going home first from an app or
   Controls - or, with `id: ""`, goes back to the launcher's own page (from
   a folder, or from the favorite picker). Result `{folder}`, the open
   folder's id or null. An id that is not a string is error 2; a folder
@@ -179,6 +182,15 @@ developer tooling, not for applications.
   the launcher has the keys - and `art` `{dir, background, files_read,
   bytes_held}` (ui/shell/art.h).
   `pos call shell shell.lock`, `pos call shell shell.unlock animate=true`.
+
+- `shell.tap` params `{x, y, hold_ms?}` or `{text, hold_ms?}`, in the
+  simulator only (`POCKETOS_SHELL_TEST_HOOKS`; the panel's build has no such
+  method): a finger on the screen through a pointer of the simulator's own,
+  pressed for `hold_ms` (default 80, up to 5000 for a long press) and lifted.
+  With `text`, the clickable object holding the first shown label reading
+  exactly that is scrolled into view and tapped in its middle. Result
+  `{tapped, x, y}`; no such text, no point or a tap still running is error 2.
+  For the suites: `pos call shell shell.tap text=System`.
 
 ## Events
 
