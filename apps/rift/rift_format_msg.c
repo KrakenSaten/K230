@@ -177,8 +177,10 @@ void rift_fmt_preview(const struct rift_message *msg, char *out, size_t out_len)
      * (docs/api/mesh.md, "Remote text"). A row is one line, so they become
      * spaces here rather than being left to the label to interpret. */
     {
-        const char *body = rift_msg_body(msg);
+        char shown[RIFT_MSG_TEXT_MAX];
+        const char *body = shown;
 
+        rift_text_shown(rift_msg_body(msg), shown, sizeof(shown));
         for (i = 0; i + 1 < sizeof(folded) && body[i]; i++) {
             char c = body[i];
 
@@ -196,7 +198,10 @@ void rift_fmt_preview(const struct rift_message *msg, char *out, size_t out_len)
         } else if (msg->is_channel && msg->have_sender_name && msg->sender_name[0]) {
             /* The name a channel sender claimed, marked as a claim with the
              * same "?" the thread uses: nothing signs a group frame. */
-            snprintf(whole, sizeof(whole), "%s?: %s", msg->sender_name, folded);
+            char who[RIFT_NAME_MAX];
+
+            rift_text_shown(msg->sender_name, who, sizeof(who));
+            snprintf(whole, sizeof(whole), "%s?: %s", who, folded);
         } else {
             snprintf(whole, sizeof(whole), "%s", folded);
         }
@@ -258,7 +263,10 @@ void rift_fmt_msg_meta_split(const struct rift_message *msg, int64_t now_ms, cha
      * group frame. */
     if (msg->is_channel && msg->dir == RIFT_MSG_IN && who && who_len > 0) {
         if (msg->have_sender_name && msg->sender_name[0]) {
-            snprintf(who, who_len, "%s?", msg->sender_name);
+            char shown[RIFT_NAME_MAX];
+
+            rift_text_shown(msg->sender_name, shown, sizeof(shown));
+            snprintf(who, who_len, "%s?", shown);
         } else {
             snprintf(who, who_len, "UNNAMED");
         }
@@ -402,6 +410,14 @@ int rift_send_text_check(const char *text, char *why, size_t why_len)
         if (why) {
             snprintf(why, why_len, "%u bytes; a message takes %d.", (unsigned)len,
                      RIFT_SEND_TEXT_MAX);
+        }
+        return -1;
+    }
+    /* Well-formed UTF-8 only. A field cannot produce anything else, so this
+     * is a guard: a peer shows what it receives, byte for byte. */
+    if (!rift_utf8_valid(text)) {
+        if (why) {
+            rift_utf8_copy(why, why_len, "That text is not well-formed UTF-8.");
         }
         return -1;
     }

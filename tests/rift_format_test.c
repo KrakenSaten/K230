@@ -60,6 +60,73 @@ static const char *resolve_rpt(const char *hop_id, void *user)
     return NULL;
 }
 
+/* ---- UTF-8: checked, shown, and never cut through a character ------------ */
+static void test_utf8_and_smileys(void)
+{
+    char out[64];
+    char small[8];
+    size_t n;
+
+    check("ASCII is UTF-8", rift_utf8_valid("hei :)"));
+    check("so are Latin-1 letters and an emoji",
+          rift_utf8_valid("bl\xC3\xA5" "b\xC3\xA6r \xF0\x9F\x99\x82"));
+    check("a stray continuation byte is not", !rift_utf8_valid("a\x80" "b"));
+    check("nor a sequence cut short", !rift_utf8_valid("a\xF0\x9F\x99"));
+    check("nor an overlong form", !rift_utf8_valid("\xC0\xAF"));
+    check("nor a surrogate", !rift_utf8_valid("\xED\xA0\x80"));
+    check("nor anything past U+10FFFF", !rift_utf8_valid("\xF4\x90\x80\x80"));
+    check("nor a NULL", !rift_utf8_valid(NULL));
+
+    rift_text_shown("hei \xF0\x9F\x99\x82", out, sizeof(out));
+    text_is("a slight smile is drawn as :)", out, "hei :)");
+    rift_text_shown("\xE2\x9D\xA4\xEF\xB8\x8F takk", out, sizeof(out));
+    text_is("a heart with its variation selector is <3, the selector gone", out, "<3 takk");
+    rift_text_shown("\xF0\x9F\x91\x8D\xF0\x9F\x98\x82", out, sizeof(out));
+    text_is("a thumb and tears of joy", out, "(y):'D");
+    rift_text_shown("\xF0\x9F\x9A\x80 ok", out, sizeof(out));
+    text_is("an emoji with no smiley is left as it came", out, "\xF0\x9F\x9A\x80 ok");
+    rift_text_shown("bl\xC3\xA5 \xE2\x80\xA6 \xE2\x86\x92", out, sizeof(out));
+    text_is("letters and punctuation the fonts carry are untouched", out,
+            "bl\xC3\xA5 \xE2\x80\xA6 \xE2\x86\x92");
+    n = rift_text_shown("\xF0\x9F\x99\x82\xF0\x9F\x99\x82\xF0\x9F\x99\x82", small, sizeof(small));
+    check("a short buffer stops before a smiley that does not fit", n == 6 &&
+                                                                      strcmp(small, ":):):)") == 0);
+    n = rift_text_shown("ab\xF0\x9F\x9A\x80\xF0\x9F\x9A\x80", small, sizeof(small));
+    check("and never copies half a character", n == 6 && rift_utf8_valid(small));
+    {
+        char longest[RIFT_MSG_TEXT_MAX];
+        char shown[RIFT_MSG_TEXT_MAX];
+        int i;
+
+        for (i = 0; i < 40; i++) {
+            memcpy(longest + 4 * i, "\xF0\x9F\x98\x82", 4);
+        }
+        longest[160] = '\0';
+        rift_text_shown(longest, shown, sizeof(shown));
+        check("forty emoji in 160 bytes are drawn in no more than 160", strlen(shown) <= 160 &&
+                                                                          strlen(shown) == 120);
+    }
+
+    /* The copy every remote string goes through cuts on a boundary. */
+    rift_utf8_copy(small, 6, "ab\xF0\x9F\x99\x82" "c");
+    text_is("a 4-byte character that does not fit is left out whole", small, "ab");
+    rift_utf8_ellipsis(out, 8, "\xC3\xA6\xC3\xB8\xC3\xA5\xC3\xA6\xC3\xB8\xC3\xA5");
+    check("and an ellipsis does not split one either", rift_utf8_valid(out));
+
+    /* Names are remote text too. */
+    {
+        struct rift_node n;
+
+        memset(&n, 0, sizeof(n));
+        snprintf(n.key, sizeof(n.key), "%064d", 0);
+        n.have_name = 1;
+        snprintf(n.name, sizeof(n.name), "Hytta \xF0\x9F\x99\x82");
+        rift_fmt_label(&n, out, sizeof(out));
+        text_is("an emoji in a node's name is drawn as its smiley", out, "Hytta :)");
+        check("and the name itself is untouched", strstr(n.name, "\xF0\x9F\x99\x82") != NULL);
+    }
+}
+
 int main(void)
 {
     char out[RIFT_CHAIN_MAX];
@@ -340,6 +407,7 @@ int main(void)
     check("and a different one is not", rift_ident_hash("HYTTA") != rift_ident_hash("HYTTB"));
     check("nothing hashes to nothing", rift_ident_hash(NULL) == 0);
 
+    test_utf8_and_smileys();
     printf("rift_format_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }

@@ -308,7 +308,8 @@ check "and the delivery tally counts channel sends apart" \
 # A sender's name on a channel is a claim: nothing signs a group frame. It
 # must not be drawn the way a peer's name is.
 check "a claimed sender name is marked as a claim" \
-    "$(grep -q '"%s?", msg->sender_name' "$SRC/rift_format_msg.c" &&
+    "$(grep -q 'rift_text_shown(msg->sender_name' "$SRC/rift_format_msg.c" &&
+       grep -q '"%s?", shown' "$SRC/rift_format_msg.c" &&
        grep -q 'rift_fmt_msg_meta' "$SRC/ui/rift_thread.c" && echo 1 || echo 0)"
 # And the thread prints the body without the "<sender>: " MeshCore writes
 # into a channel payload - the caption names the sender, once, as a claim.

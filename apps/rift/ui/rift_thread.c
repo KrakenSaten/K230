@@ -354,7 +354,14 @@ static void update_row(struct rift_thread *t, struct msg_row *r,
      * MeshCore writes into the payload, because the caption below names the
      * sender - as a claim, with a trailing "?", since nothing signs a group
      * frame and anyone holding the key can send any name. */
-    rift_label_set(r->body, rift_msg_body(msg));
+    {
+        /* Drawn with its emoji written as smileys (rift_text_shown): the
+         * fonts carry none. The stored text is untouched. */
+        char shown[RIFT_MSG_TEXT_MAX];
+
+        rift_text_shown(rift_msg_body(msg), shown, sizeof(shown));
+        rift_label_set(r->body, shown);
+    }
     /* An age, not a time of day. The design's mock reads "11:32"; this board
      * has no clock that survives a power cut (docs/hardware/T-DISPLAY-K230.md)
      * and a message's own timestamp is the *sender's* clock (docs/api/mesh.md),

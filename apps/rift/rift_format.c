@@ -6,6 +6,7 @@
 #include "rift_format.h"
 
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 
 /* ---- UTF-8 ------------------------------------------------------------- */
@@ -330,6 +331,145 @@ void rift_fmt_state(const struct rift_node *n, char *out, size_t out_len)
     snprintf(out, out_len, "RELAYED" RIFT_SEP "%d HOP%s", n->hops, n->hops == 1 ? "" : "S");
 }
 
+/* ---- UTF-8, checked and shown ----------------------------------------- */
+
+/* One code point from s; returns its length in bytes, 0 when s does not
+ * start a well-formed sequence. */
+static size_t decode(const unsigned char *s, uint32_t *cp)
+{
+    uint32_t c = s[0];
+    size_t len;
+    uint32_t min;
+    size_t i;
+
+    if (c < 0x80) {
+        *cp = c;
+        return c ? 1 : 0;
+    }
+    if ((c & 0xE0) == 0xC0) {
+        len = 2;
+        c &= 0x1F;
+        min = 0x80;
+    } else if ((c & 0xF0) == 0xE0) {
+        len = 3;
+        c &= 0x0F;
+        min = 0x800;
+    } else if ((c & 0xF8) == 0xF0) {
+        len = 4;
+        c &= 0x07;
+        min = 0x10000;
+    } else {
+        return 0;
+    }
+    for (i = 1; i < len; i++) {
+        if ((s[i] & 0xC0) != 0x80) {
+            return 0;
+        }
+        c = (c << 6) | (s[i] & 0x3F);
+    }
+    if (c < min || c > 0x10FFFFu || (c >= 0xD800 && c <= 0xDFFF)) {
+        return 0;
+    }
+    *cp = c;
+    return len;
+}
+
+int rift_utf8_valid(const char *s)
+{
+    const unsigned char *p = (const unsigned char *)s;
+    uint32_t cp;
+
+    if (!s) {
+        return 0;
+    }
+    while (*p) {
+        size_t l = decode(p, &cp);
+
+        if (l == 0) {
+            return 0;
+        }
+        p += l;
+    }
+    return 1;
+}
+
+/* The faces and the few signs that have a text smiley everybody reads the
+ * same way. Not a translation of emoji: anything not here is left alone. */
+static const struct {
+    uint32_t cp;
+    const char *text;
+} smileys[] = {
+    { 0x263A, ":)" },   { 0x2639, ":(" },   { 0x2764, "<3" },   { 0x1F44B, "o/" },
+    { 0x1F44D, "(y)" }, { 0x1F44E, "(n)" }, { 0x1F494, "</3" }, { 0x1F600, ":D" },
+    { 0x1F601, ":D" },  { 0x1F602, ":'D" }, { 0x1F603, ":D" },  { 0x1F604, ":D" },
+    { 0x1F605, "^^;" }, { 0x1F606, "XD" },  { 0x1F609, ";)" },  { 0x1F60A, ":)" },
+    { 0x1F60D, "<3" },  { 0x1F60E, "B)" },  { 0x1F610, ":|" },  { 0x1F611, "-_-" },
+    { 0x1F612, ":/" },  { 0x1F615, ":/" },  { 0x1F618, ":*" },  { 0x1F61B, ":P" },
+    { 0x1F61C, ";P" },  { 0x1F61D, "XP" },  { 0x1F61E, ":(" },  { 0x1F620, ">:(" },
+    { 0x1F621, ">:(" }, { 0x1F622, ":'(" }, { 0x1F62D, ":'(" }, { 0x1F62E, ":O" },
+    { 0x1F632, ":O" },  { 0x1F633, "O_O" }, { 0x1F641, ":(" },  { 0x1F642, ":)" },
+    { 0x1F643, "(:" },  { 0x1F914, ":?" },  { 0x1F923, ":'D" },
+};
+
+static const char *smiley_for(uint32_t cp)
+{
+    size_t i;
+
+    for (i = 0; i < sizeof(smileys) / sizeof(smileys[0]); i++) {
+        if (smileys[i].cp == cp) {
+            return smileys[i].text;
+        }
+    }
+    return NULL;
+}
+
+size_t rift_text_shown(const char *in, char *out, size_t out_len)
+{
+    const unsigned char *p = (const unsigned char *)in;
+    size_t o = 0;
+
+    if (!out || out_len == 0) {
+        return 0;
+    }
+    out[0] = '\0';
+    if (!in) {
+        return 0;
+    }
+    while (*p) {
+        uint32_t cp = 0;
+        size_t l = decode(p, &cp);
+        const char *text = l ? smiley_for(cp) : NULL;
+        size_t n;
+
+        if (l == 0) {
+            l = 1; /* a byte that starts nothing: copied, as rift_utf8_copy would */
+        }
+        if (text) {
+            n = strlen(text);
+            if (o + n + 1 > out_len) {
+                break;
+            }
+            memcpy(out + o, text, n);
+            o += n;
+            p += l;
+            /* A variation selector after it asked for the emoji form of the
+             * glyph that is no longer there. */
+            if (p[0] == 0xEF && p[1] == 0xB8 && (p[2] == 0x8F || p[2] == 0x8E)) {
+                p += 3;
+            }
+            continue;
+        }
+        if (o + l + 1 > out_len) {
+            break;
+        }
+        memcpy(out + o, p, l);
+        o += l;
+        p += l;
+    }
+    out[o] = '\0';
+    return o;
+}
+
 void rift_fmt_label(const struct rift_node *n, char *out, size_t out_len)
 {
     if (!out || out_len == 0) {
@@ -340,7 +480,11 @@ void rift_fmt_label(const struct rift_node *n, char *out, size_t out_len)
         return;
     }
     if (n->have_name && n->name[0]) {
-        rift_utf8_ellipsis(out, out_len, n->name);
+        char shown[RIFT_NAME_MAX];
+
+        /* A name is remote text: an emoji in it is drawn as its smiley. */
+        rift_text_shown(n->name, shown, sizeof(shown));
+        rift_utf8_ellipsis(out, out_len, shown);
         return;
     }
     snprintf(out, out_len, "%s", n->hash[0] ? n->hash : RIFT_UNKNOWN);
