@@ -26,7 +26,7 @@ _Static_assert((int)HOME_HUE_RADIO == (int)POS_HUE_RADIO && (int)HOME_HUE_MESH =
  * x 9..119 of 128, at 0.75): where the press mark sits. */
 #define FRAME_TOP 7
 #define MARK_ARM 16
-#define MARK_W 2
+#define MARK_W 3 /* 2 until DS §46.7: the press and focus mark read at arm's length */
 #define UNDERLINE_W 96
 /* An app with no portal icon: its own 32 px mask centred in the empty
  * frame's inner panel. */
@@ -316,7 +316,7 @@ static void on_cell_draw_post(lv_event_t *e)
     /* the rule under the name */
     ly = a.y2 - 1;
     r = (lv_area_t){ a.x1 + (lv_area_get_width(&a) - UNDERLINE_W) / 2, ly,
-                     a.x1 + (lv_area_get_width(&a) + UNDERLINE_W) / 2 - 1, ly };
+                     a.x1 + (lv_area_get_width(&a) + UNDERLINE_W) / 2 - 1, ly + 1 }; /* 2 px, DS §46.7 */
     lv_draw_rect(layer, &d, &r);
 }
 

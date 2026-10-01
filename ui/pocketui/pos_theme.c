@@ -150,7 +150,7 @@ static void derive(struct pos_theme_tokens *t)
 {
     uint32_t *c = t->color;
 
-    c[POS_COLOR_TEXT_MUTED] = pos_mix(c[POS_COLOR_TEXT_SECONDARY], c[POS_COLOR_BG], 0.35);
+    c[POS_COLOR_TEXT_MUTED] = pos_mix(c[POS_COLOR_TEXT_SECONDARY], c[POS_COLOR_BG], 0.20); /* DS §46.7: 4.5:1 */
     c[POS_COLOR_TEXT_ON_ACCENT] = c[POS_COLOR_BG];
     c[POS_COLOR_NET_CONNECTED] = c[POS_COLOR_STATUS_OK];
     c[POS_COLOR_FOCUS] = c[POS_COLOR_ACCENT_PRIMARY];
