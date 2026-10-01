@@ -12,7 +12,7 @@ with the pinned Xuantie toolchain. **Unit B gate PASS on `0f3c411`,
 orientations, no camera ever opened by Photo, delete and a refused delete,
 slideshow 4.0 s, rotation, 43 opens flat); unit B was restored afterwards.
 Left for the owner's eyes: the icon and picture quality on a lit scene.
-Layout and place: DS §44 (Amendment AB), PROPOSED.
+Layout and place: DS §45 (Amendment AC), PROPOSED.
 
 ## Camera takes, Photo shows
 

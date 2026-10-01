@@ -31,7 +31,7 @@ trap 'rm -rf "${TMP}"' EXIT
 # ---- provenance ----------------------------------------------------------------
 # The fifteen launcher icons as the owner supplied them (docs/design/brand/
 # README.md), by hash: ten from the Threshold package, Wave, Files, Camera,
-# Recorder and Gallery (Photo's, DS §44) from the icon extension.
+# Recorder and Gallery (Photo's, DS §45) from the icon extension.
 cat > "${TMP}/want.sha" <<'EOF'
 3044610d013d949a00640fdce47da3486b5e27217b91d7ec45d6a1351517a9ab  docs/design/brand/doors-threshold/icons/png-32/calculator.png
 6e82a0598cc3780d3210ab7659fc39d80940d8933a9810c29c9833967471a3e2  docs/design/brand/doors-threshold/icons/png-32/calendar.png

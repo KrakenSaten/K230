@@ -272,7 +272,7 @@ int home_layout_compute(const struct home_layout_in *in, struct home_layout *out
  * tools are in UTILITIES, in this order: Clock, Calendar, Calculator and
  * Notes from WORKSPACE, then Files, Recorder and Camera from DEVICE; the
  * folder's cell is WORKSPACE's first, before DeskBuddy. Photo, the library
- * of Camera's photos, is a cell of its own in DEVICE after Video (DS §44). */
+ * of Camera's photos, is a cell of its own in DEVICE after Video (DS §45). */
 static const struct home_entry entries[] = {
     { "rift", HOME_GROUP_CONNECT, HOME_HUE_MESH, HOME_FOLDER_NONE },
     { "radio", HOME_GROUP_CONNECT, HOME_HUE_RADIO, HOME_FOLDER_NONE },

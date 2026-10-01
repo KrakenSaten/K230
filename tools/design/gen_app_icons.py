@@ -62,7 +62,7 @@ LAUNCHER_ICONS = [THRESHOLD + n + ".png" for n in
                                                                     EXTENSION + "gallery.png"]
 # An icon is named by its file name, which is the app's id - except where a
 # package drew an icon for an app under another name. The extension's Gallery
-# is the Photo app's (docs/apps/PHOTO.md, DS §44).
+# is the Photo app's (docs/apps/PHOTO.md, DS §45).
 APP_IDS = {EXTENSION + "gallery.png": "photo"}
 
 

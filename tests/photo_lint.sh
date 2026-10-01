@@ -1,5 +1,5 @@
 #!/bin/bash
-# Photo's boundaries (docs/apps/PHOTO.md, DS §44), held statically: one
+# Photo's boundaries (docs/apps/PHOTO.md, DS §45), held statically: one
 # library and one gallery, shared with Camera; no camera; no file touched on
 # the LVGL thread; deletes only of a regular photo file in the photo folder.
 set -u

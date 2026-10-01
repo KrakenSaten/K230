@@ -61,7 +61,7 @@ new package: libjpeg is already in the image (Camera uses it).
 
 | # | What | Pass |
 | --- | --- | --- |
-| P1 | The launcher shows Photo in DEVICE after Video, with the Gallery icon in the files colour, in both orientations | the owner's eyes (DS §44.1) |
+| P1 | The launcher shows Photo in DEVICE after Video, with the Gallery icon in the files colour, in both orientations | the owner's eyes (DS §45.1) |
 | P2 | Open Photo: the grid of Camera's photos, newest first, the same as Camera's PHOTOS shows | same order, same count |
 | P3 | `ps`: one `pos-camera library`, **no** `pos-camera session`; no `/dev/video*` open by any process (`ls -l /proc/*/fd`) | the camera is never opened |
 | P4 | Thumbnails of real 1080 x 1920 JPEGs: a page in about the time Camera's gallery took (0.75-1.1 s on unit A, CAMERA_GALLERY_GATE.md) | comparable |

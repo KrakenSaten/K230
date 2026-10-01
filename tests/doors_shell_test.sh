@@ -224,7 +224,7 @@ PY
     # seven of them into one folder cell and the three favorites take the
     # first row (DS §42). The Terminal makes twenty-five, a cell of its own
     # in DEVICE after System (DS §43), and Photo twenty-six, one more in
-    # DEVICE after Video (DS §44): fifteen cells with icons, thirteen of them
+    # DEVICE after Video (DS §45): fifteen cells with icons, thirteen of them
     # apps; in portrait DEVICE is below the fold.
     scrolls=true
     check "$o: twenty-six apps, fifteen portal icons from the art (the games and the tools in their folders), none on a fallback, scrolls: $scrolls ($2 $3 $4 $5)" \
