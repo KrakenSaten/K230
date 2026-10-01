@@ -101,6 +101,9 @@ APP_ICONS = {
     "games": (FIRST_PARTY + "games.svg", "games"),
     # Nor this: the UTILITIES folder's cell, a toolbox.
     "utilities": (FIRST_PARTY + "utilities.svg", "tools"),
+    # Nor this: the APPS folder's cell (DS §47), the package's own Apps
+    # category glyph in the Apps colour (DS §31.2 reuses its glyphs and hues).
+    "apps": (B_GLYPH + "apps.svg", "apps"),
     "solitaire": (FIRST_PARTY + "solitaire.svg", "games"),
     "blackjack": (FIRST_PARTY + "blackjack.svg", "games"),
     "2048": (FIRST_PARTY + "2048.svg", "games"),

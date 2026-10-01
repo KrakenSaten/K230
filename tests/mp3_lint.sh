@@ -67,8 +67,8 @@ fi
 check "the shell registers the app, after 2048" \
     "$(grep -q '&app_2048, &app_mp3' ui/shell/shell.c && grep -q 'extern const struct pocketos_app app_mp3;' ui/shell/shell.c &&
        echo 1 || echo 0)"
-check "the launcher puts it in DEVICE, after Vision" \
-    "$(grep -A1 '{ "vision", HOME_GROUP_DEVICE' ui/shell/home_layout.c | grep -q '{ "mp3", HOME_GROUP_DEVICE, HOME_HUE_APPS[ ,}]' &&
+check "the launcher puts it in the Apps folder, after DeskBuddy (DS §47)" \
+    "$(grep -A1 '{ "deskbuddy", HOME_GROUP_FOLDERS' ui/shell/home_layout.c | grep -q '{ "mp3", HOME_GROUP_FOLDERS, HOME_HUE_APPS, HOME_FOLDER_APPS }' &&
        echo 1 || echo 0)"
 for src in mp3_app.c mp3_ctl.c mp3_view.c mp3_player.c mp3_session.c mp3_library.c; do
     check "the shell builds apps/mp3/$src" \

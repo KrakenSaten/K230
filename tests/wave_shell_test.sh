@@ -49,9 +49,9 @@ check "the shell wrote its log" "$([ -s "$LOGD/shell.log" ] && echo 1 || echo 0)
 check "and logs no fault" "$(grep -qE ' ERROR |assert' "$LOGD/out" "$LOGD/shell.log" 2>/dev/null && echo 0 || echo 1)"
 check "Wave reports itself open" "$(grep -q 'open app wave' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
 check "and closed" "$(grep -q 'close app wave' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
-# The DOORS launcher shows Wave in CONNECTIONS (DS §31, tests/home_layout_test.c).
+# The DOORS launcher shows Wave in the Apps folder (DS §31, §47, tests/home_layout_test.c).
 check "the launcher holds it among the twenty-six apps" \
-    "$(grep -q 'launcher: 4 group(s), 26 app(s), portrait' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
+    "$(grep -q 'launcher: 2 group(s), 26 app(s), portrait' "$LOGD/shell.log" 2>/dev/null && echo 1 || echo 0)"
 check "opening Wave takes no audio lock and stores nothing" \
     "$([ ! -e "$RUN/audio.lock" ] && [ -z "$(ls -A "$STATE" 2>/dev/null)" ] && echo 1 || echo 0)"
 rm -rf "$RUN" "$LOGD" "$CFG" "$STATE"

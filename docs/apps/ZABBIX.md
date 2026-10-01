@@ -474,7 +474,8 @@ so no new style, token or colour is added.
 defaults to ON, and the Buildroot package passes no option, so the image's
 shell has the app; `-DPOCKETOS_WITH_ZABBIX=OFF` leaves it out. `pos-zabbix`
 is built and installed either way, so `pos-zabbix check` works on the bench.
-The app is on the launcher in CONNECTIONS, fourth, with a first-party icon: a
+The app is on the launcher in the Apps folder (DS §47; it was fourth in
+CONNECTIONS before), with a first-party icon: a
 screen with a heartbeat trace (DS §35.4). It can also be opened
 with `doors app open zabbix`.
 

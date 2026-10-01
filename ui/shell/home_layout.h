@@ -16,8 +16,8 @@
  *
  * Nothing is shortened to fit: when the whole does not fit the content area
  * the layout grows past it (content_h > height) and the launcher scrolls.
- * With today's thirteen apps portrait does not scroll; landscape wraps DEVICE
- * onto a second line and scrolls to its footer (twelve fitted one row).
+ * With today's ten places (three favorites, four apps, three folders, DS
+ * §47) neither orientation scrolls and landscape keeps one row.
  *
  * A folder (an app group, "the folders" below) is one cell on this page
  * that stands for several apps; opening it shows a page of its own, laid
@@ -96,14 +96,22 @@ int home_layout_compute(const struct home_layout_in *in, struct home_layout *out
  * even knows its group. An app the table does not name is not lost - it is
  * shown under MORE, after the named groups, in registry order - and a group
  * nothing is installed in is simply not drawn.
+ *
+ * Two groups (DS §47): ESSENTIALS, the apps that stay one tap from home
+ * (Terminal, RIFT, Browser, Settings), and FOLDERS, whose apps are all in a
+ * folder, so the panel shows the folders' cells (Apps, Utilities, Games).
+ *
+ * HOME_GROUP_NONE is not a group: the app is a page of another app (System,
+ * of Settings; the shell's app_pages table in shell.c) and has no place on
+ * the launcher at all - no cell, no folder, not offered as a favorite. It is
+ * still installed: a favorite that holds it still opens it.
  */
 enum home_group {
-    HOME_GROUP_CONNECT = 0,
-    HOME_GROUP_WORK,
-    HOME_GROUP_PLAY,
-    HOME_GROUP_DEVICE,
+    HOME_GROUP_ESSENTIALS = 0,
+    HOME_GROUP_FOLDERS,
     HOME_GROUP_MORE,
-    HOME_GROUP_COUNT
+    HOME_GROUP_COUNT,
+    HOME_GROUP_NONE = HOME_GROUP_COUNT
 };
 
 /* The package hues, in pos_styles.h enum pos_env_hue order (home.c asserts it). */
@@ -123,23 +131,23 @@ enum home_hue {
  *
  * A folder gathers apps the launcher would otherwise show one by one: its
  * page shows a single cell for all of them, where the first of them would
- * have been (for GAMES, in PLAY), and opening that cell shows a page with
- * the apps. Which folder an
+ * have been (in FOLDERS), and opening that cell shows a page with the apps.
+ * Which folder an
  * app is in is the same table's decision as its group and its colour
  * (`folder` below), so a folder is one column of metadata, not a list of
  * exceptions, and an app still neither declares nor knows where it is shown.
  *
- * GAMES and UTILITIES exist (UTILITIES's cell sits in WORKSPACE, where
- * Clock would have been, and also holds the DEVICE group's Files, Recorder
- * and Camera). Another folder (RADIO, SYSTEM, MEDIA ...) is one more enum
- * value, one more row in the folder table (home_layout.c), a portal icon
- * for its cell (tools/design/gen_doors_ui.py) and its apps' `folder` set -
- * nothing in the launcher itself changes.
+ * APPS, UTILITIES and GAMES exist, their cells in that order in FOLDERS
+ * (DS §47). Another folder is one more enum value, one more row in the
+ * folder table (home_layout.c), a portal icon for its cell
+ * (tools/design/gen_doors_ui.py) and its apps' `folder` set - nothing in
+ * the launcher itself changes.
  */
 enum home_folder {
     HOME_FOLDER_NONE = 0, /* shown on the launcher's own page */
     HOME_FOLDER_GAMES,
     HOME_FOLDER_UTILITIES,
+    HOME_FOLDER_APPS,
     HOME_FOLDER_COUNT
 };
 
@@ -162,7 +170,8 @@ const struct home_entry *home_entry_find(const char *id);
 /* Sort n app ids into launcher order: order[k] is the index into ids of the
  * k-th app shown, count[g] how many each group holds. Returns how many were
  * placed (n, or HOME_MAX_APPS if there were more). Folders are not applied:
- * this is every app, as the table orders them. */
+ * this is every app, as the table orders them - but for HOME_GROUP_NONE's,
+ * which are placed nowhere and not counted. */
 int home_group_order(const char *const *ids, int n, uint8_t order[HOME_MAX_APPS],
                      uint8_t count[HOME_GROUP_COUNT]);
 
@@ -222,7 +231,8 @@ int home_favorite_check(const char *const *ids, int n, const char *const stored[
                         const char *id);
 /* The apps the picker offers for slot, in launcher order (every group, apps
  * in folders included, each once): order[k] is an index into ids. Left out:
- * NULL ids (not launchable), and apps another slot holds. Returns how many. */
+ * NULL ids (not launchable), apps another slot holds, and pages of another
+ * app (HOME_GROUP_NONE: System). Returns how many. */
 int home_favorite_candidates(const char *const *ids, int n, const char *const stored[HOME_FAVORITES], int slot,
                              uint8_t order[HOME_MAX_APPS]);
 /* The launcher page's groups for home_layout_compute: the favorites' panel

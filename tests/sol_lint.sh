@@ -108,9 +108,9 @@ check "the app is declared in the shell" \
     "$(grep -q 'extern const struct pocketos_app app_solitaire;' ui/shell/shell.c && echo 1 || echo 0)"
 check "registered once" "$([ "$(grep -c '&app_solitaire\b' ui/shell/shell.c)" = "1" ] && echo 1 || echo 0)"
 # Where it is shown is the launcher's table, not the registry order
-# (ui/shell/home_layout.c): a game, in PLAY, in the games colour.
-check "the launcher shows it in PLAY" \
-    "$(grep -q '{ "solitaire", HOME_GROUP_PLAY, HOME_HUE_GAMES[ ,}]' ui/shell/home_layout.c && echo 1 || echo 0)"
+# (ui/shell/home_layout.c): a game, in the Games folder, in the games colour (DS §47).
+check "the launcher shows it in the Games folder" \
+    "$(grep -q '{ "solitaire", HOME_GROUP_FOLDERS, HOME_HUE_GAMES, HOME_FOLDER_GAMES }' ui/shell/home_layout.c && echo 1 || echo 0)"
 for src in sol_app.c engine/sol_rng.c engine/sol_cards.c engine/sol_rules.c ui/sol_view.c ui/sol_card_draw.c \
            ui/sol_table_widget.c ui/sol_felt.c; do
     check "the shell builds $src" "$(grep -q "apps/solitaire/$src" ui/shell/CMakeLists.txt && echo 1 || echo 0)"

@@ -38,6 +38,7 @@ _Static_assert((int)HOME_HUE_RADIO == (int)POS_HUE_RADIO && (int)HOME_HUE_MESH =
 static const char *const folder_symbol[HOME_FOLDER_COUNT] = {
     [HOME_FOLDER_GAMES] = LV_SYMBOL_PLAY,
     [HOME_FOLDER_UTILITIES] = LV_SYMBOL_SETTINGS,
+    [HOME_FOLDER_APPS] = LV_SYMBOL_LIST,
 };
 
 /* An empty favorite's slot, and the picker's Clear: the empty portal and

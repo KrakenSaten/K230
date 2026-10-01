@@ -57,8 +57,8 @@ check "the photo folder is Camera's, not a second store" \
 
 # ---- registered like any other app -----------------------------------------------------
 check "Photo is in the shell's registry" "$(grep -q '&app_photo' ui/shell/shell.c && echo 1 || echo 0)"
-check "a launcher cell of its own, DEVICE, the files colour, in no folder" \
-    "$(grep -q '{ "photo", HOME_GROUP_DEVICE, HOME_HUE_FILES, HOME_FOLDER_NONE }' ui/shell/home_layout.c &&
+check "on the launcher in the Apps folder, the files colour (DS §47)" \
+    "$(grep -q '{ "photo", HOME_GROUP_FOLDERS, HOME_HUE_FILES, HOME_FOLDER_APPS }' ui/shell/home_layout.c &&
        echo 1 || echo 0)"
 check "fullscreen, like Camera (DS §30.8)" \
     "$(grep -q '.chrome = POCKETOS_CHROME_NONE' $APP && echo 1 || echo 0)"

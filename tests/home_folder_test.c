@@ -4,18 +4,23 @@
  * stream, the art read from the source tree. The shell is not linked; the
  * test builds the launcher itself, from registries of its own:
  *
- *   - today's eighteen apps: three empty favorites, one Games cell (Fleet,
- *     Radar and Timber behind it), one Utilities cell (Clock, Calendar,
- *     Calculator, Notes, Files, Recorder and Camera); taps and keys open a
- *     folder, open a game, go back; the focus comes back to the folder's
+ *   - today's twenty-six apps (DS §47): three empty favorites, Terminal,
+ *     RIFT, Browser and Settings, then one Apps cell (DeskBuddy, MP3, Photo,
+ *     Radio, Video, Vision, Wave, Zabbix), one Utilities cell (Clock,
+ *     Calendar, Calculator, Notes, Files, Recorder and Camera) and one Games
+ *     cell (the six games) - and no System; taps and keys open a folder,
+ *     open an app from it, go back; the focus comes back to the folder's
  *     cell; the keys stop at the edges; Esc at home does nothing; detached,
  *     the keys reach nothing;
  *   - no game installed (no Games cell), one game (still a folder), a game
- *     not installed (not in it);
+ *     not installed (not in it), no app of Apps (no Apps cell);
  *   - thirty-three games (thirty more rows through home_layout.c's test
  *     seam): the folder's page scrolls and the keys bring the focus into
  *     view;
- *   - landscape, the folder opened again as a rotation restart does;
+ *   - landscape: one row of ten cells, the folders opened again as a
+ *     rotation restart does;
+ *   - favorites kept from before the apps moved into folders, and one
+ *     holding System: each still opens its app directly;
  *   - favorites: a tap on an empty slot or a long press opens the picker,
  *     which offers every installed app once, and none another slot holds;
  *     choosing one sets the slot, which then opens that app; a long press
@@ -245,10 +250,16 @@ static struct pocketos_app defs[MAX_APPS];
 static const struct pocketos_app *registry[MAX_APPS];
 static char extra_ids[30][8];
 
+/* The shell's registry (ui/shell/shell.c apps[], Zabbix last). */
 static const char *const today[] = { "radio", "system", "fleet", "radar", "timber", "notes",
                                      "clock", "calendar", "calculator", "settings", "wave", "rift",
-                                     "files", "camera", "browser", "recorder", "vision", "zabbix" };
+                                     "files", "camera", "browser", "recorder", "vision", "video",
+                                     "solitaire", "blackjack", "2048", "mp3", "deskbuddy", "terminal",
+                                     "photo", "zabbix" };
 #define NTODAY ((int)(sizeof(today) / sizeof(today[0])))
+/* Today's registry less eight apps, for the cases that add thirty games of
+ * their own and stay within HOME_MAX_APPS: eighteen apps, three of them games. */
+#define EIGHTEEN "terminal photo video mp3 deskbuddy solitaire blackjack 2048"
 
 /* The registry from ids, leaving out those in `skip` (a space-separated
  * list, NULL for none), with `extras` of the test's own games after them. */
@@ -388,37 +399,60 @@ static int tap_fav(int slot)
 
 static void test_today(void)
 {
+    static const char *const apps_folder[] = { "deskbuddy", "mp3", "photo", "radio", "video", "vision", "wave",
+                                               "zabbix" };
+    static const char *const tools[] = { "clock", "calendar", "calculator", "notes", "files", "recorder", "camera" };
+    static const char *const games[] = { "fleet", "radar", "timber", "solitaire", "blackjack", "2048" };
     struct home_info hi;
     lv_area_t a;
     lv_area_t f;
+    lv_area_t t;
     int k;
+    int ok;
 
     forget_favorites();
     build(make_registry(NULL, 0), false);
     home_info(&hi);
-    check("today: eighteen apps in ten cells, two of them folders, after three favorites",
-          hi.apps == 18 && hi.cells == 10 && hi.folders == 2 && hi.icons_art == 10 && hi.icons_fallback == 0 &&
+    check("today: twenty-six apps in seven cells, three of them folders, after three favorites",
+          hi.apps == 26 && hi.cells == 7 && hi.folders == 3 && hi.icons_art == 7 && hi.icons_fallback == 0 &&
               hi.favorites == 3 && hi.favorites_set == 0);
-    check("today: the Games cell is on the launcher", home_folder_area("games", &a) && lv_area_get_width(&a) >= 64);
-    check("today: and the Utilities cell", home_folder_area("utilities", &a) && lv_area_get_width(&a) >= 64);
-    check("today: Fleet, Radar and Timber are not", !on_page("fleet") && !on_page("radar") && !on_page("timber"));
-    check("today: nor Clock, Calendar, Calculator, Notes, Files, Recorder or Camera",
-          !on_page("clock") && !on_page("calendar") && !on_page("calculator") && !on_page("notes") &&
-              !on_page("files") && !on_page("recorder") && !on_page("camera"));
-    check("today: the other apps are", on_page("rift") && on_page("vision") && on_page("zabbix") &&
-                                           on_page("settings") && on_page("system") && on_page("radio"));
-    check("today: Games holds three, Utilities seven",
-          home_folder_size("games") == 3 && home_folder_size("utilities") == 7 && home_folder_size("nope") == -1);
+    check("today: Terminal, RIFT, Browser and Settings are on the launcher's page",
+          on_page("terminal") && on_page("rift") && on_page("browser") && on_page("settings"));
+    check("today: in that order, on one row, under the favorites",
+          home_cell_area("terminal", &t) && home_cell_area("settings", &a) && home_favorite_area(0, &f) &&
+              t.y1 == a.y1 && t.x2 < a.x1 && f.y2 < t.y1);
+    check("today: the Apps, Utilities and Games cells, in that order, on the row under them",
+          home_folder_area("apps", &f) && home_folder_area("games", &a) && f.y1 == a.y1 && f.x2 < a.x1 &&
+              f.y1 > t.y2 && lv_area_get_width(&f) >= 64 && home_folder_area("utilities", &t) && t.x1 > f.x2 &&
+              t.x2 < a.x1);
+    ok = !on_page("system");
+    for (k = 0; k < (int)(sizeof(apps_folder) / sizeof(apps_folder[0])); k++) {
+        ok = ok && !on_page(apps_folder[k]);
+    }
+    for (k = 0; k < (int)(sizeof(tools) / sizeof(tools[0])); k++) {
+        ok = ok && !on_page(tools[k]);
+    }
+    for (k = 0; k < (int)(sizeof(games) / sizeof(games[0])); k++) {
+        ok = ok && !on_page(games[k]);
+    }
+    check("today: no other app has a cell on the launcher's page, System included", ok);
+    check("today: Apps holds eight, Utilities seven, Games six",
+          home_folder_size("apps") == 8 && home_folder_size("utilities") == 7 && home_folder_size("games") == 6 &&
+              home_folder_size("nope") == -1);
     check("today: the launcher has the keys", pos_input_focused() != NULL);
-    check("today: three empty favorites, above RIFT", home_favorite_area(0, &f) && home_cell_area("rift", &a) &&
-                                                          f.y2 < a.y1 && fav_is(0, NULL) && fav_is(1, NULL) &&
-                                                          fav_is(2, NULL) && !home_favorite_stored(0));
+    check("today: three empty favorites, above Terminal", home_favorite_area(0, &f) && home_cell_area("terminal", &a) &&
+                                                              f.y2 < a.y1 && fav_is(0, NULL) && fav_is(1, NULL) &&
+                                                              fav_is(2, NULL) && !home_favorite_stored(0));
 
     /* A finger. */
     check("a tap on Games", tap_folder());
     check("opens the folder", home_folder_current() && strcmp(home_folder_current(), "games") == 0);
-    check("whose page has Fleet, Radar and Timber", on_page("fleet") && on_page("radar") && on_page("timber"));
-    check("and nothing from the launcher's page", !on_page("rift") && !on_page("vision"));
+    ok = 1;
+    for (k = 0; k < (int)(sizeof(games) / sizeof(games[0])); k++) {
+        ok = ok && on_page(games[k]);
+    }
+    check("whose page has the six games", ok);
+    check("and nothing from the launcher's page", !on_page("rift") && !on_page("terminal"));
     check("and no favorite", !home_favorite_area(0, &a));
     check("and a way back", home_folder_back_area(&a) && lv_area_get_width(&a) >= 64);
     check("a tap on a game", tap_app("radar"));
@@ -428,66 +462,92 @@ static void test_today(void)
     check("goes back to the launcher's page", home_folder_current() == NULL && on_page("rift") && !on_page("fleet"));
     check("with the focus on the Games cell, unmarked after a finger", focus_is("games") && !shown());
     check("a tap on Utilities", tap_folder_id("utilities"));
-    check("opens it, with the seven tools in it",
-          home_folder_current() && strcmp(home_folder_current(), "utilities") == 0 && on_page("clock") &&
-              on_page("calendar") && on_page("calculator") && on_page("notes") && on_page("files") &&
-              on_page("recorder") && on_page("camera") && !on_page("fleet") && !on_page("zabbix"));
+    ok = home_folder_current() && strcmp(home_folder_current(), "utilities") == 0 && !on_page("fleet") &&
+         !on_page("zabbix");
+    for (k = 0; k < (int)(sizeof(tools) / sizeof(tools[0])); k++) {
+        ok = ok && on_page(tools[k]);
+    }
+    check("opens it, with the seven tools in it", ok);
     check("a tool opens from it", tap_app("calculator") && opens == 2 && strcmp(opened->id, "calculator") == 0);
     tap_back();
     check("and back, the focus on Utilities", home_folder_current() == NULL && focus_is("utilities"));
+    check("a tap on Apps", tap_folder_id("apps"));
+    ok = home_folder_current() && strcmp(home_folder_current(), "apps") == 0 && !on_page("clock") &&
+         !on_page("system") && !on_page("fleet");
+    for (k = 0; k < (int)(sizeof(apps_folder) / sizeof(apps_folder[0])); k++) {
+        ok = ok && on_page(apps_folder[k]);
+    }
+    check("opens it, with its eight apps and nothing else", ok);
+    {
+        lv_area_t first;
+        lv_area_t last;
+
+        home_cell_area("deskbuddy", &first);
+        home_cell_area("zabbix", &last);
+        check("in their order: DeskBuddy first, Zabbix last, four to a row in two rows",
+              first.y1 < last.y1 && home_cell_area("radio", &a) && a.y1 == first.y1 && a.x1 > first.x1 &&
+                  home_cell_area("video", &a) && a.y1 == last.y1 && a.x1 == first.x1);
+    }
+    check("an app opens from it", tap_app("photo") && opens == 3 && strcmp(opened->id, "photo") == 0);
+    tap_back();
+    check("and back, the focus on Apps", home_folder_current() == NULL && focus_is("apps"));
 
     /* Keys. */
     key(LV_KEY_RIGHT);
-    check("the first key shows the focus where it is", focus_is("utilities") && shown());
+    check("the first key shows the focus where it is", focus_is("apps") && shown());
+    key(LV_KEY_RIGHT);
+    key(LV_KEY_RIGHT);
+    check("Right, Right: Utilities, then Games", focus_is("games"));
+    key(LV_KEY_RIGHT);
     key(LV_KEY_DOWN);
-    check("Down from Utilities: Games", focus_is("games"));
+    check("Right and Down at the last cell of the last row stay", focus_is("games"));
     key(LV_KEY_ENTER);
     check("Enter on Games opens it", home_folder_current() != NULL);
     check("with the focus on its first game", focus_is("fleet") && shown());
     key(LV_KEY_RIGHT);
     key(LV_KEY_RIGHT);
     check("Right, Right: Timber", focus_is("timber"));
-    key(LV_KEY_RIGHT);
-    check("Right at the end stays", focus_is("timber"));
+    for (k = 0; k < 4; k++) {
+        key(LV_KEY_RIGHT);
+    }
+    check("Right walks the games in order and stops at the last, 2048", focus_is("2048"));
     key(LV_KEY_UP);
-    key(LV_KEY_DOWN);
-    check("Up and Down with one row stay", focus_is("timber"));
-    key(LV_KEY_LEFT);
-    check("Left: Radar", focus_is("radar"));
+    check("Up: the row above, nearest in x - Radar", focus_is("radar"));
     key(LV_KEY_ENTER);
-    check("Enter opens the focused game", opens == 3 && opened && strcmp(opened->id, "radar") == 0);
+    check("Enter opens the focused game", opens == 4 && opened && strcmp(opened->id, "radar") == 0);
     key(LV_KEY_ESC);
     check("Esc goes back, the focus on Games", home_folder_current() == NULL && focus_is("games") && shown());
     key(LV_KEY_ENTER);
     key(LV_KEY_BACKSPACE);
     check("and so does Backspace", home_folder_current() == NULL && focus_is("games"));
     key(LV_KEY_UP);
-    check("Up from Games: the row above, nearest in x - Utilities", focus_is("utilities"));
+    check("Up from Games: the row above, nearest in x - Browser", focus_is("browser"));
     key(LV_KEY_DOWN);
     check("Down: Games again", focus_is("games"));
-    key(LV_KEY_DOWN);
-    check("Down from Games: DEVICE's first, Settings", focus_is("settings"));
     for (k = 0; k < 12; k++) {
         key(LV_KEY_UP);
     }
-    check("Up and Up stop at the top row, the first favorite", focus_is("favorite-1"));
+    check("Up and Up stop at the top row, the favorite nearest in x", focus_is("favorite-3"));
+    key(LV_KEY_LEFT);
+    key(LV_KEY_LEFT);
     key(LV_KEY_LEFT);
     check("Left at the first cell stays", focus_is("favorite-1"));
     key(LV_KEY_RIGHT);
     key(LV_KEY_RIGHT);
     check("Right: the favorites in order", focus_is("favorite-3"));
     key(LV_KEY_RIGHT);
-    check("then RIFT, the first app", focus_is("rift"));
+    check("then Terminal, the first app", focus_is("terminal"));
     key(LV_KEY_ESC);
-    check("Esc at the launcher's page does nothing", home_folder_current() == NULL && focus_is("rift") && opens == 3);
+    check("Esc at the launcher's page does nothing", home_folder_current() == NULL && focus_is("terminal") &&
+                                                         opens == 4);
     key(LV_KEY_ENTER);
-    check("Enter on an app opens it", opens == 4 && opened && strcmp(opened->id, "rift") == 0);
+    check("Enter on an app opens it", opens == 5 && opened && strcmp(opened->id, "terminal") == 0);
     check("nothing asked for Lock or Controls", locks == 0 && controls == 0);
     check("and nothing touched the favorites", saves == 0 && home_favorite_picking() < 0);
 
     /* Opened from outside - shell.folder, a rotation restart - with the keys
      * somewhere else: the way back still lands on the folder's cell. */
-    check("the keys are on RIFT", focus_is("rift"));
+    check("the keys are on Terminal", focus_is("terminal"));
     home_folder_open("games");
     key(LV_KEY_ESC);
     check("opened from outside, Esc comes back to the Games cell", home_folder_current() == NULL && focus_is("games"));
@@ -495,19 +555,22 @@ static void test_today(void)
     check("one folder open at most: opening Utilities closes Games",
           home_folder_open("utilities") && strcmp(home_folder_current(), "utilities") == 0 && on_page("notes") &&
               !on_page("fleet"));
+    check("and opening Apps closes Utilities",
+          home_folder_open("apps") && strcmp(home_folder_current(), "apps") == 0 && on_page("vision") &&
+              !on_page("notes"));
     key(LV_KEY_ESC);
-    check("and Esc comes back to the Utilities cell", home_folder_current() == NULL && focus_is("utilities"));
-    key(LV_KEY_DOWN);
+    check("and Esc comes back to the Apps cell", home_folder_current() == NULL && focus_is("apps"));
+    key(LV_KEY_RIGHT);
 
     /* Detached: an app is open over the launcher. */
     home_keys_detach();
     key(LV_KEY_RIGHT);
     key(LV_KEY_ENTER);
-    check("detached, the keys reach nothing", opens == 4 && focus_is("games"));
+    check("detached, the keys reach nothing", opens == 5 && focus_is("utilities"));
     home_keys_attach();
     home_keys_attach();
     key(LV_KEY_RIGHT);
-    check("attached (twice is once), they do again", focus_is("settings"));
+    check("attached (twice is once), they do again", focus_is("games"));
     teardown();
 }
 
@@ -554,13 +617,27 @@ static void test_sets(void)
     lv_area_t a;
 
     forget_favorites();
-    build(make_registry("fleet radar timber", 0), false);
+    build(make_registry("fleet radar timber solitaire blackjack 2048", 0), false);
     home_info(&hi);
-    check("no game installed: no Games cell", !home_folder_area("games", &a) && hi.folders == 1 && hi.cells == 9);
+    check("no game installed: no Games cell", !home_folder_area("games", &a) && hi.folders == 2 && hi.cells == 6);
     check("and the folder does not open", !home_folder_open("games") && home_folder_current() == NULL);
     teardown();
 
-    build(make_registry("fleet radar", 0), false);
+    build(make_registry("deskbuddy mp3 photo radio video vision wave zabbix", 0), false);
+    home_info(&hi);
+    check("no app of Apps installed: no Apps cell, Utilities and Games still there",
+          !home_folder_area("apps", &a) && home_folder_area("utilities", &a) && home_folder_area("games", &a) &&
+              hi.folders == 2 && hi.cells == 6 && !home_folder_open("apps"));
+    teardown();
+
+    build(make_registry("zabbix", 0), false);
+    tap_folder_id("apps");
+    check("a shell without Zabbix: Apps holds the other seven", home_folder_current() &&
+                                                                    home_folder_size("apps") == 7 &&
+                                                                    !on_page("zabbix") && on_page("wave"));
+    teardown();
+
+    build(make_registry("fleet radar solitaire blackjack 2048", 0), false);
     check("one game: still behind the Games cell", home_folder_area("games", &a) && !on_page("timber"));
     tap_folder();
     check("which holds it alone", home_folder_current() && on_page("timber") && home_folder_size("games") == 1);
@@ -571,14 +648,14 @@ static void test_sets(void)
     build(make_registry("radar", 0), false);
     tap_folder();
     check("a game not installed is not in the folder", on_page("fleet") && on_page("timber") && !on_page("radar") &&
-                                                           home_folder_size("games") == 2);
+                                                           home_folder_size("games") == 5);
     teardown();
 
     build(make_registry("clock calendar calculator notes files recorder camera", 0), false);
     home_info(&hi);
-    check("no tool installed: no Utilities cell, Games still there",
-          !home_folder_area("utilities", &a) && home_folder_area("games", &a) && hi.folders == 1 &&
-              !home_folder_open("utilities"));
+    check("no tool installed: no Utilities cell, Apps and Games still there",
+          !home_folder_area("utilities", &a) && home_folder_area("games", &a) && home_folder_area("apps", &a) &&
+              hi.folders == 2 && !home_folder_open("utilities"));
     teardown();
 
     build(make_registry("camera notes", 0), false);
@@ -596,7 +673,7 @@ static void test_many(void)
     int k;
 
     forget_favorites();
-    build(make_registry(NULL, 30), false);
+    build(make_registry(EIGHTEEN, 30), false);
     check("thirty-three games: one Games cell still", home_folder_area("games", &a) && !on_page("g01"));
     check("which holds them all", home_folder_size("games") == 33);
     tap_folder();
@@ -628,7 +705,8 @@ static void test_many(void)
 
     /* Forty-eight apps: the picker offers them all, and scrolls. */
     tap_fav(0);
-    check("the picker for forty-eight apps opens", home_favorite_picking() == 0 && on_page("g30") && on_page("rift"));
+    check("the picker for forty-eight apps opens", home_favorite_picking() == 0 && on_page("g30") && on_page("rift") &&
+                                                       !on_page("system"));
     home_cell_area("g30", &a);
     check("and runs past the screen", a.y2 > PANEL_H);
     tap_back();
@@ -644,6 +722,24 @@ static void test_landscape(void)
     forget_favorites();
     build(make_registry(NULL, 0), true);
     check("landscape: the Games cell", home_folder_area("games", &a));
+    {
+        /* DS §47: the favorites, the four apps and the three folders fit one
+         * row, left to right, and the launcher does not scroll. */
+        struct home_info hi;
+        lv_area_t f;
+        lv_area_t t;
+        lv_area_t s;
+        lv_area_t p;
+
+        home_info(&hi);
+        home_favorite_area(2, &f);
+        home_cell_area("terminal", &t);
+        home_cell_area("settings", &s);
+        home_folder_area("apps", &p);
+        check("landscape: ten cells on one row - favorites, Terminal .. Settings, Apps .. Games",
+              f.y1 == t.y1 && t.y1 == s.y1 && s.y1 == p.y1 && p.y1 == a.y1 && f.x2 < t.x1 && t.x2 < s.x1 &&
+                  s.x2 < p.x1 && p.x2 < a.x1 && a.x2 < PANEL_H && !hi.wrapped && !hi.scrolls);
+    }
     /* What a rotation restart does: the shell comes back and opens the
      * folder that was open (shell.c, DOORS_LAUNCHER_FOLDER). */
     check("landscape: the folder opens again by its id", home_folder_open("games"));
@@ -651,7 +747,7 @@ static void test_landscape(void)
     home_cell_area("fleet", &a);
     home_cell_area("radar", &b);
     home_cell_area("timber", &c);
-    check("landscape: the three games on one row, left to right, placed at once",
+    check("landscape: the first three games on one row, left to right, placed at once",
           a.y1 == b.y1 && b.y1 == c.y1 && a.y1 > 60 && a.x2 < b.x1 && b.x2 < c.x1 && lv_area_get_width(&a) >= 64);
     check("landscape: inside the screen", a.x1 >= 0 && c.x2 < PANEL_H && c.y2 < PANEL_W);
     check("landscape: the way back, at the top left, clear of the corner",
@@ -665,11 +761,67 @@ static void test_landscape(void)
     check("landscape: Utilities opens, its seven tools on one row",
           home_folder_open("utilities") && home_cell_area("clock", &a) && home_cell_area("camera", &b) &&
               a.y1 == b.y1 && a.x2 < b.x1 && b.x2 < PANEL_H);
+    check("landscape: Apps opens, its eight apps on one row",
+          home_folder_open("apps") && home_cell_area("deskbuddy", &a) && home_cell_area("zabbix", &b) &&
+              a.y1 == b.y1 && a.x2 < b.x1 && b.x2 < PANEL_H);
+    check("landscape: and Games, its six", home_folder_open("games") && home_cell_area("fleet", &a) &&
+                                               home_cell_area("2048", &b) && a.y1 == b.y1 && b.x2 < PANEL_H);
     home_folder_close();
     teardown();
 }
 
 /* ---- favorites ------------------------------------------------------------------- */
+
+/* Favorites kept before DS §47 hold app ids, not places: one holding an app
+ * that has since moved into a folder, and one holding System, which has no
+ * cell any more, still show their app and open it directly - not its folder,
+ * not Settings - in both orientations. */
+static void test_favorites_moved(void)
+{
+    struct home_info hi;
+    int o;
+
+    for (o = 0; o < 2; o++) {
+        char what[120];
+
+        forget_favorites();
+        snprintf(kept[0], sizeof(kept[0]), "%s", "photo");
+        snprintf(kept[1], sizeof(kept[1]), "%s", "system");
+        snprintf(kept[2], sizeof(kept[2]), "%s", "2048");
+        build(make_registry(NULL, 0), o == 1);
+        home_info(&hi);
+        snprintf(what, sizeof(what), "%s: Photo, System and 2048 kept as favorites are all shown set",
+                 o ? "landscape" : "portrait");
+        check(what, fav_is(0, "photo") && fav_is(1, "system") && fav_is(2, "2048") && hi.favorites_set == 3);
+        snprintf(what, sizeof(what), "%s: none of them has a cell of its own on the launcher's page",
+                 o ? "landscape" : "portrait");
+        check(what, !on_page("photo") && !on_page("system") && !on_page("2048"));
+        opens = 0;
+        snprintf(what, sizeof(what), "%s: a tap on each opens that app directly, no folder in between",
+                 o ? "landscape" : "portrait");
+        check(what, tap_fav(0) && opens == 1 && strcmp(opened->id, "photo") == 0 && tap_fav(1) && opens == 2 &&
+                        strcmp(opened->id, "system") == 0 && tap_fav(2) && opens == 3 &&
+                        strcmp(opened->id, "2048") == 0 && home_folder_current() == NULL);
+        snprintf(what, sizeof(what), "%s: and nothing was written back", o ? "landscape" : "portrait");
+        check(what, saves == 0 && strcmp(kept[1], "system") == 0);
+        teardown();
+    }
+
+    /* The picker of a slot holding System: it offers the apps, never System,
+     * and leaving it keeps System. */
+    build(make_registry(NULL, 0), false);
+    check("the picker for the slot holding System opens", hold_fav(1, 600) && home_favorite_picking() == 1);
+    check("it offers the apps of every folder, not System, nor what the other slots hold",
+          on_page("vision") && on_page("clock") && on_page("solitaire") && on_page("terminal") &&
+              !on_page("system") && !on_page("photo") && !on_page("2048"));
+    key(LV_KEY_ESC);
+    check("Esc keeps System in the slot", home_favorite_picking() < 0 && fav_is(1, "system") && saves == 0);
+    check("the folders' ids are no app", home_favorite_set(0, "apps") == -1 && home_favorite_set(0, "games") == -1);
+    check("an app in a folder may be made a favorite", home_favorite_set(0, "vision") == 0 && fav_is(0, "vision") &&
+                                                           strcmp(kept[0], "vision") == 0);
+    teardown();
+    forget_favorites();
+}
 
 static void test_favorites(void)
 {
@@ -702,12 +854,12 @@ static void test_favorites(void)
     tap_fav(0);
     check("a tap on RIFT in the picker", tap_app("rift"));
     check("gives the slot RIFT and closes the picker, opening nothing",
-          fav_is(0, "rift") && home_favorite_picking() < 0 && opens == 0 && on_page("vision"));
+          fav_is(0, "rift") && home_favorite_picking() < 0 && opens == 0 && on_page("terminal"));
     check("and keeps it", saves == 1 && strcmp(kept[0], "rift") == 0);
     check("RIFT keeps its own cell too", on_page("rift") && home_favorite_area(0, &a) && home_cell_area("rift", &b) &&
                                              a.y1 < b.y1);
     home_info(&hi);
-    check("shell.info's count: one set", hi.favorites_set == 1 && hi.icons_art == 10);
+    check("shell.info's count: one set", hi.favorites_set == 1 && hi.icons_art == 7);
     check("a tap on the slot opens RIFT", tap_fav(0) && opens == 1 && opened && strcmp(opened->id, "rift") == 0);
 
     /* Long press: change. */
@@ -778,14 +930,23 @@ static void test_favorites(void)
     key(LV_KEY_RIGHT);
     key(LV_KEY_RIGHT);
     key('e');
-    check("E on an app's cell does nothing", focus_is("rift") && home_favorite_picking() < 0);
+    check("E on an app's cell does nothing", focus_is("terminal") && home_favorite_picking() < 0);
     home_folder_open("games");
     key('e');
     check("nor in a folder", home_favorite_picking() < 0 && home_folder_current() != NULL);
     home_folder_close();
 
     /* A scroll is not a long press: the finger starts on a slot and moves
-     * the page before 400 ms, then stays down. */
+     * the page before 400 ms, then stays down. Today's page fits the screen
+     * (DS §47) and has nothing to scroll, so the launcher is built again in
+     * a content area too short for it - as a page with more places would
+     * be - where the drag does scroll it. */
+    teardown();
+    use_display(false);
+    lv_obj_set_height(content, 700);
+    home_create(content, registry, make_registry(NULL, 0), false, NULL, &actions);
+    home_keys_attach();
+    pump(60);
     home_favorite_area(1, &a);
     finger_at(&a);
     finger_state = LV_INDEV_STATE_PRESSED;
@@ -812,8 +973,8 @@ static void test_favorites(void)
 
         home_cell_area("rift", &r);
         home_cell_area("settings", &s);
-        check("landscape: the three slots lead the first line, left to right",
-              a.y1 == b.y1 && a.x2 < b.x1 && b.x2 < r.x1 && r.y1 == a.y1 && s.y1 > a.y1 &&
+        check("landscape: the three slots lead the one line, left to right",
+              a.y1 == b.y1 && a.x2 < b.x1 && b.x2 < r.x1 && r.y1 == a.y1 && s.y1 == a.y1 && s.x1 > r.x2 &&
                   lv_area_get_width(&a) >= 64);
     }
     check("landscape: a long press opens the picker, whose release chooses nothing",
@@ -830,7 +991,7 @@ static void test_favorites(void)
     snprintf(kept[0], sizeof(kept[0]), "%s", "radar");
     snprintf(kept[1], sizeof(kept[1]), "%s", "../../etc/passwd");
     snprintf(kept[2], sizeof(kept[2]), "%s", "deskbuddy");
-    build(make_registry("radar", 0), false);
+    build(make_registry("radar deskbuddy", 0), false);
     home_info(&hi);
     check("an app not installed is an empty slot, kept as stored",
           fav_is(0, NULL) && home_favorite_stored(0) && strcmp(home_favorite_stored(0), "radar") == 0 &&
@@ -955,6 +1116,7 @@ int main(void)
     test_many();
     test_landscape();
     test_favorites();
+    test_favorites_moved();
     test_restarts();
 
     printf("home_folder_test: %d checks, %d failure(s)\n", checks, failed);

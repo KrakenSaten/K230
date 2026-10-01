@@ -1,7 +1,7 @@
 /*
- * Settings: Wi-Fi, display brightness and rotation, and appearance. Everything
- * it decides is in settings_view.c; this builds the panels and turns taps into
- * calls.
+ * Settings: Wi-Fi, display brightness and rotation, appearance, and the way
+ * into System, which is Settings' page (DS §47). Everything it decides is in
+ * settings_view.c; this builds the panels and turns taps into calls.
  *
  * It owns no hardware and reads nothing from the machine: Wi-Fi is netd's
  * (wifi.* over pocketipc, docs/api/network.md) and brightness is the shell's
@@ -668,6 +668,58 @@ static void build_appearance(struct settings_app *a, lv_obj_t *body)
     }
 }
 
+/* ---- system -------------------------------------------------------------------------- */
+
+/* System (DS §47) is Settings' page: the System app, which the shell shows
+ * with Settings as its way back - the header's back slab and Back come here.
+ * This row is the way in. The shell opens it after this event, and this app
+ * is destroyed by it, so nothing here touches the app afterwards. */
+static void on_system(lv_event_t *e)
+{
+    (void)e;
+    pocketos_shell_open_app("system");
+}
+
+static void build_system(lv_obj_t *column)
+{
+    lv_obj_t *p = pocketui_card(column);
+    lv_obj_t *row;
+    lv_obj_t *left;
+    lv_obj_t *lb;
+
+    lv_obj_set_style_pad_row(p, 8, 0);
+    pocketui_label(p, "SYSTEM", POS_STYLE_CAPTION);
+    /* As tall as its words need at the text size in force, never below a
+     * touch target: the caption wraps rather than running out of the row
+     * (DS §46.5). */
+    row = lv_obj_create(p);
+    lv_obj_remove_style_all(row);
+    pos_style_add(row, POS_STYLE_DIVIDER, 0);
+    pos_style_add(row, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+    lv_obj_set_width(row, LV_PCT(100));
+    lv_obj_set_height(row, LV_SIZE_CONTENT);
+    lv_obj_set_style_min_height(row, SETTINGS_BTN_H, 0);
+    lv_obj_set_style_pad_ver(row, 8, 0);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 8, 0);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    lv_obj_add_event_cb(row, on_system, LV_EVENT_CLICKED, NULL);
+
+    left = lv_obj_create(row);
+    lv_obj_remove_style_all(left);
+    lv_obj_set_height(left, LV_SIZE_CONTENT);
+    lv_obj_set_flex_grow(left, 1);
+    lv_obj_set_flex_flow(left, LV_FLEX_FLOW_COLUMN);
+    lv_obj_clear_flag(left, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    pocketui_label(left, "System", POS_STYLE_ROW_TITLE);
+    wrap_label(left, "About this device, status, diagnostics, restart and power", POS_STYLE_CAPTION);
+    lb = pocketui_label(row, LV_SYMBOL_RIGHT, POS_STYLE_SYMBOL);
+    lv_obj_clear_flag(lb, LV_OBJ_FLAG_CLICKABLE);
+}
+
 static void repaint_appearance(struct settings_app *a)
 {
     const struct pos_theme_def *cur = pos_theme_current_def();
@@ -764,9 +816,9 @@ static void list_signature(const struct settings_app *a, char *out, size_t n)
     }
 }
 
-/* The three panels in two columns: Wi-Fi, whose list is the long one, and
- * then Display and Appearance. Stacked when the body is tall they are the one
- * column there always was, the same gap apart (shape_main). */
+/* The four panels in two columns: Wi-Fi, whose list is the long one, and
+ * then Display, Appearance and System. Stacked when the body is tall they are
+ * the one column there always was, the same gap apart (shape_main). */
 static void build_main(struct settings_app *a)
 {
     lv_obj_t *p;
@@ -847,6 +899,7 @@ static void build_main(struct settings_app *a)
     a->rot_note = wrap_label(p, "", POS_STYLE_TEXT_SECONDARY);
 
     build_appearance(a, a->column[1]);
+    build_system(a->column[1]);
 }
 
 static void repaint(struct settings_app *a)

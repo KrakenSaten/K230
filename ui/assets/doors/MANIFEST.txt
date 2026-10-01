@@ -2,6 +2,7 @@
 # <sha256 of output>  <output>  <sha256 of source>  <source>
 0e2e46b8e5b66388e419558fdc2b2bd2b8b890c790138d41dcc9751d4d02a9a6  ui/assets/doors/icon-frame.bin  5186b77a8be5eb618e48c52d3cee233b94bda93043d0f95a55eb5aa53f4876f8  docs/design/brand/doors-visual-pack-v1/source/app-icons/svg/apps.svg (frame only)
 514e6b0d1e1f42e41e9233aab787767a40423cd78deef1f146e68410e6336f3c  ui/assets/doors/icon-2048.bin  6c331ee4212ec1ca03a14fe86c58053b4493eaa08175228ebb815c09ec220ba1  docs/design/doors-app-icons/svg/2048.svg
+c4d63b3da2e1abf232c3fb739b0f5e4e69c294fe78a0319b2008a21798e79329  ui/assets/doors/icon-apps.bin  ee94ed3be63ac60e287c7bd17dcb3f2211c152db1b4ade16425c6b2a5f76196a  docs/design/brand/doors-visual-pack-v1/source/system-icons/svg/apps.svg
 2abff30226ae761b991771f257ee7108ee71f6d0e7ec6f1b09a4c62ba224e9d5  ui/assets/doors/icon-blackjack.bin  fe179be074dd3a8aed65e0445b8c768e1c8363ea056d8b0b84383799adb1c0b6  docs/design/doors-app-icons/svg/blackjack.svg
 a8676e655951366ccd35f194ae6b5289ac0afe7f548eafaeaeea0faca8ef76b1  ui/assets/doors/icon-browser.bin  df9febedf5c2e17725d4d7496c34729921481056105cb4a739d05938065977fc  docs/design/doors-app-icons/svg/browser.svg
 7fb197642b606068a540b53007229efd2f97e15cf3e6d6ba4b56329ae9980820  ui/assets/doors/icon-calculator.bin  07e27edb382bb29df7fe1070e1e109b6cbb4a525742b03389a2861f473ade75c  docs/design/brand/doors-threshold/icons/svg/calculator.svg
