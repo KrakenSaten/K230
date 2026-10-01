@@ -10,7 +10,8 @@ needs neither this script nor the PNGs; tests/app_icons_test.sh fails if it no
 longer matches its sources.
 
 Every PNG becomes one `const lv_image_dsc_t pos_app_icon_<name>`, where
-<name> is the file name, which is the app's id. The sources are the packages'
+<name> is the file name, which is the app's id (or, for a launcher icon a
+package named otherwise, APP_IDS below). The sources are the packages'
 tintable icons: white on transparent. Only the alpha channel is kept,
 antialiasing included, so an icon has no colour of its own and is drawn in
 the image_recolor of its style (POS_STYLE_APP_ICON, accent_primary), which the
@@ -57,7 +58,12 @@ LAUNCHER_ICONS = [THRESHOLD + n + ".png" for n in
                                                                     FIRST_PARTY + "blackjack.png",
                                                                     FIRST_PARTY + "2048.png",
                                                                     FIRST_PARTY + "deskbuddy.png",
-                                                                    FIRST_PARTY + "terminal.png"]
+                                                                    FIRST_PARTY + "terminal.png",
+                                                                    EXTENSION + "gallery.png"]
+# An icon is named by its file name, which is the app's id - except where a
+# package drew an icon for an app under another name. The extension's Gallery
+# is the Photo app's (docs/apps/PHOTO.md, DS §45).
+APP_IDS = {EXTENSION + "gallery.png": "photo"}
 
 
 def mask(png, src):
@@ -101,19 +107,20 @@ def main():
             else:
                 files.append(s)
         for p in files:
+            app_id = APP_IDS.get(shown(p), p.stem)
             # Always behind PREFIX in C, so an id may start with a digit
             # (PG 2048's is "2048").
-            if not re.fullmatch(r"[a-z0-9][a-z0-9_]*", p.stem):
+            if not re.fullmatch(r"[a-z0-9][a-z0-9_]*", app_id):
                 raise PngError("%s: the file name is not an app id usable in a C name" % p)
-            if any(p.stem == i[0] for i in icons):
-                raise PngError("%s: a second icon for app id %s" % (p, p.stem))
+            if any(app_id == i[0] for i in icons):
+                raise PngError("%s: a second icon for app id %s" % (p, app_id))
             png = read_png(str(p))
             rows = mask(png, p)
             want = (icons[0][2], icons[0][3]) if icons else (png.width, png.width)
             if (png.width, png.height) != want:
                 raise PngError("%s: %d x %d; every icon must be the same square size"
                                % (p, png.width, png.height))
-            icons.append((p.stem, rows, png.width, png.height,
+            icons.append((app_id, rows, png.width, png.height,
                           hashlib.sha256(p.read_bytes()).hexdigest(), shown(p)))
     except (PngError, OSError) as e:
         print("gen_app_icons: %s" % e, file=sys.stderr)

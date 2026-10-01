@@ -161,6 +161,7 @@ BUILD_ID
 /tests/camera_layout_test
 /tests/camera_session_test
 /tests/camera_gallery_test
+/tests/photo_library_test
 /tests/pocketcam_gallery_test
 /tests/pos-camera-testhooks
 /tools/zabbix/pos-zabbix

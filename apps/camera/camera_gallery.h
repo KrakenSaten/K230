@@ -27,6 +27,11 @@
  * Nothing is ever decoded at full size and only one page of thumbnails, the
  * photo and the slideshow's two pictures are held (the app's buffers).
  *
+ * TWO HOSTS. Camera shows the gallery behind PHOTOS, with CAMERA as the way
+ * back to the live picture. The Photo app (apps/photo, docs/apps/PHOTO.md)
+ * shows the same gallery on its own: standalone, there is no CAMERA action,
+ * and the shell's back slab is the only way out.
+ *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
 #ifndef CAMERA_GALLERY_H
@@ -112,6 +117,7 @@ struct gallery_slot {
 
 struct camera_gallery {
     enum gallery_view view;
+    bool standalone;         /* the Photo app: no CAMERA action (kept by open and retry) */
     char names[CAMERA_LIBRARY_MAX][CAMERA_NAME_MAX];
     int count;               /* listed */
     uint32_t total;          /* in the folder (more than count only past the list's cap) */
@@ -166,7 +172,7 @@ struct gallery_screen {
     bool newer_enabled;
     bool show_older;
     bool older_enabled;
-    const char *left;        /* the left action: "CAMERA", "BACK", "CANCEL" or NULL */
+    const char *left;        /* the left action: "CAMERA" (not standalone), "BACK", "CANCEL" or NULL */
     bool left_enabled;
     const char *middle;      /* "SLIDESHOW", "EXPORT", "TRY AGAIN" or NULL */
     bool middle_enabled;
@@ -179,6 +185,9 @@ struct gallery_screen {
 };
 
 void camera_gallery_init(struct camera_gallery *g);
+/* Standalone (the Photo app): OPENING, FAILED and GRID have no CAMERA, and
+ * camera_gallery_left() there does nothing. Camera's gallery is not. */
+void camera_gallery_set_standalone(struct camera_gallery *g, bool standalone);
 
 /* The gallery opens: start the library helper. */
 unsigned camera_gallery_open(struct camera_gallery *g);

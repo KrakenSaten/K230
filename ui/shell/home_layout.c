@@ -271,7 +271,8 @@ int home_layout_compute(const struct home_layout_in *in, struct home_layout *out
  * 2048) join it with a row each in PLAY and HOME_FOLDER_GAMES. The everyday
  * tools are in UTILITIES, in this order: Clock, Calendar, Calculator and
  * Notes from WORKSPACE, then Files, Recorder and Camera from DEVICE; the
- * folder's cell is WORKSPACE's first, before DeskBuddy. */
+ * folder's cell is WORKSPACE's first, before DeskBuddy. Photo, the library
+ * of Camera's photos, is a cell of its own in DEVICE after Video (DS §45). */
 static const struct home_entry entries[] = {
     { "rift", HOME_GROUP_CONNECT, HOME_HUE_MESH, HOME_FOLDER_NONE },
     { "radio", HOME_GROUP_CONNECT, HOME_HUE_RADIO, HOME_FOLDER_NONE },
@@ -298,6 +299,7 @@ static const struct home_entry entries[] = {
     { "vision", HOME_GROUP_DEVICE, HOME_HUE_AI, HOME_FOLDER_NONE },
     { "mp3", HOME_GROUP_DEVICE, HOME_HUE_APPS, HOME_FOLDER_NONE },
     { "video", HOME_GROUP_DEVICE, HOME_HUE_TOOLS, HOME_FOLDER_NONE },
+    { "photo", HOME_GROUP_DEVICE, HOME_HUE_FILES, HOME_FOLDER_NONE },
 /* A test seam: tests/home_folder_test.c builds this file with more rows
  * (tests/home_folder_entries.h), to fill a folder past one screen. No shell
  * build defines it. */

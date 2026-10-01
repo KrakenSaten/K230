@@ -144,6 +144,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/camera/camera_session.c
     ${REPO_DIR}/apps/camera/camera_gallery.c
     ${REPO_DIR}/apps/camera/camera_gallery_screen.c
+    ${REPO_DIR}/apps/photo/photo_app.c
     ${REPO_DIR}/apps/browser/browser_app.c
     ${REPO_DIR}/apps/browser/browser_session.c
     ${REPO_DIR}/apps/browser/browser_view.c
@@ -885,6 +886,37 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         target_compile_definitions(camera_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
     endif()
     target_link_libraries(camera_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
+
+    # Photo in the running app: Camera's gallery hosted on its own, tapped on
+    # the panel, with the real library helper behind it (run by
+    # tests/photo_shell_test.sh, which hands it make's tests/pos-camera-testhooks).
+    add_executable(photo_app_test
+        ${REPO_DIR}/tests/photo_app_test.c
+        chrome.c
+        ${REPO_DIR}/apps/photo/photo_app.c
+        ${REPO_DIR}/apps/camera/camera_layout.c
+        ${REPO_DIR}/apps/camera/camera_session.c
+        ${REPO_DIR}/apps/camera/camera_gallery.c
+        ${REPO_DIR}/apps/camera/camera_gallery_screen.c
+        ../pocketui/pos_app_icons.c
+        ../pocketui/pocketui.c
+        ../pocketui/pos_display.c
+        ../pocketui/pos_input.c
+        ../pocketui/pos_keyboard.c
+        ../pocketui/pos_keymap.c
+        ../pocketui/pos_theme.c
+        ../pocketui/pos_styles.c
+        ${POCKETUI_FONTS})
+    target_include_directories(photo_app_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../pocketui"
+        "${REPO_DIR}/core" "${REPO_DIR}/apps/camera")
+    target_compile_options(photo_app_test PRIVATE -Wall -Wextra)
+    target_compile_definitions(photo_app_test PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
+    if(POCKETOS_LVGL_MODE STREQUAL "source")
+        target_include_directories(photo_app_test PRIVATE "${LVGL_DIR}")
+        target_compile_definitions(photo_app_test PRIVATE LV_CONF_PATH="${CMAKE_BINARY_DIR}/lv_conf.h")
+    endif()
+    target_link_libraries(photo_app_test PRIVATE lvgl ${SDL2_LIBRARIES} m)
 
     # Recorder in the running app, tapped on the panel, with the real helper
     # (make's tests/pos-record-testhooks) over the file-backed sound card

@@ -309,12 +309,23 @@ int pocketcam_store_write(struct pocketcam_store *s, const char *name,
 int pocketcam_store_delete(struct pocketcam_store *s, const char *name)
 {
     char path[PATH_MAX];
+    struct stat st;
 
+    /* A valid name has no '/', so the path is always directly in the folder. */
     if (!pocketcam_store_valid_name(name)) {
         return -EINVAL;
     }
     if (snprintf(path, sizeof(path), "%s/%s", s->dir, name) >= (int)sizeof(path)) {
         return -ENAMETOOLONG;
+    }
+    /* Only a photo the library lists: a regular file, never a folder or a
+     * link under a photo's name (unlink would only remove the link, but the
+     * gallery never showed it, so it is not the gallery's to remove). */
+    if (lstat(path, &st) != 0) {
+        return -errno;
+    }
+    if (!S_ISREG(st.st_mode)) {
+        return -EPERM;
     }
     if (unlink(path) != 0) {
         return -errno;

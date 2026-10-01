@@ -97,7 +97,9 @@ int pocketcam_store_write(struct pocketcam_store *s, const char *name,
                           pocketcam_store_writer writer, void *user, uint64_t *bytes_out);
 
 /* Delete one photo by name. Only a photo name is accepted, so nothing
- * outside the folder and nothing but a photo can be named. */
+ * outside the folder and nothing but a photo can be named; and only a
+ * regular file is removed (a folder or a link under a photo's name is
+ * -EPERM, as the library never lists either). Never recursive. */
 int pocketcam_store_delete(struct pocketcam_store *s, const char *name);
 
 /* IMG_<digits>.<ext> or IMG_<8 digits>_<6 digits>_<digits>.<ext>, with 4 to

@@ -4042,3 +4042,29 @@ Three LEDs on the base: Caps Lock, microphone in use, camera in use. The two
 privacy LEDs follow the devices, not the apps: lit while any process holds
 a capture stream or a camera capture node open, out within half a second of
 the last one letting go, however it let go.
+
+## 45. Amendment AC — Photo [PROPOSED]
+
+**PROPOSED 2026-09-30** on branch `feat/photo-app`. A new app; nothing in
+§1-§44 changes or is renumbered. Behaviour and architecture:
+docs/apps/PHOTO.md; gate: docs/hardware/PHOTO_GATE.md.
+
+### 45.1 Place and chrome
+
+A launcher app of its own, not in a folder: DEVICE, after Video, in the
+files colour (a library of files, as Notes and Timber). Its icon is the icon
+extension's Gallery, a framed picture with a sun and hills
+(`docs/design/brand/doors-icon-extension/svg/gallery.svg`), supplied with
+the package and deferred until an app used it; the generator names its mask
+`pos_app_icon_photo` (for the owner to confirm the place and the colour).
+Chrome NONE and header DEFAULT, as Camera (§30.8, §34): no status cluster,
+the shell's header with its back slab; the pictures take the height.
+
+### 45.2 The screen
+
+Exactly Camera's gallery (§34, docs/apps/CAMERA.md "The gallery"): the same
+grid, photo view, three lines, buttons, slideshow and panels, from the same
+code. Standalone, the gallery has no CAMERA button: on the grid the left
+place of the button row is empty, on the empty library and the failure
+screen there is no left button at all, and the shell's back slab is the only
+way out. Nothing else differs.

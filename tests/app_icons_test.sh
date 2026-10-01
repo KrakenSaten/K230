@@ -29,9 +29,9 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT
 
 # ---- provenance ----------------------------------------------------------------
-# The fourteen launcher icons as the owner supplied them (docs/design/brand/
-# README.md), by hash: ten from the Threshold package, Wave, Files, Camera and
-# Recorder from the icon extension.
+# The fifteen launcher icons as the owner supplied them (docs/design/brand/
+# README.md), by hash: ten from the Threshold package, Wave, Files, Camera,
+# Recorder and Gallery (Photo's, DS §45) from the icon extension.
 cat > "${TMP}/want.sha" <<'EOF'
 3044610d013d949a00640fdce47da3486b5e27217b91d7ec45d6a1351517a9ab  docs/design/brand/doors-threshold/icons/png-32/calculator.png
 6e82a0598cc3780d3210ab7659fc39d80940d8933a9810c29c9833967471a3e2  docs/design/brand/doors-threshold/icons/png-32/calendar.png
@@ -47,10 +47,11 @@ c0f97b8789219ba0605d875f82f00fc69d043f407fb0999d4f82c87edf48cc02  docs/design/br
 4fb00b75d67bfb2b1c7167490425c785c4f97abf4325da2bdcab932522a198d2  docs/design/brand/doors-icon-extension/png-32/files.png
 ef55db431904fccb8dabc5a367ddea63c40a7c7f45cabec479b4a734c15dc39a  docs/design/brand/doors-icon-extension/png-32/camera.png
 9393ddfcc6ea3f97dfb86a6d47a6ee96f3084469987fecf3e83447e4e9be3512  docs/design/brand/doors-icon-extension/png-32/recorder.png
+5381fef2b6ba2d41f6b2c6b53c3a061ea5c4ea635b866247f53b3aa422cc2df9  docs/design/brand/doors-icon-extension/png-32/gallery.png
 EOF
 cut -c67- "${TMP}/want.sha" > "${TMP}/paths.txt"
 xargs sha256sum < "${TMP}/paths.txt" > "${TMP}/have.sha" 2>/dev/null
-check "the fourteen launcher icons are exactly the files the owner supplied" \
+check "the fifteen launcher icons are exactly the files the owner supplied" \
     "$(cmp -s "${TMP}/want.sha" "${TMP}/have.sha" && echo 1 || echo 0)"
 python3 "${GEN}" -o "${TMP}/icons.c" >"${TMP}/gen.txt" 2>&1
 check "the generator accepts the artwork" "$([ "$?" = "0" ] && echo 1 || echo 0)"
@@ -64,8 +65,8 @@ named=0
 while read -r sha path; do
     grep -qx " \*   ${path}" "${ICONS_C}" && grep -qx " \*     sha256 ${sha}" "${ICONS_C}" && named=$((named + 1))
 done < "${TMP}/want.sha"
-check "the committed file names each of the fourteen sources and its hash (${named})" \
-    "$([ "${named}" = "14" ] && echo 1 || echo 0)"
+check "the committed file names each of the fifteen sources and its hash (${named})" \
+    "$([ "${named}" = "15" ] && echo 1 || echo 0)"
 # One more icon is first-party (docs/design/doors-app-icons/README.md): drawn
 # in the repository in the extension's line language, for an app no package
 # has an icon for. It is kept apart from the owner's artwork above, pinned by
@@ -165,9 +166,10 @@ for n in names:
     data = [int(v, 16) for v in re.findall(r"0x([0-9a-f]{2})", body)]
     dsc = re.search(r"pos_app_icon_%s = \{(.*?)\};" % n, text, re.S).group(1)
     hdr = dict(re.findall(r"\.header\.(\w+) = (\w+),", dsc))
-    W, H, rows = read_png("%s/%s.png" % (ext if n in ("wave", "files", "camera", "recorder") else
+    # Photo's mask is the extension's Gallery (gen_app_icons.py APP_IDS).
+    W, H, rows = read_png("%s/%s.png" % (ext if n in ("wave", "files", "camera", "recorder", "photo") else
                                          first if n in ("zabbix", "browser", "vision", "mp3", "video", "solitaire", "blackjack", "2048", "deskbuddy", "terminal") else art,
-                                         n))
+                                         "gallery" if n == "photo" else n))
     alpha = [p[3] for r in rows for p in r]
     ok = (hdr.get("cf"), hdr.get("w"), hdr.get("h"), hdr.get("stride")) == ("LV_COLOR_FORMAT_A8", "32", "32", "32") \
         and (W, H) == (32, 32) and data == alpha
@@ -180,15 +182,16 @@ PY
 rc=$?
 check "every mask is A8, 32 x 32, and equals its PNG's alpha byte for byte" "$([ "${rc}" = "0" ] && echo 1 || echo 0)"
 check "there is one mask per launcher app, named by app id, and no other" \
-    "$(grep -qx 'names 2048 blackjack browser calculator calendar camera clock deskbuddy files fleet mp3 notes radar radio recorder settings solitaire system terminal timber video vision wave zabbix' "${TMP}/masks.txt" && echo 1 || echo 0)"
-check "the file holds 24,576 bytes of mask data and nothing else of size" \
-    "$([ "$(grep -o '0x[0-9a-f][0-9a-f]' "${ICONS_C}" | wc -l)" = "24576" ] && echo 1 || echo 0)"
+    "$(grep -qx 'names 2048 blackjack browser calculator calendar camera clock deskbuddy files fleet mp3 notes photo radar radio recorder settings solitaire system terminal timber video vision wave zabbix' "${TMP}/masks.txt" && echo 1 || echo 0)"
+check "the file holds 25,600 bytes of mask data and nothing else of size" \
+    "$([ "$(grep -o '0x[0-9a-f][0-9a-f]' "${ICONS_C}" | wc -l)" = "25600" ] && echo 1 || echo 0)"
 extra=$(grep -c 'doors-icon-extension' "${ICONS_C}")
-check "of the extension's thirteen icons only Wave, Files, Camera and Recorder are compiled in (${extra} sources)" \
-    "$([ "${extra}" = "4" ] && grep -qx " \*   ${EXT}/wave.png" "${ICONS_C}" &&
+check "of the extension's thirteen icons only Wave, Files, Camera, Recorder and Gallery (Photo's) are compiled in (${extra} sources)" \
+    "$([ "${extra}" = "5" ] && grep -qx " \*   ${EXT}/wave.png" "${ICONS_C}" &&
        grep -qx " \*   ${EXT}/files.png" "${ICONS_C}" &&
        grep -qx " \*   ${EXT}/camera.png" "${ICONS_C}" &&
-       grep -qx " \*   ${EXT}/recorder.png" "${ICONS_C}" && echo 1 || echo 0)"
+       grep -qx " \*   ${EXT}/recorder.png" "${ICONS_C}" &&
+       grep -qx " \*   ${EXT}/gallery.png" "${ICONS_C}" && echo 1 || echo 0)"
 first=$(grep -c 'doors-app-icons' "${ICONS_C}")
 check "and ten first-party icons, Zabbix's, Browser's, Vision's, MP3's, Video's, the three card and tile games', DeskBuddy's and the Terminal's (${first} sources)" \
     "$([ "${first}" = "10" ] && echo 1 || echo 0)"
@@ -262,7 +265,7 @@ check "every launcher app's descriptor was read (${listed} listed)" \
     "$([ "$(grep -c . "${TMP}/apps.txt")" = "${listed}" ] && ! grep -q Traceback "${TMP}/apps.txt" &&
        echo 1 || echo 0)"
 for id in radio system fleet radar timber notes clock calendar calculator settings wave files camera recorder zabbix browser \
-          vision video solitaire blackjack 2048 deskbuddy mp3 terminal; do
+          vision video solitaire blackjack 2048 deskbuddy mp3 terminal photo; do
     check "${id} uses its own icon, pos_app_icon_${id}" \
         "$(grep -qE "^${id} LV_SYMBOL_[A-Z_]+ pos_app_icon_${id} " "${TMP}/apps.txt" && echo 1 || echo 0)"
 done
@@ -285,8 +288,8 @@ check "no launcher app is without an icon mask except the one known to have no a
 check "and that one is still without it, so this exception has not gone stale (${nomask:-none})" \
     "$([ "$(echo ${nomask})" = "${NO_MASK_ALLOWED}" ] && echo 1 || echo 0)"
 users=$(grep -rl 'pos_app_icon_' apps ui --include='*.c' --include='*.h' | grep -v "^${ICONS_C}$" | wc -l)
-check "the masks are referenced only by the twenty-four app descriptors that have one (found in ${users} files)" \
-    "$([ "${users}" = "24" ] && echo 1 || echo 0)"
+check "the masks are referenced only by the twenty-five app descriptors that have one (found in ${users} files)" \
+    "$([ "${users}" = "25" ] && echo 1 || echo 0)"
 check "the brand mark is not used as an app icon (DS §19.1)" \
     "$(grep -rqE 'icon_mask = &pos_brand_mark' apps ui && echo 0 || echo 1)"
 # The DOORS launcher (DS §31) draws each app's portal icon from the runtime
