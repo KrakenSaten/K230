@@ -34,7 +34,8 @@
  * stored separately and both the drawing and the hit test read them, so they
  * cannot disagree.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETFLEET_GRID_H
 #define POCKETFLEET_GRID_H

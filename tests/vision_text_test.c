@@ -6,7 +6,8 @@
  * from logits: the blank dropped, repeats merged, a repeat across a blank
  * kept, a step of NaN read as nothing, the bound held.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketvision/vision_text.h"
 

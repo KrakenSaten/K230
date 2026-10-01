@@ -6,7 +6,8 @@
 # helper, and the real shell is opened on Wave and closed again without
 # anything being started.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 SHELL_BIN=${SHELL_BIN:?set SHELL_BIN to the pocketos-shell binary}
 cd "$(dirname "$0")/.." || exit 1

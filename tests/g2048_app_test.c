@@ -16,7 +16,8 @@
  * Built by ui/shell/CMakeLists.txt beside the shell (host builds only) and
  * run by tests/g2048_shell_test.sh.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
 #include "chrome.h"

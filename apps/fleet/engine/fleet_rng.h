@@ -9,7 +9,8 @@
  * Every random decision in PocketFleet draws from one of these in a fixed
  * order, which is what makes a match reproducible from its seed.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETFLEET_RNG_H
 #define POCKETFLEET_RNG_H

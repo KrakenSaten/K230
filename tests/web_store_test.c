@@ -6,7 +6,8 @@
  * planted file:// address, an unknown key) costing only that line; and a
  * file that cannot be read reported as such, never as a store to replace.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "web/web_store.h"

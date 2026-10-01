@@ -16,7 +16,11 @@
  * Built and run by tools/meshcore-frame/Makefile:
  *   make meshcore-frame-test        (from the top of the repository)
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * Portions (MeshCore's test key pair) are adapted from MeshCore,
+ * Copyright (c) 2025 Scott Powell / rippleradios.com, MIT licence
+ * (third_party/notices/texts/meshcore.txt).
+ * SPDX-License-Identifier: Apache-2.0 AND MIT
  */
 #include "mcf.h"
 

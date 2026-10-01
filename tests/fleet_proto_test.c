@@ -6,7 +6,8 @@
  * of range. Then a million random packets, none of which may decode into a
  * message that would not encode back to the same bytes.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "fleet_proto.h"
 

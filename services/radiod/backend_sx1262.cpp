@@ -14,7 +14,8 @@
  *
  * Status: compiles for riscv64; not yet run on hardware.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "airtime.h"
 #include "hal_linux.h"

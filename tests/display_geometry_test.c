@@ -9,7 +9,8 @@
  * rotation, a swapped controller and mirrored ranges. A touch that lands
  * anywhere but the logical pixel the display shows there fails.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pos_display.h"
 

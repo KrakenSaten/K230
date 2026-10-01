@@ -5,7 +5,8 @@
  * guard wrote down, when it next needs a tick - never about how it gets
  * there.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "db_brain.h"
 #include "db_face.h"

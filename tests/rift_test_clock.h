@@ -8,7 +8,8 @@
  * as "45 s" is 45 s in every run however slow the run is. Test-only: no
  * target the shell or an image is built from links this file.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_TEST_CLOCK_H
 #define RIFT_TEST_CLOCK_H

@@ -21,7 +21,8 @@
  * when it is wide. The orientation is the system's (DS section 21.2); nothing
  * here asks what it is, only how much room there is.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "app.h"

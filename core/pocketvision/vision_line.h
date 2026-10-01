@@ -33,7 +33,8 @@
  * A track keeps VISION_LINES such states, one per line it is watched
  * against (the count line and the two speed lines); `idx` says which.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_VISION_LINE_H
 #define POCKETOS_VISION_LINE_H

@@ -39,7 +39,8 @@
  *
  * Pure C, no LVGL, clocks passed in: tests/wave_view_test.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETWAVE_VIEW_H
 #define POCKETWAVE_VIEW_H

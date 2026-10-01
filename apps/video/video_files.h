@@ -14,7 +14,8 @@
  *
  * Pure C, no LVGL: tests/video_files_test.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_VIDEO_FILES_H
 #define POCKETOS_VIDEO_FILES_H

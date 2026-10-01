@@ -7,7 +7,8 @@
  * lives, free of LVGL. tests/calc_app_test.c then pushes the same keys
  * through the real key stream to show they arrive.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "calc_engine.h"
 #include "calc_view.h"

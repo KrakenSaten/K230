@@ -5,7 +5,8 @@
  * pos_theme_color() inside a draw callback, which is the sanctioned way to
  * paint something LVGL styles cannot (pos_styles.h, tests/style_lint.sh).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_WIDGETS_H
 #define RIFT_WIDGETS_H

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 """Generate ui/pocketui/pos_theme_table.h from docs/design/themes.json.
 
 Only the Normal-mode base tokens are emitted; derived tokens and the Outdoor

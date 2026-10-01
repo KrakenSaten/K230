@@ -13,7 +13,8 @@
  * they produce are printed and asserted against a wide band, so the test
  * says what the engine's pacing is rather than what it should be.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "timber_replay.h"
 #include "timber_summit.h"

@@ -19,7 +19,8 @@
  * API tokens or any other secret until PocketOS has a dedicated credential
  * storage design (see docs/ARCHITECTURE.md, "Not yet decided").
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_SETTINGS_H
 #define POCKETOS_SETTINGS_H

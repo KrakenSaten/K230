@@ -22,7 +22,8 @@
  * Nothing here allocates: the working rows are static and bounded by the
  * picture width the helper can ever ask for.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_VISION_PIXELS_H
 #define POCKETOS_VISION_PIXELS_H

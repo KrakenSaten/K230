@@ -2,7 +2,8 @@
  * DeskBuddy: what tests/deskbuddy_app_test.c may look at and do. The app
  * itself is registered with the shell as app_deskbuddy (deskbuddy_app.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DESKBUDDY_APP_H
 #define DESKBUDDY_APP_H

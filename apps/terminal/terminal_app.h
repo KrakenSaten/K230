@@ -5,7 +5,8 @@
  * test what it cannot see through LVGL: the session behind the screen, and
  * how far the view is scrolled back. Nothing in the shell calls them.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef TERMINAL_APP_H
 #define TERMINAL_APP_H

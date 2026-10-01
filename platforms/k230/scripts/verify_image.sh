@@ -16,6 +16,9 @@
 # opened read-only: the partition is copied out with dd and inspected with
 # debugfs, both of which are already build dependencies because the image is
 # assembled with mkfs.ext4.
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

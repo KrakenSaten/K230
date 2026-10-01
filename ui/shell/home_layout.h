@@ -23,7 +23,8 @@
  * that stands for several apps; opening it shows a page of its own, laid
  * out by home_folder_layout_compute().
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DOORS_HOME_LAYOUT_H
 #define DOORS_HOME_LAYOUT_H

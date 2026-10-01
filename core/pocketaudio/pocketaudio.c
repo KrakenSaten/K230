@@ -2,7 +2,8 @@
  * pocketaudio: ownership, routing, amplifier and level policy over a backend.
  * See pocketaudio.h for what is guaranteed; this file is where it happens.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketaudio.h"
 

@@ -15,7 +15,8 @@
  * array through execve, so no SSID or passphrase can ever be interpreted by
  * a shell, and neither is ever on a command line.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_NETD_SYS_H
 #define POCKETOS_NETD_SYS_H

@@ -17,7 +17,8 @@
  * amplifier line leaves the file as it is, which is what the kernel does with
  * a GPIO line whose owner dies. Compiled only into tests/pos-wave-testhooks.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_FAKE_AUDIO_BACKEND_H
 #define POCKETOS_FAKE_AUDIO_BACKEND_H

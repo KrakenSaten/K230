@@ -24,7 +24,8 @@
  * No LVGL, no I/O, no clock of its own: host-tested by
  * tests/rift_notify_test.c.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_NOTIFY_H
 #define RIFT_NOTIFY_H

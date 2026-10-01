@@ -4,7 +4,8 @@
  * Proportions are per-mille of s, the smaller side of an eye's box, so the
  * face is the same face in portrait, landscape and any body size.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "db_face.h"
 

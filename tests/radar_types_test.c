@@ -7,7 +7,8 @@
  * radar_polar_dist2(), and all three have to behave across the 0/3600 seam
  * and stay inside 32 bits without a single floating-point operation.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "radar_types.h"
 

@@ -26,7 +26,8 @@
  * there is no background terminal. A rotation restarts the Doors shell, so
  * it ends the terminal's shell too (docs/apps/TERMINAL.md).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "terminal_app.h"
 

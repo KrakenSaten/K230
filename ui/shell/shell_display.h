@@ -10,7 +10,8 @@
  * process to go between portrait and landscape. See
  * docs/hardware/DOORS_DISPLAY_GEOMETRY_GATE.md.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_SHELL_DISPLAY_H
 #define POCKETOS_SHELL_DISPLAY_H

@@ -14,6 +14,9 @@
 # and prints its hash for the gate sheet. It also says whether that is the
 # pinned model. The model is AGPL-3.0 and may be used on internal units only
 # (docs/LICENSING.md, item 10).
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 UNIT="${1:?usage: install-model.sh <unit ip> [vendor checkout]}"

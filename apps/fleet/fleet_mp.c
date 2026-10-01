@@ -12,7 +12,8 @@
  * spirit of POCKETFLEET_SCREEN: with it set, one simulator shell plays a whole
  * match against the real protocol and nothing reaches any radio.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "fleet_app.h"
 

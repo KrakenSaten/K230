@@ -21,7 +21,12 @@
  * result<> is checked at every step, and .expect() - which aborts - is never
  * called.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * Portions (the AI2D preprocessing set-up and the face alignment
+ * parameters) are adapted from the K230 Linux SDK's yolo and ai_demo
+ * samples, Copyright (c) 2024, Canaan Bright Sight Co., Ltd, BSD-2-Clause
+ * (docs/legal/third-party/canaan-k230-linux-sdk-LICENSE.txt).
+ * SPDX-License-Identifier: Apache-2.0 AND BSD-2-Clause
  */
 extern "C" {
 #include "vision_kpu.h"

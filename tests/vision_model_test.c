@@ -6,7 +6,8 @@
  * the helper's caps, and both shapes on the reference panel in every mode
  * with every control a usable, safe, non-overlapping target - the sheet too.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "vision_layout.h"
 #include "vision_model.h"

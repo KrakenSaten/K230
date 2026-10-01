@@ -12,7 +12,8 @@
  * It runs in a child process, so the socket, the framing, the disconnection
  * and the reconnect are all real.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef FAKE_MESHCORED_H
 #define FAKE_MESHCORED_H

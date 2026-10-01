@@ -30,7 +30,8 @@
 #
 # Exit status: 0 done; 1 refused or failed (nothing changed); 2 usage.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 
 BOOT_DIR="${POS_BOOT_DIR:-/boot}"
 FORCE="${BOOT_DIR}/force_dtb"

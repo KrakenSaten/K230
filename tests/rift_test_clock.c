@@ -2,7 +2,8 @@
  * The virtual clock rift_app_test links in place of apps/rift/rift_clock.c.
  * See tests/rift_test_clock.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_test_clock.h"
 

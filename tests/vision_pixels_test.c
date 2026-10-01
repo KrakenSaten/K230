@@ -6,7 +6,8 @@
  * one too, and a blank picture traced to nothing; pictures too small or
  * too wide refused.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketvision/vision_pixels.h"
 

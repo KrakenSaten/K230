@@ -7,7 +7,8 @@
  * thread - including storage that hangs, which must never hold up the
  * caller, and scans that are abandoned.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "mp3_library.h"

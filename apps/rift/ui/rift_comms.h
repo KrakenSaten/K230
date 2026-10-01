@@ -9,7 +9,8 @@
  * thread with the rest of the width, a one-line header carrying the route,
  * and a details pane only while a reader has asked for it.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_COMMS_H
 #define RIFT_COMMS_H

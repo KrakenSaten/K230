@@ -7,7 +7,8 @@
  * mid-game and reloaded must play out exactly as the one that was never
  * interrupted, including every AI decision.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "fleet_save.h"

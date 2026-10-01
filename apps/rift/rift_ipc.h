@@ -50,7 +50,8 @@
  * No LVGL: the connection, the reconnect and the framing are host-tested
  * against a real socket and a scripted service (tests/rift_ipc_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_IPC_H
 #define RIFT_IPC_H

@@ -5,7 +5,8 @@
  * keys and for taps, plus the captions and a long random session of both
  * that must never leave the game or the selection in an impossible state.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "sol_view.h"
 

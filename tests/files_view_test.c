@@ -2,7 +2,8 @@
  * Files: what an entry says on screen (apps/files/files_view.h).
  * Run with TZ=UTC so a time reads the same on every host.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "files_view.h"
 

@@ -1,7 +1,8 @@
 /*
  * TCA8418 presence, initialisation and FIFO drain. See kbd_tca8418.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "kbd_tca8418.h"
 

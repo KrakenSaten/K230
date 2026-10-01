@@ -7,7 +7,8 @@
  * keeps the most confident of overlapping boxes of one class and never
  * merges classes.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketvision/vision_decode.h"
 #include "pocketvision/vision_nms.h"

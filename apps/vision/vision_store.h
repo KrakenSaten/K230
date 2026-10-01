@@ -12,7 +12,8 @@
  * A failure is reported to the caller and Vision carries on with what it
  * has.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef VISION_STORE_H
 #define VISION_STORE_H

@@ -6,7 +6,8 @@
  * system.poweroff, which it does not do itself but asks init to do
  * (services/sysd/sysd_power.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "pocketipc/pocketipc.h"

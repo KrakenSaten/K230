@@ -13,7 +13,8 @@
  * and that after every close - quiet, busy or at once - there is no timer,
  * no child, no descriptor and no raw key target left.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
 #include "chrome.h"

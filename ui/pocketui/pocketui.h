@@ -3,7 +3,8 @@
  * the Design System v0.1 role styles (pos_styles.h) and tokens (pos_theme.h).
  * Components never name colours or fonts; they add role styles.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETUI_H
 #define POCKETUI_H

@@ -17,6 +17,9 @@
 # hardware splash check (docs/hardware/DOORS_GRAPHICS_GATE.md).
 #
 # Read-only, no root: the partition is copied out with dd and read with debugfs.
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

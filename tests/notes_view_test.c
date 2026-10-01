@@ -1,7 +1,8 @@
 /*
  * PocketNotes text rules: titles, blankness and what counts as text.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "notes_view.h"
 

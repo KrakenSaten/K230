@@ -139,7 +139,8 @@
  * Unknown lines are ignored by both sides. A line longer than
  * VISION_LINE_MAX is a protocol error.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_POCKETVISION_PROTO_H
 #define POCKETOS_POCKETVISION_PROTO_H

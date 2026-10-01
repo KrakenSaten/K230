@@ -2,7 +2,8 @@
  * pos system status: the live view from sysd (docs/api/system.md).
  * pos call: any method of any pocketipc service, for developers and tests.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "pocketipc/pocketipc.h"

@@ -14,7 +14,8 @@
 # probed first, because a checkout under a Windows drive mount reports every
 # file as executable and would pass regardless.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 APPLY=platforms/k230/scripts/apply_to_sdk.sh

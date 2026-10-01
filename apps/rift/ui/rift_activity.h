@@ -6,7 +6,8 @@
  * nodes were heard most recently, and the raw feed underneath - frames in
  * and submissions out, with the signal only where one was measured.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_ACTIVITY_H
 #define RIFT_ACTIVITY_H

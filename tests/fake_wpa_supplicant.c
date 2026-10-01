@@ -37,7 +37,8 @@
  * a quoted string value runs from the first to the last '"' on the line, an
  * unquoted ssid is hex, a passphrase must be 8..63 characters.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "wifi_parse.h"

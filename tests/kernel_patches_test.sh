@@ -9,7 +9,8 @@
 # checks the files as they are, then lifts install_kernel_patches() out of
 # apply_to_sdk.sh and runs it against a scratch snapshot and a scratch SDK.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 APPLY=${APPLY:-platforms/k230/scripts/apply_to_sdk.sh}

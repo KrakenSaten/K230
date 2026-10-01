@@ -24,7 +24,8 @@
  * with the real pos-mp3 over the file-backed fake sound card
  * (tests/mp3_session_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETMP3_SESSION_H
 #define POCKETMP3_SESSION_H

@@ -5,7 +5,8 @@
 # the real one should never do. MP3_FAKE picks the scenario. Never
 # installed.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 
 # `recover` is what a session runs, detached, after a helper died by a
 # signal: one line per run in MP3_FAKE_RECOVER_MARK.

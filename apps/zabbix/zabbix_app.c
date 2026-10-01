@@ -24,7 +24,8 @@
  * LAYOUT is chosen from the body in a timer, never inside an LVGL event
  * (docs: lvgl-layout gotchas; the size handler only sets a flag).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
 #include "pocketlog/pocketlog.h"

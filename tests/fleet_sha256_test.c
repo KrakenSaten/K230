@@ -3,7 +3,8 @@
  * and the long-message vector from FIPS 180-2 Appendix B.3), and the same
  * data streamed in every split, so a block-boundary slip cannot hide.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "fleet_sha256.h"
 

@@ -36,7 +36,8 @@
  * the decoder expects to undo it, one box per row, the rest of the rows
  * zero. Frames count from 1.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "vision_kpu.h"

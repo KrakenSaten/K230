@@ -7,7 +7,8 @@
  * sysd adds what the supervisor says, and the two meet in the response
  * object the same way api_version does.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef SYSD_SERVICES_H
 #define SYSD_SERVICES_H

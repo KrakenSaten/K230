@@ -1,7 +1,8 @@
 /*
  * pos app / pos shell: drive the shell over shell.* (docs/api/shell.md).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "pocketipc/pocketipc.h"

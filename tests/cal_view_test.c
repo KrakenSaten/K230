@@ -6,7 +6,8 @@
  * right - a board that does not know the date, and the second it learns one -
  * are reached here without waiting for either.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "cal_view.h"
 

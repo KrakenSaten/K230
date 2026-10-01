@@ -2,7 +2,8 @@
  * pocketpaths tests: the four roots, their overrides, mkdir_p, and the
  * release file with its compatibility name.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "pocketpaths.h"

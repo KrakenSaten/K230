@@ -16,7 +16,8 @@
  *   - The full hop list is kept and never truncated; only the *rendering*
  *     compresses, and the numeric hop count is always printed beside it.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_FORMAT_H
 #define RIFT_FORMAT_H

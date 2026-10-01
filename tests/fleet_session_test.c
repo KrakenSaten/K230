@@ -6,7 +6,8 @@
  * a failed save played through, a saved match resumed by a new session, and
  * a save from another identity refused.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "fleet_ai.h"
 #include "fleet_link_loop.h"

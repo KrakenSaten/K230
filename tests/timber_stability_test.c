@@ -7,7 +7,8 @@
  * a centred stack has 1.5 widths, a layer with only its centre block 0.5,
  * a layer with one side block none. They are asserted here exactly.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "timber_stability.h"
 

@@ -4,7 +4,8 @@
  * Only options that libcurl 7.81 already had are used, so the host tests
  * (Ubuntu 22.04's libcurl) run the same code as the device (8.12.1).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "zabbix/zbx_http.h"

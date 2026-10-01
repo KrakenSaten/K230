@@ -2,7 +2,8 @@
  * pocketipc v0: length-prefixed JSON over Unix-domain sockets.
  * See docs/api/pocketipc.md. Depends on cJSON (MIT).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETIPC_H
 #define POCKETIPC_H

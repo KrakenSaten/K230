@@ -24,7 +24,8 @@
  * event arrives before the inbox answer is in that answer - and after it an
  * event is taken only when its id is past the cursor.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "fleet_link_mesh.h"
 

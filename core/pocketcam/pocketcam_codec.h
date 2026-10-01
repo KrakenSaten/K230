@@ -10,7 +10,8 @@
  * pattern. The extension follows the encoder, so a file is never called .jpg
  * when it is not one.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_POCKETCAM_CODEC_H
 #define POCKETOS_POCKETCAM_CODEC_H

@@ -12,7 +12,8 @@
  * depth rather than at 32. See
  * docs/hardware/KEYBOARD_DRIVER_DESIGN_2026-09-12.md §5 and §6.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_KBD_TCA8418_H
 #define POCKETOS_KBD_TCA8418_H

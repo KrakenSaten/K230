@@ -23,7 +23,8 @@
  *
  * No text is typed anywhere in the app, so the touch keyboard never comes up.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rec_ctl.h"
 #include "rec_view.h"

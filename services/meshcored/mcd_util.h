@@ -12,7 +12,8 @@
  * the protocol core as if it had been received. The decoder here refuses
  * instead, which keeps that upstream debt out of reach rather than fixing it.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef MCD_UTIL_H
 #define MCD_UTIL_H

@@ -5,7 +5,8 @@
  * including one that simply disappears, as a crashed helper does - and the
  * VPU, which is a video device and not the camera.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "hw_activity.h"

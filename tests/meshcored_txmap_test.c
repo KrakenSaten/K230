@@ -17,7 +17,8 @@
  * to the wrong packet, and a retransmission of something that already went
  * out. Twice the airtime for a bookkeeping mistake.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "tx_map.h"
 

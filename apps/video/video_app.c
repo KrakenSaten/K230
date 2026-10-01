@@ -23,7 +23,8 @@
  * keeps the shell's header; fullscreen there is the body under it.
  * A tap on the picture plays or pauses; in fullscreen it leaves fullscreen.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
 #include "pocketlog/pocketlog.h"

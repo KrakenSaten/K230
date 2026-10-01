@@ -15,7 +15,8 @@
  * seed so that the opponent's decisions do not shift when the player uses
  * auto-deploy: rng_setup drives fleet placement, rng_ai drives the opponent.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETFLEET_RULES_H
 #define POCKETFLEET_RULES_H

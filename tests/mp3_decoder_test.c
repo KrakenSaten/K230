@@ -8,7 +8,8 @@
  * The image's FFmpeg decoder (mp3_decoder_ffmpeg.c) cannot be built on this
  * host; it is checked on the device (docs/hardware/MP3_GATE.md).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "mp3_decoder.h"
 #include "pocketwav/pocketwav.h"

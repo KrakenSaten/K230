@@ -21,7 +21,8 @@
  * The shell is not linked; this file hosts the app as ui/shell/shell.c does.
  * Run by tests/bj_shell_test.sh.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
 #include "chrome.h"

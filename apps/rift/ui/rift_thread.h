@@ -16,7 +16,8 @@
  *     where it is the peer's current path and is true, rather than under
  *     each line where it would be a guess about the frame that carried it.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_THREAD_H
 #define RIFT_THREAD_H

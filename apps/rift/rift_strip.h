@@ -8,7 +8,8 @@
  * Split from rift_app.c, which owns the frame and the lifecycle, so neither
  * is a monolith (tests/rift_lint.sh).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_STRIP_H
 #define RIFT_STRIP_H

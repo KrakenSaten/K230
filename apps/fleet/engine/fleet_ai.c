@@ -2,7 +2,8 @@
  * PocketFleet opponent AI. See fleet_ai.h for the no-cheat contract: this
  * file may not include fleet_rules.h and may not name the hidden types.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "fleet_ai.h"
 

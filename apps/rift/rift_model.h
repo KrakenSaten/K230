@@ -23,7 +23,8 @@
  * No LVGL and no sockets: the parsing and the cache are host-tested by
  * tests/rift_model_test.c with no display and no service.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_MODEL_H
 #define RIFT_MODEL_H

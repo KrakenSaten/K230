@@ -16,7 +16,8 @@
  * to, and the source of a move is removed only once its copy is complete
  * and synced.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef FILES_FS_H
 #define FILES_FS_H

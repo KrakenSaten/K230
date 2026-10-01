@@ -6,7 +6,8 @@
  * Nothing here opens a sound device or a GPIO. The fake records every call it
  * receives as one short token in a log, so order is checked as a string.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketaudio/pocketaudio.h"
 

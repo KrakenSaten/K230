@@ -38,7 +38,8 @@
  * No LVGL, no socket: tested on a host with the fake backend and a scripted
  * sound card (tests/video_player_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_VIDEO_PLAYER_H
 #define POCKETOS_VIDEO_PLAYER_H

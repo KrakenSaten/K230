@@ -8,7 +8,8 @@
  *
  * usage: browser_session_test tools/browser/pos-browser
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "browser_session.h"

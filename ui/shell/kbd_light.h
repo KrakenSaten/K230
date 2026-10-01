@@ -17,7 +17,8 @@
  * Levels are 0..100 in steps of 10 (hw_actions.h HW_KBD_LIGHT_*), 0 is off,
  * and the shell keeps the level in settings.conf as `keyboard_backlight`.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_KBD_LIGHT_H
 #define POCKETOS_KBD_LIGHT_H

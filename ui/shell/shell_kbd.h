@@ -10,7 +10,8 @@
  * LV_KEY_NEXT and LV_KEY_PREV in the source's private group
  * (docs/KNOWN_ISSUES.md), so a physical keyboard must push.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_SHELL_KBD_H
 #define POCKETOS_SHELL_KBD_H

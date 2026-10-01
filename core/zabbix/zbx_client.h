@@ -32,7 +32,8 @@
  * Time comes from a function the caller supplies, so a test can run hours
  * of backoff in milliseconds.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_ZBX_CLIENT_H
 #define POCKETOS_ZBX_CLIENT_H

@@ -18,7 +18,8 @@
  * the shell has no way for one app to open another, so taking a photo means
  * going home and opening Camera (docs/apps/PHOTO.md).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
 #include "camera_gallery_screen.h"

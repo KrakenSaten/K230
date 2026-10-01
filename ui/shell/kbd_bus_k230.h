@@ -7,7 +7,8 @@
  * reports "no device" and is what the simulator links, so the shell follows
  * the same absent path on a PC as on a board with no base attached.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_KBD_BUS_K230_H
 #define POCKETOS_KBD_BUS_K230_H

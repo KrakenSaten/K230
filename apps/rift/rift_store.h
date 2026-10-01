@@ -25,7 +25,8 @@
  * Persistence never blocks the app: every call reports failure and does
  * nothing else, and RIFT then runs with the default for this session.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef RIFT_STORE_H
 #define RIFT_STORE_H

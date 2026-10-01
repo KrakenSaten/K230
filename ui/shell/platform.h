@@ -2,7 +2,8 @@
  * Display and input backend for the shell: SDL window on a PC, DRM plus
  * evdev on the K230. Selected at build time (POCKETOS_DISPLAY).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_PLATFORM_H
 #define POCKETOS_PLATFORM_H

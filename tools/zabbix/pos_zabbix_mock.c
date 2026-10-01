@@ -18,7 +18,8 @@
  *
  * One connection at a time, which is all the helper ever opens.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "zabbix/zbx_fake.h"

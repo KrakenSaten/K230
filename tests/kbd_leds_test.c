@@ -4,7 +4,8 @@
  * are not, active-low, off-before-output, writes only on change, a failing
  * expander, recovery, and the exit path leaving nothing lit.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "kbd_leds.h"
 

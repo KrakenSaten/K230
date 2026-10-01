@@ -13,7 +13,8 @@
  *   Battery    system.status.power (sysd)
  *   Volume     the shell's own setting (volume.h)
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef DOORS_CONTROLS_MODEL_H
 #define DOORS_CONTROLS_MODEL_H

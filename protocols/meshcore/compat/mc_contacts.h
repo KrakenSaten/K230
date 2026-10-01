@@ -33,7 +33,8 @@
  * packet by a one-byte hash and tries at most MAX_SEARCH_RESULTS (8) contacts
  * that share it (BaseChatMesh.h:12, BaseChatMesh.cpp:203).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 

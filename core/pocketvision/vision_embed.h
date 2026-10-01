@@ -22,7 +22,8 @@
  * Vision state directory (0600). Reads floats; bounded, no allocation
  * (tests/vision_embed_test.c).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_VISION_EMBED_H
 #define POCKETOS_VISION_EMBED_H

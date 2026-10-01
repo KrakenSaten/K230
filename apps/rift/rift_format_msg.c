@@ -5,7 +5,8 @@
  * rift_format.c, under the same rules (rift_format.h): no LVGL, no cJSON,
  * no I/O, and nothing printed that the data does not support.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "rift_format.h"
 

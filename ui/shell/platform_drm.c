@@ -22,7 +22,8 @@
  * plane rotation, before the device is opened). Without it the backend runs
  * at rotation 0 and tells the shell so.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "platform.h"
 #include "pocketlog/pocketlog.h"

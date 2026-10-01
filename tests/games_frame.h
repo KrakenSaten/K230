@@ -7,7 +7,8 @@
  * sol_app_test.c and bj_app_test.c after their own check() and pump(), so
  * each test stays one translation unit as the other app tests are.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef GAMES_FRAME_H
 #define GAMES_FRAME_H

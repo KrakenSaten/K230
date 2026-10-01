@@ -21,7 +21,8 @@
  * Exit status: 0 done; 1 error; 2 usage, or no connected connector / no
  * usable mode; 3 another process is DRM master.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "drmtest_logic.h"

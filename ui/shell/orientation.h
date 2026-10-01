@@ -13,7 +13,8 @@
  * pos_display.h, the portrait panel's left edge becomes the top and its
  * bottom edge the left: the device turned a quarter turn clockwise.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_ORIENTATION_H
 #define POCKETOS_ORIENTATION_H

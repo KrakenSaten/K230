@@ -16,7 +16,8 @@
 #   - the shell registers the app and builds every source; the image
 #     installs the helper and builds it with FFmpeg.
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 failed=0

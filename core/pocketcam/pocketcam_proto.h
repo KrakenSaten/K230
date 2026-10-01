@@ -84,7 +84,8 @@
  * other does not know yet. A line longer than POCKETCAM_LINE_MAX is a
  * protocol error.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_POCKETCAM_PROTO_H
 #define POCKETOS_POCKETCAM_PROTO_H

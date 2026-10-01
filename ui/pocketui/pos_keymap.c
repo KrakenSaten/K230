@@ -1,7 +1,11 @@
 /*
  * Physical keyboard translation. See pos_keymap.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors, except as follows.
+ * Licence NOT CLEARED: the key-name and shifted-symbol tables below are
+ * taken from the LILYGO launcher (pos_keymap.h, PROVENANCE), whose
+ * repository states no licence. This file is not offered under
+ * Apache-2.0 until that is settled (docs/licensing/APACHE_2_READINESS.md).
  */
 #include "pos_keymap.h"
 

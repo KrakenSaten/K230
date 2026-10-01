@@ -17,7 +17,8 @@
  * give it. An app never calls any of this: it declares a policy in its
  * struct pocketos_app (app.h) and lays out in whatever body it is given.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_CHROME_H
 #define POCKETOS_CHROME_H

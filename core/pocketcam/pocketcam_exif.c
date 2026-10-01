@@ -1,7 +1,8 @@
 /*
  * pocketcam's photo metadata. See pocketcam_exif.h.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pocketcam_exif.h"
 #include "pocketcam_store.h"

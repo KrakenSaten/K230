@@ -6,7 +6,8 @@
  *
  * Pure C: built and run by the root Makefile (make test).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "art_format.h"
 

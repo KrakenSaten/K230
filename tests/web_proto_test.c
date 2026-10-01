@@ -6,7 +6,8 @@
  * that is a path, a "supported" link that is javascript: - throws the page
  * away instead of half-applying it.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "web/web_html.h"

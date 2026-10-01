@@ -26,7 +26,8 @@
  * key has been pressed on the hardware and no other keycap has been read.
  * See docs/hardware/KEYBOARD_BRINGUP_2026-09-10.md.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POS_KEYMAP_H
 #define POS_KEYMAP_H

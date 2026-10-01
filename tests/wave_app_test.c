@@ -21,7 +21,8 @@
  * Needs LVGL; built by ui/shell/CMakeLists.txt (host only) and run by
  * tests/wave_shell_test.sh with WAVE_FAKE_HELPER set.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
 #include "pocketui.h"

@@ -3,7 +3,8 @@
  * in every connection state, when data turns stale, what OVERVIEW makes of
  * zero, some and very many problems, the rows, and STATUS.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "zabbix_view.h"
 

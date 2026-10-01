@@ -16,7 +16,8 @@
  * correctly; it is not evidence about radio behaviour, which is what the
  * accepted P0 on-air gate (docs/hardware/MESHCORE_INTEROP_GATE.md) covers.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef MC_FAKE_RADIO_H
 #define MC_FAKE_RADIO_H

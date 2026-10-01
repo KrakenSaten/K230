@@ -12,7 +12,8 @@
  * leave, UNAVAILABLE when there is no helper or it dies - once - and
  * stop() safe twice, with no helper left behind.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define _GNU_SOURCE
 #include "db_vision_pipeline.h"

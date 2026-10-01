@@ -35,7 +35,8 @@
  * FULLSCREEN (DS 30.4): the app declares NONE; the shell's header carries
  * the back button and the hint (LOADING, SECURE, NOT SECURE, ERROR).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
 #include "browser_session.h"

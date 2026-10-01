@@ -10,7 +10,8 @@
  * message, noise alone, full-scale garbage, two messages in a row, the peak
  * level against pocketaudio's ceiling, and the heap each instance takes.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "wave_modem.h"
 

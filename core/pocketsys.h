@@ -25,7 +25,8 @@
  * time() and the SIOCGIFADDR ioctl behind ipv4 always answer for the running
  * kernel (docs/api/system.md, Test hooks).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETSYS_H
 #define POCKETSYS_H

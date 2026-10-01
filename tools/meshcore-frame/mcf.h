@@ -8,7 +8,8 @@
  * seam between that code and a command line - it adds argument checking, host
  * randomness and hex, and nothing else.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 

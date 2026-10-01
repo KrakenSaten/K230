@@ -28,7 +28,8 @@
  * Rotation and the crash handler do not depend on the clock. A monotonic
  * boot-relative prefix is future work.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETLOG_H
 #define POCKETLOG_H

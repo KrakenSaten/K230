@@ -23,7 +23,8 @@
  * it always had, and wide, side by side (see "the layout" below). The
  * orientation is the system's (DS section 21.2); nothing here asks for it.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "app.h"
 #include "clock_alert.h"

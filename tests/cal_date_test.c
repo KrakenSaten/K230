@@ -8,7 +8,8 @@
  * cannot disagree about what day a date is. It needs TZ=UTC, which the
  * Makefile sets.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "cal_date.h"
 

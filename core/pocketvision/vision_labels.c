@@ -2,7 +2,8 @@
  * COCO class names. See vision_labels.h. Multi-word names are joined with a
  * hyphen so a name is always one protocol word.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "vision_labels.h"
 

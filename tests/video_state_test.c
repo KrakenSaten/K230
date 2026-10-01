@@ -4,7 +4,8 @@
  * bar dragged, the end, every way an open can fail, a helper that errs,
  * hangs or crashes, fullscreen, BACK, and a helper's last words after BACK.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "video_state.h"
 

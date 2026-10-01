@@ -10,7 +10,8 @@
  * what is not a Fleet packet; and what it transmits is exactly what it was
  * handed - proved by what the service was asked to send, not by its source.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "fleet_link_mesh.h"
 

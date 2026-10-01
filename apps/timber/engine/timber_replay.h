@@ -20,7 +20,8 @@
  * Pure C, no LVGL and no I/O: the log is a struct in memory. Writing it
  * anywhere is the app's business, and not part of v0.1.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETTIMBER_REPLAY_H
 #define POCKETTIMBER_REPLAY_H

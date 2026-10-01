@@ -4,7 +4,8 @@
  * This is the only file allowed to turn tokens into lv_color_t and to name
  * font symbols (enforced by tests/style_lint.sh).
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #include "pos_styles.h"
 

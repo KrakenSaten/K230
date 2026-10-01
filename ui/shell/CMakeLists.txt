@@ -4,6 +4,9 @@
 # In sysroot mode LVGL, its lv_conf.h, libdrm and libevdev come from the
 # Buildroot staging tree (the vendor LVGL package), so the shell shares one
 # LVGL build with the rest of the image.
+#
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 cmake_minimum_required(VERSION 3.16)
 project(pocketos_shell C)
 

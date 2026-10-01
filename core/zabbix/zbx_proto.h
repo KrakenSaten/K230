@@ -50,7 +50,8 @@
  * a set leaves the app with the previous, complete one. Unknown lines are
  * ignored by both sides.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POCKETOS_ZBX_PROTO_H
 #define POCKETOS_ZBX_PROTO_H

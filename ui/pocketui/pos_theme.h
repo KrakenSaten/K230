@@ -7,7 +7,8 @@
  * checks the §4 invariants and keeps the current (theme, mode) selection
  * with fallback (§8). Colour values are 0xRRGGBB.
  *
- * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+ * Copyright (c) 2026 PocketOS authors.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef POS_THEME_H
 #define POS_THEME_H

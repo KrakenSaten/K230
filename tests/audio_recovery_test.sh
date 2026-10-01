@@ -16,7 +16,8 @@
 # Requires: tests/pos-wave-testhooks and tools/wave/pos-wave (make test),
 # flock (util-linux).
 #
-# Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
+# Copyright (c) 2026 PocketOS authors.
+# SPDX-License-Identifier: Apache-2.0
 set -u
 cd "$(dirname "$0")/.." || exit 1
 failed=0
