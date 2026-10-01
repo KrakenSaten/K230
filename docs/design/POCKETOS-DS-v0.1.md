@@ -4280,9 +4280,13 @@ Known limits at Medium and Large:
 - The key/value rows of `pocketui_kv_row` shorten a value with "…" past 60 %
   of the row, as at Small; a long value (Radio's error text) is cut sooner.
 
-## 47. Amendment AE — Launcher app groups, System in Settings [PROPOSED]
+## 47. Amendment AE — Launcher app groups, System in Settings [ACCEPTED]
 
-**PROPOSED 2026-10-01** on branch `feat/launcher-app-groups`, validated on
+**ACCEPTED 2026-10-01** by the owner, on the unit B gate of `doors-shell`
+`11ab0d9` (`docs/hardware/LAUNCHER_APP_GROUPS_GATE.md`, seventeen steps
+PASS), with Radio in Apps and the ESSENTIALS / FOLDERS captions (§47.1,
+§47.2) as confirmed.
+**Proposed 2026-10-01** on branch `feat/launcher-app-groups`, validated on
 the host (§47.6) and **gated on unit B on 2026-10-01: PASS** (§47.7). It changes the
 launcher's page of §31.3, §39 and §42 and where System is entered; it adds
 no role, token, colour, folder mechanism or navigation stack. Nothing in
