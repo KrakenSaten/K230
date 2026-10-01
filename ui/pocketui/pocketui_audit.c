@@ -6,6 +6,7 @@
 #include "pocketui_audit.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* Below this many pixels an overrun or an overlap is rounding, an outline or
@@ -330,17 +331,25 @@ static void check_overlaps(struct walk *w)
 
 void pocketui_audit(lv_obj_t *root, pocketui_audit_cb cb, void *user, struct pocketui_audit_stats *stats)
 {
-    static struct walk w; /* 1024 items is ~120 kB: not on the LVGL thread's stack */
+    /* 1024 items is ~120 kB: not on the LVGL thread's stack, and not kept
+     * between audits either - an audit is rare, the memory is the shell's. */
+    struct walk *w = calloc(1, sizeof(*w));
     char path[POCKETUI_AUDIT_PATH_MAX] = "";
 
-    memset(&w, 0, sizeof(w));
-    w.cb = cb;
-    w.user = user;
+    if (stats) {
+        memset(stats, 0, sizeof(*stats));
+    }
+    if (!w) {
+        return;
+    }
+    w->cb = cb;
+    w->user = user;
     if (root) {
-        visit(&w, root, path, sizeof(path), 0);
-        check_overlaps(&w);
+        visit(w, root, path, sizeof(path), 0);
+        check_overlaps(w);
     }
     if (stats) {
-        *stats = w.st;
+        *stats = w->st;
     }
+    free(w);
 }

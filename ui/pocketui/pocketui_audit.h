@@ -65,7 +65,8 @@ struct pocketui_audit_stats {
 typedef void (*pocketui_audit_cb)(const struct pocketui_audit_issue *issue, void *user);
 
 /* Walk root (normally lv_screen_active()) and report each issue to cb.
- * Bounded: at most 1024 meaningful objects take part in the overlap check;
+ * Bounded: at most 1024 meaningful objects take part in the overlap check
+ * (a scratch table of about 120 kB, allocated for the audit and freed);
  * the rest are still checked on their own. stats may be NULL. Lay the
  * screen out first (lv_obj_update_layout) - the audit measures, it does not
  * wait. Never from inside an LVGL layout pass. */

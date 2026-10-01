@@ -4253,9 +4253,11 @@ Known limits at Medium and Large:
 
 - Fleet, landscape: the MULTIPLAYER button is below the OPPONENT column's
   fold and is reached by scrolling that column (§28's column scroll).
-- Photo, landscape at Large: a photo's 28-character file name loses its
-  extension to "…" in the 344 px side column; the line under it has the
-  date and time.
+- Photo and Camera's gallery, landscape at Large: the three lines about a
+  photo are one line each in the 344 px side column, so a 28-character
+  file name loses its extension to "…", and an undated photo's "Date
+  unknown: the clock was not set" its last words. Portrait, Medium and
+  Small show them whole.
 - RIFT keeps its density (§37): its own fitting shortens names and
   details with "…" sooner at the larger sizes.
 - The key/value rows of `pocketui_kv_row` shorten a value with "…" past 60 %
