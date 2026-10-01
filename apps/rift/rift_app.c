@@ -93,6 +93,28 @@ static void on_composer_ready(lv_event_t *e)
     rift_comms_submit(a, lv_textarea_get_text(a->composer));
 }
 
+/* The one key sink, outside the command line so the line can go away without
+ * taking the keys with it. It stays in the layout at 1 px and is never
+ * hidden: it is the object the arrows arrive on, and a hidden object is not
+ * one LVGL will move focus to reliably.
+ *
+ * Made, put in the focus group and focused BEFORE any section is built. LVGL
+ * focuses the first object an empty group is given, and focusing scrolls to
+ * it: with ACTIVITY's management fields and buttons built first, that object
+ * was one of them and ACTIVITY opened scrolled to it (unit B, 2026-10-01).
+ * With the sink in first, nothing built after it is focused on its own. */
+static void build_keysink(struct rift_app *a)
+{
+    a->keysink = lv_label_create(a->frame);
+    lv_obj_remove_style_all(a->keysink);
+    lv_obj_add_flag(a->keysink, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_size(a->keysink, 1, 1);
+    lv_obj_set_pos(a->keysink, 0, 0);
+    lv_label_set_text(a->keysink, "");
+    pos_input_add_obj(a->keysink);
+    pos_input_focus(a->keysink);
+}
+
 static void build_cmdline(struct rift_app *a)
 {
     lv_obj_t *prompt;
@@ -135,17 +157,6 @@ static void build_cmdline(struct rift_app *a)
      * at a larger text size (DS §46.5) the reason in brackets no longer
      * fits the line. Where it fits, as it always was. */
     pocketui_label_fit(a->cmd_status, 1);
-
-    /* The one key sink, outside the command line so the line can go away
-     * without taking the keys with it. It stays in the layout at 1 px and is
-     * never hidden: it is the object the arrows arrive on, and a hidden
-     * object is not one LVGL will move focus to reliably. */
-    a->keysink = lv_label_create(a->frame);
-    lv_obj_remove_style_all(a->keysink);
-    lv_obj_add_flag(a->keysink, LV_OBJ_FLAG_IGNORE_LAYOUT);
-    lv_obj_set_size(a->keysink, 1, 1);
-    lv_obj_set_pos(a->keysink, 0, 0);
-    lv_label_set_text(a->keysink, "");
 
     /* The landscape composer. The design makes the command line the
      * composer in landscape (handoff §8), so the field is chrome and lives
@@ -628,6 +639,7 @@ static void *rift_create(lv_obj_t *root)
     lv_obj_remove_flag(a->frame, LV_OBJ_FLAG_SCROLLABLE);
 
     rift_tabs_build(a);
+    build_keysink(a);
 
     a->content = lv_obj_create(a->frame);
     lv_obj_remove_style_all(a->content);
@@ -640,6 +652,9 @@ static void *rift_create(lv_obj_t *root)
     a->comms_root = rift_comms_create(a, a->content);
     a->net_root = rift_net_view_create(a, a->content);
     build_cmdline(a);
+    /* The sink was made first (build_keysink); it goes last among the
+     * frame's children, where it has always been. */
+    lv_obj_move_to_index(a->keysink, -1);
     if (a->composer) {
         lv_obj_add_event_cb(a->composer, on_composer_key, LV_EVENT_KEY, a);
         lv_obj_add_event_cb(a->composer, on_composer_focus, LV_EVENT_FOCUSED, a);
@@ -650,7 +665,6 @@ static void *rift_create(lv_obj_t *root)
      * the focus group, and the arrows, Enter and Esc reach whichever section
      * is showing (DS §17.2, §17.4). */
     lv_obj_add_event_cb(a->keysink, on_key, LV_EVENT_KEY, a);
-    pos_input_add_obj(a->keysink);
     pos_input_focus(a->keysink);
 
     /* One object watched for theme changes; invalidating the frame repaints
@@ -677,6 +691,8 @@ static void *rift_create(lv_obj_t *root)
     lv_obj_add_event_cb(a->frame, on_frame_size, LV_EVENT_SIZE_CHANGED, a);
     lv_obj_update_layout(a->frame);
     layout(a);
+    /* RIFT opens on ACTIVITY, read from its top. */
+    lv_obj_scroll_to_y(a->activity_root, 0, LV_ANIM_OFF);
     LOG_INFO("rift: open, %s", rift_ipc_connected(&a->ipc) ? "meshcored connected"
                                                            : "meshcored not answering");
     return a;
