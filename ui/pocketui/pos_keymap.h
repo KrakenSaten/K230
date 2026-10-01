@@ -51,8 +51,10 @@ enum pos_keymap_effect {
                            * unknown code, or a key with no meaning yet */
     POS_KEYMAP_KEY,       /* a logical key to push into the stream */
     POS_KEYMAP_MODIFIER,  /* modifier state changed; no key */
-    POS_KEYMAP_RESERVED   /* a real key whose meaning is not settled: the
-                           * function row, Fn, the LILYGO key and the mic */
+    POS_KEYMAP_RESERVED   /* a real key that types nothing: the function
+                           * row, the LILYGO key and the mic. What each one
+                           * does is the shell's (ui/shell/hw_actions.h),
+                           * not a character's */
 };
 
 /* Modifier state carried between events. Zeroed by pos_keymap_reset(). */

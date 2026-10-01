@@ -80,6 +80,29 @@ static size_t cursor(char final, bool app, unsigned mods, uint8_t *out)
     return 3;
 }
 
+/* F5 and up: ESC [ <two digits> ~, the numbers VT220 and xterm use (16 and
+ * 22 are skipped, as they always were). */
+static size_t function_key(int n, uint8_t *out)
+{
+    static const char *const code[12] = { "11", "12", "13", "14", "15", "17",
+                                          "18", "19", "20", "21", "23", "24" };
+
+    if (n < 1 || n > 12) {
+        return 0;
+    }
+    out[0] = 0x1B;
+    if (n <= 4) {
+        out[1] = 'O';
+        out[2] = (uint8_t)('P' + n - 1);
+        return 3;
+    }
+    out[1] = '[';
+    out[2] = (uint8_t)code[n - 1][0];
+    out[3] = (uint8_t)code[n - 1][1];
+    out[4] = '~';
+    return 5;
+}
+
 static size_t tilde(char code, uint8_t *out)
 {
     out[0] = 0x1B;
@@ -150,7 +173,11 @@ size_t term_key_encode(const struct term_key *k, bool app, uint8_t out[TERM_KEY_
     case TERM_KEY_PAGE_UP: return tilde('5', out);
     case TERM_KEY_PAGE_DOWN: return tilde('6', out);
     case TERM_KEY_NONE:
+        return 0;
     default:
+        if (k->kind >= TERM_KEY_F1 && k->kind <= TERM_KEY_F12) {
+            return function_key((int)(k->kind - TERM_KEY_F1) + 1, out);
+        }
         return 0;
     }
 }

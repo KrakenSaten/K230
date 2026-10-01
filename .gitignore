@@ -73,6 +73,10 @@ BUILD_ID
 /tests/calc_engine_test
 /tests/calc_view_test
 /tests/kbd_tca8418_test
+/tests/hw_actions_test
+/tests/kbd_leds_test
+/tests/hw_activity_test
+/tests/kbd_light_test
 /.build-identity
 /tests/kbd_bus_k230_test
 /tests/brightness_test

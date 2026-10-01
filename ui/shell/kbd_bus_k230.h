@@ -25,4 +25,10 @@ int kbd_bus_k230_create(struct kbd_bus *bus, char *why, size_t why_len);
 /* Release the lines and put the pin mux back exactly as it was found. */
 void kbd_bus_k230_destroy(struct kbd_bus *bus);
 
+/* Give io52 to PWM4, the keyboard light's output (kbd_light.h). The pin is
+ * not the bus's, but its mux lives in the block this file alone maps; the
+ * value found is saved and put back by kbd_bus_k230_destroy(). -1 when the
+ * bus was never created. */
+int kbd_bus_k230_light_mux(const struct kbd_bus *bus);
+
 #endif

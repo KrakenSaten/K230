@@ -6,7 +6,8 @@
  * as UTF-8, Enter as CR, Backspace as DEL (the tty's erase character),
  * Ctrl with a letter as its control code, Alt as an ESC prefix, and the
  * cursor keys as ESC [ A..D - or ESC O A..D while the program has asked for
- * application cursor keys (DECCKM, term_screen.app_cursor_keys).
+ * application cursor keys (DECCKM, term_screen.app_cursor_keys), and the
+ * function keys as xterm sends them: ESC O P..S for F1-F4, ESC [ nn ~ above.
  *
  * Pure: no LVGL. The app maps the logical keys it receives onto these kinds.
  *
@@ -36,6 +37,11 @@ enum term_key_kind {
     TERM_KEY_DELETE,
     TERM_KEY_PAGE_UP,
     TERM_KEY_PAGE_DOWN,
+    /* The function keys, F1 first; TERM_KEY_F1 + n - 1 is Fn. They reach
+     * the Terminal only with the keyboard's Fn held (hw_actions.h: a bare
+     * function key is a Doors shortcut everywhere). */
+    TERM_KEY_F1,
+    TERM_KEY_F12 = TERM_KEY_F1 + 11,
 };
 
 #define TERM_MOD_SHIFT 0x1u

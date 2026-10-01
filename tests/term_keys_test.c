@@ -81,6 +81,22 @@ int main(void)
     E("End in application mode", TERM_KEY_END, 0, 0, true, "\033OF");
     E("Delete", TERM_KEY_DELETE, 0, 0, false, "\033[3~");
     E("Page Up", TERM_KEY_PAGE_UP, 0, 0, false, "\033[5~");
+
+    /* The function keys (Fn + F1..F11 on the keyboard base), as xterm
+     * sends them. */
+    E("F1", TERM_KEY_F1, 0, 0, false, "\033OP");
+    E("F2", TERM_KEY_F1 + 1, 0, 0, false, "\033OQ");
+    E("F3", TERM_KEY_F1 + 2, 0, 0, false, "\033OR");
+    E("F4", TERM_KEY_F1 + 3, 0, 0, false, "\033OS");
+    E("F4 is the same in application mode", TERM_KEY_F1 + 3, 0, 0, true, "\033OS");
+    E("F5", TERM_KEY_F1 + 4, 0, 0, false, "\033[15~");
+    E("F6 skips 16", TERM_KEY_F1 + 5, 0, 0, false, "\033[17~");
+    E("F7", TERM_KEY_F1 + 6, 0, 0, false, "\033[18~");
+    E("F8", TERM_KEY_F1 + 7, 0, 0, false, "\033[19~");
+    E("F9", TERM_KEY_F1 + 8, 0, 0, false, "\033[20~");
+    E("F10", TERM_KEY_F1 + 9, 0, 0, false, "\033[21~");
+    E("F11 skips 22", TERM_KEY_F1 + 10, 0, 0, false, "\033[23~");
+    E("F12", TERM_KEY_F12, 0, 0, false, "\033[24~");
     E("Page Down", TERM_KEY_PAGE_DOWN, 0, 0, false, "\033[6~");
     E("no key sends nothing", TERM_KEY_NONE, 0, 0, false, "");
     E("a control character as a character key sends nothing", TERM_KEY_CHAR, 0x03, 0, false, "");

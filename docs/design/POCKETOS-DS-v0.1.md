@@ -3996,14 +3996,60 @@ The header's hint says SCROLLBACK while the view is not live and ENDED
 after the shell ended; the screen itself says how it ended, in reverse
 video, and that Enter starts a new shell.
 
-## 44. Amendment AB — Photo [PROPOSED]
+## 44. Amendment AB — The keyboard base's own keys and lights [PROPOSED]
+
+**PROPOSED 2026-09-30** on branch `feat/hardware-controls`. Nothing in
+§1-§43 changes or is renumbered. Mechanism, evidence and the gate:
+docs/hardware/HARDWARE_CONTROLS.md.
+
+### 44.1 What the keys mean
+
+The function row, the orange microphone key and the LILYGO key type
+nothing; each carries one Doors action (`ui/shell/hw_actions.h`): F1 Home,
+F2 Settings, F3/F4 keyboard light down/up, F5/F6 volume down/up, F7
+screenshot, F8 Terminal, F9 RIFT, F10/F11 display brightness down/up,
+microphone Wave, LILYGO Terminal. An app a key names opens through the
+launcher's own path and is never opened a second time: the key on its own
+app does nothing. Levels stop at their bounds and never wrap. While the lock
+screen or an alert (§18.8) is up, keys that would open or leave an app do
+nothing; the levels still work. With Fn held, a function key goes to the
+Terminal (§43.3) as the key itself; everywhere else Fn changes nothing.
+
+### 44.2 Back
+
+Back is the header's back slab (§7), with one step before it: an app that
+offers its own way out of a sub-page on screen (Settings' sheets, System's
+Diagnostics, Zabbix's host detail, RIFT's node detail and sections,
+DeskBuddy's panel) takes that way first. At the launcher it closes Controls,
+a folder or the favorites' picker, as Esc does (§39, §42), and on the
+launcher's own page it does nothing. No key of the base carries Back yet:
+the top control it was meant for is unidentified
+(docs/hardware/HARDWARE_CONTROLS.md §3), so Back is reachable through
+`shell.action` only.
+
+### 44.3 The confirmation flash
+
+A level changed from the keyboard, and F7's result, are confirmed by one
+line in the button label type on a slab (`POS_STYLE_SLAB`,
+`POS_STYLE_BUTTON_LABEL`) centred under the header row, on the top layer,
+for 1.2 s: `VOLUME 70%`, `BRIGHTNESS 40%`, `KEYBOARD LIGHT 60%` or `OFF`,
+`SCREENSHOT SAVED`/`FAILED`. At a bound the flash still shows the level, so
+a key that changed nothing says why. It takes no touch and no focus.
+
+### 44.4 The indicator LEDs
+
+Three LEDs on the base: Caps Lock, microphone in use, camera in use. The two
+privacy LEDs follow the devices, not the apps: lit while any process holds
+a capture stream or a camera capture node open, out within half a second of
+the last one letting go, however it let go.
+
+## 45. Amendment AC — Photo [PROPOSED]
 
 **PROPOSED 2026-09-30** on branch `feat/photo-app`. A new app; nothing in
-§1-§43 changes or is renumbered. Behaviour and architecture:
-docs/apps/PHOTO.md; gate: docs/hardware/PHOTO_GATE.md. (Another branch in
-flight may also claim §44; renumber on merge.)
+§1-§44 changes or is renumbered. Behaviour and architecture:
+docs/apps/PHOTO.md; gate: docs/hardware/PHOTO_GATE.md.
 
-### 44.1 Place and chrome
+### 45.1 Place and chrome
 
 A launcher app of its own, not in a folder: DEVICE, after Video, in the
 files colour (a library of files, as Notes and Timber). Its icon is the icon
@@ -4014,7 +4060,7 @@ the package and deferred until an app used it; the generator names its mask
 Chrome NONE and header DEFAULT, as Camera (§30.8, §34): no status cluster,
 the shell's header with its back slab; the pictures take the height.
 
-### 44.2 The screen
+### 45.2 The screen
 
 Exactly Camera's gallery (§34, docs/apps/CAMERA.md "The gallery"): the same
 grid, photo view, three lines, buttons, slideshow and panels, from the same
