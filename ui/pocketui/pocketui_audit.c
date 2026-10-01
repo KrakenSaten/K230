@@ -133,15 +133,21 @@ static void report(struct walk *w, enum pocketui_audit_kind kind, const struct i
 static void check_label_fit(struct walk *w, const struct item *it)
 {
     lv_obj_t *obj = it->obj;
+    /* Only a label has a long mode; a control comes here too and must not be
+     * read as one (it is a different struct). */
     const char *text = label_text(obj);
-    lv_label_long_mode_t mode = lv_label_get_long_mode(obj);
+    lv_label_long_mode_t mode;
     const lv_font_t *font = lv_obj_get_style_text_font(obj, LV_PART_MAIN);
     lv_area_t c;
     lv_point_t need;
     int32_t cw;
     int32_t ch;
 
-    if (!text || !font || mode == LV_LABEL_LONG_MODE_SCROLL || mode == LV_LABEL_LONG_MODE_SCROLL_CIRCULAR) {
+    if (!text || !font) {
+        return;
+    }
+    mode = lv_label_get_long_mode(obj);
+    if (mode == LV_LABEL_LONG_MODE_SCROLL || mode == LV_LABEL_LONG_MODE_SCROLL_CIRCULAR) {
         return;
     }
     lv_obj_get_content_coords(obj, &c);
