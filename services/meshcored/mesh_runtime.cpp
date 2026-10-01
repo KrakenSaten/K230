@@ -887,7 +887,7 @@ protected:
         return lookupContactByPubKey(contact.id.pub_key, PUB_KEY_SIZE) == &contact;
     }
 
-    void onDiscoveredContact(ContactInfo& contact, bool, uint8_t, const uint8_t*) override
+    void onDiscoveredContact(ContactInfo& contact, bool, uint8_t path_len, const uint8_t*) override
     {
         /* is_new is deliberately ignored: BaseChatMesh declares it false and
          * never assigns it (vendor/RIFT/src/helpers/BaseChatMesh.cpp:154 and
@@ -899,7 +899,24 @@ protected:
         }
         _dirty = true;
         stamp(contact.id.pub_key);
+        /* path_len is the advert packet's own (BaseChatMesh::onAdvertRecv
+         * passes packet->path_len), so its hop count is how many relays the
+         * advert came through: 0 when it was heard straight from the node.
+         * Read, not inferred, and kept beside the signal for this run. */
+        noteAdvertHops(contact.id.pub_key, mesh::Packet::pathHashCount(path_len));
         emitNode(contact, "discovered");
+    }
+
+    void noteAdvertHops(const uint8_t* key, uint8_t hops)
+    {
+        Telemetry& t = slotFor(key);
+
+        if (!t.used || memcmp(t.key, key, PUB_KEY_SIZE) != 0) {
+            return; /* stamp() has just made the slot; nothing else may */
+        }
+        t.advert_hops_known = true;
+        t.advert_hops = hops;
+        t.advert_ms = t.heard_ms;
     }
 
     /* Counted rather than logged per advert: on a full table this fires for
@@ -1405,6 +1422,13 @@ private:
         mcd_rx_meta meta;
         Telemetry& t = slotFor(key);
 
+        /* A slot taken over from another node carries nothing of it over:
+         * its advert's hop count was that node's. */
+        if (!t.used || memcmp(t.key, key, PUB_KEY_SIZE) != 0) {
+            t.advert_hops_known = false;
+            t.advert_hops = 0;
+            t.advert_ms = 0;
+        }
         t.used = true;
         memcpy(t.key, key, PUB_KEY_SIZE);
         t.heard_known = true;
@@ -1431,6 +1455,11 @@ public:
         double snr_db;
         bool rssi_known;
         double rssi_dbm;
+        /* The hop count of the node's last advert, as the packet carried it
+         * (mcd_node.advert_hops). */
+        bool advert_hops_known;
+        uint8_t advert_hops;
+        uint64_t advert_ms;
     };
 
     const Telemetry* telemetryFor(const uint8_t* key) const
@@ -1482,6 +1511,9 @@ public:
             n.last_snr_db = t->snr_db;
             n.last_rssi_known = t->rssi_known;
             n.last_rssi_dbm = t->rssi_dbm;
+            n.advert_hops_known = t->advert_hops_known;
+            n.advert_hops = t->advert_hops;
+            n.advert_mono_ms = t->advert_ms;
         }
     }
 

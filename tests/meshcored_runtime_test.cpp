@@ -710,6 +710,73 @@ static void test_duplicate_suppression(Node& a, Node& b, Air& air)
           a.node_events == after_first);
 }
 
+/* ---- how far an advert came --------------------------------------------- *
+ *
+ * A node's advert_hops is the advert packet's own hop count: what RIFT's
+ * zero-hop view is built on. Read off the packet, never inferred: a copy that
+ * two repeaters handled says 2, the node heard straight says 0. */
+static void test_advert_hops(Node& a, Node& b, Air& air)
+{
+    uint8_t b_key[MCD_PUB_KEY_LEN];
+    char name[MCD_NODE_NAME_LEN];
+    uint8_t frame[MCD_MAX_FRAME];
+    uint8_t relayed[MCD_MAX_FRAME];
+    struct mcd_rx_meta meta;
+    struct mcd_node node;
+    int len = 0;
+
+    mcd_runtime_identity(b.rt, b_key, name, sizeof(name));
+    check("A has heard B's adverts straight, and says so",
+          mcd_runtime_node_by_prefix(a.rt, b_key, 8, &node) == 1 && node.advert_hops_known &&
+              node.advert_hops == 0);
+
+    /* B's next flood advert, taken off the air before anyone hears it. */
+    air.deliver = false;
+    air.qn = 0;
+    waitForANewSecond(air);
+    check("B builds an advert to relay by hand", mcd_runtime_send_advert(b.rt));
+    for (int i = 0; i < 40 && air.qn == 0; i++) {
+        mcd_runtime_tick(b.rt);
+        usleep(10000);
+    }
+    if (air.qn > 0) {
+        len = air.queue[0].len;
+        memcpy(frame, air.queue[0].bytes, (size_t)len);
+        mcd_runtime_tx_done(b.rt, air.queue[0].submit_id, MCD_TX_OK);
+        air.qn = 0;
+    }
+    air.deliver = true;
+    check("and it is a flood with no hops on it yet", len > 2 && frame[1] == 0);
+    if (len <= 2 || frame[1] != 0) {
+        return;
+    }
+    /* What it looks like after two repeaters: each appended its one-byte
+     * hash and the count says 2 (Mesh::routeRecvPacket). */
+    relayed[0] = frame[0];
+    relayed[1] = 2;
+    relayed[2] = 0x31;
+    relayed[3] = 0x32;
+    memcpy(&relayed[4], &frame[2], (size_t)(len - 2));
+    defaultMeta(meta);
+    mcd_runtime_deliver_rx(a.rt, relayed, len + 2, &meta);
+    pump(air, 10);
+    check("a relayed advert is recorded as two hops away",
+          mcd_runtime_node_by_prefix(a.rt, b_key, 8, &node) == 1 && node.advert_hops_known &&
+              node.advert_hops == 2);
+    check("and the route back is not taken from it",
+          !node.path_known || node.path_hops != 2 || node.path_bytes != 2 ||
+              node.path[0] != 0x31);
+
+    /* And straight again: a zero-hop advert is heard with nothing between. */
+    waitForANewSecond(air);
+    a.node_discovered = 0;
+    check("B sends a zero-hop advert", mcd_runtime_send_advert_zero_hop(b.rt));
+    check("A hears it", pumpUntil(air, [&] { return a.node_discovered >= 1; }));
+    check("and B is zero hops away again",
+          mcd_runtime_node_by_prefix(a.rt, b_key, 8, &node) == 1 && node.advert_hops_known &&
+              node.advert_hops == 0 && node.advert_mono_ms > 0);
+}
+
 /* ---- the PATH guard ----------------------------------------------------- */
 
 static int craftPath(uint8_t* frame, const mesh::LocalIdentity& from,
@@ -2691,6 +2758,7 @@ int main(void)
     test_tx_outcomes(a, air);
     test_two_nodes(a, b, air);
     test_duplicate_suppression(a, b, air);
+    test_advert_hops(a, b, air);
     test_path_guard(a, b, air, a_id, b_id);
     test_restart(a, air);
     test_channels(a, b, air);

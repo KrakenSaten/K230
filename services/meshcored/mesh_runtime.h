@@ -99,6 +99,15 @@ struct mcd_node {
     double last_snr_db;
     bool last_rssi_known;
     double last_rssi_dbm;
+    /* How many relays the node's last advert passed through on its way
+     * here: MeshCore's own hop count of the advert packet's path, 0 when it
+     * was heard with nothing in between (a zero-hop advert, or a flood heard
+     * before any repeater took it up). Observed this run only, like the
+     * signal, and only when an advert from the node was heard. Not the
+     * route back (path_*), which is learned separately and may differ. */
+    bool advert_hops_known;
+    uint8_t advert_hops;
+    uint64_t advert_mono_ms;      /* when that advert was heard, by ours */
 };
 
 /* ---- a channel ---------------------------------------------------------

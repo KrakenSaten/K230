@@ -213,6 +213,14 @@ A node:
 | `last_advert_timestamp` | by **their** clock, absent when never seen |
 | `last_heard_mono_ms` | by **ours**, `CLOCK_MONOTONIC` |
 | `last_snr_db`, `last_rssi_dbm` | **only when radiod reported them for the frame that was heard** |
+| `advert_hops`, `advert_mono_ms` | **only when an advert from the node was heard in this run**: how many relays that last advert came through (MeshCore's own hop count of the advert packet's path - `0` is heard straight from the node, by a zero-hop advert or a flood no repeater had taken up yet), and when, by ours |
+
+`advert_hops` is the advert's way **here**, read off the packet; it is not the
+route back (`hops`, `path_hex`), which MeshCore learns separately and only
+when a message to the node is answered. A node can be `advert_hops: 0` with
+no route known at all, which is the usual case for a repeater nearby. Like
+the signal it is kept in memory for this run, not in `state.v1`, and a node
+that has not adverted since the service started has none.
 
 The signal fields are recorded only while the frame that caused the
 observation is the one that turn took off the receive queue. A flood packet

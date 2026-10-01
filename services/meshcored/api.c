@@ -94,6 +94,13 @@ static cJSON *node_json(const struct mcd_node *n)
     if (n->last_rssi_known) {
         cJSON_AddNumberToObject(o, "last_rssi_dbm", n->last_rssi_dbm);
     }
+    /* How many relays the last advert heard from it came through, and when:
+     * absent until an advert from it has been heard this run. 0 is a real
+     * answer here (heard straight from the node), never a stand-in. */
+    if (n->advert_hops_known) {
+        cJSON_AddNumberToObject(o, "advert_hops", (double)n->advert_hops);
+        cJSON_AddNumberToObject(o, "advert_mono_ms", (double)n->advert_mono_ms);
+    }
     return o;
 }
 
