@@ -135,16 +135,16 @@ big=$(find "$SRC" -name '*.c' -exec wc -l {} + | awk '$1 > 900 && $2 != "total" 
 check "no source file has become a monolith${big:+ ($big)}" "$([ -z "$big" ] && echo 1 || echo 0)"
 for part in rift_model.c rift_messages.c rift_arrivals.c rift_channels.c rift_actions.c \
             rift_order.c rift_format.c rift_format_msg.c rift_ipc.c rift_notify.c rift_sound.c \
-            rift_store.c rift_dm_sound.c rift_app.c rift_traffic.c rift_strip.c \
+            rift_store.c rift_dm_sound.c rift_app.c rift_traffic.c rift_strip.c rift_net.c \
             ui/rift_widgets.c ui/rift_graph.c ui/rift_activity.c ui/rift_nodes.c \
             ui/rift_node_row.c ui/rift_detail.c ui/rift_comms.c ui/rift_conv_list.c \
-            ui/rift_thread.c; do
+            ui/rift_thread.c ui/rift_find.c ui/rift_netview.c; do
     check "$part is its own file" "$([ -f "$SRC/$part" ] && echo 1 || echo 0)"
 done
 # The model's other translation units are held to the same rule as the first:
 # no LVGL, and the screens do not reach into them.
 for part in rift_messages.c rift_arrivals.c rift_channels.c rift_actions.c rift_order.c \
-            rift_notify.c rift_sound.c rift_store.c rift_traffic.c; do
+            rift_notify.c rift_sound.c rift_store.c rift_traffic.c rift_net.c; do
     check "$part knows nothing about LVGL" \
         "$(grep -q 'lvgl' "$SRC/$part" && echo 0 || echo 1)"
 done
@@ -225,8 +225,28 @@ check "and its one bounded wait is the connect" \
 check "all four sections keep their place in the navigation" \
     "$(grep -q 'RIFT_SEC_COMMS' "$SRC/rift_app.h" && grep -q 'RIFT_SEC_NET' "$SRC/rift_app.h" &&
        echo 1 || echo 0)"
-check "and NET says it is not in this build rather than showing an empty view" \
-    "$(grep -q 'not in this build' "$SRC/rift_app.c" && echo 1 || echo 0)"
+# NET is drawn now: the hop rings of handoff §7, placed from what the node
+# cache holds (rift_net.c) and drawn by its own screen. What must stay true is
+# that it draws only what was observed - a hop count the service reported, a
+# route it learned - and that looking at it asks the service for nothing.
+check "NET is drawn, from the node cache" \
+    "$(grep -q 'rift_net_view_refresh' "$SRC/rift_app.c" && grep -q 'rift_net_build' \
+        "$SRC/ui/rift_netview.c" && ! grep -q 'not in this build' "$SRC/rift_app.c" &&
+       echo 1 || echo 0)"
+check "a ring is placed by a learned route or an advert's hop count, and nothing else" \
+    "$(grep -q 'RIFT_NET_SOURCE_ROUTE' "$SRC/rift_net.c" && grep -q 'RIFT_NET_SOURCE_ADVERT' \
+        "$SRC/rift_net.c" && ! grep -qE 'rssi|snr' "$SRC/rift_net.c" && echo 1 || echo 0)"
+check "and NET asks the service for nothing" \
+    "$(grep -q 'rift_ipc_' "$SRC/ui/rift_netview.c" && echo 0 || echo 1)"
+# The find bar narrows the node list and changes nothing. The one request it
+# makes is a fresh node list when the zero-hop view is turned on - a question,
+# not a packet: discovering repeaters by transmitting is not in the API.
+findipc=$(grep -o 'rift_ipc_[a-z_]*' "$SRC/ui/rift_find.c" | sort -u | tr '\n' ' ')
+check "the find bar only ever asks for the node list (${findipc:-nothing})" \
+    "$([ "$findipc" = "rift_ipc_request_nodes " ] && echo 1 || echo 0)"
+check "and searching writes no node" \
+    "$(grep -qE 'rift_model_(apply|drop)' "$SRC/ui/rift_find.c" "$SRC/rift_order.c" &&
+       echo 0 || echo 1)"
 check "there is no command parser in this phase" \
     "$(grep -rqE 'strcmp\(.*"/msg"|"/nodes"|"/advert"' "$SRC" && echo 0 || echo 1)"
 

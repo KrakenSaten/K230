@@ -356,6 +356,17 @@ static int apply_node(struct rift_model *m, const cJSON *o)
         n->have_rssi = 1;
         n->rssi_dbm = d;
     }
+    /* How many relays the node's last advert came through, as the service
+     * read it off the packet. Absent until an advert was heard this run;
+     * like the signal, an object without it leaves what was known alone. */
+    if (num_of(o, "advert_hops", &d) && d >= 0 && d <= 63) {
+        n->have_advert_hops = 1;
+        n->advert_hops = (int)d;
+        if (num_of(o, "advert_mono_ms", &d)) {
+            n->have_advert_mono = 1;
+            n->advert_mono_ms = (int64_t)d;
+        }
+    }
     n->seq = ++m->seq;
     return 0;
 }

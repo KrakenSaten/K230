@@ -13,10 +13,9 @@
  *   rift_app      chrome, sections, layout, lifecycle      LVGL
  *   ui/rift_*     one screen each                          LVGL
  *
- * RIFT draws ACTIVITY, NODES and COMMS. NET keeps its place in the
- * navigation - the four sections are the approved design and removing one
- * would be a different design - and says plainly that it is not in this
- * build rather than showing an empty view that looks like a quiet mesh.
+ * RIFT draws all four sections of the approved design: ACTIVITY, NODES,
+ * COMMS and NET - the hop rings of handoff §7, from the node cache
+ * (rift_net.h for the placement, ui/rift_netview.c for the drawing).
  *
  * COMMS holds direct conversations and the channels the service reported,
  * in one list; a channel is a conversation keyed "#<slot>" (rift_model.h).
@@ -76,6 +75,8 @@ enum rift_section {
 struct rift_nodes;
 struct rift_activity_view;
 struct rift_comms;
+struct rift_find;
+struct rift_net_view;
 
 struct rift_app {
     lv_obj_t *root;   /* the shell's body */
@@ -148,6 +149,11 @@ struct rift_app {
      * turns it over - so the thread has the width the rest of the time
      * (DS §37.2). Portrait has no such pane. */
     int details_open;
+    /* NODES' find bar (ui/rift_find.c): what a reader typed, and whether the
+     * list shows only the repeaters heard zero-hop. A view of the list and
+     * nothing more - neither changes a node, and neither is stored. */
+    char node_query[RIFT_QUERY_MAX];
+    int node_zero_hop;
 
     struct rift_model model;
     struct rift_ipc ipc;
@@ -167,10 +173,12 @@ struct rift_app {
     struct rift_nodes *nodes;
     struct rift_activity_view *activity;
     struct rift_comms *comms;
+    struct rift_find *find;
+    struct rift_net_view *net;
     lv_obj_t *activity_root;
     lv_obj_t *nodes_root;
     lv_obj_t *comms_root;
-    lv_obj_t *placeholder;
+    lv_obj_t *net_root;
     /* Set only when pos_theme_watch's table was full and this app had to
      * listen for the theme event itself; it is removed from the screen on
      * destroy, because the screen outlives the app. */

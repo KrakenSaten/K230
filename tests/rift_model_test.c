@@ -15,6 +15,7 @@
 #include "rift_model.h"
 
 #include "rift_format.h"
+#include "rift_net.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -151,6 +152,179 @@ static void test_snapshot_keeps_observations(void)
     n = rift_model_find(&m, KEY_B);
     check("and one that comes back starts a history of its own",
           n && n->hist_count == 1 && n->observations == 0);
+}
+
+/* ---- finding nodes: a question asked of the list, never a change to it ----- */
+#define KEY_R "71aa000000000000000000000000000000000000000000000000000000000071"
+#define KEY_S "72bb000000000000000000000000000000000000000000000000000000000072"
+static void test_find_and_zero_hop(void)
+{
+    static struct rift_model m;
+    const struct rift_node *list[8];
+    const struct rift_node *n;
+    int count;
+
+    rift_model_init(&m);
+    apply_nodes(&m, "{\"nodes\":["
+                    "{\"public_key\":\"" KEY_A "\",\"name\":\"OSLO-01\",\"type\":1,"
+                    "\"path_known\":true,\"hops\":0,\"direct\":true,\"last_heard_mono_ms\":100},"
+                    "{\"public_key\":\"" KEY_B "\",\"name\":\"S\xC3\xB8rlandet HYTTA\",\"type\":2,"
+                    "\"path_known\":true,\"hops\":2,\"direct\":false,\"path_hex\":\"a1c3\","
+                    "\"advert_hops\":2,\"advert_mono_ms\":90,\"last_heard_mono_ms\":90},"
+                    "{\"public_key\":\"" KEY_R "\",\"name\":\"RPT-NORD\",\"type\":2,"
+                    "\"path_known\":false,\"advert_hops\":0,\"advert_mono_ms\":80,"
+                    "\"last_heard_mono_ms\":80},"
+                    "{\"public_key\":\"" KEY_S "\",\"name\":\"RPT-SYD\",\"type\":2,"
+                    "\"path_known\":false,\"last_heard_mono_ms\":70},"
+                    "{\"public_key\":\"" KEY_C "\",\"type\":1,\"path_known\":false}]}");
+    n = rift_model_find(&m, KEY_R);
+    check("advert_hops is read, with when it was heard",
+          n && n->have_advert_hops && n->advert_hops == 0 && n->have_advert_mono &&
+              n->advert_mono_ms == 80);
+    n = rift_model_find(&m, KEY_S);
+    check("and left absent when the service did not say: absent is not 0",
+          n && !n->have_advert_hops);
+    {
+        static struct rift_model w;
+
+        rift_model_init(&w);
+        apply_nodes(&w, "{\"nodes\":[{\"public_key\":\"" KEY_A "\",\"advert_hops\":-1},"
+                        "{\"public_key\":\"" KEY_B "\",\"advert_hops\":64}]}");
+        check("a hop count MeshCore cannot carry is not taken",
+              rift_model_find(&w, KEY_A) && !rift_model_find(&w, KEY_A)->have_advert_hops &&
+                  rift_model_find(&w, KEY_B) && !rift_model_find(&w, KEY_B)->have_advert_hops);
+    }
+
+    n = rift_model_find(&m, KEY_A);
+    check("an empty query matches everything", rift_node_matches(n, "") &&
+                                                  rift_node_matches(n, NULL) &&
+                                                  rift_node_matches(n, "   "));
+    check("part of a name matches, whatever its case", rift_node_matches(n, "slo-0") &&
+                                                          rift_node_matches(n, "OsLo"));
+    check("the spaces around a query do not count", rift_node_matches(n, "  oslo  "));
+    check("a name it does not hold does not", !rift_node_matches(n, "bergen"));
+    n = rift_model_find(&m, KEY_B);
+    check("a capital \xC3\x98 finds a small \xC3\xB8", rift_node_matches(n, "S\xC3\x98RLANDET"));
+    check("and a small one a small one", rift_node_matches(n, "s\xC3\xB8r"));
+    check("an O is not an \xC3\x98", !rift_node_matches(n, "sorlandet"));
+    check("two hex characters find a key by its start", rift_node_matches(n, "b2") &&
+                                                           rift_node_matches(n, "B2CAFE"));
+    check("but not from its middle", !rift_node_matches(n, "cafe1e"));
+    check("one hex character is not a search for a key", !rift_node_matches(n, "b"));
+    n = rift_model_find(&m, KEY_C);
+    check("a node with no name is found by its hash", rift_node_matches(n, "c3be") &&
+                                                         !rift_node_matches(n, "x"));
+    check("and a NULL node by nothing", !rift_node_matches(NULL, ""));
+
+    check("a repeater heard by advert with no relay is zero-hop",
+          rift_node_zero_hop(rift_model_find(&m, KEY_R)));
+    check("a node with a direct route is zero-hop", rift_node_zero_hop(rift_model_find(&m, KEY_A)));
+    check("two relays out is not", !rift_node_zero_hop(rift_model_find(&m, KEY_B)));
+    check("nor a node nothing was observed of",
+          !rift_node_zero_hop(rift_model_find(&m, KEY_S)) &&
+              !rift_node_zero_hop(rift_model_find(&m, KEY_C)));
+    check("a repeater is type 2", rift_node_is_repeater(rift_model_find(&m, KEY_R)) &&
+                                      !rift_node_is_repeater(rift_model_find(&m, KEY_A)) &&
+                                      !rift_node_is_repeater(rift_model_find(&m, KEY_C)));
+
+    count = rift_model_order(&m, 1000, list, 8);
+    check("the whole list is five", count == 5);
+    count = rift_node_filter(list, count, "", 1);
+    check("the zero-hop view keeps the repeater heard straight, and only it",
+          count == 1 && strcmp(list[0]->key, KEY_R) == 0);
+    count = rift_model_order(&m, 1000, list, 8);
+    count = rift_node_filter(list, count, "rpt", 0);
+    check("a search keeps the matches in list order, each once",
+          count == 2 && strcmp(list[0]->key, KEY_R) == 0 && strcmp(list[1]->key, KEY_S) == 0);
+    count = rift_model_order(&m, 1000, list, 8);
+    count = rift_node_filter(list, count, "zzz", 0);
+    check("nothing matching is an empty list, not an error", count == 0);
+    check("and nothing in the cache moved", m.node_count == 5 &&
+                                               strcmp(rift_model_find(&m, KEY_A)->name, "OSLO-01") == 0);
+}
+
+/* ---- NET: rings of observed hop count, and nothing inferred ---------------- */
+static void test_net_rings(void)
+{
+    static struct rift_model m;
+    static struct rift_net net;
+    const struct rift_node *path[8];
+    enum rift_net_source src;
+    static char json[8192];
+    int i;
+
+    rift_model_init(&m);
+    rift_net_build(&m, 1000, &net);
+    check("an empty cache places nobody", net.nodes == 0 && net.deepest == 0);
+    apply_nodes(&m, "{\"nodes\":["
+                    "{\"public_key\":\"" KEY_A "\",\"name\":\"OSLO-01\",\"path_known\":true,"
+                    "\"hops\":0,\"direct\":true,\"last_heard_mono_ms\":900},"
+                    "{\"public_key\":\"" KEY_B "\",\"name\":\"HYTTA\",\"path_known\":true,"
+                    "\"hops\":2,\"direct\":false,\"path_hex\":\"a1c3\",\"advert_hops\":5,"
+                    "\"last_heard_mono_ms\":800},"
+                    "{\"public_key\":\"" KEY_C "\",\"name\":\"NO-3241\",\"path_known\":false,"
+                    "\"advert_hops\":1,\"last_heard_mono_ms\":700},"
+                    "{\"public_key\":\"" KEY_R "\",\"name\":\"FAR\",\"path_known\":true,"
+                    "\"hops\":12,\"direct\":false},"
+                    "{\"public_key\":\"" KEY_S "\",\"name\":\"NONE\",\"path_known\":false}]}");
+    check("a direct route is ring 1, placed by the route",
+          rift_net_ring_of(rift_model_find(&m, KEY_A), &src) == 1 && src == RIFT_NET_SOURCE_ROUTE);
+    check("a learned route wins over the last advert's count",
+          rift_net_ring_of(rift_model_find(&m, KEY_B), &src) == 3 && src == RIFT_NET_SOURCE_ROUTE);
+    check("with no route, the advert places it, and says so",
+          rift_net_ring_of(rift_model_find(&m, KEY_C), &src) == 2 && src == RIFT_NET_SOURCE_ADVERT);
+    check("twelve relays is the last counted ring",
+          rift_net_ring_of(rift_model_find(&m, KEY_R), NULL) == RIFT_NET_RING_LAST_HOPS);
+    check("nothing observed is NO PATH, never ring 1",
+          rift_net_ring_of(rift_model_find(&m, KEY_S), &src) == RIFT_NET_RING_NO_PATH &&
+              src == RIFT_NET_SOURCE_NONE);
+    check("and nobody is ever placed on ring 0", rift_net_ring_of(NULL, NULL) != 0);
+
+    rift_net_build(&m, 1000, &net);
+    check("every node is placed once", net.nodes == 5 && net.ring[1].count == 1 &&
+                                          net.ring[2].count == 1 && net.ring[3].count == 1 &&
+                                          net.ring[9].count == 1 && net.ring[10].count == 1);
+    check("ring 0 is this device's, from the identity", net.ring[0].count == 0);
+    check("the counts say which observation placed them",
+          net.ring[2].advert == 1 && net.ring[2].route == 0 && net.ring[3].route == 1);
+    check("the deepest ring holding a node", net.deepest == 9 && net.hop_known == 4);
+    text_is("ring words", rift_net_ring_word(1), "DIRECT");
+    text_is("the last counted ring", rift_net_ring_word(9), "9+");
+    text_is("NO PATH", rift_net_ring_word(10), "NO PATH");
+
+    /* HYTTA's route is a1 c3: OSLO-01 and NO-3241, nearest first. */
+    check("a route's relays are named by the nodes that answer to them",
+          rift_net_path_nodes(&m, rift_model_find(&m, KEY_B), path, 8) == 2 &&
+              strcmp(path[0]->key, KEY_A) == 0 && strcmp(path[1]->key, KEY_C) == 0);
+    check("a node with no route runs through nobody",
+          rift_net_path_nodes(&m, rift_model_find(&m, KEY_C), path, 8) == 0);
+    /* A second node starting a1: the hop names neither. */
+    apply_event(&m, "mesh.node",
+                "{\"reason\":\"discovered\",\"node\":{\"public_key\":\"a1ff000000000000000000000000000000"
+                "000000000000000000000000000001\",\"name\":\"TWIN\",\"path_known\":false}}");
+    check("an ambiguous hop names nobody rather than a guess",
+          rift_net_path_nodes(&m, rift_model_find(&m, KEY_B), path, 8) == 1 &&
+              strcmp(path[0]->key, KEY_C) == 0);
+
+    /* A crowded ring is bounded. */
+    rift_model_init(&m);
+    {
+        size_t at = 0;
+
+        at += (size_t)snprintf(json + at, sizeof(json) - at, "{\"nodes\":[");
+        for (i = 0; i < 30; i++) {
+            at += (size_t)snprintf(json + at, sizeof(json) - at,
+                                   "%s{\"public_key\":\"%02x00000000000000000000000000000000000000"
+                                   "0000000000000000000000ab\",\"path_known\":true,\"hops\":0,"
+                                   "\"direct\":true}",
+                                   i ? "," : "", 0x20 + i);
+        }
+        snprintf(json + at, sizeof(json) - at, "]}");
+    }
+    apply_nodes(&m, json);
+    rift_net_build(&m, 1000, &net);
+    check("a ring of thirty draws a bounded number and counts the rest",
+          net.ring[1].count == 30 && net.ring[1].shown == RIFT_NET_RING_SHOWN);
 }
 
 /* ---- a reply is not an event, and a removal is not an update ---------------- */
@@ -860,6 +1034,8 @@ int main(void)
     test_traffic_counters();
     test_unretained_since_forget();
     test_actions();
+    test_find_and_zero_hop();
+    test_net_rings();
 
     /* ---- the order at scale: a merge sort, the same answer as before ---- */
     {

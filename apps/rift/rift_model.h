@@ -183,6 +183,15 @@ struct rift_node {
     double snr_db;
     int have_rssi;
     double rssi_dbm;
+    /* How many relays the node's last advert passed through before this
+     * device heard it (mesh.nodes, advert_hops): 0 is heard straight from
+     * the node - a zero-hop neighbour. Not the route back above, which is
+     * learned separately. Absent until an advert was heard in the
+     * service's current run. */
+    int have_advert_hops;
+    int advert_hops;
+    int have_advert_mono;
+    int64_t advert_mono_ms;              /* ours */
 
     /* How many adverts this app has seen name this node, and its path
      * history since RIFT opened. Both are this app's own observations and
@@ -695,6 +704,32 @@ int rift_model_order(const struct rift_model *m, int64_t now_ms, const struct ri
 /* How many of the ordered nodes are fresh (heard within RIFT_STALE_MS).
  * The rest of the order is the stale group and then the never-heard. */
 int rift_model_fresh_count(const struct rift_model *m, int64_t now_ms);
+
+/* ---- finding nodes (rift_order.c) -----------------------------------------
+ *
+ * A search is a question asked of the list, never a change to it: nothing
+ * here writes a node.
+ *
+ * rift_node_matches: whether a node answers what a reader typed. Case does
+ * not matter (ASCII, and the Latin-1 letters Æ Ø Å and their kin); the
+ * spaces around the query do not count. A node matches when its name holds
+ * the query, or when the query is two or more hex characters its key starts
+ * with - the node hash, which is how a hop is written. An empty query
+ * matches everything.
+ *
+ * rift_node_zero_hop: heard straight from it - its last advert came through
+ * no relay (advert_hops 0), or the learned route back has none (direct).
+ *
+ * rift_node_filter keeps, in place and in order, the nodes that match the
+ * query and - when zero_hop_repeaters is set - are repeaters heard zero-hop.
+ * Returns how many are kept. */
+#define RIFT_QUERY_MAX 40
+#define RIFT_NODE_TYPE_REPEATER 2
+int rift_node_matches(const struct rift_node *n, const char *query);
+int rift_node_is_repeater(const struct rift_node *n);
+int rift_node_zero_hop(const struct rift_node *n);
+int rift_node_filter(const struct rift_node **list, int count, const char *query,
+                     int zero_hop_repeaters);
 
 /* ---- activity (rift_format.h, rift_pulse_of, for the words) ----------
  *

@@ -188,6 +188,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/rift_channels.c
     ${REPO_DIR}/apps/rift/rift_actions.c
     ${REPO_DIR}/apps/rift/rift_order.c
+    ${REPO_DIR}/apps/rift/rift_net.c
     ${REPO_DIR}/apps/rift/rift_format.c
     ${REPO_DIR}/apps/rift/rift_format_msg.c
     ${REPO_DIR}/apps/rift/rift_ipc.c
@@ -202,6 +203,8 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/ui/rift_graph.c
     ${REPO_DIR}/apps/rift/ui/rift_activity.c
     ${REPO_DIR}/apps/rift/ui/rift_nodes.c
+    ${REPO_DIR}/apps/rift/ui/rift_find.c
+    ${REPO_DIR}/apps/rift/ui/rift_netview.c
     ${REPO_DIR}/apps/rift/ui/rift_node_row.c
     ${REPO_DIR}/apps/rift/ui/rift_detail.c
     ${REPO_DIR}/apps/rift/ui/rift_comms.c
@@ -1289,6 +1292,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/rift_channels.c
         ${REPO_DIR}/apps/rift/rift_actions.c
         ${REPO_DIR}/apps/rift/rift_order.c
+        ${REPO_DIR}/apps/rift/rift_net.c
         ${REPO_DIR}/apps/rift/rift_format.c
         ${REPO_DIR}/apps/rift/rift_format_msg.c
         ${REPO_DIR}/apps/rift/rift_ipc.c
@@ -1303,6 +1307,8 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/ui/rift_graph.c
         ${REPO_DIR}/apps/rift/ui/rift_activity.c
         ${REPO_DIR}/apps/rift/ui/rift_nodes.c
+        ${REPO_DIR}/apps/rift/ui/rift_find.c
+        ${REPO_DIR}/apps/rift/ui/rift_netview.c
         ${REPO_DIR}/apps/rift/ui/rift_node_row.c
         ${REPO_DIR}/apps/rift/ui/rift_detail.c
         ${REPO_DIR}/apps/rift/ui/rift_comms.c
