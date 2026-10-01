@@ -25,6 +25,13 @@ an activity measure on every node and conversation, and a DM sound behind a
 setting - which in this build is silent, because Doors has no notification
 sound for an app to ask for ("The DM sound", below).
 
+On `feat/rift-management`, **host-tested only** (2026-10-01, no hardware): a
+channel's sender before its message, a search over NODES and its ZERO-HOP
+repeater view, the NET section drawn (the hop rings), channels joined and left
+from ACTIVITY, the node renamed, and the path hash size of its floods
+(1/2/3 bytes) chosen - see "Managing the node" below and
+`docs/hardware/RIFT_MANAGEMENT_GATE.md` for what is left to prove on a unit.
+
 RIFT puts a packet on the air in two places, both at a reader's press, and
 the whole of "What it is not" below is about where that is allowed to happen
 and what it is not allowed to claim.
@@ -35,7 +42,7 @@ package is the contract and this phase implements part of it.
 ## What it is
 
 Four sections, in the design's fixed order: **ACTIVITY · NODES · COMMS ·
-NET**. RIFT draws the first three.
+NET**. RIFT draws all four.
 
 - **ACTIVITY** — the radio service's state and the reason for it in the
   service's own words; on one line, whether radiod is connected and what
@@ -59,6 +66,15 @@ NET**. RIFT draws the first three.
   **MESSAGE**, **RE-ROUTE**, **FORGET** — then the link state, the hop
   ladder, the path changes RIFT has seen, and the identity. In landscape the
   same detail is the pane beside the list.
+- **NODES' find bar** — over the list: typing narrows it as it goes, by part
+  of a name (case-insensitive, Æ Ø Å included) or two or more hex characters
+  of the key (the node hash); Esc or CLEAR gives the whole list back, and an
+  empty result is said in the footer. **ZERO-HOP** narrows it to the
+  repeaters heard with no relay in between - last advert with
+  `advert_hops: 0`, or a direct learned route - and asks the service for a
+  fresh node list as it turns on. Nothing is transmitted to find them: a
+  repeater appears when its own advert reaches this device. Neither changes
+  the cache or the service.
 - **COMMS** — the conversations as 36 px rows: link glyph, name, the newest
   message as a preview, the unread pill, when the other side was last heard
   from with its activity pulse, and how that peer is reached. In portrait
@@ -83,8 +99,21 @@ NET**. RIFT draws the first three.
   data row with a short field. The route pane the handoff kept on screen is
   a details pane a tap on the thread's header opens and closes. The list is
   virtual either way: rows for the screen, not for the peers.
-- **NET** keeps its place in the navigation and says it is not in this build.
-  An empty view would read as a quiet mesh.
+- **NET** - the hop rings of handoff §7 (`rift_net.c`, `ui/rift_netview.c`).
+  Every node the service holds is placed on a ring of **observed** hop count:
+  ring 1 DIRECT, ring *k* is *k*-1 relays, ring 9+ eight relays and more, and
+  NO PATH for a node nothing has been observed of. What placed it is said: its
+  learned route (the path a message would take), or, where no route is
+  learned, the relay count of its last advert (`mesh.nodes` `advert_hops`) -
+  a count with no chain behind it, and the ring's caption counts those apart
+  (`3 · 1 ADV`). Ring 0 is this device. A PATH panel at the top writes out the
+  selected node's route as the inline chain (or says no route is learned and
+  how far its advert came), with MESSAGE and DETAIL ›; the nodes that route
+  runs through carry the focus outline and the selected node is filled. A
+  ring shows 24 pills and counts the rest. Portrait stacks the rings as rows
+  (68 px with nodes, a header row without); landscape lays them out as
+  columns under the panel. No link between two nodes is drawn: the service
+  reports none. A pill selects and does nothing else, as a NODES row.
 
 ### Advert, forget, re-route
 
@@ -175,18 +204,22 @@ composer — and the places it is *not* are the places the protocol differs:
 - **A sender's name on a channel is a claim.** It comes out of the message
   payload and nothing signs it; anyone holding the key can send any name. It
   is drawn with a trailing `?` rather than the way a `peer_name` is, because a
-  `peer_name` arrived with a public key behind it. The body is printed
+  `peer_name` arrived with a public key behind it - and **before** the body
+  (`HYTTA? strøm tilbake`), the way a conversation is read; a body too long
+  for the line goes under the name whole. A line with no name it could parse
+  says `UNNAMED`; this node's own lines name nobody (the rule's side does). The body is printed
   without the `<name>: ` MeshCore writes into the payload - taken off only
   when it is exactly the name the service parsed - so the name is said once,
   as a claim, and a reader's own line on a channel is what they typed.
 - **A channel has no route.** The route column says `FLOOD`, and the landscape
   route pane says a channel is a shared key rather than drawing a hop chain
   that does not exist.
-- **RIFT cannot join or leave one.** `mesh.channel_add` takes a pre-shared
-  key, and there is nowhere on a RIFT screen to type one; adding it would be
-  this app growing a key-entry surface nobody asked for. The app holds no key,
-  derives no channel from a name, and draws only channels `mesh.channels`
-  reported. `tests/rift_lint.sh` checks each of those.
+- **Channels are joined and left on ACTIVITY** (since `feat/rift-management`,
+  at the owner's request) - see "Managing the node". The app still keeps no
+  key: one is made or checked in `rift_keys.c`, written into the one
+  `mesh.channel_add` request and wiped; the service's `channels.v1` is its
+  only home. Every channel drawn is one `mesh.channels` reported.
+  `tests/rift_lint.sh` checks each of those.
 
 Landscape (1232 × 568) is a recomposition, not a rotation: NODES becomes the
 list beside the selected node's detail, ACTIVITY becomes two columns, COMMS
@@ -215,12 +248,11 @@ column.
   transmitted is not acknowledged, and nothing turns `sent_flood` into
   delivered. While a request is in flight the thread says "Sending", which
   claims only that.
-- **Not a channel *manager*.** It shows the channels the service holds and
-  writes to them. Joining one takes a key, which is the service's business and
-  not a screen's. See above.
-- **Not a contact manager either.** It forgets a node, or its route, when a
-  reader asks; it does not add, import, export, favourite or rename one.
-- Not a network map: no rings, no relay load, no inferred links. That is NET.
+- **Not a contact manager.** It finds a node and forgets a node, or its
+  route, when a reader asks; it does not add, import, export, favourite or
+  rename one.
+- NET is rings of observed hop count and nothing more: no relay load, no
+  inferred links, no geography.
 - No command parser. The approved design makes the command line permanent
   chrome with `/msg`, `/join` and the rest behind it; without a parser it
   held a line of key hints, so it is now drawn only as the landscape composer
@@ -275,6 +307,75 @@ panel was emptied every 20 s and could hardly ever show a change. A route
 that changed while no event reached RIFT - across a reconnect - is recorded
 from the snapshot that shows it. A reply to RIFT's own `mesh.node` question
 updates the node without being counted as an event about it.
+
+## Managing the node
+
+On ACTIVITY (`ui/rift_manage.c`, `ui/rift_device.c`, `ui/rift_form.c`), the
+service doing each (`docs/api/mesh.md`). **None of it transmits.** Each is one
+request on a reader's press, recorded in the model's `manage_op` (one at a
+time) and answered, refused in the service's words, or - when the connection
+went first - said to have had no answer.
+
+- **CHANNELS** lists every channel the service holds - name, slot, hash, key
+  size - under `n OF 8 SLOTS · UNSCOPED FLOOD`. **LEAVE** asks first (DS
+  §17.5, as FORGET): the key is forgotten and nothing on the air gives it
+  back. The confirmation belongs to the channel it was asked about: if its
+  slot is taken by another channel meanwhile, it is dropped. Leaving the
+  channel whose thread is open leaves the thread showing its messages and
+  `LEFT · NOT JOINED ANY MORE`, with the composer refusing - the existing
+  behaviour for a left channel. There are no mandatory channels: upstream
+  does not require Public in slot 0.
+- **ADD CHANNEL** opens a form in place with three kinds, the three the T-Deck
+  RIFT offers: **HASHTAG** (a public topic: the key is the first 16 bytes of
+  SHA-256 over the name with its `#`, upstream's `addGroupChannelHashtag`,
+  test vector `#test` → `9cd8fcf2…b73f`; a name that only fits without its
+  `#` is refused rather than cut), **PRIVATE** (a new random 16-byte key from
+  the kernel's `getrandom`, shown once after joining - `KEY TO SHARE` - and
+  wiped on DONE, on leaving ACTIVITY, on turning the panel or when the app
+  closes), and **KEY** (a key somebody shared: strict base64 of 16 or 32
+  bytes, refused before asking if it is not, if it is all zero, or if a
+  32-byte key has an empty upper half). A name already joined is refused, so
+  COMMS never lists two channels nobody can tell apart; a full table is said.
+- **Name** (THIS DEVICE): RENAME opens the current name in place. The rule is
+  the service's (1 to 31 bytes, one line, not only spaces). Peers learn the new
+  name from this node's next advert - the caption says so, and the ADVERT
+  buttons are right above. A name set by `MESHCORED_NAME` (`name_source:
+  config`) is not renamed here: the service refuses, because its next start
+  would put the old name back, and RIFT says where to change it instead.
+- **Path hash** (THIS DEVICE): 1, 2 or 3 bytes of each relay's key in the
+  paths of this node's floods (MeshCore's path hash size; `mesh.path_hash`).
+  1 is the default and what every MeshCore node reads. A move to 2 or 3 asks
+  first, saying that repeaters whose firmware does not read multi-byte paths
+  drop such floods; back to 1 needs no confirmation. A service too old to
+  have the setting says so and the choices stay disabled.
+
+**Not here: flood scopes.** The T-Deck RIFT has a per-channel flood scope (a
+region's transport code); upstream MeshCore leaves it a TODO and this service
+writes no transport codes at all, so every flood is unscoped and there is no
+scope to choose. The CHANNELS caption says `UNSCOPED FLOOD` rather than
+offering a setting the service would ignore. Adding scopes is a change to
+what goes on the air and to a persisted store, and needs the owner's decision
+and an on-air gate.
+
+## Emoji and other text
+
+What a reader can type is what the Doors keyboards produce - the touch
+keyboard and the keyboard base type text, and text smileys like `:)` are
+plain ASCII. Remote text arrives from meshcored as well-formed UTF-8 (it
+sanitises on the way out) and RIFT keeps it so: every copy into a fixed field
+is cut on a character boundary (`rift_utf8_copy`), and a send is refused - in
+bytes, never characters - when it is longer than 160 bytes or a channel's
+`text_limit`, or is not well-formed UTF-8. An emoji is four bytes: forty fill
+a message.
+
+The Doors fonts carry Latin-1, typographic punctuation and arrows and no
+emoji (`tools/design/gen_fonts.sh`), so an emoji used to arrive as a box. The
+common faces, hearts and thumbs are now **drawn** as the text smiley they
+stand for (`rift_text_shown`: 🙂 `:)`, 😂 `:'D`, ❤️ `<3`, 👍 `(y)`, …) in
+message bodies, previews, claimed sender names and node names; anything else
+is left as it came, and still draws as a box. Presentation only: what is
+stored, counted and sent is the text as it arrived. A colour emoji font was
+not added - it would be megabytes in a 600 MB rootfs for a handful of glyphs.
 
 ## Activity: how lately it was heard from
 
@@ -552,6 +653,10 @@ the air must not be able to disconnect this app from its own service.
 | `rift_dm_sound.c` | the app's side of the DM sound: the setting, whether anything could be heard, the pass after every socket read |
 | `rift_order.c` | read-only questions over the node cache: list order (a merge sort, n log n at a thousand nodes), how many are fresh, which name a hop gets. No LVGL |
 | `rift_traffic.c/.h` | what was heard on the air by the minute, for the last twenty: a ring of counts by class (message, advert, other), fed from the activity feed. No LVGL |
+| `rift_net.c/.h` | NET's placement: the ring each node is on and what placed it there, and the nodes a route runs through. No LVGL |
+| `rift_identity.c` | this node: its identity and where its name came from, and the path hash size. No LVGL |
+| `rift_keys.c/.h` | channel keys made or checked and kept nowhere: SHA-256, base64, the hashtag key, a random key from `getrandom`. No LVGL |
+| `rift_ipc_manage.c` | the requests that manage the node - a channel joined or left, a rename, a path hash size - through `rift_ipc.c`'s writer |
 | `rift_json.h` | the four readers every part parses the API with, so all apply the same rule: absent is not zero |
 | `rift_format.c/.h` | every string the screens print about nodes and paths, and the path arithmetic. No LVGL, no cJSON, no I/O |
 | `rift_format_msg.c` | the same for messages and requests: states, the one-line caption, the preview, the channel body, what became of an advert or a node change |
@@ -567,16 +672,21 @@ the air must not be able to disconnect this app from its own service.
 | `ui/rift_comms.c` | COMMS: which conversations there are, the panes, and the landscape details pane (closed until asked for) |
 | `ui/rift_conv_list.c` | the conversation list - virtual like NODES: a pool of rows over a spacer, bound to the part on screen, the open row found by key |
 | `ui/rift_thread.c` | the open conversation: the header, the messages and the portrait composer. One builder for both orientations, as `rift_detail.c` is for NODES |
+| `ui/rift_find.c` | NODES' find bar: the search field, CLEAR and ZERO-HOP |
+| `ui/rift_netview.c` | NET: the PATH panel and the rings |
+| `ui/rift_manage.c` | ACTIVITY's CHANNELS panel: the list, LEAVE and its confirmation, the ADD CHANNEL form, a key shown once |
+| `ui/rift_device.c` | THIS DEVICE's RENAME and path hash choice with its confirmation |
+| `ui/rift_form.c` | the parts the management panels are built from: rows, a wrapping line, a chosen choice, a field with the touch keyboard |
 
 ## Tests
 
 | | |
 | --- | --- |
-| `tests/rift_format_test.c` | 101 checks: ages, signal, hop columns, state words, path compression, the inline chain, the ladder, UTF-8 names, and who gets an identity accent and that the hash is FNV-1a |
-| `tests/rift_model_test.c` | 234 checks: the initial snapshot, duplicate and update events, missing telemetry, malformed input, the bounded cache, the service going away and coming back, which run of the service answered, ordering; the path history and event count surviving a snapshot while the service's values are replaced, a reply that is not an event, a removal that is not an update, the traffic counters, the table-full count since the last forget (and a new run counting from nothing), a route change dated when it was seen, and the advert and node-change state machine with NOT DONE kept apart from NO ANSWER |
-| `tests/rift_comms_test.c` | 298 checks: the conversations and their order, duplicate and state-change events, unread and what clears it, the thread window, every state caption, telemetry that was never measured, the bounded message cache, the service restarting under the cache and the reconnect that is not a restart, the send state machine, what `mesh.send` will take, remote text nobody here chose the length of, and the channel body without its sender prefix and the one-line caption |
-| `tests/rift_ipc_test.c` | 205 checks against a real socket and a scripted service in a child process: connect, snapshot, events, refusals, the service disappearing, reconnect, one whole service replaced by another with an id space that starts again, the proof that nothing the app does on its own transmits or adverts, the send lifecycle, adverts asked for and refused, and forgetting a node or its route - answered, refused in the service's words, and unanswered when the service dies |
-| `tests/rift_app_test.c` | 463 checks under a real LVGL pointer device: the app opened in landscape the way a turned launcher opens it, the traffic graph on ACTIVITY (its bins, ladder, caption and legend, a frame heard now in the newest minute), the sender's identity accent in a channel thread and the mark on its row, the landscape console (no shell header, the strip a data row with the back slab that goes home, the command line a data row, the details pane closed until a tap on the thread's header opens it and a second closes it, the thread more than half the display, 17 whole messages where there were 11), 256 conversations drawn from a pool of rows bounded by the screen and the oldest reached by scrolling; then the chrome, all three sections, the row that only selects, the pushed detail and its FORGET confirmation (cancelled by leaving the section, closing the detail or turning the panel), Enter on a node that has gone, the table-full warning clearing once room is made, a thread's No answer and Not sent, both landscape splits, the composer, the unread pill, the command line present only when it holds something, a long list keeping its place and its selection in view, the newest message in view above the landscape composer, every panel caption drawn whole, every action's word inside its button, the ADVERT buttons, and open/leave/open again three times over. Then the activity pulse on real rows; the DM sound end to end against a fake backend (history silent, one sound per arrival, none for a repeat, the reader's own, a channel, a retry or a snapshot, one for a burst, the switch on ACTIVITY stored and honoured, muted, no backend, stopped on close, kept across opening, not saved when the store cannot be written); and scale - 256 nodes with the rows built bounded by the screen in both orientations, the selection kept by key across a re-ordering and a removal, 64 conversations re-ordered without a row rebuilt, a 200-message thread moved along without a rebuild and a reader in its history left there, a hundred arrivals in one pass. Prints what a repaint costs. Writes the screenshots |
+| `tests/rift_format_test.c` | 121 checks: well-formed UTF-8 and the emoji drawn as text smileys (never splitting a character); ages, signal, hop columns, state words, path compression, the inline chain, the ladder, UTF-8 names, and who gets an identity accent and that the hash is FNV-1a |
+| `tests/rift_model_test.c` | 322 checks: searching the node list (case, Æ Ø Å, hash prefixes) and the zero-hop filter; NET's rings and what placed each node, ambiguous hops, a bounded ring; channel keys (SHA-256 vectors, the `#test` hashtag key, strict base64, random keys); where the name came from and the path hash size; the management slot and its no-answer; the initial snapshot, duplicate and update events, missing telemetry, malformed input, the bounded cache, the service going away and coming back, which run of the service answered, ordering; the path history and event count surviving a snapshot while the service's values are replaced, a reply that is not an event, a removal that is not an update, the traffic counters, the table-full count since the last forget (and a new run counting from nothing), a route change dated when it was seen, and the advert and node-change state machine with NOT DONE kept apart from NO ANSWER |
+| `tests/rift_comms_test.c` | 305 checks: byte-correct limits with 4-byte emoji, direct and on a channel, and malformed text refused; the conversations and their order, duplicate and state-change events, unread and what clears it, the thread window, every state caption, telemetry that was never measured, the bounded message cache, the service restarting under the cache and the reconnect that is not a restart, the send state machine, what `mesh.send` will take, remote text nobody here chose the length of, and the channel body without its sender prefix and the one-line caption |
+| `tests/rift_ipc_test.c` | 240 checks against a real socket and a scripted service in a child process: joining a channel (the derived key checked byte for byte in the request, and absent from the model and the client afterwards), a duplicate key refused, leaving, renaming, the path hash size, a pinned name, a service without the setting, a change nobody answered; and connect, snapshot, events, refusals, the service disappearing, reconnect, one whole service replaced by another with an id space that starts again, the proof that nothing the app does on its own transmits or adverts, the send lifecycle, adverts asked for and refused, and forgetting a node or its route - answered, refused in the service's words, and unanswered when the service dies |
+| `tests/rift_app_test.c` | 622 checks under a real LVGL pointer device: a channel's sender before its message in both orientations (long, unnamed, own); the NODES search and ZERO-HOP view; NET from no snapshot to a real mesh, advert-placed nodes, MESSAGE and DETAIL, landscape columns; the CHANNELS and THIS DEVICE controls with no service (every refusal said before asking, every confirmation) and, given `RIFT_FAKE_MESHCORED`, live against the scripted service (a private channel joined and its key shown once, left, a rename, a path hash size); the app opened in landscape the way a turned launcher opens it, the traffic graph on ACTIVITY (its bins, ladder, caption and legend, a frame heard now in the newest minute), the sender's identity accent in a channel thread and the mark on its row, the landscape console (no shell header, the strip a data row with the back slab that goes home, the command line a data row, the details pane closed until a tap on the thread's header opens it and a second closes it, the thread more than half the display, 17 whole messages where there were 11), 256 conversations drawn from a pool of rows bounded by the screen and the oldest reached by scrolling; then the chrome, all three sections, the row that only selects, the pushed detail and its FORGET confirmation (cancelled by leaving the section, closing the detail or turning the panel), Enter on a node that has gone, the table-full warning clearing once room is made, a thread's No answer and Not sent, both landscape splits, the composer, the unread pill, the command line present only when it holds something, a long list keeping its place and its selection in view, the newest message in view above the landscape composer, every panel caption drawn whole, every action's word inside its button, the ADVERT buttons, and open/leave/open again three times over. Then the activity pulse on real rows; the DM sound end to end against a fake backend (history silent, one sound per arrival, none for a repeat, the reader's own, a channel, a retry or a snapshot, one for a burst, the switch on ACTIVITY stored and honoured, muted, no backend, stopped on close, kept across opening, not saved when the store cannot be written); and scale - 256 nodes with the rows built bounded by the screen in both orientations, the selection kept by key across a re-ordering and a removal, 64 conversations re-ordered without a row rebuilt, a 200-message thread moved along without a rebuild and a reader in its history left there, a hundred arrivals in one pass. Prints what a repaint costs. Writes the screenshots |
 | `tests/rift_notify_test.c` | 93 checks: which direct messages are arrivals (history on opening, the same event twice, the reader's own, a channel, a reconnect's snapshot, an id below the highest, a sender's retry under a new id, no timestamp, a malformed message, a new run starting its ids again), the sound policy (a burst is one sound, nothing queued, off, muted, the gap from the last sound, a clock stepping back), the sound seam, the preferences file, the activity buckets and what a conversation is heard from, frames in the last five minutes, a 63-hop chain too long to write whole, and a list of more peers than it holds keeping the newest |
 | `tests/rift_shell_test.sh` | the app test, then the real shell opening RIFT in both orientations with a scripted meshcored on a real socket, then with no service at all, then the same fixtures twice for the same pixels |
 | `tests/rift_lint.sh` | the boundaries: what transmits and from where (send and advert), what changes a node and from where, no colour, no device, one store holding nothing about the mesh, a DM arrival decided in one place from live events only, the sound asked for in one place and only when the policy says so, no sound device and no helper process, the sound stopped on close, no monolith, and the gaps this build leaves |
@@ -671,9 +781,13 @@ them, one after the other, are two runs of a service and not one.
 12. **Adverts carry no position.** `mesh.advert` builds the advert with the
     node's name only; MeshCore can add a location, and this service has no
     location to add and no setting for one.
-13. **No trace, no path discovery, no repeater login.** MeshCore has all
-    three, and each transmits and needs a request/response the service does
-    not yet match. They are not in the API (docs/api/mesh.md, "Not in v0").
+13. **No trace, no path discovery, no repeater login, no node discovery.**
+    MeshCore has all four - the T-Deck RIFT discovers nearby repeaters with a
+    zero-hop `CTL_TYPE_NODE_DISCOVER_REQ` - and each transmits and needs a
+    request/response the service does not yet match. They are not in the API
+    (docs/api/mesh.md, "Not in v0"). ZERO-HOP is built on what the service
+    already hears - repeaters advert on their own - and asks for nothing on
+    the air.
 14. **The DM sound is silent in this build.** There is no platform sound
     for an app to ask for, and RIFT does not open the card itself (ADR-002,
     ADR-004). The switch says so. See "The DM sound".
@@ -694,6 +808,15 @@ them, one after the other, are two runs of a service and not one.
     says so in its footer. Raising the service's table is a change to a
     persisted store with its own gate (docs/hardware/MESH_NODE_CAPACITY_256_GATE.md)
     and is not this one.
+18. **No flood scopes.** See "Managing the node": the service writes no
+    transport codes, so a channel's scope cannot be changed - there is only
+    the unscoped flood.
+19. **The path hash size is unproven on air.** 2 and 3 bytes are upstream's
+    encoding, exercised between two meshcored runtimes and in the service
+    test; no repeater has carried one for this node yet, and older repeater
+    firmware drops them by design (which the confirmation says).
+20. **Emoji are drawn as smileys or boxes, never as emoji.** See "Emoji and
+    other text".
 
 ## What needs hardware
 
