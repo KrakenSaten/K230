@@ -113,6 +113,7 @@ first run, 2026-09-04; open item 3 is to archive it per release).
 | Realtek `rtl8723ds-bt` firmware | PROPRIETARY (Buildroot metadata) | yes | **REVIEW REQUIRED** (item 4: hardware absent; removal candidate) |
 | `rtl8723ds`, `rtl8189fs`, `aic8800` drivers and `aic8800*` firmware | GPL-2.0 drivers; firmware terms not collected | yes | REVIEW REQUIRED (item 4) |
 | Xuantie toolchain runtime (glibc, libstdc++, libgcc_s) | LGPL-2.1+ / GPL-3.0 with runtime exception | yes | REVIEW REQUIRED (item 8: not collected by legal-info) |
+| YOLOv8n model `yolov8n.kmodel` (`yolov8n-kmodel`), installed by the Doors package for Vision | Ultralytics weights AGPL-3.0; the SDK states no terms for the file | yes, internal images only (owner, 2026-09-28) | **DO NOT REDISTRIBUTE** outside the project (MODEL_LICENSES.md; docs/LICENSING.md item 10) |
 | Vendor models in the image (`face_detection_320.kmodel`, `xiaozhi_kws.kmodel`, `test.kmodel`) | none stated | yes, via vendor packages | see MODEL_LICENSES.md |
 
 ## 6. Build and host-only tools (not distributed)
