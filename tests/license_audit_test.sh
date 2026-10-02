@@ -148,11 +148,14 @@ gone=""
 while IFS= read -r e; do [ -n "$(git ls-files -- "$e")" ] || gone="$gone [$e]"; done < <(psx_entries)
 check "every public-source exclusion names tracked files${gone:+ (none:$gone)}" "$([ -z "$gone" ] && echo 1 || echo 0)"
 # Nothing a build, a generator or a test reads may be excluded; a comment that
-# names an excluded path is fine.
+# names an excluded path is fine. tests/meshcored_lint.sh names
+# docs/design/rift only inside the pattern of includes it refuses; it reads
+# nothing there.
 used=""
 while IFS= read -r e; do
     hits=$(git grep -n -F "${e%/}" -- Makefile '*CMakeLists.txt' platforms/k230/scripts platforms/k230/package tools tests \
-               ':!tests/license_audit_test.sh' 2>/dev/null | grep -v -E '^[^:]+:[0-9]+:[[:space:]]*(#|\*|/\*|//)')
+               ':!tests/license_audit_test.sh' ':!tests/meshcored_lint.sh' 2>/dev/null |
+           grep -v -E '^[^:]+:[0-9]+:[[:space:]]*(#|\*|/\*|//)')
     [ -z "$hits" ] || used="$used [$e]"
 done < <(psx_entries)
 check "no build, generator or test input is excluded${used:+ (read:$used)}" "$([ -z "$used" ] && echo 1 || echo 0)"

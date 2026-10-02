@@ -27,7 +27,15 @@ SPEC=(.)
 for e in "${ENTRIES[@]}"; do SPEC+=(":(exclude,literal)${e%/}"); done
 
 if [ "${LIST}" = 1 ]; then
-    git -C "${REPO}" ls-tree -r --name-only "${COMMIT}" -- "${SPEC[@]}"
+    # ls-tree takes no exclude pathspecs, so the entries are applied here: a
+    # trailing / excludes everything under it, otherwise the exact path.
+    git -C "${REPO}" -c core.quotepath=off ls-tree -r --name-only "${COMMIT}" |
+        awk 'NR == FNR { e[++n] = $0; next }
+             { for (i = 1; i <= n; i++) {
+                   p = e[i]
+                   if (substr(p, length(p)) == "/" ? index($0, p) == 1 : $0 == p) next
+               }
+               print }' <(printf '%s\n' "${ENTRIES[@]}") -
     exit 0
 fi
 git -C "${REPO}" archive --format=tar -o "${OUT}" "${COMMIT}" -- "${SPEC[@]}"
