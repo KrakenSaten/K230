@@ -55,6 +55,99 @@ void pocketui_apply_bar_insets(lv_obj_t *bar, enum pos_edge edge)
     lv_obj_set_style_pad_bottom(bar, LV_MAX(bottom, in.bottom), LV_PART_MAIN);
 }
 
+/* ---- The top-left way back (DS §48) ----------------------------------- */
+
+/* The corner is drawn and touched as one box, the face: a child of the slab
+ * from POCKETUI_BACK_BLEED beyond the screen's top and left edges to the
+ * slab's right edge and POCKETUI_BACK_FOOT below its bottom edge. Past the
+ * edges its own rounded corner is off the screen, so on the glass its
+ * top-left is the panel's own rounded corner, whatever its radius; its
+ * right and bottom edges, the only ones seen, carry the hairline and the
+ * slab radius. The slab itself draws nothing and keeps its place in the
+ * row, so the title does not move. Everything is relative to the slab, so
+ * a relayout (text size, the keyboard) moves the face with it and nothing
+ * is measured; a rotation builds the screen again.
+ *
+ * LVGL looks for a touch among a box's children only inside the box, or,
+ * when its overflow is visible, inside its extra drawing area; the slab
+ * declares that area as far out as the face goes. The face is floating, so
+ * it never counts for a layout or for scrolling, and it passes its events up
+ * to the slab: CLICKED reaches the slab's own handler, and LVGL's PRESSED,
+ * RELEASED and PRESS_LOST handling presses and releases the slab as each
+ * passes; the slab's states trickle back down, so a key that presses the
+ * slab lights the face too. One change does not pass as an event: a drag
+ * that becomes a scroll takes PRESSED off the face directly, so the slab
+ * follows the face's state as it changes.
+ *
+ * Not LVGL's extended click area: it grows a box by the same amount on all
+ * four sides, over the title. Not its hit-test hook either: the struct it
+ * fills is in a private header that the device's sysroot does not carry.
+ * Not a per-corner radius: LVGL has one radius for all four corners. */
+static void back_corner_event(lv_event_t *e)
+{
+    lv_obj_t *back = lv_event_get_current_target_obj(e);
+    lv_obj_t *from = lv_event_get_target_obj(e);
+
+    if (lv_event_get_code(e) == LV_EVENT_REFR_EXT_DRAW_SIZE) {
+        lv_event_set_ext_draw_size(e, (int32_t)(intptr_t)lv_event_get_user_data(e));
+    } else if (from != back && lv_obj_get_parent(from) == back &&
+               lv_obj_has_state(from, LV_STATE_PRESSED) != lv_obj_has_state(back, LV_STATE_PRESSED)) {
+        lv_obj_set_state(back, LV_STATE_PRESSED, lv_obj_has_state(from, LV_STATE_PRESSED));
+    }
+}
+
+lv_obj_t *pocketui_back_corner(lv_obj_t *back, int32_t left, int32_t top, enum pos_style_role look,
+                               enum pos_style_role pressed)
+{
+    int32_t w = lv_obj_get_style_width(back, LV_PART_MAIN);
+    int32_t h = lv_obj_get_style_height(back, LV_PART_MAIN);
+    int32_t centre;
+    int32_t ext;
+    lv_obj_t *face;
+    uint32_t i;
+
+    /* The slab's own size, set in pixels before this call (all three are
+     * 72 x 56); a content or percent size has no pixels to reach from. */
+    if (LV_COORD_IS_SPEC(w) || LV_COORD_IS_SPEC(h) || w <= 0 || h <= 0 || left < 0 || top < 0) {
+        return NULL;
+    }
+    face = lv_obj_create(back);
+    lv_obj_remove_style_all(face);
+    pos_style_add(face, look, 0);
+    pos_style_add(face, pressed, LV_STATE_PRESSED);
+    lv_obj_remove_flag(face, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(face, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_EVENT_BUBBLE);
+    /* A child's position counts from the slab's padding; the face's from the
+     * slab's edge. */
+    lv_obj_set_pos(face, -left - POCKETUI_BACK_BLEED - lv_obj_get_style_space_left(back, LV_PART_MAIN),
+                   -top - POCKETUI_BACK_BLEED - lv_obj_get_style_space_top(back, LV_PART_MAIN));
+    lv_obj_set_size(face, POCKETUI_BACK_BLEED + left + w, POCKETUI_BACK_BLEED + top + h + POCKETUI_BACK_FOOT);
+    /* Drawn under the chevron. */
+    lv_obj_move_to_index(face, 0);
+
+    /* The chevron in the middle of what is seen of the face, but never
+     * nearer the screen's edge than 14 px inside the slab (it stays clear of
+     * the corner's inset whatever the inset is). */
+    centre = (w - left) / 2;
+    if (centre < 14) {
+        centre = 14;
+    }
+    for (i = 0; i < lv_obj_get_child_count(back); i++) {
+        lv_obj_t *c = lv_obj_get_child(back, (int32_t)i);
+
+        if (lv_obj_check_type(c, &lv_label_class)) {
+            lv_obj_align(c, LV_ALIGN_CENTER, centre - w / 2, (POCKETUI_BACK_FOOT - top) / 2);
+        }
+    }
+
+    ext = (left > top ? left : top) + POCKETUI_BACK_BLEED;
+    lv_obj_add_flag(back, LV_OBJ_FLAG_OVERFLOW_VISIBLE | LV_OBJ_FLAG_STATE_TRICKLE);
+    lv_obj_add_event_cb(back, back_corner_event, LV_EVENT_REFR_EXT_DRAW_SIZE, (void *)(intptr_t)ext);
+    lv_obj_add_event_cb(back, back_corner_event, LV_EVENT_STATE_CHANGED, NULL);
+    lv_obj_refresh_ext_draw_size(back);
+    return face;
+}
+
 /* ---- Responsive layout guard (DS §21.3, §22.2) ------------------------ */
 
 /* Field by field, not memcmp: lv_area_t and struct pos_insets are plain

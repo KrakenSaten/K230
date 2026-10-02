@@ -4414,3 +4414,101 @@ Run on unit B on `11ab0d9`, 2026-10-01: all seventeen steps PASS
 (docs/hardware/LAUNCHER_APP_GROUPS_GATE.md), both orientations, Small,
 Medium and Large, by injected touch and the base's key path. Left for the
 owner's eyes: the Apps icon's look and the feel of the new page.
+
+## 48. Amendment AF — The back corner [PROPOSED]
+
+**Proposed 2026-10-02** on branch `feat/back-button-hit-area`. The top-left
+way back becomes the screen's corner, drawn and touched as one box. It
+changes the back slab's drawing and touch target (§7 "back slab" and the App
+header component) and, for that box only, the corner rule of §21.1; no token, colour,
+header height, title position or navigation rule changes, and nothing in
+§1-§47 is renumbered.
+
+### 48.1 Why
+
+The back slab is 72 × 56 (§7) at the header's side margin or the top
+corner's inset, 8 px below the top edge. On the glass it reads as a small
+square floating inside the panel's rounded corner, and a thumb aimed at the
+corner lands in the strip left of it (30 px in portrait, 50 px on unit A's
+landscape corners) or the row above it, where nothing happens. The slab is
+also below the 64 px minimum touch target (§7, C1) in height.
+
+### 48.2 The corner
+
+One box, drawn and touched alike, from the screen's top and left edges to
+**the slab's right edge** and **the foot of the 72 px header row**: 102 × 72
+in portrait, 122 × 72 with unit A's 50 px landscape corners (the side margin
+or corner inset + 72, by 72).
+
+- **Top-left: the panel's own corner.** The box is drawn 8 px past the top
+  and left edges, so its own rounded corner is off the screen and what is
+  seen there is the fill running into the glass's rounded corner, whatever
+  its radius. The fill under the curve is the one thing §21.1's corner
+  square may hold (a surface, never text, a glyph or a control's edge).
+  Captures of the frame buffer show that corner square; the glass rounds it.
+- **Right and bottom: clean edges.** The only edges seen; they carry the
+  hairline and the slab radius (6) at the bottom-right corner.
+- **Look.** App header: `surface` fill with a `line` hairline (the secondary
+  button's style), pressed as the slab was (`surface_raised` and the 2 px
+  `focus` outline, which shows on the right and bottom edges). Folder and
+  picker pages and Controls: the launcher's glass and lit glass, as their
+  slabs were.
+- **Chevron.** The same glyph and colour, centred in what is seen of the
+  box (but never nearer the screen's edge than 14 px inside the slab's
+  place, so it stays clear of any inset).
+- **Title.** Unmoved: the slab keeps its 72 × 56 place in the header row
+  and draws nothing itself, so the title still starts 16 px after it, which
+  is now 16 px after the box. The header's height is unchanged.
+- **Touch.** A tap anywhere in the box goes back exactly as the slab did
+  (§47.3 for pages of an app); a drag that becomes a scroll does not; Enter
+  and the base's Back key are unchanged. Pressed while a finger holds it,
+  or while a key presses the slab.
+
+It applies to the three shell-owned top-left slabs: the app header's, a
+launcher folder's or the favorite picker's page (§39, §42), and Controls'
+(§31). Back slabs an app draws in its own top row (RIFT and Video in
+landscape, §37.2, §41) are the app's and are unchanged.
+
+### 48.3 Implementation
+
+`pocketui_back_corner(back, left, top, look, pressed)`
+(`ui/pocketui/pocketui.[ch]`): the box is a floating child of the slab, drawn
+under the chevron and positioned relative to it, so a relayout moves it with
+the slab; its events bubble to the slab, whose own handler runs; the slab's
+states trickle down to it and a scroll's release is mirrored up. LVGL has
+one radius for all four corners, hence the bleed past the edges. Its
+extended click area is not used (it grows all four sides alike, over the
+title), nor its hit-test hook (its struct is in a private header the
+device's sysroot does not carry). The layout audit (§46.6) does not count
+the box: it is a surface with no handler of its own; the chevron and the
+title are checked as before.
+
+### 48.4 Validation on the host
+
+`tests/pocketui_back_test.c` (a real LVGL pointer; app header, folder page
+and Controls placement; left margins 20, 30, 50 and 72; portrait and
+landscape): the slab's place and the title unmoved; the box from past the
+edges to the slab's right edge and the row's foot, drawn, under the
+chevron, its own radius off the screen; the chevron centred and clear of the
+inset; the screen's top-left pixel, the strip left of the slab, the row
+above it, the header's foot and the box's last column go back once; one
+pixel further right or down, the title, the far end of the row and the
+body's first row do not; pressed while held and while a key presses the
+slab; a slide onto the title as from the slab; a drag that scrolls the page
+lets it go and does not go back; Enter on the focused slab.
+`tests/back_corner_shell_test.sh` (the running shell, portrait, landscape and
+landscape with 50 px corners, by `shell.tap`): every app with the shell's
+header, Settings -> System -> Settings -> home, three folders and Controls,
+thirty rounds; Small, Medium and Large in both orientations with the layout
+audit clean on Settings and System. `tests/chrome_shell_test.sh` measures the
+box in the pixels (from the top edge to row 70 and to the inset + 70).
+
+### 48.5 Gate (before acceptance)
+
+The touch target alone (a transparent target around the old 72 x 56 slab) was
+gated on unit A on `doors-shell` `8e2fac5`, 2026-10-02: landscape and portrait
+18/18 each against 7/18 for master `3a1303b` (docs/hardware/BACK_CORNER_GATE.md).
+The drawn corner of §48.2 on `doors-shell` `1df9438`, the same day and sheet:
+landscape and portrait 18/18 each, the layout audit clean at Small, Medium
+and Large in both, pressed lit on the whole corner, no fault. Left for the
+owner: the look under the glass's curve and the feel under a real finger.
