@@ -230,6 +230,59 @@ static void build_path(struct rift_net_view *v)
     v->path_detail = rift_action(v->path_bar, "DETAIL \xE2\x80\xBA", 0, 1, on_detail, v);
 }
 
+/* A ring's word, handoff §7 - 0 SELF, 1 DIRECT, 2 .. 9+, ? NO PATH - in the
+ * longest form that fits its head: the number always survives. */
+static void ring_word_fit(lv_obj_t *word, int r)
+{
+    char full[24];
+    char brief[16];
+    char number[8];
+    const char *cand[3];
+    int n = 0;
+
+    if (r == RIFT_NET_RING_SELF || r == RIFT_NET_RING_DIRECT) {
+        snprintf(full, sizeof(full), "%d %s", r, rift_net_ring_word(r));
+        snprintf(brief, sizeof(brief), "%d %s", r, r == RIFT_NET_RING_SELF ? "ME" : "DIR");
+        snprintf(number, sizeof(number), "%d", r);
+        cand[n++] = full;
+        cand[n++] = brief;
+        cand[n++] = number;
+    } else if (r == RIFT_NET_RING_NO_PATH) {
+        cand[n++] = "? NO PATH";
+        cand[n++] = "? NONE";
+        cand[n++] = "?";
+    } else {
+        cand[n++] = rift_net_ring_word(r);
+    }
+    rift_cell_set_text_first_fit(word, cand, n);
+}
+
+/* How many, and how many of them an advert placed, in the longest form that
+ * fits: "5 · 5 ADV", then "5·5 ADV", then the count alone - which the PATH
+ * panel and a node's detail still qualify. Empty for an empty ring. */
+static void ring_count_fit(lv_obj_t *count, int total, int advert)
+{
+    char full[48];
+    char tight[32];
+    char bare[16];
+    const char *cand[3];
+    int n = 0;
+
+    if (total == 0) {
+        rift_label_set(count, "");
+        return;
+    }
+    snprintf(bare, sizeof(bare), "%d", total);
+    if (advert) {
+        snprintf(full, sizeof(full), "%d" RIFT_SEP "%d ADV", total, advert);
+        snprintf(tight, sizeof(tight), "%d\xC2\xB7%d ADV", total, advert);
+        cand[n++] = full;
+        cand[n++] = tight;
+    }
+    cand[n++] = bare;
+    rift_cell_set_text_first_fit(count, cand, n);
+}
+
 static void build_ring(struct rift_net_view *v, int r)
 {
     struct ring_view *rv = &v->ring[r];
@@ -243,20 +296,21 @@ static void build_ring(struct rift_net_view *v, int r)
     rv->head = box(rv->box, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_width(rv->head, RING_LABEL_W);
     lv_obj_set_style_pad_top(rv->head, 6, 0);
+    /* The word and the count are the head's width, one line each, and are
+     * fitted to it on every refresh (ring_head_fit): a landscape column is
+     * about a ninth of the body, and at a larger text size (DS §46) "1 DIRECT"
+     * or "5 · 5 ADV" sized to its own text ran into the next ring's column. */
     rv->word = lv_label_create(rv->head);
     lv_obj_remove_style_all(rv->word);
     pos_style_add(rv->word, POS_STYLE_CAPTION, 0);
-    /* Handoff §7: 0 SELF, 1 DIRECT, 2 .. 9, ? NO PATH. */
-    if (r == RIFT_NET_RING_SELF || r == RIFT_NET_RING_DIRECT) {
-        lv_label_set_text_fmt(rv->word, "%d %s", r, rift_net_ring_word(r));
-    } else if (r == RIFT_NET_RING_NO_PATH) {
-        lv_label_set_text(rv->word, "? NO PATH");
-    } else {
-        lv_label_set_text(rv->word, rift_net_ring_word(r));
-    }
+    lv_obj_set_width(rv->word, LV_PCT(100));
+    lv_label_set_long_mode(rv->word, LV_LABEL_LONG_CLIP);
+    lv_label_set_text(rv->word, "");
     rv->count = lv_label_create(rv->head);
     lv_obj_remove_style_all(rv->count);
     pos_style_add(rv->count, POS_STYLE_CAPTION, 0);
+    lv_obj_set_width(rv->count, LV_PCT(100));
+    lv_label_set_long_mode(rv->count, LV_LABEL_LONG_CLIP);
     lv_label_set_text(rv->count, "");
     /* The rail of handoff §7: the accent through the rings the selected route
      * crosses, muted through NO PATH, nothing elsewhere. A ring's segment is
@@ -478,13 +532,13 @@ void rift_net_view_refresh(struct rift_app *app)
         while (rv->built < want && rv->built < PILLS_PER_RING) {
             build_pill(v, rv);
         }
+        ring_word_fit(rv->word, r);
         if (r == RIFT_NET_RING_SELF) {
             fill_pill(&rv->pill[0], (m->have_identity && m->self_name[0]) ? m->self_name
                                                                            : "this device",
                       NULL, LOOK_SELF, v->wide);
             rift_label_set(rv->count, "");
         } else {
-            char text[48];
 
             for (i = 0; i < ring->shown; i++) {
                 char label[RIFT_LABEL_MAX];
@@ -509,17 +563,10 @@ void rift_net_view_refresh(struct rift_app *app)
             }
             /* How many, and how many of them an advert placed: those have a
              * count and no chain. Nothing for an empty ring. */
-            if (ring->count == 0) {
-                text[0] = '\0';
-            } else if (ring->advert) {
-                snprintf(text, sizeof(text), "%d" RIFT_SEP "%d ADV", ring->count, ring->advert);
-            } else {
-                snprintf(text, sizeof(text), "%d", ring->count);
-            }
-            rift_label_set(rv->count, text);
+            ring_count_fit(rv->count, ring->count, ring->advert);
             /* An empty count takes no line, so an empty ring is the header
              * row it is drawn at and its rail meets the next one. */
-            if (text[0]) {
+            if (ring->count) {
                 lv_obj_remove_flag(rv->count, LV_OBJ_FLAG_HIDDEN);
             } else {
                 lv_obj_add_flag(rv->count, LV_OBJ_FLAG_HIDDEN);

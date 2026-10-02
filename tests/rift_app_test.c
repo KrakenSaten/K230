@@ -1365,6 +1365,9 @@ static int captions_clipped(lv_obj_t *obj)
  * HEARD clipped by their columns, COMMS' CONVERSATIONS run under HEARD, and
  * MESH ACTIVITY's caption cut by its legend. The shell re-creates the open
  * app when the size changes (DS §46), so each size is a new app here too. */
+static lv_obj_t *net_rings(void);
+static void give_node_json(const char *json);
+
 static void text_size_session(void)
 {
     static const enum pos_text_size sizes[] = { POS_TEXT_SIZE_SMALL, POS_TEXT_SIZE_MEDIUM,
@@ -1459,6 +1462,78 @@ static void text_size_session(void)
             }
             if (app->wide && sizes[s] == POS_TEXT_SIZE_LARGE) {
                 shot("landscape-comms-large");
+            }
+            /* NET: a mesh spread over rings 1 to 9, half of it placed by
+             * advert, as unit B's is. Every ring's word and count fits its
+             * own column - in landscape a ninth of the body - and none runs
+             * into the next (unit B, Large, 2026-10-02: "1 DIRECT 2"). */
+            {
+                char json[512];
+                int i;
+                int bad = 0;
+                int seen = 0;
+                lv_obj_t *rings;
+
+                for (i = 0; i < 60; i++) {
+                    snprintf(json, sizeof(json),
+                             "{\"reason\":\"discovered\",\"node\":{\"public_key\":\"%064x\","
+                             "\"name\":\"N%02d\",\"type\":2,\"path_known\":%s,\"hops\":%d,"
+                             "\"last_heard_mono_ms\":%lld,\"advert_hops\":%d,"
+                             "\"advert_mono_ms\":%lld}}",
+                             0x5000 + i, i, i % 2 ? "true" : "false", i % 9 + 1,
+                             (long long)(rift_mono_ms() - 30000), i % 9,
+                             (long long)(rift_mono_ms() - 30000));
+                    give_node_json(json);
+                }
+                rift_app_show_section(app, RIFT_SEC_NET);
+                rift_app_refresh(app);
+                pump(300);
+                rings = net_rings();
+                for (i = 0; rings && i < (int)lv_obj_get_child_count(rings); i++) {
+                    lv_obj_t *box = kid(rings, (uint32_t)i);
+                    lv_obj_t *head = kid(box, 0);
+                    lv_area_t bx;
+                    uint32_t j;
+
+                    if (!visible(box)) {
+                        continue;
+                    }
+                    seen++;
+                    /* The heading column: in portrait the row holds the pills too. */
+                    lv_obj_get_coords(head, &bx);
+                    for (j = 0; j < 2; j++) {
+                        lv_obj_t *l = kid(head, j);
+                        lv_area_t la;
+
+                        if (!l || !visible(l)) {
+                            continue;
+                        }
+                        lv_obj_get_coords(l, &la);
+                        if (words_w(l) > lv_obj_get_content_width(l) || la.x2 > bx.x2) {
+                            bad++;
+                            printf("     NET %s %s: \"%s\" %d px in %d (column ends %d, label %d)\n",
+                                   size, shape, lv_label_get_text(l), (int)words_w(l),
+                                   (int)lv_obj_get_content_width(l), (int)bx.x2, (int)la.x2);
+                        }
+                    }
+                }
+                snprintf(what, sizeof(what),
+                         "%s, %s: NET's ring words and counts fit their columns (%d rings)", size,
+                         shape, seen);
+                check(what, seen >= 10 && bad == 0);
+                if (sizes[s] == POS_TEXT_SIZE_LARGE) {
+                    printf("     NET %s %s:", size, shape);
+                    for (i = 0; rings && i < (int)lv_obj_get_child_count(rings); i++) {
+                        lv_obj_t *head = kid(kid(rings, (uint32_t)i), 0);
+
+                        if (visible(head)) {
+                            printf(" [%s|%s]", lv_label_get_text(kid(head, 0)),
+                                   visible(kid(head, 1)) ? lv_label_get_text(kid(head, 1)) : "");
+                        }
+                    }
+                    printf("\n");
+                    shot(app->wide ? "landscape-net-large" : "portrait-net-large");
+                }
             }
             app_stop();
         }
