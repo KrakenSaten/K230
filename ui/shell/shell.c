@@ -1217,6 +1217,8 @@ static void app_open(const struct pocketos_app *app)
     pos_style_add(back, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
     lv_obj_set_size(back, 72, 56); /* back slab, DS §7 */
     lv_obj_add_flag(back, LV_OBJ_FLAG_CLICKABLE);
+    /* Drawn 72 x 56; a finger reaches it anywhere in the corner (DS §48). */
+    pocketui_back_corner(back);
     lv_obj_add_event_cb(back, on_back, LV_EVENT_CLICKED, NULL);
     name = lv_label_create(back);
     lv_label_set_text(name, LV_SYMBOL_LEFT);

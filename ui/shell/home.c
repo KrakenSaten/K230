@@ -741,6 +741,7 @@ static void folder_header(const struct home_folder_layout *lay, const char *name
     pos_style_add(back, POS_STYLE_ENV_PANEL_PRESSED, LV_STATE_PRESSED);
     place(back, &lay->back);
     lv_obj_add_flag(back, LV_OBJ_FLAG_CLICKABLE);
+    pocketui_back_corner(back); /* the whole corner, as the app header's (DS §48) */
     lv_obj_add_event_cb(back, on_folder_back, LV_EVENT_CLICKED, NULL);
     o = lv_label_create(back);
     lv_label_set_text(o, LV_SYMBOL_LEFT);

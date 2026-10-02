@@ -594,6 +594,7 @@ lv_obj_t *controls_create(lv_obj_t *parent, bool landscape, const struct control
 
     /* Header: back, the title, what this is. */
     back = glass(ct.root, &L->back, true);
+    pocketui_back_corner(back); /* the whole corner, as the app header's (DS §48) */
     lv_obj_add_event_cb(back, on_close, LV_EVENT_CLICKED, NULL);
     o = text(back, POS_STYLE_ENV_TEXT, LV_SYMBOL_LEFT);
     pos_style_add(o, POS_STYLE_SYMBOL, 0);

@@ -55,6 +55,70 @@ void pocketui_apply_bar_insets(lv_obj_t *bar, enum pos_edge edge)
     lv_obj_set_style_pad_bottom(bar, LV_MAX(bottom, in.bottom), LV_PART_MAIN);
 }
 
+/* ---- The top-left way back (DS §48) ----------------------------------- */
+
+/* The reach is a pad: a child of the slab with no style, so it draws
+ * nothing, from POCKETUI_BACK_CORNER above and left of the slab to
+ * POCKETUI_BACK_REACH past its right and bottom edges. Everything is
+ * relative to the slab, so a relayout (rotation, text size, the keyboard)
+ * moves the pad with it and nothing is measured.
+ *
+ * LVGL looks for a touch among a box's children only inside the box, or,
+ * when its overflow is visible, inside its extra drawing area; the slab
+ * declares that area as far out as the pad goes (and draws nothing there).
+ * The pad is floating, so it never counts for a layout or for scrolling, and
+ * it passes its events up to the slab: CLICKED reaches the slab's own
+ * handler, and LVGL's own PRESSED, RELEASED and PRESS_LOST handling presses
+ * and releases the slab as each passes. The pad covers the slab too, so
+ * every touch takes this one path. One state change does not pass as an
+ * event: a drag that becomes a scroll takes PRESSED off the pad directly,
+ * so the slab follows the pad's state as it changes.
+ *
+ * Not LVGL's extended click area: it grows a box by the same amount on all
+ * four sides, which would put the corner's reach over the title. Not its
+ * hit-test hook either: the struct it fills is in a private header that the
+ * device's sysroot does not carry. */
+static void back_corner_event(lv_event_t *e)
+{
+    lv_obj_t *back = lv_event_get_current_target_obj(e);
+    lv_obj_t *from = lv_event_get_target_obj(e);
+
+    if (lv_event_get_code(e) == LV_EVENT_REFR_EXT_DRAW_SIZE) {
+        lv_event_set_ext_draw_size(e, POCKETUI_BACK_CORNER);
+    } else if (from != back && lv_obj_get_parent(from) == back &&
+               lv_obj_has_state(from, LV_STATE_PRESSED) != lv_obj_has_state(back, LV_STATE_PRESSED)) {
+        lv_obj_set_state(back, LV_STATE_PRESSED, lv_obj_has_state(from, LV_STATE_PRESSED));
+    }
+}
+
+void pocketui_back_corner(lv_obj_t *back)
+{
+    int32_t w = lv_obj_get_style_width(back, LV_PART_MAIN);
+    int32_t h = lv_obj_get_style_height(back, LV_PART_MAIN);
+    lv_obj_t *pad;
+
+    /* The slab's own size, set in pixels before this call (all three are
+     * 72 x 56); a content or percent size has no pixels to reach from. */
+    if (LV_COORD_IS_SPEC(w) || LV_COORD_IS_SPEC(h) || w <= 0 || h <= 0) {
+        return;
+    }
+    pad = lv_obj_create(back);
+    lv_obj_remove_style_all(pad);
+    lv_obj_remove_flag(pad, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(pad, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_EVENT_BUBBLE);
+    /* A child's position counts from the slab's padding; the pad's from the
+     * slab's edge. */
+    lv_obj_set_pos(pad, -POCKETUI_BACK_CORNER - lv_obj_get_style_space_left(back, LV_PART_MAIN),
+                   -POCKETUI_BACK_CORNER - lv_obj_get_style_space_top(back, LV_PART_MAIN));
+    lv_obj_set_size(pad, POCKETUI_BACK_CORNER + w + POCKETUI_BACK_REACH,
+                    POCKETUI_BACK_CORNER + h + POCKETUI_BACK_REACH);
+
+    lv_obj_add_flag(back, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_add_event_cb(back, back_corner_event, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
+    lv_obj_add_event_cb(back, back_corner_event, LV_EVENT_STATE_CHANGED, NULL);
+    lv_obj_refresh_ext_draw_size(back);
+}
+
 /* ---- Responsive layout guard (DS §21.3, §22.2) ------------------------ */
 
 /* Field by field, not memcmp: lv_area_t and struct pos_insets are plain

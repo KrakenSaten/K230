@@ -4414,3 +4414,65 @@ Run on unit B on `11ab0d9`, 2026-10-01: all seventeen steps PASS
 (docs/hardware/LAUNCHER_APP_GROUPS_GATE.md), both orientations, Small,
 Medium and Large, by injected touch and the base's key path. Left for the
 owner's eyes: the Apps icon's look and the feel of the new page.
+
+## 48. Amendment AF — The back slab's corner target [PROPOSED]
+
+**Proposed 2026-10-02** on branch `feat/back-button-hit-area`. It changes
+where a finger reaches the top-left way back, not how it looks: no role,
+token, size, colour, position or navigation rule changes, and nothing in
+§1-§47 is renumbered.
+
+### 48.1 Why
+
+The back slab is 72 × 56 (§7) at the header's side margin or the top
+corner's inset, 8 px below the top edge. A thumb aimed at the corner lands
+in the strip left of it (30 px in portrait, 50 px on unit A's landscape
+corners) or the row above it, and nothing happens. The slab is also below
+the 64 px minimum touch target (§7, C1) in height.
+
+### 48.2 The rule
+
+The slab takes a tap anywhere in its corner of the screen: from the top and
+left edges of the screen (up to 72 px from the slab) to **8 px past its
+right and bottom edges** - half the 16 px gap to the title, and the foot of
+the 72 px header row. In the app header that is the whole row's height from
+the left edge to 8 px short of the title (about 110 × 72 in portrait, 130 ×
+72 with 50 px corners); the target is never taller than the header and never
+reaches the title, the hint, the status cluster or the body.
+
+- The slab is drawn exactly as before - box, fill, glyph, radius - and shows
+  pressed while a finger holds anywhere in the target.
+- Tapping goes back exactly as the slab did (§47.3 for pages of an app); a
+  drag that becomes a scroll does not; Enter and the base's Back key are
+  unchanged.
+- It applies to the three shell-owned top-left slabs: the app header's, a
+  launcher folder's or the favorite picker's page (§39, §42), and Controls'
+  (§31). Back slabs an app draws in its own top row (RIFT and Video in
+  landscape, §37.2, §41) are the app's and are unchanged.
+
+### 48.3 Implementation
+
+`pocketui_back_corner()` (`ui/pocketui/pocketui.[ch]`): an unstyled,
+floating child of the slab spans the target, relative to the slab, so a
+relayout moves it with the slab; its events bubble to the slab, whose own
+handler runs and whose pressed state follows. LVGL's extended click area is
+not used (it grows all four sides alike, over the title), nor its hit-test
+hook (its struct is in a private header the device's sysroot does not
+carry). The layout audit (§46.6) does not count the target: it is a surface
+with no handler of its own.
+
+### 48.4 Validation on the host
+
+`tests/pocketui_back_test.c` (a real LVGL pointer; app header, folder page
+and Controls placement; left margins 20, 30, 50 and 72; portrait and
+landscape): the slab drawn where and as large as before; the screen's
+top-left pixel, the strip left of the slab, the row above it, the header's
+foot and the last column of the reach go back once; one pixel further right
+or down, the title, the far end of the row and the body's first row do not;
+pressed while held; a slide onto the title as from the slab; a drag that
+scrolls the page lets the slab go and does not go back; Enter on the
+focused slab. Three mutants (no target, the reach one pixel wider, no
+pressed state while scrolling) each fail it. `tests/back_corner_shell_test.sh`
+(the running shell, portrait, landscape and landscape with 50 px corners,
+by `shell.tap`): every app with the shell's header, Settings -> System ->
+Settings -> home, three folders and Controls, thirty rounds, no fault.

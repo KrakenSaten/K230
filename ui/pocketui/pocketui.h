@@ -43,6 +43,25 @@ const struct pos_display_geometry *pocketui_display_geometry(void);
  * that already clears the corners is left as it is. */
 void pocketui_apply_bar_insets(lv_obj_t *bar, enum pos_edge edge);
 
+/* ---- The top-left way back (DS §48) ----------------------------------- */
+
+/* How far the back slab's touch target reaches past its right and bottom
+ * edges: half the 16 px gap to the title beside it, and down to the foot of
+ * the 72 px header row it is centred in (8 + 56 + 8). */
+#define POCKETUI_BACK_REACH 8
+/* How far toward the screen's top and left edges it may reach: across the
+ * row's 8 px above it and any side margin or corner inset up to a slab's
+ * width (30 px portrait, 50 px on unit A's landscape corners). */
+#define POCKETUI_BACK_CORNER 72
+
+/* Make a top-left back slab take a tap anywhere in its corner of the
+ * screen: from the top and left edges (up to POCKETUI_BACK_CORNER away) to
+ * POCKETUI_BACK_REACH past its right and bottom edges. The slab is drawn
+ * exactly as before and is pressed and clicked as before; only the area a
+ * finger can reach it in grows, never toward the title or into what lies
+ * below the header row. */
+void pocketui_back_corner(lv_obj_t *back);
+
 /* ---- Responsive layout guard (DS §21.3, §22.2) ------------------------ */
 
 /* What a responsive app's layout was last chosen from: the frame's box, and
