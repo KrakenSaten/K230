@@ -25,14 +25,16 @@ docs/LICENSING.md (the standing register), docs/licensing/spdx-exempt.txt.
   built without GPL, nonfree or version3 parts (VERIFIED from its built
   configuration). No GPL code is compiled into a Doors binary.
 - **Not everything in the repository is the project's to license.** For a
-  public **source** release (status 2026-10-02, §14.1): the design-tool
+  public **source** release (status 2026-10-02, §14.1; B1 detail in
+  docs/licensing/B1_ARTWORK.md): the design-tool
   exports (B2) are now kept out of the public-source candidate, and the
   copied LILYGO defconfig (B3a) is replaced by a Doors fragment composed with
   the vendor file at apply time. Still blocking: the owner-supplied artwork
   with no stated author or terms (part AI-generated), which generates the
   shipped icons, glyphs, backgrounds and boot splash (B1), and the keyboard
-  tables copied from LILYGO's launcher (B3b), which need the remaining keys
-  read on hardware or LILYGO's licence.
+  tables copied from LILYGO's launcher (B3b), deferred until the owner is
+  at a unit, which need the remaining keys read on hardware or LILYGO's
+  licence.
 - **The flashable image is further from ready.** Besides B1 to B3 it ships
   the YOLOv8n model (AGPL-3.0, internal use only by owner decision), a
   statically linked nncase runtime with no licence file, vendor packages and
@@ -300,9 +302,9 @@ licences:
 
 | # | Path / component | Issue | Evidence | Required action |
 | --- | --- | --- | --- | --- |
-| B1 | `docs/design/brand/doors-threshold/**`, `doors-icon-extension/**`, `doors-visual-pack-v1/**`; and what is generated from them: `ui/pocketui/pos_app_icons.c` (Threshold/extension masks), `pos_glyphs.c/.h`, `pos_brand_mark.c`, `ui/assets/doors/*.bin`, `platforms/k230/rootfs_overlay/logo.xrgb` | Owner-supplied artwork with **no stated author, copyright or licence**; the photographic art is AI-generated (OpenAI) and the supplier's notes are prompts and hand-off texts. Apache-2.0 can only be granted by whoever holds the rights. | docs/design/brand/README.md and doors-visual-pack-v1/README.md ("Author, copyright, licence: not stated"); C2PA chunks; ui/assets/doors/MANIFEST.txt | Owner: state who made each package and confirm the right to license it (own work, tool output whose terms assign the output to the owner, or a commission with assignment); then choose its licence (Apache-2.0 like the code, or a separate one for brand art) and record it in docs/design/brand/README.md. Until then do not publish these paths or their generated outputs. |
+| B1 (questions: docs/licensing/B1_ARTWORK.md) | `docs/design/brand/doors-threshold/**`, `doors-icon-extension/**`, `doors-visual-pack-v1/**`; and what is generated from them: `ui/pocketui/pos_app_icons.c` (Threshold/extension masks), `pos_glyphs.c/.h`, `pos_brand_mark.c`, `ui/assets/doors/*.bin`, `platforms/k230/rootfs_overlay/logo.xrgb` | Owner-supplied artwork with **no stated author, copyright or licence**; the photographic art is AI-generated (OpenAI) and the supplier's notes are prompts and hand-off texts. Apache-2.0 can only be granted by whoever holds the rights. | docs/design/brand/README.md and doors-visual-pack-v1/README.md ("Author, copyright, licence: not stated"); C2PA chunks; ui/assets/doors/MANIFEST.txt | Owner: answer the five questions in docs/licensing/B1_ARTWORK.md per package (who made it, the tools' terms, inputs, "Astra", the art's licence), then record the result in docs/design/brand/README.md and asset-inventory.txt. Until then do not publish these paths or their generated outputs; reference-only parts are already excluded. |
 | B2 | `docs/design/rift/**`, `docs/design/PocketOS Design System.html`, `docs/design/Repository connection and design directions.zip` (the `apps/fleet/` copy is removed) | Design-tool exports and a supplied design package with no stated terms | §14.1 | **RESOLVED for the public-source candidate**: excluded by docs/licensing/public-source-exclude.txt, kept in the private repository. |
-| B3 | (a) `platforms/k230/configs/k230_pocketos_defconfig`; (b) `ui/pocketui/pos_keymap.c` key-name and shifted-symbol tables | Copied from the LILYGO repository, which states **no licence** | §14.1 | (a) **RESOLVED**: composed at apply time. (b) **OPEN**: 59 of 65 keys have only LILYGO's code as their source; read them on a unit (KEYBOARD_BRINGUP §6) or obtain LILYGO's licence. |
+| B3 | (a) `platforms/k230/configs/k230_pocketos_defconfig`; (b) `ui/pocketui/pos_keymap.c` key-name and shifted-symbol tables | Copied from the LILYGO repository, which states **no licence** | §14.1 | (a) **RESOLVED**: composed at apply time. (b) **DEFERRED (hardware), still blocking**: 59 of 65 keys have only LILYGO's code as their source; read them on a unit when the owner is there (KEYBOARD_BRINGUP §6) or obtain LILYGO's licence. |
 
 ### 14.1 Source-repository work, 2026-10-02
 
@@ -359,7 +361,7 @@ Still in the candidate, because the build or its tests use them:
 | `docs/design/brand/doors-threshold/{icons,brand,boot}/`, `ASSET-NOTES.md` | Threshold package, supplied by the owner 2026-09-15 | `gen_app_icons.py`, `gen_brand_mark.py`, `png2xrgb.py`; app_icons, brand_mark and boot_splash tests | **UNKNOWN** |
 | `docs/design/brand/doors-icon-extension/{png-24,png-32,svg}/`, `LES-MEG.md` | icon extension, supplied 2026-09-15 | `gen_app_icons.py`, `gen_doors_ui.py`; app_icons test | **UNKNOWN** |
 | `docs/design/brand/doors-visual-pack-v1/{device,source,reference}/`, `README.md`, `SHA256SUMS` | visual pack v1 and B package v2, supplied 2026-09-22; photographic art AI-generated (OpenAI C2PA) | `gen_doors_ui.py`; doors_ui_assets test | **UNKNOWN** |
-| `ui/pocketui/pos_app_icons.c` | generated: Threshold/extension masks plus 11 first-party icons | doors-shell | mixed: UNKNOWN parts |
+| `ui/pocketui/pos_app_icons.c` | generated: 15 Threshold/extension masks plus 10 first-party icons | doors-shell | mixed: UNKNOWN parts |
 | `ui/pocketui/pos_glyphs.c/.h` | generated: B package glyphs plus first-party `mode.svg` | doors-shell | mixed: UNKNOWN parts |
 | `ui/pocketui/pos_brand_mark.c` | generated from the Threshold mark | doors-shell | UNKNOWN |
 | `ui/assets/doors/icon-*.bin` (29), `bg-*.bin` (6) | generated: B frame and glyphs, Threshold/extension/first-party icons; the AI-generated backgrounds | installed in the image | mixed / UNKNOWN |
@@ -367,33 +369,11 @@ Still in the candidate, because the build or its tests use them:
 | screenshots that show the above (launcher, brand and theme sheets) | Doors captures | documentation only | follow the art's answer |
 | `docs/design/doors-app-icons/`, `doors-glyphs/`, `timber-art/` | drawn or generated in this repository | generators, tests | **ORIGINAL DOORS** |
 
-The owner's confirmation needed, per package (Threshold, icon extension,
-visual pack v1 with B package v2; and the RIFT texts if they are to be
-re-admitted):
-
-- **Q1 Who made it**: the owner personally, with which tools (an image or
-  design generator: which one, under which account), or another person or
-  company (who; is "Astra", named in docs/design/astra-handoff, a person,
-  a company or a tool?).
-- **Q2 The terms of each tool used**: that they give the output's rights to
-  the user and allow commercial use and redistribution, as in force when the
-  work was made.
-- **Q3 For another person's work**: a written assignment or licence that
-  allows publishing it under the chosen licence.
-- **Q4 Third-party inputs**: whether any photo, artwork, font or brand of
-  someone else's was used as a reference or input beyond Doors' own
-  screenshots and IBM Plex (already OFL).
-- **Q5 The licence for the art**: Apache-2.0 like the code, a separate
-  licence such as CC BY 4.0, or reserved brand assets (logo, mark, name)
-  licensed separately or not at all.
-- **Q6 AI-generated images**: acknowledgement that copyright may not subsist
-  in them, and that they are published on that basis.
-
-If the confirmation cannot be given, the art has to be replaced before the
-source is published: first-party icons exist for 11 apps; the rest, the
-backgrounds, the frame, the glyphs, the mark and the splash would need new,
-original drawings, and the generated files regenerated. That is design work
-and is not done here.
+The full inventory, the options (confirm and license; keep the brand
+reserved; leave the art out, which means replacing it first) and the five
+questions for the owner are in **docs/licensing/B1_ARTWORK.md**. Every
+asset has a class in `docs/licensing/asset-inventory.txt`, held complete by
+`tests/license_audit_test.sh`.
 
 **B3 - LILYGO-derived material.**
 
@@ -410,19 +390,20 @@ and is not done here.
   (sha256 `e0b0b6ce57bd…1c7d`), so the image configuration is unchanged.
   `package_sync_test` executes the composition against the vendor checkout,
   with a refused restating fragment as the control.
-- **B3b keymap: still blocked.** `ui/pocketui/pos_keymap.c` holds two tables
-  whose only source for 59 of 65 keys is LILYGO's launcher code
-  (`ui_hardware.c`); Doors itself verified six codes and legends on unit A
-  (Shift 7, Z 18, Q 20, A 29, J 34, W 39), two of which corrected the vendor.
-  LILYGO's hardware documentation gives the controller's pins and address,
-  not the matrix or the legends, so there is no independent written source.
-  A clean replacement needs the remaining keys read on hardware: the
-  procedure in docs/hardware/KEYBOARD_BRINGUP_2026-09-10.md §6 (no new code;
-  an operator presses every key and reads its keycap's primary and orange
-  shifted legend), then the tables rebuilt from that record alone. That
-  needs a unit, the keyboard base and the owner's go-ahead. The alternative
-  is LILYGO's licence (docs/LICENSING.md item 2). The file says NOT CLEARED
-  and carries no SPDX tag until then.
+- **B3b keymap: DEFERRED (hardware), still blocking.** Deferred by the
+  owner on 2026-10-02: the owner is not at the device, so no unit is
+  touched and no keyboard capture is prepared or run.
+  `ui/pocketui/pos_keymap.c` holds two tables whose only source for 59 of
+  65 keys is LILYGO's launcher code (`ui_hardware.c`); Doors itself verified
+  six codes and legends on unit A (Shift 7, Z 18, Q 20, A 29, J 34, W 39),
+  two of which corrected the vendor. LILYGO's hardware documentation gives
+  the controller's pins and address, not the matrix or the legends, so there
+  is no independent written source. When the owner is at a unit with the
+  keyboard base: the procedure in docs/hardware/KEYBOARD_BRINGUP_2026-09-10.md
+  §6 (no new code; every key pressed, its primary and orange shifted keycap
+  legend read), then the tables rebuilt from that record alone. The
+  alternative is LILYGO's licence (docs/LICENSING.md item 2). The file says
+  NOT CLEARED and carries no SPDX tag until then.
 
 ### Flashable image (in addition to B1-B3)
 
@@ -446,14 +427,16 @@ and is not done here.
 | C5 | Statements written before ADR-013 in release notes and hardware sheets (v0.0.10-v0.2.1: "Doors' own licence is not decided") | kept as history (ADR-005 decision 6) |
 | C6 | Copyright holder wording "PocketOS authors" | owner may rename the holder line; not required by the licence |
 | C7 | docs/legal/manifest.csv is the 2026-09-04 (v0.0.1) legal-info run | regenerate with B9 |
+| C8 | the owner's private LAN addresses (192.168.x) and the units' MAC addresses in hardware records under `docs/hardware/` (test files use made-up values) | review or redact before publishing; not a licence question. No keys, passwords or tokens were found in the candidate (scan 2026-10-02) |
 
 ## 15. Recommended actions before the repository becomes public
 
 1. Settle B1: the owner answers Q1-Q6 for each artwork package and
    chooses the art's licence; record it in docs/design/brand/README.md. Or
    replace the art.
-2. Settle B3b: read the remaining 59 keys on a unit (owner's go-ahead) and
-   rebuild the keymap tables from that record, or obtain LILYGO's licence.
+2. Settle B3b (deferred, hardware): when the owner is at a unit, read the
+   remaining 59 keys and rebuild the keymap tables from that record, or
+   obtain LILYGO's licence.
 3. Publish only an exported tree (`tools/legal/public_source_tree.sh`), never
    this repository's history (R1).
 4. Re-run `tests/license_audit_test.sh` and `tests/notices_test.sh`, then flip
@@ -467,7 +450,7 @@ and is not done here.
 
 | | Result |
 | --- | --- |
-| **SOURCE REPOSITORY** | **NOT READY** - B1 (owner's rights confirmation for the artwork) and B3b (keymap tables) remain; B2 and B3a are resolved. Publication must use an exported tree (R1). |
+| **SOURCE REPOSITORY** | **NOT READY** - B1 (the owner's answers in docs/licensing/B1_ARTWORK.md) and B3b (keymap tables; deferred until the owner is at a unit) remain; B2 and B3a are resolved. Publication must use an exported tree (R1). |
 | **FLASHABLE IMAGE** | **NOT READY** - B1-B9 |
 
 Scale used: READY / READY AFTER CLEANUP / NOT READY. "Ready after

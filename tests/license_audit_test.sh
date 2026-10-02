@@ -173,6 +173,53 @@ check "and it keeps LICENSE, NOTICE, the notices, the build files and the defcon
 check "the repository keeps no copy of a vendor defconfig (B3)" \
     "$([ -z "$(git ls-files 'platforms/k230/configs/*defconfig*')" ] && echo 1 || echo 0)"
 
+# ---- the asset inventory (B1) --------------------------------------------------
+# docs/licensing/asset-inventory.txt gives every artwork, image and design
+# asset a class; the first rule that matches decides. Paths may hold spaces,
+# so a rule's pattern is everything before its class word.
+INV=docs/licensing/asset-inventory.txt
+CLASSES="ORIGINAL CAPTURE-B1 SUPPLIED-VECTOR SUPPLIED-BRAND AI-RASTER DERIVED-B1 DERIVED-BRAND SUPPLIED-REF DESIGN-EXPORT THIRD-PARTY"
+tr -d '\r' < "$INV" | awk -v cl="$CLASSES" '
+    BEGIN { n = split(cl, c, " "); for (i = 1; i <= n; i++) ok[c[i]] = 1 }
+    /^[[:space:]]*(#|$)/ { next }
+    { for (i = 2; i <= NF; i++) if ($i in ok) { p = $1; for (j = 2; j < i; j++) p = p " " $j; print p "\t" $i; next }
+      print "BAD\t" $0 }' > "$TMP/rules"
+badrule=$(grep -c '^BAD	' "$TMP/rules")
+check "every asset-inventory rule names a known class" "$([ "$badrule" = 0 ] && echo 1 || echo 0)"
+grep -i -E '\.(png|jpe?g|webp|gif|svg|bmp|xrgb|bin|zip|otf|ttf|woff2?|blend|html)$' "$TMP/files" > "$TMP/assets"
+: > "$TMP/classified"; : > "$TMP/used_rules"
+while IFS= read -r f; do
+    cls=""
+    while IFS='	' read -r pat c; do
+        # shellcheck disable=SC2053  # the pattern is a glob on purpose
+        if [[ "$f" == $pat ]]; then cls=$c; printf '%s\n' "$pat" >> "$TMP/used_rules"; break; fi
+    done < "$TMP/rules"
+    printf '%s\t%s\n' "$f" "${cls:-NONE}" >> "$TMP/classified"
+done < "$TMP/assets"
+none=$(awk -F '\t' '$2 == "NONE" {print $1}' "$TMP/classified" | head -5 | tr '\n' ' ')
+check "every tracked asset has a class in the inventory${none:+ (none: $none)}" "$([ -z "$none" ] && echo 1 || echo 0)"
+# Rules for the generated C art match no asset extension; they are matched
+# against all tracked files instead.
+unused=""
+while IFS='	' read -r pat c; do
+    grep -qx -F "$pat" "$TMP/used_rules" && continue
+    hit=0
+    while IFS= read -r f; do [[ "$f" == $pat ]] && { hit=1; break; }; done < "$TMP/files"
+    [ "$hit" = 1 ] || unused="$unused [$pat]"
+done < "$TMP/rules"
+check "every inventory rule still matches a tracked file${unused:+ (stale:$unused)}" "$([ -z "$unused" ] && echo 1 || echo 0)"
+# What is classed as reference, design export or third-party is out of the
+# public-source candidate; the rest of B1 is in it until the owner answers.
+leaked=$(awk -F '\t' '$2 == "SUPPLIED-REF" || $2 == "DESIGN-EXPORT" || $2 == "THIRD-PARTY" {print $1}' "$TMP/classified" |
+         grep -x -F -f - "$TMP/candidate" | head -5 | tr '\n' ' ')
+check "reference, design-export and third-party assets are all out of the candidate${leaked:+ (in: $leaked)}" \
+    "$([ -z "$leaked" ] && echo 1 || echo 0)"
+grep -x -F -f "$TMP/candidate" "$TMP/assets" > "$TMP/cand_assets" || true
+for c in $CLASSES; do
+    k=$(awk -F '\t' -v c="$c" 'NR == FNR {in_c[$1] = 1; next} ($1 in in_c) && $2 == c' "$TMP/cand_assets" "$TMP/classified" | wc -l)
+    [ "$k" -gt 0 ] && echo "     candidate assets $c: $k"
+done
+
 # ---- models ------------------------------------------------------------------
 committed=$(grep -i -E '\.(kmodel|onnx|tflite|pt|pth|safetensors|gguf|caffemodel|weights)$' "$TMP/files")
 check "no model file is committed${committed:+ (found: $committed)}" "$([ -z "$committed" ] && echo 1 || echo 0)"
