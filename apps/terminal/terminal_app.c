@@ -64,8 +64,8 @@
 #define ACTION_H 44
 /* Output taken per tick while no screen is attached: about 130 KB a second,
  * far more than a build or a log writes, while a program that floods is held
- * by the PTY's back-pressure instead of costing the app in front a third of
- * the CPU (36 % open and 29 % detached on unit A at TERM_PUMP_BUDGET). */
+ * by the PTY's back-pressure instead of taking CPU from the app in front (on
+ * unit A a flood costs doors-shell 13 % with the Terminal open, 4 % closed). */
 #define DETACHED_PUMP_BUDGET 4096
 
 /* What the timer is to do with the confirmation, outside the event that

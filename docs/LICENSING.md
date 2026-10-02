@@ -239,3 +239,34 @@ Findings:
     **neither committed nor packaged**: the helper reads them from
     `/usr/share/doors/vision/` when they are there and offers the mode only
     then. Packaging any of them needs the terms settled first, as for item 10.
+
+## Power-user CLI toolbox (2026-10-02)
+
+Branch `feat/terminal-power-user` adds `BR2_PACKAGE_POCKETOS_TOOLBOX`
+(`platforms/k230/package/pocketos/Config.in`, default on): stock Buildroot
+2025.02.1 packages, built from their upstream source archives by the SDK,
+installed as separate programs and libraries. Nothing of them is compiled
+into Doors, and none is part of the Doors package's own licence line
+(`POCKETOS_LICENSE`). Each carries Buildroot licence metadata, so `make
+legal-info` lists it with its licence files and source archive, like every
+other package of the image; the table is what that metadata says,
+DOCUMENTED (read from the SDK's `package/<name>/<name>.mk`), and is for the
+Apache-2.0 readiness work to account for.
+
+| Package | Version | Licence (Buildroot) | Upstream (source site) | Notes |
+| --- | --- | --- | --- | --- |
+| htop | 3.3.0 | GPL-2.0-or-later | https://github.com/htop-dev/htop | uses ncurses, already in the image |
+| nano | 8.2 | GPL-3.0-or-later | https://www.nano-editor.org/dist/v8 | uses ncurses |
+| jq | 1.7.1 | MIT (code), ICU (decNumber), CC-BY-3.0 (documentation) | https://github.com/jqlang/jq | |
+| oniguruma | 6.9.9 | BSD-2-Clause | https://github.com/kkos/oniguruma | jq's regular expressions |
+| strace | 6.13 | LGPL-2.1-or-later | https://github.com/strace/strace | |
+| iperf3 | 3.18 | BSD-3-Clause, BSD-2-Clause, MIT | https://downloads.es.net/pub/iperf | links OpenSSL (already in the image) for its optional authentication |
+| tcpdump | 4.99.5 | BSD-3-Clause | https://www.tcpdump.org/release | |
+| libpcap | 1.10.5 | BSD-3-Clause | https://www.tcpdump.org/release | tcpdump's capture library |
+| libcurl / curl | 8.12.1 | curl | https://curl.se/download | already in the image (above); selected again so the toolbox never loses it |
+
+Consequences: the GPL and LGPL programs (htop, nano, strace) are separate
+executables, not linked with Doors code; distributing an image that carries
+them means offering their source, which `make legal-info` collects (open
+item 3 above applies to them as to the rest of the image). No new notice is
+needed in THIRD_PARTY_NOTICES.txt, which covers what is compiled into Doors.

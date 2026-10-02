@@ -3977,7 +3977,8 @@ the status cluster, as every tool has. The terminal is the body.
 
 One custom-drawn object filling the body inside the corner clearance
 (§21), 4 px in from its edge: cells of the monospace face of the caption
-role (§4) without its letter spacing, 8 x 18 px. The default colours are
+role (§4) without its letter spacing, 8 x 18 px (at Small; §49.1 gives
+the other sizes, PROPOSED). The default colours are
 `bg` and `text_primary`; a program's eight colours are the identity accents
 (§37: red 0, green 3, yellow 2, blue 5, magenta 7, cyan 4), black
 `text_muted`, white `text_secondary`, bright forms and bold lighter by 30 %,
@@ -3998,7 +3999,8 @@ the keyboard base is not attached.
 
 The header's hint says SCROLLBACK while the view is not live and ENDED
 after the shell ended; the screen itself says how it ended, in reverse
-video, and that Enter starts a new shell.
+video, and that Enter starts a new shell. The session row under the grid
+and CLOSE SESSION: §49.2-§49.3 (PROPOSED).
 
 ## 44. Amendment AB — The keyboard base's own keys and lights [PROPOSED]
 
@@ -4159,7 +4161,9 @@ to resize, or is better at one size:
   (`apps/terminal/terminal_app.c`). Its columns and rows are what the shell
   inside was told, and a grid that changed with an unrelated setting would
   reflow a running program. Terminal's own chrome follows. A terminal font
-  size is a separate setting for later.
+  size is a separate setting for later. *Replaced by §49.1 (PROPOSED
+  2026-10-02): the grid follows the text size in a face of its own, and
+  the program is told its new size.*
 - **Text on a live picture**: Vision's detection tags stay at Small
   (`pos_style_fixed_size`), so a larger size never covers what the picture
   shows. Camera and Photo draw no text over the picture.
@@ -4512,3 +4516,70 @@ The drawn corner of §48.2 on `doors-shell` `1df9438`, the same day and sheet:
 landscape and portrait 18/18 each, the layout audit clean at Small, Medium
 and Large in both, pressed lit on the whole corner, no fault. Left for the
 owner: the look under the glass's curve and the feel under a real finger.
+
+## 49. Amendment AG — Terminal: the text size and a kept session [PROPOSED]
+
+**Proposed 2026-10-02** on branch `feat/terminal-power-user`. Changes the
+Terminal's grid size (§43.2), adds a session row and a confirmation to its
+screen (§43.4), and replaces the Terminal bullet of §46.4: the grid no
+longer keeps Small's size. No token, colour or other app changes, and
+nothing in §1-§48 is renumbered. Behaviour and architecture:
+docs/apps/TERMINAL.md; gate: docs/hardware/TERMINAL_POWER_USER_GATE.md.
+
+### 49.1 The grid follows the text size
+
+The owner asked for it, and it is what a terminal does when its font
+changes. The cells are the monospace face of §4 at sizes of the Terminal's
+own - not a role's (the caption role is 14/17/19) - so a cell is a whole
+number of pixels and Large is clearly larger again:
+
+| Text size | Face | Cell | Portrait | Landscape |
+| --- | --- | --- | --- | --- |
+| Small | mono 14 px | 8 x 18 (§43.2 as it was) | 65 x 57 | 148 x 20 |
+| Medium | mono 17 px | 10 x 21 | 52 x 49 | 118 x 17 |
+| Large | mono 20 px | 12 x 26 | 43 x 39 | 98 x 14 |
+
+(Columns x rows on the panel, `stty size` on unit A.) The face's letter
+spacing is still not taken. A change applies at once, the app open or not:
+the grid is measured again and the program is told its new size (SIGWINCH);
+text already on the screen is not reflowed, and new output wraps at the new
+width. §46.4's concern - a grid that changes with an unrelated setting
+reflows a running program - is answered by the program being told, as on any
+desktop terminal; a Terminal font setting of its own is not added.
+
+### 49.2 The session row
+
+One row of 64 px under the grid, inside the corner clearance (§21), the
+grid's 4 px inset on its left: a caption (`text_secondary`, the caption
+style) saying what leaving does - **KEPT WHEN YOU LEAVE** while the shell
+runs, **SHELL ENDED** after it ended - and at its right end an inline row
+action (§7: 44 tall, 16 px horizontal padding, the secondary treatment, the
+row's 64 px height its hit area): **CLOSE SESSION**. A tap on it never takes
+the keys from the grid. The row costs the grid four rows at Small in either
+orientation.
+
+### 49.3 Close Session
+
+CLOSE SESSION opens a dialog (§17.5) in the body, in place of the grid and
+the row: title **Close the session?**, body *The shell and everything it is
+running end now. The next time Terminal opens, it starts a new shell.*,
+then **CANCEL** (accented: ending programs cannot be undone - the power-off
+case) and **CLOSE SESSION** (secondary). The focus lands on Cancel; Esc and
+Back are Cancel. Nothing ends until the confirm press; then the session
+ends and the app is left for the launcher. With the shell already ended,
+CLOSE SESSION ends at once: nothing runs that a confirmation would save.
+
+### 49.4 Leaving keeps the session
+
+Leaving the app by any way - the back slab, Back, a function key, another
+app - keeps the shell, its jobs and its screen; the next open shows them,
+live. An ended shell is not kept once the app is left. The hints of §43.4
+are unchanged (SCROLLBACK, ENDED).
+
+### 49.5 Validation
+
+Host: `tests/terminal_app_test.c` (S/M/L x portrait/landscape, the session
+across leaving, the confirmation) and `tests/terminal_shell_test.sh` (the
+real shell keeping a job running while the launcher is up); the layout audit
+of the screen and of the dialog is clean at Small, Medium and Large in both
+orientations. Hardware: docs/hardware/TERMINAL_POWER_USER_GATE.md (unit A).
