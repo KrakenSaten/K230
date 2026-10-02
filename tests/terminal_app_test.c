@@ -523,8 +523,17 @@ static void journey(const char *name, bool landscape)
     CHECK("no raw key target is left", pos_input_raw_target() == NULL);
     CHECK("the hint was cleared", g_hint[0] == '\0');
     seen = s->bytes_in;
-    pump(300);
-    CHECK("the flood's output is still taken with no screen", s->bytes_in > seen + 10000);
+    {
+        int64_t t0 = mono_ms();
+        unsigned long cap;
+
+        pump(300);
+        /* At most one detached budget per tick of the time that passed. */
+        cap = (unsigned long)((mono_ms() - t0) / TERMINAL_TICK_MS + 2) * 4096;
+        printf("note %s: %lu bytes taken in 300 ms with no screen (cap %lu)\n", name, s->bytes_in - seen, cap);
+        CHECK("the flood's output is still taken with no screen", s->bytes_in > seen + 10000);
+        CHECK("but at the detached budget, not the screen's", s->bytes_in - seen <= cap);
+    }
 
     /* Back again: the same shell, still flooding; Ctrl+C reaches it. */
     app_start();

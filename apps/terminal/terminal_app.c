@@ -62,6 +62,11 @@
 /* The session row's action: an inline row action (DS §7), 44 px tall in a
  * 64 px row whose height is its hit area. */
 #define ACTION_H 44
+/* Output taken per tick while no screen is attached: about 130 KB a second,
+ * far more than a build or a log writes, while a program that floods is held
+ * by the PTY's back-pressure instead of costing the app in front a third of
+ * the CPU (36 % open and 29 % detached on unit A at TERM_PUMP_BUDGET). */
+#define DETACHED_PUMP_BUDGET 4096
 
 /* What the timer is to do with the confirmation, outside the event that
  * asked: focus moved inside an LVGL event does not stick (the Doors LVGL
@@ -881,7 +886,7 @@ static void tick(void)
             layout(a);
         }
     }
-    term_session_pump(&bg.session, TERM_PUMP_BUDGET, now);
+    term_session_pump(&bg.session, a ? TERM_PUMP_BUDGET : DETACHED_PUMP_BUDGET, now);
     if (a) {
         refresh(a, now);
         update_bar(a);
