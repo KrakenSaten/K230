@@ -232,7 +232,10 @@ where the vendor `ifup wlan0` path was confirmed not to compete for wlan0.
 ## Shell
 
 One LVGL process. The status cluster (DS §36) polls radiod once per second. Apps
-implement `struct pocketos_app` (create / tick / destroy) and are built into
+implement `struct pocketos_app` (create / tick / destroy, and an optional
+`shutdown` for the one app whose work outlives its screen - the Terminal's
+kept session, docs/apps/TERMINAL.md - called once as the shell exits or
+re-executes) and are built into
 the shell binary for v0.1; the same API is intended for out-of-process apps
 later (ADR-002). The status chrome above an app - the 56 px bar, a 32 px
 compact one, or none - is the shell's (DS §30, `ui/shell/chrome.h`): an app

@@ -3320,6 +3320,14 @@ int main(int argc, char **argv)
     /* The open app is closed the ordinary way, so it persists what it holds
      * exactly as it would on any other exit. */
     app_close();
+    /* Then what an app keeps running without its screen (the Terminal's
+     * session): ended here, the ordinary way, because an exec would only
+     * close its descriptors and leave its processes to nobody. */
+    for (size_t i = 0; i < APP_COUNT; i++) {
+        if (apps[i]->shutdown) {
+            apps[i]->shutdown();
+        }
+    }
     /* And then the one thing the app cannot persist, because it is not the
      * app's: a running stopwatch, a running countdown, a snooze. They are
      * elapsed time on the monotonic clock, which an exec does not disturb -
