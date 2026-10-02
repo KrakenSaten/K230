@@ -130,14 +130,45 @@ if [ -f "$SDKLIC" ]; then
 fi
 check "and its notices entry names the SDK commit the build pins" \
     "$(grep -q "^canaan-k230-sdk [|] .*SDK commit $(tr -d '\r\n' < platforms/k230/vendor_sdk_commit.txt) " "$SOURCES" && echo 1 || echo 0)"
-# Files that adapt MeshCore or the Canaan samples name that licence too.
-for pair in "MIT:third_party/notices/texts/meshcore.txt" "BSD-2-Clause:$CANAAN"; do
-    lic=${pair%%:*}; text=${pair#*:}
-    n=$(awk -F '\t' -v l="$lic" '$2 == "Apache-2.0 AND " l {print $1}' "$TMP/tags" | sort -u)
-    bad=""
-    for f in $n; do grep -q -F "$text" "$f" || bad="$bad $f"; done
-    check "files tagged Apache-2.0 AND $lic point to that licence's text${bad:+ (not:$bad)}" "$([ -z "$bad" ] && echo 1 || echo 0)"
+# A file that adapts someone else's code names the licence text of what it
+# adapted, and that text is one the notices or docs/legal keep.
+bad=""
+for f in $(awk -F '\t' '$2 ~ /^Apache-2\.0 AND / {print $1}' "$TMP/tags" | sort -u); do
+    t=$(grep -o -E '(third_party/notices/texts|docs/legal/third-party)/[A-Za-z0-9_.-]+\.txt' "$f" | head -1)
+    [ -n "$t" ] && [ -f "$t" ] || bad="$bad $f"
 done
+check "every file tagged Apache-2.0 AND <licence> points to a kept licence text${bad:+ (not:$bad)}" "$([ -z "$bad" ] && echo 1 || echo 0)"
+
+# ---- the public-source candidate (B2, B1R, B3) ---------------------------------
+# docs/licensing/public-source-exclude.txt keeps material in this private
+# repository but out of the tree tools/legal/public_source_tree.sh exports.
+PSX=docs/licensing/public-source-exclude.txt
+psx_entries() { tr -d '\r' < "$PSX" | grep -v -E '^[[:space:]]*(#|$)' | sed -E 's/[[:space:]]+(B[0-9A-Z]+)[[:space:]].*$//'; }
+gone=""
+while IFS= read -r e; do [ -n "$(git ls-files -- "$e")" ] || gone="$gone [$e]"; done < <(psx_entries)
+check "every public-source exclusion names tracked files${gone:+ (none:$gone)}" "$([ -z "$gone" ] && echo 1 || echo 0)"
+# Nothing a build, a generator or a test reads may be excluded; a comment that
+# names an excluded path is fine.
+used=""
+while IFS= read -r e; do
+    hits=$(git grep -n -F "${e%/}" -- Makefile '*CMakeLists.txt' platforms/k230/scripts platforms/k230/package tools tests \
+               ':!tests/license_audit_test.sh' 2>/dev/null | grep -v -E '^[^:]+:[0-9]+:[[:space:]]*(#|\*|/\*|//)')
+    [ -z "$hits" ] || used="$used [$e]"
+done < <(psx_entries)
+check "no build, generator or test input is excluded${used:+ (read:$used)}" "$([ -z "$used" ] && echo 1 || echo 0)"
+# The exporter, executed: design-tool exports and bundled pages are not in the
+# candidate, and what the build needs is.
+bash tools/legal/public_source_tree.sh --list HEAD > "$TMP/candidate" 2>"$TMP/candidate.err"
+check "the public-source exporter lists a candidate" "$([ -s "$TMP/candidate" ] && echo 1 || echo 0)"
+leak=$(git ls-tree -r --name-only HEAD | grep -E '\.dc\.html$|(^|/)support\.js$|\.zip$|Design System\.html$|\.otf$' |
+       grep -x -F -f - "$TMP/candidate")
+check "no design-tool export, design zip or supplied font is in it${leak:+ (in: $leak)}" "$([ -z "$leak" ] && echo 1 || echo 0)"
+check "and it keeps LICENSE, NOTICE, the notices, the build files and the defconfig fragment" \
+    "$(for f in LICENSE NOTICE THIRD_PARTY_NOTICES.txt Makefile ui/shell/CMakeLists.txt platforms/k230/configs/k230_pocketos.fragment; do
+           grep -qx -F "$f" "$TMP/candidate" || exit 1; done; echo 1)"
+# B3: the vendor board defconfig is composed at apply time, never kept here.
+check "the repository keeps no copy of a vendor defconfig (B3)" \
+    "$([ -z "$(git ls-files 'platforms/k230/configs/*defconfig*')" ] && echo 1 || echo 0)"
 
 # ---- models ------------------------------------------------------------------
 committed=$(grep -i -E '\.(kmodel|onnx|tflite|pt|pth|safetensors|gguf|caffemodel|weights)$' "$TMP/files")

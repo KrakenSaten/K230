@@ -69,7 +69,7 @@ and is listed in docs/licensing/spdx-exempt.txt.
 | `tests/meshcore_core_test.cpp`, `tests/meshcore_frame_test.cpp` | MeshCore's own test suites, its test key pair and vectors | MIT | tests only | OK WITH ATTRIBUTION |
 | `core/pocketvision/vision_kpu_nncase.cpp` | K230 SDK `yolo/src/utils.cc`, `ai_demo` `Utils::affine` | BSD-2-Clause (`canaan-k230-sdk` notice) | pos-vision | OK WITH ATTRIBUTION |
 | `ui/pocketui/pos_keymap.c` (key-name and shifted-symbol tables) | LILYGO launcher `k230_phone_ui/src/ui_hardware.c` | **none stated** by LILYGO | doors-shell | **UNKNOWN - DO NOT REDISTRIBUTE** (B3; header says NOT CLEARED) |
-| `platforms/k230/configs/k230_pocketos_defconfig` | LILYGO `k230_canmv_t_display_rm69a10_defconfig` (itself from Canaan's `k230_canmv_defconfig`), copied with one line added | **none stated** by LILYGO (Canaan's original: BSD-2-Clause) | build configuration | **UNKNOWN - DO NOT REDISTRIBUTE** (B3) |
+| `platforms/k230/configs/k230_pocketos_defconfig` (removed 2026-10-02) | LILYGO `k230_canmv_t_display_rm69a10_defconfig`, copied with one line added | none stated by LILYGO | build configuration | **RESOLVED**: no copy kept; `apply_to_sdk.sh` composes it from the vendor file at the pinned BSP commit plus the Doors fragment `platforms/k230/configs/k230_pocketos.fragment` |
 | `apps/calendar/cal_date.c` (days_from_civil) | Howard Hinnant's date algorithms | public domain ("Consider these donated to the public domain", howardhinnant.github.io/date_algorithms.html) | doors-shell | OK |
 | `tests/display_geometry_test.c` (one calibration formula) | LVGL `lv_evdev.c` | MIT | tests only | OK |
 
@@ -132,10 +132,10 @@ first run, 2026-09-04; open item 3 is to archive it per release).
 | --- | --- | --- | --- |
 | `docs/legal/licenses/**`, `docs/legal/*.csv` | Buildroot legal-info output | each package's own | OK (licence texts) |
 | `docs/legal/fonts/IBMPlex-OFL-1.1.txt`, `docs/legal/third-party/*` | licence texts | as named | OK |
-| `docs/design/brand/doors-visual-pack-v1/originals/*/fonts/NimbusSans-Regular.otf` (2 copies, with `LICENSE.txt`) | URW base35 font, preview only | AGPL-3.0 with font exception (its LICENSE.txt) | SEPARATE LICENSE (keep its licence with it, or remove before publishing) |
-| `docs/design/PocketOS Design System.html` | bundled design page embedding React and IBM Plex WOFF2 subsets and a design-tool runtime | React MIT (its `@license` header is inside), Plex OFL-1.1, runtime unknown | **UNKNOWN - DO NOT REDISTRIBUTE** (B2) - React MIT and Plex OFL are known; the embedded runtime is not |
-| `docs/design/rift/support.js`, `docs/design/rift/*.dc.html` | design-tool runtime ("GENERATED from dc-runtime"), RIFT design package (C2PA: made with Claude) | none stated | **UNKNOWN - DO NOT REDISTRIBUTE** (B2) |
-| `apps/fleet/Repository connection and design directions.zip`, `docs/design/Repository connection and design directions.zip` (identical) | design-canvas export: React, the same runtime, AI-generated (OpenAI) reference images | React MIT; rest none stated | **UNKNOWN - DO NOT REDISTRIBUTE** (B2; the `apps/fleet` copy also travels in the package source) |
+| `docs/design/brand/doors-visual-pack-v1/originals/*/fonts/NimbusSans-Regular.otf` (2 copies, with `LICENSE.txt`) | URW base35 font, preview only | AGPL-3.0 with font exception (its LICENSE.txt) | SEPARATE LICENSE; excluded from the public-source candidate with the rest of `originals/` |
+| `docs/design/PocketOS Design System.html` | bundled design page embedding React and IBM Plex WOFF2 subsets and a design-tool runtime | React MIT, Plex OFL-1.1; runtime unknown | **UNKNOWN - DO NOT REDISTRIBUTE** (B2); excluded from the public-source candidate |
+| `docs/design/rift/` (`support.js`, `*.dc.html`, shots, `HANDOFF.md`, `README.md`) | design-tool runtime ("GENERATED from dc-runtime"), RIFT design package (C2PA: made with Claude) | none stated | **UNKNOWN - DO NOT REDISTRIBUTE** (B2); excluded from the public-source candidate |
+| `docs/design/Repository connection and design directions.zip` (the identical `apps/fleet/` copy was removed 2026-10-02) | design-canvas export: React, the same runtime, AI-generated (OpenAI) reference images | React MIT; rest none stated | **UNKNOWN - DO NOT REDISTRIBUTE** (B2); excluded from the public-source candidate |
 | `docs/design/brand/doors-threshold/**`, `doors-icon-extension/**`, `doors-visual-pack-v1/**` | owner-supplied artwork packages (part AI-generated, OpenAI C2PA), and the supplier's scripts | **author, copyright and licence not stated** | **UNKNOWN - DO NOT REDISTRIBUTE** (B1; owner to confirm rights) |
 
 ## 8. Test data

@@ -260,7 +260,8 @@ cp third_party/notices/SOURCES "$GUARD/repo/third_party/notices/"
 # The script refuses to run if a first-party build input is missing from the
 # snapshot, so the scratch repo has to carry them the way a real one does.
 mkdir -p "$GUARD/repo/platforms/k230/configs" "$GUARD/repo/platforms/k230/package/pocketos"
-cp "platforms/k230/configs/$CONF" "$GUARD/repo/platforms/k230/configs/"
+cp platforms/k230/configs/k230_pocketos.fragment "$GUARD/repo/platforms/k230/configs/"
+cp platforms/k230/vendor_lvgl_commit.txt "$GUARD/repo/platforms/k230/"
 cp platforms/k230/package/pocketos/Config.in platforms/k230/package/pocketos/pocketos.mk \
    platforms/k230/package/pocketos/pocketos.hash "$GUARD/repo/platforms/k230/package/pocketos/"
 # The kernel patches (ADR-011) come out of the same snapshot, and git archive
@@ -510,27 +511,37 @@ check "no first-party build input is installed from the working tree" \
       $([ -z "$wt" ] && echo 1 || echo 0)
 [ -n "$wt" ] && printf '%s\n' "$wt" | head -5
 
-for f in 'configs/${CONF}' package/pocketos/Config.in package/pocketos/pocketos.mk package/pocketos/pocketos.hash; do
+for f in package/pocketos/Config.in package/pocketos/pocketos.mk package/pocketos/pocketos.hash; do
     check "$(basename "$f") is installed from the snapshot" \
           $(grep -qF "install -m 0644 \"\${SNAPSHOT_DIR}/platforms/k230/$f\"" "$APPLY" \
             && echo 1 || echo 0)
 done
+# The defconfig is composed (B3, docs/licensing/APACHE_2_READINESS.md): the
+# vendor board defconfig read from the pinned BSP commit, then the Doors
+# fragment out of the snapshot; the composition is what gets installed.
+check "the defconfig is composed from the vendor file at the BSP commit and the snapshot's fragment" \
+      $(grep -qF 'git -C "${VENDOR_DIR}" show "${BSP_COMMIT}:${VENDOR_DEFCONFIG}"' "$APPLY" &&
+        grep -qF '"${SNAPSHOT_DIR}/${DOORS_FRAGMENT}"' "$APPLY" &&
+        grep -qF 'install -m 0644 "${COMPOSED_DEFCONFIG}" "${SDK_DIR}/buildroot-overlay/configs/${CONF}"' "$APPLY" \
+        && echo 1 || echo 0)
+check "and the repository keeps no copy of the vendor defconfig" \
+      $([ -z "$(git ls-files 'platforms/k230/configs/*_defconfig')" ] && echo 1 || echo 0)
 
 # And the mechanism really does ignore the working tree. A throwaway worktree
 # is dirtied in exactly the way that used to reach the image - an edit to the
-# defconfig - and the snapshot the script would take must still yield the
-# committed bytes.
+# Doors defconfig fragment - and the snapshot the script would take must still
+# yield the committed bytes.
 SNAP="$TMP/snap"
 mkdir -p "$SNAP/out"
 if git worktree add --detach "$SNAP/wt" HEAD >/dev/null 2>&1; then
-    conf_rel="platforms/k230/configs/$CONF"
+    conf_rel="platforms/k230/configs/k230_pocketos.fragment"
     printf '\n# uncommitted edit that must never reach a build\n' >> "$SNAP/wt/$conf_rel"
     check "the throwaway worktree is dirty" \
           $([ -n "$(git -C "$SNAP/wt" status --porcelain)" ] && echo 1 || echo 0)
     snap_commit=$(git -C "$SNAP/wt" rev-parse HEAD)
     git -C "$SNAP/wt" archive --format=tar "$snap_commit" -- "$conf_rel" \
         | tar -xp -C "$SNAP/out"
-    check "the snapshot of a dirty tree carries the committed defconfig" \
+    check "the snapshot of a dirty tree carries the committed defconfig fragment" \
           $(cmp -s "$SNAP/out/$conf_rel" <(git show "HEAD:$conf_rel") && echo 1 || echo 0)
     check "and not the uncommitted edit" \
           $(grep -q 'uncommitted edit that must never reach a build' "$SNAP/out/$conf_rel" \
@@ -634,6 +645,42 @@ if git -C vendor/RadioLib rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     [ "$here" = "$want" ] || echo "     here $here, pinned $want"
 else
     echo "note: no RadioLib checkout here; the pin's value was not compared"
+fi
+
+# ---- the composed defconfig, executed --------------------------------------
+# compose_defconfig() taken out of apply_to_sdk.sh and run against the real
+# vendor checkout: the result is the vendor file at the pinned BSP commit, LF,
+# followed by exactly the fragment's settings; a fragment that restates a
+# vendor setting is refused.
+VBSP=vendor/T-Display-K230
+VDEF=k230_bsp/overlay/buildroot-overlay/configs/k230_canmv_t_display_rm69a10_defconfig
+PIN_BSP=$(cat platforms/k230/vendor_bsp_commit.txt)
+if git -C "$VBSP" cat-file -e "$PIN_BSP:$VDEF" 2>/dev/null; then
+    CMP="$TMP/compose"; mkdir -p "$CMP/snap/platforms/k230/configs"
+    sed -n '/^compose_defconfig() {/,/^}/p' "$APPLY" > "$CMP/fn.sh"
+    cp platforms/k230/configs/k230_pocketos.fragment "$CMP/snap/platforms/k230/configs/"
+    run_compose() { # <fragment file> <out>
+        cp "$1" "$CMP/snap/platforms/k230/configs/k230_pocketos.fragment"
+        ( set -euo pipefail; . "$CMP/fn.sh"; VENDOR_DIR="$VBSP"; BSP_COMMIT="$PIN_BSP"; VENDOR_DEFCONFIG="$VDEF"
+          SNAPSHOT_DIR="$CMP/snap"; DOORS_FRAGMENT=platforms/k230/configs/k230_pocketos.fragment
+          compose_defconfig "$2" ) 2> "$2.err"
+    }
+    run_compose platforms/k230/configs/k230_pocketos.fragment "$CMP/out"
+    check "the composition runs against the pinned vendor defconfig" $([ $? -eq 0 ] && echo 1 || echo 0)
+    check "and is that file followed by exactly the fragment's settings" \
+          $(cmp -s "$CMP/out" <( git -C "$VBSP" show "$PIN_BSP:$VDEF" | tr -d '\r'
+                                 grep -v -E '^[[:space:]]*(#|$)' platforms/k230/configs/k230_pocketos.fragment ) &&
+            echo 1 || echo 0)
+    check "and builds the pinned LVGL" \
+          $(grep -qx "BR2_PACKAGE_LVGL_CUSTOM_VERSION=\"$(tr -d '\r\n' < platforms/k230/vendor_lvgl_commit.txt)\"" "$CMP/out" &&
+            echo 1 || echo 0)
+    printf 'BR2_PACKAGE_POCKETOS=y\nBR2_PACKAGE_LVGL=y\n' > "$CMP/restating.fragment"
+    run_compose "$CMP/restating.fragment" "$CMP/out2"
+    check "a fragment that restates a vendor setting is refused (control)" \
+          $([ $? -ne 0 ] && grep -q 'BR2_PACKAGE_LVGL, which the vendor defconfig already sets' "$CMP/out2.err" &&
+            echo 1 || echo 0)
+else
+    echo "note: no vendor BSP checkout at the pinned commit here; the composition was not executed"
 fi
 
 echo "package_sync_test: $failed failure(s)"

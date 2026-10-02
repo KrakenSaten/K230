@@ -12,7 +12,7 @@
 #                     ggwave (vendor/ggwave at vendor_ggwave_commit.txt),
 #                     meshcore (vendor/RIFT at protocols/meshcore/vendor_rift_commit.txt),
 #                     arduinolibs (vendor/Crypto at protocols/meshcore/vendor_crypto_commit.txt),
-#                     lvgl (the LVGL commit in the defconfig),
+#                     lvgl (platforms/k230/vendor_lvgl_commit.txt),
 #                     lv_port_linux (the commit named in version)
 #   repo:<path>       a notice kept in this repository
 #   text:<file>       a statement written here, kept as texts/<file>

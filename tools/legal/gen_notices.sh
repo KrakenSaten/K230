@@ -77,8 +77,10 @@ pin_ggwave() { tr -d '\r\n' < "${REPO}/platforms/k230/vendor_ggwave_commit.txt";
 # builds them into meshcored; the notices name the same commits.
 pin_meshcore() { tr -d '\r\n' < "${REPO}/protocols/meshcore/vendor_rift_commit.txt"; }
 pin_arduinolibs() { tr -d '\r\n' < "${REPO}/protocols/meshcore/vendor_crypto_commit.txt"; }
-pin_lvgl() { tr -d '\r' < "${REPO}/platforms/k230/configs/k230_pocketos_defconfig" |
-    sed -n 's/^BR2_PACKAGE_LVGL_CUSTOM_VERSION="\([0-9a-f]*\)"$/\1/p'; }
+# LVGL: the commit the vendor board defconfig builds, pinned here, since Doors
+# keeps no copy of that defconfig; apply_to_sdk.sh refuses a composed
+# defconfig that builds another.
+pin_lvgl() { tr -d '\r\n' < "${REPO}/platforms/k230/vendor_lvgl_commit.txt"; }
 commit_in() { printf '%s\n' "$1" | grep -o -E 'commit [0-9a-f]{40}' | head -1 | cut -d' ' -f2; }
 
 # The upstream bytes of an entry on stdout; returns 3 when nothing here can
@@ -108,7 +110,7 @@ upstream() { # <text spec> <version field>
             git -C "${REPO}/vendor/Crypto" show "${commit}:${path}" ;;
         lvgl)
             commit="$(pin_lvgl)"
-            [ -n "${commit}" ] || { echo "gen_notices.sh: no LVGL commit in the defconfig" >&2; return 2; }
+            [ -n "${commit}" ] || { echo "gen_notices.sh: no LVGL pin (platforms/k230/vendor_lvgl_commit.txt)" >&2; return 2; }
             tarball="${SDK:+${SDK}/dl/lvgl/lvgl-${commit}.tar.gz}"
             if [ -n "${tarball}" ] && [ -f "${tarball}" ]; then
                 top="$(tar -tzf "${tarball}" | head -1 | cut -d/ -f1)"

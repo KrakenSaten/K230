@@ -77,8 +77,18 @@ check "RadioLib's entry names the pinned commit" \
     "$([ "$(commit_of radiolib)" = "$(cat platforms/k230/vendor_radiolib_commit.txt)" ] && echo 1 || echo 0)"
 check "ggwave's entry names the pinned commit" \
     "$([ "$(commit_of ggwave)" = "$(cat platforms/k230/vendor_ggwave_commit.txt)" ] && echo 1 || echo 0)"
-check "LVGL's entry names the commit the defconfig builds" \
-    "$([ "$(commit_of lvgl)" = "$(tr -d '\r' < platforms/k230/configs/k230_pocketos_defconfig | sed -n 's/^BR2_PACKAGE_LVGL_CUSTOM_VERSION="\(.*\)"$/\1/p')" ] && echo 1 || echo 0)"
+check "LVGL's entry names the pinned commit" \
+    "$([ "$(commit_of lvgl)" = "$(tr -d '\r\n' < platforms/k230/vendor_lvgl_commit.txt)" ] && echo 1 || echo 0)"
+# The pin is what the vendor board defconfig builds, at the pinned BSP commit
+# (Doors keeps no copy of that defconfig; apply_to_sdk.sh composes it).
+VDEF=k230_bsp/overlay/buildroot-overlay/configs/k230_canmv_t_display_rm69a10_defconfig
+if git -C vendor/T-Display-K230 cat-file -e "$(cat platforms/k230/vendor_bsp_commit.txt):$VDEF" 2>/dev/null; then
+    check "and that is the LVGL the vendor board defconfig builds at the pinned BSP commit" \
+        "$(git -C vendor/T-Display-K230 show "$(cat platforms/k230/vendor_bsp_commit.txt):$VDEF" | tr -d '\r' |
+           grep -qx "BR2_PACKAGE_LVGL_CUSTOM_VERSION=\"$(tr -d '\r\n' < platforms/k230/vendor_lvgl_commit.txt)\"" && echo 1 || echo 0)"
+fi
+check "apply_to_sdk.sh refuses a composed defconfig that builds another LVGL" \
+    "$(grep -q 'the composed defconfig does not build LVGL' platforms/k230/scripts/apply_to_sdk.sh && echo 1 || echo 0)"
 
 # ---- nothing third-party reaches a binary without an entry --------------
 # Vendored source the GNU make tree compiles.

@@ -20,6 +20,7 @@ tools/meshcore-frame/mcf_frame.cpp          MIXED Apache-2.0 AND MIT (MeshCore p
 tools/meshcore-frame/mcf_report.cpp         MIXED Apache-2.0 AND MIT (MeshCore ACK hash)
 tests/meshcore_core_test.cpp                MIXED Apache-2.0 AND MIT (MeshCore test cases, key pair and vectors)
 tests/meshcore_frame_test.cpp               MIXED Apache-2.0 AND MIT (MeshCore test key pair)
+tests/display_geometry_test.c               MIXED Apache-2.0 AND MIT (LVGL lv_evdev calibration arithmetic)
 
 ui/pocketui/pos_keymap.c                    NOT-CLEARED key tables from the LILYGO launcher, which states no licence
 
