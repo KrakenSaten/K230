@@ -3978,7 +3978,7 @@ the status cluster, as every tool has. The terminal is the body.
 One custom-drawn object filling the body inside the corner clearance
 (§21), 4 px in from its edge: cells of the monospace face of the caption
 role (§4) without its letter spacing, 8 x 18 px (at Small; §49.1 gives
-the other sizes, PROPOSED). The default colours are
+the other sizes, ACCEPTED). The default colours are
 `bg` and `text_primary`; a program's eight colours are the identity accents
 (§37: red 0, green 3, yellow 2, blue 5, magenta 7, cyan 4), black
 `text_muted`, white `text_secondary`, bright forms and bold lighter by 30 %,
@@ -4000,7 +4000,7 @@ the keyboard base is not attached.
 The header's hint says SCROLLBACK while the view is not live and ENDED
 after the shell ended; the screen itself says how it ended, in reverse
 video, and that Enter starts a new shell. The session row under the grid
-and CLOSE SESSION: §49.2-§49.3 (PROPOSED).
+and CLOSE SESSION: §49.2-§49.3 (ACCEPTED).
 
 ## 44. Amendment AB — The keyboard base's own keys and lights [PROPOSED]
 
@@ -4161,7 +4161,7 @@ to resize, or is better at one size:
   (`apps/terminal/terminal_app.c`). Its columns and rows are what the shell
   inside was told, and a grid that changed with an unrelated setting would
   reflow a running program. Terminal's own chrome follows. A terminal font
-  size is a separate setting for later. *Replaced by §49.1 (PROPOSED
+  size is a separate setting for later. *Replaced by §49.1 (ACCEPTED
   2026-10-02): the grid follows the text size in a face of its own, and
   the program is told its new size.*
 - **Text on a live picture**: Vision's detection tags stay at Small
@@ -4517,8 +4517,12 @@ landscape and portrait 18/18 each, the layout audit clean at Small, Medium
 and Large in both, pressed lit on the whole corner, no fault. Left for the
 owner: the look under the glass's curve and the feel under a real finger.
 
-## 49. Amendment AG — Terminal: the text size and a kept session [PROPOSED]
+## 49. Amendment AG — Terminal: the text size and a kept session [ACCEPTED]
 
+**ACCEPTED 2026-10-02** by the owner, after the unit A gate
+(`docs/hardware/TERMINAL_POWER_USER_GATE.md`), both units running the
+production build of `0330d93` for the owner's own testing, and the merge to
+master (`affb97d`, PR #25).
 **Proposed 2026-10-02** on branch `feat/terminal-power-user`. Changes the
 Terminal's grid size (§43.2), adds a session row and a confirmation to its
 screen (§43.4), and replaces the Terminal bullet of §46.4: the grid no
