@@ -120,8 +120,8 @@ static void fake_root(void)
     mkdirs("proc/device-tree");
     mkdirs("etc/version");
     mkdirs("sys/class/thermal/thermal_zone0");
-    mkdirs("sys/class/net/eth0");
-    mkdirs("sys/class/net/wlan0");
+    mkdirs("sys/class/net/eth0/statistics");
+    mkdirs("sys/class/net/wlan0/statistics");
     mkdirs("sys/class/net/nosuch0"); /* a name no host kernel has: ipv4 must be null */
     mkdirs("sys/class/net/lo");
     mkdirs("sys/class/power_supply");
@@ -148,6 +148,10 @@ static void fake_root(void)
     put("sys/class/net/eth0/address", "00:e0:4c:3a:5e:d0\n", 0);
     put("sys/class/net/wlan0/operstate", "down\n", 0);
     put("sys/class/net/wlan0/address", "88:3b:dc:b7:9e:c7\n", 0);
+    put("sys/class/net/eth0/statistics/rx_bytes", "23681229\n", 0);
+    put("sys/class/net/eth0/statistics/tx_bytes", "105768542\n", 0);
+    put("sys/class/net/wlan0/statistics/rx_bytes", "18289868\n", 0);
+    put("sys/class/net/wlan0/statistics/tx_bytes", "x269402\n", 0);
     put("sys/class/net/nosuch0/operstate", "down\n", 0);
     put("sys/class/net/lo/operstate", "unknown\n", 0);
 }
@@ -288,6 +292,17 @@ int main(void)
     check("absent address file is null", cJSON_IsNull(get(e, "mac")));
     e = find_named(arr, "wlan0");
     check("wlan0 carrier unknown (null) while down", cJSON_IsNull(get(e, "carrier")));
+    check("wlan0 rx_bytes from its statistics counter",
+          cJSON_IsNumber(get(e, "rx_bytes")) && get(e, "rx_bytes")->valuedouble == 18289868.0);
+    check("a counter that is not a plain decimal is null, never a guess", cJSON_IsNull(get(e, "tx_bytes")));
+    e = find_named(arr, "eth0");
+    check("eth0 rx_bytes and tx_bytes", cJSON_IsNumber(get(e, "rx_bytes")) &&
+                                            get(e, "rx_bytes")->valuedouble == 23681229.0 &&
+                                            cJSON_IsNumber(get(e, "tx_bytes")) &&
+                                            get(e, "tx_bytes")->valuedouble == 105768542.0);
+    e = find_named(arr, "nosuch0");
+    check("no statistics directory: both counters null",
+          cJSON_IsNull(get(e, "rx_bytes")) && cJSON_IsNull(get(e, "tx_bytes")));
 
     e = get(st, "power");
     check("power source external with no supply", str_is(e, "source", "external"));
