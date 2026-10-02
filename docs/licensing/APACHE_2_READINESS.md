@@ -467,6 +467,9 @@ the branch (VERIFIED, 2026-10-01/02):
 | `tests/notices_test.sh` | `a2a0fb4` | 0 failures |
 | public-source export | `a2a0fb4` | 1,851 files; none under `originals/`, `mockups/`, no `.dc.html`, `support.js`, `.zip` or `.otf` |
 | export cleanliness scan (private keys, credentials, Wi-Fi names, LAN addresses, MACs) | `a14029f` | no keys or credentials; LAN addresses and MACs in hardware records (C8) |
+| `tests/license_audit_test.sh` after B1 (new classes; every brand file listed in BRAND.md with no Apache-2.0 tag; NOTICE names the brand terms) | `cb86af8` | 0 failures; candidate assets: 108 ORIGINAL, 158 OWNER-VECTOR, 16 OWNER-AI-RASTER, 16 BRAND, 35 DERIVED-ART, 1 DERIVED-BRAND, 103 CAPTURE |
+| `tests/notices_test.sh` (NOTICE changed; pocketos.hash regenerated) | `cb86af8` | 0 failures |
+| public-source export | `cb86af8` | 1,852 files, 8 exclusions, none of the excluded groups present |
 
 Not run, by the owner's instruction on 2026-10-02: the riscv64 and DRM
 cross builds, `apply_to_sdk.sh` / `build_image.sh` against the SDK, and
