@@ -159,13 +159,15 @@ while IFS= read -r e; do
     [ -z "$hits" ] || used="$used [$e]"
 done < <(psx_entries)
 check "no build, generator or test input is excluded${used:+ (read:$used)}" "$([ -z "$used" ] && echo 1 || echo 0)"
-# The exporter, executed: design-tool exports and bundled pages are not in the
-# candidate, and what the build needs is.
+# The exporter, executed: the design tool's runtime, design zips, bundled
+# pages and supplied fonts are not in the candidate, and what the build needs
+# is. (The RIFT .dc.html is the owner's design document and may be in it; it
+# only renders with the runtime, which may not.)
 bash tools/legal/public_source_tree.sh --list HEAD > "$TMP/candidate" 2>"$TMP/candidate.err"
 check "the public-source exporter lists a candidate" "$([ -s "$TMP/candidate" ] && echo 1 || echo 0)"
-leak=$(git ls-tree -r --name-only HEAD | grep -E '\.dc\.html$|(^|/)support\.js$|\.zip$|Design System\.html$|\.otf$' |
+leak=$(git ls-tree -r --name-only HEAD | grep -E '(^|/)support\.js$|\.zip$|Design System\.html$|\.otf$' |
        grep -x -F -f - "$TMP/candidate")
-check "no design-tool export, design zip or supplied font is in it${leak:+ (in: $leak)}" "$([ -z "$leak" ] && echo 1 || echo 0)"
+check "no design-tool runtime, design zip, bundled page or supplied font is in it${leak:+ (in: $leak)}" "$([ -z "$leak" ] && echo 1 || echo 0)"
 check "and it keeps LICENSE, NOTICE, the notices, the build files and the defconfig fragment" \
     "$(for f in LICENSE NOTICE THIRD_PARTY_NOTICES.txt Makefile ui/shell/CMakeLists.txt platforms/k230/configs/k230_pocketos.fragment; do
            grep -qx -F "$f" "$TMP/candidate" || exit 1; done; echo 1)"
@@ -178,7 +180,7 @@ check "the repository keeps no copy of a vendor defconfig (B3)" \
 # asset a class; the first rule that matches decides. Paths may hold spaces,
 # so a rule's pattern is everything before its class word.
 INV=docs/licensing/asset-inventory.txt
-CLASSES="ORIGINAL OWNER-VECTOR OWNER-AI-RASTER BRAND DERIVED-ART DERIVED-BRAND CAPTURE OWNER-REF DESIGN-EXPORT THIRD-PARTY"
+CLASSES="ORIGINAL OWNER-VECTOR OWNER-AI-RASTER OWNER-DESIGN BRAND DERIVED-ART DERIVED-BRAND CAPTURE OWNER-REF DESIGN-EXPORT THIRD-PARTY"
 tr -d '\r' < "$INV" | awk -v cl="$CLASSES" '
     BEGIN { n = split(cl, c, " "); for (i = 1; i <= n; i++) ok[c[i]] = 1 }
     /^[[:space:]]*(#|$)/ { next }

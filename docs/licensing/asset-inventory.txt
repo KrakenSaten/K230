@@ -12,9 +12,12 @@
 #                     ChatGPT art. Apache-2.0
 #   OWNER-VECTOR      vector art the owner made with ChatGPT (owner,
 #                     2026-10-02). Apache-2.0
-#   OWNER-AI-RASTER   images the owner made with ChatGPT's image generation
-#                     (OpenAI content credentials). Apache-2.0, to the extent
-#                     rights subsist in them
+#   OWNER-AI-RASTER   images the owner made with an AI tool: ChatGPT's image
+#                     generation (OpenAI content credentials) or Claude
+#                     (Anthropic content credentials). Apache-2.0, to the
+#                     extent rights subsist in them
+#   OWNER-DESIGN      design source document the owner made with an AI tool
+#                     (Claude). Apache-2.0
 #   BRAND             the Doors mark, lockups and boot art, made by the owner
 #                     with ChatGPT. Reserved: docs/licensing/BRAND.md
 #   DERIVED-ART       generated in this repository from ORIGINAL and OWNER-*
@@ -33,7 +36,8 @@ docs/design/brand/doors-visual-pack-v1/originals/*/fonts/*                      
 docs/design/brand/doors-visual-pack-v1/originals/DOORS_Visual_Package_v1/masters/*           OWNER-AI-RASTER the eight photographic masters, OpenAI content credentials; excluded
 docs/design/brand/doors-visual-pack-v1/originals/DOORS_B_Production_Package_v2/references/*  OWNER-AI-RASTER approved_B.png, OpenAI content credentials; excluded
 docs/design/brand/doors-visual-pack-v1/originals/*                                           OWNER-REF       byte copies of the two supplied archives (resized AI backgrounds, previews, overlays, icons, scripts); excluded
-docs/design/rift/*                                                                           DESIGN-EXPORT   RIFT design package, Anthropic content credentials on the shots; excluded
+docs/design/rift/shots/*                                                                     OWNER-AI-RASTER RIFT design exports, made by the owner with Claude (Anthropic content credentials)
+docs/design/rift/RIFT for Doors.dc.html                                                      OWNER-DESIGN    RIFT design source, made by the owner with Claude; renders only with the excluded support.js
 docs/design/PocketOS Design System.html                                                      DESIGN-EXPORT   bundled design page; excluded
 docs/design/Repository connection and design directions.zip                                  DESIGN-EXPORT   design-canvas export with AI-generated reference images; excluded
 docs/design/brand/doors-threshold/mockups/*                                                  OWNER-REF       Threshold mockups; excluded

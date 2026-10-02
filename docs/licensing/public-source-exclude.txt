@@ -13,7 +13,7 @@
 #        supplier references, byte copies of the original archives);
 #        nothing builds from it, and it is not needed to understand the code
 
-docs/design/rift/                                              B2 RIFT design package: dc-runtime support.js, .dc.html, shots, handoff texts (made with Claude, terms not stated)
+docs/design/rift/support.js                                    B2 the design tool's runtime ("GENERATED from dc-runtime/src/*.ts", sources not here); tool code, not the owner's output, terms not stated
 docs/design/PocketOS Design System.html                        B2 bundled design page: embedded design-tool runtime, React, IBM Plex WOFF2
 docs/design/Repository connection and design directions.zip    B2 design-canvas export: dc-runtime, React, AI-generated (OpenAI) reference images
 docs/design/brand/doors-threshold/mockups/                     B1R supplier mockups
