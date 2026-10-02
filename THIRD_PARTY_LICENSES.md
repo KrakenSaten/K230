@@ -20,7 +20,8 @@ docs/licensing/APACHE_2_READINESS.md. Audited 2026-10-01 at origin/master
 | OK WITH ATTRIBUTION | Permissive; a distribution must carry its notice (done by THIRD_PARTY_NOTICES.txt where it ships). |
 | SEPARATE LICENSE | Distributed beside Doors under its own, different terms (copyleft or font licence), with that licence's obligations (source offer, licence text, naming rules). It does not become Apache-2.0, and Doors does not become it. |
 | REVIEW REQUIRED | Terms missing, unclear or not yet met; must be settled before the distribution it concerns. |
-| DO NOT REDISTRIBUTE | No right to redistribute is established; keep it out of public distributions. |
+| UNKNOWN - DO NOT REDISTRIBUTE | Author, licence or provenance not established from a primary source. Not relicensed, not guessed; kept out of public distributions until settled. |
+| DO NOT REDISTRIBUTE | Terms are known and do not allow it, or are reserved; keep it out of public distributions. |
 
 ## 1. Compiled into Doors binaries
 
@@ -38,7 +39,7 @@ text.
 | Ed25519 (Orson Peters), in MeshCore | `ed25519` | signatures | via MeshCore | Zlib | licence text only | `/usr/sbin/meshcored` | keep notice | OK WITH ATTRIBUTION |
 | Arduino Cryptography Library (`37a76b8`) | `arduinolibs-crypto` | AES/SHA for MeshCore | github.com/rweather/arduinolibs | MIT | licence text only | `/usr/sbin/meshcored` | keep notice | OK WITH ATTRIBUTION |
 | K230 Linux SDK code (Canaan): `libmmz`, and the AI2D set-up adapted from its `yolo` and `ai_demo` samples | `canaan-k230-sdk` | KPU shared memory and preprocessing in pos-vision | github.com/kendryte/k230_linux_sdk at `22d02c6` | BSD-2-Clause (the SDK's root LICENSE; `libmmz` has no file header) | licence text (docs/legal/third-party/canaan-k230-linux-sdk-LICENSE.txt) | `/usr/bin/pos-vision` | keep notice | OK WITH ATTRIBUTION |
-| nncase runtime 2.11.0 for K230 (`libNncase.Runtime.Native`, `libnncase.rt_modules.k230`, `libfunctional_k230`, static) | - | KPU inference in pos-vision | github.com/kendryte/nncase release archive `nncase_k230_v2.11.0_runtime_linux.tgz` | nncase's repository is Apache-2.0 at `v2.11.0`; **the prebuilt runtime archive carries no licence file**, and whether the K230 modules are covered by it is not shown | no | `/usr/bin/pos-vision` (static) | Apache-2.0 section 4 if confirmed: licence text, notices | REVIEW REQUIRED |
+| nncase runtime 2.11.0 for K230 (`libNncase.Runtime.Native`, `libnncase.rt_modules.k230`, `libfunctional_k230`, static) | - | KPU inference in pos-vision | github.com/kendryte/nncase release archive `nncase_k230_v2.11.0_runtime_linux.tgz` | nncase's repository is Apache-2.0 at `v2.11.0`; **the prebuilt runtime archive carries no licence file**, and whether the K230 modules are covered by it is not shown | no | `/usr/bin/pos-vision` (static) | Apache-2.0 section 4 if confirmed: licence text, notices | **UNKNOWN - DO NOT REDISTRIBUTE** (B5) |
 
 ## 2. Fonts and generated assets built into Doors
 
@@ -67,8 +68,8 @@ and is listed in docs/licensing/spdx-exempt.txt.
 | `tools/meshcore-frame/mcf_frame.cpp`, `mcf_report.cpp` | MeshCore `Mesh.cpp`, `BaseChatMesh.cpp` | MIT | host tool only | OK WITH ATTRIBUTION |
 | `tests/meshcore_core_test.cpp`, `tests/meshcore_frame_test.cpp` | MeshCore's own test suites, its test key pair and vectors | MIT | tests only | OK WITH ATTRIBUTION |
 | `core/pocketvision/vision_kpu_nncase.cpp` | K230 SDK `yolo/src/utils.cc`, `ai_demo` `Utils::affine` | BSD-2-Clause (`canaan-k230-sdk` notice) | pos-vision | OK WITH ATTRIBUTION |
-| `ui/pocketui/pos_keymap.c` (key-name and shifted-symbol tables) | LILYGO launcher `k230_phone_ui/src/ui_hardware.c` | **none stated** by LILYGO | doors-shell | **REVIEW REQUIRED** (header says NOT CLEARED) |
-| `platforms/k230/configs/k230_pocketos_defconfig` | LILYGO `k230_canmv_t_display_rm69a10_defconfig` (itself from Canaan's `k230_canmv_defconfig`), copied with one line added | **none stated** by LILYGO (Canaan's original: BSD-2-Clause) | build configuration | **REVIEW REQUIRED** |
+| `ui/pocketui/pos_keymap.c` (key-name and shifted-symbol tables) | LILYGO launcher `k230_phone_ui/src/ui_hardware.c` | **none stated** by LILYGO | doors-shell | **UNKNOWN - DO NOT REDISTRIBUTE** (B3; header says NOT CLEARED) |
+| `platforms/k230/configs/k230_pocketos_defconfig` | LILYGO `k230_canmv_t_display_rm69a10_defconfig` (itself from Canaan's `k230_canmv_defconfig`), copied with one line added | **none stated** by LILYGO (Canaan's original: BSD-2-Clause) | build configuration | **UNKNOWN - DO NOT REDISTRIBUTE** (B3) |
 | `apps/calendar/cal_date.c` (days_from_civil) | Howard Hinnant's date algorithms | public domain ("Consider these donated to the public domain", howardhinnant.github.io/date_algorithms.html) | doors-shell | OK |
 | `tests/display_geometry_test.c` (one calibration formula) | LVGL `lv_evdev.c` | MIT | tests only | OK |
 
@@ -107,12 +108,12 @@ first run, 2026-09-04; open item 3 is to archive it per release).
 | OpenSBI 1.4 | BSD-2-Clause | yes | OK WITH ATTRIBUTION |
 | BusyBox, util-linux, e2fsprogs, bluez, dbus, wpa_supplicant, hostapd and the other Buildroot packages (docs/legal/manifest.csv, 96 rows) | various; GPL-3.0+: readline, dosfstools, parted, umtprd; LGPL-3.0+: live555; EPL-2.0: paho-mqtt; no AGPL | yes | SEPARATE LICENSE (legal-info) |
 | K230 Linux SDK (`kendryte/k230_linux_sdk` `22d02c6`) | BSD-2-Clause (Canaan, root LICENSE) | build system and vendor packages | OK WITH ATTRIBUTION |
-| SDK vendor packages without licence metadata: `libnncase`, `gsl-lite`, `vvcam`, `face_detect`, `ai2d_kpu`, `nonai2d`, `libmmz` | not in their package files (`gsl-lite` is MIT upstream) | yes | REVIEW REQUIRED (docs/LICENSING.md item 5) |
-| LILYGO T-Display-K230 (`bb831ab`): BSP overlay, boot scripts, rootfs overlay | **no licence** in the repository (files that modify GPL code are GPL by derivation) | yes | REVIEW REQUIRED (item 2) |
-| LILYGO launcher `k230_phone_ui` (with bundled nofrendo GPL-2.0, RadioLib MIT, quirc ISC, libtmt and qrcodegen MIT, and two kmodels) | **no licence** for LILYGO's own code | **yes** (`BR2_PACKAGE_K230_PHONE_UI=y`; disabled at boot by `/etc/default/k230_phone_ui`) | **DO NOT REDISTRIBUTE** until LILYGO states terms, or drop the package |
-| Realtek `rtl8723ds-bt` firmware | PROPRIETARY (Buildroot metadata) | yes | **REVIEW REQUIRED** (item 4: hardware absent; removal candidate) |
-| `rtl8723ds`, `rtl8189fs`, `aic8800` drivers and `aic8800*` firmware | GPL-2.0 drivers; firmware terms not collected | yes | REVIEW REQUIRED (item 4) |
-| Xuantie toolchain runtime (glibc, libstdc++, libgcc_s) | LGPL-2.1+ / GPL-3.0 with runtime exception | yes | REVIEW REQUIRED (item 8: not collected by legal-info) |
+| SDK vendor packages without licence metadata: `libnncase`, `gsl-lite`, `vvcam`, `face_detect`, `ai2d_kpu`, `nonai2d`, `libmmz` | not in their package files (`gsl-lite` is MIT upstream) | yes | **UNKNOWN - DO NOT REDISTRIBUTE** (B6; docs/LICENSING.md item 5) |
+| LILYGO T-Display-K230 (`bb831ab`): BSP overlay, boot scripts, rootfs overlay | **no licence** in the repository (files that modify GPL code are GPL by derivation) | yes | **UNKNOWN - DO NOT REDISTRIBUTE** (B7; item 2) |
+| LILYGO launcher `k230_phone_ui` (with bundled nofrendo GPL-2.0, RadioLib MIT, quirc ISC, libtmt and qrcodegen MIT, and two kmodels) | **no licence** for LILYGO's own code | **yes** (`BR2_PACKAGE_K230_PHONE_UI=y`; disabled at boot by `/etc/default/k230_phone_ui`) | **UNKNOWN - DO NOT REDISTRIBUTE** (B7) - get LILYGO's terms or drop the package |
+| Realtek `rtl8723ds-bt` firmware | PROPRIETARY (Buildroot metadata) | yes | **DO NOT REDISTRIBUTE** (B8: proprietary, terms not collected, hardware absent) |
+| `rtl8723ds`, `rtl8189fs`, `aic8800` drivers and `aic8800*` firmware | GPL-2.0 drivers; firmware terms not collected | yes | drivers: SEPARATE LICENSE (GPL-2.0); firmware: **UNKNOWN - DO NOT REDISTRIBUTE** (B8) |
+| Xuantie toolchain runtime (glibc, libstdc++, libgcc_s) | LGPL-2.1+ / GPL-3.0 with runtime exception | yes | REVIEW REQUIRED (B9: licences known, texts and source offer not collected) |
 | YOLOv8n model `yolov8n.kmodel` (`yolov8n-kmodel`), installed by the Doors package for Vision | Ultralytics weights AGPL-3.0; the SDK states no terms for the file | yes, internal images only (owner, 2026-09-28) | **DO NOT REDISTRIBUTE** outside the project (MODEL_LICENSES.md; docs/LICENSING.md item 10) |
 | Vendor models in the image (`face_detection_320.kmodel`, `xiaozhi_kws.kmodel`, `test.kmodel`) | none stated | yes, via vendor packages | see MODEL_LICENSES.md |
 
@@ -132,10 +133,10 @@ first run, 2026-09-04; open item 3 is to archive it per release).
 | `docs/legal/licenses/**`, `docs/legal/*.csv` | Buildroot legal-info output | each package's own | OK (licence texts) |
 | `docs/legal/fonts/IBMPlex-OFL-1.1.txt`, `docs/legal/third-party/*` | licence texts | as named | OK |
 | `docs/design/brand/doors-visual-pack-v1/originals/*/fonts/NimbusSans-Regular.otf` (2 copies, with `LICENSE.txt`) | URW base35 font, preview only | AGPL-3.0 with font exception (its LICENSE.txt) | SEPARATE LICENSE (keep its licence with it, or remove before publishing) |
-| `docs/design/PocketOS Design System.html` | bundled design page embedding React and IBM Plex WOFF2 subsets and a design-tool runtime | React MIT (its `@license` header is inside), Plex OFL-1.1, runtime unknown | REVIEW REQUIRED |
-| `docs/design/rift/support.js`, `docs/design/rift/*.dc.html` | design-tool runtime ("GENERATED from dc-runtime"), RIFT design package (C2PA: made with Claude) | none stated | REVIEW REQUIRED |
-| `apps/fleet/Repository connection and design directions.zip`, `docs/design/Repository connection and design directions.zip` (identical) | design-canvas export: React, the same runtime, AI-generated (OpenAI) reference images | React MIT; rest none stated | REVIEW REQUIRED (the `apps/fleet` copy also travels in the package source) |
-| `docs/design/brand/doors-threshold/**`, `doors-icon-extension/**`, `doors-visual-pack-v1/**` | owner-supplied artwork packages (part AI-generated, OpenAI C2PA), and the supplier's scripts | **author, copyright and licence not stated** | REVIEW REQUIRED (owner to confirm rights; see §6 of the readiness audit) |
+| `docs/design/PocketOS Design System.html` | bundled design page embedding React and IBM Plex WOFF2 subsets and a design-tool runtime | React MIT (its `@license` header is inside), Plex OFL-1.1, runtime unknown | **UNKNOWN - DO NOT REDISTRIBUTE** (B2) - React MIT and Plex OFL are known; the embedded runtime is not |
+| `docs/design/rift/support.js`, `docs/design/rift/*.dc.html` | design-tool runtime ("GENERATED from dc-runtime"), RIFT design package (C2PA: made with Claude) | none stated | **UNKNOWN - DO NOT REDISTRIBUTE** (B2) |
+| `apps/fleet/Repository connection and design directions.zip`, `docs/design/Repository connection and design directions.zip` (identical) | design-canvas export: React, the same runtime, AI-generated (OpenAI) reference images | React MIT; rest none stated | **UNKNOWN - DO NOT REDISTRIBUTE** (B2; the `apps/fleet` copy also travels in the package source) |
+| `docs/design/brand/doors-threshold/**`, `doors-icon-extension/**`, `doors-visual-pack-v1/**` | owner-supplied artwork packages (part AI-generated, OpenAI C2PA), and the supplier's scripts | **author, copyright and licence not stated** | **UNKNOWN - DO NOT REDISTRIBUTE** (B1; owner to confirm rights) |
 
 ## 8. Test data
 
