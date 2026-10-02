@@ -4587,3 +4587,74 @@ across leaving, the confirmation) and `tests/terminal_shell_test.sh` (the
 real shell keeping a job running while the launcher is up); the layout audit
 of the screen and of the dialog is clean at Small, Medium and Large in both
 orientations. Hardware: docs/hardware/TERMINAL_POWER_USER_GATE.md (unit A).
+
+## 50. Amendment AH — Zabbix connection settings [ACCEPTED]
+
+**ACCEPTED 2026-10-02** by the owner, after the unit B hardware check
+(docs/hardware/ZABBIX_CONNECTION_SETTINGS_GATE.md, PASS).
+**Proposed 2026-10-02** on branch `feat/zabbix-connection-settings`, at the
+owner's request: the Zabbix connection set up on the unit itself, not only
+over SSH. It adds one screen to the Zabbix app (§35) and changes nothing
+else in it. Nothing in §1-§49 is renumbered. The behaviour, storage and
+security are in docs/apps/ZABBIX.md (§7, §8, §10).
+
+### 50.1 Where it opens
+
+- **STATUS:** a secondary button **CONNECTION SETTINGS** under REFRESH NOW.
+- **The set-up panel** (OVERVIEW, nothing configured): a primary
+  **SET UP THE CONNECTION** above TRY THE DEMO, which becomes secondary.
+
+### 50.2 The screen
+
+**CONNECTION** has the body to itself: the tab strip and the banner are
+hidden while it is open, so that with the keyboard up in landscape (a 100 px
+body) the field being typed in can be seen. One column scrolls, in both
+shapes; the field that was tapped is scrolled into view when the keyboard
+comes or goes. From the top:
+
+- **‹ BACK** (secondary, as the host detail's), then the title
+  **Connection** and one line of secondary text.
+- **SERVER:** a single-line field (§17.1), placeholder
+  `https://zabbix.example.com/`.
+- **SIGN IN WITH:** two equal secondary buttons, **API TOKEN** and
+  **PASSWORD**. The chosen one takes the primary fill *and* a leading `•`
+  in its words (§2: never colour alone).
+- **USER:** a field, shown for PASSWORD only.
+- **API TOKEN** or **PASSWORD:** a field in password mode. Every character
+  is a bullet from the moment it is typed (no last-character reveal). It is
+  never filled from the store: the caption under it says whether one is
+  stored ("A token is stored and never shown. Leave this empty to keep
+  it."), or, while typing, only how many characters are typed.
+- **RESULT:** a card with the outcome as a `POS_STYLE_TITLE` word in a
+  status tone - **CONNECTED** (OK; warning when a save connected but could
+  not be stored), **AUTH FAILED**, **UNREACHABLE**, **INVALID CONFIG**
+  (error) - and the server's or the check's sentence under it. A save says
+  whether it stored: "Saved and in use." or "Not saved: the previous
+  settings stay in use."
+- **TEST CONNECTION** (secondary) and **SAVE** (primary), full width, one
+  above the other, so that their words fit at every text size (§46). While
+  the helper works they read TESTING... and SAVING... and do nothing.
+- A caption: SAVE tests first, and stores only what connects.
+- When the files themselves are not usable, a warning-tone caption says why.
+
+**Back** (the hardware's, or ‹ BACK) closes the screen and returns to the
+tab it was opened from, as a host's detail does (app.h `back`). The
+header's back slab leaves the app, as it does from every screen of every
+app (§30.8), and so does Home. Either way the typed secret is wiped.
+
+A result belongs to the settings it was for: changing a field or the
+sign-in takes it off the card.
+
+Only existing parts and roles are used: `pocketui_text_field`,
+`pocketui_card`, the §7 buttons, `POS_STYLE_CAPTION`, `POS_STYLE_TITLE` and
+the status text roles. No new role, token or colour is added.
+
+### 50.3 Validation on the host
+
+`zabbix_app_test` drives the screen in both shapes on the fake server:
+settings loaded from the files, the targets, the keyboard on a tap, the
+mask, AUTH FAILED, CONNECTED, INVALID CONFIG, UNREACHABLE, a save and its
+files, a refused save that keeps the files, Back, and the saved settings
+after the app is opened again. Screenshots with `ZABBIX_SHOTS=<dir>`:
+`connection`, `connection-typed`, `connection-authfail`,
+`connection-saved`.

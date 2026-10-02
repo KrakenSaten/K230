@@ -17,12 +17,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
 static int checks;
 static int failed;
 static const char *helper;
+
+/* The fake's one user (core/zabbix/zbx_fake.h ZBX_FAKE_USER; the app side
+ * does not include the fake). */
+#define ZBX_FAKE_USER_FOR_TEST "demo"
 
 static void check(const char *name, int ok)
 {
@@ -286,6 +291,175 @@ static void test_repeat(void)
     free(m);
 }
 
+/* ---- the CONNECTION screen, through the real helper ----------------------------- */
+
+static bool file_has(const char *path, const char *needle)
+{
+    char buf[16384];
+    FILE *f = fopen(path, "r");
+    size_t n;
+
+    if (!f) {
+        return false;
+    }
+    n = fread(buf, 1, sizeof(buf) - 1, f);
+    buf[n] = '\0';
+    fclose(f);
+    return strstr(buf, needle) != NULL;
+}
+
+/* A file of the process, read whole (NULs kept as NULs): cmdline, environ. */
+static bool proc_has(pid_t pid, const char *what, const char *needle)
+{
+    char path[64];
+    static char buf[65536];
+    size_t n;
+    size_t i;
+    size_t k = strlen(needle);
+    FILE *f;
+
+    snprintf(path, sizeof(path), "/proc/%d/%s", (int)pid, what);
+    f = fopen(path, "r");
+    if (!f) {
+        return false;
+    }
+    n = fread(buf, 1, sizeof(buf), f);
+    fclose(f);
+    for (i = 0; i + k <= n; i++) {
+        if (memcmp(buf + i, needle, k) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static struct zabbix_session *start_on(struct zabbix_model *m)
+{
+    struct zabbix_session *s = session_new();
+    struct zabbix_session_config cfg = { .helper = helper, .fake = "demo" };
+    char err[96];
+
+    zabbix_model_init(m);
+    if (zabbix_session_start(s, &cfg, now_ms(), err, sizeof(err)) == 0) {
+        zabbix_model_helper_started(m, now_ms());
+    }
+    return s;
+}
+
+static void test_connection(void)
+{
+    static const char old_token[] = "old-token-7f3e9a1c55d04b28";
+    static const char new_token[] = "new-token-0c1d2e3f4a5b6c7d";
+    static const char password[] = "s3cret pass\tword";
+    char dir[] = "/tmp/zabbix-conn-XXXXXX";
+    char conf[128];
+    char sdir[128];
+    char secret[160];
+    char logf[160];
+    struct zabbix_model *m = malloc(sizeof(*m));
+    struct zabbix_session *s;
+    FILE *f;
+    pid_t pid;
+    bool leaked = false;
+
+    if (!mkdtemp(dir)) {
+        check("connection: a temporary directory", 0);
+        free(m);
+        return;
+    }
+    snprintf(conf, sizeof(conf), "%s/zabbix.conf", dir);
+    snprintf(sdir, sizeof(sdir), "%s/zabbix", dir);
+    snprintf(secret, sizeof(secret), "%s/secret", sdir);
+    snprintf(logf, sizeof(logf), "%s/pos-zabbix.log", dir);
+    setenv("POCKETOS_CONFIG_DIR", dir, 1);
+    setenv("POCKETOS_STATE_DIR", dir, 1);
+    setenv("POCKETOS_LOG_DIR", dir, 1);
+    setenv("POCKETOS_LOG_LEVEL", "debug", 1);
+    /* The simulator's backend: the trial runs against the fake as well. */
+    setenv("POCKETOS_ZABBIX_BACKEND", "fake", 1);
+    setenv("POCKETOS_ZABBIX_FAKE", "demo", 1);
+    f = fopen(conf, "w");
+    fprintf(f, "url=https://old.example.com/\nlabel=Desk\n");
+    fclose(f);
+    mkdir(sdir, 0700);
+    f = fopen(secret, "w");
+    fprintf(f, "token=%s\n", old_token);
+    fclose(f);
+    chmod(secret, 0600);
+
+    s = start_on(m);
+    pid = s->pid;
+    POLL_UNTIL(s, m, m->have_settings, 5000);
+    check("connection: the helper says what the files hold",
+          m->have_settings && strcmp(m->set_url, "https://old.example.com/") == 0 && !m->set_password &&
+              m->set_stored && !m->set_note[0]);
+    check("connection: and not the stored token", !strstr(m->set_url, old_token) && !strstr(m->set_user, old_token) &&
+                                                      !strstr(m->set_note, old_token));
+
+    check("connection: a test is sent", zabbix_session_settings(s, false, "https://new.example.com/", "password",
+                                                                "nobody", "wrong") == 0);
+    POLL_UNTIL(s, m, m->cresult_seq == 1, 5000);
+    check("connection: a refused password is AUTH FAILED, nothing saved",
+          m->cresult_seq == 1 && !m->cresult_save && m->cresult == ZBX_CRESULT_AUTH_FAILED && !m->cresult_saved);
+
+    zabbix_session_settings(s, false, "https://new.example.com/", "token", "", new_token);
+    POLL_UNTIL(s, m, m->cresult_seq == 2, 5000);
+    check("connection: a token is CONNECTED", m->cresult == ZBX_CRESULT_CONNECTED && !m->cresult_saved);
+    check("connection: and the files are as they were", file_has(conf, "url=https://old.example.com/\n") &&
+                                                            file_has(secret, old_token));
+
+    zabbix_session_settings(s, true, "ftp://new.example.com/", "token", "", new_token);
+    POLL_UNTIL(s, m, m->cresult_seq == 3, 5000);
+    check("connection: an invalid address is INVALID CONFIG, not saved",
+          m->cresult == ZBX_CRESULT_INVALID && m->cresult_save && !m->cresult_saved);
+
+    check("connection: the helper is still the same one, still serving data",
+          s->pid == pid && zabbix_session_active(s) && m->problems_ms > 0);
+    if (s->pid > 0) {
+        leaked = proc_has(s->pid, "cmdline", "s3cret") || proc_has(s->pid, "environ", "s3cret");
+    }
+
+    zabbix_session_settings(s, true, "https://new.example.com/zabbix/", "password", ZBX_FAKE_USER_FOR_TEST,
+                            password);
+    POLL_UNTIL(s, m, m->cresult_seq == 4 && m->set_password, 5000);
+    check("connection: a password that connects is saved",
+          m->cresult == ZBX_CRESULT_CONNECTED && m->cresult_save && m->cresult_saved);
+    check("connection: and the helper says so: the new settings, a password stored",
+          strcmp(m->set_url, "https://new.example.com/zabbix/") == 0 && m->set_password &&
+              strcmp(m->set_user, ZBX_FAKE_USER_FOR_TEST) == 0 && m->set_stored);
+    check("connection: the files hold them, the label kept",
+          file_has(conf, "url=https://new.example.com/zabbix/\n") && file_has(conf, "auth=password\n") &&
+              file_has(conf, "label=Desk\n") && file_has(secret, "password=s3cret pass\tword\n"));
+    zabbix_session_abandon(s, 300);
+    free(s);
+
+    /* The app opened again: the stored settings are what it is shown. */
+    s = start_on(m);
+    POLL_UNTIL(s, m, m->have_settings, 5000);
+    check("connection: persisted - a new helper reads the saved settings",
+          strcmp(m->set_url, "https://new.example.com/zabbix/") == 0 && m->set_password && m->set_stored);
+    zabbix_session_abandon(s, 300);
+    free(s);
+
+    check("connection: the secret was in neither the helper's command line nor its environment", !leaked);
+    check("connection: the helper's log has the trials, and no token or password",
+          file_has(logf, "zabbix: settings save: connected") && !file_has(logf, "s3cret") &&
+              !file_has(logf, new_token) && !file_has(logf, old_token) && !file_has(logf, "wrong"));
+    {
+        char cmd[200];
+
+        snprintf(cmd, sizeof(cmd), "rm -rf '%s'", dir);
+        if (system(cmd) != 0) {
+            printf("note: could not remove %s\n", dir);
+        }
+    }
+    unsetenv("POCKETOS_ZABBIX_BACKEND");
+    unsetenv("POCKETOS_ZABBIX_FAKE");
+    unsetenv("POCKETOS_CONFIG_DIR");
+    unsetenv("POCKETOS_STATE_DIR");
+    free(m);
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2) {
@@ -302,6 +476,7 @@ int main(int argc, char **argv)
     test_burst();
     test_ends();
     test_repeat();
+    test_connection();
     printf("zabbix_session_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;
 }

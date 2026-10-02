@@ -3,6 +3,7 @@
  *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
+#define _GNU_SOURCE /* explicit_bzero */
 #include "zabbix/zbx_proto.h"
 
 #include <errno.h>
@@ -73,6 +74,91 @@ int zbx_err_parse(const char *w)
         }
     }
     return -1;
+}
+
+static const char *const cresult_words[ZBX_CRESULT_COUNT] = { "connected", "authfail", "unreachable",
+                                                              "invalid" };
+
+const char *zbx_cresult_word(enum zbx_cresult r)
+{
+    return (unsigned)r < ZBX_CRESULT_COUNT ? cresult_words[r] : "invalid";
+}
+
+int zbx_cresult_parse(const char *w)
+{
+    int i;
+
+    for (i = 0; i < ZBX_CRESULT_COUNT; i++) {
+        if (strcmp(w, cresult_words[i]) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* ---- hex ---------------------------------------------------------------------- */
+
+int zbx_hex_encode(char *dst, size_t len, const char *src)
+{
+    static const char digits[] = "0123456789abcdef";
+    size_t n = strlen(src);
+    size_t i;
+
+    if (len == 0 || n > (len - 1) / 2) {
+        if (len) {
+            dst[0] = '\0';
+        }
+        return -1;
+    }
+    for (i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)src[i];
+
+        dst[2 * i] = digits[c >> 4];
+        dst[2 * i + 1] = digits[c & 15];
+    }
+    dst[2 * n] = '\0';
+    return 0;
+}
+
+static int hex_digit(char c)
+{
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return -1;
+}
+
+int zbx_hex_decode(char *dst, size_t len, const char *src)
+{
+    size_t n = strlen(src);
+    size_t i;
+
+    if (len == 0) {
+        return -1;
+    }
+    dst[0] = '\0';
+    if (n % 2 != 0 || n / 2 >= len) {
+        return -1;
+    }
+    for (i = 0; i < n / 2; i++) {
+        int hi = hex_digit(src[2 * i]);
+        int lo = hex_digit(src[2 * i + 1]);
+
+        if (hi < 0 || lo < 0 || (hi == 0 && lo == 0)) {
+            explicit_bzero(dst, i);
+            dst[0] = '\0';
+            return -1;
+        }
+        dst[i] = (char)(hi << 4 | lo);
+    }
+    dst[n / 2] = '\0';
+    return (int)(n / 2);
 }
 
 /* ---- writing -------------------------------------------------------------------- */
@@ -350,6 +436,65 @@ int zbx_proto_detail_none(FILE *out, const char *hostid, const char *text)
     l_id(&l, hostid);
     l_text(&l, text, ZBX_TEXT_MAX);
     return l_emit(out, &l);
+}
+
+int zbx_proto_settings(FILE *out, const char *url, const char *auth, const char *user,
+                       bool stored, const char *note)
+{
+    struct line l;
+
+    l_start(&l, "settings");
+    l_text(&l, url, ZBX_URL_MAX);
+    l_raw(&l, auth && strcmp(auth, "password") == 0 ? "password" : "token");
+    l_text(&l, user, ZBX_PROTO_USER_MAX);
+    l_int(&l, stored ? 1 : 0);
+    l_text(&l, note, ZBX_TEXT_MAX);
+    return l_emit(out, &l);
+}
+
+int zbx_proto_cresult(FILE *out, bool save, enum zbx_cresult r, bool saved, const char *text)
+{
+    struct line l;
+
+    l_start(&l, "cresult");
+    l_raw(&l, save ? "save" : "test");
+    l_raw(&l, zbx_cresult_word(r));
+    l_int(&l, saved ? 1 : 0);
+    l_text(&l, text, ZBX_TEXT_MAX);
+    return l_emit(out, &l);
+}
+
+int zbx_proto_cmd_settings(char *buf, size_t len, bool save, const char *url, const char *auth,
+                           const char *user, const char *secret)
+{
+    char hurl[2 * ZBX_URL_MAX];
+    char huser[2 * ZBX_PROTO_USER_MAX];
+    char hsecret[2 * ZBX_PROTO_SECRET_MAX];
+    bool keep = !secret || !*secret;
+    int n;
+    int rc = -1;
+
+    if (len) {
+        buf[0] = '\0';
+    }
+    if (strlen(url ? url : "") >= ZBX_URL_MAX || strlen(user ? user : "") >= ZBX_PROTO_USER_MAX ||
+        (!keep && strlen(secret) >= ZBX_PROTO_SECRET_MAX) || zbx_hex_encode(hurl, sizeof(hurl), url ? url : "") ||
+        zbx_hex_encode(huser, sizeof(huser), user ? user : "") ||
+        zbx_hex_encode(hsecret, sizeof(hsecret), keep ? "" : secret)) {
+        goto out;
+    }
+    n = snprintf(buf, len, "%s\t%s\t%s\t%s\t%s\n", save ? "csave" : "ctest", hurl[0] ? hurl : "-",
+                 auth && strcmp(auth, "password") == 0 ? "password" : "token", huser[0] ? huser : "-",
+                 keep ? "-" : hsecret);
+    if (n < 0 || (size_t)n >= len) {
+        explicit_bzero(buf, len);
+        buf[0] = '\0';
+        goto out;
+    }
+    rc = 0;
+out:
+    explicit_bzero(hsecret, sizeof(hsecret));
+    return rc;
 }
 
 int zbx_proto_bye(FILE *out)
@@ -692,18 +837,68 @@ enum zbx_rx_kind zbx_rx_line(struct zbx_rx *rx, char *line, struct zbx_rx_msg *m
         text(msg->text, sizeof(msg->text), f[2]);
         return msg->kind = ZBX_RX_DETAIL_NONE;
     }
+
+    /* ---- the CONNECTION screen ---- */
+    if (strcmp(f[0], "settings") == 0) {
+        if (n != 6 || (strcmp(f[2], "token") != 0 && strcmp(f[2], "password") != 0) ||
+            !num(f[4], 0, 1, &v[0])) {
+            return bad(rx, msg);
+        }
+        text(msg->url, sizeof(msg->url), f[1]);
+        text(msg->word, sizeof(msg->word), f[2]);
+        text(msg->user, sizeof(msg->user), f[3]);
+        msg->flag = v[0] == 1;
+        text(msg->text, sizeof(msg->text), f[5]);
+        return msg->kind = ZBX_RX_SETTINGS;
+    }
+    if (strcmp(f[0], "cresult") == 0) {
+        int r;
+
+        if (n != 5 || (strcmp(f[1], "test") != 0 && strcmp(f[1], "save") != 0) ||
+            (r = zbx_cresult_parse(f[2])) < 0 || !num(f[3], 0, 1, &v[0])) {
+            return bad(rx, msg);
+        }
+        msg->save = strcmp(f[1], "save") == 0;
+        msg->result = (enum zbx_cresult)r;
+        msg->flag = v[0] == 1;
+        text(msg->text, sizeof(msg->text), f[4]);
+        return msg->kind = ZBX_RX_CRESULT;
+    }
     return msg->kind = ZBX_RX_NONE; /* a word from a newer helper */
 }
 
 /* ---- commands ------------------------------------------------------------------------ */
 
+/* "-" for an empty hex field. */
+static bool hex_field(char *dst, size_t len, const char *src)
+{
+    if (strcmp(src, "-") == 0) {
+        dst[0] = '\0';
+        return true;
+    }
+    return zbx_hex_decode(dst, len, src) > 0;
+}
+
 enum zbx_cmd_kind zbx_cmd_parse(char *line, struct zbx_cmd *cmd)
 {
-    char *f[4];
+    char *f[6];
     int n;
 
     memset(cmd, 0, sizeof(*cmd));
-    n = split(line, f, 4);
+    n = split(line, f, 6);
+    if (n == 5 && (strcmp(f[0], "ctest") == 0 || strcmp(f[0], "csave") == 0)) {
+        if ((strcmp(f[2], "token") != 0 && strcmp(f[2], "password") != 0) ||
+            !hex_field(cmd->url, sizeof(cmd->url), f[1]) ||
+            !hex_field(cmd->user, sizeof(cmd->user), f[3]) ||
+            !hex_field(cmd->secret, sizeof(cmd->secret), f[4])) {
+            explicit_bzero(cmd, sizeof(*cmd));
+            return ZBX_CMD_NONE;
+        }
+        cmd->keep_secret = strcmp(f[4], "-") == 0;
+        snprintf(cmd->word, sizeof(cmd->word), "%s", f[2]);
+        cmd->kind = strcmp(f[0], "csave") == 0 ? ZBX_CMD_SAVE : ZBX_CMD_TEST;
+        return cmd->kind;
+    }
     if (n < 1) {
         return ZBX_CMD_NONE;
     }

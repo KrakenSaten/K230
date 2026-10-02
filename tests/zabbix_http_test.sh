@@ -211,6 +211,52 @@ if command -v curl >/dev/null 2>&1; then
           allow_insecure_http=1 2>&1); rc=$?
     check "try-server.sh: a refused login says so, exit 1" \
         "$([ $rc = 1 ] && printf '%s\n' "$out" | grep -q $'^state\tauthfail' && echo 1 || echo 0)"
+
+    # The CONNECTION screen (ctest/csave) over the real transport, the way the
+    # app sends them: a wrong password is AUTH FAILED after one login and
+    # stores nothing; a right one connects, is stored beside the kept keys,
+    # and its trial session is logged out.
+    hex() { printf '%s' "$1" | od -An -tx1 -v | tr -d ' \n'; }
+    conf "url=http://127.0.0.1:1/old/" "allow_insecure_http=1" "timeout_s=3" "label=Bench"
+    printf '%s\n' "$TOKEN" | "$H" set-secret token 2>/dev/null
+    URLX=$(hex "http://127.0.0.1:$PORT/zabbix/")
+    before_f=$(stat_of failed_logins)
+    out=$( { printf 'ctest\t%s\tpassword\t%s\t%s\n' "$URLX" "$(hex nobody)" "$(hex wrong)"; sleep 1.5
+             printf 'csave\t%s\tpassword\t%s\t%s\n' "$URLX" "$(hex demo)" "$(hex "$PASSWORD")"; sleep 2
+             printf 'quit\n'; } | "$H" session 2>/dev/null)
+    check "connection test over HTTP: a wrong password is AUTH FAILED, one failed login, nothing stored" \
+        "$(printf '%s\n' "$out" | grep -q $'^cresult\ttest\tauthfail\t0\t' &&
+           [ "$(stat_of failed_logins)" = $((before_f + 1)) ] && echo 1 || echo 0)"
+    check "connection save over HTTP: CONNECTED and stored" \
+        "$(printf '%s\n' "$out" | grep -q $'^cresult\tsave\tconnected\t1\t' &&
+           printf '%s\n' "$out" | grep -q $'^settings\thttp://127.0.0.1:'"$PORT"$'/zabbix/\tpassword\tdemo\t1\t' &&
+           echo 1 || echo 0)"
+    check "connection save: the new url, auth and user; label, allow_insecure_http and timeout kept" \
+        "$(grep -qx "url=http://127.0.0.1:$PORT/zabbix/" "$T/etc/zabbix.conf" &&
+           grep -qx 'auth=password' "$T/etc/zabbix.conf" && grep -qx 'user=demo' "$T/etc/zabbix.conf" &&
+           grep -qx 'label=Bench' "$T/etc/zabbix.conf" && grep -qx 'allow_insecure_http=1' "$T/etc/zabbix.conf" &&
+           grep -qx 'timeout_s=3' "$T/etc/zabbix.conf" && echo 1 || echo 0)"
+    check "connection save: the password stored 0600, byte for byte, and not in zabbix.conf" \
+        "$([ "$(cat "$T/state/zabbix/secret")" = "password=$PASSWORD" ] &&
+           [ "$(stat -c %a "$T/state/zabbix/secret")" = 600 ] &&
+           ! grep -qF "$PASSWORD" "$T/etc/zabbix.conf" && echo 1 || echo 0)"
+    check "connection: no helper line holds the password, plain or in hex" \
+        "$(printf '%s\n' "$out" | grep -qF -e "$PASSWORD" -e "$(hex "$PASSWORD")" && echo 0 || echo 1)"
+    check "connection: the trial sessions were logged out" "$(wait_open0 && echo 1 || echo 0)"
+    out=$("$H" check 2>/dev/null); rc=$?
+    check "connection: what was saved is what pos-zabbix check now uses, online" \
+        "$([ $rc = 0 ] && printf '%s\n' "$out" | grep -q $'^pend\t.*\t9$' && echo 1 || echo 0)"
+    # The trial beside a live session to the same server (unit B found the
+    # mock serving one kept-alive connection at a time; --close lets both in,
+    # as a real frontend would). The stored password is kept ("-").
+    stop_mock
+    start_mock --close
+    conf "url=http://127.0.0.1:$PORT/zabbix/" "allow_insecure_http=1" "timeout_s=3" "auth=password" "user=demo"
+    out=$( { sleep 1.5; printf 'ctest\t%s\tpassword\t%s\t-\n' "$(hex "http://127.0.0.1:$PORT/zabbix/")" "$(hex demo)"
+             sleep 2; printf 'quit\n'; } | "$H" session 2>/dev/null)
+    check "connection test beside a live session to the same server: CONNECTED with the stored password" \
+        "$(printf '%s\n' "$out" | grep -q $'^state\tonline' &&
+           printf '%s\n' "$out" | grep -q $'^cresult\ttest\tconnected\t0\t' && echo 1 || echo 0)"
     stop_mock
     check "the password is in no log" "$(grep -rqsF "$PASSWORD" "$T/log" && echo 0 || echo 1)"
 else

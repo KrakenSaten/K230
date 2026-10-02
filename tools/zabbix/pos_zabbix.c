@@ -4,6 +4,10 @@
  *   pos-zabbix session [--fake SCENARIO] [--config FILE] [--secret FILE]
  *       The Zabbix app's helper (docs/apps/ZABBIX.md). stdin and stdout are
  *       a socketpair to the shell; the protocol is core/zabbix/zbx_proto.h.
+ *       It also answers the app's CONNECTION screen (ctest/csave), which
+ *       tries and stores new settings (core/zabbix/zbx_settings.h): the
+ *       typed token or password reaches it over that socketpair, never
+ *       through argv or the environment.
  *       It lives exactly as long as the Zabbix screen: it leaves on `quit`,
  *       when the shell closes its end, on SIGTERM, and - through
  *       PR_SET_PDEATHSIG, set by the session before exec - when the shell
@@ -42,6 +46,7 @@
 #include "zabbix/zbx_fake.h"
 #include "zabbix/zbx_http.h"
 #include "zabbix/zbx_proto.h"
+#include "zabbix/zbx_settings.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -116,6 +121,17 @@ static int parse_opts(int argc, char **argv, int first, struct opts *o)
 /* The configuration this run uses: the files, then the fake if anything
  * asks for it. A configuration error leaves an unconfigured config and the
  * reason in err, which the app shows. */
+static void config_paths(const struct opts *o, char *conf, char *secret)
+{
+    zbx_config_paths(conf, ZBX_PATH_MAX, secret, ZBX_PATH_MAX);
+    if (o->config) {
+        snprintf(conf, ZBX_PATH_MAX, "%s", o->config);
+    }
+    if (o->secret) {
+        snprintf(secret, ZBX_PATH_MAX, "%s", o->secret);
+    }
+}
+
 static void load_config(const struct opts *o, struct zbx_config *cfg, char *err, size_t errlen)
 {
     char conf[ZBX_PATH_MAX];
@@ -123,9 +139,8 @@ static void load_config(const struct opts *o, struct zbx_config *cfg, char *err,
     const char *env = getenv("POCKETOS_ZABBIX_BACKEND");
     const char *scenario = o->fake;
 
-    zbx_config_paths(conf, sizeof(conf), secret, sizeof(secret));
-    if (zbx_config_load(cfg, o->config ? o->config : conf, o->secret ? o->secret : secret, err,
-                        errlen) != 0) {
+    config_paths(o, conf, secret);
+    if (zbx_config_load(cfg, conf, secret, err, errlen) != 0) {
         LOG_WARN("zabbix: configuration refused: %s", err);
     }
     if (!scenario && env && strcmp(env, "fake") == 0) {
@@ -160,7 +175,9 @@ struct session {
     struct zbx_fake fake;
     struct zbx_transport tr;
     struct zbx_client client;
-    char in[ZBX_LINE_MAX];
+    char conf_path[ZBX_PATH_MAX];
+    char secret_path[ZBX_PATH_MAX];
+    char in[ZBX_CMD_LINE_MAX];  /* may hold a typed secret (csave): wiped after each line */
     size_t in_len;
     bool overlong;
 };
@@ -183,12 +200,84 @@ static int open_transport(struct session *s, char *err, size_t errlen)
     return 0;
 }
 
+/* The CONNECTION screen's fields, as the files have them now. */
+static void send_settings(const struct session *s)
+{
+    struct zbx_settings st;
+    char note[ZBX_TEXT_MAX];
+
+    zbx_settings_read(s->conf_path, s->secret_path, &st, note, sizeof(note));
+    zbx_proto_settings(stdout, st.url, st.auth == ZBX_AUTH_PASSWORD ? "password" : "token", st.user,
+                       st.secret_stored, note);
+}
+
+/* A transport for a build without libcurl: every request says so. */
+static enum zbx_err no_post(struct zbx_transport *t, const struct zbx_http_req *req,
+                            struct zbx_http_resp *resp)
+{
+    (void)t;
+    (void)req;
+    memset(resp, 0, sizeof(*resp));
+    resp->err = ZBX_ERR_UNSUPPORTED;
+    snprintf(resp->text, sizeof(resp->text), "this build cannot reach a server (no libcurl)");
+    return resp->err;
+}
+
+/* ctest / csave: the settings tried on a transport of their own - the
+ * real one, or the fake when the backend is the fake by the environment
+ * (the simulator and the tests). The running session is not touched; a
+ * save that stored new files is followed by their settings line, and the
+ * app starts a new helper to use them. */
+static void settings_command(struct session *s, struct zbx_cmd *cmd)
+{
+    struct zbx_settings want;
+    struct zbx_transport tr;
+    struct zbx_fake fake;
+    const char *env = getenv("POCKETOS_ZABBIX_BACKEND");
+    bool save = cmd->kind == ZBX_CMD_SAVE;
+    bool saved = false;
+    char text[ZBX_TEXT_MAX];
+    enum zbx_cresult r;
+
+    memset(&want, 0, sizeof(want));
+    memset(&tr, 0, sizeof(tr));
+    snprintf(want.url, sizeof(want.url), "%s", cmd->url);
+    snprintf(want.user, sizeof(want.user), "%s", cmd->user);
+    want.auth = strcmp(cmd->word, "password") == 0 ? ZBX_AUTH_PASSWORD : ZBX_AUTH_TOKEN;
+    if (env && strcmp(env, "fake") == 0) {
+        const char *sc = s->cfg.fake ? s->cfg.scenario : getenv("POCKETOS_ZABBIX_FAKE");
+
+        zbx_fake_init(&fake, sc && zbx_fake_known(sc) ? sc : ZBX_FAKE_DEFAULT);
+        fake.realtime = true;
+        zbx_transport_fake(&tr, &fake);
+    } else if (zbx_transport_curl(&tr, text, sizeof(text)) != 0) {
+        memset(&tr, 0, sizeof(tr));
+        tr.post = no_post;
+        tr.name = "none";
+    }
+    r = zbx_settings_run(save, s->conf_path, s->secret_path, &want, cmd->keep_secret ? NULL : cmd->secret,
+                         &tr, mono_ms, NULL, &saved, text, sizeof(text));
+    explicit_bzero(cmd->secret, sizeof(cmd->secret));
+    if (tr.close) {
+        tr.close(&tr);
+    }
+    zbx_proto_cresult(stdout, save, r, saved, text);
+    if (saved) {
+        send_settings(s);
+    }
+}
+
 /* One command line. Returns false when the helper should leave. */
 static bool command(struct session *s, char *line)
 {
     struct zbx_cmd cmd;
 
     switch (zbx_cmd_parse(line, &cmd)) {
+    case ZBX_CMD_TEST:
+    case ZBX_CMD_SAVE:
+        settings_command(s, &cmd);
+        explicit_bzero(&cmd, sizeof(cmd));
+        return true;
     case ZBX_CMD_QUIT:
         return false;
     case ZBX_CMD_SCENARIO:
@@ -254,18 +343,25 @@ static bool read_commands(struct session *s)
         }
         for (i = 0; i < n; i++) {
             if (buf[i] == '\n') {
+                bool go_on;
+
                 s->in[s->in_len] = '\0';
-                if (!s->overlong && !command(s, s->in)) {
-                    return false;
-                }
+                go_on = s->overlong || command(s, s->in);
+                /* A csave line holds a secret in hex. */
+                explicit_bzero(s->in, sizeof(s->in));
                 s->in_len = 0;
                 s->overlong = false;
+                if (!go_on) {
+                    explicit_bzero(buf, sizeof(buf));
+                    return false;
+                }
             } else if (s->in_len + 1 < sizeof(s->in)) {
                 s->in[s->in_len++] = buf[i];
             } else {
                 s->overlong = true;
             }
         }
+        explicit_bzero(buf, sizeof(buf));
     }
 }
 
@@ -282,6 +378,7 @@ static int run_session(const struct opts *o)
     signal(SIGPIPE, SIG_IGN); /* a closed socket is an EPIPE, and we leave */
 
     load_config(o, &s.cfg, err, sizeof(err));
+    config_paths(o, s.conf_path, s.secret_path);
     if (open_transport(&s, err, sizeof(err)) != 0) {
         s.cfg.configured = false;
     }
@@ -291,6 +388,7 @@ static int run_session(const struct opts *o)
     zbx_config_forget_secret(&s.cfg); /* the client holds the one copy */
     zbx_proto_hello(stdout, s.client.cfg.fake, s.client.cfg.fake ? s.client.cfg.scenario : "-");
     zbx_client_start(&s.client);
+    send_settings(&s);
     if (!s.client.cfg.configured && err[0]) {
         /* Say why: the app shows it on STATUS. */
         zbx_proto_state(stdout, ZBX_CONN_UNCONFIGURED, 0, 0, ZBX_ERR_CONFIG, err);

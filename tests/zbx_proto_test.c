@@ -333,12 +333,142 @@ static void test_words(void)
                                             zbx_err_text(ZBX_ERR_NONE)[0] == '\0');
 }
 
+/* The CONNECTION screen's lines: the settings and answers out, the typed
+ * settings in, the secret in hex both ways and never in a helper line. */
+static void test_connection(void)
+{
+    struct zbx_rx *rx = calloc(1, sizeof(*rx));
+    struct feed f;
+    struct zbx_cmd c;
+    char *buf = NULL;
+    size_t len = 0;
+    FILE *out = open_memstream(&buf, &len);
+    char line[ZBX_CMD_LINE_MAX];
+    char hex[64];
+    char back[32];
+    /* A password may hold anything but CR and LF: a TAB, '=', '#', UTF-8,
+     * spaces at its ends. */
+    const char *pw = " p\tw=#\xc3\xa6 ";
+    char long_url[ZBX_URL_MAX];
+    char long_secret[ZBX_PROTO_SECRET_MAX];
+
+    zbx_rx_init(rx);
+    zbx_proto_settings(out, "https://z.example.com/zabbix/", "password", "viewer one", true, "");
+    zbx_proto_cresult(out, true, ZBX_CRESULT_AUTH_FAILED, false, "Not authorized.");
+    zbx_proto_settings(out, "", "token", "", false, "zabbix.conf: auth=password needs user=");
+    fclose(out);
+    feed_text(rx, buf, &f);
+    check("settings and cresult lines are read", f.kinds[ZBX_RX_SETTINGS] == 2 && f.kinds[ZBX_RX_CRESULT] == 1 &&
+                                                     f.kinds[ZBX_RX_BAD] == 0);
+    check("the settings line has no field for a secret, only whether one is stored",
+          strstr(buf, "settings\thttps://z.example.com/zabbix/\tpassword\tviewer one\t1\t-\n") != NULL);
+    check("an empty settings line keeps its fields", strcmp(f.last.word, "token") == 0 && !f.last.url[0] &&
+                                                         !f.last.user[0] && !f.last.flag &&
+                                                         strstr(f.last.text, "needs user"));
+    free(buf);
+    buf = NULL;
+    out = open_memstream(&buf, &len);
+    zbx_proto_cresult(out, true, ZBX_CRESULT_CONNECTED, true, "Zabbix 7.0.31 answered");
+    fclose(out);
+    feed_text(rx, buf, &f);
+    check("a cresult: save, connected, saved, text", f.last.kind == ZBX_RX_CRESULT && f.last.save &&
+                                                         f.last.result == ZBX_CRESULT_CONNECTED && f.last.flag &&
+                                                         strcmp(f.last.text, "Zabbix 7.0.31 answered") == 0);
+    free(buf);
+    {
+        char bad1[] = "settings\thttps://x/\tkerberos\tu\t1\t-";
+        char bad2[] = "cresult\ttest\tmaybe\t0\t-";
+        char bad3[] = "cresult\tsave\tconnected\t2\t-";
+        struct zbx_rx_msg m;
+
+        check("a settings line with an unknown sign-in is refused", zbx_rx_line(rx, bad1, &m) == ZBX_RX_BAD);
+        check("a cresult with an unknown result is refused", zbx_rx_line(rx, bad2, &m) == ZBX_RX_BAD);
+        check("a cresult with a bad flag is refused", zbx_rx_line(rx, bad3, &m) == ZBX_RX_BAD);
+    }
+
+    check("hex: there and back, every byte", zbx_hex_encode(hex, sizeof(hex), pw) == 0 &&
+                                                 zbx_hex_decode(back, sizeof(back), hex) == (int)strlen(pw) &&
+                                                 strcmp(back, pw) == 0);
+    check("hex: no TAB, no newline, nothing but digits", strspn(hex, "0123456789abcdef") == strlen(hex));
+    check("hex: odd, non-hex, a NUL byte and no room are refused",
+          zbx_hex_decode(back, sizeof(back), "616") == -1 && zbx_hex_decode(back, sizeof(back), "6g") == -1 &&
+              zbx_hex_decode(back, sizeof(back), "6100") == -1 && zbx_hex_decode(back, 2, "6161") == -1 &&
+              zbx_hex_encode(hex, 4, "ab") == -1);
+
+    check("ctest: built", zbx_proto_cmd_settings(line, sizeof(line), false, "https://z.example.com/",
+                                                 "password", "viewer one", pw) == 0);
+    check("ctest: one line, the password nowhere in it as typed",
+          strchr(line, '\n') == line + strlen(line) - 1 && !strstr(line, "p\tw") && !strstr(line, "viewer one"));
+    line[strlen(line) - 1] = '\0';
+    check("ctest: parsed back", zbx_cmd_parse(line, &c) == ZBX_CMD_TEST && strcmp(c.word, "password") == 0 &&
+                                    strcmp(c.url, "https://z.example.com/") == 0 &&
+                                    strcmp(c.user, "viewer one") == 0 && strcmp(c.secret, pw) == 0 &&
+                                    !c.keep_secret);
+    zbx_proto_cmd_settings(line, sizeof(line), true, "https://z.example.com/", "token", "", NULL);
+    line[strlen(line) - 1] = '\0';
+    check("csave without a secret keeps the stored one",
+          zbx_cmd_parse(line, &c) == ZBX_CMD_SAVE && c.keep_secret && !c.secret[0] && !c.user[0] &&
+              strcmp(c.word, "token") == 0);
+    zbx_proto_cmd_settings(line, sizeof(line), true, "", "anything", "", "");
+    line[strlen(line) - 1] = '\0';
+    check("an empty url travels as empty; an unknown auth as a token",
+          zbx_cmd_parse(line, &c) == ZBX_CMD_SAVE && !c.url[0] && strcmp(c.word, "token") == 0);
+
+    {
+        char too_long[300];
+        char long_user[ZBX_PROTO_USER_MAX];
+
+        memset(too_long, 'x', sizeof(too_long) - 1);
+        too_long[sizeof(too_long) - 1] = '\0';
+        check("too long for the configuration: not built",
+              zbx_proto_cmd_settings(line, sizeof(line), false, too_long, "token", "", "x") == -1 &&
+                  zbx_proto_cmd_settings(line, sizeof(line), false, "https://z/", "token", "", too_long) == -1 &&
+                  zbx_proto_cmd_settings(line, sizeof(line), false, "https://z/", "password", too_long, "x") == -1 &&
+                  !line[0]);
+        /* Every field at the longest the configuration takes. */
+        memset(long_url, 'u', sizeof(long_url) - 1);
+        long_url[sizeof(long_url) - 1] = '\0';
+        memset(long_user, 'n', sizeof(long_user) - 1);
+        long_user[sizeof(long_user) - 1] = '\0';
+        memset(long_secret, 's', sizeof(long_secret) - 1);
+        long_secret[sizeof(long_secret) - 1] = '\0';
+        check("the longest that fits is longer than a protocol line, shorter than a command line",
+              zbx_proto_cmd_settings(line, sizeof(line), true, long_url, "password", long_user, long_secret) == 0 &&
+                  strlen(line) > ZBX_LINE_MAX && strlen(line) < ZBX_CMD_LINE_MAX);
+        line[strlen(line) - 1] = '\0';
+        check("and parses back whole", zbx_cmd_parse(line, &c) == ZBX_CMD_SAVE &&
+                                           strcmp(c.secret, long_secret) == 0 && strcmp(c.url, long_url) == 0 &&
+                                           strcmp(c.user, long_user) == 0);
+    }
+    {
+        char b1[] = "ctest\t7a\ttoken\t-\tzz";
+        char b2[] = "csave\t7a\tkerberos\t-\t-";
+        char b3[] = "ctest\t7a\ttoken\t-";
+
+        check("a ctest whose secret is not hex is not a command", zbx_cmd_parse(b1, &c) == ZBX_CMD_NONE &&
+                                                                     !c.url[0]);
+        check("a csave with an unknown sign-in is not a command", zbx_cmd_parse(b2, &c) == ZBX_CMD_NONE);
+        check("a ctest missing a field is not a command", zbx_cmd_parse(b3, &c) == ZBX_CMD_NONE);
+    }
+    {
+        bool all = true;
+        int i;
+
+        for (i = 0; i < ZBX_CRESULT_COUNT; i++) {
+            all = all && zbx_cresult_parse(zbx_cresult_word((enum zbx_cresult)i)) == i;
+        }
+        check("every result word parses back", all);
+    }
+    free(rx);
+}
+
 int main(void)
 {
     test_round_trip();
     test_damage();
     test_commands();
     test_words();
+    test_connection();
     printf("zbx_proto_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;
 }

@@ -1928,7 +1928,7 @@ else
 ZBX_HTTP_OBJ := $(ZBX_DIR)/zbx_http_none.o
 endif
 ZBX_OBJS := $(ZBX_APP_OBJS) $(ZBX_DIR)/zbx_api.o $(ZBX_DIR)/zbx_fake.o $(ZBX_DIR)/zbx_config.o \
-            $(ZBX_DIR)/zbx_client.o $(ZBX_HTTP_OBJ)
+            $(ZBX_DIR)/zbx_client.o $(ZBX_DIR)/zbx_settings.o $(ZBX_HTTP_OBJ)
 
 $(ZBX_DIR)/zbx_http_none.o: $(ZBX_DIR)/zbx_http_curl.c
 	$(CC) $(ALL_CFLAGS) -c -o $@ $<
@@ -1943,8 +1943,8 @@ ZABBIX_DIR := apps/zabbix
 ZABBIX_OBJS := $(ZABBIX_DIR)/zabbix_session.o $(ZABBIX_DIR)/zabbix_view.o
 POS_ZABBIX_OBJS := tools/zabbix/pos_zabbix.o $(ZBX_OBJS) $(PATHS_OBJS) $(LOG_OBJS)
 ZABBIX_TESTS := tests/zbx_model_test tests/zbx_proto_test tests/zbx_api_test tests/zbx_config_test \
-                tests/zbx_client_test tests/zabbix_view_test tests/zabbix_session_test \
-                tools/zabbix/pos-zabbix-mock
+                tests/zbx_client_test tests/zbx_settings_test tests/zabbix_view_test \
+                tests/zabbix_session_test tools/zabbix/pos-zabbix-mock
 
 $(ZABBIX_DIR)/%.o: $(ZABBIX_DIR)/%.c
 	$(CC) $(ALL_CFLAGS) -I$(ZABBIX_DIR) -c -o $@ $<
@@ -1977,6 +1977,9 @@ tests/zbx_config_test: tests/zbx_config_test.o $(ZBX_APP_OBJS) $(ZBX_DIR)/zbx_co
 tests/zbx_client_test: tests/zbx_client_test.o $(ZBX_OBJS) $(PATHS_OBJS) $(LOG_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(ZBX_LIBS)
 
+tests/zbx_settings_test: tests/zbx_settings_test.o $(ZBX_OBJS) $(PATHS_OBJS) $(LOG_OBJS)
+	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS) $(ZBX_LIBS)
+
 tests/zabbix_view_test: tests/zabbix_view_test.o $(ZABBIX_DIR)/zabbix_view.o $(ZBX_APP_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $@ $^ $(LDFLAGS)
 
@@ -1996,7 +1999,8 @@ zabbix-san-test:
 	    CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all" \
 	    LDFLAGS="-fsanitize=address,undefined" $(ZABBIX_TESTS) tools/zabbix/pos-zabbix
 	cd $(ZABBIX_SAN_DIR) && ./tests/zbx_model_test && ./tests/zbx_proto_test && ./tests/zbx_api_test && \
-	    ./tests/zbx_config_test && ./tests/zbx_client_test && TZ=UTC ./tests/zabbix_view_test && \
+	    ./tests/zbx_config_test && ./tests/zbx_client_test && ./tests/zbx_settings_test && \
+	    TZ=UTC ./tests/zabbix_view_test && \
 	    ./tests/zabbix_session_test tools/zabbix/pos-zabbix
 
 # Browser (docs/apps/BROWSER.md, ADR-009 accepted).
@@ -2240,6 +2244,7 @@ test: all $(TEST_BINS)
 	./tests/zbx_api_test
 	./tests/zbx_config_test
 	./tests/zbx_client_test
+	./tests/zbx_settings_test
 	TZ=UTC ./tests/zabbix_view_test
 	./tests/zabbix_session_test tools/zabbix/pos-zabbix
 	bash tests/zabbix_http_test.sh

@@ -471,39 +471,70 @@ static int fsync_dir(const char *dir)
     return rc;
 }
 
-int zbx_config_write_secret(const char *path, const char *kind, const char *value, char *err,
-                            size_t errlen)
-{
-    char dir[ZBX_PATH_MAX];
-    char tmp[ZBX_PATH_MAX + 16];
-    char line[ZBX_SECRET_MAX + 32];
-    char *slash;
-    size_t i;
-    size_t n;
-    int fd;
-    int len;
+/* The CONNECTION screen sends what these hold over the line protocol, whose
+ * sizes are its own (zbx_proto.h). */
+_Static_assert(ZBX_USER_MAX == ZBX_PROTO_USER_MAX, "user sizes differ");
+_Static_assert(ZBX_SECRET_MAX == ZBX_PROTO_SECRET_MAX, "secret sizes differ");
 
-    if (strcmp(kind, "token") != 0 && strcmp(kind, "password") != 0) {
-        say(err, errlen, "the secret is a token or a password", NULL);
-        return -1;
-    }
-    if (strlen(path) >= sizeof(dir)) {
+static int secret_dir(const char *path, char *dir, size_t dirlen, char *err, size_t errlen)
+{
+    char *slash;
+
+    if (strlen(path) >= dirlen) {
         say(err, errlen, "the secret path is too long", NULL);
         return -1;
     }
-    snprintf(dir, sizeof(dir), "%s", path);
+    snprintf(dir, dirlen, "%s", path);
     slash = strrchr(dir, '/');
     if (!slash) {
         say(err, errlen, "the secret path has no directory", NULL);
         return -1;
     }
     *slash = '\0';
+    return 0;
+}
+
+int zbx_config_write_secret(const char *path, const char *kind, const char *value, char *err,
+                            size_t errlen)
+{
+    char dir[ZBX_PATH_MAX];
+    char tmp[ZBX_PATH_MAX + 16];
+
+    if (strcmp(kind, "token") != 0 && strcmp(kind, "password") != 0) {
+        say(err, errlen, "the secret is a token or a password", NULL);
+        return -1;
+    }
+    if (secret_dir(path, dir, sizeof(dir), err, errlen) != 0) {
+        return -1;
+    }
     if (!value || !*value) {
         if (unlink(path) != 0 && errno != ENOENT) {
             say(err, errlen, "the secret could not be removed: %s", strerror(errno));
             return -1;
         }
         return 0;
+    }
+    if (zbx_config_stage_secret(path, kind, value, tmp, sizeof(tmp), err, errlen) != 0) {
+        return -1;
+    }
+    if (rename(tmp, path) != 0) {
+        unlink(tmp);
+        say(err, errlen, "the secret cannot be stored: %s", strerror(errno));
+        return -1;
+    }
+    fsync_dir(dir);
+    return 0;
+}
+
+int zbx_config_check_secret(const char *kind, const char *value, char *err, size_t errlen)
+{
+    bool token = strcmp(kind, "token") == 0;
+    size_t i;
+    size_t n;
+
+    if (!value || !*value) {
+        say(err, errlen, "the secret is empty", NULL);
+        return -1;
     }
     n = strlen(value);
     if (n >= ZBX_SECRET_MAX) {
@@ -516,18 +547,41 @@ int zbx_config_write_secret(const char *path, const char *kind, const char *valu
     for (i = 0; i < n; i++) {
         unsigned char ch = (unsigned char)value[i];
 
-        if (strcmp(kind, "token") == 0 ? (ch <= 0x20 || ch >= 0x7F) : (ch == '\r' || ch == '\n')) {
-            say(err, errlen, strcmp(kind, "token") == 0
-                                 ? "a token is one word of printable characters"
-                                 : "a password must be on one line", NULL);
+        if (token ? (ch <= 0x20 || ch >= 0x7F) : (ch == '\r' || ch == '\n')) {
+            say(err, errlen, token ? "a token is one word of printable characters"
+                                   : "a password must be on one line", NULL);
             return -1;
         }
+    }
+    return 0;
+}
+
+int zbx_config_stage_secret(const char *path, const char *kind, const char *value, char *tmp,
+                            size_t tmplen, char *err, size_t errlen)
+{
+    char dir[ZBX_PATH_MAX];
+    char line[ZBX_SECRET_MAX + 32];
+    int fd;
+    int len;
+
+    if (strcmp(kind, "token") != 0 && strcmp(kind, "password") != 0) {
+        say(err, errlen, "the secret is a token or a password", NULL);
+        return -1;
+    }
+    if (secret_dir(path, dir, sizeof(dir), err, errlen) != 0) {
+        return -1;
+    }
+    if (zbx_config_check_secret(kind, value, err, errlen) != 0) {
+        return -1;
     }
     if (pocketos_mkdir_p(dir, 0700) != 0 || chmod(dir, 0700) != 0) {
         say(err, errlen, "the secret directory cannot be made: %s", strerror(errno));
         return -1;
     }
-    snprintf(tmp, sizeof(tmp), "%s.new", path);
+    if ((size_t)snprintf(tmp, tmplen, "%s.new", path) >= tmplen) {
+        say(err, errlen, "the secret path is too long", NULL);
+        return -1;
+    }
     unlink(tmp);
     fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
     if (fd < 0) {
@@ -543,11 +597,10 @@ int zbx_config_write_secret(const char *path, const char *kind, const char *valu
         return -1;
     }
     explicit_bzero(line, sizeof(line));
-    if (close(fd) != 0 || rename(tmp, path) != 0) {
+    if (close(fd) != 0) {
         unlink(tmp);
         say(err, errlen, "the secret cannot be stored: %s", strerror(errno));
         return -1;
     }
-    fsync_dir(dir);
     return 0;
 }

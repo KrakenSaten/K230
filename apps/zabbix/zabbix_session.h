@@ -12,8 +12,11 @@
  *     links only the bounded model and the line protocol (core/zabbix,
  *     tests/zabbix_lint.sh), and a crash in any of them takes the helper,
  *     not the panel;
- *   - the token is read by the helper from its 0600 file and never enters the
- *     shell's memory at all;
+ *   - the stored token is read by the helper from its 0600 file and never
+ *     enters the shell's memory. The one exception is a token or password
+ *     typed on the CONNECTION screen: it is in the shell while it is typed,
+ *     goes to the helper over the socketpair (zabbix_session_settings), and
+ *     the shell's copies are wiped (docs/apps/ZABBIX.md, Security);
  *   - if the shell dies, the helper gets SIGTERM (PR_SET_PDEATHSIG) and its
  *     connection goes with it. A rotation restart is an exec, which that
  *     signal does not see: the shell closes the app before it (shell.c
@@ -89,6 +92,12 @@ int zabbix_session_refresh(struct zabbix_session *s);
 /* hostid NULL or "": stop reading a host. */
 int zabbix_session_detail(struct zabbix_session *s, const char *hostid);
 int zabbix_session_scenario(struct zabbix_session *s, const char *name);
+/* The CONNECTION screen: try (save false) or try and store these settings;
+ * the answer arrives as the model's cresult. secret NULL or "" keeps the
+ * stored one. The secret goes into the helper's socket and nowhere else:
+ * the line it is built in is wiped here, and the caller wipes its own copy. */
+int zabbix_session_settings(struct zabbix_session *s, bool save, const char *url, const char *auth,
+                            const char *user, const char *secret);
 
 /* For a destroyed app or a restart: ask the helper to quit, wait up to
  * grace_ms, then SIGKILL and wait up to ZABBIX_KILL_REAP_MS. Idle afterwards

@@ -24,8 +24,18 @@
  * LAYOUT is chosen from the body in a timer, never inside an LVGL event
  * (docs: lvgl-layout gotchas; the size handler only sets a flag).
  *
+ * CONNECTION (DS §50), opened from STATUS or the set-up panel, changes the
+ * server and the sign-in on the unit: the fields zabbix.conf and the secret
+ * already had, TEST CONNECTION and SAVE. This screen only collects them;
+ * the helper checks, tries and stores (core/zabbix/zbx_settings.h). The
+ * token or password field is masked and never filled from the store - the
+ * helper says only whether one is stored - and what was typed is wiped
+ * when it has been sent on SAVE, when the screen closes and when the app
+ * does.
+ *
  * Copyright (c) 2026 PocketOS authors. License: see LICENSE (TBD).
  */
+#define _GNU_SOURCE /* explicit_bzero */
 #include "app.h"
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
@@ -50,6 +60,21 @@
 #define BANNER_PAD 12
 /* The most severe open problems OVERVIEW shows under its cards. */
 #define OVERVIEW_TOP 3
+/* CONNECTION: how long a test or save may take before the screen gives up
+ * on the helper. A round is at most a few requests of timeout_s (30 s at
+ * most) each; this is past any of them. */
+#define ZABBIX_SETTINGS_WAIT_MS 150000
+/* What the fields take. The url keeps room for "api_jsonrpc.php"
+ * (zbx_config_url); the others are the configuration's sizes less one. */
+#define CN_URL_MAX 200
+#define CN_USER_MAX (ZBX_PROTO_USER_MAX - 1)
+#define CN_SECRET_MAX (ZBX_PROTO_SECRET_MAX - 1)
+
+enum cn_pending {
+    CN_IDLE = 0,
+    CN_TESTING,
+    CN_SAVING,
+};
 
 enum zabbix_tab {
     TAB_OVERVIEW = 0,
@@ -170,8 +195,37 @@ struct zabbix_app {
     /* STATUS */
     struct srow srows[ZABBIX_STATUS_LINES];
     lv_obj_t *st_refresh;
+    lv_obj_t *st_conn;
     lv_obj_t *st_scenario;
     lv_obj_t *st_demo;
+
+    /* CONNECTION, over everything (the tabs and the banner hide) */
+    lv_obj_t *conn;
+    lv_obj_t *cn_back;
+    lv_obj_t *cn_url;
+    lv_obj_t *cn_auth[2];       /* API TOKEN, PASSWORD */
+    lv_obj_t *cn_user_cap;
+    lv_obj_t *cn_user;
+    lv_obj_t *cn_secret_cap;
+    lv_obj_t *cn_secret;        /* masked; never holds a stored secret */
+    lv_obj_t *cn_secret_note;
+    lv_obj_t *cn_file_note;
+    lv_obj_t *cn_result;
+    lv_obj_t *cn_result_text;
+    lv_obj_t *cn_test;
+    lv_obj_t *cn_save;
+    lv_obj_t *cn_focus;         /* the field last tapped, to bring into view */
+    bool conn_open;
+    bool cn_password;           /* the sign-in chosen on the screen */
+    int cn_choice_shown;        /* the auth buttons as last styled; -1: not yet */
+    bool cn_filled;             /* the fields hold the files' values (or the user's) */
+    bool cn_filling;            /* writing them: not the user's edit */
+    bool cn_edited;
+    enum cn_pending cn_pending;
+    int64_t cn_deadline;
+    unsigned cn_seen;           /* the model's cresult_seq already shown */
+    bool cn_reveal;
+    bool cn_restart;            /* a save stored new settings: start a helper on them */
 
     enum zabbix_tab cur;        /* the tab in front */
     bool wide;
@@ -499,7 +553,9 @@ static void paint_banner(struct zabbix_app *a, int64_t now)
     char cap[64];
 
     zabbix_view_banner(a->model, now, &b);
-    set_hidden(a->banner, !b.show);
+    /* CONNECTION has the screen to itself: with the keyboard up in
+     * landscape the body is 100 px, room for a field and nothing else. */
+    set_hidden(a->banner, !b.show || a->conn_open);
     if (b.show) {
         label_text(a->banner_label, b.text);
         tone(a->banner_label, b.tone);
@@ -546,11 +602,10 @@ static void paint_overview(struct zabbix_app *a, int64_t now)
 
         snprintf(text, sizeof(text),
                  "This unit has no Zabbix server set up%s%s.\n\n"
-                 "Over SSH:\n"
-                 "1. put url=https://your-zabbix/ in\n"
-                 "    /etc/pocketos/zabbix.conf\n"
-                 "2. echo TOKEN | pos-zabbix set-secret token\n\n"
-                 "An API token of a read-only user is best (docs/apps/ZABBIX.md).",
+                 "SET UP THE CONNECTION takes the server's address and an API token "
+                 "(or a user and password), tests them and stores them. It can also "
+                 "be done over SSH (docs/apps/ZABBIX.md).\n\n"
+                 "An API token of a read-only user is best.",
                  reason ? ": " : "", reason ? why : "");
         label_text(a->ov_setup_text, text);
         return;
@@ -728,6 +783,67 @@ static void paint_status(struct zabbix_app *a, int64_t now)
     set_hidden(a->st_demo, !a->demo);
 }
 
+/* CONNECTION. Only what changed is written; the fields themselves are
+ * filled once (fill_conn), and after that they are the user's. */
+static void choice_style(lv_obj_t *b, bool on)
+{
+    lv_obj_remove_style(b, pos_style(POS_STYLE_BUTTON_PRIMARY), 0);
+    lv_obj_remove_style(b, pos_style(POS_STYLE_BUTTON_PRIMARY_PRESSED), LV_STATE_PRESSED);
+    lv_obj_remove_style(b, pos_style(POS_STYLE_BUTTON_SECONDARY), 0);
+    lv_obj_remove_style(b, pos_style(POS_STYLE_SLAB_PRESSED), LV_STATE_PRESSED);
+    if (on) {
+        pos_style_add(b, POS_STYLE_BUTTON_PRIMARY, 0);
+        pos_style_add(b, POS_STYLE_BUTTON_PRIMARY_PRESSED, LV_STATE_PRESSED);
+    } else {
+        pos_style_add(b, POS_STYLE_BUTTON_SECONDARY, 0);
+        pos_style_add(b, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+    }
+}
+
+static void paint_conn(struct zabbix_app *a)
+{
+    const struct zabbix_model *m = a->model;
+    /* A stored secret counts for the sign-in it was stored for. */
+    bool stored = m->have_settings && m->set_stored && m->set_password == a->cn_password;
+    size_t typed = strlen(lv_textarea_get_text(a->cn_secret));
+    char t[ZABBIX_LINE_TEXT];
+    const char *ph;
+
+    if (a->cn_choice_shown != (int)a->cn_password) {
+        /* The choice is in the words as well as the fill (DS §2). */
+        choice_style(a->cn_auth[0], !a->cn_password);
+        choice_style(a->cn_auth[1], a->cn_password);
+        button_text(a->cn_auth[0], a->cn_password ? "API TOKEN" : "\xe2\x80\xa2 API TOKEN");
+        button_text(a->cn_auth[1], a->cn_password ? "\xe2\x80\xa2 PASSWORD" : "PASSWORD");
+        a->cn_choice_shown = (int)a->cn_password;
+    }
+    set_hidden(a->cn_user_cap, !a->cn_password);
+    set_hidden(lv_obj_get_parent(a->cn_user), !a->cn_password);
+    zabbix_view_secret_caption(a->cn_password, t, sizeof(t));
+    label_text(a->cn_secret_cap, t);
+    zabbix_view_secret_note(a->cn_password, stored, typed, t, sizeof(t));
+    label_text(a->cn_secret_note, t);
+    ph = stored ? "Stored: leave empty to keep it" : a->cn_password ? "Password" : "API token";
+    if (strcmp(lv_textarea_get_placeholder_text(a->cn_secret), ph) != 0) {
+        lv_textarea_set_placeholder_text(a->cn_secret, ph);
+    }
+    set_hidden(a->cn_file_note, !m->set_note[0]);
+    if (m->set_note[0]) {
+        snprintf(t, sizeof(t), "zabbix.conf now: %s", m->set_note);
+        label_text(a->cn_file_note, t);
+    }
+    button_text(a->cn_test, a->cn_pending == CN_TESTING ? "TESTING..." : "TEST CONNECTION");
+    button_text(a->cn_save, a->cn_pending == CN_SAVING ? "SAVING..." : "SAVE");
+    if (a->cn_pending != CN_IDLE) {
+        label_text(a->cn_result, a->cn_pending == CN_SAVING ? "SAVING" : "TESTING");
+        tone(a->cn_result, ZABBIX_TONE_QUIET);
+        label_text(a->cn_result_text, "Asking the server. This takes up to a few seconds.");
+        tone(a->cn_result_text, ZABBIX_TONE_QUIET);
+        set_hidden(a->cn_result, false);
+        set_hidden(a->cn_result_text, false);
+    }
+}
+
 static void repaint(struct zabbix_app *a, bool force_lists)
 {
     int64_t now = now_ms();
@@ -735,7 +851,9 @@ static void repaint(struct zabbix_app *a, bool force_lists)
 
     paint_tabs(a);
     paint_banner(a, now);
-    if (a->detail_open) {
+    if (a->conn_open) {
+        paint_conn(a);
+    } else if (a->detail_open) {
         paint_detail(a, now);
         a->dirty_detail = false;
     } else {
@@ -777,9 +895,11 @@ static void show_page(struct zabbix_app *a)
     int i;
 
     for (i = 0; i < TAB_COUNT; i++) {
-        set_hidden(a->page[i], a->detail_open || i != (int)a->cur);
+        set_hidden(a->page[i], a->conn_open || a->detail_open || i != (int)a->cur);
     }
-    set_hidden(a->detail, !a->detail_open);
+    set_hidden(a->detail, a->conn_open || !a->detail_open);
+    set_hidden(a->conn, !a->conn_open);
+    set_hidden(a->strip, a->conn_open);
 }
 
 static void select_tab(struct zabbix_app *a, enum zabbix_tab t)
@@ -872,6 +992,215 @@ static void on_scenario(lv_event_t *e)
     zabbix_session_scenario(a->session, demo_cycle[a->demo_index]);
 }
 
+/* ---- CONNECTION ------------------------------------------------------------------------ */
+
+/* Empty a field that may hold a typed secret. LVGL keeps a password
+ * field's text in one buffer of its own, which is overwritten here before
+ * it is released; the buffers earlier edits left behind were freed by
+ * LVGL unwiped (docs/apps/ZABBIX.md, Security). */
+static void wipe_field(struct zabbix_app *a, lv_obj_t *ta)
+{
+    char *t = (char *)lv_textarea_get_text(ta);
+
+    if (t && *t) {
+        explicit_bzero(t, strlen(t));
+    }
+    a->cn_filling = true;
+    lv_textarea_set_text(ta, "");
+    a->cn_filling = false;
+}
+
+/* The fields from what the helper read in the files. */
+static void fill_conn(struct zabbix_app *a)
+{
+    const struct zabbix_model *m = a->model;
+
+    a->cn_filling = true;
+    lv_textarea_set_text(a->cn_url, m->set_url);
+    lv_textarea_set_text(a->cn_user, m->set_user);
+    a->cn_filling = false;
+    a->cn_password = m->set_password;
+    a->cn_filled = true;
+    a->cn_edited = false;
+}
+
+static void show_result(struct zabbix_app *a, const char *word, enum zabbix_tone t, const char *text)
+{
+    label_text(a->cn_result, word);
+    tone(a->cn_result, t);
+    label_text(a->cn_result_text, text);
+    tone(a->cn_result_text, ZABBIX_TONE_PLAIN);
+    set_hidden(a->cn_result, !word[0]);
+    set_hidden(a->cn_result_text, !text[0]);
+}
+
+/* A result belongs to the settings it was for: an edit takes it off the
+ * screen (unit B: a CONNECTED for the token stayed up beside a password
+ * that had not been tried). Not while the helper is still answering. */
+static void forget_result(struct zabbix_app *a)
+{
+    if (a->cn_pending == CN_IDLE) {
+        show_result(a, "", ZABBIX_TONE_QUIET, "");
+    }
+}
+
+static void open_conn(struct zabbix_app *a)
+{
+    a->conn_open = true;
+    a->cn_focus = NULL;
+    a->cn_filled = false;
+    a->cn_edited = false;
+    wipe_field(a, a->cn_secret);
+    if (a->model->have_settings) {
+        fill_conn(a);
+    }
+    forget_result(a);
+    show_page(a);
+    repaint(a, true);
+    lv_obj_scroll_to_y(a->conn, 0, LV_ANIM_OFF);
+}
+
+static void close_conn(struct zabbix_app *a)
+{
+    pocketos_shell_keyboard_hide();
+    wipe_field(a, a->cn_secret);
+    a->conn_open = false;
+    a->cn_focus = NULL;
+    show_page(a);
+    repaint(a, true);
+}
+
+static void on_open_conn(lv_event_t *e)
+{
+    open_conn(lv_event_get_user_data(e));
+}
+
+static void on_close_conn(lv_event_t *e)
+{
+    close_conn(lv_event_get_user_data(e));
+}
+
+static void on_auth(lv_event_t *e)
+{
+    struct zabbix_app *a = lv_event_get_user_data(e);
+    bool password = lv_event_get_current_target_obj(e) == a->cn_auth[1];
+
+    if (password != a->cn_password) {
+        a->cn_password = password;
+        a->cn_edited = true;
+        forget_result(a);
+        repaint(a, false);
+    }
+}
+
+/* A finger on a field brings the keyboard. Only a finger: the keyboard's
+ * own Done reaches the field as a click too, after on_field_ready put the
+ * keyboard away (the Wave lesson). */
+static void on_field_clicked(lv_event_t *e)
+{
+    struct zabbix_app *a = lv_event_get_user_data(e);
+    lv_indev_t *src = lv_indev_active();
+
+    if (!src || lv_indev_get_type(src) != LV_INDEV_TYPE_POINTER) {
+        return;
+    }
+    a->cn_focus = lv_event_get_current_target_obj(e);
+    pocketos_shell_keyboard_show(POCKETOS_KB_DONE, NULL, NULL);
+    a->cn_reveal = true; /* in the timer, once the body has its new height */
+}
+
+static void on_field_ready(lv_event_t *e)
+{
+    (void)e;
+    pocketos_shell_keyboard_hide();
+}
+
+static void on_field_changed(lv_event_t *e)
+{
+    struct zabbix_app *a = lv_event_get_user_data(e);
+
+    if (!a->cn_filling) {
+        a->cn_edited = true;
+        forget_result(a);
+        if (a->conn_open) {
+            paint_conn(a);
+        }
+    }
+}
+
+static void conn_send(struct zabbix_app *a, bool save)
+{
+    const char *url = lv_textarea_get_text(a->cn_url);
+    const char *user = lv_textarea_get_text(a->cn_user);
+    const char *secret = lv_textarea_get_text(a->cn_secret);
+
+    if (a->cn_pending != CN_IDLE) {
+        return;
+    }
+    pocketos_shell_keyboard_hide();
+    if (zabbix_session_settings(a->session, save, url, a->cn_password ? "password" : "token",
+                                a->cn_password ? user : "", secret) != 0) {
+        show_result(a, "--", ZABBIX_TONE_QUIET,
+                    zabbix_session_active(a->session)
+                        ? "This could not be sent to the Zabbix helper. Nothing was changed."
+                        : "The Zabbix helper is not running. Try again in a moment.");
+        return;
+    }
+    a->cn_pending = save ? CN_SAVING : CN_TESTING;
+    a->cn_deadline = now_ms() + ZABBIX_SETTINGS_WAIT_MS;
+    repaint(a, false);
+}
+
+static void on_conn_test(lv_event_t *e)
+{
+    conn_send(lv_event_get_user_data(e), false);
+}
+
+static void on_conn_save(lv_event_t *e)
+{
+    conn_send(lv_event_get_user_data(e), true);
+}
+
+/* From the timer: an answer, a helper that went away, the fields once the
+ * files are known. */
+static void conn_poll(struct zabbix_app *a, int64_t now)
+{
+    const struct zabbix_model *m = a->model;
+
+    if (m->cresult_seq != a->cn_seen) {
+        struct zabbix_cresult_view v;
+
+        a->cn_seen = m->cresult_seq;
+        a->cn_pending = CN_IDLE;
+        zabbix_view_cresult(m->cresult, m->cresult_save, m->cresult_saved, m->cresult_text, &v);
+        show_result(a, v.word, v.tone, v.text);
+        if (m->cresult_saved) {
+            /* Stored: the secret typed is not needed on this side any more,
+             * and the connection starts again on the new settings. */
+            wipe_field(a, a->cn_secret);
+            a->cn_restart = true;
+        }
+    } else if (a->cn_pending != CN_IDLE && (now >= a->cn_deadline || !m->helper_running)) {
+        a->cn_pending = CN_IDLE;
+        show_result(a, "--", ZABBIX_TONE_ERROR,
+                    "No answer from the Zabbix helper. Open this screen again to see what is stored.");
+        if (zabbix_session_active(a->session)) {
+            a->cn_restart = true;
+        }
+    }
+    if (a->cn_restart) {
+        a->cn_restart = false;
+        a->demo = false; /* settings for a real server are meant to be used */
+        restart_helper(a);
+        a->cn_seen = 0;
+        a->cn_filled = false;
+        a->cn_edited = false;
+    }
+    if (a->conn_open && !a->cn_filled && !a->cn_edited && m->have_settings) {
+        fill_conn(a);
+    }
+}
+
 /* ---- the timer ------------------------------------------------------------------------ */
 
 static void layout(struct zabbix_app *a);
@@ -885,8 +1214,23 @@ static void on_poll(lv_timer_t *t)
     if (a->relayout) {
         a->relayout = false;
         layout(a);
+        /* The keyboard came or went: the field being typed in stays in
+         * view. */
+        a->cn_reveal = a->cn_reveal || (a->conn_open && a->cn_focus);
+    }
+    if (a->cn_reveal) {
+        a->cn_reveal = false;
+        if (a->conn_open && a->cn_focus) {
+            lv_obj_update_layout(a->frame);
+            lv_obj_scroll_to_view_recursive(lv_obj_get_parent(a->cn_focus), LV_ANIM_OFF);
+        }
     }
     changed = zabbix_session_poll(a->session, a->model, now);
+    if (changed & (ZABBIX_CHANGED_SETTINGS | ZABBIX_CHANGED_EXITED)) {
+        conn_poll(a, now);
+    } else if (a->cn_pending != CN_IDLE || a->cn_restart) {
+        conn_poll(a, now); /* the deadline */
+    }
     if (changed & ZABBIX_CHANGED_EXITED) {
         LOG_WARN("zabbix: helper ended (%d), reason %d", a->model->exit_value, a->model->exit_reason);
     }
@@ -1065,7 +1409,13 @@ static void build_overview(struct zabbix_app *a)
     a->ov_setup = column(p, GAP);
     pocketui_label(a->ov_setup, "Not set up", POS_STYLE_TITLE);
     a->ov_setup_text = wrapping(a->ov_setup, "", POS_STYLE_TEXT_SECONDARY);
-    a->ov_demo = button(a->ov_setup, "TRY THE DEMO", true, on_try_demo, a);
+    {
+        lv_obj_t *b = button(a->ov_setup, "SET UP THE CONNECTION", true, on_open_conn, a);
+
+        lv_obj_set_width(b, LV_PCT(100));
+        lv_obj_set_style_max_width(b, 420, 0);
+    }
+    a->ov_demo = button(a->ov_setup, "TRY THE DEMO", false, on_try_demo, a);
     lv_obj_set_width(a->ov_demo, 280);
     lv_obj_add_flag(a->ov_setup, LV_OBJ_FLAG_HIDDEN);
 
@@ -1190,10 +1540,92 @@ static void build_status(struct zabbix_app *a)
     buttons = column(p, GAP);
     lv_obj_set_style_pad_all(buttons, ROW_PAD, 0);
     a->st_refresh = button(buttons, "REFRESH NOW", true, on_refresh, a);
+    a->st_conn = button(buttons, "CONNECTION SETTINGS", false, on_open_conn, a);
     a->st_scenario = button(buttons, "SCENARIO", false, on_scenario, a);
     a->st_demo = button(buttons, "LEAVE THE DEMO", false, on_leave_demo, a);
     lv_obj_add_flag(a->st_scenario, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(a->st_demo, LV_OBJ_FLAG_HIDDEN);
+}
+
+static lv_obj_t *cn_caption(lv_obj_t *parent, const char *text)
+{
+    lv_obj_t *c = one_line(parent, text, POS_STYLE_CAPTION);
+
+    lv_obj_set_width(c, LV_PCT(100));
+    lv_obj_set_style_margin_top(c, GAP, 0);
+    return c;
+}
+
+static lv_obj_t *cn_field(struct zabbix_app *a, lv_obj_t *parent, const char *placeholder,
+                          uint32_t max)
+{
+    lv_obj_t *f = pocketui_text_field(parent, placeholder, true);
+
+    lv_textarea_set_max_length(f, max);
+    lv_obj_add_event_cb(f, on_field_clicked, LV_EVENT_CLICKED, a);
+    lv_obj_add_event_cb(f, on_field_ready, LV_EVENT_READY, a);
+    lv_obj_add_event_cb(f, on_field_changed, LV_EVENT_VALUE_CHANGED, a);
+    return f;
+}
+
+/* CONNECTION: one column that scrolls, in both shapes. With the keyboard up
+ * the field being typed in is brought into view (on_poll). */
+static void build_conn(struct zabbix_app *a)
+{
+    lv_obj_t *p;
+    lv_obj_t *l;
+    lv_obj_t *card;
+    lv_obj_t *buttons;
+
+    p = a->conn = page(a->content);
+    lv_obj_set_style_pad_hor(p, POCKETUI_PAD, 0);
+    lv_obj_set_style_pad_row(p, 8, 0);
+    a->cn_back = button(p, "\xe2\x80\xb9 BACK", false, on_close_conn, a);
+    lv_obj_set_width(a->cn_back, 180);
+    pocketui_label(p, "Connection", POS_STYLE_TITLE);
+    wrapping(p, "The Zabbix server this unit shows, and how it signs in.", POS_STYLE_TEXT_SECONDARY);
+
+    cn_caption(p, "SERVER");
+    a->cn_url = cn_field(a, p, "https://zabbix.example.com/", CN_URL_MAX);
+
+    cn_caption(p, "SIGN IN WITH");
+    l = row_box(p, GAP);
+    a->cn_auth[0] = grow(button(l, "API TOKEN", false, on_auth, a));
+    a->cn_auth[1] = grow(button(l, "PASSWORD", false, on_auth, a));
+    a->cn_choice_shown = -1;
+
+    a->cn_user_cap = cn_caption(p, "USER");
+    a->cn_user = cn_field(a, p, "User name", CN_USER_MAX);
+
+    a->cn_secret_cap = cn_caption(p, "API TOKEN");
+    a->cn_secret = cn_field(a, p, "API token", CN_SECRET_MAX);
+    /* Masked, and never a character shown, not even the last one typed. */
+    lv_textarea_set_password_mode(a->cn_secret, true);
+    lv_textarea_set_password_show_time(a->cn_secret, 0);
+    a->cn_secret_note = wrapping(p, "", POS_STYLE_CAPTION);
+
+    card = pocketui_card(p);
+    lv_obj_set_width(card, LV_PCT(100));
+    lv_obj_set_style_margin_top(card, GAP, 0);
+    lv_obj_set_style_pad_row(card, 4, 0);
+    pocketui_label(card, "RESULT", POS_STYLE_CAPTION);
+    a->cn_result = one_line(card, "", POS_STYLE_TITLE);
+    lv_obj_set_width(a->cn_result, LV_PCT(100));
+    a->cn_result_text = wrapping(card, "Nothing tested yet.", POS_STYLE_TEXT_PRIMARY);
+    set_hidden(a->cn_result, true);
+
+    buttons = column(p, GAP);
+    lv_obj_set_style_margin_top(buttons, GAP, 0);
+    a->cn_test = button(buttons, "TEST CONNECTION", false, on_conn_test, a);
+    lv_obj_set_width(a->cn_test, LV_PCT(100));
+    a->cn_save = button(buttons, "SAVE", true, on_conn_save, a);
+    lv_obj_set_width(a->cn_save, LV_PCT(100));
+    wrapping(p, "SAVE tests first and stores only settings that connect; until then the "
+                "previous ones stay in use. Everything else in zabbix.conf is kept.",
+             POS_STYLE_CAPTION);
+    a->cn_file_note = wrapping(p, "", POS_STYLE_CAPTION);
+    tone(a->cn_file_note, ZABBIX_TONE_WARN);
+    lv_obj_add_flag(p, LV_OBJ_FLAG_HIDDEN);
 }
 
 static void build(struct zabbix_app *a, lv_obj_t *root)
@@ -1230,6 +1662,7 @@ static void build(struct zabbix_app *a, lv_obj_t *root)
     build_lists(a);
     build_detail(a);
     build_status(a);
+    build_conn(a);
 }
 
 /* ---- the app ---------------------------------------------------------------------------- */
@@ -1284,6 +1717,11 @@ static void zabbix_destroy(void *priv)
     if (a->timer) {
         lv_timer_delete(a->timer);
     }
+    /* A token or password typed and not saved goes with the screen. */
+    if (a->cn_secret) {
+        pocketos_shell_keyboard_hide();
+        wipe_field(a, a->cn_secret);
+    }
     /* Leaving the app ends the connection. */
     zabbix_session_abandon(a->session, ZABBIX_DESTROY_GRACE_MS);
     free(a->session);
@@ -1295,12 +1733,17 @@ static void zabbix_destroy(void *priv)
 
 LV_IMAGE_DECLARE(pos_app_icon_zabbix);
 
-/* The Back action (app.h `back`, hw_actions.h): a host's detail closes as its
- * "‹ BACK" button closes it; the tabs themselves are one level. */
+/* The Back action (app.h `back`, hw_actions.h): CONNECTION and a host's
+ * detail close as their "‹ BACK" buttons close them; the tabs themselves are
+ * one level. */
 static int zabbix_back(void *priv)
 {
     struct zabbix_app *a = priv;
 
+    if (a && a->conn_open) {
+        close_conn(a);
+        return 1;
+    }
     if (!a || !a->detail_open) {
         return 0;
     }

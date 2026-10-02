@@ -130,6 +130,28 @@ int zabbix_session_scenario(struct zabbix_session *s, const char *name)
     return send_line(s, "scenario\t%s", name);
 }
 
+int zabbix_session_settings(struct zabbix_session *s, bool save, const char *url, const char *auth,
+                            const char *user, const char *secret)
+{
+    char line[ZBX_CMD_LINE_MAX];
+    size_t n;
+    int rc = -1;
+
+    if (!s->running || s->fd < 0 ||
+        zbx_proto_cmd_settings(line, sizeof(line), save, url, auth, user, secret) != 0) {
+        return -1;
+    }
+    n = strlen(line);
+    /* Under 2 KB into a socket the helper drains whenever it is not waiting
+     * on a server: it fits the socket buffer, so this never waits either. */
+    if (send(s->fd, line, n, MSG_NOSIGNAL | MSG_DONTWAIT) == (ssize_t)n) {
+        rc = 0;
+    }
+    /* The line holds the typed secret, in hex. */
+    explicit_bzero(line, sizeof(line));
+    return rc;
+}
+
 /* ---- the child ---------------------------------------------------------------- */
 
 static void say(char *err, size_t errlen, const char *what)

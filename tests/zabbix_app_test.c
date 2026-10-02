@@ -26,6 +26,8 @@
 #include "chrome.h"
 #include "pocketlog/pocketlog.h"
 #include "pocketui.h"
+#include "pocketui_audit.h"
+#include "pos_theme.h"
 
 #if LV_USE_LODEPNG && LV_USE_SNAPSHOT
 #include "src/libs/lodepng/lodepng.h"
@@ -77,6 +79,30 @@ static char g_logged[256];
 void pocketos_shell_set_status_hint(const char *text)
 {
     snprintf(g_hint, sizeof(g_hint), "%s", text ? text : "");
+}
+
+/* The shell's one keyboard: only whether it is asked for (the body keeps its
+ * height here). */
+static bool g_kb_visible;
+static int g_kb_shows;
+
+void pocketos_shell_keyboard_show(enum pocketos_kb_return ret, void (*on_done)(void *user), void *user)
+{
+    (void)ret;
+    (void)on_done;
+    (void)user;
+    g_kb_visible = true;
+    g_kb_shows++;
+}
+
+void pocketos_shell_keyboard_hide(void)
+{
+    g_kb_visible = false;
+}
+
+int pocketos_shell_keyboard_visible(void)
+{
+    return g_kb_visible;
 }
 
 void pocketos_shell_orientation(struct pocketos_orientation *out)
@@ -731,6 +757,317 @@ static void faults(void)
     check("twenty opens and closes leave no helper behind", bounded == 20);
 }
 
+/* ---- CONNECTION ------------------------------------------------------------------------ */
+
+/* The text field whose placeholder starts with this, visible or not. */
+static lv_obj_t *field_in(lv_obj_t *obj, const char *placeholder)
+{
+    uint32_t i;
+
+    if (lv_obj_check_type(obj, &lv_textarea_class)) {
+        const char *p = lv_textarea_get_placeholder_text(obj);
+
+        return p && strncmp(p, placeholder, strlen(placeholder)) == 0 ? obj : NULL;
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        lv_obj_t *f = field_in(lv_obj_get_child(obj, i), placeholder);
+
+        if (f) {
+            return f;
+        }
+    }
+    return NULL;
+}
+
+static lv_obj_t *field(const char *placeholder)
+{
+    return app_body ? field_in(app_body, placeholder) : NULL;
+}
+
+/* Every label in the body, shown or not, that contains this text. */
+static int labels_containing(lv_obj_t *obj, const char *needle)
+{
+    uint32_t i;
+    int n = 0;
+
+    if (lv_obj_check_type(obj, &lv_label_class) && strstr(lv_label_get_text(obj), needle)) {
+        n++;
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        n += labels_containing(lv_obj_get_child(obj, i), needle);
+    }
+    return n;
+}
+
+/* Typing as a keyboard would: the characters arrive in the field. */
+static void type_into(lv_obj_t *ta, const char *text)
+{
+    if (!ta) {
+        printf("FAIL typing into a missing field\n");
+        failed++;
+        checks++;
+        return;
+    }
+    lv_textarea_set_text(ta, "");
+    lv_textarea_add_text(ta, text);
+    pump(40);
+}
+
+static bool file_has(const char *path, const char *needle)
+{
+    char buf[4096];
+    FILE *f = fopen(path, "r");
+    size_t n;
+
+    if (!f) {
+        return false;
+    }
+    n = fread(buf, 1, sizeof(buf) - 1, f);
+    buf[n] = '\0';
+    fclose(f);
+    return strstr(buf, needle) != NULL;
+}
+
+/* The secret field: the one in password mode. */
+static lv_obj_t *secret_field(void)
+{
+    lv_obj_t *f = field("Stored");
+
+    if (!f) {
+        f = field("API token");
+    }
+    if (!f) {
+        f = field("Password");
+    }
+    return f;
+}
+
+static void connection(const char *o)
+{
+    char name[160];
+    char conf[200];
+    char sdir[200];
+    char secret[220];
+    FILE *f;
+    lv_obj_t *ta;
+
+    snprintf(conf, sizeof(conf), "%s/zabbix.conf", root);
+    snprintf(sdir, sizeof(sdir), "%s/zabbix", root);
+    snprintf(secret, sizeof(secret), "%s/secret", sdir);
+    f = fopen(conf, "w");
+    fprintf(f, "url=https://old.example.com/\nlabel=Desk\n");
+    fclose(f);
+    mkdir(sdir, 0700);
+    f = fopen(secret, "w");
+    fprintf(f, "token=stored-token-1f2e3d4c\n");
+    fclose(f);
+    chmod(secret, 0600);
+    setenv("POCKETOS_ZABBIX_BACKEND", "fake", 1);
+    setenv("POCKETOS_ZABBIX_FAKE", "demo", 1);
+    shot_orientation = o;
+#define CHECK(what, cond)                                                                          \
+    do {                                                                                           \
+        snprintf(name, sizeof(name), "%s: connection: %s", o, what);                               \
+        check(name, cond);                                                                         \
+    } while (0)
+
+    app_start();
+    CHECK("the app runs first", wait_for("9 open", 5000));
+    tap("STATUS");
+    CHECK("STATUS offers the connection settings", wait_for("CONNECTION SETTINGS", 2000) &&
+                                                       target_ok(clickable_of(shown("CONNECTION SETTINGS")),
+                                                                 "settings"));
+    tap("CONNECTION SETTINGS");
+    CHECK("opens over the tabs", wait_for("Connection", 2000) && !shown("OVERVIEW") && !shown("STATUS"));
+    ta = field("https://");
+    CHECK("the settings load: the stored address",
+          ta && strcmp(lv_textarea_get_text(ta), "https://old.example.com/") == 0);
+    CHECK("the sign-in is the token, marked in words", shown("\xe2\x80\xa2 API TOKEN") && shown("PASSWORD") &&
+                                                           !shown("USER"));
+    CHECK("a stored token is said to be there, never shown",
+          shown("A token is stored and never shown") && secret_field() &&
+              strcmp(lv_textarea_get_text(secret_field()), "") == 0 &&
+              labels_containing(app_body, "stored-token") == 0);
+    CHECK("BACK, the fields, TEST and SAVE are targets",
+          target_ok(clickable_of(shown("\xe2\x80\xb9 BACK")), "back") && target_ok(ta, "url") &&
+              target_ok(clickable_of(shown("TEST CONNECTION")), "test") &&
+              target_ok(clickable_of(shown("SAVE")), "save"));
+    shot("connection");
+
+    /* A finger on a field brings the keyboard. */
+    g_kb_visible = false;
+    tap_obj(ta);
+    CHECK("a tap on a field asks for the keyboard", g_kb_visible);
+
+    /* Masked: what is typed is in no label, not even for a moment. */
+    tap("PASSWORD");
+    CHECK("PASSWORD shows the user field", wait_for("USER", 1000) && shown("\xe2\x80\xa2 PASSWORD") &&
+                                               shown("No password is stored yet."));
+    type_into(field("User name"), "nobody");
+    type_into(secret_field(), "zq-hidden-77");
+    CHECK("the password is masked: in no label anywhere",
+          labels_containing(app_body, "zq-hidden") == 0 && labels_containing(app_body, "hidden-77") == 0 &&
+              lv_textarea_get_password_mode(secret_field()));
+    CHECK("only its length is said", shown("12 characters typed") != NULL);
+    shot("connection-typed");
+
+    tap("TEST CONNECTION");
+    CHECK("TEST CONNECTION: a refused password is AUTH FAILED", wait_for("AUTH FAILED", 5000));
+    CHECK("and the keyboard went away for the result", !g_kb_visible);
+    shot("connection-authfail");
+    type_into(field("User name"), "demo");
+    tap("TEST CONNECTION");
+    CHECK("TEST CONNECTION: the right user is CONNECTED", wait_for("CONNECTED", 5000) &&
+                                                              wait_for("Zabbix 7.0.31 answered", 1000));
+    CHECK("a test stores nothing", file_has(conf, "url=https://old.example.com/") &&
+                                       file_has(secret, "token=stored-token"));
+    ta = field("https://");
+    type_into(ta, "ftp://old.example.com/");
+    CHECK("an edit takes the last result off the screen", !shown("CONNECTED") &&
+                                                              !shown("Zabbix 7.0.31 answered"));
+    tap("TEST CONNECTION");
+    CHECK("an address that is not https:// is INVALID CONFIG", wait_for("INVALID CONFIG", 5000));
+    type_into(ta, "https://new.example.com/");
+    type_into(secret_field(), "s3cret-word");
+    tap("SAVE");
+    CHECK("SAVE: connected and stored", wait_for("Saved and in use", 5000) && shown("CONNECTED"));
+    CHECK("SAVE: the typed password is wiped from the field", strcmp(lv_textarea_get_text(secret_field()), "") == 0);
+    CHECK("SAVE: the files hold the new settings, the label kept",
+          file_has(conf, "url=https://new.example.com/") && file_has(conf, "auth=password") &&
+              file_has(conf, "user=demo") && file_has(conf, "label=Desk") &&
+              file_has(secret, "password=s3cret-word"));
+    CHECK("SAVE: applied without a restart of anything but the helper",
+          wait_for("A password is stored and never shown", 5000) && app_priv != NULL);
+    shot("connection-saved");
+    CHECK("Back closes CONNECTION, as its button does", app_zabbix.back(app_priv) == 1 &&
+                                                         wait_for("OVERVIEW", 1000) && !shown("Connection"));
+    CHECK("and Back on the tabs leaves the app to the shell", app_zabbix.back(app_priv) == 0);
+    tap("OVERVIEW");
+    CHECK("the data comes back", wait_for("9 open", 5000));
+    app_stop();
+    CHECK("closing leaves no helper", no_child());
+
+    /* Opened again: what was saved is what loads. */
+    app_start();
+    tap("STATUS");
+    tap("CONNECTION SETTINGS");
+    CHECK("reopened: the saved settings load",
+          wait_for("A password is stored", 5000) && field("https://") &&
+              strcmp(lv_textarea_get_text(field("https://")), "https://new.example.com/") == 0 &&
+              field("User name") && strcmp(lv_textarea_get_text(field("User name")), "demo") == 0 &&
+              shown("\xe2\x80\xa2 PASSWORD"));
+    /* A save that does not connect keeps the previous settings. */
+    type_into(field("User name"), "nobody");
+    type_into(secret_field(), "wrong");
+    tap("SAVE");
+    CHECK("SAVE refused: AUTH FAILED, not saved",
+          wait_for("AUTH FAILED", 5000) &&
+              labels_containing(app_body, "Not saved: the previous settings stay in use") == 1);
+    CHECK("SAVE refused: the files are the previous ones",
+          file_has(conf, "user=demo") && file_has(secret, "password=s3cret-word"));
+    {
+        lv_obj_t *back = clickable_of(shown("\xe2\x80\xb9 BACK"));
+
+        tap_obj(back);
+    }
+    CHECK("its BACK button closes it too", wait_for("STATUS", 1000) && !shown("Connection"));
+    app_stop();
+
+    /* A server that is not there. */
+    setenv("POCKETOS_ZABBIX_FAKE", "refused", 1);
+    app_start();
+    tap("STATUS");
+    tap("CONNECTION SETTINGS");
+    wait_for("Connection", 2000);
+    tap("TEST CONNECTION");
+    CHECK("a server that is not there is UNREACHABLE", wait_for("UNREACHABLE", 5000));
+    type_into(secret_field(), "typed-not-saved");
+    app_stop();
+    CHECK("closing with a password typed and not saved: no helper left, the files unchanged",
+          no_child() && file_has(secret, "password=s3cret-word"));
+#undef CHECK
+    unlink(conf);
+    unlink(secret);
+    rmdir(sdir);
+    setenv("POCKETOS_ZABBIX_FAKE", "demo", 1);
+}
+
+/* CONNECTION at every text size (DS §46): the layout audit finds nothing
+ * clipped, drawn over something else or without a size. Truncation with
+ * "..." is the app's own rule for a one-line label and is only listed. */
+static void audit_issue(const struct pocketui_audit_issue *is, void *user)
+{
+    int *bad = user;
+
+    if (is->kind == POCKETUI_AUDIT_TRUNCATED) {
+        return;
+    }
+    (*bad)++;
+    printf("     %s %s \"%s\" (%d,%d-%d,%d) other %s \"%s\"\n", pocketui_audit_kind_name(is->kind), is->path,
+           is->text, (int)is->area.x1, (int)is->area.y1, (int)is->area.x2, (int)is->area.y2, is->other_path,
+           is->other_text);
+}
+
+static void connection_sizes(const char *o)
+{
+    static const char *const names[] = { "small", "medium", "large" };
+    char name[160];
+    char conf[200];
+    char sdir[200];
+    char secret[220];
+    FILE *f;
+    int z;
+
+    snprintf(conf, sizeof(conf), "%s/zabbix.conf", root);
+    snprintf(sdir, sizeof(sdir), "%s/zabbix", root);
+    snprintf(secret, sizeof(secret), "%s/secret", sdir);
+    f = fopen(conf, "w");
+    fprintf(f, "url=https://zabbix.example.com/\nauth=password\nuser=demo\n");
+    fclose(f);
+    mkdir(sdir, 0700);
+    f = fopen(secret, "w");
+    fprintf(f, "password=anything\n");
+    fclose(f);
+    chmod(secret, 0600);
+    setenv("POCKETOS_ZABBIX_BACKEND", "fake", 1);
+    setenv("POCKETOS_ZABBIX_FAKE", "demo", 1);
+    for (z = POS_TEXT_SIZE_SMALL; z <= POS_TEXT_SIZE_LARGE; z++) {
+        int bad = 0;
+        int pass;
+
+        pos_theme_select_text_size((enum pos_text_size)z);
+        app_start();
+        tap("STATUS");
+        tap("CONNECTION SETTINGS");
+        wait_for("Connection", 2000);
+        tap("PASSWORD");
+        tap("TEST CONNECTION");
+        wait_for("CONNECTED", 5000);
+        /* The page at its top, and scrolled to its foot: a control only
+         * reachable by scrolling is audited where it can be seen too. */
+        for (pass = 0; pass < 2; pass++) {
+            lv_obj_update_layout(app_body);
+            pocketui_audit(app_body, audit_issue, &bad, NULL);
+            lv_obj_scroll_to_view_recursive(clickable_of(shown("SAVE")), LV_ANIM_OFF);
+            pump(40);
+        }
+        lv_obj_scroll_to_y(clickable_of(shown("Connection")), 0, LV_ANIM_OFF);
+        pump(40);
+        snprintf(name, sizeof(name), "%s: connection at %s text: nothing clipped, overlapping or without a size",
+                 o, names[z]);
+        check(name, bad == 0 && shown("CONNECTED") != NULL);
+        if (z == POS_TEXT_SIZE_LARGE) {
+            shot_orientation = o;
+            shot("connection-large");
+        }
+        app_stop();
+    }
+    pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+    unlink(conf);
+    unlink(secret);
+    rmdir(sdir);
+}
+
 int main(void)
 {
     lv_indev_t *finger;
@@ -769,6 +1106,12 @@ int main(void)
     journey("landscape");
     use_display(POS_ROTATION_0);
     faults();
+    connection("portrait");
+    connection_sizes("portrait");
+    use_display(POS_ROTATION_90);
+    connection("landscape");
+    connection_sizes("landscape");
+    use_display(POS_ROTATION_0);
 
     snprintf(cmd, sizeof(cmd), "rm -rf '%s'", root);
     if (system(cmd) != 0) {

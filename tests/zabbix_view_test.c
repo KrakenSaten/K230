@@ -362,12 +362,80 @@ static void test_status(void)
     }
 }
 
+/* CONNECTION: the model keeps what the helper said, the words follow the
+ * four results, a save says whether it stored, and the secret's line never
+ * holds a secret. */
+static void test_connection(void)
+{
+    static struct zabbix_model m;
+    struct zbx_rx_msg msg;
+    struct zabbix_cresult_view v;
+    char t[ZABBIX_LINE_TEXT];
+    unsigned changed;
+
+    zabbix_model_init(&m);
+    memset(&msg, 0, sizeof(msg));
+    msg.kind = ZBX_RX_SETTINGS;
+    snprintf(msg.url, sizeof(msg.url), "https://z.example.com/");
+    snprintf(msg.word, sizeof(msg.word), "password");
+    snprintf(msg.user, sizeof(msg.user), "viewer");
+    msg.flag = true;
+    changed = zabbix_model_apply(&m, &msg, &rx, 1000);
+    check("settings: kept, and said to have changed", (changed & ZABBIX_CHANGED_SETTINGS) && m.have_settings &&
+                                                          strcmp(m.set_url, "https://z.example.com/") == 0 &&
+                                                          m.set_password && strcmp(m.set_user, "viewer") == 0 &&
+                                                          m.set_stored);
+    memset(&msg, 0, sizeof(msg));
+    msg.kind = ZBX_RX_CRESULT;
+    msg.save = true;
+    msg.result = ZBX_CRESULT_CONNECTED;
+    msg.flag = true;
+    zabbix_model_apply(&m, &msg, &rx, 1000);
+    zabbix_model_apply(&m, &msg, &rx, 1000);
+    check("cresult: each answer counted, so the same answer twice is seen twice", m.cresult_seq == 2 &&
+                                                                                 m.cresult_saved);
+    zabbix_model_forget(&m);
+    check("forget: the settings and answers go with the connection", !m.have_settings && m.cresult_seq == 0);
+
+    zabbix_view_cresult(ZBX_CRESULT_CONNECTED, false, false, "Zabbix 7.0.31 answered", &v);
+    check("test CONNECTED", strcmp(v.word, "CONNECTED") == 0 && v.tone == ZABBIX_TONE_OK &&
+                                strcmp(v.text, "Zabbix 7.0.31 answered") == 0);
+    zabbix_view_cresult(ZBX_CRESULT_CONNECTED, true, true, "Zabbix 7.0.31 answered", &v);
+    check("save CONNECTED and stored", v.tone == ZABBIX_TONE_OK && strstr(v.text, "Saved and in use"));
+    zabbix_view_cresult(ZBX_CRESULT_CONNECTED, true, false, "Connected, but not stored: disk full", &v);
+    check("save CONNECTED but not stored: a warning, and the previous settings stay",
+          v.tone == ZABBIX_TONE_WARN && strstr(v.text, "Not saved: the previous settings stay in use."));
+    zabbix_view_cresult(ZBX_CRESULT_AUTH_FAILED, true, false, "Not authorized.", &v);
+    check("save AUTH FAILED: one full stop, not saved",
+          strcmp(v.word, "AUTH FAILED") == 0 && v.tone == ZABBIX_TONE_ERROR &&
+              strcmp(v.text, "Not authorized. Not saved: the previous settings stay in use.") == 0);
+    zabbix_view_cresult(ZBX_CRESULT_UNREACHABLE, false, false, "Server not reachable", &v);
+    check("UNREACHABLE", strcmp(v.word, "UNREACHABLE") == 0 && v.tone == ZABBIX_TONE_ERROR);
+    zabbix_view_cresult(ZBX_CRESULT_INVALID, true, false, "", &v);
+    check("INVALID CONFIG", strcmp(v.word, "INVALID CONFIG") == 0 &&
+                                strcmp(v.text, "Not saved: the previous settings stay in use.") == 0);
+    zabbix_view_cresult((enum zbx_cresult)42, false, false, NULL, &v);
+    check("an unknown result reads as INVALID CONFIG", strcmp(v.word, "INVALID CONFIG") == 0);
+
+    zabbix_view_secret_caption(true, t, sizeof(t));
+    check("the secret's caption follows the sign-in", strcmp(t, "PASSWORD") == 0);
+    zabbix_view_secret_caption(false, t, sizeof(t));
+    check("API TOKEN", strcmp(t, "API TOKEN") == 0);
+    zabbix_view_secret_note(false, true, 0, t, sizeof(t));
+    check("stored: never shown, empty keeps it", strstr(t, "never shown") && strstr(t, "Leave this empty"));
+    zabbix_view_secret_note(true, false, 0, t, sizeof(t));
+    check("none stored", strcmp(t, "No password is stored yet.") == 0);
+    zabbix_view_secret_note(true, true, 12, t, sizeof(t));
+    check("typed: only how many characters", strcmp(t, "12 characters typed; it replaces the stored password on SAVE") == 0);
+}
+
 int main(void)
 {
     test_banner_and_stale();
     test_overview();
     test_rows();
     test_status();
+    test_connection();
     printf("zabbix_view_test: %d checks, %d failure(s)\n", checks, failed);
     return failed > 0;
 }
