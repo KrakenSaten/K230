@@ -204,6 +204,8 @@ for o in portrait landscape; do
     action back
     check "$o: Back at the launcher's page does nothing" "$([ "$(current)" = home ] && echo 1 || echo 0)"
     "$POS" app start system >/dev/null 2>&1; sleep 0.4
+    # Diagnostics is on System's SERVICES page (DS §52.5).
+    tap_text "SERVICES"
     tap_text "Diagnostics"
     action back
     check "$o: Back from System's Diagnostics closes Diagnostics first, System stays" \

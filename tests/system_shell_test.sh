@@ -90,10 +90,12 @@ for o in portrait landscape; do
     [ -n "$hits" ] && echo "$hits" | head -3
     check "$o: opening System writes nothing to the app state directory" \
         "$([ -z "$(ls -A "$STATE" 2>/dev/null)" ] && echo 1 || echo 0)"
-    # Row 205, in the top padding of the first panel of each column, crosses its
-    # left border, the inside, its right border and the background beside it.
+    # A row in the top padding of the first panel of each column, under the
+    # tabs (DS §52.5; in portrait the freshness line has a line of its own
+    # under them, so the panels start lower): it crosses the panel's left
+    # border, the inside, its right border and the background beside it.
     if [ $o = portrait ]; then
-        set -- $(look "$LOGD/system.png" ice normal 205 20 283 547 557)
+        set -- $(look "$LOGD/system.png" ice normal 215 20 283 547 557)
         check "$o: one panel across the body, 20..547" "$([ "$1$2$3$4" = "0101" ] && echo 1 || echo 0)"
         corners=$5
     else

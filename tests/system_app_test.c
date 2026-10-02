@@ -11,12 +11,16 @@
  * long values stay inside their rows, that a finger scrolls to everything,
  * that the confirmations and the panel a power action leaves fit, and that
  * turning the display under the open app moves the panels without making a
- * second set of them or losing what is on show.
+ * second set of them or losing what is on show. Since DS §52 the screen is
+ * four pages under a row of tabs - OVERVIEW, NETWORK, SERVICES, ABOUT - each
+ * of which the page itself scrolls, if anything does, with nothing inside it
+ * scrolling on its own; every tab is checked at Small, Medium and Large.
  *
  * sysd is not here, so this file plays it: shell_ipc_call_timeout() answers
  * system.info and system.status with scripted JSON and records every call,
  * and system.reboot and system.poweroff are answered - or refused - without
- * anything being stopped. The shell is not here either: the app is hosted the
+ * anything being stopped. radiod's radio.stats, netd's wifi.status and
+ * meshcored's mesh.status, which the NETWORK page asks for, are scripted too. The shell is not here either: the app is hosted the
  * way ui/shell/shell.c hosts it (a header, then a padded body, on the
  * reference panel with its 30 px rounded corners), and the app.h entry points
  * are counters.
@@ -74,17 +78,34 @@ static void check(const char *what, int ok)
  * for the shape: two mounts, eth0 up, two Wi-Fi interfaces down and sit0 hidden). */
 #define INFO_UNITA "{\"api_version\":0,\"version\":\"0.0.10\",\"build\":\"aaad9f4\",\"release_file\":\"0.0.10\"," \
     "\"release_build\":\"aaad9f4\",\"model\":\"Canaan CanMV-K230 with RM69A10 OLED\",\"kernel\":\"6.6.36\"," \
-    "\"machine\":\"riscv64\"}"
+    "\"machine\":\"riscv64\",\"os\":\"Buildroot 2025.02.1\",\"vendor_sdk\":\"v1.2-20260909-22d02c6\",\"cpus\":1}"
 #define STATUS_UNITA "{\"uptime_s\":7384,\"load\":[0.42,0.37,0.30],\"cpu_percent\":17," \
     "\"memory\":{\"total_kb\":1015808,\"available_kb\":523100,\"free_kb\":401000},\"temperature_c\":51.3," \
     "\"clock_set\":true,\"storage\":[{\"mount\":\"/\",\"total_bytes\":601882624,\"avail_bytes\":137363456}," \
     "{\"mount\":\"/boot\",\"total_bytes\":67108864,\"avail_bytes\":41943040}]," \
-    "\"network\":[{\"name\":\"eth0\",\"operstate\":\"up\",\"carrier\":true,\"mac\":\"02:11:22:33:44:55\",\"ipv4\":\"192.168.10.157\"}," \
+    "\"network\":[{\"name\":\"eth0\",\"operstate\":\"up\",\"carrier\":true,\"mac\":\"02:11:22:33:44:55\",\"ipv4\":\"192.168.10.157\"," \
+    "\"rx_bytes\":" ETH0_RX ",\"tx_bytes\":" ETH0_TX "}," \
     "{\"name\":\"sit0\",\"operstate\":\"down\",\"carrier\":null,\"mac\":\"00:00:00:00\",\"ipv4\":null}," \
     "{\"name\":\"wlan0\",\"operstate\":\"down\",\"carrier\":null,\"mac\":\"02:11:22:33:44:56\",\"ipv4\":null}," \
     "{\"name\":\"wlan1\",\"operstate\":\"down\",\"carrier\":null,\"mac\":\"02:11:22:33:44:57\",\"ipv4\":null}]," \
     "\"services\":[" SVC_RUN("doors-shell", 246) "," SVC_RUN("netd", 238) "," SVC_RUN("radiod", 231) "," \
     SVC_RUN("sysd", 229) "]}"
+/* eth0's byte counters in STATUS_UNITA (unit B's, 2026-10-02), and the same
+ * two seconds later in STATUS_TRAFFIC: 40960 bytes in and 8192 out, 20 and 4
+ * KB/s. */
+#define ETH0_RX "23681229"
+#define ETH0_TX "105768542"
+#define STATUS_TRAFFIC_OF(rx, tx) "{\"uptime_s\":7386,\"load\":[0.42,0.37,0.30],\"cpu_percent\":17," \
+    "\"memory\":{\"total_kb\":1015808,\"available_kb\":523100,\"free_kb\":401000},\"temperature_c\":51.3," \
+    "\"clock_set\":true,\"storage\":[{\"mount\":\"/\",\"total_bytes\":601882624,\"avail_bytes\":137363456}," \
+    "{\"mount\":\"/boot\",\"total_bytes\":67108864,\"avail_bytes\":41943040}]," \
+    "\"network\":[{\"name\":\"eth0\",\"operstate\":\"up\",\"carrier\":true,\"mac\":\"02:11:22:33:44:55\"," \
+    "\"ipv4\":\"192.168.10.157\",\"rx_bytes\":" rx ",\"tx_bytes\":" tx "}," \
+    "{\"name\":\"wlan0\",\"operstate\":\"down\",\"carrier\":null,\"mac\":\"02:11:22:33:44:56\",\"ipv4\":null}," \
+    "{\"name\":\"wlan1\",\"operstate\":\"down\",\"carrier\":null,\"mac\":\"02:11:22:33:44:57\",\"ipv4\":null}]," \
+    "\"services\":[" SVC_RUN("doors-shell", 246) "," SVC_RUN("netd", 238) "," SVC_RUN("radiod", 231) "," \
+    SVC_RUN("sysd", 229) "]}"
+#define STATUS_TRAFFIC STATUS_TRAFFIC_OF("23722189", "105776734")
 #define SVC_RUN(name, pid) \
     "{\"name\":\"" name "\",\"pid\":" #pid ",\"running\":true,\"crashloop\":false,\"last_exit_code\":null,\"restarts\":0}"
 #define SVC_LOOP(name) \
@@ -163,6 +184,10 @@ static const char *g_mesh_status = "{\"state\":\"degraded\",\"reason\":\"the rad
 static const char *g_crashes = "{\"available\":true,\"total\":1,\"reports\":[{\"file\":\"a\",\"process\":\"netd\","
                                "\"pid\":252,\"time\":1790000000,\"signal\":11,\"signal_name\":\"SIGSEGV\","
                                "\"frames\":[\"/usr/sbin/netd(+0x10)[0x1]\"]}]}";
+static const char *g_radio_stats = "{\"tx_packets\":1,\"rx_packets\":848,\"rx_crc_errors\":36,"
+                                   "\"last_rssi_dbm\":-74,\"last_snr_db\":12.25}";
+static const char *g_wifi_status = "{\"available\":true,\"enabled\":true,\"state\":\"connected\","
+                                   "\"ssid\":\"Home\",\"signal_bars\":3}";
 static int g_log_entries = 3;
 static char g_logs_level[16];
 
@@ -235,6 +260,12 @@ cJSON *shell_ipc_call_timeout(const char *service, const char *method, cJSON *pa
             reply = "{\"region\":\"EU868\",\"backend\":\"sx1262\"}";
         } else if (g_radio && strcmp(method, "radio.status") == 0) {
             reply = g_radio_status;
+        } else if (g_radio && strcmp(method, "radio.stats") == 0) {
+            reply = g_radio_stats;
+        }
+    } else if (strcmp(service, "netd") == 0) {
+        if (strcmp(method, "wifi.status") == 0) {
+            reply = g_wifi_status;
         }
     } else if (strcmp(service, "meshcored") == 0) {
         if (strcmp(method, "mesh.status") == 0) {
@@ -446,16 +477,21 @@ static int has_flag(lv_obj_t *obj, lv_obj_flag_t flag)
 }
 
 /* The app's tree under the body, as system_app.c builds it: one frame, and in
- * it the screen on show - freshness line, the refusal toast and the two
- * columns while live; the freshness line and a confirmation; or only the
- * panel a power action leaves. */
+ * it the page on show - the tabs (with the freshness line at their end), the
+ * refusal toast and the two columns while live; the freshness line and a
+ * confirmation; or only the panel a power action leaves. */
 static lv_obj_t *frame_obj(void) { return kid(app_body, 0); }
 static lv_obj_t *screen_obj(void) { return kid(frame_obj(), 0); }
 static int live(void) { return screen_obj() && lv_obj_get_child_count(screen_obj()) == 3u; }
-static lv_obj_t *freshness_row(void) { return kid(screen_obj(), 1) ? kid(screen_obj(), 0) : NULL; }
+static lv_obj_t *tabs_obj(void) { return live() ? kid(screen_obj(), 0) : NULL; }
 static lv_obj_t *toast_obj(void) { return live() ? kid(screen_obj(), 1) : NULL; }
 static lv_obj_t *columns_obj(void) { return live() ? kid(screen_obj(), 2) : NULL; }
 static lv_obj_t *column_obj(int i) { return kid(columns_obj(), (uint32_t)i); }
+/* A confirmation's freshness row: the first of the page's two children. */
+static lv_obj_t *freshness_row(void)
+{
+    return !live() && screen_obj() && lv_obj_get_child_count(screen_obj()) == 2u ? kid(screen_obj(), 0) : NULL;
+}
 static lv_obj_t *dialog_obj(void)
 {
     return !live() && screen_obj() ? kid(screen_obj(), lv_obj_get_child_count(screen_obj()) - 1u) : NULL;
@@ -871,63 +907,126 @@ static void check_screen(const char *what, int expect_targets)
     check(msg, lv_obj_get_scroll_top(app_body) <= 0 && lv_obj_get_scroll_bottom(app_body) <= 0);
 }
 
-/* The live screen's arrangement, whichever the body is. */
+/* Objects inside the page that scroll on their own: anything but the page
+ * itself whose content does not fit it (DS §52.2). */
+static int nested_scrollers(lv_obj_t *obj, lv_obj_t *page)
+{
+    uint32_t i;
+    int n = 0;
+
+    if (!obj || lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) {
+        return 0;
+    }
+    /* A label whose text is cut with dots reports an overflow, but takes no
+     * touch: nothing a finger can drag. */
+    if (obj != page && !lv_obj_check_type(obj, &lv_label_class) && lv_obj_has_flag(obj, LV_OBJ_FLAG_SCROLLABLE) &&
+        (lv_obj_get_scroll_top(obj) > 0 || lv_obj_get_scroll_bottom(obj) > 0 || lv_obj_get_scroll_left(obj) > 0 ||
+         lv_obj_get_scroll_right(obj) > 0)) {
+        lv_area_t a;
+
+        area_of(obj, &a);
+        printf("     nested scroller %d..%d x %d..%d\n", (int)a.x1, (int)a.x2, (int)a.y1, (int)a.y2);
+        n++;
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        n += nested_scrollers(lv_obj_get_child(obj, i), page);
+    }
+    return n;
+}
+
+static void check_page(const char *what, int expect_targets)
+{
+    char msg[200];
+
+    check_screen(what, expect_targets);
+    snprintf(msg, sizeof(msg), "%s: nothing inside the page scrolls on its own", what);
+    check(msg, nested_scrollers(screen_obj(), screen_obj()) == 0);
+}
+
+/* How far the page reaches past its box: 0 when it fits without scrolling. */
+static int32_t page_overflow(void)
+{
+    lv_obj_t *s = screen_obj();
+
+    if (!s) {
+        return -1;
+    }
+    lv_obj_update_layout(s);
+    return LV_MAX(0, lv_obj_get_scroll_top(s)) + LV_MAX(0, lv_obj_get_scroll_bottom(s));
+}
+
+static const char *const tab_names[4] = { "OVERVIEW", "NETWORK", "SERVICES", "ABOUT" };
+
+static void open_tab(const char *name)
+{
+    lv_obj_scroll_to_y(screen_obj(), 0, LV_ANIM_OFF);
+    tap(name);
+    pump(20);
+}
+
+/* The tab on show is the accented one: its fill is accent_primary. */
+static int tab_on(const char *name)
+{
+    lv_obj_t *t = target_of(name);
+
+    return t && lv_color_eq(lv_obj_get_style_bg_color(t, LV_PART_MAIN),
+                            lv_color_hex(pos_theme_rgb(POS_COLOR_ACCENT_PRIMARY)));
+}
+
+/* The live page's arrangement, whichever the body is: the tabs across the
+ * top with the freshness line in their row (at its end when wide, under the
+ * buttons when tall), the columns under them - side by side when wide and
+ * there are two, one above the other when tall - and the page the one box
+ * that scrolls. */
 static void check_live_shape(const char *name)
 {
     char what[200];
     lv_area_t box;
-    lv_area_t fr;
+    lv_area_t t;
+    lv_area_t f;
     lv_area_t c0;
     lv_area_t c1;
-    lv_area_t live_label;
-    lv_area_t over;
+    lv_area_t s;
     int wide = wide_display();
-    static const char *const left[] = { "CPU", "STORAGE", "NETWORK" };
-    static const char *const right[] = { "SERVICES", "Radio", "Doors", "Restart" };
-    int in_left = 1;
-    int in_right = 1;
-    size_t i;
+    int two = column_obj(1) && !has_flag(column_obj(1), LV_OBJ_FLAG_HIDDEN);
+    lv_obj_t *fresh = tabs_obj() ? kid(tabs_obj(), 4) : NULL;
 
+    /* Where things are is read with the page at its top. */
+    if (screen_obj()) {
+        lv_obj_scroll_to_y(screen_obj(), 0, LV_ANIM_OFF);
+    }
     body_box(&box);
-    area_of(freshness_row(), &fr);
-    /* what the columns start under: the freshness line, or a refusal's reason
-     * below it while one is on show */
-    area_of(toast_obj() && !has_flag(toast_obj(), LV_OBJ_FLAG_HIDDEN) ? toast_obj() : freshness_row(), &over);
+    area_of(tabs_obj(), &t);
     area_of(column_obj(0), &c0);
     area_of(column_obj(1), &c1);
-    area_of(kid(freshness_row(), 0), &live_label);
-    for (i = 0; i < sizeof(left) / sizeof(left[0]); i++) {
-        in_left &= panel_of(left[i]) != NULL && lv_obj_get_parent(panel_of(left[i])) == column_obj(0);
+    area_of(screen_obj(), &s);
+    snprintf(what, sizeof(what), "[%s] the tabs across the top of the body", name);
+    check(what, live() && t.x1 == box.x1 && t.x2 == box.x2 && t.y1 == box.y1);
+    if (fresh) {
+        lv_area_t last;
+
+        area_of(fresh, &f);
+        area_of(kid(tabs_obj(), 3), &last);
+        snprintf(what, sizeof(what), "[%s] the freshness line %s, right-aligned to the body", name,
+                 wide ? "at the end of the tabs' row" : "under the tabs");
+        check(what, f.x2 <= box.x2 && f.x2 >= box.x2 - 1 && (wide ? f.y1 < last.y2 && f.x1 > last.x2 : f.y1 > last.y2));
     }
-    for (i = 0; i < sizeof(right) / sizeof(right[0]); i++) {
-        in_right &= panel_of(right[i]) != NULL && lv_obj_get_parent(panel_of(right[i])) == column_obj(1);
-    }
-    snprintf(what, sizeof(what), "[%s] vitals, storage and network, then services, radio, identity and the actions",
-             name);
-    check(what, in_left && in_right);
-    snprintf(what, sizeof(what), "[%s] the freshness line across the top of the body, right-aligned", name);
-    check(what, fr.x1 == box.x1 && fr.x2 == box.x2 && fr.y1 == box.y1 && live_label.x2 == box.x2);
-    if (wide) {
+    if (wide && two) {
         snprintf(what, sizeof(what), "[%s] two columns across the body, 22 px apart, none under 528 px", name);
         check(what, c0.x1 == box.x1 && c1.x2 == box.x2 && c1.x1 - c0.x2 - 1 == PANEL_GAP &&
-                        lv_area_get_width(&c0) >= COLUMN_W && lv_area_get_width(&c1) >= COLUMN_W &&
-                        lv_area_get_width(&c0) - lv_area_get_width(&c1) <= 1);
-        snprintf(what, sizeof(what), "[%s] each column scrolls itself, from under the freshness line to the foot "
-                                     "less the corners", name);
-        check(what, scroller_of(panel_of("CPU")) == column_obj(0) && scroller_of(panel_of("Doors")) == column_obj(1) &&
-                        c0.y1 == over.y2 + 1 + PANEL_GAP && c1.y1 == c0.y1 && c0.y2 == box.y2 - foot_inset() &&
-                        c1.y2 == c0.y2);
-    } else {
-        lv_area_t s;
-
-        area_of(screen_obj(), &s);
+                        lv_area_get_width(&c0) >= COLUMN_W && lv_area_get_width(&c1) >= COLUMN_W && c1.y1 == c0.y1);
+    } else if (two) {
         snprintf(what, sizeof(what), "[%s] one column the body's width, the second under the first", name);
         check(what, c0.x1 == box.x1 && c0.x2 == box.x2 && c1.x1 == box.x1 && c1.x2 == box.x2 &&
                         c1.y1 == c0.y2 + 1 + PANEL_GAP);
-        snprintf(what, sizeof(what), "[%s] the body scrolls it, to the foot less the corners", name);
-        check(what, scroller_of(panel_of("CPU")) == screen_obj() && scroller_of(panel_of("Doors")) == screen_obj() &&
-                        s.y1 == box.y1 && s.y2 == box.y2 - foot_inset() && s.x1 == box.x1 && s.x2 == box.x2);
+    } else {
+        snprintf(what, sizeof(what), "[%s] a page of one column, across the body", name);
+        check(what, c0.x1 == box.x1 && c0.x2 == box.x2);
     }
+    snprintf(what, sizeof(what), "[%s] the page is the one box that scrolls, to the foot less the corners", name);
+    check(what, scroller_of(kid(column_obj(0), 0)) == screen_obj() && !has_flag(column_obj(0), LV_OBJ_FLAG_SCROLLABLE) &&
+                    !has_flag(columns_obj(), LV_OBJ_FLAG_SCROLLABLE) && s.y1 == box.y1 &&
+                    s.y2 == box.y2 - foot_inset() && s.x1 == box.x1 && s.x2 == box.x2);
 }
 
 /* A confirmation, or the panel a power action leaves: across the body when
@@ -958,7 +1057,7 @@ static void check_dialog_shape(const char *what_base)
     check(what, in_view(dialog_obj()) && scroll_y(screen_obj()) == 0);
 }
 
-/* ---- every screen, laid out, in one orientation and display mode ----------------------- */
+/* ---- every page, laid out, in one orientation and display mode ----------------------- */
 
 static void check_orientation(const char *name, enum pos_rotation rotation, int32_t corner, const char *mode)
 {
@@ -969,6 +1068,7 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     lv_area_t b;
     lv_area_t box;
     lv_obj_t *v;
+    size_t k;
 
     use_display(rotation, corner);
     pos_theme_apply(NULL, mode, why, sizeof(why));
@@ -980,68 +1080,54 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     tick();
     wide = wide_display();
 
-    /* ---- the live screen, with every value as long as it gets */
-    check_live_shape(name);
-    snprintf(what, sizeof(what), "[%s] live", name);
-    check_screen(what, 1);
+    /* ---- each tab, with every value as long as it gets */
+    for (k = 0; k < 4; k++) {
+        open_tab(tab_names[k]);
+        tick();
+        snprintf(what, sizeof(what), "[%s] %s", name, tab_names[k]);
+        check_live_shape(what);
+        check_page(what, 1);
+    }
 
-    snprintf(what, sizeof(what), "[%s] the card that disagrees is shown, cut short in its row", name);
+    open_tab("ABOUT");
+    snprintf(what, sizeof(what), "[%s] the card that disagrees is shown, whole or cut short in its row", name);
     v = value_of("Card");
     area_of(v, &a);
     area_of(v ? lv_obj_get_parent(v) : NULL, &b);
-    check(what, v && cut_short(v) && within(&a, &b));
+    check(what, v && (cut_short(v) || strcmp(lv_label_get_text(v), LONG_CARD) == 0) && within(&a, &b));
     snprintf(what, sizeof(what), "[%s] the model and the kernel too, each after its key", name);
     {
         lv_obj_t *m = value_of("Model");
-        lv_obj_t *k = value_of("Kernel");
+        lv_obj_t *kn = value_of("Kernel");
         lv_area_t mk;
         lv_area_t kk;
 
         area_of(m, &a);
         area_of(find_visible(app_body, "Model"), &mk);
-        area_of(k, &b);
+        area_of(kn, &b);
         area_of(find_visible(app_body, "Kernel"), &kk);
-        check(what, cut_short(m) && cut_short(k) && a.x1 > mk.x2 && b.x1 > kk.x2);
+        check(what, cut_short(m) && cut_short(kn) && a.x1 > mk.x2 && b.x1 > kk.x2);
     }
     snprintf(what, sizeof(what), "[%s] the Doors row shows the running build", name);
     v = value_of("Doors");
     check(what, v && (strcmp(lv_label_get_text(v), LONG_BUILD) == 0 || cut_short(v)));
+    open_tab("SERVICES");
     snprintf(what, sizeof(what), "[%s] a crash loop and a long stopped service are both listed", name);
-    check(what, shows("CRASH LOOP") && shows("STOPPED") && (shows(LOOP_DETAIL) || wide == 0));
+    check(what, shows("CRASH LOOP") && shows("STOPPED") && shows(LOOP_DETAIL));
+    open_tab("OVERVIEW");
     snprintf(what, sizeof(what), "[%s] a volume counted in GB, and the clock not set", name);
     check(what, shows("/data") && shows("58.9 GB free of 59.4 GB") && shows("not set"));
-
-    /* a finger scrolls to the last control; in the wide shape the other
-     * column stays where it was */
-    snprintf(what, sizeof(what), "[%s] a finger scrolls to Power off", name);
+    snprintf(what, sizeof(what), "[%s] a finger reaches Power off", name);
     check(what, scroll_to(target_of("Power off")));
-    snprintf(what, sizeof(what), "[%s] %s", name,
-             wide ? "the left column did not move, and the body did not scroll"
-                  : "the body scrolled, and nothing else did");
-    check(what, wide ? scroll_y(column_obj(0)) == 0 && scroll_y(screen_obj()) == 0
-                     : scroll_y(screen_obj()) > 0);
-    if (wide) {
-        int32_t right = scroll_y(column_obj(1));
-
-        snprintf(what, sizeof(what), "[%s] a finger scrolls the left column to its last interface", name);
-        check(what, scroll_to(find_visible(app_body, "1 interface hidden")));
-        snprintf(what, sizeof(what), "[%s] and the right column did not move", name);
-        check(what, scroll_y(column_obj(1)) == right && right > 0);
-    }
     {
-        int32_t s0 = scroll_y(wide ? column_obj(0) : screen_obj());
-        int32_t s1 = wide ? scroll_y(column_obj(1)) : 0;
+        int32_t s0 = scroll_y(screen_obj());
 
         calls_reset();
         tick();
         tick();
-        snprintf(what, sizeof(what), "[%s] a poll repaints in place: sysd asked, every scroll kept", name);
-        check(what, called("system.status") == 1 && live() &&
-                        scroll_y(wide ? column_obj(0) : screen_obj()) == s0 &&
-                        (!wide || scroll_y(column_obj(1)) == s1));
+        snprintf(what, sizeof(what), "[%s] a poll repaints in place: sysd asked, the scroll kept", name);
+        check(what, called("system.status") == 1 && live() && scroll_y(screen_obj()) == s0);
     }
-    snprintf(what, sizeof(what), "[%s] live, scrolled", name);
-    check_screen(what, 1);
 
     /* ---- the restart confirmation */
     calls_reset();
@@ -1050,12 +1136,10 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     check(what, shows("Restart Doors?") && shows(RESTART_BODY) && shows("Cancel") && call_count == 0);
     snprintf(what, sizeof(what), "[%s] restart confirmation", name);
     check_dialog_shape(what);
-    check_screen(what, 1);
+    check_page(what, 1);
     tap("Cancel");
     snprintf(what, sizeof(what), "[%s] Cancel goes back, having called nothing", name);
-    check(what, live() && !shows("Restart Doors?") && called("system.reboot") == 0);
-    snprintf(what, sizeof(what), "[%s] live again", name);
-    check_live_shape(what);
+    check(what, live() && !shows("Restart Doors?") && called("system.reboot") == 0 && tab_on("OVERVIEW"));
 
     /* ---- the power-off confirmation, refused */
     tap("Power off");
@@ -1063,7 +1147,7 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     check(what, shows("Power off Doors?") && call_count == 0);
     snprintf(what, sizeof(what), "[%s] power-off confirmation", name);
     check_dialog_shape(what);
-    check_screen(what, 1);
+    check_page(what, 1);
     g_power_error = REFUSAL;
     tap_obj(kid(lv_obj_get_parent(target_of("Cancel")), 1), "the confirmation's Power off");
     g_power_error = NULL;
@@ -1071,13 +1155,14 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     check(what, called("system.poweroff") == 1 && live() && toast_obj() && !has_flag(toast_obj(), LV_OBJ_FLAG_HIDDEN) &&
                     strcmp(lv_label_get_text(toast_obj()), REFUSAL) == 0);
     body_box(&box);
+    lv_obj_scroll_to_y(screen_obj(), 0, LV_ANIM_OFF);
     area_of(toast_obj(), &a);
-    area_of(column_obj(0), &b);
+    area_of(columns_obj(), &b);
     snprintf(what, sizeof(what), "[%s] the reason is read whole, across the top, above the panels", name);
     check(what, in_view(toast_obj()) && a.x1 == box.x1 && a.x2 == box.x2 && a.y2 < b.y1);
     snprintf(what, sizeof(what), "[%s] live with a refusal", name);
     check_live_shape(what);
-    check_screen(what, 1);
+    check_page(what, 1);
 
     /* ---- restarting */
     calls_reset();
@@ -1086,10 +1171,10 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     snprintf(what, sizeof(what), "[%s] a confirmed restart calls system.reboot once", name);
     check(what, called("system.reboot") == 1 && called("system.poweroff") == 0);
     snprintf(what, sizeof(what), "[%s] and leaves only its panel", name);
-    check(what, shows("Restarting...") && !freshness_row() && !shows("Restart"));
+    check(what, shows("Restarting...") && !freshness_row() && !shows("Restart") && !shows("OVERVIEW"));
     snprintf(what, sizeof(what), "[%s] restarting", name);
     check_dialog_shape(what);
-    check_screen(what, 0);
+    check_page(what, 0);
     calls_reset();
     tick();
     tick();
@@ -1105,7 +1190,7 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     check(what, called("system.poweroff") == 1 && shows(POWEROFF_TERMINAL));
     snprintf(what, sizeof(what), "[%s] powering off", name);
     check_dialog_shape(what);
-    check_screen(what, 0);
+    check_page(what, 0);
     app_stop();
 
     /* ---- every row there can be */
@@ -1114,10 +1199,18 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     app_start();
     snprintf(what, sizeof(what), "[%s] every row", name);
     check_live_shape(what);
-    check_screen(what, 1);
-    snprintf(what, sizeof(what), "[%s] every row: a finger reaches the last service and the last mount", name);
-    check(what, scroll_to(find_visible(app_body, "stopped-one")) && scroll_to(find_visible(app_body, "/tmp")) &&
-                    scroll_to(find_visible(app_body, "2 interfaces hidden")));
+    check_page(what, 1);
+    snprintf(what, sizeof(what), "[%s] every row: a finger reaches the last mount", name);
+    check(what, scroll_to(find_visible(app_body, "/tmp")));
+    open_tab("SERVICES");
+    snprintf(what, sizeof(what), "[%s] every row: a finger reaches the last service, and Diagnostics", name);
+    check(what, scroll_to(find_visible(app_body, "stopped-one")) && scroll_to(target_of("Diagnostics")));
+    open_tab("NETWORK");
+    snprintf(what, sizeof(what), "[%s] every row: a finger reaches the last interface", name);
+    check(what, scroll_to(find_visible(app_body, "2 interfaces hidden")));
+    snprintf(what, sizeof(what), "[%s] every row, NETWORK", name);
+    check_live_shape(what);
+    check_page(what, 1);
     app_stop();
 
     /* ---- sysd not answering at all */
@@ -1126,30 +1219,61 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     app_start();
     tick();
     snprintf(what, sizeof(what), "[%s] sysd down: nothing reported, every unknown a dash", name);
-    check(what, shows("no mounts reported") && shows("no interfaces") && shows("no services reported") &&
-                    shows("\xE2\x80\x94") && shows("--"));
+    check(what, shows("no mounts reported") && shows("\xE2\x80\x94"));
+    open_tab("NETWORK");
+    check(what, shows("no interfaces") && shows("--") && shows("radiod not answering"));
+    open_tab("SERVICES");
+    check(what, shows("no services reported"));
     snprintf(what, sizeof(what), "[%s] sysd down", name);
     check_live_shape(what);
-    check_screen(what, 1);
+    check_page(what, 1);
     app_stop();
     sysd_down = 0;
     g_radio = "rx";
     g_status = STATUS_UNITA;
     pos_theme_apply(NULL, "normal", why, sizeof(why));
+    (void)wide;
 }
 
-/* A poll that changes what the body holds rebuilds it: arranged for the body
- * it is in, with one of everything. */
-static int objects_fresh(enum pos_rotation rotation)
+/* Each tab at each text size, both ways up: laid out whole, nothing scrolling
+ * inside the page, and - on unit A's answers - short enough not to scroll at
+ * all, but for NETWORK and SERVICES at Large. */
+static void check_sizes(enum pos_rotation rotation, enum pos_text_size size)
 {
-    int n;
+    static const char *const sizes[] = { "Small", "Medium", "Large" };
+    const char *orient = rotation == POS_ROTATION_270 ? "landscape" : "portrait";
+    char what[160];
+    size_t k;
 
-    (void)rotation;
+    pos_theme_select_text_size(size);
+    use_display(rotation, PANEL_CORNER);
+    g_info = INFO_UNITA;
+    g_status = STATUS_UNITA;
     app_start();
     tick();
-    n = count_objects(app_body);
+    tick();
+    for (k = 0; k < 4; k++) {
+        int32_t over;
+
+        open_tab(tab_names[k]);
+        tick();
+        snprintf(what, sizeof(what), "[%s %s] %s", orient, sizes[size], tab_names[k]);
+        check(what, tab_on(tab_names[k]));
+        check_live_shape(what);
+        check_page(what, 1);
+        over = page_overflow();
+        printf("     %s scrolls %d px\n", what, (int)over);
+        /* Every page fits at Small and Medium; at Large OVERVIEW and ABOUT
+         * still do, and the two lists may take a scroll of the page. */
+        if (size != POS_TEXT_SIZE_LARGE || k == 0 || k == 3) {
+            char msg[200];
+
+            snprintf(msg, sizeof(msg), "%s: fits without scrolling", what);
+            check(msg, over == 0);
+        }
+    }
     app_stop();
-    return n;
+    pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
 }
 
 int main(void)
@@ -1172,27 +1296,22 @@ int main(void)
     lv_obj_remove_style_all(g_content);
     use_display(POS_ROTATION_0, PANEL_CORNER);
 
-    /* ---- 1. it opens, and shows what sysd says ------------------------------------------ */
+    /* ---- 1. it opens on OVERVIEW, and shows what sysd says ------------------------------ */
     calls_reset();
     app_start();
     check("the app returns its state and adds one box to the body",
           app_priv != NULL && lv_obj_get_child_count(app_body) == 1u);
-    check("identity, once", called("system.info") == 1 && shows("0.0.10 \xC2\xB7 aaad9f4") &&
-                                shows("6.6.36 riscv64"));
-    /* Unit A's model is wider than 60 % of the portrait row, and always was. */
-    check("the model is in its row, cut short where it does not fit",
-          value_of("Model") && (strcmp(lv_label_get_text(value_of("Model")), "Canaan CanMV-K230 with RM69A10 OLED") == 0 ||
-                                cut_short(value_of("Model"))));
-    check("the card agrees, so there is no card row", !shows("Card"));
+    check("four tabs, OVERVIEW the one on show", shows("OVERVIEW") && shows("NETWORK") && shows("SERVICES") &&
+                                                     shows("ABOUT") && tab_on("OVERVIEW") && !tab_on("ABOUT"));
+    check("identity, once", called("system.info") == 1);
     check("vitals", shows("17 %") && shows("51.3 \xC2\xB0" "C") && shows("510/992 MB") && shows("0.42") &&
                         shows("2h 03m") && shows("synced"));
     check("storage", shows("/") && shows("131 MB free of 574 MB") && shows("/boot") && shows("40 MB free of 64 MB"));
-    check("network, sit0 hidden and said so", shows("eth0") && shows("192.168.10.157") && shows("wlan1") &&
-                                                  !shows("sit0") && shows("1 interface hidden"));
-    check("services", shows("doors-shell") && shows("pid 246") && shows("sysd") && shows("pid 229"));
-    check("radio, from the shell's poll and one radio.info", shows("RX") && shows("EU868 \xC2\xB7 sx1262") &&
-                                                                 called("radio.info") == 1);
+    check("Restart and Power off on OVERVIEW", target_of("Restart") && target_of("Power off"));
+    check("nothing of the other pages", !shows("eth0") && !shows("doors-shell") && !shows("Kernel"));
+    check("radio.info once, for the radio's region", called("radio.info") == 1);
     check("live", shows("LIVE"));
+    check("the page needs no scrolling", page_overflow() == 0);
     check("every call bounded by the UI timeout", every_call_bounded());
 
     calls_reset();
@@ -1207,24 +1326,88 @@ int main(void)
     tick();
     tick();
     tick();
-    check("sysd stops answering: every value kept, the line says how stale",
-          shows("STALE 6s") && shows("17 %") && shows("192.168.10.157"));
+    check("sysd stops answering: every value kept, the line says how stale", shows("STALE 6s") && shows("17 %"));
     sysd_down = 0;
     tick();
     tick();
     check("and LIVE again when it answers", shows("LIVE"));
+
+    /* NETWORK: the interfaces and their traffic, Wi-Fi, the radio, the mesh */
+    calls_reset();
+    open_tab("NETWORK");
+    check("NETWORK: the tab on show", tab_on("NETWORK") && !tab_on("OVERVIEW"));
+    check("NETWORK: asks radiod, netd and meshcored once each on the way in, bounded",
+          called("radio.stats") == 1 && called("wifi.status") == 1 && called("mesh.status") == 1 &&
+              every_call_bounded());
+    check("NETWORK: interfaces, sit0 hidden and said so", shows("eth0") && shows("192.168.10.157") && shows("wlan1") &&
+                                                               !shows("sit0") && shows("1 interface hidden"));
+    check("NETWORK: Wi-Fi", shows("Connected to Home, signal 3/4"));
+    check("NETWORK: the radio's chip, region and packets", shows("RX") && shows("EU868 \xC2\xB7 sx1262") &&
+                                                              shows("848 received \xC2\xB7 1 sent \xC2\xB7 36 CRC errors") &&
+                                                              shows("Last packet -74 dBm, SNR 12.2 dB"));
+    check("NETWORK: the mesh", shows("Waiting: the radio is switched off"));
+    check("NETWORK: eth0's traffic: nothing moved between the answers so far, and its totals",
+          shows("\xE2\x86\x93" "0.0 \xE2\x86\x91" "0.0 KB/s \xC2\xB7 22.6 MB in \xC2\xB7 100.9 MB out"));
+    check("NETWORK: an interface without counters shows the dash, not a zero", !shows("0 kB in \xC2\xB7 0 kB out"));
+    g_status = STATUS_TRAFFIC;
+    calls_reset();
+    tick();
+    tick();
+    check("two seconds later: the rate between the two answers", shows("\xE2\x86\x93" "20 \xE2\x86\x91" "4.0 KB/s \xC2\xB7 "
+                                                                        "22.6 MB in \xC2\xB7 100.9 MB out"));
+    check("NETWORK polls one of its three links a tick, and sysd every other",
+          called("system.status") == 1 && called("radio.stats") + called("wifi.status") + called("mesh.status") == 2);
+    g_status = STATUS_UNITA;
+    calls_reset();
+    g_radio = NULL;
+    tick();
+    tick();
+    tick();
+    check("radiod not answering: radio.stats is not asked, and that is said",
+          called("radio.stats") == 0 && shows("radiod not answering") && shows("--"));
+    g_radio = "rx";
+
+    /* SERVICES */
+    open_tab("SERVICES");
+    check("SERVICES: the services and Diagnostics", shows("doors-shell") && shows("pid 246") && shows("sysd") &&
+                                                          shows("pid 229") && target_of("Diagnostics"));
+    check("SERVICES: nothing of the other pages", !shows("eth0") && !shows("Restart"));
     g_status = STATUS_LONG;
     tick();
     tick();
-    check("a service appearing rebuilds the screen with it", shows(LONG_SERVICE) || shows("CRASH LOOP"));
+    check("a service appearing rebuilds the page with it", shows(LONG_SERVICE) || shows("CRASH LOOP"));
     g_status = STATUS_UNITA;
     tick();
     tick();
     check("and going away again", !shows("CRASH LOOP") && shows("pid 238"));
+
+    /* ABOUT */
+    calls_reset();
+    open_tab("ABOUT");
+    check("ABOUT: the build, the model, the kernel, the platform, the SDK, the CPUs",
+          shows("0.0.10 \xC2\xB7 aaad9f4") && shows("6.6.36 riscv64") && shows("Buildroot 2025.02.1") &&
+              shows("v1.2-20260909-22d02c6") && shows("1") && value_of("Model") &&
+              (strcmp(lv_label_get_text(value_of("Model")), "Canaan CanMV-K230 with RM69A10 OLED") == 0 ||
+               cut_short(value_of("Model"))));
+    check("ABOUT: the card agrees, so there is no card row", !shows("Card"));
+    check("ABOUT: nothing on it is live, so no freshness line", !shows("LIVE"));
+    tick();
+    tick();
+    tick();
+    check("ABOUT: and nothing is polled while it is up", call_count == 0);
+
+    /* Back: Diagnostics is the one level inside; the tabs are one level. */
+    check("Back on a tab is the shell's: to Settings", app_system.back(app_priv) == 0 && tab_on("ABOUT"));
+    check("the header's back slab takes Back first (app.h back_slab_in_app)", app_system.back_slab_in_app);
+    open_tab("SERVICES");
+    tap("Diagnostics");
+    check("Diagnostics opens from SERVICES", shows("DIAGNOSTICS"));
+    check("Back closes Diagnostics, one step, back to SERVICES",
+          app_system.back(app_priv) == 1 && !shows("DIAGNOSTICS") && tab_on("SERVICES") && shows("doors-shell"));
     app_stop();
     check("nothing asked of the shell but the radio state; no keyboard", shell_calls == 0 && keyboard_requests == 0);
 
-    /* ---- 2. every screen in both orientations, both modes, both corner shapes -------------- */
+    /* ---- 2. every page in both orientations, both modes, both corner shapes -------------- */
     check_orientation("portrait", POS_ROTATION_0, PANEL_CORNER, "normal");
     check_orientation("landscape", POS_ROTATION_270, PANEL_CORNER, "normal");
     check_orientation("portrait, Outdoor", POS_ROTATION_0, PANEL_CORNER, "outdoor");
@@ -1232,14 +1415,21 @@ int main(void)
     check_orientation("portrait, square corners", POS_ROTATION_0, 0, "normal");
     check_orientation("landscape, square corners", POS_ROTATION_270, 0, "normal");
 
-    /* ---- 3. where things are, to the pixel ------------------------------------------------ */
-    /* Portrait is the v0.0.10 layout, object for object (the numbers are
-     * master's, aaad9f4, unscrolled, under the 56 px status bar; V010_ROW
-     * moves them up with the frame, DS section 36): the body's 528 px column from 152 to
-     * the foot, which the corner squares of the unit's panel bring up by
-     * 10 px and square corners do not. Landscape: the freshness line over two
-     * columns of 585 px with the 22 px panel gap, and a confirmation of 528 px
-     * in the middle of the body. */
+    /* ---- 3. every tab at every text size, both ways up (DS §46, §52) ----------------------- */
+    {
+        static const enum pos_text_size sizes[] = { POS_TEXT_SIZE_SMALL, POS_TEXT_SIZE_MEDIUM, POS_TEXT_SIZE_LARGE };
+        size_t s;
+
+        for (s = 0; s < 3; s++) {
+            check_sizes(POS_ROTATION_0, sizes[s]);
+            check_sizes(POS_ROTATION_270, sizes[s]);
+        }
+    }
+
+    /* ---- 4. where things are, to the pixel -------------------------------------------- */
+    /* The tabs at the top of the body, the page under them; in landscape the
+     * two columns of 585 px with the 22 px panel gap, and a confirmation of
+     * 528 px in the middle of the body. */
     g_info = INFO_UNITA;
     g_status = STATUS_UNITA;
     {
@@ -1254,45 +1444,15 @@ int main(void)
             use_display(POS_ROTATION_0, c);
             app_start();
             tick();
-            snprintf(what, sizeof(what), "portrait %d px corners: the screen scrolls in the body's column", (int)c);
+            snprintf(what, sizeof(what), "portrait %d px corners: the page scrolls in the body's column", (int)c);
             check_rect(what, screen_obj(), 20, V010_ROW(152), 547, 1211 - lift);
-            snprintf(what, sizeof(what), "portrait %d px corners: LIVE, as on master", (int)c);
-            check_rect(what, find_visible(app_body, "LIVE"), 512, V010_ROW(152), 547, V010_ROW(172));
-            snprintf(what, sizeof(what), "portrait %d px corners: CPU in the vitals panel, as on master", (int)c);
-            check_rect(what, find_visible(app_body, "CPU"), 41, V010_ROW(226), 66, V010_ROW(243));
-            snprintf(what, sizeof(what), "portrait %d px corners: STORAGE, NETWORK and SERVICES, as on master", (int)c);
+            snprintf(what, sizeof(what), "portrait %d px corners: OVERVIEW, the first tab, at the top left", (int)c);
             {
-                lv_area_t s1;
-                lv_area_t s2;
-                lv_area_t s3;
+                lv_area_t t;
 
-                area_of(find_visible(app_body, "STORAGE"), &s1);
-                area_of(find_visible(app_body, "NETWORK"), &s2);
-                area_of(find_visible(app_body, "SERVICES"), &s3);
-                check(what, s1.x1 == 41 && s1.y1 == V010_ROW(472) && s2.x1 == 41 && s2.y1 == V010_ROW(706) && s3.x1 == 41 &&
-                            s3.y1 == V010_ROW(1009));
+                area_of(target_of("OVERVIEW"), &t);
+                check(what, t.x1 == 20 && t.y1 == V010_ROW(152) && lv_area_get_height(&t) == PAIRED_BUTTON_H);
             }
-            snprintf(what, sizeof(what), "portrait %d px corners: Radio, the Doors mark's name and Kernel", (int)c);
-            {
-                lv_area_t r;
-                lv_area_t d;
-                lv_area_t kk;
-
-                area_of(find_visible(app_body, "Radio"), &r);
-                area_of(find_visible(app_body, "Doors"), &d);
-                area_of(find_visible(app_body, "Kernel"), &kk);
-                check(what, r.x1 == 41 && r.y1 == V010_ROW(1375) && d.x1 == 69 && d.y1 == V010_ROW(1503) && kk.x1 == 41 &&
-                            kk.y1 == V010_ROW(1631));
-            }
-            /* The Diagnostics panel sits between Kernel's panel and the
-             * actions, so Restart and Power off are one panel (120 px)
-             * lower than master's 1739. */
-            snprintf(what, sizeof(what), "portrait %d px corners: Diagnostics, a panel above the actions", (int)c);
-            check_rect(what, target_of("Diagnostics"), 41, V010_ROW(1739), 526, V010_ROW(1794));
-            snprintf(what, sizeof(what), "portrait %d px corners: Restart", (int)c);
-            check_rect(what, target_of("Restart"), 41, V010_ROW(1859), 279, V010_ROW(1914));
-            snprintf(what, sizeof(what), "portrait %d px corners: Power off", (int)c);
-            check_rect(what, target_of("Power off"), 288, V010_ROW(1859), 526, V010_ROW(1914));
             tap("Power off");
             snprintf(what, sizeof(what), "portrait %d px corners: the confirmation across the top", (int)c);
             {
@@ -1306,24 +1466,25 @@ int main(void)
             use_display(POS_ROTATION_270, c);
             app_start();
             tick();
-            /* Numbered as under the 32 px COMPACT bar of DS section 30 (body
-             * from row 128, columns from 171), moved up with the frame's
-             * top: the header and padding now start at the top edge (DS
-             * section 36), so the body starts at row 96. */
-            snprintf(what, sizeof(what), "landscape %d px corners: LIVE at the right of the body", (int)c);
-            check_rect(what, find_visible(app_body, "LIVE"), 1176, V010_LROW(128), 1211, V010_LROW(148));
             snprintf(what, sizeof(what), "landscape %d px corners: the left column", (int)c);
-            check_rect(what, column_obj(0), 20, V010_LROW(171), 604, 547 - lift);
-            snprintf(what, sizeof(what), "landscape %d px corners: the right column", (int)c);
-            check_rect(what, column_obj(1), 627, V010_LROW(171), 1211, 547 - lift);
-            snprintf(what, sizeof(what), "landscape %d px corners: SERVICES at the top of the right column", (int)c);
-            check_rect(what, find_visible(app_body, "SERVICES"), 648, V010_LROW(192), 718, V010_LROW(217));
-            snprintf(what, sizeof(what), "landscape %d px corners: Diagnostics, above the actions", (int)c);
-            check_rect(what, target_of("Diagnostics"), 648, V010_LROW(922), 1190, V010_LROW(977));
-            snprintf(what, sizeof(what), "landscape %d px corners: Restart, below the fold", (int)c);
-            check_rect(what, target_of("Restart"), 648, V010_LROW(1042), 915, V010_LROW(1097));
-            snprintf(what, sizeof(what), "landscape %d px corners: Power off", (int)c);
-            check_rect(what, target_of("Power off"), 924, V010_LROW(1042), 1190, V010_LROW(1097));
+            {
+                lv_area_t c0;
+                lv_area_t c1;
+
+                area_of(column_obj(0), &c0);
+                area_of(column_obj(1), &c1);
+                check(what, c0.x1 == 20 && c0.x2 == 604 && c1.x1 == 627 && c1.x2 == 1211 && c0.y1 == c1.y1);
+            }
+            snprintf(what, sizeof(what), "landscape %d px corners: LIVE at the right end of the tabs", (int)c);
+            {
+                lv_area_t l;
+
+                area_of(find_visible(app_body, "LIVE"), &l);
+                check(what, l.x2 == 1211 && l.y1 > V010_LROW(128) && l.y2 < V010_LROW(128) + PAIRED_BUTTON_H);
+            }
+            snprintf(what, sizeof(what), "landscape %d px corners: Restart and Power off in view on arrival", (int)c);
+            check(what, in_view(target_of("Restart")) && in_view(target_of("Power off")) && page_overflow() == 0);
+            (void)lift;
             tap("Power off");
             snprintf(what, sizeof(what), "landscape %d px corners: the confirmation in the middle", (int)c);
             {
@@ -1332,16 +1493,14 @@ int main(void)
                 area_of(dialog_obj(), &d);
                 check(what, d.x1 == 352 && d.x2 == 879 && d.y1 == V010_LROW(171));
             }
-            snprintf(what, sizeof(what), "landscape %d px corners: LIVE over its right edge", (int)c);
-            check_rect(what, find_visible(app_body, "LIVE"), 844, V010_LROW(128), 879, V010_LROW(148));
             app_stop();
         }
     }
 
-    /* ---- 4. the room the wide shape needs, and a finger between two panels --------------- */
+    /* ---- 5. the room the wide shape needs --------------------------------------------- */
     /* Two columns only when each keeps the portrait body's 528 px: a body one
-     * pixel narrower than two of them and the gap keeps the one column, which
-     * scrolls as in portrait. Checked on panels a pixel apart, turned. */
+     * pixel narrower than two of them and the gap keeps one column, scrolled
+     * by the page as in portrait. */
     use_panel(PANEL_H, POS_ROTATION_270, PANEL_CORNER);
     app_start();
     tick();
@@ -1355,10 +1514,9 @@ int main(void)
         area_of(column_obj(0), &c0);
         area_of(column_obj(1), &c1);
         check("a body 1077 px wide keeps one column, the second under the first",
-              lv_area_get_width(&box) == 1077 && c1.y1 > c0.y2 && c1.x1 == c0.x1 &&
-                  scroller_of(panel_of("Doors")) == screen_obj());
+              lv_area_get_width(&box) == 1077 && c1.y1 > c0.y2 && c1.x1 == c0.x1);
         check_live_shape("1077 px wide");
-        check_screen("1077 px wide", 1);
+        check_page("1077 px wide", 1);
         use_panel(2 * COLUMN_W + PANEL_GAP + 2 * POCKETUI_PAD, POS_ROTATION_270, PANEL_CORNER);
         body_box(&box);
         area_of(column_obj(0), &c0);
@@ -1367,48 +1525,37 @@ int main(void)
               lv_area_get_width(&box) == 1078 && c1.x1 > c0.x2 && lv_area_get_width(&c0) == COLUMN_W &&
                   lv_area_get_width(&c1) == COLUMN_W);
         check_live_shape("1078 px wide");
-        check_screen("1078 px wide", 1);
+        check_page("1078 px wide", 1);
     }
     app_stop();
 
-    /* A finger that lands in the 22 px gap between two panels still drags
-     * what they scroll in: the column in landscape, the body in portrait. */
+    /* A finger that lands in the room beside the panels - under the vitals,
+     * in the left column, while the right column runs on below - still drags
+     * the page: the columns take no scroll of their own. In landscape, with
+     * six mounts, where the right column is taller than the room. */
     {
-        static const enum pos_rotation turns[] = { POS_ROTATION_270, POS_ROTATION_0 };
-        size_t k;
+        lv_area_t upper;
+        lv_area_t col;
+        lv_point_t gap;
+        lv_obj_t *hit;
 
-        for (k = 0; k < 2; k++) {
-            lv_area_t upper;
-            lv_area_t col;
-            lv_point_t gap;
-            int wide;
-            lv_obj_t *scroller;
-            char what[160];
-
-            use_display(turns[k], PANEL_CORNER);
-            app_start();
-            tick();
-            wide = wide_display();
-            area_of(panel_of(wide ? "SERVICES" : "CPU"), &upper);
-            area_of(column_obj(wide ? 1 : 0), &col);
-            gap.x = (col.x1 + col.x2) / 2;
-            gap.y = upper.y2 + 1 + PANEL_GAP / 2;
-            scroller = wide ? column_obj(1) : screen_obj();
-            snprintf(what, sizeof(what), "%s: a finger between two panels lands in their column",
-                     wide ? "landscape" : "portrait");
-            check(what, scroller_of(lv_indev_search_obj(lv_screen_active(), &gap)) == scroller ||
-                            lv_indev_search_obj(lv_screen_active(), &gap) == scroller);
-            drag_at(gap.x, gap.y, -150);
-            snprintf(what, sizeof(what), "%s: and drags %s, and nothing else", wide ? "landscape" : "portrait",
-                     wide ? "that column" : "the body");
-            check(what, scroll_y(scroller) > 0 &&
-                            (wide ? scroll_y(column_obj(0)) == 0 && scroll_y(screen_obj()) == 0
-                                  : lv_obj_get_scroll_top(app_body) <= 0));
-            app_stop();
-        }
+        use_display(POS_ROTATION_270, PANEL_CORNER);
+        g_status = STATUS_MAX;
+        app_start();
+        tick();
+        area_of(panel_of("CPU"), &upper);
+        area_of(column_obj(0), &col);
+        gap.x = (col.x1 + col.x2) / 2;
+        gap.y = upper.y2 + 1 + PANEL_GAP / 2;
+        hit = lv_indev_search_obj(lv_screen_active(), &gap);
+        check("a finger between two panels lands in the page", hit == screen_obj() || scroller_of(hit) == screen_obj());
+        drag_at(gap.x, gap.y, -150);
+        check("and drags the page, and nothing else", scroll_y(screen_obj()) > 0 && lv_obj_get_scroll_top(app_body) <= 0);
+        app_stop();
+        g_status = STATUS_UNITA;
     }
 
-    /* ---- 5. the display turning under the open app ---------------------------------------- */
+    /* ---- 6. the display turning under the open app ---------------------------------------- */
     use_display(POS_ROTATION_0, PANEL_CORNER);
     app_start();
     tick();
@@ -1430,7 +1577,7 @@ int main(void)
             area_of(column_obj(1), &c1);
             if (count_objects(app_body) != objects || collect_targets(screen_obj(), t, 0, 64) != targets ||
                 target_of("Restart") != restart || target_of("Power off") != poweroff || !shows("17 %") ||
-                !shows("192.168.10.157") || !shows("0.0.10 \xC2\xB7 aaad9f4") || !shows("LIVE") ||
+                !shows("LIVE") ||
                 (i % 2 == 0 ? !(c1.x1 > c0.x2 && c1.y1 == c0.y1) : !(c1.y1 > c0.y2 && c1.x1 == c0.x1))) {
                 printf("     turn %d: objects %d/%d targets %d\n", i, count_objects(app_body), objects,
                        collect_targets(screen_obj(), t, 0, 64));
@@ -1442,7 +1589,7 @@ int main(void)
         use_display(POS_ROTATION_270, PANEL_CORNER);
         check("landscape again after the turns, one of everything", count_objects(app_body) == objects);
         check_live_shape("turned to landscape");
-        check_screen("turned to landscape", 1);
+        check_page("turned to landscape", 1);
         calls_reset();
         tap("Restart");
         check("Restart, after the turns, still asks to restart", shows("Restart Doors?") && call_count == 0);
@@ -1469,56 +1616,32 @@ int main(void)
     check_live_shape("turned to portrait with a refusal");
     use_display(POS_ROTATION_270, PANEL_CORNER);
     check("and turned back", in_view(toast_obj()) && strcmp(lv_label_get_text(toast_obj()), REFUSAL) == 0);
-    check_screen("turned to landscape with a refusal", 1);
-
-    /* scrolled, then turned: whatever scrolls in the new shape starts in reach */
-    check("a finger scrolls the right column in landscape", scroll_to(target_of("Power off")));
-    use_display(POS_ROTATION_0, PANEL_CORNER);
-    check("turned to portrait while scrolled: the columns no longer scroll, the body does",
-          scroll_y(column_obj(1)) == 0 && !has_flag(column_obj(1), LV_OBJ_FLAG_SCROLLABLE) &&
-              has_flag(screen_obj(), LV_OBJ_FLAG_SCROLLABLE));
-    check_screen("turned to portrait while scrolled", 1);
-    check("a finger scrolls the body to Power off", scroll_to(target_of("Power off")));
-    use_display(POS_ROTATION_270, PANEL_CORNER);
-    check("turned to landscape while scrolled: the body no longer scrolls, the columns do",
-          scroll_y(screen_obj()) == 0 && !has_flag(screen_obj(), LV_OBJ_FLAG_SCROLLABLE) &&
-              has_flag(column_obj(0), LV_OBJ_FLAG_SCROLLABLE));
-    check_screen("turned to landscape while scrolled", 1);
+    check_page("turned to landscape with a refusal", 1);
     app_stop();
 
-    /* a poll that changes the screen's shape in landscape: rebuilt, arranged,
-     * one of everything */
-    use_display(POS_ROTATION_270, PANEL_CORNER);
-    g_status = STATUS_LONG;
+    /* NETWORK turned: the same page, rearranged, its values kept */
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    app_start();
+    open_tab("NETWORK");
     {
-        int fresh_long = objects_fresh(POS_ROTATION_270);
+        int objects = count_objects(app_body);
 
-        g_status = STATUS_UNITA;
-        app_start();
-        tick();
-        g_status = STATUS_LONG;
-        tick();
-        tick();
-        check("a new service in landscape rebuilds the screen: one of everything",
-              count_objects(app_body) == fresh_long && shows("CRASH LOOP"));
-        check_live_shape("rebuilt in landscape");
-        use_display(POS_ROTATION_0, PANEL_CORNER);
-        g_status = STATUS_UNITA;
-        tick();
-        tick();
-        check_live_shape("rebuilt in portrait");
         use_display(POS_ROTATION_270, PANEL_CORNER);
-        check_live_shape("rebuilt in portrait, turned to landscape");
-        app_stop();
+        check("NETWORK turned to landscape: interfaces beside the links, one of everything",
+              count_objects(app_body) == objects && tab_on("NETWORK") && shows("eth0") &&
+                  shows("Connected to Home, signal 3/4"));
+        check_live_shape("NETWORK turned");
+        check_page("NETWORK turned", 1);
     }
+    app_stop();
 
-    /* ---- 5b. Diagnostics, in the real LVGL tree ------------------------------------------- */
+    /* ---- 7. Diagnostics, in the real LVGL tree ------------------------------------------- */
     /* diag_view_test proves what the page says; this proves the page itself:
-     * it opens from System, asks each service once per refresh with the UI
+     * it opens from SERVICES, asks each service once per refresh with the UI
      * deadline, fills its rows, crash reports and log, filters through sysd,
      * stays inside the body's width in both shapes, holds no more objects
      * after many refreshes of a long log than after one, and Back returns to
-     * the System screen with its actions. */
+     * SERVICES. */
     {
         static const enum pos_rotation rots[] = { POS_ROTATION_0, POS_ROTATION_270 };
         size_t k;
@@ -1535,6 +1658,7 @@ int main(void)
             g_log_entries = 3;
             app_start();
             tick();
+            open_tab("SERVICES");
             calls_reset();
             tap("Diagnostics");
             for (i = 0; i < 6; i++) {
@@ -1542,7 +1666,7 @@ int main(void)
             }
             snprintf(what, sizeof(what), "[%s] Diagnostics opens its page", name);
             check(what, shows("DIAGNOSTICS") && shows("CRASH REPORTS") && shows("LOG") && target_of("Back") &&
-                            target_of("Refresh") && !target_of("Restart"));
+                            target_of("Refresh") && !target_of("Restart") && !shows("OVERVIEW"));
             snprintf(what, sizeof(what), "[%s] a refresh asks each service once, all bounded", name);
             check(what, called("system.status") == 1 && called("radio.status") == 1 && called("mesh.status") == 1 &&
                             called("system.crashes") == 1 && called("system.logs") == 1 && every_call_bounded());
@@ -1558,6 +1682,8 @@ int main(void)
             check(what, shows("netd \xC2\xB7 SIGSEGV \xC2\xB7 09-21 14:13 UTC") &&
                             shows("09-25 11:20:05  radiod  ERROR") &&
                             shows("09-25 11:20:05  supervise-radiod  WARN") && strcmp(g_logs_level, "all") == 0);
+            snprintf(what, sizeof(what), "[%s] Diagnostics", name);
+            check_page(what, 1);
 
             calls_reset();
             tap("Errors");
@@ -1572,8 +1698,6 @@ int main(void)
             tap("All");
             tick();
 
-            /* A reason longer than any row (within the model's DIAG_TEXT
-             * bound): read whole, wrapped in its row, never cut to dots. */
             g_mesh_status = "{\"state\":\"error\",\"reason\":\"radiod refused the profile: 869.618 MHz "
                             "is outside the configured sub-band\"}";
             tap("Refresh");
@@ -1588,7 +1712,6 @@ int main(void)
             g_mesh_status = "{\"state\":\"degraded\",\"reason\":\"the radio is switched off\","
                             "\"radio\":{\"radio_state\":\"off\"}}";
 
-            /* A log longer than the page holds, refreshed again and again. */
             g_log_entries = 60;
             tap("Refresh");
             for (i = 0; i < 6; i++) {
@@ -1620,15 +1743,14 @@ int main(void)
 
             tap("Back");
             tick();
-            snprintf(what, sizeof(what), "[%s] Back returns to System with its actions", name);
-            check(what, live() && target_of("Restart") && target_of("Power off") && target_of("Diagnostics") &&
-                            !shows("CRASH REPORTS"));
+            snprintf(what, sizeof(what), "[%s] Back returns to SERVICES", name);
+            check(what, live() && tab_on("SERVICES") && target_of("Diagnostics") && !shows("CRASH REPORTS"));
             app_stop();
         }
         g_log_entries = 3;
     }
 
-    /* ---- 6. closed and opened again, both ways up -------------------------------------- */
+    /* ---- 8. closed and opened again, both ways up -------------------------------------- */
     {
         int i;
 
@@ -1636,9 +1758,9 @@ int main(void)
             use_display(i % 2 ? POS_ROTATION_270 : POS_ROTATION_0, PANEL_CORNER);
             calls_reset();
             app_start();
-            check(i % 2 ? "reopened in landscape: asks for its identity again, and shows it"
-                        : "reopened in portrait: asks for its identity again, and shows it",
-                  called("system.info") == 1 && shows("0.0.10 \xC2\xB7 aaad9f4") && live());
+            check(i % 2 ? "reopened in landscape: on OVERVIEW, asking for its identity again"
+                        : "reopened in portrait: on OVERVIEW, asking for its identity again",
+                  called("system.info") == 1 && tab_on("OVERVIEW") && live() && shows("17 %"));
             app_stop();
         }
     }
