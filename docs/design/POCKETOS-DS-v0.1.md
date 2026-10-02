@@ -4705,7 +4705,7 @@ edge. (A first pass on this branch enlarged only the row and the targets - a
 
 | | Before (master) | Now |
 | --- | --- | --- |
-| Row | 36 px landscape, 56 px portrait | **64 px** both |
+| Row | 36 px landscape (under a 50 px empty band), 56 px portrait | **72 px** landscape at the top edge, **64 px** portrait |
 | Back (landscape) | 56 × 32 slab | **72 × 56** face (the shell header's slab size, §7) |
 | Tab | caption word, no face; target 36 (landscape) / 56 (portrait) px tall | **56 px face**, 20 px each side of its word, 8 px between faces |
 | Tab word | caption type (`POS_STYLE_CAPTION`) | RIFT's button type (`POS_STYLE_BUTTON_LABEL`, mono 16 medium at Small) |
@@ -4721,12 +4721,19 @@ edge. (A first pass on this branch enlarged only the row and the targets - a
   (keys and counts) keeps the rest of the row and drops counts first.
 - Portrait's way back is the shell's header slab (72 × 56, §48), as before;
   the tabs under it are the same faces.
+- **Landscape: the strip is the screen's top row**, as the shell's header is
+  in every other app: it starts at the top edge, is the header's 72 px tall,
+  and keeps clear of the rounded top corners sideways with the top bar's
+  insets - so its faces sit at y 8-63 and Back at x 50, exactly where every
+  app's back slab is, and Back is touched from the screen's top edge. RIFT's
+  frame used to clear those corners with a 50 px top padding instead, which
+  left an empty band above the row that no other app has.
 
 Fits at Small, Medium and Large in both orientations (portrait at Large: NET
 ends inside the row's 20 px margin; `tests/rift_app_test.c`
-`navigation_session`). The landscape thread gives up the 28 px: 16 whole
-messages where §37.2 had 17, the thread 50.6 % of the display where it had
-54.3 % - still more than half (a 200-message thread at Small).
+`navigation_session`). With the band gone the landscape thread keeps its
+17 whole messages (53.5 % of the display, §37.2 had 54.3 %; a 200-message
+thread at Small).
 
 ### 51.4 The mark in the status cluster
 

@@ -70,3 +70,26 @@ at least 14 px ("1 DIRECT" ends at x 222, the empty ring 2's "2" starts at 237).
 Portrait's 92 px heading column, which the counts overran into the pills from
 Medium up, is fitted the same way. Pills wider than a landscape column at
 Large are still cut at its edge (audit: 12 clipped pills) - not changed.
+
+## No empty band above the row (2026-10-02, doors-shell `d6ffdda`)
+
+**Unit B now runs doors-shell `d6ffdda`** (md5 `38c69c67f536e491943c70f9daad7bbe`),
+same rollback. Cause: in landscape the shell builds no header above RIFT, and
+RIFT's frame cleared the rounded top corners by a 50 px top padding
+(`pos_display_rect_insets`); every other app's header starts at the top edge and
+clears them sideways. Now RIFT's strip is the screen's top row the same way.
+
+Measured on the panel captures (landscape, Large):
+
+| | before (`be5ff22`) | after (`d6ffdda`) | Settings (shell header) |
+| --- | --- | --- | --- |
+| Empty space above the buttons | 54 px (50 inset + 4 row air) | 8 px | slab at y 8 |
+| Buttons | y 54-109 | y 8-63 | slab y 8-63 |
+| Back | x 20-91, 72 x 56 | x 50-121, 72 x 56 | slab x 50-121 |
+| Row's rule / content start | y 113 / ~134 | y 71 / 92 | header foot 72 |
+
+Button sizes unchanged (Back 72 x 56; tabs 160 / 115 / 115 / 85 x 56). Taps: NET
+switched to NET; a tap on Back at the screen's top pixel row (y 1) went home
+with the RIFT mark up; reopening was the kept session. doors-shell pid
+unchanged, 0 ERROR/assert lines. Portrait unchanged (strip under the shell's
+header; host tests and simulator capture).
