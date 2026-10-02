@@ -1,6 +1,6 @@
 # Zabbix: a monitoring terminal for an existing Zabbix server
 
-**Status: ACCEPTED** (2026-09-26), and in the shell by default. The architecture is in ADR-007 and the screens are DS §35; both are ACCEPTED.
+**Status: ACCEPTED** (2026-09-26), and in the shell by default. The architecture is in ADR-007 and the screens are DS §35; both are ACCEPTED. The CONNECTION screen is DS §50 and ADR-007 Amendment 1, both ACCEPTED 2026-10-02.
 
 This is a read-only client. The unit shows what a Zabbix server already knows:
 
@@ -494,7 +494,7 @@ connection banner appears above every tab whenever something is not right.
   - **CONNECTION SETTINGS**.
   - In the demo: **SCENARIO: <name>**, which steps through the fake's
     scenarios, and **LEAVE THE DEMO**.
-- **CONNECTION** (DS §50, PROPOSED; from STATUS or the set-up panel; over
+- **CONNECTION** (DS §50, ACCEPTED; from STATUS or the set-up panel; over
   the tabs, which hide while it is open)
   - SERVER, the frontend's address.
   - SIGN IN WITH: API TOKEN or PASSWORD; USER for a password.

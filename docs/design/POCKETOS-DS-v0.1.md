@@ -4588,8 +4588,10 @@ real shell keeping a job running while the launcher is up); the layout audit
 of the screen and of the dialog is clean at Small, Medium and Large in both
 orientations. Hardware: docs/hardware/TERMINAL_POWER_USER_GATE.md (unit A).
 
-## 50. Amendment AH — Zabbix connection settings [PROPOSED]
+## 50. Amendment AH — Zabbix connection settings [ACCEPTED]
 
+**ACCEPTED 2026-10-02** by the owner, after the unit B hardware check
+(docs/hardware/ZABBIX_CONNECTION_SETTINGS_GATE.md, PASS).
 **Proposed 2026-10-02** on branch `feat/zabbix-connection-settings`, at the
 owner's request: the Zabbix connection set up on the unit itself, not only
 over SSH. It adds one screen to the Zabbix app (§35) and changes nothing

@@ -249,11 +249,12 @@ Risks:
   - the counts against the frontend's own pages;
   - the clock unset on the unit.
 
-## Amendment 1 (PROPOSED 2026-10-02): the connection set up on the unit
+## Amendment 1 (ACCEPTED 2026-10-02): the connection set up on the unit
 
-Status: Proposed, on branch `feat/zabbix-connection-settings`. Decisions 1-3
-stand as accepted; this amendment widens two statements under them, and
-needs the owner's acceptance like the rest of the ADR.
+Status: Accepted (product owner, 2026-10-02), after the unit B hardware
+check (docs/hardware/ZABBIX_CONNECTION_SETTINGS_GATE.md, PASS). Proposed the
+same day on branch `feat/zabbix-connection-settings`. Decisions 1-3 stand as
+accepted; this amendment widens two statements under them.
 
 **What changes.** The Zabbix app gets a CONNECTION screen (DS §50) that sets
 the server, the sign-in, the user and the token or password, tests them
