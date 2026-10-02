@@ -444,6 +444,14 @@ size_t rift_text_shown(const char *in, char *out, size_t out_len)
         if (l == 0) {
             l = 1; /* a byte that starts nothing: copied, as rift_utf8_copy would */
         }
+        /* Variation selectors and the zero-width joiner have no glyph of their
+         * own and none in the Doors fonts: kept, each drew a box of its own
+         * after the emoji's (a node named "... \u2600\uFE0F" showed two on unit B,
+         * 2026-10-02). They only shape the emoji, which stays as it came. */
+        if (cp == 0xFE0Eu || cp == 0xFE0Fu || cp == 0x200Du) {
+            p += l;
+            continue;
+        }
         if (text) {
             n = strlen(text);
             if (o + n + 1 > out_len) {
@@ -452,11 +460,6 @@ size_t rift_text_shown(const char *in, char *out, size_t out_len)
             memcpy(out + o, text, n);
             o += n;
             p += l;
-            /* A variation selector after it asked for the emoji form of the
-             * glyph that is no longer there. */
-            if (p[0] == 0xEF && p[1] == 0xB8 && (p[2] == 0x8F || p[2] == 0x8E)) {
-                p += 3;
-            }
             continue;
         }
         if (o + l + 1 > out_len) {

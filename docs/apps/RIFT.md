@@ -373,7 +373,9 @@ emoji (`tools/design/gen_fonts.sh`), so an emoji used to arrive as a box. The
 common faces, hearts and thumbs are now **drawn** as the text smiley they
 stand for (`rift_text_shown`: 🙂 `:)`, 😂 `:'D`, ❤️ `<3`, 👍 `(y)`, …) in
 message bodies, previews, claimed sender names and node names; anything else
-is left as it came, and still draws as a box. Presentation only: what is
+is left as it came, and still draws as a box - one box: the variation
+selectors and zero-width joiner that only shape an emoji are not drawn, as
+each would be a box of its own. Presentation only: what is
 stored, counted and sent is the text as it arrived. A colour emoji font was
 not added - it would be megabytes in a 600 MB rootfs for a handful of glyphs.
 

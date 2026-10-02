@@ -85,6 +85,11 @@ static void test_utf8_and_smileys(void)
     text_is("a thumb and tears of joy", out, "(y):'D");
     rift_text_shown("\xF0\x9F\x9A\x80 ok", out, sizeof(out));
     text_is("an emoji with no smiley is left as it came", out, "\xF0\x9F\x9A\x80 ok");
+    rift_text_shown("rpt \xE2\x98\x80\xEF\xB8\x8F", out, sizeof(out));
+    text_is("and loses its variation selector, which would draw a second box", out,
+            "rpt \xE2\x98\x80");
+    rift_text_shown("a\xE2\x80\x8D\xEF\xB8\x8E" "b", out, sizeof(out));
+    text_is("a zero-width joiner and a text selector are not drawn either", out, "ab");
     rift_text_shown("bl\xC3\xA5 \xE2\x80\xA6 \xE2\x86\x92", out, sizeof(out));
     text_is("letters and punctuation the fonts carry are untouched", out,
             "bl\xC3\xA5 \xE2\x80\xA6 \xE2\x86\x92");
