@@ -4664,7 +4664,8 @@ after the app is opened again. Screenshots with `ZABBIX_SHOTS=<dir>`:
 **Proposed 2026-10-02** on branch `feat/rift-background-lifecycle`, at the
 owner's request: leaving RIFT should not end it, the status cluster should
 say when it runs behind another screen, there should be an explicit way to
-end it, and its Back and section tabs should be one large target size. It
+end it, and its Back and section tabs should be visibly larger controls of
+one size. It
 changes RIFT (§37) and adds one mark to the status cluster (§36.1); it
 amends §37.2's landscape strip. Nothing in §1-§50 is renumbered. Behaviour:
 docs/apps/RIFT.md, "Kept while left".
@@ -4692,25 +4693,40 @@ meshcored and the radio keep running.*, then **CANCEL** (accented) and
 **CLOSE RIFT** (secondary). Leaving ACTIVITY or turning the panel is
 Cancel. Confirmed, the session ends and the launcher is shown.
 
-### 51.3 The navigation row is one target size
+### 51.3 The navigation row: five visible controls of one size
 
-The strip is navigation, and navigation is a 56 px touch row (RIFT-DEV-1)
-in both orientations. In landscape, §37.2 had made it a 36 px data row with
-a 56 × 32 back slab - too small at the panel's top edge. Now:
+The strip's five controls - the back slab and the four section tabs - are
+navigation (RIFT-DEV-1) and are drawn as controls, one look and one size, in
+both orientations. Before, the tabs were bare caption words with an accent
+underline, and in landscape §37.2 had made the row a 36 px data row with a
+56 × 32 back slab: too small to read as controls or to hit at the panel's top
+edge. (A first pass on this branch enlarged only the row and the targets - a
+56 px row, a 64 × 52 slab - and the owner found it looked the same.)
 
-- **The strip is 56 px in landscape as in portrait**, and so is each of
-  ACTIVITY, NODES, COMMS and NET.
-- **The back slab** is 64 × 52 on the strip's rule, its target the strip's
-  whole 56 px height (2 px of extended click area round it). Portrait's way
-  back is the shell's header slab (72 px, §48), as before.
-- **The gaps are targets.** The 32 px between two tab words is now the two
-  tabs' padding, 16 px each, so a tap between words lands on the nearer tab.
-  The words, the underline and the unread pill draw where they did; the
-  first word is still 20 px in.
+| | Before (master) | Now |
+| --- | --- | --- |
+| Row | 36 px landscape, 56 px portrait | **64 px** both |
+| Back (landscape) | 56 × 32 slab | **72 × 56** face (the shell header's slab size, §7) |
+| Tab | caption word, no face; target 36 (landscape) / 56 (portrait) px tall | **56 px face**, 20 px each side of its word, 8 px between faces |
+| Tab word | caption type (`POS_STYLE_CAPTION`) | RIFT's button type (`POS_STYLE_BUTTON_LABEL`, mono 16 medium at Small) |
+| Look | slab (back), none (tabs) | all five `POS_STYLE_BUTTON_SECONDARY` + `POS_STYLE_SLAB_PRESSED` - the face of RIFT's secondary actions and of the shell's portrait back corner (§48) |
 
-The landscape thread gives up the 20 px. Measured in `tests/rift_app_test.c`
-(a 200-message thread at Small): 16 whole messages where §37.2 had 17, the
-thread 51.7 % of the display where it had 54.3 % - still more than half.
+- The active tab keeps its accent word and its 2 px accent underline, now
+  6 px above the face's foot; the underline is out of the layout, so every
+  word sits at the same height.
+- Each face is centred in the row (4 px of air above, 3 px and the 1 px rule
+  below) and takes that air and half of each 8 px gap as extra target
+  (4 px extended click area): no tap on the row lands on nothing.
+- The first face is 20 px in, as the first word was. The landscape caption
+  (keys and counts) keeps the rest of the row and drops counts first.
+- Portrait's way back is the shell's header slab (72 × 56, §48), as before;
+  the tabs under it are the same faces.
+
+Fits at Small, Medium and Large in both orientations (portrait at Large: NET
+ends inside the row's 20 px margin; `tests/rift_app_test.c`
+`navigation_session`). The landscape thread gives up the 28 px: 16 whole
+messages where §37.2 had 17, the thread 50.6 % of the display where it had
+54.3 % - still more than half (a 200-message thread at Small).
 
 ### 51.4 The mark in the status cluster
 

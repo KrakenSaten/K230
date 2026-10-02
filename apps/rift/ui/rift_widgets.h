@@ -23,6 +23,11 @@
 #define RIFT_HEADER_ROW_H 28
 #define RIFT_TOUCH_H 56
 #define RIFT_PRIMARY_H 64
+/* The section strip (rift_strip.c, DS §51.3): a row this tall holding the
+ * back slab and the four tabs as visible faces this tall, in both
+ * orientations. */
+#define RIFT_NAV_ROW_H 64
+#define RIFT_NAV_FACE_H RIFT_TOUCH_H
 #define RIFT_PAD 20
 #define RIFT_PANE_PAD 16
 #define RIFT_STRIP_W 104

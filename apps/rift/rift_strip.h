@@ -3,8 +3,8 @@
  * unread pill on COMMS, the accent underline of the active one (handoff §3),
  * the right-hand caption with the landscape key hints and counts, and in
  * landscape - where the shell builds no app header for RIFT (app.h `header`,
- * DS §37.2) - the back slab at its left. A 56 px touch row in both
- * orientations: the back slab and every tab are that tall (DS §51.3).
+ * DS §37.2) - the back slab at its left. A 64 px row in both orientations,
+ * the back slab and every tab a visible 56 px face in one look (DS §51.3).
  *
  * Split from rift_app.c, which owns the frame and the lifecycle, so neither
  * is a monolith (tests/rift_lint.sh).
