@@ -16,9 +16,12 @@ static void save_history(struct wave_ctl *c)
         return;
     }
     c->store_failed = wave_store_save_history(&c->view.history) != 0;
-    /* Marked saved either way: a failing disk is not retried from every
-     * poll. The next change tries again. */
-    c->saved_changes = c->view.history.changes;
+    /* Saved only once it reached the disk: a failed write stays due and the
+     * next save tries again (from the poll, no sooner than
+     * WAVE_SAVE_RETRY_MS, so a failing disk is not hit on every tick). */
+    if (!c->store_failed) {
+        c->saved_changes = c->view.history.changes;
+    }
 }
 
 void wave_ctl_open(struct wave_ctl *c, int (*volume)(void))
@@ -209,6 +212,11 @@ int wave_ctl_poll(struct wave_ctl *c, int64_t now_ms, int64_t wall_s)
         wave_store_capture_remove();
     }
     n += start_due(c, now_ms, wall_s);
-    save_history(c);
+    if (now_ms >= c->save_retry_ms) {
+        save_history(c);
+        if (c->view.history.changes != c->saved_changes) {
+            c->save_retry_ms = now_ms + WAVE_SAVE_RETRY_MS;
+        }
+    }
     return n;
 }

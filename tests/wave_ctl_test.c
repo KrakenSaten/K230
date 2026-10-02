@@ -14,6 +14,8 @@
  *   - muted volume sends nothing;
  *   - the preset and the history survive a restart; the history file stays
  *     bounded; a clear removes it;
+ *   - a history write that fails stays due: the poll retries it after
+ *     WAVE_SAVE_RETRY_MS and close() always does, so nothing is lost;
  *   - closing mid-listen ends the helper within the destroy grace.
  *
  * Usage: wave_ctl_test <fake helper>
@@ -460,6 +462,53 @@ int main(int argc, char **argv)
         }
         reopen();
         check("a stale capture from a killed run is removed at open", !exists(cap));
+    }
+
+    /* ---- a history write that fails is retried --------------------------------- */
+    {
+        char hist[PATH_MAX];
+        char blocker[PATH_MAX];
+        FILE *f;
+        int64_t t = mono();
+
+        /* A file where the state directory should be: every write fails,
+         * root or not. */
+        snprintf(hist, sizeof(hist), "%s/wave/" WAVE_HISTORY_FILE, state);
+        snprintf(blocker, sizeof(blocker), "%s/state-is-a-file", run);
+        f = fopen(blocker, "w");
+        if (f) {
+            fclose(f);
+        }
+        setenv("POCKETOS_STATE_DIR", blocker, 1);
+        wave_history_add_tx(&ctl.view.history, "quick", "RETRY", 5, WAVE_RESULT_OK, 1, 0);
+        wave_ctl_poll(&ctl, t, 0);
+        check("a history write that fails is not marked saved",
+              ctl.store_failed && ctl.saved_changes != ctl.view.history.changes && !exists(hist));
+
+        setenv("POCKETOS_STATE_DIR", state, 1);
+        wave_ctl_poll(&ctl, t + 1, 0);
+        check("the poll does not retry it on the next tick",
+              ctl.saved_changes != ctl.view.history.changes && !exists(hist));
+        wave_ctl_poll(&ctl, t + WAVE_SAVE_RETRY_MS, 0);
+        check("but after WAVE_SAVE_RETRY_MS, and the write lands",
+              !ctl.store_failed && ctl.saved_changes == ctl.view.history.changes && exists(hist));
+        reopen();
+        check("so the change survives a restart",
+              wave_history_count(&ctl.view.history) == 1 &&
+                  strcmp(wave_history_at(&ctl.view.history, 0)->data, "RETRY") == 0);
+
+        setenv("POCKETOS_STATE_DIR", blocker, 1);
+        wave_history_add_tx(&ctl.view.history, "quick", "CLOSING", 7, WAVE_RESULT_OK, 1, 0);
+        wave_ctl_poll(&ctl, mono(), 0);
+        check("a second failed write stays due too",
+              ctl.store_failed && ctl.saved_changes != ctl.view.history.changes);
+        setenv("POCKETOS_STATE_DIR", state, 1);
+        reopen();
+        check("and close() retries it: nothing is lost",
+              wave_history_count(&ctl.view.history) == 2 &&
+                  strcmp(wave_history_at(&ctl.view.history, 0)->data, "CLOSING") == 0 &&
+                  strcmp(wave_history_at(&ctl.view.history, 1)->data, "RETRY") == 0);
+        unlink(blocker);
     }
 
     /* ---- closing mid-send ------------------------------------------------------ */
