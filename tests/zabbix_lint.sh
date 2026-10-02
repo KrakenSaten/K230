@@ -105,8 +105,9 @@ check "the typed secret is wiped: the app's line, the field, the helper's input 
        echo 1 || echo 0)"
 check "only what connected is stored" \
     "$(grep -q 'if (!save || r != ZBX_CRESULT_CONNECTED) {' $S && echo 1 || echo 0)"
-check "the conf is staged 0644, the secret through the secret store's own path, renames undone on failure" \
-    "$(grep -q 'O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644' $S && grep -q 'zbx_config_stage_secret(' $S &&
+check "the conf is staged (0644, or its own mode), the secret through the secret store's own path, renames undone on failure" \
+    "$(grep -q 'O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644' $S && grep -q 'fchmod(fd, mode)' $S &&
+       grep -q 'zbx_config_stage_secret(' $S &&
        grep -q 'link(secret_path, prev)' $S && grep -q 'rename(prev, secret_path);' $S && echo 1 || echo 0)"
 check "a settings change never reaches argv: the helper hears it on the socketpair" \
     "$(code $A/zabbix_session.c | grep -q 'zbx_proto_cmd_settings(line, sizeof(line)' &&

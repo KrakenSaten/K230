@@ -513,13 +513,21 @@ static void test_save(void)
           saved && strcmp(slurp(conf, b, sizeof(b)), "url=https://first.example.com\nauth=token\n") == 0 &&
               strcmp(slurp(secret, b, sizeof(b)), "token=" TOKEN "\n") == 0);
 
+    /* A file an administrator made 0600 stays 0600. */
+    chmod(conf, 0600);
+    use_scenario("demo");
+    w = want("https://second.example.com", ZBX_AUTH_TOKEN, "");
+    r = run(true, &w, NULL, &saved, text, sizeof(text));
+    check("save: an existing zabbix.conf keeps its mode (0600 is not opened up)",
+          saved && mode_of(conf) == 0600 && strstr(slurp(conf, b, sizeof(b)), "url=https://second.example.com\n"));
+
     /* A demo file becomes a real one. */
     write_file(conf, "mode=fake\nscenario=large\nlabel=Desk\n", 0644);
     use_scenario("demo");
     r = run(true, &w, NULL, &saved, text, sizeof(text));
     check("save: mode=fake is dropped, the rest kept",
           saved && strcmp(slurp(conf, b, sizeof(b)),
-                          "scenario=large\nlabel=Desk\nurl=https://first.example.com\nauth=token\n") == 0);
+                          "scenario=large\nlabel=Desk\nurl=https://second.example.com\nauth=token\n") == 0);
 }
 
 /* ---- the secret never comes back out ------------------------------------------------------- */

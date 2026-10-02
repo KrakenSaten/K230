@@ -408,9 +408,10 @@ what the configuration already had: `url=`, `auth=`, `user=` and the
 secret. The helper does every check, trial and write
 (core/zabbix/zbx_settings.h); the shell writes no file.
 
-- **Storage is the same two files.** zabbix.conf (0644, no secret) is
-  rewritten with those three keys replaced and every other line kept as it
-  was written; a `mode=fake` line is dropped. The secret goes into
+- **Storage is the same two files.** zabbix.conf (no secret; a new file is
+  0644, an existing one keeps its mode) is rewritten with those three keys
+  replaced and every other line kept as it was written; a `mode=fake` line
+  is dropped. The secret goes into
   `/var/lib/pocketos/zabbix/secret` through the same 0700/0600, O_EXCL,
   O_NOFOLLOW, fsync path as `set-secret` (`zbx_config_stage_secret`). No new
   store is made.
@@ -746,7 +747,7 @@ run, not `make test`:
 
 | Suite | What it adds | Result |
 | --- | --- | --- |
-| `tests/zbx_settings_test` (new) | read for the screen without the secret; compose keeps every other line, drops `mode=fake`; ten kinds of invalid settings refused before anything is sent; token, password, refused password (one login only), expired token, refused, DNS, TLS, HTTP 500; save stores only CONNECTED, modes 0644/0600/0700, read back by the loader; an empty secret keeps the stored one; a rename failing half way rolls back, with and without a previous secret; no answer or log line holds a secret | 67 ok |
+| `tests/zbx_settings_test` (new) | read for the screen without the secret; compose keeps every other line, drops `mode=fake`; an existing file keeps its mode; ten kinds of invalid settings refused before anything is sent; token, password, refused password (one login only), expired token, refused, DNS, TLS, HTTP 500; save stores only CONNECTED, modes 0644/0600/0700, read back by the loader; an empty secret keeps the stored one; a rename failing half way rolls back, with and without a previous secret; no answer or log line holds a secret | 68 ok |
 | `tests/zbx_proto_test` | `settings`/`cresult` lines, damaged ones refused; hex both ways; `ctest`/`csave` built and parsed, every field at its longest, broken ones refused | 60 ok |
 | `tests/zabbix_view_test` | the model keeps settings and counts answers; the four result words and tones, "Saved"/"Not saved"; the secret's caption and note | 68 ok |
 | `tests/zabbix_session_test` | the real helper: the settings line, AUTH FAILED, CONNECTED, INVALID CONFIG, a save and its files, the same helper still serving data, the saved settings after a new start, no secret in cmdline, environ or log | 43 ok |

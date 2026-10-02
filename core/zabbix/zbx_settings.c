@@ -299,15 +299,22 @@ static void sync_dir(const char *dir)
     }
 }
 
-/* zabbix.conf.new: the new text, 0644 like settings.conf (it holds no
- * secret), synced. */
+/* zabbix.conf.new: the new text, synced. A new file is 0644 like
+ * settings.conf (it holds no secret); an existing one keeps the mode it was
+ * given, so a file an administrator made 0600 is not opened up by a save. */
 static int stage_conf(const char *conf_path, const char *text, char *tmp, size_t tmplen, char *err,
                       size_t errlen)
 {
     char dir[ZBX_PATH_MAX];
     size_t n = strlen(text);
     size_t done = 0;
+    mode_t mode = 0644;
+    struct stat st;
     int fd;
+
+    if (stat(conf_path, &st) == 0 && S_ISREG(st.st_mode)) {
+        mode = st.st_mode & 0777;
+    }
 
     dir_of(conf_path, dir, sizeof(dir));
     if (pocketos_mkdir_p(dir, 0755) != 0) {
@@ -335,7 +342,7 @@ static int stage_conf(const char *conf_path, const char *text, char *tmp, size_t
         }
         done += (size_t)w;
     }
-    if (done != n || fchmod(fd, 0644) != 0 || fsync(fd) != 0) {
+    if (done != n || fchmod(fd, mode) != 0 || fsync(fd) != 0) {
         say(err, errlen, "zabbix.conf cannot be written: %s", strerror(errno));
         close(fd);
         unlink(tmp);
