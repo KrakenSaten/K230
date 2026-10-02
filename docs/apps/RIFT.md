@@ -578,6 +578,51 @@ with a 200-message thread open from 13.5 ms to 1.4 ms; a full-screen redraw
 is about 3 ms either way (`tests/rift_app_test.c` prints both on every run).
 The C908 is slower by a factor nobody has measured.
 
+## Kept while left
+
+RIFT keeps running when it is left (DS §51). Before, leaving with Back or
+Home destroyed everything: the connection to meshcored, the model and with
+it the activity feed, the traffic graph, the path history, messages the
+service's rings no longer hold and the read marks - and the next open
+started from a fresh snapshot. Now leaving takes the screen away and
+nothing else.
+
+- **What is kept:** the one meshcored connection and its subscription, the
+  model (nodes, activity, traffic, messages, unread counts, requests still
+  in flight), the reader's choices, and where the reader was: the section,
+  the selected node, the open conversation, the details pane and what the
+  NODES find bar held. One block (`struct rift_app`), in two halves: the
+  screen's half is cleared on every leave (`rift_bg_forget_screen`), so no
+  pointer into a deleted screen survives into the next open.
+- **What runs while left:** the session's own timer, every 100 ms, reads the
+  socket and files what arrives, and does nothing else - no repaint, no
+  focus, no screen touched. Reading on matters: pocketipc disconnects a
+  subscriber that stops reading. A direct message that arrives while RIFT is
+  left is filed unread and marked on COMMS's pill; **no sound is played for
+  it**, because RIFT's sound is for a reader looking at RIFT, as it always
+  was. The arrival is consumed all the same, so reopening is not a late chime.
+- **What is not kept:** the screen - its LVGL objects, the composer's typed
+  text, a form or confirmation that was up (leaving is Cancel for those, as
+  turning the panel is).
+- **One connection, never two.** Reopening builds a screen over the same
+  session and makes no new connection; a session that lost meshcored keeps
+  reconnecting on its own backoff whether or not a screen is up. RIFT never
+  owned the radio - meshcored does - and still does not.
+- **The mark.** While the session runs with no screen, the status cluster
+  shows **RIFT** beside the radio chip on every screen that shows the
+  cluster (app.h `pocketos_shell_set_background`). RIFT sets it on leaving
+  and clears it on opening and when the session ends, so it is RIFT's own
+  state - not whether meshcored is running. The cluster takes no touch, so
+  the words for it, *RIFT active in background*, are in `doors shell info`
+  (`background`).
+- **The end.** **CLOSE RIFT** on ACTIVITY's SESSION panel asks first (*Close
+  RIFT?*, Cancel first and accented), then ends the session and goes home:
+  the subscription given back (`mesh.unsubscribe`), the socket closed, the
+  model released, the mark gone. It ends only what is RIFT's: meshcored and
+  the radio keep running. The next open is a new session from nothing. The
+  session also ends when the Doors shell stops or re-executes (app.h
+  `shutdown`), as the Terminal's does.
+
 ## How it talks to meshcored
 
 One connection, asynchronous throughout (`apps/rift/rift_ipc.c`).
@@ -663,8 +708,9 @@ the air must not be able to disconnect this app from its own service.
 | `rift_format.c/.h` | every string the screens print about nodes and paths, and the path arithmetic. No LVGL, no cJSON, no I/O |
 | `rift_format_msg.c` | the same for messages and requests: states, the one-line caption, the preview, the channel body, what became of an advert or a node change |
 | `rift_ipc.c/.h` | the meshcored connection, the framing and the reconnect. No LVGL |
-| `rift_app.c/.h` | the frame, the command line and composer, sections, layout and lifecycle |
-| `rift_strip.c/.h` | the section strip: the tabs and the unread pill, the landscape caption, and in landscape the back slab and the data-row height (DS §37.2) |
+| `rift_app.c/.h` | the frame, the command line and composer, sections, layout and lifecycle: a screen built over the session on every open, let go of on every leave |
+| `rift_background.c` | the session that outlives the screen (DS §51): the one block, its start, its end, and the screen's half cleared on a leave |
+| `rift_strip.c/.h` | the section strip: the tabs and the unread pill, the landscape caption, and in landscape the back slab; a 56 px touch row in both orientations (DS §51.3) |
 | `ui/rift_widgets.c` | the link glyph, the hop strip, the panel with its caption in the rule, the action bar, the vertical rule in a tone or an identity accent |
 | `ui/rift_graph.c/.h` | the traffic graph: a bar per minute from `rift_traffic`, stacked by class on a fixed ladder, and the legend's swatches. One draw callback from the tokens |
 | `ui/rift_activity.c` | ACTIVITY |
@@ -678,6 +724,7 @@ the air must not be able to disconnect this app from its own service.
 | `ui/rift_netview.c` | NET: the PATH panel and the rings |
 | `ui/rift_manage.c` | ACTIVITY's CHANNELS panel: the list, LEAVE and its confirmation, the ADD CHANNEL form, a key shown once |
 | `ui/rift_device.c` | THIS DEVICE's RENAME and path hash choice with its confirmation |
+| `ui/rift_session.c` | ACTIVITY's SESSION panel: CLOSE RIFT and its confirmation (DS §51.2) |
 | `ui/rift_form.c` | the parts the management panels are built from: rows, a wrapping line, a chosen choice, a field with the touch keyboard |
 
 ## Tests
@@ -688,7 +735,7 @@ the air must not be able to disconnect this app from its own service.
 | `tests/rift_model_test.c` | 322 checks: searching the node list (case, Æ Ø Å, hash prefixes) and the zero-hop filter; NET's rings and what placed each node, ambiguous hops, a bounded ring; channel keys (SHA-256 vectors, the `#test` hashtag key, strict base64, random keys); where the name came from and the path hash size; the management slot and its no-answer; the initial snapshot, duplicate and update events, missing telemetry, malformed input, the bounded cache, the service going away and coming back, which run of the service answered, ordering; the path history and event count surviving a snapshot while the service's values are replaced, a reply that is not an event, a removal that is not an update, the traffic counters, the table-full count since the last forget (and a new run counting from nothing), a route change dated when it was seen, and the advert and node-change state machine with NOT DONE kept apart from NO ANSWER |
 | `tests/rift_comms_test.c` | 305 checks: byte-correct limits with 4-byte emoji, direct and on a channel, and malformed text refused; the conversations and their order, duplicate and state-change events, unread and what clears it, the thread window, every state caption, telemetry that was never measured, the bounded message cache, the service restarting under the cache and the reconnect that is not a restart, the send state machine, what `mesh.send` will take, remote text nobody here chose the length of, and the channel body without its sender prefix and the one-line caption |
 | `tests/rift_ipc_test.c` | 240 checks against a real socket and a scripted service in a child process: joining a channel (the derived key checked byte for byte in the request, and absent from the model and the client afterwards), a duplicate key refused, leaving, renaming, the path hash size, a pinned name, a service without the setting, a change nobody answered; and connect, snapshot, events, refusals, the service disappearing, reconnect, one whole service replaced by another with an id space that starts again, the proof that nothing the app does on its own transmits or adverts, the send lifecycle, adverts asked for and refused, and forgetting a node or its route - answered, refused in the service's words, and unanswered when the service dies |
-| `tests/rift_app_test.c` | 628 checks under a real LVGL pointer device: a channel's sender before its message in both orientations (long, unnamed, own); the NODES search and ZERO-HOP view; NET from no snapshot to a real mesh, advert-placed nodes, MESSAGE and DETAIL, landscape columns; the CHANNELS and THIS DEVICE controls with no service (every refusal said before asking, every confirmation) and, given `RIFT_FAKE_MESHCORED`, live against the scripted service (a private channel joined and its key shown once, left, a rename, a path hash size); the app opened in landscape the way a turned launcher opens it, the traffic graph on ACTIVITY (its bins, ladder, caption and legend, a frame heard now in the newest minute), the sender's identity accent in a channel thread and the mark on its row, the landscape console (no shell header, the strip a data row with the back slab that goes home, the command line a data row, the details pane closed until a tap on the thread's header opens it and a second closes it, the thread more than half the display, 17 whole messages where there were 11), 256 conversations drawn from a pool of rows bounded by the screen and the oldest reached by scrolling; then the chrome, all three sections, the row that only selects, the pushed detail and its FORGET confirmation (cancelled by leaving the section, closing the detail or turning the panel), Enter on a node that has gone, the table-full warning clearing once room is made, a thread's No answer and Not sent, both landscape splits, the composer, the unread pill, the command line present only when it holds something, a long list keeping its place and its selection in view, the newest message in view above the landscape composer, every panel caption drawn whole, every action's word inside its button, the ADVERT buttons, and open/leave/open again three times over. Then the activity pulse on real rows; the DM sound end to end against a fake backend (history silent, one sound per arrival, none for a repeat, the reader's own, a channel, a retry or a snapshot, one for a burst, the switch on ACTIVITY stored and honoured, muted, no backend, stopped on close, kept across opening, not saved when the store cannot be written); and scale - 256 nodes with the rows built bounded by the screen in both orientations, the selection kept by key across a re-ordering and a removal, 64 conversations re-ordered without a row rebuilt, a 200-message thread moved along without a rebuild and a reader in its history left there, a hundred arrivals in one pass. Prints what a repaint costs. Writes the screenshots |
+| `tests/rift_app_test.c` | 791 checks under a real LVGL pointer device: RIFT kept behind other screens (DS §51) - left, the session, its timer and its connection stay and the screen's half is empty, a message arriving while left is filed unread and unsounded, reopened in the same place with no second timer, Back and Home, twenty leaves and reopens with one timer and less than one screen's memory kept, CLOSE RIFT through its confirmation and a new session after it, the status cluster's mark set and cleared, the 56 px navigation row and its targets in both orientations, and against the scripted service one subscription for six opens, a message taken in while left, the subscription given back on CLOSE RIFT and meshcored still running; a channel's sender before its message in both orientations (long, unnamed, own); the NODES search and ZERO-HOP view; NET from no snapshot to a real mesh, advert-placed nodes, MESSAGE and DETAIL, landscape columns; the CHANNELS and THIS DEVICE controls with no service (every refusal said before asking, every confirmation) and, given `RIFT_FAKE_MESHCORED`, live against the scripted service (a private channel joined and its key shown once, left, a rename, a path hash size); the app opened in landscape the way a turned launcher opens it, the traffic graph on ACTIVITY (its bins, ladder, caption and legend, a frame heard now in the newest minute), the sender's identity accent in a channel thread and the mark on its row, the landscape console (no shell header, the strip a 56 px touch row with the back slab that goes home, the command line a data row, the details pane closed until a tap on the thread's header opens it and a second closes it, the thread more than half the display, 16 whole messages where there were 11), 256 conversations drawn from a pool of rows bounded by the screen and the oldest reached by scrolling; then the chrome, all three sections, the row that only selects, the pushed detail and its FORGET confirmation (cancelled by leaving the section, closing the detail or turning the panel), Enter on a node that has gone, the table-full warning clearing once room is made, a thread's No answer and Not sent, both landscape splits, the composer, the unread pill, the command line present only when it holds something, a long list keeping its place and its selection in view, the newest message in view above the landscape composer, every panel caption drawn whole, every action's word inside its button, the ADVERT buttons, and open/leave/open again three times over. Then the activity pulse on real rows; the DM sound end to end against a fake backend (history silent, one sound per arrival, none for a repeat, the reader's own, a channel, a retry or a snapshot, one for a burst, the switch on ACTIVITY stored and honoured, muted, no backend, stopped on close, kept across opening, not saved when the store cannot be written); and scale - 256 nodes with the rows built bounded by the screen in both orientations, the selection kept by key across a re-ordering and a removal, 64 conversations re-ordered without a row rebuilt, a 200-message thread moved along without a rebuild and a reader in its history left there, a hundred arrivals in one pass. Prints what a repaint costs. Writes the screenshots |
 | `tests/rift_notify_test.c` | 93 checks: which direct messages are arrivals (history on opening, the same event twice, the reader's own, a channel, a reconnect's snapshot, an id below the highest, a sender's retry under a new id, no timestamp, a malformed message, a new run starting its ids again), the sound policy (a burst is one sound, nothing queued, off, muted, the gap from the last sound, a clock stepping back), the sound seam, the preferences file, the activity buckets and what a conversation is heard from, frames in the last five minutes, a 63-hop chain too long to write whole, and a list of more peers than it holds keeping the newest |
 | `tests/rift_shell_test.sh` | the app test, then the real shell opening RIFT in both orientations with a scripted meshcored on a real socket, then with no service at all, then the same fixtures twice for the same pixels |
 | `tests/rift_lint.sh` | the boundaries: what transmits and from where (send and advert), what changes a node and from where, no colour, no device, one store holding nothing about the mesh, a DM arrival decided in one place from live events only, the sound asked for in one place and only when the policy says so, no sound device and no helper process, the sound stopped on close, no monolith, and the gaps this build leaves |

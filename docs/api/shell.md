@@ -9,7 +9,12 @@ developer tooling, not for applications.
 - `shell.info`: `api_version`, `apps` (array of `{id, name, page_of?}`;
   `page_of` names the app this one is a page of - System, of Settings, DS
   §47 - which has no launcher cell and whose way back is that app), `current`
-  (open app id or `"home"`), `display`: `{width, height, backend}` - the
+  (open app id or `"home"`), `background`: array of `{app, label, help}` -
+  work an app keeps running with no screen of its own over it, as the app
+  said (app.h `pocketos_shell_set_background`, DS §51; RIFT's session:
+  `{"app":"rift","label":"RIFT","help":"RIFT active in background"}`) -
+  and `background_mark`: whether the status cluster's mark for it is up,
+  `display`: `{width, height, backend}` - the
   logical size this run lays out in, 568x1232 or 1232x568 - and the
   orientation fields `shell.rotation` returns; `chrome`: the status chrome
   in force for the current screen (DS §30, §36) - `policy`: `"cluster"` (the
