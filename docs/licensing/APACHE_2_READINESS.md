@@ -480,6 +480,10 @@ the branch (VERIFIED, 2026-10-01/02):
 | `tests/package_sync_test.sh` (snapshot rules for the fragment; the composition executed against the vendor checkout: equals vendor file + fragment, builds the pinned LVGL, refuses a restating fragment) | `32eab38`; baseline origin/master `426b1d8` | 0 failures on both |
 | `tools/legal/public_source_tree.sh` export and `--list` | `61211d8`, `32eab38` | 1,849 files, 8 exclusions, no `.dc.html`, `support.js`, `.zip` or `.otf` |
 | composed defconfig = removed `k230_pocketos_defconfig` | vendor `bb831ab` | byte-identical (sha256 `e0b0b6ce…1c7d`) |
+| `tests/license_audit_test.sh` with the asset inventory (every asset classified, no stale rule, reference/export/third-party assets out of the candidate) | `a2a0fb4` | 0 failures; candidate assets: 108 ORIGINAL, 103 CAPTURE-B1, 158 SUPPLIED-VECTOR, 16 SUPPLIED-BRAND, 16 AI-RASTER, 35 DERIVED-B1, 1 DERIVED-BRAND (image files; the generated C art is counted in B1_ARTWORK.md) |
+| `tests/notices_test.sh` | `a2a0fb4` | 0 failures |
+| public-source export | `a2a0fb4` | 1,851 files; none under `originals/`, `mockups/`, no `.dc.html`, `support.js`, `.zip` or `.otf` |
+| export cleanliness scan (private keys, credentials, Wi-Fi names, LAN addresses, MACs) | `a14029f` | no keys or credentials; LAN addresses and MACs in hardware records (C8) |
 
 Not run, by the owner's instruction on 2026-10-02: the riscv64 and DRM
 cross builds, `apply_to_sdk.sh` / `build_image.sh` against the SDK, and
