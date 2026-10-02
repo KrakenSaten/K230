@@ -125,6 +125,8 @@ static void build_head(struct rift_nodes *v)
     v->head_cell[i] = rift_cell(v->head, POS_STYLE_CAPTION, COL_HEARD, LV_TEXT_ALIGN_RIGHT);
     lv_label_set_text(v->head_cell[i], "HEARD");
     i++;
+    /* The rows widen the same columns by the same words (rift_node_row.c). */
+    rift_node_cols_widen(v->head_cell[2], v->head_cell[3], v->head_cell[4], v->head_cell[5]);
     /* Under nothing but the age it follows: the pulse is that age, bucketed. */
     v->head_cell[i] = spacer(v->head, COL_PULSE);
     lv_obj_set_style_margin_left(v->head_cell[i], PULSE_PULL, 0);

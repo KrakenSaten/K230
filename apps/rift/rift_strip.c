@@ -12,6 +12,7 @@
 #include "rift_widgets.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #define STRIP_H RIFT_TOUCH_H
 /* Landscape (DS §37.2): the strip is the app's top row, where the shell's
@@ -190,10 +191,17 @@ void rift_tabs_shape(struct rift_app *a)
     }
 }
 
+/* The caption's parts, most needed first: the keys, then the counts. */
+#define CAPTION_COUNTS 4
+#define CAPTION_MAX 160
+
 void rift_tabs_paint_caption(struct rift_app *a)
 {
     const struct rift_model *m = &a->model;
     char hops[12];
+    char counts[CAPTION_COUNTS][32];
+    char text[CAPTION_COUNTS + 1][CAPTION_MAX];
+    const char *candidate[CAPTION_COUNTS + 1];
     const char *keys = "";
     int64_t now;
     int max_hops = -1;
@@ -229,9 +237,29 @@ void rift_tabs_paint_caption(struct rift_app *a)
     } else {
         snprintf(hops, sizeof(hops), "%d", max_hops);
     }
-    lv_label_set_text_fmt(a->cmd_hint,
-                          "%s%d KNOWN" RIFT_SEP "%d NOW" RIFT_SEP "%d FRESH" RIFT_SEP
-                          "MAX %s HOPS",
-                          keys, m->node_count, active, rift_model_fresh_count(m, now), hops);
+    snprintf(counts[0], sizeof(counts[0]), "%d KNOWN", m->node_count);
+    snprintf(counts[1], sizeof(counts[1]), "%d NOW", active);
+    snprintf(counts[2], sizeof(counts[2]), "%d FRESH", rift_model_fresh_count(m, now));
+    snprintf(counts[3], sizeof(counts[3]), "MAX %s HOPS", hops);
+    /* Right-aligned and clipped, a caption wider than the room it has is
+     * cut at its left edge - at the keys, the part a reader needs - and at
+     * a larger text size (DS §46) it is. So the counts go first, from the
+     * last, and the keys only once there is nothing else left to drop. */
+    for (i = CAPTION_COUNTS; i >= 0; i--) {
+        size_t at = (size_t)snprintf(text[i], sizeof(text[i]), "%s", keys);
+        int c;
+
+        for (c = 0; c < i && at < sizeof(text[i]); c++) {
+            at += (size_t)snprintf(text[i] + at, sizeof(text[i]) - at, "%s%s",
+                                   c ? RIFT_SEP : "", counts[c]);
+        }
+        /* With every count dropped, the keys lose their trailing separator. */
+        if (i == 0 && at >= sizeof(RIFT_SEP) - 1 &&
+            strcmp(text[i] + at - (sizeof(RIFT_SEP) - 1), RIFT_SEP) == 0) {
+            text[i][at - (sizeof(RIFT_SEP) - 1)] = '\0';
+        }
+        candidate[CAPTION_COUNTS - i] = text[i];
+    }
+    rift_cell_set_text_first_fit(a->cmd_hint, candidate, CAPTION_COUNTS + 1);
     lv_obj_remove_flag(a->cmd_hint, LV_OBJ_FLAG_HIDDEN);
 }

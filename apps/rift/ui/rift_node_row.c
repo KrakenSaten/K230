@@ -15,6 +15,20 @@ int32_t rift_node_strip_width(const struct rift_app *a)
     return a->wide ? RIFT_STRIP_W_WIDE : RIFT_STRIP_W;
 }
 
+/* Each column's widest words: its header and the longest value
+ * rift_format.c writes into it (an SNR below -10 dB, an age past 99 days). */
+void rift_node_cols_widen(lv_obj_t *hops, lv_obj_t *rssi, lv_obj_t *snr, lv_obj_t *heard)
+{
+    rift_cell_widen(hops, "HOPS");
+    rift_cell_widen(hops, "DIR");
+    rift_cell_widen(rssi, "RSSI");
+    rift_cell_widen(rssi, RIFT_MINUS "120");
+    rift_cell_widen(snr, "SNR");
+    rift_cell_widen(snr, RIFT_MINUS "20.0");
+    rift_cell_widen(heard, "HEARD");
+    rift_cell_widen(heard, ">99d");
+}
+
 lv_obj_t *rift_node_row_line(lv_obj_t *parent, int32_t height)
 {
     lv_obj_t *r = lv_obj_create(parent);
@@ -161,6 +175,7 @@ void rift_node_row_build(struct rift_node_row *r, struct rift_app *a, lv_obj_t *
     r->rssi = rift_cell(r->line, POS_STYLE_CAPTION, COL_RSSI, LV_TEXT_ALIGN_RIGHT);
     r->snr = rift_cell(r->line, POS_STYLE_CAPTION, COL_SNR, LV_TEXT_ALIGN_RIGHT);
     r->heard = rift_cell(r->line, POS_STYLE_CAPTION, COL_HEARD, LV_TEXT_ALIGN_RIGHT);
+    rift_node_cols_widen(r->hops, r->rssi, r->snr, r->heard);
     /* After the age and close to it, and away from RSSI and SNR: it is when
      * the node was heard, and must not read as part of how loud it was. */
     r->pulse = rift_pulse_create(r->line);

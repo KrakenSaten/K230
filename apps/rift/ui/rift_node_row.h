@@ -19,8 +19,10 @@
  *
  * The widths are what the widest value in each column measures in Mono 14
  * (RSSI is "−103", HEARD is "HEARD" in the header) with room to spare
- * in Outdoor. The activity pulse has a column of its own after HEARD, the
- * age it buckets. */
+ * in Outdoor: Small's. At a larger text size (DS §46) each column grows to
+ * its widest word (rift_node_cols_widen) and the name takes what is left.
+ * The activity pulse has a column of its own after HEARD, the age it
+ * buckets. */
 #define COL_GAP 8
 #define COL_GLYPH RIFT_GLYPH_BOX
 #define COL_HOPS 40
@@ -72,6 +74,10 @@ struct rift_node_row {
 lv_obj_t *rift_node_row_line(lv_obj_t *parent, int32_t height);
 /* The hop strip's width in this shape. */
 int32_t rift_node_strip_width(const struct rift_app *a);
+/* Widen the four value columns - the header's cells or a row's - to the
+ * widest word each holds in the type it is drawn in, so the header and every
+ * row agree at every text size. */
+void rift_node_cols_widen(lv_obj_t *hops, lv_obj_t *rssi, lv_obj_t *snr, lv_obj_t *heard);
 
 /* Build a row into list, hidden and showing nothing. */
 void rift_node_row_build(struct rift_node_row *r, struct rift_app *app, lv_obj_t *list);

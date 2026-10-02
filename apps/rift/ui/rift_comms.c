@@ -19,11 +19,14 @@
 
 /* Column widths, chosen the way NODES chose its: the widest value each one
  * holds, in Mono 14, with room to spare in Outdoor. Everything but the name
- * and the preview is fixed, so a row cannot reflow as its values change. */
+ * and the preview is fixed, so a row cannot reflow as its values change.
+ * At a larger text size (DS §46) they grow to their widest word
+ * (rift_conv_cols_widen). */
 #define COL_GAP 8
 #define COL_ROUTE 72
 #define COL_HEARD 44
 #define PULSE_PULL (5 - COL_GAP) /* the pulse 5 px after its age, as in NODES */
+#define HEAD_TITLE "CONVERSATIONS"
 /* The landscape split (DS §37.2): a narrow list - glyph, name, pill, age -
  * and the thread with everything else. The details pane is shown only
  * while a reader has asked for it, and takes its width from the thread
@@ -50,6 +53,8 @@ struct rift_comms {
 
     lv_obj_t *pane_list;
     lv_obj_t *head;
+    lv_obj_t *head_title; /* CONVERSATIONS, fitted to what the columns leave */
+    lv_obj_t *head_heard;
     lv_obj_t *head_route; /* the ROUTE column header, portrait only */
     lv_obj_t *list;       /* the rows' scrolling object (rift_conv_list.h) */
     struct rift_conv_list *rows;
@@ -436,15 +441,21 @@ lv_obj_t *rift_comms_create(struct rift_app *app, lv_obj_t *parent)
 
     head = dense_row(v->pane_list, rift_header_row_h());
     v->head = head;
-    cell = rift_cell(head, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_flex_grow(cell, 1);
-    lv_label_set_text(cell, "CONVERSATIONS");
+    /* The title takes what the columns leave, and is fitted to it on every
+     * refresh (rift_comms_refresh): at a larger text size it does not fit
+     * landscape's list column whole, and drawn as it was it ran under HEARD. */
+    v->head_title = rift_cell(head, POS_STYLE_CAPTION, 0, LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_flex_grow(v->head_title, 1);
+    lv_obj_set_width(v->head_title, 1);
+    lv_label_set_text(v->head_title, HEAD_TITLE);
     cell = rift_cell(head, POS_STYLE_CAPTION, COL_HEARD, LV_TEXT_ALIGN_RIGHT);
     lv_label_set_text(cell, "HEARD");
+    v->head_heard = cell;
     cell = rift_cell(head, POS_STYLE_CAPTION, RIFT_PULSE_W, LV_TEXT_ALIGN_RIGHT);
     lv_obj_set_style_margin_left(cell, PULSE_PULL, 0);
     v->head_route = rift_cell(head, POS_STYLE_CAPTION, COL_ROUTE, LV_TEXT_ALIGN_RIGHT);
     lv_label_set_text(v->head_route, "ROUTE");
+    rift_conv_cols_widen(v->head_heard, v->head_route);
     rift_rule(v->pane_list);
 
     /* The rows: virtual, a pool over a spacer (rift_conv_list.h). */
@@ -511,6 +522,7 @@ void rift_comms_refresh(struct rift_app *app)
     if (peer) {
         rift_model_mark_read(&app->model, peer);
     }
+    rift_cell_set_text_fit(v->head_title, HEAD_TITLE);
     count = rift_model_conversations(m, conv, RIFT_MAX_CONVERSATIONS);
 
     /* Every channel the service holds is a row, whether or not anything has

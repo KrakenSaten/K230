@@ -35,5 +35,9 @@ void rift_conv_list_refresh(struct rift_conv_list *l, const struct rift_conv *co
 int rift_conv_list_rows_built(const struct rift_conv_list *l);
 /* The height every row would take laid out, for the portrait pane. */
 int32_t rift_conv_list_total_h(const struct rift_conv_list *l);
+/* Widen the HEARD and ROUTE columns - the header's cells or a row's - to the
+ * widest word each holds in the type it is drawn in (DS §46), so the header
+ * and the rows agree at every text size. */
+void rift_conv_cols_widen(lv_obj_t *heard, lv_obj_t *route);
 
 #endif

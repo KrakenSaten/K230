@@ -639,11 +639,28 @@ static void refresh_feed(struct rift_activity_view *v, int64_t now)
      * since the last frame is a quiet bar and not the last busy one held. */
     rift_traffic_read(&m->traffic, now, &bins);
     rift_traffic_graph_set(v->graph, &bins);
-    if (!bins.started) {
-        lv_label_set_text(v->graph_caption, "HEARD ON AIR" RIFT_SEP "20 MIN" RIFT_SEP "NOTHING YET");
-    } else {
-        lv_label_set_text_fmt(v->graph_caption, "HEARD ON AIR" RIFT_SEP "20 MIN" RIFT_SEP
-                                                "PEAK %u/MIN", rift_traffic_peak(&bins));
+    /* The caption shares its line with the legend and is clipped where the
+     * legend starts, which at a larger text size (DS §46) is inside the
+     * value it ends with. So it gives up the span first - the graph's own
+     * width says twenty minutes - then what the bars count, and keeps the
+     * value, which nothing else on the panel says. */
+    {
+        char value[32];
+        char full[80];
+        char counted[64];
+        const char *candidate[3];
+
+        if (!bins.started) {
+            snprintf(value, sizeof(value), "NOTHING YET");
+        } else {
+            snprintf(value, sizeof(value), "PEAK %u/MIN", rift_traffic_peak(&bins));
+        }
+        snprintf(full, sizeof(full), "HEARD ON AIR" RIFT_SEP "20 MIN" RIFT_SEP "%s", value);
+        snprintf(counted, sizeof(counted), "HEARD ON AIR" RIFT_SEP "%s", value);
+        candidate[0] = full;
+        candidate[1] = counted;
+        candidate[2] = value;
+        rift_cell_set_text_first_fit(v->graph_caption, candidate, 3);
     }
 
     for (i = 0; i < FEED_ROWS; i++) {

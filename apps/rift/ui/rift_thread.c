@@ -811,9 +811,20 @@ void rift_thread_refresh(struct rift_thread *t, const char *peer, const struct r
             }
         }
         rift_cell_set_text_fit(t->route, route);
-        lv_label_set_text(t->details, !peer ? ""
-                                      : a->details_open ? "DETAILS \xE2\x80\xB9"
-                                                        : "DETAILS \xE2\x80\xBA");
+        {
+            const char *details = !peer ? ""
+                                  : a->details_open ? "DETAILS \xE2\x80\xB9"
+                                                    : "DETAILS \xE2\x80\xBA";
+
+            /* The route is fitted to the room DETAILS leaves it, and a new
+             * DETAILS - a conversation just opened - takes that room only at
+             * the next layout: fit the route again on the next pass rather
+             * than leave it over the edge until the next repaint. */
+            if (strcmp(lv_label_get_text(t->details), details) != 0) {
+                lv_label_set_text(t->details, details);
+                a->refresh_pending = 1;
+            }
+        }
     }
 
     refusal = rift_thread_refusal(a);

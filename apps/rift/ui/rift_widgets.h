@@ -174,4 +174,18 @@ void rift_label_set(lv_obj_t *label, const char *text);
 /* The width text takes in the cell's own font. */
 int32_t rift_cell_text_width(lv_obj_t *cell, const char *text);
 
+/* Widen a fixed-width cell to what text takes in the cell's own font, and
+ * never narrow it (rift_fit.c). A column's px width is Small's; called with
+ * the column's widest word, on the header cell and on every row's, it keeps
+ * the column whole and the header over its rows at every text size (DS §46)
+ * and changes nothing at Small. */
+void rift_cell_widen(lv_obj_t *cell, const char *text);
+/* Set the first of count candidates, longest first, that fits the width the
+ * cell has now; when none does, the last, shortened with an ellipsis
+ * (rift_cell_set_text_fit). For a caption that has parts it can spare: the
+ * candidates drop them in the order they matter least, so a narrow column
+ * or a larger text size loses a count before it loses the words that say
+ * what the keys do. */
+void rift_cell_set_text_first_fit(lv_obj_t *cell, const char *const *candidates, int count);
+
 #endif
