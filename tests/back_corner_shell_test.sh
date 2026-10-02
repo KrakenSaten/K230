@@ -1,21 +1,24 @@
 #!/bin/bash
-# The top-left way back takes a tap anywhere in its corner (DS §48), in the
+# The top-left way back is the screen's corner, drawn and touched (DS §48), in the
 # running simulator shell, by real taps through the simulator's own pointer
 # (shell.tap, test hooks only):
 #
-#   1. pocketui_back_test (built beside the shell): the slab drawn as before,
-#      the corner target's edges to the pixel, the body's first row, the
+#   1. pocketui_back_test (built beside the shell): the corner drawn from the edges,
+#      its edges to the pixel, the title unmoved, the body's first row, the
 #      pressed state, a slide off the corner, Enter on the focused slab;
 #   2. every app opened in portrait and landscape (and landscape with unit
 #      A's 50 px top corners): its header's back slab is where it was, a tap
 #      on the screen's top-left pixel, the strip left of the slab, the row
-#      above it, the header's foot under it and the last column of the reach
-#      right of it each go back; a tap one pixel past the reach, on the
+#      above it, the header's foot under it and the corner's last column each
+#      go back; a tap one pixel past the corner, on the
 #      title, or on the body's first pixel row does not;
 #   3. Settings -> System: the corner goes back to Settings, then home;
 #   4. a launcher folder and Controls: the corner comes back to the
 #      launcher's page; the title beside it does not;
-#   5. thirty corner rounds in a row, and no fault in the shell's log.
+#   5. thirty corner rounds in a row, and no fault in the shell's log;
+#   6. Small, Medium and Large in both orientations: the layout audit finds
+#      nothing clipped or overlapping on Settings and System, the title does
+#      not go back, the corner does.
 #
 # Requires SHELL_BIN (the CMake-built pocketos-shell, SDL, with its test
 # hooks) and pos (make all).
@@ -28,7 +31,7 @@ OUT=$(mktemp -d)
 failed=0
 check() { if [ "$2" = "1" ]; then echo "ok   $1"; else echo "FAIL $1"; failed=$((failed + 1)); fi; }
 
-REACH=8 # POCKETUI_BACK_REACH
+FOOT=8 # POCKETUI_BACK_FOOT: the corner reaches the header row's foot; its right edge is the slab's
 # Every app with the shell's header in both orientations; RIFT and Video draw
 # their own top row in landscape (app.h `header`) and are taken in portrait.
 APPS="settings calculator clock calendar notes files terminal camera recorder photo mp3 wave zabbix browser
@@ -75,7 +78,7 @@ corner_round() {
     fi
     set -- $g
     pl=$1 hy=$2 hh=$3 by=$4
-    x2=$((pl + 71 + REACH)) y2=$((hy + 8 + 55 + REACH))
+    x2=$((pl + 71)) y2=$((hy + 8 + 55 + FOOT))
     check "$tag $app: the reach ends at the header's foot ($y2, header $hy+$hh)" \
         "$([ "$y2" = $((hy + hh - 1)) ] && echo 1 || echo 0)"
     for xy in "0 0" "$((pl / 2)) $((hy + 36))" "$((pl + 36)) $((hy + 2))" "$((pl + 36)) $y2" \
@@ -146,7 +149,7 @@ for run in portrait landscape landscape50; do
     for f in utilities games apps; do
         call shell.folder id=$f; sleep 0.4
         opened=$(folder)
-        tap $((m + 72 + REACH)) 36 # one pixel past the reach
+        tap $((m + 72)) 36 # one pixel past the corner
         tap $((m + 72 + 16 + 20)) 36 # the title
         kept=$(folder)
         tap 0 0
@@ -170,6 +173,45 @@ for run in portrait landscape landscape50; do
     check "$run: the shell is still the one started, no fault in its log" \
         "$(kill -0 "$SP" 2>/dev/null && no_fault && echo 1 || echo 0)"
     stop_shell
+done
+
+# ---- 6. Small, Medium and Large, both orientations ---------------------------------------
+# The text size moves the title's type, never the corner: the corner still
+# goes back, the title still does not, and the layout audit finds nothing
+# clipped or overlapping on Settings and System (the chevron and the title
+# are the header's meaningful objects; the corner itself is a surface).
+call_out() { "$POS" call shell "$@" 2>&1; }
+audit_co() {
+    call_out shell.audit | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+d = d.get('result', d)
+print(d['count']['clipped'], d['count']['overlap'])
+for i in d['issues']:
+    if i['kind'] in ('clipped', 'overlap'):
+        print('#', i['kind'], i['path'], repr(i['text']), file=sys.stderr)" 2>>"$OUT/audit.txt"
+}
+for o in portrait landscape; do
+    for z in small medium large; do
+        fresh
+        start_shell --rotation "$o" --no-lock --text-size "$z"
+        ok=0
+        for a in settings system; do
+            open_app "$a"
+            set -- $(header); pl=$1
+            co=$(audit_co)
+            [ "$co" = "0 0" ] && ok=$((ok + 1)) || echo "# $o $z $a audit clipped/overlap: $co"
+            tap $((pl + 72 + 16 + 4)) 36 # the title's first letters
+            [ "$(current)" = "$a" ] && ok=$((ok + 1)) || echo "# $o $z $a: the title went to $(current)"
+            open_app "$a"
+            tap 2 2
+            want=home; [ "$a" = system ] && want=settings
+            [ "$(current)" = "$want" ] && ok=$((ok + 1)) || echo "# $o $z $a: the corner went to $(current)"
+        done
+        check "$o $z: Settings and System - nothing clipped or overlapping, the title stays, the corner goes back ($ok of 6)" \
+            "$([ "$ok" = 6 ] && no_fault && echo 1 || echo 0)"
+        stop_shell
+    done
 done
 
 rm -rf "$OUT"

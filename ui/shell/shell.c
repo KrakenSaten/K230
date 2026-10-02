@@ -1213,18 +1213,27 @@ static void app_open(const struct pocketos_app *app)
 
     back = lv_button_create(header);
     lv_obj_remove_style_all(back);
-    pos_style_add(back, POS_STYLE_SLAB, 0);
-    pos_style_add(back, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
-    lv_obj_set_size(back, 72, 56); /* back slab, DS §7 */
+    lv_obj_set_size(back, 72, 56); /* back slab, DS §7: its place in the row */
     lv_obj_add_flag(back, LV_OBJ_FLAG_CLICKABLE);
-    /* Drawn 72 x 56; a finger reaches it anywhere in the corner (DS §48). */
-    pocketui_back_corner(back);
     lv_obj_add_event_cb(back, on_back, LV_EVENT_CLICKED, NULL);
     name = lv_label_create(back);
     lv_label_set_text(name, LV_SYMBOL_LEFT);
     pos_style_add(name, POS_STYLE_SYMBOL, 0);
     pos_style_add(name, POS_STYLE_ACCENT_TEXT, 0);
     lv_obj_center(name);
+    /* Drawn and touched as the screen's top-left corner (DS §48): from the
+     * edges to the slab's right edge and the header's foot. The header
+     * starts at the top edge; the slab sits at its left padding, centred
+     * in its height. Its look is the surface slab with a hairline edge (the
+     * secondary button's style), pressed as the slab was. */
+    {
+        int32_t pt = lv_obj_get_style_pad_top(header, LV_PART_MAIN);
+        int32_t pb = lv_obj_get_style_pad_bottom(header, LV_PART_MAIN);
+
+        pocketui_back_corner(back, lv_obj_get_style_pad_left(header, LV_PART_MAIN),
+                             pt + (POCKETUI_HEADER_H - pt - pb - 56) / 2, POS_STYLE_BUTTON_SECONDARY,
+                             POS_STYLE_SLAB_PRESSED);
+    }
 
     name = pocketui_label(header, app->name, POS_STYLE_TITLE);
     /* The hint: what an app writes with pocketos_shell_set_status_hint() is

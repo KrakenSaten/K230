@@ -1,6 +1,6 @@
 /*
- * The top-left way back's corner target (DS §48, pocketui_back_corner()),
- * under a real LVGL pointer device.
+ * The top-left way back drawn and touched as the screen's corner (DS §48,
+ * pocketui_back_corner()), under a real LVGL pointer device.
  *
  * The app header is built as the shell builds it (shell.c app_open): a 72 px
  * flex row from the top edge, its left padding the side margin or the
@@ -8,18 +8,24 @@
  * app's body below with a 64 px row at its top-left. Then the launcher's
  * folder page and Controls, which place the same slab absolutely (home.c,
  * controls.c). In each, at every left padding the panel can give it (20, 30,
- * 50 and the 72 the reach is sized for), in portrait and landscape:
+ * 50 and 72), in portrait and landscape:
  *
- *   - the slab is drawn exactly where and as large as before;
- *   - a tap anywhere in the corner goes back once: the slab's middle, the
+ *   - the slab keeps its place in the row, so the title does not move, and
+ *     draws nothing itself;
+ *   - the corner box is drawn in the look asked for, from past the screen's
+ *     top and left edges (its own rounded corner off the screen) to the
+ *     slab's right edge and the header row's foot, 16 px short of the
+ *     title; the chevron is centred in what is seen of it, clear of the
+ *     corner's inset;
+ *   - a tap anywhere in the box goes back once: the slab's middle, the
  *     top-left pixel of the screen, the strip left of the slab, the row
- *     above it, the foot of the header under it, and the last column of the
- *     reach right of it;
- *   - a tap one pixel further right, on the title, on the rest of the
- *     header row, or on the body's first pixel row does not, and the body's
+ *     above it, the foot of the header under it, and its last column;
+ *   - a tap one pixel further right or down, on the title, on the rest of
+ *     the header row, or on the body's first row does not, and the body's
  *     row gets its own tap;
- *   - the slab shows pressed while a finger holds the corner, and a finger
- *     that slides off the corner and lifts elsewhere does what it did;
+ *   - the box shows pressed while a finger holds it, and while a key
+ *     presses the slab; a finger that slides off and lifts elsewhere does
+ *     what it did; a drag that scrolls the page lets it go;
  *   - Enter on the focused slab still goes back.
  *
  * Needs LVGL, so it is built by ui/shell/CMakeLists.txt beside the shell
@@ -135,6 +141,8 @@ struct screen {
     lv_obj_t *back;
     lv_obj_t *title;
     lv_obj_t *row; /* the body's first row (app header only) */
+    lv_obj_t *chevron;
+    lv_obj_t *face; /* what pocketui_back_corner() drew */
 };
 
 /* shell.c app_open: the header row, the slab in it, the title, the body. */
@@ -160,15 +168,16 @@ static void build_app(struct screen *s, int32_t pad_left)
 
     s->back = lv_button_create(header);
     lv_obj_remove_style_all(s->back);
-    pos_style_add(s->back, POS_STYLE_SLAB, 0);
-    pos_style_add(s->back, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
     lv_obj_set_size(s->back, 72, 56);
     lv_obj_add_flag(s->back, LV_OBJ_FLAG_CLICKABLE);
-    pocketui_back_corner(s->back);
     lv_obj_add_event_cb(s->back, on_back, LV_EVENT_CLICKED, NULL);
     o = lv_label_create(s->back);
     lv_label_set_text(o, LV_SYMBOL_LEFT);
+    pos_style_add(o, POS_STYLE_SYMBOL, 0);
     lv_obj_center(o);
+    s->chevron = o;
+    s->face = pocketui_back_corner(s->back, pad_left, (POCKETUI_HEADER_H - 56) / 2, POS_STYLE_BUTTON_SECONDARY,
+                                   POS_STYLE_SLAB_PRESSED);
     s->title = pocketui_label(header, "Settings", POS_STYLE_TITLE);
 
     body = lv_obj_create(s->root);
@@ -205,13 +214,15 @@ static void build_page(struct screen *s, int32_t margin)
     lv_obj_remove_flag(panel, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_pos(panel, 0, 84);
     lv_obj_set_size(panel, LV_PCT(100), 2 * PANEL_H);
-    pos_style_add(s->back, POS_STYLE_ENV_PANEL, 0);
-    pos_style_add(s->back, POS_STYLE_ENV_PANEL_PRESSED, LV_STATE_PRESSED);
     lv_obj_set_pos(s->back, margin, 8);
     lv_obj_set_size(s->back, 72, 56);
     lv_obj_add_flag(s->back, LV_OBJ_FLAG_CLICKABLE);
-    pocketui_back_corner(s->back);
     lv_obj_add_event_cb(s->back, on_back, LV_EVENT_CLICKED, NULL);
+    s->chevron = lv_label_create(s->back);
+    lv_label_set_text(s->chevron, LV_SYMBOL_LEFT);
+    pos_style_add(s->chevron, POS_STYLE_SYMBOL, 0);
+    lv_obj_center(s->chevron);
+    s->face = pocketui_back_corner(s->back, margin, 8, POS_STYLE_ENV_PANEL, POS_STYLE_ENV_PANEL_PRESSED);
     s->title = lv_label_create(s->root);
     lv_label_set_text(s->title, "Utilities");
     lv_obj_set_pos(s->title, margin + 72 + TITLE_GAP, 8);
@@ -241,17 +252,52 @@ static void run(enum kind k, bool landscape, int32_t pad)
     lv_obj_update_layout(lv_screen_active());
     lv_obj_get_coords(s.back, &b);
     lv_obj_get_coords(s.title, &t);
-    reach_x2 = b.x2 + POCKETUI_BACK_REACH;
-    reach_y2 = b.y2 + POCKETUI_BACK_REACH;
+    reach_x2 = b.x2;
+    reach_y2 = b.y2 + POCKETUI_BACK_FOOT;
 
-    snprintf(what, sizeof(what), "%s: the slab is drawn 72 x 56 at (%d, 8) as before (got %d,%d %dx%d)", tag,
+    snprintf(what, sizeof(what), "%s: the slab keeps its 72 x 56 place at (%d, 8) (got %d,%d %dx%d)", tag,
              (int)pad, (int)b.x1, (int)b.y1, (int)lv_area_get_width(&b), (int)lv_area_get_height(&b));
     check(what, b.x1 == pad && b.y1 == 8 && lv_area_get_width(&b) == 72 && lv_area_get_height(&b) == 56);
-    snprintf(what, sizeof(what), "%s: the reach ends short of the title (reach %d, title %d)", tag,
-             (int)reach_x2, (int)t.x1);
-    check(what, reach_x2 < t.x1);
-    snprintf(what, sizeof(what), "%s: the reach ends at the header row's foot (%d)", tag, (int)reach_y2);
-    check(what, reach_y2 == POCKETUI_HEADER_H - 1);
+    snprintf(what, sizeof(what), "%s: the title is where it was, 16 px after the slab (%d)", tag, (int)t.x1);
+    check(what, t.x1 == pad + 72 + TITLE_GAP);
+    snprintf(what, sizeof(what), "%s: the slab draws nothing itself", tag);
+    check(what, lv_obj_get_style_bg_opa(s.back, LV_PART_MAIN) == LV_OPA_TRANSP &&
+                    lv_obj_get_style_border_width(s.back, LV_PART_MAIN) == 0);
+    {
+        lv_area_t f;
+        lv_area_t c;
+        int32_t cx;
+
+        lv_obj_get_coords(s.face, &f);
+        lv_obj_get_coords(s.chevron, &c);
+        cx = (c.x1 + c.x2) / 2;
+        snprintf(what, sizeof(what), "%s: the corner is drawn from past the edges to (%d, %d) (got %d,%d - %d,%d)",
+                 tag, (int)reach_x2, (int)reach_y2, (int)f.x1, (int)f.y1, (int)f.x2, (int)f.y2);
+        check(what, f.x1 == -POCKETUI_BACK_BLEED && f.y1 == -POCKETUI_BACK_BLEED && f.x2 == reach_x2 &&
+                        f.y2 == reach_y2);
+        snprintf(what, sizeof(what), "%s: its own rounded corner is off the screen (radius %d, bleed %d)", tag,
+                 (int)lv_obj_get_style_radius(s.face, LV_PART_MAIN), POCKETUI_BACK_BLEED);
+        check(what, lv_obj_get_style_radius(s.face, LV_PART_MAIN) < POCKETUI_BACK_BLEED);
+        snprintf(what, sizeof(what), "%s: 16 px short of the title, at the header row's foot", tag);
+        check(what, t.x1 - f.x2 - 1 == TITLE_GAP && f.y2 == POCKETUI_HEADER_H - 1);
+        snprintf(what, sizeof(what), "%s: it is drawn (a fill and a hairline edge) and takes no focus", tag);
+        check(what, lv_obj_get_style_bg_opa(s.face, LV_PART_MAIN) > LV_OPA_TRANSP &&
+                        lv_obj_get_style_border_width(s.face, LV_PART_MAIN) >= 1 && !lv_obj_get_group(s.face));
+        snprintf(what, sizeof(what), "%s: under the chevron", tag);
+        check(what, lv_obj_get_index(s.face) < lv_obj_get_index(s.chevron));
+        /* The middle of 0..reach_x2, unless that would put it nearer the
+         * edge than 14 px inside the slab (only past a 44 px inset). */
+        {
+            int32_t want = (reach_x2 + 1) / 2 < pad + 14 ? pad + 14 : (reach_x2 + 1) / 2;
+            int32_t cy2 = c.y1 + c.y2;
+
+            snprintf(what, sizeof(what),
+                     "%s: the chevron centred in what is seen (x %d, want %d; y %d.%d, want 35.5), clear of the inset "
+                     "(%d >= %d)",
+                     tag, (int)cx, (int)want, (int)(cy2 / 2), (int)(cy2 % 2 ? 5 : 0), (int)c.x1, (int)pad);
+            check(what, cx - want <= 1 && want - cx <= 1 && cy2 >= 70 && cy2 <= 72 && c.x1 >= pad);
+        }
+    }
 
     /* In the corner: back, once. */
     snprintf(what, sizeof(what), "%s: the slab's middle goes back", tag);
@@ -296,11 +342,12 @@ static void run(enum kind k, bool landscape, int32_t pad)
     /* Held in the corner: pressed, as a tap on the slab is. */
     backs = 0;
     press_at(2, 2);
-    snprintf(what, sizeof(what), "%s: a finger on the corner shows the slab pressed", tag);
-    check(what, lv_obj_has_state(s.back, LV_STATE_PRESSED));
+    snprintf(what, sizeof(what), "%s: a finger on the corner shows it pressed", tag);
+    check(what, lv_obj_has_state(s.back, LV_STATE_PRESSED) && lv_obj_has_state(s.face, LV_STATE_PRESSED));
     release();
     snprintf(what, sizeof(what), "%s: and lifting it goes back once, the slab no longer pressed", tag);
-    check(what, backs == 1 && !lv_obj_has_state(s.back, LV_STATE_PRESSED));
+    check(what, backs == 1 && !lv_obj_has_state(s.back, LV_STATE_PRESSED) &&
+                    !lv_obj_has_state(s.face, LV_STATE_PRESSED));
 
     /* A slide from the corner onto the title ends as one from the slab's
      * middle does (LVGL's press lock keeps the press on the slab). */
@@ -323,7 +370,7 @@ static void run(enum kind k, bool landscape, int32_t pad)
 
     if (k == PAGE) {
         /* A drag that starts in the corner and becomes a scroll of the page:
-         * the slab lets go when the pad does, and nothing goes back. */
+         * the corner lets go, and nothing goes back. */
         bool scrolled;
         bool held;
 
@@ -332,7 +379,7 @@ static void run(enum kind k, bool landscape, int32_t pad)
         press_at(10, reach_y2 - 30);
         press_at(10, reach_y2 - 60);
         scrolled = lv_obj_get_scroll_y(s.root) > 0;
-        held = lv_obj_has_state(s.back, LV_STATE_PRESSED);
+        held = lv_obj_has_state(s.back, LV_STATE_PRESSED) || lv_obj_has_state(s.face, LV_STATE_PRESSED);
         release();
         snprintf(what, sizeof(what), "%s: a drag up from the corner scrolls the page", tag);
         check(what, scrolled);
@@ -344,22 +391,13 @@ static void run(enum kind k, bool landscape, int32_t pad)
         pump(400);
     }
 
-    /* The pad itself: nothing drawn, no focus. */
-    {
-        lv_obj_t *pad = NULL;
-        uint32_t i;
-
-        for (i = 0; i < lv_obj_get_child_count(s.back); i++) {
-            if (!lv_obj_check_type(lv_obj_get_child(s.back, (int32_t)i), &lv_label_class)) {
-                pad = lv_obj_get_child(s.back, (int32_t)i);
-            }
-        }
-        snprintf(what, sizeof(what), "%s: the reach draws nothing and takes no focus", tag);
-        check(what, pad && lv_obj_get_style_bg_opa(pad, LV_PART_MAIN) == LV_OPA_TRANSP &&
-                        lv_obj_get_style_border_width(pad, LV_PART_MAIN) == 0 &&
-                        lv_obj_get_style_outline_width(pad, LV_PART_MAIN) == 0 &&
-                        lv_obj_get_style_shadow_width(pad, LV_PART_MAIN) == 0 && !lv_obj_get_group(pad));
-    }
+    /* A key presses the slab, not the box: the box shows it too. */
+    lv_obj_add_state(s.back, LV_STATE_PRESSED);
+    snprintf(what, sizeof(what), "%s: the slab pressed by a key shows the corner pressed", tag);
+    check(what, lv_obj_has_state(s.face, LV_STATE_PRESSED));
+    lv_obj_remove_state(s.back, LV_STATE_PRESSED);
+    snprintf(what, sizeof(what), "%s: and released, released", tag);
+    check(what, !lv_obj_has_state(s.face, LV_STATE_PRESSED));
 
     /* Keys: Enter on the focused slab. */
     pos_input_add_obj(s.back);
@@ -378,7 +416,7 @@ static void run(enum kind k, bool landscape, int32_t pad)
 
 int main(void)
 {
-    static const int32_t pads[] = { POCKETUI_PAD, 30, 50, POCKETUI_BACK_CORNER };
+    static const int32_t pads[] = { POCKETUI_PAD, 30, 50, 72 };
     lv_display_t *disp;
     size_t p;
     int k;

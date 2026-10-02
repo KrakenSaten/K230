@@ -45,22 +45,25 @@ void pocketui_apply_bar_insets(lv_obj_t *bar, enum pos_edge edge);
 
 /* ---- The top-left way back (DS §48) ----------------------------------- */
 
-/* How far the back slab's touch target reaches past its right and bottom
- * edges: half the 16 px gap to the title beside it, and down to the foot of
- * the 72 px header row it is centred in (8 + 56 + 8). */
-#define POCKETUI_BACK_REACH 8
-/* How far toward the screen's top and left edges it may reach: across the
- * row's 8 px above it and any side margin or corner inset up to a slab's
- * width (30 px portrait, 50 px on unit A's landscape corners). */
-#define POCKETUI_BACK_CORNER 72
+/* How far the corner reaches below the slab: to the foot of the 72 px
+ * header row the slab is centred in (8 + 56 + 8). */
+#define POCKETUI_BACK_FOOT 8
+/* How far it is drawn past the screen's top and left edges, so its own
+ * rounded corner is off the screen and the panel's rounded corner is the
+ * one seen (more than the slab radius, 6). */
+#define POCKETUI_BACK_BLEED 8
 
-/* Make a top-left back slab take a tap anywhere in its corner of the
- * screen: from the top and left edges (up to POCKETUI_BACK_CORNER away) to
- * POCKETUI_BACK_REACH past its right and bottom edges. The slab is drawn
- * exactly as before and is pressed and clicked as before; only the area a
- * finger can reach it in grows, never toward the title or into what lies
- * below the header row. */
-void pocketui_back_corner(lv_obj_t *back);
+/* Make a top-left back slab the corner of the screen: one box, drawn in
+ * `look` (`pressed` while held) and taking a tap anywhere in it, from the
+ * screen's top and left edges to the slab's right edge and the header row's
+ * foot. `left` and `top` are the slab's distance from those edges (its side
+ * margin or corner inset, and 8). The slab keeps its place in the row and
+ * draws nothing itself, so the title does not move; the slab's chevron
+ * label, created before this call, is centred in the box. Its clicks, keys
+ * and pressed state are the slab's as before. Returns the box (NULL, and
+ * nothing changed, for a slab without a pixel size). */
+lv_obj_t *pocketui_back_corner(lv_obj_t *back, int32_t left, int32_t top, enum pos_style_role look,
+                               enum pos_style_role pressed);
 
 /* ---- Responsive layout guard (DS §21.3, §22.2) ------------------------ */
 

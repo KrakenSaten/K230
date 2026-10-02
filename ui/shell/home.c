@@ -737,17 +737,17 @@ static void folder_header(const struct home_folder_layout *lay, const char *name
     lv_obj_t *o;
 
     home.back = back;
-    pos_style_add(back, POS_STYLE_ENV_PANEL, 0);
-    pos_style_add(back, POS_STYLE_ENV_PANEL_PRESSED, LV_STATE_PRESSED);
     place(back, &lay->back);
     lv_obj_add_flag(back, LV_OBJ_FLAG_CLICKABLE);
-    pocketui_back_corner(back); /* the whole corner, as the app header's (DS §48) */
     lv_obj_add_event_cb(back, on_folder_back, LV_EVENT_CLICKED, NULL);
     o = lv_label_create(back);
     lv_label_set_text(o, LV_SYMBOL_LEFT);
     pos_style_add(o, POS_STYLE_ENV_TEXT, 0);
     pos_style_add(o, POS_STYLE_SYMBOL, 0);
     lv_obj_center(o);
+    /* The screen's top-left corner in the launcher's glass, as the app
+     * header's (DS §48); the page starts at the top edge. */
+    pocketui_back_corner(back, lay->back.x, lay->back.y, POS_STYLE_ENV_PANEL, POS_STYLE_ENV_PANEL_PRESSED);
     o = lv_label_create(home.folder.root);
     pos_style_add(o, POS_STYLE_ENV_TITLE, 0);
     lv_label_set_text(o, name);

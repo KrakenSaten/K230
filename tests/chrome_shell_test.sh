@@ -203,8 +203,11 @@ PY
 }
 # rule <png>: the first row, in the top 80, that is drawn in the line token
 # across 90 % of the width - the full-width bar's bottom hairline; -1: none.
-# slab <png>: "<top y> <left x>" of the header's back slab (surface), looked
-# for at x 56 in the top 140 rows and 20 px under its top.
+# corner <png>: "<top y> <right x> <bottom y>" of the back corner's surface
+# (DS §48): the unbroken run down the column at x 20 from its first surface
+# pixel (an app's panel may follow below), and along row 36 in
+# the first 300 columns (the chevron in its middle breaks the run, so the
+# last surface pixel is the right edge).
 pixels() {
     python3 - "$1" <<'PY'
 import json, sys
@@ -218,9 +221,10 @@ W, H, rows = read_png(sys.argv[1])
 px = lambda x, y: rows[y][x][:3]
 near = lambda p, c: all(abs(p[k] - c[k]) <= 3 for k in range(3))
 rule = next((y for y in range(0, 80) if sum(1 for x in range(0, W, 4) if near(px(x, y), line)) >= (W // 4) * 9 // 10), -1)
-slab = next((y for y in range(0, 140) if near(px(56, y), surf)), -1)
-left = next((x for x in range(0, 120) if slab >= 0 and near(px(x, slab + 20), surf)), -1)
-print(rule, slab, left)
+top = next((y for y in range(0, 140) if near(px(20, y), surf)), -1)
+right = max((x for x in range(0, 300) if near(px(x, 36), surf)), default=-1)
+bottom = next((y - 1 for y in range(top, 140) if not near(px(20, y), surf)), -1) if top >= 0 else -1
+print(rule, top, right, bottom)
 PY
 }
 
@@ -246,8 +250,8 @@ for rot in portrait landscape; do
     corner=30; [ $rot = landscape ] && corner=50
     for id in system timber; do
         set -- $(pixels "$OUT/$r-$id.png")
-        check "$rot $id: no full-width rule, the back slab from row 8 at x $corner, clear of the corner (got $1 $2 $3)" \
-            "$([ "$1" = -1 ] && [ "$2" = 8 ] && [ "$3" = $corner ] && echo 1 || echo 0)"
+        check "$rot $id: no full-width rule, the back corner from the top edge to row 70 and x $((corner + 70)) (got $1 $2 $3 $4)" \
+            "$([ "$1" = -1 ] && [ "$2" = 0 ] && [ "$3" = $((corner + 70)) ] && [ "$4" = 70 ] && echo 1 || echo 0)"
     done
     hits=$(for id in $APPS; do logs "$OUT/$r-$id.log" | grep -hE ' WARN |\[Warn\]' | grep -v 'radiod unavailable'; done)
     check "$rot: no warning from any app but the simulator's missing radiod" "$([ -z "$hits" ] && echo 1 || echo 0)"
@@ -350,8 +354,8 @@ check "unlocked: no cluster over Notes again ($(shown_of))" \
     "$([ "$(shown_of)" = '"shown":false' ] && echo 1 || echo 0)"
 "$POS" shell screenshot "$OUT/l-unlocked-notes.png" >/dev/null 2>&1
 set -- $(pixels "$OUT/l-unlocked-notes.png")
-check "opened again: Notes is fullscreen, its back slab from row 8 (got $1 $2 $3)" \
-    "$([ "$1" = -1 ] && [ "$2" = 8 ] && [ "$3" = 50 ] && echo 1 || echo 0)"
+check "opened again: Notes is fullscreen, its back corner to row 70 and x 120 (got $1 $2 $3 $4)" \
+    "$([ "$1" = -1 ] && [ "$2" = 0 ] && [ "$3" = 120 ] && [ "$4" = 70 ] && echo 1 || echo 0)"
 if [ -x "$RADIOD" ]; then
     "$POS" app start system >/dev/null 2>&1; sleep 0.4
     "$RADIOD" --backend mock >"$OUT/radiod.log" 2>&1 &
@@ -376,18 +380,18 @@ check "landscape, NONE forced on System: the shell says so, and home before it s
     "$(logs "$OUT/l-none.log" | grep -q 'chrome: none, content from y 0, cluster hidden, for system' &&
        logs "$OUT/l-none.log" | grep -q 'chrome: cluster, content from y 0, cluster shown, for home' && echo 1 || echo 0)"
 set -- $(pixels "$OUT/l-none.png")
-check "landscape NONE: the back slab from row 8 at x 50, clear of the corner (got $1 $2 $3)" \
-    "$([ "$1" = -1 ] && [ "$2" = 8 ] && [ "$3" = 50 ] && echo 1 || echo 0)"
-check "landscape NONE: nothing drawn in the top-left corner square" \
+check "landscape NONE: the back corner to row 70 and x 120 (got $1 $2 $3 $4)" \
+    "$([ "$1" = -1 ] && [ "$2" = 0 ] && [ "$3" = 120 ] && [ "$4" = 70 ] && echo 1 || echo 0)"
+check "landscape NONE: nothing but the back corner's own surface in the top-left corner square (DS §48)" \
     "$(python3 - "$OUT/l-none.png" <<'PY'
 import json, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, "docs/design/timber-art/tools")
 from pngio import read_png
 tok = json.load(open("docs/design/themes.json", encoding="utf-8"))["themes"]["ice"]["modes"]["normal"]
-bg = tuple(int(tok["bg"][i:i + 2], 16) for i in (1, 3, 5))
+surf = tuple(int(tok["surface"][i:i + 2], 16) for i in (1, 3, 5))
 W, H, rows = read_png(sys.argv[1])
-print(1 if all(all(abs(rows[y][x][k] - bg[k]) <= 3 for k in range(3)) for y in range(50) for x in range(50)) else 0)
+print(1 if all(all(abs(rows[y][x][k] - surf[k]) <= 3 for k in range(3)) for y in range(50) for x in range(50)) else 0)
 PY
 )"
 fresh

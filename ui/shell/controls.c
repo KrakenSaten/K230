@@ -593,12 +593,17 @@ lv_obj_t *controls_create(lv_obj_t *parent, bool landscape, const struct control
     lv_obj_add_flag(ct.root, LV_OBJ_FLAG_HIDDEN);
 
     /* Header: back, the title, what this is. */
-    back = glass(ct.root, &L->back, true);
-    pocketui_back_corner(back); /* the whole corner, as the app header's (DS §48) */
+    back = plain(ct.root);
+    lv_obj_set_pos(back, L->back.x, L->back.y);
+    lv_obj_set_size(back, L->back.w, L->back.h);
+    lv_obj_add_flag(back, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(back, on_close, LV_EVENT_CLICKED, NULL);
     o = text(back, POS_STYLE_ENV_TEXT, LV_SYMBOL_LEFT);
     pos_style_add(o, POS_STYLE_SYMBOL, 0);
     lv_obj_center(o);
+    /* The screen's top-left corner in glass, as the app header's (DS §48);
+     * Controls starts at the top edge. */
+    pocketui_back_corner(back, L->back.x, L->back.y, POS_STYLE_ENV_PANEL, POS_STYLE_ENV_PANEL_PRESSED);
     o = text(ct.root, POS_STYLE_ENV_TITLE, "Controls");
     lv_obj_set_pos(o, L->header.x, 12);
     o = text(ct.root, POS_STYLE_ENV_TEXT_SECONDARY, "Quick state of this device");
