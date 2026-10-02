@@ -159,6 +159,11 @@ struct rift_app {
     int wide; /* the landscape split is on */
     int32_t body_w;
     int32_t body_h;
+    /* The strip is the screen's top row (landscape: no shell header above
+     * it), and how far its ends keep in from the rounded top corners. */
+    int strip_at_top;
+    int32_t strip_inset_left;
+    int32_t strip_inset_right;
     unsigned drawn_revision;
     int64_t last_repaint_ms;
 

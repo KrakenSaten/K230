@@ -524,6 +524,29 @@ static void layout(struct rift_app *a)
         return;
     }
     box = &a->layout_guard.area;
+    /* At the display's top edge - landscape, where the shell builds no
+     * header above RIFT (DS §37.2) - the strip is the screen's top row, as the
+     * shell's header is in every other app: it starts at the edge and keeps
+     * clear of the rounded top corners sideways (the bar insets, applied to
+     * the strip in rift_tabs_shape), not by the frame being pushed down past
+     * them. Pushed down, it left a 50 px empty band above the row on unit B
+     * (2026-10-02). Everything under the strip is below the corners. */
+    {
+        int at_top = box->y1 <= 0 && in.top > 0;
+
+        if (at_top) {
+            struct pos_insets bar =
+                pos_display_bar_insets(pocketui_display_geometry(), POS_EDGE_TOP);
+
+            in.top = bar.top;
+            a->strip_inset_left = bar.left;
+            a->strip_inset_right = bar.right;
+        } else {
+            a->strip_inset_left = 0;
+            a->strip_inset_right = 0;
+        }
+        a->strip_at_top = at_top;
+    }
     lv_obj_set_style_pad_left(a->frame, in.left, 0);
     lv_obj_set_style_pad_top(a->frame, in.top, 0);
     lv_obj_set_style_pad_right(a->frame, in.right, 0);

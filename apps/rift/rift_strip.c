@@ -31,6 +31,10 @@
  * below it, as extra target, so no tap on the row lands on nothing. */
 #define FACE_GAP 8
 #define FACE_REACH (FACE_GAP / 2)
+/* As the screen's top row the back slab, like the shell header's, is
+ * touched from the screen's top edge to the row's foot: the row's air above
+ * and below it is (RIFT_NAV_ROW_H_TOP - FACE_H) / 2. */
+#define BACK_REACH_TOP ((RIFT_NAV_ROW_H_TOP - FACE_H) / 2)
 #define UNDERLINE_H 2
 
 static const char *const section_name[RIFT_SEC_COUNT] = { "ACTIVITY", "NODES", "COMMS", "NET" };
@@ -202,8 +206,18 @@ void rift_tabs_build(struct rift_app *a)
 
 void rift_tabs_shape(struct rift_app *a)
 {
-    /* One height in both shapes (DS §51.3); only the slab comes and goes. */
+    int top = a->strip_at_top;
+
+    /* The same faces in both shapes (DS §51.3). As the screen's top row
+     * (landscape) the strip is the shell header's height, so the faces sit
+     * where every other app's back slab does - 8 px down - and its ends keep
+     * in from the rounded corners as the header's do (rift_app.c layout).
+     * Under the shell's header (portrait) it is the 64 px row, 20 px in. */
+    lv_obj_set_height(a->strip, top ? RIFT_NAV_ROW_H_TOP : RIFT_NAV_ROW_H);
+    lv_obj_set_style_pad_left(a->strip, LV_MAX(RIFT_PAD, a->strip_inset_left), 0);
+    lv_obj_set_style_pad_right(a->strip, LV_MAX(RIFT_PAD, a->strip_inset_right), 0);
     if (a->back) {
+        lv_obj_set_ext_click_area(a->back, top ? BACK_REACH_TOP : FACE_REACH);
         if (a->wide) {
             lv_obj_remove_flag(a->back, LV_OBJ_FLAG_HIDDEN);
         } else {

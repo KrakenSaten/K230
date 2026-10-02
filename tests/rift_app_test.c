@@ -1282,8 +1282,8 @@ static void landscape_start_session(void)
     give_nodes();
     give_service();
     pump(200);
-    check("the strip is a touch row with the way back in it",
-          lv_obj_get_height(strip()) == RIFT_NAV_ROW_H && app->back && visible(app->back));
+    check("the strip is the screen's top row with the way back in it",
+          lv_obj_get_height(strip()) == RIFT_NAV_ROW_H_TOP && app->back && visible(app->back));
     give_messages();
     rift_app_show_section(app, RIFT_SEC_COMMS);
     pump(120);
@@ -1875,8 +1875,8 @@ static void scale_session(void)
         check("the thread is more than half the display", thread_share(scroll) > 50.0);
         check("its header is a header row, not a data row",
               lv_obj_get_height(kid(kid(thread_pane(), 0), 0)) == rift_header_row_h());
-        check("the strip is the navigation row in landscape too (DS 51.3)",
-              lv_obj_get_height(strip()) == RIFT_NAV_ROW_H);
+        check("the strip is the screen's top row in landscape (DS 51.3)",
+              lv_obj_get_height(strip()) == RIFT_NAV_ROW_H_TOP);
         check("with the way back in it", app->back && visible(app->back) &&
                                              within(app->back, strip()));
         check("and the command line is one too", lv_obj_get_height(cmdline()) == RIFT_ROW_H);
@@ -3068,7 +3068,7 @@ static void navigation_session(void)
             lv_obj_get_coords(tab(i), &t[i]);
             lv_obj_get_coords(app->tab_label[i], &l[i]);
             tall = tall && lv_area_get_height(&t[i]) == RIFT_NAV_FACE_H &&
-                   t[i].y1 - s.y1 == (RIFT_NAV_ROW_H - RIFT_NAV_FACE_H) / 2;
+                   t[i].y1 - s.y1 == (lv_area_get_height(&s) - RIFT_NAV_FACE_H) / 2;
             /* Visible: a filled face with an edge, the same as the next. */
             faces = faces && lv_obj_get_style_bg_opa(tab(i), LV_PART_MAIN) == LV_OPA_COVER &&
                     lv_obj_get_style_border_width(tab(i), LV_PART_MAIN) > 0 &&
@@ -3077,8 +3077,9 @@ static void navigation_session(void)
                 gaps = gaps && t[i].x1 - t[i - 1].x2 - 1 == 8;
             }
         }
-        snprintf(what, sizeof(what), "%s: the strip is a %d px row", tag, RIFT_NAV_ROW_H);
-        check(what, lv_area_get_height(&s) == RIFT_NAV_ROW_H);
+        snprintf(what, sizeof(what), "%s: the strip is a %d px row", tag,
+                 wide ? RIFT_NAV_ROW_H_TOP : RIFT_NAV_ROW_H);
+        check(what, lv_area_get_height(&s) == (wide ? RIFT_NAV_ROW_H_TOP : RIFT_NAV_ROW_H));
         snprintf(what, sizeof(what), "%s: ACTIVITY, NODES, COMMS and NET are %d px faces, centred",
                  tag, RIFT_NAV_FACE_H);
         check(what, tall);
@@ -3109,11 +3110,11 @@ static void navigation_session(void)
         tap_at(t[1].x2 + 3, (s.y1 + s.y2) / 2);
         snprintf(what, sizeof(what), "%s: a tap in the gap just after NODES is NODES", tag);
         check(what, app->section == RIFT_SEC_NODES);
-        tap_at((t[3].x1 + t[3].x2) / 2, s.y1);
-        snprintf(what, sizeof(what), "%s: NET answers at the strip's top row", tag);
+        tap_at((t[3].x1 + t[3].x2) / 2, t[3].y1 - 4);
+        snprintf(what, sizeof(what), "%s: NET answers 4 px above its face", tag);
         check(what, app->section == RIFT_SEC_NET);
-        tap_at((t[0].x1 + t[0].x2) / 2, s.y2);
-        snprintf(what, sizeof(what), "%s: and ACTIVITY at its foot", tag);
+        tap_at((t[0].x1 + t[0].x2) / 2, t[0].y2 + 4);
+        snprintf(what, sizeof(what), "%s: and ACTIVITY 4 px below its own", tag);
         check(what, app->section == RIFT_SEC_ACTIVITY);
         if (wide) {
             lv_area_t b;
@@ -3125,6 +3126,26 @@ static void navigation_session(void)
                       lv_area_get_height(&b) == RIFT_NAV_FACE_H && b.x1 < t[0].x1 &&
                       within(app->back, strip()));
             check("landscape: in the tabs' look", same_face(app->back, tab(1)));
+            {
+                /* No band above the row (unit B, 2026-10-02): the strip is the
+                 * screen's top row, as the shell's header is in every other
+                 * app, and the slab is where that header's slab is - 8 px
+                 * down, in from the rounded corner by the top bar's inset. */
+                struct pos_insets bar =
+                    pos_display_bar_insets(pocketui_display_geometry(), POS_EDGE_TOP);
+                lv_area_t h;
+
+                lv_obj_get_coords(app->cmd_hint, &h);
+                check("landscape: the strip starts at the screen's top edge, no band above it",
+                      s.y1 == 0 && lv_obj_get_style_pad_top(frame(), LV_PART_MAIN) == 0);
+                check("landscape: Back sits where every app's back slab does: 8 px down",
+                      b.y1 == (POCKETUI_HEADER_H - RIFT_NAV_FACE_H) / 2);
+                check("landscape: and in from the rounded corner by the top bar's inset",
+                      b.x1 == LV_MAX(RIFT_PAD, bar.left) &&
+                          h.x2 <= pocketui_display_geometry()->width - LV_MAX(RIFT_PAD, bar.right));
+                check("landscape: the sections start under the row, below the corners",
+                      lv_obj_get_y(content()) >= RIFT_NAV_ROW_H_TOP && inside_body(content()));
+            }
             tap_at((b.x1 + b.x2) / 2, s.y1);
             tap_at((b.x1 + b.x2) / 2, s.y2);
             tap_at(b.x2 + 3, (s.y1 + s.y2) / 2);
@@ -3162,7 +3183,9 @@ static void navigation_session(void)
             }
             snprintf(what, sizeof(what), "%s %s: the five faces inside the row (NET ends %d, row %d)",
                      tag, pos_text_size_name(sizes[z]), (int)last.x2, (int)(s.x2 - RIFT_PAD));
-            check(what, last.x2 <= s.x2 - RIFT_PAD && lv_obj_get_height(strip()) == RIFT_NAV_ROW_H);
+            check(what, last.x2 <= s.x2 - RIFT_PAD &&
+                            lv_obj_get_height(strip()) ==
+                                (wide ? RIFT_NAV_ROW_H_TOP : RIFT_NAV_ROW_H));
             snprintf(what, sizeof(what), "%s %s: each word whole inside its face", tag,
                      pos_text_size_name(sizes[z]));
             check(what, words && captions_clipped(strip()) == 0 && labels_overflowing(strip()) == 0);
