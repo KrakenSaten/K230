@@ -383,7 +383,9 @@ in any log, and that the password is not in the running helper's
 
 - It is never logged. tests/zabbix_http_test.sh greps the logs.
 - It is never shown: STATUS says "API token (never shown)".
-- It never enters the shell, since the helper reads it.
+- A stored token never enters the shell, since the helper reads it. The
+  one way a secret passes through the shell is being typed on the
+  CONNECTION screen (below).
 - It goes only into the Authorization header of authenticated requests, and
   never on `apiinfo.version` or `user.login`.
 - The header buffer is wiped after each request, and so are the request
@@ -401,11 +403,48 @@ in any log, and that the password is not in the running helper's
   The helper reports it as "device clock not set: the certificate cannot be
   checked" and does not weaken verification.
 
+**Typed on the unit (CONNECTION, §8 and §10.0).** The screen changes only
+what the configuration already had: `url=`, `auth=`, `user=` and the
+secret. The helper does every check, trial and write
+(core/zabbix/zbx_settings.h); the shell writes no file.
+
+- **Storage is the same two files.** zabbix.conf (0644, no secret) is
+  rewritten with those three keys replaced and every other line kept as it
+  was written; a `mode=fake` line is dropped. The secret goes into
+  `/var/lib/pocketos/zabbix/secret` through the same 0700/0600, O_EXCL,
+  O_NOFOLLOW, fsync path as `set-secret` (`zbx_config_stage_secret`). No new
+  store is made.
+- **The field is masked** from the first character (no last-character
+  reveal) and **never filled from the store**: the helper tells the screen
+  only whether a secret is stored. An empty field keeps the stored one.
+- **On the way to the helper** the typed secret travels hex-encoded over
+  the screen's own socketpair (`ctest`/`csave`, zbx_proto.h): never argv,
+  the environment, a file or a log. The line it was built in is wiped
+  (`explicit_bzero`), the helper wipes its input buffer and its copies after
+  each command, and the field is wiped after a save, when the screen closes
+  and when the app closes. LVGL frees the buffers of earlier edits of the
+  field without wiping them: a typed secret can therefore stay in freed heap
+  memory of the shell until it is reused. That is the residual exposure of
+  typing a secret on the unit.
+- **Saving cannot break a working setup.** SAVE first makes the same trial
+  as TEST CONNECTION (version, login for a password, an authenticated
+  `problem.get`, then `user.logout`) on a client of its own; only CONNECTED
+  is stored. The new files are staged (`.new`, synced), the old secret is
+  kept under `secret.prev` by a hard link, and the two renames are undone
+  if the second fails. AUTH FAILED, UNREACHABLE, INVALID CONFIG or a failed
+  write leave both files exactly as they were.
+- **Lockout:** one TEST or SAVE sends at most one `user.login`.
+- **Applied without a reboot:** after a save the app ends its helper and
+  starts a new one, which reads the new files.
+
 **Limitations**, stated plainly:
 
 - There is no key store and no encryption at rest (the same as ADR-003's
   Wi-Fi passphrases). Every Doors process runs as root, and anyone holding
   the card can read the token.
+- A secret typed on the unit passes through the shell's memory (above).
+- A power cut between the two renames of a save can leave the new secret
+  beside the old zabbix.conf; `secret.prev` then still holds the old one.
 - **Recommended:** a dedicated Zabbix user with read-only access to the
   wanted host groups, a role limited to the methods in §3, and a token with
   an expiry.
@@ -428,7 +467,8 @@ connection banner appears above every tab whenever something is not right.
   - Monitored and down hosts, then unknown and in maintenance.
   - The server, the Zabbix version, and when the data was updated.
   - The three most severe problems, each a tap from its host.
-  - With nothing set up: the setup steps and **TRY THE DEMO**.
+  - With nothing set up: what is needed, **SET UP THE CONNECTION** and
+    **TRY THE DEMO**.
 - **PROBLEMS**
   - At most 100 rows, most severe then newest.
   - Each row shows the severity word in its tone, the host, the age and ACK
@@ -450,8 +490,27 @@ connection banner appears above every tab whenever something is not right.
     (never the token), encryption, API version, connection, last success,
     last error with its detail, and the refresh intervals.
   - **REFRESH NOW**.
+  - **CONNECTION SETTINGS**.
   - In the demo: **SCENARIO: <name>**, which steps through the fake's
     scenarios, and **LEAVE THE DEMO**.
+- **CONNECTION** (DS §50, PROPOSED; from STATUS or the set-up panel; over
+  the tabs, which hide while it is open)
+  - SERVER, the frontend's address.
+  - SIGN IN WITH: API TOKEN or PASSWORD; USER for a password.
+  - The token or password, masked, empty unless typed; the line under it
+    says whether one is stored and that an empty field keeps it.
+  - RESULT: **CONNECTED**, **AUTH FAILED**, **UNREACHABLE** or **INVALID
+    CONFIG**, with the server's or the check's words, and for a save whether
+    it was stored.
+  - **TEST CONNECTION** and **SAVE**. Back (header, hardware or ‹ BACK)
+    returns to the tab.
+
+  | Result | When |
+  | --- | --- |
+  | CONNECTED | the version answered, the credentials were taken, an authenticated `problem.get` worked |
+  | AUTH FAILED | the server answered and refused the token, the user and password, or the session |
+  | UNREACHABLE | DNS, refused, timeout, TLS (an unset clock included), an HTTP error, an API error or an answer that cannot be read |
+  | INVALID CONFIG | caught before anything is sent: no or a bad address, `http://` without `allow_insecure_http=1`, a password without a user, a secret that cannot be stored, no secret typed or stored for the sign-in |
 
 **Severity is never carried by colour alone** (DS §2):
 
@@ -532,6 +591,28 @@ Where the fake runs:
   tool, built by `make test` and never installed.
 
 ## 10. Setting it up on a unit
+
+### 10.0 On the unit itself
+
+Zabbix → STATUS → **CONNECTION SETTINGS** (or **SET UP THE CONNECTION** on a
+unit with nothing set up):
+
+1. SERVER: the address the browser shows for the frontend, e.g.
+   `https://zabbix.example.com/` (the helper appends `api_jsonrpc.php`).
+2. SIGN IN WITH: **API TOKEN**, or **PASSWORD** and a USER.
+3. Type the token or password. With one already stored, leave the field
+   empty to keep it.
+4. **TEST CONNECTION** tries without storing anything; **SAVE** tries and
+   stores only what connects. The app then reconnects with the new settings,
+   with no restart.
+
+What cannot be set here stays in zabbix.conf and is kept by a save: the
+label, `verify_tls`, `ca_file`, `allow_insecure_http` (so a plain `http://`
+server needs that line over SSH first), the intervals and the timeout. An
+installation set up over SSH keeps working unchanged and shows up on the
+screen as it is.
+
+### 10.0.1 Over SSH
 
 Over SSH on the unit:
 
@@ -658,6 +739,25 @@ Host results, 2026-09-25 (WSL2 Ubuntu 22.04, gcc 11.4):
 | `zabbix_app_test` (CMake) | the screen under a real pointer, portrait and landscape: every tab, row to host and back, scenario switch, offline banner with data kept, auth, unconfigured and demo, missing helper, crash and restart, large estate bounded, long names, 20 opens and closes; STATUS reached by a finger drag in landscape | 69 ok |
 | `tests/zabbix_shell_test.sh` | the real simulator shell opens Zabbix in both orientations, draws the disaster in the error colour, logs no warning, leaves no helper | 19 ok (Zabbix shell); the real-shell half SKIPs on a default shell |
 | `tests/zabbix_lint.sh` | the boundaries of §4 and §7 | 0 failures |
+
+**The CONNECTION screen** (2026-10-02, branch
+`feat/zabbix-connection-settings`, same host). Only the Zabbix suites were
+run, not `make test`:
+
+| Suite | What it adds | Result |
+| --- | --- | --- |
+| `tests/zbx_settings_test` (new) | read for the screen without the secret; compose keeps every other line, drops `mode=fake`; ten kinds of invalid settings refused before anything is sent; token, password, refused password (one login only), expired token, refused, DNS, TLS, HTTP 500; save stores only CONNECTED, modes 0644/0600/0700, read back by the loader; an empty secret keeps the stored one; a rename failing half way rolls back, with and without a previous secret; no answer or log line holds a secret | 67 ok |
+| `tests/zbx_proto_test` | `settings`/`cresult` lines, damaged ones refused; hex both ways; `ctest`/`csave` built and parsed, every field at its longest, broken ones refused | 60 ok |
+| `tests/zabbix_view_test` | the model keeps settings and counts answers; the four result words and tones, "Saved"/"Not saved"; the secret's caption and note | 68 ok |
+| `tests/zabbix_session_test` | the real helper: the settings line, AUTH FAILED, CONNECTED, INVALID CONFIG, a save and its files, the same helper still serving data, the saved settings after a new start, no secret in cmdline, environ or log | 43 ok |
+| `tests/zabbix_http_test.sh` | `ctest`/`csave` over libcurl against the mock: one failed login, a save beside the kept keys, the password 0600 and in no helper line, the trial logged out, `pos-zabbix check` online on what was saved | 53 ok |
+| `zabbix_app_test` | CONNECTION in both shapes: load, targets, keyboard on a tap, mask, AUTH FAILED, CONNECTED, INVALID CONFIG, UNREACHABLE, save, refused save keeps the files, Back, reopen; the layout audit at Small, Medium and Large | 135 ok |
+| `tests/zabbix_lint.sh` | seven more rules for the screen (§7) | 43 ok |
+
+Eight mutants of zbx_settings.c and zbx_proto.c (saving without a
+connection, no rollback, mode=fake kept, an unchecked user, a trial without
+`problem.get`, no logout, a NUL accepted in hex, the keep flag lost) were
+each caught by a suite.
 
 ### 11.1 Full validation
 

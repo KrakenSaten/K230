@@ -248,3 +248,35 @@ Risks:
   - renewal against a real auto-logout (SERVER UNVERIFIED; mock only);
   - the counts against the frontend's own pages;
   - the clock unset on the unit.
+
+## Amendment 1 (PROPOSED 2026-10-02): the connection set up on the unit
+
+Status: Proposed, on branch `feat/zabbix-connection-settings`. Decisions 1-3
+stand as accepted; this amendment widens two statements under them, and
+needs the owner's acceptance like the rest of the ADR.
+
+**What changes.** The Zabbix app gets a CONNECTION screen (DS §50) that sets
+the server, the sign-in, the user and the token or password, tests them
+and saves them. It is the owner's request: a unit should be set up without
+SSH.
+
+**Decision 3, widened.** The secret store, its file, its modes and its
+refusals are unchanged. Besides `pos-zabbix set-secret`, the helper itself
+now writes it when the screen saves, through the same staged, 0600,
+O_EXCL|O_NOFOLLOW path (core/zabbix/zbx_settings.c), and only after the new
+settings have connected. zabbix.conf is rewritten by the helper too, its
+other lines kept, still with no secret in it.
+
+**Option D's "the token never enters the shell", narrowed.** A stored
+secret still never does: the helper reads it, and tells the screen only
+whether one is stored. A secret *typed* on the screen does pass through the
+shell: it is in the LVGL text field while it is typed (masked), it is sent
+hex-encoded over the helper's socketpair (never argv, the environment, a
+file or a log), and the shell's copies are wiped after the save and when
+the screen or the app closes. Buffers LVGL freed while it was being edited
+are not wiped; that is the residual exposure, and the reason SSH stays the
+documented alternative.
+
+**Still true:** curl, OpenSSL and cJSON stay out of the shell (the lint
+holds it); the shell writes no file; nothing on the server is changed; one
+test or save sends at most one `user.login`.
