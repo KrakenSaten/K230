@@ -229,6 +229,38 @@ wait_sysd() { # <expected count> — up to 5 s
     [ "$(count_sysd)" -eq "$1" ]
 }
 
+# An orphan: the supervisor killed outright, its daemon still running and
+# adopted by init. stop must ask the daemon to leave, as the supervisor would
+# have, and SIGKILL only one that will not go (v0.3.0 cold review item 1).
+# Each daemon's own SIGTERM handling is what is lost otherwise: radiod parks
+# the transceiver, netd stops wpa_supplicant, the shell releases the panel.
+# The stand-in is put back afterwards, so the section around it is unchanged.
+orphan_stop() { # <label> <init script> <daemon path> <supervise pid file> <child pid file>
+    cp "$3" "$3.keep"
+    cat > "$3" <<EOD
+#!/bin/sh
+env > "$ROOT/orphan.env"
+trap 'echo term > "$ROOT/orphan.term"; exit 0' TERM INT
+while :; do sleep 0.2; done
+EOD
+    chmod 0755 "$3"
+    rm -f "$ROOT/orphan.env" "$ROOT/orphan.term"
+    "$2" start >/dev/null 2>&1
+    wait_for "$ROOT/orphan.env"
+    kill -9 "$(pidof_file "$4")" 2>/dev/null
+    sleep 0.3
+    _orphan=$(pidof_file "$5")
+    check "$1: with its supervisor killed, the daemon is an orphan still running" \
+          $(alive "$_orphan" && echo 1 || echo 0)
+    out=$("$2" stop 2>&1)
+    check "$1 stop asks an orphaned daemon to leave rather than killing it" \
+          $([ -e "$ROOT/orphan.term" ] && [ "$(contains "$out" "forced")" -eq 0 ] && echo 1 || echo 0)
+    check "$1 stop leaves no orphan and no pid file for a reused pid" \
+          $(wait_gone "$_orphan" && [ ! -e "$4" ] && [ ! -e "$5" ] && echo 1 || echo 0)
+    mv -f "$3.keep" "$3"
+    rm -f "$ROOT/orphan.env" "$ROOT/orphan.term"
+}
+
 # ---- S60radiod ----------------------------------------------------------
 
 out=$("$S60" start 2>&1)
@@ -330,6 +362,9 @@ check "S60 stop leaves no supervisor behind" $([ "$(count_supervisors)" -eq 0 ] 
 check "S60 stop is bounded" $([ "$elapsed" -le 20 ] && echo 1 || echo 0)
 make_daemon "$ROOT/usr/sbin/radiod" "$ROOT/radiod.env"
 rm -f "$ROOT/radiod.env"
+
+orphan_stop S60 "$S60" "$ROOT/usr/sbin/radiod" "$ROOT/var/run/radiod-supervise.pid" \
+            "$ROOT/run/pocketos/radiod.pid"
 
 # ---- S65meshcored ------------------------------------------------------
 #
@@ -601,6 +636,9 @@ check "S90 stop removes the supervise pid file" \
       $([ ! -f "$ROOT/var/run/doors-shell-supervise.pid" ] && echo 1 || echo 0)
 check "S90 stop ends the supervisor" $(wait_gone "$SHPID" && echo 1 || echo 0)
 
+orphan_stop S90 "$S90" "$ROOT/usr/bin/doors-shell" "$ROOT/var/run/doors-shell-supervise.pid" \
+            "$ROOT/run/pocketos/doors-shell.pid"
+
 # ---- Phase 3: one identity, one settings file, one shell -----------------
 #
 # ADR-005 Phase 3 renamed the service. What is checked here is everything that
@@ -831,6 +869,9 @@ check "S55 passes the configured interface" \
 wait_netd 0
 rm -f "$ROOT/etc/default/netd"
 
+orphan_stop S55 "$S55" "$ROOT/usr/sbin/netd" "$ROOT/var/run/netd-supervise.pid" \
+            "$ROOT/run/pocketos/netd.pid"
+
 # ---- S50sysd ------------------------------------------------------------
 #
 # Runs last, so the supervisor count belongs to sysd alone. sysd has no
@@ -963,6 +1004,9 @@ check "S50 stop during a backoff leaves no supervisor" \
 check "S50 stop during a backoff leaves the state saying not running" \
       $([ "$(sed -n 's/^running=//p' "$ROOT/run/pocketos/sysd.state")" = "0" ] && echo 1 || echo 0)
 make_daemon "$ROOT/usr/sbin/sysd" "$ROOT/sysd.env"
+
+orphan_stop S50 "$S50" "$ROOT/usr/sbin/sysd" "$ROOT/var/run/sysd-supervise.pid" \
+            "$ROOT/run/pocketos/sysd.pid"
 
 # ---- a stop that cannot finish (cold review F9) --------------------------
 
