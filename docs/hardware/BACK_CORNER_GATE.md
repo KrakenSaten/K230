@@ -1,8 +1,9 @@
-# Back slab corner target (DS §48) - hardware gate
+# Back corner (DS §48) - hardware gate
 
-**Unit A carries doors-shell `8e2fac5` (this branch), hot-swapped over master
-`3a1303b`; every other binary is unchanged (userspace `9eda04e`). Rotation
-mode Automatic (landscape with the keyboard base), text size Small.**
+**Unit A carries doors-shell `1df9438` (this branch: the drawn corner),
+hot-swapped over master `3a1303b`; every other binary is unchanged
+(userspace `9eda04e`). Rotation mode Automatic (landscape with the keyboard
+base), text size Small (key absent, as found).**
 Rollback: `/root/rollback-back-hit/RESTORE.sh` (doors-shell `3a1303b`, md5
 `c2099da4`, and `settings.conf` as found).
 
@@ -18,6 +19,43 @@ Rollback: `/root/rollback-back-hit/RESTORE.sh` (doors-shell `3a1303b`, md5
   kernel path as a finger; **no physical finger was used**.
 - Tools: `C:\K230\out\back-hit-gate\` (g1 build, g2 deploy, g3 corner checks,
   g_pass captures + g3, g4 soak, g5 restore mode; logs/ and caps/)
+
+Two passes on this sheet: **the drawn corner** (`1df9438`, the section
+straight below) and, before it, **the touch target alone** around the old
+slab (`8e2fac5`, from "Points tapped" on).
+
+## The drawn corner - `1df9438`, 2026-10-02 08:54-09:05Z
+
+- Binary: riscv64 DRM `doors-shell` from a clean clone of `1df9438` (sysroot
+  LVGL, 0 first-party warnings, no test hooks), md5 `48159d74794633c00b35323ba4cbeb9d`;
+  hot-swapped over `8e2fac5` (rollback unchanged: back to master `3a1303b`).
+- Corner drawn from the edges to x 101 / row 71 in portrait (slab at x 30)
+  and x 121 / row 71 in landscape (slab at x 50); Utilities folder page to
+  x 107, Controls to x 121 (their margins 36 and 50). Title unmoved.
+
+| Step | Landscape | Portrait |
+| --- | --- | --- |
+| Settings at Small, Medium, Large: layout audit clipped / overlap (header row) | 0 / 0 (0) each | 0 / 0 (0) each |
+| Settings, Calculator, Clock, Notes, Files, Terminal: 7 corner taps go home | 7/7 each | 7/7 each |
+| Same apps: 4 px past the corner, the title, below the header stay | 3/3 each | 3/3 each |
+| System -> corner -> Settings -> corner -> home | PASS | PASS |
+| Folders Utilities, Games; Controls | PASS | PASS |
+| Twenty corner rounds | 20/20 | 20/20 |
+| Total (g3) | **18 PASS, 0 FAIL** | **18 PASS, 0 FAIL** |
+
+Captures (`C:\K230\out\back-hit-gate\caps\`): `corner-land-settings-{small,medium,large}`,
+`corner-land-settings-held`, `corner-land-folder`, `corner-land-controls`, and the
+same `corner-port-*`. Held at (3, 3): the whole corner lit (`surface_raised`)
+with the focus outline along its right and bottom edges. The frame buffer
+shows the corner square; on the glass the panel's rounded corner rounds it.
+
+Since this deploy: 839 shell.log lines, 0 ERROR/assert, 0 WARN, no crash
+report, one process throughout (the rotation-mode changes restart in place).
+The text-size steps wrote `text_size=small` into settings.conf, where the key
+had been absent (the same Small); the file was put back byte-identical.
+
+Not done: the owner's eyes and finger on the glass (the corner's look under
+the curve, the 16 px gap to the title).
 
 ## Points tapped
 

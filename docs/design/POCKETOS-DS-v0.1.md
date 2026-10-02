@@ -4508,4 +4508,7 @@ box in the pixels (from the top edge to row 70 and to the inset + 70).
 The touch target alone (a transparent target around the old 72 x 56 slab) was
 gated on unit A on `doors-shell` `8e2fac5`, 2026-10-02: landscape and portrait
 18/18 each against 7/18 for master `3a1303b` (docs/hardware/BACK_CORNER_GATE.md).
-The drawn corner of §48.2 is gated in the same sheet.
+The drawn corner of §48.2 on `doors-shell` `1df9438`, the same day and sheet:
+landscape and portrait 18/18 each, the layout audit clean at Small, Medium
+and Large in both, pressed lit on the whole corner, no fault. Left for the
+owner: the look under the glass's curve and the feel under a real finger.
