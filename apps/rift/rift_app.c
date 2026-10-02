@@ -18,7 +18,9 @@
 #include "rift_device.h"
 #include "rift_manage.h"
 #include "rift_netview.h"
+#include "rift_find.h"
 #include "rift_nodes.h"
+#include "rift_session.h"
 #include "rift_sound.h"
 
 #include <stdio.h>
@@ -26,10 +28,10 @@
 #include <string.h>
 
 #define CMDLINE_H RIFT_TOUCH_H
-/* Landscape (DS §37.2): the strip is the app's top row, where the shell's
- * header was, and holds a back slab; it and the command line are data-row
- * height there, and the composer's field is a line of type with its
- * padding. Every pixel they give up is the thread's. */
+/* Landscape (DS §37.2): the command line is a data row there, and the
+ * composer's field a line of type with its padding; every pixel they give up
+ * is the thread's. The strip above is navigation and a 56 px touch row in
+ * both orientations (DS §51.3, rift_strip.c). */
 #define CMDLINE_H_WIDE RIFT_ROW_H
 #define COMPOSER_H_WIDE 32
 
@@ -290,6 +292,7 @@ void rift_app_show_section(struct rift_app *a, enum rift_section section)
          * path hash confirmation, a key shown for sharing. */
         rift_manage_cancel(a);
         rift_device_cancel(a);
+        rift_session_cancel(a);
     }
     rift_tabs_paint(a);
     switch (section) {
@@ -478,11 +481,11 @@ static void on_composer_key(lv_event_t *e)
 
 /* ---- layout ---------------------------------------------------------------- */
 
-/* The chrome for the shape (DS §37.2): in landscape the strip is the app's
- * top row - data-row height, a back slab at its left, the tabs beside it -
- * and the command line and its field are as short as a line of type; in
- * portrait both are the 56 px rows of the handoff, and the shell's header
- * is above them. */
+/* The chrome for the shape (DS §37.2, §51.3): in landscape the strip is the
+ * app's top row - a back slab at its left, the tabs beside it, all 56 px
+ * targets - and the command line and its field are as short as a line of
+ * type; in portrait the strip is the same row without the slab, the command
+ * line a 56 px row of the handoff, and the shell's header is above them. */
 static void shape_chrome(struct rift_app *a)
 {
     int wide = a->wide;
@@ -542,6 +545,7 @@ static void layout(struct rift_app *a)
          * coming up also lays the frame out, under somebody typing. */
         rift_manage_cancel(a);
         rift_device_cancel(a);
+        rift_session_cancel(a);
     }
     /* The chrome's heights from the timer, not from inside this layout
      * pass (rift_app.h, chrome_pending). */
@@ -571,6 +575,17 @@ static void pump(lv_timer_t *t)
     int64_t now = rift_mono_ms();
 
     rift_ipc_poll(&a->ipc, now);
+    if (!a->frame) {
+        /* No screen: the session takes the mesh in and nothing else - no
+         * repaint, no focus, nothing of the screen's touched, because there
+         * is none. A direct message that arrives now is counted and filed
+         * unread, and no sound is asked for: RIFT's sound is for a reader
+         * looking at RIFT, as it was before RIFT kept running (DS §51). It
+         * is consumed here all the same, so reopening is not a late chime
+         * for something already shown as unread. */
+        (void)rift_notify_poll(&a->notify, &a->model, now, 0);
+        return;
+    }
     rift_app_notify_pass(a, now);
     if (a->chrome_pending) {
         a->chrome_pending = 0;
@@ -608,22 +623,20 @@ static void on_theme_changed(lv_event_t *e)
 
 static void *rift_create(lv_obj_t *root)
 {
-    struct rift_app *a = calloc(1, sizeof(*a));
+    struct rift_app *a = rift_app_session();
+    int fresh = (a == NULL);
 
-    if (!a) {
-        return NULL;
+    if (fresh) {
+        a = rift_bg_new();
+        if (!a) {
+            return NULL;
+        }
     }
     a->root = root;
-    rift_model_init(&a->model);
-    rift_ipc_init(&a->ipc, &a->model, RIFT_SERVICE);
-    /* The reader's choices, or the defaults when there are none (or none
-     * that could be read): opening the app writes nothing. */
-    if (rift_store_load(&a->prefs) < 0) {
-        LOG_WARN("rift: %s could not be read; using the defaults", rift_store_path());
-    }
-    a->prefs_saved = 1;
-    /* Everything the model holds now is history: nothing has arrived yet. */
-    rift_notify_init(&a->notify, &a->model, a->prefs.dm_sound);
+    a->opens++;
+    /* What was CLOSE RIFT's in an open that never reached destroy is not
+     * this one's. */
+    a->ending = 0;
 
     /* RIFT draws full-width rules and edge-to-edge dense rows, and the
      * approved vertical budget (56 strip + data + 56 command line) is
@@ -680,21 +693,42 @@ static void *rift_create(lv_obj_t *root)
         }
     }
 
-    a->section = RIFT_SEC_ACTIVITY;
-    rift_app_show_section(a, RIFT_SEC_ACTIVITY);
+    /* A fresh session opens on ACTIVITY; a kept one where the reader left it
+     * - the section, the node selected, the conversation open and what the
+     * find bar held. The field is the new screen's, so what it held is put
+     * back in it (from a copy: rift_find_set_query). */
+    if (a->node_query[0]) {
+        char query[RIFT_QUERY_MAX];
 
-    /* Connect before the first layout, so the first frame shows the service
-     * as it is rather than as unknown. */
-    rift_ipc_poll(&a->ipc, rift_mono_ms());
-    a->pump = lv_timer_create(pump, RIFT_POLL_MS, a);
+        snprintf(query, sizeof(query), "%s", a->node_query);
+        rift_find_set_query(a, query);
+    }
+    rift_app_show_section(a, a->section);
+
+    if (fresh) {
+        /* Connect before the first layout, so the first frame shows the
+         * service as it is rather than as unknown. A kept session is
+         * connected already - or reconnecting on its own backoff - and is
+         * never given a second connection: one RIFT, one meshcored client. */
+        rift_ipc_poll(&a->ipc, rift_mono_ms());
+        a->pump = lv_timer_create(pump, RIFT_POLL_MS, a);
+        rift_bg_adopt(a);
+    }
+    /* On screen: not in the background any more. */
+    pocketos_shell_set_background(RIFT_APP_ID, NULL, NULL);
 
     lv_obj_add_event_cb(a->frame, on_frame_size, LV_EVENT_SIZE_CHANGED, a);
     lv_obj_update_layout(a->frame);
     layout(a);
-    /* RIFT opens on ACTIVITY, read from its top. */
-    lv_obj_scroll_to_y(a->activity_root, 0, LV_ANIM_OFF);
-    LOG_INFO("rift: open, %s", rift_ipc_connected(&a->ipc) ? "meshcored connected"
-                                                           : "meshcored not answering");
+    if (fresh) {
+        /* RIFT opens on ACTIVITY, read from its top. */
+        lv_obj_scroll_to_y(a->activity_root, 0, LV_ANIM_OFF);
+        LOG_INFO("rift: open, %s", rift_ipc_connected(&a->ipc) ? "meshcored connected"
+                                                               : "meshcored not answering");
+    } else {
+        LOG_INFO("rift: open again (session kept, open %u), %s", a->opens,
+                 rift_ipc_connected(&a->ipc) ? "meshcored connected" : "meshcored not answering");
+    }
     return a;
 }
 
@@ -712,6 +746,9 @@ static void rift_tick(void *priv)
     }
 }
 
+/* Leaving RIFT takes the screen away and keeps the session (rift_app.h),
+ * unless CLOSE RIFT asked for the end. Either way the screen goes the same
+ * way: nothing that can call back into it is left behind. */
 static void rift_destroy(void *priv)
 {
     struct rift_app *a = priv;
@@ -719,28 +756,19 @@ static void rift_destroy(void *priv)
     if (!a) {
         return;
     }
-    /* Order matters. The timer goes first: it reaches the model, the
-     * connection and the screens, and one more pass after any of them has
-     * been released is a use after free. */
-    if (a->pump) {
-        lv_timer_delete(a->pump);
-        a->pump = NULL;
-    }
-    /* Nothing of RIFT's sounds after RIFT has gone. */
-    rift_sound_stop();
+    /* The timer stays (the session's), and from its next pass on it sees no
+     * frame and touches no screen. The rest of the screen's ways back in go
+     * here: the frame's size handler, the theme listener on the shell's
+     * screen - which outlives this app, so a listener left on it would fire
+     * into a screen already gone - and the screens' own blocks. */
     if (a->frame) {
         lv_obj_remove_event_cb_with_user_data(a->frame, on_frame_size, a);
-        a->frame = NULL;
     }
-    /* The screen is the shell's and outlives this app, so a listener left
-     * on it would fire into a freed block at the next theme change. */
     if (a->theme_host) {
         lv_obj_remove_event_cb_with_user_data(a->theme_host, on_theme_changed, a);
-        a->theme_host = NULL;
     }
-    /* The subscription is given back rather than merely dropped, and the
-     * socket is closed here rather than left to the process. */
-    rift_ipc_close(&a->ipc);
+    /* Nothing of RIFT's sounds once its screen has gone. */
+    rift_sound_stop();
     /* The touch keyboard is the shell's and outlives this app. An app that
      * left it up would hand the next screen a sheet over a third of it. */
     if (pocketos_shell_keyboard_visible()) {
@@ -751,8 +779,31 @@ static void rift_destroy(void *priv)
     rift_nodes_destroy(a);
     rift_activity_destroy(a);
     /* The LVGL objects are children of the shell's body and are deleted
-     * with it; the private blocks were this app's to release. */
-    free(a);
+     * with it; the private blocks were this app's to release, and every
+     * pointer to either is cleared with the rest of the screen's half. */
+    rift_bg_forget_screen(a);
+    if (a->ending || a != rift_app_session()) {
+        if (a == rift_app_session()) {
+            rift_bg_end();
+        } else {
+            free(a); /* not the session: never kept */
+        }
+        return;
+    }
+    /* Kept. The status cluster says so on every screen that shows it, from
+     * the session's own state: set here, cleared by the next open and by
+     * the session's end. */
+    pocketos_shell_set_background(RIFT_APP_ID, RIFT_BACKGROUND_LABEL, RIFT_BACKGROUND_HELP);
+    LOG_INFO("rift: left, session kept in the background (%s)",
+             rift_ipc_connected(&a->ipc) ? "meshcored connected" : "meshcored not answering");
+}
+
+/* The Doors shell is stopping or re-executing itself (app.h): the session
+ * ends now, cleanly - its subscription given back - rather than by the exec
+ * closing its socket. */
+static void rift_shutdown(void)
+{
+    rift_bg_end();
 }
 
 /* The Back action (app.h `back`, hw_actions.h): the ways out RIFT already has on
@@ -777,7 +828,7 @@ static int rift_back(void *priv)
 }
 
 const struct pocketos_app app_rift = {
-    .id = "rift",
+    .id = RIFT_APP_ID,
     .name = "RIFT",
     /* No icon mask: the approved package carries the RIFT mark as a design
      * sheet (docs/design/rift/shots/identity-sheet.png) and not as the
@@ -797,4 +848,7 @@ const struct pocketos_app app_rift = {
      * - where the shell's 72 px header was (DS §37.2). */
     .header = POCKETOS_HEADER_NONE_LANDSCAPE,
     .back = rift_back,
+    /* The session outlives the screen (DS §51) and ends here when the shell
+     * stops or re-executes, if CLOSE RIFT has not ended it first. */
+    .shutdown = rift_shutdown,
 };

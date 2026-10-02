@@ -79,8 +79,34 @@ struct rift_find;
 struct rift_net_view;
 struct rift_manage;
 struct rift_device;
+struct rift_session_view;
 
+/* The app's id in the shell's registry, and the name its session is marked
+ * by in the status cluster. */
+#define RIFT_APP_ID "rift"
+/* The status cluster's word for a session running behind another screen
+ * (app.h pocketos_shell_set_background, DS §51), and what it means. */
+#define RIFT_BACKGROUND_LABEL "RIFT"
+#define RIFT_BACKGROUND_HELP "RIFT active in background"
+
+/* One block, in two halves (DS §51).
+ *
+ * RIFT's session outlives its screen. Leaving the app with Back or Home
+ * takes the screen away and nothing else: the meshcored connection, its
+ * subscription, the model built from it - activity, traffic, messages, read
+ * marks - and where the reader was stay, and the pump timer goes on taking
+ * the mesh in. The next open builds a screen over the same block. The
+ * session ends only when it is asked to: CLOSE RIFT on ACTIVITY (after a
+ * confirmation), or the Doors shell stopping or re-executing (app.h
+ * shutdown).
+ *
+ * Everything from the top down to `section` is the screen's: LVGL objects,
+ * the screens' private blocks and the layout's bookkeeping. Leaving clears
+ * exactly that range (rift_app.c screen_forget), so a pointer into a deleted
+ * screen cannot survive into the next open. From `section` on is the
+ * session's. A new field goes in the half it belongs to. */
 struct rift_app {
+    /* ---- the screen: built by every open, cleared by every leave ---- */
     lv_obj_t *root;   /* the shell's body */
     lv_obj_t *frame;  /* exactly the body's content box */
     lv_obj_t *strip;  /* the section strip */
@@ -133,7 +159,27 @@ struct rift_app {
     int wide; /* the landscape split is on */
     int32_t body_w;
     int32_t body_h;
+    unsigned drawn_revision;
+    int64_t last_repaint_ms;
 
+    struct rift_nodes *nodes;
+    struct rift_activity_view *activity;
+    struct rift_comms *comms;
+    struct rift_find *find;
+    struct rift_net_view *net;
+    struct rift_manage *manage;
+    struct rift_device *device;
+    struct rift_session_view *session;
+    lv_obj_t *activity_root;
+    lv_obj_t *nodes_root;
+    lv_obj_t *comms_root;
+    lv_obj_t *net_root;
+    /* Set only when pos_theme_watch's table was full and this app had to
+     * listen for the theme event itself; it is removed from the screen on
+     * destroy, because the screen outlives the app. */
+    lv_obj_t *theme_host;
+
+    /* ---- the session: from here to the end, kept while RIFT is left ---- */
     enum rift_section section;
     /* Portrait only: the pushed DETAIL screen is up. In landscape the same
      * content is the right pane and nothing is pushed. */
@@ -168,25 +214,17 @@ struct rift_app {
     int prefs_saved;
     struct rift_notify notify;
 
+    /* The session's timer, not the screen's: with no screen it still reads
+     * the socket, so the subscription is never left to back up (pocketipc
+     * disconnects a subscriber that stops reading) and nothing that arrives
+     * while RIFT is left is lost. */
     lv_timer_t *pump;
-    unsigned drawn_revision;
-    int64_t last_repaint_ms;
-
-    struct rift_nodes *nodes;
-    struct rift_activity_view *activity;
-    struct rift_comms *comms;
-    struct rift_find *find;
-    struct rift_net_view *net;
-    struct rift_manage *manage;
-    struct rift_device *device;
-    lv_obj_t *activity_root;
-    lv_obj_t *nodes_root;
-    lv_obj_t *comms_root;
-    lv_obj_t *net_root;
-    /* Set only when pos_theme_watch's table was full and this app had to
-     * listen for the theme event itself; it is removed from the screen on
-     * destroy, because the screen outlives the app. */
-    lv_obj_t *theme_host;
+    /* CLOSE RIFT was confirmed: the next destroy ends the session rather
+     * than keeping it. */
+    int ending;
+    /* How many times a screen was built over this session (for the tests
+     * and the log: 1 is a fresh open). */
+    unsigned opens;
 };
 
 /* Chrome, for the screens. */
@@ -209,6 +247,26 @@ void rift_app_refresh(struct rift_app *a);
 const struct rift_node *rift_app_selected(const struct rift_app *a);
 /* meshcored's monotonic clock as this app reads it. */
 int64_t rift_app_now(const struct rift_app *a);
+
+/* CLOSE RIFT, confirmed: end the session - the connection given back, the
+ * model released, the status cluster's RIFT gone - and go home. Ends only
+ * what is RIFT's: meshcored and the radio are not touched. */
+void rift_app_end(struct rift_app *a);
+/* The session, whether or not a screen is over it; NULL when RIFT is not
+ * running at all. For the tests and the shell's own bookkeeping. */
+struct rift_app *rift_app_session(void);
+/* Whether the session is running with no screen over it. */
+int rift_app_in_background(void);
+
+/* rift_background.c, for rift_app.c's create and destroy. */
+/* A new block: the model, the connection (not yet attempted), the reader's
+ * stored choices, ACTIVITY. Not the session until adopted. */
+struct rift_app *rift_bg_new(void);
+void rift_bg_adopt(struct rift_app *a);
+/* End the session, if there is one. */
+void rift_bg_end(void);
+/* Clear the screen's half of the block (everything before `section`). */
+void rift_bg_forget_screen(struct rift_app *a);
 
 /* The DM sound's setting: applied at once, and stored. */
 void rift_app_set_dm_sound(struct rift_app *a, int on);

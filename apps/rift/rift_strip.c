@@ -14,13 +14,21 @@
 #include <stdio.h>
 #include <string.h>
 
+/* The strip is navigation, and navigation is a 56 px touch row in both
+ * orientations (DS §51.3, amending §37.2): the back slab and the four tabs
+ * are each that tall. Landscape had a 36 px data row here, which made the
+ * way back a 56 x 32 slab and the tabs 36 px targets - too small for a
+ * finger at the panel's top edge. */
 #define STRIP_H RIFT_TOUCH_H
-/* Landscape (DS §37.2): the strip is the app's top row, where the shell's
- * header was, and holds a back slab; it is data-row height there. Every
- * pixel it gives up is the thread's. */
-#define STRIP_H_WIDE RIFT_ROW_H
-#define BACK_W 56
+#define BACK_W 64
+/* The slab sits on the strip's rule with this much air above and below it,
+ * and takes the taps in that air as well: its target is the whole row. */
+#define BACK_INSET 2
+/* 32 px between tab labels, as ever, but given to the tabs as padding - 16
+ * each side - so a tap between two words lands on the nearer tab rather than
+ * on nothing. The labels and underlines draw where they always did. */
 #define TAB_GAP 32
+#define TAB_PAD (TAB_GAP / 2)
 #define UNDERLINE_H 2
 
 static const char *const section_name[RIFT_SEC_COUNT] = { "ACTIVITY", "NODES", "COMMS", "NET" };
@@ -84,20 +92,28 @@ void rift_tabs_build(struct rift_app *a)
     lv_obj_set_height(a->strip, STRIP_H);
     lv_obj_set_flex_flow(a->strip, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(a->strip, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_hor(a->strip, RIFT_PAD, 0);
-    lv_obj_set_style_pad_column(a->strip, TAB_GAP, 0);
+    /* The tabs carry the gaps between them as their own padding (TAB_PAD),
+     * so the strip's padding and the slab's margins give back what the first
+     * tab's padding takes: every word is where it was. */
+    lv_obj_set_style_pad_left(a->strip, RIFT_PAD - TAB_PAD, 0);
+    lv_obj_set_style_pad_right(a->strip, RIFT_PAD, 0);
+    lv_obj_set_style_pad_column(a->strip, 0, 0);
     lv_obj_remove_flag(a->strip, LV_OBJ_FLAG_SCROLLABLE);
 
     /* The way back, in landscape, where the strip is the app's top row and
      * the shell's header with its back slab is not drawn (DS §37.2): a
-     * slab the strip's height, with the shell's own glyph. Hidden in
-     * portrait, where the shell's header has it. */
+     * slab with the shell's own glyph, its target the strip's whole height
+     * - as tall as a tab (DS §51.3). Hidden in portrait, where the shell's
+     * header has it. */
     a->back = lv_button_create(a->strip);
     lv_obj_remove_style_all(a->back);
     pos_style_add(a->back, POS_STYLE_SLAB, 0);
     pos_style_add(a->back, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
-    lv_obj_set_size(a->back, BACK_W, STRIP_H_WIDE - 4);
-    lv_obj_set_style_margin_bottom(a->back, 2, 0);
+    lv_obj_set_size(a->back, BACK_W, STRIP_H - 2 * BACK_INSET);
+    lv_obj_set_style_margin_bottom(a->back, BACK_INSET, 0);
+    lv_obj_set_style_margin_left(a->back, TAB_PAD, 0);
+    lv_obj_set_style_margin_right(a->back, TAB_PAD, 0);
+    lv_obj_set_ext_click_area(a->back, BACK_INSET);
     lv_obj_add_flag(a->back, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(a->back, on_back, LV_EVENT_CLICKED, a);
     lv_obj_add_flag(a->back, LV_OBJ_FLAG_HIDDEN);
@@ -114,13 +130,15 @@ void rift_tabs_build(struct rift_app *a)
     for (i = 0; i < RIFT_SEC_COUNT; i++) {
         lv_obj_t *head;
 
-        /* A tab is a 56 px navigation target in portrait, not a 36 px row:
-         * navigation never shares the row exception (RIFT-DEV-1). Landscape
-         * gives the tabs the strip's data-row height (DS §37.2). */
+        /* A tab is a 56 px navigation target, not a 36 px row: navigation
+         * never shares the row exception (RIFT-DEV-1), in either
+         * orientation (DS §51.3). Its padding is half the gap to the next,
+         * so the gap is a target too. */
         a->tab[i] = lv_obj_create(a->strip);
         lv_obj_remove_style_all(a->tab[i]);
         lv_obj_set_height(a->tab[i], STRIP_H);
         lv_obj_set_width(a->tab[i], LV_SIZE_CONTENT);
+        lv_obj_set_style_pad_hor(a->tab[i], TAB_PAD, 0);
         lv_obj_set_flex_flow(a->tab[i], LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(a->tab[i], LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
                               LV_FLEX_ALIGN_CENTER);
@@ -166,28 +184,22 @@ void rift_tabs_build(struct rift_app *a)
     lv_obj_set_flex_grow(a->cmd_hint, 1);
     lv_obj_set_style_text_align(a->cmd_hint, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_set_style_pad_bottom(a->cmd_hint, 18, 0);
+    /* Inside its box, not a margin: a flex-grown child is given the free
+     * room without its margin taken off, and ran 16 px past the strip. */
+    lv_obj_set_style_pad_left(a->cmd_hint, TAB_PAD, 0);
     lv_label_set_long_mode(a->cmd_hint, LV_LABEL_LONG_CLIP);
     lv_label_set_text(a->cmd_hint, "");
 }
 
 void rift_tabs_shape(struct rift_app *a)
 {
-    int wide = a->wide;
-    int i;
-
-    lv_obj_set_height(a->strip, wide ? STRIP_H_WIDE : STRIP_H);
-    for (i = 0; i < RIFT_SEC_COUNT; i++) {
-        lv_obj_set_height(a->tab[i], wide ? STRIP_H_WIDE : STRIP_H);
-    }
+    /* One height in both shapes (DS §51.3); only the slab comes and goes. */
     if (a->back) {
-        if (wide) {
+        if (a->wide) {
             lv_obj_remove_flag(a->back, LV_OBJ_FLAG_HIDDEN);
         } else {
             lv_obj_add_flag(a->back, LV_OBJ_FLAG_HIDDEN);
         }
-    }
-    if (a->cmd_hint) {
-        lv_obj_set_style_pad_bottom(a->cmd_hint, wide ? 8 : 18, 0);
     }
 }
 

@@ -90,6 +90,7 @@ struct chrome_box chrome_content_box(enum pocketos_chrome effective, int32_t dis
 #define POCKETOS_CHROME_CLUSTER_PAD_L 6  /* before the chip */
 #define POCKETOS_CHROME_CLUSTER_PAD_R 12 /* after the clock, or the chip */
 #define POCKETOS_CHROME_CLUSTER_GAP 10   /* between the chip and the clock */
+#define POCKETOS_CHROME_MARK_PAD 6       /* each side of the background mark's word (DS §51.4) */
 #define POCKETOS_CHROME_EDGE_MIN 20      /* POCKETUI_PAD (shell.c checks the two agree) */
 /* What a row under the cluster keeps free between its own content and the
  * cluster's left edge: the header's column gap (DS §7). */

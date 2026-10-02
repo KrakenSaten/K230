@@ -135,10 +135,11 @@ big=$(find "$SRC" -name '*.c' -exec wc -l {} + | awk '$1 > 900 && $2 != "total" 
 check "no source file has become a monolith${big:+ ($big)}" "$([ -z "$big" ] && echo 1 || echo 0)"
 for part in rift_model.c rift_messages.c rift_arrivals.c rift_channels.c rift_actions.c \
             rift_order.c rift_format.c rift_format_msg.c rift_ipc.c rift_notify.c rift_sound.c \
-            rift_store.c rift_dm_sound.c rift_app.c rift_traffic.c rift_strip.c rift_net.c \
+            rift_store.c rift_dm_sound.c rift_app.c rift_background.c rift_traffic.c \
+            rift_strip.c rift_net.c \
             ui/rift_widgets.c ui/rift_fit.c ui/rift_graph.c ui/rift_activity.c ui/rift_nodes.c \
             ui/rift_node_row.c ui/rift_detail.c ui/rift_comms.c ui/rift_conv_list.c \
-            ui/rift_thread.c ui/rift_find.c ui/rift_netview.c; do
+            ui/rift_thread.c ui/rift_find.c ui/rift_netview.c ui/rift_session.c; do
     check "$part is its own file" "$([ -f "$SRC/$part" ] && echo 1 || echo 0)"
 done
 # The model's other translation units are held to the same rule as the first:
@@ -196,15 +197,30 @@ check "and stops its sound when it goes" \
        grep -q 'rift_sound_stop' && echo 1 || echo 0)"
 
 # ---- the lifecycle -------------------------------------------------------------
-# A timer that outlives the app reaches a freed block on its next pass, and
-# a subscription that is merely dropped leaves the service writing to a
-# socket nobody is reading.
-check "the app deletes its timer when it is destroyed" \
-    "$(sed -n '/^static void rift_destroy/,/^}/p' "$SRC/rift_app.c" |
+# The session outlives the screen (DS §51): destroy lets the screen go and
+# keeps the timer and the connection, which end with the session. A timer
+# that outlives the session reaches a freed block on its next pass, a timer
+# that touches a screen that is gone does the same, and a subscription that is
+# merely dropped leaves the service writing to a socket nobody is reading.
+check "the session's end deletes its timer" \
+    "$(sed -n '/^void rift_bg_end/,/^}/p' "$SRC/rift_background.c" |
        grep -q 'lv_timer_delete' && echo 1 || echo 0)"
 check "and closes its connection" \
-    "$(sed -n '/^static void rift_destroy/,/^}/p' "$SRC/rift_app.c" |
+    "$(sed -n '/^void rift_bg_end/,/^}/p' "$SRC/rift_background.c" |
        grep -q 'rift_ipc_close' && echo 1 || echo 0)"
+check "destroy ends the session when CLOSE RIFT asked, and the shell's shutdown always" \
+    "$(sed -n '/^static void rift_destroy/,/^}/p' "$SRC/rift_app.c" | grep -q 'rift_bg_end' &&
+       sed -n '/^static void rift_shutdown/,/^}/p' "$SRC/rift_app.c" | grep -q 'rift_bg_end' &&
+       grep -q '\.shutdown = rift_shutdown' "$SRC/rift_app.c" && echo 1 || echo 0)"
+check "destroy clears the screen's half of the block" \
+    "$(sed -n '/^static void rift_destroy/,/^}/p' "$SRC/rift_app.c" |
+       grep -q 'rift_bg_forget_screen' && echo 1 || echo 0)"
+check "with no screen the timer reads the socket and touches nothing of a screen" \
+    "$(sed -n '/^static void pump/,/^}/p' "$SRC/rift_app.c" | grep -A12 'if (!a->frame)' |
+       grep -q 'return;' && echo 1 || echo 0)"
+check "the status cluster's mark is set and cleared by RIFT alone" \
+    "$([ "$(grep -rl 'pocketos_shell_set_background' "$SRC" --include='*.c' | sort | tr '\n' ' ')" = \
+         "$SRC/rift_app.c $SRC/rift_background.c " ] && echo 1 || echo 0)"
 check "and drops the layout callback before the objects go" \
     "$(sed -n '/^static void rift_destroy/,/^}/p' "$SRC/rift_app.c" |
        grep -q 'lv_obj_remove_event_cb_with_user_data' && echo 1 || echo 0)"

@@ -7,6 +7,7 @@
 
 #include "pos_styles.h"
 #include "rift_device.h"
+#include "rift_session.h"
 #include "rift_graph.h"
 #include "rift_manage.h"
 #include "rift_sound.h"
@@ -317,6 +318,9 @@ lv_obj_t *rift_activity_create(struct rift_app *app, lv_obj_t *parent)
     /* The channels this node holds, joined and left here (ui/rift_manage.c);
      * built before THIS DEVICE, which adds its controls to the same block. */
     rift_manage_build_channels(app, v->col[0]);
+    /* How to end RIFT, which keeps running when it is left (DS §51): last
+     * in the left column, under what it governs. */
+    rift_session_build(app, v->col[0]);
     build_identity(v, v->col[1]);
     build_heard(v, v->col[1]);
     build_feed(v, v->col[1]);
@@ -330,6 +334,7 @@ void rift_activity_destroy(struct rift_app *app)
     }
     rift_manage_destroy(app);
     rift_device_destroy(app);
+    rift_session_destroy(app);
     free(app->activity);
     app->activity = NULL;
 }
@@ -731,6 +736,7 @@ void rift_activity_refresh(struct rift_app *app)
     refresh_identity(v);
     rift_manage_refresh(app);
     rift_device_refresh(app);
+    rift_session_refresh(app);
     refresh_heard(v, now);
     refresh_feed(v, now);
 }

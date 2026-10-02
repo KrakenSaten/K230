@@ -102,6 +102,24 @@ int64_t pocketos_shell_system_day(void);
  * valid until the next status tick; copy it if you keep it. */
 const char *pocketos_shell_radio_state(void);
 
+/* ---- work that goes on behind another screen (DS §51) ------------------ *
+ *
+ * An app whose work outlives its screen says so here, while that work runs
+ * with no screen of the app's over it, and the status cluster shows `label`
+ * beside the radio chip on every screen that shows the cluster. `help` is
+ * the one line that says what the mark means; the cluster takes no touch
+ * (DS §36.1), so shell.info carries it. A NULL or empty label says the work
+ * no longer runs and the mark goes. Keyed by the app's id; at most
+ * POCKETOS_BACKGROUND_MAX at once (a further one is logged and not shown).
+ *
+ * The shell decides nothing here: it shows what the app told it, so the
+ * mark is exactly the app's own state - RIFT's session, not whether the
+ * service RIFT talks to is running. Called on the LVGL thread, from the
+ * app's own create/destroy or a press; the cluster's room is worked out
+ * again when the next screen is laid out. */
+#define POCKETOS_BACKGROUND_MAX 4
+void pocketos_shell_set_background(const char *app_id, const char *label, const char *help);
+
 /* ---- display brightness ------------------------------------------------ *
  *
  * The panel belongs to the shell, and so does its brightness: an app asks
@@ -219,8 +237,10 @@ void pocketos_shell_keyboard_hide(void);
 int pocketos_shell_keyboard_visible(void);
 
 /* v0.1 lifecycle limitation: an app is created when opened and destroyed
- * when left; there is no pause/resume/suspend and no background state.
- * Apps that need continuity persist their own state on each change
- * (ADR-002 lists the fuller lifecycle as a later step). */
+ * when left; there is no pause/resume/suspend. Apps that need continuity
+ * persist their own state on each change (ADR-002 lists the fuller lifecycle
+ * as a later step). Two apps keep work of their own past destroy - the
+ * Terminal's session and RIFT's (DS §51) - and end it at `shutdown`; RIFT
+ * marks it in the status cluster (pocketos_shell_set_background). */
 
 #endif

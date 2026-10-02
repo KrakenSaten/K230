@@ -12,6 +12,10 @@
 #      not enabled the service looks like. Opening RIFT must not be a fault.
 #   4. The screens are reproducible: the same fixtures twice give the same
 #      pixels.
+#   5. RIFT kept behind other screens (DS §51): the status cluster's mark in
+#      shell.info across home, another app and RIFT again, one meshcored
+#      connection throughout, and the session ended when the shell stops.
+#      Needs pos (make all).
 #
 # Requires: SHELL_BIN (the CMake-built pocketos-shell; rift_app_test is built
 # beside it) and tests/fake-meshcored (make all / make test).
@@ -148,6 +152,84 @@ check "RIFT says the service is not answering" \
     "$(grep -q 'rift: open, meshcored not answering' "$LOGD/log/shell.log" 2>/dev/null ||
        grep -q 'rift: open, meshcored not answering' "$LOGD/out" && echo 1 || echo 0)"
 rm -rf "$RUN" "$LOGD" "$CFG" "$STATE"
+
+# ---- 5. kept behind other screens, in the real shell (DS §51) ---------------------
+# RIFT opened, left for home and for another app, opened again: the status
+# cluster's mark is RIFT's own state, the one meshcored connection lasts the
+# whole time, and the shell stopping ends the session cleanly.
+POS=${POS:-tools/pos/pos}
+if [ -x "$FAKE" ] && [ -x "$POS" ]; then
+    RUN=$(mktemp -d); LOGD=$(mktemp -d); CFG=$(mktemp -d); STATE=$(mktemp -d)
+    export POCKETOS_RUNTIME_DIR="$RUN" POCKETOS_LOG_DIR="$LOGD" POCKETOS_CONFIG_DIR="$CFG" \
+        POCKETOS_STATE_DIR="$STATE"
+    FAKE_MESHCORED_STATE=online FAKE_MESHCORED_REASON="receiving" FAKE_MESHCORED_NODES="$NODES" \
+    FAKE_MESHCORED_METHODS="$OUT/methods-bg.txt" FAKE_MESHCORED_LIFE_MS=60000 "$FAKE" & FP=$!
+    for _ in $(seq 1 60); do [ -S "$RUN/meshcored.sock" ] && break; sleep 0.05; done
+    # Portrait at Large with the widest chip: where the launcher's centred
+    # clock and the cluster with the mark come closest (DS §51.4).
+    POCKETOS_TEST_RADIO_STATE=rx \
+    "$SHELL_BIN" --theme carbon --rotation portrait --text-size large >"$LOGD/out" 2>&1 & SP=$!
+    for _ in $(seq 1 80); do [ -S "$RUN/shell.sock" ] && break; sleep 0.1; done
+    sleep 0.4
+    logged() { grep -rqF "$1" "$LOGD"; }
+    # "<app>:<label>:<help>,... <mark shown> <cluster width> <current>"
+    bgstate() {
+        "$POS" shell info 2>/dev/null | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print(",".join(b["app"] + ":" + b["label"] for b in d["background"]) or "-",
+      d["background_mark"], d["chrome"]["cluster"]["w"], d["current"])' 2>/dev/null
+    }
+    set -- $(bgstate); w0=${3:-0}
+    check "the shell starts with nothing behind its screens" \
+        "$([ "${1:-}" = "-" ] && [ "${2:-}" = "False" ] && echo 1 || echo 0)"
+    "$POS" app start rift >/dev/null 2>&1; sleep 0.8
+    set -- $(bgstate)
+    check "RIFT open: not in the background, no mark" \
+        "$([ "${4:-}" = "rift" ] && [ "${1:-}" = "-" ] && echo 1 || echo 0)"
+    "$POS" call shell shell.home >/dev/null 2>&1; sleep 0.5
+    info=$("$POS" shell info 2>/dev/null)
+    set -- $(bgstate)
+    check "home: RIFT kept and marked RIFT, 'RIFT active in background'" \
+        "$(printf '%s' "$info" | grep -q 'RIFT active in background' &&
+           [ "${1:-}" = "rift:RIFT" ] && [ "${2:-}" = "True" ] && [ "${4:-}" = "home" ] &&
+           echo 1 || echo 0)"
+    check "and the cluster is wider by the mark (${w0} -> ${3:-?})" \
+        "$([ "${3:-0}" -gt "$w0" ] && echo 1 || echo 0)"
+    clear=$(printf '%s' "$info" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+k, t = d["chrome"]["cluster"], d["launcher"]["time"]
+print(k["x"] - (t["x"] + t["w"]))' 2>/dev/null)
+    check "the launcher's clock stays 16 px clear of it at Large (${clear:-?} px)" \
+        "$([ "${clear:-0}" -ge 16 ] && echo 1 || echo 0)"
+    "$POS" app start calculator >/dev/null 2>&1; sleep 0.5
+    set -- $(bgstate)
+    check "another app open: still marked" \
+        "$([ "${4:-}" = "calculator" ] && [ "${2:-}" = "True" ] && echo 1 || echo 0)"
+    "$POS" app start rift >/dev/null 2>&1; sleep 0.8
+    set -- $(bgstate)
+    check "RIFT again: the mark goes" \
+        "$([ "${4:-}" = "rift" ] && [ "${1:-}" = "-" ] && [ "${2:-}" = "False" ] && echo 1 || echo 0)"
+    check "and RIFT says it reopened the session it kept" \
+        "$(logged 'rift: open again (session kept' && echo 1 || echo 0)"
+    "$POS" call shell shell.home >/dev/null 2>&1; sleep 0.4
+    kill "$SP" 2>/dev/null; wait "$SP" 2>/dev/null
+    check "the shell stopping ends the kept session" \
+        "$(logged 'rift: session ended' && echo 1 || echo 0)"
+    check "one connection for all of it, given back at the end" \
+        "$([ "$(grep -c '^mesh.subscribe$' "$OUT/methods-bg.txt" 2>/dev/null)" = 1 ] &&
+           [ "$(grep -c '^mesh.unsubscribe$' "$OUT/methods-bg.txt" 2>/dev/null)" = 1 ] &&
+           echo 1 || echo 0)"
+    check "nothing put on the air" \
+        "$(grep -qE '^mesh\.(send|advert)$' "$OUT/methods-bg.txt" && echo 0 || echo 1)"
+    check "and no fault" "$(grep -rqE ' ERROR |assert' "$LOGD" && echo 0 || echo 1)"
+    kill "$FP" 2>/dev/null; wait "$FP" 2>/dev/null
+    unset POCKETOS_RUNTIME_DIR POCKETOS_LOG_DIR POCKETOS_CONFIG_DIR POCKETOS_STATE_DIR
+    rm -rf "$RUN" "$LOGD" "$CFG" "$STATE"
+else
+    check "tests/fake-meshcored and pos present (make all) for the kept session" 0
+fi
 
 # ---- 4. the screens are reproducible ----------------------------------------------
 if [ -x "$BIN" ]; then

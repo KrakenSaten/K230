@@ -43,7 +43,10 @@ void rift_cell_set_text_first_fit(lv_obj_t *cell, const char *const *candidates,
     if (!cell || !candidates || count <= 0) {
         return;
     }
-    room = lv_obj_get_width(cell);
+    /* The room the text has: inside the cell's padding (the strip's caption
+     * has some on its left, rift_strip.c). The same as its width for every
+     * cell with none. */
+    room = lv_obj_get_content_width(cell);
     for (i = 0; i < count; i++) {
         if (room <= 0 || rift_cell_text_width(cell, candidates[i]) <= room) {
             /* Set whole, so the fingerprint of an earlier fit no longer
