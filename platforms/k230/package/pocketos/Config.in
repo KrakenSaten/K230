@@ -9,3 +9,27 @@ config BR2_PACKAGE_POCKETOS
 	  the doors CLI (with pos as its alias), pos-hwcheck, radiod, sysd,
 	  netd, pocketos-shell. Source is synced from the Doors repository
 	  by platforms/k230/scripts/apply_to_sdk.sh.
+
+if BR2_PACKAGE_POCKETOS
+
+config BR2_PACKAGE_POCKETOS_TOOLBOX
+	bool "power-user CLI toolbox"
+	default y
+	select BR2_PACKAGE_HTOP
+	select BR2_PACKAGE_NANO
+	select BR2_PACKAGE_LIBCURL
+	select BR2_PACKAGE_LIBCURL_CURL
+	select BR2_PACKAGE_JQ
+	select BR2_PACKAGE_ONIGURUMA
+	select BR2_PACKAGE_STRACE
+	select BR2_PACKAGE_IPERF3
+	select BR2_PACKAGE_TCPDUMP
+	help
+	  A small fixed set of command-line tools for the Terminal app and
+	  SSH, from Buildroot's own packages: htop, nano, curl, jq (with
+	  Oniguruma for its regular expressions), strace, iperf3 and
+	  tcpdump. No package manager. less and tree are BusyBox's.
+	  Licences and upstreams: docs/LICENSING.md, "Power-user CLI
+	  toolbox"; the per-image record is make legal-info.
+
+endif
