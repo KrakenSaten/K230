@@ -297,8 +297,11 @@ lv_obj_t *rift_net_view_create(struct rift_app *app, lv_obj_t *parent)
 
     build_path(v);
     v->legend = wrapping(v->root, POS_STYLE_CAPTION);
-    lv_label_set_text(v->legend, "RING = RELAYS BETWEEN HERE AND THE NODE: ON ITS LEARNED "
-                                 "ROUTE, OR ON ITS LAST ADVERT WHERE NO ROUTE IS LEARNED");
+    /* Hop count, as handoff §7 has it: ring 1 is direct, each relay adds one,
+     * so the PATH panel's "RING 8 ... THROUGH 7 RELAYS" agrees with it. */
+    lv_label_set_text(v->legend, "RING = HOPS: 1 IS DIRECT, EACH RELAY ADDS ONE - ON ITS "
+                                 "LEARNED ROUTE, OR ON ITS LAST ADVERT WHERE NO ROUTE IS "
+                                 "LEARNED");
     v->note = wrapping(v->root, POS_STYLE_TEXT_MUTED);
     lv_obj_add_flag(v->note, LV_OBJ_FLAG_HIDDEN);
     v->rings = box(v->root, LV_FLEX_FLOW_COLUMN);

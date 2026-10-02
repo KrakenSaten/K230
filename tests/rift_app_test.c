@@ -2471,6 +2471,9 @@ static void net_session(void)
               find_text(content(), "THROUGH 2 RELAYS") != NULL);
     check("its ring's count says it was placed by an advert",
           find_text(content(), "1 \xC2\xB7 1 ADV") != NULL);
+    check("and the legend counts rings as the panel does: hops, one more than the relays",
+          find_text(content(), "RING = HOPS: 1 IS DIRECT") != NULL &&
+              find_text(content(), "RELAYS BETWEEN") == NULL);
 
     tap(action_of(find_exact(content(), "MESSAGE")));
     check("MESSAGE opens COMMS on the node, and sends nothing",
