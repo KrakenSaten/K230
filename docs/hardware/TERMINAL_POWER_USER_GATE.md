@@ -148,3 +148,9 @@ open, leave, reopen kept the shell; CLOSE SESSION by touch left nothing;
 `settings.conf` and `identity.id` unchanged. **Unit B was left on `2ace5b7`**:
 the owner was using it (RIFT open, a Terminal session running, settings
 changed), so its shell was not restarted. Rollbacks unchanged.
+Later the same day (11:55Z), with unit B free: **unit B also runs the
+production build of `0330d93`** (md5 `b229c364…`), at the owner's Large text
+size in landscape. First frame with the banner clean; open, leave for
+Calculator, reopen kept the shell; CLOSE SESSION by touch left nothing;
+`settings.conf` (the owner's, `de11c08c…`) and `identity.id` unchanged;
+services up, toolbox present, no crash file. Both units now run `0330d93`.
