@@ -503,8 +503,9 @@ connection banner appears above every tab whenever something is not right.
   - RESULT: **CONNECTED**, **AUTH FAILED**, **UNREACHABLE** or **INVALID
     CONFIG**, with the server's or the check's words, and for a save whether
     it was stored.
-  - **TEST CONNECTION** and **SAVE**. Back (header, hardware or ‹ BACK)
-    returns to the tab.
+  - **TEST CONNECTION** and **SAVE**. An edit clears the last result.
+  - Back (hardware or ‹ BACK) returns to the tab; the header's back slab
+    and Home leave the app, as from every screen.
 
   | Result | When |
   | --- | --- |

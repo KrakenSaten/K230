@@ -4635,9 +4635,13 @@ comes or goes. From the top:
 - A caption: SAVE tests first, and stores only what connects.
 - When the files themselves are not usable, a warning-tone caption says why.
 
-**Back** (the header's, the hardware's, or ‹ BACK) closes the screen and
-returns to the tab it was opened from; the typed secret is wiped. Home
-leaves the app as always.
+**Back** (the hardware's, or ‹ BACK) closes the screen and returns to the
+tab it was opened from, as a host's detail does (app.h `back`). The
+header's back slab leaves the app, as it does from every screen of every
+app (§30.8), and so does Home. Either way the typed secret is wiped.
+
+A result belongs to the settings it was for: changing a field or the
+sign-in takes it off the card.
 
 Only existing parts and roles are used: `pocketui_text_field`,
 `pocketui_card`, the §7 buttons, `POS_STYLE_CAPTION`, `POS_STYLE_TITLE` and

@@ -1034,6 +1034,16 @@ static void show_result(struct zabbix_app *a, const char *word, enum zabbix_tone
     set_hidden(a->cn_result_text, !text[0]);
 }
 
+/* A result belongs to the settings it was for: an edit takes it off the
+ * screen (unit B: a CONNECTED for the token stayed up beside a password
+ * that had not been tried). Not while the helper is still answering. */
+static void forget_result(struct zabbix_app *a)
+{
+    if (a->cn_pending == CN_IDLE) {
+        show_result(a, "", ZABBIX_TONE_QUIET, "");
+    }
+}
+
 static void open_conn(struct zabbix_app *a)
 {
     a->conn_open = true;
@@ -1044,9 +1054,7 @@ static void open_conn(struct zabbix_app *a)
     if (a->model->have_settings) {
         fill_conn(a);
     }
-    if (a->cn_pending == CN_IDLE) {
-        show_result(a, "", ZABBIX_TONE_QUIET, "");
-    }
+    forget_result(a);
     show_page(a);
     repaint(a, true);
     lv_obj_scroll_to_y(a->conn, 0, LV_ANIM_OFF);
@@ -1080,6 +1088,7 @@ static void on_auth(lv_event_t *e)
     if (password != a->cn_password) {
         a->cn_password = password;
         a->cn_edited = true;
+        forget_result(a);
         repaint(a, false);
     }
 }
@@ -1112,6 +1121,7 @@ static void on_field_changed(lv_event_t *e)
 
     if (!a->cn_filling) {
         a->cn_edited = true;
+        forget_result(a);
         if (a->conn_open) {
             paint_conn(a);
         }

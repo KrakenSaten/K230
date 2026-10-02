@@ -923,6 +923,8 @@ static void connection(const char *o)
                                        file_has(secret, "token=stored-token"));
     ta = field("https://");
     type_into(ta, "ftp://old.example.com/");
+    CHECK("an edit takes the last result off the screen", !shown("CONNECTED") &&
+                                                              !shown("Zabbix 7.0.31 answered"));
     tap("TEST CONNECTION");
     CHECK("an address that is not https:// is INVALID CONFIG", wait_for("INVALID CONFIG", 5000));
     type_into(ta, "https://new.example.com/");
