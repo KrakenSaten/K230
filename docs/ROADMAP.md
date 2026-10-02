@@ -233,6 +233,13 @@ release notes and the unit B fresh-flash smoke: `docs/releases/v0.2.1.md`):
 v0.2.0 with Vision's model in the image (LICENSING item 10: AGPL-3.0,
 internal images only).
 
+**v0.3.0** (released 2026-10-02, tag `v0.3.0`, image built at the tagged
+commit; release notes and the fresh-flash smoke: `docs/releases/v0.3.0.md`):
+everything merged after v0.2.1 - Terminal 0.2 (DS §49), Photo, Video, MP3,
+DeskBuddy, three games, launcher favourites and folders (DS §47), the system
+text size (DS §46), the keyboard base's keys, Fleet chat and status, RIFT
+management. 26 apps.
+
 ### Landscape app adaptation (after v0.0.10)
 
 System rotation works (DS §21). When this was written most app screens were

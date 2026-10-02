@@ -60,7 +60,15 @@ vendor/                    Read-only reference clones (git-ignored)
 
 ## Status
 
-**Doors 0.2.1** (tag `v0.2.1`, 2026-09-28) is the current release: v0.2.0
+**Doors 0.3.0** (tag `v0.3.0`, 2026-10-02) is the current release: the
+Terminal with a kept session, three text sizes and a CLI toolbox; Photo,
+Video, MP3, DeskBuddy, Solitaire, Blackjack and 2048; launcher favourites
+and folders; the system text size; the keyboard base's own keys; Fleet chat;
+RIFT channel and node management. The image is for internal use only
+(docs/LICENSING.md items 1 and 10). The release notes, with its fresh-flash
+smoke, are docs/releases/v0.3.0.md.
+
+**Doors 0.2.1** (tag `v0.2.1`, 2026-09-28): v0.2.0
 with Vision's model in the image, so Vision works right after a fresh flash.
 The model is AGPL-3.0 and the image is for internal use only
 (docs/LICENSING.md item 10). The release notes, with its unit B fresh-flash
