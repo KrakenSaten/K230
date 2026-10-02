@@ -173,9 +173,9 @@ int pocketos_shell_brightness_set(int percent);
  * _get: the stored level (unchanged by mute). _muted: 1 while muted.
  * _effective: 0 while muted, else the level. _available: 0 when the kernel
  * lists no sound card, so there is nothing a volume could change.
- * _set / _set_muted: apply and store. Return 0, or -1 when the value was not
- * one the control can take (nothing changes) or could not be stored (the
- * running value changes, the next start will not have it). */
+ * _set / _set_muted: store and apply. Return 0, or -1 when the value was not
+ * one the control can take or could not be stored; either way nothing
+ * changes, so the running value is always the one the next start restores. */
 int pocketos_shell_volume_get(void);
 int pocketos_shell_volume_muted(void);
 int pocketos_shell_volume_effective(void);

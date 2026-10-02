@@ -883,6 +883,11 @@ int pocketos_shell_volume_available(void)
     return volume_output_present("/proc");
 }
 
+/* Stored first, applied second, like settings_set() itself: a level the store
+ * refused is not the level the shell plays at either. -1 tells every caller
+ * that nothing changed, and that has to be true of the runtime value too -
+ * otherwise sound would play at a level the next start does not restore, and
+ * Controls would redraw a slider at a level the store never took. */
 int pocketos_shell_volume_set(int percent)
 {
     char value[12];
@@ -890,13 +895,13 @@ int pocketos_shell_volume_set(int percent)
     if (percent < VOLUME_MIN_PCT || percent > VOLUME_MAX_PCT || percent % VOLUME_STEP_PCT != 0) {
         return -1;
     }
-    sh.volume.percent = percent;
     snprintf(value, sizeof(value), "%d", percent);
     if (settings_set(VOLUME_SETTING, value) < 0) {
-        LOG_WARN("volume %d%% set but not persisted to %s: %s", percent, settings_path(),
-                 strerror(errno));
+        LOG_WARN("volume %d%% not stored to %s (%s); staying at %d%%", percent, settings_path(),
+                 strerror(errno), sh.volume.percent);
         return -1;
     }
+    sh.volume.percent = percent;
     LOG_INFO("volume %d%%", percent);
     return 0;
 }
@@ -906,12 +911,12 @@ int pocketos_shell_volume_set_muted(int muted)
     if (muted != 0 && muted != 1) {
         return -1;
     }
-    sh.volume.muted = muted;
     if (settings_set(VOLUME_MUTED_SETTING, muted ? "1" : "0") < 0) {
-        LOG_WARN("volume %s but not persisted to %s: %s", muted ? "muted" : "unmuted",
+        LOG_WARN("volume not %s: not stored to %s (%s)", muted ? "muted" : "unmuted",
                  settings_path(), strerror(errno));
         return -1;
     }
+    sh.volume.muted = muted;
     LOG_INFO("volume %s", muted ? "muted" : "unmuted");
     return 0;
 }
