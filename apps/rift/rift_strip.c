@@ -14,13 +14,27 @@
 #include <stdio.h>
 #include <string.h>
 
-#define STRIP_H RIFT_TOUCH_H
-/* Landscape (DS §37.2): the strip is the app's top row, where the shell's
- * header was, and holds a back slab; it is data-row height there. Every
- * pixel it gives up is the thread's. */
-#define STRIP_H_WIDE RIFT_ROW_H
-#define BACK_W 56
-#define TAB_GAP 32
+/* The strip is navigation, and its five controls - the back slab and the four
+ * section tabs - are one kind of thing, drawn as one (DS §51.3): a visible
+ * face in the look of RIFT's secondary buttons (surface fill, hairline edge,
+ * the slab's pressed look), RIFT_NAV_FACE_H tall, on a RIFT_NAV_ROW_H row, in
+ * both orientations. The tab's word is in RIFT's button type, not the
+ * caption's; the active tab keeps its accent word and underline. Before,
+ * the tabs were bare caption words - landscape had a 36 px data row with a
+ * 56 x 32 back slab - and they did not read as controls at all. */
+#define FACE_H RIFT_NAV_FACE_H
+/* The shell header's own back slab (DS §7): 72 wide, as tall as a tab. */
+#define BACK_W 72
+/* Inside a tab's face, either side of its word. */
+#define TAB_PAD 20
+/* Between two faces; each face takes half of it, and the air above and
+ * below it, as extra target, so no tap on the row lands on nothing. */
+#define FACE_GAP 8
+#define FACE_REACH (FACE_GAP / 2)
+/* As the screen's top row the back slab, like the shell header's, is
+ * touched from the screen's top edge to the row's foot: the row's air above
+ * and below it is (RIFT_NAV_ROW_H_TOP - FACE_H) / 2. */
+#define BACK_REACH_TOP ((RIFT_NAV_ROW_H_TOP - FACE_H) / 2)
 #define UNDERLINE_H 2
 
 static const char *const section_name[RIFT_SEC_COUNT] = { "ACTIVITY", "NODES", "COMMS", "NET" };
@@ -73,6 +87,17 @@ static void on_back(lv_event_t *e)
     pocketos_shell_go_home();
 }
 
+/* One face of the row: the secondary button's look (DS §7), FACE_H tall. */
+static void face_style(lv_obj_t *face)
+{
+    pos_style_add(face, POS_STYLE_BUTTON_SECONDARY, 0);
+    pos_style_add(face, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
+    lv_obj_set_height(face, FACE_H);
+    lv_obj_set_ext_click_area(face, FACE_REACH);
+    lv_obj_remove_flag(face, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(face, LV_OBJ_FLAG_CLICKABLE);
+}
+
 void rift_tabs_build(struct rift_app *a)
 {
     int i;
@@ -81,24 +106,26 @@ void rift_tabs_build(struct rift_app *a)
     lv_obj_remove_style_all(a->strip);
     pos_style_add(a->strip, POS_STYLE_DIVIDER, 0);
     lv_obj_set_width(a->strip, LV_PCT(100));
-    lv_obj_set_height(a->strip, STRIP_H);
+    lv_obj_set_height(a->strip, RIFT_NAV_ROW_H);
     lv_obj_set_flex_flow(a->strip, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(a->strip, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(a->strip, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_hor(a->strip, RIFT_PAD, 0);
-    lv_obj_set_style_pad_column(a->strip, TAB_GAP, 0);
+    /* The divider is the row's bottom pixel; one at the top balances it, so a
+     * face sits 4 px down with 4 px under it to the rule, and its reach
+     * (FACE_REACH) covers the row from its top pixel to the rule. */
+    lv_obj_set_style_pad_top(a->strip, 1, 0);
+    lv_obj_set_style_pad_column(a->strip, FACE_GAP, 0);
     lv_obj_remove_flag(a->strip, LV_OBJ_FLAG_SCROLLABLE);
 
     /* The way back, in landscape, where the strip is the app's top row and
-     * the shell's header with its back slab is not drawn (DS §37.2): a
-     * slab the strip's height, with the shell's own glyph. Hidden in
-     * portrait, where the shell's header has it. */
+     * the shell's header with its back slab is not drawn (DS §37.2): the
+     * shell's glyph on a face the size of the shell header's slab. Hidden
+     * in portrait, where the shell's header has it. */
     a->back = lv_button_create(a->strip);
     lv_obj_remove_style_all(a->back);
-    pos_style_add(a->back, POS_STYLE_SLAB, 0);
-    pos_style_add(a->back, POS_STYLE_SLAB_PRESSED, LV_STATE_PRESSED);
-    lv_obj_set_size(a->back, BACK_W, STRIP_H_WIDE - 4);
-    lv_obj_set_style_margin_bottom(a->back, 2, 0);
-    lv_obj_add_flag(a->back, LV_OBJ_FLAG_CLICKABLE);
+    face_style(a->back);
+    lv_obj_set_width(a->back, BACK_W);
     lv_obj_add_event_cb(a->back, on_back, LV_EVENT_CLICKED, a);
     lv_obj_add_flag(a->back, LV_OBJ_FLAG_HIDDEN);
     {
@@ -114,18 +141,18 @@ void rift_tabs_build(struct rift_app *a)
     for (i = 0; i < RIFT_SEC_COUNT; i++) {
         lv_obj_t *head;
 
-        /* A tab is a 56 px navigation target in portrait, not a 36 px row:
-         * navigation never shares the row exception (RIFT-DEV-1). Landscape
-         * gives the tabs the strip's data-row height (DS §37.2). */
+        /* A tab is a navigation control, never the 36 px row exception
+         * (RIFT-DEV-1): a face as tall as the back slab, in either
+         * orientation, as wide as its word and pill with TAB_PAD each side. */
         a->tab[i] = lv_obj_create(a->strip);
         lv_obj_remove_style_all(a->tab[i]);
-        lv_obj_set_height(a->tab[i], STRIP_H);
+        face_style(a->tab[i]);
         lv_obj_set_width(a->tab[i], LV_SIZE_CONTENT);
+        lv_obj_set_style_pad_hor(a->tab[i], TAB_PAD, 0);
+        lv_obj_set_style_pad_ver(a->tab[i], 0, 0);
         lv_obj_set_flex_flow(a->tab[i], LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(a->tab[i], LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
                               LV_FLEX_ALIGN_CENTER);
-        lv_obj_remove_flag(a->tab[i], LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_add_flag(a->tab[i], LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(a->tab[i], on_tab, LV_EVENT_CLICKED, a);
 
         /* The name and its unread pill share one row, so the pill sits
@@ -144,18 +171,23 @@ void rift_tabs_build(struct rift_app *a)
 
         a->tab_label[i] = lv_label_create(head);
         lv_obj_remove_style_all(a->tab_label[i]);
-        pos_style_add(a->tab_label[i], POS_STYLE_CAPTION, 0);
+        pos_style_add(a->tab_label[i], POS_STYLE_BUTTON_LABEL, 0);
         lv_label_set_text(a->tab_label[i], section_name[i]);
         a->tab_pill[i] = rift_unread_pill(head);
 
-        /* The 2 px underline of handoff §3, in the accent. A fill role
-         * rather than a colour set here (tests/style_lint.sh). */
+        /* The 2 px underline of handoff §3, in the accent, along the face's
+         * foot under the word. A fill role rather than a colour set here
+         * (tests/style_lint.sh). */
         a->tab_rule[i] = lv_obj_create(a->tab[i]);
         lv_obj_remove_style_all(a->tab_rule[i]);
         pos_style_add(a->tab_rule[i], POS_STYLE_BUTTON_PRIMARY, 0);
         lv_obj_set_style_radius(a->tab_rule[i], 0, 0);
         lv_obj_set_width(a->tab_rule[i], LV_PCT(100));
         lv_obj_set_height(a->tab_rule[i], UNDERLINE_H);
+        /* Out of the column, so showing it never moves the word: every
+         * face's word sits at the same height, active or not. */
+        lv_obj_add_flag(a->tab_rule[i], LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_align(a->tab_rule[i], LV_ALIGN_BOTTOM_MID, 0, -6);
         lv_obj_remove_flag(a->tab_rule[i], LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(a->tab_rule[i], LV_OBJ_FLAG_HIDDEN);
     }
@@ -165,29 +197,32 @@ void rift_tabs_build(struct rift_app *a)
     pos_style_add(a->cmd_hint, POS_STYLE_CAPTION, 0);
     lv_obj_set_flex_grow(a->cmd_hint, 1);
     lv_obj_set_style_text_align(a->cmd_hint, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_set_style_pad_bottom(a->cmd_hint, 18, 0);
+    /* Inside its box, not a margin: a flex-grown child is given the free
+     * room without its margin taken off. */
+    lv_obj_set_style_pad_left(a->cmd_hint, 12, 0);
     lv_label_set_long_mode(a->cmd_hint, LV_LABEL_LONG_CLIP);
     lv_label_set_text(a->cmd_hint, "");
 }
 
 void rift_tabs_shape(struct rift_app *a)
 {
-    int wide = a->wide;
-    int i;
+    int top = a->strip_at_top;
 
-    lv_obj_set_height(a->strip, wide ? STRIP_H_WIDE : STRIP_H);
-    for (i = 0; i < RIFT_SEC_COUNT; i++) {
-        lv_obj_set_height(a->tab[i], wide ? STRIP_H_WIDE : STRIP_H);
-    }
+    /* The same faces in both shapes (DS §51.3). As the screen's top row
+     * (landscape) the strip is the shell header's height, so the faces sit
+     * where every other app's back slab does - 8 px down - and its ends keep
+     * in from the rounded corners as the header's do (rift_app.c layout).
+     * Under the shell's header (portrait) it is the 64 px row, 20 px in. */
+    lv_obj_set_height(a->strip, top ? RIFT_NAV_ROW_H_TOP : RIFT_NAV_ROW_H);
+    lv_obj_set_style_pad_left(a->strip, LV_MAX(RIFT_PAD, a->strip_inset_left), 0);
+    lv_obj_set_style_pad_right(a->strip, LV_MAX(RIFT_PAD, a->strip_inset_right), 0);
     if (a->back) {
-        if (wide) {
+        lv_obj_set_ext_click_area(a->back, top ? BACK_REACH_TOP : FACE_REACH);
+        if (a->wide) {
             lv_obj_remove_flag(a->back, LV_OBJ_FLAG_HIDDEN);
         } else {
             lv_obj_add_flag(a->back, LV_OBJ_FLAG_HIDDEN);
         }
-    }
-    if (a->cmd_hint) {
-        lv_obj_set_style_pad_bottom(a->cmd_hint, wide ? 8 : 18, 0);
     }
 }
 

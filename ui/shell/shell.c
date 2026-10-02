@@ -140,6 +140,16 @@ struct shell {
     lv_obj_t *cluster;      /* the status cluster (DS §36): chip and clock, top right */
     lv_obj_t *status_clock;
     lv_obj_t *status_radio;
+    /* The mark beside the chip for work an app keeps running behind other
+     * screens (app.h pocketos_shell_set_background, DS §51), hidden while
+     * there is none; and what the apps told the shell, in the order told. */
+    lv_obj_t *status_bg;
+    struct {
+        char id[32];
+        char label[16];
+        char help[96];
+    } background[POCKETOS_BACKGROUND_MAX];
+    int background_count;
     char status_hint[96];   /* what the app last wrote with pocketos_shell_set_status_hint() */
     lv_obj_t *header_hint;  /* where the app header shows it, or NULL with no app open */
     lv_obj_t *content;      /* the content area: the whole display but the keyboard */
@@ -238,6 +248,70 @@ static char radio_state_seen[16];
 const char *pocketos_shell_radio_state(void)
 {
     return radio_state_seen[0] ? radio_state_seen : NULL;
+}
+
+/* ---- work behind another screen (app.h, DS §51) ----------------------- */
+
+/* The mark shows what the apps said and nothing else: the first label told,
+ * and how many more there are. The cluster is as wide as what it holds, so
+ * it grows to the left by the mark and shrinks back without it; the rows
+ * under it make room from the next screen laid out (cluster_reserve_compute
+ * at every chrome_apply), which is the next thing that happens after any
+ * app's create, destroy or CLOSE. */
+static void background_paint(void)
+{
+    if (!sh.status_bg) {
+        return;
+    }
+    if (sh.background_count == 0) {
+        lv_obj_add_flag(sh.status_bg, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(sh.status_bg, "");
+        return;
+    }
+    if (sh.background_count == 1) {
+        lv_label_set_text(sh.status_bg, sh.background[0].label);
+    } else {
+        lv_label_set_text_fmt(sh.status_bg, "%s +%d", sh.background[0].label,
+                              sh.background_count - 1);
+    }
+    lv_obj_remove_flag(sh.status_bg, LV_OBJ_FLAG_HIDDEN);
+}
+
+void pocketos_shell_set_background(const char *app_id, const char *label, const char *help)
+{
+    int i;
+
+    if (!app_id || !app_id[0]) {
+        return;
+    }
+    for (i = 0; i < sh.background_count; i++) {
+        if (strcmp(sh.background[i].id, app_id) == 0) {
+            break;
+        }
+    }
+    if (!label || !label[0]) {
+        if (i == sh.background_count) {
+            return; /* nothing of it was running */
+        }
+        LOG_INFO("background: %s ended", app_id);
+        memmove(&sh.background[i], &sh.background[i + 1],
+                (size_t)(sh.background_count - i - 1) * sizeof(sh.background[0]));
+        sh.background_count--;
+        background_paint();
+        return;
+    }
+    if (i == sh.background_count) {
+        if (sh.background_count == POCKETOS_BACKGROUND_MAX) {
+            LOG_WARN("background: %s not shown, %d already are", app_id, POCKETOS_BACKGROUND_MAX);
+            return;
+        }
+        sh.background_count++;
+        LOG_INFO("background: %s running (%s)", app_id, label);
+    }
+    snprintf(sh.background[i].id, sizeof(sh.background[i].id), "%s", app_id);
+    snprintf(sh.background[i].label, sizeof(sh.background[i].label), "%s", label);
+    snprintf(sh.background[i].help, sizeof(sh.background[i].help), "%s", help ? help : "");
+    background_paint();
 }
 
 static void status_update(void)
@@ -362,6 +436,20 @@ static void status_cluster_create(lv_obj_t *screen)
     pos_style_add(sh.status_radio, POS_STYLE_SYMBOL, 0);
     radio_chip_set(POS_STYLE_CHIP_NA, "?");
 
+    /* Beside the chip, in the chip's shape and the receiving state's look:
+     * an app still listening while another screen is up (DS §51.4). Its
+     * type is the chip's at Small whatever the text size, as the radio
+     * chip's glyph font is, and its padding tight: in portrait the
+     * launcher's and the lock's large clock is centred and does not move, and
+     * the cluster with the mark has to stay 16 px clear of it at every size. */
+    sh.status_bg = lv_label_create(c);
+    pos_style_add(sh.status_bg, POS_STYLE_CHIP, 0);
+    pos_style_add(sh.status_bg, POS_STYLE_CHIP_RX, 0);
+    lv_obj_add_style(sh.status_bg, pos_style_fixed_size(POS_STYLE_CHIP), 0);
+    lv_obj_set_style_pad_hor(sh.status_bg, POCKETOS_CHROME_MARK_PAD, 0);
+    lv_obj_set_style_text_letter_space(sh.status_bg, 0, 0);
+    background_paint();
+
     sh.status_clock = pocketui_label(c, "--:--", POS_STYLE_CAPTION);
     sh.cluster = c;
 }
@@ -403,6 +491,16 @@ static void cluster_reserve_compute(void)
     }
     chip += lv_obj_get_style_pad_left(sh.status_radio, LV_PART_MAIN) +
             lv_obj_get_style_pad_right(sh.status_radio, LV_PART_MAIN);
+    /* The background mark, while there is one (DS §51): it is in the
+     * cluster beside the chip, so the box the rows keep clear of has it too.
+     * Only while it is shown - it comes and goes only when an app opens or
+     * closes, and every screen laid out after that measures again here -
+     * so no row gives up its room for a mark that is not there. */
+    if (sh.status_bg && !lv_obj_has_flag(sh.status_bg, LV_OBJ_FLAG_HIDDEN)) {
+        chip += POCKETOS_CHROME_CLUSTER_GAP + text_width(sh.status_bg, lv_label_get_text(sh.status_bg)) +
+                lv_obj_get_style_pad_left(sh.status_bg, LV_PART_MAIN) +
+                lv_obj_get_style_pad_right(sh.status_bg, LV_PART_MAIN);
+    }
     for (k = 0; k < 10; k++) {
         char a[2] = { (char)('0' + k), '\0' };
         char b[2] = { widest, '\0' };
@@ -913,6 +1011,15 @@ static void status_chip_fit(void)
     lv_obj_set_style_height(sh.status_radio, c.height, 0);
     lv_obj_set_style_pad_top(sh.status_radio, c.pad_top, 0);
     lv_obj_set_style_pad_bottom(sh.status_radio, c.pad_bottom, 0);
+    if (sh.status_bg) {
+        /* The radio chip's height, the mark's own type centred in it. */
+        int32_t spare = c.height - lv_font_get_line_height(
+                                       lv_obj_get_style_text_font(sh.status_bg, LV_PART_MAIN));
+
+        lv_obj_set_style_height(sh.status_bg, c.height, 0);
+        lv_obj_set_style_pad_top(sh.status_bg, spare > 0 ? spare / 2 : 0, 0);
+        lv_obj_set_style_pad_bottom(sh.status_bg, spare > 0 ? spare - spare / 2 : 0, 0);
+    }
 }
 
 /* Show the cluster as the chrome in force says. The one exception is the
@@ -2318,6 +2425,25 @@ static void on_shell_request(struct pocketipc_server *s, struct pocketipc_client
         }
         cJSON_AddItemToObject(result, "apps", list);
         cJSON_AddStringToObject(result, "current", sh.app ? sh.app->id : "home");
+        {
+            /* What runs behind other screens, as the apps said (DS §51), and
+             * whether the cluster's mark for it is up: the mark takes no
+             * touch, so its words are here. */
+            cJSON *bg = cJSON_CreateArray();
+            int i;
+
+            for (i = 0; i < sh.background_count; i++) {
+                cJSON *o = cJSON_CreateObject();
+
+                cJSON_AddStringToObject(o, "app", sh.background[i].id);
+                cJSON_AddStringToObject(o, "label", sh.background[i].label);
+                cJSON_AddStringToObject(o, "help", sh.background[i].help);
+                cJSON_AddItemToArray(bg, o);
+            }
+            cJSON_AddItemToObject(result, "background", bg);
+            cJSON_AddBoolToObject(result, "background_mark",
+                                  sh.status_bg && !lv_obj_has_flag(sh.status_bg, LV_OBJ_FLAG_HIDDEN));
+        }
         cJSON_AddStringToObject(result, "theme", pos_theme_current_def()->id);
         cJSON_AddItemToObject(result, "hardware", hardware_json());
         cJSON_AddStringToObject(result, "mode", pos_mode_name(pos_theme_current_mode()));

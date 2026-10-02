@@ -179,8 +179,13 @@ if k["shown"]:
     check("the cluster (x %d..%d, y %d..%d) is inside the screen and ends %d px from the right edge"
           % (k["x"], k["x"] + k["w"], k["y"], k["y"] + k["h"], W - k["x"] - k["w"]),
           k["x"] >= top and k["x"] + k["w"] == W - top and 0 < k["y"] and k["y"] + k["h"] <= 72)
-    check("the cluster is as wide as its content, not the screen (%d of %d px)" % (k["w"], W),
-          0 < k["w"] <= k["reserve_w"] and k["w"] < W // 3)
+    # A third of the screen at most - half while it also carries the mark
+    # of an app running behind other screens (DS §51.4): RIFT, once this
+    # walk has opened and left it.
+    bound = W // 2 if info.get("background_mark") else W // 3
+    check("the cluster is as wide as its content, not the screen (%d of %d px%s)"
+          % (k["w"], W, ", with the background mark" if info.get("background_mark") else ""),
+          0 < k["w"] <= k["reserve_w"] and k["w"] < bound)
     check("the cluster lies inside its reserve (x %d.. , reserve from %d)" % (k["x"], k["reserve_x"]),
           k["x"] >= k["reserve_x"])
 h = c.get("header")

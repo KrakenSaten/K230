@@ -182,6 +182,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/video/video_session.c
     ${REPO_DIR}/apps/video/video_files.c
     ${REPO_DIR}/apps/rift/rift_app.c
+    ${REPO_DIR}/apps/rift/rift_background.c
     ${REPO_DIR}/apps/rift/rift_model.c
     ${REPO_DIR}/apps/rift/rift_clock.c
     ${REPO_DIR}/apps/rift/rift_messages.c
@@ -211,6 +212,7 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/rift/ui/rift_netview.c
     ${REPO_DIR}/apps/rift/ui/rift_manage.c
     ${REPO_DIR}/apps/rift/ui/rift_device.c
+    ${REPO_DIR}/apps/rift/ui/rift_session.c
     ${REPO_DIR}/apps/rift/ui/rift_form.c
     ${REPO_DIR}/apps/rift/ui/rift_node_row.c
     ${REPO_DIR}/apps/rift/ui/rift_detail.c
@@ -1319,6 +1321,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/tests/rift_test_clock.c
         chrome.c
         ${REPO_DIR}/apps/rift/rift_app.c
+        ${REPO_DIR}/apps/rift/rift_background.c
         ${REPO_DIR}/apps/rift/rift_model.c
         ${REPO_DIR}/apps/rift/rift_messages.c
         ${REPO_DIR}/apps/rift/rift_channels.c
@@ -1347,6 +1350,7 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
         ${REPO_DIR}/apps/rift/ui/rift_netview.c
         ${REPO_DIR}/apps/rift/ui/rift_manage.c
         ${REPO_DIR}/apps/rift/ui/rift_device.c
+        ${REPO_DIR}/apps/rift/ui/rift_session.c
         ${REPO_DIR}/apps/rift/ui/rift_form.c
         ${REPO_DIR}/apps/rift/ui/rift_node_row.c
         ${REPO_DIR}/apps/rift/ui/rift_detail.c

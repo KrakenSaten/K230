@@ -4658,3 +4658,119 @@ files, a refused save that keeps the files, Back, and the saved settings
 after the app is opened again. Screenshots with `ZABBIX_SHOTS=<dir>`:
 `connection`, `connection-typed`, `connection-authfail`,
 `connection-saved`.
+
+## 51. Amendment AI — RIFT kept in the background, its mark, and the navigation row [PROPOSED]
+
+**Proposed 2026-10-02** on branch `feat/rift-background-lifecycle`, at the
+owner's request: leaving RIFT should not end it, the status cluster should
+say when it runs behind another screen, there should be an explicit way to
+end it, and its Back and section tabs should be visibly larger controls of
+one size. It
+changes RIFT (§37) and adds one mark to the status cluster (§36.1); it
+amends §37.2's landscape strip. Nothing in §1-§50 is renumbered. Behaviour:
+docs/apps/RIFT.md, "Kept while left".
+
+### 51.1 Leaving keeps RIFT
+
+Leaving RIFT by any way - the back slab, Back at ACTIVITY, Home, another
+app - takes its screen away and keeps its session: the one meshcored
+connection, what it has gathered, and where the reader was. The next open
+shows the same section, conversation and selection. A direct message that
+arrives meanwhile is filed unread (the COMMS pill) and is not sounded; the
+sound stays for a reader looking at RIFT (RIFT.md, "The DM sound"). This is
+the Terminal's rule (§49.4), for the same reason.
+
+### 51.2 Close RIFT
+
+ACTIVITY gains a last panel in its left column, **SESSION**: a 56 px row
+*Runs when left* with an inline secondary action **CLOSE RIFT**, and a
+caption saying what leaving does and that meshcored and the radio keep
+running. CLOSE RIFT opens a confirmation in place (§17.5, as THIS DEVICE's
+path hash size does): title **Close RIFT?**, body *RIFT stops listening and
+lets go of meshcored. What it gathered since it opened - activity, the
+traffic graph, messages the radio service no longer holds - goes with it.
+meshcored and the radio keep running.*, then **CANCEL** (accented) and
+**CLOSE RIFT** (secondary). Leaving ACTIVITY or turning the panel is
+Cancel. Confirmed, the session ends and the launcher is shown.
+
+### 51.3 The navigation row: five visible controls of one size
+
+The strip's five controls - the back slab and the four section tabs - are
+navigation (RIFT-DEV-1) and are drawn as controls, one look and one size, in
+both orientations. Before, the tabs were bare caption words with an accent
+underline, and in landscape §37.2 had made the row a 36 px data row with a
+56 × 32 back slab: too small to read as controls or to hit at the panel's top
+edge. (A first pass on this branch enlarged only the row and the targets - a
+56 px row, a 64 × 52 slab - and the owner found it looked the same.)
+
+| | Before (master) | Now |
+| --- | --- | --- |
+| Row | 36 px landscape (under a 50 px empty band), 56 px portrait | **72 px** landscape at the top edge, **64 px** portrait |
+| Back (landscape) | 56 × 32 slab | **72 × 56** face (the shell header's slab size, §7) |
+| Tab | caption word, no face; target 36 (landscape) / 56 (portrait) px tall | **56 px face**, 20 px each side of its word, 8 px between faces |
+| Tab word | caption type (`POS_STYLE_CAPTION`) | RIFT's button type (`POS_STYLE_BUTTON_LABEL`, mono 16 medium at Small) |
+| Look | slab (back), none (tabs) | all five `POS_STYLE_BUTTON_SECONDARY` + `POS_STYLE_SLAB_PRESSED` - the face of RIFT's secondary actions and of the shell's portrait back corner (§48) |
+
+- The active tab keeps its accent word and its 2 px accent underline, now
+  6 px above the face's foot; the underline is out of the layout, so every
+  word sits at the same height.
+- Each face is centred in the row (4 px of air above, 3 px and the 1 px rule
+  below) and takes that air and half of each 8 px gap as extra target
+  (4 px extended click area): no tap on the row lands on nothing.
+- The first face is 20 px in, as the first word was. The landscape caption
+  (keys and counts) keeps the rest of the row and drops counts first.
+- Portrait's way back is the shell's header slab (72 × 56, §48), as before;
+  the tabs under it are the same faces.
+- **Landscape: the strip is the screen's top row**, as the shell's header is
+  in every other app: it starts at the top edge, is the header's 72 px tall,
+  and keeps clear of the rounded top corners sideways with the top bar's
+  insets - so its faces sit at y 8-63 and Back at x 50, exactly where every
+  app's back slab is, and Back is touched from the screen's top edge. RIFT's
+  frame used to clear those corners with a 50 px top padding instead, which
+  left an empty band above the row that no other app has.
+
+Fits at Small, Medium and Large in both orientations (portrait at Large: NET
+ends inside the row's 20 px margin; `tests/rift_app_test.c`
+`navigation_session`). With the band gone the landscape thread keeps its
+17 whole messages (53.5 % of the display, §37.2 had 54.3 %; a 200-message
+thread at Small).
+
+### 51.4 The mark in the status cluster
+
+While an app's work runs with no screen of its own over it, the cluster
+shows a second chip after the radio chip: the app's word - **RIFT** - in the
+chip's geometry and the receiving state's look (`POS_STYLE_CHIP` +
+`POS_STYLE_CHIP_RX`). More than one would read `RIFT +1`. The app sets and
+clears it itself (app.h `pocketos_shell_set_background`), so it is the app's
+own state; for RIFT it is not whether meshcored runs. The cluster takes no
+touch (§36.1), so the mark has no tooltip; its words (*RIFT active in
+background*) are `shell.info`'s `background`. The cluster grows to the left
+by the mark while it is up, and the rows under it keep clear of it from the
+next screen laid out (the reserve of §36.1 counts the mark while it is
+shown, and only then).
+
+The mark's word is in the chip's type at Small whatever the text size (as
+the radio chip's glyph font ignores it), with 6 px each side. The reason is
+the launcher's and the lock's large clock, which is centred and does not
+move: in portrait the cluster with the mark is 152 px (98 without) at every
+text size and ends its left edge 16 px from the clock, the clearance the
+launcher's header band keeps from the cluster (`HEADER_CLEAR`, home_layout.c). A mark that grew with the text size ran under the clock at Medium
+and Large (measured in the simulator, then fixed). App headers keep their
+title clear of it (tests/chrome_shell_test.sh, which now meets the mark
+because it walks RIFT before the other apps: the cluster may then take up
+to half the screen's width, not a third).
+
+### 51.5 Validation on the host
+
+`tests/rift_app_test.c` (`background_session`, `navigation_session`,
+`background_live_session`): left, the session and its timer remain and the
+screen's half is empty; a message arriving while left is filed, unread and
+unsounded; reopened, the same session in the same place, no second timer,
+the mark gone; Back and Home; twenty leaves and reopens with one timer and
+less than one screen's memory kept; CLOSE RIFT through its confirmation,
+Cancel, leaving as Cancel; a new session after it; the strip's targets in
+both orientations, taps between words and at the strip's edges; and, against
+the scripted meshcored, one connection and one subscription for six opens,
+a message taken in while left, the subscription given back on CLOSE RIFT
+and meshcored still running after it. `tests/rift_shell_test.sh`: the real
+shell's `shell.info` mark across home, another app and RIFT again.

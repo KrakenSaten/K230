@@ -10,6 +10,8 @@
  *   FAKE_MESHCORED_METHODS  where to record every method it was asked for
  *   FAKE_MESHCORED_LIFE_MS  how long to run (default 10000)
  *   FAKE_MESHCORED_REFUSE   non-empty: answer mesh.nodes with an error
+ *   FAKE_MESHCORED_EVENTS_AFTER_SNAPSHOT  non-empty: hold the events until
+ *                           the snapshots are answered (events_after_snapshot)
  *
  * A negative last_heard_mono_ms or mono_ms means "this long ago", so a
  * fixture's ages do not depend on how long the host has been up.
@@ -44,6 +46,7 @@ int main(void)
     script.channels_json = getenv("FAKE_MESHCORED_CHANNELS");
     script.manage_log = getenv("FAKE_MESHCORED_MANAGE");
     script.name_pinned = getenv("FAKE_MESHCORED_NAME_PINNED") != NULL;
+    script.events_after_snapshot = getenv("FAKE_MESHCORED_EVENTS_AFTER_SNAPSHOT") != NULL;
     script.life_ms = life ? atoi(life) : 10000;
     if (path) {
         FILE *f = fopen(path, "r");

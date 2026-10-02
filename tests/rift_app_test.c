@@ -34,11 +34,13 @@
 #include "rift_net.h"
 #include "rift_netview.h"
 #include "rift_nodes.h"
+#include "rift_session.h"
 #include "rift_sound.h"
 #include "rift_store.h"
 #include "rift_test_clock.h"
 #include "rift_thread.h"
 
+#include <malloc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -97,6 +99,20 @@ void pocketos_shell_set_status_hint(const char *text)
 void pocketos_shell_go_home(void)
 {
     home_calls++;
+}
+/* What RIFT last told the shell runs behind other screens (DS §51): the
+ * status cluster's mark, as the shell would hold it. */
+static char bg_label[32];
+static char bg_help[96];
+static int bg_calls;
+void pocketos_shell_set_background(const char *app_id, const char *label, const char *help)
+{
+    bg_calls++;
+    if (!app_id || strcmp(app_id, "rift") != 0) {
+        return;
+    }
+    snprintf(bg_label, sizeof(bg_label), "%s", label ? label : "");
+    snprintf(bg_help, sizeof(bg_help), "%s", help ? help : "");
 }
 int pocketos_shell_reduced_motion(void)
 {
@@ -318,9 +334,25 @@ static void quiet_client(void)
     app->ipc.next_attempt_ms = rift_mono_ms() + 3600000;
 }
 
+/* Leave the app as the shell does on Back or Home: destroy, and the body
+ * deleted. RIFT's session stays (DS §51). */
+static void app_leave(void)
+{
+    app_rift.destroy(app);
+    app = NULL;
+    lv_obj_delete(app_root);
+    app_root = NULL;
+    app_body = NULL;
+    app_header = NULL;
+    pump(60);
+}
+
+/* Leave, and end the session as the shell does when it stops: every session
+ * below that calls app_start() again starts from nothing, as it always did. */
 static void app_stop(void)
 {
     app_rift.destroy(app);
+    app_rift.shutdown();
     app = NULL;
     lv_obj_delete(app_root);
     app_root = NULL;
@@ -1250,8 +1282,8 @@ static void landscape_start_session(void)
     give_nodes();
     give_service();
     pump(200);
-    check("the strip is a data row with the way back in it",
-          lv_obj_get_height(strip()) == RIFT_ROW_H && app->back && visible(app->back));
+    check("the strip is the screen's top row with the way back in it",
+          lv_obj_get_height(strip()) == RIFT_NAV_ROW_H_TOP && app->back && visible(app->back));
     give_messages();
     rift_app_show_section(app, RIFT_SEC_COMMS);
     pump(120);
@@ -1333,6 +1365,9 @@ static int captions_clipped(lv_obj_t *obj)
  * HEARD clipped by their columns, COMMS' CONVERSATIONS run under HEARD, and
  * MESH ACTIVITY's caption cut by its legend. The shell re-creates the open
  * app when the size changes (DS §46), so each size is a new app here too. */
+static lv_obj_t *net_rings(void);
+static void give_node_json(const char *json);
+
 static void text_size_session(void)
 {
     static const enum pos_text_size sizes[] = { POS_TEXT_SIZE_SMALL, POS_TEXT_SIZE_MEDIUM,
@@ -1427,6 +1462,86 @@ static void text_size_session(void)
             }
             if (app->wide && sizes[s] == POS_TEXT_SIZE_LARGE) {
                 shot("landscape-comms-large");
+            }
+            /* NET: a mesh spread over rings 1 to 9, half of it placed by
+             * advert, as unit B's is. Every ring's word and count fits its
+             * own column - in landscape a ninth of the body - and none runs
+             * into the next (unit B, Large, 2026-10-02: "1 DIRECT 2"). */
+            {
+                char json[512];
+                int i;
+                int bad = 0;
+                int seen = 0;
+                lv_obj_t *rings;
+
+                for (i = 0; i < 60; i++) {
+                    snprintf(json, sizeof(json),
+                             "{\"reason\":\"discovered\",\"node\":{\"public_key\":\"%064x\","
+                             "\"name\":\"N%02d\",\"type\":2,\"path_known\":%s,\"hops\":%d,"
+                             "\"last_heard_mono_ms\":%lld,\"advert_hops\":%d,"
+                             "\"advert_mono_ms\":%lld}}",
+                             0x5000 + i, i, i % 2 ? "true" : "false", i % 9 + 1,
+                             (long long)(rift_mono_ms() - 30000), i % 9,
+                             (long long)(rift_mono_ms() - 30000));
+                    give_node_json(json);
+                }
+                rift_app_show_section(app, RIFT_SEC_NET);
+                rift_app_refresh(app);
+                pump(300);
+                rings = net_rings();
+                for (i = 0; rings && i < (int)lv_obj_get_child_count(rings); i++) {
+                    lv_obj_t *box = kid(rings, (uint32_t)i);
+                    lv_obj_t *head = kid(box, 0);
+                    lv_area_t bx;
+                    lv_area_t col;
+                    uint32_t j;
+
+                    if (!visible(box)) {
+                        continue;
+                    }
+                    seen++;
+                    /* The heading column: in portrait the row holds the pills too. */
+                    lv_obj_get_coords(head, &bx);
+                    lv_obj_get_coords(box, &col);
+                    for (j = 0; j < 2; j++) {
+                        lv_obj_t *l = kid(head, j);
+                        lv_area_t la;
+                        int32_t ends;
+
+                        if (!l || !visible(l)) {
+                            continue;
+                        }
+                        lv_obj_get_coords(l, &la);
+                        /* Where the words end, not the label's box: and in
+                         * landscape, where the columns meet edge to edge, at
+                         * least 8 px short of the next ring's words. */
+                        ends = la.x1 + words_w(l) - 1;
+                        if (words_w(l) > lv_obj_get_content_width(l) || la.x2 > bx.x2 ||
+                            (app->wide && ends > col.x2 - 8)) {
+                            bad++;
+                            printf("     NET %s %s: \"%s\" %d px in %d (words end %d, column %d)\n",
+                                   size, shape, lv_label_get_text(l), (int)words_w(l),
+                                   (int)lv_obj_get_content_width(l), (int)ends, (int)col.x2);
+                        }
+                    }
+                }
+                snprintf(what, sizeof(what),
+                         "%s, %s: NET's ring words and counts fit their columns (%d rings)", size,
+                         shape, seen);
+                check(what, seen >= 10 && bad == 0);
+                if (sizes[s] == POS_TEXT_SIZE_LARGE) {
+                    printf("     NET %s %s:", size, shape);
+                    for (i = 0; rings && i < (int)lv_obj_get_child_count(rings); i++) {
+                        lv_obj_t *head = kid(kid(rings, (uint32_t)i), 0);
+
+                        if (visible(head)) {
+                            printf(" [%s|%s]", lv_label_get_text(kid(head, 0)),
+                                   visible(kid(head, 1)) ? lv_label_get_text(kid(head, 1)) : "");
+                        }
+                    }
+                    printf("\n");
+                    shot(app->wide ? "landscape-net-large" : "portrait-net-large");
+                }
             }
             app_stop();
         }
@@ -1760,7 +1875,8 @@ static void scale_session(void)
         check("the thread is more than half the display", thread_share(scroll) > 50.0);
         check("its header is a header row, not a data row",
               lv_obj_get_height(kid(kid(thread_pane(), 0), 0)) == rift_header_row_h());
-        check("the strip is a data row in landscape", lv_obj_get_height(strip()) == RIFT_ROW_H);
+        check("the strip is the screen's top row in landscape (DS 51.3)",
+              lv_obj_get_height(strip()) == RIFT_NAV_ROW_H_TOP);
         check("with the way back in it", app->back && visible(app->back) &&
                                              within(app->back, strip()));
         check("and the command line is one too", lv_obj_get_height(cmdline()) == RIFT_ROW_H);
@@ -2678,6 +2794,540 @@ static void net_session(void)
     app_stop();
 }
 
+/* ---- RIFT behind other screens (DS §51) -------------------------------- */
+
+static int timer_count(void)
+{
+    lv_timer_t *t = NULL;
+    int n = 0;
+
+    while ((t = lv_timer_get_next(t)) != NULL) {
+        n++;
+    }
+    return n;
+}
+
+static size_t heap_in_use(void)
+{
+    return mallinfo2().uordblks;
+}
+
+/* A press at one point of the panel, as a finger would. */
+static void tap_at(int32_t x, int32_t y)
+{
+    finger_point.x = x;
+    finger_point.y = y;
+    finger_state = LV_INDEV_STATE_PRESSED;
+    pump(60);
+    finger_state = LV_INDEV_STATE_RELEASED;
+    pump(80);
+}
+
+/* Leave with Back or Home, come back, end it with CLOSE RIFT; and the same
+ * twenty times over, with nothing left behind. The shell's part is the
+ * counters: go_home is what the back slab and CLOSE RIFT ask for, and the
+ * test then does what the shell does next (app_leave). */
+static void background_session(void)
+{
+    struct rift_app *s;
+    int timers_idle;
+    int timers_open;
+    int nodes;
+    int plays;
+    int home_before;
+    int home_start = home_calls;
+    unsigned unread_left;
+    size_t heap_left;
+    size_t heap_open;
+    size_t heap_before;
+    size_t heap_after;
+    int round;
+
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    timers_idle = timer_count();
+    check("before RIFT opens there is no session",
+          rift_app_session() == NULL && !rift_app_in_background());
+    app_start();
+    quiet_client();
+    s = app;
+    timers_open = timer_count();
+    check("opening starts one session, on screen",
+          rift_app_session() == app && !rift_app_in_background() && app->opens == 1);
+    check("with one timer of its own", timers_open == timers_idle + 1);
+    check("and no RIFT in the status cluster while RIFT is on screen", bg_label[0] == '\0');
+    give_nodes();
+    give_service();
+    give_messages();
+    rift_app_show_section(app, RIFT_SEC_NODES);
+    rift_find_set_query(app, "OSLO");
+    pump(80);
+    rift_app_open_conversation(app, KEY_B);
+    pump(120);
+    nodes = app->model.node_count;
+    check("a conversation is open when RIFT is left",
+          app->section == RIFT_SEC_COMMS && find_text(content(), "Fint, ser deg") != NULL);
+
+    /* ---- leave: Home, or Back at the top level ---------------------------- */
+    app_leave();
+    check("leaving keeps the session", rift_app_session() == s && rift_app_in_background());
+    check("with nothing of the screen left in it",
+          s->frame == NULL && s->root == NULL && s->strip == NULL && s->back == NULL &&
+              s->composer == NULL && s->keysink == NULL && s->nodes == NULL &&
+              s->comms == NULL && s->activity == NULL && s->find == NULL && s->net == NULL &&
+              s->manage == NULL && s->device == NULL && s->session == NULL &&
+              s->theme_host == NULL);
+    check("and its timer still running, the only one",
+          s->pump != NULL && timer_count() == timers_open);
+    check("the status cluster says RIFT", strcmp(bg_label, RIFT_BACKGROUND_LABEL) == 0);
+    check("with the words for it: RIFT active in background",
+          strcmp(bg_help, "RIFT active in background") == 0);
+    check("what it knows is kept", s->model.node_count == nodes && s->model.msg_count > 0);
+    check("and where the reader was: COMMS, the conversation, the find bar",
+          s->section == RIFT_SEC_COMMS && s->have_conv && strcmp(s->conv, KEY_B) == 0 &&
+              strcmp(s->node_query, "OSLO") == 0);
+
+    /* While it is left: a direct message arrives, and the timer runs pass
+     * after pass with no screen to touch. */
+    plays = fake_plays;
+    app = s;
+    live_dm(5001, "in", KEY_B, 5001, "while away");
+    app = NULL;
+    pump(800);
+    unread_left = (unsigned)rift_model_unread_total(&s->model);
+    check("a message arriving while RIFT is left is taken in, unread", unread_left > 0);
+    check("and no sound is asked for with no RIFT on screen", fake_plays == plays);
+    check("the mark stays while it runs", strcmp(bg_label, RIFT_BACKGROUND_LABEL) == 0);
+
+    /* ---- reopen ------------------------------------------------------------- */
+    app_start();
+    check("reopening is the same session, not a new one",
+          app == s && app->opens == 2 && !rift_app_in_background());
+    check("with no second timer", timer_count() == timers_open);
+    check("the status cluster's RIFT goes", bg_label[0] == '\0');
+    check("it opens where it was left: COMMS, the same conversation",
+          app->section == RIFT_SEC_COMMS && rift_comms_open_peer(app) &&
+              strcmp(rift_comms_open_peer(app), KEY_B) == 0);
+    check("showing what arrived while it was away",
+          find_text(content(), "while away") != NULL &&
+              find_text(content(), "Fint, ser deg") != NULL);
+    check("the find bar holds what it held",
+          rift_find_field(app) && strcmp(lv_textarea_get_text(rift_find_field(app)), "OSLO") == 0);
+    check("and no late sound for a message already filed", fake_plays == plays);
+    check("the screen is whole: four sections, built once",
+          lv_obj_get_child_count(content()) == 4u && inside_body(content()));
+
+    /* ---- Back and Home -------------------------------------------------------- */
+    check("Back inside RIFT is RIFT's: COMMS goes to ACTIVITY",
+          app_rift.back(app) == 1 && app->section == RIFT_SEC_ACTIVITY &&
+              rift_app_session() == s);
+    check("and at ACTIVITY it is the shell's (home), which keeps the session",
+          app_rift.back(app) == 0);
+    app_leave();
+    check("left from ACTIVITY, still kept", rift_app_session() == s && rift_app_in_background());
+    app_start();
+    check("and back on ACTIVITY", app == s && app->section == RIFT_SEC_ACTIVITY);
+    use_display(POS_ROTATION_270, PANEL_CORNER);
+    pump(160);
+    home_before = home_calls;
+    tap(app->back);
+    check("landscape: the back slab goes home", home_calls == home_before + 1);
+    app_leave();
+    check("which keeps the session too", rift_app_session() == s && rift_app_in_background() &&
+                                             strcmp(bg_label, RIFT_BACKGROUND_LABEL) == 0);
+    app_start();
+    check("reopened turned, the same session, wide", app == s && app->wide);
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+    pump(160);
+
+    /* ---- leave and reopen, many times ------------------------------------------ */
+    for (round = 0; round < 3; round++) {
+        app_leave();
+        app_start();
+    }
+    app_leave();
+    heap_left = heap_in_use();
+    app_start();
+    heap_open = heap_in_use();
+    heap_before = heap_open;
+    for (round = 0; round < 20; round++) {
+        app_leave();
+        if (!rift_app_in_background() || timer_count() != timers_open) {
+            break;
+        }
+        app_start();
+    }
+    heap_after = heap_in_use();
+    printf("     a screen is %ld bytes; 20 leaves and reopens left %+ld\n",
+           (long)heap_open - (long)heap_left, (long)heap_after - (long)heap_before);
+    check("twenty leaves and reopens: one session, one timer, every round",
+          round == 20 && app == s && timer_count() == timers_open && app->opens == 4 + 3 + 1 + 20);
+    check("one screen at a time", lv_obj_get_child_count(g_content) == 1u &&
+                                      lv_obj_get_child_count(content()) == 4u);
+    check("and less than one screen's memory kept over all twenty",
+          heap_open > heap_left && heap_after < heap_before + (heap_open - heap_left));
+
+    /* ---- CLOSE RIFT ------------------------------------------------------------ */
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(120);
+    check("ACTIVITY has CLOSE RIFT, in SESSION",
+          rift_session_close_button(app) && find_exact(content(), "SESSION") != NULL &&
+              visible(rift_session_close_button(app)));
+    check("a 56 px target", lv_obj_get_height(rift_session_close_button(app)) == RIFT_TOUCH_H);
+    check("and no confirmation up",
+          !rift_session_confirming(app) && (find_exact(content(), "Close RIFT?") == NULL ||
+                                            !visible(find_exact(content(), "Close RIFT?"))));
+    tap(rift_session_close_button(app));
+    pump(120);
+    check("CLOSE RIFT asks first", rift_session_confirming(app) &&
+                                       visible(find_exact(content(), "Close RIFT?")));
+    check("and says what goes and what stays",
+          find_text(content(), "meshcored and the radio keep running.") != NULL);
+    check("Cancel is first and accented",
+          lv_color_eq(lv_obj_get_style_bg_color(rift_session_confirm_button(app, 0), LV_PART_MAIN),
+                      pos_theme_color(POS_COLOR_ACCENT_PRIMARY)));
+    home_before = home_calls;
+    tap(rift_session_confirm_button(app, 0));
+    pump(120);
+    check("Cancel ends nothing", !rift_session_confirming(app) && rift_app_session() == s &&
+                                     home_calls == home_before && !app->ending);
+    tap(rift_session_close_button(app));
+    pump(120);
+    rift_app_show_section(app, RIFT_SEC_NODES);
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(120);
+    check("leaving ACTIVITY is Cancel for it too", !rift_session_confirming(app));
+    tap(rift_session_close_button(app));
+    pump(120);
+    tap(rift_session_confirm_button(app, 1));
+    check("confirmed, it goes home", home_calls == home_before + 1 && app->ending);
+    app_leave();
+    check("and the session is over", rift_app_session() == NULL && !rift_app_in_background());
+    check("its timer gone with it", timer_count() == timers_idle);
+    check("the status cluster's RIFT gone", bg_label[0] == '\0');
+    check("and the screen", lv_obj_get_child_count(g_content) == 0u);
+    pump(300);
+
+    /* ---- after CLOSE: a new session, from nothing ------------------------------ */
+    app_start();
+    quiet_client();
+    check("opening after CLOSE RIFT starts a new session",
+          app && app->opens == 1 && app->section == RIFT_SEC_ACTIVITY &&
+              app->model.node_count == 0 && app->model.msg_count == 0 && !app->have_conv &&
+              app->node_query[0] == '\0');
+    app_stop();
+    check("and the shell stopping ends it", rift_app_session() == NULL &&
+                                                timer_count() == timers_idle && bg_label[0] == '\0');
+    /* The presses on home were the reader's, not the app's doing. */
+    home_calls = home_start;
+}
+
+/* The navigation row: the way back and the four tabs, five visible faces of
+ * one size and one look (DS §51.3). Portrait's way back is the shell's header
+ * slab (72 x 56, DS §48), not RIFT's, and is the shell's tests' subject. */
+static int same_face(lv_obj_t *a, lv_obj_t *b)
+{
+    return lv_obj_get_style_bg_opa(a, LV_PART_MAIN) == lv_obj_get_style_bg_opa(b, LV_PART_MAIN) &&
+           lv_color_eq(lv_obj_get_style_bg_color(a, LV_PART_MAIN),
+                       lv_obj_get_style_bg_color(b, LV_PART_MAIN)) &&
+           lv_obj_get_style_border_width(a, LV_PART_MAIN) ==
+               lv_obj_get_style_border_width(b, LV_PART_MAIN) &&
+           lv_obj_get_style_radius(a, LV_PART_MAIN) == lv_obj_get_style_radius(b, LV_PART_MAIN) &&
+           lv_obj_get_height(a) == lv_obj_get_height(b);
+}
+
+static void navigation_session(void)
+{
+    static const enum pos_rotation shapes[2] = { POS_ROTATION_270, POS_ROTATION_0 };
+    static const enum pos_text_size sizes[3] = { POS_TEXT_SIZE_SMALL, POS_TEXT_SIZE_MEDIUM,
+                                                 POS_TEXT_SIZE_LARGE };
+    enum pos_text_size was = pos_theme_current_text_size();
+    int k;
+    int z;
+    int i;
+
+    for (k = 0; k < 2; k++) {
+        int wide = shapes[k] == POS_ROTATION_270;
+        const char *tag = wide ? "landscape" : "portrait";
+        char what[200];
+        lv_area_t s;
+        lv_area_t t[RIFT_SEC_COUNT];
+        lv_area_t l[RIFT_SEC_COUNT];
+        lv_obj_t *probe;
+        int tall = 1;
+        int faces = 1;
+        int gaps = 1;
+
+        use_display(shapes[k], PANEL_CORNER);
+        app_start();
+        quiet_client();
+        give_nodes();
+        give_service();
+        pump(200);
+        lv_obj_get_coords(strip(), &s);
+        for (i = 0; i < RIFT_SEC_COUNT; i++) {
+            lv_obj_get_coords(tab(i), &t[i]);
+            lv_obj_get_coords(app->tab_label[i], &l[i]);
+            tall = tall && lv_area_get_height(&t[i]) == RIFT_NAV_FACE_H &&
+                   t[i].y1 - s.y1 == (lv_area_get_height(&s) - RIFT_NAV_FACE_H) / 2;
+            /* Visible: a filled face with an edge, the same as the next. */
+            faces = faces && lv_obj_get_style_bg_opa(tab(i), LV_PART_MAIN) == LV_OPA_COVER &&
+                    lv_obj_get_style_border_width(tab(i), LV_PART_MAIN) > 0 &&
+                    same_face(tab(i), tab(0));
+            if (i > 0) {
+                gaps = gaps && t[i].x1 - t[i - 1].x2 - 1 == 8;
+            }
+        }
+        snprintf(what, sizeof(what), "%s: the strip is a %d px row", tag,
+                 wide ? RIFT_NAV_ROW_H_TOP : RIFT_NAV_ROW_H);
+        check(what, lv_area_get_height(&s) == (wide ? RIFT_NAV_ROW_H_TOP : RIFT_NAV_ROW_H));
+        snprintf(what, sizeof(what), "%s: ACTIVITY, NODES, COMMS and NET are %d px faces, centred",
+                 tag, RIFT_NAV_FACE_H);
+        check(what, tall);
+        snprintf(what, sizeof(what), "%s: each tab is a visible face, all four alike", tag);
+        check(what, faces);
+        snprintf(what, sizeof(what), "%s: 8 px between the faces", tag);
+        check(what, gaps);
+        snprintf(what, sizeof(what), "%s: every word at one height, the active one too", tag);
+        check(what, l[1].y1 == l[0].y1 && l[2].y1 == l[0].y1 && l[3].y1 == l[0].y1 &&
+                        app->section == RIFT_SEC_ACTIVITY);
+        /* The word is in RIFT's button type, the one its actions use, not
+         * the caption's: a control, and larger. */
+        probe = rift_action(lv_layer_top(), "X", 0, 1, NULL, NULL);
+        snprintf(what, sizeof(what), "%s: the tab words are in RIFT's button type, larger than a caption",
+                 tag);
+        check(what, lv_obj_get_style_text_font(app->tab_label[0], LV_PART_MAIN) ==
+                            lv_obj_get_style_text_font(lv_obj_get_child(probe, 0), LV_PART_MAIN) &&
+                        lv_font_get_line_height(lv_obj_get_style_text_font(app->tab_label[0], LV_PART_MAIN)) >
+                            lv_font_get_line_height(lv_obj_get_style_text_font(app->cmd_hint, LV_PART_MAIN)));
+        lv_obj_delete(probe);
+        snprintf(what, sizeof(what), "%s: the first face 20 px in", tag);
+        check(what, wide || t[0].x1 == s.x1 + RIFT_PAD);
+        /* A tap in the gap between two faces lands on the nearer one; the
+         * air above and below a face is its target too. */
+        tap_at(t[2].x1 - 3, (s.y1 + s.y2) / 2);
+        snprintf(what, sizeof(what), "%s: a tap in the gap just before COMMS is COMMS", tag);
+        check(what, app->section == RIFT_SEC_COMMS);
+        tap_at(t[1].x2 + 3, (s.y1 + s.y2) / 2);
+        snprintf(what, sizeof(what), "%s: a tap in the gap just after NODES is NODES", tag);
+        check(what, app->section == RIFT_SEC_NODES);
+        tap_at((t[3].x1 + t[3].x2) / 2, t[3].y1 - 4);
+        snprintf(what, sizeof(what), "%s: NET answers 4 px above its face", tag);
+        check(what, app->section == RIFT_SEC_NET);
+        tap_at((t[0].x1 + t[0].x2) / 2, t[0].y2 + 4);
+        snprintf(what, sizeof(what), "%s: and ACTIVITY 4 px below its own", tag);
+        check(what, app->section == RIFT_SEC_ACTIVITY);
+        if (wide) {
+            lv_area_t b;
+            int home_before = home_calls;
+
+            lv_obj_get_coords(app->back, &b);
+            check("landscape: the back slab is a 72 x 56 face at the strip's left",
+                  visible(app->back) && lv_area_get_width(&b) == 72 &&
+                      lv_area_get_height(&b) == RIFT_NAV_FACE_H && b.x1 < t[0].x1 &&
+                      within(app->back, strip()));
+            check("landscape: in the tabs' look", same_face(app->back, tab(1)));
+            {
+                /* No band above the row (unit B, 2026-10-02): the strip is the
+                 * screen's top row, as the shell's header is in every other
+                 * app, and the slab is where that header's slab is - 8 px
+                 * down, in from the rounded corner by the top bar's inset. */
+                struct pos_insets bar =
+                    pos_display_bar_insets(pocketui_display_geometry(), POS_EDGE_TOP);
+                lv_area_t h;
+
+                lv_obj_get_coords(app->cmd_hint, &h);
+                check("landscape: the strip starts at the screen's top edge, no band above it",
+                      s.y1 == 0 && lv_obj_get_style_pad_top(frame(), LV_PART_MAIN) == 0);
+                check("landscape: Back sits where every app's back slab does: 8 px down",
+                      b.y1 == (POCKETUI_HEADER_H - RIFT_NAV_FACE_H) / 2);
+                check("landscape: and in from the rounded corner by the top bar's inset",
+                      b.x1 == LV_MAX(RIFT_PAD, bar.left) &&
+                          h.x2 <= pocketui_display_geometry()->width - LV_MAX(RIFT_PAD, bar.right));
+                check("landscape: the sections start under the row, below the corners",
+                      lv_obj_get_y(content()) >= RIFT_NAV_ROW_H_TOP && inside_body(content()));
+            }
+            tap_at((b.x1 + b.x2) / 2, s.y1);
+            tap_at((b.x1 + b.x2) / 2, s.y2);
+            tap_at(b.x2 + 3, (s.y1 + s.y2) / 2);
+            check("landscape: Back answers at the strip's top row, its foot and in the gap after it",
+                  home_calls == home_before + 3);
+            home_calls = home_before;
+            {
+                lv_area_t h;
+
+                lv_obj_get_coords(app->cmd_hint, &h);
+                check("landscape: the strip's caption ends inside the strip, 20 px in",
+                      visible(app->cmd_hint) && h.x2 <= s.x2 - RIFT_PAD);
+            }
+        } else {
+            check("portrait: no back slab of RIFT's: the shell's header has the way back",
+                  !visible(app->back));
+        }
+        /* Every text size: the five fit the row whole, nothing clipped, the
+         * content still inside the body. */
+        for (z = 0; z < 3; z++) {
+            lv_area_t last;
+            lv_area_t lab;
+            int words = 1;
+
+            pos_theme_select_text_size(sizes[z]);
+            pump(300);
+            lv_obj_get_coords(strip(), &s);
+            lv_obj_get_coords(tab(RIFT_SEC_COUNT - 1), &last);
+            for (i = 0; i < RIFT_SEC_COUNT; i++) {
+                lv_obj_get_coords(app->tab_label[i], &lab);
+                lv_obj_get_coords(tab(i), &t[i]);
+                words = words && lab.x1 >= t[i].x1 && lab.x2 <= t[i].x2 &&
+                        strcmp(lv_label_get_text(app->tab_label[i]), (const char *[]){
+                                   "ACTIVITY", "NODES", "COMMS", "NET" }[i]) == 0;
+            }
+            snprintf(what, sizeof(what), "%s %s: the five faces inside the row (NET ends %d, row %d)",
+                     tag, pos_text_size_name(sizes[z]), (int)last.x2, (int)(s.x2 - RIFT_PAD));
+            check(what, last.x2 <= s.x2 - RIFT_PAD &&
+                            lv_obj_get_height(strip()) ==
+                                (wide ? RIFT_NAV_ROW_H_TOP : RIFT_NAV_ROW_H));
+            snprintf(what, sizeof(what), "%s %s: each word whole inside its face", tag,
+                     pos_text_size_name(sizes[z]));
+            check(what, words && captions_clipped(strip()) == 0 && labels_overflowing(strip()) == 0);
+            snprintf(what, sizeof(what), "%s %s: the sections still inside the body", tag,
+                     pos_text_size_name(sizes[z]));
+            check(what, inside_body(content()) && inside_body(strip()));
+            if (!wide) {
+                snprintf(what, sizeof(what), "portrait %s: the strip does not scroll sideways",
+                         pos_text_size_name(sizes[z]));
+                check(what, lv_obj_get_scroll_right(strip()) <= 0 && lv_obj_get_scroll_x(strip()) == 0);
+            }
+        }
+        pos_theme_select_text_size(was);
+        pump(200);
+        app_stop();
+    }
+    use_display(POS_ROTATION_0, PANEL_CORNER);
+}
+
+/* The real connection, kept: one meshcored client from the first open to
+ * CLOSE RIFT, however often RIFT is left and reopened, taking the mesh in
+ * while it is left - and meshcored itself untouched by the close. */
+static int bg_live_heard(void)
+{
+    struct rift_app *s = rift_app_session();
+    int i;
+
+    for (i = 0; s && i < s->model.msg_count; i++) {
+        if (strcmp(s->model.msg[i].text, "heard while left") == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int count_lines(const char *path, const char *line)
+{
+    char buf[256];
+    FILE *f = fopen(path, "r");
+    int n = 0;
+
+    while (f && fgets(buf, sizeof(buf), f)) {
+        buf[strcspn(buf, "\n")] = '\0';
+        n += strcmp(buf, line) == 0;
+    }
+    if (f) {
+        fclose(f);
+    }
+    return n;
+}
+
+static void background_live_session(void)
+{
+    const char *bin = getenv("RIFT_FAKE_MESHCORED");
+    const char *run = getenv("POCKETOS_RUNTIME_DIR");
+    char sock[512];
+    char methods[512];
+    char events[512];
+    struct rift_app *s;
+    struct stat st;
+    int waited;
+    int round;
+    int home_before;
+    pid_t pid;
+    FILE *f;
+
+    if (!bin || !run || access(bin, X_OK) != 0) {
+        printf("     (the live background session needs RIFT_FAKE_MESHCORED and "
+               "POCKETOS_RUNTIME_DIR; not run)\n");
+        return;
+    }
+    snprintf(sock, sizeof(sock), "%s/meshcored.sock", run);
+    snprintf(methods, sizeof(methods), "%s/rift-bg-methods", g_state_dir);
+    snprintf(events, sizeof(events), "%s/rift-bg-events", g_state_dir);
+    unlink(methods);
+    f = fopen(events, "w");
+    if (f) {
+        fprintf(f, "mesh.message|{\"message\":{\"id\":7,\"direction\":\"in\","
+                   "\"peer_public_key\":\"" KEY_A "\",\"text\":\"heard while left\","
+                   "\"state\":\"received\",\"timestamp\":1700000000,\"mono_ms\":-500}}\n");
+        fclose(f);
+    }
+    pid = fork();
+    if (pid == 0) {
+        setenv("FAKE_MESHCORED_STATE", "online", 1);
+        setenv("FAKE_MESHCORED_REASON", "receiving", 1);
+        setenv("FAKE_MESHCORED_NODES", "[]", 1);
+        setenv("FAKE_MESHCORED_METHODS", methods, 1);
+        setenv("FAKE_MESHCORED_EVENTS", events, 1);
+        setenv("FAKE_MESHCORED_EVENTS_AFTER_SNAPSHOT", "1", 1);
+        setenv("FAKE_MESHCORED_LIFE_MS", "120000", 1);
+        execl(bin, bin, (char *)NULL);
+        _exit(127);
+    }
+    for (waited = 0; waited < 5000 && stat(sock, &st) != 0; waited += 20) {
+        usleep(20000);
+    }
+    check("live: the scripted service is up", pid > 0 && stat(sock, &st) == 0);
+
+    /* Opened and left at once: what the service says next arrives while
+     * RIFT has no screen. */
+    app_start();
+    s = app;
+    check("live: RIFT connects", rift_ipc_connected(&app->ipc));
+    app_leave();
+    check("live: left, the session and its connection stay",
+          rift_app_in_background() && rift_ipc_connected(&s->ipc));
+    check("live: a direct message sent while RIFT is left reaches it",
+          live_until(bg_live_heard, 8000));
+    for (round = 0; round < 5; round++) {
+        app_start();
+        pump(100);
+        app_leave();
+    }
+    app_start();
+    pump(200);
+    check("live: reopened six times, the same session and still connected",
+          app == s && app->opens == 7 && rift_ipc_connected(&app->ipc));
+    check("live: one connection, one subscription, for all of it",
+          count_lines(methods, "mesh.subscribe") == 1);
+    check("live: nothing was put on the air",
+          count_lines(methods, "mesh.send") == 0 && count_lines(methods, "mesh.advert") == 0);
+
+    rift_app_show_section(app, RIFT_SEC_ACTIVITY);
+    pump(120);
+    home_before = home_calls;
+    tap(rift_session_close_button(app));
+    pump(120);
+    tap(rift_session_confirm_button(app, 1));
+    app_leave();
+    home_calls = home_before;
+    pump(300);
+    check("live: CLOSE RIFT gives the subscription back",
+          count_lines(methods, "mesh.unsubscribe") == 1);
+    check("live: and the session is over", rift_app_session() == NULL);
+    check("live: meshcored is still running after it", kill(pid, 0) == 0);
+    kill(pid, SIGTERM);
+    waitpid(pid, NULL, 0);
+    unlink(methods);
+    unlink(events);
+}
+
 int main(void)
 {
     lv_indev_t *indev;
@@ -2731,8 +3381,8 @@ int main(void)
     check("with the section strip", strip() != NULL);
     check("the content area", content() != NULL);
     check("and the command line", cmdline() != NULL);
-    check("the strip is a 56 px navigation row, not a 36 px data row",
-          lv_obj_get_height(strip()) == RIFT_TOUCH_H);
+    check("the strip is a 64 px navigation row, not a 36 px data row",
+          lv_obj_get_height(strip()) == RIFT_NAV_ROW_H);
     check("and so is the command line", lv_obj_get_height(cmdline()) == RIFT_TOUCH_H);
     /* The key sink moved out of the command line so the line can go away
      * without taking the keys with it. It is 1 px, takes no taps, and is
@@ -3994,11 +4644,16 @@ int main(void)
     manage_session();
     manage_live_session();
     text_size_session();
+    /* feat/rift-background-lifecycle: RIFT kept behind other screens, its
+     * mark, CLOSE RIFT, and the navigation row's targets (DS §51). */
+    background_session();
+    navigation_session();
+    background_live_session();
 
     /* A destroyed app's timer must be gone: one more pass into a freed
      * block is the whole point of the round trip. */
     pump(600);
-    check("and nothing is still running after it", app == NULL);
+    check("and nothing is still running after it", app == NULL && rift_app_session() == NULL);
 
     check("the app never sent the shell home", home_calls == 0);
     (void)hint_calls;
