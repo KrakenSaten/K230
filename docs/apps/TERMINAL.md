@@ -8,10 +8,9 @@ the kernel's PTY and line discipline, so job control, Ctrl+C, `stty`,
 as over SSH.
 
 Status: Terminal 0.1 is in master (PR #15), DS §43 (PROPOSED), gate
-`docs/hardware/TERMINAL_GATE.md`. **Terminal 0.2 - the text size, the kept
-session and the CLI toolbox - is on branch `feat/terminal-power-user`, not
-merged**: DS §49 (PROPOSED), gate
-`docs/hardware/TERMINAL_POWER_USER_GATE.md`.
+`docs/hardware/TERMINAL_GATE.md`. Terminal 0.2 - the text size, the kept
+session and the CLI toolbox - is in master (PR #25): DS §49 (ACCEPTED),
+gate `docs/hardware/TERMINAL_POWER_USER_GATE.md`.
 
 ## What it does
 
