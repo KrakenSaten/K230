@@ -19,6 +19,16 @@
  *                                now and on every problem refresh
  *   detail -                     stop reading a host
  *   scenario <name>              the fake backend only: switch the scenario
+ *   ctest <url> <auth> <user> <secret>
+ *   csave <url> <auth> <user> <secret>
+ *                                the CONNECTION screen: try these settings
+ *                                (ctest), or try them and store them only
+ *                                if they connect (csave); answered by
+ *                                `cresult`. url, user and secret are hex
+ *                                (any byte travels, none is a TAB or a
+ *                                newline); secret "-" keeps the stored one.
+ *                                The only line that may be longer than
+ *                                ZBX_LINE_MAX: up to ZBX_CMD_LINE_MAX.
  *   quit                         leave; answered by `bye`
  *
  * EVENTS (helper to app):
@@ -43,6 +53,15 @@
  *   di <itemid> <clock> <value> <units> <name>
  *   dend <seq> <problems> <items>
  *   dnone <hostid> <text>        the host could not be read (gone, no access)
+ *   settings <url> <token|password> <user> <stored 0|1> <note>
+ *                                the connection as zabbix.conf has it, for
+ *                                the CONNECTION screen: the frontend url,
+ *                                the sign-in, the user, and whether a token
+ *                                or password is stored - never the secret
+ *                                itself; note says why the files are not
+ *                                usable, if they are not
+ *   cresult <test|save> <connected|authfail|unreachable|invalid> <saved 0|1> <text>
+ *                                the answer to ctest or csave
  *   bye
  *
  * A set is only handed to the app once its end line arrives with the same
@@ -63,6 +82,21 @@
 
 #define ZBX_PROTO_VERSION 1
 #define ZBX_LINE_MAX 1024
+/* A command line: ctest/csave carry three hex fields. */
+#define ZBX_CMD_LINE_MAX 2048
+/* The sizes of what ctest/csave carry, decoded (zbx_config.h has the same
+ * ZBX_USER_MAX and ZBX_SECRET_MAX; zbx_config.c checks they agree). */
+#define ZBX_PROTO_USER_MAX 64
+#define ZBX_PROTO_SECRET_MAX 256
+
+/* What trying a connection's settings came to (the CONNECTION screen). */
+enum zbx_cresult {
+    ZBX_CRESULT_CONNECTED = 0,  /* the server answered and took the credentials */
+    ZBX_CRESULT_AUTH_FAILED,    /* the server answered and refused them */
+    ZBX_CRESULT_UNREACHABLE,    /* no usable answer: DNS, network, TLS, HTTP, API */
+    ZBX_CRESULT_INVALID,        /* the settings themselves are wrong; nothing was sent */
+    ZBX_CRESULT_COUNT
+};
 
 /* The connection, as the helper sees it. */
 enum zbx_conn_state {
@@ -98,6 +132,14 @@ const char *zbx_err_word(enum zbx_err e);
 const char *zbx_err_text(enum zbx_err e);
 int zbx_conn_state_parse(const char *w);
 int zbx_err_parse(const char *w);
+const char *zbx_cresult_word(enum zbx_cresult r);
+int zbx_cresult_parse(const char *w);
+
+/* Hex for the ctest/csave fields: lower-case pairs. encode returns 0, or -1
+ * when it does not fit; decode returns the decoded length, or -1 for odd
+ * length, a non-hex digit, a NUL byte or no room (dst is always ended). */
+int zbx_hex_encode(char *dst, size_t len, const char *src);
+int zbx_hex_decode(char *dst, size_t len, const char *src);
 
 /* ---- the helper's side: writing ------------------------------------------------- */
 
@@ -115,7 +157,16 @@ int zbx_proto_problems(FILE *out, unsigned seq, const struct zbx_problem_set *s)
 int zbx_proto_hosts(FILE *out, unsigned seq, const struct zbx_host_set *s);
 int zbx_proto_detail(FILE *out, unsigned seq, const struct zbx_detail *d);
 int zbx_proto_detail_none(FILE *out, const char *hostid, const char *text);
+int zbx_proto_settings(FILE *out, const char *url, const char *auth, const char *user,
+                       bool stored, const char *note);
+int zbx_proto_cresult(FILE *out, bool save, enum zbx_cresult r, bool saved, const char *text);
 int zbx_proto_bye(FILE *out);
+
+/* The app's side of ctest/csave: the command line (newline included) into
+ * buf, which then holds the secret in hex: the caller wipes it. secret NULL
+ * or "" keeps the stored one. 0, or -1 when a field is too long. */
+int zbx_proto_cmd_settings(char *buf, size_t len, bool save, const char *url, const char *auth,
+                           const char *user, const char *secret);
 
 /* ---- the app's side: reading ----------------------------------------------------- */
 
@@ -131,6 +182,8 @@ enum zbx_rx_kind {
     ZBX_RX_HOSTS,               /* rx->hosts */
     ZBX_RX_DETAIL,              /* rx->detail */
     ZBX_RX_DETAIL_NONE,
+    ZBX_RX_SETTINGS,            /* url, word (auth), user, flag (stored), text (note) */
+    ZBX_RX_CRESULT,             /* save, result, flag (saved), text */
     ZBX_RX_BYE,
     ZBX_RX_BAD,                 /* a known word with broken fields */
 };
@@ -150,6 +203,10 @@ struct zbx_rx_msg {
     char label[ZBX_TEXT_MAX];
     char url[ZBX_URL_MAX];
     char text[ZBX_TEXT_MAX];
+    char user[ZBX_PROTO_USER_MAX];
+    bool flag;
+    bool save;
+    enum zbx_cresult result;
 };
 
 /* The reader's staging area. Large (the three sets), so the app keeps it in
@@ -179,14 +236,21 @@ enum zbx_cmd_kind {
     ZBX_CMD_DETAIL,             /* word = hostid, "" to stop */
     ZBX_CMD_SCENARIO,           /* word = name */
     ZBX_CMD_QUIT,
+    ZBX_CMD_TEST,               /* word = auth; url, user, secret / keep_secret */
+    ZBX_CMD_SAVE,               /* the same */
 };
 
 struct zbx_cmd {
     enum zbx_cmd_kind kind;
     char word[ZBX_TEXT_MAX];
+    char url[ZBX_URL_MAX];
+    char user[ZBX_PROTO_USER_MAX];
+    char secret[ZBX_PROTO_SECRET_MAX]; /* TEST/SAVE: the new token or password; wipe it */
+    bool keep_secret;           /* TEST/SAVE: use the stored one */
 };
 
-/* Parse one command line (no newline; modified in place). */
+/* Parse one command line (no newline; modified in place). A TEST or SAVE
+ * whose fields do not decode is ZBX_CMD_NONE. */
 enum zbx_cmd_kind zbx_cmd_parse(char *line, struct zbx_cmd *cmd);
 
 #endif

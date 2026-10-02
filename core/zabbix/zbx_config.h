@@ -109,6 +109,19 @@ int zbx_config_read_secret(struct zbx_config *c, const char *path, char *err, si
 int zbx_config_write_secret(const char *path, const char *kind, const char *value, char *err,
                             size_t errlen);
 
+/* Whether value can be stored as this kind of secret: not empty, shorter
+ * than ZBX_SECRET_MAX; a token one word of printable ASCII, a password any
+ * bytes but CR and LF. 0, or -1 with the reason. */
+int zbx_config_check_secret(const char *kind, const char *value, char *err, size_t errlen);
+
+/* The first half of zbx_config_write_secret: the same checks, the 0700
+ * directory, and the value written and synced to "<path>.new" (0600, made
+ * with O_EXCL|O_NOFOLLOW), whose name goes to tmp. Nothing is replaced: the
+ * caller renames tmp over path when it is ready (zbx_settings.c), or
+ * unlinks it. value must not be empty. */
+int zbx_config_stage_secret(const char *path, const char *kind, const char *value, char *tmp,
+                            size_t tmplen, char *err, size_t errlen);
+
 /* Turn what the user typed into the endpoint and the shown form. Refuses
  * anything but http:// and https://, a user:password@ part, a query or a
  * fragment, and spaces. */
