@@ -178,7 +178,10 @@ scripts and the bench are not tied to a screen.
 - **Off** is applied first, always, and stored second: the backend runs the
   shutdown every stop runs (on the SX1262: receive cleared, the chip put to
   sleep, its power line GPIO44 driven low, SPI and GPIO released). A store
-  that fails answers 4 with the radio already off.
+  that fails answers 4 with the radio already off. Until a store succeeds,
+  asking for off again is not idempotent: it tries the store again and
+  answers 4 for as long as that fails, so a client is never told the off was
+  kept when the next start would switch the radio back on.
 - **Starting with the radio off** parks the transceiver: init, configure,
   then the same shutdown, so whatever the previous owner left behind (a
   daemon killed in receive leaves the SX1262 receiving) ends asleep and

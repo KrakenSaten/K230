@@ -66,6 +66,10 @@ struct radiod {
      * only inside set_enabled and at start. */
     bool enabled;
     bool hw_up;
+    /* An off that is applied but not stored: rf_path may still say on, and
+     * the next start would switch the radio back on. Until a store lands,
+     * another off is not idempotent - it is the retry. */
+    bool off_unstored;
     char rf_path[POCKETOS_PATH_MAX];
     bool verbose;
     char socket_name[64];
@@ -1077,7 +1081,9 @@ static cJSON *m_inject(struct radiod *rd, const cJSON *params, int *code, char *
  * The order is chosen so the radio is never on unless that choice is stored:
  * on is applied first and stored second, and a store that fails takes it
  * straight back off; off is applied first, always, and a store that fails is
- * reported - the radio is off now, and would come back on at the next start. */
+ * reported - the radio is off now, and would come back on at the next start.
+ * That off is remembered as unstored, so asking for off again stores it again
+ * rather than answering from the radio's state as if it had been kept. */
 static cJSON *m_set_enabled(struct radiod *rd, const cJSON *params, int *code, char *msg, size_t n)
 {
     const cJSON *want = params ? cJSON_GetObjectItemCaseSensitive(params, "enabled") : NULL;
@@ -1108,12 +1114,13 @@ static cJSON *m_set_enabled(struct radiod *rd, const cJSON *params, int *code, c
             return NULL;
         }
         rd->enabled = true;
+        rd->off_unstored = false;
         LOG_INFO("radio switched on by the owner");
         update_rx_state(rd);
         return m_status(rd);
     }
 
-    if (!rd->enabled && !rd->hw_up) {
+    if (!rd->enabled && !rd->hw_up && !rd->off_unstored) {
         return m_status(rd);
     }
     if (radio_tx_active(&rd->tx)) {
@@ -1122,10 +1129,15 @@ static cJSON *m_set_enabled(struct radiod *rd, const cJSON *params, int *code, c
                  (unsigned long long)radio_tx_active_id(&rd->tx));
         return NULL;
     }
-    radio_hw_down(rd);
-    rd->enabled = false;
-    update_rx_state(rd);
-    LOG_INFO("radio switched off by the owner");
+    if (rd->off_unstored && !rd->enabled && !rd->hw_up) {
+        LOG_INFO("radio already off; storing the choice again");
+    } else {
+        radio_hw_down(rd);
+        rd->enabled = false;
+        update_rx_state(rd);
+        LOG_INFO("radio switched off by the owner");
+    }
+    rd->off_unstored = true;
     if (rf_state_store(rd->rf_path, false, rd->be.ops->name, err, sizeof(err)) < 0) {
         LOG_ERROR("radio off not stored: %s", err);
         *code = POCKETIPC_ERR_BACKEND;
@@ -1133,6 +1145,7 @@ static cJSON *m_set_enabled(struct radiod *rd, const cJSON *params, int *code, c
                          "it will be on again after a restart", err);
         return NULL;
     }
+    rd->off_unstored = false;
     return m_status(rd);
 }
 
