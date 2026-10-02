@@ -1,7 +1,8 @@
 # Known issues and open questions
 
-Updated 2026-09-28 for v0.2.1 (tag `v0.2.1`). Move items
-to git history when resolved.
+Updated 2026-10-02 for v0.3.0 (tag `v0.3.0`; its summary of current
+limitations is in docs/releases/v0.3.0.md, the per-app details in
+docs/apps/ and the gate sheets). Move items to git history when resolved.
 
 Closed by 0.0.3, listed here only because the bench sheets still cite them:
 B4 (the shell's `printf` diagnostics never reached a log; they go through
