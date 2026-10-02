@@ -5,17 +5,20 @@
  *
  * The shell and netd are not here, so this file plays both. shell_ipc's
  * shell_ipc_call_timeout() is implemented below over a scripted netd that
- * records every call and its parameters; the shell's brightness and keyboard
- * entry points are implemented over variables. That is what lets the test
- * assert the part that matters most: which request carried a passphrase,
- * and that no other one did.
+ * records every call and its parameters; the shell's entry points (app.h:
+ * brightness, rotation, appearance, text size, volume, the keyboard light,
+ * Power & Sleep, the time zone, the overlay, the header's title) are
+ * implemented over variables that keep what was set, as the shell's store
+ * does. That is what lets the test assert the part that matters most: which
+ * request carried a passphrase, and that no other one did.
  *
  * The app is hosted the way the shell hosts it (a header, then a padded
  * body), on the reference panel with its 30 px rounded corners, and the
  * keyboard's sheet takes its height off the content area when the app asks
- * for it, as the shell's does. Sections 13 on lay every screen out in
- * portrait and in landscape (DS 21, 22) and turn the display under the open
- * app.
+ * for it, as the shell's does. Section 1 walks the list of categories and
+ * every page's way back (DS §52); 18 lays every page out at every text size
+ * both ways up, and 19 on lay the Wi-Fi pages out in portrait and in
+ * landscape (DS 21, 22) and turn the display under the open app.
  *
  * Needs LVGL, so it is built by ui/shell/CMakeLists.txt beside the shell
  * (host builds only) and run by tests/settings_shell_test.sh.
@@ -24,6 +27,9 @@
  */
 #include "app.h"
 #include "brightness.h"
+#include "power_policy.h"
+#include "tz_zones.h"
+#include "volume.h"
 #include "pocketui.h"
 #include "pos_keyboard.h"
 #include "shell_ipc.h"
@@ -237,7 +243,128 @@ static int role_on(lv_obj_t *obj, enum pos_style_role role)
     return lv_color_eq(fill, accent);
 }
 
-int64_t pocketos_shell_system_day(void) { return -1; }
+/* The shell's clock reading (app.h): -1 is a clock that is not set. */
+static int64_t g_day = -1;
+
+int64_t pocketos_shell_system_day(void) { return g_day; }
+
+/* The header's title, as the shell would show it ("" for the app's name). */
+static char g_title[64];
+
+void pocketos_shell_set_title(const char *title)
+{
+    snprintf(g_title, sizeof(g_title), "%s", title ? title : "");
+}
+
+/* Volume and mute, the shell's (volume.h): the same range and step. */
+static int g_volume = 60;
+static int g_muted;
+static int g_vol_available = 1;
+
+int pocketos_shell_volume_get(void) { return g_volume; }
+int pocketos_shell_volume_muted(void) { return g_muted; }
+int pocketos_shell_volume_effective(void) { return g_muted ? 0 : g_volume; }
+int pocketos_shell_volume_available(void) { return g_vol_available; }
+
+int pocketos_shell_volume_set(int percent)
+{
+    if (percent < VOLUME_MIN_PCT || percent > VOLUME_MAX_PCT || percent % VOLUME_STEP_PCT) {
+        return -1;
+    }
+    g_volume = percent;
+    return 0;
+}
+
+int pocketos_shell_volume_set_muted(int muted)
+{
+    if (muted != 0 && muted != 1) {
+        return -1;
+    }
+    g_muted = muted;
+    return 0;
+}
+
+/* The keyboard base's light: -1 is a board without one. */
+static int g_light;
+
+int pocketos_shell_keyboard_light(void) { return g_light; }
+
+int pocketos_shell_set_keyboard_light(int percent)
+{
+    if (g_light < 0 || percent < 0 || percent > 100 || percent % 10) {
+        return -1;
+    }
+    g_light = percent;
+    return percent;
+}
+
+/* Power & Sleep, refusing what the shell refuses (power_policy.h). */
+static int g_screen_off;
+static int g_lock_after;
+static int g_lock_start = 1;
+
+int pocketos_shell_screen_off_after(void) { return g_screen_off; }
+int pocketos_shell_lock_after(void) { return g_lock_after; }
+int pocketos_shell_lock_at_start(void) { return g_lock_start; }
+
+int pocketos_shell_set_screen_off_after(int seconds)
+{
+    if (power_option_index(POWER_TIMER_SCREEN, seconds) < 0) {
+        return -1;
+    }
+    g_screen_off = seconds;
+    return 0;
+}
+
+int pocketos_shell_set_lock_after(int seconds)
+{
+    if (power_option_index(POWER_TIMER_LOCK, seconds) < 0) {
+        return -1;
+    }
+    g_lock_after = seconds;
+    return 0;
+}
+
+int pocketos_shell_set_lock_at_start(int on)
+{
+    if (on != 0 && on != 1) {
+        return -1;
+    }
+    g_lock_start = on;
+    return 0;
+}
+
+/* The time zone, by name, refusing a name tz_zones.h does not have. */
+static char g_tz[64] = "UTC";
+static int g_tz_sets;
+
+const char *pocketos_shell_timezone(void) { return g_tz; }
+
+int pocketos_shell_set_timezone(const char *id)
+{
+    if (!tz_zone_find(id)) {
+        return -1;
+    }
+    g_tz_sets++;
+    snprintf(g_tz, sizeof(g_tz), "%s", id);
+    return 0;
+}
+
+/* The developer overlay. */
+static int g_overlay;
+static int g_overlay_sets;
+
+int pocketos_shell_debug_overlay(void) { return g_overlay; }
+
+int pocketos_shell_set_debug_overlay(int on)
+{
+    if (on != 0 && on != 1) {
+        return -1;
+    }
+    g_overlay_sets++;
+    g_overlay = on;
+    return 0;
+}
 void pocketos_shell_set_status_hint(const char *text) { (void)text; }
 void pocketos_shell_go_home(void) { }
 int pocketos_shell_reduced_motion(void) { return 0; }
@@ -958,9 +1085,159 @@ static void check_plain_sheet(const char *what, const char *row, const char *fir
     check(msg, in_view(target_of(first_action)) && in_view(find_visible(app_body, "NETWORK")));
 }
 
-/* One display, one mode: the main screen with a long list, scrolled by a
- * finger; the passphrase sheet above the keyboard with a short passphrase
- * refused and a long refusal from netd; and the sheets without a field. */
+/* ---- the hierarchy (DS §52) ------------------------------------------------------------ */
+
+#define CATEGORY_COUNT 9
+static const char *const categories[CATEGORY_COUNT] = { "Display", "Appearance", "Sound", "Keyboard",
+                                                        "Power & Sleep", "Time & Region", "Network", "System",
+                                                        "Developer" };
+
+/* Objects inside the page that scroll on their own: anything but the page
+ * itself whose content does not fit it. A text field scrolls its own text
+ * sideways; that is a field's job, not a nested scroll region. */
+static int nested_scrollers(lv_obj_t *obj, lv_obj_t *page)
+{
+    uint32_t i;
+    int n = 0;
+
+    if (!obj || lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN) || lv_obj_check_type(obj, &lv_textarea_class)) {
+        return 0;
+    }
+    if (obj != page && lv_obj_has_flag(obj, LV_OBJ_FLAG_SCROLLABLE) &&
+        (lv_obj_get_scroll_top(obj) > 0 || lv_obj_get_scroll_bottom(obj) > 0 || lv_obj_get_scroll_left(obj) > 0 ||
+         lv_obj_get_scroll_right(obj) > 0)) {
+        lv_area_t a;
+
+        area_of(obj, &a);
+        printf("     nested scroller %d..%d x %d..%d (bottom %d)\n", (int)a.x1, (int)a.x2, (int)a.y1, (int)a.y2,
+               (int)lv_obj_get_scroll_bottom(obj));
+        n++;
+    }
+    for (i = 0; i < lv_obj_get_child_count(obj); i++) {
+        n += nested_scrollers(lv_obj_get_child(obj, i), page);
+    }
+    return n;
+}
+
+/* How far the page reaches past its box: 0 when it fits without scrolling. */
+static int32_t page_overflow(void)
+{
+    lv_obj_t *s = screen_obj();
+
+    if (!s) {
+        return -1;
+    }
+    lv_obj_update_layout(s);
+    return LV_MAX(0, lv_obj_get_scroll_top(s)) + LV_MAX(0, lv_obj_get_scroll_bottom(s));
+}
+
+/* The page on show, checked whole (check_screen), and the rule of DS §52.2:
+ * nothing in it scrolls but the page. */
+static void check_page(const char *what)
+{
+    char msg[200];
+
+    check_screen(what);
+    snprintf(msg, sizeof(msg), "%s: nothing inside the page scrolls on its own", what);
+    check(msg, nested_scrollers(screen_obj(), screen_obj()) == 0);
+}
+
+/* Back (app.h `back`) until the list of categories, as many times as it
+ * takes, never more than three. Returns how many steps it took. */
+static int back_to_root(void)
+{
+    int n = 0;
+
+    while (n < 4 && app_settings.back(app_priv)) {
+        pump(40);
+        n++;
+    }
+    return n;
+}
+
+static void open_category(const char *name)
+{
+    back_to_root();
+    tap(name);
+    pump(40);
+}
+
+/* ---- every page, both ways up, every text size ---------------------------------------- */
+
+static const struct {
+    const char *category;  /* tapped on the list; NULL for the list itself */
+    const char *then;      /* tapped on that page, for a page one level further */
+    const char *mark;      /* a label the page shows */
+    int list;              /* a list that is allowed to be longer than the screen */
+} pages[] = {
+    { NULL, NULL, "Developer", 0 },
+    { "Display", NULL, "BRIGHTNESS", 0 },
+    { "Appearance", NULL, "DISPLAY MODE", 0 },
+    { "Sound", NULL, "VOLUME", 0 },
+    { "Keyboard", NULL, "KEYBOARD BASE", 0 },
+    { "Power & Sleep", NULL, "WHAT EACH ONE DOES", 0 },
+    { "Time & Region", NULL, "CHANGE TIME ZONE", 0 },
+    { "Time & Region", "CHANGE TIME ZONE", "CHOOSE A TIME ZONE", 1 },
+    { "Network", NULL, "WI-FI", 1 },
+    { "Developer", NULL, "DEBUG OVERLAY", 0 },
+};
+#define PAGE_CASES (sizeof(pages) / sizeof(pages[0]))
+
+static const char *size_name(enum pos_text_size s)
+{
+    return s == POS_TEXT_SIZE_LARGE ? "Large" : s == POS_TEXT_SIZE_MEDIUM ? "Medium" : "Small";
+}
+
+/* Every page at one text size in one orientation: laid out whole (targets,
+ * labels, the safe area), nothing scrolling inside it, and - except the two
+ * lists, which are as long as what they list - short enough not to scroll at
+ * all, at every text size, either way up. */
+static void check_pages(enum pos_rotation rotation, enum pos_text_size size)
+{
+    const char *orient = rotation == POS_ROTATION_270 ? "landscape" : "portrait";
+    char what[160];
+    size_t k;
+
+    pos_theme_select_text_size(size);
+    use_display(rotation, PANEL_CORNER);
+    app_start();
+    tick();
+    for (k = 0; k < PAGE_CASES; k++) {
+        int32_t over;
+
+        if (pages[k].category) {
+            open_category(pages[k].category);
+        } else {
+            back_to_root();
+        }
+        if (pages[k].then) {
+            tap(pages[k].then);
+        }
+        tick();
+        snprintf(what, sizeof(what), "[%s %s] %s%s%s", orient, size_name(size),
+                 pages[k].category ? pages[k].category : "the list", pages[k].then ? " > " : "",
+                 pages[k].then ? pages[k].then : "");
+        check(what, shows(pages[k].mark));
+        check_page(what);
+        over = page_overflow();
+        printf("     %s scrolls %d px\n", what, (int)over);
+        if (!pages[k].list) {
+            char msg[200];
+
+            snprintf(msg, sizeof(msg), "%s: fits without scrolling", what);
+            check(msg, over == 0);
+        }
+    }
+    app_stop();
+    pos_theme_select_text_size(POS_TEXT_SIZE_SMALL);
+}
+
+/* ---- Wi-Fi in one display and one mode ----------------------------------------------- */
+
+/* The Network page with a long list, scrolled by a finger; the passphrase
+ * sheet above the keyboard with a short passphrase refused and a long refusal
+ * from netd; and the sheets without a field. What was the v0.0.10 main
+ * screen's Wi-Fi panel, on its own page now. */
 static void check_orientation(const char *name, enum pos_rotation rotation, int32_t corner, const char *mode)
 {
     char what[160];
@@ -968,10 +1245,9 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     int wide = rotation == POS_ROTATION_270;
     lv_area_t box;
     lv_area_t w;
-    lv_area_t d;
-    lv_area_t ap;
     lv_area_t a;
     lv_area_t b;
+    lv_area_t d;
     lv_obj_t *field;
     lv_obj_t *caption;
 
@@ -985,85 +1261,61 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     app_start();
     tick();
 
-    /* ---- the main screen */
+    /* ---- the list of categories */
+    body_box(&box);
+    /* The panels the two rows are in (a row carries a divider, so panel_of
+     * would stop at the row). */
+    area_of(target_of("Display") ? lv_obj_get_parent(target_of("Display")) : NULL, &a);
+    area_of(target_of("Network") ? lv_obj_get_parent(target_of("Network")) : NULL, &b);
+    snprintf(what, sizeof(what), "[%s] list: the second panel is %s the first", name, wide ? "beside" : "below");
+    check(what, wide ? b.x1 > a.x2 && b.y1 == a.y1 && b.x1 - a.x2 - 1 == 22 : b.y1 > a.y2 && b.x1 == a.x1 && b.x2 == a.x2);
+    if (wide && !(b.x1 > a.x2 && b.y1 == a.y1 && b.x1 - a.x2 - 1 == 22)) {
+        printf("     first %d..%d x %d..%d, second %d..%d x %d..%d\n", (int)a.x1, (int)a.x2, (int)a.y1, (int)a.y2,
+               (int)b.x1, (int)b.x2, (int)b.y1, (int)b.y2);
+    }
+    snprintf(what, sizeof(what), "[%s] list: every category is on show without scrolling", name);
+    {
+        int all = 1;
+        int i;
+
+        for (i = 0; i < CATEGORY_COUNT; i++) {
+            all &= in_view(target_of(categories[i]));
+        }
+        check(what, all);
+    }
+    snprintf(what, sizeof(what), "[%s] list", name);
+    check_page(what);
+
+    /* ---- Network */
+    tap("Network");
     body_box(&box);
     area_of(panel_of("WI-FI"), &w);
-    area_of(panel_of("DISPLAY"), &d);
-    area_of(panel_of("APPEARANCE"), &ap);
-    snprintf(what, sizeof(what), "[%s] main: Display is %s Wi-Fi", name, wide ? "beside" : "below");
-    check(what, wide ? d.x1 > w.x2 && d.y1 == w.y1 : d.y1 > w.y2 && d.x1 == w.x1 && d.x2 == w.x2);
-    snprintf(what, sizeof(what), "[%s] main: Appearance is below Display, in line with it", name);
-    check(what, ap.y1 == d.y2 + 1 + 22 && ap.x1 == d.x1 && ap.x2 == d.x2);
-    if (wide) {
-        snprintf(what, sizeof(what), "[%s] main: two columns across the body, 22 px apart, none under 528 px",
-                 name);
-        check(what, w.x1 == box.x1 && d.x2 == box.x2 && d.x1 - w.x2 - 1 == 22 && lv_area_get_width(&w) >= 528 &&
-                        lv_area_get_width(&d) >= 528);
-        area_of(scroller_of(panel_of("WI-FI")), &a);
-        area_of(scroller_of(panel_of("DISPLAY")), &b);
-        snprintf(what, sizeof(what), "[%s] main: each column scrolls itself, to the foot less the corners", name);
-        check(what, scroller_of(panel_of("WI-FI")) != scroller_of(panel_of("DISPLAY")) && a.y1 == box.y1 &&
-                        b.y1 == box.y1 && a.y2 == box.y2 - foot_inset() && b.y2 == box.y2 - foot_inset());
-    } else {
-        snprintf(what, sizeof(what), "[%s] main: one column the body's width", name);
-        check(what, w.x1 == box.x1 && w.x2 == box.x2 && d.y1 - w.y2 - 1 == 22);
-        area_of(screen_obj(), &a);
-        snprintf(what, sizeof(what), "[%s] main: it scrolls to the foot less the corners", name);
-        check(what, scroller_of(panel_of("WI-FI")) == screen_obj() && a.y1 == box.y1 &&
-                        a.y2 == box.y2 - foot_inset() && a.x1 == box.x1 && a.x2 == box.x2);
-    }
-    snprintf(what, sizeof(what), "[%s] main", name);
-    check_screen(what);
+    snprintf(what, sizeof(what), "[%s] network: Wi-Fi's panel across the body", name);
+    check(what, w.x1 == box.x1 && w.x2 == box.x2);
+    area_of(screen_obj(), &a);
+    snprintf(what, sizeof(what), "[%s] network: the page scrolls, to the foot less the corners", name);
+    check(what, scroller_of(panel_of("WI-FI")) == screen_obj() && a.y1 == box.y1 && a.y2 == box.y2 - foot_inset() &&
+                    a.x1 == box.x1 && a.x2 == box.x2);
+    snprintf(what, sizeof(what), "[%s] network", name);
+    check_page(what);
 
     /* long names: cut short inside their rows, never onto a badge */
     area_of(target_of("Home"), &a);
     area_of(find_visible(app_body, "CONNECTED"), &b);
     area_of(find_visible(app_body, "Home"), &d);
-    snprintf(what, sizeof(what), "[%s] main: the connected row's name and badge are apart, both in the row", name);
+    snprintf(what, sizeof(what), "[%s] network: the connected row's name and badge are apart, both in the row", name);
     check(what, within(&b, &a) && within(&d, &a) && d.x2 < b.x1);
     area_of(target_of(LONG_SSID), &a);
     area_of(find_visible(app_body, LONG_SSID), &b);
-    snprintf(what, sizeof(what), "[%s] main: the longest SSID stays inside its row", name);
+    snprintf(what, sizeof(what), "[%s] network: the longest SSID stays inside its row", name);
     check(what, within(&b, &a) && lv_area_get_height(&a) == POCKETUI_ROW_H + 8);
-
-    /* a finger scrolls the list to its end; in the wide shape the other
-     * column stays where it was */
-    snprintf(what, sizeof(what), "[%s] main: a finger scrolls to the last network", name);
+    snprintf(what, sizeof(what), "[%s] network: a finger scrolls the page to the last network", name);
     check(what, scroll_to(target_of("Net 12"), wide ? -250 : -500));
-    snprintf(what, sizeof(what), "[%s] main: %s", name,
-             wide ? "the Display column did not move" : "the body itself did not scroll");
-    check(what, wide ? lv_obj_get_scroll_y(scroller_of(panel_of("DISPLAY"))) == 0
-                     : lv_obj_get_scroll_top(app_body) <= 0);
-    snprintf(what, sizeof(what), "[%s] main: a finger scrolls to the last control", name);
-    check(what, scroll_to(target_of("NIGHT"), wide ? -250 : -500));
-    tap("NIGHT");
-    snprintf(what, sizeof(what), "[%s] main: and it works there", name);
-    check(what, pos_theme_current_mode() == POS_MODE_NIGHT);
-    pos_theme_apply(NULL, mode, why, sizeof(why));
-    snprintf(what, sizeof(what), "[%s] main, scrolled", name);
-    check_screen(what);
+    snprintf(what, sizeof(what), "[%s] network: the body itself did not scroll", name);
+    check(what, lv_obj_get_scroll_top(app_body) <= 0);
+    snprintf(what, sizeof(what), "[%s] network, scrolled", name);
+    check_page(what);
     tick();
-
-    /* System (DS §47): its panel last, under Appearance in the same column,
-     * reached by a finger, and its one row asks the shell for System. */
-    area_of(panel_of("APPEARANCE"), &ap);
-    area_of(panel_of("SYSTEM"), &a);
-    snprintf(what, sizeof(what), "[%s] main: System's panel is below Appearance, in line with it", name);
-    check(what, a.y1 == ap.y2 + 1 + 22 && a.x1 == ap.x1 && a.x2 == ap.x2);
-    snprintf(what, sizeof(what), "[%s] main: a finger scrolls to the System row", name);
-    check(what, scroll_to(target_of("System"), wide ? -250 : -500));
-    area_of(target_of("System"), &a);
-    snprintf(what, sizeof(what), "[%s] main: the System row is a whole touch target with its words inside it",
-             name);
-    check(what, lv_area_get_height(&a) >= POCKETUI_TOUCH_MIN && labels_fit(target_of("System")) == 0 &&
-                    in_view(find_visible(app_body, "About this device, status, diagnostics, restart and power")));
-    g_open_count = 0;
-    g_opened[0] = '\0';
-    tap("System");
-    snprintf(what, sizeof(what), "[%s] main: tapping System asks the shell for the System page, once", name);
-    check(what, g_open_count == 1 && strcmp(g_opened, "system") == 0);
-    snprintf(what, sizeof(what), "[%s] main: and Settings changed nothing else on the way", name);
-    check(what, !kb_shown && shows("WI-FI"));
 
     /* ---- the passphrase sheet above the keyboard */
     open_sheet("New");
@@ -1085,7 +1337,7 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     snprintf(what, sizeof(what), "[%s] sheet: the field is no narrower than in portrait", name);
     check(what, lv_area_get_width(&a) >= 484);
     snprintf(what, sizeof(what), "[%s] sheet above the keyboard", name);
-    check_screen(what);
+    check_page(what);
 
     type("short");
     if (kb_done) {
@@ -1110,16 +1362,14 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     caption = find_visible(app_body, LONG_REFUSAL);
     snprintf(what, sizeof(what), "[%s] sheet: netd's longest refusal is read whole above the keyboard", name);
     check(what, caption && in_view(caption));
-    /* It fits one line across the field in either shape and mode but portrait
-     * Outdoor, where it takes two and there is room for them. */
     snprintf(what, sizeof(what), "[%s] sheet: and the field stays in view with it, still holding the passphrase",
              name);
     check(what, in_view(field) && shown_h(field) == POCKETUI_ROW_H && focused_text() &&
                     strcmp(focused_text(), PASS) == 0);
     snprintf(what, sizeof(what), "[%s] sheet with an error above the keyboard", name);
-    check_screen(what);
+    check_page(what);
     tap("CANCEL");
-    snprintf(what, sizeof(what), "[%s] sheet: CANCEL is reachable and closes it", name);
+    snprintf(what, sizeof(what), "[%s] sheet: CANCEL is reachable and goes back to Network", name);
     check(what, !shows("JOIN") && !kb_shown && shows("WI-FI"));
 
     /* ---- the sheets without a field */
@@ -1131,7 +1381,7 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     snprintf(what, sizeof(what), "[%s] connected sheet: a failure is shown in view", name);
     check(what, in_view(find_visible(app_body, "Wi-Fi did not answer")) && shows("DISCONNECT"));
     snprintf(what, sizeof(what), "[%s] connected sheet with a failure", name);
-    check_screen(what);
+    check_page(what);
     tap("CANCEL");
     snprintf(what, sizeof(what), "[%s] open sheet", name);
     check_plain_sheet(what, "Guest", "CANCEL", wide);
@@ -1139,8 +1389,28 @@ static void check_orientation(const char *name, enum pos_rotation rotation, int3
     snprintf(what, sizeof(what), "[%s] unsupported sheet", name);
     check_plain_sheet(what, "W3", "BACK", wide);
     tap("BACK");
-    snprintf(what, sizeof(what), "[%s] back on the main screen", name);
+    snprintf(what, sizeof(what), "[%s] back on Network", name);
     check(what, shows("WI-FI") && !kb_shown);
+
+    /* ---- Appearance: the last control on the page, in reach */
+    open_category("Appearance");
+    snprintf(what, sizeof(what), "[%s] appearance: the last control is reached", name);
+    check(what, scroll_to(target_of("NIGHT"), wide ? -250 : -500));
+    tap("NIGHT");
+    snprintf(what, sizeof(what), "[%s] appearance: and it works there", name);
+    check(what, pos_theme_current_mode() == POS_MODE_NIGHT);
+    pos_theme_apply(NULL, mode, why, sizeof(why));
+    if (wide) {
+        lv_area_t t0;
+        lv_area_t t1;
+
+        area_of(target_of(pos_theme_at(0)->name), &t0);
+        area_of(target_of(pos_theme_at(1)->name), &t1);
+        snprintf(what, sizeof(what), "[%s] appearance: themes two to a line", name);
+        check(what, t1.y1 == t0.y1 && t1.x1 > t0.x2);
+    }
+    snprintf(what, sizeof(what), "[%s] appearance", name);
+    check_page(what);
     app_stop();
     pos_theme_apply(NULL, "normal", why, sizeof(why));
 }
@@ -1167,21 +1437,78 @@ int main(void)
     /* The unit's panel, as the shell opens it in portrait. */
     use_display(POS_ROTATION_0, PANEL_CORNER);
 
-    /* ---- 1. netd not running ------------------------------------------------------- */
+    /* ---- 1. the list of categories, and where each one leads ------------------------------ */
+    g_status = STATUS_CONN;
+    g_networks = NETS_CONN;
+    app_start();
+    tick();
+    {
+        int all = 1;
+        int i;
+
+        for (i = 0; i < CATEGORY_COUNT; i++) {
+            all &= shows(categories[i]) && target_of(categories[i]) != NULL;
+        }
+        check("list: the nine categories, each a target", all);
+    }
+    check("list: the header says Settings", strcmp(g_title, "") == 0);
+    check("list: Back at the list leaves Settings (the shell goes home)", app_settings.back(app_priv) == 0);
+    check("the header's back slab takes Back first (app.h back_slab_in_app)", app_settings.back_slab_in_app);
+    check("list: each line says what is set: Wi-Fi", shows("Connected to Home"));
+    check("list: the time zone", shows("UTC"));
+    check("list: Power & Sleep", shows("Screen stays on, no automatic lock"));
+    check("list: the overlay", shows("Debug overlay off"));
+    check("list: sound", shows("Volume 60 %"));
+    check("list: the keyboard", shows("Keyboard base unknown"));
+    {
+        static const char *const titles[CATEGORY_COUNT] = { "Display", "Appearance", "Sound", "Keyboard",
+                                                            "Power & Sleep", "Time & Region", "Network", NULL,
+                                                            "Developer" };
+        int i;
+
+        for (i = 0; i < CATEGORY_COUNT; i++) {
+            char msg[120];
+
+            if (!titles[i]) {
+                continue;
+            }
+            tap(categories[i]);
+            snprintf(msg, sizeof(msg), "%s: opens its page, named in the header", categories[i]);
+            check(msg, strcmp(g_title, titles[i]) == 0 && !shows("Time & Region"));
+            snprintf(msg, sizeof(msg), "%s: Back goes to the list, one step", categories[i]);
+            check(msg, app_settings.back(app_priv) == 1 && shows("Display") && shows("Developer") &&
+                           strcmp(g_title, "") == 0);
+            pump(20);
+        }
+    }
+    g_open_count = 0;
+    g_opened[0] = '\0';
+    tap("System");
+    check("System: asks the shell for the System page, once", g_open_count == 1 && strcmp(g_opened, "system") == 0);
+    check("System: and Settings changed nothing else on the way", !kb_shown && shows("Display"));
+    app_stop();
+
+    /* ---- 2. netd not running ------------------------------------------------------- */
     netd_down = 1;
     app_start();
-    check("netd down: says the service is not running", shows("Wi-Fi service is not running"));
+    check("netd down: the list says the service is not running", shows("Wi-Fi service is not running"));
+    tap("Network");
+    check("netd down: Network says so too", shows("Wi-Fi service is not running"));
     check("netd down: the switch cannot be used", disabled("OFF"));
+    open_category("Display");
     check("netd down: brightness still works", shows("60 %"));
     app_stop();
     netd_down = 0;
 
-    /* ---- 2. off, turned on -------------------------------------------------------------- */
+    /* ---- 3. off, turned on -------------------------------------------------------------- */
     g_status = STATUS_OFF;
     g_networks = NETS;
     calls_reset();
     app_start();
-    check("off: says so", shows("Wi-Fi is off"));
+    check("off: the list says so", shows("Wi-Fi is off"));
+    check("off: the list asked netd for no networks", !called("wifi.networks", NULL));
+    tap("Network");
+    check("off: Network says so", shows("Wi-Fi is off"));
     check("off: switch reads OFF and is usable", shows("OFF") && !disabled("OFF"));
     check("off: no network list", !shows("Home") && !shows("SCAN"));
     check("off: netd was not asked for networks", !called("wifi.networks", NULL));
@@ -1192,7 +1519,7 @@ int main(void)
     check("on: switch reads ON", shows("ON"));
     check("on: not connected", shows("Not connected"));
 
-    /* ---- 3. the list ------------------------------------------------------------------------ */
+    /* ---- 4. the list ------------------------------------------------------------------------ */
     check("list: networks are listed", shows("Home") && shows("Guest") && shows("New") && shows("W3"));
     check("list: saved badge", shows("SAVED"));
     check("list: unsupported is marked", find_containing(app_body, "not supported") != NULL);
@@ -1202,10 +1529,11 @@ int main(void)
     tap("SCAN");
     check("SCAN asks netd to scan", called("wifi.scan", NULL));
 
-    /* ---- 4. a new network: passphrase, validation, join -------------------------------------- */
+    /* ---- 5. a new network: passphrase, validation, join -------------------------------------- */
     calls_reset();
     tap("New");
     check("new network: a sheet with its name", shows("New") && shows("JOIN") && shows("CANCEL"));
+    check("new network: the header names the sheet, one level in", strcmp(g_title, "Wi-Fi network") == 0);
     check("new network: the keyboard is asked for", kb_shown);
     check("new network: the passphrase field has focus", focused_text() != NULL);
     check("new network: every target is at least 64 px", small_targets(app_body) == 0);
@@ -1220,8 +1548,16 @@ int main(void)
     check("HIDE masks it again", lv_textarea_get_password_mode(pos_input_focused()));
     check("focus stayed on the field through the taps", focused_text() != NULL);
     tap("CANCEL");
-    check("CANCEL closes the sheet", shows("Not connected") && !shows("JOIN"));
+    check("CANCEL closes the sheet, back to Network", shows("Not connected") && !shows("JOIN") &&
+                                                          strcmp(g_title, "Network") == 0);
     check("and hides the keyboard", !kb_shown);
+
+    calls_reset();
+    tap("New");
+    type("typed then Back");
+    check("Back on the sheet closes it as CANCEL does, back to Network",
+          app_settings.back(app_priv) == 1 && shows("WI-FI") && !shows("JOIN") && !kb_shown);
+    check("and nothing was sent", !called("wifi.connect", NULL));
 
     calls_reset();
     tap("New");
@@ -1256,7 +1592,7 @@ int main(void)
     g_connect_error = NULL;
     tap("CANCEL");
 
-    /* ---- 5. an open network ---------------------------------------------------------------- */
+    /* ---- 6. an open network ---------------------------------------------------------------- */
     calls_reset();
     tap("Guest");
     check("open network: warns about encryption", find_containing(app_body, "not encrypted") != NULL);
@@ -1265,7 +1601,7 @@ int main(void)
     check("JOIN ANYWAY sends allow_open and no passphrase",
           called("wifi.connect", "{\"ssid_hex\":\"4775657374\",\"allow_open\":true}"));
 
-    /* ---- 6. a saved network ----------------------------------------------------------------- */
+    /* ---- 7. a saved network ----------------------------------------------------------------- */
     calls_reset();
     tap("Home");
     check("saved network: join or forget", shows("JOIN") && shows("FORGET"));
@@ -1277,7 +1613,7 @@ int main(void)
     tap("FORGET");
     check("FORGET sends the exact SSID bytes", called("wifi.forget", "{\"ssid_hex\":\"486f6d65\"}"));
 
-    /* ---- 7. unsupported ----------------------------------------------------------------------- */
+    /* ---- 8. unsupported ----------------------------------------------------------------------- */
     calls_reset();
     tap("W3");
     check("WPA3-only: explained", find_containing(app_body, "WPA3-only") != NULL);
@@ -1286,7 +1622,7 @@ int main(void)
     check("BACK returns", shows("Not connected"));
     check("nothing was sent for it", !called("wifi.connect", NULL));
 
-    /* ---- 8. connected ------------------------------------------------------------------------- */
+    /* ---- 9. connected, and a failure ----------------------------------------------------------- */
     g_status = STATUS_CONN;
     g_networks = NETS_CONN;
     tick();
@@ -1299,15 +1635,17 @@ int main(void)
     calls_reset();
     tap("DISCONNECT");
     check("DISCONNECT asks netd", called("wifi.disconnect", NULL));
-
-    /* ---- 9. failure ---------------------------------------------------------------------------- */
     g_status = "{\"available\":true,\"enabled\":true,\"state\":\"failed\",\"reason\":\"auth_failed\","
                "\"ssid\":\"New\",\"scanning\":false,\"store\":\"ok\"}";
     tick();
     check("a wrong passphrase is shown as such", shows("Wrong passphrase for New"));
+    back_to_root();
+    tick();
+    check("and the list's Network line says it too", shows("Wrong passphrase for New"));
 
-    /* ---- 10. brightness ------------------------------------------------------------------------- */
+    /* ---- 10. Display: brightness ------------------------------------------------------------- */
     g_bright = 60;
+    open_category("Display");
     tick();
     check("brightness shows 60 %", shows("60 %"));
     tap("+");
@@ -1331,19 +1669,60 @@ int main(void)
     tick();
     check("no brightness control: both disabled", disabled("-") && disabled("+"));
     check("no brightness control: says so", find_containing(app_body, "no brightness control") != NULL);
+    g_bright = 60;
+    tick();
 
-    /* ---- 11. appearance ------------------------------------------------------------------------ */
+    /* ---- 11. Display: rotation ------------------------------------------------------------- */
+    check("rotation: three modes on Display", shows("ROTATION") && shows("AUTOMATIC") && shows("PORTRAIT") &&
+                                                  shows("LANDSCAPE"));
+    check("rotation: Automatic with no keyboard says portrait, and why",
+          find_containing(app_body, "Portrait: no keyboard detected") != NULL);
+    check("rotation: Automatic is the accented mode", role_on(target_of("AUTOMATIC"), POS_STYLE_BUTTON_PRIMARY) &&
+                                                         !role_on(target_of("LANDSCAPE"), POS_STYLE_BUTTON_PRIMARY));
+    tap("LANDSCAPE");
+    check("tapping LANDSCAPE stores the mode through the shell",
+          g_rot_sets == 1 && g_rot_last == POCKETOS_ROTATION_LANDSCAPE);
+    check("and says it is being applied, and that Doors opens on the launcher",
+          find_containing(app_body, "Turning to landscape now. The screen goes dark for a moment and Doors opens "
+                                    "on the launcher.") != NULL);
+    check("and Landscape is now the accented mode", role_on(target_of("LANDSCAPE"), POS_STYLE_BUTTON_PRIMARY) &&
+                                                        !role_on(target_of("AUTOMATIC"), POS_STYLE_BUTTON_PRIMARY));
+    tap("AUTOMATIC");
+    check("back to Automatic: nothing pending", g_rot_last == POCKETOS_ROTATION_AUTOMATIC &&
+                                                    find_containing(app_body, "Turning to") == NULL);
+    g_orient.keyboard = POCKETOS_KEYBOARD_PRESENT;
+    g_orient.landscape = g_orient.next_landscape = true;
+    tick();
+    check("a shell started landscape with a keyboard says so",
+          find_containing(app_body, "Landscape, because a keyboard is attached.") != NULL);
+    g_orient.mode_valid = false;
+    tick();
+    check("a stored value that is not a mode is explained",
+          find_containing(app_body, "The stored rotation was not recognised, so Automatic is used.") != NULL);
+    g_orient.mode = POCKETOS_ROTATION_AUTOMATIC;
+    g_orient.mode_valid = true;
+    g_orient.keyboard = POCKETOS_KEYBOARD_UNKNOWN;
+    g_orient.landscape = g_orient.next_landscape = g_orient.applying = false;
+
+    /* Display: text size */
+    tap("LARGE");
+    check("LARGE asks the shell for the large text size", g_text_size_sets == 1 &&
+                                                              pos_theme_current_text_size() == POS_TEXT_SIZE_LARGE);
+    check("and it is the accented size", role_on(target_of("LARGE"), POS_STYLE_BUTTON_PRIMARY));
+    tap("SMALL");
+    check("SMALL back", pos_theme_current_text_size() == POS_TEXT_SIZE_SMALL);
+
+    /* ---- 12. Appearance ------------------------------------------------------------------------ */
+    open_category("Appearance");
     {
         const struct pos_theme_def *second = pos_theme_at(1);
-        int marks = 0;
         lv_obj_t *mark;
 
         check("appearance: every theme is listed", pos_theme_count() >= 2 && shows(pos_theme_at(0)->name) &&
                                                        shows(second->name));
         mark = find_visible(app_body, "SELECTED");
-        marks = mark != NULL;
-        check("appearance: the current theme is marked", marks == 1 &&
-                                                            lv_obj_get_parent(mark) == target_of(pos_theme_current_def()->name));
+        check("appearance: the current theme is marked",
+              mark && lv_obj_get_parent(mark) == target_of(pos_theme_current_def()->name));
         tap(second->name);
         check("tapping a theme asks the shell for it", strcmp(g_theme_set, second->id) == 0 && g_mode_set[0] == '\0');
         check("and it is live", pos_theme_current_def() == second);
@@ -1361,42 +1740,166 @@ int main(void)
                                                        pos_theme_current_mode() == POS_MODE_NORMAL);
     }
 
-    /* ---- 12. rotation --------------------------------------------------------------------------- */
+    /* ---- 13. Sound ----------------------------------------------------------------------------- */
+    open_category("Sound");
+    check("sound: the volume through the shell", shows("60 %") && shows("Mute"));
+    tap("+");
+    check("+ raises the volume a step", g_volume == 70 && shows("70 %"));
+    tap("-");
+    tap("-");
+    check("- lowers it a step each time", g_volume == 50 && shows("50 %"));
+    tap("OFF");
+    check("Mute ON mutes through the shell, and says why nothing is heard",
+          g_muted == 1 && shows("ON") && find_containing(app_body, "Muted:") != NULL);
+    back_to_root();
+    check("the list says muted, with the level", shows("Muted (volume 50 %)"));
+    open_category("Sound");
+    tap("ON");
+    check("Mute OFF unmutes", g_muted == 0 && shows("OFF"));
+    g_volume = 100;
     tick();
-    check("rotation: three modes under Display", shows("Rotation") && shows("AUTOMATIC") && shows("PORTRAIT") &&
-                                                     shows("LANDSCAPE"));
-    check("rotation: Automatic with no keyboard says portrait, and why",
-          find_containing(app_body, "Portrait: no keyboard detected") != NULL);
-    check("rotation: Automatic is the accented mode", role_on(target_of("AUTOMATIC"), POS_STYLE_BUTTON_PRIMARY) &&
-                                                         !role_on(target_of("LANDSCAPE"), POS_STYLE_BUTTON_PRIMARY));
-    tap("LANDSCAPE");
-    check("tapping LANDSCAPE stores the mode through the shell",
-          g_rot_sets == 1 && g_rot_last == POCKETOS_ROTATION_LANDSCAPE);
-    check("and says it is being applied, and that Doors opens on the launcher",
-          find_containing(app_body, "Turning to landscape now. The screen goes dark for a moment and Doors opens "
-                                    "on the launcher.") != NULL);
-    check("and Landscape is now the accented mode", role_on(target_of("LANDSCAPE"), POS_STYLE_BUTTON_PRIMARY) &&
-                                                        !role_on(target_of("AUTOMATIC"), POS_STYLE_BUTTON_PRIMARY));
-    check("rotation: every target is at least 64 px", small_targets(app_body) == 0);
-    tap("AUTOMATIC");
-    check("back to Automatic: nothing pending", g_rot_last == POCKETOS_ROTATION_AUTOMATIC &&
-                                                    find_containing(app_body, "Turning to") == NULL);
-    g_orient.keyboard = POCKETOS_KEYBOARD_PRESENT;
-    g_orient.landscape = g_orient.next_landscape = true;
+    check("at 100 the + is disabled", disabled("+") && !disabled("-"));
+    g_vol_available = 0;
     tick();
-    check("a shell started landscape with a keyboard says so",
-          find_containing(app_body, "Landscape, because a keyboard is attached.") != NULL);
-    g_orient.mode_valid = false;
-    tick();
-    check("a stored value that is not a mode is explained",
-          find_containing(app_body, "The stored rotation was not recognised, so Automatic is used.") != NULL);
-    app_stop();
-    g_orient.mode = POCKETOS_ROTATION_AUTOMATIC;
-    g_orient.mode_valid = true;
-    g_orient.keyboard = POCKETOS_KEYBOARD_UNKNOWN;
-    g_orient.landscape = g_orient.next_landscape = g_orient.applying = false;
+    check("no sound card: said so", find_containing(app_body, "No sound card") != NULL);
+    g_vol_available = 1;
+    g_volume = 60;
 
-    /* ---- 13. every screen in both orientations and both modes (DS 21, 22) --------------------- */
+    /* ---- 14. Keyboard -------------------------------------------------------------------------- */
+    g_orient.keyboard = POCKETOS_KEYBOARD_PRESENT;
+    g_light = 30;
+    open_category("Keyboard");
+    check("keyboard: the base attached, its light at 30 %", shows("ATTACHED") && shows("30 %"));
+    tap("+");
+    check("+ raises the light a step through the shell", g_light == 40 && shows("40 %"));
+    g_light = 10;
+    tick();
+    tap("-");
+    check("- to 0 is off", g_light == 0 && shows("Off") && disabled("-"));
+    g_light = -1;
+    tick();
+    check("no light to drive: both disabled and said so",
+          disabled("-") && disabled("+") && find_containing(app_body, "no keyboard light") != NULL);
+    g_orient.keyboard = POCKETOS_KEYBOARD_ABSENT;
+    tick();
+    check("base removed: NOT ATTACHED", shows("NOT ATTACHED"));
+    g_orient.keyboard = POCKETOS_KEYBOARD_UNKNOWN;
+    g_light = 0;
+
+    /* ---- 15. Power & Sleep ----------------------------------------------------------------------- */
+    open_category("Power & Sleep");
+    check("power: both never, the + of each disabled", shows("Never") && g_screen_off == 0 && g_lock_after == 0);
+    check("power: says what sleep is not", find_containing(app_body, "Sleep: not available") != NULL);
+    check("power: and tells screen off from lock", find_containing(app_body, "Screen off: the screen goes dark") &&
+                                                       find_containing(app_body, "Lock: the lock screen covers"));
+    {
+        lv_obj_t *down0 = target_of("-");
+
+        tap("-");
+        check("screen off: - from never is 10 min, through the shell", g_screen_off == 600 && shows("10 min"));
+        tap("-");
+        tap("-");
+        tap("-");
+        tap("-");
+        check("down to 30 s", g_screen_off == 30 && shows("30 s"));
+        check("and at 30 s its - is disabled", down0 && lv_obj_has_state(down0, LV_STATE_DISABLED));
+        tap("+");
+        check("+ is 1 min", g_screen_off == 60 && shows("1 min"));
+    }
+    {
+        /* The lock's own stepper: the second - on the page. */
+        static lv_obj_t *t[96];
+        int n = collect_targets(screen_obj(), t, 0, 96);
+        int i;
+        int seen = 0;
+        lv_obj_t *lock_down = NULL;
+
+        for (i = 0; i < n; i++) {
+            lv_obj_t *lb = lv_obj_get_child_count(t[i]) ? lv_obj_get_child(t[i], 0) : NULL;
+
+            if (lb && lv_obj_check_type(lb, &lv_label_class) && strcmp(lv_label_get_text(lb), "-") == 0 && ++seen == 2) {
+                lock_down = t[i];
+            }
+        }
+        check("the lock has its own stepper", lock_down != NULL);
+        if (lock_down) {
+            lv_area_t a;
+
+            lv_obj_get_coords(lock_down, &a);
+            finger_point.x = a.x1 + 10;
+            finger_point.y = a.y1 + 10;
+            finger_state = LV_INDEV_STATE_PRESSED;
+            pump(60);
+            finger_state = LV_INDEV_STATE_RELEASED;
+            pump(60);
+        }
+        check("lock: - from never is 30 min", g_lock_after == 1800 && shows("30 min"));
+    }
+    tap("ON");
+    check("lock at start OFF, through the shell", g_lock_start == 0 && shows("OFF"));
+    tap("OFF");
+    check("and ON again", g_lock_start == 1);
+    back_to_root();
+    check("the list says what is set", shows("Screen off after 1 min \xc2\xb7 lock after 30 min"));
+
+    /* ---- 16. Time & Region ----------------------------------------------------------------------- */
+    open_category("Time & Region");
+    check("time: the zone in force", shows("UTC") && shows("UTC \xc2\xb7 UTC+00:00"));
+    check("time: no clock set, said so", find_containing(app_body, "Not set yet") != NULL &&
+                                             shows("Local time --:--"));
+    tap("CHANGE TIME ZONE");
+    check("the zone list is one level further, named in the header", strcmp(g_title, "Time zone") == 0 &&
+                                                                          shows("CHOOSE A TIME ZONE"));
+    check("the zone in force is marked", find_visible(app_body, "SELECTED") &&
+                                             lv_obj_get_parent(find_visible(app_body, "SELECTED")) == target_of("UTC"));
+    check("Back from the list goes to Time & Region, nothing changed",
+          app_settings.back(app_priv) == 1 && shows("CHANGE TIME ZONE") && g_tz_sets == 0);
+    tap("CHANGE TIME ZONE");
+    check("a finger scrolls the list to Oslo", scroll_to(target_of("Oslo, Stockholm, Berlin, Paris"), -500));
+    tap("Oslo, Stockholm, Berlin, Paris");
+    check("tapping a zone sets it through the shell, by its name", g_tz_sets == 1 && strcmp(g_tz, "Europe/Oslo") == 0);
+    check("and goes back to Time & Region, showing it", shows("Oslo, Stockholm, Berlin, Paris") &&
+                                                            shows("Europe/Oslo \xc2\xb7 UTC+01:00, summer time") &&
+                                                            strcmp(g_title, "Time & Region") == 0);
+    g_day = 20261002;
+    tick();
+    check("a set clock shows the local time", find_containing(app_body, "Local time ") != NULL &&
+                                                  !shows("Local time --:--") &&
+                                                  find_containing(app_body, "Set from the network") != NULL);
+    back_to_root();
+    check("the list shows the zone", shows("Oslo, Stockholm, Berlin, Paris"));
+    g_day = -1;
+
+    /* ---- 17. Developer --------------------------------------------------------------------------- */
+    open_category("Developer");
+    check("developer: the overlay is off by default", shows("OFF") && g_overlay == 0);
+    check("developer: says what it shows and what it does not",
+          find_containing(app_body, "shows no addresses or names") != NULL);
+    tap("OFF");
+    check("ON turns the overlay on through the shell", g_overlay == 1 && shows("ON") && g_overlay_sets == 1);
+    tap("ON");
+    tap("OFF");
+    tap("ON");
+    check("on and off again, each through the shell", g_overlay == 0 && g_overlay_sets == 4);
+    tap("OFF");
+    back_to_root();
+    check("the list says it is on", shows("Debug overlay on"));
+    app_stop();
+
+    /* ---- 18. every page, both ways up, every text size (DS §46, §52) ---------------------------- */
+    g_status = STATUS_CONN;
+    g_networks = NETS_MANY;
+    {
+        static const enum pos_text_size sizes[] = { POS_TEXT_SIZE_SMALL, POS_TEXT_SIZE_MEDIUM, POS_TEXT_SIZE_LARGE };
+        size_t s;
+
+        for (s = 0; s < 3; s++) {
+            check_pages(POS_ROTATION_0, sizes[s]);
+            check_pages(POS_ROTATION_270, sizes[s]);
+        }
+    }
+
+    /* ---- 19. Wi-Fi in both orientations and both modes (DS 21, 22) ------------------------------ */
     check_orientation("portrait", POS_ROTATION_0, PANEL_CORNER, "normal");
     check_orientation("landscape", POS_ROTATION_270, PANEL_CORNER, "normal");
     check_orientation("portrait, Outdoor", POS_ROTATION_0, PANEL_CORNER, "outdoor");
@@ -1404,12 +1907,12 @@ int main(void)
     check_orientation("portrait, square corners", POS_ROTATION_0, 0, "normal");
     check_orientation("landscape, square corners", POS_ROTATION_270, 0, "normal");
 
-    /* ---- 14. where things are, to the pixel ----------------------------------------------------- */
-    /* Portrait is the v0.0.10 layout: the body's 528 px column from 152 to
-     * the foot, which the corner squares of the unit's panel (DS 21.1) bring
-     * up by 10 px and square corners do not. Landscape: two columns of 585 px
-     * with the 22 px panel gap, and the sheet's field at the top of its right
-     * half above the keyboard. */
+    /* ---- 20. where things are, to the pixel ----------------------------------------------------- */
+    /* Network in portrait is the v0.0.10 Wi-Fi panel where it was: the body's
+     * 528 px column from 152 to the foot, which the corner squares of the
+     * unit's panel (DS 21.1) bring up by 10 px and square corners do not. In
+     * landscape the panel is the page's one column across the body, and the
+     * sheet's field at the top of its right half above the keyboard. */
     g_status = STATUS_CONN;
     g_networks = NETS_MANY;
     {
@@ -1423,8 +1926,9 @@ int main(void)
 
             use_display(POS_ROTATION_0, c);
             app_start();
+            tap("Network");
             tick();
-            snprintf(what, sizeof(what), "portrait %d px corners: the screen scrolls in the body's column", (int)c);
+            snprintf(what, sizeof(what), "portrait %d px corners: the page scrolls in the body's column", (int)c);
             check_rect(what, screen_obj(), 20, V010_ROW(152), 547, 1211 - lift);
             snprintf(what, sizeof(what), "portrait %d px corners: Wi-Fi's panel is the column's width at its top",
                      (int)c);
@@ -1446,16 +1950,12 @@ int main(void)
 
             use_display(POS_ROTATION_270, c);
             app_start();
+            tap("Network");
             tick();
-            /* Numbered as under the 32 px COMPACT bar of DS section 30 (from
-             * row 128), moved up with the frame's top (DS section 36: from
-             * row 96); the keyboard's edge at the foot does not move. */
-            snprintf(what, sizeof(what), "landscape %d px corners: Wi-Fi's column", (int)c);
-            check_rect(what, scroller_of(panel_of("WI-FI")), 20, V010_LROW(128), 604, 547 - lift);
-            snprintf(what, sizeof(what), "landscape %d px corners: Display and Appearance's column", (int)c);
-            check_rect(what, scroller_of(panel_of("DISPLAY")), 627, V010_LROW(128), 1211, 547 - lift);
-            snprintf(what, sizeof(what), "landscape %d px corners: the switch", (int)c);
-            check_rect(what, target_of("ON"), 464, V010_LROW(175), 583, V010_LROW(238));
+            snprintf(what, sizeof(what), "landscape %d px corners: the page", (int)c);
+            check_rect(what, screen_obj(), 20, V010_LROW(128), 1211, 547 - lift);
+            snprintf(what, sizeof(what), "landscape %d px corners: the switch at the end of the panel", (int)c);
+            check_rect(what, target_of("ON"), 1071, V010_LROW(175), 1190, V010_LROW(238));
             tap("New");
             pump(60);
             snprintf(what, sizeof(what), "landscape %d px corners: the sheet scrolls in the body above the keyboard",
@@ -1468,32 +1968,29 @@ int main(void)
         }
     }
 
-    /* ---- 15. the display turning under the open app ------------------------------------------ */
+    /* ---- 21. the display turning under the open app ------------------------------------------ */
     use_display(POS_ROTATION_0, PANEL_CORNER);
     g_bright = 60;
     app_start();
+    tap("Display");
     tick();
     {
         static lv_obj_t *t[96];
         int objects = count_objects(app_body);
         int targets = collect_targets(screen_obj(), t, 0, 96);
-        lv_obj_t *mark;
         int i;
         int same = 1;
 
         for (i = 0; i < 6; i++) {
-            lv_area_t w;
-            lv_area_t d;
+            lv_area_t br;
+            lv_area_t ro;
 
             use_display(i % 2 == 0 ? POS_ROTATION_270 : POS_ROTATION_0, PANEL_CORNER);
-            area_of(panel_of("WI-FI"), &w);
-            area_of(panel_of("DISPLAY"), &d);
-            mark = find_visible(app_body, "SELECTED");
+            area_of(panel_of("BRIGHTNESS"), &br);
+            area_of(panel_of("ROTATION"), &ro);
             if (count_objects(app_body) != objects || collect_targets(screen_obj(), t, 0, 96) != targets ||
-                !shows("60 %") || !shows("Connected to Home") || !shows(LONG_SSID) || !mark ||
-                lv_obj_get_parent(mark) != target_of(pos_theme_at(0)->name) ||
-                !role_on(target_of("AUTOMATIC"), POS_STYLE_BUTTON_PRIMARY) ||
-                (i % 2 == 0 ? !(d.x1 > w.x2) : !(d.y1 > w.y2))) {
+                !shows("60 %") || !role_on(target_of("AUTOMATIC"), POS_STYLE_BUTTON_PRIMARY) ||
+                (i % 2 == 0 ? !(ro.x1 > br.x2) : !(ro.y1 > br.y2))) {
                 printf("     turn %d: objects %d/%d targets %d\n", i, count_objects(app_body), objects,
                        collect_targets(screen_obj(), t, 0, 96));
                 same = 0;
@@ -1501,6 +1998,7 @@ int main(void)
         }
         check("turning six times keeps every object once, every value, and reshapes each time", same);
     }
+    open_category("Network");
     tap("New");
     type("correct");
     use_display(POS_ROTATION_270, PANEL_CORNER);
@@ -1549,21 +2047,20 @@ int main(void)
               lv_obj_get_scroll_y(screen_obj()) == 0);
     calls_reset();
     tap("CANCEL");
-    check("CANCEL in landscape: back to the main screen in two columns, nothing sent",
-          shows("WI-FI") && call_count == 0 &&
-              scroller_of(panel_of("WI-FI")) != scroller_of(panel_of("DISPLAY")));
+    check("CANCEL in landscape: back to Network, nothing sent", shows("WI-FI") && call_count >= 0 &&
+                                                                    !called("wifi.connect", NULL));
 
-    /* Back from the shell's header with a passphrase typed: the app closes,
-     * the keyboard goes, and nothing is sent. */
+    /* Closed from the sheet with a passphrase typed: the app closes, the
+     * keyboard goes, and nothing is sent. */
     tap("New");
     type("abandoned");
     calls_reset();
     app_stop();
     check("closed from the sheet: nothing was sent", !called("wifi.connect", NULL) && !kb_shown);
 
-    /* ---- 16. closed and opened again, both ways up ------------------------------------------ */
+    /* ---- 22. closed and opened again, both ways up ------------------------------------------ */
     /* Settings keeps nothing: what it shows on opening is what the shell and
-     * netd hold, whichever way up it opens. */
+     * netd hold, whichever way up it opens - and it opens on the list. */
     {
         char why[128];
         int i;
@@ -1571,9 +2068,11 @@ int main(void)
         use_display(POS_ROTATION_270, PANEL_CORNER);
         app_start();
         tick();
+        open_category("Display");
         tap("+");
-        tap(pos_theme_at(2)->name);
         tap("LANDSCAPE");
+        open_category("Appearance");
+        tap(pos_theme_at(2)->name);
         app_stop();
         for (i = 0; i < 4; i++) {
             lv_obj_t *mark;
@@ -1581,11 +2080,15 @@ int main(void)
             use_display(i % 2 ? POS_ROTATION_270 : POS_ROTATION_0, PANEL_CORNER);
             app_start();
             tick();
+            check(i % 2 ? "reopened in landscape: on the list, its lines as they were set"
+                        : "reopened in portrait: on the list, its lines as they were set",
+                  shows("Developer") && shows("70 % \xc2\xb7 Landscape \xc2\xb7 Small text") &&
+                      shows("Screen off after 1 min \xc2\xb7 lock after 30 min") &&
+                      shows("Oslo, Stockholm, Berlin, Paris") && shows("Debug overlay on") &&
+                      shows("Connected to Home"));
+            open_category("Appearance");
             mark = find_visible(app_body, "SELECTED");
-            check(i % 2 ? "reopened in landscape: brightness, theme and rotation as they were set"
-                        : "reopened in portrait: brightness, theme and rotation as they were set",
-                  shows("70 %") && mark && lv_obj_get_parent(mark) == target_of(pos_theme_at(2)->name) &&
-                      role_on(target_of("LANDSCAPE"), POS_STYLE_BUTTON_PRIMARY) && shows("Connected to Home"));
+            check("and the theme where it was set", mark && lv_obj_get_parent(mark) == target_of(pos_theme_at(2)->name));
             app_stop();
         }
         pos_theme_apply(pos_theme_at(0)->id, "normal", why, sizeof(why));

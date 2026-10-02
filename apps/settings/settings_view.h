@@ -143,4 +143,40 @@ void sv_rotation_apply(struct sv_rotation *r, int mode, int mode_valid, int land
 /* The security word as shown: "Open", "WPA2", "WPA2/3", ... */
 const char *sv_security_label(const char *api_word);
 
+/* ---- sound --------------------------------------------------------------- */
+
+struct sv_volume {
+    int available;          /* there is a sound card to play through */
+    char value[16];         /* "60 %" */
+    int can_down;
+    int can_up;
+    int muted;
+    char note[SV_TEXT];     /* why nothing is heard, or empty */
+    char summary[SV_TEXT];  /* the line under Sound in the list of categories */
+};
+
+/* The shell's volume (app.h): level, mute, whether a card exists, and the
+ * range. The level steps as brightness does (sv_brightness_step). */
+void sv_volume_apply(struct sv_volume *v, int percent, int muted, int available, int min, int max);
+
+/* ---- the keyboard base ---------------------------------------------------- */
+
+/* keyboard: app.h enum pocketos_keyboard (0 unknown, 1 absent, 2 present).
+ * light: the base's light 0..100, or -1 with no such light. state is the
+ * chip ("ATTACHED"), summary the category's line. */
+void sv_keyboard_text(int keyboard, int light, char *state, size_t n_state, char *summary, size_t n_summary);
+
+/* ---- Power & Sleep (ui/shell/power_policy.h) ------------------------------ */
+
+struct sv_timer {
+    char value[16];         /* "1 min", "Never" */
+    int can_down;           /* not at the shortest option */
+    int can_up;             /* not at never */
+};
+
+/* which: power_policy.h enum power_timer. */
+void sv_timer_apply(struct sv_timer *t, int which, int seconds);
+/* "Screen off after 1 min, lock after 5 min", "Screen stays on, no auto lock". */
+void sv_power_summary(int screen_off_s, int lock_s, char *out, size_t n);
+
 #endif

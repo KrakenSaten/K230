@@ -78,6 +78,8 @@ add_executable(pocketos-shell
     ${REPO_DIR}/apps/system/system_view.c
     ${REPO_DIR}/apps/system/diag_view.c
     ${REPO_DIR}/apps/settings/settings_app.c
+    ${REPO_DIR}/apps/settings/settings_pages.c
+    ${REPO_DIR}/apps/settings/settings_wifi.c
     ${REPO_DIR}/apps/settings/settings_view.c
     ${REPO_DIR}/apps/fleet/fleet_app.c
     ${REPO_DIR}/apps/fleet/engine/fleet_types.c
@@ -1288,7 +1290,11 @@ if(POCKETOS_DISPLAY STREQUAL "sdl")
     add_executable(settings_app_test
         ${REPO_DIR}/tests/settings_app_test.c
         chrome.c
+        power_policy.c
+        tz_zones.c
         ${REPO_DIR}/apps/settings/settings_app.c
+        ${REPO_DIR}/apps/settings/settings_pages.c
+        ${REPO_DIR}/apps/settings/settings_wifi.c
         ${REPO_DIR}/apps/settings/settings_view.c
         ../pocketui/pos_app_icons.c
         ../pocketui/pocketui.c

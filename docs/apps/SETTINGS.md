@@ -1,41 +1,127 @@
 # Settings
 
-Status: host-tested (view model, LVGL app test, shell test, lint) and
+Status: host-tested (view model, LVGL app test, shell tests, lint) and
 validated on unit A on 2026-09-13 (end of this page). Added on `feature/post-v0.0.9-foundations`.
 Landscape layout (DS §24, accepted) on `feature/settings-landscape`: unit A
 gate PASS 2026-09-17, remote validation and the product owner's physical check
-(`docs/hardware/SETTINGS_LANDSCAPE_GATE.md`).
+(`docs/hardware/SETTINGS_LANDSCAPE_GATE.md`). Reorganised into categories,
+with Sound, Keyboard, Power & Sleep, Time & Region and Developer added, on
+`feat/settings-system-cleanup` (DS §52, proposed;
+`docs/hardware/SETTINGS_SYSTEM_SMOKE.md`).
 
-Settings is the launcher app for the OS-level controls that exist and work:
-**Wi-Fi** (through netd, `docs/api/network.md`), **display brightness**
-(through the shell, `docs/hardware/DISPLAY_BRIGHTNESS.md`) and **appearance**
-(theme and display mode, the shell's `shell.theme` path), and it is where
-**System** lives (DS §47): System Status is Settings' page, entered from the
-SYSTEM panel's one row. It has no store of its own and owns no hardware; it
-is a client, like System Status.
+Settings is the launcher app for the OS-level controls that exist and work.
+Since DS §52 it opens on a short list of categories, each a page of its own:
+
+| Category | What is on its page | Whose it is |
+| --- | --- | --- |
+| Display | brightness, rotation, text size | the shell (`docs/hardware/DISPLAY_BRIGHTNESS.md`, DS §21, §46) |
+| Appearance | theme, display mode | the shell's `shell.theme` path |
+| Sound | volume, mute | the shell (`volume.h`) |
+| Keyboard | whether the keyboard base is attached, its key light | the shell (`kbd_presence.h`, `kbd_light.h`) |
+| Power & Sleep | screen off after, lock after, lock when Doors starts; what sleep is not | the shell (`power_policy.h`, `shell_power.c`) |
+| Time & Region | the time zone (one level further: the list of zones), whether the clock is set | the shell (`tz_zones.h`) |
+| Network | Wi-Fi, its networks, the join sheet (one level further) | netd (`docs/api/network.md`) |
+| System | opens System, Settings' page (DS §47) | sysd and the System app |
+| Developer | the debug overlay | the shell (`shell_overlay.h`) |
+
+Each line on the list says what is set ("60 % · Automatic · Small text",
+"Screen off after 1 min · lock after 5 min", "Oslo, Stockholm, Berlin,
+Paris", "Connected to Home"). Settings has no store of its own and owns no
+hardware; it is a client, like System Status: every value is read from its
+owner when a page is painted and changed through it, and the owner stores
+it, under the keys it always used.
+
+## Moving around
+
+One level: the list, a category's page, and from two of them one page
+further (a network's sheet, the list of time zones). The header's title names
+the page. The header's back slab and Back go one level back each - a page to
+the list, the zone list to Time & Region, a network's sheet to Network - and
+from the list out of Settings, to the launcher (app.h `back_slab_in_app`);
+Home goes home from anywhere. Settings opens on the list every time.
 
 ## What it is not
 
-Not a place for controls that do nothing. Time zone, date and time, reduced
-motion, sound, keyboard and radio options are deliberately absent until each
-is backed by real functionality and a decision (see "Settings fundamentals
-before v0.1.0" in `docs/ROADMAP.md`). Reboot and power-off stay in System,
-where they are.
+Not a place for controls that do nothing. Date and time setting, reduced
+motion, a 12/24-hour choice (the clocks are 24-hour and there is no setting
+for it anywhere yet) and radio options are absent until each is backed by
+real functionality and a decision. Reboot and power-off stay in System,
+where they are. System sleep is not offered: see Power & Sleep.
 
 ## Files
 
 ```text
-apps/settings/settings_view.[ch]  every decision, no LVGL: headlines, tones, list rows,
-                                  what a tap on a network does, what a join sends,
-                                  passphrase feedback, brightness stepping
-apps/settings/settings_app.c      panels and taps
-tests/settings_view_test.c        120 checks (Makefile)
-tests/settings_app_test.c         636 checks under a real LVGL pointer device and the key stream,
-                                  with netd and the shell scripted, hosted as the shell hosts it
-                                  in portrait and landscape (CMake, host only)
-tests/settings_shell_test.sh      the app test, registration, opening it in the real shell
-tests/settings_lint.sh            21 boundary checks, the layout's among them (make test)
+apps/settings/settings_view.[ch]   every decision, no LVGL: headlines, tones, list rows,
+                                   what a tap on a network does, what a join sends,
+                                   passphrase feedback, brightness, volume and timer
+                                   stepping, the categories' lines
+apps/settings/settings_internal.h  the app's state, shared by the three files below
+apps/settings/settings_app.c       the list of categories, moving between pages, the layout,
+                                   the lifecycle
+apps/settings/settings_pages.c     Display, Appearance, Sound, Keyboard, Power & Sleep,
+                                   Time & Region (and its zone list), Developer
+apps/settings/settings_wifi.c      Network: Wi-Fi, the list, the join sheet
+tests/settings_view_test.c         143 checks (Makefile)
+tests/settings_app_test.c          1432 checks under a real LVGL pointer device and the key
+                                   stream, with netd and the shell scripted, hosted as the shell
+                                   hosts it: the hierarchy and every way back, every page at
+                                   Small, Medium and Large in portrait and landscape (CMake, host)
+tests/settings_shell_test.sh       the app test, registration, opening it in the real shell
+tests/settings_lint.sh             boundary checks, the layout's among them (make test)
+tests/power_overlay_shell_test.sh  Power & Sleep, the time zone and the overlay in the real shell
 ```
+
+## Power & Sleep
+
+Three different things, and the page says which is which:
+
+- **Screen off after** 30 s, 1, 2, 5 or 10 min, or Never (the default). The
+  screen goes black and the first touch or key only wakes it; everything
+  keeps running (apps, services, the radio, alarms). On the AMOLED a black
+  pixel is a pixel that is off; the backlight level is not touched, because
+  what level 0 shows on this panel is UNKNOWN (`DISPLAY_BRIGHTNESS.md`).
+- **Lock after** 1, 2, 5, 10 or 30 min, or Never (the default): the existing
+  lock screen comes down. **Lock when Doors starts** is the existing
+  `lock_screen` setting, which had no control before.
+- **Sleep: not available.** The kernel lists `freeze` and `mem` (s2idle and
+  deep, unit B 2026-10-02), but which devices can wake the board from them is
+  unverified, and there is no RTC to wake it on a timer. Doors does not
+  suspend; nothing here pretends to.
+
+Neither timer runs while an alarm rings or while Video, Camera, Vision or
+DeskBuddy is in front (a table in `ui/shell/shell.c`). Stored as
+`screen_off_s` and `auto_lock_s` in `settings.conf`, whole seconds, one of the
+options and nothing else (a value this code never wrote is read as never and
+logged).
+
+## Time & Region
+
+The zone in force (its places, its IANA name and standard offset), the local
+time when the clock is set, and whether it is: "Set from the network" or "Not
+set yet" (this board has no clock that runs while it is off). CHANGE TIME
+ZONE opens the list of 32 zones (UTC first, then west to east), the current
+one marked; a tap sets it and comes back. The shell applies it at once, as
+libc expects (TZ, then `tzset()`), for every clock it shows and every helper
+it starts afterwards, and stores it as `timezone=<IANA name>`
+(`ui/shell/tz_zones.h`: the image has no zone database, so each zone carries
+its POSIX rule; services keep logging in UTC). No 12/24-hour setting: the
+clocks are 24-hour and nothing else exists to move.
+
+## Developer
+
+**Debug overlay**, off by default: one compact line at the foot of every
+screen - `CPU 18% · RAM 42% · 51°C · NET ↓12 ↑2 KB/s · LORA ↓848 ↑1` - from
+sysd's `system.status` and, while radiod answers, `radio.stats`, refreshed
+every 2 s. It takes no touch, shows no address or name, and stays as it was
+left across restarts (`debug_overlay=0|1`). See `ui/shell/shell_overlay.h`.
+
+## Sound and Keyboard
+
+Sound: `Volume [-] 60 % [+]` in the shell's steps of 10 and a Mute switch,
+through the same entry points Controls uses; without a sound card the page
+says nothing plays. Keyboard: ATTACHED / NOT ATTACHED for the base, and its
+key light from Off to 100 % in steps of 10 (the F3/F4 keys' level), disabled
+on a board without one.
 
 ## Wi-Fi
 
@@ -107,16 +193,19 @@ keyboard coming up or going down). A change of size moves nothing but flow,
 sizes and which box scrolls: the values, the typed passphrase, the focus and
 the keyboard are untouched by it.
 
-| Shape | When | Main screen | Network sheet |
+| Shape | When | A page | Network sheet |
 | --- | --- | --- | --- |
-| **tall** | the frame is at least as tall as it is wide, or narrower than 1078 px | Wi-Fi, Display and Appearance in one column 22 px apart; the body scrolls (the v0.0.10 layout) | the network's text above the field and buttons |
-| **wide** | wider than tall and at least 1078 px (two portrait bodies and the 22 px panel gap) | two columns of 585 px, 22 px apart: Wi-Fi on the left, Display and Appearance on the right, **each scrolling on its own** | one panel across the body in two halves 20 px apart: the network described on the left, the field, SHOW and the buttons on the right |
+| **tall** | the frame is at least as tall as it is wide, or narrower than 1078 px | its panels in one column 22 px apart | the network's text above the field and buttons |
+| **wide** | wider than tall and at least 1078 px (two portrait bodies and the 22 px panel gap) | its two columns of 585 px side by side, 22 px apart; a page of one panel or a list keeps it across the body, its rows (themes, zones) two to a line | one panel across the body in two halves 20 px apart: the network described on the left, the field, SHOW and the buttons on the right |
 
-**Why columns, and why each scrolls.** A single 1192 px column is the portrait
-screen stretched, with network names a screen's width from their badges. Two
-columns keep every panel at least as wide as in portrait. They are unequal in
-length - the network list alone can be longer than the screen - so each
-scrolls itself, and scrolling the list never moves the display controls.
+**One box scrolls (DS §52.2).** In either shape the page itself is the only
+box that scrolls, and only when what it holds is taller than the room: the
+columns never scroll on their own. Until DS §52 the one screen held every
+panel, scrolled as a whole in portrait and as two columns scrolling
+separately in landscape. Now every page but the two lists (Network's
+networks, the time zones) fits without scrolling at Small, Medium and Large in
+both orientations on the reference panel (`tests/settings_app_test.c`
+section 18), and the lists scroll as their page.
 
 **Why the sheet has two halves.** With the keyboard up in landscape the app
 has a 1192 x 100 px body. Under the network's text the passphrase field
@@ -142,13 +231,13 @@ higher in portrait (1201) and in landscape (537). With the keyboard up, or on
 a panel with square corners, the pad is 0.
 
 Rectangles on the reference panel (30 px corners), as `tests/settings_app_test.c`
-pins them:
+pins them (rows as numbered under the retired v0.0.10 bar):
 
 | | Portrait | Landscape |
 | --- | --- | --- |
 | body content box | 20..547 x 152..1211 | 20..1211 x 152..547 |
-| main screen scrolls in | 20..547 x 152..1201 | Wi-Fi 20..604 x 152..537; Display and Appearance 627..1211 x 152..537 |
-| Wi-Fi switch | 407..526 x 199..262 | 464..583 x 199..262 |
+| a page scrolls in | 20..547 x 152..1201 | 20..1211 x 152..537 |
+| Network: Wi-Fi switch | 407..526 x 199..262 | 1071..1190 x 199..262 |
 | sheet above the keyboard scrolls in | 20..547 x 152..915 | 20..1211 x 152..251 |
 | passphrase field (sheet just opened) | 41..526 x 277..340 | 626..1190 x 173..236 |
 
@@ -177,21 +266,31 @@ Terminal, RIFT and Browser (DS §47).
 
 ## System, Settings' page (DS §47)
 
-The last panel, under Appearance in the same column (the right one in the
-wide shape), is SYSTEM: one row, "System" over "About this device, status,
-diagnostics, restart and power", with a chevron. A tap asks the shell to open
-System in Settings' place (`pocketos_shell_open_app("system")`, run on the
-shell's next timer pass, never inside the tap's own event). System is still
-its own app - `apps/system/`, unchanged - but the shell's `app_pages` table
-makes it Settings' page:
+On the list of categories, System is a row like the others, "System" over
+"About, status, diagnostics, restart and power off", with a chevron. A tap
+asks the shell to open System in Settings' place
+(`pocketos_shell_open_app("system")`, run on the shell's next timer pass,
+never inside the tap's own event). System is still its own app -
+`apps/system/` - but the shell's `app_pages` table makes it Settings' page.
+Since DS §52 System itself is four short pages under a row of tabs: OVERVIEW
+(CPU, temperature, memory, load, uptime, clock; storage; Restart and Power
+off), NETWORK (the interfaces with their addresses and their traffic -
+the rate between two of sysd's answers and the totals - Wi-Fi, the LoRa radio
+with its packets and last signal, the mesh), SERVICES (and Diagnostics) and
+ABOUT (the build, the card, model, kernel, platform, vendor SDK, CPUs). Each
+page asks only for what it shows: ABOUT nothing after the one `system.info`,
+NETWORK one of `radio.stats`, `wifi.status` and `mesh.status` a second beside
+`system.status` every other.
 
 - it has no launcher cell (`HOME_GROUP_NONE` in `ui/shell/home_layout.c`) and
   the favorites' picker does not offer it; a favorite that already holds it
   still shows it and opens it;
 - its way out is Settings: the header's back slab and Back
   (`shell.action back`, the keyboard base's Back when one carries it) come
-  back to Settings, after Back has closed Diagnostics as before; Back in
-  Settings goes home; Home goes to the launcher's page from anywhere;
+  back to Settings' list, after they have closed Diagnostics (back to
+  SERVICES); the tabs are one level, so from any of them it is Settings;
+  Back on Settings' list goes home; Home goes to the launcher's page from
+  anywhere;
 - every other way in still opens it - Controls' "About DOORS" row and Power,
   `shell.open`, `--open system` - and every one of them comes back to
   Settings.

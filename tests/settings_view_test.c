@@ -381,6 +381,68 @@ int main(void)
     check_str("label unknown", sv_security_label("zzz"), "Unknown");
     check_str("label NULL", sv_security_label(NULL), "Unknown");
 
+    /* ---- Sound (DS §52.3) ---- */
+    {
+        struct sv_volume v;
+
+        sv_volume_apply(&v, 60, 0, 1, 10, 100);
+        check_str("volume value", v.value, "60 %");
+        check_str("volume summary", v.summary, "Volume 60 %");
+        check("volume: both steps, no note", v.can_down && v.can_up && v.note[0] == '\0' && !v.muted);
+        sv_volume_apply(&v, 60, 1, 1, 10, 100);
+        check_str("muted summary keeps the level", v.summary, "Muted (volume 60 %)");
+        check("muted: says why nothing is heard", strstr(v.note, "Muted") != NULL && v.muted);
+        sv_volume_apply(&v, 10, 0, 1, 10, 100);
+        check("at the floor only + steps", !v.can_down && v.can_up);
+        sv_volume_apply(&v, 100, 0, 1, 10, 100);
+        check("at the top only - steps", v.can_down && !v.can_up);
+        sv_volume_apply(&v, 40, 0, 0, 10, 100);
+        check_str("no sound card: summary", v.summary, "No sound output");
+        check("no sound card: the level can still be set, and the note says why nothing plays",
+              v.can_down && v.can_up && strstr(v.note, "No sound card") != NULL);
+    }
+
+    /* ---- the keyboard base ---- */
+    {
+        char state[24];
+        char summary[112];
+
+        sv_keyboard_text(2, 30, state, sizeof(state), summary, sizeof(summary));
+        check_str("base attached: chip", state, "ATTACHED");
+        check_str("base attached with its light", summary, "Keyboard base attached \xc2\xb7 light 30 %");
+        sv_keyboard_text(2, 0, state, sizeof(state), summary, sizeof(summary));
+        check_str("light at 0 is off", summary, "Keyboard base attached \xc2\xb7 light off");
+        sv_keyboard_text(2, -1, state, sizeof(state), summary, sizeof(summary));
+        check_str("no light to drive: not mentioned", summary, "Keyboard base attached");
+        sv_keyboard_text(1, 30, state, sizeof(state), summary, sizeof(summary));
+        check("base absent", strcmp(state, "NOT ATTACHED") == 0 && strcmp(summary, "Keyboard base not attached") == 0);
+        sv_keyboard_text(0, -1, state, sizeof(state), summary, sizeof(summary));
+        check("presence unknown is said as unknown", strcmp(state, "UNKNOWN") == 0);
+    }
+
+    /* ---- Power & Sleep ---- */
+    {
+        struct sv_timer t;
+        char line[112];
+
+        sv_timer_apply(&t, 0, 0);
+        check("screen never: value Never, - steps, + does not", strcmp(t.value, "Never") == 0 && t.can_down && !t.can_up);
+        sv_timer_apply(&t, 0, 30);
+        check("screen 30 s: the shortest, only + steps", strcmp(t.value, "30 s") == 0 && !t.can_down && t.can_up);
+        sv_timer_apply(&t, 1, 300);
+        check("lock 5 min: both", strcmp(t.value, "5 min") == 0 && t.can_down && t.can_up);
+        sv_timer_apply(&t, 1, 60);
+        check("lock 1 min is the lock's shortest", !t.can_down && t.can_up);
+        sv_power_summary(0, 0, line, sizeof(line));
+        check_str("summary: nothing set", line, "Screen stays on, no automatic lock");
+        sv_power_summary(60, 0, line, sizeof(line));
+        check_str("summary: screen only", line, "Screen off after 1 min");
+        sv_power_summary(0, 1800, line, sizeof(line));
+        check_str("summary: lock only", line, "Lock after 30 min");
+        sv_power_summary(30, 300, line, sizeof(line));
+        check_str("summary: both", line, "Screen off after 30 s \xc2\xb7 lock after 5 min");
+    }
+
     printf("settings_view_test: %d checks, %d failure(s)\n", checks, failed);
     return failed ? 1 : 0;
 }
