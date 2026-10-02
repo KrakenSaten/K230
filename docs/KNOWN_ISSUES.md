@@ -1057,13 +1057,17 @@ so that pass stayed the size it was scoped to be.
 
 ## RIFT, the mesh client
 
-- **Channel management, rename and the path hash size are host-tested only**
-  (`feat/rift-management`, 2026-10-01). The hashtag key derivation matches
-  upstream's documented vector (`#test`), but no channel joined from RIFT has
-  yet been read by another MeshCore client on air, and no 2- or 3-byte path
-  hash flood from meshcored has crossed a real repeater: older repeater
-  firmware drops floods whose path it cannot read, which RIFT's confirmation
-  says. Gate sheet: `docs/hardware/RIFT_MANAGEMENT_GATE.md` (not run; a no-RF unit B smoke passed).
+- **Channel management, rename and the path hash size have not been tried
+  on air** (`feat/rift-management`; gate run on unit B 2026-10-02 without
+  transmitting). Joins, leaves, the key checks and the path hash setting
+  passed on the unit, and channel hashes matched an independent computation
+  and, for Public, unit A; a live Public message was received and shown. No
+  channel joined from RIFT has been written to by RIFT and read by another
+  client, no rename has reached a peer, and no 2- or 3-byte flood *from
+  meshcored* has been sent. The bench mesh's repeaters do carry other nodes'
+  2- and 3-byte path floods (up to 11 relays, radio log of the gate); older
+  repeater firmware elsewhere may not, which RIFT's confirmation says. Gate
+  sheet: `docs/hardware/RIFT_MANAGEMENT_GATE.md` (steps 7 and 8 open).
 - **No flood scopes, so a channel's scope cannot be set.** meshcored writes
   no transport codes (upstream's per-channel scope is a TODO; the T-Deck
   RIFT's is its own extension). Every channel floods unscoped, and the
