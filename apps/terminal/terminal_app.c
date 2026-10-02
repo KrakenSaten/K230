@@ -1190,8 +1190,16 @@ static void *terminal_create(lv_obj_t *root)
     pos_input_focus(a->grid);
     pos_input_set_raw_target(a->grid);
 
-    a->drawn_cy = -1;
     test_keys_open(a);
+    /* The whole grid is drawn next, cursor included, where the cursor is
+     * now: that is what refresh() must repaint when it moves. Not "nowhere"
+     * (-1): a new session's first frame draws the cursor at the top-left
+     * before the shell writes anything, and output that moves it without
+     * touching row 0 (a login banner, a prompt starting with a new line)
+     * would leave that block behind. */
+    a->drawn_cy = bg.live ? bg.session.screen.cy : -1;
+    a->drawn_cx = bg.live ? bg.session.screen.cx : 0;
+    a->drawn_cursor = bg.live && cursor_shown(a);
     lv_obj_invalidate(a->grid);
     if (bg.live) {
         update_bar(a);

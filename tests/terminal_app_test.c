@@ -107,10 +107,22 @@ static lv_obj_t *app_root;
 static lv_obj_t *app_body;
 static void *app_priv;
 
+/* What is on the glass: every flushed area kept (LV_COLOR_DEPTH 16), so a
+ * test can look at pixels a later partial redraw did or did not repaint. */
+static uint16_t fb[PANEL_W * PANEL_H];
+
 static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px)
 {
-    (void)a;
-    (void)px;
+    int32_t w = lv_display_get_horizontal_resolution(d);
+    int32_t aw = lv_area_get_width(a);
+    const uint16_t *src = (const uint16_t *)px;
+    int32_t y;
+
+    if (a->x1 >= 0 && a->y1 >= 0 && a->x2 < w && (int64_t)(a->y2 + 1) * w <= PANEL_W * PANEL_H) {
+        for (y = a->y1; y <= a->y2; y++) {
+            memcpy(&fb[y * w + a->x1], src + (y - a->y1) * aw, (size_t)aw * sizeof(uint16_t));
+        }
+    }
     lv_display_flush_ready(d);
 }
 
@@ -274,7 +286,8 @@ static void use_display(enum pos_rotation rotation, int32_t reserve)
     pump(20);
 }
 
-static void app_start(void)
+/* The app created, and nothing run after it: no timer tick, no redraw. */
+static void app_create_only(void)
 {
     lv_obj_t *header;
 
@@ -296,6 +309,11 @@ static void app_start(void)
     lv_obj_set_scroll_dir(app_body, LV_DIR_VER);
     lv_obj_update_layout(app_root);
     app_priv = app_terminal.create(app_body);
+}
+
+static void app_start(void)
+{
+    app_create_only();
     pump(20);
 }
 
@@ -916,6 +934,66 @@ static void unsized_start(void)
     check("unsized: no child left", no_child());
 }
 
+/* Pixels of the cursor's colour in a cell of the live screen (the grid's
+ * 4 px inset, GRID_PAD). */
+static int cursor_pixels(int row, int col)
+{
+    uint16_t want = lv_color_to_u16(pos_theme_color(POS_COLOR_ACCENT_PRIMARY));
+    int32_t w = lv_display_get_horizontal_resolution(disp);
+    int32_t cw;
+    int32_t ch;
+    lv_area_t g;
+    int n = 0;
+    int32_t x;
+    int32_t y;
+
+    terminal_app_cell(app_priv, &cw, &ch);
+    lv_obj_get_coords(terminal_app_grid(app_priv), &g);
+    for (y = g.y1 + 4 + row * ch; y < g.y1 + 4 + (row + 1) * ch; y++) {
+        for (x = g.x1 + 4 + col * cw; x < g.x1 + 4 + (col + 1) * cw; x++) {
+            n += fb[y * w + x] == want;
+        }
+    }
+    return n;
+}
+
+/* The first frame of a new session is drawn before the shell has written
+ * anything, with the cursor at the top-left. When the shell's first output
+ * moves the cursor without touching row 0 - a prompt that starts with a new
+ * line, the device's login banner - that cell must be repainted, or a block
+ * of the cursor's colour stays there (seen on unit B, 2026-10-02). */
+static void first_frame(void)
+{
+    const struct term_session *s;
+
+    setenv("PS1", "\nTPROMPT> ", 1);
+    app_create_only();
+    lv_refr_now(NULL);
+    s = sess();
+    check("first frame: a new session, drawn before the shell wrote anything",
+          s && s->screen.cy == 0 && s->screen.cx == 0 && cursor_pixels(0, 0) > 0);
+    wait_for("TPROMPT>", false, 5000);
+    pump(100);
+    lv_refr_now(NULL);
+    printf("note first frame: cursor now at row %d col %d, %d cursor pixels left at row 0 col 0\n",
+           s ? s->screen.cy : -1, s ? s->screen.cx : -1, cursor_pixels(0, 0));
+    {
+        char row0[TERM_MAX_COLS * 3 + 1] = "?";
+
+        if (s) {
+            term_screen_row_text(&s->screen, 0, 0, row0, sizeof(row0));
+        }
+        check("first frame: the prompt moved the cursor off row 0 without writing there",
+              s && s->screen.cy >= 1 && row0[0] == '\0' && shows_("TPROMPT", false));
+    }
+    check("first frame: no cursor block is left at the top-left", cursor_pixels(0, 0) == 0);
+    check("first frame: the cursor is drawn where it is now",
+          s && cursor_pixels(s->screen.cy, s->screen.cx) > 0);
+    app_stop();
+    shell_exit();
+    setenv("PS1", "TPROMPT> ", 1);
+}
+
 /* The modifiers belong to the raw target only: an ordinary field still
  * gets the letter, and Tab still moves focus. */
 static void ordinary_field(void)
@@ -976,6 +1054,7 @@ int main(void)
     persistence();
     churn();
     unsized_start();
+    first_frame();
     ordinary_field();
     check("no child at the end", no_child());
     rmdir(home);
