@@ -2322,6 +2322,13 @@ static void manage_live_session(void)
                                                find_exact(content(), "SITE") != NULL);
     pump(150);
     check("which the panel says", find_text(content(), "Hytta LEFT") != NULL);
+    check("and the path hash size is still drawn as the chosen one after both",
+          lv_color_eq(lv_obj_get_style_bg_color(action_of(find_exact(content(), "1 B")),
+                                                LV_PART_MAIN),
+                      pos_theme_color(POS_COLOR_ACCENT_PRIMARY)) &&
+              !lv_color_eq(lv_obj_get_style_bg_color(action_of(find_exact(content(), "2 B")),
+                                                     LV_PART_MAIN),
+                           pos_theme_color(POS_COLOR_ACCENT_PRIMARY)));
 
     /* Rename. */
     tap(action_of(find_exact(content(), "RENAME")));
@@ -2342,6 +2349,10 @@ static void manage_live_session(void)
                                       app->model.path_hash_bytes == 2);
     pump(150);
     check("and said", find_text(content(), "2 BYTES PER RELAY") != NULL);
+    check("with 2 B the chosen one",
+          lv_color_eq(lv_obj_get_style_bg_color(action_of(find_exact(content(), "2 B")),
+                                                LV_PART_MAIN),
+                      pos_theme_color(POS_COLOR_ACCENT_PRIMARY)));
     tap(action_of(find_exact(content(), "1 B")));
     check("back to 1 byte needs no confirmation", live_until(live_settled, 8000) &&
                                                      app->model.path_hash_bytes == 1);

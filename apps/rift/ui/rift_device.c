@@ -249,8 +249,13 @@ void rift_device_refresh(struct rift_app *app)
 
     for (b = 1; b <= 3; b++) {
         int allowed = m->have_path_hash && (m->path_hash_allowed & (1u << b));
+        int chosen = m->have_path_hash && b == m->path_hash_bytes;
 
-        rift_action_set_enabled(v->bytes_btn[b - 1], 0, can && allowed && !v->bytes_pending);
+        /* Enabling restyles the button; the chosen size comes back accented,
+         * or any channel operation (which disables these while it runs)
+         * left no size looking chosen (unit B, 2026-10-02). */
+        rift_action_set_enabled(v->bytes_btn[b - 1], chosen,
+                                can && allowed && !v->bytes_pending);
     }
     if (m->have_path_hash && m->path_hash_bytes != v->bytes_drawn) {
         for (b = 1; b <= 3; b++) {
