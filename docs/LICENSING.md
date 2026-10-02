@@ -25,6 +25,10 @@ sheets from that time say so and are kept as written.
   `POCKETOS_REDISTRIBUTE` stays `NO` until the readiness audit clears the
   source repository for publication: **choosing the licence did not publish
   anything**, and nothing is published until the owner decides to.
+- The artwork in `docs/design/brand/` is the owner's, made with ChatGPT,
+  and Apache-2.0; the Doors mark, lockups and boot splash are reserved, with
+  permission to redistribute them unmodified as part of Doors
+  (docs/licensing/B1_ARTWORK.md, BRAND.md).
 - Inventory: THIRD_PARTY_LICENSES.md; models: MODEL_LICENSES.md; what still
   blocks a public source release or a public image:
   docs/licensing/APACHE_2_READINESS.md §14.

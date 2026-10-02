@@ -370,10 +370,11 @@ DEVICE VERIFIED unless it says so.
   Treated as documentation only. Ask LILYGO.
 - ~~PocketOS first-party licence undecided.~~ Doors is Apache-2.0 since
   2026-10-01 (ADR-013). Publishing the source or an image is still blocked
-  by material that is not Doors' own or whose ownership is not stated -
-  owner-supplied artwork, design-tool exports, two LILYGO copies, and for
-  the image the model, vendor packages, launcher and firmware
-  (docs/licensing/APACHE_2_READINESS.md §14).
+  by the keyboard tables copied from LILYGO's launcher (deferred until the
+  owner is at a unit), and for the image by the model, vendor packages,
+  launcher and firmware (docs/licensing/APACHE_2_READINESS.md §14). The
+  artwork is resolved: Apache-2.0, with the Doors brand reserved
+  (docs/licensing/BRAND.md).
 
 ## Build environment
 

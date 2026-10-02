@@ -30,14 +30,16 @@ Two archives from the product owner, supplied together on 2026-09-22.
 | What it is | boot, lock, open and a text-only 3 × 3 launcher (direction A) | the selected direction **B** ("Framed spaces"): grouped launcher, system menu, 9 app icons, 17 system icons; carries v1's boot, lock and open forward unchanged |
 | Kept as | `originals/DOORS_Visual_Package_v1/` | `originals/DOORS_B_Production_Package_v2/` |
 | Supplier's notes | `START_HERE.md` (Norwegian), `INTEGRATION.md`, `PROVENANCE.md`, `PROJECT_HANDOFF_PROMPT.md` | `START_HERE.md` (Norwegian), `INTEGRATION.md`, `PROJECT_HANDOFF_PROMPT.md` |
-| Author, copyright, licence | not stated | not stated |
+| Author, licence | the owner, with ChatGPT; Apache-2.0 (owner, 2026-10-02) | the owner, with ChatGPT; Apache-2.0 |
 
 Every file matches its supplier `asset_manifest.json` in bytes, SHA-256 and
 pixel size. The photographic artwork is AI-generated (the supplier's
 `PROVENANCE.md`; the eight masters and `approved_B.png` also carry a C2PA
-content-credentials chunk, `caBX`, that names "OpenAI Media Service"). Like the rest of Doors, the
-packages are the owner's material with no licence granted and not for
-external redistribution (docs/LICENSING.md). The `PROJECT_HANDOFF_PROMPT.md`
+content-credentials chunk, `caBX`, that names "OpenAI Media Service"). The
+owner made both packages with ChatGPT from the owner's own material and
+licenses them under Apache-2.0 (2026-10-02, docs/licensing/B1_ARTWORK.md);
+OpenAI's terms assign the output to the user. Whether copyright subsists in
+AI-generated images is not settled; the licence covers whatever rights exist. The `PROJECT_HANDOFF_PROMPT.md`
 files ask for an implementation; that is **not** done here.
 
 ## Folder layout

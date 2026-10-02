@@ -24,9 +24,9 @@ tests/display_geometry_test.c               MIXED Apache-2.0 AND MIT (LVGL lv_ev
 
 ui/pocketui/pos_keymap.c                    NOT-CLEARED key tables from the LILYGO launcher, which states no licence
 
-ui/pocketui/pos_app_icons.c                 GENERATED from owner-supplied and first-party icon PNGs (gen_app_icons.py)
-ui/pocketui/pos_brand_mark.c                GENERATED from the owner-supplied Threshold mark (gen_brand_mark.py)
-ui/pocketui/pos_glyphs.c                    GENERATED from the owner-supplied B package glyphs and doors-glyphs (gen_doors_ui.py)
+ui/pocketui/pos_app_icons.c                 GENERATED Apache-2.0 by its inputs: the owner's and first-party icon PNGs (gen_app_icons.py)
+ui/pocketui/pos_brand_mark.c                GENERATED from the Doors mark; reserved brand asset, not Apache-2.0 (docs/licensing/BRAND.md)
+ui/pocketui/pos_glyphs.c                    GENERATED Apache-2.0 by its inputs: the owner's B package glyphs and doors-glyphs (gen_doors_ui.py)
 ui/pocketui/pos_glyphs.h                    GENERATED with pos_glyphs.c (gen_doors_ui.py)
 ui/pocketui/pos_theme_table.h               GENERATED from docs/design/themes.json (gen_theme_table.py)
 

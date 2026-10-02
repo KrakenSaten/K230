@@ -178,7 +178,7 @@ check "the repository keeps no copy of a vendor defconfig (B3)" \
 # asset a class; the first rule that matches decides. Paths may hold spaces,
 # so a rule's pattern is everything before its class word.
 INV=docs/licensing/asset-inventory.txt
-CLASSES="ORIGINAL CAPTURE-B1 SUPPLIED-VECTOR SUPPLIED-BRAND AI-RASTER DERIVED-B1 DERIVED-BRAND SUPPLIED-REF DESIGN-EXPORT THIRD-PARTY"
+CLASSES="ORIGINAL OWNER-VECTOR OWNER-AI-RASTER BRAND DERIVED-ART DERIVED-BRAND CAPTURE OWNER-REF DESIGN-EXPORT THIRD-PARTY"
 tr -d '\r' < "$INV" | awk -v cl="$CLASSES" '
     BEGIN { n = split(cl, c, " "); for (i = 1; i <= n; i++) ok[c[i]] = 1 }
     /^[[:space:]]*(#|$)/ { next }
@@ -208,9 +208,28 @@ while IFS='	' read -r pat c; do
     [ "$hit" = 1 ] || unused="$unused [$pat]"
 done < "$TMP/rules"
 check "every inventory rule still matches a tracked file${unused:+ (stale:$unused)}" "$([ -z "$unused" ] && echo 1 || echo 0)"
+# The reserved brand (docs/licensing/BRAND.md): every BRAND or DERIVED-BRAND
+# file, assets and the generated C mark alike, is listed there and carries no
+# Apache-2.0 tag.
+brand_files=$( { awk -F '\t' '$2 == "BRAND" || $2 == "DERIVED-BRAND" {print $1}' "$TMP/classified"
+                 while IFS='	' read -r pat c; do
+                     [ "$c" = BRAND ] || [ "$c" = DERIVED-BRAND ] || continue
+                     while IFS= read -r f; do [[ "$f" == $pat ]] && printf '%s\n' "$f"; done < "$TMP/files"
+                 done < "$TMP/rules"; } | sort -u)
+unlisted=""
+for f in $brand_files; do
+    d=$(dirname "$f")/
+    grep -q -F "\`$f\`" docs/licensing/BRAND.md || grep -q -F "\`$d\`" docs/licensing/BRAND.md || unlisted="$unlisted $f"
+done
+check "every reserved brand file is listed in docs/licensing/BRAND.md${unlisted:+ (not:$unlisted)}" \
+    "$([ -n "$brand_files" ] && [ -z "$unlisted" ] && echo 1 || echo 0)"
+tagged=$(for f in $brand_files; do awk -F '\t' -v f="$f" '$1 == f && $2 ~ /Apache-2\.0/ {print f}' "$TMP/tags"; done)
+check "and none carries an Apache-2.0 SPDX tag${tagged:+ (tagged: $tagged)}" "$([ -z "$tagged" ] && echo 1 || echo 0)"
+check "NOTICE says the brand files are not under Apache-2.0 and points to their terms" \
+    "$(grep -q 'docs/licensing/BRAND.md' NOTICE && grep -q -i 'not licensed under' NOTICE && echo 1 || echo 0)"
 # What is classed as reference, design export or third-party is out of the
-# public-source candidate; the rest of B1 is in it until the owner answers.
-leaked=$(awk -F '\t' '$2 == "SUPPLIED-REF" || $2 == "DESIGN-EXPORT" || $2 == "THIRD-PARTY" {print $1}' "$TMP/classified" |
+# public-source candidate.
+leaked=$(awk -F '\t' '$2 == "OWNER-REF" || $2 == "DESIGN-EXPORT" || $2 == "THIRD-PARTY" {print $1}' "$TMP/classified" |
          grep -x -F -f - "$TMP/candidate" | head -5 | tr '\n' ' ')
 check "reference, design-export and third-party assets are all out of the candidate${leaked:+ (in: $leaked)}" \
     "$([ -z "$leaked" ] && echo 1 || echo 0)"

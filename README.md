@@ -182,6 +182,8 @@ Doors is licensed under the Apache License, Version 2.0: see LICENSE and
 NOTICE. Third-party components keep their own licences
 (THIRD_PARTY_LICENSES.md; the texts the image ships are in
 THIRD_PARTY_NOTICES.txt), and the Vision models are documented separately in
-MODEL_LICENSES.md. Not everything in this repository is Apache-2.0, and the
-repository is not yet cleared for publication:
+MODEL_LICENSES.md. The Doors mark, lockups and boot splash are not
+Apache-2.0: they may be redistributed unmodified as part of Doors
+(docs/licensing/BRAND.md). Not everything in this repository is Apache-2.0,
+and the repository is not yet cleared for publication:
 docs/licensing/APACHE_2_READINESS.md says what remains.

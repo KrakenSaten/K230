@@ -9,7 +9,7 @@
 # Reasons:
 #   B2   design-tool export or supplied design package with no stated terms;
 #        design reference only, nothing builds from it
-#   B1R  reference-only part of an owner-supplied artwork package (mockups,
+#   B1R  reference-only part of the owner's artwork packages (mockups,
 #        supplier references, byte copies of the original archives);
 #        nothing builds from it, and it is not needed to understand the code
 

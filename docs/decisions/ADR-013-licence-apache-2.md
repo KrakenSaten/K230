@@ -55,9 +55,10 @@ options that remained were about how to apply it:
 3. **Not covered by this decision**, each for its own reason and recorded in
    docs/licensing/APACHE_2_READINESS.md: the kernel patches in
    `platforms/k230/patches/linux/` (modifications of GPL-2.0 files, so
-   GPL-2.0); the owner-supplied artwork packages under `docs/design/` and what
-   is generated from them (their author and terms are not stated); generated
-   files whose inputs are third-party (the IBM Plex bitmap fonts, OFL-1.1).
+   GPL-2.0); generated files whose inputs are third-party (the IBM Plex
+   bitmap fonts, OFL-1.1). The artwork under `docs/design/brand/` was made by
+   the owner with ChatGPT and is Apache-2.0 like the code (owner, 2026-10-02,
+   docs/licensing/B1_ARTWORK.md), except the brand assets in decision 5.
 4. **Source headers.** The copyright line stays "Copyright (c) 2026 PocketOS
    authors." (ADR-005 decision 7; who the line names is unchanged by this
    decision). On files that carry that project header, the pointer "License:
@@ -67,7 +68,10 @@ options that remained were about how to apply it:
    get no Apache-2.0 header; the policy is in
    docs/licensing/APACHE_2_READINESS.md §2.
 5. **Names and logos.** The licence grants no trademark rights (Apache-2.0
-   section 6). Nothing here claims a trademark or a registration.
+   section 6). The Doors mark, lockups and boot splash are reserved, not
+   Apache-2.0; anyone may redistribute them unmodified as part of Doors or a
+   work based on it (owner, 2026-10-02; docs/licensing/BRAND.md). Nothing here
+   claims a trademark or a registration.
 6. **Contributions** are accepted under the project's licence (Apache-2.0
    section 5), with a Developer Certificate of Origin sign-off recommended and
    no contributor licence agreement (CONTRIBUTING.md).

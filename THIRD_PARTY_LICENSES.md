@@ -136,7 +136,7 @@ first run, 2026-09-04; open item 3 is to archive it per release).
 | `docs/design/PocketOS Design System.html` | bundled design page embedding React and IBM Plex WOFF2 subsets and a design-tool runtime | React MIT, Plex OFL-1.1; runtime unknown | **UNKNOWN - DO NOT REDISTRIBUTE** (B2); excluded from the public-source candidate |
 | `docs/design/rift/` (`support.js`, `*.dc.html`, shots, `HANDOFF.md`, `README.md`) | design-tool runtime ("GENERATED from dc-runtime"), RIFT design package (C2PA: made with Claude) | none stated | **UNKNOWN - DO NOT REDISTRIBUTE** (B2); excluded from the public-source candidate |
 | `docs/design/Repository connection and design directions.zip` (the identical `apps/fleet/` copy was removed 2026-10-02) | design-canvas export: React, the same runtime, AI-generated (OpenAI) reference images | React MIT; rest none stated | **UNKNOWN - DO NOT REDISTRIBUTE** (B2); excluded from the public-source candidate |
-| `docs/design/brand/doors-threshold/**`, `doors-icon-extension/**`, `doors-visual-pack-v1/**` | owner-supplied artwork packages (part AI-generated, OpenAI C2PA), and the supplier's scripts | **author, copyright and licence not stated** | **UNKNOWN - DO NOT REDISTRIBUTE** (B1; owner to confirm rights: docs/licensing/B1_ARTWORK.md; per-file classes in docs/licensing/asset-inventory.txt) |
+| `docs/design/brand/doors-threshold/**`, `doors-icon-extension/**`, `doors-visual-pack-v1/**` | the owner's artwork packages, made with ChatGPT (part AI-generated) | not third-party: Apache-2.0, except the brand assets, reserved (docs/licensing/BRAND.md) | **RESOLVED** (B1, docs/licensing/B1_ARTWORK.md); per-file classes in docs/licensing/asset-inventory.txt; the reference-only parts stay excluded |
 
 ## 8. Test data
 
